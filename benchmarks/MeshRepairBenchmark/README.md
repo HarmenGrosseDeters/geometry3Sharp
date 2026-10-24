@@ -80,4 +80,25 @@ Each metric is counted before and after the repair:
    - reverse inside-out components that are not cavities
 3. **`MeshAutoRepair.PostRepairCleanup`** (default `false`) runs the cleanup at the end of `Apply()`.
 
-See the results table below.
+## Results with this fork (400 set; large set in the last row)
+| | NuGet 1.0.324 | fork, default | fork, `PostRepairCleanup = true` |
+|---|---|---|---|
+| closed | 398 | 397 | 397 |
+| topologically clean¹ | 144 | 146 | **289** |
+| also no folds / self-intersections | 97 | 97 | **177** |
+| meshes with bowtie vertices | 98 | 101 | 1 |
+| meshes with duplicate triangles | 40 | 20 | 0 |
+| meshes with degenerate triangles | 230 | 230 | 104 |
+| meshes with folds | 257 | 257 | 204 |
+| meshes with inside-out components | 17 | 14 | 3 |
+| clean controls made worse | 0 | 0 | 0 |
+| median / max repair time | 0.31 s / 3.7 s | 0.32 s / 3.9 s | 0.39 s / 4.9 s |
+| large meshes topologically clean | 7/29 | 7/29 | **16/29** |
+
+¹ closed, no bowties, consistently oriented, no duplicate or degenerate triangles, no inside-out components.
+
+Known remaining issues:
+- **Self-intersections are not handled.** They would need a mesh boolean or a voxel remesh.
+- **About 100 meshes keep degenerate triangles** that can be neither collapsed nor flipped without creating new defects.
+- **One mesh that could not be closed (53121.stl) keeps 2 bowtie vertices.**
+- **Results vary slightly between runs (±1–3 defects).** `MeshRepairOrientation` and `MeshNormals` use `gParallel`.
