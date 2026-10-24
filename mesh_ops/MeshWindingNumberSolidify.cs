@@ -119,7 +119,11 @@ namespace gs
             if (ReduceTolerance > 0 && CancelF() == false) {
                 // unweighted plane quadrics: the error is a sum of squared distances to the original planes,
                 // so corners and edges only move if they stay within the tolerance of every adjacent plane
-                Reducer reducer = new Reducer(Result) { AreaWeightedQuadrics = false };
+                // limit how far a collapse may turn a triangle (no folds) and how bad it may make one
+                // (no slivers / degenerate triangles)
+                Reducer reducer = new Reducer(Result) {
+                    AreaWeightedQuadrics = false, EdgeFlipTolerance = Math.Cos(60 * MathUtil.Deg2Rad), MinCollapseTriangleQuality = 0.05
+                };
                 double tol = ReduceTolerance * cellSize;
                 reducer.ReduceToMaxQuadricError(tol * tol);
                 end_phase("reduce");

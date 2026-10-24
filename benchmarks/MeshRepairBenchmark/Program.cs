@@ -139,6 +139,10 @@ class Program
         int res = int.Parse(Environment.GetEnvironmentVariable("BENCH_SOLID_RES") ?? "128");
         var sw = Stopwatch.StartNew();
         var solid = new MeshWindingNumberSolidify(input) { GridResolution = res, Method = method, Adaptive = adaptive };
+        string red = Environment.GetEnvironmentVariable("BENCH_SOLID_REDUCE");
+        if (red != null) solid.ReduceTolerance = double.Parse(red, System.Globalization.CultureInfo.InvariantCulture);
+        string clean = Environment.GetEnvironmentVariable("BENCH_SOLID_CLEANUP");
+        if (clean != null) solid.CleanupResult = clean == "1";
         solid.Compute();
         r["solidify_res"] = res;
         r["solidify_method"] = method.ToString() + (adaptive ? " adaptive" : "");
