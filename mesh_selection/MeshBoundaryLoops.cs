@@ -144,6 +144,145 @@ namespace g3
 		/// </summary>
 		public bool Compute()
         {
+            if (EdgeFilterF == null)
+                return compute_closed_walks();
+            return compute_filtered();
+        }
+
+
+        /// <summary>
+        /// true if a loop had to be walked against the boundary orientation somewhere (inconsistently
+        /// oriented triangles along the boundary). Such loops follow the majority orientation.
+        /// </summary>
+        public bool SawInconsistentOrientation = false;
+
+
+        // Every boundary vertex has an even number of boundary edges (each triangle fan around it ends in
+        // two of them), so without an edge filter the boundary edges always decompose into closed loops.
+        // Walk closed walks, preferring the boundary orientation and the left-turn rule at bowties, but
+        // continuing against the orientation if there is no other way, then split each walk into simple
+        // loops at repeated vertices.
+        bool compute_closed_walks()
+        {
+            Loops = new List<EdgeLoop>();
+            Spans = new List<EdgeSpan>();
+            if (Mesh.CachedIsClosed)
+                return true;
+
+            BitArray used_edge = new BitArray(Mesh.MaxEdgeID);
+            int[] all_e = new int[16];
+            List<int> walkV = new List<int>(), walkE = new List<int>();
+
+            foreach (int eStart in Mesh.BoundaryEdgeIndices()) {
+                if (used_edge[eStart])
+                    continue;
+                walkV.Clear(); walkE.Clear();
+                Index2i ev = Mesh.GetOrientedBoundaryEdgeV(eStart);
+                int startV = ev.a, curV = ev.b, curE = eStart;
+                used_edge[eStart] = true;
+                walkV.Add(startV); walkE.Add(eStart);
+
+                bool stuck = false;
+                while (curV != startV) {
+                    int nbe = Mesh.VtxBoundaryEdges(curV, ref all_e[0], ref all_e[1]);
+                    if (nbe > 2) {
+                        if (nbe > all_e.Length)
+                            all_e = new int[2 * nbe];
+                        nbe = Mesh.VtxAllBoundaryEdges(curV, all_e);
+                    }
+                    int eNext = (nbe > 2) ? find_left_turn_edge(curE, curV, all_e, nbe, used_edge) : -1;
+                    if (eNext == -1) {
+                        // single continuation, or no properly oriented one: prefer oriented, else take any
+                        int anyE = -1;
+                        for (int k = 0; k < nbe && eNext == -1; ++k) {
+                            int e = all_e[k];
+                            if (used_edge[e])
+                                continue;
+                            if (Mesh.GetOrientedBoundaryEdgeV(e).a == curV)
+                                eNext = e;
+                            else if (anyE == -1)
+                                anyE = e;
+                        }
+                        if (eNext == -1)
+                            eNext = anyE;
+                    }
+                    if (eNext == -1) {      // cannot happen for valid meshes (even boundary valence)
+                        stuck = true;
+                        break;
+                    }
+                    used_edge[eNext] = true;
+                    walkV.Add(curV); walkE.Add(eNext);
+                    curV = Mesh.edge_other_v(eNext, curV);
+                    curE = eNext;
+                }
+
+                if (stuck) {
+                    SawOpenSpans = true;
+                    FellBackToSpansOnFailure = true;
+                    if (FailureBehavior == FailureBehaviors.ThrowException || SpanBehavior == SpanBehaviors.ThrowException)
+                        throw new MeshBoundaryLoopsException("MeshBoundaryLoops.Compute: boundary walk got stuck at vertex " + curV) { UnclosedLoop = true };
+                    if (SpanBehavior == SpanBehaviors.Compute)
+                        Spans.Add(EdgeSpan.FromEdges(Mesh, new List<int>(walkE)));
+                    continue;
+                }
+                split_into_simple_loops(walkV, walkE);
+            }
+            return true;
+        }
+
+
+        // walk is v0 -e0-> v1 -e1-> ... -> v0. Cut out a loop whenever a vertex repeats.
+        void split_into_simple_loops(List<int> walkV, List<int> walkE)
+        {
+            int N = walkE.Count;
+            List<int> stackV = new List<int>(), stackE = new List<int>();
+            Dictionary<int, int> stackPos = new Dictionary<int, int>();
+            for (int i = 0; i <= N; ++i) {
+                int v = (i < N) ? walkV[i] : walkV[0];
+                int k;
+                if (stackPos.TryGetValue(v, out k)) {
+                    add_loop(stackV.GetRange(k, stackV.Count - k), stackE.GetRange(k, stackE.Count - k));
+                    for (int j = k; j < stackV.Count; ++j)
+                        stackPos.Remove(stackV[j]);
+                    stackV.RemoveRange(k, stackV.Count - k);
+                    stackE.RemoveRange(k, stackE.Count - k);
+                }
+                if (i < N) {
+                    stackPos[v] = stackV.Count;
+                    stackV.Add(v);
+                    stackE.Add(walkE[i]);
+                }
+            }
+        }
+
+        // loop edge j connects vertices j and j+1. Orient along the majority of its boundary edges.
+        void add_loop(List<int> vertices, List<int> edges)
+        {
+            int N = vertices.Count;
+            int nForward = 0;
+            for (int j = 0; j < N; ++j) {
+                if (Mesh.GetOrientedBoundaryEdgeV(edges[j]).a == vertices[j])
+                    nForward++;
+            }
+            if (nForward != 0 && nForward != N)
+                SawInconsistentOrientation = true;
+            if (2 * nForward < N) {
+                vertices.Reverse();
+                List<int> rev = new List<int>(N);
+                for (int j = 0; j < N; ++j)
+                    rev.Add(Mesh.FindEdge(vertices[j], vertices[(j + 1) % N]));
+                edges = rev;
+            }
+            EdgeLoop loop = new EdgeLoop(Mesh);
+            loop.Vertices = vertices.ToArray();
+            loop.Edges = edges.ToArray();
+            Loops.Add(loop);
+        }
+
+
+        // original algorithm, used with EdgeFilterF (filtered boundaries can have open spans)
+        bool compute_filtered()
+        {
 			// This algorithm assumes that triangles are oriented consistently, 
 			// so closed boundary-loop can be followed by walking edges in-order
 
