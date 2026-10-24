@@ -156,6 +156,20 @@ namespace g3
         /// </summary>
         public bool SawInconsistentOrientation = false;
 
+        /// <summary>
+        /// true if every edge of the loop runs in its boundary orientation (as given by the adjacent
+        /// triangle). Filling a loop that is not consistently oriented can create a non-orientable surface.
+        /// </summary>
+        public bool IsConsistentlyOriented(EdgeLoop loop)
+        {
+            int N = loop.Vertices.Length;
+            for (int j = 0; j < N; ++j) {
+                if (Mesh.GetOrientedBoundaryEdgeV(loop.Edges[j]).a != loop.Vertices[j])
+                    return false;
+            }
+            return true;
+        }
+
 
         // Every boundary vertex has an even number of boundary edges (each triangle fan around it ends in
         // two of them), so without an edge filter the boundary edges always decompose into closed loops.
@@ -164,6 +178,7 @@ namespace g3
         // loops at repeated vertices.
         bool compute_closed_walks()
         {
+            SawInconsistentOrientation = false;
             Loops = new List<EdgeLoop>();
             Spans = new List<EdgeSpan>();
             if (Mesh.CachedIsClosed)

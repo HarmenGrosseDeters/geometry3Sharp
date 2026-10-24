@@ -105,6 +105,17 @@ namespace geometry3Sharp.Tests
             Assert.Equal(1, loops.Count);
             Assert.Equal(4, loops[0].VertexCount);
             Validate(mesh, loops, false);
+            Assert.True(loops.SawInconsistentOrientation);
+            Assert.False(loops.IsConsistentlyOriented(loops[0]));
+        }
+
+        [Fact]
+        public void ConsistentLoops_AreReportedAsOriented()
+        {
+            DMesh3 mesh = GridWithBowtieHoles();
+            var loops = new MeshBoundaryLoops(mesh);
+            Assert.False(loops.SawInconsistentOrientation);
+            Assert.All(loops.Loops, l => Assert.True(loops.IsConsistentlyOriented(l)));
         }
 
         [Theory]

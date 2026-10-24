@@ -196,6 +196,13 @@ namespace gs
                 if (Cancelled()) return false;
 
             /*
+             * The mesh may have been closed early (goto all_done above), which skips disconnect_bowties,
+             * and collapsing tiny edges can create new bowties. Disconnect them before orienting.
+             */
+            disconnect_bowties(out nRemainingBowties);
+                if (Cancelled()) return false;
+
+            /*
              * finally do global orientation
              */
             repair_orientation(true);
@@ -229,6 +236,12 @@ namespace gs
 
 			foreach (var loop in loops) {
                 if (Cancelled()) break;
+                // see fill_any_holes
+                if (loops.IsConsistentlyOriented(loop) == false) {
+                    saw_spans = true;
+                    ++nRemaining;
+                    continue;
+                }
                 bool filled = false;
 				if (loop.VertexCount == 3) {
 					SimpleHoleFiller filler = new SimpleHoleFiller(Mesh, loop);
@@ -257,6 +270,15 @@ namespace gs
 
 			foreach (var loop in loops) {
                 if (Cancelled()) break;
+                // A loop that runs against the boundary orientation somewhere (inconsistently oriented
+                // triangles, usually around a bowtie) is not filled: that can create a non-orientable
+                // surface. Report it like an unresolved span, so bowties get disconnected, and the next
+                // round fills it after the orientation repair.
+                if (loops.IsConsistentlyOriented(loop) == false) {
+                    saw_spans = true;
+                    ++nRemaining;
+                    continue;
+                }
                 bool filled = false;
                 if (HoleFillMode == HoleFillModes.Smoothed && loop.VertexCount > 4)
                     filled = smoothed_fill(loop);
