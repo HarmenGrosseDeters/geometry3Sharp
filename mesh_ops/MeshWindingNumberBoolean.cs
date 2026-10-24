@@ -38,12 +38,24 @@ namespace gs
         /// <summary> accuracy of the fast winding number (DMeshAABBTree3.FWNBeta) </summary>
         public double FastWindingBeta = 1.5;
 
+
+        /// <summary>
+        /// If the result has hidden gaps (gaps narrower than a cell, see DualContouring.HiddenGapF), the cell
+        /// size is halved until they are gone, plus one more level (see WindingContouring.ContourRefined); at
+        /// most this many halvings. Hidden gaps make the surfaces on both sides of the gap intersect. Each level
+        /// roughly quadruples the work (the octree work scales with the surface). Adaptive (octree) mode only.
+        /// </summary>
+        public int MaxRefineLevels = 2;
+
         public Func<bool> CancelF = () => { return false; };
 
         // outputs
         public DMesh3 Result;
         public int NonManifoldTriangles;
         public int WindingEvaluations;
+        /// <summary> hidden gap edges in the final result (0 = none), and the cell size it was computed with </summary>
+        public int HiddenGapEdges;
+        public double UsedCellSize;
         public Dictionary<string, long> PhaseMilliseconds = new Dictionary<string, long>();
 
 
@@ -68,9 +80,11 @@ namespace gs
             WindingContouring wc = new WindingContouring(new DMesh3[] { MeshA, MeshB }, CombineF(Operation), FastWindingBeta) {
                 CancelF = CancelF
             };
-            DMesh3 contour = wc.ContourAdaptive(cellSize);
-            NonManifoldTriangles = wc.NonManifoldTriangles;
+            DMesh3 contour = wc.ContourRefined(ref cellSize, MaxRefineLevels);
             WindingEvaluations = wc.WindingEvaluations;
+            NonManifoldTriangles = wc.NonManifoldTriangles;
+            HiddenGapEdges = wc.HiddenGapEdges;
+            UsedCellSize = cellSize;
             end_phase("contour");
             if (CancelF() || contour == null)
                 return false;

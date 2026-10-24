@@ -24,6 +24,7 @@ namespace gs
         // outputs of ContourAdaptive()
         public int NonManifoldTriangles;
         public int WindingEvaluations;
+        public int HiddenGapEdges;
 
 
         /// <summary>
@@ -85,8 +86,10 @@ namespace gs
             };
             dc.HermiteF = (Vector3d a, Vector3d b, Vector3d p, out Vector3d point, out Vector3d normal) =>
                 Hermite(cellSize, a, b, p, out point, out normal);
+            dc.HiddenGapF = (a, b) => HiddenGap(cellSize, a, b);
             dc.Generate();
             WindingEvaluations = octree.WindingEvaluations;
+            HiddenGapEdges = dc.HiddenGapEdges;
             if (CancelF())
                 return null;
             NonManifoldTriangles = dc.NonManifoldTriangles;
@@ -94,6 +97,33 @@ namespace gs
                 FillSmallHoles(dc.Mesh);
             return dc.Mesh;
         }
+
+        /// <summary>
+        /// ContourAdaptive, refined for hidden gaps: while the result has hidden gap edges, halve the cell
+        /// size and recompute. Once they are gone the gap is only about one cell wide, and the surfaces on
+        /// both sides can still cut through each other (dual contouring needs about two cells across a gap),
+        /// so one more level is added. At most maxLevels halvings; cellSize returns the size used.
+        /// </summary>
+        public DMesh3 ContourRefined(ref double cellSize, int maxLevels)
+        {
+            DMesh3 contour = ContourAdaptive(cellSize);
+            int evaluations = WindingEvaluations;
+            bool hadGaps = false, extraDone = false;
+            for (int level = 0; level < maxLevels && contour != null; ++level) {
+                if (HiddenGapEdges > 0)
+                    hadGaps = true;
+                else if (!hadGaps || extraDone)
+                    break;
+                else
+                    extraDone = true;
+                cellSize *= 0.5;
+                contour = ContourAdaptive(cellSize);
+                evaluations += WindingEvaluations;
+            }
+            WindingEvaluations = evaluations;
+            return contour;
+        }
+
 
         // field gradient fallback for dual contouring where no Hermite data is found
         class FieldImplicit : ImplicitFunction3d
@@ -112,30 +142,8 @@ namespace gs
         public bool Hermite(double cellSize, Vector3d a, Vector3d b, Vector3d p, out Vector3d point, out Vector3d normal)
         {
             point = p; normal = Vector3d.Zero;
-            double len = a.Distance(b);
-            Vector3d dir = (b - a) / len;
-            Vector3d origin = a - 0.01 * cellSize * dir;
-            double maxT = len + 0.02 * cellSize;
-
-            // input surfaces along the edge, from all meshes, sorted along the edge
-            List<Hit> hits = new List<Hit>();
-            for (int mi = 0; mi < Meshes.Length && hits.Count < MaxEdgeHits; ++mi) {
-                Ray3d ray = new Ray3d(origin, dir);
-                double t0 = 0;
-                while (hits.Count < MaxEdgeHits) {
-                    int hit = Spatials[mi].FindNearestHitTriangle(ray, maxT - t0);
-                    if (hit == DMesh3.InvalidID)
-                        break;
-                    IntrRay3Triangle3 intr = MeshQueries.TriangleIntersection(Meshes[mi], hit, ray);
-                    if (intr.Find() == false)
-                        break;
-                    hits.Add(new Hit() { Mesh = mi, Tri = hit, T = t0 + intr.RayParameter });
-                    double advance = intr.RayParameter + 1e-6 * cellSize;
-                    t0 += advance;
-                    ray = new Ray3d(ray.PointAt(advance), dir);
-                }
-            }
-            hits.Sort((x, y) => x.T.CompareTo(y.T));
+            Vector3d origin, dir;
+            List<Hit> hits = collect_hits(cellSize, a, b, 0.01 * cellSize, out origin, out dir);
 
             // With a single surface on the edge, that surface is the boundary. With several, find where the
             // field crosses the iso-value between them and use the transition closest to p.
@@ -180,6 +188,57 @@ namespace gs
             }
             return bestDistSqr < double.MaxValue;
         }
+
+        // input surfaces along the segment a-b (extended by margin at both ends), from all meshes, sorted by T
+        List<Hit> collect_hits(double cellSize, Vector3d a, Vector3d b, double margin, out Vector3d origin, out Vector3d dir)
+        {
+            double len = a.Distance(b);
+            dir = (b - a) / len;
+            origin = a - margin * dir;
+            double maxT = len + 2 * margin;
+            List<Hit> hits = new List<Hit>();
+            for (int mi = 0; mi < Meshes.Length && hits.Count < MaxEdgeHits; ++mi) {
+                Ray3d ray = new Ray3d(origin, dir);
+                double t0 = 0;
+                while (hits.Count < MaxEdgeHits) {
+                    int hit = Spatials[mi].FindNearestHitTriangle(ray, maxT - t0);
+                    if (hit == DMesh3.InvalidID)
+                        break;
+                    IntrRay3Triangle3 intr = MeshQueries.TriangleIntersection(Meshes[mi], hit, ray);
+                    if (intr.Find() == false)
+                        break;
+                    hits.Add(new Hit() { Mesh = mi, Tri = hit, T = t0 + intr.RayParameter });
+                    double advance = intr.RayParameter + 1e-6 * cellSize;
+                    t0 += advance;
+                    ray = new Ray3d(ray.PointAt(advance), dir);
+                }
+            }
+            hits.Sort((x, y) => x.T.CompareTo(y.T));
+            return hits;
+        }
+
+        /// <summary>
+        /// For a grid edge with both ends inside: true if the field drops below the iso-value between two
+        /// roughly parallel input surfaces on the edge, ie the edge crosses a gap the node signs cannot see.
+        /// Surfaces at a steeper angle are the thin outside wedge at a concave crease (eg where two
+        /// overlapping parts meet); dual contouring handles those, and refining would not remove them.
+        /// </summary>
+        public bool HiddenGap(double cellSize, Vector3d a, Vector3d b)
+        {
+            Vector3d origin, dir;
+            List<Hit> hits = collect_hits(cellSize, a, b, 0, out origin, out dir);
+            for (int i = 0; i + 1 < hits.Count; ++i) {
+                if (hits[i + 1].T - hits[i].T < 1e-6 * cellSize)
+                    continue;
+                Vector3d n0 = Meshes[hits[i].Mesh].GetTriNormal(hits[i].Tri), n1 = Meshes[hits[i + 1].Mesh].GetTriNormal(hits[i + 1].Tri);
+                if (Math.Abs(n0.Dot(n1)) < GapParallelCos)
+                    continue;
+                if (Field(origin + 0.5 * (hits[i].T + hits[i + 1].T) * dir) < Iso)
+                    return true;
+            }
+            return false;
+        }
+        const double GapParallelCos = 0.5;     // surfaces within 60 degrees of parallel
 
         struct Hit
         {

@@ -44,6 +44,15 @@ namespace gs
         /// <summary> accuracy of the fast winding number (DMeshAABBTree3.FWNBeta); larger is more exact and slower </summary>
         public double FastWindingBeta = 1.5;
 
+
+        /// <summary>
+        /// If the result has hidden gaps (gaps narrower than a cell, see DualContouring.HiddenGapF), the cell
+        /// size is halved until they are gone, plus one more level (see WindingContouring.ContourRefined); at
+        /// most this many halvings. Hidden gaps make the surfaces on both sides of the gap intersect. Each level
+        /// roughly quadruples the work (the octree work scales with the surface). Adaptive (octree) mode only.
+        /// </summary>
+        public int MaxRefineLevels = 2;
+
         /// <summary> max number of input surfaces considered along one grid edge </summary>
         public int MaxEdgeHits = 8;
 
@@ -63,6 +72,9 @@ namespace gs
         public int NonManifoldTriangles;
         /// <summary> number of winding number evaluations </summary>
         public int WindingEvaluations;
+        /// <summary> hidden gap edges in the final result (0 = none), and the cell size it was computed with </summary>
+        public int HiddenGapEdges;
+        public double UsedCellSize;
         /// <summary> milliseconds per phase of the last Compute(), eg "winding", "contour", "cleanup", "reduce" </summary>
         public Dictionary<string, long> PhaseMilliseconds = new Dictionary<string, long>();
 
@@ -87,17 +99,20 @@ namespace gs
             PhaseMilliseconds.Clear();
             phase_timer.Restart();
             DMesh3 contour;
+            HiddenGapEdges = 0;
             if (Adaptive && Method == Methods.DualContouring) {
                 WindingContouring wc = new WindingContouring(new DMesh3[] { Mesh }, null, FastWindingBeta) {
                     Iso = WindingIso, MaxEdgeHits = MaxEdgeHits, CancelF = CancelF
                 };
-                contour = wc.ContourAdaptive(cellSize);
-                NonManifoldTriangles = wc.NonManifoldTriangles;
+                contour = wc.ContourRefined(ref cellSize, MaxRefineLevels);
                 WindingEvaluations = wc.WindingEvaluations;
+                NonManifoldTriangles = wc.NonManifoldTriangles;
+                HiddenGapEdges = wc.HiddenGapEdges;
                 end_phase("contour");
             } else {
                 contour = compute_grid(cellSize);
             }
+            UsedCellSize = cellSize;
             if (CancelF() || contour == null)
                 return false;
 

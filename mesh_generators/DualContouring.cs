@@ -52,12 +52,21 @@ namespace g3
         /// <summary> sparse mode: field value at grid node (i,j,k). Called once per node. Must be thread-safe if ParallelCompute. </summary>
         public Func<Vector3i, double> NodeValueF = null;
 
+        /// <summary>
+        /// Sparse mode, optional: called for grid edges whose ends are both inside; return true if the surface
+        /// leaves and re-enters along the edge (a gap narrower than a cell, invisible to the node signs).
+        /// The cells there merge both sides of the gap, which can make the surfaces intersect.
+        /// Counted in HiddenGapEdges; refining the grid until there are none avoids this.
+        /// </summary>
+        public Func<Vector3d, Vector3d, bool> HiddenGapF = null;
+
         public bool ParallelCompute = true;
         public Func<bool> CancelF = () => { return false; };
 
         // outputs
         public DMesh3 Mesh;
         public int NonManifoldTriangles;
+        public int HiddenGapEdges;
         public Vector3i CornerDimensions;
 
 
@@ -270,6 +279,7 @@ namespace g3
                 for (int idx = 0; idx < cells.Count; ++idx) eval_corners(idx);
 
             HashSet<long> seen = new HashSet<long>();
+            List<GridEdge> insideEdges = new List<GridEdge>();
             foreach (Vector3i cell in cells) {
                 for (int le = 0; le < 12; ++le) {
                     Index2i ce = cube_edge_corners[le];
@@ -277,9 +287,23 @@ namespace g3
                     int axis = le / 4;
                     if (seen.Add(node_key(a) * 3 + axis) == false)
                         continue;
-                    if (is_inside(node_value(a)) != is_inside(node_value(cell + local_offset(ce.b))))
+                    bool aInside = is_inside(node_value(a));
+                    if (aInside != is_inside(node_value(cell + local_offset(ce.b))))
                         crossings.Add(new GridEdge(a, axis));
+                    else if (aInside && HiddenGapF != null)
+                        insideEdges.Add(new GridEdge(a, axis));
                 }
+            }
+            HiddenGapEdges = 0;
+            if (insideEdges.Count > 0) {
+                Action<int> test_gap = (i) => {
+                    if (HiddenGapF(node_pos(insideEdges[i].Start), node_pos(insideEdges[i].End)))
+                        System.Threading.Interlocked.Increment(ref HiddenGapEdges);
+                };
+                if (ParallelCompute)
+                    gParallel.ForEach(Interval1i.Range(insideEdges.Count), test_gap);
+                else
+                    for (int i = 0; i < insideEdges.Count; ++i) test_gap(i);
             }
             // deterministic order
             crossings.Sort((x, y) => { int c = node_key(x.Start).CompareTo(node_key(y.Start)); return c != 0 ? c : x.Axis.CompareTo(y.Axis); });
