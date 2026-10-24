@@ -46,10 +46,15 @@ class Program
                 MeshTransforms.Translate(mesh, new Vector3d(500000, 5000000, 0));
             r["load_ms"] = sw.ElapsedMilliseconds;
             Stats(mesh, r, "before");
+            // AutoRepair modifies the mesh in place; keep the input for solidify and deviation
+            DMesh3 original = new DMesh3(mesh);
 
             stage = "repair";
             sw.Restart();
             // BENCH_REPAIR: default = MeshAutoRepair, cleanup = MeshAutoRepair with PostRepairCleanup,
+            // interior = cleanup + RemoveMode.Interior (fast winding number),
+            // solidify = winding number grid + marching cubes on the input (BENCH_SOLID_RES cells along the diagonal),
+            // hybrid = cleanup, falls back to solidify if the result is not topologically clean,
             // instr = InstrumentedAutoRepair, records cheap quality metrics after every pipeline step
             string repairMode = Environment.GetEnvironmentVariable("BENCH_REPAIR") ?? "default";
             r["repair_mode"] = repairMode;
@@ -78,19 +83,34 @@ class Program
                 ok = repair.Apply();
                 result = repair.Mesh;
                 r["stages"] = stages;
+            } else if (repairMode == "solidify") {
+                result = Solidify(original, r);
+                ok = true;
             } else {
                 var repair = new MeshAutoRepair(mesh);
                 repair.RepairTolerance *= tolFactor;
                 repair.MinEdgeLengthTol *= tolFactor;
-                repair.PostRepairCleanup = repairMode == "cleanup";
+                repair.PostRepairCleanup = repairMode != "default";
+                if (repairMode == "interior")
+                    repair.RemoveMode = MeshAutoRepair.RemoveModes.Interior;
                 ok = repair.Apply();
                 result = repair.Mesh;
+                if (repairMode == "hybrid") {
+                    double areaEps = 1e-12 * result.CachedBounds.DiagonalLength * result.CachedBounds.DiagonalLength;
+                    bool clean = result.IsClosed() && !MeshIterators.BowtieVertices(result).Any()
+                        && MeshPostRepairCleanup.FindInvertedComponents(result).Count == 0
+                        && !result.TriangleIndices().Any(t => result.GetTriArea(t) < areaEps);
+                    r["hybrid_fallback"] = !clean;
+                    if (!clean)
+                        result = Solidify(original, r);
+                }
             }
             r["repair_ms"] = sw.ElapsedMilliseconds;
             r["apply_returned"] = ok;
 
             stage = "stats_after";
             Stats(result, r, "after");
+            Deviation(original, result, r);
             bool valid = true;
             try { result.CheckValidity(false, FailMode.ReturnOnly); } catch { valid = false; }
             r["after_valid"] = valid;
@@ -107,6 +127,59 @@ class Program
         }
         Emit(r);
         return 0;
+    }
+
+    // winding-number solidify (as Cotangent "Make Solid"): sample the fast winding number of the input on a
+    // grid and extract the 0.5 iso-surface. Always closed and manifold, but resamples the surface.
+    static DMesh3 Solidify(DMesh3 input, System.Collections.Generic.Dictionary<string, object> r)
+    {
+        int res = int.Parse(Environment.GetEnvironmentVariable("BENCH_SOLID_RES") ?? "128");
+        double cellSize = input.CachedBounds.DiagonalLength / res;
+        var sw = Stopwatch.StartNew();
+        var spatial = new DMeshAABBTree3(input, true);
+        var mwn = new MeshWindingNumberGrid(input, spatial, cellSize);
+        mwn.Compute();
+        var iso = new DenseGridTrilinearImplicit(mwn.Grid, mwn.GridOrigin, mwn.CellSize);
+        var mc = new MarchingCubes() {
+            Implicit = iso, IsoValue = 0.5, CubeSize = cellSize,
+            Bounds = iso.Bounds(), RootMode = MarchingCubes.RootfindingModes.Bisection, RootModeSteps = 5
+        };
+        mc.Bounds.Expand(3 * cellSize);
+        mc.Generate();
+        DMesh3 result = mc.Mesh;
+        // marching cubes produces sliver triangles; one pass of the cleanup collapses most of them
+        new MeshPostRepairCleanup(result).Apply();
+        result = new DMesh3(result, true);
+        r["solidify_res"] = res;
+        r["solidify_ms"] = sw.ElapsedMilliseconds;
+        return result;
+    }
+
+    // distance between input and result surfaces (vertex samples, both directions), relative to the bbox diagonal:
+    // dev_* = result vertices to input (added geometry), back_* = input vertices to result (lost geometry)
+    static void Deviation(DMesh3 input, DMesh3 result, System.Collections.Generic.Dictionary<string, object> r)
+    {
+        if (input.TriangleCount == 0 || result.TriangleCount == 0)
+            return;
+        double diag = input.CachedBounds.DiagonalLength;
+        Vector2d fwd = one_sided(result, input), back = one_sided(input, result);
+        r["dev_mean_rel"] = fwd.x / diag; r["dev_max_rel"] = fwd.y / diag;
+        r["back_mean_rel"] = back.x / diag; r["back_max_rel"] = back.y / diag;
+    }
+    static Vector2d one_sided(DMesh3 from, DMesh3 to)
+    {
+        var spatial = new DMeshAABBTree3(to, true);
+        double sum = 0, max = 0;
+        int n = 0;
+        foreach (int vid in from.VertexIndices()) {
+            if (from.GetVtxEdgeCount(vid) == 0) continue;
+            Vector3d v = from.GetVertex(vid);
+            int tid = spatial.FindNearestTriangle(v);
+            if (tid < 0) continue;
+            double d = Math.Sqrt(MeshQueries.TriDistanceSqr(to, tid, v));
+            sum += d; max = Math.Max(max, d); n++;
+        }
+        return new Vector2d(n > 0 ? sum / n : 0, max);
     }
 
     // naive wrapper-style construction: exact-position weld, AppendTriangle, skip failures
