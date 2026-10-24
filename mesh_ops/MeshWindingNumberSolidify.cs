@@ -1,5 +1,8 @@
 ﻿// Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
 using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Diagnostics;
 using g3;
 
 namespace gs
@@ -31,6 +34,13 @@ namespace gs
 
         public double WindingIso = 0.5;
 
+        /// <summary>
+        /// Use an adaptive octree (WindingNumberOctree) to evaluate the winding number only near the
+        /// surface instead of a full grid. Same result, much less work at fine resolutions.
+        /// Dual contouring only (ignored for marching cubes).
+        /// </summary>
+        public bool Adaptive = false;
+
         /// <summary> accuracy of the fast winding number (DMeshAABBTree3.FWNBeta); larger is more exact and slower </summary>
         public double FastWindingBeta = 1.5;
 
@@ -51,8 +61,18 @@ namespace gs
         // outputs
         public DMesh3 Result;
         public int NonManifoldTriangles;
+        /// <summary> number of winding number evaluations </summary>
+        public int WindingEvaluations;
+        /// <summary> milliseconds per phase of the last Compute(), eg "winding", "contour", "cleanup", "reduce" </summary>
+        public Dictionary<string, long> PhaseMilliseconds = new Dictionary<string, long>();
 
         DMesh3 input;
+        Stopwatch phase_timer = new Stopwatch();
+        void end_phase(string name)
+        {
+            PhaseMilliseconds[name] = phase_timer.ElapsedMilliseconds;
+            phase_timer.Restart();
+        }
 
         public MeshWindingNumberSolidify(DMesh3 mesh)
         {
@@ -79,6 +99,41 @@ namespace gs
             spatial.FWNBeta = FastWindingBeta;
             spatial.FastWindingNumber(Vector3d.Zero);   // build the winding number cache once, before parallel use
 
+            PhaseMilliseconds.Clear();
+            phase_timer.Restart();
+            if (Adaptive && Method == Methods.DualContouring) {
+                if (compute_adaptive(spatial, cellSize) == false)
+                    return false;
+            } else {
+                if (compute_grid(spatial, cellSize) == false)
+                    return false;
+            }
+            if (CancelF() || Result == null)
+                return false;
+
+            if (CleanupResult) {
+                MeshPostRepairCleanup cleanup = new MeshPostRepairCleanup(Result);
+                cleanup.Apply();
+                end_phase("cleanup");
+            }
+            if (ReduceTolerance > 0 && CancelF() == false) {
+                // unweighted plane quadrics: the error is a sum of squared distances to the original planes,
+                // so corners and edges only move if they stay within the tolerance of every adjacent plane
+                Reducer reducer = new Reducer(Result) { AreaWeightedQuadrics = false };
+                double tol = ReduceTolerance * cellSize;
+                reducer.ReduceToMaxQuadricError(tol * tol);
+                end_phase("reduce");
+            }
+            Result = new DMesh3(Result, true);
+            return true;
+        }
+
+
+        // Hermite data from the input mesh: preferably where the grid edge hits the input (exact point on
+        // the edge), otherwise the nearest input point to the interpolated crossing. In both cases only
+        // surfaces where the winding number actually changes count, so interior shells are ignored.
+        bool compute_grid(DMeshAABBTree3 spatial, double cellSize)
+        {
             MeshWindingNumberGrid mwn = new MeshWindingNumberGrid(input, spatial, cellSize);
             mwn.WindingIsoValue = (float)WindingIso;
             mwn.UseFastWindingNumber = true;
@@ -86,11 +141,14 @@ namespace gs
             mwn.Compute();
             if (CancelF())
                 return false;
+            end_phase("winding");
 
             DenseGridTrilinearImplicit iso = new DenseGridTrilinearImplicit(mwn.Grid, mwn.GridOrigin, mwn.CellSize);
             iso.Outside = 0;    // default is a large value (meant for distance fields), but winding number 0 = outside
             AxisAlignedBox3d bounds = iso.Bounds();
             bounds.Expand(3 * cellSize);
+
+            WindingEvaluations = mwn.WindingEvaluations;
 
             if (Method == Methods.DualContouring) {
                 DualContouring dc = new DualContouring() {
@@ -103,6 +161,7 @@ namespace gs
                 NonManifoldTriangles = dc.NonManifoldTriangles;
                 if (NonManifoldTriangles > 0)
                     fill_small_holes(Result);
+                end_phase("contour");
             } else {
                 MarchingCubes mc = new MarchingCubes() {
                     Implicit = iso, IsoValue = WindingIso, Bounds = bounds, CubeSize = cellSize,
@@ -113,27 +172,52 @@ namespace gs
                 // MarchingCubes orients for "inside = less than iso" (distance fields), winding number is the opposite
                 Result.ReverseOrientation(false);
                 NonManifoldTriangles = 0;
+                end_phase("contour");
             }
-            if (CancelF() || Result == null)
-                return false;
-
-            if (CleanupResult) {
-                MeshPostRepairCleanup cleanup = new MeshPostRepairCleanup(Result);
-                cleanup.Apply();
-            }
-            if (ReduceTolerance > 0 && CancelF() == false) {
-                Reducer reducer = new Reducer(Result);
-                double tol = ReduceTolerance * cellSize;
-                reducer.ReduceToMaxQuadricError(tol * tol * cellSize * cellSize);
-            }
-            Result = new DMesh3(Result, true);
             return true;
         }
 
 
-        // Hermite data from the input mesh: preferably where the grid edge hits the input (exact point on
-        // the edge), otherwise the nearest input point to the interpolated crossing. In both cases only
-        // surfaces where the winding number actually changes count, so interior shells are ignored.
+        // winding number only near the surface (octree), then sparse dual contouring on its leaf cells
+        bool compute_adaptive(DMeshAABBTree3 spatial, double cellSize)
+        {
+            WindingNumberOctree octree = new WindingNumberOctree(input, spatial) {
+                TargetLeafCellSize = cellSize, WindingIso = WindingIso, CancelF = CancelF
+            };
+            octree.Build();
+            if (CancelF())
+                return false;
+            end_phase("winding");
+
+            DualContouring dc = new DualContouring() {
+                Implicit = new FastWindingImplicit() { Spatial = spatial },
+                IsoValue = WindingIso, CellSize = octree.LeafCellSize, CancelF = CancelF,
+                Bounds = new AxisAlignedBox3d(octree.Origin, octree.Origin + octree.LeafCount * octree.LeafCellSize * Vector3d.One),
+                CandidateCells = octree.SurfaceCells,
+                NodeValueF = octree.NodeValue
+            };
+            dc.HermiteF = (Vector3d a, Vector3d b, Vector3d p, out Vector3d point, out Vector3d normal) =>
+                hermite_from_input(spatial, cellSize, a, b, p, out point, out normal);
+            dc.Generate();
+            if (CancelF())
+                return false;
+            Result = dc.Mesh;
+            NonManifoldTriangles = dc.NonManifoldTriangles;
+            if (NonManifoldTriangles > 0)
+                fill_small_holes(Result);
+            end_phase("contour");
+            WindingEvaluations = octree.WindingEvaluations;
+            return true;
+        }
+
+        // field gradient fallback for dual contouring where no Hermite data is found
+        class FastWindingImplicit : ImplicitFunction3d
+        {
+            public DMeshAABBTree3 Spatial;
+            public double Value(ref Vector3d pt) { return Spatial.FastWindingNumber(pt); }
+        }
+
+
         bool hermite_from_input(DMeshAABBTree3 spatial, double cellSize, Vector3d a, Vector3d b, Vector3d p, out Vector3d point, out Vector3d normal)
         {
             point = p; normal = Vector3d.Zero;
@@ -205,18 +289,66 @@ namespace gs
         // are removed by the cleanup pass.
         static void fill_small_holes(DMesh3 mesh)
         {
-            MeshBoundaryLoops loops;
+            // the holes' borders often run through bowtie vertices, which MeshBoundaryLoops cannot resolve
+            new MeshEditor(mesh).DisconnectAllBowties();
+            MeshBoundaryLoops loops = null;
             try {
                 loops = new MeshBoundaryLoops(mesh, true);
             } catch (Exception) {
-                return;
             }
-            foreach (EdgeLoop loop in loops) {
-                MinimalHoleFill fill = new MinimalHoleFill(mesh, loop);
-                if (fill.Apply() == false)
-                    new SimpleHoleFiller(mesh, loop).Fill();
+            if (loops != null) {
+                foreach (EdgeLoop loop in loops) {
+                    MinimalHoleFill fill = new MinimalHoleFill(mesh, loop);
+                    if (fill.Apply() == false)
+                        new SimpleHoleFiller(mesh, loop).Fill();
+                }
+            }
+            fan_fill_remaining_holes(mesh);
+        }
+
+        // Fallback for holes MeshBoundaryLoops cannot extract (border edges with inconsistent direction):
+        // walk the border edges into loops and fill each with a fan, orienting every fan triangle to match
+        // the triangle on the other side of its border edge.
+        static void fan_fill_remaining_holes(DMesh3 mesh)
+        {
+            HashSet<int> remaining = new HashSet<int>(MeshIterators.BoundaryEdges(mesh));
+            while (remaining.Count > 0) {
+                int start = remaining.First();
+                List<int> loopEdges = new List<int>();
+                int cur = start, vCur = mesh.GetEdgeV(start).b;
+                while (true) {
+                    loopEdges.Add(cur);
+                    remaining.Remove(cur);
+                    int next = -1;
+                    foreach (int eid in mesh.VtxEdgesItr(vCur))
+                        if (remaining.Contains(eid)) { next = eid; break; }
+                    if (next < 0)
+                        break;
+                    Index2i nv = mesh.GetEdgeV(next);
+                    vCur = (nv.a == vCur) ? nv.b : nv.a;
+                    cur = next;
+                }
+                if (loopEdges.Count < 3)
+                    continue;
+                Vector3d center = Vector3d.Zero;
+                foreach (int eid in loopEdges) {
+                    Index2i ev = mesh.GetEdgeV(eid);
+                    center += 0.5 * (mesh.GetVertex(ev.a) + mesh.GetVertex(ev.b));
+                }
+                int c = mesh.AppendVertex(center / loopEdges.Count);
+                foreach (int eid in loopEdges) {
+                    Index2i ev = mesh.GetEdgeV(eid);
+                    Index3i t = mesh.GetTriangle(mesh.GetEdgeT(eid).a);
+                    // the existing triangle traverses the edge a->b or b->a; the new one goes the other way
+                    bool aToB = IndexUtil.find_tri_ordered_edge(ev.a, ev.b, ref t) != DMesh3.InvalidID;
+                    if (aToB)
+                        mesh.AppendTriangle(ev.b, ev.a, c);
+                    else
+                        mesh.AppendTriangle(ev.a, ev.b, c);
+                }
             }
         }
+
 
         bool is_boundary(DMeshAABBTree3 spatial, Vector3d q, Vector3d n, double cellSize)
         {

@@ -13,11 +13,17 @@ namespace g3
     /// Hermite data comes from HermiteF if it is set (eg project the edge crossing onto an input mesh),
     /// otherwise from linear interpolation of the field and its central-difference gradient.
     ///
+    /// Each cell gets one vertex per surface patch (the patches marching cubes would create in it), as in
+    /// manifold dual contouring (Schaefer et al. 2007), so thin walls and gaps do not create non-manifold edges.
+    ///
+    /// Sparse mode: if CandidateCells is set, only those cells (and the cells around their sign-changing
+    /// edges) are contoured, and grid node values come from NodeValueF instead of sampling Implicit on the
+    /// whole grid. Cell (i,j,k) spans Bounds.Min + CellSize * [i,i+1] x [j,j+1] x [k,k+1].
+    ///
     /// Notes:
     ///   - inside is where the field is greater than IsoValue (eg winding number); set InsideIsLess for SDFs
-    ///   - plain DC is not guaranteed to be manifold: cells that the surface passes through more than once
-    ///     get a single vertex, which can create non-manifold edges. Triangles that DMesh3 rejects for this
-    ///     reason are counted in NonManifoldTriangles and left out (the result then has small holes).
+    ///   - quads that would still create a non-manifold edge (an ambiguous face where both cells have a
+    ///     single patch) are left out and counted in NonManifoldTriangles; the result then has small holes
     /// </summary>
     public class DualContouring
     {
@@ -41,6 +47,11 @@ namespace g3
         /// <summary> QEF eigenvalues below this fraction of the largest are ignored (feature sensitivity) </summary>
         public double QEFEigenTolerance = 0.1;
 
+        /// <summary> sparse mode: cells to contour, in grid cell coordinates (see class comment) </summary>
+        public IEnumerable<Vector3i> CandidateCells = null;
+        /// <summary> sparse mode: field value at grid node (i,j,k). Called once per node. Must be thread-safe if ParallelCompute. </summary>
+        public Func<Vector3i, double> NodeValueF = null;
+
         public bool ParallelCompute = true;
         public Func<bool> CancelF = () => { return false; };
 
@@ -52,37 +63,32 @@ namespace g3
 
         public void Generate()
         {
-            Vector3d size = Bounds.Diagonal;
-            int ni = (int)Math.Ceiling(size.x / CellSize) + 1, nj = (int)Math.Ceiling(size.y / CellSize) + 1, nk = (int)Math.Ceiling(size.z / CellSize) + 1;
-            CornerDimensions = new Vector3i(ni, nj, nk);
             origin = Bounds.Min;
-            NI = ni; NJ = nj; NK = nk;
-
-            sample_grid();
+            sparse = (CandidateCells != null);
+            if (sparse) {
+                if (NodeValueF == null)
+                    throw new Exception("DualContouring: sparse mode requires NodeValueF");
+                sparseValues = new System.Collections.Concurrent.ConcurrentDictionary<long, float>();
+            } else {
+                Vector3d size = Bounds.Diagonal;
+                NI = (int)Math.Ceiling(size.x / CellSize) + 1; NJ = (int)Math.Ceiling(size.y / CellSize) + 1; NK = (int)Math.Ceiling(size.z / CellSize) + 1;
+                CornerDimensions = new Vector3i(NI, NJ, NK);
+                sample_grid();
+            }
             if (CancelF()) return;
 
-            // collect sign-changing edges; a crossing edge is (corner index, axis)
-            List<Index2i> crossings = new List<Index2i>();
-            for (int k = 0; k < nk; ++k) {
-                for (int j = 0; j < nj; ++j) {
-                    for (int i = 0; i < ni; ++i) {
-                        int c = corner(i, j, k);
-                        bool inside = is_inside(values[c]);
-                        if (i + 1 < ni && inside != is_inside(values[c + 1])) crossings.Add(new Index2i(c, 0));
-                        if (j + 1 < nj && inside != is_inside(values[c + ni])) crossings.Add(new Index2i(c, 1));
-                        if (k + 1 < nk && inside != is_inside(values[c + ni * nj])) crossings.Add(new Index2i(c, 2));
-                    }
-                }
-            }
+            List<GridEdge> crossings = find_crossings();
+            if (CancelF()) return;
 
             // Hermite data per crossing
             int NC = crossings.Count;
             Vector3d[] hpoints = new Vector3d[NC];
             Vector3d[] hnormals = new Vector3d[NC];
             Action<int> compute_hermite = (ci) => {
-                Index2i e = crossings[ci];
-                Vector3d pa = corner_pos(e.a), pb = corner_pos(e.a + axis_offset(e.b));
-                double fa = values[e.a], fb = values[e.a + axis_offset(e.b)];
+                GridEdge e = crossings[ci];
+                Vector3i nb = e.End;
+                Vector3d pa = node_pos(e.Start), pb = node_pos(nb);
+                double fa = node_value(e.Start), fb = node_value(nb);
                 double t = (Math.Abs(fb - fa) > MathUtil.Epsilon) ? MathUtil.Clamp((IsoValue - fa) / (fb - fa), 0, 1) : 0.5;
                 Vector3d p = Vector3d.Lerp(pa, pb, t);
                 Vector3d hp, hn;
@@ -100,31 +106,35 @@ namespace g3
             if (CancelF()) return;
 
             // gather crossings per cell, by local cube edge (each crossing edge touches 4 cells)
-            Dictionary<int, int[]> cellCrossings = new Dictionary<int, int[]>();
+            Dictionary<long, int[]> cellCrossings = new Dictionary<long, int[]>();
+            Dictionary<long, Vector3i> cellCoords = new Dictionary<long, Vector3i>();
             for (int ci = 0; ci < NC; ++ci) {
-                Index2i e = crossings[ci];
+                GridEdge e = crossings[ci];
                 for (int q = 0; q < 4; ++q) {
-                    int cell = edge_cell(e, q);
-                    if (cell < 0) continue;
+                    Vector3i cell;
+                    if (edge_cell(e, q, out cell) == false) continue;
+                    long key = node_key(cell);
                     int[] l;
-                    if (cellCrossings.TryGetValue(cell, out l) == false) {
+                    if (cellCrossings.TryGetValue(key, out l) == false) {
                         l = new int[] { -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 };
-                        cellCrossings[cell] = l;
+                        cellCrossings[key] = l;
+                        cellCoords[key] = cell;
                     }
-                    l[edge_local_index(e.b, q)] = ci;
+                    l[edge_local_index(e.Axis, q)] = ci;
                 }
             }
 
             // vertices: one per surface patch in each cell (manifold dual contouring). The patches are the
             // ones marching cubes would create in the cell; each gets its own QEF vertex, so thin walls
             // and gaps inside a cell do not collapse into one vertex and create non-manifold edges.
-            int[] cellList = new int[cellCrossings.Count];
+            long[] cellList = new long[cellCrossings.Count];
             cellCrossings.Keys.CopyTo(cellList, 0);
+            Array.Sort(cellList);       // deterministic vertex order
             int[][] cellEdgeGroup = new int[cellList.Length][];
             Vector3d[][] cellGroupPos = new Vector3d[cellList.Length][];
             Action<int> place_vertices = (idx) => {
-                int cell = cellList[idx];
-                int[] edgeCrossing = cellCrossings[cell];
+                Vector3i cell = cellCoords[cellList[idx]];
+                int[] edgeCrossing = cellCrossings[cellList[idx]];
                 int[] groups;
                 int nGroups = cell_patches(cell, edgeCrossing, out groups);
                 Vector3d[] pos = new Vector3d[nGroups];
@@ -146,7 +156,7 @@ namespace g3
             if (CancelF()) return;
 
             Mesh = new DMesh3();
-            Dictionary<int, int[]> cellEdgeVertex = new Dictionary<int, int[]>(cellList.Length);
+            Dictionary<long, int[]> cellEdgeVertex = new Dictionary<long, int[]>(cellList.Length);
             for (int idx = 0; idx < cellList.Length; ++idx) {
                 int[] groupVertex = new int[cellGroupPos[idx].Length];
                 for (int g = 0; g < groupVertex.Length; ++g)
@@ -161,19 +171,19 @@ namespace g3
             NonManifoldTriangles = 0;
             int[] quad = new int[4];
             for (int ci = 0; ci < NC; ++ci) {
-                Index2i e = crossings[ci];
+                GridEdge e = crossings[ci];
                 bool valid = true;
                 for (int q = 0; q < 4 && valid; ++q) {
-                    int cell = edge_cell(e, q);
-                    if (cell < 0) { valid = false; break; }
-                    quad[q] = cellEdgeVertex[cell][edge_local_index(e.b, q)];
+                    Vector3i cell;
+                    if (edge_cell(e, q, out cell) == false) { valid = false; break; }
+                    quad[q] = cellEdgeVertex[node_key(cell)][edge_local_index(e.Axis, q)];
                 }
                 if (valid == false)
                     continue;
                 int v0 = quad[0], v1 = quad[1], v2 = quad[2], v3 = quad[3];
                 // cells are ordered counter-clockwise around the +axis direction. The quad normal must point
                 // from inside to outside, ie along +axis if the edge start corner is inside.
-                if (is_inside(values[e.a]) == false) {
+                if (is_inside(node_value(e.Start)) == false) {
                     int tmp = v1; v1 = v3; v3 = tmp;
                 }
                 append_quad(v0, v1, v2, v3);
@@ -185,38 +195,113 @@ namespace g3
         }
 
 
+        // grid edge from node Start along +Axis
+        struct GridEdge
+        {
+            public Vector3i Start;
+            public int Axis;
+            public GridEdge(Vector3i start, int axis) { Start = start; Axis = axis; }
+            public Vector3i End { get { Vector3i e = Start; e[Axis] += 1; return e; } }
+        }
+
         Vector3d origin;
         int NI, NJ, NK;
         float[] values;
+        bool sparse;
+        System.Collections.Concurrent.ConcurrentDictionary<long, float> sparseValues;
 
-        int corner(int i, int j, int k) { return i + NI * (j + NJ * k); }
-        Vector3i corner_ijk(int c) { return new Vector3i(c % NI, (c / NI) % NJ, c / (NI * NJ)); }
-        Vector3d corner_pos(int c) {
-            Vector3i ijk = corner_ijk(c);
-            return origin + CellSize * new Vector3d(ijk.x, ijk.y, ijk.z);
+        // node keys support coordinates in [-2^20, 2^20)
+        const int KeyBias = 1 << 20;
+        static long node_key(Vector3i n) {
+            return (long)(n.x + KeyBias) | ((long)(n.y + KeyBias) << 21) | ((long)(n.z + KeyBias) << 42);
         }
-        int axis_offset(int axis) { return axis == 0 ? 1 : (axis == 1 ? NI : NI * NJ); }
+
+        Vector3d node_pos(Vector3i n) { return origin + CellSize * new Vector3d(n.x, n.y, n.z); }
         bool is_inside(double f) { return InsideIsLess ? f < IsoValue : f > IsoValue; }
 
-        // cell index = index of its min corner; -1 if the cell does not exist
-        int cell_index(int i, int j, int k) {
-            if (i < 0 || j < 0 || k < 0 || i >= NI - 1 || j >= NJ - 1 || k >= NK - 1)
-                return -1;
-            return corner(i, j, k);
+        double node_value(Vector3i n)
+        {
+            if (sparse == false)
+                return values[n.x + NI * (n.y + NJ * n.z)];
+            long key = node_key(n);
+            float value;
+            if (sparseValues.TryGetValue(key, out value) == false) {
+                value = (float)MathUtil.Clamp(NodeValueF(n), -float.MaxValue / 2, float.MaxValue / 2);
+                sparseValues[key] = value;
+            }
+            return value;
         }
+
+        // does cell (i,j,k) exist: dense mode inside the grid, sparse mode always
+        bool cell_exists(Vector3i c) {
+            if (sparse)
+                return true;
+            return c.x >= 0 && c.y >= 0 && c.z >= 0 && c.x < NI - 1 && c.y < NJ - 1 && c.z < NK - 1;
+        }
+
+
+        List<GridEdge> find_crossings()
+        {
+            List<GridEdge> crossings = new List<GridEdge>();
+            if (sparse == false) {
+                for (int k = 0; k < NK; ++k) {
+                    for (int j = 0; j < NJ; ++j) {
+                        for (int i = 0; i < NI; ++i) {
+                            int c = i + NI * (j + NJ * k);
+                            bool inside = is_inside(values[c]);
+                            if (i + 1 < NI && inside != is_inside(values[c + 1])) crossings.Add(new GridEdge(new Vector3i(i, j, k), 0));
+                            if (j + 1 < NJ && inside != is_inside(values[c + NI])) crossings.Add(new GridEdge(new Vector3i(i, j, k), 1));
+                            if (k + 1 < NK && inside != is_inside(values[c + NI * NJ])) crossings.Add(new GridEdge(new Vector3i(i, j, k), 2));
+                        }
+                    }
+                }
+                return crossings;
+            }
+
+            // sparse: the 12 edges of each candidate cell. Evaluate the cell corners in parallel first.
+            List<Vector3i> cells = new List<Vector3i>(CandidateCells);
+            Action<int> eval_corners = (idx) => {
+                for (int lc = 0; lc < 8; ++lc)
+                    node_value(cells[idx] + new Vector3i(lc & 1, (lc >> 1) & 1, (lc >> 2) & 1));
+            };
+            if (ParallelCompute)
+                gParallel.ForEach(Interval1i.Range(cells.Count), eval_corners);
+            else
+                for (int idx = 0; idx < cells.Count; ++idx) eval_corners(idx);
+
+            HashSet<long> seen = new HashSet<long>();
+            foreach (Vector3i cell in cells) {
+                for (int le = 0; le < 12; ++le) {
+                    Index2i ce = cube_edge_corners[le];
+                    Vector3i a = cell + local_offset(ce.a);
+                    int axis = le / 4;
+                    if (seen.Add(node_key(a) * 3 + axis) == false)
+                        continue;
+                    if (is_inside(node_value(a)) != is_inside(node_value(cell + local_offset(ce.b))))
+                        crossings.Add(new GridEdge(a, axis));
+                }
+            }
+            // deterministic order
+            crossings.Sort((x, y) => { int c = node_key(x.Start).CompareTo(node_key(y.Start)); return c != 0 ? c : x.Axis.CompareTo(y.Axis); });
+            return crossings;
+        }
+
 
         // the 4 cells around a grid edge, counter-clockwise around the +axis direction (q = 0..3)
         static readonly int[] edge_du = { -1, 0, 0, -1 }, edge_dv = { -1, -1, 0, 0 };
-        int edge_cell(Index2i e, int q) {
-            Vector3i c = corner_ijk(e.a);
-            int axis = e.b, u = (axis + 1) % 3, v = (axis + 2) % 3;
-            c[u] += edge_du[q]; c[v] += edge_dv[q];
-            return cell_index(c.x, c.y, c.z);
+        bool edge_cell(GridEdge e, int q, out Vector3i cell) {
+            cell = e.Start;
+            int u = (e.Axis + 1) % 3, v = (e.Axis + 2) % 3;
+            cell[u] += edge_du[q]; cell[v] += edge_dv[q];
+            return cell_exists(cell);
         }
         // index (0..11) of the grid edge inside the q'th cell around it: axis*4 + lu + 2*lv, where (lu,lv)
         // are the edge's local coordinates along the other two axes (u = axis+1, v = axis+2)
         static int edge_local_index(int axis, int q) {
             return axis * 4 + (-edge_du[q]) + 2 * (-edge_dv[q]);
+        }
+        static Vector3i local_offset(int lc) {
+            return new Vector3i(lc & 1, (lc >> 1) & 1, (lc >> 2) & 1);
         }
 
         // local cube corners are numbered x + 2y + 4z
@@ -250,13 +335,12 @@ namespace g3
         // is the standard face rule and only depends on the face, so neighbouring cells agree. A patch is
         // a pair (inside component, outside component). Returns the patch count; groups[le] is the patch of
         // local edge le, or -1 if it has no crossing.
-        int cell_patches(int cell, int[] edgeCrossing, out int[] groups)
+        int cell_patches(Vector3i cell, int[] edgeCrossing, out int[] groups)
         {
-            Vector3i c0 = corner_ijk(cell);
             bool[] inside = new bool[8];
             int[] parent = new int[8];
             for (int lc = 0; lc < 8; ++lc) {
-                inside[lc] = is_inside(values[corner(c0.x + (lc & 1), c0.y + ((lc >> 1) & 1), c0.z + ((lc >> 2) & 1))]);
+                inside[lc] = is_inside(node_value(cell + local_offset(lc)));
                 parent[lc] = lc;
             }
             for (int le = 0; le < 12; ++le) {
@@ -309,7 +393,7 @@ namespace g3
                         Vector3d pos = origin + CellSize * new Vector3d(i, j, k);
                         double f = Implicit.Value(ref pos);
                         // keep values finite, a float overflow would turn edge interpolation into NaN
-                        values[corner(i, j, k)] = (float)MathUtil.Clamp(f, -float.MaxValue / 2, float.MaxValue / 2);
+                        values[i + NI * (j + NJ * k)] = (float)MathUtil.Clamp(f, -float.MaxValue / 2, float.MaxValue / 2);
                     }
                 }
             };
@@ -335,7 +419,7 @@ namespace g3
 
         // minimize sum_i (n_i . (x - p_i))^2 around the mass point, with truncated pseudo-inverse,
         // and keep the result inside the cell
-        Vector3d solve_qef(int cell, List<int> edges, Vector3d[] points, Vector3d[] normals)
+        Vector3d solve_qef(Vector3i cell, List<int> edges, Vector3d[] points, Vector3d[] normals)
         {
             Vector3d mass = Vector3d.Zero;
             foreach (int ci in edges)
@@ -368,7 +452,7 @@ namespace g3
             Vector3d result = mass + x;
 
             // clamp to the cell, otherwise faces can fold over
-            Vector3d cmin = corner_pos(cell), cmax = cmin + CellSize * Vector3d.One;
+            Vector3d cmin = node_pos(cell), cmax = cmin + CellSize * Vector3d.One;
             for (int c = 0; c < 3; ++c)
                 result[c] = MathUtil.Clamp(result[c], cmin[c], cmax[c]);
             return result;

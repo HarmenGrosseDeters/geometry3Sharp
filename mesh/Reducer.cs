@@ -23,6 +23,13 @@ namespace g3
 		// (Also results in more invalid collapses, not sure why though...)
 		public bool MinimizeQuadricPositionError = true;
 
+        /// <summary>
+        /// Weight each triangle's plane quadric by its area (default). If false, every plane counts once,
+        /// so errors are sums of squared distances to the original planes; small triangles at sharp
+        /// corners then keep their full influence (useful with ReduceToMaxQuadricError).
+        /// </summary>
+        public bool AreaWeightedQuadrics = true;
+
         // if true, we try to keep boundary vertices on boundary. You probably want this.
         public bool PreserveBoundaryShape = true;
 
@@ -154,7 +161,8 @@ namespace g3
 
         /// <summary>
         /// Collapse edges in order of increasing quadric error until the cheapest remaining collapse
-        /// has an error above maxError. Errors are area-weighted squared distances (units length^4).
+        /// has an error above maxError. Errors are area-weighted squared distances (units length^4), or
+        /// plain sums of squared distances to the original triangle planes if AreaWeightedQuadrics is false.
         /// </summary>
         public virtual void ReduceToMaxQuadricError(double maxError)
         {
@@ -284,7 +292,7 @@ namespace g3
                     vertQuadrics[vid] = QuadricError.Zero;
                     if (mesh.IsVertex(vid)) {
                         foreach (int tid in mesh.VtxTrianglesItr(vid)) {
-                            vertQuadrics[vid].Add(triAreas[tid], ref triQuadrics[tid]);
+                            vertQuadrics[vid].Add(AreaWeightedQuadrics ? triAreas[tid] : 1.0, ref triQuadrics[tid]);
                         }
                         //Util.gDevAssert(MathUtil.EpsilonEqual(0, vertQuadrics[i].Evaluate(mesh.GetVertex(i)), MathUtil.Epsilon * 10));
                     }

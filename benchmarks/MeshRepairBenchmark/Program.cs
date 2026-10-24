@@ -53,8 +53,9 @@ class Program
             sw.Restart();
             // BENCH_REPAIR: default = MeshAutoRepair, cleanup = MeshAutoRepair with PostRepairCleanup,
             // smoothfill = cleanup + HoleFillMode.Smoothed, interior = cleanup + RemoveMode.Interior (fast winding number),
-            // solidify_dc / solidify_mc = MeshWindingNumberSolidify (dual contouring / marching cubes) on the input,
-            // hybrid = smoothfill, falls back to solidify_dc if the result is not topologically clean,
+            // solidify_dc / solidify_dc_adaptive / solidify_mc = MeshWindingNumberSolidify (dual contouring on a grid /
+            // on an adaptive octree / marching cubes) on the input,
+            // hybrid = cleanup; if the result is not topologically clean, solidify_dc_adaptive of the repaired mesh,
             // instr = InstrumentedAutoRepair, records cheap quality metrics after every pipeline step
             string repairMode = Environment.GetEnvironmentVariable("BENCH_REPAIR") ?? "default";
             r["repair_mode"] = repairMode;
@@ -83,9 +84,9 @@ class Program
                 ok = repair.Apply();
                 result = repair.Mesh;
                 r["stages"] = stages;
-            } else if (repairMode == "solidify_dc" || repairMode == "solidify_mc") {
-                result = Solidify(original, repairMode == "solidify_dc" ? MeshWindingNumberSolidify.Methods.DualContouring
-                    : MeshWindingNumberSolidify.Methods.MarchingCubes, r);
+            } else if (repairMode.StartsWith("solidify_")) {
+                result = Solidify(original, repairMode == "solidify_mc" ? MeshWindingNumberSolidify.Methods.MarchingCubes
+                    : MeshWindingNumberSolidify.Methods.DualContouring, repairMode == "solidify_dc_adaptive", r);
                 ok = true;
             } else {
                 var repair = new MeshAutoRepair(mesh);
@@ -94,7 +95,7 @@ class Program
                 repair.PostRepairCleanup = repairMode != "default";
                 if (repairMode == "interior")
                     repair.RemoveMode = MeshAutoRepair.RemoveModes.Interior;
-                if (repairMode == "smoothfill" || repairMode == "hybrid")
+                if (repairMode == "smoothfill")
                     repair.HoleFillMode = MeshAutoRepair.HoleFillModes.Smoothed;
                 ok = repair.Apply();
                 result = repair.Mesh;
@@ -105,7 +106,7 @@ class Program
                         && !result.TriangleIndices().Any(t => result.GetTriArea(t) < areaEps);
                     r["hybrid_fallback"] = !clean;
                     if (!clean)
-                        result = Solidify(original, MeshWindingNumberSolidify.Methods.DualContouring, r);
+                        result = Solidify(result, MeshWindingNumberSolidify.Methods.DualContouring, true, r);
                 }
             }
             r["repair_ms"] = sw.ElapsedMilliseconds;
@@ -133,14 +134,16 @@ class Program
     }
 
     // winding number solidify of the input (library class), BENCH_SOLID_RES cells along the diagonal
-    static DMesh3 Solidify(DMesh3 input, MeshWindingNumberSolidify.Methods method, System.Collections.Generic.Dictionary<string, object> r)
+    static DMesh3 Solidify(DMesh3 input, MeshWindingNumberSolidify.Methods method, bool adaptive, System.Collections.Generic.Dictionary<string, object> r)
     {
         int res = int.Parse(Environment.GetEnvironmentVariable("BENCH_SOLID_RES") ?? "128");
         var sw = Stopwatch.StartNew();
-        var solid = new MeshWindingNumberSolidify(input) { GridResolution = res, Method = method };
+        var solid = new MeshWindingNumberSolidify(input) { GridResolution = res, Method = method, Adaptive = adaptive };
         solid.Compute();
         r["solidify_res"] = res;
-        r["solidify_method"] = method.ToString();
+        r["solidify_method"] = method.ToString() + (adaptive ? " adaptive" : "");
+        r["solidify_evaluations"] = solid.WindingEvaluations;
+        r["solidify_phases"] = solid.PhaseMilliseconds;
         r["solidify_nonmanifold_tris"] = solid.NonManifoldTriangles;
         r["solidify_ms"] = sw.ElapsedMilliseconds;
         return solid.Result ?? new DMesh3();

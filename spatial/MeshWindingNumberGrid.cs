@@ -62,8 +62,13 @@ namespace gs
         /// </summary>
         public bool UseFastWindingNumber = false;
 
+        /// <summary> number of winding number evaluations in the last Compute() </summary>
+        public int WindingEvaluations { get { return winding_evaluations; } }
+        int winding_evaluations = 0;
+
         double winding_number(Vector3d p)
         {
+            System.Threading.Interlocked.Increment(ref winding_evaluations);
             return UseFastWindingNumber ? MeshSpatial.FastWindingNumber(p) : MeshSpatial.WindingNumber(p);
         }
 
@@ -85,6 +90,7 @@ namespace gs
 
         public void Compute()
         {
+            winding_evaluations = 0;
             // figure out origin & dimensions
             AxisAlignedBox3d bounds = Mesh.CachedBounds;
 
