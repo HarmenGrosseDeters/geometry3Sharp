@@ -196,6 +196,8 @@ class Program
         r["solidify_evaluations"] = solid.WindingEvaluations;
         r["solidify_phases"] = solid.PhaseMilliseconds;
         r["solidify_nonmanifold_tris"] = solid.NonManifoldTriangles;
+        r["solidify_hidden_gap_edges"] = solid.HiddenGapEdges;
+        r["solidify_used_cell_size"] = solid.UsedCellSize;
         r["solidify_ms"] = sw.ElapsedMilliseconds;
         return solid.Result ?? new DMesh3();
     }
