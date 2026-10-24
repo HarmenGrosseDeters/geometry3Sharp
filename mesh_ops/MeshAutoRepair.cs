@@ -33,6 +33,13 @@ namespace gs
 		};
 		public RemoveModes RemoveMode = MeshAutoRepair.RemoveModes.None;
 
+        /// <summary>
+        /// If true, run MeshPostRepairCleanup at the end of Apply(). Removes duplicate triangles and
+        /// bowties that the pipeline leaves behind, and fixes many of the degenerate triangles, folds
+        /// and inside-out components it introduces (mostly during hole filling).
+        /// </summary>
+        public bool PostRepairCleanup = false;
+
 
 
 
@@ -184,6 +191,12 @@ namespace gs
              * finally do global orientation
              */
             repair_orientation(true);
+                if (Cancelled()) return false;
+
+            if (PostRepairCleanup) {
+                MeshPostRepairCleanup cleanup = new MeshPostRepairCleanup(Mesh);
+                cleanup.Apply();
+            }
                 if (Cancelled()) return false;
 
             if (do_checks) Mesh.CheckValidity();

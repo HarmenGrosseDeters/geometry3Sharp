@@ -1,3 +1,17 @@
+# About this fork
+
+This fork tracks gradientspace/geometry3Sharp `master`, whose code is the same as NuGet package 1.0.324.
+It adds mesh repair fixes:
+- `MeshEditor.DisconnectBowtie` no longer cuts cracks into the mesh. The old version was order-dependent.
+- New `gs.MeshPostRepairCleanup`, and `MeshAutoRepair.PostRepairCleanup = true` to run it after `Apply()`.
+  It removes duplicate triangles and bowties and fixes most degenerate triangles, folds and
+  inside-out components left by AutoRepair.
+- Unit tests in `tests/geometry3Sharp.Tests` (`dotnet test tests/geometry3Sharp.Tests`).
+- Benchmark on Thingi10K in `benchmarks/MeshRepairBenchmark`, with results and findings in its README.
+
+Reference `geometry3Sharp_netstandard.csproj` (netstandard2.0 / net45). The old `geometry3Sharp.csproj` is outdated
+and does not contain the `gs` mesh_ops classes such as `MeshAutoRepair`.
+
 # A Short Note about the future of geometry3Sharp (updated Jan 2026)
 
 geometry3Sharp development was on hiatus for many years, however we have started working on major update for modern C#/dotnet (currently targeting .NET SDK 8.0), in the [dotnet8 branch](https://github.com/gradientspace/geometry3Sharp/tree/dotnet8). This branch already has some nice feature additions like GLTF and partial USD support, and much more to come. There are also substantial breaking changes, like removing many of the "float" (ie 2f/3f) versions of geometric types and computation classes. See the Changes.md file in the branch for more info. Many of these changes are being made in support of our new Gradientspace Graph project (http://gradientspace.com/gsgraph). 

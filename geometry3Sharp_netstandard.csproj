@@ -27,6 +27,8 @@
 
   <ItemGroup>
     <Compile Remove="Properties\AssemblyInfo.cs" />
+    <Compile Remove="tests\**" />
+    <Compile Remove="benchmarks\**" />
   </ItemGroup>
 
   <ItemGroup>
