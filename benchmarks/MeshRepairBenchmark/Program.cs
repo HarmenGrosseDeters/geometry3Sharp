@@ -52,9 +52,9 @@ class Program
             stage = "repair";
             sw.Restart();
             // BENCH_REPAIR: default = MeshAutoRepair, cleanup = MeshAutoRepair with PostRepairCleanup,
-            // interior = cleanup + RemoveMode.Interior (fast winding number),
-            // solidify = winding number grid + marching cubes on the input (BENCH_SOLID_RES cells along the diagonal),
-            // hybrid = cleanup, falls back to solidify if the result is not topologically clean,
+            // smoothfill = cleanup + HoleFillMode.Smoothed, interior = cleanup + RemoveMode.Interior (fast winding number),
+            // solidify_dc / solidify_mc = MeshWindingNumberSolidify (dual contouring / marching cubes) on the input,
+            // hybrid = smoothfill, falls back to solidify_dc if the result is not topologically clean,
             // instr = InstrumentedAutoRepair, records cheap quality metrics after every pipeline step
             string repairMode = Environment.GetEnvironmentVariable("BENCH_REPAIR") ?? "default";
             r["repair_mode"] = repairMode;
@@ -83,8 +83,9 @@ class Program
                 ok = repair.Apply();
                 result = repair.Mesh;
                 r["stages"] = stages;
-            } else if (repairMode == "solidify") {
-                result = Solidify(original, r);
+            } else if (repairMode == "solidify_dc" || repairMode == "solidify_mc") {
+                result = Solidify(original, repairMode == "solidify_dc" ? MeshWindingNumberSolidify.Methods.DualContouring
+                    : MeshWindingNumberSolidify.Methods.MarchingCubes, r);
                 ok = true;
             } else {
                 var repair = new MeshAutoRepair(mesh);
@@ -93,6 +94,8 @@ class Program
                 repair.PostRepairCleanup = repairMode != "default";
                 if (repairMode == "interior")
                     repair.RemoveMode = MeshAutoRepair.RemoveModes.Interior;
+                if (repairMode == "smoothfill" || repairMode == "hybrid")
+                    repair.HoleFillMode = MeshAutoRepair.HoleFillModes.Smoothed;
                 ok = repair.Apply();
                 result = repair.Mesh;
                 if (repairMode == "hybrid") {
@@ -102,7 +105,7 @@ class Program
                         && !result.TriangleIndices().Any(t => result.GetTriArea(t) < areaEps);
                     r["hybrid_fallback"] = !clean;
                     if (!clean)
-                        result = Solidify(original, r);
+                        result = Solidify(original, MeshWindingNumberSolidify.Methods.DualContouring, r);
                 }
             }
             r["repair_ms"] = sw.ElapsedMilliseconds;
@@ -129,30 +132,18 @@ class Program
         return 0;
     }
 
-    // winding-number solidify (as Cotangent "Make Solid"): sample the fast winding number of the input on a
-    // grid and extract the 0.5 iso-surface. Always closed and manifold, but resamples the surface.
-    static DMesh3 Solidify(DMesh3 input, System.Collections.Generic.Dictionary<string, object> r)
+    // winding number solidify of the input (library class), BENCH_SOLID_RES cells along the diagonal
+    static DMesh3 Solidify(DMesh3 input, MeshWindingNumberSolidify.Methods method, System.Collections.Generic.Dictionary<string, object> r)
     {
         int res = int.Parse(Environment.GetEnvironmentVariable("BENCH_SOLID_RES") ?? "128");
-        double cellSize = input.CachedBounds.DiagonalLength / res;
         var sw = Stopwatch.StartNew();
-        var spatial = new DMeshAABBTree3(input, true);
-        var mwn = new MeshWindingNumberGrid(input, spatial, cellSize);
-        mwn.Compute();
-        var iso = new DenseGridTrilinearImplicit(mwn.Grid, mwn.GridOrigin, mwn.CellSize);
-        var mc = new MarchingCubes() {
-            Implicit = iso, IsoValue = 0.5, CubeSize = cellSize,
-            Bounds = iso.Bounds(), RootMode = MarchingCubes.RootfindingModes.Bisection, RootModeSteps = 5
-        };
-        mc.Bounds.Expand(3 * cellSize);
-        mc.Generate();
-        DMesh3 result = mc.Mesh;
-        // marching cubes produces sliver triangles; one pass of the cleanup collapses most of them
-        new MeshPostRepairCleanup(result).Apply();
-        result = new DMesh3(result, true);
+        var solid = new MeshWindingNumberSolidify(input) { GridResolution = res, Method = method };
+        solid.Compute();
         r["solidify_res"] = res;
+        r["solidify_method"] = method.ToString();
+        r["solidify_nonmanifold_tris"] = solid.NonManifoldTriangles;
         r["solidify_ms"] = sw.ElapsedMilliseconds;
-        return result;
+        return solid.Result ?? new DMesh3();
     }
 
     // distance between input and result surfaces (vertex samples, both directions), relative to the bbox diagonal:

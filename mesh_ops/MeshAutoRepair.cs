@@ -40,6 +40,14 @@ namespace gs
         /// </summary>
         public bool PostRepairCleanup = false;
 
+        /// <summary>
+        /// Minimal: MinimalHoleFill (falls back to SimpleHoleFiller).
+        /// Smoothed: SmoothedHoleFill (fan fill, remesh to the average border edge length, laplacian
+        /// smooth, boundary kept fixed) for holes with more than 4 vertices, falls back to Minimal.
+        /// </summary>
+        public enum HoleFillModes { Minimal = 0, Smoothed = 1 }
+        public HoleFillModes HoleFillMode = HoleFillModes.Minimal;
+
 
 
 
@@ -249,8 +257,13 @@ namespace gs
 
 			foreach (var loop in loops) {
                 if (Cancelled()) break;
-                MinimalHoleFill filler = new MinimalHoleFill(Mesh, loop);
-				bool filled = filler.Apply();
+                bool filled = false;
+                if (HoleFillMode == HoleFillModes.Smoothed && loop.VertexCount > 4)
+                    filled = smoothed_fill(loop);
+                if (filled == false) {
+                    MinimalHoleFill filler = new MinimalHoleFill(Mesh, loop);
+                    filled = filler.Apply();
+                }
 				if (filled == false) {
                     if (Cancelled()) break;
                     SimpleHoleFiller fallback = new SimpleHoleFiller(Mesh, loop);
@@ -258,6 +271,25 @@ namespace gs
 				}
 			}
 		}
+
+
+        bool smoothed_fill(EdgeLoop loop)
+        {
+            double len = 0;
+            int NV = loop.VertexCount;
+            for (int i = 0; i < NV; ++i)
+                len += Mesh.GetVertex(loop.Vertices[i]).Distance(Mesh.GetVertex(loop.Vertices[(i + 1) % NV]));
+            if (len < MathUtil.ZeroTolerancef)
+                return false;
+            try {
+                SmoothedHoleFill fill = new SmoothedHoleFill(Mesh, loop);
+                fill.TargetEdgeLength = len / NV;
+                fill.ConstrainToHoleInterior = true;
+                return fill.Apply();
+            } catch (Exception) {
+                return false;
+            }
+        }
 
 
 

@@ -64,9 +64,10 @@ namespace g3
 
         protected double MinEdgeLength = double.MaxValue;
         protected int TargetCount = int.MaxValue;
+        protected double MaxQuadricError = double.MaxValue;
         protected enum TargetModes
         {
-            TriangleCount, VertexCount, MinEdgeLength
+            TriangleCount, VertexCount, MinEdgeLength, MaxQuadricError
         }
         protected TargetModes ReduceMode = TargetModes.TriangleCount;
 
@@ -99,6 +100,9 @@ namespace g3
                 // termination criteria
                 if ( ReduceMode == TargetModes.VertexCount ) {
                     if (mesh.VertexCount <= TargetCount)
+                        break;
+                } else if ( ReduceMode == TargetModes.MaxQuadricError ) {
+                    if (EdgeQueue.FirstPriority > MaxQuadricError)
                         break;
                 } else {
                     if (mesh.TriangleCount <= TargetCount)
@@ -147,6 +151,20 @@ namespace g3
             MinEdgeLength = double.MaxValue;
             DoReduce();
         }
+
+        /// <summary>
+        /// Collapse edges in order of increasing quadric error until the cheapest remaining collapse
+        /// has an error above maxError. Errors are area-weighted squared distances (units length^4).
+        /// </summary>
+        public virtual void ReduceToMaxQuadricError(double maxError)
+        {
+            ReduceMode = TargetModes.MaxQuadricError;
+            TargetCount = 1;
+            MinEdgeLength = double.MaxValue;
+            MaxQuadricError = maxError;
+            DoReduce();
+        }
+
 
         public virtual void ReduceToEdgeLength(double minEdgeLen)
         {
