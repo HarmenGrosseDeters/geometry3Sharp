@@ -31,6 +31,12 @@ namespace gs
 
         public double WindingIso = 0.5;
 
+        /// <summary> accuracy of the fast winding number (DMeshAABBTree3.FWNBeta); larger is more exact and slower </summary>
+        public double FastWindingBeta = 1.5;
+
+        /// <summary> max number of input surfaces considered along one grid edge </summary>
+        public int MaxEdgeHits = 8;
+
         /// <summary> run MeshPostRepairCleanup on the result (removes marching cubes slivers etc) </summary>
         public bool CleanupResult = true;
 
@@ -70,10 +76,12 @@ namespace gs
             input.AppendVertex(input.CachedBounds.Min - cellSize * new Vector3d(0.1371, 0.2713, 0.3891));
 
             DMeshAABBTree3 spatial = new DMeshAABBTree3(input, true);
+            spatial.FWNBeta = FastWindingBeta;
             spatial.FastWindingNumber(Vector3d.Zero);   // build the winding number cache once, before parallel use
 
             MeshWindingNumberGrid mwn = new MeshWindingNumberGrid(input, spatial, cellSize);
             mwn.WindingIsoValue = (float)WindingIso;
+            mwn.UseFastWindingNumber = true;
             mwn.CancelF = CancelF;
             mwn.Compute();
             if (CancelF())
@@ -93,6 +101,8 @@ namespace gs
                 dc.Generate();
                 Result = dc.Mesh;
                 NonManifoldTriangles = dc.NonManifoldTriangles;
+                if (NonManifoldTriangles > 0)
+                    fill_small_holes(Result);
             } else {
                 MarchingCubes mc = new MarchingCubes() {
                     Implicit = iso, IsoValue = WindingIso, Bounds = bounds, CubeSize = cellSize,
@@ -132,25 +142,51 @@ namespace gs
             Vector3d origin = a - 0.01 * cellSize * dir;
             Ray3d ray = new Ray3d(origin, dir);
             double maxT = len + 0.02 * cellSize;
-            // walk along the edge, skipping hits on surfaces the winding number does not change across
-            for (int iter = 0; iter < 8; ++iter) {
-                int hit = spatial.FindNearestHitTriangle(ray, maxT);
+            // collect the input surfaces along the edge
+            int nHits = 0;
+            int[] hitTris = new int[MaxEdgeHits];
+            double[] hitT = new double[MaxEdgeHits];
+            double t0 = 0;
+            while (nHits < MaxEdgeHits) {
+                int hit = spatial.FindNearestHitTriangle(ray, maxT - t0);
                 if (hit == DMesh3.InvalidID)
                     break;
                 IntrRay3Triangle3 intr = MeshQueries.TriangleIntersection(input, hit, ray);
                 if (intr.Find() == false)
                     break;
-                Vector3d q = ray.PointAt(intr.RayParameter);
-                Vector3d n = input.GetTriNormal(hit);
-                if (n.LengthSquared > 0.5 && is_boundary(spatial, q, n, cellSize)) {
-                    point = q; normal = n;
+                hitTris[nHits] = hit;
+                hitT[nHits] = t0 + intr.RayParameter;
+                nHits++;
+                double advance = intr.RayParameter + 1e-6 * cellSize;
+                t0 += advance;
+                ray = new Ray3d(ray.PointAt(advance), dir);
+            }
+
+            // The edge goes from inside (a) to outside (b). With a single surface on it, that surface is the
+            // boundary. With several, find where the winding number crosses the iso-value between them
+            // (interior shells and overlaps) and use the transition closest to the interpolated crossing.
+            int best = -1;
+            if (nHits == 1) {
+                best = 0;
+            } else if (nHits > 1) {
+                bool insideBefore = true;
+                double bestDist = double.MaxValue;
+                for (int i = 0; i < nHits; ++i) {
+                    bool insideAfter = (i == nHits - 1) ? false
+                        : spatial.FastWindingNumber(origin + 0.5 * (hitT[i] + hitT[i + 1]) * dir) > WindingIso;
+                    if (insideBefore != insideAfter) {
+                        double d = Math.Abs(hitT[i] - (p - origin).Dot(dir));
+                        if (d < bestDist) { bestDist = d; best = i; }
+                    }
+                    insideBefore = insideAfter;
+                }
+            }
+            if (best >= 0) {
+                Vector3d n = input.GetTriNormal(hitTris[best]);
+                if (n.LengthSquared > 0.5) {
+                    point = origin + hitT[best] * dir; normal = n;
                     return true;
                 }
-                double advance = intr.RayParameter + 1e-6 * cellSize;
-                ray = new Ray3d(ray.PointAt(advance), dir);
-                maxT -= advance;
-                if (maxT <= 0)
-                    break;
             }
 
             int tid = spatial.FindNearestTriangle(p, 1.5 * cellSize);
@@ -162,6 +198,24 @@ namespace gs
                 return false;
             point = dist.TriangleClosest; normal = tn;
             return true;
+        }
+
+        // Dual contouring leaves out the rare quads that would make an edge non-manifold (an ambiguous face
+        // where both cells have a single patch). Fill the resulting small holes; the bowties this can leave
+        // are removed by the cleanup pass.
+        static void fill_small_holes(DMesh3 mesh)
+        {
+            MeshBoundaryLoops loops;
+            try {
+                loops = new MeshBoundaryLoops(mesh, true);
+            } catch (Exception) {
+                return;
+            }
+            foreach (EdgeLoop loop in loops) {
+                MinimalHoleFill fill = new MinimalHoleFill(mesh, loop);
+                if (fill.Apply() == false)
+                    new SimpleHoleFiller(mesh, loop).Fill();
+            }
         }
 
         bool is_boundary(DMeshAABBTree3 spatial, Vector3d q, Vector3d n, double cellSize)

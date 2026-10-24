@@ -65,6 +65,32 @@ namespace geometry3Sharp.Tests
             Assert.True(dc.Result.TriangleCount < mc.Result.TriangleCount / 3);
         }
 
+        // two boxes almost touching along an edge: cells there have diagonal inside corners (ambiguous faces).
+        // Plain dual contouring puts one vertex in such a cell and pinches the boxes together with
+        // non-manifold edges; manifold dual contouring gives each box its own vertex.
+        [Fact]
+        public void Solidify_BoxesTouchingDiagonally_StayTwoClosedParts()
+        {
+            DMesh3 mesh = Box(10);
+            DMesh3 second = Box(10);
+            double cell = 0.5;
+            MeshTransforms.Translate(second, new Vector3d(10 + 0.3 * cell, 10 + 0.3 * cell, 0));
+            MeshEditor.Append(mesh, second);
+
+            var solid = new MeshWindingNumberSolidify(mesh) { CellSize = cell };
+            Assert.True(solid.Compute());
+            DMesh3 result = solid.Result;
+
+            Assert.Equal(0, solid.NonManifoldTriangles);
+            Assert.True(result.IsClosed());
+            Assert.Empty(MeshIterators.BowtieVertices(result));
+            var comps = new MeshConnectedComponents(result);
+            comps.FindConnectedT();
+            Assert.Equal(2, comps.Count);
+            double volume = MeshMeasurements.VolumeArea(result, result.TriangleIndices(), result.GetVertex).x;
+            Assert.InRange(volume, 1990, 2010);
+        }
+
         [Fact]
         public void Solidify_BrokenBox_IsClosedAndRemovesInteriorShell()
         {
