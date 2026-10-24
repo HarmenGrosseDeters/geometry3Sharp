@@ -48,6 +48,8 @@ namespace gs
         public enum HoleFillModes { Minimal = 0, Smoothed = 1 }
         public HoleFillModes HoleFillMode = HoleFillModes.Minimal;
 
+        bool fill_inconsistent_loops = false;
+
 
 
 
@@ -93,6 +95,7 @@ namespace gs
 
             int repeat_count = 0;
             repeat_all:
+            fill_inconsistent_loops = (repeat_count > 0);
 
             /*
              * make sure orientation of connected components is consistent
@@ -237,7 +240,7 @@ namespace gs
 			foreach (var loop in loops) {
                 if (Cancelled()) break;
                 // see fill_any_holes
-                if (loops.IsConsistentlyOriented(loop) == false) {
+                if (fill_inconsistent_loops == false && loops.IsConsistentlyOriented(loop) == false) {
                     saw_spans = true;
                     ++nRemaining;
                     continue;
@@ -271,10 +274,11 @@ namespace gs
 			foreach (var loop in loops) {
                 if (Cancelled()) break;
                 // A loop that runs against the boundary orientation somewhere (inconsistently oriented
-                // triangles, usually around a bowtie) is not filled: that can create a non-orientable
-                // surface. Report it like an unresolved span, so bowties get disconnected, and the next
-                // round fills it after the orientation repair.
-                if (loops.IsConsistentlyOriented(loop) == false) {
+                // triangles, usually around a bowtie) is not filled in the first round: that can create a
+                // non-orientable surface. Report it like an unresolved span, so bowties get disconnected,
+                // and the next round fills it after the orientation repair. If it is still inconsistent
+                // then, fill it anyway - otherwise the mesh stays open and gets eroded.
+                if (fill_inconsistent_loops == false && loops.IsConsistentlyOriented(loop) == false) {
                     saw_spans = true;
                     ++nRemaining;
                     continue;
