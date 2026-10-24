@@ -94,8 +94,8 @@ namespace gs
                 if (Cancelled()) return false;
 
             int repeat_count = 0;
+            fill_inconsistent_loops = false;
             repeat_all:
-            fill_inconsistent_loops = (repeat_count > 0);
 
             /*
              * make sure orientation of connected components is consistent
@@ -188,6 +188,16 @@ namespace gs
                 goto repeat_all;
             }
 
+            /*
+             * Last resort: if the mesh is still open, the remaining holes are bounded by loops that
+             * run against the boundary orientation (non-orientable regions). Fill them anyway, an
+             * orientation seam is better than a hole.
+             */
+            if (Mesh.IsClosed() == false) {
+                fill_inconsistent_loops = true;
+                fill_any_holes(out nHoles, out bSawSpans);
+            }
+
             all_done:
 
             /*
@@ -274,10 +284,10 @@ namespace gs
 			foreach (var loop in loops) {
                 if (Cancelled()) break;
                 // A loop that runs against the boundary orientation somewhere (inconsistently oriented
-                // triangles, usually around a bowtie) is not filled in the first round: that can create a
-                // non-orientable surface. Report it like an unresolved span, so bowties get disconnected,
-                // and the next round fills it after the orientation repair. If it is still inconsistent
-                // then, fill it anyway - otherwise the mesh stays open and gets eroded.
+                // triangles, usually around a bowtie) is not filled: that can create a non-orientable
+                // surface. Report it like an unresolved span, so bowties get disconnected and the next
+                // round can fill it after the orientation repair (or erosion removes the region).
+                // Only the last-resort fill at the end of Apply() fills such loops.
                 if (fill_inconsistent_loops == false && loops.IsConsistentlyOriented(loop) == false) {
                     saw_spans = true;
                     ++nRemaining;
