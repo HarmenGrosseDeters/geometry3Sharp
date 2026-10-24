@@ -30,6 +30,22 @@ namespace g3
         /// </summary>
         public bool AreaWeightedQuadrics = true;
 
+        /// <summary>
+        /// If PreserveBoundaryShape is set, each boundary edge adds a plane through the edge, perpendicular
+        /// to its triangle, to the quadrics of its vertices (Garland-Heckbert boundary constraint), weighted
+        /// by this times the plane weight of a triangle. Removing a corner of the boundary ring then has a
+        /// cost, while vertices on straight boundary runs can still be collapsed.
+        /// </summary>
+        public double BoundaryQuadricWeight = 100;
+
+        /// <summary>
+        /// If > 0, edges whose triangle normals differ by more than this angle (degrees) are feature edges.
+        /// The planes of both their triangles are added to the quadrics of the edge vertices with weight
+        /// FeatureQuadricWeight, so sharp edges and corners are preserved even next to large triangles.
+        /// </summary>
+        public double FeatureAngle = 0;
+        public double FeatureQuadricWeight = 100;
+
         // if true, we try to keep boundary vertices on boundary. You probably want this.
         public bool PreserveBoundaryShape = true;
 
@@ -299,7 +315,48 @@ namespace g3
                 }
 			});
 
+            add_boundary_and_feature_quadrics(triAreas);
 		}
+
+
+        // see BoundaryQuadricWeight and FeatureAngle
+        protected virtual void add_boundary_and_feature_quadrics(double[] triAreas)
+        {
+            bool doBoundary = PreserveBoundaryShape && BoundaryQuadricWeight > 0;
+            bool doFeatures = FeatureAngle > 0 && FeatureQuadricWeight > 0;
+            if (doBoundary == false && doFeatures == false)
+                return;
+            double featureDot = Math.Cos(FeatureAngle * MathUtil.Deg2Rad);
+            foreach (int eid in mesh.EdgeIndices()) {
+                Index2i et = mesh.GetEdgeT(eid);
+                Index2i ev = mesh.GetEdgeV(eid);
+                Vector3d a = mesh.GetVertex(ev.a), b = mesh.GetVertex(ev.b);
+                // weight comparable to a triangle plane: area-like (edge length^2) or 1
+                double w = AreaWeightedQuadrics ? a.DistanceSquared(b) : 1.0;
+
+                if (et.b == DMesh3.InvalidID) {
+                    if (doBoundary == false)
+                        continue;
+                    Vector3d n = mesh.GetTriNormal(et.a);
+                    Vector3d m = (b - a).Cross(n);
+                    if (m.Normalize() < MathUtil.Epsilon)
+                        continue;
+                    QuadricError q = new QuadricError(ref m, ref a);
+                    vertQuadrics[ev.a].Add(BoundaryQuadricWeight * w, ref q);
+                    vertQuadrics[ev.b].Add(BoundaryQuadricWeight * w, ref q);
+                } else if (doFeatures) {
+                    Vector3d n0 = mesh.GetTriNormal(et.a), n1 = mesh.GetTriNormal(et.b);
+                    if (n0.Dot(n1) >= featureDot)
+                        continue;
+                    QuadricError q0 = new QuadricError(ref n0, ref a);
+                    QuadricError q1 = new QuadricError(ref n1, ref a);
+                    vertQuadrics[ev.a].Add(FeatureQuadricWeight * w, ref q0);
+                    vertQuadrics[ev.a].Add(FeatureQuadricWeight * w, ref q1);
+                    vertQuadrics[ev.b].Add(FeatureQuadricWeight * w, ref q0);
+                    vertQuadrics[ev.b].Add(FeatureQuadricWeight * w, ref q1);
+                }
+            }
+        }
 
 
         // internal class for priority queue
@@ -378,14 +435,17 @@ namespace g3
 
             // if we would like to preserve boundary, we need to know that here
             // so that we properly score these edges
+            // Boundary vertices must stay where they are, so the collapse keeps one of them. If both are
+            // boundary vertices, use the one with lower error; CollapseEdge() keeps the same one.
             if (HaveBoundary && PreserveBoundaryShape) {
-                if (mesh.IsBoundaryEdge(eid)) {
-                    return (mesh.GetVertex(ea) + mesh.GetVertex(eb)) * 0.5;
-                } else {
-                    if (IsBoundaryV(ea))
-                        return mesh.GetVertex(ea);
-                    else if (IsBoundaryV(eb))
-                        return mesh.GetVertex(eb);
+                bool ba = IsBoundaryV(ea), bb = IsBoundaryV(eb);
+                if (ba && bb) {
+                    Vector3d pa = mesh.GetVertex(ea), pb = mesh.GetVertex(eb);
+                    return (q.Evaluate(ref pa) <= q.Evaluate(ref pb)) ? pa : pb;
+                } else if (ba) {
+                    return mesh.GetVertex(ea);
+                } else if (bb) {
+                    return mesh.GetVertex(eb);
                 }
             }
 
@@ -573,9 +633,12 @@ namespace g3
                          ( IsBoundaryV(a) && collapse_to != a))
                         return ProcessResult.Ignored_Constrained;
                 }
-                if (IsBoundaryV(b))
+                bool ba = IsBoundaryV(a), bb = IsBoundaryV(b);
+                if (ba && bb)
+                    collapse_to = (vNewPos.DistanceSquared(vA) < vNewPos.DistanceSquared(vB)) ? a : b;  // as chosen in OptimalPoint()
+                else if (bb)
                     collapse_to = b;
-                else if (IsBoundaryV(a))
+                else if (ba)
                     collapse_to = a;
             }
 
