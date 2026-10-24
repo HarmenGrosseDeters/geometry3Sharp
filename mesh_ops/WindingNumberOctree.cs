@@ -24,11 +24,23 @@ namespace gs
     /// surface is crossed, so if no triangle crosses the grid edge to the neighbour, the value is the same.
     /// With open borders (holes, cracks) the winding number is fractional and varies continuously
     /// everywhere, so then all values are evaluated.
+    ///
+    /// With several input meshes, node values are CombineF(winding numbers of all meshes), eg max for a
+    /// union (see MeshWindingNumberBoolean); cells overlapping triangles of any mesh are refined.
     /// </summary>
     public class WindingNumberOctree
     {
         public DMesh3 Mesh;
         public DMeshAABBTree3 Spatial;
+
+        /// <summary> all input meshes and their trees (Mesh / Spatial are the first ones) </summary>
+        public DMesh3[] Meshes;
+        public DMeshAABBTree3[] Spatials;
+        /// <summary> combines the winding numbers of the inputs into the node value (null for a single input) </summary>
+        public Func<double[], double> CombineF = null;
+
+        /// <summary> extra shift of the leaf grid, in cells, eg an odd fraction so faces at round coordinates miss the nodes </summary>
+        public Vector3d GridOffset = Vector3d.Zero;
 
         public double WindingIso = 0.5;
 
@@ -56,15 +68,29 @@ namespace gs
         public int NodeCount { get { return cache == null ? 0 : cache.Count; } }
 
         public WindingNumberOctree(DMesh3 mesh, DMeshAABBTree3 spatial)
+            : this(new DMesh3[] { mesh }, new DMeshAABBTree3[] { spatial }, null)
         {
-            Mesh = mesh;
-            Spatial = spatial;
+        }
+
+        public WindingNumberOctree(DMesh3[] meshes, DMeshAABBTree3[] spatials, Func<double[], double> combineF)
+        {
+            if (meshes.Length == 0 || meshes.Length != spatials.Length)
+                throw new ArgumentException("WindingNumberOctree: need one tree per mesh");
+            if (meshes.Length > 1 && combineF == null)
+                throw new ArgumentException("WindingNumberOctree: several meshes need a CombineF");
+            Meshes = meshes;
+            Spatials = spatials;
+            CombineF = combineF;
+            Mesh = meshes[0];
+            Spatial = spatials[0];
         }
 
 
         public void Build()
         {
-            AxisAlignedBox3d bounds = Mesh.CachedBounds;
+            AxisAlignedBox3d bounds = AxisAlignedBox3d.Empty;
+            foreach (DMesh3 m in Meshes)
+                bounds.Contain(m.CachedBounds);
             double maxDim = Math.Max(bounds.MaxDim, MathUtil.Epsilon);
             int depth = MaxDepth;
             if (TargetLeafCellSize > 0)
@@ -74,12 +100,15 @@ namespace gs
             MaxDepth = depth;
             LeafCount = 1 << depth;
             LeafCellSize = (TargetLeafCellSize > 0) ? TargetLeafCellSize : maxDim / (LeafCount - 2 * PaddingCells);
-            Origin = bounds.Min - PaddingCells * LeafCellSize * Vector3d.One;
+            Origin = bounds.Min - PaddingCells * LeafCellSize * Vector3d.One - LeafCellSize * GridOffset;
 
             cache = new ConcurrentDictionary<long, float>();
             evaluations = 0;
-            Spatial.FastWindingNumber(Vector3d.Zero);    // build the winding cache before parallel use
-            propagate = PropagateValues && Mesh.IsClosed();
+            propagate = PropagateValues;
+            for (int i = 0; i < Meshes.Length; ++i) {
+                Spatials[i].FastWindingNumber(Vector3d.Zero);    // build the winding cache before parallel use
+                propagate = propagate && Meshes[i].IsClosed();
+            }
 
             ConcurrentBag<Vector3i> cells = new ConcurrentBag<Vector3i>();
             refine(Vector3i.Zero, LeafCount, cells, 0);
@@ -106,7 +135,18 @@ namespace gs
         float evaluate(Vector3d pos)
         {
             Interlocked.Increment(ref evaluations);
-            return (float)Spatial.FastWindingNumber(pos);
+            return (float)Evaluate(pos);
+        }
+
+        /// <summary> node value at an arbitrary point (single winding number, or CombineF of all) </summary>
+        public double Evaluate(Vector3d pos)
+        {
+            if (Meshes.Length == 1)
+                return Spatial.FastWindingNumber(pos);
+            double[] w = new double[Meshes.Length];
+            for (int i = 0; i < Meshes.Length; ++i)
+                w[i] = Spatials[i].FastWindingNumber(pos);
+            return CombineF(w);
         }
 
 
@@ -127,7 +167,14 @@ namespace gs
                 // does any triangle cross the grid edge from the neighbour to this node?
                 Vector3d nbPos = Origin + LeafCellSize * new Vector3d(nb.x, nb.y, nb.z);
                 Ray3d ray = new Ray3d(nbPos, (pos - nbPos).Normalized);
-                if (Spatial.FindNearestHitTriangle(ray, LeafCellSize * (1 + 1e-6)) != DMesh3.InvalidID)
+                bool crossed = false;
+                foreach (DMeshAABBTree3 spatial in Spatials) {
+                    if (spatial.FindNearestHitTriangle(ray, LeafCellSize * (1 + 1e-6)) != DMesh3.InvalidID) {
+                        crossed = true;
+                        break;
+                    }
+                }
+                if (crossed)
                     continue;
                 value = nbValue;
                 return true;
@@ -170,6 +217,14 @@ namespace gs
 
         bool triangles_overlap(Vector3d center, double halfSize)
         {
+            for (int i = 0; i < Meshes.Length; ++i)
+                if (triangles_overlap(Meshes[i], Spatials[i], center, halfSize))
+                    return true;
+            return false;
+        }
+
+        static bool triangles_overlap(DMesh3 mesh, DMeshAABBTree3 spatial, Vector3d center, double halfSize)
+        {
             AxisAlignedBox3d box = new AxisAlignedBox3d(center, halfSize);
             bool found = false;
             Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
@@ -177,12 +232,12 @@ namespace gs
                 NextBoxF = (treeBox, depth) => found == false && box.Intersects((AxisAlignedBox3d)treeBox),
                 NextTriangleF = (tid) => {
                     if (found) return;
-                    Mesh.GetTriVertices(tid, ref a, ref b, ref c);
+                    mesh.GetTriVertices(tid, ref a, ref b, ref c);
                     if (TriangleBoxOverlap(a - center, b - center, c - center, halfSize))
                         found = true;
                 }
             };
-            Spatial.DoTraversal(traversal);
+            spatial.DoTraversal(traversal);
             return found;
         }
 

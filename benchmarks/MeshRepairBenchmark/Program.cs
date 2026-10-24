@@ -67,7 +67,10 @@ class Program
             }
             DMesh3 result;
             bool ok;
-            if (repairMode == "instr") {
+            if (repairMode == "boolean") {
+                result = RunBooleans(original, r);
+                ok = true;
+            } else if (repairMode == "instr") {
                 var repair = new InstrumentedAutoRepair(mesh);
                 repair.RepairTolerance *= tolFactor;
                 repair.MinEdgeLengthTol *= tolFactor;
@@ -132,6 +135,50 @@ class Program
         Emit(r);
         return 0;
     }
+
+    // Booleans of the input A with a rotated, shifted copy B that overlaps it. Checks that hold for any shape:
+    // all results closed, V(A u B) + V(A n B) = V(A) + V(B), V(A \ B) = V(A) - V(A n B).
+    // Volumes of A and B are those of their solidified versions, at the same cell size.
+    static DMesh3 RunBooleans(DMesh3 a, System.Collections.Generic.Dictionary<string, object> r)
+    {
+        int res = int.Parse(Environment.GetEnvironmentVariable("BENCH_SOLID_RES") ?? "128");
+        DMesh3 b = new DMesh3(a);
+        AxisAlignedBox3d bounds = a.CachedBounds;
+        Vector3d c = bounds.Center;
+        MeshTransforms.Rotate(b, c, Quaterniond.AxisAngleD(new Vector3d(1, 1, 0).Normalized, 20));
+        MeshTransforms.Translate(b, 0.25 * new Vector3d(bounds.Width, bounds.Height, bounds.Depth));
+        AxisAlignedBox3d all = bounds; all.Contain(b.CachedBounds);
+        double cellSize = all.DiagonalLength / res;
+        r["bool_cell"] = cellSize;
+
+        var sw = Stopwatch.StartNew();
+        Func<DMesh3, DMesh3> solid = (m) => {
+            var s = new MeshWindingNumberSolidify(m) { CellSize = cellSize, Adaptive = true };
+            s.Compute();
+            return s.Result;
+        };
+        double vA = Vol(solid(a)), vB = Vol(solid(b));
+        var results = new System.Collections.Generic.Dictionary<string, DMesh3>();
+        foreach (var op in new[] { MeshWindingNumberBoolean.Operations.Union, MeshWindingNumberBoolean.Operations.Intersection,
+                                   MeshWindingNumberBoolean.Operations.Difference }) {
+            var boolean = new MeshWindingNumberBoolean(a, b, op) { CellSize = cellSize };
+            boolean.Compute();
+            DMesh3 m = boolean.Result ?? new DMesh3();
+            string key = op.ToString().ToLower();
+            results[key] = m;
+            r["bool_" + key + "_volume"] = Vol(m);
+            r["bool_" + key + "_closed"] = m.IsClosed();
+            r["bool_" + key + "_bowties"] = MeshIterators.BowtieVertices(m).Count();
+            r["bool_" + key + "_tris"] = m.TriangleCount;
+        }
+        r["bool_ms"] = sw.ElapsedMilliseconds;
+        double vU = Vol(results["union"]), vI = Vol(results["intersection"]), vD = Vol(results["difference"]);
+        r["bool_vA"] = vA; r["bool_vB"] = vB;
+        r["bool_ie_error"] = (vA + vB) > 0 ? Math.Abs(vU + vI - vA - vB) / (vA + vB) : 0;
+        r["bool_diff_error"] = vA > 0 ? Math.Abs(vD - (vA - vI)) / vA : 0;
+        return results["union"];
+    }
+    static double Vol(DMesh3 m) { return m.TriangleCount == 0 ? 0 : MeshMeasurements.VolumeArea(m, m.TriangleIndices(), m.GetVertex).x; }
 
     // winding number solidify of the input (library class), BENCH_SOLID_RES cells along the diagonal
     static DMesh3 Solidify(DMesh3 input, MeshWindingNumberSolidify.Methods method, bool adaptive, System.Collections.Generic.Dictionary<string, object> r)
