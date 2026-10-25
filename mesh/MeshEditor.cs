@@ -657,9 +657,12 @@ namespace g3
             }
         }
         /// <summary>
-        /// Cut the mesh open along the given interior edges: each becomes two boundary edges. At every
-        /// endpoint the triangle fan is split where it crosses a cut edge, and each piece after the first
-        /// (largest) gets its own copy of the vertex. Returns the number of vertices added.
+        /// Cut the mesh open along the given interior edges. At every endpoint the triangle fan is split where it
+        /// crosses a cut edge, and each piece after the first (largest) gets its own copy of the vertex; a cut edge
+        /// becomes two boundary edges where this separates its two triangles. It does not where the fan of
+        /// neither end is split: eg an edge whose ends are both inside the mesh with no other cut edge at them
+        /// (a slit needs a hole or a boundary to open into), or a fan with a single cut edge. Fans at the endpoints
+        /// that were already separate (bowties) are split as well. Returns the number of vertices added.
         /// </summary>
         public int CutAlongEdges(IEnumerable<int> edges)
         {

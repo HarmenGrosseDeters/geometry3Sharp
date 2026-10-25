@@ -34,6 +34,23 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void SelfIntersectionsAtMost_StopsAboveTheLimit()
+        {
+            // two overlapping spheres: many pairs. Up to the count, the full count; below it, more than the limit
+            DMesh3 m = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 12 }.Generate().MakeDMesh();
+            DMesh3 b = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 12 }.Generate().MakeDMesh();
+            MeshTransforms.Translate(b, new Vector3d(1.2, 0, 0));
+            MeshEditor.Append(m, b);
+            int n = MeshRepairMetrics.SelfIntersections(m);
+            Assert.True(n > 50);
+            Assert.Equal(n, MeshRepairMetrics.SelfIntersectionsAtMost(m, n));
+            Assert.Equal(n, MeshRepairMetrics.SelfIntersectionsAtMost(m, 10 * n));
+            int few = MeshRepairMetrics.SelfIntersectionsAtMost(m, 10);
+            Assert.True(few > 10 && few < n, $"{few} of {n}");
+            Assert.Equal(0, MeshRepairMetrics.SelfIntersectionsAtMost(new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 8 }.Generate().MakeDMesh(), 0));
+        }
+
+        [Fact]
         public void TwoOverlappingBoxes_Intersect()
         {
             DMesh3 m = Box(Vector3d.Zero, Vector3d.One);

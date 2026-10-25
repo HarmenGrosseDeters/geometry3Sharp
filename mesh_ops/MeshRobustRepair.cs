@@ -77,7 +77,9 @@ namespace gs
         public bool UsedSolidify;
         /// <summary>
         /// true if the fallbacks (exact resolve, solidify, alpha wrap) started from the input instead of the repair
-        /// result, because the repair result's solid differs from the input's (or it is empty)
+        /// result, because the repair result's solid differs from the input's (or it is empty). The exact resolve
+        /// tries the repair result first even then (its result must agree with the input's volume): false if that
+        /// was used
         /// </summary>
         public bool UsedInput;
         /// <summary> why the repair result was not used ("" if it was) </summary>
@@ -193,16 +195,23 @@ namespace gs
             if (solidifyFrom.TriangleCount == 0)
                 return false;
             if (ExactResolve) {
-                DMesh3 exact = resolve_exactly(result, input, false);
-                // its volume may differ only because components are oriented differently from the input (eg a
-                // nested part taken for a cavity): then resolve it again, oriented by the input's solid
-                if (exact == null && ExactResolveReason == "volume differs from the input" && CancelF() == false)
-                    exact = resolve_exactly(result, input, true);
-                // a clean result whose volume differs: also the input itself
+                // the repair result first, also when it lost volume (UsedInput): its resolve is checked against the
+                // input's volume, and resolving keeps the repaired geometry
+                DMesh3 exact = null;
+                if (result.TriangleCount > 0) {
+                    exact = resolve_exactly(result, input, false);
+                    // its volume may differ only because components are oriented differently from the input (eg a
+                    // nested part taken for a cavity): then resolve it again, oriented by the input's solid, if
+                    // that orientation differs at all
+                    if (exact == null && ExactResolveReason == "volume differs from the input" && CancelF() == false)
+                        exact = resolve_exactly(result, input, true);
+                }
+                bool fromResult = exact != null;
+                // then the input itself (a clean result whose volume differs, or an unclean one that lost volume)
                 if (exact == null && solidifyFrom != result && CancelF() == false) {
                     string reason = ExactResolveReason;
                     exact = resolve_exactly(solidifyFrom, input, false);
-                    if (exact == null)
+                    if (exact == null && reason != "")
                         ExactResolveReason = reason + "; input: " + ExactResolveReason;
                 }
                 end_phase("exact");
@@ -211,6 +220,7 @@ namespace gs
                 if (exact != null) {
                     Mesh = exact;
                     UsedExactResolve = true;
+                    UsedInput = !fromResult;
                     return true;
                 }
             }
@@ -247,8 +257,11 @@ namespace gs
             var timer = Stopwatch.StartNew();
             // inside-out parts flipped, so that the solid is where the winding number is positive (guessed from
             // the nesting of the components, or from the input's solid)
-            DMesh3 m = orientByInput ? OrientedByReference(from, input) : WindingContouring.OrientedCopy(from);
+            int flipped = 0;
+            DMesh3 m = orientByInput ? oriented_by_reference(from, input, out flipped) : WindingContouring.OrientedCopy(from);
             add_phase("exact.orient", timer.ElapsedMilliseconds); timer.Restart();
+            if (orientByInput && flipped == 0)
+                return null;        // the same orientation as before: the same result (ExactResolveReason kept)
             bool closed = ExactMeshBoolean.IsWindingClosed(m);
             add_phase("exact.closed", timer.ElapsedMilliseconds); timer.Restart();
             if (closed == false) {
@@ -256,8 +269,7 @@ namespace gs
                 return null;
             }
             if (ExactResolveMaxPairs > 0) {
-                int pairs = MeshRepairMetrics.SelfIntersections(m);
-                if (pairs > ExactResolveMaxPairs) {
+                if (MeshRepairMetrics.SelfIntersectionsAtMost(m, ExactResolveMaxPairs) > ExactResolveMaxPairs) {
                     ExactResolveReason = "too many self-intersections";
                     return null;
                 }
@@ -331,6 +343,13 @@ namespace gs
         /// </summary>
         public static DMesh3 OrientedByReference(DMesh3 mesh, DMesh3 reference)
         {
+            int flipped;
+            return oriented_by_reference(mesh, reference, out flipped);
+        }
+        // flipped: components reversed against WindingContouring.OrientedCopy
+        static DMesh3 oriented_by_reference(DMesh3 mesh, DMesh3 reference, out int flipped)
+        {
+            flipped = 0;
             DMesh3 m = WindingContouring.OrientedCopy(mesh);
             if (reference == null || reference.TriangleCount == 0)
                 return m;
@@ -372,9 +391,11 @@ namespace gs
                     flip = true;
                 else if (both > 0.5 * total && inner < 0.25 * total && outer < 0.25 * total)
                     flip = MeshMeasurements.VolumeArea(m, tris, m.GetVertex).x < 0;
-                if (flip)
+                if (flip) {
                     foreach (int tid in tris)
                         m.ReverseTriOrientation(tid);
+                    flipped++;
+                }
             }
             return m;
         }

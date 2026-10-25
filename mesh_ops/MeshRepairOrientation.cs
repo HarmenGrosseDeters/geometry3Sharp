@@ -10,8 +10,9 @@ namespace gs
 {
 	/// <summary>
 	/// Repairs triangle orientation in place. OrientComponents() makes the orientation consistent within
-	/// each edge-connected component (flood fill from an arbitrary triangle, reversing neighbours that
-	/// disagree); SolveGlobalOrientation() then reverses whole components that face inwards, judged by ray
+	/// each edge-connected component (patches of consistent triangles flipped along a spanning tree, see there;
+	/// KeepShortSeams = false: flood fill from an arbitrary triangle, reversing neighbours that disagree, as
+	/// geometry3Sharp 1.0.324); SolveGlobalOrientation() then reverses whole components that face inwards, judged by ray
 	/// casts from far outside (the side of the triangles that is visible from outside should be the front).
 	///
 	/// Call OrientComponents() first: SolveGlobalOrientation() works on the components it found.
@@ -34,6 +35,12 @@ namespace gs
 		}
 
 		/// <summary> spatial is an optional prebuilt AABB tree of mesh3 (built on demand otherwise) </summary>
+		/// <summary>
+		/// OrientComponents keeps consistently oriented patches together and leaves a short seam in non-orientable
+		/// components (default). false: the depth-first propagation of geometry3Sharp 1.0.324.
+		/// </summary>
+		public bool KeepShortSeams = true;
+
 		public MeshRepairOrientation(DMesh3 mesh3, DMeshAABBTree3 spatial = null)
 		{
 			Mesh = mesh3;
@@ -68,9 +75,14 @@ namespace gs
 		/// whose patches cannot be 2-coloured) keeps the inconsistent edges between patches off the tree,
 		/// which are few, where a depth-first propagation from a single triangle could leave a long seam
 		/// anywhere in it. Whether that is the outward orientation is decided by SolveGlobalOrientation.
+		/// With KeepShortSeams = false, the depth-first propagation of geometry3Sharp 1.0.324 is used instead.
 		/// </summary>
 		public void OrientComponents()
 		{
+			if (KeepShortSeams == false) {
+				orient_depth_first();
+				return;
+			}
 			Components = new List<Component>();
 
 			// patches: union over consistently oriented interior edges
@@ -90,7 +102,7 @@ namespace gs
 			}
 
 			// patch adjacency (all edges between two different patches are inconsistent), heaviest first
-			var weight = new Dictionary<long, int>();
+			var weight = new Dictionary<long, int>(MixedKeyComparer.Instance);
 			foreach (int eid in seamEdges) {
 				Index2i et = Mesh.GetEdgeT(eid);
 				int pa = find(patch, et.a), pb = find(patch, et.b);
@@ -205,12 +217,65 @@ namespace gs
 			}
 		}
 
+		// geometry3Sharp 1.0.324: each triangle oriented like the one it is reached from, depth-first
+		void orient_depth_first()
+		{
+			Components = new List<Component>();
+
+			HashSet<int> remaining = new HashSet<int>(Mesh.TriangleIndices());
+			List<int> stack = new List<int>();
+			while (remaining.Count > 0) {
+				Component c = new Component();
+				c.triangles = new List<int>();
+
+				stack.Clear();
+				int start = remaining.First();
+				remaining.Remove(start);
+				c.triangles.Add(start);
+				stack.Add(start);
+				while (stack.Count > 0) {
+					int cur = stack[stack.Count - 1];
+					stack.RemoveAt(stack.Count - 1);
+					Index3i tcur = Mesh.GetTriangle(cur);
+
+					Index3i nbrs = Mesh.GetTriNeighbourTris(cur);
+					for (int j = 0; j < 3; ++j) {
+						int nbr = nbrs[j];
+						if (remaining.Contains(nbr) == false)
+							continue;
+
+						int a = tcur[j];
+						int b = tcur[(j+1)%3];
+
+						Index3i tnbr = Mesh.GetTriangle(nbr);
+						if (IndexUtil.find_tri_ordered_edge(b, a, ref tnbr) == DMesh3.InvalidID) {
+							Mesh.ReverseTriOrientation(nbr);
+						}
+						stack.Add(nbr);
+						remaining.Remove(nbr);
+						c.triangles.Add(nbr);
+					}
+
+				}
+
+				Components.Add(c);
+			}
+		}
+
 		bool is_consistent(int eid, Index2i et)
 		{
 			Index2i ev = Mesh.GetEdgeV(eid);
 			Index3i ta = Mesh.GetTriangle(et.a), tb = Mesh.GetTriangle(et.b);
 			return (IndexUtil.find_tri_ordered_edge(ev.a, ev.b, ref ta) != DMesh3.InvalidID)
 				!= (IndexUtil.find_tri_ordered_edge(ev.a, ev.b, ref tb) != DMesh3.InvalidID);
+		}
+
+		// patch ids of neighbours are close, and long.GetHashCode (low ^ high word) maps such pairs to few buckets
+		class MixedKeyComparer : IEqualityComparer<long>
+		{
+			public static readonly MixedKeyComparer Instance = new MixedKeyComparer();
+			public bool Equals(long x, long y) { return x == y; }
+			public int GetHashCode(long k) { return (int)(((ulong)k * 0x9E3779B97F4A7C15UL) >> 32); }
 		}
 
 		static int find(int[] parent, int x)

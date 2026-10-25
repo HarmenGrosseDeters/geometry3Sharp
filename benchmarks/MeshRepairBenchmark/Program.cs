@@ -1,4 +1,4 @@
-﻿// Runs MeshAutoRepair on one mesh file and prints one JSON line with the result
+// Runs MeshAutoRepair on one mesh file and prints one JSON line with the result
 // (mesh statistics and quality metrics before and after the repair).
 // Usage: MeshRepairBenchmark <meshfile> [std|soup|manual] [none|meters|geo] [tolerance factor]
 //   std    = StandardMeshReader defaults (STL vertex welding, DMesh3Builder)

@@ -28,10 +28,19 @@ namespace gs
             return SelfIntersectionPairs(mesh).Count;
         }
 
+        /// <summary>
+        /// SelfIntersections(mesh), but stops counting once more than limit pairs are found (then returns a value
+        /// &gt; limit, not the full count): cheap test whether a mesh has more self-intersections than a limit
+        /// </summary>
+        public static int SelfIntersectionsAtMost(DMesh3 mesh, int limit)
+        {
+            return self_intersection_pairs(mesh, Math.Max(limit, 0) + 1).Count;
+        }
+
         /// <summary> the intersecting triangle pairs (see SelfIntersections), each once, sorted </summary>
         public static List<Index2i> SelfIntersectionPairs(DMesh3 mesh)
         {
-            return self_intersection_pairs(mesh, false);
+            return self_intersection_pairs(mesh, int.MaxValue);
         }
 
         /// <summary>
@@ -40,11 +49,11 @@ namespace gs
         /// </summary>
         public static bool HasSelfIntersections(DMesh3 mesh)
         {
-            return self_intersection_pairs(mesh, true).Count > 0;
+            return self_intersection_pairs(mesh, 1).Count > 0;
         }
 
-        // firstOnly: stop after the first pair found (then at least one pair is returned if there is any)
-        static List<Index2i> self_intersection_pairs(DMesh3 mesh, bool firstOnly)
+        // stop once maxPairs pairs are found (then at least maxPairs pairs are returned if there are as many)
+        static List<Index2i> self_intersection_pairs(DMesh3 mesh, int maxPairs)
         {
             var tree = new DMeshAABBTree3(mesh, true);
             var pairs = new List<Index2i>();
@@ -52,7 +61,7 @@ namespace gs
             int found = 0;
             int[] tris = new List<int>(mesh.TriangleIndices()).ToArray();
             gParallel.ForEach(Interval1i.Range(tris.Length), (k) => {
-                if (firstOnly && System.Threading.Volatile.Read(ref found) != 0) return;
+                if (System.Threading.Volatile.Read(ref found) >= maxPairs) return;
                 int ta = tris[k];
                 Triangle3d A = triangle(mesh, ta);
                 if (ExactTriangleIntersection.IsDegenerate(ref A)) return;
@@ -60,9 +69,9 @@ namespace gs
                 Index3i ia = mesh.GetTriangle(ta);
                 List<Index2i> local = null;
                 tree.DoTraversal(new DMeshAABBTree3.TreeTraversal() {
-                    NextBoxDF = (b, depth) => b.Intersects(box) && (firstOnly == false || local == null),
+                    NextBoxDF = (b, depth) => b.Intersects(box) && (local == null || local.Count < maxPairs),
                     NextTriangleF = (tb) => {
-                        if (tb <= ta || (firstOnly && local != null)) return;
+                        if (tb <= ta || (local != null && local.Count >= maxPairs)) return;
                         Triangle3d B = triangle(mesh, tb);
                         if (ExactTriangleIntersection.IsDegenerate(ref B)) return;
                         if (ExactTriangleIntersection.IntersectsBeyondShared(ia, ref A, mesh.GetTriangle(tb), ref B)) {
@@ -73,7 +82,7 @@ namespace gs
                 });
                 if (local != null) {
                     lock (lockObj) pairs.AddRange(local);
-                    System.Threading.Volatile.Write(ref found, 1);
+                    System.Threading.Interlocked.Add(ref found, local.Count);
                 }
             });
             pairs.Sort((x, y) => x.a != y.a ? x.a.CompareTo(y.a) : x.b.CompareTo(y.b));

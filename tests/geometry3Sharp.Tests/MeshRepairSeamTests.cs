@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using g3;
@@ -171,6 +171,47 @@ namespace geometry3Sharp.Tests
             Assert.True(r.IsClosed());
             Assert.Equal(0, InconsistentEdges(r));
             Assert.True(ExactMeshBoolean.IsWindingClosed(r));
+        }
+
+        [Fact]
+        public void AutoRepair_OrientableClosedInput_Unchanged()
+        {
+            // nothing to cut: a closed, consistently oriented mesh keeps its triangles and their orientation
+            DMesh3 mesh = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 8 }.Generate().MakeDMesh();
+            Func<DMesh3, HashSet<string>> tris = (m) => new HashSet<string>(m.TriangleIndices().Select(tid => {
+                Index3i t = m.GetTriangle(tid);
+                Vector3d a = m.GetVertex(t.a), b = m.GetVertex(t.b), c = m.GetVertex(t.c);
+                // rotation-invariant key of the oriented triangle
+                var r = new[] { a + "|" + b + "|" + c, b + "|" + c + "|" + a, c + "|" + a + "|" + b };
+                Array.Sort(r, StringComparer.Ordinal);
+                return r[0];
+            }));
+            var before = tris(mesh);
+            var repair = new MeshAutoRepair(new DMesh3(mesh));
+            var stages = new List<string>();
+            repair.OnStage = (name, m) => stages.Add(name);
+            Assert.True(repair.Apply());
+            Assert.True(before.SetEquals(tris(repair.Mesh)));
+            Assert.DoesNotContain("cut_seams", stages);
+            Assert.DoesNotContain("cut_seams_final", stages);
+        }
+
+        [Fact]
+        public void AutoRepair_CutOrientationSeamsOff_LikeBefore()
+        {
+            // the option restores the earlier behaviour: the closed non-orientable mesh is not cut
+            DMesh3 mesh = Moebius(30, 3);
+            int[] loop = new MeshBoundaryLoops(mesh).Loops[0].Vertices;
+            int apex = mesh.AppendVertex(new Vector3d(0, 0, 3));
+            for (int i = 0; i < loop.Length; ++i)
+                mesh.AppendTriangle(loop[i], loop[(i + 1) % loop.Length], apex);
+            var repair = new MeshAutoRepair(mesh) { CutOrientationSeams = false };
+            var stages = new List<string>();
+            repair.OnStage = (name, m) => stages.Add(name);
+            Assert.True(repair.Apply());
+            Assert.DoesNotContain("cut_seams_final", stages);
+            Assert.True(InconsistentEdges(repair.Mesh) > 0);
+            Assert.False(ExactMeshBoolean.IsWindingClosed(repair.Mesh));
         }
 
         [Fact]

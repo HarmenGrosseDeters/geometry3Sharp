@@ -79,6 +79,16 @@ namespace gs
         /// Smoothed: SmoothedHoleFill (fan fill, remesh to the average border edge length, laplacian
         /// smooth, boundary kept fixed) for holes with more than 4 vertices, falls back to Minimal.
         /// </summary>
+        /// <summary>
+        /// Non-orientable regions: if true (default), the orientation keeps a short seam
+        /// (MeshRepairOrientation.KeepShortSeams), and the mesh is cut open along it before the hole filling, so that
+        /// holes at the seam are filled instead of eroded, and once more at the end for closed non-orientable meshes
+        /// (kept only if the mesh is closed again afterwards): the result is closed in the winding number sense
+        /// (ExactMeshBoolean.IsWindingClosed) where possible. false: as geometry3Sharp 1.0.324 (depth-first
+        /// orientation, holes at a seam are left to the erosion and the last-resort fill).
+        /// </summary>
+        public bool CutOrientationSeams = true;
+
         public enum HoleFillModes { Minimal = 0, Smoothed = 1 }
         /// <summary> hole filling strategy for non-trivial holes (holes with 3 or 4 vertices always use the minimal fill) </summary>
         public HoleFillModes HoleFillMode = HoleFillModes.Minimal;
@@ -186,7 +196,7 @@ namespace gs
              * it ends at runs against the boundary orientation and is not filled (see fill_any_holes),
              * so cut the mesh open along the seam: then it is orientable and its holes can be filled.
              */
-            if (cut_orientation_seams() > 0) {
+            if (CutOrientationSeams && cut_orientation_seams() > 0) {
                 repair_orientation(false);
                 // coincident boundary edges that now run in opposite directions (eg the two sides of a slit
                 // left by the cut) are joined again; MergeEdges never joins edges that run the same way
@@ -281,12 +291,20 @@ namespace gs
             /*
              * A closed mesh can still be non-orientable (eg two sheets welded with opposite orientations):
              * then its seam is a cycle of inconsistent edges and the mesh does not bound a solid. Cut it
-             * open there and close both sides of the cut separately.
+             * open there and fill the holes: two loops at the same position if the seam is two-sided, one loop
+             * running twice over it if it is one-sided (eg a projective plane). The fills can coincide or
+             * overlap, which the exact resolve of MeshRobustRepair handles; if the mesh is not closed afterwards,
+             * the uncut mesh is kept.
              */
-            if (cut_orientation_seams() > 0) {
+            if (CutOrientationSeams && Mesh.IsClosed() && has_orientation_seams()) {
+                DMesh3 uncut = new DMesh3(Mesh);
+                cut_orientation_seams();
                 repair_orientation(false);
                 fill_trivial_holes(out nHoles, out bSawSpans);
                 fill_any_holes(out nHoles, out bSawSpans);
+                // a cut side that could not be filled: keep the closed, non-orientable mesh
+                if (Mesh.IsClosed() == false)
+                    Mesh = uncut;
                 stage("cut_seams_final");
             }
                 if (Cancelled()) return false;
@@ -493,7 +511,7 @@ namespace gs
 
         void repair_orientation(bool bGlobal)
         {
-            MeshRepairOrientation orient = new MeshRepairOrientation(Mesh);
+            MeshRepairOrientation orient = new MeshRepairOrientation(Mesh) { KeepShortSeams = CutOrientationSeams };
             orient.OrientComponents();
             if (Cancelled()) return;
             if (bGlobal)
@@ -537,9 +555,20 @@ namespace gs
         /// <summary>
         /// Cut the mesh open along its interior edges whose two triangles run through them in the same
         /// direction (the seams OrientComponents leaves in non-orientable components). Returns the number
-        /// of edges cut.
+        /// of vertices added (0: nothing could be cut).
         /// </summary>
         int cut_orientation_seams()
+        {
+            List<int> seams = orientation_seams();
+            if (seams.Count == 0)
+                return 0;
+            return new MeshEditor(Mesh).CutAlongEdges(seams);
+        }
+        bool has_orientation_seams()
+        {
+            return orientation_seams().Count > 0;
+        }
+        List<int> orientation_seams()
         {
             List<int> seams = new List<int>();
             foreach (int eid in Mesh.EdgeIndices()) {
@@ -552,10 +581,7 @@ namespace gs
                     == (IndexUtil.find_tri_ordered_edge(ev.a, ev.b, ref tb) != DMesh3.InvalidID))
                     seams.Add(eid);
             }
-            if (seams.Count == 0)
-                return 0;
-            new MeshEditor(Mesh).CutAlongEdges(seams);
-            return seams.Count;
+            return seams;
         }
 
 

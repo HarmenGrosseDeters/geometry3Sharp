@@ -67,6 +67,22 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void EmptyRepairResult_InputResolvedOnly()
+        {
+            // an empty repair result is not resolved: the exact stage starts from the input right away, with as
+            // many rounds as for the input on its own
+            var own = new MeshRobustRepair(OverlappingSpheres()) { RepairF = (m) => new DMesh3(m) };
+            Assert.True(own.Apply());
+            var r = new MeshRobustRepair(OverlappingSpheres()) { RepairF = (m) => new DMesh3() };
+            Assert.True(r.Apply());
+            Assert.Equal("empty", r.FallbackReason);
+            Assert.True(r.UsedInput);
+            Assert.True(r.UsedExactResolve, r.ExactResolveReason);
+            Assert.Equal("", r.ExactResolveReason);
+            Assert.Equal(own.ExactResolveRoundsUsed, r.ExactResolveRoundsUsed);
+        }
+
+        [Fact]
         public void TooManySelfIntersections_SolidifiedInsteadOfResolved()
         {
             // the exact resolve takes too long for heavily overlapping meshes: above ExactResolveMaxPairs the
@@ -391,6 +407,7 @@ namespace geometry3Sharp.Tests
             Assert.True(r.Apply());
             Assert.True(r.UsedExactResolve, r.FallbackReason + " / " + r.ExactResolveReason);
             Assert.False(r.UsedSolidify);
+            Assert.False(r.UsedInput);      // the repair result was resolved, not the input
             Assert.Equal(outer, Volume(r.Mesh), 6);
             Assert.Equal("", MeshRobustRepair.NotCleanReason(r.Mesh));
         }
