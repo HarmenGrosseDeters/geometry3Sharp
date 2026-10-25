@@ -124,8 +124,8 @@ namespace g3
                 for (int iter = 0; iter < nIterations; ++iter) {
                     for (int ii = iStart; ii < iEnd; ++ii) {
                         int i = (ii % N);
-                        int iPrev = (ii == 0) ? N - 1 : ii - 1;
-                        int iNext = (ii + 1) % N;
+                        int iPrev = (i == 0) ? N - 1 : i - 1;
+                        int iNext = (i + 1) % N;
                         Vector3d prev = vertices[iPrev], next = vertices[iNext];
                         Vector3d c = (prev + next) * 0.5f;
                         vertices[i] = (1 - alpha) * vertices[i] + (alpha) * c;
@@ -165,8 +165,8 @@ namespace g3
                 for (int iter = 0; iter < nIterations; ++iter) {
                     for (int ii = iStart; ii < iEnd; ++ii) {
                         int i = (ii % N);
-                        int iPrev = (ii == 0) ? N - 1 : ii - 1;
-                        int iNext = (ii + 1) % N;
+                        int iPrev = (i == 0) ? N - 1 : i - 1;
+                        int iNext = (i + 1) % N;
                         Vector3d prev = vertices[iPrev], next = vertices[iNext];
                         Vector3d c = (prev + next) * 0.5f;
                         buffer[i] = (1 - alpha) * vertices[i] + (alpha) * c;
@@ -177,16 +177,18 @@ namespace g3
                     }
                 }
             } else {
+                // the endpoints of an open curve stay fixed (and are not computed into the buffer)
                 for (int iter = 0; iter < nIterations; ++iter) {
-                    for (int i = iStart; i <= iEnd; ++i) {
+                    for (int i = iStart; i < iEnd; ++i) {
                         if (i == 0 || i >= N - 1)
                             continue;
                         Vector3d prev = vertices[i - 1], next = vertices[i + 1];
                         Vector3d c = (prev + next) * 0.5f;
                         buffer[i] = (1 - alpha) * vertices[i] + (alpha) * c;
                     }
-                    for (int ii = iStart; ii < iEnd; ++ii) {
-                        int i = (ii % N);
+                    for (int i = iStart; i < iEnd; ++i) {
+                        if (i == 0 || i >= N - 1)
+                            continue;
                         vertices[i] = buffer[i];
                     }
                 }

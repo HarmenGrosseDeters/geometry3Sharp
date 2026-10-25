@@ -87,6 +87,7 @@ namespace g3
             b2.mKnot = (double[])this.mKnot.Clone();
             b2.mOpen = this.mOpen;
             b2.mUniform = this.mUniform;
+            b2.mBD0 = b2.Allocate();        // derivative buffers mBD1..3 are allocated on demand
             return b2;
         }
 

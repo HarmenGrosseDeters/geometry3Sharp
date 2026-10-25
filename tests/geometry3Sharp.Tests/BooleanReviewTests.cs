@@ -85,5 +85,38 @@ namespace geometry3Sharp.Tests
             double d = u.Result.VertexIndices().Min(v => u.Result.GetVertex(v).Distance(corner));
             Assert.True(d < 0.05 * cell, $"corner moved by {d / cell:F2} cells");
         }
+
+        [Fact]
+        public void Difference_WithSlightlyTurnedCopy_NoSplinters()
+        {
+            // A minus A turned by 0.2 degrees: only thin wedges remain, no closed components without volume
+            DMesh3 a = Box(Vector3d.Zero, 10 * Vector3d.One);
+            DMesh3 b = new DMesh3(a);
+            MeshTransforms.Rotate(b, 5 * Vector3d.One, Quaterniond.AxisAngleD(new Vector3d(1, 2, 3).Normalized, 0.2));
+            double cell = 0.2;
+            var d = new MeshWindingNumberBoolean(a, b, MeshWindingNumberBoolean.Operations.Difference) { CellSize = cell };
+            Assert.True(d.Compute());
+            var comps = new MeshConnectedComponents(d.Result);
+            comps.FindConnectedT();
+            foreach (var c in comps.Components) {
+                Vector2d va = MeshMeasurements.VolumeArea(d.Result, c.Indices, d.Result.GetVertex);
+                Assert.True(Math.Abs(va.x) >= 0.01 * cell * va.y, $"component of {c.Indices.Length} triangles: volume {va.x}, area {va.y}");
+            }
+        }
+
+        [Fact]
+        public void RemoveSplinters_RemovesOnlyComponentsWithoutVolume()
+        {
+            double cell = 0.1;
+            DMesh3 m = Box(Vector3d.Zero, 10 * Vector3d.One);                                   // kept
+            MeshEditor.Append(m, Box(new Vector3d(20, 0, 0), new Vector3d(21, 1, 0.001)));     // 1% of a cell thick: removed
+            MeshEditor.Append(m, Box(new Vector3d(30, 0, 0), new Vector3d(30.01, 0.01, 0.01))); // tiny: removed
+            MeshEditor.Append(m, Box(new Vector3d(40, 0, 0), new Vector3d(41, 1, 0.05)));      // half a cell thick: kept
+            int n = WindingContouring.RemoveSplinters(m, cell);
+            Assert.Equal(2, n);
+            var comps = new MeshConnectedComponents(m);
+            comps.FindConnectedT();
+            Assert.Equal(2, comps.Count);
+        }
     }
 }

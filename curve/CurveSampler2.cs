@@ -55,8 +55,10 @@ namespace g3 {
 
 			VectorArray2d vec = new VectorArray2d(nSteps);
 
+            // a closed curve ends where it starts, so the last sample would repeat the first one
+            double divide = (curve.IsClosed) ? (double)nSteps : (double)(nSteps - 1);
 			for ( int i = 0; i < nSteps; ++i ) {
-				double t = (double)i / (double)(nSteps-1);
+				double t = (double)i / divide;
 				vec[i] = curve.SampleT(t * fLenT);
 			}
 
@@ -80,8 +82,10 @@ namespace g3 {
 
 			VectorArray2d vec = new VectorArray2d(nSteps);
 
+            // a closed curve ends where it starts, so the last sample would repeat the first one
+            double divide = (curve.IsClosed) ? (double)nSteps : (double)(nSteps - 1);
 			for ( int i = 0; i < nSteps; ++i ) {
-				double t = (double)i / (double)(nSteps-1);
+				double t = (double)i / divide;
 				vec[i] = curve.SampleArcLength(t * fLen);
 			}
 

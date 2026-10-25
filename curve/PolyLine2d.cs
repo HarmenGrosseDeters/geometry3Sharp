@@ -390,13 +390,16 @@ namespace g3
 
         public bool IsClosed { get { return false; } }
 
-        // can call SampleT in range [0,ParamLength]
-        public double ParamLength { get { return Polyline.VertexCount; } }
+        // can call SampleT in range [0,ParamLength]: segment i (from vertex i to i+1) is the interval [i,i+1]
+        public double ParamLength { get { return Polyline.VertexCount - 1; } }
         public Vector2d SampleT(double t)
         {
-            int i = (int)t;
-            if (i >= Polyline.VertexCount - 1)
-                return Polyline[Polyline.VertexCount - 1];
+            int N = Polyline.VertexCount;
+            int i = (int)Math.Floor(t);
+            if (i < 0)
+                return Polyline[0];
+            if (i >= N - 1)
+                return Polyline[N - 1];
             Vector2d a = Polyline[i];
             Vector2d b = Polyline[i + 1];
             double alpha = t - (double)i;
@@ -404,7 +407,9 @@ namespace g3
         }
         public Vector2d TangentT(double t)
         {
-            throw new NotImplementedException("Polygon2dCurve.TangentT");
+            int N = Polyline.VertexCount;
+            int i = MathUtil.Clamp((int)Math.Floor(t), 0, N - 2);
+            return (Polyline[i + 1] - Polyline[i]).Normalized;
         }
 
         public bool HasArcLength { get { return true; } }
@@ -414,7 +419,17 @@ namespace g3
 
         public Vector2d SampleArcLength(double a)
         {
-            throw new NotImplementedException("Polygon2dCurve.SampleArcLength");
+            int N = Polyline.VertexCount;
+            if (a <= 0)
+                return Polyline[0];
+            for (int i = 0; i < N - 1; ++i) {
+                Vector2d p0 = Polyline[i], p1 = Polyline[i + 1];
+                double len = p0.Distance(p1);
+                if (a <= len)
+                    return (len > 0) ? Vector2d.Lerp(p0, p1, a / len) : p0;
+                a -= len;
+            }
+            return Polyline[N - 1];
         }
 
         public void Reverse()

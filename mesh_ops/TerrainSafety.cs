@@ -215,11 +215,11 @@ namespace gs
     ///     distance; between them, around convex corners and line ends, the chords of the arcs lie at
     ///     most Tolerance inside it.
     ///   - AlongSurface: the geodesic distance along the terrain (heat method), on the band within
-    ///     3 x SafetyDistance of the sources, cut out and remeshed to EdgeLength (default SafetyDistance / 10)
+    ///     3 x SafetyDistance of the sources, cut out and remeshed to EdgeLength (default SafetyDistance / 8)
     ///     with its boundary and break lines kept; RemeshedTerrain and Geodesic.Distance give the distance
-    ///     field there. The heat method overestimates the distance next to break lines (by about 0.1 x
+    ///     field there. The heat method overestimates the distance next to break lines (by up to about 0.27 x
     ///     EdgeLength in tests with 75 degree faces), which would put the line too close to the crest:
-    ///     the line is drawn at SafetyDistance + SafetyMargin (default 0.25 x EdgeLength), on the safe side.
+    ///     the line is drawn at SafetyDistance + SafetyMargin (default 0.35 x EdgeLength), on the safe side.
     /// </summary>
     public class TerrainSafetyLines
     {
@@ -230,9 +230,9 @@ namespace gs
         /// <summary> source points (on the terrain); polylines are densified </summary>
         public List<Vector3d> SourcePoints = new List<Vector3d>();
         public double SafetyDistance;
-        /// <summary> AlongSurface: edge length for the distance computation; 0 = SafetyDistance / 10 </summary>
+        /// <summary> AlongSurface: edge length for the distance computation; 0 = SafetyDistance / 8 </summary>
         public double EdgeLength = 0;
-        /// <summary> AlongSurface: the line is drawn at SafetyDistance + SafetyMargin; negative = 0.25 x EdgeLength </summary>
+        /// <summary> AlongSurface: the line is drawn at SafetyDistance + SafetyMargin; negative = 0.35 x EdgeLength </summary>
         public double SafetyMargin = -1;
         /// <summary> AlongSurface: break lines bending more than this (degrees) are kept by the remeshing </summary>
         public double FeatureAngle = 20;
@@ -352,7 +352,7 @@ namespace gs
         bool compute_along_surface()
         {
             Lines.Clear();
-            double h = (EdgeLength > 0) ? EdgeLength : SafetyDistance / 10;
+            double h = (EdgeLength > 0) ? EdgeLength : SafetyDistance / 8;
             if (h <= 0)
                 return false;
 
@@ -419,7 +419,7 @@ namespace gs
             if (Geodesic.Compute(sources) == false)
                 return false;
             double[] dist = Geodesic.Distance;
-            double level = SafetyDistance + ((SafetyMargin >= 0) ? SafetyMargin : 0.25 * h);
+            double level = SafetyDistance + ((SafetyMargin >= 0) ? SafetyMargin : 0.35 * h);
             var iso = new MeshIsoCurves(mesh, (v) => 0) {
                 // NaN: not reachable from a source
                 VertexValueF = (vid) => double.IsNaN(dist[vid]) ? SafetyDistance : dist[vid] - level,

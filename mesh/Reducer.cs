@@ -64,6 +64,14 @@ namespace g3
         /// Not covered: the projection of a ProjectionTarget (Reproject) after the collapses.
         /// </summary>
         public double MaxDeviation = 0;
+
+        /// <summary>
+        /// If set, a collapse is only done if its new triangles intersect no other triangle (exact test,
+        /// ExactTriangleIntersection.IntersectsBeyondShared, against a grid of the current triangles), so
+        /// the reduction cannot push the surface through nearby parts of itself (thin walls, narrow gaps).
+        /// Folds are prevented by the usual flip check. Costs about 2-3x the reduction time.
+        /// </summary>
+        public bool PreventSelfIntersections = false;
         /// <summary> subdivision depth for the MaxDeviation check; deeper certifies more collapses </summary>
         public int MaxDeviationDepth = 10;
 
@@ -126,6 +134,7 @@ namespace g3
 
             begin_setup();
             ensure_deviation_reference();
+            ensure_triangle_grid();
             Precompute();
             if (Cancelled())
                 return;
@@ -238,6 +247,7 @@ namespace g3
             MinEdgeLength = fMinEdgeLength;
             double min_sqr = MinEdgeLength * MinEdgeLength;
             ensure_deviation_reference();
+            ensure_triangle_grid();
 
             // we don't collapse on the boundary
             HaveBoundary = false;
@@ -317,6 +327,90 @@ namespace g3
         {
             deviationTarget = new DMeshAABBTree3(new DMesh3(reference), true);
             deviationBounds = new TriangleDeviationBounds(deviationTarget.Mesh);
+        }
+
+        // current triangles by grid cell, for PreventSelfIntersections
+        protected TriangleHashGrid triangleGrid;
+        protected HashSet<int> gridRingTris = new HashSet<int>();
+
+        protected void ensure_triangle_grid()
+        {
+            if (PreventSelfIntersections == false) {
+                triangleGrid = null;
+                return;
+            }
+            double sum = 0; int n = 0;
+            foreach (int eid in mesh.EdgeIndices()) {
+                Index2i ev = mesh.GetEdgeV(eid);
+                sum += mesh.GetVertex(ev.a).Distance(mesh.GetVertex(ev.b)); n++;
+            }
+            triangleGrid = new TriangleHashGrid(mesh.CachedBounds.Min, Math.Max(1.5 * sum / Math.Max(1, n), MathUtil.ZeroTolerance));
+            foreach (int tid in mesh.TriangleIndices())
+                triangleGrid.Insert(tid, tri_box(tid));
+        }
+
+        AxisAlignedBox3d tri_box(int tid)
+        {
+            Vector3d p0 = Vector3d.Zero, p1 = Vector3d.Zero, p2 = Vector3d.Zero;
+            mesh.GetTriVertices(tid, ref p0, ref p1, ref p2);
+            var box = new AxisAlignedBox3d(p0); box.Contain(p1); box.Contain(p2);
+            return box;
+        }
+
+        // the triangles around a and b after collapsing to vKeep at newPos: does one of them intersect a
+        // triangle outside the two one-rings (or another new triangle beyond their shared vertex)?
+        protected bool collapse_creates_intersection(int a, int b, int vKeep, Vector3d newPos)
+        {
+            gridRingTris.Clear();
+            foreach (int tid in mesh.VtxTrianglesItr(a)) gridRingTris.Add(tid);
+            foreach (int tid in mesh.VtxTrianglesItr(b)) gridRingTris.Add(tid);
+            var newIds = new List<Index3i>();
+            var newTris = new List<Triangle3d>();
+            foreach (int tid in gridRingTris) {
+                Index3i t = mesh.GetTriangle(tid);
+                bool hasA = t.a == a || t.b == a || t.c == a, hasB = t.a == b || t.b == b || t.c == b;
+                if (hasA && hasB) continue;     // removed by the collapse
+                Index3i nt = t;
+                for (int k = 0; k < 3; ++k)
+                    if (nt[k] == a || nt[k] == b) nt[k] = vKeep;
+                Triangle3d tri = new Triangle3d(
+                    nt.a == vKeep ? newPos : mesh.GetVertex(nt.a), nt.b == vKeep ? newPos : mesh.GetVertex(nt.b), nt.c == vKeep ? newPos : mesh.GetVertex(nt.c));
+                if (ExactTriangleIntersection.IsDegenerate(ref tri)) continue;
+                newIds.Add(nt); newTris.Add(tri);
+            }
+            for (int i = 0; i < newTris.Count; ++i) {
+                Triangle3d A = newTris[i];
+                Index3i ia = newIds[i];
+                for (int j = i + 1; j < newTris.Count; ++j) {
+                    Triangle3d B = newTris[j];
+                    if (ExactTriangleIntersection.IntersectsBeyondShared(ia, ref A, newIds[j], ref B))
+                        return true;
+                }
+                AxisAlignedBox3d box = new AxisAlignedBox3d(A.V0); box.Contain(A.V1); box.Contain(A.V2);
+                bool hit = false;
+                triangleGrid.Query(box, (tc) => {
+                    if (hit || gridRingTris.Contains(tc) || mesh.IsTriangle(tc) == false) return;
+                    AxisAlignedBox3d cbox;
+                    if (triangleGrid.TryGetBox(tc, out cbox) && cbox.Intersects(box) == false) return;
+                    Index3i ic = mesh.GetTriangle(tc);
+                    Triangle3d C = new Triangle3d(mesh.GetVertex(ic.a), mesh.GetVertex(ic.b), mesh.GetVertex(ic.c));
+                    if (ExactTriangleIntersection.IsDegenerate(ref C)) return;
+                    if (ExactTriangleIntersection.IntersectsBeyondShared(ia, ref A, ic, ref C))
+                        hit = true;
+                });
+                if (hit)
+                    return true;
+            }
+            return false;
+        }
+
+        // after a collapse: the triangles of the old one-rings (in gridRingTris) are gone or changed
+        protected void update_triangle_grid(int vKeep)
+        {
+            foreach (int tid in gridRingTris)
+                triangleGrid.Remove(tid);
+            foreach (int tid in mesh.VtxTrianglesItr(vKeep))
+                triangleGrid.Insert(tid, tri_box(tid));
         }
 
         protected void ensure_deviation_reference()
@@ -677,7 +771,8 @@ namespace g3
 			Ignored_CreatesFlip = 5,
 			Failed_OpNotSuccessful = 6,
 			Failed_NotAnEdge = 7,
-			Ignored_ExceedsDeviation = 8
+			Ignored_ExceedsDeviation = 8,
+			Ignored_CreatesIntersection = 9
 		};
 
 		protected virtual ProcessResult CollapseEdge(int edgeID, Vector3d vNewPos, out int collapseToV) 
@@ -763,6 +858,10 @@ namespace g3
                 retVal = ProcessResult.Ignored_ExceedsDeviation;
                 goto skip_to_end;
             }
+            if (PreventSelfIntersections && collapse_creates_intersection(a, b, iKeep, vNewPos)) {
+                retVal = ProcessResult.Ignored_CreatesIntersection;
+                goto skip_to_end;
+            }
 
             // lots of cases where we cannot collapse, but we should just let
             // mesh sort that out, right?
@@ -772,6 +871,8 @@ namespace g3
 			if ( result == MeshResult.Ok ) {
 				collapseToV = iKeep;
 				mesh.SetVertex(iKeep, vNewPos);
+                if (triangleGrid != null)
+                    update_triangle_grid(iKeep);
                 if (constraints != null) {
                     constraints.ClearEdgeConstraint(edgeID);
                     constraints.ClearEdgeConstraint(collapseInfo.eRemoved0);

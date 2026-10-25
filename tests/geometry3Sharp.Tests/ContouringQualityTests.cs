@@ -59,5 +59,58 @@ namespace geometry3Sharp.Tests
             Assert.True(dev.Count(d => d > 0.02 * cell) <= 20, $"{dev.Count(d => d > 0.02 * cell)} of {dev.Count} vertices off the input");
             Assert.True(r.TriangleCount < 1000, $"{r.TriangleCount} triangles");
         }
-    }
+
+        [Theory]
+        [InlineData(0.05)]
+        [InlineData(0.2)]
+        [InlineData(1.0)]
+        public void PostProcessReduction_NoNewSelfIntersections(double tol)
+        {
+            // a thin wavy slab, finely tessellated: reduction can push the two sides through each other;
+            // the post-processing then reduces again with every collapse checked
+            DMesh3 slab = new GridBox3Generator() { Box = new Box3d(Vector3d.Zero, new Vector3d(5, 5, 0.02)), EdgeVertices = 40 }.Generate().MakeDMesh();
+            foreach (int vid in slab.VertexIndices().ToArray()) {
+                Vector3d v = slab.GetVertex(vid);
+                slab.SetVertex(vid, new Vector3d(v.x, v.y, v.z + 0.3 * Math.Sin(1.3 * v.x) * Math.Cos(1.1 * v.y)));
+            }
+            Assert.Equal(0, MeshRepairMetrics.SelfIntersections(slab));
+            DMesh3 result = WindingContouring.PostProcess(new DMesh3(slab), false, tol, 1.0, () => false, (name) => { });
+            Assert.True(result.TriangleCount < slab.TriangleCount);
+            Assert.Equal(0, MeshRepairMetrics.SelfIntersections(result));
+        }
+    
+        // open, non-orientable: the winding number jumps across the strip, sheets of the contour pass close
+        // to each other in few cells (no sharp features)
+        static DMesh3 MoebiusStrip(int n = 200, int w = 6)
+        {
+            DMesh3 m = new DMesh3();
+            for (int i = 0; i < n; ++i)
+                for (int j = 0; j < w; ++j) {
+                    double u = 2 * Math.PI * i / n, v = -0.4 + 0.8 * j / (w - 1), r = 1 + v * Math.Cos(u / 2);
+                    m.AppendVertex(new Vector3d(r * Math.Cos(u), r * Math.Sin(u), v * Math.Sin(u / 2)));
+                }
+            for (int i = 0; i < n; ++i)
+                for (int j = 0; j < w - 1; ++j) {
+                    int i1 = (i + 1) % n;
+                    int a = i * w + j, b = i * w + j + 1, c = i1 * w + j, d = i1 * w + j + 1;
+                    if (i1 == 0) { c = w - 1 - j; d = w - 2 - j; }     // the half twist
+                    m.AppendTriangle(a, c, d);
+                    m.AppendTriangle(a, d, b);
+                }
+            return m;
+        }
+
+        [Theory]
+        [InlineData(0.0)]
+        [InlineData(0.05)]
+        public void NonOrientableInput_NoSelfIntersections(double reduceTol)
+        {
+            // (233 intersecting pairs when only triangles around feature vertices were checked)
+            var solid = new MeshWindingNumberSolidify(MoebiusStrip()) { GridResolution = 64, Adaptive = true, ReduceTolerance = reduceTol };
+            Assert.True(solid.Compute());
+            Assert.True(solid.Result.TriangleCount > 1000);
+            Assert.True(solid.Result.IsClosed());
+            Assert.Equal(0, MeshRepairMetrics.SelfIntersections(solid.Result));
+        }
+}
 }
