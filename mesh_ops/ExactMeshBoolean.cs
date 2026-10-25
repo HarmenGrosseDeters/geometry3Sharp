@@ -445,7 +445,8 @@ namespace g3
                 windingTrees[mesh] = new DMeshAABBTree3(m, true);
                 windingTrees[mesh].FastWindingNumber(Vector3d.Zero);
             }
-            Vector3d pv = arr.PointToVector(centroid(ot));
+            // (the generalized winding number is approximate: the centroid of the corners in doubles is enough)
+            Vector3d pv = (arr.PointToVector(ot.A) + arr.PointToVector(ot.B) + arr.PointToVector(ot.C)) / 3;
             double w = windingTrees[mesh].FastWindingNumber(pv);
             List<int> on = stack ?? new List<int>() { ot.Source };
             foreach (int ti in on) {
