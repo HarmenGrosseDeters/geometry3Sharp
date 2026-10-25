@@ -72,3 +72,18 @@ if wrap:
     print(f"\n{runs[0][0]} status: {st}")
     bad = [k for k in common if not guarantees(rs[k])]
     print(f"guarantees not met: {len(bad)} {[(k, rs[k].get('status'), rs[k].get('wrap_status'), rs[k].get('error', rs[k].get('wrap_error'))) for k in bad[:10]]}")
+
+if len(runs) >= 2:
+    # paired, per mesh: first run against the second (eg wrap against cgalwrap)
+    (na, ra), (nb, rb) = runs[0], runs[1]
+    both = [k for k in common if get(ra[k], 'repair_ms', 0) > 0 and get(rb[k], 'repair_ms', 0) > 0 and 'after_tris' in ra[k] and 'after_tris' in rb[k]]
+    if both:
+        tr = [ra[k]['repair_ms'] / rb[k]['repair_ms'] for k in both]
+        nr = [ra[k]['after_tris'] / max(1, rb[k]['after_tris']) for k in both]
+        sa, sb = sum(ra[k]['repair_ms'] for k in both) / 1000, sum(rb[k]['repair_ms'] for k in both) / 1000
+        print(f"\n{na} / {nb}, per mesh ({len(both)} meshes):")
+        print(f"  time ratio: median {q(tr, .5):.2f}, p10 {q(tr, .1):.2f}, p90 {q(tr, .9):.2f}; total {sa:.1f} s / {sb:.1f} s")
+        print(f"  triangle ratio: median {q(nr, .5):.2f}, p10 {q(nr, .1):.2f}, p90 {q(nr, .9):.2f}")
+        us = [1000 * ra[k]['repair_ms'] / max(1, ra[k]['after_tris']) for k in both]
+        ub = [1000 * rb[k]['repair_ms'] / max(1, rb[k]['after_tris']) for k in both]
+        print(f"  microseconds per output triangle: median {q(us, .5):.1f} / {q(ub, .5):.1f}")
