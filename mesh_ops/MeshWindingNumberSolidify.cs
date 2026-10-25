@@ -74,6 +74,8 @@ namespace gs
         public int WindingEvaluations;
         /// <summary> hidden gap edges in the final result (0 = none), and the cell size it was computed with </summary>
         public int HiddenGapEdges;
+        /// <summary> hidden gap edges at each refinement level </summary>
+        public List<int> GapEdgesPerLevel = new List<int>();
         public double UsedCellSize;
         /// <summary> milliseconds per phase of the last Compute(), eg "winding", "contour", "cleanup", "reduce" </summary>
         public Dictionary<string, long> PhaseMilliseconds = new Dictionary<string, long>();
@@ -116,6 +118,7 @@ namespace gs
                 WindingEvaluations = wc.WindingEvaluations;
                 NonManifoldTriangles = wc.NonManifoldTriangles;
                 HiddenGapEdges = wc.HiddenGapEdges;
+            GapEdgesPerLevel = new List<int>(wc.GapEdgesPerLevel);
                 end_phase("contour");
             } else {
                 contour = compute_grid(cellSize);

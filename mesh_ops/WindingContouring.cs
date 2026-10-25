@@ -25,6 +25,11 @@ namespace gs
         public int NonManifoldTriangles;
         public int WindingEvaluations;
         public int HiddenGapEdges;
+        /// <summary> hidden gap edges whose gap is at least MinFixableGapWidth wide (refining can resolve them) </summary>
+        public int FixableGapEdges;
+        public double MinFixableGapWidth = 0;
+        /// <summary> hidden gap edges at each refinement level of ContourRefined </summary>
+        public List<int> GapEdgesPerLevel = new List<int>();
 
 
         /// <summary>
@@ -89,9 +94,11 @@ namespace gs
             dc.HermiteF = (Vector3d a, Vector3d b, Vector3d p, out Vector3d point, out Vector3d normal) =>
                 Hermite(cellSize, a, b, p, out point, out normal);
             dc.HiddenGapF = (a, b) => HiddenGap(cellSize, a, b);
+            fixableGaps = 0;
             dc.Generate();
             WindingEvaluations = octree.WindingEvaluations;
             HiddenGapEdges = dc.HiddenGapEdges;
+            FixableGapEdges = fixableGaps;
             if (CancelF())
                 return null;
             NonManifoldTriangles = dc.NonManifoldTriangles;
@@ -101,20 +108,31 @@ namespace gs
         }
 
         /// <summary>
-        /// ContourAdaptive, refined for hidden gaps: while the result has hidden gap edges, halve the cell
-        /// size and recompute. Once they are gone the gap is only about one cell wide, and the surfaces on
-        /// both sides can still cut through each other (dual contouring needs about two cells across a gap),
-        /// so one more level is added. At most maxLevels halvings; cellSize returns the size used.
+        /// ContourAdaptive, refined for hidden gaps: while the result has hidden gap edges that the remaining
+        /// halvings can resolve (gaps at least cellSize / 2^levelsLeft wide), halve the cell size and
+        /// recompute. Narrower gaps (eg between nearly touching layers of open meshes) are not worth the
+        /// work: each level costs about 4x. Once the gaps are gone the gap is only about one cell wide, and
+        /// the surfaces on both sides can still cut through each other (dual contouring needs about two cells
+        /// across a gap), so one more level is added. Refinement also stops when a level did not reduce the
+        /// fixable gap edges (they are not gaps that a finer grid resolves). At most maxLevels halvings;
+        /// cellSize returns the size used.
         /// </summary>
         public DMesh3 ContourRefined(ref double cellSize, int maxLevels)
         {
+            MinFixableGapWidth = cellSize / Math.Pow(2, maxLevels);
             DMesh3 contour = ContourAdaptive(cellSize);
             int evaluations = WindingEvaluations;
+            GapEdgesPerLevel.Clear();
+            GapEdgesPerLevel.Add(HiddenGapEdges);
             bool hadGaps = false, extraDone = false;
+            int prevFixable = int.MaxValue;
             for (int level = 0; level < maxLevels && contour != null; ++level) {
-                if (HiddenGapEdges > 0)
+                if (FixableGapEdges > 0 && FixableGapEdges >= prevFixable)
+                    break;
+                prevFixable = FixableGapEdges;
+                if (FixableGapEdges > 0)
                     hadGaps = true;
-                else if (!hadGaps || extraDone)
+                else if (!hadGaps || extraDone || HiddenGapEdges > 0)
                     break;
                 else
                     extraDone = true;
@@ -123,6 +141,7 @@ namespace gs
                 cellSize *= 0.5;
                 contour = ContourAdaptive(cellSize);
                 evaluations += WindingEvaluations;
+                GapEdgesPerLevel.Add(HiddenGapEdges);
             }
             WindingEvaluations = evaluations;
             return contour;
@@ -224,10 +243,10 @@ namespace gs
         /// <summary>
         /// For a grid edge with both ends inside: true if the field drops below the iso-value between two
         /// roughly parallel input surfaces on the edge, ie the edge crosses a gap the node signs cannot see.
-        /// Not counted: surfaces at a steeper angle, and surfaces whose planes meet within a few cells (the
-        /// thin outside wedge at a concave crease, eg where the two inputs of a union meet at a small angle).
-        /// Dual contouring handles those, and refining would not remove them: a wedge is narrower than a
-        /// cell near its apex at any cell size.
+        /// Not counted: surfaces at a steeper angle, and the apex of a wedge between surfaces that meet (eg
+        /// where the two inputs of a union meet at a small angle): at any cell size the wedge is narrower
+        /// than a cell over the same number of cells near its apex, so refining would not remove it, and
+        /// dual contouring handles the crease. Only (nearly) parallel gaps are resolved by refining.
         /// </summary>
         public bool HiddenGap(double cellSize, Vector3d a, Vector3d b)
         {
@@ -239,16 +258,22 @@ namespace gs
                 Vector3d n0 = Meshes[hits[i].Mesh].GetTriNormal(hits[i].Tri), n1 = Meshes[hits[i + 1].Mesh].GetTriNormal(hits[i + 1].Tri);
                 if (Math.Abs(n0.Dot(n1)) < GapParallelCos)
                     continue;
+                // surfaces at an angle theta meeting at distance s: the wedge between them is narrower than
+                // two cells for s < cell / tan(theta / 2), at every cell size
                 Vector3d p0 = origin + hits[i].T * dir, p1 = origin + hits[i + 1].T * dir, m = 0.5 * (p0 + p1);
-                if (crease_distance(p0, n0, p1, n1, m) < WedgeCells * cellSize)
+                double sinT = n0.Cross(n1).Length, tanHalf = sinT / (1 + Math.Abs(n0.Dot(n1)));
+                if (tanHalf > 0 && crease_distance(p0, n0, p1, n1, m) * tanHalf < cellSize)
                     continue;
-                if (Field(m) < Iso)
+                if (Field(m) < Iso) {
+                    if (hits[i + 1].T - hits[i].T >= MinFixableGapWidth)
+                        System.Threading.Interlocked.Increment(ref fixableGaps);
                     return true;
+                }
             }
             return false;
         }
+        int fixableGaps;
         const double GapParallelCos = 0.5;     // surfaces within 60 degrees of parallel
-        const double WedgeCells = 3;
 
         // distance from m to the line where the planes (p0, n0) and (p1, n1) meet (infinite if parallel)
         static double crease_distance(Vector3d p0, Vector3d n0, Vector3d p1, Vector3d n1, Vector3d m)
