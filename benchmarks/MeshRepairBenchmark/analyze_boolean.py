@@ -9,9 +9,10 @@ print(f"{len(rows)} meshes, {len(ok)} with results, {len(rows) - len(ok)} failed
 solid = [r for r in ok if min(r['bool_vA'], r['bool_vB']) > 1e-3 * (r['bool_cell'] * 128) ** 3]
 print(f"{len(solid)} with non-negligible solid volume\n")
 for op in ['union', 'intersection', 'difference']:
-    closed = sum(r[f'bool_{op}_closed'] for r in ok)
+    empty = sum(r[f'bool_{op}_tris'] == 0 for r in ok)
+    open_ = [r['file'] for r in ok if r[f'bool_{op}_tris'] > 0 and not r[f'bool_{op}_closed']]
     bowt = sum(r[f'bool_{op}_bowties'] > 0 for r in ok)
-    print(f"{op:13} closed {closed}/{len(ok)}, with bowties {bowt}")
+    print(f"{op:13} empty {empty}, not closed {len(open_)} {open_[:5]}, with bowties {bowt}")
 def pct(xs, q): xs = sorted(xs); return xs[min(len(xs) - 1, int(q * len(xs)))]
 for key, name in [('bool_ie_error', 'V(AuB)+V(AnB) vs V(A)+V(B)'), ('bool_diff_error', 'V(A-B) vs V(A)-V(AnB)')]:
     e = [100 * r[key] for r in solid]

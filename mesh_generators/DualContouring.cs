@@ -267,31 +267,46 @@ namespace g3
                 return crossings;
             }
 
-            // sparse: the 12 edges of each candidate cell. Evaluate the cell corners in parallel first.
+            // sparse: the 12 edges of each candidate cell, then of every cell around a crossing edge that was
+            // not a candidate (its other edges can cross too; without them the surface would have holes),
+            // until no new cells come up. Corners of each batch of cells are evaluated in parallel first.
             List<Vector3i> cells = new List<Vector3i>(CandidateCells);
-            Action<int> eval_corners = (idx) => {
-                for (int lc = 0; lc < 8; ++lc)
-                    node_value(cells[idx] + new Vector3i(lc & 1, (lc >> 1) & 1, (lc >> 2) & 1));
-            };
-            if (ParallelCompute)
-                gParallel.ForEach(Interval1i.Range(cells.Count), eval_corners);
-            else
-                for (int idx = 0; idx < cells.Count; ++idx) eval_corners(idx);
-
+            HashSet<long> visited = new HashSet<long>();
+            foreach (Vector3i c in cells)
+                visited.Add(node_key(c));
             HashSet<long> seen = new HashSet<long>();
             List<GridEdge> insideEdges = new List<GridEdge>();
-            foreach (Vector3i cell in cells) {
-                for (int le = 0; le < 12; ++le) {
-                    Index2i ce = cube_edge_corners[le];
-                    Vector3i a = cell + local_offset(ce.a);
-                    int axis = le / 4;
-                    if (seen.Add(node_key(a) * 3 + axis) == false)
-                        continue;
-                    bool aInside = is_inside(node_value(a));
-                    if (aInside != is_inside(node_value(cell + local_offset(ce.b))))
-                        crossings.Add(new GridEdge(a, axis));
-                    else if (aInside && HiddenGapF != null)
-                        insideEdges.Add(new GridEdge(a, axis));
+            while (cells.Count > 0) {
+                List<Vector3i> batch = cells;
+                Action<int> eval_corners = (idx) => {
+                    for (int lc = 0; lc < 8; ++lc)
+                        node_value(batch[idx] + local_offset(lc));
+                };
+                if (ParallelCompute)
+                    gParallel.ForEach(Interval1i.Range(batch.Count), eval_corners);
+                else
+                    for (int idx = 0; idx < batch.Count; ++idx) eval_corners(idx);
+
+                cells = new List<Vector3i>();
+                foreach (Vector3i cell in batch) {
+                    for (int le = 0; le < 12; ++le) {
+                        Index2i ce = cube_edge_corners[le];
+                        Vector3i a = cell + local_offset(ce.a);
+                        int axis = le / 4;
+                        if (seen.Add(node_key(a) * 3 + axis) == false)
+                            continue;
+                        bool aInside = is_inside(node_value(a));
+                        if (aInside != is_inside(node_value(cell + local_offset(ce.b)))) {
+                            GridEdge e = new GridEdge(a, axis);
+                            crossings.Add(e);
+                            for (int q = 0; q < 4; ++q) {
+                                Vector3i nc;
+                                if (edge_cell(e, q, out nc) && visited.Add(node_key(nc)))
+                                    cells.Add(nc);
+                            }
+                        } else if (aInside && HiddenGapF != null)
+                            insideEdges.Add(new GridEdge(a, axis));
+                    }
                 }
             }
             HiddenGapEdges = 0;
