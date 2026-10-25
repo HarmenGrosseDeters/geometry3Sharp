@@ -123,9 +123,14 @@ Behoben:
 
 Zurückgestellt, weil sie sichtbares Verhalten ändern oder eine eigene Untersuchung brauchen:
 - `Circle3d`-Standard-Frame (linkshändig).
-- Periodische NURBS.
-- Semantik von `GeneralPolygon2d.Intersects`.
-- Orientierung bei `Circle2d`/`Ellipse2d.Transform` mit Spiegelung.
+
+Nachträglich erledigt (Tests in `CurveFixesTests.cs`, vor dem Fix rot):
+- Periodische NURBS: `GetParamIntervals` lieferte die Knoten außerhalb von [0,1] (nicht monoton),
+  `GetContinuousParamIntervals` warf bei lauter einfachen Knoten. Beide liefern jetzt nur Werte in [0,1].
+- `Circle2d.Transform` mit Spiegelung kehrt jetzt die Orientierung um (`IsReversed`), wie `Arc2d.Transform`.
+  `Ellipse2d` war korrekt: Die gespiegelten Achsen nehmen die Orientierung mit (abgesichert durch einen Test).
+- `GeneralPolygon2d.Intersects(Polygon2d)` testet wie `Polygon2d.Intersects(Polygon2d)` nur die Ränder; `Contains`
+  verlässt sich darauf. Kein Fehler, die Bedeutung ist jetzt an beiden Methoden dokumentiert.
 
 Siebte Runde, Mesh-Klassen (`mesh/`). Regressionstests stehen in `tests/geometry3Sharp.Tests/MeshFixesTests.cs`
 (24 Tests, ohne Fix scheitern alle).

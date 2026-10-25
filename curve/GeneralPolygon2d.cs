@@ -206,6 +206,11 @@ namespace g3
         }
 
 
+        /// <summary>
+        /// True if the boundary of poly crosses or touches the outer boundary or a hole. Like
+        /// Polygon2d.Intersects(Polygon2d) this tests the boundaries only: a polygon that lies completely
+        /// inside the area (or completely inside a hole) gives false. Use Contains() for those cases.
+        /// </summary>
         public bool Intersects(Polygon2d poly)
         {
             if (outer.Intersects(poly))

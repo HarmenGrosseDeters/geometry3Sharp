@@ -327,5 +327,81 @@ namespace geometry3Sharp.Tests
             b.Chamfer(1, 10, 100);      // concave threshold does not apply
             Assert.Equal(4, b.VertexCount);
         }
+
+        // --- deferred items: Circle2d/Ellipse2d.Transform with mirroring, periodic NURBS ---
+
+        /// <summary> signed area of the curve sampled at n points: positive for counter-clockwise </summary>
+        static double SignedArea(IParametricCurve2d c, int n = 64)
+        {
+            var poly = new Polygon2d();
+            for (int i = 0; i < n; ++i)
+                poly.AppendVertex(c.SampleT(c.ParamLength * i / n));
+            return poly.SignedArea;
+        }
+
+        [Fact]
+        public void Circle2d_Transform_Mirror_ReversesOrientation()
+        {
+            // the mirrored point set runs the other way round; the circle has no start angle, so only the
+            // orientation (and the point set) can follow the transform
+            var circle = new Circle2d(new Vector2d(2, 1), 1.5);
+            double area = SignedArea(circle);
+            circle.Transform(new MirrorX());
+            AssertNear(new Vector2d(-2, 1), circle.Center);
+            Assert.Equal(-area, SignedArea(circle), 9);
+            circle.Transform(new MirrorX());
+            Assert.Equal(area, SignedArea(circle), 9);
+        }
+
+        [Fact]
+        public void Ellipse2d_Transform_Mirror_FollowsThePoints()
+        {
+            // the axes are mirrored too, so every sample is the mirrored sample (orientation included)
+            var ellipse = new Ellipse2d(new Vector2d(2, 1), 30, 3, 1);
+            Vector2d[] before = Enumerable.Range(0, 8).Select(i => ellipse.SampleT(i / 8.0)).ToArray();
+            double area = SignedArea(ellipse);
+            ellipse.Transform(new MirrorX());
+            for (int i = 0; i < 8; ++i)
+                AssertNear(new Vector2d(-before[i].x, before[i].y), ellipse.SampleT(i / 8.0));
+            Assert.Equal(-area, SignedArea(ellipse), 9);
+        }
+
+        static NURBSCurve2 PeriodicSquareSpline(int degree)
+        {
+            var cps = new[] { new Vector2d(0, 0), new Vector2d(1, 0), new Vector2d(1, 1), new Vector2d(0, 1) };
+            return new NURBSCurve2(4, cps, new double[] { 1, 1, 1, 1 }, degree, true, false);
+        }
+
+        [Theory]
+        [InlineData(2)]
+        [InlineData(3)]
+        public void NURBSCurve2_Periodic_ParamIntervals(int degree)
+        {
+            NURBSCurve2 curve = PeriodicSquareSpline(degree);
+            List<double> l = curve.GetParamIntervals();
+            Assert.Equal(0, l.First());
+            Assert.Equal(1, l.Last());
+            for (int i = 1; i < l.Count; ++i)
+                Assert.True(l[i] > l[i - 1], $"not increasing: {string.Join(", ", l)}");
+        }
+
+        [Theory]
+        [InlineData(2)]
+        [InlineData(3)]
+        public void NURBSCurve2_Periodic_ContinuousParamIntervals(int degree)
+        {
+            // uniform periodic knots all have multiplicity 1: the curve is smooth over [0,1]
+            NURBSCurve2 curve = PeriodicSquareSpline(degree);
+            Assert.Equal(new List<double> { 0, 1 }, curve.GetContinuousParamIntervals());
+        }
+
+        [Fact]
+        public void NURBSCurve2_Open_ParamIntervalsUnchanged()
+        {
+            var cps = new[] { new Vector2d(0, 0), new Vector2d(1, 0), new Vector2d(2, 1), new Vector2d(3, 1), new Vector2d(4, 0) };
+            var curve = new NURBSCurve2(5, cps, new double[] { 1, 1, 1, 1, 1 }, 2, false, true);
+            Assert.Equal(new List<double> { 0, 1.0 / 3, 2.0 / 3, 1 }, curve.GetParamIntervals());
+            Assert.Equal(new List<double> { 0, 1 }, curve.GetContinuousParamIntervals());
+        }
     }
 }
