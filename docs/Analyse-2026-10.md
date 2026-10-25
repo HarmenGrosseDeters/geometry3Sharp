@@ -159,7 +159,12 @@ wurden Tests in `MeshEditorBowtieTests.cs` für offene Fächer, drei Fächer an 
 Attribute der Kopien. Gegen die alte Implementierung scheitern drei der fünf Tests, darunter der mit einem einzelnen
 offenen Fächer, den die alte Version ebenfalls zerlegte.
 
-Zurückgestellt, weil ein Fix die API ändert: der `DSubmesh3`-Konstruktor (`compute()` vor den Object-Initializern).
+`DSubmesh3`: Der Konstruktor mit Dreiecken rechnet sofort, also vor den Object-Initializern; `ComputeTriMaps`,
+`WantComponents` und `OverrideGroupID` aus einem Initializer wirkten nicht. Diese drei sind jetzt Properties: Ändert sich
+eine nach der Berechnung, wird das Submesh aus denselben (kopierten) Dreiecken neu berechnet. Der bisherige Weg
+(`new DSubmesh3(mesh) { … }` und dann `Compute(…)`) rechnet weiterhin nur einmal. Quellkompatibel; binär wechseln die
+drei Felder zu Properties. Tests in `DSubmesh3Tests.cs` (6 Tests, vor dem Fix rot: 4; die beiden anderen sichern den
+Zwei-Schritt-Weg und dass gleiche Werte nicht neu berechnen).
 
 Achte Runde, degenerierte Eingaben. Regressionstests stehen in `tests/geometry3Sharp.Tests/DegenerateFixesTests.cs`
 (8 Tests; ohne Fix scheitern 7, der achte prüft, dass nicht degenerierte Dreiecke unverändert behandelt werden).
