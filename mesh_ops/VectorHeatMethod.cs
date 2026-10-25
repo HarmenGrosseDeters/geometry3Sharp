@@ -46,6 +46,21 @@ namespace gs
         /// <summary> work on the intrinsic Delaunay triangulation (true) or on the mesh triangles </summary>
         public bool IntrinsicDelaunay = true;
 
+        /// <summary>
+        /// also refine the intrinsic Delaunay triangulation (IntrinsicTriangulation.DelaunayRefine with
+        /// RefineMinAngle, RefineMaxInsertions): no negative cotan weights at boundary edges opposite obtuse
+        /// angles (otherwise clamped to 0 in the heat operators), and a minimum angle. Results are still
+        /// reported at the mesh vertices.
+        /// </summary>
+        public bool IntrinsicRefine = false;
+        /// <summary> minimum angle (degrees, at most 30) of the refinement; 0 only splits boundary edges opposite obtuse angles </summary>
+        public double RefineMinAngle = 25;
+        /// <summary> insertion limit of the refinement (0: 10 * vertices + 1000) </summary>
+        public int RefineMaxInsertions = 0;
+        /// <summary> result of the refinement; null if not refined </summary>
+        public IntrinsicRefinementResult Refinement { get { check(); return refinement; } }
+        IntrinsicRefinementResult refinement;
+
         /// <summary> the triangulation the operators are built on (built on first use) </summary>
         public IntrinsicTriangulation Triangulation { get { check(); return triangulation; } }
         IntrinsicTriangulation triangulation;
@@ -67,7 +82,9 @@ namespace gs
         int[] pinned;               // per component: vertex fixed to 0 in the Poisson problem
         SparseCholesky scalarHeat, vectorHeat, poisson;
         int timestamp = -1;
-        bool builtIntrinsic;
+        bool builtIntrinsic, builtRefine;
+        double builtRefineAngle;
+        int builtRefineMax;
         double builtTimeFactor;
         double timeScale = 1;       // growth of the diffusion time against underflow
 
@@ -75,10 +92,14 @@ namespace gs
         {
             timestamp = Mesh.ShapeTimestamp;
             builtIntrinsic = IntrinsicDelaunay;
+            builtRefine = IntrinsicRefine; builtRefineAngle = RefineMinAngle; builtRefineMax = RefineMaxInsertions;
             builtTimeFactor = TimeFactor;
             timeScale = 1;
             triangulation = new IntrinsicTriangulation(Mesh);
-            if (IntrinsicDelaunay)
+            refinement = null;
+            if (IntrinsicDelaunay && IntrinsicRefine)
+                refinement = triangulation.DelaunayRefine(RefineMinAngle, RefineMaxInsertions);
+            else if (IntrinsicDelaunay)
                 triangulation.FlipToDelaunay();
             IntrinsicTriangulation T = triangulation;
             N = T.VertexCount;
@@ -188,7 +209,8 @@ namespace gs
         void check()
         {
             if (triangulation == null || timestamp != Mesh.ShapeTimestamp || builtIntrinsic != IntrinsicDelaunay
-                || builtTimeFactor != TimeFactor)
+                || builtTimeFactor != TimeFactor || builtRefine != IntrinsicRefine
+                || (IntrinsicRefine && (builtRefineAngle != RefineMinAngle || builtRefineMax != RefineMaxInsertions)))
                 precompute();
         }
 
@@ -229,7 +251,7 @@ namespace gs
             T[] r = new T[Mesh.MaxVertexID];
             for (int k = 0; k < r.Length; ++k) r[k] = invalid;
             for (int i = 0; i < N; ++i)
-                if (hasSource[component[i]]) r[triangulation.VertexID(i)] = value(i);
+                if (hasSource[component[i]] && triangulation.IsInserted(i) == false) r[triangulation.VertexID(i)] = value(i);
             return r;
         }
 

@@ -43,6 +43,21 @@ namespace gs
         /// length): robust against caps and needles, eg from remeshing with constrained feature lines.
         /// </summary>
         public bool IntrinsicDelaunay = true;
+        /// <summary>
+        /// also refine the intrinsic Delaunay triangulation by vertex insertion (IntrinsicTriangulation.DelaunayRefine,
+        /// with RefineMinAngle and RefineMaxInsertions): boundary edges opposite obtuse angles are split, so
+        /// all cotan weights are non-negative, and triangles get angles of at least RefineMinAngle degrees
+        /// (0: only the boundary edges). More vertices (slower), more accurate on poor meshes. The distances
+        /// are still reported at the mesh vertices. Needs manifold vertices; otherwise Refinement.Status is
+        /// NonManifoldInput and the flips alone are used.
+        /// </summary>
+        public bool IntrinsicRefine = false;
+        /// <summary> minimum angle (degrees, at most 30) of the refinement </summary>
+        public double RefineMinAngle = 25;
+        /// <summary> insertion limit of the refinement (0: 10 * vertices + 1000) </summary>
+        public int RefineMaxInsertions = 0;
+        /// <summary> result of the refinement (status, inserted vertices, minimum angle); null if not refined </summary>
+        public IntrinsicRefinementResult Refinement;
 
         /// <summary> distance per vertex id (size MaxVertexID; NaN for unreachable or unused ids) </summary>
         public double[] Distance;
@@ -67,12 +82,21 @@ namespace gs
         List<Vector3d> layout;      // tris in the plane: corners (0,0), (x,0), (y,z)
 
         int timestamp = -1;
+        bool[] boundaryIndex;       // per index: on the boundary (mesh vertices and inserted vertices)
         int[] component;            // per index; -1 for vertices without a (non-degenerate) triangle
         int componentCount;
+
+        // the options the triangulation was built with (a change rebuilds it)
+        string builtSettings;
+        string built_settings()
+        {
+            return IntrinsicDelaunay + " " + IntrinsicRefine + " " + RefineMinAngle.ToString("R") + " " + RefineMaxInsertions;
+        }
 
         void precompute()
         {
             timestamp = Mesh.ShapeTimestamp;
+            builtSettings = built_settings();
             nbStart = null; spatial = null;
             toIndex = new int[Mesh.MaxVertexID];
             toVertex = new int[Mesh.VertexCount];
@@ -82,7 +106,7 @@ namespace gs
                 toVertex[N++] = vid;
             }
             Vector3d center = Mesh.CachedBounds.Center;
-            Vector3d[] pos = new Vector3d[N];
+            Vector3d[] pos = new Vector3d[N];   // (N grows with the refinement below)
             for (int i = 0; i < N; ++i)
                 pos[i] = Mesh.GetVertex(toVertex[i]) - center;
 
@@ -102,7 +126,14 @@ namespace gs
                 edgeSum += (p1 - p0).Length + (p2 - p1).Length + (p0 - p2).Length;
                 edgeCount += 3;
             }
-            IntrinsicFlips = IntrinsicDelaunay ? flip_to_delaunay(tris, lengths) : 0;
+            boundaryIndex = new bool[N];
+            foreach (int vid in Mesh.VertexIndices())
+                if (Mesh.IsBoundaryVertex(vid)) boundaryIndex[toIndex[vid]] = true;
+            Refinement = null;
+            if (IntrinsicDelaunay && IntrinsicRefine && refine(tris, lengths)) {
+                IntrinsicFlips = Refinement.Flips;
+            } else
+                IntrinsicFlips = IntrinsicDelaunay ? flip_to_delaunay(tris, lengths) : 0;
 
             SymmetricSparseMatrix M = new SymmetricSparseMatrix();
             mass = new double[N];
@@ -161,6 +192,36 @@ namespace gs
                 component[i] = c;
             }
             componentCount = ids.Count;
+        }
+
+        // Replaces tris and lengths by the refined intrinsic triangulation (IntrinsicTriangulation.DelaunayRefine);
+        // inserted vertices get the indices from N on. False (nothing changed) for non-manifold meshes.
+        bool refine(List<Index3i> tris, List<Vector3d> lengths)
+        {
+            IntrinsicTriangulation T;
+            try {
+                T = new IntrinsicTriangulation(Mesh);
+            } catch (ArgumentException) {
+                Refinement = new IntrinsicRefinementResult() { Status = IntrinsicRefinementStatus.NonManifoldInput };
+                return false;
+            }
+            Refinement = T.DelaunayRefine(RefineMinAngle, RefineMaxInsertions);
+            int n0 = N;
+            Func<int, int> index = (i) => T.IsInserted(i) ? n0 + (i - T.InputVertexCount) : toIndex[T.VertexID(i)];
+            N = n0 + (T.VertexCount - T.InputVertexCount);
+            Array.Resize(ref toVertex, N);
+            Array.Resize(ref boundaryIndex, N);
+            for (int i = T.InputVertexCount; i < T.VertexCount; ++i) {
+                toVertex[index(i)] = -1;
+                boundaryIndex[index(i)] = T.IsBoundaryVertex(i);
+            }
+            tris.Clear(); lengths.Clear();
+            for (int t = 0; t < T.TriangleCount; ++t) {
+                Index3i ti = T.GetTriangleIndices(t);
+                tris.Add(new Index3i(index(ti.a), index(ti.b), index(ti.c)));
+                lengths.Add(new Vector3d(T.Length(3 * t), T.Length(3 * t + 1), T.Length(3 * t + 2)));
+            }
+            return true;
         }
 
         // triangle area from the edge lengths (Kahan's stable form of Heron's formula); 0 if not a triangle
@@ -279,7 +340,7 @@ namespace gs
         /// </summary>
         public bool Compute(IEnumerable<int> sources)
         {
-            if (L == null || timestamp != Mesh.ShapeTimestamp)
+            if (L == null || timestamp != Mesh.ShapeTimestamp || built_settings() != builtSettings)
                 precompute();
             Distance = null; sourceVertices = null;
             List<int> src = new List<int>();
@@ -393,7 +454,7 @@ namespace gs
             for (int k = 0; k < Distance.Length; ++k)
                 Distance[k] = double.NaN;
             for (int i = 0; i < N; ++i)
-                if (component[i] >= 0 && hasSource[component[i]])
+                if (component[i] >= 0 && hasSource[component[i]] && toVertex[i] >= 0)      // (not inserted vertices)
                     Distance[toVertex[i]] = Math.Max(0, phi[i] - minSrc[component[i]]);
             foreach (int s in srcVertices) Distance[s] = 0;
             return true;
@@ -609,8 +670,7 @@ namespace gs
                 build_neighbours();
             bool[] fixedZero = new bool[N];
             if (dirichlet) {
-                foreach (int vid in Mesh.VertexIndices())
-                    if (Mesh.IsBoundaryVertex(vid)) fixedZero[toIndex[vid]] = true;
+                for (int i = 0; i < N; ++i) fixedZero[i] = boundaryIndex[i];
                 foreach (int s in src) fixedZero[s] = false;
             }
             double[] u = new double[N], next = new double[N], b = new double[N];
@@ -662,8 +722,7 @@ namespace gs
                 build_neighbours();
             bool[] fixedZero = new bool[N];
             if (dirichlet) {
-                foreach (int vid in Mesh.VertexIndices())
-                    if (Mesh.IsBoundaryVertex(vid)) fixedZero[toIndex[vid]] = true;
+                for (int i = 0; i < N; ++i) fixedZero[i] = boundaryIndex[i];
                 foreach (int s in src) fixedZero[s] = false;
             }
             bool[] isSource = new bool[N];
