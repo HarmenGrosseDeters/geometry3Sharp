@@ -18,7 +18,7 @@ rather than an app. That puts some things first:
    (repair, boolean, remesh, measure, convert).
 4. **Modern build, wide reach.** net10.0 plus netstandard2.0 (Unity, .NET Framework), NuGet package, CI.
 5. **Licenses.** Keep the Boost license. Port only from MIT / Apache / BSD sources (eg Manifold,
-   geometry-central), never from GPL code (CGAL, parts of TetWild).
+   geometry-central), never from GPL code (CGAL, parts of TetWild). Sources are listed in [SOURCES.md](SOURCES.md).
 
 Relation to upstream: stay API compatible with 1.0.324, which existing users depend on. Upstream's
 `dotnet8` branch has breaking changes (it removes the float types); useful parts (eg USD) can be taken over
