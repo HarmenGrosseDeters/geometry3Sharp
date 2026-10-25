@@ -43,6 +43,23 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void SelfIntersectionFree_OnlyIfChecked()
+        {
+            // a sphere has no self-intersections: known after the resolve pass, unknown without it
+            Func<bool, DualContouring> run = (resolve) => {
+                var dc = new DualContouring() {
+                    Implicit = new SphereSDF(), IsoValue = 0, InsideIsLess = true, CellSize = 0.1,
+                    Bounds = new AxisAlignedBox3d(Vector3d.Zero, 1.3), ResolveSelfIntersections = resolve
+                };
+                dc.Generate();
+                Assert.Equal(0, MeshRepairMetrics.SelfIntersections(dc.Mesh));
+                return dc;
+            };
+            Assert.True(run(true).SelfIntersectionFree);
+            Assert.False(run(false).SelfIntersectionFree);
+        }
+
+        [Fact]
         public void Sparse_IncompleteCandidateCells_StillClosed()
         {
             // the candidate cells only need to touch the surface somewhere: cells around crossing edges are

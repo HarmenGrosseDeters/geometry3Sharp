@@ -30,7 +30,9 @@ namespace gs
     /// you need the input afterwards. Check UsedExactResolve / UsedSolidify / UsedAlphaWrap / FallbackReason (and
     /// ExactResolveReason, SolidifyReason) to see which path was taken.
     /// Cost: the self-intersection check and the volume comparison are cheap compared to the solidify
-    /// fallback, whose cost grows with SolidifyResolution.
+    /// fallback, whose cost grows with SolidifyResolution. With the alpha wrap fallback (and
+    /// CheckSelfIntersections), a solidify whose contour self-intersects is stopped before its cleanup and
+    /// reduction (MeshWindingNumberSolidify.StopIfSelfIntersecting) and wrapped right away.
     ///
     /// Use MeshAutoRepair alone if the input triangles must be kept (no remeshing), MeshWindingNumberSolidify
     /// to always remesh, ExactMeshBoolean.Resolve to resolve self-intersections exactly without remeshing.
@@ -96,7 +98,8 @@ namespace gs
         /// (cleanness incl. self-intersections), "volume" (VolumeIoU), "exact" (exact resolve incl. its checks;
         /// parts of it in "exact.orient", "exact.closed", "exact.resolve", "exact.check", "exact.volume"),
         /// "solidify", "solidify." + the phases of MeshWindingNumberSolidify, "solidify.check" (cleanness of
-        /// its result) and "wrap" (alpha wrap fallback)
+        /// its result), "wrap" (alpha wrap fallback) and "solidify.finish" (post-processing a solidify that was
+        /// stopped on self-intersections, if the wrap failed)
         /// </summary>
         public Dictionary<string, long> PhaseMilliseconds = new Dictionary<string, long>();
 
@@ -182,13 +185,23 @@ namespace gs
                     return true;
                 }
             }
-            Solidify = new MeshWindingNumberSolidify(solidifyFrom) { GridResolution = SolidifyResolution, Adaptive = true, CancelF = CancelF };
+            // a self-intersecting contour is discarded for the alpha wrap: stop the solidify before its
+            // post-processing (which rarely removes them), finish it only if the wrap fails
+            bool wrapOnSelfIntersections = CheckSelfIntersections && AlphaWrapFallback;
+            Solidify = new MeshWindingNumberSolidify(solidifyFrom) {
+                GridResolution = SolidifyResolution, Adaptive = true, CancelF = CancelF, StopIfSelfIntersecting = wrapOnSelfIntersections
+            };
             bool solidified = Solidify.Compute() && Solidify.Result != null && Solidify.Result.TriangleCount > 0;
             end_phase("solidify");
             foreach (var kv in Solidify.PhaseMilliseconds) PhaseMilliseconds["solidify." + kv.Key] = kv.Value;
             if (CancelF())
                 return false;
-            SolidifyReason = solidified ? NotCleanReason(Solidify.Result, CheckSelfIntersections) : "solidify failed";
+            if (solidified == false)
+                SolidifyReason = "solidify failed";
+            else if (Solidify.StoppedOnSelfIntersections)
+                SolidifyReason = "self-intersections";
+            else
+                SolidifyReason = NotCleanReason(Solidify.Result, CheckSelfIntersections);
             end_phase("solidify.check");
             if (SolidifyReason != "" && AlphaWrapFallback) {
                 AlphaWrap = new MeshAlphaWrap(solidifyFrom) { RelativeAlpha = WrapRelativeAlpha, RelativeOffset = WrapRelativeOffset, CancelF = CancelF };
@@ -204,6 +217,13 @@ namespace gs
             }
             if (solidified == false)
                 return false;
+            if (Solidify.StoppedOnSelfIntersections) {
+                // the wrap failed: the solidify result after all, post-processed as usual
+                Solidify.FinishPostProcess();
+                end_phase("solidify.finish");
+                if (CancelF())
+                    return false;
+            }
             Mesh = Solidify.Result;
             UsedSolidify = true;
             return true;

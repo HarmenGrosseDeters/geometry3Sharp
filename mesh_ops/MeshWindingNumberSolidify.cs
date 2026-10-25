@@ -91,6 +91,15 @@ namespace gs
         /// </summary>
         public double ReduceTolerance = 0.05;
 
+        /// <summary>
+        /// If true, the contour is checked for self-intersections before the cleanup and the reduction; if it
+        /// has any, those are skipped (they rarely remove self-intersections and are a large part of the cost):
+        /// Compute() then returns true with the raw contour in Result and StoppedOnSelfIntersections set;
+        /// FinishPostProcess() completes it. For callers that discard self-intersecting results anyway
+        /// (MeshRobustRepair). The check is free where the dual contouring already verified its result.
+        /// </summary>
+        public bool StopIfSelfIntersecting = false;
+
         /// <summary> return true to cancel; Compute() then returns false </summary>
         public Func<bool> CancelF = () => { return false; };
 
@@ -113,7 +122,15 @@ namespace gs
         public double UsedCellSize;
         /// <summary> local refinement: number of cells (of CellSize) refined, and the refinement factor (CellSize / UsedCellSize) </summary>
         public int RefinedCells, RefineFactor = 1;
-        /// <summary> milliseconds per phase of the last Compute(), eg "winding", "contour", "cleanup", "reduce" </summary>
+        /// <summary>
+        /// true if Compute() stopped before the post-processing because the contour self-intersects (see
+        /// StopIfSelfIntersecting); Result is then the raw contour
+        /// </summary>
+        public bool StoppedOnSelfIntersections;
+        /// <summary>
+        /// milliseconds per phase of the last Compute(), eg "winding", "contour", "selfint" (the check for
+        /// StopIfSelfIntersecting), "cleanup", "reduce"
+        /// </summary>
         public Dictionary<string, long> PhaseMilliseconds = new Dictionary<string, long>();
 
         Stopwatch phase_timer = new Stopwatch();
@@ -151,6 +168,8 @@ namespace gs
 
             PhaseMilliseconds.Clear();
             phase_timer.Restart();
+            StoppedOnSelfIntersections = false;
+            bool knownFree = false;
             DMesh3 contour;
             HiddenGapEdges = HiddenWallEdges = 0;
             if (Adaptive && Method == Methods.DualContouring) {
@@ -165,6 +184,7 @@ namespace gs
                 HiddenWallEdges = wc.HiddenWallEdges;
                 GapEdgesPerLevel = new List<int>(wc.GapEdgesPerLevel);
                 RefinedCells = wc.RefinedCells; RefineFactor = wc.RefineFactor;
+                knownFree = wc.SelfIntersectionFree;
                 foreach (var kv in wc.PhaseMilliseconds) PhaseMilliseconds["contour." + kv.Key] = kv.Value;
                 end_phase("contour");
             } else {
@@ -174,8 +194,31 @@ namespace gs
             if (CancelF() || contour == null)
                 return false;
 
+            if (StopIfSelfIntersecting && knownFree == false) {
+                bool intersects = MeshRepairMetrics.HasSelfIntersections(contour);
+                end_phase("selfint");
+                if (intersects) {
+                    Result = contour;
+                    StoppedOnSelfIntersections = true;
+                    return true;
+                }
+            }
             Result = WindingContouring.PostProcess(contour, CleanupResult, ReduceTolerance, cellSize, CancelF, end_phase);
             return true;
+        }
+
+        /// <summary>
+        /// After Compute() stopped on self-intersections (StoppedOnSelfIntersections): runs the skipped
+        /// cleanup and reduction on Result, which is then what Compute() would have given without
+        /// StopIfSelfIntersecting. Does nothing otherwise.
+        /// </summary>
+        public void FinishPostProcess()
+        {
+            if (StoppedOnSelfIntersections == false || Result == null)
+                return;
+            phase_timer.Restart();
+            Result = WindingContouring.PostProcess(Result, CleanupResult, ReduceTolerance, UsedCellSize, CancelF, end_phase);
+            StoppedOnSelfIntersections = false;
         }
 
 

@@ -38,6 +38,11 @@ namespace gs
         public Dictionary<string, long> PhaseMilliseconds = new Dictionary<string, long>();
         /// <summary> hidden gap edges at each refinement level of ContourRefined </summary>
         public List<int> GapEdgesPerLevel = new List<int>();
+        /// <summary>
+        /// true if the last contour is known to have no self-intersections (the dual contouring checked it
+        /// exactly and nothing was added after); false if it has some or was not checked
+        /// </summary>
+        public bool SelfIntersectionFree;
 
 
         /// <summary>
@@ -138,6 +143,7 @@ namespace gs
 
         DMesh3 finish(DualContouring dc)
         {
+            SelfIntersectionFree = false;
             HiddenGapEdges = dc.HiddenGapEdges;
             HiddenWallEdges = dc.HiddenWallEdges;
             classify_hidden(dc);
@@ -145,6 +151,8 @@ namespace gs
             if (CancelF() || dc.Mesh == null)
                 return null;
             NonManifoldTriangles = dc.NonManifoldTriangles;
+            // (the hole fills are not checked)
+            SelfIntersectionFree = dc.SelfIntersectionFree && NonManifoldTriangles == 0;
             if (NonManifoldTriangles > 0)
                 FillSmallHoles(dc.Mesh);
             return dc.Mesh;

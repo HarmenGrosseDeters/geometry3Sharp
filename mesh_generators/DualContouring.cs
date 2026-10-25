@@ -420,6 +420,7 @@ namespace g3
             foreach (var kv in nmc) NonManifoldCells.Add(kv.Value);
 
             SelfIntersectionsFound = SelfIntersectionsLeft = 0;
+            SelfIntersectionFree = false;
             Func<int, Vector3d> fallback = (v) => vertexMass[v];
             if (ResolveSelfIntersections) {
                 // Polygons where fine and coarse cells meet can fold (the coarse cell spans more than a quadrant
@@ -1160,6 +1161,12 @@ namespace g3
         public bool ResolveSelfIntersections = true;
         /// <summary> intersecting triangle pairs found before / left after resolving </summary>
         public int SelfIntersectionsFound, SelfIntersectionsLeft;
+        /// <summary>
+        /// true if the last Generate() checked its result for intersecting triangle pairs (exactly, as
+        /// MeshRepairMetrics.SelfIntersections) and found none; false if some are left or nothing was checked
+        /// (ResolveSelfIntersections false)
+        /// </summary>
+        public bool SelfIntersectionFree;
 
         void resolve_self_intersections(Func<int, Vector3d> fallback, Func<int, Vector3d> lastResort)
         {
@@ -1202,8 +1209,10 @@ namespace g3
                 });
                 if (round == 0) SelfIntersectionsFound = pairs;
                 SelfIntersectionsLeft = pairs;
-                if (pairs == 0)
+                if (pairs == 0) {
+                    SelfIntersectionFree = true;
                     return;
+                }
                 var targets = new List<KeyValuePair<int, Vector3d>>();
                 foreach (int v in moving) {
                     int n;

@@ -260,12 +260,92 @@ namespace geometry3Sharp.Tests
 
             var with = run(true);
             Assert.Equal("self-intersections", with.SolidifyReason);
+            // stopped before the post-processing of the discarded solidify
+            Assert.True(with.Solidify.StoppedOnSelfIntersections);
+            Assert.False(with.PhaseMilliseconds.ContainsKey("solidify.reduce"));
             Assert.True(with.UsedAlphaWrap);
             Assert.False(with.UsedSolidify);
             Assert.Equal("", MeshRobustRepair.NotCleanReason(with.Mesh));
             double missing, extra;
             double iou = MeshRepairMetrics.VolumeIoU(ThinPlates(6), with.Mesh, out missing, out extra);
             Assert.True(missing < 0.01, $"missing {missing}");     // the wrap encloses the input
+        }
+
+        static bool SameMesh(DMesh3 a, DMesh3 b)
+        {
+            return a.VertexCount == b.VertexCount && a.TriangleCount == b.TriangleCount
+                && a.Vertices().Zip(b.Vertices(), (p, q) => p == q).All(x => x)
+                && a.TriangleIndices().All(t => a.GetTriangle(t) == b.GetTriangle(t));
+        }
+
+        [Fact]
+        public void Solidify_StopsOnSelfIntersectingContour_FinishGivesTheFullResult()
+        {
+            // the contour of the overlapping thin plates self-intersects: no cleanup and reduction, the raw
+            // contour is the result; FinishPostProcess gives what Compute() gives without stopping
+            Func<bool, MeshWindingNumberSolidify> run = (stop) => {
+                var s = new MeshWindingNumberSolidify(ThinPlates(6)) { GridResolution = 64, Adaptive = true, StopIfSelfIntersecting = stop };
+                Assert.True(s.Compute());
+                return s;
+            };
+            var full = run(false);
+            Assert.False(full.StoppedOnSelfIntersections);
+            Assert.True(MeshRepairMetrics.HasSelfIntersections(full.Result));
+
+            var stopped = run(true);
+            Assert.True(stopped.StoppedOnSelfIntersections);
+            Assert.True(MeshRepairMetrics.HasSelfIntersections(stopped.Result));
+            Assert.False(stopped.PhaseMilliseconds.ContainsKey("reduce"));
+            Assert.False(stopped.PhaseMilliseconds.ContainsKey("cleanup"));
+            Assert.True(stopped.Result.TriangleCount > full.Result.TriangleCount);   // not reduced
+
+            stopped.FinishPostProcess();
+            Assert.False(stopped.StoppedOnSelfIntersections);
+            Assert.True(SameMesh(full.Result, stopped.Result));
+        }
+
+        [Fact]
+        public void Solidify_CleanContour_NotStoppedAndNotRechecked()
+        {
+            // the dual contouring verified the contour: no extra check ("selfint"), the same result
+            Func<bool, MeshWindingNumberSolidify> run = (stop) => {
+                var s = new MeshWindingNumberSolidify(Sphere(1, Vector3d.Zero)) { GridResolution = 64, Adaptive = true, StopIfSelfIntersecting = stop };
+                Assert.True(s.Compute());
+                return s;
+            };
+            var stopped = run(true);
+            Assert.False(stopped.StoppedOnSelfIntersections);
+            Assert.False(stopped.PhaseMilliseconds.ContainsKey("selfint"));
+            Assert.True(stopped.PhaseMilliseconds.ContainsKey("reduce"));
+            Assert.True(SameMesh(run(false).Result, stopped.Result));
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(stopped.Result));
+        }
+
+        [Fact]
+        public void SolidifyNotClean_WrapFails_PostProcessedSolidifyUsed()
+        {
+            // the solidify is stopped on its self-intersections for the wrap; if the wrap fails (here: invalid
+            // alpha), the solidify result is used as before: post-processed, the same as without the wrap
+            Func<bool, MeshRobustRepair> run = (wrap) => {
+                var r = new MeshRobustRepair(ThinPlates(6)) {
+                    RepairF = (m) => new DMesh3(m), ExactResolve = false, SolidifyResolution = 64,
+                    AlphaWrapFallback = wrap, WrapRelativeAlpha = -1
+                };
+                Assert.True(r.Apply());
+                return r;
+            };
+            var without = run(false);
+            Assert.True(without.UsedSolidify);
+            Assert.False(without.Solidify.StoppedOnSelfIntersections);
+
+            var failed = run(true);
+            Assert.Equal(MeshAlphaWrap.WrapStatus.InvalidParameters, failed.AlphaWrap.Status);
+            Assert.False(failed.UsedAlphaWrap);
+            Assert.True(failed.UsedSolidify);
+            Assert.Equal("self-intersections", failed.SolidifyReason);
+            Assert.True(failed.PhaseMilliseconds.ContainsKey("solidify.finish"));
+            Assert.False(failed.Solidify.StoppedOnSelfIntersections);
+            Assert.True(SameMesh(without.Mesh, failed.Mesh));
         }
 
         [Fact]
