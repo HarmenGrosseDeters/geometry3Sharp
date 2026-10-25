@@ -35,7 +35,7 @@ namespace g3
         virtual public AxisAlignedBox2f Bounds
         {
             get {
-                AxisAlignedBox2f box = new AxisAlignedBox2f();
+                AxisAlignedBox2f box = AxisAlignedBox2f.Empty;
                 for (int i = 0; i < m_vChildren.Count; ++i)
                     box.Contain(m_vChildren[i].Bounds);
                 return box;
@@ -123,9 +123,10 @@ namespace g3
             int nMin = -1;
             for (int i = 0; i < m_vChildren.Count; ++i) {
                 float fValue = m_vChildren[i].Value(fX, fY);
-                if (fValue < fMinValue)
+                if (fValue < fMinValue) {
                     nMin = i;
-                fMinValue = fValue;
+                    fMinValue = fValue;
+                }
             }
             if (nMin >= 0)
                 m_vChildren[nMin].Gradient(fX, fY, ref fGX, ref fGY);
