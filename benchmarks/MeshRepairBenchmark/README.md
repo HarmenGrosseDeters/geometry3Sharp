@@ -173,3 +173,22 @@ Most of the remaining Hausdorff misses at 256 are not grid error: the input has 
 solidify. Extrapolated to the 400 set, resolution 256 would repair about 30–40 more meshes at 1.6× the
 median time, 2.4× the triangles and a few new self-intersections. An adaptive choice (solidify at 128,
 check the deviation, repeat at 256 only where it is too large) is cheaper than raising the default.
+
+### Rerun after the dual contouring fixes (`robust`, 400 set)
+Same mode on the master of 2026-10-25 evening: dual contouring resolves self-intersections over all
+triangles with a last resort position, refines locally where polygons would create non-manifold edges,
+the volume IoU reference orients inside-out inputs, and the exact predicates have all adaptive stages.
+
+| | first `robust` run | rerun |
+|---|---|---|
+| repaired | 211 | 210 |
+| clean¹ + no exact self-intersections | 347 | **360** |
+| meshes with self-intersections | 51 | **38** |
+| median / p90 repair time | 5.2 s / 17.4 s | **3.7 s / 10.6 s** |
+| timeouts or crashes | 1 | 0 |
+| large meshes repaired | 9/30 | 9/30 |
+
+The fixes remove a quarter of the self-intersecting results and make the repair faster, but the strict
+count does not move: the meshes they fix still deviate more than 1 % (Hausdorff), which is the grid limit of
+the solidify (136 of the 190 misses). One mesh got worse (61460: 4 self-intersections after the solidify,
+before 0, probably at the transition of the new non-manifold refinement).
