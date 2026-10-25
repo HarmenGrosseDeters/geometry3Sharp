@@ -515,7 +515,8 @@ namespace g3
     /// <summary>
     /// MeshFormatReader impl for glTF 2.0 (.gltf and .glb), using <see cref="GLTFReader"/> with its defaults
     /// (one mesh per scene node that references a mesh, node transforms applied). When reading by filename,
-    /// external buffers are loaded from relative paths next to the .gltf file. ReadOptions are ignored.
+    /// external buffers are loaded from relative paths in the directory of the .gltf file or below it (not ../).
+    /// ReadOptions are ignored.
     /// </summary>
     public class GLTFFormatReader : MeshFormatReader
     {
@@ -538,12 +539,21 @@ namespace g3
             return read(stream, builder, messages, null);
         }
 
-        // buffers must be relative paths; absolute paths and other URI schemes (http:, file:) are not read
+        // buffers must be relative paths to files in the directory of the .gltf file or below it; absolute paths,
+        // other URI schemes (http:, file:) and paths that leave the directory (../) are not read, so a file cannot pull
+        // in arbitrary local files (eg ../../home/user/.ssh/id_rsa or ../../dev/zero) as buffer data. Symbolic links
+        // are not resolved: a linked subdirectory is trusted.
         static byte[] read_relative(string dir, string uri)
         {
             if (Path.IsPathRooted(uri) || uri.Contains(":"))
                 throw new IOException("only relative buffer paths are supported: " + uri);
-            return File.ReadAllBytes(Path.Combine(dir, uri));
+            string root = dir.EndsWith(Path.DirectorySeparatorChar.ToString()) ? dir : dir + Path.DirectorySeparatorChar;
+            string path = Path.GetFullPath(Path.Combine(root, uri));
+            // Windows paths are case-insensitive (../Model/x.bin from inside model stays inside)
+            StringComparison cmp = (Path.DirectorySeparatorChar == '\\') ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+            if (path.StartsWith(root, cmp) == false)
+                throw new IOException("buffer paths outside the directory of the glTF file are not read: " + uri);
+            return File.ReadAllBytes(path);
         }
 
         IOReadResult read(Stream stream, IMeshBuilder builder, ParsingMessagesHandler messages, Func<string, byte[]> resolve)

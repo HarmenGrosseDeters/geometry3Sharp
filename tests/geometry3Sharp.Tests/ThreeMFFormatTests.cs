@@ -207,6 +207,92 @@ namespace geometry3Sharp.Tests
             Assert.Equal(IOCode.FileParsingError, r.code);
         }
 
+        // object 1..depth each reference the next object twice, object depth+1 is the tetrahedron: 2^depth instances
+        static string DoublingComponents(int depth)
+        {
+            StringBuilder res = new StringBuilder();
+            for (int i = 1; i <= depth; ++i)
+                res.Append("<object id=\"" + i + "\" type=\"model\"><components><component objectid=\"" + (i + 1) +
+                    "\"/><component objectid=\"" + (i + 1) + "\" transform=\"1 0 0 0 1 0 0 0 1 2 0 0\"/></components></object>");
+            res.Append("<object id=\"" + (depth + 1) + "\" type=\"model\">" + TetMesh + "</object>");
+            return Model(res.ToString(), "<item objectid=\"1\"/>");
+        }
+
+        [Fact]
+        public void Read_ExponentialComponents_ReturnError()
+        {
+            // < 2 KB of XML that describes 2^40 tetrahedra: stopped by MaxElements instead of running out of time or memory
+            // (a lower limit than the default keeps the test fast)
+            byte[] package = MakePackage(DoublingComponents(40));
+            Assert.True(package.Length < 2000);
+            Assert.True(new ThreeMFReader().MaxElements < (1L << 40));
+            IOReadResult r = default(IOReadResult);
+            ThreeMFReader reader = new ThreeMFReader() { MaxElements = 1000000 };
+            System.Threading.Tasks.Task task = System.Threading.Tasks.Task.Run(() => { r = reader.Read(new MemoryStream(package), ReadOptions.Defaults, new DMesh3Builder()); });
+            Assert.True(task.Wait(TimeSpan.FromSeconds(60)), "reading did not finish");
+            Assert.Equal(IOCode.FileParsingError, r.code);
+            Assert.Contains("MaxElements", r.message);
+        }
+
+        [Fact]
+        public void Read_SharedComponents_BelowLimit_AreExpanded()
+        {
+            // shared components are valid 3MF: 2^4 instances of the tetrahedron
+            IOReadResult r;
+            List<DMesh3> meshes = Read(MakePackage(DoublingComponents(4)), out r);
+            Assert.True(r.code == IOCode.Ok, r.message);
+            DMesh3 m = Assert.Single(meshes);
+            Assert.Equal(16 * 4, m.VertexCount);
+            Assert.Equal(16 * 4, m.TriangleCount);
+        }
+
+        [Fact]
+        public void Read_MaxElements_LimitsVerticesInTheModelPart()
+        {
+            // the limit also counts the vertices and triangles while the XML is parsed (zip bombs that expand to gigabytes of XML)
+            StringBuilder mesh = new StringBuilder("<mesh><vertices>");
+            for (int i = 0; i < 3000; ++i)
+                mesh.Append("<vertex x=\"0\" y=\"0\" z=\"0\"/>");
+            mesh.Append("</vertices><triangles><triangle v1=\"0\" v2=\"1\" v3=\"2\"/></triangles></mesh>");
+            // object 2 is not used by a build item, so only the count during parsing can catch it
+            byte[] package = MakePackage(Model("<object id=\"1\" type=\"model\">" + TetMesh + "</object>" +
+                "<object id=\"2\" type=\"model\">" + mesh + "</object>", "<item objectid=\"1\"/>"));
+
+            ThreeMFReader reader = new ThreeMFReader() { MaxElements = 2000 };
+            IOReadResult r = reader.Read(new MemoryStream(package), ReadOptions.Defaults, new DMesh3Builder());
+            Assert.Equal(IOCode.FileParsingError, r.code);
+            Assert.Contains("MaxElements", r.message);
+
+            reader = new ThreeMFReader();
+            DMesh3Builder builder = new DMesh3Builder();
+            r = reader.Read(new MemoryStream(package), ReadOptions.Defaults, builder);
+            Assert.True(r.code == IOCode.Ok, r.message);
+            Assert.Equal(4, builder.Meshes[0].VertexCount);
+        }
+
+        [Fact]
+        public void Read_MaxElements_FileAndResultAreCountedSeparately()
+        {
+            // one tetrahedron: 8 elements parsed, 1 + 8 appended; each count must fit MaxElements on its own
+            byte[] package = MakePackage(Model("<object id=\"1\" type=\"model\">" + TetMesh + "</object>", "<item objectid=\"1\"/>"));
+            IOReadResult r = new ThreeMFReader() { MaxElements = 9 }.Read(new MemoryStream(package), ReadOptions.Defaults, new DMesh3Builder());
+            Assert.True(r.code == IOCode.Ok, r.message);
+            r = new ThreeMFReader() { MaxElements = 8 }.Read(new MemoryStream(package), ReadOptions.Defaults, new DMesh3Builder());
+            Assert.Equal(IOCode.FileParsingError, r.code);
+        }
+
+        [Fact]
+        public void Read_RelationshipsWithDtd_ReturnsError()
+        {
+            // OPC parts must not contain DTDs (and entity expansion in them could be an XML bomb)
+            string rels = "<?xml version=\"1.0\"?><!DOCTYPE r [<!ENTITY t \"/3D/model.model\">]>" +
+                "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">" +
+                "<Relationship Target=\"&t;\" Id=\"r0\" Type=\"http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel\"/></Relationships>";
+            IOReadResult r;
+            Read(MakePackage(Model("<object id=\"1\" type=\"model\">" + TetMesh + "</object>", "<item objectid=\"1\"/>"), rels), out r);
+            Assert.Equal(IOCode.FileParsingError, r.code);
+        }
+
         [Fact]
         public void Read_MissingObject_ReturnsError()
         {

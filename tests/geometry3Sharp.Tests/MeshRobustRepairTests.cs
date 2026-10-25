@@ -176,10 +176,60 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void ExactResolveThatLosesVolume_NotUsed()
+        public void UncleanResultThatLostAPart_InputUsed()
+        {
+            // the repair loses a sphere and leaves the other one open (eg erosion of an open region): the exact
+            // stage cannot use it (not closed), and the solidify of it closed the remaining sphere only, without
+            // a volume check; now the input is used, its solid agrees with the result's less than MinVolumeIoU
+            DMesh3 a = Sphere(1, Vector3d.Zero), b = Sphere(1, new Vector3d(3, 0, 0));
+            DMesh3 input = new DMesh3(a);
+            MeshEditor.Append(input, b);
+            Func<DMesh3, DMesh3> openA = (m) => {
+                DMesh3 c = new DMesh3(a);
+                foreach (int t in c.TriangleIndices().ToArray())
+                    if (c.GetTriCentroid(t).z > 0.95) c.RemoveTriangle(t);
+                return c;
+            };
+            foreach (bool exact in new[] { true, false }) {
+                var r = new MeshRobustRepair(new DMesh3(input)) { RepairF = openA, ExactResolve = exact };
+                Assert.True(r.Apply());
+                Assert.Equal("not closed", r.FallbackReason);
+                Assert.True(r.UsedInput);
+                Assert.Equal(exact, r.UsedExactResolve);
+                Assert.Equal(!exact, r.UsedSolidify);
+                Assert.Equal("", MeshRobustRepair.NotCleanReason(r.Mesh));
+                double missing, extra;
+                Assert.True(MeshRepairMetrics.VolumeIoU(input, r.Mesh, out missing, out extra) > 0.97);
+            }
+            // an unclean result that keeps the solid is still the one solidified
+            var kept = new MeshRobustRepair(new DMesh3(a)) { RepairF = openA, ExactResolve = false };
+            Assert.True(kept.Apply());
+            Assert.False(kept.UsedInput);
+            Assert.True(kept.UsedSolidify);
+        }
+
+        [Fact]
+        public void EmptyRepairResult_InputUsed()
+        {
+            // a repair stage that removes everything: Apply() returned false ("the mesh to solidify is empty")
+            DMesh3 input = Sphere(1, Vector3d.Zero);
+            MeshEditor.Append(input, Sphere(1, new Vector3d(1.2, 0, 0)));
+            foreach (double minIoU in new[] { 0.99, 0 }) {
+                var r = new MeshRobustRepair(new DMesh3(input)) { RepairF = (m) => new DMesh3(), MinVolumeIoU = minIoU };
+                Assert.True(r.Apply());
+                Assert.Equal("empty", r.FallbackReason);
+                Assert.True(r.UsedInput);
+                Assert.True(r.UsedExactResolve, r.ExactResolveReason);
+                Assert.Equal("", MeshRobustRepair.NotCleanReason(r.Mesh));
+            }
+        }
+
+        [Fact]
+        public void UncleanResultThatLosesVolume_ExactResolveOfTheInput()
         {
             // the repair drops a part (box c) and leaves two overlapping boxes: resolving them exactly is clean,
-            // but the solid differs from the input's, so the exact result is not used
+            // but the solid differs from the input's (before: the exact result was rejected and the result without
+            // box c solidified); the input is resolved exactly instead
             Func<Vector3d, DMesh3> box = (c) => new TrivialBox3Generator() { Box = new Box3d(c, Vector3d.One) }.Generate().MakeDMesh();
             DMesh3 overlapping = box(Vector3d.Zero);
             MeshEditor.Append(overlapping, box(new Vector3d(1, 0, 0)));
@@ -188,9 +238,9 @@ namespace geometry3Sharp.Tests
             var r = new MeshRobustRepair(input) { RepairF = (m) => new DMesh3(overlapping) };
             Assert.True(r.Apply());
             Assert.Equal("self-intersections", r.FallbackReason);
-            Assert.False(r.UsedExactResolve);
-            Assert.Equal("volume differs from the input", r.ExactResolveReason);
-            Assert.True(r.UsedSolidify);
+            Assert.True(r.UsedInput);
+            Assert.True(r.UsedExactResolve, r.ExactResolveReason);
+            Assert.Equal(3 * 2 * 2 + 8, Volume(r.Mesh), 9);     // the union of the overlapping boxes and box c
         }
 
         static DMesh3 Box(double x0, double y0, double z0, double x1, double y1, double z1)

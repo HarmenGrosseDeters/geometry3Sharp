@@ -21,9 +21,10 @@ namespace gs
     /// Clean means: closed, no bowties, no degenerate triangles, no inside-out components and, if
     /// CheckSelfIntersections, no self-intersections (exact, MeshRepairMetrics).
     ///
-    /// A clean result can still have lost volume (eg a self-overlapping input made non-overlapping by
-    /// dropping a layer): if its solid agrees with the input's winding number solid less than MinVolumeIoU,
-    /// the input itself is used instead, resolved exactly or solidified (its winding number solid is the reference).
+    /// A result can still have lost volume (eg a self-overlapping input made non-overlapping by dropping a
+    /// layer, or parts removed by erosion): if its solid agrees with the input's winding number solid less than
+    /// MinVolumeIoU, the input itself is used instead, resolved exactly, solidified or wrapped (its winding number
+    /// solid is the reference; UsedInput).
     ///
     /// Behaviour: the result is in <see cref="Mesh"/> after Apply(), a new mesh object. The mesh passed to the
     /// constructor is used as the working mesh of MeshAutoRepair and is modified by it, so pass a copy if
@@ -74,11 +75,17 @@ namespace gs
         // outputs
         /// <summary> true if the result was produced by the solidify fallback (remeshed), false if it is the repair result </summary>
         public bool UsedSolidify;
+        /// <summary>
+        /// true if the fallbacks (exact resolve, solidify, alpha wrap) started from the input instead of the repair
+        /// result, because the repair result's solid differs from the input's (or it is empty)
+        /// </summary>
+        public bool UsedInput;
         /// <summary> why the repair result was not used ("" if it was) </summary>
         public string FallbackReason = "";
         /// <summary>
-        /// volume IoU of the repair result with the input (NaN if the input has no solid or not checked); an
-        /// estimate from as many samples as the check needed (MeshRepairMetrics.VolumeIoUAtLeast)
+        /// volume IoU with the input (NaN if the input has no solid or not checked) of the repair result, or of the
+        /// exact resolve if that is used; an estimate from as many samples as the check needed
+        /// (MeshRepairMetrics.VolumeIoUAtLeast)
         /// </summary>
         public double RepairVolumeIoU = double.NaN;
         /// <summary> the solidify fallback, if it ran (for its statistics); null otherwise </summary>
@@ -128,12 +135,13 @@ namespace gs
         /// Repair, check, and solidify if needed (see class comment). On success Mesh is the result.
         /// </summary>
         /// <returns>
-        /// false if cancelled, if the mesh to solidify is empty, or if both the solidify fallback (eg the grid
+        /// false if cancelled, if the input is empty, or if both the solidify fallback (eg the grid
         /// would be too large) and the alpha wrap failed; Mesh is then not replaced. true otherwise.
         /// </returns>
         public bool Apply()
         {
             UsedSolidify = false;
+            UsedInput = false;
             UsedAlphaWrap = false;
             SolidifyReason = "";
             Solidify = null;
@@ -169,7 +177,15 @@ namespace gs
                     solidifyFrom = input;
                 }
                 end_phase("volume");
+            } else if (FallbackReason != "") {
+                // an unclean result can have lost parts of the input as well (eg erosion of an open region, which
+                // the volume check of the exact stage rejects, but the solidify and the wrap do not check): then the
+                // fallbacks start from the input, like for a clean result whose volume differs
+                if (result.TriangleCount == 0 || (MinVolumeIoU > 0 && MeshRepairMetrics.VolumeIoUAtLeast(input, result, MinVolumeIoU, out RepairVolumeIoU) == false))
+                    solidifyFrom = input;
+                end_phase("volume");
             }
+            UsedInput = solidifyFrom == input;
             if (FallbackReason == "") {
                 Mesh = result;
                 return true;
