@@ -4,23 +4,16 @@ guarantees (closed, valid, manifold, oriented, no exact self-intersections), fid
 directions, volume IoU against the input's winding number solid), output size and time.
 Usage: analyze_wrap.py results/wrap.jsonl results/solidify_dc_adaptive.jsonl ..."""
 import json, os, sys
+from criteria import get, no_solid, repaired
 
 def load(f):
     return {r['file']: r for r in (json.loads(l) for l in open(f) if l.strip())}
-
-def get(r, k, d=None):
-    v = r.get(k, d)
-    return d if v is None else v
 
 def guarantees(r):
     # closed, valid, no bowties, consistently oriented, no inside-out components, no exact self-intersections
     return (r.get('status') == 'closed' and get(r, 'after_valid', False) and get(r, 'after_bowties', 1) == 0
             and get(r, 'after_inconsistent_orient_edges', 1) == 0 and get(r, 'after_inverted_components', 1) == 0
-            and get(r, 'after_selfint_exact', 1) in (0, -1))      # -1: not computed (more than 300k triangles)
-
-def no_solid(r):
-    v = r.get('iou')
-    return v == 'NaN' or (v == 0 and get(r, 'iou_missing', 1) == 0)
+            and get(r, 'after_selfint_exact', 1) == 0)      # -1 (not computed, more than 300k triangles): not verified
 
 def q(a, p):
     a = sorted(a)
@@ -51,8 +44,7 @@ for name, rs in runs:
         'Hausdorff both < 1 %': sum(h < 0.01 for h in hd),
         'IoU median / p10': f"{q(iou, .5):.3f} / {q(iou, .1):.3f}",
         'IoU > 0.99': sum(v > 0.99 for v in iou),
-        'repaired (guarantees, HD < 1 %, IoU > 0.99)': sum(guarantees(r) and max(get(r, 'hd_fwd_hi_rel', 1), get(r, 'hd_back_hi_rel', 1)) < 0.01
-                                                         and (no_solid(r) or float(get(r, 'iou', 0)) > 0.99) for r in xs),
+        'repaired (criteria.py: clean, no self-int., HD < 1 %, IoU > 0.99)': sum(repaired(r) for r in xs),
         'output triangles, median': int(q(tris, .5)),
         'time median / p90 / max (s)': f"{q(ms, .5):.2f} / {q(ms, .9):.2f} / {max(ms) if ms else 0:.1f}",
     }))

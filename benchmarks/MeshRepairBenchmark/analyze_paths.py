@@ -4,6 +4,7 @@ resolve, the solidify or the alpha wrap; why the earlier stages were not used; t
 criterion of analyze_fidelity.py) per stage and per defect category. Optionally writes one CSV row per mesh.
 Usage: analyze_paths.py results/robust.jsonl [data/selection.csv] [--csv out.csv] [--markdown]"""
 import collections, csv, json, sys
+from criteria import get, clean, selfint as selfint_count, iou, hd, HD, IOU
 
 args = [a for a in sys.argv[1:] if not a.startswith('--')]
 f = args[0]
@@ -11,7 +12,6 @@ sel = args[1] if len(args) > 1 else 'data/selection.csv'
 out_csv = sys.argv[sys.argv.index('--csv') + 1] if '--csv' in sys.argv else None
 if out_csv in args: args.remove(out_csv)
 md = '--markdown' in sys.argv
-HD, IOU = 0.01, 0.99
 
 rows = [json.loads(l) for l in open(f) if l.strip()]
 cat = {}
@@ -21,10 +21,6 @@ try:
 except FileNotFoundError:
     pass
 
-def get(r, k, d=None):
-    v = r.get(k, d)
-    return d if v is None else v
-
 def stage(r):
     if r.get('status') != 'closed' and r.get('status') != 'not_closed':
         return 'failed (' + str(r.get('status')) + ')'
@@ -33,29 +29,19 @@ def stage(r):
     if get(r, 'robust_used_exact', False): return 'exact resolve'
     return 'repair'
 
-def clean(r):
-    return (r.get('status') == 'closed' and get(r, 'after_valid', False) and get(r, 'after_bowties', 1) == 0
-            and get(r, 'after_inconsistent_orient_edges', 1) == 0 and get(r, 'after_duplicate_tris', 1) == 0
-            and get(r, 'after_degenerate_tris', 1) == 0 and get(r, 'after_inverted_components', 1) == 0)
-
 def selfint(r):
-    v = get(r, 'after_selfint_exact', 1)
+    v = selfint_count(r)
     return None if v == -1 else v > 0       # -1: not computed (large results)
 
-def iou(r):
-    v = r.get('iou')
-    return 1.0 if v in ('NaN', None) else float(v)
-
-def hd(r):
-    return max(get(r, 'hd_fwd_hi_rel', 1), get(r, 'hd_back_hi_rel', 1))
-
+# 'repaired' is the criterion of criteria.py; a result whose self-intersections were not computed is not
+# counted as repaired (as in analyze_fidelity), but shown in a column of its own
 def outcome(r):
     if not clean(r): return 'not clean'
     s = selfint(r)
     if s: return 'self-intersections'
     if hd(r) >= HD: return 'deviation > 1 %'
     if iou(r) <= IOU: return 'volume (IoU)'
-    return 'repaired' if s is False else 'repaired (self-int. not checked)'
+    return 'repaired' if s is False else 'self-int. not checked'
 
 def why(r):
     # why the earlier stages were not used
@@ -69,7 +55,7 @@ stages = ['repair', 'exact resolve', 'solidify', 'alpha wrap']
 by_stage = collections.defaultdict(list)
 for r in rows:
     by_stage[stage(r)].append(r)
-outcomes = ['repaired', 'repaired (self-int. not checked)', 'deviation > 1 %', 'volume (IoU)', 'self-intersections', 'not clean']
+outcomes = ['repaired', 'self-int. not checked', 'deviation > 1 %', 'volume (IoU)', 'self-intersections', 'not clean']
 
 def med(v):
     v = sorted(v)
@@ -117,7 +103,7 @@ if cat:
         cells = []
         for s in stages:
             sr = [r for r in rs if stage(r) == s]
-            cells.append(f"{len(sr)} ({sum(1 for r in sr if outcome(r).startswith('repaired'))})")
+            cells.append(f"{len(sr)} ({sum(1 for r in sr if outcome(r) == 'repaired')})")
         lines.append([c, len(rs)] + cells)
     table(['category', 'meshes'] + stages, lines)
 

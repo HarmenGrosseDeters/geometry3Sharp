@@ -393,6 +393,7 @@ namespace gs
             // signposts of the new edge: from k->i (counter-clockwise, by the new angle at k), from l->j
             double angK = angle_from_lengths(hLen[tb], hLen[hc], lkl);      // in (k, i, l) at k: opposite i->l
             double angL = angle_from_lengths(hLen[hb], hLen[tc], lkl);      // in (l, j, k) at l: opposite j->k
+            // (boundary signposts run from 0 to the angle sum, which can exceed 2 pi: not wrapped)
             double phiK = add_angle(vk, hAngle[hc], vScale[vk] * angK);
             double phiL = add_angle(vl, hAngle[tc], vScale[vl] * angL);
 

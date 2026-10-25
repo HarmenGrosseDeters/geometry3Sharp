@@ -6,8 +6,9 @@ namespace g3.Examples
     /// <summary>
     /// Mesh repair. MeshAutoRepair keeps the input triangles where it can (welds, removes degenerate and
     /// duplicate parts, fills holes, orients). MeshRobustRepair runs it; when the result is not clean (open,
-    /// non-manifold or self-intersecting) it resolves the self-intersections exactly (keeps the geometry) and
-    /// falls back to winding number solidify only when that is not clean either.
+    /// non-manifold or self-intersecting) it resolves the self-intersections exactly (keeps the geometry),
+    /// falls back to winding number solidify when that is not clean either, and to an alpha wrap as the
+    /// last resort (AlphaWrapFallback).
     /// </summary>
     public static class MeshRepairExample
     {

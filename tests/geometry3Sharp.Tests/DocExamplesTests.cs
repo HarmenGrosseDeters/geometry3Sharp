@@ -143,6 +143,17 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void ExactMeshBooleanExample_AtLeastTwoOfThree()
+        {
+            ExactMeshBoolean.BooleanStatus status;
+            DMesh3 result = ExactMeshBooleanExample.AtLeastTwoOfThree(out status);
+            Assert.Equal(ExactMeshBoolean.BooleanStatus.Success, status);
+            Assert.True(result.IsClosed());
+            // x in [0.5, 1.5] is inside two of the boxes
+            Assert.Equal(1.0, Volume(result), 12);
+        }
+
+        [Fact]
         public void WindingNumberSolidifyExample_ClosesAndUnitesBrokenInput()
         {
             DMesh3 result = WindingNumberSolidifyExample.Run();

@@ -1,7 +1,8 @@
 ﻿# About this fork
 
 This fork tracks gradientspace/geometry3Sharp `master`, whose code is the same as NuGet package 1.0.324.
-Its direction is described in [docs/ROADMAP.md](docs/ROADMAP.md). [docs/OPERATIONS.md](docs/OPERATIONS.md) maps the main
+Its direction is described in [docs/ROADMAP.md](docs/ROADMAP.md). Changes that users of upstream 1.0.324 can notice are listed in
+[docs/UPSTREAM_CHANGES.md](docs/UPSTREAM_CHANGES.md). [docs/OPERATIONS.md](docs/OPERATIONS.md) maps the main
 operations to their classes, with a tested example for each. It adds:
 
 - Mesh repair fixes:
@@ -21,7 +22,7 @@ operations to their classes, with a tested example for each. It adds:
   (from overlapping coplanar faces) are removed exactly, so repeated booleans do not fragment the result.
 - Intrinsic geodesics (Phase 3 of the roadmap): `IntrinsicTriangulation` (intrinsic Delaunay flips with
   signposts, edge tracing over the input mesh, mollification of degenerate triangles), the heat method on it
-  (`MeshGeodesicDistance.IntrinsicDelaunay = true`, accurate on sliver and obtuse meshes) and
+  (`MeshGeodesicDistance.IntrinsicDelaunay`, on by default, accurate on sliver and obtuse meshes) and
   `VectorHeatMethod` (parallel transport, scalar extension, log map). `SparseCholesky` is a direct sparse
   solver for the heat and Poisson systems.
 - `MeshAlphaWrap`: alpha wrapping with an offset (Portaneri et al. 2022). Gives a closed, 2-manifold surface
@@ -75,13 +76,14 @@ all of this on every push: tests on net10.0 (Linux) and net48 (Windows), CLI tes
 | `.stl` | yes | yes | ascii and binary (`WriteOptions.bWriteBinary`) |
 | `.off` | yes | yes | |
 | `.g3mesh` | yes | yes | packed DMesh3 |
-| `.ply` | yes | yes | ascii, binary little/big endian; normals, colors, UVs, point sets. Positions are written as double unless `RealPrecisionDigits <= 7` |
+| `.ply` | yes | yes | ascii, binary (reads little and big endian, writes little endian); normals, colors, UVs, point sets. Positions are written as double unless `RealPrecisionDigits <= 7` |
 | `.3mf` | yes | yes | core spec; build items, components, transforms; read in millimeters (`ThreeMFReader.ConvertToMillimeters`) |
 | `.glb` / `.gltf` | yes | yes | glTF 2.0; node transforms applied, primitives as face groups, normals/colors/UVs. No materials, no Draco/meshopt |
 
 glTF stores float32 positions. `GLTFWriter` writes each mesh relative to its bounding box center and stores the
 center as node translation, so large coordinates (eg UTM) keep their precision when read back with `GLTFReader`.
-glTF and 3MF coordinates are not converted (glTF is Y-up in meters, 3MF uses its unit, millimeters by default).
+glTF coordinates are not converted (glTF is Y-up in meters). `ThreeMFReader` converts to millimeters by default
+(`ConvertToMillimeters`); `ThreeMFWriter` writes the values unscaled in its `Unit` (millimeter by default).
 
 ```csharp
 DMesh3 mesh = StandardMeshReader.ReadMesh("scan.glb");
@@ -209,7 +211,6 @@ Several tutorials for using g3Sharp have been posted on the Gradientspace blog:
 - **SparseCholesky** sparse Cholesky factorization (approximate minimum degree ordering, supernodal), factorize once and solve many right-hand sides; refactorization with the same pattern reuses the analysis
 - **SparseSymmetricCG** conjugate-gradient matrix solver w/ support for preconditioning, client-provided matrix/vector multiply
 - **SparseSymmetricCGMultipleRHS** variant that supports multiple right-hand sides
-- **SparseCholesky** direct solver for sparse symmetric positive definite systems (reverse Cuthill-McKee, envelope Cholesky)
 - **SingularValueDecomposition** SVD for arbitrary matrices
 - **SymmetricEigenSolver** eigensolver for symmetric matrices using Symmetric QR, ported from GTEngine.
 

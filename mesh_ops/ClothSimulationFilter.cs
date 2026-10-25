@@ -62,6 +62,10 @@ namespace gs
         public int Iterations;
 
 
+        /// <summary> largest cloth (particles); Compute fails for larger ones (bounds / ClothResolution) </summary>
+        public static double MaxCells = 1 << 28;
+
+
         public ClothSimulationFilter(IList<Vector3d> points)
         {
             Points = points;
@@ -89,6 +93,9 @@ namespace gs
             double r = ClothResolution;
             const int margin = 2;
             ClothOrigin = new Vector2d(bounds.Min.x - margin * r, bounds.Min.y - margin * r);
+            // eg a 70 km corridor at 1 m: the cloth would not fit in memory (and nx * ny overflows int)
+            if (!((Math.Ceiling(bounds.Width / r) + 2 * margin + 1) * (Math.Ceiling(bounds.Height / r) + 2 * margin + 1) <= MaxCells))
+                return false;
             int nx = (int)Math.Ceiling(bounds.Width / r) + 2 * margin + 1;
             int ny = (int)Math.Ceiling(bounds.Height / r) + 2 * margin + 1;
             double zref = bounds.Max.z;

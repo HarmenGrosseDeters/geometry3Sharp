@@ -9,8 +9,9 @@ the XML documentation of the classes (shipped in the NuGet package, so IDEs and 
 Without writing code: [tools/g3cli](../tools/g3cli/README.md) runs the main operations (measure, repair,
 boolean, resolve, remesh, simplify, convert) on mesh files, with JSON results, and as an MCP server.
 
-Namespaces: most classes are in `g3`; repair, solidify, hole filling, Hausdorff and geodesic distances are
-in `gs`. Add both: `using g3; using gs;`.
+Namespaces: most classes are in `g3`; many mesh operations are in `gs` (repair, alpha wrap, solidify, hole
+filling, wall thickness, deviation, Hausdorff and geodesic distances, intrinsic triangulations, terrain).
+Add both: `using g3; using gs;`.
 
 ## Common patterns
 
@@ -24,7 +25,8 @@ in `gs`. Add both: `using g3; using gs;`.
   `Reducer`, smoothers, hole fillers, `MeshPlaneCut`. New mesh in `Result`: `ExactMeshBoolean`,
   `MeshWindingNumberSolidify`. Pass `new DMesh3(mesh)` to keep the input of an in-place operation.
 - **Files**: `StandardMeshReader` / `StandardMeshWriter` pick the format from the extension and return an
-  `IOCode` with a message instead of throwing.
+  `IOCode` with a message instead of throwing (`StandardMeshReader.ReadMesh` returns null on failure, and
+  throws if the file was read but contains no mesh).
 
 ## Operations
 
@@ -37,7 +39,7 @@ in `gs`. Add both: `using g3; using gs;`.
 | Fill holes | `gs.MinimalHoleFill`, `gs.SmoothedHoleFill`, `gs.AutoHoleFill`, `SimpleHoleFiller`, `MeshBoundaryLoops` | [HoleFillExample](examples/HoleFillExample.cs) |
 | Check a mesh (self-intersections, folds, volume IoU) | `gs.MeshRepairMetrics`, `MeshRobustRepair.NotCleanReason`, `DMesh3.CheckValidity`, `MeshValidation` | [RepairMetricsExample](examples/RepairMetricsExample.cs) |
 | Rebuild any input as a closed solid | `gs.MeshWindingNumberSolidify` | [WindingNumberSolidifyExample](examples/WindingNumberSolidifyExample.cs) |
-| Booleans (union, intersection, difference), resolve self-intersections | `ExactMeshBoolean`, `ExactMeshBoolean.Resolve` | [ExactMeshBooleanExample](examples/ExactMeshBooleanExample.cs) |
+| Booleans (union, intersection, difference) of two or more meshes, winding number predicates (eg inside at least k of n), resolve self-intersections | `ExactMeshBoolean`, `ExactMeshBoolean.AtLeast`, `ExactMeshBoolean.Resolve` | [ExactMeshBooleanExample](examples/ExactMeshBooleanExample.cs) |
 | Isotropic remeshing | `Remesher`, `gs.RemesherPro`, `MeshConstraintUtil`, `MeshProjectionTarget` | [RemeshExample](examples/RemeshExample.cs) |
 | Simplification, with a guaranteed maximum deviation | `Reducer` | [SimplificationExample](examples/SimplificationExample.cs) |
 | Smoothing | `MeshIterativeSmooth`, `LaplacianMeshSmoother` | [SmoothingExample](examples/SmoothingExample.cs) |
@@ -54,7 +56,7 @@ in `gs`. Add both: `using g3; using gs;`.
 | You have | Use | Result |
 |---|---|---|
 | A mostly good mesh with small holes, duplicate vertices, degenerate triangles | `MeshAutoRepair` (with `PostRepairCleanup = true`) | the input triangles, welded and closed where possible; not guaranteed closed |
-| Any mesh, and you need a closed, manifold, self-intersection-free result | `MeshRobustRepair` | the repaired mesh if it is clean, otherwise its self-intersections resolved exactly (`UsedExactResolve`), otherwise the winding number solid (`UsedSolidify`, `FallbackReason`) |
+| Any mesh, and you need a closed, manifold, self-intersection-free result | `MeshRobustRepair` | the repaired mesh if it is clean, otherwise its self-intersections resolved exactly (`UsedExactResolve`), otherwise the winding number solid (`UsedSolidify`), otherwise the alpha wrap (`UsedAlphaWrap`); see `FallbackReason`. If the clean result lost volume (`MinVolumeIoU`) the input itself is resolved or solidified instead. `Apply()` returns false (`Mesh` unchanged) if cancelled or if neither the solidify nor the alpha wrap gave a mesh; a solidified result that is not clean either is kept when the wrap fails or is off (`UsedSolidify` and `SolidifyReason`) |
 | A triangle soup, overlapping parts, large holes | `MeshWindingNumberSolidify` | a new, remeshed closed surface; features below the cell size are lost |
 | Closed meshes that intersect themselves or each other, where the triangles must be kept exactly | `ExactMeshBoolean`, `ExactMeshBoolean.Resolve(mesh)` | exact arrangement, only the output coordinates are rounded |
 | Booleans of broken meshes (open, soups, overlapping shells) | `gs.MeshWindingNumberBoolean` | a new, remeshed closed surface (winding numbers on an adaptive octree) |
@@ -75,6 +77,21 @@ if (result == null)
 The test checks the exact volumes of union, intersection and difference of a cube and a bar with
 coplanar faces ([ExactMeshBooleanExample](examples/ExactMeshBooleanExample.cs)).
 
+More than two meshes go into one arrangement, with an operation or a predicate on the winding numbers of all
+inputs (Zhou et al. 2016). Status is the result code (`Success`, `InvalidInput`, `OpenInput`):
+
+```csharp
+var all = new ExactMeshBoolean(meshes, ExactMeshBoolean.Operations.Union);   // also Intersection; Difference = first minus all others
+var two = new ExactMeshBoolean(meshes, ExactMeshBoolean.AtLeast(2));          // inside at least two of the meshes
+var odd = new ExactMeshBoolean(meshes, w => w.Count(x => x > 0) % 2 == 1);   // any predicate on the winding numbers w[i]
+if (two.Compute() == false)
+    Console.WriteLine(two.Status + ": " + two.Error);
+```
+
+One operation over all inputs is faster than a chain of pairwise booleans and rounds the new vertices only
+once: the 10×10×10 cube grid with a void in each cube (2000 meshes, 1999 pairwise booleans) takes 27 s in one
+pass ([BooleanComparison](../benchmarks/BooleanComparison/README.md#many-meshes-in-one-operation)).
+
 ### Repair
 
 ```csharp
@@ -83,7 +100,8 @@ repair.Apply();
 DMesh3 repaired = repair.Mesh;           // a compacted copy: always read repair.Mesh
 
 var robust = new MeshRobustRepair(mesh);
-robust.Apply();                          // robust.Mesh is closed, manifold, without self-intersections
+if (robust.Apply())                      // robust.Mesh: closed, manifold, no self-intersections, except
+    mesh = robust.Mesh;                  // in the rare case UsedSolidify && SolidifyReason != ""
 ```
 
 See [MeshRepairExample](examples/MeshRepairExample.cs), [HoleFillExample](examples/HoleFillExample.cs),

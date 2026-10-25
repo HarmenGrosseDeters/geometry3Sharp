@@ -95,6 +95,36 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void TriangleHashGrid_FarTriangleGoesToACoarserLevel()
+        {
+            // 2e4 from the origin with 0.01 cells is out of the key range of level 0 (2^20 cells), not of the
+            // coarser levels; it was kept unplaced instead, and every query reported it
+            var grid = new TriangleHashGrid(Vector3d.Zero, 0.01);
+            var far = new AxisAlignedBox3d(new Vector3d(2e4, 0, 0), new Vector3d(2e4 + 0.01, 0.01, 0.01));
+            grid.Insert(0, far);
+            grid.Insert(1, new AxisAlignedBox3d(new Vector3d(1, 0, 0), new Vector3d(1.01, 0.01, 0.01)));
+            grid.Insert(2, new AxisAlignedBox3d(new Vector3d(double.NaN, 0, 0), new Vector3d(1, 1, 1)));
+            var found = new List<int>();
+            grid.Query(new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(0.5, 0.5, 0.5)), (tid) => found.Add(tid));
+            Assert.Equal(new[] { 2 }, found.ToArray());     // non-finite boxes are reported to every query
+            found.Clear();
+            grid.Query(new AxisAlignedBox3d(new Vector3d(2e4 - 1, -1, -1), new Vector3d(2e4 + 1, 1, 1)), (tid) => found.Add(tid));
+            found.Sort();
+            Assert.Equal(new[] { 0, 2 }, found.ToArray());
+            Assert.True(grid.LevelCount > 1);
+
+            // finite, but out of the range of every level: kept aside, still only reported where it overlaps
+            grid.Insert(3, new AxisAlignedBox3d(new Vector3d(1e17, 0, 0), new Vector3d(1e17 + 1e3, 1, 1)));
+            found.Clear();
+            grid.Query(new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(0.5, 0.5, 0.5)), (tid) => found.Add(tid));
+            Assert.Equal(new[] { 2 }, found.ToArray());
+            found.Clear();
+            grid.Query(new AxisAlignedBox3d(new Vector3d(1e17, 0, 0), new Vector3d(1e17, 0, 0)), (tid) => found.Add(tid));
+            found.Sort();
+            Assert.Equal(new[] { 2, 3 }, found.ToArray());
+        }
+
+        [Fact]
         public void TriangleHashGrid_FlatAndTouchingBoxesOverlap()
         {
             // axis-aligned triangles have flat boxes; boxes that only touch count as overlapping (closed boxes)
