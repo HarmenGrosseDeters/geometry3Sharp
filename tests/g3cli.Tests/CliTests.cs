@@ -156,9 +156,19 @@ namespace g3cli.Tests
         [Fact]
         public void Repair_RobustReportsFallback()
         {
-            // overlapping shells: MeshAutoRepair keeps the self-intersections, so the solidify fallback runs
+            // overlapping shells: MeshAutoRepair keeps the self-intersections, so they are resolved exactly
             var (exit, r) = Run("repair", m.Overlapping, m.Path_("repaired_overlap.obj"), "--solidify-resolution", "64");
             AssertOk(exit, r);
+            Assert.True(B(r["used_exact_resolve"]));
+            Assert.False(B(r["used_solidify"]));
+            Assert.Equal("self-intersections", S(r["fallback_reason"]));
+            Assert.True(B(r["mesh"]["closed"]));
+            Assert.InRange(D(r["mesh"]["volume"]), 11.5, 12.5);
+
+            // without the exact stage the solidify fallback runs
+            (exit, r) = Run("repair", m.Overlapping, m.Path_("repaired_overlap2.obj"), "--solidify-resolution", "64", "--no-exact-resolve");
+            AssertOk(exit, r);
+            Assert.False(B(r["used_exact_resolve"]));
             Assert.True(B(r["used_solidify"]));
             Assert.Equal("self-intersections", S(r["fallback_reason"]));
             Assert.True(B(r["mesh"]["closed"]));

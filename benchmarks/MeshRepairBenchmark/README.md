@@ -149,10 +149,31 @@ Known remaining issues:
 - Solidify fidelity is bounded by the grid (see the resolution 256 spike below).
 - Dual contouring leaves triangles out where neighbouring cells split a shared face into patches
   differently; filling those holes can create self-intersections.
-- Resolving self-intersections exactly (`ExactMeshBoolean.Resolve` on the repaired mesh) instead of
-  solidifying keeps the input geometry. A first prototype on 20 failing meshes: 6 clean, the others open
-  (the repaired mesh is not closed in the winding number sense) or with self-intersections from rounding
-  the new vertices.
+- (Resolved by the exact stage below for many meshes.)
+
+### Exact resolve before the solidify
+
+`MeshRobustRepair.ExactResolve` (default on): if the repaired mesh is not clean, its self-intersections are
+resolved exactly (`ExactMeshBoolean.Resolve`; slivers collapsed by the cleanup, touching sheets separated by
+`SeparateTouchingVertices`, resolved again while rounding leaves self-intersections), and the result is used if
+it is clean and its volume agrees with the input. Otherwise the solidify runs as before. Same machine, same build,
+`BENCH_EXACT=0` switches the stage off:
+
+| 400 set | robust, without exact stage | robust, with exact stage |
+|---|---|---|
+| clean¹ + no exact self-intersections | 347 | **359** |
+| **repaired** (also Hausdorff < 1 %, IoU > 0.99) | 211 | **253** |
+| Hausdorff (max of both directions): median | 0.66 % | **0.37 %** |
+| IoU: median | 0.9981 | **0.9999** |
+| median repair time | 4.4 s | **3.9 s** |
+| timeouts (120 s) | 1 | 3 |
+
+42 meshes are repaired that were not before, none is lost. The stage is tried for 225 meshes and used for
+119 (79 of them repaired; 11 needed more than one resolve round). Where it is used the median repair time drops
+from 5.4 to 4.2 s (no solidify); where it is tried but not used it adds about 2 s. Why it is not used: the
+result is not closed after the cleanup (32), the volume differs from the input already after the repair (29),
+the repaired mesh is not closed in the winding number sense (28), degenerate triangles remain (17). Two large
+meshes (42327, 42329) now hit the timeout.
 
 
 ### Spike: solidify resolution 256 (`BENCH_SOLID_RES=256`, 30 meshes)

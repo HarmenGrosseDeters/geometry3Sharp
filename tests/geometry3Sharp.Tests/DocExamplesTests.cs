@@ -172,20 +172,23 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void MeshRepairExample_RobustRepairKeepsCleanInputAndSolidifiesOverlaps()
+        public void MeshRepairExample_RobustRepairKeepsCleanInputAndResolvesOverlaps()
         {
-            bool usedSolidify;
+            bool usedExact, usedSolidify;
             string reason;
             DMesh3 clean = Sphere(1, Vector3d.Zero);
-            DMesh3 result = MeshRepairExample.RobustRepair(clean, out usedSolidify, out reason);
+            DMesh3 result = MeshRepairExample.RobustRepair(clean, out usedExact, out usedSolidify, out reason);
+            Assert.False(usedExact);
             Assert.False(usedSolidify);
             Assert.Equal("", reason);
             Assert.Equal(clean.TriangleCount, result.TriangleCount);
 
+            // overlapping spheres: self-intersecting, resolved exactly (no remeshing)
             DMesh3 overlapping = Sphere(1, Vector3d.Zero);
             MeshEditor.Append(overlapping, Sphere(1, new Vector3d(1.2, 0, 0)));
-            result = MeshRepairExample.RobustRepair(overlapping, out usedSolidify, out reason);
-            Assert.True(usedSolidify);
+            result = MeshRepairExample.RobustRepair(overlapping, out usedExact, out usedSolidify, out reason);
+            Assert.True(usedExact);
+            Assert.False(usedSolidify);
             Assert.Equal("self-intersections", reason);
             Assert.Equal("", MeshRobustRepair.NotCleanReason(result));
         }

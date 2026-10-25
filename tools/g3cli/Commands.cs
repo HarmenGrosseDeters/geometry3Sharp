@@ -151,7 +151,8 @@ namespace g3cli
                 Name = "repair",
                 Description = "Repair a mesh into a closed solid. 'robust' (default, MeshRobustRepair): MeshAutoRepair with post-repair cleanup, " +
                     "and if the result is still not clean (closed, manifold, no degenerate or inside-out parts, no self-intersections) or lost volume, " +
-                    "a winding-number solidify fallback (remeshes). 'auto' (MeshAutoRepair): keeps the input triangles, may leave problems.",
+                    "its self-intersections resolved exactly (keeps the geometry), and if that is not clean either a winding-number solidify " +
+                    "fallback (remeshes). 'auto' (MeshAutoRepair): keeps the input triangles, may leave problems.",
             };
             c.Params.Add(Input());
             c.Params.Add(Output());
@@ -159,6 +160,7 @@ namespace g3cli
             c.Params.Add(new Param("tolerance", ParamType.Number, "weld / crack-closing tolerance of MeshAutoRepair (default 1e-6)"));
             c.Params.Add(new Param("solidify_resolution", ParamType.Integer, "robust: grid cells along the bounding box diagonal of the solidify fallback") { Default = 128 });
             c.Params.Add(new Param("min_volume_iou", ParamType.Number, "robust: minimum volume IoU of the repair with the input before falling back (0 = no check)") { Default = 0.99 });
+            c.Params.Add(new Param("exact_resolve", ParamType.Boolean, "robust: before the solidify, resolve the self-intersections exactly (ExactMeshBoolean.Resolve)") { Default = true });
             c.Params.Add(SelfIntersections());
             c.Params.Add(Binary());
             c.Run = args => {
@@ -190,12 +192,15 @@ namespace g3cli
                         SolidifyResolution = args.Integer("solidify_resolution"),
                         MinVolumeIoU = args.Number("min_volume_iou"),
                         CheckSelfIntersections = selfInt,
+                        ExactResolve = args.Bool("exact_resolve"),
                         ConfigureRepair = configure,
                     };
                     if (repair.Apply() == false)
                         throw new CommandException(ResultCodes.OperationFailed,
                             "MeshRobustRepair failed" + (repair.FallbackReason != "" ? " (repair result: " + repair.FallbackReason + ", solidify gave no surface)" : ""));
                     result = repair.Mesh;
+                    o["used_exact_resolve"] = repair.UsedExactResolve;
+                    o["exact_resolve_reason"] = repair.ExactResolveReason == "" ? null : repair.ExactResolveReason;
                     o["used_solidify"] = repair.UsedSolidify;
                     o["fallback_reason"] = repair.FallbackReason == "" ? null : repair.FallbackReason;
                     o["volume_iou"] = MeshReport.Num(repair.RepairVolumeIoU);

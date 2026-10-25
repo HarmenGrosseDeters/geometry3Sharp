@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using g3;
 using gs;
@@ -31,22 +32,68 @@ namespace geometry3Sharp.Tests
             Assert.Equal(n, r.Mesh.TriangleCount);
         }
 
-        [Fact]
-        public void SelfIntersectingInput_SolidifiedClean()
+        static double Volume(DMesh3 m)
         {
-            // two overlapping spheres: closed and manifold, but self-intersecting (the repair keeps that)
+            return MeshMeasurements.VolumeArea(m, m.TriangleIndices(), m.GetVertex).x;
+        }
+
+        // two overlapping spheres: closed and manifold, but self-intersecting (the repair keeps that)
+        static DMesh3 OverlappingSpheres()
+        {
             DMesh3 m = Sphere(1, Vector3d.Zero);
             MeshEditor.Append(m, Sphere(1, new Vector3d(1.2, 0, 0)));
+            return m;
+        }
+
+        [Fact]
+        public void SelfIntersectingInput_ResolvedExactly()
+        {
+            DMesh3 m = OverlappingSpheres();
+            DMesh3 a = Sphere(1, Vector3d.Zero), b = Sphere(1, new Vector3d(1.2, 0, 0));
             var r = new MeshRobustRepair(m);
             Assert.True(r.Apply());
+            Assert.True(r.UsedExactResolve, r.ExactResolveReason);
+            Assert.False(r.UsedSolidify);
+            Assert.Equal("self-intersections", r.FallbackReason);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(r.Mesh));
+            // the exact union of the two triangulated spheres: their volumes minus the overlap, which is the
+            // exact intersection (volume identity)
+            var inter = new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Intersection);
+            Assert.True(inter.Compute());
+            Assert.Equal(Volume(a) + Volume(b) - Volume(inter.Result), Volume(r.Mesh), 6);
+            // the input vertices are kept
+            var input = new HashSet<Vector3d>(m.Vertices());
+            Assert.True(r.Mesh.Vertices().Count(v => input.Contains(v)) > 0.8 * r.Mesh.VertexCount);
+        }
+
+        [Fact]
+        public void SelfIntersectingInput_WithoutExactResolve_SolidifiedClean()
+        {
+            var r = new MeshRobustRepair(OverlappingSpheres()) { ExactResolve = false };
+            Assert.True(r.Apply());
             Assert.True(r.UsedSolidify);
+            Assert.False(r.UsedExactResolve);
             Assert.Equal("self-intersections", r.FallbackReason);
             Assert.Equal("", MeshRobustRepair.NotCleanReason(r.Mesh));
             // the union of the spheres
-            double v = MeshMeasurements.VolumeArea(r.Mesh, r.Mesh.TriangleIndices(), r.Mesh.GetVertex).x;
+            double v = Volume(r.Mesh);
             double h = (2 - 1.2) / 2, cap = Math.PI * h * h * (3 - h) / 3;   // each sphere's cap inside the other
             double expected = 2 * 4.0 / 3 * Math.PI - 2 * cap;
             Assert.InRange(v, 0.97 * expected, 1.03 * expected);
+        }
+
+        [Fact]
+        public void OpenSelfIntersectingInput_NotResolvedExactly()
+        {
+            // the repair cannot close it (RepairF keeps it open): no exact winding numbers, so not resolved exactly
+            DMesh3 m = OverlappingSpheres();
+            foreach (int t in m.TriangleIndices().ToArray())
+                if (m.GetTriCentroid(t).z > 0.9) m.RemoveTriangle(t);
+            var r = new MeshRobustRepair(m) { RepairF = (x) => new DMesh3(x) };
+            Assert.True(r.Apply());
+            Assert.False(r.UsedExactResolve);
+            Assert.Equal("not closed (winding number)", r.ExactResolveReason);
+            Assert.True(r.UsedSolidify);
         }
 
         [Fact]
@@ -71,30 +118,96 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void CleanButVolumeLost_InputSolidified()
+        public void CleanButVolumeLost_InputResolvedOrSolidified()
         {
             // input: two overlapping boxes (a region enclosed twice); a repair stage that returns only one of
-            // them gives a clean mesh that lost a third of the solid: the input is solidified instead
+            // them gives a clean mesh that lost a third of the solid: the input is used instead, resolved
+            // exactly (or solidified without ExactResolve)
             DMesh3 a = new TrivialBox3Generator() { Box = new Box3d(Vector3d.Zero, Vector3d.One) }.Generate().MakeDMesh();
             DMesh3 b = new TrivialBox3Generator() { Box = new Box3d(new Vector3d(1, 0, 0), Vector3d.One) }.Generate().MakeDMesh();
             DMesh3 input = new DMesh3(a);
             MeshEditor.Append(input, b);
-            var r = new MeshRobustRepair(new DMesh3(input)) { RepairF = (m) => new DMesh3(a) };
-            Assert.True(r.Apply());
-            Assert.True(r.UsedSolidify);
-            Assert.Equal("volume differs from the input", r.FallbackReason);
-            Assert.InRange(r.RepairVolumeIoU, 0.6, 0.7);
-            double missing, extra;
-            Assert.True(MeshRepairMetrics.VolumeIoU(input, r.Mesh, out missing, out extra) > 0.99);
-            Assert.Equal("", MeshRobustRepair.NotCleanReason(r.Mesh));
+            foreach (bool exact in new[] { true, false }) {
+                var r = new MeshRobustRepair(new DMesh3(input)) { RepairF = (m) => new DMesh3(a), ExactResolve = exact };
+                Assert.True(r.Apply());
+                Assert.Equal(exact, r.UsedExactResolve);
+                Assert.Equal(!exact, r.UsedSolidify);
+                Assert.Equal("volume differs from the input", r.FallbackReason);
+                double missing, extra;
+                Assert.True(MeshRepairMetrics.VolumeIoU(input, r.Mesh, out missing, out extra) > 0.99);
+                Assert.Equal("", MeshRobustRepair.NotCleanReason(r.Mesh));
+                if (exact)
+                    Assert.Equal(12.0, Volume(r.Mesh), 9);     // the union of the boxes (3 x 2 x 2), exactly
+            }
             // the same repair returning the whole solid is kept
             DMesh3 union = new TrivialBox3Generator() { Box = new Box3d(new Vector3d(0.5, 0, 0), new Vector3d(1.5, 1, 1)) }.Generate().MakeDMesh();
             var r2 = new MeshRobustRepair(new DMesh3(input)) { RepairF = (m) => new DMesh3(union) };
             Assert.True(r2.Apply());
             Assert.False(r2.UsedSolidify);
+            Assert.False(r2.UsedExactResolve);
             Assert.True(r2.RepairVolumeIoU > 0.99);
         }
-    
+
+        [Fact]
+        public void ExactResolveThatLosesVolume_NotUsed()
+        {
+            // the repair drops a part (box c) and leaves two overlapping boxes: resolving them exactly is clean,
+            // but the solid differs from the input's, so the exact result is not used
+            Func<Vector3d, DMesh3> box = (c) => new TrivialBox3Generator() { Box = new Box3d(c, Vector3d.One) }.Generate().MakeDMesh();
+            DMesh3 overlapping = box(Vector3d.Zero);
+            MeshEditor.Append(overlapping, box(new Vector3d(1, 0, 0)));
+            DMesh3 input = new DMesh3(overlapping);
+            MeshEditor.Append(input, box(new Vector3d(10, 0, 0)));
+            var r = new MeshRobustRepair(input) { RepairF = (m) => new DMesh3(overlapping) };
+            Assert.True(r.Apply());
+            Assert.Equal("self-intersections", r.FallbackReason);
+            Assert.False(r.UsedExactResolve);
+            Assert.Equal("volume differs from the input", r.ExactResolveReason);
+            Assert.True(r.UsedSolidify);
+        }
+
+        static DMesh3 Box(double x0, double y0, double z0, double x1, double y1, double z1)
+        {
+            return new TrivialBox3Generator() { Box = new Box3d(new Vector3d((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2),
+                new Vector3d((x1 - x0) / 2, (y1 - y0) / 2, (z1 - z0) / 2)) }.Generate().MakeDMesh();
+        }
+
+        [Fact]
+        public void TouchingSolids_SeparatedAfterTheExactResolve()
+        {
+            // boxes touching along an edge, one of them overlapped by a third box: the resolve splits the touching
+            // edge into two manifold sheets with duplicated vertices, which touch (a self-intersection by the exact
+            // check); they are separated minimally, so the exact result is used
+            DMesh3 m = Box(0, 0, 0, 1, 1, 1);
+            MeshEditor.Append(m, Box(1, 1, 0, 2, 2, 1));
+            MeshEditor.Append(m, Box(0.5, 0.5, 0.25, 0.75, 0.75, 1.5));
+            var r = new MeshRobustRepair(m) { RepairF = (x) => new DMesh3(x) };
+            Assert.True(r.Apply());
+            Assert.Equal("self-intersections", r.FallbackReason);
+            Assert.True(r.UsedExactResolve, r.ExactResolveReason);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(r.Mesh));
+            double v = 2 + 0.25 * 0.25 * 0.5;       // two unit boxes and the part of the third above the first
+            Assert.Equal(v, Volume(r.Mesh), 3);
+        }
+
+        [Fact]
+        public void SeparateTouchingVertices_RemovesTheContact()
+        {
+            DMesh3 m = Box(0, 0, 0, 1, 1, 1);
+            MeshEditor.Append(m, Box(1, 1, 0, 2, 2, 1));
+            DMesh3 res = ExactMeshBoolean.Resolve(m);
+            Assert.True(MeshRepairMetrics.SelfIntersections(res) > 0);
+            var before = res.Vertices().ToList();
+            Assert.Equal(4, MeshRobustRepair.SeparateTouchingVertices(res, 1e-4));
+            Assert.Equal(0, MeshRepairMetrics.SelfIntersections(res));
+            // moved by a tiny amount only
+            var after = res.Vertices().ToList();
+            Assert.True(before.Zip(after, (a, b) => a.Distance(b)).Max() < 1e-3);
+            Assert.True(before.Zip(after, (a, b) => a.Distance(b)).Max() > 0);
+            // nothing to do on a mesh without duplicated vertices
+            Assert.Equal(0, MeshRobustRepair.SeparateTouchingVertices(Box(0, 0, 0, 1, 1, 1), 1e-4));
+        }
+
         [Fact]
         public void InsideOutInput_RepairKeptNotSolidified()
         {

@@ -153,6 +153,18 @@ namespace geometry3Sharp.Tests
                     tr.InsertPoint(id[k]);
                 // points are found by walking from the last insertion, not by searching all triangles
                 Assert.Equal(0, tr.LinearSearches);
+                // and the triangulation is kept Delaunay while they are inserted (before MakeDelaunay)
+                {
+                    var t0 = tr.Triangles().ToList();
+                    var opp = new Dictionary<long, int>();
+                    foreach (Index3i t in t0)
+                        for (int k = 0; k < 3; ++k)
+                            opp[((long)t[k] << 32) | (uint)t[(k + 1) % 3]] = t[(k + 2) % 3];
+                    foreach (Index3i t in t0)
+                        for (int k = 0; k < 3; ++k)
+                            if (opp.TryGetValue(((long)t[(k + 1) % 3] << 32) | (uint)t[k], out int d))
+                                Assert.True(arr.InCircle(tri, t[k], t[(k + 1) % 3], t[(k + 2) % 3], d) <= 0, "not Delaunay after the insertions");
+                }
                 tr.MakeDelaunay();
                 // non-crossing constraints between random point pairs, without points on them
                 var constraints = new List<Tuple<int, int>>();
@@ -179,6 +191,8 @@ namespace geometry3Sharp.Tests
                 }
                 foreach (var c in constraints)
                     tr.InsertConstraint(id[c.Item1], id[c.Item2]);
+                // the crossed edges are found by walking along the constraint, not by searching all edges
+                Assert.Equal(0, tr.LinearSearches);
                 tr.MakeDelaunay();
 
                 var tris = tr.Triangles().ToList();
