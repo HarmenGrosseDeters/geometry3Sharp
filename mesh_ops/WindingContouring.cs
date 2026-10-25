@@ -581,6 +581,7 @@ namespace gs
         {
             if (cleanup) {
                 new MeshPostRepairCleanup(mesh).Apply();
+                RemoveSplinters(mesh, cellSize);
                 endPhase("cleanup");
             }
             if (reduceTolerance > 0 && cancelF() == false) {
@@ -594,6 +595,37 @@ namespace gs
             return new DMesh3(mesh, true);
         }
 
+
+        /// <summary>
+        /// Removes closed components without volume at the resolution: thinner than 2% of a cell on average
+        /// (volume / area &lt; 0.01 cell; a slab of thickness t has t / 2) or smaller than 1% of a cell in
+        /// volume. They come from nearly coincident surfaces, eg A minus a copy of A turned by a fraction of
+        /// a degree, and are noise, not material. Returns the number removed.
+        /// </summary>
+        public static int RemoveSplinters(DMesh3 mesh, double cellSize)
+        {
+            var comps = new MeshConnectedComponents(mesh);
+            comps.FindConnectedT();
+            Vector3d center = mesh.CachedBounds.Center;
+            int removed = 0;
+            foreach (var c in comps.Components) {
+                bool closed = true;
+                foreach (int t in c.Indices) {
+                    Index3i te = mesh.GetTriEdges(t);
+                    if (mesh.IsBoundaryEdge(te.a) || mesh.IsBoundaryEdge(te.b) || mesh.IsBoundaryEdge(te.c)) { closed = false; break; }
+                }
+                if (closed == false)
+                    continue;
+                Vector2d va = MeshMeasurements.VolumeArea(mesh, c.Indices, (vid) => mesh.GetVertex(vid) - center);
+                double vol = Math.Abs(va.x), area = va.y;
+                if (vol < 0.01 * cellSize * cellSize * cellSize || vol < 0.01 * cellSize * area) {
+                    foreach (int t in c.Indices)
+                        mesh.RemoveTriangle(t, true, false);
+                    removed++;
+                }
+            }
+            return removed;
+        }
 
         /// <summary>
         /// Dual contouring leaves out the rare quads that would make an edge non-manifold (an ambiguous face
