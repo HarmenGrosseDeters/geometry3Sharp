@@ -410,5 +410,26 @@ namespace geometry3Sharp.Tests
             foreach (int vid in hills.VertexIndices())
                 Assert.True(Math.Abs(a.Distance[vid] - b.Distance[vid]) < 0.02 * b.Distance[vid] + 0.5, $"{a.Distance[vid]} vs {b.Distance[vid]}");
         }
+        [Fact]
+        public void LineAndPointSources_NoOffsetAtThePointSource()
+        {
+            // a line of sources (eg a crest) and a single far point source: phi of the Poisson step differs
+            // between them; shifting it by the minimum put the surroundings of the point source 3.5 m too far
+            // at 15 m. Now phi = 0 at every source; what is left (up to 1.8 m) comes from the heat step, where the
+            // line's stronger heat moves the seam between the two towards the point (by about sqrt(t))
+            DMesh3 mesh = Grid(-50, -50, 50, 50, 101, (x, y) => 0);
+            var src = new List<int>();
+            for (int i = -45; i <= 45; ++i) src.Add(NearestVertex(mesh, new Vector3d(i, -40, 0)));
+            Vector3d point = new Vector3d(20, 30, 0);
+            src.Add(NearestVertex(mesh, point));
+            var geo = new MeshGeodesicDistance(mesh);
+            Assert.True(geo.Compute(src));
+            foreach (int vid in mesh.VertexIndices()) {
+                Vector3d p = mesh.GetVertex(vid);
+                double exact = Math.Min(p.Distance(point), Math.Abs(p.y + 40) + Math.Max(0, Math.Abs(p.x) - 45));
+                if (p.Distance(point) > 15) continue;   // around the point source
+                Assert.True(Math.Abs(geo.Distance[vid] - exact) < 0.02 * exact + 2.0, $"{p}: {geo.Distance[vid]} vs {exact}");
+            }
+        }
     }
 }

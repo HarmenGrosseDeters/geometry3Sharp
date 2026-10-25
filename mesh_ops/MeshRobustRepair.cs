@@ -1,6 +1,7 @@
-﻿// Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
+// Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using g3;
 
@@ -12,7 +13,10 @@ namespace gs
     /// are resolved exactly (ExactResolve: ExactMeshBoolean.Resolve, which keeps the geometry); if that is not
     /// clean either, the repaired mesh is solidified (winding number, adaptive dual contouring), which gives a
     /// closed, manifold surface without self-intersections at the cost of remeshing it (deviation about a
-    /// cell, see SolidifyResolution).
+    /// cell, see SolidifyResolution). If the solidify fails or its result is not clean either (rare:
+    /// self-intersections where thin sheets meet in few cells), the mesh is alpha wrapped (MeshAlphaWrap,
+    /// AlphaWrapFallback), whose result is always closed, manifold and free of self-intersections, but wraps
+    /// over cavities and gaps narrower than about 2 alpha and lies about Offset outside the input.
     ///
     /// Clean means: closed, no bowties, no degenerate triangles, no inside-out components and, if
     /// CheckSelfIntersections, no self-intersections (exact, MeshRepairMetrics).
@@ -23,8 +27,8 @@ namespace gs
     ///
     /// Behaviour: the result is in <see cref="Mesh"/> after Apply(), a new mesh object. The mesh passed to the
     /// constructor is used as the working mesh of MeshAutoRepair and is modified by it, so pass a copy if
-    /// you need the input afterwards. Check UsedExactResolve / UsedSolidify / FallbackReason (and ExactResolveReason)
-    /// to see which path was taken.
+    /// you need the input afterwards. Check UsedExactResolve / UsedSolidify / UsedAlphaWrap / FallbackReason (and
+    /// ExactResolveReason, SolidifyReason) to see which path was taken.
     /// Cost: the self-intersection check and the volume comparison are cheap compared to the solidify
     /// fallback, whose cost grows with SolidifyResolution.
     ///
@@ -60,16 +64,31 @@ namespace gs
         /// grows with them; a heavily overlapping mesh is solidified instead); 0 = no limit
         /// </summary>
         public int ExactResolveMaxPairs = 200000;
+        /// <summary> last resort: alpha wrap the mesh if the solidify fails or its result is not clean </summary>
+        public bool AlphaWrapFallback = true;
+        /// <summary> alpha wrap fallback: alpha = bounding box diagonal / WrapRelativeAlpha </summary>
+        public double WrapRelativeAlpha = 300;
+        /// <summary> alpha wrap fallback: offset = bounding box diagonal / WrapRelativeOffset </summary>
+        public double WrapRelativeOffset = 3000;
 
         // outputs
         /// <summary> true if the result was produced by the solidify fallback (remeshed), false if it is the repair result </summary>
         public bool UsedSolidify;
         /// <summary> why the repair result was not used ("" if it was) </summary>
         public string FallbackReason = "";
-        /// <summary> volume IoU of the repair result with the input (NaN if the input has no solid or not checked) </summary>
+        /// <summary>
+        /// volume IoU of the repair result with the input (NaN if the input has no solid or not checked); an
+        /// estimate from as many samples as the check needed (MeshRepairMetrics.VolumeIoUAtLeast)
+        /// </summary>
         public double RepairVolumeIoU = double.NaN;
         /// <summary> the solidify fallback, if it ran (for its statistics); null otherwise </summary>
         public MeshWindingNumberSolidify Solidify;
+        /// <summary> why the solidify result was not used ("" if it was or did not run) </summary>
+        public string SolidifyReason = "";
+        /// <summary> true if the result is the alpha wrap (last resort) </summary>
+        public bool UsedAlphaWrap;
+        /// <summary> the alpha wrap fallback, if it ran; null otherwise </summary>
+        public MeshAlphaWrap AlphaWrap;
         public bool UsedExactResolve;
         /// <summary> why the exact resolve was not used ("" if it was or was not tried) </summary>
         public string ExactResolveReason = "";
@@ -77,6 +96,27 @@ namespace gs
         public int ExactResolveRoundsUsed;
         /// <summary> per resolve round: self-intersecting triangle pairs of its result (diagnostics) </summary>
         public List<int> ExactResolveSelfIntersections = new List<int>();
+        /// <summary>
+        /// milliseconds per phase of the last Apply() (summed if a phase runs more than once): "repair", "check"
+        /// (cleanness incl. self-intersections), "volume" (VolumeIoU), "exact" (exact resolve incl. its checks;
+        /// parts of it in "exact.orient", "exact.closed", "exact.resolve", "exact.check", "exact.volume"),
+        /// "solidify", "solidify." + the phases of MeshWindingNumberSolidify, "solidify.check" (cleanness of
+        /// its result) and "wrap" (alpha wrap fallback)
+        /// </summary>
+        public Dictionary<string, long> PhaseMilliseconds = new Dictionary<string, long>();
+
+        Stopwatch phase_timer = new Stopwatch();
+        void end_phase(string name)
+        {
+            add_phase(name, phase_timer.ElapsedMilliseconds);
+            phase_timer.Restart();
+        }
+        void add_phase(string name, long ms)
+        {
+            long cur;
+            PhaseMilliseconds.TryGetValue(name, out cur);
+            PhaseMilliseconds[name] = cur + ms;
+        }
 
         /// <summary> the mesh is modified by the repair stage (see class comment) </summary>
         public MeshRobustRepair(DMesh3 mesh)
@@ -88,18 +128,24 @@ namespace gs
         /// Repair, check, and solidify if needed (see class comment). On success Mesh is the result.
         /// </summary>
         /// <returns>
-        /// false if cancelled, if the mesh to solidify is empty, or if the solidify fallback failed (eg the
-        /// grid would be too large); Mesh is then not replaced. true otherwise.
+        /// false if cancelled, if the mesh to solidify is empty, or if both the solidify fallback (eg the grid
+        /// would be too large) and the alpha wrap failed; Mesh is then not replaced. true otherwise.
         /// </returns>
         public bool Apply()
         {
             UsedSolidify = false;
+            UsedAlphaWrap = false;
+            SolidifyReason = "";
+            Solidify = null;
+            AlphaWrap = null;
             UsedExactResolve = false;
             ExactResolveReason = "";
             ExactResolveRoundsUsed = 0;
             ExactResolveSelfIntersections.Clear();
             FallbackReason = "";
             RepairVolumeIoU = double.NaN;
+            PhaseMilliseconds.Clear();
+            phase_timer.Restart();
             DMesh3 input = new DMesh3(Mesh);
             DMesh3 result;
             if (RepairF != null) {
@@ -110,17 +156,19 @@ namespace gs
                 repair.Apply();
                 result = repair.Mesh;
             }
+            end_phase("repair");
             if (CancelF())
                 return false;
             FallbackReason = NotCleanReason(result, CheckSelfIntersections);
+            end_phase("check");
             DMesh3 solidifyFrom = result;
             if (FallbackReason == "" && MinVolumeIoU > 0) {
-                double missing, extra;
-                RepairVolumeIoU = MeshRepairMetrics.VolumeIoU(input, result, out missing, out extra);
-                if (RepairVolumeIoU < MinVolumeIoU) {        // (NaN: the input has no solid to compare with)
+                // (NaN: the input has no solid to compare with, accepted)
+                if (MeshRepairMetrics.VolumeIoUAtLeast(input, result, MinVolumeIoU, out RepairVolumeIoU) == false) {
                     FallbackReason = "volume differs from the input";
                     solidifyFrom = input;
                 }
+                end_phase("volume");
             }
             if (FallbackReason == "") {
                 Mesh = result;
@@ -141,6 +189,7 @@ namespace gs
                     if (exact == null)
                         ExactResolveReason = reason + "; input: " + ExactResolveReason;
                 }
+                end_phase("exact");
                 if (CancelF())
                     return false;
                 if (exact != null) {
@@ -150,7 +199,26 @@ namespace gs
                 }
             }
             Solidify = new MeshWindingNumberSolidify(solidifyFrom) { GridResolution = SolidifyResolution, Adaptive = true, CancelF = CancelF };
-            if (Solidify.Compute() == false || Solidify.Result == null || Solidify.Result.TriangleCount == 0)
+            bool solidified = Solidify.Compute() && Solidify.Result != null && Solidify.Result.TriangleCount > 0;
+            end_phase("solidify");
+            foreach (var kv in Solidify.PhaseMilliseconds) PhaseMilliseconds["solidify." + kv.Key] = kv.Value;
+            if (CancelF())
+                return false;
+            SolidifyReason = solidified ? NotCleanReason(Solidify.Result, CheckSelfIntersections) : "solidify failed";
+            end_phase("solidify.check");
+            if (SolidifyReason != "" && AlphaWrapFallback) {
+                AlphaWrap = new MeshAlphaWrap(solidifyFrom) { RelativeAlpha = WrapRelativeAlpha, RelativeOffset = WrapRelativeOffset, CancelF = CancelF };
+                AlphaWrap.Compute();
+                end_phase("wrap");
+                // (PointLimitReached: less detail, same guarantees)
+                if ((AlphaWrap.Status == MeshAlphaWrap.WrapStatus.Success || AlphaWrap.Status == MeshAlphaWrap.WrapStatus.PointLimitReached)
+                    && AlphaWrap.Result != null && AlphaWrap.Result.TriangleCount > 0) {
+                    Mesh = AlphaWrap.Result;
+                    UsedAlphaWrap = true;
+                    return true;
+                }
+            }
+            if (solidified == false)
                 return false;
             Mesh = Solidify.Result;
             UsedSolidify = true;
@@ -160,10 +228,14 @@ namespace gs
         // the solid of the mesh with its self-intersections resolved exactly, or null (ExactResolveReason says why)
         DMesh3 resolve_exactly(DMesh3 from, DMesh3 input, bool orientByInput)
         {
+            var timer = Stopwatch.StartNew();
             // inside-out parts flipped, so that the solid is where the winding number is positive (guessed from
             // the nesting of the components, or from the input's solid)
             DMesh3 m = orientByInput ? OrientedByReference(from, input) : WindingContouring.OrientedCopy(from);
-            if (ExactMeshBoolean.IsWindingClosed(m) == false) {
+            add_phase("exact.orient", timer.ElapsedMilliseconds); timer.Restart();
+            bool closed = ExactMeshBoolean.IsWindingClosed(m);
+            add_phase("exact.closed", timer.ElapsedMilliseconds); timer.Restart();
+            if (closed == false) {
                 ExactResolveReason = "not closed (winding number)";
                 return null;
             }
@@ -177,7 +249,9 @@ namespace gs
             for (int round = 0; round < ExactResolveRounds; ++round) {
                 if (CancelF())
                     return null;
+                timer.Restart();
                 DMesh3 res = ExactMeshBoolean.Resolve(m);
+                add_phase("exact.resolve", timer.ElapsedMilliseconds); timer.Restart();
                 ExactResolveRoundsUsed++;
                 if (res == null || res.TriangleCount == 0) {
                     ExactResolveReason = "resolve failed";
@@ -199,6 +273,7 @@ namespace gs
                     if (si > 0)
                         reason = "self-intersections";
                 }
+                add_phase("exact.check", timer.ElapsedMilliseconds); timer.Restart();
                 if (reason == "self-intersections") {
                     // from rounding the new vertices (or the cleanup): tiny, resolved by the next round
                     ExactResolveReason = reason;
@@ -210,9 +285,10 @@ namespace gs
                     return null;
                 }
                 if (MinVolumeIoU > 0) {
-                    double missing, extra;
-                    double iou = MeshRepairMetrics.VolumeIoU(input, res, out missing, out extra);
-                    if (iou < MinVolumeIoU) {        // (NaN: the input has no solid to compare with)
+                    double iou;
+                    bool agrees = MeshRepairMetrics.VolumeIoUAtLeast(input, res, MinVolumeIoU, out iou);
+                    add_phase("exact.volume", timer.ElapsedMilliseconds);
+                    if (agrees == false) {
                         ExactResolveReason = "volume differs from the input";
                         return null;
                     }
@@ -334,7 +410,7 @@ namespace gs
             double areaEps = 1e-12 * diag * diag;
             if (mesh.TriangleIndices().Any(t => mesh.GetTriArea(t) < areaEps)) return "degenerate triangles";
             if (MeshPostRepairCleanup.FindInvertedComponents(mesh).Count > 0) return "inside-out components";
-            if (checkSelfIntersections && MeshRepairMetrics.SelfIntersections(mesh) > 0) return "self-intersections";
+            if (checkSelfIntersections && MeshRepairMetrics.HasSelfIntersections(mesh)) return "self-intersections";
             return "";
         }
     }

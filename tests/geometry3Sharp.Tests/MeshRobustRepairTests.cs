@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using g3;
@@ -262,6 +262,58 @@ namespace geometry3Sharp.Tests
             Assert.False(r.UsedSolidify);
             Assert.Equal(outer, Volume(r.Mesh), 6);
             Assert.Equal("", MeshRobustRepair.NotCleanReason(r.Mesh));
+        }
+
+        // thin rotated plates (about a cell thick at resolution 64), overlapping: the solidify leaves
+        // self-intersections where the sheets meet in few cells
+        static DMesh3 ThinPlates(int seed)
+        {
+            var rnd = new Random(seed);
+            DMesh3 m = new DMesh3();
+            for (int i = 0; i < 12; ++i) {
+                var c = new Vector3d(rnd.NextDouble(), rnd.NextDouble(), rnd.NextDouble());
+                var e = new Vector3d(0.3 + 0.2 * rnd.NextDouble(), 0.02 + 0.03 * rnd.NextDouble(), 0.3);
+                var b = new TrivialBox3Generator() { Box = new Box3d(c, e) }.Generate().MakeDMesh();
+                var axis = new Vector3d(rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5).Normalized;
+                MeshTransforms.Rotate(b, c, Quaterniond.AxisAngleD(axis, 360 * rnd.NextDouble()));
+                MeshEditor.Append(m, b);
+            }
+            return m;
+        }
+
+        [Fact]
+        public void SolidifyNotClean_AlphaWrapped()
+        {
+            // the repair keeps the self-intersections, the exact stage is off: the solidify result still
+            // self-intersects; the alpha wrap is clean and encloses the input
+            Func<bool, MeshRobustRepair> run = (wrap) => {
+                var r = new MeshRobustRepair(ThinPlates(6)) { RepairF = (m) => new DMesh3(m), ExactResolve = false, SolidifyResolution = 64, AlphaWrapFallback = wrap };
+                Assert.True(r.Apply());
+                return r;
+            };
+            var without = run(false);
+            Assert.True(without.UsedSolidify);
+            Assert.Equal("self-intersections", MeshRobustRepair.NotCleanReason(without.Mesh));
+
+            var with = run(true);
+            Assert.Equal("self-intersections", with.SolidifyReason);
+            Assert.True(with.UsedAlphaWrap);
+            Assert.False(with.UsedSolidify);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(with.Mesh));
+            double missing, extra;
+            double iou = MeshRepairMetrics.VolumeIoU(ThinPlates(6), with.Mesh, out missing, out extra);
+            Assert.True(missing < 0.01, $"missing {missing}");     // the wrap encloses the input
+        }
+
+        [Fact]
+        public void CleanSolidify_NotWrapped()
+        {
+            var r = new MeshRobustRepair(Sphere(1, Vector3d.Zero)) { RepairF = (m) => { var c = new DMesh3(m); MeshEditor.Append(c, Sphere(1, new Vector3d(1.2, 0, 0))); return c; }, ExactResolve = false };
+            Assert.True(r.Apply());
+            Assert.True(r.UsedSolidify);
+            Assert.False(r.UsedAlphaWrap);
+            Assert.Equal("", r.SolidifyReason);
+            Assert.Null(r.AlphaWrap);
         }
     }
 }

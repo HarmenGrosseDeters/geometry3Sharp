@@ -2,6 +2,7 @@
 # (reference.py, cached in results/reference_cache.json).
 # Usage: python3 analyze.py results/all.jsonl
 import json, os, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import reference
 
 ARGS = ["before", "after", "grid", "points", "win", "coords", "variant", "mode", "terrain", "d", "simplify",
@@ -84,6 +85,10 @@ def main(path):
         ("h-dist - d min", lambda r: r.get("hdist_err_min")), ("h-dist - d max", lambda r: r.get("hdist_err_max")),
         ("surface too close", lambda r: r.get("surface_too_close")),
         ("surface - d p01", lambda r: r.get("surface_err_p01")), ("surface - d p50", lambda r: r.get("surface_err_p50")),
+        ("excess p50", lambda r: r.get("excess_p50")), ("excess p99", lambda r: r.get("excess_p99")),
+        ("excess >0.2 m", lambda r: f"{r['excess_gt_tol']}/{r['excess_n']}" if "excess_n" in r else None),
+        ("max excess (segments)", lambda r: r.get("max_excess")), ("certified", lambda r: r.get("certified")),
+        ("3D dist - d min", lambda r: r.get("euclid_err_min")),
         ("uncovered src", lambda r: f"{r['source_pts_uncovered']}/{r['source_pts']}"),
     ])
     table("MeshGeodesicDistance (heat method) vs surface Dijkstra", by("geodesic"), [
