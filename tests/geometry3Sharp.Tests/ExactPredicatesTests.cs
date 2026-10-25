@@ -76,6 +76,28 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void Orient2d_SubnormalProducts()
+        {
+            // exactly collinear (multiples 2^k u of one vector, scaled by 1e-160): the products are subnormal, the
+            // filter's relative error bound rounds to 0 while the rounding errors of the differences leave a
+            // determinant of one subnormal unit; the filter must not decide
+            Vector2d a = new Vector2d(1.0773023667125954E-154, 3.2828707925443306E-155);
+            Vector2d b = new Vector2d(6.421222488359185E-162, 1.9567434743310992E-162);
+            Vector2d c = new Vector2d(9.568367136059978E-170, 2.9157749926017212E-170);
+            Assert.Equal(0, ExactPredicates.orient2d_bigint(a, b, c));
+            Assert.Equal(0, ExactPredicates.Orient2d(a, b, c));
+
+            var rnd = new Random(31);
+            for (int i = 0; i < 20000; ++i) {
+                Vector2d u = new Vector2d(rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5);
+                Vector2d[] p = new Vector2d[3];
+                for (int k = 0; k < 3; ++k)
+                    p[k] = (Math.Pow(2, rnd.Next(-40, 41)) * u) * 1e-160;
+                Assert.Equal(ExactPredicates.orient2d_bigint(p[0], p[1], p[2]), ExactPredicates.Orient2d(p[0], p[1], p[2]));
+            }
+        }
+
+        [Fact]
         public void Predicates_NearDegenerate_ScaledIntoTheSubnormalRange()
         {
             // the integer near-degenerate cases, scaled by powers of two (exact): the signs must not change

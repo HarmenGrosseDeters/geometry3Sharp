@@ -27,9 +27,11 @@ namespace g3
             double ux = b.x - a.x, uy = b.y - a.y, vx = c.x - a.x, vy = c.y - a.y;
             double l = ux * vy, r = uy * vx;
             double det = l - r;
-            double bound = Orient2dBound * (Math.Abs(l) + Math.Abs(r));
-            if (det > bound) return 1;
-            if (-det > bound) return -1;
+            double sum = Math.Abs(l) + Math.Abs(r);
+            double bound = Orient2dBound * sum;
+            // the relative error bound does not hold when products underflow (subnormal): exact then
+            if (det > bound && sum > UnderflowLimit) return 1;
+            if (-det > bound && sum > UnderflowLimit) return -1;
             return orient2d_exact(a, b, c);
         }
 
