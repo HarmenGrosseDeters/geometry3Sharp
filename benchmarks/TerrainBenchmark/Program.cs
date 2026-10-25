@@ -346,15 +346,7 @@ class Program
         R["remeshed_tris"] = sl.RemeshedTerrain?.TriangleCount ?? -1;
         R["geodesic_ok"] = sl.Geodesic?.Distance != null;
         if (mode == "guaranteed") {
-            R["certified"] = sl.Certified; R["uncertified_points"] = sl.UncertifiedPoints; R["max_excess"] = sl.MaxExcess;
-            var ex = new List<double>();
-            for (int li = 0; li < sl.Lines.Count; ++li)
-                for (int k = 0; k < sl.Lines[li].Count; ++k) ex.Add(sl.Excess[li][k]);
-            Checks.Stats(ex, "excess", R);
-            R["excess_gt_tol"] = ex.Count(e => !(e <= 0.2));
-        }
-        if (mode == "guaranteed") {
-            R["certified"] = sl.Certified; R["uncertified_points"] = sl.UncertifiedPoints; R["max_excess"] = sl.MaxExcess;
+            R["certified"] = sl.Certified; R["uncertified_segments"] = sl.UncertifiedSegments; R["min_line_distance"] = sl.MinLineDistance; R["steiner_points"] = sl.UsedSteinerPoints; R["max_excess"] = sl.MaxExcess;
             var ex = new List<double>();
             for (int li = 0; li < sl.Lines.Count; ++li)
                 for (int k = 0; k < sl.Lines[li].Count; ++k) ex.Add(sl.Excess[li][k]);
