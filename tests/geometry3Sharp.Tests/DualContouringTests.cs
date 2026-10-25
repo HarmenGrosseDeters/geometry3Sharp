@@ -43,6 +43,27 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void Sparse_IncompleteCandidateCells_StillClosed()
+        {
+            // the candidate cells only need to touch the surface somewhere: cells around crossing edges are
+            // added until the surface is complete (an octree can miss cells, which used to leave holes)
+            var sdf = new SphereSDF();
+            var bounds = new AxisAlignedBox3d(Vector3d.Zero, 1.3);
+            double cell = 0.1;
+            var dc = new DualContouring() {
+                Implicit = sdf, IsoValue = 0, InsideIsLess = true, CellSize = cell, Bounds = bounds,
+                CandidateCells = new[] { new Vector3i(22, 13, 13) },      // the cell around (1, 0, 0)
+                NodeValueF = (n) => { Vector3d p = bounds.Min + cell * new Vector3d(n.x, n.y, n.z); return sdf.Value(ref p); }
+            };
+            dc.Generate();
+            DMesh3 mesh = dc.Mesh;
+            Assert.True(mesh.TriangleCount > 500);
+            Assert.True(mesh.IsClosed());
+            foreach (int vid in mesh.VertexIndices())
+                Assert.InRange(mesh.GetVertex(vid).Length, 0.98, 1.02);
+        }
+
+        [Fact]
         public void Solidify_Box_KeepsSharpCorners_MarchingCubesDoesNot()
         {
             DMesh3 box = Box(10);
