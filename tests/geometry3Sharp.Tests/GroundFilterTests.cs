@@ -177,12 +177,13 @@ namespace geometry3Sharp.Tests
         public void OpenPitWith75DegreeFaces_DefaultParameters()
         {
             // 10 m faces at 75 degrees (3.7 m drop per cloth cell): the crests and faces were not ground
+            // (6.8% of the ground missed when following drops only up to SlopeStep)
             Func<double, double, double> pit = (x, y) => Pit(x - 100, y - 100, 10 / Math.Tan(75 * MathUtil.Deg2Rad));
-            var (points, truth) = Scene(pit, 200, 0.5, 7, default(Vector3d), true, true);
+            var (points, truth) = Scene(pit, 200, 1.0, 2, default(Vector3d), true, true);
             var csf = new ClothSimulationFilter(points) { ClothResolution = 1.0 };
             Assert.True(csf.Compute());
             var (missed, wrong) = Errors(csf.IsGround, truth);
-            Assert.True(missed < 0.03, $"{missed:P2} of the ground points missed");
+            Assert.True(missed < 0.02, $"{missed:P2} of the ground points missed");
             Assert.True(wrong < 0.02, $"{wrong:P2} of the object points classified as ground");
         }
 

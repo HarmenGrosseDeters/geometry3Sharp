@@ -20,7 +20,8 @@ namespace gs
     /// Limits: an object on a steep face whose height is less than about the slope times ClothResolution
     /// (eg a 2.5 m object on a 51 degree face with a 1 m cloth) cannot be told from the face; and the
     /// slope post-processing spreads upwards onto objects lower than SlopeStep (eg light vehicles, 1.5 m: use a
-    /// SlopeStep below the lowest object height that matters). Low outliers (multipath points below the
+    /// SlopeStep below the lowest object height that matters). Low, wide objects (eg a 3 m high building
+    /// 20 m wide with a 1 m cloth) let the cloth sag onto them: raise Rigidness. Low outliers (multipath points below the
     /// ground) hold the cloth up around them: remove them first. Non-finite points are not ground.
     /// </summary>
     public class ClothSimulationFilter
