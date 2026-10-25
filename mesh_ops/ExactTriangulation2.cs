@@ -86,34 +86,78 @@ namespace g3
         {
             if (vertices.Contains(p))
                 return;
-            for (int ti = 0; ti < tris.Count; ++ti) {
+            int o0, o1, o2;
+            int ti = locate(p, out o0, out o1, out o2);
+            if (ti < 0)
+                throw new InvalidOperationException("ExactTriangulation2: point outside of the outer triangle");
+            int[] t = tris[ti];
+            int zeros = (o0 == 0 ? 1 : 0) + (o1 == 0 ? 1 : 0) + (o2 == 0 ? 1 : 0);
+            if (zeros >= 2)
+                throw new InvalidOperationException("ExactTriangulation2: point coincides with a vertex");
+            vertices.Add(p);
+            if (zeros == 0) {
+                int a = t[0], b = t[1], c = t[2];
+                remove_tri(ti);
+                last = add_tri(a, b, p); add_tri(b, c, p); add_tri(c, a, p);
+            } else if (o0 == 0) {
+                split_edge(t[0], t[1], p);
+            } else if (o1 == 0) {
+                split_edge(t[1], t[2], p);
+            } else {
+                split_edge(t[2], t[0], p);
+            }
+        }
+
+        int last = 0;
+        /// <summary> point locations that fell back to the linear search (for tests: the walk should find almost all) </summary>
+        internal int LinearSearches;
+        readonly int[] o = new int[3];
+        uint rng = 0x9E3779B9;
+
+        // a triangle that contains p (closed), with the orientations of p to its edges: walk from the last inserted
+        // triangle across edges that p is behind (the first one from a pseudo-random edge, so that the walk does not
+        // cycle), with a linear search if the walk is long
+        int locate(int p, out int o0, out int o1, out int o2)
+        {
+            int ti = (last < tris.Count && tris[last] != null) ? last : -1;
+            for (int k = 0; ti < 0 && k < tris.Count; ++k)
+                if (tris[k] != null) ti = k;
+            int limit = 64 + 4 * (int)Math.Sqrt(tris.Count);
+            for (int step = 0; ti >= 0 && step < limit; ++step) {
+                int[] t = tris[ti];
+                rng ^= rng << 13; rng ^= rng >> 17; rng ^= rng << 5;
+                int start = (int)(rng % 3), next = -1;
+                for (int j = 0; j < 3 && next < 0; ++j) {
+                    int k = (start + j) % 3;
+                    o[k] = orient(t[k], t[(k + 1) % 3], p);
+                    if (o[k] < 0) {
+                        int nb;
+                        next = edgeTri.TryGetValue(dkey(t[(k + 1) % 3], t[k]), out nb) ? nb : -2;
+                    }
+                }
+                if (next == -2)
+                    break;      // behind the outer boundary
+                if (next < 0) {
+                    o0 = o[0]; o1 = o[1]; o2 = o[2];
+                    return ti;
+                }
+                ti = next;
+            }
+            LinearSearches++;
+            for (ti = 0; ti < tris.Count; ++ti) {
                 int[] t = tris[ti];
                 if (t == null)
                     continue;
-                int o0 = orient(t[0], t[1], p);
+                o0 = orient(t[0], t[1], p);
                 if (o0 < 0) continue;
-                int o1 = orient(t[1], t[2], p);
+                o1 = orient(t[1], t[2], p);
                 if (o1 < 0) continue;
-                int o2 = orient(t[2], t[0], p);
+                o2 = orient(t[2], t[0], p);
                 if (o2 < 0) continue;
-                int zeros = (o0 == 0 ? 1 : 0) + (o1 == 0 ? 1 : 0) + (o2 == 0 ? 1 : 0);
-                if (zeros >= 2)
-                    throw new InvalidOperationException("ExactTriangulation2: point coincides with a vertex");
-                vertices.Add(p);
-                if (zeros == 0) {
-                    int a = t[0], b = t[1], c = t[2];
-                    remove_tri(ti);
-                    add_tri(a, b, p); add_tri(b, c, p); add_tri(c, a, p);
-                } else if (o0 == 0) {
-                    split_edge(t[0], t[1], p);
-                } else if (o1 == 0) {
-                    split_edge(t[1], t[2], p);
-                } else {
-                    split_edge(t[2], t[0], p);
-                }
-                return;
+                return ti;
             }
-            throw new InvalidOperationException("ExactTriangulation2: point outside of the outer triangle");
+            o0 = o1 = o2 = 0;
+            return -1;
         }
 
         void split_edge(int a, int b, int p)
@@ -123,7 +167,7 @@ namespace g3
             if (edgeTri.TryGetValue(dkey(a, b), out t1)) {
                 int c = opposite(t1, a, b);
                 remove_tri(t1);
-                add_tri(a, p, c); add_tri(p, b, c);
+                last = add_tri(a, p, c); add_tri(p, b, c);
             }
             int t2;
             if (edgeTri.TryGetValue(dkey(b, a), out t2)) {

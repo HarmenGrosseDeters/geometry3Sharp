@@ -196,6 +196,13 @@ namespace gs
         public double MaxLocalFraction = 0.5;
         /// <summary> local refinement: coarse cells refined by the last ContourRefined, and by which factor </summary>
         public int RefinedCells, RefineFactor = 1;
+        /// <summary>
+        /// local refinement: at most this many times the cells around polygons that dual contouring left out
+        /// (non-manifold edges, see DualContouring.NonManifoldCells) are refined and contoured again
+        /// </summary>
+        public int MaxNonManifoldRounds = 2;
+        /// <summary> local refinement: how often the last ContourRefined refined for non-manifold edges </summary>
+        public int NonManifoldRefinements;
         /// <summary> local refinement: fine crossings not assigned to a coarse patch (see DualContouring.TransitionErrors) </summary>
         public int TransitionErrors;
 
@@ -218,7 +225,7 @@ namespace gs
         {
             MinFixableWidth = cellSize / Math.Pow(2, maxLevels);
             GapEdgesPerLevel.Clear();
-            RefinedCells = 0; RefineFactor = 1;
+            RefinedCells = 0; RefineFactor = 1; NonManifoldRefinements = 0;
             int evaluations = 0;
             if (LocalRefinement) {
                 bool tooLarge;
@@ -325,6 +332,42 @@ namespace gs
                     GapEdgesPerLevel[GapEdgesPerLevel.Count - 1] = dc.HiddenGapEdges + dc.HiddenWallEdges;
             }
             dc.Generate();
+            // polygons left out for non-manifold edges: refine around them (one level more if nothing is
+            // refined yet, else grow the refined region) and contour again
+            for (int round = 0; round < MaxNonManifoldRounds && dc.NonManifoldCells.Count > 0 && CancelF() == false; ++round) {
+                bool newLevel = false;
+                if (log2F == 0) {
+                    if (used >= maxLevels || octree.MaxDepth + 1 > WindingNumberOctree.MaxSupportedDepth)
+                        break;
+                    log2F = 1;
+                    used++;
+                    newLevel = true;
+                }
+                int before = region.Count;
+                foreach (Vector3i c in dc.NonManifoldCells)
+                    add_to_region(region, octree, c);
+                if (region.Count == before)
+                    break;
+                int inRegion = 0;
+                foreach (Vector3i c in octree.SurfaceCells)
+                    if (region.Contains(c)) inRegion++;
+                if (inRegion > MaxLocalFraction * octree.SurfaceCells.Count)
+                    break;
+                int F = 1 << log2F;
+                timer.Restart();
+                if (newLevel) {
+                    fine = new WindingNumberOctree(Meshes, Spatials, CombineF) { WindingIso = Iso, CancelF = CancelF };
+                    fineOctrees.Add(fine);
+                }
+                fine.RegionF = region_filter(region, F);
+                fine.BuildOnGrid(octree.Origin, coarse / F, octree.MaxDepth + log2F);
+                add_phase("octree.fine", timer.ElapsedMilliseconds);
+                if (CancelF())
+                    return null;
+                dc.SetRefinement(F, region, fine.SurfaceCells, fine.NodeValue);
+                dc.Generate();
+                NonManifoldRefinements++;
+            }
             foreach (var kv in dc.PhaseMilliseconds)
                 add_phase(kv.Key, kv.Value);
             WindingEvaluations = octree.WindingEvaluations;

@@ -112,5 +112,38 @@ namespace geometry3Sharp.Tests
             Assert.True(solid.Result.IsClosed());
             Assert.Equal(0, MeshRepairMetrics.SelfIntersections(solid.Result));
         }
+
+        // thin plates (about a cell thick at resolution 64), randomly rotated, overlapping: at ambiguous faces
+        // both cells often have a single patch through both surface segments
+        static DMesh3 RandomPlates(int seed)
+        {
+            var rnd = new Random(seed);
+            DMesh3 m = new DMesh3();
+            for (int i = 0; i < 12; ++i) {
+                var c = new Vector3d(rnd.NextDouble(), rnd.NextDouble(), rnd.NextDouble());
+                var e = new Vector3d(0.3 + 0.2 * rnd.NextDouble(), 0.02 + 0.03 * rnd.NextDouble(), 0.3);
+                var b = new TrivialBox3Generator() { Box = new Box3d(c, e) }.Generate().MakeDMesh();
+                var axis = new Vector3d(rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5).Normalized;
+                MeshTransforms.Rotate(b, c, Quaterniond.AxisAngleD(axis, 360 * rnd.NextDouble()));
+                MeshEditor.Append(m, b);
+            }
+            return m;
+        }
+
+        [Theory]
+        [InlineData(1)]
+        [InlineData(3)]
+        [InlineData(8)]
+        public void AmbiguousFaces_RefinedInsteadOfLeftOut(int seed)
+        {
+            // the polygons that would create non-manifold edges were left out and the holes filled (4-8
+            // non-manifold triangles, up to 36 self-intersections); refining around them separates the surfaces
+            var solid = new MeshWindingNumberSolidify(RandomPlates(seed)) { GridResolution = 64, Adaptive = true, ReduceTolerance = 0 };
+            Assert.True(solid.Compute());
+            Assert.True(solid.NonManifoldRefinements > 0);
+            Assert.Equal(0, solid.NonManifoldTriangles);
+            Assert.True(solid.Result.IsClosed());
+            Assert.Equal(0, MeshRepairMetrics.SelfIntersections(solid.Result));
+        }
 }
 }

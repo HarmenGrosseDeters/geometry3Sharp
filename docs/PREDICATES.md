@@ -55,7 +55,7 @@ int ExactPredicates.InCircle(Vector2d a, Vector2d b, Vector2d c, Vector2d d)
    `(10+96ε)ε` mal Permanente). Alle drei entscheiden nur, wenn die Permanente (bei Orient2d
    |l| + |r|) > 1e-200 ist (`UnderflowLimit`), sonst gilt die relative Schranke wegen subnormaler Produkte
    nicht. Überlauf ergibt ∞/NaN, der Vergleich `det > bound` ist dann falsch → weiter zu 2.
-   *Korrigiert auf diesem Branch:* Orient2d hatte den Unterlauf-Test nicht. Bei exakt kollinearen Punkten
+   *Korrigiert:* Orient2d hatte den Unterlauf-Test nicht. Bei exakt kollinearen Punkten
    mit Koordinaten um 1e-154 … 1e-170 rundet die Schranke auf 0, während die Rundungsfehler der Differenzen
    ein `det` von einer subnormalen Einheit (5e-324) übrig lassen – der Filter gab dann ±1 statt 0 (16 von
    20 000 Fällen im Harness-Szenario „2^k“ bei Skala 1e-160; Test `Orient2d_SubnormalProducts`, schlägt auf

@@ -151,6 +151,8 @@ namespace geometry3Sharp.Tests
                 var tr = new ExactTriangulation2(id[0], id[1], id[2], (a, b, c) => arr.Orient(tri, a, b, c), (a, b, c, d) => arr.InCircle(tri, a, b, c, d));
                 for (int k = 3; k < pts.Count; ++k)
                     tr.InsertPoint(id[k]);
+                // points are found by walking from the last insertion, not by searching all triangles
+                Assert.Equal(0, tr.LinearSearches);
                 tr.MakeDelaunay();
                 // non-crossing constraints between random point pairs, without points on them
                 var constraints = new List<Tuple<int, int>>();
