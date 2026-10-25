@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.IO;
+using System.Globalization;
 
 namespace g3
 {
@@ -363,18 +364,18 @@ namespace g3
                     if (tokens[0][0] == 'v') {
                         if (tokens[0].Length == 1) {
                             if (tokens.Length == 7) {
-                                vPositions.Add(Double.Parse(tokens[1]));
-                                vPositions.Add(Double.Parse(tokens[2]));
-                                vPositions.Add(Double.Parse(tokens[3]));
+                                vPositions.Add(Double.Parse(tokens[1], CultureInfo.InvariantCulture));
+                                vPositions.Add(Double.Parse(tokens[2], CultureInfo.InvariantCulture));
+                                vPositions.Add(Double.Parse(tokens[3], CultureInfo.InvariantCulture));
 
-                                vColors.Add(float.Parse(tokens[4]));
-                                vColors.Add(float.Parse(tokens[5]));
-                                vColors.Add(float.Parse(tokens[6]));
+                                vColors.Add(float.Parse(tokens[4], CultureInfo.InvariantCulture));
+                                vColors.Add(float.Parse(tokens[5], CultureInfo.InvariantCulture));
+                                vColors.Add(float.Parse(tokens[6], CultureInfo.InvariantCulture));
                                 bVerticesHaveColors = true;
                             } else if (tokens.Length >= 4) {
-                                vPositions.Add(Double.Parse(tokens[1]));
-                                vPositions.Add(Double.Parse(tokens[2]));
-                                vPositions.Add(Double.Parse(tokens[3]));
+                                vPositions.Add(Double.Parse(tokens[1], CultureInfo.InvariantCulture));
+                                vPositions.Add(Double.Parse(tokens[2], CultureInfo.InvariantCulture));
+                                vPositions.Add(Double.Parse(tokens[3], CultureInfo.InvariantCulture));
 
                             } 
                             if ( tokens.Length != 4 && tokens.Length != 7)
@@ -382,17 +383,17 @@ namespace g3
 
                         } else if (tokens[0][1] == 'n') {
                             if (tokens.Length >= 4) {
-                                vNormals.Add(float.Parse(tokens[1]));
-                                vNormals.Add(float.Parse(tokens[2]));
-                                vNormals.Add(float.Parse(tokens[3]));
+                                vNormals.Add(float.Parse(tokens[1], CultureInfo.InvariantCulture));
+                                vNormals.Add(float.Parse(tokens[2], CultureInfo.InvariantCulture));
+                                vNormals.Add(float.Parse(tokens[3], CultureInfo.InvariantCulture));
                             } 
                             if (tokens.Length != 4)
                                 emit_warning("[OBJReader] normal has more than 3 coordinates: " + line);
 
                         } else if (tokens[0][1] == 't') {
                             if (tokens.Length >= 3) {
-                                vUVs.Add(float.Parse(tokens[1]));
-                                vUVs.Add(float.Parse(tokens[2]));
+                                vUVs.Add(float.Parse(tokens[1], CultureInfo.InvariantCulture));
+                                vUVs.Add(float.Parse(tokens[2], CultureInfo.InvariantCulture));
                                 nMaxUVLength = Math.Max(nMaxUVLength, tokens.Length);
                             } 
                             if ( tokens.Length != 3 )
@@ -469,21 +470,21 @@ namespace g3
 
         private int parse_v(string sToken)
         {
-            int vi = int.Parse(sToken);
+            int vi = int.Parse(sToken, CultureInfo.InvariantCulture);
             if (vi < 0)
                 vi = (vPositions.Length / 3) + vi + 1;
             return vi;
         }
         private int parse_n(string sToken)
         {
-            int vi = int.Parse(sToken);
+            int vi = int.Parse(sToken, CultureInfo.InvariantCulture);
             if (vi < 0)
                 vi = (vNormals.Length / 3) + vi + 1;
             return vi;
         }
         private int parse_u(string sToken)
         {
-            int vi = int.Parse(sToken);
+            int vi = int.Parse(sToken, CultureInfo.InvariantCulture);
             if (vi < 0)
                 vi = (vUVs.Length / 2) + vi + 1;
             return vi;
@@ -597,86 +598,88 @@ namespace g3
             StreamReader reader;
             try {
                 reader = new StreamReader(sPath);
-                if (reader.EndOfStream)
-                    return new IOReadResult(IOCode.FileAccessError, "");
             } catch {
                 return new IOReadResult(IOCode.FileAccessError, "");
             }
 
+            using (reader) {
+                if (reader.EndOfStream)
+                    return new IOReadResult(IOCode.FileAccessError, "");
 
-            OBJMaterial curMaterial = null;
+                OBJMaterial curMaterial = null;
 
-            while (reader.Peek() >= 0) {
+                while (reader.Peek() >= 0) {
 
-                string line = reader.ReadLine();
-                string[] tokens = line.Split((char[])null, StringSplitOptions.RemoveEmptyEntries);
-                if (tokens.Length == 0)
-                    continue;
+                    string line = reader.ReadLine();
+                    string[] tokens = line.Split((char[])null, StringSplitOptions.RemoveEmptyEntries);
+                    if (tokens.Length == 0)
+                        continue;
 
-                if ( tokens[0][0] == '#' ) {
-                    continue;
-                } else if (tokens[0] == "newmtl") {
-                    curMaterial = new OBJMaterial();
-                    curMaterial.name = tokens[1];
-                    curMaterial.id = Materials.Count;
+                    if ( tokens[0][0] == '#' ) {
+                        continue;
+                    } else if (tokens[0] == "newmtl") {
+                        curMaterial = new OBJMaterial();
+                        curMaterial.name = tokens[1];
+                        curMaterial.id = Materials.Count;
 
-                    if (Materials.ContainsKey(curMaterial.name))
-                        emit_warning("Material file " + sPath + " / material " + curMaterial.name + " : already exists in Material set. Replacing.");
-                    if (nWarningLevel >= 1)
-                        emit_warning("[OBJReader] parsing material " + curMaterial.name);
+                        if (Materials.ContainsKey(curMaterial.name))
+                            emit_warning("Material file " + sPath + " / material " + curMaterial.name + " : already exists in Material set. Replacing.");
+                        if (nWarningLevel >= 1)
+                            emit_warning("[OBJReader] parsing material " + curMaterial.name);
 
-                    Materials[curMaterial.name] = curMaterial;
+                        Materials[curMaterial.name] = curMaterial;
 
-                } else if (tokens[0] == "Ka") {
-                    if (curMaterial != null) curMaterial.Ka = parse_mtl_color(tokens);
-                } else if (tokens[0] == "Kd") {
-                    if (curMaterial != null) curMaterial.Kd = parse_mtl_color(tokens);
-                } else if (tokens[0] == "Ks") {
-                    if (curMaterial != null) curMaterial.Ks = parse_mtl_color(tokens);
-                } else if (tokens[0] == "Ke") {
-                    if (curMaterial != null) curMaterial.Ke = parse_mtl_color(tokens);
-                } else if (tokens[0] == "Tf") {
-                    if (curMaterial != null) curMaterial.Tf = parse_mtl_color(tokens);
+                    } else if (tokens[0] == "Ka") {
+                        if (curMaterial != null) curMaterial.Ka = parse_mtl_color(tokens);
+                    } else if (tokens[0] == "Kd") {
+                        if (curMaterial != null) curMaterial.Kd = parse_mtl_color(tokens);
+                    } else if (tokens[0] == "Ks") {
+                        if (curMaterial != null) curMaterial.Ks = parse_mtl_color(tokens);
+                    } else if (tokens[0] == "Ke") {
+                        if (curMaterial != null) curMaterial.Ke = parse_mtl_color(tokens);
+                    } else if (tokens[0] == "Tf") {
+                        if (curMaterial != null) curMaterial.Tf = parse_mtl_color(tokens);
 
-                } else if (tokens[0] == "illum") {
-                    if (curMaterial != null) curMaterial.illum = int.Parse(tokens[1]);
+                    } else if (tokens[0] == "illum") {
+                        if (curMaterial != null) curMaterial.illum = int.Parse(tokens[1], CultureInfo.InvariantCulture);
 
-                } else if (tokens[0] == "d") {
-                    if (curMaterial != null) curMaterial.d = Single.Parse(tokens[1]);
-                } else if (tokens[0] == "Tr") {     // alternate to d/alpha, [Tr]ansparency is 1-d
-                    if (curMaterial != null) curMaterial.d = 1.0f - Single.Parse(tokens[1]);
-                } else if (tokens[0] == "Ns") {
-                    if (curMaterial != null) curMaterial.Ns = Single.Parse(tokens[1]);
-                } else if (tokens[0] == "sharpness") {
-                    if (curMaterial != null) curMaterial.sharpness = Single.Parse(tokens[1]);
-                } else if (tokens[0] == "Ni") {
-                    if (curMaterial != null) curMaterial.Ni = Single.Parse(tokens[1]);
+                    } else if (tokens[0] == "d") {
+                        if (curMaterial != null) curMaterial.d = Single.Parse(tokens[1], CultureInfo.InvariantCulture);
+                    } else if (tokens[0] == "Tr") {     // alternate to d/alpha, [Tr]ansparency is 1-d
+                        if (curMaterial != null) curMaterial.d = 1.0f - Single.Parse(tokens[1], CultureInfo.InvariantCulture);
+                    } else if (tokens[0] == "Ns") {
+                        if (curMaterial != null) curMaterial.Ns = Single.Parse(tokens[1], CultureInfo.InvariantCulture);
+                    } else if (tokens[0] == "sharpness") {
+                        if (curMaterial != null) curMaterial.sharpness = Single.Parse(tokens[1], CultureInfo.InvariantCulture);
+                    } else if (tokens[0] == "Ni") {
+                        if (curMaterial != null) curMaterial.Ni = Single.Parse(tokens[1], CultureInfo.InvariantCulture);
 
-                } else if (tokens[0] == "map_Ka") {
-					if (curMaterial != null) curMaterial.map_Ka = parse_mtl_path(line,tokens);
-                } else if (tokens[0] == "map_Kd") {
-					if (curMaterial != null) curMaterial.map_Kd = parse_mtl_path(line,tokens);
-                } else if (tokens[0] == "map_Ks") {
-					if (curMaterial != null) curMaterial.map_Ks = parse_mtl_path(line,tokens);
-                } else if (tokens[0] == "map_Ke") {
-					if (curMaterial != null) curMaterial.map_Ke = parse_mtl_path(line,tokens);
-                } else if (tokens[0] == "map_d") {
-					if (curMaterial != null) curMaterial.map_d = parse_mtl_path(line,tokens);
-                } else if (tokens[0] == "map_Ns") {
-					if (curMaterial != null) curMaterial.map_Ns = parse_mtl_path(line,tokens);
+                    } else if (tokens[0] == "map_Ka") {
+						if (curMaterial != null) curMaterial.map_Ka = parse_mtl_path(line,tokens);
+                    } else if (tokens[0] == "map_Kd") {
+						if (curMaterial != null) curMaterial.map_Kd = parse_mtl_path(line,tokens);
+                    } else if (tokens[0] == "map_Ks") {
+						if (curMaterial != null) curMaterial.map_Ks = parse_mtl_path(line,tokens);
+                    } else if (tokens[0] == "map_Ke") {
+						if (curMaterial != null) curMaterial.map_Ke = parse_mtl_path(line,tokens);
+                    } else if (tokens[0] == "map_d") {
+						if (curMaterial != null) curMaterial.map_d = parse_mtl_path(line,tokens);
+                    } else if (tokens[0] == "map_Ns") {
+						if (curMaterial != null) curMaterial.map_Ns = parse_mtl_path(line,tokens);
 
-                } else if (tokens[0] == "bump" || tokens[0] == "map_bump") {
-					if (curMaterial != null) curMaterial.bump = parse_mtl_path(line,tokens);
-                } else if (tokens[0] == "disp") {
-					if (curMaterial != null) curMaterial.disp = parse_mtl_path(line,tokens);
-                } else if (tokens[0] == "decal") {
-					if (curMaterial != null) curMaterial.decal = parse_mtl_path(line,tokens);
-                } else if (tokens[0] == "refl") {
-					if (curMaterial != null) curMaterial.refl = parse_mtl_path(line,tokens);
-                } else {
-                    emit_warning("unknown material command " + tokens[0]);
+                    } else if (tokens[0] == "bump" || tokens[0] == "map_bump") {
+						if (curMaterial != null) curMaterial.bump = parse_mtl_path(line,tokens);
+                    } else if (tokens[0] == "disp") {
+						if (curMaterial != null) curMaterial.disp = parse_mtl_path(line,tokens);
+                    } else if (tokens[0] == "decal") {
+						if (curMaterial != null) curMaterial.decal = parse_mtl_path(line,tokens);
+                    } else if (tokens[0] == "refl") {
+						if (curMaterial != null) curMaterial.refl = parse_mtl_path(line,tokens);
+                    } else {
+                        emit_warning("unknown material command " + tokens[0]);
+                    }
+
                 }
-
             }
 
             if (nWarningLevel >= 1)
@@ -702,9 +705,9 @@ namespace g3
                 emit_warning("OBJReader::parse_material_color : xyz color not supported!");
                 return new Vector3f(1, 0, 0);
             } else {
-                float r = float.Parse(tokens[1]);
-                float g = float.Parse(tokens[2]);
-                float b = float.Parse(tokens[3]);
+                float r = float.Parse(tokens[1], CultureInfo.InvariantCulture);
+                float g = float.Parse(tokens[2], CultureInfo.InvariantCulture);
+                float b = float.Parse(tokens[3], CultureInfo.InvariantCulture);
                 return new Vector3f(r, g, b);
             }
         }

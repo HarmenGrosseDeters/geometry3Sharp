@@ -195,9 +195,9 @@ namespace gs
             return ((long)x & 0xFFFF) | (((long)y & 0xFFFF) << 16) | (((long)z & 0xFFFF) << 32);
         }
 
-        const int EDGE_X = 1 << 60;
-        const int EDGE_Y = 1 << 61;
-        const int EDGE_Z = 1 << 62;
+        const long EDGE_X = 1L << 60;
+        const long EDGE_Y = 1L << 61;
+        const long EDGE_Z = 1L << 62;
 
         long edge_hash(ref Vector3i idx1, ref Vector3i idx2)
         {

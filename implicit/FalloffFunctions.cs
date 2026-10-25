@@ -42,7 +42,7 @@ namespace gs
 
         public IFalloffFunction Duplicate()
         {
-            return new WyvillFalloff() {
+            return new LinearFalloff() {
                 ConstantRange = this.ConstantRange
             };
         }

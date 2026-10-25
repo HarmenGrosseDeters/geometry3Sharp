@@ -226,7 +226,7 @@ namespace g3
                     CheckOrFailF(n == 2);
                 }
             }
-            return true;
+            return is_ok;
         }
 
 
