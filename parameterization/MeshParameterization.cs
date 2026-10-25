@@ -381,7 +381,7 @@ namespace g3
             }
             if (BoundaryLoops.Count == 0) {
                 Status = ParameterizationStatus.InvalidTopology;
-                Error = "mesh is closed; cut it open first";
+                Error = "mesh is closed; cut it open first (MeshDiscCut, or UVAtlasGenerator for a complete atlas)";
                 return false;
             }
             return true;
@@ -393,7 +393,7 @@ namespace g3
             if (!RequireOpenComponent()) return false;
             if (BoundaryLoops.Count != 1 || EulerCharacteristic != 1) {
                 Status = ParameterizationStatus.InvalidTopology;
-                Error = "mesh is not a topological disc (" + BoundaryLoops.Count + " boundary loops, Euler characteristic " + EulerCharacteristic + ")";
+                Error = "mesh is not a topological disc (" + BoundaryLoops.Count + " boundary loops, Euler characteristic " + EulerCharacteristic + "); cut it with MeshDiscCut";
                 return false;
             }
             return true;

@@ -308,6 +308,57 @@ namespace geometry3Sharp.Tests
             Assert.InRange(Volume(mesh), 0.95 * 2.0 / 3 * Math.PI, 1.0 * 2.0 / 3 * Math.PI);  // half sphere
         }
 
+        static DMesh3 Torus(double R, double r, int nu, int nv)
+        {
+            var mesh = new DMesh3();
+            for (int i = 0; i < nu; ++i)
+                for (int j = 0; j < nv; ++j) {
+                    double u = 2 * Math.PI * i / nu, v = 2 * Math.PI * j / nv;
+                    mesh.AppendVertex(new Vector3d((R + r * Math.Cos(v)) * Math.Cos(u), (R + r * Math.Cos(v)) * Math.Sin(u), r * Math.Sin(v)));
+                }
+            for (int i = 0; i < nu; ++i)
+                for (int j = 0; j < nv; ++j) {
+                    int a = i * nv + j, b = ((i + 1) % nu) * nv + j, c = ((i + 1) % nu) * nv + (j + 1) % nv, d = i * nv + (j + 1) % nv;
+                    mesh.AppendTriangle(a, b, c);
+                    mesh.AppendTriangle(a, c, d);
+                }
+            return mesh;
+        }
+
+        [Fact]
+        public void UVAtlasExample_TorusAtlas_DiscCut_CubeCones()
+        {
+            // the atlas of a torus: overlap-free (exact test), charts within the limits, UVs in the unit square
+            DMesh3 torus = Torus(2, 0.7, 48, 20);
+            UVAtlasGenerator atlas = UVAtlasExample.Run(torus);
+            Assert.Equal(UVAtlasStatus.Success, atlas.Status);
+            Assert.Equal(torus.TriangleCount, atlas.AtlasMesh.TriangleCount);
+            Assert.True(atlas.AtlasMesh.HasVertexUVs);
+            Assert.True(UVOverlap.Compute(atlas.AtlasMesh).IsInjective);
+            Assert.True(atlas.Distortion.MeanAreaDistortion < 0.25);
+            Assert.True(MeshDiscCut.IsDiscs(atlas.AtlasMesh, out string why), why);
+            foreach (int v in atlas.AtlasMesh.VertexIndices()) {
+                Vector2f uv = atlas.AtlasMesh.GetVertexUV(v);
+                Assert.InRange(uv.x, 0, 1);
+                Assert.InRange(uv.y, 0, 1);
+            }
+
+            // the torus cut into one disc: Euler characteristic 1, one boundary loop
+            DMesh3 disc;
+            ParameterizationResult r = UVAtlasExample.CutAndFlatten(torus, out disc);
+            Assert.True(r.Succeeded, r.Error);
+            Assert.Equal(1, disc.VertexCount - disc.EdgeCount + disc.TriangleCount);
+            Assert.Equal(1, new MeshBoundaryLoops(disc).Count);
+
+            // the cube: eight cones at the corners, unfolded without distortion
+            DMesh3 cube = new GridBox3Generator() { EdgeVertices = 5 }.Generate().MakeDMesh();
+            ConeFlattening cones = UVAtlasExample.Cones(cube);
+            Assert.True(cones.Result.Succeeded, cones.Result.Error);
+            Assert.Equal(8, cones.ConeVertices.Count);
+            Assert.True(cones.Result.Distortion.MaxAreaDistortion < 1e-6);
+            Assert.True(UVOverlap.Compute(cones.CutMesh, cones.Result.UV).IsInjective);
+        }
+
         [Fact]
         public void MeasurementsExample_MeasuresBoxAndTorusGenus()
         {

@@ -73,6 +73,25 @@ Implemented from the papers, no code taken over.
 | Skyline bottom-left rectangle packing | J. Jylänki, *A Thousand Ways to Pack the Bin – A Practical Approach to Two-Dimensional Rectangle Bin Packing*, 2010 |
 | Minimum-area bounding rectangle of a chart | existing `ContMinBox2` (rotating calipers, WildMagic port) |
 
+## Seams, charts, cones, UV atlas (`MeshDiscCut`, `MeshChartSegmentation`, `ConeFlattening`, `UVOverlap`, `UVAtlasGenerator`)
+
+Implemented from the papers, no code taken over. geometry-central (MIT) and the BFF reference implementation
+(github.com/GeometryCollective/boundary-first-flattening, MIT) have cut and cone code; neither was used as a
+source. CGAL's `Surface_mesh_parameterization` / seam code (GPL) was not used.
+
+| Part | Source |
+|---|---|
+| Cut graph by tree-cotree decomposition: primal spanning tree, dual spanning tree of the remaining edges, the 2g leftover edges close the generator loops | D. Eppstein, *Dynamic Generators of Topologically Embedded Graphs*, SODA 2003 |
+| Shortest path tree from a root and maximum dual spanning tree weighted by the loop length d(u) + l(e) + d(v): the greedy shortest system of loops | J. Erickson, K. Whittlesey, *Greedy Optimal Homotopy and Homology Generators*, SODA 2005 |
+| Removing dangling branches of the cut (leaves that are not required) keeps the disc topology | J. Erickson, S. Har-Peled, *Optimally Cutting a Surface into a Disk*, Discrete & Computational Geometry 2004; X. Gu, S. Gortler, H. Hoppe, *Geometry Images*, ACM TOG (SIGGRAPH) 2002 |
+| Surfaces with boundary (tree edges in the dual tree where needed), required vertices joined along the shortest path tree, the single-edge slit of genus 0, feature weighted edge costs, splitting vertices into wedges by a union-find over triangle corners | own choices, described in the code comments |
+| BFF with cone singularities: scale factors with u = 0 at the cones, the cut through the cones, Dirichlet data on the cut disc | R. Sawhney, K. Crane, *Boundary First Flattening*, ACM TOG 2017 (section on cone singularities) |
+| Greedy cone placement at the largest scale factor of the Yamabe equation C u = -K, first cone from the uniform curvature flow | M. Ben-Chen, C. Gotsman, G. Bunin, *Conformal Flattening by Curvature Prescription and Metric Scaling*, Computer Graphics Forum (Eurographics) 2008; B. Springborn, P. Schröder, U. Pinkall, *Conformal Equivalence of Triangle Meshes*, ACM TOG 2008 |
+| Chart growing with proxies (normal, L2,1 metric) and Lloyd iterations, new charts at the worst triangle | D. Cohen-Steiner, P. Alliez, M. Desbrun, *Variational Shape Approximation*, ACM TOG (SIGGRAPH) 2004 |
+| Compactness term in the growing cost | D. Julius, V. Kraevoy, A. Sheffer, *D-Charts: Quasi-Developable Mesh Segmentation*, Computer Graphics Forum (Eurographics) 2005 |
+| Charts for an atlas, flattened conformally; splitting charts while the distortion is too high | B. Lévy, S. Petitjean, N. Ray, J. Maillot, *Least Squares Conformal Maps for Automatic Texture Atlas Generation*, ACM TOG (SIGGRAPH) 2002; K. Zhou, J. Snyder, B. Guo, H.-Y. Shum, *Iso-charts: Stretch-driven Mesh Parameterization using Spectral Analysis*, SGP 2004 |
+| Exact overlap test of UV triangles: separating axis among the six edge lines, exact orientation predicate | separating axis theorem for convex polygons (eg C. Ericson, *Real-Time Collision Detection*, 2005); J. R. Shewchuk 1997 (predicates, see above) |
+
 ## Sparse Cholesky (`SparseCholesky`)
 
 Implemented from the papers and textbooks, no code taken over (not from CHOLMOD or CSparse, which are LGPL/GPL, nor from the BSD-licensed SuiteSparse AMD).
