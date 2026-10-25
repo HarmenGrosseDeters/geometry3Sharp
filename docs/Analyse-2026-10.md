@@ -172,9 +172,18 @@ Behoben:
 Bereits vorher behoben: `DistPoint3Triangle3` und `MeshQueries.TriDistanceSqr` mit degenerierten Dreiecken (Abstand zur
 nächsten Kante statt NaN).
 
-Bewusst zurückgestellt: `OBJReader.is_complex`. Der Fix leitet Dateien auf `BuildMeshes_ByMaterial` um. Dieser Pfad
-verwirft UVs bei Meshes ohne Material, übernimmt keine Gruppen und stürzt bei Faces ohne Normal-Index ab. Er muss deshalb
-zusammen mit diesem Pfad repariert werden.
+Neunte Runde, `OBJReader`. Regressionstests stehen in `tests/geometry3Sharp.Tests/OBJReaderFixesTests.cs` (7 Tests;
+ohne Fix scheitern 5, die beiden anderen sichern ab, dass einfache Dateien unverändert gelesen werden und Gruppen erhalten
+bleiben).
+
+Behoben:
+- `Triangle.is_complex` verglich jeden Normalen- und UV-Index mit sich selbst und war nie true. Dateien, deren Normalen-
+  oder UV-Indizes von den Vertex-Indizes abweichen, liefen deshalb durch `BuildMeshes_Simple`, der Vertex k Normale k und
+  UV k gibt: falsche UVs/Normalen, oder sie fielen weg, wenn ihre Anzahl nicht zur Vertex-Anzahl passte. Jetzt wird mit dem
+  Vertex-Index verglichen, und solche Dateien gehen durch `BuildMeshes_ByMaterial`.
+- `BuildMeshes_ByMaterial` (auch bei mehreren Materialien): behält die UVs von Dreiecken ohne Material und die Gruppen;
+  Faces ohne Normalen- oder UV-Index führen nicht mehr zu einer Exception, ihre Vertices bekommen den Standardwert;
+  Farben werden nur übernommen, wenn jeder Vertex eine hat.
 
 ---
 
