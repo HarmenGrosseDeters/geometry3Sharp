@@ -2,10 +2,10 @@
 // Usage: TerrainBenchmark <case> key=value ...
 //   common keys: win=x0,y0,x1,y1 (UTM window), coords=utm|local (local: everything shifted to the window corner)
 //   volume   before=<grid> after=<grid> [simplify=<m>] [heightcheck=1]
-//   repair   grid=<grid> variant=clean|tiles|overlap|holes mode=auto|cleanup|robust
+//   repair   grid=<grid> variant=clean|tiles|overlap|holes mode=auto|cleanup|robust|tdc
 //   tdc      grid=<grid> [points=<cloud>] [cell=1] [tol=0]
 //   offset   grid=<grid> d=<m> [cell=1]
-//   safety   grid=<grid> d=<m> mode=horizontal|surface [terrain=grid|tdc] [tol=0.05] [angle=20]
+//   safety   grid=<grid> d=<m> mode=horizontal|surface|guaranteed|guaranteed [terrain=grid|tdc] [tol=0.05] [angle=20]
 //   geodesic grid=<grid> [src=center|crest] [tf=1]
 //   csf      points=<cloud> grid=<dgm grid> [res=1] [threshold=0.5] [rigidness=2]
 // Grids and clouds are names in data/ (see fetch_data.py).
@@ -127,7 +127,12 @@ class Program
         R["metrics_before_s"] = Secs(sw);
         string mode = Arg("mode", "auto");
         DMesh3 result;
-        if (mode == "robust") {
+        if (mode == "tdc") {
+            // the terrain way: rebuild the top surface from vertical rays (soups, overlaps, seams do not matter)
+            var tdc = new TerrainDualContouring(mesh) { CellSize = g.Dx, Tolerance = 0.01 };
+            R["ok"] = tdc.Compute();
+            result = tdc.Result;
+        } else if (mode == "robust") {
             var rr = new MeshRobustRepair(mesh) { ConfigureRepair = (ar) => { ar.MinEdgeLengthTol = 1e-4; } };
             R["ok"] = rr.Apply();
             R["used_solidify"] = rr.UsedSolidify;
@@ -252,6 +257,7 @@ class Program
         DMesh3 res = tdc.Result;
         R["result_tris"] = res.TriangleCount;
         R["leaf_cells"] = tdc.LeafCells; R["finest_cells"] = tdc.FinestCells; R["skipped_tris"] = tdc.SkippedTriangles;
+        R["split_leaves"] = tdc.SplitLeaves; R["removed_tris"] = tdc.RemovedTriangles;
         R["nan_verts"] = NaNVertices(res);
         R["xy_overlaps"] = TerrainVolumeDifference.XYOverlaps(res);
         // vertical error at the grid nodes (2 m inside the window)
@@ -328,7 +334,7 @@ class Program
         double d = ArgD("d", 5);
         string mode = Arg("mode", "horizontal");
         var sl = new TerrainSafetyLines(terrain, bl.Crests, d) {
-            Mode = (mode == "surface") ? TerrainSafetyLines.Modes.AlongSurface : TerrainSafetyLines.Modes.Horizontal
+            Mode = (mode == "surface") ? TerrainSafetyLines.Modes.AlongSurface : (mode == "guaranteed") ? TerrainSafetyLines.Modes.Guaranteed : TerrainSafetyLines.Modes.Horizontal
         };
         bool ok = sl.Compute();
         R["safety_s"] = Secs(sw);
@@ -339,6 +345,22 @@ class Program
         R["nan_points"] = nanPts;
         R["remeshed_tris"] = sl.RemeshedTerrain?.TriangleCount ?? -1;
         R["geodesic_ok"] = sl.Geodesic?.Distance != null;
+        if (mode == "guaranteed") {
+            R["certified"] = sl.Certified; R["uncertified_points"] = sl.UncertifiedPoints; R["max_excess"] = sl.MaxExcess;
+            var ex = new List<double>();
+            for (int li = 0; li < sl.Lines.Count; ++li)
+                for (int k = 0; k < sl.Lines[li].Count; ++k) ex.Add(sl.Excess[li][k]);
+            Checks.Stats(ex, "excess", R);
+            R["excess_gt_tol"] = ex.Count(e => !(e <= 0.2));
+        }
+        if (mode == "guaranteed") {
+            R["certified"] = sl.Certified; R["uncertified_points"] = sl.UncertifiedPoints; R["max_excess"] = sl.MaxExcess;
+            var ex = new List<double>();
+            for (int li = 0; li < sl.Lines.Count; ++li)
+                for (int k = 0; k < sl.Lines[li].Count; ++k) ex.Add(sl.Excess[li][k]);
+            Checks.Stats(ex, "excess", R);
+            R["excess_gt_tol"] = ex.Count(e => !(e <= 0.2));
+        }
 
         // checks in world coordinates, away from the window border (2 d)
         var sources = bl.Crests.Select(l => l.Select(p => p + origin).ToList()).ToList();
@@ -366,7 +388,7 @@ class Program
         R["source_pts"] = srcN; R["source_pts_uncovered"] = uncovered;
         R["check_h_s"] = Secs(sw);
 
-        if (mode == "surface" && Arg("terrain", "grid") == "grid") {
+        if ((mode == "surface" || mode == "guaranteed") && Arg("terrain", "grid") == "grid") {
             // shortest surface paths on the grid TIN from the densified crests: an upper bound (up to
             // about 1%) of the distance along the surface; line points with dijkstra < d are too close
             var srcPts = sources.SelectMany(l => Densify(l, 0.25 * g.Dx)).ToList();

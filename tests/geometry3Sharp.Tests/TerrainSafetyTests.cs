@@ -199,6 +199,7 @@ namespace geometry3Sharp.Tests
         [Theory]
         [InlineData(TerrainSafetyLines.Modes.Horizontal)]
         [InlineData(TerrainSafetyLines.Modes.AlongSurface)]
+        [InlineData(TerrainSafetyLines.Modes.Guaranteed)]
         public void SafetyLine_SourcesOutsideTheTerrain_NoLines(TerrainSafetyLines.Modes mode)
         {
             var outside = new List<Vector3d>() { new Vector3d(-30, 0, 0), new Vector3d(-30, 100, 0) };
@@ -212,9 +213,75 @@ namespace geometry3Sharp.Tests
         [InlineData(TerrainSafetyLines.Modes.Horizontal, -5.0)]
         [InlineData(TerrainSafetyLines.Modes.AlongSurface, 0.0)]
         [InlineData(TerrainSafetyLines.Modes.AlongSurface, -5.0)]
+        [InlineData(TerrainSafetyLines.Modes.Guaranteed, 0.0)]
         public void SafetyLine_InvalidDistance_Fails(TerrainSafetyLines.Modes mode, double d)
         {
             var safety = new TerrainSafetyLines(CoarseSquare(), new[] { new List<Vector3d>() { new Vector3d(50, 50, 0) } }, d) { Mode = mode };
+            Assert.False(safety.Compute());
+        }
+
+        static double DistanceToPolyline(List<Vector3d> l, Vector3d p)
+        {
+            double best = double.MaxValue;
+            for (int i = 0; i + 1 < l.Count; ++i) best = Math.Min(best, Math.Sqrt(new Segment3d(l[i], l[i + 1]).DistanceSquared(p)));
+            return best;
+        }
+
+        [Fact]
+        public void SafetyLine_Guaranteed_OutsideTheDistanceAndCertified()
+        {
+            // 12 m from the top crest: outside on flat ground, inside down the bench face and onto the berm
+            DMesh3 terrain = PitTerrain();
+            var crest = TopCrest();
+            var safety = new TerrainSafetyLines(terrain, new[] { crest }, 12) { Mode = TerrainSafetyLines.Modes.Guaranteed };
+            Assert.True(safety.Compute());
+            Assert.True(safety.Lines.Count >= 2);
+            int n = 0;
+            for (int li = 0; li < safety.Lines.Count; ++li)
+                for (int k = 0; k < safety.Lines[li].Count; ++k) {
+                    Vector3d p = safety.Lines[li][k];
+                    // the straight distance (a lower bound of the distance along the terrain): at 12 + Tolerance
+                    Assert.True(Math.Abs(DistanceToPolyline(crest, p) - 12.01) < 1e-6, $"{p}: {DistanceToPolyline(crest, p)}");
+                    // the certified upper bound is consistent with it
+                    Assert.True(safety.Excess[li][k] >= 0.01 - 1e-6, $"excess {safety.Excess[li][k]}");
+                    n++;
+                }
+            Assert.True(n > 100);
+            Assert.True(safety.Certified, $"max excess {safety.MaxExcess}, {safety.UncertifiedPoints} points");
+        }
+
+        [Fact]
+        public void SafetyLine_Guaranteed_GapNotCertified()
+        {
+            // a 30 m deep trench, 8 m wide at the top: across it the straight distance is short, along the
+            // terrain (down and up again) long. The line on the far rim is safe but far too conservative
+            DMesh3 m = new DMesh3();
+            int nx = 81, ny = 41;
+            int[,] vid = new int[nx, ny];
+            for (int j = 0; j < ny; ++j)
+                for (int i = 0; i < nx; ++i) {
+                    double x = i - 40, y = j;
+                    vid[i, j] = m.AppendVertex(new Vector3d(x, y, -30 * Math.Max(0, 1 - Math.Abs(x) / 4)));
+                }
+            for (int j = 0; j + 1 < ny; ++j)
+                for (int i = 0; i + 1 < nx; ++i) {
+                    m.AppendTriangle(vid[i, j], vid[i + 1, j], vid[i + 1, j + 1]);
+                    m.AppendTriangle(vid[i, j], vid[i + 1, j + 1], vid[i, j + 1]);
+                }
+            var rim = new List<Vector3d>() { new Vector3d(-4, 0, 0), new Vector3d(-4, 40, 0) };
+            var safety = new TerrainSafetyLines(m, new[] { rim }, 10) { Mode = TerrainSafetyLines.Modes.Guaranteed };
+            Assert.True(safety.Compute());
+            Assert.False(safety.Certified);
+            Assert.True(safety.UncertifiedPoints > 0);
+            // the line behind the rim (x = -14) is certified, the one beyond the trench (x = +2) is not
+            for (int li = 0; li < safety.Lines.Count; ++li)
+                for (int k = 0; k < safety.Lines[li].Count; ++k) {
+                    Vector3d p = safety.Lines[li][k];
+                    if (p.y < 2 || p.y > 38) continue;
+                    if (p.x < -10) Assert.True(safety.Excess[li][k] < 0.2, $"{p}: {safety.Excess[li][k]}");
+                    if (p.x > 0) Assert.True(safety.Excess[li][k] > 5, $"{p}: {safety.Excess[li][k]}");
+                }
+            safety.RequireCertified = true;
             Assert.False(safety.Compute());
         }
 

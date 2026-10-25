@@ -72,6 +72,12 @@ namespace gs
         public int FinestCells, LeafCells, BoundaryCells;
         /// <summary> dual triangles that were skipped because they would face down </summary>
         public int SkippedTriangles;
+        /// <summary> split merged cells whose triangles overlap others in XY (keeps the result a height field) </summary>
+        public bool RemoveOverlaps = true;
+        /// <summary> merged cells that were split because their triangles overlapped others in XY </summary>
+        public int SplitLeaves;
+        /// <summary> triangles dropped because they overlapped others in XY (finest cells, boundary of point clouds) </summary>
+        public int RemovedTriangles;
 
 
         public TerrainDualContouring(DMesh3 mesh)
@@ -148,6 +154,38 @@ namespace gs
             if (Adaptive)
                 balance();
             build_mesh();
+            if (CancelF()) return false;
+            // a merged cell's vertex can lie far from the corners its dual triangles fan around, and a
+            // triangle then covers a neighbour's vertex: overlapping triangles in XY (eg 24 in 11M on a
+            // real open pit), not a height field. The leaves of such triangles are split and the mesh rebuilt.
+            SplitLeaves = 0;
+            for (int round = 0; round < 16 && Adaptive && RemoveOverlaps; ++round) {
+                var split = new HashSet<int>();
+                foreach (Index2i pair in TerrainVolumeDifference.XYOverlapPairs(Result))
+                    foreach (int tid in new[] { pair.a, pair.b }) {
+                        Index3i tv = Result.GetTriangle(tid);
+                        for (int k = 0; k < 3; ++k)
+                            if (leaves[vertexLeaf[tv[k]]].Level > 0) split.Add(vertexLeaf[tv[k]]);
+                    }
+                if (split.Count == 0 || CancelF())
+                    break;
+                foreach (int li in split)
+                    split_leaf(li);
+                SplitLeaves += split.Count;
+                balance();
+                build_mesh();
+            }
+            // left: finest cells, at the outer boundary of a point cloud (vertices of neighbouring boundary
+            // cells on the same edge of the bounds): the smaller triangle of each pair is dropped
+            RemovedTriangles = 0;
+            if (RemoveOverlaps && CancelF() == false) {
+                var pairs = TerrainVolumeDifference.XYOverlapPairs(Result);
+                foreach (Index2i pair in pairs) {
+                    if (Result.IsTriangle(pair.a) == false || Result.IsTriangle(pair.b) == false) continue;
+                    int drop = (xy_area(Result, pair.a) < xy_area(Result, pair.b)) ? pair.a : pair.b;
+                    if (Result.RemoveTriangle(drop, true, false) == MeshResult.Ok) RemovedTriangles++;
+                }
+            }
             if (CancelF()) return false;
             // eg cells larger than the footprint: every vertex needs four sampled cells around it
             return Result != null && Result.TriangleCount > 0;
@@ -542,16 +580,22 @@ namespace gs
                         continue;
                     if (has_small_neighbour(leaf) == false)
                         continue;
-                    leaf.Alive = false;
-                    leaves[li] = leaf;
-                    for (int k = 0; k < 4; ++k)
-                        add_leaf(leaf.Level - 1, 2 * leaf.I + (k & 1), 2 * leaf.J + (k >> 1));
+                    split_leaf(li);
                     changed = true;
                 }
             }
             LeafCells = 0;
             foreach (Leaf leaf in leaves)
                 if (leaf.Alive) LeafCells++;
+        }
+
+        void split_leaf(int li)
+        {
+            Leaf leaf = leaves[li];
+            leaf.Alive = false;
+            leaves[li] = leaf;
+            for (int k = 0; k < 4; ++k)
+                add_leaf(leaf.Level - 1, 2 * leaf.I + (k & 1), 2 * leaf.J + (k >> 1));
         }
 
         bool has_small_neighbour(Leaf leaf)
@@ -701,6 +745,8 @@ namespace gs
         }
 
 
+        int[] vertexLeaf;       // leaf of each vertex of Result
+
         void build_mesh()
         {
             DMesh3 mesh = new DMesh3();
@@ -712,6 +758,9 @@ namespace gs
             });
             for (int li = 0; li < leaves.Count; ++li)
                 leafVertex[li] = leaves[li].Alive ? mesh.AppendVertex(pos[li]) : -1;
+            vertexLeaf = new int[mesh.MaxVertexID];
+            for (int li = 0; li < leaves.Count; ++li)
+                if (leafVertex[li] >= 0) vertexLeaf[leafVertex[li]] = li;
 
             // corners of the leaves (finest-lattice points), each once
             HashSet<long> corners = new HashSet<long>();
@@ -787,6 +836,13 @@ namespace gs
 
             MeshTransforms.Translate(mesh, origin);
             Result = mesh;
+        }
+
+        static double xy_area(DMesh3 mesh, int tid)
+        {
+            Index3i t = mesh.GetTriangle(tid);
+            Vector3d a = mesh.GetVertex(t.a), b = mesh.GetVertex(t.b), c = mesh.GetVertex(t.c);
+            return Math.Abs((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x));
         }
 
         bool faces_up(DMesh3 mesh, int a, int b, int c)
