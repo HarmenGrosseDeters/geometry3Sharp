@@ -688,6 +688,39 @@ namespace geometry3Sharp.Tests
             Assert.Empty(warnings);
         }
 
+        // variants of the OFF header as written by CGAL and others (several meshes of CGAL's test data use them)
+        [Theory]
+        [InlineData("COFF\n3 1 0\n0 0 0 192 192 192 255\n1 0 0 192 192 192 255\n0 1 2 192 192 192 255\n3 0 1 2\n")]
+        [InlineData("NOFF\n3 1 0\n\n0 0 0  0 0 1\n1 0 0  0 0 1\n0 1 2  0 0 1\n3 0 1 2\n")]
+        [InlineData("CNOFF\n3 1 0\n0 0 0 0 0 1 1 0 0 1\n1 0 0 0 0 1 1 0 0 1\n0 1 2 0 0 1 1 0 0 1\n3 0 1 2 255 0 0\n")]
+        [InlineData("# Output of a CGAL tool\n#CBP\n# polyhedral_surface 0\nOFF\n3 1 0\n\n0 0 0\n1 0 0\n0 1 2\n3 0 1 2\n")]
+        [InlineData("OFF 3 1 0\n0 0 0\n1 0 0\n0 1 2\n3 0 1 2\n")]
+        [InlineData("OFF\n3 1\n0 0 0\n1 0 0\n0 1 2\n3 0 1 2\n")]
+        public void OFFReader_HeaderVariants_AreRead(string off)
+        {
+            var builder = new DMesh3Builder();
+            var warnings = new List<string>();
+            var reader = new OFFReader();
+            reader.warningEvent += (m, o) => warnings.Add(m);
+            var result = reader.Read(new StringReader(off), new ReadOptions(), builder);
+            Assert.Equal(IOCode.Ok, result.code);
+            DMesh3 mesh = builder.Meshes[0];
+            Assert.Equal(3, mesh.VertexCount);
+            Assert.Equal(1, mesh.TriangleCount);
+            Assert.Equal(new Vector3d(0, 1, 2), mesh.GetVertex(2));
+            Assert.Empty(warnings);
+        }
+
+        [Theory]
+        [InlineData("4OFF\n1 0 0\n0 0 0 0\n")]
+        [InlineData("OFF BINARY\n")]
+        [InlineData("PLY\n3 1 0\n")]
+        public void OFFReader_UnsupportedHeaders_AreRejected(string off)
+        {
+            var result = new OFFReader().Read(new StringReader(off), new ReadOptions(), new DMesh3Builder());
+            Assert.NotEqual(IOCode.Ok, result.code);
+        }
+
         [Fact]
         public void SVGWriter_Arc_SeparatesFlagsFromEndPoint()
         {
