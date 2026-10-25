@@ -224,8 +224,10 @@ namespace gs
         /// <summary>
         /// For a grid edge with both ends inside: true if the field drops below the iso-value between two
         /// roughly parallel input surfaces on the edge, ie the edge crosses a gap the node signs cannot see.
-        /// Surfaces at a steeper angle are the thin outside wedge at a concave crease (eg where two
-        /// overlapping parts meet); dual contouring handles those, and refining would not remove them.
+        /// Not counted: surfaces at a steeper angle, and surfaces whose planes meet within a few cells (the
+        /// thin outside wedge at a concave crease, eg where the two inputs of a union meet at a small angle).
+        /// Dual contouring handles those, and refining would not remove them: a wedge is narrower than a
+        /// cell near its apex at any cell size.
         /// </summary>
         public bool HiddenGap(double cellSize, Vector3d a, Vector3d b)
         {
@@ -237,12 +239,31 @@ namespace gs
                 Vector3d n0 = Meshes[hits[i].Mesh].GetTriNormal(hits[i].Tri), n1 = Meshes[hits[i + 1].Mesh].GetTriNormal(hits[i + 1].Tri);
                 if (Math.Abs(n0.Dot(n1)) < GapParallelCos)
                     continue;
-                if (Field(origin + 0.5 * (hits[i].T + hits[i + 1].T) * dir) < Iso)
+                Vector3d p0 = origin + hits[i].T * dir, p1 = origin + hits[i + 1].T * dir, m = 0.5 * (p0 + p1);
+                if (crease_distance(p0, n0, p1, n1, m) < WedgeCells * cellSize)
+                    continue;
+                if (Field(m) < Iso)
                     return true;
             }
             return false;
         }
         const double GapParallelCos = 0.5;     // surfaces within 60 degrees of parallel
+        const double WedgeCells = 3;
+
+        // distance from m to the line where the planes (p0, n0) and (p1, n1) meet (infinite if parallel)
+        static double crease_distance(Vector3d p0, Vector3d n0, Vector3d p1, Vector3d n1, Vector3d m)
+        {
+            Vector3d d = n0.Cross(n1);
+            double dd = d.LengthSquared;
+            if (dd < 1e-6)      // within about 0.06 degrees of parallel
+                return double.MaxValue;
+            // a point on both planes: x = (h0 (n1 x d) + h1 (d x n0)) / |d|^2, with h = n . p
+            double h0 = n0.Dot(p0), h1 = n1.Dot(p1);
+            Vector3d x = (h0 * n1.Cross(d) + h1 * d.Cross(n0)) / dd;
+            Vector3d dn = d / Math.Sqrt(dd);
+            Vector3d r = m - x;
+            return (r - r.Dot(dn) * dn).Length;
+        }
 
         struct Hit
         {
