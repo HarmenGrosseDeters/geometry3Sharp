@@ -134,7 +134,7 @@ namespace MeshRepairBenchmark
             var nrm = new List<Vector3d>();
             for (int i = 0; i < vids.Count; i += step) {
                 pts.Add(mesh.GetVertex(vids[i]));
-                nrm.Add(MeshNormals.QuickCompute(mesh, vids[i]));
+                nrm.Add(MeshAnalysisNormals.VertexNormal(mesh, vids[i]));
             }
             Vector3d center = mesh.CachedBounds.Center;
             Quaterniond rot = Quaterniond.AxisAngleD(new Vector3d(1, 2, 3).Normalized, 37);

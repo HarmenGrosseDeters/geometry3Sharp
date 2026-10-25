@@ -147,7 +147,7 @@ namespace gs
                 Spatial = new DMeshAABBTree3(Mesh, true);
             double maxDist = (MaxDistance > 0) ? MaxDistance : Mesh.CachedBounds.DiagonalLength;
             set_tolerances();
-            return thickness(p, n.Normalized, -1, -1, cone_directions(), Math.Max(maxDist, MathUtil.Epsilonf));
+            return thickness(p, MeshAnalysisNormals.Unit(n), -1, -1, cone_directions(), Math.Max(maxDist, MathUtil.Epsilonf));
         }
 
 
@@ -174,14 +174,14 @@ namespace gs
 
         // smallest ray parameter of a hit (relative to the mesh size, so that the result scales exactly with
         // the mesh), and the padding of the (float) tree boxes
-        double eps, boxPad;
+        double eps, boxPad, tieTol;
 
         // triangles taken with reversed orientation (OrientInvertedParts)
         bool[] flipped;
 
         Vector3d tri_normal(int tid)
         {
-            Vector3d n = Mesh.GetTriNormal(tid);
+            Vector3d n = MeshAnalysisNormals.TriNormal(Mesh, tid);
             return (flipped != null && flipped[tid]) ? -n : n;
         }
 
@@ -224,20 +224,19 @@ namespace gs
             AxisAlignedBox3d b = Mesh.CachedBounds;
             eps = 1e-9 * b.DiagonalLength;
             boxPad = 1e-6 * (b.DiagonalLength + Math.Max(b.Min.MaxAbs, b.Max.MaxAbs));
+            tieTol = 1e-9 * (b.DiagonalLength + Math.Max(b.Min.MaxAbs, b.Max.MaxAbs));
         }
 
         Vector3d vertex_normal(int vid)
         {
             Vector3d n = Vector3d.Zero;
             foreach (int tid in Mesh.VtxTrianglesItr(vid)) {
-                Vector3d tn, c; double area;
-                Mesh.GetTriInfo(tid, out tn, out area, out c);
-                if (double.IsNaN(tn.x)) continue;
+                double area;
+                Vector3d tn = MeshAnalysisNormals.TriNormal(Mesh, tid, out area);
                 if (flipped != null && flipped[tid]) tn = -tn;
                 n += area * tn;
             }
-            double len = n.Length;
-            return (len > MathUtil.ZeroTolerance) ? n / len : Vector3d.Zero;
+            return MeshAnalysisNormals.Unit(n);
         }
 
 
@@ -303,10 +302,15 @@ namespace gs
                     if (vid >= 0 && (tv.a == vid || tv.b == vid || tv.c == vid)) return;
                     double t;
                     if (ray.Intersect(Mesh.GetVertex(tv.a), Mesh.GetVertex(tv.b), Mesh.GetVertex(tv.c), out t) == false) return;
-                    if (t <= eps || t > best) return;
+                    if (t <= eps || t > best + tieTol) return;
                     double dot = tri_normal(ti).Dot(dir);
-                    // through an edge both triangles report the same t: prefer the one the ray leaves through
-                    if (t == best && bestTri != DMesh3.InvalidID && dot <= bestDot) return;
+                    // coincident faces (touching parts, duplicates) are hit at the same t up to rounding:
+                    // prefer the one the ray leaves through, whatever the rounding (it depends on the unit)
+                    if (bestTri != DMesh3.InvalidID && Math.Abs(t - best) <= tieTol) {
+                        if (dot > bestDot) { bestTri = ti; bestDot = dot; }
+                        best = Math.Min(best, t);
+                        return;
+                    }
                     best = t; bestTri = ti; bestDot = dot;
                 }
             });

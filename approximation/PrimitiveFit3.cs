@@ -99,7 +99,7 @@ namespace g3
             foreach (int vid in (vertices ?? mesh.VertexIndices())) {
                 if (mesh.IsVertex(vid) == false || mesh.GetVtxEdgeCount(vid) == 0) continue;
                 pts.Add(mesh.GetVertex(vid));
-                nrm.Add(MeshNormals.QuickCompute(mesh, vid));
+                nrm.Add(gs.MeshAnalysisNormals.VertexNormal(mesh, vid));
             }
             Points = pts.ToArray();
             Normals = nrm.ToArray();
@@ -257,14 +257,14 @@ namespace g3
                 case Primitives.Plane:
                     return m.d;
                 case Primitives.Sphere:
-                    return (p - m.a).Normalized;
+                    return unit(p - m.a);
                 case Primitives.Cylinder: {
                         Vector3d w = p - m.a;
-                        return (w - w.Dot(m.d) * m.d).Normalized;
+                        return unit(w - w.Dot(m.d) * m.d);
                     }
                 default: {
                         Vector3d w = p - m.a;
-                        Vector3d radial = (w - w.Dot(m.d) * m.d).Normalized;
+                        Vector3d radial = unit(w - w.Dot(m.d) * m.d);
                         return (Math.Cos(m.r) * radial - Math.Sin(m.r) * m.d).Normalized;
                     }
             }
@@ -290,6 +290,12 @@ namespace g3
             for (int i = 0; i < Points.Length; ++i)
                 inl[i] = is_inlier(m, i, out d);
             return inl;
+        }
+
+        // scale-free normalization (positions differences can be tiny in meters)
+        static Vector3d unit(Vector3d v)
+        {
+            return gs.MeshAnalysisNormals.Unit(v);
         }
 
         static int count(bool[] b)
@@ -452,7 +458,7 @@ namespace g3
                         if (solve(A, b, 3, out x) == false) return false;
                         Vector3d apex = Points[s[0]] + new Vector3d(x[0], x[1], x[2]);
                         // the unit directions to the points lie on a circle around the axis
-                        Vector3d u0 = (Points[s[0]] - apex).Normalized, u1 = (Points[s[1]] - apex).Normalized, u2 = (Points[s[2]] - apex).Normalized;
+                        Vector3d u0 = unit(Points[s[0]] - apex), u1 = unit(Points[s[1]] - apex), u2 = unit(Points[s[2]] - apex);
                         Vector3d d = (u1 - u0).Cross(u2 - u0);
                         if (d.Length < MathUtil.ZeroTolerance) return false;
                         d.Normalize();
@@ -545,12 +551,12 @@ namespace g3
                         Vector3d umean = Vector3d.Zero;
                         int cnt = 0;
                         for (int i = 0; i < n; ++i)
-                            if (inl[i]) { umean += (Points[i] - apex).Normalized; cnt++; }
+                            if (inl[i]) { umean += unit(Points[i] - apex); cnt++; }
                         umean /= cnt;
                         double[] C = new double[9];
                         for (int i = 0; i < n; ++i) {
                             if (!inl[i]) continue;
-                            Vector3d u = (Points[i] - apex).Normalized - umean;
+                            Vector3d u = unit(Points[i] - apex) - umean;
                             add_outer(C, u, u);
                         }
                         Vector3d d = smallest_eigenvector(C);

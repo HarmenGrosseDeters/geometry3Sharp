@@ -167,6 +167,49 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void Results_DoNotDependOnTheUnit()
+        {
+            // the same shell in a small unit (eg meters for a mm part): the library's triangle normals treat
+            // triangles below an absolute size as degenerate; the analysis must not (found on Thingi10K)
+            const double s = 1e-4;
+            DMesh3 a = SphereShell(1, 0.8, 16);
+            DMesh3 b = new DMesh3(a);
+            MeshTransforms.Scale(b, s);
+            foreach (var method in new[] { MeshWallThickness.Methods.Ray, MeshWallThickness.Methods.InscribedSphere, MeshWallThickness.Methods.ShapeDiameter }) {
+                var wa = new MeshWallThickness(a) { Method = method };
+                var wb = new MeshWallThickness(b) { Method = method };
+                Assert.True(wa.Compute() && wb.Compute());
+                foreach (int tid in a.TriangleIndices())
+                    Assert.Equal(wa.TriangleThickness[tid], wb.TriangleThickness[tid] / s, 6);
+                foreach (int vid in a.VertexIndices())
+                    Assert.Equal(wa.VertexThickness[vid], wb.VertexThickness[vid] / s, 6);
+            }
+        }
+
+        [Theory]
+        [InlineData(1.0, 0.0)]
+        [InlineData(0.001, 0.0)]        // mm part in meters: the scale is not exact in binary
+        [InlineData(0.1, 0.0)]
+        [InlineData(1.0, 5000000.0)]    // geo coordinates
+        public void TouchingParts_RayStopsAtOwnWall(double scale, double offset)
+        {
+            // two cubes sharing the face x = 1 (coincident, opposite orientation): the ray from the left cube
+            // hits both at the same t up to rounding and must end at the left cube's own wall, not NaN
+            DMesh3 mesh = Box(new Vector3d(0.5, 0.5, 0.5), 0.5 * Vector3d.One);
+            new MeshEditor(mesh).AppendMesh(Box(new Vector3d(1.5, 0.5, 0.5), 0.5 * Vector3d.One));
+            MeshTransforms.Scale(mesh, scale);
+            MeshTransforms.Translate(mesh, new Vector3d(offset, offset, 0));
+            var wt = new MeshWallThickness(mesh) { Method = MeshWallThickness.Methods.Ray, ComputeVertices = false };
+            Assert.True(wt.Compute());
+            foreach (int tid in mesh.TriangleIndices()) {
+                Vector3d n = mesh.GetTriNormal(tid);
+                if (Math.Abs(n.x) < 0.99) continue;
+                Assert.False(double.IsNaN(wt.TriangleThickness[tid]), "triangle " + tid);
+                Assert.Equal(1.0, wt.TriangleThickness[tid] / scale, 6);
+            }
+        }
+
+        [Fact]
         public void InsideOutParts_AreTakenFlipped()
         {
             // Thingi10K has closed meshes that are inside out as a whole: their rays all leave through front

@@ -195,6 +195,14 @@ namespace geometry3Sharp.Tests
             Assert.True(Math.Abs(fit.Cylinder.Axis.Direction.Dot(Vector3d.AxisY)) > 0.9999);
             // vertices lie on the radius, the polygon's sides inside: the fit is between
             Assert.InRange(fit.Cylinder.Radius, 1.5 * Math.Cos(Math.PI / 48) - 1e-3, 1.5 + 1e-6);
+
+            // the same in a tiny unit: the vertex normals must survive (no absolute degeneracy threshold)
+            const double s = 1e-5;
+            MeshTransforms.Scale(mesh, s);
+            var small = new PrimitiveFit3(mesh) { Primitive = PrimitiveFit3.Primitives.Cylinder, InlierDistance = 0.01 * s };
+            Assert.True(small.Normals.All(n => n.Length > 0.99));
+            Assert.True(small.Compute());
+            Assert.Equal(fit.Cylinder.Radius, small.Cylinder.Radius / s, 6);
         }
 
         [Theory]

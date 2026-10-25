@@ -126,6 +126,21 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void PseudoNormalSign_DoesNotDependOnTheUnit()
+        {
+            // cube offset outwards (edge and corner regions use edge and vertex pseudo-normals), in a tiny unit
+            const double s = 1e-5;
+            DMesh3 cube = new GridBox3Generator() { Box = new Box3d(Vector3d.Zero, Vector3d.One), EdgeVertices = 8 }.Generate().MakeDMesh();
+            DMesh3 outer = new GridBox3Generator() { Box = new Box3d(Vector3d.Zero, 1.1 * Vector3d.One), EdgeVertices = 3 }.Generate().MakeDMesh();
+            MeshTransforms.Scale(cube, s);
+            MeshTransforms.Scale(outer, s);
+            var dev = new MeshDeviation(outer, cube);
+            Assert.True(dev.Compute());
+            Assert.True(dev.Statistics.Min > 0, "min " + dev.Statistics.Min);
+            Assert.Equal(0.1 * s, dev.Statistics.Min, 12);
+        }
+
+        [Fact]
         public void CertifiedBound_ContainsVertexMaximum()
         {
             DMesh3 reference = Sphere(1, 12);

@@ -158,7 +158,7 @@ namespace gs
 
         Vector3d tri_normal(int tid)
         {
-            Vector3d n = Reference.GetTriNormal(tid);
+            Vector3d n = MeshAnalysisNormals.TriNormal(Reference, tid);
             return (flipped != null && flipped[tid]) ? -n : n;
         }
 
@@ -171,7 +171,7 @@ namespace gs
                 if (double.IsNaN(n.x)) continue;
                 Index3i t = Reference.GetTriangle(tid);
                 for (int j = 0; j < 3; ++j) {
-                    double angle = Reference.GetTriInternalAngleR(tid, j);
+                    double angle = MeshAnalysisNormals.InternalAngle(Reference, tid, j);
                     if (double.IsNaN(angle)) continue;
                     vertexNormals[t[j]] += angle * n;
                 }
