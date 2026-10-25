@@ -12,8 +12,12 @@ namespace gs
     /// Much closer to the true surface distance than Dijkstra along mesh edges (which zigzags), and the
     /// matrices are reused for further sources.
     ///
-    /// Accuracy (tests on planes, cylinders and terrain): about 2% of the distance plus half an edge length;
-    /// near the sources the distance is smoothed over a few edge lengths. Computed relative to the mesh
+    /// Accuracy (tests on planes, discs, cylinders and terrain): about 2% of the distance plus half the mean
+    /// edge length; near the sources the distance is smoothed over a few edge lengths. Near open boundaries,
+    /// and for sources on the boundary, allow 2% plus one mean edge length: the boundary condition of the heat
+    /// flow (the average of the Neumann and Dirichlet solutions, Crane et al.) is only an approximation there.
+    /// Regular grids whose diagonals all point the same way are anisotropic and the least accurate;
+    /// alternating diagonals or irregular triangulations do better. Computed relative to the mesh
     /// center, so UTM coordinates are fine. Each connected component is measured from its own sources;
     /// components without a source (and isolated vertices) get NaN. Far from the sources (beyond about
     /// 700 edge lengths) the heat underflows doubles; then it is computed as its logarithm.

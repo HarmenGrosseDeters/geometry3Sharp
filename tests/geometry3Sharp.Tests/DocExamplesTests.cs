@@ -378,14 +378,14 @@ namespace geometry3Sharp.Tests
             double[] d = DistancesExample.Geodesic(plane, source, out path);
             Assert.NotNull(d);
             Assert.Equal(0, d[source], 9);
-            // on a plane the geodesic distance is the euclidean one (about 2% plus half an edge length),
-            // away from the open boundary (there it is a few percent less)
+            // on a plane the geodesic distance is the euclidean one: about 2% plus half the mean edge length,
+            // near the open boundary 2% plus one mean edge length
+            double h = AverageEdgeLength(plane);
             foreach (int vid in plane.VertexIndices()) {
                 Vector3d p = plane.GetVertex(vid);
-                if (Math.Min(Math.Min(p.x, p.y), Math.Min(10 - p.x, 10 - p.y)) < 1)
-                    continue;
-                double exact = plane.GetVertex(vid).Distance(c);
-                Assert.True(Math.Abs(d[vid] - exact) < 0.02 * exact + 0.125, $"{d[vid]} vs {exact}");
+                bool nearBoundary = Math.Min(Math.Min(p.x, p.y), Math.Min(10 - p.x, 10 - p.y)) < 1;
+                double exact = p.Distance(c);
+                Assert.True(Math.Abs(d[vid] - exact) < 0.02 * exact + (nearBoundary ? h : 0.5 * h), $"{p}: {d[vid]} vs {exact}");
             }
             Assert.True(path.Count >= 2);
             Assert.True(path[path.Count - 1].Distance(c) < 1e-9);    // the path ends at the source vertex
