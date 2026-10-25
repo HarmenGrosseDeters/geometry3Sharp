@@ -88,8 +88,10 @@ namespace g3
             // The point is outside the infinite cylinder, or on the cylinder wall.
             double distance = Math.Sqrt(sqrDistance);
             double inf_distance = distance - Cylinder.Radius;
-            double temp = Cylinder.Radius / distance;
-            Vector3d inf_closest = new Vector3d(temp * P.x, temp * P.y, P.z);
+            // on the axis all wall points are equidistant, pick one
+            Vector3d inf_closest = (distance > 0) ?
+                new Vector3d(Cylinder.Radius / distance * P.x, Cylinder.Radius / distance * P.y, P.z) :
+                new Vector3d(Cylinder.Radius, 0, P.z);
             bool bOutside = (sqrDistance >= sqrRadius);
 
             result_closest = inf_closest;
@@ -152,8 +154,10 @@ namespace g3
             // The point is outside the cylinder or on the cylinder wall.
             double distance = Math.Sqrt(sqrDistance);
             result_distance = distance - Cylinder.Radius;
-            double temp = Cylinder.Radius / distance;
-            result_closest = new Vector3d(temp * P.x, temp * P.y, P.z);
+            // on the axis all wall points are equidistant, pick one
+            result_closest = (distance > 0) ?
+                new Vector3d(Cylinder.Radius / distance * P.x, Cylinder.Radius / distance * P.y, P.z) :
+                new Vector3d(Cylinder.Radius, 0, P.z);
 
 
             // Convert the closest point from the cylinder coordinate system to the

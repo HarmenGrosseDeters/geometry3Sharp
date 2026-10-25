@@ -54,9 +54,12 @@ namespace g3
             int iRoot = boxes.Length - 1;
             int iLayer = layers - 1;
 
-            double min_dist = max_dist;
+            // max_dist is a distance, we compare squared distances
+            double min_dist = (max_dist < double.MaxValue) ? max_dist * max_dist : double.MaxValue;
             iNearSeg = -1;
             fNearSegT = 0;
+            if (Curve.SegmentCount <= 0)
+                return double.MaxValue;
 
             find_min_distance(ref pt, ref min_dist, ref iNearSeg, ref fNearSegT, 0, iRoot, iLayer);
             if (iNearSeg == -1)
@@ -121,15 +124,18 @@ namespace g3
             int iRoot = boxes.Length - 1;
             int iLayer = layers - 1;
 
+            // min_dist is unsquared here, it is also used to expand the boxes
             double min_dist = max_dist;
             iNearSeg = -1;
             fNearSegT = 0;
             fRayT = double.MaxValue;
+            if (Curve.SegmentCount <= 0)
+                return double.MaxValue;
 
             find_min_distance(ref ray, ref min_dist, ref iNearSeg, ref fNearSegT, ref fRayT, 0, iRoot, iLayer);
             if (iNearSeg == -1)
                 return double.MaxValue;
-            return min_dist;
+            return min_dist * min_dist;
         }
 
         void find_min_distance(ref Ray3d ray, ref double min_dist, ref int min_dist_seg, ref double min_dist_segt, ref double min_dist_rayt, int bi, int iLayerStart, int iLayer)
@@ -198,6 +204,8 @@ namespace g3
 
             hitSegment = -1;
             fRayT = double.MaxValue;
+            if (Curve.SegmentCount <= 0)
+                return false;
 
             find_closest_ray_intersction(ref ray, radius, ref hitSegment, ref fRayT, 0, iRoot, iLayer);
             return (hitSegment != -1);
@@ -297,8 +305,9 @@ namespace g3
             }
 
             // repeatedly build layers until we hit a single box
+            // (N == 0 if the curve has no segments)
             N = bi;
-            if (N == 1)
+            if (N <= 1)
                 return;
             int prev_layer_start = 0;
             bool done = false;

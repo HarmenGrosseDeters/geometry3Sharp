@@ -952,6 +952,8 @@ namespace g3
         {
             Vector3f dx = x2 - x1;
             float m2 = dx.LengthSquared;
+            if (m2 == 0)    // degenerate segment
+                return x0.Distance(x1);
             // find parameter value of closest point on segment
             float s12 = (dx.Dot(x2 - x0) / m2);
             if (s12 < 0) {
@@ -969,6 +971,8 @@ namespace g3
         {
             Vector3d dx = x2 - x1;
             double m2 = dx.LengthSquared;
+            if (m2 == 0)    // degenerate segment
+                return x0.Distance(x1);
             // find parameter value of closest point on segment
             double s12 = (dx.Dot(x2 - x0) / m2);
             if (s12 < 0) {
@@ -990,7 +994,12 @@ namespace g3
             Vector3f x23 = (x2 - x3);
             Vector3f x03 = (x0 - x3);
             float m13 = x13.LengthSquared, m23 = x23.LengthSquared, d = x13.Dot(x23);
-            float invdet = 1.0f / Math.Max(m13 * m23 - d * d, 1e-30f);
+            float det = m13 * m23 - d * d;
+            // degenerate (collinear or coincident vertices) triangle: barycentrics are meaningless
+            if (!(det > 1e-6f * m13 * m23))
+                return Math.Min(point_segment_distance(ref x0, ref x1, ref x2),
+                    Math.Min(point_segment_distance(ref x0, ref x1, ref x3), point_segment_distance(ref x0, ref x2, ref x3)));
+            float invdet = 1.0f / det;
             float a = x13.Dot(x03), b = x23.Dot(x03);
             // the barycentric coordinates themselves
             float w23 = invdet * (m23 * a - d * b);
@@ -1017,7 +1026,12 @@ namespace g3
             Vector3d x23 = (x2 - x3);
             Vector3d x03 = (x0 - x3);
             double m13 = x13.LengthSquared, m23 = x23.LengthSquared, d = x13.Dot(ref x23);
-            double invdet = 1.0 / Math.Max(m13 * m23 - d * d, 1e-30);
+            double det = m13 * m23 - d * d;
+            // degenerate (collinear or coincident vertices) triangle: barycentrics are meaningless
+            if (!(det > 1e-12 * m13 * m23))
+                return Math.Min(point_segment_distance(ref x0, ref x1, ref x2),
+                    Math.Min(point_segment_distance(ref x0, ref x1, ref x3), point_segment_distance(ref x0, ref x2, ref x3)));
+            double invdet = 1.0 / det;
             double a = x13.Dot(ref x03), b = x23.Dot(ref x03);
             // the barycentric coordinates themselves
             double w23 = invdet * (m23 * a - d * b);

@@ -35,7 +35,7 @@ namespace g3
             int NH = (HoleTrees == null) ? 0 : HoleTrees.Length;
             for (int k = 0; k < NH; ++k) {
                 int hole_near_seg; double hole_seg_t;
-                double hole_dist = HoleTrees[k].SquaredDistance(pt, out hole_near_seg, out hole_seg_t, min_dist);
+                double hole_dist = HoleTrees[k].SquaredDistance(pt, out hole_near_seg, out hole_seg_t, Math.Sqrt(min_dist));
                 if (hole_dist < min_dist) {
                     min_dist = hole_dist;
                     iHoleIndex = k;
@@ -121,7 +121,8 @@ namespace g3
             int iRoot = boxes.Length - 1;
             int iLayer = layers - 1;
 
-            double min_dist = max_dist;
+            // max_dist is a distance, we compare squared distances
+            double min_dist = (max_dist < double.MaxValue) ? max_dist * max_dist : double.MaxValue;
             iNearSeg = -1;
             fNearSegT = 0;
 
@@ -218,6 +219,8 @@ namespace g3
 
             // repeatedly build layers until we hit a single box
             N = bi;
+            if (N == 1)
+                return;
             int prev_layer_start = 0;
             bool done = false;
             while (done == false) {
