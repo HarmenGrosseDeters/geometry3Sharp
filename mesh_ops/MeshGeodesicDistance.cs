@@ -17,6 +17,11 @@ namespace gs
     /// center, so UTM coordinates are fine. Each connected component is measured from its own sources;
     /// components without a source (and isolated vertices) get NaN. Far from the sources (beyond about
     /// 700 edge lengths) the heat underflows doubles; then it is computed as its logarithm.
+    ///
+    /// With IntrinsicDelaunay the heat flow and the Poisson equation are solved on the intrinsic Delaunay
+    /// triangulation of the mesh (see IntrinsicTriangulation): same surface, but all cotan weights are
+    /// non-negative. Much more accurate on poor triangulations (slivers, obtuse triangles), where the
+    /// cotan Laplacian of the mesh itself has negative weights.
     /// </summary>
     public class MeshGeodesicDistance
     {
@@ -24,6 +29,10 @@ namespace gs
         /// <summary> diffusion time = TimeFactor * (mean edge length)^2 </summary>
         public double TimeFactor = 1.0;
         public int MaxIterations = 20000;
+        /// <summary> compute on the intrinsic Delaunay triangulation of the mesh (recommended for poor meshes) </summary>
+        public bool IntrinsicDelaunay = false;
+        /// <summary> the intrinsic triangulation used by the last computation (null unless IntrinsicDelaunay) </summary>
+        public IntrinsicTriangulation Intrinsic { get; private set; }
 
         /// <summary> distance per vertex id (size MaxVertexID; NaN for unreachable or unused ids) </summary>
         public double[] Distance;
@@ -37,12 +46,13 @@ namespace gs
 
         int N;
         int[] toIndex, toVertex;
-        Vector3d[] pos;
         PackedSparseMatrix L;      // cotan Laplacian, positive semidefinite
         double[] mass, diagL;
         double meanEdge;
         List<Index3i> tris;
         List<Vector3d> cot;         // cotangent at each corner of tris
+        List<Vector2d[]> layout;    // isometric planar layout of each of tris (counter-clockwise)
+        bool computedIntrinsic;
 
         int timestamp = -1;
         int[] component;            // per index; -1 for vertices without a (non-degenerate) triangle
@@ -60,7 +70,7 @@ namespace gs
                 toVertex[N++] = vid;
             }
             Vector3d center = Mesh.CachedBounds.Center;
-            pos = new Vector3d[N];
+            Vector3d[] pos = new Vector3d[N];
             for (int i = 0; i < N; ++i)
                 pos[i] = Mesh.GetVertex(toVertex[i]) - center;
 
@@ -69,31 +79,44 @@ namespace gs
             diagL = new double[N];
             tris = new List<Index3i>();
             cot = new List<Vector3d>();
+            layout = new List<Vector2d[]>();
             double edgeSum = 0; int edgeCount = 0;
             foreach (int tid in Mesh.TriangleIndices()) {
                 Index3i t = Mesh.GetTriangle(tid);
-                Index3i ti = new Index3i(toIndex[t.a], toIndex[t.b], toIndex[t.c]);
-                Vector3d p0 = pos[ti.a], p1 = pos[ti.b], p2 = pos[ti.c];
-                double area = 0.5 * (p1 - p0).Cross(p2 - p0).Length;
-                if (area < 1e-14 * ((p1 - p0).LengthSquared + (p2 - p0).LengthSquared))
-                    continue;
-                Vector3d c = new Vector3d(cotangent(p1 - p0, p2 - p0), cotangent(p2 - p1, p0 - p1), cotangent(p0 - p2, p1 - p2));
-                tris.Add(ti);
-                cot.Add(c);
-                for (int k = 0; k < 3; ++k) {
-                    int i = ti[k], j = ti[(k + 1) % 3];
-                    double w = 0.5 * c[(k + 2) % 3];     // the corner opposite edge (i, j)
-                    M.Set(i, j, M[i, j] - w);
-                    diagL[i] += w; diagL[j] += w;
-                    mass[ti[k]] += area / 3;
-                }
+                Vector3d p0 = pos[toIndex[t.a]], p1 = pos[toIndex[t.b]], p2 = pos[toIndex[t.c]];
                 edgeSum += (p1 - p0).Length + (p2 - p1).Length + (p0 - p2).Length;
                 edgeCount += 3;
+            }
+            meanEdge = (edgeCount > 0) ? edgeSum / edgeCount : 1;
+            Intrinsic = null;
+            computedIntrinsic = IntrinsicDelaunay;
+            if (IntrinsicDelaunay) {
+                Intrinsic = new IntrinsicTriangulation(Mesh);
+                Intrinsic.FlipToDelaunay();
+                for (int k = 0; k < Intrinsic.TriangleCount; ++k) {
+                    Index3i t = Intrinsic.GetTriangle(k);
+                    Vector2d q0, q1, q2;
+                    Intrinsic.GetTriangleLayout(k, out q0, out q1, out q2);
+                    add_triangle(M, new Index3i(toIndex[t.a], toIndex[t.b], toIndex[t.c]), q0, q1, q2,
+                        Intrinsic.TriangleArea(k), false);
+                }
+            } else {
+                foreach (int tid in Mesh.TriangleIndices()) {
+                    Index3i t = Mesh.GetTriangle(tid);
+                    Index3i ti = new Index3i(toIndex[t.a], toIndex[t.b], toIndex[t.c]);
+                    Vector3d p0 = pos[ti.a], p1 = pos[ti.b], p2 = pos[ti.c];
+                    Vector3d n = (p1 - p0).Cross(p2 - p0);
+                    double area = 0.5 * n.Length;
+                    if (area < 1e-14 * ((p1 - p0).LengthSquared + (p2 - p0).LengthSquared))
+                        continue;
+                    Vector3d ex = (p1 - p0) / (p1 - p0).Length, ey = (n / (2 * area)).Cross(ex);
+                    Vector2d q2 = new Vector2d((p2 - p0).Dot(ex), (p2 - p0).Dot(ey));
+                    add_triangle(M, ti, Vector2d.Zero, new Vector2d((p1 - p0).Length, 0), q2, area, true);
+                }
             }
             for (int i = 0; i < N; ++i)
                 M.Set(i, i, diagL[i]);
             L = new PackedSparseMatrix(M);
-            meanEdge = (edgeCount > 0) ? edgeSum / edgeCount : 1;
 
             // connected components of the (non-degenerate) triangles
             int[] parent = new int[N];
@@ -117,9 +140,26 @@ namespace gs
             componentCount = ids.Count;
         }
 
-        static double cotangent(Vector3d a, Vector3d b)
+        void add_triangle(SymmetricSparseMatrix M, Index3i ti, Vector2d q0, Vector2d q1, Vector2d q2, double area, bool lengthsFromLayout)
         {
-            double s = a.Cross(b).Length;
+            Vector3d c = new Vector3d(cotangent(q1 - q0, q2 - q0), cotangent(q2 - q1, q0 - q1), cotangent(q0 - q2, q1 - q2));
+            tris.Add(ti);
+            cot.Add(c);
+            layout.Add(new Vector2d[] { q0, q1, q2 });
+            for (int k = 0; k < 3; ++k) {
+                int i = ti[k], j = ti[(k + 1) % 3];
+                double w = 0.5 * c[(k + 2) % 3];     // the corner opposite edge (i, j)
+                if (i != j) {
+                    M.Set(i, j, M[i, j] - w);
+                    diagL[i] += w; diagL[j] += w;
+                }
+                mass[ti[k]] += area / 3;
+            }
+        }
+
+        static double cotangent(Vector2d a, Vector2d b)
+        {
+            double s = Math.Abs(a.x * b.y - a.y * b.x);
             return (s > 1e-300) ? a.Dot(b) / s : 0;
         }
 
@@ -127,7 +167,7 @@ namespace gs
         /// <summary> distances from the given source vertices (to the nearest of them) </summary>
         public bool Compute(IEnumerable<int> sources)
         {
-            if (L == null || timestamp != Mesh.ShapeTimestamp)
+            if (L == null || timestamp != Mesh.ShapeTimestamp || computedIntrinsic != IntrinsicDelaunay)
                 precompute();
             Distance = null; sourceVertices = null;
             List<int> src = new List<int>();
@@ -181,24 +221,22 @@ namespace gs
             double[] div = new double[N];
             for (int k = 0; k < tris.Count; ++k) {
                 Index3i ti = tris[k];
-                Vector3d p0 = pos[ti.a], p1 = pos[ti.b], p2 = pos[ti.c];
-                Vector3d n = (p1 - p0).Cross(p2 - p0);
-                double area2 = n.Length;
-                n /= area2;
-                // grad u = 1/(2A) sum_i u_i (N x e_i), e_i the edge opposite corner i (counter-clockwise);
-                // only its direction is used, so the heat is scaled by its maximum in the triangle
+                Vector2d[] p = layout[k];
+                Vector2d p0 = p[0], p1 = p[1], p2 = p[2];
+                double area2 = (p1.x - p0.x) * (p2.y - p0.y) - (p2.x - p0.x) * (p1.y - p0.y);
+                // grad u = 1/(2A) sum_i u_i J e_i, e_i the edge opposite corner i (counter-clockwise) and J
+                // the rotation by 90 degrees; only its direction is used, so the heat is scaled by its maximum
                 double lm = Math.Max(u[ti.a], Math.Max(u[ti.b], u[ti.c]));
                 if (double.IsNegativeInfinity(lm)) continue;
                 double ua = Math.Exp(u[ti.a] - lm), ub = Math.Exp(u[ti.b] - lm), uc = Math.Exp(u[ti.c] - lm);
-                Vector3d g = (ua * n.Cross(p2 - p1) + ub * n.Cross(p0 - p2) + uc * n.Cross(p1 - p0)) / area2;
+                Vector2d g = (ua * perp(p2 - p1) + ub * perp(p0 - p2) + uc * perp(p1 - p0)) / area2;
                 double gl = g.Length;
                 if (gl < 1e-300) continue;
-                Vector3d X = -g / gl;
+                Vector2d X = -g / gl;
                 Vector3d c = cot[k];
-                Vector3d[] p = { p0, p1, p2 };
                 for (int a = 0; a < 3; ++a) {
                     int i = ti[a];
-                    Vector3d e1 = p[(a + 1) % 3] - p[a], e2 = p[(a + 2) % 3] - p[a];
+                    Vector2d e1 = p[(a + 1) % 3] - p[a], e2 = p[(a + 2) % 3] - p[a];
                     // cot of the angle opposite e1 is at corner a+2, opposite e2 at corner a+1
                     div[i] += 0.5 * (c[(a + 2) % 3] * e1.Dot(X) + c[(a + 1) % 3] * e2.Dot(X));
                 }
@@ -231,6 +269,8 @@ namespace gs
             foreach (int s in srcVertices) Distance[s] = 0;
             return true;
         }
+
+        static Vector2d perp(Vector2d v) { return new Vector2d(-v.y, v.x); }
 
         HashSet<int> sourceVertices;
         DMeshAABBTree3 spatial;

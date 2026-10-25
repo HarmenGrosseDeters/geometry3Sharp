@@ -53,8 +53,16 @@ selectively.
 ## Phase 3: parameterization and geodesics
 
 - Parameterization: LSCM, ARAP, SLIM (Rabinovich et al. 2017), Boundary First Flattening (Sawhney & Crane 2017); UV packing
-- Vector Heat Method (Sharp, Soliman, Crane 2019), including a robust log map (beyond `MeshLocalParam`)
-- Intrinsic Delaunay triangulations (Sharp & Crane), for stable Laplacians and heat on poor meshes
+- [x] Intrinsic Delaunay triangulations (Sharp & Crane), for stable Laplacians and heat on poor meshes:
+  `IntrinsicTriangulation` (edge flips with signposts, tracing of intrinsic edges over the input mesh,
+  intrinsic mollification of degenerate triangles); `MeshGeodesicDistance.IntrinsicDelaunay`. On a plane of
+  169-degree triangles the mean distance error drops from 2.2 to 0.06 edge lengths.
+- [x] Vector Heat Method (Sharp, Soliman, Crane 2019), including a robust log map (beyond `MeshLocalParam`):
+  `VectorHeatMethod` (transport, scalar extension, log map), on the intrinsic Delaunay triangulation,
+  with the direct solver `SparseCholesky`.
+- [ ] Intrinsic Delaunay *refinement* (vertex insertion): boundary edges opposite obtuse angles cannot be
+  flipped and keep negative cotan weights; integer coordinates (Gillespie et al. 2021) for a robust
+  common subdivision
 
 ## Phase 4: platform layer
 
