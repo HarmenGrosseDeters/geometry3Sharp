@@ -67,5 +67,21 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0, boolean.Result.TriangleCount);
             AssertSameAsNew(boolean);
         }
+    
+        [Fact]
+        public void FailedCompute_LeavesNoOldDiagnostics()
+        {
+            var boolean = new ExactMeshBoolean(Box(0, 0, 0, 1, 1, 1), Box(0.5, 0.5, 0.5, 2, 2, 2), Ops.Union);
+            Assert.True(boolean.Compute());
+            var counts = boolean.Counts;
+            Assert.True(boolean.ExactWindingA && boolean.PhaseMilliseconds.Count > 0 && counts.Count > 0);
+            boolean.MeshB = null;
+            Assert.False(boolean.Compute());
+            Assert.False(boolean.ExactWindingA || boolean.ExactWindingB);
+            Assert.Empty(boolean.PhaseMilliseconds);
+            Assert.Empty(boolean.Counts);
+            // the dictionaries of the earlier call stay as they were
+            Assert.NotEmpty(counts);
+        }
     }
 }

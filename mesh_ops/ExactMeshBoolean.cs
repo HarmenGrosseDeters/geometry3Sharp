@@ -117,7 +117,10 @@ namespace g3
             Error = null;
             // (the meshes or the operation may have changed since the last call)
             IntersectingPairs = SelfIntersectingPairs = NonManifoldEdges = NonManifoldTriangles = SplitNonManifoldEdges = Patches = RemovedVertices = 0;
-            Counts.Clear();
+            ExactWindingA = ExactWindingB = false;
+            PhaseMilliseconds = new Dictionary<string, long>();
+            Counts = new Dictionary<string, long>();
+            arr = null;
             bounds.Clear();
             windingTrees[0] = windingTrees[1] = null;
             if (MeshA == null || MeshB == null) {
