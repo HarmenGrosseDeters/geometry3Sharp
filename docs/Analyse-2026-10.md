@@ -77,6 +77,16 @@ Behoben:
 
 Weitere `BitArray`-Stellen werden aus parallelen Schleifen nur gelesen oder ausschließlich seriell genutzt.
 
+Fünfte Runde, Generatoren. Regressionstests stehen in `tests/geometry3Sharp.Tests/GeneratorOrientationTests.cs`.
+
+Behoben: `OpenCylinderGenerator`, `CappedCylinderGenerator`, `ConeGenerator` und `VerticalGeneralizedCylinderGenerator`
+(damit auch `Radial3DArrowGenerator`) erzeugen jetzt mit dem Standard `Clockwise = false` nach außen orientierte Dreiecke,
+wie Box-, Kugel-, Revolve- und Tube-Generator. Vorher war in jeder Variante jedes Dreieck nach innen gerichtet, und das
+Volumen negativ. Die Geometrie selbst war korrekt.
+
+**Verhaltensänderung:** Wer das bisher mit `ReverseOrientation()` oder `Clockwise = true` ausgeglichen hat, muss das
+entfernen.
+
 Bewusst zurückgestellt: `OBJReader.is_complex`. Der Fix leitet Dateien auf `BuildMeshes_ByMaterial` um. Dieser Pfad
 verwirft UVs bei Meshes ohne Material, übernimmt keine Gruppen und stürzt bei Faces ohne Normal-Index ab. Er muss deshalb
 zusammen mit diesem Pfad repariert werden.
