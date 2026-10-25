@@ -392,7 +392,7 @@ class Program
             for (int k = 0; k < srcPts.Count; ++k) srcHash.InsertPointUnsafe(k, srcPts[k]);
             int tooClose = 0;
             foreach (Vector3d p in linePts) {
-                double gd = dij.Height(p.x, p.y);
+                double gd = Checks.SurfaceBound(g, dij, p.x, p.y);
                 if (double.IsNaN(gd)) continue;
                 gErr.Add(gd - d);
                 if (gd < d) tooClose++;
