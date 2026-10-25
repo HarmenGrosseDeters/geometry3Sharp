@@ -446,12 +446,13 @@ namespace g3
 
         // returned list is set of unique knot values in range [0,1], ie
         // with no duplicates at repeated knots
+        // (the knots of a periodic spline extend past [0,1]; those are left out)
         public List<double> GetParamIntervals() {
 			List<double> l = new List<double>();
 			l.Add(0);
 			for ( int i = 0; i < mBasis.KnotCount; ++i ) {
 				double k = mBasis.GetKnot(i);
-				if ( k != l.Last() ) 
+				if ( k > l.Last() && k <= 1.0 )
 					l.Add(k);
 			}
 			if ( l.Last() != 1.0 )
@@ -477,13 +478,17 @@ namespace g3
 				if ( k == cur_knot ) {
 					cur_knot_count++;
 				} else {
-					if ( cur_knot_count > 1 )
+					if ( cur_knot_count > 1 && cur_knot >= 0 && cur_knot < 1.0 )
 						l.Add(cur_knot);
 					cur_knot = k;
 					cur_knot_count = 1;
 				}
 
 			}
+			// the knots of a periodic spline extend past [0,1] and may all have multiplicity 1,
+			// so the list can be empty here or miss 0
+			if ( l.Count == 0 || l[0] != 0 )
+				l.Insert(0, 0);
 			if ( l.Last() != 1.0 )
 				l.Add(1.0);
 			return l;
