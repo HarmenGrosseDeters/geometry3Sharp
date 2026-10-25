@@ -269,6 +269,29 @@ verschmelzen. Danach wird erneut verschweißt. Bleibt ein Loch aus genau 3 Kante
 diesem Dreieck geschlossen; größere Löcher bleiben offen, und `Compute` liefert `false`. In einer Stichprobe von 120
 zufälligen Kugel-Paaren sind 119 Ergebnisse geschlossen und gültig; im übrigen Fall fehlt ein echtes Viereck in der Naht.
 
+Vierzehnte Runde, die niedrig eingestuften Punkte, parallel in zwei Sessions. Jeder Punkt wurde zuerst mit einem Test
+geprüft und nur gefixt, wenn der Test rot war:
+- `math/`: PR #37, `MathLowFixesTests.cs` (36 Tests; vor dem Fix rot: 33). Behoben unter anderem `Equals(object)` bei
+  `null` oder fremdem Typ (17 Überschreibungen), kulturunabhängiges `ToString()`, `ClampAngleDeg/Rad`, `sort_indices` mit
+  Duplikaten, Größen der leeren int-Boxen, `Matrix3*.Inverse` (relative Toleranz statt `double.Epsilon`),
+  `Box2d(Segment2d)` (rechtshändig), `Frame3f.ToFrame(ref Box)` (Eingabe bleibt unverändert), `Interval1i`-Enumerator
+  bei `int.MaxValue`. Kein Fehler: `ComputeOrthogonalComplement` (v1 und v2 sind bereits `ref`).
+- `mesh/`, `curve/`: PR #36, `MeshCurveLowFixesTests.cs` (17 Tests; vor dem Fix rot: 14). Behoben unter anderem
+  `RemesherPro.TrackedProjectionPass` (nutzt `project_vertices()`), `AddTriangleStrip` mit Gruppe, `EdgeSpan.IsSameSpan`,
+  `DGraph*.GetBounds` bei leerem Graph, fehlende `Timestamp++` in `Polygon2d`/`PolyLine2d`, Comparator in
+  `PlanarComplex.FindSolidRegions`, `BezierCurve2.Reverse`, `Ellipse2d.FromCoefficients`, `NURBSCurve2` bei
+  gleichzeitiger Auswertung (Lock pro Basis), Orientierungs-Doku. Kein Fehler: `AppendTriangle` liefert im Release-Build
+  `InvalidID`; der Timestamp in parallelen `SetVertex`-Durchläufen verliert zwar Inkremente, der Cache verpasst aber keine
+  Änderung.
+
+Offen, Entscheidung nötig:
+- `DMesh3.GetBounds()` liefert bei leerem Mesh eine Null-Box statt `Empty`. Ein Fix setzt Guards in vier Gitterklassen
+  voraus, die ihre Größe aus den Bounds berechnen (sonst `OutOfMemoryException`).
+- `MeshTransforms.Scale` mit Spiegelung kehrt weder Orientierung noch Normalen um.
+- `MeshTransforms.FlipLeftRightCoordSystems(Frame3f)` wirft weiterhin `NotImplementedException`.
+- Kleinere Wahlen: Toleranz von `Matrix3*.Inverse`, `Floor` oder `Ceiling` für Max in `AxisAlignedBox*i.Contain(double)`,
+  uneinheitliches `==`/`Equals`.
+
 ---
 
 ## 1. Upstream-Issues
