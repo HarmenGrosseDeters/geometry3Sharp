@@ -56,8 +56,12 @@ namespace g3
         public bool ExactWindingA, ExactWindingB;
         // for tests: use generalized winding numbers also for closed meshes
         internal bool ForceGeneralizedWinding = false;
+        // for tests: no floating-point filters in the arrangement
+        internal bool DisableFilters = false;
         /// <summary> time per phase, for diagnostics </summary>
         public Dictionary<string, long> PhaseMilliseconds = new Dictionary<string, long>();
+        /// <summary> sizes of the intermediate results, for diagnostics </summary>
+        public Dictionary<string, long> Counts = new Dictionary<string, long>();
 
 
         public ExactMeshBoolean(DMesh3 a, DMesh3 b, Operations op)
@@ -92,11 +96,15 @@ namespace g3
                 return false;
             }
 
-            arr = new ExactMeshArrangement(new List<DMesh3>() { MeshA, MeshB }) { SelfIntersections = true };
+            arr = new ExactMeshArrangement(new List<DMesh3>() { MeshA, MeshB }) { SelfIntersections = true, DisableFilters = DisableFilters };
             arr.Compute();
             IntersectingPairs = arr.IntersectingPairs - arr.SelfIntersectingPairs;
             SelfIntersectingPairs = arr.SelfIntersectingPairs;
             PhaseMilliseconds = new Dictionary<string, long>(arr.PhaseMilliseconds);
+            Counts["candidate_pairs"] = arr.CandidatePairs;
+            Counts["intersecting_pairs"] = arr.IntersectingPairs;
+            Counts["points"] = arr.Points.Count;
+            Counts["pieces"] = arr.Output.Count;
 
             var sw = System.Diagnostics.Stopwatch.StartNew();
             bool[] keep, flip;
@@ -125,6 +133,18 @@ namespace g3
         /// </summary>
         public static bool IsWindingClosed(DMesh3 mesh)
         {
+            // fast path: every edge of the mesh has two triangles that run through it in opposite directions
+            // (then the edges are also balanced by position, merging vertices keeps the sums)
+            bool byIds = true;
+            foreach (int eid in mesh.EdgeIndices()) {
+                Index2i et = mesh.GetEdgeT(eid);
+                if (et.b == DMesh3.InvalidID) { byIds = false; break; }
+                Index2i ev = mesh.GetEdgeV(eid);
+                if (runs(mesh.GetTriangle(et.a), ev.a, ev.b) == runs(mesh.GetTriangle(et.b), ev.a, ev.b)) { byIds = false; break; }
+            }
+            if (byIds)
+                return true;
+
             var ids = new Dictionary<Vector3d, int>();
             Func<int, int> id = (vid) => {
                 Vector3d v = mesh.GetVertex(vid);
@@ -204,18 +224,8 @@ namespace g3
             // patches: pieces of one mesh connected across edges that are not on an intersection curve, with
             // exactly two pieces of that mesh (then they are oriented consistently, the meshes are winding
             // closed); the winding numbers are the same on the front sides of all pieces of a patch
-            var edgeTris = new Dictionary<long, List<int>>(EdgeKeyComparer.Instance);
-            for (int i = 0; i < n; ++i) {
-                var ot = output[i];
-                foreach (long key in new[] { ExactMeshArrangement.EdgeKey(ot.A, ot.B), ExactMeshArrangement.EdgeKey(ot.B, ot.C), ExactMeshArrangement.EdgeKey(ot.C, ot.A) }) {
-                    List<int> list;
-                    if (edgeTris.TryGetValue(key, out list) == false) {
-                        list = new List<int>(2);
-                        edgeTris[key] = list;
-                    }
-                    list.Add(i);
-                }
-            }
+            long[] edgeKeys; int[] edgeTri;
+            group_edges(n, (i) => new Index3i(output[i].A, output[i].B, output[i].C), out edgeKeys, out edgeTri);
             int[] parent = new int[n];
             for (int i = 0; i < n; ++i)
                 parent[i] = i;
@@ -226,13 +236,15 @@ namespace g3
                 }
                 return x;
             };
-            foreach (var kv in edgeTris) {
-                if (arr.ConstraintEdges.Contains(kv.Key))
+            for (int g0 = 0, g1 = 0; g0 < edgeKeys.Length; g0 = g1) {
+                g1 = g0 + 1;
+                while (g1 < edgeKeys.Length && edgeKeys[g1] == edgeKeys[g0]) g1++;
+                if (arr.ConstraintEdges.Contains(edgeKeys[g0]))
                     continue;
-                List<int> list = kv.Value;
                 for (int mesh = 0; mesh < 2; ++mesh) {
                     int a = -1, b = -1, count = 0;
-                    foreach (int t in list) {
+                    for (int g = g0; g < g1; ++g) {
+                        int t = edgeTri[g];
                         if (output[t].Mesh != mesh) continue;
                         if (count == 0) a = t; else b = t;
                         count++;
@@ -259,7 +271,7 @@ namespace g3
                     for (int m = 0; m < 2; ++m) {
                         if ((m == 0) ? ExactWindingA : ExactWindingB) {
                             if (trees[m] == null)
-                                trees[m] = build_tree(m);
+                                trees[m] = arr.Trees[m];
                             w[m] = front_winding(i, m, trees[m], rng, stack[i]);
                         } else {
                             w[m] = front_generalized_winding(i, m, stack[i]);
@@ -285,6 +297,22 @@ namespace g3
                 keep[i] = inFront != inBack;
                 flip[i] = inFront;
             }
+        }
+
+        // the undirected edges of n triangles, sorted: edgeKeys[k] is the edge, edgeTri[k] the triangle; equal
+        // edges are adjacent
+        static void group_edges(int n, Func<int, Index3i> tri, out long[] edgeKeys, out int[] edgeTri)
+        {
+            edgeKeys = new long[3 * n];
+            edgeTri = new int[3 * n];
+            for (int i = 0; i < n; ++i) {
+                Index3i t = tri(i);
+                edgeKeys[3 * i] = ExactMeshArrangement.EdgeKey(t.a, t.b);
+                edgeKeys[3 * i + 1] = ExactMeshArrangement.EdgeKey(t.b, t.c);
+                edgeKeys[3 * i + 2] = ExactMeshArrangement.EdgeKey(t.c, t.a);
+                edgeTri[3 * i] = edgeTri[3 * i + 1] = edgeTri[3 * i + 2] = i;
+            }
+            Array.Sort(edgeKeys, edgeTri);
         }
 
         static bool same_stack(List<int> a, List<int> b)
@@ -323,21 +351,6 @@ namespace g3
         }
 
 
-        TriangleBoxTree build_tree(int mesh)
-        {
-            var boxes = new List<AxisAlignedBox3d>();
-            DMesh3 m = arr.Meshes[mesh];
-            foreach (int ti in arr.MeshTriangles[mesh]) {
-                Index3i t = m.GetTriangle(arr.Triangles[ti].Tid);
-                AxisAlignedBox3d box = new AxisAlignedBox3d(m.GetVertex(t.a));
-                box.Contain(m.GetVertex(t.b));
-                box.Contain(m.GetVertex(t.c));
-                boxes.Add(box);
-            }
-            return new TriangleBoxTree(boxes);
-        }
-
-
         /// <summary>
         /// Winding number of the mesh just in front of output piece i (on the side its source triangle's normal
         /// points to): signed crossings of a segment from the piece's centroid to a far point in front, without
@@ -362,7 +375,7 @@ namespace g3
             for (int k = 0; k < 3; ++k)
                 ext = BigInteger.Max(ext, max[k] - min[k] + 1);
 
-            Vector3d pv = P.ToVector3d(arr.ScaleExp);
+            Vector3d pv = arr.ToInputVector(P);
             // pad: the rounding of the point to double (relative 1e-16), with a wide margin
             double pad = 1e-9 * (Math.Abs(pv.x) + Math.Abs(pv.y) + Math.Abs(pv.z)) + 1e-300;
             for (int attempt = 0; attempt < 200; ++attempt) {
@@ -379,7 +392,7 @@ namespace g3
                 BigInteger front = src.NX * (Rp.X * P.W - P.X) + src.NY * (Rp.Y * P.W - P.Y) + src.NZ * (Rp.Z * P.W - P.Z);
                 if (front.Sign <= 0)
                     continue;
-                Vector3d rv = Rp.ToVector3d(arr.ScaleExp);
+                Vector3d rv = arr.ToInputVector(Rp);
 
                 int winding = 0;
                 bool degenerate = false;
@@ -429,7 +442,7 @@ namespace g3
                 windingTrees[mesh] = new DMeshAABBTree3(m, true);
                 windingTrees[mesh].FastWindingNumber(Vector3d.Zero);
             }
-            Vector3d pv = arr.Points[centroid(ot)].ToVector3d(arr.ScaleExp);
+            Vector3d pv = arr.PointToVector(centroid(ot));
             double w = windingTrees[mesh].FastWindingNumber(pv);
             List<int> on = stack ?? new List<int>() { ot.Source };
             foreach (int ti in on) {
@@ -510,26 +523,26 @@ namespace g3
             // slot of point p in triangle t
             Func<int, int, int> slot = (t, p) => 3 * t + ((tris[t].a == p) ? 0 : (tris[t].b == p) ? 1 : 2);
 
-            var edgeTris = new Dictionary<long, List<int>>(EdgeKeyComparer.Instance);
-            for (int t = 0; t < tris.Count; ++t) {
-                Index3i f = tris[t];
-                foreach (long key in new[] { ExactMeshArrangement.EdgeKey(f.a, f.b), ExactMeshArrangement.EdgeKey(f.b, f.c), ExactMeshArrangement.EdgeKey(f.c, f.a) }) {
-                    List<int> list;
-                    if (edgeTris.TryGetValue(key, out list) == false) {
-                        list = new List<int>(2);
-                        edgeTris[key] = list;
-                    }
-                    list.Add(t);
+            long[] edgeKeys; int[] edgeTri;
+            group_edges(tris.Count, (t) => tris[t], out edgeKeys, out edgeTri);
+            var list = new List<int>();
+            for (int g0 = 0, g1 = 0; g0 < edgeKeys.Length; g0 = g1) {
+                g1 = g0 + 1;
+                while (g1 < edgeKeys.Length && edgeKeys[g1] == edgeKeys[g0]) g1++;
+                int u = (int)(edgeKeys[g0] >> 32), v = (int)(edgeKeys[g0] & 0xFFFFFFFF);
+                if (g1 - g0 == 2) {
+                    join(slot(edgeTri[g0], u), slot(edgeTri[g0 + 1], u));
+                    join(slot(edgeTri[g0], v), slot(edgeTri[g0 + 1], v));
+                    continue;
                 }
-            }
-            foreach (var kv in edgeTris) {
-                int u = (int)(kv.Key >> 32), v = (int)(kv.Key & 0xFFFFFFFF);
-                List<int> list = kv.Value;
+                list.Clear();
+                for (int g = g0; g < g1; ++g)
+                    list.Add(edgeTri[g]);
                 foreach (var pair in pair_around_edge(tris, list, u, v)) {
                     join(slot(pair.Key, u), slot(pair.Value, u));
                     join(slot(pair.Key, v), slot(pair.Value, v));
                 }
-                if (list.Count > 2)
+                if (g1 - g0 > 2)
                     NonManifoldEdges++;
             }
 

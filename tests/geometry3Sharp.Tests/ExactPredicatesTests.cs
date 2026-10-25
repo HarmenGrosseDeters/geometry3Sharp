@@ -246,5 +246,63 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(IntrTriangle3Triangle3.Intersects(ref a, ref b), ExactTriangleIntersection.Intersects(ref a, ref b));
             }
         }
+
+
+        // hard inputs: grid points (exactly collinear / coplanar / cocircular), the same perturbed by a few ulps,
+        // large coordinates with small differences, mixed magnitudes, and values outside the expansion range
+        static double Hard(Random rand, int kind)
+        {
+            switch (kind) {
+                case 0: return rand.Next(-4, 5);
+                case 1: { double v = rand.Next(-4, 5) * 0.25; for (int k = rand.Next(4); k > 0; --k) v = (rand.Next(2) == 0) ? NextUp(v) : NextDown(v); return v; }
+                case 2: return 5e6 + rand.Next(-8, 9) * 0.125 + ((rand.Next(3) == 0) ? 1e-9 * rand.Next(-3, 4) : 0);
+                case 3: return rand.NextDouble() * Math.Pow(10, rand.Next(-20, 21)) * (rand.Next(2) == 0 ? -1 : 1);
+                default: return rand.Next(-3, 4) * Math.Pow(2, rand.Next(-140, 140));
+            }
+        }
+
+        static double NextDown(double v) { return -NextUp(-v); }
+
+        [Theory]
+        [InlineData(0)]
+        [InlineData(1)]
+        [InlineData(2)]
+        [InlineData(3)]
+        [InlineData(4)]
+        public void ExpansionArithmetic_MatchesBigInteger(int kind)
+        {
+            var rand = new Random(1000 + kind);
+            int nonzero = 0;
+            for (int i = 0; i < 4000; ++i) {
+                Func<double> h = () => Hard(rand, kind);
+                Vector3d a = new Vector3d(h(), h(), h()), b = new Vector3d(h(), h(), h()), c = new Vector3d(h(), h(), h()), d = new Vector3d(h(), h(), h());
+                // also exactly degenerate configurations from the same values
+                if (i % 4 == 1) d = a + (b - a) * 2 + (c - a) * 3;
+                if (i % 4 == 2) c = a;
+                int o3 = ExactPredicates.orient3d_bigint(a, b, c, d);
+                Assert.Equal(o3, ExactPredicates.Orient3dExact(a, b, c, d));
+                Assert.Equal(o3, ExactPredicates.Orient3d(a, b, c, d));
+                Assert.Equal(ExactPredicates.orient2d_bigint(a.xy, b.xy, c.xy), ExactPredicates.Orient2dExact(a.xy, b.xy, c.xy));
+                int ic = ExactPredicates.incircle_bigint(a.xy, b.xy, c.xy, d.xy);
+                Assert.Equal(ic, ExactPredicates.InCircleExact(a.xy, b.xy, c.xy, d.xy));
+                Assert.Equal(ic, ExactPredicates.InCircle(a.xy, b.xy, c.xy, d.xy));
+                if (o3 != 0) nonzero++;
+            }
+            Assert.True(nonzero > 100);
+        }
+
+        [Fact]
+        public void ExpansionArithmetic_Cocircular()
+        {
+            // points on the circle x^2 + y^2 = 25 (integer and scaled): incircle exactly 0
+            var circle = new[] { new Vector2d(5, 0), new Vector2d(3, 4), new Vector2d(0, 5), new Vector2d(-4, 3), new Vector2d(-5, 0), new Vector2d(4, -3) };
+            foreach (double scale in new[] { 1.0, 0.1, 1e-20, 1e20, 3.0 / 7.0 }) {
+                for (int k = 0; k + 3 < circle.Length; ++k) {
+                    Vector2d a = circle[k] * scale, b = circle[k + 1] * scale, c = circle[k + 2] * scale, d = circle[k + 3] * scale;
+                    Assert.Equal(ExactPredicates.incircle_bigint(a, b, c, d), ExactPredicates.InCircleExact(a, b, c, d));
+                }
+            }
+            Assert.Equal(0, ExactPredicates.InCircleExact(circle[0], circle[1], circle[2], circle[3]));
+        }
     }
 }

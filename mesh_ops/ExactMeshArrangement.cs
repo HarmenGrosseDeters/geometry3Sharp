@@ -41,13 +41,14 @@ namespace g3
         {
             public int Mesh, Tid;
             public int[] Corners = new int[3];      // point ids
+            public Vector3d V0, V1, V2;             // input coordinates of the corners
             public bool Degenerate;
             public List<Segment> Segments = new List<Segment>();
             public HashSet<int> Points = new HashSet<int>();
             public List<int> Coplanar = new List<int>();    // input triangles of other meshes in the same plane, intersecting
 
             // planes are computed when first needed (most triangles are far from all intersections)
-            internal List<ExactPoint3> pts;
+            internal ChunkedList<ExactPoint3> pts;
             Plane p;
             Plane[] edgePlanes;
             int axis, sign;
@@ -103,7 +104,7 @@ namespace g3
 
         public List<DMesh3> Meshes;
         public int ScaleExp;        // input coordinate = integer coordinate * 2^ScaleExp
-        public List<ExactPoint3> Points = new List<ExactPoint3>();
+        public ChunkedList<ExactPoint3> Points = new ChunkedList<ExactPoint3>();
         public List<InputTriangle> Triangles = new List<InputTriangle>();
         public List<OutputTriangle> Output = new List<OutputTriangle>();
         public HashSet<long> ConstraintEdges = new HashSet<long>(EdgeKeyComparer.Instance);     // undirected point id pairs on intersection curves
@@ -112,7 +113,17 @@ namespace g3
         public int IntersectingPairs;
         public int SegmentCrossings;        // points where two intersection segments cross inside a triangle
 
-        readonly Dictionary<ExactPoint3, int> pointIndex = new Dictionary<ExactPoint3, int>();
+        // point ids by value, in shards (by hash) so that threads adding points rarely wait for each other
+        const int Shards = 64;
+        readonly Dictionary<ExactPoint3, int>[] pointIndex = make_shards();
+        int nextPoint;
+        static Dictionary<ExactPoint3, int>[] make_shards()
+        {
+            var d = new Dictionary<ExactPoint3, int>[Shards];
+            for (int i = 0; i < Shards; ++i)
+                d[i] = new Dictionary<ExactPoint3, int>(1024);
+            return d;
+        }
 
         public ExactMeshArrangement(List<DMesh3> meshes)
         {
@@ -124,21 +135,63 @@ namespace g3
             return (a < b) ? (((long)a << 32) | (uint)b) : (((long)b << 32) | (uint)a);
         }
 
+        /// <summary> integer grid offset: input coordinate = (point + Center) * 2^ScaleExp (keeps the filters' error bounds small) </summary>
+        public BigInteger[] Center = { BigInteger.Zero, BigInteger.Zero, BigInteger.Zero };
+        // double approximations of the points (grid units, relative error at most 4 * 2^-52), for the floating-point filters
+        readonly ChunkedList<Vector3d> approx = new ChunkedList<Vector3d>();
+
+        /// <summary> id of the point, a new one if it is not known yet (thread-safe) </summary>
         public int AddPoint(ExactPoint3 p)
         {
-            int id;
-            if (pointIndex.TryGetValue(p, out id))
+            // the approximation outside the lock (also when the point exists: cheap compared to waiting)
+            Vector3d a = p.ApproxVector3d();
+            var shard = pointIndex[(p.GetHashCode() & 0x7FFFFFFF) % Shards];
+            lock (shard) {
+                int id;
+                if (shard.TryGetValue(p, out id))
+                    return id;
+                id = System.Threading.Interlocked.Increment(ref nextPoint) - 1;
+                approx.Set(id, a);
+                Points.Set(id, p);
+                // published after the point is stored: other threads only see the id once Points[id] is valid
+                shard[p] = id;
                 return id;
-            id = Points.Count;
-            Points.Add(p);
-            pointIndex[p] = id;
-            return id;
+            }
         }
 
+        /// <summary> lexicographic order of the exact coordinates (x, then y, then z): deterministic, unlike point ids </summary>
+        public int ComparePoints(int a, int b)
+        {
+            if (a == b)
+                return 0;
+            Vector3d fa = approx[a], fb = approx[b];
+            ExactPoint3 pa = Points[a], pb = Points[b];
+            for (int k = 0; k < 3; ++k) {
+                double tol = 16 * U * (Math.Abs(fa[k]) + Math.Abs(fb[k]));
+                if (fa[k] < fb[k] - tol) return -1;
+                if (fa[k] > fb[k] + tol) return 1;
+                int c = (pa[k] * pb.W).CompareTo(pb[k] * pa.W);
+                if (c != 0) return c;
+            }
+            return 0;
+        }
+
+        /// <summary> input coordinates of a point (rounded to double) </summary>
         public Vector3d PointToVector(int id)
         {
-            return Points[id].ToVector3d(ScaleExp);
+            return ToInputVector(Points[id]);
         }
+
+        /// <summary> input coordinates of a grid point (rounded to double) </summary>
+        public Vector3d ToInputVector(ExactPoint3 p)
+        {
+            return new Vector3d(ExactPoint3.ToDouble(p.X + Center[0] * p.W, p.W, ScaleExp),
+                ExactPoint3.ToDouble(p.Y + Center[1] * p.W, p.W, ScaleExp), ExactPoint3.ToDouble(p.Z + Center[2] * p.W, p.W, ScaleExp));
+        }
+
+        const double U = 2.220446049250313e-16;     // 2^-52
+        // for tests: always evaluate the predicates exactly
+        internal bool DisableFilters = false;
 
 
         public Dictionary<string, long> PhaseMilliseconds = new Dictionary<string, long>();
@@ -151,10 +204,17 @@ namespace g3
             PhaseMilliseconds["setup"] = sw.ElapsedMilliseconds; sw.Restart();
             find_intersections();
             PhaseMilliseconds["intersections"] = sw.ElapsedMilliseconds; sw.Restart();
-            for (int ti = 0; ti < Triangles.Count; ++ti)
-                prepare_triangle(Triangles[ti]);
-            for (int ti = 0; ti < Triangles.Count; ++ti)
-                triangulate(ti);
+            gParallel.ForEach(Interval1i.Range(Triangles.Count), (ti) => prepare_triangle(Triangles[ti]));
+            var pieces = new List<OutputTriangle>[Triangles.Count];
+            var constraints = new List<long>[Triangles.Count];
+            gParallel.ForEach(Interval1i.Range(Triangles.Count), (ti) => triangulate(ti, out pieces[ti], out constraints[ti]));
+            for (int ti = 0; ti < Triangles.Count; ++ti) {
+                if (pieces[ti] != null)
+                    Output.AddRange(pieces[ti]);
+                if (constraints[ti] != null)
+                    foreach (long key in constraints[ti])
+                        ConstraintEdges.Add(key);
+            }
             PhaseMilliseconds["triangulation"] = sw.ElapsedMilliseconds;
         }
 
@@ -179,10 +239,13 @@ namespace g3
                 eMin = 0;
             ScaleExp = eMin;
 
-            VertexPoints = new int[Meshes.Count][];
+            // integer coordinates, relative to the center of their box
+            var coords = new List<BigInteger[]>[Meshes.Count];
+            BigInteger[] min = new BigInteger[3], max = new BigInteger[3];
+            bool first = true;
             for (int mi = 0; mi < Meshes.Count; ++mi) {
                 DMesh3 mesh = Meshes[mi];
-                VertexPoints[mi] = new int[mesh.MaxVertexID];
+                coords[mi] = new List<BigInteger[]>();
                 foreach (int vid in mesh.VertexIndices()) {
                     Vector3d v = mesh.GetVertex(vid);
                     BigInteger[] c = new BigInteger[3];
@@ -190,8 +253,24 @@ namespace g3
                         BigInteger m; int e;
                         ExactPoint3.Decompose(v[k], out m, out e);
                         c[k] = m.IsZero ? BigInteger.Zero : (m << (e - eMin));
+                        if (first || c[k] < min[k]) min[k] = c[k];
+                        if (first || c[k] > max[k]) max[k] = c[k];
                     }
-                    VertexPoints[mi][vid] = AddPoint(ExactPoint3.FromInteger(c[0], c[1], c[2]));
+                    first = false;
+                    coords[mi].Add(c);
+                }
+            }
+            if (first == false)
+                for (int k = 0; k < 3; ++k)
+                    Center[k] = (min[k] + max[k]) / 2;
+            VertexPoints = new int[Meshes.Count][];
+            for (int mi = 0; mi < Meshes.Count; ++mi) {
+                DMesh3 mesh = Meshes[mi];
+                VertexPoints[mi] = new int[mesh.MaxVertexID];
+                int i = 0;
+                foreach (int vid in mesh.VertexIndices()) {
+                    BigInteger[] c = coords[mi][i++];
+                    VertexPoints[mi][vid] = AddPoint(ExactPoint3.FromInteger(c[0] - Center[0], c[1] - Center[1], c[2] - Center[2]));
                 }
             }
         }
@@ -212,6 +291,7 @@ namespace g3
                     it.pts = Points;
                     // degenerate iff the corners are collinear, ie collinear in all three coordinate projections (exact)
                     Vector3d a = mesh.GetVertex(t.a), b = mesh.GetVertex(t.b), c = mesh.GetVertex(t.c);
+                    it.V0 = a; it.V1 = b; it.V2 = c;
                     it.Degenerate = ExactPredicates.Orient2d(new Vector2d(a.x, a.y), new Vector2d(b.x, b.y), new Vector2d(c.x, c.y)) == 0
                         && ExactPredicates.Orient2d(new Vector2d(a.y, a.z), new Vector2d(b.y, b.z), new Vector2d(c.y, c.z)) == 0
                         && ExactPredicates.Orient2d(new Vector2d(a.z, a.x), new Vector2d(b.z, b.x), new Vector2d(c.z, c.x)) == 0;
@@ -219,6 +299,19 @@ namespace g3
                     Triangles.Add(it);
                 }
             }
+        }
+
+        /// <summary>
+        /// The point where the segment between the input points p, q crosses the plane (the endpoints are on
+        /// opposite sides): (s_p q - s_q p) / (s_p - s_q) with s the plane values, cheaper than PlanesPoint.
+        /// </summary>
+        public int EdgePlanePoint(int p, int q, Plane plane)
+        {
+            ExactPoint3 P = Points[p], Q = Points[q];
+            BigInteger sp = plane.A * P.X + plane.B * P.Y + plane.C * P.Z - plane.D * P.W;
+            BigInteger sq = plane.A * Q.X + plane.B * Q.Y + plane.C * Q.Z - plane.D * Q.W;
+            // homogeneous: P = (X, W), so the point is (sp Q - sq P) with weights sp Wq - sq Wp
+            return AddPoint(ExactPoint3.Create(sp * Q.X - sq * P.X, sp * Q.Y - sq * P.Y, sp * Q.Z - sq * P.Z, sp * Q.W - sq * P.W));
         }
 
         /// <summary> the point common to three planes (they must be independent) </summary>
@@ -242,6 +335,15 @@ namespace g3
         public int Orient(InputTriangle t, int p, int q, int r)
         {
             int i = (t.Axis + 1) % 3, j = (t.Axis + 2) % 3;
+            // filter: the error of the determinant of the approximations is below 96 u m^2 (forward error analysis
+            // with coordinate errors 4 u m); 128 u m^2 with a margin
+            Vector3d fa = approx[p], fb = approx[q], fc = approx[r];
+            double bx = fb[i] - fa[i], by = fb[j] - fa[j], cx = fc[i] - fa[i], cy = fc[j] - fa[j];
+            double fdet = bx * cy - by * cx;
+            double m = Math.Max(Math.Max(Math.Max(Math.Abs(fa[i]), Math.Abs(fa[j])), Math.Max(Math.Abs(fb[i]), Math.Abs(fb[j]))), Math.Max(Math.Abs(fc[i]), Math.Abs(fc[j])));
+            double bound = DisableFilters ? double.MaxValue : 128 * U * m * m;
+            if (fdet > bound) return t.Sign;
+            if (-fdet > bound) return -t.Sign;
             ExactPoint3 a = Points[p], b = Points[q], c = Points[r];
             BigInteger det = ExactPoint3.Det3(a[i], a[j], a.W, b[i], b[j], b.W, c[i], c[j], c.W);
             return det.Sign * t.Sign;
@@ -251,6 +353,21 @@ namespace g3
         public int InCircle(InputTriangle t, int p, int q, int r, int s)
         {
             int i = (t.Axis + 1) % 3, j = (t.Axis + 2) % 3;
+            {
+                // filter: entries up to 2m (differences) and 8m^2 (lifts), terms of degree 4, coordinate errors
+                // 4 u m; the error of the determinant of the approximations is far below 16384 u m^4
+                Vector3d fa = approx[p], fb = approx[q], fc = approx[r], fd = approx[s];
+                double adx = fa[i] - fd[i], ady = fa[j] - fd[j], bdx = fb[i] - fd[i], bdy = fb[j] - fd[j], cdx = fc[i] - fd[i], cdy = fc[j] - fd[j];
+                double fdet = (adx * adx + ady * ady) * (bdx * cdy - cdx * bdy)
+                    + (bdx * bdx + bdy * bdy) * (cdx * ady - adx * cdy)
+                    + (cdx * cdx + cdy * cdy) * (adx * bdy - bdx * ady);
+                double mm = Math.Max(Math.Max(Math.Max(Math.Abs(fa[i]), Math.Abs(fa[j])), Math.Max(Math.Abs(fb[i]), Math.Abs(fb[j]))),
+                    Math.Max(Math.Max(Math.Abs(fc[i]), Math.Abs(fc[j])), Math.Max(Math.Abs(fd[i]), Math.Abs(fd[j]))));
+                double m2 = mm * mm;
+                double bound = DisableFilters ? double.MaxValue : 16384 * U * m2 * m2;
+                if (fdet > bound) return t.Sign;
+                if (-fdet > bound) return -t.Sign;
+            }
             ExactPoint3 a = Points[p], b = Points[q], c = Points[r], d = Points[s];
             // rows (x w, y w, x^2 + y^2, w^2) = w^2 (x/w, y/w, |.|^2, 1); with orientation flipped by t.Sign
             BigInteger[,] m = new BigInteger[4, 4];
@@ -291,10 +408,23 @@ namespace g3
         }
 
         // position of point along a direction: compare (d . p1) / w1 with (d . p2) / w2
-        int compare_along(BigInteger dx, BigInteger dy, BigInteger dz, int p1, int p2)
+        internal int compare_along(BigInteger dx, BigInteger dy, BigInteger dz, int p1, int p2)
         {
             if (p1 == p2)
                 return 0;
+            {
+                // filter: direction rounded to double (relative error 2u), points with error 4 u m; the error of the
+                // approximate difference of the keys is below 20 u |d|_1 m, 64 with a margin
+                double fdx = (double)dx, fdy = (double)dy, fdz = (double)dz;
+                if (DisableFilters == false && double.IsInfinity(fdx) == false && double.IsInfinity(fdy) == false && double.IsInfinity(fdz) == false) {
+                    Vector3d fa = approx[p1], fb = approx[p2];
+                    double diff = fdx * (fa.x - fb.x) + fdy * (fa.y - fb.y) + fdz * (fa.z - fb.z);
+                    double m = Math.Max(Math.Max(Math.Max(Math.Abs(fa.x), Math.Abs(fa.y)), Math.Max(Math.Abs(fa.z), Math.Abs(fb.x))), Math.Max(Math.Abs(fb.y), Math.Abs(fb.z)));
+                    double bound = 64 * U * (Math.Abs(fdx) + Math.Abs(fdy) + Math.Abs(fdz)) * m;
+                    if (diff > bound) return 1;
+                    if (-diff > bound) return -1;
+                }
+            }
             ExactPoint3 a = Points[p1], b = Points[p2];
             BigInteger ka = (dx * a.X + dy * a.Y + dz * a.Z) * b.W;
             BigInteger kb = (dx * b.X + dy * b.Y + dz * b.Z) * a.W;
@@ -314,67 +444,130 @@ namespace g3
         /// <summary> also intersect the triangles of each mesh with each other (self-intersections) </summary>
         public bool SelfIntersections = false;
         public int SelfIntersectingPairs;
+        /// <summary> per mesh: box tree of its triangles (in the order of MeshTriangles), after Compute() </summary>
+        public TriangleBoxTree[] Trees;
 
         void find_intersections()
         {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             // boxes of the exact input coordinates
             var boxes = new List<AxisAlignedBox3d>[Meshes.Count];
-            var trees = new TriangleBoxTree[Meshes.Count];
+            var trees = Trees = new TriangleBoxTree[Meshes.Count];
             for (int mi = 0; mi < Meshes.Count; ++mi) {
                 boxes[mi] = new List<AxisAlignedBox3d>();
                 foreach (int ti in MeshTriangles[mi])
                     boxes[mi].Add(triangle_box(Triangles[ti]));
                 trees[mi] = new TriangleBoxTree(boxes[mi]);
             }
+            PhaseMilliseconds["intersections.trees"] = sw.ElapsedMilliseconds; sw.Restart();
+            // candidate pairs (boxes overlap, not separated by a plane, not only touching), in parallel per triangle
+            var pairs = new List<long>();
             for (int ma = 0; ma < Meshes.Count; ++ma) {
                 for (int mb = (SelfIntersections ? ma : ma + 1); mb < Meshes.Count; ++mb) {
-                    for (int ka = 0; ka < MeshTriangles[ma].Count; ++ka) {
+                    int na = MeshTriangles[ma].Count;
+                    var found = new List<long>[na];
+                    int self = 0;
+                    gParallel.ForEach(Interval1i.Range(na), (ka) => {
                         InputTriangle T = Triangles[MeshTriangles[ma][ka]];
-                        if (T.Degenerate) continue;
+                        if (T.Degenerate) return;
                         trees[mb].Query(boxes[ma][ka], (kb) => {
                             if (ma == mb && kb <= ka)
                                 return;
                             InputTriangle U = Triangles[MeshTriangles[mb][kb]];
                             if (U.Degenerate)
                                 return;
-                            if (ma == mb && touch_only(T, U))
+                            if (ma == mb) {
+                                if (touch_only(T, U))
+                                    return;
+                            } else if (separated(T, U))
                                 return;
                             if (ma == mb)
-                                SelfIntersectingPairs++;
-                            intersect(MeshTriangles[ma][ka], MeshTriangles[mb][kb]);
+                                System.Threading.Interlocked.Increment(ref self);
+                            if (found[ka] == null)
+                                found[ka] = new List<long>();
+                            found[ka].Add(((long)MeshTriangles[ma][ka] << 32) | (uint)MeshTriangles[mb][kb]);
                         });
-                    }
+                    });
+                    SelfIntersectingPairs += self;
+                    foreach (var list in found)
+                        if (list != null)
+                            pairs.AddRange(list);
                 }
             }
+            PhaseMilliseconds["intersections.pairs"] = sw.ElapsedMilliseconds; sw.Restart();
+            // planes of the triangles involved (computed once, before the parallel use)
+            var needed = new bool[Triangles.Count];
+            foreach (long pr in pairs) {
+                needed[(int)(pr >> 32)] = true;
+                needed[(int)(pr & 0xFFFFFFFF)] = true;
+            }
+            gParallel.ForEach(Interval1i.Range(Triangles.Count), (ti) => {
+                if (needed[ti]) { var plane = Triangles[ti].P; }
+            });
+            PhaseMilliseconds["intersections.planes"] = sw.ElapsedMilliseconds; sw.Restart();
+            gParallel.ForEach(Interval1i.Range(pairs.Count), (k) => intersect((int)(pairs[k] >> 32), (int)(pairs[k] & 0xFFFFFFFF)));
+            PhaseMilliseconds["intersections.intersect"] = sw.ElapsedMilliseconds;
+            CandidatePairs = pairs.Count;
+        }
+        public int CandidatePairs;
+
+        // all corners of one triangle strictly on one side of the other's plane (exact double predicates)
+        bool separated(InputTriangle T, InputTriangle U)
+        {
+            Vector3d t0 = input_vertex(T, 0), t1 = input_vertex(T, 1), t2 = input_vertex(T, 2);
+            Vector3d u0 = input_vertex(U, 0), u1 = input_vertex(U, 1), u2 = input_vertex(U, 2);
+            int a = ExactPredicates.Orient3d(u0, u1, u2, t0), b = ExactPredicates.Orient3d(u0, u1, u2, t1), c = ExactPredicates.Orient3d(u0, u1, u2, t2);
+            if ((a > 0 && b > 0 && c > 0) || (a < 0 && b < 0 && c < 0))
+                return true;
+            a = ExactPredicates.Orient3d(t0, t1, t2, u0); b = ExactPredicates.Orient3d(t0, t1, t2, u1); c = ExactPredicates.Orient3d(t0, t1, t2, u2);
+            return (a > 0 && b > 0 && c > 0) || (a < 0 && b < 0 && c < 0);
         }
 
         // triangles of one mesh that share vertices and do not intersect anywhere else (exact)
         bool touch_only(InputTriangle T, InputTriangle U)
         {
-            DMesh3 mesh = Meshes[T.Mesh];
-            Index3i ia = mesh.GetTriangle(T.Tid), ib = mesh.GetTriangle(U.Tid);
+            int shared = 0;
+            foreach (int c in U.Corners)
+                if (c == T.Corners[0] || c == T.Corners[1] || c == T.Corners[2])
+                    shared++;
+            // quick test (not for a shared edge, there the full test is one predicate and 2D tests): the corners
+            // of one triangle that are not shared all strictly on one side of the other's plane: then they meet
+            // at most in the shared vertices
+            if (shared < 2 && (one_side_except_shared(T, U) || one_side_except_shared(U, T)))
+                return true;
             // corners by point id, so that coincident (unwelded) vertices count as shared
             Index3i pa = new Index3i(T.Corners[0], T.Corners[1], T.Corners[2]), pb = new Index3i(U.Corners[0], U.Corners[1], U.Corners[2]);
-            Triangle3d A = new Triangle3d(mesh.GetVertex(ia.a), mesh.GetVertex(ia.b), mesh.GetVertex(ia.c));
-            Triangle3d B = new Triangle3d(mesh.GetVertex(ib.a), mesh.GetVertex(ib.b), mesh.GetVertex(ib.c));
+            Triangle3d A = new Triangle3d(T.V0, T.V1, T.V2), B = new Triangle3d(U.V0, U.V1, U.V2);
             return ExactTriangleIntersection.IntersectsBeyondShared(pa, ref A, pb, ref B) == false;
         }
 
-        AxisAlignedBox3d triangle_box(InputTriangle t)
+        bool one_side_except_shared(InputTriangle T, InputTriangle U)
         {
-            DMesh3 mesh = Meshes[t.Mesh];
-            Index3i tri = mesh.GetTriangle(t.Tid);
-            AxisAlignedBox3d box = new AxisAlignedBox3d(mesh.GetVertex(tri.a));
-            box.Contain(mesh.GetVertex(tri.b));
-            box.Contain(mesh.GetVertex(tri.c));
+            Vector3d t0 = input_vertex(T, 0), t1 = input_vertex(T, 1), t2 = input_vertex(T, 2);
+            int side = 0;
+            for (int k = 0; k < 3; ++k) {
+                int c = U.Corners[k];
+                if (c == T.Corners[0] || c == T.Corners[1] || c == T.Corners[2])
+                    continue;
+                int o = ExactPredicates.Orient3d(t0, t1, t2, input_vertex(U, k));
+                if (o == 0 || (side != 0 && o != side))
+                    return false;
+                side = o;
+            }
+            return side != 0;
+        }
+
+        static AxisAlignedBox3d triangle_box(InputTriangle t)
+        {
+            AxisAlignedBox3d box = new AxisAlignedBox3d(t.V0);
+            box.Contain(t.V1);
+            box.Contain(t.V2);
             return box;
         }
 
-        Vector3d input_vertex(InputTriangle t, int k)
+        static Vector3d input_vertex(InputTriangle t, int k)
         {
-            DMesh3 mesh = Meshes[t.Mesh];
-            Index3i tri = mesh.GetTriangle(t.Tid);
-            return mesh.GetVertex(tri[k]);
+            return (k == 0) ? t.V0 : (k == 1) ? t.V1 : t.V2;
         }
 
 
@@ -406,13 +599,13 @@ namespace g3
             int c = compare_along(dx, dy, dz, lo, hi);
             if (c > 0)
                 return;
-            IntersectingPairs++;
+            System.Threading.Interlocked.Increment(ref IntersectingPairs);
             if (c == 0) {
-                T.Points.Add(lo);
-                U.Points.Add(lo);
+                lock (T) T.Points.Add(lo);
+                lock (U) U.Points.Add(lo);
             } else {
-                T.Segments.Add(new Segment(lo, hi, U.P));
-                U.Segments.Add(new Segment(lo, hi, T.P));
+                lock (T) T.Segments.Add(new Segment(lo, hi, U.P));
+                lock (U) U.Segments.Add(new Segment(lo, hi, T.P));
             }
         }
 
@@ -425,7 +618,7 @@ namespace g3
                     pts.Add(t.Corners[k]);
                 int k1 = (k + 1) % 3;
                 if (side[k] * side[k1] < 0)
-                    pts.Add(PlanesPoint(t.P, t.EdgePlanes[k], plane));
+                    pts.Add(EdgePlanePoint(t.Corners[k], t.Corners[k1], plane));
             }
             return pts;
         }
@@ -450,9 +643,9 @@ namespace g3
                 any |= clip_into(U, T.Corners[k], T.Corners[(k + 1) % 3], T.EdgePlanes[k]);
             }
             if (any) {
-                IntersectingPairs++;
-                T.Coplanar.Add(ui);
-                U.Coplanar.Add(ti);
+                System.Threading.Interlocked.Increment(ref IntersectingPairs);
+                lock (T) T.Coplanar.Add(ui);
+                lock (U) U.Coplanar.Add(ti);
             }
         }
 
@@ -479,10 +672,12 @@ namespace g3
                 return false;
             int lo, hi;
             min_max(cands, dx, dy, dz, out lo, out hi);
-            if (lo == hi)
-                t.Points.Add(lo);
-            else
-                t.Segments.Add(new Segment(lo, hi, line));
+            lock (t) {
+                if (lo == hi)
+                    t.Points.Add(lo);
+                else
+                    t.Segments.Add(new Segment(lo, hi, line));
+            }
             return true;
         }
 
@@ -501,6 +696,14 @@ namespace g3
             if (t.Degenerate || (t.Segments.Count == 0 && t.Points.Count == 0))
                 return;
             // unique segments
+            // deterministic order (the pairs were intersected in parallel)
+            t.Segments.Sort((x, y) => {
+                int xa = (ComparePoints(x.P, x.Q) <= 0) ? x.P : x.Q, xb = (xa == x.P) ? x.Q : x.P;
+                int ya = (ComparePoints(y.P, y.Q) <= 0) ? y.P : y.Q, yb = (ya == y.P) ? y.Q : y.P;
+                int c = ComparePoints(xa, ya);
+                return (c != 0) ? c : ComparePoints(xb, yb);
+            });
+            t.Coplanar.Sort();
             var unique = new List<Segment>();
             var seen = new HashSet<long>(EdgeKeyComparer.Instance);
             foreach (Segment s in t.Segments) {
@@ -524,7 +727,7 @@ namespace g3
                     int o3 = Orient(t, b.P, b.Q, a.P), o4 = Orient(t, b.P, b.Q, a.Q);
                     if (o3 * o4 >= 0) continue;
                     t.Points.Add(PlanesPoint(t.P, a.Line, b.Line));
-                    SegmentCrossings++;
+                    System.Threading.Interlocked.Increment(ref SegmentCrossings);
                 }
             }
             foreach (int c in t.Corners)
@@ -532,23 +735,27 @@ namespace g3
         }
 
 
-        void triangulate(int ti)
+        void triangulate(int ti, out List<OutputTriangle> output, out List<long> constraints)
         {
+            output = null;
+            constraints = null;
             InputTriangle t = Triangles[ti];
             if (t.Degenerate)
                 return;
+            output = new List<OutputTriangle>();
             var pts = new HashSet<int>(t.Points);
             foreach (int c in t.Corners)
                 pts.Remove(c);
             if (pts.Count == 0 && t.Segments.Count == 0) {
-                Output.Add(new OutputTriangle() { Mesh = t.Mesh, Source = ti, A = t.Corners[0], B = t.Corners[1], C = t.Corners[2] });
+                output.Add(new OutputTriangle() { Mesh = t.Mesh, Source = ti, A = t.Corners[0], B = t.Corners[1], C = t.Corners[2] });
                 return;
             }
+            constraints = new List<long>();
 
             var tri = new ExactTriangulation2(t.Corners[0], t.Corners[1], t.Corners[2],
                 (a, b, c) => Orient(t, a, b, c), (a, b, c, d) => InCircle(t, a, b, c, d));
             var ordered = new List<int>(pts);
-            ordered.Sort();     // deterministic
+            ordered.Sort(ComparePoints);    // deterministic (point ids are not, they are assigned in parallel)
             foreach (int p in ordered)
                 tri.InsertPoint(p);
             tri.MakeDelaunay();
@@ -568,12 +775,72 @@ namespace g3
                 on.Sort((a, b) => compare_along(dx, dy, dz, a, b));
                 for (int k = 0; k + 1 < on.Count; ++k) {
                     tri.InsertConstraint(on[k], on[k + 1]);
-                    ConstraintEdges.Add(EdgeKey(on[k], on[k + 1]));
+                    constraints.Add(EdgeKey(on[k], on[k + 1]));
                 }
             }
             tri.MakeDelaunay();
             foreach (Index3i f in tri.Triangles())
-                Output.Add(new OutputTriangle() { Mesh = t.Mesh, Source = ti, A = f.a, B = f.b, C = f.c });
+                output.Add(new OutputTriangle() { Mesh = t.Mesh, Source = ti, A = f.a, B = f.b, C = f.c });
+        }
+    }
+
+
+
+    /// <summary>
+    /// Append-only list in fixed-size chunks that are never moved: elements can be read while another thread
+    /// appends (appends must be serialized by the caller).
+    /// </summary>
+    public class ChunkedList<T>
+    {
+        const int Shift = 12, Size = 1 << Shift, Mask = Size - 1;
+        volatile T[][] chunks = new T[16][];
+        int count;
+
+        public int Count { get { return System.Threading.Volatile.Read(ref count); } }
+
+        public T this[int i] { get { return chunks[i >> Shift][i & Mask]; } }
+
+        readonly object growLock = new object();
+
+        /// <summary> set element i (thread-safe for distinct i; Count becomes at least i + 1) </summary>
+        public void Set(int i, T v)
+        {
+            int ci = i >> Shift;
+            T[][] ch = chunks;
+            if (ci >= ch.Length || ch[ci] == null) {
+                lock (growLock) {
+                    ch = chunks;
+                    if (ci >= ch.Length) {
+                        int n = ch.Length;
+                        while (n <= ci) n *= 2;
+                        T[][] grown = new T[n][];
+                        Array.Copy(ch, grown, ch.Length);
+                        chunks = ch = grown;
+                    }
+                    if (ch[ci] == null)
+                        ch[ci] = new T[Size];
+                }
+            }
+            ch[ci][i & Mask] = v;
+            int c;
+            while ((c = System.Threading.Volatile.Read(ref count)) < i + 1)
+                if (System.Threading.Interlocked.CompareExchange(ref count, i + 1, c) == c)
+                    break;
+        }
+
+        public void Add(T v)
+        {
+            int c = count, ci = c >> Shift;
+            T[][] ch = chunks;
+            if (ci == ch.Length) {
+                T[][] grown = new T[2 * ch.Length][];
+                Array.Copy(ch, grown, ch.Length);
+                chunks = ch = grown;
+            }
+            if (ch[ci] == null)
+                ch[ci] = new T[Size];
+            ch[ci][c & Mask] = v;
+            System.Threading.Volatile.Write(ref count, c + 1);
         }
     }
 
@@ -607,6 +874,7 @@ namespace g3
     {
         readonly List<AxisAlignedBox3d> boxes;
         readonly int[] order;
+        readonly double[] keys;     // sort keys while building
         readonly List<AxisAlignedBox3d> nodeBox = new List<AxisAlignedBox3d>();
         readonly List<int> nodeStart = new List<int>(), nodeCount = new List<int>(), nodeLeft = new List<int>(), nodeRight = new List<int>();
         const int LeafSize = 8;
@@ -617,6 +885,7 @@ namespace g3
             order = new int[boxes.Count];
             for (int i = 0; i < order.Length; ++i)
                 order[i] = i;
+            keys = new double[boxes.Count];
             if (order.Length > 0)
                 build(0, order.Length);
         }
@@ -632,9 +901,10 @@ namespace g3
                 return node;
             Vector3d d = box.Diagonal;
             int axis = (d.x >= d.y && d.x >= d.z) ? 0 : (d.y >= d.z) ? 1 : 2;
-            Array.Sort(order, start, count, Comparer<int>.Create((a, b) =>
-                (boxes[a].Min[axis] + boxes[a].Max[axis]).CompareTo(boxes[b].Min[axis] + boxes[b].Max[axis])));
+            for (int i = start; i < start + count; ++i)
+                keys[i] = boxes[order[i]].Min[axis] + boxes[order[i]].Max[axis];
             int half = count / 2;
+            select(start, start + count - 1, start + half);
             int left = build(start, half);
             int right = build(start + half, count - half);
             nodeLeft[node] = left;
@@ -684,6 +954,28 @@ namespace g3
                 if (t0 > t1) return false;
             }
             return true;
+        }
+
+        // partial sort of order[lo..hi] by keys so that position k holds its element and the halves are split
+        // there (Hoare quickselect)
+        void select(int lo, int hi, int k)
+        {
+            while (lo < hi) {
+                double pivot = keys[(lo + hi) >> 1];
+                int i = lo, j = hi;
+                while (i <= j) {
+                    while (keys[i] < pivot) i++;
+                    while (keys[j] > pivot) j--;
+                    if (i <= j) {
+                        double tk = keys[i]; keys[i] = keys[j]; keys[j] = tk;
+                        int to = order[i]; order[i] = order[j]; order[j] = to;
+                        i++; j--;
+                    }
+                }
+                if (k <= j) hi = j;
+                else if (k >= i) lo = i;
+                else return;
+            }
         }
 
         static bool overlaps(AxisAlignedBox3d a, AxisAlignedBox3d b)

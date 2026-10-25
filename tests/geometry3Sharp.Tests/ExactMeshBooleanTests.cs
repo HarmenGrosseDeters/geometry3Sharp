@@ -464,6 +464,108 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void FloatingPointFilters_DoNotChangeTheResult()
+        {
+            // nearly degenerate configurations, where the filters often cannot decide
+            var rand = new Random(9);
+            DMesh3 s1 = Sphere(Vector3d.Zero, 1, 10), s2 = Sphere(Vector3d.Zero, 1, 10);
+            foreach (int vid in s2.VertexIndices().ToArray())
+                s2.SetVertex(vid, s2.GetVertex(vid) + new Vector3d(1e-15, 0, 0));
+            DMesh3 rot = Box(-1, -1, -1, 1, 1, 1);
+            MeshTransforms.Rotate(rot, Vector3d.Zero, RandomRotation(rand));
+            var cases = new List<Tuple<DMesh3, DMesh3>>() {
+                Tuple.Create(Box(0, 0, 0, 1, 1, 1), Box(0.5, 0, 0, 1.5, 1, 1)),
+                Tuple.Create(s1, s2),
+                Tuple.Create(rot, Sphere(new Vector3d(0.5, 0.2, 0.1), 1, 9)),
+                Tuple.Create(Box(500000, 5700000, 0, 500010, 5700010, 10), Box(500005, 5700002.5, 5, 500015, 5700007.5, 15)),
+            };
+            foreach (var c in cases) {
+                foreach (Ops op in new[] { Ops.Union, Ops.Difference }) {
+                    var fast = new ExactMeshBoolean(c.Item1, c.Item2, op);
+                    var exact = new ExactMeshBoolean(c.Item1, c.Item2, op) { DisableFilters = true };
+                    Assert.True(fast.Compute() && exact.Compute());
+                    DMesh3 a = fast.Result, b = exact.Result;
+                    Assert.Equal(b.TriangleCount, a.TriangleCount);
+                    Assert.Equal(b.VertexCount, a.VertexCount);
+                    foreach (int vid in b.VertexIndices())
+                        Assert.Equal(b.GetVertex(vid), a.GetVertex(vid));
+                    foreach (int tid in b.TriangleIndices())
+                        Assert.Equal(b.GetTriangle(tid), a.GetTriangle(tid));
+                }
+            }
+        }
+
+        [Fact]
+        public void Result_IsDeterministic()
+        {
+            // the arrangement runs in parallel: the result must not depend on the thread timing
+            var rand = new Random(12);
+            DMesh3 a = Sphere(Vector3d.Zero, 1, 16), b = Box(-0.5, -0.5, -0.5, 0.5, 0.5, 0.5);
+            MeshTransforms.Rotate(b, Vector3d.Zero, RandomRotation(rand));
+            DMesh3 coplanarA = Box(0, 0, 0, 2, 2, 1), coplanarB = Box(1, 1, 0, 3, 3, 2);
+            foreach (var c in new[] { Tuple.Create(a, b), Tuple.Create(coplanarA, coplanarB) }) {
+                DMesh3 first = null;
+                for (int run = 0; run < 4; ++run) {
+                    var op = new ExactMeshBoolean(c.Item1, c.Item2, Ops.Union);
+                    Assert.True(op.Compute());
+                    if (first == null) { first = op.Result; continue; }
+                    Assert.Equal(first.VertexCount, op.Result.VertexCount);
+                    Assert.Equal(first.TriangleCount, op.Result.TriangleCount);
+                    foreach (int vid in first.VertexIndices())
+                        Assert.Equal(first.GetVertex(vid), op.Result.GetVertex(vid));
+                    foreach (int tid in first.TriangleIndices())
+                        Assert.Equal(first.GetTriangle(tid), op.Result.GetTriangle(tid));
+                }
+            }
+        }
+
+        // triangles as sorted list of coordinate triples (each rotated to start at its smallest vertex)
+        static List<string> TriangleSet(DMesh3 m)
+        {
+            var list = new List<string>();
+            foreach (int tid in m.TriangleIndices()) {
+                Index3i t = m.GetTriangle(tid);
+                var v = new[] { m.GetVertex(t.a), m.GetVertex(t.b), m.GetVertex(t.c) };
+                int k = 0;
+                for (int i = 1; i < 3; ++i)
+                    if (v[i].x < v[k].x || (v[i].x == v[k].x && (v[i].y < v[k].y || (v[i].y == v[k].y && v[i].z < v[k].z)))) k = i;
+                list.Add(string.Join(" ", Enumerable.Range(0, 3).Select(i => v[(k + i) % 3].ToString())));
+            }
+            list.Sort(StringComparer.Ordinal);
+            return list;
+        }
+
+        [Fact]
+        public void Result_DoesNotDependOnVertexOrder()
+        {
+            // tetrahedra touching the top face of a box with their tips at 12 cocircular grid points (radius 5):
+            // the face's triangulation is ambiguous, the insertion order of the points decides; it must follow
+            // the geometry, not the point ids (which follow the vertex order)
+            DMesh3 a = Box(0, 0, 0, 16, 16, 1);
+            var tips = new List<Vector2d>();
+            foreach (var d in new[] { new Vector2d(5, 0), new Vector2d(0, 5), new Vector2d(3, 4), new Vector2d(4, 3) })
+                foreach (var s in new[] { new Vector2d(1, 1), new Vector2d(-1, 1), new Vector2d(1, -1), new Vector2d(-1, -1) }) {
+                    var p = new Vector2d(8 + s.x * d.x, 8 + s.y * d.y);
+                    if (tips.Contains(p) == false) tips.Add(p);
+                }
+            Assert.Equal(12, tips.Count);
+            DMesh3 b = Merge(tips.Select(t => Tetra(new Vector3d(t.x, t.y, 1), new Vector3d(t.x - 0.4, t.y - 0.3, 2),
+                new Vector3d(t.x + 0.4, t.y - 0.3, 2), new Vector3d(t.x, t.y + 0.5, 2))).ToArray());
+            var rand = new Random(3);
+            int[] perm = b.VertexIndices().OrderBy(v => rand.Next()).ToArray();
+            DMesh3 shuffled = new DMesh3();
+            var map = new Dictionary<int, int>();
+            foreach (int vid in perm) map[vid] = shuffled.AppendVertex(b.GetVertex(vid));
+            foreach (int tid in b.TriangleIndices()) {
+                Index3i t = b.GetTriangle(tid);
+                shuffled.AppendTriangle(map[t.a], map[t.b], map[t.c]);
+            }
+            DMesh3 r1 = Run(a, b, Ops.Union), r2 = Run(a, shuffled, Ops.Union);
+            Assert.Equal(a.TriangleCount + 2 * 12 + b.TriangleCount, r1.TriangleCount);
+            Assert.Equal(TriangleSet(r1), TriangleSet(r2));
+        }
+
+        [Fact]
         public void OpenMesh_ReturnsError_IfNotAllowed()
         {
             DMesh3 a = Box(0, 0, 0, 1, 1, 1), b = Box(0.5, 0.5, 0.5, 2, 2, 2);
