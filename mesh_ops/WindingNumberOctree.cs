@@ -19,11 +19,12 @@ namespace gs
     /// Origin + LeafCellSize * [i,i+1] x [j,j+1] x [k,k+1]. NodeValue() gives (cached) winding numbers at
     /// leaf-grid nodes, for use with DualContouring.CandidateCells / NodeValueF.
     ///
-    /// For closed input meshes (no boundary edges), most node values are not evaluated but copied from a
-    /// neighbour node: the winding number of a closed mesh is an integer that only changes where the
-    /// surface is crossed, so if no triangle crosses the grid edge to the neighbour, the value is the same.
-    /// With open borders (holes, cracks) the winding number is fractional and varies continuously
-    /// everywhere, so then all values are evaluated.
+    /// For closed, consistently oriented input meshes, most node values are not evaluated but copied from a
+    /// neighbour node: the winding number of such a mesh is an integer that only changes where the
+    /// surface is crossed, so if no triangle touches the grid edge to the neighbour, the value is the same.
+    /// With open borders (holes, cracks) or inconsistent orientation (edges whose two triangles run along
+    /// them in the same direction act like borders) the winding number varies continuously, so then all
+    /// values are evaluated.
     ///
     /// With several input meshes, node values are CombineF(winding numbers of all meshes), eg max for a
     /// union (see MeshWindingNumberBoolean); cells overlapping triangles of any mesh are refined.
@@ -51,7 +52,7 @@ namespace gs
         /// <summary> empty leaf cells kept around the mesh bounds </summary>
         public int PaddingCells = 2;
 
-        /// <summary> for closed meshes, copy neighbour values instead of evaluating (see class comment) </summary>
+        /// <summary> for closed, consistently oriented meshes, copy neighbour values instead of evaluating (see class comment) </summary>
         public bool PropagateValues = true;
         /// <summary> only values with |w - WindingIso| above this are copied to neighbours </summary>
         public double PropagateMargin = 0.3;
@@ -107,7 +108,7 @@ namespace gs
             propagate = PropagateValues;
             for (int i = 0; i < Meshes.Length; ++i) {
                 Spatials[i].FastWindingNumber(Vector3d.Zero);    // build the winding cache before parallel use
-                propagate = propagate && Meshes[i].IsClosed();
+                propagate = propagate && is_closed_and_oriented(Meshes[i]);
             }
 
             ConcurrentBag<Vector3i> cells = new ConcurrentBag<Vector3i>();
@@ -130,6 +131,22 @@ namespace gs
                 value = evaluate(pos);
             cache[key] = value;
             return value;
+        }
+
+        // the winding number is piecewise constant (an integer) only for a closed, consistently oriented
+        // mesh: an edge whose two triangles run along it in the same direction acts like a boundary
+        static bool is_closed_and_oriented(DMesh3 mesh)
+        {
+            foreach (int eid in mesh.EdgeIndices()) {
+                Index2i et = mesh.GetEdgeT(eid);
+                if (et.b == DMesh3.InvalidID)
+                    return false;
+                Index2i ev = mesh.GetEdgeV(eid);
+                if (IndexUtil.find_tri_ordered_edge(ev.a, ev.b, mesh.GetTriangle(et.a)) >= 0 ==
+                    IndexUtil.find_tri_ordered_edge(ev.a, ev.b, mesh.GetTriangle(et.b)) >= 0)
+                    return false;
+            }
+            return true;
         }
 
         float evaluate(Vector3d pos)
@@ -164,16 +181,15 @@ namespace gs
                     continue;
                 if (Math.Abs(nbValue - WindingIso) <= PropagateMargin)
                     continue;
-                // does any triangle cross the grid edge from the neighbour to this node?
+                // does any triangle touch the grid edge from the neighbour to this node? Tested against a thin
+                // box around the edge, not with a ray: a ray through a shared edge or vertex of two triangles
+                // can miss both, and a wrongly copied value then spreads through the whole region.
                 Vector3d nbPos = Origin + LeafCellSize * new Vector3d(nb.x, nb.y, nb.z);
-                Ray3d ray = new Ray3d(nbPos, (pos - nbPos).Normalized);
+                Vector3d halfExtents = 1e-3 * LeafCellSize * Vector3d.One;
+                halfExtents[k / 2] = 0.5 * LeafCellSize * (1 + 1e-3);
                 bool crossed = false;
-                foreach (DMeshAABBTree3 spatial in Spatials) {
-                    if (spatial.FindNearestHitTriangle(ray, LeafCellSize * (1 + 1e-6)) != DMesh3.InvalidID) {
-                        crossed = true;
-                        break;
-                    }
-                }
+                for (int i = 0; i < Meshes.Length && crossed == false; ++i)
+                    crossed = triangles_overlap(Meshes[i], Spatials[i], 0.5 * (pos + nbPos), halfExtents);
                 if (crossed)
                     continue;
                 value = nbValue;
@@ -218,14 +234,14 @@ namespace gs
         bool triangles_overlap(Vector3d center, double halfSize)
         {
             for (int i = 0; i < Meshes.Length; ++i)
-                if (triangles_overlap(Meshes[i], Spatials[i], center, halfSize))
+                if (triangles_overlap(Meshes[i], Spatials[i], center, halfSize * Vector3d.One))
                     return true;
             return false;
         }
 
-        static bool triangles_overlap(DMesh3 mesh, DMeshAABBTree3 spatial, Vector3d center, double halfSize)
+        static bool triangles_overlap(DMesh3 mesh, DMeshAABBTree3 spatial, Vector3d center, Vector3d halfExtents)
         {
-            AxisAlignedBox3d box = new AxisAlignedBox3d(center, halfSize);
+            AxisAlignedBox3d box = new AxisAlignedBox3d(center - halfExtents, center + halfExtents);
             bool found = false;
             Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
             var traversal = new DMeshAABBTree3.TreeTraversal() {
@@ -233,7 +249,7 @@ namespace gs
                 NextTriangleF = (tid) => {
                     if (found) return;
                     mesh.GetTriVertices(tid, ref a, ref b, ref c);
-                    if (TriangleBoxOverlap(a - center, b - center, c - center, halfSize))
+                    if (TriangleBoxOverlap(a - center, b - center, c - center, halfExtents))
                         found = true;
                 }
             };
@@ -248,16 +264,22 @@ namespace gs
         /// </summary>
         public static bool TriangleBoxOverlap(Vector3d v0, Vector3d v1, Vector3d v2, double h)
         {
+            return TriangleBoxOverlap(v0, v1, v2, h * Vector3d.One);
+        }
+
+        /// <summary> as above, for the box [-h.x,h.x] x [-h.y,h.y] x [-h.z,h.z] </summary>
+        public static bool TriangleBoxOverlap(Vector3d v0, Vector3d v1, Vector3d v2, Vector3d h)
+        {
             // box face normals
             for (int k = 0; k < 3; ++k) {
                 double mn = Math.Min(v0[k], Math.Min(v1[k], v2[k])), mx = Math.Max(v0[k], Math.Max(v1[k], v2[k]));
-                if (mn > h || mx < -h)
+                if (mn > h[k] || mx < -h[k])
                     return false;
             }
             // triangle plane
             Vector3d e0 = v1 - v0, e1 = v2 - v1, e2 = v0 - v2;
             Vector3d n = e0.Cross(e1);
-            double r = h * (Math.Abs(n.x) + Math.Abs(n.y) + Math.Abs(n.z));
+            double r = h.x * Math.Abs(n.x) + h.y * Math.Abs(n.y) + h.z * Math.Abs(n.z);
             if (Math.Abs(n.Dot(v0)) > r)
                 return false;
             // edge x box axis
@@ -268,7 +290,7 @@ namespace gs
                     axis[k] = 1;
                     axis = edges[ei].Cross(axis);
                     double p0 = axis.Dot(v0), p1 = axis.Dot(v1), p2 = axis.Dot(v2);
-                    double rad = h * (Math.Abs(axis.x) + Math.Abs(axis.y) + Math.Abs(axis.z));
+                    double rad = h.x * Math.Abs(axis.x) + h.y * Math.Abs(axis.y) + h.z * Math.Abs(axis.z);
                     if (Math.Min(p0, Math.Min(p1, p2)) > rad || Math.Max(p0, Math.Max(p1, p2)) < -rad)
                         return false;
                 }
