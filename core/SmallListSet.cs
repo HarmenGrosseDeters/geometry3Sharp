@@ -144,6 +144,8 @@ namespace g3
         public bool Remove(int list_index, int val)
         {
             int block_ptr = list_heads[list_index];
+            if (block_ptr == Null)
+                return false;
             int N = block_store[block_ptr];
 
 
@@ -444,7 +446,7 @@ namespace g3
         {
             get {
                 return string.Format("ListSize {0}  Blocks Count {1} Free {2} Mem {3}kb  Linked Mem {4}kb",
-                    list_heads.size, allocated_count, free_blocks.size * sizeof(int) / 1024, block_store.size, linked_store.size * sizeof(int) / 1024);
+                    list_heads.size, allocated_count, free_blocks.size, block_store.size * sizeof(int) / 1024, linked_store.size * sizeof(int) / 1024);
             }
         }
 
