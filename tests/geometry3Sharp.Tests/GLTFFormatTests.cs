@@ -320,6 +320,28 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void Read_ExternalBuffer_AbsolutePathsAndSchemesAreNotRead()
+        {
+            string dir = TempDir();
+            string other = TempDir();
+            try {
+                string target = Path.Combine(other, "tri.bin");
+                File.WriteAllBytes(target, Floats(TriPositions));
+                foreach (string uri in new[] { target, new Uri(target).AbsoluteUri, "http://example.com/tri.bin" }) {
+                    string json = SingleTriangle("\"nodes\":[{\"mesh\":0}]").Replace(DataUri(Floats(TriPositions)), uri.Replace("\\", "/"));
+                    string path = Path.Combine(dir, "tri.gltf");
+                    File.WriteAllText(path, json);
+                    IOReadResult r;
+                    ReadAll(path, out r);
+                    Assert.True(r.code == IOCode.FileAccessError, uri + ": " + r.code);
+                }
+            } finally {
+                Directory.Delete(dir, true);
+                Directory.Delete(other, true);
+            }
+        }
+
+        [Fact]
         public void Read_DracoRequired_NotSupported_OtherExtensionsIgnored()
         {
             IOReadResult r;

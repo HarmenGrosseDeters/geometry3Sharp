@@ -479,7 +479,7 @@ namespace g3
             try {
                 using (FileStream stream = File.Open(sFilename, FileMode.Open, FileAccess.Read, FileShare.Read)) {
                     string dir = Path.GetDirectoryName(Path.GetFullPath(sFilename));
-                    return read(stream, builder, messages, (uri) => File.ReadAllBytes(Path.Combine(dir, uri)));
+                    return read(stream, builder, messages, (uri) => read_relative(dir, uri));
                 }
             } catch (Exception e) {
                 return new IOReadResult(IOCode.FileAccessError, "Could not open file " + sFilename + " for reading : " + e.Message);
@@ -490,6 +490,14 @@ namespace g3
         public IOReadResult ReadFile(Stream stream, IMeshBuilder builder, ReadOptions options, ParsingMessagesHandler messages)
         {
             return read(stream, builder, messages, null);
+        }
+
+        // buffers must be relative paths; absolute paths and other URI schemes (http:, file:) are not read
+        static byte[] read_relative(string dir, string uri)
+        {
+            if (Path.IsPathRooted(uri) || uri.Contains(":"))
+                throw new IOException("only relative buffer paths are supported: " + uri);
+            return File.ReadAllBytes(Path.Combine(dir, uri));
         }
 
         IOReadResult read(Stream stream, IMeshBuilder builder, ParsingMessagesHandler messages, Func<string, byte[]> resolve)
