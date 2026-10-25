@@ -370,7 +370,7 @@ namespace g3
         }
         public override bool Equals(object obj)
         {
-            return this == (Quaternionf)obj;
+            return obj is Quaternionf && this == (Quaternionf)obj;
         }
         public override int GetHashCode()
         {

@@ -202,7 +202,7 @@ namespace g3
         }
         public override bool Equals(object obj)
         {
-            return this == (Vector2f)obj;
+            return obj is Vector2f && this == (Vector2f)obj;
         }
         public override int GetHashCode()
         {

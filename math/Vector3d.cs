@@ -278,7 +278,7 @@ namespace g3
         }
         public override bool Equals(object obj)
         {
-            return this == (Vector3d)obj;
+            return obj is Vector3d && this == (Vector3d)obj;
         }
         public override int GetHashCode()
         {

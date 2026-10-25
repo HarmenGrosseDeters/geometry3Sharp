@@ -119,7 +119,7 @@ namespace g3
             return a.Min != b.Min || a.Max != b.Max;
         }
         public override bool Equals(object obj) {
-            return this == (AxisAlignedBox3f)obj;
+            return obj is AxisAlignedBox3f && this == (AxisAlignedBox3f)obj;
         }
         public bool Equals(AxisAlignedBox3f other) {
             return this == other;
