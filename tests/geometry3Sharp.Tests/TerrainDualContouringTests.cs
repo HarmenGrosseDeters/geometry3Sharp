@@ -75,6 +75,7 @@ namespace geometry3Sharp.Tests
         {
             Assert.True(m.CheckValidity(false, FailMode.ReturnOnly));
             Assert.Empty(MeshIterators.BowtieVertices(m));
+            Assert.DoesNotContain(m.VertexIndices(), v => m.GetVtxEdgeCount(v) == 0);    // no unused vertices
             foreach (int tid in m.TriangleIndices())
                 Assert.True(m.GetTriNormal(tid).z > 0, $"triangle {tid} faces down");
             var comps = new MeshConnectedComponents(m);
@@ -199,6 +200,83 @@ namespace geometry3Sharp.Tests
             foreach (int vid in result.VertexIndices())
                 if (result.IsBoundaryVertex(vid))
                     Assert.True(Math.Sqrt(polygon.DistanceSquared(result.GetVertex(vid).xy)) < 1e-6);
+        }
+
+        // ground points of the pit: jittered grid, noise
+        static List<Vector3d> PitPoints(double spacing, double noise, Vector3d offset, int seed = 1)
+        {
+            var rnd = new Random(seed);
+            var pts = new List<Vector3d>();
+            for (double x = -100; x <= 100; x += spacing)
+                for (double y = -100; y <= 100; y += spacing) {
+                    double px = x + (rnd.NextDouble() - 0.5) * spacing, py = y + (rnd.NextDouble() - 0.5) * spacing;
+                    pts.Add(offset + new Vector3d(px, py, Pit(px, py) + noise * (rnd.NextDouble() - 0.5)));
+                }
+            return pts;
+        }
+
+        static (double rms, double p99) ErrorToPit(DMesh3 result, Vector3d offset)
+        {
+            var spatial = new DMeshAABBTree3(result, true);
+            var rnd = new Random(3);
+            var errs = new List<double>();
+            for (int i = 0; i < 20000; ++i) {
+                double x = rnd.NextDouble() * 180 - 90, y = rnd.NextDouble() * 180 - 90;
+                double z = HeightAt(spatial, offset.x + x, offset.y + y);
+                Assert.False(double.IsNaN(z));
+                errs.Add(Math.Abs(z - offset.z - Pit(x, y)));
+            }
+            errs.Sort();
+            return (Math.Sqrt(errs.Average(e => e * e)), errs[(int)(0.99 * errs.Count)]);
+        }
+
+        [Fact]
+        public void PointCloud_OpenPit_BreakLinesStaySharp()
+        {
+            List<Vector3d> points = PitPoints(0.5, 0.02, Vector3d.Zero);
+            Func<bool, (double, double, int)> run = (qef) => {
+                var tdc = new TerrainDualContouring(points) { GridResolution = 100, UseQEF = qef };
+                Assert.True(tdc.Compute());
+                AssertCleanTerrain(tdc.Result);
+                var e = ErrorToPit(tdc.Result, Vector3d.Zero);
+                return (e.Item1, e.Item2, tdc.Result.TriangleCount);
+            };
+            var dc = run(true);
+            var plain = run(false);
+            Assert.True(dc.Item1 < 0.5 * plain.Item1, $"rms {dc.Item1:F3} vs {plain.Item1:F3} without QEF");
+            Assert.True(dc.Item2 < 0.5, $"p99 error {dc.Item2:F3} m");
+            Assert.True(dc.Item3 < 0.1 * points.Count, $"{dc.Item3} triangles for {points.Count} points");
+        }
+
+        [Fact]
+        public void PointCloud_UtmCoordinates()
+        {
+            Vector3d offset = new Vector3d(632000, 5712000, 100);
+            var tdc = new TerrainDualContouring(PitPoints(0.5, 0.02, offset)) { GridResolution = 100 };
+            Assert.True(tdc.Compute());
+            AssertCleanTerrain(tdc.Result);
+            Assert.True(ErrorToPit(tdc.Result, offset).Item1 < 0.1);
+        }
+
+        [Fact]
+        public void PointCloud_GroundFilterThenTerrain()
+        {
+            // LiDAR survey of the pit with trucks on the floor: filter the ground, then build the terrain
+            List<Vector3d> points = PitPoints(0.5, 0.02, Vector3d.Zero, 5);
+            var rnd = new Random(9);
+            for (int t = 0; t < 4; ++t) {
+                double cx = -20 + 12 * t, cy = rnd.NextDouble() * 10 - 5;      // on the pit floor (|u|<30, |v|<15)
+                for (double x = cx - 3; x <= cx + 3; x += 0.5)
+                    for (double y = cy - 2; y <= cy + 2; y += 0.5)
+                        points.Add(new Vector3d(x, y, Pit(x, y) + 4));
+            }
+            var csf = new ClothSimulationFilter(points) { ClothResolution = 1.0 };
+            Assert.True(csf.Compute());
+            var ground = points.Where((p, i) => csf.IsGround[i]).ToList();
+            var tdc = new TerrainDualContouring(ground) { GridResolution = 100 };
+            Assert.True(tdc.Compute());
+            AssertCleanTerrain(tdc.Result);
+            Assert.True(ErrorToPit(tdc.Result, Vector3d.Zero).Item2 < 0.5, "trucks left in the terrain");
         }
 
         [Fact]

@@ -29,6 +29,15 @@ namespace gs
     {
         public DMesh3 Mesh;
 
+        /// <summary>
+        /// Alternatively a point cloud (eg LiDAR ground points, see ClothSimulationFilter): the height and
+        /// normal at a sample are fitted to the points within PointRadius (weighted least squares plane).
+        /// The outer boundary is then where the points end (no boundary edges to follow).
+        /// </summary>
+        public IList<Vector3d> Points;
+        /// <summary> neighbourhood radius for the point fit; 0 = 1.5 x the mean point spacing </summary>
+        public double PointRadius = 0;
+
         /// <summary> finest cell size in XY. If zero, uses the larger XY extent / GridResolution </summary>
         public double CellSize = 0;
         public int GridResolution = 256;
@@ -61,17 +70,34 @@ namespace gs
             Mesh = mesh;
         }
 
+        public TerrainDualContouring(IList<Vector3d> points)
+        {
+            Points = points;
+        }
+
 
         public bool Compute()
         {
-            if (Mesh.TriangleCount == 0)
-                return false;
-            AxisAlignedBox3d bounds = Mesh.CachedBounds;
+            AxisAlignedBox3d bounds;
+            if (Points != null) {
+                if (Points.Count < 3)
+                    return false;
+                bounds = AxisAlignedBox3d.Empty;
+                foreach (Vector3d p in Points)
+                    bounds.Contain(p);
+            } else {
+                if (Mesh.TriangleCount == 0)
+                    return false;
+                bounds = Mesh.CachedBounds;
+            }
             cell = (CellSize > 0) ? CellSize : Math.Max(bounds.Width, bounds.Height) / GridResolution;
             if (cell <= 0)
                 return false;
             tolerance = (Tolerance > 0) ? Tolerance : 0.05 * cell;
-            spatial = new DMeshAABBTree3(Mesh, true);
+            if (Points != null)
+                build_point_grid(bounds);
+            else
+                spatial = new DMeshAABBTree3(Mesh, true);
             rayTop = bounds.Max.z + 1 + 0.01 * bounds.Depth;
             rayLength = rayTop - bounds.Min.z + 1;
 
@@ -84,7 +110,10 @@ namespace gs
 
             sample_cells();
             if (CancelF()) return false;
-            add_boundary_edges();
+            if (Points == null)
+                add_boundary_edges();
+            else
+                segs = new List<BoundarySeg>[NX * NY];
             if (CancelF()) return false;
             build_quadtree();
             if (CancelF()) return false;
@@ -144,6 +173,8 @@ namespace gs
         // top surface hit of a vertical ray at world (x,y): local point and upward normal
         bool sample(double x, double y, out Vector3d p, out Vector3d n)
         {
+            if (Points != null)
+                return sample_points(x, y, out p, out n);
             p = n = Vector3d.Zero;
             Ray3d ray = new Ray3d(new Vector3d(x, y, rayTop), -Vector3d.AxisZ);
             int tid = spatial.FindNearestHitTriangle(ray, rayLength);
@@ -156,6 +187,95 @@ namespace gs
             n = Mesh.GetTriNormal(tid);
             if (n.z < 0)
                 n = -n;     // orientation of the input does not matter
+            return true;
+        }
+
+        // point cloud: bins of size pointRadius, points relative to the origin of the bins
+        double pointRadius;
+        Vector2d pointBinOrigin;
+        int pbx, pby;
+        int[] binStart, binPoints;
+        Vector3d[] localPoints;
+
+        void build_point_grid(AxisAlignedBox3d bounds)
+        {
+            int n = Points.Count;
+            double spacing = Math.Sqrt(Math.Max(bounds.Width * bounds.Height, MathUtil.Epsilon) / n);
+            pointRadius = (PointRadius > 0) ? PointRadius : 1.5 * spacing;
+            pointBinOrigin = bounds.Min.xy;
+            pbx = (int)(bounds.Width / pointRadius) + 1;
+            pby = (int)(bounds.Height / pointRadius) + 1;
+            int[] bin = new int[n];
+            int[] count = new int[pbx * pby + 1];
+            for (int k = 0; k < n; ++k) {
+                Vector3d p = Points[k];
+                int i = Math.Min(pbx - 1, (int)((p.x - pointBinOrigin.x) / pointRadius)), j = Math.Min(pby - 1, (int)((p.y - pointBinOrigin.y) / pointRadius));
+                bin[k] = i + pbx * j;
+                count[bin[k] + 1]++;
+            }
+            binStart = new int[pbx * pby + 1];
+            for (int b = 0; b < pbx * pby; ++b)
+                binStart[b + 1] = binStart[b] + count[b + 1];
+            int[] fill = new int[pbx * pby];
+            binPoints = new int[n];
+            localPoints = new Vector3d[n];
+            for (int k = 0; k < n; ++k) {
+                binPoints[binStart[bin[k]] + fill[bin[k]]++] = k;
+                localPoints[k] = Points[k];
+            }
+            rayTop = bounds.Max.z;      // unused for points
+        }
+
+        // weighted least squares plane z = a + b dx + c dy through the points within pointRadius of (x, y)
+        // gaps in the cloud (eg where the ground filter removed points) are bridged by retrying with a
+        // larger radius, up to 4x; outside the cloud (points on one side only) there is no sample
+        bool sample_points(double x, double y, out Vector3d p, out Vector3d n)
+        {
+            for (int k = 1; k <= 4; k *= 2)
+                if (sample_points(x, y, k, out p, out n))
+                    return true;
+            p = n = Vector3d.Zero;
+            return false;
+        }
+
+        bool sample_points(double x, double y, int radiusFactor, out Vector3d p, out Vector3d n)
+        {
+            p = n = Vector3d.Zero;
+            double R = pointRadius * radiusFactor, R2 = R * R;
+            int ci = (int)Math.Floor((x - pointBinOrigin.x) / pointRadius), cj = (int)Math.Floor((y - pointBinOrigin.y) / pointRadius);
+            double s00 = 0, s01 = 0, s02 = 0, s11 = 0, s12 = 0, s22 = 0, r0 = 0, r1 = 0, r2 = 0, wsum = 0, mx = 0, my = 0;
+            int count = 0;
+            for (int j = cj - radiusFactor; j <= cj + radiusFactor; ++j) {
+                if (j < 0 || j >= pby) continue;
+                for (int i = ci - radiusFactor; i <= ci + radiusFactor; ++i) {
+                    if (i < 0 || i >= pbx) continue;
+                    int b = i + pbx * j;
+                    for (int q = binStart[b]; q < binStart[b + 1]; ++q) {
+                        Vector3d v = localPoints[binPoints[q]];
+                        double dx = v.x - x, dy = v.y - y, d2 = dx * dx + dy * dy;
+                        if (d2 >= R2) continue;
+                        double t = 1 - d2 / R2, w = t * t;
+                        double z = v.z - origin.z;
+                        s00 += w; s01 += w * dx; s02 += w * dy; s11 += w * dx * dx; s12 += w * dx * dy; s22 += w * dy * dy;
+                        r0 += w * z; r1 += w * dx * z; r2 += w * dy * z;
+                        wsum += w; mx += w * dx; my += w * dy;
+                        count++;
+                    }
+                }
+            }
+            if (count < 4)
+                return false;
+            // outside the cloud (only points on one side): no sample
+            if (Math.Sqrt(mx * mx + my * my) / wsum > 0.5 * R)
+                return false;
+            double det = s00 * (s11 * s22 - s12 * s12) - s01 * (s01 * s22 - s12 * s02) + s02 * (s01 * s12 - s11 * s02);
+            if (Math.Abs(det) < 1e-12 * s00 * s00 * s00 * R2 * R2)
+                return false;
+            double a = (r0 * (s11 * s22 - s12 * s12) - s01 * (r1 * s22 - s12 * r2) + s02 * (r1 * s12 - s11 * r2)) / det;
+            double bx = (s00 * (r1 * s22 - s12 * r2) - r0 * (s01 * s22 - s12 * s02) + s02 * (s01 * r2 - r1 * s02)) / det;
+            double by = (s00 * (s11 * r2 - r1 * s12) - s01 * (s01 * r2 - r1 * s02) + r0 * (s01 * s12 - s11 * s02)) / det;
+            p = new Vector3d(x - origin.x, y - origin.y, a);
+            n = new Vector3d(-bx, -by, 1).Normalized;
             return true;
         }
 
@@ -551,20 +671,24 @@ namespace gs
             cornerList.Sort((a, b) => a.y != b.y ? a.y.CompareTo(b.y) : a.x.CompareTo(b.x));
 
             SkippedTriangles = 0;
+            List<Index4i> corner3 = new List<Index4i>();
             int[] ring = new int[4];
             int[] ringLeaf = new int[4];
             foreach (Vector2i P in cornerList) {
                 // the 4 finest cells around P, counter-clockwise: SW, SE, NE, NW
                 int[,] around = { { P.x - 1, P.y - 1 }, { P.x, P.y - 1 }, { P.x, P.y }, { P.x - 1, P.y } };
-                bool ok = true, nearBoundary = false;
-                for (int k = 0; k < 4 && ok; ++k) {
+                bool nearBoundary = false;
+                int invalid = 0, invalidK = -1;
+                for (int k = 0; k < 4; ++k) {
                     int ci = around[k, 0], cj = around[k, 1];
-                    if (ci < 0 || cj < 0 || ci >= NX || cj >= NY || owner[cid(ci, cj)] < 0) { ok = false; break; }
+                    if (ci < 0 || cj < 0 || ci >= NX || cj >= NY || owner[cid(ci, cj)] < 0) { invalid++; invalidK = k; continue; }
                     ringLeaf[k] = owner[cid(ci, cj)];
                     if (leaves[ringLeaf[k]].Level == 0 && is_simple(cid(ci, cj)) == false)
                         nearBoundary = true;
                 }
-                if (ok == false)
+                if (invalid == 1 && nearBoundary)
+                    corner3.Add(new Index4i(P.x, P.y, invalidK, 0));
+                if (invalid > 0)
                     continue;
                 if (nearBoundary && is_inside_footprint(new Vector2d(P.x * cell, P.y * cell)) == false)
                     continue;
@@ -580,6 +704,29 @@ namespace gs
                 else if (n == 4)
                     append_quad(mesh, ring[0], ring[1], ring[2], ring[3]);
             }
+
+            // grid points with three valid cells, the fourth outside: at a convex corner of the boundary the
+            // corner cell may have no grid point inside the footprint; the triangle of the three cells keeps
+            // the corner (only if it lies inside the footprint)
+            foreach (Index4i c3 in corner3) {
+                int[,] around = { { c3.a - 1, c3.b - 1 }, { c3.a, c3.b - 1 }, { c3.a, c3.b }, { c3.a - 1, c3.b } };
+                int n = 0;
+                for (int k = 0; k < 4; ++k) {
+                    if (k == c3.c) continue;
+                    int v = leafVertex[owner[cid(around[k, 0], around[k, 1])]];
+                    if (n > 0 && ring[n - 1] == v) continue;
+                    ring[n++] = v;
+                }
+                if (n > 1 && ring[n - 1] == ring[0]) n--;
+                if (n != 3) continue;
+                Vector3d centroid = (mesh.GetVertex(ring[0]) + mesh.GetVertex(ring[1]) + mesh.GetVertex(ring[2])) / 3;
+                if (is_inside_footprint(centroid.xy) && faces_up(mesh, ring[0], ring[1], ring[2]))
+                    mesh.AppendTriangle(ring[0], ring[1], ring[2]);
+            }
+            // vertices of cells that got no triangle (eg along gaps in a point cloud)
+            foreach (int vid in mesh.VertexIndices())
+                if (mesh.GetVtxEdgeCount(vid) == 0)
+                    mesh.RemoveVertex(vid, false, false);
 
             MeshTransforms.Translate(mesh, origin);
             Result = mesh;
