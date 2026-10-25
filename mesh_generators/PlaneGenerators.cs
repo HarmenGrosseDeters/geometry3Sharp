@@ -316,7 +316,7 @@ namespace g3
             for ( int k = 0; k < vertices.Count; ++k ) {
                 Vector3d v = vertices[k];
                 double tx = (v.x - c.x) / Width;
-                double ty = (v.y - c.y) / Height;
+                double ty = (v.z - c.z) / Height;
                 uv[k] = new Vector2f( (1 - tx) * uvleft + (tx) * uvright, 
                                       (1 - ty) * uvbottom + (ty) * uvtop);
             }
@@ -326,14 +326,15 @@ namespace g3
 
 
 
-        static readonly float[] signx = new float[] { 1, 1, -1, -1 };
-        static readonly float[] signy = new float[] { -1, 1, 1, -1 };
-        static readonly float[] startangle = new float[] { 270, 0, 90, 180 };
-        static readonly float[] endangle = new float[] { 360, 90, 180, 270 };
+        // corners in the same order as the mesh: BottomLeft, BottomRight, TopRight, TopLeft
+        static readonly float[] signx = new float[] { -1, 1, 1, -1 };
+        static readonly float[] signy = new float[] { -1, -1, 1, 1 };
+        static readonly double[] startangle = new double[] { 180, 270, 0, 90 };
 
         /// <summary>
         /// This is a utility function that returns the set of border points, which
-        /// is useful when we use a roundrect as a UI element and want the border
+        /// is useful when we use a roundrect as a UI element and want the border.
+        /// The points are the boundary vertices of the generated mesh, in boundary order.
         /// </summary>
         public Vector3d[] GetBorderLoop()
         {
@@ -348,22 +349,28 @@ namespace g3
             float innerW = Width - 2 * Radius;
             float innerH = Height - 2 * Radius;
 
-            Vector3d[] vertices = new Vector3d[4 + corner_v];
+            // each corner contributes its two straight-edge endpoints and the arc vertices between them
+            Vector3d[] vertices = new Vector3d[8 + corner_v];
             int vi = 0;
 
-            for ( int i = 0; i < 4; ++i ) { 
-                vertices[vi++] = new Vector3d(signx[i] * Width / 2, 0, signy[i] * Height / 2);
+            for ( int i = 0; i < 4; ++i ) {
+                Vector3d c = new Vector3d(signx[i] * innerW / 2.0f, 0, signy[i] * innerH / 2.0f);
+                double a0 = startangle[i] * MathUtil.Deg2Rad;
+                double a1 = a0 + MathUtil.HalfPI;
+                vertices[vi++] = c + new Vector3d(Radius * Math.Cos(a0), 0, Radius * Math.Sin(a0));
 
+                // same sampling as append_2d_disc_segment(); a sharp corner is a single point on the
+                // circle of radius sqrt(2)*Radius, ie the corner of the rectangle
                 bool sharp = ((int)SharpCorners & (1 << i)) > 0;
-                Arc2d arc = new Arc2d( new Vector2d(signx[i] * innerW, signy[i] * innerH), 
-                    (sharp) ? MathUtil.SqrtTwo * Radius : Radius,
-                    startangle[i], endangle[i]);
+                double r = (sharp) ? MathUtil.SqrtTwo * Radius : Radius;
                 int use_steps = (sharp) ? 1 : CornerSteps;
                 for (int k = 0; k < use_steps; ++k) {
-                    double t = (double)(i + 1) / (double)(use_steps + 1);
-                    Vector2d pos = arc.SampleT(t);
-                    vertices[vi++] = new Vector3d(pos.x, 0, pos.y);
+                    double t = (double)(k + 1) / (double)(use_steps + 1);
+                    double angle = (1 - t) * a0 + (t) * a1;
+                    vertices[vi++] = c + new Vector3d(r * Math.Cos(angle), 0, r * Math.Sin(angle));
                 }
+
+                vertices[vi++] = c + new Vector3d(Radius * Math.Cos(a1), 0, Radius * Math.Sin(a1));
             }
 
             return vertices;

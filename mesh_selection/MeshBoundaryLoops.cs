@@ -358,7 +358,7 @@ namespace g3
                         loop_verts.Add(cure_a);
                     }
 
-                    int e0 = -1, e1 = 1;
+                    int e0 = -1, e1 = -1;
                     int bdry_nbrs = Mesh.VtxBoundaryEdges(cure_b, ref e0, ref e1);
 
 					// have to filter this list, if we are filtering. this is ugly.
@@ -368,7 +368,10 @@ namespace g3
 								all_e = new int[bdry_nbrs];	
 							// we may repreat this below...irritating...
 							int num_be = Mesh.VtxAllBoundaryEdges(cure_b, all_e);
-							num_be = BufferUtil.CountValid(all_e, EdgeFilterF, num_be);
+							bdry_nbrs = BufferUtil.FilterInPlace(all_e, EdgeFilterF, num_be);
+							if (bdry_nbrs == 2) {
+								e0 = all_e[0]; e1 = all_e[1];	// e0/e1 above may be filtered-out edges
+							}
 						} else {
 							if (EdgeFilterF(e0) == false) bdry_nbrs--;
 							if (EdgeFilterF(e1) == false) bdry_nbrs--;
@@ -406,11 +409,11 @@ namespace g3
 							if (bdry_nbrs >= all_e.Length)
 								all_e = new int[2*bdry_nbrs];
 							int num_be = Mesh.VtxAllBoundaryEdges(cure_b, all_e);
-                            Debug.Assert(num_be == bdry_nbrs);
 
                             if (EdgeFilterF != null) {
 								num_be = BufferUtil.FilterInPlace(all_e, EdgeFilterF, num_be);
 							}
+                            Debug.Assert(num_be == bdry_nbrs);
 
 							// Try to pick the best "turn left" vertex.
 							eNext = find_left_turn_edge(eCur, cure_b, all_e, num_be, used_edge);

@@ -40,7 +40,8 @@ namespace g3
         Vector3d seed_pt = Vector3d.MaxValue;
 
         /// <summary>
-        /// Cut mesh with plane. Assumption is that plane normal is Z value.
+        /// Remove the region of mesh enclosed by the closed curve trimline. tSeedTID is a triangle inside that region.
+        /// If provided, spatial must be built on a separate copy of the input mesh (it is used for reprojection).
         /// </summary>
         public MeshTrimLoop(DMesh3 mesh, DCurve3 trimline, int tSeedTID, DMeshAABBTree3 spatial = null)
 		{
@@ -54,6 +55,10 @@ namespace g3
             seed_tri = tSeedTID;
 		}
 
+        /// <summary>
+        /// Remove the region of mesh enclosed by the closed curve trimline. vSeedPt is a point on the mesh inside that region.
+        /// If provided, spatial must be built on a separate copy of the input mesh (it is used for reprojection).
+        /// </summary>
         public MeshTrimLoop(DMesh3 mesh, DCurve3 trimline, Vector3d vSeedPt, DMeshAABBTree3 spatial = null)
         {
             if (spatial != null && spatial.Mesh == mesh)

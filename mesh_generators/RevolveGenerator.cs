@@ -105,13 +105,13 @@ namespace g3
                 int nBottomC = nRings * nRingSize;
                 vertices[nBottomC] = fStart.Origin;
                 uv[nBottomC] = new Vector2f(0.5f, 0.5f);
-                normals[nBottomC] = -fStart.Z;
+                normals[nBottomC] = -fStart.Y;
                 startCapCenterIndex = nBottomC;
 
                 int nTopC = nBottomC + 1;
                 vertices[nTopC] = fEnd.Origin;
                 uv[nTopC] = new Vector2f(0.5f, 0.5f);
-                normals[nTopC] = fEnd.Z;
+                normals[nTopC] = fEnd.Y;
                 endCapCenterIndex = nTopC;
 
                 if (NoSharedVertices) {
@@ -274,13 +274,13 @@ namespace g3
                 int nBottomC = nRings * nRingSize;
                 vertices[nBottomC] = fStart.Origin;
                 uv[nBottomC] = new Vector2f(0.5f, 0.5f);
-                normals[nBottomC] = -fStart.Z;
+                normals[nBottomC] = -fStart.Y;
                 startCapCenterIndex = nBottomC;
 
                 int nTopC = nBottomC + 1;
                 vertices[nTopC] = fEnd.Origin;
                 uv[nTopC] = new Vector2f(0.5f, 0.5f);
-                normals[nTopC] = fEnd.Z;
+                normals[nTopC] = fEnd.Y;
                 endCapCenterIndex = nTopC;
 
                 if (NoSharedVertices) {
