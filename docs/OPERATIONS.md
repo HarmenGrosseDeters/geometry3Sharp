@@ -6,6 +6,9 @@ example for each. The examples in [examples/](examples/) are compiled into the t
 closedness, edge lengths, error bounds), so the examples cannot silently go stale. The API reference is
 the XML documentation of the classes (shipped in the NuGet package, so IDEs and coding agents see it).
 
+Without writing code: [tools/g3cli](../tools/g3cli/README.md) runs the main operations (measure, repair,
+boolean, resolve, remesh, simplify, convert) on mesh files, with JSON results, and as an MCP server.
+
 Namespaces: most classes are in `g3`; repair, solidify, hole filling, Hausdorff and geodesic distances are
 in `gs`. Add both: `using g3; using gs;`.
 
