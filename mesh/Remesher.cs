@@ -586,16 +586,18 @@ namespace g3 {
 
 
         protected DVector<Vector3d> vBufferV = new DVector<Vector3d>();
-        protected BitArray vModifiedV = new BitArray(4096);
+        // bool[], not BitArray: parallel passes set flags of neighbouring vertices concurrently, and BitArray
+        // packs 32 flags into one int, so concurrent writes lost flags (and smoothed positions)
+        protected bool[] vModifiedV = new bool[4096];
 
         protected virtual void InitializeVertexBufferForPass()
         {
             if (vBufferV.size < mesh.MaxVertexID)
                 vBufferV.resize(mesh.MaxVertexID + mesh.MaxVertexID / 5);
             if (vModifiedV.Length < mesh.MaxVertexID) {
-                vModifiedV = new BitArray(2 * mesh.MaxVertexID);
+                vModifiedV = new bool[2 * mesh.MaxVertexID];
             } else {
-                vModifiedV.SetAll(false);
+                Array.Clear(vModifiedV, 0, vModifiedV.Length);
             }
         }
 
