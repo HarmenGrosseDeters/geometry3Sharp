@@ -28,7 +28,7 @@ namespace g3
         public Vector2d Center;
         public Vector2d Axis0, Axis1;
         public Vector2d Extent;
-        public bool IsReversed;		// use ccw orientation instead of cw
+        public bool IsReversed;		// use cw orientation instead of ccw
 
 
         public Ellipse2d(Vector2d center, Vector2d axis0, Vector2d axis1, Vector2d extent) {
@@ -121,7 +121,7 @@ namespace g3
         // described in the comments before the constructors.
         public bool FromCoefficients(double[] coeff)
         {
-            Matrix2d A = Matrix2d.Zero;
+            Matrix2d A = new Matrix2d(false);       // not the shared Matrix2d.Zero, Convert() writes into it
             Vector2d B = Vector2d.Zero;
             double C = 0;
             Convert(coeff, ref A, ref B, ref C);
@@ -130,40 +130,42 @@ namespace g3
 
         public bool FromCoefficients(Matrix2d A, Vector2d B, double C)
         {
-            throw new NotImplementedException("Ellipse2.FromCoefficients: need EigenDecomposition");
-/*
             // Compute the center K = -A^{-1}*B/2.
-            Matrix2d invA = A.Inverse();
-            if (invA == Matrix2d.Zero) {
+            double det = A.m00 * A.m11 - A.m01 * A.m10;
+            if (det == 0)
                 return false;
-            }
-
-            Center = ((double)-0.5) * (invA * B);
+            double invDet = 1.0 / det;
+            Vector2d K = new Vector2d(
+                -0.5 * invDet * (A.m11 * B.x - A.m01 * B.y),
+                -0.5 * invDet * (A.m00 * B.y - A.m10 * B.x));
 
             // Compute B^T*A^{-1}*B/4 - C = K^T*A*K - C = -K^T*B/2 - C.
-            double rightSide = -((double)0.5) * (Center.Dot(B)) - C;
-            if (Math.Abs(rightSide) < Math < double >::ZERO_TOLERANCE) {
+            double rightSide = -0.5 * K.Dot(B) - C;
+            if (Math.Abs(rightSide) < MathUtil.ZeroTolerance)
                 return false;
-            }
 
-            // Compute M = A/(K^T*A*K - C).
-            double invRightSide = ((double)1) / rightSide;
-            Matrix2d M = invRightSide * A;
+            // Compute M = A/(K^T*A*K - C) and factor into M = R*D*R^T (closed form for symmetric 2x2)
+            double invRightSide = 1.0 / rightSide;
+            double m00 = A.m00 * invRightSide, m11 = A.m11 * invRightSide;
+            double m01 = 0.5 * (A.m01 + A.m10) * invRightSide;
+            double mean = 0.5 * (m00 + m11);
+            double r = Math.Sqrt(0.25 * (m00 - m11) * (m00 - m11) + m01 * m01);
+            double lambda0 = mean - r, lambda1 = mean + r;      // lambda0 <= lambda1, so Extent[0] >= Extent[1]
+            if (lambda0 <= 0)
+                return false;
 
-            // Factor into M = R*D*R^T.
-            EigenDecomposition<double> eigensystem(M);
-            eigensystem.Solve(true);
-            for (int i = 0; i < 2; ++i) {
-                if (eigensystem.GetEigenvalue(i) <= (double)0) {
-                    return false;
-                }
+            // eigenvector of lambda0 is perpendicular to both rows of M - lambda0*I, use the longer candidate
+            Vector2d u0 = new Vector2d(m01, lambda0 - m00);
+            Vector2d u1 = new Vector2d(lambda0 - m11, m01);
+            if (u1.LengthSquared > u0.LengthSquared)
+                u0 = u1;
+            u0 = (u0.LengthSquared > 0) ? u0.Normalized : Vector2d.AxisX;    // circle: any axis works
 
-                Extent[i] = Math < double >::InvSqrt(eigensystem.GetEigenvalue(i));
-                Axis[i] = eigensystem.GetEigenvector2(i);
-            }
-
+            Center = K;
+            Axis0 = u0;
+            Axis1 = new Vector2d(-u0.y, u0.x);
+            Extent = new Vector2d(1.0 / Math.Sqrt(lambda0), 1.0 / Math.Sqrt(lambda1));
             return true;
-*/
         }
 
         // Evaluate the quadratic function Q(X) = (X-K)^T * M * (X-K) - 1.

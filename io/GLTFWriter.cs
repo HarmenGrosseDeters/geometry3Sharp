@@ -6,19 +6,22 @@ using System.Text;
 
 namespace g3
 {
-    //
-    // Write glTF 2.0 files, as .glb (binary container) or .gltf (JSON with embedded base64 buffer)
-    // https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html
-    //
-    // Each mesh becomes one node with one mesh and one primitive. Writes POSITION and, if enabled
-    // in the options and present in the mesh, NORMAL, COLOR_0 and TEXCOORD_0. Meshes without
-    // triangles are written as point primitives. No materials are written.
-    //
-    // glTF stores positions as 32-bit floats. With CenterNodes = true (default), each mesh is
-    // written relative to the center of its bounding box and the center is stored as node
-    // translation (in double precision), so large coordinates (eg UTM) keep their precision.
-    // Coordinates are not converted (glTF is Y-up, in meters).
-    //
+    /// <summary>
+    /// Write glTF 2.0 files, as .glb (binary container, <see cref="WriteGLB"/>) or .gltf
+    /// (JSON with embedded base64 buffer, <see cref="WriteGLTF"/>). No external .bin files are written.
+    /// https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html
+    /// 
+    /// Each mesh becomes one node with one mesh and one primitive, named by WriteMesh.Name. Writes POSITION and, if enabled
+    /// in the options (bPerVertexNormals/Colors/UVs) and present in the mesh, NORMAL, COLOR_0 (RGB, clamped to [0,1])
+    /// and TEXCOORD_0. Meshes without triangles are written as point primitives, empty meshes as nodes without mesh.
+    /// No materials are written.
+    /// 
+    /// glTF stores positions as 32-bit floats. With CenterNodes = true (default), each mesh is
+    /// written relative to the center of its bounding box and the center is stored as node
+    /// translation (in double precision), so large coordinates (eg UTM) keep their precision.
+    /// GLTFReader applies the translation again when reading. Coordinates are not converted (glTF is Y-up, in meters).
+    /// The write methods return Ok; exceptions are not caught here.
+    /// </summary>
     public class GLTFWriter
     {
         /// <summary>
@@ -27,6 +30,9 @@ namespace g3
         public bool CenterNodes = true;
 
 
+        /// <summary>
+        /// Write meshes as binary .glb to stream (the stream is flushed, not closed)
+        /// </summary>
         public IOWriteResult WriteGLB(Stream stream, List<WriteMesh> vMeshes, WriteOptions options)
         {
             byte[] bin;
@@ -52,6 +58,9 @@ namespace g3
         }
 
 
+        /// <summary>
+        /// Write meshes as .gltf JSON to writer, with the buffer embedded as a base64 data URI
+        /// </summary>
         public IOWriteResult WriteGLTF(TextWriter writer, List<WriteMesh> vMeshes, WriteOptions options)
         {
             byte[] bin;

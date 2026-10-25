@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Globalization;
 
 #if G3_USING_UNITY
 using UnityEngine;
@@ -370,7 +371,7 @@ namespace g3
         }
         public override bool Equals(object obj)
         {
-            return this == (Quaternionf)obj;
+            return obj is Quaternionf && this == (Quaternionf)obj;
         }
         public override int GetHashCode()
         {
@@ -415,10 +416,10 @@ namespace g3
 
 
         public override string ToString() {
-            return string.Format("{0:F8} {1:F8} {2:F8} {3:F8}", x, y, z, w);
+            return string.Format(CultureInfo.InvariantCulture, "{0:F8} {1:F8} {2:F8} {3:F8}", x, y, z, w);
         }
         public string ToString(string fmt) {
-            return string.Format("{0} {1} {2} {3}", x.ToString(fmt), y.ToString(fmt), z.ToString(fmt), w.ToString(fmt));
+            return string.Format("{0} {1} {2} {3}", x.ToString(fmt, CultureInfo.InvariantCulture), y.ToString(fmt, CultureInfo.InvariantCulture), z.ToString(fmt, CultureInfo.InvariantCulture), w.ToString(fmt, CultureInfo.InvariantCulture));
         }
 
 

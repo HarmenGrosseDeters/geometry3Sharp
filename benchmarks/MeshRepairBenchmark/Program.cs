@@ -46,6 +46,17 @@ class Program
                 MeshTransforms.Translate(mesh, new Vector3d(500000, 5000000, 0));
             r["load_ms"] = sw.ElapsedMilliseconds;
             Stats(mesh, r, "before");
+            if (Environment.GetEnvironmentVariable("BENCH_REPAIR") == "analysis") {
+                // analysis building blocks on the input instead of a repair (AnalysisBench.cs)
+                stage = "analysis";
+                r["repair_mode"] = "analysis";
+                sw.Restart();
+                AnalysisBench.Run(mesh, r);
+                r["analysis_ms"] = sw.ElapsedMilliseconds;
+                r["status"] = "ok";
+                Emit(r);
+                return 0;
+            }
             // AutoRepair modifies the mesh in place; keep the input for solidify and deviation
             DMesh3 original = new DMesh3(mesh);
 
@@ -59,7 +70,9 @@ class Program
             // self-intersections), solidify_dc_adaptive of the repaired mesh; hybrid_topo = the same without
             // the self-intersection check,
             // robust = MeshRobustRepair (hybrid plus the volume check against the input),
-            // instr = InstrumentedAutoRepair, records cheap quality metrics after every pipeline step
+            // wrap = MeshAlphaWrap of the input (BENCH_WRAP_ALPHA / BENCH_WRAP_OFFSET: diagonal divided by alpha / offset),
+            // instr = InstrumentedAutoRepair, records cheap quality metrics after every pipeline step,
+            // analysis = no repair: MeshWallThickness, MeshDeviation and PrimitiveFit3 on the input (see above)
             string repairMode = Environment.GetEnvironmentVariable("BENCH_REPAIR") ?? "default";
             r["repair_mode"] = repairMode;
             double tolFactor = 1;
@@ -95,16 +108,24 @@ class Program
                 r["stages"] = stages;
             } else if (repairMode == "robust") {
                 // MeshRobustRepair: hybrid plus the volume check against the input's winding number solid
-                var robust = new MeshRobustRepair(mesh) { ConfigureRepair = (rep) => {
+                var robust = new MeshRobustRepair(mesh) { ExactResolve = Environment.GetEnvironmentVariable("BENCH_EXACT") != "0", ConfigureRepair = (rep) => {
                     rep.RepairTolerance *= tolFactor; rep.MinEdgeLengthTol *= tolFactor; } };
                 int res = int.Parse(Environment.GetEnvironmentVariable("BENCH_SOLID_RES") ?? "128");
                 robust.SolidifyResolution = res;
+                robust.ExactResolveRounds = int.Parse(Environment.GetEnvironmentVariable("BENCH_EXACT_ROUNDS") ?? "4");
                 ok = robust.Apply();
                 result = robust.Mesh;
                 r["hybrid_fallback"] = robust.FallbackReason != "";
                 r["hybrid_reason"] = robust.FallbackReason;
                 r["robust_used_solidify"] = robust.UsedSolidify;
                 r["robust_repair_iou"] = robust.RepairVolumeIoU;
+                r["robust_used_exact"] = robust.UsedExactResolve;
+                r["robust_exact_reason"] = robust.ExactResolveReason;
+                r["robust_exact_rounds"] = robust.ExactResolveRoundsUsed;
+                r["robust_exact_selfint"] = robust.ExactResolveSelfIntersections;
+            } else if (repairMode == "wrap") {
+                result = Wrap(original, r);
+                ok = r["wrap_status"].ToString() == "Success";
             } else if (repairMode.StartsWith("solidify_")) {
                 result = Solidify(original, repairMode == "solidify_mc" ? MeshWindingNumberSolidify.Methods.MarchingCubes
                     : MeshWindingNumberSolidify.Methods.DualContouring, repairMode == "solidify_dc_adaptive", r);
@@ -263,6 +284,27 @@ class Program
     }
 
     static double Vol(DMesh3 m) { return m.TriangleCount == 0 ? 0 : MeshMeasurements.VolumeArea(m, m.TriangleIndices(), m.GetVertex).x; }
+
+    // alpha wrap of the input (MeshAlphaWrap): alpha = diagonal / BENCH_WRAP_ALPHA, offset = diagonal / BENCH_WRAP_OFFSET
+    static DMesh3 Wrap(DMesh3 input, System.Collections.Generic.Dictionary<string, object> r)
+    {
+        var inv = System.Globalization.CultureInfo.InvariantCulture;
+        double relAlpha = double.Parse(Environment.GetEnvironmentVariable("BENCH_WRAP_ALPHA") ?? "100", inv);
+        double relOffset = double.Parse(Environment.GetEnvironmentVariable("BENCH_WRAP_OFFSET") ?? "1000", inv);
+        var sw = Stopwatch.StartNew();
+        var wrap = new MeshAlphaWrap(input) { RelativeAlpha = relAlpha, RelativeOffset = relOffset };
+        wrap.Compute();
+        r["wrap_ms"] = sw.ElapsedMilliseconds;
+        r["wrap_status"] = wrap.Status.ToString();
+        if (wrap.Error != null) r["wrap_error"] = wrap.Error;
+        r["wrap_rel_alpha"] = relAlpha;
+        r["wrap_rel_offset"] = relOffset;
+        r["wrap_alpha"] = wrap.UsedAlpha;
+        r["wrap_offset"] = wrap.UsedOffset;
+        r["wrap_counts"] = wrap.Counts;
+        r["wrap_phases"] = wrap.PhaseMilliseconds;
+        return wrap.Result ?? new DMesh3();
+    }
 
     // winding number solidify of the input (library class), BENCH_SOLID_RES cells along the diagonal
     static DMesh3 Solidify(DMesh3 input, MeshWindingNumberSolidify.Methods method, bool adaptive, System.Collections.Generic.Dictionary<string, object> r)

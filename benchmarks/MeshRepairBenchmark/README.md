@@ -149,10 +149,31 @@ Known remaining issues:
 - Solidify fidelity is bounded by the grid (see the resolution 256 spike below).
 - Dual contouring leaves triangles out where neighbouring cells split a shared face into patches
   differently; filling those holes can create self-intersections.
-- Resolving self-intersections exactly (`ExactMeshBoolean.Resolve` on the repaired mesh) instead of
-  solidifying keeps the input geometry. A first prototype on 20 failing meshes: 6 clean, the others open
-  (the repaired mesh is not closed in the winding number sense) or with self-intersections from rounding
-  the new vertices.
+- (Resolved by the exact stage below for many meshes.)
+
+### Exact resolve before the solidify
+
+`MeshRobustRepair.ExactResolve` (default on): if the repaired mesh is not clean, its self-intersections are
+resolved exactly (`ExactMeshBoolean.Resolve`; slivers collapsed by the cleanup, touching sheets separated by
+`SeparateTouchingVertices`, resolved again while rounding leaves self-intersections), and the result is used if
+it is clean and its volume agrees with the input. Otherwise the solidify runs as before. Same machine, same build,
+`BENCH_EXACT=0` switches the stage off:
+
+| 400 set | robust, without exact stage | robust, with exact stage |
+|---|---|---|
+| clean¹ + no exact self-intersections | 347 | **359** |
+| **repaired** (also Hausdorff < 1 %, IoU > 0.99) | 211 | **253** |
+| Hausdorff (max of both directions): median | 0.66 % | **0.37 %** |
+| IoU: median | 0.9981 | **0.9999** |
+| median repair time | 4.4 s | **3.9 s** |
+| timeouts (120 s) | 1 | 3 |
+
+42 meshes are repaired that were not before, none is lost. The stage is tried for 225 meshes and used for
+119 (79 of them repaired; 11 needed more than one resolve round). Where it is used the median repair time drops
+from 5.4 to 4.2 s (no solidify); where it is tried but not used it adds about 2 s. Why it is not used: the
+result is not closed after the cleanup (32), the volume differs from the input already after the repair (29),
+the repaired mesh is not closed in the winding number sense (28), degenerate triangles remain (17). Two large
+meshes (42327, 42329) now hit the timeout.
 
 
 ### Spike: solidify resolution 256 (`BENCH_SOLID_RES=256`, 30 meshes)
@@ -173,3 +194,22 @@ Most of the remaining Hausdorff misses at 256 are not grid error: the input has 
 solidify. Extrapolated to the 400 set, resolution 256 would repair about 30–40 more meshes at 1.6× the
 median time, 2.4× the triangles and a few new self-intersections. An adaptive choice (solidify at 128,
 check the deviation, repeat at 256 only where it is too large) is cheaper than raising the default.
+
+### Rerun after the dual contouring fixes (`robust`, 400 set)
+Same mode on the master of 2026-10-25 evening: dual contouring resolves self-intersections over all
+triangles with a last resort position, refines locally where polygons would create non-manifold edges,
+the volume IoU reference orients inside-out inputs, and the exact predicates have all adaptive stages.
+
+| | first `robust` run | rerun |
+|---|---|---|
+| repaired | 211 | 210 |
+| clean¹ + no exact self-intersections | 347 | **360** |
+| meshes with self-intersections | 51 | **38** |
+| median / p90 repair time | 5.2 s / 17.4 s | **3.7 s / 10.6 s** |
+| timeouts or crashes | 1 | 0 |
+| large meshes repaired | 9/30 | 9/30 |
+
+The fixes remove a quarter of the self-intersecting results and make the repair faster, but the strict
+count does not move: the meshes they fix still deviate more than 1 % (Hausdorff), which is the grid limit of
+the solidify (136 of the 190 misses). One mesh got worse (61460: 4 self-intersections after the solidify,
+before 0, probably at the transition of the new non-manifold refinement).

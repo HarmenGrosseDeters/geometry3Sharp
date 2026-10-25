@@ -181,9 +181,19 @@ namespace g3
         // Does not require the indexing to be the same
         public bool IsSameSpan(EdgeSpan Spanw, bool bReverse2 = false, double tolerance = MathUtil.ZeroTolerance)
         {
-			// [RMS] this is much easier than for a loop, because it has to have 
-			//   same endpoints. But don't have time right now.
-			throw new NotImplementedException("todo!");
+            // this is much easier than for a loop, because it has to have the same endpoints
+            int N = Vertices.Length;
+            if (N != Spanw.Vertices.Length)
+                return false;
+            DMesh3 Mesh2 = Spanw.Mesh;
+            for (int i = 0; i < N; ++i) {
+                int j = (bReverse2) ? (N - 1 - i) : i;
+                Vector3d v = Mesh.GetVertex(Vertices[i]);
+                Vector3d v2 = Mesh2.GetVertex(Spanw.Vertices[j]);
+                if (v.Distance(v2) > tolerance)
+                    return false;
+            }
+            return true;
         }
 
 

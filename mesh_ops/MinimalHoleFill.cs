@@ -12,28 +12,45 @@ namespace gs
     /// Construct a "minimal" fill surface for the hole. This surface
     /// is often quasi-developable, reconstructs sharp edges, etc. 
     /// There are various options.
+    ///
+    /// Method: a fan fill (SimpleHoleFiller), remeshed and then collapsed back to a triangulation of the
+    /// boundary vertices (normally no new vertices remain), followed by edge-flip passes that make it flatter,
+    /// minimize the Gaussian curvature at the boundary vertices (OptimizeDevelopability) and improve triangle
+    /// quality (OptimizeTriangles). Good for mechanical / CAD holes; use SmoothedHoleFill for a smooth,
+    /// evenly tessellated patch, PlanarHoleFiller for (possibly nested) planar holes.
+    ///
+    /// The mesh is modified in place. Apply() returns false only if the initial fan fill fails (eg the fill
+    /// would create non-manifold edges); no triangles are added then. Its parameters are
+    /// scale independent.
     /// </summary>
     public class MinimalHoleFill
     {
+        /// <summary> the mesh to fill, modified in place </summary>
         public DMesh3 Mesh;
+        /// <summary> the boundary loop to fill, oriented as from MeshBoundaryLoops </summary>
         public EdgeLoop FillLoop;
 
+        /// <summary> if true, the curvature at boundary vertices ignores the existing triangles around the hole </summary>
         public bool IgnoreBoundaryTriangles = false;
+        /// <summary> run the flip pass that minimizes Gaussian curvature (recovers sharp edges) </summary>
         public bool OptimizeDevelopability = true;
+        /// <summary> run the flip pass that improves triangle aspect ratios (requires OptimizeDevelopability) </summary>
         public bool OptimizeTriangles = true;
+        /// <summary> allowed change of the curvature metric for a quality-improving flip </summary>
         public double DevelopabilityTolerance = 0.0001;
 
         /*
          *  Outputs
          */
 
-        /// <summary> Final fill vertices (should be empty?)</summary>
+        /// <summary> Final fill vertices, ie new vertices inside the hole (normally empty) </summary>
         public int[] FillVertices;
 
-        /// <summary> Final fill triangles </summary>
+        /// <summary> Final fill triangles (ids in Mesh), set by a successful Apply() </summary>
         public int[] FillTriangles;
 
 
+        /// <summary> fillLoop must be a boundary loop of mesh, oriented as from MeshBoundaryLoops </summary>
         public MinimalHoleFill(DMesh3 mesh, EdgeLoop fillLoop)
         {
             this.Mesh = mesh;
@@ -48,6 +65,10 @@ namespace gs
 
         double[] curvatures;
 
+        /// <summary>
+        /// Fill the hole. Afterwards the loop edges are interior edges and FillTriangles holds the new triangles.
+        /// </summary>
+        /// <returns>false if the initial fan fill failed (mesh unchanged), true otherwise</returns>
         public bool Apply()
         {
             // do a simple fill

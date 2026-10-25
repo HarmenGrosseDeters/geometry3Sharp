@@ -5,19 +5,28 @@ using System.Text;
 
 namespace g3
 {
+    /// <summary>
+    /// Base class of the edge-collapse based mesh refiners (<see cref="Remesher"/>, <see cref="Reducer"/> and
+    /// their subclasses). Holds the mesh, which is modified in place, the optional <see cref="MeshConstraints"/>,
+    /// cancellation (Progress) and the shared validity tests for collapses and flips.
+    /// </summary>
     public class MeshRefinerBase
     {
         protected DMesh3 mesh;
         protected MeshConstraints constraints = null;
 
 
-        // if true, then when two Fixed vertices have the same non-invalid SetID,
-        // we treat them as not fixed and allow collapse
+        /// <summary>
+        /// If true, then when two Fixed vertices have the same valid (non-negative) FixedSetID,
+        /// we treat them as not fixed and allow collapse (to the midpoint). Default true.
+        /// </summary>
         public bool AllowCollapseFixedVertsWithSameSetID = true;
 
 
         /// <summary>
-        /// If normals dot product is less than this, we consider it a normal flip. default = 0
+        /// If the dot product of a triangle normal before and after a collapse or flip is less than or equal
+        /// to this, we consider it a normal flip and reject the operation. If nonzero, the normals are normalized
+        /// first. Clamped to [-1,1]. default = 0
         /// </summary>
         public double EdgeFlipTolerance {
             get { return edge_flip_tol; }
@@ -33,6 +42,7 @@ namespace g3
         /// </summary>
         public double MinCollapseTriangleQuality = 0;
 
+        /// <summary> 4*sqrt(3)*area / sum of squared edge lengths: 1 for equilateral, 0 for degenerate </summary>
         public static double TriangleQuality(ref Vector3d a, ref Vector3d b, ref Vector3d c)
         {
             double l2 = a.DistanceSquared(b) + b.DistanceSquared(c) + c.DistanceSquared(a);
@@ -50,16 +60,23 @@ namespace g3
         }
 
 
+        /// <summary> the mesh being refined (modified in place) </summary>
         public DMesh3 Mesh {
             get { return mesh; }
         }
 
 
+        /// <summary> the constraints set with SetExternalConstraints(), or null </summary>
         public MeshConstraints Constraints {
             get { return constraints; }
         }
         
-        //! This object will be modified !!!
+        /// <summary>
+        /// Set the vertex and edge constraints (fixed or projected vertices, edges that cannot be flipped,
+        /// split or collapsed), for example from <see cref="MeshConstraintUtil"/>. Pass null to clear.
+        /// The object is used directly and will be modified (constraints are updated as edges are split and
+        /// collapsed), so it must refer to this mesh.
+        /// </summary>
         public void SetExternalConstraints(MeshConstraints cons)
         {
             constraints = cons;
@@ -67,7 +84,8 @@ namespace g3
 
 
         /// <summary>
-        /// Set this to be able to cancel running remesher
+        /// Set this to be able to cancel a running remesher/reducer; the pass stops early and the mesh stays
+        /// valid, but partially processed.
         /// </summary>
         public ProgressCancel Progress = null;
 
