@@ -47,16 +47,19 @@ namespace geometry3Sharp.Tests
         }
 
         [Theory]
-        [InlineData(0.5)]
-        [InlineData(0.1)]
-        [InlineData(0.02)]
-        public void WavyTerrain_MaxErrorAtEveryNode_HeightField(double maxError)
+        [InlineData(0.5, false)]
+        [InlineData(0.1, false)]
+        [InlineData(0.02, false)]
+        [InlineData(0.5, true)]
+        [InlineData(0.1, true)]
+        [InlineData(0.02, true)]
+        public void WavyTerrain_MaxErrorAtEveryNode_HeightField(double maxError, bool removeVertices)
         {
             var rnd = new Random(3);
             int nx = 121, ny = 97;
             var z = Grid(nx, ny, (i, j) => 5 * Math.Sin(i / 9.0) * Math.Cos(j / 13.0) + 0.05 * rnd.NextDouble());
             // UTM-like origin
-            var g = new TerrainGreedyTIN(z, nx, ny, 326000.5, 5641000.5, 1) { MaxError = maxError };
+            var g = new TerrainGreedyTIN(z, nx, ny, 326000.5, 5641000.5, 1) { MaxError = maxError, RemoveVertices = removeVertices };
             Assert.True(g.Compute());
             g.Result.CheckValidity();
             Assert.True(g.AchievedError <= maxError);
@@ -68,8 +71,10 @@ namespace geometry3Sharp.Tests
             Assert.Equal((nx - 1) * (ny - 1), area, 6);
         }
 
-        [Fact]
-        public void Benches_BreakLinesKeptWithinTheError()
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void Benches_BreakLinesKeptWithinTheError(bool removeVertices)
         {
             // open-pit benches at 31 degrees: 8 m faces rising 6 m, 4 m berms
             double c = Math.Cos(31 * MathUtil.Deg2Rad), s = Math.Sin(31 * MathUtil.Deg2Rad);
@@ -78,12 +83,32 @@ namespace geometry3Sharp.Tests
                 double u = c * i + s * j, k = Math.Floor(u / 12), f = u - 12 * k;
                 return 6 * k + (f < 8 ? 6 * f / 8 : 6);
             });
-            var g = new TerrainGreedyTIN(z, n, n, 0, 0, 1) { MaxError = 0.05 };
+            var g = new TerrainGreedyTIN(z, n, n, 0, 0, 1) { MaxError = 0.05, RemoveVertices = removeVertices };
             Assert.True(g.Compute());
+            g.Result.CheckValidity();
             Assert.True(MaxNodeError(g) <= 0.05 + 1e-9);
             Assert.Equal(0, TerrainVolumeDifference.XYOverlaps(g.Result));
             // far fewer triangles than the grid (planar faces and berms)
             Assert.True(g.Result.TriangleCount < 0.2 * 2 * (n - 1) * (n - 1), $"{g.Result.TriangleCount} triangles");
+        }
+
+        [Fact]
+        public void RemoveVertices_FarFewerTrianglesOnBenches()
+        {
+            // the planar faces and berms need only the vertices on the break lines; greedy insertion places
+            // many more on the way (3909 triangles here, 249 after the removal)
+            double c = Math.Cos(31 * MathUtil.Deg2Rad), s = Math.Sin(31 * MathUtil.Deg2Rad);
+            int n = 151;
+            var z = Grid(n, n, (i, j) => {
+                double u = c * i + s * j, k = Math.Floor(u / 12), f = u - 12 * k;
+                return 6 * k + (f < 8 ? 6 * f / 8 : 6);
+            });
+            var plain = new TerrainGreedyTIN(z, n, n, 0, 0, 1) { MaxError = 0.05 };
+            var removed = new TerrainGreedyTIN(z, n, n, 0, 0, 1) { MaxError = 0.05, RemoveVertices = true };
+            Assert.True(plain.Compute() && removed.Compute());
+            Assert.True(MaxNodeError(removed) <= 0.05 + 1e-9);
+            Assert.True(removed.RemovedVertices > 0);
+            Assert.True(removed.Result.TriangleCount < 0.2 * plain.Result.TriangleCount, $"{plain.Result.TriangleCount} -> {removed.Result.TriangleCount}");
         }
 
         [Fact]

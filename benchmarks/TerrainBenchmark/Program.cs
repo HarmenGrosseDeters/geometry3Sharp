@@ -4,7 +4,7 @@
 //   volume   before=<grid> after=<grid> [simplify=<m>] [heightcheck=1]
 //   repair   grid=<grid> variant=clean|tiles|overlap|holes mode=auto|cleanup|robust|tdc
 //   tdc      grid=<grid> [points=<cloud>] [cell=1] [tol=0]
-//   gtin     grid=<grid> [maxerr=0.1]   (TerrainGreedyTIN)
+//   gtin     grid=<grid> [maxerr=0.1] [remove=0|1]   (TerrainGreedyTIN)
 //   offset   grid=<grid> d=<m> [cell=1]
 //   safety   grid=<grid> d=<m> mode=horizontal|surface|guaranteed|guaranteed [terrain=grid|tdc] [tol=0.05] [angle=20]
 //   geodesic grid=<grid> [src=center|crest] [tf=1]
@@ -289,7 +289,7 @@ class Program
         var z = new double[g.NX * g.NY];
         for (int k = 0; k < z.Length; ++k) z[k] = g.Z[k];
         R["nodes"] = z.Length;
-        var gt = new TerrainGreedyTIN(z, g.NX, g.NY, g.X0 - origin.x, g.Y0 - origin.y, g.Dx) { MaxError = ArgD("maxerr", 0.1) };
+        var gt = new TerrainGreedyTIN(z, g.NX, g.NY, g.X0 - origin.x, g.Y0 - origin.y, g.Dx) { MaxError = ArgD("maxerr", 0.1), RemoveVertices = Arg("remove", "0") == "1" };
         bool ok = gt.Compute();
         R["gtin_s"] = Secs(sw);
         R["ok"] = ok;
@@ -297,6 +297,7 @@ class Program
         DMesh3 res = gt.Result;
         R["result_tris"] = res.TriangleCount;
         R["achieved_error"] = gt.AchievedError;
+        R["removed_vertices"] = gt.RemovedVertices;
         R["xy_overlaps"] = TerrainVolumeDifference.XYOverlaps(res);
         // vertical error at every DGM node (independent: rays against the result)
         var tree = new DMeshAABBTree3(res, true);

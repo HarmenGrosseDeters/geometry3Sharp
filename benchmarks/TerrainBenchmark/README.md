@@ -98,7 +98,13 @@ Same DGM, vertical error at every grid node (rays against the result):
 | TerrainDualContouring, Tolerance 0.2 + MaxError 0.2 m | 1 km² | 0.32M | 0.92 m (walls finer than a cell) | 17 cm | 55 s | 1.2 GB |
 | TerrainGreedyTIN, MaxError 0.5 m | 1 km² | 0.065M | 0.5 m | 42 cm | 0.7 s | 0.32 GB |
 | TerrainGreedyTIN, MaxError 0.05 / 0.2 m | 12 km² | 9.9M / 2.8M | 0.05 / 0.2 m | | 56 / 16 s | 4.6 / 1.5 GB |
+| TerrainGreedyTIN + RemoveVertices, MaxError 0.05 m | 1 km² | **0.52M** (-31%) | 0.05 m (guaranteed) | 4.8 cm | 21 s | 0.68 GB |
+| TerrainGreedyTIN + RemoveVertices, MaxError 0.2 m | 1 km² | **0.12M** (-40%) | 0.20 m (guaranteed) | 18 cm | 5.8 s | 0.38 GB |
+| TerrainGreedyTIN + RemoveVertices, MaxError 0.5 m | 1 km² | **0.036M** (-46%) | 0.5 m (guaranteed) | 43 cm | 2.7 s | 0.32 GB |
 
+RemoveVertices removes vertices again where the retriangulated hole stays within MaxError (31–46% fewer
+triangles here, 94% on synthetic benches). Data-dependent flips during the insertion (Garland and
+Heckbert's variant) gave more triangles, not fewer, in all criteria tried (max error, sum of squares).
 For a height grid, greedy insertion is 5–10x faster, needs less memory and guarantees the maximum error
 at every node (the result is Delaunay in XY, so a height field by construction). TerrainDualContouring
 remains the tool for broken meshes (soups, overlapping survey files) and point clouds.

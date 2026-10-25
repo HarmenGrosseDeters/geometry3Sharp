@@ -43,7 +43,7 @@ cases() {
   echo "tdc grid=dgm2022 win=$T4"
   echo "tdc grid=dgm2022 win=$T12"
   echo "tdc grid=dgm2022_322_5642 points=3dm_322_5642 win=$P2"
-  for e in 0.05 0.1 0.2 0.5; do echo "gtin grid=dgm2022 win=$T1 maxerr=$e"; done
+  for e in 0.05 0.1 0.2 0.5; do echo "gtin grid=dgm2022 win=$T1 maxerr=$e"; echo "gtin grid=dgm2022 win=$T1 maxerr=$e remove=1"; done
   for e in 0.05 0.2; do echo "gtin grid=dgm2022 win=$T12 maxerr=$e"; done
   echo "gtin grid=dgm2022 win=$T1 maxerr=0.1 coords=local"
   for c in utm local; do
