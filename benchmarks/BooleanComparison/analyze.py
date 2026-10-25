@@ -129,6 +129,7 @@ def main():
             print(t + "\n")
         if cls in args.cases.split(","):
             print(case_table(by_case, methods) + "\n")
+    errors = [r for r in errors if not any(r["file"] in by_case for by_case in by_class.values())]   # prepared in a later run
     if errors:
         print(f"{len(errors)} cases could not be prepared: " + ", ".join(f"{r['file']} ({r['error'][:60]})" for r in errors))
 
