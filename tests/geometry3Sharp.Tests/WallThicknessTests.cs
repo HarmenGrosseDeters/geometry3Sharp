@@ -177,5 +177,82 @@ namespace geometry3Sharp.Tests
             Assert.True(sphere.TriangleIndices().All(tid => double.IsNaN(wt.TriangleThickness[tid])));
             Assert.Equal(0, wt.Statistics.Count);
         }
+
+        // plate between the plane z = 1 (top) and the plane z = x tan(alpha) (bottom), x, y in [-1.5, 1.5]
+        static DMesh3 TiltedPlate(double alphaDeg)
+        {
+            DMesh3 m = new GridBox3Generator() { Box = new Box3d(new Vector3d(0, 0, 0.25), new Vector3d(1.5, 1.5, 0.75)), EdgeVertices = 6 }.Generate().MakeDMesh();
+            double ta = Math.Tan(alphaDeg * MathUtil.Deg2Rad);
+            foreach (int vid in m.VertexIndices().ToArray()) {
+                Vector3d p = m.GetVertex(vid);
+                double zb = p.x * ta, s = (p.z + 0.5) / 1.5;
+                m.SetVertex(vid, new Vector3d(p.x, p.y, zb + s * (1 - zb)));
+            }
+            return m;
+        }
+
+        [Theory]
+        [InlineData(10)]
+        [InlineData(20)]
+        [InlineData(40)]
+        public void InscribedSphere_ObliqueOppositeWall(double alphaDeg)
+        {
+            // ball tangent to the top at (0,0,1) with center (0,0,1-r) touches the bottom plane where
+            // (1-r) cos(alpha) = r. The contact is seen from the center alpha away from the antipode of p, so it
+            // limits the ball also for alpha < SeparationAngle
+            DMesh3 m = TiltedPlate(alphaDeg);
+            var ins = new MeshWallThickness(m) { Method = MeshWallThickness.Methods.InscribedSphere };
+            var ray = new MeshWallThickness(m) { Method = MeshWallThickness.Methods.Ray };
+            double ca = Math.Cos(alphaDeg * MathUtil.Deg2Rad);
+            Assert.Equal(1, ray.ThicknessAt(new Vector3d(0, 0, 1), Vector3d.AxisZ), 9);
+            Assert.Equal(2 * ca / (1 + ca), ins.ThicknessAt(new Vector3d(0, 0, 1), Vector3d.AxisZ), 9);
+        }
+
+        [Fact]
+        public void InscribedSphere_SolidBallAndRod_AreAboutTheDiameter()
+        {
+            // the facets next to p fold into the ball, but only within SeparationAngle of p: they must not
+            // shrink it (with the angle test the wrong way round the median was 1.33 for both)
+            DMesh3 ball = Sphere(1, 20, Vector3d.Zero);
+            var wb = new MeshWallThickness(ball) { Method = MeshWallThickness.Methods.InscribedSphere, ComputeVertices = false };
+            Assert.True(wb.Compute());
+            Assert.InRange(wb.Statistics.Median, 1.8, 2 + 1e-9);
+
+            DMesh3 rod = new CappedCylinderGenerator() { BaseRadius = 1, TopRadius = 1, Height = 10, Slices = 64 }.Generate().MakeDMesh();
+            var wr = new MeshWallThickness(rod) { Method = MeshWallThickness.Methods.InscribedSphere, ComputeVertices = false };
+            Assert.True(wr.Compute());
+            Assert.InRange(wr.Statistics.Median, 1.8, 2 + 1e-9);
+        }
+
+        [Fact]
+        public void OpenSheet_InscribedSphereIsNaN_LikeRay()
+        {
+            // box without its top: a single sheet, the inward rays of the bottom leave through the opening.
+            // There is no wall thickness; the ball must not be shrunk onto the side walls instead
+            DMesh3 cup = new GridBox3Generator() { Box = new Box3d(Vector3d.Zero, Vector3d.One), EdgeVertices = 4 }.Generate().MakeDMesh();
+            foreach (int tid in cup.TriangleIndices().ToArray())
+                if (cup.GetTriNormal(tid).z > 0.99) cup.RemoveTriangle(tid);
+            Assert.True(MeshTestUtil.BoundaryEdgeCount(cup) > 0);
+            foreach (var method in new[] { MeshWallThickness.Methods.Ray, MeshWallThickness.Methods.InscribedSphere }) {
+                var wt = new MeshWallThickness(cup) { Method = method };
+                Assert.True(wt.Compute());
+                int bottom = 0;
+                foreach (int tid in cup.TriangleIndices()) {
+                    if (cup.GetTriNormal(tid).z > -0.99) continue;
+                    Assert.True(double.IsNaN(wt.TriangleThickness[tid]), method + " triangle " + tid);
+                    bottom++;
+                }
+                Assert.True(bottom > 4);
+            }
+        }
+
+        [Fact]
+        public void InscribedSphere_VerticesOnly_StatisticsOverVertices()
+        {
+            DMesh3 slab = Box(Vector3d.Zero, new Vector3d(2, 2, 0.5));
+            var wt = new MeshWallThickness(slab) { Method = MeshWallThickness.Methods.InscribedSphere, ComputeTriangles = false };
+            Assert.True(wt.Compute());
+            Assert.Equal(slab.VertexCount, wt.Statistics.Count);
+        }
     }
 }

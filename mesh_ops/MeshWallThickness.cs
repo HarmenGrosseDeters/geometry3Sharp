@@ -67,7 +67,7 @@ namespace gs
         public double[] VertexThickness;
         /// <summary> thickness per triangle ID, at the centroid (NaN for unused IDs and triangles without a valid ray) </summary>
         public double[] TriangleThickness;
-        /// <summary> statistics over the computed triangle values (area weighted), or the vertex values if no triangles were computed </summary>
+        /// <summary> statistics over the triangle values (area weighted), or over the vertex values if ComputeTriangles is false </summary>
         public DeviationStatistics Statistics;
 
 
@@ -122,7 +122,7 @@ namespace gs
 
             var values = new List<double>();
             var weights = new List<double>();
-            if (TriangleThickness != null) {
+            if (TriangleThickness != null && ComputeTriangles) {
                 foreach (int tid in Mesh.TriangleIndices()) {
                     values.Add(TriangleThickness[tid]); weights.Add(Mesh.GetTriArea(tid));
                 }
@@ -310,7 +310,9 @@ namespace gs
         {
             // the inward ray bounds the ball's diameter: its hit point lies on the diameter through p
             double t = ray_length(p, -n, vid, tid, maxDist);
-            double r = double.IsNaN(t) ? 0.5 * maxDist : 0.5 * t;
+            if (double.IsNaN(t))
+                return double.NaN;  // no valid opposite wall (open or inconsistently oriented part)
+            double r = 0.5 * t;
             double tol = 1e-12 * maxDist;
             double cosSep = Math.Cos(MathUtil.Clamp(SeparationAngle, 0, 180) * MathUtil.Deg2Rad);
             for (int iter = 0; iter < MaxBallIterations; ++iter) {
@@ -330,7 +332,8 @@ namespace gs
                         if (!(dsqr < bestSqr)) return;
                         Vector3d w = closest - c;
                         double wl = w.Length;
-                        if (wl > 0 && (-n).Dot(w) > cosSep * wl)
+                        // p lies in direction +n from c
+                        if (wl > 0 && n.Dot(w) > cosSep * wl)
                             return;         // seen close to p: the folded neighborhood, not a wall
                         bestSqr = dsqr; q = closest; found = true;
                     }
@@ -346,8 +349,6 @@ namespace gs
                     break;
                 r = rnew;
             }
-            if (double.IsNaN(t) && r >= 0.5 * maxDist * (1 - 1e-12))
-                return double.NaN;  // no opposite wall at all
             return 2 * r;
         }
 

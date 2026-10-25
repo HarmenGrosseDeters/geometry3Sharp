@@ -412,3 +412,34 @@ wrap make every remaining mesh closed and free of self-intersections, but remesh
 the median, so they rarely meet the strict criterion. Their inputs are mostly meshes the exact resolve cannot
 take: not closed in the winding number sense, or whose resolved solid differs from the input's.
 
+
+### `robust` on the current master (both selections)
+Master of 2026-10-25 night (`56a8ed5`), with the changes merged since `a66049b`: among them the exact resolve
+before the solidify, the alpha wrap as the last resort (#47) and the faster checks (#49). Before: the holdout run above (build `a66049b`). Same machine, `BENCH_P=2
+TIMEOUT=300`. The large meshes of the first selection were not rerun.
+
+| | holdout before | holdout now | first selection now |
+|---|---|---|---|
+| **repaired** | 217 | **256** | **258** |
+| clean¹ + no exact self-intersections | 367 | 399 | 399 |
+| meshes with exact self-intersections | 33 | 0 | 1 |
+| large meshes repaired | 8/30 | 13/30 | – |
+| median / p90 / max repair time | 4.1 s / 15.5 s / 150 s | 1.95 s / 10.0 s / 92 s | 1.96 s / 10.2 s / 57 s |
+| sum of repair times | 2991 s | 1782 s | 1731 s |
+
+- Both selections agree within 2 meshes. The holdout selection was used while developing #49, so the
+  first selection is the cross-check here: no sign of overfitting to either.
+- No crashes or timeouts; all meshes closed.
+- The size-independent outliers are gone: 78968.stl 150 s → 2 s, 49998.stl 118 s → 3 s.
+- Path taken (holdout / first selection) and median time:
+
+  | path | holdout | first | median (holdout) |
+  |---|---|---|---|
+  | repair kept | 174 | 172 | 0.67 s |
+  | exact resolve | 130 | 133 | 2.7 s |
+  | solidify | 73 | 69 | 6.5 s |
+  | alpha wrap | 23 | 26 | 22 s |
+
+- The alpha wrap cases now take a third of the total time (659 s holdout, 603 s first selection): each
+  first runs the exact resolve and the solidify, which are discarded (113906.stl: 11 s exact, 66 s
+  solidify, 12 s wrap). Deciding earlier that the solidify will fail is the next lever.
