@@ -19,7 +19,7 @@ namespace gs
     ///
     /// Limits: an object on a steep face whose height is less than about the slope times ClothResolution
     /// (eg a 2.5 m object on a 51 degree face with a 1 m cloth) cannot be told from the face; and the
-    /// slope post-processing spreads onto objects lower than SlopeStep (eg light vehicles, 1.5 m: use a
+    /// slope post-processing spreads upwards onto objects lower than SlopeStep (eg light vehicles, 1.5 m: use a
     /// SlopeStep below the lowest object height that matters). Low outliers (multipath points below the
     /// ground) hold the cloth up around them: remove them first. Non-finite points are not ground.
     /// </summary>
@@ -38,11 +38,14 @@ namespace gs
         public double TimeStep = 0.65;
         /// <summary>
         /// Post-processing for steep slopes: unsettled cloth particles next to settled ones are settled on
-        /// the terrain if its height there differs by less than SlopeStep from the settled neighbour's
-        /// (continuous terrain such as a pit face; objects like buildings and vehicles have larger steps).
-        /// About the height change of the steepest terrain over one ClothResolution. 0 = off.
+        /// the terrain if it rises there by less than SlopeStep above the settled neighbour (continuous
+        /// terrain; objects like buildings and vehicles have larger steps), or falls by less than
+        /// SlopeStepDown: objects stand up from the ground, so going down (eg from a crest down a steep
+        /// face) is terrain. 0 = off.
         /// </summary>
         public double SlopeStep = 1.5;
+        /// <summary> see SlopeStep: largest drop per ClothResolution that is still followed (steep faces) </summary>
+        public double SlopeStepDown = 20;
 
         // share of the height difference each of two movable particles moves per relaxation pass
         // (a movable particle next to a settled one moves twice as far), about as in the original CSF
@@ -174,7 +177,9 @@ namespace gs
                     int[] nb = { (i > 0) ? k - 1 : -1, (i + 1 < nx) ? k + 1 : -1, (j > 0) ? k - nx : -1, (j + 1 < ny) ? k + nx : -1 };
                     foreach (int m in nb) {
                         if (m < 0 || movable[m] == false) continue;
-                        if (Math.Abs(collide[m] - collide[k]) < SlopeStep) {
+                        // inverted heights: collide[m] > collide[k] is a drop in the terrain
+                        double rise = collide[k] - collide[m];
+                        if (rise < SlopeStep && -rise < SlopeStepDown) {
                             h[m] = collide[m];
                             movable[m] = false;
                             queue.Enqueue(m);

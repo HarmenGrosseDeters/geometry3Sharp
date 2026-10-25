@@ -423,7 +423,22 @@ namespace gs
 
         bool is_valid(int c) { return hits[c] > 0 || segs[c] != null; }
         // fully covered interior cell, may be merged
-        bool is_simple(int c) { return segs[c] == null && hits[c] == SamplesPerCell * SamplesPerCell; }
+        // fully sampled, no boundary, and not next to the edge of the data (cells around a merged leaf must
+        // all exist, or the triangles between it and the boundary are missing: the point fit extrapolates
+        // past the edge of a cloud, so its last cells look complete)
+        bool is_simple(int c)
+        {
+            if (segs[c] != null || hits[c] != SamplesPerCell * SamplesPerCell)
+                return false;
+            int i = c % NX, j = c / NX;
+            for (int dj = -1; dj <= 1; ++dj)
+                for (int di = -1; di <= 1; ++di) {
+                    int ni = i + di, nj = j + dj;
+                    if (ni < 0 || nj < 0 || ni >= NX || nj >= NY || is_valid(cid(ni, nj)) == false)
+                        return false;
+                }
+            return true;
+        }
 
 
         // quadtree: level l node (i,j) covers finest cells [i*2^l, (i+1)*2^l) x [j*2^l, (j+1)*2^l)

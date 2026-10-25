@@ -173,7 +173,20 @@ namespace geometry3Sharp.Tests
             Assert.True(wrong < 0.05, $"{wrong:P2} of the vehicle points classified as ground");
         }
 
-        static double Pit(double x, double y)
+        [Fact]
+        public void OpenPitWith75DegreeFaces_DefaultParameters()
+        {
+            // 10 m faces at 75 degrees (3.7 m drop per cloth cell): the crests and faces were not ground
+            Func<double, double, double> pit = (x, y) => Pit(x - 100, y - 100, 10 / Math.Tan(75 * MathUtil.Deg2Rad));
+            var (points, truth) = Scene(pit, 200, 0.5, 7, default(Vector3d), true, true);
+            var csf = new ClothSimulationFilter(points) { ClothResolution = 1.0 };
+            Assert.True(csf.Compute());
+            var (missed, wrong) = Errors(csf.IsGround, truth);
+            Assert.True(missed < 0.03, $"{missed:P2} of the ground points missed");
+            Assert.True(wrong < 0.02, $"{wrong:P2} of the object points classified as ground");
+        }
+
+        static double Pit(double x, double y, double faceWidth = 8)
         {
             double c = Math.Cos(17 * MathUtil.Deg2Rad), s = Math.Sin(17 * MathUtil.Deg2Rad);
             double u = c * x + s * y, v = -s * x + c * y;
@@ -181,9 +194,9 @@ namespace geometry3Sharp.Tests
             double z = -40;
             for (int bench = 0; bench < 4; ++bench) {
                 if (r <= 0) return z;
-                double face = Math.Min(r, 8);
-                z += 10 * face / 8;
-                r -= 8;
+                double face = Math.Min(r, faceWidth);
+                z += 10 * face / faceWidth;
+                r -= faceWidth;
                 if (r <= 0) return z;
                 r -= 6;
             }

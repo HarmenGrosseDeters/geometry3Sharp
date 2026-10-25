@@ -214,10 +214,12 @@ namespace gs
     ///     TINs are fine) and the line points found by bisection on them, so they lie exactly at the
     ///     distance; between them, around convex corners and line ends, the chords of the arcs lie at
     ///     most Tolerance inside it.
-    ///   - AlongSurface: the geodesic distance along the terrain (heat method). That is accurate to about
-    ///     2% plus half an edge length on regular meshes, so the band within 3 x SafetyDistance of the
-    ///     sources is cut out and remeshed to EdgeLength (default SafetyDistance / 5) with its boundary and
-    ///     break lines kept; RemeshedTerrain and Geodesic.Distance give the distance field there.
+    ///   - AlongSurface: the geodesic distance along the terrain (heat method), on the band within
+    ///     3 x SafetyDistance of the sources, cut out and remeshed to EdgeLength (default SafetyDistance / 10)
+    ///     with its boundary and break lines kept; RemeshedTerrain and Geodesic.Distance give the distance
+    ///     field there. The heat method overestimates the distance next to break lines (by about 0.1 x
+    ///     EdgeLength in tests with 75 degree faces), which would put the line too close to the crest:
+    ///     the line is drawn at SafetyDistance + SafetyMargin (default 0.25 x EdgeLength), on the safe side.
     /// </summary>
     public class TerrainSafetyLines
     {
@@ -228,8 +230,10 @@ namespace gs
         /// <summary> source points (on the terrain); polylines are densified </summary>
         public List<Vector3d> SourcePoints = new List<Vector3d>();
         public double SafetyDistance;
-        /// <summary> AlongSurface: edge length for the distance computation; 0 = SafetyDistance / 5 </summary>
+        /// <summary> AlongSurface: edge length for the distance computation; 0 = SafetyDistance / 10 </summary>
         public double EdgeLength = 0;
+        /// <summary> AlongSurface: the line is drawn at SafetyDistance + SafetyMargin; negative = 0.25 x EdgeLength </summary>
+        public double SafetyMargin = -1;
         /// <summary> AlongSurface: break lines bending more than this (degrees) are kept by the remeshing </summary>
         public double FeatureAngle = 20;
         /// <summary> Horizontal: the line lies at most this much inside the distance (chords of arcs) </summary>
@@ -348,7 +352,7 @@ namespace gs
         bool compute_along_surface()
         {
             Lines.Clear();
-            double h = (EdgeLength > 0) ? EdgeLength : SafetyDistance / 5;
+            double h = (EdgeLength > 0) ? EdgeLength : SafetyDistance / 10;
             if (h <= 0)
                 return false;
 
@@ -372,7 +376,7 @@ namespace gs
             double band = 3 * SafetyDistance + 2 * h;
             // large (survey) triangles near the sources are split first, so the band is not whole triangles
             build_segments();
-            DMesh3 refined = refine_near_sources(0.5 * band, band);
+            DMesh3 refined = refine_near_sources(2 * h, band);
             var grid = new PointHashGrid3d<int>(band, -1);
             for (int i = 0; i < pts.Count; ++i)
                 grid.InsertPointUnsafe(i, pts[i]);
@@ -415,9 +419,10 @@ namespace gs
             if (Geodesic.Compute(sources) == false)
                 return false;
             double[] dist = Geodesic.Distance;
+            double level = SafetyDistance + ((SafetyMargin >= 0) ? SafetyMargin : 0.25 * h);
             var iso = new MeshIsoCurves(mesh, (v) => 0) {
                 // NaN: not reachable from a source
-                VertexValueF = (vid) => double.IsNaN(dist[vid]) ? SafetyDistance : dist[vid] - SafetyDistance,
+                VertexValueF = (vid) => double.IsNaN(dist[vid]) ? SafetyDistance : dist[vid] - level,
                 RootMode = MeshIsoCurves.RootfindingModes.SingleLerp
             };
             iso.Compute();
@@ -425,45 +430,44 @@ namespace gs
             return true;
         }
 
-        // chain the iso segments into polylines
+        // chain the iso segments into polylines: every edge exactly once; lines run between end points
+        // and junctions (degree != 2), the rest are closed loops
         void chain_graph(DGraph3 g)
         {
-            var visited = new HashSet<int>();
-            foreach (int start in g.VertexIndices()) {
-                if (visited.Contains(start) || g.GetVtxEdgeCount(start) == 2) continue;
-                foreach (int nb in g.VtxVerticesItr(start)) {
-                    var line = walk(g, start, nb, visited);
-                    if (line.Count > 1) Lines.Add(line);
-                }
+            var used = new HashSet<int>();
+            foreach (int v in g.VertexIndices()) {
+                if (g.GetVtxEdgeCount(v) == 2) continue;
+                foreach (int eid in g.VtxEdgesItr(v))
+                    if (used.Contains(eid) == false)
+                        add_line(walk(g, v, eid, used));
             }
-            foreach (int start in g.VertexIndices()) {
-                if (visited.Contains(start)) continue;
-                int nb = -1;
-                foreach (int n in g.VtxVerticesItr(start)) { nb = n; break; }
-                if (nb < 0) continue;
-                var line = walk(g, start, nb, visited);
-                if (line.Count > 1) Lines.Add(line);
-            }
+            foreach (int eid in g.EdgeIndices())
+                if (used.Contains(eid) == false)
+                    add_line(walk(g, g.GetEdgeV(eid).a, eid, used));
         }
 
-        static List<Vector3d> walk(DGraph3 g, int start, int next, HashSet<int> visited)
+        void add_line(List<Vector3d> line)
+        {
+            if (line.Count > 1) Lines.Add(line);
+        }
+
+        static List<Vector3d> walk(DGraph3 g, int start, int eid, HashSet<int> used)
         {
             var line = new List<Vector3d>() { g.GetVertex(start) };
-            visited.Add(start);
-            int prev = start, cur = next;
+            int cur = start;
             while (true) {
-                if (visited.Contains(cur)) {
-                    if (cur == start) line.Add(g.GetVertex(cur));
+                used.Add(eid);
+                Index2i ev = g.GetEdgeV(eid);
+                int next = (ev.a == cur) ? ev.b : ev.a;
+                line.Add(g.GetVertex(next));
+                if (next == start || g.GetVtxEdgeCount(next) != 2)
                     break;
-                }
-                visited.Add(cur);
-                line.Add(g.GetVertex(cur));
-                if (g.GetVtxEdgeCount(cur) != 2) break;
-                int nn = -1;
-                foreach (int n in g.VtxVerticesItr(cur))
-                    if (n != prev) { nn = n; break; }
-                if (nn < 0) break;
-                prev = cur; cur = nn;
+                int ne = -1;
+                foreach (int e in g.VtxEdgesItr(next))
+                    if (used.Contains(e) == false) { ne = e; break; }
+                if (ne < 0)
+                    break;
+                cur = next; eid = ne;
             }
             return line;
         }

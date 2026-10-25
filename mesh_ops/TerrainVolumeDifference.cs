@@ -15,8 +15,10 @@ namespace gs
     /// integrated exactly (area times the difference at the centroid). Only the common footprint counts.
     ///
     /// Inputs must be height fields (each XY point covered by at most one triangle per surface);
-    /// triangle soups and mixed orientation are fine. Computed relative to a local origin, so UTM
-    /// coordinates do not lose precision.
+    /// triangle soups and mixed orientation are fine. Triangles overlapping in XY (eg two survey files
+    /// merged with an overlap, or folds) would be counted twice: they are found with exact orientation
+    /// predicates, counted in BeforeOverlaps / AfterOverlaps, and Compute fails (RequireHeightField).
+    /// Computed relative to a local origin, so UTM coordinates do not lose precision.
     /// </summary>
     public class TerrainVolumeDifference
     {
@@ -33,6 +35,10 @@ namespace gs
         public double NetVolume { get { return FillVolume - CutVolume; } }
         /// <summary> area of the common footprint, and the parts of it with cut and fill </summary>
         public double OverlapArea, CutArea, FillArea;
+        /// <summary> pairs of triangles of the surface that overlap in XY (0 for a height field) </summary>
+        public int BeforeOverlaps, AfterOverlaps;
+        /// <summary> fail if a surface is not a height field (overlapping triangles in XY) </summary>
+        public bool RequireHeightField = true;
 
 
         public TerrainVolumeDifference(DMesh3 before, DMesh3 after)
@@ -44,8 +50,15 @@ namespace gs
         public bool Compute()
         {
             CutVolume = FillVolume = OverlapArea = CutArea = FillArea = 0;
+            BeforeOverlaps = AfterOverlaps = 0;
             if (Before.TriangleCount == 0 || After.TriangleCount == 0)
                 return false;
+            if (RequireHeightField) {
+                BeforeOverlaps = XYOverlaps(Before);
+                AfterOverlaps = XYOverlaps(After);
+                if (BeforeOverlaps > 0 || AfterOverlaps > 0)
+                    return false;
+            }
             AxisAlignedBox3d bounds = Before.CachedBounds;
             bounds.Contain(After.CachedBounds);
             Vector3d origin = bounds.Center;
@@ -137,6 +150,58 @@ namespace gs
                 }
             }
             return output;
+        }
+
+        /// <summary>
+        /// Number of triangle pairs whose XY projections overlap with positive area (exact: two triangles
+        /// are disjoint or only touch iff an edge line of one has the other on its closed outer side).
+        /// Triangles that are vertical (zero XY area) are ignored.
+        /// </summary>
+        public static int XYOverlaps(DMesh3 mesh)
+        {
+            var spatial = new DMeshAABBTree3(mesh, true);
+            int count = 0;
+            object lockObj = new object();
+            int[] tris = new List<int>(mesh.TriangleIndices()).ToArray();
+            gParallel.ForEach(Interval1i.Range(tris.Length), (k) => {
+                int ta = tris[k];
+                Vector2d[] A = ccw_xy(mesh, ta);
+                if (A == null) return;
+                AxisAlignedBox2d box = new AxisAlignedBox2d(A[0]); box.Contain(A[1]); box.Contain(A[2]);
+                int local = 0;
+                spatial.DoTraversal(new DMeshAABBTree3.TreeTraversal() {
+                    NextBoxDF = (b, depth) => b.Min.x <= box.Max.x && b.Max.x >= box.Min.x && b.Min.y <= box.Max.y && b.Max.y >= box.Min.y,
+                    NextTriangleF = (tb) => {
+                        if (tb <= ta) return;
+                        Vector2d[] B = ccw_xy(mesh, tb);
+                        if (B != null && separated(A, B) == false && separated(B, A) == false)
+                            local++;
+                    }
+                });
+                if (local > 0)
+                    lock (lockObj) count += local;
+            });
+            return count;
+        }
+
+        static Vector2d[] ccw_xy(DMesh3 mesh, int tid)
+        {
+            Index3i t = mesh.GetTriangle(tid);
+            Vector2d a = mesh.GetVertex(t.a).xy, b = mesh.GetVertex(t.b).xy, c = mesh.GetVertex(t.c).xy;
+            int o = ExactPredicates.Orient2d(a, b, c);
+            if (o == 0) return null;
+            return (o > 0) ? new Vector2d[] { a, b, c } : new Vector2d[] { a, c, b };
+        }
+
+        // does an edge line of the counter-clockwise triangle T have all of U on its closed outer side?
+        static bool separated(Vector2d[] T, Vector2d[] U)
+        {
+            for (int e = 0; e < 3; ++e) {
+                Vector2d p = T[e], q = T[(e + 1) % 3];
+                if (ExactPredicates.Orient2d(p, q, U[0]) <= 0 && ExactPredicates.Orient2d(p, q, U[1]) <= 0 && ExactPredicates.Orient2d(p, q, U[2]) <= 0)
+                    return true;
+            }
+            return false;
         }
 
         // split the polygon at diff = 0 and integrate both parts exactly (diff is linear on the polygon)
