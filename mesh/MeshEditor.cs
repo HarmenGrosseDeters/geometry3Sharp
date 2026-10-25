@@ -717,11 +717,8 @@ namespace g3
                         else t.c = copy_vid;
                         Mesh.SetTriangle(tid, t, false);
                     }
-                    // the edges at the copy are new: carry the cut marks over
-                    foreach (Index2i e in cutV.Where(e => e.a == vid || e.b == vid).ToList()) {
-                        int other = (e.a == vid) ? e.b : e.a;
-                        cutV.Add(new Index2i(Math.Min(other, copy_vid), Math.Max(other, copy_vid)));
-                    }
+                    // (the cut edges at vid now have one triangle each, at vid and at the copy: boundary edges,
+                    // which the fans of their other ends do not join over)
                 }
             }
             return added;

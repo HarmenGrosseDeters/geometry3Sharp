@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using g3;
@@ -72,6 +72,27 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void OrientComponents_ManyRandomFlips_SeamSmoothed()
+        {
+            // with 30 % of the triangles reversed the patches are small and the spanning tree leaves a jagged
+            // seam; flipping triangles with two or three inconsistent edges shortens it (without: 69 edges
+            // over these five bands, at least 8 each)
+            var rnd = new Random(3);
+            int total = 0;
+            for (int trial = 0; trial < 5; ++trial) {
+                DMesh3 mesh = Moebius(60, 8);
+                foreach (int tid in mesh.TriangleIndices().ToList())
+                    if (rnd.NextDouble() < 0.3)
+                        mesh.ReverseTriOrientation(tid);
+                new MeshRepairOrientation(mesh).OrientComponents();
+                int n = InconsistentEdges(mesh);
+                Assert.True(n >= 8);
+                total += n;
+            }
+            Assert.True(total <= 60, $"{total} inconsistent edges");
+        }
+
+        [Fact]
         public void OrientComponents_OrientableWithFlippedPatches_Consistent()
         {
             // a sphere with reversed triangles and reversed patches: orientable, so all consistent afterwards
@@ -124,6 +145,32 @@ namespace geometry3Sharp.Tests
             int eid = mesh.EdgeIndices().First();
             Assert.Equal(0, new MeshEditor(mesh).CutAlongEdges(new[] { eid }));
             Assert.True(mesh.IsClosed());
+        }
+
+        [Fact]
+        public void AutoRepair_ClosedNonOrientable_CutAndClosedAgain()
+        {
+            // a Moebius band closed by a fan from its boundary to an apex: closed (every edge has two triangles),
+            // but not orientable, so not closed in the winding number sense. The repair skips the hole filling
+            // (nothing is open) and cuts the seam at the end: both sides of the cut are closed separately
+            DMesh3 mesh = Moebius(30, 3);
+            var loops = new MeshBoundaryLoops(mesh);
+            Assert.Single(loops.Loops);
+            int[] loop = loops.Loops[0].Vertices;
+            int apex = mesh.AppendVertex(new Vector3d(0, 0, 3));
+            for (int i = 0; i < loop.Length; ++i)
+                Assert.True(mesh.AppendTriangle(loop[i], loop[(i + 1) % loop.Length], apex) >= 0);
+            Assert.True(mesh.IsClosed());
+            Assert.True(InconsistentEdges(mesh) > 0);
+            var repair = new MeshAutoRepair(mesh);
+            var stages = new List<string>();
+            repair.OnStage = (name, m) => stages.Add(name);
+            Assert.True(repair.Apply());
+            DMesh3 r = repair.Mesh;
+            Assert.Contains("cut_seams_final", stages);
+            Assert.True(r.IsClosed());
+            Assert.Equal(0, InconsistentEdges(r));
+            Assert.True(ExactMeshBoolean.IsWindingClosed(r));
         }
 
         [Fact]
