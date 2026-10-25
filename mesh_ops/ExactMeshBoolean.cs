@@ -825,23 +825,32 @@ namespace g3
                 pairs.Add(new KeyValuePair<int, int>(list[0], list[1]));
                 return pairs;
             }
-            // angles of the triangles' half-planes around the axis u -> v
-            Vector3d pu = arr.PointToVector(u), pv = arr.PointToVector(v);
-            Vector3d axis = (pv - pu).Normalized;
-            Vector3d refDir = Vector3d.Zero;
-            var angle = new Dictionary<int, double>();
+            // the triangles' half-planes in the order of increasing angle around the axis u -> v (exact: half-planes
+            // can differ by less than the rounding of the points), from the half-plane of the first triangle
+            ExactPoint3 U = arr.Exact(u), V = arr.Exact(v);
+            BigInteger[] axis = scaled_difference(V, U);
+            var dir = new Dictionary<int, BigInteger[]>();
+            var half = new Dictionary<int, int>();
+            BigInteger[] r = null, y = null;
             foreach (int t in list) {
                 Index3i f = tris[t];
-                int w = f.a + f.b + f.c - u - v;
-                Vector3d d = arr.PointToVector(w) - pu;
-                d -= d.Dot(axis) * axis;
-                if (refDir == Vector3d.Zero)
-                    refDir = d.Normalized;
-                Vector3d y = axis.Cross(refDir);
-                angle[t] = Math.Atan2(d.Dot(y), d.Dot(refDir));
+                BigInteger[] d = scaled_difference(arr.Exact(f.a + f.b + f.c - u - v), U);
+                if (r == null) {
+                    r = d;
+                    y = cross(axis, r);
+                }
+                dir[t] = d;
+                // 0: the first half-plane, 1: angle in (0, pi), 2: pi, 3: (pi, 2 pi)
+                int s = dot(y, d).Sign;
+                half[t] = (s > 0) ? 1 : (s < 0) ? 3 : (dot(cross(axis, d), y).Sign > 0) ? 0 : 2;
             }
             var sorted = new List<int>(list);
-            sorted.Sort((a, b) => angle[a].CompareTo(angle[b]));
+            sorted.Sort((a, b) => {
+                int c = half[a].CompareTo(half[b]);
+                if (c == 0 && (half[a] & 1) == 1)
+                    c = -dot(cross(axis, dir[a]), dir[b]).Sign;      // b at a larger angle than a: positive
+                return (c != 0) ? c : a.CompareTo(b);
+            });
             // a triangle running u -> v has its normal towards increasing angle: its solid is at decreasing angle
             var used = new HashSet<int>();
             int n = sorted.Count;
@@ -856,6 +865,22 @@ namespace g3
                 }
             }
             return pairs;
+        }
+
+        // p - q times the positive factor p.W q.W
+        static BigInteger[] scaled_difference(ExactPoint3 p, ExactPoint3 q)
+        {
+            return new[] { p.X * q.W - q.X * p.W, p.Y * q.W - q.Y * p.W, p.Z * q.W - q.Z * p.W };
+        }
+
+        static BigInteger[] cross(BigInteger[] a, BigInteger[] b)
+        {
+            return new[] { a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0] };
+        }
+
+        static BigInteger dot(BigInteger[] a, BigInteger[] b)
+        {
+            return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
         }
 
         static bool runs(Index3i t, int u, int v)
