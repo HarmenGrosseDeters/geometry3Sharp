@@ -31,7 +31,7 @@ selectively.
 - [x] Package metadata: SPDX license, README, XML docs, symbols
 - [x] Mesh formats PLY, 3MF, glTF/GLB (read and write)
 - [ ] Package ID and publishing (nuget.org ID `geometry3Sharp` belongs to upstream)
-- [ ] API docs and examples per operation
+- [x] API docs and examples per operation ([OPERATIONS.md](OPERATIONS.md), examples run as tests)
 
 ## Phase 2: robustness
 

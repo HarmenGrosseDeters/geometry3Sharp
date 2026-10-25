@@ -1,7 +1,8 @@
 ﻿# About this fork
 
 This fork tracks gradientspace/geometry3Sharp `master`, whose code is the same as NuGet package 1.0.324.
-Its direction is described in [docs/ROADMAP.md](docs/ROADMAP.md). It adds:
+Its direction is described in [docs/ROADMAP.md](docs/ROADMAP.md). [docs/OPERATIONS.md](docs/OPERATIONS.md) maps the main
+operations to their classes, with a tested example for each. It adds:
 
 - Mesh repair fixes:
   - `MeshEditor.DisconnectBowtie` no longer cuts cracks into the mesh. The old version was order-dependent.
