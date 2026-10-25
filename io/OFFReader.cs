@@ -102,9 +102,9 @@ namespace g3
                 if ( tokens.Length < 3 )
                     return new IOReadResult(IOCode.FileParsingError, "found invalid OFF vertex line: " + line);
 
-                double x = Double.Parse(tokens[0], CultureInfo.InvariantCulture);
-                double y = Double.Parse(tokens[1], CultureInfo.InvariantCulture);
-                double z = Double.Parse(tokens[2], CultureInfo.InvariantCulture);
+                double x = Double.Parse(tokens[0], NumberStyles.Float, CultureInfo.InvariantCulture);
+                double y = Double.Parse(tokens[1], NumberStyles.Float, CultureInfo.InvariantCulture);
+                double z = Double.Parse(tokens[2], NumberStyles.Float, CultureInfo.InvariantCulture);
                 builder.AppendVertex(x, y, z);
                 vi++;
             }
