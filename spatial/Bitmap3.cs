@@ -127,6 +127,8 @@ namespace g3
 			AxisAlignedBox3i bounds = GridBounds;
 			bounds.Max -= Vector3i.One;
 
+			// count neighbours in the unfiltered input, not in the partially-filtered bits
+			BitArray input = new BitArray(Bits);
 			for (int i = 0; i < Bits.Length; ++i ) {
 				if (Bits[i] == false)
 					continue;
@@ -136,7 +138,7 @@ namespace g3
 					Vector3i nbr = idx + gIndices.GridOffsets6[k];
 					if (bounds.Contains(nbr) == false)
 						continue;
-					if (Get(nbr))
+					if (input[ToLinear(nbr)])
 						nc++;
 				}
 				if (nc <= nMinNbrs)

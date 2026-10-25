@@ -28,8 +28,10 @@ namespace g3
 
         public DenseGrid2f(DenseGrid2f copy)
         {
-            Buffer = new float[copy.Buffer.Length];
-            Array.Copy(copy.Buffer, Buffer, Buffer.Length);
+            if (copy.Buffer != null) {
+                Buffer = new float[copy.Buffer.Length];
+                Array.Copy(copy.Buffer, Buffer, Buffer.Length);
+            }
             ni = copy.ni; nj = copy.nj;
         }
 
@@ -64,7 +66,7 @@ namespace g3
                     Buffer[i + ni * jb] = value;
                 }
             }
-            int stop = nj - 1 - rings;
+            int stop = nj - rings;
             for ( int j = rings; j < stop; ++j ) {
                 for ( int i = 0; i < rings; ++i ) {
                     Buffer[i + ni * j] = value;
