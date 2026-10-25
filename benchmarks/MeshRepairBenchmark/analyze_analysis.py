@@ -86,7 +86,9 @@ for f, other in runs[1:]:
             a, b = num(r.get(k)), num(other.get(name, {}).get(k))
             if a is None or b is None:
                 continue
-            tol = 1e-3 if "frac" in k else 1e-6 * max(abs(a), 1e-12)
+            # fractions: 1e-3 of the triangles / points; the sign agreement is over 2000 samples, 5 of
+            # which may flip near holes of open meshes (winding number ~0.5) with the rounding
+            tol = 2.5e-3 if k == "dev_sign_disagree_frac" else 1e-3 if "frac" in k else 1e-6 * max(abs(a), 1e-12)
             if abs(a - b) > tol:
                 diffs.append((abs(a - b) / max(abs(a), 1e-12), name))
         diffs.sort(reverse=True)

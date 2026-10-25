@@ -35,7 +35,8 @@ namespace gs
     /// intersection" (JCGT 2013): a ray through a shared edge or vertex hits at least one of the triangles,
     /// so no ray slips through the surface. A ray that leaves the solid through a front face (normal facing
     /// the ray) hit an inconsistently oriented or open part; it is ignored. Points without any valid ray
-    /// get NaN. Closed components that are inside out for their nesting, and a mesh that is inside out as
+    /// get NaN, and so do degenerate triangles (area below 1e-12 times the squared bounding box diagonal),
+    /// which also do not count as walls. Closed components that are inside out for their nesting, and a mesh that is inside out as
     /// a whole, are taken with flipped normals (OrientInvertedParts; the mesh is not changed).
     /// </summary>
     public class MeshWallThickness
@@ -174,14 +175,19 @@ namespace gs
 
         // smallest ray parameter of a hit (relative to the mesh size, so that the result scales exactly with
         // the mesh), and the padding of the (float) tree boxes
-        double eps, boxPad, tieTol;
+        double eps, boxPad, tieTol, degenerateArea;
 
         // triangles taken with reversed orientation (OrientInvertedParts)
         bool[] flipped;
 
+        // zero for degenerate triangles (area below 1e-12 diag^2): their normal is rounding noise, which
+        // depends on the unit; they get no value and do not count as walls
         Vector3d tri_normal(int tid)
         {
-            Vector3d n = MeshAnalysisNormals.TriNormal(Mesh, tid);
+            double area;
+            Vector3d n = MeshAnalysisNormals.TriNormal(Mesh, tid, out area);
+            if (!(area >= degenerateArea))
+                return Vector3d.Zero;
             return (flipped != null && flipped[tid]) ? -n : n;
         }
 
@@ -225,6 +231,7 @@ namespace gs
             eps = 1e-9 * b.DiagonalLength;
             boxPad = 1e-6 * (b.DiagonalLength + Math.Max(b.Min.MaxAbs, b.Max.MaxAbs));
             tieTol = 1e-9 * (b.DiagonalLength + Math.Max(b.Min.MaxAbs, b.Max.MaxAbs));
+            degenerateArea = 1e-12 * b.DiagonalLength * b.DiagonalLength;
         }
 
         Vector3d vertex_normal(int vid)
@@ -303,7 +310,9 @@ namespace gs
                     double t;
                     if (ray.Intersect(Mesh.GetVertex(tv.a), Mesh.GetVertex(tv.b), Mesh.GetVertex(tv.c), out t) == false) return;
                     if (t <= eps || t > best + tieTol) return;
-                    double dot = tri_normal(ti).Dot(dir);
+                    Vector3d tn = tri_normal(ti);
+                    if (tn == Vector3d.Zero) return;        // degenerate: no wall
+                    double dot = tn.Dot(dir);
                     // coincident faces (touching parts, duplicates) are hit at the same t up to rounding:
                     // prefer the one the ray leaves through, whatever the rounding (it depends on the unit)
                     if (bestTri != DMesh3.InvalidID && Math.Abs(t - best) <= tieTol) {

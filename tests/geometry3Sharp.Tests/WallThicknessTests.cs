@@ -209,6 +209,27 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        [Theory]
+        [InlineData(1.0)]
+        [InlineData(0.001)]
+        public void DegenerateTriangles_AreNoWalls(double scale)
+        {
+            // a sliver of (nearly) zero area inside a plate: its normal is rounding noise, so it gets no value
+            // and rays pass it (found on Thingi10K, where such slivers made the result depend on the unit)
+            DMesh3 mesh = Box(Vector3d.Zero, new Vector3d(2, 2, 0.5));
+            int a = mesh.AppendVertex(new Vector3d(-1, 0, 0)), b = mesh.AppendVertex(new Vector3d(1, 0, 0)),
+                c = mesh.AppendVertex(new Vector3d(0, 1e-15, 0));
+            int sliver = mesh.AppendTriangle(a, b, c);
+            MeshTransforms.Scale(mesh, scale);
+            var wt = new MeshWallThickness(mesh) { Method = MeshWallThickness.Methods.Ray, ComputeVertices = false };
+            Assert.True(wt.Compute());
+            Assert.True(double.IsNaN(wt.TriangleThickness[sliver]));
+            foreach (int tid in mesh.TriangleIndices()) {
+                if (tid == sliver || Math.Abs(mesh.GetTriNormal(tid).z) < 0.99) continue;
+                Assert.Equal(1.0, wt.TriangleThickness[tid] / scale, 6);
+            }
+        }
+
         [Fact]
         public void InsideOutParts_AreTakenFlipped()
         {

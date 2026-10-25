@@ -156,15 +156,22 @@ namespace gs
         Vector3d[] vertexNormals;
         bool[] flipped;
 
+        // zero for degenerate triangles (area below 1e-12 diag^2): their normal is rounding noise
         Vector3d tri_normal(int tid)
         {
-            Vector3d n = MeshAnalysisNormals.TriNormal(Reference, tid);
+            double area;
+            Vector3d n = MeshAnalysisNormals.TriNormal(Reference, tid, out area);
+            if (!(area >= degenerateArea))
+                return Vector3d.Zero;
             return (flipped != null && flipped[tid]) ? -n : n;
         }
+        double degenerateArea;
 
         void compute_pseudonormals()
         {
             flipped = OrientInvertedParts ? MeshWallThickness.InvertedTriangles(Reference) : null;
+            double diag = Reference.CachedBounds.DiagonalLength;
+            degenerateArea = 1e-12 * diag * diag;
             vertexNormals = new Vector3d[Reference.MaxVertexID];
             foreach (int tid in Reference.TriangleIndices()) {
                 Vector3d n = tri_normal(tid);
@@ -199,6 +206,8 @@ namespace gs
                         n += tri_normal(other);
                 }
             }
+            if (n == Vector3d.Zero)     // degenerate triangle: the pseudo-normals of its corners
+                n = vertexNormals[tv.a] + vertexNormals[tv.b] + vertexNormals[tv.c];
             return n;
         }
     }
