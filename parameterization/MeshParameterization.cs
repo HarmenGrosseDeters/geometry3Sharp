@@ -425,9 +425,11 @@ namespace g3
 
         /// <summary>
         /// Cotangents at the corners of a (nearly) degenerate triangle after intrinsic mollification (Sharp and
-        /// Crane, "A Laplacian for Nonmanifold Triangle Meshes", 2020): its edge lengths are increased by the
-        /// smallest delta that makes each triangle inequality hold with a margin of 1e-12 times the longest edge
-        /// (which gives the triangle a height of about 1e-6 times the longest edge, and weights of about 1e6).
+        /// Crane, "A Laplacian for Nonmanifold Triangle Meshes", 2020): all its edge lengths are increased by the
+        /// smallest delta that gives it an area of 1e-8 / 2 times the square of its longest edge L. Its
+        /// cotangents are then at most about 1e8, both for a flat triangle and for one with coincident
+        /// vertices (a fixed triangle inequality margin gives weights growing like 1/sqrt(margin) for the one
+        /// and 1/margin for the other).
         /// False if all its vertices coincide.
         /// </summary>
         public static bool MollifiedCotangents(Vector3d p0, Vector3d p1, Vector3d p2, out Vector3d cot)
@@ -438,10 +440,19 @@ namespace g3
             double maxLen = Math.Max(l[0], Math.Max(l[1], l[2]));
             if (!(maxLen > 0))
                 return false;
-            double eps = 1e-12 * maxLen, delta = 0;
-            for (int j = 0; j < 3; ++j)
-                delta = Math.Max(delta, eps - (l[(j + 1) % 3] + l[(j + 2) % 3] - l[j]));
-            for (int j = 0; j < 3; ++j) l[j] += delta;
+            Func<double, double> area = (d) => gs.IntrinsicTriangulation.area_from_lengths(l[0] + d, l[1] + d, l[2] + d);
+            double target = 0.5e-8 * maxLen * maxLen;
+            // the area grows with delta (every factor of Heron's formula does); at delta = maxLen it is above
+            // the target, so bisect
+            double lo = 0, hi = maxLen;
+            if (!(area(0) >= target)) {
+                for (int it = 0; it < 100 && hi - lo > 1e-15 * maxLen; ++it) {
+                    double mid = 0.5 * (lo + hi);
+                    if (area(mid) >= target) hi = mid; else lo = mid;
+                }
+                lo = hi;
+            }
+            for (int j = 0; j < 3; ++j) l[j] += lo;
             double A4 = 4 * gs.IntrinsicTriangulation.area_from_lengths(l[0], l[1], l[2]);
             if (!(A4 > 0))
                 return false;
