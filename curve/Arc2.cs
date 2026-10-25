@@ -12,7 +12,7 @@ namespace g3 {
 		public double Radius;
 		public double AngleStartDeg;
 		public double AngleEndDeg;
-		public bool IsReversed;		// use ccw orientation instead of cw
+		public bool IsReversed;		// use cw orientation instead of ccw
 		
 
 		public Arc2d(Vector2d center, double radius, double startDeg, double endDeg)
@@ -30,7 +30,7 @@ namespace g3 {
 
 
         /// <summary>
-        /// Create Arc around center, **clockwise** from start to end points.
+        /// Create Arc around center, **counter-clockwise** from start to end points.
         /// Points must both be the same distance from center (ie on circle)
         /// </summary>
         public Arc2d(Vector2d vCenter, Vector2d vStart, Vector2d vEnd)
@@ -41,7 +41,7 @@ namespace g3 {
 
 
         /// <summary>
-        /// Initialize Arc around center, **clockwise** from start to end points.
+        /// Initialize Arc around center, **counter-clockwise** from start to end points.
         /// Points must both be the same distance from center (ie on circle)
         /// </summary>
         public void SetFromCenterAndPoints(Vector2d vCenter, Vector2d vStart, Vector2d vEnd)

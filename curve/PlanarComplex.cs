@@ -490,6 +490,13 @@ namespace g3
 			return FindSolidRegions(opt);
 		}
 
+        // order used by FindSolidRegions: larger bounds first, so loops whose bounds contain
+        // others come first. (Comparing by containment alone is not a consistent ordering.)
+        internal static int solid_sort_compare(AxisAlignedBox2d a, AxisAlignedBox2d b)
+        {
+            return b.Area.CompareTo(a.Area);
+        }
+
         // Finds set of "solid" regions - eg boundary loops with interior holes.
         // Result has outer loops being clockwise, and holes counter-clockwise
 		public SolidRegionInfo FindSolidRegions(FindSolidsOptions options) 
@@ -517,9 +524,7 @@ namespace g3
 			}
 
 			// sort by bbox containment to speed up testing (does it??)
-			validLoops.Sort((x, y) => {
-				return bounds[x.ID].Contains( bounds[y.ID] ) ? -1 : 1; 
-			});
+			validLoops.Sort((x, y) => solid_sort_compare(bounds[x.ID], bounds[y.ID]));
 
             // containment sets
 			bool[] bIsContained = new bool[N];

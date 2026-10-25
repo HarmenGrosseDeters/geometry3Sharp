@@ -6,7 +6,7 @@ namespace g3
     {
 		public Vector2d Center;
 		public double Radius;
-		public bool IsReversed;		// use ccw orientation instead of cw
+		public bool IsReversed;		// use cw orientation instead of ccw
 
         public Circle2d(double radius) {
             IsReversed = false;

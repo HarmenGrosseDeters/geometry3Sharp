@@ -22,7 +22,7 @@ namespace g3.Examples
 
         /// <summary>
         /// Geodesic distance from vertex source to every vertex (by vertex id; NaN if unreachable), or null.
-        /// Accuracy about 2% plus half an edge length; a few percent worse near open boundaries.
+        /// Accuracy about 2% plus half the mean edge length; near open boundaries 2% plus one mean edge length.
         /// </summary>
         public static double[] Geodesic(DMesh3 mesh, int source, out List<Vector3d> pathToFarthest)
         {
