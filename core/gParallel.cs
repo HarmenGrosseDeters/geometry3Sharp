@@ -170,7 +170,8 @@ namespace g3
         }
 
 
-        bool producer_done = false;
+        volatile bool producer_done = false;
+        volatile Exception thread_exception = null;
         AutoResetEvent consumer_done_event;
 
         //int max_queue_size = 0;
@@ -179,6 +180,7 @@ namespace g3
         {
             source = sourceIn;
             producer_done = false;
+            thread_exception = null;
             consumer_done_event = new AutoResetEvent(false);
 
             Thread producer = new Thread(ProducerThreadFunc);
@@ -190,6 +192,11 @@ namespace g3
 
             // wait for threads to finish
             consumer_done_event.WaitOne();
+            producer.Join();
+
+            // an exception in a worker thread would otherwise terminate the process
+            if (thread_exception != null)
+                throw new Exception("ParallelStream: " + thread_exception.Message, thread_exception);
 
             //System.Console.WriteLine("MAX QUEUE SIZE " + max_queue_size);       
         }
@@ -197,11 +204,18 @@ namespace g3
 
 
         void ProducerThreadFunc() {
-            foreach ( V v in source ) {
-                T product = ProducerF(v);
-                store0.Add(product);
+            try {
+                foreach ( V v in source ) {
+                    if (thread_exception != null)
+                        break;
+                    T product = ProducerF(v);
+                    store0.Add(product);
+                }
+            } catch (Exception e) {
+                thread_exception = e;
+            } finally {
+                producer_done = true;
             }
-            producer_done = true;
         }
 
 
@@ -210,14 +224,18 @@ namespace g3
             // this just spins...is that a good idea??
 
             T next = default(T);
-            while ( producer_done == false || store0.Count > 0 ) {
-                //max_queue_size = Math.Max(max_queue_size, store0.Count);
-                bool ok = store0.Remove(ref next);
-                if (ok)
-                    ConsumerF(next);
+            try {
+                while ( (producer_done == false || store0.Count > 0) && thread_exception == null ) {
+                    //max_queue_size = Math.Max(max_queue_size, store0.Count);
+                    bool ok = store0.Remove(ref next);
+                    if (ok)
+                        ConsumerF(next);
+                }
+            } catch (Exception e) {
+                thread_exception = e;
+            } finally {
+                consumer_done_event.Set();
             }
-
-            consumer_done_event.Set();
         }
 
     }

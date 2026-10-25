@@ -601,7 +601,7 @@ namespace g3
                     oChild1 = (-oChild1) - 1;
                     AxisAlignedBox3d oChild1Box = otherTree.get_boxd(oChild1, TransformF);
                     if (oChild1Box.Intersects(bounds) )
-                        return find_any_intersection(iBox, otherTree, TransformF, oBox, depth + 1);
+                        return find_any_intersection(iBox, otherTree, TransformF, oChild1, depth + 1);
 
                 } else {                            // 2 children
                     oChild1 = oChild1 - 1;          // [TODO] could descend one w/ larger overlap volume first??

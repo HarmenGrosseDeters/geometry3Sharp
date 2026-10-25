@@ -219,7 +219,7 @@ namespace g3
         // there are fast approximations to this...
         public static double InvSqrt(double f)
         {
-            return f / Math.Sqrt(f);
+            return 1.0 / Math.Sqrt(f);
         }
 
 

@@ -12,7 +12,7 @@ namespace g3
         public Index3i(int z) { a = b = c = z; }
         public Index3i(int ii, int jj, int kk) { a = ii; b = jj; c = kk; }
         public Index3i(int[] i2) { a = i2[0]; b = i2[1]; c = i2[2]; }
-        public Index3i(Index3i copy) { a = copy.a; b = copy.b; c = copy.b; }
+        public Index3i(Index3i copy) { a = copy.a; b = copy.b; c = copy.c; }
 
         // reverse last two indices if cycle is true (useful for cw/ccw codes)
         public Index3i(int ii, int jj, int kk, bool cycle) {
@@ -319,7 +319,7 @@ namespace g3
         public Index4i(int z) { a = b = c = d = z; }
         public Index4i(int aa, int bb, int cc, int dd) { a = aa; b = bb; c = cc; d = dd; }
         public Index4i(int[] i2) { a = i2[0]; b = i2[1]; c = i2[2]; d = i2[3]; }
-        public Index4i(Index4i copy) { a = copy.a; b = copy.b; c = copy.b; d = copy.d; }
+        public Index4i(Index4i copy) { a = copy.a; b = copy.b; c = copy.c; d = copy.d; }
 
         static public readonly Index4i Zero = new Index4i(0, 0, 0, 0);
         static public readonly Index4i One = new Index4i(1, 1, 1, 1);

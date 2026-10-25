@@ -545,6 +545,7 @@ namespace g3
                 if (DenseQueue.Contains(nbr_id)) {
                     if (nbr_dist < nbr.distance) {
                         nbr.parent = parent_id;
+                        nbr.distance = nbr_dist;
                         DenseQueue.Update(nbr_id, nbr_dist);
                         DenseNodes[nbr_id] = nbr;
                     }
