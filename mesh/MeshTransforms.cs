@@ -26,10 +26,9 @@ namespace g3
 
         public static Vector3d Rotate(Vector3d pos, Vector3d origin, Quaternionf rotation)
         {
-            Vector3d v = pos - origin;
-            v = (Vector3d)(rotation * (Vector3f)v);
-            v += origin;
-            return v;
+            // rotate in double precision; going through Vector3f loses precision far from the origin
+            Quaterniond q = rotation;
+            return q * (pos - origin) + origin;
         }
         public static Frame3f Rotate(Frame3f f, Vector3d origin, Quaternionf rotation)
         {
@@ -49,11 +48,9 @@ namespace g3
             int NV = mesh.MaxVertexID;
             for ( int vid = 0; vid < NV; ++vid ) {
                 if (mesh.IsVertex(vid)) {
-                    Vector3d v = mesh.GetVertex(vid);
-                    v -= origin;
-                    v = (Vector3d)(rotation * (Vector3f)v);
-                    v += origin;
-                    mesh.SetVertex(vid, v);
+                    // rotate in double precision; going through Vector3f loses precision far from the origin
+                    Quaterniond q = rotation;
+                    mesh.SetVertex(vid, q * (mesh.GetVertex(vid) - origin) + origin);
                     if ( bHasNormals )
                         mesh.SetVertexNormal(vid, rotation * mesh.GetVertexNormal(vid));
                 }

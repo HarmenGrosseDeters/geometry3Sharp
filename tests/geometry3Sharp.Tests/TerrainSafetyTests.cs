@@ -164,10 +164,14 @@ namespace geometry3Sharp.Tests
             Assert.Single(safety.Lines);
             var line = safety.Lines[0];
             Assert.True(line[0].Distance(line[line.Count - 1]) < 1e-9, "not closed");
+            // along the surface the line is drawn with a safety margin (outwards), the heat distance error
+            // is within the tolerance of that
+            double offset = (mode == TerrainSafetyLines.Modes.Horizontal) ? 0 : 0.35 * 10.0 / 8;
             foreach (Vector3d p in line)
-                Assert.True(Math.Abs(p.Distance(src) - 10) < tolerance, $"{p}: {p.Distance(src)}");
+                Assert.True(Math.Abs(p.Distance(src) - 10 - offset) < tolerance, $"{p}: {p.Distance(src)}");
             // along the surface the iso line of the heat distance wiggles a little
-            Assert.InRange(Length(line), 0.98 * 2 * Math.PI * 10, (mode == TerrainSafetyLines.Modes.Horizontal ? 1.01 : 1.05) * 2 * Math.PI * 10);
+            double r = 10 + offset;
+            Assert.InRange(Length(line), 0.98 * 2 * Math.PI * r, (mode == TerrainSafetyLines.Modes.Horizontal ? 1.01 : 1.05) * 2 * Math.PI * (r + 1));
         }
 
         [Fact]

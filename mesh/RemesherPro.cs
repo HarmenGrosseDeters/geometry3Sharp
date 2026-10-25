@@ -586,7 +586,12 @@ namespace gs
 
             InitializeBuffersForFacePass();
 
-            SpinLock buffer_lock = new SpinLock();
+            // per-triangle weight and rotated vertex positions. These are summed per vertex below,
+            // over its one-ring in a fixed order: summing under a lock in whatever order the threads
+            // arrive made the result depend on scheduling, enough to flip the 'did not move' test below
+            int NT = mesh.MaxTriangleID;
+            double[] triWeights = new double[NT];
+            Vector3d[] triPositions = new Vector3d[3 * NT];
 
             // this function computes rotated position of triangle, such that it
             // aligns with face normal on target surface. We accumulate weighted-average 
@@ -612,16 +617,23 @@ namespace gs
                 dot = MathUtil.Clamp(dot, 0, 1.0);
                 double w = area * (dot * dot * dot);
 
-                bool taken = false;
-                buffer_lock.Enter(ref taken);
-                vBufferV[tv.a] += w * v0; vBufferVWeights[tv.a] += w;
-                vBufferV[tv.b] += w * v1; vBufferVWeights[tv.b] += w;
-                vBufferV[tv.c] += w * v2; vBufferVWeights[tv.c] += w;
-                buffer_lock.Exit();
+                triWeights[tid] = w;
+                triPositions[3 * tid] = w * v0; triPositions[3 * tid + 1] = w * v1; triPositions[3 * tid + 2] = w * v2;
             };
             
             // compute face-aligned vertex positions
             gParallel.ForEach(mesh.TriangleIndices(), process_triangle);
+            gParallel.ForEach(mesh.VertexIndices(), (vID) => {
+                Vector3d sum = Vector3d.Zero; double wsum = 0;
+                foreach (int tid in mesh.VtxTrianglesItr(vID)) {
+                    Index3i tv = mesh.GetTriangle(tid);
+                    int j = (tv.a == vID) ? 0 : ((tv.b == vID) ? 1 : 2);
+                    sum += triPositions[3 * tid + j];
+                    wsum += triWeights[tid];
+                }
+                vBufferV[vID] = sum;
+                vBufferVWeights[vID] = wsum;
+            });
 
 
             // ok now we filter out all the positions we can't change, as well as vertices that

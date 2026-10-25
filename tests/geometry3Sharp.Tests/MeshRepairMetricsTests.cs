@@ -167,5 +167,23 @@ namespace geometry3Sharp.Tests
             double iou = MeshRepairMetrics.VolumeIoU(open, Box(Vector3d.Zero, Vector3d.One), out missing, out extra);
             Assert.True(iou > 0.95, $"IoU {iou}");
         }
-    }
+    
+        [Fact]
+        public void VolumeIoU_InsideOutInputCountsAsItsSolid()
+        {
+            // inside out (winding number -1 inside), closed and open: the repaired, outward box is the same
+            // solid (IoU 0 when the raw winding number was the reference)
+            DMesh3 box = Box(Vector3d.Zero, Vector3d.One);
+            DMesh3 inverted = new DMesh3(box);
+            inverted.ReverseOrientation(false);
+            DMesh3 invertedOpen = new DMesh3(inverted);
+            foreach (int t in invertedOpen.TriangleIndices().ToArray())
+                if (invertedOpen.GetTriCentroid(t).z > 0.99) invertedOpen.RemoveTriangle(t);
+            double missing, extra;
+            Assert.True(MeshRepairMetrics.VolumeIoU(inverted, box, out missing, out extra) > 0.99);
+            Assert.True(MeshRepairMetrics.VolumeIoU(invertedOpen, box, out missing, out extra) > 0.95);
+            // the input is not changed
+            Assert.True(MeshMeasurements.VolumeArea(inverted, inverted.TriangleIndices(), inverted.GetVertex).x < 0);
+        }
+}
 }

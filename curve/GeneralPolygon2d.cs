@@ -181,8 +181,9 @@ namespace g3
         public bool Contains(Polygon2d poly) {
             if (outer.Contains(poly) == false)
                 return false;
+            // poly must not overlap a hole: not lie in it, not enclose it, not cross it
             foreach (var h in holes) {
-                if (h.Contains(poly))
+                if (h.Contains(poly) || poly.Contains(h) || h.Intersects(poly))
                     return false;
             }
             return true;
@@ -205,6 +206,11 @@ namespace g3
         }
 
 
+        /// <summary>
+        /// True if the boundary of poly crosses or touches the outer boundary or a hole. Like
+        /// Polygon2d.Intersects(Polygon2d) this tests the boundaries only: a polygon that lies completely
+        /// inside the area (or completely inside a hole) gives false. Use Contains() for those cases.
+        /// </summary>
         public bool Intersects(Polygon2d poly)
         {
             if (outer.Intersects(poly))

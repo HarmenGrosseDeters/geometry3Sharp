@@ -456,7 +456,7 @@ namespace g3 {
                 VertexConstraint ca = constraints.GetVertexConstraint(va);
                 VertexConstraint cb = constraints.GetVertexConstraint(vb);
                 if (ca.Fixed && cb.Fixed) {
-                    int nSetID = (ca.FixedSetID > 0 && ca.FixedSetID == cb.FixedSetID) ?
+                    int nSetID = (ca.FixedSetID >= 0 && ca.FixedSetID == cb.FixedSetID) ?      // set ids start at 0, as in MeshRefinerBase
                         ca.FixedSetID : VertexConstraint.InvalidSetID;
                     constraints.SetOrUpdateVertexConstraint(splitInfo.vNew,
                         new VertexConstraint(true, nSetID));
@@ -586,8 +586,8 @@ namespace g3 {
 
 
         protected DVector<Vector3d> vBufferV = new DVector<Vector3d>();
-        // bool[], not BitArray: parallel passes set flags of neighbouring vertices concurrently, and BitArray
-        // packs 32 flags into one int, so concurrent writes lost flags (and smoothed positions)
+        // bool[], not BitArray: the parallel passes set flags of different vertices concurrently, and a
+        // BitArray packs 32 flags into one int, so those writes race (read-modify-write) and lose flags
         protected bool[] vModifiedV = new bool[4096];
 
         protected virtual void InitializeVertexBufferForPass()

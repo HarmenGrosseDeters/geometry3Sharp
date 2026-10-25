@@ -21,12 +21,17 @@ namespace g3
 
         override public MeshGenerator Generate()
         {
+            // the triangles below are listed clockwise as seen from outside, so they are reversed
+            // by default to get the counter-clockwise (outward-facing) convention of the other generators
+            bool cycle = (Clockwise == false);
+
             bool bClosed = ((EndAngleDeg - StartAngleDeg) > 359.99f);
             int nRingSize = (NoSharedVertices && bClosed) ? Slices + 1 : Slices;
             vertices = new VectorArray3d(2 * nRingSize);
             uv = new VectorArray2f(vertices.Count);
             normals = new VectorArray3f(vertices.Count);
-            triangles = new IndexArray3i(2 * Slices);
+            int nPanels = (bClosed) ? Slices : Slices - 1;     // a wedge has one panel less than slices
+            triangles = new IndexArray3i(2 * nPanels);
 
             float fTotalRange = (EndAngleDeg - StartAngleDeg) * MathUtil.Deg2Radf;
             float fStartRad = StartAngleDeg * MathUtil.Deg2Radf;
@@ -46,12 +51,12 @@ namespace g3
 
             int ti = 0;
             for (int k = 0; k < nRingSize - 1; ++k) {
-                triangles.Set(ti++, k, k + 1, nRingSize + k + 1, Clockwise);
-                triangles.Set(ti++, k, nRingSize + k + 1, nRingSize + k, Clockwise);
+                triangles.Set(ti++, k, k + 1, nRingSize + k + 1, cycle);
+                triangles.Set(ti++, k, nRingSize + k + 1, nRingSize + k, cycle);
             }
             if (bClosed && NoSharedVertices == false) {      // close disc if we went all the way
-                triangles.Set(ti++, nRingSize - 1, 0, nRingSize, Clockwise);
-                triangles.Set(ti++, nRingSize - 1, nRingSize, 2 * nRingSize - 1, Clockwise);
+                triangles.Set(ti++, nRingSize - 1, 0, nRingSize, cycle);
+                triangles.Set(ti++, nRingSize - 1, nRingSize, 2 * nRingSize - 1, cycle);
             }
 
             return this;
@@ -83,6 +88,10 @@ namespace g3
 
         override public MeshGenerator Generate()
         {
+            // the triangles below are listed clockwise as seen from outside, so they are reversed
+            // by default to get the counter-clockwise (outward-facing) convention of the other generators
+            bool cycle = (Clockwise == false);
+
             bool bClosed = ((EndAngleDeg - StartAngleDeg) > 359.99f);
             int nRingSize = (NoSharedVertices && bClosed) ? Slices + 1 : Slices;
             int nCapVertices = (NoSharedVertices) ? Slices + 1 : 1;
@@ -91,8 +100,9 @@ namespace g3
             uv = new VectorArray2f(vertices.Count);
             normals = new VectorArray3f(vertices.Count);
 
-            int nCylTris = 2 * Slices;
-            int nCapTris = 2 * Slices;
+            int nPanels = (bClosed) ? Slices : Slices - 1;     // a wedge has one panel less than slices
+            int nCylTris = 2 * nPanels;
+            int nCapTris = 2 * nPanels;
             int nFaceTris = (bClosed == false) ? 4 : 0;
             triangles = new IndexArray3i(nCylTris + nCapTris + nFaceTris);
             groups = new int[triangles.Count];
@@ -119,15 +129,15 @@ namespace g3
             int ti = 0;
             for (int k = 0; k < nRingSize - 1; ++k) {
                 groups[ti] = 1;
-                triangles.Set(ti++, k, k + 1, nRingSize + k + 1, Clockwise);
+                triangles.Set(ti++, k, k + 1, nRingSize + k + 1, cycle);
                 groups[ti] = 1;
-                triangles.Set(ti++, k, nRingSize + k + 1, nRingSize + k, Clockwise);
+                triangles.Set(ti++, k, nRingSize + k + 1, nRingSize + k, cycle);
             }
             if (bClosed && NoSharedVertices == false) {      // close disc if we went all the way
                 groups[ti] = 1;
-                triangles.Set(ti++, nRingSize - 1, 0, nRingSize, Clockwise);
+                triangles.Set(ti++, nRingSize - 1, 0, nRingSize, cycle);
                 groups[ti] = 1;
-                triangles.Set(ti++, nRingSize - 1, nRingSize, 2 * nRingSize - 1, Clockwise);
+                triangles.Set(ti++, nRingSize - 1, nRingSize, 2 * nRingSize - 1, cycle);
             }
 
             int nBottomC = 2 * nRingSize;
@@ -149,7 +159,7 @@ namespace g3
                     uv[nStartB + k] = new Vector2f(0.5f * (1.0f + cosa), 0.5f * (1 + sina));
                     normals[nStartB + k] = -Vector3f.AxisY;
                 }
-                append_disc(Slices, nBottomC, nStartB, bClosed, Clockwise, ref ti, 2);
+                append_disc(Slices, nBottomC, nStartB, bClosed, cycle, ref ti, 2);
 
                 int nStartT = 2 * nRingSize + 2 + Slices;
                 for (int k = 0; k < Slices; ++k) {
@@ -159,7 +169,7 @@ namespace g3
                     uv[nStartT + k] = new Vector2f(0.5f * (1.0f + cosa), 0.5f * (1 + sina));
                     normals[nStartT + k] = Vector3f.AxisY;
                 }
-                append_disc(Slices, nTopC, nStartT, bClosed, !Clockwise, ref ti, 3);
+                append_disc(Slices, nTopC, nStartT, bClosed, !cycle, ref ti, 3);
 
                 // ugh this is very ugly but hard to see the pattern...
                 if (bClosed == false) {
@@ -180,16 +190,16 @@ namespace g3
                     uv[nStartF + 2] = uv[nStartF + 7] = new Vector2f(1, 1);
                     uv[nStartF + 3] = uv[nStartF + 6] = new Vector2f(1, 0);
 
-                    append_rectangle(nStartF + 0, nStartF + 1, nStartF + 2, nStartF + 3, !Clockwise, ref ti, 4);
-                    append_rectangle(nStartF + 4, nStartF + 5, nStartF + 6, nStartF + 7, !Clockwise, ref ti, 5);
+                    append_rectangle(nStartF + 0, nStartF + 1, nStartF + 2, nStartF + 3, !cycle, ref ti, 4);
+                    append_rectangle(nStartF + 4, nStartF + 5, nStartF + 6, nStartF + 7, !cycle, ref ti, 5);
                 }
 
             } else {
-                append_disc(Slices, nBottomC, 0, bClosed, Clockwise, ref ti, 2);
-                append_disc(Slices, nTopC, nRingSize, bClosed, !Clockwise, ref ti, 3);
+                append_disc(Slices, nBottomC, 0, bClosed, cycle, ref ti, 2);
+                append_disc(Slices, nTopC, nRingSize, bClosed, !cycle, ref ti, 3);
                 if (bClosed == false) {
-                    append_rectangle(nBottomC, 0, nRingSize, nTopC, Clockwise, ref ti, 4);
-                    append_rectangle(nRingSize - 1, nBottomC, nTopC, 2 * nRingSize - 1, Clockwise, ref ti, 5);
+                    append_rectangle(nBottomC, 0, nRingSize, nTopC, cycle, ref ti, 4);
+                    append_rectangle(nRingSize - 1, nBottomC, nTopC, 2 * nRingSize - 1, cycle, ref ti, 5);
                 }
             }
 
@@ -220,17 +230,22 @@ namespace g3
 
         override public MeshGenerator Generate()
         {
+            // the triangles below are listed clockwise as seen from outside, so they are reversed
+            // by default to get the counter-clockwise (outward-facing) convention of the other generators
+            bool cycle = (Clockwise == false);
+
             bool bClosed = ((EndAngleDeg - StartAngleDeg) > 359.99f);
             int nRingSize = (NoSharedVertices && bClosed) ? Slices + 1 : Slices;
-            int nTipVertices = (NoSharedVertices) ? nRingSize : 1;
+            int nPanels = (bClosed) ? Slices : Slices - 1;     // a wedge has one panel less than slices
+            int nTipVertices = (NoSharedVertices) ? nPanels : 1;
             int nCapVertices = (NoSharedVertices) ? Slices + 1 : 1;
             int nFaceVertices = (NoSharedVertices && bClosed == false) ? 6 : 0;
             vertices = new VectorArray3d(nRingSize + nTipVertices + nCapVertices + nFaceVertices);
             uv = new VectorArray2f(vertices.Count);
             normals = new VectorArray3f(vertices.Count);
 
-            int nConeTris = (NoSharedVertices) ? 2 * Slices : Slices;
-            int nCapTris = Slices;
+            int nConeTris = nPanels;
+            int nCapTris = nPanels;
             int nFaceTris = (bClosed == false) ? 2 : 0;
             triangles = new IndexArray3i(nConeTris + nCapTris + nFaceTris );
 
@@ -244,14 +259,13 @@ namespace g3
                 double cosa = Math.Cos(angle), sina = Math.Sin(angle);
                 vertices[k] = new Vector3d(BaseRadius * cosa, 0, BaseRadius * sina);
                 uv[k] = new Vector2f(0.5f * (1.0f + cosa), 0.5f * (1 + sina));
-                Vector3f n = new Vector3f(cosa * Height, BaseRadius / Height, sina * Height);
-                n.Normalize();
-                normals[k] = n;
+                normals[k] = cone_normal(angle);
 
-                if (NoSharedVertices) {
+                // one tip vertex per panel, with the normal of the panel's middle
+                if (NoSharedVertices && k < nPanels) {
                     vertices[nRingSize + k] = new Vector3d(0, Height, 0);
                     uv[nRingSize + k] = new Vector2f(0.5f, 0.5f);
-                    normals[nRingSize + k] = n;
+                    normals[nRingSize + k] = cone_normal(angle + 0.5f * fDelta);
                 }
             }
             if ( NoSharedVertices == false ) {
@@ -263,13 +277,11 @@ namespace g3
             // generate cylinder panels
             int ti = 0;
             if (NoSharedVertices) {
-                for (int k = 0; k < nRingSize - 1; ++k) {
-                    triangles.Set(ti++, k, k + 1, nRingSize + k + 1, Clockwise);
-                    triangles.Set(ti++, k, nRingSize + k + 1, nRingSize + k, Clockwise);
-                }
+                for (int k = 0; k < nPanels; ++k)
+                    triangles.Set(ti++, k, k + 1, nRingSize + k, cycle);
 
             } else
-                append_disc(Slices, nRingSize, 0, bClosed, !Clockwise, ref ti);
+                append_disc(Slices, nRingSize, 0, bClosed, !cycle, ref ti);
 
             int nBottomC = nRingSize + nTipVertices;
             vertices[nBottomC] = new Vector3d(0, 0, 0);
@@ -285,7 +297,7 @@ namespace g3
                     uv[nStartB + k] = new Vector2f(0.5f * (1.0f + cosa), 0.5f * (1 + sina));
                     normals[nStartB + k] = -Vector3f.AxisY;
                 }
-                append_disc(Slices, nBottomC, nStartB, bClosed, Clockwise, ref ti);
+                append_disc(Slices, nBottomC, nStartB, bClosed, cycle, ref ti);
 
                 // ugh this is very ugly but hard to see the pattern...
                 if (bClosed == false) {
@@ -303,19 +315,27 @@ namespace g3
                     uv[nStartF + 1] = uv[nStartF + 3] = new Vector2f(0, 1);
                     uv[nStartF + 2] = uv[nStartF + 5] = new Vector2f(1, 0);
 
-                    triangles.Set(ti++, nStartF + 0, nStartF + 1, nStartF + 2, !Clockwise);
-                    triangles.Set(ti++, nStartF + 3, nStartF + 4, nStartF + 5, !Clockwise);
+                    triangles.Set(ti++, nStartF + 0, nStartF + 1, nStartF + 2, !cycle);
+                    triangles.Set(ti++, nStartF + 3, nStartF + 4, nStartF + 5, !cycle);
                 }
 
             } else {
-                append_disc(Slices, nBottomC, 0, bClosed, Clockwise, ref ti);
+                append_disc(Slices, nBottomC, 0, bClosed, cycle, ref ti);
                 if (bClosed == false) {
-                    triangles.Set(ti++, nBottomC, nRingSize, 0, !Clockwise);
-                    triangles.Set(ti++, nBottomC, nRingSize, nRingSize - 1, Clockwise);
+                    triangles.Set(ti++, nBottomC, nRingSize, 0, !cycle);
+                    triangles.Set(ti++, nBottomC, nRingSize, nRingSize - 1, cycle);
                 }
             }
 
             return this;
+        }
+
+        // outward normal of the cone surface at the given angle: (H cos a, R, H sin a), normalized
+        Vector3f cone_normal(float angle)
+        {
+            Vector3f n = new Vector3f(Math.Cos(angle) * Height, BaseRadius, Math.Sin(angle) * Height);
+            n.Normalize();
+            return n;
         }
     }
 
@@ -335,6 +355,10 @@ namespace g3
 
         override public MeshGenerator Generate()
         {
+            // the triangles below are listed clockwise as seen from outside, so they are reversed
+            // by default to get the counter-clockwise (outward-facing) convention of the other generators
+            bool cycle = (Clockwise == false);
+
             int nRings = (NoSharedVertices) ? 2 * (Sections.Length-1) : Sections.Length;
             int nRingSize = (NoSharedVertices) ? Slices + 1 : Slices;
             int nCapVertices = (NoSharedVertices) ? Slices + 1 : 1;
@@ -386,12 +410,12 @@ namespace g3
                 int r1 = r0 + nRingSize;
                 ri += (NoSharedVertices) ? 2 : 1;
                 for (int k = 0; k < nRingSize - 1; ++k) {
-                    triangles.Set(ti++, r0 + k, r0 + k + 1, r1 + k + 1, Clockwise);
-                    triangles.Set(ti++, r0 + k, r1 + k + 1, r1 + k, Clockwise);
+                    triangles.Set(ti++, r0 + k, r0 + k + 1, r1 + k + 1, cycle);
+                    triangles.Set(ti++, r0 + k, r1 + k + 1, r1 + k, cycle);
                 }
                 if (NoSharedVertices == false) {      // close disc if we went all the way
-                    triangles.Set(ti++, r1 - 1, r0, r1, Clockwise);
-                    triangles.Set(ti++, r1 - 1, r1, r1 + nRingSize - 1, Clockwise);
+                    triangles.Set(ti++, r1 - 1, r0, r1, cycle);
+                    triangles.Set(ti++, r1 - 1, r1, r1 + nRingSize - 1, cycle);
                 }
             }
 
@@ -420,7 +444,7 @@ namespace g3
                         uv[nStartB + k] = new Vector2f(0.5f * (1.0f + cosa), 0.5f * (1 + sina));
                         normals[nStartB + k] = -Vector3f.AxisY;
                     }
-                    append_disc(Slices, nBottomC, nStartB, true, Clockwise, ref ti);
+                    append_disc(Slices, nBottomC, nStartB, true, cycle, ref ti);
 
                     int nStartT = nStartB + Slices;
                     for (int k = 0; k < Slices; ++k) {
@@ -430,11 +454,11 @@ namespace g3
                         uv[nStartT + k] = new Vector2f(0.5f * (1.0f + cosa), 0.5f * (1 + sina));
                         normals[nStartT + k] = Vector3f.AxisY;
                     }
-                    append_disc(Slices, nTopC, nStartT, true, !Clockwise, ref ti);
+                    append_disc(Slices, nTopC, nStartT, true, !cycle, ref ti);
 
                 } else {
-                    append_disc(Slices, nBottomC, 0, true, Clockwise, ref ti);
-                    append_disc(Slices, nTopC, nRingSize * (Sections.Length - 1), true, !Clockwise, ref ti);
+                    append_disc(Slices, nBottomC, 0, true, cycle, ref ti);
+                    append_disc(Slices, nTopC, nRingSize * (Sections.Length - 1), true, !cycle, ref ti);
                 }
             }
 
