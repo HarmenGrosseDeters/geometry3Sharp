@@ -160,6 +160,122 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        static DMesh3 TwoGrids()
+        {
+            DMesh3 small = Grid(0, 0, 9, 9, 10, (x, y) => 0);
+            DMesh3 large = Grid(1000, 0, 1039, 39, 40, (x, y) => 0);
+            MeshEditor.Append(large, small);
+            return large;
+        }
+
+        [Fact]
+        public void TwoComponents_EachFromItsOwnSource()
+        {
+            DMesh3 mesh = TwoGrids();
+            int a = NearestVertex(mesh, new Vector3d(0, 0, 0)), b = NearestVertex(mesh, new Vector3d(1000, 0, 0));
+            var geo = new MeshGeodesicDistance(mesh);
+            Assert.True(geo.Compute(new[] { a, b }));
+            foreach (int vid in mesh.VertexIndices()) {
+                Vector3d v = mesh.GetVertex(vid);
+                double exact = v.Distance(mesh.GetVertex(v.x < 500 ? a : b));
+                Assert.True(Math.Abs(geo.Distance[vid] - exact) < 0.02 * exact + 0.5, $"{v}: {geo.Distance[vid]} vs {exact}");
+            }
+        }
+
+        [Fact]
+        public void ComponentWithoutSource_IsNaN_AndPathIsTheStartPoint()
+        {
+            DMesh3 mesh = TwoGrids();
+            int b = NearestVertex(mesh, new Vector3d(1000, 0, 0));
+            var geo = new MeshGeodesicDistance(mesh);
+            Assert.True(geo.Compute(new[] { b }));
+            foreach (int vid in mesh.VertexIndices()) {
+                Vector3d v = mesh.GetVertex(vid);
+                if (v.x < 500) Assert.True(double.IsNaN(geo.Distance[vid]), $"{v}: {geo.Distance[vid]}");
+                else Assert.False(double.IsNaN(geo.Distance[vid]));
+            }
+            var path = geo.TracePath(new Vector3d(5, 5, 0));
+            Assert.Single(path);
+        }
+
+        [Fact]
+        public void IsolatedVertices_AreIgnored()
+        {
+            DMesh3 mesh = Grid(-20, -20, 20, 20, 41, (x, y) => 0);
+            int iso = mesh.AppendVertex(new Vector3d(500, 500, 0));
+            int src = NearestVertex(mesh, Vector3d.Zero);
+            var geo = new MeshGeodesicDistance(mesh);
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            Assert.True(geo.Compute(new[] { src }));
+            Assert.True(sw.ElapsedMilliseconds < 5000, $"{sw.ElapsedMilliseconds} ms");
+            Assert.True(double.IsNaN(geo.Distance[iso]));
+            foreach (int vid in mesh.VertexIndices()) {
+                if (vid == iso) continue;
+                double exact = mesh.GetVertex(vid).Length;
+                Assert.True(Math.Abs(geo.Distance[vid] - exact) < 0.02 * exact + 0.5);
+            }
+            // an isolated source does not disturb the others
+            Assert.True(geo.Compute(new[] { src, iso }));
+            Assert.Equal(0, geo.Distance[iso]);
+            Assert.True(Math.Abs(geo.Distance[NearestVertex(mesh, new Vector3d(10, 0, 0))] - 10) < 0.7);
+        }
+
+        [Fact]
+        public void LongStrip_NoUnderflowFarFromTheSource()
+        {
+            // the heat decays like exp(-d / edge): 1500 edge lengths are far below the double range
+            DMesh3 mesh = new DMesh3();
+            int n = 1501;
+            int[,] vid = new int[n, 3];
+            for (int j = 0; j < 3; ++j)
+                for (int i = 0; i < n; ++i) vid[i, j] = mesh.AppendVertex(new Vector3d(i, j, 0));
+            for (int j = 0; j < 2; ++j)
+                for (int i = 0; i + 1 < n; ++i) {
+                    mesh.AppendTriangle(vid[i, j], vid[i + 1, j], vid[i + 1, j + 1]);
+                    mesh.AppendTriangle(vid[i, j], vid[i + 1, j + 1], vid[i, j + 1]);
+                }
+            var geo = new MeshGeodesicDistance(mesh);
+            Assert.True(geo.Compute(new[] { vid[0, 1] }));
+            foreach (int x in new[] { 100, 700, 1200, 1500 })
+                Assert.True(Math.Abs(geo.Distance[vid[x, 1]] - x) < 0.02 * x + 0.5, $"x = {x}: {geo.Distance[vid[x, 1]]}");
+            var path = geo.TracePath(vid[1500, 1]);
+            Assert.True(path[path.Count - 1].Distance(mesh.GetVertex(vid[0, 1])) < 1e-9);
+        }
+
+        [Fact]
+        public void Paths_MultipleSources_EndAtASource()
+        {
+            DMesh3 mesh = Grid(-50, -50, 50, 50, 81, (x, y) => 0);
+            int a = NearestVertex(mesh, new Vector3d(-30, 0, 0)), b = NearestVertex(mesh, new Vector3d(30, 10, 0));
+            var geo = new MeshGeodesicDistance(mesh);
+            Assert.True(geo.Compute(new[] { a, b }));
+            foreach (int vid in mesh.VertexIndices()) {
+                if (vid % 10 != 0) continue;
+                var path = geo.TracePath(vid);
+                Vector3d end = path[path.Count - 1];
+                Assert.True(end.Distance(mesh.GetVertex(a)) < 1e-9 || end.Distance(mesh.GetVertex(b)) < 1e-9, $"path from {mesh.GetVertex(vid)} ends at {end}");
+            }
+        }
+
+        [Fact]
+        public void InvalidUse_ClearErrors()
+        {
+            DMesh3 mesh = Grid(0, 0, 10, 10, 11, (x, y) => 0);
+            var geo = new MeshGeodesicDistance(mesh);
+            Assert.Throws<InvalidOperationException>(() => geo.TracePath(0));
+            Assert.False(geo.Compute(new int[0]));
+            Assert.False(geo.Compute(new[] { -1, 100000 }));
+            Assert.Throws<InvalidOperationException>(() => geo.TracePath(new Vector3d(5, 5, 0)));
+            Assert.True(geo.Compute(new[] { 0 }));
+            Assert.Throws<ArgumentException>(() => geo.TracePath(100000));
+            // the mesh changed: distances are stale
+            mesh.SetVertex(5, mesh.GetVertex(5) + Vector3d.AxisZ);
+            Assert.Throws<InvalidOperationException>(() => geo.TracePath(3));
+            Assert.True(geo.Compute(new[] { 0 }));
+            var path = geo.TracePath(5);
+            Assert.True(path[path.Count - 1].Distance(mesh.GetVertex(0)) < 1e-9);
+        }
+
         [Fact]
         public void UtmCoordinates_SameDistances()
         {

@@ -14,7 +14,9 @@ namespace gs
     ///
     /// Accuracy (tests on planes, cylinders and terrain): about 2% of the distance plus half an edge length;
     /// near the sources the distance is smoothed over a few edge lengths. Computed relative to the mesh
-    /// center, so UTM coordinates are fine.
+    /// center, so UTM coordinates are fine. Each connected component is measured from its own sources;
+    /// components without a source (and isolated vertices) get NaN. Far from the sources (beyond about
+    /// 700 edge lengths) the heat underflows doubles; then it is computed as its logarithm.
     /// </summary>
     public class MeshGeodesicDistance
     {
@@ -42,8 +44,14 @@ namespace gs
         List<Index3i> tris;
         List<Vector3d> cot;         // cotangent at each corner of tris
 
+        int timestamp = -1;
+        int[] component;            // per index; -1 for vertices without a (non-degenerate) triangle
+        int componentCount;
+
         void precompute()
         {
+            timestamp = Mesh.ShapeTimestamp;
+            nbStart = null; spatial = null;
             toIndex = new int[Mesh.MaxVertexID];
             toVertex = new int[Mesh.VertexCount];
             N = 0;
@@ -86,6 +94,27 @@ namespace gs
                 M.Set(i, i, diagL[i]);
             L = new PackedSparseMatrix(M);
             meanEdge = (edgeCount > 0) ? edgeSum / edgeCount : 1;
+
+            // connected components of the (non-degenerate) triangles
+            int[] parent = new int[N];
+            for (int i = 0; i < N; ++i) parent[i] = i;
+            Func<int, int> find = null;
+            find = (i) => { while (parent[i] != i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+            bool[] used = new bool[N];
+            foreach (Index3i ti in tris) {
+                used[ti.a] = used[ti.b] = used[ti.c] = true;
+                parent[find(ti.b)] = find(ti.a);
+                parent[find(ti.c)] = find(ti.a);
+            }
+            component = new int[N];
+            var ids = new Dictionary<int, int>();
+            for (int i = 0; i < N; ++i) {
+                if (used[i] == false) { component[i] = -1; continue; }
+                int r = find(i), c;
+                if (ids.TryGetValue(r, out c) == false) { c = ids.Count; ids[r] = c; }
+                component[i] = c;
+            }
+            componentCount = ids.Count;
         }
 
         static double cotangent(Vector3d a, Vector3d b)
@@ -98,14 +127,28 @@ namespace gs
         /// <summary> distances from the given source vertices (to the nearest of them) </summary>
         public bool Compute(IEnumerable<int> sources)
         {
-            if (L == null)
+            if (L == null || timestamp != Mesh.ShapeTimestamp)
                 precompute();
+            Distance = null; sourceVertices = null;
             List<int> src = new List<int>();
-            sourceVertices = new HashSet<int>();
-            foreach (int s in sources)
-                if (Mesh.IsVertex(s)) { src.Add(toIndex[s]); sourceVertices.Add(s); }
-            if (src.Count == 0 || N == 0)
+            var srcVertices = new HashSet<int>();
+            bool[] hasSource = new bool[componentCount];
+            foreach (int s in sources) {
+                if (s < 0 || s >= Mesh.MaxVertexID || Mesh.IsVertex(s) == false || srcVertices.Contains(s)) continue;
+                srcVertices.Add(s);
+                if (component[toIndex[s]] < 0) continue;      // isolated: distance 0 only to itself
+                src.Add(toIndex[s]);
+                hasSource[component[toIndex[s]]] = true;
+            }
+            if (srcVertices.Count == 0 || N == 0)
                 return false;
+            sourceVertices = srcVertices;
+            if (src.Count == 0) {
+                Distance = new double[Mesh.MaxVertexID];
+                for (int k = 0; k < Distance.Length; ++k) Distance[k] = double.NaN;
+                foreach (int s in srcVertices) Distance[s] = 0;
+                return true;
+            }
 
             // 1. heat flow: (M + t L) u = delta. u decays like exp(-distance / sqrt(t)) (eg 1e-30 at 70 edge
             // lengths), far below the accuracy of CG relative to |u|. With non-negative weights the system is
@@ -114,13 +157,24 @@ namespace gs
             // On meshes with a boundary, the average of the Neumann (insulated) and Dirichlet (u = 0)
             // solutions avoids the bending of the distance along the boundary (Crane et al.).
             double t = TimeFactor * meanEdge * meanEdge;
+            bool open = Mesh.IsClosed() == false;
+            // u holds log(heat) (-inf for 0): first computed directly, in the log domain if it underflows
             double[] u = heat(src, t, false);
-            if (u == null)
-                return false;
-            if (Mesh.IsClosed() == false) {
-                double[] ud = heat(src, t, true);
-                for (int i = 0; i < N; ++i)
-                    u[i] = 0.5 * (u[i] + ud[i]);
+            bool underflow = false;
+            for (int i = 0; i < N && underflow == false; ++i)
+                if (component[i] >= 0 && hasSource[component[i]] && !(u[i] > 1e-280)) underflow = true;
+            if (underflow) {
+                u = heat_log(src, t, false);
+                if (open) {
+                    double[] ud = heat_log(src, t, true);
+                    for (int i = 0; i < N; ++i) u[i] = log_add(u[i], ud[i]) - Math.Log(2);
+                }
+            } else {
+                if (open) {
+                    double[] ud = heat(src, t, true);
+                    for (int i = 0; i < N; ++i) u[i] = 0.5 * (u[i] + ud[i]);
+                }
+                for (int i = 0; i < N; ++i) u[i] = Math.Log(u[i]);
             }
 
             // 2. normalized gradient X = -grad u / |grad u| per triangle, 3. its divergence per vertex
@@ -131,8 +185,12 @@ namespace gs
                 Vector3d n = (p1 - p0).Cross(p2 - p0);
                 double area2 = n.Length;
                 n /= area2;
-                // grad u = 1/(2A) sum_i u_i (N x e_i), e_i the edge opposite corner i (counter-clockwise)
-                Vector3d g = (u[ti.a] * n.Cross(p2 - p1) + u[ti.b] * n.Cross(p0 - p2) + u[ti.c] * n.Cross(p1 - p0)) / area2;
+                // grad u = 1/(2A) sum_i u_i (N x e_i), e_i the edge opposite corner i (counter-clockwise);
+                // only its direction is used, so the heat is scaled by its maximum in the triangle
+                double lm = Math.Max(u[ti.a], Math.Max(u[ti.b], u[ti.c]));
+                if (double.IsNegativeInfinity(lm)) continue;
+                double ua = Math.Exp(u[ti.a] - lm), ub = Math.Exp(u[ti.b] - lm), uc = Math.Exp(u[ti.c] - lm);
+                Vector3d g = (ua * n.Cross(p2 - p1) + ub * n.Cross(p0 - p2) + uc * n.Cross(p1 - p0)) / area2;
                 double gl = g.Length;
                 if (gl < 1e-300) continue;
                 Vector3d X = -g / gl;
@@ -148,23 +206,29 @@ namespace gs
 
             // 4. Poisson: L phi = -div (L is minus the Laplacian), regularized to be definite
             double eps = 1e-8;
+            // (the divergence sums to 0 on each component; the rounding error is removed per component)
             double[] phi = new double[N], rhs = new double[N];
-            double mean = 0;
-            for (int i = 0; i < N; ++i) mean += div[i];
-            mean /= N;
-            for (int i = 0; i < N; ++i) rhs[i] = -(div[i] - mean);
+            double[] csum = new double[componentCount]; int[] ccount = new int[componentCount];
+            for (int i = 0; i < N; ++i)
+                if (component[i] >= 0) { csum[component[i]] += div[i]; ccount[component[i]]++; }
+            for (int i = 0; i < N; ++i)
+                if (component[i] >= 0 && hasSource[component[i]])
+                    rhs[i] = -(div[i] - csum[component[i]] / ccount[component[i]]);
             if (solve((x, r) => { L.Multiply_Parallel(x, r); for (int i = 0; i < N; ++i) r[i] += eps * mass[i] * x[i]; },
                       (i) => diagL[i] + eps * mass[i], rhs, phi) == false)
                 return false;
 
-            // distances are relative to the sources
-            double minSrc = double.MaxValue;
-            foreach (int s in src) minSrc = Math.Min(minSrc, phi[s]);
+            // distances are relative to the sources of each component
+            double[] minSrc = new double[componentCount];
+            for (int c = 0; c < componentCount; ++c) minSrc[c] = double.MaxValue;
+            foreach (int s in src) minSrc[component[s]] = Math.Min(minSrc[component[s]], phi[s]);
             Distance = new double[Mesh.MaxVertexID];
             for (int k = 0; k < Distance.Length; ++k)
                 Distance[k] = double.NaN;
             for (int i = 0; i < N; ++i)
-                Distance[toVertex[i]] = Math.Max(0, phi[i] - minSrc);
+                if (component[i] >= 0 && hasSource[component[i]])
+                    Distance[toVertex[i]] = Math.Max(0, phi[i] - minSrc[component[i]]);
+            foreach (int s in srcVertices) Distance[s] = 0;
             return true;
         }
 
@@ -174,25 +238,38 @@ namespace gs
         /// <summary>
         /// Shortest path on the surface from the point (projected onto the mesh) to the nearest source of
         /// the last Compute(), as a polyline ending at that source vertex: follows the steepest descent of
-        /// the distance across the triangles (along an edge where it runs into a valley).
+        /// the distance across the triangles (along an edge where it runs into a valley). From a component
+        /// without a source the path is just the start point.
         /// </summary>
         public List<Vector3d> TracePath(Vector3d point)
         {
+            check_computed();
             if (spatial == null)
                 spatial = new DMeshAABBTree3(Mesh, true);
             int tid = spatial.FindNearestTriangle(point);
+            if (tid < 0)
+                return new List<Vector3d>();
             Vector3d p = MeshQueries.TriangleDistance(Mesh, tid, point).TriangleClosest;
             List<Vector3d> path = new List<Vector3d>() { p };
-            trace(path, tid, p);
+            trace(path, tid, p, -1);
             return path;
         }
 
         /// <summary> shortest path from a vertex to the nearest source (see TracePath(Vector3d)) </summary>
         public List<Vector3d> TracePath(int vertex)
         {
+            check_computed();
+            if (vertex < 0 || vertex >= Mesh.MaxVertexID || Mesh.IsVertex(vertex) == false)
+                throw new ArgumentException("TracePath: not a vertex of the mesh");
             List<Vector3d> path = new List<Vector3d>() { Mesh.GetVertex(vertex) };
-            vertex_step(path, vertex);
+            trace(path, -1, Vector3d.Zero, vertex);
             return path;
+        }
+
+        void check_computed()
+        {
+            if (Distance == null || sourceVertices == null || timestamp != Mesh.ShapeTimestamp)
+                throw new InvalidOperationException("TracePath: no distances computed for the current mesh");
         }
 
         double phi(int vid) { return Distance[vid]; }
@@ -205,7 +282,7 @@ namespace gs
             Vector3d n = (p1 - p0).Cross(p2 - p0);
             double area2 = n.Length;
             g = Vector3d.Zero;
-            if (area2 < 1e-300) return false;
+            if (area2 < 1e-300 || double.IsNaN(phi(t.a) + phi(t.b) + phi(t.c))) return false;
             n /= area2;
             grads[0] = n.Cross(p2 - p1) / area2;
             grads[1] = n.Cross(p0 - p2) / area2;
@@ -214,21 +291,58 @@ namespace gs
             return true;
         }
 
-        void trace(List<Vector3d> path, int tid, Vector3d p)
+        // Walks down the distance: across triangle tid from p, or (v >= 0) from vertex v. One loop with a
+        // bound on the total number of steps, so it always terminates.
+        void trace(List<Vector3d> path, int tid, Vector3d p, int v)
         {
             Vector3d[] grads = new Vector3d[3];
-            int maxSteps = 4 * Mesh.TriangleCount + 10;
+            int maxSteps = 4 * Mesh.TriangleCount + 2 * Mesh.VertexCount + 10;
             for (int step = 0; step < maxSteps; ++step) {
-                Index3i t = Mesh.GetTriangle(tid);
-                for (int k = 0; k < 3; ++k)
-                    if (sourceVertices.Contains(t[k])) { add(path, Mesh.GetVertex(t[k])); return; }
-                Vector3d g;
-                if (gradients(tid, out g, grads) == false || g.Length < 1e-12) {
-                    vertex_step(path, lowest_vertex(t)); return;
+                if (v >= 0) {
+                    add(path, Mesh.GetVertex(v));
+                    if (sourceVertices.Contains(v) || double.IsNaN(phi(v)))
+                        return;
+                    // a triangle around v into which the steepest descent points (inside the corner at v)
+                    int bestT = -1; double bestSlope = 0;
+                    foreach (int t in Mesh.VtxTrianglesItr(v)) {
+                        Vector3d g;
+                        if (gradients(t, out g, grads) == false || g.Length < 1e-12) continue;
+                        Index3i tv = Mesh.GetTriangle(t);
+                        bool inside = true;
+                        for (int k = 0; k < 3; ++k)
+                            if (tv[k] != v && grads[k].Dot(-g) < 0) inside = false;
+                        if (inside && g.Length > bestSlope) { bestSlope = g.Length; bestT = t; }
+                    }
+                    if (bestT >= 0) {
+                        tid = bestT; p = Mesh.GetVertex(v); v = -1;
+                        continue;
+                    }
+                    // otherwise down the steepest edge; at a local minimum next to a source, to the source
+                    int nextV = -1; double bestDrop = 0;
+                    foreach (int nb in Mesh.VtxVerticesItr(v)) {
+                        double drop = (phi(v) - phi(nb)) / Mesh.GetVertex(v).Distance(Mesh.GetVertex(nb));
+                        if (drop > bestDrop) { bestDrop = drop; nextV = nb; }
+                    }
+                    if (nextV < 0)
+                        foreach (int nb in Mesh.VtxVerticesItr(v))
+                            if (sourceVertices.Contains(nb)) { nextV = nb; break; }
+                    if (nextV < 0)
+                        return;     // local minimum (should not happen away from the sources)
+                    v = nextV;
+                    continue;
                 }
-                Vector3d d = -g.Normalized;
+
+                Index3i tri = Mesh.GetTriangle(tid);
+                for (int k = 0; k < 3; ++k)
+                    if (sourceVertices.Contains(tri[k])) { add(path, Mesh.GetVertex(tri[k])); return; }
+                Vector3d grad;
+                if (gradients(tid, out grad, grads) == false || grad.Length < 1e-12) {
+                    if (double.IsNaN(phi(tri.a) + phi(tri.b) + phi(tri.c))) return;
+                    v = lowest_vertex(tri); continue;
+                }
+                Vector3d d = -grad.Normalized;
                 // barycentric coordinates of p and their rates along d; leave through the first one to reach 0
-                Vector3d bary = MathUtil.BarycentricCoords(p, Mesh.GetVertex(t.a), Mesh.GetVertex(t.b), Mesh.GetVertex(t.c));
+                Vector3d bary = MathUtil.BarycentricCoords(p, Mesh.GetVertex(tri.a), Mesh.GetVertex(tri.b), Mesh.GetVertex(tri.c));
                 double best = double.MaxValue; int exit = -1;
                 for (int k = 0; k < 3; ++k) {
                     double rate = grads[k].Dot(d);
@@ -237,22 +351,24 @@ namespace gs
                         if (sk < best) { best = sk; exit = k; }
                     }
                 }
-                if (exit < 0) { vertex_step(path, lowest_vertex(t)); return; }
+                if (exit < 0) { v = lowest_vertex(tri); continue; }
                 Vector3d q = p + best * d;
                 add(path, q);
                 // edge opposite corner 'exit'
-                int va = t[(exit + 1) % 3], vb = t[(exit + 2) % 3];
-                Vector3d qb = MathUtil.BarycentricCoords(q, Mesh.GetVertex(t.a), Mesh.GetVertex(t.b), Mesh.GetVertex(t.c));
+                int va = tri[(exit + 1) % 3], vb = tri[(exit + 2) % 3];
+                Vector3d qb = MathUtil.BarycentricCoords(q, Mesh.GetVertex(tri.a), Mesh.GetVertex(tri.b), Mesh.GetVertex(tri.c));
                 // at (or extremely close to) a corner: continue from the vertex
+                int corner = -1;
                 for (int k = 0; k < 3; ++k)
-                    if (qb[k] > 1 - 1e-9) { vertex_step(path, t[k]); return; }
+                    if (qb[k] > 1 - 1e-9) corner = tri[k];
+                if (corner >= 0) { v = corner; continue; }
                 int eid = Mesh.FindEdge(va, vb);
                 Index2i et = Mesh.GetEdgeT(eid);
                 int next = (et.a == tid) ? et.b : et.a;
                 if (next < 0 || descent_enters(next, va, vb) == false) {
                     // boundary, or a valley along the edge: follow the edge downhill
-                    vertex_step(path, phi(va) < phi(vb) ? va : vb);
-                    return;
+                    v = phi(va) < phi(vb) ? va : vb;
+                    continue;
                 }
                 tid = next; p = q;
             }
@@ -267,41 +383,6 @@ namespace gs
             Index3i t = Mesh.GetTriangle(tid);
             int opp = (t.a != va && t.a != vb) ? 0 : (t.b != va && t.b != vb) ? 1 : 2;
             return grads[opp].Dot(-g) > 1e-15;
-        }
-
-        void vertex_step(List<Vector3d> path, int v)
-        {
-            Vector3d[] grads = new Vector3d[3];
-            for (int step = 0; step < Mesh.VertexCount + 10; ++step) {
-                add(path, Mesh.GetVertex(v));
-                if (sourceVertices.Contains(v))
-                    return;
-                // a triangle around v into which the steepest descent points (inside the corner at v)
-                int bestT = -1; double bestSlope = 0;
-                foreach (int tid in Mesh.VtxTrianglesItr(v)) {
-                    Vector3d g;
-                    if (gradients(tid, out g, grads) == false || g.Length < 1e-12) continue;
-                    Index3i t = Mesh.GetTriangle(tid);
-                    Vector3d d = -g;
-                    bool inside = true;
-                    for (int k = 0; k < 3; ++k)
-                        if (t[k] != v && grads[k].Dot(d) < 0) inside = false;
-                    if (inside && g.Length > bestSlope) { bestSlope = g.Length; bestT = tid; }
-                }
-                if (bestT >= 0) {
-                    trace(path, bestT, Mesh.GetVertex(v));
-                    return;
-                }
-                // otherwise down the steepest edge
-                int nextV = -1; double bestDrop = 0;
-                foreach (int nb in Mesh.VtxVerticesItr(v)) {
-                    double drop = (phi(v) - phi(nb)) / Mesh.GetVertex(v).Distance(Mesh.GetVertex(nb));
-                    if (drop > bestDrop) { bestDrop = drop; nextV = nb; }
-                }
-                if (nextV < 0)
-                    return;     // local minimum (should not happen away from the sources)
-                v = nextV;
-            }
         }
 
         int lowest_vertex(Index3i t)
@@ -379,7 +460,7 @@ namespace gs
                 gParallel.BlockStartEnd(0, N - 1, (i0, i1) => {
                     double localMax = 0;
                     for (int i = i0; i <= i1; ++i) {
-                        if (fixedZero[i]) { next[i] = 0; continue; }
+                        if (fixedZero[i] || diag[i] <= 0) { next[i] = 0; continue; }
                         double sum = b[i];
                         for (int k = nbStart[i]; k < nbStart[i + 1]; ++k)
                             sum += t * nbWeight[k] * u[nbIndex[k]];
@@ -395,6 +476,62 @@ namespace gs
                 double[] tmp = u; u = next; next = tmp;
                 // all entries reached (non-zero) and converged
                 if (maxRel < 1e-10 && iter > 2)
+                    return u;
+            }
+            return u;
+        }
+
+        static double log_add(double a, double b)
+        {
+            double m = Math.Max(a, b);
+            if (double.IsNegativeInfinity(m)) return m;
+            return m + Math.Log(Math.Exp(a - m) + Math.Exp(b - m));
+        }
+
+        // the same Jacobi iteration on log(u): no underflow however far from the sources
+        double[] heat_log(List<int> src, double t, bool dirichlet)
+        {
+            if (nbStart == null)
+                build_neighbours();
+            bool[] fixedZero = new bool[N];
+            if (dirichlet) {
+                foreach (int vid in Mesh.VertexIndices())
+                    if (Mesh.IsBoundaryVertex(vid)) fixedZero[toIndex[vid]] = true;
+                foreach (int s in src) fixedZero[s] = false;
+            }
+            bool[] isSource = new bool[N];
+            foreach (int s in src) isSource[s] = true;
+            double[] u = new double[N], next = new double[N], logDiag = new double[N];
+            double[] logW = new double[nbIndex.Length];
+            for (int k = 0; k < logW.Length; ++k) logW[k] = (nbWeight[k] > 0) ? Math.Log(t * nbWeight[k]) : double.NegativeInfinity;
+            for (int i = 0; i < N; ++i) {
+                double sw = 0;
+                for (int k = nbStart[i]; k < nbStart[i + 1]; ++k) sw += nbWeight[k];
+                logDiag[i] = Math.Log(mass[i] + t * sw);
+                u[i] = double.NegativeInfinity;
+            }
+            for (int iter = 0; iter < MaxIterations; ++iter) {
+                double maxChange = 0;
+                object lockObj = new object();
+                gParallel.BlockStartEnd(0, N - 1, (i0, i1) => {
+                    double localMax = 0;
+                    for (int i = i0; i <= i1; ++i) {
+                        if (fixedZero[i] || double.IsNegativeInfinity(logDiag[i])) { next[i] = double.NegativeInfinity; continue; }
+                        double m = isSource[i] ? 0 : double.NegativeInfinity;
+                        for (int k = nbStart[i]; k < nbStart[i + 1]; ++k)
+                            m = Math.Max(m, logW[k] + u[nbIndex[k]]);
+                        if (double.IsNegativeInfinity(m)) { next[i] = m; continue; }
+                        double sum = isSource[i] ? Math.Exp(-m) : 0;
+                        for (int k = nbStart[i]; k < nbStart[i + 1]; ++k)
+                            sum += Math.Exp(logW[k] + u[nbIndex[k]] - m);
+                        double v = m + Math.Log(sum) - logDiag[i];
+                        next[i] = v;
+                        localMax = Math.Max(localMax, double.IsNegativeInfinity(u[i]) ? 1 : Math.Abs(v - u[i]));
+                    }
+                    lock (lockObj) maxChange = Math.Max(maxChange, localMax);
+                });
+                double[] tmp = u; u = next; next = tmp;
+                if (maxChange < 1e-10 && iter > 2)
                     return u;
             }
             return u;
