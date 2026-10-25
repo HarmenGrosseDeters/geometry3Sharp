@@ -467,7 +467,8 @@ namespace g3
                 windingTrees[mesh] = new DMeshAABBTree3(m, true);
                 windingTrees[mesh].FastWindingNumber(Vector3d.Zero);
             }
-            Vector3d pv = arr.PointToVector(centroid(ot));
+            // (the generalized winding number is approximate: the centroid of the corners in doubles is enough)
+            Vector3d pv = (arr.PointToVector(ot.A) + arr.PointToVector(ot.B) + arr.PointToVector(ot.C)) / 3;
             double w = windingTrees[mesh].FastWindingNumber(pv);
             List<int> on = stack ?? new List<int>() { ot.Source };
             foreach (int ti in on) {
@@ -490,13 +491,19 @@ namespace g3
             if (bounds.TryGetValue(mesh, out b) == false) {
                 b = new[] { new BigInteger[3], new BigInteger[3] };
                 bool first = true;
+                // (from the extreme doubles: the grid map is monotone)
+                Vector3d lo = Vector3d.Zero, hi = Vector3d.Zero;
                 foreach (int vid in arr.Meshes[mesh].VertexIndices()) {
-                    ExactPoint3 v = arr.Exact(arr.VertexPoints[mesh][vid]);
+                    Vector3d v = arr.Meshes[mesh].GetVertex(vid);
                     for (int k = 0; k < 3; ++k) {
-                        if (first || v[k] < b[0][k]) b[0][k] = v[k];
-                        if (first || v[k] > b[1][k]) b[1][k] = v[k];
+                        if (first || v[k] < lo[k]) lo[k] = v[k];
+                        if (first || v[k] > hi[k]) hi[k] = v[k];
                     }
                     first = false;
+                }
+                for (int k = 0; k < 3 && first == false; ++k) {
+                    b[0][k] = arr.GridValue(lo[k], k);
+                    b[1][k] = arr.GridValue(hi[k], k);
                 }
                 bounds[mesh] = b;
             }

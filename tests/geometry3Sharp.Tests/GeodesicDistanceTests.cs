@@ -345,5 +345,70 @@ namespace geometry3Sharp.Tests
             foreach (int vid in local.VertexIndices())
                 Assert.True(Math.Abs(a.Distance[vid] - b.Distance[vid]) < 1e-3, $"{a.Distance[vid]} vs {b.Distance[vid]}");
         }
+        // the grid with a row of caps: on the row y = 0 each edge is split, its new vertex moved down by eps
+        // and the edge to it from above flipped, so the vertex forms a triangle with the two ends of the
+        // edge it came from (angle ~180 degrees). Remeshing with constrained feature lines leaves such
+        // caps along break lines.
+        static DMesh3 GridWithCaps(int n, double eps, out List<int> capVertices)
+        {
+            DMesh3 mesh = Grid(-(n - 1) / 2, -(n - 1) / 2, (n - 1) / 2, (n - 1) / 2, n, (x, y) => 0.3 * Math.Sin(0.2 * x));
+            capVertices = new List<int>();
+            for (int i = 5; i < n - 6; ++i) {
+                int a = NearestVertexFast(mesh, n, i, (n - 1) / 2), b = NearestVertexFast(mesh, n, i + 1, (n - 1) / 2);
+                DMesh3.EdgeSplitInfo split;
+                Assert.Equal(MeshResult.Ok, mesh.SplitEdge(mesh.FindEdge(a, b), out split));
+                mesh.SetVertex(split.vNew, mesh.GetVertex(split.vNew) - new Vector3d(0, eps, 0));
+                int up = mesh.VtxVerticesItr(split.vNew).First(v => mesh.GetVertex(v).y > 0.5);
+                DMesh3.EdgeFlipInfo flip;
+                Assert.Equal(MeshResult.Ok, mesh.FlipEdge(mesh.FindEdge(split.vNew, up), out flip));
+                capVertices.Add(split.vNew);
+            }
+            return mesh;
+        }
+        static int NearestVertexFast(DMesh3 m, int n, int i, int j) { return i + n * j; }
+
+        [Fact]
+        public void CapsAlongAFeatureLine_ConvergeWithTheSameDistances()
+        {
+            // the huge cotangent weights of the caps made the heat and Poisson solves stall (no result
+            // after MaxIterations); on the intrinsic Delaunay triangulation the caps are flipped away
+            int n = 161;
+            List<int> caps;
+            DMesh3 mesh = GridWithCaps(n, 1e-6, out caps);
+            DMesh3 clean = Grid(-(n - 1) / 2, -(n - 1) / 2, (n - 1) / 2, (n - 1) / 2, n, (x, y) => 0.3 * Math.Sin(0.2 * x));
+            foreach (int[] src in new[] { new[] { n / 2 + n * 10 }, new[] { NearestVertexFast(mesh, n, 5, (n - 1) / 2), NearestVertexFast(mesh, n, n - 6, (n - 1) / 2) } }) {
+                var geo = new MeshGeodesicDistance(mesh);
+                Assert.True(geo.Compute(src));
+                Assert.True(geo.IntrinsicFlips > 0);
+                var reference = new MeshGeodesicDistance(clean);
+                Assert.True(reference.Compute(src));
+                Assert.Equal(0, reference.IntrinsicFlips);
+                // the grid vertices keep their ids; same surface, so about the same distances
+                foreach (int vid in clean.VertexIndices())
+                    Assert.True(Math.Abs(geo.Distance[vid] - reference.Distance[vid]) < 0.01 * reference.Distance[vid] + 0.3,
+                        $"{clean.GetVertex(vid)}: {geo.Distance[vid]} vs {reference.Distance[vid]}");
+                foreach (int vid in caps)
+                    Assert.False(double.IsNaN(geo.Distance[vid]));
+            }
+        }
+
+        [Fact]
+        public void DelaunayMesh_IntrinsicSameAsExtrinsic()
+        {
+            // a plane grid is Delaunay: no flips, the same distances
+            DMesh3 plane = Grid(-30, -30, 30, 30, 61, (x, y) => 0);
+            int src = NearestVertex(plane, Vector3d.Zero);
+            var a = new MeshGeodesicDistance(plane); Assert.True(a.Compute(new[] { src }));
+            var b = new MeshGeodesicDistance(plane) { IntrinsicDelaunay = false }; Assert.True(b.Compute(new[] { src }));
+            Assert.Equal(0, a.IntrinsicFlips);
+            foreach (int vid in plane.VertexIndices())
+                Assert.True(Math.Abs(a.Distance[vid] - b.Distance[vid]) < 1e-9, $"{a.Distance[vid]} vs {b.Distance[vid]}");
+            // on a curved surface some edges are flipped: both within the accuracy of the method
+            DMesh3 hills = Grid(-30, -30, 30, 30, 61, (x, y) => 3 * Math.Sin(x / 10) * Math.Cos(y / 7));
+            a = new MeshGeodesicDistance(hills); Assert.True(a.Compute(new[] { src }));
+            b = new MeshGeodesicDistance(hills) { IntrinsicDelaunay = false }; Assert.True(b.Compute(new[] { src }));
+            foreach (int vid in hills.VertexIndices())
+                Assert.True(Math.Abs(a.Distance[vid] - b.Distance[vid]) < 0.02 * b.Distance[vid] + 0.5, $"{a.Distance[vid]} vs {b.Distance[vid]}");
+        }
     }
 }

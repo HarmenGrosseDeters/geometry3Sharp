@@ -21,11 +21,9 @@ namespace gs
     /// center, so UTM coordinates are fine. Each connected component is measured from its own sources;
     /// components without a source (and isolated vertices) get NaN. Far from the sources (beyond about
     /// 700 edge lengths) the heat underflows doubles; then it is computed as its logarithm.
-    ///
-    /// With IntrinsicDelaunay the heat flow and the Poisson equation are solved on the intrinsic Delaunay
-    /// triangulation of the mesh (see IntrinsicTriangulation): same surface, but all cotan weights are
-    /// non-negative. Much more accurate on poor triangulations (slivers, obtuse triangles), where the
-    /// cotan Laplacian of the mesh itself has negative weights.
+    /// Computed on the intrinsic Delaunay triangulation of the mesh (IntrinsicDelaunay; Sharp and Crane,
+    /// "A Laplacian for Nonmanifold Triangle Meshes", 2020): caps and needles, eg along constrained
+    /// feature lines after remeshing, would otherwise make the solves stall.
     ///
     /// Usage: <c>var geo = new MeshGeodesicDistance(mesh); if (geo.Compute(new[] { sourceVid })) d = geo.Distance[vid];</c>
     /// The mesh is not modified. The first Compute() builds the Laplacian (cost grows with the vertex count);
@@ -40,13 +38,16 @@ namespace gs
         public double TimeFactor = 1.0;
         /// <summary> iteration limit of the linear solvers; Compute() returns false if the Poisson solve does not converge </summary>
         public int MaxIterations = 20000;
-        /// <summary> compute on the intrinsic Delaunay triangulation of the mesh (recommended for poor meshes) </summary>
-        public bool IntrinsicDelaunay = false;
-        /// <summary> the intrinsic triangulation used by the last computation (null unless IntrinsicDelaunay) </summary>
-        public IntrinsicTriangulation Intrinsic { get; private set; }
+        /// <summary>
+        /// compute on the intrinsic Delaunay triangulation of the mesh (same surface, edges flipped by
+        /// length): robust against caps and needles, eg from remeshing with constrained feature lines.
+        /// </summary>
+        public bool IntrinsicDelaunay = true;
 
         /// <summary> distance per vertex id (size MaxVertexID; NaN for unreachable or unused ids) </summary>
         public double[] Distance;
+        /// <summary> number of intrinsic edge flips (0 on a Delaunay mesh) </summary>
+        public int IntrinsicFlips;
 
 
         /// <summary> Set up geodesic distances on mesh. Nothing is computed until Compute() is called. </summary>
@@ -61,10 +62,9 @@ namespace gs
         PackedSparseMatrix L;      // cotan Laplacian, positive semidefinite
         double[] mass, diagL;
         double meanEdge;
-        List<Index3i> tris;
+        List<Index3i> tris;         // the (intrinsic) triangles, by vertex index
         List<Vector3d> cot;         // cotangent at each corner of tris
-        List<Vector2d[]> layout;    // isometric planar layout of each of tris (counter-clockwise)
-        bool computedIntrinsic;
+        List<Vector3d> layout;      // tris in the plane: corners (0,0), (x,0), (y,z)
 
         int timestamp = -1;
         int[] component;            // per index; -1 for vertices without a (non-degenerate) triangle
@@ -86,49 +86,60 @@ namespace gs
             for (int i = 0; i < N; ++i)
                 pos[i] = Mesh.GetVertex(toVertex[i]) - center;
 
-            SymmetricSparseMatrix M = new SymmetricSparseMatrix();
-            mass = new double[N];
-            diagL = new double[N];
+            // the triangles by their edge lengths (edge k from corner k to k+1), made intrinsic Delaunay
             tris = new List<Index3i>();
-            cot = new List<Vector3d>();
-            layout = new List<Vector2d[]>();
+            var lengths = new List<Vector3d>();
             double edgeSum = 0; int edgeCount = 0;
             foreach (int tid in Mesh.TriangleIndices()) {
                 Index3i t = Mesh.GetTriangle(tid);
-                Vector3d p0 = pos[toIndex[t.a]], p1 = pos[toIndex[t.b]], p2 = pos[toIndex[t.c]];
+                Index3i ti = new Index3i(toIndex[t.a], toIndex[t.b], toIndex[t.c]);
+                Vector3d p0 = pos[ti.a], p1 = pos[ti.b], p2 = pos[ti.c];
+                double area = 0.5 * (p1 - p0).Cross(p2 - p0).Length;
+                if (area < 1e-14 * ((p1 - p0).LengthSquared + (p2 - p0).LengthSquared))
+                    continue;
+                tris.Add(ti);
+                lengths.Add(new Vector3d((p1 - p0).Length, (p2 - p1).Length, (p0 - p2).Length));
                 edgeSum += (p1 - p0).Length + (p2 - p1).Length + (p0 - p2).Length;
                 edgeCount += 3;
             }
-            meanEdge = (edgeCount > 0) ? edgeSum / edgeCount : 1;
-            Intrinsic = null;
-            computedIntrinsic = IntrinsicDelaunay;
-            if (IntrinsicDelaunay) {
-                Intrinsic = new IntrinsicTriangulation(Mesh);
-                Intrinsic.FlipToDelaunay();
-                for (int k = 0; k < Intrinsic.TriangleCount; ++k) {
-                    Index3i t = Intrinsic.GetTriangle(k);
-                    Vector2d q0, q1, q2;
-                    Intrinsic.GetTriangleLayout(k, out q0, out q1, out q2);
-                    add_triangle(M, new Index3i(toIndex[t.a], toIndex[t.b], toIndex[t.c]), q0, q1, q2,
-                        Intrinsic.TriangleArea(k), false);
+            IntrinsicFlips = IntrinsicDelaunay ? flip_to_delaunay(tris, lengths) : 0;
+
+            SymmetricSparseMatrix M = new SymmetricSparseMatrix();
+            mass = new double[N];
+            diagL = new double[N];
+            cot = new List<Vector3d>(tris.Count);
+            layout = new List<Vector3d>(tris.Count);
+            int keep = 0;
+            for (int k = 0; k < tris.Count; ++k) {
+                Index3i ti = tris[k];
+                Vector3d l = lengths[k];
+                double area = heron(l.x, l.y, l.z);
+                if (!(area > 1e-14 * (l.x * l.x + l.z * l.z)))
+                    continue;
+                // cotangent at corner a from the lengths of its two edges and the opposite one
+                Vector3d c = Vector3d.Zero;
+                for (int a = 0; a < 3; ++a) {
+                    double e0 = l[a], e1 = l[(a + 2) % 3], opp = l[(a + 1) % 3];
+                    c[a] = (e0 * e0 + e1 * e1 - opp * opp) / (4 * area);
                 }
-            } else {
-                foreach (int tid in Mesh.TriangleIndices()) {
-                    Index3i t = Mesh.GetTriangle(tid);
-                    Index3i ti = new Index3i(toIndex[t.a], toIndex[t.b], toIndex[t.c]);
-                    Vector3d p0 = pos[ti.a], p1 = pos[ti.b], p2 = pos[ti.c];
-                    Vector3d n = (p1 - p0).Cross(p2 - p0);
-                    double area = 0.5 * n.Length;
-                    if (area < 1e-14 * ((p1 - p0).LengthSquared + (p2 - p0).LengthSquared))
-                        continue;
-                    Vector3d ex = (p1 - p0) / (p1 - p0).Length, ey = (n / (2 * area)).Cross(ex);
-                    Vector2d q2 = new Vector2d((p2 - p0).Dot(ex), (p2 - p0).Dot(ey));
-                    add_triangle(M, ti, Vector2d.Zero, new Vector2d((p1 - p0).Length, 0), q2, area, true);
+                tris[keep++] = ti;
+                cot.Add(c);
+                // corners in the plane: (0,0), (l0,0), (x,y), counter-clockwise
+                double x = (l.x * l.x + l.z * l.z - l.y * l.y) / (2 * l.x);
+                layout.Add(new Vector3d(l.x, x, 2 * area / l.x));
+                for (int a = 0; a < 3; ++a) {
+                    int i = ti[a], j = ti[(a + 1) % 3];
+                    double w = 0.5 * c[(a + 2) % 3];     // the corner opposite edge (i, j)
+                    M.Set(i, j, M[i, j] - w);
+                    diagL[i] += w; diagL[j] += w;
+                    mass[ti[a]] += area / 3;
                 }
             }
+            tris.RemoveRange(keep, tris.Count - keep);
             for (int i = 0; i < N; ++i)
                 M.Set(i, i, diagL[i]);
             L = new PackedSparseMatrix(M);
+            meanEdge = (edgeCount > 0) ? edgeSum / edgeCount : 1;
 
             // connected components of the (non-degenerate) triangles
             int[] parent = new int[N];
@@ -152,27 +163,112 @@ namespace gs
             componentCount = ids.Count;
         }
 
-        void add_triangle(SymmetricSparseMatrix M, Index3i ti, Vector2d q0, Vector2d q1, Vector2d q2, double area, bool lengthsFromLayout)
+        // triangle area from the edge lengths (Kahan's stable form of Heron's formula); 0 if not a triangle
+        static double heron(double a, double b, double c)
         {
-            Vector3d c = new Vector3d(cotangent(q1 - q0, q2 - q0), cotangent(q2 - q1, q0 - q1), cotangent(q0 - q2, q1 - q2));
-            tris.Add(ti);
-            cot.Add(c);
-            layout.Add(new Vector2d[] { q0, q1, q2 });
-            for (int k = 0; k < 3; ++k) {
-                int i = ti[k], j = ti[(k + 1) % 3];
-                double w = 0.5 * c[(k + 2) % 3];     // the corner opposite edge (i, j)
-                if (i != j) {
-                    M.Set(i, j, M[i, j] - w);
-                    diagL[i] += w; diagL[j] += w;
-                }
-                mass[ti[k]] += area / 3;
-            }
+            if (a < b) { double t = a; a = b; b = t; }
+            if (b < c) { double t = b; b = c; c = t; }
+            if (a < b) { double t = a; a = b; b = t; }
+            double p = (a + (b + c)) * (c - (a - b)) * (c + (a - b)) * (a + (b - c));
+            return (p > 0) ? 0.25 * Math.Sqrt(p) : 0;
         }
 
-        static double cotangent(Vector2d a, Vector2d b)
+        // cotangent of the angle opposite the side of length a in the triangle with sides a, b, c
+        static double cot_opposite(double a, double b, double c)
         {
-            double s = Math.Abs(a.x * b.y - a.y * b.x);
-            return (s > 1e-300) ? a.Dot(b) / s : 0;
+            double area = heron(a, b, c);
+            return (area > 0) ? (b * b + c * c - a * a) / (4 * area) : double.NegativeInfinity;
+        }
+
+        /// <summary>
+        /// Flips edges of the triangulation intrinsically (the edge lengths change, the surface does not;
+        /// Bobenko and Springborn, Fisher et al. 2007) until every interior edge is Delaunay: the angles
+        /// opposite it sum to at most pi. Removes the large and negative cotangent weights of caps and
+        /// needles (eg vertices next to feature lines after remeshing), which make the heat and Poisson
+        /// solves stall; on a Delaunay mesh nothing changes. Boundary and non-manifold edges are kept.
+        /// Returns the number of flips; tris and lengths are updated (same number of triangles).
+        /// </summary>
+        static int flip_to_delaunay(List<Index3i> tris, List<Vector3d> lengths)
+        {
+            int H = 3 * tris.Count;
+            int[] org = new int[H], nxt = new int[H], twin = new int[H];
+            double[] len = new double[H];
+            long nV = 0;
+            for (int f = 0; f < tris.Count; ++f)
+                for (int a = 0; a < 3; ++a) {
+                    int h = 3 * f + a;
+                    org[h] = tris[f][a]; nxt[h] = 3 * f + (a + 1) % 3; len[h] = lengths[f][a]; twin[h] = -1;
+                    nV = Math.Max(nV, tris[f][a] + 1);
+                }
+            // interior edges: exactly two half edges in opposite directions. Same direction (inconsistent
+            // orientation) or more than two (non-manifold): not flipped
+            var first = new Dictionary<long, int>();
+            var notFlippable = new HashSet<long>();
+            for (int h = 0; h < H; ++h) {
+                int i = org[h], j = org[nxt[h]];
+                long key = Math.Min(i, j) * nV + Math.Max(i, j);
+                int o;
+                if (first.TryGetValue(key, out o) == false)
+                    first[key] = h;
+                else if (twin[o] < 0 && org[o] == j && notFlippable.Contains(key) == false) {
+                    twin[h] = o; twin[o] = h;
+                } else
+                    notFlippable.Add(key);
+            }
+            foreach (long key in notFlippable) {
+                int o = first[key];
+                if (twin[o] >= 0) { twin[twin[o]] = -1; twin[o] = -1; }
+            }
+            // corner angle opposite half edge h in its triangle, as cotangent
+            Func<int, double> cotOpp = (h) => cot_opposite(len[h], len[nxt[h]], len[nxt[nxt[h]]]);
+            Func<double, double, double, double> angle = (a, b, opp) => Math.Acos(MathUtil.Clamp((a * a + b * b - opp * opp) / (2 * a * b), -1, 1));
+            var queue = new Queue<int>();
+            var queued = new bool[H];
+            for (int h = 0; h < H; ++h)
+                if (twin[h] > h) { queue.Enqueue(h); queued[h] = true; }
+            int flips = 0, maxFlips = 50 * H + 100;
+            while (queue.Count > 0 && flips < maxFlips) {
+                int h = queue.Dequeue();
+                queued[h] = false;
+                int t = twin[h];
+                if (t < 0 || cotOpp(h) + cotOpp(t) >= -1e-10)
+                    continue;
+                int h1 = nxt[h], h2 = nxt[h1], g1 = nxt[t], g2 = nxt[g1];
+                int k = org[h2], l = org[g2];
+                if (k == l)
+                    continue;
+                // unfold both triangles at the edge ends i = org[h] and j: the quad must be strictly convex there
+                double ai = angle(len[h], len[h2], len[h1]) + angle(len[t], len[g1], len[g2]);
+                double aj = angle(len[h], len[h1], len[h2]) + angle(len[t], len[g2], len[g1]);
+                if (ai >= Math.PI - 1e-12 || aj >= Math.PI - 1e-12)
+                    continue;
+                double kl2 = len[h2] * len[h2] + len[g1] * len[g1] - 2 * len[h2] * len[g1] * Math.Cos(ai);
+                if (!(kl2 > 0))
+                    continue;
+                // triangles (i, j, k) + (j, i, l) -> (l, k, i) + (k, l, j)
+                org[h] = l; nxt[h] = h2; nxt[h2] = g1; nxt[g1] = h;
+                org[t] = k; nxt[t] = g2; nxt[g2] = h1; nxt[h1] = t;
+                len[h] = len[t] = Math.Sqrt(kl2);
+                flips++;
+                foreach (int e in new[] { h1, h2, g1, g2 }) {
+                    int c = (twin[e] >= 0 && twin[e] < e) ? twin[e] : e;
+                    if (twin[c] >= 0 && queued[c] == false) { queue.Enqueue(c); queued[c] = true; }
+                }
+            }
+            if (flips == 0)
+                return 0;
+            // read the triangles back (each triangle is a cycle of three half edges)
+            var seen = new bool[H];
+            int nf = 0;
+            for (int h = 0; h < H; ++h) {
+                if (seen[h]) continue;
+                int b = nxt[h], c = nxt[b];
+                seen[h] = seen[b] = seen[c] = true;
+                tris[nf] = new Index3i(org[h], org[b], org[c]);
+                lengths[nf] = new Vector3d(len[h], len[b], len[c]);
+                nf++;
+            }
+            return flips;
         }
 
 
@@ -183,7 +279,7 @@ namespace gs
         /// </summary>
         public bool Compute(IEnumerable<int> sources)
         {
-            if (L == null || timestamp != Mesh.ShapeTimestamp || computedIntrinsic != IntrinsicDelaunay)
+            if (L == null || timestamp != Mesh.ShapeTimestamp)
                 precompute();
             Distance = null; sourceVertices = null;
             List<int> src = new List<int>();
@@ -237,22 +333,25 @@ namespace gs
             double[] div = new double[N];
             for (int k = 0; k < tris.Count; ++k) {
                 Index3i ti = tris[k];
-                Vector2d[] p = layout[k];
-                Vector2d p0 = p[0], p1 = p[1], p2 = p[2];
-                double area2 = (p1.x - p0.x) * (p2.y - p0.y) - (p2.x - p0.x) * (p1.y - p0.y);
-                // grad u = 1/(2A) sum_i u_i J e_i, e_i the edge opposite corner i (counter-clockwise) and J
-                // the rotation by 90 degrees; only its direction is used, so the heat is scaled by its maximum
+                // the triangle laid out in the plane (intrinsic: its edges need not be straight in 3D)
+                Vector3d q = layout[k];
+                Vector3d p0 = Vector3d.Zero, p1 = new Vector3d(q.x, 0, 0), p2 = new Vector3d(q.y, q.z, 0);
+                Vector3d n = Vector3d.AxisZ;
+                double area2 = q.x * q.z;
+                // grad u = 1/(2A) sum_i u_i (N x e_i), e_i the edge opposite corner i (counter-clockwise);
+                // only its direction is used, so the heat is scaled by its maximum in the triangle
                 double lm = Math.Max(u[ti.a], Math.Max(u[ti.b], u[ti.c]));
                 if (double.IsNegativeInfinity(lm)) continue;
                 double ua = Math.Exp(u[ti.a] - lm), ub = Math.Exp(u[ti.b] - lm), uc = Math.Exp(u[ti.c] - lm);
-                Vector2d g = (ua * perp(p2 - p1) + ub * perp(p0 - p2) + uc * perp(p1 - p0)) / area2;
+                Vector3d g = (ua * n.Cross(p2 - p1) + ub * n.Cross(p0 - p2) + uc * n.Cross(p1 - p0)) / area2;
                 double gl = g.Length;
                 if (gl < 1e-300) continue;
-                Vector2d X = -g / gl;
+                Vector3d X = -g / gl;
                 Vector3d c = cot[k];
+                Vector3d[] p = { p0, p1, p2 };
                 for (int a = 0; a < 3; ++a) {
                     int i = ti[a];
-                    Vector2d e1 = p[(a + 1) % 3] - p[a], e2 = p[(a + 2) % 3] - p[a];
+                    Vector3d e1 = p[(a + 1) % 3] - p[a], e2 = p[(a + 2) % 3] - p[a];
                     // cot of the angle opposite e1 is at corner a+2, opposite e2 at corner a+1
                     div[i] += 0.5 * (c[(a + 2) % 3] * e1.Dot(X) + c[(a + 1) % 3] * e2.Dot(X));
                 }
@@ -285,8 +384,6 @@ namespace gs
             foreach (int s in srcVertices) Distance[s] = 0;
             return true;
         }
-
-        static Vector2d perp(Vector2d v) { return new Vector2d(-v.y, v.x); }
 
         HashSet<int> sourceVertices;
         DMeshAABBTree3 spatial;

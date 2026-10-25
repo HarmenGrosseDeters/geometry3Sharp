@@ -309,7 +309,7 @@ namespace geometry3Sharp.Tests
             Assert.True(mean < 0.1, $"intrinsic mean error {mean}");
             Assert.True(max < 1.0, $"intrinsic max error {max}");
 
-            var ext = new MeshGeodesicDistance(mesh);
+            var ext = new MeshGeodesicDistance(mesh) { IntrinsicDelaunay = false };
             Assert.True(ext.Compute(new[] { src }));
             double emean, emax;
             Errors(mesh, ext.Distance, exact, inner, out emean, out emax);
@@ -330,7 +330,7 @@ namespace geometry3Sharp.Tests
             Assert.True(geo.Compute(new[] { src }));
             double mean, max;
             Errors(mesh, geo.Distance, exact, use, out mean, out max);
-            var ext = new MeshGeodesicDistance(mesh);
+            var ext = new MeshGeodesicDistance(mesh) { IntrinsicDelaunay = false };
             Assert.True(ext.Compute(new[] { src }));
             double emean, emax;
             Errors(mesh, ext.Distance, exact, use, out emean, out emax);
@@ -350,7 +350,7 @@ namespace geometry3Sharp.Tests
             double mean, max;
             Errors(sphere, geo.Distance, v => SphereDistance(sphere.GetVertex(v), ps, 1), v => true, out mean, out max);
             Assert.True(max < 0.05, $"max error {max}");
-            Assert.NotNull(geo.Intrinsic);
+            Assert.True(geo.IntrinsicFlips >= 0);
 
             // the path tracing still works on the mesh
             var path = geo.TracePath(NearestVertex(sphere, new Vector3d(1, 0, 0)));

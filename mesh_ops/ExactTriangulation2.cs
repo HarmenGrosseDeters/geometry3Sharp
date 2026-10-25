@@ -24,6 +24,7 @@ namespace g3
         readonly Dictionary<long, int> edgeTri = new Dictionary<long, int>(EdgeKeyComparer.Instance);     // directed edge -> triangle
         readonly HashSet<long> constrained = new HashSet<long>(EdgeKeyComparer.Instance);                 // undirected
         readonly HashSet<int> vertices = new HashSet<int>();
+        readonly Dictionary<int, int> vertexTri = new Dictionary<int, int>();       // vertex -> a triangle that had it (check before use)
         readonly int[] outer;
 
         public ExactTriangulation2(int c0, int c1, int c2, Func<int, int, int, int> orient, Func<int, int, int, int, int> incircle)
@@ -59,6 +60,7 @@ namespace g3
                 tris.Add(t);
             }
             edgeTri[dkey(a, b)] = ti; edgeTri[dkey(b, c)] = ti; edgeTri[dkey(c, a)] = ti;
+            vertexTri[a] = ti; vertexTri[b] = ti; vertexTri[c] = ti;
             return ti;
         }
 
@@ -99,6 +101,7 @@ namespace g3
                 int a = t[0], b = t[1], c = t[2];
                 remove_tri(ti);
                 last = add_tri(a, b, p); add_tri(b, c, p); add_tri(c, a, p);
+                legalize(a, b); legalize(b, c); legalize(c, a);
             } else if (o0 == 0) {
                 split_edge(t[0], t[1], p);
             } else if (o1 == 0) {
@@ -106,6 +109,30 @@ namespace g3
             } else {
                 split_edge(t[2], t[0], p);
             }
+        }
+
+        // incremental Delaunay: flip the edges around a new point while they are not locally Delaunay (constrained
+        // edges stay), so that the triangulation stays well shaped for walking; MakeDelaunay finishes
+        readonly Stack<long> legalStack = new Stack<long>();
+        void legalize(int a0, int b0)
+        {
+            legalStack.Push(dkey(a0, b0));
+            int guard = 0;
+            while (legalStack.Count > 0 && ++guard < 10000) {
+                long e = legalStack.Pop();
+                int a = (int)(e >> 32), b = (int)(e & 0xFFFFFFFF);
+                if (constrained.Contains(ukey(a, b)))
+                    continue;
+                int t1, t2;
+                if (edgeTri.TryGetValue(dkey(a, b), out t1) == false || edgeTri.TryGetValue(dkey(b, a), out t2) == false)
+                    continue;
+                int c = opposite(t1, a, b), d = opposite(t2, b, a);
+                if (incircle(a, b, c, d) <= 0)
+                    continue;
+                flip(a, b, out c, out d);
+                legalStack.Push(dkey(a, d)); legalStack.Push(dkey(d, b)); legalStack.Push(dkey(b, c)); legalStack.Push(dkey(c, a));
+            }
+            legalStack.Clear();
         }
 
         int last = 0;
@@ -163,15 +190,15 @@ namespace g3
         void split_edge(int a, int b, int p)
         {
             bool wasConstrained = constrained.Remove(ukey(a, b));
-            int t1;
+            int t1, c = -1, d = -1;
             if (edgeTri.TryGetValue(dkey(a, b), out t1)) {
-                int c = opposite(t1, a, b);
+                c = opposite(t1, a, b);
                 remove_tri(t1);
                 last = add_tri(a, p, c); add_tri(p, b, c);
             }
             int t2;
             if (edgeTri.TryGetValue(dkey(b, a), out t2)) {
-                int d = opposite(t2, b, a);
+                d = opposite(t2, b, a);
                 remove_tri(t2);
                 add_tri(b, p, d); add_tri(p, a, d);
             }
@@ -179,6 +206,9 @@ namespace g3
                 constrained.Add(ukey(a, p));
                 constrained.Add(ukey(p, b));
             }
+            // the edges opposite to p
+            if (c >= 0) { legalize(c, a); legalize(b, c); }
+            if (d >= 0) { legalize(d, b); legalize(a, d); }
         }
 
         // flip edge (a, b) shared by triangles (a, b, c) and (b, a, d) to (c, d); returns false if not possible
@@ -227,21 +257,26 @@ namespace g3
                 return;
             }
             var queue = new Queue<long>();
-            var seen = new HashSet<long>(EdgeKeyComparer.Instance);
-            foreach (int[] t in tris) {
-                if (t == null) continue;
-                for (int k = 0; k < 3; ++k) {
-                    int x = t[k], y = t[(k + 1) % 3];
-                    long key = ukey(x, y);
-                    if (seen.Contains(key)) continue;
-                    seen.Add(key);
-                    if (crosses(x, y, u, v)) {
-                        if (constrained.Contains(key))
-                            throw new InvalidOperationException("ExactTriangulation2: constraint segments cross");
-                        queue.Enqueue(dkey(x, y));
+            if (walk_crossings(u, v, queue) == false) {
+                // (the walk only fails if the input breaks the preconditions: the scan finds the reason)
+                queue.Clear();
+                LinearSearches++;
+                var seen = new HashSet<long>(EdgeKeyComparer.Instance);
+                foreach (int[] t in tris) {
+                    if (t == null) continue;
+                    for (int k = 0; k < 3; ++k) {
+                        int x = t[k], y = t[(k + 1) % 3];
+                        long key = ukey(x, y);
+                        if (seen.Contains(key)) continue;
+                        seen.Add(key);
+                        if (crosses(x, y, u, v))
+                            queue.Enqueue(dkey(x, y));
                     }
                 }
             }
+            foreach (long e in queue)
+                if (constrained.Contains(ukey((int)(e >> 32), (int)(e & 0xFFFFFFFF))))
+                    throw new InvalidOperationException("ExactTriangulation2: constraint segments cross");
             int guard = 0, limit = 100 + 50 * queue.Count * queue.Count;
             while (queue.Count > 0) {
                 if (++guard > limit)
@@ -277,6 +312,61 @@ namespace g3
             constrained.Add(ukey(u, v));
         }
 
+
+        // the edges crossed by the segment u-v, in order: rotate around u to the triangle that the segment leaves
+        // through its opposite edge, then march across the crossed edges to v. False if that is not possible (the
+        // segment passes through a vertex or leaves the triangulation)
+        bool walk_crossings(int u, int v, Queue<long> queue)
+        {
+            int ti;
+            if (vertexTri.TryGetValue(u, out ti) == false || tris[ti] == null || Array.IndexOf(tris[ti], u) < 0)
+                return false;
+            // around u: counter-clockwise, triangle (u, p, q) is followed by the one with directed edge (u, q);
+            // clockwise (after reaching the boundary) it is preceded by the one with directed edge (p, u)
+            int p = -1, q = -1, start = ti;
+            bool found = false, clockwise = false;
+            for (int steps = 0; steps < 2 * tris.Count + 2; ++steps) {
+                int[] t = tris[ti];
+                int i = Array.IndexOf(t, u);
+                p = t[(i + 1) % 3]; q = t[(i + 2) % 3];
+                // v strictly inside the wedge at u: the segment leaves through (p, q)
+                if (orient(u, p, v) > 0 && orient(u, v, q) > 0) {
+                    found = true;
+                    break;
+                }
+                int next;
+                if (edgeTri.TryGetValue(clockwise ? dkey(p, u) : dkey(u, q), out next) == false) {
+                    if (clockwise)
+                        return false;
+                    clockwise = true;
+                    int[] s0 = tris[start];
+                    int i0 = Array.IndexOf(s0, u);
+                    if (edgeTri.TryGetValue(dkey(s0[(i0 + 1) % 3], u), out next) == false)
+                        return false;
+                }
+                ti = next;
+                if (ti == start)
+                    return false;
+            }
+            if (found == false)
+                return false;
+            // march: (x, y) is the crossed edge, x right of u -> v, y left; the next triangle is across it
+            int x = p, y = q;
+            for (int steps = 0; steps < tris.Count + 1; ++steps) {
+                queue.Enqueue(dkey(x, y));
+                int far;
+                if (edgeTri.TryGetValue(dkey(y, x), out far) == false)
+                    return false;
+                int c = opposite(far, y, x);
+                if (c == v)
+                    return true;
+                int s = orient(u, v, c);
+                if (s == 0)
+                    return false;       // through a vertex
+                if (s < 0) x = c; else y = c;
+            }
+            return false;
+        }
 
         /// <summary> flip non-constrained edges until the triangulation is constrained Delaunay </summary>
         public void MakeDelaunay()
