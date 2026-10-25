@@ -237,7 +237,7 @@ namespace g3
                 double cross = v.x * t1.y - v.y * t1.x;
 
                 arc1 = new Arc(center1, radius, angle, angle + Math.PI, (cross < 0));
-                arc1 = new Arc(center2, radius, angle, angle + Math.PI, (cross > 0));
+                arc2 = new Arc(center2, radius, angle, angle + Math.PI, (cross > 0));
 
             } else {
                 double vDotT = v.Dot(t);

@@ -13,7 +13,32 @@ komplette Bibliothek in ein Konsolenprojekt eingebunden.
 
 **Schwere:** K = kritisch, H = hoch, M = mittel, N = niedrig
 
-Bisher wurde nichts am Code geändert. Dieses Dokument ist nur die Bestandsaufnahme.
+Die Befunde beziehen sich auf `ece3364`. In `master` sind einige davon inzwischen behoben, etwa `Matrix3d/f`-Konstruktor,
+`MeshMeshCut:208`, `IndexPriorityQueue.Contains`, `DistPoint2Circle2` und `Dijkstra.Compute_Dense`.
+
+### Status der Fixes
+
+Erste Runde, nur Einzeiler. Regressionstests stehen in `tests/geometry3Sharp.Tests/ReviewFixesTests.cs`.
+
+Behoben:
+- `MathUtil.InvSqrt`
+- Kopierkonstruktoren `Index3i`/`Index4i`
+- `MatrixUtil.Transpose3x3`
+- `DijkstraGraphDistance.update_neighbours_dense`
+- `BiArcFit2` (arc2)
+- `ContOrientedBox3.ResultValid`
+- `BaseCurve2.GetMinTime`
+- `DistTriangle3Triangle3` (nächste Punkte)
+- `LinearFalloff.Duplicate`
+- `ImplicitPoint2d.InBounds`
+- `EdgeSpan.CheckValidity`
+- `MarchingCubesPro.edge_hash`
+- `MeshPlaneCut.FillHoles`
+- `DMeshAABBTree3.find_any_intersection`
+
+Bewusst zurückgestellt: `OBJReader.is_complex`. Der Fix leitet Dateien auf `BuildMeshes_ByMaterial` um. Dieser Pfad
+verwirft UVs bei Meshes ohne Material, übernimmt keine Gruppen und stürzt bei Faces ohne Normal-Index ab. Er muss deshalb
+zusammen mit diesem Pfad repariert werden.
 
 ---
 
