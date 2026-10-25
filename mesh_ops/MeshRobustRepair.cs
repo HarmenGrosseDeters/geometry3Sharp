@@ -101,13 +101,15 @@ namespace gs
             if (solidifyFrom.TriangleCount == 0)
                 return false;
             if (ExactResolve) {
-                // a clean result whose volume differs may only have its components oriented differently
-                // from the input (eg a nested part turned into a cavity): resolve it first, oriented by the
-                // input's solid, before the input itself
-                DMesh3 exact = resolve_exactly(result, input);
+                DMesh3 exact = resolve_exactly(result, input, false);
+                // its volume may differ only because components are oriented differently from the input (eg a
+                // nested part taken for a cavity): then resolve it again, oriented by the input's solid
+                if (exact == null && ExactResolveReason == "volume differs from the input" && CancelF() == false)
+                    exact = resolve_exactly(result, input, true);
+                // a clean result whose volume differs: also the input itself
                 if (exact == null && solidifyFrom != result && CancelF() == false) {
                     string reason = ExactResolveReason;
-                    exact = resolve_exactly(solidifyFrom, input);
+                    exact = resolve_exactly(solidifyFrom, input, false);
                     if (exact == null)
                         ExactResolveReason = reason + "; input: " + ExactResolveReason;
                 }
@@ -128,10 +130,11 @@ namespace gs
         }
 
         // the solid of the mesh with its self-intersections resolved exactly, or null (ExactResolveReason says why)
-        DMesh3 resolve_exactly(DMesh3 from, DMesh3 input)
+        DMesh3 resolve_exactly(DMesh3 from, DMesh3 input, bool orientByInput)
         {
-            // inside-out parts flipped, so that the solid is where the winding number is positive
-            DMesh3 m = OrientedByReference(from, input);
+            // inside-out parts flipped, so that the solid is where the winding number is positive (guessed from
+            // the nesting of the components, or from the input's solid)
+            DMesh3 m = orientByInput ? OrientedByReference(from, input) : WindingContouring.OrientedCopy(from);
             if (ExactMeshBoolean.IsWindingClosed(m) == false) {
                 ExactResolveReason = "not closed (winding number)";
                 return null;
