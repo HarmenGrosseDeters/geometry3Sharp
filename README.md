@@ -17,6 +17,12 @@ Its direction is described in [docs/ROADMAP.md](docs/ROADMAP.md). It adds:
   closed results; self-intersecting meshes, nested shells and duplicated faces are resolved
   (`ExactMeshBoolean.Resolve(mesh)` does that for one mesh); open meshes use the generalized winding number.
   Only the output coordinates are rounded to double.
+- Mesh parameterization (UV unwrapping) of meshes with boundary: `LSCMParameterization` (least squares
+  conformal maps), `ARAPParameterization` (as-rigid-as-possible, local/global), `SLIMParameterization`
+  (symmetric Dirichlet energy, guaranteed without flipped triangles), `BoundaryFirstFlattening` (conformal,
+  with prescribed boundary lengths or angles, eg minimal area distortion, disk or rectangle), `TutteEmbedding`,
+  distortion measures (`ParameterizationDistortion`) and `UVPacker` for packing charts into the unit square.
+  All return a `ParameterizationResult` with status, UVs and distortion. They use the new `SparseCholesky`.
 - Mesh file formats PLY, 3MF and glTF 2.0 (see below).
 - `BufferUtil.DecompressZLib` fix: on .NET Core it returned partly empty buffers for large data.
 
@@ -176,6 +182,7 @@ Several tutorials for using g3Sharp have been posted on the Gradientspace blog:
 
 - basic arbitrary-size **DenseMatrix**, **DenseVector**, **DiagonalMatrix**, **SymmetricSparseMatrix** (based on Dictionary), **PackedSparseMatrix** (row arrays)
 - **CholeskyDecomposition** dense-matrix Cholesky decomposition, optionally multi-threaded
+- **SparseCholesky** sparse Cholesky factorization (approximate minimum degree ordering, supernodal), factorize once and solve many right-hand sides; refactorization with the same pattern reuses the analysis
 - **SparseSymmetricCG** conjugate-gradient matrix solver w/ support for preconditioning, client-provided matrix/vector multiply
 - **SparseSymmetricCGMultipleRHS** variant that supports multiple right-hand sides
 - **SingularValueDecomposition** SVD for arbitrary matrices
@@ -326,6 +333,8 @@ Several tutorials for using g3Sharp have been posted on the Gradientspace blog:
 - **MeshInsertProjectedPolygon**: variant of MeshInsertPolygon that inserts 2D polygon onto 3D mesh surface via projection plane
 - **MeshIterativeSmooth**: standard iterative vertex-laplacian smoothing with uniform, cotan, mean-value weights
 - **MeshLocalParam**: calculate Discrete Exponential Map uv-coords around a point on mesh
+- **LSCMParameterization**, **ARAPParameterization**, **SLIMParameterization**, **BoundaryFirstFlattening**, **TutteEmbedding**: UV parameterization of a mesh with boundary (see below)
+- **UVPacker**: pack UV charts into the unit square (skyline packing, optional rotation, uniform texel density)
 - **MeshLoopClosure**: cap open region of mesh with a plane
 - **MeshLoopSmooth**: smooth an embedded *EdgeLoop* of a mesh
 - **MeshPlaneCut**: cut a mesh with a plane, return new **EdgeLoop**s and **EdgeSpans**, and optionally fill holes
@@ -349,6 +358,35 @@ Several tutorials for using g3Sharp have been posted on the Gradientspace blog:
 - **RemoteOccludedTriangles**: remove triangles that are "occluded" under various definitions
 - **MeshAutoRepair**: apply many of the above algorithms in an attempt to automatically "repair" an input mesh, where "repaired" means the mesh is closed and manifold.
 
+
+## Parameterization
+
+All methods take a `DMesh3` with at least one boundary loop (cut closed surfaces open first) and return a
+`ParameterizationResult` from `Compute()`: `Status` (`Success`, `InvalidMesh`, `InvalidTopology`,
+`InvalidConstraints`, `SolverFailed`), `UV` per vertex id, `Distortion` and, for iterative methods,
+`Iterations` / `Converged` / `Energy`. `ApplyToMesh(mesh)` writes the vertex UVs.
+
+```csharp
+var bff = new BoundaryFirstFlattening(mesh);            // u = 0 on the boundary: minimal area distortion
+ParameterizationResult r = bff.Compute();
+if (r.Succeeded) {
+    r.ApplyToMesh(mesh);
+    Console.WriteLine(r.Distortion.MeanConformal);      // 1 = conformal
+}
+new UVPacker(mesh) { Padding = 0.01 }.Compute().ApplyToMesh(mesh);
+```
+
+| Method | Topology | Boundary | Guarantees / properties |
+|---|---|---|---|
+| `LSCMParameterization` | any with boundary, one component | free (2+ pins) | conformal energy minimum, linear |
+| `BoundaryFirstFlattening` | disc | prescribed scale factors or exterior angles (`MinimalAreaDistortion`, `Disk`, `TargetAngles`, `TargetScaleFactors`) | conformal, linear, exact boundary with `Harmonic` extension |
+| `ARAPParameterization` | any with boundary, one component | free | least length distortion (local/global), natural scale |
+| `SLIMParameterization` | disc (or any, from flip-free `InitialUV`) | free | no flipped triangles, minimizes symmetric Dirichlet energy |
+| `TutteEmbedding` | disc | circle | bijective, high distortion (initialization) |
+
+`ParameterizationDistortion.Compute(mesh, uv)` measures flipped triangles, conformal distortion (s1/s2),
+angle error, area distortion (log of the area ratio relative to the global scale), symmetric Dirichlet and
+ARAP energies.
 
 ## Spatial Data Structures
 
