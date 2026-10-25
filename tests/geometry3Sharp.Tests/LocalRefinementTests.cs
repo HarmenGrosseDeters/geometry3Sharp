@@ -131,7 +131,8 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0, local.RefinedCells);
             Assert.Equal(1, local.RefineFactor);
             Assert.Equal(0.25, local.UsedCellSize);
-            Assert.InRange(local.WindingEvaluations, 0.99 * plain.WindingEvaluations, 1.01 * plain.WindingEvaluations);
+            // (the count varies by a few: parallel threads sometimes evaluate the same node twice)
+            Assert.InRange(local.WindingEvaluations, 0.95 * plain.WindingEvaluations, 1.05 * plain.WindingEvaluations);
             Assert.InRange(local.Result.TriangleCount, 0.98 * plain.Result.TriangleCount, 1.02 * plain.Result.TriangleCount);
             Assert.True(local.Result.IsClosed());
         }

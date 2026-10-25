@@ -7,8 +7,8 @@ using Xunit;
 namespace geometry3Sharp.Tests
 {
     /// <summary>
-    /// Reduction that adds no self-intersections and no folds (checked exactly after reducing, regions
-    /// with new defects pinned and reduced again).
+    /// Reducer.PreventSelfIntersections: every collapse is checked exactly against the nearby triangles,
+    /// so the reduction cannot push the surface through itself.
     /// </summary>
     public class DefectFreeReduceTests
     {
@@ -24,51 +24,47 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void ThinSlab_PlainReducerIntersects_DefectFreeDoesNot()
+        public void ThinSlab_PlainReducerIntersects_CheckedOneDoesNot()
         {
             DMesh3 input = ThinSlab();
             Assert.Equal(0, MeshRepairMetrics.SelfIntersections(input));
             DMesh3 plain = new DMesh3(input);
             new Reducer(plain).ReduceToTriangleCount(120);
-            int plainDefects = MeshRepairMetrics.SelfIntersections(plain) + MeshRepairMetrics.FoldedEdges(plain).Count;
-            Assert.True(plainDefects > 0, "test does not exercise the check");
+            Assert.True(MeshRepairMetrics.SelfIntersections(plain) > 0, "test does not exercise the check");
 
             DMesh3 safe = new DMesh3(input);
-            var reduce = new MeshDefectFreeReduce(safe, (r) => r.ReduceToTriangleCount(120));
-            Assert.True(reduce.Apply());
+            new Reducer(safe) { PreventSelfIntersections = true }.ReduceToTriangleCount(120);
             Assert.Equal(0, MeshRepairMetrics.SelfIntersections(safe));
-            Assert.Empty(MeshRepairMetrics.FoldedEdges(safe));
-            Assert.Equal(0, reduce.DefectsLeft);
             Assert.True(safe.IsClosed());
-            Assert.True(safe.TriangleCount < 0.5 * input.TriangleCount, $"{safe.TriangleCount} of {input.TriangleCount} triangles");
+            Assert.True(safe.TriangleCount < 0.2 * input.TriangleCount, $"{safe.TriangleCount} of {input.TriangleCount} triangles");
         }
 
         [Fact]
-        public void CleanReduction_OneRoundNoPins()
+        public void CleanMesh_SameReductionAsWithoutTheCheck()
         {
-            DMesh3 sphere = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 20 }.Generate().MakeDMesh();
-            var reduce = new MeshDefectFreeReduce(sphere, (r) => r.ReduceToTriangleCount(500));
-            Assert.True(reduce.Apply());
-            Assert.Equal(1, reduce.Rounds);
-            Assert.Equal(0, reduce.PinnedVertices);
-            Assert.InRange(sphere.TriangleCount, 450, 550);
+            DMesh3 a = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 20 }.Generate().MakeDMesh();
+            DMesh3 b = new DMesh3(a);
+            new Reducer(a).ReduceToTriangleCount(500);
+            new Reducer(b) { PreventSelfIntersections = true }.ReduceToTriangleCount(500);
+            Assert.Equal(a.TriangleCount, b.TriangleCount);
+            Assert.Equal(0, MeshRepairMetrics.SelfIntersections(b));
         }
 
         [Fact]
-        public void InputDefects_KeptButNoNewOnes()
+        public void InputIntersections_NoNewOnes()
         {
-            // two overlapping spheres (an input self-intersection), reduced: the overlap stays, nothing new
+            // two overlapping spheres (an input self-intersection), reduced: the overlap stays, no new ones
             DMesh3 a = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 16 }.Generate().MakeDMesh();
             DMesh3 b = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 16 }.Generate().MakeDMesh();
             MeshTransforms.Translate(b, new Vector3d(1.2, 0, 0));
             MeshEditor.Append(a, b);
             int before = MeshRepairMetrics.SelfIntersections(a);
             Assert.True(before > 0);
-            var reduce = new MeshDefectFreeReduce(a, (r) => r.ReduceToTriangleCount(800));
-            Assert.True(reduce.Apply());
-            Assert.Equal(0, reduce.DefectsLeft);
-            Assert.True(reduce.PinnedVertices > 0);
-            Assert.True(a.TriangleCount < 2500);
+            new Reducer(a) { PreventSelfIntersections = true }.ReduceToTriangleCount(800);
+            Assert.True(a.TriangleCount < 1000);
+            // collapses near the overlap only happen if they create no new intersecting pair; the remaining
+            // pairs are the (coarser) overlap curve
+            Assert.True(MeshRepairMetrics.SelfIntersections(a) <= before);
         }
     }
 }
