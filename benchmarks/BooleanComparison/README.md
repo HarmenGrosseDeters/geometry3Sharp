@@ -1,12 +1,15 @@
 # Boolean comparison
 
 Runs `ExactMeshBoolean` and external mesh boolean implementations on the same inputs and evaluates every
-result the same way. Each input mesh A is paired with a rotated, shifted copy B; union, intersection and
-difference are computed by every method.
+result the same way. The inputs come in data classes (see below): pairs of meshes A and B, of which union,
+intersection and difference are computed by every method, and sequences of booleans, of which the final
+result is evaluated.
 
 The evaluation (`BooleanComparison eval`) welds result vertices by position and reports for each method:
-closedness in the winding sense, manifold closedness, exact self-intersections of the output, volumes and the
-volume identities `V(A∪B) + V(A∩B) = V(A) + V(B)` and `V(A−B) = V(A) − V(A∩B)` (relative error).
+closedness in the winding sense, manifold closedness, exact self-intersections of the output, triangles of zero
+area, volumes (measured relative to the centre of A, so that coordinates far from the origin do not cancel) and
+the volume identities `V(A∪B) + V(A∩B) = V(A) + V(B)` and `V(A−B) = V(A) − V(A∩B)` (relative error); for
+synthetic cases also the error against the analytically known volumes of the results.
 
 The external code is not part of this repository; build it next to it as described below.
 
@@ -27,6 +30,42 @@ distributed, and nothing of CGAL is part of the library (which stays under the B
 
 All tools report the time of the boolean alone (without file I/O); `wall_ms` includes process start and I/O.
 CGAL refuses inputs that are open or self-intersecting; Manifold refuses non-manifold inputs.
+
+## Data classes
+
+| class | cases | what it tests | how to get it |
+|---|---|---|---|
+| `thingi10k` | Thingi10K meshes, each with a rotated, shifted copy | real-world models, many open or self-intersecting | `benchmarks/MeshRepairBenchmark/fetch_data.py`; a list or directory of meshes |
+| `cgal` | 89 CGAL test and example meshes, each with a rotated, shifted copy, and the pair of CGAL's corefinement examples (`blobby`, `eight`) | CAD and scanned models, some open or degenerate | `python3 data/fetch.py cgal <dir>` (CGAL v6.0.1) |
+| `cherchi` | the test meshes of Cherchi et al.: bunny with cow at 25k–200k triangles, two spheres, a cube with the armadillo, the stencil of the paper (fertility minus 703 spheres given as one mesh), five meshes with a rotated, shifted copy | larger inputs, time | `python3 data/fetch.py cherchi <dir>` (commit 7bd6c26) |
+| `synthetic` | 24 pairs of boxes and spheres | coplanar faces, solids touching at a face, an edge or a vertex, overlaps and gaps of 1e-9, nearly coplanar faces, UTM coordinates (3e5, 5.6e6), coordinates of 1e8, scale differences of 1e6 | `BooleanComparison synth <dir>` |
+| `sequence` | iterated cube grids: n³ overlapping unit cubes (spacing 0.9, so the faces of a layer are coplanar) united one after the other, then a cube of edge 0.5 subtracted at the centre of each (n = 5: 249 booleans, n = 10: 1999) | repeated booleans on results of booleans, exactly coplanar faces | `BooleanComparison synth <dir>` |
+
+`data/fetch.py` downloads the meshes at a fixed commit and writes a case manifest (`cases.jsonl`); nothing of the
+data is part of this repository (sources and licenses in `docs/SOURCES.md`). The `cube_grid` sequences are
+modelled after the iterated cube grid of the Open Boolean Benchmark, whose cases are not published.
+
+In a sequence, ExactMeshBoolean and Manifold keep the intermediate results in memory (both run the sequence as
+an Open Boolean Benchmark request, see below), CGAL keeps them in memory as well (`cgal_bool seq`, so EPECK stays
+exact between the steps), Cherchi et al. run one process per boolean and pass the results as OBJ files (its
+program has no other interface).
+
+## Open Boolean Benchmark runner
+
+The [Open Boolean Benchmark](https://github.com/Open-Boolean-Benchmark/boolean-benchmark-runners) compares
+mesh booleans of about a dozen libraries through small runner programs with a common protocol (a request JSON
+with SSA-style operation lists, a result JSON with per-operation status and times). `BooleanComparison obb`
+implements this protocol for ExactMeshBoolean:
+
+```sh
+dotnet bin/Release/net10.0/BooleanComparison.dll obb --request request.json --result result.json
+```
+
+It passes the smoke test of the runners repository (`tests/smoke`, cube minus cube). `obb-runner/` contains a
+`runner.yaml` and `build.py` in the layout of that repository; copied there as `exactmeshboolean/<version>/`
+(with `upstream.ref` set to a fixed commit), the benchmark's meta-runner can run ExactMeshBoolean next to the
+other libraries. The meta-runner and the benchmark cases (Nefertiti, dental scans, the iterated cube grid) are
+not published, so this comparison cannot be run here.
 
 ## Building the tools
 
@@ -54,12 +93,20 @@ export CGAL_BOOL=/path/to/cgal_bool
 export CHERCHI_BOOL=/path/to/InteractiveAndRobustMeshBooleans/build/mesh_booleans
 export MANIFOLD_PYTHON=/path/to/env/bin/python
 
-python3 compare.py meshes.txt results.jsonl --timeout 300 -j 1   # a list of mesh files, or a directory
-python3 analyze.py results.jsonl
+python3 compare.py meshes.txt results.jsonl --timeout 300 -j 1        # a list of mesh files or a directory (class thingi10k)
+python3 data/fetch.py cgal data_cgal && python3 compare.py data_cgal/cases.jsonl results.jsonl
+python3 data/fetch.py cherchi data_cherchi && python3 compare.py data_cherchi/cases.jsonl results.jsonl
+dotnet $BOOLCMP_TOOL synth synth && python3 compare.py synth/cases.jsonl results.jsonl --timeout 900
+python3 analyze.py results.jsonl                                      # Markdown tables per data class
 ```
 
-Use `-j 1` for timings: several methods are multi-threaded. The input meshes can be the Thingi10K selection
-of `benchmarks/MeshRepairBenchmark`.
+Use `-j 1` for timings: several methods are multi-threaded. `--timeout` is per boolean, or per sequence.
+`--only name,...` runs single cases of a manifest.
+
+Each run gets a status: `ok`, `rejected` (the tool refuses the input), `failed` (the tool reports a failure on an
+input it accepts), `crash` (signal, exception or exit code without a report) or `timeout`. `analyze.py` combines
+these with the evaluation into one outcome per case and method (see the comment at its top), per data class, on
+the cases that every method accepts, and gives the time on the cases that every method solves correctly.
 
 A single run of our method, with phase times, counts and GC statistics:
 

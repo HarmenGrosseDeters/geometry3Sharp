@@ -1,64 +1,133 @@
-# Summarises compare.py results: per method success, correctness of the results and time.
-# Usage: python3 analyze.py results.jsonl
-import collections, json, statistics as st, sys
+# Summarises compare.py results per data class as Markdown tables: outcome per case and method, the outcomes on
+# the cases that every method accepts, and the time on the cases that every method solves correctly.
+# Usage: python3 analyze.py results.jsonl [more.jsonl ...] [--cases CLASS,...] [--methods ours,...]
+# Outcome of a case for a method (all its operations; the first that applies):
+#   rejected    the tool refuses the input (CGAL: not closed / self-intersecting; Manifold: not manifold)
+#   crash       abnormal termination (signal, exception, exit code without a report), or no result written
+#   timeout     the time limit was exceeded
+#   failed      the tool reports a failure on an input it accepts (CGAL: "output not manifold", exceptions)
+#   not closed  a result is not closed in the winding sense (some edge not used equally often in both directions)
+#   volume      closed, but a volume identity or an analytically known volume is off by more than 1e-6 (relative)
+#   self-int.   correct, but a result has self-intersections (after rounding to double, or touching parts)
+#   non-manif.  correct, no self-intersections, but non-manifold edges
+#   clean       correct, closed manifold, no self-intersections
+import argparse, collections, json, statistics as st
 
-rows = [json.loads(l) for l in open(sys.argv[1]) if l.strip()]
-rows = [r for r in rows if r.get("method") != "export"]
 OPS = ["union", "intersection", "difference"]
-methods = list(dict.fromkeys(r["method"] for r in rows))
-by_file = collections.defaultdict(dict)
-for r in rows:
-    by_file[r["file"]][r["method"]] = r
+OUTCOMES = ["clean", "non-manif.", "self-int.", "volume", "not closed", "failed", "timeout", "crash", "rejected"]
+CORRECT = {"clean", "non-manif.", "self-int."}
+NAMES = {"ours": "ExactMeshBoolean", "cgal_epeck": "CGAL EPECK", "cgal_epick": "CGAL EPICK", "cherchi": "Cherchi et al.", "manifold": "Manifold"}
+TOL = 1e-6
 
-def ran(r):        # all three operations produced a result
-    return all(r.get(f"{op}_ok") for op in OPS) and r.get("all_results")
+def status(r, op):
+    s = r.get(f"{op}_status")
+    if s:
+        return s
+    # results of older versions of compare.py
+    if r.get(f"{op}_ok"):
+        return "ok"
+    e = str(r.get(f"{op}_error") or "")
+    return "timeout" if e == "timeout" else ("rejected" if "input" in e or "read failed" in e else "crash")
 
-def correct(r):    # closed in the winding sense and the volume identities hold
-    return ran(r) and all(r.get(f"{op}_wclosed") for op in OPS) and r.get("ie_error", 1) < 1e-6 and r.get("diff_error", 1) < 1e-6
+def volume_errors(r):
+    return [r[k] for k in ("ie_error", "diff_error", "expected_error") if r.get(k) is not None]
 
-def clean(r):      # correct, manifold, no self-intersections
-    return correct(r) and all(r.get(f"{op}_manifold_closed") and r.get(f"{op}_selfint", 1) == 0 for op in OPS)
+def outcome(r):
+    ops = r.get("ops", OPS)
+    sts = [status(r, op) for op in ops]
+    for s in ("rejected", "crash", "timeout", "failed"):
+        if s in sts:
+            return s
+    if not r.get("all_results"):
+        return "crash"
+    if not all(r.get(f"{op}_wclosed") for op in ops):
+        return "not closed"
+    if any(e > TOL for e in volume_errors(r)):
+        return "volume"
+    if any(r.get(f"{op}_selfint", 0) != 0 for op in ops):
+        return "self-int."
+    if not all(r.get(f"{op}_manifold_closed") for op in ops):
+        return "non-manif."
+    return "clean"
 
 def ms(r):
-    return sum(r.get(f"{op}_ms", 0) for op in OPS)
+    return sum(r.get(f"{op}_ms", 0) or 0 for op in r.get("ops", OPS))
 
-def valid_input(rs):   # input usable by all exact methods: closed, oriented, no self-intersections
-    i = next(iter(rs.values()))["input"]
-    return i.get("wclosed") and i.get("selfint") == 0 and i.get("closed")
+def valid_input(i):   # closed, oriented, no self-intersections: usable by every method
+    return bool(i.get("wclosed") and i.get("selfint") == 0 and i.get("closed"))
 
-def pct(xs, q):
-    xs = sorted(xs)
-    return xs[min(len(xs) - 1, int(q * len(xs)))] if xs else float("nan")
+def table(header, rows):
+    out = ["| " + " | ".join(header) + " |", "|" + "---|" * len(header)]
+    out += ["| " + " | ".join(str(c) for c in row) + " |" for row in rows]
+    return "\n".join(out)
 
-print(f"{len(by_file)} meshes, {sum(valid_input(rs) for rs in by_file.values())} of them closed, oriented, without self-intersections\n")
-for title, files in [("all inputs", list(by_file)), ("valid inputs", [f for f, rs in by_file.items() if valid_input(rs)])]:
-    print(f"== {title} ({len(files)})")
-    print(f"{'method':12} {'ran':>5} {'correct':>8} {'clean':>6}   errors")
+def outcome_table(cases, methods):
+    counts = {m: collections.Counter(outcome(c[m]) for c in cases if m in c) for m in methods}
+    cols = [o for o in OUTCOMES if any(counts[m][o] for m in methods)]
+    return table(["method"] + cols, [[NAMES.get(m, m)] + [counts[m][o] or "–" for o in cols] for m in methods])
+
+def time_table(cases, methods):
+    common = [c for c in cases if all(m in c and outcome(c[m]) in CORRECT for m in methods)]
+    if not common:
+        return "", 0
+    rows = []
     for m in methods:
-        rs = [by_file[f][m] for f in files if m in by_file[f]]
-        errs = collections.Counter()
-        for r in rs:
-            if not ran(r):
-                e = next((r.get(f"{op}_error") for op in OPS if not r.get(f"{op}_ok")), None) or "no result"
-                errs[str(e)[:40]] += 1
-        print(f"{m:12} {sum(map(ran, rs)):5} {sum(map(correct, rs)):8} {sum(map(clean, rs)):6}   {dict(errs.most_common(3))}")
-    print()
+        t = [ms(c[m]) for c in common]
+        rel = [ms(c[m]) / max(ms(c["ours"]), 1) for c in common] if "ours" in methods else []
+        rows.append([NAMES.get(m, m), f"{st.median(t):.0f}", f"{sum(t) / 1000:.1f}", f"{st.median(rel):.2f}" if rel else "–"])
+    return table(["method", "median ms", "total s", "median time relative to ours"], rows), len(common)
 
-# time on the meshes where every method gave a correct result
-common = [f for f, rs in by_file.items() if all(m in rs and correct(rs[m]) for m in methods)]
-print(f"== time (union + intersection + difference, boolean only) on the {len(common)} meshes all methods solve correctly")
-base = {f: ms(by_file[f]["ours"]) for f in common} if "ours" in methods else {}
-for m in methods:
-    t = [ms(by_file[f][m]) for f in common]
-    if not t:
-        continue
-    rel = [ms(by_file[f][m]) / max(base[f], 1) for f in common] if base else []
-    print(f"{m:12} median {st.median(t):8.0f} ms   p90 {pct(t, .9):8.0f} ms   total {sum(t) / 1000:7.1f} s"
-          + (f"   relative to ours: median {st.median(rel):.2f}" if rel else ""))
+SHORT = {"clean": "clean", "non-manif.": "non-manif.", "self-int.": "self-int.", "volume": "**volume**", "not closed": "**not closed**",
+         "failed": "failed", "timeout": "timeout", "crash": "**crash**", "rejected": "rejected"}
 
-# self-intersections after rounding
-print("\n== results with self-intersections (any operation), of those with a result")
-for m in methods:
-    rs = [r for r in (by_file[f].get(m) for f in by_file) if r and ran(r)]
-    n = sum(any(r.get(f"{op}_selfint", 0) > 0 for op in OPS) for r in rs)
-    print(f"{m:12} {n} / {len(rs)}")
+def case_table(cases, methods):
+    rows = []
+    for name, c in sorted(cases.items()):
+        cells = []
+        for m in methods:
+            if m not in c:
+                cells.append("")
+                continue
+            o = outcome(c[m])
+            cell = SHORT[o]
+            if o == "failed":   # which operations failed
+                cell += " (" + ", ".join(op[:5] for op in c[m].get("ops", OPS) if status(c[m], op) == "failed") + ")"
+            if o in CORRECT and c[m].get("ops") == ["final"]:
+                cell += f" {ms(c[m]) / 1000:.1f} s"
+            cells.append(cell)
+        rows.append([name] + cells)
+    return table(["case"] + [NAMES.get(m, m) for m in methods], rows)
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("results", nargs="+")
+    ap.add_argument("--cases", default="synthetic,sequence", help="classes with a table per case")
+    ap.add_argument("--methods")
+    args = ap.parse_args()
+    rows = [json.loads(l) for f in args.results for l in open(f) if l.strip()]
+    errors = [r for r in rows if r.get("method") == "export"]
+    rows = [r for r in rows if r.get("method") != "export"]
+    methods = args.methods.split(",") if args.methods else list(dict.fromkeys(r["method"] for r in rows))
+    by_class = collections.defaultdict(lambda: collections.defaultdict(dict))
+    for r in rows:
+        by_class[r.get("class", "thingi10k")][r["file"]][r["method"]] = r
+    for cls, by_case in by_class.items():
+        cases = list(by_case.values())
+        valid = [c for c in cases if valid_input(next(iter(c.values()))["input"])]
+        print(f"## {cls}: {len(cases)} cases, {len(valid)} of them with closed, oriented inputs without self-intersections\n")
+        print(outcome_table(cases, methods) + "\n")
+        accepted = [c for c in cases if all(m in c and outcome(c[m]) != "rejected" for m in methods)]
+        if len(accepted) != len(cases):
+            print(f"Cases that every method accepts ({len(accepted)}):\n")
+            print(outcome_table(accepted, methods) + "\n")
+        t, n = time_table(cases, methods)
+        if t:
+            print(f"Time (all operations, boolean only) on the {n} cases that every method solves correctly:\n")
+            print(t + "\n")
+        if cls in args.cases.split(","):
+            print(case_table(by_case, methods) + "\n")
+    if errors:
+        print(f"{len(errors)} cases could not be prepared: " + ", ".join(f"{r['file']} ({r['error'][:60]})" for r in errors))
+
+if __name__ == "__main__":
+    main()
