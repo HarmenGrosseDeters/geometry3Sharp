@@ -29,7 +29,7 @@ namespace g3 {
 		public Vector2d Extent;
 		public double AngleStartDeg;
 		public double AngleEndDeg;
-		public bool IsReversed;		// use ccw orientation instead of cw
+		public bool IsReversed;		// use cw orientation instead of ccw
 
 		public EllipseArc2d(Vector2d center, double rotationAngleDeg, double extent0, double extent1,
 		                 double startDeg, double endDeg) {
