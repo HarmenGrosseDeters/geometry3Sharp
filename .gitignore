@@ -44,3 +44,7 @@ obj
 # CI output
 artifacts/
 test-results/
+
+# Python bytecode
+__pycache__/
+*.pyc
