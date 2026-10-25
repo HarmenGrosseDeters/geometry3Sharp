@@ -9,17 +9,24 @@ using System.Threading.Tasks;
 namespace g3
 {
     /// <summary>
-    /// 
-    /// 
+    /// Cuts the curves where CutMesh intersects Target into Target, in place (floating-point): Compute()
+    /// splits the triangles of Target so that the intersection curves run along its edges. CutMesh is not
+    /// modified. Afterwards RemoveContained() deletes the triangles of Target that are inside CutMesh (winding
+    /// number above 0.9 at the centroid), which leaves Target open along the cut.
+    ///
+    /// Intersection points within VertexSnapTol are merged with existing vertices. Not robust: segments that
+    /// cannot be inserted are counted in FailedSegmentInsertions (the cut then has gaps), and only
+    /// intersection segments are used, so coplanar overlaps (intersection polygons) are not handled. Used by <see cref="MeshBoolean"/>; for robust booleans use <see cref="ExactMeshBoolean"/>.
+    ///
     /// TODO:
     ///    - track descendant triangles of each input face
     ///    - for missing segments, can resolve in 2D in plane of face
-    /// 
-    /// 
     /// </summary>
     public class MeshMeshCut
     {
+        /// <summary> mesh that is cut (modified in place) </summary>
         public DMesh3 Target;
+        /// <summary> mesh whose intersection with Target is cut into Target (not modified) </summary>
         public DMesh3 CutMesh;
 
         PointHashGrid3d<int> PointHash;

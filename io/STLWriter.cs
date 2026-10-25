@@ -10,6 +10,13 @@ using System.Threading;
 namespace g3
 {
 
+    /// <summary>
+    /// Write STL, binary (BinaryWriter overload) or ascii (TextWriter overload); StandardMeshWriter picks one
+    /// from options.bWriteBinary. Facet normals are computed from the triangle vertices, coordinates are written
+    /// as float in binary and with options.RealPrecisionDigits decimals in ascii.
+    /// Binary STL writes all meshes as one triangle list. Ascii writes one solid per mesh (named by WriteMesh.Name
+    /// or "mesh_N"), or one solid "mesh" if options.bCombineMeshes is set. Normals, colors and UVs are not written.
+    /// </summary>
     public class STLWriter : IMeshWriter
     {
         // entire data block for stl triangle, that we can directly convert to byte[]

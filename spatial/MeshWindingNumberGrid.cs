@@ -11,7 +11,12 @@ namespace gs
     /// <summary>
     /// Sample mesh winding number (MWN) on a discrete grid. Can sample full grid, or
     /// compute MWN values along a specific iso-contour and then fill in rest of grid
-    /// with correctly-signed values via fast sweeping (this is the default)
+    /// by propagating the computed values along x-rows (this is the default, ComputeModes.NarrowBand).
+    /// Values are winding numbers, not distances: about 1 inside and 0 outside a closed mesh with
+    /// outward-facing normals, and fractional near holes, so this is useful for open / broken meshes.
+    /// Extract a surface with <see cref="MarchingCubes"/> at IsoValue = WindingIsoValue (0.5).
+    /// Usage: <c>var g = new MeshWindingNumberGrid(mesh, new DMeshAABBTree3(mesh, true), cellSize); g.Compute();</c>
+    /// The spatial tree must be built. Sample (i,j,k) is located at GridOrigin + CellSize*(i,j,k).
     /// 
     /// TODO: 
     ///   - I think we are over-exploring the grid most of the time. eg along an x-ray that
@@ -23,17 +28,21 @@ namespace gs
     /// </summary>
     public class MeshWindingNumberGrid
     {
+        /// <summary> Input mesh. It is not modified. </summary>
         public DMesh3 Mesh;
+        /// <summary> Built AABB tree for Mesh, used to evaluate winding numbers (required) </summary>
         public DMeshAABBTree3 MeshSpatial;
 
-        // size of cubes in the grid
+        /// <summary> Size of cubes in the grid, in mesh units </summary>
         public double CellSize;
 
-        // how many cells around border should we keep
+        /// <summary> How many cells around border should we keep </summary>
         public int BufferCells = 1;
 
-        // Should we compute MWN at all grid cells (expensive!!) or only in narrow band.
-        // In narrow-band mode, we guess rest of MWN values by propagating along x-rows
+        /// <summary>
+        /// Should we compute MWN at all grid cells (expensive!!) or only in narrow band.
+        /// In narrow-band mode, we guess rest of MWN values by propagating along x-rows
+        /// </summary>
         public enum ComputeModes
         {
             FullGrid = 0,
@@ -41,12 +50,16 @@ namespace gs
         }
         public ComputeModes ComputeMode = ComputeModes.NarrowBand;
 
-        // in narrow-band mode, if mesh is not closed, we will explore space around
-        // this MWN iso-value
+        /// <summary>
+        /// In narrow-band mode, if mesh is not closed, we will explore space around
+        /// this MWN iso-value
+        /// </summary>
         public float WindingIsoValue = 0.5f;
 
-        // in NarrowBand mode, we compute mesh SDF grid, if true then it can be accessed
-        // via SDFGrid property after Compute()
+        /// <summary>
+        /// In NarrowBand mode, we compute an (unsigned) mesh distance grid, if true then it can be accessed
+        /// via SDFGrid property after Compute()
+        /// </summary>
         public bool WantMeshSDFGrid = true;
 
         /// <summary> if this function returns true, we should abort calculation </summary>
@@ -80,6 +93,9 @@ namespace gs
         MeshSignedDistanceGrid mesh_sdf;
 
 
+        /// <summary>
+        /// Set up the computation. spatial must be a built tree for mesh. Nothing is computed until Compute() is called.
+        /// </summary>
         public MeshWindingNumberGrid(DMesh3 mesh, DMeshAABBTree3 spatial, double cellSize)
         {
             Mesh = mesh;
@@ -88,6 +104,10 @@ namespace gs
         }
 
 
+        /// <summary>
+        /// Compute the grid. After this, Grid, GridOrigin, Dimensions and the indexer are available.
+        /// Returns early (with a partial grid) if CancelF returns true.
+        /// </summary>
         public void Compute()
         {
             winding_evaluations = 0;
@@ -110,6 +130,7 @@ namespace gs
 
 
 
+        /// <summary> Number of samples (ni, nj, nk) along each axis, available after Compute() </summary>
         public Vector3i Dimensions {
             get { return new Vector3i(winding_grid.ni, winding_grid.nj, winding_grid.nk); }
         }
@@ -130,18 +151,20 @@ namespace gs
 
 
         /// <summary>
-        /// If ComputeMode==NarrowBand, then we internally compute a signed-distance grid,
-        /// which will hang onto 
+        /// If ComputeMode==NarrowBand, then we internally compute an unsigned distance grid,
+        /// which is kept here if WantMeshSDFGrid is true (otherwise null)
         /// </summary>
         public MeshSignedDistanceGrid SDFGrid {
             get { return mesh_sdf; }
         }
 
 
+        /// <summary> Winding number at sample (i,j,k) </summary>
         public float this[int i, int j, int k] {
             get { return winding_grid[i, j, k]; }
         }
 
+        /// <summary> Position of sample (i,j,k), ie GridOrigin + CellSize*(i,j,k) (a grid point, not a cell center) </summary>
         public Vector3f CellCenter(int i, int j, int k)
         {
             return new Vector3f((float)i * CellSize + grid_origin.x,

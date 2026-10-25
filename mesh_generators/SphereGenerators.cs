@@ -9,11 +9,18 @@ namespace g3
     /// <summary>
     /// Generate a mesh of a sphere by first generating a mesh of a cube, 
     /// and then normalizing the vertices and moving them to sphere of desired radius.
+    /// The sphere is centered at Box.Center (the origin by default); EdgeVertices (inherited, default 8) sets the
+    /// resolution, giving 12*(EdgeVertices-1)^2 triangles. All vertices lie exactly on the sphere, so the mesh is
+    /// slightly smaller than the true sphere (volume and area converge to 4/3 pi r^3 and 4 pi r^2 from below).
+    /// With the default NoSharedVertices = false the mesh is closed, with outward normals and genus 0.
+    /// Example: <c>DMesh3 m = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 20 }.Generate().MakeDMesh();</c>
     /// </summary>
     public class Sphere3Generator_NormalizedCube : GridBox3Generator
     {
+        /// <summary> sphere radius </summary>
         public double Radius = 1.0;
 
+        /// <summary> how cube points are mapped to the sphere (currently always CubeMapping, the field is not public) </summary>
         public enum NormalizationTypes
         {
             NormalizedVector,

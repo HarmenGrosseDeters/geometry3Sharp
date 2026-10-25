@@ -8,8 +8,20 @@ using g3;
 
 namespace gs
 {
+	/// <summary>
+	/// Repairs triangle orientation in place. OrientComponents() makes the orientation consistent within
+	/// each edge-connected component (flood fill from an arbitrary triangle, reversing neighbours that
+	/// disagree); SolveGlobalOrientation() then reverses whole components that face inwards, judged by ray
+	/// casts from far outside (the side of the triangles that is visible from outside should be the front).
+	///
+	/// Call OrientComponents() first: SolveGlobalOrientation() works on the components it found.
+	/// Non-orientable components (eg Moebius strips) keep a seam of inconsistent orientation. The global step
+	/// is a heuristic for open or nested surfaces; for closed meshes MeshPostRepairCleanup.FindInvertedComponents
+	/// (signed volume and nesting) is an alternative. Used by MeshAutoRepair.
+	/// </summary>
 	public class MeshRepairOrientation
 	{
+		/// <summary> the mesh whose triangles are reoriented in place </summary>
 		public DMesh3 Mesh;
 
 		DMeshAABBTree3 spatial;
@@ -21,6 +33,7 @@ namespace gs
 			}
 		}
 
+		/// <summary> spatial is an optional prebuilt AABB tree of mesh3 (built on demand otherwise) </summary>
 		public MeshRepairOrientation(DMesh3 mesh3, DMeshAABBTree3 spatial = null)
 		{
 			Mesh = mesh3;
@@ -46,6 +59,10 @@ namespace gs
 		//  - orient via nesting
 
 
+		/// <summary>
+		/// Make the orientation consistent within each edge-connected component by reversing triangles.
+		/// Which of the two orientations a component gets is arbitrary (see SolveGlobalOrientation).
+		/// </summary>
 		public void OrientComponents()
 		{
 			Components = new List<Component>();
@@ -94,6 +111,10 @@ namespace gs
 
 
 
+		/// <summary>
+		/// For each component found by OrientComponents(), sum the area of triangles hit from the front and
+		/// from the back by rays from far outside (used by SolveGlobalOrientation).
+		/// </summary>
 		public void ComputeStatistics()
 		{
 			var s = this.Spatial;  // make sure this exists
@@ -160,6 +181,10 @@ namespace gs
 
 
 
+		/// <summary>
+		/// Reverse each component (from OrientComponents) that is hit from outside on its back side more than
+		/// on its front side (area weighted). Does nothing if OrientComponents() was not called.
+		/// </summary>
 		public void SolveGlobalOrientation()
 		{
 			ComputeStatistics();

@@ -8,14 +8,32 @@ using System.Threading.Tasks;
 
 namespace g3
 {
+    /// <summary>
+    /// Experimental floating-point union of two closed meshes: each mesh is cut along its intersection with
+    /// the other (<see cref="MeshMeshCut"/>), the triangles inside the other mesh (winding number above 0.9 at
+    /// the triangle centroid) are removed, and the two remaining parts are appended into Result.
+    ///
+    /// Only union is supported (there is no operation setting). The parts are not welded: Result has open
+    /// boundaries along the intersection curve, with duplicate vertices on both sides (missing cut vertices
+    /// are inserted by edge splits within VertexSnapTol, so they can be merged afterwards, for example with
+    /// MergeCoincidentEdges). Not robust for coplanar or touching faces. Both inputs must be closed: this is
+    /// checked with Util.gDevAssert, which throws (or breaks into the debugger) otherwise. Compute() always
+    /// returns true; the inputs are not modified (copies are cut).
+    ///
+    /// Prefer <see cref="ExactMeshBoolean"/> (exact, robust, all operations, closed result), or
+    /// <see cref="gs.MeshWindingNumberBoolean"/> for a volumetric result from broken input.
+    /// </summary>
     public class MeshBoolean
     {
+        /// <summary> first input mesh (not modified) </summary>
         public DMesh3 Target;
+        /// <summary> second input mesh (not modified) </summary>
         public DMesh3 Tool;
 
-        // points within this tolerance are merged
+        /// <summary> points within this tolerance are merged </summary>
         public double VertexSnapTol = 0.00001;
 
+        /// <summary> the union computed by Compute(): a new mesh, the two cut parts appended (not welded) </summary>
         public DMesh3 Result;
 
         // Each MeshMeshCut snaps its cut points to nearby vertices of its own mesh, by up to VertexSnapTol,
@@ -28,6 +46,7 @@ namespace g3
         DMesh3 cutTargetMesh;
         DMesh3 cutToolMesh;
 
+        /// <summary> compute the union into Result; always returns true </summary>
         public bool Compute()
         {
             // Alternate strategy:
