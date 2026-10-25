@@ -81,6 +81,25 @@ namespace geometry3Sharp.Tests
             Assert.Equal(5000, n);
         }
 
+        [Theory]
+        [InlineData(0.1)]
+        [InlineData(-0.1)]
+        public void HighWall_SmallDistance_NoHoles(double d)
+        {
+            // a 20 m wall (one 1 m grid step): next to it the exit from the band is up to 20 m away
+            DMesh3 terrain = Grid(0, 0, 100, 100, 101, (x, y) => x < 50 ? 0 : 20);
+            var off = new TerrainOffset(terrain, d) { GridResolution = 100 };
+            Assert.True(off.Compute());
+            var loops = new MeshBoundaryLoops(off.Result);
+            Assert.Single(loops.Loops);
+            var rs = new DMeshAABBTree3(off.Result, true);
+            for (double x = 2; x < 98; x += 0.7)
+                for (double y = 5; y < 95; y += 9) {
+                    Ray3d ray = new Ray3d(new Vector3d(x, y, 100), -Vector3d.AxisZ);
+                    Assert.True(rs.FindNearestHitTriangle(ray) >= 0, $"hole at {x}, {y}");
+                }
+        }
+
         static double Pit(double x, double y)
         {
             double c = Math.Cos(17 * MathUtil.Deg2Rad), s = Math.Sin(17 * MathUtil.Deg2Rad);

@@ -203,6 +203,46 @@ namespace geometry3Sharp.Tests
         }
 
         // ground points of the pit: jittered grid, noise
+        [Fact]
+        public void IsolatedVertexAtTheOrigin_DoesNotChangeTheGrid()
+        {
+            Vector3d utm = new Vector3d(632000, 5712000, 100);
+            DMesh3 plane = Heightfield((x, y) => 0.1 * x, 0, 0, 100, 100, 21);
+            MeshTransforms.Translate(plane, utm);
+            var a = new TerrainDualContouring(plane) { GridResolution = 50 };
+            Assert.True(a.Compute());
+            DMesh3 withOrphan = new DMesh3(plane);
+            withOrphan.AppendVertex(Vector3d.Zero);      // eg a broken import
+            var b = new TerrainDualContouring(withOrphan) { GridResolution = 50 };
+            Assert.True(b.Compute());
+            Assert.Equal(a.Result.TriangleCount, b.Result.TriangleCount);
+            Assert.Equal(a.FinestCells, b.FinestCells);
+        }
+
+        [Fact]
+        public void InvalidParameters_Fail()
+        {
+            DMesh3 plane = Heightfield((x, y) => 0.1 * x, 0, 0, 10, 10, 11);
+            Assert.False(new TerrainDualContouring(plane) { SamplesPerCell = 0 }.Compute());
+            Assert.False(new TerrainDualContouring(plane) { CellSize = 1e-6 }.Compute());      // 1e14 cells
+            // larger than the terrain: no cell has four sampled neighbours
+            var big = new TerrainDualContouring(plane) { CellSize = 100 };
+            Assert.True(big.Compute() == false || big.Result.TriangleCount > 0);
+        }
+
+        [Fact]
+        public void PointCloud_NonFinitePointsAreSkipped()
+        {
+            var points = PitPoints(1.0, 0.02, Vector3d.Zero);
+            var tdc0 = new TerrainDualContouring(points) { CellSize = 2 };
+            Assert.True(tdc0.Compute());
+            points.Add(new Vector3d(double.NaN, 5, 5));
+            points.Add(new Vector3d(5, double.PositiveInfinity, 5));
+            var tdc = new TerrainDualContouring(points) { CellSize = 2 };
+            Assert.True(tdc.Compute());
+            Assert.Equal(tdc0.Result.TriangleCount, tdc.Result.TriangleCount);
+        }
+
         static List<Vector3d> PitPoints(double spacing, double noise, Vector3d offset, int seed = 1)
         {
             var rnd = new Random(seed);

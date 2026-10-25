@@ -96,18 +96,28 @@ namespace gs
             if (SampleF != null) {
                 bounds = SampleBounds;
             } else if (Points != null) {
-                if (Points.Count < 3)
-                    return false;
+                // non-finite points (broken records) are skipped
+                points = new List<Vector3d>(Points.Count);
                 bounds = AxisAlignedBox3d.Empty;
-                foreach (Vector3d p in Points)
+                foreach (Vector3d p in Points) {
+                    if (double.IsNaN(p.x + p.y + p.z) || double.IsInfinity(p.x + p.y + p.z)) continue;
+                    points.Add(p);
                     bounds.Contain(p);
+                }
+                if (points.Count < 3)
+                    return false;
             } else {
                 if (Mesh.TriangleCount == 0)
                     return false;
-                bounds = Mesh.CachedBounds;
+                // bounds of the triangles: isolated vertices (eg at 0,0,0 next to UTM data) do not count
+                bounds = AxisAlignedBox3d.Empty;
+                foreach (int tid in Mesh.TriangleIndices())
+                    bounds.Contain(Mesh.GetTriBounds(tid));
             }
             cell = (CellSize > 0) ? CellSize : Math.Max(bounds.Width, bounds.Height) / GridResolution;
-            if (cell <= 0)
+            if (!(cell > 0) || SamplesPerCell < 1 || double.IsNaN(bounds.MaxDim) || double.IsInfinity(bounds.MaxDim))
+                return false;
+            if (!((bounds.Width / cell + 2) * (bounds.Height / cell + 2) <= MaxCells))
                 return false;
             tolerance = (Tolerance > 0) ? Tolerance : 0.05 * cell;
             if (SampleF != null)
@@ -139,8 +149,13 @@ namespace gs
                 balance();
             build_mesh();
             if (CancelF()) return false;
-            return true;
+            // eg cells larger than the footprint: every vertex needs four sampled cells around it
+            return Result != null && Result.TriangleCount > 0;
         }
+
+        /// <summary> largest finest grid (cells); larger ones fail </summary>
+        public static double MaxCells = 1 << 28;
+        List<Vector3d> points;
 
 
         // QEF of planes n.(v - p) = 0, as sums so it can be merged; coordinates relative to origin
@@ -226,7 +241,7 @@ namespace gs
 
         void build_point_grid(AxisAlignedBox3d bounds)
         {
-            int n = Points.Count;
+            int n = points.Count;
             double spacing = Math.Sqrt(Math.Max(bounds.Width * bounds.Height, MathUtil.Epsilon) / n);
             pointRadius = (PointRadius > 0) ? PointRadius : 1.5 * spacing;
             pointBinOrigin = bounds.Min.xy;
@@ -235,7 +250,7 @@ namespace gs
             int[] bin = new int[n];
             int[] count = new int[pbx * pby + 1];
             for (int k = 0; k < n; ++k) {
-                Vector3d p = Points[k];
+                Vector3d p = points[k];
                 int i = Math.Min(pbx - 1, (int)((p.x - pointBinOrigin.x) / pointRadius)), j = Math.Min(pby - 1, (int)((p.y - pointBinOrigin.y) / pointRadius));
                 bin[k] = i + pbx * j;
                 count[bin[k] + 1]++;
@@ -248,7 +263,7 @@ namespace gs
             localPoints = new Vector3d[n];
             for (int k = 0; k < n; ++k) {
                 binPoints[binStart[bin[k]] + fill[bin[k]]++] = k;
-                localPoints[k] = Points[k];
+                localPoints[k] = points[k];
             }
             rayTop = bounds.Max.z;      // unused for points
         }

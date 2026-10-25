@@ -120,6 +120,59 @@ namespace geometry3Sharp.Tests
             Assert.True(differ <= local.Count / 1000, $"{differ} points classified differently");
         }
 
+        [Fact]
+        public void DeepPit_ClothReachesTheRim()
+        {
+            // 300 m deep: the cloth falls at most half a cell per iteration, more than 500 iterations
+            Func<double, double, double> pit = (x, y) => {
+                double r = Math.Max(Math.Abs(x - 240) - 20, Math.Abs(y - 240) - 20);
+                return -300 + Math.Min(300, Math.Max(0, r) * 1.7);      // 60 degree faces up to z = 0
+            };
+            var (points, truth) = Scene(pit, 480, 1.0, 5, default(Vector3d), false);
+            var csf = new ClothSimulationFilter(points) { ClothResolution = 1.0, SlopeStep = 2.5 };
+            Assert.True(csf.Compute());
+            // the rim, 300 m above the floor, is reached: all of it is ground (beyond the crest region,
+            // where a 60 degree face is at the limit of the slope post-processing)
+            var rim = Enumerable.Range(0, points.Count).Where(i => Math.Max(Math.Abs(points[i].x - 240), Math.Abs(points[i].y - 240)) > 20 + 300 / 1.7 + 5).ToList();
+            Assert.True(rim.Count > 10000);
+            Assert.True(rim.All(i => csf.IsGround[i]), $"{rim.Count(i => !csf.IsGround[i])} rim points not ground");
+            Assert.True(Errors(csf.IsGround, truth).groundMissed < 0.03, $"{Errors(csf.IsGround, truth).groundMissed:P2} missed");
+        }
+
+        [Fact]
+        public void NonFinitePoints_AreSkipped()
+        {
+            var (points, truth) = Scene(Hills, 60, 1.0, 6, default(Vector3d), false);
+            points[10] = new Vector3d(double.NaN, 0, 0);
+            points[20] = new Vector3d(0, double.PositiveInfinity, 0);
+            var csf = new ClothSimulationFilter(points) { ClothResolution = 1.0 };
+            Assert.True(csf.Compute());
+            Assert.False(csf.IsGround[10]);
+            Assert.False(csf.IsGround[20]);
+            truth[10] = truth[20] = false;
+            Assert.True(Errors(csf.IsGround, truth).groundMissed < 0.005);
+            Assert.False(new ClothSimulationFilter(new List<Vector3d>() { new Vector3d(double.NaN, 0, 0) }).Compute());
+        }
+
+        [Fact]
+        public void LowVehicle_NotGround_WithSlopeStepBelowItsHeight()
+        {
+            // a 4 x 2 m vehicle of 1.2 m on flat ground, dense points
+            var points = new List<Vector3d>();
+            var truth = new List<bool>();
+            for (double x = 0; x < 40; x += 0.25)
+                for (double y = 0; y < 40; y += 0.25) {
+                    bool car = Math.Abs(x - 20) < 2 && Math.Abs(y - 20) < 1;
+                    points.Add(new Vector3d(x, y, car ? 1.2 : 0));
+                    truth.Add(!car);
+                }
+            var csf = new ClothSimulationFilter(points) { ClothResolution = 1.0, SlopeStep = 1.0 };
+            Assert.True(csf.Compute());
+            var (missed, wrong) = Errors(csf.IsGround, truth);
+            Assert.True(missed < 0.01, $"{missed:P2} missed");
+            Assert.True(wrong < 0.05, $"{wrong:P2} of the vehicle points classified as ground");
+        }
+
         static double Pit(double x, double y)
         {
             double c = Math.Cos(17 * MathUtil.Deg2Rad), s = Math.Sin(17 * MathUtil.Deg2Rad);

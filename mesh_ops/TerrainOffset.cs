@@ -41,10 +41,13 @@ namespace gs
 
         public bool Compute()
         {
-            if (Terrain.TriangleCount == 0 || Distance == 0)
+            if (Terrain.TriangleCount == 0 || Distance == 0 || double.IsNaN(Distance) || double.IsInfinity(Distance))
                 return false;
             spatial = new DMeshAABBTree3(Terrain, true);
-            AxisAlignedBox3d b = Terrain.CachedBounds;
+            // bounds of the triangles (isolated vertices do not count)
+            AxisAlignedBox3d b = AxisAlignedBox3d.Empty;
+            foreach (int tid in Terrain.TriangleIndices())
+                b.Contain(Terrain.GetTriBounds(tid));
             top = b.Max.z + 1 + Math.Abs(Distance);
             depth = b.Depth + 2 + 2 * Math.Abs(Distance);
             AxisAlignedBox3d bounds = b;
@@ -92,12 +95,16 @@ namespace gs
 
             double d = Math.Abs(Distance), dir = Math.Sign(Distance);
             Vector3d c;
-            // inside the band at the vertical distance d; step outwards until farther than d
+            // inside the band at the vertical distance d; step outwards until farther than d. The distance
+            // changes at most as fast as z, so from distance delta a step of d - delta cannot skip the exit;
+            // next to a high wall the exit can be the wall height away
             double zin = zs + dir * d, zout = double.NaN;
-            double step = 0.25 * d;
-            for (int k = 1; k <= 400; ++k) {
-                double zk = zin + dir * step;
-                if (distance(new Vector3d(x, y, zk), out c) > d) { zout = zk; break; }
+            double delta = distance(new Vector3d(x, y, zin), out c);
+            int maxSteps = (int)(depth / (0.25 * d)) + 10;
+            for (int k = 1; k <= maxSteps; ++k) {
+                double zk = zin + dir * Math.Max(0.25 * d, d - delta);
+                delta = distance(new Vector3d(x, y, zk), out c);
+                if (delta > d) { zout = zk; break; }
                 zin = zk;
             }
             if (double.IsNaN(zout))

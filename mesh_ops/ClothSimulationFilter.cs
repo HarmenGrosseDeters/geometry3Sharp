@@ -17,8 +17,11 @@ namespace gs
     /// that a long fall (deep pits) does not push the cloth through the springs onto objects. Steep faces,
     /// which the stiff cloth cannot follow, are handled by a post-processing step (SlopeStep).
     ///
-    /// Limit: an object on a steep face whose height is less than about the slope times ClothResolution
-    /// (eg a 2.5 m object on a 51 degree face with a 1 m cloth) cannot be told from the face.
+    /// Limits: an object on a steep face whose height is less than about the slope times ClothResolution
+    /// (eg a 2.5 m object on a 51 degree face with a 1 m cloth) cannot be told from the face; and the
+    /// slope post-processing spreads onto objects lower than SlopeStep (eg light vehicles, 1.5 m: use a
+    /// SlopeStep below the lowest object height that matters). Low outliers (multipath points below the
+    /// ground) hold the cloth up around them: remove them first. Non-finite points are not ground.
     /// </summary>
     public class ClothSimulationFilter
     {
@@ -30,6 +33,7 @@ namespace gs
         public int Rigidness = 2;
         /// <summary> points within this vertical distance of the cloth are ground </summary>
         public double ClassThreshold = 0.5;
+        /// <summary> iterations after the cloth fell over the whole relief at its maximum speed </summary>
         public int MaxIterations = 500;
         public double TimeStep = 0.65;
         /// <summary>
@@ -66,10 +70,18 @@ namespace gs
             if (n == 0 || ClothResolution <= 0)
                 return false;
 
-            // bounds; heights relative to a local reference (UTM)
+            // bounds; heights relative to a local reference (UTM). Non-finite points are skipped.
+            bool[] valid = new bool[n];
             AxisAlignedBox3d bounds = AxisAlignedBox3d.Empty;
-            foreach (Vector3d p in Points)
-                bounds.Contain(p);
+            for (int k = 0; k < n; ++k) {
+                Vector3d p = Points[k];
+                valid[k] = !(double.IsNaN(p.x + p.y + p.z) || double.IsInfinity(p.x + p.y + p.z));
+                if (valid[k]) bounds.Contain(p);
+            }
+            int nValid = 0;
+            foreach (bool v in valid) if (v) nValid++;
+            if (nValid == 0)
+                return false;
             double r = ClothResolution;
             const int margin = 2;
             ClothOrigin = new Vector2d(bounds.Min.x - margin * r, bounds.Min.y - margin * r);
@@ -82,12 +94,11 @@ namespace gs
             double[] collide = new double[nx * ny];
             for (int k = 0; k < collide.Length; ++k)
                 collide[k] = double.NaN;
-            int[] cellOf = new int[n];
             for (int k = 0; k < n; ++k) {
+                if (valid[k] == false) continue;
                 Vector3d p = Points[k];
                 int i = clampi((int)Math.Round((p.x - ClothOrigin.x) / r), nx), j = clampi((int)Math.Round((p.y - ClothOrigin.y) / r), ny);
                 int c = i + nx * j;
-                cellOf[k] = c;
                 double zi = zref - p.z;
                 if (double.IsNaN(collide[c]) || zi > collide[c])
                     collide[c] = zi;
@@ -109,8 +120,12 @@ namespace gs
             const double damping = 0.01;
             double gravityStep = 0.2 * TimeStep * TimeStep;
             double maxSpeed = 0.5 * r;
+            // plus the steps to fall from the start down to the lowest collision height (deep pits)
+            double minCollide = double.MaxValue;
+            foreach (double c in collide) minCollide = Math.Min(minCollide, c);
+            int maxIterations = MaxIterations + (int)((start - minCollide) / maxSpeed);
 
-            for (Iterations = 0; Iterations < MaxIterations; ++Iterations) {
+            for (Iterations = 0; Iterations < maxIterations; ++Iterations) {
                 if (CancelF()) return false;
                 // gravity (Verlet)
                 double maxMove = 0;
@@ -178,6 +193,7 @@ namespace gs
                 settled[k] = !movable[k];
             IsGround = new bool[n];
             gParallel.ForEach(Interval1i.Range(n), (k) => {
+                if (valid[k] == false) return;
                 Vector3d p = Points[k];
                 double fx = (p.x - ClothOrigin.x) / r, fy = (p.y - ClothOrigin.y) / r;
                 int i0 = clampi((int)Math.Floor(fx), nx - 1), j0 = clampi((int)Math.Floor(fy), ny - 1);

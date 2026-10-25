@@ -49,6 +49,7 @@ namespace gs
             AxisAlignedBox3d bounds = Before.CachedBounds;
             bounds.Contain(After.CachedBounds);
             Vector3d origin = bounds.Center;
+            double zeroTol = 1e-10 * Math.Max(1, bounds.MaxDim);
 
             DMeshAABBTree3 spatial = new DMeshAABBTree3(After, true);
             int[] tris = new List<int>(Before.TriangleIndices()).ToArray();
@@ -79,7 +80,7 @@ namespace gs
                         List<Vector2d> poly = clip_convex(polyA, ccw(b0.xy, b1.xy, b2.xy));
                         if (poly.Count < 3)
                             return;
-                        integrate(poly, planeA, planeB, k, partial);
+                        integrate(poly, planeA, planeB, k, partial, zeroTol);
                     }
                 };
                 spatial.DoTraversal(traversal);
@@ -139,12 +140,14 @@ namespace gs
         }
 
         // split the polygon at diff = 0 and integrate both parts exactly (diff is linear on the polygon)
-        static void integrate(List<Vector2d> poly, Plane a, Plane b, int k, double[,] partial)
+        static void integrate(List<Vector2d> poly, Plane a, Plane b, int k, double[,] partial, double zeroTol)
         {
             int n = poly.Count;
             double[] diff = new double[n];
-            for (int i = 0; i < n; ++i)
+            for (int i = 0; i < n; ++i) {
                 diff[i] = b.Z(poly[i]) - a.Z(poly[i]);
+                if (Math.Abs(diff[i]) < zeroTol) diff[i] = 0;      // coincident surfaces, up to rounding
+            }
             List<Vector2d> pos = new List<Vector2d>(n + 2), neg = new List<Vector2d>(n + 2);
             List<double> posd = new List<double>(n + 2), negd = new List<double>(n + 2);
             for (int i = 0; i < n; ++i) {
@@ -161,8 +164,9 @@ namespace gs
             integrate_linear(neg, negd, out areaNeg, out volNeg);
             partial[k, 0] += volPos;
             partial[k, 1] += -volNeg;
-            partial[k, 2] += areaPos;
-            partial[k, 3] += areaNeg;
+            // where the surfaces coincide (diff = 0) the area is neither cut nor fill
+            if (volPos > 0) partial[k, 2] += areaPos;
+            if (volNeg < 0) partial[k, 3] += areaNeg;
             partial[k, 4] += area(poly);
         }
 

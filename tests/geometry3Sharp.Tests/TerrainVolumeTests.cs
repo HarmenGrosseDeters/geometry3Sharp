@@ -121,6 +121,30 @@ namespace geometry3Sharp.Tests
         }
 
         // open pit as in TerrainDualContouringTests: flat bottom, four benches (10 m face over 8 m, 6 m berm)
+        [Fact]
+        public void IdenticalSurfaces_NoCutOrFillArea()
+        {
+            // eg the after survey reuses the before TIN outside the pit
+            DMesh3 before = Grid(0, 0, 10, 10, 11, (x, y) => 0.1 * x + 0.05 * y);
+            DMesh3 after = Grid(0, 0, 10, 10, 7, (x, y) => 0.1 * x + 0.05 * y);
+            var v = Run(before, after);
+            Assert.True(Math.Abs(v.CutVolume) < 1e-9 && Math.Abs(v.FillVolume) < 1e-9);
+            Assert.True(v.CutArea < 1e-9 && v.FillArea < 1e-9, $"cut area {v.CutArea}, fill area {v.FillArea}");
+            Assert.True(Math.Abs(v.OverlapArea - 100) < 1e-9);
+        }
+
+        [Fact]
+        public void PartlyCoincident_AreasOnlyWhereTheSurfacesDiffer()
+        {
+            // after = before, except a hollow in x < 4 (on whole triangles of both meshes)
+            DMesh3 before = Grid(0, 0, 10, 10, 11, (x, y) => 0);
+            DMesh3 after = Grid(0, 0, 10, 10, 11, (x, y) => x < 3.5 ? -1 : 0);
+            var v = Run(before, after);
+            Assert.True(v.FillArea < 1e-9);
+            // cut where after is below: x < 4 (x = 4 is the last vertex at 0, the slope runs 3 .. 4)
+            Assert.True(Math.Abs(v.CutArea - 40) < 1e-9, $"cut area {v.CutArea}");
+        }
+
         static double Pit(double x, double y)
         {
             double c = Math.Cos(17 * MathUtil.Deg2Rad), s = Math.Sin(17 * MathUtil.Deg2Rad);

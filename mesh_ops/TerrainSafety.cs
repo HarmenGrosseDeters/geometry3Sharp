@@ -46,17 +46,25 @@ namespace gs
             double cosMin = Math.Cos(MinAngle * MathUtil.Deg2Rad);
             var crestEdges = new List<int>();
             var toeEdges = new List<int>();
+            // which way the (consistently oriented) mesh faces: up = above the terrain. The triangle normals
+            // with this sign, not each flipped up on its own, so vertical walls and overhangs are classified
+            // correctly
+            double nz = 0;
+            foreach (int tid in Terrain.TriangleIndices())
+                nz += Terrain.GetTriNormal(tid).z * Terrain.GetTriArea(tid);
+            double up = (nz < 0) ? -1 : 1;
             foreach (int eid in Terrain.EdgeIndices()) {
                 Index2i et = Terrain.GetEdgeT(eid);
                 if (et.b < 0) continue;
-                Vector3d n0 = up(Terrain.GetTriNormal(et.a)), n1 = up(Terrain.GetTriNormal(et.b));
+                Vector3d n0 = up * Terrain.GetTriNormal(et.a), n1 = up * Terrain.GetTriNormal(et.b);
                 if (n0.Dot(n1) > cosMin) continue;
-                // convex if the far corner of the second triangle is below the plane of the first
+                // convex if the far corner of the second triangle is below the plane of the first (exact)
                 Index2i ev = Terrain.GetEdgeV(eid);
-                Index3i t1 = Terrain.GetTriangle(et.b);
+                Index3i t0 = Terrain.GetTriangle(et.a), t1 = Terrain.GetTriangle(et.b);
                 int opp = (t1.a != ev.a && t1.a != ev.b) ? t1.a : (t1.b != ev.a && t1.b != ev.b) ? t1.b : t1.c;
-                double side = n0.Dot(Terrain.GetVertex(opp) - Terrain.GetVertex(ev.a));
-                (side < 0 ? crestEdges : toeEdges).Add(eid);
+                int side = (int)up * ExactPredicates.Orient3d(Terrain.GetVertex(t0.a), Terrain.GetVertex(t0.b), Terrain.GetVertex(t0.c), Terrain.GetVertex(opp));
+                if (side != 0)
+                    (side < 0 ? crestEdges : toeEdges).Add(eid);
             }
             double minLen = MinLineLength;
             if (minLen <= 0) {
@@ -73,8 +81,6 @@ namespace gs
             close_gaps(Toes, gap);
             return true;
         }
-
-        static Vector3d up(Vector3d n) { return (n.z < 0) ? -n : n; }
 
         // join the closest pair of open-polyline end points while it is closer than gap
         static void close_gaps(List<List<Vector3d>> lines, double gap)

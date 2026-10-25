@@ -78,6 +78,37 @@ namespace geometry3Sharp.Tests
             Assert.True(bl.Toes.Sum(Length) > 0.8 * toes.Sum(c => RectanglePerimeter(c)));
         }
 
+        [Fact]
+        public void BreakLines_VerticalRiser_CrestAndToe()
+        {
+            // a 1 m step with a vertical riser (duplicate xy, as surveyed walls are): x = 1 at z = 0 and 1
+            DMesh3 m = new DMesh3();
+            double[] xs = { 0, 1, 1, 2 }, zs = { 0, 0, 1, 1 };
+            int ny = 11;
+            int[,] vid = new int[4, ny];
+            for (int j = 0; j < ny; ++j)
+                for (int i = 0; i < 4; ++i) vid[i, j] = m.AppendVertex(new Vector3d(xs[i], j, zs[i]));
+            for (int j = 0; j + 1 < ny; ++j)
+                for (int i = 0; i < 3; ++i) {
+                    m.AppendTriangle(vid[i, j], vid[i + 1, j], vid[i + 1, j + 1]);
+                    m.AppendTriangle(vid[i, j], vid[i + 1, j + 1], vid[i, j + 1]);
+                }
+            Assert.True(m.GetTriNormal(0).z > 0, "test mesh faces up");
+            var bl = new TerrainBreakLines(m) { MinLineLength = 2 };
+            Assert.True(bl.Compute());
+            Assert.Single(bl.Crests);
+            Assert.Single(bl.Toes);
+            Assert.All(bl.Crests[0], p => Assert.True(p.x == 1 && p.z == 1, $"crest {p}"));
+            Assert.All(bl.Toes[0], p => Assert.True(p.x == 1 && p.z == 0, $"toe {p}"));
+            Assert.Equal(10, Length(bl.Crests[0]), 9);
+            // the same mesh facing down (reversed orientation) gives the same lines
+            m.ReverseOrientation();
+            var bl2 = new TerrainBreakLines(m) { MinLineLength = 2 };
+            Assert.True(bl2.Compute());
+            Assert.All(bl2.Crests.SelectMany(l => l), p => Assert.True(p.z == 1));
+            Assert.All(bl2.Toes.SelectMany(l => l), p => Assert.True(p.z == 0));
+        }
+
         // the top crest: the rectangle r = 50 (u = +-80, v = +-65 in the rotated frame)
         static List<Vector3d> TopCrest()
         {
