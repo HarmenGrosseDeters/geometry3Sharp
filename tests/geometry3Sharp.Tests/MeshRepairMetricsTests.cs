@@ -152,6 +152,8 @@ namespace geometry3Sharp.Tests
             // an empty result: nothing in common
             Assert.Equal(0, MeshRepairMetrics.VolumeIoU(inside, new AxisAlignedBox3d(Vector3d.Zero, Vector3d.One), new DMesh3(), out missing, out extra));
             Assert.Equal(1.0, missing, 9);
+            // no reference solid: not defined
+            Assert.True(double.IsNaN(MeshRepairMetrics.VolumeIoU((p) => false, new AxisAlignedBox3d(Vector3d.Zero, Vector3d.One), u.Result, out missing, out extra)));
         }
 
         [Fact]

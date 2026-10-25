@@ -61,7 +61,7 @@ namespace gs
         /// (deterministic): a point is inside the input where its generalized winding number is > 0.5,
         /// inside the result likewise. 1 = same solid. Also returns the parts of the input solid missing in
         /// the result (eg lost thin walls) and the result solid not in the input (eg filled cavities),
-        /// relative to the input solid.
+        /// relative to the input solid. NaN if the input encloses no volume (eg a single open sheet).
         /// </summary>
         public static double VolumeIoU(DMesh3 input, DMesh3 result, out double missing, out double extra, int samples = 100000, int seed = 1)
         {
@@ -103,8 +103,10 @@ namespace gs
                 missing = (double)onlyIn / inputSolid;
                 extra = (double)onlyOut / inputSolid;
             }
+            if (inputSolid == 0)
+                return double.NaN;      // no reference solid (eg a single open sheet): not defined
             int union = both + onlyIn + onlyOut;
-            return union > 0 ? (double)both / union : 1;
+            return (double)both / union;
         }
     }
 }
