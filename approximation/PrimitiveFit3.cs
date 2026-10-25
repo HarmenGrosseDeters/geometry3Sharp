@@ -22,7 +22,10 @@ namespace g3
     /// normals (every cylinder normal is orthogonal to the axis; every tangent plane of a cone passes through
     /// the apex, and the directions from the apex make the same angle with the axis).
     /// Cylinder and cone need normals; if none are given they are estimated by PCA of the NormalNeighbors
-    /// nearest points (Hoppe et al., "Surface reconstruction from unorganized points", SIGGRAPH 1992).
+    /// nearest points (Hoppe et al., "Surface reconstruction from unorganized points", SIGGRAPH 1992),
+    /// iteratively reweighted (Cauchy weights of the plane distances) so that outliers among the neighbors
+    /// do not tilt them; where the weighted neighborhood is not flat the normal is unknown, and such points
+    /// are judged by their distance only.
     /// Deterministic for a given Seed.
     /// </summary>
     public class PrimitiveFit3
@@ -31,7 +34,7 @@ namespace g3
         public enum Results { NotComputed, Success, TooFewPoints, NoNormals, Failed }
 
         public Vector3d[] Points;
-        /// <summary> optional unit normals per point (orientation does not matter) </summary>
+        /// <summary> optional unit normals per point (orientation does not matter; zero = unknown) </summary>
         public Vector3d[] Normals;
 
         public Primitives Primitive = Primitives.Plane;
@@ -118,7 +121,7 @@ namespace g3
             }
             if (normals != null) {
                 Vector3d[] unit = new Vector3d[n];
-                for (int i = 0; i < n; ++i) unit[i] = normals[i].Normalized;
+                for (int i = 0; i < n; ++i) unit[i] = (normals[i].Length > 0) ? normals[i].Normalized : Vector3d.Zero;
                 normals = unit;
             }
 
@@ -318,8 +321,11 @@ namespace g3
                     do { s = rnd.Next(n); } while (Array.IndexOf(sample, s, 0, j) >= 0);
                     sample[j] = s;
                 }
+                bool known = true;
+                if (Primitive == Primitives.Cylinder || Primitive == Primitives.Cone)
+                    for (int j = 0; j < k && known; ++j) known = normals[sample[j]] != Vector3d.Zero;
                 Model m;
-                if (minimal_model(sample, out m) == false || valid(m) == false)
+                if (known == false || minimal_model(sample, out m) == false || valid(m) == false)
                     continue;
                 // the sample itself must be consistent (normals)
                 bool consistent = true;
@@ -749,7 +755,49 @@ namespace g3
         }
 
 
-        // unoriented normals by PCA of the k nearest points (uniform grid search)
+        // normal of the plane through the neighborhood nb (nb[0] is the point itself): PCA, then iteratively
+        // reweighted with Cauchy weights of the distances to the plane (scale: median absolute distance), so
+        // that a few outliers among the neighbors do not tilt it. Zero (unknown) if the weighted points are
+        // not flat (smallest eigenvalue not well below the middle one), eg at outliers or creases.
+        static Vector3d robust_normal(Vector3d[] nb)
+        {
+            int m = nb.Length;
+            double[] w = new double[m];
+            for (int j = 0; j < m; ++j) w[j] = 1;
+            Vector3d normal = Vector3d.Zero, mean = Vector3d.Zero;
+            double[] evals = null;
+            for (int iter = 0; iter < 5; ++iter) {
+                double wsum = 0;
+                mean = Vector3d.Zero;
+                for (int j = 0; j < m; ++j) { mean += w[j] * nb[j]; wsum += w[j]; }
+                mean /= wsum;
+                double[] C = new double[9];
+                for (int j = 0; j < m; ++j) {
+                    Vector3d q = nb[j] - mean;
+                    add_outer(C, w[j] * q, q);
+                }
+                var solver = new SymmetricEigenSolver(3, 4096);
+                solver.Solve(C, SymmetricEigenSolver.SortType.Decreasing);
+                normal = new Vector3d(solver.GetEigenvector(2)).Normalized;
+                evals = solver.GetEigenvalues();
+                double[] r = new double[m];
+                for (int j = 0; j < m; ++j) r[j] = Math.Abs((nb[j] - mean).Dot(normal));
+                double[] sorted = (double[])r.Clone();
+                Array.Sort(sorted);
+                double extent = Math.Sqrt(Math.Max(evals[0], 0));
+                double sigma = Math.Max(1.4826 * sorted[m / 2], 1e-6 * extent);
+                if (!(sigma > 0)) break;
+                for (int j = 0; j < m; ++j) {
+                    double u = r[j] / sigma;
+                    w[j] = 1.0 / (1.0 + u * u);
+                }
+            }
+            if (evals == null || !(evals[2] < 0.25 * evals[1]))
+                return Vector3d.Zero;
+            return normal;
+        }
+
+        // unoriented normals by robust PCA of the k nearest points (uniform grid search)
         static Vector3d[] estimate_normals(Vector3d[] pts, int k)
         {
             int n = pts.Length;
@@ -788,16 +836,10 @@ namespace g3
                 }
                 cand.Sort((a, b) => a.Key.CompareTo(b.Key));
                 int m = Math.Min(k, cand.Count);
-                Vector3d mean = pts[i];
-                for (int j = 0; j < m; ++j) mean += pts[cand[j].Value];
-                mean /= (m + 1);
-                double[] C = new double[9];
-                add_outer(C, pts[i] - mean, pts[i] - mean);
-                for (int j = 0; j < m; ++j) {
-                    Vector3d q = pts[cand[j].Value] - mean;
-                    add_outer(C, q, q);
-                }
-                result[i] = smallest_eigenvector(C);
+                Vector3d[] nb = new Vector3d[m + 1];
+                nb[0] = pts[i];
+                for (int j = 0; j < m; ++j) nb[j + 1] = pts[cand[j].Value];
+                result[i] = robust_normal(nb);
             });
             return result;
         }

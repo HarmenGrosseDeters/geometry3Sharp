@@ -145,7 +145,7 @@ namespace geometry3Sharp.Tests
                 Assert.True(Math.Abs(cyl.Radius - R) < 0.005, "radius " + cyl.Radius);
                 Assert.True(cyl.Axis.DistanceSquared(a) < 0.005 * 0.005);
                 Assert.InRange(cyl.Height, H - 0.05, H + 0.05);
-                AssertInliers(fit, outlier, withNormals ? 0.98 : 0.95);
+                AssertInliers(fit, outlier);
             }
         }
 
@@ -173,8 +173,7 @@ namespace geometry3Sharp.Tests
                 Assert.True(Math.Abs(cone.Angle - angle) < 0.005, "angle " + cone.Angle * MathUtil.Rad2Deg);
                 // outliers that happen to lie on the cone beyond the samples may extend it
                 Assert.True(cone.Height > 2.45);
-                // estimated normals: outliers among the neighbors tilt some of them beyond MaxNormalAngle
-                AssertInliers(fit, outlier, withNormals ? 0.98 : 0.95);
+                AssertInliers(fit, outlier);
             }
 
             // without outliers, least squares from the closed form estimate of apex and axis

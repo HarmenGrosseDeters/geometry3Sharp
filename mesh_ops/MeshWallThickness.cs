@@ -20,16 +20,22 @@ namespace gs
     ///   - InscribedSphere: diameter of the largest ball that touches the surface at the point and lies
     ///     inside the solid, ie twice the distance to the medial axis along the normal. Computed by the
     ///     shrinking ball iteration of Ma, Bai, Hu and Kim, "3D medial axis point approximation using
-    ///     nearest neighbors and the normal field" (The Visual Computer 2012), with the mesh vertices as the
-    ///     samples of the (smooth) surface: start with the ball whose diameter is the inward ray, then while
-    ///     the nearest vertex q to the center lies inside the ball, replace the ball by the one tangent at p
-    ///     through q (radius |q-p|^2 / (2 (p-q).n)). The thickness in the sense of a gauge ("does a ball of
-    ///     diameter t fit"), never larger than Ray. The vertices stand for the surface: on coarse meshes
-    ///     (eg large flat triangles meeting at concave creases) the ball can reach between them, so refine
-    ///     such meshes first; exact closest points on the triangles instead would shrink every ball at a
-    ///     tessellated curved surface (the flat facets fold into any ball tangent to one of them).
-    /// A ray that leaves the solid through a front face (normal facing the ray) hit an inconsistently
-    /// oriented or open part; it is ignored. Points without any valid ray get NaN.
+    ///     nearest neighbors and the normal field" (The Visual Computer 2012), on the exact surface: start
+    ///     with the ball whose diameter is the inward ray, then while a surface point q lies inside the
+    ///     ball, replace the ball by the one tangent at p through q (radius |q-p|^2 / (2 (p-q).n)). Only
+    ///     contacts seen from the ball center at least SeparationAngle away from p count (the angle
+    ///     condition of Dey and Zhao, "Approximate medial axis as a Voronoi subcomplex", CAD 2004): the
+    ///     flat facets of a tessellated curved surface fold into any ball tangent to one of them, but only
+    ///     close to p, while an opposite wall or a crease is seen at a large angle. Independent of the
+    ///     vertex density (large triangles are fine). Creases that fold by less than SeparationAngle count
+    ///     as smooth. The thickness in the sense of a gauge ("does a ball of diameter t fit"), never larger
+    ///     than Ray. A ball tangent at a polyhedral vertex is not defined at creases (it cuts both faces),
+    ///     so vertex values are the area weighted mean of the values of the vertex's triangles.
+    /// The rays use the watertight ray-triangle test of Woop, Benthin and Wald, "Watertight ray/triangle
+    /// intersection" (JCGT 2013): a ray through a shared edge or vertex hits at least one of the triangles,
+    /// so no ray slips through the surface. A ray that leaves the solid through a front face (normal facing
+    /// the ray) hit an inconsistently oriented or open part; it is ignored. Points without any valid ray
+    /// get NaN.
     /// </summary>
     public class MeshWallThickness
     {
@@ -48,6 +54,8 @@ namespace gs
         public double MaxDistance = 0;
         /// <summary> iteration limit of the shrinking ball (InscribedSphere) </summary>
         public int MaxBallIterations = 100;
+        /// <summary> InscribedSphere: smallest angle (degrees) at the ball center between p and a contact that limits the ball </summary>
+        public double SeparationAngle = 30;
 
         public bool ComputeVertices = true;
         public bool ComputeTriangles = true;
@@ -79,10 +87,11 @@ namespace gs
                 Spatial = new DMeshAABBTree3(Mesh, true);
             double maxDist = (MaxDistance > 0) ? MaxDistance : Mesh.CachedBounds.DiagonalLength;
             maxDist = Math.Max(maxDist, MathUtil.Epsilonf);
-            eps = 1e-9 * Mesh.CachedBounds.DiagonalLength;
+            set_tolerances();
             Vector3d[] cone = cone_directions();
 
-            if (ComputeTriangles && CancelF() == false) {
+            bool fromTriangles = ComputeVertices && Method == Methods.InscribedSphere;
+            if ((ComputeTriangles || fromTriangles) && CancelF() == false) {
                 TriangleThickness = new double[Mesh.MaxTriangleID];
                 for (int i = 0; i < TriangleThickness.Length; ++i)
                     TriangleThickness[i] = double.NaN;
@@ -99,6 +108,10 @@ namespace gs
                     VertexThickness[i] = double.NaN;
                 gParallel.ForEach(Mesh.VertexIndices(), (vid) => {
                     if (CancelF() || Mesh.GetVtxEdgeCount(vid) == 0) return;
+                    if (fromTriangles) {
+                        VertexThickness[vid] = triangle_average(vid);
+                        return;
+                    }
                     Vector3d n = vertex_normal(vid);
                     if (n == Vector3d.Zero) return;
                     VertexThickness[vid] = thickness(Mesh.GetVertex(vid), n, vid, -1, cone, maxDist);
@@ -129,7 +142,7 @@ namespace gs
             if (Spatial == null)
                 Spatial = new DMeshAABBTree3(Mesh, true);
             double maxDist = (MaxDistance > 0) ? MaxDistance : Mesh.CachedBounds.DiagonalLength;
-            eps = 1e-9 * Mesh.CachedBounds.DiagonalLength;
+            set_tolerances();
             return thickness(p, n.Normalized, -1, -1, cone_directions(), Math.Max(maxDist, MathUtil.Epsilonf));
         }
 
@@ -155,9 +168,16 @@ namespace gs
         }
 
 
-        // offset of the ray origins and beyond grazed source triangles (relative to the mesh size, so that
-        // the result scales exactly with the mesh)
-        double eps;
+        // smallest ray parameter of a hit (relative to the mesh size, so that the result scales exactly with
+        // the mesh), and the padding of the (float) tree boxes
+        double eps, boxPad;
+
+        void set_tolerances()
+        {
+            AxisAlignedBox3d b = Mesh.CachedBounds;
+            eps = 1e-9 * b.DiagonalLength;
+            boxPad = 1e-6 * (b.DiagonalLength + Math.Max(b.Min.MaxAbs, b.Max.MaxAbs));
+        }
 
         Vector3d vertex_normal(int vid)
         {
@@ -170,6 +190,19 @@ namespace gs
             }
             double len = n.Length;
             return (len > MathUtil.ZeroTolerance) ? n / len : Vector3d.Zero;
+        }
+
+
+        double triangle_average(int vid)
+        {
+            double sum = 0, wsum = 0;
+            foreach (int tid in Mesh.VtxTrianglesItr(vid)) {
+                double t = TriangleThickness[tid];
+                if (double.IsNaN(t)) continue;
+                double a = Mesh.GetTriArea(tid);
+                sum += a * t; wsum += a;
+            }
+            return (wsum > 0) ? sum / wsum : double.NaN;
         }
 
 
@@ -207,49 +240,31 @@ namespace gs
 
         // distance from p along unit dir to the opposite wall: the first hit of a triangle other than the
         // source triangle or the triangles at the source vertex; NaN if none within maxDist or if the ray
-        // leaves through a front face. A ray through a vertex or edge of the opposite wall can slip through
-        // the crack between the floating point ray-triangle tests and hit the far side; then the ray is
-        // repeated with slightly tilted directions.
+        // leaves through a front face
         double ray_length(Vector3d p, Vector3d dir, int vid, int tid, double maxDist)
         {
-            bool frontFace;
-            double t = ray_cast(p, dir, vid, tid, maxDist, out frontFace);
-            if (frontFace) {
-                Vector3d b1, b2;
-                Vector3d.MakePerpVectors(ref dir, out b1, out b2);
-                for (int k = 0; k < 3 && frontFace; ++k) {
-                    double a = 2 * Math.PI * k / 3;
-                    Vector3d tilted = (dir + 1e-6 * (Math.Cos(a) * b1 + Math.Sin(a) * b2)).Normalized;
-                    t = ray_cast(p, tilted, vid, tid, maxDist, out frontFace);
+            WatertightRay ray = new WatertightRay(p, dir);
+            double best = maxDist;
+            int bestTri = DMesh3.InvalidID;
+            double bestDot = 0;
+            Spatial.DoTraversal(new DMeshAABBTree3.TreeTraversal() {
+                NextBoxF = (box, depth) => ray.HitsBox(box, boxPad, best),
+                NextTriangleF = (ti) => {
+                    if (ti == tid) return;
+                    Index3i tv = Mesh.GetTriangle(ti);
+                    if (vid >= 0 && (tv.a == vid || tv.b == vid || tv.c == vid)) return;
+                    double t;
+                    if (ray.Intersect(Mesh.GetVertex(tv.a), Mesh.GetVertex(tv.b), Mesh.GetVertex(tv.c), out t) == false) return;
+                    if (t <= eps || t > best) return;
+                    double dot = Mesh.GetTriNormal(ti).Dot(dir);
+                    // through an edge both triangles report the same t: prefer the one the ray leaves through
+                    if (t == best && bestTri != DMesh3.InvalidID && dot <= bestDot) return;
+                    best = t; bestTri = ti; bestDot = dot;
                 }
-            }
-            return frontFace ? double.NaN : t;
-        }
-
-        double ray_cast(Vector3d p, Vector3d dir, int vid, int tid, double maxDist, out bool frontFace)
-        {
-            frontFace = false;
-            double start = eps;
-            for (int attempt = 0; attempt < 8; ++attempt) {
-                Ray3d ray = new Ray3d(p + start * dir, dir);
-                int hit = Spatial.FindNearestHitTriangle(ray, maxDist - start);
-                if (hit == DMesh3.InvalidID)
-                    return double.NaN;
-                IntrRay3Triangle3 isect = MeshQueries.TriangleIntersection(Mesh, hit, ray);
-                double t = start + isect.RayParameter;
-                if (t > maxDist)
-                    return double.NaN;
-                if (hit == tid || (vid >= 0 && IndexUtil.find_tri_index(vid, Mesh.GetTriangle(hit)) >= 0)) {
-                    start = t + eps;        // grazing the source: continue behind it
-                    continue;
-                }
-                if (Mesh.GetTriNormal(hit).Dot(dir) <= 0) {
-                    frontFace = true;       // entered through a front face: open or flipped part
-                    return double.NaN;
-                }
-                return t;
-            }
-            return double.NaN;
+            });
+            if (bestTri == DMesh3.InvalidID || !(bestDot > 0))
+                return double.NaN;      // no wall, or entered through a front face: open or flipped part
+            return best;
         }
 
 
@@ -297,23 +312,111 @@ namespace gs
             double t = ray_length(p, -n, vid, tid, maxDist);
             double r = double.IsNaN(t) ? 0.5 * maxDist : 0.5 * t;
             double tol = 1e-12 * maxDist;
+            double cosSep = Math.Cos(MathUtil.Clamp(SeparationAngle, 0, 180) * MathUtil.Deg2Rad);
             for (int iter = 0; iter < MaxBallIterations; ++iter) {
                 Vector3d c = p - r * n;
-                int near = Spatial.FindNearestVertex(c, r);
-                if (near == DMesh3.InvalidID || near == vid)
+                double rr = r;
+                // the closest surface point inside the ball, among those far enough from p as seen from c
+                double bestSqr = (r - tol) * (r - tol);
+                Vector3d q = Vector3d.Zero;
+                bool found = false;
+                Spatial.DoTraversal(new DMeshAABBTree3.TreeTraversal() {
+                    NextBoxF = (box, depth) => box_distance_sqr(box, c, boxPad) < bestSqr,
+                    NextTriangleF = (ti) => {
+                        Index3i tv = Mesh.GetTriangle(ti);
+                        Triangle3d tri = new Triangle3d(Mesh.GetVertex(tv.a), Mesh.GetVertex(tv.b), Mesh.GetVertex(tv.c));
+                        Vector3d closest, bary;
+                        double dsqr = DistPoint3Triangle3.DistanceSqr(ref c, ref tri, out closest, out bary);
+                        if (!(dsqr < bestSqr)) return;
+                        Vector3d w = closest - c;
+                        double wl = w.Length;
+                        if (wl > 0 && (-n).Dot(w) > cosSep * wl)
+                            return;         // seen close to p: the folded neighborhood, not a wall
+                        bestSqr = dsqr; q = closest; found = true;
+                    }
+                });
+                if (found == false)
                     break;          // empty ball
-                Vector3d d = Mesh.GetVertex(near) - p;
+                Vector3d d = q - p;
                 double dn = d.Dot(n);
                 if (dn >= -tol)
-                    break;          // q is (numerically) on the tangent plane: the ball cannot shrink to exclude it
+                    break;
                 double rnew = -d.LengthSquared / (2 * dn);
-                if (!(rnew < r * (1 - 1e-12)))
+                if (!(rnew < rr * (1 - 1e-12)))
                     break;
                 r = rnew;
             }
             if (double.IsNaN(t) && r >= 0.5 * maxDist * (1 - 1e-12))
                 return double.NaN;  // no opposite wall at all
             return 2 * r;
+        }
+
+        static double box_distance_sqr(AxisAlignedBox3f box, Vector3d p, double pad)
+        {
+            double dx = Math.Max(0, Math.Max(box.Min.x - pad - p.x, p.x - box.Max.x - pad));
+            double dy = Math.Max(0, Math.Max(box.Min.y - pad - p.y, p.y - box.Max.y - pad));
+            double dz = Math.Max(0, Math.Max(box.Min.z - pad - p.z, p.z - box.Max.z - pad));
+            return dx * dx + dy * dy + dz * dz;
+        }
+
+
+        // watertight ray-triangle test (Woop, Benthin and Wald 2013): the vertices are sheared into the
+        // ray's frame (z along the ray) once per vertex, and the edge functions of a shared edge are the
+        // same products with opposite signs, so the two triangles never both reject a ray through it.
+        // Edge functions that are exactly 0 count as inside.
+        struct WatertightRay
+        {
+            Vector3d o, d, invD;
+            int kx, ky, kz;
+            double Sx, Sy, Sz;
+
+            public WatertightRay(Vector3d origin, Vector3d dir)
+            {
+                o = origin; d = dir;
+                invD = new Vector3d(1.0 / dir.x, 1.0 / dir.y, 1.0 / dir.z);
+                kz = (Math.Abs(dir.x) >= Math.Abs(dir.y)) ? (Math.Abs(dir.x) >= Math.Abs(dir.z) ? 0 : 2) : (Math.Abs(dir.y) >= Math.Abs(dir.z) ? 1 : 2);
+                kx = (kz + 1) % 3; ky = (kx + 1) % 3;
+                if (dir[kz] < 0) { int tmp = kx; kx = ky; ky = tmp; }
+                Sx = dir[kx] / dir[kz]; Sy = dir[ky] / dir[kz]; Sz = 1.0 / dir[kz];
+            }
+
+            public bool Intersect(Vector3d v0, Vector3d v1, Vector3d v2, out double t)
+            {
+                t = double.NaN;
+                Vector3d A = v0 - o, B = v1 - o, C = v2 - o;
+                double Ax = A[kx] - Sx * A[kz], Ay = A[ky] - Sy * A[kz];
+                double Bx = B[kx] - Sx * B[kz], By = B[ky] - Sy * B[kz];
+                double Cx = C[kx] - Sx * C[kz], Cy = C[ky] - Sy * C[kz];
+                double U = Cx * By - Cy * Bx;
+                double V = Ax * Cy - Ay * Cx;
+                double W = Bx * Ay - By * Ax;
+                if ((U < 0 || V < 0 || W < 0) && (U > 0 || V > 0 || W > 0))
+                    return false;
+                double det = U + V + W;
+                if (det == 0)
+                    return false;
+                double T = U * (Sz * A[kz]) + V * (Sz * B[kz]) + W * (Sz * C[kz]);
+                t = T / det;
+                return t > 0;
+            }
+
+            // does the ray meet the box (padded) before maxT
+            public bool HitsBox(AxisAlignedBox3f box, double pad, double maxT)
+            {
+                double t0 = 0, t1 = maxT;
+                for (int k = 0; k < 3; ++k) {
+                    double lo = box.Min[k] - pad, hi = box.Max[k] + pad;
+                    if (d[k] == 0) {
+                        if (o[k] < lo || o[k] > hi) return false;
+                        continue;
+                    }
+                    double ta = (lo - o[k]) * invD[k], tb = (hi - o[k]) * invD[k];
+                    if (ta > tb) { double tmp = ta; ta = tb; tb = tmp; }
+                    t0 = Math.Max(t0, ta); t1 = Math.Min(t1, tb);
+                    if (t0 > t1) return false;
+                }
+                return true;
+            }
         }
     }
 }

@@ -55,31 +55,47 @@ namespace geometry3Sharp.Tests
             }
         }
 
-        [Fact]
-        public void Cube_InscribedSphere_IsMedialAxisDistance()
+        [Theory]
+        [InlineData(2)]     // two triangles per face: the ball has to find the side faces between their vertices
+        [InlineData(21)]
+        public void Cube_InscribedSphere_IsMedialAxisDistance(int edgeVertices)
         {
             // cube [-1,1]^3: the largest ball tangent to the top face at (x, y) has radius min(1-|x|, 1-|y|)
             // (it touches the side faces), while the inward ray always has length 2
-            DMesh3 cube = new GridBox3Generator() { Box = new Box3d(Vector3d.Zero, Vector3d.One), EdgeVertices = 21 }.Generate().MakeDMesh();
+            DMesh3 cube = new GridBox3Generator() { Box = new Box3d(Vector3d.Zero, Vector3d.One), EdgeVertices = edgeVertices }.Generate().MakeDMesh();
             var ins = new MeshWallThickness(cube) { Method = MeshWallThickness.Methods.InscribedSphere };
             var ray = new MeshWallThickness(cube) { Method = MeshWallThickness.Methods.Ray };
             Assert.True(ins.Compute() && ray.Compute());
-            int checkedCount = 0;
             foreach (int tid in cube.TriangleIndices()) {
                 Vector3d c = cube.GetTriCentroid(tid);
                 Assert.Equal(2, ray.TriangleThickness[tid], 9);
-                if (cube.GetTriNormal(tid).z < 0.99) continue;
-                double expected = 2 * Math.Min(1 - Math.Abs(c.x), 1 - Math.Abs(c.y));
-                if (expected < 0.6) continue;       // near the rim the ball reaches between the side face vertices
-                Assert.InRange(ins.TriangleThickness[tid], expected - 0.02, expected + 0.02);
-                checkedCount++;
+                Vector3d nrm = cube.GetTriNormal(tid);
+                // by symmetry, the two coordinates across the face's normal
+                Vector3d a = new Vector3d(Math.Abs(c.x), Math.Abs(c.y), Math.Abs(c.z));
+                double u = (Math.Abs(nrm.x) > 0.5) ? a.y : a.x, v = (Math.Abs(nrm.z) > 0.5) ? a.y : a.z;
+                double expected = 2 * Math.Min(1 - u, 1 - v);
+                Assert.Equal(expected, ins.TriangleThickness[tid], 9);
             }
-            Assert.True(checkedCount > 100);
-            // never more than the ray
-            foreach (int tid in cube.TriangleIndices())
-                Assert.True(ins.TriangleThickness[tid] <= ray.TriangleThickness[tid] + 1e-9);
             foreach (int vid in cube.VertexIndices())
                 Assert.True(ins.VertexThickness[vid] <= 2 + 1e-9);
+        }
+
+        [Fact]
+        public void Ray_ThroughOppositeVertices_IsWatertight()
+        {
+            // plate whose top and bottom grids are aligned: every vertex ray of the top face passes exactly
+            // through a vertex or an edge of the bottom face
+            DMesh3 slab = Box(Vector3d.Zero, new Vector3d(1, 1, 0.25));
+            var wt = new MeshWallThickness(slab) { Method = MeshWallThickness.Methods.Ray };
+            Assert.True(wt.Compute());
+            int n = 0;
+            foreach (int vid in slab.VertexIndices()) {
+                Vector3d p = slab.GetVertex(vid);
+                if (Math.Abs(p.x) > 0.99 || Math.Abs(p.y) > 0.99) continue;      // rim: averaged normals
+                Assert.Equal(0.5, wt.VertexThickness[vid], 9);
+                n++;
+            }
+            Assert.True(n >= 16);
         }
 
         [Fact]
