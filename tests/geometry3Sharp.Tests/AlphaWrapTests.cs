@@ -255,8 +255,8 @@ namespace geometry3Sharp.Tests
 
         /// <summary>
         /// The guarantees: closed, 2-manifold, consistently oriented outwards, no self-intersections; all
-        /// vertices on the offset surface; every point of the result farther than 0 and at most offset + alpha
-        /// from the input; the input inside (winding number 1 at input points).
+        /// vertices on the offset surface; every point of the result farther than 0 and at most offset + 2 alpha
+        /// from the input (offset + alpha, except where the manifold step added cells); the input inside (winding number 1 at input points).
         /// </summary>
         static void CheckWrap(MeshAlphaWrap w, IList<Vector3d> inputSamples, bool expectSuccess = true)
         {
@@ -288,7 +288,7 @@ namespace geometry3Sharp.Tests
                     double u = rnd.NextDouble(), v = rnd.NextDouble();
                     if (u + v > 1) { u = 1 - u; v = 1 - v; }
                     double d = oracle(a + u * (b - a) + v * (c - a));
-                    Assert.True(d > 0 && d <= off + alpha, $"result point at distance {d}, offset {off}, alpha {alpha}");
+                    Assert.True(d > 0 && d <= off + 2 * alpha, $"result point at distance {d}, offset {off}, alpha {alpha}");
                 }
             }
             // the input is enclosed
@@ -548,6 +548,32 @@ namespace geometry3Sharp.Tests
             a.Compute(); b.Compute();
             Assert.Equal(a.Result.TriangleCount, b.Result.TriangleCount);
             Assert.True(a.Result.VertexIndices().All(v => a.Result.GetVertex(v) == b.Result.GetVertex(v)));
+        }
+
+        [Theory]
+        [InlineData(34)]
+        [InlineData(44)]
+        [InlineData(71)]
+        [InlineData(92)]
+        public void Wrap_RandomSoup_ManifoldStepKeepsBoxCornersOff(int seed)
+        {
+            // random overlapping triangles: non-manifold spots where the manifold step must move cells inside.
+            // Moving all outside cells around a vertex inside put big cells reaching the box corners on the
+            // result (vertices hundreds of offsets away from the input).
+            var rg = new Random(seed);
+            var m = new DMesh3();
+            int nt = 3 + rg.Next(30);
+            Func<Vector3d> jitter = () => new Vector3d(rg.NextDouble() - 0.5, rg.NextDouble() - 0.5, rg.NextDouble() - 0.5);
+            for (int t = 0; t < nt; ++t) {
+                Vector3d c = new Vector3d(rg.NextDouble(), rg.NextDouble(), rg.NextDouble());
+                double sz = 0.05 + 0.4 * rg.NextDouble();
+                int a = m.AppendVertex(c + sz * jitter()), b = m.AppendVertex(c + sz * jitter()), d = m.AppendVertex(c + sz * jitter());
+                m.AppendTriangle(a, b, d);
+            }
+            var w = new MeshAlphaWrap(m) { RelativeAlpha = 10 + rg.Next(60), RelativeOffset = 100 + rg.Next(1000) };
+            Assert.True(w.Compute());
+            Assert.Equal(0, w.Counts["result_box_corners"]);
+            CheckWrap(w, Vertices(m));
         }
 
         [Fact]

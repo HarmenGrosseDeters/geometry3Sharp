@@ -28,7 +28,8 @@ namespace gs
     ///   - the input is strictly inside: no outside cell comes closer than 1e-6 * Offset to it (the margin of
     ///     the floating-point distance tests);
     ///   - the vertices lie on the offset surface (up to rounding), so between them the result can come closer
-    ///     to the input than Offset (by the sagitta of the triangles); it stays within about Offset + Alpha.
+    ///     to the input than Offset (by the sagitta of the triangles); it stays within about Offset + Alpha
+    ///     (locally up to about Offset + 2 Alpha where the manifold step moved cells inside).
     /// Alpha controls the detail: cavities and gaps narrower than about 2 * Alpha are not entered (they are
     /// wrapped over), and the result has triangles with a circumradius of at most about Alpha. Smaller Alpha =
     /// more detail, more triangles, more time (about 1 / Alpha^2). Offset keeps the result away from the input.
@@ -157,6 +158,7 @@ namespace gs
                 return false;
             }
             Counts["result_triangles"] = Result.TriangleCount;
+            Counts["result_box_corners"] = boxCornersInResult;
             return Status == WrapStatus.Success;
         }
 
@@ -598,7 +600,72 @@ namespace gs
             }
             int n = local.Count;
             if (n == 0) return 0;
-            // components of equal labels; component -> touches the box boundary (through a facet in the star)
+            int flipped = 0;
+            for (int iter = 0; iter <= n; ++iter) {
+                star_components(v, w);
+                // the box boundary is outside: outside components touching it are one component (with it), and
+                // an inside component touching it has the box boundary as outside neighbour
+                int nIn = 0, nOut = 0;
+                bool exterior = false;
+                for (int k = 0; k < compLabel.Count; ++k) {
+                    if (compExterior[k]) exterior = true;
+                    if (compLabel[k] == Inside) nIn++;
+                    else if (!compExterior[k]) nOut++;
+                }
+                if (exterior) nOut++;
+                if (nIn == 0 || nOut == 0 || (nIn == 1 && nOut == 1))
+                    return flipped;       // not on the result, or manifold
+                if (nOut > 1) {
+                    // keep the outside connected to the box boundary, otherwise the largest outside component
+                    int keep = -1;
+                    for (int k = 0; k < compLabel.Count; ++k) {
+                        if (compLabel[k] != Outside || exterior) continue;
+                        if (keep < 0 || compVolume[k] > compVolume[keep]) keep = k;
+                    }
+                    for (int k = 0; k < n; ++k) {
+                        int ck = comp[k];
+                        if (compLabel[ck] != Outside) continue;
+                        bool stays = exterior ? compExterior[ck] : ck == keep;
+                        if (!stays) { label[local[k]] = Inside; flipped++; }
+                    }
+                    continue;
+                }
+                // several inside components, one outside: move one outside cell inside, preferring one that
+                // joins inside components, then small cells and cells without a box corner (which would put
+                // the corner on the result)
+                int best = -1;
+                double bestScore = double.MaxValue;
+                for (int k = 0; k < n; ++k) {
+                    int c = local[k];
+                    if (label[c] != Outside) continue;
+                    int firstIn = -1, joins = 0, touches = 0;
+                    for (int i = 0; i < 4; ++i) {
+                        int cvx = dt.CellVertex(c, i);
+                        if (cvx == v || cvx == w) continue;
+                        int m = dt.Neighbour(c, i);
+                        if (m < 0 || label[m] != Inside || !localIndex.TryGetValue(m, out int mk)) continue;
+                        touches = 1;
+                        if (firstIn < 0) firstIn = comp[mk];
+                        else if (comp[mk] != firstIn) joins = 1;
+                    }
+                    if (touches == 0) continue;
+                    bool corner = false;
+                    for (int i = 0; i < 4; ++i) if (dt.CellVertex(c, i) < 8) corner = true;
+                    double score = (corner ? 4 : 0) + (joins == 1 ? 0 : 2) + dt.CellVolume(c) / (1 + dt.CellVolume(c));
+                    if (score < bestScore) { bestScore = score; best = k; }
+                }
+                if (best < 0)
+                    return flipped;
+                label[local[best]] = Inside;
+                flipped++;
+            }
+            return flipped;
+        }
+
+        // connected components of equal labels in the star (local), and whether they touch the box boundary
+        void star_components(int v, int w)
+        {
+            int n = local.Count;
             comp.Clear();
             for (int k = 0; k < n; ++k) comp.Add(-1);
             compLabel.Clear(); compExterior.Clear(); compVolume.Clear();
@@ -626,43 +693,14 @@ namespace gs
                     }
                 }
             }
-            // the box boundary is outside: outside components touching it are one component (with it), and
-            // an inside component touching it has the box boundary as outside neighbour
-            int nIn = 0, nOut = 0;
-            bool exterior = false;
-            for (int k = 0; k < compLabel.Count; ++k) {
-                if (compExterior[k]) exterior = true;
-                if (compLabel[k] == Inside) nIn++;
-                else if (!compExterior[k]) nOut++;
-            }
-            if (exterior) nOut++;
-            if (nIn == 0 || nOut == 0 || (nIn == 1 && nOut == 1))
-                return 0;       // not on the result, or manifold
-            int flipped = 0;
-            if (nOut > 1) {
-                // keep the outside connected to the box boundary, otherwise the largest outside component
-                int keep = -1;
-                for (int k = 0; k < compLabel.Count; ++k) {
-                    if (compLabel[k] != Outside || exterior) continue;
-                    if (keep < 0 || compVolume[k] > compVolume[keep]) keep = k;
-                }
-                for (int k = 0; k < n; ++k) {
-                    int ck = comp[k];
-                    if (compLabel[ck] != Outside) continue;
-                    bool stays = exterior ? compExterior[ck] : ck == keep;
-                    if (!stays) { label[local[k]] = Inside; flipped++; }
-                }
-                return flipped;
-            }
-            // several inside components, one outside: fill the outside
-            for (int k = 0; k < n; ++k)
-                if (label[local[k]] == Outside) { label[local[k]] = Inside; flipped++; }
-            return flipped;
         }
+
+        int boxCornersInResult;
 
         DMesh3 extract()
         {
             DMesh3 mesh = new DMesh3();
+            boxCornersInResult = 0;
             var map = new Dictionary<int, int>();
             int failed = 0;
             foreach (int c in dt.CellIndices()) {
@@ -675,6 +713,7 @@ namespace gs
                         if (!map.TryGetValue(f[j], out int vid)) {
                             vid = mesh.AppendVertex(dt.GetVertex(f[j]));
                             map[f[j]] = vid;
+                            if (f[j] < 8) boxCornersInResult++;
                         }
                         t[j] = vid;
                     }
