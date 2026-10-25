@@ -389,6 +389,7 @@ namespace g3
 			for (uint y = 0; y < m_cells.Length; ++y) {
 				for (uint x = 0; x < m_cells.Length; ++x) {
 					m_cells[y][x].bTouched = false;
+					m_cells[y][x].fValue = s_fValueSentinel;   // field may differ from last run
                     m_cells[y][x].nLeftVertex = m_cells[y][x].nTopVertex = -1;
 				}
 			}
@@ -408,8 +409,9 @@ namespace g3
 		void SetBounds( AxisAlignedBox2f bounds ) {
             m_bounds = bounds;
 
-			m_fXShift = (bounds.Min.x < 0) ? bounds.Min.x : -bounds.Min.x;
-			m_fYShift = (bounds.Min.y < 0) ? bounds.Min.y : -bounds.Min.y;
+			// grid index 0 maps to bounds.Min
+			m_fXShift = bounds.Min.x;
+			m_fYShift = bounds.Min.y;
 
 			m_fScale = (bounds.Width > bounds.Height) ? bounds.Width : bounds.Height;
 
