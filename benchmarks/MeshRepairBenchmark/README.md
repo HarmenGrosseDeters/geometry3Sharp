@@ -154,3 +154,22 @@ Known remaining issues:
   (the repaired mesh is not closed in the winding number sense) or with self-intersections from rounding
   the new vertices.
 
+
+### Spike: solidify resolution 256 (`BENCH_SOLID_RES=256`, 30 meshes)
+20 meshes that `robust` solidified and that missed the 1 % Hausdorff bound at resolution 128, and 10 it
+solidified within the bound (random, seed 1; `results/robust_res256_spike.jsonl`, not versioned):
+
+| | resolution 128 | resolution 256 |
+|---|---|---|
+| repaired | 7/30 | 13/30 |
+| of the 20 over the Hausdorff bound | 0 | 8 |
+| of the 10 within the bound: made worse | – | 2 (Hausdorff 0.43 % → 1.15 %; IoU 0.995 → 0.980) |
+| self-intersections | – | fewer in 6 meshes, more in 4 |
+| median / max repair time | 10.7 s / 42 s | 17.5 s / 293 s |
+| output triangles | – | ×2.4 (median) |
+
+Most of the remaining Hausdorff misses at 256 are not grid error: the input has no meaningful solid
+(IoU 0.28–0.76 against the winding number solid) or the deviation comes from the repair before the
+solidify. Extrapolated to the 400 set, resolution 256 would repair about 30–40 more meshes at 1.6× the
+median time, 2.4× the triangles and a few new self-intersections. An adaptive choice (solidify at 128,
+check the deviation, repeat at 256 only where it is too large) is cheaper than raising the default.
