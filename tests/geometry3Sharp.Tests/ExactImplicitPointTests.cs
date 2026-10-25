@@ -75,15 +75,7 @@ namespace geometry3Sharp.Tests
             var kinds = new HashSet<ExactMeshArrangement.PointKind>();
             for (int id = 0; id < arr.PointCount; ++id) {
                 kinds.Add(arr.KindOf(id));
-                ExactPoint3 x = arr.Exact(id);
-                Vector3d a = arr.Approx(id);
-                double e = arr.ApproxError(id);
-                Assert.True(e >= 0 && double.IsInfinity(e) == false);
-                for (int k = 0; k < 3; ++k) {
-                    double xk = ExactPoint3.ToDouble(x[k], x.W, 0);
-                    // (the rounding of the exact value to double: below 1 ulp)
-                    Assert.True(Math.Abs(a[k] - xk) <= e + 2.3e-16 * Math.Abs(xk), $"point {id} ({arr.KindOf(id)}): {a[k]} vs {xk}, bound {e}");
-                }
+                AssertWithinBound(arr, id);
             }
             if (seed % 4 < 3)
                 Assert.Contains(ExactMeshArrangement.PointKind.Planes, kinds);
@@ -92,14 +84,26 @@ namespace geometry3Sharp.Tests
                 Assert.Contains(ExactMeshArrangement.PointKind.Segments, kinds);
         }
 
+        // v as an exact fraction num / 2^-exp (exp <= 0) with a common exponent for the comparison below
+        static BigInteger Scaled(double v, int exp)
+        {
+            BigInteger m; int e;
+            ExactPoint3.Decompose(v, out m, out e);
+            return m.IsZero ? BigInteger.Zero : (m << (e - exp));
+        }
+
+        // |approximation - exact| <= bound, exactly (no rounding of the comparison)
         static void AssertWithinBound(ExactMeshArrangement arr, int id)
         {
             ExactPoint3 x = arr.Exact(id);
             Vector3d a = arr.Approx(id);
             double e = arr.ApproxError(id);
+            Assert.True(e >= 0 && double.IsInfinity(e) == false);
             for (int k = 0; k < 3; ++k) {
-                double xk = ExactPoint3.ToDouble(x[k], x.W, 0);
-                Assert.True(Math.Abs(a[k] - xk) <= e + 2.3e-16 * Math.Abs(xk), $"point {id} ({arr.KindOf(id)}): {a[k]} vs {xk}, bound {e}");
+                // |a W - X| <= e W, all scaled by 2^1100 to integers
+                const int exp = -1100;
+                BigInteger lhs = BigInteger.Abs(Scaled(a[k], exp) * x.W - (x[k] << -exp)), rhs = Scaled(e, exp) * x.W;
+                Assert.True(lhs <= rhs, $"point {id} ({arr.KindOf(id)}): {a[k]} vs {ExactPoint3.ToDouble(x[k], x.W, 0)}, bound {e}");
             }
         }
 
