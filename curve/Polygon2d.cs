@@ -718,9 +718,10 @@ namespace g3
                 }
 
                 double angle = Vector2d.AngleD(cp, cn);
-                // TODO document what this means sign-wise
+                // Perp = (y,-x): for the counter-clockwise polygons required here, a convex (left) turn
+                // has cp.Perp.Dot(cn) > 0
                 double sign = cp.Perp.Dot(cn);
-                bool bConcave = (sign > 0);
+                bool bConcave = (sign < 0);
 
                 double thresh = (bConcave) ? minConcaveAngleDeg : minConvexAngleDeg;
 
@@ -799,28 +800,44 @@ namespace g3
 
         public bool IsClosed { get { return true; } }
 
-        // can call SampleT in range [0,ParamLength]
+        // can call SampleT in range [0,ParamLength]. Edge i (from vertex i to i+1, the last one
+        // closing the loop back to vertex 0) is the parameter interval [i,i+1].
         public double ParamLength { get { return Polygon.VertexCount; } }
         public Vector2d SampleT(double t)
         {
-            int i = (int)t;
-            if (i >= Polygon.VertexCount - 1)
-                return Polygon[Polygon.VertexCount - 1];
+            int N = Polygon.VertexCount;
+            int i = (int)Math.Floor(t);
+            if (i < 0)
+                return Polygon[0];
+            if (i >= N)
+                return Polygon[0];
             Vector2d a = Polygon[i];
-            Vector2d b = Polygon[i + 1];
+            Vector2d b = Polygon[(i + 1) % N];
             double alpha = t - (double)i;
             return (1.0 - alpha) * a + (alpha) * b;
         }
         public Vector2d TangentT(double t)
         {
-            throw new NotImplementedException("Polygon2dCurve.TangentT");
+            int N = Polygon.VertexCount;
+            int i = MathUtil.Clamp((int)Math.Floor(t), 0, N - 1);
+            return (Polygon[(i + 1) % N] - Polygon[i]).Normalized;
         }
 
         public bool HasArcLength { get { return true; } }
         public double ArcLength { get { return Polygon.ArcLength; } }
         public Vector2d SampleArcLength(double a)
         {
-            throw new NotImplementedException("Polygon2dCurve.SampleArcLength");
+            int N = Polygon.VertexCount;
+            if (a <= 0)
+                return Polygon[0];
+            for (int i = 0; i < N; ++i) {
+                Vector2d p0 = Polygon[i], p1 = Polygon[(i + 1) % N];
+                double len = p0.Distance(p1);
+                if (a <= len)
+                    return (len > 0) ? Vector2d.Lerp(p0, p1, a / len) : p0;
+                a -= len;
+            }
+            return Polygon[0];
         }
 
         public void Reverse()

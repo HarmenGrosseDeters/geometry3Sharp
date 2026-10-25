@@ -147,7 +147,16 @@ namespace g3 {
             Vector2d vStart = xform.TransformP((IsReversed) ? P1 : P0);
             Vector2d vEnd = xform.TransformP((IsReversed) ? P0 : P1);
 
-            SetFromCenterAndPoints(vCenter, vStart, vEnd);
+            // a mirroring transform turns the counter-clockwise arc into a clockwise one: the arc now runs
+            // counter-clockwise from vEnd to vStart, and IsReversed flips so that P0 still maps to P0
+            Vector2d ax = xform.TransformP(Center + Vector2d.AxisX) - vCenter;
+            Vector2d ay = xform.TransformP(Center + Vector2d.AxisY) - vCenter;
+            if (ax.Perp.Dot(ay) > 0) {      // Perp = (y,-x), so this is -det
+                SetFromCenterAndPoints(vCenter, vEnd, vStart);
+                IsReversed = !IsReversed;
+            } else {
+                SetFromCenterAndPoints(vCenter, vStart, vEnd);
+            }
         }
 
 
@@ -165,7 +174,7 @@ namespace g3 {
                 // [TODO] we should only ever need to check at most 4 here, right? then we have gone a circle...
                 AxisAlignedBox2d bounds = AxisAlignedBox2d.Empty;
                 while (k <= stop_k) {
-                    int i = k++ % 4;
+                    int i = ((k++ % 4) + 4) % 4;       // k is negative for negative angles
                     bounds.Contain(bounds_dirs[i]);
                 }
                 bounds.Scale(Radius); bounds.Translate(Center);

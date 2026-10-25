@@ -96,6 +96,37 @@ Ebenfalls behoben:
 - `TrivialDiscGenerator` und `PuncturedDiscGenerator`: Bei einer Teilscheibe entstehen keine überzähligen
   (0,0,0)-Dreiecke mehr. Die Orientierung der Scheiben war bereits korrekt (+Y wie die Normalen).
 
+Sechste Runde, Kurven (`curve/`). Regressionstests stehen in `tests/geometry3Sharp.Tests/CurveFixesTests.cs`
+(23 Tests, ohne Fix scheitern alle).
+
+Behoben:
+- `BSplineBasis.Clone` (damit `NURBSCurve2.Clone`) und `BezierCurve2.Clone` bei Grad 2.
+- `Arc2d.Bounds` bei negativen Winkeln.
+- `Arc2d.Transform` bei Spiegelung.
+- `Polygon2DCurve`: tastet jetzt die schließende Kante ab; `TangentT` und `SampleArcLength` sind implementiert. Dadurch
+  funktionieren `PlanarComplex.JoinElements` und `Transform(..., bRecomputePolygons)` mit Polygonen.
+- `PolyLine2DCurve`: `ParamLength = VertexCount - 1`; `TangentT` und `SampleArcLength` sind implementiert. Gleiche
+  Wirkung auf `PlanarComplex` wie oben, für Polylinien.
+- `PlanarComplex.Add` verändert das Polygon bzw. die Polylinie des Aufrufers nicht mehr.
+- `CurveSampler2.SampleT(spacing)` und `SampleArcLen`: kein doppelter Start/End-Punkt bei geschlossenen Kurven.
+- `ParametricCurveSequence2(curves, isClosed)`.
+- `GeneralPolygon2d.Contains(Polygon2d)` mit Löchern.
+- `DPolyLine2f.OrderVertices`.
+- `CurveUtils.IterativeSmooth`/`InPlaceSmooth`: Endpunkte offener Kurven, Bereiche über das Ende geschlossener Kurven.
+- `CurveResampler.SplitResample`/`SplitCollapseResample` für geschlossene Kurven.
+- `CurveUtils2.SplitToTargetLength`.
+- `DGraph2Util.FindRayIntersection` (iteriert über Kanten) und `ChainOpenPaths` (keine doppelten Verbindungspunkte,
+  Eingaben bleiben unverändert).
+- `DGraph2Resampler` bei leerem Graph.
+- `PolySimplification2`: Längen-Schwelle und doppelte Endpunkte.
+- `Polygon2d.Chamfer`: konvex/konkav vertauscht.
+
+Zurückgestellt, weil sie sichtbares Verhalten ändern oder eine eigene Untersuchung brauchen:
+- `Circle3d`-Standard-Frame (linkshändig).
+- Periodische NURBS.
+- Semantik von `GeneralPolygon2d.Intersects`.
+- Orientierung bei `Circle2d`/`Ellipse2d.Transform` mit Spiegelung.
+
 Bewusst zurückgestellt: `OBJReader.is_complex`. Der Fix leitet Dateien auf `BuildMeshes_ByMaterial` um. Dieser Pfad
 verwirft UVs bei Meshes ohne Material, übernimmt keine Gruppen und stürzt bei Faces ohne Normal-Index ab. Er muss deshalb
 zusammen mit diesem Pfad repariert werden.
