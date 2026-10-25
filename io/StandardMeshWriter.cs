@@ -12,6 +12,9 @@ namespace g3
     ///   * .stl : ascii and binary STL formats https://en.wikipedia.org/wiki/STL_(file_format) 
     ///   * .off : OFF format https://en.wikipedia.org/wiki/OFF_(file_format)
     ///   * .g3mesh : internal binary format for packed DMesh3 objects
+    ///   * .ply : ascii and binary (little endian) PLY format http://paulbourke.net/dataformats/ply/
+    ///   * .3mf : 3D Manufacturing Format (core spec) https://3mf.io
+    ///   * .glb / .gltf : glTF 2.0 binary, or JSON with embedded buffer https://www.khronos.org/gltf/
     ///   
     /// Each of these is implemented in a separate Writer class, eg OBJWriter, STLWriter, etc
     /// 
@@ -87,6 +90,14 @@ namespace g3
                 writeFunc = Write_OFF;
             else if (sExtension.Equals(".g3mesh", StringComparison.OrdinalIgnoreCase))
                 writeFunc = Write_G3Mesh;
+            else if (sExtension.Equals(".ply", StringComparison.OrdinalIgnoreCase))
+                writeFunc = Write_PLY;
+            else if (sExtension.Equals(".3mf", StringComparison.OrdinalIgnoreCase))
+                writeFunc = Write_3MF;
+            else if (sExtension.Equals(".glb", StringComparison.OrdinalIgnoreCase))
+                writeFunc = Write_GLB;
+            else if (sExtension.Equals(".gltf", StringComparison.OrdinalIgnoreCase))
+                writeFunc = Write_GLTF;
 
             if (writeFunc == null)
                 return new IOWriteResult(IOCode.UnknownFormatError, "format " + sExtension + " is not supported");
@@ -200,6 +211,77 @@ namespace g3
                 CloseStreamF(stream);
             }
         }
+
+
+        IOWriteResult Write_PLY(string sFilename, List<WriteMesh> vMeshes, WriteOptions options)
+        {
+            Stream stream = OpenStreamF(sFilename);
+            if (stream == null)
+                return new IOWriteResult(IOCode.FileAccessError, "Could not open file " + sFilename + " for writing");
+
+            try {
+                PLYWriter writer = new PLYWriter();
+                if (options.bWriteBinary) {
+                    BinaryWriter w = new BinaryWriter(stream);
+                    var result = writer.Write(w, vMeshes, options);
+                    w.Flush();
+                    return result;
+                } else {
+                    StreamWriter w = new StreamWriter(stream);
+                    var result = writer.Write(w, vMeshes, options);
+                    w.Flush();
+                    return result;
+                }
+            } finally {
+                CloseStreamF(stream);
+            }
+        }
+
+
+        IOWriteResult Write_3MF(string sFilename, List<WriteMesh> vMeshes, WriteOptions options)
+        {
+            Stream stream = OpenStreamF(sFilename);
+            if (stream == null)
+                return new IOWriteResult(IOCode.FileAccessError, "Could not open file " + sFilename + " for writing");
+
+            try {
+                return new ThreeMFWriter().Write(stream, vMeshes, options);
+            } finally {
+                CloseStreamF(stream);
+            }
+        }
+
+
+        IOWriteResult Write_GLB(string sFilename, List<WriteMesh> vMeshes, WriteOptions options)
+        {
+            Stream stream = OpenStreamF(sFilename);
+            if (stream == null)
+                return new IOWriteResult(IOCode.FileAccessError, "Could not open file " + sFilename + " for writing");
+
+            try {
+                return new GLTFWriter().WriteGLB(stream, vMeshes, options);
+            } finally {
+                CloseStreamF(stream);
+            }
+        }
+
+
+        IOWriteResult Write_GLTF(string sFilename, List<WriteMesh> vMeshes, WriteOptions options)
+        {
+            Stream stream = OpenStreamF(sFilename);
+            if (stream == null)
+                return new IOWriteResult(IOCode.FileAccessError, "Could not open file " + sFilename + " for writing");
+
+            try {
+                StreamWriter w = new StreamWriter(stream);
+                var result = new GLTFWriter().WriteGLTF(w, vMeshes, options);
+                w.Flush();
+                return result;
+            } finally {
+                CloseStreamF(stream);
+            }
+        }
+
 
 
 

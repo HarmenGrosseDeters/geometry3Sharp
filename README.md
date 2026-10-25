@@ -1,16 +1,58 @@
-# About this fork
+﻿# About this fork
 
 This fork tracks gradientspace/geometry3Sharp `master`, whose code is the same as NuGet package 1.0.324.
-It adds mesh repair fixes:
-- `MeshEditor.DisconnectBowtie` no longer cuts cracks into the mesh. The old version was order-dependent.
-- New `gs.MeshPostRepairCleanup`, and `MeshAutoRepair.PostRepairCleanup = true` to run it after `Apply()`.
-  It removes duplicate triangles and bowties and fixes most degenerate triangles, folds and
-  inside-out components left by AutoRepair.
-- Unit tests in `tests/geometry3Sharp.Tests` (`dotnet test tests/geometry3Sharp.Tests`).
-- Benchmark on Thingi10K in `benchmarks/MeshRepairBenchmark`, with results and findings in its README.
+Its direction is described in [docs/ROADMAP.md](docs/ROADMAP.md). It adds:
 
-Reference `geometry3Sharp_netstandard.csproj` (netstandard2.0 / net45). The old `geometry3Sharp.csproj` is outdated
-and does not contain the `gs` mesh_ops classes such as `MeshAutoRepair`.
+- Mesh repair fixes:
+  - `MeshEditor.DisconnectBowtie` no longer cuts cracks into the mesh. The old version was order-dependent.
+  - New `gs.MeshPostRepairCleanup`, and `MeshAutoRepair.PostRepairCleanup = true` to run it after `Apply()`.
+    It removes duplicate triangles and bowties and fixes most degenerate triangles, folds and
+    inside-out components left by AutoRepair.
+  - Benchmark on Thingi10K in `benchmarks/MeshRepairBenchmark`, with results and findings in its README.
+- Exact predicates (`ExactPredicates`), winding-number booleans and solidify, geodesic distances with the
+  heat method (`MeshGeodesicDistance`), `Reducer` with a guaranteed maximum deviation, Hausdorff distance,
+  and terrain / LiDAR tools (ground filter, terrain dual contouring, offsets, cut/fill volumes, safety lines).
+- Mesh file formats PLY, 3MF and glTF 2.0 (see below).
+- `BufferUtil.DecompressZLib` fix: on .NET Core it returned partly empty buffers for large data.
+
+## Build, targets, tests
+
+Reference `geometry3Sharp_netstandard.csproj`. It targets **net10.0** and **netstandard2.0** (for Unity,
+.NET Framework and other hosts). The old `geometry3Sharp.csproj` is outdated and does not contain the `gs`
+mesh_ops classes such as `MeshAutoRepair`.
+
+```
+dotnet test tests/geometry3Sharp.Tests                      # all tests on net10.0
+dotnet test tests/geometry3Sharp.Tests -f net48             # on Windows: tests against the netstandard2.0 build
+dotnet pack geometry3Sharp_netstandard.csproj -c Release -o artifacts
+```
+
+The package contains the XML documentation and a symbol package. `tests/PackageSmokeTest` consumes the packed
+`.nupkg` and checks it (see the comment in its project file). GitHub Actions (`.github/workflows/ci.yml`) runs
+all of this on every push: tests on net10.0 (Linux) and net48 (Windows), pack, package smoke test.
+
+## Mesh file formats
+
+`StandardMeshReader` and `StandardMeshWriter` pick the format from the file extension:
+
+| Format | Read | Write | Notes |
+|---|---|---|---|
+| `.obj` | yes | yes | materials (.mtl), groups, UVs |
+| `.stl` | yes | yes | ascii and binary (`WriteOptions.bWriteBinary`) |
+| `.off` | yes | yes | |
+| `.g3mesh` | yes | yes | packed DMesh3 |
+| `.ply` | yes | yes | ascii, binary little/big endian; normals, colors, UVs, point sets. Positions are written as double unless `RealPrecisionDigits <= 7` |
+| `.3mf` | yes | yes | core spec; build items, components, transforms; read in millimeters (`ThreeMFReader.ConvertToMillimeters`) |
+| `.glb` / `.gltf` | yes | yes | glTF 2.0; node transforms applied, primitives as face groups, normals/colors/UVs. No materials, no Draco/meshopt |
+
+glTF stores float32 positions. `GLTFWriter` writes each mesh relative to its bounding box center and stores the
+center as node translation, so large coordinates (eg UTM) keep their precision when read back with `GLTFReader`.
+glTF and 3MF coordinates are not converted (glTF is Y-up in meters, 3MF uses its unit, millimeters by default).
+
+```csharp
+DMesh3 mesh = StandardMeshReader.ReadMesh("scan.glb");
+StandardMeshWriter.WriteMesh("scan.3mf", mesh, WriteOptions.Defaults);
+```
 
 # A Short Note about the future of geometry3Sharp (updated Jan 2026)
 
