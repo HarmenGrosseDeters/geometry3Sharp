@@ -87,6 +87,15 @@ Volumen negativ. Die Geometrie selbst war korrekt.
 **Verhaltensänderung:** Wer das bisher mit `ReverseOrientation()` oder `Clockwise = true` ausgeglichen hat, muss das
 entfernen.
 
+Ebenfalls behoben:
+- Keil-Modus von Zylinder und Kegel: keine überzähligen (0,0,0)-Dreiecke mehr.
+- Kegel-Normale (H·cos a, R, H·sin a) statt (H·cos a, R/H, H·sin a).
+- `ConeGenerator` mit `NoSharedVertices`: ein Dreieck pro Segment statt einem zusätzlichen Dreieck mit Fläche 0. Die
+  Spitze bekommt die Normale der Segmentmitte.
+
+- `TrivialDiscGenerator` und `PuncturedDiscGenerator`: Bei einer Teilscheibe entstehen keine überzähligen
+  (0,0,0)-Dreiecke mehr. Die Orientierung der Scheiben war bereits korrekt (+Y wie die Normalen).
+
 Bewusst zurückgestellt: `OBJReader.is_complex`. Der Fix leitet Dateien auf `BuildMeshes_ByMaterial` um. Dieser Pfad
 verwirft UVs bei Meshes ohne Material, übernimmt keine Gruppen und stürzt bei Faces ohne Normal-Index ab. Er muss deshalb
 zusammen mit diesem Pfad repariert werden.

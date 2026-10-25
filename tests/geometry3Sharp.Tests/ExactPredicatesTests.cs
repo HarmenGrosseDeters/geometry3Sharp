@@ -97,6 +97,45 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        [Fact]
+        public void Orient_ExpansionPath_CoplanarAndNearCoplanar_AtManyScales()
+        {
+            // integer points (exact as doubles) on / next to a plane, scaled by powers of two from 2^-250 to
+            // 2^250: the expansion arithmetic (used within [1e-90, 1e90]) and the BigInteger path (outside)
+            // must both give the integer sign; coplanar points must give exactly 0
+            var rnd = new Random(11);
+            for (int i = 0; i < 4000; ++i) {
+                long[] a = { rnd.Next(-1 << 25, 1 << 25), rnd.Next(-1 << 25, 1 << 25), rnd.Next(-1 << 25, 1 << 25) };
+                long[] u = { rnd.Next(-1 << 12, 1 << 12), rnd.Next(-1 << 12, 1 << 12), rnd.Next(-1 << 12, 1 << 12) };
+                long[] v = { rnd.Next(-1 << 12, 1 << 12), rnd.Next(-1 << 12, 1 << 12), rnd.Next(-1 << 12, 1 << 12) };
+                long s1 = rnd.Next(-1000, 1000), t1 = rnd.Next(-1000, 1000), s2 = rnd.Next(-1000, 1000), t2 = rnd.Next(-1000, 1000);
+                long[] b = { a[0] + u[0], a[1] + u[1], a[2] + u[2] };
+                long[] c = { a[0] + v[0], a[1] + v[1], a[2] + v[2] };
+                int off = (i % 3) - 1;      // -1, 0 (coplanar), +1
+                long[] d = { a[0] + s1 * u[0] + t1 * v[0], a[1] + s1 * u[1] + t1 * v[1] + off, a[2] + s1 * u[2] + t1 * v[2] };
+                int expected = Orient3dInt(a, b, c, d);
+                if (off == 0) Assert.Equal(0, expected);
+                double scale = Math.Pow(2, rnd.Next(-250, 250));
+                Assert.Equal(expected, ExactPredicates.Orient3d(scale * V(a), scale * V(b), scale * V(c), scale * V(d)));
+                Assert.Equal(Orient2dInt(a, b, d), ExactPredicates.Orient2d(scale * V(a).xy, scale * V(b).xy, scale * V(d).xy));
+            }
+        }
+
+        [Fact]
+        public void TwoProduct_DekkerMatchesFma()
+        {
+            // the netstandard2.0 build has no FMA and uses Dekker's split: same exact error term
+            var rnd = new Random(5);
+            for (int i = 0; i < 100000; ++i) {
+                double a = (rnd.NextDouble() - 0.5) * Math.Pow(10, rnd.Next(-90, 90));
+                double b = (rnd.NextDouble() - 0.5) * Math.Pow(10, rnd.Next(-90, 90));
+                double x, y;
+                ExactPredicates.TwoProductDekker(a, b, out x, out y);
+                Assert.Equal(a * b, x);
+                Assert.Equal(Math.FusedMultiplyAdd(a, b, -x), y);
+            }
+        }
+
         static int InCircleInt(long[] a, long[] b, long[] c, long[] d)
         {
             BigInteger adx = a[0] - d[0], ady = a[1] - d[1], bdx = b[0] - d[0], bdy = b[1] - d[1], cdx = c[0] - d[0], cdy = c[1] - d[1];

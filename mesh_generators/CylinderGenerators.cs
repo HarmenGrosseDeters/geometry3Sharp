@@ -30,7 +30,8 @@ namespace g3
             vertices = new VectorArray3d(2 * nRingSize);
             uv = new VectorArray2f(vertices.Count);
             normals = new VectorArray3f(vertices.Count);
-            triangles = new IndexArray3i(2 * Slices);
+            int nPanels = (bClosed) ? Slices : Slices - 1;     // a wedge has one panel less than slices
+            triangles = new IndexArray3i(2 * nPanels);
 
             float fTotalRange = (EndAngleDeg - StartAngleDeg) * MathUtil.Deg2Radf;
             float fStartRad = StartAngleDeg * MathUtil.Deg2Radf;
@@ -99,8 +100,9 @@ namespace g3
             uv = new VectorArray2f(vertices.Count);
             normals = new VectorArray3f(vertices.Count);
 
-            int nCylTris = 2 * Slices;
-            int nCapTris = 2 * Slices;
+            int nPanels = (bClosed) ? Slices : Slices - 1;     // a wedge has one panel less than slices
+            int nCylTris = 2 * nPanels;
+            int nCapTris = 2 * nPanels;
             int nFaceTris = (bClosed == false) ? 4 : 0;
             triangles = new IndexArray3i(nCylTris + nCapTris + nFaceTris);
             groups = new int[triangles.Count];
@@ -234,15 +236,16 @@ namespace g3
 
             bool bClosed = ((EndAngleDeg - StartAngleDeg) > 359.99f);
             int nRingSize = (NoSharedVertices && bClosed) ? Slices + 1 : Slices;
-            int nTipVertices = (NoSharedVertices) ? nRingSize : 1;
+            int nPanels = (bClosed) ? Slices : Slices - 1;     // a wedge has one panel less than slices
+            int nTipVertices = (NoSharedVertices) ? nPanels : 1;
             int nCapVertices = (NoSharedVertices) ? Slices + 1 : 1;
             int nFaceVertices = (NoSharedVertices && bClosed == false) ? 6 : 0;
             vertices = new VectorArray3d(nRingSize + nTipVertices + nCapVertices + nFaceVertices);
             uv = new VectorArray2f(vertices.Count);
             normals = new VectorArray3f(vertices.Count);
 
-            int nConeTris = (NoSharedVertices) ? 2 * Slices : Slices;
-            int nCapTris = Slices;
+            int nConeTris = nPanels;
+            int nCapTris = nPanels;
             int nFaceTris = (bClosed == false) ? 2 : 0;
             triangles = new IndexArray3i(nConeTris + nCapTris + nFaceTris );
 
@@ -256,14 +259,13 @@ namespace g3
                 double cosa = Math.Cos(angle), sina = Math.Sin(angle);
                 vertices[k] = new Vector3d(BaseRadius * cosa, 0, BaseRadius * sina);
                 uv[k] = new Vector2f(0.5f * (1.0f + cosa), 0.5f * (1 + sina));
-                Vector3f n = new Vector3f(cosa * Height, BaseRadius / Height, sina * Height);
-                n.Normalize();
-                normals[k] = n;
+                normals[k] = cone_normal(angle);
 
-                if (NoSharedVertices) {
+                // one tip vertex per panel, with the normal of the panel's middle
+                if (NoSharedVertices && k < nPanels) {
                     vertices[nRingSize + k] = new Vector3d(0, Height, 0);
                     uv[nRingSize + k] = new Vector2f(0.5f, 0.5f);
-                    normals[nRingSize + k] = n;
+                    normals[nRingSize + k] = cone_normal(angle + 0.5f * fDelta);
                 }
             }
             if ( NoSharedVertices == false ) {
@@ -275,10 +277,8 @@ namespace g3
             // generate cylinder panels
             int ti = 0;
             if (NoSharedVertices) {
-                for (int k = 0; k < nRingSize - 1; ++k) {
-                    triangles.Set(ti++, k, k + 1, nRingSize + k + 1, cycle);
-                    triangles.Set(ti++, k, nRingSize + k + 1, nRingSize + k, cycle);
-                }
+                for (int k = 0; k < nPanels; ++k)
+                    triangles.Set(ti++, k, k + 1, nRingSize + k, cycle);
 
             } else
                 append_disc(Slices, nRingSize, 0, bClosed, !cycle, ref ti);
@@ -328,6 +328,14 @@ namespace g3
             }
 
             return this;
+        }
+
+        // outward normal of the cone surface at the given angle: (H cos a, R, H sin a), normalized
+        Vector3f cone_normal(float angle)
+        {
+            Vector3f n = new Vector3f(Math.Cos(angle) * Height, BaseRadius, Math.Sin(angle) * Height);
+            n.Normalize();
+            return n;
         }
     }
 

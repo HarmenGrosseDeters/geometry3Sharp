@@ -35,6 +35,13 @@ selectively.
 
 ## Phase 2: robustness
 
+- [x] `ExactMeshBoolean` / `ExactMeshArrangement`: exact arrangement of two meshes (integer grid, intersection points
+  as canonical rational points of three planes, exact constrained Delaunay retriangulation), patches classified by
+  exact ray parity, coplanar overlaps by orientation. About 6 s for two meshes of 200k triangles each.
+- [ ] Self-intersecting inputs and more than two meshes (winding numbers per arrangement cell instead of ray parity)
+- [ ] Rounding of the output without new self-intersections (snap rounding), or exact output coordinates
+- [ ] Alpha wrapping
+
 | Feature | Research / port source | Why |
 |---|---|---|
 | Exact, robust mesh booleans and arrangements | Zhou et al. 2016 *Mesh Arrangements for Solid Geometry*; Cherchi et al. 2020/2022 (indirect predicates); Trettner et al. 2022 *EMBER*; Manifold (Apache-2.0) | The biggest gap; the existing `MeshBoolean` is not robust, the winding-number variant is voxel based. `ExactPredicates` is the base. |
