@@ -52,7 +52,9 @@ selectively.
 
 ## Phase 3: parameterization and geodesics
 
-- Parameterization: LSCM, ARAP, SLIM (Rabinovich et al. 2017), Boundary First Flattening (Sawhney & Crane 2017); UV packing
+- [x] Parameterization: LSCM, ARAP, SLIM (Rabinovich et al. 2017), Boundary First Flattening (Sawhney & Crane 2017);
+  UV packing; distortion measures; sparse Cholesky solver (`SparseCholesky`)
+- [ ] Cutting closed surfaces into discs (seams) and automatic chart segmentation; BFF with cone singularities
 - [x] Intrinsic Delaunay triangulations (Sharp & Crane), for stable Laplacians and heat on poor meshes:
   `IntrinsicTriangulation` (edge flips with signposts, tracing of intrinsic edges over the input mesh,
   intrinsic mollification of degenerate triangles); `MeshGeodesicDistance.IntrinsicDelaunay`. On a plane of

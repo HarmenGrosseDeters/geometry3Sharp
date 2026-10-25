@@ -248,6 +248,8 @@ namespace g3
 		// compute vertex bounding box
 		public AxisAlignedBox2d GetBounds()
 		{
+			if (VertexCount == 0)
+				return AxisAlignedBox2d.Empty;
 			double x = 0, y = 0;
 			foreach (int vi in vertices_refcount) {
 				x = vertices[2 * vi]; y = vertices[2 * vi + 1];;
