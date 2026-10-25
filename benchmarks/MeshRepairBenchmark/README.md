@@ -17,6 +17,8 @@ python3 analyze_fidelity.py results/robust.jsonl    # repaired = clean + no self
 python3 analyze.py results/default.jsonl            # status per category, exceptions, triangle loss
 python3 analyze_quality.py results/cleanup.jsonl    # quality before/after
 python3 analyze_stages.py results/instr.jsonl       # which pipeline step introduces which defect
+./run_all.sh steps               # library MeshAutoRepair (OnStage): fidelity and winding closedness after every step
+python3 analyze_steps.py results/steps.jsonl 0.01 0.99 123354.stl   # which step crosses the bounds (+ steps of a mesh)
 ./run_all.sh wrap                # MeshAlphaWrap (BENCH_WRAP_ALPHA / BENCH_WRAP_OFFSET: diagonal / alpha, / offset)
 CGAL_WRAP=/path/to/cgal_wrap ./run_all.sh cgalwrap   # CGAL's alpha wrap, same parameters (see below)
 python3 analyze_wrap.py results/wrap.jsonl results/cgalwrap.jsonl   # guarantees, fidelity, time; paired
@@ -197,6 +199,44 @@ change:
 
 4 meshes are repaired that were not before, none is lost. Most of the former "not closed" cases now stop at the
 next check: slivers left after the resolve and the cleanup (they were hidden, closedness is checked first).
+
+
+**Repair before the exact resolve: orientation seams instead of erosion.** Measured after every step
+(`BENCH_REPAIR=steps`), several deviations came from the repair, not the resolve: where a non-orientable
+region (a seam of inconsistently oriented edges) ends at a hole, the hole runs against the boundary orientation
+and was not filled; the repair eroded the mesh instead (boundary triangles removed, up to 5 times) and filled
+the larger holes (123354, 124709: Hausdorff 1.0 % → 1.9–2.3 %). The depth-first `OrientComponents` could also
+turn a short seam into a long one (101397: 2 → 175 inconsistent edges), and closed non-orientable meshes
+(112866) were not closed in the winding number sense, so the exact stage was not tried. Now:
+- `OrientComponents` orients patches of consistent triangles along a maximum spanning tree and keeps a short seam;
+- `MeshAutoRepair` cuts the mesh open along remaining seams before the hole filling (and once more at the end
+  for closed meshes), so the holes are filled without erosion and the result is closed in the winding number sense;
+- `MeshRobustRepair` resolves a repaired mesh whose volume differs once more with its closed components oriented by
+  the input's solid (a nested part had been taken for a cavity, 116077), and skips the exact stage above
+  `ExactResolveMaxPairs` (200 000) self-intersecting pairs (55928, about 500 000, would otherwise time out).
+
+Same machine, `BENCH_P=2`, `TIMEOUT=300`, master with #44 and #26 with and without the change, both selections:
+
+| | first selection, before | after | holdout, before | after |
+|---|---|---|---|---|
+| clean¹ + no exact self-intersections | 399 | 399 | 399 | 399 |
+| **repaired** (also Hausdorff < 1 %, IoU > 0.99) | 258 | **264** | 256 | **260** |
+| meshes repaired / lost | | +6 / −0 | | +5 / −1 |
+| IoU < 0.99 | 77 | **59** | 74 | **67** |
+| Hausdorff (max of both directions) > 1 % | 129 | **124** | 136 | **130** |
+| exact stage used | 132 | **146** | 130 | **140** |
+| exact stage not used: not closed (winding number) | 28 | **1** | 34 | **0** |
+| median / p90 repair time | 3.6 / 18.7 s | 3.5 / 15.4 s | 3.2 / 17.3 s | 3.3 / 14.7 s |
+
+The holdout loss (285605) is faithful after the repair (Hausdorff 0.14 %), but the second resolve round leaves
+slivers the cleanup cannot remove. The exact stage now mostly stops at the next checks: degenerate triangles
+after the resolve (43 / 40) and a volume that differs from the input (35 / 45, of these 13 / 15 with an input
+that cannot be resolved either). Cases the strict criterion cannot reach:
+- zero-volume fins of the input (123354, 124709: the repair is faithful, the solid loses them: 1.3–1.5 %);
+- a nested inner shell (116077: resolved exactly, the shell is not part of the solid: Hausdorff 4 %);
+- inputs with flipped triangles (100037: the repair agrees with the consistently oriented input, IoU 0.9998,
+  but the IoU reference is the winding number solid of the input as given, IoU 0.907);
+- large open regions (106620, a relief without a bottom: any cap is more than 1 % from the input surface).
 
 
 ### Spike: solidify resolution 256 (`BENCH_SOLID_RES=256`, 30 meshes)
