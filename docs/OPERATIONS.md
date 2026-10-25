@@ -172,7 +172,8 @@ them, and the rest becomes flat (a cube: its eight corners, unfolded without dis
 combines them: per component, cones if the result is overlap-free and within the distortion limits, otherwise
 charts grown by normal (`MeshChartSegmentation`) flattened with BFF and split in two while a chart overlaps
 itself or exceeds `MaxAreaDistortion` / `MaxConformalDistortion`; then `UVPacker`. The final UVs are checked
-with exact predicates (`UVOverlap`), and `Status` reports `DistortionLimitExceeded` when `MaxCharts` was not
+with exact predicates (`UVOverlap`), in double and again as stored in the mesh (float; defects within the float
+resolution, eg at vertices 1e-7 apart, are only reported in `SubResolutionDefects`), and `Status` reports `DistortionLimitExceeded` when `MaxCharts` was not
 enough (the layout is still overlap-free). From the command line: `g3cli uv mesh.obj atlas.obj`.
 
 | Method | Charts | Use |

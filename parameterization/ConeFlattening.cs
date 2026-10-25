@@ -20,6 +20,11 @@ namespace g3
     ///    both sides of each seam get the same lengths, and the angles around cut vertices sum to 2 pi except
     ///    at the cones, so the seams match up to a rigid motion.
     ///
+    /// Cone sets that can not be flattened fail with InvalidConstraints: a cone that would get a curvature of
+    /// 2 pi or more (no angle left, eg MaxCones = 1 on a sphere), or a closed surface of Euler characteristic
+    /// other than 0 without cones. Degenerate triangles count with their angles (a cap adds about pi), so
+    /// slivers do not attract cones.
+    ///
     /// On a cube, the eight corners become cones and the faces are unfolded without distortion. The result is
     /// conformal and flip-free in practice, but not guaranteed to be globally injective (check with UVOverlap;
     /// the parts can overlap for long, winding seams).
@@ -71,12 +76,17 @@ namespace g3
                     "mesh has " + pm.Components + " connected components; flatten each one separately");
             int N = pm.N;
 
-            // angle defects and vertex areas
+            // angle defects and vertex areas; degenerate triangles (caps, needles) count with their angles
+            // (a cap has an angle of about pi), else their vertices would get false curvature
             double[] angleSum = new double[N], area = new double[N];
             for (int ti = 0; ti < pm.Tris.Count; ++ti) {
                 TriangleFrame f = pm.Frames[ti];
-                if (f.Degenerate) continue;
                 Index3i t = pm.Tris[ti];
+                if (f.Degenerate) {
+                    Vector3d ang = DegenerateAngles(pm.Pos[t.a], pm.Pos[t.b], pm.Pos[t.c]);
+                    for (int j = 0; j < 3; ++j) angleSum[t[j]] += ang[j];
+                    continue;
+                }
                 for (int j = 0; j < 3; ++j) {
                     angleSum[t[j]] += Math.Atan2(1, f.Cot[j]);
                     area[t[j]] += f.Area / 3;
@@ -101,7 +111,7 @@ namespace g3
 
             double[] u = new double[N];
             bool closed = pm.BoundaryLoops.Count == 0;
-            if (Cones == null && closed) {
+            if (closed && cones.Count == 0) {
                 // first cone: largest |u| of the flow to uniform curvature (Neumann problem, u up to a constant)
                 double Ktot = 0;
                 foreach (double k in K) Ktot += k;
@@ -118,8 +128,12 @@ namespace g3
                 int best = -1;
                 for (int i = 0; i < N; ++i)
                     if (best < 0 || Math.Abs(u[i] - mean) > Math.Abs(u[best] - mean)) best = i;
+                // a closed surface needs cones unless its total curvature is 0 (genus 1)
+                if (Math.Abs(Ktot) > 1e-6 && Cones != null)
+                    return Result = ParameterizationResult.Failure(ParameterizationStatus.InvalidConstraints,
+                        "a closed surface with Euler characteristic " + Math.Round(Ktot / (2 * Math.PI)) + " can not be flattened without cones");
                 // a flat torus needs no cones
-                if (Math.Abs(Ktot) > 1e-6 || Math.Abs(u[best] - mean) > MaxScaleFactor) {
+                if (Cones == null && (Math.Abs(Ktot) > 1e-6 || Math.Abs(u[best] - mean) > MaxScaleFactor)) {
                     isCone[best] = true; cones.Add(best);
                 } else {
                     for (int i = 0; i < N; ++i) u[i] -= mean;
@@ -156,6 +170,11 @@ namespace g3
                 ConeVertices.Add(pm.ToVertex[i]);
                 ConeCurvature[pm.ToVertex[i]] = K[i] + Cu[i];
             }
+            // a cone of curvature 2 pi or more has no angle left: the cone set can not be flattened
+            foreach (var kv in ConeCurvature)
+                if (!(kv.Value < 2 * Math.PI - 1e-6))
+                    return Result = ParameterizationResult.Failure(ParameterizationStatus.InvalidConstraints,
+                        "cone " + kv.Key + " would get curvature " + kv.Value + " >= 2 pi (no angle left); use more cones");
 
             // cut through the cones and flatten the disc with the scale factors on its boundary
             Cut = new MeshDiscCut(Mesh) { RequiredVertices = ConeVertices, FeatureWeight = FeatureWeight };
@@ -173,6 +192,27 @@ namespace g3
                     bff.TargetScaleFactors[vid] = ScaleFactors[Cut.CutToInputVertex[vid]];
             Result = bff.Compute();
             return Result;
+        }
+
+        /// <summary>
+        /// corner angles of a (nearly) degenerate triangle from its edge vectors: exact for collinear corners
+        /// (0, 0, pi); with a zero-length edge, pi/2 at its two ends; pi/3 each if all corners coincide
+        /// </summary>
+        internal static Vector3d DegenerateAngles(Vector3d p0, Vector3d p1, Vector3d p2)
+        {
+            Vector3d[] p = { p0, p1, p2 };
+            double[] len = { (p1 - p2).Length, (p2 - p0).Length, (p0 - p1).Length };   // opposite corner i
+            int zero = 0;
+            for (int i = 0; i < 3; ++i) if (!(len[i] > 0)) zero++;
+            if (zero >= 2) return new Vector3d(Math.PI / 3, Math.PI / 3, Math.PI / 3);
+            Vector3d a = Vector3d.Zero;
+            if (zero == 1) {
+                for (int i = 0; i < 3; ++i) a[i] = len[i] > 0 ? Math.PI / 2 : 0;
+                return a;
+            }
+            for (int i = 0; i < 3; ++i)
+                a[i] = ParamMath.Angle(p[(i + 1) % 3] - p[i], p[(i + 2) % 3] - p[i]);
+            return a;
         }
 
         // minimizes 1/2 u^T C u - b^T u with u = 0 at the fixed vertices

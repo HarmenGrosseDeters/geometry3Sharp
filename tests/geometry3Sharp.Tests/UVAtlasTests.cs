@@ -110,6 +110,17 @@ namespace geometry3Sharp.Tests
             return new GridBox3Generator() { Box = new Box3d(Vector3d.Zero, Vector3d.One), EdgeVertices = n + 1 }.Generate().MakeDMesh();
         }
 
+        /// <summary> the cube with a few caps: triangles poked at an edge midpoint (one collinear triangle each) </summary>
+        static DMesh3 CubeWithCaps(int n = 4)
+        {
+            DMesh3 cube = Cube(n);
+            foreach (int tid in new[] { 3, 20, 41, 77 }) {
+                DMesh3.PokeTriangleInfo info;
+                Assert.Equal(MeshResult.Ok, cube.PokeTriangle(tid, new Vector3d(0.5, 0.5, 0), out info));
+            }
+            return cube;
+        }
+
         static DMesh3 Append(params DMesh3[] meshes)
         {
             var all = new DMesh3();
@@ -418,15 +429,38 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void CollapsedTriangles_ArePerTriangle()
+        {
+            // triangle 0: a good surface triangle with collinear UVs (collapsed); triangle 1: a degenerate surface
+            // triangle (collinear) with a good UV triangle. Comparing counts would cancel them out.
+            var mesh = new DMesh3();
+            for (int i = 0; i < 3; ++i) mesh.AppendVertex(new Vector3d(i == 1 ? 1 : 0, i == 2 ? 1 : 0, 0));
+            for (int i = 0; i < 3; ++i) mesh.AppendVertex(new Vector3d(5 + i, 0, 0));
+            mesh.AppendTriangle(0, 1, 2);
+            mesh.AppendTriangle(3, 4, 5);
+            Vector2d[] uv = { V(0, 0), V(1, 1), V(2, 2), V(5, 0), V(6, 0), V(5, 1) };
+            UVOverlap o = UVOverlap.Compute(mesh, uv);
+            Assert.Equal(new[] { 0 }, o.DegenerateTriangleIds);
+            Assert.Equal(1, UVAtlasGenerator.CollapsedTriangles(mesh, o));
+            // a degenerate surface triangle may be degenerate in UV too
+            uv[5] = V(7, 0);
+            uv[2] = V(0, 1);
+            o = UVOverlap.Compute(mesh, uv);
+            Assert.Equal(new[] { 1 }, o.DegenerateTriangleIds);
+            Assert.Equal(0, UVAtlasGenerator.CollapsedTriangles(mesh, o));
+        }
+
+        [Fact]
         public void UVOverlap_Grid_MatchesBruteForce()
         {
             var rnd = new Random(7);
-            for (int round = 0; round < 5; ++round) {
+            for (int round = 0; round < 6; ++round) {
                 var tris = new List<Vector2d[]>();
                 int n = 300;
                 for (int i = 0; i < n; ++i) {
                     Vector2d c = V(rnd.NextDouble() * 10, rnd.NextDouble() * 10);
-                    double s = round == 4 ? 3 : 0.3;   // last round: large triangles spanning many cells
+                    // round 4: large triangles spanning many cells; round 5: a few huge ones among small ones
+                    double s = round == 4 ? 3 : (round == 5 && i % 50 == 0 ? 12 : 0.3);
                     Vector2d[] t = { c, c + V(rnd.NextDouble() * s, rnd.NextDouble() * s * 0.2), c + V(rnd.NextDouble() * s * 0.2, rnd.NextDouble() * s) };
                     if (ExactPredicates.Orient2d(t[0], t[1], t[2]) < 0) { Vector2d tmp = t[1]; t[1] = t[2]; t[2] = tmp; }
                     tris.Add(t);
@@ -615,6 +649,25 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void Cones_CapTriangles_DoNotBecomeCones()
+        {
+            // a cap has an angle of pi at the poked vertex; skipping it would give that vertex curvature pi
+            DMesh3 cube = CubeWithCaps();
+            Assert.Equal(4, cube.TriangleIndices().Count(t => cube.GetTriArea(t) < 1e-12));
+            var cf = new ConeFlattening(cube);
+            ParameterizationResult r = cf.Compute();
+            Assert.True(r.Succeeded, r.Error);
+            Assert.Equal(8, cf.ConeVertices.Count);
+            foreach (int c in cf.ConeVertices) {
+                Vector3d p = cube.GetVertex(c);
+                Assert.Equal(1, Math.Abs(p.x) * Math.Abs(p.y) * Math.Abs(p.z), 9);
+            }
+            Assert.True(cf.MaxAbsScaleFactor < 1e-6);
+            Assert.Equal(new Vector3d(0, 0, Math.PI), ConeFlattening.DegenerateAngles(new Vector3d(0, 0, 0), new Vector3d(2, 0, 0), new Vector3d(1, 0, 0)));
+            Assert.Equal(new Vector3d(Math.PI / 2, Math.PI / 2, 0), ConeFlattening.DegenerateAngles(new Vector3d(0, 0, 0), new Vector3d(0, 0, 0), new Vector3d(1, 0, 0)));
+        }
+
+        [Fact]
         public void Cones_Sphere_LowAreaDistortion()
         {
             DMesh3 sphere = Sphere(12);
@@ -680,6 +733,15 @@ namespace geometry3Sharp.Tests
             Assert.True(hr.Distortion.MeanAreaDistortion < new BoundaryFirstFlattening(hemi).Compute().Distortion.MeanAreaDistortion);
             Assert.True(UVOverlap.Compute(ho.CutMesh, hr.UV).IsInjective);
 
+            // impossible cone sets fail clearly: a closed sphere without cones, one cone of curvature 4 pi
+            Assert.Equal(ParameterizationStatus.InvalidConstraints, new ConeFlattening(Sphere(6)) { Cones = new int[0] }.Compute().Status);
+            Assert.Equal(ParameterizationStatus.InvalidConstraints, new ConeFlattening(Sphere(6)) { MaxCones = 1 }.Compute().Status);
+            Assert.Equal(ParameterizationStatus.InvalidConstraints, new ConeFlattening(Sphere(6)) { Cones = new[] { 0 } }.Compute().Status);
+            // a torus can be flattened without cones
+            var flatTorus = new ConeFlattening(Torus()) { Cones = new int[0] };
+            Assert.True(flatTorus.Compute().Succeeded, flatTorus.Result.Error);
+            Assert.Empty(flatTorus.ConeVertices);
+
             int bv = hemi.VertexIndices().First(v => hemi.IsBoundaryVertex(v));
             Assert.Equal(ParameterizationStatus.InvalidConstraints, new ConeFlattening(hemi) { Cones = new[] { bv } }.Compute().Status);
             Assert.Equal(ParameterizationStatus.InvalidConstraints, new ConeFlattening(hemi) { Cones = new[] { -1 } }.Compute().Status);
@@ -703,6 +765,12 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0, ov.InvertedTriangles);
             Assert.Equal(0, atlas.Overlap.OverlappingPairs);
             Assert.Equal(0, atlas.Distortion.FlippedTriangles);
+            Assert.Equal(0, atlas.CollapsedTriangleCount);
+            // the float UVs as stored: no defects above the float resolution, and the test agrees
+            Assert.Equal(0, atlas.StoredDefects);
+            UVOverlap stored = UVOverlap.Compute(m);
+            Assert.Equal(atlas.StoredOverlap.OverlappingPairs, stored.OverlappingPairs);
+            Assert.Equal(atlas.StoredOverlap.InvertedTriangles, stored.InvertedTriangles);
             foreach (int v in m.VertexIndices()) {
                 Assert.InRange(atlas.UV[v].x, 0, 1);
                 Assert.InRange(atlas.UV[v].y, 0, 1);
@@ -739,6 +807,12 @@ namespace geometry3Sharp.Tests
                     Assert.Equal(UVAtlasStatus.Success, atlas.Status);
                     AssertAtlas(c.mesh, atlas, 0.15, 1.1);
                     Assert.True(atlas.SeamLength > 0);
+                    // the marching cubes mesh has vertices 1e-7 apart, which float UVs can not separate: reported,
+                    // not failed; the regular meshes survive the rounding exactly
+                    if (c.name == "genus2")
+                        Assert.True(atlas.SubResolutionDefects > 0);
+                    else
+                        Assert.True(atlas.SubResolutionDefects == 0 && atlas.StoredOverlap.OverlappingPairs == 0 && atlas.StoredOverlap.InvertedTriangles == 0);
                 }
         }
 
@@ -820,6 +894,18 @@ namespace geometry3Sharp.Tests
         }
 
         static UVAtlasStatus run(UVAtlasGenerator g) { g.Compute(); return g.Status; }
+
+        [Fact]
+        public void Atlas_DegenerateSurfaceTriangles()
+        {
+            DMesh3 caps = CubeWithCaps();
+            foreach (var method in new[] { UVAtlasGenerator.Methods.Auto, UVAtlasGenerator.Methods.Charts }) {
+                var atlas = new UVAtlasGenerator(caps) { Method = method };
+                Assert.True(atlas.Compute(), method + ": " + atlas.Error);
+                Assert.Equal(0, atlas.CollapsedTriangleCount);
+                AssertAtlas(caps, atlas, 0.15, 1.1);
+            }
+        }
 
         [Fact]
         public void Atlas_KeepsVertexAttributesAndGroups()

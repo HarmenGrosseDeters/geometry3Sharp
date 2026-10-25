@@ -12,7 +12,8 @@ namespace g3
     ///
     /// Two triangles with disjoint interiors are separated by the line through one of their six edges
     /// (separating axis theorem for convex polygons), which is what is tested. Candidate pairs come from a
-    /// uniform grid over the UV bounding box.
+    /// uniform grid over the UV bounding box (cells of twice the median triangle size); the few triangles that
+    /// would cover many cells are tested against all others.
     /// </summary>
     public class UVOverlap
     {
@@ -22,6 +23,10 @@ namespace g3
         public int InvertedTriangles;
         /// <summary> triangles with zero UV area (exactly collinear corners) </summary>
         public int DegenerateTriangles;
+        /// <summary> ids of the inverted triangles (all of them) </summary>
+        public List<int> InvertedTriangleIds = new List<int>();
+        /// <summary> ids of the degenerate triangles (all of them) </summary>
+        public List<int> DegenerateTriangleIds = new List<int>();
         /// <summary> the overlapping pairs (at most MaxReportedPairs) </summary>
         public List<Index2i> Pairs = new List<Index2i>();
         public int MaxReportedPairs = 100;
@@ -30,9 +35,9 @@ namespace g3
         public bool IsInjective { get { return OverlappingPairs == 0 && InvertedTriangles == 0 && DegenerateTriangles == 0; } }
 
         /// <summary> test the UVs (by vertex id) of the triangles of the mesh </summary>
-        public static UVOverlap Compute(DMesh3 mesh, IList<Vector2d> uv)
+        public static UVOverlap Compute(DMesh3 mesh, IList<Vector2d> uv, int maxReportedPairs = 100)
         {
-            var r = new UVOverlap();
+            var r = new UVOverlap() { MaxReportedPairs = maxReportedPairs };
             r.compute(mesh, uv);
             return r;
         }
@@ -59,25 +64,27 @@ namespace g3
         {
             var tris = new List<Tri>();
             AxisAlignedBox2d all = AxisAlignedBox2d.Empty;
-            double sizeSum = 0;
             foreach (int tid in mesh.TriangleIndices()) {
                 Index3i t = mesh.GetTriangle(tid);
                 Vector2d a = uv[t.a], b = uv[t.b], c = uv[t.c];
-                if (!finite(a) || !finite(b) || !finite(c)) { DegenerateTriangles++; continue; }
+                if (!finite(a) || !finite(b) || !finite(c)) { DegenerateTriangles++; DegenerateTriangleIds.Add(tid); continue; }
                 int o = ExactPredicates.Orient2d(a, b, c);
-                if (o == 0) { DegenerateTriangles++; continue; }   // empty interior
-                if (o < 0) { InvertedTriangles++; Vector2d tmp = b; b = c; c = tmp; }
+                if (o == 0) { DegenerateTriangles++; DegenerateTriangleIds.Add(tid); continue; }   // empty interior
+                if (o < 0) { InvertedTriangles++; InvertedTriangleIds.Add(tid); Vector2d tmp = b; b = c; c = tmp; }
                 AxisAlignedBox2d box = new AxisAlignedBox2d(a);
                 box.Contain(b); box.Contain(c);
                 tris.Add(new Tri() { Id = tid, A = a, B = b, C = c, Box = box });
                 all.Contain(box);
-                sizeSum += Math.Max(box.Width, box.Height);
             }
             if (tris.Count < 2)
                 return;
 
-            // grid with cells of about the mean triangle size, at most ~4M cells
-            double h = 2 * sizeSum / tris.Count;
+            // grid with cells of about twice the median triangle size, at most ~4M cells; triangles that would
+            // cover more than LargeCells cells are tested against all others instead
+            var sizes = new List<double>(tris.Count);
+            foreach (Tri t in tris) sizes.Add(Math.Max(t.Box.Width, t.Box.Height));
+            sizes.Sort();
+            double h = 2 * sizes[sizes.Count / 2];
             double W = Math.Max(all.Width, 1e-300), H = Math.Max(all.Height, 1e-300);
             if (!(h > 0)) h = Math.Max(W, H);
             int nx = (int)Math.Min(2048, Math.Max(1, Math.Ceiling(W / h)));
@@ -86,9 +93,12 @@ namespace g3
             Func<double, int> cx = (x) => Math.Min(nx - 1, Math.Max(0, (int)((x - all.Min.x) / hx)));
             Func<double, int> cy = (y) => Math.Min(ny - 1, Math.Max(0, (int)((y - all.Min.y) / hy)));
             var cells = new Dictionary<int, List<int>>();
+            var large = new List<int>();
+            bool[] isLarge = new bool[tris.Count];
             for (int i = 0; i < tris.Count; ++i) {
                 AxisAlignedBox2d b = tris[i].Box;
                 int x0 = cx(b.Min.x), x1 = cx(b.Max.x), y0 = cy(b.Min.y), y1 = cy(b.Max.y);
+                if ((long)(x1 - x0 + 1) * (y1 - y0 + 1) > LargeCells) { large.Add(i); isLarge[i] = true; continue; }
                 for (int y = y0; y <= y1; ++y)
                     for (int x = x0; x <= x1; ++x) {
                         int key = y * nx + x;
@@ -110,12 +120,27 @@ namespace g3
                         int rx = cx(Math.Max(s.Box.Min.x, t.Box.Min.x)), ry = cy(Math.Max(s.Box.Min.y, t.Box.Min.y));
                         if (ry * nx + rx != key)
                             continue;
-                        if (InteriorsOverlap(s.A, s.B, s.C, t.A, t.B, t.C)) {
-                            OverlappingPairs++;
-                            if (Pairs.Count < MaxReportedPairs)
-                                Pairs.Add(new Index2i(Math.Min(s.Id, t.Id), Math.Max(s.Id, t.Id)));
-                        }
+                        test(s, t);
                     }
+            }
+            // large triangles against all others (large pairs once)
+            foreach (int i in large)
+                for (int j = 0; j < tris.Count; ++j) {
+                    if (j == i || (isLarge[j] && j < i)) continue;
+                    Tri s = tris[i], t = tris[j];
+                    if (s.Box.Min.x < t.Box.Max.x && t.Box.Min.x < s.Box.Max.x && s.Box.Min.y < t.Box.Max.y && t.Box.Min.y < s.Box.Max.y)
+                        test(s, t);
+                }
+        }
+
+        const int LargeCells = 64;
+
+        void test(Tri s, Tri t)
+        {
+            if (InteriorsOverlap(s.A, s.B, s.C, t.A, t.B, t.C)) {
+                OverlappingPairs++;
+                if (Pairs.Count < MaxReportedPairs)
+                    Pairs.Add(new Index2i(Math.Min(s.Id, t.Id), Math.Max(s.Id, t.Id)));
             }
         }
 

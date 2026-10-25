@@ -36,8 +36,11 @@ namespace g3
     /// flip-free SLIM map (from the Tutte embedding), or the Tutte embedding itself, so the atlas is overlap-free.
     ///
     /// The result is a new mesh, AtlasMesh, with the input's triangles on vertices split along the seams
-    /// (AtlasToInputVertex / AtlasToInputTriangle map back) and vertex UVs in [0,1]^2. Status says whether
-    /// the limits are met; the input is not changed.
+    /// (AtlasToInputVertex / AtlasToInputTriangle map back) and vertex UVs in [0,1]^2. The final checks
+    /// (overlaps, inverted triangles, UV triangles of zero area on non-degenerate surface triangles) run on
+    /// the double UVs and again on the UVs rounded to float, as stored in AtlasMesh; defects of the float UVs
+    /// fail the atlas unless they are within the float resolution (SubResolutionDefects, eg next to slivers).
+    /// Status says whether the limits are met; the input is not changed.
     /// </summary>
     public class UVAtlasGenerator
     {
@@ -81,7 +84,23 @@ namespace g3
         public int ConeComponents;
         /// <summary> total length of the seams (input edges that became boundary edges) </summary>
         public double SeamLength;
-        /// <summary> exact overlap test of the final UVs </summary>
+        /// <summary> UV triangles of zero area whose surface triangle is not degenerate (0 unless Status is Failed) </summary>
+        public int CollapsedTriangleCount;
+        /// <summary>
+        /// the same test of the UVs as stored in AtlasMesh (rounded to float, a relative precision of 6e-8)
+        /// </summary>
+        public UVOverlap StoredOverlap;
+        /// <summary> overlaps, inversions and collapses of the float UVs on triangles above the float resolution (Status Failed if &gt; 0) </summary>
+        public int StoredDefects;
+        /// <summary>
+        /// the same, within FloatResolution (times the largest |UV|): inverted or collapsed triangles thinner
+        /// than it, pairs whose double UVs overlap less deeply than it (next to tiny or sliver triangles that
+        /// float can not represent); reported only
+        /// </summary>
+        public int SubResolutionDefects;
+        /// <summary> UV size below which float rounding defects are tolerated (64 float half-ulps at 1) </summary>
+        public const double FloatResolution = 64.0 / (1 << 24);
+        /// <summary> exact overlap test of the final UVs (double, as in UV) </summary>
         public UVOverlap Overlap;
         /// <summary> distortion of the final UVs (charts scaled to their surface area) </summary>
         public ParameterizationDistortion Distortion;
@@ -130,7 +149,7 @@ namespace g3
         public bool Compute()
         {
             Status = UVAtlasStatus.Success; Error = null; AtlasMesh = null; UV = null;
-            ChartCount = ChartsOverLimit = ConeCount = ConeComponents = 0; SeamLength = 0; Coverage = 0;
+            ChartCount = ChartsOverLimit = ConeCount = ConeComponents = CollapsedTriangleCount = StoredDefects = SubResolutionDefects = 0; SeamLength = 0; Coverage = 0;
             Charts = new List<ChartInfo>();
             Overlap = null; Distortion = null;
             if (Mesh.TriangleCount == 0)
@@ -318,6 +337,10 @@ namespace g3
                 return null;
             }
             evaluate(c, r, "tutte");
+            if (!c.Injective) {
+                Error = "no injective parameterization of a chart (Tutte embedding not injective, eg degenerate surface triangles)";
+                return null;
+            }
             return c;
         }
 
@@ -339,11 +362,25 @@ namespace g3
             c.Info.Distortion = r.Distortion;
             UVOverlap ov = UVOverlap.Compute(c.Disc, r.UV);
             // UV triangles may be degenerate only where the surface triangle is
-            int degenerate3D = c.Disc.TriangleCount - r.Distortion.Triangles;
-            c.Injective = ov.OverlappingPairs == 0 && ov.InvertedTriangles == 0 && ov.DegenerateTriangles <= degenerate3D;
+            c.Injective = ov.OverlappingPairs == 0 && ov.InvertedTriangles == 0 && CollapsedTriangles(c.Disc, ov) == 0;
             c.Info.WithinLimits = c.Injective && r.Distortion.Triangles > 0
                 ? r.Distortion.MeanAreaDistortion <= MaxAreaDistortion && r.Distortion.MeanConformal <= MaxConformalDistortion
                 : c.Injective;
+        }
+
+        /// <summary>
+        /// UV-degenerate triangles of the overlap test whose surface triangle is not degenerate (a chart, or
+        /// part of it, flattened to a line)
+        /// </summary>
+        public static int CollapsedTriangles(DMesh3 mesh, UVOverlap overlap)
+        {
+            int n = 0;
+            foreach (int tid in overlap.DegenerateTriangleIds) {
+                Index3i t = mesh.GetTriangle(tid);
+                if (!new TriangleFrame(mesh.GetVertex(t.a), mesh.GetVertex(t.b), mesh.GetVertex(t.c)).Degenerate)
+                    n++;
+            }
+            return n;
         }
 
         void assemble()
@@ -398,25 +435,93 @@ namespace g3
             }
 
             Distortion = ParameterizationDistortion.Compute(atlas, UV);
+            StoredOverlap = new UVOverlap();
             if (Pack) {
                 Overlap = UVOverlap.Compute(atlas, UV);
+                CollapsedTriangleCount = CollapsedTriangles(atlas, Overlap);
+                checkStored(atlas, UV);
             } else {
                 // charts are not placed: test each chart by itself
                 Overlap = new UVOverlap();
                 foreach (Chart c in charts) {
                     UVOverlap o = UVOverlap.Compute(c.Disc, c.UV);
+                    CollapsedTriangleCount += CollapsedTriangles(c.Disc, o);
                     Overlap.OverlappingPairs += o.OverlappingPairs;
                     Overlap.InvertedTriangles += o.InvertedTriangles;
                     Overlap.DegenerateTriangles += o.DegenerateTriangles;
+                    checkStored(c.Disc, c.UV);
                 }
             }
-            if (Overlap.OverlappingPairs > 0 || Overlap.InvertedTriangles > 0) {
+            if (Overlap.OverlappingPairs > 0 || Overlap.InvertedTriangles > 0 || CollapsedTriangleCount > 0 || StoredDefects > 0) {
                 Status = UVAtlasStatus.Failed;
-                Error = Overlap.OverlappingPairs + " overlapping UV triangle pairs, " + Overlap.InvertedTriangles + " inverted UV triangles";
+                Error = Overlap.OverlappingPairs + " overlapping UV triangle pairs, " + Overlap.InvertedTriangles + " inverted UV triangles, "
+                    + CollapsedTriangleCount + " UV triangles of zero area on non-degenerate surface triangles, "
+                    + StoredDefects + " defects after rounding the UVs to float";
             } else if (ChartsOverLimit > 0) {
                 Status = UVAtlasStatus.DistortionLimitExceeded;
                 Error = ChartsOverLimit + " of " + ChartCount + " charts exceed the distortion limits";
             }
+        }
+
+        // the UVs rounded to float as stored in AtlasMesh: overlaps, inversions and collapses there count as
+        // defects (StoredDefects) unless they are within the float resolution of the UVs: inverted or collapsed
+        // triangles thinner than it, pairs that overlap less deeply than it (in the double UVs)
+        void checkStored(DMesh3 mesh, Vector2d[] uv)
+        {
+            Vector2d[] suv = new Vector2d[uv.Length];
+            double maxAbs = 1;
+            for (int v = 0; v < uv.Length; ++v) {
+                suv[v] = (Vector2d)(Vector2f)uv[v];
+                if (MathUtil.IsFinite(uv[v].x) && MathUtil.IsFinite(uv[v].y))
+                    maxAbs = Math.Max(maxAbs, Math.Max(Math.Abs(uv[v].x), Math.Abs(uv[v].y)));
+            }
+            double resolution = FloatResolution * maxAbs;
+            UVOverlap o = UVOverlap.Compute(mesh, suv, int.MaxValue);
+            StoredOverlap.OverlappingPairs += o.OverlappingPairs;
+            StoredOverlap.InvertedTriangles += o.InvertedTriangles;
+            StoredOverlap.DegenerateTriangles += o.DegenerateTriangles;
+            // a triangle whose smallest UV altitude is below the resolution can not keep its shape in float
+            Func<int, bool> above = (tid) => {
+                Index3i t = mesh.GetTriangle(tid);
+                Vector2d a = uv[t.a], b = uv[t.b], c = uv[t.c];
+                double longest = Math.Max((b - a).Length, Math.Max((c - b).Length, (a - c).Length));
+                double altitude = longest > 0 ? Math.Abs((b - a).Cross(c - a)) / longest : 0;
+                return altitude > resolution;
+            };
+            foreach (Index2i pr in o.Pairs) {
+                if (penetration(mesh, uv, pr.a, pr.b) > resolution) StoredDefects++; else SubResolutionDefects++;
+            }
+            foreach (int tid in o.InvertedTriangleIds) {
+                if (above(tid)) StoredDefects++; else SubResolutionDefects++;
+            }
+            foreach (int tid in o.DegenerateTriangleIds) {
+                Index3i t = mesh.GetTriangle(tid);
+                if (new TriangleFrame(mesh.GetVertex(t.a), mesh.GetVertex(t.b), mesh.GetVertex(t.c)).Degenerate) continue;
+                if (above(tid)) StoredDefects++; else SubResolutionDefects++;
+            }
+        }
+
+        // how deep the double UV triangles s, t overlap: the smallest, over the six edge lines, of the largest
+        // distance a vertex of the other triangle reaches into the inner side (<= 0: separated)
+        static double penetration(DMesh3 mesh, Vector2d[] uv, int s, int t)
+        {
+            Index3i ts = mesh.GetTriangle(s), tt = mesh.GetTriangle(t);
+            Vector2d[] A = { uv[ts.a], uv[ts.b], uv[ts.c] }, B = { uv[tt.a], uv[tt.b], uv[tt.c] };
+            double depth = double.PositiveInfinity;
+            foreach (var pq in new[] { new[] { A, B }, new[] { B, A } }) {
+                Vector2d[] P = pq[0], Q = pq[1];
+                double orient = (P[1] - P[0]).Cross(P[2] - P[0]) >= 0 ? 1 : -1;
+                for (int i = 0; i < 3; ++i) {
+                    Vector2d e = P[(i + 1) % 3] - P[i];
+                    double len = e.Length;
+                    if (!(len > 0)) continue;
+                    double reach = double.NegativeInfinity;
+                    foreach (Vector2d x in Q)
+                        reach = Math.Max(reach, orient * e.Cross(x - P[i]) / len);
+                    depth = Math.Min(depth, reach);
+                }
+            }
+            return depth;
         }
 
         static List<List<int>> triangleComponents(DMesh3 mesh)
