@@ -112,6 +112,77 @@ namespace geometry3Sharp.Tests
             Assert.True(checkedPoints > 50, $"{checkedPoints} points checked");
         }
 
+        // coarse survey TIN: a 100 x 100 square of two triangles, no vertex near the source
+        static DMesh3 CoarseSquare()
+        {
+            DMesh3 m = new DMesh3();
+            int a = m.AppendVertex(new Vector3d(0, 0, 0)), b = m.AppendVertex(new Vector3d(100, 0, 0));
+            int c = m.AppendVertex(new Vector3d(100, 100, 0)), d = m.AppendVertex(new Vector3d(0, 100, 0));
+            m.AppendTriangle(a, b, c); m.AppendTriangle(a, c, d);
+            return m;
+        }
+
+        [Theory]
+        [InlineData(TerrainSafetyLines.Modes.Horizontal, 0.02)]
+        [InlineData(TerrainSafetyLines.Modes.AlongSurface, 1.2)]
+        public void SafetyLine_CoarseTin_CircleAroundAPoint(TerrainSafetyLines.Modes mode, double tolerance)
+        {
+            Vector3d src = new Vector3d(50, 50, 0);
+            var safety = new TerrainSafetyLines(CoarseSquare(), new[] { new List<Vector3d>() { src } }, 10) { Mode = mode };
+            Assert.True(safety.Compute());
+            Assert.Single(safety.Lines);
+            var line = safety.Lines[0];
+            Assert.True(line[0].Distance(line[line.Count - 1]) < 1e-9, "not closed");
+            foreach (Vector3d p in line)
+                Assert.True(Math.Abs(p.Distance(src) - 10) < tolerance, $"{p}: {p.Distance(src)}");
+            // along the surface the iso line of the heat distance wiggles a little
+            Assert.InRange(Length(line), 0.98 * 2 * Math.PI * 10, (mode == TerrainSafetyLines.Modes.Horizontal ? 1.01 : 1.05) * 2 * Math.PI * 10);
+        }
+
+        [Fact]
+        public void SafetyLine_Horizontal_NeverInsideTheDistanceByMoreThanTheTolerance()
+        {
+            // a crest with a convex corner: the line around the corner is an arc, approximated by chords
+            var crest = new List<Vector3d>() { new Vector3d(20, 20, 0), new Vector3d(60, 20, 0), new Vector3d(60, 70, 0) };
+            var safety = new TerrainSafetyLines(CoarseSquare(), new[] { crest }, 8) { Tolerance = 0.005 };
+            Assert.True(safety.Compute());
+            var segs = new List<Segment2d>() { new Segment2d(crest[0].xy, crest[1].xy), new Segment2d(crest[1].xy, crest[2].xy) };
+            Func<Vector2d, double> dist = (q) => segs.Min(s => Math.Sqrt(s.DistanceSquared(q)));
+            int n = 0;
+            foreach (var line in safety.Lines)
+                for (int i = 0; i + 1 < line.Count; ++i)
+                    for (double t = 0; t <= 1; t += 0.25) {
+                        Vector2d q = Vector2d.Lerp(line[i].xy, line[i + 1].xy, t);
+                        // inside the arcs at most the tolerance; across the corner on the concave side the chords
+                        // lie farther away (on the safe side)
+                        Assert.True(dist(q) > 8 - 0.005 - 1e-6 && dist(q) < 8 + 0.5, $"{q}: {dist(q)}");
+                        n++;
+                    }
+            Assert.True(n > 100);
+        }
+
+        [Theory]
+        [InlineData(TerrainSafetyLines.Modes.Horizontal)]
+        [InlineData(TerrainSafetyLines.Modes.AlongSurface)]
+        public void SafetyLine_SourcesOutsideTheTerrain_NoLines(TerrainSafetyLines.Modes mode)
+        {
+            var outside = new List<Vector3d>() { new Vector3d(-30, 0, 0), new Vector3d(-30, 100, 0) };
+            var safety = new TerrainSafetyLines(CoarseSquare(), new[] { outside }, 10) { Mode = mode };
+            Assert.True(safety.Compute());
+            Assert.Empty(safety.Lines);
+        }
+
+        [Theory]
+        [InlineData(TerrainSafetyLines.Modes.Horizontal, 0.0)]
+        [InlineData(TerrainSafetyLines.Modes.Horizontal, -5.0)]
+        [InlineData(TerrainSafetyLines.Modes.AlongSurface, 0.0)]
+        [InlineData(TerrainSafetyLines.Modes.AlongSurface, -5.0)]
+        public void SafetyLine_InvalidDistance_Fails(TerrainSafetyLines.Modes mode, double d)
+        {
+            var safety = new TerrainSafetyLines(CoarseSquare(), new[] { new List<Vector3d>() { new Vector3d(50, 50, 0) } }, d) { Mode = mode };
+            Assert.False(safety.Compute());
+        }
+
         static Vector2d UV(Vector3d p)
         {
             double c = Math.Cos(Angle * MathUtil.Deg2Rad), s = Math.Sin(Angle * MathUtil.Deg2Rad);

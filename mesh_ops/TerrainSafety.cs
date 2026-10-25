@@ -200,11 +200,14 @@ namespace gs
 
     /// <summary>
     /// Safety lines at a distance from source lines, eg crests (surveyed break lines or TerrainBreakLines),
-    /// on the terrain; lines on both sides of the sources are returned.
+    /// on the terrain; lines on both sides of the sources are returned. Polylines are open: repeat the
+    /// first point to close a ring. Sources outside the terrain give no lines there.
     ///
     ///   - Horizontal (default): the distance measured horizontally, as safety distances from a crest
-    ///     usually are. The line points are found by bisection on the terrain edges, so they lie exactly at
-    ///     the distance; fast, no remeshing.
+    ///     usually are. The edges near the sources are split (the surface stays the same, coarse survey
+    ///     TINs are fine) and the line points found by bisection on them, so they lie exactly at the
+    ///     distance; between them, around convex corners and line ends, the chords of the arcs lie at
+    ///     most Tolerance inside it.
     ///   - AlongSurface: the geodesic distance along the terrain (heat method). That is accurate to about
     ///     2% plus half an edge length on regular meshes, so the band within 3 x SafetyDistance of the
     ///     sources is cut out and remeshed to EdgeLength (default SafetyDistance / 5) with its boundary and
@@ -223,9 +226,13 @@ namespace gs
         public double EdgeLength = 0;
         /// <summary> AlongSurface: break lines bending more than this (degrees) are kept by the remeshing </summary>
         public double FeatureAngle = 20;
+        /// <summary> Horizontal: the line lies at most this much inside the distance (chords of arcs) </summary>
+        public double Tolerance = 0.01;
 
         // outputs
         public List<List<Vector3d>> Lines = new List<List<Vector3d>>();
+        /// <summary> Horizontal: the terrain with its edges near the sources split (same surface) </summary>
+        public DMesh3 RefinedTerrain;
         public DMesh3 RemeshedTerrain;
         public MeshGeodesicDistance Geodesic;
 
@@ -248,6 +255,9 @@ namespace gs
 
         public bool Compute()
         {
+            Lines.Clear();
+            if (!(SafetyDistance > 0) || double.IsInfinity(SafetyDistance) || Terrain.TriangleCount == 0)
+                return false;
             return (Mode == Modes.Horizontal) ? compute_horizontal() : compute_along_surface();
         }
 
@@ -255,41 +265,73 @@ namespace gs
         // horizontal distance to the source segments (single points are degenerate segments)
         List<Segment2d> segments;
         PointHashGrid2d<int> segmentGrid;
-        double gridCell;
+        double maxSegLength;
 
-        double horizontal_distance(Vector3d p)
+        void build_segments()
         {
-            double best = double.MaxValue;
-            Vector2d q = p.xy;
-            // segments are binned by their midpoint; search the neighbourhood the band can reach
-            var near = segmentGrid.FindNearestInRadius(q, 2 * gridCell, (k) => Math.Sqrt(segments[k].DistanceSquared(q)));
-            if (near.Key >= 0) best = near.Value;
-            return best;
+            segments = new List<Segment2d>();
+            var lines = new List<List<Vector3d>>();
+            if (polyLines != null) lines.AddRange(polyLines);
+            foreach (Vector3d p in SourcePoints) lines.Add(new List<Vector3d>() { p });
+            maxSegLength = 0;
+            foreach (var line in lines) {
+                if (line.Count == 1) segments.Add(new Segment2d(line[0].xy, line[0].xy));
+                for (int i = 0; i + 1 < line.Count; ++i) {
+                    segments.Add(new Segment2d(line[i].xy, line[i + 1].xy));
+                    maxSegLength = Math.Max(maxSegLength, line[i].xy.Distance(line[i + 1].xy));
+                }
+            }
+            segmentGrid = new PointHashGrid2d<int>(SafetyDistance + 0.5 * maxSegLength + MathUtil.Epsilon, -1);
+            for (int k = 0; k < segments.Count; ++k)
+                segmentGrid.InsertPointUnsafe(k, segments[k].Center);
+        }
+
+        // horizontal distance to the nearest source segment if it is at most radius, else MaxValue
+        double horizontal_distance(Vector2d q, double radius)
+        {
+            // segments are binned by their midpoint, their points are within half their length of it
+            var near = segmentGrid.FindNearestInRadius(q, radius + 0.5 * maxSegLength + MathUtil.Epsilon,
+                (k) => Math.Sqrt(segments[k].DistanceSquared(q)));
+            return (near.Key >= 0 && near.Value <= radius) ? near.Value : double.MaxValue;
+        }
+
+        // Split the edges that come within reach (horizontally) of the sources until they are at most
+        // maxLength long. Splits at edge midpoints do not change the surface.
+        DMesh3 refine_near_sources(double maxLength, double reach)
+        {
+            DMesh3 mesh = new DMesh3(Terrain);
+            var queue = new Queue<int>(mesh.EdgeIndices());
+            while (queue.Count > 0) {
+                int eid = queue.Dequeue();
+                if (mesh.IsEdge(eid) == false) continue;
+                Index2i ev = mesh.GetEdgeV(eid);
+                Vector3d a = mesh.GetVertex(ev.a), b = mesh.GetVertex(ev.b);
+                double len = a.Distance(b);
+                if (len <= maxLength) continue;
+                // lower bound of the edge's distance: midpoint distance minus half the length
+                double r = reach + 0.5 * a.xy.Distance(b.xy);
+                if (horizontal_distance(0.5 * (a.xy + b.xy), r) > r) continue;
+                DMesh3.EdgeSplitInfo split;
+                if (mesh.SplitEdge(eid, out split) != MeshResult.Ok) continue;
+                queue.Enqueue(eid); queue.Enqueue(split.eNewBN); queue.Enqueue(split.eNewCN);
+                if (split.eNewDN >= 0) queue.Enqueue(split.eNewDN);
+            }
+            return mesh;
         }
 
         bool compute_horizontal()
         {
             Lines.Clear();
-            segments = new List<Segment2d>();
-            var lines = new List<List<Vector3d>>();
-            if (polyLines != null) lines.AddRange(polyLines);
-            foreach (Vector3d p in SourcePoints) lines.Add(new List<Vector3d>() { p });
-            double maxLen = 0;
-            foreach (var line in lines) {
-                if (line.Count == 1) segments.Add(new Segment2d(line[0].xy, line[0].xy));
-                for (int i = 0; i + 1 < line.Count; ++i) {
-                    segments.Add(new Segment2d(line[i].xy, line[i + 1].xy));
-                    maxLen = Math.Max(maxLen, line[i].xy.Distance(line[i + 1].xy));
-                }
-            }
-            if (segments.Count == 0)
+            build_segments();
+            if (segments.Count == 0 || Tolerance <= 0)
                 return false;
-            // a segment's points are within half its length of its midpoint: search radius covers that
-            gridCell = SafetyDistance + 0.5 * maxLen + MathUtil.Epsilon;
-            segmentGrid = new PointHashGrid2d<int>(gridCell, -1);
-            for (int k = 0; k < segments.Count; ++k)
-                segmentGrid.InsertPointUnsafe(k, segments[k].Center);
-            var iso = new MeshIsoCurves(Terrain, (p) => horizontal_distance(p) - SafetyDistance) {
+            // the line points are exact on the edges; between them a chord of an arc of radius
+            // SafetyDistance (around convex corners and line ends) lies at most len^2 / (8 SafetyDistance)
+            // inside it: edges near the sources are split down to the length that keeps this below Tolerance
+            double maxLength = Math.Min(Math.Sqrt(8 * SafetyDistance * Tolerance), SafetyDistance);
+            RefinedTerrain = refine_near_sources(maxLength, SafetyDistance);
+            double D = SafetyDistance;
+            var iso = new MeshIsoCurves(RefinedTerrain, (p) => Math.Min(horizontal_distance(p.xy, 2 * D), 2 * D) - D) {
                 RootMode = MeshIsoCurves.RootfindingModes.Bisection, RootModeSteps = 40
             };
             iso.Compute();
@@ -322,18 +364,24 @@ namespace gs
             // heat method is less accurate, away from the line): cut it out, then remesh it uniformly
             // with the break lines and its boundary kept
             double band = 3 * SafetyDistance + 2 * h;
+            // large (survey) triangles near the sources are split first, so the band is not whole triangles
+            build_segments();
+            DMesh3 refined = refine_near_sources(0.5 * band, band);
             var grid = new PointHashGrid3d<int>(band, -1);
             for (int i = 0; i < pts.Count; ++i)
                 grid.InsertPointUnsafe(i, pts[i]);
             var keep = new List<int>();
-            foreach (int tid in Terrain.TriangleIndices()) {
-                Vector3d c = Terrain.GetTriCentroid(tid);
-                var near = grid.FindNearestInRadius(c, band, (i) => pts[i].Distance(c));
+            foreach (int tid in refined.TriangleIndices()) {
+                Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+                refined.GetTriVertices(tid, ref a, ref b, ref c);
+                Vector3d m = (a + b + c) / 3;
+                double rad = Math.Max(m.Distance(a), Math.Max(m.Distance(b), m.Distance(c)));
+                var near = grid.FindNearestInRadius(m, band + rad, (i) => pts[i].Distance(m));
                 if (near.Key >= 0) keep.Add(tid);
             }
             if (keep.Count == 0)
-                return false;
-            RemeshedTerrain = new DSubmesh3(Terrain, keep).SubMesh;
+                return true;        // no terrain near the sources
+            RemeshedTerrain = new DSubmesh3(refined, keep).SubMesh;
             var remesher = new Remesher(RemeshedTerrain);
             MeshConstraintUtil.PreserveBoundaryAndFeatures(remesher, FeatureAngle);
             remesher.SetTargetEdgeLength(h);
@@ -342,11 +390,11 @@ namespace gs
                 remesher.BasicRemeshPass();
             DMesh3 mesh = RemeshedTerrain;
 
-            // sources mapped to the nearest vertices
+            // sources mapped to the nearest vertices; sources off the terrain are ignored
             var spatial = new DMeshAABBTree3(mesh, true);
             var sources = new HashSet<int>();
             foreach (Vector3d p in pts) {
-                int tid = spatial.FindNearestTriangle(p);
+                int tid = spatial.FindNearestTriangle(p, h);
                 if (tid < 0) continue;
                 Index3i t = mesh.GetTriangle(tid);
                 int best = t.a;
@@ -355,12 +403,15 @@ namespace gs
                 sources.Add(best);
             }
 
+            if (sources.Count == 0)
+                return true;        // all sources off the terrain
             Geodesic = new MeshGeodesicDistance(mesh) { TimeFactor = 0.25 };
             if (Geodesic.Compute(sources) == false)
                 return false;
             double[] dist = Geodesic.Distance;
             var iso = new MeshIsoCurves(mesh, (v) => 0) {
-                VertexValueF = (vid) => dist[vid] - SafetyDistance,
+                // NaN: not reachable from a source
+                VertexValueF = (vid) => double.IsNaN(dist[vid]) ? SafetyDistance : dist[vid] - SafetyDistance,
                 RootMode = MeshIsoCurves.RootfindingModes.SingleLerp
             };
             iso.Compute();
