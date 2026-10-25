@@ -184,20 +184,26 @@ namespace gs
             return v < N0 && vAngleSum[v] < Math.PI / 3 + 1e-9;
         }
 
-        // input vertices (as vertex indices) of the input boundary edge a boundary vertex lies on (a
-        // boundary input vertex: itself)
-        void boundary_supports(int v, out int a, out int b)
+        // input boundary halfedges a boundary vertex lies on: the one it was inserted on, or for an input
+        // vertex its two boundary edges
+        void boundary_segments(int v, List<int> segs)
         {
-            a = b = -1;
+            segs.Clear();
             if (vBoundary[v] == false) return;
-            if (v < N0) { a = b = v; return; }
-            int ib = vInEdge[v];
-            if (ib < 0) return;
-            a = input_tail(ib); b = input_head(ib);
+            if (v >= N0) {
+                if (vInEdge[v] >= 0) segs.Add(vInEdge[v]);
+                return;
+            }
+            int h0 = inVHe[v], hh = h0, guard = 0;
+            segs.Add(h0);                               // outgoing boundary edge
+            while (inTwin[Prev(hh)] >= 0 && ++guard < 3 * F0) hh = inTwin[Prev(hh)];
+            segs.Add(Prev(hh));                         // incoming boundary edge
         }
 
         int input_tail(int ih) { return toIndex[Mesh.GetTriangle(inTid[ih / 3])[ih % 3]]; }
         int input_head(int ih) { return hV_input_head(ih); }
+
+        readonly List<int> segsA = new List<int>(), segsB = new List<int>();
 
         // does triangle f have an angle below theta that refinement can and should improve?
         bool needs_refinement(int f, double theta)
@@ -209,12 +215,18 @@ namespace gs
             }
             if (am >= theta) return false;
             if (small_angle_vertex(hV[hm])) return false;
-            // shortest edge (opposite the smallest angle) between two boundary edges of a small input angle
-            int a0, a1, b0, b1;
-            boundary_supports(hV[Next(hm)], out a0, out a1);
-            boundary_supports(hV[Prev(hm)], out b0, out b1);
-            foreach (int x in new[] { a0, a1 })
-                if (x >= 0 && (x == b0 || x == b1) && small_angle_vertex(x)) return false;
+            // shortest edge (opposite the smallest angle) joining two different boundary edges that meet at
+            // a small input angle (Shewchuk 2002); its ends are not that vertex itself
+            int va = hV[Next(hm)], vb = hV[Prev(hm)];
+            boundary_segments(va, segsA);
+            boundary_segments(vb, segsB);
+            foreach (int sa in segsA)
+                foreach (int sb in segsB) {
+                    if (sa == sb) continue;
+                    int at = input_tail(sa), ah = input_head(sa), bt = input_tail(sb), bh = input_head(sb);
+                    int x = (at == bt || at == bh) ? at : (ah == bt || ah == bh) ? ah : -1;
+                    if (x >= 0 && x != va && x != vb && small_angle_vertex(x)) return false;
+                }
             return true;
         }
 

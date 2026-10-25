@@ -101,7 +101,7 @@ namespace gs
             var edgePts = new Dictionary<int, List<SubPoint>>();        // canonical input halfedge -> points on it
             var interior = new List<int>[F0];
             var chords = new List<int[]>[F0];                            // per input triangle: {a, b, h} (trace a -> b)
-            var edgeLabels = new Dictionary<long, Label>();              // (canonical halfedge, point a, point b) -> label
+            var edgeLabels = new Dictionary<(int, int, int), Label>();   // (canonical halfedge, point a, point b) -> label
             Func<string, IntrinsicCommonSubdivision> fail = (msg) => {
                 if (R.Status == CommonSubdivisionStatus.Success) { R.Status = CommonSubdivisionStatus.Inconsistent; R.Error = msg; }
                 return R;
@@ -195,25 +195,21 @@ namespace gs
             // per input triangle: nodes, arrangement edges, faces
             var faceTri = new List<int>();                  // per face: intrinsic triangle (-1 unknown)
             var faceArea = new List<double>();
-            var pieceFaces = new Dictionary<long, List<int>>();     // unlabelled boundary piece -> faces beside it
+            var pieceFaces = new Dictionary<(int, int, int), List<int>>();     // unlabelled boundary piece -> faces beside it
+            Func<int, int, int, (int, int, int)> pieceKey = (c, a, b) => (c, Math.Min(a, b), Math.Max(a, b));
+            var noPiece = (-1, -1, -1);
             long P = R.Points.Count + 1;
-            Func<int, int, int, long> pieceKey = (c, a, b) => ((long)c * P + Math.Min(a, b)) * P + Math.Max(a, b);
             var faceCorners = new List<int[]>();
             var faceInput = new List<int>();
             var facePos = new List<Vector2d[]>();
+            // first pass, all input triangles: nodes, and the labels of the edge pieces a trace runs along (a
+            // trace along an input edge is recorded on one side only; both sides read the label below)
+            var posOf = new Dictionary<int, Vector2d>[F0];
+            var edgeSeq = new List<int>[F0][];
+            var chordsOf = new List<int[]>[F0];
             for (int t = 0; t < F0; ++t) {
                 // node positions in the layout of t
                 var pos = new Dictionary<int, Vector2d>();
-                var darts = new Dictionary<int, List<int>>();       // node -> outgoing dart ids
-                var dFrom = new List<int>(); var dTo = new List<int>();
-                var dLabel = new List<Label?>(); var dPiece = new List<long>(); var dFwd = new List<bool>();
-                Action<int, int, Label?, long, bool> addDart = (a, b, lab, piece, fwdc) => {
-                    int id = dFrom.Count;
-                    dFrom.Add(a); dTo.Add(b); dLabel.Add(lab); dPiece.Add(piece); dFwd.Add(fwdc);
-                    List<int> l;
-                    if (darts.TryGetValue(a, out l) == false) darts[a] = l = new List<int>();
-                    l.Add(id);
-                };
                 int[] cornerId = new int[3];
                 Index3i tri = Mesh.GetTriangle(inTid[t]);
                 for (int k = 0; k < 3; ++k) { cornerId[k] = toIndex[tri[k]]; pos[cornerId[k]] = inLayout[3 * t + k]; }
@@ -240,6 +236,7 @@ namespace gs
                 Func<int, int, bool> onEdgeK = (id, k) => { int mm; return edgeMask.TryGetValue(id, out mm) && (mm & (1 << k)) != 0; };
                 // chords along an edge of t label its pieces; the others become arrangement edges
                 var chordList = new List<int[]>();
+                posOf[t] = pos; edgeSeq[t] = onThisEdge; chordsOf[t] = chordList;
                 if (chords[t] != null)
                     foreach (int[] ch in chords[t]) {
                         if (pos.ContainsKey(ch[0]) == false || pos.ContainsKey(ch[1]) == false)
@@ -260,20 +257,37 @@ namespace gs
                             edgeLabels[pieceKey(c, a, b)] = new Label() { H = ch[2], Same = same };      // relative to canonical direction
                         }
                     }
+            }
+
+            // second pass: arrangement and faces per input triangle
+            for (int t = 0; t < F0; ++t) {
+                var pos = posOf[t];
+                var onThisEdge = edgeSeq[t];
+                var chordList = chordsOf[t];
+                var darts = new Dictionary<int, List<int>>();       // node -> outgoing dart ids
+                var dFrom = new List<int>(); var dTo = new List<int>();
+                var dLabel = new List<Label?>(); var dPiece = new List<(int, int, int)>(); var dFwd = new List<bool>();
+                Action<int, int, Label?, (int, int, int), bool> addDart = (a, b, lab, piece, fwdc) => {
+                    int id = dFrom.Count;
+                    dFrom.Add(a); dTo.Add(b); dLabel.Add(lab); dPiece.Add(piece); dFwd.Add(fwdc);
+                    List<int> l;
+                    if (darts.TryGetValue(a, out l) == false) darts[a] = l = new List<int>();
+                    l.Add(id);
+                };
                 // boundary darts (counter-clockwise, face inside t on their left)
                 for (int k = 0; k < 3; ++k) {
                     int c = canonical(3 * t + k);
                     bool fwd = (c == 3 * t + k);
                     var seq = onThisEdge[k];
                     for (int m = 0; m + 1 < seq.Count; ++m) {
-                        long key = pieceKey(c, seq[m], seq[m + 1]);
+                        var key = pieceKey(c, seq[m], seq[m + 1]);
                         addDart(seq[m], seq[m + 1], null, key, fwd);
-                        addDart(seq[m + 1], seq[m], null, -1, false);       // outside
+                        addDart(seq[m + 1], seq[m], null, noPiece, false);       // outside
                     }
                 }
                 foreach (int[] ch in chordList) {
-                    addDart(ch[0], ch[1], new Label() { H = ch[2], Same = true }, -1, false);
-                    addDart(ch[1], ch[0], new Label() { H = ch[2], Same = false }, -1, false);
+                    addDart(ch[0], ch[1], new Label() { H = ch[2], Same = true }, noPiece, false);
+                    addDart(ch[1], ch[0], new Label() { H = ch[2], Same = false }, noPiece, false);
                 }
                 // sort darts around nodes counter-clockwise; index of each dart in its node list
                 int nd = dFrom.Count;
@@ -314,7 +328,7 @@ namespace gs
                     int ft = -1;
                     foreach (int x in cyc) {
                         Label? lab = dLabel[x];
-                        if (dPiece[x] >= 0) {
+                        if (dPiece[x].Item1 >= 0) {
                             Label el;
                             if (edgeLabels.TryGetValue(dPiece[x], out el)) {
                                 // label relative to the canonical direction, the dart runs along it or not

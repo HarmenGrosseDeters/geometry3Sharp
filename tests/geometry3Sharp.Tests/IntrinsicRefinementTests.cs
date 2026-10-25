@@ -381,6 +381,82 @@ namespace geometry3Sharp.Tests
             CheckSubdivision(mesh, T, output);
         }
 
+        [Fact]
+        public void Refine_LongWedgeSides_SkipsOnlyTrianglesSpanningTheCorner()
+        {
+            // a 15 degree wedge whose sides are single input edges of length 10: a bad triangle may only be
+            // skipped if its small angle is at the corner or its shortest edge joins the two sides
+            double a = 15 * Math.PI / 180;
+            DMesh3 mesh = new DMesh3();
+            int o = mesh.AppendVertex(Vector3d.Zero);
+            int va = mesh.AppendVertex(new Vector3d(10, 0, 0));
+            int vb = mesh.AppendVertex(new Vector3d(10 * Math.Cos(a), 10 * Math.Sin(a), 0));
+            int vc = mesh.AppendVertex(new Vector3d(9.2, 1.0, 0));       // inside, near the far side
+            mesh.AppendTriangle(o, va, vc);
+            mesh.AppendTriangle(o, vc, vb);
+            mesh.AppendTriangle(va, vb, vc);
+            var T = new IntrinsicTriangulation(mesh);
+            // two close points on the side O-A, far from the corner: a short boundary edge on one side only
+            int hOA = Enumerable.Range(0, T.HalfedgeCount).First(h => T.Twin(h) < 0 && T.VertexID(T.Tail(h)) == o && T.VertexID(T.Head(h)) == va);
+            Assert.True(T.SplitEdge(hOA, 0.8) >= 0);
+            Assert.True(T.SplitEdge(hOA, 0.99) >= 0);       // hOA now runs from O to the first point
+            var r = T.DelaunayRefine(25, 5000);
+            output.WriteLine(r.ToString());
+            Assert.Equal(IntrinsicRefinementStatus.Success, r.Status);
+            Func<Vector3d, int> side = (p) => p.Length < 1e-9 ? 0 : Math.Abs(p.y) < 1e-9 ? 1 : Math.Abs(p.y - Math.Tan(a) * p.x) < 1e-9 ? 2 : -1;
+            int skipped = 0;
+            for (int t = 0; t < T.TriangleCount; ++t) {
+                if (MinAngleDeg(T, t) >= 25 - 1e-9) continue;
+                skipped++;
+                int hm = 3 * t;
+                for (int k = 1; k < 3; ++k) if (T.CornerAngle(3 * t + k) < T.CornerAngle(hm)) hm = 3 * t + k;
+                if (side(T.VertexPosition(T.Tail(hm))) == 0) continue;            // small angle at the corner
+                int e = IntrinsicTriangulation.Next(hm);                          // shortest edge
+                int sa = side(T.VertexPosition(T.Tail(e))), sb = side(T.VertexPosition(T.Head(e)));
+                Assert.True(sa > 0 && sb > 0 && sa != sb, $"skipped triangle {t} (min angle {MinAngleDeg(T, t)}) whose shortest edge does not join the two sides ({sa}, {sb})");
+            }
+            Assert.Equal(r.SkippedTriangles, skipped);
+        }
+
+        [Fact]
+        public void CommonSubdivision_TraceRecordedOnTheLaterInputTriangle()
+        {
+            // a split interior input edge: the piece from the far end is traced from the triangle on the other
+            // side of the input edge, which can come later in the input order than the near triangle
+            // a triangle split into four with the center triangle last: all three of its edges are traced
+            // from the neighbours, which come earlier in the input order
+            DMesh3 four = new DMesh3();
+            int c0 = four.AppendVertex(new Vector3d(0, 0, 0)), c1 = four.AppendVertex(new Vector3d(2, 0, 0)), c2 = four.AppendVertex(new Vector3d(1, 1.7, 0));
+            int m01 = four.AppendVertex(new Vector3d(1, 0, 0)), m12 = four.AppendVertex(new Vector3d(1.5, 0.85, 0)), m20 = four.AppendVertex(new Vector3d(0.5, 0.85, 0));
+            four.AppendTriangle(c0, m01, m20);
+            four.AppendTriangle(m01, c1, m12);
+            four.AppendTriangle(m20, m12, c2);
+            four.AppendTriangle(m01, m12, m20);
+            CheckSubdivision(four, new IntrinsicTriangulation(four), output);
+
+            // the same refined meshes with their triangles in reverse order
+            foreach (DMesh3 m0 in new[] { ObtusePlane(6, 40, 1.0, 0.05), RingSphere(1, 30, 10), Grid(4, 9, (x, y) => 0.5 * Math.Exp(-(x * x + y * y))) }) {
+                DMesh3 rev = new DMesh3();
+                foreach (int v in m0.VertexIndices()) rev.AppendVertex(m0.GetVertex(v));
+                foreach (int t in m0.TriangleIndices().Reverse()) rev.AppendTriangle(m0.GetTriangle(t));
+                foreach (DMesh3 m in new[] { m0, rev }) {
+                    var Tr = new IntrinsicTriangulation(m);
+                    Tr.DelaunayRefine(25);
+                    CheckSubdivision(m, Tr, output);
+                }
+            }
+
+            DMesh3 mesh = Grid(4, 4, (x, y) => 0);
+            int count = new IntrinsicTriangulation(mesh).HalfedgeCount;
+            for (int hs = 0; hs < count; ++hs) {
+                var T = new IntrinsicTriangulation(mesh);
+                if (T.Twin(hs) < 0) continue;
+                Assert.True(T.SplitEdge(hs, 0.5) >= 0);
+                var cs = T.ExtractCommonSubdivision();
+                Assert.True(cs.Status == CommonSubdivisionStatus.Success, $"split {hs}: {cs.Error}");
+            }
+        }
+
         // ---------------------------------------------------------------- common subdivision
 
         static void CheckSubdivision(DMesh3 mesh, IntrinsicTriangulation T, ITestOutputHelper output)
@@ -524,6 +600,28 @@ namespace geometry3Sharp.Tests
             double ef = logError(flip), er = logError(refined);
             output.WriteLine($"log map mean error: flips {ef}, refined {er}");
             Assert.True(er < ef, $"refined {er} vs flips {ef}");
+        }
+
+        [Fact]
+        public void HeatDistance_Refined_DegenerateTriangles()
+        {
+            // zero-area triangles (a vertex moved onto its neighbour): the refined path uses the mollified
+            // triangulation (the unrefined one drops them); the distances stay accurate
+            DMesh3 mesh = Grid(10, 21, (x, y) => 0);
+            int v = NearestVertex(mesh, new Vector3d(1, 1, 0));
+            mesh.SetVertex(v, mesh.GetVertex(mesh.VtxVerticesItr(v).First()));
+            int src = NearestVertex(mesh, new Vector3d(-3, -3, 0));
+            Vector3d ps = mesh.GetVertex(src);
+            var geo = new MeshGeodesicDistance(mesh) { IntrinsicRefine = true };
+            Assert.True(geo.Compute(new[] { src }));
+            output.WriteLine(geo.Refinement.ToString());
+            Assert.NotEqual(IntrinsicRefinementStatus.NonManifoldInput, geo.Refinement.Status);
+            Assert.Equal(0, geo.Refinement.NegativeWeights);
+            foreach (int u in mesh.VertexIndices()) {
+                Vector3d p = mesh.GetVertex(u);
+                double exact = p.Distance(ps);
+                Assert.True(Math.Abs(geo.Distance[u] - exact) < 0.03 * exact + 0.5, $"{p}: {geo.Distance[u]} vs {exact}");
+            }
         }
 
         [Fact]
