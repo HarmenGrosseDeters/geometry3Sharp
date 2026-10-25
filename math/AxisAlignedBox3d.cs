@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 
 namespace g3
 {
@@ -107,7 +108,7 @@ namespace g3
             return a.Min != b.Min || a.Max != b.Max;
         }
         public override bool Equals(object obj) {
-            return this == (AxisAlignedBox3d)obj;
+            return obj is AxisAlignedBox3d && this == (AxisAlignedBox3d)obj;
         }
         public bool Equals(AxisAlignedBox3d other) {
             return this == other;
@@ -362,7 +363,7 @@ namespace g3
 
 
         public override string ToString() {
-            return string.Format("x[{0:F8},{1:F8}] y[{2:F8},{3:F8}] z[{4:F8},{5:F8}]", Min.x, Max.x, Min.y, Max.y, Min.z, Max.z);
+            return string.Format(CultureInfo.InvariantCulture, "x[{0:F8},{1:F8}] y[{2:F8},{3:F8}] z[{4:F8},{5:F8}]", Min.x, Max.x, Min.y, Max.y, Min.z, Max.z);
         }
 
 

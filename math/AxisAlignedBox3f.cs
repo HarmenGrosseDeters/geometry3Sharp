@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Globalization;
 
 #if G3_USING_UNITY
 using UnityEngine;
@@ -119,7 +120,7 @@ namespace g3
             return a.Min != b.Min || a.Max != b.Max;
         }
         public override bool Equals(object obj) {
-            return this == (AxisAlignedBox3f)obj;
+            return obj is AxisAlignedBox3f && this == (AxisAlignedBox3f)obj;
         }
         public bool Equals(AxisAlignedBox3f other) {
             return this == other;
@@ -171,8 +172,13 @@ namespace g3
         //! value is added to min and subtracted from max
         public void Contract(float fRadius)
         {
-            Min.x += fRadius; Min.y += fRadius; Min.z += fRadius;
-            Max.x -= fRadius; Max.y -= fRadius; Max.z -= fRadius;
+            float w = 2 * fRadius;
+            if ( w > Max.x-Min.x ) { Min.x = Max.x = 0.5f * (Min.x + Max.x); }
+                else { Min.x += fRadius; Max.x -= fRadius; }
+            if ( w > Max.y-Min.y ) { Min.y = Max.y = 0.5f * (Min.y + Max.y); }
+                else { Min.y += fRadius; Max.y -= fRadius; }
+            if ( w > Max.z-Min.z ) { Min.z = Max.z = 0.5f * (Min.z + Max.z); }
+                else { Min.z += fRadius; Max.z -= fRadius; }
         }
 
         public void Scale(float sx, float sy, float sz)
@@ -300,7 +306,7 @@ namespace g3
 
         public override string ToString()
         {
-            return string.Format("x[{0:F8},{1:F8}] y[{2:F8},{3:F8}] z[{4:F8},{5:F8}]", Min.x, Max.x, Min.y, Max.y, Min.z, Max.z);
+            return string.Format(CultureInfo.InvariantCulture, "x[{0:F8},{1:F8}] y[{2:F8},{3:F8}] z[{4:F8},{5:F8}]", Min.x, Max.x, Min.y, Max.y, Min.z, Max.z);
         }
 
 
