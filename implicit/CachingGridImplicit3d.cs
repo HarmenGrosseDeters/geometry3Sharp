@@ -54,10 +54,10 @@ namespace g3
                 ((pt.y - GridOrigin.y) / CellSize),
                 ((pt.z - GridOrigin.z) / CellSize));
 
-            // compute integer coordinates
-            int x0 = (int)gridPt.x;
-            int y0 = (int)gridPt.y, y1 = y0 + 1;
-            int z0 = (int)gridPt.z, z1 = z0 + 1;
+            // compute integer coordinates (floor, so points just below the origin are outside)
+            int x0 = (int)Math.Floor(gridPt.x);
+            int y0 = (int)Math.Floor(gridPt.y), y1 = y0 + 1;
+            int z0 = (int)Math.Floor(gridPt.z), z1 = z0 + 1;
 
             // clamp to grid
             if (x0 < 0 || (x0+1) >= Grid.ni ||
@@ -200,7 +200,8 @@ namespace g3
                 -fV110 * (fAx) * (fAy) +
                  fV111 * (fAx) * (fAy);
 
-            return new Vector3d(gradX, gradY, gradZ);
+            // gradient above is per grid cell, convert to world units
+            return new Vector3d(gradX, gradY, gradZ) / CellSize;
         }
 
     }

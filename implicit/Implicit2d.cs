@@ -59,14 +59,13 @@ namespace g3
 		public void Gradient( float fX, float fY, ref float fGX, ref float fGY ) {
 			float tx = (fX - m_vCenter.x);
 			float ty = (fY - m_vCenter.y);
+			float fR2 = m_radius*m_radius;
 			float fDist2 = (tx*tx + ty*ty);
-			float fTmp = 1.0f - fDist2;
+			float fTmp = 1.0f - fDist2/fR2;
 			if ( fTmp < 0.0f) {
 				fGX = fGY = 0;
 			} else {
-				float fSqrt = (float)Math.Sqrt(fDist2);
-				float fGradMag = -6.0f * fSqrt * fTmp*fTmp;
-				fGradMag /= fSqrt;
+				float fGradMag = -6.0f * fTmp*fTmp / fR2;
 				fGX = tx * fGradMag;
 				fGY = ty * fGradMag;
 			}
