@@ -20,13 +20,17 @@ namespace g3
 
 			int nx = Math.Max(1, (int)(bounds.Width / w));
 			double spacew = (nx - 1) * spacing;
-			while (nx > 1 && bounds.Width - (w * nx + spacew) < 0)
+			while (nx > 1 && bounds.Width - (w * nx + spacew) < 0) {
 				nx--;
+				spacew = (nx - 1) * spacing;
+			}
 
 			int ny = Math.Max(1, (int)(bounds.Height / h));
 			double spaceh = (ny - 1) * spacing;
-			while (ny > 1 && bounds.Height - (h * ny + spaceh) < 0)
+			while (ny > 1 && bounds.Height - (h * ny + spaceh) < 0) {
 				ny--;
+				spaceh = (ny - 1) * spacing;
+			}
 
 			List<Vector2d> translations = new List<Vector2d>();
 			for (int yi = 0; yi < ny; ++yi) {
@@ -75,15 +79,19 @@ namespace g3
 			int ny = Math.Max(1, (int)(bounds.Height / stepy));
 			// reduce count so that we fit w/ spacing
 			double spaceh = (ny - 1) * spacingy;
-			while (ny > 1 && bounds.Height - (stepy * ny + spaceh) < 0)
+			while (ny > 1 && bounds.Height - (stepy * ny + spaceh) < 0) {
 				ny--;
+				spaceh = (ny - 1) * spacingy;
+			}
 
 			// even rows start at x=0
 			int nx_even = Math.Max(1, (int)(bounds.Width / stepx));
 			// reduce count if we spill over w/ spacing
 			double spacew = (nx_even - 1) * spacingx;
-			while (nx_even > 1 && bounds.Width - (stepx * nx_even + spacew) < 0)
+			while (nx_even > 1 && bounds.Width - (stepx * nx_even + spacew) < 0) {
 				nx_even--;
+				spacew = (nx_even - 1) * spacingx;
+			}
 
 			// odd rows have an extra half-step added to left side,
 			// so we may need to reduce count

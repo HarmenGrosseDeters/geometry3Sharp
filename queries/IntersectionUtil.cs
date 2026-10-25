@@ -207,7 +207,7 @@ namespace g3
         public static LinearIntersection RaySphere(ref Vector3d rayOrigin, ref Vector3d rayDirection, ref Vector3d sphereCenter, double sphereRadius)
         {
             LinearIntersection result = new LinearIntersection();
-            LineSphere(ref rayOrigin, ref rayDirection, ref sphereCenter, sphereRadius, ref result);
+            RaySphere(ref rayOrigin, ref rayDirection, ref sphereCenter, sphereRadius, ref result);
             return result;
         }
 
