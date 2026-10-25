@@ -41,6 +41,14 @@ namespace g3
             return new ExactPoint3(x, y, z, w);
         }
 
+        /// <summary> the point (x/w, y/w, z/w) with W > 0 but without reducing by the gcd (not canonical: not for comparisons by value) </summary>
+        public static ExactPoint3 CreateUnreduced(BigInteger x, BigInteger y, BigInteger z, BigInteger w)
+        {
+            if (w.IsZero)
+                throw new ArgumentException("ExactPoint3: W is zero");
+            return (w.Sign < 0) ? new ExactPoint3(-x, -y, -z, -w) : new ExactPoint3(x, y, z, w);
+        }
+
         public BigInteger this[int i] {
             get { return (i == 0) ? X : (i == 1) ? Y : Z; }
         }

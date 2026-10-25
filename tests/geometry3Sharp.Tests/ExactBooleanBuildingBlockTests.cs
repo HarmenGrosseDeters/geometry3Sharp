@@ -110,7 +110,7 @@ namespace geometry3Sharp.Tests
                 arr.Compute();
                 var planes = arr.Triangles.Select(t => t.P).ToArray();
                 int id = arr.PlanesPoint(planes[0], planes[1], planes[2]);
-                ExactPoint3 x = arr.Points[id];
+                ExactPoint3 x = arr.Exact(id);
                 foreach (var pl in planes)
                     Assert.True((pl.A * x.X + pl.B * x.Y + pl.C * x.Z - pl.D * x.W).IsZero);
                 // the same point from the planes in another order is the same point id
@@ -120,7 +120,7 @@ namespace geometry3Sharp.Tests
                 for (int k = 0; k < 3; ++k) {
                     int p = t0.Corners[k], q = t0.Corners[(k + 1) % 3];
                     var pl = planes[1];
-                    var P = arr.Points[p]; var Q = arr.Points[q];
+                    var P = arr.Exact(p); var Q = arr.Exact(q);
                     var sp = pl.A * P.X + pl.B * P.Y + pl.C * P.Z - pl.D; var sq = pl.A * Q.X + pl.B * Q.Y + pl.C * Q.Z - pl.D;
                     if (sp.Sign * sq.Sign >= 0) continue;
                     Assert.Equal(arr.PlanesPoint(t0.P, t0.EdgePlanes[k], pl), arr.EdgePlanePoint(p, q, pl));

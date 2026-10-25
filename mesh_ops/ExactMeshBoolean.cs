@@ -103,7 +103,8 @@ namespace g3
             PhaseMilliseconds = new Dictionary<string, long>(arr.PhaseMilliseconds);
             Counts["candidate_pairs"] = arr.CandidatePairs;
             Counts["intersecting_pairs"] = arr.IntersectingPairs;
-            Counts["points"] = arr.Points.Count;
+            Counts["points"] = arr.PointCount;
+            Counts["merged_points"] = arr.MergedPoints;
             Counts["pieces"] = arr.Output.Count;
 
             var sw = System.Diagnostics.Stopwatch.StartNew();
@@ -331,7 +332,7 @@ namespace g3
 
         int centroid(ExactMeshArrangement.OutputTriangle ot)
         {
-            ExactPoint3 a = arr.Points[ot.A], b = arr.Points[ot.B], c = arr.Points[ot.C];
+            ExactPoint3 a = arr.Exact(ot.A), b = arr.Exact(ot.B), c = arr.Exact(ot.C);
             BigInteger wbc = b.W * c.W, wac = a.W * c.W, wab = a.W * b.W;
             return arr.AddPoint(ExactPoint3.Create(
                 a.X * wbc + b.X * wac + c.X * wab,
@@ -366,7 +367,7 @@ namespace g3
             BigInteger[] min, max;
             mesh_bounds(mesh, out min, out max);
             int p = centroid(ot);
-            ExactPoint3 P = arr.Points[p];
+            ExactPoint3 P = arr.Exact(p);
             // outside the box of the mesh: winding number 0
             for (int k = 0; k < 3; ++k)
                 if (P[k] < min[k] * P.W || P[k] > max[k] * P.W)
@@ -406,9 +407,9 @@ namespace g3
                     if (sr == 0) { degenerate = true; return; }
                     // sp == 0: the point is in the plane but not in the triangle (it would be in the stack)
                     if (sp == 0 || sp == sr) return;
-                    int o0 = orient3d(P, Rp, arr.Points[U.Corners[0]], arr.Points[U.Corners[1]]);
-                    int o1 = orient3d(P, Rp, arr.Points[U.Corners[1]], arr.Points[U.Corners[2]]);
-                    int o2 = orient3d(P, Rp, arr.Points[U.Corners[2]], arr.Points[U.Corners[0]]);
+                    int o0 = orient3d(P, Rp, arr.Exact(U.Corners[0]), arr.Exact(U.Corners[1]));
+                    int o1 = orient3d(P, Rp, arr.Exact(U.Corners[1]), arr.Exact(U.Corners[2]));
+                    int o2 = orient3d(P, Rp, arr.Exact(U.Corners[2]), arr.Exact(U.Corners[0]));
                     if (o0 == 0 || o1 == 0 || o2 == 0) {
                         // the line passes through an edge or vertex: only a problem if it is the triangle's
                         if ((o0 >= 0 && o1 >= 0 && o2 >= 0) || (o0 <= 0 && o1 <= 0 && o2 <= 0))
@@ -466,7 +467,7 @@ namespace g3
                 b = new[] { new BigInteger[3], new BigInteger[3] };
                 bool first = true;
                 foreach (int vid in arr.Meshes[mesh].VertexIndices()) {
-                    ExactPoint3 v = arr.Points[arr.VertexPoints[mesh][vid]];
+                    ExactPoint3 v = arr.Exact(arr.VertexPoints[mesh][vid]);
                     for (int k = 0; k < 3; ++k) {
                         if (first || v[k] < b[0][k]) b[0][k] = v[k];
                         if (first || v[k] > b[1][k]) b[1][k] = v[k];
@@ -546,6 +547,17 @@ namespace g3
                     NonManifoldEdges++;
             }
 
+            // coordinates of the points used (rounded from the exact points, in parallel)
+            var used = new List<int>();
+            var usedIndex = new Dictionary<int, int>();
+            foreach (Index3i t in tris)
+                for (int k = 0; k < 3; ++k)
+                    if (usedIndex.ContainsKey(t[k]) == false) {
+                        usedIndex[t[k]] = used.Count;
+                        used.Add(t[k]);
+                    }
+            Vector3d[] coords = arr.PointsToVectors(used);
+
             DMesh3 result = new DMesh3();
             var vmap = new Dictionary<int, int>();
             for (int t = 0; t < tris.Count; ++t) {
@@ -553,7 +565,7 @@ namespace g3
                 for (int k = 0; k < 3; ++k) {
                     int root = find(3 * t + k);
                     if (vmap.TryGetValue(root, out vid[k]) == false) {
-                        vid[k] = result.AppendVertex(arr.PointToVector(tris[t][k]));
+                        vid[k] = result.AppendVertex(coords[usedIndex[tris[t][k]]]);
                         vmap[root] = vid[k];
                     }
                 }
