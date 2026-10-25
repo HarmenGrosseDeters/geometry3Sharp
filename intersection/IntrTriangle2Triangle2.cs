@@ -46,12 +46,15 @@ namespace g3
 			int i0, i1;
 			Vector2d dir = Vector2d.Zero;
 
+			// edge axes below point outwards for CCW triangles, flip them for CW triangles
+			double orient0 = Orientation(triangle0), orient1 = Orientation(triangle1);
+
 			// Test edges of triangle0 for separation.
 			for (i0 = 0, i1 = 2; i0 < 3; i1 = i0++)
 			{
 				// Test axis V0[i1] + t*perp(V0[i0]-V0[i1]), perp(x,y) = (y,-x).
-				dir.x = triangle0[i0].y - triangle0[i1].y;
-				dir.y = triangle0[i1].x - triangle0[i0].x;
+				dir.x = orient0 * (triangle0[i0].y - triangle0[i1].y);
+				dir.y = orient0 * (triangle0[i1].x - triangle0[i0].x);
 				if (WhichSide(triangle1, triangle0[i1], dir) > 0) {
 					// Triangle1 is entirely on positive side of triangle0 edge.
 					return false;
@@ -62,8 +65,8 @@ namespace g3
 			for (i0 = 0, i1 = 2; i0 < 3; i1 = i0++)
 			{
 				// Test axis V1[i1] + t*perp(V1[i0]-V1[i1]), perp(x,y) = (y,-x).
-				dir.x = triangle1[i0].y - triangle1[i1].y;
-				dir.y = triangle1[i1].x - triangle1[i0].x;
+				dir.x = orient1 * (triangle1[i0].y - triangle1[i1].y);
+				dir.y = orient1 * (triangle1[i1].x - triangle1[i0].x);
 				if (WhichSide(triangle0, triangle1[i1], dir) > 0) {
 					// Triangle0 is entirely on positive side of triangle1 edge.
 					return false;
@@ -97,10 +100,13 @@ namespace g3
 				Points[i] = triangle1[i];
 			}
 
+			// N below points inwards for CCW triangle0, flip it for CW triangle0
+			double orient0 = Orientation(triangle0);
+
 			for (int i1 = 2, i0 = 0; i0 < 3; i1 = i0++)
 			{
 				// Clip against edge <V0[i1],V0[i0]>.
-				Vector2d N = new Vector2d(
+				Vector2d N = orient0 * new Vector2d(
 					triangle0[i1].y - triangle0[i0].y,
 					triangle0[i0].x - triangle0[i1].x);
 				double c = N.Dot(triangle0[i1]);
@@ -123,6 +129,13 @@ namespace g3
 		}
 
 
+
+
+		// -1 for clockwise triangles, +1 otherwise
+		static double Orientation(Triangle2d t)
+		{
+			return ((t.V1 - t.V0).DotPerp(t.V2 - t.V0) < 0) ? -1 : 1;
+		}
 
 
 		public static int WhichSide (Triangle2d V, Vector2d P, Vector2d D)

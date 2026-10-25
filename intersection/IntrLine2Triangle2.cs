@@ -164,9 +164,13 @@ namespace g3
 			if (quantity < 2) {
 				for (i0 = 1, i1 = 2, i2 = 0; i2 < 3; i0 = i1, i1 = i2++) {
 					if (sign[i2] == 0) {
-						if ( quantity >= 2 )
-							throw new Exception("IntrLine2Triangle2.GetInterval: too many intersections!");	
-						param[quantity++] = proj[i2];
+						if (quantity >= 2) {
+							// degenerate triangle lying on the line, extend the interval to contain all vertices
+							double lo = Math.Min(param[0], param[1]), hi = Math.Max(param[0], param[1]);
+							param[0] = Math.Min(lo, proj[i2]);
+							param[1] = Math.Max(hi, proj[i2]);
+						} else
+							param[quantity++] = proj[i2];
 					}
 				}
 			}

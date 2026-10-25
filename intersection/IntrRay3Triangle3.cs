@@ -51,12 +51,15 @@ namespace g3
         {
             if (Result != IntersectionResult.NotComputed)
                 return (Result != g3.IntersectionResult.NoIntersection);
+            Type = IntersectionType.Empty;
+            Quantity = 0;
 
             // Compute the offset origin, edges, and normal.
             Vector3d diff = ray.Origin - triangle.V0;
             Vector3d edge1 = triangle.V1 - triangle.V0;
             Vector3d edge2 = triangle.V2 - triangle.V0;
             Vector3d normal = edge1.Cross(edge2);
+            double parallel_tol = parallel_tolerance(ref ray, ref normal);
 
             // Solve Q + t*D = b1*E1 + b2*E2 (Q = kDiff, D = ray direction,
             // E1 = kEdge1, E2 = kEdge2, N = Cross(E1,E2)) by
@@ -65,9 +68,9 @@ namespace g3
             //   |Dot(D,N)|*t = -sign(Dot(D,N))*Dot(Q,N)
             double DdN = ray.Direction.Dot(normal);
             double sign;
-            if (DdN > MathUtil.ZeroTolerance) {
+            if (DdN > parallel_tol) {
                 sign = 1;
-            } else if (DdN < -MathUtil.ZeroTolerance) {
+            } else if (DdN < -parallel_tol) {
                 sign = -1;
                 DdN = -DdN;
             } else {
@@ -129,10 +132,11 @@ namespace g3
             //   |Dot(D,N)|*b2 = sign(Dot(D,N))*Dot(D,Cross(E1,Q))
             //   |Dot(D,N)|*t = -sign(Dot(D,N))*Dot(Q,N)
             double DdN = ray.Direction.Dot(ref normal);
+            double parallel_tol = parallel_tolerance(ref ray, ref normal);
             double sign;
-            if (DdN > MathUtil.ZeroTolerance) {
+            if (DdN > parallel_tol) {
                 sign = 1;
-            } else if (DdN < -MathUtil.ZeroTolerance) {
+            } else if (DdN < -parallel_tol) {
                 sign = -1;
                 DdN = -DdN;
             } else {
@@ -165,6 +169,14 @@ namespace g3
             // else: b1 < 0, no intersection
 
             return false;
+        }
+
+
+        // Dot(D,N) = |D|*|N|*cos(angle), so the parallel test is relative to the ray and triangle size
+        // (a fixed tolerance makes every triangle with edges below ~1e-4 'parallel')
+        static double parallel_tolerance(ref Ray3d ray, ref Vector3d normal)
+        {
+            return MathUtil.ZeroTolerance * Math.Sqrt(ray.Direction.LengthSquared * normal.LengthSquared);
         }
 
     }
