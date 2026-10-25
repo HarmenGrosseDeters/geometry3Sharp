@@ -118,6 +118,7 @@ namespace g3
                 for (int i = 0; i < N; ++i)
                     vertices.Add(newVertices[i]);
             }
+            Timestamp++;
         }
 
 
