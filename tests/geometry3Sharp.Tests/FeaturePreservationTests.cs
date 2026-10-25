@@ -166,5 +166,94 @@ namespace geometry3Sharp.Tests
             topo.Compute();
             Assert.Contains(mesh.FindEdge(a, b), topo.CreaseEdges);
         }
+
+        // flat square [0,1]^2 whose bottom edge has a vertex (0.5, -1e-7) between the corners (0,0) and
+        // (1,0), with an ear triangle (corner, it, corner) of almost zero area
+        static DMesh3 SquareWithBoundaryEar()
+        {
+            DMesh3 m = new DMesh3();
+            int p0 = m.AppendVertex(new Vector3d(0, 0, 0)), p1 = m.AppendVertex(new Vector3d(0.5, -1e-7, 0));
+            int p2 = m.AppendVertex(new Vector3d(1, 0, 0)), q = m.AppendVertex(new Vector3d(1, 1, 0)), r = m.AppendVertex(new Vector3d(0, 1, 0));
+            m.AppendTriangle(p0, p1, p2);
+            m.AppendTriangle(p0, p2, q);
+            m.AppendTriangle(p0, q, r);
+            return m;
+        }
+
+        [Fact]
+        public void Remesher_RemovesEarBetweenPinnedCorners()
+        {
+            // the ear's tip lies on the boundary curve between two pinned corners: no collapse removes it (the
+            // corners are Fixed, the tip's edges are on the curve) and no flip improved the valence, so it stayed.
+            // Its base is flipped away now
+            DMesh3 mesh = SquareWithBoundaryEar();
+            var r = new Remesher(mesh);
+            MeshConstraintUtil.PreserveBoundaryAndFeatures(r, 30);
+            r.SetTargetEdgeLength(1);
+            for (int k = 0; k < 5; ++k)
+                r.BasicRemeshPass();
+            Assert.True(mesh.CheckValidity(true, FailMode.ReturnOnly));
+            Assert.Equal(0, mesh.TriangleIndices().Count(tid => mesh.GetTriArea(tid) < 1e-6));
+            Assert.Equal(1.0, mesh.TriangleIndices().Sum(tid => mesh.GetTriArea(tid)), 6);
+            // the boundary is still the square, with its corners
+            var loops = new MeshBoundaryLoops(mesh);
+            Assert.Equal(1, loops.Count);
+            foreach (int vid in loops[0].Vertices) {
+                Vector3d v = mesh.GetVertex(vid);
+                double dEdge = Math.Min(Math.Min(Math.Abs(v.x), Math.Abs(v.x - 1)), Math.Min(Math.Abs(v.y), Math.Abs(v.y - 1)));
+                Assert.True(dEdge < 1e-6, v.ToString());
+            }
+            foreach (var corner in new[] { new Vector3d(0, 0, 0), new Vector3d(1, 0, 0), new Vector3d(1, 1, 0), new Vector3d(0, 1, 0) })
+                Assert.Contains(mesh.VertexIndices(), (vid) => mesh.GetVertex(vid).Distance(corner) < 1e-9);
+        }
+
+        [Fact]
+        public void Remesher_FlipsAwayDegenerateTriangle()
+        {
+            // regular grid, every interior vertex has valence 6, so no flip improves the valence; one vertex
+            // moved onto the diagonal of the next quad makes that triangle degenerate. Only flips enabled:
+            // the diagonal is flipped away
+            int n = 7;
+            DMesh3 mesh = new DMesh3();
+            var ids = new int[n, n];
+            for (int i = 0; i < n; ++i)
+                for (int j = 0; j < n; ++j)
+                    ids[i, j] = mesh.AppendVertex(new Vector3d(i, j, 0));
+            for (int i = 0; i + 1 < n; ++i)
+                for (int j = 0; j + 1 < n; ++j) {
+                    mesh.AppendTriangle(ids[i, j], ids[i + 1, j], ids[i + 1, j + 1]);
+                    mesh.AppendTriangle(ids[i, j], ids[i + 1, j + 1], ids[i, j + 1]);
+                }
+            // vertex (4,3) onto the midpoint of the diagonal (3,3)-(4,4)
+            mesh.SetVertex(ids[4, 3], new Vector3d(3.5, 3.5, 0));
+            Assert.Equal(1, mesh.TriangleIndices().Count(tid => mesh.GetTriArea(tid) < 1e-9));
+            var r = new Remesher(mesh) { EnableCollapses = false, EnableSplits = false, EnableSmoothing = false };
+            r.SetTargetEdgeLength(1);
+            r.BasicRemeshPass();
+            Assert.True(mesh.CheckValidity(true, FailMode.ReturnOnly));
+            Assert.Equal(0, mesh.TriangleIndices().Count(tid => mesh.GetTriArea(tid) < 1e-9));
+            foreach (int tid in mesh.TriangleIndices())
+                Assert.True(mesh.GetTriNormal(tid).z > 0.99);
+            Assert.Equal(36.0, mesh.TriangleIndices().Sum(tid => mesh.GetTriArea(tid)), 9);
+        }
+
+        [Fact]
+        public void Remesher_DoesNotFlipDegenerateTriangleIntoAFold()
+        {
+            // degenerate triangle (a, b, c) with c on the line ab beyond b: flipping ab would give a triangle
+            // facing the other way (the quad a, d, b, c is not convex), so the edge stays
+            DMesh3 mesh = new DMesh3();
+            int a = mesh.AppendVertex(new Vector3d(0, 0, 0)), b = mesh.AppendVertex(new Vector3d(1, 0, 0));
+            int c = mesh.AppendVertex(new Vector3d(2, 0, 0)), d = mesh.AppendVertex(new Vector3d(0.5, -1, 0));
+            mesh.AppendTriangle(a, b, c);
+            mesh.AppendTriangle(b, a, d);
+            var r = new Remesher(mesh) { EnableCollapses = false, EnableSplits = false, EnableSmoothing = false };
+            r.SetTargetEdgeLength(1);
+            r.BasicRemeshPass();
+            Assert.True(mesh.FindEdge(a, b) >= 0, "flipped");
+            foreach (int tid in mesh.TriangleIndices())
+                if (mesh.GetTriArea(tid) > 1e-9)
+                    Assert.True(mesh.GetTriNormal(tid).z > 0.99);
+        }
     }
 }

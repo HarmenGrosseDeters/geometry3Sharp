@@ -435,6 +435,10 @@ namespace g3 {
                 bool bTryFlip = flip_err < curr_err;
                 if (bTryFlip && PreventNormalFlips && flip_inverts_normals(a, b, c, d, t0))
                     bTryFlip = false;
+                // a degenerate triangle on this edge (eg c or d slid onto it along a constrained curve, where
+                // no edge is short enough to collapse): flip it away if that gives two proper triangles
+                if (bTryFlip == false && flip_removes_degenerate(ref vA, ref vB, c, d))
+                    bTryFlip = true;
 
                 if (bTryFlip) {
                     DMesh3.EdgeFlipInfo flipInfo;
@@ -544,6 +548,27 @@ namespace g3 {
             Vector3d projected = targetIn.Project(curpos, vID);
             mesh.SetVertex(vID, projected);
         }
+
+        // quality (MeshRefinerBase.TriangleQuality) below which a triangle counts as degenerate for flips
+        const double DegenerateFlipQuality = 1e-6;
+
+        // edge [a,b] with opposite vertices c and d: true if one of its triangles is degenerate, both
+        // triangles after the flip are not, and the flip keeps the orientation (cd crosses ab)
+        bool flip_removes_degenerate(ref Vector3d vA, ref Vector3d vB, int c, int d)
+        {
+            Vector3d vC = mesh.GetVertex(c), vD = mesh.GetVertex(d);
+            double q0 = TriangleQuality(ref vA, ref vB, ref vC), q1 = TriangleQuality(ref vB, ref vA, ref vD);
+            if (Math.Min(q0, q1) >= DegenerateFlipQuality)
+                return false;
+            double n0 = TriangleQuality(ref vC, ref vD, ref vB), n1 = TriangleQuality(ref vD, ref vC, ref vA);
+            if (Math.Min(n0, n1) < 100 * DegenerateFlipQuality)
+                return false;
+            // the new triangles must face the same way as the non-degenerate old one
+            Vector3d nOld = (q0 >= q1) ? MathUtil.Normal(ref vA, ref vB, ref vC) : MathUtil.Normal(ref vB, ref vA, ref vD);
+            Vector3d nn0 = MathUtil.Normal(ref vC, ref vD, ref vB), nn1 = MathUtil.Normal(ref vD, ref vC, ref vA);
+            return nOld.Dot(nn0) > 0 && nOld.Dot(nn1) > 0;
+        }
+
 
         // used by collapse-edge to get projected position for new vertex
         protected virtual Vector3d get_projected_collapse_position(int vid, Vector3d vNewPos)

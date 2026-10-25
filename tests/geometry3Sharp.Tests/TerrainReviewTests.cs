@@ -167,6 +167,9 @@ namespace geometry3Sharp.Tests
             var crest = new List<Vector3d> { new Vector3d(0, -20, 0), new Vector3d(0, 20, 0) };
             var sl = new TerrainSafetyLines(t, new[] { crest }, D) { Mode = TerrainSafetyLines.Modes.AlongSurface };
             Assert.True(sl.Compute());
+            // the remeshed band has no zero-area triangles (along the break lines and the band boundary)
+            double edge = D / 8;
+            Assert.Equal(0, sl.RemeshedTerrain.TriangleIndices().Count(tid => sl.RemeshedTerrain.GetTriArea(tid) < 1e-9 * edge * edge));
             double faceLen = Math.Sqrt(fw * fw + 100);
             double exact = (D <= faceLen) ? D * fw / faceLen : fw + (D - faceLen);
             int n = 0;
