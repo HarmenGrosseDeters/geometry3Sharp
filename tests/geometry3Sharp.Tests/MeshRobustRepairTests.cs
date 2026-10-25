@@ -163,10 +163,60 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void ExactResolveThatLosesVolume_NotUsed()
+        public void UncleanResultThatLostAPart_InputUsed()
+        {
+            // the repair loses a sphere and leaves the other one open (eg erosion of an open region): the exact
+            // stage cannot use it (not closed), and the solidify of it closed the remaining sphere only, without
+            // a volume check; now the input is used, its solid agrees with the result's less than MinVolumeIoU
+            DMesh3 a = Sphere(1, Vector3d.Zero), b = Sphere(1, new Vector3d(3, 0, 0));
+            DMesh3 input = new DMesh3(a);
+            MeshEditor.Append(input, b);
+            Func<DMesh3, DMesh3> openA = (m) => {
+                DMesh3 c = new DMesh3(a);
+                foreach (int t in c.TriangleIndices().ToArray())
+                    if (c.GetTriCentroid(t).z > 0.95) c.RemoveTriangle(t);
+                return c;
+            };
+            foreach (bool exact in new[] { true, false }) {
+                var r = new MeshRobustRepair(new DMesh3(input)) { RepairF = openA, ExactResolve = exact };
+                Assert.True(r.Apply());
+                Assert.Equal("not closed", r.FallbackReason);
+                Assert.True(r.UsedInput);
+                Assert.Equal(exact, r.UsedExactResolve);
+                Assert.Equal(!exact, r.UsedSolidify);
+                Assert.Equal("", MeshRobustRepair.NotCleanReason(r.Mesh));
+                double missing, extra;
+                Assert.True(MeshRepairMetrics.VolumeIoU(input, r.Mesh, out missing, out extra) > 0.97);
+            }
+            // an unclean result that keeps the solid is still the one solidified
+            var kept = new MeshRobustRepair(new DMesh3(a)) { RepairF = openA, ExactResolve = false };
+            Assert.True(kept.Apply());
+            Assert.False(kept.UsedInput);
+            Assert.True(kept.UsedSolidify);
+        }
+
+        [Fact]
+        public void EmptyRepairResult_InputUsed()
+        {
+            // a repair stage that removes everything: Apply() returned false ("the mesh to solidify is empty")
+            DMesh3 input = Sphere(1, Vector3d.Zero);
+            MeshEditor.Append(input, Sphere(1, new Vector3d(1.2, 0, 0)));
+            foreach (double minIoU in new[] { 0.99, 0 }) {
+                var r = new MeshRobustRepair(new DMesh3(input)) { RepairF = (m) => new DMesh3(), MinVolumeIoU = minIoU };
+                Assert.True(r.Apply());
+                Assert.Equal("empty", r.FallbackReason);
+                Assert.True(r.UsedInput);
+                Assert.True(r.UsedExactResolve, r.ExactResolveReason);
+                Assert.Equal("", MeshRobustRepair.NotCleanReason(r.Mesh));
+            }
+        }
+
+        [Fact]
+        public void UncleanResultThatLosesVolume_ExactResolveOfTheInput()
         {
             // the repair drops a part (box c) and leaves two overlapping boxes: resolving them exactly is clean,
-            // but the solid differs from the input's, so the exact result is not used
+            // but the solid differs from the input's (before: the exact result was rejected and the result without
+            // box c solidified); the input is resolved exactly instead
             Func<Vector3d, DMesh3> box = (c) => new TrivialBox3Generator() { Box = new Box3d(c, Vector3d.One) }.Generate().MakeDMesh();
             DMesh3 overlapping = box(Vector3d.Zero);
             MeshEditor.Append(overlapping, box(new Vector3d(1, 0, 0)));
@@ -175,9 +225,9 @@ namespace geometry3Sharp.Tests
             var r = new MeshRobustRepair(input) { RepairF = (m) => new DMesh3(overlapping) };
             Assert.True(r.Apply());
             Assert.Equal("self-intersections", r.FallbackReason);
-            Assert.False(r.UsedExactResolve);
-            Assert.Equal("volume differs from the input", r.ExactResolveReason);
-            Assert.True(r.UsedSolidify);
+            Assert.True(r.UsedInput);
+            Assert.True(r.UsedExactResolve, r.ExactResolveReason);
+            Assert.Equal(3 * 2 * 2 + 8, Volume(r.Mesh), 9);     // the union of the overlapping boxes and box c
         }
 
         static DMesh3 Box(double x0, double y0, double z0, double x1, double y1, double z1)
@@ -220,6 +270,73 @@ namespace geometry3Sharp.Tests
             Assert.True(before.Zip(after, (a, b) => a.Distance(b)).Max() > 0);
             // nothing to do on a mesh without duplicated vertices
             Assert.Equal(0, MeshRobustRepair.SeparateTouchingVertices(Box(0, 0, 0, 1, 1, 1), 1e-4));
+        }
+
+        static int Degenerate(DMesh3 m)
+        {
+            double d = m.CachedBounds.DiagonalLength;
+            return m.TriangleIndices().Count(t => m.GetTriArea(t) < 1e-12 * d * d);
+        }
+
+        [Fact]
+        public void CollapseSlivers_RemovesNeedles()
+        {
+            // a box edge split at a point 1e-13 from its end: two needles (area below 1e-12 * diagonal^2)
+            DMesh3 m = Box(0, 0, 0, 1, 1, 1);
+            int eid = m.EdgeIndices().First(e => m.IsBoundaryEdge(e) == false);
+            Index2i ev = m.GetEdgeV(eid);
+            DMesh3.EdgeSplitInfo split;
+            Assert.Equal(MeshResult.Ok, m.SplitEdge(eid, out split));
+            Vector3d a = m.GetVertex(ev.a), b = m.GetVertex(ev.b);
+            m.SetVertex(split.vNew, a + 1e-13 * (b - a));
+            Assert.Equal(2, Degenerate(m));
+            Assert.True(MeshRobustRepair.CollapseSlivers(m) > 0);
+            Assert.Equal(0, Degenerate(m));
+            Assert.True(m.IsClosed());
+            Assert.True(m.CheckValidity(false, FailMode.ReturnOnly));
+            Assert.Equal(1.0, Volume(m), 9);
+            // nothing to do on a clean mesh
+            Assert.Equal(0, MeshRobustRepair.CollapseSlivers(Box(0, 0, 0, 1, 1, 1)));
+        }
+
+        [Fact]
+        public void CollapseSlivers_FlipsCaps()
+        {
+            // a face triangle poked at a point 1e-13 off its edge, in the face's plane: a cap (no short edge, so no
+            // collapse that would move the box) that a flip of its long edge removes
+            DMesh3 m = Box(0, 0, 0, 1, 1, 1);
+            int tid = m.TriangleIndices().First();
+            Index3i t = m.GetTriangle(tid);
+            Vector3d a = m.GetVertex(t.a), b = m.GetVertex(t.b), c = m.GetVertex(t.c);
+            DMesh3.PokeTriangleInfo poke;
+            Assert.Equal(MeshResult.Ok, m.PokeTriangle(tid, out poke));
+            m.SetVertex(poke.new_vid, 0.5 * (a + b) + 1e-13 * (c - 0.5 * (a + b)));
+            Assert.Equal(1, Degenerate(m));
+            var before = m.Vertices().ToList();
+            Assert.True(MeshRobustRepair.CollapseSlivers(m) > 0);
+            Assert.Equal(0, Degenerate(m));
+            Assert.True(m.IsClosed());
+            Assert.Equal(1.0, Volume(m), 12);
+            Assert.Equal(before, m.Vertices().ToList());     // no vertex moved
+        }
+
+        [Fact]
+        public void CollapseSlivers_RemovesTinyComponents()
+        {
+            // a flat tetrahedron of size 1e-7 next to a box (as where intersection points nearly coincide): its
+            // edges cannot be collapsed, the whole component is removed
+            DMesh3 m = Box(0, 0, 0, 1, 1, 1);
+            int n = m.TriangleCount;
+            Vector3d o = new Vector3d(2, 0, 0);
+            int v0 = m.AppendVertex(o), v1 = m.AppendVertex(o + new Vector3d(1e-7, 0, 0)),
+                v2 = m.AppendVertex(o + new Vector3d(0, 1e-7, 0)), v3 = m.AppendVertex(o + new Vector3d(3e-8, 3e-8, 1e-15));
+            m.AppendTriangle(v0, v2, v1); m.AppendTriangle(v0, v1, v3); m.AppendTriangle(v1, v2, v3); m.AppendTriangle(v2, v0, v3);
+            Assert.True(Degenerate(m) > 0);
+            Assert.True(MeshRobustRepair.CollapseSlivers(m) > 0);
+            Assert.Equal(0, Degenerate(m));
+            Assert.Equal(n, m.TriangleCount);
+            Assert.True(m.IsClosed());
+            Assert.Equal(1.0, Volume(m), 9);
         }
 
         [Fact]

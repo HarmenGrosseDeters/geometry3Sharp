@@ -9,8 +9,9 @@ the XML documentation of the classes (shipped in the NuGet package, so IDEs and 
 Without writing code: [tools/g3cli](../tools/g3cli/README.md) runs the main operations (measure, repair,
 boolean, resolve, remesh, simplify, convert) on mesh files, with JSON results, and as an MCP server.
 
-Namespaces: most classes are in `g3`; repair, solidify, hole filling, Hausdorff and geodesic distances are
-in `gs`. Add both: `using g3; using gs;`.
+Namespaces: most classes are in `g3`; many mesh operations are in `gs` (repair, alpha wrap, solidify, hole
+filling, wall thickness, deviation, Hausdorff and geodesic distances, intrinsic triangulations, terrain).
+Add both: `using g3; using gs;`.
 
 ## Common patterns
 
@@ -24,7 +25,8 @@ in `gs`. Add both: `using g3; using gs;`.
   `Reducer`, smoothers, hole fillers, `MeshPlaneCut`. New mesh in `Result`: `ExactMeshBoolean`,
   `MeshWindingNumberSolidify`. Pass `new DMesh3(mesh)` to keep the input of an in-place operation.
 - **Files**: `StandardMeshReader` / `StandardMeshWriter` pick the format from the extension and return an
-  `IOCode` with a message instead of throwing.
+  `IOCode` with a message instead of throwing (`StandardMeshReader.ReadMesh` returns null on failure, and
+  throws if the file was read but contains no mesh).
 
 ## Operations
 
@@ -53,7 +55,7 @@ in `gs`. Add both: `using g3; using gs;`.
 | You have | Use | Result |
 |---|---|---|
 | A mostly good mesh with small holes, duplicate vertices, degenerate triangles | `MeshAutoRepair` (with `PostRepairCleanup = true`) | the input triangles, welded and closed where possible; not guaranteed closed |
-| Any mesh, and you need a closed, manifold, self-intersection-free result | `MeshRobustRepair` | the repaired mesh if it is clean, otherwise its self-intersections resolved exactly (`UsedExactResolve`), otherwise the winding number solid (`UsedSolidify`, `FallbackReason`) |
+| Any mesh, and you need a closed, manifold, self-intersection-free result | `MeshRobustRepair` | the repaired mesh if it is clean, otherwise its self-intersections resolved exactly (`UsedExactResolve`), otherwise the winding number solid (`UsedSolidify`), otherwise the alpha wrap (`UsedAlphaWrap`); see `FallbackReason`. If the clean result lost volume (`MinVolumeIoU`) the input itself is resolved or solidified instead. `Apply()` returns false (`Mesh` unchanged) if cancelled or if neither the solidify nor the alpha wrap gave a mesh; a solidified result that is not clean either is kept when the wrap fails or is off (`UsedSolidify` and `SolidifyReason`) |
 | A triangle soup, overlapping parts, large holes | `MeshWindingNumberSolidify` | a new, remeshed closed surface; features below the cell size are lost |
 | Closed meshes that intersect themselves or each other, where the triangles must be kept exactly | `ExactMeshBoolean`, `ExactMeshBoolean.Resolve(mesh)` | exact arrangement, only the output coordinates are rounded; `SafeRounding = true` repairs the slivers and self-intersections the rounding leaves (`MeshRoundingRepair`, checked exactly, `RoundingClean`), `ComputeExactVertices = true` gives the exact rational coordinates (`ResultExactVertices`) |
 | Booleans of broken meshes (open, soups, overlapping shells) | `gs.MeshWindingNumberBoolean` | a new, remeshed closed surface (winding numbers on an adaptive octree) |
@@ -106,7 +108,8 @@ repair.Apply();
 DMesh3 repaired = repair.Mesh;           // a compacted copy: always read repair.Mesh
 
 var robust = new MeshRobustRepair(mesh);
-robust.Apply();                          // robust.Mesh is closed, manifold, without self-intersections
+if (robust.Apply())                      // robust.Mesh: closed, manifold, no self-intersections, except
+    mesh = robust.Mesh;                  // in the rare case UsedSolidify && SolidifyReason != ""
 ```
 
 See [MeshRepairExample](examples/MeshRepairExample.cs), [HoleFillExample](examples/HoleFillExample.cs),

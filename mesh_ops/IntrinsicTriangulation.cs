@@ -356,8 +356,9 @@ namespace gs
             // signposts of the new edge: from k->i (counter-clockwise, by the new angle at k), from l->j
             double angK = angle_from_lengths(hLen[tb], hLen[hc], lkl);      // in (k, i, l) at k: opposite i->l
             double angL = angle_from_lengths(hLen[hb], hLen[tc], lkl);      // in (l, j, k) at l: opposite j->k
-            double phiK = wrap(hAngle[hc] + vScale[vk] * angK);
-            double phiL = wrap(hAngle[tc] + vScale[vl] * angL);
+            // (boundary signposts run from 0 to the angle sum, which can exceed 2 pi: not wrapped)
+            double phiK = vBoundary[vk] ? hAngle[hc] + angK : wrap(hAngle[hc] + vScale[vk] * angK);
+            double phiL = vBoundary[vl] ? hAngle[tc] + angL : wrap(hAngle[tc] + vScale[vl] * angL);
 
             // new triangles: slot (ha, hb, hc) = (k->l, l->j, j->k), slot (ta, tb, tc) = (l->k, k->i, i->l)
             int[] from = { hb, tc, hc, tb };
