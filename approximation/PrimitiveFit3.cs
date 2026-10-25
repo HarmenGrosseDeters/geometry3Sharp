@@ -9,7 +9,8 @@ namespace g3
     /// optional normals. Two stages:
     ///   1. RANSAC (Fischler and Bolles, "Random sample consensus", CACM 1981) over minimal samples, with
     ///      the minimal sets of Schnabel, Wahl and Klein, "Efficient RANSAC for point-cloud shape detection"
-    ///      (Computer Graphics Forum 2007): plane from 3 points, sphere from 4 points, cylinder from 2 points
+    ///      (Computer Graphics Forum 2007): plane from 3 points, sphere from 2 points with normals (4 points
+    ///      without normals), cylinder from 2 points
     ///      with normals, cone from 3 points with normals. (Their localized sampling is not used: it finds
     ///      some small part quickly, which suits detecting many shapes, but stops before the largest one.) Candidates are scored with the truncated quadratic
     ///      loss of MSAC (Torr and Zisserman, "MLESAC", CVIU 2000); a point counts as inlier when it is within
@@ -319,7 +320,10 @@ namespace g3
         bool ransac(out Model best)
         {
             int n = Points.Length;
-            int k = minimal_sample_size(Primitive);
+            // a sphere from 2 points with normals when normals are known (Schnabel et al.): far fewer samples
+            // than with 4 points at a low inlier ratio
+            bool sphereFromNormals = Primitive == Primitives.Sphere && normals != null;
+            int k = sphereFromNormals ? 2 : minimal_sample_size(Primitive);
             var rnd = new Random(Seed);
             int[] sample = new int[k];
             best = new Model();
@@ -335,19 +339,14 @@ namespace g3
                     sample[j] = s;
                 }
                 bool known = true;
-                if (Primitive == Primitives.Cylinder || Primitive == Primitives.Cone)
+                if (Primitive == Primitives.Cylinder || Primitive == Primitives.Cone || sphereFromNormals)
                     for (int j = 0; j < k && known; ++j) known = normals[sample[j]] != Vector3d.Zero;
                 Model m;
                 if (known == false || minimal_model(sample, out m) == false || valid(m) == false)
                     continue;
-                // the sample itself must be consistent (normals)
-                bool consistent = true;
+                // no consistency test of the sample's own points: a rough candidate from noisy normals is
+                // still a good start for the local optimization below
                 double d;
-                for (int j = 0; j < k && consistent; ++j)
-                    consistent = is_inlier(m, sample[j], out d);
-                if (consistent == false)
-                    continue;
-
                 double cost = 0;
                 int cnt = 0;
                 for (int i = 0; i < n && cost < bestCost; ++i) {
@@ -407,6 +406,13 @@ namespace g3
                         return true;
                     }
                 case Primitives.Sphere: {
+                        if (s.Length == 2) {
+                            // center: closest point of the two normal lines, radius: mean distance to it
+                            Vector3d c2;
+                            if (line_line(Points[s[0]], normals[s[0]], Points[s[1]], normals[s[1]], out c2) == false) return false;
+                            m = new Model(c2, Vector3d.AxisZ, 0.5 * (Points[s[0]].Distance(c2) + Points[s[1]].Distance(c2)));
+                            return true;
+                        }
                         // 2 (p_i - p_0) . c = |p_i|^2 - |p_0|^2, relative to p_0 for accuracy
                         Vector3d p0 = Points[s[0]];
                         double[] A = new double[9], b = new double[3];

@@ -19,9 +19,11 @@ namespace MeshRepairBenchmark
             double diag = mesh.CachedBounds.DiagonalLength;
             r["diag"] = diag;
             r["closed"] = mesh.IsClosed();
-            Thickness(mesh, diag, r);
-            Deviation(mesh, diag, r);
-            Fitting(mesh, diag, r);
+            // BENCH_ANALYSIS: comma separated subset of thickness,deviation,fitting (default all)
+            string parts = Environment.GetEnvironmentVariable("BENCH_ANALYSIS") ?? "thickness,deviation,fitting";
+            if (parts.Contains("thickness")) Thickness(mesh, diag, r);
+            if (parts.Contains("deviation")) Deviation(mesh, diag, r);
+            if (parts.Contains("fitting")) Fitting(mesh, diag, r);
         }
 
         static double Rel(double v, double diag) => double.IsNaN(v) ? double.NaN : v / diag;
