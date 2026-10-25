@@ -11,6 +11,8 @@ python3 fetch_data.py            # ~1.5 GB: 400 meshes <= 100k faces + 30 meshes
 ./run_all.sh instr               # instrumented pipeline copy, quality after every step
 ./run_all.sh robust              # MeshRobustRepair: cleanup, solidify fallback, volume check
 BENCH_P=2 ./run_all.sh hybrid    # BENCH_P: meshes in parallel
+python3 fetch_data.py --holdout  # disjoint second selection in data/holdout/ (see "Holdout selection")
+BENCH_DATA=holdout ./run_all.sh robust              # runs on data/holdout/, writes results/holdout/
 python3 analyze_fidelity.py results/robust.jsonl    # repaired = clean + no self-intersections + faithful
 python3 analyze.py results/default.jsonl            # status per category, exceptions, triangle loss
 python3 analyze_quality.py results/cleanup.jsonl    # quality before/after
@@ -173,3 +175,52 @@ Most of the remaining Hausdorff misses at 256 are not grid error: the input has 
 solidify. Extrapolated to the 400 set, resolution 256 would repair about 30–40 more meshes at 1.6× the
 median time, 2.4× the triangles and a few new self-intersections. An adaptive choice (solidify at 128,
 check the deviation, repeat at 256 only where it is too large) is cheaper than raising the default.
+
+## Holdout selection (second, independent sample)
+All fixes above were developed and measured on the same seeded selection, so the numbers may be tuned
+to it. `fetch_data.py --holdout` draws a second selection of the same shape (6 × 60 broken meshes ≤ 100k
+faces, 40 clean controls, 30 large meshes) with other seeds (2026, 2027), excluding every mesh of the
+default selection: 0 of 430 meshes in common. Runs with `BENCH_P=2 TIMEOUT=300`, library state of
+2026-10-25. The default selection numbers are those of the table above (older builds).
+
+| | default | cleanup | robust | solidify |
+|---|---|---|---|---|
+| clean¹ + no exact self-intersections, holdout | 119 | 193 | **367** | 365 |
+| ... first selection | 100 | 188 | 347 | 316 |
+| **repaired**, holdout | 110 | 170 | **217** | 182 |
+| ... first selection | 95 | 166 | 211 | 172 |
+| median repair time, holdout | 0.31 s | 0.38 s | 4.1 s | 4.3 s |
+| ... first selection | 0.37 s | 0.60 s | 5.2 s | 5.4 s |
+| large meshes repaired, holdout | 0/30 | 4/30 | 8/30 | 8/30 |
+| ... first selection | 4/30 | 5/30 | 9/30 | 6/30 |
+
+The sampling error is about ±10 meshes (±3 %) per 400. `hybrid` was stopped after 106 meshes
+(52 repaired); since `robust` is its library version, it was not rerun.
+
+- **No sign of overfitting.** `robust` repairs 217 vs 211 and `cleanup` 170 vs 166, within the
+  sampling error. The differences beyond it go up, not down:
+  - `default`: +15 repaired, +19 clean. The default pipeline has no fix tuned on the first selection,
+    so the holdout set is either slightly easier or later library fixes help; a rerun of `default` on
+    the first selection with the current build will tell.
+  - `robust` and `solidify`: +20 and +49 clean without self-intersections. Both mostly reflect the dual
+    contouring fixes made after the first-selection runs (an interim `robust` rerun on the first
+    selection showed +10 on 202 meshes).
+- No crashes and no timeouts in any mode; all 400 meshes are closed after the repair.
+- `robust` per category (repaired / 60): degenerate faces 45, not closed 32, not PWN 32, not vertex
+  manifold 26, not edge manifold 23, duplicated faces 20; clean controls 39/40. Two clean controls
+  (101556.stl, 439140.stl) are solidified because they self-intersect.
+- What triggers the solidify in `robust`: kept the repair 174, self-intersections 105, degenerate
+  triangles 83, inside-out components 19, volume differs from the input 19 (first selection: 173, 96,
+  89, 25, 16).
+- Why `robust` misses the strict criterion (183 meshes, first selection 189):
+  - 137 (first selection 116): Hausdorff ≥ 1 % (133 of them solidified, e.g. 100026.stl, 1017013.stl;
+    4 kept repairs, e.g. 122126.stl). Beyond the sampling error, the grid-bounded fidelity of the
+    solidify is the main limit on this selection too.
+  - 29 (first selection 47): self-intersections after the solidify (e.g. 101085.stl, 101952.stl).
+  - 13: IoU ≤ 0.99 (e.g. 1004826.stl, 104509.stl).
+  - **4, not seen before: the solidified mesh is not consistently oriented** (4–87 edges; 100030.stl,
+    226568.stl, 37402.stl, the last also with 4 degenerate triangles).
+- Time: the solidify takes 85 % of the `robust` repair time (226 meshes, median 6.4 s); kept repairs
+  still take 2.1 s (median) against 0.38 s for `cleanup`, spent in the exact self-intersection and
+  volume IoU checks. Outliers that the size does not explain: 78968.stl (5k triangles, 150 s),
+  49998.stl (12k triangles, 118 s).
