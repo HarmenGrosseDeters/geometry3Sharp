@@ -18,6 +18,10 @@ Its direction is described in [docs/ROADMAP.md](docs/ROADMAP.md). It adds:
   (`ExactMeshBoolean.Resolve(mesh)` does that for one mesh); open meshes use the generalized winding number.
   Only the output coordinates are rounded to double.
 - Mesh file formats PLY, 3MF and glTF 2.0 (see below).
+- Analysis building blocks: `MeshWallThickness` (wall thickness per vertex / triangle: inward ray, shape
+  diameter function, largest inscribed ball / medial axis), `MeshDeviation` (signed deviation map of a mesh
+  against a reference, with statistics and the certified Hausdorff bound) and `PrimitiveFit3` (plane, sphere,
+  cylinder and cone, RANSAC plus least squares).
 - `BufferUtil.DecompressZLib` fix: on .NET Core it returned partly empty buffers for large data.
 
 ## Build, targets, tests
@@ -170,6 +174,7 @@ Several tutorials for using g3Sharp have been posted on the Gradientspace blog:
 - **QuadraticFit2**: fit general quadratic or 2D circle to set of 2D points
 - **GaussPointsFit3**: fit mean/covariance of gaussian distribution to set of 3D points
 - **OrthogonalPlaneFit3**: fit of plane to 3D point set
+- **PrimitiveFit3**: robust fit of plane, sphere, cylinder or cone to 3D points (optionally with normals): RANSAC over minimal samples, then Levenberg-Marquardt on the orthogonal distances of the inliers
 
 
 ## Solvers
@@ -347,6 +352,8 @@ Several tutorials for using g3Sharp have been posted on the Gradientspace blog:
 - **MergeCoincidentEdges**: weld coincident open boundary edges of mesh (more robust than weld vertices!)
 - **RemoveDuplicateTriangles**: remove duplicate triangles of mesh
 - **RemoteOccludedTriangles**: remove triangles that are "occluded" under various definitions
+- **MeshWallThickness**: wall thickness per vertex and triangle: inward ray, shape diameter function, or diameter of the largest inscribed ball (shrinking ball medial axis approximation)
+- **MeshDeviation**: signed distance of every vertex to a reference mesh (pseudo-normal or winding-number sign), with area weighted statistics, percentiles, histogram and optional certified Hausdorff bound
 - **MeshAutoRepair**: apply many of the above algorithms in an attempt to automatically "repair" an input mesh, where "repaired" means the mesh is closed and manifold.
 
 
@@ -416,6 +423,7 @@ Several tutorials for using g3Sharp have been posted on the Gradientspace blog:
 ## 3D Solids
 
 - **Cylinder3d**
+- **Cone3d**: apex, axis, half angle; signed distance
 - **DenseGridTrilinearImplicit**: trilinear interpolant of 3D grid
 - **CachingDenseGridTrilinearImplicit**: variant of DenseGridTrilinearImplicit that does lazy evaluation of grid values based on an implicit function
 
