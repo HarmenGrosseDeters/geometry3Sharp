@@ -10,6 +10,11 @@ volume identities `V(A∪B) + V(A∩B) = V(A) + V(B)` and `V(A−B) = V(A) − V
 
 The external code is not part of this repository; build it next to it as described below.
 
+**Licenses:** the files in `external/` are small drivers written for this comparison. `cgal_bool.cpp` links
+against CGAL's Polygon Mesh Processing, which is GPL: a compiled `cgal_bool` falls under the GPL, so it is not
+distributed, and nothing of CGAL is part of the library (which stays under the Boost license). Cherchi et al.
+(MIT) and Manifold (Apache-2.0) are only run as external programs as well. See also `docs/SOURCES.md`.
+
 ## Methods
 
 | name | implementation | license | threads |

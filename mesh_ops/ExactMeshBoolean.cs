@@ -26,6 +26,8 @@ namespace g3
     /// solid where it is above 0.5; then the result is generally not closed. An inside-out mesh (winding
     /// number -1) has an empty solid. Degenerate (zero-area) input
     /// triangles are dropped. The rounding of new vertices can, rarely, create tiny self-intersections.
+    ///
+    /// Implemented from the papers cited here and in ExactMeshArrangement, no code taken over (docs/SOURCES.md).
     /// </summary>
     public class ExactMeshBoolean
     {

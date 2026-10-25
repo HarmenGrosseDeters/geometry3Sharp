@@ -23,6 +23,13 @@ namespace g3
     /// Intersections between triangles of the same mesh are computed if SelfIntersections is set; then also
     /// T-junctions (a vertex on the edge of a neighbour, closed by a degenerate triangle) are split, since the
     /// triangles touch along a segment. Degenerate (zero-area) triangles are not part of the output.
+    ///
+    /// Sources (implemented from the papers, no code taken over; see docs/SOURCES.md): Zhou, Grinspun, Zorin,
+    /// Jacobson, "Mesh Arrangements for Solid Geometry", 2016 (exact arrangement); Attene, "Indirect Predicates
+    /// for Geometric Constructions", 2020, and Cherchi, Livesu, Scateni, Attene, "Fast and Robust Mesh
+    /// Arrangements using Floating-point Arithmetic", 2020 (implicit points with filters); Shewchuk, "Adaptive
+    /// Precision Floating-Point Arithmetic and Fast Robust Geometric Predicates", 1997 (error bounds); Sloan,
+    /// "A fast algorithm for generating constrained Delaunay triangulations", 1993.
     /// </summary>
     internal class ExactMeshArrangement
     {
