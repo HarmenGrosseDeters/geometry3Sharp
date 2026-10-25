@@ -123,6 +123,19 @@ namespace g3cli.Tests
         }
 
         [Fact]
+        public void NonFiniteNumbers_AreInvalidArguments()
+        {
+            // 1e400 is a valid JSON number but infinite as a double; the CLI already rejected "--tolerance 1e400"
+            var server = Server();
+            string call = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"measure\",\"arguments\":" +
+                "{\"input\":" + JsonValue.Create(m.Cube).ToJsonString() + ",\"compare\":" + JsonValue.Create(m.Shifted).ToJsonString() + ",\"tolerance\":1e400}}}";
+            JsonObject r = server.Handle(call).AsObject();
+            Assert.True(B(r["result"]["isError"]), r.ToJsonString());
+            Assert.Equal("invalid_arguments", S(r["result"]["structuredContent"]["code"]));
+            Assert.Contains("tolerance", S(r["result"]["structuredContent"]["message"]));
+        }
+
+        [Fact]
         public void ProtocolErrors()
         {
             var server = Server();
