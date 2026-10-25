@@ -31,7 +31,7 @@ selectively.
 - [x] Package metadata: SPDX license, README, XML docs, symbols
 - [x] Mesh formats PLY, 3MF, glTF/GLB (read and write)
 - [ ] Package ID and publishing (nuget.org ID `geometry3Sharp` belongs to upstream)
-- [ ] API docs and examples per operation
+- [x] API docs and examples per operation ([OPERATIONS.md](OPERATIONS.md), examples run as tests)
 
 ## Phase 2: robustness
 
@@ -60,8 +60,11 @@ selectively.
 
 ## Phase 4: platform layer
 
-- CLI / MCP server over the operations
-- Analysis building blocks: wall thickness (shape diameter function, medial axis), deviation maps, primitive fitting
+- [x] CLI / MCP server over the operations: `tools/g3cli` (measure, repair, boolean, resolve, remesh, simplify,
+  convert; JSON results with result codes; `g3cli mcp` over stdio)
+- [x] Analysis building blocks: wall thickness (`MeshWallThickness`: ray, shape diameter function, inscribed ball /
+  medial axis), deviation maps (`MeshDeviation`, statistics in `DeviationStatistics`), primitive fitting
+  (`PrimitiveFit3`: plane, sphere, cylinder, cone; RANSAC + least squares)
 - A showcase domain: terrain / GIS (in progress) and biomedical / orthotics
 
 ## Later

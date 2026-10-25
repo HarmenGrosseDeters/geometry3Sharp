@@ -8,26 +8,7 @@ using System.Globalization;
 namespace g3
 {
 
-	/// <summary>
-	/// gradientspace OBJ mesh format parser
-	/// 
-	/// Basic structure is:
-	///   1) parse OBJ into internal data structures that represent OBJ exactly
-	///   2) convert to mesh objects based on options/etc
-	/// 
-	/// [TODO] major current limitation is that we do not support multiple UVs per-vertex
-	///   (this is a limitation of DMesh3). Similarly no multiple normals per-vertex. So,
-	///   in the current code, such vertices are duplicated. See append_vertex() and use
-	///   of Index3i triplet (vi,ni,ui) to represent vertex in BuildMeshes_X() functions
-	/// 
-	/// [TODO] only a single material can be assigned to a mesh, this is a current limitation
-	///   of DMesh3Builder. So, in this case we are splitting the input mesh by material, IE
-	///   multiple meshes are returned for a single input mesh, each with one material.
-	/// 
-	/// 
-	/// </summary>
-
-
+    // OBJ face as parsed: 1-based vertex/normal/UV indices, material and group IDs
     internal struct Triangle
     {
         public const int InvalidMaterialID = -1;
@@ -78,6 +59,30 @@ namespace g3
 
 
 
+	/// <summary>
+	/// gradientspace OBJ mesh format parser
+	/// 
+	/// Basic structure is:
+	///   1) parse OBJ into internal data structures that represent OBJ exactly
+	///   2) convert to mesh objects based on options/etc
+	/// 
+	/// Reads v (optionally with r g b vertex colors), vn, vt and f lines (polygons are fan-triangulated,
+	/// negative indices are supported), "g" groups as triangle groups, and with ReadOptions.ReadMaterials
+	/// mtllib/usemtl materials (set <see cref="MTLFileSearchPaths"/>). "o" objects are ignored, so all objects
+	/// become one mesh. Lines that fail to parse are skipped with a warning. A file without vertices or
+	/// triangles returns <see cref="IOCode.GarbageDataError"/> (point clouds are not read).
+	/// Only the TextReader overload is implemented.
+	/// 
+	/// [TODO] major current limitation is that we do not support multiple UVs per-vertex
+	///   (this is a limitation of DMesh3). Similarly no multiple normals per-vertex. So,
+	///   in the current code, such vertices are duplicated. See append_vertex() and use
+	///   of Index3i triplet (vi,ni,ui) to represent vertex in BuildMeshes_X() functions
+	/// 
+	/// [TODO] only a single material can be assigned to a mesh, this is a current limitation
+	///   of DMesh3Builder. So, in this case we are splitting the input mesh by material, IE
+	///   multiple meshes are returned for a single input mesh, each with one material.
+	/// 
+	/// </summary>
     public class OBJReader : IMeshReader
     {
         DVector<double> vPositions;
@@ -108,29 +113,42 @@ namespace g3
             MTLFileSearchPaths = new List<string>();
         }
 
-		// you need to initialize this with paths if you want .MTL files to load
+        /// <summary>
+        /// Directories searched for mtllib files. You need to initialize this with paths if you want .MTL files to load
+        /// (OBJFormatReader adds the directory of the .obj file when reading by filename with ReadOptions.ReadMaterials).
+        /// </summary>
 		public List<string> MTLFileSearchPaths { get; set; } 
 
-        // connect to this to get warning messages
+        /// <summary> connect to this to get warning messages </summary>
 		public event ParsingMessagesHandler warningEvent;
 
 
+        /// <summary> True if the last parsed file had vertex colors ("v x y z r g b") </summary>
         public bool HasPerVertexColors { get { return m_bOBJHasPerVertexColors; } }
+        /// <summary> Largest number of vt components seen in the last parsed file (only the first two are used) </summary>
         public int UVDimension{ get { return m_nUVComponents; } }
 
+        /// <summary> True if the last parsed file contained "g" group lines </summary>
         public bool HasTriangleGroups { get { return m_bOBJHasTriangleGroups; } }
 
 
-        // if this is true, means during parsing we found vertices of faces that
-        //  had different indices for vtx/normal/uv
+        /// <summary>
+        /// If this is true, means during parsing we found vertices of faces that
+        /// had different indices for vtx/normal/uv (such vertices are duplicated in the output mesh)
+        /// </summary>
         public bool HasComplexVertices { get; set; }
 
 
+        /// <summary> Not implemented, OBJ is a text format. Throws NotImplementedException. </summary>
         public IOReadResult Read(BinaryReader reader, ReadOptions options, IMeshBuilder builder)
         {
             throw new NotImplementedException();
         }
 
+        /// <summary>
+        /// Parse OBJ text and append the mesh(es) to builder: one mesh, or one mesh per used material
+        /// if there are several materials or vertices with separate normal/UV indices.
+        /// </summary>
         public IOReadResult Read(TextReader reader, ReadOptions options, IMeshBuilder builder)
         {
             Materials = new Dictionary<string, OBJMaterial>();
@@ -343,6 +361,10 @@ namespace g3
 
 
 
+        /// <summary>
+        /// Parse OBJ text into the internal buffers without building meshes (used by Read()).
+        /// Always returns Ok; unparseable lines produce warnings.
+        /// </summary>
         public IOReadResult ParseInput(TextReader reader, ReadOptions options)
         {
             vPositions = new DVector<double>();
@@ -604,6 +626,10 @@ namespace g3
 
 
 
+        /// <summary>
+        /// Parse a .mtl file into the material set used by usemtl lines. Returns FileAccessError if
+        /// the file cannot be opened or is empty.
+        /// </summary>
 		public IOReadResult ReadMaterials(string sPath)
 		{
             if (nWarningLevel >= 1)

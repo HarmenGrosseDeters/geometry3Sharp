@@ -18,17 +18,21 @@ namespace gs
     ///
     /// The result is a new mesh (the input triangulation and attributes are not kept), and features smaller
     /// than CellSize (thin walls, narrow gaps) are lost. For exact booleans that keep the input geometry,
-    /// use a mesh-arrangement method instead.
+    /// use ExactMeshBoolean (mesh arrangement) instead. The inputs are not modified.
     /// </summary>
     public class MeshWindingNumberBoolean
     {
+        /// <summary> boolean operation; Difference is A minus B </summary>
         public enum Operations { Union = 0, Intersection = 1, Difference = 2 }
 
+        /// <summary> input meshes (not modified) </summary>
         public DMesh3 MeshA, MeshB;
+        /// <summary> the operation to compute </summary>
         public Operations Operation;
 
         /// <summary> grid cell size. If zero, uses bounding box diagonal of both inputs / GridResolution </summary>
         public double CellSize = 0;
+        /// <summary> number of cells along the bounding box diagonal (of both inputs), used if CellSize is zero </summary>
         public int GridResolution = 128;
 
         /// <summary> run MeshPostRepairCleanup on the result </summary>
@@ -59,9 +63,11 @@ namespace gs
         /// </summary>
         public bool LocalRefinement = true;
 
+        /// <summary> return true to cancel; Compute() then returns false </summary>
         public Func<bool> CancelF = () => { return false; };
 
         // outputs
+        /// <summary> the boolean result computed by Compute() (a new mesh; empty if the result is empty) </summary>
         public DMesh3 Result;
         public int NonManifoldTriangles;
         public int WindingEvaluations;
@@ -86,6 +92,14 @@ namespace gs
         }
 
 
+        /// <summary>
+        /// Compute the boolean into Result.
+        /// </summary>
+        /// <returns>
+        /// false if both inputs are empty, the cell size is not positive or too small for the octree, or the
+        /// computation was cancelled; true otherwise (Result may be an empty mesh, eg an intersection with an
+        /// empty input).
+        /// </returns>
         public bool Compute()
         {
             if (MeshA.TriangleCount == 0 && MeshB.TriangleCount == 0)
