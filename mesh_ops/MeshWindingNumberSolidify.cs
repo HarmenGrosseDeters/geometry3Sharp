@@ -118,7 +118,8 @@ namespace gs
                 WindingEvaluations = wc.WindingEvaluations;
                 NonManifoldTriangles = wc.NonManifoldTriangles;
                 HiddenGapEdges = wc.HiddenGapEdges;
-            GapEdgesPerLevel = new List<int>(wc.GapEdgesPerLevel);
+                GapEdgesPerLevel = new List<int>(wc.GapEdgesPerLevel);
+                foreach (var kv in wc.PhaseMilliseconds) PhaseMilliseconds["contour." + kv.Key] = kv.Value;
                 end_phase("contour");
             } else {
                 contour = compute_grid(cellSize);

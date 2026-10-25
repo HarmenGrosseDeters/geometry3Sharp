@@ -103,6 +103,7 @@ namespace gs
             NonManifoldTriangles = wc.NonManifoldTriangles;
             HiddenGapEdges = wc.HiddenGapEdges;
             GapEdgesPerLevel = new List<int>(wc.GapEdgesPerLevel);
+            foreach (var kv in wc.PhaseMilliseconds) PhaseMilliseconds["contour." + kv.Key] = kv.Value;
             UsedCellSize = cellSize;
             end_phase("contour");
             if (CancelF() || contour == null)

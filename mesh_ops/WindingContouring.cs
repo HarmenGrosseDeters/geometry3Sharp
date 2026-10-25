@@ -28,6 +28,8 @@ namespace gs
         /// <summary> hidden gap edges whose gap is at least MinFixableGapWidth wide (refining can resolve them) </summary>
         public int FixableGapEdges;
         public double MinFixableGapWidth = 0;
+        /// <summary> time per phase (ms, summed over the refinement levels): octree, then the dual contouring phases </summary>
+        public Dictionary<string, long> PhaseMilliseconds = new Dictionary<string, long>();
         /// <summary> hidden gap edges at each refinement level of ContourRefined </summary>
         public List<int> GapEdgesPerLevel = new List<int>();
 
@@ -80,7 +82,9 @@ namespace gs
                 TargetLeafCellSize = cellSize, WindingIso = Iso, CancelF = CancelF,
                 GridOffset = new Vector3d(0.1371, 0.2713, 0.3891)
             };
+            var timer = System.Diagnostics.Stopwatch.StartNew();
             octree.Build();
+            add_phase("octree", timer.ElapsedMilliseconds);
             if (CancelF())
                 return null;
 
@@ -96,6 +100,8 @@ namespace gs
             dc.HiddenGapF = (a, b) => HiddenGap(cellSize, a, b);
             fixableGaps = 0;
             dc.Generate();
+            foreach (var kv in dc.PhaseMilliseconds)
+                add_phase(kv.Key, kv.Value);
             WindingEvaluations = octree.WindingEvaluations;
             HiddenGapEdges = dc.HiddenGapEdges;
             FixableGapEdges = fixableGaps;
@@ -105,6 +111,12 @@ namespace gs
             if (NonManifoldTriangles > 0)
                 FillSmallHoles(dc.Mesh);
             return dc.Mesh;
+        }
+
+        void add_phase(string name, long ms)
+        {
+            long cur;
+            PhaseMilliseconds[name] = PhaseMilliseconds.TryGetValue(name, out cur) ? cur + ms : ms;
         }
 
         /// <summary>
