@@ -367,5 +367,28 @@ namespace geometry3Sharp.Tests
             Assert.True(vd.Compute());
             Assert.True(Math.Abs(vd.NetVolume) < 0.05 * vd.OverlapArea, $"net {vd.NetVolume} over {vd.OverlapArea}");
         }
+        [Fact]
+        public void MaxError_SplitsMergedCellsWithFarSamples()
+        {
+            // Tolerance is an RMS: single samples of a merged cell can lie several times farther. With
+            // MaxError the merged cells with a sample beyond it are split again
+            var rnd = new Random(167);
+            var planes2 = Enumerable.Range(0, 15).Select(_ => new Vector3d(rnd.NextDouble() * 1.6 - 0.8, rnd.NextDouble() * 1.6 - 0.8, rnd.NextDouble() * 40)).ToList();
+            var planes = Enumerable.Range(0, 25).Select(_ => new Vector3d(rnd.NextDouble() * 1.2 - 0.6, rnd.NextDouble() * 1.2 - 0.6, rnd.NextDouble() * 40)).ToList();
+            double noise = rnd.NextDouble() * 0.4;
+            DMesh3 mesh = Heightfield((x, y) => planes.Max(p => p.x * (x - 60) + p.y * (y - 60) + p.z) + planes2.Min(p => p.x * (x - 60) + p.y * (y - 60) + p.z)
+                + noise * (rnd.NextDouble() - 0.5), 0, 0, 120, 120, 121);
+
+            var rms = new TerrainDualContouring(mesh) { CellSize = 1, Tolerance = 0.3, MaxError = 1e6 };
+            Assert.True(rms.Compute());
+            var max = new TerrainDualContouring(mesh) { CellSize = 1, Tolerance = 0.3, MaxError = 0.2 };
+            Assert.True(max.Compute());
+            Assert.True(rms.MaxSampleError > 0.3, $"RMS tolerance only: {rms.MaxSampleError}");
+            Assert.True(max.SplitLeaves > rms.SplitLeaves);
+            Assert.True(max.Result.TriangleCount > rms.Result.TriangleCount);
+            // left above it: only samples in finest cells (which cannot be split)
+            Assert.True(max.MaxErrorViolations < 0.01 * 121 * 121 * 16, $"{max.MaxErrorViolations} samples above, max {max.MaxSampleError}");
+            Assert.Equal(0, TerrainVolumeDifference.XYOverlaps(max.Result));
+        }
     }
 }

@@ -3,7 +3,7 @@
 //   common keys: win=x0,y0,x1,y1 (UTM window), coords=utm|local (local: everything shifted to the window corner)
 //   volume   before=<grid> after=<grid> [simplify=<m>] [heightcheck=1]
 //   repair   grid=<grid> variant=clean|tiles|overlap|holes mode=auto|cleanup|robust|tdc
-//   tdc      grid=<grid> [points=<cloud>] [cell=1] [tol=0]
+//   tdc      grid=<grid> [points=<cloud>] [cell=1] [tol=0] [maxerr=0] [reduce=0]
 //   offset   grid=<grid> d=<m> [cell=1]
 //   safety   grid=<grid> d=<m> mode=horizontal|surface|guaranteed|guaranteed [terrain=grid|tdc] [tol=0.05] [angle=20]
 //   geodesic grid=<grid> [src=center|crest] [tf=1]
@@ -250,11 +250,22 @@ class Program
         R["load_s"] = Secs(sw);
         tdc.CellSize = ArgD("cell", 1);
         tdc.Tolerance = ArgD("tol", 0);
+        tdc.MaxError = ArgD("maxerr", 0);
         bool ok = tdc.Compute();
         R["tdc_s"] = Secs(sw);
         R["ok"] = ok;
         if (!ok) return;
         DMesh3 res = tdc.Result;
+        if (tdc.MaxError > 0) { R["max_sample_error"] = tdc.MaxSampleError; R["max_error_violations"] = tdc.MaxErrorViolations; }
+        double reduce = ArgD("reduce", 0);
+        if (reduce > 0) {
+            // further decimation with a certified (3D, one-sided) deviation from the TDC surface
+            R["tdc_tris"] = res.TriangleCount;
+            var reducer = new Reducer(res) { MaxDeviation = reduce };
+            reducer.ReduceToTriangleCount(1);
+            res = new DMesh3(res, true);
+            R["reduce_s"] = Secs(sw);
+        }
         R["result_tris"] = res.TriangleCount;
         R["leaf_cells"] = tdc.LeafCells; R["finest_cells"] = tdc.FinestCells; R["skipped_tris"] = tdc.SkippedTriangles;
         R["split_leaves"] = tdc.SplitLeaves; R["removed_tris"] = tdc.RemovedTriangles;

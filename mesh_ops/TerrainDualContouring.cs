@@ -57,6 +57,14 @@ namespace gs
         public bool Adaptive = true;
         /// <summary> RMS distance tolerance for merging (0 = 0.05 * CellSize) </summary>
         public double Tolerance = 0;
+        /// <summary>
+        /// If > 0, the largest vertical distance of the result from the input at the sample rays: merged
+        /// cells with a sample farther away are split (the error of the merging test, Tolerance, is an RMS,
+        /// so single samples can lie several times farther). Finest cells cannot be split: where the input
+        /// changes faster than a cell resolves (eg a 1 m cell at a higher vertical wall) the error can stay
+        /// above it, counted in MaxErrorViolations. Keeps the sample heights (4 bytes per sample).
+        /// </summary>
+        public double MaxError = 0;
         /// <summary> largest merged cell, in finest cells (power of two) </summary>
         public int MaxCellSize = 32;
 
@@ -78,6 +86,9 @@ namespace gs
         public int SplitLeaves;
         /// <summary> triangles dropped because they overlapped others in XY (finest cells, boundary of point clouds) </summary>
         public int RemovedTriangles;
+        /// <summary> MaxError: the largest vertical distance at the sample rays, and the samples above MaxError (finest cells) </summary>
+        public double MaxSampleError;
+        public int MaxErrorViolations;
 
 
         public TerrainDualContouring(DMesh3 mesh)
@@ -159,14 +170,18 @@ namespace gs
             // triangle then covers a neighbour's vertex: overlapping triangles in XY (eg 24 in 11M on a
             // real open pit), not a height field. The leaves of such triangles are split and the mesh rebuilt.
             SplitLeaves = 0;
-            for (int round = 0; round < 16 && Adaptive && RemoveOverlaps; ++round) {
+            for (int round = 0; round < 32 && Adaptive && (RemoveOverlaps || MaxError > 0); ++round) {
                 var split = new HashSet<int>();
-                foreach (Index2i pair in TerrainVolumeDifference.XYOverlapPairs(Result))
-                    foreach (int tid in new[] { pair.a, pair.b }) {
-                        Index3i tv = Result.GetTriangle(tid);
-                        for (int k = 0; k < 3; ++k)
-                            if (leaves[vertexLeaf[tv[k]]].Level > 0) split.Add(vertexLeaf[tv[k]]);
-                    }
+                if (RemoveOverlaps)
+                    foreach (Index2i pair in TerrainVolumeDifference.XYOverlapPairs(Result))
+                        foreach (int tid in new[] { pair.a, pair.b }) {
+                            Index3i tv = Result.GetTriangle(tid);
+                            for (int k = 0; k < 3; ++k)
+                                if (leaves[vertexLeaf[tv[k]]].Level > 0) split.Add(vertexLeaf[tv[k]]);
+                        }
+                // merged cells with a sample farther than MaxError (vertically) from the result
+                if (MaxError > 0)
+                    split.UnionWith(check_samples());
                 if (split.Count == 0 || CancelF())
                     break;
                 foreach (int li in split)
@@ -175,6 +190,8 @@ namespace gs
                 balance();
                 build_mesh();
             }
+            if (MaxError > 0 && CancelF() == false)
+                check_samples();
             // left: finest cells, at the outer boundary of a point cloud (vertices of neighbouring boundary
             // cells on the same edge of the bounds): the smaller triangle of each pair is dropped
             RemovedTriangles = 0;
@@ -366,12 +383,62 @@ namespace gs
         }
 
 
+        float[] sampleZ;        // MaxError: height of each sample ray (local), NaN if it missed
+
+        // vertical distance of the result from the samples: sets MaxSampleError and MaxErrorViolations,
+        // returns the merged leaves with a sample farther than MaxError
+        HashSet<int> check_samples()
+        {
+            var split = new HashSet<int>();
+            int S = Math.Max(1, SamplesPerCell);
+            var tree = new DMeshAABBTree3(Result, true);
+            double top = Result.CachedBounds.Max.z + 1, len = Result.CachedBounds.Depth + 2;
+            double maxErr = 0;
+            int violations = 0;
+            object lockObj = new object();
+            gParallel.ForEach(Interval1i.Range(NY), (j) => {
+                double localMax = 0;
+                int localViolations = 0;
+                var localSplit = new List<int>();
+                for (int i = 0; i < NX; ++i) {
+                    int li = owner[cid(i, j)];
+                    if (li < 0) continue;
+                    for (int sj = 0; sj < S; ++sj)
+                        for (int si = 0; si < S; ++si) {
+                            float z = sampleZ[((long)cid(i, j) * S + sj) * S + si];
+                            if (float.IsNaN(z)) continue;
+                            double x = origin.x + (i + (si + 0.5) / S) * cell, y = origin.y + (j + (sj + 0.5) / S) * cell;
+                            var ray = new Ray3d(new Vector3d(x, y, top), -Vector3d.AxisZ);
+                            int tid = tree.FindNearestHitTriangle(ray, len);
+                            if (tid < 0) continue;      // outside the result (boundary)
+                            IntrRay3Triangle3 intr = MeshQueries.TriangleIntersection(Result, tid, ray);
+                            if (intr.Find() == false) continue;
+                            double err = Math.Abs(ray.PointAt(intr.RayParameter).z - origin.z - z);
+                            localMax = Math.Max(localMax, err);
+                            if (err > MaxError) {
+                                if (leaves[li].Level > 0) localSplit.Add(li);
+                                else localViolations++;
+                            }
+                        }
+                }
+                lock (lockObj) {
+                    maxErr = Math.Max(maxErr, localMax);
+                    violations += localViolations;
+                    split.UnionWith(localSplit);
+                }
+            });
+            MaxSampleError = maxErr;
+            MaxErrorViolations = violations;
+            return split;
+        }
+
         void sample_cells()
         {
             qef = new Qef[NX * NY];
             hits = new int[NX * NY];
             segs = new List<BoundarySeg>[NX * NY];
             int S = Math.Max(1, SamplesPerCell);
+            sampleZ = (MaxError > 0) ? new float[(long)NX * NY * S * S] : null;
             gParallel.ForEach(Interval1i.Range(NY), (j) => {
                 if (CancelF()) return;
                 for (int i = 0; i < NX; ++i) {
@@ -381,10 +448,13 @@ namespace gs
                         for (int si = 0; si < S; ++si) {
                             double x = origin.x + (i + (si + 0.5) / S) * cell, y = origin.y + (j + (sj + 0.5) / S) * cell;
                             Vector3d p, n;
-                            if (sample(x, y, out p, out n)) {
+                            bool hit = sample(x, y, out p, out n);
+                            if (hit) {
                                 q.Add(p, n);
                                 h++;
                             }
+                            if (sampleZ != null)
+                                sampleZ[((long)cid(i, j) * S + sj) * S + si] = hit ? (float)p.z : float.NaN;
                         }
                     qef[cid(i, j)] = q;
                     hits[cid(i, j)] = h;
