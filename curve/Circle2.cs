@@ -48,6 +48,12 @@ namespace g3
         public bool IsTransformable { get { return true; } }
         public void Transform(ITransform2 xform)
         {
+            // a mirroring transform reverses the orientation of the circle (as in Arc2d.Transform)
+            Vector2d ax = xform.TransformP(Center + Vector2d.AxisX) - xform.TransformP(Center);
+            Vector2d ay = xform.TransformP(Center + Vector2d.AxisY) - xform.TransformP(Center);
+            if (ax.Perp.Dot(ay) > 0)        // Perp = (y,-x), so this is -det
+                IsReversed = !IsReversed;
+
             Center = xform.TransformP(Center);
             Radius = xform.TransformScalar(Radius);
         }
