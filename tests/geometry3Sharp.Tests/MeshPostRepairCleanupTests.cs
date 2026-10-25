@@ -215,6 +215,24 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void InvertedComponents_ThinCavityTouchingWall_IsNotInverted()
+        {
+            // thin cavity plate (thickness 1e-4 of its size, correctly oriented inwards) touching the outer
+            // wall y = 0 of [0,2]^3: sample points must not be pushed through the plate to outside the box
+            foreach (double t in new[] { 1e-2, 1e-4, 2e-5 }) {
+                DMesh3 mesh = new GridBox3Generator() {
+                    Box = new Box3d(new Vector3d(1, 1, 1), new Vector3d(1, 1, 1)), EdgeVertices = 3 }.Generate().MakeDMesh();
+                DMesh3 plate = new GridBox3Generator() {
+                    Box = new Box3d(new Vector3d(1, t / 2, 1), new Vector3d(0.5, t / 2, 0.5)), EdgeVertices = 8 }.Generate().MakeDMesh();
+                plate.ReverseOrientation();
+                MeshEditor.Append(mesh, plate);
+                Assert.True(mesh.IsClosed());
+                MeshTransforms.Rotate(mesh, Vector3d.Zero, new Quaterniond(new Vector3d(1, 2, 3).Normalized, 37));
+                Assert.Empty(MeshPostRepairCleanup.FindInvertedComponents(mesh));
+            }
+        }
+
+        [Fact]
         public void AutoRepair_WithPostRepairCleanup_GivesCleanClosedMesh()
         {
             // sphere with a hole, a separate two-sided triangle pair and a double cone with a bowtie apex

@@ -288,7 +288,8 @@ namespace gs
                 return result;
 
             Vector3d center = mesh.CachedBounds.Center;
-            var vols = closed.Select(c => MeshMeasurements.VolumeArea(mesh, c, (vid) => mesh.GetVertex(vid) - center).x).ToList();
+            var volAreas = closed.Select(c => MeshMeasurements.VolumeArea(mesh, c, (vid) => mesh.GetVertex(vid) - center)).ToList();
+            var vols = volAreas.Select(va => va.x).ToList();
             if (closed.Count == 1) {
                 if (vols[0] < 0) result.Add(closed[0]);
                 return result;
@@ -313,7 +314,8 @@ namespace gs
                     if (trees[j] == null)
                         trees[j] = new DMeshAABBTree3(new DSubmesh3(mesh, closed[j]).SubMesh, true);
                     if (samples == null)
-                        samples = interior_samples(mesh, closed[i], vols[i] < 0, boxes[i].DiagonalLength);
+                        samples = interior_samples(mesh, closed[i], vols[i] < 0,
+                            Math.Min(1e-4 * boxes[i].DiagonalLength, 0.25 * Math.Abs(vols[i]) / volAreas[i].y));
                     // a few samples vote, so one sample near a thin feature or another component does not decide
                     int votes = samples.Count(p => Math.Abs(trees[j].FastWindingNumber(p)) > 0.5);
                     if (2 * votes > samples.Count) nInside++;
@@ -328,10 +330,13 @@ namespace gs
         /// <summary>
         /// Up to 9 points just inside the closed component tris: centroids of well-shaped triangles (the
         /// largest inradius among evenly spread candidates), moved against the outward normal by
-        /// min(1e-4 * diag, inradius / 2). inverted: the component has negative volume, its triangle normals
-        /// point inwards. All lengths are relative to the component, so the points do not depend on the unit.
+        /// min(maxOffset, inradius / 2). The caller limits maxOffset by 1e-4 * diag and by a quarter of
+        /// |volume| / area (about t / 8 for a slab of thickness t), so that a point does not leave a thin
+        /// component through its opposite side, and all lengths are relative to the component, so the points
+        /// do not depend on the unit. inverted: the component has negative volume, its normals point inwards.
+        /// If no candidate is a proper triangle, the plain centroids are returned.
         /// </summary>
-        static List<Vector3d> interior_samples(DMesh3 mesh, int[] tris, bool inverted, double diag)
+        static List<Vector3d> interior_samples(DMesh3 mesh, int[] tris, bool inverted, double maxOffset)
         {
             const int nSamples = 9, nCandidates = 4 * nSamples;
             int n = Math.Min(nCandidates, tris.Length);
@@ -347,8 +352,13 @@ namespace gs
                 cands.Add((area2 / perim, (va + vb + vc) / 3, nrm / area2));    // inradius = 2 area / perimeter
             }
             var result = new List<Vector3d>(nSamples);
+            if (cands.Count == 0) {
+                for (int k = 0; k < Math.Min(nSamples, tris.Length); ++k)
+                    result.Add(mesh.GetTriCentroid(tris[(int)((long)k * tris.Length / Math.Min(nSamples, tris.Length))]));
+                return result;
+            }
             foreach (var cand in cands.OrderByDescending(x => x.r).Take(nSamples)) {
-                double h = Math.Min(1e-4 * diag, 0.5 * cand.r);
+                double h = Math.Min(maxOffset, 0.5 * cand.r);
                 result.Add(cand.c + (inverted ? h : -h) * cand.nrm);
             }
             return result;
