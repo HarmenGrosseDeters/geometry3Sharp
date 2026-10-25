@@ -66,6 +66,8 @@ namespace g3
         public int NonManifoldEdges;
         /// <summary> triangles that could not be added to the result mesh and got their own vertices (should be 0) </summary>
         public int NonManifoldTriangles;
+        /// <summary> edges where the solid touches itself and that were split per pair of triangles (see assemble) </summary>
+        public int SplitNonManifoldEdges;
         /// <summary> number of patches classified </summary>
         public int Patches;
         /// <summary> if false, Compute() fails for meshes that are not closed in the winding number sense </summary>
@@ -558,6 +560,8 @@ namespace g3
             long[] edgeKeys; int[] edgeTri;
             group_edges(tris.Count, (t) => tris[t], out edgeKeys, out edgeTri);
             var list = new List<int>();
+            // the pairs at the edges with more than two pieces
+            var nonManifold = new List<KeyValuePair<long, List<KeyValuePair<int, int>>>>();
             for (int g0 = 0, g1 = 0; g0 < edgeKeys.Length; g0 = g1) {
                 g1 = g0 + 1;
                 while (g1 < edgeKeys.Length && edgeKeys[g1] == edgeKeys[g0]) g1++;
@@ -570,12 +574,15 @@ namespace g3
                 list.Clear();
                 for (int g = g0; g < g1; ++g)
                     list.Add(edgeTri[g]);
-                foreach (var pair in pair_around_edge(tris, list, u, v)) {
+                var pairs = pair_around_edge(tris, list, u, v);
+                foreach (var pair in pairs) {
                     join(slot(pair.Key, u), slot(pair.Value, u));
                     join(slot(pair.Key, v), slot(pair.Value, v));
                 }
-                if (g1 - g0 > 2)
+                if (g1 - g0 > 2) {
                     NonManifoldEdges++;
+                    nonManifold.Add(new KeyValuePair<long, List<KeyValuePair<int, int>>>(edgeKeys[g0], pairs));
+                }
             }
 
             // coordinates of the points used (rounded from the exact points, in parallel)
@@ -589,27 +596,86 @@ namespace g3
                     }
             Vector3d[] coords = arr.PointsToVectors(used);
 
+            // vertices: one per class of corner slots
             DMesh3 result = new DMesh3();
             var vmap = new Dictionary<int, int>();
+            int[] vids = new int[3 * tris.Count];
             for (int t = 0; t < tris.Count; ++t) {
-                int[] vid = new int[3];
                 for (int k = 0; k < 3; ++k) {
-                    int root = find(3 * t + k);
-                    if (vmap.TryGetValue(root, out vid[k]) == false) {
-                        vid[k] = result.AppendVertex(coords[usedIndex[tris[t][k]]]);
-                        vmap[root] = vid[k];
+                    int root = find(3 * t + k), vid;
+                    if (vmap.TryGetValue(root, out vid) == false) {
+                        vid = result.AppendVertex(coords[usedIndex[tris[t][k]]]);
+                        vmap[root] = vid;
                     }
-                }
-                int tid = result.AppendTriangle(vid[0], vid[1], vid[2]);
-                if (tid < 0) {
-                    NonManifoldTriangles++;
-                    int a2 = result.AppendVertex(result.GetVertex(vid[0]));
-                    int b2 = result.AppendVertex(result.GetVertex(vid[1]));
-                    int c2 = result.AppendVertex(result.GetVertex(vid[2]));
-                    result.AppendTriangle(a2, b2, c2);
+                    vids[3 * t + k] = vid;
                 }
             }
+
+            // where the solid touches itself along an edge and its surface is connected around both ends, the pairs
+            // at the edge get the same two vertices (the ends cannot be duplicated), which would give an edge with
+            // more than two triangles: then the edge is split for each pair at a new vertex of its own (at the
+            // midpoint, the same position for all pairs, like other contacts), so that every edge has two triangles
+            var splitAt = new Dictionary<int, int>();       // slot 3 t + k (edge from corner k to k + 1) -> vertex
+            foreach (var nm in nonManifold) {
+                int u = (int)(nm.Key >> 32), v = (int)(nm.Key & 0xFFFFFFFF);
+                var byVertices = new Dictionary<long, List<KeyValuePair<int, int>>>(EdgeKeyComparer.Instance);
+                foreach (var pair in nm.Value) {
+                    long key = ExactMeshArrangement.EdgeKey(vids[slot(pair.Key, u)], vids[slot(pair.Key, v)]);
+                    List<KeyValuePair<int, int>> group;
+                    if (byVertices.TryGetValue(key, out group) == false)
+                        byVertices[key] = group = new List<KeyValuePair<int, int>>();
+                    group.Add(pair);
+                }
+                foreach (var group in byVertices.Values) {
+                    if (group.Count < 2)
+                        continue;
+                    SplitNonManifoldEdges++;
+                    foreach (var pair in group) {
+                        Vector3d mid = 0.5 * (coords[usedIndex[u]] + coords[usedIndex[v]]);
+                        int m = result.AppendVertex(mid);
+                        foreach (int t in new[] { pair.Key, pair.Value }) {
+                            int ku = slot(t, u) - 3 * t, kv = slot(t, v) - 3 * t;
+                            int k = ((ku + 1) % 3 == kv) ? ku : kv;     // the edge (u, v) or (v, u) of t
+                            splitAt[3 * t + k] = m;
+                        }
+                    }
+                }
+            }
+
+            var poly = new List<int>();
+            for (int t = 0; t < tris.Count; ++t) {
+                poly.Clear();
+                int first = -1;
+                for (int k = 0; k < 3; ++k) {
+                    poly.Add(vids[3 * t + k]);
+                    int m;
+                    if (splitAt.TryGetValue(3 * t + k, out m)) {
+                        if (first < 0) first = poly.Count;
+                        poly.Add(m);
+                    }
+                }
+                if (first < 0) {
+                    append_triangle(result, poly[0], poly[1], poly[2]);
+                    continue;
+                }
+                // fan from a split vertex: it is on one edge, so no fan triangle is degenerate
+                int n = poly.Count;
+                for (int j = 1; j + 1 < n; ++j)
+                    append_triangle(result, poly[first], poly[(first + j) % n], poly[(first + j + 1) % n]);
+            }
             return result;
+        }
+
+        void append_triangle(DMesh3 result, int a, int b, int c)
+        {
+            if (result.AppendTriangle(a, b, c) >= 0)
+                return;
+            // (an edge with more than two triangles that could not be split: kept, with its own vertices)
+            NonManifoldTriangles++;
+            int a2 = result.AppendVertex(result.GetVertex(a));
+            int b2 = result.AppendVertex(result.GetVertex(b));
+            int c2 = result.AppendVertex(result.GetVertex(c));
+            result.AppendTriangle(a2, b2, c2);
         }
 
         // pairs of triangles that are neighbours across edge (u, v): for two triangles the pair, for more each
