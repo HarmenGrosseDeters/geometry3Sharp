@@ -90,10 +90,13 @@ def case_table(cases, methods):
                 continue
             o = outcome(c[m])
             cell = SHORT[o]
-            if o == "failed":   # which operations failed
+            if o == "failed" and c[m].get("ops") != ["final"]:   # which operations failed
                 cell += " (" + ", ".join(op[:5] for op in c[m].get("ops", OPS) if status(c[m], op) == "failed") + ")"
-            if o in CORRECT and c[m].get("ops") == ["final"]:
-                cell += f" {ms(c[m]) / 1000:.1f} s"
+            if c[m].get("ops") == ["final"]:   # sequences: time, or how far it got
+                if o in CORRECT:
+                    cell += f" {ms(c[m]) / 1000:.1f} s"
+                elif c[m].get("final_done") is not None:
+                    cell += f" after {c[m]['final_done']} of {c[m]['input'].get('booleans', '?')}"
             cells.append(cell)
         rows.append([name] + cells)
     return table(["case"] + [NAMES.get(m, m) for m in methods], rows)

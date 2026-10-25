@@ -103,6 +103,9 @@ def run_sequence(method, request, d, timeout):
         res = {"done": 0}
         if p is None:
             res.update(ok=False, error="timeout", status="timeout")
+            if os.path.exists(rs):   # flushed during the run: how far it got
+                run = json.load(open(rs))["runs"][0]
+                res["done"] = sum(1 for o in run["ops"] if "operation_ms" in o and o["status"] == "success")
         elif not os.path.exists(rs):
             res.update(ok=False, error=f"exit {p.returncode}: {p.stderr.strip()[-200:]}", status="crash")
         else:
