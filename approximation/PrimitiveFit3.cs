@@ -10,10 +10,14 @@ namespace g3
     ///   1. RANSAC (Fischler and Bolles, "Random sample consensus", CACM 1981) over minimal samples, with
     ///      the minimal sets of Schnabel, Wahl and Klein, "Efficient RANSAC for point-cloud shape detection"
     ///      (Computer Graphics Forum 2007): plane from 3 points, sphere from 4 points, cylinder from 2 points
-    ///      with normals, cone from 3 points with normals. Candidates are scored with the truncated quadratic
+    ///      with normals, cone from 3 points with normals. (Their localized sampling is not used: it finds
+    ///      some small part quickly, which suits detecting many shapes, but stops before the largest one.) Candidates are scored with the truncated quadratic
     ///      loss of MSAC (Torr and Zisserman, "MLESAC", CVIU 2000); a point counts as inlier when it is within
     ///      InlierDistance and, if normals are known, its normal is within MaxNormalAngle of the surface
-    ///      normal (unoriented). The number of samples adapts to the inlier ratio (Confidence).
+    ///      normal (unoriented). The number of samples adapts to the inlier ratio (Confidence). Every new
+    ///      best candidate is refined by least squares on its inliers and scored again (LO-RANSAC, Chum,
+    ///      Matas and Kittler, "Locally optimized RANSAC", DAGM 2003): the result no longer depends on
+    ///      which of several nearly equal minimal samples happened to win, and fewer samples are needed.
     ///   2. Least squares on the inliers: orthogonal regression (PCA) for the plane, Levenberg-Marquardt on
     ///      the geometric (orthogonal) distances for the other primitives, then the inliers are selected again;
     ///      repeated until the inlier set no longer changes (at most RefineIterations).
@@ -48,6 +52,14 @@ namespace g3
         public double Confidence = 0.9999;
         public int Seed = 1;
         public int RefineIterations = 5;
+        /// <summary>
+        /// largest sphere / cylinder radius, and the distance of a cone apex from the points; 0 = 10 times the
+        /// bounding box diagonal. Larger shapes would only imitate a plane (a sphere of radius R deviates from
+        /// a plane by D^2/(8R) over an extent D).
+        /// </summary>
+        public double MaxRadius = 0;
+        /// <summary> largest half opening angle of a cone (degrees); flatter cones imitate a plane </summary>
+        public double MaxConeAngle = 88;
         /// <summary> estimate normals (if Normals is null) for cylinder and cone </summary>
         public bool EstimateNormals = true;
         public int NormalNeighbors = 12;
@@ -106,6 +118,7 @@ namespace g3
             AxisAlignedBox3d box = BoundsUtil.Bounds(Points);
             scale = Math.Max(box.DiagonalLength, MathUtil.Epsilon);
             eps = (InlierDistance > 0) ? InlierDistance : 0.01 * scale;
+            maxRadius = (MaxRadius > 0) ? MaxRadius : 10 * scale;
             cosNormal = Math.Cos(MathUtil.Clamp(MaxNormalAngle, 0, 90) * MathUtil.Deg2Rad);
 
             normals = Normals;
@@ -188,7 +201,7 @@ namespace g3
         }
 
         Model fitted;
-        double scale, eps, cosNormal;
+        double scale, eps, cosNormal, maxRadius;
         Vector3d[] normals;
 
 
@@ -294,9 +307,9 @@ namespace g3
             switch (Primitive) {
                 case Primitives.Sphere:
                 case Primitives.Cylinder:
-                    return m.r > 0 && m.r < 100 * scale;
+                    return m.r > 0 && m.r <= maxRadius;
                 case Primitives.Cone:
-                    return m.r > 1e-3 && m.r < 0.5 * Math.PI - 1e-3 && (m.a - Points[0]).Length < 100 * scale;
+                    return m.r > 1e-3 && m.r <= MathUtil.Clamp(MaxConeAngle, 1, 89.9) * MathUtil.Deg2Rad && (m.a - Points[0]).Length <= maxRadius;
                 default:
                     return true;
             }
@@ -344,7 +357,20 @@ namespace g3
                 }
                 if (cost < bestCost) {
                     bestCost = cost; best = m; bestCount = cnt;
-                    double w = (double)cnt / n;
+                    // local optimization: least squares on the inliers of the new best model, while that
+                    // lowers the cost, so that nearly equal candidates end at the same model
+                    for (int lo = 0; lo < 4; ++lo) {
+                        bool[] inl = inliers(best);
+                        Model refined;
+                        if (least_squares(best, inl, out refined) == false)
+                            break;
+                        int rc;
+                        double rcost = msac_cost(refined, out rc);
+                        if (!(rcost < bestCost * (1 - 1e-12)))
+                            break;
+                        bestCost = rcost; best = refined; bestCount = rc;
+                    }
+                    double w = (double)bestCount / n;
                     double pk = Math.Pow(w, k);
                     if (pk >= 1 - 1e-12)
                         needed = Iterations;
@@ -353,6 +379,19 @@ namespace g3
                 }
             }
             return bestCount >= least_squares_size(Primitive);
+        }
+
+
+        double msac_cost(Model m, out int cnt)
+        {
+            double cost = 0, d;
+            cnt = 0;
+            for (int i = 0; i < Points.Length; ++i) {
+                if (is_inlier(m, i, out d)) {
+                    cost += d * d; cnt++;
+                } else cost += eps * eps;
+            }
+            return cost;
         }
 
 

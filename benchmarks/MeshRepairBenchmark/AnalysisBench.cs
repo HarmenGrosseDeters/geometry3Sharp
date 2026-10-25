@@ -166,6 +166,10 @@ namespace MeshRepairBenchmark
                         if (fit.IsInlier[i] || rf.IsInlier[i]) any++;
                     }
                     r[key + "_rot_jaccard"] = any > 0 ? (double)both / any : 1.0;
+                    r[key + "_rot_inlier_frac"] = (double)rf.InlierCount / pts.Count;
+                    r[key + "_rot_rms_rel"] = Rel(rf.RMSError, diag);
+                    r[key + "_iterations"] = fit.Iterations;
+                    r[key + "_rot_iterations"] = rf.Iterations;
                 } else {
                     r[key + "_rot_jaccard"] = 0.0;
                 }

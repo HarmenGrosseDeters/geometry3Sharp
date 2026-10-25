@@ -37,7 +37,7 @@ def med(rs, key):
     return statistics.median(v) if v else float("nan")
 
 print(f"{f0}: {len(base)} meshes")
-cols = ["category", "n", "fail", "ray NaN", "ins>ray", "selfdev>0", "sign dis.", "HD viol.", "fit !ok", "nondet", "rot<0.99", "ms"]
+cols = ["category", "n", "fail", "ray NaN", "ins>ray", "selfdev>0", "sign dis.", "HD viol.", "fit !ok", "nondet", "rot dq>1%", "ms"]
 print(" | ".join(cols))
 for c in sorted(groups) + ["all"]:
     rs = list(base.values()) if c == "all" else groups[c]
@@ -51,7 +51,9 @@ for c in sorted(groups) + ["all"]:
     prims = ["plane", "sphere", "cylinder", "cone"]
     fit_bad = frac(ok, lambda r: any(r.get(f"fit_{p}_max_err_ok") is False for p in prims))
     nondet = frac(ok, lambda r: any(r.get(f"fit_{p}_deterministic") is False for p in prims))
-    rot = frac(ok, lambda r: any((num(r.get(f"fit_{p}_rot_jaccard")) or 1) < 0.99 for p in prims))
+    # rotated input: a different model of (nearly) the same quality is a tie between equal features, a
+    # different quality means RANSAC missed the best model in one of the runs
+    rot = frac(ok, lambda r: any(abs((num(r.get(f"fit_{p}_rot_inlier_frac")) or 0) - (num(r.get(f"fit_{p}_inlier_frac")) or 0)) > 0.01 for p in prims))
     ms = med(ok, "analysis_ms")
     print(" | ".join(str(x) for x in [c, len(rs), fail, f"{ray_nan:.3f}", ins_above, selfdev, sign, hd, fit_bad, nondet, rot, f"{ms:.0f}"]))
 
