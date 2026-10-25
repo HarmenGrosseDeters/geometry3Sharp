@@ -93,8 +93,8 @@ Ebenfalls behoben:
 - `ConeGenerator` mit `NoSharedVertices`: ein Dreieck pro Segment statt einem zusätzlichen Dreieck mit Fläche 0. Die
   Spitze bekommt die Normale der Segmentmitte.
 
-Noch offen ist derselbe Fehler mit überzähligen Dreiecken bei `TrivialDiscGenerator` und `PuncturedDiscGenerator` im
-Halbscheiben-Modus.
+- `TrivialDiscGenerator` und `PuncturedDiscGenerator`: Bei einer Teilscheibe entstehen keine überzähligen
+  (0,0,0)-Dreiecke mehr. Die Orientierung der Scheiben war bereits korrekt (+Y wie die Normalen).
 
 Bewusst zurückgestellt: `OBJReader.is_complex`. Der Fix leitet Dateien auf `BuildMeshes_ByMaterial` um. Dieser Pfad
 verwirft UVs bei Meshes ohne Material, übernimmt keine Gruppen und stürzt bei Faces ohne Normal-Index ab. Er muss deshalb
