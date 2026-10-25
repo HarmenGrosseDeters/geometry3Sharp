@@ -46,12 +46,12 @@ namespace geometry3Sharp.Tests
                 foreach (int vid in shell.VertexIndices()) {
                     double t = wt.VertexThickness[vid];
                     Assert.False(double.IsNaN(t), method + " vertex " + vid);
-                    Assert.InRange(t, T - 0.01, T + 0.01);
+                    Assert.InRange(t, T - 0.001, T + 0.001);      // facets of the spheres: 0.1996 .. 0.2002
                 }
                 foreach (int tid in shell.TriangleIndices())
-                    Assert.InRange(wt.TriangleThickness[tid], T - 0.01, T + 0.01);
-                Assert.InRange(wt.Statistics.Mean, T - 0.005, T + 0.005);
-                Assert.True(wt.Statistics.StdDev < 0.005);
+                    Assert.InRange(wt.TriangleThickness[tid], T - 0.001, T + 0.001);
+                Assert.InRange(wt.Statistics.Mean, T - 0.0005, T + 0.0005);
+                Assert.True(wt.Statistics.StdDev < 0.0002);
             }
         }
 
