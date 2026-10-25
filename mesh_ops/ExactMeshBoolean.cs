@@ -125,13 +125,19 @@ namespace g3
         /// after rounding the vertices to double, repair the self-intersections and degenerate triangles (area below
         /// 1e-12 of the squared diagonal) the rounding left, by local edits checked with exact predicates on the doubles
         /// (MeshRoundingRepair: contractions of short edges, flips, tiny vertex moves, removal of components thinner
-        /// than 1e-5 of the diagonal that keep a sliver). Input vertices are kept where possible, and sheets that touch
-        /// at duplicated vertices still touch. RoundingClean tells whether the result is verified free of both.
+        /// than 1e-5 of the diagonal that keep a sliver, counted in Rounding.RemovedComponents). Input vertices are kept
+        /// where possible, and sheets that touch at duplicated vertices still touch, at the same points. Not every case
+        /// can be repaired: Compute() still succeeds (Status Success) if defects remain; RoundingClean tells whether the
+        /// result is verified free of both, Rounding has the counts.
         /// </summary>
         public bool SafeRounding = false;
         /// <summary> the repair run by SafeRounding (its counts), or null </summary>
         public MeshRoundingRepair Rounding;
-        /// <summary> SafeRounding ran and its result has no self-intersections and no degenerate triangles (exact check) </summary>
+        /// <summary>
+        /// SafeRounding ran and its result has no self-intersections and no degenerate triangles (exact check; contacts
+        /// at duplicated vertices, where solids touch, are not intersections). False with Status Success means that
+        /// defects remain (Rounding.RemainingIntersections, RemainingDegenerate).
+        /// </summary>
         public bool RoundingClean { get { return Rounding != null && Rounding.IsClean; } }
         /// <summary>
         /// compute ResultExactVertices: the exact coordinates of the result's vertices, before they are rounded
@@ -139,8 +145,9 @@ namespace g3
         public bool ComputeExactVertices = false;
         /// <summary>
         /// if ComputeExactVertices: per vertex id of Result, its exact (rational) coordinates in the input's
-        /// coordinate system; Result's coordinates are these rounded to the nearest double (the vertices that split
-        /// edges where solids touch are the exact midpoints). With SafeRounding the entries are those before the
+        /// coordinate system; Result's coordinates are these rounded to the nearest double, except the vertices that split
+        /// edges where solids touch: their entries are the exact midpoints of the edges, their coordinates the midpoints
+        /// of the rounded ends (which can differ from the rounded exact midpoint by an ulp). With SafeRounding the entries are those before the
         /// repair, for the vertex ids that remain (the repair moves some vertices by tiny amounts).
         /// </summary>
         public ExactPoint3[] ResultExactVertices;
@@ -277,6 +284,7 @@ namespace g3
                 Counts["rounding_degenerate"] = Rounding.InitialDegenerate;
                 Counts["rounding_edits"] = Rounding.Collapses + Rounding.Flips + Rounding.Moves + Rounding.Zips;
                 Counts["rounding_removed_triangles"] = Rounding.RemovedTriangles;
+                Counts["rounding_removed_components"] = Rounding.RemovedComponents;
             }
             Status = BooleanStatus.Success;
             return true;

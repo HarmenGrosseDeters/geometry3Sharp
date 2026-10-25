@@ -23,7 +23,8 @@ namespace g3
     /// contractions keep the mesh manifold (link condition, DMesh3.CollapseEdge) and leave boundary vertices
     /// alone. No triangle may turn over in an edit (a fold, which is not an intersection), except slivers
     /// (below 100 times the degenerate area) and triangles not higher than twice the distance a vertex moves
-    /// (which cannot turn over by the move: the rule matters for flips and zips). Components that keep a degenerate triangle
+    /// (a move cannot turn over a triangle higher than the move, so the rule matters for flips and zips: tiny
+    /// triangles may turn over, they are only checked for intersections and degeneracy). Components that keep a degenerate triangle
     /// or were edited, and are tiny (below 1e4 times the degenerate area, eg a flat tetrahedron between
     /// intersection points that nearly coincide) or closed and thinner than MaxDisplacement times the diagonal
     /// (eg the slivers that are the difference of two nearly coincident solids), are removed if
@@ -33,7 +34,9 @@ namespace g3
     /// squared diagonal, or exactly collinear corners); intersections are those of
     /// MeshRepairMetrics.SelfIntersections (exact, also between neighbours that overlap). With
     /// SharedPositionsTouch, vertices at the same position count as shared, so that sheets which touch at
-    /// duplicated vertices (ExactMeshBoolean splits where solids touch) do not count as intersecting there.
+    /// duplicated vertices (ExactMeshBoolean splits where solids touch) do not count as intersecting there; then
+    /// no edit moves a vertex onto a position where other vertices are (which would make a new, uncounted
+    /// contact), and a contraction keeps the contact points as they are (the kept vertex at its own position).
     ///
     /// Usage: construct with the mesh (modified in place), optionally set FixedVertexF to the vertices whose
     /// position should be kept where possible (eg input vertices), call Apply(). Apply() returns IsClean:
@@ -69,8 +72,8 @@ namespace g3
         public int RemainingIntersections, RemainingDegenerate;
         /// <summary> edits applied (see class comment) </summary>
         public int Collapses, Flips, Moves, Zips;
-        /// <summary> triangles removed with tiny components </summary>
-        public int RemovedTriangles;
+        /// <summary> components, and their triangles, removed as tiny or thin (RemoveTinyComponents) </summary>
+        public int RemovedComponents, RemovedTriangles;
         /// <summary> no self-intersections and no degenerate triangles remain </summary>
         public bool IsClean { get { return RemainingIntersections == 0 && RemainingDegenerate == 0; } }
 
@@ -94,7 +97,7 @@ namespace g3
         /// <summary> repair (see class comment); returns IsClean </summary>
         public bool Apply()
         {
-            Collapses = Flips = Moves = Zips = RemovedTriangles = 0;
+            Collapses = Flips = Moves = Zips = RemovedComponents = RemovedTriangles = 0;
             touched.Clear();
             if (Mesh.TriangleCount == 0) {
                 InitialIntersections = InitialDegenerate = RemainingIntersections = RemainingDegenerate = 0;
@@ -149,6 +152,8 @@ namespace g3
 
         int movedV = -1;
         Vector3d movedPos;
+        // the vertex a proposed contraction removes, or -1
+        int vanishing = -1;
 
         Vector3d pos(int v)
         {
@@ -273,7 +278,7 @@ namespace g3
         {
             dirty.Add(tid);
             // (the changed triangles are searched linearly)
-            if (dirty.Count > Math.Max(256, Mesh.TriangleCount / 64))
+            if (dirty.Count > Math.Min(Math.Max(256, Mesh.TriangleCount / 64), 2048))
                 rebuild_tree();
         }
 
@@ -349,6 +354,7 @@ namespace g3
         {
             removed.Clear(); added.Clear(); addedFrom.Clear();
             movedV = -1;
+            vanishing = -1;
         }
 
         // intersecting pairs and degenerate triangles among the removed triangles and their neighbours, with
@@ -358,6 +364,12 @@ namespace g3
         {
             int saveV = movedV;
             Vector3d savePos = movedPos;
+            // (SharedPositionsTouch: a vertex moved onto other vertices would touch them uncounted)
+            List<int> there;
+            if (atPosition != null && saveV >= 0 && savePos != Mesh.GetVertex(saveV) && atPosition.TryGetValue(key(savePos), out there))
+                foreach (int u in there)
+                    if (u != saveV && u != vanishing)
+                        return false;
             movedV = -1;
             int oldI = 0, oldB = 0;
             var removedSet = new HashSet<int>(removed);
@@ -464,7 +476,7 @@ namespace g3
                     addedFrom.Add(removed.Count - 1);
                 }
             }
-            movedV = b; movedPos = p;
+            movedV = b; movedPos = p; vanishing = a;
             bool ok = improves(Math.Max(p.Distance(Mesh.GetVertex(a)), p.Distance(Mesh.GetVertex(b))));
             movedV = -1;
             if (ok == false)
@@ -767,6 +779,7 @@ namespace g3
                 foreach (int t in comp.Indices)
                     Mesh.RemoveTriangle(t, true, false);
                 count += comp.Indices.Length;
+                RemovedComponents++;
             }
             if (count > 0) {
                 RemovedTriangles += count;

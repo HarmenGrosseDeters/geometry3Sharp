@@ -161,6 +161,44 @@ namespace geometry3Sharp.Tests
             Assert.True(strict.InitialIntersections > 0);
         }
 
+        // positions where more than one vertex is
+        static System.Collections.Generic.HashSet<Vector3d> SharedPositions(DMesh3 m)
+        {
+            return new System.Collections.Generic.HashSet<Vector3d>(m.VertexIndices().GroupBy(v => m.GetVertex(v)).Where(g => g.Count() > 1).Select(g => g.Key));
+        }
+
+        [Fact]
+        public void TouchingSolids_NeedleAtTheContact_ContactStaysAPoint()
+        {
+            // two cubes touching at a corner; at the corner of the first, an edge is split 1e-13 from the corner (a
+            // needle and a cap at the contact): the repair contracts it into the corner, and the sheets still touch
+            // only there
+            DMesh3 a = Cube(), b = Cube();
+            MeshTransforms.Translate(b, new Vector3d(2, 2, 2));
+            Vector3d corner = new Vector3d(1, 1, 1);
+            int vc = a.VertexIndices().First(v => a.GetVertex(v) == corner);
+            int eid = a.VtxEdgesItr(vc).First();
+            Index2i ev = a.GetEdgeV(eid);
+            Vector3d other = a.GetVertex(ev.a == vc ? ev.b : ev.a);
+            DMesh3.EdgeSplitInfo split;
+            Assert.Equal(MeshResult.Ok, a.SplitEdge(eid, out split));
+            a.SetVertex(split.vNew, corner + 1e-13 * (other - corner).Normalized);
+
+            var plain = Run(new[] { a, b }, Ops.Union, false);
+            Assert.True(Degenerate(plain.Result) > 0);
+            Assert.Equal(new[] { corner }, SharedPositions(plain.Result).ToArray());
+            var safe = Run(new[] { a, b }, Ops.Union, true);
+            Assert.True(safe.RoundingClean);
+            Assert.True(safe.Rounding.Collapses > 0);
+            Assert.Equal(0, Degenerate(safe.Result));
+            Assert.Equal(new[] { corner }, SharedPositions(safe.Result).ToArray());
+            Assert.Equal(16.0, Volume(safe.Result), 9);
+            // no intersections beyond the contact point
+            var check = new MeshRoundingRepair(new DMesh3(safe.Result)) { SharedPositionsTouch = true, MaxPasses = 0 };
+            check.Apply();
+            Assert.Equal(0, check.InitialIntersections);
+        }
+
         [Fact]
         public void Resolve_SafeRounding()
         {
@@ -312,6 +350,33 @@ namespace geometry3Sharp.Tests
             var plain = new ExactMeshBoolean(ab[0], ab[1], Ops.Intersection);
             plain.Compute();
             Assert.Null(plain.ResultExactVertices);
+        }
+
+        [Fact]
+        public void ExactVertices_AgreeWithTheArrangementsRounding()
+        {
+            // every point of the arrangement (input vertices and intersection points), mapped exactly to input
+            // coordinates and rounded, is the double the arrangement gives for it
+            DMesh3 a = Sphere(5), c = Sphere(5);
+            MeshTransforms.Scale(a, 0.001);
+            MeshTransforms.Scale(c, 0.001);
+            MeshTransforms.Translate(a, new Vector3d(500000.25, -3.5, 7));
+            MeshTransforms.Translate(c, new Vector3d(500000.2505, -3.4996, 7.0003));
+            var arr = new ExactMeshArrangement(new System.Collections.Generic.List<DMesh3>() { a, c }) { SelfIntersections = true };
+            arr.Compute();
+            Assert.True(arr.PointCount > 100);
+            for (int id = 0; id < arr.PointCount; ++id)
+                Assert.Equal(arr.PointToVector(id), arr.ToInputExact(arr.Exact(id)).ToVector3d());
+        }
+
+        [Fact]
+        public void NearlyCoincidentSpheres_Difference_RemovedComponentsCounted()
+        {
+            var ab = NearlyCoincident(Sphere(10), new Vector3d(0.6, 0.3, 0.1), 1e-10, 1e-10 * new Vector3d(0.2, 0.9, 0.5));
+            var safe = Run(ab, Ops.Difference, true);
+            Assert.True(safe.Rounding.RemovedComponents > 0);
+            Assert.True(safe.Rounding.RemovedTriangles >= safe.Rounding.RemovedComponents);
+            Assert.Equal(safe.Rounding.RemovedComponents, safe.Counts["rounding_removed_components"]);
         }
 
         [Fact]
