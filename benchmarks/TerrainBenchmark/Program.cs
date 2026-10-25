@@ -2,7 +2,7 @@
 // Usage: TerrainBenchmark <case> key=value ...
 //   common keys: win=x0,y0,x1,y1 (UTM window), coords=utm|local (local: everything shifted to the window corner)
 //   volume   before=<grid> after=<grid> [simplify=<m>] [heightcheck=1]
-//   repair   grid=<grid> variant=clean|tiles|overlap|holes mode=auto|cleanup|robust
+//   repair   grid=<grid> variant=clean|tiles|overlap|holes mode=auto|cleanup|robust|tdc
 //   tdc      grid=<grid> [points=<cloud>] [cell=1] [tol=0]
 //   offset   grid=<grid> d=<m> [cell=1]
 //   safety   grid=<grid> d=<m> mode=horizontal|surface [terrain=grid|tdc] [tol=0.05] [angle=20]
@@ -127,7 +127,12 @@ class Program
         R["metrics_before_s"] = Secs(sw);
         string mode = Arg("mode", "auto");
         DMesh3 result;
-        if (mode == "robust") {
+        if (mode == "tdc") {
+            // the terrain way: rebuild the top surface from vertical rays (soups, overlaps, seams do not matter)
+            var tdc = new TerrainDualContouring(mesh) { CellSize = g.Dx, Tolerance = 0.01 };
+            R["ok"] = tdc.Compute();
+            result = tdc.Result;
+        } else if (mode == "robust") {
             var rr = new MeshRobustRepair(mesh) { ConfigureRepair = (ar) => { ar.MinEdgeLengthTol = 1e-4; } };
             R["ok"] = rr.Apply();
             R["used_solidify"] = rr.UsedSolidify;
@@ -252,6 +257,7 @@ class Program
         DMesh3 res = tdc.Result;
         R["result_tris"] = res.TriangleCount;
         R["leaf_cells"] = tdc.LeafCells; R["finest_cells"] = tdc.FinestCells; R["skipped_tris"] = tdc.SkippedTriangles;
+        R["split_leaves"] = tdc.SplitLeaves; R["removed_tris"] = tdc.RemovedTriangles;
         R["nan_verts"] = NaNVertices(res);
         R["xy_overlaps"] = TerrainVolumeDifference.XYOverlaps(res);
         // vertical error at the grid nodes (2 m inside the window)
