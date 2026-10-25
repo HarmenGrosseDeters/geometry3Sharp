@@ -15,7 +15,13 @@ namespace g3
     /// Since STL is just a list of disconnected triangles, by default we try to
     /// merge vertices together. Use .RebuildStrategy to disable this and/or configure
     /// which algorithm is used. If you are using via StandardMeshReader, you can add
-    /// .StrategyFlag to ReadOptions.CustomFlags to set this flag.
+    /// .StrategyFlag to ReadOptions.CustomFlags.Integers (value is a Strategy) to set this.
+    /// 
+    /// Each ascii "solid" becomes one mesh; binary STL is always one mesh. Facet normals are ignored.
+    /// Vertices are read as float. STL has no units. A truncated binary file is read up to the last complete
+    /// triangle without error; an ascii file without solids reads Ok with no meshes.
+    /// Use the BinaryReader overload for binary STL and the TextReader overload for ascii
+    /// (<see cref="STLFormatReader"/> detects which one to use).
     /// 
     /// TODO: document welding strategies. There is no "best" one, they all fail
     /// in some cases, because STL is a stupid and horrible format.
@@ -23,14 +29,17 @@ namespace g3
     /// STL Binary supports a per-triangle short-int that is usually used to specify color.
     /// However since we do not support per-triangle color in DMesh3, this color
     /// cannot be directly used. Instead of hardcoding behavior, we return the list of shorts
-    /// if requested via IMeshBuilder Metadata. Set .WantPerTriAttribs=true or attach flag .PerTriAttribFlag.
-    /// After the read finishes you can get the face color list via:
-    ///    DVector<short> colors = Builder.Metadata[0][STLReader.PerTriAttribMetadataName] as DVector<short>;
+    /// if requested via IMeshBuilder Metadata. Set .WantPerTriAttribs=true or attach flag .PerTriAttribFlag
+    /// (in ReadOptions.CustomFlags.Flags). After the read finishes you can get the face color list via:
+    ///    DVector&lt;short&gt; colors = Builder.Metadata[0][STLReader.PerTriAttribMetadataName] as DVector&lt;short&gt;;
     /// (for DMesh3Builder, which is the only builder that supports Metadata)
     /// </summary>
     public class STLReader : IMeshReader
     {
 
+        /// <summary>
+        /// How vertices of the STL triangle soup are merged into a connected mesh
+        /// </summary>
         public enum Strategy
         {
             NoProcessing = 0,           // return triangle soup
@@ -123,6 +132,9 @@ namespace g3
         }
 
 
+        /// <summary>
+        /// Read binary STL (80-byte header, triangle count, 50 bytes per triangle) into one mesh
+        /// </summary>
         public IOReadResult Read(BinaryReader reader, ReadOptions options, IMeshBuilder builder)
         {
             if ( options.CustomFlags != null )
@@ -174,6 +186,10 @@ namespace g3
 
 
 
+        /// <summary>
+        /// Read ascii STL, one mesh per solid. Throws (FormatException) on unparseable vertex lines;
+        /// StandardMeshReader catches this and returns GenericReaderError.
+        /// </summary>
         public IOReadResult Read(TextReader reader, ReadOptions options, IMeshBuilder builder)
         {
             if ( options.CustomFlags != null )

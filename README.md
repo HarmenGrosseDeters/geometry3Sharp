@@ -1,7 +1,8 @@
 ﻿# About this fork
 
 This fork tracks gradientspace/geometry3Sharp `master`, whose code is the same as NuGet package 1.0.324.
-Its direction is described in [docs/ROADMAP.md](docs/ROADMAP.md). It adds:
+Its direction is described in [docs/ROADMAP.md](docs/ROADMAP.md). [docs/OPERATIONS.md](docs/OPERATIONS.md) maps the main
+operations to their classes, with a tested example for each. It adds:
 
 - Mesh repair fixes:
   - `MeshEditor.DisconnectBowtie` no longer cuts cracks into the mesh. The old version was order-dependent.
@@ -16,8 +17,35 @@ Its direction is described in [docs/ROADMAP.md](docs/ROADMAP.md). It adds:
   all intersecting triangles, exact winding numbers). Coplanar, touching and nearly coincident inputs give
   closed results; self-intersecting meshes, nested shells and duplicated faces are resolved
   (`ExactMeshBoolean.Resolve(mesh)` does that for one mesh); open meshes use the generalized winding number.
-  Only the output coordinates are rounded to double.
+  Only the output coordinates are rounded to double. New vertices inside flat regions and on straight edges
+  (from overlapping coplanar faces) are removed exactly, so repeated booleans do not fragment the result.
+- Intrinsic geodesics (Phase 3 of the roadmap): `IntrinsicTriangulation` (intrinsic Delaunay flips with
+  signposts, edge tracing over the input mesh, mollification of degenerate triangles), the heat method on it
+  (`MeshGeodesicDistance.IntrinsicDelaunay = true`, accurate on sliver and obtuse meshes) and
+  `VectorHeatMethod` (parallel transport, scalar extension, log map). `SparseCholesky` is a direct sparse
+  solver for the heat and Poisson systems.
+- `MeshAlphaWrap`: alpha wrapping with an offset (Portaneri et al. 2022). Gives a closed, 2-manifold surface
+  without self-intersections around any input: triangle soups, open or non-manifold meshes, degenerate
+  triangles, point clouds. `Alpha` sets the detail, `Offset` the distance to the input. Built on `Delaunay3`, an
+  incremental 3D Delaunay triangulation with exact predicates (`ExactPredicates.InSphere`).
+  ```csharp
+  var wrap = new MeshAlphaWrap(mesh) { RelativeAlpha = 50, RelativeOffset = 1000 };   // diagonal / 50, / 1000
+  bool ok = wrap.Compute();          // false: see wrap.Status and wrap.Error
+  DMesh3 result = wrap.Result;
+  ```
+- Mesh parameterization (UV unwrapping) of meshes with boundary: `LSCMParameterization` (least squares
+  conformal maps), `ARAPParameterization` (as-rigid-as-possible, local/global), `SLIMParameterization`
+  (symmetric Dirichlet energy, guaranteed without flipped triangles), `BoundaryFirstFlattening` (conformal,
+  with prescribed boundary lengths or angles, eg minimal area distortion, disk or rectangle), `TutteEmbedding`,
+  distortion measures (`ParameterizationDistortion`) and `UVPacker` for packing charts into the unit square.
+  All return a `ParameterizationResult` with status, UVs and distortion. They use the new `SparseCholesky`.
 - Mesh file formats PLY, 3MF and glTF 2.0 (see below).
+- Analysis building blocks: `MeshWallThickness` (wall thickness per vertex / triangle: inward ray, shape
+  diameter function, largest inscribed ball / medial axis), `MeshDeviation` (signed deviation map of a mesh
+  against a reference, with statistics and the certified Hausdorff bound) and `PrimitiveFit3` (plane, sphere,
+  cylinder and cone, RANSAC plus least squares).
+- `tools/g3cli`: the mesh operations (measure, repair, boolean, resolve, remesh, simplify, convert) as a CLI with
+  JSON output and result codes, and as an MCP server (`g3cli mcp`). See [tools/g3cli/README.md](tools/g3cli/README.md).
 - `BufferUtil.DecompressZLib` fix: on .NET Core it returned partly empty buffers for large data.
 
 ## Build, targets, tests
@@ -29,12 +57,13 @@ mesh_ops classes such as `MeshAutoRepair`.
 ```
 dotnet test tests/geometry3Sharp.Tests                      # all tests on net10.0
 dotnet test tests/geometry3Sharp.Tests -f net48             # on Windows: tests against the netstandard2.0 build
+dotnet test tests/g3cli.Tests                               # CLI / MCP server integration tests
 dotnet pack geometry3Sharp_netstandard.csproj -c Release -o artifacts
 ```
 
 The package contains the XML documentation and a symbol package. `tests/PackageSmokeTest` consumes the packed
 `.nupkg` and checks it (see the comment in its project file). GitHub Actions (`.github/workflows/ci.yml`) runs
-all of this on every push: tests on net10.0 (Linux) and net48 (Windows), pack, package smoke test.
+all of this on every push: tests on net10.0 (Linux) and net48 (Windows), CLI tests, pack, package smoke test.
 
 ## Mesh file formats
 
@@ -170,14 +199,17 @@ Several tutorials for using g3Sharp have been posted on the Gradientspace blog:
 - **QuadraticFit2**: fit general quadratic or 2D circle to set of 2D points
 - **GaussPointsFit3**: fit mean/covariance of gaussian distribution to set of 3D points
 - **OrthogonalPlaneFit3**: fit of plane to 3D point set
+- **PrimitiveFit3**: robust fit of plane, sphere, cylinder or cone to 3D points (optionally with normals): RANSAC over minimal samples, then Levenberg-Marquardt on the orthogonal distances of the inliers
 
 
 ## Solvers
 
 - basic arbitrary-size **DenseMatrix**, **DenseVector**, **DiagonalMatrix**, **SymmetricSparseMatrix** (based on Dictionary), **PackedSparseMatrix** (row arrays)
 - **CholeskyDecomposition** dense-matrix Cholesky decomposition, optionally multi-threaded
+- **SparseCholesky** sparse Cholesky factorization (approximate minimum degree ordering, supernodal), factorize once and solve many right-hand sides; refactorization with the same pattern reuses the analysis
 - **SparseSymmetricCG** conjugate-gradient matrix solver w/ support for preconditioning, client-provided matrix/vector multiply
 - **SparseSymmetricCGMultipleRHS** variant that supports multiple right-hand sides
+- **SparseCholesky** direct solver for sparse symmetric positive definite systems (reverse Cuthill-McKee, envelope Cholesky)
 - **SingularValueDecomposition** SVD for arbitrary matrices
 - **SymmetricEigenSolver** eigensolver for symmetric matrices using Symmetric QR, ported from GTEngine.
 
@@ -325,7 +357,11 @@ Several tutorials for using g3Sharp have been posted on the Gradientspace blog:
 - **MeshInsertPolygon**: insert a 2D polygon-with-holes into a 2D mesh and return set of triangles "inside" polygon
 - **MeshInsertProjectedPolygon**: variant of MeshInsertPolygon that inserts 2D polygon onto 3D mesh surface via projection plane
 - **MeshIterativeSmooth**: standard iterative vertex-laplacian smoothing with uniform, cotan, mean-value weights
-- **MeshLocalParam**: calculate Discrete Exponential Map uv-coords around a point on mesh
+- **MeshLocalParam**: calculate Discrete Exponential Map uv-coords around a point on mesh (see **VectorHeatMethod.ComputeLogMap** for a more accurate log map)
+- **LSCMParameterization**, **ARAPParameterization**, **SLIMParameterization**, **BoundaryFirstFlattening**, **TutteEmbedding**: UV parameterization of a mesh with boundary (see below)
+- **UVPacker**: pack UV charts into the unit square (skyline packing, optional rotation, uniform texel density)
+- **IntrinsicTriangulation**: intrinsic Delaunay triangulation by edge flips, with signposts (tangent directions) and edge tracing over the input mesh
+- **VectorHeatMethod**: parallel transport of tangent vectors, scalar extension and logarithmic map (geodesic polar coordinates)
 - **MeshLoopClosure**: cap open region of mesh with a plane
 - **MeshLoopSmooth**: smooth an embedded *EdgeLoop* of a mesh
 - **MeshPlaneCut**: cut a mesh with a plane, return new **EdgeLoop**s and **EdgeSpans**, and optionally fill holes
@@ -347,8 +383,39 @@ Several tutorials for using g3Sharp have been posted on the Gradientspace blog:
 - **MergeCoincidentEdges**: weld coincident open boundary edges of mesh (more robust than weld vertices!)
 - **RemoveDuplicateTriangles**: remove duplicate triangles of mesh
 - **RemoteOccludedTriangles**: remove triangles that are "occluded" under various definitions
+- **MeshWallThickness**: wall thickness per vertex and triangle: inward ray (watertight ray-triangle test), shape diameter function, or diameter of the largest inscribed ball (shrinking ball on the exact surface with a separation angle condition)
+- **MeshDeviation**: signed distance of every vertex to a reference mesh (pseudo-normal or winding-number sign), with area weighted statistics, percentiles, histogram and optional certified Hausdorff bound
 - **MeshAutoRepair**: apply many of the above algorithms in an attempt to automatically "repair" an input mesh, where "repaired" means the mesh is closed and manifold.
 
+
+## Parameterization
+
+All methods take a `DMesh3` with at least one boundary loop (cut closed surfaces open first) and return a
+`ParameterizationResult` from `Compute()`: `Status` (`Success`, `InvalidMesh`, `InvalidTopology`,
+`InvalidConstraints`, `SolverFailed`), `UV` per vertex id, `Distortion` and, for iterative methods,
+`Iterations` / `Converged` / `Energy`. `ApplyToMesh(mesh)` writes the vertex UVs.
+
+```csharp
+var bff = new BoundaryFirstFlattening(mesh);            // u = 0 on the boundary: minimal area distortion
+ParameterizationResult r = bff.Compute();
+if (r.Succeeded) {
+    r.ApplyToMesh(mesh);
+    Console.WriteLine(r.Distortion.MeanConformal);      // 1 = conformal
+}
+new UVPacker(mesh) { Padding = 0.01 }.Compute().ApplyToMesh(mesh);
+```
+
+| Method | Topology | Boundary | Guarantees / properties |
+|---|---|---|---|
+| `LSCMParameterization` | any with boundary, one component | free (2+ pins) | conformal energy minimum, linear |
+| `BoundaryFirstFlattening` | disc | prescribed scale factors or exterior angles (`MinimalAreaDistortion`, `Disk`, `TargetAngles`, `TargetScaleFactors`) | conformal, linear, exact boundary with `Harmonic` extension |
+| `ARAPParameterization` | any with boundary, one component | free | least length distortion (local/global), natural scale |
+| `SLIMParameterization` | disc (or any, from flip-free `InitialUV`) | free | no flipped triangles, minimizes symmetric Dirichlet energy |
+| `TutteEmbedding` | disc | circle | bijective, high distortion (initialization) |
+
+`ParameterizationDistortion.Compute(mesh, uv)` measures flipped triangles, conformal distortion (s1/s2),
+angle error, area distortion (log of the area ratio relative to the global scale), symmetric Dirichlet and
+ARAP energies.
 
 ## Spatial Data Structures
 
@@ -416,6 +483,7 @@ Several tutorials for using g3Sharp have been posted on the Gradientspace blog:
 ## 3D Solids
 
 - **Cylinder3d**
+- **Cone3d**: apex, axis, half angle; signed distance
 - **DenseGridTrilinearImplicit**: trilinear interpolant of 3D grid
 - **CachingDenseGridTrilinearImplicit**: variant of DenseGridTrilinearImplicit that does lazy evaluation of grid values based on an implicit function
 

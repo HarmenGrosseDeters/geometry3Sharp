@@ -7,15 +7,22 @@ using g3;
 namespace gs
 {
 	/// <summary>
-	/// Remove duplicate triangles.
+	/// Remove geometrically duplicate triangles, in place: triangles whose three vertex positions match
+	/// those of another triangle within VertexTolerance (the vertices may be different, unwelded ones).
+	/// Of each duplicate set the first triangle (lowest id) is kept. With CheckOrientation (default) only
+	/// duplicates facing the same way are removed; oppositely oriented pairs are kept (see
+	/// MeshPostRepairCleanup, which removes two-sided pairs that share vertices).
 	/// </summary>
 	public class RemoveDuplicateTriangles
 	{
 		public DMesh3 Mesh;
 
+		/// <summary> maximum distance between corresponding vertices of duplicate triangles </summary>
 		public double VertexTolerance = MathUtil.ZeroTolerancef;
+        /// <summary> if true, only remove duplicates whose normals agree (dot &gt;= 0.99) </summary>
         public bool CheckOrientation = true;
 
+        /// <summary> number of triangles removed by the last Apply() </summary>
         public int Removed = 0;
 
 		public RemoveDuplicateTriangles(DMesh3 mesh)
@@ -24,6 +31,7 @@ namespace gs
 		}
 
 
+		/// <summary> remove the duplicates (vertices left unused are removed too); always returns true </summary>
 		public virtual bool Apply() {
             Removed = 0;
 

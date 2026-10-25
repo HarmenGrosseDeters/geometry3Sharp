@@ -6,10 +6,16 @@ namespace g3
 {
 
 	/// <summary>
-	/// Cut the Mesh with the Plane. The *positive* side, ie (p-o).n > 0, is removed.
-    /// If possible, returns boundary loop(s) along cut
-	/// (this will fail if cut intersected with holes in mesh).
-	/// Also FillHoles() for a topological fill. Or use CutLoops and fill yourself.
+	/// Cut the Mesh with the Plane, in place. The *positive* side, ie (p-o).n &gt; 0, is removed.
+    /// If possible, Cut() returns the boundary loop(s) along the cut in CutLoops, and open boundary
+	/// pieces in CutSpans (this happens if the cut intersects holes in the mesh; FoundOpenSpans is set).
+	/// Also FillHoles() for a topological fill of the closed loops. Or use CutLoops and fill yourself.
+	///
+	/// Cut() returns true (it throws if an edge split fails); check CutLoopsFailed for the loop extraction.
+	/// Vertices within MathUtil.Epsilon of the plane count as on the plane (use a unit-length normal, the
+	/// tolerance is applied to (p-o).n). Crossing edges are split at the exact plane intersection.
+	/// Use MeshPlaneCut to trim a mesh or open it along a plane; to cut a mesh with another mesh see
+	/// <see cref="MeshMeshCut"/> and <see cref="ExactMeshBoolean"/>.
 	/// 
 	/// Algorithm is:
 	///    1) find all edge crossings
@@ -19,38 +25,49 @@ namespace g3
 	///    5) find loops through valid boundary edges (ie connected to splits, or on-plane edges)
 	/// 
 	/// [TODO] could run into trouble w/ on-plane degenerate triangles. Should optionally
-	///   discard any triangles with all vertex distances < epsilon. But this complicates
+	///   discard any triangles with all vertex distances &lt; epsilon. But this complicates
 	///   boundary edge tracking...
 	/// 
 	/// </summary>
 	public class MeshPlaneCut
 	{
         // Inputs
+		/// <summary> the mesh to cut (modified in place) </summary>
 		public DMesh3 Mesh;
+		/// <summary> a point on the plane </summary>
 		public Vector3d PlaneOrigin;
+		/// <summary> plane normal; the side it points to is removed </summary>
 		public Vector3d PlaneNormal;
 
-        // a plane cut very near a vertex can result in degenerate edges on the open loops/spans, which 
-        // can cause problems downstream (eg if hole-filling). It is easy for us to collapse these before
-        // we construct the loops.
+        /// <summary>
+        /// a plane cut very near a vertex can result in degenerate edges on the open loops/spans, which 
+        /// can cause problems downstream (eg if hole-filling). It is easy for us to collapse these before
+        /// we construct the loops. Default true
+        /// </summary>
         public bool CollapseDegenerateEdgesOnCut = true;
 
-        // the min-edge-length if we are collapsing degenerate edges
+        /// <summary> the min-edge-length if we are collapsing degenerate edges </summary>
         public double DegenerateEdgeTol = MathUtil.ZeroTolerancef;
 
-        // if non-null, we will only iterate through these edges
+        /// <summary> if non-null, we will only cut the edges of these triangles and remove their vertices </summary>
         public MeshFaceSelection CutFaceSet = null;
 
         // Outputs
+		/// <summary> closed boundary loops along the cut, after Cut() (empty if CutLoopsFailed) </summary>
 		public List<EdgeLoop> CutLoops;
+        /// <summary> open boundary spans along the cut (where the cut meets holes), after Cut(); not set if CutLoopsFailed </summary>
         public List<EdgeSpan> CutSpans;
-        public bool CutLoopsFailed = false;		// set to true if we could not compute cut loops/spans
-        public bool FoundOpenSpans = false;     // set to true if we found open spans in cut
+        /// <summary> set to true if we could not compute cut loops/spans </summary>
+        public bool CutLoopsFailed = false;
+        /// <summary> set to true if we found open spans in cut </summary>
+        public bool FoundOpenSpans = false;
 
+		/// <summary> after FillHoles(): the new triangles of each loop in CutLoops (null where filling failed) </summary>
 		public List<int[]> LoopFillTriangles;
 
 		/// <summary>
-		/// Cut mesh with plane. Assumption is that plane normal is Z value.
+		/// Cut mesh with the plane through origin with the given normal (any direction; the side the normal
+		/// points to is removed). Call Cut() to run.
 		/// </summary>
 		public MeshPlaneCut(DMesh3 mesh, Vector3d origin, Vector3d normal)
 		{
@@ -67,6 +84,11 @@ namespace g3
 		}
 
 
+		/// <summary>
+		/// Split the edges that cross the plane, remove the triangles on the positive side, and find the cut
+		/// boundary loops/spans (CutLoops, CutSpans, CutLoopsFailed, FoundOpenSpans). Modifies Mesh in place.
+		/// Returns true; throws an Exception if an edge split fails.
+		/// </summary>
 		public virtual bool Cut()
 		{
 			double invalidDist = double.MinValue;
@@ -224,8 +246,10 @@ namespace g3
 
 
 		/// <summary>
-		/// A quick-and-dirty hole filling. If you want something better,
-		/// process the returned CutLoops yourself.
+		/// A quick-and-dirty hole filling: each loop in CutLoops is filled with SimpleHoleFiller (one triangle for
+		/// 3-vertex loops, otherwise a fan around a new centroid vertex), with a new triangle group per loop unless constantGroupID &gt;= 0. Open CutSpans
+		/// are not filled. Returns false if any loop could not be filled (see LoopFillTriangles).
+		/// If you want something better, process the returned CutLoops yourself. Call after Cut().
 		/// </summary>
 		public bool FillHoles(int constantGroupID = -1)
 		{

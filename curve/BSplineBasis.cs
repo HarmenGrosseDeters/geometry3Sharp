@@ -168,6 +168,8 @@ namespace g3
         }
 
         // Evaluate basis functions and their derivatives.
+        // Compute() writes into the buffers that GetD0..GetD3 read afterwards, so one BSplineBasis
+        // must not be evaluated from several threads at the same time (NURBSCurve2 locks on it)
         public void Compute(double t, int order, ref int minIndex, ref int maxIndex)
         {
             //assertion(order <= 3, "Only derivatives to third order supported\n");

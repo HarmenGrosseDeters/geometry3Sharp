@@ -219,11 +219,25 @@ namespace gs
     ///     with its boundary and break lines kept; RemeshedTerrain and Geodesic.Distance give the distance
     ///     field there. The heat method overestimates the distance next to break lines (by up to about 0.27 x
     ///     EdgeLength in tests with 75 degree faces), which would put the line too close to the crest:
-    ///     the line is drawn at SafetyDistance + SafetyMargin (default 0.35 x EdgeLength), on the safe side.
+    ///     the line is drawn at SafetyDistance + SafetyMargin (default 0.35 x EdgeLength). Not guaranteed:
+    ///     on real crests (open pit, 1 m DGM) the heat method still overestimates by up to 1-2 m in places,
+    ///     which puts the line that much too close.
+    ///   - Guaranteed: the straight 3D distance to the sources, which is never more than the distance
+    ///     along the terrain: the line lies on the safe side for certain (computed like Horizontal, at
+    ///     SafetyDistance + Tolerance, so the chords between the line points stay outside SafetyDistance).
+    ///     It is conservative where the path along the terrain bends over another break line or the
+    ///     straight line crosses a gap. How much is certified: shortest paths along the refined terrain
+    ///     (Dijkstra over its vertices and SteinerPoints points per edge, straight through each triangle)
+    ///     are upper bounds of the distance along the terrain; Excess gives, per line point, the upper
+    ///     bound minus SafetyDistance, ie at most how far beyond SafetyDistance the point lies. The whole
+    ///     segments are bounded (samples every ExcessTolerance / 8, the distance is 1-Lipschitz); while not
+    ///     certified, the bound is computed again with twice the points per edge (up to MaxSteinerPoints). Certified if the lines lie at least SafetyDistance (MinLineDistance, exact)
+    ///     and at most ExcessTolerance (default 0.2 m) beyond it; RequireCertified makes Compute fail otherwise.
+    ///     On the open pit test data: median excess 5-18 cm, 3% (5 m) to 44% (20 m) of the points above 20 cm.
     /// </summary>
     public class TerrainSafetyLines
     {
-        public enum Modes { Horizontal, AlongSurface }
+        public enum Modes { Horizontal, AlongSurface, Guaranteed }
         public Modes Mode = Modes.Horizontal;
 
         public DMesh3 Terrain;
@@ -236,8 +250,17 @@ namespace gs
         public double SafetyMargin = -1;
         /// <summary> AlongSurface: break lines bending more than this (degrees) are kept by the remeshing </summary>
         public double FeatureAngle = 20;
-        /// <summary> Horizontal: the line lies at most this much inside the distance (chords of arcs) </summary>
+        /// <summary> Horizontal: the line lies at most this much inside the distance (chords of arcs); Guaranteed: the line is drawn this much outside </summary>
         public double Tolerance = 0.01;
+        /// <summary> Guaranteed: line points farther than this beyond SafetyDistance (upper bound) are not certified </summary>
+        public double ExcessTolerance = 0.2;
+        /// <summary> Guaranteed: Compute fails if a line point is not certified </summary>
+        public bool RequireCertified = false;
+        /// <summary>
+        /// Guaranteed: points per edge for the upper bound (more = tighter bound, slower); doubled up to
+        /// MaxSteinerPoints while not certified
+        /// </summary>
+        public int SteinerPoints = 3, MaxSteinerPoints = 12;
 
         // outputs
         public List<List<Vector3d>> Lines = new List<List<Vector3d>>();
@@ -245,6 +268,26 @@ namespace gs
         public DMesh3 RefinedTerrain;
         public DMesh3 RemeshedTerrain;
         public MeshGeodesicDistance Geodesic;
+        /// <summary>
+        /// Guaranteed: per line point (same structure as Lines), an upper bound of how far beyond
+        /// SafetyDistance it lies along the terrain; +infinity if more than 2 x ExcessTolerance + edge length
+        /// </summary>
+        public List<List<double>> Excess = new List<List<double>>();
+        /// <summary>
+        /// Guaranteed: upper bound of how far beyond SafetyDistance any point of the lines lies (between
+        /// the line points too), and the number of line segments where it exceeds ExcessTolerance
+        /// </summary>
+        public double MaxExcess;
+        public int UncertifiedSegments;
+        /// <summary> Guaranteed: the smallest straight 3D distance of the lines to the sources (exact, segments) </summary>
+        public double MinLineDistance;
+        /// <summary>
+        /// Guaranteed: the whole lines lie at least SafetyDistance from the sources and at most
+        /// ExcessTolerance beyond it along the terrain
+        /// </summary>
+        public bool Certified;
+        /// <summary> Guaranteed: points per edge used for the bound </summary>
+        public int UsedSteinerPoints;
 
         public TerrainSafetyLines(DMesh3 terrain, IEnumerable<int> sourceVertices, double distance)
         {
@@ -268,26 +311,31 @@ namespace gs
             Lines.Clear();
             if (!(SafetyDistance > 0) || double.IsInfinity(SafetyDistance) || Terrain.TriangleCount == 0)
                 return false;
+            if (Mode == Modes.Guaranteed)
+                return compute_guaranteed();
             return (Mode == Modes.Horizontal) ? compute_horizontal() : compute_along_surface();
         }
 
 
         // horizontal distance to the source segments (single points are degenerate segments)
         List<Segment2d> segments;
+        List<Segment3d> segments3;
         PointHashGrid2d<int> segmentGrid;
         double maxSegLength;
 
         void build_segments()
         {
             segments = new List<Segment2d>();
+            segments3 = new List<Segment3d>();
             var lines = new List<List<Vector3d>>();
             if (polyLines != null) lines.AddRange(polyLines);
             foreach (Vector3d p in SourcePoints) lines.Add(new List<Vector3d>() { p });
             maxSegLength = 0;
             foreach (var line in lines) {
-                if (line.Count == 1) segments.Add(new Segment2d(line[0].xy, line[0].xy));
+                if (line.Count == 1) { segments.Add(new Segment2d(line[0].xy, line[0].xy)); segments3.Add(new Segment3d(line[0], line[0])); }
                 for (int i = 0; i + 1 < line.Count; ++i) {
                     segments.Add(new Segment2d(line[i].xy, line[i + 1].xy));
+                    segments3.Add(new Segment3d(line[i], line[i + 1]));
                     maxSegLength = Math.Max(maxSegLength, line[i].xy.Distance(line[i + 1].xy));
                 }
             }
@@ -302,6 +350,15 @@ namespace gs
             // segments are binned by their midpoint, their points are within half their length of it
             var near = segmentGrid.FindNearestInRadius(q, radius + 0.5 * maxSegLength + MathUtil.Epsilon,
                 (k) => Math.Sqrt(segments[k].DistanceSquared(q)));
+            return (near.Key >= 0 && near.Value <= radius) ? near.Value : double.MaxValue;
+        }
+
+        // straight 3D distance to the nearest source segment if it is at most radius, else MaxValue (at
+        // least the horizontal one, so the segments are found as in horizontal_distance)
+        double distance_3d(Vector3d q, double radius)
+        {
+            var near = segmentGrid.FindNearestInRadius(q.xy, radius + 0.5 * maxSegLength + MathUtil.Epsilon,
+                (k) => Math.Sqrt(segments3[k].DistanceSquared(q)));
             return (near.Key >= 0 && near.Value <= radius) ? near.Value : double.MaxValue;
         }
 
@@ -347,6 +404,234 @@ namespace gs
             iso.Compute();
             chain_graph(iso.Graph);
             return true;
+        }
+
+        bool compute_guaranteed()
+        {
+            Lines.Clear(); Excess.Clear();
+            MaxExcess = 0; UncertifiedSegments = 0; Certified = false; MinLineDistance = double.MaxValue;
+            build_segments();
+            if (segments.Count == 0 || Tolerance <= 0)
+                return false;
+            // as Horizontal, with the 3D distance (a lower bound of the distance along the terrain); the
+            // chords between the line points lie at most Tolerance inside the level, so outside SafetyDistance
+            double level = SafetyDistance + Tolerance;
+            double maxLength = Math.Min(Math.Sqrt(8 * level * Tolerance), level);
+            RefinedTerrain = refine_near_sources(maxLength, level);
+            var iso = new MeshIsoCurves(RefinedTerrain, (p) => Math.Min(distance_3d(p, 2 * level), 2 * level) - level) {
+                RootMode = MeshIsoCurves.RootfindingModes.Bisection, RootModeSteps = 40
+            };
+            iso.Compute();
+            chain_graph(iso.Graph);
+            // safe side, for the whole line: the smallest 3D distance of its segments to the sources (exact)
+            foreach (var line in Lines)
+                for (int i = 0; i + 1 < line.Count; ++i)
+                    MinLineDistance = Math.Min(MinLineDistance, segment_distance_3d(line[i], line[i + 1], 2 * level));
+            // excess: upper bounds of the distance along the terrain, for the whole lines. The graph paths
+            // zigzag (eg 0.4 m too long on flat ground with 3 points per edge, where the line lies 0.01 m
+            // beyond the distance): more points per edge while not certified
+            for (int S = Math.Max(1, SteinerPoints); ; S *= 2) {
+                certify(RefinedTerrain, maxLength, S);
+                if (Certified || 2 * S > MaxSteinerPoints) break;
+            }
+            Certified = Certified && MinLineDistance >= SafetyDistance;
+            return Certified || RequireCertified == false;
+        }
+
+        // smallest 3D distance of the segment pq to the source segments (if below radius, else MaxValue)
+        double segment_distance_3d(Vector3d p, Vector3d q, double radius)
+        {
+            Vector3d m = 0.5 * (p + q);
+            double half = 0.5 * p.Distance(q);
+            var near = segmentGrid.FindNearestInRadius(m.xy, radius + half + 0.5 * maxSegLength + MathUtil.Epsilon,
+                (k) => segment_segment_distance(p, q, segments3[k].P0, segments3[k].P1));
+            return (near.Key >= 0) ? near.Value : double.MaxValue;
+        }
+
+        // distance between the segments p1q1 and p2q2 (Ericson, Real-Time Collision Detection 5.1.9)
+        static double segment_segment_distance(Vector3d p1, Vector3d q1, Vector3d p2, Vector3d q2)
+        {
+            Vector3d d1 = q1 - p1, d2 = q2 - p2, r = p1 - p2;
+            double a = d1.Dot(d1), e = d2.Dot(d2), f = d2.Dot(r);
+            double s, t;
+            if (a <= 1e-300 && e <= 1e-300) return p1.Distance(p2);
+            if (a <= 1e-300) {
+                s = 0; t = MathUtil.Clamp(f / e, 0, 1);
+            } else {
+                double c = d1.Dot(r);
+                if (e <= 1e-300) {
+                    t = 0; s = MathUtil.Clamp(-c / a, 0, 1);
+                } else {
+                    double b = d1.Dot(d2), denom = a * e - b * b;
+                    s = (denom > 0) ? MathUtil.Clamp((b * f - c * e) / denom, 0, 1) : 0;
+                    t = (b * s + f) / e;
+                    if (t < 0) { t = 0; s = MathUtil.Clamp(-c / a, 0, 1); }
+                    else if (t > 1) { t = 1; s = MathUtil.Clamp((b - c) / a, 0, 1); }
+                }
+            }
+            return (p1 + s * d1).Distance(p2 + t * d2);
+        }
+
+        // Upper bounds of the distance along the mesh (the refined terrain, same surface): Dijkstra over the
+        // vertices and SteinerPoints points on each edge, linked straight through each triangle (paths on
+        // the surface), from the densified sources (straight to the nodes of the triangles they lie in).
+        // Every line segment lies in one triangle; it is sampled every ExcessTolerance / 8, and between
+        // samples a and b (distance h) the bound is (U(a) + U(b) + h) / 2 (the distance is 1-Lipschitz along
+        // the surface), so the whole segment is certified.
+        void certify(DMesh3 m, double maxLength, int S)
+        {
+            Excess.Clear(); MaxExcess = 0; UncertifiedSegments = 0; Certified = true;
+            UsedSteinerPoints = S;
+            int V = m.MaxVertexID;
+            int N = V + m.MaxEdgeID * S;
+            double cutoff = SafetyDistance + 2 * ExcessTolerance + maxLength;
+            var U = new double[N];
+            for (int k = 0; k < N; ++k) U[k] = double.PositiveInfinity;
+            Func<int, Vector3d> pos = (id) => {
+                if (id < V) return m.GetVertex(id);
+                int e = (id - V) / S, k = (id - V) % S;
+                Index2i ev = m.GetEdgeV(e);
+                return Vector3d.Lerp(m.GetVertex(ev.a), m.GetVertex(ev.b), (k + 1.0) / (S + 1));
+            };
+            var triNodes = new List<int>(3 + 3 * S);
+            Action<int> nodes_of = (tid) => {
+                triNodes.Clear();
+                Index3i tv = m.GetTriangle(tid), te = m.GetTriEdges(tid);
+                triNodes.Add(tv.a); triNodes.Add(tv.b); triNodes.Add(tv.c);
+                for (int j = 0; j < 3; ++j)
+                    for (int k = 0; k < S; ++k) triNodes.Add(V + te[j] * S + k);
+            };
+            var spatial = new DMeshAABBTree3(m, true);
+            var pq = new MinHeap();
+            // sources: the densified source lines, projected onto the terrain (+ their distance to it)
+            var lines = new List<List<Vector3d>>();
+            if (polyLines != null) lines.AddRange(polyLines);
+            foreach (Vector3d p in SourcePoints) lines.Add(new List<Vector3d>() { p });
+            foreach (var line in lines)
+                for (int i = 0; i < line.Count; ++i) {
+                    int steps = (i + 1 < line.Count) ? Math.Max(1, (int)Math.Ceiling(line[i].Distance(line[i + 1]) / (0.25 * maxLength))) : 1;
+                    for (int k = 0; k < steps; ++k) {
+                        Vector3d s = (i + 1 < line.Count) ? Vector3d.Lerp(line[i], line[i + 1], (double)k / steps) : line[i];
+                        int tid = spatial.FindNearestTriangle(s, maxLength);
+                        if (tid < 0) continue;
+                        Vector3d sp = MeshQueries.TriangleDistance(m, tid, s).TriangleClosest;
+                        double off = s.Distance(sp);
+                        nodes_of(tid);
+                        foreach (int q in triNodes) {
+                            double d = off + sp.Distance(pos(q));
+                            if (d < U[q]) { U[q] = d; pq.Enqueue(q, d); }
+                        }
+                    }
+                }
+            var done = new bool[N];
+            var incident = new List<int>();
+            while (pq.Count > 0) {
+                int id; double d;
+                pq.TryDequeue(out id, out d);
+                if (done[id] || d > U[id]) continue;
+                done[id] = true;
+                if (d > cutoff) break;
+                incident.Clear();
+                if (id < V) {
+                    foreach (int t in m.VtxTrianglesItr(id)) incident.Add(t);
+                } else {
+                    Index2i et = m.GetEdgeT((id - V) / S);
+                    incident.Add(et.a);
+                    if (et.b >= 0) incident.Add(et.b);
+                }
+                Vector3d p = pos(id);
+                foreach (int t in incident) {
+                    nodes_of(t);
+                    foreach (int q in triNodes) {
+                        if (done[q]) continue;
+                        double nd = d + p.Distance(pos(q));
+                        if (nd < U[q]) { U[q] = nd; pq.Enqueue(q, nd); }
+                    }
+                }
+            }
+            // a point on the surface: through the triangle it lies in (and the one across the edge it lies on)
+            Func<Vector3d, double> bound = (p) => {
+                double best = double.PositiveInfinity;
+                int tid = spatial.FindNearestTriangle(p);
+                if (tid < 0) return best;
+                incident.Clear();
+                incident.Add(tid);
+                Index3i te = m.GetTriEdges(tid);
+                for (int j = 0; j < 3; ++j) {
+                    Index2i ev = m.GetEdgeV(te[j]);
+                    if (new Segment3d(m.GetVertex(ev.a), m.GetVertex(ev.b)).DistanceSquared(p) < 1e-18 * (1 + p.LengthSquared)) {
+                        Index2i et = m.GetEdgeT(te[j]);
+                        int other = (et.a == tid) ? et.b : et.a;
+                        if (other >= 0) incident.Add(other);
+                    }
+                }
+                foreach (int t in incident.ToArray()) {
+                    nodes_of(t);
+                    foreach (int q in triNodes)
+                        if (done[q]) best = Math.Min(best, U[q] + p.Distance(pos(q)));
+                }
+                return (best <= cutoff) ? best : double.PositiveInfinity;
+            };
+            double h = ExcessTolerance / 8;
+            foreach (var line in Lines) {
+                var ex = new List<double>(line.Count);
+                double prev = bound(line[0]);
+                ex.Add(prev - SafetyDistance);
+                for (int i = 0; i + 1 < line.Count; ++i) {
+                    int n = Math.Max(1, (int)Math.Ceiling(line[i].Distance(line[i + 1]) / h));
+                    double step = line[i].Distance(line[i + 1]) / n;
+                    var u = new double[n + 1];
+                    u[0] = prev;
+                    for (int k = 1; k <= n; ++k)
+                        u[k] = bound(Vector3d.Lerp(line[i], line[i + 1], (double)k / n));
+                    Func<double> segment_max = () => {
+                        double mx = 0;
+                        for (int k = 0; k < n; ++k) mx = Math.Max(mx, 0.5 * (u[k] + u[k + 1] + step) - SafetyDistance);
+                        return mx;
+                    };
+                    double segMax = segment_max();
+                    prev = u[n];
+                    ex.Add(prev - SafetyDistance);
+                    MaxExcess = Math.Max(MaxExcess, segMax);
+                    if (!(segMax <= ExcessTolerance)) {
+                        UncertifiedSegments++;
+                        Certified = false;
+                    }
+                }
+                Excess.Add(ex);
+            }
+        }
+
+        // binary min-heap of (key, id) with lazy deletion (netstandard2.0 has no PriorityQueue)
+        class MinHeap
+        {
+            List<KeyValuePair<double, int>> h = new List<KeyValuePair<double, int>>();
+            public int Count { get { return h.Count; } }
+            public void Enqueue(int id, double key)
+            {
+                h.Add(new KeyValuePair<double, int>(key, id));
+                int i = h.Count - 1;
+                while (i > 0) {
+                    int p = (i - 1) / 2;
+                    if (h[p].Key <= h[i].Key) break;
+                    var t = h[p]; h[p] = h[i]; h[i] = t; i = p;
+                }
+            }
+            public bool TryDequeue(out int id, out double key)
+            {
+                id = h[0].Value; key = h[0].Key;
+                h[0] = h[h.Count - 1];
+                h.RemoveAt(h.Count - 1);
+                int i = 0;
+                while (true) {
+                    int l = 2 * i + 1, r = l + 1, m = i;
+                    if (l < h.Count && h[l].Key < h[m].Key) m = l;
+                    if (r < h.Count && h[r].Key < h[m].Key) m = r;
+                    if (m == i) break;
+                    var t = h[m]; h[m] = h[i]; h[i] = t; i = m;
+                }
+                return true;
+            }
         }
 
         bool compute_along_surface()

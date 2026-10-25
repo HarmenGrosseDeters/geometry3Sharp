@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 
 namespace g3
 {
@@ -143,7 +144,7 @@ namespace g3
 
 
         public override string ToString() {
-            return string.Format("[{0:F8},{1:F8}]", a, b);
+            return string.Format(CultureInfo.InvariantCulture, "[{0:F8},{1:F8}]", a, b);
         }
 
 

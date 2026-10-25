@@ -15,6 +15,12 @@ namespace g3
     /// you must also know it's 3D coordinate, so we can look up the cell coordinates.
     /// Hence, to 'update' a point, you need to know both it's old and new 3D coordinates.
     /// 
+    /// Typical use: <c>var grid = new PointHashGrid3d&lt;int&gt;(cellSize, -1);</c>, InsertPoint(vid, pos) for each point,
+    /// then FindNearestInRadius(query, radius, (vid) =&gt; positions[vid].Distance(query)).
+    /// Choose cellSize about equal to the typical query radius: a query visits all cells overlapping
+    /// the box of size 2*radius around the query point. Points can be inserted/removed at any time,
+    /// no build step is needed.
+    /// 
     /// TODO: if a lot of points are in the same spot, this is still a disaster.
     /// What if we had a second level of hashing, where once a list at a level gets too
     /// big, we build a sub-hash there?
@@ -29,6 +35,7 @@ namespace g3
         SpinLock spinlock;
 
         /// <summary>
+        /// Create an empty grid with cubic cells of size cellSize.
         /// "invalid" value will be returned by queries if no valid result is found (eg bounded-distance query)
         /// </summary>
         public PointHashGrid3d(double cellSize, T invalidValue)
@@ -39,6 +46,7 @@ namespace g3
             this.invalidValue = invalidValue;
         }
 
+        /// <summary> Value returned by queries if no valid result is found </summary>
         public T InvalidValue {
             get { return invalidValue; }
         }
@@ -63,7 +71,8 @@ namespace g3
 
 
         /// <summary>
-        /// Insert point. This function is thread-safe, uses a SpinLock internally
+        /// Remove point, which must have been inserted at (a position in the same grid cell as) pos.
+        /// Returns false if it was not found. This function is thread-safe, uses a SpinLock internally
         /// </summary>
         public bool RemovePoint(T value, Vector3d pos)
         {
@@ -72,7 +81,7 @@ namespace g3
         }
 
         /// <summary>
-        /// Remove point without locking / thread-safety
+        /// Remove point without locking / thread-safety. Returns false if it was not found.
         /// </summary>
         public bool RemovePointUnsafe(T value, Vector3d pos)
         {
@@ -117,7 +126,8 @@ namespace g3
         /// Find nearest point in grid, within radius, without locking / thread-safety
         /// You must provided distF which returns distance between query_pt and the point argument
         /// You can ignore specific points via ignoreF lambda.
-        /// returned key is InvalidValue if not found
+        /// Returns (nearest point, its distance); only points with distance strictly less than radius are considered.
+        /// If none is found, the key is InvalidValue and the value is double.MaxValue.
         /// </summary>
         public KeyValuePair<T, double> FindNearestInRadius(Vector3d query_pt, double radius, Func<T, double> distF, Func<T, bool> ignoreF = null)
         {
@@ -193,6 +203,7 @@ namespace g3
 
 
 
+        /// <summary> Debugging: print cells that contain more than 512 points to the console </summary>
         public void print_large_buckets()
         {
             foreach ( var entry in Hash ) {
