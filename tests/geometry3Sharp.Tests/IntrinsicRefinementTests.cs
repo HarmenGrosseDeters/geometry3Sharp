@@ -353,8 +353,31 @@ namespace geometry3Sharp.Tests
             AssertConsistent(T);
             var r = T.DelaunayRefine(25);
             output.WriteLine(r.ToString());
+            Assert.Equal(IntrinsicRefinementStatus.Success, r.Status);
             AssertConsistent(T);
             Assert.True(TraceEndError(T) < 1e-9, $"{TraceEndError(T)}");
+            CheckSubdivision(mesh, T, output);
+        }
+
+        [Fact]
+        public void TraceEdge_JitteredGrid_BoundaryEdgesReachTheirHead()
+        {
+            // along a boundary edge the rounded cross product can point slightly outwards: the walk must
+            // slide along the edge, not stop at its start
+            DMesh3 mesh = Grid(4, 8, (x, y) => 0);
+            var rnd = new Random(2);
+            foreach (int v in mesh.VertexIndices().ToList())
+                if (mesh.IsBoundaryVertex(v) == false) {
+                    Vector3d p = mesh.GetVertex(v);
+                    double dx = 0.9 * (rnd.NextDouble() - 0.5) * 4 / 8, dy = 0.9 * (rnd.NextDouble() - 0.5) * 4 / 8;
+                    mesh.SetVertex(v, p + new Vector3d(dx, dy, 0));
+                }
+            var T = new IntrinsicTriangulation(mesh);
+            Assert.True(TraceEndError(T) < 1e-9, $"input {TraceEndError(T)}");
+            T.FlipToDelaunay();
+            Assert.True(TraceEndError(T) < 1e-9, $"flipped {TraceEndError(T)}");
+            T.DelaunayRefine(25);
+            Assert.True(TraceEndError(T) < 1e-9, $"refined {TraceEndError(T)}");
             CheckSubdivision(mesh, T, output);
         }
 
@@ -449,6 +472,18 @@ namespace geometry3Sharp.Tests
             // distances only at mesh vertices
             Assert.Equal(mesh.MaxVertexID, refined.Distance.Length);
             Assert.Equal(0, refined.Distance[src]);
+
+            // changing the options after a Compute rebuilds the triangulation
+            flip.IntrinsicRefine = true;
+            Assert.True(flip.Compute(new[] { src }));
+            Assert.NotNull(flip.Refinement);
+            Assert.Equal(refined.Refinement.InsertedVertices, flip.Refinement.InsertedVertices);
+            flip.RefineMinAngle = 0;
+            Assert.True(flip.Compute(new[] { src }));
+            Assert.Equal(0, flip.Refinement.CircumcenterInsertions);
+            flip.IntrinsicRefine = false;
+            Assert.True(flip.Compute(new[] { src }));
+            Assert.Null(flip.Refinement);
         }
 
         [Fact]

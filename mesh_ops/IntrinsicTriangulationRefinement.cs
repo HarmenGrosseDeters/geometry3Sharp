@@ -366,7 +366,7 @@ namespace gs
                     Vector2d a = q[k], e = q[(k + 1) % 3] - a;
                     double el = e.Length;
                     double rate = (e.x * d.y - e.y * d.x) / el;
-                    if (rate >= 0) continue;
+                    if (rate >= -1e-12) continue;                     // away from it or parallel (rounding)
                     double dist = (e.x * (p.y - a.y) - e.y * (p.x - a.x)) / el;
                     double s = (dist <= tol) ? 0 : dist / -rate;
                     if (s < bestS) { bestS = s; exit = k; }

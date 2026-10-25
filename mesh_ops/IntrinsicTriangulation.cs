@@ -546,7 +546,7 @@ namespace gs
                     double el = e.Length;
                     if (!(el > 0)) continue;
                     double rate = (e.x * d.y - e.y * d.x) / el;           // < 0: towards the edge
-                    if (rate >= 0) continue;
+                    if (rate >= -1e-12) continue;                         // away from it or parallel (rounding)
                     Vector2d ap = p - a;
                     double dist = (e.x * ap.y - e.y * ap.x) / el;        // > 0 inside
                     double s = (dist <= tol) ? 0 : dist / -rate;
@@ -571,6 +571,7 @@ namespace gs
                     double along = d.Dot(ue);
                     if (Math.Abs(along) < 1e-9) return false;
                     d = along > 0 ? ue : -ue;
+                    entered = eh;                   // do not leave through the edge it slides along
                     continue;
                 }
                 if (crossings != null) crossings.Add(new WalkCrossing() { Halfedge = eh, U = u, Point = x });

@@ -86,9 +86,17 @@ namespace gs
         int[] component;            // per index; -1 for vertices without a (non-degenerate) triangle
         int componentCount;
 
+        // the options the triangulation was built with (a change rebuilds it)
+        string builtSettings;
+        string built_settings()
+        {
+            return IntrinsicDelaunay + " " + IntrinsicRefine + " " + RefineMinAngle.ToString("R") + " " + RefineMaxInsertions;
+        }
+
         void precompute()
         {
             timestamp = Mesh.ShapeTimestamp;
+            builtSettings = built_settings();
             nbStart = null; spatial = null;
             toIndex = new int[Mesh.MaxVertexID];
             toVertex = new int[Mesh.VertexCount];
@@ -332,7 +340,7 @@ namespace gs
         /// </summary>
         public bool Compute(IEnumerable<int> sources)
         {
-            if (L == null || timestamp != Mesh.ShapeTimestamp)
+            if (L == null || timestamp != Mesh.ShapeTimestamp || built_settings() != builtSettings)
                 precompute();
             Distance = null; sourceVertices = null;
             List<int> src = new List<int>();
