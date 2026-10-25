@@ -117,6 +117,32 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void IsolatedVertices_AreNotOnTheSurface()
+        {
+            DMesh3 a = Grid(0, 0, 10, 10, 11);
+            DMesh3 b = new DMesh3(a);
+            a.AppendVertex(new Vector3d(0, 0, 5));
+            b.AppendVertex(new Vector3d(3, 3, -7));
+            var h = new MeshHausdorffDistance(a, b) { Tolerance = 1e-6 };
+            Assert.True(h.Compute());
+            AssertCertified(h, 0, 1e-6);
+        }
+
+        [Fact]
+        public void NonFiniteCoordinates_Fail_AndResetTheOutputs()
+        {
+            DMesh3 a = Grid(0, 0, 10, 10, 11);
+            DMesh3 b = Grid(0, 0, 10, 10, 7, (x, y) => 1);
+            var h = new MeshHausdorffDistance(a, b);
+            Assert.True(h.Compute());
+            a.VerticesBuffer[3 * 5] = double.NaN;      // eg from a broken import (SetVertex asserts finite)
+            Assert.False(h.Compute());
+            Assert.True(double.IsNaN(h.UpperBound));
+            Assert.False(new MeshHausdorffDistance(b, a).Compute());
+            Assert.False(new MeshHausdorffDistance(new DMesh3(), b).Compute());
+        }
+
+        [Fact]
         public void ParallelPlanes_Offset()
         {
             DMesh3 a = Grid(0, 0, 10, 10, 11);

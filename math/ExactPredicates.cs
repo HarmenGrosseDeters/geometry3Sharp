@@ -17,6 +17,8 @@ namespace g3
         const double Orient2dBound = (3.0 + 16.0 * Epsilon) * Epsilon;
         const double Orient3dBound = (7.0 + 56.0 * Epsilon) * Epsilon;
         const double InCircleBound = (10.0 + 96.0 * Epsilon) * Epsilon;
+        // below this the products may be subnormal (absolute, not relative rounding error)
+        const double UnderflowLimit = 1e-200;
 
         /// <summary> sign of (b - a) x (c - a): +1 if a, b, c are counter-clockwise, -1 clockwise, 0 collinear </summary>
         public static int Orient2d(Vector2d a, Vector2d b, Vector2d c)
@@ -45,8 +47,9 @@ namespace g3
                 + Math.Abs(wy) * (Math.Abs(uzvx) + Math.Abs(uxvz))
                 + Math.Abs(wz) * (Math.Abs(uxvy) + Math.Abs(uyvx));
             double bound = Orient3dBound * permanent;
-            if (det > bound) return 1;
-            if (-det > bound) return -1;
+            // the relative error bound does not hold when products underflow (subnormal): exact then
+            if (det > bound && permanent > UnderflowLimit) return 1;
+            if (-det > bound && permanent > UnderflowLimit) return -1;
             return orient3d_exact(a, b, c, d);
         }
 
@@ -67,8 +70,8 @@ namespace g3
                 + (Math.Abs(cdxady) + Math.Abs(adxcdy)) * blift
                 + (Math.Abs(adxbdy) + Math.Abs(bdxady)) * clift;
             double bound = InCircleBound * permanent;
-            if (det > bound) return 1;
-            if (-det > bound) return -1;
+            if (det > bound && permanent > UnderflowLimit) return 1;
+            if (-det > bound && permanent > UnderflowLimit) return -1;
             return incircle_exact(a, b, c, d);
         }
 

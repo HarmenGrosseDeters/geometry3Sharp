@@ -63,6 +63,48 @@ namespace geometry3Sharp.Tests
         }
 
 
+        [Fact]
+        public void Orient3d_SubnormalProducts()
+        {
+            // products of three coordinates around 1e-106 are subnormal: the relative error bound of the filter
+            // does not hold there
+            Vector3d a = Vector3d.Zero;
+            Vector3d b = new Vector3d(5.410462796616011e-106, 7.923489689955754e-107, 7.205795578410991e-106);
+            Vector3d c = new Vector3d(-5.356477438739708e-106, 2.754332637527401e-107, 9.04934776536539e-106);
+            Vector3d d = new Vector3d(8.646047251538728e-107, 5.74104474308333e-107, 7.984152883833546e-106);
+            Assert.Equal(1, ExactPredicates.Orient3d(a, b, c, d));
+        }
+
+        [Fact]
+        public void Predicates_NearDegenerate_ScaledIntoTheSubnormalRange()
+        {
+            // the integer near-degenerate cases, scaled by powers of two (exact): the signs must not change
+            var rnd = new Random(7);
+            double s3 = Math.Pow(2, -390), s2 = Math.Pow(2, -300);
+            for (int i = 0; i < 5000; ++i) {
+                long[] a = { rnd.Next(1 << 20), rnd.Next(1 << 20), rnd.Next(1 << 20) };
+                long[] dir = { rnd.Next(1, 1 << 20), rnd.Next(1, 1 << 20), rnd.Next(1, 1 << 20) };
+                long[] b = { a[0] + dir[0], a[1] + dir[1], a[2] + dir[2] };
+                long[] c = { a[0] + rnd.Next(-1 << 20, 1 << 20), a[1] + rnd.Next(-1 << 20, 1 << 20), a[2] + rnd.Next(-1 << 20, 1 << 20) };
+                // d nearly in the plane a, b, c
+                long[] d = { b[0] + c[0] - a[0] + rnd.Next(-1, 2), b[1] + c[1] - a[1] + rnd.Next(-1, 2), b[2] + c[2] - a[2] + rnd.Next(-1, 2) };
+                Assert.Equal(Orient3dInt(a, b, c, d), ExactPredicates.Orient3d(s3 * V(a), s3 * V(b), s3 * V(c), s3 * V(d)));
+                // in-circle: d next to the circle through a, b, c (a, b, c, d on a circle of integer points)
+                long r = rnd.Next(1, 1 << 15);
+                long[][] p = { new long[] { r, 0 }, new long[] { 0, r }, new long[] { -r, 0 }, new long[] { 0, -r + rnd.Next(-1, 2) } };
+                Vector2d[] q = p.Select(x => s2 * new Vector2d(x[0], x[1])).ToArray();
+                Assert.Equal(InCircleInt(p[0], p[1], p[2], p[3]), ExactPredicates.InCircle(q[0], q[1], q[2], q[3]));
+            }
+        }
+
+        static int InCircleInt(long[] a, long[] b, long[] c, long[] d)
+        {
+            BigInteger adx = a[0] - d[0], ady = a[1] - d[1], bdx = b[0] - d[0], bdy = b[1] - d[1], cdx = c[0] - d[0], cdy = c[1] - d[1];
+            BigInteger det = (adx * adx + ady * ady) * (bdx * cdy - cdx * bdy) + (bdx * bdx + bdy * bdy) * (cdx * ady - adx * cdy)
+                + (cdx * cdx + cdy * cdy) * (adx * bdy - bdx * ady);
+            return det.Sign;
+        }
+
         // --- ported from the predicate tests of the Triangle.NET fork (RobustPredicatesTest, Robustness/PredicatesTest) ---
 
         [Fact]

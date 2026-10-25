@@ -59,7 +59,8 @@ namespace gs
 
         public bool Compute()
         {
-            if (MeshA.TriangleCount == 0 || MeshB.TriangleCount == 0)
+            LowerBound = UpperBound = double.NaN; Converged = false; Subdivisions = 0;
+            if (MeshA.TriangleCount == 0 || MeshB.TriangleCount == 0 || finite(MeshA) == false || finite(MeshB) == false)
                 return false;
             if (SpatialA == null && Symmetric) SpatialA = new DMeshAABBTree3(MeshA, true);
             if (SpatialB == null) SpatialB = new DMeshAABBTree3(MeshB, true);
@@ -86,6 +87,17 @@ namespace gs
             return CancelF() == false;
         }
 
+
+        // all vertices used by triangles have finite coordinates
+        static bool finite(DMesh3 mesh)
+        {
+            foreach (int vid in mesh.VertexIndices()) {
+                if (mesh.GetVtxEdgeCount(vid) == 0) continue;
+                Vector3d v = mesh.GetVertex(vid);
+                if (double.IsNaN(v.x + v.y + v.z) || double.IsInfinity(v.x + v.y + v.z)) return false;
+            }
+            return true;
+        }
 
         // one-sided h(From, To), pruned against an external lower bound (for the symmetric distance)
         class OneSided
@@ -139,17 +151,17 @@ namespace gs
 
             public void Run()
             {
-                // input vertices (in parallel)
+                // input vertices of the triangles (isolated vertices are not on the surface), in parallel
                 int[] vmap = new int[from.MaxVertexID];
                 int nv = 0;
                 foreach (int vid in from.VertexIndices())
-                    vmap[vid] = nv++;
+                    vmap[vid] = (from.GetVtxEdgeCount(vid) > 0) ? nv++ : -1;
                 Vector3d[] vp = new Vector3d[nv];
                 double[] vd = new double[nv];
                 int[] vt = new int[nv];
                 Vector3d[] vc = new Vector3d[nv];
                 foreach (int vid in from.VertexIndices())
-                    vp[vmap[vid]] = from.GetVertex(vid);
+                    if (vmap[vid] >= 0) vp[vmap[vid]] = from.GetVertex(vid);
                 gParallel.ForEach(Interval1i.Range(nv), (i) => query(vp[i], out vd[i], out vt[i], out vc[i]));
                 Lower = 0;
                 Worst = (nv > 0) ? vp[0] : Vector3d.Zero;
@@ -168,8 +180,8 @@ namespace gs
 
                 MaxHeap heap = new MaxHeap();
                 for (int k = 0; k < tris.Count; ++k)
-                    if (ub[k] > threshold())
-                        heap.Push(ub[k], tris[k]);
+                    if (!(ub[k] <= threshold()))       // NaN (rounding in degenerate triangles) is kept
+                        heap.Push(double.IsNaN(ub[k]) ? double.MaxValue : ub[k], tris[k]);
 
                 // refine the triangles with the largest upper bounds, in batches: the distance queries of
                 // the new points and the bounds of the children are computed in parallel
@@ -212,8 +224,8 @@ namespace gs
                     double[] cu = new double[4 * nb];
                     gParallel.ForEach(Interval1i.Range(4 * nb), (k) => cu[k] = upper_bound(children[k]));
                     for (int k = 0; k < 4 * nb; ++k)
-                        if (cu[k] > threshold())
-                            heap.Push(cu[k], children[k]);
+                        if (!(cu[k] <= threshold()))
+                            heap.Push(double.IsNaN(cu[k]) ? double.MaxValue : cu[k], children[k]);
                 }
                 // dropped triangles were below max(Lower, prune), so for the pruned (second) direction this is
                 // only an upper bound where it is above prune, which is all the symmetric distance needs
