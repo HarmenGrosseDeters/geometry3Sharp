@@ -19,6 +19,8 @@ operations to their classes, with a tested example for each. It adds:
   (`ExactMeshBoolean.Resolve(mesh)` does that for one mesh); open meshes use the generalized winding number.
   Only the output coordinates are rounded to double.
 - Mesh file formats PLY, 3MF and glTF 2.0 (see below).
+- `tools/g3cli`: the mesh operations (measure, repair, boolean, resolve, remesh, simplify, convert) as a CLI with
+  JSON output and result codes, and as an MCP server (`g3cli mcp`). See [tools/g3cli/README.md](tools/g3cli/README.md).
 - `BufferUtil.DecompressZLib` fix: on .NET Core it returned partly empty buffers for large data.
 
 ## Build, targets, tests
@@ -30,12 +32,13 @@ mesh_ops classes such as `MeshAutoRepair`.
 ```
 dotnet test tests/geometry3Sharp.Tests                      # all tests on net10.0
 dotnet test tests/geometry3Sharp.Tests -f net48             # on Windows: tests against the netstandard2.0 build
+dotnet test tests/g3cli.Tests                               # CLI / MCP server integration tests
 dotnet pack geometry3Sharp_netstandard.csproj -c Release -o artifacts
 ```
 
 The package contains the XML documentation and a symbol package. `tests/PackageSmokeTest` consumes the packed
 `.nupkg` and checks it (see the comment in its project file). GitHub Actions (`.github/workflows/ci.yml`) runs
-all of this on every push: tests on net10.0 (Linux) and net48 (Windows), pack, package smoke test.
+all of this on every push: tests on net10.0 (Linux) and net48 (Windows), CLI tests, pack, package smoke test.
 
 ## Mesh file formats
 

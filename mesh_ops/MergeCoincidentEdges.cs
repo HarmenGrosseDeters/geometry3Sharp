@@ -57,7 +57,7 @@ namespace gs
 				Vector3d midpt = Mesh.GetEdgePoint(eid, 0.5);
 				int N;
 				while (hash.FindInBall(midpt, MergeDistance, buffer, out N) == false)
-					buffer = new int[buffer.Length];
+					buffer = new int[2 * buffer.Length];        // too many points for the buffer: grow it
 				if (N == 1 && buffer[0] != eid)
 					throw new Exception("MergeCoincidentEdges.Apply: how could this happen?!");
 				if (N <= 1)

@@ -1145,9 +1145,15 @@ namespace g3
             if (mesh_timestamp != mesh.ShapeTimestamp)
                 throw new Exception("DMeshAABBTree3.WindingNumber: mesh has been modified since tree construction");
 
+            // built on first use, possibly by several threads at once: build it under a lock and set the
+            // (volatile) timestamp only once the cache is complete, as for FastWindingNumber
             if (WindingCache == null || winding_cache_timestamp != mesh.ShapeTimestamp) {
-                build_winding_cache();
-                winding_cache_timestamp = mesh.ShapeTimestamp;
+                lock (winding_cache_lock) {
+                    if (WindingCache == null || winding_cache_timestamp != mesh.ShapeTimestamp) {
+                        build_winding_cache();
+                        winding_cache_timestamp = mesh.ShapeTimestamp;
+                    }
+                }
             }
 
             double sum = branch_winding_num(root_index, p);
@@ -1205,7 +1211,8 @@ namespace g3
 
 
         Dictionary<int, List<int>> WindingCache;
-        int winding_cache_timestamp = -1;
+        volatile int winding_cache_timestamp = -1;
+        readonly object winding_cache_lock = new object();
 
         protected void build_winding_cache()
         {

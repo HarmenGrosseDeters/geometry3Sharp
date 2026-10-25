@@ -58,7 +58,8 @@ selectively.
 
 ## Phase 4: platform layer
 
-- CLI / MCP server over the operations
+- [x] CLI / MCP server over the operations: `tools/g3cli` (measure, repair, boolean, resolve, remesh, simplify,
+  convert; JSON results with result codes; `g3cli mcp` over stdio)
 - Analysis building blocks: wall thickness (shape diameter function, medial axis), deviation maps, primitive fitting
 - A showcase domain: terrain / GIS (in progress) and biomedical / orthotics
 

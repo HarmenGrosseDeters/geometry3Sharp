@@ -36,6 +36,10 @@ namespace g3
         /// <summary> the union computed by Compute(): a new mesh, the two cut parts appended (not welded) </summary>
         public DMesh3 Result;
 
+        // Each MeshMeshCut snaps its cut points to nearby vertices of its own mesh, by up to VertexSnapTol,
+        // so the two copies of a cut point can be up to twice that apart
+        double MatchTol { get { return 2 * VertexSnapTol; } }
+
         MeshMeshCut cutTargetOp;
         MeshMeshCut cutToolOp;
 
@@ -76,7 +80,13 @@ namespace g3
             Result = cutToolMesh;
             MeshEditor.Append(Result, cutTargetMesh);
 
-            return true;
+            // the two halves meet along the cut curve, where resolve_vtx_pairs() made their boundary
+            // vertices coincide: weld them into one mesh. Returns false if the result is not closed,
+            // i.e. the cut curves could not be matched everywhere.
+            gs.MergeCoincidentEdges merge = new gs.MergeCoincidentEdges(Result) { MergeDistance = MatchTol };
+            merge.Apply();
+
+            return Result.IsClosed();
         }
 
 
@@ -134,7 +144,7 @@ namespace g3
         int find_nearest_vertex(DMesh3 mesh, Vector3d v, HashSet<int> vertices)
         {
             int near_vid = DMesh3.InvalidID;
-            double nearSqr = VertexSnapTol * VertexSnapTol;
+            double nearSqr = MatchTol * MatchTol;
             foreach ( int vid in vertices ) {
                 double dSqr = mesh.GetVertex(vid).DistanceSquared(ref v);
                 if ( dSqr < nearSqr ) {
@@ -148,7 +158,7 @@ namespace g3
         int find_nearest_edge(DMesh3 mesh, Vector3d v, HashSet<int> vertices)
         {
             int near_eid = DMesh3.InvalidID;
-            double nearSqr = VertexSnapTol * VertexSnapTol;
+            double nearSqr = MatchTol * MatchTol;
             foreach ( int eid in mesh.BoundaryEdgeIndices() ) {
                 Index2i ev = mesh.GetEdgeV(eid);
                 if (vertices.Contains(ev.a) == false || vertices.Contains(ev.b) == false)
