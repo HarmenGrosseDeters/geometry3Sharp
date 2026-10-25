@@ -77,9 +77,9 @@ namespace g3
 
 		public Vector3i ToGrid(Vector3d point) {
 			return new Vector3i(
-				(int)(point.x / CellSize),
-				(int)(point.y / CellSize),
-				(int)(point.z / CellSize));
+				(int)Math.Floor(point.x / CellSize),
+				(int)Math.Floor(point.y / CellSize),
+				(int)Math.Floor(point.z / CellSize));
 		}
 
         public Vector3d ToGridf(Vector3d point) {
@@ -121,9 +121,9 @@ namespace g3
 
 		public Vector3i ToGrid(Vector3d point) {
 			return new Vector3i(
-				(int)((point.x - Origin.x) / CellSize),
-				(int)((point.y - Origin.y) / CellSize),
-				(int)((point.z - Origin.z) / CellSize) );
+				(int)Math.Floor((point.x - Origin.x) / CellSize),
+				(int)Math.Floor((point.y - Origin.y) / CellSize),
+				(int)Math.Floor((point.z - Origin.z) / CellSize) );
 		}
 
         public Vector3d ToGridf(Vector3d point) {
@@ -168,7 +168,10 @@ namespace g3
         public Vector3i ToGrid(Vector3d point) {
             Vector3f pointf = (Vector3f)point;
             pointf = GridFrame.ToFrameP(ref pointf);
-            return (Vector3i)(pointf / CellSize);
+            return new Vector3i(
+                (int)Math.Floor(pointf.x / CellSize.x),
+                (int)Math.Floor(pointf.y / CellSize.y),
+                (int)Math.Floor(pointf.z / CellSize.z));
         }
 
         public Vector3d ToGridf(Vector3d point) {
@@ -212,29 +215,36 @@ namespace g3
         public Vector3i ToBlockIndex(Vector3i outer_index)
         {
             Vector3i block_index = outer_index - OuterShift;
-            block_index.x = (block_index.x >= 0) ? (int)(block_index.x / BlockSize.x) : ((int)(block_index.x / BlockSize.x) - 1);
-            block_index.y = (block_index.y >= 0) ? (int)(block_index.y / BlockSize.y) : ((int)(block_index.y / BlockSize.y) - 1);
-            block_index.z = (block_index.z >= 0) ? (int)(block_index.z / BlockSize.z) : ((int)(block_index.z / BlockSize.z) - 1);
+            block_index.x = floor_div(block_index.x, BlockSize.x);
+            block_index.y = floor_div(block_index.y, BlockSize.y);
+            block_index.z = floor_div(block_index.z, BlockSize.z);
             return block_index - BlockShift;
         }
 
         public Vector3i ToBlockLocal(Vector3i outer_index)
         {
             Vector3i block_idx = ToBlockIndex(outer_index);
-            return outer_index - block_idx * BlockSize;
+            return outer_index - FromBlock(block_idx);
         }
 
         public GridLevelIndex ToBlock(Vector3i outer_index)
         {
             Vector3i block_index = outer_index - OuterShift;
-            block_index.x = (block_index.x >= 0) ? (int)(block_index.x / BlockSize.x) : ((int)(block_index.x / BlockSize.x) - 1);
-            block_index.y = (block_index.y >= 0) ? (int)(block_index.y / BlockSize.y) : ((int)(block_index.y / BlockSize.y) - 1);
-            block_index.z = (block_index.z >= 0) ? (int)(block_index.z / BlockSize.z) : ((int)(block_index.z / BlockSize.z) - 1);
+            block_index.x = floor_div(block_index.x, BlockSize.x);
+            block_index.y = floor_div(block_index.y, BlockSize.y);
+            block_index.z = floor_div(block_index.z, BlockSize.z);
             block_index -= BlockShift;
             return new GridLevelIndex() {
                 block_index = block_index,
-                local_index = outer_index - block_index * BlockSize
+                local_index = outer_index - FromBlock(block_index)
             };
+        }
+
+        // integer division rounding towards negative infinity (C# '/' truncates towards zero)
+        static int floor_div(int a, int b)
+        {
+            int q = a / b;
+            return (a % b != 0 && (a < 0) != (b < 0)) ? q - 1 : q;
         }
 
 

@@ -74,8 +74,8 @@ namespace g3
 
 		public Vector2i ToGrid(Vector2d point) {
 			return new Vector2i(
-				(int)(point.x / CellSize),
-				(int)(point.y / CellSize));
+				(int)Math.Floor(point.x / CellSize),
+				(int)Math.Floor(point.y / CellSize));
 		}
 
 		public Vector2d FromGrid(Vector2i gridpoint) {
@@ -108,8 +108,8 @@ namespace g3
 
 		public Vector2i ToGrid(Vector2d point) {
 			return new Vector2i(
-				(int)((point.x - Origin.x) / CellSize),
-				(int)((point.y - Origin.y) / CellSize) );
+				(int)Math.Floor((point.x - Origin.x) / CellSize),
+				(int)Math.Floor((point.y - Origin.y) / CellSize) );
 		}
 
 		public Vector2d FromGrid(Vector2i gridpoint) {
@@ -146,27 +146,34 @@ namespace g3
         public Vector2i ToBlockIndex(Vector2i outer_index)
         {
             Vector2i block_index = outer_index - OuterShift;
-            block_index.x = (block_index.x >= 0) ? (int)(block_index.x / BlockSize.x) : ((int)(block_index.x / BlockSize.x) - 1);
-            block_index.y = (block_index.y >= 0) ? (int)(block_index.y / BlockSize.y) : ((int)(block_index.y / BlockSize.y) - 1);
+            block_index.x = floor_div(block_index.x, BlockSize.x);
+            block_index.y = floor_div(block_index.y, BlockSize.y);
             return block_index - BlockShift;
         }
 
         public Vector2i ToBlockLocal(Vector2i outer_index)
         {
             Vector2i block_idx = ToBlockIndex(outer_index);
-            return outer_index - block_idx * BlockSize;
+            return outer_index - FromBlock(block_idx);
         }
 
         public GridLevelIndex2 ToBlock(Vector2i outer_index)
         {
             Vector2i block_index = outer_index - OuterShift;
-            block_index.x = (block_index.x >= 0) ? (int)(block_index.x / BlockSize.x) : ((int)(block_index.x / BlockSize.x) - 1);
-            block_index.y = (block_index.y >= 0) ? (int)(block_index.y / BlockSize.y) : ((int)(block_index.y / BlockSize.y) - 1);
+            block_index.x = floor_div(block_index.x, BlockSize.x);
+            block_index.y = floor_div(block_index.y, BlockSize.y);
             block_index -= BlockShift;
             return new GridLevelIndex2() {
                 block_index = block_index,
-                local_index = outer_index - block_index * BlockSize
+                local_index = outer_index - FromBlock(block_index)
             };
+        }
+
+        // integer division rounding towards negative infinity (C# '/' truncates towards zero)
+        static int floor_div(int a, int b)
+        {
+            int q = a / b;
+            return (a % b != 0 && (a < 0) != (b < 0)) ? q - 1 : q;
         }
 
 
