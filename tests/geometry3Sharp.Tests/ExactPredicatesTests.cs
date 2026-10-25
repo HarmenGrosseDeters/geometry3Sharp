@@ -132,8 +132,27 @@ namespace geometry3Sharp.Tests
                 double x, y;
                 ExactPredicates.TwoProductDekker(a, b, out x, out y);
                 Assert.Equal(a * b, x);
-                Assert.Equal(Math.FusedMultiplyAdd(a, b, -x), y);
+                Assert.True(ExactEquals(x, y, a, b), $"{a} * {b}: {x} + {y}");
             }
+        }
+
+        // x + y == a * b exactly (doubles as mantissa * 2^exponent in BigInteger; net48 has no FMA)
+        static bool ExactEquals(double x, double y, double a, double b)
+        {
+            int ex, ey, ea, eb;
+            BigInteger mx = Decompose(x, out ex), my = Decompose(y, out ey), ma = Decompose(a, out ea), mb = Decompose(b, out eb);
+            int e = Math.Min(Math.Min(ex, ey), ea + eb);
+            return (mx << (ex - e)) + (my << (ey - e)) == (ma * mb) << (ea + eb - e);
+        }
+
+        static BigInteger Decompose(double d, out int exponent)
+        {
+            long bits = BitConverter.DoubleToInt64Bits(d);
+            int exp = (int)((bits >> 52) & 0x7FF);
+            long mant = bits & 0xFFFFFFFFFFFFFL;
+            if (exp == 0) exp = 1; else mant |= 1L << 52;
+            exponent = exp - 1075;
+            return (bits < 0) ? -new BigInteger(mant) : new BigInteger(mant);
         }
 
         static int InCircleInt(long[] a, long[] b, long[] c, long[] d)
