@@ -1,4 +1,4 @@
-// Runs MeshAutoRepair on one mesh file and prints one JSON line with the result
+﻿// Runs MeshAutoRepair on one mesh file and prints one JSON line with the result
 // (mesh statistics and quality metrics before and after the repair).
 // Usage: MeshRepairBenchmark <meshfile> [std|soup|manual] [none|meters|geo] [tolerance factor]
 //   std    = StandardMeshReader defaults (STL vertex welding, DMesh3Builder)
@@ -59,7 +59,8 @@ class Program
             // self-intersections), solidify_dc_adaptive of the repaired mesh; hybrid_topo = the same without
             // the self-intersection check,
             // robust = MeshRobustRepair (hybrid plus the volume check against the input),
-            // instr = InstrumentedAutoRepair, records cheap quality metrics after every pipeline step
+            // instr = InstrumentedAutoRepair, records cheap quality metrics after every pipeline step,
+            // steps = MeshAutoRepair (cleanup) with OnStage: quality, fidelity and winding closedness after every step
             string repairMode = Environment.GetEnvironmentVariable("BENCH_REPAIR") ?? "default";
             r["repair_mode"] = repairMode;
             double tolFactor = 1;
@@ -88,6 +89,41 @@ class Program
                     q["tris"] = sm.TriangleCount;
                     q["boundary_edges"] = MeshIterators.BoundaryEdges(sm).Count();
                     q["bowties"] = sm.VertexIndices().Count(v => sm.IsBowtieVertex(v));
+                    stages.Add(q);
+                };
+                ok = repair.Apply();
+                result = repair.Mesh;
+                r["stages"] = stages;
+            } else if (repairMode == "steps") {
+                // the library pipeline (MeshAutoRepair with PostRepairCleanup) with its OnStage callback: cheap
+                // quality, distance to the input (certified Hausdorff bounds), volume IoU and closedness in the
+                // winding number sense after every step
+                var repair = new MeshAutoRepair(mesh) { PostRepairCleanup = true };
+                repair.RepairTolerance *= tolFactor;
+                repair.MinEdgeLengthTol *= tolFactor;
+                var stages = new System.Collections.Generic.List<object>();
+                double diag = original.CachedBounds.DiagonalLength;
+                repair.OnStage = (name, sm) => {
+                    var q = new System.Collections.Generic.Dictionary<string, object>();
+                    q["stage"] = name;
+                    DMesh3 c = new DMesh3(sm, true);
+                    Quality(c, q, "q", false);
+                    q["tris"] = c.TriangleCount;
+                    q["boundary_edges"] = MeshIterators.BoundaryEdges(c).Count();
+                    q["bowties"] = c.VertexIndices().Count(v => c.IsBowtieVertex(v));
+                    foreach (int[] comp in MeshPostRepairCleanup.FindInvertedComponents(c))
+                        foreach (int tid in comp) c.ReverseTriOrientation(tid);
+                    q["wclosed"] = ExactMeshBoolean.IsWindingClosed(c);
+                    if (c.TriangleCount > 0) {
+                        foreach (bool fwd in new[] { true, false }) {
+                            var h = new MeshHausdorffDistance(fwd ? c : original, fwd ? original : c) {
+                                Symmetric = false, RelativeTolerance = 1e-3, MaxSubdivisions = 500000 };
+                            if (h.Compute())
+                                q[fwd ? "hd_fwd_hi_rel" : "hd_back_hi_rel"] = h.UpperBound / diag;
+                        }
+                        double missing, extra;
+                        q["iou"] = MeshRepairMetrics.VolumeIoU(original, c, out missing, out extra, 30000);
+                    }
                     stages.Add(q);
                 };
                 ok = repair.Apply();
