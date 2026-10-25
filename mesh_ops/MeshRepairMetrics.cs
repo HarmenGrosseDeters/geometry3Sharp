@@ -140,13 +140,24 @@ namespace gs
         public static double VolumeIoU(DMesh3 input, DMesh3 result, out double missing, out double extra, int samples = 100000, int seed = 1)
         {
             missing = extra = 0;
-            if (input.TriangleCount == 0 || result.TriangleCount == 0)
+            if (input.TriangleCount == 0)
                 return 0;
             var ti = new DMeshAABBTree3(input, true);
-            var tr = new DMeshAABBTree3(result, true);
-            ti.FastWindingNumber(Vector3d.Zero); tr.FastWindingNumber(Vector3d.Zero);    // caches before parallel use
+            ti.FastWindingNumber(Vector3d.Zero);    // cache before parallel use
             AxisAlignedBox3d box = input.CachedBounds;
             box.Contain(result.CachedBounds);
+            return VolumeIoU((p) => ti.FastWindingNumber(p) > 0.5, box, result, out missing, out extra, samples, seed);
+        }
+
+        /// <summary>
+        /// As above, against a reference solid given by its inside test (eg the exact boolean of the
+        /// inputs' winding numbers), sampled in box (expanded by 1%).
+        /// </summary>
+        public static double VolumeIoU(Func<Vector3d, bool> referenceInside, AxisAlignedBox3d box, DMesh3 result, out double missing, out double extra, int samples = 100000, int seed = 1)
+        {
+            missing = extra = 0;
+            var tr = new DMeshAABBTree3(result, true);
+            tr.FastWindingNumber(Vector3d.Zero);
             box.Expand(0.01 * box.DiagonalLength);
             var rnd = new Random(seed);
             Vector3d[] pts = new Vector3d[samples];
@@ -154,7 +165,7 @@ namespace gs
                 pts[k] = box.Min + new Vector3d(rnd.NextDouble() * box.Width, rnd.NextDouble() * box.Height, rnd.NextDouble() * box.Depth);
             int[] cls = new int[samples];
             gParallel.ForEach(Interval1i.Range(samples), (k) => {
-                bool a = ti.FastWindingNumber(pts[k]) > 0.5, b = tr.FastWindingNumber(pts[k]) > 0.5;
+                bool a = referenceInside(pts[k]), b = result.TriangleCount > 0 && tr.FastWindingNumber(pts[k]) > 0.5;
                 cls[k] = (a ? 1 : 0) | (b ? 2 : 0);
             });
             int both = 0, onlyIn = 0, onlyOut = 0;

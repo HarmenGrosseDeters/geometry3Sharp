@@ -139,6 +139,22 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void VolumeIoU_AgainstAReferenceSolid()
+        {
+            // union of two unit boxes overlapping by half, against the analytic union
+            DMesh3 a = Box(Vector3d.Zero, Vector3d.One), b = Box(new Vector3d(0.5, 0, 0), new Vector3d(1.5, 1, 1));
+            var u = new MeshWindingNumberBoolean(a, b, MeshWindingNumberBoolean.Operations.Union) { CellSize = 0.05 };
+            Assert.True(u.Compute());
+            Func<Vector3d, bool> inside = (p) => p.x > 0 && p.x < 1.5 && p.y > 0 && p.y < 1 && p.z > 0 && p.z < 1;
+            double missing, extra;
+            double iou = MeshRepairMetrics.VolumeIoU(inside, new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(1.5, 1, 1)), u.Result, out missing, out extra);
+            Assert.True(iou > 0.995, $"IoU {iou}");
+            // an empty result: nothing in common
+            Assert.Equal(0, MeshRepairMetrics.VolumeIoU(inside, new AxisAlignedBox3d(Vector3d.Zero, Vector3d.One), new DMesh3(), out missing, out extra));
+            Assert.Equal(1.0, missing, 9);
+        }
+
+        [Fact]
         public void VolumeIoU_OpenInputUsesItsWindingNumber()
         {
             // a box with the top removed: its winding number solid is (about) the box
