@@ -66,6 +66,9 @@ namespace geometry3Sharp.Tests
         {
             DMesh3 mesh = UnitSphere();
             DMeshAABBTree3 spatial = new DMeshAABBTree3(mesh, true);
+            // ScalarF is called in parallel; build the lazy winding cache up front
+            // (as MeshWindingNumberGrid does), it is not thread-safe to build
+            spatial.WindingNumber(Vector3d.Zero);
             Func<Vector3d, double> f = (p) => spatial.WindingNumber(p);
 
             MeshScalarSamplingGrid narrow = new MeshScalarSamplingGrid(mesh, 0.2, f) { BufferCells = bufferCells };
