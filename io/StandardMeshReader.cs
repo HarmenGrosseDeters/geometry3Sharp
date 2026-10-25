@@ -7,34 +7,64 @@ using System.Globalization;
 namespace g3
 {
 
+    /// <summary>
+    /// Callback for non-fatal warnings emitted while parsing a mesh file (eg skipped faces).
+    /// extra_data is currently always null in the built-in readers.
+    /// </summary>
     public delegate void ParsingMessagesHandler(string message, object extra_data);
 
 
+    /// <summary>
+    /// A format handler registered with <see cref="StandardMeshReader"/>: reads one or more file
+    /// extensions from a filename or a Stream into an <see cref="IMeshBuilder"/>.
+    /// Implement this and call <see cref="StandardMeshReader.AddFormatHandler"/> to add a custom format.
+    /// </summary>
     public interface MeshFormatReader
     {
+        /// <summary> File extensions handled by this reader, lowercase and without the dot (eg "obj") </summary>
         List<string> SupportedExtensions { get; }
         IOReadResult ReadFile(string sFilename, IMeshBuilder builder, ReadOptions options, ParsingMessagesHandler warnings);
         IOReadResult ReadFile(Stream stream, IMeshBuilder builder, ReadOptions options, ParsingMessagesHandler warnings);
     }
 
 
+    /// <summary>
+    /// Reads mesh files, choosing the format reader from the file extension (case-insensitive). Supports:
+    ///   * .obj : Wavefront OBJ (optionally with .mtl materials, see <see cref="ReadOptions.ReadMaterials"/>)
+    ///   * .stl : ascii and binary STL (vertices are welded, see <see cref="STLReader"/>)
+    ///   * .off : ascii OFF
+    ///   * .g3mesh : internal binary format for DMesh3
+    ///   * .ply : ascii and binary PLY
+    ///   * .3mf : 3D Manufacturing Format (core spec), converted to millimeters
+    ///   * .gltf / .glb : glTF 2.0
+    /// 
+    /// Easiest use is the static <see cref="ReadMesh(string)"/>, which returns the first mesh or null.
+    /// To get all meshes and error details, use <see cref="ReadFile(string, ReadOptions, IMeshBuilder)"/> with a
+    /// <see cref="DMesh3Builder"/> and read builder.Meshes afterwards.
+    /// Read errors are returned as an <see cref="IOReadResult"/> code, exceptions thrown by format readers are
+    /// caught and returned as <see cref="IOCode.GenericReaderError"/>. Coordinates are not converted
+    /// (except 3MF units to millimeters).
+    /// </summary>
     public class StandardMeshReader
     {
         /// <summary>
-        /// If the mesh format we are writing is text, then the OS will write in the number style
-        /// of the current language. So in Germany, numbers are written 1,00 instead of 1.00, for example.
-        /// If this flag is true, we override this to always write in a consistent way.
+        /// If true (default), the current thread culture is set to the invariant culture while reading,
+        /// so text formats parse numbers as 1.00 regardless of the OS language (eg not 1,00 in Germany).
         /// </summary>
         public bool ReadInvariantCulture = true;
 
 
-        // connect to this to get warning status messages
+        /// <summary>
+        /// Connect to this to get warning messages from the format readers (eg skipped invalid faces).
+        /// Warnings do not change the result code.
+        /// </summary>
         public event ParsingMessagesHandler warningEvent;
 
         /// <summary>
         /// The various format handlers will use this IMeshBuilder to construct meshes
         /// based on the file data and read options.
-        /// Default is initialized to DMesh3Builder
+        /// Default is initialized to DMesh3Builder. Meshes are appended, so after Read() the
+        /// result is in eg (MeshBuilder as DMesh3Builder).Meshes.
         /// </summary>
         public IMeshBuilder MeshBuilder { get; set; }
 
@@ -66,7 +96,7 @@ namespace g3
 
 
         /// <summary>
-        /// Check if extension type is supported
+        /// Check if extension type is supported. sExtension is without the dot (eg "ply"), case-insensitive.
         /// </summary>
         public bool SupportsFormat(string sExtension)
         {
@@ -79,7 +109,7 @@ namespace g3
 
 
         /// <summary>
-        /// Add a handler for a given formta
+        /// Add a handler for a new format. Throws an Exception if one of its extensions is already registered.
         /// </summary>
         public void AddFormatHandler(MeshFormatReader reader)
         {
@@ -93,7 +123,10 @@ namespace g3
 
 
         /// <summary>
-        /// Read mesh file at path, with given Options. Result is stored in MeshBuilder parameter
+        /// Read mesh file at path, with given Options. Result meshes are appended to the <see cref="MeshBuilder"/> property.
+        /// Returns <see cref="IOCode.InvalidFilenameError"/> if the filename has no extension, <see cref="IOCode.UnknownFormatError"/>
+        /// if no reader handles it, <see cref="IOCode.FileAccessError"/> if the file cannot be opened, otherwise the format reader's result.
+        /// Does not throw: exceptions are returned as <see cref="IOCode.GenericReaderError"/>.
         /// </summary>
         public IOReadResult Read(string sFilename, ReadOptions options)
         {
@@ -145,7 +178,10 @@ namespace g3
 
 
         /// <summary>
-        /// Read mesh file at path, with given Options. Result is stored in MeshBuilder parameter
+        /// Read mesh from a Stream, in the format given by sExtension (without the dot, eg "glb").
+        /// Result meshes are appended to the <see cref="MeshBuilder"/> property. The STL reader seeks in the stream,
+        /// so use a seekable stream there. External files (OBJ .mtl, glTF .bin buffers) cannot be loaded from a stream.
+        /// Does not throw: exceptions are returned as <see cref="IOCode.GenericReaderError"/>.
         /// </summary>
         public IOReadResult Read(Stream stream, string sExtension, ReadOptions options)
         {
@@ -215,8 +251,9 @@ namespace g3
 
 
         /// <summary>
-        /// Read mesh file using options and builder. You must provide our own Builder
-        /// here because the reader is not returned
+        /// Read mesh file using options and builder, with the default format readers. You must provide your own Builder
+        /// here because the reader is not returned. Use a <see cref="DMesh3Builder"/> to get all meshes in the file
+        /// (builder.Meshes). See <see cref="Read(string, ReadOptions)"/> for the result codes.
         /// </summary>
         static public IOReadResult ReadFile(string sFilename, ReadOptions options, IMeshBuilder builder)
         {
@@ -226,8 +263,9 @@ namespace g3
         }
 
         /// <summary>
-        /// Read mesh file using options and builder. You must provide our own Builder
-        /// here because the reader is not returned
+        /// Read mesh from a Stream using options and builder, in the format given by sExtension (without the dot).
+        /// You must provide your own Builder here because the reader is not returned.
+        /// See <see cref="Read(Stream, string, ReadOptions)"/>.
         /// </summary>
         static public IOReadResult ReadFile(Stream stream, string sExtension, ReadOptions options, IMeshBuilder builder)
         {
@@ -241,6 +279,9 @@ namespace g3
 
         /// <summary>
         /// This is basically a utility function, returns first mesh in file, with default options.
+        /// Returns null if the read failed (the error code is discarded; use <see cref="ReadFile(string, ReadOptions, IMeshBuilder)"/>
+        /// to get it). Throws ArgumentOutOfRangeException if the file was read successfully but contains no mesh.
+        /// Other meshes in the file (eg further 3MF build items, glTF nodes, STL solids) are discarded.
         /// </summary>
         static public DMesh3 ReadMesh(string sFilename)
         {
@@ -251,7 +292,9 @@ namespace g3
 
 
         /// <summary>
-        /// This is basically a utility function, returns first mesh in file, with default options.
+        /// This is basically a utility function, returns first mesh in the stream, with default options.
+        /// sExtension selects the format (without the dot, eg "ply"). Returns null if the read failed,
+        /// throws ArgumentOutOfRangeException if the read succeeded but produced no mesh.
         /// </summary>
         static public DMesh3 ReadMesh(Stream stream, string sExtension)
         {
@@ -270,7 +313,10 @@ namespace g3
 
 
 
-    // MeshFormatReader impl for OBJ
+    /// <summary>
+    /// MeshFormatReader impl for OBJ, using <see cref="OBJReader"/>. When reading by filename with
+    /// ReadOptions.ReadMaterials, .mtl files are searched in the directory of the .obj file.
+    /// </summary>
     public class OBJFormatReader : MeshFormatReader
     {
         public List<string> SupportedExtensions { get {
@@ -303,7 +349,10 @@ namespace g3
 
 
 
-    // MeshFormatReader impl for STL
+    /// <summary>
+    /// MeshFormatReader impl for STL, using <see cref="STLReader"/>. Ascii or binary is detected from the
+    /// first bytes of the stream (the stream must be seekable).
+    /// </summary>
     public class STLFormatReader : MeshFormatReader
     {
         public List<string> SupportedExtensions { get {
@@ -357,7 +406,9 @@ namespace g3
 
 
 
-    // MeshFormatReader impl for OFF
+    /// <summary>
+    /// MeshFormatReader impl for ascii OFF
+    /// </summary>
     public class OFFFormatReader : MeshFormatReader
     {
         public List<string> SupportedExtensions { get {
@@ -382,7 +433,9 @@ namespace g3
 
 
 
-    // MeshFormatReader impl for g3mesh
+    /// <summary>
+    /// MeshFormatReader impl for g3mesh, using <see cref="BinaryG3Reader"/>
+    /// </summary>
     public class BinaryG3FormatReader : MeshFormatReader
     {
         public List<string> SupportedExtensions {
@@ -408,7 +461,9 @@ namespace g3
 
 
 
-    // MeshFormatReader impl for PLY (ascii and binary)
+    /// <summary>
+    /// MeshFormatReader impl for PLY (ascii and binary), using <see cref="PLYReader"/>
+    /// </summary>
     public class PLYFormatReader : MeshFormatReader
     {
         public List<string> SupportedExtensions { get {
@@ -431,7 +486,10 @@ namespace g3
 
 
 
-    // MeshFormatReader impl for 3MF
+    /// <summary>
+    /// MeshFormatReader impl for 3MF, using <see cref="ThreeMFReader"/> with its defaults
+    /// (one mesh per build item, converted to millimeters)
+    /// </summary>
     public class ThreeMFFormatReader : MeshFormatReader
     {
         public List<string> SupportedExtensions { get {
@@ -454,7 +512,11 @@ namespace g3
 
 
 
-    // MeshFormatReader impl for glTF 2.0 (.gltf and .glb)
+    /// <summary>
+    /// MeshFormatReader impl for glTF 2.0 (.gltf and .glb), using <see cref="GLTFReader"/> with its defaults
+    /// (one mesh per scene node that references a mesh, node transforms applied). When reading by filename,
+    /// external buffers are loaded from relative paths next to the .gltf file. ReadOptions are ignored.
+    /// </summary>
     public class GLTFFormatReader : MeshFormatReader
     {
         public List<string> SupportedExtensions { get {

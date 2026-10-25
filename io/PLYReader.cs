@@ -6,18 +6,21 @@ using System.Text;
 
 namespace g3
 {
-    //
-    // Parse PLY (Stanford polygon) mesh format, ascii and binary (little or big endian)
-    // http://paulbourke.net/dataformats/ply/
-    //
-    // Reads the vertex element (x,y,z and optionally normals, colors and UVs) and
-    // the face element (vertex_indices or vertex_index list). Polygons are fan-triangulated.
-    // Files without faces are read as point sets (a mesh with only vertices).
-    // Other elements (edges, materials, ...) are skipped.
-    //
+    /// <summary>
+    /// Parse PLY (Stanford polygon) mesh format, ascii and binary (little or big endian)
+    /// http://paulbourke.net/dataformats/ply/
+    /// 
+    /// Reads the vertex element (x,y,z and optionally normals nx,ny,nz, colors red/green/blue and
+    /// UVs s,t or u,v) and the face element (vertex_indices or vertex_index list) into one mesh.
+    /// Polygons are fan-triangulated; faces with fewer than 3 or out-of-range indices are skipped with a warning.
+    /// uchar/ushort colors are scaled to [0,1]. Files without faces are read as point sets (a mesh with only vertices).
+    /// Other elements (edges, materials, ...) and other properties are skipped.
+    /// Use the BinaryReader overload (as <see cref="PLYFormatReader"/> does), which handles all PLY variants.
+    /// Errors are returned as an <see cref="IOReadResult"/> code, parse exceptions are caught.
+    /// </summary>
     public class PLYReader : IMeshReader
     {
-        // connect to this to get warning messages
+        /// <summary> connect to this to get warning messages </summary>
         public event ParsingMessagesHandler warningEvent;
 
         Dictionary<string, int> warningCount = new Dictionary<string, int>();

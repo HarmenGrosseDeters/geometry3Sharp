@@ -10,29 +10,46 @@ namespace g3
 	/// <summary>
 	/// gradientspace OBJ writer
 	/// 
+	/// Writes all meshes into one OBJ file (no "o" lines, indices continue across meshes). Vertex colors are
+	/// written as "v x y z r g b". Normals, colors and UVs are written if enabled in the options and present in the mesh;
+	/// a separate UV layer in WriteMesh.UVs replaces per-vertex UVs. With options.bWriteGroups, triangles are
+	/// written sorted by group under "g" lines. With options.bWriteMaterials, OBJMaterial entries of WriteMesh.Materials
+	/// are written to options.MaterialFilePath (via OpenStreamF) and referenced with mtllib/usemtl.
+	/// Coordinates use default double formatting (options.RealPrecisionDigits is ignored).
+	/// Only the TextWriter overload is implemented.
+	/// 
 	/// [TODO] if mesh has groups, usemtl lines will not be written (see TODO below)
 	/// [TODO] options to preserve vertex and triangle indices
 	/// 
 	/// </summary>
     public class OBJWriter : IMeshWriter
     {
-        // stream-opener. Override to write to something other than a file.
+        /// <summary>
+        /// Stream-opener used for the .mtl file. Override to write to something other than a file.
+        /// </summary>
         public Func<string, Stream> OpenStreamF = (sFilename) => {
             return File.Open(sFilename, FileMode.Create);
         };
+        /// <summary> Called on the stream returned by OpenStreamF when the .mtl file is written </summary>
         public Action<Stream> CloseStreamF = (stream) => {
             stream.Dispose();
         };
 
-        public string GroupNamePrefix = "mmGroup";   // default, compatible w/ meshmixer
-        public Func<int, string> GroupNameF = null;  // use this to replace standard group names w/ your own
+        /// <summary> Prefix for group names, followed by the group ID. Default "mmGroup", compatible w/ meshmixer. Overridden by options.groupNamePrefix if set. </summary>
+        public string GroupNamePrefix = "mmGroup";
+        /// <summary> Use this to replace standard group names w/ your own. Overridden by options.GroupNameF if set. </summary>
+        public Func<int, string> GroupNameF = null;
 
+        /// <summary> Not supported, OBJ is a text format. Throws NotImplementedException. </summary>
         public IOWriteResult Write(BinaryWriter writer, List<WriteMesh> vMeshes, WriteOptions options)
         {
             // [RMS] not supported
             throw new NotImplementedException();
         }
 
+        /// <summary>
+        /// Write meshes as OBJ text. Returns Ok; if OpenStreamF returns null for the .mtl file, materials are omitted.
+        /// </summary>
         public IOWriteResult Write(TextWriter writer, List<WriteMesh> vMeshes, WriteOptions options)
         {
             if (options.groupNamePrefix != null)

@@ -5,19 +5,24 @@ using System.Text;
 
 namespace g3
 {
+    /// <summary>
+    /// Static measurement functions for meshes: volume and surface area, mass properties
+    /// (center of mass, inertia tensor), centroids, axis-aligned and oriented bounds,
+    /// extents along an axis, and genus. None of these modify the mesh.
+    /// Volume integrals assume a closed mesh whose triangle normals point outward
+    /// (the convention of the mesh generators); for such meshes the volume is positive,
+    /// for inside-out meshes it is negative, and for open meshes it is not meaningful.
+    /// </summary>
     public static class MeshMeasurements
     {
 
-        // ported from WildMagic5 Wm5PolyhedralMassProperties
-        //
-        // Computes mass/volume, center of mass, and 3x3 intertia tensor
-        // for a closed mesh. You provide an enumerator over triangles and
-        // a vertex accessor.
-        //
-        // If bodyCoords is 'true', the inertia tensor will be relative to
-        // body coordinates, if 'false' it is in world coordinates. 
-        //
-        // the inertia tensor is row-major
+        /// <summary>
+        /// Computes mass (= volume, assuming unit density), center of mass and 3x3 inertia tensor
+        /// for a closed triangle set. You provide an enumerator over triangles and a vertex accessor.
+        /// If bodyCoords is true, the inertia tensor is relative to the center of mass,
+        /// otherwise it is relative to the world origin. The inertia tensor is row-major.
+        /// Ported from WildMagic5 Wm5PolyhedralMassProperties.
+        /// </summary>
         public static void MassProperties( 
             IEnumerable<Index3i> triangle_indices,
             Func<int, Vector3d> getVertexF,
@@ -136,6 +141,10 @@ namespace g3
                     center.y * center.y);
             }
         }
+        /// <summary>
+        /// Computes mass (= volume), center of mass and 3x3 row-major inertia tensor of a closed mesh.
+        /// See the overload taking a triangle enumerator for details.
+        /// </summary>
         public static void MassProperties(
             DMesh3 mesh,
             out double mass, out Vector3d center, out double[,] inertia3x3,
@@ -150,9 +159,11 @@ namespace g3
 
 
         /// <summary>
-        /// Compute volume and surface area of triangles of mesh.
-        /// Return value is (volume,area)
-        /// Note that if triangles don't define closed region, volume is probably nonsense...
+        /// Compute volume and surface area of a set of triangles of mesh, using getVertexF to look up
+        /// vertex positions (eg mesh.GetVertex). Return value is (volume, area), ie x = volume, y = area.
+        /// Volume is positive for a closed mesh with outward-facing normals. If the triangles don't
+        /// define a closed region, the volume is not meaningful.
+        /// Example: <c>Vector2d va = MeshMeasurements.VolumeArea(mesh, mesh.TriangleIndices(), mesh.GetVertex);</c>
         /// </summary>
         public static Vector2d VolumeArea( DMesh3 mesh, IEnumerable<int> triangles,
             Func<int, Vector3d> getVertexF)
@@ -185,7 +196,8 @@ namespace g3
 
         /// <summary>
         /// Compute area of one-ring of mesh vertex by summing triangle areas.
-        /// If bDisjoint = true, we multiple each triangle area by 1/3
+        /// If bDisjoint = true, each triangle area is multiplied by 1/3, so that summing over
+        /// all vertices gives the total mesh area.
         /// </summary>
         public static double VertexOneRingArea( DMesh3 mesh, int vid, bool bDisjoint = true )
         {
@@ -198,6 +210,9 @@ namespace g3
 
 
 
+        /// <summary>
+        /// Average of the given points (NaN if the sequence is empty).
+        /// </summary>
         public static Vector3d Centroid(IEnumerable<Vector3d> vertices)
         {
             Vector3d centroid = Vector3d.Zero;
@@ -209,6 +224,9 @@ namespace g3
             return centroid / (double)N;
         }
 
+        /// <summary>
+        /// Average of PositionF(t) over the given values (NaN if the sequence is empty).
+        /// </summary>
         public static Vector3d Centroid<T>(IEnumerable<T> values, Func<T, Vector3d> PositionF)
         {
             Vector3d centroid = Vector3d.Zero;
@@ -221,6 +239,10 @@ namespace g3
         }
 
 
+        /// <summary>
+        /// Average vertex position of the mesh (not area-weighted). If bOnlyTriVertices is true,
+        /// vertices without any edges (isolated vertices) are ignored.
+        /// </summary>
         public static Vector3d Centroid(DMesh3 mesh, bool bOnlyTriVertices = true)
         {
             if (bOnlyTriVertices) {
@@ -239,6 +261,11 @@ namespace g3
 
 
 
+        /// <summary>
+        /// Axis-aligned bounding box of all mesh vertices (including isolated ones), with each vertex
+        /// first mapped through TransformF if it is not null. Returns AxisAlignedBox3d.Empty for a mesh
+        /// without vertices. For untransformed bounds, DMesh3.GetBounds() / CachedBounds are equivalent.
+        /// </summary>
         public static AxisAlignedBox3d Bounds(DMesh3 mesh, Func<Vector3d, Vector3d> TransformF )
         {
             AxisAlignedBox3d bounds = AxisAlignedBox3d.Empty;
@@ -253,6 +280,9 @@ namespace g3
             }
             return bounds;
         }
+        /// <summary>
+        /// Axis-aligned bounding box of all vertices of an IMesh, optionally mapped through TransformF.
+        /// </summary>
         public static AxisAlignedBox3d Bounds(IMesh mesh, Func<Vector3d, Vector3d> TransformF )
         {
             AxisAlignedBox3d bounds = AxisAlignedBox3d.Empty;
@@ -269,6 +299,9 @@ namespace g3
         }
 
 
+        /// <summary>
+        /// Axis-aligned bounding box of the given vertices, optionally mapped through TransformF.
+        /// </summary>
         public static AxisAlignedBox3d BoundsV(IMesh mesh, IEnumerable<int> vertexIndices, Func<Vector3d, Vector3d> TransformF = null)
         {
             AxisAlignedBox3d bounds = AxisAlignedBox3d.Empty;
@@ -284,6 +317,9 @@ namespace g3
 
 
 
+        /// <summary>
+        /// Axis-aligned bounding box of the vertices of the given triangles, optionally mapped through TransformF.
+        /// </summary>
         public static AxisAlignedBox3d BoundsT(IMesh mesh, IEnumerable<int> triangleIndices, Func<Vector3d, Vector3d> TransformF = null )
         {
             AxisAlignedBox3d bounds = AxisAlignedBox3d.Empty;
@@ -307,6 +343,9 @@ namespace g3
 
 
 
+        /// <summary>
+        /// Sum of the areas of the given triangles.
+        /// </summary>
         public static double AreaT(DMesh3 mesh, IEnumerable<int> triangleIndices)
         {
             double area = 0;
@@ -317,7 +356,8 @@ namespace g3
 
 
         /// <summary>
-        /// calculate extents of mesh along axes of frame, with optional transform
+        /// Calculate extents of mesh along axes of frame, with optional transform (applied before
+        /// mapping into the frame). The returned box is in the local coordinates of the frame.
         /// </summary>
         public static AxisAlignedBox3d BoundsInFrame(DMesh3 mesh, Frame3f frame, Func<Vector3d, Vector3d> TransformF = null)
         {
@@ -380,7 +420,8 @@ namespace g3
 
 
         /// <summary>
-        /// Calculate the two most extreme vertices along an axis, with optional transform
+        /// Calculate the two most extreme vertices along an axis, with optional transform.
+        /// Returns (min vertex ID, max vertex ID); both are DMesh3.InvalidID if the mesh has no vertices.
         /// </summary>
         public static Interval1i ExtremeVertices(DMesh3 mesh, Vector3d axis, Func<Vector3d, Vector3d> TransformF = null)
         {
@@ -419,6 +460,10 @@ namespace g3
 
 
 
+        /// <summary>
+        /// Result of <see cref="MeshMeasurements.Genus(DMesh3)"/>. Genus is only meaningful if Valid is true; otherwise
+        /// one of the flags says why it could not be computed.
+        /// </summary>
         public struct GenusResult
         {
             public bool Valid;
@@ -427,6 +472,12 @@ namespace g3
             public bool MultipleConnectedComponents;
             public bool HasBowtieVertices;
         }
+        /// <summary>
+        /// Compute the topological genus (number of handles) of the mesh via the Euler characteristic,
+        /// eg 0 for a sphere, 1 for a torus. Only valid for a closed, single-component mesh without
+        /// bowtie vertices; otherwise Valid is false and HasBoundary, MultipleConnectedComponents or
+        /// HasBowtieVertices is set. Isolated vertices are ignored.
+        /// </summary>
         public static GenusResult Genus(DMesh3 mesh)
         {
             GenusResult result = new GenusResult() { Valid = false, Genus = -1 };

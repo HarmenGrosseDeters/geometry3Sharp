@@ -114,11 +114,8 @@ namespace g3
             double c = (min+max)*0.5;
             double e = max-c;
 
-            // get rid of extra rotations
-            theta = theta % 360;
-
-            // shift to origin, then convert theta to +- 180
-            theta -= c;
+            // shift to origin and get rid of extra rotations, then convert theta to +- 180
+            theta = (theta - c) % 360;
             if ( theta < -180 )
                 theta += 360;
             else if ( theta > 180 )
@@ -145,11 +142,8 @@ namespace g3
             double c = (min+max)*0.5;
             double e = max-c;
 
-            // get rid of extra rotations
-            theta = theta % TwoPI;
-
-            // shift to origin, then convert theta to +- 180
-            theta -= c;
+            // shift to origin and get rid of extra rotations, then convert theta to +- 180
+            theta = (theta - c) % TwoPI;
             if ( theta < -Math.PI )
                 theta += TwoPI;
             else if ( theta > Math.PI )

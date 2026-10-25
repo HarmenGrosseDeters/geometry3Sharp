@@ -13,6 +13,7 @@ namespace gs
     ///   - VolumeIoU: agreement of inside/outside with the input, where "inside" of the input is its
     ///     generalized winding number > 0.5 (Jacobson et al. 2013; also defined for soups and open meshes);
     ///   - certified Hausdorff distances: see MeshHausdorffDistance.
+    /// All functions are read-only (the meshes are not modified) and deterministic.
     /// </summary>
     public static class MeshRepairMetrics
     {
@@ -20,6 +21,7 @@ namespace gs
         /// Number of triangle pairs that intersect, exactly (ExactTriangleIntersection). Pairs that share a
         /// vertex count if they intersect anywhere else; pairs that share an edge count if they overlap
         /// (coplanar on the same side). Degenerate (zero area) triangles are skipped.
+        /// Builds an AABB tree and runs in parallel; 0 for a mesh without self-intersections.
         /// </summary>
         public static int SelfIntersections(DMesh3 mesh)
         {
@@ -87,7 +89,9 @@ namespace gs
         /// copy (WindingContouring.OrientedCopy: inside-out parts flipped, as the solidify fallback does) is > 0.5,
         /// inside the result likewise. 1 = same solid. Also returns the parts of the input solid missing in
         /// the result (eg lost thin walls) and the result solid not in the input (eg filled cavities),
-        /// relative to the input solid. NaN if the input encloses no volume (eg a single open sheet).
+        /// relative to the input solid. NaN if the input encloses no volume (eg a single open sheet), 0 if the
+        /// input has no triangles. Estimated from samples random points (fixed seed, so repeatable); small
+        /// differences are sampling noise.
         /// </summary>
         public static double VolumeIoU(DMesh3 input, DMesh3 result, out double missing, out double extra, int samples = 100000, int seed = 1)
         {
@@ -106,7 +110,8 @@ namespace gs
 
         /// <summary>
         /// As above, against a reference solid given by its inside test (eg the exact boolean of the
-        /// inputs' winding numbers), sampled in box (expanded by 1%).
+        /// inputs' winding numbers), sampled in box (expanded by 1%). NaN if no sample is inside the reference.
+        /// referenceInside is called in parallel and must be thread-safe.
         /// </summary>
         public static double VolumeIoU(Func<Vector3d, bool> referenceInside, AxisAlignedBox3d box, DMesh3 result, out double missing, out double extra, int samples = 100000, int seed = 1)
         {

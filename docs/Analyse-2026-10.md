@@ -262,6 +262,13 @@ die übrigen sichern die vordefinierten Farben und das Winding-Number-Sampling a
   Schleife endlos.
 - Kein Fehler: `MeshMeshCut.find_nearest_vertex` vergleicht echte Abstände mit dem Radius.
 
+Dreizehnte Runde, `MeshBoolean`. Tests in `MeshBooleanSeamTests.cs` (5 Tests, vor dem Fix alle rot): Nach dem Verschweißen
+werden Randkanten kollabiert, die kürzer als die Abgleich-Toleranz sind. Dort lagen zwei Nahtpunkte knapp beieinander, und
+die benachbarten langen Kanten waren fast deckungsgleich, teilten aber einen Vertex und ließen sich deshalb nicht
+verschmelzen. Danach wird erneut verschweißt. Bleibt ein Loch aus genau 3 Kanten (ein fehlendes Nahtdreieck), wird es mit
+diesem Dreieck geschlossen; größere Löcher bleiben offen, und `Compute` liefert `false`. In einer Stichprobe von 120
+zufälligen Kugel-Paaren sind 119 Ergebnisse geschlossen und gültig; im übrigen Fall fehlt ein echtes Viereck in der Naht.
+
 ---
 
 ## 1. Upstream-Issues

@@ -6,15 +6,24 @@ using System.Linq;
 
 namespace g3
 {
+    /// <summary>
+    /// <see cref="Remesher"/> for a region (set of triangles) of a mesh: the region is copied into a submesh
+    /// (Region.SubMesh, which the remesh passes modify), its border edges are fully constrained and their
+    /// vertices pinned, so it still fits the rest of the mesh. Run BasicRemeshPass() as with Remesher, then
+    /// BackPropropagate() to replace the region in BaseMesh; BaseMesh is not changed before that.
+    /// QuickRemesh() does all steps in one call.
+    /// </summary>
     public class RegionRemesher : Remesher
     {
+        /// <summary> the mesh that contains the region (modified only by BackPropropagate()) </summary>
         public DMesh3 BaseMesh;
+        /// <summary> the region as a submesh; Region.SubMesh is the mesh being remeshed </summary>
         public DSubmesh3 Region;
 
-        // this is only valid after BackPropagate() call!! maps submeshverts to base mesh
+        /// <summary> this is only valid after BackPropropagate() call!! maps submesh verts to base mesh </summary>
         public IndexMap ReinsertSubToBaseMapV;
 
-        // handle a tricky problem...see comments for DuplicateTriBehavior enum
+        /// <summary> handle a tricky problem...see comments for DuplicateTriBehavior enum </summary>
         public MeshEditor.DuplicateTriBehavior ReinsertDuplicateTriBehavior = MeshEditor.DuplicateTriBehavior.AssertContinue;
 
         // By default is initialized w/ all boundary constraints
@@ -23,6 +32,7 @@ namespace g3
 
         int[] cur_base_tris;
 
+        /// <summary> remesh the triangles regionTris of mesh (the region border is fixed) </summary>
         public RegionRemesher(DMesh3 mesh, int[] regionTris)
         {
             BaseMesh = mesh;
@@ -38,6 +48,7 @@ namespace g3
             SetExternalConstraints(bdry_constraints);
         }
 
+        /// <summary> remesh the triangles regionTris of mesh (the region border is fixed) </summary>
         public RegionRemesher(DMesh3 mesh, IEnumerable<int> regionTris)
         {
             BaseMesh = mesh;
@@ -65,18 +76,21 @@ namespace g3
         }
 
 
-        // After remeshing we may create an internal edge between two boundary vertices [a,b].
-        // Those vertices will be merged with vertices c and d in the base mesh. If the edge
-        // [c,d] already exists in the base mesh, then after the merge we would have at least
-        // 3 triangles at this edge. Dang.
-        //
-        // A common example is a 'fin' triangle that would duplicate a
-        // 'fin' on the border of the base mesh after removing the submesh, but this situation can
-        // arise anywhere (eg think about one-triangle-wide strips).
-        //
-        // This is very hard to remove, but we can at least avoid creating non-manifold edges (which
-        // with the current DMesh3 will be prevented, hence leaving a hole) by splitting the 
-        // internal edge in the submesh (which presumably we were remeshing anyway, so changes are ok).
+        /// <summary>
+        /// After remeshing we may create an internal edge between two boundary vertices [a,b].
+        /// Those vertices will be merged with vertices c and d in the base mesh. If the edge
+        /// [c,d] already exists in the base mesh, then after the merge we would have at least
+        /// 3 triangles at this edge. Dang.
+        ///
+        /// A common example is a 'fin' triangle that would duplicate a
+        /// 'fin' on the border of the base mesh after removing the submesh, but this situation can
+        /// arise anywhere (eg think about one-triangle-wide strips).
+        ///
+        /// This is very hard to remove, but we can at least avoid creating non-manifold edges (which
+        /// with the current DMesh3 will be prevented, hence leaving a hole) by splitting the 
+        /// internal edge in the submesh (which presumably we were remeshing anyway, so changes are ok).
+        /// Called by BackPropropagate() by default.
+        /// </summary>
         public void RepairPossibleNonManifoldEdges()
         {
             // [TODO] do we need to repeat this more than once? I don't think so...
@@ -122,15 +136,17 @@ namespace g3
         }
 
 
-        // Remove the original submesh region and merge in the remeshed version.
-        // You can call this multiple times as the base-triangle-set is updated.
-        //
-        // By default, we allow the submesh to be modified to prevent creation of
-        // non-manifold edges. You can disable this, however then some of the submesh
-        // triangles may be discarded.
-        //
-        // Returns false if there were errors in insertion, ie if some triangles
-        // failed to insert. Does not revert changes that were successful.
+        /// <summary>
+        /// Remove the original submesh region from BaseMesh and merge in the remeshed version.
+        /// You can call this multiple times as the base-triangle-set is updated (CurrentBaseTriangles).
+        ///
+        /// By default, we allow the submesh to be modified to prevent creation of
+        /// non-manifold edges (RepairPossibleNonManifoldEdges). You can disable this, however then some of
+        /// the submesh triangles may be discarded.
+        ///
+        /// Returns false if there were errors in insertion, ie if some triangles
+        /// failed to insert. Does not revert changes that were successful.
+        /// </summary>
         public bool BackPropropagate(bool bAllowSubmeshRepairs = true)
         {
             if (bAllowSubmeshRepairs) {
@@ -156,6 +172,7 @@ namespace g3
 
 
 
+        /// <summary> options of QuickRemesh() </summary>
         [Flags]
         public enum QuickRemeshFlags
         {
@@ -164,6 +181,11 @@ namespace g3
         }
 
 
+        /// <summary>
+        /// Remesh triangles tris of mesh with the given edge lengths, smoothing speed and number of
+        /// BasicRemeshPass() rounds, projecting onto target if not null, then BackPropropagate() into mesh
+        /// (modified in place). Returns the remesher (CurrentBaseTriangles are the new region triangles).
+        /// </summary>
         public static RegionRemesher QuickRemesh(DMesh3 mesh, int[] tris, 
             double minEdgeLen, double maxEdgeLen, double smoothSpeed, 
             int rounds, 
@@ -184,6 +206,7 @@ namespace g3
             remesh.BackPropropagate();
             return remesh;
         }
+        /// <summary> QuickRemesh() with SetTargetEdgeLength(targetEdgeLen) </summary>
         public static RegionRemesher QuickRemesh(DMesh3 mesh, int[] tris, 
             double targetEdgeLen, double smoothSpeed, 
             int rounds, 

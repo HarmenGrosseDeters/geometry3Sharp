@@ -12,20 +12,31 @@ namespace gs
     /// Much closer to the true surface distance than Dijkstra along mesh edges (which zigzags), and the
     /// matrices are reused for further sources.
     ///
-    /// Accuracy (tests on planes, cylinders and terrain): about 2% of the distance plus half an edge length;
-    /// near the sources the distance is smoothed over a few edge lengths. Computed relative to the mesh
+    /// Accuracy (tests on planes, discs, cylinders and terrain): about 2% of the distance plus half the mean
+    /// edge length; near the sources the distance is smoothed over a few edge lengths. Near open boundaries,
+    /// and for sources on the boundary, allow 2% plus one mean edge length: the boundary condition of the heat
+    /// flow (the average of the Neumann and Dirichlet solutions, Crane et al.) is only an approximation there.
+    /// Regular grids whose diagonals all point the same way are anisotropic and the least accurate;
+    /// alternating diagonals or irregular triangulations do better. Computed relative to the mesh
     /// center, so UTM coordinates are fine. Each connected component is measured from its own sources;
     /// components without a source (and isolated vertices) get NaN. Far from the sources (beyond about
     /// 700 edge lengths) the heat underflows doubles; then it is computed as its logarithm.
     /// Computed on the intrinsic Delaunay triangulation of the mesh (IntrinsicDelaunay; Sharp and Crane,
     /// "A Laplacian for Nonmanifold Triangle Meshes", 2020): caps and needles, eg along constrained
     /// feature lines after remeshing, would otherwise make the solves stall.
+    ///
+    /// Usage: <c>var geo = new MeshGeodesicDistance(mesh); if (geo.Compute(new[] { sourceVid })) d = geo.Distance[vid];</c>
+    /// The mesh is not modified. The first Compute() builds the Laplacian (cost grows with the vertex count);
+    /// later calls with other sources reuse it until the mesh changes (ShapeTimestamp).
+    /// Distances are in mesh units, 0 at the sources and non-negative elsewhere.
     /// </summary>
     public class MeshGeodesicDistance
     {
+        /// <summary> input mesh (not modified) </summary>
         public DMesh3 Mesh;
         /// <summary> diffusion time = TimeFactor * (mean edge length)^2 </summary>
         public double TimeFactor = 1.0;
+        /// <summary> iteration limit of the linear solvers; Compute() returns false if the Poisson solve does not converge </summary>
         public int MaxIterations = 20000;
         /// <summary>
         /// compute on the intrinsic Delaunay triangulation of the mesh (same surface, edges flipped by
@@ -39,6 +50,7 @@ namespace gs
         public int IntrinsicFlips;
 
 
+        /// <summary> Set up geodesic distances on mesh. Nothing is computed until Compute() is called. </summary>
         public MeshGeodesicDistance(DMesh3 mesh)
         {
             Mesh = mesh;
@@ -260,7 +272,11 @@ namespace gs
         }
 
 
-        /// <summary> distances from the given source vertices (to the nearest of them) </summary>
+        /// <summary>
+        /// Compute distances from the given source vertex IDs (to the nearest of them) into Distance.
+        /// Invalid and duplicate IDs are ignored. Returns false (and Distance is null) if there is no valid
+        /// source or the solver fails; otherwise true.
+        /// </summary>
         public bool Compute(IEnumerable<int> sources)
         {
             if (L == null || timestamp != Mesh.ShapeTimestamp)

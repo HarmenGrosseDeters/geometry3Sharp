@@ -6,33 +6,63 @@ using System.Diagnostics;
 
 namespace g3 {
 	
+	/// <summary>
+	/// Isotropic remeshing in place (Botsch and Kobbelt style): each BasicRemeshPass() splits edges longer than
+	/// MaxEdgeLength, collapses edges shorter than MinEdgeLength, flips edges to improve vertex valence, then
+	/// applies tangential-ish Laplacian smoothing and (optionally) projects the vertices onto a target surface.
+	/// Call SetTargetEdgeLength() and then BasicRemeshPass() several times (typically 5-20 passes;
+	/// ModifiedEdgesLastPass gives a convergence hint). There is no return value or failure state; the mesh
+	/// (passed to the constructor) is modified directly, vertex and triangle ids are not preserved.
+	///
+	/// Important behaviour: without a projection target the smoothing shrinks and rounds the surface, so for
+	/// shape-preserving remeshing call SetProjectionTarget(MeshProjectionTarget.Auto(originalMesh)). Boundary
+	/// edges and vertices are split, collapsed and smoothed like interior ones unless constrained, use
+	/// <see cref="MeshConstraintUtil"/> (FixAllBoundaryEdges, PreserveBoundaryLoops, PreserveBoundaryAndFeatures)
+	/// or SetExternalConstraints(). PreventNormalFlips is off by default. With the default parallel smoothing
+	/// the result is not exactly deterministic across runs (EnableParallelSmooth).
+	///
+	/// See <see cref="gs.RemesherPro"/> for a faster variant (queue-based passes and a FastestRemesh/SharpEdgeReprojectionRemesh
+	/// driver), <see cref="RegionRemesher"/> to remesh only part of a mesh, and <see cref="Reducer"/> for
+	/// simplification to a triangle count or error (Remesher only targets edge lengths).
+	/// </summary>
 	public class Remesher : MeshRefinerBase
     {
         IProjectionTarget target = null;
 
+		/// <summary> allow edge flips (to improve valence; boundary edges are never flipped) </summary>
 		public bool EnableFlips = true;
+		/// <summary> allow collapses of edges shorter than MinEdgeLength </summary>
 		public bool EnableCollapses = true;
+		/// <summary> allow splits of edges longer than MaxEdgeLength </summary>
 		public bool EnableSplits = true;
+		/// <summary> run a smoothing pass after the edge operations of each pass </summary>
 		public bool EnableSmoothing = true;
 
+        /// <summary> reject collapses and flips that would flip a triangle normal (see EdgeFlipTolerance). Default false </summary>
         public bool PreventNormalFlips = false;
 
+		/// <summary> edges shorter than this are collapsed. Usually set with SetTargetEdgeLength() </summary>
 		public double MinEdgeLength = 0.001f;
+		/// <summary> edges longer than this are split. Usually set with SetTargetEdgeLength() </summary>
 		public double MaxEdgeLength = 0.1f;
 
+		/// <summary> smoothing step per pass, in [0,1]: each vertex moves this fraction towards its smoothed position </summary>
 		public double SmoothSpeedT = 0.1f;
+		/// <summary> weights of the smoothing: uniform (one-ring centroid), cotangent or mean-value </summary>
 		public enum SmoothTypes {
 			Uniform, Cotan, MeanValue
 		};
+		/// <summary> smoothing weights used if CustomSmoothF is not set </summary>
 		public SmoothTypes SmoothType = SmoothTypes.Uniform;
 
-        // this overrides default smoothing if provided
+        /// <summary> this overrides default smoothing if provided: (mesh, vertex id, SmoothSpeedT) -> new position </summary>
         public Func<DMesh3, int, double, Vector3d> CustomSmoothF;
 
         
         // Sometimes we need to have very granular control over what happens to
         // specific vertices. This function allows client to specify such behavior.
         // Somewhat redundant w/ VertexConstraints, but simpler to code.
+        /// <summary> per-vertex overrides returned by VertexControlF </summary>
         [Flags] public enum VertexControl
         {
             AllowAll = 0,
@@ -40,6 +70,7 @@ namespace g3 {
             NoProject = 2,
             NoMovement = NoSmooth | NoProject
         }
+        /// <summary> optional per-vertex control (vertex id -> allowed movement); null = allow all </summary>
         public Func<int, VertexControl> VertexControlF;
 
 
@@ -48,7 +79,7 @@ namespace g3 {
         // [RMS] this is a debugging aid, will break to debugger if these edges are touched, in debug builds
         public List<int> DebugEdges = new List<int>();
 
-        // if Target is set, we can project onto it in different ways
+        /// <summary> if a projection target is set, we can project onto it in different ways </summary>
         public enum TargetProjectionMode
         {
             NoProjection,           // disable projection
@@ -57,22 +88,29 @@ namespace g3 {
                                     // expensive because eg we might create a vertex with
                                     // split, then project, then smooth, then project again.
         }
+        /// <summary> when vertices are projected onto the projection target. Default AfterRefinement </summary>
         public TargetProjectionMode ProjectionMode = TargetProjectionMode.AfterRefinement;
 
         // this just lets us write more concise tests below
         bool EnableInlineProjection { get { return ProjectionMode == TargetProjectionMode.Inline; } }
 
-        // enable parallel projection. Only applied in AfterRefinement mode
+        /// <summary> enable parallel projection. Only applied in AfterRefinement mode </summary>
         public bool EnableParallelProjection = true;
 
-        // Enable parallel smoothing. This will produce slightly different results
-        // across runs because we smooth in-place and hence there will be order side-effects.
+        /// <summary>
+        /// Enable parallel smoothing (default true). With EnableSmoothInPlace this produces slightly different
+        /// results across runs (order side-effects); with the default buffered smoothing the positions are
+        /// computed from the previous pass.
+        /// </summary>
         public bool EnableParallelSmooth = true;
 
-        // if smoothing is done in-place, we don't need an extra buffer, but also 
-        // there will some randomness introduced in results. Probably worse.
+        /// <summary>
+        /// if smoothing is done in-place, we don't need an extra buffer, but also 
+        /// there will some randomness introduced in results. Probably worse. Default false
+        /// </summary>
         public bool EnableSmoothInPlace = false;
 
+		/// <summary> remesh mesh m in place </summary>
 		public Remesher(DMesh3 m) : base(m)
         {
 		}
@@ -82,9 +120,14 @@ namespace g3 {
 
 
 
+        /// <summary> the surface vertices are projected onto, or null </summary>
         public IProjectionTarget ProjectionTarget {
             get { return this.target; }
         }
+        /// <summary>
+        /// Set the surface the vertices are projected onto (see ProjectionMode), typically
+        /// MeshProjectionTarget.Auto(copy of the input mesh) to stay on the original shape. Null disables projection.
+        /// </summary>
         public void SetProjectionTarget(IProjectionTarget target)
         {
             this.target = target;
@@ -92,7 +135,8 @@ namespace g3 {
 
         
         /// <summary>
-        /// Set min/max edge-lengths to sane values for given target edge length
+        /// Set min/max edge-lengths to sane values for given target edge length:
+        /// MinEdgeLength = 0.66 * fLength, MaxEdgeLength = 1.33 * fLength
         /// </summary>
         public void SetTargetEdgeLength(double fLength)
         {
@@ -115,7 +159,9 @@ namespace g3 {
         /// we can vastly speed things up if we precompute some invariants. 
         /// You need to re-run this if you are changing the mesh externally
         /// between remesh passes, otherwise you will get weird results.
-        /// But you will probably still come out ahead, computation-time-wise
+        /// But you will probably still come out ahead, computation-time-wise.
+        /// Optional: BasicRemeshPass() does not call it. Currently it only detects a closed mesh (no boundary
+        /// edges), which skips boundary-vertex checks in the flip test.
         /// </summary>
         public virtual void Precompute()
         {
@@ -148,6 +194,8 @@ namespace g3 {
         /// - smoothing is done in parallel if EnableParallelSmooth = true
         /// - Projection pass if ProjectionMode == AfterRefinement
         /// - number of modified edges returned in ModifiedEdgesLastPass
+        /// Modifies the mesh in place; returns early (leaving a valid mesh) if Progress is cancelled,
+        /// and does nothing for an empty mesh.
         /// </summary>
 		public virtual void BasicRemeshPass() {
             if (mesh.TriangleCount == 0)    // badness if we don't catch this...

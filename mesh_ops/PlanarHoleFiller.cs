@@ -21,13 +21,19 @@ namespace g3
     /// 
     /// Currently these failure cases are not handled properly. In that case the loops will
     /// not be stitched.
-    /// 
+    ///
+    /// Usage: construct, AddFillLoop(s), SetPlane, Fill() (or construct from a MeshPlaneCut, which sets loops
+    /// and plane). The loop vertices must lie in the plane (within about 1e-6, the merge tolerance), otherwise
+    /// the fill cannot be merged and cracks remain. The fill is appended to the mesh in place, as a new
+    /// triangle group, even when Fill() returns false.
     /// </summary>
     public class PlanarHoleFiller
     {
         public DMesh3 Mesh;
 
+        /// <summary> plane of the holes (set with SetPlane) </summary>
         public Vector3d PlaneOrigin;
+        /// <summary> plane normal (set with SetPlane) </summary>
         public Vector3d PlaneNormal;
 
         /// <summary>
@@ -46,8 +52,11 @@ namespace g3
         /*
          * Error feedback
          */
+        /// <summary> true if some fill boundary vertices could not be merged with the hole loops </summary>
         public bool OutputHasCracks = false;
+        /// <summary> number of polygons that could not be inserted into the fill mesh </summary>
         public int FailedInsertions = 0;
+        /// <summary> number of polygons whose fill boundary could not be fully merged with the hole loop </summary>
         public int FailedMerges = 0;
 
         // these will be computed if you don't set them
@@ -61,12 +70,14 @@ namespace g3
         List<FillLoop> Loops = new List<FillLoop>();
         AxisAlignedBox2d Bounds;
 
+        /// <summary> the fill is appended to mesh; add loops and set the plane before Fill() </summary>
         public PlanarHoleFiller(DMesh3 mesh)
         {
             Mesh = mesh;
             Bounds = AxisAlignedBox2d.Empty;
         }
 
+        /// <summary> fill the cut loops of a MeshPlaneCut (uses its mesh, loops and plane) </summary>
         public PlanarHoleFiller(MeshPlaneCut cut)
         {
             Mesh = cut.Mesh;
@@ -75,6 +86,7 @@ namespace g3
         }
 
 
+        /// <summary> set the plane of the holes; the in-plane axes are computed from the normal </summary>
         public void SetPlane(Vector3d origin, Vector3d normal)
         {
             PlaneOrigin = origin;
@@ -90,6 +102,7 @@ namespace g3
         }
 
 
+        /// <summary> add a boundary loop to fill; nested loops (eg an annulus) are sorted into outer and hole polygons </summary>
         public void AddFillLoop(EdgeLoop loop)
         {
             Loops.Add(new FillLoop() { edgeLoop = loop });

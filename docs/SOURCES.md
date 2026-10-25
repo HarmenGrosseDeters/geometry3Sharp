@@ -20,6 +20,54 @@ Implemented from the papers, no code taken over.
 The error bounds of the implicit points' approximations (`segment_point`, `plane_value`, `planes_approx`) and of
 the filters on them are derived in the code comments.
 
+## Parameterization (`LSCMParameterization`, `ARAPParameterization`, `SLIMParameterization`, `BoundaryFirstFlattening`, `TutteEmbedding`, `ParameterizationDistortion`, `UVPacker`)
+
+Implemented from the papers, no code taken over.
+
+| Part | Source |
+|---|---|
+| Least squares conformal maps, as conformal energy (Dirichlet energy minus signed area over the boundary) | B. Lévy, S. Petitjean, N. Ray, J. Maillot, *Least Squares Conformal Maps for Automatic Texture Atlas Generation*, ACM TOG (SIGGRAPH) 2002; M. Desbrun, M. Meyer, P. Alliez, *Intrinsic Parameterizations of Surface Meshes*, Eurographics 2002; P. Mullen, Y. Tong, P. Alliez, M. Desbrun, *Spectral Conformal Parameterization*, SGP 2008 (equivalence) |
+| As-rigid-as-possible parameterization (local/global) | L. Liu, L. Zhang, Y. Xu, C. Gotsman, S. Gortler, *A Local/Global Approach to Mesh Parameterization*, SGP 2008 |
+| SLIM: reweighted proxy of the symmetric Dirichlet energy | M. Rabinovich, R. Poranne, D. Panozzo, O. Sorkine-Hornung, *Scalable Locally Injective Mappings*, ACM TOG 2017 |
+| Flip-preventing maximum step of the line search | J. Smith, S. Schaefer, *Bijective Parameterization with Free Boundaries*, ACM TOG (SIGGRAPH) 2015 |
+| Symmetric Dirichlet energy | J. Schreiner, A. Asirvatham, E. Praun, H. Hoppe, *Inter-Surface Mapping*, SIGGRAPH 2004; Smith & Schaefer 2015 |
+| Tutte / convex combination embedding | W. T. Tutte, *How to Draw a Graph*, 1963; M. Floater, *Parametrization and smooth approximation of surface triangulations*, CAGD 1997; M. Floater, *One-to-one piecewise linear mappings over triangulations*, Math. Comp. 2003 |
+| Boundary First Flattening: discrete Yamabe equation, Dirichlet-to-Neumann / Neumann-to-Dirichlet maps, closing the boundary curve with minimal length change, holomorphic extension by a harmonic conjugate | R. Sawhney, K. Crane, *Boundary First Flattening*, ACM TOG 2017 (geometry-central, MIT, has an implementation; not used as a source) |
+| Minimal area distortion with u = 0 on the boundary | B. Springborn, P. Schröder, U. Pinkall, *Conformal Equivalence of Triangle Meshes*, ACM TOG (SIGGRAPH) 2008 |
+| Skyline bottom-left rectangle packing | J. Jylänki, *A Thousand Ways to Pack the Bin – A Practical Approach to Two-Dimensional Rectangle Bin Packing*, 2010 |
+| Minimum-area bounding rectangle of a chart | existing `ContMinBox2` (rotating calipers, WildMagic port) |
+
+## Sparse Cholesky (`SparseCholesky`)
+
+Implemented from the papers and textbooks, no code taken over (not from CHOLMOD or CSparse, which are LGPL/GPL, nor from the BSD-licensed SuiteSparse AMD).
+
+| Part | Source |
+|---|---|
+| Approximate minimum degree ordering on the quotient graph | P. Amestoy, T. Davis, I. Duff, *An Approximate Minimum Degree Ordering Algorithm*, SIAM J. Matrix Anal. Appl. 1996; A. George, J. Liu, *The Evolution of the Minimum Degree Ordering Algorithm*, SIAM Review 1989 |
+| Symbolic factorization by the elimination tree, postordering | J. Liu, *The Role of Elimination Trees in Sparse Factorization*, SIAM J. Matrix Anal. Appl. 1990; A. George, J. Liu, *Computer Solution of Large Sparse Positive Definite Systems*, 1981 |
+| Relaxed supernodes | C. Ashcraft, R. Grimes, *The Influence of Relaxed Supernode Partitions on the Multifrontal Method*, ACM TOMS 1989 |
+| Left-looking supernodal numeric factorization | E. Ng, B. Peyton, *Block Sparse Cholesky Algorithms on Advanced Uniprocessor Computers*, SIAM J. Sci. Comput. 1993 |
+
+## Analysis (`MeshWallThickness`, `MeshDeviation`, `PrimitiveFit3`)
+
+Implemented from the papers, no code taken over.
+
+| Part | Source |
+|---|---|
+| Shape diameter function (cone of rays, median / standard deviation filter, weights 1/angle) | L. Shapira, A. Shamir, D. Cohen-Or, *Consistent mesh partitioning and skeletonisation using the shape diameter function*, The Visual Computer 2008 |
+| Largest inscribed ball per surface point (shrinking ball iteration) | J. Ma, S. W. Bai, X. Hu, Y. J. Kim, *3D medial axis point approximation using nearest neighbors and the normal field*, The Visual Computer 2012 |
+| Separation angle condition for medial balls (contacts must be seen at a large angle from the center) | T. K. Dey, W. Zhao, *Approximate medial axis as a Voronoi subcomplex*, Computer-Aided Design 2004 |
+| Watertight ray-triangle test (shear into the ray frame, shared edge functions) | S. Woop, C. Benthin, I. Wald, *Watertight Ray/Triangle Intersection*, Journal of Computer Graphics Techniques 2013 |
+| Sign of the distance to a mesh from the angle weighted pseudo-normal of the closest feature | J. A. Baerentzen, H. Aanaes, *Signed distance computation using the angle weighted pseudonormal*, IEEE TVCG 2005 |
+| Sign from the generalized winding number | A. Jacobson, L. Kavan, O. Sorkine-Hornung 2013 (see above), via `FastWindingNumber` |
+| RANSAC | M. A. Fischler, R. C. Bolles, *Random sample consensus*, Communications of the ACM 1981 |
+| Truncated quadratic (MSAC) scoring | P. H. S. Torr, A. Zisserman, *MLESAC: A new robust estimator with application to estimating image geometry*, CVIU 2000 |
+| Minimal samples with normals (cylinder from 2 points, cone from 3 points), normal deviation test | R. Schnabel, R. Wahl, R. Klein, *Efficient RANSAC for point-cloud shape detection*, Computer Graphics Forum 2007 |
+| Algebraic circle / sphere fit as start value | I. Kasa, *A circle fitting procedure and its error analysis*, IEEE Trans. Instrumentation and Measurement 1976 |
+| Levenberg-Marquardt on the orthogonal distances | K. Levenberg 1944; D. W. Marquardt, *An algorithm for least-squares estimation of nonlinear parameters*, SIAM J. Appl. Math. 1963 |
+| Normal estimation by PCA of the nearest neighbors | H. Hoppe, T. DeRose, T. Duchamp, J. McDonald, W. Stuetzle, *Surface reconstruction from unorganized points*, SIGGRAPH 1992 |
+| Iteratively reweighted least squares with Cauchy weights (robust local planes) | P. W. Holland, R. E. Welsch, *Robust regression using iteratively reweighted least-squares*, Communications in Statistics 1977 |
+
 ## Benchmarks
 
 `benchmarks/BooleanComparison` runs CGAL (GPL), Cherchi et al. (MIT) and Manifold (Apache-2.0) as separate

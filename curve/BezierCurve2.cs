@@ -206,7 +206,9 @@ namespace g3
 
         public void Reverse()
         {
-            throw new NotSupportedException("NURBSCurve2.Reverse: how to reverse?!?");
+            // the reversed curve has the control points in reverse order
+            Array.Reverse(mCtrlPoint);
+            update_derivatives();
         }
 
         public IParametricCurve2d Clone()
@@ -229,8 +231,11 @@ namespace g3
         {
             for (int k = 0; k < mCtrlPoint.Length; ++k)
                 mCtrlPoint[k] = xform.TransformP(mCtrlPoint[k]);
+            update_derivatives();
+        }
 
-            // update derivatives
+        void update_derivatives()
+        {
             for (int i = 0; i < mNumCtrlPoints - 1; ++i) 
                 mDer1CtrlPoint[i] = mCtrlPoint[i+1] - mCtrlPoint[i];
             for (int i = 0; i < mNumCtrlPoints - 2; ++i) 
