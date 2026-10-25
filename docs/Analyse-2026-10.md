@@ -48,6 +48,21 @@ Behoben:
 - `ParallelStream`: Exceptions aus Producer- oder Consumer-Thread werden in `Run` weitergeworfen. Vorher beendeten sie den
   Prozess oder ließen den Consumer endlos laufen. Davon profitiert der binäre `STLWriter`.
 
+Dritte Runde, Solver. Regressionstests stehen in `tests/geometry3Sharp.Tests/SolverFixesTests.cs`. Geprüft wird die
+Rekonstruktion A = U·S·Vᵀ bzw. A·Q = Q·D auf rund 250 strukturierten und zufälligen Matrizen.
+
+`SingularValueDecomposition` (upstream #168): kein Neu-Port nötig. Behoben:
+- Householder bei schon reduzierter Spalte/Zeile: die Spiegelung wird nicht mehr in U/V akkumuliert.
+- Vorzeichen der linken Givens-Rotation in `DiagonalEntriesNonzero`.
+- Schwelle `MathUtil.Epsilon` statt `double.Epsilon`.
+
+`SymmetricEigenSolver`: Behoben:
+- Householder bei schon reduzierter Zeile: Die Spiegelung wird jetzt konsistent auch auf die Matrix angewendet.
+- `GetEigenvector(c)` prüft das Sortier-Flag in `mPermutation[0]`.
+- `IsRotation()` zählt die Transpositionen der Sortier-Permutation korrekt.
+
+Davon profitieren `OrthogonalPlaneFit3`, `GaussPointsFit3`, `QuadraticFit2`, `MeshICP` und die QEF-Lösung in `DualContouring`.
+
 Bewusst zurückgestellt: `OBJReader.is_complex`. Der Fix leitet Dateien auf `BuildMeshes_ByMaterial` um. Dieser Pfad
 verwirft UVs bei Meshes ohne Material, übernimmt keine Gruppen und stürzt bei Faces ohne Normal-Index ab. Er muss deshalb
 zusammen mit diesem Pfad repariert werden.
