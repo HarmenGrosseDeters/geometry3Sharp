@@ -175,6 +175,24 @@ result is not closed after the cleanup (32), the volume differs from the input a
 the repaired mesh is not closed in the winding number sense (28), degenerate triangles remain (17). Two large
 meshes (42327, 42329) now hit the timeout.
 
+**Solids that touch themselves along an edge.** Where the surface is connected around both ends of such an
+edge, `ExactMeshBoolean` gave the two pairs of pieces at the edge the same vertices, and DMesh3 refused one
+pair (a hole): the exact stage failed with "not closed" for 31 meshes, 30 of them for this reason. Now each pair
+gets the edge split at a vertex of its own. Same machine, both runs on the current master with and without the
+change:
+
+| 400 set | before | after |
+|---|---|---|
+| clean¹ + no exact self-intersections | 368 | **373** |
+| **repaired** (also Hausdorff < 1 %, IoU > 0.99) | 253 | **257** |
+| exact stage used | 119 | **130** |
+| exact stage not used because "not closed" | 31 | **1** |
+| exact stage not used because of degenerate triangles | 21 | 37 |
+| median repair time | 3.8 s | 3.8 s |
+
+4 meshes are repaired that were not before, none is lost. Most of the former "not closed" cases now stop at the
+next check: slivers left after the resolve and the cleanup (they were hidden, closedness is checked first).
+
 
 ### Spike: solidify resolution 256 (`BENCH_SOLID_RES=256`, 30 meshes)
 20 meshes that `robust` solidified and that missed the 1 % Hausdorff bound at resolution 128, and 10 it
