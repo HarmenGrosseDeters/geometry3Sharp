@@ -513,9 +513,9 @@ namespace gs
 
 
             if (bParallel) {
-                gParallel.ForEach<int>(smooth_vertices(), project);
+                gParallel.ForEach<int>(project_vertices(), project);
             } else {
-                foreach (int vID in smooth_vertices())
+                foreach (int vID in project_vertices())
                     project(vID);
             }
 
