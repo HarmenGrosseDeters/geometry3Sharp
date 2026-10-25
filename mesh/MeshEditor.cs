@@ -632,6 +632,78 @@ namespace g3
                 }
             }
         }
+        /// <summary>
+        /// Cut the mesh open along the given interior edges: each becomes two boundary edges. At every
+        /// endpoint the triangle fan is split where it crosses a cut edge, and each piece after the first
+        /// (largest) gets its own copy of the vertex. Returns the number of vertices added.
+        /// </summary>
+        public int CutAlongEdges(IEnumerable<int> edges)
+        {
+            HashSet<int> cut = new HashSet<int>();
+            HashSet<int> verts = new HashSet<int>();
+            foreach (int eid in edges) {
+                if (Mesh.IsEdge(eid) == false || Mesh.IsBoundaryEdge(eid))
+                    continue;
+                cut.Add(eid);
+                Index2i ev = Mesh.GetEdgeV(eid);
+                verts.Add(ev.a);
+                verts.Add(ev.b);
+            }
+            if (cut.Count == 0)
+                return 0;
+            // the cut edges are identified by their vertices: splitting one endpoint replaces the edge ids
+            HashSet<Index2i> cutV = new HashSet<Index2i>();
+            foreach (int eid in cut) {
+                Index2i ev = Mesh.GetEdgeV(eid);
+                cutV.Add(new Index2i(Math.Min(ev.a, ev.b), Math.Max(ev.a, ev.b)));
+            }
+            int added = 0;
+            foreach (int vid in verts) {
+                Dictionary<int, int> parent = new Dictionary<int, int>();
+                foreach (int tid in Mesh.VtxTrianglesItr(vid))
+                    parent[tid] = tid;
+                foreach (int eid in Mesh.VtxEdgesItr(vid)) {
+                    Index2i et = Mesh.GetEdgeT(eid);
+                    if (et.b == DMesh3.InvalidID)
+                        continue;
+                    Index2i ev = Mesh.GetEdgeV(eid);
+                    if (cutV.Contains(new Index2i(Math.Min(ev.a, ev.b), Math.Max(ev.a, ev.b))))
+                        continue;
+                    parent[find_root(parent, et.a)] = find_root(parent, et.b);
+                }
+                Dictionary<int, List<int>> setMap = new Dictionary<int, List<int>>();
+                foreach (int tid in Mesh.VtxTrianglesItr(vid)) {
+                    int root = find_root(parent, tid);
+                    List<int> set;
+                    if (setMap.TryGetValue(root, out set) == false)
+                        setMap[root] = set = new List<int>();
+                    set.Add(tid);
+                }
+                if (setMap.Count < 2)
+                    continue;
+                List<List<int>> sets = new List<List<int>>(setMap.Values);
+                sets.Sort(bowtie_sorter);
+                for (int k = 1; k < sets.Count; ++k) {
+                    int copy_vid = Mesh.AppendVertex(Mesh, vid);
+                    added++;
+                    foreach (int tid in sets[k]) {
+                        Index3i t = Mesh.GetTriangle(tid);
+                        if (t.a == vid) t.a = copy_vid;
+                        else if (t.b == vid) t.b = copy_vid;
+                        else t.c = copy_vid;
+                        Mesh.SetTriangle(tid, t, false);
+                    }
+                    // the edges at the copy are new: carry the cut marks over
+                    foreach (Index2i e in cutV.Where(e => e.a == vid || e.b == vid).ToList()) {
+                        int other = (e.a == vid) ? e.b : e.a;
+                        cutV.Add(new Index2i(Math.Min(other, copy_vid), Math.Max(other, copy_vid)));
+                    }
+                }
+            }
+            return added;
+        }
+
+
         static int find_root(Dictionary<int, int> parent, int tid) {
             int root = tid;
             while (parent[root] != root)

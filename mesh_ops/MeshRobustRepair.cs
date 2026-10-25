@@ -1,4 +1,4 @@
-// Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
+﻿// Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -101,7 +101,16 @@ namespace gs
             if (solidifyFrom.TriangleCount == 0)
                 return false;
             if (ExactResolve) {
-                DMesh3 exact = resolve_exactly(solidifyFrom, input);
+                // a clean result whose volume differs may only have its components oriented differently
+                // from the input (eg a nested part turned into a cavity): resolve it first, oriented by the
+                // input's solid, before the input itself
+                DMesh3 exact = resolve_exactly(result, input);
+                if (exact == null && solidifyFrom != result && CancelF() == false) {
+                    string reason = ExactResolveReason;
+                    exact = resolve_exactly(solidifyFrom, input);
+                    if (exact == null)
+                        ExactResolveReason = reason + "; input: " + ExactResolveReason;
+                }
                 if (CancelF())
                     return false;
                 if (exact != null) {
@@ -122,7 +131,7 @@ namespace gs
         DMesh3 resolve_exactly(DMesh3 from, DMesh3 input)
         {
             // inside-out parts flipped, so that the solid is where the winding number is positive
-            DMesh3 m = WindingContouring.OrientedCopy(from);
+            DMesh3 m = OrientedByReference(from, input);
             if (ExactMeshBoolean.IsWindingClosed(m) == false) {
                 ExactResolveReason = "not closed (winding number)";
                 return null;
@@ -175,6 +184,64 @@ namespace gs
                 return res;
             }
             return null;
+        }
+
+        /// <summary>
+        /// Compacted copy of mesh with inside-out parts flipped (WindingContouring.OrientedCopy), then each
+        /// closed component oriented by the solid of reference (where its generalized winding number is
+        /// > 0.5), sampled just off both sides of its triangles: reversed if the reference has its solid on
+        /// the outer side and none on the inner (OrientedCopy guesses a cavity or an inverted part from the
+        /// nesting alone, eg makes a part nested in another one a cavity), and turned outwards if the
+        /// reference is solid on both sides (an inner shell of a solid, not a cavity).
+        /// </summary>
+        public static DMesh3 OrientedByReference(DMesh3 mesh, DMesh3 reference)
+        {
+            DMesh3 m = WindingContouring.OrientedCopy(mesh);
+            if (reference == null || reference.TriangleCount == 0)
+                return m;
+            var comps = new MeshConnectedComponents(m);
+            comps.FindConnectedT();
+            DMeshAABBTree3 tree = null;
+            foreach (var comp in comps.Components) {
+                int[] tris = comp.Indices;
+                bool closed = tris.All(t => {
+                    Index3i te = m.GetTriEdges(t);
+                    return !m.IsBoundaryEdge(te.a) && !m.IsBoundaryEdge(te.b) && !m.IsBoundaryEdge(te.c);
+                });
+                if (closed == false)
+                    continue;
+                if (tree == null) {
+                    tree = new DMeshAABBTree3(WindingContouring.OrientedCopy(reference), true);
+                    tree.FastWindingNumber(Vector3d.Zero);
+                }
+                // area of the sampled triangles with the reference solid only on the inner side, only on the
+                // outer side, on both
+                double inner = 0, outer = 0, both = 0, total = 0;
+                int samples = Math.Min(200, tris.Length);
+                for (int k = 0; k < samples; ++k) {
+                    int tid = tris[(int)((long)k * tris.Length / samples)];
+                    Vector3d n, c;
+                    double area;
+                    m.GetTriInfo(tid, out n, out area, out c);
+                    if (area <= 0 || n.IsNormalized == false)
+                        continue;
+                    double eps = 0.01 * Math.Sqrt(area);
+                    bool sIn = tree.FastWindingNumber(c - eps * n) > 0.5, sOut = tree.FastWindingNumber(c + eps * n) > 0.5;
+                    total += area;
+                    if (sIn && sOut) both += area;
+                    else if (sIn) inner += area;
+                    else if (sOut) outer += area;
+                }
+                bool flip = false;
+                if (outer > inner && outer > 0.5 * total)
+                    flip = true;
+                else if (both > 0.5 * total && inner < 0.25 * total && outer < 0.25 * total)
+                    flip = MeshMeasurements.VolumeArea(m, tris, m.GetVertex).x < 0;
+                if (flip)
+                    foreach (int tid in tris)
+                        m.ReverseTriOrientation(tid);
+            }
+            return m;
         }
 
         /// <summary> how far SeparateTouchingVertices moves a vertex, relative to the distance to the centroid of its neighbours </summary>

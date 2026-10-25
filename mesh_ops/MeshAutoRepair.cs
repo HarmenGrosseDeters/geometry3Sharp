@@ -73,6 +73,10 @@ namespace gs
 
         public DMesh3 Mesh;
 
+        /// <summary> called after every pipeline step with its name and the current mesh (diagnostics) </summary>
+        public Action<string, DMesh3> OnStage = null;
+        void stage(string name) { OnStage?.Invoke(name, Mesh); }
+
 		public MeshAutoRepair(DMesh3 mesh3)
 		{
 			Mesh = mesh3;
@@ -101,14 +105,14 @@ namespace gs
              * make sure orientation of connected components is consistent
              * TODO: what about mobius strip problems?
              */
-            repair_orientation(false);
+            repair_orientation(false); stage("orient_1");
                 if (Cancelled()) return false;
 
             /*
              *  Do safe close-cracks to handle easy cases
              */
 
-            repair_cracks(true, RepairTolerance);
+            repair_cracks(true, RepairTolerance); stage("cracks_unique");
                 if (Mesh.IsClosed()) goto all_done;
                 if (Cancelled()) return false;
 
@@ -117,11 +121,11 @@ namespace gs
              * then allow for handling of ambiguous cases
              */
 
-            collapse_all_degenerate_edges(RepairTolerance*0.5, true);
+            collapse_all_degenerate_edges(RepairTolerance*0.5, true); stage("collapse_boundary_edges");
                 if (Cancelled()) return false;
-            repair_cracks(true, 2*RepairTolerance);
+            repair_cracks(true, 2*RepairTolerance); stage("cracks_unique_2x");
                 if (Cancelled()) return false;
-            repair_cracks(false, 2*RepairTolerance);
+            repair_cracks(false, 2*RepairTolerance); stage("cracks_any_2x");
                 if (Cancelled()) return false;
                 if (Mesh.IsClosed()) goto all_done;
 
@@ -129,20 +133,34 @@ namespace gs
              * Possibly we have joined regions with different orientation (is it?), fix that
              * TODO: mobius strips again
              */
-            repair_orientation(false);
+            repair_orientation(false); stage("orient_2");
                 if (Cancelled()) return false;
+
+            /*
+             * Where a component is not orientable, a seam of inconsistently oriented edges is left. A hole
+             * it ends at runs against the boundary orientation and is not filled (see fill_any_holes),
+             * so cut the mesh open along the seam: then it is orientable and its holes can be filled.
+             */
+            if (cut_orientation_seams() > 0) {
+                repair_orientation(false);
+                // coincident boundary edges that now run in opposite directions (eg the two sides of a slit
+                // left by the cut) are joined again; MergeEdges never joins edges that run the same way
+                repair_cracks(true, 2 * RepairTolerance);
+                repair_cracks(false, 2 * RepairTolerance);
+                stage("cut_seams");
+            }
 
             if (do_checks) Mesh.CheckValidity();
 
             // get rid of any remaining single-triangles before we start filling holes
-            remove_loners();
+            remove_loners(); stage("remove_loners");
 
             /*
              * Ok, fill simple holes. 
              */
             int nRemainingBowties = 0;
 			int nHoles; bool bSawSpans;
-			fill_trivial_holes(out nHoles, out bSawSpans);
+			fill_trivial_holes(out nHoles, out bSawSpans); stage("fill_trivial_holes");
                 if (Cancelled()) return false;
                 if (Mesh.IsClosed()) goto all_done;
 
@@ -150,11 +168,11 @@ namespace gs
              * Now fill harder holes. If we saw spans, that means boundary loops could
              * not be resolved in some cases, do we disconnect bowties and try again.
              */
-            fill_any_holes(out nHoles, out bSawSpans);
+            fill_any_holes(out nHoles, out bSawSpans); stage("fill_any_holes");
                 if (Cancelled()) return false;
             if (bSawSpans) {
 				disconnect_bowties(out nRemainingBowties);
-				fill_any_holes(out nHoles, out bSawSpans);
+				fill_any_holes(out nHoles, out bSawSpans); stage("bowties+fill_any_holes");
 			}
                 if (Cancelled()) return false;
                 if (Mesh.IsClosed()) goto all_done;
@@ -163,7 +181,7 @@ namespace gs
              * We may have a closed mesh now but it might still have bowties (eg
              * tetrahedra sharing vtx case). So disconnect those.
              */
-            disconnect_bowties(out nRemainingBowties);
+            disconnect_bowties(out nRemainingBowties); stage("disconnect_bowties");
                 if (Cancelled()) return false;
 
             /*
@@ -184,7 +202,7 @@ namespace gs
                 MeshFaceSelection bdry_faces = new MeshFaceSelection(Mesh);
                 foreach (int eid in MeshIterators.BoundaryEdges(Mesh))
                     bdry_faces.SelectEdgeTris(eid);
-                MeshEditor.RemoveTriangles(Mesh, bdry_faces, true);
+                MeshEditor.RemoveTriangles(Mesh, bdry_faces, true); stage("erosion");
                 goto repeat_all;
             }
 
@@ -195,7 +213,7 @@ namespace gs
              */
             if (Mesh.IsClosed() == false) {
                 fill_inconsistent_loops = true;
-                fill_any_holes(out nHoles, out bSawSpans);
+                fill_any_holes(out nHoles, out bSawSpans); stage("fill_inconsistent_loops");
             }
 
             all_done:
@@ -204,7 +222,7 @@ namespace gs
              * Remove tiny edges
              */
             if (MinEdgeLengthTol > 0) {
-                collapse_all_degenerate_edges(MinEdgeLengthTol, false);
+                collapse_all_degenerate_edges(MinEdgeLengthTol, false); stage("collapse_short_edges");
             }
                 if (Cancelled()) return false;
 
@@ -212,18 +230,31 @@ namespace gs
              * The mesh may have been closed early (goto all_done above), which skips disconnect_bowties,
              * and collapsing tiny edges can create new bowties. Disconnect them before orienting.
              */
-            disconnect_bowties(out nRemainingBowties);
+            disconnect_bowties(out nRemainingBowties); stage("disconnect_bowties_final");
+                if (Cancelled()) return false;
+
+            /*
+             * A closed mesh can still be non-orientable (eg two sheets welded with opposite orientations):
+             * then its seam is a cycle of inconsistent edges and the mesh does not bound a solid. Cut it
+             * open there and close both sides of the cut separately.
+             */
+            if (cut_orientation_seams() > 0) {
+                repair_orientation(false);
+                fill_trivial_holes(out nHoles, out bSawSpans);
+                fill_any_holes(out nHoles, out bSawSpans);
+                stage("cut_seams_final");
+            }
                 if (Cancelled()) return false;
 
             /*
              * finally do global orientation
              */
-            repair_orientation(true);
+            repair_orientation(true); stage("orient_global");
                 if (Cancelled()) return false;
 
             if (PostRepairCleanup) {
                 MeshPostRepairCleanup cleanup = new MeshPostRepairCleanup(Mesh);
-                cleanup.Apply();
+                cleanup.Apply(); stage("cleanup");
             }
                 if (Cancelled()) return false;
 
@@ -456,6 +487,31 @@ namespace gs
 			return true;
 		}
 
+
+
+        /// <summary>
+        /// Cut the mesh open along its interior edges whose two triangles run through them in the same
+        /// direction (the seams OrientComponents leaves in non-orientable components). Returns the number
+        /// of edges cut.
+        /// </summary>
+        int cut_orientation_seams()
+        {
+            List<int> seams = new List<int>();
+            foreach (int eid in Mesh.EdgeIndices()) {
+                Index2i et = Mesh.GetEdgeT(eid);
+                if (et.b == DMesh3.InvalidID)
+                    continue;
+                Index2i ev = Mesh.GetEdgeV(eid);
+                Index3i ta = Mesh.GetTriangle(et.a), tb = Mesh.GetTriangle(et.b);
+                if ((IndexUtil.find_tri_ordered_edge(ev.a, ev.b, ref ta) != DMesh3.InvalidID)
+                    == (IndexUtil.find_tri_ordered_edge(ev.a, ev.b, ref tb) != DMesh3.InvalidID))
+                    seams.Add(eid);
+            }
+            if (seams.Count == 0)
+                return 0;
+            new MeshEditor(Mesh).CutAlongEdges(seams);
+            return seams.Count;
+        }
 
 
         bool remove_loners()
