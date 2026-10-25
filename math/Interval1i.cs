@@ -103,7 +103,7 @@ namespace g3
 
 
 		public static Interval1i operator -(Interval1i v) {
-			return new Interval1i(-v.a, -v.b);
+			return new Interval1i(-v.b, -v.a);
 		}
 
 
@@ -115,7 +115,7 @@ namespace g3
         }
 
         public static Interval1i operator *(Interval1i a, int f) {
-            return new Interval1i(a.a * f, a.b * f);
+            return (f >= 0) ? new Interval1i(a.a * f, a.b * f) : new Interval1i(a.b * f, a.a * f);
         }
 
 

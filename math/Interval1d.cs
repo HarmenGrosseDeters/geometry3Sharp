@@ -126,7 +126,7 @@ namespace g3
 
 
 		public static Interval1d operator -(Interval1d v) {
-			return new Interval1d(-v.a, -v.b);
+			return new Interval1d(-v.b, -v.a);
 		}
 
 
@@ -138,7 +138,7 @@ namespace g3
         }
 
         public static Interval1d operator *(Interval1d a, double f) {
-            return new Interval1d(a.a * f, a.b * f);
+            return (f >= 0) ? new Interval1d(a.a * f, a.b * f) : new Interval1d(a.b * f, a.a * f);
         }
 
 
