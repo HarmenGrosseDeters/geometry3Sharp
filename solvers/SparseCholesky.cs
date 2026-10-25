@@ -61,6 +61,29 @@ namespace g3
         }
 
         /// <summary>
+        /// The symmetric n x n matrix from the entries of one triangle (an off-diagonal entry once, in either order;
+        /// entries given more than once are summed, so per-element assembly is fine), factorized at once: check
+        /// IsValid, then Solve().
+        /// </summary>
+        public SparseCholesky(int n, IEnumerable<KeyValuePair<Index2i, double>> entries) : this(n)
+        {
+            foreach (var kv in entries) {
+                if (kv.Key.a < 0 || kv.Key.b < 0 || kv.Key.a >= n || kv.Key.b >= n)
+                    throw new ArgumentException("SparseCholesky: entry out of range");
+                Add(kv.Key.a, kv.Key.b, kv.Value);
+            }
+            Factorize();
+        }
+
+        /// <summary> the matrix (each entry stored once), factorized at once: check IsValid, then Solve() </summary>
+        public SparseCholesky(SymmetricSparseMatrix m) : this(m.Rows, m.NonZeros())
+        {
+        }
+
+        /// <summary> the last Factorize() succeeded (the matrix is numerically positive definite) </summary>
+        public bool IsValid { get { return factored; } }
+
+        /// <summary>
         /// Add v to A[r,c] and, by symmetry, to A[c,r]: each off-diagonal entry is added once, in either order.
         /// </summary>
         public void Add(int r, int c, double v)

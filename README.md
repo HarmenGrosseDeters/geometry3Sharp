@@ -18,6 +18,11 @@ operations to their classes, with a tested example for each. It adds:
   closed results; self-intersecting meshes, nested shells and duplicated faces are resolved
   (`ExactMeshBoolean.Resolve(mesh)` does that for one mesh); open meshes use the generalized winding number.
   Only the output coordinates are rounded to double.
+- Intrinsic geodesics (Phase 3 of the roadmap): `IntrinsicTriangulation` (intrinsic Delaunay flips with
+  signposts, edge tracing over the input mesh, mollification of degenerate triangles), the heat method on it
+  (`MeshGeodesicDistance.IntrinsicDelaunay = true`, accurate on sliver and obtuse meshes) and
+  `VectorHeatMethod` (parallel transport, scalar extension, log map). `SparseCholesky` is a direct sparse
+  solver for the heat and Poisson systems.
 - `MeshAlphaWrap`: alpha wrapping with an offset (Portaneri et al. 2022). Gives a closed, 2-manifold surface
   without self-intersections around any input: triangle soups, open or non-manifold meshes, degenerate
   triangles, point clouds. `Alpha` sets the detail, `Offset` the distance to the input. Built on `Delaunay3`, an
@@ -203,6 +208,7 @@ Several tutorials for using g3Sharp have been posted on the Gradientspace blog:
 - **SparseCholesky** sparse Cholesky factorization (approximate minimum degree ordering, supernodal), factorize once and solve many right-hand sides; refactorization with the same pattern reuses the analysis
 - **SparseSymmetricCG** conjugate-gradient matrix solver w/ support for preconditioning, client-provided matrix/vector multiply
 - **SparseSymmetricCGMultipleRHS** variant that supports multiple right-hand sides
+- **SparseCholesky** direct solver for sparse symmetric positive definite systems (reverse Cuthill-McKee, envelope Cholesky)
 - **SingularValueDecomposition** SVD for arbitrary matrices
 - **SymmetricEigenSolver** eigensolver for symmetric matrices using Symmetric QR, ported from GTEngine.
 
@@ -350,9 +356,11 @@ Several tutorials for using g3Sharp have been posted on the Gradientspace blog:
 - **MeshInsertPolygon**: insert a 2D polygon-with-holes into a 2D mesh and return set of triangles "inside" polygon
 - **MeshInsertProjectedPolygon**: variant of MeshInsertPolygon that inserts 2D polygon onto 3D mesh surface via projection plane
 - **MeshIterativeSmooth**: standard iterative vertex-laplacian smoothing with uniform, cotan, mean-value weights
-- **MeshLocalParam**: calculate Discrete Exponential Map uv-coords around a point on mesh
+- **MeshLocalParam**: calculate Discrete Exponential Map uv-coords around a point on mesh (see **VectorHeatMethod.ComputeLogMap** for a more accurate log map)
 - **LSCMParameterization**, **ARAPParameterization**, **SLIMParameterization**, **BoundaryFirstFlattening**, **TutteEmbedding**: UV parameterization of a mesh with boundary (see below)
 - **UVPacker**: pack UV charts into the unit square (skyline packing, optional rotation, uniform texel density)
+- **IntrinsicTriangulation**: intrinsic Delaunay triangulation by edge flips, with signposts (tangent directions) and edge tracing over the input mesh
+- **VectorHeatMethod**: parallel transport of tangent vectors, scalar extension and logarithmic map (geodesic polar coordinates)
 - **MeshLoopClosure**: cap open region of mesh with a plane
 - **MeshLoopSmooth**: smooth an embedded *EdgeLoop* of a mesh
 - **MeshPlaneCut**: cut a mesh with a plane, return new **EdgeLoop**s and **EdgeSpans**, and optionally fill holes
