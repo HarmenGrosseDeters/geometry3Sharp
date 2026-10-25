@@ -243,6 +243,34 @@ namespace geometry3Sharp.Tests
             Assert.Equal(tdc0.Result.TriangleCount, tdc.Result.TriangleCount);
         }
 
+        [Fact]
+        public void PointCloud_SmallPointRadiusOverALargeArea()
+        {
+            // 65 km across with PointRadius = 1 m: 4e9 bins of the point radius overflowed (OverflowException)
+            var points = PitPoints(2.0, 0, Vector3d.Zero);
+            points.Add(new Vector3d(65535, 65535, 0));
+            var far = new TerrainDualContouring(points) { PointRadius = 1, GridResolution = 64 };
+            far.Compute();      // the pit is smaller than a cell: no result, but no exception
+
+            // more bins of the point radius than 4x the points: larger bins, the same samples. Plane z = 0.1 x
+            // + 0.05 y sampled every 2 m, PointRadius 0.9 (fitted within up to 4 x 0.9 m)
+            var plane = new List<Vector3d>();
+            for (int i = 0; i <= 50; ++i)
+                for (int j = 0; j <= 50; ++j)
+                    plane.Add(new Vector3d(2 * i, 2 * j, 0.1 * 2 * i + 0.05 * 2 * j));
+            var tdc = new TerrainDualContouring(plane) { PointRadius = 0.9, CellSize = 4 };
+            Assert.True(tdc.Compute());
+            // the whole cloud is sampled (up to about a cell at its border)
+            AxisAlignedBox3d rb = tdc.Result.CachedBounds;
+            Assert.True(rb.Min.x < 5 && rb.Min.y < 5 && rb.Max.x > 95 && rb.Max.y > 95, rb.ToString());
+            double areaXY = tdc.Result.TriangleIndices().Sum(tid => Math.Abs(tdc.Result.GetTriNormal(tid).z) * tdc.Result.GetTriArea(tid));
+            Assert.True(areaXY > 0.9 * 100 * 100, $"{areaXY} m^2 covered");
+            foreach (int vid in tdc.Result.VertexIndices()) {
+                Vector3d v = tdc.Result.GetVertex(vid);
+                Assert.Equal(0.1 * v.x + 0.05 * v.y, v.z, 6);
+            }
+        }
+
         static List<Vector3d> PitPoints(double spacing, double noise, Vector3d offset, int seed = 1)
         {
             var rnd = new Random(seed);

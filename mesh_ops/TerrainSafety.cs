@@ -82,39 +82,97 @@ namespace gs
             return true;
         }
 
-        // join the closest pair of open-polyline end points while it is closer than gap
-        static void close_gaps(List<List<Vector3d>> lines, double gap)
+        // Join the end points of open polylines closer than gap, the closest pair first (a pair of ends of
+        // the same polyline closes it). Joining moves no point, so the candidate pairs are found once (hash
+        // grid) and taken in order of distance while both ends are still free; then the joined polylines
+        // are assembled. (Was quadratic per join, cubic overall: 105 s for 1500 lines of real crests.)
+        internal static void close_gaps(List<List<Vector3d>> lines, double gap)
         {
-            while (true) {
-                double best = gap; int bi = -1, bj = -1; bool biEnd = false, bjEnd = false;
-                for (int i = 0; i < lines.Count; ++i) {
-                    var li = lines[i];
-                    if (li.Count < 2 || li[0].Distance(li[li.Count - 1]) < 1e-9) continue;     // closed
-                    for (int j = i; j < lines.Count; ++j) {
-                        var lj = lines[j];
-                        if (lj.Count < 2 || lj[0].Distance(lj[lj.Count - 1]) < 1e-9) continue;
-                        foreach (bool ei in new[] { false, true })
-                            foreach (bool ej in new[] { false, true }) {
-                                if (i == j && ei == ej) continue;
-                                Vector3d a = ei ? li[li.Count - 1] : li[0], b = ej ? lj[lj.Count - 1] : lj[0];
-                                double d = a.Distance(b);
-                                if (d < best) { best = d; bi = i; bj = j; biEnd = ei; bjEnd = ej; }
-                            }
-                    }
-                }
-                if (bi < 0)
-                    return;
-                if (bi == bj) {
-                    lines[bi].Add(lines[bi][0]);        // close the loop
-                    continue;
-                }
-                var A = lines[bi]; var B = lines[bj];
-                if (biEnd == false) A.Reverse();         // A now ends at the joined end
-                if (bjEnd) B.Reverse();                  // B now starts at the joined end
-                A.AddRange(B);
-                lines.RemoveAt(bj);
+            int n = lines.Count;
+            Func<int, bool> open = (i) => lines[i].Count >= 2 && lines[i][0].Distance(lines[i][lines[i].Count - 1]) >= 1e-9;
+            // end e of line e / 2: the first point if e is even, the last if odd
+            Func<int, Vector3d> endPoint = (e) => { var l = lines[e / 2]; return (e % 2 == 0) ? l[0] : l[l.Count - 1]; };
+            double cellSize = Math.Max(gap, 1e-12);
+            Func<Vector3d, Vector3i> cellOf = (p) => new Vector3i((int)Math.Floor(p.x / cellSize), (int)Math.Floor(p.y / cellSize), (int)Math.Floor(p.z / cellSize));
+            var cells = new Dictionary<Vector3i, List<int>>();
+            for (int e = 0; e < 2 * n; ++e) {
+                if (open(e / 2) == false) continue;
+                Vector3i c = cellOf(endPoint(e));
+                List<int> l;
+                if (cells.TryGetValue(c, out l) == false) cells[c] = l = new List<int>();
+                l.Add(e);
             }
+            var pairs = new List<KeyValuePair<double, Index2i>>();
+            for (int e = 0; e < 2 * n; ++e) {
+                if (open(e / 2) == false) continue;
+                Vector3d p = endPoint(e);
+                Vector3i c = cellOf(p);
+                for (int dz = -1; dz <= 1; ++dz)
+                    for (int dy = -1; dy <= 1; ++dy)
+                        for (int dx = -1; dx <= 1; ++dx) {
+                            List<int> l;
+                            if (cells.TryGetValue(new Vector3i(c.x + dx, c.y + dy, c.z + dz), out l) == false) continue;
+                            foreach (int f in l) {
+                                if (f <= e) continue;
+                                double d = p.Distance(endPoint(f));
+                                if (d < gap) pairs.Add(new KeyValuePair<double, Index2i>(d, new Index2i(e, f)));
+                            }
+                        }
+            }
+            pairs.Sort((x, y) => {
+                int c = x.Key.CompareTo(y.Key);
+                if (c != 0) return c;
+                c = x.Value.a.CompareTo(y.Value.a);
+                return (c != 0) ? c : x.Value.b.CompareTo(y.Value.b);
+            });
+            var joined = new int[2 * n];
+            for (int e = 0; e < 2 * n; ++e) joined[e] = -1;
+            // union-find of the joined lines, to tell a join of two chains from closing one
+            var parent = new int[n];
+            for (int i = 0; i < n; ++i) parent[i] = i;
+            Func<int, int> find = null;
+            find = (i) => { while (parent[i] != i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+            var closedChain = new bool[n];
+            foreach (var kv in pairs) {
+                int e = kv.Value.a, f = kv.Value.b;
+                if (joined[e] >= 0 || joined[f] >= 0) continue;
+                int re = find(e / 2), rf = find(f / 2);
+                if (closedChain[re] || closedChain[rf]) continue;
+                joined[e] = f; joined[f] = e;
+                if (re == rf) closedChain[re] = true;       // the two free ends of one chain: a ring
+                else parent[rf] = re;
+            }
+            // assemble: chains from a free end, then the rings
+            var result = new List<List<Vector3d>>();
+            var visited = new bool[n];
+            Action<int, bool> walk = (startEnd, ring) => {
+                var line = new List<Vector3d>();
+                int e = startEnd;
+                while (true) {
+                    int i = e / 2;
+                    visited[i] = true;
+                    var l = lines[i];
+                    if (e % 2 == 0) line.AddRange(l);
+                    else for (int k = l.Count - 1; k >= 0; --k) line.Add(l[k]);
+                    int exit = e ^ 1, next = joined[exit];
+                    if (next < 0 || (ring && next == startEnd)) break;
+                    e = next;
+                }
+                if (ring) line.Add(line[0]);
+                result.Add(line);
+            };
+            for (int i = 0; i < n; ++i) {
+                if (visited[i]) continue;
+                if (open(i) == false) { visited[i] = true; result.Add(lines[i]); continue; }
+                if (joined[2 * i] < 0) walk(2 * i, false);
+                else if (joined[2 * i + 1] < 0) walk(2 * i + 1, false);
+            }
+            for (int i = 0; i < n; ++i)
+                if (visited[i] == false) walk(2 * i, true);
+            lines.Clear();
+            lines.AddRange(result);
         }
+
         static long edge_key(int a, int b) { return (long)Math.Min(a, b) * int.MaxValue + Math.Max(a, b); }
 
         // remove short spurs (dead-end pieces shorter than minLen hanging off a line, eg small kinks next to
@@ -665,15 +723,28 @@ namespace gs
             var grid = new PointHashGrid3d<int>(band, -1);
             for (int i = 0; i < pts.Count; ++i)
                 grid.InsertPointUnsafe(i, pts[i]);
-            var keep = new List<int>();
+            var band_tris = new MeshFaceSelection(refined);
+            var seeds = new List<int>();
             foreach (int tid in refined.TriangleIndices()) {
                 Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
                 refined.GetTriVertices(tid, ref a, ref b, ref c);
                 Vector3d m = (a + b + c) / 3;
                 double rad = Math.Max(m.Distance(a), Math.Max(m.Distance(b), m.Distance(c)));
                 var near = grid.FindNearestInRadius(m, band + rad, (i) => pts[i].Distance(m));
-                if (near.Key >= 0) keep.Add(tid);
+                if (near.Key < 0) continue;
+                band_tris.Select(tid);
+                if (near.Value <= rad + h) seeds.Add(tid);
             }
+            // the band cut out of the triangles can touch itself at vertices (bowties) and leave islands of
+            // triangles that are near a source in space but not connected to it on the terrain. The heat
+            // method gives arbitrary distances on islands without a source (they then made spurious lines,
+            // depending on rounding, eg at UTM coordinates), and the remesher degenerates at bowties: keep
+            // the bowtie-free part connected to the sources
+            band_tris.RemoveBowties();
+            seeds.RemoveAll((tid) => band_tris.IsSelected(tid) == false);
+            var keep = new MeshFaceSelection(refined);
+            if (seeds.Count > 0)
+                keep.FloodFill(seeds.ToArray(), (tid) => band_tris.IsSelected(tid));
             if (keep.Count == 0)
                 return true;        // no terrain near the sources
             RemeshedTerrain = new DSubmesh3(refined, keep).SubMesh;

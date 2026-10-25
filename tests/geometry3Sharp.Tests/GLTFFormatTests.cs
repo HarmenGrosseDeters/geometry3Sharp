@@ -368,6 +368,44 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void Read_SharedChildNodes_ReturnError_InsteadOfExponentialExpansion()
+        {
+            // 40 nodes, each with two references to the next one: < 1 KB of JSON, 2^40 paths to the mesh node.
+            // The node hierarchy must be a tree, so the second reference is an error.
+            const int depth = 40;
+            string chain = string.Join(",", Enumerable.Range(0, depth).Select(i => "{\"children\":[" + (i + 1) + "," + (i + 1) + "]}"));
+            string json = SingleTriangle("\"scenes\":[{\"nodes\":[0]}],\"nodes\":[" + chain + ",{\"mesh\":0}]");
+            IOReadResult r = default(IOReadResult);
+            System.Threading.Tasks.Task task = System.Threading.Tasks.Task.Run(() => ReadJson(json, out r));
+            Assert.True(task.Wait(TimeSpan.FromSeconds(30)), "reading did not finish");
+            Assert.Equal(IOCode.FileParsingError, r.code);
+            Assert.Contains("more than once", r.message);
+        }
+
+        [Theory]
+        [InlineData("\"scenes\":[{\"nodes\":[0]}],\"nodes\":[{\"children\":[1,1]},{\"mesh\":0}]")]       // same child twice
+        [InlineData("\"scenes\":[{\"nodes\":[0,1]}],\"nodes\":[{\"children\":[1]},{\"mesh\":0}]")]       // scene root that is also a child
+        [InlineData("\"scenes\":[{\"nodes\":[0,2]}],\"nodes\":[{\"children\":[1]},{\"mesh\":0},{\"children\":[1]}]")]   // two parents
+        public void Read_NodeWithTwoParents_ReturnsError(string nodes)
+        {
+            IOReadResult r;
+            List<DMesh3> meshes = ReadJson(SingleTriangle(nodes), out r);
+            Assert.Equal(IOCode.FileParsingError, r.code);
+        }
+
+        [Fact]
+        public void Read_SiblingSubtrees_StillRead()
+        {
+            // two separate subtrees that instance the same mesh are valid (no node is shared)
+            string nodes = "\"scenes\":[{\"nodes\":[0,2]}],\"nodes\":[{\"children\":[1]},{\"mesh\":0},{\"children\":[3],\"translation\":[0,0,3]},{\"mesh\":0}]";
+            IOReadResult r;
+            List<DMesh3> meshes = ReadJson(SingleTriangle(nodes), out r);
+            Assert.True(r.code == IOCode.Ok, r.message);
+            Assert.Equal(2, meshes.Count);
+            Assert.Equal(new Vector3d(0, 1, 3), meshes[1].GetVertex(2));
+        }
+
+        [Fact]
         public void Read_AccessorPastBufferEnd_ReturnsError()
         {
             string json = SingleTriangle("\"nodes\":[{\"mesh\":0}]").Replace("\"count\":3", "\"count\":4");
