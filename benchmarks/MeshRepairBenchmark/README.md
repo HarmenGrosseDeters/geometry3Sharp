@@ -15,6 +15,9 @@ python3 analyze_fidelity.py results/robust.jsonl    # repaired = clean + no self
 python3 analyze.py results/default.jsonl            # status per category, exceptions, triangle loss
 python3 analyze_quality.py results/cleanup.jsonl    # quality before/after
 python3 analyze_stages.py results/instr.jsonl       # which pipeline step introduces which defect
+./run_all.sh wrap                # MeshAlphaWrap (BENCH_WRAP_ALPHA / BENCH_WRAP_OFFSET: diagonal / alpha, / offset)
+CGAL_WRAP=/path/to/cgal_wrap ./run_all.sh cgalwrap   # CGAL's alpha wrap, same parameters (see below)
+python3 analyze_wrap.py results/wrap.jsonl results/cgalwrap.jsonl   # guarantees, fidelity, time; paired
 ```
 
 `run_all.sh <mode> [loader] [transform] [tolerance factor]` takes these options:
@@ -213,3 +216,57 @@ The fixes remove a quarter of the self-intersecting results and make the repair 
 count does not move: the meshes they fix still deviate more than 1 % (Hausdorff), which is the grid limit of
 the solidify (136 of the 190 misses). One mesh got worse (61460: 4 self-intersections after the solidify,
 before 0, probably at the transition of the new non-manifold refinement).
+
+
+## Alpha wrapping (`MeshAlphaWrap`)
+`BENCH_REPAIR=wrap`: alpha wrap of the input (Portaneri et al. 2022), alpha = diagonal / 100, offset = diagonal /
+1000 unless set. Its guarantees are closed, 2-manifold, oriented outwards, no self-intersections, input inside; the
+fidelity is set by alpha and offset (cavities and gaps narrower than about 2 alpha are wrapped over, the offset adds
+volume). So the strict "repaired" criterion (Hausdorff < 1 %, IoU > 0.99) is not its goal at these settings.
+
+### Against the solidify fallback (400 set; 4 meshes in parallel)
+| | wrap (alpha 1/100, offset 1/1000) | `solidify_dc_adaptive` (resolution 128) |
+|---|---|---|
+| closed, manifold, oriented, no exact self-intersections | **400** | 349 |
+| with exact self-intersections | 0 | 49 |
+| exceptions / timeouts | 0 | 1 |
+| Hausdorff result → input, median / p90 (% diagonal) | 0.99 / 1.15 | 0.46 / 1.18 |
+| Hausdorff input → result, median / p90 | 1.57 / 4.80 | 0.91 / 4.95 |
+| volume IoU, median | 0.925 | 0.997 |
+| output triangles, median | 15k | 7k |
+| time, median / max | **2.0 s / 9 s** | 6.8 s / 188 s |
+
+With alpha 1/300 and offset 1/3000 (100 meshes, seed 1, `results/wrap_a300_sample100.jsonl`): all 100 meet the
+guarantees (3 results above 300k triangles are not checked for self-intersections by the benchmark; one of them was
+checked separately: none), Hausdorff result → input median 0.36 % (solidify 0.48 %), IoU median 0.976 (0.997),
+134k triangles, 9 s median (before the speedups of PR #43).
+
+### Against CGAL's alpha wrap
+`external/cgal_wrap.cpp` runs `CGAL::alpha_wrap_3` (CGAL 5.6, Ubuntu package, `g++ -O2 -DNDEBUG`, inexact
+constructions kernel) with the same relative alpha and offset; `BENCH_REPAIR=cgalwrap` checks its result like the
+others. It links against CGAL (GPL): a compiled `cgal_wrap` is not distributed, and CGAL's implementation was not
+looked at (docs/SOURCES.md). Build:
+```
+g++ -O2 -std=c++17 -DNDEBUG -DCGAL_NDEBUG external/cgal_wrap.cpp -o cgal_wrap -lgmp -lmpfr
+```
+Same 100 meshes (alpha 1/100) and the first 30 of them (alpha 1/300), 4 in parallel; times are each tool's own
+wrap time (for MeshAlphaWrap including the JIT warm-up of a fresh process, for CGAL without file I/O):
+
+| | MeshAlphaWrap 1/100 | CGAL 1/100 | MeshAlphaWrap 1/300 | CGAL 1/300 |
+|---|---|---|---|---|
+| guarantees met | 100/100 | 99/100 ¹ | 30/30 | 30/30 |
+| Hausdorff result → input, median (% diagonal) | 0.99 | 0.99 | 0.36 | 0.36 |
+| Hausdorff input → result, median | 1.64 | 1.68 | 1.57 | 1.57 |
+| volume IoU, median | 0.925 | 0.927 | 0.968 | 0.967 |
+| output triangles, median | 15.5k | 17.1k | 141k | 157k |
+| time, median / max | **1.5 s / 4.9 s** | 3.7 s / 18.7 s | **7.3 s / 18 s** | 26 s / 110 s |
+| time per mesh, ratio MeshAlphaWrap / CGAL, median (p10, p90) | 0.38 (0.17, 1.08) | | 0.27 (0.16, 0.38) | |
+| µs per output triangle, median | 94 | 214 | 52 | 158 |
+
+¹ 75846.obj references vertices that do not exist (index 42683 of 41560); CGAL's soup reader does not check the
+indices and the driver crashes. g3's OBJ reader drops those faces.
+
+The results agree within the noise; CGAL makes about 10 % more triangles. MeshAlphaWrap is slower than CGAL only on
+small inputs (a few hundred triangles, below 1 s), where the JIT warm-up of the fresh process dominates: warm, in
+one process, 97171.stl takes 182 ms (cold 451 ms; CGAL 598 ms) and 635745.stl 116 ms (CGAL 344 ms).
+

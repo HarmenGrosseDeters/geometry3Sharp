@@ -270,8 +270,7 @@ namespace gs
                 int n = dt.Neighbour(c, i);
                 if (label_of(n) != Outside)
                     continue;
-                if (!(facet_radius(c, i) > alpha))
-                    continue;
+                // (traversable: only such gates are queued, and the radius depends on the facet only)
                 Vector3d from, to;
                 dual_edge(c, i, out from, out to);
 
@@ -445,16 +444,12 @@ namespace gs
                 if (vertex_distance(t[j]) < contact) return true;
             Vector3d a = dt.GetVertex(t.a), b = dt.GetVertex(t.b), d = dt.GetVertex(t.c), e = dt.GetVertex(t.d);
             // the cell is within (longest edge at v) of each vertex v: far enough from the input if a vertex is
-            // farther from it than that (distance is 1-Lipschitz)
+            // farther from it than that (distance is 1-Lipschitz). (A closest point query at the centroid rejects
+            // almost nothing either: near the result the cells are larger than their distance to the input.)
             double ab = a.Distance(b), ad = a.Distance(d), ae = a.Distance(e), bd = b.Distance(d), be = b.Distance(e), de = d.Distance(e);
             if (vertex_distance(t.a) - Math.Max(ab, Math.Max(ad, ae)) > contact || vertex_distance(t.b) - Math.Max(ab, Math.Max(bd, be)) > contact
                 || vertex_distance(t.c) - Math.Max(ad, Math.Max(bd, de)) > contact || vertex_distance(t.d) - Math.Max(ae, Math.Max(be, de)) > contact)
                 return false;
-            Vector3d g = 0.25 * (a + b + d + e);
-            double rho = Math.Sqrt(Math.Max(Math.Max(g.DistanceSquared(a), g.DistanceSquared(b)), Math.Max(g.DistanceSquared(d), g.DistanceSquared(e))));
-            double dg = oracle.Distance(g);
-            if (dg < contact) return true;
-            if (dg >= rho + contact) return false;
             return oracle.TetrahedronTouches(a, b, d, e, contact);
         }
 
@@ -480,7 +475,7 @@ namespace gs
         // ---- post-processing ----
 
         // outside cells not connected to the box boundary (enclosed by an insertion) become inside
-        int remove_pockets()
+        int remove_pockets(List<int> flipped = null)
         {
             var reached = new bool[dt.MaxCellID];
             var stack = new Stack<int>();
@@ -496,11 +491,15 @@ namespace gs
                     if (n >= 0 && !reached[n] && label[n] == Outside) { reached[n] = true; stack.Push(n); }
                 }
             }
-            int flipped = 0;
+            int count = 0;
             foreach (int c in dt.CellIndices())
-                if (label[c] == Outside && !reached[c]) { label[c] = Inside; flipped++; }
-            Counts["pocket_cells"] = (Counts.TryGetValue("pocket_cells", out long pc) ? pc : 0) + flipped;
-            return flipped;
+                if (label[c] == Outside && !reached[c]) {
+                    label[c] = Inside;
+                    flipped?.Add(c);
+                    count++;
+                }
+            Counts["pocket_cells"] = (Counts.TryGetValue("pocket_cells", out long pc) ? pc : 0) + count;
+            return count;
         }
 
         // cells incident to each vertex (CSR)
@@ -526,54 +525,75 @@ namespace gs
         /// facets around every vertex form one disk: around a non-manifold edge or vertex, the outside cells are
         /// grouped into connected runs (through facets containing the edge / vertex); the run connected to the
         /// box boundary, otherwise the largest one, stays outside. If the inside cells around a vertex are not
-        /// connected, all its outside cells move inside. Only inside is added, so the input stays enclosed;
-        /// every pass moves at least one cell, so this terminates.
+        /// connected, outside cells move inside one at a time (cells joining inside components, small cells and
+        /// cells without a box corner first). Only inside is added, so the input stays enclosed;
+        /// every flip moves a cell inside for good, so this terminates. Vertices are checked from a work list (the
+        /// vertices on the result, then those of flipped cells).
         /// </summary>
         bool make_manifold()
         {
-            long flips = 0;
             build_stars();      // (the triangulation does not change here, only labels)
-            var edgeCount = new Dictionary<long, int>();
-            var surfaceVertices = new HashSet<int>();
-            for (int pass = 0; pass < 1000; ++pass) {
-                int changed = 0;
-                // edges
-                edgeCount.Clear();
-                surfaceVertices.Clear();
-                foreach (int c in dt.CellIndices()) {
-                    if (label[c] != Inside) continue;
-                    for (int i = 0; i < 4; ++i) {
-                        if (label_of(dt.Neighbour(c, i)) != Outside) continue;
-                        Index3i f = dt.FacetVertices(c, i);
-                        for (int j = 0; j < 3; ++j) {
-                            surfaceVertices.Add(f[j]);
-                            long key = edge_key(f[j], f[(j + 1) % 3]);
-                            edgeCount.TryGetValue(key, out int cnt);
-                            edgeCount[key] = cnt + 1;
+            long flips = 0, processed = 0;
+            var queued = new bool[dt.VertexCount];
+            var work = new Queue<int>();
+            Action<int> enqueue_cell = (c) => {
+                for (int j = 0; j < 4; ++j) {
+                    int v = dt.CellVertex(c, j);
+                    if (!queued[v]) { queued[v] = true; work.Enqueue(v); }
+                }
+            };
+            // start with the vertices on the result; a flip queues the vertices of the flipped cell again
+            foreach (int c in dt.CellIndices()) {
+                if (label[c] != Inside) continue;
+                for (int i = 0; i < 4; ++i)
+                    if (label_of(dt.Neighbour(c, i)) == Outside) { enqueue_cell(c); break; }
+            }
+            var edgeCount = new Dictionary<int, int>();
+            long limit = 100L * dt.VertexCount + 1000;
+            while (true) {
+                while (work.Count > 0) {
+                    if (++processed > limit)
+                        return false;
+                    int v = work.Dequeue();
+                    queued[v] = false;
+                    flippedCells.Clear();
+                    // edges v-x: result facets around them (all contain v, so they are facets of the star of v)
+                    edgeCount.Clear();
+                    for (int k = starStart[v]; k < starStart[v + 1]; ++k) {
+                        int c = starCells[k];
+                        if (label[c] != Inside) continue;
+                        for (int i = 0; i < 4; ++i) {
+                            if (dt.CellVertex(c, i) == v || label_of(dt.Neighbour(c, i)) != Outside) continue;
+                            for (int j = 0; j < 4; ++j) {
+                                int x = dt.CellVertex(c, j);
+                                if (j == i || x == v) continue;
+                                edgeCount.TryGetValue(x, out int cnt);
+                                edgeCount[x] = cnt + 1;
+                            }
                         }
                     }
+                    foreach (var kv in edgeCount)
+                        if (kv.Value > 2) fix_star(v, kv.Key);
+                    // the vertex (once its edges are manifold; otherwise it is queued again by the flips)
+                    if (flippedCells.Count == 0)
+                        fix_star(v, -1);
+                    flips += flippedCells.Count;
+                    foreach (int c in flippedCells)
+                        enqueue_cell(c);
                 }
-                foreach (var kv in edgeCount) {
-                    if (kv.Value <= 2) continue;
-                    int u = (int)(kv.Key >> 32), w = (int)(kv.Key & 0xFFFFFFFF);
-                    changed += fix_star(u, w);
-                }
-                if (changed == 0) {
-                    // vertices (after the edges are manifold)
-                    foreach (int v in surfaceVertices)
-                        changed += fix_star(v, -1);
-                }
-                if (changed > 0) {
-                    flips += changed;
-                    remove_pockets();
-                    continue;
-                }
-                Counts["manifold_flips"] = flips;
-                Counts["manifold_passes"] = pass + 1;
-                return true;
+                flippedCells.Clear();
+                remove_pockets(flippedCells);
+                if (flippedCells.Count == 0)
+                    break;
+                foreach (int c in flippedCells)
+                    enqueue_cell(c);
             }
-            return false;
+            Counts["manifold_flips"] = flips;
+            Counts["manifold_vertex_checks"] = processed;
+            return true;
         }
+
+        readonly List<int> flippedCells = new List<int>();
 
         static long edge_key(int a, int b)
         {
@@ -626,7 +646,7 @@ namespace gs
                         int ck = comp[k];
                         if (compLabel[ck] != Outside) continue;
                         bool stays = exterior ? compExterior[ck] : ck == keep;
-                        if (!stays) { label[local[k]] = Inside; flipped++; }
+                        if (!stays) { label[local[k]] = Inside; flippedCells.Add(local[k]); flipped++; }
                     }
                     continue;
                 }
@@ -657,6 +677,7 @@ namespace gs
                 if (best < 0)
                     return flipped;
                 label[local[best]] = Inside;
+                flippedCells.Add(local[best]);
                 flipped++;
             }
             return flipped;

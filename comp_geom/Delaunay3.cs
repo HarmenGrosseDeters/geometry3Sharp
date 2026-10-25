@@ -248,7 +248,10 @@ namespace g3
         readonly List<int> cavity = new List<int>();
         readonly List<(int cell, int facet)> boundary = new List<(int, int)>();
         readonly Dictionary<long, int> edgeLinks = new Dictionary<long, int>();
-        readonly HashSet<int> cavityVerts = new HashSet<int>(), boundaryVerts = new HashSet<int>();
+        readonly List<int> boundaryVerts = new List<int>();
+        readonly List<int> newCells = new List<int>();
+        int[] vmark = new int[0];
+        int vmarkValue = 0;
 
         /// <summary>
         /// Inserts p (located from cell hint). Fails, leaving the triangulation unchanged, if p is not strictly
@@ -314,13 +317,21 @@ namespace g3
                     break;
             }
             // every vertex of the cavity must stay (on its boundary)
-            cavityVerts.Clear(); boundaryVerts.Clear();
-            foreach (int c in cavity)
-                for (int i = 0; i < 4; ++i) cavityVerts.Add(cv[4 * c + i]);
+            if (vmark.Length < vertices.Count + 1)
+                Array.Resize(ref vmark, Math.Max(vertices.Count + 1, 2 * vmark.Length));
+            if (++vmarkValue == int.MaxValue) {
+                Array.Clear(vmark, 0, vmark.Length);
+                vmarkValue = 1;
+            }
+            boundaryVerts.Clear();
             foreach (var bf in boundary)
-                for (int j = 0; j < 3; ++j) boundaryVerts.Add(cv[4 * bf.cell + FacetIndices[bf.facet, j]]);
-            if (cavityVerts.Count != boundaryVerts.Count)
-                return InsertResult.Failed;
+                for (int j = 0; j < 3; ++j) {
+                    int v = cv[4 * bf.cell + FacetIndices[bf.facet, j]];
+                    if (vmark[v] != vmarkValue) { vmark[v] = vmarkValue; boundaryVerts.Add(v); }
+                }
+            foreach (int c in cavity)
+                for (int i = 0; i < 4; ++i)
+                    if (vmark[cv[4 * c + i]] != vmarkValue) return InsertResult.Failed;
             // the nearest vertex of p is a vertex of its conflict region
             double minSqr = minSeparation * minSeparation;
             foreach (int v in boundaryVerts)
@@ -329,14 +340,14 @@ namespace g3
             vertex = vertices.Count;
             vertices.Add(p);
             int nb = boundary.Count;
-            int[] newCells = new int[nb];
+            newCells.Clear();
             // new cells before freeing the cavity (their ids must not be reused while it is read)
             for (int k = 0; k < nb; ++k) {
                 var (c, i) = boundary[k];
                 int a = cv[4 * c + FacetIndices[i, 0]], b = cv[4 * c + FacetIndices[i, 1]], d = cv[4 * c + FacetIndices[i, 2]];
                 // the facet is outward for the cavity, so (a, d, b) faces p
                 int nc = new_cell(a, d, b, vertex);
-                newCells[k] = nc;
+                newCells.Add(nc);
                 int n = cn[4 * c + i];
                 cn[4 * nc + 3] = n;
                 if (n >= 0)

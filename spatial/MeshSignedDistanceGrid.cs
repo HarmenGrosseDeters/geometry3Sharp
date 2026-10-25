@@ -156,6 +156,8 @@ namespace g3
         /// </summary>
         public void Compute()
         {
+            if (Mesh.VertexCount == 0)      // the grid is sized from the bounds, which are Empty
+                throw new ArgumentException("MeshSignedDistanceGrid.Compute: mesh is empty");
             // figure out origin & dimensions
             AxisAlignedBox3d bounds = Mesh.CachedBounds;
 
