@@ -37,6 +37,7 @@
     <Compile Remove="Properties\AssemblyInfo.cs" />
     <Compile Remove="tests\**" />
     <Compile Remove="benchmarks\**" />
+    <Compile Remove="docs\**" />
   </ItemGroup>
 
   <ItemGroup>
