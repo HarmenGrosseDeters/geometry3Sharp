@@ -13,9 +13,27 @@ namespace g3
     {
         public DMesh3 BaseMesh;
         public DMesh3 SubMesh;
-        public MeshComponents WantComponents = MeshComponents.All;
-        public bool ComputeTriMaps = false;
-        public int OverrideGroupID = -1;
+
+        // The settings below may also be set after the submesh was computed, as in
+        // `new DSubmesh3(mesh, tris) { ComputeTriMaps = true }`: changing one recomputes the submesh
+        // from the same triangles (edits made to SubMesh are lost then).
+        public MeshComponents WantComponents {
+            get { return want_components; }
+            set { if (value != want_components) { want_components = value; recompute(); } }
+        }
+        public bool ComputeTriMaps {
+            get { return compute_tri_maps; }
+            set { if (value != compute_tri_maps) { compute_tri_maps = value; recompute(); } }
+        }
+        public int OverrideGroupID {
+            get { return override_group_id; }
+            set { if (value != override_group_id) { override_group_id = value; recompute(); } }
+        }
+        MeshComponents want_components = MeshComponents.All;
+        bool compute_tri_maps = false;
+        int override_group_id = -1;
+
+        int[] computed_triangles;       // triangles of the last compute(), null before the first
         
         public IndexFlagSet BaseSubmeshV;       // vertices in base mesh that are in submesh
                                                 // (we compute this anyway, might as well hang onto it)
@@ -163,9 +181,24 @@ namespace g3
 
 
 
+        void recompute()
+        {
+            if (computed_triangles != null)
+                compute(computed_triangles, computed_triangles.Length);
+        }
+
+
         // [RMS] estimate can be zero
         void compute(IEnumerable<int> triangles, int tri_count_est )
         {
+            // keep a copy of the triangles for recompute() (the caller may change its array later);
+            // this also enumerates a lazy sequence only once
+            int[] tri_array = triangles.ToArray();
+            computed_triangles = tri_array;
+            triangles = tri_array;
+            if (tri_count_est <= 0)
+                tri_count_est = tri_array.Length;
+
             int est_verts = tri_count_est / 2;
 
             SubMesh = new DMesh3( BaseMesh.Components & WantComponents );
