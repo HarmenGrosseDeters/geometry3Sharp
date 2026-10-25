@@ -412,16 +412,50 @@ namespace g3
             return ParameterizationResult.Failure(Status, Error);
         }
 
-        /// <summary> cotan Laplacian (positive semidefinite) entries a,b,w: Sum w (f_a - f_b)^2 / 2 = Dirichlet energy </summary>
-        public void ForEachCotanEdge(Action<int, int, double> f)
+        /// <summary>
+        /// cotan Laplacian (positive semidefinite) entries a,b,w: Sum w (f_a - f_b)^2 / 2 = Dirichlet energy.
+        /// Degenerate triangles are skipped, or with mollifyDegenerate get the cotangents of their mollified edge
+        /// lengths (see MollifiedCotangents): their large weights keep a vertex on the edge it lies on (a
+        /// T-junction) in the solution, as in the limit of a triangle that becomes flat.
+        /// </summary>
+        public void ForEachCotanEdge(Action<int, int, double> f, bool mollifyDegenerate = false)
         {
             for (int ti = 0; ti < Tris.Count; ++ti) {
                 TriangleFrame fr = Frames[ti];
-                if (fr.Degenerate) continue;
                 Index3i t = Tris[ti];
+                Vector3d cot = fr.Cot;
+                if (fr.Degenerate && (mollifyDegenerate == false || MollifiedCotangents(Pos[t.a], Pos[t.b], Pos[t.c], out cot) == false))
+                    continue;
                 for (int j = 0; j < 3; ++j)
-                    f(t[(j + 1) % 3], t[(j + 2) % 3], 0.5 * fr.Cot[j]);
+                    f(t[(j + 1) % 3], t[(j + 2) % 3], 0.5 * cot[j]);
             }
+        }
+
+        /// <summary>
+        /// Cotangents at the corners of a (nearly) degenerate triangle after intrinsic mollification (Sharp and
+        /// Crane, "A Laplacian for Nonmanifold Triangle Meshes", 2020): its edge lengths are increased by the
+        /// smallest delta that makes each triangle inequality hold with a margin of 1e-12 times the longest edge
+        /// (which gives the triangle a height of about 1e-6 times the longest edge, and weights of about 1e6).
+        /// False if all its vertices coincide.
+        /// </summary>
+        public static bool MollifiedCotangents(Vector3d p0, Vector3d p1, Vector3d p2, out Vector3d cot)
+        {
+            cot = Vector3d.Zero;
+            // l[j]: edge opposite corner j
+            double[] l = { p1.Distance(p2), p2.Distance(p0), p0.Distance(p1) };
+            double maxLen = Math.Max(l[0], Math.Max(l[1], l[2]));
+            if (!(maxLen > 0))
+                return false;
+            double eps = 1e-12 * maxLen, delta = 0;
+            for (int j = 0; j < 3; ++j)
+                delta = Math.Max(delta, eps - (l[(j + 1) % 3] + l[(j + 2) % 3] - l[j]));
+            for (int j = 0; j < 3; ++j) l[j] += delta;
+            double A4 = 4 * gs.IntrinsicTriangulation.area_from_lengths(l[0], l[1], l[2]);
+            if (!(A4 > 0))
+                return false;
+            for (int j = 0; j < 3; ++j)
+                cot[j] = (l[(j + 1) % 3] * l[(j + 1) % 3] + l[(j + 2) % 3] * l[(j + 2) % 3] - l[j] * l[j]) / A4;
+            return true;
         }
 
         public double UVArea(double[] u, double[] v)
