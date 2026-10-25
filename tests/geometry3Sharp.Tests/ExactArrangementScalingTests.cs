@@ -76,5 +76,28 @@ namespace geometry3Sharp.Tests
             Assert.Equal(Volume(plate) + Volume(barsOnly), Volume(union.Result) + Volume(inter.Result), 9);
             Assert.Equal(0, MeshRepairMetrics.SelfIntersections(union.Result));
         }
+    
+        [Fact]
+        public void LongObliqueSegments_CandidateTestsStayBounded()
+        {
+            // thin bars at 45 degrees through a plate: their boxes on the top face cover almost the whole face, so a
+            // fine grid would put every segment into almost every cell
+            int m = 300;
+            DMesh3 plate = Box(0, 0, 0, 100, 100, 1);
+            var bars = new DMesh3();
+            for (int k = 0; k < m; ++k) {
+                DMesh3 bar = Box(-80, -0.05, 0.5, 80, 0.05, 1.5);
+                MeshTransforms.Rotate(bar, Vector3d.Zero, Quaterniond.AxisAngleD(Vector3d.AxisZ, 45));
+                MeshTransforms.Translate(bar, new Vector3d(50 + 0.5 * (k - m / 2), 50 - 0.5 * (k - m / 2), 0));
+                MeshEditor.Append(bars, bar);
+            }
+            var arr = new ExactMeshArrangement(new List<DMesh3>() { plate, bars }) { SelfIntersections = true };
+            arr.Compute();
+            long segments = arr.Triangles.Sum(t => (long)t.Segments.Count), maxPerTriangle = arr.Triangles.Max(t => (long)t.Segments.Count);
+            Assert.True(maxPerTriangle > 300, maxPerTriangle.ToString());
+            // at most about all pairs of the segments of each triangle (the box tests without a grid)
+            long allPairs = arr.Triangles.Sum(t => (long)t.Segments.Count * (t.Segments.Count - 1) / 2);
+            Assert.True(arr.CandidateTests < allPairs + 30 * segments, arr.CandidateTests + " tests, all pairs " + allPairs);
+        }
     }
 }

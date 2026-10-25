@@ -1326,15 +1326,19 @@ namespace g3
         /// <summary>
         /// Uniform grid over the projection of a triangle, of the boxes of items (segments p-q or points p = q):
         /// each box contains the exact item (approximations widened by their error bounds), so items whose exact
-        /// points meet have overlapping boxes. About one cell per item; a single cell for few items.
+        /// points meet have overlapping boxes. About one cell per item; fewer cells where the boxes are large (long
+        /// oblique segments cover many cells), so that the cells hold at most a few times as many entries as there
+        /// are items; a single cell for few items.
         /// </summary>
         sealed class BoxGrid2
         {
             readonly ExactMeshArrangement arr;
-            readonly int i, j, n;
-            readonly double x0, y0, cx, cy;
+            readonly int i, j, n0;
+            readonly double[] bounds;
+            int n;
+            double cx, cy;
             readonly List<double[]> boxes = new List<double[]>();
-            readonly List<int>[] cells;
+            List<int>[] cells;
             /// <summary> pairs of items (or of the query and an item) whose boxes were compared </summary>
             public long Examined;
 
@@ -1347,12 +1351,43 @@ namespace g3
                     double[] cb = box(c, c);
                     b[0] = Math.Min(b[0], cb[0]); b[1] = Math.Min(b[1], cb[1]); b[2] = Math.Max(b[2], cb[2]); b[3] = Math.Max(b[3], cb[3]);
                 }
-                n = (count < 16) ? 1 : Math.Min(1024, (int)Math.Ceiling(Math.Sqrt(count)));
-                x0 = b[0]; y0 = b[1];
-                cx = (b[2] - b[0]) / n; cy = (b[3] - b[1]) / n;
+                bounds = b;
+                n0 = (count < 16) ? 1 : Math.Min(1024, (int)Math.Ceiling(Math.Sqrt(count)));
+            }
+
+            void set_size(int size)
+            {
+                n = size;
+                cx = (bounds[2] - bounds[0]) / n; cy = (bounds[3] - bounds[1]) / n;
                 if (!(cx > 0 && cy > 0 && cx < double.MaxValue && cy < double.MaxValue))
                     n = 1;
+            }
+
+            // the cells, after all items are added: the grid is made coarser while the boxes would have more than
+            // 8 entries per item (64 at least)
+            void build()
+            {
+                if (cells != null)
+                    return;
+                long limit = 8L * boxes.Count + 64;
+                for (set_size(n0); n > 1; set_size(n / 2)) {
+                    long entries = 0;
+                    foreach (double[] b in boxes) {
+                        int ix0, iy0, ix1, iy1;
+                        range(b, out ix0, out iy0, out ix1, out iy1);
+                        entries += (long)(ix1 - ix0 + 1) * (iy1 - iy0 + 1);
+                    }
+                    if (entries <= limit)
+                        break;
+                }
                 cells = new List<int>[n * n];
+                for (int k = 0; k < boxes.Count; ++k) {
+                    int ix0, iy0, ix1, iy1;
+                    range(boxes[k], out ix0, out iy0, out ix1, out iy1);
+                    for (int x = ix0; x <= ix1; ++x)
+                        for (int y = iy0; y <= iy1; ++y)
+                            (cells[x * n + y] ?? (cells[x * n + y] = new List<int>())).Add(k);
+                }
             }
 
             // the box of the segment p-q: min x, min y, max x, max y
@@ -1378,7 +1413,7 @@ namespace g3
             void range(double[] b, out int ix0, out int iy0, out int ix1, out int iy1)
             {
                 if (n == 1) { ix0 = iy0 = ix1 = iy1 = 0; return; }
-                ix0 = cell(b[0], x0, cx); iy0 = cell(b[1], y0, cy); ix1 = cell(b[2], x0, cx); iy1 = cell(b[3], y0, cy);
+                ix0 = cell(b[0], bounds[0], cx); iy0 = cell(b[1], bounds[1], cy); ix1 = cell(b[2], bounds[0], cx); iy1 = cell(b[3], bounds[1], cy);
             }
 
             static bool overlap(double[] a, double[] b)
@@ -1386,22 +1421,18 @@ namespace g3
                 return !(a[2] < b[0] || b[2] < a[0] || a[3] < b[1] || b[3] < a[1]);
             }
 
-            /// <summary> add an item (index: the number of items added before) </summary>
+            /// <summary> add an item (index: the number of items added before), before the first query </summary>
             public void Add(int p, int q)
             {
-                double[] b = box(p, q);
-                int k = boxes.Count;
-                boxes.Add(b);
-                int ix0, iy0, ix1, iy1;
-                range(b, out ix0, out iy0, out ix1, out iy1);
-                for (int x = ix0; x <= ix1; ++x)
-                    for (int y = iy0; y <= iy1; ++y)
-                        (cells[x * n + y] ?? (cells[x * n + y] = new List<int>())).Add(k);
+                if (cells != null)
+                    throw new InvalidOperationException("BoxGrid2: items added after a query");
+                boxes.Add(box(p, q));
             }
 
             /// <summary> f(k) once for every item k whose box overlaps the box of the segment p-q </summary>
             public void Query(int p, int q, Action<int> f)
             {
+                build();
                 double[] b = box(p, q);
                 int ix0, iy0, ix1, iy1;
                 range(b, out ix0, out iy0, out ix1, out iy1);
@@ -1423,6 +1454,7 @@ namespace g3
             /// <summary> f(a, b), a &lt; b, once for every pair of items whose boxes overlap </summary>
             public void ForEachPair(Action<int, int> f)
             {
+                build();
                 var r = new int[boxes.Count * 4];
                 for (int k = 0; k < boxes.Count; ++k)
                     range(boxes[k], out r[4 * k], out r[4 * k + 1], out r[4 * k + 2], out r[4 * k + 3]);
