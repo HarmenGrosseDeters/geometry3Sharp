@@ -7,14 +7,23 @@ using g3;
 namespace gs
 {
 	/// <summary>
-	/// Merge coincident edges.
+	/// Close cracks by merging coincident boundary edges, in place: pairs of boundary edges whose endpoints
+	/// lie within MergeDistance of each other are welded (DMesh3.MergeEdges), so the mesh becomes connected
+	/// across the crack. Only boundary edges are considered; merges that DMesh3.MergeEdges rejects (eg because
+	/// they would create non-manifold topology) are skipped. Does not fill gaps wider than MergeDistance (use a hole filler) and does not merge
+	/// isolated vertices. Used by MeshAutoRepair.
 	/// </summary>
 	public class MergeCoincidentEdges
 	{
 		public DMesh3 Mesh;
 
+		/// <summary> maximum distance between corresponding endpoints of edges to merge (absolute) </summary>
 		public double MergeDistance = MathUtil.ZeroTolerancef;
 
+        /// <summary>
+        /// if true, only merge edges that have exactly one candidate partner, which in turn has only them
+        /// (the unambiguous cases)
+        /// </summary>
         public bool OnlyUniquePairs = false;
 
 		public MergeCoincidentEdges(DMesh3 mesh)
@@ -24,6 +33,7 @@ namespace gs
 
 		double merge_r2;
 
+		/// <summary> merge the coincident boundary edges; always returns true (check Mesh.IsClosed() for the result) </summary>
 		public virtual bool Apply() {
 			merge_r2 = MergeDistance * MergeDistance;
 

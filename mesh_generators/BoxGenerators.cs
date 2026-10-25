@@ -5,11 +5,16 @@ using System.Diagnostics;
 namespace g3
 {
     /// <summary>
-    /// Generate a minimal box
+    /// Generate a minimal box: 12 triangles. With NoSharedVertices = false (default) it has 8 shared vertices,
+    /// is closed, and its vertex normals point diagonally away from the center. With NoSharedVertices = true each face
+    /// gets its own 4 vertices with face normals and UVs (24 vertices, mesh not closed).
+    /// The default Box is the unit cube centered at the origin (side length 1, volume 1).
     /// </summary>
     public class TrivialBox3Generator : MeshGenerator
     {
+        /// <summary> box to generate, can be oriented (Box3d stores center, axes and half-extents) </summary>
         public Box3d Box = Box3d.UnitZeroCentered;
+        /// <summary> if true, faces do not share vertices (sharp normals, but the mesh is not closed) </summary>
         public bool NoSharedVertices = false;
 
         public override MeshGenerator Generate()
@@ -65,13 +70,18 @@ namespace g3
 
     /// <summary>
     /// Generate a mesh of a box that has "gridded" faces, ie grid of triangulated quads, 
-    /// with EdgeVertices verts along each edge.
+    /// with EdgeVertices verts along each edge, ie 2*(EdgeVertices-1)^2 triangles per face.
+    /// With NoSharedVertices = false (default) the mesh is closed; triangle groups are the face index 0..5.
+    /// The default Box is the unit cube centered at the origin.
     /// [TODO] allow varying EdgeVertices in each dimension (tricky...)
     /// </summary>
     public class GridBox3Generator : MeshGenerator
     {
+        /// <summary> box to generate, can be oriented (Box3d stores center, axes and half-extents) </summary>
         public Box3d Box = Box3d.UnitZeroCentered;
+        /// <summary> number of vertices along each box edge (minimum 2) </summary>
         public int EdgeVertices = 8;
+        /// <summary> if true, faces do not share vertices (sharp normals, but the mesh is not closed) </summary>
         public bool NoSharedVertices = false;
 
         public override MeshGenerator Generate()

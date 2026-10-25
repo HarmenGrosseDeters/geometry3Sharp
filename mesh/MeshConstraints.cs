@@ -5,6 +5,7 @@ using System.Linq;
 namespace g3
 {
 
+    /// <summary> which refinement operations are forbidden on an edge (see <see cref="EdgeConstraint"/>) </summary>
     [Flags]
     public enum EdgeRefineFlags
     {
@@ -17,9 +18,16 @@ namespace g3
 		PreserveTopology = 8,	// this flag just means we want to avoid 'losing' this edge
 								// when we collapse a neighbour (but allow the edge itself to be collapsed).
 								// Eg when constraining edges for Reduce
+								// [currently not checked by Remesher or Reducer]
     }
 
 
+    /// <summary>
+    /// Constraint on one edge for <see cref="Remesher"/> and <see cref="Reducer"/>: forbidden operations
+    /// (<see cref="EdgeRefineFlags"/>), an optional projection target (informational only) and a tracking id.
+    /// When a constrained edge is split, both halves keep the constraint. Note that collapsing a neighbour
+    /// edge that would remove a constrained edge is also refused.
+    /// </summary>
     public struct EdgeConstraint
     {
         EdgeRefineFlags refineFlags;
@@ -69,6 +77,11 @@ namespace g3
 
 
 
+    /// <summary>
+    /// Constraint on one vertex for <see cref="Remesher"/> and <see cref="Reducer"/>: Fixed (the vertex does
+    /// not move; edges to it collapse to its position), or Target (the vertex is projected onto the target
+    /// after each move, eg to keep it on a boundary curve). Pinned is Fixed without a set id.
+    /// </summary>
     public struct VertexConstraint
     {
         public bool Fixed;
@@ -104,6 +117,12 @@ namespace g3
 
 
 
+    /// <summary>
+    /// Per-edge and per-vertex constraints (by id) for <see cref="Remesher"/> and <see cref="Reducer"/>,
+    /// passed with SetExternalConstraints(). Ids not in the sets are unconstrained. The refiner updates this
+    /// object as it splits and collapses edges. <see cref="MeshConstraintUtil"/> has helpers that fill it for
+    /// common cases (fixed or preserved boundaries, group boundaries, feature edges).
+    /// </summary>
     public class MeshConstraints
     {
 
@@ -116,6 +135,7 @@ namespace g3
             set_id_counter = 0;
         }
 
+        /// <summary> a new unique FixedSetID / TrackingSetID (0, 1, 2, ...) </summary>
         public int AllocateSetID() {
             return set_id_counter++;
         }
