@@ -100,6 +100,16 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void HugeExtent_FailsInsteadOfOverflowing()
+        {
+            // a 70 km diagonal corridor at 1 m: 4.9e9 cloth particles, nx * ny overflowed int
+            var points = new List<Vector3d>() { new Vector3d(0, 0, 0), new Vector3d(70000, 70000, 0) };
+            var csf = new ClothSimulationFilter(points) { ClothResolution = 1.0 };
+            Assert.False(csf.Compute());
+            Assert.True(new ClothSimulationFilter(points) { ClothResolution = 100 }.Compute());
+        }
+
+        [Fact]
         public void BareGround_AllGround()
         {
             var (points, truth) = Scene(Hills, 100, 1.0, 3, default(Vector3d), false);
