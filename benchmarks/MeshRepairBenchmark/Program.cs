@@ -71,6 +71,7 @@ class Program
             // the self-intersection check,
             // robust = MeshRobustRepair (hybrid plus the volume check against the input),
             // wrap = MeshAlphaWrap of the input (BENCH_WRAP_ALPHA / BENCH_WRAP_OFFSET: diagonal divided by alpha / offset),
+            // cgalwrap = the same with CGAL's alpha wrap (external program, CGAL_WRAP; for comparison only),
             // instr = InstrumentedAutoRepair, records cheap quality metrics after every pipeline step,
             // analysis = no repair: MeshWallThickness, MeshDeviation and PrimitiveFit3 on the input (see above)
             string repairMode = Environment.GetEnvironmentVariable("BENCH_REPAIR") ?? "default";
@@ -123,6 +124,9 @@ class Program
                 r["robust_exact_reason"] = robust.ExactResolveReason;
                 r["robust_exact_rounds"] = robust.ExactResolveRoundsUsed;
                 r["robust_exact_selfint"] = robust.ExactResolveSelfIntersections;
+            } else if (repairMode == "cgalwrap") {
+                result = CgalWrap(args[0], r);
+                ok = result.TriangleCount > 0;
             } else if (repairMode == "wrap") {
                 result = Wrap(original, r);
                 ok = r["wrap_status"].ToString() == "Success";
@@ -151,7 +155,7 @@ class Program
                         result = Solidify(result, MeshWindingNumberSolidify.Methods.DualContouring, true, r);
                 }
             }
-            r["repair_ms"] = sw.ElapsedMilliseconds;
+            r["repair_ms"] = (repairMode == "cgalwrap" && r.ContainsKey("wrap_ms")) ? r["wrap_ms"] : sw.ElapsedMilliseconds;
             r["apply_returned"] = ok;
 
             stage = "stats_after";
@@ -304,6 +308,34 @@ class Program
         r["wrap_counts"] = wrap.Counts;
         r["wrap_phases"] = wrap.PhaseMilliseconds;
         return wrap.Result ?? new DMesh3();
+    }
+
+    // CGAL's alpha wrap (external/cgal_wrap.cpp, path in CGAL_WRAP; GPL, for comparison only) on the input file,
+    // with the same relative alpha and offset as Wrap; repair_ms is CGAL's own time (without process start and I/O)
+    static DMesh3 CgalWrap(string file, System.Collections.Generic.Dictionary<string, object> r)
+    {
+        string exe = Environment.GetEnvironmentVariable("CGAL_WRAP") ?? "cgal_wrap";
+        string relAlpha = Environment.GetEnvironmentVariable("BENCH_WRAP_ALPHA") ?? "100";
+        string relOffset = Environment.GetEnvironmentVariable("BENCH_WRAP_OFFSET") ?? "1000";
+        string off = System.IO.Path.GetTempFileName() + ".off";
+        var psi = new ProcessStartInfo(exe, $"\"{file}\" {relAlpha} {relOffset} \"{off}\"") { RedirectStandardOutput = true, UseShellExecute = false };
+        using (var p = Process.Start(psi)) {
+            string line = p.StandardOutput.ReadToEnd().Trim();
+            p.WaitForExit();
+            var j = JsonDocument.Parse(line.Split('\n').Last()).RootElement;
+            r["wrap_status"] = j.GetProperty("ok").GetBoolean() ? "Success" : "Failed";
+            if (j.TryGetProperty("ms", out var ms)) r["wrap_ms"] = ms.GetInt64();
+        }
+        r["wrap_rel_alpha"] = relAlpha;
+        r["wrap_rel_offset"] = relOffset;
+        DMesh3Builder builder = new DMesh3Builder();
+        IOReadResult rr = StandardMeshReader.ReadFile(off, new ReadOptions(), builder);
+        System.IO.File.Delete(off);
+        if (rr.code != IOCode.Ok || builder.Meshes.Count == 0) {
+            r["wrap_error"] = "could not read the CGAL result: " + rr.message;
+            return new DMesh3();
+        }
+        return builder.Meshes[0];
     }
 
     // winding number solidify of the input (library class), BENCH_SOLID_RES cells along the diagonal

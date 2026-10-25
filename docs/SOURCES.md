@@ -109,3 +109,7 @@ Implemented from the papers, no code taken over.
 `benchmarks/BooleanComparison` runs CGAL (GPL), Cherchi et al. (MIT) and Manifold (Apache-2.0) as separate
 programs for comparison only. The driver `external/cgal_bool.cpp` links against CGAL; compiled, it falls under
 the GPL and is not distributed. None of these tools is part of the library.
+
+`benchmarks/MeshRepairBenchmark/external/cgal_wrap.cpp` runs CGAL's alpha wrap (`CGAL::alpha_wrap_3`, GPL) the
+same way, for the comparison with `MeshAlphaWrap` (`BENCH_REPAIR=cgalwrap`). It is written against CGAL's
+documented API; CGAL's implementation was not looked at. Compiled, it falls under the GPL and is not distributed.
