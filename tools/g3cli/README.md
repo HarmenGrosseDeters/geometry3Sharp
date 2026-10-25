@@ -89,9 +89,10 @@ meshes; `--no-self-intersections` skips it (`null`).
 ## Examples
 
 ```
-# repair: robust repair, falls back to winding-number solidify if needed
+# repair: robust repair; self-intersections resolved exactly, winding-number solidify only if that is not clean
 g3cli repair scan.obj scan_fixed.stl
-#   -> "used_solidify": true, "fallback_reason": "self-intersections", "mesh": { "closed": true, "clean": true, ... }
+#   -> "used_exact_resolve": true, "used_solidify": false, "fallback_reason": "self-intersections", "mesh": { "closed": true, "clean": true, ... }
+g3cli repair scan.obj scan_fixed.stl --no-exact-resolve     # solidify fallback only (as before)
 
 # keep the input triangles (MeshAutoRepair only)
 g3cli repair scan.obj scan_fixed.stl --method auto --tolerance 1e-5
