@@ -665,15 +665,28 @@ namespace gs
             var grid = new PointHashGrid3d<int>(band, -1);
             for (int i = 0; i < pts.Count; ++i)
                 grid.InsertPointUnsafe(i, pts[i]);
-            var keep = new List<int>();
+            var band_tris = new MeshFaceSelection(refined);
+            var seeds = new List<int>();
             foreach (int tid in refined.TriangleIndices()) {
                 Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
                 refined.GetTriVertices(tid, ref a, ref b, ref c);
                 Vector3d m = (a + b + c) / 3;
                 double rad = Math.Max(m.Distance(a), Math.Max(m.Distance(b), m.Distance(c)));
                 var near = grid.FindNearestInRadius(m, band + rad, (i) => pts[i].Distance(m));
-                if (near.Key >= 0) keep.Add(tid);
+                if (near.Key < 0) continue;
+                band_tris.Select(tid);
+                if (near.Value <= rad + h) seeds.Add(tid);
             }
+            // the band cut out of the triangles can touch itself at vertices (bowties) and leave islands of
+            // triangles that are near a source in space but not connected to it on the terrain. The heat
+            // method gives arbitrary distances on islands without a source (they then made spurious lines,
+            // depending on rounding, eg at UTM coordinates), and the remesher degenerates at bowties: keep
+            // the bowtie-free part connected to the sources
+            band_tris.RemoveBowties();
+            seeds.RemoveAll((tid) => band_tris.IsSelected(tid) == false);
+            var keep = new MeshFaceSelection(refined);
+            if (seeds.Count > 0)
+                keep.FloodFill(seeds.ToArray(), (tid) => band_tris.IsSelected(tid));
             if (keep.Count == 0)
                 return true;        // no terrain near the sources
             RemeshedTerrain = new DSubmesh3(refined, keep).SubMesh;
