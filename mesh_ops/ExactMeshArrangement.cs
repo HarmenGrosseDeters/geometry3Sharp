@@ -638,6 +638,12 @@ namespace g3
                 e = 1.01 * e + U * Math.Abs(key);
                 lo[k] = key - e;
                 hi[k] = key + e;
+                // an approximation beyond the double range (key or error infinite, interval NaN): the point
+                // may equal any other
+                if (!(lo[k] <= hi[k])) {
+                    lo[k] = double.NegativeInfinity;
+                    hi[k] = double.PositiveInfinity;
+                }
                 order[k] = k;
             });
             double[] sortLo = (double[])lo.Clone();
