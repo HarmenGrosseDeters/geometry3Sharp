@@ -41,6 +41,9 @@ selectively.
 - [x] Self-intersecting, nested and duplicated inputs: exact winding numbers per patch (signed ray crossings,
   stacks of coincident triangles); generalized winding number for open inputs; touching solids split into
   manifold sheets; `Resolve(mesh)` for one mesh. Benchmark on Thingi10K: `BENCH_REPAIR=exact`, `analyze_exact.py`.
+- [x] Iterated booleans with coplanar faces: new vertices inside flat regions and on straight edges between them
+  are removed exactly and the regions retriangulated (`ExactPlanarSimplify`); the 10x10x10 cube grid (1999
+  booleans) no longer grows exponentially.
 - [ ] More than two meshes in one operation (the arrangement supports it already)
 - [ ] Rounding of the output without new self-intersections (snap rounding), or exact output coordinates
 - [ ] Alpha wrapping

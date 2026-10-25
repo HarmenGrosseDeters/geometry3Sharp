@@ -788,26 +788,36 @@ namespace g3
             return det.Sign * t.Sign;
         }
 
+        /// <summary> InCircle decided from the approximations only (also with DisableFilters): 0 if they do not decide it </summary>
+        internal int InCircleFiltered(InputTriangle t, int p, int q, int r, int s)
+        {
+            int i = (t.Axis + 1) % 3, j = (t.Axis + 2) % 3;
+            // differences at most M with errors eps = 2 e + U M; lifts and 2x2 minors at most 2 M^2 with errors
+            // eta = 2 eps (2 M + eps); the three terms: 3 eta (4 M^2 + eta); rounding (Shewchuk) 10 u of the
+            // absolute terms, at most 12 M^4
+            Vector3d fa = approx[p], fb = approx[q], fc = approx[r], fd = approx[s];
+            double e = Math.Max(Math.Max(approxErr[p], approxErr[q]), Math.Max(approxErr[r], approxErr[s]));
+            double adx = fa[i] - fd[i], ady = fa[j] - fd[j], bdx = fb[i] - fd[i], bdy = fb[j] - fd[j], cdx = fc[i] - fd[i], cdy = fc[j] - fd[j];
+            double fdet = (adx * adx + ady * ady) * (bdx * cdy - cdx * bdy)
+                + (bdx * bdx + bdy * bdy) * (cdx * ady - adx * cdy)
+                + (cdx * cdx + cdy * cdy) * (adx * bdy - bdx * ady);
+            double M = Math.Max(Math.Max(Math.Max(Math.Abs(adx), Math.Abs(ady)), Math.Max(Math.Abs(bdx), Math.Abs(bdy))), Math.Max(Math.Abs(cdx), Math.Abs(cdy)));
+            double eps = 2 * e + U * M, eta = 2 * eps * (2 * M + eps), M2 = M * M;
+            double bound = 1.01 * (3 * eta * (4 * M2 + eta) + 64 * U * M2 * M2) + 1e-300;
+            if (fdet > bound) return t.Sign;
+            if (-fdet > bound) return -t.Sign;
+            return 0;
+        }
+
         /// <summary> +1 if s is inside the circle through p, q, r (counter-clockwise in the projection of t) </summary>
         public int InCircle(InputTriangle t, int p, int q, int r, int s)
         {
-            int i = (t.Axis + 1) % 3, j = (t.Axis + 2) % 3;
             if (DisableFilters == false) {
-                // differences at most M with errors eps = 2 e + U M; lifts and 2x2 minors at most 2 M^2 with errors
-                // eta = 2 eps (2 M + eps); the three terms: 3 eta (4 M^2 + eta); rounding (Shewchuk) 10 u of the
-                // absolute terms, at most 12 M^4
-                Vector3d fa = approx[p], fb = approx[q], fc = approx[r], fd = approx[s];
-                double e = Math.Max(Math.Max(approxErr[p], approxErr[q]), Math.Max(approxErr[r], approxErr[s]));
-                double adx = fa[i] - fd[i], ady = fa[j] - fd[j], bdx = fb[i] - fd[i], bdy = fb[j] - fd[j], cdx = fc[i] - fd[i], cdy = fc[j] - fd[j];
-                double fdet = (adx * adx + ady * ady) * (bdx * cdy - cdx * bdy)
-                    + (bdx * bdx + bdy * bdy) * (cdx * ady - adx * cdy)
-                    + (cdx * cdx + cdy * cdy) * (adx * bdy - bdx * ady);
-                double M = Math.Max(Math.Max(Math.Max(Math.Abs(adx), Math.Abs(ady)), Math.Max(Math.Abs(bdx), Math.Abs(bdy))), Math.Max(Math.Abs(cdx), Math.Abs(cdy)));
-                double eps = 2 * e + U * M, eta = 2 * eps * (2 * M + eps), M2 = M * M;
-                double bound = 1.01 * (3 * eta * (4 * M2 + eta) + 64 * U * M2 * M2) + 1e-300;
-                if (fdet > bound) return t.Sign;
-                if (-fdet > bound) return -t.Sign;
+                int f = InCircleFiltered(t, p, q, r, s);
+                if (f != 0)
+                    return f;
             }
+            int i = (t.Axis + 1) % 3, j = (t.Axis + 2) % 3;
             ExactPoint3 a = Exact(p), b = Exact(q), c = Exact(r), d = Exact(s);
             // rows (x w, y w, x^2 + y^2, w^2) = w^2 (x/w, y/w, |.|^2, 1); with orientation flipped by t.Sign
             BigInteger[,] m = new BigInteger[4, 4];

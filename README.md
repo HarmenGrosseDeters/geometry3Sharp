@@ -16,7 +16,8 @@ Its direction is described in [docs/ROADMAP.md](docs/ROADMAP.md). It adds:
   all intersecting triangles, exact winding numbers). Coplanar, touching and nearly coincident inputs give
   closed results; self-intersecting meshes, nested shells and duplicated faces are resolved
   (`ExactMeshBoolean.Resolve(mesh)` does that for one mesh); open meshes use the generalized winding number.
-  Only the output coordinates are rounded to double.
+  Only the output coordinates are rounded to double. New vertices inside flat regions and on straight edges
+  (from overlapping coplanar faces) are removed exactly, so repeated booleans do not fragment the result.
 - Mesh file formats PLY, 3MF and glTF 2.0 (see below).
 - `BufferUtil.DecompressZLib` fix: on .NET Core it returned partly empty buffers for large data.
 
