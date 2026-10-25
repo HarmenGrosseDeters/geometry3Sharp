@@ -104,6 +104,34 @@ namespace g3
                 }
             }
         }
+        /// <summary>
+        /// Scale mesh vertices per axis relative to origin, in place. With bFixOrientation, vertex normals are
+        /// transformed too (inverse-transpose, renormalized), and a mirroring scale (negative product of the
+        /// factors) reverses the triangle orientation so that the mesh is not turned inside out; that case
+        /// throws if mesh is not a DMesh3. Without it this is the same as Scale(mesh, scale, origin).
+        /// </summary>
+        public static void Scale(IDeformableMesh mesh, Vector3d scale, Vector3d origin, bool bFixOrientation)
+        {
+            Scale(mesh, scale, origin);
+            if (bFixOrientation == false)
+                return;
+
+            if (mesh.HasVertexNormals) {
+                int NV = mesh.MaxVertexID;
+                for (int vid = 0; vid < NV; ++vid) {
+                    if (mesh.IsVertex(vid)) {
+                        Vector3f n = mesh.GetVertexNormal(vid);
+                        Vector3d nd = new Vector3d(n.x / scale.x, n.y / scale.y, n.z / scale.z);
+                        mesh.SetVertexNormal(vid, (Vector3f)nd.Normalized);
+                    }
+                }
+            }
+            if (scale.x * scale.y * scale.z < 0) {
+                if (mesh is DMesh3 == false)
+                    throw new ArgumentException("MeshTransforms.Scale: can only reverse the orientation of a DMesh3");
+                (mesh as DMesh3).ReverseOrientation(false);     // keep the normals set above
+            }
+        }
         /// <summary> Scale mesh vertices per axis relative to the world origin, in place (normals not updated) </summary>
         public static void Scale(IDeformableMesh mesh, double sx, double sy, double sz)
         {
@@ -229,16 +257,15 @@ namespace g3
         {
             return new Vector3f(v.x, v.y, -v.z);
         }
-        /// <summary> Not implemented, always throws NotImplementedException </summary>
+        /// <summary>
+        /// Flip the frame's origin, X and Y axes (negate z), and set Z = X x Y. A Frame3f is a rotation, so it cannot
+        /// hold the mirrored (left-handed) axes; this keeps it right-handed, so points in its XY plane map exactly
+        /// to the flipped points, while Z points opposite to the flipped Z.
+        /// </summary>
         public static Frame3f FlipLeftRightCoordSystems(Frame3f f)
         {
-            throw new NotImplementedException("this doesn't work...frame becomes broken somehow?");
-            //return new Frame3f(
-            //    FlipLeftRightCoordSystems(f.Origin),
-            //    f.X, f.Y, f.Z);
-            //    //FlipLeftRightCoordSystems(f.X),
-            //    //FlipLeftRightCoordSystems(f.Y),
-            //    //FlipLeftRightCoordSystems(f.Z));
+            Vector3f x = FlipLeftRightCoordSystems(f.X), y = FlipLeftRightCoordSystems(f.Y);
+            return new Frame3f(FlipLeftRightCoordSystems(f.Origin), x, y, x.Cross(y));
         }
         /// <summary>
         /// Convert between left- and right-handed coordinates by negating z of vertices and normals, in place, and

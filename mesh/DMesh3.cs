@@ -2038,8 +2038,11 @@ namespace g3
         /// <summary>
         /// Computes bounding box of all vertices.
         /// </summary>
+        /// <summary> bounds of the vertices; AxisAlignedBox3d.Empty for a mesh without vertices </summary>
         public AxisAlignedBox3d GetBounds()
         {
+            if (VertexCount == 0)
+                return AxisAlignedBox3d.Empty;
             double x = 0, y = 0, z = 0;
             foreach ( int vi in vertices_refcount ) {
                 x = vertices[3*vi]; y = vertices[3*vi + 1]; z = vertices[3*vi + 2];

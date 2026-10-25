@@ -284,13 +284,20 @@ geprüft und nur gefixt, wenn der Test rot war:
   `InvalidID`; der Timestamp in parallelen `SetVertex`-Durchläufen verliert zwar Inkremente, der Cache verpasst aber keine
   Änderung.
 
-Offen, Entscheidung nötig:
-- `DMesh3.GetBounds()` liefert bei leerem Mesh eine Null-Box statt `Empty`. Ein Fix setzt Guards in vier Gitterklassen
-  voraus, die ihre Größe aus den Bounds berechnen (sonst `OutOfMemoryException`).
-- `MeshTransforms.Scale` mit Spiegelung kehrt weder Orientierung noch Normalen um.
-- `MeshTransforms.FlipLeftRightCoordSystems(Frame3f)` wirft weiterhin `NotImplementedException`.
-- Kleinere Wahlen: Toleranz von `Matrix3*.Inverse`, `Floor` oder `Ceiling` für Max in `AxisAlignedBox*i.Contain(double)`,
-  uneinheitliches `==`/`Equals`.
+Fünfzehnte Runde, die dort offenen Entscheidungen. Tests in `BoundsAndMirrorFixesTests.cs` (6 Tests; vor dem Fix rot: 4,
+dazu 2 Absicherungen):
+- `DMesh3.GetBounds()` liefert bei einem Mesh ohne Vertices `AxisAlignedBox3d.Empty` statt einer Null-Box im Ursprung.
+  `MeshSignedDistanceGrid`, `MeshWindingNumberGrid`, `MeshScalarSamplingGrid` und `CachingMeshSDF` berechnen ihre
+  Gittergröße aus den Bounds und werfen bei leerem Mesh jetzt eine `ArgumentException` (vorher ein 5×5×5-Gitter um den
+  Ursprung). Die übrigen Aufrufer nutzen `Center` oder `MaxDim` (für `Empty` wie vorher 0) oder steigen bei leerem Mesh
+  ohnehin früh aus.
+- `MeshTransforms.Scale(mesh, scale, origin, bFixOrientation)`: neue Überladung. Mit `true` werden die Normalen mit der
+  inversen Transponierten transformiert, und bei Spiegelung wird die Orientierung umgekehrt. Ohne den Parameter bleibt
+  `Scale` eine reine Vertex-Abbildung wie bisher.
+- `MeshTransforms.FlipLeftRightCoordSystems(Frame3f)`: spiegelt Ursprung, X und Y und setzt Z = X×Y. Punkte in der
+  XY-Ebene des Frames landen exakt auf den gespiegelten Punkten; der Frame bleibt rechtshändig.
+- Unverändert gelassen: Toleranz von `Matrix3*.Inverse` (8·eps relativ zur Hadamard-Schranke), `Floor` für Max in
+  `AxisAlignedBox*i.Contain(double)`, uneinheitliches `==`/`Equals` (nur dokumentiert).
 
 ---
 
