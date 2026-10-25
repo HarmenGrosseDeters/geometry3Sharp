@@ -140,6 +140,34 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0, wrong);
         }
 
+        // a closed mesh with inconsistent orientation (here: the top face flipped) has no boundary edges,
+        // but its edges between differently oriented triangles act like a boundary: the winding number is
+        // not piecewise constant there, so values must not be copied either
+        [Fact]
+        public void Octree_ClosedButInconsistentlyOrientedMesh_NodeValuesAreRight()
+        {
+            DMesh3 box = Box(10);
+            foreach (int tid in box.TriangleIndices().ToArray())
+                if (box.GetTriCentroid(tid).z > 4.99)
+                    box.ReverseTriOrientation(tid);
+            Assert.True(box.IsClosed());
+            WindingNumberOctree octree = BuildOctree(box, 6);
+            var spatial = new DMeshAABBTree3(box, true);
+            int wrong = 0, total = 0;
+            foreach (Vector3i cell in octree.SurfaceCells)
+                for (int c = 0; c < 8; ++c) {
+                    Vector3i node = cell + new Vector3i(c & 1, (c >> 1) & 1, (c >> 2) & 1);
+                    Vector3d p = octree.Origin + octree.LeafCellSize * new Vector3d(node.x, node.y, node.z);
+                    double w = spatial.FastWindingNumber(p);
+                    if (Math.Abs(w - 0.5) < 1e-4)
+                        continue;
+                    total++;
+                    if ((w > 0.5) != (octree.NodeValue(node) > 0.5)) wrong++;
+                }
+            Assert.True(total > 0);
+            Assert.Equal(0, wrong);
+        }
+
         [Fact]
         public void SparseDualContouring_MatchesDense()
         {
