@@ -677,8 +677,11 @@ namespace g3
             var constraints = new List<long>[Triangles.Count];
             gParallel.ForEach(Interval1i.Range(Triangles.Count), (ti) => triangulate(ti, out pieces[ti], out constraints[ti]));
             for (int ti = 0; ti < Triangles.Count; ++ti) {
+                InputTriangle t = Triangles[ti];
                 if (pieces[ti] != null)
                     Output.AddRange(pieces[ti]);
+                else if (t.Degenerate == false)
+                    Output.Add(new OutputTriangle() { Mesh = t.Mesh, Source = ti, A = t.Corners[0], B = t.Corners[1], C = t.Corners[2] });
                 if (constraints[ti] != null)
                     foreach (long key in constraints[ti])
                         ConstraintEdges.Add(key);
@@ -970,10 +973,10 @@ namespace g3
             foreach (int c in U.Corners)
                 if (c == T.Corners[0] || c == T.Corners[1] || c == T.Corners[2])
                     shared++;
-            // quick test (not for a shared edge, there the full test is one predicate and 2D tests): the corners
-            // of one triangle that are not shared all strictly on one side of the other's plane: then they meet
-            // at most in the shared vertices
-            if (shared < 2 && (one_side_except_shared(T, U) || one_side_except_shared(U, T)))
+            // quick test: the corners of one triangle that are not shared all strictly on one side of the other's
+            // plane: then they meet at most in the shared vertices (for a shared edge: the triangles are not
+            // coplanar, so the plane of one meets the other only in the edge)
+            if (shared < 3 && (one_side_except_shared(T, U) || (shared < 2 && one_side_except_shared(U, T))))
                 return true;
             // corners by point id, so that coincident (unwelded) vertices count as shared
             Index3i pa = new Index3i(T.Corners[0], T.Corners[1], T.Corners[2]), pb = new Index3i(U.Corners[0], U.Corners[1], U.Corners[2]);
@@ -1192,14 +1195,15 @@ namespace g3
             output = null;
             constraints = null;
             InputTriangle t = Triangles[ti];
-            if (t.Degenerate)
+            // (untouched triangles are output as they are, by the caller)
+            if (t.Degenerate || (t.Points.Count == 0 && t.Segments.Count == 0))
                 return;
-            output = new List<OutputTriangle>();
             var pts = new HashSet<int>();
             foreach (int p in t.Points)
                 pts.Add(Canonical(p));
             foreach (int c in t.Corners)
                 pts.Remove(c);
+            output = new List<OutputTriangle>();
             if (pts.Count == 0 && t.Segments.Count == 0) {
                 output.Add(new OutputTriangle() { Mesh = t.Mesh, Source = ti, A = t.Corners[0], B = t.Corners[1], C = t.Corners[2] });
                 return;
