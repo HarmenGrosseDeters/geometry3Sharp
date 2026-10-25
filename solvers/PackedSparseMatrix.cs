@@ -324,6 +324,8 @@ namespace g3
             nonzero[] Col = MTranspose.Rows[c];
             int NR = Row.Length;
             int NC = Col.Length;
+            if (NR == 0 || NC == 0)
+                return 0;
             int last_col_j = Col[NC-1].j;
             int last_row_j = Row[NR-1].j;
 
@@ -484,6 +486,7 @@ namespace g3
         public double DotColumnVector(int c, double[] vec, int start_row = 0, int end_row = int.MaxValue)
         {
             int Nr = Rows.Length;
+            end_row = Math.Min(end_row, Nr - 1);
 
             double sum = 0;
             if (Sorted) {
@@ -524,6 +527,10 @@ namespace g3
                 throw new Exception("PackedSparseMatrix.Square: matrix is not square!");
             int N = Columns;
 
+            // code below computes this*this^T, which is only this*this for symmetric matrices
+            if (IsSymmetric == false)
+                return square_nonsymmetric();
+
             DVector<matrix_entry> entries = new DVector<matrix_entry>();
             SpinLock entries_lock = new SpinLock();
 
@@ -562,6 +569,39 @@ namespace g3
         }
 
 
+        // this*this for non-symmetric matrices, columns of second factor are rows of transpose
+        PackedSparseMatrix square_nonsymmetric()
+        {
+            int N = Columns;
+
+            DVector<matrix_entry> transpose_entries = new DVector<matrix_entry>();
+            for (int r = 0; r < N; ++r) {
+                foreach (nonzero nz in Rows[r])
+                    transpose_entries.Add(new matrix_entry() { r = nz.j, c = r, value = nz.d });
+            }
+            PackedSparseMatrix MT = new PackedSparseMatrix(transpose_entries, N, N, false);
+            MT.Sort();
+
+            DVector<matrix_entry> entries = new DVector<matrix_entry>();
+            HashSet<int> nbrs = new HashSet<int>();
+            for (int r1i = 0; r1i < N; r1i++) {
+                // entry (r1i,c) can only be nonzero if c is a nonzero of a row k that is a nonzero of row r1i
+                nbrs.Clear();
+                foreach (nonzero nz in Rows[r1i]) {
+                    foreach (nonzero nz2 in Rows[nz.j])
+                        nbrs.Add(nz2.j);
+                }
+                foreach (int c2i in nbrs) {
+                    double v = DotRowColumn(r1i, c2i, MT);
+                    if (Math.Abs(v) > MathUtil.ZeroTolerance)
+                        entries.Add(new matrix_entry() { r = r1i, c = c2i, value = v });
+                }
+            }
+
+            return new PackedSparseMatrix(entries, N, N, false);
+        }
+
+
 
 
 
@@ -584,8 +624,8 @@ namespace g3
                 for (int i = 0; i < Rows.Length; ++i) {
                     nonzero[] row = Rows[i];
                     for (int j = 0; j < row.Length; ++j) {
-                        if (row[j].d > max)
-                            max = row[j].d;
+                        if (Math.Abs(row[j].d) > max)
+                            max = Math.Abs(row[j].d);
                     }
                 }
                 return max;
