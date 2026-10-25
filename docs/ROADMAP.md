@@ -52,9 +52,11 @@ selectively.
 
 ## Phase 3: parameterization and geodesics
 
-- Parameterization: LSCM, ARAP, SLIM (Rabinovich et al. 2017), Boundary First Flattening (Sawhney & Crane 2017); UV packing
-- Vector Heat Method (Sharp, Soliman, Crane 2019), including a robust log map (beyond `MeshLocalParam`)
-- Intrinsic Delaunay triangulations (Sharp & Crane), for stable Laplacians and heat on poor meshes
+- [x] Parameterization: LSCM, ARAP, SLIM (Rabinovich et al. 2017), Boundary First Flattening (Sawhney & Crane 2017);
+  UV packing; distortion measures; sparse Cholesky solver (`SparseCholesky`)
+- [ ] Cutting closed surfaces into discs (seams) and automatic chart segmentation; BFF with cone singularities
+- [ ] Vector Heat Method (Sharp, Soliman, Crane 2019), including a robust log map (beyond `MeshLocalParam`)
+- [ ] Intrinsic Delaunay triangulations (Sharp & Crane), for stable Laplacians and heat on poor meshes
 
 ## Phase 4: platform layer
 
