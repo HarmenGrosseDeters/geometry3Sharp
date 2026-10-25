@@ -127,6 +127,36 @@ Zurückgestellt, weil sie sichtbares Verhalten ändern oder eine eigene Untersuc
 - Semantik von `GeneralPolygon2d.Intersects`.
 - Orientierung bei `Circle2d`/`Ellipse2d.Transform` mit Spiegelung.
 
+Siebte Runde, Mesh-Klassen (`mesh/`). Regressionstests stehen in `tests/geometry3Sharp.Tests/MeshFixesTests.cs`
+(24 Tests, ohne Fix scheitern alle).
+
+Behoben:
+- `DMesh3.CompactInPlace`: `MapV` enthält auch die nicht verschobenen Vertices; der Timestamp wird erhöht.
+- `DMesh3.EnableTriangleGroups`/`AllocateTriangleGroup`: vergeben keine belegten IDs mehr und überspringen keine.
+- `DMesh3.Copy` und `NTMesh3.Copy`: alte Gruppen bleiben nicht stehen; `Copy` erhöht den Timestamp (`CachedBounds`).
+- `DMesh3.SetTriangle`: Kanten werden nach dem Entfernen der alten Kanten gesucht; ein Dreieck lässt sich umorientieren.
+- `DMesh3Builder.Build` mit Gruppen (#104).
+- `NTMesh3`: `GetOrientedBoundaryEdgeV`, `PokeTriangle(tid, bary)`, Konstruktor aus `DMesh3` (Normalen, Farben,
+  Gruppen).
+- `MeshEditor`: Rücknahme bei Fehler in `AddTriangleFan_OrderedEdgeLoop`, `StitchLoop`, `StitchSpan` und
+  `StitchUnorderedEdges` entfernt alle hinzugefügten Dreiecke.
+- `MeshDecomposition`: Min/Max der Vertex-IDs (keine falschen Dreiecke in Submeshes, kein Absturz).
+- `SimpleMesh.AppendVertices`/`AppendTriangles`: Normalen, Farben, UVs und Gruppen gehen nicht mehr verloren.
+- `EdgeLoop.IsSameLoop`, `MeshMeasurements.MassProperties(…, bodyCoords)`, `MeshMeasurements.ExtremeVertices`,
+  `MeshNormals.Compute` mit `VertexF`.
+- `FaceGroupUtil.CountAllGroups`/`FindTriangleSetsByGroup` mit Gruppe -1.
+- `MeshTransforms.Rotate(…, Quaternionf)`: Positionen in double (die Normalen wurden bereits rotiert).
+- `MeshWeights.VoronoiArea` (Fläche aus den nicht normierten Kanten) und `CotanCentroid` (rechter Winkel ist nicht
+  degeneriert).
+- `MeshConstraintUtil.ConstrainVtxLoopTo/SpanTo(Remesher…)` reichen `setID` weiter; `Remesher.update_after_split`
+  übernimmt auch `FixedSetID` 0.
+
+Bereits vorher behoben: `MeshTriInfoCache`, `EdgeSpan.CheckValidity`, `next_edge` (über `ModuloIterationStep`), die
+`BitArray`-Rennen in `Remesher`/`RemesherPro`.
+
+Zurückgestellt, weil sie sichtbares Verhalten ändern: `MeshEditor.DisconnectBowtie` (braucht eine neue Fächer-Erkennung)
+und der `DSubmesh3`-Konstruktor (`compute()` vor den Object-Initializern; ein Fix ändert die API).
+
 Bewusst zurückgestellt: `OBJReader.is_complex`. Der Fix leitet Dateien auf `BuildMeshes_ByMaterial` um. Dieser Pfad
 verwirft UVs bei Meshes ohne Material, übernimmt keine Gruppen und stürzt bei Faces ohne Normal-Index ab. Er muss deshalb
 zusammen mit diesem Pfad repariert werden.

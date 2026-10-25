@@ -75,9 +75,9 @@ namespace g3
 
             gParallel.ForEach(Mesh.TriangleIndices(), (ti) => {
                 Index3i tri = Mesh.GetTriangle(ti);
-                Vector3d va = Mesh.GetVertex(tri.a);
-                Vector3d vb = Mesh.GetVertex(tri.b);
-                Vector3d vc = Mesh.GetVertex(tri.c);
+                Vector3d va = VertexF(tri.a);
+                Vector3d vb = VertexF(tri.b);
+                Vector3d vc = VertexF(tri.c);
                 Vector3d N = MathUtil.Normal(ref va, ref vb, ref vc);
                 double a = MathUtil.Area(ref va, ref vb, ref vc);
                 bool taken = false;

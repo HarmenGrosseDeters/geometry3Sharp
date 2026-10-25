@@ -69,13 +69,30 @@ namespace g3
         }
 
 
+        // Size for a SparseList indexed by group id. MaxGroupID is not enough: triangles can have
+        // group -1 (the AppendTriangle default) or ids set directly. Negative ids need the sparse storage.
+        static int group_list_size(DMesh3 mesh)
+        {
+            if (mesh.HasTriangleGroups == false)
+                return 0;
+            int max_gid = -1;
+            foreach (int tid in mesh.TriangleIndices()) {
+                int gid = mesh.GetTriangleGroup(tid);
+                if (gid < 0)
+                    return 0;       // 0 makes SparseList use a dictionary
+                max_gid = Math.Max(max_gid, gid);
+            }
+            return max_gid + 1;
+        }
+
+
         /// <summary>
         /// count number of tris in each group in mesh
         /// returned pairs are [group_id, tri_count] 
         /// </summary>
         public static SparseList<int> CountAllGroups(DMesh3 mesh)
         {
-            SparseList<int> GroupCounts = new SparseList<int>(mesh.MaxGroupID, 0, 0);
+            SparseList<int> GroupCounts = new SparseList<int>(group_list_size(mesh), 0, 0);
 
             if (mesh.HasTriangleGroups) {
                 int NT = mesh.MaxTriangleID;
@@ -107,7 +124,7 @@ namespace g3
                     GroupIDs.Add(idxval.Key);
             }
             GroupIDs.Sort();        // might as well sort ascending...
-            SparseList<int> groupMap = new SparseList<int>(mesh.MaxGroupID, GroupIDs.Count, -1);
+            SparseList<int> groupMap = new SparseList<int>(group_list_size(mesh), GroupIDs.Count, -1);
 
             // allocate sets
             int[][] sets = new int[GroupIDs.Count][];

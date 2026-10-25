@@ -265,12 +265,13 @@ namespace g3
             triangles = new DVector<int>(copy.triangles);
             triangle_edges = new DVector<int>(copy.triangle_edges);
             triangles_refcount = new RefCountVector(copy.triangles_refcount);
-            if (copy.triangle_groups != null)
-                triangle_groups = new DVector<int>(copy.triangle_groups);
+            triangle_groups = (copy.triangle_groups != null) ? new DVector<int>(copy.triangle_groups) : null;
             max_group_id = copy.max_group_id;
 
             edges = new DVector<int>(copy.edges);
             edges_refcount = new RefCountVector(copy.edges_refcount);
+
+            updateTimeStamp(true);      // cached bounds etc. belong to the old contents
         }
 
 
@@ -638,8 +639,9 @@ namespace g3
 			}
 		}
 
+        // MaxGroupID is one past the largest group id in use, so it is the next free id
         public int AllocateTriangleGroup() {
-            return ++max_group_id;
+            return max_group_id++;
         }
 
 
@@ -1304,7 +1306,7 @@ namespace g3
             triangle_groups.resize(NT);
             for (int i = 0; i < NT; ++i)
                 triangle_groups[i] = initial_group;
-            max_group_id = 0;
+            max_group_id = (NT > 0) ? Math.Max(0, initial_group + 1) : 0;
         }
         public void DiscardTriangleGroups() {
             triangle_groups = null;
@@ -2284,6 +2286,11 @@ namespace g3
             IndexMap mapV = (bComputeCompactInfo) ? new IndexMap(MaxVertexID, VertexCount) : null;
             CompactInfo ci = new CompactInfo();
             ci.MapV = mapV;
+            if (mapV != null) {
+                // vertices that do not move keep their id; the loop below only records the moved ones
+                foreach (int vid in VertexIndices())
+                    mapV[vid] = vid;
+            }
 
             // find first free vertex, and last used vertex
             int iLastV = MaxVertexID - 1, iCurV = 0;
@@ -2442,6 +2449,7 @@ namespace g3
             edges_refcount.trim(EdgeCount);
             edges.resize(EdgeCount*4);
 
+            updateTimeStamp(true);      // ids changed, so cached data (bounds, spatial structures) is stale
             return ci;
         }
 

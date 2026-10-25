@@ -290,7 +290,7 @@ namespace g3
             // use vertices that have duplicate positions.
             bool bFoundGoodStart = false;
             while ( !bFoundGoodStart && start_i < N ) {
-                Vector3d start_v = Mesh.GetVertex(start_i);
+                Vector3d start_v = Mesh.GetVertex(Vertices[start_i]);      // start_i is a loop index
                 int count = Loop2.CountWithinTolerance(start_v, tolerance, out start_j);
                 if (count == 1)
                     bFoundGoodStart = true;
