@@ -226,7 +226,8 @@ namespace geometry3Sharp.Tests
     /// TransformSequence2.ScaleIsUniform compared the scale with the pivot, so the uniform-scale assert in
     /// TransformN/TransformScalar failed for every scale. By default (Util.DebugBreakOnDevAssert) a failed
     /// gDevAssert only calls Debugger.Break, which is silent without a debugger; with it off it throws.
-    /// The flag is global, so these tests run alone, not in parallel with other classes.
+    /// The flag is global, so these tests run alone, not in parallel with other classes. gDevAssert only
+    /// exists in Debug builds.
     /// </summary>
     [Collection("DevAssertThrows")]
     public class TransformSequence2DevAssertTests
@@ -253,12 +254,15 @@ namespace geometry3Sharp.Tests
             Assert.Equal(new Vector2d(4, 1), around.TransformP(new Vector2d(2, 1)));
         }
 
+#if DEBUG
+        // gDevAssert is [Conditional("DEBUG")]: in a Release build (as in CI) the assert does not exist
         [Fact]
         public void NonUniformScale_FailsTheAssert()
         {
             var xf = new TransformSequence2().Scale(new Vector2d(2, 3), new Vector2d(2, 3));
             Assert.ThrowsAny<Exception>(() => WithThrowingDevAssert(() => xf.TransformScalar(1)));
         }
+#endif
     }
 
     [CollectionDefinition("DevAssertThrows", DisableParallelization = true)]
