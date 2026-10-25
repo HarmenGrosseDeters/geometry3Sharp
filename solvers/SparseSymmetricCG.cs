@@ -57,7 +57,8 @@ namespace g3
 
             // [RMS] If we were initialized w/ constraints already satisfied, 
             //   then we are done! (happens for example in mesh deformations)
-            if (rho0 < MathUtil.ZeroTolerance * root1)
+            // (also handles B = 0, which would otherwise divide 0/0 below)
+            if (Math.Sqrt(rho0) <= MathUtil.ZeroTolerance * root1)
                 return true;
 
             Array.Copy(R, P, R.Length);
@@ -295,7 +296,7 @@ namespace g3
             bool[] converged = new bool[NRHS];
             int nconverged = 0;
             for (int j = 0; j < NRHS; ++j) {
-                converged[j] = rho0[j] < (ConvergeTolerance * root1[j]);
+                converged[j] = Math.Sqrt(rho0[j]) <= (ConvergeTolerance * root1[j]);
                 if (converged[j])
                     nconverged++;
             }
@@ -307,14 +308,17 @@ namespace g3
 
             MultiplyF(P, W);
 
+            // converged RHS are skipped, for them alpha would be 0/0 = NaN
             double[] alpha = new double[NRHS];
             for ( int j = 0; j < NRHS; ++j )
-                alpha[j] = rho0[j] / BufferUtil.Dot(P[j], W[j]);
+                alpha[j] = converged[j] ? 0 : rho0[j] / BufferUtil.Dot(P[j], W[j]);
 
             for (int j = 0; j < NRHS; ++j)
-                BufferUtil.MultiplyAdd(X[j], alpha[j], P[j]);
+                if (converged[j] == false)
+                    BufferUtil.MultiplyAdd(X[j], alpha[j], P[j]);
             for (int j = 0; j < NRHS; ++j)
-                BufferUtil.MultiplyAdd(R[j], -alpha[j], W[j]);
+                if (converged[j] == false)
+                    BufferUtil.MultiplyAdd(R[j], -alpha[j], W[j]);
 
             double[] rho1 = new double[NRHS];
             for (int j = 0; j < NRHS; ++j)

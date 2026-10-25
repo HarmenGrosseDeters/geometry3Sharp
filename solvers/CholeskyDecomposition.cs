@@ -10,6 +10,7 @@ namespace g3
 	/// Computes Cholesky decomposition/factorization L of matrix A
 	/// A must be symmetric and positive-definite
 	/// computed lower-triangular matrix L satisfies L*L^T = A.
+	/// Compute() returns false if A is not positive-definite (L is then not valid).
 	/// https://en.wikipedia.org/wiki/Cholesky_decomposition
 	/// 
 	/// 
@@ -64,7 +65,7 @@ namespace g3
 				L[r,r] = Math.Sqrt( A[r,r] - diag_dot);
 			}
 
-			return true;
+			return diagonal_is_positive();
 		}
 
 
@@ -96,7 +97,8 @@ namespace g3
             }
 
             // fill diag (1,1)
-            compute_diag(1);
+            if (N > 1)
+                compute_diag(1);
 
             // once we have computed a diagonal element, we can parallel-fill
             // the column below it
@@ -159,8 +161,19 @@ namespace g3
             //};
             //gParallel.ForEach(diag_itr(), elemF);
 
-            return true;
+            return diagonal_is_positive();
 		}
+
+
+        // A is positive-definite iff all diagonal elements of L are > 0 (they are NaN if a sqrt argument was negative)
+        bool diagonal_is_positive()
+        {
+            for (int i = 0; i < L.Rows; ++i) {
+                if ((L[i, i] > 0) == false)
+                    return false;
+            }
+            return true;
+        }
 
 
         // up-to-the-right diagonal iteration throuh matrix indices (below or on diagonal)

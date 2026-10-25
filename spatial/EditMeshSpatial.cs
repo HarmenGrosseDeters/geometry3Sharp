@@ -52,11 +52,11 @@ namespace gs
         {
             var save_filter = SourceSpatial.TriangleFilterF;
             SourceSpatial.TriangleFilterF = source_filter;
-            int hit_source_tid = SourceSpatial.FindNearestHitTriangle(ray);
+            int hit_source_tid = SourceSpatial.FindNearestHitTriangle(ray, fMaxDist);
             SourceSpatial.TriangleFilterF = save_filter;
 
             int hit_edit_tid;
-            IntrRay3Triangle3 edit_hit = find_added_hit(ref ray, out hit_edit_tid);
+            IntrRay3Triangle3 edit_hit = find_added_hit(ref ray, fMaxDist, out hit_edit_tid);
 
             if (hit_source_tid == DMesh3.InvalidID && hit_edit_tid == DMesh3.InvalidID)
                 return DMesh3.InvalidID;
@@ -77,11 +77,11 @@ namespace gs
         }
 
 
-        IntrRay3Triangle3 find_added_hit(ref Ray3d ray, out int hit_tid)
+        IntrRay3Triangle3 find_added_hit(ref Ray3d ray, double fMaxDist, out int hit_tid)
         {
             hit_tid = DMesh3.InvalidID;
             IntrRay3Triangle3 nearest = null;
-            double dNearT = double.MaxValue;
+            double dNearT = fMaxDist;
 
             Triangle3d tri = new Triangle3d();
             foreach ( int tid in AddedT) {

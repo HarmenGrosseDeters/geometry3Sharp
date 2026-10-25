@@ -6,11 +6,22 @@ using System.Diagnostics;
 
 namespace g3
 {
+    /// <summary>
+    /// Helpers that fill a <see cref="MeshConstraints"/> for common cases, for use with <see cref="Remesher"/>
+    /// and <see cref="Reducer"/>. The overloads that take a Remesher create its constraints object if it has
+    /// none. Without constraints the refiners move, split and collapse boundary edges freely (boundaries
+    /// shrink and lose detail), so constrain them when the boundary must be kept:
+    /// FixAllBoundaryEdges keeps the boundary exactly (its edges are not changed at all),
+    /// PreserveBoundaryLoops lets boundary vertices slide along the original boundary curve (edges can be split
+    /// and collapsed, so the boundary is remeshed too), and PreserveBoundaryAndFeatures additionally keeps sharp
+    /// feature edges and pins corners.
+    /// </summary>
     public static class MeshConstraintUtil
     {
 
-        // for all edges, disable flip/split/collapse
-        // for all vertices, pin in current position
+        /// <summary>
+        /// For the given edges, disable flip/split/collapse; pin their vertices in their current position
+        /// </summary>
         public static void FixEdges(MeshConstraints cons, DMesh3 mesh, IEnumerable<int> edges)
         {
             foreach ( int ei in edges ) { 
@@ -24,8 +35,6 @@ namespace g3
         }
 
 
-        // for all mesh boundary edges, disable flip/split/collapse
-        // for all mesh boundary vertices, pin in current position
         /// <summary>
         /// Constrain boundary loops and sharp feature edges (normals differ by more than creaseAngle degrees)
         /// for remeshing: vertices on them stay on these curves (MeshTopology spans/loops as projection
@@ -48,6 +57,7 @@ namespace g3
             foreach (EdgeLoop loop in topo.Loops)
                 pin_curve_corners(cons, mesh, loop.Vertices, true, cornerDot, pinned);
         }
+        /// <summary> PreserveBoundaryAndFeatures on the remesher's mesh and constraints (created if null) </summary>
         public static void PreserveBoundaryAndFeatures(Remesher r, double creaseAngle = 30, double cornerAngle = -1)
         {
             if (r.Constraints == null)
@@ -71,6 +81,10 @@ namespace g3
         }
 
 
+        /// <summary>
+        /// For all mesh boundary edges, disable flip/split/collapse; for all mesh boundary vertices, pin in
+        /// current position. The boundary stays exactly as it is.
+        /// </summary>
         public static void FixAllBoundaryEdges(MeshConstraints cons, DMesh3 mesh)
         {
             int NE = mesh.MaxEdgeID;
@@ -84,6 +98,7 @@ namespace g3
                 }
             }
         }
+        /// <summary> FixAllBoundaryEdges on the remesher's mesh and constraints (created if null) </summary>
         public static void FixAllBoundaryEdges(Remesher r)
         {
             if (r.Constraints == null)
@@ -92,7 +107,11 @@ namespace g3
         }
 
 
-        // for all mesh boundary vertices, pin in current position, but allow collapses
+        /// <summary>
+        /// For all mesh boundary vertices, fix in current position with the given set id, and disable flips and
+        /// splits of boundary edges, but allow collapses: with AllowCollapseFixedVertsWithSameSetID (default) two
+        /// fixed boundary vertices with the same set id collapse to the edge midpoint, so the boundary gets coarser.
+        /// </summary>
         public static void FixAllBoundaryEdges_AllowCollapse(MeshConstraints cons, DMesh3 mesh, int setID)
         {
             EdgeConstraint edgeCons = new EdgeConstraint(EdgeRefineFlags.NoFlip | EdgeRefineFlags.NoSplit);
@@ -112,7 +131,11 @@ namespace g3
 
 
 
-        // for all mesh boundary vertices, pin in current position, but allow splits
+        /// <summary>
+        /// For all mesh boundary vertices, fix in current position with the given set id, and disable flips and
+        /// collapses of boundary edges, but allow splits (the new vertex is fixed with the same set id, on the
+        /// original edge). The boundary shape is kept, it only gets finer.
+        /// </summary>
         public static void FixAllBoundaryEdges_AllowSplit(MeshConstraints cons, DMesh3 mesh, int setID)
         {
             EdgeConstraint edgeCons = new EdgeConstraint(EdgeRefineFlags.NoFlip | EdgeRefineFlags.NoCollapse);
@@ -131,8 +154,10 @@ namespace g3
         }
 
 
-        // loop through submesh border edges on basemesh, map to submesh, and
-        // pin those edges / vertices
+        /// <summary>
+        /// Loop through submesh border edges on basemesh, map to submesh, and fully constrain those edges and
+        /// pin their vertices (requires a DSubmesh3 that computed BaseBorderE).
+        /// </summary>
         public static void FixSubmeshBoundaryEdges(MeshConstraints cons, DSubmesh3 sub)
         {
             Debug.Assert(sub.BaseBorderE != null);
@@ -152,8 +177,10 @@ namespace g3
 
 
 
-        // for all mesh boundary edges, disable flip/split/collapse
-        // for all mesh boundary vertices, pin in current position
+        /// <summary>
+        /// For all triangle group boundary edges (edges between different groups), disable flip/split/collapse;
+        /// if bPinVertices, also pin their vertices in current position
+        /// </summary>
         public static void FixAllGroupBoundaryEdges(MeshConstraints cons, DMesh3 mesh, bool bPinVertices)
         {
             int NE = mesh.MaxEdgeID;
@@ -169,6 +196,7 @@ namespace g3
                 }
             }
         }
+        /// <summary> FixAllGroupBoundaryEdges on the remesher's mesh and constraints (created if null) </summary>
         public static void FixAllGroupBoundaryEdges(Remesher r, bool bPinVertices)
         {
             if (r.Constraints == null)
@@ -178,8 +206,10 @@ namespace g3
 
 
 
-        // for all vertices in loopV, constrain to target
-        // for all edges in loopV, disable flips and constrain to target
+        /// <summary>
+        /// For all vertices in the closed loop loopV, constrain to target (projected onto it);
+        /// for all edges of the loop, disable flips and set target and tracking set id (splits and collapses stay allowed)
+        /// </summary>
         public static void ConstrainVtxLoopTo(MeshConstraints cons, DMesh3 mesh, IList<int> loopV, IProjectionTarget target, int setID = -1)
         {
             VertexConstraint vc = new VertexConstraint(target);
@@ -200,6 +230,7 @@ namespace g3
             }
 
         }
+        /// <summary> ConstrainVtxLoopTo on the remesher's mesh and constraints (created if null) </summary>
         public static void ConstrainVtxLoopTo(Remesher r, int[] loopV, IProjectionTarget target, int setID = -1)
         {
             if (r.Constraints == null)
@@ -211,8 +242,10 @@ namespace g3
 
 
 
-        // for all vertices in loopV, constrain to target
-        // for all edges in loopV, disable flips and constrain to target
+        /// <summary>
+        /// For the interior vertices of the open span spanV, constrain to target; pin the two end vertices;
+        /// for all edges of the span, disable flips and set target and tracking set id
+        /// </summary>
         public static void ConstrainVtxSpanTo(MeshConstraints cons, DMesh3 mesh, IList<int> spanV, IProjectionTarget target, int setID = -1)
         {
             VertexConstraint vc = new VertexConstraint(target);
@@ -235,6 +268,7 @@ namespace g3
             }
 
         }
+        /// <summary> ConstrainVtxSpanTo on the remesher's mesh and constraints (created if null) </summary>
         public static void ConstrainVtxSpanTo(Remesher r, int[] spanV, IProjectionTarget target, int setID = -1)
         {
             if (r.Constraints == null)
@@ -247,6 +281,12 @@ namespace g3
 
 
 
+        /// <summary>
+        /// Constrain each boundary loop to a curve copy of itself (ConstrainVtxLoopTo with a DCurveProjectionTarget):
+        /// boundary vertices stay on the original boundary polyline, and boundary edges can be split and collapsed
+        /// but not flipped. No vertices are pinned, so corners of the boundary can be rounded off; use
+        /// PreserveBoundaryAndFeatures to pin corners, or FixAllBoundaryEdges to keep the boundary unchanged.
+        /// </summary>
         public static void PreserveBoundaryLoops(MeshConstraints cons, DMesh3 mesh) {
             MeshBoundaryLoops loops = new MeshBoundaryLoops(mesh);
             foreach ( EdgeLoop loop in loops ) {
@@ -255,6 +295,7 @@ namespace g3
                 ConstrainVtxLoopTo(cons, mesh, loop.Vertices, target);
             }
         }
+        /// <summary> PreserveBoundaryLoops on the remesher's mesh and constraints (created if null) </summary>
         public static void PreserveBoundaryLoops(Remesher r)
         {
             if (r.Constraints == null)
@@ -264,6 +305,7 @@ namespace g3
 
 
 
+        /// <summary> tag the edges with a TrackingSetID (no constraint), to find their descendants with FindConstrainedEdgesBySetID </summary>
         public static void AddTrackedEdges(MeshConstraints cons, int[] edges, int setID)
         {
             EdgeConstraint ec = EdgeConstraint.Unconstrained;

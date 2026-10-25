@@ -98,7 +98,7 @@ namespace g3
             DenseMatrix t = new DenseMatrix(M, N);
             for ( int r = 0; r < N; ++r ) {
                 for (int c = 0; c < M; ++c)
-                    t.d[c*M+r] = d[r*M+c];
+                    t.d[c*N+r] = d[r*M+c];
             }
             return t;
         }
@@ -110,7 +110,7 @@ namespace g3
                 double[] d2 = new double[M*N];
                 for ( int r = 0; r < N; ++r ) {
                     for (int c = 0; c < M; ++c)
-                        d2[c*M+r] = d[r*M+c];
+                        d2[c*N+r] = d[r*M+c];
                 }
                 d = d2;
                 int k = M; M = N; N = k;
@@ -152,17 +152,8 @@ namespace g3
 			if (IsSymmetric() == false)
 				throw new Exception("DenseMatrix.IsPositiveDefinite: matrix is not symmetric!");
 
-			for (int i = 0; i < N; ++i) {
-				double diag = d[i * M + i];
-				double row_sum = 0;
-				for (int j = 0; j < N; ++j) {
-					if (j != i)
-						row_sum += Math.Abs(d[i * M + j]);
-				}
-				if (diag < 0 || diag < row_sum)
-					return false;
-			}
-			return true;
+			// diagonal dominance is only sufficient, so test whether a Cholesky factorization exists
+			return new CholeskyDecomposition(this).Compute();
 		}
 
 
@@ -183,7 +174,7 @@ namespace g3
 
         public DenseVector Multiply(DenseVector X)
         {
-            DenseVector R = new DenseVector(X.Length);
+            DenseVector R = new DenseVector(N);
             Multiply(X.Buffer, R.Buffer);
             return R;
         }
@@ -262,22 +253,22 @@ namespace g3
             if (bParallel) {
                 DenseMatrix Rt = R;
                 gParallel.ForEach(Interval1i.Range(0, rows1), (r1i) => {
-                    int ii = r1i * M;
+                    int ii = r1i * M, ri = r1i * cols2;
                     for (int c2i = 0; c2i < cols2; c2i++) {
                         double v = 0;
                         for (int k = 0; k < cols1; ++k)
-                            v += d[ii + k] * M2.d[k * M + c2i];
-                        Rt[ii + c2i] = v;
+                            v += d[ii + k] * M2.d[k * cols2 + c2i];
+                        Rt[ri + c2i] = v;
                     }
                 });
             } else {
                 for (int r1i = 0; r1i < rows1; r1i++) {
-                    int ii = r1i * M;
+                    int ii = r1i * M, ri = r1i * cols2;
                     for (int c2i = 0; c2i < cols2; c2i++) {
                         double v = 0;
                         for (int k = 0; k < cols1; ++k)
-                            v += d[ii + k] * M2.d[k * M + c2i];
-                        R[ii + c2i] = v;
+                            v += d[ii + k] * M2.d[k * cols2 + c2i];
+                        R[ri + c2i] = v;
                     }
                 }
             }

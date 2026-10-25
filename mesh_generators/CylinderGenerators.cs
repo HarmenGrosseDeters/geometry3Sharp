@@ -5,7 +5,11 @@ using System.Text;
 
 namespace g3
 {
-    // generate a cylinder 
+    /// <summary>
+    /// Generate an open cylinder (or cone section if BaseRadius != TopRadius) without caps: a single ring of
+    /// 2*Slices triangles between y = 0 (BaseRadius) and y = Height (TopRadius), around the Y axis.
+    /// StartAngleDeg / EndAngleDeg give a partial (wedge) surface. The result has boundary loops at both ends.
+    /// </summary>
     public class OpenCylinderGenerator : MeshGenerator
     {
         public float BaseRadius = 1.0f;
@@ -15,8 +19,10 @@ namespace g3
         public float EndAngleDeg = 360.0f;
         public int Slices = 16;
 
-        // set to true if you are going to texture this cylinder, otherwise
-        // last panel will not have UVs going from 1 to 0
+        /// <summary>
+        /// Set to true if you are going to texture this cylinder, otherwise
+        /// last panel will not have UVs going from 1 to 0
+        /// </summary>
         public bool NoSharedVertices = false;
 
         override public MeshGenerator Generate()
@@ -72,7 +78,8 @@ namespace g3
     /// Positioned along Y axis such that base-center is at Origin, and top is at Y=Height
     /// You get a cone unless BaseRadius = TopRadius
     /// No subdivisions along top/base rings or height steps.
-    /// cylinder triangles have groupid = 1, top cap = 2, bottom cap = 3, wedge faces 5 and 6
+    /// cylinder triangles have groupid = 1, bottom cap = 2, top cap = 3, wedge faces 4 and 5
+    /// With the default NoSharedVertices = false and a full 360 degree range the mesh is closed, with outward normals.
     /// </summary>
     public class CappedCylinderGenerator : MeshGenerator
     {
@@ -83,7 +90,7 @@ namespace g3
         public float EndAngleDeg = 360.0f;
         public int Slices = 16;
 
-        // set to true if you are going to texture this cylinder or want sharp edges
+        /// <summary> set to true if you are going to texture this cylinder or want sharp edges (the mesh is then not closed) </summary>
         public bool NoSharedVertices = false;
 
         override public MeshGenerator Generate()
@@ -210,12 +217,14 @@ namespace g3
 
 
 
-    // Generate a cone with base caps. Supports sections of cone as well (eg wedges).
-    // Curently UV islands are overlapping for different mesh components, if NoSharedVertices
-    // Also, if NoSharedVertices, then the 'tip' vertex is duplicated Slices times.
-    // This causes the normals to look...weird.
-    // For the conical region, we use the planar disc parameterization (ie tip at .5,.5) rather than
-    // a cylinder-like projection
+    /// <summary>
+    /// Generate a cone with base caps. Supports sections of cone as well (eg wedges).
+    /// The base circle (BaseRadius) is at y = 0 and the tip at y = Height, around the Y axis.
+    /// Curently UV islands are overlapping for different mesh components, if NoSharedVertices
+    /// Also, if NoSharedVertices, then the 'tip' vertex is duplicated (once per panel).
+    /// For the conical region, we use the planar disc parameterization (ie tip at .5,.5) rather than
+    /// a cylinder-like projection
+    /// </summary>
     public class ConeGenerator : MeshGenerator
     {
         public float BaseRadius = 1.0f;
@@ -224,7 +233,7 @@ namespace g3
         public float EndAngleDeg = 360.0f;
         public int Slices = 16;
 
-        // set to true if you are going to texture this cone or want sharp edges
+        /// <summary> set to true if you are going to texture this cone or want sharp edges (the mesh is then not closed) </summary>
         public bool NoSharedVertices = false;
 
 
@@ -341,16 +350,27 @@ namespace g3
 
 
 
+    /// <summary>
+    /// Generate a surface of revolution around the Y axis through a list of circular Sections (radius at height y),
+    /// eg a vase or a stepped cylinder, optionally with flat caps at the first and last section.
+    /// Sections must be set before Generate() and ordered by SectionY. Note that NoSharedVertices defaults to true
+    /// here, so the default result is not a closed mesh.
+    /// </summary>
     public class VerticalGeneralizedCylinderGenerator : MeshGenerator
     {
+        /// <summary> circular sections, ordered along +Y (required) </summary>
         public CircularSection[] Sections;
+        /// <summary> number of segments around the circle </summary>
         public int Slices = 16;
+        /// <summary> add flat caps at the first and last section </summary>
         public bool Capped = true;
 
-        // set to true if you are going to texture this cone or want sharp edges
+        /// <summary> set to true if you are going to texture this or want sharp edges (default true; the mesh is then not closed) </summary>
         public bool NoSharedVertices = true;
 
+        /// <summary> output: vertex index of the center of the start (bottom) cap, -1 if not Capped </summary>
         public int startCapCenterIndex = -1;
+        /// <summary> output: vertex index of the center of the end (top) cap, -1 if not Capped </summary>
         public int endCapCenterIndex = -1;
 
         override public MeshGenerator Generate()
@@ -389,7 +409,7 @@ namespace g3
                     float angle = (float)j * fDelta;
                     double cosa = Math.Cos(angle), sina = Math.Sin(angle);
                     vertices[k] = new Vector3d(Sections[si].Radius * cosa, y, Sections[si].Radius * sina);
-                    float t = (float)j / (float)(Slices - 1);
+                    float t = (float)j / (float)Slices;
                     uv[k] = new Vector2f(t, yt);
                     Vector3f n = new Vector3f((float)cosa, 0, (float)sina);
                     n.Normalize();

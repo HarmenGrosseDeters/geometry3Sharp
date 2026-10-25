@@ -97,9 +97,10 @@ namespace g3
             } else if (dot < zero) {
                 order = -2;
             } else {
-                double x0x0 = x0 * x0;
-                double y0y0 = y0 * y0;
-                double sqrLength = x0x0 + y0y0;
+                // squared length of the line segment V0-V1, not of P-V0
+                double x1x1 = x1 * x1;
+                double y1y1 = y1 * y1;
+                double sqrLength = x1x1 + y1y1;
                 if (dot == sqrLength) {
                     order = +1;
                 } else if (dot > sqrLength) {

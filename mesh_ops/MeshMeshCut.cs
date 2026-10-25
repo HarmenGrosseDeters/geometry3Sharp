@@ -9,17 +9,24 @@ using System.Threading.Tasks;
 namespace g3
 {
     /// <summary>
-    /// 
-    /// 
+    /// Cuts the curves where CutMesh intersects Target into Target, in place (floating-point): Compute()
+    /// splits the triangles of Target so that the intersection curves run along its edges. CutMesh is not
+    /// modified. Afterwards RemoveContained() deletes the triangles of Target that are inside CutMesh (winding
+    /// number above 0.9 at the centroid), which leaves Target open along the cut.
+    ///
+    /// Intersection points within VertexSnapTol are merged with existing vertices. Not robust: segments that
+    /// cannot be inserted are counted in FailedSegmentInsertions (the cut then has gaps), and only
+    /// intersection segments are used, so coplanar overlaps (intersection polygons) are not handled. Used by <see cref="MeshBoolean"/>; for robust booleans use <see cref="ExactMeshBoolean"/>.
+    ///
     /// TODO:
     ///    - track descendant triangles of each input face
     ///    - for missing segments, can resolve in 2D in plane of face
-    /// 
-    /// 
     /// </summary>
     public class MeshMeshCut
     {
+        /// <summary> mesh that is cut (modified in place) </summary>
         public DMesh3 Target;
+        /// <summary> mesh whose intersection with Target is cut into Target (not modified) </summary>
         public DMesh3 CutMesh;
 
         PointHashGrid3d<int> PointHash;
@@ -32,18 +39,23 @@ namespace g3
         // TODO: still missing some vertices??
         public List<int> CutVertices;
 
+        /// <summary>
+        /// Number of intersection segments that could not be inserted into Target by Compute().
+        /// If this is not zero, the cut path has gaps.
+        /// </summary>
+        public int FailedSegmentInsertions = 0;
+
 
         public void Compute()
         {
+            FailedSegmentInsertions = 0;
             double cellSize = Target.CachedBounds.MaxDim / 64;
             PointHash = new PointHashGrid3d<int>(cellSize, -1);
 
             // insert target vertices into hash
             foreach ( int vid in Target.VertexIndices()) {
                 Vector3d v = Target.GetVertex(vid);
-                int existing = find_existing_vertex(v);
-                if (existing != -1)
-                    System.Console.WriteLine("VERTEX {0} IS DUPLICATE OF {1}!", vid, existing);
+                // [TODO] duplicate (coincident) target vertices are not handled specially
                 PointHash.InsertPointUnsafe(vid, v);
             }
 
@@ -257,7 +269,7 @@ namespace g3
                 DMesh3.PokeTriangleInfo pokeInfo;
                 MeshResult result = Target.PokeTriangle(tid, out pokeInfo);
                 if (result != MeshResult.Ok)
-                    throw new Exception("shit");
+                    throw new Exception("MeshMeshCut.insert_face_vertices: poke triangle failed - " + result.ToString());
                 int new_v = pokeInfo.new_vid;
 
                 Target.SetVertex(new_v, v.v);
@@ -319,7 +331,7 @@ namespace g3
                 }
             }
 
-            System.Console.WriteLine("unsorted vertex!");
+            // could not classify the vertex (numerical problem), keep it on the first poke triangle
             sv.elem_id = pokeTris.a;
         }
 
@@ -437,7 +449,8 @@ namespace g3
                 try {
                     insert_segment(seg);
                 } catch (Exception) {
-                    // ignore?
+                    // the segment is missing from the cut, report it instead of failing the whole cut
+                    FailedSegmentInsertions++;
                 }
             }
         }

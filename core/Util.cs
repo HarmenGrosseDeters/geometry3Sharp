@@ -5,6 +5,7 @@ using System.Text;
 using System.Runtime.InteropServices;
 using System.Diagnostics;
 using System.IO;
+using System.Globalization;
 
 namespace g3
 {
@@ -76,7 +77,7 @@ namespace g3
         }
 
         /// <summary>
-        /// See IsBinaryFile()
+        /// See IsBinaryFile(). If max_search_len is -1, the whole stream is searched.
         /// </summary>
         static public bool IsBinaryStream(Stream streamIn, int max_search_len = -1)
         {
@@ -85,7 +86,7 @@ namespace g3
             StreamReader stream = new StreamReader(streamIn);
             bool is_binary = false;
             while ((ch = stream.Read()) != -1) {
-                if (i++ >= max_search_len) 
+                if (max_search_len >= 0 && i++ >= max_search_len) 
                     goto decided_no;
 
                 if (IsASCIIControlChar(ch))
@@ -98,6 +99,7 @@ namespace g3
                 } else
                     sequential_null = 0;
             }
+            goto decided_no;    // end of stream, no binary characters found
         decided_yes:
             is_binary = true;
         decided_no:
@@ -128,23 +130,23 @@ namespace g3
         }
 
         
-        static public float ParseInt(string s, int nDefault) {
+        static public int ParseInt(string s, int nDefault) {
             try {
-                return int.Parse(s);
+                return int.Parse(s, CultureInfo.InvariantCulture);
             } catch {
                 return nDefault;
             }
         }
         static public float ParseFloat(string s, float fDefault) {
             try {
-                return float.Parse(s);
+                return float.Parse(s, CultureInfo.InvariantCulture);
             } catch {
                 return fDefault;
             }
         }
         static public double ParseDouble(string s, double fDefault) {
             try {
-                return double.Parse(s);
+                return double.Parse(s, CultureInfo.InvariantCulture);
             } catch {
                 return fDefault;
             }

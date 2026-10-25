@@ -199,7 +199,7 @@ namespace g3
                     // SpatialEpsilon is our zero-tolerance, so merge if we are closer than that
                     bool is_existing_v;
                     int vid = insert_corner_from_bary(i, contain_tid, bary, 0.01, 100*SpatialEpsilon, out is_existing_v);
-                    if (vid > 0) {
+                    if (vid >= 0) {
                         CurveVertices[i] = vid;
                         if (is_existing_v)
                             MeshVertsOnCurve.Add(vid);

@@ -8,26 +8,7 @@ using System.Globalization;
 namespace g3
 {
 
-	/// <summary>
-	/// gradientspace OBJ mesh format parser
-	/// 
-	/// Basic structure is:
-	///   1) parse OBJ into internal data structures that represent OBJ exactly
-	///   2) convert to mesh objects based on options/etc
-	/// 
-	/// [TODO] major current limitation is that we do not support multiple UVs per-vertex
-	///   (this is a limitation of DMesh3). Similarly no multiple normals per-vertex. So,
-	///   in the current code, such vertices are duplicated. See append_vertex() and use
-	///   of Index3i triplet (vi,ni,ui) to represent vertex in BuildMeshes_X() functions
-	/// 
-	/// [TODO] only a single material can be assigned to a mesh, this is a current limitation
-	///   of DMesh3Builder. So, in this case we are splitting the input mesh by material, IE
-	///   multiple meshes are returned for a single input mesh, each with one material.
-	/// 
-	/// 
-	/// </summary>
-
-
+    // OBJ face as parsed: 1-based vertex/normal/UV indices, material and group IDs
     internal struct Triangle
     {
         public const int InvalidMaterialID = -1;
@@ -78,6 +59,30 @@ namespace g3
 
 
 
+	/// <summary>
+	/// gradientspace OBJ mesh format parser
+	/// 
+	/// Basic structure is:
+	///   1) parse OBJ into internal data structures that represent OBJ exactly
+	///   2) convert to mesh objects based on options/etc
+	/// 
+	/// Reads v (optionally with r g b vertex colors), vn, vt and f lines (polygons are fan-triangulated,
+	/// negative indices are supported), "g" groups as triangle groups, and with ReadOptions.ReadMaterials
+	/// mtllib/usemtl materials (set <see cref="MTLFileSearchPaths"/>). "o" objects are ignored, so all objects
+	/// become one mesh. Lines that fail to parse are skipped with a warning. A file without vertices or
+	/// triangles returns <see cref="IOCode.GarbageDataError"/> (point clouds are not read).
+	/// Only the TextReader overload is implemented.
+	/// 
+	/// [TODO] major current limitation is that we do not support multiple UVs per-vertex
+	///   (this is a limitation of DMesh3). Similarly no multiple normals per-vertex. So,
+	///   in the current code, such vertices are duplicated. See append_vertex() and use
+	///   of Index3i triplet (vi,ni,ui) to represent vertex in BuildMeshes_X() functions
+	/// 
+	/// [TODO] only a single material can be assigned to a mesh, this is a current limitation
+	///   of DMesh3Builder. So, in this case we are splitting the input mesh by material, IE
+	///   multiple meshes are returned for a single input mesh, each with one material.
+	/// 
+	/// </summary>
     public class OBJReader : IMeshReader
     {
         DVector<double> vPositions;
@@ -108,29 +113,42 @@ namespace g3
             MTLFileSearchPaths = new List<string>();
         }
 
-		// you need to initialize this with paths if you want .MTL files to load
+        /// <summary>
+        /// Directories searched for mtllib files. You need to initialize this with paths if you want .MTL files to load
+        /// (OBJFormatReader adds the directory of the .obj file when reading by filename with ReadOptions.ReadMaterials).
+        /// </summary>
 		public List<string> MTLFileSearchPaths { get; set; } 
 
-        // connect to this to get warning messages
+        /// <summary> connect to this to get warning messages </summary>
 		public event ParsingMessagesHandler warningEvent;
 
 
+        /// <summary> True if the last parsed file had vertex colors ("v x y z r g b") </summary>
         public bool HasPerVertexColors { get { return m_bOBJHasPerVertexColors; } }
+        /// <summary> Largest number of vt components seen in the last parsed file (only the first two are used) </summary>
         public int UVDimension{ get { return m_nUVComponents; } }
 
+        /// <summary> True if the last parsed file contained "g" group lines </summary>
         public bool HasTriangleGroups { get { return m_bOBJHasTriangleGroups; } }
 
 
-        // if this is true, means during parsing we found vertices of faces that
-        //  had different indices for vtx/normal/uv
+        /// <summary>
+        /// If this is true, means during parsing we found vertices of faces that
+        /// had different indices for vtx/normal/uv (such vertices are duplicated in the output mesh)
+        /// </summary>
         public bool HasComplexVertices { get; set; }
 
 
+        /// <summary> Not implemented, OBJ is a text format. Throws NotImplementedException. </summary>
         public IOReadResult Read(BinaryReader reader, ReadOptions options, IMeshBuilder builder)
         {
             throw new NotImplementedException();
         }
 
+        /// <summary>
+        /// Parse OBJ text and append the mesh(es) to builder: one mesh, or one mesh per used material
+        /// if there are several materials or vertices with separate normal/UV indices.
+        /// </summary>
         public IOReadResult Read(TextReader reader, ReadOptions options, IMeshBuilder builder)
         {
             Materials = new Dictionary<string, OBJMaterial>();
@@ -205,9 +223,9 @@ namespace g3
         int append_triangle(IMeshBuilder builder, int nTri, int[] mapV)
         {
             Triangle t = vTriangles[nTri];
-            int v0 = mapV[t.vIndices[0] - 1];
-            int v1 = mapV[t.vIndices[1] - 1];
-            int v2 = mapV[t.vIndices[2] - 1];
+            int v0 = map_vertex(mapV, t.vIndices[0] - 1);
+            int v1 = map_vertex(mapV, t.vIndices[1] - 1);
+            int v2 = map_vertex(mapV, t.vIndices[2] - 1);
             if ( v0 == -1 || v1 == -1 || v2 == -1 ) {
                 emit_warning(string.Format("[OBJReader] invalid triangle:  {0} {1} {2}  mapped to {3} {4} {5}",
                     t.vIndices[0], t.vIndices[1], t.vIndices[2], v0, v1, v2));
@@ -216,6 +234,11 @@ namespace g3
             int gid = (vTriangles[nTri].nGroupID == Triangle.InvalidGroupID) ? 
                 m_nSetInvalidGroupsTo : vTriangles[nTri].nGroupID;
             return builder.AppendTriangle(v0, v1, v2, gid);
+        }
+        // out-of-range OBJ indices map to -1, so they are reported as invalid triangles
+        static int map_vertex(int[] mapV, int i)
+        {
+            return (i >= 0 && i < mapV.Length) ? mapV[i] : -1;
         }
         int append_triangle(IMeshBuilder builder, Triangle t)
         {
@@ -338,6 +361,10 @@ namespace g3
 
 
 
+        /// <summary>
+        /// Parse OBJ text into the internal buffers without building meshes (used by Read()).
+        /// Always returns Ok; unparseable lines produce warnings.
+        /// </summary>
         public IOReadResult ParseInput(TextReader reader, ReadOptions options)
         {
             vPositions = new DVector<double>();
@@ -401,7 +428,7 @@ namespace g3
                             if (tokens.Length >= 3) {
                                 vUVs.Add(float.Parse(tokens[1], CultureInfo.InvariantCulture));
                                 vUVs.Add(float.Parse(tokens[2], CultureInfo.InvariantCulture));
-                                nMaxUVLength = Math.Max(nMaxUVLength, tokens.Length);
+                                nMaxUVLength = Math.Max(nMaxUVLength, tokens.Length - 1);
                             } 
                             if ( tokens.Length != 3 )
                                 emit_warning("[OBJReader] UV has unknown format: " + line);
@@ -431,7 +458,9 @@ namespace g3
                         }
 
                     } else if (tokens[0][0] == 'g') {
-                        string sGroupName = (tokens.Length == 2) ? tokens[1] : line.Substring( line.IndexOf(tokens[1]) );
+                        // "g" without a name switches back to the default group
+                        string sGroupName = (tokens.Length == 1) ? "default" :
+                            (tokens.Length == 2) ? tokens[1] : line.Substring( line.IndexOf(tokens[1]) );
                         if ( GroupNames.ContainsKey(sGroupName) ) {
                             nActiveGroup = GroupNames[sGroupName];
                         } else {
@@ -597,6 +626,10 @@ namespace g3
 
 
 
+        /// <summary>
+        /// Parse a .mtl file into the material set used by usemtl lines. Returns FileAccessError if
+        /// the file cannot be opened or is empty.
+        /// </summary>
 		public IOReadResult ReadMaterials(string sPath)
 		{
             if (nWarningLevel >= 1)

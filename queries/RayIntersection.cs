@@ -16,7 +16,9 @@ namespace g3
         public static bool Sphere(Vector3f vOrigin, Vector3f vDirection, Vector3f vCenter, float fRadius, out float fRayT)
         {
             bool bHit = SphereSigned(ref vOrigin, ref vDirection, ref vCenter, fRadius, out fRayT);
-            fRayT = Math.Abs(fRayT);
+            // origin inside sphere: near root is behind the origin, use far root (roots sum to -2b)
+            if (bHit && fRayT < 0)
+                fRayT = -2 * (vOrigin - vCenter).Dot(vDirection) - fRayT;
             return bHit;
         }
 
@@ -67,7 +69,12 @@ namespace g3
         public static bool InfiniteCylinder(Vector3f vOrigin, Vector3f vDirection, Vector3f vCylOrigin, Vector3f vCylAxis, float fRadius, out float fRayT)
         {
             bool bHit = InfiniteCylinderSigned(vOrigin, vDirection, vCylOrigin, vCylAxis, fRadius, out fRayT);
-            fRayT = Math.Abs(fRayT);
+            // origin inside cylinder: near root is behind the origin, use far root (roots sum to -b/a)
+            if (bHit && fRayT < 0) {
+                Vector3f VxAB = vDirection.Cross(vCylAxis);
+                Vector3f AOxAB = (vOrigin - vCylOrigin).Cross(vCylAxis);
+                fRayT = -2 * VxAB.Dot(AOxAB) / VxAB.Dot(VxAB) - fRayT;
+            }
             return bHit;
         }
         public static bool InfiniteCylinderSigned(Vector3f vOrigin, Vector3f vDirection, Vector3f vCylOrigin, Vector3f vCylAxis, float fRadius, out float fRayT)

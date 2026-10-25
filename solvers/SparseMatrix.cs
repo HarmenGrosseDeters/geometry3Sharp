@@ -169,6 +169,8 @@ namespace g3
         /// <summary>
         /// Construct packed versions of input matrices, and then use sparse row/column dot
         /// to compute elements of output matrix. This is faster. But still relatively expensive.
+        /// The product of two symmetric matrices is only symmetric if they commute, otherwise
+        /// it cannot be stored in a SymmetricSparseMatrix and an Exception is thrown.
         /// </summary>
         void multiply_fast(SymmetricSparseMatrix M2in, ref SymmetricSparseMatrix Rin, bool bParallel)
         {
@@ -185,6 +187,13 @@ namespace g3
             PackedSparseMatrix M2 = new PackedSparseMatrix(M2in, true);
             M2.Sort();
 
+            // (r,c) and (c,r) entries of the product must agree, as only one of them is stored
+            bool is_symmetric = true;
+            Func<int, int, double, bool> symmetric_entry = (r, c, v) => {
+                double vT = M.DotRowColumn(c, r, M2);
+                return Math.Abs(v - vT) <= MathUtil.ZeroTolerance * Math.Max(1, Math.Max(Math.Abs(v), Math.Abs(vT)));
+            };
+
             // Parallel variant is vastly faster, uses spinlock to control access to R
             if (bParallel) {
 
@@ -193,6 +202,8 @@ namespace g3
                 gParallel.ForEach(Interval1i.Range(N), (r1i) => {
                     for (int c2i = r1i; c2i < N; c2i++) {
                         double v = M.DotRowColumn(r1i, c2i, M2);
+                        if (c2i != r1i && symmetric_entry(r1i, c2i, v) == false)
+                            is_symmetric = false;
                         if (Math.Abs(v) > MathUtil.ZeroTolerance) {
                             //bool taken = false;
                             //spin.Enter(ref taken);
@@ -211,11 +222,16 @@ namespace g3
                 for (int r1i = 0; r1i < N; r1i++) {
                     for (int c2i = r1i; c2i < N; c2i++) {
                         double v = M.DotRowColumn(r1i, c2i, M2);
+                        if (c2i != r1i && symmetric_entry(r1i, c2i, v) == false)
+                            is_symmetric = false;
                         if (Math.Abs(v) > MathUtil.ZeroTolerance)
                             R[r1i, c2i] = v;
                     }
                 }
             }
+
+            if (is_symmetric == false)
+                throw new Exception("SymmetricSparseMatrix.Multiply: product of non-commuting matrices is not symmetric");
         }
 
 

@@ -419,6 +419,7 @@ namespace g3
             b.Append(large);
             b.Append(",");
             b.Append(sweep);
+            b.Append(" ");
 
             // end coordinates
             b.Append(Math.Round(vEnd.x, Precision));

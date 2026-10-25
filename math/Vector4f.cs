@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Globalization;
 using System.Collections.Generic;
 using System.Text;
 
@@ -65,7 +66,7 @@ namespace g3
         public Vector4f Normalized {
             get {
                 float length = Length;
-                if (length > MathUtil.Epsilon) {
+                if (length > MathUtil.Epsilonf) {
                     float invLength = 1.0f / length;
                     return new Vector4f(x * invLength, y * invLength, z * invLength, w * invLength);
                 } else
@@ -74,7 +75,7 @@ namespace g3
         }
 
         public bool IsNormalized {
-            get { return Math.Abs((x * x + y * y + z * z + w * w) - 1) < MathUtil.ZeroTolerance; }
+            get { return Math.Abs((x * x + y * y + z * z + w * w) - 1) < MathUtil.ZeroTolerancef; }
         }
 
 
@@ -203,7 +204,7 @@ namespace g3
         }
         public override bool Equals(object obj)
         {
-            return this == (Vector4f)obj;
+            return obj is Vector4f && this == (Vector4f)obj;
         }
         public override int GetHashCode()
         {
@@ -246,10 +247,10 @@ namespace g3
 
 
         public override string ToString() {
-            return string.Format("{0:F8} {1:F8} {2:F8} {3:F8}", x, y, z, w);
+            return string.Format(CultureInfo.InvariantCulture, "{0:F8} {1:F8} {2:F8} {3:F8}", x, y, z, w);
         }
         public string ToString(string fmt) {
-            return string.Format("{0} {1} {2} {3}", x.ToString(fmt), y.ToString(fmt), z.ToString(fmt), w.ToString(fmt));
+            return string.Format("{0} {1} {2} {3}", x.ToString(fmt, CultureInfo.InvariantCulture), y.ToString(fmt, CultureInfo.InvariantCulture), z.ToString(fmt, CultureInfo.InvariantCulture), w.ToString(fmt, CultureInfo.InvariantCulture));
         }
 
 

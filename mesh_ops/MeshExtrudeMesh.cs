@@ -9,6 +9,12 @@ namespace g3
     /// 1) make a copy of all triangles in mesh
     /// 2) offset copy vertices
     /// 3) connect up loops with triangle strips
+    ///
+    /// Works in place on Mesh: the original triangles are kept (reversed for a positive offset) and the
+    /// offset copy and stitch strips are appended, so an open surface becomes a closed shell (a closed
+    /// mesh just gets a second, offset copy). The default ExtrudedPositionF moves each vertex by its
+    /// vertex normal (computed if the mesh has none), ie an offset of 1; set it for another distance.
+    /// Extrude() returns false if a boundary loop could not be stitched (the mesh then has a hole there).
     /// </summary>
     public class MeshExtrudeMesh
     {
@@ -22,7 +28,7 @@ namespace g3
         // set new position based on original loop vertex position, normal, and index
         public Func<Vector3d, Vector3f, int, Vector3d> ExtrudedPositionF;
 
-        // If you extrude "in", ie w/ a negative distance, then you need to set IsOutward = false
+        // If you extrude "in", ie w/ a negative distance, then you need to set IsPositiveOffset = false
         public bool IsPositiveOffset = true;
 
         // outputs
@@ -99,6 +105,7 @@ namespace g3
             StitchTriangles = new int[InitialLoops.Count][];
             StitchGroupIDs = new int[InitialLoops.Count];
             int li = 0;
+            bool stitch_ok = true;
             foreach (var loop in InitialLoops) {
                 int[] loop2 = new int[loop.VertexCount];
                 for (int k = 0; k < loop2.Length; ++k)
@@ -111,11 +118,13 @@ namespace g3
                 } else {
                     StitchTriangles[li] = editor.StitchLoop(loop.Vertices, loop2, StitchGroupIDs[li]);
                 }
+                if (StitchTriangles[li] == null)
+                    stitch_ok = false;      // StitchLoop backed out this strip, the mesh has a hole here
                 NewLoops[li] = EdgeLoop.FromVertices(Mesh, loop2);
                 li++;
             }
 
-            return true;
+            return stitch_ok;
         }
 
 

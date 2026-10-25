@@ -114,11 +114,8 @@ namespace g3
             double c = (min+max)*0.5;
             double e = max-c;
 
-            // get rid of extra rotations
-            theta = theta % 360;
-
-            // shift to origin, then convert theta to +- 180
-            theta -= c;
+            // shift to origin and get rid of extra rotations, then convert theta to +- 180
+            theta = (theta - c) % 360;
             if ( theta < -180 )
                 theta += 360;
             else if ( theta > 180 )
@@ -145,11 +142,8 @@ namespace g3
             double c = (min+max)*0.5;
             double e = max-c;
 
-            // get rid of extra rotations
-            theta = theta % TwoPI;
-
-            // shift to origin, then convert theta to +- 180
-            theta -= c;
+            // shift to origin and get rid of extra rotations, then convert theta to +- 180
+            theta = (theta - c) % TwoPI;
             if ( theta < -Math.PI )
                 theta += TwoPI;
             else if ( theta > Math.PI )
@@ -310,7 +304,7 @@ namespace g3
         {
             vFrom.Normalize();
             vTo.Normalize();
-            float fSign = Math.Sign(vFrom.Cross(vTo));
+            float fSign = (vFrom.Cross(vTo) < 0) ? -1 : 1;     // Sign(0) = 0 would turn antiparallel (180) into 0
             float fAngle = fSign * Vector2f.AngleD(vFrom, vTo);
             return fAngle;
         }
@@ -318,7 +312,7 @@ namespace g3
         {
             vFrom.Normalize();
             vTo.Normalize();
-            double fSign = Math.Sign(vFrom.Cross(vTo));
+            double fSign = (vFrom.Cross(vTo) < 0) ? -1 : 1;    // Sign(0) = 0 would turn antiparallel (180) into 0
             double fAngle = fSign * Vector2d.AngleD(vFrom, vTo);
             return fAngle;
         }
@@ -619,13 +613,23 @@ namespace g3
             minT = maxT = 0;
             if (a == 0 && b == 0)   // function is constant...
                 return true;
+            if (a == 0) {           // linear: one root
+                minT = maxT = -c / b;
+                return true;
+            }
 
             double discrim = b*b - 4.0*a*c;
             if (discrim < 0)
                 return false;    // no solution
 
-            // a bit odd but numerically better (says NRIC)
-            double t = -0.5 * (b + Math.Sign(b)*Math.Sqrt(discrim));  
+            // a bit odd but numerically better (says NRIC). Sign(0) is 0, which would make t = 0
+            // for b = 0, so use +1 there.
+            double sign_b = (b < 0) ? -1 : 1;
+            double t = -0.5 * (b + sign_b*Math.Sqrt(discrim));
+            if (t == 0) {           // b = c = 0: double root at 0
+                minT = maxT = 0;
+                return true;
+            }
             minT = t / a;
             maxT = c / t;
             if ( minT > maxT ) {

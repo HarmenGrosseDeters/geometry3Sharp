@@ -19,13 +19,25 @@ namespace gs
     ///
     /// A clean result can still have lost volume (eg a self-overlapping input made non-overlapping by
     /// dropping a layer): if its solid agrees with the input's winding number solid less than MinVolumeIoU,
-    /// the input itself is solidified instead (its winding number solid is the reference).
+    /// the input itself is used instead, resolved exactly or solidified (its winding number solid is the reference).
+    ///
+    /// Behaviour: the result is in <see cref="Mesh"/> after Apply(), a new mesh object. The mesh passed to the
+    /// constructor is used as the working mesh of MeshAutoRepair and is modified by it, so pass a copy if
+    /// you need the input afterwards. Check UsedExactResolve / UsedSolidify / FallbackReason (and ExactResolveReason)
+    /// to see which path was taken.
+    /// Cost: the self-intersection check and the volume comparison are cheap compared to the solidify
+    /// fallback, whose cost grows with SolidifyResolution.
+    ///
+    /// Use MeshAutoRepair alone if the input triangles must be kept (no remeshing), MeshWindingNumberSolidify
+    /// to always remesh, ExactMeshBoolean.Resolve to resolve self-intersections exactly without remeshing.
     /// </summary>
     public class MeshRobustRepair
     {
+        /// <summary> input mesh; after a successful Apply() the repaired (or solidified) result </summary>
         public DMesh3 Mesh;
         /// <summary> cells along the bounding box diagonal for the solidify fallback </summary>
         public int SolidifyResolution = 128;
+        /// <summary> if true, self-intersections make the repair result unclean (triggers the solidify fallback) </summary>
         public bool CheckSelfIntersections = true;
         /// <summary> minimum volume IoU of the repaired mesh with the input's winding number solid (0 = no check) </summary>
         public double MinVolumeIoU = 0.99;
@@ -33,6 +45,7 @@ namespace gs
         public Action<MeshAutoRepair> ConfigureRepair = null;
         /// <summary> replaces the first stage (input -> repaired mesh); null = MeshAutoRepair </summary>
         public Func<DMesh3, DMesh3> RepairF = null;
+        /// <summary> return true to cancel (checked after the repair stage and during solidify) </summary>
         public Func<bool> CancelF = () => { return false; };
         /// <summary>
         /// before solidifying: resolve the self-intersections exactly (the solid where the winding number is
@@ -44,11 +57,13 @@ namespace gs
         public int ExactResolveRounds = 4;
 
         // outputs
+        /// <summary> true if the result was produced by the solidify fallback (remeshed), false if it is the repair result </summary>
         public bool UsedSolidify;
         /// <summary> why the repair result was not used ("" if it was) </summary>
         public string FallbackReason = "";
         /// <summary> volume IoU of the repair result with the input (NaN if the input has no solid or not checked) </summary>
         public double RepairVolumeIoU = double.NaN;
+        /// <summary> the solidify fallback, if it ran (for its statistics); null otherwise </summary>
         public MeshWindingNumberSolidify Solidify;
         public bool UsedExactResolve;
         /// <summary> why the exact resolve was not used ("" if it was or was not tried) </summary>
@@ -58,11 +73,19 @@ namespace gs
         /// <summary> per resolve round: self-intersecting triangle pairs of its result (diagnostics) </summary>
         public List<int> ExactResolveSelfIntersections = new List<int>();
 
+        /// <summary> the mesh is modified by the repair stage (see class comment) </summary>
         public MeshRobustRepair(DMesh3 mesh)
         {
             Mesh = mesh;
         }
 
+        /// <summary>
+        /// Repair, check, and solidify if needed (see class comment). On success Mesh is the result.
+        /// </summary>
+        /// <returns>
+        /// false if cancelled, if the mesh to solidify is empty, or if the solidify fallback failed (eg the
+        /// grid would be too large); Mesh is then not replaced. true otherwise.
+        /// </returns>
         public bool Apply()
         {
             UsedSolidify = false;
@@ -215,7 +238,11 @@ namespace gs
             return moves.Count;
         }
 
-        /// <summary> "" if the mesh is clean (see class comment), otherwise the first problem found </summary>
+        /// <summary>
+        /// "" if the mesh is clean (see class comment), otherwise the first problem found, one of "empty",
+        /// "not closed", "bowties", "degenerate triangles" (area &lt; 1e-12 * diagonal^2), "inside-out components",
+        /// "self-intersections". Useful as a test assertion: NotCleanReason(mesh) == "".
+        /// </summary>
         public static string NotCleanReason(DMesh3 mesh, bool checkSelfIntersections = true)
         {
             if (mesh.TriangleCount == 0) return "empty";

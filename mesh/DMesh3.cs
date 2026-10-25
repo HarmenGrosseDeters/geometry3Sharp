@@ -100,6 +100,22 @@ namespace g3
     // TODO:
     //  - DVector w/ 'stride' option, so that we can guarantee that tuples are in single block.
     //    The can have custom accessor that looks up entire tuple
+    /// <summary>
+    /// Dynamic indexed triangle mesh with full connectivity (vertices, edges, triangles and their adjacency),
+    /// the main mesh type of geometry3Sharp. Supports optional per-vertex normals, colors and UVs and
+    /// per-triangle group IDs, and local editing (SplitEdge, CollapseEdge, FlipEdge, RemoveTriangle, ...).
+    ///
+    /// IDs are stable: removing elements leaves gaps, so always iterate with VertexIndices() / TriangleIndices()
+    /// (or Vertices() / Triangles()), and use MaxVertexID / MaxTriangleID only to size arrays; VertexCount and
+    /// TriangleCount are the numbers of live elements. Check IsCompact, or copy with new DMesh3(mesh, true) to
+    /// remove the gaps.
+    ///
+    /// Topology is kept manifold at edges: AppendTriangle refuses a triangle that would give an edge more than two
+    /// triangles (returns NonManifoldID); bowtie vertices are allowed. Triangles are [a,b,c] counter-clockwise seen from
+    /// the side the normal points to. Timestamp / ShapeTimestamp change on every edit and are used by caches such as
+    /// DMeshAABBTree3. Not thread-safe for concurrent modification.
+    /// Use CheckValidity() to test the internal consistency after construction or editing.
+    /// </summary>
     public partial class DMesh3 : IDeformableMesh
     {
         public const int InvalidID = -1;
@@ -142,6 +158,10 @@ namespace g3
         Dictionary<string, object> Metadata = null;
 
 
+        /// <summary>
+        /// Create an empty mesh. Note that per-vertex normals are enabled by default (initialized to +Y for new vertices
+        /// unless given); colors, UVs and triangle groups are off by default.
+        /// </summary>
         public DMesh3(bool bWantNormals = true, bool bWantColors = false, bool bWantUVs = false, bool bWantTriGroups = false)
         {
             vertices = new DVector<double>();
@@ -172,7 +192,11 @@ namespace g3
         {
         }
 
-        // normals/colors/uvs will only be copied if they exist
+        /// <summary>
+        /// Create a copy of mesh copy. If bCompact is true the copy has no gaps in its vertex/triangle IDs
+        /// (IDs may change, see CompactCopy); otherwise IDs are preserved.
+        /// Normals/colors/uvs will only be copied if they exist (and are wanted). Metadata is not copied.
+        /// </summary>
         public DMesh3(DMesh3 copy, bool bCompact = false, bool bWantNormals = true, bool bWantColors = true, bool bWantUVs = true)
         {
             if (bCompact)
@@ -198,10 +222,16 @@ namespace g3
         }
 
 
+        /// <summary> Result of CompactCopy: MapV maps vertex IDs of the source mesh to vertex IDs of this mesh </summary>
         public struct CompactInfo
         {
             public IIndexMap MapV;
         }
+        /// <summary>
+        /// Replace the contents of THIS mesh with a compact copy of mesh copy (no gaps in the ID spaces; vertices and
+        /// triangles keep their relative order, unreferenced vertices are kept). Returns the vertex ID map.
+        /// Usually called through the constructor new DMesh3(mesh, true).
+        /// </summary>
         public CompactInfo CompactCopy(DMesh3 copy, bool bNormals = true, bool bColors = true, bool bUVs = true)
         {
             if ( copy.IsCompact ) {
@@ -685,7 +715,7 @@ namespace g3
 
 		/// <summary>
 		/// Compute triangle normal, area, and centroid all at once. Re-uses vertex
-		/// lookups and computes normal & area simultaneously. *However* does not produce
+		/// lookups and computes normal &amp; area simultaneously. *However* does not produce
 		/// the same normal/area as separate calls, because of this.
 		/// </summary>
 		public void GetTriInfo(int tID, out Vector3d normal, out double fArea, out Vector3d vCentroid)
@@ -948,7 +978,8 @@ namespace g3
 
 
         /// <summary>
-        /// Append new vertex at position, returns new vid
+        /// Append new vertex at position, returns new vid. The vertex is isolated until a triangle uses it.
+        /// If the mesh has normals/colors/UVs, they are set to defaults (normal +Y, color white, uv zero).
         /// </summary>
         public int AppendVertex(Vector3d v) {
             return AppendVertex(new NewVertexInfo() {
@@ -1113,9 +1144,18 @@ namespace g3
 
 
 
+        /// <summary>
+        /// Append triangle (v0,v1,v2) with optional group ID, see AppendTriangle(Index3i, int).
+        /// </summary>
         public int AppendTriangle(int v0, int v1, int v2, int gid = -1) {
             return AppendTriangle(new Index3i(v0, v1, v2), gid);
         }
+        /// <summary>
+        /// Append triangle tv (vertex IDs, counter-clockwise when seen from the front) with optional group ID gid
+        /// (stored only if triangle groups are enabled). Returns the new triangle ID, or an error code instead of
+        /// throwing: InvalidID if a vertex does not exist or two vertices are equal, NonManifoldID if an edge
+        /// of the triangle already has two triangles. Check the result (tid &gt;= 0).
+        /// </summary>
         public int AppendTriangle(Index3i tv, int gid = -1) {
             if (IsVertex(tv[0]) == false || IsVertex(tv[1]) == false || IsVertex(tv[2]) == false) {
                 Util.gDevAssert(false);
@@ -1323,10 +1363,12 @@ namespace g3
 
         // iterators
 
+        /// <summary> Enumerate the IDs of all live vertices (including isolated ones), in increasing order </summary>
         public IEnumerable<int> VertexIndices() {
             foreach (int vid in vertices_refcount)
                 yield return vid;
         }
+        /// <summary> Enumerate the IDs of all live triangles, in increasing order </summary>
         public IEnumerable<int> TriangleIndices() {
             foreach (int tid in triangles_refcount)
                 yield return tid;
@@ -1349,7 +1391,7 @@ namespace g3
 
 
         /// <summary>
-        /// Enumerate vertices
+        /// Enumerate positions of all live vertices, in the order of VertexIndices() (IDs are not returned)
         /// </summary>
         public IEnumerable<Vector3d> Vertices() {
             foreach (int vid in vertices_refcount) {
@@ -1359,7 +1401,7 @@ namespace g3
         }
 
         /// <summary>
-        /// Enumerate triangles
+        /// Enumerate vertex-index triples of all live triangles, in the order of TriangleIndices() (IDs are not returned)
         /// </summary>
         public IEnumerable<Index3i> Triangles() {
             foreach (int tid in triangles_refcount) {
@@ -2036,6 +2078,10 @@ namespace g3
         bool cached_is_closed = false;
         int cached_is_closed_timestamp = -1;
 
+        /// <summary>
+        /// Returns true if the mesh has at least one triangle and no boundary edges (every edge has two triangles).
+        /// Does not check orientation consistency or self-intersections. O(edges); see CachedIsClosed for a cached version.
+        /// </summary>
         public bool IsClosed() {
             if (TriangleCount == 0)
                 return false;
@@ -2053,6 +2099,7 @@ namespace g3
             return true;            
         }
 
+        /// <summary> IsClosed(), cached until the mesh changes (Timestamp) </summary>
         public bool CachedIsClosed {
             get {
                 if (cached_is_closed_timestamp != Timestamp) {

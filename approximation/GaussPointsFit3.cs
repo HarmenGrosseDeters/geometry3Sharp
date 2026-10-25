@@ -72,7 +72,6 @@ namespace g3
             foreach (Vector3d p in points) {
                 weights_itr.MoveNext();
                 double w = weights_itr.Current;
-                w *= w;
                 Vector3d diff = p - Box.Center;
                 sumXX += w * diff[0] * diff[0];
                 sumXY += w * diff[0] * diff[1];
@@ -82,7 +81,7 @@ namespace g3
                 sumZZ += w * diff[2] * diff[2];
             }
 
-            do_solve(sumXX, sumXY, sumXZ, sumYY, sumYZ, sumZZ, invWeightDivide * invWeightDivide);
+            do_solve(sumXX, sumXY, sumXZ, sumYY, sumYZ, sumZZ, invWeightDivide);
         }
 
 
@@ -105,13 +104,15 @@ namespace g3
             // Setup the eigensolver.
             SymmetricEigenSolver solver = new SymmetricEigenSolver(3, 4096);
             int iters = solver.Solve(matrix, SymmetricEigenSolver.SortType.Increasing);
-            ResultValid = (iters > 0 && iters < SymmetricEigenSolver.NO_CONVERGENCE);
+            // iters == 0 means the matrix was already diagonal
+            ResultValid = (iters >= 0 && iters < SymmetricEigenSolver.NO_CONVERGENCE);
             if (ResultValid) {
                 Box.Extent = new Vector3d(solver.GetEigenvalues());
+                // eigenvectors are the columns of the row-major matrix Q
                 double[] evectors = solver.GetEigenvectors();
-                Box.AxisX = new Vector3d(evectors[0], evectors[1], evectors[2]);
-                Box.AxisY = new Vector3d(evectors[3], evectors[4], evectors[5]);
-                Box.AxisZ = new Vector3d(evectors[6], evectors[7], evectors[8]);
+                Box.AxisX = new Vector3d(evectors[0], evectors[3], evectors[6]);
+                Box.AxisY = new Vector3d(evectors[1], evectors[4], evectors[7]);
+                Box.AxisZ = new Vector3d(evectors[2], evectors[5], evectors[8]);
             }
         }
 

@@ -175,3 +175,41 @@ result is not closed after the cleanup (32), the volume differs from the input a
 the repaired mesh is not closed in the winding number sense (28), degenerate triangles remain (17). Two large
 meshes (42327, 42329) now hit the timeout.
 
+
+### Spike: solidify resolution 256 (`BENCH_SOLID_RES=256`, 30 meshes)
+20 meshes that `robust` solidified and that missed the 1 % Hausdorff bound at resolution 128, and 10 it
+solidified within the bound (random, seed 1; `results/robust_res256_spike.jsonl`, not versioned):
+
+| | resolution 128 | resolution 256 |
+|---|---|---|
+| repaired | 7/30 | 13/30 |
+| of the 20 over the Hausdorff bound | 0 | 8 |
+| of the 10 within the bound: made worse | – | 2 (Hausdorff 0.43 % → 1.15 %; IoU 0.995 → 0.980) |
+| self-intersections | – | fewer in 6 meshes, more in 4 |
+| median / max repair time | 10.7 s / 42 s | 17.5 s / 293 s |
+| output triangles | – | ×2.4 (median) |
+
+Most of the remaining Hausdorff misses at 256 are not grid error: the input has no meaningful solid
+(IoU 0.28–0.76 against the winding number solid) or the deviation comes from the repair before the
+solidify. Extrapolated to the 400 set, resolution 256 would repair about 30–40 more meshes at 1.6× the
+median time, 2.4× the triangles and a few new self-intersections. An adaptive choice (solidify at 128,
+check the deviation, repeat at 256 only where it is too large) is cheaper than raising the default.
+
+### Rerun after the dual contouring fixes (`robust`, 400 set)
+Same mode on the master of 2026-10-25 evening: dual contouring resolves self-intersections over all
+triangles with a last resort position, refines locally where polygons would create non-manifold edges,
+the volume IoU reference orients inside-out inputs, and the exact predicates have all adaptive stages.
+
+| | first `robust` run | rerun |
+|---|---|---|
+| repaired | 211 | 210 |
+| clean¹ + no exact self-intersections | 347 | **360** |
+| meshes with self-intersections | 51 | **38** |
+| median / p90 repair time | 5.2 s / 17.4 s | **3.7 s / 10.6 s** |
+| timeouts or crashes | 1 | 0 |
+| large meshes repaired | 9/30 | 9/30 |
+
+The fixes remove a quarter of the self-intersecting results and make the repair faster, but the strict
+count does not move: the meshes they fix still deviate more than 1 % (Hausdorff), which is the grid limit of
+the solidify (136 of the 190 misses). One mesh got worse (61460: 4 self-intersections after the solidify,
+before 0, probably at the transition of the new non-manifold refinement).

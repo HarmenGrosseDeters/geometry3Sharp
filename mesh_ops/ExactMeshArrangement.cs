@@ -1369,7 +1369,7 @@ namespace g3
 
 
     /// <summary>
-    /// Hash for edge keys (a << 32 | b): the default long hash is a ^ b, which collides for most edges of a mesh
+    /// Hash for edge keys (a &lt;&lt; 32 | b): the default long hash is a ^ b, which collides for most edges of a mesh
     /// </summary>
     internal sealed class EdgeKeyComparer : IEqualityComparer<long>
     {

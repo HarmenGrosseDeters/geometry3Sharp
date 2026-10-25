@@ -106,7 +106,13 @@ namespace g3
 
         public double Density
         {
-            get { return (double)elements.Count / (double)bounds.Volume; }
+            get {
+                if (elements.Count == 0)
+                    return 0;
+                // bounds are inclusive, so count cells via Dimensions (Volume is 0 for a single cell)
+                Vector3i dims = Dimensions;
+                return (double)elements.Count / ((double)dims.x * (double)dims.y * (double)dims.z);
+            }
         }
 
 

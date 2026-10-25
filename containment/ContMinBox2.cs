@@ -51,19 +51,23 @@ namespace g3
                 }
 
                 if (hullDim == 1) {
-                    throw new NotImplementedException("ContMinBox2: Have not implemented 1d case");
-                    //ConvexHull1 hull1 = hull.GetConvexHull1();
-                    //hullIndices = hull1->GetIndices();
-
-                    //mMinBox.Center = ((double)0.5) * (points[hullIndices[0]] +
-                    //    points[hullIndices[1]]);
-                    //Vector2d diff =
-                    //    points[hullIndices[1]] - points[hullIndices[0]];
-                    //mMinBox.Extent[0] = ((double)0.5) * diff.Normalize();
-                    //mMinBox.Extent[1] = (double)0.0;
-                    //mMinBox.Axis[0] = diff;
-                    //mMinBox.Axis[1] = -mMinBox.Axis[0].Perp();
-                    //return;
+                    // collinear points: box is the segment spanned by the extreme projections
+                    // onto the hull line (WildMagic uses ConvexHull1 for this)
+                    Vector2d lineOrigin, lineDir;
+                    hull.Get1DHullInfo(out lineOrigin, out lineDir);
+                    lineDir.Normalize();
+                    double tmin = double.MaxValue, tmax = double.MinValue;
+                    for (int i = 0; i < points.Count; ++i) {
+                        double t = lineDir.Dot(points[i] - lineOrigin);
+                        tmin = Math.Min(tmin, t);
+                        tmax = Math.Max(tmax, t);
+                    }
+                    mMinBox.Center = lineOrigin + (0.5 * (tmin + tmax)) * lineDir;
+                    mMinBox.AxisX = lineDir;
+                    mMinBox.AxisY = new Vector2d(-lineDir.y, lineDir.x);
+                    mMinBox.Extent[0] = 0.5 * (tmax - tmin);
+                    mMinBox.Extent[1] = (double)0;
+                    return;
                 }
 
                 numPoints = hullNumSimplices;

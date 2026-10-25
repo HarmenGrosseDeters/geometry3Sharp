@@ -123,14 +123,13 @@ namespace g3
                     bits[byte_i][byte_o] = false;
                     count--;
 
-                    // [RMS] [June 6 2017] not sure if this comment is still true or not. Need to experiment.
-                    // [TODO] only need to propagate up if our current field becomes zero
-                    //ACK NO THIS IS WRONG! only clear parent bit if our entire bit is zero!
-
-                    for (int li = 0; li < layerCount; ++li) {
+                    // only clear the parent bit if the entire child block became zero
+                    int child_data = bits[byte_i].Data;
+                    for (int li = 0; li < layerCount && child_data == 0; ++li) {
                         int layer_i = byte_i / 32;
                         int layer_o = byte_i - (32 * layer_i);
                         layers[li].layer_bits[layer_i][layer_o] = false;
+                        child_data = layers[li].layer_bits[layer_i].Data;
                         byte_i = layer_i;
                     }
                 }
@@ -153,7 +152,7 @@ namespace g3
                 for ( int bi = 0; bi < bits.Length; ++bi ) {
                     int d = bits[bi].Data;
                     int dmask = 1;
-                    int maxj = (bi == bits.Length - 1) ? max_index % 32 : 32;
+                    int maxj = (bi == bits.Length - 1 && max_index % 32 != 0) ? max_index % 32 : 32;
                     for (int j = 0; j < maxj; ++j) {
                         if ((d & dmask) != 0)
                             yield return bi * 32 + j;
