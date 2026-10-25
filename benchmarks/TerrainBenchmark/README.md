@@ -105,6 +105,9 @@ Same DGM, vertical error at every grid node (rays against the result):
 RemoveVertices removes vertices again where the retriangulated hole stays within MaxError (31–46% fewer
 triangles here, 94% on synthetic benches). Data-dependent flips during the insertion (Garland and
 Heckbert's variant) gave more triangles, not fewer, in all criteria tried (max error, sum of squares).
+Seeding the insertion with the crests and toes of TerrainBreakLines (77k or, above 40 degrees, 6k nodes)
+gave the same triangle count after RemoveVertices (119.7k–122.5k vs 119.6k at 0.2 m): the removal already
+aligns the triangles with the break lines.
 For a height grid, greedy insertion is 5–10x faster, needs less memory and guarantees the maximum error
 at every node (the result is Delaunay in XY, so a height field by construction). TerrainDualContouring
 remains the tool for broken meshes (soups, overlapping survey files) and point clouds.
