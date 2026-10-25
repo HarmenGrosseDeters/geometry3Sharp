@@ -16,7 +16,7 @@ namespace g3
     /// parts (production extension "path" attribute) are followed. Vertices are converted to millimeters unless
     /// ConvertToMillimeters is false. Invalid triangles are skipped with a warning.
     /// Materials, colors and extensions (beam lattices, slices, ...) are ignored. ReadOptions are ignored.
-    /// Errors (not a zip package, missing model part, bad XML or numbers) are returned as
+    /// Errors (not a zip package, missing model part, bad XML or numbers, result larger than <see cref="MaxElements"/>) are returned as
     /// <see cref="IOCode.FileParsingError"/>, exceptions are caught. A file without build items reads Ok with no meshes.
     /// The stream is left open.
     /// </summary>
@@ -40,6 +40,18 @@ namespace g3
         /// centimeter, inch, foot or meter. Unknown units are not scaled.
         /// </summary>
         public string FileUnit = "millimeter";
+
+        /// <summary>
+        /// Limit on the size of the file and of the result (default 50 million, ie a DMesh3 of a few GB): the vertices
+        /// and triangles read from the model parts may not exceed it, and neither may the vertices, triangles and
+        /// object instances appended after expanding build items and components.
+        /// Components may reference the same object several times, so a small file can describe an exponentially
+        /// large mesh, and a zip bomb can hold gigabytes of XML. If the limit is exceeded, Read returns
+        /// <see cref="IOCode.FileParsingError"/>.
+        /// </summary>
+        public long MaxElements = 50000000;
+
+        long nParsed, nAppended;
 
 
         class Mesh3MF
@@ -97,6 +109,7 @@ namespace g3
 
         IOReadResult read(Stream stream, IMeshBuilder builder)
         {
+            nParsed = nAppended = 0;
             ZipArchive zip;
             try {
                 zip = new ZipArchive(stream, ZipArchiveMode.Read, true);
@@ -162,9 +175,12 @@ namespace g3
         {
             ZipArchiveEntry rels = zip.GetEntry("_rels/.rels");
             if (rels != null) {
-                XmlDocument doc = new XmlDocument();
+                // OPC parts must not contain DTDs; prohibiting them also rules out entity expansion bombs
+                XmlDocument doc = new XmlDocument() { XmlResolver = null };
+                XmlReaderSettings settings = new XmlReaderSettings() { DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null };
                 using (Stream s = rels.Open())
-                    doc.Load(s);
+                using (XmlReader xml = XmlReader.Create(s, settings))
+                    doc.Load(xml);
                 foreach (XmlNode node in doc.GetElementsByTagName("Relationship", RelsNamespace)) {
                     XmlElement elem = node as XmlElement;
                     if (elem != null && elem.GetAttribute("Type") == StartPartType)
@@ -217,11 +233,15 @@ namespace g3
                             break;
 
                         case "vertex":
+                            if (cur != null && cur.Mesh != null && add_parsed() == false)
+                                return too_large();
                             if (cur != null && cur.Mesh != null)
                                 cur.Mesh.Vertices.Add(new Vector3d(parse_double(xml, "x"), parse_double(xml, "y"), parse_double(xml, "z")));
                             break;
 
                         case "triangle":
+                            if (cur != null && cur.Mesh != null && add_parsed() == false)
+                                return too_large();
                             if (cur != null && cur.Mesh != null)
                                 cur.Mesh.Triangles.Add(new Index3i(parse_int(xml, "v1"), parse_int(xml, "v2"), parse_int(xml, "v3")));
                             break;
@@ -299,6 +319,8 @@ namespace g3
         {
             if (depth > 64)
                 return new IOReadResult(IOCode.FileParsingError, "3MF components are nested too deeply (cyclic reference?)");
+            if (add_appended(1 + (obj.Mesh != null ? obj.Mesh.Vertices.Count + obj.Mesh.Triangles.Count : 0)) == false)
+                return too_large();
 
             if (obj.Mesh != null) {
                 Mesh3MF mesh = obj.Mesh;
@@ -327,6 +349,26 @@ namespace g3
                     return result;
             }
             return IOReadResult.Ok;
+        }
+
+
+        // count one parsed vertex or triangle against MaxElements, false if the limit is exceeded
+        bool add_parsed()
+        {
+            return ++nParsed <= MaxElements;
+        }
+
+        // count n appended elements against MaxElements, false if the limit is exceeded
+        bool add_appended(long n)
+        {
+            nAppended += n;
+            return nAppended <= MaxElements;
+        }
+
+        IOReadResult too_large()
+        {
+            return new IOReadResult(IOCode.FileParsingError,
+                string.Format("3MF file expands to more than {0} vertices, triangles and object instances (MaxElements)", MaxElements));
         }
 
 
