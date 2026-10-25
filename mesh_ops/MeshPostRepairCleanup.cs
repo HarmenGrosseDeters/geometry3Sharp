@@ -300,24 +300,56 @@ namespace gs
             }).ToList();
             var trees = new DMeshAABBTree3[closed.Count];
             for (int i = 0; i < closed.Count; ++i) {
-                // count enclosing components (|winding number| > 0.5, whatever their orientation); a few
-                // sample triangles vote, so one triangle touching another component does not decide
-                int samples = Math.Min(5, closed[i].Length), nInside = 0;
+                // count enclosing components (|winding number| > 0.5, whatever their orientation). Sample
+                // points lie slightly inside component i (the interiors of two components are disjoint or
+                // nested, so any interior point decides), not on its surface: where components touch, a
+                // surface point lies on the other component too, and there its winding number jumps between
+                // 0 and 1 by rounding, so the result would depend on the unit or the position of the mesh
+                List<Vector3d> samples = null;
+                int nInside = 0;
                 for (int j = 0; j < closed.Count; ++j) {
                     // only a component whose box contains this one's can enclose it
                     if (j == i || boxes[j].Contains(boxes[i]) == false) continue;
                     if (trees[j] == null)
                         trees[j] = new DMeshAABBTree3(new DSubmesh3(mesh, closed[j]).SubMesh, true);
-                    int votes = 0;
-                    for (int k = 0; k < samples; ++k) {
-                        Vector3d p = mesh.GetTriCentroid(closed[i][(int)((long)k * closed[i].Length / samples)]);
-                        if (Math.Abs(trees[j].FastWindingNumber(p)) > 0.5) votes++;
-                    }
-                    if (2 * votes > samples) nInside++;
+                    if (samples == null)
+                        samples = interior_samples(mesh, closed[i], vols[i] < 0, boxes[i].DiagonalLength);
+                    // a few samples vote, so one sample near a thin feature or another component does not decide
+                    int votes = samples.Count(p => Math.Abs(trees[j].FastWindingNumber(p)) > 0.5);
+                    if (2 * votes > samples.Count) nInside++;
                 }
                 bool cavity = (nInside % 2) == 1;
                 if ((vols[i] < 0) != cavity)
                     result.Add(closed[i]);
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Up to 9 points just inside the closed component tris: centroids of well-shaped triangles (the
+        /// largest inradius among evenly spread candidates), moved against the outward normal by
+        /// min(1e-4 * diag, inradius / 2). inverted: the component has negative volume, its triangle normals
+        /// point inwards. All lengths are relative to the component, so the points do not depend on the unit.
+        /// </summary>
+        static List<Vector3d> interior_samples(DMesh3 mesh, int[] tris, bool inverted, double diag)
+        {
+            const int nSamples = 9, nCandidates = 4 * nSamples;
+            int n = Math.Min(nCandidates, tris.Length);
+            var cands = new List<(double r, Vector3d c, Vector3d nrm)>(n);
+            Vector3d va = Vector3d.Zero, vb = Vector3d.Zero, vc = Vector3d.Zero;
+            for (int k = 0; k < n; ++k) {
+                int tid = tris[(int)((long)k * tris.Length / n)];
+                mesh.GetTriVertices(tid, ref va, ref vb, ref vc);
+                Vector3d nrm = (vb - va).Cross(vc - va);
+                double area2 = nrm.Length;
+                double perim = va.Distance(vb) + vb.Distance(vc) + vc.Distance(va);
+                if (!(area2 > 0) || !(perim > 0)) continue;
+                cands.Add((area2 / perim, (va + vb + vc) / 3, nrm / area2));    // inradius = 2 area / perimeter
+            }
+            var result = new List<Vector3d>(nSamples);
+            foreach (var cand in cands.OrderByDescending(x => x.r).Take(nSamples)) {
+                double h = Math.Min(1e-4 * diag, 0.5 * cand.r);
+                result.Add(cand.c + (inverted ? h : -h) * cand.nrm);
             }
             return result;
         }
