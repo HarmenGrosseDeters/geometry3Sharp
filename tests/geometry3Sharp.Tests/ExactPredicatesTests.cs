@@ -190,19 +190,21 @@ namespace geometry3Sharp.Tests
         public void AdaptiveStages_DecideNearlyDegenerateCasesCorrectly(double scale)
         {
             // points a few ulps off a line / plane / circle: the floating-point filter cannot decide them; the
-            // adaptive stages decide most, and every sign they give is the exact one
+            // adaptive stages give the exact sign, stages B and C already for most of them (D is rarely needed),
+            // and stage D alone (without the error bounds of B and C) as well
             var rnd = new Random(17);
-            int n = 20000, decided2 = 0, decided3 = 0, decidedC = 0;
+            int n = 20000;
+            int[] reachedD = new int[3];
             for (int i = 0; i < n; ++i) {
                 Vector2d a = scale * new Vector2d(rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5);
                 Vector2d b = scale * new Vector2d(rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5);
                 double t = rnd.NextDouble();
                 Vector2d c = new Vector2d(Ulps(a.x + t * (b.x - a.x), rnd, 4), Ulps(a.y + t * (b.y - a.y), rnd, 4));
-                int s2 = AdaptivePredicates.Orient2d(a.x, a.y, b.x, b.y, c.x, c.y);
-                if (s2 != AdaptivePredicates.NotDecided) {
-                    decided2++;
-                    Assert.Equal(ExactPredicates.orient2d_bigint(a, b, c), s2);
-                }
+                int e2 = ExactPredicates.orient2d_bigint(a, b, c);
+                int before = AdaptivePredicates.StageDCount;
+                Assert.Equal(e2, AdaptivePredicates.Orient2d(a.x, a.y, b.x, b.y, c.x, c.y));
+                reachedD[0] += AdaptivePredicates.StageDCount - before;
+                Assert.Equal(e2, AdaptivePredicates.Orient2dStageD(a.x, a.y, b.x, b.y, c.x, c.y));
 
                 Vector3d p = scale * new Vector3d(rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5);
                 Vector3d q = scale * new Vector3d(rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5);
@@ -210,11 +212,11 @@ namespace geometry3Sharp.Tests
                 double u = rnd.NextDouble(), v = rnd.NextDouble();
                 Vector3d w = p + u * (q - p) + v * (r - p);
                 w = new Vector3d(Ulps(w.x, rnd, 4), Ulps(w.y, rnd, 4), Ulps(w.z, rnd, 4));
-                int s3 = AdaptivePredicates.Orient3d(p.x, p.y, p.z, q.x, q.y, q.z, r.x, r.y, r.z, w.x, w.y, w.z);
-                if (s3 != AdaptivePredicates.NotDecided) {
-                    decided3++;
-                    Assert.Equal(ExactPredicates.orient3d_bigint(p, q, r, w), -s3);     // (Shewchuk's sign)
-                }
+                int e3 = -ExactPredicates.orient3d_bigint(p, q, r, w);     // (Shewchuk's sign)
+                before = AdaptivePredicates.StageDCount;
+                Assert.Equal(e3, AdaptivePredicates.Orient3d(p.x, p.y, p.z, q.x, q.y, q.z, r.x, r.y, r.z, w.x, w.y, w.z));
+                reachedD[1] += AdaptivePredicates.StageDCount - before;
+                Assert.Equal(e3, AdaptivePredicates.Orient3dStageD(p.x, p.y, p.z, q.x, q.y, q.z, r.x, r.y, r.z, w.x, w.y, w.z));
 
                 Vector2d center = scale * new Vector2d(rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5);
                 double rad = scale * (0.1 + rnd.NextDouble());
@@ -223,15 +225,137 @@ namespace geometry3Sharp.Tests
                     double th = rnd.NextDouble() * 2 * Math.PI;
                     cp[k] = new Vector2d(Ulps(center.x + rad * Math.Cos(th), rnd, 4), Ulps(center.y + rad * Math.Sin(th), rnd, 4));
                 }
-                int sc = AdaptivePredicates.InCircle(cp[0].x, cp[0].y, cp[1].x, cp[1].y, cp[2].x, cp[2].y, cp[3].x, cp[3].y);
-                if (sc != AdaptivePredicates.NotDecided) {
-                    decidedC++;
-                    Assert.Equal(ExactPredicates.incircle_bigint(cp[0], cp[1], cp[2], cp[3]), sc);
-                }
+                int ec = ExactPredicates.incircle_bigint(cp[0], cp[1], cp[2], cp[3]);
+                before = AdaptivePredicates.StageDCount;
+                Assert.Equal(ec, AdaptivePredicates.InCircle(cp[0].x, cp[0].y, cp[1].x, cp[1].y, cp[2].x, cp[2].y, cp[3].x, cp[3].y));
+                reachedD[2] += AdaptivePredicates.StageDCount - before;
+                Assert.Equal(ec, AdaptivePredicates.InCircleStageD(cp[0].x, cp[0].y, cp[1].x, cp[1].y, cp[2].x, cp[2].y, cp[3].x, cp[3].y));
             }
-            Assert.True(decided2 > 0.9 * n, $"orient2d decided {decided2}");
-            Assert.True(decided3 > 0.9 * n, $"orient3d decided {decided3}");
-            Assert.True(decidedC > 0.9 * n, $"incircle decided {decidedC}");
+            for (int k = 0; k < 3; ++k)
+                Assert.True(reachedD[k] < 0.1 * n, $"predicate {k}: stage D needed {reachedD[k]} times");
+        }
+
+        // u scaled by a power of two (exact), within the range of the expansion arithmetic
+        static Vector3d Pow2(Random rnd, Vector3d u) { return Math.Pow(2, rnd.Next(-40, 41)) * u; }
+
+        [Fact]
+        public void StageD_ExactlyDegenerate_WithInexactDifferences()
+        {
+            // multiples 2^k u of one vector are exactly collinear (with 0), multiples of u and v exactly coplanar,
+            // and collinear points exactly cocircular (the lifted points lie on a parabola in a vertical plane).
+            // The differences of such points are not exact doubles: the rounding errors and their products
+            // decide, which only stage D evaluates. Exactly 0, and the exact sign one ulp away.
+            var rnd = new Random(23);
+            int reachedD = 0;
+            for (int i = 0; i < 5000; ++i) {
+                Vector3d u = new Vector3d(rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5);
+                Vector3d v = new Vector3d(rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5);
+                Vector3d a = Pow2(rnd, u), b = Pow2(rnd, v), c = Pow2(rnd, u), d = Pow2(rnd, v);
+                Vector2d a2 = a.xy, b2 = Pow2(rnd, u).xy, c2 = c.xy, d2 = Pow2(rnd, u).xy;
+                int before = AdaptivePredicates.StageDCount;
+
+                Assert.Equal(0, ExactPredicates.Orient2d(a2, b2, c2));
+                Assert.Equal(0, AdaptivePredicates.Orient2dStageD(a2.x, a2.y, b2.x, b2.y, c2.x, c2.y));
+                Assert.Equal(0, ExactPredicates.Orient3d(a, b, c, d));
+                Assert.Equal(0, AdaptivePredicates.Orient3dStageD(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z, d.x, d.y, d.z));
+                Assert.Equal(0, ExactPredicates.InCircle(a2, b2, c2, d2));
+                Assert.Equal(0, AdaptivePredicates.InCircleStageD(a2.x, a2.y, b2.x, b2.y, c2.x, c2.y, d2.x, d2.y));
+
+                // one coordinate one ulp away
+                c2 = new Vector2d(Ulps(c2.x, rnd, 1), c2.y);
+                d = new Vector3d(d.x, d.y, Ulps(d.z, rnd, 1));
+                d2 = new Vector2d(d2.x, Ulps(d2.y, rnd, 1));
+                int e2 = ExactPredicates.orient2d_bigint(a2, b2, c2);
+                Assert.Equal(e2, ExactPredicates.Orient2d(a2, b2, c2));
+                Assert.Equal(e2, AdaptivePredicates.Orient2dStageD(a2.x, a2.y, b2.x, b2.y, c2.x, c2.y));
+                int e3 = ExactPredicates.orient3d_bigint(a, b, c, d);
+                Assert.Equal(e3, ExactPredicates.Orient3d(a, b, c, d));
+                Assert.Equal(-e3, AdaptivePredicates.Orient3dStageD(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z, d.x, d.y, d.z));
+                int ec = ExactPredicates.incircle_bigint(a2, b2, c2, d2);
+                Assert.Equal(ec, ExactPredicates.InCircle(a2, b2, c2, d2));
+                Assert.Equal(ec, AdaptivePredicates.InCircleStageD(a2.x, a2.y, b2.x, b2.y, c2.x, c2.y, d2.x, d2.y));
+                reachedD += AdaptivePredicates.StageDCount - before;
+            }
+            Assert.True(reachedD > 5000, $"stage D reached {reachedD} times");
+        }
+
+        // Gaussian integers a + b i with prime norms 1 mod 4 (and 13 two more times): their products have the norm
+        // N in [2^105, 2^106), so the integer points with x^2 + y^2 = N have coordinates below 2^53 (exact doubles),
+        // up to 2^53 apart: many of their differences are not exact doubles
+        static readonly int[,] GaussianPrimes = { { 1, 2 }, { 2, 3 }, { 1, 4 }, { 2, 5 }, { 1, 6 }, { 4, 5 }, { 2, 7 }, { 5, 6 }, { 3, 8 },
+            { 5, 8 }, { 4, 9 }, { 1, 10 }, { 3, 10 }, { 7, 8 }, { 4, 11 }, { 7, 10 }, { 6, 11 }, { 2, 3 }, { 2, 3 } };
+
+        // the rounding error of a - b
+        static double DiffTail(double a, double b)
+        {
+            double x = a - b, bv = a - x, av = x + bv;
+            return (a - av) + (bv - b);
+        }
+
+        static Vector2d PointOnBigCircle(Random rnd)
+        {
+            BigInteger x = BigInteger.One, y = BigInteger.Zero;
+            for (int k = 0; k < GaussianPrimes.GetLength(0); ++k) {
+                int a = GaussianPrimes[k, 0], b = (rnd.Next(2) == 0) ? GaussianPrimes[k, 1] : -GaussianPrimes[k, 1];
+                BigInteger nx = x * a - y * b, ny = x * b + y * a;
+                x = nx; y = ny;
+            }
+            Vector2d p = new Vector2d((double)x, (double)y);
+            if (rnd.Next(2) == 0) p = new Vector2d(p.y, p.x);
+            return new Vector2d(rnd.Next(2) == 0 ? p.x : -p.x, rnd.Next(2) == 0 ? p.y : -p.y);
+        }
+
+        [Fact]
+        public void StageD_Cocircular_WithInexactDifferences()
+        {
+            // four integer points on one circle (not collinear): exactly cocircular, but the rounding errors of the
+            // differences, also their squares in the lifts, decide; exactly 0, and the exact sign one ulp away
+            var rnd = new Random(29);
+            int inexact = 0;
+            for (int i = 0; i < 3000; ++i) {
+                Vector2d[] q = { PointOnBigCircle(rnd), PointOnBigCircle(rnd), PointOnBigCircle(rnd), PointOnBigCircle(rnd) };
+                Assert.Equal(0, ExactPredicates.incircle_bigint(q[0], q[1], q[2], q[3]));
+                for (int k = 0; k < 3; ++k)
+                    if (DiffTail(q[k].x, q[3].x) != 0 || DiffTail(q[k].y, q[3].y) != 0) inexact++;
+                Assert.Equal(0, ExactPredicates.InCircle(q[0], q[1], q[2], q[3]));
+                Assert.Equal(0, AdaptivePredicates.InCircleStageD(q[0].x, q[0].y, q[1].x, q[1].y, q[2].x, q[2].y, q[3].x, q[3].y));
+
+                int j = rnd.Next(4);
+                q[j] = new Vector2d(Ulps(q[j].x, rnd, 1), q[j].y);
+                int e = ExactPredicates.incircle_bigint(q[0], q[1], q[2], q[3]);
+                Assert.Equal(e, ExactPredicates.InCircle(q[0], q[1], q[2], q[3]));
+                Assert.Equal(e, AdaptivePredicates.InCircleStageD(q[0].x, q[0].y, q[1].x, q[1].y, q[2].x, q[2].y, q[3].x, q[3].y));
+            }
+            Assert.True(inexact > 1000, $"{inexact} inexact differences");
+        }
+
+        [Theory]
+        [InlineData(0)]
+        [InlineData(1)]
+        [InlineData(2)]
+        [InlineData(3)]
+        [InlineData(4)]
+        public void StageD_MatchesBigInteger_HardValues(int kind)
+        {
+            // values of very different magnitudes, few mantissa bits, and exactly degenerate combinations: stage D
+            // alone gives the exact sign whenever the coordinates are in its range
+            var rand = new Random(2000 + kind);
+            int checkedCases = 0;
+            for (int i = 0; i < 4000; ++i) {
+                Func<double> h = () => Hard(rand, kind);
+                Vector3d a = new Vector3d(h(), h(), h()), b = new Vector3d(h(), h(), h()), c = new Vector3d(h(), h(), h()), d = new Vector3d(h(), h(), h());
+                if (i % 4 == 1) d = a + (b - a) * 2 + (c - a) * 3;
+                if (i % 4 == 2) c = a;
+                if (Expansion.InRange(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z, d.x, d.y, d.z) == false)
+                    continue;
+                checkedCases++;
+                Assert.Equal(-ExactPredicates.orient3d_bigint(a, b, c, d),
+                    AdaptivePredicates.Orient3dStageD(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z, d.x, d.y, d.z));
+                Assert.Equal(ExactPredicates.orient2d_bigint(a.xy, b.xy, c.xy), AdaptivePredicates.Orient2dStageD(a.x, a.y, b.x, b.y, c.x, c.y));
+                Assert.Equal(ExactPredicates.incircle_bigint(a.xy, b.xy, c.xy, d.xy),
+                    AdaptivePredicates.InCircleStageD(a.x, a.y, b.x, b.y, c.x, c.y, d.x, d.y));
+            }
+            Assert.True(checkedCases > 100, $"{checkedCases} cases in range");
         }
 
         [Fact]
@@ -250,8 +374,7 @@ namespace geometry3Sharp.Tests
                 // the circle of radius 5 around (x0, y0)
                 Assert.Equal(0, AdaptivePredicates.InCircle(x0 + 5, y0, x0 + 3, y0 + 4, x0 - 4, y0 + 3, x0, y0 - 5));
                 // just off the circle
-                int sOut = AdaptivePredicates.InCircle(x0 + 5, y0, x0 + 3, y0 + 4, x0 - 4, y0 + 3, x0, y0 - 5.000000000001);
-                Assert.Equal(-1, sOut == AdaptivePredicates.NotDecided ? ExactPredicates.InCircle(new Vector2d(x0 + 5, y0), new Vector2d(x0 + 3, y0 + 4), new Vector2d(x0 - 4, y0 + 3), new Vector2d(x0, y0 - 5.000000000001)) : sOut);
+                Assert.Equal(-1, AdaptivePredicates.InCircle(x0 + 5, y0, x0 + 3, y0 + 4, x0 - 4, y0 + 3, x0, y0 - 5.000000000001));
             }
         }
 

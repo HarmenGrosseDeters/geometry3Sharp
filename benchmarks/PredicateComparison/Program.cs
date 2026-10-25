@@ -185,6 +185,22 @@ static class Program
         return p.ToArray();
     }
 
+    // exactly degenerate, but the differences are not exact doubles: multiples 2^k u of one vector are
+    // collinear (and cocircular: lifted, they lie on a parabola in a vertical plane), multiples of u and v coplanar
+    static double[] pow2_degenerate(Random r, int kind)
+    {
+        var u = new[] { U(r), U(r), U(r) };
+        var v = new[] { U(r), U(r), U(r) };
+        int dim = kind == 2 ? 3 : 2, n = kind == 0 ? 3 : 4;
+        var p = new List<double>();
+        for (int k = 0; k < n; ++k) {
+            double s = Math.Pow(2, r.Next(-40, 41));
+            var w = (kind == 2 && k % 2 == 1) ? v : u;
+            for (int c = 0; c < dim; ++c) p.Add(s * w[c]);
+        }
+        return p.ToArray();
+    }
+
     // Kettner et al., "Classroom examples of robustness problems in geometric computations": (0.5 + i ulp, 0.5 + j ulp)
     // against the line (12, 12) - (24, 24), against the circle through (23.5, 0.5), (23.5, 23.5), (0.5, 23.5) and
     // against the plane x = y through (12, 12, 12), (24, 24, 24), (0, 0, 1)
@@ -220,10 +236,11 @@ static class Program
         for (int kind = 0; kind < 3; ++kind) {
             var header = string.Join(" | ", impls.Select(im => im.Name));
             Console.WriteLine($"## {names[kind]}: {header}");
-            foreach (string scenario in new[] { "nearly degenerate", "exactly degenerate (grid)" }) {
+            foreach (string scenario in new[] { "nearly degenerate", "exactly degenerate (grid)", "exactly degenerate (2^k)" }) {
                 foreach (double s in scales) {
                     var r = new Random(1234 + kind);
-                    var cases = Enumerable.Range(0, Count).Select(_ => scaled(scenario[0] == 'n' ? near[kind](r) : grid[kind](r), s)).ToList();
+                    Func<Random, double[]> gen = scenario[0] == 'n' ? near[kind] : scenario.EndsWith("(grid)") ? grid[kind] : rr => pow2_degenerate(rr, kind);
+                    var cases = Enumerable.Range(0, Count).Select(_ => scaled(gen(r), s)).ToList();
                     report($"{scenario}, scale {s:g3}", cases, refs[kind], impls, kind);
                 }
             }
@@ -239,10 +256,12 @@ static class Program
         var nearCo = Enumerable.Range(0, 1000).Select(_ => near_cocircular(rnd)).ToList();
         var nearCol = Enumerable.Range(0, 1000).Select(_ => near_collinear(rnd)).ToList();
         var nearPl = Enumerable.Range(0, 1000).Select(_ => near_coplanar(rnd)).ToList();
+        var deg = Enumerable.Range(0, 3).Select(k => Enumerable.Range(0, 1000).Select(_ => pow2_degenerate(rnd, k)).ToList()).ToArray();
         foreach (var im in impls) {
-            Console.WriteLine($"{im.Name}: orient2d general {time(im.Orient2d, general)}, nearly collinear {time(im.Orient2d, nearCol)}; "
-                + $"incircle general {time(im.InCircle, general)}, nearly cocircular {time(im.InCircle, nearCo)}; "
-                + $"orient3d general {time(im.Orient3d, general)}, nearly coplanar {time(im.Orient3d, nearPl)}");
+            Console.WriteLine($"{im.Name}: orient2d general {time(im.Orient2d, general)}, nearly collinear {time(im.Orient2d, nearCol)}, "
+                + $"degenerate (2^k) {time(im.Orient2d, deg[0])}; "
+                + $"incircle general {time(im.InCircle, general)}, nearly cocircular {time(im.InCircle, nearCo)}, degenerate (2^k) {time(im.InCircle, deg[1])}; "
+                + $"orient3d general {time(im.Orient3d, general)}, nearly coplanar {time(im.Orient3d, nearPl)}, degenerate (2^k) {time(im.Orient3d, deg[2])}");
         }
     }
 

@@ -5,7 +5,8 @@ geometry3Sharp (g3), Triangle.NET-Fork (`HarmenGrosseDeters/triangle.net`) und d
 (`HarmenGrosseDeters/Triangle.Net-Old-Custom`): was es gibt, was garantiert ist, wo die Grenzen liegen, wer
 was benutzt, wie es getestet ist und welche Lizenz gilt. Am Ende die offenen Punkte als Vorschlag.
 
-Stand: g3 Branch `predicates-consolidation` (= `volumetric-booleans` `f5c7f38` + diese Doku und der Harness),
+Stand: g3 Branch `predicates-consolidation` (= `volumetric-booleans` `f5c7f38` + diese Doku, der Harness, Stufe D
+und die Korrektur des Orient2d-Filters bei Unterlauf),
 Triangle.NET-Fork `master` `01af2aa` und offener PR #5 (`claude/awesome-pascal-eex2py`, `0b1b934`). Old-Custom konnte in dieser Session nicht gelesen werden (privates
 Repository, kein Zugriff freigegeben); die Angaben dazu stammen aus der vorigen Session und sind als solche
 markiert.
@@ -16,12 +17,13 @@ markiert.
 |---|---|---|---|---|
 | Prädikate | orient2d, orient3d, incircle | orient2d (`CounterClockwise`), incircle (`InCircle`/`NonRegular`) | orient2d, incircle | wie links |
 | Rückgabe | Vorzeichen `int` | Determinante `double` (Vorzeichen exakt, Betrag genähert) | `double` | `double` |
-| Exakt im Bereich ~2^±100 | ja | ja (Shewchuk-Stufen A–D) | **nein** (`decimal`) | ja (delegiert an Triangle.NET) |
+| Exakt im Bereich ~2^±100 | ja (Stufen A–D) | ja (Shewchuk-Stufen A–D) | **nein** (`decimal`) | ja (delegiert an Triangle.NET) |
 | Exakt bei Unter-/Überlauf | ja (BigInteger) | **nein** auf `master`; ja mit PR #5 | nein | **nein** (ja, sobald PR #5 im Fork ist) |
 | Herkunft | eigene Implementierung nach dem Paper | Port von `predicates.c`-Teilen aus `triangle.c` | Triangle.NET alt | – |
 | Lizenz | Boost | Triangle-Lizenz (Shewchuk) / MIT (Triangle.NET) | dto. | dto. |
 
-**Fazit:** g3 ist die einzige Implementierung, die für alle endlichen Doubles das richtige Vorzeichen liefert.
+**Fazit:** g3 liefert für alle endlichen Doubles das richtige Vorzeichen (nach der Korrektur des
+Orient2d-Filters bei subnormalen Produkten, siehe Abschnitt 1), ebenso Triangle.NET mit PR #5.
 Triangle.NET ist im normalen Koordinatenbereich exakt, scheitert aber bei sehr kleinen Koordinaten (gemessen
 1e-160 und 1e-300: Produkte subnormal oder 0) und sehr großen (1e200: Produkte laufen über; incircle
 schon bei 1e150, weil dort Terme vom Grad 4 entstehen). Old-Custom `main` ist schon bei normalen Koordinaten falsch.
@@ -50,29 +52,38 @@ int ExactPredicates.InCircle(Vector2d a, Vector2d b, Vector2d c, Vector2d d)
 
 **Ablauf (alle drei Prädikate):**
 1. **Stufe A, Filter:** Determinante in double, Fehlerschranke nach Shewchuk (`(3+16ε)ε`, `(7+56ε)ε`,
-   `(10+96ε)ε` mal Permanente). Orient3d/InCircle entscheiden nur, wenn die Permanente > 1e-200 ist
-   (`UnderflowLimit`, sonst gilt die relative Schranke wegen subnormaler Produkte nicht). Überlauf ergibt
-   ∞/NaN, der Vergleich `det > bound` ist dann falsch → weiter zu 2. Orient2d entscheidet ebenso nur, wenn
-   |l| + |r| > 1e-200 ist. *Korrigiert:* Ohne diese Grenze gab Orient2d bei exakt kollinearen Punkten um
-   1e-160 ±1 statt 0 – die Schranke rundet bei subnormalen Produkten auf 0, die Rundungsfehler der
-   Differenzen lassen aber ein `det` von 5e-324 übrig (Test `Orient2d_SubnormalProducts`).
+   `(10+96ε)ε` mal Permanente). Alle drei entscheiden nur, wenn die Permanente (bei Orient2d
+   |l| + |r|) > 1e-200 ist (`UnderflowLimit`), sonst gilt die relative Schranke wegen subnormaler Produkte
+   nicht. Überlauf ergibt ∞/NaN, der Vergleich `det > bound` ist dann falsch → weiter zu 2.
+   *Korrigiert:* Orient2d hatte den Unterlauf-Test nicht. Bei exakt kollinearen Punkten
+   mit Koordinaten um 1e-154 … 1e-170 rundet die Schranke auf 0, während die Rundungsfehler der Differenzen
+   ein `det` von einer subnormalen Einheit (5e-324) übrig lassen – der Filter gab dann ±1 statt 0 (16 von
+   20 000 Fällen im Harness-Szenario „2^k“ bei Skala 1e-160; Test `Orient2d_SubnormalProducts`, schlägt auf
+   dem alten Code fehl).
 2. **Exakter Pfad** (`*_exact`): gleiche Punkte → 0. Liegen alle Koordinaten bei 0 oder in [2^-100, 2^100]
    (`Expansion.InRange`), dann
-   - `AdaptivePredicates` (Stufen B und C nach Shewchuk), bei `NotDecided`
-   - volle Expansion über `Expansion.Terms` (Liste von Doubles, Produkte paarweise per Dekker-TwoProduct,
-     Vorzeichen per Grow-Expansion; Puffer pro Thread, keine Allokation).
+   `AdaptivePredicates` (Stufen B, C und D nach Shewchuk; D ist exakt, entscheidet also immer).
    Sonst `*_bigint`: alle Koordinaten als `m·2^e` auf gemeinsamen Exponenten, Determinante in `BigInteger`.
 3. NaN → `ArgumentException` (im exakten Pfad); ±∞ ebenso (Test `InfiniteCoordinates_Throw`).
 
 `Expansion.TwoProduct` nutzt bewusst kein FMA (`Math.FusedMultiplyAdd` gibt es unter netstandard2.0/net48
 nicht); Dekker-Splitting mit `2^27+1` ist exakt, solange nichts über-/unterläuft – dafür sorgt `InRange`.
 
-### `math/AdaptivePredicates.cs` – Stufen B und C (intern)
+### `math/AdaptivePredicates.cs` – Stufen B, C und D (intern)
 
 - Stufe B: Determinante exakt aus den *gerundeten* Differenzen (Expansion aus wenigen Dutzend Doubles),
   Schranke `ccwerrboundB` usw. Sind alle Differenzen exakt (Tails = 0), entscheidet B direkt.
 - Stufe C: Terme erster Ordnung der Rundungsfehler der Differenzen, Schranke `…errboundC`.
-- Keine Stufe D; was C nicht entscheidet, rechnet die volle Expansion in `ExactPredicates`.
+- Stufe D: B's Expansion plus **alle** Terme mit Rundungsfehlern, exakt – die exakte Determinante. Pro
+  Summand der Laplace-Entwicklung: Mit der exakten Differenz x' = x + xtail ist jeder 2×2-Minor
+  M' = M + T (T = Anteil mit Tails, `cross_tail`, ≤ 12 Komponenten). orient3d: z'·M' − z·M = z·T + ztail·M'.
+  incircle: mit dem exakten Lift L' = L + Lt, Lt = xtail(2x + xtail) + ytail(2y + ytail):
+  L'·M' − L·M = L·T + Lt·M'. orient2d: B + T. Tails, die 0 sind, werden übersprungen, die Expansionen
+  bleiben klein (Schranken im Code; incircle höchstens 1152 Komponenten, meist viel weniger).
+  Geschrieben nach dem Paper, nicht nach `predicates.c` oder Triangle.NET; die Gruppierung der Terme
+  weicht von Shewchuks Code ab.
+- Die frühere volle Expansion (`Expansion.Terms`: Liste aller paarweisen Produkte, Vorzeichen per
+  Grow-Expansion, O(n²) über ~1500 Terme bei incircle) ist damit entfallen.
 - Vorzeichen nach Shewchuk (Orient3d also umgekehrt zu g3, siehe oben).
 - Workspace pro Thread (`[ThreadStatic]`), Arrays fester Größe.
 
@@ -101,8 +112,16 @@ zusammengeführt (übernommen wurde die des Benutzers); es ist keine zweite Kopi
   `ExpansionArithmetic_Cocircular`, `TwoProduct_IsExact`
 - Skalen: `Orient_TinyCoordinates`, `Orient3d_SubnormalProducts`, `Predicates_NearDegenerate_ScaledIntoTheSubnormalRange`,
   `Orient_ExpansionPath_CoplanarAndNearCoplanar_AtManyScales`
-- adaptive Stufen: `AdaptiveStages_DecideNearlyDegenerateCasesCorrectly` (jedes Vorzeichen von B/C gegen
-  BigInteger, > 90 % entschieden; fängt Mutationen der Stufe-C-Terme), `AdaptiveStages_ExactDifferences_DecideDegenerateCases`
+- adaptive Stufen: `AdaptiveStages_DecideNearlyDegenerateCasesCorrectly` (jedes Vorzeichen gegen BigInteger,
+  Stufe D in < 10 % der Fälle nötig, dazu Stufe D allein ohne die Schranken von B/C; fängt Mutationen der
+  Stufe-C-Terme), `AdaptiveStages_ExactDifferences_DecideDegenerateCases`
+- Stufe D: `StageD_ExactlyDegenerate_WithInexactDifferences` (Vielfache 2^k·u bzw. von u und v: exakt
+  kollinear/koplanar/kozirkulär, Differenzen inexakt; genau 0 und ein ulp daneben),
+  `StageD_Cocircular_WithInexactDifferences` (ganzzahlige Punkte auf einem Kreis mit Radius² in
+  [2^105, 2^106), aus Gaußschen Primzahlen: nicht kollinear, die Quadrate der Tails in den Lifts zählen),
+  `StageD_MatchesBigInteger_HardValues`. Per Mutation geprüft: jeder einzelne weggelassene Term von Stufe D
+  (12 Varianten) lässt mindestens einen Test fehlschlagen.
+- `Orient2d_SubnormalProducts` (Korrektur des Filters, siehe oben)
 - Grundfälle, `InfiniteCoordinates_Throw`, Dreieck-Dreieck-Tests (`TriTri_*`)
 
 Dazu `ExactImplicitPointTests.cs` und `ExactBooleanBuildingBlockTests.cs` für die rationalen Prädikate des Arrangements.
@@ -178,24 +197,34 @@ der tatsächlichen Doubles. Ausnahmen und NaN zählen als falsch. Spalten: g3 | 
 | Kettner-Gitter, 1e-160 | 0 \| 19740 \| **19740** | 0 \| 19880 \| **19880** | 0 \| 19740 |
 | Kettner-Gitter, 1e200 | 0 \| 19881 \| **19881** | 0 \| 19881 \| **19881** | 0 \| 19881 |
 
+Die Triangle.NET-Spalte oben ist `master`. Mit PR #5 und mit g3 nach diesem Branch: **0 Fehler in allen 72
+Zeilen** des Harness, auch im neuen Szenario „exakt degeneriert, Differenzen inexakt (2^k)“, wo naives double
+bei Skala 1 in 7864 (orient2d) / 12981 (incircle) / 16196 (orient3d) von 20 000 Fällen falsch liegt. Vor der
+Korrektur des Orient2d-Filters hatte g3 dort bei Skala 1e-160 16 Fehler.
+
 Laut voriger Session (nicht nachgemessen) Old-Custom `main`: fast degeneriert Skala 1: 1853 (orient2d) /
 5820 (incircle) falsch; Kettner-Gitter 614 / 5693.
 
-Zeit für 200 000 Aufrufe (ms, net10.0, ein Kern):
+Zeit für 200 000 Aufrufe (ms, net10.0, ein Kern; die Maschine streut um ±30 %):
 
-| | orient2d allg. | fast kollinear | incircle allg. | fast kozirkulär | orient3d allg. | fast koplanar |
-|---|---|---|---|---|---|---|
-| g3 | 3 | 7 | 2 | 169 | 3 | 54 |
-| Triangle.NET | 8 | 12 | 10 | 178 | – | – |
-| naiv double | 2 | 1 | 2 | 1 | 1 | 1 |
+| | orient2d allg. | fast kollinear | exakt degen. (2^k) | incircle allg. | fast kozirkulär | exakt degen. (2^k) | orient3d allg. | fast koplanar | exakt degen. (2^k) |
+|---|---|---|---|---|---|---|---|---|---|
+| g3 vor Stufe D | 6 | 9 | 81 | 2 | 152–172 | 5225–5619 | 2 | 49–58 | 1191–1294 |
+| g3 mit Stufe D | 2–7 | 4–14 | 41–57 | 2–3 | 154–175 | 434–621 | 2–4 | 49–63 | 334–396 |
+| Triangle.NET PR #5 | 12 | 12 | 60 | 11 | 192 | 1660 | – | – | – |
+| naiv double | 2 | 1 | 1 | 1 | 2 | 2 | 2 | 2 | 2 |
+
+Stufe D beschleunigt die Fälle, die Stufe C nicht entscheiden kann (exakt degeneriert mit inexakten
+Differenzen): incircle etwa ×10, orient3d etwa ×3,5. Fast degenerierte Fälle (±4 ulp) entscheiden schon B/C
+– dort bleibt die Zeit gleich; ihr Aufwand steckt in Stufe B.
 
 (Triangle.NET allokiert pro Aufruf drei `Point`-Objekte im Harness; das erklärt einen Teil des Unterschieds
 in allgemeiner Lage.)
 
 ## 5. Lizenzlage
 
-- g3 steht unter der Boost-Lizenz. `ExactPredicates`, `AdaptivePredicates` und `Expansion` sind nach dem
-  Paper (Shewchuk 1997) geschrieben, ohne Code aus `predicates.c`, `triangle.c` oder Triangle.NET; siehe
+- g3 steht unter der Boost-Lizenz. `ExactPredicates`, `AdaptivePredicates` (einschließlich Stufe D) und
+  `Expansion` sind nach dem Paper (Shewchuk 1997) geschrieben, ohne Code aus `predicates.c`, `triangle.c` oder Triangle.NET; siehe
   `docs/SOURCES.md`.
 - Shewchuks `predicates.c` ist gemeinfrei. `triangle.c` (und damit der daraus expandierte Code in
   Triangle.NETs `RobustPredicates.cs`) steht unter Shewchuks Triangle-Lizenz (keine kommerzielle Nutzung
@@ -215,9 +244,7 @@ in allgemeiner Lage.)
    alten nicht-exakten Queries (`Query2d`, `QueryTuple2d`, `PrimalQuery2d`) in `ConvexHull2`,
    `IntrTriangle3Triangle3`, `MeshInsertUVPolyCurve` – das ändert aber Verhalten dieser alten Klassen und ist
    ein eigenes Thema.
-4. **g3, Geschwindigkeit:** fast kozirkuläre incircle-Fälle (169 ms / 200k) und fast koplanare orient3d-Fälle
-   fallen oft in die volle Expansion (O(n²)-Grow-Expansion über ~1500 Terme bei incircle). Eine Stufe D
-   (Shewchuks Fortsetzung von C mit den Tail-Produkten, nur mit kleinen Expansionen) würde das beschleunigen.
-   Nur lohnend, wenn das in echten Daten ins Gewicht fällt.
+4. **g3, Stufe D** – erledigt (siehe Abschnitt 1 und 4). Dabei gefunden und behoben: Orient2d-Filter bei
+   subnormalen Produkten.
 5. **Harness** als Test absichern: die Szenarien bei extremen Skalen gibt es in g3 schon als Unit-Tests;
    für Triangle.NET sollen sie mit Punkt 1 als NUnit-Tests in den Fork.
