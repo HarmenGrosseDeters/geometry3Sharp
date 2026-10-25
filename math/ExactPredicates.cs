@@ -21,6 +21,11 @@ namespace g3
         const double InSphereBound = (16.0 + 224.0 * Epsilon) * Epsilon;
         // below this the products may be subnormal (absolute, not relative rounding error)
         const double UnderflowLimit = 1e-200;
+        // A larger permanent does not exclude subnormal partial products either: a subnormal 2x2 product (absolute
+        // error up to 2^-1075) times a large coordinate or lift. With fl(x * y) = x y (1 + d) + n, |n| <= 2^-1075
+        // (sums that underflow are exact), these errors add at most 4 * 2^-1075 times the sum of the factors they
+        // are multiplied by (plus 1); the filters add that sum times 2^-1066.
+        const double UnderflowUnit = double.Epsilon * 256;     // 2^-1066
 
         /// <summary> sign of (b - a) x (c - a): +1 if a, b, c are counter-clockwise, -1 clockwise, 0 collinear </summary>
         public static int Orient2d(Vector2d a, Vector2d b, Vector2d c)
@@ -50,8 +55,8 @@ namespace g3
             double permanent = Math.Abs(wx) * (Math.Abs(uyvz) + Math.Abs(uzvy))
                 + Math.Abs(wy) * (Math.Abs(uzvx) + Math.Abs(uxvz))
                 + Math.Abs(wz) * (Math.Abs(uxvy) + Math.Abs(uyvx));
-            double bound = Orient3dBound * permanent;
-            // the relative error bound does not hold when products underflow (subnormal): exact then
+            // (the 2x2 products have absolute errors of their own, multiplied by |w|)
+            double bound = Orient3dBound * permanent + (Math.Abs(wx) + Math.Abs(wy) + Math.Abs(wz) + 1) * UnderflowUnit;
             if (det > bound && permanent > UnderflowLimit) return 1;
             if (-det > bound && permanent > UnderflowLimit) return -1;
             return orient3d_exact(a, b, c, d);
@@ -73,7 +78,9 @@ namespace g3
             double permanent = (Math.Abs(bdxcdy) + Math.Abs(cdxbdy)) * alift
                 + (Math.Abs(cdxady) + Math.Abs(adxcdy)) * blift
                 + (Math.Abs(adxbdy) + Math.Abs(bdxady)) * clift;
-            double bound = InCircleBound * permanent;
+            // (the 2x2 products and the lifts have absolute errors of their own, multiplied by each other)
+            double bound = InCircleBound * permanent + (alift + blift + clift + Math.Abs(bdxcdy) + Math.Abs(cdxbdy)
+                + Math.Abs(cdxady) + Math.Abs(adxcdy) + Math.Abs(adxbdy) + Math.Abs(bdxady) + 1) * UnderflowUnit;
             if (det > bound && permanent > UnderflowLimit) return 1;
             if (-det > bound && permanent > UnderflowLimit) return -1;
             return incircle_exact(a, b, c, d);
@@ -111,7 +118,10 @@ namespace g3
                 + (dap * cezp + acp * dezp + cdp * aezp) * blift
                 + (abp * dezp + bdp * aezp + dap * bezp) * clift
                 + (bcp * aezp + acp * bezp + abp * cezp) * dlift;
-            double bound = InSphereBound * permanent;
+            // (the 2x2 products have absolute errors, multiplied by z and the lifts; the lifts', multiplied by
+            // the 3x3 minors)
+            double bound = InSphereBound * permanent + ((alift + blift + clift + dlift) * (aezp + bezp + cezp + dezp + 1)
+                + Math.Abs(abc) + Math.Abs(bcd) + Math.Abs(cda) + Math.Abs(dab) + 1) * UnderflowUnit;
             if (det > bound && permanent > UnderflowLimit) return -1;
             if (-det > bound && permanent > UnderflowLimit) return 1;
             return insphere_exact(a, b, c, d, e);
