@@ -217,11 +217,12 @@ namespace geometry3Sharp.Tests
             DMesh3 reduced = new DMesh3(original);
             var reducer = new Reducer(reduced);
             reducer.ReduceToTriangleCount(2000);
-            var sw = System.Diagnostics.Stopwatch.StartNew();
             var h = new MeshHausdorffDistance(original, reduced) { RelativeTolerance = 1e-4 };
             Assert.True(h.Compute());
             Assert.True(h.Converged);
-            Assert.True(sw.ElapsedMilliseconds < 20000, $"{sw.ElapsedMilliseconds} ms");
+            // "quickly" is checked by the amount of work (about 54k subdivisions), not by wall-clock time,
+            // which is unreliable on loaded CI machines and on Mono
+            Assert.True(h.Subdivisions < 200000, $"{h.Subdivisions} subdivisions");
             double sampled = Math.Max(SampledDense(original, reduced, 4), SampledDense(reduced, original, 4));
             Assert.True(sampled <= h.UpperBound + 1e-12);
             Assert.True(h.LowerBound >= sampled - (h.UpperBound - h.LowerBound) - 1e-12);
