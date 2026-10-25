@@ -29,6 +29,12 @@ python3 analyze_wrap.py results/wrap.jsonl results/cgalwrap.jsonl   # guarantees
 
 Each mesh runs in its own process with a timeout (120 s, large meshes 900 s), so hangs and crashes are recorded too.
 
+The "repaired" criterion is defined once in `criteria.py` and used by `analyze_fidelity.py`, `analyze_paths.py` and
+`analyze_wrap.py`: results whose exact self-intersections were not computed (more than 300k triangles) and results
+without an IoU do not count as repaired. Meshes without a result (exception, timeout) stay in the denominators of
+`analyze_quality.py` and `compare_modes.py`. `python3 test_analysis.py` checks the scripts on synthetic rows.
+Tables below that were made before this (large meshes "repaired", "7/29"-style counts) may differ by these meshes.
+
 The data selection is fixed (seeded) in `fetch_data.py`:
 - 6 defect categories × 60 broken meshes: not closed, not edge-manifold, not vertex-manifold,
   degenerate faces, duplicated faces, not PWN
