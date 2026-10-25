@@ -169,7 +169,10 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void RemesherPro_FaceAlignedProjection_IsDeterministic()
         {
-            // TrackedFaceProjectionPass has no serial variant, so run it repeatedly on the same input
+            // TrackedFaceProjectionPass has no serial variant, so run it repeatedly on the same input.
+            // The results must be identical: the pass used to sum per-vertex contributions in thread
+            // order, which changed the last bits every run and now and then flipped its 'vertex did
+            // not move' threshold, leaving a vertex ~1e-6 off.
             DMesh3 input = NoisySphere(130, 3);
             DMesh3 target = Sphere(40);
             DMesh3 reference = null;
@@ -184,7 +187,7 @@ namespace geometry3Sharp.Tests
                     r.RemeshIteration();
                 if (reference == null)
                     reference = mesh;
-                else if (MaxVertexDistance(reference, mesh) > 1e-9)
+                else if (MaxVertexDistance(reference, mesh) > 0)
                     failures.Add($"run {run} differs from run 0 by {MaxVertexDistance(reference, mesh)}");
             }
             Assert.True(MaxVertexDistance(reference, input) > 1e-3, "projection did not move the vertices");
