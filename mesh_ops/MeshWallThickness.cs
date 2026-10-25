@@ -35,7 +35,8 @@ namespace gs
     /// intersection" (JCGT 2013): a ray through a shared edge or vertex hits at least one of the triangles,
     /// so no ray slips through the surface. A ray that leaves the solid through a front face (normal facing
     /// the ray) hit an inconsistently oriented or open part; it is ignored. Points without any valid ray
-    /// get NaN.
+    /// get NaN. Closed components that are inside out for their nesting, and a mesh that is inside out as
+    /// a whole, are taken with flipped normals (OrientInvertedParts; the mesh is not changed).
     /// </summary>
     public class MeshWallThickness
     {
@@ -56,6 +57,9 @@ namespace gs
         public int MaxBallIterations = 100;
         /// <summary> InscribedSphere: smallest angle (degrees) at the ball center between p and a contact that limits the ball </summary>
         public double SeparationAngle = 30;
+
+        /// <summary> treat inside-out closed components (MeshPostRepairCleanup.FindInvertedComponents) and an inside-out mesh as flipped </summary>
+        public bool OrientInvertedParts = true;
 
         public bool ComputeVertices = true;
         public bool ComputeTriangles = true;
@@ -97,7 +101,7 @@ namespace gs
                     TriangleThickness[i] = double.NaN;
                 gParallel.ForEach(Mesh.TriangleIndices(), (tid) => {
                     if (CancelF()) return;
-                    Vector3d n = Mesh.GetTriNormal(tid);
+                    Vector3d n = tri_normal(tid);
                     if (n == Vector3d.Zero || double.IsNaN(n.x)) return;
                     TriangleThickness[tid] = thickness(Mesh.GetTriCentroid(tid), n, -1, tid, cone, maxDist);
                 });
@@ -172,8 +176,51 @@ namespace gs
         // the mesh), and the padding of the (float) tree boxes
         double eps, boxPad;
 
+        // triangles taken with reversed orientation (OrientInvertedParts)
+        bool[] flipped;
+
+        Vector3d tri_normal(int tid)
+        {
+            Vector3d n = Mesh.GetTriNormal(tid);
+            return (flipped != null && flipped[tid]) ? -n : n;
+        }
+
+        /// <summary>
+        /// Triangles of mesh to reverse so that it is outward oriented: those of closed components that are
+        /// inside out for their nesting (MeshPostRepairCleanup.FindInvertedComponents), then all of them if
+        /// the signed volume (relative to the bounds center) is still negative, as WindingContouring.OrientedCopy
+        /// does, but without changing the mesh or its IDs. Null if none.
+        /// </summary>
+        public static bool[] InvertedTriangles(DMesh3 mesh)
+        {
+            bool[] flip = new bool[mesh.MaxTriangleID];
+            bool any = false;
+            foreach (int[] comp in MeshPostRepairCleanup.FindInvertedComponents(mesh))
+                foreach (int tid in comp) { flip[tid] = true; any = true; }
+            Vector3d c = mesh.CachedBounds.Center;
+            double vol = 0;
+            foreach (int tid in mesh.TriangleIndices()) {
+                Index3i t = mesh.GetTriangle(tid);
+                Vector3d a = mesh.GetVertex(t.a) - c, b = mesh.GetVertex(t.b) - c, d = mesh.GetVertex(t.c) - c;
+                double v = a.Dot(b.Cross(d));
+                vol += flip[tid] ? -v : v;
+            }
+            if (vol < 0) {
+                foreach (int tid in mesh.TriangleIndices()) flip[tid] = !flip[tid];
+                any = true;
+            }
+            return any ? flip : null;
+        }
+
+        int flippedStamp = -1;
+        bool flippedMode;
+
         void set_tolerances()
         {
+            if (flippedStamp != Mesh.ShapeTimestamp || flippedMode != OrientInvertedParts) {
+                flipped = OrientInvertedParts ? InvertedTriangles(Mesh) : null;
+                flippedStamp = Mesh.ShapeTimestamp; flippedMode = OrientInvertedParts;
+            }
             AxisAlignedBox3d b = Mesh.CachedBounds;
             eps = 1e-9 * b.DiagonalLength;
             boxPad = 1e-6 * (b.DiagonalLength + Math.Max(b.Min.MaxAbs, b.Max.MaxAbs));
@@ -186,6 +233,7 @@ namespace gs
                 Vector3d tn, c; double area;
                 Mesh.GetTriInfo(tid, out tn, out area, out c);
                 if (double.IsNaN(tn.x)) continue;
+                if (flipped != null && flipped[tid]) tn = -tn;
                 n += area * tn;
             }
             double len = n.Length;
@@ -256,7 +304,7 @@ namespace gs
                     double t;
                     if (ray.Intersect(Mesh.GetVertex(tv.a), Mesh.GetVertex(tv.b), Mesh.GetVertex(tv.c), out t) == false) return;
                     if (t <= eps || t > best) return;
-                    double dot = Mesh.GetTriNormal(ti).Dot(dir);
+                    double dot = tri_normal(ti).Dot(dir);
                     // through an edge both triangles report the same t: prefer the one the ray leaves through
                     if (t == best && bestTri != DMesh3.InvalidID && dot <= bestDot) return;
                     best = t; bestTri = ti; bestDot = dot;

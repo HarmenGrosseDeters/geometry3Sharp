@@ -108,6 +108,24 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void InsideOutReference_SignsAsIfOriented()
+        {
+            DMesh3 reference = Sphere(1, 20);
+            reference.ReverseOrientation();
+            foreach (var sign in new[] { MeshDeviation.Signs.PseudoNormal, MeshDeviation.Signs.WindingNumber }) {
+                foreach (double r in new[] { 0.9, 1.1 }) {
+                    var dev = new MeshDeviation(Sphere(r, 9), reference) { Sign = sign };
+                    Assert.True(dev.Compute());
+                    Assert.True(Math.Sign(dev.Statistics.Min) == Math.Sign(r - 1) && Math.Sign(dev.Statistics.Max) == Math.Sign(r - 1), sign + " " + r);
+                }
+            }
+            // without the correction the pseudo-normal follows the stored orientation
+            var raw = new MeshDeviation(Sphere(1.1, 9), reference) { OrientInvertedParts = false };
+            Assert.True(raw.Compute());
+            Assert.True(raw.Statistics.Max < 0);
+        }
+
+        [Fact]
         public void CertifiedBound_ContainsVertexMaximum()
         {
             DMesh3 reference = Sphere(1, 12);

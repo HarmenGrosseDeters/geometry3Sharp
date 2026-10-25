@@ -167,15 +167,42 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void OpenOrFlippedParts_AreNaN()
+        public void InsideOutParts_AreTakenFlipped()
         {
-            // a single open hemisphere-like sheet: rays either miss or hit front faces
+            // Thingi10K has closed meshes that are inside out as a whole: their rays all leave through front
+            // faces. With OrientInvertedParts (default) they are measured as if oriented outward.
             DMesh3 sphere = Sphere(1, 10, Vector3d.Zero);
-            sphere.ReverseOrientation();     // inside-out: every inward ray leaves through a front face
+            sphere.ReverseOrientation();
+            var raw = new MeshWallThickness(sphere) { Method = MeshWallThickness.Methods.Ray, OrientInvertedParts = false };
+            Assert.True(raw.Compute());
+            Assert.True(sphere.TriangleIndices().All(tid => double.IsNaN(raw.TriangleThickness[tid])));
+            Assert.Equal(0, raw.Statistics.Count);
             var wt = new MeshWallThickness(sphere) { Method = MeshWallThickness.Methods.Ray };
             Assert.True(wt.Compute());
-            Assert.True(sphere.TriangleIndices().All(tid => double.IsNaN(wt.TriangleThickness[tid])));
-            Assert.Equal(0, wt.Statistics.Count);
+            Assert.True(sphere.TriangleIndices().All(tid => wt.TriangleThickness[tid] > 1.9 && wt.TriangleThickness[tid] < 2));
+
+            // a hollow ball inside out as a whole (outer shell inverted, cavity outward): same as the correct one;
+            // a correctly oriented cavity is not flipped
+            foreach (bool invert in new[] { false, true }) {
+                DMesh3 shell = SphereShell(1, 0.8, 16);
+                if (invert) shell.ReverseOrientation();
+                var s = new MeshWallThickness(shell) { Method = MeshWallThickness.Methods.InscribedSphere };
+                Assert.True(s.Compute());
+                foreach (int tid in shell.TriangleIndices())
+                    Assert.InRange(s.TriangleThickness[tid], 0.19, 0.21);
+            }
+
+            // an inverted part next to a correct one: only that part is flipped
+            DMesh3 two = Sphere(1, 10, Vector3d.Zero);
+            DMesh3 bad = Sphere(0.5, 10, new Vector3d(3, 0, 0));
+            bad.ReverseOrientation();
+            new MeshEditor(two).AppendMesh(bad);
+            var wt2 = new MeshWallThickness(two) { Method = MeshWallThickness.Methods.Ray };
+            Assert.True(wt2.Compute());
+            foreach (int tid in two.TriangleIndices()) {
+                double expected = (two.GetTriCentroid(tid).x > 1.5) ? 1 : 2;
+                Assert.InRange(wt2.TriangleThickness[tid], expected * 0.95, expected);
+            }
         }
     }
 }
