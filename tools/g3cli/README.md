@@ -12,6 +12,7 @@ tools of an MCP server (stdio), for coding agents and scripts.
 | `resolve` | boundary of the solid of one mesh: removes self-intersections, nested shells, duplicate faces | `ExactMeshBoolean.Resolve` |
 | `remesh` | isotropic remeshing to a target edge length, boundary and sharp edges kept | `Remesher`, `MeshConstraintUtil` |
 | `simplify` | quadric edge collapse to a triangle count, ratio, error or edge length | `Reducer` |
+| `uv` | UV atlas: seams / cones / charts, BFF, packing, exact overlap test, distortion limits | `UVAtlasGenerator`, `MeshDiscCut`, `ConeFlattening` |
 | `convert` | STL, OBJ, OFF, PLY, 3MF, glTF/GLB, g3mesh (by file extension) | `StandardMeshReader`, `StandardMeshWriter` |
 
 ## Build and run
@@ -113,6 +114,10 @@ g3cli remesh part.stl part_remeshed.obj --edge-length 0.5 --crease-angle 40 --de
 # simplify to 10% of the triangles, or to at most 5000
 g3cli simplify scan.ply scan_small.ply --ratio 0.1 --deviation
 g3cli simplify scan.ply scan_small.stl --triangles 5000
+
+# UV atlas (OBJ, PLY, glTF/GLB, g3mesh keep the UVs); atlas_status "distortion_limit_exceeded" if max_charts was not enough
+g3cli uv part.stl part_uv.obj
+g3cli uv part.stl part_uv.glb --method charts --max-area-distortion 0.1 --max-charts 64
 
 # Hausdorff distance (certified: distance = upper bound, within the tolerance of the lower bound)
 g3cli measure original.stl --compare simplified.stl --tolerance 1e-4
