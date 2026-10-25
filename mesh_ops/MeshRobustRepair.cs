@@ -1,6 +1,7 @@
 // Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using g3;
 
@@ -61,7 +62,10 @@ namespace gs
         public bool UsedSolidify;
         /// <summary> why the repair result was not used ("" if it was) </summary>
         public string FallbackReason = "";
-        /// <summary> volume IoU of the repair result with the input (NaN if the input has no solid or not checked) </summary>
+        /// <summary>
+        /// volume IoU of the repair result with the input (NaN if the input has no solid or not checked); an
+        /// estimate from as many samples as the check needed (MeshRepairMetrics.VolumeIoUAtLeast)
+        /// </summary>
         public double RepairVolumeIoU = double.NaN;
         /// <summary> the solidify fallback, if it ran (for its statistics); null otherwise </summary>
         public MeshWindingNumberSolidify Solidify;
@@ -72,6 +76,26 @@ namespace gs
         public int ExactResolveRoundsUsed;
         /// <summary> per resolve round: self-intersecting triangle pairs of its result (diagnostics) </summary>
         public List<int> ExactResolveSelfIntersections = new List<int>();
+        /// <summary>
+        /// milliseconds per phase of the last Apply() (summed if a phase runs more than once): "repair", "check"
+        /// (cleanness incl. self-intersections), "volume" (VolumeIoU), "exact" (exact resolve incl. its checks;
+        /// parts of it in "exact.orient", "exact.closed", "exact.resolve", "exact.check", "exact.volume"),
+        /// "solidify", and "solidify." + the phases of MeshWindingNumberSolidify
+        /// </summary>
+        public Dictionary<string, long> PhaseMilliseconds = new Dictionary<string, long>();
+
+        Stopwatch phase_timer = new Stopwatch();
+        void end_phase(string name)
+        {
+            add_phase(name, phase_timer.ElapsedMilliseconds);
+            phase_timer.Restart();
+        }
+        void add_phase(string name, long ms)
+        {
+            long cur;
+            PhaseMilliseconds.TryGetValue(name, out cur);
+            PhaseMilliseconds[name] = cur + ms;
+        }
 
         /// <summary> the mesh is modified by the repair stage (see class comment) </summary>
         public MeshRobustRepair(DMesh3 mesh)
@@ -95,6 +119,8 @@ namespace gs
             ExactResolveSelfIntersections.Clear();
             FallbackReason = "";
             RepairVolumeIoU = double.NaN;
+            PhaseMilliseconds.Clear();
+            phase_timer.Restart();
             DMesh3 input = new DMesh3(Mesh);
             DMesh3 result;
             if (RepairF != null) {
@@ -105,17 +131,19 @@ namespace gs
                 repair.Apply();
                 result = repair.Mesh;
             }
+            end_phase("repair");
             if (CancelF())
                 return false;
             FallbackReason = NotCleanReason(result, CheckSelfIntersections);
+            end_phase("check");
             DMesh3 solidifyFrom = result;
             if (FallbackReason == "" && MinVolumeIoU > 0) {
-                double missing, extra;
-                RepairVolumeIoU = MeshRepairMetrics.VolumeIoU(input, result, out missing, out extra);
-                if (RepairVolumeIoU < MinVolumeIoU) {        // (NaN: the input has no solid to compare with)
+                // (NaN: the input has no solid to compare with, accepted)
+                if (MeshRepairMetrics.VolumeIoUAtLeast(input, result, MinVolumeIoU, out RepairVolumeIoU) == false) {
                     FallbackReason = "volume differs from the input";
                     solidifyFrom = input;
                 }
+                end_phase("volume");
             }
             if (FallbackReason == "") {
                 Mesh = result;
@@ -125,6 +153,7 @@ namespace gs
                 return false;
             if (ExactResolve) {
                 DMesh3 exact = resolve_exactly(solidifyFrom, input);
+                end_phase("exact");
                 if (CancelF())
                     return false;
                 if (exact != null) {
@@ -134,7 +163,10 @@ namespace gs
                 }
             }
             Solidify = new MeshWindingNumberSolidify(solidifyFrom) { GridResolution = SolidifyResolution, Adaptive = true, CancelF = CancelF };
-            if (Solidify.Compute() == false || Solidify.Result == null || Solidify.Result.TriangleCount == 0)
+            bool solidified = Solidify.Compute();
+            end_phase("solidify");
+            foreach (var kv in Solidify.PhaseMilliseconds) PhaseMilliseconds["solidify." + kv.Key] = kv.Value;
+            if (solidified == false || Solidify.Result == null || Solidify.Result.TriangleCount == 0)
                 return false;
             Mesh = Solidify.Result;
             UsedSolidify = true;
@@ -144,16 +176,22 @@ namespace gs
         // the solid of the mesh with its self-intersections resolved exactly, or null (ExactResolveReason says why)
         DMesh3 resolve_exactly(DMesh3 from, DMesh3 input)
         {
+            var timer = Stopwatch.StartNew();
             // inside-out parts flipped, so that the solid is where the winding number is positive
             DMesh3 m = WindingContouring.OrientedCopy(from);
-            if (ExactMeshBoolean.IsWindingClosed(m) == false) {
+            add_phase("exact.orient", timer.ElapsedMilliseconds); timer.Restart();
+            bool closed = ExactMeshBoolean.IsWindingClosed(m);
+            add_phase("exact.closed", timer.ElapsedMilliseconds); timer.Restart();
+            if (closed == false) {
                 ExactResolveReason = "not closed (winding number)";
                 return null;
             }
             for (int round = 0; round < ExactResolveRounds; ++round) {
                 if (CancelF())
                     return null;
+                timer.Restart();
                 DMesh3 res = ExactMeshBoolean.Resolve(m);
+                add_phase("exact.resolve", timer.ElapsedMilliseconds); timer.Restart();
                 ExactResolveRoundsUsed++;
                 if (res == null || res.TriangleCount == 0) {
                     ExactResolveReason = "resolve failed";
@@ -175,6 +213,7 @@ namespace gs
                     if (si > 0)
                         reason = "self-intersections";
                 }
+                add_phase("exact.check", timer.ElapsedMilliseconds); timer.Restart();
                 if (reason == "self-intersections") {
                     // from rounding the new vertices (or the cleanup): tiny, resolved by the next round
                     ExactResolveReason = reason;
@@ -186,9 +225,10 @@ namespace gs
                     return null;
                 }
                 if (MinVolumeIoU > 0) {
-                    double missing, extra;
-                    double iou = MeshRepairMetrics.VolumeIoU(input, res, out missing, out extra);
-                    if (iou < MinVolumeIoU) {        // (NaN: the input has no solid to compare with)
+                    double iou;
+                    bool agrees = MeshRepairMetrics.VolumeIoUAtLeast(input, res, MinVolumeIoU, out iou);
+                    add_phase("exact.volume", timer.ElapsedMilliseconds);
+                    if (agrees == false) {
                         ExactResolveReason = "volume differs from the input";
                         return null;
                     }

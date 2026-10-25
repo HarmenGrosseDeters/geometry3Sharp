@@ -1467,7 +1467,10 @@ namespace g3
             public Matrix3d Order2Mat;
         }
 
-        Dictionary<int, FWNInfo> FastWindingCache;
+        // per box (indexed by box id), valid where fast_winding_cached is set (arrays: the lookups are in the
+        // inner loop of every evaluation)
+        FWNInfo[] FastWindingCache;
+        bool[] fast_winding_cached;
         volatile int fast_winding_cache_timestamp = -1;
         readonly object fast_winding_cache_lock = new object();
 
@@ -1480,7 +1483,8 @@ namespace g3
             //MeshTriInfoCache triCache = null;
             MeshTriInfoCache triCache = new MeshTriInfoCache(mesh);
 
-            FastWindingCache = new Dictionary<int, FWNInfo>();
+            FastWindingCache = new FWNInfo[box_centers.size];
+            fast_winding_cached = new bool[box_centers.size];
             HashSet<int> root_hash;
             build_fast_winding_cache(root_index, 0, WINDING_CACHE_THRESH, out root_hash, triCache);
         }
@@ -1544,9 +1548,9 @@ namespace g3
         // check if we can use fwn 
         protected bool can_use_fast_winding_cache(int iBox, ref Vector3d q)
         {
-            FWNInfo cacheInfo;
-            if (FastWindingCache.TryGetValue(iBox, out cacheInfo) == false)
+            if (fast_winding_cached[iBox] == false)
                 return false;
+            ref FWNInfo cacheInfo = ref FastWindingCache[iBox];
 
             double dist_qp = cacheInfo.Center.Distance(ref q);
             if (dist_qp > FWNBeta * cacheInfo.R)
@@ -1559,19 +1563,20 @@ namespace g3
         // compute FWN cache for all triangles underneath this box
         protected void make_box_fast_winding_cache(int iBox, IEnumerable<int> triangles, MeshTriInfoCache triCache)
         {
-            Util.gDevAssert(FastWindingCache.ContainsKey(iBox) == false);
+            Util.gDevAssert(fast_winding_cached[iBox] == false);
 
             // construct cache
             FWNInfo cacheInfo = new FWNInfo();
             FastTriWinding.ComputeCoeffs(Mesh, triangles, ref cacheInfo.Center, ref cacheInfo.R, ref cacheInfo.Order1Vec, ref cacheInfo.Order2Mat, triCache);
 
             FastWindingCache[iBox] = cacheInfo;
+            fast_winding_cached[iBox] = true;
         }
 
         // evaluate the FWN cache for iBox
         protected double evaluate_box_fast_winding_cache(int iBox, ref Vector3d q)
         {
-            FWNInfo cacheInfo = FastWindingCache[iBox];
+            ref FWNInfo cacheInfo = ref FastWindingCache[iBox];
 
             if (FWNApproxOrder == 2)
                 return FastTriWinding.EvaluateOrder2Approx(ref cacheInfo.Center, ref cacheInfo.Order1Vec, ref cacheInfo.Order2Mat, ref q);

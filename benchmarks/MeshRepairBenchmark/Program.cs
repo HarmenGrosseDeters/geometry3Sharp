@@ -123,6 +123,7 @@ class Program
                 r["robust_exact_reason"] = robust.ExactResolveReason;
                 r["robust_exact_rounds"] = robust.ExactResolveRoundsUsed;
                 r["robust_exact_selfint"] = robust.ExactResolveSelfIntersections;
+                r["robust_phases"] = robust.PhaseMilliseconds;
             } else if (repairMode == "wrap") {
                 result = Wrap(original, r);
                 ok = r["wrap_status"].ToString() == "Success";
