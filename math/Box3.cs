@@ -194,7 +194,8 @@ namespace g3 {
             // min(y2), and max(y2).  The box center is then adjusted to be
             //   C' = C + 0.5*(min(y0)+max(y0))*U0 + 0.5*(min(y1)+max(y1))*U1 + 0.5*(min(y2)+max(y2))*U2
             IEnumerator<Vector3d> points_itr = points.GetEnumerator();
-            points_itr.MoveNext();
+            if (points_itr.MoveNext() == false)
+                return;
 
             Vector3d diff = points_itr.Current - Center;
             Vector3d pmin = new Vector3d( diff.Dot(AxisX), diff.Dot(AxisY), diff.Dot(AxisZ));
