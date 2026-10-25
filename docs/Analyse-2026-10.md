@@ -154,8 +154,12 @@ Behoben:
 Bereits vorher behoben: `MeshTriInfoCache`, `EdgeSpan.CheckValidity`, `next_edge` (über `ModuloIterationStep`), die
 `BitArray`-Rennen in `Remesher`/`RemesherPro`.
 
-Zurückgestellt, weil sie sichtbares Verhalten ändern: `MeshEditor.DisconnectBowtie` (braucht eine neue Fächer-Erkennung)
-und der `DSubmesh3`-Konstruktor (`compute()` vor den Object-Initializern; ein Fix ändert die API).
+`MeshEditor.DisconnectBowtie` war schon auf master behoben (`8c8199d`, Union-Find über die Kanten am Vertex). Ergänzt
+wurden Tests in `MeshEditorBowtieTests.cs` für offene Fächer, drei Fächer an einem Vertex, einen einzelnen Fächer und die
+Attribute der Kopien. Gegen die alte Implementierung scheitern drei der fünf Tests, darunter der mit einem einzelnen
+offenen Fächer, den die alte Version ebenfalls zerlegte.
+
+Zurückgestellt, weil ein Fix die API ändert: der `DSubmesh3`-Konstruktor (`compute()` vor den Object-Initializern).
 
 Achte Runde, degenerierte Eingaben. Regressionstests stehen in `tests/geometry3Sharp.Tests/DegenerateFixesTests.cs`
 (8 Tests; ohne Fix scheitern 7, der achte prüft, dass nicht degenerierte Dreiecke unverändert behandelt werden).
