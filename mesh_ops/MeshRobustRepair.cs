@@ -13,6 +13,10 @@ namespace gs
     ///
     /// Clean means: closed, no bowties, no degenerate triangles, no inside-out components and, if
     /// CheckSelfIntersections, no self-intersections (exact, MeshRepairMetrics).
+    ///
+    /// A clean result can still have lost volume (eg a self-overlapping input made non-overlapping by
+    /// dropping a layer): if its solid agrees with the input's winding number solid less than MinVolumeIoU,
+    /// the input itself is solidified instead (its winding number solid is the reference).
     /// </summary>
     public class MeshRobustRepair
     {
@@ -20,14 +24,20 @@ namespace gs
         /// <summary> cells along the bounding box diagonal for the solidify fallback </summary>
         public int SolidifyResolution = 128;
         public bool CheckSelfIntersections = true;
+        /// <summary> minimum volume IoU of the repaired mesh with the input's winding number solid (0 = no check) </summary>
+        public double MinVolumeIoU = 0.99;
         /// <summary> configures the first stage (eg tolerances) </summary>
         public Action<MeshAutoRepair> ConfigureRepair = null;
+        /// <summary> replaces the first stage (input -> repaired mesh); null = MeshAutoRepair </summary>
+        public Func<DMesh3, DMesh3> RepairF = null;
         public Func<bool> CancelF = () => { return false; };
 
         // outputs
         public bool UsedSolidify;
-        /// <summary> why the repair result was not clean ("" if it was) </summary>
+        /// <summary> why the repair result was not used ("" if it was) </summary>
         public string FallbackReason = "";
+        /// <summary> volume IoU of the repair result with the input (NaN if the input has no solid or not checked) </summary>
+        public double RepairVolumeIoU = double.NaN;
         public MeshWindingNumberSolidify Solidify;
 
         public MeshRobustRepair(DMesh3 mesh)
@@ -39,20 +49,36 @@ namespace gs
         {
             UsedSolidify = false;
             FallbackReason = "";
-            var repair = new MeshAutoRepair(Mesh) { PostRepairCleanup = true };
-            ConfigureRepair?.Invoke(repair);
-            repair.Apply();
-            DMesh3 result = repair.Mesh;
+            RepairVolumeIoU = double.NaN;
+            DMesh3 input = new DMesh3(Mesh);
+            DMesh3 result;
+            if (RepairF != null) {
+                result = RepairF(Mesh);
+            } else {
+                var repair = new MeshAutoRepair(Mesh) { PostRepairCleanup = true };
+                ConfigureRepair?.Invoke(repair);
+                repair.Apply();
+                result = repair.Mesh;
+            }
             if (CancelF())
                 return false;
             FallbackReason = NotCleanReason(result, CheckSelfIntersections);
+            DMesh3 solidifyFrom = result;
+            if (FallbackReason == "" && MinVolumeIoU > 0) {
+                double missing, extra;
+                RepairVolumeIoU = MeshRepairMetrics.VolumeIoU(input, result, out missing, out extra);
+                if (RepairVolumeIoU < MinVolumeIoU) {        // (NaN: the input has no solid to compare with)
+                    FallbackReason = "volume differs from the input";
+                    solidifyFrom = input;
+                }
+            }
             if (FallbackReason == "") {
                 Mesh = result;
                 return true;
             }
-            if (result.TriangleCount == 0)
+            if (solidifyFrom.TriangleCount == 0)
                 return false;
-            Solidify = new MeshWindingNumberSolidify(result) { GridResolution = SolidifyResolution, Adaptive = true, CancelF = CancelF };
+            Solidify = new MeshWindingNumberSolidify(solidifyFrom) { GridResolution = SolidifyResolution, Adaptive = true, CancelF = CancelF };
             if (Solidify.Compute() == false || Solidify.Result == null || Solidify.Result.TriangleCount == 0)
                 return false;
             Mesh = Solidify.Result;

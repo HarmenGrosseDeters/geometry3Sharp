@@ -69,5 +69,30 @@ namespace geometry3Sharp.Tests
             Assert.True(r.Apply());
             Assert.Equal("", MeshRobustRepair.NotCleanReason(r.Mesh));
         }
+
+        [Fact]
+        public void CleanButVolumeLost_InputSolidified()
+        {
+            // input: two overlapping boxes (a region enclosed twice); a repair stage that returns only one of
+            // them gives a clean mesh that lost a third of the solid: the input is solidified instead
+            DMesh3 a = new TrivialBox3Generator() { Box = new Box3d(Vector3d.Zero, Vector3d.One) }.Generate().MakeDMesh();
+            DMesh3 b = new TrivialBox3Generator() { Box = new Box3d(new Vector3d(1, 0, 0), Vector3d.One) }.Generate().MakeDMesh();
+            DMesh3 input = new DMesh3(a);
+            MeshEditor.Append(input, b);
+            var r = new MeshRobustRepair(new DMesh3(input)) { RepairF = (m) => new DMesh3(a) };
+            Assert.True(r.Apply());
+            Assert.True(r.UsedSolidify);
+            Assert.Equal("volume differs from the input", r.FallbackReason);
+            Assert.InRange(r.RepairVolumeIoU, 0.6, 0.7);
+            double missing, extra;
+            Assert.True(MeshRepairMetrics.VolumeIoU(input, r.Mesh, out missing, out extra) > 0.99);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(r.Mesh));
+            // the same repair returning the whole solid is kept
+            DMesh3 union = new TrivialBox3Generator() { Box = new Box3d(new Vector3d(0.5, 0, 0), new Vector3d(1.5, 1, 1)) }.Generate().MakeDMesh();
+            var r2 = new MeshRobustRepair(new DMesh3(input)) { RepairF = (m) => new DMesh3(union) };
+            Assert.True(r2.Apply());
+            Assert.False(r2.UsedSolidify);
+            Assert.True(r2.RepairVolumeIoU > 0.99);
+        }
     }
 }
