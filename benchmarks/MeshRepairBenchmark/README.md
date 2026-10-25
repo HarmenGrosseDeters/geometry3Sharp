@@ -15,6 +15,8 @@ python3 analyze_fidelity.py results/robust.jsonl    # repaired = clean + no self
 python3 analyze.py results/default.jsonl            # status per category, exceptions, triangle loss
 python3 analyze_quality.py results/cleanup.jsonl    # quality before/after
 python3 analyze_stages.py results/instr.jsonl       # which pipeline step introduces which defect
+./run_all.sh analysis; ./run_all.sh analysis std meters; ./run_all.sh analysis std geo   # analysis building blocks
+python3 analyze_analysis.py results/analysis.jsonl results/analysis_std_meters.jsonl results/analysis_std_geo.jsonl
 ```
 
 `run_all.sh <mode> [loader] [transform] [tolerance factor]` takes these options:
@@ -192,3 +194,91 @@ The fixes remove a quarter of the self-intersecting results and make the repair 
 count does not move: the meshes they fix still deviate more than 1 % (Hausdorff), which is the grid limit of
 the solidify (136 of the 190 misses). One mesh got worse (61460: 4 self-intersections after the solidify,
 before 0, probably at the transition of the new non-manifold refinement).
+
+## Analysis building blocks (`BENCH_REPAIR=analysis`)
+`AnalysisBench.cs` runs `MeshWallThickness`, `MeshDeviation` and `PrimitiveFit3` on the inputs as they are
+(no repair). `BENCH_ANALYSIS=thickness,deviation,fitting` picks the parts. Thingi10K has no reference
+values, so the run records robustness (exceptions, timeouts, NaN shares, times) and checks invariants that
+hold for any input:
+
+| Check | Building block |
+|---|---|
+| inscribed ball ≤ ray, per triangle | wall thickness (Ray, InscribedSphere, ShapeDiameter up to 50k triangles) |
+| deviation of a mesh to itself is 0 | deviation |
+| pseudo-normal sign = winding number sign, 2000 random points of the box | deviation |
+| largest vertex deviation ≤ certified Hausdorff bound, against a copy reduced to half | deviation |
+| every inlier within the threshold; same result twice; same quality for the input rotated by 37° | fitting (plane, sphere, cylinder, cone on ≤ 20k vertices, threshold 1e-3 × diagonal) |
+| the same relative values in mm, in meters (×0.001) and far from the origin (geo) | all |
+
+### Found and fixed
+Each fix has a unit test that fails on the code before the fix.
+- **Inside-out meshes:** 2 of the 40 clean meshes are inside out as a whole: 47–97 % of their rays left
+  through front faces (NaN), and the two signs disagreed on up to 72 % of the points. Inside-out closed
+  components and inside-out meshes are now taken as flipped (`OrientInvertedParts`). The winding number
+  sign uses |w| > 0.5.
+- **Unit dependence 1:** on 36 meshes the NaN share changed between mm and meters. Coincident faces of
+  touching parts are hit at the same t up to rounding, and the scale 0.001 is not exact in binary, so the
+  entering face could win over the face the ray leaves through. Hits within a tolerance now count as the
+  same distance, and of those the face the ray leaves through wins.
+- **Unit dependence 2:** degenerate triangles (edges of 1e-15) have normals that are rounding noise. Below
+  1e-12 diagonal² of area they get no value and do not count as walls. The vertex normal no longer
+  compares its length with the absolute `MathUtil.ZeroTolerance` (`MeshAnalysisNormals`).
+- **Fit depended on the rotation:** on 18 of 206 meshes, a fit of the rotated input reached another
+  quality. RANSAC depended on which of several nearly equal samples won. New:
+  - LO-RANSAC: every new best is refined by least squares on its inliers.
+  - The better model was often a sphere or cylinder of huge radius, or a flat cone, imitating the dominant
+    plane. New limits `MaxRadius` (10 × diagonal) and `MaxConeAngle` (88°).
+- **Fit missed small structures:**
+  - Spheres from 4-point samples ran into `MaxIterations` (9 of 12 cases). With normals, every other
+    sample is now 2 points with normals.
+  - The test that a sample's own points are inliers threw away rough candidates from noisy vertex normals.
+    Removed.
+  - Instead, a pre-test on 500 fixed random points keeps the time down (as the T(d,d) test of Matas and
+    Chum), and the local optimization uses at most 2000 inliers.
+
+  Compared with the first version (sample test, 4-point spheres), over the 400 meshes (more than 1 % of
+  the points better / worse):
+
+  | | better | worse | median time first → now |
+  |---|---|---|---|
+  | plane | 26 | 4 | 52 → 162 ms |
+  | sphere | 131 | 28 | 51 → 142 ms |
+  | cylinder | 113 | 43 | 37 → 120 ms |
+  | cone | 89 | 21 | 250 → 420 ms |
+- **Tried and dropped:** localized sampling (Schnabel et al.: the other points of a sample near the first).
+  It finds some small part quickly and then stops, and as it depends on a grid it is not rotation
+  invariant: rotated quality differed on 16 of 17 checked meshes instead of 6.
+
+### Results (400 set, final run)
+- **No exceptions or wrong results; every invariant holds:**
+  - inscribed ball ≤ ray everywhere;
+  - self deviation 0;
+  - no bound violated (397 of 397 reductions);
+  - every fit deterministic and its inliers within the threshold.
+- **Timeouts:** 3 meshes exceed the 120 s budget of the whole analysis. Each fit runs three times
+  (normal, determinism, rotated), and on these meshes (44k–93k triangles) a cylinder or cone fit takes
+  9–14 s. Alone they finish in 73–112 s.
+- **Median / p95 time per mesh:**
+  - Ray 0.4 / 1.2 s, InscribedSphere 0.6 / 5.4 s, ShapeDiameter 1.0 / 6.9 s;
+  - deviation with the certified bound 0.3 / 1.5 s;
+  - fits 0.1–0.4 / 0.9–3.7 s.
+- **NaN shares:** the median ray NaN share is 0.3 %. It is above 10 % on 56 meshes, all open or
+  self-intersecting (the clean ones stay below 1 %).
+- **Sign disagreement:** pseudo-normal and winding number disagree on more than 1 % of the points on 64
+  meshes, all broken ones (holes, self-intersections). On clean meshes there are at most 1.8 %
+  disagreements, from self-intersections.
+- **Rotated input:** the quality of the rotated fit differs by more than 1 % of the points on 0 (plane),
+  27 (sphere), 29 (cylinder) and 23 (cone) meshes. These are mostly ties between equal features, or small
+  structures (5–10 % of the points) whose vertex normals are too noisy for the minimal samples at the
+  strict threshold.
+- **mm vs meters:**
+  - Thickness and NaN shares are identical except on 3 meshes.
+    - 702409 and 702413: their inside-out detection (`MeshPostRepairCleanup.FindInvertedComponents`)
+      decides differently, probably because touching components put the sample points on another
+      component's surface (w ≈ 0.5). This is a separate issue in that function.
+    - 100040: 4 triangles of a mesh without a defined inside, whose rays pass exactly through edges of
+      self-intersecting regions.
+  - ShapeDiameter differs on 11 meshes. The SDF jumps where rays graze a wall.
+  - The fits differ on 0–7 meshes per primitive: ties under rounding, as for the rotation.
+- **geo:** run pending.
+
