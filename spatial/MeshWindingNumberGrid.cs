@@ -110,6 +110,8 @@ namespace gs
         /// </summary>
         public void Compute()
         {
+            if (Mesh.VertexCount == 0)      // the grid is sized from the bounds, which are Empty
+                throw new ArgumentException("MeshWindingNumberGrid.Compute: mesh is empty");
             winding_evaluations = 0;
             // figure out origin & dimensions
             AxisAlignedBox3d bounds = Mesh.CachedBounds;
