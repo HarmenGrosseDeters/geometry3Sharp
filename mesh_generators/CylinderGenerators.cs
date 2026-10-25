@@ -72,7 +72,7 @@ namespace g3
     /// Positioned along Y axis such that base-center is at Origin, and top is at Y=Height
     /// You get a cone unless BaseRadius = TopRadius
     /// No subdivisions along top/base rings or height steps.
-    /// cylinder triangles have groupid = 1, top cap = 2, bottom cap = 3, wedge faces 5 and 6
+    /// cylinder triangles have groupid = 1, bottom cap = 2, top cap = 3, wedge faces 4 and 5
     /// </summary>
     public class CappedCylinderGenerator : MeshGenerator
     {
@@ -389,7 +389,7 @@ namespace g3
                     float angle = (float)j * fDelta;
                     double cosa = Math.Cos(angle), sina = Math.Sin(angle);
                     vertices[k] = new Vector3d(Sections[si].Radius * cosa, y, Sections[si].Radius * sina);
-                    float t = (float)j / (float)(Slices - 1);
+                    float t = (float)j / (float)Slices;
                     uv[k] = new Vector2f(t, yt);
                     Vector3f n = new Vector3f((float)cosa, 0, (float)sina);
                     n.Normalize();

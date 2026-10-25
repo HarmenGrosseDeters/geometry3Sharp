@@ -102,6 +102,17 @@ namespace g3
             fCur.AlignAxis(2, (Vector3f)dv);
             Frame3f fStart = new Frame3f(fCur);
 
+            // On a closed loop the propagated frame does not in general come back to fStart, it is
+            // rotated around the tangent. Measure that rotation and spread it evenly over the rings,
+            // so that the last ring matches the first one.
+            float seam_twist = 0;
+            if (ClosedLoop) {
+                Frame3f fLoop = new Frame3f(fStart);
+                for (int ri = 1; ri <= NV; ++ri)
+                    fLoop.AlignAxis(2, (Vector3f)CurveUtils.GetTangent(Vertices, ri % NV, ClosedLoop));
+                seam_twist = MathUtil.PlaneAngleSignedD(fLoop.X, fStart.X, fStart.Z);
+            }
+
             double circumference = Polygon.ArcLength;
             double pathLength = CurveUtils.ArcLength(Vertices, ClosedLoop);
             double accum_path_u = 0;
@@ -114,6 +125,7 @@ namespace g3
                 Vector3d tangent = CurveUtils.GetTangent(Vertices, vi, ClosedLoop);
                 fCur.Origin = (Vector3f)Vertices[vi];
                 fCur.AlignAxis(2, (Vector3f)tangent);
+                Frame3f fRing = (seam_twist != 0) ? fCur.Rotated(seam_twist * (float)ri / (float)NV, 2) : fCur;
 
                 // generate vertices
                 int nStartR = ri * nRingSize;
@@ -123,7 +135,7 @@ namespace g3
                     int k = nStartR + j;
                     Vector2d pv = Polygon.Vertices[j % Slices];
                     Vector2d pvNext = Polygon.Vertices[(j + 1) % Slices];
-                    Vector3d v = fCur.FromPlaneUV((Vector2f)pv, 2);
+                    Vector3d v = fRing.FromPlaneUV((Vector2f)pv, 2);
                     vertices[k] = v;
 
                     uv[k] = new Vector2f(accum_path_u, accum_ring_v);
