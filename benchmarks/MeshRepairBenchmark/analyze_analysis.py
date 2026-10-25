@@ -74,8 +74,10 @@ for name, r in sorted(base.items()):
         print(f"  {name}: {v:.4f}")
 
 # invariance across transforms: relative values per mesh
-keys = ["wt_ray_median_rel", "wt_inscribedsphere_median_rel", "wt_shapediameter_median_rel",
-        "wt_ray_nan_frac", "dev_reduced_max_rel", "fit_plane_inlier_frac", "fit_cylinder_inlier_frac"]
+# (not dev_reduced_*: the Reducer's collapse order depends on rounding, so the reference differs per run)
+keys = ["wt_ray_median_rel", "wt_ray_nan_frac", "wt_inscribedsphere_median_rel", "wt_inscribedsphere_nan_frac",
+        "wt_shapediameter_median_rel", "dev_self_max_rel", "dev_sign_disagree_frac",
+        "fit_plane_inlier_frac", "fit_sphere_inlier_frac", "fit_cylinder_inlier_frac", "fit_cone_inlier_frac"]
 for f, other in runs[1:]:
     print(f"\n{f0} vs {f}: meshes whose relative value differs by more than 1e-6 (relative) / 1e-3 (fractions)")
     for k in keys:
