@@ -326,46 +326,63 @@ namespace g3
         bool ransac(out Model best)
         {
             int n = Points.Length;
-            // a sphere from 2 points with normals when normals are known (Schnabel et al.): far fewer samples
-            // than with 4 points at a low inlier ratio
+            int k = minimal_sample_size(Primitive);
+            // with normals, every other sphere sample is 2 points with normals (Schnabel et al.): found at a
+            // low inlier ratio, where 4-point samples are rare, while 4 points do not suffer from noisy normals
             bool sphereFromNormals = Primitive == Primitives.Sphere && normals != null;
-            int k = sphereFromNormals ? 2 : minimal_sample_size(Primitive);
             var rnd = new Random(Seed);
-            int[] sample = new int[k];
+            int[] sample = new int[k], sample2 = new int[2];
+
+            // a fixed random subset for a quick pre-test of every candidate (as the T(d,d) test of Matas and
+            // Chum 2002): only candidates about as good there as the best one are scored on all points
+            int[] perm = new int[n];
+            for (int i = 0; i < n; ++i) perm[i] = i;
+            var prnd = new Random(Seed + 7919);
+            for (int i = n - 1; i > 0; --i) { int j = prnd.Next(i + 1); int t = perm[i]; perm[i] = perm[j]; perm[j] = t; }
+            int m = Math.Min(n, 500);
+
             best = new Model();
             double bestCost = double.MaxValue;
-            int bestCount = 0;
+            int bestCount = 0, bestSub = 0;
             long needed = MaxIterations;
             double eps2 = eps * eps;
             for (Iterations = 0; Iterations < Math.Min(needed, MaxIterations); ) {
                 Iterations++;
-                for (int j = 0; j < k; ++j) {
+                int[] smp = (sphereFromNormals && (Iterations & 1) == 1) ? sample2 : sample;
+                for (int j = 0; j < smp.Length; ++j) {
                     int s;
-                    do { s = rnd.Next(n); } while (Array.IndexOf(sample, s, 0, j) >= 0);
-                    sample[j] = s;
+                    do { s = rnd.Next(n); } while (Array.IndexOf(smp, s, 0, j) >= 0);
+                    smp[j] = s;
                 }
                 bool known = true;
-                if (Primitive == Primitives.Cylinder || Primitive == Primitives.Cone || sphereFromNormals)
-                    for (int j = 0; j < k && known; ++j) known = normals[sample[j]] != Vector3d.Zero;
-                Model m;
-                if (known == false || minimal_model(sample, out m) == false || valid(m) == false)
+                if (Primitive == Primitives.Cylinder || Primitive == Primitives.Cone || smp == sample2)
+                    for (int j = 0; j < smp.Length && known; ++j) known = normals[smp[j]] != Vector3d.Zero;
+                Model cand;
+                if (known == false || minimal_model(smp, out cand) == false || valid(cand) == false)
                     continue;
                 // no consistency test of the sample's own points: a rough candidate from noisy normals is
                 // still a good start for the local optimization below
                 double d;
+                if (bestCount > 0) {
+                    int sub = 0;
+                    for (int i = 0; i < m; ++i)
+                        if (is_inlier(cand, perm[i], out d)) sub++;
+                    if (sub < bestSub - 2 * Math.Sqrt(bestSub) - 1)
+                        continue;
+                }
                 double cost = 0;
                 int cnt = 0;
                 for (int i = 0; i < n && cost < bestCost; ++i) {
-                    if (is_inlier(m, i, out d)) {
+                    if (is_inlier(cand, i, out d)) {
                         cost += d * d; cnt++;
                     } else cost += eps2;
                 }
                 if (cost < bestCost) {
-                    bestCost = cost; best = m; bestCount = cnt;
-                    // local optimization: least squares on the inliers of the new best model, while that
-                    // lowers the cost, so that nearly equal candidates end at the same model
+                    bestCost = cost; best = cand; bestCount = cnt;
+                    // local optimization: least squares on (at most 2000 of) the inliers of the new best model,
+                    // while that lowers the cost, so that nearly equal candidates end at the same model
                     for (int lo = 0; lo < 4; ++lo) {
-                        bool[] inl = inliers(best);
+                        bool[] inl = cap(inliers(best), 2000);
                         Model refined;
                         if (least_squares(best, inl, out refined) == false)
                             break;
@@ -375,6 +392,10 @@ namespace g3
                             break;
                         bestCost = rcost; best = refined; bestCount = rc;
                     }
+                    bestSub = 0;
+                    for (int i = 0; i < m; ++i)
+                        if (is_inlier(best, perm[i], out d)) bestSub++;
+                    // the stopping rule assumes the larger (4-point) sample for mixed sphere sampling
                     double w = (double)bestCount / n;
                     double pk = Math.Pow(w, k);
                     if (pk >= 1 - 1e-12)
@@ -384,6 +405,21 @@ namespace g3
                 }
             }
             return bestCount >= least_squares_size(Primitive);
+        }
+
+        // at most max of the set flags, evenly spread
+        static bool[] cap(bool[] inl, int max)
+        {
+            int c = count(inl);
+            if (c <= max)
+                return inl;
+            bool[] r = new bool[inl.Length];
+            long seen = 0, kept = 0;
+            for (int i = 0; i < inl.Length; ++i) {
+                if (!inl[i]) continue;
+                if ((seen++ * max) / c >= kept) { r[i] = true; kept++; }
+            }
+            return r;
         }
 
 
