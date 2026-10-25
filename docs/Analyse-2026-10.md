@@ -36,6 +36,18 @@ Behoben:
 - `MeshPlaneCut.FillHoles`
 - `DMeshAABBTree3.find_any_intersection`
 
+Zweite Runde, I/O. Regressionstests stehen in `tests/geometry3Sharp.Tests/IOFixesTests.cs`.
+
+Behoben:
+- `OBJReader` (inkl. `.mtl`), `STLReader` und `OFFReader` parsen mit `CultureInfo.InvariantCulture`.
+- `OBJWriter` (inkl. `.mtl`), `OFFWriter` und `STLWriter` formatieren Zahlen mit `CultureInfo.InvariantCulture`. Das gilt
+  auch dann, wenn der übergebene `TextWriter` eine eigene Kultur trägt, etwa ein unter de-DE erzeugter `StringWriter`.
+- Die `.mtl`-Datei wird geflusht.
+- `OBJReader.ReadMaterials` schließt die Datei wieder.
+- `BufferUtil.DecompressZLib` liest, bis alle Daten da sind.
+- `ParallelStream`: Exceptions aus Producer- oder Consumer-Thread werden in `Run` weitergeworfen. Vorher beendeten sie den
+  Prozess oder ließen den Consumer endlos laufen. Davon profitiert der binäre `STLWriter`.
+
 Bewusst zurückgestellt: `OBJReader.is_complex`. Der Fix leitet Dateien auf `BuildMeshes_ByMaterial` um. Dieser Pfad
 verwirft UVs bei Meshes ohne Material, übernimmt keine Gruppen und stürzt bei Faces ohne Normal-Index ab. Er muss deshalb
 zusammen mit diesem Pfad repariert werden.
