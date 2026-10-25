@@ -45,9 +45,13 @@ namespace g3
 			ReadMaterials = false;
         }
 
-        public static readonly ReadOptions Defaults = new ReadOptions() {
-            ReadMaterials = false
-        };
+        /// <summary>
+        /// A new instance with the default settings on every access. (This was one shared instance,
+        /// so setting a field on it changed the defaults for every later read, in all threads.)
+        /// </summary>
+        public static ReadOptions Defaults {
+            get { return new ReadOptions() { ReadMaterials = false }; }
+        }
     }
 
     public struct IOReadResult

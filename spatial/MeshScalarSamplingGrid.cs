@@ -273,7 +273,7 @@ namespace gs
                 return;
 
             // fill in the rest of the grid by propagating know values
-            fill_spans(ni, nj, nk, scalars);
+            fill_spans(origin, dx, ni, nj, nk, scalars);
 
             if (DebugPrint) System.Console.WriteLine("done sweep");
 
@@ -313,21 +313,25 @@ namespace gs
 
 
 
-        void fill_spans(int ni, int nj, int nk, DenseGrid3f scalars)
+        // Cells that were not computed are away from any iso-crossing, so each gets the value of the previous
+        // known cell in its x-row; only its side of IsoValue matters. (This used to propagate 0 for every value
+        // below IsoValue and start rows at 0, as in MeshWindingNumberGrid, which puts the cells on the wrong
+        // side for a function whose outside is not below IsoValue, e.g. a signed distance with IsoValue 0.)
+        void fill_spans(Vector3f origin, float dx, int ni, int nj, int nk, DenseGrid3f scalars)
         {
             gParallel.ForEach(gIndices.Grid3IndicesYZ(nj, nk), (idx) => {
                 int j = idx.y, k = idx.z;
+                if (scalars[0, j, k] == float.MaxValue) {
+                    // nothing known at the start of the row: evaluate the function there
+                    Vector3d gx = new Vector3d(origin[0], (float)j * dx + origin[1], (float)k * dx + origin[2]);
+                    scalars[0, j, k] = (float)ScalarF(gx);
+                }
                 float last = scalars[0, j, k];
-                if (last == float.MaxValue)
-                    last = 0;
                 for (int i = 0; i < ni; ++i) {
-                    if (scalars[i, j, k] == float.MaxValue) {
+                    if (scalars[i, j, k] == float.MaxValue)
                         scalars[i, j, k] = last;
-                    } else {
+                    else
                         last = scalars[i, j, k];
-                        if (last < IsoValue)   // propagate zeros on outside
-                            last = 0;
-                    }
                 }
             });
         }

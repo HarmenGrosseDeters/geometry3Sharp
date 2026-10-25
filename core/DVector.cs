@@ -310,12 +310,25 @@ namespace g3
 
 
         /// <summary>
-        /// Calls Array.Clear() on each block, which sets value to 'default' for type
+        /// Calls Array.Clear() on each block, which sets value to 'default' for type.
+        /// The length does not change, unlike List.Clear().
         /// </summary>
+        [Obsolete("Clear() sets every element to default but keeps the length (unlike List.Clear). Use Fill(default) for that, or resize(0) to empty the vector.")]
         public void Clear()
         {
+            Fill(default(T));
+        }
+
+        /// <summary>
+        /// Set every element to value. The length does not change.
+        /// </summary>
+        public void Fill(T value)
+        {
             foreach (var block in Blocks) {
-                Array.Clear(block, 0, block.Length);
+                if (block == null)
+                    continue;
+                for (int i = 0; i < block.Length; ++i)      // no Array.Fill in netstandard2.0
+                    block[i] = value;
             }
         }
 

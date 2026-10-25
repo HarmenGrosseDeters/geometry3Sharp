@@ -52,8 +52,9 @@ namespace g3
             vector.push_back(c);
         }
 
+        // sets every element to default, keeps the length
         public void Clear() {
-            vector.Clear();
+            vector.Fill(default(T));
         }
 
         //public void Set(int iStart, int iCount, DVectorArray3<T> source) {
