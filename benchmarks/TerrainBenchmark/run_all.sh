@@ -49,10 +49,12 @@ cases() {
   echo "offset grid=dgm2022 win=$C500 d=10"
   for c in utm local; do
     for t in grid tdc; do
-      for m in horizontal surface; do echo "safety grid=dgm2022 win=$C250 d=5 mode=$m terrain=$t coords=$c"; done
+      for m in horizontal surface guaranteed; do echo "safety grid=dgm2022 win=$C250 d=5 mode=$m terrain=$t coords=$c"; done
     done
   done
-  for m in horizontal surface; do echo "safety grid=dgm2022 win=$C500 d=10 mode=$m terrain=tdc"; done
+  for m in horizontal surface guaranteed; do echo "safety grid=dgm2022 win=$C500 d=10 mode=$m terrain=tdc"; done
+  for m in surface guaranteed; do echo "safety grid=dgm2022 win=$C500 d=10 mode=$m terrain=grid"; done
+  echo "safety grid=dgm2022 win=$C500 d=20 mode=guaranteed terrain=grid"
   for c in utm local; do echo "geodesic grid=dgm2022 win=$C250 coords=$c"; done
   echo "geodesic grid=dgm2022 win=$C250 src=crest"
   echo "geodesic grid=dgm2022 win=$C500"
