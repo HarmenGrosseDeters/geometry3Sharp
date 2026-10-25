@@ -116,7 +116,7 @@ namespace g3
         }
         public override bool Equals(object obj)
         {
-            return this == (Index3i)obj;
+            return obj is Index3i && this == (Index3i)obj;
         }
         public override int GetHashCode()
         {
@@ -268,7 +268,7 @@ namespace g3
         }
         public override bool Equals(object obj)
         {
-            return this == (Index2i)obj;
+            return obj is Index2i && this == (Index2i)obj;
         }
         public override int GetHashCode()
         {
@@ -433,7 +433,7 @@ namespace g3
         }
         public override bool Equals(object obj)
         {
-            return this == (Index4i)obj;
+            return obj is Index4i && this == (Index4i)obj;
         }
         public override int GetHashCode()
         {

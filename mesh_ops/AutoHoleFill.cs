@@ -9,29 +9,38 @@ using g3;
 namespace gs
 {
     /// <summary>
-    /// Work in progress. Idea is that this class will analyze the hole and choose correct filling
-    /// strategy. Mainly just calling other fillers. 
-    /// 
+    /// Fill one boundary loop of a mesh, in place. Work in progress: the idea is that this class analyzes
+    /// the hole and chooses the filling strategy. Currently the classification always picks the minimal fill,
+    /// so Apply() runs MinimalHoleFill and, only if that fails, SmoothedHoleFill (remeshed to TargetEdgeLength,
+    /// constrained to the hole). Using MinimalHoleFill directly is equivalent except for that fallback.
+    ///
     /// Also contains prototype of filler that decomposes hole into spans based on normals and
     /// then uses PlanarSpansFiller. See comments, is not really functional.
     /// 
     /// </summary>
     public class AutoHoleFill
     {
+        /// <summary> the mesh to fill, modified in place </summary>
         public DMesh3 Mesh;
 
+        /// <summary>
+        /// target edge length (absolute, model units) of the smoothed / planar fills; not used by the minimal
+        /// fill. Set it to suit the model scale (eg the average boundary edge length).
+        /// </summary>
         public double TargetEdgeLength = 2.5;
 
+        /// <summary> the boundary loop to fill (eg from MeshBoundaryLoops) </summary>
         public EdgeLoop FillLoop;
 
         /*
          *  Outputs
          */
 
-        /// <summary> Final fill triangles. May include triangles outside initial fill loop, if ConstrainToHoleInterior=false </summary>
+        /// <summary> Currently never set by Apply() (stays null): use MinimalHoleFill directly to get the fill triangles </summary>
         public int[] FillTriangles;
 
 
+        /// <summary> fillLoop must be a boundary loop of mesh, oriented as from MeshBoundaryLoops </summary>
         public AutoHoleFill(DMesh3 mesh, EdgeLoop fillLoop)
         {
             this.Mesh = mesh;
@@ -49,6 +58,9 @@ namespace gs
 
 
 
+        /// <summary>
+        /// Fill the hole (see class comment). Returns true if a fill succeeded, false if all tried fillers failed.
+        /// </summary>
         public bool Apply()
         {
             UseFillType type = classify_hole();

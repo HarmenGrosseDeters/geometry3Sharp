@@ -7,14 +7,16 @@ using System.Linq;
 
 namespace g3
 {
-    // This class implements various ways to do low-level edits to a mesh, in
-    // a robust/reliable way.
-    //   - if operations fail in-progress, we try to back them out
-    //   - (?)
-    //
-    // 
+    /// <summary>
+    /// Low-level edits of a DMesh3, in place: add triangle fans and stitches, remove triangles, append meshes,
+    /// separate/duplicate/reverse triangles, disconnect or remove bowtie vertices, remove unused vertices and
+    /// small components. Most operations have static shortcuts (eg MeshEditor.RemoveTriangles(mesh, tris)).
+    /// If the fan and stitch operations fail in-progress, they try to back out what they added and return
+    /// null; removal operations cannot be backed out and return false if any triangle could not be removed.
+    /// </summary>
     public class MeshEditor
     {
+        /// <summary> the mesh that is edited in place </summary>
         public DMesh3 Mesh;
 
 
@@ -25,6 +27,10 @@ namespace g3
 
 
 
+        /// <summary>
+        /// Add a strip of new vertices and triangles: two vertices per frame at Origin + span.a * Y and
+        /// Origin + span.b * Y. Returns the new triangles. group_id is currently not applied.
+        /// </summary>
         public virtual int[] AddTriangleStrip(IList<Frame3f> frames, IList<Interval1d> spans, int group_id = -1)
         {
             int N = frames.Count;
@@ -47,8 +53,8 @@ namespace g3
                 int b = Mesh.AppendVertex(vb);
 
                 if ( prev_a != -1 ) {
-                    new_tris[ti++] = Mesh.AppendTriangle(prev_a, b, prev_b);
-                    new_tris[ti++] = Mesh.AppendTriangle(prev_a, a, b);
+                    new_tris[ti++] = Mesh.AppendTriangle(prev_a, b, prev_b, group_id);
+                    new_tris[ti++] = Mesh.AppendTriangle(prev_a, a, b, group_id);
 
                 }
                 prev_a = a; prev_b = b;
@@ -61,6 +67,11 @@ namespace g3
 
 
 
+        /// <summary>
+        /// Add a fan of triangles (center, loop[i+1], loop[i]) around the existing vertex center. With a boundary
+        /// loop in boundary orientation (as from MeshBoundaryLoops) this closes the hole consistently oriented.
+        /// Returns the new triangles, or null if a triangle could not be added (the added ones are removed again).
+        /// </summary>
         public virtual int[] AddTriangleFan_OrderedVertexLoop(int center, int[] vertex_loop, int group_id = -1)
         {
             int N = vertex_loop.Length;
@@ -95,6 +106,11 @@ namespace g3
 
 
 
+        /// <summary>
+        /// Add a fan of triangles around vertex center, one per boundary edge of edge_loop, oriented consistently
+        /// with the triangle of each edge. Returns the new triangles, or null if an edge is not a boundary edge or
+        /// a triangle could not be added (the added ones are removed again).
+        /// </summary>
         public virtual int[] AddTriangleFan_OrderedEdgeLoop(int center, int[] edge_loop, int group_id = -1)
         {
             int N = edge_loop.Length;
@@ -345,8 +361,10 @@ namespace g3
 
 
         // [TODO] cannot back-out this operation right now
-        //
-        // Remove list of triangles. Values of triangles[] set to InvalidID are ignored.
+        /// <summary>
+        /// Remove list of triangles. Values of triangles[] set to InvalidID are ignored.
+        /// Returns false if any removal failed (the others are still removed).
+        /// </summary>
         public bool RemoveTriangles(IList<int> triangles, bool bRemoveIsolatedVerts)
         {
             bool bAllOK = true;
@@ -362,8 +380,10 @@ namespace g3
         }
 
         // [TODO] cannot back-out this operation right now
-        //
-        // Remove list of triangles. Values of triangles[] set to InvalidID are ignored.
+        /// <summary>
+        /// Remove the triangles. Returns false if any id is not a triangle (including InvalidID) or a removal
+        /// failed (the others are still removed).
+        /// </summary>
         public bool RemoveTriangles(IEnumerable<int> triangles, bool bRemoveIsolatedVerts)
         {
             bool bAllOK = true;
@@ -380,8 +400,9 @@ namespace g3
         }
 
         // [TODO] cannot back-out this operation right now
-        //
-        // Remove all triangles identified by selectorF returning true
+        /// <summary>
+        /// Remove all triangles identified by selectorF returning true. Returns false if any removal failed.
+        /// </summary>
         public bool RemoveTriangles(Func<int,bool> selectorF, bool bRemoveIsolatedVerts)
         {
             bool bAllOK = true;
@@ -396,10 +417,12 @@ namespace g3
             return bAllOK;
         }
 
+        /// <summary> static shortcut for RemoveTriangles(IList, bool); removes unused vertices by default </summary>
         public static bool RemoveTriangles(DMesh3 Mesh, IList<int> triangles, bool bRemoveIsolatedVerts = true) {
             MeshEditor editor = new MeshEditor(Mesh);
             return editor.RemoveTriangles(triangles, bRemoveIsolatedVerts);
         }
+        /// <summary> static shortcut for RemoveTriangles(IEnumerable, bool); removes unused vertices by default </summary>
         public static bool RemoveTriangles(DMesh3 Mesh, IEnumerable<int> triangles, bool bRemoveIsolatedVerts = true) {
             MeshEditor editor = new MeshEditor(Mesh);
             return editor.RemoveTriangles(triangles, bRemoveIsolatedVerts);
@@ -407,7 +430,8 @@ namespace g3
 
 
         /// <summary>
-        /// Remove 'loner' triangles that have no connected neighbours. 
+        /// Remove 'loner' triangles that have no connected neighbours (and their vertices, if unused).
+        /// Returns false if any removal failed.
         /// </summary>
         public static bool RemoveIsolatedTriangles(DMesh3 mesh)
         {
@@ -784,11 +808,16 @@ namespace g3
 
 
 
+        /// <summary>
+        /// Append all vertices and triangles of appendMesh (with its vertex attributes) as a separate part, not
+        /// welded. Triangles get appendGID if it is &gt;= 0, otherwise their own group. Always returns true.
+        /// </summary>
         public bool AppendMesh(IMesh appendMesh, int appendGID = -1)
         {
             int[] mapV;
             return AppendMesh(appendMesh, out mapV, appendGID);
         }
+        /// <summary> as AppendMesh(appendMesh, appendGID); mapV maps appendMesh vertex ids to new ids in Mesh </summary>
         public bool AppendMesh(IMesh appendMesh, out int[] mapV, int appendGID = -1)
         {
             mapV = new int[appendMesh.MaxVertexID];
@@ -812,6 +841,7 @@ namespace g3
 
             return true;
         }
+        /// <summary> new mesh containing all the given meshes (not welded), each as a new triangle group </summary>
         public static DMesh3 Combine(params IMesh[] appendMeshes )
         {
             DMesh3 m = new DMesh3();
@@ -821,6 +851,7 @@ namespace g3
             }
             return m;
         }
+        /// <summary> append a copy of append to appendTo (not welded), as a new triangle group </summary>
         public static void Append(DMesh3 appendTo, DMesh3 append)
         {
             MeshEditor editor = new MeshEditor(appendTo);
@@ -828,6 +859,11 @@ namespace g3
         }
 
 
+        /// <summary>
+        /// As AppendMesh, but vertices of appendMesh that are in mergeMapV are not appended: their triangles use
+        /// the mapped existing vertex of Mesh instead (welds the appended mesh along those vertices).
+        /// Triangles that cannot be added (eg non-manifold) are skipped silently. Always returns true.
+        /// </summary>
         public bool AppendMesh(IMesh appendMesh, IndexMap mergeMapV, out int[] mapV, int appendGID = -1)
         {
             mapV = new int[appendMesh.MaxVertexID];

@@ -51,6 +51,62 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        static double MeanEdgeLength(DMesh3 mesh)
+        {
+            double min, max, avg;
+            MeshQueries.EdgeLengthStats(mesh, out min, out max, out avg);
+            return avg;
+        }
+
+        /// <summary> the documented bound near open boundaries: 2% of the distance plus one mean edge length </summary>
+        static void AssertBoundaryBound(DMesh3 mesh, Vector3d source, string label)
+        {
+            int src = NearestVertex(mesh, source);
+            Vector3d s = mesh.GetVertex(src);
+            var geo = new MeshGeodesicDistance(mesh);
+            Assert.True(geo.Compute(new[] { src }));
+            double h = MeanEdgeLength(mesh);
+            foreach (int vid in mesh.VertexIndices()) {
+                double exact = mesh.GetVertex(vid).Distance(s);    // convex planar domain: straight lines
+                Assert.True(Math.Abs(geo.Distance[vid] - exact) < 0.02 * exact + h,
+                    $"{label}: {mesh.GetVertex(vid)}: {geo.Distance[vid]} vs {exact}");
+            }
+        }
+
+        [Fact]
+        public void OpenBoundary_WithinTwoPercentPlusOneEdge()
+        {
+            // square with alternating diagonals, and with all diagonals in one direction (the worst case),
+            // sources in the middle, near a corner, on an edge and in a corner
+            DMesh3 alternating = Grid(0, 0, 10, 10, 41, (x, y) => 0);
+            DMesh3 oneWay = new DMesh3();
+            for (int j = 0; j <= 40; ++j)
+                for (int i = 0; i <= 40; ++i)
+                    oneWay.AppendVertex(new Vector3d(0.25 * i, 0.25 * j, 0));
+            for (int j = 0; j < 40; ++j)
+                for (int i = 0; i < 40; ++i) {
+                    int a = j * 41 + i;
+                    oneWay.AppendTriangle(a, a + 1, a + 42);
+                    oneWay.AppendTriangle(a, a + 42, a + 41);
+                }
+            foreach (DMesh3 mesh in new[] { alternating, oneWay })
+                foreach (Vector3d src in new[] { new Vector3d(5, 5, 0), new Vector3d(1, 1, 0), new Vector3d(5, 0, 0), Vector3d.Zero })
+                    AssertBoundaryBound(mesh, src, $"square {(mesh == oneWay ? "one-way" : "alternating")} from {src}");
+
+            // irregular triangulation of a disc of radius 5, sources in the middle, off center and on the boundary
+            DMesh3 disc = new TrivialDiscGenerator() { Radius = 5, Slices = 64 }.Generate().MakeDMesh();
+            var remesher = new Remesher(disc);
+            remesher.SetTargetEdgeLength(0.25);
+            MeshConstraintUtil.PreserveBoundaryLoops(remesher);
+            for (int k = 0; k < 30; ++k)
+                remesher.BasicRemeshPass();
+            AxisAlignedBox3d b = disc.CachedBounds;
+            Vector3d c = b.Center;
+            Vector3d r = (b.Max.x - c.x) * Vector3d.AxisX;
+            foreach (Vector3d src in new[] { c, c + 0.6 * r, c + r })
+                AssertBoundaryBound(disc, src, $"disc from {src}");
+        }
+
         [Fact]
         public void Cylinder_DistanceIsArcLength()
         {

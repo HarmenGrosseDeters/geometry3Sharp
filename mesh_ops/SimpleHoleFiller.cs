@@ -5,12 +5,22 @@ using System.Text;
 
 namespace g3
 {
+    /// <summary>
+    /// Simplest hole filler, in place: a 3-vertex hole gets one triangle, larger holes a triangle fan around a
+    /// new vertex at the centroid of the loop vertices. Fast and topologically simple, but the fan can be
+    /// badly shaped or self-intersecting for non-convex or non-planar holes; prefer MinimalHoleFill,
+    /// SmoothedHoleFill (both start from this fill) or PlanarHoleFiller for better geometry.
+    /// </summary>
     public class SimpleHoleFiller
     {
+        /// <summary> the mesh to fill, modified in place </summary>
         public DMesh3 Mesh;
+        /// <summary> the boundary loop to fill, oriented as from MeshBoundaryLoops (see Validate) </summary>
         public EdgeLoop Loop;
 
+        /// <summary> the added centroid vertex, or InvalidID (3-vertex holes, or failure) </summary>
         public int NewVertex;
+        /// <summary> the added triangles after a successful Fill(), otherwise null </summary>
         public int[] NewTriangles;
 
 
@@ -25,6 +35,7 @@ namespace g3
 
 
 
+        /// <summary> check that Loop is a correctly oriented boundary loop of Mesh (MeshValidation.IsBoundaryLoop) </summary>
         public virtual ValidationStatus Validate()
         {
             ValidationStatus loopStatus = MeshValidation.IsBoundaryLoop(Mesh, Loop);
@@ -32,6 +43,13 @@ namespace g3
         }
 
 
+        /// <summary>
+        /// Fill the hole; the new triangles get group_id. Fill() does not validate the loop.
+        /// </summary>
+        /// <returns>
+        /// false if the loop has fewer than 3 vertices or a triangle could not be added (eg it would create a
+        /// non-manifold edge); the changes are then backed out. true otherwise.
+        /// </returns>
         public virtual bool Fill(int group_id = -1)
         {
             if (Loop.Vertices.Length < 3)

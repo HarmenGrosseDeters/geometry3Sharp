@@ -31,7 +31,7 @@ selectively.
 - [x] Package metadata: SPDX license, README, XML docs, symbols
 - [x] Mesh formats PLY, 3MF, glTF/GLB (read and write)
 - [ ] Package ID and publishing (nuget.org ID `geometry3Sharp` belongs to upstream)
-- [ ] API docs and examples per operation
+- [x] API docs and examples per operation ([OPERATIONS.md](OPERATIONS.md), examples run as tests)
 
 ## Phase 2: robustness
 
@@ -52,15 +52,19 @@ selectively.
 
 ## Phase 3: parameterization and geodesics
 
-- Parameterization: LSCM, ARAP, SLIM (Rabinovich et al. 2017), Boundary First Flattening (Sawhney & Crane 2017); UV packing
-- Vector Heat Method (Sharp, Soliman, Crane 2019), including a robust log map (beyond `MeshLocalParam`)
-- Intrinsic Delaunay triangulations (Sharp & Crane), for stable Laplacians and heat on poor meshes
+- [x] Parameterization: LSCM, ARAP, SLIM (Rabinovich et al. 2017), Boundary First Flattening (Sawhney & Crane 2017);
+  UV packing; distortion measures; sparse Cholesky solver (`SparseCholesky`)
+- [ ] Cutting closed surfaces into discs (seams) and automatic chart segmentation; BFF with cone singularities
+- [ ] Vector Heat Method (Sharp, Soliman, Crane 2019), including a robust log map (beyond `MeshLocalParam`)
+- [ ] Intrinsic Delaunay triangulations (Sharp & Crane), for stable Laplacians and heat on poor meshes
 
 ## Phase 4: platform layer
 
 - [x] CLI / MCP server over the operations: `tools/g3cli` (measure, repair, boolean, resolve, remesh, simplify,
   convert; JSON results with result codes; `g3cli mcp` over stdio)
-- Analysis building blocks: wall thickness (shape diameter function, medial axis), deviation maps, primitive fitting
+- [x] Analysis building blocks: wall thickness (`MeshWallThickness`: ray, shape diameter function, inscribed ball /
+  medial axis), deviation maps (`MeshDeviation`, statistics in `DeviationStatistics`), primitive fitting
+  (`PrimitiveFit3`: plane, sphere, cylinder, cone; RANSAC + least squares)
 - A showcase domain: terrain / GIS (in progress) and biomedical / orthotics
 
 ## Later

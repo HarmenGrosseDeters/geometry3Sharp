@@ -178,6 +178,7 @@ namespace g3
                 newv[k] = vertices[k] + dist * GetNormal(k);
             for (int k = 0; k < vertices.Count; ++k)
                 vertices[k] = newv[k];
+            Timestamp++;
         }
 
 
@@ -202,6 +203,7 @@ namespace g3
             if (vi > 0)
                 vertices.RemoveRange(0, vi);
             vertices[0] = pt;
+            Timestamp++;
             return true;
         }
 
@@ -226,6 +228,7 @@ namespace g3
             if (vi < NV-1)
                 vertices.RemoveRange(vi, (NV-1)-vi);
             vertices[vi] = pt;
+            Timestamp++;
             return true;
         }
 
@@ -336,6 +339,7 @@ namespace g3
             int N = vertices.Count;
             for (int k = 0; k < N; ++k)
                 vertices[k] = xform.TransformP(vertices[k]);
+            Timestamp++;
             return this;
         }
 

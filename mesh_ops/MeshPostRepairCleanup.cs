@@ -14,28 +14,42 @@ namespace gs
     ///   - folded edges (flip, only if it reduces the local fold count)
     ///   - bowtie vertices
     ///   - inside-out closed components that are not cavities of another component
-    /// Self-intersections are not handled.
+    /// Self-intersections are not handled, and holes are not filled (it does not close a mesh).
+    ///
+    /// Works on any mesh, in place (topology changes, no new mesh is created). Apply() returns no status; the
+    /// statistics fields tell what was changed. Deterministic.
     /// </summary>
     public class MeshPostRepairCleanup
     {
+        /// <summary> the mesh to clean, modified in place </summary>
         public DMesh3 Mesh;
 
-        // triangles with area below DegenerateAreaFactor * diag^2 are degenerate
+        /// <summary> triangles with area below DegenerateAreaFactor * diag^2 (bounding box diagonal) are degenerate </summary>
         public double DegenerateAreaFactor = 1e-12;
-        // triangles with longest-edge/height ratio above this are treated like degenerate ones
+        /// <summary> triangles with longest-edge/height ratio above this are treated like degenerate ones </summary>
         public double MaxAspectRatio = 1000;
-        // edges whose two triangle normals differ by more than this (degrees) are folds
+        /// <summary> edges whose two triangle normals differ by more than this (degrees) are folds </summary>
         public double FoldAngleDeg = 175;
+        /// <summary> maximum number of degenerate-triangle / fold passes (stops earlier when a pass changes nothing) </summary>
         public int MaxPasses = 10;
 
-        // statistics of the last Apply()
+        /// <summary>
+        /// statistics of the last Apply(): removed triangles of duplicate pairs (both of each pair are removed),
+        /// bowtie vertices found before disconnecting, fixed degenerate triangles, flipped fold edges, and
+        /// inside-out components that were reversed
+        /// </summary>
         public int RemovedDuplicates, DisconnectedBowties, FixedDegenerate, FixedFolds, FlippedComponents;
 
+        /// <summary> the mesh is cleaned in place </summary>
         public MeshPostRepairCleanup(DMesh3 mesh)
         {
             Mesh = mesh;
         }
 
+        /// <summary>
+        /// Run all cleanup steps on Mesh: remove duplicate pairs, then alternate degenerate-triangle and fold
+        /// fixes (up to MaxPasses), remove isolated triangles, disconnect bowties, reverse inside-out components.
+        /// </summary>
         public void Apply()
         {
             double diag = Math.Max(Mesh.CachedBounds.DiagonalLength, MathUtil.Epsilon);
@@ -258,7 +272,8 @@ namespace gs
         /// Closed components whose orientation contradicts their nesting: an outer shell (inside an even
         /// number of other components) must have positive volume, a cavity (odd) negative volume. So
         /// inverted solids, and the cavities of a hollow solid that was inverted as a whole, are found.
-        /// Returns their triangle sets.
+        /// Returns their triangle sets (empty if there are none, no closed components, or more than 500 closed
+        /// components). Does not modify the mesh.
         /// </summary>
         public static List<int[]> FindInvertedComponents(DMesh3 mesh)
         {

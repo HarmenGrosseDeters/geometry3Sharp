@@ -8,14 +8,16 @@ using System.Xml;
 
 namespace g3
 {
-    //
-    // Write 3MF (3D Manufacturing Format) files, core specification
-    // https://github.com/3MFConsortium/spec_core
-    //
-    // Each mesh is written as one object with one build item. Vertex values are written
-    // as given, in the unit named by Unit (default millimeter). Unless options.bCombineMeshes
-    // is set, meshes stay separate objects.
-    //
+    /// <summary>
+    /// Write 3MF (3D Manufacturing Format) files, core specification
+    /// https://github.com/3MFConsortium/spec_core
+    /// 
+    /// Each mesh is written as one object (named by WriteMesh.Name) with one build item, without transform.
+    /// If options.bCombineMeshes is set, all meshes are written as a single object instead.
+    /// Vertex values are written as given (no scaling), and the model is labelled with Unit (default millimeter).
+    /// Only geometry is written: no normals, colors, UVs or materials.
+    /// StandardMeshWriter always uses the default Unit; create a ThreeMFWriter to use another one.
+    /// </summary>
     public class ThreeMFWriter
     {
         /// <summary>
@@ -24,6 +26,10 @@ namespace g3
         public string Unit = "millimeter";
 
 
+        /// <summary>
+        /// Write the meshes as a 3MF zip package to stream. The stream is left open.
+        /// Returns Ok; exceptions (eg from a non-writable stream) are not caught here.
+        /// </summary>
         public IOWriteResult Write(Stream stream, List<WriteMesh> vMeshes, WriteOptions options)
         {
             using (ZipArchive zip = new ZipArchive(stream, ZipArchiveMode.Create, true)) {

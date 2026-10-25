@@ -7,8 +7,23 @@ namespace g3
 {
 
     /// <summary>
-    /// Mesh Simplication - implementation of Garland & Heckbert Quadric Error Metric (QEM) Simplification
-    /// 
+    /// Mesh Simplication - implementation of Garland &amp; Heckbert Quadric Error Metric (QEM) Simplification.
+    ///
+    /// Collapses edges in place, cheapest quadric error first, until a target is reached:
+    /// ReduceToTriangleCount(), ReduceToVertexCount(), ReduceToEdgeLength() or ReduceToMaxQuadricError().
+    /// The mesh passed to the constructor is modified; vertex and triangle ids are not compacted.
+    /// There is no return value: a target can be missed when no allowed collapse is left (collapses that
+    /// would flip a normal, break the link condition, violate constraints, move boundary vertices, exceed
+    /// MaxDeviation or create self-intersections are skipped), so check mesh.TriangleCount afterwards.
+    ///
+    /// Boundaries: with PreserveBoundaryShape (default) boundary vertices are never moved (a collapse keeps the
+    /// boundary vertex), so the boundary only loses vertices. For a guaranteed geometric tolerance set
+    /// MaxDeviation (certified one-sided bound to the input surface). Use <see cref="MeshConstraints"/> via
+    /// SetExternalConstraints() to fix vertices or edges.
+    ///
+    /// Prefer Reducer to lower the triangle count while keeping the shape. Use <see cref="Remesher"/> instead
+    /// for uniform, well-shaped triangles of a given edge length (Reducer keeps long thin triangles in flat
+    /// regions).
     /// </summary>
 	public class Reducer : MeshRefinerBase
 	{
@@ -16,11 +31,13 @@ namespace g3
 
 		// other options
 
-		// if true, we try to find position for collapsed vertices that
-		// minimizes quadrice error. If false we just use midpoints.
-		// Note: using midpoints is *significantly* slower, because it results
-		// in may more points that would cause a triangle flip, which are then rejected.
-		// (Also results in more invalid collapses, not sure why though...)
+		/// <summary>
+		/// if true (default), we try to find position for collapsed vertices that
+		/// minimizes quadric error. If false we just use midpoints.
+		/// Note: using midpoints is *significantly* slower, because it results
+		/// in may more points that would cause a triangle flip, which are then rejected.
+		/// (Also results in more invalid collapses, not sure why though...)
+		/// </summary>
 		public bool MinimizeQuadricPositionError = true;
 
         /// <summary>
@@ -44,6 +61,7 @@ namespace g3
         /// FeatureQuadricWeight, so sharp edges and corners are preserved even next to large triangles.
         /// </summary>
         public double FeatureAngle = 0;
+        /// <summary> weight of the feature edge planes, relative to a triangle plane (see FeatureAngle) </summary>
         public double FeatureQuadricWeight = 100;
 
         /// <summary>
@@ -75,13 +93,17 @@ namespace g3
         /// <summary> subdivision depth for the MaxDeviation check; deeper certifies more collapses </summary>
         public int MaxDeviationDepth = 10;
 
-        // if true, we try to keep boundary vertices on boundary. You probably want this.
+        /// <summary>
+        /// if true (default), boundary vertices are not moved: a collapse involving a boundary vertex keeps
+        /// it at its position (if both ends are boundary vertices, one of them is kept), and
+        /// boundary planes are added to the quadrics (BoundaryQuadricWeight). You probably want this.
+        /// </summary>
         public bool PreserveBoundaryShape = true;
 
 		// [RMS] this is a debugging aid, will break to debugger if these edges are touched, in debug builds
 		public List<int> DebugEdges = new List<int>();
 
-		// if Target is set, we can project onto it in different ways
+		/// <summary> if a projection target is set, we can project onto it in different ways </summary>
 		public enum TargetProjectionMode
 		{
 			NoProjection,           // disable projection
@@ -89,6 +111,7 @@ namespace g3
 			Inline                  // projection is computed before evaluating quadrics, so
                                     // we are properly evaluating QEM error of result
 		}
+		/// <summary> when vertices are projected onto the projection target. Default AfterRefinement </summary>
 		public TargetProjectionMode ProjectionMode = TargetProjectionMode.AfterRefinement;
 
 		// this just lets us write more concise tests below
@@ -98,6 +121,7 @@ namespace g3
 		public bool ENABLE_PROFILING = false;
 
 
+		/// <summary> simplify mesh m in place </summary>
 		public Reducer(DMesh3 m) : base(m)
 		{
 		}
@@ -106,6 +130,7 @@ namespace g3
 		}
 
 
+		/// <summary> optional surface the vertices are projected onto (see ProjectionMode); null by default </summary>
 		public void SetProjectionTarget(IProjectionTarget target)
 		{
 			this.target = target;
@@ -125,6 +150,10 @@ namespace g3
 
 
 
+        /// <summary>
+        /// Run the reduction with the current target mode (normally called by the ReduceTo... functions).
+        /// Quadrics are recomputed from the current mesh on each call.
+        /// </summary>
         public virtual void DoReduce()
         {
             if (mesh.TriangleCount == 0)    // badness if we don't catch this...
@@ -190,6 +219,10 @@ namespace g3
 
 
 
+        /// <summary>
+        /// Collapse edges in order of increasing quadric error until mesh.TriangleCount &lt;= nCount (at least 1),
+        /// or no allowed collapse is left. Modifies the mesh in place.
+        /// </summary>
         public virtual void ReduceToTriangleCount(int nCount)
         {
             ReduceMode = TargetModes.TriangleCount;
@@ -198,6 +231,10 @@ namespace g3
             DoReduce();
         }
 
+        /// <summary>
+        /// Collapse edges in order of increasing quadric error until mesh.VertexCount &lt;= nCount (at least 3),
+        /// or no allowed collapse is left. Modifies the mesh in place.
+        /// </summary>
         public virtual void ReduceToVertexCount(int nCount)
         {
             ReduceMode = TargetModes.VertexCount;
@@ -221,6 +258,10 @@ namespace g3
         }
 
 
+        /// <summary>
+        /// Collapse edges shorter than minEdgeLen, in order of increasing quadric error (edges longer than
+        /// minEdgeLen are never collapsed), until no such edge is left in the queue. Modifies the mesh in place.
+        /// </summary>
         public virtual void ReduceToEdgeLength(double minEdgeLen)
         {
             ReduceMode = TargetModes.MinEdgeLength;
@@ -239,6 +280,12 @@ namespace g3
 
 
 
+        /// <summary>
+        /// Quick pass without quadrics: collapse interior (non-boundary) edges shorter than fMinEdgeLength to
+        /// their midpoint, iterating over all edges up to nRounds times (stops early when nothing collapses).
+        /// Constraints, flip checks, MaxDeviation and PreventSelfIntersections still apply. Pass
+        /// MeshIsClosedHint = true to skip the boundary scan for a closed mesh.
+        /// </summary>
         public virtual void FastCollapsePass(double fMinEdgeLength, int nRounds = 1, bool MeshIsClosedHint = false)
         {
             if (mesh.TriangleCount == 0)    // badness if we don't catch this...
