@@ -98,7 +98,7 @@ namespace g3
                 }
 
                 double multiplier = (double)8;  // TODO: Expose to caller.
-                double epsilon = double.Epsilon;
+                double epsilon = MathUtil.Epsilon;
                 double threshold = multiplier * epsilon * norm;
 
                 mRGivens.Clear();
@@ -387,9 +387,10 @@ namespace g3
                     }
                 }
 
-                // Compute the rank-1 offset u*w^T.
+                // Compute the rank-1 offset u*w^T.  If the column is already zero there
+                // is no reflection, and GetU() must not apply one either.
                 double invudu = (double)1 / udu;
-                double twoinvudu = invudu * (double)2;
+                double twoinvudu = (length > (double)0) ? invudu * (double)2 : (double)0;
                 for (c = i; c < mNumCols; ++c) {
                     mWVector[c] = (double)0;
                     for (r = i; r < mNumRows; ++r) {
@@ -426,9 +427,9 @@ namespace g3
                         }
                     }
 
-                    // Compute the rank-1 offset w*v^T.
+                    // Compute the rank-1 offset w*v^T (no reflection if the row is already zero).
                     double invvdv = (double)1 / vdv;
-                    double twoinvvdv = invvdv * (double)2;
+                    double twoinvvdv = (length > (double)0) ? invvdv * (double)2 : (double)0;
                     for (r = i; r < mNumRows; ++r) {
                         mWVector[r] = (double)0;
                         for (c = ip1; c < mNumCols; ++c) {
@@ -503,7 +504,9 @@ namespace g3
                     for (int j = i + 1; j <= imax + 1; ++j) {
                         x = mDiagonal[j];
                         GetSinCos(x, y, out cs, out sn);
-                        mLGivens.Add(new GivensRotation(i, j, cs, sn));
+                        // rows (i,j) are rotated by [cs sn; -sn cs], which is the transpose
+                        // of the convention GetU() accumulates (see DoGolubKahanStep)
+                        mLGivens.Add(new GivensRotation(i, j, cs, -sn));
                         mDiagonal[j] = cs * x - sn * y;
                         if (j <= imax) {
                             z = mSuperdiagonal[j];

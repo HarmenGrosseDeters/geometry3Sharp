@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Globalization;
 using System.Linq;
 using System.Text;
 
@@ -83,19 +84,19 @@ namespace g3
                     Vector3d v = mesh.GetVertex(vi);
                     if ( bVtxColors ) {
                         Vector3d c = mesh.GetVertexColor(vi);
-                        writer.WriteLine("v {0} {1} {2} {3:F8} {4:F8} {5:F8}", v[0], v[1], v[2], c[0],c[1],c[2]);
+                        writer.WriteLine(string.Format(CultureInfo.InvariantCulture, "v {0} {1} {2} {3:F8} {4:F8} {5:F8}", v[0], v[1], v[2], c[0],c[1],c[2]));
                     } else {
-                        writer.WriteLine("v {0} {1} {2}", v[0], v[1], v[2]);
+                        writer.WriteLine(string.Format(CultureInfo.InvariantCulture, "v {0} {1} {2}", v[0], v[1], v[2]));
                     }
 
 					if ( bNormals ) {
                         Vector3d n = mesh.GetVertexNormal(vi);
-                        writer.WriteLine("vn {0:F10} {1:F10} {2:F10}", n[0], n[1], n[2]);
+                        writer.WriteLine(string.Format(CultureInfo.InvariantCulture, "vn {0:F10} {1:F10} {2:F10}", n[0], n[1], n[2]));
                     }
 
 					if ( bVtxUVs ) {
 						Vector2f uv = mesh.GetVertexUV(vi);
-						writer.WriteLine("vt {0:F10} {1:F10}", uv.x, uv.y);
+						writer.WriteLine(string.Format(CultureInfo.InvariantCulture, "vt {0:F10} {1:F10}", uv.x, uv.y));
 					}
                 }
 
@@ -107,7 +108,7 @@ namespace g3
                     int nUV = uvSet.UVs.Length;
 					IndexMap fullMap = new IndexMap(false, nUV);   // [TODO] do we really need a map here? is just integer shift, no?
                     for (int ui = 0; ui < nUV; ++ui) {
-                        writer.WriteLine("vt {0:F8} {1:F8}", uvSet.UVs[ui].x, uvSet.UVs[ui].y);
+                        writer.WriteLine(string.Format(CultureInfo.InvariantCulture, "vt {0:F8} {1:F8}", uvSet.UVs[ui].x, uvSet.UVs[ui].y));
 						fullMap[ui] = nAccumCountUV++;
                     }
 					mapUV = fullMap;
@@ -228,13 +229,13 @@ namespace g3
         void write_tri(TextWriter writer, ref Index3i t, bool bNormals, bool bUVs, ref Index3i tuv)
         {
             if ( bNormals == false && bUVs == false ) {
-                writer.WriteLine("f {0} {1} {2}", t[0], t[1], t[2]);
+                writer.WriteLine(string.Format(CultureInfo.InvariantCulture, "f {0} {1} {2}", t[0], t[1], t[2]));
             } else if ( bNormals == true && bUVs == false ) {
-                writer.WriteLine("f {0}//{0} {1}//{1} {2}//{2}", t[0], t[1], t[2]);
+                writer.WriteLine(string.Format(CultureInfo.InvariantCulture, "f {0}//{0} {1}//{1} {2}//{2}", t[0], t[1], t[2]));
             } else if ( bNormals == false && bUVs == true ) {
-                writer.WriteLine("f {0}/{3} {1}/{4} {2}/{5}", t[0], t[1], t[2], tuv[0], tuv[1], tuv[2]);
+                writer.WriteLine(string.Format(CultureInfo.InvariantCulture, "f {0}/{3} {1}/{4} {2}/{5}", t[0], t[1], t[2], tuv[0], tuv[1], tuv[2]));
             } else {
-                writer.WriteLine("f {0}/{3}/{0} {1}/{4}/{1} {2}/{5}/{2}", t[0], t[1], t[2], tuv[0], tuv[1], tuv[2]);
+                writer.WriteLine(string.Format(CultureInfo.InvariantCulture, "f {0}/{3}/{0} {1}/{4}/{1} {2}/{5}/{2}", t[0], t[1], t[2], tuv[0], tuv[1], tuv[2]));
             }
         }
 
@@ -258,25 +259,25 @@ namespace g3
 
 				    w.WriteLine("newmtl {0}", mat.name);
 				    if ( mat.Ka != GenericMaterial.Invalid )
-					    w.WriteLine("Ka {0} {1} {2}", mat.Ka.x, mat.Ka.y, mat.Ka.z);
+					    w.WriteLine(string.Format(CultureInfo.InvariantCulture, "Ka {0} {1} {2}", mat.Ka.x, mat.Ka.y, mat.Ka.z));
 				    if ( mat.Kd != GenericMaterial.Invalid)
-					    w.WriteLine("Kd {0} {1} {2}", mat.Kd.x, mat.Kd.y, mat.Kd.z);
+					    w.WriteLine(string.Format(CultureInfo.InvariantCulture, "Kd {0} {1} {2}", mat.Kd.x, mat.Kd.y, mat.Kd.z));
 				    if ( mat.Ks != GenericMaterial.Invalid )
-					    w.WriteLine("Ks {0} {1} {2}", mat.Ks.x, mat.Ks.y, mat.Ks.z);
+					    w.WriteLine(string.Format(CultureInfo.InvariantCulture, "Ks {0} {1} {2}", mat.Ks.x, mat.Ks.y, mat.Ks.z));
 				    if ( mat.Ke != GenericMaterial.Invalid )
-					    w.WriteLine("Ke {0} {1} {2}", mat.Ke.x, mat.Ke.y, mat.Ke.z);
+					    w.WriteLine(string.Format(CultureInfo.InvariantCulture, "Ke {0} {1} {2}", mat.Ke.x, mat.Ke.y, mat.Ke.z));
 				    if ( mat.Tf != GenericMaterial.Invalid )
-					    w.WriteLine("Tf {0} {1} {2}", mat.Tf.x, mat.Tf.y, mat.Tf.z);
+					    w.WriteLine(string.Format(CultureInfo.InvariantCulture, "Tf {0} {1} {2}", mat.Tf.x, mat.Tf.y, mat.Tf.z));
 				    if ( mat.d != Single.MinValue )
-					    w.WriteLine("d {0}", mat.d);
+					    w.WriteLine(string.Format(CultureInfo.InvariantCulture, "d {0}", mat.d));
 				    if ( mat.Ns != Single.MinValue )
-					    w.WriteLine("Ns {0}", mat.Ns);
+					    w.WriteLine(string.Format(CultureInfo.InvariantCulture, "Ns {0}", mat.Ns));
 				    if ( mat.Ni != Single.MinValue )
-					    w.WriteLine("Ni {0}", mat.Ni);
+					    w.WriteLine(string.Format(CultureInfo.InvariantCulture, "Ni {0}", mat.Ni));
 				    if ( mat.sharpness != Single.MinValue )
-					    w.WriteLine("sharpness {0}", mat.sharpness);
+					    w.WriteLine(string.Format(CultureInfo.InvariantCulture, "sharpness {0}", mat.sharpness));
 				    if ( mat.illum != -1 )
-					    w.WriteLine("illum {0}", mat.illum);
+					    w.WriteLine(string.Format(CultureInfo.InvariantCulture, "illum {0}", mat.illum));
 
 				    if ( mat.map_Ka != null && mat.map_Ka != "" )
 					    w.WriteLine("map_Ka {0}", mat.map_Ka);
@@ -300,6 +301,7 @@ namespace g3
 				    if ( mat.refl != null && mat.refl != "" )
 					    w.WriteLine("refl {0}", mat.refl);
 			    }
+                w.Flush();
 
             } finally {
                 CloseStreamF(stream);

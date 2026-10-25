@@ -54,6 +54,7 @@ namespace g3
             MTranspose[5] = M[7];
             MTranspose[6] = M[2];
             MTranspose[7] = M[5];
+            MTranspose[8] = M[8];
         }
 
         // C = A * B

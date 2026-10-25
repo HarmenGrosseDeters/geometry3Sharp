@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Globalization;
 using System.Linq;
 using System.Text;
 using System.Runtime.InteropServices;
@@ -58,9 +59,9 @@ namespace g3
 
                 if ( tokens.Length != 3 ) 
                     return new IOReadResult(IOCode.FileParsingError, "first non-comment line of OFF must be vertex/tri/edge counts, found: " + line);
-                nVertexCount = int.Parse(tokens[0]);
-                nTriangleCount = int.Parse(tokens[1]);
-                //int nEdgeCount = int.Parse(tokens[2]);
+                nVertexCount = int.Parse(tokens[0], CultureInfo.InvariantCulture);
+                nTriangleCount = int.Parse(tokens[1], CultureInfo.InvariantCulture);
+                //int nEdgeCount = int.Parse(tokens[2], CultureInfo.InvariantCulture);
                 break;
             }
 
@@ -81,9 +82,9 @@ namespace g3
                 if ( tokens.Length != 3 )
                     emit_warning("found invalid OFF vertex line: " + line);
 
-                double x = Double.Parse(tokens[0]);
-                double y = Double.Parse(tokens[1]);
-                double z = Double.Parse(tokens[2]);
+                double x = Double.Parse(tokens[0], CultureInfo.InvariantCulture);
+                double y = Double.Parse(tokens[1], CultureInfo.InvariantCulture);
+                double z = Double.Parse(tokens[2], CultureInfo.InvariantCulture);
                 builder.AppendVertex(x, y, z);
                 vi++;
             }
@@ -106,13 +107,13 @@ namespace g3
                 if ( tokens.Length < 4 )
                     emit_warning("found invalid OFF triangle line: " + line);
 
-                int nV = int.Parse(tokens[0]);
+                int nV = int.Parse(tokens[0], CultureInfo.InvariantCulture);
                 if ( nV != 3 )
                     emit_warning("found non-triangle polygon in OFF, currently unsupported: " + line);
 
-                int a = int.Parse(tokens[1]);
-                int b = int.Parse(tokens[2]);
-                int c = int.Parse(tokens[3]);
+                int a = int.Parse(tokens[1], CultureInfo.InvariantCulture);
+                int b = int.Parse(tokens[2], CultureInfo.InvariantCulture);
+                int c = int.Parse(tokens[3], CultureInfo.InvariantCulture);
 
                 builder.AppendTriangle(a, b, c);
                 ti++;

@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Globalization;
 using System.Linq;
 using System.Text;
 using System.Runtime.InteropServices;
@@ -104,10 +105,10 @@ namespace g3
                     Index3i t = mesh.GetTriangle(ti);
                     Vector3d a = mesh.GetVertex(t.a), b = mesh.GetVertex(t.b), c = mesh.GetVertex(t.c);
                     Vector3d n = MathUtil.Normal(a, b, c);
-                    writer.WriteLine("facet normal " + three_floats, n.x, n.y, n.z);
-                    writer.WriteLine("outer loop" + writer.NewLine + "vertex " + three_floats, a.x, a.y, a.z);
-                    writer.WriteLine("vertex " + three_floats, b.x, b.y, b.z);
-                    writer.WriteLine("vertex " + three_floats, c.x, c.y, c.z);
+                    writer.WriteLine(string.Format(CultureInfo.InvariantCulture, "facet normal " + three_floats, n.x, n.y, n.z));
+                    writer.WriteLine(string.Format(CultureInfo.InvariantCulture, "outer loop" + writer.NewLine + "vertex " + three_floats, a.x, a.y, a.z));
+                    writer.WriteLine(string.Format(CultureInfo.InvariantCulture, "vertex " + three_floats, b.x, b.y, b.z));
+                    writer.WriteLine(string.Format(CultureInfo.InvariantCulture, "vertex " + three_floats, c.x, c.y, c.z));
                     writer.WriteLine("endloop" + writer.NewLine + "endfacet");
                 }
 

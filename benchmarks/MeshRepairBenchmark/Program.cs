@@ -118,6 +118,8 @@ class Program
             stage = "stats_after";
             Stats(result, r, "after");
             Deviation(original, result, r);
+            if (repairMode != "boolean")
+                Fidelity(original, result, r);
             bool valid = true;
             try { result.CheckValidity(false, FailMode.ReturnOnly); } catch { valid = false; }
             r["after_valid"] = valid;
@@ -159,6 +161,8 @@ class Program
         };
         double vA = Vol(solid(a)), vB = Vol(solid(b));
         var results = new System.Collections.Generic.Dictionary<string, DMesh3>();
+        var ta = new DMeshAABBTree3(a, true); var tb = new DMeshAABBTree3(b, true);
+        ta.FastWindingNumber(Vector3d.Zero); tb.FastWindingNumber(Vector3d.Zero);
         foreach (var op in new[] { MeshWindingNumberBoolean.Operations.Union, MeshWindingNumberBoolean.Operations.Intersection,
                                    MeshWindingNumberBoolean.Operations.Difference }) {
             var boolean = new MeshWindingNumberBoolean(a, b, op) { CellSize = cellSize };
@@ -170,6 +174,17 @@ class Program
             r["bool_" + key + "_closed"] = m.IsClosed();
             r["bool_" + key + "_bowties"] = MeshIterators.BowtieVertices(m).Count();
             r["bool_" + key + "_tris"] = m.TriangleCount;
+            // against the boolean of the inputs' winding number solids (the exact result of the method);
+            // not part of bool_ms
+            sw.Stop();
+            Func<double[], double> combine = MeshWindingNumberBoolean.CombineF(op);
+            double missing, extra;
+            r["bool_" + key + "_iou"] = MeshRepairMetrics.VolumeIoU(
+                (p) => combine(new[] { ta.FastWindingNumber(p), tb.FastWindingNumber(p) }) > 0.5, all, m, out missing, out extra);
+            r["bool_" + key + "_missing"] = missing;
+            r["bool_" + key + "_extra"] = extra;
+            r["bool_" + key + "_selfint_exact"] = m.TriangleCount <= 300000 ? MeshRepairMetrics.SelfIntersections(m) : -1;
+            sw.Start();
         }
         r["bool_ms"] = sw.ElapsedMilliseconds;
         double vU = Vol(results["union"]), vI = Vol(results["intersection"]), vD = Vol(results["difference"]);
@@ -227,6 +242,33 @@ class Program
             sum += d; max = Math.Max(max, d); n++;
         }
         return new Vector2d(n > 0 ? sum / n : 0, max);
+    }
+
+    // Fidelity to the input without a reference result: certified Hausdorff distances in both directions
+    // (relative to the bbox diagonal; hd_fwd = result to input, hd_back = input to result, lower and upper
+    // bound), and agreement with the input's winding number solid (IoU, missing and extra volume)
+    static void Fidelity(DMesh3 input, DMesh3 result, System.Collections.Generic.Dictionary<string, object> r)
+    {
+        if (input.TriangleCount == 0 || result.TriangleCount == 0)
+            return;
+        double diag = input.CachedBounds.DiagonalLength;
+        var sw = Stopwatch.StartNew();
+        foreach (bool fwd in new[] { true, false }) {
+            var h = new MeshHausdorffDistance(fwd ? result : input, fwd ? input : result) {
+                Symmetric = false, RelativeTolerance = 1e-3, MaxSubdivisions = 2000000
+            };
+            if (h.Compute()) {
+                string k = fwd ? "hd_fwd" : "hd_back";
+                r[k + "_lo_rel"] = h.LowerBound / diag;
+                r[k + "_hi_rel"] = h.UpperBound / diag;
+                r[k + "_converged"] = h.Converged;
+            }
+        }
+        double missing, extra;
+        r["iou"] = MeshRepairMetrics.VolumeIoU(input, result, out missing, out extra);
+        r["iou_missing"] = missing;
+        r["iou_extra"] = extra;
+        r["fidelity_ms"] = sw.ElapsedMilliseconds;
     }
 
     // naive wrapper-style construction: exact-position weld, AppendTriangle, skip failures
@@ -323,6 +365,8 @@ class Program
             nSelf = pairs.Count;
         } else nSelf = -1;
         r[p + "_self_intersecting_pairs"] = nSelf;
+        // exact, including neighbours that overlap (MeshRepairMetrics)
+        r[p + "_selfint_exact"] = (bExpensive && m.TriangleCount <= 300000) ? MeshRepairMetrics.SelfIntersections(m) : -1;
 
         // inside-out closed components (negative volume and not a cavity inside another component)
         int nInverted = MeshPostRepairCleanup.FindInvertedComponents(m).Count;
@@ -352,7 +396,9 @@ class Program
             Index2i ev = m.GetEdgeV(e); return m.GetVertex(ev.a).Distance(m.GetVertex(ev.b)) < 0.0001; });
     }
 
-    static void Emit(object o) => Console.WriteLine(JsonSerializer.Serialize(o));
+    // NaN / infinity (eg IoU without a reference solid) are written as strings ("NaN"), not rejected
+    static void Emit(object o) => Console.WriteLine(JsonSerializer.Serialize(o, new JsonSerializerOptions {
+        NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowNamedFloatingPointLiterals }));
 }
 
 static class Ext

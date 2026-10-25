@@ -237,9 +237,9 @@ namespace g3
 				SimpleHoleFiller filler = new SimpleHoleFiller(Mesh, loop);
 				int gid = (constantGroupID >= 0) ? constantGroupID : Mesh.AllocateTriangleGroup();
 				if ( filler.Fill(gid) ) {
-					bAllOk = false;
 					LoopFillTriangles.Add(filler.NewTriangles);
 				} else {
+					bAllOk = false;
 					LoopFillTriangles.Add(null);
 				}
 			}
