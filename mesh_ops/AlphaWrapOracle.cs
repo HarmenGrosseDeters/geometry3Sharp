@@ -253,8 +253,14 @@ namespace gs
                 return false;
             if (nodeCount[node] > 0) {
                 int end = nodeStart[node] + nodeCount[node];
-                for (int k = nodeStart[node]; k < end; ++k)
-                    if (tet_primitive_touch(ref t, order[k], margin)) return true;
+                for (int k = nodeStart[node]; k < end; ++k) {
+                    int i = order[k];
+                    AxisAlignedBox3d pb = primBox[i];
+                    if (pb.Min.x - box.Max.x > margin || box.Min.x - pb.Max.x > margin || pb.Min.y - box.Max.y > margin
+                        || box.Min.y - pb.Max.y > margin || pb.Min.z - box.Max.z > margin || box.Min.z - pb.Max.z > margin)
+                        continue;
+                    if (tet_primitive_touch(ref t, i, margin)) return true;
+                }
                 return false;
             }
             return tet_rec(nodeStart[node], ref t, box, margin) || tet_rec(nodeStart[node] + 1, ref t, box, margin);
