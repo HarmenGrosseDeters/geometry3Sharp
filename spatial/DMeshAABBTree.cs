@@ -1418,10 +1418,10 @@ namespace g3
             int idx = box_to_index[iBox];
             if (idx < triangles_end) {            // triange-list case, array is [N t1 t2 ... tN]
                 int num_tris = index_list[idx];
+                Vector3d[] verts = fast_winding_leaf_vertices;
                 for (int i = 1; i <= num_tris; ++i) {
-                    int ti = index_list[idx + i];
-                    mesh.GetTriVertices(ti, ref a, ref b, ref c);
-                    branch_sum += MathUtil.TriSolidAngle(a, b, c, ref p) / MathUtil.FourPI;
+                    int o = 3 * (idx + i);
+                    branch_sum += MathUtil.TriSolidAngle(verts[o], verts[o + 1], verts[o + 2], ref p) / MathUtil.FourPI;
                 }
 
             } else {                                // internal node, either 1 or 2 child boxes
@@ -1471,6 +1471,7 @@ namespace g3
         // inner loop of every evaluation)
         FWNInfo[] FastWindingCache;
         bool[] fast_winding_cached;
+        Vector3d[] fast_winding_leaf_vertices;
         volatile int fast_winding_cache_timestamp = -1;
         readonly object fast_winding_cache_lock = new object();
 
@@ -1483,6 +1484,18 @@ namespace g3
             //MeshTriInfoCache triCache = null;
             MeshTriInfoCache triCache = new MeshTriInfoCache(mesh);
 
+            // the corners of the leaf triangles, in the order of index_list (contiguous for the leaf loop)
+            fast_winding_leaf_vertices = new Vector3d[3 * triangles_end];
+            for (int iBox = 0; iBox < box_to_index.size; ++iBox) {
+                int idx = box_to_index[iBox];
+                if (idx >= triangles_end)
+                    continue;
+                int num_tris = index_list[idx];
+                for (int i = 1; i <= num_tris; ++i) {
+                    int o = 3 * (idx + i);
+                    mesh.GetTriVertices(index_list[idx + i], ref fast_winding_leaf_vertices[o], ref fast_winding_leaf_vertices[o + 1], ref fast_winding_leaf_vertices[o + 2]);
+                }
+            }
             FastWindingCache = new FWNInfo[box_centers.size];
             fast_winding_cached = new bool[box_centers.size];
             HashSet<int> root_hash;

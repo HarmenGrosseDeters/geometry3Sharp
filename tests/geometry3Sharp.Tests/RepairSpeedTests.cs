@@ -305,6 +305,61 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void HasSelfIntersections_AgreesWithTheCount()
+        {
+            DMesh3 two = Box(Vector3d.Zero, Vector3d.One);
+            MeshEditor.Append(two, Box(0.5 * Vector3d.One, 1.5 * Vector3d.One));
+            DMesh3 apart = Box(Vector3d.Zero, Vector3d.One);
+            MeshEditor.Append(apart, Box(new Vector3d(1.01, 0, 0), new Vector3d(2, 1, 1)));
+            DMesh3 sphere = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 10 }.Generate().MakeDMesh();
+            // many intersecting pairs: a sphere and a copy of it, slightly shifted
+            DMesh3 spheres = new DMesh3(sphere);
+            DMesh3 shifted = new DMesh3(sphere);
+            MeshTransforms.Translate(shifted, new Vector3d(0.01, 0.02, 0));
+            MeshEditor.Append(spheres, shifted);
+            foreach (DMesh3 m in new[] { two, apart, sphere, spheres, new DMesh3() })
+                Assert.Equal(MeshRepairMetrics.SelfIntersections(m) > 0, MeshRepairMetrics.HasSelfIntersections(m));
+            Assert.Equal("self-intersections", MeshRobustRepair.NotCleanReason(two));
+        }
+
+        static double BruteForceWinding(DMesh3 m, Vector3d p)
+        {
+            double sum = 0;
+            Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+            foreach (int tid in m.TriangleIndices()) {
+                m.GetTriVertices(tid, ref a, ref b, ref c);
+                sum += MathUtil.TriSolidAngle(a, b, c, ref p) / MathUtil.FourPI;
+            }
+            return sum;
+        }
+
+        [Fact]
+        public void FastWindingNumber_LeafTrianglesForEveryTreeLayout()
+        {
+            // the leaf triangles' corners are copied into arrays for the evaluation: with the far-field
+            // approximation off (huge FWNBeta) every triangle is evaluated from them, which must give the
+            // plain sum; for both tree layouts (leaf lists from the top-down split and from one-rings) and
+            // after a rebuild for a changed mesh
+            DMesh3 m = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 12 }.Generate().MakeDMesh();
+            MeshEditor.Append(m, Box(new Vector3d(2, 0, 0), new Vector3d(3, 1, 1)));
+            var rnd = new Random(4);
+            foreach (var strategy in new[] { DMeshAABBTree3.BuildStrategy.TopDownMidpoint, DMeshAABBTree3.BuildStrategy.BottomUpFromOneRings }) {
+                var tree = new DMeshAABBTree3(m) { FWNBeta = 1e10 };
+                tree.Build(strategy);
+                for (int k = 0; k < 100; ++k) {
+                    Vector3d p = new Vector3d(-1.5 + 5 * rnd.NextDouble(), -1.5 + 3 * rnd.NextDouble(), -1.5 + 3 * rnd.NextDouble());
+                    Assert.Equal(BruteForceWinding(m, p), tree.FastWindingNumber(p), 9);
+                }
+            }
+            var t2 = new DMeshAABBTree3(m, true) { FWNBeta = 1e10 };
+            Assert.Equal(BruteForceWinding(m, Vector3d.Zero), t2.FastWindingNumber(Vector3d.Zero), 9);
+            MeshTransforms.Translate(m, new Vector3d(10, 0, 0));
+            t2.Build();
+            foreach (Vector3d p in new[] { Vector3d.Zero, new Vector3d(10, 0, 0), new Vector3d(12.5, 0.5, 0.5) })
+                Assert.Equal(BruteForceWinding(m, p), t2.FastWindingNumber(p), 9);
+        }
+
+        [Fact]
         public void MeshRobustRepair_ReportsPhaseTimes()
         {
             // clean input: repair, check and volume; two overlapping boxes as one mesh: also the exact resolve

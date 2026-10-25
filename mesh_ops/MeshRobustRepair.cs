@@ -292,7 +292,7 @@ namespace gs
             double areaEps = 1e-12 * diag * diag;
             if (mesh.TriangleIndices().Any(t => mesh.GetTriArea(t) < areaEps)) return "degenerate triangles";
             if (MeshPostRepairCleanup.FindInvertedComponents(mesh).Count > 0) return "inside-out components";
-            if (checkSelfIntersections && MeshRepairMetrics.SelfIntersections(mesh) > 0) return "self-intersections";
+            if (checkSelfIntersections && MeshRepairMetrics.HasSelfIntersections(mesh)) return "self-intersections";
             return "";
         }
     }
