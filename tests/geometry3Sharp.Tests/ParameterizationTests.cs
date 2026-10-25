@@ -112,6 +112,23 @@ namespace geometry3Sharp.Tests
             return mesh;
         }
 
+        /// <summary>
+        /// planar 2x2 square with a T-junction: vertex C = (1,1) lies on the edge A-B of the lower half, which is
+        /// closed by the zero-area triangle (A, B, C)
+        /// </summary>
+        static DMesh3 TJunction()
+        {
+            DMesh3 m = new DMesh3();
+            int P0 = m.AppendVertex(new Vector3d(0, 0, 0)), P1 = m.AppendVertex(new Vector3d(2, 0, 0));
+            int A = m.AppendVertex(new Vector3d(0, 1, 0)), B = m.AppendVertex(new Vector3d(2, 1, 0));
+            int C = m.AppendVertex(new Vector3d(1, 1, 0));
+            int Q0 = m.AppendVertex(new Vector3d(0, 2, 0)), Q1 = m.AppendVertex(new Vector3d(2, 2, 0));
+            foreach (Index3i t in new[] { new Index3i(P0, P1, B), new Index3i(P0, B, A), new Index3i(A, B, C),
+                                          new Index3i(C, B, Q1), new Index3i(A, C, Q0), new Index3i(C, Q1, Q0) })
+                Assert.True(m.AppendTriangle(t) >= 0);
+            return m;
+        }
+
         static void AssertNoFlips(DMesh3 mesh, ParameterizationResult r)
         {
             foreach (int tid in mesh.TriangleIndices()) {
@@ -324,6 +341,20 @@ namespace geometry3Sharp.Tests
             Assert.True(r.Succeeded, r.Error);
             Assert.True(r.Distortion.MaxConformal < 1 + 1e-6);
             Assert.True(MaxEdgeLengthError(mesh, r.UV) < 1e-6);
+        }
+
+        [Fact]
+        public void LSCM_TJunction_DegenerateTriangleDoesNotDistort()
+        {
+            // the planar mesh is its own conformal map. The zero-area triangle has no Dirichlet energy, so its
+            // area must not be part of the area term either: else the minimizer opened it up (max conformal 1.8)
+            DMesh3 mesh = TJunction();
+            var r = new LSCMParameterization(mesh).Compute();
+            Assert.True(r.Succeeded, r.Error);
+            Assert.True(r.Distortion.MaxConformal < 1 + 1e-6, "conformal " + r.Distortion.MaxConformal);
+            Assert.True(MaxEdgeLengthError(mesh, r.UV) < 1e-6, "edge error " + MaxEdgeLengthError(mesh, r.UV));
+            Assert.True(Math.Abs(r.Energy) < 1e-10, "energy " + r.Energy);
+            Assert.Equal(0, r.Distortion.FlippedTriangles);     // (the degenerate triangle is not measured)
         }
 
         [Fact]
