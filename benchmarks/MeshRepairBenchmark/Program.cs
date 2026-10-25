@@ -99,6 +99,7 @@ class Program
                     rep.RepairTolerance *= tolFactor; rep.MinEdgeLengthTol *= tolFactor; } };
                 int res = int.Parse(Environment.GetEnvironmentVariable("BENCH_SOLID_RES") ?? "128");
                 robust.SolidifyResolution = res;
+                robust.ExactResolveRounds = int.Parse(Environment.GetEnvironmentVariable("BENCH_EXACT_ROUNDS") ?? "4");
                 ok = robust.Apply();
                 result = robust.Mesh;
                 r["hybrid_fallback"] = robust.FallbackReason != "";
@@ -108,6 +109,7 @@ class Program
                 r["robust_used_exact"] = robust.UsedExactResolve;
                 r["robust_exact_reason"] = robust.ExactResolveReason;
                 r["robust_exact_rounds"] = robust.ExactResolveRoundsUsed;
+                r["robust_exact_selfint"] = robust.ExactResolveSelfIntersections;
             } else if (repairMode.StartsWith("solidify_")) {
                 result = Solidify(original, repairMode == "solidify_mc" ? MeshWindingNumberSolidify.Methods.MarchingCubes
                     : MeshWindingNumberSolidify.Methods.DualContouring, repairMode == "solidify_dc_adaptive", r);

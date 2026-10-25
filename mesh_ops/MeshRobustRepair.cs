@@ -1,5 +1,6 @@
 // Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using g3;
 
@@ -54,6 +55,8 @@ namespace gs
         public string ExactResolveReason = "";
         /// <summary> resolves done by the exact stage (0 if not tried) </summary>
         public int ExactResolveRoundsUsed;
+        /// <summary> per resolve round: self-intersecting triangle pairs of its result (diagnostics) </summary>
+        public List<int> ExactResolveSelfIntersections = new List<int>();
 
         public MeshRobustRepair(DMesh3 mesh)
         {
@@ -66,6 +69,7 @@ namespace gs
             UsedExactResolve = false;
             ExactResolveReason = "";
             ExactResolveRoundsUsed = 0;
+            ExactResolveSelfIntersections.Clear();
             FallbackReason = "";
             RepairVolumeIoU = double.NaN;
             DMesh3 input = new DMesh3(Mesh);
@@ -138,7 +142,16 @@ namespace gs
                     new MeshPostRepairCleanup(res).Apply();
                     res = new DMesh3(res, true);
                 }
-                reason = NotCleanReason(res, CheckSelfIntersections);
+                // where solids touch (at a vertex or along an edge) Resolve gives manifold sheets with duplicated
+                // vertices, which touch: separate them minimally
+                SeparateTouchingVertices(res, SeparateFraction);
+                reason = NotCleanReason(res, false);
+                if (reason == "" && CheckSelfIntersections) {
+                    int si = MeshRepairMetrics.SelfIntersections(res);
+                    ExactResolveSelfIntersections.Add(si);
+                    if (si > 0)
+                        reason = "self-intersections";
+                }
                 if (reason == "self-intersections") {
                     // from rounding the new vertices (or the cleanup): tiny, resolved by the next round
                     ExactResolveReason = reason;
@@ -162,6 +175,44 @@ namespace gs
                 return res;
             }
             return null;
+        }
+
+        /// <summary> how far SeparateTouchingVertices moves a vertex, relative to the distance to the centroid of its neighbours </summary>
+        public double SeparateFraction = 1e-4;
+
+        /// <summary>
+        /// Vertices at the same position (eg from splitting a non-manifold vertex or edge into manifold sheets)
+        /// make their sheets touch there. Each is moved by fraction of the way towards the centroid of its
+        /// neighbours, so the sheets separate. Returns the number of vertices moved.
+        /// </summary>
+        public static int SeparateTouchingVertices(DMesh3 mesh, double fraction)
+        {
+            var at = new Dictionary<Vector3d, List<int>>();
+            foreach (int vid in mesh.VertexIndices()) {
+                Vector3d v = mesh.GetVertex(vid);
+                List<int> list;
+                if (at.TryGetValue(v, out list) == false)
+                    at[v] = list = new List<int>();
+                list.Add(vid);
+            }
+            var moves = new List<KeyValuePair<int, Vector3d>>();
+            foreach (var kv in at) {
+                if (kv.Value.Count < 2)
+                    continue;
+                foreach (int vid in kv.Value) {
+                    Vector3d c = Vector3d.Zero;
+                    int n = 0;
+                    foreach (int nb in mesh.VtxVerticesItr(vid)) {
+                        c += mesh.GetVertex(nb);
+                        n++;
+                    }
+                    if (n > 0)
+                        moves.Add(new KeyValuePair<int, Vector3d>(vid, kv.Key + fraction * (c / n - kv.Key)));
+                }
+            }
+            foreach (var m in moves)
+                mesh.SetVertex(m.Key, m.Value);
+            return moves.Count;
         }
 
         /// <summary> "" if the mesh is clean (see class comment), otherwise the first problem found </summary>

@@ -166,6 +166,48 @@ namespace geometry3Sharp.Tests
             Assert.True(r.UsedSolidify);
         }
 
+        static DMesh3 Box(double x0, double y0, double z0, double x1, double y1, double z1)
+        {
+            return new TrivialBox3Generator() { Box = new Box3d(new Vector3d((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2),
+                new Vector3d((x1 - x0) / 2, (y1 - y0) / 2, (z1 - z0) / 2)) }.Generate().MakeDMesh();
+        }
+
+        [Fact]
+        public void TouchingSolids_SeparatedAfterTheExactResolve()
+        {
+            // boxes touching along an edge, one of them overlapped by a third box: the resolve splits the touching
+            // edge into two manifold sheets with duplicated vertices, which touch (a self-intersection by the exact
+            // check); they are separated minimally, so the exact result is used
+            DMesh3 m = Box(0, 0, 0, 1, 1, 1);
+            MeshEditor.Append(m, Box(1, 1, 0, 2, 2, 1));
+            MeshEditor.Append(m, Box(0.5, 0.5, 0.25, 0.75, 0.75, 1.5));
+            var r = new MeshRobustRepair(m) { RepairF = (x) => new DMesh3(x) };
+            Assert.True(r.Apply());
+            Assert.Equal("self-intersections", r.FallbackReason);
+            Assert.True(r.UsedExactResolve, r.ExactResolveReason);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(r.Mesh));
+            double v = 2 + 0.25 * 0.25 * 0.5;       // two unit boxes and the part of the third above the first
+            Assert.Equal(v, Volume(r.Mesh), 3);
+        }
+
+        [Fact]
+        public void SeparateTouchingVertices_RemovesTheContact()
+        {
+            DMesh3 m = Box(0, 0, 0, 1, 1, 1);
+            MeshEditor.Append(m, Box(1, 1, 0, 2, 2, 1));
+            DMesh3 res = ExactMeshBoolean.Resolve(m);
+            Assert.True(MeshRepairMetrics.SelfIntersections(res) > 0);
+            var before = res.Vertices().ToList();
+            Assert.Equal(4, MeshRobustRepair.SeparateTouchingVertices(res, 1e-4));
+            Assert.Equal(0, MeshRepairMetrics.SelfIntersections(res));
+            // moved by a tiny amount only
+            var after = res.Vertices().ToList();
+            Assert.True(before.Zip(after, (a, b) => a.Distance(b)).Max() < 1e-3);
+            Assert.True(before.Zip(after, (a, b) => a.Distance(b)).Max() > 0);
+            // nothing to do on a mesh without duplicated vertices
+            Assert.Equal(0, MeshRobustRepair.SeparateTouchingVertices(Box(0, 0, 0, 1, 1, 1), 1e-4));
+        }
+
         [Fact]
         public void InsideOutInput_RepairKeptNotSolidified()
         {
