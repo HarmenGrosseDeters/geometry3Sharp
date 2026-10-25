@@ -35,10 +35,12 @@ namespace geometry3Sharp.Tests
             return MeshMeasurements.VolumeArea(mesh, mesh.TriangleIndices(), mesh.GetVertex).x;
         }
 
-        static DMesh3 Run(DMesh3 a, DMesh3 b, Ops op, bool expectClosed = true)
+        static DMesh3 Run(DMesh3 a, DMesh3 b, Ops op, bool expectClosed = true, int expectSelfPairs = -1)
         {
             var boolean = new ExactMeshBoolean(a, b, op);
             Assert.True(boolean.Compute(), boolean.Error);
+            if (expectSelfPairs >= 0)
+                Assert.Equal(expectSelfPairs, boolean.SelfIntersectingPairs);
             DMesh3 r = boolean.Result;
             Assert.True(r.CheckValidity(true, FailMode.ReturnOnly), "invalid mesh");
             // (DMesh3.IsClosed() is false for an empty mesh)
@@ -145,7 +147,8 @@ namespace geometry3Sharp.Tests
             DMesh3 b = Sphere(new Vector3d(0.6, 0.3, -0.2), 0.9, 8);
             MeshTransforms.Rotate(a, Vector3d.Zero, RandomRotation(rand));
             MeshTransforms.Rotate(b, new Vector3d(0.6, 0.3, -0.2), RandomRotation(rand));
-            DMesh3 union = Run(a, b, Ops.Union), inter = Run(a, b, Ops.Intersection), diff = Run(a, b, Ops.Difference);
+            // clean inputs: neighbouring triangles only touch, no pair of a mesh intersects itself
+            DMesh3 union = Run(a, b, Ops.Union, expectSelfPairs: 0), inter = Run(a, b, Ops.Intersection), diff = Run(a, b, Ops.Difference);
             double va = Volume(a), vb = Volume(b);
             // inclusion-exclusion holds exactly for the exact result, here up to the rounding of new vertices
             Assert.Equal(va + vb, Volume(union) + Volume(inter), 9);
@@ -245,22 +248,250 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void CubesTouchingAlongAnEdge_Union()
         {
-            // the union is non-manifold along the shared edge: the result keeps all faces, with duplicated vertices
+            // four triangles meet at the shared edge: the result is split there into two manifold sheets
             DMesh3 a = Box(0, 0, 0, 1, 1, 1), b = Box(1, 1, 0, 2, 2, 1);
             var boolean = new ExactMeshBoolean(a, b, Ops.Union);
             Assert.True(boolean.Compute());
-            Assert.Equal(2.0, Volume(boolean.Result), 12);
-            Assert.Equal(24, boolean.Result.TriangleCount);
+            DMesh3 r = boolean.Result;
+            Assert.Equal(2.0, Volume(r), 12);
+            Assert.Equal(24, r.TriangleCount);
+            Assert.True(r.IsClosed());
+            Assert.Equal(1, boolean.NonManifoldEdges);
+            Assert.Equal(0, boolean.NonManifoldTriangles);
+            Assert.Equal(16, r.VertexCount);        // the two edge vertices are duplicated
+            var comps = new MeshConnectedComponents(r);
+            comps.FindConnectedT();
+            Assert.Equal(2, comps.Count);
         }
 
         [Fact]
-        public void OpenMesh_ReturnsError()
+        public void SolidsTouchingAlongEdges_FromSelfIntersectingInput()
+        {
+            // the solid of four boxes in a 2 x 2 checkerboard (in z both layers): six edges where solids touch
+            DMesh3 a = Merge(Box(0, 0, 0, 1, 1, 1), Box(1, 1, 0, 2, 2, 1), Box(0, 1, 1, 1, 2, 2), Box(1, 0, 1, 2, 1, 2));
+            var boolean = new ExactMeshBoolean(a, new DMesh3(), Ops.Union);
+            Assert.True(boolean.Compute());
+            Assert.True(boolean.Result.IsClosed());
+            Assert.Equal(4.0, Volume(boolean.Result), 12);
+            Assert.True(boolean.NonManifoldEdges > 0);
+        }
+
+        static DMesh3 Merge(params DMesh3[] parts)
+        {
+            DMesh3 m = new DMesh3();
+            foreach (DMesh3 p in parts)
+                MeshEditor.Append(m, p);
+            return m;
+        }
+
+        static DMesh3 Reversed(DMesh3 m)
+        {
+            DMesh3 r = new DMesh3(m);
+            r.ReverseOrientation();
+            return r;
+        }
+
+        // the solid of one mesh (where its winding number is positive), by a union with a far away box
+        static DMesh3 SolidOf(DMesh3 m, out int farTris)
+        {
+            DMesh3 far = Box(100, 100, 100, 101, 101, 101);
+            farTris = far.TriangleCount;
+            return Run(m, far, Ops.Union);
+        }
+
+        [Fact]
+        public void SelfIntersectingMesh_TwoOverlappingBoxes()
+        {
+            DMesh3 a = Merge(Box(0, 0, 0, 1, 1, 1), Box(0.5, 0.25, 0.25, 1.5, 0.75, 0.75));
+            DMesh3 solid = SolidOf(a, out int farTris);
+            Assert.Equal(1 + 0.25 - 0.125 + 1, Volume(solid), 12);      // + 1: the far box
+            Assert.Equal(0, MeshRepairMetrics.SelfIntersections(solid));
+            // and as the second operand
+            DMesh3 b = Box(-0.5, -0.5, -0.5, 0.5, 0.5, 0.5);
+            DMesh3 inter = Run(b, a, Ops.Intersection);
+            Assert.Equal(0.125, Volume(inter), 12);
+        }
+
+        [Fact]
+        public void NestedShells_SameOrientation_AndInverted()
+        {
+            DMesh3 outer = Box(0, 0, 0, 3, 3, 3), inner = Box(1, 1, 1, 2, 2, 2);
+            // winding number 2 inside the inner box: still solid, the inner shell disappears
+            DMesh3 nested = SolidOf(Merge(outer, inner), out int farTris);
+            Assert.Equal(27 + 1, Volume(nested), 12);
+            Assert.Equal(outer.TriangleCount + farTris, nested.TriangleCount);
+            // inverted inner shell: a cavity (winding number 0)
+            DMesh3 cavity = SolidOf(Merge(outer, Reversed(inner)), out farTris);
+            Assert.Equal(27 - 1 + 1, Volume(cavity), 12);
+            Assert.Equal(outer.TriangleCount + inner.TriangleCount + farTris, cavity.TriangleCount);
+        }
+
+        [Fact]
+        public void DuplicatedFaces_AreOutputOnce()
+        {
+            DMesh3 box = Box(0, 0, 0, 1, 1, 1);
+            DMesh3 doubled = SolidOf(Merge(box, new DMesh3(box)), out int farTris);
+            Assert.Equal(2.0, Volume(doubled), 12);
+            Assert.Equal(box.TriangleCount + farTris, doubled.TriangleCount);
+        }
+
+        [Fact]
+        public void DoubleSidedInnerSheet_IsRemoved()
+        {
+            // a square sheet inside the box, with both orientations: winding number unchanged across it
+            DMesh3 sheet = new DMesh3();
+            sheet.AppendVertex(new Vector3d(0.2, 0.2, 0.5)); sheet.AppendVertex(new Vector3d(0.8, 0.2, 0.5));
+            sheet.AppendVertex(new Vector3d(0.8, 0.8, 0.5)); sheet.AppendVertex(new Vector3d(0.2, 0.8, 0.5));
+            sheet.AppendTriangle(0, 1, 2); sheet.AppendTriangle(0, 2, 3);
+            DMesh3 a = Merge(Box(0, 0, 0, 1, 1, 1), sheet, Reversed(sheet));
+            Assert.True(ExactMeshBoolean.IsWindingClosed(a));
+            Assert.False(a.IsClosed());
+            DMesh3 solid = SolidOf(a, out int farTris);
+            Assert.Equal(2.0, Volume(solid), 12);
+            Assert.Equal(12 + farTris, solid.TriangleCount);
+        }
+
+        [Theory]
+        [InlineData(1)]
+        [InlineData(2)]
+        [InlineData(3)]
+        public void SelfIntersectingInputs_VolumeIdentities(int seed)
+        {
+            // each operand is the union of two overlapping rotated boxes, merged without resolving
+            var rand = new Random(seed);
+            Func<Vector3d, double, DMesh3> rbox = (c, h) => {
+                DMesh3 m = Box(c.x - h, c.y - h, c.z - h, c.x + h, c.y + h, c.z + h);
+                MeshTransforms.Rotate(m, c, RandomRotation(rand));
+                return m;
+            };
+            DMesh3 a = Merge(rbox(Vector3d.Zero, 1), rbox(new Vector3d(0.8, 0.3, 0), 0.7));
+            DMesh3 b = Merge(rbox(new Vector3d(0.4, 0.9, 0.2), 0.8), rbox(new Vector3d(-0.3, 0.5, 0.6), 0.6));
+            int ft;
+            double va = Volume(SolidOf(a, out ft)) - 1, vb = Volume(SolidOf(b, out ft)) - 1;
+            DMesh3 union = Run(a, b, Ops.Union), inter = Run(a, b, Ops.Intersection), diff = Run(a, b, Ops.Difference);
+            Assert.Equal(va + vb, Volume(union) + Volume(inter), 9);
+            Assert.Equal(va, Volume(diff) + Volume(inter), 9);
+            Assert.True(Volume(inter) > 0.05);
+            foreach (DMesh3 r in new[] { union, inter, diff })
+                Assert.Equal(0, MeshRepairMetrics.SelfIntersections(r));
+        }
+
+        [Fact]
+        public void InsideOutMesh_HasEmptySolid()
+        {
+            // winding number -1 inside: not part of the solid (like MeshWindingNumberBoolean, gwn > 0.5)
+            DMesh3 solid = SolidOf(Reversed(Box(0, 0, 0, 1, 1, 1)), out int farTris);
+            Assert.Equal(farTris, solid.TriangleCount);
+            Assert.Equal(1.0, Volume(solid), 12);
+        }
+
+        // replace triangle (p, q, r) by (p, m, r), (m, q, r) with m the midpoint of p-q; the neighbour across p-q
+        // keeps the whole edge (T-junction), a degenerate triangle (m, p, q) balances the edges
+        static void SplitWithTJunction(DMesh3 mesh, int tid, int p, int q)
+        {
+            Index3i t = mesh.GetTriangle(tid);
+            int r = t.a + t.b + t.c - p - q;
+            int m = mesh.AppendVertex((mesh.GetVertex(p) + mesh.GetVertex(q)) / 2);
+            mesh.RemoveTriangle(tid, false, false);
+            Assert.True(mesh.AppendTriangle(p, m, r) >= 0);
+            Assert.True(mesh.AppendTriangle(m, q, r) >= 0);
+            Assert.True(mesh.AppendTriangle(m, p, q) >= 0);
+            Assert.True(ExactMeshBoolean.IsWindingClosed(mesh));
+        }
+
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void DegenerateTriangle_ClosingATJunction(bool onCrease)
+        {
+            // on the diagonal of the top face (coplanar neighbour), or on a box edge (neighbour on another face)
+            DMesh3 box = Box(0, 0, 0, 1, 1, 1);
+            int top = box.TriangleIndices().First(t => box.GetTriCentroid(t).z == 1);
+            Index3i tri = box.GetTriangle(top);
+            for (int k = 0; k < 3; ++k) {
+                int p = tri[k], q = tri[(k + 1) % 3];
+                Vector3d u = box.GetVertex(p), v = box.GetVertex(q);
+                bool diagonal = u.x != v.x && u.y != v.y;
+                if (diagonal != onCrease) {
+                    SplitWithTJunction(box, top, p, q);
+                    break;
+                }
+            }
+            DMesh3 solid = SolidOf(box, out int farTris);
+            Assert.Equal(2.0, Volume(solid), 12);
+            Assert.Equal(12 + 1 + 1 + farTris, solid.TriangleCount);    // the split, and the neighbour split at m
+        }
+
+        [Fact]
+        public void GeneralizedWinding_MatchesExactForClosedMeshes()
+        {
+            var rand = new Random(4);
+            Func<Vector3d, double, DMesh3> rbox = (c, h) => {
+                DMesh3 m = Box(c.x - h, c.y - h, c.z - h, c.x + h, c.y + h, c.z + h);
+                MeshTransforms.Rotate(m, c, RandomRotation(rand));
+                return m;
+            };
+            var cases = new List<Tuple<DMesh3, DMesh3>>() {
+                Tuple.Create(Box(0, 0, 0, 1, 1, 1), Box(0.5, 0.25, -0.5, 1.5, 0.75, 0.5)),
+                Tuple.Create(Box(0, 0, 0, 1, 1, 1), Box(0.5, 0, 0, 1.5, 1, 1)),                                 // coplanar
+                Tuple.Create(Merge(Box(0, 0, 0, 3, 3, 3), Box(1, 1, 1, 2, 2, 2)), Box(1.5, 1.5, 1.5, 4, 4, 4)),     // nested
+                Tuple.Create(Merge(rbox(Vector3d.Zero, 1), rbox(new Vector3d(0.8, 0.3, 0), 0.7)), Sphere(new Vector3d(0.3, 0.4, 0.2), 0.9, 8)),
+            };
+            foreach (var c in cases) {
+                foreach (Ops op in new[] { Ops.Union, Ops.Intersection, Ops.Difference }) {
+                    var exact = new ExactMeshBoolean(c.Item1, c.Item2, op);
+                    var gen = new ExactMeshBoolean(c.Item1, c.Item2, op) { ForceGeneralizedWinding = true };
+                    Assert.True(exact.Compute() && gen.Compute());
+                    Assert.False(gen.ExactWindingA || gen.ExactWindingB);
+                    Assert.Equal(exact.Result.TriangleCount, gen.Result.TriangleCount);
+                    Assert.Equal(Volume(exact.Result), Volume(gen.Result), 12);
+                }
+            }
+        }
+
+        [Fact]
+        public void Resolve_SelfIntersectingMesh()
+        {
+            DMesh3 a = Merge(Box(0, 0, 0, 1, 1, 1), Box(0.5, 0.25, 0.25, 1.5, 0.75, 0.75), Box(2, 2, 2, 3, 3, 3), Box(2.2, 2.2, 2.2, 2.8, 2.8, 2.8));
+            DMesh3 r = ExactMeshBoolean.Resolve(a);
+            Assert.True(r.IsClosed());
+            Assert.True(r.CheckValidity(true, FailMode.ReturnOnly));
+            Assert.Equal(1 + 0.25 - 0.125 + 1, Volume(r), 12);
+            Assert.Equal(0, MeshRepairMetrics.SelfIntersections(r));
+            // a clean mesh is returned unchanged
+            DMesh3 box = Box(0, 0, 0, 1, 1, 1);
+            Assert.Equal(box.TriangleCount, ExactMeshBoolean.Resolve(box).TriangleCount);
+        }
+
+        [Fact]
+        public void OpenMesh_ReturnsError_IfNotAllowed()
         {
             DMesh3 a = Box(0, 0, 0, 1, 1, 1), b = Box(0.5, 0.5, 0.5, 2, 2, 2);
             b.RemoveTriangle(b.TriangleIndices().First(), true, false);
-            var boolean = new ExactMeshBoolean(a, b, Ops.Union);
+            var boolean = new ExactMeshBoolean(a, b, Ops.Union) { AllowOpenMeshes = false };
             Assert.False(boolean.Compute());
             Assert.Contains("closed", boolean.Error);
+        }
+
+        [Fact]
+        public void OpenMesh_GeneralizedWindingNumber()
+        {
+            // a box without its top face: its generalized winding number is close to 1 near the bottom
+            DMesh3 open = Box(0, 0, 0, 2, 2, 2);
+            foreach (int tid in open.TriangleIndices().Where(t => open.GetTriCentroid(t).z == 2).ToArray())
+                open.RemoveTriangle(tid, true, false);
+            Assert.False(ExactMeshBoolean.IsWindingClosed(open));
+            DMesh3 inner = Box(0.5, 0.5, 0.25, 1.5, 1.5, 0.75);
+            var boolean = new ExactMeshBoolean(inner, open, Ops.Intersection);
+            Assert.True(boolean.Compute(), boolean.Error);
+            Assert.True(boolean.ExactWindingA);
+            Assert.False(boolean.ExactWindingB);
+            Assert.Equal(inner.TriangleCount, boolean.Result.TriangleCount);
+            Assert.Equal(Volume(inner), Volume(boolean.Result), 12);
+            // a box crossing the open box's bottom: the part above the bottom is inside
+            DMesh3 crossing = Box(0.5, 0.5, -0.5, 1.5, 1.5, 0.5);
+            DMesh3 inter = Run(crossing, open, Ops.Intersection);
+            Assert.Equal(0.5, Volume(inter), 12);
         }
     }
 }

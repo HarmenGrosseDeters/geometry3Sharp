@@ -17,8 +17,9 @@ namespace g3
     /// projection. A point on an edge is always also computed by the triangles on the other side of the edge
     /// (it is the end of their intersection with the same triangle), so the pieces stay connected.
     ///
-    /// Intersections between triangles of the same mesh are not computed (meshes must not self-intersect).
-    /// Degenerate (zero-area) triangles are skipped.
+    /// Intersections between triangles of the same mesh are computed if SelfIntersections is set; then also
+    /// T-junctions (a vertex on the edge of a neighbour, closed by a degenerate triangle) are split, since the
+    /// triangles touch along a segment. Degenerate (zero-area) triangles are not part of the output.
     /// </summary>
     internal class ExactMeshArrangement
     {
@@ -310,10 +311,12 @@ namespace g3
 
 
 
+        /// <summary> also intersect the triangles of each mesh with each other (self-intersections) </summary>
+        public bool SelfIntersections = false;
+        public int SelfIntersectingPairs;
+
         void find_intersections()
         {
-            if (Meshes.Count < 2)
-                return;
             // boxes of the exact input coordinates
             var boxes = new List<AxisAlignedBox3d>[Meshes.Count];
             var trees = new TriangleBoxTree[Meshes.Count];
@@ -324,18 +327,37 @@ namespace g3
                 trees[mi] = new TriangleBoxTree(boxes[mi]);
             }
             for (int ma = 0; ma < Meshes.Count; ++ma) {
-                for (int mb = ma + 1; mb < Meshes.Count; ++mb) {
+                for (int mb = (SelfIntersections ? ma : ma + 1); mb < Meshes.Count; ++mb) {
                     for (int ka = 0; ka < MeshTriangles[ma].Count; ++ka) {
                         InputTriangle T = Triangles[MeshTriangles[ma][ka]];
                         if (T.Degenerate) continue;
                         trees[mb].Query(boxes[ma][ka], (kb) => {
+                            if (ma == mb && kb <= ka)
+                                return;
                             InputTriangle U = Triangles[MeshTriangles[mb][kb]];
-                            if (U.Degenerate == false)
-                                intersect(MeshTriangles[ma][ka], MeshTriangles[mb][kb]);
+                            if (U.Degenerate)
+                                return;
+                            if (ma == mb && touch_only(T, U))
+                                return;
+                            if (ma == mb)
+                                SelfIntersectingPairs++;
+                            intersect(MeshTriangles[ma][ka], MeshTriangles[mb][kb]);
                         });
                     }
                 }
             }
+        }
+
+        // triangles of one mesh that share vertices and do not intersect anywhere else (exact)
+        bool touch_only(InputTriangle T, InputTriangle U)
+        {
+            DMesh3 mesh = Meshes[T.Mesh];
+            Index3i ia = mesh.GetTriangle(T.Tid), ib = mesh.GetTriangle(U.Tid);
+            // corners by point id, so that coincident (unwelded) vertices count as shared
+            Index3i pa = new Index3i(T.Corners[0], T.Corners[1], T.Corners[2]), pb = new Index3i(U.Corners[0], U.Corners[1], U.Corners[2]);
+            Triangle3d A = new Triangle3d(mesh.GetVertex(ia.a), mesh.GetVertex(ia.b), mesh.GetVertex(ia.c));
+            Triangle3d B = new Triangle3d(mesh.GetVertex(ib.a), mesh.GetVertex(ib.b), mesh.GetVertex(ib.c));
+            return ExactTriangleIntersection.IntersectsBeyondShared(pa, ref A, pb, ref B) == false;
         }
 
         AxisAlignedBox3d triangle_box(InputTriangle t)
