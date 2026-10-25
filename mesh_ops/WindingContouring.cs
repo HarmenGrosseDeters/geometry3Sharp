@@ -41,15 +41,20 @@ namespace gs
 
 
         /// <summary>
-        /// Prepares the inputs: copies them, flips inside-out ones (their winding number is -1 inside)
-        /// and builds the trees and winding number caches.
+        /// Prepares the inputs: copies them (compacted), flips inside-out ones and inside-out closed
+        /// components (their winding number is -1 inside) and builds the trees and winding number caches.
         /// </summary>
         public WindingContouring(IEnumerable<DMesh3> inputs, Func<double[], double> combineF, double fastWindingBeta)
         {
             List<DMesh3> meshes = new List<DMesh3>();
             foreach (DMesh3 m in inputs) {
-                DMesh3 copy = new DMesh3(m);
-                // the signed volume (relative to the center: for open meshes it depends on the origin)
+                DMesh3 copy = new DMesh3(m, true);
+                // closed components that are inside out for their nesting (eg a disjoint inverted part)
+                // are flipped on their own; then the rest by the signed volume of the whole (relative to
+                // the center: for open meshes it depends on the origin)
+                foreach (int[] comp in MeshPostRepairCleanup.FindInvertedComponents(copy))
+                    foreach (int tid in comp)
+                        copy.ReverseTriOrientation(tid);
                 Vector3d c = copy.CachedBounds.Center;
                 if (MeshMeasurements.VolumeArea(copy, copy.TriangleIndices(), (vid) => copy.GetVertex(vid) - c).x < 0)
                     copy.ReverseOrientation(false);
