@@ -403,5 +403,22 @@ namespace geometry3Sharp.Tests
             Assert.Equal(new List<double> { 0, 1.0 / 3, 2.0 / 3, 1 }, curve.GetParamIntervals());
             Assert.Equal(new List<double> { 0, 1 }, curve.GetContinuousParamIntervals());
         }
+
+        // --- Circle3d default frame ---
+
+        [Fact]
+        public void Circle3d_DefaultFrame_IsRightHanded()
+        {
+            // [PlaneX PlaneY Normal] is a right-handed frame, as the class comment says and as the
+            // Frame3f constructor builds it: the circle runs counter-clockwise around its normal
+            var c = new Circle3d(new Vector3d(1, 2, 3), 2);
+            Assert.True(c.PlaneX.Cross(c.PlaneY).EpsilonEqual(c.Normal, 1e-12), $"{c.PlaneX} x {c.PlaneY} != {c.Normal}");
+            Assert.Equal(Vector3d.AxisY, c.Normal);
+            Vector3d p0 = c.SampleT(0) - c.Center, p1 = c.SampleT(0.01) - c.Center;
+            Assert.True(p0.Cross(p1).Dot(c.Normal) > 0);
+
+            var f = new Circle3d(new Frame3f(new Vector3f(1, 2, 3)), 2);
+            Assert.True(f.PlaneX.Cross(f.PlaneY).EpsilonEqual(f.Normal, 1e-6));
+        }
     }
 }

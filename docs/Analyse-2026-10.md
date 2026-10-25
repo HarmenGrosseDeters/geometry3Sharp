@@ -121,10 +121,10 @@ Behoben:
 - `PolySimplification2`: Längen-Schwelle und doppelte Endpunkte.
 - `Polygon2d.Chamfer`: konvex/konkav vertauscht.
 
-Zurückgestellt, weil sie sichtbares Verhalten ändern oder eine eigene Untersuchung brauchen:
-- `Circle3d`-Standard-Frame (linkshändig).
-
 Nachträglich erledigt (Tests in `CurveFixesTests.cs`, vor dem Fix rot):
+- `Circle3d(center, radius)`: Der Frame ist jetzt rechtshändig (`PlaneY = -Z`), wie der Klassenkommentar und der
+  `Frame3f`-Konstruktor. Sichtbare Änderung: Der Standard-Kreis läuft beim Abtasten andersherum (von +X nach -Z, also
+  gegen den Uhrzeigersinn um die Normale +Y). In der Bibliothek hängt nichts davon ab.
 - Periodische NURBS: `GetParamIntervals` lieferte die Knoten außerhalb von [0,1] (nicht monoton),
   `GetContinuousParamIntervals` warf bei lauter einfachen Knoten. Beide liefern jetzt nur Werte in [0,1].
 - `Circle2d.Transform` mit Spiegelung kehrt jetzt die Orientierung um (`IsReversed`), wie `Arc2d.Transform`.
