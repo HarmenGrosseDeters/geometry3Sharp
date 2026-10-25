@@ -23,6 +23,15 @@ operations to their classes, with a tested example for each. It adds:
   (`MeshGeodesicDistance.IntrinsicDelaunay = true`, accurate on sliver and obtuse meshes) and
   `VectorHeatMethod` (parallel transport, scalar extension, log map). `SparseCholesky` is a direct sparse
   solver for the heat and Poisson systems.
+- `MeshAlphaWrap`: alpha wrapping with an offset (Portaneri et al. 2022). Gives a closed, 2-manifold surface
+  without self-intersections around any input: triangle soups, open or non-manifold meshes, degenerate
+  triangles, point clouds. `Alpha` sets the detail, `Offset` the distance to the input. Built on `Delaunay3`, an
+  incremental 3D Delaunay triangulation with exact predicates (`ExactPredicates.InSphere`).
+  ```csharp
+  var wrap = new MeshAlphaWrap(mesh) { RelativeAlpha = 50, RelativeOffset = 1000 };   // diagonal / 50, / 1000
+  bool ok = wrap.Compute();          // false: see wrap.Status and wrap.Error
+  DMesh3 result = wrap.Result;
+  ```
 - Mesh parameterization (UV unwrapping) of meshes with boundary: `LSCMParameterization` (least squares
   conformal maps), `ARAPParameterization` (as-rigid-as-possible, local/global), `SLIMParameterization`
   (symmetric Dirichlet energy, guaranteed without flipped triangles), `BoundaryFirstFlattening` (conformal,

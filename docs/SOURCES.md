@@ -37,6 +37,24 @@ Implemented from the papers, no code taken over (geometry-central, MIT, was not 
 The comparison with `MeshLocalParam` (the discrete exponential map, R. Schmidt, C. Grimm, B. Wyvill,
 *Interactive Decal Compositing with Discrete Exponential Maps*, ACM TOG 2006) is in the tests.
 
+## Alpha wrapping (`MeshAlphaWrap`, `Delaunay3`, `ExactPredicates.InSphere`)
+
+Implemented from the papers, no code taken over. CGAL's implementation (`Alpha_wrap_3`, GPL) was not used.
+
+| Part | Source |
+|---|---|
+| Alpha wrapping: carving a Delaunay triangulation from outside through facets an alpha ball fits through, Steiner points on the offset surface where the dual Voronoi edge crosses it (rule 1) or where a cell intersects the input (projection of the circumcenter, rule 2), manifold post-processing by moving outside cells to the inside | C. Portaneri, M. Rouxel-Labbé, M. Hemmer, D. Cohen-Steiner, P. Alliez, *Alpha Wrapping with an Offset*, ACM TOG (SIGGRAPH) 2022 |
+| Incremental Delaunay triangulation by cavities | A. Bowyer, *Computing Dirichlet tessellations*, The Computer Journal 1981; D. F. Watson, *Computing the n-dimensional Delaunay tessellation with application to Voronoi polytopes*, The Computer Journal 1981 |
+| Point location by a stochastic walk | O. Devillers, S. Pion, M. Teillaud, *Walking in a triangulation*, IJFCS 2002 |
+| InSphere determinant and its floating-point error bound (filter; the uncertain cases are evaluated in integer arithmetic) | J. R. Shewchuk 1997 (see above) |
+| Closest point on a triangle (Voronoi regions), separating axis test of tetrahedron and triangle | C. Ericson, *Real-Time Collision Detection*, 2005 |
+
+Choices described in the code: traversability by the circumradius of the facet (an alpha ball passes through
+its circumcircle; the variant with the smallest empty circumscribing ball was tried and refines thin sheets
+down to the scale of the offset), the order of the gates (largest facet first), labels of new cells (inside) and the removal of
+enclosed outside pockets, the manifold step (around a non-manifold edge or vertex the outside part connected
+to the box stays outside), and the contact margin of the intersection test (1e-6 of the offset).
+
 ## Parameterization (`LSCMParameterization`, `ARAPParameterization`, `SLIMParameterization`, `BoundaryFirstFlattening`, `TutteEmbedding`, `ParameterizationDistortion`, `UVPacker`)
 
 Implemented from the papers, no code taken over.

@@ -43,7 +43,9 @@ selectively.
   manifold sheets; `Resolve(mesh)` for one mesh. Benchmark on Thingi10K: `BENCH_REPAIR=exact`, `analyze_exact.py`.
 - [ ] More than two meshes in one operation (the arrangement supports it already)
 - [ ] Rounding of the output without new self-intersections (snap rounding), or exact output coordinates
-- [ ] Alpha wrapping
+- [x] Alpha wrapping (`MeshAlphaWrap`, Portaneri et al. 2022): closed, manifold, intersection-free wrap with an offset
+  around any input (soups, open meshes, point clouds), on an own exact 3D Delaunay triangulation (`Delaunay3`).
+  Benchmark on Thingi10K: `BENCH_REPAIR=wrap`, `analyze_wrap.py` (comparison with the solidify fallback).
 
 | Feature | Research / port source | Why |
 |---|---|---|
