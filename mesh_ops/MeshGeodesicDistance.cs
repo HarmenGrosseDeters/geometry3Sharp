@@ -357,18 +357,26 @@ namespace gs
                 }
             }
 
-            // 4. Poisson: L phi = -div (L is minus the Laplacian) with phi = 0 at the sources (Dirichlet).
-            // With several sources (eg a crest line) phi would otherwise differ between them, and shifting
-            // it by the minimum puts the other sources (and their surroundings) metres too far away. The
-            // regularization keeps components without a source (rhs 0, phi 0) definite.
+            // 4. Poisson: L phi = -div (L is minus the Laplacian). With several sources (eg a crest line)
+            // phi = 0 at all of them (Dirichlet): otherwise phi differs between them, and shifting it by the
+            // minimum puts the other sources (and their surroundings) metres too far away. A single source is
+            // not pinned (Neumann, phi shifted to 0 there): pinning one vertex concentrates the discretization
+            // error of the divergence there and gives an error growing with the distance (7% at 500 m on a
+            // 1 m grid, below the straight distance). The regularization keeps the system definite.
             double eps = 1e-8;
+            bool pin = src.Count > 1;
             bool[] isSrc = new bool[N];
-            foreach (int s in src) isSrc[s] = true;
-            // (no compatibility condition with phi fixed at the sources: the divergence is used as it is)
+            if (pin)
+                foreach (int s in src) isSrc[s] = true;
             double[] phi = new double[N], rhs = new double[N], free = new double[N];
+            // (Neumann: the divergence sums to 0 on each component; the rounding error is removed per component)
+            double[] csum = new double[componentCount]; int[] ccount = new int[componentCount];
+            if (pin == false)
+                for (int i = 0; i < N; ++i)
+                    if (component[i] >= 0) { csum[component[i]] += div[i]; ccount[component[i]]++; }
             for (int i = 0; i < N; ++i)
                 if (component[i] >= 0 && hasSource[component[i]] && isSrc[i] == false)
-                    rhs[i] = -div[i];
+                    rhs[i] = -(div[i] - csum[component[i]] / Math.Max(1, ccount[component[i]]));
             if (solve((x, r) => {
                     for (int i = 0; i < N; ++i) free[i] = isSrc[i] ? 0 : x[i];
                     L.Multiply_Parallel(free, r);
@@ -377,12 +385,16 @@ namespace gs
                 (i) => isSrc[i] ? 1 : diagL[i] + eps * mass[i], rhs, phi) == false)
                 return false;
 
+            // distances relative to the sources of each component (0 at all of them when pinned)
+            double[] minSrc = new double[componentCount];
+            for (int c = 0; c < componentCount; ++c) minSrc[c] = double.MaxValue;
+            foreach (int s in src) minSrc[component[s]] = Math.Min(minSrc[component[s]], phi[s]);
             Distance = new double[Mesh.MaxVertexID];
             for (int k = 0; k < Distance.Length; ++k)
                 Distance[k] = double.NaN;
             for (int i = 0; i < N; ++i)
                 if (component[i] >= 0 && hasSource[component[i]])
-                    Distance[toVertex[i]] = Math.Max(0, phi[i]);
+                    Distance[toVertex[i]] = Math.Max(0, phi[i] - minSrc[component[i]]);
             foreach (int s in srcVertices) Distance[s] = 0;
             return true;
         }
