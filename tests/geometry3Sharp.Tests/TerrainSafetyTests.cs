@@ -247,7 +247,11 @@ namespace geometry3Sharp.Tests
                     n++;
                 }
             Assert.True(n > 100);
-            Assert.True(safety.Certified, $"max excess {safety.MaxExcess}, {safety.UncertifiedPoints} points");
+            // the whole lines (segments, not only their points): outside 12 m, and certified within 0.2 m of it
+            Assert.True(safety.MinLineDistance >= 12, $"{safety.MinLineDistance}");
+            Assert.True(safety.Certified, $"max excess {safety.MaxExcess}, {safety.UncertifiedSegments} segments");
+            // with 3 points per edge the bound is 0.4 m too long on flat ground: certified with more
+            Assert.True(safety.UsedSteinerPoints > 3);
         }
 
         [Fact]
@@ -272,7 +276,7 @@ namespace geometry3Sharp.Tests
             var safety = new TerrainSafetyLines(m, new[] { rim }, 10) { Mode = TerrainSafetyLines.Modes.Guaranteed };
             Assert.True(safety.Compute());
             Assert.False(safety.Certified);
-            Assert.True(safety.UncertifiedPoints > 0);
+            Assert.True(safety.UncertifiedSegments > 0);
             // the line behind the rim (x = -14) is certified, the one beyond the trench (x = +2) is not
             for (int li = 0; li < safety.Lines.Count; ++li)
                 for (int k = 0; k < safety.Lines[li].Count; ++k) {

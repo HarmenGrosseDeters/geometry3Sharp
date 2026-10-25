@@ -227,11 +227,12 @@ namespace gs
     ///     SafetyDistance + Tolerance, so the chords between the line points stay outside SafetyDistance).
     ///     It is conservative where the path along the terrain bends over another break line or the
     ///     straight line crosses a gap. How much is certified: shortest paths along the refined terrain
-    ///     (Dijkstra over its vertices and SteinerPoints points per edge, straight through each triangle;
-    ///     more points where not certified)
+    ///     (Dijkstra over its vertices and SteinerPoints points per edge, straight through each triangle)
     ///     are upper bounds of the distance along the terrain; Excess gives, per line point, the upper
-    ///     bound minus SafetyDistance, ie at most how far beyond SafetyDistance the point lies. Certified
-    ///     if no point exceeds ExcessTolerance (default 0.2 m); RequireCertified makes Compute fail then.
+    ///     bound minus SafetyDistance, ie at most how far beyond SafetyDistance the point lies. The whole
+    ///     segments are bounded (samples every ExcessTolerance / 8, the distance is 1-Lipschitz); while not
+    ///     certified, the bound is computed again with twice the points per edge (up to MaxSteinerPoints). Certified if the lines lie at least SafetyDistance (MinLineDistance, exact)
+    ///     and at most ExcessTolerance (default 0.2 m) beyond it; RequireCertified makes Compute fail otherwise.
     ///     On the open pit test data: median excess 5-18 cm, 3% (5 m) to 44% (20 m) of the points above 20 cm.
     /// </summary>
     public class TerrainSafetyLines
@@ -272,11 +273,21 @@ namespace gs
         /// SafetyDistance it lies along the terrain; +infinity if more than 2 x ExcessTolerance + edge length
         /// </summary>
         public List<List<double>> Excess = new List<List<double>>();
-        /// <summary> Guaranteed: largest Excess, and the number of line points above ExcessTolerance </summary>
+        /// <summary>
+        /// Guaranteed: upper bound of how far beyond SafetyDistance any point of the lines lies (between
+        /// the line points too), and the number of line segments where it exceeds ExcessTolerance
+        /// </summary>
         public double MaxExcess;
-        public int UncertifiedPoints;
-        /// <summary> Guaranteed: every line point lies at most ExcessTolerance beyond SafetyDistance </summary>
+        public int UncertifiedSegments;
+        /// <summary> Guaranteed: the smallest straight 3D distance of the lines to the sources (exact, segments) </summary>
+        public double MinLineDistance;
+        /// <summary>
+        /// Guaranteed: the whole lines lie at least SafetyDistance from the sources and at most
+        /// ExcessTolerance beyond it along the terrain
+        /// </summary>
         public bool Certified;
+        /// <summary> Guaranteed: points per edge used for the bound </summary>
+        public int UsedSteinerPoints;
 
         public TerrainSafetyLines(DMesh3 terrain, IEnumerable<int> sourceVertices, double distance)
         {
@@ -398,7 +409,7 @@ namespace gs
         bool compute_guaranteed()
         {
             Lines.Clear(); Excess.Clear();
-            MaxExcess = 0; UncertifiedPoints = 0; Certified = false;
+            MaxExcess = 0; UncertifiedSegments = 0; Certified = false; MinLineDistance = double.MaxValue;
             build_segments();
             if (segments.Count == 0 || Tolerance <= 0)
                 return false;
@@ -412,22 +423,65 @@ namespace gs
             };
             iso.Compute();
             chain_graph(iso.Graph);
-            // the bound is loose where the graph paths zigzag (eg 0.4 m on flat ground with 3 points per
-            // edge, where the line lies 0.01 m beyond the distance): more points where it is not certified
+            // safe side, for the whole line: the smallest 3D distance of its segments to the sources (exact)
+            foreach (var line in Lines)
+                for (int i = 0; i + 1 < line.Count; ++i)
+                    MinLineDistance = Math.Min(MinLineDistance, segment_distance_3d(line[i], line[i + 1], 2 * level));
+            // excess: upper bounds of the distance along the terrain, for the whole lines. The graph paths
+            // zigzag (eg 0.4 m too long on flat ground with 3 points per edge, where the line lies 0.01 m
+            // beyond the distance): more points per edge while not certified
             for (int S = Math.Max(1, SteinerPoints); ; S *= 2) {
-                certify(maxLength, S);
+                certify(RefinedTerrain, maxLength, S);
                 if (Certified || 2 * S > MaxSteinerPoints) break;
             }
+            Certified = Certified && MinLineDistance >= SafetyDistance;
             return Certified || RequireCertified == false;
         }
 
-        // Upper bounds of the distance along the refined terrain at the line points: Dijkstra over the
-        // vertices and SteinerPoints points on each edge, linked straight through each triangle (paths on
-        // the surface), from the densified sources (straight to the nodes of the triangles they lie in)
-        void certify(double maxLength, int S)
+        // smallest 3D distance of the segment pq to the source segments (if below radius, else MaxValue)
+        double segment_distance_3d(Vector3d p, Vector3d q, double radius)
         {
-            Excess.Clear(); MaxExcess = 0; UncertifiedPoints = 0;
-            DMesh3 m = RefinedTerrain;
+            Vector3d m = 0.5 * (p + q);
+            double half = 0.5 * p.Distance(q);
+            var near = segmentGrid.FindNearestInRadius(m.xy, radius + half + 0.5 * maxSegLength + MathUtil.Epsilon,
+                (k) => segment_segment_distance(p, q, segments3[k].P0, segments3[k].P1));
+            return (near.Key >= 0) ? near.Value : double.MaxValue;
+        }
+
+        // distance between the segments p1q1 and p2q2 (Ericson, Real-Time Collision Detection 5.1.9)
+        static double segment_segment_distance(Vector3d p1, Vector3d q1, Vector3d p2, Vector3d q2)
+        {
+            Vector3d d1 = q1 - p1, d2 = q2 - p2, r = p1 - p2;
+            double a = d1.Dot(d1), e = d2.Dot(d2), f = d2.Dot(r);
+            double s, t;
+            if (a <= 1e-300 && e <= 1e-300) return p1.Distance(p2);
+            if (a <= 1e-300) {
+                s = 0; t = MathUtil.Clamp(f / e, 0, 1);
+            } else {
+                double c = d1.Dot(r);
+                if (e <= 1e-300) {
+                    t = 0; s = MathUtil.Clamp(-c / a, 0, 1);
+                } else {
+                    double b = d1.Dot(d2), denom = a * e - b * b;
+                    s = (denom > 0) ? MathUtil.Clamp((b * f - c * e) / denom, 0, 1) : 0;
+                    t = (b * s + f) / e;
+                    if (t < 0) { t = 0; s = MathUtil.Clamp(-c / a, 0, 1); }
+                    else if (t > 1) { t = 1; s = MathUtil.Clamp((b - c) / a, 0, 1); }
+                }
+            }
+            return (p1 + s * d1).Distance(p2 + t * d2);
+        }
+
+        // Upper bounds of the distance along the mesh (the refined terrain, same surface): Dijkstra over the
+        // vertices and SteinerPoints points on each edge, linked straight through each triangle (paths on
+        // the surface), from the densified sources (straight to the nodes of the triangles they lie in).
+        // Every line segment lies in one triangle; it is sampled every ExcessTolerance / 8, and between
+        // samples a and b (distance h) the bound is (U(a) + U(b) + h) / 2 (the distance is 1-Lipschitz along
+        // the surface), so the whole segment is certified.
+        void certify(DMesh3 m, double maxLength, int S)
+        {
+            Excess.Clear(); MaxExcess = 0; UncertifiedSegments = 0; Certified = true;
+            UsedSteinerPoints = S;
             int V = m.MaxVertexID;
             int N = V + m.MaxEdgeID * S;
             double cutoff = SafetyDistance + 2 * ExcessTolerance + maxLength;
@@ -495,35 +549,54 @@ namespace gs
                     }
                 }
             }
-            // line points: through the triangle they lie in (and the one across the edge they lie on)
-            Certified = true;
+            // a point on the surface: through the triangle it lies in (and the one across the edge it lies on)
+            Func<Vector3d, double> bound = (p) => {
+                double best = double.PositiveInfinity;
+                int tid = spatial.FindNearestTriangle(p);
+                if (tid < 0) return best;
+                incident.Clear();
+                incident.Add(tid);
+                Index3i te = m.GetTriEdges(tid);
+                for (int j = 0; j < 3; ++j) {
+                    Index2i ev = m.GetEdgeV(te[j]);
+                    if (new Segment3d(m.GetVertex(ev.a), m.GetVertex(ev.b)).DistanceSquared(p) < 1e-18 * (1 + p.LengthSquared)) {
+                        Index2i et = m.GetEdgeT(te[j]);
+                        int other = (et.a == tid) ? et.b : et.a;
+                        if (other >= 0) incident.Add(other);
+                    }
+                }
+                foreach (int t in incident.ToArray()) {
+                    nodes_of(t);
+                    foreach (int q in triNodes)
+                        if (done[q]) best = Math.Min(best, U[q] + p.Distance(pos(q)));
+                }
+                return (best <= cutoff) ? best : double.PositiveInfinity;
+            };
+            double h = ExcessTolerance / 8;
             foreach (var line in Lines) {
                 var ex = new List<double>(line.Count);
-                foreach (Vector3d p in line) {
-                    double best = double.PositiveInfinity;
-                    int tid = spatial.FindNearestTriangle(p);
-                    if (tid >= 0) {
-                        incident.Clear();
-                        incident.Add(tid);
-                        Index3i te = m.GetTriEdges(tid);
-                        for (int j = 0; j < 3; ++j) {
-                            Index2i ev = m.GetEdgeV(te[j]);
-                            if (new Segment3d(m.GetVertex(ev.a), m.GetVertex(ev.b)).DistanceSquared(p) < 1e-18 * (1 + p.LengthSquared)) {
-                                Index2i et = m.GetEdgeT(te[j]);
-                                int other = (et.a == tid) ? et.b : et.a;
-                                if (other >= 0) incident.Add(other);
-                            }
-                        }
-                        foreach (int t in incident) {
-                            nodes_of(t);
-                            foreach (int q in triNodes)
-                                if (done[q]) best = Math.Min(best, U[q] + p.Distance(pos(q)));
-                        }
+                double prev = bound(line[0]);
+                ex.Add(prev - SafetyDistance);
+                for (int i = 0; i + 1 < line.Count; ++i) {
+                    int n = Math.Max(1, (int)Math.Ceiling(line[i].Distance(line[i + 1]) / h));
+                    double step = line[i].Distance(line[i + 1]) / n;
+                    var u = new double[n + 1];
+                    u[0] = prev;
+                    for (int k = 1; k <= n; ++k)
+                        u[k] = bound(Vector3d.Lerp(line[i], line[i + 1], (double)k / n));
+                    Func<double> segment_max = () => {
+                        double mx = 0;
+                        for (int k = 0; k < n; ++k) mx = Math.Max(mx, 0.5 * (u[k] + u[k + 1] + step) - SafetyDistance);
+                        return mx;
+                    };
+                    double segMax = segment_max();
+                    prev = u[n];
+                    ex.Add(prev - SafetyDistance);
+                    MaxExcess = Math.Max(MaxExcess, segMax);
+                    if (!(segMax <= ExcessTolerance)) {
+                        UncertifiedSegments++;
+                        Certified = false;
                     }
-                    double e = (best <= cutoff) ? best - SafetyDistance : double.PositiveInfinity;
-                    ex.Add(e);
-                    MaxExcess = Math.Max(MaxExcess, e);
-                    if (!(e <= ExcessTolerance)) { UncertifiedPoints++; Certified = false; }
                 }
                 Excess.Add(ex);
             }
