@@ -255,8 +255,10 @@ namespace gs
 
 
         /// <summary>
-        /// Closed components with negative volume that are not nested inside another component
-        /// (so they are not legitimate cavities). Returns their triangle sets.
+        /// Closed components whose orientation contradicts their nesting: an outer shell (inside an even
+        /// number of other components) must have positive volume, a cavity (odd) negative volume. So
+        /// inverted solids, and the cavities of a hollow solid that was inverted as a whole, are found.
+        /// Returns their triangle sets.
         /// </summary>
         public static List<int[]> FindInvertedComponents(DMesh3 mesh)
         {
@@ -270,24 +272,36 @@ namespace gs
             if (closed.Count == 0 || closed.Count > 500)
                 return result;
 
-            var vols = closed.Select(c => MeshMeasurements.VolumeArea(mesh, c, mesh.GetVertex).x).ToList();
-            List<DMeshAABBTree3> trees = null;
+            Vector3d center = mesh.CachedBounds.Center;
+            var vols = closed.Select(c => MeshMeasurements.VolumeArea(mesh, c, (vid) => mesh.GetVertex(vid) - center).x).ToList();
+            if (closed.Count == 1) {
+                if (vols[0] < 0) result.Add(closed[0]);
+                return result;
+            }
+            var boxes = closed.Select(c => {
+                var box = AxisAlignedBox3d.Empty;
+                foreach (int t in c) box.Contain(mesh.GetTriBounds(t));
+                return box;
+            }).ToList();
+            var trees = new DMeshAABBTree3[closed.Count];
             for (int i = 0; i < closed.Count; ++i) {
-                if (vols[i] >= 0)
-                    continue;
-                if (trees == null)
-                    trees = closed.Select(c => {
-                        var sub = new DSubmesh3(mesh, c);
-                        var tree = new DMeshAABBTree3(sub.SubMesh, true);
-                        return tree;
-                    }).ToList();
-                // count enclosing components; odd = it is a cavity, so negative volume is correct
-                Vector3d p = mesh.GetTriCentroid(closed[i][0]);
-                int nInside = 0;
-                for (int j = 0; j < closed.Count; ++j)
-                    if (j != i && Math.Abs(trees[j].FastWindingNumber(p)) > 0.5)
-                        nInside++;
-                if (nInside % 2 == 0)
+                // count enclosing components (|winding number| > 0.5, whatever their orientation); a few
+                // sample triangles vote, so one triangle touching another component does not decide
+                int samples = Math.Min(5, closed[i].Length), nInside = 0;
+                for (int j = 0; j < closed.Count; ++j) {
+                    // only a component whose box contains this one's can enclose it
+                    if (j == i || boxes[j].Contains(boxes[i]) == false) continue;
+                    if (trees[j] == null)
+                        trees[j] = new DMeshAABBTree3(new DSubmesh3(mesh, closed[j]).SubMesh, true);
+                    int votes = 0;
+                    for (int k = 0; k < samples; ++k) {
+                        Vector3d p = mesh.GetTriCentroid(closed[i][(int)((long)k * closed[i].Length / samples)]);
+                        if (Math.Abs(trees[j].FastWindingNumber(p)) > 0.5) votes++;
+                    }
+                    if (2 * votes > samples) nInside++;
+                }
+                bool cavity = (nInside % 2) == 1;
+                if ((vols[i] < 0) != cavity)
                     result.Add(closed[i]);
             }
             return result;

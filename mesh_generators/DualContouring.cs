@@ -70,6 +70,9 @@ namespace g3
         public Vector3i CornerDimensions;
 
 
+        /// <summary> largest dense grid (nodes); larger ones throw an ArgumentException </summary>
+        public static long MaxGridNodes = 1L << 30;
+
         public void Generate()
         {
             origin = Bounds.Min;
@@ -80,7 +83,10 @@ namespace g3
                 sparseValues = new System.Collections.Concurrent.ConcurrentDictionary<long, float>();
             } else {
                 Vector3d size = Bounds.Diagonal;
-                NI = (int)Math.Ceiling(size.x / CellSize) + 1; NJ = (int)Math.Ceiling(size.y / CellSize) + 1; NK = (int)Math.Ceiling(size.z / CellSize) + 1;
+                double ni = Math.Ceiling(size.x / CellSize) + 1, nj = Math.Ceiling(size.y / CellSize) + 1, nk = Math.Ceiling(size.z / CellSize) + 1;
+                if (!(ni * nj * nk <= MaxGridNodes) || ni < 1 || nj < 1 || nk < 1)
+                    throw new ArgumentException("DualContouring: grid of " + ni + " x " + nj + " x " + nk + " nodes is too large (or invalid)");
+                NI = (int)ni; NJ = (int)nj; NK = (int)nk;
                 CornerDimensions = new Vector3i(NI, NJ, NK);
                 sample_grid();
             }

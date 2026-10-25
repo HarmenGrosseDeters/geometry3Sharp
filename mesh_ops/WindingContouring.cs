@@ -36,7 +36,9 @@ namespace gs
             List<DMesh3> meshes = new List<DMesh3>();
             foreach (DMesh3 m in inputs) {
                 DMesh3 copy = new DMesh3(m);
-                if (MeshMeasurements.VolumeArea(copy, copy.TriangleIndices(), copy.GetVertex).x < 0)
+                // the signed volume (relative to the center: for open meshes it depends on the origin)
+                Vector3d c = copy.CachedBounds.Center;
+                if (MeshMeasurements.VolumeArea(copy, copy.TriangleIndices(), (vid) => copy.GetVertex(vid) - c).x < 0)
                     copy.ReverseOrientation(false);
                 meshes.Add(copy);
             }
@@ -116,6 +118,8 @@ namespace gs
                     break;
                 else
                     extraDone = true;
+                if (WindingNumberOctree.RequiredDepth(WindingNumberOctree.Bounds(Meshes), 0.5 * cellSize) > WindingNumberOctree.MaxSupportedDepth)
+                    break;
                 cellSize *= 0.5;
                 contour = ContourAdaptive(cellSize);
                 evaluations += WindingEvaluations;

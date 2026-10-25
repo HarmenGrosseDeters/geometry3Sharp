@@ -87,17 +87,42 @@ namespace gs
         }
 
 
-        public void Build()
+        /// <summary> deepest supported octree (node keys have 21 bits per axis) </summary>
+        public const int MaxSupportedDepth = 20;
+
+        /// <summary> bounds of the meshes with triangles (empty meshes do not drag in the origin) </summary>
+        public static AxisAlignedBox3d Bounds(IEnumerable<DMesh3> meshes)
         {
             AxisAlignedBox3d bounds = AxisAlignedBox3d.Empty;
-            foreach (DMesh3 m in Meshes)
-                bounds.Contain(m.CachedBounds);
+            foreach (DMesh3 m in meshes)
+                if (m.TriangleCount > 0)
+                    bounds.Contain(m.CachedBounds);
+            return bounds;
+        }
+
+        /// <summary> octree depth needed for leaf cells of the given size over the bounds </summary>
+        public static int RequiredDepth(AxisAlignedBox3d bounds, double cellSize, int paddingCells = 2)
+        {
+            double maxDim = Math.Max(bounds.MaxDim, MathUtil.Epsilon);
+            double n = maxDim / cellSize + 2 * paddingCells;
+            if (!(n < (double)(1 << 30)))
+                return int.MaxValue;
+            return Math.Max(1, (int)Math.Ceiling(Math.Log(n, 2)));
+        }
+
+        public void Build()
+        {
+            AxisAlignedBox3d bounds = Bounds(Meshes);
+            if (bounds.MaxDim < 0)
+                throw new ArgumentException("WindingNumberOctree: no triangles");
             double maxDim = Math.Max(bounds.MaxDim, MathUtil.Epsilon);
             int depth = MaxDepth;
             if (TargetLeafCellSize > 0)
-                depth = Math.Max(1, (int)Math.Ceiling(Math.Log(maxDim / TargetLeafCellSize + 2 * PaddingCells, 2)));
-            if (depth > 20)
-                throw new Exception("WindingNumberOctree: depth " + depth + " is too large");
+                depth = RequiredDepth(bounds, TargetLeafCellSize, PaddingCells);
+            if (depth > MaxSupportedDepth)
+                throw new ArgumentException("WindingNumberOctree: depth " + depth + " is too large (cell size too small for the bounds)");
+            if (TargetLeafCellSize <= 0 && (1 << depth) <= 2 * PaddingCells)
+                throw new ArgumentException("WindingNumberOctree: MaxDepth too small for the padding");
             MaxDepth = depth;
             LeafCount = 1 << depth;
             LeafCellSize = (TargetLeafCellSize > 0) ? TargetLeafCellSize : maxDim / (LeafCount - 2 * PaddingCells);
@@ -203,9 +228,11 @@ namespace gs
         bool propagate;
         int evaluations;
 
+        // biased, so nodes slightly outside the grid (sparse expansion) have distinct keys
+        const int KeyBias = 1 << 19;
         static long node_key(int i, int j, int k)
         {
-            return (long)i | ((long)j << 21) | ((long)k << 42);
+            return (long)(i + KeyBias) | ((long)(j + KeyBias) << 21) | ((long)(k + KeyBias) << 42);
         }
 
 

@@ -93,8 +93,16 @@ namespace gs
         public bool Compute()
         {
             double cellSize = (CellSize > 0) ? CellSize : Mesh.CachedBounds.DiagonalLength / GridResolution;
-            if (cellSize <= 0 || Mesh.TriangleCount == 0)
+            if (!(cellSize > 0) || Mesh.TriangleCount == 0)
                 return false;
+            if (Adaptive && Method == Methods.DualContouring) {
+                if (WindingNumberOctree.RequiredDepth(Mesh.CachedBounds, cellSize) > WindingNumberOctree.MaxSupportedDepth)
+                    return false;
+            } else {
+                Vector3d n = Mesh.CachedBounds.Diagonal / cellSize + 16 * Vector3d.One;
+                if (!(n.x * n.y * n.z <= DualContouring.MaxGridNodes))
+                    return false;
+            }
 
             PhaseMilliseconds.Clear();
             phase_timer.Restart();
@@ -128,7 +136,10 @@ namespace gs
             // on the bounding box (and faces at round coordinates, common in CAD data) land exactly on grid
             // nodes, where inside/outside is ambiguous. An unreferenced vertex slightly below the min shifts
             // the grid by an odd fraction of a cell; it does not change winding numbers or distances.
+            // The grids store float positions: computed relative to the center (UTM coordinates).
             DMesh3 shifted = new DMesh3(Mesh);
+            Vector3d center = shifted.CachedBounds.Center;
+            MeshTransforms.Translate(shifted, -center);
             shifted.AppendVertex(shifted.CachedBounds.Min - cellSize * new Vector3d(0.1371, 0.2713, 0.3891));
             WindingContouring wc = new WindingContouring(new DMesh3[] { shifted }, null, FastWindingBeta) {
                 Iso = WindingIso, MaxEdgeHits = MaxEdgeHits, CancelF = CancelF
@@ -172,6 +183,7 @@ namespace gs
                 result.ReverseOrientation(false);
                 NonManifoldTriangles = 0;
             }
+            MeshTransforms.Translate(result, center);
             end_phase("contour");
             return result;
         }

@@ -69,15 +69,31 @@ namespace gs
         {
             if (MeshA.TriangleCount == 0 && MeshB.TriangleCount == 0)
                 return false;
-            AxisAlignedBox3d bounds = MeshA.CachedBounds;
-            bounds.Contain(MeshB.CachedBounds);
+            // empty inputs do not count (their bounds would drag in the origin)
+            AxisAlignedBox3d bounds = WindingNumberOctree.Bounds(new DMesh3[] { MeshA, MeshB });
             double cellSize = (CellSize > 0) ? CellSize : bounds.DiagonalLength / GridResolution;
-            if (cellSize <= 0)
+            if (!(cellSize > 0) || WindingNumberOctree.RequiredDepth(bounds, cellSize) > WindingNumberOctree.MaxSupportedDepth)
                 return false;
 
             PhaseMilliseconds.Clear();
             timer.Restart();
-            WindingContouring wc = new WindingContouring(new DMesh3[] { MeshA, MeshB }, CombineF(Operation), FastWindingBeta) {
+            // an empty input has winding number 0 everywhere: A u 0 = A - 0 = A, 0 u B = B, the rest is empty
+            DMesh3[] inputs = new DMesh3[] { MeshA, MeshB };
+            Func<double[], double> combine = CombineF(Operation);
+            bool emptyA = MeshA.TriangleCount == 0, emptyB = MeshB.TriangleCount == 0;
+            if (emptyA || emptyB) {
+                combine = null;
+                if (emptyB && Operation != Operations.Intersection)
+                    inputs = new DMesh3[] { MeshA };
+                else if (emptyA && Operation == Operations.Union)
+                    inputs = new DMesh3[] { MeshB };
+                else {
+                    Result = new DMesh3();
+                    UsedCellSize = cellSize;
+                    return true;
+                }
+            }
+            WindingContouring wc = new WindingContouring(inputs, combine, FastWindingBeta) {
                 CancelF = CancelF
             };
             DMesh3 contour = wc.ContourRefined(ref cellSize, MaxRefineLevels);
