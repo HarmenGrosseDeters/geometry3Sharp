@@ -16,11 +16,11 @@ namespace g3
             double fMaxSqr = fMaxEdgeLen * fMaxEdgeLen;
 
             int N = curve.VertexCount;
-            int Nstop = (curve.Closed) ? N + 1 : N;
-            if (lengths == null || lengths.Length < Nstop )
-                lengths = new double[Nstop];
+            int NE = (curve.Closed) ? N : N - 1;        // number of edges
+            if (lengths == null || lengths.Length < NE )
+                lengths = new double[NE];
             bool bFoundSplit = false;
-            for (int i = 0; i < Nstop; ++i) {
+            for (int i = 0; i < NE; ++i) {
                 lengths[i] = curve.GetVertex(i).DistanceSquared(curve.GetVertex((i + 1) % N));
                 if (lengths[i] > fMaxSqr)
                     bFoundSplit = true;
@@ -32,8 +32,9 @@ namespace g3
             List<Vector3d> vNew = new List<Vector3d>();
             Vector3d prev = curve.GetVertex(0);
             vNew.Add(prev);
-            for ( int i = 0; i < Nstop-1; ++i ) {
+            for ( int i = 0; i < NE; ++i ) {
                 Vector3d next = curve.GetVertex((i + 1) % N);
+                bool bClosingEdge = (curve.Closed && i == NE - 1);     // next is vertex 0, already in vNew
 
                 if (lengths[i] > fMaxSqr) {
                     double fLen = Math.Sqrt(lengths[i]);
@@ -44,7 +45,8 @@ namespace g3
                         vNew.Add(mid);
                     }
                 }
-                vNew.Add(next);
+                if (bClosingEdge == false)
+                    vNew.Add(next);
                 prev = next;
             }
 
@@ -61,12 +63,12 @@ namespace g3
             double fMinSqr = fMinEdgeLen * fMinEdgeLen;
 
             int N = curve.VertexCount;
-            int Nstop = (curve.Closed) ? N + 1 : N;
-            if (lengths == null || lengths.Length < Nstop)
-                lengths = new double[Nstop];
+            int NE = (curve.Closed) ? N : N - 1;        // number of edges
+            if (lengths == null || lengths.Length < NE)
+                lengths = new double[NE];
             bool bFoundSplit = false;
             bool bFoundCollapse = false;
-            for (int i = 0; i < Nstop - 1; ++i) {
+            for (int i = 0; i < NE; ++i) {
                 lengths[i] = curve.GetVertex(i).DistanceSquared(curve.GetVertex((i + 1) % N));
                 if (lengths[i] > fMaxSqr)
                     bFoundSplit = true;
@@ -81,8 +83,9 @@ namespace g3
             Vector3d prev = curve.GetVertex(0);
             vNew.Add(prev);
             double collapse_accum = 0;
-            for (int i = 0; i < Nstop - 1; ++i) {
+            for (int i = 0; i < NE; ++i) {
                 Vector3d next = curve.GetVertex((i + 1) % N);
+                bool bClosingEdge = (curve.Closed && i == NE - 1);     // next is vertex 0, already in vNew
 
                 // accumulate collapsed edges. if we accumulate past min-edge length,
                 // then need to drop a vertex
@@ -90,7 +93,8 @@ namespace g3
                     collapse_accum += Math.Sqrt(lengths[i]);
                     if ( collapse_accum > fMinEdgeLen ) {
                         collapse_accum = 0;
-                        vNew.Add(next);
+                        if (bClosingEdge == false)
+                            vNew.Add(next);
                     }
                     prev = next;
                     continue;
@@ -114,7 +118,8 @@ namespace g3
                         vNew.Add(mid);
                     }
                 }
-                vNew.Add(next);
+                if (bClosingEdge == false)
+                    vNew.Add(next);
                 prev = next;
             }
 

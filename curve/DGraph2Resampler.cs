@@ -76,6 +76,8 @@ namespace g3
                 // [RMS] do modulo-indexing here to avoid pathological cases where we do things like
                 // continually collapse a short edge adjacent to a long edge (which will result in crazy over-collapse)
                 int N = Graph.MaxVertexID;
+                if (N == 0)
+                    break;          // empty graph
                 int nPrime = MathUtil.ModuloIterationStep(N);
                 int cur_vid = 0;
                 do {
@@ -170,6 +172,8 @@ namespace g3
                 // [RMS] do modulo-indexing here to avoid pathological cases where we do things like
                 // continually collapse a short edge adjacent to a long edge (which will result in crazy over-collapse)
                 int N = Graph.MaxEdgeID;
+                if (N == 0)
+                    break;          // empty graph
                 int nPrime = MathUtil.ModuloIterationStep(N);
                 int cur_eid = 0;
                 do {

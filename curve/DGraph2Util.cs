@@ -238,33 +238,34 @@ namespace g3
             }
             return result;
         }
+        // p2 connects p1.End back to p1.Start. Its end vertices are p1's, so they are not appended again.
         static Polygon2d to_loop(PolyLine2d p1, PolyLine2d p2, double eps = MathUtil.Epsilon)
         {
             Polygon2d p = new Polygon2d(p1.Vertices);
+            List<Vector2d> rest = new List<Vector2d>(p2.Vertices);
             if (p1.End.Distance(p2.Start) > eps)
-                p2.Reverse();
-            p.AppendVertices(p2);
+                rest.Reverse();
+            for (int i = 1; i < rest.Count - 1; ++i)
+                p.AppendVertex(rest[i]);
             return p;               
         }
+        // join two paths at a shared end vertex, which is kept only once. The inputs are not modified.
         static PolyLine2d merge_paths(PolyLine2d p1, PolyLine2d p2, double eps = MathUtil.Epsilon)
         {
-            PolyLine2d pNew;
+            List<Vector2d> first, second;
             if (p1.End.Distance(p2.Start) < eps) {
-                pNew = new PolyLine2d(p1);
-                pNew.AppendVertices(p2);
+                first = new List<Vector2d>(p1.Vertices); second = new List<Vector2d>(p2.Vertices);
             } else if (p1.End.Distance(p2.End) < eps) {
-                pNew = new PolyLine2d(p1);
-                p2.Reverse();
-                pNew.AppendVertices(p2);
+                first = new List<Vector2d>(p1.Vertices); second = new List<Vector2d>(p2.Vertices); second.Reverse();
             } else if (p1.Start.Distance(p2.Start) < eps) {
-                p2.Reverse();
-                pNew = new PolyLine2d(p2);
-                pNew.AppendVertices(p1);
+                first = new List<Vector2d>(p2.Vertices); first.Reverse(); second = new List<Vector2d>(p1.Vertices);
             } else if (p1.Start.Distance(p2.End) < eps) {
-                pNew = new PolyLine2d(p2);
-                pNew.AppendVertices(p1);
+                first = new List<Vector2d>(p2.Vertices); second = new List<Vector2d>(p1.Vertices);
             } else
-                throw new Exception("shit");
+                throw new Exception("DGraph2Util.merge_paths: paths do not share an end vertex");
+            PolyLine2d pNew = new PolyLine2d(first);
+            for (int i = 1; i < second.Count; ++i)
+                pNew.AppendVertex(second[i]);
             return pNew;
         }
 
@@ -386,7 +387,7 @@ namespace g3
             double near_t = double.MaxValue;
 
             IntrLine2Segment2 intr = new IntrLine2Segment2(line, new Segment2d(a, b));
-            foreach ( int eid in graph.VertexIndices() ) {
+            foreach ( int eid in graph.EdgeIndices() ) {
                 graph.GetEdgeV(eid, ref a, ref b);
                 intr.Segment = new Segment2d(a, b);
                 if ( intr.Find() && intr.IsSimpleIntersection && intr.Parameter > 0) {

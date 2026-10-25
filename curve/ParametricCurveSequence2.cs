@@ -16,7 +16,7 @@ namespace g3
 
 		public ParametricCurveSequence2(IEnumerable<IParametricCurve2d> curvesIn, bool isClosed = false) { 
 			curves = new List<IParametricCurve2d>(curvesIn);
-            closed = true;
+            closed = isClosed;
 		}
 
 		public int Count {
