@@ -585,16 +585,29 @@ namespace gs
                 endPhase("cleanup");
             }
             if (reduceTolerance > 0 && cancelF() == false) {
-                Reducer reducer = new Reducer(mesh) {
-                    AreaWeightedQuadrics = false, EdgeFlipTolerance = Math.Cos(60 * MathUtil.Deg2Rad), MinCollapseTriangleQuality = 0.05
-                };
-                double tol = reduceTolerance * cellSize;
-                reducer.ReduceToMaxQuadricError(tol * tol);
+                // reduce; if that pushed the surface through itself somewhere (the contour itself has no
+                // self-intersections), reduce again with every collapse checked (slower, so only then)
+                DMesh3 contour = new DMesh3(mesh);
+                reduce(mesh, reduceTolerance * cellSize, false);
+                int after = MeshRepairMetrics.SelfIntersections(mesh);
+                if (after > 0 && after > MeshRepairMetrics.SelfIntersections(contour)) {
+                    mesh.Copy(contour);
+                    reduce(mesh, reduceTolerance * cellSize, true);
+                }
                 endPhase("reduce");
             }
             return new DMesh3(mesh, true);
         }
 
+
+        static void reduce(DMesh3 mesh, double tol, bool preventSelfIntersections)
+        {
+            Reducer reducer = new Reducer(mesh) {
+                AreaWeightedQuadrics = false, EdgeFlipTolerance = Math.Cos(60 * MathUtil.Deg2Rad), MinCollapseTriangleQuality = 0.05,
+                PreventSelfIntersections = preventSelfIntersections
+            };
+            reducer.ReduceToMaxQuadricError(tol * tol);
+        }
 
         /// <summary>
         /// Removes closed components without volume at the resolution: thinner than 2% of a cell on average

@@ -59,5 +59,24 @@ namespace geometry3Sharp.Tests
             Assert.True(dev.Count(d => d > 0.02 * cell) <= 20, $"{dev.Count(d => d > 0.02 * cell)} of {dev.Count} vertices off the input");
             Assert.True(r.TriangleCount < 1000, $"{r.TriangleCount} triangles");
         }
+
+        [Theory]
+        [InlineData(0.05)]
+        [InlineData(0.2)]
+        [InlineData(1.0)]
+        public void PostProcessReduction_NoNewSelfIntersections(double tol)
+        {
+            // a thin wavy slab, finely tessellated: reduction can push the two sides through each other;
+            // the post-processing then reduces again with every collapse checked
+            DMesh3 slab = new GridBox3Generator() { Box = new Box3d(Vector3d.Zero, new Vector3d(5, 5, 0.02)), EdgeVertices = 40 }.Generate().MakeDMesh();
+            foreach (int vid in slab.VertexIndices().ToArray()) {
+                Vector3d v = slab.GetVertex(vid);
+                slab.SetVertex(vid, new Vector3d(v.x, v.y, v.z + 0.3 * Math.Sin(1.3 * v.x) * Math.Cos(1.1 * v.y)));
+            }
+            Assert.Equal(0, MeshRepairMetrics.SelfIntersections(slab));
+            DMesh3 result = WindingContouring.PostProcess(new DMesh3(slab), false, tol, 1.0, () => false, (name) => { });
+            Assert.True(result.TriangleCount < slab.TriangleCount);
+            Assert.Equal(0, MeshRepairMetrics.SelfIntersections(result));
+        }
     }
 }

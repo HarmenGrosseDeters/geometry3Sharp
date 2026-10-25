@@ -1,5 +1,6 @@
 // Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
 using System;
+using System.Collections.Generic;
 using System.Numerics;
 
 namespace g3
@@ -91,6 +92,8 @@ namespace g3
 
         static int orient2d_exact(Vector2d a, Vector2d b, Vector2d c)
         {
+            if (expansion_safe(a.x, a.y, b.x, b.y, c.x, c.y))
+                return orient2d_expansion(a, b, c);
             BigInteger[] v = to_integers(a.x, a.y, b.x, b.y, c.x, c.y);
             BigInteger ux = v[2] - v[0], uy = v[3] - v[1], vx = v[4] - v[0], vy = v[5] - v[1];
             return (ux * vy - uy * vx).Sign;
@@ -98,11 +101,138 @@ namespace g3
 
         static int orient3d_exact(Vector3d a, Vector3d b, Vector3d c, Vector3d d)
         {
+            if (expansion_safe(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z, d.x, d.y, d.z))
+                return orient3d_expansion(a, b, c, d);
             BigInteger[] p = to_integers(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z, d.x, d.y, d.z);
             BigInteger ux = p[3] - p[0], uy = p[4] - p[1], uz = p[5] - p[2];
             BigInteger vx = p[6] - p[0], vy = p[7] - p[1], vz = p[8] - p[2];
             BigInteger wx = p[9] - p[0], wy = p[10] - p[1], wz = p[11] - p[2];
             return (wx * (uy * vz - uz * vy) + wy * (uz * vx - ux * vz) + wz * (ux * vy - uy * vx)).Sign;
+        }
+
+        // --- exact floating point expansions (Shewchuk 1997): sums of non-overlapping doubles, in order of
+        // increasing magnitude; the sign is that of the largest component. Exact as long as no product
+        // underflows or overflows, so only used for coordinates in [1e-90, 1e90] (else BigInteger).
+
+        static bool expansion_safe(params double[] values)
+        {
+            foreach (double v in values) {
+                double m = Math.Abs(v);
+                if (double.IsNaN(v) || double.IsInfinity(v))
+                    throw new ArgumentException("ExactPredicates: coordinates must be finite");
+                if (m != 0 && (m < 1e-90 || m > 1e90))
+                    return false;
+            }
+            return true;
+        }
+
+        static void two_sum(double a, double b, out double x, out double y)
+        {
+            x = a + b;
+            double bv = x - a, av = x - bv;
+            y = (a - av) + (b - bv);
+        }
+
+        static void two_product(double a, double b, out double x, out double y)
+        {
+            x = a * b;
+            y = Math.FusedMultiplyAdd(a, b, -x);
+        }
+
+        // e + b (e an expansion of n components), zero components eliminated
+        static List<double> grow(List<double> e, double b)
+        {
+            var h = new List<double>(e.Count + 1);
+            double q = b;
+            foreach (double ei in e) {
+                double qn, hh;
+                two_sum(q, ei, out qn, out hh);
+                q = qn;
+                if (hh != 0) h.Add(hh);
+            }
+            if (q != 0 || h.Count == 0) h.Add(q);
+            return h;
+        }
+
+        static List<double> sum(List<double> e, List<double> f)
+        {
+            var h = e;
+            foreach (double fi in f)
+                if (fi != 0) h = grow(h, fi);
+            return h;
+        }
+
+        // e * b, zero components eliminated
+        static List<double> scale(List<double> e, double b)
+        {
+            var h = new List<double>(2 * e.Count);
+            if (e.Count == 0 || b == 0) { h.Add(0); return h; }
+            double q, hh;
+            two_product(e[0], b, out q, out hh);
+            if (hh != 0) h.Add(hh);
+            for (int i = 1; i < e.Count; ++i) {
+                double p1, p0, s, t;
+                two_product(e[i], b, out p1, out p0);
+                two_sum(q, p0, out s, out hh);
+                if (hh != 0) h.Add(hh);
+                // fast two-sum: |p1| >= |s|
+                t = p1 + s;
+                hh = s - (t - p1);
+                q = t;
+                if (hh != 0) h.Add(hh);
+            }
+            if (q != 0 || h.Count == 0) h.Add(q);
+            return h;
+        }
+
+        static List<double> negate(List<double> e)
+        {
+            var h = new List<double>(e.Count);
+            foreach (double x in e) h.Add(-x);
+            return h;
+        }
+
+        static int sign(List<double> e)
+        {
+            for (int i = e.Count - 1; i >= 0; --i)
+                if (e[i] != 0) return Math.Sign(e[i]);
+            return 0;
+        }
+
+        // a1 * b1 - a2 * b2, exactly
+        static List<double> cross_term(double a1, double b1, double a2, double b2)
+        {
+            double x1, y1, x2, y2;
+            two_product(a1, b1, out x1, out y1);
+            two_product(a2, b2, out x2, out y2);
+            var e = grow(new List<double>() { y1 }, x1);
+            e = grow(e, -y2);
+            return grow(e, -x2);
+        }
+
+        static int orient2d_expansion(Vector2d a, Vector2d b, Vector2d c)
+        {
+            // (b - a) x (c - a) = (bx cy - by cx) + (ax by - ay bx) + (cx ay - cy ax), from the coordinates
+            var det = sum(sum(cross_term(b.x, c.y, b.y, c.x), cross_term(a.x, b.y, a.y, b.x)), cross_term(c.x, a.y, c.y, a.x));
+            return sign(det);
+        }
+
+        static int orient3d_expansion(Vector3d a, Vector3d b, Vector3d c, Vector3d d)
+        {
+            // Shewchuk's orient3dexact (2x2 minors of x, y, then the z combinations); this combination has
+            // our sign convention
+            var ab = cross_term(a.x, b.y, b.x, a.y);
+            var bc = cross_term(b.x, c.y, c.x, b.y);
+            var cd = cross_term(c.x, d.y, d.x, c.y);
+            var da = cross_term(d.x, a.y, a.x, d.y);
+            var ac = cross_term(a.x, c.y, c.x, a.y);
+            var bd = cross_term(b.x, d.y, d.x, b.y);
+            var abc = sum(sum(scale(bc, a.z), scale(ac, -b.z)), scale(ab, c.z));
+            var bcd = sum(sum(scale(cd, b.z), scale(bd, -c.z)), scale(bc, d.z));
+            var cda = sum(sum(scale(da, c.z), scale(ac, d.z)), scale(cd, a.z));
+            var dab = sum(sum(scale(ab, d.z), scale(bd, a.z)), scale(da, b.z));
+            var det = sum(sum(bcd, negate(cda)), sum(dab, negate(abc)));
+            return sign(det);
         }
 
         static BigInteger[] to_integers(params double[] values)
