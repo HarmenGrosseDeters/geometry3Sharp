@@ -176,6 +176,10 @@ namespace geometry3Sharp.Tests
                 yield return new object[] { $"generalized cylinder noShared={noShared}", new VerticalGeneralizedCylinderGenerator() {
                     Sections = new[] { new MeshGenerator.CircularSection(1, 0), new MeshGenerator.CircularSection(0.5f, 1) }, NoSharedVertices = noShared } };
             }
+            foreach (float end in new[] { 360.0f, 180.0f, 90.0f }) {
+                yield return new object[] { $"disc 0-{end}", new TrivialDiscGenerator() { EndAngleDeg = end } };
+                yield return new object[] { $"punctured disc 0-{end}", new PuncturedDiscGenerator() { EndAngleDeg = end } };
+            }
         }
 
         [Theory]
@@ -192,6 +196,18 @@ namespace geometry3Sharp.Tests
             Assert.Equal(gen.triangles.Count, m.TriangleCount);
             int unused = m.VertexIndices().Count(v => m.GetVtxEdgeCount(v) == 0);
             Assert.True(unused == 0, $"{name}: {unused} vertices are not used by any triangle");
+        }
+
+        [Fact]
+        public void Discs_FaceTheirNormals()
+        {
+            foreach (MeshGenerator gen in new MeshGenerator[] {
+                    new TrivialDiscGenerator(), new TrivialDiscGenerator() { EndAngleDeg = 180 },
+                    new PuncturedDiscGenerator(), new PuncturedDiscGenerator() { EndAngleDeg = 180 } }) {
+                DMesh3 m = gen.Generate().MakeDMesh();
+                foreach (int tid in m.TriangleIndices())
+                    Assert.True(m.GetTriNormal(tid).Dot(Vector3d.AxisY) > 0.999, $"{gen.GetType().Name}: triangle {tid} faces down");
+            }
         }
 
         [Theory]
