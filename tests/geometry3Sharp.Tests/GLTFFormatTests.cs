@@ -342,6 +342,36 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void Read_ExternalBuffer_PathsLeavingTheDirectoryAreNotRead()
+        {
+            // root/model/tri.gltf may read root/model/sub/tri.bin, but not root/other/tri.bin via ../
+            string root = TempDir();
+            try {
+                string modelDir = Path.Combine(root, "model"), sub = Path.Combine(modelDir, "sub"), other = Path.Combine(root, "other");
+                Directory.CreateDirectory(sub);
+                Directory.CreateDirectory(other);
+                File.WriteAllBytes(Path.Combine(sub, "tri.bin"), Floats(TriPositions));
+                File.WriteAllBytes(Path.Combine(other, "tri.bin"), Floats(TriPositions));
+                string path = Path.Combine(modelDir, "tri.gltf");
+                foreach (string uri in new[] { "../other/tri.bin", "sub/../../other/tri.bin", "..%2Fother%2Ftri.bin", "./../other/tri.bin" }) {
+                    File.WriteAllText(path, SingleTriangle("\"nodes\":[{\"mesh\":0}]").Replace(DataUri(Floats(TriPositions)), uri));
+                    IOReadResult r;
+                    ReadAll(path, out r);
+                    Assert.True(r.code == IOCode.FileAccessError, uri + ": " + r.code + " " + r.message);
+                }
+                foreach (string uri in new[] { "sub/tri.bin", "./sub/tri.bin", "sub/../sub/tri.bin" }) {
+                    File.WriteAllText(path, SingleTriangle("\"nodes\":[{\"mesh\":0}]").Replace(DataUri(Floats(TriPositions)), uri));
+                    IOReadResult r;
+                    List<DMesh3> meshes = ReadAll(path, out r);
+                    Assert.True(r.code == IOCode.Ok, uri + ": " + r.message);
+                    Assert.Equal(new Vector3d(1, 0, 0), meshes[0].GetVertex(1));
+                }
+            } finally {
+                Directory.Delete(root, true);
+            }
+        }
+
+        [Fact]
         public void Read_DracoRequired_NotSupported_OtherExtensionsIgnored()
         {
             IOReadResult r;
