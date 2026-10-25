@@ -59,6 +59,12 @@ namespace gs
 
         public Func<bool> CancelF = () => { return false; };
 
+        /// <summary>
+        /// optional: only octree cells for which this returns true are refined (cell min corner and size in
+        /// leaf cells), eg to restrict a finer octree to a region
+        /// </summary>
+        public Func<Vector3i, int, bool> RegionF = null;
+
         // outputs
         public Vector3d Origin;
         public double LeafCellSize;
@@ -127,9 +133,35 @@ namespace gs
             LeafCount = 1 << depth;
             LeafCellSize = (TargetLeafCellSize > 0) ? TargetLeafCellSize : maxDim / (LeafCount - 2 * PaddingCells);
             Origin = bounds.Min - PaddingCells * LeafCellSize * Vector3d.One - LeafCellSize * GridOffset;
+            build();
+        }
 
-            cache = new ConcurrentDictionary<long, float>();
-            evaluations = 0;
+        /// <summary>
+        /// Build on a given leaf grid: 2^depth leaf cells of size leafCellSize along each axis from origin
+        /// (eg a finer grid aligned with the grid of another octree, restricted with RegionF). Building again on
+        /// the same grid (eg with a larger region) keeps the node values computed so far.
+        /// </summary>
+        public void BuildOnGrid(Vector3d origin, double leafCellSize, int depth)
+        {
+            if (depth < 1 || depth > MaxSupportedDepth)
+                throw new ArgumentException("WindingNumberOctree: depth " + depth + " is not supported");
+            keepCache = cache != null && origin == Origin && leafCellSize == LeafCellSize && depth == MaxDepth;
+            MaxDepth = depth;
+            LeafCount = 1 << depth;
+            LeafCellSize = leafCellSize;
+            Origin = origin;
+            build();
+        }
+
+        bool keepCache = false;
+
+        void build()
+        {
+            if (keepCache == false) {
+                cache = new ConcurrentDictionary<long, float>();
+                evaluations = 0;
+            }
+            keepCache = false;
             propagate = PropagateValues;
             for (int i = 0; i < Meshes.Length; ++i) {
                 Spatials[i].FastWindingNumber(Vector3d.Zero);    // build the winding cache before parallel use
@@ -239,6 +271,8 @@ namespace gs
         void refine(Vector3i min, int size, ConcurrentBag<Vector3i> cells, int level)
         {
             if (CancelF())
+                return;
+            if (RegionF != null && RegionF(min, size) == false)
                 return;
             if (needs_refinement(min, size) == false)
                 return;

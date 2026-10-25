@@ -89,6 +89,20 @@ namespace gs
         /// </summary>
         public DMesh3 ContourAdaptive(double cellSize)
         {
+            hiddenWidths.Clear();
+            WindingNumberOctree octree = build_octree(cellSize);
+            if (octree == null)
+                return null;
+            DualContouring dc = make_dual_contouring(octree);
+            dc.Generate();
+            foreach (var kv in dc.PhaseMilliseconds)
+                add_phase(kv.Key, kv.Value);
+            WindingEvaluations = octree.WindingEvaluations;
+            return finish(dc);
+        }
+
+        WindingNumberOctree build_octree(double cellSize)
+        {
             WindingNumberOctree octree = new WindingNumberOctree(Meshes, Spatials, CombineF) {
                 TargetLeafCellSize = cellSize, WindingIso = Iso, CancelF = CancelF,
                 GridOffset = new Vector3d(0.1371, 0.2713, 0.3891)
@@ -96,9 +110,11 @@ namespace gs
             var timer = System.Diagnostics.Stopwatch.StartNew();
             octree.Build();
             add_phase("octree", timer.ElapsedMilliseconds);
-            if (CancelF())
-                return null;
+            return CancelF() ? null : octree;
+        }
 
+        DualContouring make_dual_contouring(WindingNumberOctree octree)
+        {
             DualContouring dc = new DualContouring() {
                 Implicit = new FieldImplicit() { Owner = this },
                 IsoValue = Iso, CellSize = octree.LeafCellSize, CancelF = CancelF,
@@ -106,26 +122,49 @@ namespace gs
                 CandidateCells = octree.SurfaceCells,
                 NodeValueF = octree.NodeValue
             };
+            // tolerances relative to the grid edge (coarse or fine)
             dc.HermiteF = (Vector3d a, Vector3d b, Vector3d p, out Vector3d point, out Vector3d normal) =>
-                Hermite(cellSize, a, b, p, out point, out normal);
-            dc.HiddenGapF = (a, b) => HiddenGap(cellSize, a, b);
-            dc.HiddenWallF = (a, b) => HiddenWall(cellSize, a, b);
-            fixable = 0; minFixable = double.MaxValue;
-            HiddenSamples = new List<KeyValuePair<Vector3d, double>>();
-            dc.Generate();
-            foreach (var kv in dc.PhaseMilliseconds)
-                add_phase(kv.Key, kv.Value);
-            WindingEvaluations = octree.WindingEvaluations;
+                Hermite(a.Distance(b), a, b, p, out point, out normal);
+            dc.HiddenGapF = (a, b) => HiddenGap(a.Distance(b), a, b);
+            dc.HiddenWallF = (a, b) => HiddenWall(a.Distance(b), a, b);
+            return dc;
+        }
+
+        DMesh3 finish(DualContouring dc)
+        {
             HiddenGapEdges = dc.HiddenGapEdges;
             HiddenWallEdges = dc.HiddenWallEdges;
-            FixableEdges = fixable;
-            MinFixableFound = minFixable;
-            if (CancelF())
+            classify_hidden(dc);
+            TransitionErrors = dc.TransitionErrors;
+            if (CancelF() || dc.Mesh == null)
                 return null;
             NonManifoldTriangles = dc.NonManifoldTriangles;
             if (NonManifoldTriangles > 0)
                 FillSmallHoles(dc.Mesh);
             return dc.Mesh;
+        }
+
+        // FixableEdges, MinFixableFound and HiddenSamples from the hidden edges of the last crossing search;
+        // returns the fixable ones
+        List<DualContouring.HiddenEdge> classify_hidden(DualContouring dc)
+        {
+            var fixableList = new List<DualContouring.HiddenEdge>();
+            double minFixable = double.MaxValue;
+            HiddenSamples = new List<KeyValuePair<Vector3d, double>>();
+            foreach (DualContouring.HiddenEdge he in dc.HiddenEdges) {
+                double width;
+                if (hiddenWidths.TryGetValue(new EdgePoints(he.A, he.B), out width) == false)
+                    continue;
+                if (width >= MinFixableWidth) {
+                    fixableList.Add(he);
+                    minFixable = Math.Min(minFixable, width);
+                }
+                if (HiddenSamples.Count < 10000)
+                    HiddenSamples.Add(new KeyValuePair<Vector3d, double>(0.5 * (he.A + he.B), width));
+            }
+            FixableEdges = fixableList.Count;
+            MinFixableFound = minFixable;
+            return fixableList;
         }
 
         void add_phase(string name, long ms)
@@ -134,6 +173,26 @@ namespace gs
             PhaseMilliseconds[name] = PhaseMilliseconds.TryGetValue(name, out cur) ? cur + ms : ms;
         }
 
+        /// <summary> refine only the regions around hidden gaps / walls (see ContourRefined); false: halve the cell size globally </summary>
+        public bool LocalRefinement = true;
+        /// <summary> local refinement: cells refined beyond the 4 cells around each hidden gap / wall edge </summary>
+        public int RefineMargin = 1;
+        /// <summary>
+        /// local refinement: at most this many times the refined region is grown where the fine signs on its
+        /// border had to be imposed (the coarse cells there miss part of a gap or wall, eg one that crosses a
+        /// sign-changing grid edge)
+        /// </summary>
+        public int MaxGrowRounds = 2;
+        /// <summary>
+        /// local refinement: if the refined region would contain more than this fraction of the cells the
+        /// surface passes through, the whole grid is refined instead (cheaper then)
+        /// </summary>
+        public double MaxLocalFraction = 0.5;
+        /// <summary> local refinement: coarse cells refined by the last ContourRefined, and by which factor </summary>
+        public int RefinedCells, RefineFactor = 1;
+        /// <summary> local refinement: fine crossings not assigned to a coarse patch (see DualContouring.TransitionErrors) </summary>
+        public int TransitionErrors;
+
         /// <summary>
         /// ContourAdaptive, refined for hidden gaps and walls (gaps or material thinner than a cell, which the
         /// node signs cannot see: the surfaces on both sides cut through each other, or thin walls vanish or
@@ -141,16 +200,33 @@ namespace gs
         /// directly as often as the narrowest one needs for that (measured perpendicular to its surfaces),
         /// then checked again. Only gaps and walls the levels left can resolve count (at least
         /// cellSize / 2^maxLevels wide): narrower ones (eg nearly touching layers of open meshes) are not
-        /// worth the work, each level costs about 4x. The refinement is global, so it is only done for at
-        /// least minEdges such edges; fewer (a small local defect) are only reported in HiddenGapEdges /
-        /// HiddenWallEdges. At most maxLevels halvings; cellSize returns the size used.
+        /// worth the work. Refinement is done for at least minEdges such edges; fewer are only reported in
+        /// HiddenGapEdges / HiddenWallEdges. At most maxLevels halvings; cellSize returns the finest size used.
+        ///
+        /// With LocalRefinement, only the cells around the hidden gap / wall edges (RefineMargin more in each
+        /// direction) are refined, the rest stays at the original cell size (see DualContouring.SetRefinement
+        /// for the transition between them); the work for the refinement grows with the area of the refined
+        /// regions only. Otherwise the cell size is halved everywhere, each level costs about 4x.
         /// </summary>
         public DMesh3 ContourRefined(ref double cellSize, int maxLevels, int minEdges = 1)
         {
             MinFixableWidth = cellSize / Math.Pow(2, maxLevels);
-            DMesh3 contour = ContourAdaptive(cellSize);
-            int evaluations = WindingEvaluations;
             GapEdgesPerLevel.Clear();
+            RefinedCells = 0; RefineFactor = 1;
+            int evaluations = 0;
+            if (LocalRefinement) {
+                bool tooLarge;
+                DMesh3 local = contour_local(ref cellSize, maxLevels, minEdges, out tooLarge);
+                if (tooLarge == false)
+                    return local;
+                // refining most of the surface: global refinement is cheaper (and needs no transitions)
+                evaluations = WindingEvaluations;
+                GapEdgesPerLevel.Clear();
+                RefinedCells = 0; RefineFactor = 1;
+            }
+
+            DMesh3 contour = ContourAdaptive(cellSize);
+            evaluations += WindingEvaluations;
             GapEdgesPerLevel.Add(HiddenGapEdges + HiddenWallEdges);
             int used = 0;
             while (contour != null && FixableEdges >= Math.Max(1, minEdges) && used < maxLevels) {
@@ -168,6 +244,154 @@ namespace gs
             WindingEvaluations = evaluations;
             return contour;
         }
+
+        DMesh3 contour_local(ref double cellSize, int maxLevels, int minEdges, out bool tooLarge)
+        {
+            tooLarge = false;
+            hiddenWidths.Clear();
+            double coarse = cellSize;
+            WindingNumberOctree octree = build_octree(coarse);
+            if (octree == null)
+                return null;
+            DualContouring dc = make_dual_contouring(octree);
+            dc.FindCrossings();
+            if (CancelF())
+                return null;
+            List<DualContouring.HiddenEdge> fixableList = classify_hidden(dc);
+            GapEdgesPerLevel.Add(dc.HiddenGapEdges + dc.HiddenWallEdges);
+
+            var fineOctrees = new List<WindingNumberOctree>();
+            WindingNumberOctree fine = null;
+            HashSet<Vector3i> region = new HashSet<Vector3i>();
+            int used = 0, log2F = 0, growRounds = 0;
+            var timer = new System.Diagnostics.Stopwatch();
+            while (true) {
+                bool newLevel = false;
+                if (fixableList.Count >= Math.Max(1, minEdges) && used < maxLevels) {
+                    // refine (further) around the fixable hidden edges, as far as the narrowest one needs
+                    double cur = coarse / (1 << log2F);
+                    int need = (int)Math.Ceiling(Math.Log(2 * cur / MinFixableFound, 2));
+                    int k = Math.Max(1, Math.Min(need, maxLevels - used));
+                    if (octree.MaxDepth + log2F + k > WindingNumberOctree.MaxSupportedDepth)
+                        break;
+                    log2F += k;
+                    used += k;
+                    newLevel = true;
+                    foreach (DualContouring.HiddenEdge he in fixableList)
+                        add_to_region(region, octree, he.A, he.B);
+                } else if (log2F > 0 && dc.ImposedCells.Count > 0 && growRounds < MaxGrowRounds) {
+                    // the coarse grid misses something at the border of the refined region (the fine signs
+                    // there had to be imposed): refine there too
+                    growRounds++;
+                    foreach (Vector3i c in dc.ImposedCells)
+                        add_to_region(region, octree, c);
+                } else
+                    break;
+                int inRegion = 0;
+                foreach (Vector3i c in octree.SurfaceCells)
+                    if (region.Contains(c)) inRegion++;
+                if (inRegion > MaxLocalFraction * octree.SurfaceCells.Count) {
+                    tooLarge = true;
+                    WindingEvaluations = octree.WindingEvaluations;
+                    foreach (WindingNumberOctree fo in fineOctrees)
+                        WindingEvaluations += fo.WindingEvaluations;
+                    return null;
+                }
+                int F = 1 << log2F;
+                timer.Restart();
+                if (newLevel) {
+                    fine = new WindingNumberOctree(Meshes, Spatials, CombineF) { WindingIso = Iso, CancelF = CancelF };
+                    fineOctrees.Add(fine);
+                }
+                fine.RegionF = region_filter(region, F);
+                fine.BuildOnGrid(octree.Origin, coarse / F, octree.MaxDepth + log2F);    // keeps the node values of the same grid
+                add_phase("octree.fine", timer.ElapsedMilliseconds);
+                if (CancelF())
+                    return null;
+                dc.SetRefinement(F, region, fine.SurfaceCells, fine.NodeValue);
+                dc.FindCrossings();
+                if (CancelF())
+                    return null;
+                fixableList = classify_hidden(dc);
+                if (newLevel)
+                    GapEdgesPerLevel.Add(dc.HiddenGapEdges + dc.HiddenWallEdges);
+                else
+                    GapEdgesPerLevel[GapEdgesPerLevel.Count - 1] = dc.HiddenGapEdges + dc.HiddenWallEdges;
+            }
+            dc.Generate();
+            foreach (var kv in dc.PhaseMilliseconds)
+                add_phase(kv.Key, kv.Value);
+            WindingEvaluations = octree.WindingEvaluations;
+            foreach (WindingNumberOctree fo in fineOctrees)
+                WindingEvaluations += fo.WindingEvaluations;
+            RefinedCells = region.Count;
+            RefineFactor = 1 << log2F;
+            cellSize = coarse / RefineFactor;
+            return finish(dc);
+        }
+
+        // the coarse cells around a hidden edge or face diagonal a-b (on a coarse edge: the 4 cells around it),
+        // plus RefineMargin
+        void add_to_region(HashSet<Vector3i> region, WindingNumberOctree octree, Vector3d a, Vector3d b)
+        {
+            Vector3d g = (0.5 * (a + b) - octree.Origin) / octree.LeafCellSize;
+            Vector3i lo = Vector3i.Zero, hi = Vector3i.Zero;
+            for (int d = 0; d < 3; ++d) {
+                lo[d] = (int)Math.Floor(g[d] - 0.25) - RefineMargin;
+                hi[d] = (int)Math.Floor(g[d] + 0.25) + RefineMargin;
+            }
+            for (int z = lo.z; z <= hi.z; ++z)
+                for (int y = lo.y; y <= hi.y; ++y)
+                    for (int x = lo.x; x <= hi.x; ++x)
+                        region.Add(new Vector3i(x, y, z));
+        }
+
+        // a coarse cell plus RefineMargin
+        void add_to_region(HashSet<Vector3i> region, WindingNumberOctree octree, Vector3i cell)
+        {
+            for (int z = -RefineMargin; z <= RefineMargin; ++z)
+                for (int y = -RefineMargin; y <= RefineMargin; ++y)
+                    for (int x = -RefineMargin; x <= RefineMargin; ++x)
+                        region.Add(cell + new Vector3i(x, y, z));
+        }
+
+        // octree cells (fine leaf coordinates, power-of-two sizes at aligned positions) that overlap the region
+        // (coarse cells of F fine cells each)
+        static Func<Vector3i, int, bool> region_filter(HashSet<Vector3i> region, int F)
+        {
+            var ancestors = new HashSet<long>();
+            foreach (Vector3i c in region) {
+                if (c.x < 0 || c.y < 0 || c.z < 0)
+                    continue;       // the octree has no cells there
+                Vector3i m = F * c;
+                for (int s = F, level = 0; s <= (1 << 21); s *= 2, level++)
+                    if (ancestors.Add(ancestor_key(level, m / s)) == false)
+                        break;
+            }
+            return (min, size) => {
+                if (size >= F) {
+                    int level = 0;
+                    while ((F << level) < size) level++;
+                    return ancestors.Contains(ancestor_key(level, min / size));
+                }
+                return region.Contains(min / F);
+            };
+        }
+        static long ancestor_key(int level, Vector3i a)
+        {
+            return ((long)level << 60) | ((long)a.x << 40) | ((long)a.y << 20) | (long)a.z;
+        }
+
+        // end points of a grid edge, as passed to HiddenGap / HiddenWall
+        struct EdgePoints : IEquatable<EdgePoints>
+        {
+            public Vector3d A, B;
+            public EdgePoints(Vector3d a, Vector3d b) { A = a; B = b; }
+            public bool Equals(EdgePoints o) { return A == o.A && B == o.B; }
+            public override bool Equals(object o) { return o is EdgePoints && Equals((EdgePoints)o); }
+            public override int GetHashCode() { unchecked { return A.GetHashCode() * 31 + B.GetHashCode(); } }
+        }
+        System.Collections.Concurrent.ConcurrentDictionary<EdgePoints, double> hiddenWidths = new System.Collections.Concurrent.ConcurrentDictionary<EdgePoints, double>();
 
 
         // field gradient fallback for dual contouring where no Hermite data is found
@@ -301,21 +525,11 @@ namespace gs
                     continue;
                 // width perpendicular to the surfaces (the edge can cross them obliquely)
                 double width = (hits[i + 1].T - hits[i].T) * 0.5 * (Math.Abs(dir.Dot(n0)) + Math.Abs(dir.Dot(n1)));
-                lock (fixableLock) {
-                    if (width >= MinFixableWidth) {
-                        fixable++;
-                        minFixable = Math.Min(minFixable, width);
-                    }
-                    if (HiddenSamples.Count < 10000)
-                        HiddenSamples.Add(new KeyValuePair<Vector3d, double>(m, width));
-                }
+                hiddenWidths[new EdgePoints(a, b)] = width;
                 return true;
             }
             return false;
         }
-        int fixable;
-        double minFixable = double.MaxValue;
-        readonly object fixableLock = new object();
         const double GapParallelCos = 0.5;     // surfaces within 60 degrees of parallel
 
         // Do the surfaces through p0 and p1 meet near m (a wedge or sharp edge, not a gap or wall)? The
