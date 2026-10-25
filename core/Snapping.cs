@@ -30,21 +30,13 @@ namespace g3
             return fValue;
         }
 
+        // low: largest increment <= fValue, high: smallest increment >= fValue
         private static double SnapToIncrementSigned(double fValue, double fIncrement, bool low)
         {
             if (!MathUtil.IsFinite(fValue))
                 return 0;
-            double sign = Math.Sign(fValue);
-            fValue = Math.Abs(fValue);
-            int nInc = (int)(fValue / fIncrement);
-
-            if (low && sign < 0)
-                ++nInc;
-            else if (!low && sign > 0)
-                ++nInc;
-
-            return sign * (double)nInc * fIncrement;
-
+            double nInc = (low) ? Math.Floor(fValue / fIncrement) : Math.Ceiling(fValue / fIncrement);
+            return nInc * fIncrement;
         }
 
         public static double SnapToIncrementLow(double fValue, double fIncrement, double offset=0)
