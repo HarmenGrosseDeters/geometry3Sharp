@@ -58,7 +58,8 @@ selectively.
 
 ## Phase 4: platform layer
 
-- CLI / MCP server over the operations
+- [x] CLI / MCP server over the operations: `tools/g3cli` (measure, repair, boolean, resolve, remesh, simplify,
+  convert; JSON results with result codes; `g3cli mcp` over stdio)
 - [x] Analysis building blocks: wall thickness (`MeshWallThickness`: ray, shape diameter function, inscribed ball /
   medial axis), deviation maps (`MeshDeviation`, statistics in `DeviationStatistics`), primitive fitting
   (`PrimitiveFit3`: plane, sphere, cylinder, cone; RANSAC + least squares)

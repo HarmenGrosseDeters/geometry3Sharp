@@ -67,7 +67,7 @@ namespace g3
             if ( bFreeMemory )
                 nodes = new DVector<T>();
             else
-                nodes.Clear();      // drop references to the old nodes
+                nodes.Fill(default(T));      // drop references to the old nodes
             num_nodes = 0;
         }
 
