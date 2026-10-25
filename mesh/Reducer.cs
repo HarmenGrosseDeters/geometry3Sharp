@@ -46,6 +46,14 @@ namespace g3
         public double FeatureAngle = 0;
         public double FeatureQuadricWeight = 100;
 
+        /// <summary>
+        /// The optimal collapse point minimizes the quadric plus QuadricRegularization * (trace(A)/3) *
+        /// |x - edge midpoint|^2. This keeps the solve well-conditioned and independent of the mesh scale
+        /// (directions the planes do not constrain, eg along a flat region, stay at the midpoint), as with
+        /// probabilistic quadrics (Trettner and Kobbelt 2020). Small enough not to move corners noticeably.
+        /// </summary>
+        public double QuadricRegularization = 1e-6;
+
         // if true, we try to keep boundary vertices on boundary. You probably want this.
         public bool PreserveBoundaryShape = true;
 
@@ -284,8 +292,25 @@ namespace g3
 
 
         protected QuadricError[] vertQuadrics;
+
+        // quadrics are computed relative to this point (the mesh bounds center): in absolute coordinates far
+        // from the origin (eg UTM, 5e6) the constant term is ~1e13 and errors drown in rounding
+        protected Vector3d quadricOrigin = Vector3d.Zero;
+
+        protected QuadricError plane_quadric(Vector3d n, Vector3d p)
+        {
+            Vector3d local = p - quadricOrigin;
+            return new QuadricError(ref n, ref local);
+        }
+        protected double evaluate(ref QuadricError q, Vector3d p)
+        {
+            Vector3d local = p - quadricOrigin;
+            return q.Evaluate(ref local);
+        }
+
 		protected virtual void InitializeVertexQuadrics()
 		{
+            quadricOrigin = mesh.CachedBounds.Center;
 
 			int NT = mesh.MaxTriangleID;
 			QuadricError[] triQuadrics = new QuadricError[NT];
@@ -295,7 +320,7 @@ namespace g3
                 for (int tid = start_tid; tid <= end_tid; tid++) {
                     if (mesh.IsTriangle(tid)) {
                         mesh.GetTriInfo(tid, out n, out triAreas[tid], out c);
-                        triQuadrics[tid] = new QuadricError(ref n, ref c);
+                        triQuadrics[tid] = plane_quadric(n, c);
                     }
                 }
 			});
@@ -341,15 +366,15 @@ namespace g3
                     Vector3d m = (b - a).Cross(n);
                     if (m.Normalize() < MathUtil.Epsilon)
                         continue;
-                    QuadricError q = new QuadricError(ref m, ref a);
+                    QuadricError q = plane_quadric(m, a);
                     vertQuadrics[ev.a].Add(BoundaryQuadricWeight * w, ref q);
                     vertQuadrics[ev.b].Add(BoundaryQuadricWeight * w, ref q);
                 } else if (doFeatures) {
                     Vector3d n0 = mesh.GetTriNormal(et.a), n1 = mesh.GetTriNormal(et.b);
                     if (n0.Dot(n1) >= featureDot)
                         continue;
-                    QuadricError q0 = new QuadricError(ref n0, ref a);
-                    QuadricError q1 = new QuadricError(ref n1, ref a);
+                    QuadricError q0 = plane_quadric(n0, a);
+                    QuadricError q1 = plane_quadric(n1, a);
                     vertQuadrics[ev.a].Add(FeatureQuadricWeight * w, ref q0);
                     vertQuadrics[ev.a].Add(FeatureQuadricWeight * w, ref q1);
                     vertQuadrics[ev.b].Add(FeatureQuadricWeight * w, ref q0);
@@ -391,7 +416,7 @@ namespace g3
                         Index2i ev = mesh.GetEdgeV(eid);
                         QuadricError Q = new QuadricError(ref vertQuadrics[ev.a], ref vertQuadrics[ev.b]);
                         Vector3d opt = OptimalPoint(eid, ref Q, ev.a, ev.b);
-                        edgeErrors[eid] = (float)Q.Evaluate(ref opt);
+                        edgeErrors[eid] = (float)evaluate(ref Q, opt);
                         EdgeQuadrics[eid] = new QEdge(eid, ref Q, ref opt);
                     }
                 }
@@ -441,7 +466,7 @@ namespace g3
                 bool ba = IsBoundaryV(ea), bb = IsBoundaryV(eb);
                 if (ba && bb) {
                     Vector3d pa = mesh.GetVertex(ea), pb = mesh.GetVertex(eb);
-                    return (q.Evaluate(ref pa) <= q.Evaluate(ref pb)) ? pa : pb;
+                    return (evaluate(ref q, pa) <= evaluate(ref q, pb)) ? pa : pb;
                 } else if (ba) {
                     return mesh.GetVertex(ea);
                 } else if (bb) {
@@ -455,17 +480,18 @@ namespace g3
 				return project( (mesh.GetVertex(ea) + mesh.GetVertex(eb)) * 0.5 );
 			} else {
                 Vector3d result = Vector3d.Zero;
-                if (q.OptimalPoint(ref result))
-                    return project(result);
+                Vector3d mid = 0.5 * (mesh.GetVertex(ea) + mesh.GetVertex(eb)) - quadricOrigin;
+                if (q.OptimalPoint(ref result, mid, QuadricRegularization))
+                    return project(result + quadricOrigin);
 
                 // degenerate matrix, evaluate quadric at edge end and midpoints
 				// (could do line search here...)
 				Vector3d va = mesh.GetVertex(ea);
 				Vector3d vb = mesh.GetVertex(eb);
 				Vector3d c = project((va + vb) * 0.5);
-				double fa = q.Evaluate(ref va);
-				double fb = q.Evaluate(ref vb);
-				double fc = q.Evaluate(ref c);
+				double fa = evaluate(ref q, va);
+				double fb = evaluate(ref q, vb);
+				double fc = evaluate(ref q, c);
 				double m = MathUtil.Min(fa, fb, fc);
 				if (m == fa) return va;
 				else if (m == fb) return vb;
@@ -490,7 +516,7 @@ namespace g3
 				Index2i nev = mesh.GetEdgeV(eid);
 				QuadricError Q = new QuadricError(ref vertQuadrics[nev.a], ref vertQuadrics[nev.b]);
 				Vector3d opt = OptimalPoint(eid, ref Q, nev.a, nev.b);
-				double err = Q.Evaluate(ref opt);
+				double err = evaluate(ref Q, opt);
                 EdgeQuadrics[eid] = new QEdge(eid, ref Q, ref opt);
 				if ( EdgeQueue.Contains(eid) ) {
 					EdgeQueue.Update(eid, (float)err);
@@ -930,6 +956,43 @@ skip_to_end:
 		}
 
 
+
+		/// <summary>
+		/// minimizer of the quadric + lambda * |x - center|^2, with lambda = lambdaRel * trace(A)/3:
+		/// always well-conditioned and scale independent; directions the quadric does not constrain stay
+		/// at center. Returns false only for an empty quadric.
+		/// </summary>
+		public bool OptimalPoint(ref Vector3d result, Vector3d center, double lambdaRel) {
+			double scale = (Axx + Ayy + Azz) / 3;
+			if (!(scale > 0))
+				return false;
+			double lambda = lambdaRel * scale;
+			QuadricError r = this;
+			r.Axx += lambda; r.Ayy += lambda; r.Azz += lambda;
+			double a11 = r.Azz * r.Ayy - r.Ayz * r.Ayz;
+			double a12 = r.Axz * r.Ayz - r.Azz * r.Axy;
+			double a13 = r.Axy * r.Ayz - r.Axz * r.Ayy;
+			double a22 = r.Azz * r.Axx - r.Axz * r.Axz;
+			double a23 = r.Axy * r.Axz - r.Axx * r.Ayz;
+			double a33 = r.Axx * r.Ayy - r.Axy * r.Axy;
+			double det = (r.Axx * a11) + (r.Axy * a12) + (r.Axz * a13);
+			if (!(Math.Abs(det) > 1e-18 * scale * scale * scale))
+				return false;
+			det = 1.0 / det;
+			// x = -(A + lambda I)^-1 (b - lambda c); then two proximal steps with c = x, which converge to the
+			// exact minimizer in the directions the quadric constrains (factor lambda/eigenvalue per step)
+			// and keep the others at center
+			Vector3d cur = center;
+			for (int k = 0; k < 3; ++k) {
+				double rx = bx - lambda * cur.x, ry = by - lambda * cur.y, rz = bz - lambda * cur.z;
+				cur = new Vector3d(
+					-(a11 * rx + a12 * ry + a13 * rz) * det,
+					-(a12 * rx + a22 * ry + a23 * rz) * det,
+					-(a13 * rx + a23 * ry + a33 * rz) * det);
+			}
+			result = cur;
+			return true;
+		}
 
 		public bool OptimalPoint(ref Vector3d result) {
 			double a11 = Azz * Ayy - Ayz * Ayz;
