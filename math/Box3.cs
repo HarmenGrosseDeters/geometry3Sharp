@@ -155,7 +155,7 @@ namespace g3 {
 			get { return Math.Max(Extent.x, Math.Max(Extent.y, Extent.z) ); }
 		}
 		public double MinExtent {
-			get { return Math.Min(Extent.x, Math.Max(Extent.y, Extent.z) ); }
+			get { return Math.Min(Extent.x, Math.Min(Extent.y, Extent.z) ); }
 		}
 		public Vector3d Diagonal {
 			get { return (Extent.x*AxisX + Extent.y*AxisY + Extent.z*AxisZ) - 
@@ -556,7 +556,7 @@ namespace g3 {
 			get { return Math.Max(Extent.x, Math.Max(Extent.y, Extent.z) ); }
 		}
 		public double MinExtent {
-			get { return Math.Min(Extent.x, Math.Max(Extent.y, Extent.z) ); }
+			get { return Math.Min(Extent.x, Math.Min(Extent.y, Extent.z) ); }
 		}
 		public Vector3f Diagonal {
 			get { return (Extent.x*AxisX + Extent.y*AxisY + Extent.z*AxisZ) - 

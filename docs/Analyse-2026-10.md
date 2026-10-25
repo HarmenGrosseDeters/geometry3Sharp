@@ -199,6 +199,29 @@ Behoben:
   Faces ohne Normalen- oder UV-Index führen nicht mehr zu einer Exception, ihre Vertices bekommen den Standardwert;
   Farben werden nur übernommen, wenn jeder Vertex eine hat.
 
+Zehnte Runde, `math/`. Ab hier gilt: erst der rote Test, dann der Fix. Regressionstests stehen in
+`tests/geometry3Sharp.Tests/MathFixesTests.cs` (19 Tests; vor dem Fix rot: 18, der 19. sichert die normalen Fälle von
+`SolveQuadratic`).
+
+Behoben:
+- `MathUtil.SolveQuadratic`: b = 0 (`Sign(0) = 0`, Division durch 0) und a = 0 (lineare Gleichung).
+- `Matrix2d/f.Inverse` gibt bei singulärer Matrix eine neue Nullmatrix zurück statt der geteilten, veränderlichen
+  Instanz `Zero`.
+- `Box3d/f.MinExtent`, `Vector2dTuple4`-Setter (Index 0/1), `Ray3f.DistanceSquared` (Punkte hinter dem Ursprung).
+- `Quaterniond/f.SetToSlerp` (damit auch `Frame3f.Interpolate`): bei `dot < 0` wird -q genommen; vorher ging es den
+  langen Weg, bei q = -p gab es Unsinn.
+- `MathUtil.PlaneAngleSignedD` (2D): antiparallel ergibt 180° statt 0°, wie die 3D-Variante.
+- `Interval1d/1i`: unäres Minus und Multiplikation mit negativem Faktor liefern ein richtig herum liegendes Intervall.
+- `AxisAlignedBox3d` ↔ `3f`: Eine leere Box wurde zur unendlichen Box (der Min/Max-Konstruktor sortiert).
+- `Segment2d.WhichSide` (Instanz): P0/P1 waren vertauscht, das Vorzeichen widersprach der Doku und der statischen
+  Variante. `MeshInsertUVPolyCurve` nutzt nur das Produkt der Vorzeichen und ist nicht betroffen.
+- `PrimalQuery2d.ToLine(…, out order)`: Quadratlänge aus dem Segment statt aus P−V0.
+- `TransformSequence2`: `ScaleIsUniform` verglich die Skalierung mit dem Pivot; `TransformN` liefert jetzt einen
+  Einheitsvektor, dadurch wachsen `Segment2d`, `Ellipse2d` und `EllipseArc2d` beim Skalieren nicht mehr quadratisch.
+  Hinweis: `gDevAssert` ruft standardmäßig nur `Debugger.Break()` auf, das ohne Debugger unter Linux wirkungslos ist.
+  Der falsche Assert fiel deshalb nicht auf. Die Tests dafür schalten `Util.DebugBreakOnDevAssert` ab und laufen
+  deshalb nicht parallel zu anderen Testklassen.
+
 ---
 
 ## 1. Upstream-Issues

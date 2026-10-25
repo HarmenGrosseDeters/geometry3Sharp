@@ -87,7 +87,7 @@ namespace g3
                 return new Matrix2f(m11 * invDet, -m01 * invDet,
                                     -m10 * invDet, m00 * invDet);
             } else
-                return Zero;
+                return new Matrix2f(false);     // not the shared Zero instance, the class is mutable
         }
         public Matrix2f Adjoint() {
             return new Matrix2f(m11, -m01, -m10, m00);

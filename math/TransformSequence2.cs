@@ -57,7 +57,8 @@ namespace g3
             }
 
             public bool ScaleIsUniform {
-                get { return data.V0.EpsilonEqual(data.V1, MathUtil.Epsilonf); }
+                // compare the two scale factors (data.V1 is the pivot of ScaleAroundPoint)
+                get { return Math.Abs(data.V0.x - data.V0.y) < MathUtil.Epsilonf; }
             }
 
             public ITransform2 NestedITransform2 {
@@ -231,6 +232,9 @@ namespace g3
                 }
             }
 
+            // a direction stays a unit vector; the scale goes into TransformScalar() (scaling the direction
+            // too made a segment grow with the square of the scale)
+            n.Normalize();
             return n;
         }
 
