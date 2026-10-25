@@ -159,18 +159,20 @@ namespace g3
         }
 
         public void AppendVertices(VectorArray3d v, VectorArray3f n = null, VectorArray3f c = null, VectorArray2f uv = null) {
+            // the Has* properties compare lengths with Vertices, so evaluate them before appending
+            bool bNormals = HasVertexNormals, bColors = HasVertexColors, bUVs = HasVertexUVs;
             Vertices.Add(v.array);
-            if (n != null && HasVertexNormals)
+            if (n != null && bNormals)
                 Normals.Add(n.array);
-            else if (HasVertexNormals)
+            else if (bNormals)
                 Normals.Add(new float[] { 0, 1, 0 }, v.Count);
-            if (c != null && HasVertexColors)
+            if (c != null && bColors)
                 Colors.Add(c.array);
-            else if (HasVertexColors)
-                Normals.Add(new float[] { 1, 1, 1 }, v.Count);
-            if (uv != null && HasVertexUVs)
+            else if (bColors)
+                Colors.Add(new float[] { 1, 1, 1 }, v.Count);
+            if (uv != null && bUVs)
                 UVs.Add(uv.array);
-            else if (HasVertexUVs)
+            else if (bUVs)
                 UVs.Add(new float[] { 0, 0 }, v.Count);
             updateTimeStamp();
         }
@@ -190,10 +192,11 @@ namespace g3
 
         public void AppendTriangles(int[] vTriangles, int[] vertexMap, int g = -1)
         {
+            bool bGroups = HasTriangleGroups;       // compares lengths with Triangles, so check before appending
             for (int ti = 0; ti < vTriangles.Length; ++ti) {
                 Triangles.Add(vertexMap[vTriangles[ti]]);
             }
-            if (HasTriangleGroups) {
+            if (bGroups) {
                 for (int ti = 0; ti < vTriangles.Length / 3; ++ti)
                     FaceGroups.Add((g == -1) ? 0 : g);
             }
@@ -202,8 +205,9 @@ namespace g3
 
         public void AppendTriangles(IndexArray3i t, int[] groups = null)
         {
+            bool bGroups = HasTriangleGroups;       // compares lengths with Triangles, so check before appending
             Triangles.Add(t.array);
-            if (HasTriangleGroups) {
+            if (bGroups) {
                 if (groups != null)
                     FaceGroups.Add(groups);
                 else
