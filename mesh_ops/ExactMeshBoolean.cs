@@ -35,7 +35,7 @@ namespace g3
     /// the inputs are not modified). Compute() returns false and sets Error for null inputs, non-finite
     /// coordinates, or open meshes when AllowOpenMeshes is false; it throws InvalidOperationException in the
     /// (not expected) case that no non-degenerate ray is found. Result has no normals, colors, UVs or groups.
-    /// Use a new instance per operation (the diagnostic counters are not reset by Compute()).
+    /// Compute() can be called again after changing the meshes or the operation.
     ///
     /// Cost: exact predicates behind floating-point filters (BigInteger only where the filters cannot decide);
     /// slower than floating-point methods, the phases run in parallel.
@@ -115,6 +115,11 @@ namespace g3
         {
             Result = null;
             Error = null;
+            // (the meshes or the operation may have changed since the last call)
+            IntersectingPairs = SelfIntersectingPairs = NonManifoldEdges = NonManifoldTriangles = SplitNonManifoldEdges = Patches = RemovedVertices = 0;
+            Counts.Clear();
+            bounds.Clear();
+            windingTrees[0] = windingTrees[1] = null;
             if (MeshA == null || MeshB == null) {
                 Error = "input mesh is null";
                 return false;
