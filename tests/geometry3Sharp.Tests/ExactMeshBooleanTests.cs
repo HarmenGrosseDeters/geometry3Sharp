@@ -183,6 +183,20 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void TinyCoordinate_GridBeyondTheDoubleRange()
+        {
+            // a coordinate of 1e-300 makes the grid unit about 2^-1050: the grid coordinates of the other points
+            // (and their approximations) are beyond the double range; coincident points from different
+            // constructions (the coplanar faces) must still be merged
+            DMesh3 a = Box(0, 0, 0, 2, 2, 1), b = Box(1, 1, 0, 3, 3, 2);
+            MeshEditor.Append(a, Box(1e-300, 5, 5, 1, 6, 6));
+            Assert.Equal(4 + 8 - 1 + 1, Volume(Run(a, b, Ops.Union)), 12);
+            Assert.Equal(1, Volume(Run(a, b, Ops.Intersection)), 12);
+            Assert.Equal(3 + 1, Volume(Run(a, b, Ops.Difference)), 12);
+            Assert.Equal(7, Volume(Run(b, a, Ops.Difference)), 12);
+        }
+
+        [Fact]
         public void SharedVerticesAndEdges()
         {
             // b is a corner of a, cut out by a box with the same corner: shared vertex and coplanar faces

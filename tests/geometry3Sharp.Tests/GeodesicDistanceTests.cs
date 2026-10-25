@@ -431,5 +431,35 @@ namespace geometry3Sharp.Tests
                 Assert.True(Math.Abs(geo.Distance[vid] - exact) < 0.02 * exact + 2.0, $"{p}: {geo.Distance[vid]} vs {exact}");
             }
         }
+        [Fact]
+        public void SingleSource_RoughTerrain_NotPinned()
+        {
+            // one source on rough terrain (waves plus 30 cm noise, as a 1 m DGM): phi is not pinned there.
+            // Pinned (Dirichlet at the one vertex) the distance came out 11% short a few metres from the
+            // source here (7% at 1 km^2 of a real open pit); about 6% (the smoothing near the source) now
+            int n = 501, h = (n - 1) / 2;
+            var rnd = new Random(1);
+            DMesh3 mesh = new DMesh3();
+            int[,] vid = new int[n, n];
+            for (int j = 0; j < n; ++j)
+                for (int i = 0; i < n; ++i) {
+                    double x = i - h, y = j - h;
+                    vid[i, j] = mesh.AppendVertex(new Vector3d(x, y, 5 * Math.Sin(x / 17) * Math.Cos(y / 23) + 0.3 * (rnd.NextDouble() - 0.5)));
+                }
+            for (int j = 0; j + 1 < n; ++j)
+                for (int i = 0; i + 1 < n; ++i) {
+                    mesh.AppendTriangle(vid[i, j], vid[i + 1, j], vid[i + 1, j + 1]);
+                    mesh.AppendTriangle(vid[i, j], vid[i + 1, j + 1], vid[i, j + 1]);
+                }
+            int src = vid[h, h];
+            var geo = new MeshGeodesicDistance(mesh);
+            Assert.True(geo.Compute(new[] { src }));
+            foreach (int vid2 in mesh.VertexIndices()) {
+                // the straight distance is a lower bound of the distance along the surface
+                double e = mesh.GetVertex(vid2).Distance(mesh.GetVertex(src));
+                if (e < 5) continue;
+                Assert.True(geo.Distance[vid2] > 0.92 * e, $"{mesh.GetVertex(vid2)}: {geo.Distance[vid2]} vs straight {e}");
+            }
+        }
     }
 }

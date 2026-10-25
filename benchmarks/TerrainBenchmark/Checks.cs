@@ -63,6 +63,56 @@ namespace TerrainBenchmark
             return result;
         }
 
+        /// <summary>
+        /// Upper bound of the surface distance at (x, y) from the Dijkstra distances: through each corner of
+        /// the cell, plus the length along the TIN of the straight XY segment from the corner (a surface
+        /// path). Linear interpolation of the node values is no bound: it is too small at ridges of the
+        /// distance field (between two sources).
+        /// </summary>
+        public static double SurfaceBound(Grid g, Grid dist, double x, double y)
+        {
+            double fx = (x - g.X0) / g.Dx, fy = (y - g.Y0) / g.Dx;
+            int i = Math.Min(g.NX - 2, Math.Max(0, (int)Math.Floor(fx))), j = Math.Min(g.NY - 2, Math.Max(0, (int)Math.Floor(fy)));
+            double best = double.NaN;
+            for (int k = 0; k < 4; ++k) {
+                int ci = i + (k & 1), cj = j + (k >> 1);
+                double u = dist[ci, cj];
+                if (double.IsNaN(u)) continue;
+                double len = surface_length_to(g, ci, cj, fx, fy);
+                if (double.IsNaN(len)) continue;
+                if (double.IsNaN(best) || u + len < best) best = u + len;
+            }
+            return best;
+        }
+
+        // length along the TIN from node (i, j) straight (in XY) to the point (fx, fy) in cell units
+        static double surface_length_to(Grid g, int i, int j, double fx, double fy)
+        {
+            double a = fx - i, b = fy - j;
+            var ts = new List<double>() { 0, 1 };
+            // crossings with x - y = const (the diagonals) inside the segment, and the cell borders
+            double c0 = i - j, c1 = fx - fy;
+            for (double c = Math.Ceiling(Math.Min(c0, c1)); c <= Math.Floor(Math.Max(c0, c1)); c += 1)
+                if (Math.Abs(c1 - c0) > 1e-12) ts.Add((c - c0) / (c1 - c0));
+            for (double c = Math.Ceiling(Math.Min(i, fx)); c <= Math.Floor(Math.Max(i, fx)); c += 1)
+                if (Math.Abs(a) > 1e-12) ts.Add((c - i) / a);
+            for (double c = Math.Ceiling(Math.Min(j, fy)); c <= Math.Floor(Math.Max(j, fy)); c += 1)
+                if (Math.Abs(b) > 1e-12) ts.Add((c - j) / b);
+            ts.RemoveAll(t => t < 0 || t > 1);
+            ts.Sort();
+            double len = 0;
+            Vector3d prev = Vector3d.Zero;
+            for (int k = 0; k < ts.Count; ++k) {
+                double x = i + ts[k] * a, y = j + ts[k] * b;
+                double z = height_cells(g, x, y);
+                if (double.IsNaN(z)) return double.NaN;
+                Vector3d p = new Vector3d(x * g.Dx, y * g.Dx, z);
+                if (k > 0) len += p.Distance(prev);
+                prev = p;
+            }
+            return len;
+        }
+
         static int gcd(int a, int b) { while (b != 0) { int t = a % b; a = b; b = t; } return a; }
 
         /// <summary> length along the TIN of the straight XY segment between nodes (i,j) and (ni,nj) </summary>

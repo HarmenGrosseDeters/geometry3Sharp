@@ -8,7 +8,8 @@ namespace g3
     /// Least squares conformal map (Lévy, Petitjean, Ray, Maillot 2002), equivalently discrete conformal
     /// parameterization (Desbrun, Meyer, Alliez 2002): minimizes the conformal energy
     /// E_C = E_Dirichlet - A(uv), which is zero exactly for conformal maps, with a free boundary.
-    /// A(uv) is the signed UV area, written as a sum over the boundary edges.
+    /// A(uv) is the signed UV area, written as a sum over the boundary edges (minus the triangles that are
+    /// degenerate on the surface, which have no Dirichlet energy either).
     ///
     /// Works on any connected mesh with at least one boundary loop (discs, annuli, ...). Two (or more) pinned
     /// vertices fix the similarity transform; by default two boundary vertices far apart are pinned, and the
@@ -104,6 +105,18 @@ namespace g3
                     q.Add(2 * i, 2 * j + 1, -0.5);
                     q.Add(2 * j, 2 * i + 1, 0.5);
                 }
+            // The boundary sum is the area of all triangles, but the Dirichlet energy skips the degenerate ones.
+            // Add their area back, so that E_C = Sum over the other triangles of (E_D(T) - A(T)) >= 0: else the
+            // minimizer gains by opening up a zero-area triangle (eg at a T-junction) and the map is distorted.
+            for (int ti = 0; ti < pm.Tris.Count; ++ti) {
+                if (!pm.Frames[ti].Degenerate) continue;
+                Index3i t = pm.Tris[ti];
+                for (int k = 0; k < 3; ++k) {
+                    int i = t[k], j = t[(k + 1) % 3];
+                    q.Add(2 * i, 2 * j + 1, 0.5);
+                    q.Add(2 * j, 2 * i + 1, -0.5);
+                }
+            }
             if (!q.Factorize()) {
                 error = "LSCM system: " + q.Error;
                 return ParameterizationStatus.SolverFailed;
@@ -145,7 +158,11 @@ namespace g3
                 double du = u[i] - u[j], dv = v[i] - v[j];
                 ed += 0.5 * w * (du * du + dv * dv);
             });
-            return (ed - pm.UVArea(u, v)) / pm.SurfaceArea;
+            double area = 0;
+            for (int ti = 0; ti < pm.Tris.Count; ++ti)
+                if (!pm.Frames[ti].Degenerate)
+                    area += 0.5 * ParamMesh.SignedArea2(u, v, pm.Tris[ti]);
+            return (ed - area) / pm.SurfaceArea;
         }
     }
 }

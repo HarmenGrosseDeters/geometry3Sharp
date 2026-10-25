@@ -207,6 +207,9 @@ namespace gs
             AxisAlignedBox3d box = bounds;
             box.Expand(2 * (offset + alpha) + 1e-3 * Math.Max(diag, offset));
             dt = new Delaunay3(box);
+            // the cell stamps of the new triangulation start again: entries of an earlier Compute() would match
+            Array.Clear(centerStamp, 0, centerStamp.Length);
+            Array.Clear(touchStamp, 0, touchStamp.Length);
             vertexDistance.Clear();
             for (int v = 0; v < dt.VertexCount; ++v)
                 vertexDistance.Add(double.NaN);

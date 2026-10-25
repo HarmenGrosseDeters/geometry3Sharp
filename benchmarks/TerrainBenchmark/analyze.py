@@ -73,6 +73,12 @@ def main(path):
         ("dz rms m", lambda r: r.get("dz_rms")), ("dz p99 m", lambda r: r.get("dz_p99")), ("dz max m", lambda r: r.get("dz_max")),
         ("XY overlaps", lambda r: r.get("xy_overlaps")), ("NaN verts", lambda r: r.get("nan_verts")),
     ])
+    table("TerrainGreedyTIN (vertical error at every DGM node)", by("gtin"), [
+        ("nodes", lambda r: r["nodes"]), ("time s", lambda r: r["gtin_s"]), ("peak MB", lambda r: r["peak_mb"]),
+        ("result tris", lambda r: r.get("result_tris")), ("dz rms m", lambda r: r.get("dz_rms")),
+        ("dz p99 m", lambda r: r.get("dz_p99")), ("dz max m", lambda r: r.get("dz_max")),
+        ("XY overlaps", lambda r: r.get("xy_overlaps")),
+    ])
     table("TerrainOffset (distance of the result vertices to the terrain - |d|)", by("offset"), [
         ("time s", lambda r: r["offset_s"]), ("result tris", lambda r: r.get("result_tris")),
         ("checked", lambda r: r.get("checked_verts")), ("wrong side", lambda r: r.get("wrong_side")),

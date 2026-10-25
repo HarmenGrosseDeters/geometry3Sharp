@@ -27,7 +27,7 @@ namespace g3
         struct Entry
         {
             public bool Present;
-            public int Level;       // -1: not on a level (non-finite box), in `unplaced`
+            public int Level;       // -1: not on a level (non-finite box, or out of the range of all levels), in `unplaced`
             public long[] Keys;
             public AxisAlignedBox3d Box;
             public int Stamp;       // the last query that saw it
@@ -96,8 +96,9 @@ namespace g3
             Entry e = new Entry() { Present = true, Level = -1, Box = box, Stamp = entries[tid].Stamp };
             for (int level = 0; level < MaxLevels; ++level) {
                 Vector3i lo, hi;
+                // out of the key range far from the origin: coarser levels have a larger range
                 if (cell_range(box, level, out lo, out hi) == false)
-                    break;
+                    continue;
                 if (count(lo, hi) > MaxCellsPerTriangle)
                     continue;
                 while (levels.Count <= level)
@@ -198,7 +199,9 @@ namespace g3
                                 visit(list, ref box, f);
                         }
             }
-            foreach (int tid in unplaced) f(tid);
+            foreach (int tid in unplaced)
+                if (is_finite(ref entries[tid].Box) == false || overlap(ref entries[tid].Box, ref box))
+                    f(tid);
         }
 
         void visit(List<int> list, ref AxisAlignedBox3d box, Action<int> f)
@@ -211,6 +214,12 @@ namespace g3
                 if (overlap(ref entries[tid].Box, ref box))
                     f(tid);
             }
+        }
+
+        static bool is_finite(ref AxisAlignedBox3d b)
+        {
+            double s = b.Min.x + b.Min.y + b.Min.z + b.Max.x + b.Max.y + b.Max.z;
+            return !(double.IsNaN(s) || double.IsInfinity(s));
         }
 
         // closed boxes (touching counts, also flat boxes of axis-aligned triangles)

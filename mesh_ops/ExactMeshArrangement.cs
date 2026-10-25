@@ -638,6 +638,12 @@ namespace g3
                 e = 1.01 * e + U * Math.Abs(key);
                 lo[k] = key - e;
                 hi[k] = key + e;
+                // an approximation beyond the double range (key or error infinite, interval NaN): the point
+                // may equal any other
+                if (!(lo[k] <= hi[k])) {
+                    lo[k] = double.NegativeInfinity;
+                    hi[k] = double.PositiveInfinity;
+                }
                 order[k] = k;
             });
             double[] sortLo = (double[])lo.Clone();
@@ -971,40 +977,67 @@ namespace g3
                 trees[mi] = new TriangleBoxTree(boxes[mi]);
             }
             PhaseMilliseconds["intersections.trees"] = sw.ElapsedMilliseconds; sw.Restart();
-            // candidate pairs (boxes overlap, not separated by a plane, not only touching), in parallel per triangle
-            var pairs = new List<long>();
-            for (int ma = 0; ma < Meshes.Count; ++ma) {
-                for (int mb = (SelfIntersections ? ma : ma + 1); mb < Meshes.Count; ++mb) {
-                    int na = MeshTriangles[ma].Count;
-                    var found = new List<long>[na];
-                    int self = 0;
-                    gParallel.ForEach(Interval1i.Range(na), (ka) => {
-                        InputTriangle T = Triangles[MeshTriangles[ma][ka]];
-                        if (T.Degenerate) return;
-                        trees[mb].Query(boxes[ma][ka], (kb) => {
-                            if (ma == mb && kb <= ka)
-                                return;
-                            InputTriangle U = Triangles[MeshTriangles[mb][kb]];
-                            if (U.Degenerate)
-                                return;
-                            if (ma == mb) {
-                                if (touch_only(T, U))
-                                    return;
-                            } else if (separated(T, U))
-                                return;
-                            if (ma == mb)
-                                System.Threading.Interlocked.Increment(ref self);
-                            if (found[ka] == null)
-                                found[ka] = new List<long>();
-                            found[ka].Add(((long)MeshTriangles[ma][ka] << 32) | (uint)MeshTriangles[mb][kb]);
-                        });
-                    });
-                    SelfIntersectingPairs += self;
-                    foreach (var list in found)
-                        if (list != null)
-                            pairs.AddRange(list);
-                }
+            // the pairs of meshes to intersect (their boxes overlap; with many meshes most pairs are far apart),
+            // in the order (ma, mb), mb >= ma (> ma without self-intersections)
+            var meshBoxes = new List<AxisAlignedBox3d>();
+            for (int mi = 0; mi < Meshes.Count; ++mi) {
+                AxisAlignedBox3d mb = AxisAlignedBox3d.Empty;
+                foreach (AxisAlignedBox3d b in boxes[mi])
+                    mb.Contain(b);
+                meshBoxes.Add(mb);
             }
+            var meshTree = new TriangleBoxTree(meshBoxes);
+            var meshPairs = new List<Index2i>();
+            var near = new List<int>();
+            for (int ma = 0; ma < Meshes.Count; ++ma) {
+                if (boxes[ma].Count == 0)
+                    continue;
+                near.Clear();
+                meshTree.Query(meshBoxes[ma], (mb) => {
+                    if (mb > ma || (mb == ma && SelfIntersections))
+                        near.Add(mb);
+                });
+                near.Sort();
+                foreach (int mb in near)
+                    meshPairs.Add(new Index2i(ma, mb));
+            }
+            // candidate pairs (boxes overlap, not separated by a plane, not only touching), in parallel per
+            // triangle of the first mesh of each pair of meshes
+            var offsets = new int[meshPairs.Count + 1];
+            for (int p = 0; p < meshPairs.Count; ++p)
+                offsets[p + 1] = offsets[p] + MeshTriangles[meshPairs[p].a].Count;
+            var found = new List<long>[offsets[meshPairs.Count]];
+            int self = 0;
+            gParallel.ForEach(Interval1i.Range(found.Length), (j) => {
+                int p = Array.BinarySearch(offsets, j);
+                if (p < 0)      // (the offsets increase strictly: every pair has triangles of its first mesh)
+                    p = ~p - 1;
+                int ma = meshPairs[p].a, mb = meshPairs[p].b, ka = j - offsets[p];
+                InputTriangle T = Triangles[MeshTriangles[ma][ka]];
+                if (T.Degenerate) return;
+                trees[mb].Query(boxes[ma][ka], (kb) => {
+                    if (ma == mb && kb <= ka)
+                        return;
+                    InputTriangle U = Triangles[MeshTriangles[mb][kb]];
+                    if (U.Degenerate)
+                        return;
+                    if (ma == mb) {
+                        if (touch_only(T, U))
+                            return;
+                    } else if (separated(T, U))
+                        return;
+                    if (ma == mb)
+                        System.Threading.Interlocked.Increment(ref self);
+                    if (found[j] == null)
+                        found[j] = new List<long>();
+                    found[j].Add(((long)MeshTriangles[ma][ka] << 32) | (uint)MeshTriangles[mb][kb]);
+                });
+            });
+            SelfIntersectingPairs += self;
+            var pairs = new List<long>();
+            foreach (var list in found)
+                if (list != null)
+                    pairs.AddRange(list);
             PhaseMilliseconds["intersections.pairs"] = sw.ElapsedMilliseconds; sw.Restart();
             // planes of the triangles involved (computed once, before the parallel use)
             var needed = new bool[Triangles.Count];
