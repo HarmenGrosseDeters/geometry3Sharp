@@ -59,6 +59,7 @@ class Program
             // self-intersections), solidify_dc_adaptive of the repaired mesh; hybrid_topo = the same without
             // the self-intersection check,
             // robust = MeshRobustRepair (hybrid plus the volume check against the input),
+            // wrap = MeshAlphaWrap of the input (BENCH_WRAP_ALPHA / BENCH_WRAP_OFFSET: diagonal divided by alpha / offset),
             // instr = InstrumentedAutoRepair, records cheap quality metrics after every pipeline step
             string repairMode = Environment.GetEnvironmentVariable("BENCH_REPAIR") ?? "default";
             r["repair_mode"] = repairMode;
@@ -105,6 +106,9 @@ class Program
                 r["hybrid_reason"] = robust.FallbackReason;
                 r["robust_used_solidify"] = robust.UsedSolidify;
                 r["robust_repair_iou"] = robust.RepairVolumeIoU;
+            } else if (repairMode == "wrap") {
+                result = Wrap(original, r);
+                ok = r["wrap_status"].ToString() == "Success";
             } else if (repairMode.StartsWith("solidify_")) {
                 result = Solidify(original, repairMode == "solidify_mc" ? MeshWindingNumberSolidify.Methods.MarchingCubes
                     : MeshWindingNumberSolidify.Methods.DualContouring, repairMode == "solidify_dc_adaptive", r);
@@ -263,6 +267,27 @@ class Program
     }
 
     static double Vol(DMesh3 m) { return m.TriangleCount == 0 ? 0 : MeshMeasurements.VolumeArea(m, m.TriangleIndices(), m.GetVertex).x; }
+
+    // alpha wrap of the input (MeshAlphaWrap): alpha = diagonal / BENCH_WRAP_ALPHA, offset = diagonal / BENCH_WRAP_OFFSET
+    static DMesh3 Wrap(DMesh3 input, System.Collections.Generic.Dictionary<string, object> r)
+    {
+        var inv = System.Globalization.CultureInfo.InvariantCulture;
+        double relAlpha = double.Parse(Environment.GetEnvironmentVariable("BENCH_WRAP_ALPHA") ?? "100", inv);
+        double relOffset = double.Parse(Environment.GetEnvironmentVariable("BENCH_WRAP_OFFSET") ?? "1000", inv);
+        var sw = Stopwatch.StartNew();
+        var wrap = new MeshAlphaWrap(input) { RelativeAlpha = relAlpha, RelativeOffset = relOffset };
+        wrap.Compute();
+        r["wrap_ms"] = sw.ElapsedMilliseconds;
+        r["wrap_status"] = wrap.Status.ToString();
+        if (wrap.Error != null) r["wrap_error"] = wrap.Error;
+        r["wrap_rel_alpha"] = relAlpha;
+        r["wrap_rel_offset"] = relOffset;
+        r["wrap_alpha"] = wrap.UsedAlpha;
+        r["wrap_offset"] = wrap.UsedOffset;
+        r["wrap_counts"] = wrap.Counts;
+        r["wrap_phases"] = wrap.PhaseMilliseconds;
+        return wrap.Result ?? new DMesh3();
+    }
 
     // winding number solidify of the input (library class), BENCH_SOLID_RES cells along the diagonal
     static DMesh3 Solidify(DMesh3 input, MeshWindingNumberSolidify.Methods method, bool adaptive, System.Collections.Generic.Dictionary<string, object> r)

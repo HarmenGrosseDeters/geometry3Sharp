@@ -17,6 +17,15 @@ Its direction is described in [docs/ROADMAP.md](docs/ROADMAP.md). It adds:
   closed results; self-intersecting meshes, nested shells and duplicated faces are resolved
   (`ExactMeshBoolean.Resolve(mesh)` does that for one mesh); open meshes use the generalized winding number.
   Only the output coordinates are rounded to double.
+- `MeshAlphaWrap`: alpha wrapping with an offset (Portaneri et al. 2022). Gives a closed, 2-manifold surface
+  without self-intersections around any input: triangle soups, open or non-manifold meshes, degenerate
+  triangles, point clouds. `Alpha` sets the detail, `Offset` the distance to the input. Built on `Delaunay3`, an
+  incremental 3D Delaunay triangulation with exact predicates (`ExactPredicates.InSphere`).
+  ```csharp
+  var wrap = new MeshAlphaWrap(mesh) { RelativeAlpha = 50, RelativeOffset = 1000 };   // diagonal / 50, / 1000
+  bool ok = wrap.Compute();          // false: see wrap.Status and wrap.Error
+  DMesh3 result = wrap.Result;
+  ```
 - Mesh file formats PLY, 3MF and glTF 2.0 (see below).
 - `BufferUtil.DecompressZLib` fix: on .NET Core it returned partly empty buffers for large data.
 
