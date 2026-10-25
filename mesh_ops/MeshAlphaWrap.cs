@@ -270,8 +270,7 @@ namespace gs
                 int n = dt.Neighbour(c, i);
                 if (label_of(n) != Outside)
                     continue;
-                if (!(facet_radius(c, i) > alpha))
-                    continue;
+                // (traversable: only such gates are queued, and the radius depends on the facet only)
                 Vector3d from, to;
                 dual_edge(c, i, out from, out to);
 
@@ -445,16 +444,12 @@ namespace gs
                 if (vertex_distance(t[j]) < contact) return true;
             Vector3d a = dt.GetVertex(t.a), b = dt.GetVertex(t.b), d = dt.GetVertex(t.c), e = dt.GetVertex(t.d);
             // the cell is within (longest edge at v) of each vertex v: far enough from the input if a vertex is
-            // farther from it than that (distance is 1-Lipschitz)
+            // farther from it than that (distance is 1-Lipschitz). (A closest point query at the centroid rejects
+            // almost nothing either: near the result the cells are larger than their distance to the input.)
             double ab = a.Distance(b), ad = a.Distance(d), ae = a.Distance(e), bd = b.Distance(d), be = b.Distance(e), de = d.Distance(e);
             if (vertex_distance(t.a) - Math.Max(ab, Math.Max(ad, ae)) > contact || vertex_distance(t.b) - Math.Max(ab, Math.Max(bd, be)) > contact
                 || vertex_distance(t.c) - Math.Max(ad, Math.Max(bd, de)) > contact || vertex_distance(t.d) - Math.Max(ae, Math.Max(be, de)) > contact)
                 return false;
-            Vector3d g = 0.25 * (a + b + d + e);
-            double rho = Math.Sqrt(Math.Max(Math.Max(g.DistanceSquared(a), g.DistanceSquared(b)), Math.Max(g.DistanceSquared(d), g.DistanceSquared(e))));
-            double dg = oracle.Distance(g);
-            if (dg < contact) return true;
-            if (dg >= rho + contact) return false;
             return oracle.TetrahedronTouches(a, b, d, e, contact);
         }
 

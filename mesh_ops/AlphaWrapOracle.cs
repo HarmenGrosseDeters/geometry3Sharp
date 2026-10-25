@@ -25,6 +25,10 @@ namespace gs
 
         // nodes: leaf if count > 0 (primitives order[start .. start + count)), else children start and start + 1
         Vector3d[] nodeMin, nodeMax;
+        // a slab around the node's primitives: unit normal (mean triangle normal), min / max of normal . x;
+        // thin where the input is locally flat, an extra separating axis for the queries
+        Vector3d[] nodeN;
+        double[] nodeDMin, nodeDMax;
         int[] nodeStart, nodeCount;
         int[] order;
         int nodes = 0;
@@ -86,6 +90,7 @@ namespace gs
             for (int k = 0; k < n; ++k) order[k] = k;
             int maxNodes = 2 * (n / LeafSize + 1) + 1;
             nodeMin = new Vector3d[2 * maxNodes]; nodeMax = new Vector3d[2 * maxNodes];
+            nodeN = new Vector3d[2 * maxNodes]; nodeDMin = new double[2 * maxNodes]; nodeDMax = new double[2 * maxNodes];
             nodeStart = new int[2 * maxNodes]; nodeCount = new int[2 * maxNodes];
             Vector3d[] centers = new Vector3d[n];
             for (int k = 0; k < n; ++k) centers[k] = primBox[k].Center;
@@ -101,6 +106,7 @@ namespace gs
                     cbox.Contain(centers[order[k]]);
                 }
                 nodeMin[node] = box.Min; nodeMax[node] = box.Max;
+                set_slab(node, start, count, box);
                 if (count <= LeafSize) {
                     nodeStart[node] = start; nodeCount[node] = count;
                     continue;
@@ -116,6 +122,34 @@ namespace gs
                 stack.Push((child, start, half));
                 stack.Push((child + 1, start + half, count - half));
             }
+        }
+
+
+        void set_slab(int node, int start, int count, AxisAlignedBox3d box)
+        {
+            Vector3d n = Vector3d.Zero, first = Vector3d.Zero;
+            for (int k = start; k < start + count; ++k) {
+                int i = order[k];
+                if (kind[i] != 2) continue;
+                Vector3d w = (pb[i] - pa[i]).Cross(pc[i] - pa[i]);     // area weighted
+                if (first == Vector3d.Zero) first = w;
+                n += (w.Dot(first) < 0) ? -w : w;                  // (soups: orientations are arbitrary)
+            }
+            double len = n.Length;
+            if (len > 0) {
+                n /= len;
+            } else {
+                Vector3d e = box.Diagonal;
+                n = (e.x <= e.y && e.x <= e.z) ? Vector3d.AxisX : (e.y <= e.z ? Vector3d.AxisY : Vector3d.AxisZ);
+            }
+            double dmin = double.MaxValue, dmax = -double.MaxValue;
+            for (int k = start; k < start + count; ++k) {
+                int i = order[k];
+                double a = n.Dot(pa[i]), b = n.Dot(pb[i]), c = n.Dot(pc[i]);
+                dmin = Math.Min(dmin, Math.Min(a, Math.Min(b, c)));
+                dmax = Math.Max(dmax, Math.Max(a, Math.Max(b, c)));
+            }
+            nodeN[node] = n; nodeDMin[node] = dmin; nodeDMax[node] = dmax;
         }
 
 
@@ -251,6 +285,11 @@ namespace gs
         {
             if (box_box_dist_sqr(node, box) > margin * margin)
                 return false;
+            Vector3d sn = nodeN[node];
+            double t0 = sn.Dot(t.V0), t1 = sn.Dot(t.V1), t2 = sn.Dot(t.V2), t3 = sn.Dot(t.V3);
+            if (Math.Min(Math.Min(t0, t1), Math.Min(t2, t3)) > nodeDMax[node] + margin
+                || Math.Max(Math.Max(t0, t1), Math.Max(t2, t3)) < nodeDMin[node] - margin)
+                return false;
             if (nodeCount[node] > 0) {
                 int end = nodeStart[node] + nodeCount[node];
                 for (int k = nodeStart[node]; k < end; ++k) {
@@ -291,12 +330,13 @@ namespace gs
         bool tet_primitive_touch(ref Tet t, int i, double margin)
         {
             Vector3d a = pa[i], b = pb[i], c = pc[i];
+            // the triangle's normal first: near the result the cells lie at about the offset above the input
+            if (kind[i] == 2 && separated(ref t, pn[i], a, b, c, margin))
+                return false;
             for (int f = 0; f < 4; ++f)
                 if (separated(ref t, t.N(f), a, b, c, margin)) return false;
             if (kind[i] == 0)
                 return true;
-            if (kind[i] == 2 && separated(ref t, pn[i], a, b, c, margin))
-                return false;
             int ne = kind[i] == 2 ? 3 : 1;
             for (int e = 0; e < 6; ++e) {
                 Vector3d te = t.V(TetEdges[e, 1]) - t.V(TetEdges[e, 0]);
@@ -333,6 +373,10 @@ namespace gs
             double tmax = Math.Min(best, 1);
             double tn = segment_box_entry(node, a, d, r, tmax);
             if (tn < 0)
+                return;
+            Vector3d sn = nodeN[node];
+            double s0 = sn.Dot(a), s1 = s0 + tmax * sn.Dot(d);
+            if (Math.Min(s0, s1) > nodeDMax[node] + r || Math.Max(s0, s1) < nodeDMin[node] - r)
                 return;
             if (nodeCount[node] > 0) {
                 int end = nodeStart[node] + nodeCount[node];
