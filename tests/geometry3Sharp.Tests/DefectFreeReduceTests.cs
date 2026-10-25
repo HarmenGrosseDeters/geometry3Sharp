@@ -15,7 +15,7 @@ namespace geometry3Sharp.Tests
         // a thin wavy slab, finely tessellated: aggressive reduction pushes the two sides through each other
         static DMesh3 ThinSlab()
         {
-            DMesh3 slab = new GridBox3Generator() { Box = new Box3d(Vector3d.Zero, new Vector3d(5, 5, 0.1)), EdgeVertices = 40 }.Generate().MakeDMesh();
+            DMesh3 slab = new GridBox3Generator() { Box = new Box3d(Vector3d.Zero, new Vector3d(5, 5, 0.02)), EdgeVertices = 40 }.Generate().MakeDMesh();
             foreach (int vid in slab.VertexIndices().ToArray()) {
                 Vector3d v = slab.GetVertex(vid);
                 slab.SetVertex(vid, new Vector3d(v.x, v.y, v.z + 0.3 * Math.Sin(1.3 * v.x) * Math.Cos(1.1 * v.y)));
@@ -29,12 +29,12 @@ namespace geometry3Sharp.Tests
             DMesh3 input = ThinSlab();
             Assert.Equal(0, MeshRepairMetrics.SelfIntersections(input));
             DMesh3 plain = new DMesh3(input);
-            new Reducer(plain).ReduceToTriangleCount(300);
+            new Reducer(plain).ReduceToTriangleCount(120);
             int plainDefects = MeshRepairMetrics.SelfIntersections(plain) + MeshRepairMetrics.FoldedEdges(plain).Count;
             Assert.True(plainDefects > 0, "test does not exercise the check");
 
             DMesh3 safe = new DMesh3(input);
-            var reduce = new MeshDefectFreeReduce(safe, (r) => r.ReduceToTriangleCount(300));
+            var reduce = new MeshDefectFreeReduce(safe, (r) => r.ReduceToTriangleCount(120));
             Assert.True(reduce.Apply());
             Assert.Equal(0, MeshRepairMetrics.SelfIntersections(safe));
             Assert.Empty(MeshRepairMetrics.FoldedEdges(safe));

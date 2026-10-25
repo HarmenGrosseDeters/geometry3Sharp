@@ -37,80 +37,101 @@ namespace gs
             Reduce = reduce;
         }
 
-        /// <summary> reduces Mesh in place </summary>
+        /// <summary>
+        /// Reduces Mesh in place. If new defects are left after MaxRounds, Mesh is left unreduced (and
+        /// false is returned): no reduction is better than one with new self-intersections.
+        /// </summary>
         public bool Apply()
         {
             if (Mesh.TriangleCount == 0)
                 return false;
             DMesh3 input = new DMesh3(Mesh);
-            double radius = PinRadius;
-            if (radius <= 0) {
+            double baseRadius = PinRadius;
+            if (baseRadius <= 0) {
                 double sum = 0; int n = 0;
                 foreach (int eid in input.EdgeIndices()) {
                     Index2i ev = input.GetEdgeV(eid);
                     sum += input.GetVertex(ev.a).Distance(input.GetVertex(ev.b)); n++;
                 }
-                radius = 2 * sum / Math.Max(1, n);
+                baseRadius = 2 * sum / Math.Max(1, n);
             }
-            var inputDefects = defect_points(input);
-            var pins = new List<Vector3d>(inputDefects);
-            var inputGrid = new PointHashGrid3d<Vector3d>(radius, Vector3d.Zero);
-            foreach (Vector3d p in inputDefects) inputGrid.InsertPointUnsafe(p, p);
+            // regions (center, radius) pinned in the input; defects of the input are kept as they are
+            var inputDefects = defect_regions(input, baseRadius);
+            var pins = new List<Vector4d>(inputDefects);
 
             DMesh3 result = null;
+            DefectsLeft = 0;
             for (Rounds = 1; Rounds <= MaxRounds; ++Rounds) {
                 result = new DMesh3(input);
                 Reducer reducer = CreateReducer(result);
-                PinnedVertices = pin_near(result, pins, radius, reducer);
+                PinnedVertices = pin_in(result, pins, reducer);
                 Reduce(reducer);
-                // new defects: those not near a defect of the input
-                var newDefects = new List<Vector3d>();
-                foreach (Vector3d p in defect_points(result)) {
-                    var near = inputGrid.FindNearestInRadius(p, radius, (q) => q.Distance(p));
-                    if (near.Value == double.MaxValue || near.Key.Distance(p) > radius)
-                        newDefects.Add(p);
-                }
+                // new defects: not within a region of a defect of the input
+                var newDefects = new List<Vector4d>();
+                foreach (Vector4d d in defect_regions(result, baseRadius))
+                    if (inside_any(xyz(d), inputDefects) == false)
+                        newDefects.Add(d);
                 DefectsLeft = newDefects.Count;
                 if (newDefects.Count == 0)
                     break;
-                if (Rounds == MaxRounds) {
-                    // still defects: keep the input there entirely (no reduction near any defect found)
-                    break;
-                }
-                pins.AddRange(newDefects);
+                // pin their regions, growing with every round (collapses can move things further)
+                double grow = Math.Pow(1.5, Rounds - 1);
+                foreach (Vector4d d in newDefects)
+                    pins.Add(new Vector4d(d.x, d.y, d.z, d.w * grow));
             }
+            if (DefectsLeft > 0)
+                return false;
             Mesh.Copy(result);
             return true;
         }
 
-        // points where the mesh has self-intersections or folds
-        List<Vector3d> defect_points(DMesh3 mesh)
+        static Vector3d xyz(Vector4d v) { return new Vector3d(v.x, v.y, v.z); }
+
+        static bool inside_any(Vector3d p, List<Vector4d> regions)
         {
-            var points = new List<Vector3d>();
-            foreach (Index2i pair in MeshRepairMetrics.SelfIntersectionPairs(mesh)) {
-                points.Add(mesh.GetTriCentroid(pair.a));
-                points.Add(mesh.GetTriCentroid(pair.b));
-            }
-            foreach (int eid in MeshRepairMetrics.FoldedEdges(mesh, FoldAngle)) {
-                Index2i ev = mesh.GetEdgeV(eid);
-                points.Add(0.5 * (mesh.GetVertex(ev.a) + mesh.GetVertex(ev.b)));
-            }
-            return points;
+            foreach (Vector4d r in regions)
+                if (p.Distance(xyz(r)) <= r.w) return true;
+            return false;
         }
 
-        // pin the vertices within radius of the points
-        static int pin_near(DMesh3 mesh, List<Vector3d> points, double radius, Reducer reducer)
+        // regions around self-intersections and folds: the triangles involved (their bounding spheres),
+        // plus the base radius
+        List<Vector4d> defect_regions(DMesh3 mesh, double baseRadius)
         {
-            if (points.Count == 0)
+            var regions = new List<Vector4d>();
+            Action<int> add_tri = (tid) => {
+                Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+                mesh.GetTriVertices(tid, ref a, ref b, ref c);
+                Vector3d m = (a + b + c) / 3;
+                double r = Math.Max(m.Distance(a), Math.Max(m.Distance(b), m.Distance(c)));
+                regions.Add(new Vector4d(m.x, m.y, m.z, r + baseRadius));
+            };
+            foreach (Index2i pair in MeshRepairMetrics.SelfIntersectionPairs(mesh)) {
+                add_tri(pair.a); add_tri(pair.b);
+            }
+            foreach (int eid in MeshRepairMetrics.FoldedEdges(mesh, FoldAngle)) {
+                Index2i et = mesh.GetEdgeT(eid);
+                add_tri(et.a); add_tri(et.b);
+            }
+            return regions;
+        }
+
+        // pin the vertices inside the regions
+        static int pin_in(DMesh3 mesh, List<Vector4d> regions, Reducer reducer)
+        {
+            if (regions.Count == 0)
                 return 0;
-            var grid = new PointHashGrid3d<int>(radius, -1);
-            for (int k = 0; k < points.Count; ++k) grid.InsertPointUnsafe(k, points[k]);
+            double maxR = 0;
+            foreach (Vector4d r in regions) maxR = Math.Max(maxR, r.w);
+            var grid = new PointHashGrid3d<int>(maxR, -1);
+            for (int k = 0; k < regions.Count; ++k) grid.InsertPointUnsafe(k, xyz(regions[k]));
             MeshConstraints cons = reducer.Constraints ?? new MeshConstraints();
             int pinned = 0;
             foreach (int vid in mesh.VertexIndices()) {
                 Vector3d v = mesh.GetVertex(vid);
-                var near = grid.FindNearestInRadius(v, radius, (k) => points[k].Distance(v));
-                if (near.Key >= 0) {
+                // nearest region center by distance minus radius (inside if <= 0)
+                var near = grid.FindNearestInRadius(v, maxR, (k) => v.Distance(xyz(regions[k])) - regions[k].w);
+                if (near.Key >= 0 && near.Value <= 0) {
                     cons.SetOrUpdateVertexConstraint(vid, VertexConstraint.Pinned);
                     pinned++;
                 }
