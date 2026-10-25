@@ -198,6 +198,28 @@ change:
 4 meshes are repaired that were not before, none is lost. Most of the former "not closed" cases now stop at the
 next check: slivers left after the resolve and the cleanup (they were hidden, closedness is checked first).
 
+**Slivers left after the resolve.** `MeshPostRepairCleanup` keeps slivers whose collapse would distort or fold a
+neighbour, so the exact stage failed with "degenerate triangles" for 36 meshes. `CollapseSlivers` now collapses
+them anyway (shortest edge below 1e-4 of the diagonal, link condition kept), flips caps and removes tiny closed
+sliver components; the self-intersections that may create are resolved by the next exact round. Same machine,
+both runs on master 7f40ba1 with and without the change (`results/robust_base52.jsonl`,
+`results/robust_slivers.jsonl`, not versioned):
+
+| 400 set | before | after |
+|---|---|---|
+| clean¹ + no exact self-intersections | 399 | 399 |
+| **repaired** (also Hausdorff < 1 %, IoU > 0.99) | 258 | **261** |
+| exact stage used | 132 | **140** |
+| solidify / alpha wrap | 70 / 26 | 63 / 25 |
+| exact stage not used because of degenerate triangles | 36 | **23** |
+| ... because of self-intersections after 4 rounds | 1 | 4 |
+| median repair time | 3.7 s | 3.9 s |
+| total repair time | 2471 s | 2479 s |
+
+3 meshes are repaired that were not before (126545, 255239, 313876), none is lost. Of the 36, 8 now use the exact
+stage, 3 end with self-intersections after 4 rounds, 2 with another reason; 23 keep slivers that can neither be
+collapsed (edges longer than the limit or link condition) nor flipped.
+
 
 ### Spike: solidify resolution 256 (`BENCH_SOLID_RES=256`, 30 meshes)
 20 meshes that `robust` solidified and that missed the 1 % Hausdorff bound at resolution 128, and 10 it

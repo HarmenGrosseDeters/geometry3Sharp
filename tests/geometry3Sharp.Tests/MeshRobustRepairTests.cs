@@ -222,6 +222,73 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0, MeshRobustRepair.SeparateTouchingVertices(Box(0, 0, 0, 1, 1, 1), 1e-4));
         }
 
+        static int Degenerate(DMesh3 m)
+        {
+            double d = m.CachedBounds.DiagonalLength;
+            return m.TriangleIndices().Count(t => m.GetTriArea(t) < 1e-12 * d * d);
+        }
+
+        [Fact]
+        public void CollapseSlivers_RemovesNeedles()
+        {
+            // a box edge split at a point 1e-13 from its end: two needles (area below 1e-12 * diagonal^2)
+            DMesh3 m = Box(0, 0, 0, 1, 1, 1);
+            int eid = m.EdgeIndices().First(e => m.IsBoundaryEdge(e) == false);
+            Index2i ev = m.GetEdgeV(eid);
+            DMesh3.EdgeSplitInfo split;
+            Assert.Equal(MeshResult.Ok, m.SplitEdge(eid, out split));
+            Vector3d a = m.GetVertex(ev.a), b = m.GetVertex(ev.b);
+            m.SetVertex(split.vNew, a + 1e-13 * (b - a));
+            Assert.Equal(2, Degenerate(m));
+            Assert.True(MeshRobustRepair.CollapseSlivers(m) > 0);
+            Assert.Equal(0, Degenerate(m));
+            Assert.True(m.IsClosed());
+            Assert.True(m.CheckValidity(false, FailMode.ReturnOnly));
+            Assert.Equal(1.0, Volume(m), 9);
+            // nothing to do on a clean mesh
+            Assert.Equal(0, MeshRobustRepair.CollapseSlivers(Box(0, 0, 0, 1, 1, 1)));
+        }
+
+        [Fact]
+        public void CollapseSlivers_FlipsCaps()
+        {
+            // a face triangle poked at a point 1e-13 off its edge, in the face's plane: a cap (no short edge, so no
+            // collapse that would move the box) that a flip of its long edge removes
+            DMesh3 m = Box(0, 0, 0, 1, 1, 1);
+            int tid = m.TriangleIndices().First();
+            Index3i t = m.GetTriangle(tid);
+            Vector3d a = m.GetVertex(t.a), b = m.GetVertex(t.b), c = m.GetVertex(t.c);
+            DMesh3.PokeTriangleInfo poke;
+            Assert.Equal(MeshResult.Ok, m.PokeTriangle(tid, out poke));
+            m.SetVertex(poke.new_vid, 0.5 * (a + b) + 1e-13 * (c - 0.5 * (a + b)));
+            Assert.Equal(1, Degenerate(m));
+            var before = m.Vertices().ToList();
+            Assert.True(MeshRobustRepair.CollapseSlivers(m) > 0);
+            Assert.Equal(0, Degenerate(m));
+            Assert.True(m.IsClosed());
+            Assert.Equal(1.0, Volume(m), 12);
+            Assert.Equal(before, m.Vertices().ToList());     // no vertex moved
+        }
+
+        [Fact]
+        public void CollapseSlivers_RemovesTinyComponents()
+        {
+            // a flat tetrahedron of size 1e-7 next to a box (as where intersection points nearly coincide): its
+            // edges cannot be collapsed, the whole component is removed
+            DMesh3 m = Box(0, 0, 0, 1, 1, 1);
+            int n = m.TriangleCount;
+            Vector3d o = new Vector3d(2, 0, 0);
+            int v0 = m.AppendVertex(o), v1 = m.AppendVertex(o + new Vector3d(1e-7, 0, 0)),
+                v2 = m.AppendVertex(o + new Vector3d(0, 1e-7, 0)), v3 = m.AppendVertex(o + new Vector3d(3e-8, 3e-8, 1e-15));
+            m.AppendTriangle(v0, v2, v1); m.AppendTriangle(v0, v1, v3); m.AppendTriangle(v1, v2, v3); m.AppendTriangle(v2, v0, v3);
+            Assert.True(Degenerate(m) > 0);
+            Assert.True(MeshRobustRepair.CollapseSlivers(m) > 0);
+            Assert.Equal(0, Degenerate(m));
+            Assert.Equal(n, m.TriangleCount);
+            Assert.True(m.IsClosed());
+            Assert.Equal(1.0, Volume(m), 9);
+        }
+
         [Fact]
         public void InsideOutInput_RepairKeptNotSolidified()
         {
