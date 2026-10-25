@@ -342,3 +342,73 @@ The sampling error is about ±10 meshes (±3 %) per 400. `hybrid` was stopped af
   still take 2.1 s (median) against 0.38 s for `cleanup`, spent in the exact self-intersection and
   volume IoU checks. Outliers that the size does not explain: 78968.stl (5k triangles, 150 s),
   49998.stl (12k triangles, 118 s).
+
+### Which stage repaired which mesh (`robust`, 400 set)
+`analyze_paths.py results/robust.jsonl data/selection.csv [--csv out.csv] [--markdown]` sorts the meshes by the
+stage of `MeshRobustRepair` that produced the result: the repair itself (clean and the same volume as the
+input), the exact resolve, the solidify, or the alpha wrap (last resort, see above); then the outcome by the
+strict criterion and why the earlier stages were not used. One row per mesh (category, stage, outcome, reasons,
+Hausdorff, IoU, triangles, time): [`cases/robust_stages_2026-10-25.csv`](cases/robust_stages_2026-10-25.csv).
+The run below is master after #47 (alpha wrap fallback), before #44 (touching edges in the exact resolve),
+#49 (faster checks) and #40 (orientation seams); it will be replaced by the final run.
+
+Stage that produced the result, and its outcome ("deviation": Hausdorff ≥ 1 % of the diagonal):
+
+| stage | meshes | repaired | repaired (self-int. not checked) | deviation > 1 % | volume (IoU) | self-intersections | not clean | Hausdorff median | IoU median | triangles median | time median |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| repair | 172 | 165 | 0 | 7 | 0 | 0 | 0 | 0.11 % | 1.0000 | 3k | 2.0 s |
+| exact resolve | 122 | 80 | 0 | 42 | 0 | 0 | 0 | 0.56 % | 0.9999 | 8k | 4.0 s |
+| solidify | 75 | 9 | 0 | 59 | 7 | 0 | 0 | 2.36 % | 0.9735 | 7k | 7.2 s |
+| alpha wrap | 31 | 1 | 0 | 24 | 6 | 0 | 0 | 2.37 % | 0.9441 | 133k | 19.0 s |
+
+Why the stages before were not used (meshes):
+
+| exact resolve | meshes |
+|---|---|
+| repair: self-intersections | 69 |
+| repair: degenerate triangles | 40 |
+| repair: inside-out components | 10 |
+| repair: volume differs from the input | 3 |
+
+| solidify | meshes |
+|---|---|
+| repair: degenerate triangles | 32 |
+| exact: volume differs from the input | 26 |
+| repair: self-intersections | 22 |
+| exact: not closed (winding number) | 18 |
+| exact: not closed | 18 |
+| exact: degenerate triangles | 13 |
+| repair: inside-out components | 11 |
+| repair: volume differs from the input | 9 |
+| repair: not closed | 1 |
+
+| alpha wrap | meshes |
+|---|---|
+| solidify: self-intersections | 31 |
+| repair: degenerate triangles | 17 |
+| exact: not closed | 15 |
+| exact: not closed (winding number) | 10 |
+| repair: self-intersections | 6 |
+| exact: degenerate triangles | 4 |
+| repair: inside-out components | 4 |
+| repair: volume differs from the input | 4 |
+| exact: volume differs from the input | 2 |
+
+Stage per defect category (meshes; in brackets: repaired):
+
+| category | meshes | repair | exact resolve | solidify | alpha wrap |
+|---|---|---|---|---|---|
+| broken:Closed | 60 | 30 (29) | 9 (7) | 17 (1) | 4 (0) |
+| broken:Edge manifold | 60 | 20 (19) | 26 (19) | 10 (1) | 4 (1) |
+| broken:No degenerate faces | 60 | 28 (26) | 22 (16) | 5 (0) | 5 (0) |
+| broken:No duplicated faces | 60 | 18 (18) | 24 (15) | 13 (2) | 5 (0) |
+| broken:PWN | 60 | 20 (18) | 21 (12) | 14 (1) | 5 (0) |
+| broken:Vertex manifold | 60 | 19 (19) | 17 (9) | 16 (4) | 8 (0) |
+| clean | 40 | 37 (36) | 3 (2) | 0 (0) | 0 (0) |
+
+Reading: the repair alone gives 165 of the 255 repaired meshes (most clean controls and meshes that are only
+open); the exact resolve adds 80 and keeps the geometry (Hausdorff median 0.56 %). The solidify and the alpha
+wrap make every remaining mesh closed and free of self-intersections, but remesh it: about 2.4 % deviation in
+the median, so they rarely meet the strict criterion. Their inputs are mostly meshes the exact resolve cannot
+take: not closed in the winding number sense, or whose resolved solid differs from the input's.
+
