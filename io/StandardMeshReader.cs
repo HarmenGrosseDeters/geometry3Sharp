@@ -58,6 +58,9 @@ namespace g3
                 Readers.Add(new STLFormatReader());
                 Readers.Add(new OFFFormatReader());
                 Readers.Add(new BinaryG3FormatReader());
+                Readers.Add(new PLYFormatReader());
+                Readers.Add(new ThreeMFFormatReader());
+                Readers.Add(new GLTFFormatReader());
             }
         }
 
@@ -404,6 +407,98 @@ namespace g3
     }
 
 
+
+    // MeshFormatReader impl for PLY (ascii and binary)
+    public class PLYFormatReader : MeshFormatReader
+    {
+        public List<string> SupportedExtensions { get {
+                return new List<string>() { "ply" };
+            }
+        }
+
+        public IOReadResult ReadFile(string sFilename, IMeshBuilder builder, ReadOptions options, ParsingMessagesHandler messages)
+        {
+            try {
+                using (FileStream stream = File.Open(sFilename, FileMode.Open, FileAccess.Read, FileShare.Read)) {
+                    return ReadFile(stream, builder, options, messages);
+                }
+            } catch (Exception e) {
+                return new IOReadResult(IOCode.FileAccessError, "Could not open file " + sFilename + " for reading : " + e.Message);
+            }
+        }
+
+        public IOReadResult ReadFile(Stream stream, IMeshBuilder builder, ReadOptions options, ParsingMessagesHandler messages)
+        {
+            PLYReader reader = new PLYReader();
+            reader.warningEvent += messages;
+            return reader.Read(new BinaryReader(new BufferedStream(stream)), options, builder);
+        }
+    }
+
+
+
+    // MeshFormatReader impl for 3MF
+    public class ThreeMFFormatReader : MeshFormatReader
+    {
+        public List<string> SupportedExtensions { get {
+                return new List<string>() { "3mf" };
+            }
+        }
+
+        public IOReadResult ReadFile(string sFilename, IMeshBuilder builder, ReadOptions options, ParsingMessagesHandler messages)
+        {
+            try {
+                using (FileStream stream = File.Open(sFilename, FileMode.Open, FileAccess.Read, FileShare.Read)) {
+                    return ReadFile(stream, builder, options, messages);
+                }
+            } catch (Exception e) {
+                return new IOReadResult(IOCode.FileAccessError, "Could not open file " + sFilename + " for reading : " + e.Message);
+            }
+        }
+
+        public IOReadResult ReadFile(Stream stream, IMeshBuilder builder, ReadOptions options, ParsingMessagesHandler messages)
+        {
+            ThreeMFReader reader = new ThreeMFReader();
+            reader.warningEvent += messages;
+            return reader.Read(stream, options, builder);
+        }
+    }
+
+
+
+    // MeshFormatReader impl for glTF 2.0 (.gltf and .glb)
+    public class GLTFFormatReader : MeshFormatReader
+    {
+        public List<string> SupportedExtensions { get {
+                return new List<string>() { "gltf", "glb" };
+            }
+        }
+
+        public IOReadResult ReadFile(string sFilename, IMeshBuilder builder, ReadOptions options, ParsingMessagesHandler messages)
+        {
+            try {
+                using (FileStream stream = File.Open(sFilename, FileMode.Open, FileAccess.Read, FileShare.Read)) {
+                    string dir = Path.GetDirectoryName(Path.GetFullPath(sFilename));
+                    return read(stream, builder, messages, (uri) => File.ReadAllBytes(Path.Combine(dir, uri)));
+                }
+            } catch (Exception e) {
+                return new IOReadResult(IOCode.FileAccessError, "Could not open file " + sFilename + " for reading : " + e.Message);
+            }
+        }
+
+        // external buffers (.bin files) cannot be resolved when reading from a stream
+        public IOReadResult ReadFile(Stream stream, IMeshBuilder builder, ReadOptions options, ParsingMessagesHandler messages)
+        {
+            return read(stream, builder, messages, null);
+        }
+
+        IOReadResult read(Stream stream, IMeshBuilder builder, ParsingMessagesHandler messages, Func<string, byte[]> resolve)
+        {
+            GLTFReader reader = new GLTFReader() { ResolveUri = resolve };
+            reader.warningEvent += messages;
+            return reader.Read(stream, ReadOptions.Defaults, builder);
+        }
+    }
 
 
 }

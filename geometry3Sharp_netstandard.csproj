@@ -32,6 +32,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="geometry3Sharp.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Folder Include="Properties\" />
   </ItemGroup>
 
