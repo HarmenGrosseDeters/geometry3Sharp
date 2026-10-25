@@ -193,6 +193,28 @@ namespace g3
 
 
         /// <summary>
+        /// Open file and call readF on the stream. Only a failure to open the file is reported
+        /// as FileAccessError, exceptions thrown by readF are reported as GenericReaderError.
+        /// </summary>
+        internal static IOReadResult ReadFileStream(string sFilename, FileShare share, Func<Stream, IOReadResult> readF)
+        {
+            FileStream stream;
+            try {
+                stream = File.Open(sFilename, FileMode.Open, FileAccess.Read, share);
+            } catch (Exception e) {
+                return new IOReadResult(IOCode.FileAccessError, "Could not open file " + sFilename + " for reading : " + e.Message);
+            }
+            using (stream) {
+                try {
+                    return readF(stream);
+                } catch (Exception e) {
+                    return new IOReadResult(IOCode.GenericReaderError, "Error reading file " + sFilename + " : " + e.Message);
+                }
+            }
+        }
+
+
+        /// <summary>
         /// Read mesh file using options and builder. You must provide our own Builder
         /// here because the reader is not returned
         /// </summary>
@@ -259,19 +281,15 @@ namespace g3
 
         public IOReadResult ReadFile(string sFilename, IMeshBuilder builder, ReadOptions options, ParsingMessagesHandler messages)
         {
-            try {
-                using (FileStream stream = File.Open(sFilename, FileMode.Open, FileAccess.Read, FileShare.Read)) {
-                    OBJReader reader = new OBJReader();
-                    if (options.ReadMaterials)
-                        reader.MTLFileSearchPaths.Add(Path.GetDirectoryName(sFilename));
-                    reader.warningEvent += messages;
+            return StandardMeshReader.ReadFileStream(sFilename, FileShare.Read, (stream) => {
+                OBJReader reader = new OBJReader();
+                if (options.ReadMaterials)
+                    reader.MTLFileSearchPaths.Add(Path.GetDirectoryName(sFilename));
+                reader.warningEvent += messages;
 
-                    var result = reader.Read(new StreamReader(stream), options, builder);
-                    return result;
-                }
-            } catch (Exception e) {
-                return new IOReadResult(IOCode.FileAccessError, "Could not open file " + sFilename + " for reading : " + e.Message);
-            }
+                var result = reader.Read(new StreamReader(stream), options, builder);
+                return result;
+            });
         }
 
         public IOReadResult ReadFile(Stream stream, IMeshBuilder builder, ReadOptions options, ParsingMessagesHandler messages)
@@ -296,13 +314,7 @@ namespace g3
 
         public IOReadResult ReadFile(string sFilename, IMeshBuilder builder, ReadOptions options, ParsingMessagesHandler messages)
         {
-            try {
-                using (FileStream stream = File.Open(sFilename, FileMode.Open, FileAccess.Read, FileShare.Read)) {
-                    return ReadFile(stream, builder, options, messages);
-                }
-            } catch (Exception e) {
-                return new IOReadResult(IOCode.FileAccessError, "Could not open file " + sFilename + " for reading : " + e.Message);
-            }
+            return StandardMeshReader.ReadFileStream(sFilename, FileShare.Read, (stream) => ReadFile(stream, builder, options, messages));
         }
 
         public IOReadResult ReadFile(Stream stream, IMeshBuilder builder, ReadOptions options, ParsingMessagesHandler messages)
@@ -356,13 +368,7 @@ namespace g3
 
         public IOReadResult ReadFile(string sFilename, IMeshBuilder builder, ReadOptions options, ParsingMessagesHandler messages)
         {
-            try {
-                using (FileStream stream = File.Open(sFilename, FileMode.Open, FileAccess.Read, FileShare.Read)) {
-                    return ReadFile(stream, builder, options, messages);
-                }
-            } catch (Exception e) {
-                return new IOReadResult(IOCode.FileAccessError, "Could not open file " + sFilename + " for reading : " + e.Message);
-            }
+            return StandardMeshReader.ReadFileStream(sFilename, FileShare.Read, (stream) => ReadFile(stream, builder, options, messages));
         }
 
         public IOReadResult ReadFile(Stream stream, IMeshBuilder builder, ReadOptions options, ParsingMessagesHandler messages)
@@ -387,13 +393,7 @@ namespace g3
 
         public IOReadResult ReadFile(string sFilename, IMeshBuilder builder, ReadOptions options, ParsingMessagesHandler messages)
         {
-            try {
-                using (FileStream stream = File.Open(sFilename, FileMode.Open, FileAccess.Read)) {
-                    return ReadFile(stream, builder, options, messages);
-                }
-            } catch (Exception e) {
-                return new IOReadResult(IOCode.FileAccessError, "Could not open file " + sFilename + " for reading : " + e.Message);
-            }
+            return StandardMeshReader.ReadFileStream(sFilename, FileShare.None, (stream) => ReadFile(stream, builder, options, messages));
         }
 
         public IOReadResult ReadFile(Stream stream, IMeshBuilder builder, ReadOptions options, ParsingMessagesHandler messages)
@@ -418,13 +418,7 @@ namespace g3
 
         public IOReadResult ReadFile(string sFilename, IMeshBuilder builder, ReadOptions options, ParsingMessagesHandler messages)
         {
-            try {
-                using (FileStream stream = File.Open(sFilename, FileMode.Open, FileAccess.Read, FileShare.Read)) {
-                    return ReadFile(stream, builder, options, messages);
-                }
-            } catch (Exception e) {
-                return new IOReadResult(IOCode.FileAccessError, "Could not open file " + sFilename + " for reading : " + e.Message);
-            }
+            return StandardMeshReader.ReadFileStream(sFilename, FileShare.Read, (stream) => ReadFile(stream, builder, options, messages));
         }
 
         public IOReadResult ReadFile(Stream stream, IMeshBuilder builder, ReadOptions options, ParsingMessagesHandler messages)
@@ -447,13 +441,7 @@ namespace g3
 
         public IOReadResult ReadFile(string sFilename, IMeshBuilder builder, ReadOptions options, ParsingMessagesHandler messages)
         {
-            try {
-                using (FileStream stream = File.Open(sFilename, FileMode.Open, FileAccess.Read, FileShare.Read)) {
-                    return ReadFile(stream, builder, options, messages);
-                }
-            } catch (Exception e) {
-                return new IOReadResult(IOCode.FileAccessError, "Could not open file " + sFilename + " for reading : " + e.Message);
-            }
+            return StandardMeshReader.ReadFileStream(sFilename, FileShare.Read, (stream) => ReadFile(stream, builder, options, messages));
         }
 
         public IOReadResult ReadFile(Stream stream, IMeshBuilder builder, ReadOptions options, ParsingMessagesHandler messages)
@@ -476,14 +464,10 @@ namespace g3
 
         public IOReadResult ReadFile(string sFilename, IMeshBuilder builder, ReadOptions options, ParsingMessagesHandler messages)
         {
-            try {
-                using (FileStream stream = File.Open(sFilename, FileMode.Open, FileAccess.Read, FileShare.Read)) {
-                    string dir = Path.GetDirectoryName(Path.GetFullPath(sFilename));
-                    return read(stream, builder, messages, (uri) => read_relative(dir, uri));
-                }
-            } catch (Exception e) {
-                return new IOReadResult(IOCode.FileAccessError, "Could not open file " + sFilename + " for reading : " + e.Message);
-            }
+            return StandardMeshReader.ReadFileStream(sFilename, FileShare.Read, (stream) => {
+                string dir = Path.GetDirectoryName(Path.GetFullPath(sFilename));
+                return read(stream, builder, messages, (uri) => read_relative(dir, uri));
+            });
         }
 
         // external buffers (.bin files) cannot be resolved when reading from a stream
