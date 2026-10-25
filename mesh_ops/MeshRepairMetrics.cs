@@ -31,11 +31,28 @@ namespace gs
         /// <summary> the intersecting triangle pairs (see SelfIntersections), each once, sorted </summary>
         public static List<Index2i> SelfIntersectionPairs(DMesh3 mesh)
         {
+            return self_intersection_pairs(mesh, false);
+        }
+
+        /// <summary>
+        /// SelfIntersections(mesh) &gt; 0, but stops at the first intersecting pair (cheaper for meshes with
+        /// self-intersections; the same work for meshes without)
+        /// </summary>
+        public static bool HasSelfIntersections(DMesh3 mesh)
+        {
+            return self_intersection_pairs(mesh, true).Count > 0;
+        }
+
+        // firstOnly: stop after the first pair found (then at least one pair is returned if there is any)
+        static List<Index2i> self_intersection_pairs(DMesh3 mesh, bool firstOnly)
+        {
             var tree = new DMeshAABBTree3(mesh, true);
             var pairs = new List<Index2i>();
             object lockObj = new object();
+            int found = 0;
             int[] tris = new List<int>(mesh.TriangleIndices()).ToArray();
             gParallel.ForEach(Interval1i.Range(tris.Length), (k) => {
+                if (firstOnly && System.Threading.Volatile.Read(ref found) != 0) return;
                 int ta = tris[k];
                 Triangle3d A = triangle(mesh, ta);
                 if (ExactTriangleIntersection.IsDegenerate(ref A)) return;
@@ -43,9 +60,9 @@ namespace gs
                 Index3i ia = mesh.GetTriangle(ta);
                 List<Index2i> local = null;
                 tree.DoTraversal(new DMeshAABBTree3.TreeTraversal() {
-                    NextBoxDF = (b, depth) => b.Intersects(box),
+                    NextBoxDF = (b, depth) => b.Intersects(box) && (firstOnly == false || local == null),
                     NextTriangleF = (tb) => {
-                        if (tb <= ta) return;
+                        if (tb <= ta || (firstOnly && local != null)) return;
                         Triangle3d B = triangle(mesh, tb);
                         if (ExactTriangleIntersection.IsDegenerate(ref B)) return;
                         if (ExactTriangleIntersection.IntersectsBeyondShared(ia, ref A, mesh.GetTriangle(tb), ref B)) {
@@ -54,8 +71,10 @@ namespace gs
                         }
                     }
                 });
-                if (local != null)
+                if (local != null) {
                     lock (lockObj) pairs.AddRange(local);
+                    System.Threading.Volatile.Write(ref found, 1);
+                }
             });
             pairs.Sort((x, y) => x.a != y.a ? x.a.CompareTo(y.a) : x.b.CompareTo(y.b));
             return pairs;
@@ -106,6 +125,78 @@ namespace gs
             AxisAlignedBox3d box = input.CachedBounds;
             box.Contain(result.CachedBounds);
             return VolumeIoU((p) => ti.FastWindingNumber(p) > 0.5, box, result, out missing, out extra, samples, seed);
+        }
+
+        /// <summary>
+        /// Is VolumeIoU(input, result) at least minIoU? The same samples as VolumeIoU, but only as many as the
+        /// answer needs: they are classified in rounds (samples / 32, then doubling), and after each round
+        /// the share of the union that is in only one of the solids gets a confidence interval (Wilson score,
+        /// z standard deviations); the answer is given as soon as the interval lies on one side of
+        /// 1 - minIoU. With all samples (results close to minIoU) the answer and iou are those of VolumeIoU.
+        /// An early answer differs from the one with all samples only by chance, about the probability
+        /// of a z-sigma deviation (z = 4: about 3e-5). iou is the estimate from the samples used; NaN (and
+        /// true) if no sample is inside the input, as VolumeIoU (no solid to compare with).
+        /// Typically 10-30x cheaper than VolumeIoU for results that clearly agree with the input.
+        /// </summary>
+        public static bool VolumeIoUAtLeast(DMesh3 input, DMesh3 result, double minIoU, out double iou, int samples = 100000, int seed = 1, double z = 4)
+        {
+            iou = 0;
+            if (input.TriangleCount == 0)
+                return iou >= minIoU;
+            input = WindingContouring.OrientedCopy(input);
+            var ti = new DMeshAABBTree3(input, true);
+            ti.FastWindingNumber(Vector3d.Zero);    // cache before parallel use
+            AxisAlignedBox3d box = input.CachedBounds;
+            box.Contain(result.CachedBounds);
+            return VolumeIoUAtLeast((p) => ti.FastWindingNumber(p) > 0.5, box, result, minIoU, out iou, samples, seed, z);
+        }
+
+        /// <summary> as above, against a reference solid given by its inside test (see VolumeIoU) </summary>
+        public static bool VolumeIoUAtLeast(Func<Vector3d, bool> referenceInside, AxisAlignedBox3d box, DMesh3 result, double minIoU, out double iou, int samples = 100000, int seed = 1, double z = 4)
+        {
+            var tr = new DMeshAABBTree3(result, true);
+            tr.FastWindingNumber(Vector3d.Zero);
+            box.Expand(0.01 * box.DiagonalLength);
+            var rnd = new Random(seed);
+            Vector3d[] pts = new Vector3d[samples];
+            int[] cls = new int[samples];
+            int done = 0, both = 0, onlyOne = 0;
+            double maxShare = 1 - minIoU;
+            int round = Math.Max(1, samples / 32);
+            while (true) {
+                int end = Math.Min(samples, done + round);
+                for (int k = done; k < end; ++k)        // same sequence as VolumeIoU
+                    pts[k] = box.Min + new Vector3d(rnd.NextDouble() * box.Width, rnd.NextDouble() * box.Height, rnd.NextDouble() * box.Depth);
+                gParallel.ForEach(Interval1i.FromToInclusive(done, end - 1), (k) => {
+                    bool a = referenceInside(pts[k]), b = result.TriangleCount > 0 && tr.FastWindingNumber(pts[k]) > 0.5;
+                    cls[k] = (a ? 1 : 0) | (b ? 2 : 0);
+                });
+                for (int k = done; k < end; ++k) {
+                    if (cls[k] == 3) both++; else if (cls[k] != 0) onlyOne++;
+                }
+                done = end;
+                round = done;
+                int union = both + onlyOne;
+                if (done == samples)
+                    break;
+                if (union == 0)
+                    continue;
+                // Wilson score interval of the share p of the union in only one solid (1 - IoU)
+                double n = union, ph = onlyOne / n, z2 = z * z;
+                double center = (ph + z2 / (2 * n)) / (1 + z2 / n);
+                double half = z * Math.Sqrt(ph * (1 - ph) / n + z2 / (4 * n * n)) / (1 + z2 / n);
+                if (center + half < maxShare || center - half > maxShare)
+                    break;
+            }
+            int inputSolid = 0;
+            for (int k = 0; k < done; ++k)
+                if ((cls[k] & 1) != 0) inputSolid++;
+            if (inputSolid == 0) {
+                iou = double.NaN;       // no reference solid (eg a single open sheet): not defined
+                return true;
+            }
+            iou = (double)both / (both + onlyOne);
+            return iou >= minIoU;
         }
 
         /// <summary>

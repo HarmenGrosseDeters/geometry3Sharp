@@ -127,6 +127,7 @@ class Program
                 r["robust_exact_selfint"] = robust.ExactResolveSelfIntersections;
                 r["robust_solidify_reason"] = robust.SolidifyReason;
                 r["robust_used_wrap"] = robust.UsedAlphaWrap;
+                r["robust_phases"] = robust.PhaseMilliseconds;
             } else if (repairMode == "cgalwrap") {
                 result = CgalWrap(args[0], r);
                 ok = result.TriangleCount > 0;
