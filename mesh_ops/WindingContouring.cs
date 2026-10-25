@@ -25,9 +25,15 @@ namespace gs
         public int NonManifoldTriangles;
         public int WindingEvaluations;
         public int HiddenGapEdges;
-        /// <summary> hidden gap edges whose gap is at least MinFixableGapWidth wide (refining can resolve them) </summary>
-        public int FixableGapEdges;
-        public double MinFixableGapWidth = 0;
+        /// <summary> grid edges through material thinner than a cell (both ends outside), see HiddenWall </summary>
+        public int HiddenWallEdges;
+        /// <summary> hidden gap / wall edges at least MinFixableWidth wide (refining can resolve them) </summary>
+        public int FixableEdges;
+        /// <summary> narrowest fixable gap or wall (perpendicular width) of the last ContourAdaptive </summary>
+        public double MinFixableFound = double.MaxValue;
+        public double MinFixableWidth = 0;
+        /// <summary> some of the hidden gaps / walls of the last ContourAdaptive (gap center, width), for diagnostics </summary>
+        public List<KeyValuePair<Vector3d, double>> HiddenSamples = new List<KeyValuePair<Vector3d, double>>();
         /// <summary> time per phase (ms, summed over the refinement levels): octree, then the dual contouring phases </summary>
         public Dictionary<string, long> PhaseMilliseconds = new Dictionary<string, long>();
         /// <summary> hidden gap edges at each refinement level of ContourRefined </summary>
@@ -98,13 +104,17 @@ namespace gs
             dc.HermiteF = (Vector3d a, Vector3d b, Vector3d p, out Vector3d point, out Vector3d normal) =>
                 Hermite(cellSize, a, b, p, out point, out normal);
             dc.HiddenGapF = (a, b) => HiddenGap(cellSize, a, b);
-            fixableGaps = 0;
+            dc.HiddenWallF = (a, b) => HiddenWall(cellSize, a, b);
+            fixable = 0; minFixable = double.MaxValue;
+            HiddenSamples = new List<KeyValuePair<Vector3d, double>>();
             dc.Generate();
             foreach (var kv in dc.PhaseMilliseconds)
                 add_phase(kv.Key, kv.Value);
             WindingEvaluations = octree.WindingEvaluations;
             HiddenGapEdges = dc.HiddenGapEdges;
-            FixableGapEdges = fixableGaps;
+            HiddenWallEdges = dc.HiddenWallEdges;
+            FixableEdges = fixable;
+            MinFixableFound = minFixable;
             if (CancelF())
                 return null;
             NonManifoldTriangles = dc.NonManifoldTriangles;
@@ -120,40 +130,35 @@ namespace gs
         }
 
         /// <summary>
-        /// ContourAdaptive, refined for hidden gaps: while the result has hidden gap edges that the remaining
-        /// halvings can resolve (gaps at least cellSize / 2^levelsLeft wide), halve the cell size and
-        /// recompute. Narrower gaps (eg between nearly touching layers of open meshes) are not worth the
-        /// work: each level costs about 4x. Once the gaps are gone the gap is only about one cell wide, and
-        /// the surfaces on both sides can still cut through each other (dual contouring needs about two cells
-        /// across a gap), so one more level is added. Refinement also stops when a level did not reduce the
-        /// fixable gap edges (they are not gaps that a finer grid resolves). At most maxLevels halvings;
-        /// cellSize returns the size used.
+        /// ContourAdaptive, refined for hidden gaps and walls (gaps or material thinner than a cell, which the
+        /// node signs cannot see: the surfaces on both sides cut through each other, or thin walls vanish or
+        /// break up). Dual contouring needs about two cells across a gap or wall, so the cell size is halved
+        /// directly as often as the narrowest one needs for that (measured perpendicular to its surfaces),
+        /// then checked again. Only gaps and walls the levels left can resolve count (at least
+        /// cellSize / 2^maxLevels wide): narrower ones (eg nearly touching layers of open meshes) are not
+        /// worth the work, each level costs about 4x. The refinement is global, so it is only done for at
+        /// least minEdges such edges; fewer (a small local defect) are only reported in HiddenGapEdges /
+        /// HiddenWallEdges. At most maxLevels halvings; cellSize returns the size used.
         /// </summary>
-        public DMesh3 ContourRefined(ref double cellSize, int maxLevels)
+        public DMesh3 ContourRefined(ref double cellSize, int maxLevels, int minEdges = 1)
         {
-            MinFixableGapWidth = cellSize / Math.Pow(2, maxLevels);
+            MinFixableWidth = cellSize / Math.Pow(2, maxLevels);
             DMesh3 contour = ContourAdaptive(cellSize);
             int evaluations = WindingEvaluations;
             GapEdgesPerLevel.Clear();
-            GapEdgesPerLevel.Add(HiddenGapEdges);
-            bool hadGaps = false, extraDone = false;
-            int prevFixable = int.MaxValue;
-            for (int level = 0; level < maxLevels && contour != null; ++level) {
-                if (FixableGapEdges > 0 && FixableGapEdges >= prevFixable)
+            GapEdgesPerLevel.Add(HiddenGapEdges + HiddenWallEdges);
+            int used = 0;
+            while (contour != null && FixableEdges >= Math.Max(1, minEdges) && used < maxLevels) {
+                int need = (int)Math.Ceiling(Math.Log(2 * cellSize / MinFixableFound, 2));
+                int k = Math.Max(1, Math.Min(need, maxLevels - used));
+                double next = cellSize / Math.Pow(2, k);
+                if (WindingNumberOctree.RequiredDepth(WindingNumberOctree.Bounds(Meshes), next) > WindingNumberOctree.MaxSupportedDepth)
                     break;
-                prevFixable = FixableGapEdges;
-                if (FixableGapEdges > 0)
-                    hadGaps = true;
-                else if (!hadGaps || extraDone || HiddenGapEdges > 0)
-                    break;
-                else
-                    extraDone = true;
-                if (WindingNumberOctree.RequiredDepth(WindingNumberOctree.Bounds(Meshes), 0.5 * cellSize) > WindingNumberOctree.MaxSupportedDepth)
-                    break;
-                cellSize *= 0.5;
+                cellSize = next;
+                used += k;
                 contour = ContourAdaptive(cellSize);
                 evaluations += WindingEvaluations;
-                GapEdgesPerLevel.Add(HiddenGapEdges);
+                GapEdgesPerLevel.Add(HiddenGapEdges + HiddenWallEdges);
             }
             WindingEvaluations = evaluations;
             return contour;
@@ -255,12 +260,26 @@ namespace gs
         /// <summary>
         /// For a grid edge with both ends inside: true if the field drops below the iso-value between two
         /// roughly parallel input surfaces on the edge, ie the edge crosses a gap the node signs cannot see.
-        /// Not counted: surfaces at a steeper angle, and the apex of a wedge between surfaces that meet (eg
-        /// where the two inputs of a union meet at a small angle): at any cell size the wedge is narrower
-        /// than a cell over the same number of cells near its apex, so refining would not remove it, and
-        /// dual contouring handles the crease. Only (nearly) parallel gaps are resolved by refining.
+        /// Not counted: surfaces at a steeper angle, and the apex of a wedge where the surfaces actually meet
+        /// (eg where the two inputs of a union meet at a small angle): near its apex a wedge is narrower than
+        /// a cell at any cell size, so refining would not remove it, and dual contouring handles the crease.
         /// </summary>
         public bool HiddenGap(double cellSize, Vector3d a, Vector3d b)
+        {
+            return hidden_layer(cellSize, a, b, false);
+        }
+
+        /// <summary>
+        /// For a grid edge with both ends outside: true if the field rises above the iso-value between two
+        /// roughly parallel input surfaces on the edge, ie the edge crosses material thinner than a cell
+        /// (sharp edges where the surfaces meet are not counted, as for HiddenGap).
+        /// </summary>
+        public bool HiddenWall(double cellSize, Vector3d a, Vector3d b)
+        {
+            return hidden_layer(cellSize, a, b, true);
+        }
+
+        bool hidden_layer(double cellSize, Vector3d a, Vector3d b, bool wall)
         {
             Vector3d origin, dir;
             List<Hit> hits = collect_hits(cellSize, a, b, 0, out origin, out dir);
@@ -270,36 +289,53 @@ namespace gs
                 Vector3d n0 = Meshes[hits[i].Mesh].GetTriNormal(hits[i].Tri), n1 = Meshes[hits[i + 1].Mesh].GetTriNormal(hits[i + 1].Tri);
                 if (Math.Abs(n0.Dot(n1)) < GapParallelCos)
                     continue;
-                // surfaces at an angle theta meeting at distance s: the wedge between them is narrower than
-                // two cells for s < cell / tan(theta / 2), at every cell size
                 Vector3d p0 = origin + hits[i].T * dir, p1 = origin + hits[i + 1].T * dir, m = 0.5 * (p0 + p1);
-                double sinT = n0.Cross(n1).Length, tanHalf = sinT / (1 + Math.Abs(n0.Dot(n1)));
-                if (tanHalf > 0 && crease_distance(p0, n0, p1, n1, m) * tanHalf < cellSize)
+                if ((Field(m) > Iso) != wall)
                     continue;
-                if (Field(m) < Iso) {
-                    if (hits[i + 1].T - hits[i].T >= MinFixableGapWidth)
-                        System.Threading.Interlocked.Increment(ref fixableGaps);
-                    return true;
+                if (surfaces_meet(hits[i].Mesh, p0, n0, hits[i + 1].Mesh, p1, n1, m, cellSize))
+                    continue;
+                // width perpendicular to the surfaces (the edge can cross them obliquely)
+                double width = (hits[i + 1].T - hits[i].T) * 0.5 * (Math.Abs(dir.Dot(n0)) + Math.Abs(dir.Dot(n1)));
+                lock (fixableLock) {
+                    if (width >= MinFixableWidth) {
+                        fixable++;
+                        minFixable = Math.Min(minFixable, width);
+                    }
+                    if (HiddenSamples.Count < 10000)
+                        HiddenSamples.Add(new KeyValuePair<Vector3d, double>(m, width));
                 }
+                return true;
             }
             return false;
         }
-        int fixableGaps;
+        int fixable;
+        double minFixable = double.MaxValue;
+        readonly object fixableLock = new object();
         const double GapParallelCos = 0.5;     // surfaces within 60 degrees of parallel
 
-        // distance from m to the line where the planes (p0, n0) and (p1, n1) meet (infinite if parallel)
-        static double crease_distance(Vector3d p0, Vector3d n0, Vector3d p1, Vector3d n1, Vector3d m)
+        // Do the surfaces through p0 and p1 meet near m (a wedge or sharp edge, not a gap or wall)? The
+        // point of the line where their tangent planes meet that is closest to m must lie on both input
+        // surfaces (up to the planes' deviation from curved surfaces, relative to its distance).
+        bool surfaces_meet(int mesh0, Vector3d p0, Vector3d n0, int mesh1, Vector3d p1, Vector3d n1, Vector3d m, double cellSize)
         {
             Vector3d d = n0.Cross(n1);
             double dd = d.LengthSquared;
-            if (dd < 1e-6)      // within about 0.06 degrees of parallel
-                return double.MaxValue;
+            if (dd < 1e-12)
+                return false;       // parallel: they do not meet
             // a point on both planes: x = (h0 (n1 x d) + h1 (d x n0)) / |d|^2, with h = n . p
             double h0 = n0.Dot(p0), h1 = n1.Dot(p1);
             Vector3d x = (h0 * n1.Cross(d) + h1 * d.Cross(n0)) / dd;
             Vector3d dn = d / Math.Sqrt(dd);
-            Vector3d r = m - x;
-            return (r - r.Dot(dn) * dn).Length;
+            x += (m - x).Dot(dn) * dn;
+            double tol = 0.25 * x.Distance(m) + 0.1 * cellSize;
+            return surface_distance(mesh0, x, tol) <= tol && surface_distance(mesh1, x, tol) <= tol;
+        }
+
+        double surface_distance(int mesh, Vector3d p, double maxDist)
+        {
+            double distSqr;
+            int tid = Spatials[mesh].FindNearestTriangle(p, out distSqr, maxDist);
+            return (tid == DMesh3.InvalidID) ? double.MaxValue : Math.Sqrt(distSqr);
         }
 
         struct Hit

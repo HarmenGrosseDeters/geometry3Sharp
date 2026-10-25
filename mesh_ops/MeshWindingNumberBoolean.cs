@@ -40,12 +40,18 @@ namespace gs
 
 
         /// <summary>
-        /// If the result has hidden gaps (gaps narrower than a cell, see DualContouring.HiddenGapF), the cell
-        /// size is halved until they are gone, plus one more level (see WindingContouring.ContourRefined); at
-        /// most this many halvings. Hidden gaps make the surfaces on both sides of the gap intersect. Each level
-        /// roughly quadruples the work (the octree work scales with the surface). Adaptive (octree) mode only.
+        /// If the result has hidden gaps or walls (gaps or material narrower than a cell, see
+        /// DualContouring.HiddenGapF / HiddenWallF), the cell size is halved until the narrowest is about two
+        /// cells wide (see WindingContouring.ContourRefined); at most this many halvings. Hidden gaps make the
+        /// surfaces on both sides intersect, thin walls vanish or break up. Each level roughly quadruples the
+        /// work (the octree work scales with the surface). Adaptive (octree) mode only.
         /// </summary>
         public int MaxRefineLevels = 2;
+        /// <summary>
+        /// refine only for at least this many hidden gap / wall edges (the refinement is global; fewer are a
+        /// small local defect, reported in HiddenGapEdges / HiddenWallEdges)
+        /// </summary>
+        public int MinRefineEdges = 8;
 
         public Func<bool> CancelF = () => { return false; };
 
@@ -55,6 +61,10 @@ namespace gs
         public int WindingEvaluations;
         /// <summary> hidden gap edges in the final result (0 = none), and the cell size it was computed with </summary>
         public int HiddenGapEdges;
+        /// <summary> grid edges through material thinner than a cell in the final result (0 = none) </summary>
+        public int HiddenWallEdges;
+        /// <summary> some hidden gaps / walls of the final result (center, width), for diagnostics </summary>
+        public List<KeyValuePair<Vector3d, double>> HiddenSamples = new List<KeyValuePair<Vector3d, double>>();
         /// <summary> hidden gap edges at each refinement level </summary>
         public List<int> GapEdgesPerLevel = new List<int>();
         public double UsedCellSize;
@@ -98,10 +108,12 @@ namespace gs
             WindingContouring wc = new WindingContouring(inputs, combine, FastWindingBeta) {
                 CancelF = CancelF
             };
-            DMesh3 contour = wc.ContourRefined(ref cellSize, MaxRefineLevels);
+            DMesh3 contour = wc.ContourRefined(ref cellSize, MaxRefineLevels, MinRefineEdges);
             WindingEvaluations = wc.WindingEvaluations;
             NonManifoldTriangles = wc.NonManifoldTriangles;
             HiddenGapEdges = wc.HiddenGapEdges;
+            HiddenWallEdges = wc.HiddenWallEdges;
+            HiddenSamples = wc.HiddenSamples;
             GapEdgesPerLevel = new List<int>(wc.GapEdgesPerLevel);
             foreach (var kv in wc.PhaseMilliseconds) PhaseMilliseconds["contour." + kv.Key] = kv.Value;
             UsedCellSize = cellSize;

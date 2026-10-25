@@ -59,6 +59,12 @@ namespace g3
         /// Counted in HiddenGapEdges; refining the grid until there are none avoids this.
         /// </summary>
         public Func<Vector3d, Vector3d, bool> HiddenGapF = null;
+        /// <summary>
+        /// Sparse mode, optional: the same for grid edges whose ends are both outside: true if the edge
+        /// crosses material thinner than a cell (a thin wall, lost or broken up by the contour). Counted in
+        /// HiddenWallEdges.
+        /// </summary>
+        public Func<Vector3d, Vector3d, bool> HiddenWallF = null;
 
         public bool ParallelCompute = true;
         public Func<bool> CancelF = () => { return false; };
@@ -67,6 +73,7 @@ namespace g3
         public DMesh3 Mesh;
         public int NonManifoldTriangles;
         public int HiddenGapEdges;
+        public int HiddenWallEdges;
         public Vector3i CornerDimensions;
         /// <summary> time per phase of Generate (ms): sample, crossings, hermite, vertices, mesh </summary>
         public Dictionary<string, long> PhaseMilliseconds = new Dictionary<string, long>();
@@ -297,7 +304,7 @@ namespace g3
             foreach (Vector3i c in cells)
                 visited.Add(node_key(c));
             HashSet<long> seen = new HashSet<long>();
-            List<GridEdge> insideEdges = new List<GridEdge>();
+            List<GridEdge> insideEdges = new List<GridEdge>(), outsideEdges = new List<GridEdge>();
             while (cells.Count > 0) {
                 List<Vector3i> batch = cells;
                 Action<int> eval_corners = (idx) => {
@@ -328,6 +335,8 @@ namespace g3
                             }
                         } else if (aInside && HiddenGapF != null)
                             insideEdges.Add(new GridEdge(a, axis));
+                        else if (!aInside && HiddenWallF != null)
+                            outsideEdges.Add(new GridEdge(a, axis));
                     }
                 }
             }
@@ -342,6 +351,17 @@ namespace g3
                     gParallel.ForEach(Interval1i.Range(insideEdges.Count), test_gap);
                 else
                     for (int i = 0; i < insideEdges.Count; ++i) test_gap(i);
+            }
+            HiddenWallEdges = 0;
+            if (outsideEdges.Count > 0) {
+                Action<int> test_wall = (i) => {
+                    if (HiddenWallF(node_pos(outsideEdges[i].Start), node_pos(outsideEdges[i].End)))
+                        System.Threading.Interlocked.Increment(ref HiddenWallEdges);
+                };
+                if (ParallelCompute)
+                    gParallel.ForEach(Interval1i.Range(outsideEdges.Count), test_wall);
+                else
+                    for (int i = 0; i < outsideEdges.Count; ++i) test_wall(i);
             }
             gapMilliseconds = gapTimer.ElapsedMilliseconds;
             // deterministic order
