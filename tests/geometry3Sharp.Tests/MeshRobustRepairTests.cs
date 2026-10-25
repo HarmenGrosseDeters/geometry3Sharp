@@ -94,5 +94,24 @@ namespace geometry3Sharp.Tests
             Assert.False(r2.UsedSolidify);
             Assert.True(r2.RepairVolumeIoU > 0.99);
         }
-    }
+    
+        [Fact]
+        public void InsideOutInput_RepairKeptNotSolidified()
+        {
+            // two disjoint spheres, one inside out: the repair flips it, the result is the solid of both
+            // (with the raw winding number as reference only one sphere was the input solid: IoU 0.5, and
+            // the good repair was replaced by a solidify)
+            DMesh3 m = Sphere(1, Vector3d.Zero);
+            DMesh3 inv = Sphere(1, new Vector3d(3, 0, 0));
+            inv.ReverseOrientation(false);
+            MeshEditor.Append(m, inv);
+            int n = m.TriangleCount;
+            var r = new MeshRobustRepair(m);
+            Assert.True(r.Apply());
+            Assert.False(r.UsedSolidify, r.FallbackReason);
+            Assert.True(r.RepairVolumeIoU > 0.99, $"IoU {r.RepairVolumeIoU}");
+            Assert.Equal(n, r.Mesh.TriangleCount);
+            Assert.True(MeshMeasurements.VolumeArea(r.Mesh, r.Mesh.TriangleIndices(), r.Mesh.GetVertex).x > 0);
+        }
+}
 }

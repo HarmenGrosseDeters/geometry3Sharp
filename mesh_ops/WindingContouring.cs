@@ -47,19 +47,8 @@ namespace gs
         public WindingContouring(IEnumerable<DMesh3> inputs, Func<double[], double> combineF, double fastWindingBeta)
         {
             List<DMesh3> meshes = new List<DMesh3>();
-            foreach (DMesh3 m in inputs) {
-                DMesh3 copy = new DMesh3(m, true);
-                // closed components that are inside out for their nesting (eg a disjoint inverted part)
-                // are flipped on their own; then the rest by the signed volume of the whole (relative to
-                // the center: for open meshes it depends on the origin)
-                foreach (int[] comp in MeshPostRepairCleanup.FindInvertedComponents(copy))
-                    foreach (int tid in comp)
-                        copy.ReverseTriOrientation(tid);
-                Vector3d c = copy.CachedBounds.Center;
-                if (MeshMeasurements.VolumeArea(copy, copy.TriangleIndices(), (vid) => copy.GetVertex(vid) - c).x < 0)
-                    copy.ReverseOrientation(false);
-                meshes.Add(copy);
-            }
+            foreach (DMesh3 m in inputs)
+                meshes.Add(OrientedCopy(m));
             Meshes = meshes.ToArray();
             Spatials = new DMeshAABBTree3[Meshes.Length];
             for (int i = 0; i < Meshes.Length; ++i) {
@@ -70,6 +59,23 @@ namespace gs
             CombineF = combineF;
         }
 
+
+        /// <summary>
+        /// Compacted copy with inside-out parts flipped, so that the winding number is +1 inside: closed
+        /// components that are inside out for their nesting (eg a disjoint inverted part) on their own, then
+        /// the whole by its signed volume (relative to the center: for open meshes it depends on the origin).
+        /// </summary>
+        public static DMesh3 OrientedCopy(DMesh3 m)
+        {
+            DMesh3 copy = new DMesh3(m, true);
+            foreach (int[] comp in MeshPostRepairCleanup.FindInvertedComponents(copy))
+                foreach (int tid in comp)
+                    copy.ReverseTriOrientation(tid);
+            Vector3d c = copy.CachedBounds.Center;
+            if (MeshMeasurements.VolumeArea(copy, copy.TriangleIndices(), (vid) => copy.GetVertex(vid) - c).x < 0)
+                copy.ReverseOrientation(false);
+            return copy;
+        }
 
         public double Field(Vector3d p)
         {

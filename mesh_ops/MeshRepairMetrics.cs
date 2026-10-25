@@ -83,7 +83,8 @@ namespace gs
 
         /// <summary>
         /// Intersection over union of the solids of input and result, from samples in the common bounds
-        /// (deterministic): a point is inside the input where its generalized winding number is > 0.5,
+        /// (deterministic): a point is inside the input where the generalized winding number of its oriented
+        /// copy (WindingContouring.OrientedCopy: inside-out parts flipped, as the solidify fallback does) is > 0.5,
         /// inside the result likewise. 1 = same solid. Also returns the parts of the input solid missing in
         /// the result (eg lost thin walls) and the result solid not in the input (eg filled cavities),
         /// relative to the input solid. NaN if the input encloses no volume (eg a single open sheet).
@@ -93,6 +94,9 @@ namespace gs
             missing = extra = 0;
             if (input.TriangleCount == 0)
                 return 0;
+            // the solid the solidify fallback sees: inside-out inputs (winding number -1 inside) count as
+            // their solid, not as none
+            input = WindingContouring.OrientedCopy(input);
             var ti = new DMeshAABBTree3(input, true);
             ti.FastWindingNumber(Vector3d.Zero);    // cache before parallel use
             AxisAlignedBox3d box = input.CachedBounds;
