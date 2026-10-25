@@ -127,9 +127,10 @@ namespace gs
 
             bool cancel = false;
 
-            BitArray vertices = null;
+            // bool[] rather than BitArray, which loses updates when written from the parallel loop below
+            bool[] vertices = null;
             if ( PerVertex ) {
-                vertices = new BitArray(Mesh.MaxVertexID);
+                vertices = new bool[Mesh.MaxVertexID];
 
                 MeshNormals normals = null;
                 if (Mesh.HasVertexNormals == false) {

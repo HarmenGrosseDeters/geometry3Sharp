@@ -63,6 +63,20 @@ Rekonstruktion A = U·S·Vᵀ bzw. A·Q = Q·D auf rund 250 strukturierten und z
 
 Davon profitieren `OrthogonalPlaneFit3`, `GaussPointsFit3`, `QuadraticFit2`, `MeshICP` und die QEF-Lösung in `DualContouring`.
 
+Vierte Runde, Threading. Regressionstests stehen in `tests/geometry3Sharp.Tests/ThreadingFixesTests.cs`. Die Threads
+starten gemeinsam an einer Barrier, die Situation wird vielfach wiederholt, der Vergleich läuft gegen einen seriellen Lauf.
+Ohne Fix schlug jeder dieser Tests in allen Wiederholungen fehl, mit Fix in keiner.
+
+Behoben:
+- `DMeshAABBTree3` und `PointAABBTree3`: Der FastWinding-Cache wird unter einem Lock gebaut, der Timestamp ist
+  `volatile` (upstream #72). Vorher gab es Exceptions und falsche Werte bei den ersten parallelen Aufrufen.
+- `Remesher` und `RemesherPro`: `vModifiedV` ist `bool[]` statt `BitArray`. Parallele Smooth- und Projektions-Passes
+  haben Vertex-Updates verloren, die Ergebnisse waren nicht reproduzierbar. Das war auch die Ursache des instabilen
+  `TerrainSafetyTests`-Falls.
+- `RemoveOccludedTriangles` (PerVertex): `bool[]` statt `BitArray`. Verdeckte Dreiecke blieben zufällig stehen.
+
+Weitere `BitArray`-Stellen werden aus parallelen Schleifen nur gelesen oder ausschließlich seriell genutzt.
+
 Bewusst zurückgestellt: `OBJReader.is_complex`. Der Fix leitet Dateien auf `BuildMeshes_ByMaterial` um. Dieser Pfad
 verwirft UVs bei Meshes ohne Material, übernimmt keine Gruppen und stürzt bei Faces ohne Normal-Index ab. Er muss deshalb
 zusammen mit diesem Pfad repariert werden.
