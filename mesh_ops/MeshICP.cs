@@ -25,6 +25,7 @@ namespace g3
 
         bool is_initialized = false;
         int[] MapV;
+        int[] FromV;        // vertex id of each From[i]
         Vector3d[] From;
         Vector3d[] To;
         double[] Weights;
@@ -123,10 +124,12 @@ namespace g3
             Weights = new double[Source.VertexCount];
 
             MapV = new int[Source.MaxVertexID];
+            FromV = new int[Source.VertexCount];
 
             int i = 0;
             foreach (int vid in Source.VertexIndices()) {
                 MapV[vid] = i;
+                FromV[i] = vid;
                 Weights[i] = 1.0f;
                 From[i++] = Source.GetVertex(vid);
             }
@@ -172,7 +175,7 @@ namespace g3
                 Weights[vi] = 1.0f;
 
                 if ( bNormals ) {
-                    Vector3d fromN = Rotation * Source.GetVertexNormal(vi);
+                    Vector3d fromN = Rotation * Source.GetVertexNormal(FromV[vi]);
                     Vector3d toN = TargetSurface.Mesh.GetTriNormal(tid);
                     double fDot = fromN.Dot(toN);
                     Debug.Assert(MathUtil.IsFinite(fDot));

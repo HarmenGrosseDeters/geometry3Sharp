@@ -80,10 +80,9 @@ namespace gs
                 if (OnlyUniquePairs) {
                     if (EquivSets[i].Count != 1)
                         continue;
-                    foreach (int j in EquivSets[i]) {
-                        if (EquivSets[j].Count != 1 || EquivSets[j][0] != i)
-                            continue;
-                    }
+                    int j = EquivSets[i][0];
+                    if (EquivSets[j] == null || EquivSets[j].Count != 1 || EquivSets[j][0] != i)
+                        continue;
                 }
 
                 Q.Enqueue(new DuplicateEdge() { eid = i }, EquivSets[i].Count);

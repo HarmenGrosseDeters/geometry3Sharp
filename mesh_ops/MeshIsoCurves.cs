@@ -93,6 +93,7 @@ namespace g3
                 GraphEdges = new DVector<GraphEdgeInfo>();
 
             Vertices = new Dictionary<Vector3d, int>();
+            EdgeLocations.Clear();      // crossings of a previous Compute() are stale
 
 
             // multithreaded precomputation of per-vertex values
@@ -339,14 +340,16 @@ namespace g3
                 Vector3d b = Mesh.GetVertex(ev.b);
                 if (a.Distance(b) < min_len)
                     continue;
-                Vector3d mid = (a + b) * 0.5;
-                if (a.Distance(mid) < min_len || b.Distance(mid) < min_len)
+                if (a.Distance(pos) < min_len || b.Distance(pos) < min_len)
                     continue;
 
                 DMesh3.EdgeSplitInfo splitInfo;
                 if (Mesh.SplitEdge(eid, out splitInfo) == MeshResult.Ok)
                     Mesh.SetVertex(splitInfo.vNew, pos);
             }
+
+            // edge ids now refer to the split halves, so the crossings cannot be used again
+            EdgeLocations.Clear();
         }
 
 
