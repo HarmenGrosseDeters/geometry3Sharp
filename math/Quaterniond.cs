@@ -193,7 +193,7 @@ namespace g3
             return new Quaterniond(axis, angleDeg);
         }
         public static Quaterniond AxisAngleR(Vector3d axis, double angleRad) {
-            return new Quaterniond(axis, angleRad * MathUtil.Rad2Degf);
+            return new Quaterniond(axis, angleRad * MathUtil.Rad2Deg);
         }
 
         // this function can take non-normalized vectors vFrom and vTo (normalizes internally)

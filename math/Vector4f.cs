@@ -66,7 +66,7 @@ namespace g3
         public Vector4f Normalized {
             get {
                 float length = Length;
-                if (length > MathUtil.Epsilon) {
+                if (length > MathUtil.Epsilonf) {
                     float invLength = 1.0f / length;
                     return new Vector4f(x * invLength, y * invLength, z * invLength, w * invLength);
                 } else
@@ -75,7 +75,7 @@ namespace g3
         }
 
         public bool IsNormalized {
-            get { return Math.Abs((x * x + y * y + z * z + w * w) - 1) < MathUtil.ZeroTolerance; }
+            get { return Math.Abs((x * x + y * y + z * z + w * w) - 1) < MathUtil.ZeroTolerancef; }
         }
 
 
