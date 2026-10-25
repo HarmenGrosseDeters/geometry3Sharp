@@ -44,7 +44,11 @@ selectively.
 - [x] Iterated booleans with coplanar faces: new vertices inside flat regions and on straight edges between them
   are removed exactly and the regions retriangulated (`ExactPlanarSimplify`); the 10x10x10 cube grid (1999
   booleans) no longer grows exponentially.
-- [ ] More than two meshes in one operation (the arrangement supports it already)
+- [x] More than two meshes in one operation: n-ary union / intersection / difference and any predicate on the
+  winding numbers of all inputs (Zhou et al. 2016, eg `AtLeast(k)`), result code `Status`; only meshes with
+  overlapping boxes are intersected, and only the meshes whose box contains a patch get a winding number ray.
+  The 10x10x10 cube grid with voids (2000 meshes) in one pass: 27 s instead of 1999 pairwise booleans
+  (`BooleanComparison nary`); CLI `g3cli boolean --more ... --op at_least --k 2`.
 - [ ] Rounding of the output without new self-intersections (snap rounding), or exact output coordinates
 - [x] Alpha wrapping (`MeshAlphaWrap`, Portaneri et al. 2022): closed, manifold, intersection-free wrap with an offset
   around any input (soups, open meshes, point clouds), on an own exact 3D Delaunay triangulation (`Delaunay3`).

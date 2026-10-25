@@ -109,12 +109,29 @@ namespace g3
             return ScaleB((double)q, scaleExp - shift);
         }
 
-        /// <summary> x * 2^n without intermediate overflow or underflow </summary>
+        /// <summary> x * 2^n, correctly rounded (one rounding, only for a subnormal result) </summary>
         public static double ScaleB(double x, int n)
         {
-            while (n > 1000) { x *= 8.98846567431158e307; n -= 1023; }       // 2^1023
-            while (n < -1000) { x *= 2.2250738585072014e-308; n += 1022; }   // 2^-1022
-            return x * BitConverter.Int64BitsToDouble((long)(n + 1023) << 52);
+            if (x == 0 || double.IsNaN(x) || double.IsInfinity(x))
+                return x;
+            long bits = BitConverter.DoubleToInt64Bits(x), e = n;
+            if (((bits >> 52) & 0x7FF) == 0) {
+                // subnormal: normalize (exact)
+                bits = BitConverter.DoubleToInt64Bits(x * 18446744073709551616.0);    // 2^64
+                e -= 64;
+            }
+            // x = m 2^k with m in [1, 2): the result is m 2^e
+            e += ((bits >> 52) & 0x7FF) - 1023;
+            long sign = bits & long.MinValue, frac = bits & 0xFFFFFFFFFFFFFL;
+            if (e > 1023)
+                return (sign != 0) ? double.NegativeInfinity : double.PositiveInfinity;
+            if (e >= -1022)
+                return BitConverter.Int64BitsToDouble(sign | ((e + 1023) << 52) | frac);
+            if (e < -1080)
+                return (sign != 0) ? -0.0 : 0.0;       // below half the smallest subnormal
+            // subnormal result: m 2^-1022 (exact) times 2^(e + 1022) >= 2^-58, a single rounding
+            double m = BitConverter.Int64BitsToDouble(sign | (1L << 52) | frac);
+            return m * BitConverter.Int64BitsToDouble((e + 2045) << 52);
         }
 
         public static long BitLength(BigInteger v)

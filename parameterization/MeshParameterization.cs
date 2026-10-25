@@ -8,7 +8,7 @@ namespace g3
     public enum ParameterizationStatus
     {
         Success = 0,
-        /// <summary> no triangles, unused triangles referencing missing vertices, or bowtie boundary vertices </summary>
+        /// <summary> no triangles, unused triangles referencing missing vertices, or bowtie (non-manifold) vertices </summary>
         InvalidMesh = 1,
         /// <summary> the method does not support the topology (eg closed surface, several components, not a disc) </summary>
         InvalidTopology = 2,
@@ -366,6 +366,14 @@ namespace g3
                 }
                 BoundaryLoops.Add(loop.ToArray());
             }
+            // interior bowties (fans that only share the vertex) have no boundary half-edges at the vertex;
+            // a chart joined to the rest only through such a vertex is not held by the pins (LSCM collapses it)
+            for (int i = 0; i < N; ++i)
+                if (mesh.IsBowtieVertex(ToVertex[i])) {
+                    Status = ParameterizationStatus.InvalidMesh;
+                    Error = "vertex " + ToVertex[i] + " is a bowtie (non-manifold vertex); split bowtie vertices first";
+                    return;
+                }
         }
 
         public bool Valid { get { return Status == ParameterizationStatus.Success; } }
@@ -404,16 +412,61 @@ namespace g3
             return ParameterizationResult.Failure(Status, Error);
         }
 
-        /// <summary> cotan Laplacian (positive semidefinite) entries a,b,w: Sum w (f_a - f_b)^2 / 2 = Dirichlet energy </summary>
-        public void ForEachCotanEdge(Action<int, int, double> f)
+        /// <summary>
+        /// cotan Laplacian (positive semidefinite) entries a,b,w: Sum w (f_a - f_b)^2 / 2 = Dirichlet energy.
+        /// Degenerate triangles are skipped, or with mollifyDegenerate get the cotangents of their mollified edge
+        /// lengths (see MollifiedCotangents): their large weights keep a vertex on the edge it lies on (a
+        /// T-junction) in the solution, as in the limit of a triangle that becomes flat.
+        /// </summary>
+        public void ForEachCotanEdge(Action<int, int, double> f, bool mollifyDegenerate = false)
         {
             for (int ti = 0; ti < Tris.Count; ++ti) {
                 TriangleFrame fr = Frames[ti];
-                if (fr.Degenerate) continue;
                 Index3i t = Tris[ti];
+                Vector3d cot = fr.Cot;
+                if (fr.Degenerate && (mollifyDegenerate == false || MollifiedCotangents(Pos[t.a], Pos[t.b], Pos[t.c], out cot) == false))
+                    continue;
                 for (int j = 0; j < 3; ++j)
-                    f(t[(j + 1) % 3], t[(j + 2) % 3], 0.5 * fr.Cot[j]);
+                    f(t[(j + 1) % 3], t[(j + 2) % 3], 0.5 * cot[j]);
             }
+        }
+
+        /// <summary>
+        /// Cotangents at the corners of a (nearly) degenerate triangle after intrinsic mollification (Sharp and
+        /// Crane, "A Laplacian for Nonmanifold Triangle Meshes", 2020): all its edge lengths are increased by the
+        /// smallest delta that gives it an area of 1e-8 / 2 times the square of its longest edge L. Its
+        /// cotangents are then at most about 1e8, both for a flat triangle and for one with coincident
+        /// vertices (a fixed triangle inequality margin gives weights growing like 1/sqrt(margin) for the one
+        /// and 1/margin for the other).
+        /// False if all its vertices coincide.
+        /// </summary>
+        public static bool MollifiedCotangents(Vector3d p0, Vector3d p1, Vector3d p2, out Vector3d cot)
+        {
+            cot = Vector3d.Zero;
+            // l[j]: edge opposite corner j
+            double[] l = { p1.Distance(p2), p2.Distance(p0), p0.Distance(p1) };
+            double maxLen = Math.Max(l[0], Math.Max(l[1], l[2]));
+            if (!(maxLen > 0))
+                return false;
+            Func<double, double> area = (d) => gs.IntrinsicTriangulation.area_from_lengths(l[0] + d, l[1] + d, l[2] + d);
+            double target = 0.5e-8 * maxLen * maxLen;
+            // the area grows with delta (every factor of Heron's formula does); at delta = maxLen it is above
+            // the target, so bisect
+            double lo = 0, hi = maxLen;
+            if (!(area(0) >= target)) {
+                for (int it = 0; it < 100 && hi - lo > 1e-15 * maxLen; ++it) {
+                    double mid = 0.5 * (lo + hi);
+                    if (area(mid) >= target) hi = mid; else lo = mid;
+                }
+                lo = hi;
+            }
+            for (int j = 0; j < 3; ++j) l[j] += lo;
+            double A4 = 4 * gs.IntrinsicTriangulation.area_from_lengths(l[0], l[1], l[2]);
+            if (!(A4 > 0))
+                return false;
+            for (int j = 0; j < 3; ++j)
+                cot[j] = (l[(j + 1) % 3] * l[(j + 1) % 3] + l[(j + 2) % 3] * l[(j + 2) % 3] - l[j] * l[j]) / A4;
+            return true;
         }
 
         public double UVArea(double[] u, double[] v)

@@ -29,6 +29,12 @@ python3 analyze_wrap.py results/wrap.jsonl results/cgalwrap.jsonl   # guarantees
 
 Each mesh runs in its own process with a timeout (120 s, large meshes 900 s), so hangs and crashes are recorded too.
 
+The "repaired" criterion is defined once in `criteria.py` and used by `analyze_fidelity.py`, `analyze_paths.py` and
+`analyze_wrap.py`: results whose exact self-intersections were not computed (more than 300k triangles) and results
+without an IoU do not count as repaired. Meshes without a result (exception, timeout) stay in the denominators of
+`analyze_quality.py` and `compare_modes.py`. `python3 test_analysis.py` checks the scripts on synthetic rows.
+Tables below that were made before this (large meshes "repaired", "7/29"-style counts) may differ by these meshes.
+
 The data selection is fixed (seeded) in `fetch_data.py`:
 - 6 defect categories × 60 broken meshes: not closed, not edge-manifold, not vertex-manifold,
   degenerate faces, duplicated faces, not PWN
@@ -197,6 +203,28 @@ change:
 
 4 meshes are repaired that were not before, none is lost. Most of the former "not closed" cases now stop at the
 next check: slivers left after the resolve and the cleanup (they were hidden, closedness is checked first).
+
+**Slivers left after the resolve.** `MeshPostRepairCleanup` keeps slivers whose collapse would distort or fold a
+neighbour, so the exact stage failed with "degenerate triangles" for 36 meshes. `CollapseSlivers` now collapses
+them anyway (shortest edge below 1e-4 of the diagonal, link condition kept), flips caps and removes tiny closed
+sliver components; the self-intersections that may create are resolved by the next exact round. Same machine,
+both runs on master 7f40ba1 with and without the change (`results/robust_base52.jsonl`,
+`results/robust_slivers.jsonl`, not versioned):
+
+| 400 set | before | after |
+|---|---|---|
+| clean¹ + no exact self-intersections | 399 | 399 |
+| **repaired** (also Hausdorff < 1 %, IoU > 0.99) | 258 | **261** |
+| exact stage used | 132 | **140** |
+| solidify / alpha wrap | 70 / 26 | 63 / 25 |
+| exact stage not used because of degenerate triangles | 36 | **23** |
+| ... because of self-intersections after 4 rounds | 1 | 4 |
+| median repair time | 3.7 s | 3.9 s |
+| total repair time | 2471 s | 2479 s |
+
+3 meshes are repaired that were not before (126545, 255239, 313876), none is lost. Of the 36, 8 now use the exact
+stage, 3 end with self-intersections after 4 rounds, 2 with another reason; 23 keep slivers that can neither be
+collapsed (edges longer than the limit or link condition) nor flipped.
 
 
 ### Spike: solidify resolution 256 (`BENCH_SOLID_RES=256`, 30 meshes)
@@ -412,3 +440,34 @@ wrap make every remaining mesh closed and free of self-intersections, but remesh
 the median, so they rarely meet the strict criterion. Their inputs are mostly meshes the exact resolve cannot
 take: not closed in the winding number sense, or whose resolved solid differs from the input's.
 
+
+### `robust` on the current master (both selections)
+Master of 2026-10-25 night (`56a8ed5`), with the changes merged since `a66049b`: among them the exact resolve
+before the solidify, the alpha wrap as the last resort (#47) and the faster checks (#49). Before: the holdout run above (build `a66049b`). Same machine, `BENCH_P=2
+TIMEOUT=300`. The large meshes of the first selection were not rerun.
+
+| | holdout before | holdout now | first selection now |
+|---|---|---|---|
+| **repaired** | 217 | **256** | **258** |
+| clean¹ + no exact self-intersections | 367 | 399 | 399 |
+| meshes with exact self-intersections | 33 | 0 | 1 |
+| large meshes repaired | 8/30 | 13/30 | – |
+| median / p90 / max repair time | 4.1 s / 15.5 s / 150 s | 1.95 s / 10.0 s / 92 s | 1.96 s / 10.2 s / 57 s |
+| sum of repair times | 2991 s | 1782 s | 1731 s |
+
+- Both selections agree within 2 meshes. The holdout selection was used while developing #49, so the
+  first selection is the cross-check here: no sign of overfitting to either.
+- No crashes or timeouts; all meshes closed.
+- The size-independent outliers are gone: 78968.stl 150 s → 2 s, 49998.stl 118 s → 3 s.
+- Path taken (holdout / first selection) and median time:
+
+  | path | holdout | first | median (holdout) |
+  |---|---|---|---|
+  | repair kept | 174 | 172 | 0.67 s |
+  | exact resolve | 130 | 133 | 2.7 s |
+  | solidify | 73 | 69 | 6.5 s |
+  | alpha wrap | 23 | 26 | 22 s |
+
+- The alpha wrap cases now take a third of the total time (659 s holdout, 603 s first selection): each
+  first runs the exact resolve and the solidify, which are discarded (113906.stl: 11 s exact, 66 s
+  solidify, 12 s wrap). Deciding earlier that the solidify will fail is the next lever.

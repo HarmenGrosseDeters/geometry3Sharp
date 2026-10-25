@@ -216,5 +216,40 @@ namespace geometry3Sharp.Tests
             Assert.Equal(f1.SphereRadius, f2.SphereRadius);
             Assert.Equal(f1.Iterations, f2.Iterations);
         }
+
+        [Fact]
+        public void Ransac_LargeCloud_DoesNotStopAtTheFirstPoorModel()
+        {
+            // 200k points, 20% on a sphere, a tight inlier distance: a first model through 4 random points has a
+            // handful of inliers, w^4 is below 1e-16 and log(1 - w^4) rounds to 0; the iteration count from the
+            // confidence was -infinity cast to long, which stopped RANSAC after that model (6 inliers)
+            var rnd = new Random(5);
+            int n = 200000;
+            var pts = new Vector3d[n];
+            for (int i = 0; i < n; ++i)
+                pts[i] = (i % 5 == 0) ? 2 * GaussVec(rnd).Normalized + new Vector3d(1, 2, 3)
+                    : new Vector3d(rnd.NextDouble() * 6 - 2, rnd.NextDouble() * 6 - 1, rnd.NextDouble() * 6);
+            var fit = new PrimitiveFit3(pts) { Primitive = PrimitiveFit3.Primitives.Sphere, InlierDistance = 1e-5 };
+            Assert.True(fit.Compute());
+            Assert.True(fit.Iterations > 1);
+            Assert.Equal(2, fit.SphereRadius, 6);
+            Assert.True(fit.SphereCenter.Distance(new Vector3d(1, 2, 3)) < 1e-6);
+            Assert.True(fit.InlierCount >= n / 5);
+        }
+
+        [Theory]
+        [InlineData(1.0)]
+        [InlineData(1.5)]
+        [InlineData(double.NaN)]
+        public void Ransac_ConfidenceOne_RunsAllIterations(double confidence)
+        {
+            // never "confident enough": all MaxIterations. (long)(+infinity) is long.MinValue on .NET Framework,
+            // which stopped RANSAC right after the first improving model there
+            Vector3d[] pts, nrm; bool[] outlier;
+            Sample((rnd) => { Vector3d d = GaussVec(rnd).Normalized; return new[] { 2 * d, d }; }, 500, 2, out pts, out nrm, out outlier);
+            var fit = new PrimitiveFit3(pts) { Primitive = PrimitiveFit3.Primitives.Sphere, Confidence = confidence, MaxIterations = 300 };
+            Assert.True(fit.Compute());
+            Assert.Equal(300, fit.Iterations);
+        }
     }
 }

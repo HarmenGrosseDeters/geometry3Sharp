@@ -10,7 +10,7 @@ Implemented from the papers, no code taken over.
 
 | Part | Source |
 |---|---|
-| Exact arrangement of the triangles, classification by winding numbers per patch | Q. Zhou, E. Grinspun, D. Zorin, A. Jacobson, *Mesh Arrangements for Solid Geometry*, ACM TOG (SIGGRAPH) 2016 |
+| Exact arrangement of the triangles, classification by winding numbers per patch; operations on any number of meshes as a predicate on the vector of their winding numbers (n-ary union / intersection, "at least k of n") | Q. Zhou, E. Grinspun, D. Zorin, A. Jacobson, *Mesh Arrangements for Solid Geometry*, ACM TOG (SIGGRAPH) 2016 |
 | Implicit intersection points (edge crossing a plane, three planes) with floating-point filters, exact evaluation only when needed | M. Attene, *Indirect Predicates for Geometric Constructions*, Computer-Aided Design 2020; G. Cherchi, M. Livesu, R. Scateni, M. Attene, *Fast and Robust Mesh Arrangements using Floating-point Arithmetic*, ACM TOG (SIGGRAPH Asia) 2020 |
 | Booleans on arrangements | G. Cherchi, F. Pellacini, M. Attene, M. Livesu, *Interactive and Robust Mesh Booleans*, ACM TOG (SIGGRAPH Asia) 2022 |
 | Expansion arithmetic, error bounds and adaptive stages B, C, D of orient2d / orient3d / incircle (`AdaptivePredicates`, own implementation from the paper, not from `predicates.c` or Triangle.NET) | J. R. Shewchuk, *Adaptive Precision Floating-Point Arithmetic and Fast Robust Geometric Predicates*, Discrete & Computational Geometry 1997 |
@@ -122,6 +122,35 @@ Implemented from the papers, no code taken over.
 | Levenberg-Marquardt on the orthogonal distances | K. Levenberg 1944; D. W. Marquardt, *An algorithm for least-squares estimation of nonlinear parameters*, SIAM J. Appl. Math. 1963 |
 | Normal estimation by PCA of the nearest neighbors | H. Hoppe, T. DeRose, T. Duchamp, J. McDonald, W. Stuetzle, *Surface reconstruction from unorganized points*, SIGGRAPH 1992 |
 | Iteratively reweighted least squares with Cauchy weights (robust local planes) | P. W. Holland, R. E. Welsch, *Robust regression using iteratively reweighted least-squares*, Communications in Statistics 1977 |
+
+## Distances and simplification (`MeshHausdorffDistance`, `TriangleDeviationBounds`, `Reducer`)
+
+The sources named in the code:
+
+| Part | Source |
+|---|---|
+| Hausdorff distance with guaranteed bounds (branch and bound over triangles, cascading upper bounds; `TriangleDeviationBounds`, also used by `Reducer.MaxDeviation`) | L. Sacht, A. Jacobson, *Cascading upper bounds for triangle soup Pompeiu-Hausdorff distance*, SGP 2024 |
+| Regularized optimal collapse point (`Reducer.QuadricRegularization`) | P. Trettner, L. Kobbelt, *Fast and Robust QEF Minimization using Probabilistic Quadrics*, Computer Graphics Forum (Eurographics) 2020 |
+| Triangle-triangle intersection test (`ExactTriangleIntersection`) | O. Devillers, P. Guigue, *Faster triangle-triangle intersection tests*, INRIA RR-4488, 2002 |
+
+## Dual contouring and winding number solids (`DualContouring`, `WindingNumberOctree`, `MeshWindingNumberSolidify`, `MeshWindingNumberBoolean`)
+
+| Part | Source |
+|---|---|
+| Dual contouring with QEF vertices from Hermite data | T. Ju, F. Losasso, S. Schaefer, J. Warren, *Dual Contouring of Hermite Data*, ACM TOG (SIGGRAPH) 2002 |
+| One vertex per surface patch of a cell (manifold dual contouring) | S. Schaefer, T. Ju, J. Warren, *Manifold Dual Contouring*, IEEE TVCG 2007 |
+| Refinement at ambiguous faces | R. Zint, R. Grosso, P. Guertler, *Resolving non-manifoldness on meshes from dual marching cubes*, 2022 |
+| Fast winding numbers of the input (inside test of the solids) | G. Barill, N. Dickson, R. Schmidt, D. I. W. Levin, A. Jacobson, *Fast Winding Numbers for Soups and Clouds*, ACM TOG (SIGGRAPH) 2018 (existing `FastWindingNumber`) |
+
+## Terrain (`TerrainDualContouring`, `TerrainGreedyTIN`, `ClothSimulationFilter`, `TerrainOffset`, `TerrainSafetyLines`, `TerrainBreakLines`, `TerrainVolumeDifference`)
+
+| Part | Source |
+|---|---|
+| Ground filter (inverted point cloud, falling cloth) | W. Zhang, J. Qi, P. Wan, H. Wang, D. Xie, X. Wang, G. Yan, *An Easy-to-Use Airborne LiDAR Data Filtering Method Based on Cloth Simulation*, Remote Sensing 2016. The authors' reference implementation (CSF) is Apache-2.0 |
+| Greedy insertion TIN with a maximum vertical error | M. Garland, P. S. Heckbert, *Fast Polygonal Approximation of Terrains and Height Fields*, CMU-CS-95-181, 1995 |
+| 2.5D dual contouring of the top surface, quadtree merging | after Ju et al. 2002 (see above); the height field sampling, the 2D boundary QEF and the overlap removal are this library's own |
+| Geodesic safety lines (`AlongSurface`) | the heat method, K. Crane, C. Weischedel, M. Wardetzky, *Geodesics in Heat*, ACM TOG 2013 (via `MeshGeodesicDistance`) |
+| Offset surface, horizontal safety lines, break lines, cut and fill volumes | own methods (no external source) |
 
 ## Benchmarks
 

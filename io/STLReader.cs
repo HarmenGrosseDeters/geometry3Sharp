@@ -223,9 +223,9 @@ namespace g3
                     continue;
 
                 if (tokens[0].Equals("vertex", StringComparison.OrdinalIgnoreCase)) {
-                    float x = (tokens.Length > 1) ? Single.Parse(tokens[1], CultureInfo.InvariantCulture) : 0;
-                    float y = (tokens.Length > 2) ? Single.Parse(tokens[2], CultureInfo.InvariantCulture) : 0;
-                    float z = (tokens.Length > 3) ? Single.Parse(tokens[3], CultureInfo.InvariantCulture) : 0;
+                    float x = (tokens.Length > 1) ? Single.Parse(tokens[1], NumberStyles.Float, CultureInfo.InvariantCulture) : 0;
+                    float y = (tokens.Length > 2) ? Single.Parse(tokens[2], NumberStyles.Float, CultureInfo.InvariantCulture) : 0;
+                    float z = (tokens.Length > 3) ? Single.Parse(tokens[3], NumberStyles.Float, CultureInfo.InvariantCulture) : 0;
                     append_vertex(x, y, z);
 
                 // [RMS] we don't really care about these lines...

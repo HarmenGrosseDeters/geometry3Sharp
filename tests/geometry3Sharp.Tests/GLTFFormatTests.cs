@@ -342,6 +342,36 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void Read_ExternalBuffer_PathsLeavingTheDirectoryAreNotRead()
+        {
+            // root/model/tri.gltf may read root/model/sub/tri.bin, but not root/other/tri.bin via ../
+            string root = TempDir();
+            try {
+                string modelDir = Path.Combine(root, "model"), sub = Path.Combine(modelDir, "sub"), other = Path.Combine(root, "other");
+                Directory.CreateDirectory(sub);
+                Directory.CreateDirectory(other);
+                File.WriteAllBytes(Path.Combine(sub, "tri.bin"), Floats(TriPositions));
+                File.WriteAllBytes(Path.Combine(other, "tri.bin"), Floats(TriPositions));
+                string path = Path.Combine(modelDir, "tri.gltf");
+                foreach (string uri in new[] { "../other/tri.bin", "sub/../../other/tri.bin", "..%2Fother%2Ftri.bin", "./../other/tri.bin" }) {
+                    File.WriteAllText(path, SingleTriangle("\"nodes\":[{\"mesh\":0}]").Replace(DataUri(Floats(TriPositions)), uri));
+                    IOReadResult r;
+                    ReadAll(path, out r);
+                    Assert.True(r.code == IOCode.FileAccessError, uri + ": " + r.code + " " + r.message);
+                }
+                foreach (string uri in new[] { "sub/tri.bin", "./sub/tri.bin", "sub/../sub/tri.bin" }) {
+                    File.WriteAllText(path, SingleTriangle("\"nodes\":[{\"mesh\":0}]").Replace(DataUri(Floats(TriPositions)), uri));
+                    IOReadResult r;
+                    List<DMesh3> meshes = ReadAll(path, out r);
+                    Assert.True(r.code == IOCode.Ok, uri + ": " + r.message);
+                    Assert.Equal(new Vector3d(1, 0, 0), meshes[0].GetVertex(1));
+                }
+            } finally {
+                Directory.Delete(root, true);
+            }
+        }
+
+        [Fact]
         public void Read_DracoRequired_NotSupported_OtherExtensionsIgnored()
         {
             IOReadResult r;
@@ -365,6 +395,44 @@ namespace geometry3Sharp.Tests
             IOReadResult r;
             ReadJson(json, out r);
             Assert.NotEqual(IOCode.Ok, r.code);
+        }
+
+        [Fact]
+        public void Read_SharedChildNodes_ReturnError_InsteadOfExponentialExpansion()
+        {
+            // 40 nodes, each with two references to the next one: < 1 KB of JSON, 2^40 paths to the mesh node.
+            // The node hierarchy must be a tree, so the second reference is an error.
+            const int depth = 40;
+            string chain = string.Join(",", Enumerable.Range(0, depth).Select(i => "{\"children\":[" + (i + 1) + "," + (i + 1) + "]}"));
+            string json = SingleTriangle("\"scenes\":[{\"nodes\":[0]}],\"nodes\":[" + chain + ",{\"mesh\":0}]");
+            IOReadResult r = default(IOReadResult);
+            System.Threading.Tasks.Task task = System.Threading.Tasks.Task.Run(() => ReadJson(json, out r));
+            Assert.True(task.Wait(TimeSpan.FromSeconds(30)), "reading did not finish");
+            Assert.Equal(IOCode.FileParsingError, r.code);
+            Assert.Contains("more than once", r.message);
+        }
+
+        [Theory]
+        [InlineData("\"scenes\":[{\"nodes\":[0]}],\"nodes\":[{\"children\":[1,1]},{\"mesh\":0}]")]       // same child twice
+        [InlineData("\"scenes\":[{\"nodes\":[0,1]}],\"nodes\":[{\"children\":[1]},{\"mesh\":0}]")]       // scene root that is also a child
+        [InlineData("\"scenes\":[{\"nodes\":[0,2]}],\"nodes\":[{\"children\":[1]},{\"mesh\":0},{\"children\":[1]}]")]   // two parents
+        public void Read_NodeWithTwoParents_ReturnsError(string nodes)
+        {
+            IOReadResult r;
+            List<DMesh3> meshes = ReadJson(SingleTriangle(nodes), out r);
+            Assert.Equal(IOCode.FileParsingError, r.code);
+        }
+
+        [Fact]
+        public void Read_SiblingSubtrees_StillRead()
+        {
+            // two separate subtrees that instance the same mesh are valid (no node is shared)
+            string nodes = "\"scenes\":[{\"nodes\":[0,2]}],\"nodes\":[{\"children\":[1]},{\"mesh\":0},{\"children\":[3],\"translation\":[0,0,3]},{\"mesh\":0}]";
+            IOReadResult r;
+            List<DMesh3> meshes = ReadJson(SingleTriangle(nodes), out r);
+            Assert.True(r.code == IOCode.Ok, r.message);
+            Assert.Equal(2, meshes.Count);
+            Assert.Equal(new Vector3d(0, 1, 3), meshes[1].GetVertex(2));
         }
 
         [Fact]

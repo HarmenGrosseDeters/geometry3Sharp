@@ -139,14 +139,14 @@ namespace g3
         }
         static public float ParseFloat(string s, float fDefault) {
             try {
-                return float.Parse(s, CultureInfo.InvariantCulture);
+                return float.Parse(s, NumberStyles.Float, CultureInfo.InvariantCulture);
             } catch {
                 return fDefault;
             }
         }
         static public double ParseDouble(string s, double fDefault) {
             try {
-                return double.Parse(s, CultureInfo.InvariantCulture);
+                return double.Parse(s, NumberStyles.Float, CultureInfo.InvariantCulture);
             } catch {
                 return fDefault;
             }

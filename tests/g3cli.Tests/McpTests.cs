@@ -62,7 +62,8 @@ namespace g3cli.Tests
             }
             JsonNode boolean = tools.First(t => S(t["name"]) == "boolean");
             Assert.Equal(new[] { "a", "b", "output", "op" }, boolean["inputSchema"]["required"].AsArray().Select(S).ToArray());
-            Assert.Equal(3, boolean["inputSchema"]["properties"]["op"]["enum"].AsArray().Count);
+            Assert.Equal(4, boolean["inputSchema"]["properties"]["op"]["enum"].AsArray().Count);
+            Assert.Equal("integer", S(boolean["inputSchema"]["properties"]["k"]["type"]));
 
             r = Handle(server, Request(4, "ping"));
             Assert.NotNull(r["result"]);
@@ -87,6 +88,12 @@ namespace g3cli.Tests
             Assert.False(B(r["result"]["isError"]), r.ToJsonString());
             Assert.InRange(D(r["result"]["structuredContent"]["mesh"]["volume"]), 12 - 1e-6, 12 + 1e-6);
             Assert.True(File.Exists(output));
+
+            // more than two inputs, inside at least two of them
+            r = Handle(server, Call(2, "boolean", new JsonObject() {
+                ["a"] = m.Cube, ["b"] = m.Shifted, ["more"] = m.Far, ["output"] = m.Path_("mcp_k.obj"), ["op"] = "at_least", ["k"] = 2 }));
+            Assert.False(B(r["result"]["isError"]), r.ToJsonString());
+            Assert.InRange(D(r["result"]["structuredContent"]["mesh"]["volume"]), 4 - 1e-6, 4 + 1e-6);
 
             r = Handle(server, Call(3, "simplify", new JsonObject() { ["input"] = m.Sphere, ["output"] = m.Path_("mcp_s.off"), ["triangles"] = 50.0 }));
             Assert.False(B(r["result"]["isError"]), r.ToJsonString());

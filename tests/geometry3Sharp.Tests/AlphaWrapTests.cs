@@ -627,5 +627,23 @@ namespace geometry3Sharp.Tests
             Assert.True(w.Compute());
             CheckWrap(w, Vertices(m));
         }
+
+        [Fact]
+        public void Wrap_ReusedInstance_SameAsAFreshOne()
+        {
+            // a second Compute() on the same instance (other input, other alpha): the cached circumcenters and
+            // touches-input flags of the first run were taken for cells of the new triangulation whose stamp matched
+            DMesh3 sphere = Sphere(1, 12), box = Box(new Vector3d(-0.5, -0.6, -0.7), new Vector3d(1.1, 0.9, 0.8));
+            var w = new MeshAlphaWrap(sphere) { RelativeAlpha = 10 };
+            Assert.True(w.Compute());
+            w.Mesh = box;
+            w.RelativeAlpha = 15;
+            Assert.True(w.Compute());
+            var fresh = new MeshAlphaWrap(box) { RelativeAlpha = 15 };
+            Assert.True(fresh.Compute());
+            Assert.Equal(fresh.Result.TriangleCount, w.Result.TriangleCount);
+            Assert.Equal(Vertices(fresh.Result), Vertices(w.Result));
+            CheckWrap(w, Vertices(box));
+        }
     }
 }

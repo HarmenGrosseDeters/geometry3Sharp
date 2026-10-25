@@ -8,7 +8,7 @@ tools of an MCP server (stdio), for coding agents and scripts.
 |---|---|---|
 | `measure` | counts, components, closedness, volume, area, bounds, genus, bowties, degenerate and inside-out parts, self-intersections (exact), Hausdorff distance to a second mesh | `MeshMeasurements`, `MeshRepairMetrics`, `MeshHausdorffDistance` |
 | `repair` | repair into a closed solid (`--method robust`, default, or `auto`) | `MeshRobustRepair`, `MeshAutoRepair` |
-| `boolean` | union, intersection, difference (a minus b), exact | `ExactMeshBoolean` |
+| `boolean` | union, intersection, difference (a minus the others), at least k of n; two or more meshes (`--more`) in one exact operation | `ExactMeshBoolean` |
 | `resolve` | boundary of the solid of one mesh: removes self-intersections, nested shells, duplicate faces | `ExactMeshBoolean.Resolve` |
 | `remesh` | isotropic remeshing to a target edge length, boundary and sharp edges kept | `Remesher`, `MeshConstraintUtil` |
 | `simplify` | quadric edge collapse to a triangle count, ratio, error or edge length | `Reducer` |
@@ -101,6 +101,9 @@ g3cli repair scan.obj scan_fixed.stl --method auto --tolerance 1e-5
 # exact booleans
 g3cli boolean part.stl tool.stl cut.3mf --op difference
 g3cli boolean --a a.obj --b b.obj --output ab.glb --op union --allow-open=false
+# more than two meshes in one operation (one arrangement): files separated by ';'
+g3cli boolean a.stl b.stl all.stl --op union --more "c.stl;d.stl"
+g3cli boolean a.stl b.stl two.stl --op at_least --k 2 --more c.stl
 
 # self-intersecting / overlapping shells in one file -> one clean solid
 g3cli resolve assembly.off solid.ply
