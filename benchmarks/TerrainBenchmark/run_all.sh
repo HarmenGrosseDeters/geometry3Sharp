@@ -31,7 +31,7 @@ cases() {
   echo "volume before=dgm2022 after=bdom2025 win=$T4"
   for s in 0.05 0.2; do echo "volume before=dgm2022 after=bdom2025_1m win=$T1 simplify=$s"; done
   for v in clean tiles overlap holes; do
-    for m in auto cleanup robust; do echo "repair grid=dgm2022 win=$C500 variant=$v mode=$m"; done
+    for m in auto cleanup robust tdc; do echo "repair grid=dgm2022 win=$C500 variant=$v mode=$m"; done
   done
   echo "repair grid=dgm2022 win=$C500 variant=tiles mode=auto coords=local"
   echo "repair grid=dgm2022 win=$T1 variant=tiles mode=auto"

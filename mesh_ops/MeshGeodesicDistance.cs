@@ -341,30 +341,32 @@ namespace gs
                 }
             }
 
-            // 4. Poisson: L phi = -div (L is minus the Laplacian), regularized to be definite
+            // 4. Poisson: L phi = -div (L is minus the Laplacian) with phi = 0 at the sources (Dirichlet).
+            // With several sources (eg a crest line) phi would otherwise differ between them, and shifting
+            // it by the minimum puts the other sources (and their surroundings) metres too far away. The
+            // regularization keeps components without a source (rhs 0, phi 0) definite.
             double eps = 1e-8;
-            // (the divergence sums to 0 on each component; the rounding error is removed per component)
-            double[] phi = new double[N], rhs = new double[N];
-            double[] csum = new double[componentCount]; int[] ccount = new int[componentCount];
+            bool[] isSrc = new bool[N];
+            foreach (int s in src) isSrc[s] = true;
+            // (no compatibility condition with phi fixed at the sources: the divergence is used as it is)
+            double[] phi = new double[N], rhs = new double[N], free = new double[N];
             for (int i = 0; i < N; ++i)
-                if (component[i] >= 0) { csum[component[i]] += div[i]; ccount[component[i]]++; }
-            for (int i = 0; i < N; ++i)
-                if (component[i] >= 0 && hasSource[component[i]])
-                    rhs[i] = -(div[i] - csum[component[i]] / ccount[component[i]]);
-            if (solve((x, r) => { L.Multiply_Parallel(x, r); for (int i = 0; i < N; ++i) r[i] += eps * mass[i] * x[i]; },
-                      (i) => diagL[i] + eps * mass[i], rhs, phi) == false)
+                if (component[i] >= 0 && hasSource[component[i]] && isSrc[i] == false)
+                    rhs[i] = -div[i];
+            if (solve((x, r) => {
+                    for (int i = 0; i < N; ++i) free[i] = isSrc[i] ? 0 : x[i];
+                    L.Multiply_Parallel(free, r);
+                    for (int i = 0; i < N; ++i) r[i] = isSrc[i] ? x[i] : r[i] + eps * mass[i] * x[i];
+                },
+                (i) => isSrc[i] ? 1 : diagL[i] + eps * mass[i], rhs, phi) == false)
                 return false;
 
-            // distances are relative to the sources of each component
-            double[] minSrc = new double[componentCount];
-            for (int c = 0; c < componentCount; ++c) minSrc[c] = double.MaxValue;
-            foreach (int s in src) minSrc[component[s]] = Math.Min(minSrc[component[s]], phi[s]);
             Distance = new double[Mesh.MaxVertexID];
             for (int k = 0; k < Distance.Length; ++k)
                 Distance[k] = double.NaN;
             for (int i = 0; i < N; ++i)
                 if (component[i] >= 0 && hasSource[component[i]])
-                    Distance[toVertex[i]] = Math.Max(0, phi[i] - minSrc[component[i]]);
+                    Distance[toVertex[i]] = Math.Max(0, phi[i]);
             foreach (int s in srcVertices) Distance[s] = 0;
             return true;
         }

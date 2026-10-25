@@ -343,5 +343,29 @@ namespace geometry3Sharp.Tests
             }
             Assert.True(max < 0.5, $"max error {max:F3} m");
         }
+        [Fact]
+        public void MergedCells_NoOverlappingTrianglesInXY()
+        {
+            // rough polyhedral terrain (random planes, 17 cm noise): a merged cell's vertex sat far from
+            // the corners its dual triangles fan around and covered a neighbour's vertex. 5 overlapping
+            // triangle pairs here, 24 on 12 km^2 of a real open pit: not a height field, so
+            // TerrainVolumeDifference refused the result
+            var rnd = new Random(167);
+            var planes2 = Enumerable.Range(0, 15).Select(_ => new Vector3d(rnd.NextDouble() * 1.6 - 0.8, rnd.NextDouble() * 1.6 - 0.8, rnd.NextDouble() * 40)).ToList();
+            var planes = Enumerable.Range(0, 25).Select(_ => new Vector3d(rnd.NextDouble() * 1.2 - 0.6, rnd.NextDouble() * 1.2 - 0.6, rnd.NextDouble() * 40)).ToList();
+            double noise = rnd.NextDouble() * 0.4;
+            DMesh3 mesh = Heightfield((x, y) => planes.Max(p => p.x * (x - 60) + p.y * (y - 60) + p.z) + planes2.Min(p => p.x * (x - 60) + p.y * (y - 60) + p.z)
+                + noise * (rnd.NextDouble() - 0.5), 0, 0, 120, 120, 121);
+
+            var tdc = new TerrainDualContouring(mesh) { CellSize = 1, Tolerance = 0.2 };
+            Assert.True(tdc.Compute());
+            Assert.Equal(0, TerrainVolumeDifference.XYOverlaps(tdc.Result));
+            Assert.True(tdc.SplitLeaves > 0);
+            Assert.True(tdc.Result.TriangleCount < mesh.TriangleCount / 2);
+            // usable for volumes against the input
+            var vd = new TerrainVolumeDifference(mesh, tdc.Result);
+            Assert.True(vd.Compute());
+            Assert.True(Math.Abs(vd.NetVolume) < 0.05 * vd.OverlapArea, $"net {vd.NetVolume} over {vd.OverlapArea}");
+        }
     }
 }

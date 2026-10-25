@@ -2,6 +2,7 @@
 # (reference.py, cached in results/reference_cache.json).
 # Usage: python3 analyze.py results/all.jsonl
 import json, os, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import reference
 
 ARGS = ["before", "after", "grid", "points", "win", "coords", "variant", "mode", "terrain", "d", "simplify",
