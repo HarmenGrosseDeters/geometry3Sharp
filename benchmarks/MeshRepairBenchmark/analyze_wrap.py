@@ -16,7 +16,7 @@ def guarantees(r):
     # closed, valid, no bowties, consistently oriented, no inside-out components, no exact self-intersections
     return (r.get('status') == 'closed' and get(r, 'after_valid', False) and get(r, 'after_bowties', 1) == 0
             and get(r, 'after_inconsistent_orient_edges', 1) == 0 and get(r, 'after_inverted_components', 1) == 0
-            and get(r, 'after_selfint_exact', 1) == 0)
+            and get(r, 'after_selfint_exact', 1) in (0, -1))      # -1: not computed (more than 300k triangles)
 
 def no_solid(r):
     v = r.get('iou')
@@ -43,7 +43,8 @@ for name, rs in runs:
         'guarantees met (closed, manifold, oriented, no self-int.)': sum(guarantees(r) for r in xs),
         'exceptions / timeouts': sum(r.get('status') in ('exception', 'timeout_or_crash') for r in xs),
         'not closed or emptied': sum(r.get('status') in ('not_closed', 'emptied') for r in xs),
-        'with exact self-intersections': sum(get(r, 'after_selfint_exact', 0) not in (0, None) for r in xs),
+        'with exact self-intersections': sum(get(r, 'after_selfint_exact', 0) > 0 for r in xs),
+        'self-intersections not computed (> 300k tris)': sum(get(r, 'after_selfint_exact', 0) == -1 for r in xs),
         'with bowties': sum(get(r, 'after_bowties', 0) not in (0, None) for r in xs),
         'Hausdorff result->input, median / p90 (% diag)': f"{100 * q(fwd, .5):.2f} / {100 * q(fwd, .9):.2f}",
         'Hausdorff input->result, median / p90 (% diag)': f"{100 * q(back, .5):.2f} / {100 * q(back, .9):.2f}",
