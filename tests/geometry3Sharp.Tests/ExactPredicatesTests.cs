@@ -63,6 +63,81 @@ namespace geometry3Sharp.Tests
         }
 
 
+        // --- ported from the predicate tests of the Triangle.NET fork (RobustPredicatesTest, Robustness/PredicatesTest) ---
+
+        [Fact]
+        public void Orient2d_Basic()
+        {
+            Vector2d a = new Vector2d(-1, 0), b = new Vector2d(0, 1);
+            Assert.True(ExactPredicates.Orient2d(a, b, new Vector2d(1, 0)) < 0);
+            Assert.True(ExactPredicates.Orient2d(a, b, new Vector2d(0, 2)) > 0);
+            Assert.Equal(0, ExactPredicates.Orient2d(a, b, new Vector2d(1, 2)));
+        }
+
+        [Fact]
+        public void InCircle_Basic()
+        {
+            Vector2d a = new Vector2d(-1, 0), b = new Vector2d(0, 1), c = new Vector2d(1, 0);
+            // a, b, c are clockwise here: as in Triangle.NET, the sign is reversed for clockwise input
+            Assert.True(ExactPredicates.InCircle(a, b, c, new Vector2d(0, 0.5)) < 0);
+            Assert.True(ExactPredicates.InCircle(a, b, c, new Vector2d(0, 1.5)) > 0);
+            Assert.Equal(0, ExactPredicates.InCircle(a, b, c, new Vector2d(0, 1.0)));
+            Assert.True(ExactPredicates.InCircle(c, b, a, new Vector2d(0, 0.5)) > 0);
+        }
+
+        [Fact]
+        public void NearlyCollinearPointsOfDifferentMagnitude_NoErrorsAndExact()
+        {
+            var random = new Random(1);
+            for (int i = 0; i < 100000; i++) {
+                // points on a line with tiny perturbations and coordinates of very different magnitude
+                double scale = Math.Pow(2, random.Next(-60, 60));
+                double ax = (random.NextDouble() - 0.5) * scale, ay = (random.NextDouble() - 0.5) * scale;
+                double dx = random.NextDouble() - 0.5, dy = random.NextDouble() - 0.5;
+                double t1 = random.NextDouble() * Math.Pow(2, random.Next(-40, 40));
+                double t2 = random.NextDouble() * Math.Pow(2, random.Next(-40, 40));
+                Vector2d a = new Vector2d(ax, ay), b = new Vector2d(ax + t1 * dx, ay + t1 * dy);
+                Vector2d c = new Vector2d(ax + t2 * dx + Math.Pow(2, random.Next(-80, 0)), ay + t2 * dy);
+                Vector2d d = new Vector2d(ax - t2 * dy, ay + t1 * dx);
+                Assert.Equal(Reference.Orient2d(a, b, c), ExactPredicates.Orient2d(a, b, c));
+                Assert.Equal(Reference.InCircle(a, b, c, d), ExactPredicates.InCircle(a, b, c, d));
+            }
+        }
+
+        [Fact]
+        public void InfiniteCoordinates_Throw()
+        {
+            Vector2d inf = new Vector2d(double.PositiveInfinity, double.PositiveInfinity);
+            Assert.Throws<ArgumentException>(() => ExactPredicates.Orient2d(inf, new Vector2d(-1, 1), new Vector2d(1, 1)));
+            Assert.Throws<ArgumentException>(() => ExactPredicates.Orient3d(new Vector3d(double.NaN, 0, 0), Vector3d.AxisX, Vector3d.AxisY, Vector3d.AxisZ));
+        }
+
+        // independent exact reference: rational arithmetic on the exact values of the doubles
+        static class Reference
+        {
+            // v = num / 2^1074 exactly
+            static BigInteger Exact(double v)
+            {
+                long bits = BitConverter.DoubleToInt64Bits(v);
+                int e = (int)((bits >> 52) & 0x7FF);
+                long m = bits & 0xFFFFFFFFFFFFFL;
+                BigInteger r = (e == 0) ? new BigInteger(m) : new BigInteger(m | (1L << 52)) << (e - 1);
+                return bits < 0 ? -r : r;
+            }
+            public static int Orient2d(Vector2d a, Vector2d b, Vector2d c)
+            {
+                BigInteger ax = Exact(a.x), ay = Exact(a.y);
+                return ((Exact(b.x) - ax) * (Exact(c.y) - ay) - (Exact(b.y) - ay) * (Exact(c.x) - ax)).Sign;
+            }
+            public static int InCircle(Vector2d a, Vector2d b, Vector2d c, Vector2d d)
+            {
+                BigInteger dx = Exact(d.x), dy = Exact(d.y);
+                BigInteger adx = Exact(a.x) - dx, ady = Exact(a.y) - dy, bdx = Exact(b.x) - dx, bdy = Exact(b.y) - dy, cdx = Exact(c.x) - dx, cdy = Exact(c.y) - dy;
+                BigInteger det = (adx * adx + ady * ady) * (bdx * cdy - cdx * bdy) + (bdx * bdx + bdy * bdy) * (cdx * ady - adx * cdy) + (cdx * cdx + cdy * cdy) * (adx * bdy - bdx * ady);
+                return det.Sign;
+            }
+        }
+
         static Triangle3d T(Vector3d a, Vector3d b, Vector3d c) { return new Triangle3d(a, b, c); }
 
         // next representable double above v

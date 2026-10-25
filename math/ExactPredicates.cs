@@ -16,6 +16,7 @@ namespace g3
         const double Epsilon = 1.1102230246251565e-16;     // 2^-53
         const double Orient2dBound = (3.0 + 16.0 * Epsilon) * Epsilon;
         const double Orient3dBound = (7.0 + 56.0 * Epsilon) * Epsilon;
+        const double InCircleBound = (10.0 + 96.0 * Epsilon) * Epsilon;
 
         /// <summary> sign of (b - a) x (c - a): +1 if a, b, c are counter-clockwise, -1 clockwise, 0 collinear </summary>
         public static int Orient2d(Vector2d a, Vector2d b, Vector2d c)
@@ -50,7 +51,40 @@ namespace g3
         }
 
 
+        /// <summary>
+        /// +1 if d lies inside the circle through a, b, c (given counter-clockwise; the sign is reversed for
+        /// clockwise input), -1 outside, 0 if the four points are cocircular
+        /// </summary>
+        public static int InCircle(Vector2d a, Vector2d b, Vector2d c, Vector2d d)
+        {
+            double adx = a.x - d.x, bdx = b.x - d.x, cdx = c.x - d.x;
+            double ady = a.y - d.y, bdy = b.y - d.y, cdy = c.y - d.y;
+            double bdxcdy = bdx * cdy, cdxbdy = cdx * bdy, alift = adx * adx + ady * ady;
+            double cdxady = cdx * ady, adxcdy = adx * cdy, blift = bdx * bdx + bdy * bdy;
+            double adxbdy = adx * bdy, bdxady = bdx * ady, clift = cdx * cdx + cdy * cdy;
+            double det = alift * (bdxcdy - cdxbdy) + blift * (cdxady - adxcdy) + clift * (adxbdy - bdxady);
+            double permanent = (Math.Abs(bdxcdy) + Math.Abs(cdxbdy)) * alift
+                + (Math.Abs(cdxady) + Math.Abs(adxcdy)) * blift
+                + (Math.Abs(adxbdy) + Math.Abs(bdxady)) * clift;
+            double bound = InCircleBound * permanent;
+            if (det > bound) return 1;
+            if (-det > bound) return -1;
+            return incircle_exact(a, b, c, d);
+        }
+
+
         // exact versions: all coordinates as integers with a common power-of-two scale
+
+        static int incircle_exact(Vector2d a, Vector2d b, Vector2d c, Vector2d d)
+        {
+            BigInteger[] v = to_integers(a.x, a.y, b.x, b.y, c.x, c.y, d.x, d.y);
+            BigInteger adx = v[0] - v[6], ady = v[1] - v[7], bdx = v[2] - v[6], bdy = v[3] - v[7], cdx = v[4] - v[6], cdy = v[5] - v[7];
+            BigInteger det = (adx * adx + ady * ady) * (bdx * cdy - cdx * bdy)
+                + (bdx * bdx + bdy * bdy) * (cdx * ady - adx * cdy)
+                + (cdx * cdx + cdy * cdy) * (adx * bdy - bdx * ady);
+            return det.Sign;
+        }
+
 
         static int orient2d_exact(Vector2d a, Vector2d b, Vector2d c)
         {
