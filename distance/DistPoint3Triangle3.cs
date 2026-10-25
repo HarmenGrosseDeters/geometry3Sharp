@@ -57,6 +57,24 @@ namespace g3
         }
 
 
+        static double degenerate_distance_sqr(ref Vector3d point, ref Triangle3d tri, out Vector3d closestPoint, out Vector3d baryCoords)
+        {
+            double best = double.MaxValue;
+            closestPoint = tri.V0; baryCoords = new Vector3d(1, 0, 0);
+            for (int k = 0; k < 3; ++k) {
+                Vector3d a = tri[k], b = tri[(k + 1) % 3], ab = b - a;
+                double l2 = ab.LengthSquared;
+                double t = (l2 > 0) ? MathUtil.Clamp((point - a).Dot(ab) / l2, 0, 1) : 0;
+                Vector3d q = a + t * ab;
+                double d = q.DistanceSquared(point);
+                if (d < best) {
+                    best = d; closestPoint = q;
+                    baryCoords = Vector3d.Zero; baryCoords[k] = 1 - t; baryCoords[(k + 1) % 3] = t;
+                }
+            }
+            return best;
+        }
+
         public static double DistanceSqr(ref Vector3d point, ref Triangle3d triangle, out Vector3d closestPoint, out Vector3d baryCoords )
         {
             Vector3d diff = triangle.V0 - point;
@@ -72,6 +90,11 @@ namespace g3
             double s = a01 * b1 - a11 * b0;
             double t = a01 * b0 - a00 * b1;
             double sqrDistance;
+            // degenerate (zero area, or a sliver with angles below ~1e-6: the divisions below would give NaN or
+            // garbage, the edges are within 1e-6 x their length of it): the
+            // nearest of the three edges
+            if (!(det > 1e-12 * a00 * a11) || a00 <= 0 || a11 <= 0)
+                return degenerate_distance_sqr(ref point, ref triangle, out closestPoint, out baryCoords);
 
             if (s + t <= det) {
                 if (s < 0) {

@@ -46,6 +46,8 @@ namespace g3
 
         /// <summary> QEF eigenvalues below this fraction of the largest are ignored (feature sensitivity) </summary>
         public double QEFEigenTolerance = 0.1;
+        /// <summary> vertices stay this far (relative to the cell size) inside their cell </summary>
+        public double QEFCellMargin = 0.01;
 
         /// <summary> sparse mode: cells to contour, in grid cell coordinates (see class comment) </summary>
         public IEnumerable<Vector3i> CandidateCells = null;
@@ -165,22 +167,27 @@ namespace g3
             Array.Sort(cellList);       // deterministic vertex order
             int[][] cellEdgeGroup = new int[cellList.Length][];
             Vector3d[][] cellGroupPos = new Vector3d[cellList.Length][];
+            Vector3d[][] cellGroupMass = new Vector3d[cellList.Length][];
+            bool[][] cellGroupFeature = new bool[cellList.Length][];
             Action<int> place_vertices = (idx) => {
                 Vector3i cell = cellCoords[cellList[idx]];
                 int[] edgeCrossing = cellCrossings[cellList[idx]];
                 int[] groups;
                 int nGroups = cell_patches(cell, edgeCrossing, out groups);
-                Vector3d[] pos = new Vector3d[nGroups];
+                Vector3d[] pos = new Vector3d[nGroups], mass = new Vector3d[nGroups];
+                bool[] feature = new bool[nGroups];
                 List<int> edges = new List<int>(12);
                 for (int g = 0; g < nGroups; ++g) {
                     edges.Clear();
                     for (int le = 0; le < 12; ++le)
                         if (edgeCrossing[le] >= 0 && groups[le] == g)
                             edges.Add(edgeCrossing[le]);
-                    pos[g] = solve_qef(cell, edges, hpoints, hnormals);
+                    pos[g] = solve_qef(cell, edges, hpoints, hnormals, out mass[g], out feature[g]);
                 }
                 cellEdgeGroup[idx] = groups;
                 cellGroupPos[idx] = pos;
+                cellGroupMass[idx] = mass;
+                cellGroupFeature[idx] = feature;
             };
             if (ParallelCompute)
                 gParallel.ForEach(Interval1i.Range(cellList.Length), place_vertices);
@@ -190,11 +197,16 @@ namespace g3
             if (CancelF()) return;
 
             Mesh = new DMesh3();
+            var vertexMass = new List<Vector3d>();
+            var featureVertices = new List<int>();
             Dictionary<long, int[]> cellEdgeVertex = new Dictionary<long, int[]>(cellList.Length);
             for (int idx = 0; idx < cellList.Length; ++idx) {
                 int[] groupVertex = new int[cellGroupPos[idx].Length];
-                for (int g = 0; g < groupVertex.Length; ++g)
+                for (int g = 0; g < groupVertex.Length; ++g) {
                     groupVertex[g] = Mesh.AppendVertex(cellGroupPos[idx][g]);
+                    vertexMass.Add(cellGroupMass[idx][g]);
+                    if (cellGroupFeature[idx][g]) featureVertices.Add(groupVertex[g]);
+                }
                 int[] edgeVertex = new int[12];
                 for (int le = 0; le < 12; ++le)
                     edgeVertex[le] = (cellEdgeGroup[idx][le] >= 0) ? groupVertex[cellEdgeGroup[idx][le]] : -1;
@@ -222,6 +234,11 @@ namespace g3
                 }
                 append_quad(v0, v1, v2, v3);
             }
+
+            SelfIntersectionsFound = SelfIntersectionsLeft = 0;
+            if (ResolveSelfIntersections && featureVertices.Count > 0)
+                resolve_self_intersections(vertexMass, featureVertices);
+            phase("intersections");
 
             // safety net: closed results must have positive volume (relative to the center: results with
             // holes are not closed)
@@ -502,7 +519,73 @@ namespace g3
 
         // minimize sum_i (n_i . (x - p_i))^2 around the mass point, with truncated pseudo-inverse,
         // and keep the result inside the cell
-        Vector3d solve_qef(Vector3i cell, List<int> edges, Vector3d[] points, Vector3d[] normals)
+        /// <summary>
+        /// Vertices on sharp features (QEF of rank 2 or 3: edges, corners) can make neighbouring quads fold
+        /// through each other. If set, intersecting triangles around such vertices are found with exact
+        /// predicates and their vertices moved towards a fallback position until none are left (a few
+        /// rounds): the QEF solution on the dominant plane only, which stays on one input surface.
+        /// </summary>
+        public bool ResolveSelfIntersections = true;
+        /// <summary> intersecting triangle pairs found before / left after resolving </summary>
+        public int SelfIntersectionsFound, SelfIntersectionsLeft;
+
+        void resolve_self_intersections(List<Vector3d> mass, List<int> featureVertices)
+        {
+            var tree = new DMeshAABBTree3(Mesh, true);
+            HashSet<int> candidates = new HashSet<int>();
+            foreach (int v in featureVertices)
+                foreach (int t in Mesh.VtxTrianglesItr(v))
+                    candidates.Add(t);
+            for (int round = 0; round < 6; ++round) {
+                var moving = new HashSet<int>();
+                int pairs = 0;
+                object lockObj = new object();
+                int[] cand = new int[candidates.Count];
+                candidates.CopyTo(cand);
+                gParallel.ForEach(Interval1i.Range(cand.Length), (k) => {
+                    int ta = cand[k];
+                    Index3i ia = Mesh.GetTriangle(ta);
+                    Triangle3d A = new Triangle3d(Mesh.GetVertex(ia.a), Mesh.GetVertex(ia.b), Mesh.GetVertex(ia.c));
+                    if (ExactTriangleIntersection.IsDegenerate(ref A)) return;
+                    AxisAlignedBox3d box = new AxisAlignedBox3d(A.V0); box.Contain(A.V1); box.Contain(A.V2);
+                    var hits = new List<int>();
+                    tree.DoTraversal(new DMeshAABBTree3.TreeTraversal() {
+                        NextBoxDF = (b, depth) => b.Intersects(box),
+                        NextTriangleF = (tb) => {
+                            if (tb == ta || (tb < ta && candidates.Contains(tb))) return;
+                            Index3i ib = Mesh.GetTriangle(tb);
+                            Triangle3d B = new Triangle3d(Mesh.GetVertex(ib.a), Mesh.GetVertex(ib.b), Mesh.GetVertex(ib.c));
+                            if (ExactTriangleIntersection.IsDegenerate(ref B) == false && ExactTriangleIntersection.IntersectsBeyondShared(ia, ref A, ib, ref B))
+                                hits.Add(tb);
+                        }
+                    });
+                    if (hits.Count > 0) {
+                        lock (lockObj) {
+                            pairs += hits.Count;
+                            moving.Add(ia.a); moving.Add(ia.b); moving.Add(ia.c);
+                            foreach (int tb in hits) {
+                                Index3i ib = Mesh.GetTriangle(tb);
+                                moving.Add(ib.a); moving.Add(ib.b); moving.Add(ib.c);
+                            }
+                        }
+                    }
+                });
+                if (round == 0) SelfIntersectionsFound = pairs;
+                SelfIntersectionsLeft = pairs;
+                if (pairs == 0)
+                    return;
+                // halfway to the mass point (all the way in the last rounds)
+                double t = (round < 4) ? 0.5 : 1.0;
+                foreach (int v in moving)
+                    Mesh.SetVertex(v, Vector3d.Lerp(Mesh.GetVertex(v), mass[v], t));
+                tree = new DMeshAABBTree3(Mesh, true);
+                foreach (int v in moving)
+                    foreach (int tt in Mesh.VtxTrianglesItr(v))
+                        candidates.Add(tt);
+            }
+        }
+
+        Vector3d solve_qef(Vector3i cell, List<int> edges, Vector3d[] points, Vector3d[] normals, out Vector3d massPoint, out bool isFeature)
         {
             Vector3d mass = Vector3d.Zero;
             foreach (int ci in edges)
@@ -532,13 +615,113 @@ namespace g3
                 Vector3d e = new Vector3d(ev[0], ev[1], ev[2]);
                 x += (e.Dot(b) / evals[c]) * e;
             }
-            Vector3d result = mass + x;
-
-            // clamp to the cell, otherwise faces can fold over
-            Vector3d cmin = node_pos(cell), cmax = cmin + CellSize * Vector3d.One;
+            // the fallback for resolving self-intersections: on the dominant plane only (rank 1), so the
+            // vertex stays on one of the input surfaces
+            {
+                double[] ev0 = solver.GetEigenvector(0);
+                Vector3d e0 = new Vector3d(ev0[0], ev0[1], ev0[2]);
+                Vector3d x1 = (evals[0] > MathUtil.Epsilon) ? (e0.Dot(b) / evals[0]) * e0 : Vector3d.Zero;
+                Vector3d cmin = node_pos(cell) + QEFCellMargin * CellSize * Vector3d.One, cmax = node_pos(cell) + (1 - QEFCellMargin) * CellSize * Vector3d.One;
+                massPoint = mass + x1;
+                for (int c = 0; c < 3; ++c)
+                    massPoint[c] = MathUtil.Clamp(massPoint[c], cmin[c], cmax[c]);
+            }
+            int rank = 0;
             for (int c = 0; c < 3; ++c)
-                result[c] = MathUtil.Clamp(result[c], cmin[c], cmax[c]);
-            return result;
+                if (evals[c] >= QEFEigenTolerance * maxEval) rank++;
+            isFeature = rank >= 2;
+
+            // the vertex must stay in the cell, otherwise faces can fold over. Clamping the solution per
+            // coordinate moves it off the planes (a corner of the input outside the cell would pull the
+            // vertex off the edge leading to it): minimize the QEF over the cell instead. It is convex, so
+            // the minimum is the best feasible one of the unconstrained solution and the solutions with
+            // 1, 2 or 3 coordinates fixed at the cell bounds (faces, edges, corners of the cell).
+            // (slightly inside: vertices of neighbouring cells on their common face would coincide)
+            double margin = QEFCellMargin * CellSize;
+            Vector3d lo = node_pos(cell) - mass + margin * Vector3d.One, hi = lo + (CellSize - 2 * margin) * Vector3d.One;
+            double eps = 1e-9 * CellSize;
+            if (inside(x, lo, hi, eps))
+                return mass + x;
+            double[] Am = A;
+            double evalTol = QEFEigenTolerance * maxEval;
+            Vector3d best = Vector3d.Zero;
+            double bestErr = double.MaxValue;
+            // fixed[c]: -1 free, 0 at lo, 1 at hi
+            int[] fixedState = new int[3];
+            for (int code = 1; code < 27; ++code) {
+                int t = code;
+                for (int c = 0; c < 3; ++c) { fixedState[c] = (t % 3) - 1; t /= 3; }
+                Vector3d y;
+                if (solve_restricted(Am, b, fixedState, lo, hi, evalTol, out y) == false || inside(y, lo, hi, eps) == false)
+                    continue;
+                double err = qef_error(Am, b, y);
+                if (err < bestErr - 1e-15 * (1 + Math.Abs(err)) || (Math.Abs(err - bestErr) <= 1e-15 * (1 + Math.Abs(err)) && y.LengthSquared < best.LengthSquared)) {
+                    bestErr = err; best = y;
+                }
+            }
+            if (bestErr == double.MaxValue) {
+                for (int c = 0; c < 3; ++c)
+                    best[c] = MathUtil.Clamp(x[c], lo[c], hi[c]);
+            }
+            return mass + best;
+        }
+
+        static bool inside(Vector3d y, Vector3d lo, Vector3d hi, double eps)
+        {
+            return y.x >= lo.x - eps && y.x <= hi.x + eps && y.y >= lo.y - eps && y.y <= hi.y + eps && y.z >= lo.z - eps && y.z <= hi.z + eps;
+        }
+
+        // y^T A y - 2 b.y (the QEF up to a constant)
+        static double qef_error(double[] A, Vector3d b, Vector3d y)
+        {
+            double e = 0;
+            for (int r = 0; r < 3; ++r)
+                for (int c = 0; c < 3; ++c)
+                    e += y[r] * A[3 * r + c] * y[c];
+            return e - 2 * b.Dot(y);
+        }
+
+        // minimize the QEF with the coordinates in fixedState (0 = lo, 1 = hi) fixed: A_FF y_F = b_F - A_FX y_X,
+        // solved with a truncated eigen decomposition (directions the planes do not constrain stay at the
+        // mass point, ie 0)
+        static bool solve_restricted(double[] A, Vector3d b, int[] fixedState, Vector3d lo, Vector3d hi, double evalTol, out Vector3d y)
+        {
+            y = Vector3d.Zero;
+            int[] free = new int[3];
+            int nf = 0;
+            for (int c = 0; c < 3; ++c) {
+                if (fixedState[c] < 0) free[nf++] = c;
+                else y[c] = (fixedState[c] == 0) ? lo[c] : hi[c];
+            }
+            if (nf == 0)
+                return true;
+            double[] r = new double[nf];
+            for (int i = 0; i < nf; ++i) {
+                int fi = free[i];
+                double v = b[fi];
+                for (int c = 0; c < 3; ++c)
+                    if (fixedState[c] >= 0) v -= A[3 * fi + c] * y[c];
+                r[i] = v;
+            }
+            if (nf == 1) {
+                double a = A[3 * free[0] + free[0]];
+                y[free[0]] = (a > evalTol) ? r[0] / a : 0;
+                return true;
+            }
+            if (nf == 2) {
+                double a = A[3 * free[0] + free[0]], c2 = A[3 * free[1] + free[1]], bb = A[3 * free[0] + free[1]];
+                // eigen decomposition of [[a, bb], [bb, c2]]
+                double tr = 0.5 * (a + c2), det = Math.Sqrt(Math.Max(0, 0.25 * (a - c2) * (a - c2) + bb * bb));
+                double l1 = tr + det, l2 = tr - det;
+                Vector2d e1 = (Math.Abs(bb) > 1e-300) ? new Vector2d(l1 - c2, bb).Normalized : (a >= c2 ? Vector2d.AxisX : Vector2d.AxisY);
+                Vector2d e2 = new Vector2d(-e1.y, e1.x);
+                Vector2d rv = new Vector2d(r[0], r[1]), sol = Vector2d.Zero;
+                if (l1 > evalTol) sol += (e1.Dot(rv) / l1) * e1;
+                if (l2 > evalTol) sol += (e2.Dot(rv) / l2) * e2;
+                y[free[0]] = sol.x; y[free[1]] = sol.y;
+                return true;
+            }
+            return false;       // all free: the unconstrained solution, handled by the caller
         }
 
 

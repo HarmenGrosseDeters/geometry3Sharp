@@ -113,23 +113,10 @@ namespace geometry3Sharp.Tests
             Assert.InRange(volume, 1990, 2010);
         }
 
+        // exact, also between neighbours (touching only counts too)
         static int SelfIntersections(DMesh3 m)
         {
-            double diag2 = m.CachedBounds.DiagonalLength * m.CachedBounds.DiagonalLength;
-            var copy = new DMesh3(m);
-            foreach (int t in copy.TriangleIndices().ToArray())
-                if (copy.GetTriArea(t) < 1e-12 * diag2)
-                    copy.RemoveTriangle(t, false, false);
-            var tree = new DMeshAABBTree3(copy, true);
-            var res = tree.FindAllIntersections(tree);
-            var pairs = new HashSet<Index2i>();
-            foreach (var x in res.Points.Select(q => new Index2i(q.t0, q.t1)).Concat(res.Segments.Select(q => new Index2i(q.t0, q.t1)))) {
-                if (x.a == x.b) continue;
-                Index3i ta = copy.GetTriangle(x.a), tb = copy.GetTriangle(x.b);
-                if (new[] { ta.a, ta.b, ta.c }.Intersect(new[] { tb.a, tb.b, tb.c }).Any()) continue;
-                pairs.Add(new Index2i(Math.Min(x.a, x.b), Math.Max(x.a, x.b)));
-            }
-            return pairs.Count;
+            return MeshRepairMetrics.SelfIntersections(m);
         }
 
         // two boxes with a gap narrower than a cell, rotated off the grid axes
