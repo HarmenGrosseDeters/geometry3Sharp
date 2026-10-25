@@ -289,6 +289,35 @@ namespace geometry3Sharp.Tests
             Assert.False(safety.Compute());
         }
 
+        [Fact]
+        public void BreakLines_GapClosing_ManyPieces_FastAndClosestFirst()
+        {
+            // 1200 pieces of one zigzag line, 0.5 m gaps, and a square ring of 4 pieces: the gap closing
+            // searched all end pairs again for every join (cubic: 105 s for 1500 lines of real crests)
+            var lines = new List<List<Vector3d>>();
+            for (int k = 0; k < 1200; ++k) {
+                double x = 2.5 * k;
+                lines.Add(new List<Vector3d>() { new Vector3d(x, k % 2, 0), new Vector3d(x + 2, k % 2, 0) });
+            }
+            // shuffled, so the pieces are not in order
+            var rnd = new Random(5);
+            lines = lines.OrderBy(l => rnd.Next()).ToList();
+            var square = new[] { new Vector3d(0, 100, 0), new Vector3d(10, 100, 0), new Vector3d(10, 110, 0), new Vector3d(0, 110, 0) };
+            for (int k = 0; k < 4; ++k)
+                lines.Add(new List<Vector3d>() { square[k], Vector3d.Lerp(square[k], square[(k + 1) % 4], 0.95) });
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            TerrainBreakLines.close_gaps(lines, 1.5);
+            Assert.True(sw.Elapsed.TotalSeconds < 2, $"{sw.Elapsed.TotalSeconds} s");
+            // the zigzag pieces: each end is 0.5 m (straight) or 1.1 m (diagonal) from the next piece's
+            // start: one line; the square: one closed ring
+            Assert.Equal(2, lines.Count);
+            var zig = lines.Single(l => l[0].y < 50);
+            Assert.Equal(2400, zig.Count);
+            var ring = lines.Single(l => l[0].y >= 50);
+            Assert.True(ring[0].Distance(ring[ring.Count - 1]) < 1e-9);
+            Assert.Equal(9, ring.Count);
+        }
+
         static Vector2d UV(Vector3d p)
         {
             double c = Math.Cos(Angle * MathUtil.Deg2Rad), s = Math.Sin(Angle * MathUtil.Deg2Rad);
