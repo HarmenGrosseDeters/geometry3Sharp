@@ -55,6 +55,11 @@ namespace gs
         public bool ExactResolve = true;
         /// <summary> rounding the new vertices to double can create tiny self-intersections: resolve again, up to this often </summary>
         public int ExactResolveRounds = 4;
+        /// <summary>
+        /// the exact resolve is not tried for meshes with more self-intersecting triangle pairs than this (its time
+        /// grows with them; a heavily overlapping mesh is solidified instead); 0 = no limit
+        /// </summary>
+        public int ExactResolveMaxPairs = 200000;
 
         // outputs
         /// <summary> true if the result was produced by the solidify fallback (remeshed), false if it is the repair result </summary>
@@ -161,6 +166,13 @@ namespace gs
             if (ExactMeshBoolean.IsWindingClosed(m) == false) {
                 ExactResolveReason = "not closed (winding number)";
                 return null;
+            }
+            if (ExactResolveMaxPairs > 0) {
+                int pairs = MeshRepairMetrics.SelfIntersections(m);
+                if (pairs > ExactResolveMaxPairs) {
+                    ExactResolveReason = "too many self-intersections";
+                    return null;
+                }
             }
             for (int round = 0; round < ExactResolveRounds; ++round) {
                 if (CancelF())

@@ -67,6 +67,19 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void TooManySelfIntersections_SolidifiedInsteadOfResolved()
+        {
+            // the exact resolve takes too long for heavily overlapping meshes: above ExactResolveMaxPairs the
+            // repaired mesh is solidified right away
+            var r = new MeshRobustRepair(OverlappingSpheres()) { ExactResolveMaxPairs = 10 };
+            Assert.True(r.Apply());
+            Assert.False(r.UsedExactResolve);
+            Assert.Equal("too many self-intersections", r.ExactResolveReason);
+            Assert.True(r.UsedSolidify);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(r.Mesh));
+        }
+
+        [Fact]
         public void SelfIntersectingInput_WithoutExactResolve_SolidifiedClean()
         {
             var r = new MeshRobustRepair(OverlappingSpheres()) { ExactResolve = false };
