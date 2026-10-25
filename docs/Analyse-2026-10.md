@@ -157,6 +157,21 @@ Bereits vorher behoben: `MeshTriInfoCache`, `EdgeSpan.CheckValidity`, `next_edge
 Zurückgestellt, weil sie sichtbares Verhalten ändern: `MeshEditor.DisconnectBowtie` (braucht eine neue Fächer-Erkennung)
 und der `DSubmesh3`-Konstruktor (`compute()` vor den Object-Initializern; ein Fix ändert die API).
 
+Achte Runde, degenerierte Eingaben. Regressionstests stehen in `tests/geometry3Sharp.Tests/DegenerateFixesTests.cs`
+(8 Tests; ohne Fix scheitern 7, der achte prüft, dass nicht degenerierte Dreiecke unverändert behandelt werden).
+
+Behoben:
+- `IntrTriangle3Triangle3` (#85): Ein Dreieck mit kollinearen oder zusammenfallenden Ecken hat keine Normale, die
+  Trennachsen werden null und `Test`/`Intersects` meldeten Schnitte, die es nicht gibt. Solche Dreiecke werden jetzt als
+  Segment bzw. Punkt per Abstand getestet. `Find` meldet für sie nur, ob sie sich berühren (`Type` = `Unknown`, keine
+  Schnittpunkte); vorher lieferte es für ein degeneriertes `triangle0` und für ein degeneriertes `triangle1`, das die
+  Ebene durchstößt, falsche Ergebnisse.
+- `Segment2d.Intersects` (#137): Ein Segment der Länge 0 hat die Richtung null und galt als parallel zu allem; das
+  Ergebnis hing von der Reihenfolge ab. Es wird jetzt als Punkt getestet, mit denselben Schwellen wie der kollineare Fall.
+
+Bereits vorher behoben: `DistPoint3Triangle3` und `MeshQueries.TriDistanceSqr` mit degenerierten Dreiecken (Abstand zur
+nächsten Kante statt NaN).
+
 Bewusst zurückgestellt: `OBJReader.is_complex`. Der Fix leitet Dateien auf `BuildMeshes_ByMaterial` um. Dieser Pfad
 verwirft UVs bei Meshes ohne Material, übernimmt keine Gruppen und stürzt bei Faces ohne Normal-Index ab. Er muss deshalb
 zusammen mit diesem Pfad repariert werden.
