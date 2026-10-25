@@ -95,7 +95,7 @@ class Program
                 r["stages"] = stages;
             } else if (repairMode == "robust") {
                 // MeshRobustRepair: hybrid plus the volume check against the input's winding number solid
-                var robust = new MeshRobustRepair(mesh) { ConfigureRepair = (rep) => {
+                var robust = new MeshRobustRepair(mesh) { ExactResolve = Environment.GetEnvironmentVariable("BENCH_EXACT") != "0", ConfigureRepair = (rep) => {
                     rep.RepairTolerance *= tolFactor; rep.MinEdgeLengthTol *= tolFactor; } };
                 int res = int.Parse(Environment.GetEnvironmentVariable("BENCH_SOLID_RES") ?? "128");
                 robust.SolidifyResolution = res;
@@ -105,6 +105,9 @@ class Program
                 r["hybrid_reason"] = robust.FallbackReason;
                 r["robust_used_solidify"] = robust.UsedSolidify;
                 r["robust_repair_iou"] = robust.RepairVolumeIoU;
+                r["robust_used_exact"] = robust.UsedExactResolve;
+                r["robust_exact_reason"] = robust.ExactResolveReason;
+                r["robust_exact_rounds"] = robust.ExactResolveRoundsUsed;
             } else if (repairMode.StartsWith("solidify_")) {
                 result = Solidify(original, repairMode == "solidify_mc" ? MeshWindingNumberSolidify.Methods.MarchingCubes
                     : MeshWindingNumberSolidify.Methods.DualContouring, repairMode == "solidify_dc_adaptive", r);

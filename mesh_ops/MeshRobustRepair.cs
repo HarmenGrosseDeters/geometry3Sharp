@@ -7,9 +7,11 @@ namespace gs
 {
     /// <summary>
     /// Repair that ends with a clean solid wherever possible: MeshAutoRepair (with the post-repair
-    /// cleanup) first, which keeps the input triangles; if its result is not clean, the repaired mesh is
-    /// solidified (winding number, adaptive dual contouring), which gives a closed, manifold surface without
-    /// self-intersections at the cost of remeshing it (deviation about a cell, see SolidifyResolution).
+    /// cleanup) first, which keeps the input triangles; if its result is not clean, its self-intersections
+    /// are resolved exactly (ExactResolve: ExactMeshBoolean.Resolve, which keeps the geometry); if that is not
+    /// clean either, the repaired mesh is solidified (winding number, adaptive dual contouring), which gives a
+    /// closed, manifold surface without self-intersections at the cost of remeshing it (deviation about a
+    /// cell, see SolidifyResolution).
     ///
     /// Clean means: closed, no bowties, no degenerate triangles, no inside-out components and, if
     /// CheckSelfIntersections, no self-intersections (exact, MeshRepairMetrics).
@@ -31,6 +33,14 @@ namespace gs
         /// <summary> replaces the first stage (input -> repaired mesh); null = MeshAutoRepair </summary>
         public Func<DMesh3, DMesh3> RepairF = null;
         public Func<bool> CancelF = () => { return false; };
+        /// <summary>
+        /// before solidifying: resolve the self-intersections exactly (the solid where the winding number is
+        /// positive, ExactMeshBoolean.Resolve); used if the result is clean and its volume agrees with the input.
+        /// Only for meshes that are closed in the winding number sense (exact winding numbers).
+        /// </summary>
+        public bool ExactResolve = true;
+        /// <summary> rounding the new vertices to double can create tiny self-intersections: resolve again, up to this often </summary>
+        public int ExactResolveRounds = 4;
 
         // outputs
         public bool UsedSolidify;
@@ -39,6 +49,11 @@ namespace gs
         /// <summary> volume IoU of the repair result with the input (NaN if the input has no solid or not checked) </summary>
         public double RepairVolumeIoU = double.NaN;
         public MeshWindingNumberSolidify Solidify;
+        public bool UsedExactResolve;
+        /// <summary> why the exact resolve was not used ("" if it was or was not tried) </summary>
+        public string ExactResolveReason = "";
+        /// <summary> resolves done by the exact stage (0 if not tried) </summary>
+        public int ExactResolveRoundsUsed;
 
         public MeshRobustRepair(DMesh3 mesh)
         {
@@ -48,6 +63,9 @@ namespace gs
         public bool Apply()
         {
             UsedSolidify = false;
+            UsedExactResolve = false;
+            ExactResolveReason = "";
+            ExactResolveRoundsUsed = 0;
             FallbackReason = "";
             RepairVolumeIoU = double.NaN;
             DMesh3 input = new DMesh3(Mesh);
@@ -78,12 +96,66 @@ namespace gs
             }
             if (solidifyFrom.TriangleCount == 0)
                 return false;
+            if (ExactResolve) {
+                DMesh3 exact = resolve_exactly(solidifyFrom, input);
+                if (CancelF())
+                    return false;
+                if (exact != null) {
+                    Mesh = exact;
+                    UsedExactResolve = true;
+                    return true;
+                }
+            }
             Solidify = new MeshWindingNumberSolidify(solidifyFrom) { GridResolution = SolidifyResolution, Adaptive = true, CancelF = CancelF };
             if (Solidify.Compute() == false || Solidify.Result == null || Solidify.Result.TriangleCount == 0)
                 return false;
             Mesh = Solidify.Result;
             UsedSolidify = true;
             return true;
+        }
+
+        // the solid of the mesh with its self-intersections resolved exactly, or null (ExactResolveReason says why)
+        DMesh3 resolve_exactly(DMesh3 from, DMesh3 input)
+        {
+            // inside-out parts flipped, so that the solid is where the winding number is positive
+            DMesh3 m = WindingContouring.OrientedCopy(from);
+            if (ExactMeshBoolean.IsWindingClosed(m) == false) {
+                ExactResolveReason = "not closed (winding number)";
+                return null;
+            }
+            for (int round = 0; round < ExactResolveRounds; ++round) {
+                if (CancelF())
+                    return null;
+                DMesh3 res = ExactMeshBoolean.Resolve(m);
+                ExactResolveRoundsUsed++;
+                if (res == null || res.TriangleCount == 0) {
+                    ExactResolveReason = "resolve failed";
+                    return null;
+                }
+                string reason = NotCleanReason(res, CheckSelfIntersections);
+                if (reason == "self-intersections") {
+                    // from rounding the new vertices: tiny, resolved by the next round
+                    ExactResolveReason = reason;
+                    m = res;
+                    continue;
+                }
+                if (reason != "") {
+                    ExactResolveReason = reason;
+                    return null;
+                }
+                if (MinVolumeIoU > 0) {
+                    double missing, extra;
+                    double iou = MeshRepairMetrics.VolumeIoU(input, res, out missing, out extra);
+                    if (iou < MinVolumeIoU) {        // (NaN: the input has no solid to compare with)
+                        ExactResolveReason = "volume differs from the input";
+                        return null;
+                    }
+                    RepairVolumeIoU = iou;
+                }
+                ExactResolveReason = "";
+                return res;
+            }
+            return null;
         }
 
         /// <summary> "" if the mesh is clean (see class comment), otherwise the first problem found </summary>
