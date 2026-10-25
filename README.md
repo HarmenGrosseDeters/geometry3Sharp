@@ -17,7 +17,8 @@ operations to their classes, with a tested example for each. It adds:
   all intersecting triangles, exact winding numbers). Coplanar, touching and nearly coincident inputs give
   closed results; self-intersecting meshes, nested shells and duplicated faces are resolved
   (`ExactMeshBoolean.Resolve(mesh)` does that for one mesh); open meshes use the generalized winding number.
-  Only the output coordinates are rounded to double.
+  Only the output coordinates are rounded to double. New vertices inside flat regions and on straight edges
+  (from overlapping coplanar faces) are removed exactly, so repeated booleans do not fragment the result.
 - Intrinsic geodesics (Phase 3 of the roadmap): `IntrinsicTriangulation` (intrinsic Delaunay flips with
   signposts, edge tracing over the input mesh, mollification of degenerate triangles), the heat method on it
   (`MeshGeodesicDistance.IntrinsicDelaunay = true`, accurate on sliver and obtuse meshes) and

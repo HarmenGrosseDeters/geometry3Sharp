@@ -228,6 +228,47 @@ namespace geometry3Sharp.Tests
         }
 
 
+        [Fact]
+        public void Oracle_ManyPrimitives_PruningIsConservative()
+        {
+            // a sphere as a soup with random orientations (the node slabs average the triangle normals) plus a
+            // flat patch: entries and contacts against brute force over all primitives
+            var rnd = new Random(9);
+            DMesh3 s = Sphere(1, 10);
+            var tris = new List<Vector3d>();
+            foreach (int tid in s.TriangleIndices()) {
+                Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+                s.GetTriVertices(tid, ref a, ref b, ref c);
+                if (rnd.Next(2) == 0) { tris.Add(a); tris.Add(b); tris.Add(c); } else { tris.Add(a); tris.Add(c); tris.Add(b); }
+            }
+            for (int i = 0; i < 10; ++i)
+                for (int j = 0; j < 10; ++j) {
+                    Vector3d p = new Vector3d(1.5 + 0.1 * i, 0.1 * j, 0);
+                    tris.Add(p); tris.Add(p + 0.1 * Vector3d.AxisX); tris.Add(p + 0.1 * Vector3d.AxisY);
+                }
+            var o = new AlphaWrapOracle(tris, new List<Vector3d>());
+            var single = Enumerable.Range(0, tris.Count / 3).Select(k => new AlphaWrapOracle(tris.GetRange(3 * k, 3), new List<Vector3d>())).ToList();
+            for (int k = 0; k < 400; ++k) {
+                Vector3d a = new Vector3d(4 * rnd.NextDouble() - 1.5, 3 * rnd.NextDouble() - 1.5, 3 * rnd.NextDouble() - 1.5);
+                Vector3d b = a + 0.8 * new Vector3d(rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5);
+                double r = 0.01 + 0.05 * rnd.NextDouble();
+                double t = o.FirstEntry(a, b, r);
+                double tb = -1;
+                foreach (var so in single) {
+                    double ts = so.FirstEntry(a, b, r);
+                    if (ts >= 0 && (tb < 0 || ts < tb)) tb = ts;
+                }
+                Assert.Equal(tb, t);
+                Vector3d[] v = { a, b, a + 0.3 * new Vector3d(rnd.NextDouble(), rnd.NextDouble(), 0), a + 0.3 * new Vector3d(0, rnd.NextDouble(), rnd.NextDouble()) };
+                if (ExactPredicates.Orient3d(v[0], v[1], v[2], v[3]) == 0) continue;
+                if (ExactPredicates.Orient3d(v[0], v[1], v[2], v[3]) < 0) { var x = v[0]; v[0] = v[1]; v[1] = x; }
+                bool touches = o.TetrahedronTouches(v[0], v[1], v[2], v[3], r);
+                bool touchesBrute = single.Any(so => so.TetrahedronTouches(v[0], v[1], v[2], v[3], r));
+                Assert.Equal(touchesBrute, touches);
+            }
+        }
+
+
         // ---- MeshAlphaWrap ----
 
         static DMesh3 Tris(params Vector3d[] v)

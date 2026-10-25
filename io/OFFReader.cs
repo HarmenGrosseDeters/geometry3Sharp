@@ -40,15 +40,31 @@ namespace g3
 			// ...
 			//
 
-            string first_line = reader.ReadLine();
-            if (first_line.StartsWith("OFF") == false)
-                return new IOReadResult(IOCode.FileParsingError, "ascii OFF file must start with OFF header");
+            // header: [ST][C][N]OFF (texture coordinates, colors, normals follow the vertex coordinates and are
+            // ignored), optionally after comment lines and with the counts on the same line. 4OFF / nOFF (other
+            // dimensions) and binary OFF are not supported.
+            int nLines = 0;
+            string[] header = null;
+            while (reader.Peek() >= 0) {
+                string line = reader.ReadLine();
+                nLines++;
+                string[] tokens = line.Split((char[])null, StringSplitOptions.RemoveEmptyEntries);
+                if (tokens.Length == 0 || tokens[0].StartsWith("#"))
+                    continue;
+                header = tokens;
+                break;
+            }
+            if (header == null || header[0].EndsWith("OFF") == false
+                || header[0].Substring(0, header[0].Length - 3).Any(ch => "STCN".IndexOf(ch) < 0))
+                return new IOReadResult(IOCode.FileParsingError, "ascii OFF file must start with an OFF header ([ST][C][N]OFF)");
+            if (header.Length > 1 && header[1] == "BINARY")
+                return new IOReadResult(IOCode.FormatNotSupportedError, "binary OFF is not supported");
 
             int nVertexCount = 0;
             int nTriangleCount = 0;
 
-            int nLines = 0;
-            while (reader.Peek() >= 0) {
+            string[] counts = header.Length >= 3 ? header.Skip(1).ToArray() : null;
+            while (counts == null && reader.Peek() >= 0) {
                 string line = reader.ReadLine();
                 nLines++;
                 string[] tokens = line.Split( (char[])null , StringSplitOptions.RemoveEmptyEntries);
@@ -58,13 +74,15 @@ namespace g3
                 if (tokens[0].StartsWith("#"))
                     continue;
 
-                if ( tokens.Length != 3 ) 
+                if ( tokens.Length < 2 || tokens.Length > 3 )
                     return new IOReadResult(IOCode.FileParsingError, "first non-comment line of OFF must be vertex/tri/edge counts, found: " + line);
-                nVertexCount = int.Parse(tokens[0], CultureInfo.InvariantCulture);
-                nTriangleCount = int.Parse(tokens[1], CultureInfo.InvariantCulture);
-                //int nEdgeCount = int.Parse(tokens[2], CultureInfo.InvariantCulture);
-                break;
+                counts = tokens;
             }
+            if (counts == null)
+                return new IOReadResult(IOCode.FileParsingError, "OFF file has no vertex/tri/edge counts");
+            nVertexCount = int.Parse(counts[0], CultureInfo.InvariantCulture);
+            nTriangleCount = int.Parse(counts[1], CultureInfo.InvariantCulture);
+            //int nEdgeCount = int.Parse(counts[2], CultureInfo.InvariantCulture);
 
 
             builder.AppendNewMesh(false, false, false, false);
@@ -80,8 +98,9 @@ namespace g3
                 if (tokens[0].StartsWith("#"))
                     continue;
 
-                if ( tokens.Length != 3 )
-                    emit_warning("found invalid OFF vertex line: " + line);
+                // further values on the line (normal, color, texture coordinates) are ignored
+                if ( tokens.Length < 3 )
+                    return new IOReadResult(IOCode.FileParsingError, "found invalid OFF vertex line: " + line);
 
                 double x = Double.Parse(tokens[0], CultureInfo.InvariantCulture);
                 double y = Double.Parse(tokens[1], CultureInfo.InvariantCulture);

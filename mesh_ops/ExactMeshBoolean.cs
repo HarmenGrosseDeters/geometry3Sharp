@@ -26,6 +26,10 @@ namespace g3
     /// solid where it is above 0.5; then the result is generally not closed. An inside-out mesh (winding
     /// number -1) has an empty solid. Degenerate (zero-area) input
     /// triangles are dropped. The rounding of new vertices can, rarely, create tiny self-intersections.
+    /// New vertices that lie exactly inside a flat region of the result or on a straight edge between two flat
+    /// regions (eg the crossings of the edges of overlapping coplanar faces) are removed and the regions
+    /// retriangulated (SimplifyFlatRegions, ExactPlanarSimplify), so that repeated booleans do not split the
+    /// faces again and again at rounded points.
     ///
     /// Usage: construct with the two meshes and the operation, call Compute(), and read Result (a new mesh;
     /// the inputs are not modified). Compute() returns false and sets Error for null inputs, non-finite
@@ -68,6 +72,15 @@ namespace g3
         public int NonManifoldTriangles;
         /// <summary> number of patches classified </summary>
         public int Patches;
+        /// <summary>
+        /// remove new vertices (not input vertices) that lie exactly inside a flat region of the result or on a
+        /// straight edge between two flat regions, and retriangulate there (ExactPlanarSimplify). Without it,
+        /// coplanar overlapping faces leave the crossings of their edges and diagonals in the result, which
+        /// repeated booleans split at again (the number of triangles grows quickly).
+        /// </summary>
+        public bool SimplifyFlatRegions = true;
+        /// <summary> vertices removed by SimplifyFlatRegions </summary>
+        public int RemovedVertices;
         /// <summary> if false, Compute() fails for meshes that are not closed in the winding number sense </summary>
         public bool AllowOpenMeshes = true;
         /// <summary> per input mesh: winding numbers exact (closed mesh) or generalized (open mesh) </summary>
@@ -140,6 +153,7 @@ namespace g3
             Counts["winding_plane_sides_exact"] = windingExactSides;
             Result = assemble(keep, flip);
             PhaseMilliseconds["assembly"] = sw.ElapsedMilliseconds;
+            Counts["removed_vertices"] = RemovedVertices;
             return true;
         }
 
@@ -635,11 +649,28 @@ namespace g3
         DMesh3 assemble(bool[] keep, bool[] flip)
         {
             var tris = new List<Index3i>();
+            var source = new List<int>();
+            var flipped = new List<bool>();
             for (int i = 0; i < arr.Output.Count; ++i) {
                 if (keep[i] == false)
                     continue;
                 var ot = arr.Output[i];
                 tris.Add(flip[i] ? new Index3i(ot.A, ot.C, ot.B) : new Index3i(ot.A, ot.B, ot.C));
+                source.Add(ot.Source);
+                flipped.Add(flip[i]);
+            }
+            if (SimplifyFlatRegions) {
+                // new points inside flat regions and on straight edges between them are not needed
+                var inputPoints = new HashSet<int>();
+                for (int m = 0; m < arr.VertexPoints.Length; ++m)
+                    foreach (int vid in arr.Meshes[m].VertexIndices())
+                        inputPoints.Add(arr.Canonical(arr.VertexPoints[m][vid]));
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                var simplify = new ExactPlanarSimplify(arr, tris, source, flipped);
+                simplify.Run(inputPoints);
+                tris = simplify.Result();
+                RemovedVertices = simplify.Removed;
+                PhaseMilliseconds["simplify"] = sw.ElapsedMilliseconds;
             }
 
             // corner slots (3 per triangle) joined across the edges where the triangles are neighbours
