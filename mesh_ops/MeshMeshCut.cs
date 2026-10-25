@@ -205,7 +205,7 @@ namespace g3
                     iseg[j] = sv;
 
                     // this vtx is tol-equal to input mesh vtx
-                    int existing_v = find_existing_vertex(isect.point0);
+                    int existing_v = find_existing_vertex(v);
                     if (existing_v >= 0) {
                         sv.initial_type = sv.type = 0;
                         sv.elem_id = existing_v;
@@ -648,10 +648,10 @@ namespace g3
         {
             KeyValuePair<int, double> found = (ignore_vid == -1) ?
                 PointHash.FindNearestInRadius(pt, searchRadius,
-                            (b) => { return pt.DistanceSquared(Target.GetVertex(b)); })
+                            (b) => { return pt.Distance(Target.GetVertex(b)); })
                             :
                 PointHash.FindNearestInRadius(pt, searchRadius,
-                            (b) => { return pt.DistanceSquared(Target.GetVertex(b)); },
+                            (b) => { return pt.Distance(Target.GetVertex(b)); },
                             (vid) => { return vid == ignore_vid; });
             if (found.Key == PointHash.InvalidValue)
                 return -1;

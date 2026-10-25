@@ -20,10 +20,10 @@ namespace geometry3Sharp.Tests
             return MeshMeasurements.VolumeArea(mesh, mesh.TriangleIndices(), mesh.GetVertex).x;
         }
 
-        static WindingNumberOctree BuildOctree(DMesh3 mesh, int depth)
+        static WindingNumberOctree BuildOctree(DMesh3 mesh, int depth, bool propagate = true)
         {
             var spatial = new DMeshAABBTree3(mesh, true);
-            var octree = new WindingNumberOctree(mesh, spatial) { MaxDepth = depth };
+            var octree = new WindingNumberOctree(mesh, spatial) { MaxDepth = depth, PropagateValues = propagate };
             octree.Build();
             return octree;
         }
@@ -66,9 +66,10 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void Octree_WindingEvaluations_ScaleWithSurfaceNotVolume()
         {
+            // without propagation, so the count does not depend on the order of the parallel evaluation
             DMesh3 box = Box(10);
-            int e6 = BuildOctree(box, 6).WindingEvaluations;
-            int e7 = BuildOctree(box, 7).WindingEvaluations;
+            int e6 = BuildOctree(box, 6, false).WindingEvaluations;
+            int e7 = BuildOctree(box, 7, false).WindingEvaluations;
             double ratio = (double)e7 / e6;
             // one level finer: surface cells x4, volume cells x8
             Assert.InRange(ratio, 3.0, 5.5);

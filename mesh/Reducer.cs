@@ -552,10 +552,11 @@ namespace g3
 
 
         // We are using a modulo-index loop to break symmetry/pathological conditions. 
-        const int nPrime = 31337;     // any prime will do...
+        int nPrime = 31337;     // any prime coprime to MaxEdgeID will do...
         int nMaxEdgeID;
         protected virtual int start_edges() {
             nMaxEdgeID = mesh.MaxEdgeID;
+            nPrime = MathUtil.ModuloIterationStep(nMaxEdgeID);
             return 0;
         }
 
