@@ -246,10 +246,7 @@ namespace g3
 
 		public AxisAlignedBox3d Bounds()
 		{
-            // [TODO] intersect boxes
-			var box = A.Bounds();
-			box.Contain(B.Bounds());
-			return box;
+			return A.Bounds().Intersect(B.Bounds());
 		}
 	}
 
@@ -404,7 +401,7 @@ namespace g3
 
 
     /// <summary>
-    /// Continuous R-Function Boolean Intersection of two implicit functions, A-B = A AND (NOT B)
+    /// Continuous R-Function Boolean Intersection of two implicit functions, A AND B
     /// Assumption is that both have surface at zero isocontour and 
     /// negative is inside.
     /// </summary>
@@ -432,7 +429,7 @@ namespace g3
 
 
     /// <summary>
-    /// Continuous R-Function Boolean Difference of two implicit functions, A AND B
+    /// Continuous R-Function Boolean Difference of two implicit functions, A-B = A AND (NOT B)
     /// Assumption is that both have surface at zero isocontour and 
     /// negative is inside.
     /// </summary>
