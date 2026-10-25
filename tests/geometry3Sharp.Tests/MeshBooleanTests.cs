@@ -123,6 +123,27 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void SmallAngleCreases_AreNotHiddenGaps_NoRefinement()
+        {
+            // B = A rotated by 20 degrees and shifted: where they meet, the outside wedge between the
+            // surfaces is narrower than a cell near the crease at any cell size; refining cannot remove it
+            // (a plate 20 x 10 x 2: the faces of A and B meet at 20 degrees; as in the boolean benchmark)
+            DMesh3 a = Box(Vector3d.Zero, new Vector3d(20, 10, 2));
+            DMesh3 b = new DMesh3(a);
+            MeshTransforms.Rotate(b, new Vector3d(10, 5, 1), Quaterniond.AxisAngleD(new Vector3d(1, 1, 0).Normalized, 20));
+            MeshTransforms.Translate(b, new Vector3d(5, 2.5, 0.5));
+            AxisAlignedBox3d all = a.CachedBounds; all.Contain(b.CachedBounds);
+            double cell = all.DiagonalLength / 128;
+            foreach (var op in new[] { MeshWindingNumberBoolean.Operations.Union, MeshWindingNumberBoolean.Operations.Difference }) {
+                var boolean = new MeshWindingNumberBoolean(a, b, op) { CellSize = cell };
+                Assert.True(boolean.Compute());
+                Assert.Equal(0, boolean.HiddenGapEdges);
+                Assert.Equal(cell, boolean.UsedCellSize);
+                Assert.True(boolean.Result.IsClosed());
+            }
+        }
+
+        [Fact]
         public void Union_DisjointBoxes_TwoParts()
         {
             DMesh3 result = Run(Box(0, 10), Box(20, 30), MeshWindingNumberBoolean.Operations.Union);

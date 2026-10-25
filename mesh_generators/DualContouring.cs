@@ -59,6 +59,12 @@ namespace g3
         /// Counted in HiddenGapEdges; refining the grid until there are none avoids this.
         /// </summary>
         public Func<Vector3d, Vector3d, bool> HiddenGapF = null;
+        /// <summary>
+        /// Sparse mode, optional: the same for grid edges whose ends are both outside: true if the edge
+        /// crosses material thinner than a cell (a thin wall, lost or broken up by the contour). Counted in
+        /// HiddenWallEdges.
+        /// </summary>
+        public Func<Vector3d, Vector3d, bool> HiddenWallF = null;
 
         public bool ParallelCompute = true;
         public Func<bool> CancelF = () => { return false; };
@@ -67,11 +73,20 @@ namespace g3
         public DMesh3 Mesh;
         public int NonManifoldTriangles;
         public int HiddenGapEdges;
+        public int HiddenWallEdges;
         public Vector3i CornerDimensions;
+        /// <summary> time per phase of Generate (ms): sample, crossings, hermite, vertices, mesh </summary>
+        public Dictionary<string, long> PhaseMilliseconds = new Dictionary<string, long>();
 
+
+        /// <summary> largest dense grid (nodes); larger ones throw an ArgumentException </summary>
+        public static long MaxGridNodes = 1L << 30;
 
         public void Generate()
         {
+            PhaseMilliseconds.Clear();
+            var timer = System.Diagnostics.Stopwatch.StartNew();
+            Action<string> phase = (name) => { PhaseMilliseconds[name] = timer.ElapsedMilliseconds; timer.Restart(); };
             origin = Bounds.Min;
             sparse = (CandidateCells != null);
             if (sparse) {
@@ -80,13 +95,21 @@ namespace g3
                 sparseValues = new System.Collections.Concurrent.ConcurrentDictionary<long, float>();
             } else {
                 Vector3d size = Bounds.Diagonal;
-                NI = (int)Math.Ceiling(size.x / CellSize) + 1; NJ = (int)Math.Ceiling(size.y / CellSize) + 1; NK = (int)Math.Ceiling(size.z / CellSize) + 1;
+                double ni = Math.Ceiling(size.x / CellSize) + 1, nj = Math.Ceiling(size.y / CellSize) + 1, nk = Math.Ceiling(size.z / CellSize) + 1;
+                if (!(ni * nj * nk <= MaxGridNodes) || ni < 1 || nj < 1 || nk < 1)
+                    throw new ArgumentException("DualContouring: grid of " + ni + " x " + nj + " x " + nk + " nodes is too large (or invalid)");
+                NI = (int)ni; NJ = (int)nj; NK = (int)nk;
                 CornerDimensions = new Vector3i(NI, NJ, NK);
                 sample_grid();
             }
+            phase("sample");
             if (CancelF()) return;
 
+            gapMilliseconds = 0;
             List<GridEdge> crossings = find_crossings();
+            phase("crossings");
+            PhaseMilliseconds["crossings"] -= gapMilliseconds;
+            PhaseMilliseconds["gaps"] = gapMilliseconds;
             if (CancelF()) return;
 
             // Hermite data per crossing
@@ -112,6 +135,7 @@ namespace g3
                 gParallel.ForEach(Interval1i.Range(NC), compute_hermite);
             else
                 for (int ci = 0; ci < NC; ++ci) compute_hermite(ci);
+            phase("hermite");
             if (CancelF()) return;
 
             // gather crossings per cell, by local cube edge (each crossing edge touches 4 cells)
@@ -162,6 +186,7 @@ namespace g3
                 gParallel.ForEach(Interval1i.Range(cellList.Length), place_vertices);
             else
                 for (int idx = 0; idx < cellList.Length; ++idx) place_vertices(idx);
+            phase("vertices");
             if (CancelF()) return;
 
             Mesh = new DMesh3();
@@ -198,10 +223,14 @@ namespace g3
                 append_quad(v0, v1, v2, v3);
             }
 
-            // safety net: closed results must have positive volume
-            if (Mesh.TriangleCount > 0 && MeshMeasurements.VolumeArea(Mesh, Mesh.TriangleIndices(), Mesh.GetVertex).x < 0)
+            // safety net: closed results must have positive volume (relative to the center: results with
+            // holes are not closed)
+            Vector3d center = Bounds.Center;
+            if (Mesh.TriangleCount > 0 && MeshMeasurements.VolumeArea(Mesh, Mesh.TriangleIndices(), (vid) => Mesh.GetVertex(vid) - center).x < 0)
                 Mesh.ReverseOrientation(false);
+            phase("mesh");
         }
+        long gapMilliseconds;
 
 
         // grid edge from node Start along +Axis
@@ -275,7 +304,7 @@ namespace g3
             foreach (Vector3i c in cells)
                 visited.Add(node_key(c));
             HashSet<long> seen = new HashSet<long>();
-            List<GridEdge> insideEdges = new List<GridEdge>();
+            List<GridEdge> insideEdges = new List<GridEdge>(), outsideEdges = new List<GridEdge>();
             while (cells.Count > 0) {
                 List<Vector3i> batch = cells;
                 Action<int> eval_corners = (idx) => {
@@ -306,10 +335,13 @@ namespace g3
                             }
                         } else if (aInside && HiddenGapF != null)
                             insideEdges.Add(new GridEdge(a, axis));
+                        else if (!aInside && HiddenWallF != null)
+                            outsideEdges.Add(new GridEdge(a, axis));
                     }
                 }
             }
             HiddenGapEdges = 0;
+            var gapTimer = System.Diagnostics.Stopwatch.StartNew();
             if (insideEdges.Count > 0) {
                 Action<int> test_gap = (i) => {
                     if (HiddenGapF(node_pos(insideEdges[i].Start), node_pos(insideEdges[i].End)))
@@ -320,6 +352,18 @@ namespace g3
                 else
                     for (int i = 0; i < insideEdges.Count; ++i) test_gap(i);
             }
+            HiddenWallEdges = 0;
+            if (outsideEdges.Count > 0) {
+                Action<int> test_wall = (i) => {
+                    if (HiddenWallF(node_pos(outsideEdges[i].Start), node_pos(outsideEdges[i].End)))
+                        System.Threading.Interlocked.Increment(ref HiddenWallEdges);
+                };
+                if (ParallelCompute)
+                    gParallel.ForEach(Interval1i.Range(outsideEdges.Count), test_wall);
+                else
+                    for (int i = 0; i < outsideEdges.Count; ++i) test_wall(i);
+            }
+            gapMilliseconds = gapTimer.ElapsedMilliseconds;
             // deterministic order
             crossings.Sort((x, y) => { int c = node_key(x.Start).CompareTo(node_key(y.Start)); return c != 0 ? c : x.Axis.CompareTo(y.Axis); });
             return crossings;

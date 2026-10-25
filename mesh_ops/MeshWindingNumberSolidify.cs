@@ -46,12 +46,18 @@ namespace gs
 
 
         /// <summary>
-        /// If the result has hidden gaps (gaps narrower than a cell, see DualContouring.HiddenGapF), the cell
-        /// size is halved until they are gone, plus one more level (see WindingContouring.ContourRefined); at
-        /// most this many halvings. Hidden gaps make the surfaces on both sides of the gap intersect. Each level
-        /// roughly quadruples the work (the octree work scales with the surface). Adaptive (octree) mode only.
+        /// If the result has hidden gaps or walls (gaps or material narrower than a cell, see
+        /// DualContouring.HiddenGapF / HiddenWallF), the cell size is halved until the narrowest is about two
+        /// cells wide (see WindingContouring.ContourRefined); at most this many halvings. Hidden gaps make the
+        /// surfaces on both sides intersect, thin walls vanish or break up. Each level roughly quadruples the
+        /// work (the octree work scales with the surface). Adaptive (octree) mode only.
         /// </summary>
         public int MaxRefineLevels = 2;
+        /// <summary>
+        /// refine only for at least this many hidden gap / wall edges (the refinement is global; fewer are a
+        /// small local defect, reported in HiddenGapEdges / HiddenWallEdges)
+        /// </summary>
+        public int MinRefineEdges = 8;
 
         /// <summary> max number of input surfaces considered along one grid edge </summary>
         public int MaxEdgeHits = 8;
@@ -74,6 +80,10 @@ namespace gs
         public int WindingEvaluations;
         /// <summary> hidden gap edges in the final result (0 = none), and the cell size it was computed with </summary>
         public int HiddenGapEdges;
+        /// <summary> grid edges through material thinner than a cell in the final result (0 = none) </summary>
+        public int HiddenWallEdges;
+        /// <summary> hidden gap edges at each refinement level </summary>
+        public List<int> GapEdgesPerLevel = new List<int>();
         public double UsedCellSize;
         /// <summary> milliseconds per phase of the last Compute(), eg "winding", "contour", "cleanup", "reduce" </summary>
         public Dictionary<string, long> PhaseMilliseconds = new Dictionary<string, long>();
@@ -93,21 +103,32 @@ namespace gs
         public bool Compute()
         {
             double cellSize = (CellSize > 0) ? CellSize : Mesh.CachedBounds.DiagonalLength / GridResolution;
-            if (cellSize <= 0 || Mesh.TriangleCount == 0)
+            if (!(cellSize > 0) || Mesh.TriangleCount == 0)
                 return false;
+            if (Adaptive && Method == Methods.DualContouring) {
+                if (WindingNumberOctree.RequiredDepth(Mesh.CachedBounds, cellSize) > WindingNumberOctree.MaxSupportedDepth)
+                    return false;
+            } else {
+                Vector3d n = Mesh.CachedBounds.Diagonal / cellSize + 16 * Vector3d.One;
+                if (!(n.x * n.y * n.z <= DualContouring.MaxGridNodes))
+                    return false;
+            }
 
             PhaseMilliseconds.Clear();
             phase_timer.Restart();
             DMesh3 contour;
-            HiddenGapEdges = 0;
+            HiddenGapEdges = HiddenWallEdges = 0;
             if (Adaptive && Method == Methods.DualContouring) {
                 WindingContouring wc = new WindingContouring(new DMesh3[] { Mesh }, null, FastWindingBeta) {
                     Iso = WindingIso, MaxEdgeHits = MaxEdgeHits, CancelF = CancelF
                 };
-                contour = wc.ContourRefined(ref cellSize, MaxRefineLevels);
+                contour = wc.ContourRefined(ref cellSize, MaxRefineLevels, MinRefineEdges);
                 WindingEvaluations = wc.WindingEvaluations;
                 NonManifoldTriangles = wc.NonManifoldTriangles;
                 HiddenGapEdges = wc.HiddenGapEdges;
+                HiddenWallEdges = wc.HiddenWallEdges;
+                GapEdgesPerLevel = new List<int>(wc.GapEdgesPerLevel);
+                foreach (var kv in wc.PhaseMilliseconds) PhaseMilliseconds["contour." + kv.Key] = kv.Value;
                 end_phase("contour");
             } else {
                 contour = compute_grid(cellSize);
@@ -128,7 +149,10 @@ namespace gs
             // on the bounding box (and faces at round coordinates, common in CAD data) land exactly on grid
             // nodes, where inside/outside is ambiguous. An unreferenced vertex slightly below the min shifts
             // the grid by an odd fraction of a cell; it does not change winding numbers or distances.
+            // The grids store float positions: computed relative to the center (UTM coordinates).
             DMesh3 shifted = new DMesh3(Mesh);
+            Vector3d center = shifted.CachedBounds.Center;
+            MeshTransforms.Translate(shifted, -center);
             shifted.AppendVertex(shifted.CachedBounds.Min - cellSize * new Vector3d(0.1371, 0.2713, 0.3891));
             WindingContouring wc = new WindingContouring(new DMesh3[] { shifted }, null, FastWindingBeta) {
                 Iso = WindingIso, MaxEdgeHits = MaxEdgeHits, CancelF = CancelF
@@ -172,6 +196,7 @@ namespace gs
                 result.ReverseOrientation(false);
                 NonManifoldTriangles = 0;
             }
+            MeshTransforms.Translate(result, center);
             end_phase("contour");
             return result;
         }

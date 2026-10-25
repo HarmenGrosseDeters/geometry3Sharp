@@ -193,7 +193,7 @@ namespace g3
             do {
                 if (!Update(ref hull, ii))
                     return;
-                ii = (ii + 31337) % mNumVertices;
+                ii = (ii + MathUtil.ModuloIterationStep(mNumVertices)) % mNumVertices;
             } while (ii != 0);
 
             // original code, vastly slower in pathological cases

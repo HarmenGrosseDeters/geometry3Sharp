@@ -67,7 +67,7 @@ namespace g3
 
         public void Reset()
         {
-            SparseQueue.Clear(false);
+            SparseQueue.Clear();
             SparseNodes.Clear();
             SparseNodePool.ReturnAll();
             max_graph_distance = float.MinValue;

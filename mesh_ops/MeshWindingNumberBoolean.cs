@@ -40,12 +40,18 @@ namespace gs
 
 
         /// <summary>
-        /// If the result has hidden gaps (gaps narrower than a cell, see DualContouring.HiddenGapF), the cell
-        /// size is halved until they are gone, plus one more level (see WindingContouring.ContourRefined); at
-        /// most this many halvings. Hidden gaps make the surfaces on both sides of the gap intersect. Each level
-        /// roughly quadruples the work (the octree work scales with the surface). Adaptive (octree) mode only.
+        /// If the result has hidden gaps or walls (gaps or material narrower than a cell, see
+        /// DualContouring.HiddenGapF / HiddenWallF), the cell size is halved until the narrowest is about two
+        /// cells wide (see WindingContouring.ContourRefined); at most this many halvings. Hidden gaps make the
+        /// surfaces on both sides intersect, thin walls vanish or break up. Each level roughly quadruples the
+        /// work (the octree work scales with the surface). Adaptive (octree) mode only.
         /// </summary>
         public int MaxRefineLevels = 2;
+        /// <summary>
+        /// refine only for at least this many hidden gap / wall edges (the refinement is global; fewer are a
+        /// small local defect, reported in HiddenGapEdges / HiddenWallEdges)
+        /// </summary>
+        public int MinRefineEdges = 8;
 
         public Func<bool> CancelF = () => { return false; };
 
@@ -55,6 +61,12 @@ namespace gs
         public int WindingEvaluations;
         /// <summary> hidden gap edges in the final result (0 = none), and the cell size it was computed with </summary>
         public int HiddenGapEdges;
+        /// <summary> grid edges through material thinner than a cell in the final result (0 = none) </summary>
+        public int HiddenWallEdges;
+        /// <summary> some hidden gaps / walls of the final result (center, width), for diagnostics </summary>
+        public List<KeyValuePair<Vector3d, double>> HiddenSamples = new List<KeyValuePair<Vector3d, double>>();
+        /// <summary> hidden gap edges at each refinement level </summary>
+        public List<int> GapEdgesPerLevel = new List<int>();
         public double UsedCellSize;
         public Dictionary<string, long> PhaseMilliseconds = new Dictionary<string, long>();
 
@@ -69,21 +81,41 @@ namespace gs
         {
             if (MeshA.TriangleCount == 0 && MeshB.TriangleCount == 0)
                 return false;
-            AxisAlignedBox3d bounds = MeshA.CachedBounds;
-            bounds.Contain(MeshB.CachedBounds);
+            // empty inputs do not count (their bounds would drag in the origin)
+            AxisAlignedBox3d bounds = WindingNumberOctree.Bounds(new DMesh3[] { MeshA, MeshB });
             double cellSize = (CellSize > 0) ? CellSize : bounds.DiagonalLength / GridResolution;
-            if (cellSize <= 0)
+            if (!(cellSize > 0) || WindingNumberOctree.RequiredDepth(bounds, cellSize) > WindingNumberOctree.MaxSupportedDepth)
                 return false;
 
             PhaseMilliseconds.Clear();
             timer.Restart();
-            WindingContouring wc = new WindingContouring(new DMesh3[] { MeshA, MeshB }, CombineF(Operation), FastWindingBeta) {
+            // an empty input has winding number 0 everywhere: A u 0 = A - 0 = A, 0 u B = B, the rest is empty
+            DMesh3[] inputs = new DMesh3[] { MeshA, MeshB };
+            Func<double[], double> combine = CombineF(Operation);
+            bool emptyA = MeshA.TriangleCount == 0, emptyB = MeshB.TriangleCount == 0;
+            if (emptyA || emptyB) {
+                combine = null;
+                if (emptyB && Operation != Operations.Intersection)
+                    inputs = new DMesh3[] { MeshA };
+                else if (emptyA && Operation == Operations.Union)
+                    inputs = new DMesh3[] { MeshB };
+                else {
+                    Result = new DMesh3();
+                    UsedCellSize = cellSize;
+                    return true;
+                }
+            }
+            WindingContouring wc = new WindingContouring(inputs, combine, FastWindingBeta) {
                 CancelF = CancelF
             };
-            DMesh3 contour = wc.ContourRefined(ref cellSize, MaxRefineLevels);
+            DMesh3 contour = wc.ContourRefined(ref cellSize, MaxRefineLevels, MinRefineEdges);
             WindingEvaluations = wc.WindingEvaluations;
             NonManifoldTriangles = wc.NonManifoldTriangles;
             HiddenGapEdges = wc.HiddenGapEdges;
+            HiddenWallEdges = wc.HiddenWallEdges;
+            HiddenSamples = wc.HiddenSamples;
+            GapEdgesPerLevel = new List<int>(wc.GapEdgesPerLevel);
+            foreach (var kv in wc.PhaseMilliseconds) PhaseMilliseconds["contour." + kv.Key] = kv.Value;
             UsedCellSize = cellSize;
             end_phase("contour");
             if (CancelF() || contour == null)

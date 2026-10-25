@@ -91,7 +91,8 @@ namespace g3
             int iNode = id_to_index[id];
             if (iNode <= 0 || iNode > num_nodes)
                 return false;
-            return nodes[iNode].index > 0;
+            // after a removal id_to_index can still point at the slot, now taken by another node
+            return nodes[iNode].index > 0 && nodes[iNode].id == id;
         }
 
 
@@ -196,10 +197,12 @@ namespace g3
 
         private void remove_at_index(int iNode)
         {
+            int removedID = nodes[iNode].id;
             // node-is-last-node case
             if(iNode == num_nodes) {
                 nodes[iNode] = new QueueNode();
                 num_nodes--;
+                id_to_index[removedID] = -1;
                 return;
             }
 
@@ -211,6 +214,7 @@ namespace g3
             // after swap, inode is the one we want to keep, and numNodes is the one we discard
             nodes[num_nodes] = new QueueNode();
             num_nodes--;
+            id_to_index[removedID] = -1;
 
             //Now shift iNode (ie the former last node) up or down as appropriate
             on_node_updated(iNode);

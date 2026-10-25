@@ -88,7 +88,8 @@ namespace g3
         /// constant-time check to see if node is already in queue
         /// </summary>
         public bool Contains(T node) {
-            return (nodes[node.index] == node);
+            // after Clear(false) the array still holds old nodes; num_nodes is the inclusive upper index
+            return (node.index <= num_nodes && nodes[node.index] == node);
         }
 
 
