@@ -12,9 +12,11 @@ Its direction is described in [docs/ROADMAP.md](docs/ROADMAP.md). It adds:
 - Exact predicates (`ExactPredicates`), winding-number booleans and solidify, geodesic distances with the
   heat method (`MeshGeodesicDistance`), `Reducer` with a guaranteed maximum deviation, Hausdorff distance,
   and terrain / LiDAR tools (ground filter, terrain dual contouring, offsets, cut/fill volumes, safety lines).
-- `ExactMeshBoolean`: union, intersection and difference of closed meshes with exact arithmetic
-  (exact arrangement of the intersecting triangles, exact inside/outside tests). Coplanar, touching and
-  nearly coincident inputs give closed results; only the output coordinates are rounded to double.
+- `ExactMeshBoolean`: union, intersection and difference with exact arithmetic (exact arrangement of
+  all intersecting triangles, exact winding numbers). Coplanar, touching and nearly coincident inputs give
+  closed results; self-intersecting meshes, nested shells and duplicated faces are resolved
+  (`ExactMeshBoolean.Resolve(mesh)` does that for one mesh); open meshes use the generalized winding number.
+  Only the output coordinates are rounded to double.
 - Mesh file formats PLY, 3MF and glTF 2.0 (see below).
 - `BufferUtil.DecompressZLib` fix: on .NET Core it returned partly empty buffers for large data.
 

@@ -1,6 +1,5 @@
 // Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
 using System;
-using System.Collections.Generic;
 using System.Numerics;
 
 namespace g3
@@ -77,9 +76,55 @@ namespace g3
         }
 
 
-        // exact versions: all coordinates as integers with a common power-of-two scale
+        // exact versions: with floating-point expansions (Shewchuk) when no product can overflow or underflow,
+        // otherwise with all coordinates as integers with a common power-of-two scale
 
         static int incircle_exact(Vector2d a, Vector2d b, Vector2d c, Vector2d d)
+        {
+            if (a == d || b == d || c == d || a == b || b == c || a == c)
+                return 0;
+            if (Expansion.InRange(a.x, a.y, b.x, b.y, c.x, c.y, d.x, d.y) == false)
+                return incircle_bigint(a, b, c, d);
+            var t = Expansion.Terms.Get();
+            int adx = t.Diff(a.x, d.x), ady = t.Diff(a.y, d.y), bdx = t.Diff(b.x, d.x), bdy = t.Diff(b.y, d.y);
+            int cdx = t.Diff(c.x, d.x), cdy = t.Diff(c.y, d.y);
+            int alift = t.Add(t.Mul(adx, adx), t.Mul(ady, ady));
+            int blift = t.Add(t.Mul(bdx, bdx), t.Mul(bdy, bdy));
+            int clift = t.Add(t.Mul(cdx, cdx), t.Mul(cdy, cdy));
+            int bc = t.Add(t.Mul(bdx, cdy), t.Neg(t.Mul(cdx, bdy)));
+            int ca = t.Add(t.Mul(cdx, ady), t.Neg(t.Mul(adx, cdy)));
+            int ab = t.Add(t.Mul(adx, bdy), t.Neg(t.Mul(bdx, ady)));
+            return t.Sign(t.Add(t.Add(t.Mul(alift, bc), t.Mul(blift, ca)), t.Mul(clift, ab)));
+        }
+
+        static int orient2d_exact(Vector2d a, Vector2d b, Vector2d c)
+        {
+            if (a == b || b == c || a == c)
+                return 0;
+            if (Expansion.InRange(a.x, a.y, b.x, b.y, c.x, c.y) == false)
+                return orient2d_bigint(a, b, c);
+            var t = Expansion.Terms.Get();
+            int ux = t.Diff(b.x, a.x), uy = t.Diff(b.y, a.y), vx = t.Diff(c.x, a.x), vy = t.Diff(c.y, a.y);
+            return t.Sign(t.Add(t.Mul(ux, vy), t.Neg(t.Mul(uy, vx))));
+        }
+
+        static int orient3d_exact(Vector3d a, Vector3d b, Vector3d c, Vector3d d)
+        {
+            if (a == b || a == c || a == d || b == c || b == d || c == d)
+                return 0;
+            if (Expansion.InRange(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z, d.x, d.y, d.z) == false)
+                return orient3d_bigint(a, b, c, d);
+            var t = Expansion.Terms.Get();
+            int ux = t.Diff(b.x, a.x), uy = t.Diff(b.y, a.y), uz = t.Diff(b.z, a.z);
+            int vx = t.Diff(c.x, a.x), vy = t.Diff(c.y, a.y), vz = t.Diff(c.z, a.z);
+            int wx = t.Diff(d.x, a.x), wy = t.Diff(d.y, a.y), wz = t.Diff(d.z, a.z);
+            int cx = t.Add(t.Mul(uy, vz), t.Neg(t.Mul(uz, vy)));
+            int cy = t.Add(t.Mul(uz, vx), t.Neg(t.Mul(ux, vz)));
+            int cz = t.Add(t.Mul(ux, vy), t.Neg(t.Mul(uy, vx)));
+            return t.Sign(t.Add(t.Add(t.Mul(wx, cx), t.Mul(wy, cy)), t.Mul(wz, cz)));
+        }
+
+        internal static int incircle_bigint(Vector2d a, Vector2d b, Vector2d c, Vector2d d)
         {
             BigInteger[] v = to_integers(a.x, a.y, b.x, b.y, c.x, c.y, d.x, d.y);
             BigInteger adx = v[0] - v[6], ady = v[1] - v[7], bdx = v[2] - v[6], bdy = v[3] - v[7], cdx = v[4] - v[6], cdy = v[5] - v[7];
@@ -89,20 +134,15 @@ namespace g3
             return det.Sign;
         }
 
-
-        static int orient2d_exact(Vector2d a, Vector2d b, Vector2d c)
+        internal static int orient2d_bigint(Vector2d a, Vector2d b, Vector2d c)
         {
-            if (expansion_safe(a.x, a.y, b.x, b.y, c.x, c.y))
-                return orient2d_expansion(a, b, c);
             BigInteger[] v = to_integers(a.x, a.y, b.x, b.y, c.x, c.y);
             BigInteger ux = v[2] - v[0], uy = v[3] - v[1], vx = v[4] - v[0], vy = v[5] - v[1];
             return (ux * vy - uy * vx).Sign;
         }
 
-        static int orient3d_exact(Vector3d a, Vector3d b, Vector3d c, Vector3d d)
+        internal static int orient3d_bigint(Vector3d a, Vector3d b, Vector3d c, Vector3d d)
         {
-            if (expansion_safe(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z, d.x, d.y, d.z))
-                return orient3d_expansion(a, b, c, d);
             BigInteger[] p = to_integers(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z, d.x, d.y, d.z);
             BigInteger ux = p[3] - p[0], uy = p[4] - p[1], uz = p[5] - p[2];
             BigInteger vx = p[6] - p[0], vy = p[7] - p[1], vz = p[8] - p[2];
@@ -110,157 +150,10 @@ namespace g3
             return (wx * (uy * vz - uz * vy) + wy * (uz * vx - ux * vz) + wz * (ux * vy - uy * vx)).Sign;
         }
 
-        // --- exact floating point expansions (Shewchuk 1997): sums of non-overlapping doubles, in order of
-        // increasing magnitude; the sign is that of the largest component. Exact as long as no product
-        // underflows or overflows, so only used for coordinates in [1e-90, 1e90] (else BigInteger).
-
-        static bool expansion_safe(params double[] values)
-        {
-            foreach (double v in values) {
-                double m = Math.Abs(v);
-                if (double.IsNaN(v) || double.IsInfinity(v))
-                    throw new ArgumentException("ExactPredicates: coordinates must be finite");
-                if (m != 0 && (m < 1e-90 || m > 1e90))
-                    return false;
-            }
-            return true;
-        }
-
-        static void two_sum(double a, double b, out double x, out double y)
-        {
-            x = a + b;
-            double bv = x - a, av = x - bv;
-            y = (a - av) + (b - bv);
-        }
-
-        static void two_product(double a, double b, out double x, out double y)
-        {
-#if NETCOREAPP3_0_OR_GREATER
-            x = a * b;
-            y = Math.FusedMultiplyAdd(a, b, -x);
-#else
-            TwoProductDekker(a, b, out x, out y);
-#endif
-        }
-
-        /// <summary> a * b = x + y exactly, without FMA (Dekker); used where FMA is not available (netstandard2.0) </summary>
-        internal static void TwoProductDekker(double a, double b, out double x, out double y)
-        {
-            x = a * b;
-            // split both factors into 26-bit halves, whose products are exact
-            double ahi, alo, bhi, blo;
-            split(a, out ahi, out alo);
-            split(b, out bhi, out blo);
-            double err1 = x - (ahi * bhi);
-            double err2 = err1 - (alo * bhi);
-            double err3 = err2 - (ahi * blo);
-            y = (alo * blo) - err3;
-        }
-
-        static void split(double a, out double hi, out double lo)
-        {
-            const double splitter = 134217729.0;        // 2^27 + 1
-            double c = splitter * a;
-            double abig = c - a;
-            hi = c - abig;
-            lo = a - hi;
-        }
-
-        // e + b (e an expansion of n components), zero components eliminated
-        static List<double> grow(List<double> e, double b)
-        {
-            var h = new List<double>(e.Count + 1);
-            double q = b;
-            foreach (double ei in e) {
-                double qn, hh;
-                two_sum(q, ei, out qn, out hh);
-                q = qn;
-                if (hh != 0) h.Add(hh);
-            }
-            if (q != 0 || h.Count == 0) h.Add(q);
-            return h;
-        }
-
-        static List<double> sum(List<double> e, List<double> f)
-        {
-            var h = e;
-            foreach (double fi in f)
-                if (fi != 0) h = grow(h, fi);
-            return h;
-        }
-
-        // e * b, zero components eliminated
-        static List<double> scale(List<double> e, double b)
-        {
-            var h = new List<double>(2 * e.Count);
-            if (e.Count == 0 || b == 0) { h.Add(0); return h; }
-            double q, hh;
-            two_product(e[0], b, out q, out hh);
-            if (hh != 0) h.Add(hh);
-            for (int i = 1; i < e.Count; ++i) {
-                double p1, p0, s, t;
-                two_product(e[i], b, out p1, out p0);
-                two_sum(q, p0, out s, out hh);
-                if (hh != 0) h.Add(hh);
-                // fast two-sum: |p1| >= |s|
-                t = p1 + s;
-                hh = s - (t - p1);
-                q = t;
-                if (hh != 0) h.Add(hh);
-            }
-            if (q != 0 || h.Count == 0) h.Add(q);
-            return h;
-        }
-
-        static List<double> negate(List<double> e)
-        {
-            var h = new List<double>(e.Count);
-            foreach (double x in e) h.Add(-x);
-            return h;
-        }
-
-        static int sign(List<double> e)
-        {
-            for (int i = e.Count - 1; i >= 0; --i)
-                if (e[i] != 0) return Math.Sign(e[i]);
-            return 0;
-        }
-
-        // a1 * b1 - a2 * b2, exactly
-        static List<double> cross_term(double a1, double b1, double a2, double b2)
-        {
-            double x1, y1, x2, y2;
-            two_product(a1, b1, out x1, out y1);
-            two_product(a2, b2, out x2, out y2);
-            var e = grow(new List<double>() { y1 }, x1);
-            e = grow(e, -y2);
-            return grow(e, -x2);
-        }
-
-        static int orient2d_expansion(Vector2d a, Vector2d b, Vector2d c)
-        {
-            // (b - a) x (c - a) = (bx cy - by cx) + (ax by - ay bx) + (cx ay - cy ax), from the coordinates
-            var det = sum(sum(cross_term(b.x, c.y, b.y, c.x), cross_term(a.x, b.y, a.y, b.x)), cross_term(c.x, a.y, c.y, a.x));
-            return sign(det);
-        }
-
-        static int orient3d_expansion(Vector3d a, Vector3d b, Vector3d c, Vector3d d)
-        {
-            // Shewchuk's orient3dexact (2x2 minors of x, y, then the z combinations); this combination has
-            // our sign convention
-            var ab = cross_term(a.x, b.y, b.x, a.y);
-            var bc = cross_term(b.x, c.y, c.x, b.y);
-            var cd = cross_term(c.x, d.y, d.x, c.y);
-            var da = cross_term(d.x, a.y, a.x, d.y);
-            var ac = cross_term(a.x, c.y, c.x, a.y);
-            var bd = cross_term(b.x, d.y, d.x, b.y);
-            var abc = sum(sum(scale(bc, a.z), scale(ac, -b.z)), scale(ab, c.z));
-            var bcd = sum(sum(scale(cd, b.z), scale(bd, -c.z)), scale(bc, d.z));
-            var cda = sum(sum(scale(da, c.z), scale(ac, d.z)), scale(cd, a.z));
-            var dab = sum(sum(scale(ab, d.z), scale(bd, a.z)), scale(da, b.z));
-            var det = sum(sum(bcd, negate(cda)), sum(dab, negate(abc)));
-            return sign(det);
-        }
+        // exact for the arguments of the public predicates (for tests)
+        internal static int Orient3dExact(Vector3d a, Vector3d b, Vector3d c, Vector3d d) { return orient3d_exact(a, b, c, d); }
+        internal static int Orient2dExact(Vector2d a, Vector2d b, Vector2d c) { return orient2d_exact(a, b, c); }
+        internal static int InCircleExact(Vector2d a, Vector2d b, Vector2d c, Vector2d d) { return incircle_exact(a, b, c, d); }
 
         static BigInteger[] to_integers(params double[] values)
         {
@@ -298,6 +191,170 @@ namespace g3
                 exponent = e - 1075;
             }
             mantissa = negative ? -frac : frac;
+        }
+    }
+
+
+    /// <summary>
+    /// Exact sums and products of doubles with error-free transformations (Shewchuk, "Adaptive Precision
+    /// Floating-Point Arithmetic and Fast Robust Geometric Predicates", 1997). A value is a list of doubles whose
+    /// exact sum it is; products expand into the pairwise exact products (TwoProduct), the sign is taken after
+    /// summing the list into a non-overlapping expansion (grow-expansion). Exact as long as nothing overflows
+    /// or underflows (see InRange). Lists live in a per-thread buffer, no allocations per predicate.
+    /// </summary>
+    internal static class Expansion
+    {
+        const double Splitter = 134217729.0;       // 2^27 + 1
+        const double MinMagnitude = 7.888609052210118e-31;     // 2^-100
+        const double MaxMagnitude = 1.2676506002282294e30;     // 2^100
+
+        /// <summary>
+        /// All nonzero values have magnitudes in [2^-100, 2^100]: then the degree-4 products of the
+        /// predicates (and their error terms) stay far from overflow and from subnormal numbers.
+        /// </summary>
+        static bool in_range(double x)
+        {
+            double ax = Math.Abs(x);
+            if (double.IsNaN(x))
+                throw new ArgumentException("ExactPredicates: coordinates must be finite");
+            return ax == 0 || (ax >= MinMagnitude && ax <= MaxMagnitude);
+        }
+        public static bool InRange(double a, double b, double c, double d, double e, double f)
+        {
+            return in_range(a) && in_range(b) && in_range(c) && in_range(d) && in_range(e) && in_range(f);
+        }
+        public static bool InRange(double a, double b, double c, double d, double e, double f, double g, double h)
+        {
+            return InRange(a, b, c, d, e, f) && in_range(g) && in_range(h);
+        }
+        public static bool InRange(double a, double b, double c, double d, double e, double f, double g, double h, double i, double j, double k, double l)
+        {
+            return InRange(a, b, c, d, e, f) && InRange(g, h, i, j, k, l);
+        }
+
+        static void two_sum(double a, double b, out double x, out double y)
+        {
+            x = a + b;
+            double bv = x - a, av = x - bv;
+            y = (a - av) + (b - bv);
+        }
+
+        internal static void TwoProduct(double a, double b, out double x, out double y)
+        {
+            x = a * b;
+            double c = Splitter * a, ahi = c - (c - a), alo = a - ahi;
+            double d = Splitter * b, bhi = d - (d - b), blo = b - bhi;
+            double err = x - ahi * bhi - alo * bhi - ahi * blo;
+            y = alo * blo - err;
+        }
+
+        /// <summary> lists of doubles in one growing buffer; a list is (start, count), referenced by an id </summary>
+        public class Terms
+        {
+            [ThreadStatic] static Terms instance;
+            double[] buf = new double[1024];
+            int top;
+            int[] start = new int[64], count = new int[64];
+            int lists;
+
+            public static Terms Get()
+            {
+                if (instance == null)
+                    instance = new Terms();
+                instance.top = 0;
+                instance.lists = 0;
+                return instance;
+            }
+
+            int begin()
+            {
+                if (lists == start.Length) {
+                    Array.Resize(ref start, 2 * lists);
+                    Array.Resize(ref count, 2 * lists);
+                }
+                start[lists] = top;
+                count[lists] = 0;
+                return lists++;
+            }
+            void push(int id, double v)
+            {
+                if (v == 0) return;
+                if (top == buf.Length)
+                    Array.Resize(ref buf, 2 * buf.Length);
+                buf[top++] = v;
+                count[id]++;
+            }
+
+            /// <summary> a - b, exact (two doubles) </summary>
+            public int Diff(double a, double b)
+            {
+                int id = begin();
+                double x = a - b;
+                double bv = a - x, av = x + bv;
+                double y = (a - av) + (bv - b);
+                push(id, y);
+                push(id, x);
+                return id;
+            }
+
+            public int Neg(int e)
+            {
+                int id = begin();
+                for (int i = 0; i < count[e]; ++i)
+                    push(id, -buf[start[e] + i]);
+                return id;
+            }
+
+            public int Add(int e, int f)
+            {
+                int id = begin();
+                for (int i = 0; i < count[e]; ++i) push(id, buf[start[e] + i]);
+                for (int i = 0; i < count[f]; ++i) push(id, buf[start[f] + i]);
+                return id;
+            }
+
+            public int Mul(int e, int f)
+            {
+                int id = begin();
+                for (int i = 0; i < count[e]; ++i) {
+                    double ei = buf[start[e] + i];
+                    for (int j = 0; j < count[f]; ++j) {
+                        double x, y;
+                        TwoProduct(ei, buf[start[f] + j], out x, out y);
+                        push(id, y);
+                        push(id, x);
+                    }
+                }
+                return id;
+            }
+
+            [ThreadStatic] static double[] scratch;
+
+            /// <summary> exact sign of the sum of the list </summary>
+            public int Sign(int e)
+            {
+                int n = count[e];
+                if (scratch == null || scratch.Length < n + 1)
+                    scratch = new double[Math.Max(256, 2 * n)];
+                double[] h = scratch;
+                int k = 0;
+                for (int i = 0; i < n; ++i) {
+                    // grow-expansion in place: add buf[...] to the expansion h[0..k)
+                    double q = buf[start[e] + i];
+                    int m = 0;
+                    for (int j = 0; j < k; ++j) {
+                        double qn, hh;
+                        two_sum(q, h[j], out qn, out hh);
+                        q = qn;
+                        if (hh != 0)
+                            h[m++] = hh;
+                    }
+                    if (q != 0)
+                        h[m++] = q;
+                    k = m;
+                }
+                return (k == 0) ? 0 : Math.Sign(h[k - 1]);
+            }
         }
     }
 }

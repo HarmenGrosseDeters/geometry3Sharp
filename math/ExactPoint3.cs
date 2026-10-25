@@ -75,6 +75,20 @@ namespace g3
         }
 
 
+        /// <summary>
+        /// Fast approximation of the coordinates (relative error below 4 * 2^-52): for floating-point filters
+        /// </summary>
+        public Vector3d ApproxVector3d()
+        {
+            double w = (double)W;
+            double x = (double)X / w, y = (double)Y / w, z = (double)Z / w;
+            if (is_safe(w) && is_safe_or_zero(x) && is_safe_or_zero(y) && is_safe_or_zero(z))
+                return new Vector3d(x, y, z);
+            return ToVector3d(0);
+        }
+        static bool is_safe(double v) { return double.IsInfinity(v) == false && double.IsNaN(v) == false && Math.Abs(v) > 1e-290; }
+        static bool is_safe_or_zero(double v) { return v == 0 || is_safe(v); }
+
         /// <summary> num / den * 2^scaleExp as double, den > 0 </summary>
         public static double ToDouble(BigInteger num, BigInteger den, int scaleExp)
         {
