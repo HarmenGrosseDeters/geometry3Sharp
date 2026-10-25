@@ -127,7 +127,13 @@ namespace gs
 
                 Vector3d n0 = Mesh.GetTriNormal(et.a);
                 Vector3d n1 = Mesh.GetTriNormal(et.b);
-                if ( Math.Abs(n0.Dot(n1)) < dot_tol ) {
+                // If the two triangles are inconsistently oriented, their normals point in opposite
+                // directions on a flat surface, so compare |dot|. Otherwise use the signed dot, so that
+                // edges folded back onto themselves (dot ~ -1) count as creases too.
+                double dot = n0.Dot(n1);
+                if (consistent_orientation(eid, et) == false)
+                    dot = Math.Abs(dot);
+                if ( dot < dot_tol ) {
                     CreaseEdges.Add(eid);
                 }
             }
@@ -142,6 +148,16 @@ namespace gs
 
 
 
+
+
+        bool consistent_orientation(int eid, Index2i et)
+        {
+            Index2i ev = Mesh.GetEdgeV(eid);
+            Index3i t0 = Mesh.GetTriangle(et.a), t1 = Mesh.GetTriangle(et.b);
+            bool dir0 = IndexUtil.find_tri_ordered_edge(ev.a, ev.b, ref t0) != DMesh3.InvalidID;
+            bool dir1 = IndexUtil.find_tri_ordered_edge(ev.a, ev.b, ref t1) != DMesh3.InvalidID;
+            return dir0 != dir1;
+        }
 
 
         void extract_topology()

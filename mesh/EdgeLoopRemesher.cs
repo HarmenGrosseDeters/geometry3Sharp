@@ -63,13 +63,12 @@ namespace g3
         List<int> RemainingE;         // edges to process this pass
 
 
-        const int nPrime = 31337;     // any prime will do...
         protected override int start_edges()
         {
             Debug.Assert(check_loop());
             RemainingE = new List<int>(CurrentLoopE.Count);
 
-            int nPrime = 31337;
+            int nPrime = MathUtil.ModuloIterationStep(CurrentLoopE.Count);
             int i = 0;
             do {
                 RemainingE.Add(CurrentLoopE[i]);

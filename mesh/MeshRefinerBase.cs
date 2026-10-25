@@ -25,6 +25,22 @@ namespace g3
         }
         protected double edge_flip_tol = 0.0f;
 
+        /// <summary>
+        /// If > 0, reject edge collapses that would create a triangle with quality below this value
+        /// (unless it was already worse before). Quality is 4*sqrt(3)*area / sum of squared edge lengths:
+        /// 1 for equilateral, 0 for degenerate. Without this, collapses can create near-zero-area
+        /// triangles, which only pass the normal flip test because they do not flip.
+        /// </summary>
+        public double MinCollapseTriangleQuality = 0;
+
+        public static double TriangleQuality(ref Vector3d a, ref Vector3d b, ref Vector3d c)
+        {
+            double l2 = a.DistanceSquared(b) + b.DistanceSquared(c) + c.DistanceSquared(a);
+            if (l2 < MathUtil.ZeroTolerance)
+                return 0;
+            return 4 * Math.Sqrt(3) * 0.5 * (b - a).Cross(c - a).Length / l2;
+        }
+
 
         public MeshRefinerBase(DMesh3 mesh) {
             this.mesh = mesh;
@@ -106,6 +122,12 @@ namespace g3
                     throw new Exception("should never be here!");
                 if (sign <= edge_flip_tol)
                     return true;
+                if (MinCollapseTriangleQuality > 0) {
+                    Vector3d na = (curt.a == vid) ? newv : va, nb = (curt.b == vid) ? newv : vb, nc = (curt.c == vid) ? newv : vc;
+                    double qNew = TriangleQuality(ref na, ref nb, ref nc);
+                    if (qNew < MinCollapseTriangleQuality && qNew < TriangleQuality(ref va, ref vb, ref vc))
+                        return true;
+                }
             }
             return false;
         }

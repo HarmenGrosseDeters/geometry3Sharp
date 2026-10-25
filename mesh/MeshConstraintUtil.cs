@@ -26,6 +26,51 @@ namespace g3
 
         // for all mesh boundary edges, disable flip/split/collapse
         // for all mesh boundary vertices, pin in current position
+        /// <summary>
+        /// Constrain boundary loops and sharp feature edges (normals differ by more than creaseAngle degrees)
+        /// for remeshing: vertices on them stay on these curves (MeshTopology spans/loops as projection
+        /// targets), junctions are pinned, and so are corners along the curves, where the curve turns by more
+        /// than cornerAngle degrees (default: creaseAngle). Without pinned corners, collapses and smoothing
+        /// slide corner vertices along the curve and round off eg the corners of the outer boundary ring.
+        /// </summary>
+        public static void PreserveBoundaryAndFeatures(MeshConstraints cons, DMesh3 mesh, double creaseAngle = 30, double cornerAngle = -1)
+        {
+            if (cornerAngle < 0)
+                cornerAngle = creaseAngle;
+            gs.MeshTopology topo = new gs.MeshTopology(mesh) { CreaseAngle = creaseAngle };
+            topo.AddRemeshConstraints(cons);
+
+            double cornerDot = Math.Cos(cornerAngle * MathUtil.Deg2Rad);
+            VertexConstraint pinned = VertexConstraint.Pinned;
+            pinned.FixedSetID = -1;
+            foreach (EdgeSpan span in topo.Spans)
+                pin_curve_corners(cons, mesh, span.Vertices, false, cornerDot, pinned);
+            foreach (EdgeLoop loop in topo.Loops)
+                pin_curve_corners(cons, mesh, loop.Vertices, true, cornerDot, pinned);
+        }
+        public static void PreserveBoundaryAndFeatures(Remesher r, double creaseAngle = 30, double cornerAngle = -1)
+        {
+            if (r.Constraints == null)
+                r.SetExternalConstraints(new MeshConstraints());
+            PreserveBoundaryAndFeatures(r.Constraints, r.Mesh, creaseAngle, cornerAngle);
+        }
+
+        static void pin_curve_corners(MeshConstraints cons, DMesh3 mesh, int[] vertices, bool closed, double cornerDot, VertexConstraint pinned)
+        {
+            int N = vertices.Length;
+            for (int i = 0; i < N; ++i) {
+                if (closed == false && (i == 0 || i == N - 1))
+                    continue;       // span endpoints are junctions, already pinned
+                Vector3d prev = mesh.GetVertex(vertices[(i + N - 1) % N]);
+                Vector3d cur = mesh.GetVertex(vertices[i]);
+                Vector3d next = mesh.GetVertex(vertices[(i + 1) % N]);
+                Vector3d d0 = (cur - prev).Normalized, d1 = (next - cur).Normalized;
+                if (d0.Dot(d1) < cornerDot)
+                    cons.SetOrUpdateVertexConstraint(vertices[i], pinned);
+            }
+        }
+
+
         public static void FixAllBoundaryEdges(MeshConstraints cons, DMesh3 mesh)
         {
             int NE = mesh.MaxEdgeID;

@@ -17,7 +17,7 @@ namespace g3
 
         public MeshTriInfoCache(DMesh3 mesh)
         {
-            int NT = mesh.TriangleCount;
+            int NT = mesh.MaxTriangleID;     // indexed by triangle id (not compact after removals)
             Centroids = new DVector<Vector3d>(); Centroids.resize(NT);
             Normals = new DVector<Vector3d>(); Normals.resize(NT);
             Areas = new DVector<double>(); Areas.resize(NT);

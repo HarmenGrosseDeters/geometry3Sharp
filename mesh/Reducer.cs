@@ -23,6 +23,50 @@ namespace g3
 		// (Also results in more invalid collapses, not sure why though...)
 		public bool MinimizeQuadricPositionError = true;
 
+        /// <summary>
+        /// Weight each triangle's plane quadric by its area (default). If false, every plane counts once,
+        /// so errors are sums of squared distances to the original planes; small triangles at sharp
+        /// corners then keep their full influence (useful with ReduceToMaxQuadricError).
+        /// </summary>
+        public bool AreaWeightedQuadrics = true;
+
+        /// <summary>
+        /// If PreserveBoundaryShape is set, each boundary edge adds a plane through the edge, perpendicular
+        /// to its triangle, to the quadrics of its vertices (Garland-Heckbert boundary constraint), weighted
+        /// by this times the plane weight of a triangle. Removing a corner of the boundary ring then has a
+        /// cost, while vertices on straight boundary runs can still be collapsed.
+        /// </summary>
+        public double BoundaryQuadricWeight = 100;
+
+        /// <summary>
+        /// If > 0, edges whose triangle normals differ by more than this angle (degrees) are feature edges.
+        /// The planes of both their triangles are added to the quadrics of the edge vertices with weight
+        /// FeatureQuadricWeight, so sharp edges and corners are preserved even next to large triangles.
+        /// </summary>
+        public double FeatureAngle = 0;
+        public double FeatureQuadricWeight = 100;
+
+        /// <summary>
+        /// The optimal collapse point minimizes the quadric plus QuadricRegularization * (trace(A)/3) *
+        /// |x - edge midpoint|^2. This keeps the solve well-conditioned and independent of the mesh scale
+        /// (directions the planes do not constrain, eg along a flat region, stay at the midpoint), as with
+        /// probabilistic quadrics (Trettner and Kobbelt 2020). Small enough not to move corners noticeably.
+        /// </summary>
+        public double QuadricRegularization = 1e-6;
+
+        /// <summary>
+        /// If > 0, a collapse is only done if every point of the new triangles stays within MaxDeviation
+        /// of the input surface (checked with the certified bounds of TriangleDeviationBounds, so the
+        /// reduced surface is guaranteed to lie within this distance of the input). One-sided: input
+        /// features thinner than the tolerance (eg a spike) can still be cut off.
+        /// The reference is the mesh at the first reduction with MaxDeviation (so repeated ReduceTo...
+        /// calls stay within MaxDeviation of the original), or the one given to SetDeviationReference.
+        /// Not covered: the projection of a ProjectionTarget (Reproject) after the collapses.
+        /// </summary>
+        public double MaxDeviation = 0;
+        /// <summary> subdivision depth for the MaxDeviation check; deeper certifies more collapses </summary>
+        public int MaxDeviationDepth = 10;
+
         // if true, we try to keep boundary vertices on boundary. You probably want this.
         public bool PreserveBoundaryShape = true;
 
@@ -64,9 +108,10 @@ namespace g3
 
         protected double MinEdgeLength = double.MaxValue;
         protected int TargetCount = int.MaxValue;
+        protected double MaxQuadricError = double.MaxValue;
         protected enum TargetModes
         {
-            TriangleCount, VertexCount, MinEdgeLength
+            TriangleCount, VertexCount, MinEdgeLength, MaxQuadricError
         }
         protected TargetModes ReduceMode = TargetModes.TriangleCount;
 
@@ -80,6 +125,7 @@ namespace g3
             begin_pass();
 
             begin_setup();
+            ensure_deviation_reference();
             Precompute();
             if (Cancelled())
                 return;
@@ -99,6 +145,9 @@ namespace g3
                 // termination criteria
                 if ( ReduceMode == TargetModes.VertexCount ) {
                     if (mesh.VertexCount <= TargetCount)
+                        break;
+                } else if ( ReduceMode == TargetModes.MaxQuadricError ) {
+                    if (EdgeQueue.FirstPriority > MaxQuadricError)
                         break;
                 } else {
                     if (mesh.TriangleCount <= TargetCount)
@@ -148,6 +197,21 @@ namespace g3
             DoReduce();
         }
 
+        /// <summary>
+        /// Collapse edges in order of increasing quadric error until the cheapest remaining collapse
+        /// has an error above maxError. Errors are area-weighted squared distances (units length^4), or
+        /// plain sums of squared distances to the original triangle planes if AreaWeightedQuadrics is false.
+        /// </summary>
+        public virtual void ReduceToMaxQuadricError(double maxError)
+        {
+            ReduceMode = TargetModes.MaxQuadricError;
+            TargetCount = 1;
+            MinEdgeLength = double.MaxValue;
+            MaxQuadricError = maxError;
+            DoReduce();
+        }
+
+
         public virtual void ReduceToEdgeLength(double minEdgeLen)
         {
             ReduceMode = TargetModes.MinEdgeLength;
@@ -173,6 +237,7 @@ namespace g3
 
             MinEdgeLength = fMinEdgeLength;
             double min_sqr = MinEdgeLength * MinEdgeLength;
+            ensure_deviation_reference();
 
             // we don't collapse on the boundary
             HaveBoundary = false;
@@ -242,8 +307,76 @@ namespace g3
 
 
         protected QuadricError[] vertQuadrics;
+
+        // copy of the input for MaxDeviation
+        protected DMeshAABBTree3 deviationTarget;
+        protected TriangleDeviationBounds deviationBounds;
+
+        /// <summary> the surface MaxDeviation is measured from (default: the mesh at the first reduction) </summary>
+        public void SetDeviationReference(DMesh3 reference)
+        {
+            deviationTarget = new DMeshAABBTree3(new DMesh3(reference), true);
+            deviationBounds = new TriangleDeviationBounds(deviationTarget.Mesh);
+        }
+
+        protected void ensure_deviation_reference()
+        {
+            if (MaxDeviation > 0 && deviationTarget == null)
+                SetDeviationReference(mesh);
+        }
+
+        // would the triangles around a and b, after collapsing to newPos, stay within MaxDeviation?
+        protected bool collapse_within_deviation(int a, int b, Vector3d newPos)
+        {
+            // the new vertex first: one query, rejects most collapses that go too far
+            if (deviationTarget.FindNearestTriangle(newPos, MaxDeviation) < 0)
+                return false;
+            List<Triangle3d> tris = new List<Triangle3d>();
+            foreach (int v in new int[] { a, b }) {
+                int other = (v == a) ? b : a;
+                foreach (int tid in mesh.VtxTrianglesItr(v)) {
+                    Index3i t = mesh.GetTriangle(tid);
+                    if (t.a == other || t.b == other || t.c == other)
+                        continue;      // removed by the collapse
+                    tris.Add(new Triangle3d((t.a == v) ? newPos : mesh.GetVertex(t.a),
+                        (t.b == v) ? newPos : mesh.GetVertex(t.b), (t.c == v) ? newPos : mesh.GetVertex(t.c)));
+                }
+            }
+            // cheap samples next: most collapses that exceed the tolerance are rejected here, before the
+            // (much more expensive) certification of the whole triangles
+            foreach (Triangle3d t in tris) {
+                Vector3d[] samples = { (t.V0 + t.V1 + t.V2) / 3, 0.5 * (t.V0 + t.V1), 0.5 * (t.V1 + t.V2), 0.5 * (t.V2 + t.V0) };
+                foreach (Vector3d p in samples) {
+                    if (deviationTarget.FindNearestTriangle(p, MaxDeviation) < 0)
+                        return false;
+                }
+            }
+            bool ok = true;
+            gParallel.ForEach(Interval1i.Range(tris.Count), (k) => {
+                if (ok && deviationBounds.IsWithin(deviationTarget, tris[k].V0, tris[k].V1, tris[k].V2, MaxDeviation, MaxDeviationDepth) == false)
+                    ok = false;
+            });
+            return ok;
+        }
+
+        // quadrics are computed relative to this point (the mesh bounds center): in absolute coordinates far
+        // from the origin (eg UTM, 5e6) the constant term is ~1e13 and errors drown in rounding
+        protected Vector3d quadricOrigin = Vector3d.Zero;
+
+        protected QuadricError plane_quadric(Vector3d n, Vector3d p)
+        {
+            Vector3d local = p - quadricOrigin;
+            return new QuadricError(ref n, ref local);
+        }
+        protected double evaluate(ref QuadricError q, Vector3d p)
+        {
+            Vector3d local = p - quadricOrigin;
+            return q.Evaluate(ref local);
+        }
+
 		protected virtual void InitializeVertexQuadrics()
 		{
+            quadricOrigin = mesh.CachedBounds.Center;
 
 			int NT = mesh.MaxTriangleID;
 			QuadricError[] triQuadrics = new QuadricError[NT];
@@ -253,7 +386,7 @@ namespace g3
                 for (int tid = start_tid; tid <= end_tid; tid++) {
                     if (mesh.IsTriangle(tid)) {
                         mesh.GetTriInfo(tid, out n, out triAreas[tid], out c);
-                        triQuadrics[tid] = new QuadricError(ref n, ref c);
+                        triQuadrics[tid] = plane_quadric(n, c);
                     }
                 }
 			});
@@ -266,14 +399,55 @@ namespace g3
                     vertQuadrics[vid] = QuadricError.Zero;
                     if (mesh.IsVertex(vid)) {
                         foreach (int tid in mesh.VtxTrianglesItr(vid)) {
-                            vertQuadrics[vid].Add(triAreas[tid], ref triQuadrics[tid]);
+                            vertQuadrics[vid].Add(AreaWeightedQuadrics ? triAreas[tid] : 1.0, ref triQuadrics[tid]);
                         }
                         //Util.gDevAssert(MathUtil.EpsilonEqual(0, vertQuadrics[i].Evaluate(mesh.GetVertex(i)), MathUtil.Epsilon * 10));
                     }
                 }
 			});
 
+            add_boundary_and_feature_quadrics(triAreas);
 		}
+
+
+        // see BoundaryQuadricWeight and FeatureAngle
+        protected virtual void add_boundary_and_feature_quadrics(double[] triAreas)
+        {
+            bool doBoundary = PreserveBoundaryShape && BoundaryQuadricWeight > 0;
+            bool doFeatures = FeatureAngle > 0 && FeatureQuadricWeight > 0;
+            if (doBoundary == false && doFeatures == false)
+                return;
+            double featureDot = Math.Cos(FeatureAngle * MathUtil.Deg2Rad);
+            foreach (int eid in mesh.EdgeIndices()) {
+                Index2i et = mesh.GetEdgeT(eid);
+                Index2i ev = mesh.GetEdgeV(eid);
+                Vector3d a = mesh.GetVertex(ev.a), b = mesh.GetVertex(ev.b);
+                // weight comparable to a triangle plane: area-like (edge length^2) or 1
+                double w = AreaWeightedQuadrics ? a.DistanceSquared(b) : 1.0;
+
+                if (et.b == DMesh3.InvalidID) {
+                    if (doBoundary == false)
+                        continue;
+                    Vector3d n = mesh.GetTriNormal(et.a);
+                    Vector3d m = (b - a).Cross(n);
+                    if (m.Normalize() < MathUtil.Epsilon)
+                        continue;
+                    QuadricError q = plane_quadric(m, a);
+                    vertQuadrics[ev.a].Add(BoundaryQuadricWeight * w, ref q);
+                    vertQuadrics[ev.b].Add(BoundaryQuadricWeight * w, ref q);
+                } else if (doFeatures) {
+                    Vector3d n0 = mesh.GetTriNormal(et.a), n1 = mesh.GetTriNormal(et.b);
+                    if (n0.Dot(n1) >= featureDot)
+                        continue;
+                    QuadricError q0 = plane_quadric(n0, a);
+                    QuadricError q1 = plane_quadric(n1, a);
+                    vertQuadrics[ev.a].Add(FeatureQuadricWeight * w, ref q0);
+                    vertQuadrics[ev.a].Add(FeatureQuadricWeight * w, ref q1);
+                    vertQuadrics[ev.b].Add(FeatureQuadricWeight * w, ref q0);
+                    vertQuadrics[ev.b].Add(FeatureQuadricWeight * w, ref q1);
+                }
+            }
+        }
 
 
         // internal class for priority queue
@@ -308,7 +482,7 @@ namespace g3
                         Index2i ev = mesh.GetEdgeV(eid);
                         QuadricError Q = new QuadricError(ref vertQuadrics[ev.a], ref vertQuadrics[ev.b]);
                         Vector3d opt = OptimalPoint(eid, ref Q, ev.a, ev.b);
-                        edgeErrors[eid] = (float)Q.Evaluate(ref opt);
+                        edgeErrors[eid] = (float)evaluate(ref Q, opt);
                         EdgeQuadrics[eid] = new QEdge(eid, ref Q, ref opt);
                     }
                 }
@@ -352,14 +526,17 @@ namespace g3
 
             // if we would like to preserve boundary, we need to know that here
             // so that we properly score these edges
+            // Boundary vertices must stay where they are, so the collapse keeps one of them. If both are
+            // boundary vertices, use the one with lower error; CollapseEdge() keeps the same one.
             if (HaveBoundary && PreserveBoundaryShape) {
-                if (mesh.IsBoundaryEdge(eid)) {
-                    return (mesh.GetVertex(ea) + mesh.GetVertex(eb)) * 0.5;
-                } else {
-                    if (IsBoundaryV(ea))
-                        return mesh.GetVertex(ea);
-                    else if (IsBoundaryV(eb))
-                        return mesh.GetVertex(eb);
+                bool ba = IsBoundaryV(ea), bb = IsBoundaryV(eb);
+                if (ba && bb) {
+                    Vector3d pa = mesh.GetVertex(ea), pb = mesh.GetVertex(eb);
+                    return (evaluate(ref q, pa) <= evaluate(ref q, pb)) ? pa : pb;
+                } else if (ba) {
+                    return mesh.GetVertex(ea);
+                } else if (bb) {
+                    return mesh.GetVertex(eb);
                 }
             }
 
@@ -369,17 +546,18 @@ namespace g3
 				return project( (mesh.GetVertex(ea) + mesh.GetVertex(eb)) * 0.5 );
 			} else {
                 Vector3d result = Vector3d.Zero;
-                if (q.OptimalPoint(ref result))
-                    return project(result);
+                Vector3d mid = 0.5 * (mesh.GetVertex(ea) + mesh.GetVertex(eb)) - quadricOrigin;
+                if (q.OptimalPoint(ref result, mid, QuadricRegularization))
+                    return project(result + quadricOrigin);
 
                 // degenerate matrix, evaluate quadric at edge end and midpoints
 				// (could do line search here...)
 				Vector3d va = mesh.GetVertex(ea);
 				Vector3d vb = mesh.GetVertex(eb);
 				Vector3d c = project((va + vb) * 0.5);
-				double fa = q.Evaluate(ref va);
-				double fb = q.Evaluate(ref vb);
-				double fc = q.Evaluate(ref c);
+				double fa = evaluate(ref q, va);
+				double fb = evaluate(ref q, vb);
+				double fc = evaluate(ref q, c);
 				double m = MathUtil.Min(fa, fb, fc);
 				if (m == fa) return va;
 				else if (m == fb) return vb;
@@ -404,7 +582,7 @@ namespace g3
 				Index2i nev = mesh.GetEdgeV(eid);
 				QuadricError Q = new QuadricError(ref vertQuadrics[nev.a], ref vertQuadrics[nev.b]);
 				Vector3d opt = OptimalPoint(eid, ref Q, nev.a, nev.b);
-				double err = Q.Evaluate(ref opt);
+				double err = evaluate(ref Q, opt);
                 EdgeQuadrics[eid] = new QEdge(eid, ref Q, ref opt);
 				if ( EdgeQueue.Contains(eid) ) {
 					EdgeQueue.Update(eid, (float)err);
@@ -466,10 +644,11 @@ namespace g3
 
 
         // We are using a modulo-index loop to break symmetry/pathological conditions. 
-        const int nPrime = 31337;     // any prime will do...
+        int nPrime = 31337;     // any prime coprime to MaxEdgeID will do...
         int nMaxEdgeID;
         protected virtual int start_edges() {
             nMaxEdgeID = mesh.MaxEdgeID;
+            nPrime = MathUtil.ModuloIterationStep(nMaxEdgeID);
             return 0;
         }
 
@@ -497,7 +676,8 @@ namespace g3
 			Ignored_Constrained = 4,
 			Ignored_CreatesFlip = 5,
 			Failed_OpNotSuccessful = 6,
-			Failed_NotAnEdge = 7
+			Failed_NotAnEdge = 7,
+			Ignored_ExceedsDeviation = 8
 		};
 
 		protected virtual ProcessResult CollapseEdge(int edgeID, Vector3d vNewPos, out int collapseToV) 
@@ -547,9 +727,12 @@ namespace g3
                          ( IsBoundaryV(a) && collapse_to != a))
                         return ProcessResult.Ignored_Constrained;
                 }
-                if (IsBoundaryV(b))
+                bool ba = IsBoundaryV(a), bb = IsBoundaryV(b);
+                if (ba && bb)
+                    collapse_to = (vNewPos.DistanceSquared(vA) < vNewPos.DistanceSquared(vB)) ? a : b;  // as chosen in OptimalPoint()
+                else if (bb)
                     collapse_to = b;
-                else if (IsBoundaryV(a))
+                else if (ba)
                     collapse_to = a;
             }
 
@@ -576,6 +759,10 @@ namespace g3
 				retVal = ProcessResult.Ignored_CreatesFlip;
 				goto skip_to_end;
 			}
+            if (MaxDeviation > 0 && collapse_within_deviation(a, b, vNewPos) == false) {
+                retVal = ProcessResult.Ignored_ExceedsDeviation;
+                goto skip_to_end;
+            }
 
             // lots of cases where we cannot collapse, but we should just let
             // mesh sort that out, right?
@@ -840,6 +1027,43 @@ skip_to_end:
 		}
 
 
+
+		/// <summary>
+		/// minimizer of the quadric + lambda * |x - center|^2, with lambda = lambdaRel * trace(A)/3:
+		/// always well-conditioned and scale independent; directions the quadric does not constrain stay
+		/// at center. Returns false only for an empty quadric.
+		/// </summary>
+		public bool OptimalPoint(ref Vector3d result, Vector3d center, double lambdaRel) {
+			double scale = (Axx + Ayy + Azz) / 3;
+			if (!(scale > 0))
+				return false;
+			double lambda = lambdaRel * scale;
+			QuadricError r = this;
+			r.Axx += lambda; r.Ayy += lambda; r.Azz += lambda;
+			double a11 = r.Azz * r.Ayy - r.Ayz * r.Ayz;
+			double a12 = r.Axz * r.Ayz - r.Azz * r.Axy;
+			double a13 = r.Axy * r.Ayz - r.Axz * r.Ayy;
+			double a22 = r.Azz * r.Axx - r.Axz * r.Axz;
+			double a23 = r.Axy * r.Axz - r.Axx * r.Ayz;
+			double a33 = r.Axx * r.Ayy - r.Axy * r.Axy;
+			double det = (r.Axx * a11) + (r.Axy * a12) + (r.Axz * a13);
+			if (!(Math.Abs(det) > 1e-18 * scale * scale * scale))
+				return false;
+			det = 1.0 / det;
+			// x = -(A + lambda I)^-1 (b - lambda c); then proximal steps with c = x, which converge to the
+			// exact minimizer in the directions the quadric constrains (factor lambda/eigenvalue per step)
+			// and keep the others at center
+			Vector3d cur = center;
+			for (int k = 0; k < 3; ++k) {
+				double rx = bx - lambda * cur.x, ry = by - lambda * cur.y, rz = bz - lambda * cur.z;
+				cur = new Vector3d(
+					-(a11 * rx + a12 * ry + a13 * rz) * det,
+					-(a12 * rx + a22 * ry + a23 * rz) * det,
+					-(a13 * rx + a23 * ry + a33 * rz) * det);
+			}
+			result = cur;
+			return true;
+		}
 
 		public bool OptimalPoint(ref Vector3d result) {
 			double a11 = Azz * Ayy - Ayz * Ayz;

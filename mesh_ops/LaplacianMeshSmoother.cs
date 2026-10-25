@@ -46,7 +46,6 @@ namespace g3
         public LaplacianMeshSmoother(DMesh3 mesh)
         {
             Mesh = mesh;
-            Util.gDevAssert(mesh.IsCompact);
         }
 
 
@@ -112,7 +111,7 @@ namespace g3
                     sum_w += w;
                 }
                 sum_w = -sum_w;
-                M.Set(vid, vid, sum_w);
+                M.Set(i, i, sum_w);
             }
 
             // transpose(L) * L, but matrix is symmetric...
@@ -402,7 +401,7 @@ namespace g3
                     constrained.Add(sub_vid);
             }
 
-            if (constrained.Count > 0) {
+            if (constrained != null && constrained.Count > 0) {
                 w = Math.Sqrt(w);
                 for (int k = 0; k < nConstrainLoops; ++k) {
                     HashSet<int> next_layer = new HashSet<int>();

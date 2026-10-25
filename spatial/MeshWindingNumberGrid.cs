@@ -54,6 +54,24 @@ namespace gs
 
         public bool DebugPrint = false;
 
+        /// <summary>
+        /// Use the fast (dipole-approximation) winding number of Barill et al. 2018 instead of the
+        /// hierarchical exact one. The exact one is fast for closed subtrees but degrades towards O(N)
+        /// per query on broken meshes / triangle soups; the fast one stays fast and is accurate to
+        /// a small fraction near the 0.5 iso-value.
+        /// </summary>
+        public bool UseFastWindingNumber = false;
+
+        /// <summary> number of winding number evaluations in the last Compute() </summary>
+        public int WindingEvaluations { get { return winding_evaluations; } }
+        int winding_evaluations = 0;
+
+        double winding_number(Vector3d p)
+        {
+            System.Threading.Interlocked.Increment(ref winding_evaluations);
+            return UseFastWindingNumber ? MeshSpatial.FastWindingNumber(p) : MeshSpatial.WindingNumber(p);
+        }
+
         // computed results
         Vector3f grid_origin;
         DenseGrid3f winding_grid;
@@ -72,6 +90,7 @@ namespace gs
 
         public void Compute()
         {
+            winding_evaluations = 0;
             // figure out origin & dimensions
             AxisAlignedBox3d bounds = Mesh.CachedBounds;
 
@@ -141,7 +160,7 @@ namespace gs
             winding.assign(float.MaxValue); // sentinel
 
             // seed MWN cache
-            MeshSpatial.WindingNumber(Vector3d.Zero);
+            winding_number(Vector3d.Zero);
 
             if (DebugPrint) System.Console.WriteLine("start");
 
@@ -174,7 +193,7 @@ namespace gs
                     // this could be tighter? but I don't think it matters...
                     if (dist < CellSize) {
                         Vector3d gx = new Vector3d((float)ijk.x * dx + origin[0], (float)ijk.y * dx + origin[1], (float)ijk.z * dx + origin[2]);
-                        winding[ijk] = (float)MeshSpatial.WindingNumber(gx);
+                        winding[ijk] = (float)winding_number(gx);
                     }
                 }
             });
@@ -232,7 +251,7 @@ namespace gs
                         float val2 = winding[nijk];
                         if (val2 == float.MaxValue) {
                             Vector3d gx = new Vector3d((float)nijk.x * dx + origin[0], (float)nijk.y * dx + origin[1], (float)nijk.z * dx + origin[2]);
-                            val2 = (float)MeshSpatial.WindingNumber(gx);
+                            val2 = (float)winding_number(gx);
                             winding[nijk] = val2;
                         }
                         if (bits[nijk] == false) {
@@ -298,7 +317,7 @@ namespace gs
         {
             winding.resize(ni, nj, nk);
 
-            MeshSpatial.WindingNumber(Vector3d.Zero);
+            winding_number(Vector3d.Zero);
             bool abort = false; int count = 0;
             gParallel.ForEach(winding.Indices(), (ijk) => {
                 Interlocked.Increment(ref count);
@@ -308,7 +327,7 @@ namespace gs
                     return;
 
                 Vector3d gx = new Vector3d((float)ijk.x * dx + origin[0], (float)ijk.y * dx + origin[1], (float)ijk.z * dx + origin[2]);
-                winding[ijk] = (float)MeshSpatial.WindingNumber(gx);
+                winding[ijk] = (float)winding_number(gx);
             });
 
         }   // end make_level_set_3

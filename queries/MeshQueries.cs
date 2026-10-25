@@ -474,7 +474,7 @@ namespace g3
             int MaxID = mesh.MaxEdgeID;
 
             // if we are only taking some samples, use a prime-modulo-loop instead of random
-            int nPrime = (samples == 0 ) ? 1 : nPrime = 31337;
+            int nPrime = (samples == 0 ) ? 1 : MathUtil.ModuloIterationStep(MaxID);
             int max_count = (samples == 0) ? MaxID : samples;
 
             Vector3d a = Vector3d.Zero, b = Vector3d.Zero;

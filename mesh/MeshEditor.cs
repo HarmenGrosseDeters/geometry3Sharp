@@ -603,22 +603,28 @@ namespace g3
         /// </summary>
         public void DisconnectBowtie(int vid)
         {
-            List<List<int>> sets = new List<List<int>>();
-            foreach ( int tid in Mesh.VtxTrianglesItr(vid)) {
-                Index3i nbrs = Mesh.GetTriNeighbourTris(tid);
-                bool found = false;
-                foreach ( List<int> set in sets ) {
-                    if ( set.Contains(nbrs.a) || set.Contains(nbrs.b) || set.Contains(nbrs.c) ) {
-                        set.Add(tid);
-                        found = true;
-                        break;
-                    }
-                }
-                if ( found == false ) {
-                    List<int> set = new List<int>() { tid };
-                    sets.Add(set);
-                }
+            // grouping triangles in a single pass (add to first set containing a neighbour)
+            //   depends on iteration order and can split one fan into several sets, which cuts a
+            //   crack into the mesh. So union the two triangles of each edge at vid instead.
+            Dictionary<int, int> parent = new Dictionary<int, int>();
+            foreach (int tid in Mesh.VtxTrianglesItr(vid))
+                parent[tid] = tid;
+            foreach (int eid in Mesh.VtxEdgesItr(vid)) {
+                Index2i et = Mesh.GetEdgeT(eid);
+                if (et.b != DMesh3.InvalidID)
+                    parent[find_root(parent, et.a)] = find_root(parent, et.b);
             }
+            Dictionary<int, List<int>> setMap = new Dictionary<int, List<int>>();
+            foreach (int tid in Mesh.VtxTrianglesItr(vid)) {
+                int root = find_root(parent, tid);
+                List<int> set;
+                if (setMap.TryGetValue(root, out set) == false) {
+                    set = new List<int>();
+                    setMap[root] = set;
+                }
+                set.Add(tid);
+            }
+            List<List<int>> sets = new List<List<int>>(setMap.Values);
             if (sets.Count == 1)
                 return;  // not a bowtie!
             sets.Sort(bowtie_sorter);
@@ -634,6 +640,17 @@ namespace g3
                 }
             }
         }
+        static int find_root(Dictionary<int, int> parent, int tid) {
+            int root = tid;
+            while (parent[root] != root)
+                root = parent[root];
+            while (parent[tid] != root) {
+                int next = parent[tid];
+                parent[tid] = root;
+                tid = next;
+            }
+            return root;
+        }
         static int bowtie_sorter(List<int> l1, List<int> l2) {
             if (l1.Count == l2.Count) return 0;
             return (l1.Count > l2.Count) ? -1 : 1;
@@ -642,8 +659,8 @@ namespace g3
 
 
         /// <summary>
-        /// Disconnect all bowtie vertices in mesh. Iterates because sometimes
-		/// disconnecting a bowtie creates new bowties (how??).
+        /// Disconnect all bowtie vertices in mesh. Iterates in case disconnecting
+		/// a bowtie creates new bowties.
 		/// Returns number of remaining bowties after iterations.
         /// </summary>
         public int DisconnectAllBowties(int nMaxIters = 10)

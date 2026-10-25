@@ -39,9 +39,9 @@ namespace g3
 		{
 			return new AxisAlignedBox3d(
 				GridOrigin.x, GridOrigin.y, GridOrigin.z,
-				GridOrigin.x + CellSize * Grid.ni, 
-				GridOrigin.y + CellSize * Grid.nj, 
-				GridOrigin.z + CellSize * Grid.nk);
+				GridOrigin.x + CellSize * (Grid.ni - 1),
+				GridOrigin.y + CellSize * (Grid.nj - 1),
+				GridOrigin.z + CellSize * (Grid.nk - 1));
 		}
 
 
@@ -52,16 +52,17 @@ namespace g3
                 ((pt.y - GridOrigin.y) / CellSize),
                 ((pt.z - GridOrigin.z) / CellSize));
 
-            // compute integer coordinates
-            int x0 = (int)gridPt.x;
-            int y0 = (int)gridPt.y, y1 = y0 + 1;
-            int z0 = (int)gridPt.z, z1 = z0 + 1;
-
-            // clamp to grid
-            if (x0 < 0 || (x0+1) >= Grid.ni ||
-                y0 < 0 || y1 >= Grid.nj ||
-                z0 < 0 || z1 >= Grid.nk)
+            // outside the sampled region (the max faces are inside; points just below the origin are not,
+            // which truncation to int would round up to cell 0)
+            if (gridPt.x < 0 || gridPt.x > Grid.ni - 1 ||
+                gridPt.y < 0 || gridPt.y > Grid.nj - 1 ||
+                gridPt.z < 0 || gridPt.z > Grid.nk - 1)
                 return Outside;
+
+            // compute integer coordinates; on a max face use the last cell
+            int x0 = Math.Min((int)gridPt.x, Grid.ni - 2);
+            int y0 = Math.Min((int)gridPt.y, Grid.nj - 2), y1 = y0 + 1;
+            int z0 = Math.Min((int)gridPt.z, Grid.nk - 2), z1 = z0 + 1;
 
             // convert double coords to [0,1] range
             double fAx = gridPt.x - (double)x0;

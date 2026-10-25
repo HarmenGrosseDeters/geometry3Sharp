@@ -233,11 +233,12 @@ namespace g3 {
         // sequential edge IDs, and all edges are < min edge length, then we can easily end
         // up successively collapsing each tiny edge, and eroding away the entire mesh!
         // By using modulo-index loop we jump around and hence this is unlikely to happen.
-        const int nPrime = 31337;     // any prime will do...
+        int nPrime = 31337;     // any prime coprime to MaxEdgeID will do...
         int nMaxEdgeID;
         protected virtual int start_edges()
         {
             nMaxEdgeID = mesh.MaxEdgeID;
+            nPrime = MathUtil.ModuloIterationStep(nMaxEdgeID);
             return 0;
         }
 

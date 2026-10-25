@@ -645,10 +645,25 @@ namespace g3
 
 
         /// <summary>
+        /// Step for a prime-modulo loop over [0, n): (i + step) % n visits every index once only if step and n
+        /// are coprime, so 31337 alone fails when n is a multiple of it (eg 62674 edges).
+        /// </summary>
+        public static int ModuloIterationStep(int n)
+        {
+            if (n % 31337 != 0) return 31337;
+            if (n % 7919 != 0) return 7919;
+            return 1;
+        }
+
+        /// <summary>
         /// Iterate from 0 to (nMax-1) using prime-modulo, so we see every index once, but not in-order
         /// </summary>
         public static IEnumerable<int> ModuloIteration(int nMaxExclusive, int nPrime = 31337)
         {
+            if (nMaxExclusive <= 0)
+                yield break;
+            if (nMaxExclusive % nPrime == 0)
+                nPrime = ModuloIterationStep(nMaxExclusive);
             int i = 0;
             bool done = false;
             while (done == false) {

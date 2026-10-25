@@ -33,6 +33,23 @@ namespace gs
 		};
 		public RemoveModes RemoveMode = MeshAutoRepair.RemoveModes.None;
 
+        /// <summary>
+        /// If true, run MeshPostRepairCleanup at the end of Apply(). Removes duplicate triangles and
+        /// bowties that the pipeline leaves behind, and fixes many of the degenerate triangles, folds
+        /// and inside-out components it introduces (mostly during hole filling).
+        /// </summary>
+        public bool PostRepairCleanup = false;
+
+        /// <summary>
+        /// Minimal: MinimalHoleFill (falls back to SimpleHoleFiller).
+        /// Smoothed: SmoothedHoleFill (fan fill, remesh to the average border edge length, laplacian
+        /// smooth, boundary kept fixed) for holes with more than 4 vertices, falls back to Minimal.
+        /// </summary>
+        public enum HoleFillModes { Minimal = 0, Smoothed = 1 }
+        public HoleFillModes HoleFillMode = HoleFillModes.Minimal;
+
+        bool fill_inconsistent_loops = false;
+
 
 
 
@@ -77,6 +94,7 @@ namespace gs
                 if (Cancelled()) return false;
 
             int repeat_count = 0;
+            fill_inconsistent_loops = false;
             repeat_all:
 
             /*
@@ -170,6 +188,16 @@ namespace gs
                 goto repeat_all;
             }
 
+            /*
+             * Last resort: if the mesh is still open, the remaining holes are bounded by loops that
+             * run against the boundary orientation (non-orientable regions). Fill them anyway, an
+             * orientation seam is better than a hole.
+             */
+            if (Mesh.IsClosed() == false) {
+                fill_inconsistent_loops = true;
+                fill_any_holes(out nHoles, out bSawSpans);
+            }
+
             all_done:
 
             /*
@@ -181,9 +209,22 @@ namespace gs
                 if (Cancelled()) return false;
 
             /*
+             * The mesh may have been closed early (goto all_done above), which skips disconnect_bowties,
+             * and collapsing tiny edges can create new bowties. Disconnect them before orienting.
+             */
+            disconnect_bowties(out nRemainingBowties);
+                if (Cancelled()) return false;
+
+            /*
              * finally do global orientation
              */
             repair_orientation(true);
+                if (Cancelled()) return false;
+
+            if (PostRepairCleanup) {
+                MeshPostRepairCleanup cleanup = new MeshPostRepairCleanup(Mesh);
+                cleanup.Apply();
+            }
                 if (Cancelled()) return false;
 
             if (do_checks) Mesh.CheckValidity();
@@ -208,6 +249,12 @@ namespace gs
 
 			foreach (var loop in loops) {
                 if (Cancelled()) break;
+                // see fill_any_holes
+                if (fill_inconsistent_loops == false && loops.IsConsistentlyOriented(loop) == false) {
+                    saw_spans = true;
+                    ++nRemaining;
+                    continue;
+                }
                 bool filled = false;
 				if (loop.VertexCount == 3) {
 					SimpleHoleFiller filler = new SimpleHoleFiller(Mesh, loop);
@@ -236,8 +283,23 @@ namespace gs
 
 			foreach (var loop in loops) {
                 if (Cancelled()) break;
-                MinimalHoleFill filler = new MinimalHoleFill(Mesh, loop);
-				bool filled = filler.Apply();
+                // A loop that runs against the boundary orientation somewhere (inconsistently oriented
+                // triangles, usually around a bowtie) is not filled: that can create a non-orientable
+                // surface. Report it like an unresolved span, so bowties get disconnected and the next
+                // round can fill it after the orientation repair (or erosion removes the region).
+                // Only the last-resort fill at the end of Apply() fills such loops.
+                if (fill_inconsistent_loops == false && loops.IsConsistentlyOriented(loop) == false) {
+                    saw_spans = true;
+                    ++nRemaining;
+                    continue;
+                }
+                bool filled = false;
+                if (HoleFillMode == HoleFillModes.Smoothed && loop.VertexCount > 4)
+                    filled = smoothed_fill(loop);
+                if (filled == false) {
+                    MinimalHoleFill filler = new MinimalHoleFill(Mesh, loop);
+                    filled = filler.Apply();
+                }
 				if (filled == false) {
                     if (Cancelled()) break;
                     SimpleHoleFiller fallback = new SimpleHoleFiller(Mesh, loop);
@@ -245,6 +307,25 @@ namespace gs
 				}
 			}
 		}
+
+
+        bool smoothed_fill(EdgeLoop loop)
+        {
+            double len = 0;
+            int NV = loop.VertexCount;
+            for (int i = 0; i < NV; ++i)
+                len += Mesh.GetVertex(loop.Vertices[i]).Distance(Mesh.GetVertex(loop.Vertices[(i + 1) % NV]));
+            if (len < MathUtil.ZeroTolerancef)
+                return false;
+            try {
+                SmoothedHoleFill fill = new SmoothedHoleFill(Mesh, loop);
+                fill.TargetEdgeLength = len / NV;
+                fill.ConstrainToHoleInterior = true;
+                return fill.Apply();
+            } catch (Exception) {
+                return false;
+            }
+        }
 
 
 
