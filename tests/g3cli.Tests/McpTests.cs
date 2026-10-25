@@ -62,7 +62,8 @@ namespace g3cli.Tests
             }
             JsonNode boolean = tools.First(t => S(t["name"]) == "boolean");
             Assert.Equal(new[] { "a", "b", "output", "op" }, boolean["inputSchema"]["required"].AsArray().Select(S).ToArray());
-            Assert.Equal(3, boolean["inputSchema"]["properties"]["op"]["enum"].AsArray().Count);
+            Assert.Equal(4, boolean["inputSchema"]["properties"]["op"]["enum"].AsArray().Count);
+            Assert.Equal("integer", S(boolean["inputSchema"]["properties"]["k"]["type"]));
 
             r = Handle(server, Request(4, "ping"));
             Assert.NotNull(r["result"]);
@@ -87,6 +88,12 @@ namespace g3cli.Tests
             Assert.False(B(r["result"]["isError"]), r.ToJsonString());
             Assert.InRange(D(r["result"]["structuredContent"]["mesh"]["volume"]), 12 - 1e-6, 12 + 1e-6);
             Assert.True(File.Exists(output));
+
+            // more than two inputs, inside at least two of them
+            r = Handle(server, Call(2, "boolean", new JsonObject() {
+                ["a"] = m.Cube, ["b"] = m.Shifted, ["more"] = m.Far, ["output"] = m.Path_("mcp_k.obj"), ["op"] = "at_least", ["k"] = 2 }));
+            Assert.False(B(r["result"]["isError"]), r.ToJsonString());
+            Assert.InRange(D(r["result"]["structuredContent"]["mesh"]["volume"]), 4 - 1e-6, 4 + 1e-6);
 
             r = Handle(server, Call(3, "simplify", new JsonObject() { ["input"] = m.Sphere, ["output"] = m.Path_("mcp_s.off"), ["triangles"] = 50.0 }));
             Assert.False(B(r["result"]["isError"]), r.ToJsonString());
@@ -113,6 +120,19 @@ namespace g3cli.Tests
 
             r = Handle(server, Call(5, "repair", new JsonObject() { ["input"] = m.Cube, ["output"] = m.Path_("x.dwg") }));
             Assert.Equal("unknown_format", S(r["result"]["structuredContent"]["code"]));
+        }
+
+        [Fact]
+        public void NonFiniteNumbers_AreInvalidArguments()
+        {
+            // 1e400 is a valid JSON number but infinite as a double; the CLI already rejected "--tolerance 1e400"
+            var server = Server();
+            string call = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"measure\",\"arguments\":" +
+                "{\"input\":" + JsonValue.Create(m.Cube).ToJsonString() + ",\"compare\":" + JsonValue.Create(m.Shifted).ToJsonString() + ",\"tolerance\":1e400}}}";
+            JsonObject r = server.Handle(call).AsObject();
+            Assert.True(B(r["result"]["isError"]), r.ToJsonString());
+            Assert.Equal("invalid_arguments", S(r["result"]["structuredContent"]["code"]));
+            Assert.Contains("tolerance", S(r["result"]["structuredContent"]["message"]));
         }
 
         [Fact]

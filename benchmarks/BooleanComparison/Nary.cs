@@ -1,0 +1,135 @@
+// Booleans of many meshes: one ExactMeshBoolean over all inputs (one arrangement, a winding number predicate)
+// against the chain of pairwise booleans, on the iterated cube grid of the sequence class and on random spheres.
+//   nary grid <n> [chained|onepass|twostep]...    n^3 cubes united, minus a void in each (2 n^3 - 1 booleans)
+//   nary spheres <k> [chained|onepass]...          union of k random overlapping spheres (k - 1 booleans)
+// One JSON line per variant: time (booleans only), triangles, vertices, volume error, closed, self-intersections.
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Linq;
+using System.Text.Json;
+using g3;
+using gs;
+
+static class Nary
+{
+    static DMesh3 Box(double x0, double y0, double z0, double x1, double y1, double z1)
+    {
+        var m = new DMesh3();
+        for (int i = 0; i < 8; ++i)
+            m.AppendVertex(new Vector3d((i & 1) == 0 ? x0 : x1, (i & 2) == 0 ? y0 : y1, (i & 4) == 0 ? z0 : z1));
+        int[][] quads = { new[] { 0, 2, 3, 1 }, new[] { 4, 5, 7, 6 }, new[] { 0, 1, 5, 4 }, new[] { 2, 6, 7, 3 }, new[] { 0, 4, 6, 2 }, new[] { 1, 3, 7, 5 } };
+        foreach (int[] q in quads) {
+            m.AppendTriangle(q[0], q[1], q[2]);
+            m.AppendTriangle(q[0], q[2], q[3]);
+        }
+        return m;
+    }
+
+    static double Volume(DMesh3 m)
+    {
+        return MeshMeasurements.VolumeArea(m, m.TriangleIndices(), m.GetVertex).x;
+    }
+
+    static DMesh3 Pairwise(DMesh3 a, DMesh3 b, ExactMeshBoolean.Operations op)
+    {
+        var boolean = new ExactMeshBoolean(a, b, op);
+        if (boolean.Compute() == false)
+            throw new Exception(boolean.Error);
+        return boolean.Result;
+    }
+
+    static DMesh3 OnePass(List<DMesh3> meshes, Func<int[], bool> predicate, Dictionary<string, object> info)
+    {
+        var boolean = new ExactMeshBoolean(meshes, predicate);
+        if (boolean.Compute() == false)
+            throw new Exception(boolean.Error);
+        info["phases_ms"] = boolean.PhaseMilliseconds;
+        info["patches"] = boolean.Patches;
+        info["intersecting_pairs"] = boolean.IntersectingPairs;
+        return boolean.Result;
+    }
+
+    public static int Run(string[] args)
+    {
+        string kind = args[0];
+        int n = int.Parse(args[1]);
+        var variants = args.Skip(2).ToList();
+        if (variants.Count == 0)
+            variants = new List<string> { "chained", "onepass", "twostep" };
+        // (JIT and thread pool warm-up, not timed)
+        Pairwise(Box(0, 0, 0, 1, 1, 1), Box(0.5, 0.5, 0.5, 2, 2, 2), ExactMeshBoolean.Operations.Union);
+
+        var cubes = new List<DMesh3>();
+        var voids = new List<DMesh3>();
+        double expected;
+        if (kind == "grid") {
+            for (int i = 0; i < n; ++i) for (int j = 0; j < n; ++j) for (int k = 0; k < n; ++k) {
+                cubes.Add(Box(0.9 * i, 0.9 * j, 0.9 * k, 0.9 * i + 1, 0.9 * j + 1, 0.9 * k + 1));
+                voids.Add(Box(0.9 * i + 0.25, 0.9 * j + 0.25, 0.9 * k + 0.25, 0.9 * i + 0.75, 0.9 * j + 0.75, 0.9 * k + 0.75));
+            }
+            double side = 0.9 * (n - 1) + 1;
+            expected = side * side * side - cubes.Count * 0.125;
+        } else {
+            var rand = new Random(1);
+            for (int k = 0; k < n; ++k) {
+                DMesh3 s = new Sphere3Generator_NormalizedCube() { Radius = 0.5 + 0.5 * rand.NextDouble(), EdgeVertices = 16 }.Generate().MakeDMesh();
+                MeshTransforms.Translate(s, new Vector3d(rand.NextDouble(), rand.NextDouble(), rand.NextDouble()) * Math.Cbrt(n));
+                cubes.Add(s);
+            }
+            expected = double.NaN;
+        }
+        int nc = cubes.Count;
+        var all = cubes.Concat(voids).ToList();
+        Func<int[], bool> predicate = (w) => {
+            bool inCube = false;
+            for (int m = 0; m < nc && inCube == false; ++m)
+                inCube = w[m] > 0;
+            if (inCube == false)
+                return false;
+            for (int m = nc; m < w.Length; ++m)
+                if (w[m] > 0)
+                    return false;
+            return true;
+        };
+
+        foreach (string variant in variants) {
+            var info = new Dictionary<string, object> { ["case"] = $"{kind}_{n}", ["variant"] = variant, ["inputs"] = all.Count };
+            var sw = Stopwatch.StartNew();
+            DMesh3 r;
+            if (variant == "chained") {
+                r = cubes[0];
+                for (int c = 1; c < nc; ++c)
+                    r = Pairwise(r, cubes[c], ExactMeshBoolean.Operations.Union);
+                foreach (DMesh3 v in voids)
+                    r = Pairwise(r, v, ExactMeshBoolean.Operations.Difference);
+                info["booleans"] = all.Count - 1;
+            } else if (variant == "onepass") {
+                r = OnePass(all, predicate, info);
+                info["booleans"] = 1;
+            } else if (variant == "twostep") {
+                // n-ary union of the cubes, then the union minus all voids (n-ary difference)
+                var union = new ExactMeshBoolean(cubes, ExactMeshBoolean.Operations.Union);
+                if (union.Compute() == false) throw new Exception(union.Error);
+                var diff = new ExactMeshBoolean(new[] { union.Result }.Concat(voids), ExactMeshBoolean.Operations.Difference);
+                if (diff.Compute() == false) throw new Exception(diff.Error);
+                r = diff.Result;
+                info["booleans"] = 2;
+            } else {
+                Console.Error.WriteLine("unknown variant " + variant);
+                return 1;
+            }
+            info["ms"] = sw.ElapsedMilliseconds;
+            info["triangles"] = r.TriangleCount;
+            info["vertices"] = r.VertexCount;
+            double vol = Volume(r);
+            info["volume"] = vol;
+            if (double.IsNaN(expected) == false)
+                info["volume_error"] = Math.Abs(vol - expected) / expected;
+            info["closed"] = r.IsClosed();
+            info["self_intersections"] = MeshRepairMetrics.SelfIntersections(r);
+            Console.WriteLine(JsonSerializer.Serialize(info));
+        }
+        return 0;
+    }
+}

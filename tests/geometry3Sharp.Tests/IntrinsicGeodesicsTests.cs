@@ -217,6 +217,57 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void Signposts_BoundaryVertexWithAngleSumAbove2Pi()
+        {
+            // a boundary vertex v with a ruffled fan of 9 triangles of 50 degrees (angle sum 450 degrees), and
+            // a triangle beyond the last rim edge, whose flip creates an edge at v. Its signpost is past 2 pi;
+            // wrapped to [0, 2 pi) it pointed into the first triangles of the fan and TraceEdge went astray.
+            DMesh3 mesh = new DMesh3();
+            int v = mesh.AppendVertex(Vector3d.Zero);
+            int nT = 9;
+            double gamma = 50 * Math.PI / 180, da = 36 * Math.PI / 180;
+            // rim points at distance 1, alternately above and below the plane, consecutive ones gamma apart
+            double phi0 = Math.Acos(Math.Sqrt((Math.Cos(gamma) + 1) / (Math.Cos(da) + 1)));
+            var rim = new List<int>();
+            for (int k = 0; k <= nT; ++k) {
+                double a = k * da, ph = (k % 2 == 0 ? 1 : -1) * phi0;
+                rim.Add(mesh.AppendVertex(new Vector3d(Math.Cos(a) * Math.Cos(ph), Math.Sin(a) * Math.Cos(ph), Math.Sin(ph))));
+            }
+            for (int k = 0; k < nT; ++k) Assert.True(mesh.AppendTriangle(v, rim[k], rim[k + 1]) >= 0);
+            Vector3d mid = 0.5 * (mesh.GetVertex(rim[nT - 1]) + mesh.GetVertex(rim[nT]));
+            Assert.True(mesh.AppendTriangle(rim[nT], rim[nT - 1], mesh.AppendVertex(mid + 0.3 * mid.Normalized)) >= 0);
+
+            // v becomes the head of the flipped halfedge (k in FlipEdge) or the head of its twin (l)
+            foreach (bool reverse in new[] { false, true }) {
+                var T = new IntrinsicTriangulation(mesh);
+                int iv = T.VertexIndex(v);
+                Assert.True(T.IsBoundaryVertex(iv));
+                Assert.Equal(nT * gamma, T.AngleSum(iv), 9);
+                int h = -1;
+                for (int k = 0; k < T.HalfedgeCount; ++k)
+                    if (T.VertexID(T.Tail(k)) == rim[nT - 1] && T.VertexID(T.Head(k)) == rim[nT] && T.Twin(k) >= 0) h = k;
+                if (reverse) h = T.Twin(h);     // v is then the other end of the flipped edge
+                Assert.True(T.FlipEdge(h));
+                int hv = T.VertexID(T.Tail(h)) == v ? h : T.Twin(h);
+                Assert.Equal(v, T.VertexID(T.Tail(hv)));
+
+                // around v counter-clockwise from its first boundary edge the signposts increase by the corner angles
+                int hh = T.VertexHalfedge(iv), count = 0;
+                double expected = 0;
+                while (hh >= 0) {
+                    Assert.Equal(expected, T.Signpost(hh), 9);
+                    expected += T.CornerAngle(hh);
+                    hh = T.NextAroundVertex(hh);
+                    count++;
+                }
+                Assert.Equal(nT + 1, count);
+                Assert.True(T.Signpost(hv) > 2 * Math.PI);
+                List<Vector3d> path = T.TraceEdge(hv);
+                Assert.True(path[path.Count - 1].Distance(mesh.GetVertex(T.VertexID(T.Head(hv)))) < 1e-9);
+            }
+        }
+
+        [Fact]
         public void TraceEdge_FollowsTheSurfaceToItsHead()
         {
             // intrinsic edges of very obtuse meshes (closed, and with a boundary), traced over the input

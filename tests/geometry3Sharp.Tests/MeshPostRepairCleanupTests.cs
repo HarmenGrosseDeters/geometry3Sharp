@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System;
 using System.Linq;
 using g3;
@@ -157,6 +158,77 @@ namespace geometry3Sharp.Tests
             Assert.Empty(MeshPostRepairCleanup.FindInvertedComponents(result));
             Assert.True(Volume(result) > 0);
             Assert.True(result.CheckValidity(false, FailMode.ReturnOnly));
+        }
+
+        static DMesh3 Cube(Vector3d min, double size)
+        {
+            return new TrivialBox3Generator() { Box = new Box3d(min + 0.5 * size * Vector3d.One, 0.5 * size * Vector3d.One) }.Generate().MakeDMesh();
+        }
+
+        [Fact]
+        public void ManyComponents_InsideOutOneFound()
+        {
+            // 600 hollow cubes (each with a cavity, oriented inwards) in a grid, plus one inside-out cube and one hollow
+            // cube with an outward cavity: with more than 500 closed components nothing was checked, so NotCleanReason
+            // called such a mesh clean
+            DMesh3 mesh = new DMesh3();
+            for (int i = 0; i < 600; ++i) {
+                Vector3d p = new Vector3d(3 * (i % 30), 3 * (i / 30), 0);
+                MeshEditor.Append(mesh, Cube(p, 2));
+                DMesh3 cavity = Cube(p + 0.5 * Vector3d.One, 1);
+                cavity.ReverseOrientation();
+                MeshEditor.Append(mesh, cavity);
+            }
+            Assert.Empty(MeshPostRepairCleanup.FindInvertedComponents(mesh));
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(mesh, false));
+
+            DMesh3 inverted = Cube(new Vector3d(0, -5, 0), 2);
+            inverted.ReverseOrientation();
+            MeshEditor.Append(mesh, inverted);
+            MeshEditor.Append(mesh, Cube(new Vector3d(5, -5, 0), 2));
+            MeshEditor.Append(mesh, Cube(new Vector3d(5.5, -4.5, 0.5), 1));      // a cavity facing outwards
+            var found = MeshPostRepairCleanup.FindInvertedComponents(mesh);
+            Assert.Equal(2, found.Count);
+            Assert.Equal("inside-out components", MeshRobustRepair.NotCleanReason(mesh, false));
+
+            var cleanup = new MeshPostRepairCleanup(mesh);
+            cleanup.Apply();
+            Assert.Equal(2, cleanup.FlippedComponents);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(mesh, false));
+        }
+
+        [Fact]
+        public void ManyComponents_SideBySide_Fast()
+        {
+            // 20000 cubes in a row: the sweep finds no enclosing boxes without comparing all pairs
+            DMesh3 mesh = new DMesh3();
+            for (int i = 0; i < 20000; ++i)
+                MeshEditor.Append(mesh, Cube(new Vector3d(2 * i, 0, 0), 1));
+            var timer = System.Diagnostics.Stopwatch.StartNew();
+            Assert.Empty(MeshPostRepairCleanup.FindInvertedComponents(mesh));
+            Assert.True(timer.ElapsedMilliseconds < 20000, $"{timer.ElapsedMilliseconds} ms");
+        }
+
+        [Fact]
+        public void EnclosingBoxes_SameAsAllPairs()
+        {
+            // random nested, overlapping, identical and equal-coordinate boxes on a coarse grid
+            var rnd = new Random(3);
+            for (int trial = 0; trial < 50; ++trial) {
+                var boxes = new List<AxisAlignedBox3d>();
+                int n = 1 + rnd.Next(60);
+                for (int k = 0; k < n; ++k) {
+                    if (k > 0 && rnd.Next(5) == 0) { boxes.Add(boxes[rnd.Next(k)]); continue; }
+                    Func<int> c = () => rnd.Next(6);
+                    int x0 = c(), y0 = c(), z0 = c();
+                    boxes.Add(new AxisAlignedBox3d(new Vector3d(x0, y0, z0), new Vector3d(x0 + 1 + rnd.Next(4), y0 + 1 + rnd.Next(4), z0 + 1 + rnd.Next(4))));
+                }
+                var found = MeshPostRepairCleanup.enclosing_boxes(boxes);
+                for (int i = 0; i < n; ++i) {
+                    var expected = Enumerable.Range(0, n).Where(j => j != i && boxes[j].Contains(boxes[i])).ToList();
+                    Assert.Equal(expected, found[i]);
+                }
+            }
         }
     }
 }

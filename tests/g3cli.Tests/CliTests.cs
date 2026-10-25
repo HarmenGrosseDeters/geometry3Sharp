@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json.Nodes;
@@ -196,6 +197,48 @@ namespace g3cli.Tests
             AssertCleanCube(r["mesh"], volume);
         }
 
+        [Theory]
+        [InlineData("union", 20.0, 2)]
+        [InlineData("difference", 4.0, 1)]
+        [InlineData("at_least", 4.0, 1)]
+        public void Boolean_MoreThanTwoInputs(string op, double volume, int components)
+        {
+            // cube, shifted cube (overlap 4) and a disjoint cube in one operation
+            string output = m.Path_("nary_" + op + ".obj");
+            var args = new List<string>() { "boolean", m.Cube, m.Shifted, output, "--op", op, "--more", m.Far };
+            if (op == "at_least")
+                args.AddRange(new[] { "--k", "2" });
+            var (exit, r) = Run(args.ToArray());
+            AssertOk(exit, r);
+            Assert.Equal(3, r["inputs"].AsArray().Count);
+            Assert.Equal(new[] { true, true, true }, r["exact_winding"].AsArray().Select(B).ToArray());
+            Assert.Equal(components, I(r["mesh"]["components"]));
+            AssertCleanCube(r["mesh"], volume);
+        }
+
+        [Fact]
+        public void Boolean_MoreThanTwoInputs_IntersectionAndErrors()
+        {
+            var (exit, r) = Run("boolean", m.Cube, m.Shifted, m.Path_("i3.obj"), "--op", "intersection", "--more", m.Far + ";" + m.Cube);
+            AssertOk(exit, r);
+            Assert.Equal(4, r["inputs"].AsArray().Count);
+            Assert.True(B(r["empty_result"]));
+            // k: needed for at_least, at least 1, not with other operations
+            (exit, r) = Run("boolean", m.Cube, m.Shifted, m.Path_("x.obj"), "--op", "at_least");
+            AssertError(exit, r, "invalid_arguments", 2);
+            (exit, r) = Run("boolean", m.Cube, m.Shifted, m.Path_("x.obj"), "--op", "at_least", "--k", "0");
+            AssertError(exit, r, "invalid_arguments", 2);
+            (exit, r) = Run("boolean", m.Cube, m.Shifted, m.Path_("x.obj"), "--op", "union", "--k", "2");
+            AssertError(exit, r, "invalid_arguments", 2);
+            // an open third input, rejected on request: the status is in the message
+            (exit, r) = Run("boolean", m.Cube, m.Shifted, m.Path_("x.obj"), "--op", "union", "--more", m.Open, "--allow-open=false");
+            AssertError(exit, r, "operation_failed", 1);
+            Assert.Contains("OpenInput", S(r["message"]));
+            (exit, r) = Run("boolean", m.Cube, m.Shifted, m.Path_("x.obj"), "--op", "union", "--more", m.Garbage);
+            AssertError(exit, r, "read_error", 3);
+            Assert.False(File.Exists(m.Path_("x.obj")));
+        }
+
         [Fact]
         public void Boolean_OpenInputRejectedOnRequest()
         {
@@ -330,6 +373,11 @@ namespace g3cli.Tests
 
             (exit, r) = Run("measure", m.Cube, m.Shifted);
             AssertError(exit, r, "invalid_arguments", 2);
+
+            // the solidify grid of the robust repair grows with the resolution, so it is bounded
+            (exit, r) = Run("repair", m.Cube, m.Path_("r.obj"), "--solidify-resolution", "100000");
+            AssertError(exit, r, "invalid_arguments", 2);
+            Assert.Contains("solidify_resolution", S(r["message"]));
 
             (exit, r) = Run("frobnicate");
             AssertError(exit, r, "unknown_command", 2);

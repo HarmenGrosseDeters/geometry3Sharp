@@ -174,6 +174,71 @@ namespace geometry3Sharp.Tests
             Assert.InRange(Length(line), 0.98 * 2 * Math.PI * r, (mode == TerrainSafetyLines.Modes.Horizontal ? 1.01 : 1.05) * 2 * Math.PI * (r + 1));
         }
 
+        [Theory]
+        [InlineData(0, 0, 0)]
+        [InlineData(632000, 5712000, 100)]     // UTM
+        public void SafetyLine_AlongSurface_BandIsOneCleanPiece(double ox, double oy, double oz)
+        {
+            // the band cut out of the refined square used to fall apart into islands joined at bowtie vertices;
+            // the heat distance on an island without a source is arbitrary and made a second line at UTM
+            Vector3d off = new Vector3d(ox, oy, oz);
+            DMesh3 square = CoarseSquare();
+            MeshTransforms.Translate(square, off);
+            Vector3d src = off + new Vector3d(50, 50, 0);
+            var safety = new TerrainSafetyLines(square, new[] { new List<Vector3d>() { src } }, 10) { Mode = TerrainSafetyLines.Modes.AlongSurface };
+            Assert.True(safety.Compute());
+            Assert.Single(safety.Lines);
+            DMesh3 band = safety.RemeshedTerrain;
+            var comps = new MeshConnectedComponents(band);
+            comps.FindConnectedT();
+            Assert.Equal(1, comps.Count);
+            Assert.Empty(MeshIterators.BowtieVertices(band));
+            // the remesher can still leave a few zero-area ears on straight parts of the band boundary, whose
+            // tip gets no distance; the band reaches 3 x the safety distance, those are far outside the line
+            foreach (int vid in band.VertexIndices())
+                if (band.GetVertex(vid).Distance(src) < 25)
+                    Assert.False(double.IsNaN(safety.Geodesic.Distance[vid]));
+            foreach (Vector3d p in safety.Lines[0])
+                Assert.True(Math.Abs(p.Distance(src) - 10 - 0.35 * 10.0 / 8) < 1.2, $"{p - off}: {p.Distance(src)}");
+        }
+
+        [Theory]
+        [InlineData(0, 0, 0)]
+        [InlineData(632000, 5712000, 100)]     // UTM
+        public void SafetyLine_AlongSurface_IgnoresTerrainOnlyNearInSpace(double ox, double oy, double oz)
+        {
+            // U-shaped flat terrain: arms x in [0,40] and [45,100] joined at y < 10. Seen from a source at
+            // (35, 80) the other arm is 10 away in space but 80 along the terrain: the band cut around the
+            // source contains a piece of it, unconnected to the source, where the heat distance is arbitrary
+            Vector3d off = new Vector3d(ox, oy, oz);
+            DMesh3 u = new DMesh3();
+            var ids = new int[21, 21];
+            for (int i = 0; i <= 20; ++i)
+                for (int j = 0; j <= 20; ++j)
+                    ids[i, j] = u.AppendVertex(off + new Vector3d(5 * i, 5 * j, 0));
+            for (int i = 0; i < 20; ++i)
+                for (int j = 0; j < 20; ++j) {
+                    if (i == 8 && j >= 2) continue;         // the slot x in [40, 45], y >= 10
+                    u.AppendTriangle(ids[i, j], ids[i + 1, j], ids[i + 1, j + 1]);
+                    u.AppendTriangle(ids[i, j], ids[i + 1, j + 1], ids[i, j + 1]);
+                }
+            Vector3d src = off + new Vector3d(35, 80, 0);
+            var safety = new TerrainSafetyLines(u, new[] { new List<Vector3d>() { src } }, 10) { Mode = TerrainSafetyLines.Modes.AlongSurface };
+            Assert.True(safety.Compute());
+            DMesh3 band = safety.RemeshedTerrain;
+            var comps = new MeshConnectedComponents(band);
+            comps.FindConnectedT();
+            Assert.Equal(1, comps.Count);
+            Assert.True(band.CachedBounds.Max.x - off.x <= 40 + 1e-6, "the band stays on the source's arm");
+            // the line is the circle around the source, cut off by the slot edge at x = 40
+            Assert.NotEmpty(safety.Lines);
+            foreach (var line in safety.Lines)
+                foreach (Vector3d p in line) {
+                    Assert.True(p.x - off.x <= 40 + 1e-6, $"{p - off}");
+                    Assert.True(Math.Abs(p.Distance(src) - 10 - 0.35 * 10.0 / 8) < 1.2, $"{p - off}: {p.Distance(src)}");
+                }
+        }
+
         [Fact]
         public void SafetyLine_Horizontal_NeverInsideTheDistanceByMoreThanTheTolerance()
         {
@@ -287,6 +352,35 @@ namespace geometry3Sharp.Tests
                 }
             safety.RequireCertified = true;
             Assert.False(safety.Compute());
+        }
+
+        [Fact]
+        public void BreakLines_GapClosing_ManyPieces_FastAndClosestFirst()
+        {
+            // 1200 pieces of one zigzag line, 0.5 m gaps, and a square ring of 4 pieces: the gap closing
+            // searched all end pairs again for every join (cubic: 105 s for 1500 lines of real crests)
+            var lines = new List<List<Vector3d>>();
+            for (int k = 0; k < 1200; ++k) {
+                double x = 2.5 * k;
+                lines.Add(new List<Vector3d>() { new Vector3d(x, k % 2, 0), new Vector3d(x + 2, k % 2, 0) });
+            }
+            // shuffled, so the pieces are not in order
+            var rnd = new Random(5);
+            lines = lines.OrderBy(l => rnd.Next()).ToList();
+            var square = new[] { new Vector3d(0, 100, 0), new Vector3d(10, 100, 0), new Vector3d(10, 110, 0), new Vector3d(0, 110, 0) };
+            for (int k = 0; k < 4; ++k)
+                lines.Add(new List<Vector3d>() { square[k], Vector3d.Lerp(square[k], square[(k + 1) % 4], 0.95) });
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            TerrainBreakLines.close_gaps(lines, 1.5);
+            Assert.True(sw.Elapsed.TotalSeconds < 2, $"{sw.Elapsed.TotalSeconds} s");
+            // the zigzag pieces: each end is 0.5 m (straight) or 1.1 m (diagonal) from the next piece's
+            // start: one line; the square: one closed ring
+            Assert.Equal(2, lines.Count);
+            var zig = lines.Single(l => l[0].y < 50);
+            Assert.Equal(2400, zig.Count);
+            var ring = lines.Single(l => l[0].y >= 50);
+            Assert.True(ring[0].Distance(ring[ring.Count - 1]) < 1e-9);
+            Assert.Equal(9, ring.Count);
         }
 
         static Vector2d UV(Vector3d p)

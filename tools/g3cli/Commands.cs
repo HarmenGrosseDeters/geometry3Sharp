@@ -158,7 +158,7 @@ namespace g3cli
             c.Params.Add(Output());
             c.Params.Add(new Param("method", ParamType.String, "repair method") { Default = "robust", Enum = new[] { "robust", "auto" } });
             c.Params.Add(new Param("tolerance", ParamType.Number, "weld / crack-closing tolerance of MeshAutoRepair (default 1e-6)"));
-            c.Params.Add(new Param("solidify_resolution", ParamType.Integer, "robust: grid cells along the bounding box diagonal of the solidify fallback") { Default = 128 });
+            c.Params.Add(new Param("solidify_resolution", ParamType.Integer, "robust: grid cells along the bounding box diagonal of the solidify fallback, 8..2048") { Default = 128 });
             c.Params.Add(new Param("min_volume_iou", ParamType.Number, "robust: minimum volume IoU of the repair with the input before falling back (0 = no check)") { Default = 0.99 });
             c.Params.Add(new Param("exact_resolve", ParamType.Boolean, "robust: before the solidify, resolve the self-intersections exactly (ExactMeshBoolean.Resolve)") { Default = true });
             c.Params.Add(SelfIntersections());
@@ -186,8 +186,8 @@ namespace g3cli
                         throw new CommandException(ResultCodes.OperationFailed, "MeshAutoRepair failed");
                     result = repair.Mesh;
                 } else {
-                    if (args.Integer("solidify_resolution") < 8)
-                        throw new CommandException(ResultCodes.InvalidArguments, "'solidify_resolution' must be >= 8");
+                    if (args.Integer("solidify_resolution") < 8 || args.Integer("solidify_resolution") > 2048)
+                        throw new CommandException(ResultCodes.InvalidArguments, "'solidify_resolution' must be in 8..2048");
                     var repair = new MeshRobustRepair(new DMesh3(mesh)) {
                         SolidifyResolution = args.Integer("solidify_resolution"),
                         MinVolumeIoU = args.Number("min_volume_iou"),
@@ -233,34 +233,57 @@ namespace g3cli
         {
             var c = new Command() {
                 Name = "boolean",
-                Description = "Exact mesh boolean (ExactMeshBoolean) of two meshes: union, intersection or difference (a minus b). " +
+                Description = "Exact mesh boolean (ExactMeshBoolean) of two or more meshes in one arrangement: union, intersection, " +
+                    "difference (a minus all others) or at_least (inside at least k of the meshes). " +
                     "The solid of a mesh is where its winding number is positive, so self-intersecting, nested or overlapping inputs work; " +
                     "open inputs use the generalized winding number (result then generally not closed).",
             };
             c.Params.Add(Input("a", "first mesh file"));
             c.Params.Add(Input("b", "second mesh file"));
             c.Params.Add(Output());
-            c.Params.Add(new Param("op", ParamType.String, "operation") { Required = true, Enum = new[] { "union", "intersection", "difference" } });
+            c.Params.Add(new Param("op", ParamType.String, "operation") { Required = true, Enum = new[] { "union", "intersection", "difference", "at_least" } });
+            c.Params.Add(new Param("more", ParamType.String, "further input mesh files, separated by ';' (all inputs in one operation, in the order a, b, these)"));
+            c.Params.Add(new Param("k", ParamType.Integer, "for op at_least: the number of meshes a point must be inside (1 = union, number of inputs = intersection)"));
             c.Params.Add(new Param("allow_open", ParamType.Boolean, "accept inputs that are not closed (winding number sense); false: fail with operation_failed") { Default = true });
             c.Params.Add(SelfIntersections());
             c.Params.Add(Binary());
             c.Run = args => {
                 MeshFiles.CheckWritable(args.String("output"));
+                string opName = args.String("op");
+                if (opName == "at_least" && args.Has("k") == false)
+                    throw new CommandException(ResultCodes.InvalidArguments, "op at_least needs k");
+                if (args.Has("k") && opName != "at_least")
+                    throw new CommandException(ResultCodes.InvalidArguments, "k is only used with op at_least");
+                if (args.Has("k") && args.Integer("k") < 1)
+                    throw new CommandException(ResultCodes.InvalidArguments, "k must be at least 1");
+                var files = new List<string>() { args.String("a"), args.String("b") };
+                if (args.Has("more"))
+                    files.AddRange(args.String("more").Split(';').Select(f => f.Trim()).Where(f => f.Length > 0));
                 var warnings = new List<string>();
-                DMesh3 a = MeshFiles.Read(args.String("a"), warnings);
-                DMesh3 b = MeshFiles.Read(args.String("b"), warnings);
-                var ops = new Dictionary<string, ExactMeshBoolean.Operations>() {
-                    ["union"] = ExactMeshBoolean.Operations.Union,
-                    ["intersection"] = ExactMeshBoolean.Operations.Intersection,
-                    ["difference"] = ExactMeshBoolean.Operations.Difference,
-                };
-                var op = new ExactMeshBoolean(a, b, ops[args.String("op")]) { AllowOpenMeshes = args.Bool("allow_open") };
+                var meshes = files.Select(f => MeshFiles.Read(f, warnings)).ToList();
+                ExactMeshBoolean op;
+                if (opName == "at_least") {
+                    op = new ExactMeshBoolean(meshes, ExactMeshBoolean.AtLeast(args.Integer("k")));
+                } else {
+                    var ops = new Dictionary<string, ExactMeshBoolean.Operations>() {
+                        ["union"] = ExactMeshBoolean.Operations.Union,
+                        ["intersection"] = ExactMeshBoolean.Operations.Intersection,
+                        ["difference"] = ExactMeshBoolean.Operations.Difference,
+                    };
+                    // (two inputs: the two-mesh boolean, as before)
+                    op = (meshes.Count == 2) ? new ExactMeshBoolean(meshes[0], meshes[1], ops[opName]) : new ExactMeshBoolean(meshes, ops[opName]);
+                }
+                op.AllowOpenMeshes = args.Bool("allow_open");
                 if (op.Compute() == false)
-                    throw new CommandException(ResultCodes.OperationFailed, "boolean failed: " + op.Error);
+                    throw new CommandException(ResultCodes.OperationFailed, "boolean failed (" + op.Status + "): " + op.Error);
                 MeshFiles.Write(args.String("output"), op.Result, args.Bool("binary"));
-                var o = new JsonObject() { ["a"] = args.String("a"), ["b"] = args.String("b"), ["output"] = args.String("output"), ["op"] = args.String("op") };
+                var o = new JsonObject() { ["a"] = args.String("a"), ["b"] = args.String("b"), ["output"] = args.String("output"), ["op"] = opName };
+                o["inputs"] = new JsonArray(files.Select(f => (JsonNode)f).ToArray());
+                if (opName == "at_least")
+                    o["k"] = args.Integer("k");
                 o["exact_winding_a"] = op.ExactWindingA;
                 o["exact_winding_b"] = op.ExactWindingB;
+                o["exact_winding"] = new JsonArray(op.ExactWinding.Select(e => (JsonNode)e).ToArray());
                 o["boolean"] = BooleanInfo(op);
                 o["mesh"] = MeshReport.Metrics(op.Result, args.Bool("self_intersections"));
                 o["empty_result"] = op.Result.TriangleCount == 0;

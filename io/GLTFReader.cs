@@ -149,8 +149,9 @@ namespace g3
                 if (sceneIndex < 0 || sceneIndex >= scenes.Count)
                     return new IOReadResult(IOCode.FileParsingError, "glTF default scene index is invalid");
                 Dictionary<string, object> scene = scenes[sceneIndex] as Dictionary<string, object>;
+                bool[] visited = new bool[nodes.Count];
                 foreach (object n in get_list(scene, "nodes"))
-                    collect_instances(nodes, to_int(n), Affine3d.Identity, instances, 0);
+                    collect_instances(nodes, to_int(n), Affine3d.Identity, instances, visited, 0);
             } else if (nodes.Count > 0) {
                 // no scene: use all root nodes
                 bool[] isChild = new bool[nodes.Count];
@@ -158,9 +159,10 @@ namespace g3
                     foreach (object c in get_list(n as Dictionary<string, object>, "children"))
                         if (to_int(c) >= 0 && to_int(c) < nodes.Count)
                             isChild[to_int(c)] = true;
+                bool[] visited = new bool[nodes.Count];
                 for (int i = 0; i < nodes.Count; ++i)
                     if (isChild[i] == false)
-                        collect_instances(nodes, i, Affine3d.Identity, instances, 0);
+                        collect_instances(nodes, i, Affine3d.Identity, instances, visited, 0);
             } else {
                 for (int i = 0; i < meshes.Count; ++i)
                     instances.Add(new KeyValuePair<int, Affine3d>(i, Affine3d.Identity));
@@ -262,17 +264,23 @@ namespace g3
         }
 
 
-        void collect_instances(List<object> nodes, int ni, Affine3d parent, List<KeyValuePair<int, Affine3d>> instances, int depth)
+        // The spec requires the node hierarchy to be disjoint strict trees, so each node is visited at most once.
+        // A node reached twice (shared child or cycle) is an error: otherwise a few hundred bytes of nodes with
+        // two references to the next node each would expand to 2^depth instances.
+        void collect_instances(List<object> nodes, int ni, Affine3d parent, List<KeyValuePair<int, Affine3d>> instances, bool[] visited, int depth)
         {
             if (ni < 0 || ni >= nodes.Count || depth > 256)
                 throw new FormatException("glTF node hierarchy is invalid");
+            if (visited[ni])
+                throw new FormatException("glTF node " + ni + " is referenced more than once (the node hierarchy must be a tree)");
+            visited[ni] = true;
             Dictionary<string, object> node = nodes[ni] as Dictionary<string, object>;
             Affine3d xform = parent * node_matrix(node);
             int mesh = get_int(node, "mesh", -1);
             if (mesh >= 0)
                 instances.Add(new KeyValuePair<int, Affine3d>(mesh, xform));
             foreach (object c in get_list(node, "children"))
-                collect_instances(nodes, to_int(c), xform, instances, depth + 1);
+                collect_instances(nodes, to_int(c), xform, instances, visited, depth + 1);
         }
 
 
