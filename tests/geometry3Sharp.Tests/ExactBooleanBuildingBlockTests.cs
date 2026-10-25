@@ -46,6 +46,38 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void ScaleB_IsCorrectlyRounded()
+        {
+            // a finite result although x 2^1023 overflows; a normal result although x 2^-1022 is subnormal
+            Assert.Equal(Math.Pow(2, 1003), ExactPoint3.ScaleB(4, 1001));
+            Assert.Equal(-1.5 * Math.Pow(2, 1023), ExactPoint3.ScaleB(-1.5, 1023));
+            double x = Math.Pow(2, -21) * (1 + Math.Pow(2, -40));
+            Assert.Equal(Math.Pow(2, -1022) * (1 + Math.Pow(2, -40)), ExactPoint3.ScaleB(x, -1001));
+            Assert.Equal(double.PositiveInfinity, ExactPoint3.ScaleB(1, 1024));
+            Assert.Equal(double.NegativeInfinity, ExactPoint3.ScaleB(-1.5, int.MaxValue));
+            Assert.Equal(double.Epsilon, ExactPoint3.ScaleB(1, -1074));
+            Assert.Equal(double.Epsilon, ExactPoint3.ScaleB(0.75, -1074));      // rounds up
+            Assert.Equal(0.0, ExactPoint3.ScaleB(1, -1075));                     // tie: to even
+            Assert.Equal(2 * double.Epsilon, ExactPoint3.ScaleB(1.5, -1074));   // tie: to even
+            Assert.Equal(0.0, ExactPoint3.ScaleB(1, int.MinValue));
+            Assert.Equal(0.0, ExactPoint3.ScaleB(double.Epsilon, int.MinValue));
+            Assert.Equal(1.0, ExactPoint3.ScaleB(double.Epsilon, 1074));
+            Assert.Equal(3 * double.Epsilon, ExactPoint3.ScaleB(3 * Math.Pow(2, -1000), -74));
+            var rand = new Random(4);
+            for (int i = 0; i < 100000; ++i) {
+                double v = (rand.NextDouble() - 0.5) * Math.Pow(2, rand.Next(-1074, 1024));
+                int n = rand.Next(-2200, 2200);
+                // (reference: Math.ScaleB, not in .NET Framework; a normal result scales back exactly)
+                double got = ExactPoint3.ScaleB(v, n);
+#if NETCOREAPP
+                Assert.Equal(Math.ScaleB(v, n), got);
+#endif
+                if (got != 0 && double.IsInfinity(got) == false && Math.Abs(got) >= 2.2250738585072014e-308)
+                    Assert.Equal(v, ExactPoint3.ScaleB(got, -n));
+            }
+        }
+
+        [Fact]
         public void Create_IsCanonical()
         {
             ExactPoint3 a = ExactPoint3.Create(2, 4, 6, 2), b = ExactPoint3.Create(-3, -6, -9, -3), c = ExactPoint3.FromInteger(1, 2, 3);
