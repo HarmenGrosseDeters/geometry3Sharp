@@ -49,3 +49,39 @@ namespace geometry3Sharp.Tests
         }
     }
 }
+
+namespace geometry3Sharp.Tests
+{
+    /// <summary> spatial queries on meshes in large (eg UTM) coordinates </summary>
+    public class LargeCoordinateTests
+    {
+        [Fact]
+        public void RayCasts_NoMisses_AtUtmCoordinates()
+        {
+            Vector3d offset = new Vector3d(632000, 5712000, 100);
+            // fine grid, 0.25 m triangles
+            var gen = new TrivialRectGenerator() { Width = 50, Height = 50, IndicesMap = new Index2i(1, 2) };
+            DMesh3 mesh = gen.Generate().MakeDMesh();
+            for (int k = 0; k < 7; ++k)
+                foreach (int eid in mesh.EdgeIndices().ToArray()) {
+                    DMesh3.EdgeSplitInfo info;
+                    mesh.SplitEdge(eid, out info);
+                }
+            MeshTransforms.Translate(mesh, offset);
+            var spatial = new DMeshAABBTree3(mesh, true);
+            var rnd = new Random(1);
+            int misses = 0;
+            for (int i = 0; i < 2000; ++i) {
+                Vector3d p = offset + new Vector3d(rnd.NextDouble() * 48 - 24, rnd.NextDouble() * 48 - 24, 10);
+                if (spatial.FindNearestHitTriangle(new Ray3d(p, -Vector3d.AxisZ)) == DMesh3.InvalidID)
+                    misses++;
+                Assert.True(spatial.FindNearestTriangle(p - 10 * Vector3d.AxisZ) >= 0);
+            }
+            Assert.Equal(0, misses);
+            // every triangle is inside the root box
+            AxisAlignedBox3d root = spatial.Bounds;
+            foreach (int tid in mesh.TriangleIndices())
+                Assert.True(root.Contains(mesh.GetTriBounds(tid)));
+        }
+    }
+}

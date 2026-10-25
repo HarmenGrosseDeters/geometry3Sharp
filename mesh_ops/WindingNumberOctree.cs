@@ -245,7 +245,7 @@ namespace gs
             bool found = false;
             Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
             var traversal = new DMeshAABBTree3.TreeTraversal() {
-                NextBoxF = (treeBox, depth) => found == false && box.Intersects((AxisAlignedBox3d)treeBox),
+                NextBoxDF = (treeBox, depth) => found == false && box.Intersects(treeBox),
                 NextTriangleF = (tid) => {
                     if (found) return;
                     mesh.GetTriVertices(tid, ref a, ref b, ref c);
