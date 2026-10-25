@@ -46,6 +46,13 @@ namespace gs
         /// </summary>
         public HeightSampleFunc SampleF;
         public AxisAlignedBox3d SampleBounds;
+        /// <summary>
+        /// SampleF, optional: a mesh whose boundary is the boundary of the sampled footprint (eg the terrain
+        /// that TerrainOffset offsets). Its boundary lines are kept exactly as for Mesh (the heights of the
+        /// vertices there come from SampleF); without it the result ends where the cells do, up to a cell
+        /// inside the footprint.
+        /// </summary>
+        public DMesh3 FootprintMesh;
 
         /// <summary> finest cell size in XY. If zero, uses the larger XY extent / GridResolution </summary>
         public double CellSize = 0;
@@ -144,7 +151,7 @@ namespace gs
 
             sample_cells();
             if (CancelF()) return false;
-            if (Points == null && SampleF == null)
+            if (Points == null && (SampleF == null || FootprintMesh != null))
                 add_boundary_edges();
             else
                 segs = new List<BoundarySeg>[NX * NY];
@@ -404,13 +411,14 @@ namespace gs
         {
             BoundaryCells = 0;
             double eps = 1e-3 * cell;
+            DMesh3 bmesh = (SampleF != null) ? FootprintMesh : Mesh;
             List<int> candidates = new List<int>();
-            foreach (int eid in Mesh.BoundaryEdgeIndices())
+            foreach (int eid in bmesh.BoundaryEdgeIndices())
                 candidates.Add(eid);
             bool[] isBoundary = new bool[candidates.Count];
             gParallel.ForEach(Interval1i.Range(candidates.Count), (k) => {
-                Index2i ev = Mesh.GetEdgeV(candidates[k]);
-                Vector3d a = Mesh.GetVertex(ev.a), b = Mesh.GetVertex(ev.b);
+                Index2i ev = bmesh.GetEdgeV(candidates[k]);
+                Vector3d a = bmesh.GetVertex(ev.a), b = bmesh.GetVertex(ev.b);
                 Vector2d d = b.xy - a.xy;
                 double len = d.Length;
                 if (len < 1e-9 * cell)
@@ -423,8 +431,8 @@ namespace gs
             for (int k = 0; k < candidates.Count; ++k) {
                 if (isBoundary[k] == false)
                     continue;
-                Index2i ev = Mesh.GetEdgeV(candidates[k]);
-                Vector3d a = Mesh.GetVertex(ev.a) - origin, b = Mesh.GetVertex(ev.b) - origin;
+                Index2i ev = bmesh.GetEdgeV(candidates[k]);
+                Vector3d a = bmesh.GetVertex(ev.a) - origin, b = bmesh.GetVertex(ev.b) - origin;
                 Vector2d d = b.xy - a.xy;
                 Vector2d n2 = new Vector2d(-d.y, d.x).Normalized;
                 int i0 = clampi((int)Math.Floor(Math.Min(a.x, b.x) / cell), NX), i1 = clampi((int)Math.Floor(Math.Max(a.x, b.x) / cell), NX);
@@ -691,7 +699,8 @@ namespace gs
         }
 
         // vertex of a finest cell on the input boundary: XY at the 2D QEF minimum of the boundary lines
-        // (on the line, or at the corner where two lines meet), Z from the boundary edge itself
+        // (on the line, or at the corner where two lines meet), Z from the boundary edge itself (SampleF:
+        // sampled there, or just inside)
         Vector3d solve_boundary(int i, int j)
         {
             List<BoundarySeg> list = segs[cid(i, j)];
@@ -725,6 +734,7 @@ namespace gs
             // height (and exact position) from the nearest point on the boundary segments
             double best = double.MaxValue;
             Vector3d result = new Vector3d(xy.x, xy.y, 0);
+            Vector2d nearN = Vector2d.AxisX;
             foreach (BoundarySeg s in list) {
                 Segment2d seg = new Segment2d(s.A.xy, s.B.xy);
                 double t = seg.Project(xy);
@@ -735,6 +745,18 @@ namespace gs
                     double u = (seg.Extent > 0) ? 0.5 * (t / seg.Extent + 1) : 0.5;
                     Vector3d p = Vector3d.Lerp(s.A, s.B, u);
                     result = (d < 1e-18 * cell * cell) ? p : new Vector3d(xy.x, xy.y, p.z);
+                    nearN = s.N;
+                }
+            }
+            if (SampleF != null) {
+                // the vertical line through a boundary point can miss the footprint by rounding: try just inside
+                foreach (double off in new[] { 0, 1e-4, -1e-4 }) {
+                    Vector3d sp, sn;
+                    Vector2d q = result.xy + off * cell * nearN;
+                    if (sample(q.x + origin.x, q.y + origin.y, out sp, out sn)) {
+                        result.z = sp.z;
+                        break;
+                    }
                 }
             }
             return result;
