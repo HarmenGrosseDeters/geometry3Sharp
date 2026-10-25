@@ -8,8 +8,8 @@ namespace g3
     /// Least squares conformal map (Lévy, Petitjean, Ray, Maillot 2002), equivalently discrete conformal
     /// parameterization (Desbrun, Meyer, Alliez 2002): minimizes the conformal energy
     /// E_C = E_Dirichlet - A(uv), which is zero exactly for conformal maps, with a free boundary.
-    /// A(uv) is the signed UV area, written as a sum over the boundary edges (minus the triangles that are
-    /// degenerate on the surface, which have no Dirichlet energy either).
+    /// A(uv) is the signed UV area, written as a sum over the boundary edges. Triangles that are degenerate on
+    /// the surface get the cotan weights of their intrinsically mollified lengths.
     ///
     /// Works on any connected mesh with at least one boundary loop (discs, annuli, ...). Two (or more) pinned
     /// vertices fix the similarity transform; by default two boundary vertices far apart are pinned, and the
@@ -93,11 +93,14 @@ namespace g3
             }
 
             ConstrainedQuadratic q = new ConstrainedQuadratic(2 * N, isFixed, fixedValue, 2);
-            // Dirichlet energy of u and v
+            // Dirichlet energy of u and v. The triangles degenerate on the surface are included (mollified): the
+            // area term below covers all triangles, so each one contributes E_D(T) - A(T) >= 0, and their large
+            // weights keep a T-junction vertex on its edge. Skipped, a zero-area triangle entered E_C only as
+            // -A(T) and the minimizer opened it up.
             pm.ForEachCotanEdge((i, j, w) => {
                 q.Add(2 * i, 2 * i, w); q.Add(2 * j, 2 * j, w); q.Add(2 * i, 2 * j, -w);
                 q.Add(2 * i + 1, 2 * i + 1, w); q.Add(2 * j + 1, 2 * j + 1, w); q.Add(2 * i + 1, 2 * j + 1, -w);
-            });
+            }, true);
             // minus the signed area, 1/2 Sum over boundary edges (i->j) of (u_i v_j - u_j v_i)
             foreach (int[] loop in pm.BoundaryLoops)
                 for (int k = 0; k < loop.Length; ++k) {
@@ -105,18 +108,6 @@ namespace g3
                     q.Add(2 * i, 2 * j + 1, -0.5);
                     q.Add(2 * j, 2 * i + 1, 0.5);
                 }
-            // The boundary sum is the area of all triangles, but the Dirichlet energy skips the degenerate ones.
-            // Add their area back, so that E_C = Sum over the other triangles of (E_D(T) - A(T)) >= 0: else the
-            // minimizer gains by opening up a zero-area triangle (eg at a T-junction) and the map is distorted.
-            for (int ti = 0; ti < pm.Tris.Count; ++ti) {
-                if (!pm.Frames[ti].Degenerate) continue;
-                Index3i t = pm.Tris[ti];
-                for (int k = 0; k < 3; ++k) {
-                    int i = t[k], j = t[(k + 1) % 3];
-                    q.Add(2 * i, 2 * j + 1, 0.5);
-                    q.Add(2 * j, 2 * i + 1, -0.5);
-                }
-            }
             if (!q.Factorize()) {
                 error = "LSCM system: " + q.Error;
                 return ParameterizationStatus.SolverFailed;
@@ -157,12 +148,8 @@ namespace g3
             pm.ForEachCotanEdge((i, j, w) => {
                 double du = u[i] - u[j], dv = v[i] - v[j];
                 ed += 0.5 * w * (du * du + dv * dv);
-            });
-            double area = 0;
-            for (int ti = 0; ti < pm.Tris.Count; ++ti)
-                if (!pm.Frames[ti].Degenerate)
-                    area += 0.5 * ParamMesh.SignedArea2(u, v, pm.Tris[ti]);
-            return (ed - area) / pm.SurfaceArea;
+            }, true);
+            return (ed - pm.UVArea(u, v)) / pm.SurfaceArea;
         }
     }
 }
