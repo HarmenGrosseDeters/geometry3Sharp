@@ -174,6 +174,71 @@ namespace geometry3Sharp.Tests
             Assert.InRange(Length(line), 0.98 * 2 * Math.PI * r, (mode == TerrainSafetyLines.Modes.Horizontal ? 1.01 : 1.05) * 2 * Math.PI * (r + 1));
         }
 
+        [Theory]
+        [InlineData(0, 0, 0)]
+        [InlineData(632000, 5712000, 100)]     // UTM
+        public void SafetyLine_AlongSurface_BandIsOneCleanPiece(double ox, double oy, double oz)
+        {
+            // the band cut out of the refined square used to fall apart into islands joined at bowtie vertices;
+            // the heat distance on an island without a source is arbitrary and made a second line at UTM
+            Vector3d off = new Vector3d(ox, oy, oz);
+            DMesh3 square = CoarseSquare();
+            MeshTransforms.Translate(square, off);
+            Vector3d src = off + new Vector3d(50, 50, 0);
+            var safety = new TerrainSafetyLines(square, new[] { new List<Vector3d>() { src } }, 10) { Mode = TerrainSafetyLines.Modes.AlongSurface };
+            Assert.True(safety.Compute());
+            Assert.Single(safety.Lines);
+            DMesh3 band = safety.RemeshedTerrain;
+            var comps = new MeshConnectedComponents(band);
+            comps.FindConnectedT();
+            Assert.Equal(1, comps.Count);
+            Assert.Empty(MeshIterators.BowtieVertices(band));
+            // the remesher can still leave a few zero-area ears on straight parts of the band boundary, whose
+            // tip gets no distance; the band reaches 3 x the safety distance, those are far outside the line
+            foreach (int vid in band.VertexIndices())
+                if (band.GetVertex(vid).Distance(src) < 25)
+                    Assert.False(double.IsNaN(safety.Geodesic.Distance[vid]));
+            foreach (Vector3d p in safety.Lines[0])
+                Assert.True(Math.Abs(p.Distance(src) - 10 - 0.35 * 10.0 / 8) < 1.2, $"{p - off}: {p.Distance(src)}");
+        }
+
+        [Theory]
+        [InlineData(0, 0, 0)]
+        [InlineData(632000, 5712000, 100)]     // UTM
+        public void SafetyLine_AlongSurface_IgnoresTerrainOnlyNearInSpace(double ox, double oy, double oz)
+        {
+            // U-shaped flat terrain: arms x in [0,40] and [45,100] joined at y < 10. Seen from a source at
+            // (35, 80) the other arm is 10 away in space but 80 along the terrain: the band cut around the
+            // source contains a piece of it, unconnected to the source, where the heat distance is arbitrary
+            Vector3d off = new Vector3d(ox, oy, oz);
+            DMesh3 u = new DMesh3();
+            var ids = new int[21, 21];
+            for (int i = 0; i <= 20; ++i)
+                for (int j = 0; j <= 20; ++j)
+                    ids[i, j] = u.AppendVertex(off + new Vector3d(5 * i, 5 * j, 0));
+            for (int i = 0; i < 20; ++i)
+                for (int j = 0; j < 20; ++j) {
+                    if (i == 8 && j >= 2) continue;         // the slot x in [40, 45], y >= 10
+                    u.AppendTriangle(ids[i, j], ids[i + 1, j], ids[i + 1, j + 1]);
+                    u.AppendTriangle(ids[i, j], ids[i + 1, j + 1], ids[i, j + 1]);
+                }
+            Vector3d src = off + new Vector3d(35, 80, 0);
+            var safety = new TerrainSafetyLines(u, new[] { new List<Vector3d>() { src } }, 10) { Mode = TerrainSafetyLines.Modes.AlongSurface };
+            Assert.True(safety.Compute());
+            DMesh3 band = safety.RemeshedTerrain;
+            var comps = new MeshConnectedComponents(band);
+            comps.FindConnectedT();
+            Assert.Equal(1, comps.Count);
+            Assert.True(band.CachedBounds.Max.x - off.x <= 40 + 1e-6, "the band stays on the source's arm");
+            // the line is the circle around the source, cut off by the slot edge at x = 40
+            Assert.NotEmpty(safety.Lines);
+            foreach (var line in safety.Lines)
+                foreach (Vector3d p in line) {
+                    Assert.True(p.x - off.x <= 40 + 1e-6, $"{p - off}");
+                    Assert.True(Math.Abs(p.Distance(src) - 10 - 0.35 * 10.0 / 8) < 1.2, $"{p - off}: {p.Distance(src)}");
+                }
+        }
+
         [Fact]
         public void SafetyLine_Horizontal_NeverInsideTheDistanceByMoreThanTheTolerance()
         {

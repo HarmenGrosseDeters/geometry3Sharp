@@ -350,6 +350,36 @@ namespace geometry3Sharp.Tests
             Assert.Equal(ParameterizationStatus.InvalidMesh, new LSCMParameterization(new DMesh3()).Compute().Status);
         }
 
+        [Fact]
+        public void InteriorBowtieVertex_IsInvalidMesh()
+        {
+            // two hexagon fans that only share their center vertex: the vertex has no boundary edges, but its
+            // triangles form two fans. LSCM pinned the first fan and collapsed the second one to the shared
+            // vertex (zero UV area), and reported success.
+            DMesh3 mesh = new DMesh3();
+            int c = mesh.AppendVertex(Vector3d.Zero);
+            for (int d = 0; d < 2; ++d) {
+                var rim = new List<int>();
+                for (int k = 0; k < 6; ++k) {
+                    double a = k * Math.PI / 3;
+                    rim.Add(mesh.AppendVertex(d == 0 ? new Vector3d(Math.Cos(a), Math.Sin(a), 0) : new Vector3d(Math.Cos(a), 0.3, Math.Sin(a))));
+                }
+                for (int k = 0; k < 6; ++k)
+                    Assert.True(mesh.AppendTriangle(c, rim[k], rim[(k + 1) % 6]) >= 0);
+            }
+            Assert.True(mesh.IsBowtieVertex(c));
+            Assert.False(mesh.IsBoundaryVertex(c));
+            var results = new[] {
+                new LSCMParameterization(mesh).Compute(), new ARAPParameterization(mesh).Compute(),
+                new SLIMParameterization(mesh) { InitialUV = new Vector2d[mesh.MaxVertexID] }.Compute(),
+                new TutteEmbedding(mesh).Compute(), new BoundaryFirstFlattening(mesh).Compute() };
+            foreach (var r in results) {
+                Assert.Equal(ParameterizationStatus.InvalidMesh, r.Status);
+                Assert.Contains("bowtie", r.Error);
+                Assert.Null(r.UV);
+            }
+        }
+
 
         // ---------- ARAP ----------
 

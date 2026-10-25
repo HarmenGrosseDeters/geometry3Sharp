@@ -8,7 +8,7 @@ namespace g3
     public enum ParameterizationStatus
     {
         Success = 0,
-        /// <summary> no triangles, unused triangles referencing missing vertices, or bowtie boundary vertices </summary>
+        /// <summary> no triangles, unused triangles referencing missing vertices, or bowtie (non-manifold) vertices </summary>
         InvalidMesh = 1,
         /// <summary> the method does not support the topology (eg closed surface, several components, not a disc) </summary>
         InvalidTopology = 2,
@@ -366,6 +366,14 @@ namespace g3
                 }
                 BoundaryLoops.Add(loop.ToArray());
             }
+            // interior bowties (fans that only share the vertex) have no boundary half-edges at the vertex;
+            // a chart joined to the rest only through such a vertex is not held by the pins (LSCM collapses it)
+            for (int i = 0; i < N; ++i)
+                if (mesh.IsBowtieVertex(ToVertex[i])) {
+                    Status = ParameterizationStatus.InvalidMesh;
+                    Error = "vertex " + ToVertex[i] + " is a bowtie (non-manifold vertex); split bowtie vertices first";
+                    return;
+                }
         }
 
         public bool Valid { get { return Status == ParameterizationStatus.Success; } }
