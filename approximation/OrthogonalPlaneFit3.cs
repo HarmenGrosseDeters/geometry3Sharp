@@ -53,7 +53,8 @@ namespace g3
             // Setup the eigensolver.
             SymmetricEigenSolver solver = new SymmetricEigenSolver(3, 4096);
             int iters = solver.Solve(matrix, SymmetricEigenSolver.SortType.Decreasing);
-            ResultValid = (iters > 0 && iters < SymmetricEigenSolver.NO_CONVERGENCE);
+            // iters == 0 means the matrix was already diagonal
+            ResultValid = (iters >= 0 && iters < SymmetricEigenSolver.NO_CONVERGENCE);
 
             Normal = new Vector3d(solver.GetEigenvector(2));
         }

@@ -354,13 +354,13 @@ namespace g3
         /// </summary>
         public bool IsValidQueue()
         {
-            for (int i = 1; i < num_nodes; i++) {
+            for (int i = 1; i <= num_nodes; i++) {
                 int childLeftIndex = 2 * i;
-                if (childLeftIndex < num_nodes && has_higher_priority(childLeftIndex, i))
+                if (childLeftIndex <= num_nodes && has_higher_priority(childLeftIndex, i))
                     return false;
 
                 int childRightIndex = childLeftIndex + 1;
-                if (childRightIndex < num_nodes && has_higher_priority(childRightIndex, i))
+                if (childRightIndex <= num_nodes && has_higher_priority(childRightIndex, i))
                     return false;
             }
             return true;

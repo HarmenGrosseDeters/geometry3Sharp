@@ -41,8 +41,8 @@ namespace g3
 
         public float SqrDistance(Colorf v2)
         {
-            float a = (r - v2.r), b = (g - v2.g), c = (b - v2.b), d = (a - v2.a);
-            return a * a + b * b + c * c + d*d;
+            float dr = (r - v2.r), dg = (g - v2.g), db = (b - v2.b), da = (a - v2.a);
+            return dr * dr + dg * dg + db * db + da * da;
         }
 
 
@@ -108,7 +108,7 @@ namespace g3
         }
         public static Colorf operator -(Colorf v0, float f)
         {
-            return new Colorf(v0.r - f, v0.g - f, v0.b - f, v0.a = f);
+            return new Colorf(v0.r - f, v0.g - f, v0.b - f, v0.a - f);
         }
 
 

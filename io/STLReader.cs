@@ -158,9 +158,9 @@ namespace g3
 
             } catch (Exception e) {
                 return new IOReadResult(IOCode.GenericReaderError, "exception: " + e.Message);
+            } finally {
+                Marshal.FreeHGlobal(bufptr);
             }
-
-            Marshal.FreeHGlobal(bufptr);
 
             if (Objects.Count == 1)
                 Objects[0].TriAttribs = tri_attribs;

@@ -148,7 +148,7 @@ namespace g3
 		/// </summary>
 		static public T[] Filter<T>(T[] data, Func<T, bool> FilterF, int max_i = -1) {
 			int n = (max_i == -1) ? data.Length : max_i;
-			int valid = CountValid(data, FilterF);
+			int valid = CountValid(data, FilterF, max_i);
 			if (valid == 0)
 				return null;
 			T[] result = new T[valid];
