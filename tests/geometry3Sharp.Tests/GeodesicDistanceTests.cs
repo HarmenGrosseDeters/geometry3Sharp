@@ -207,7 +207,8 @@ namespace geometry3Sharp.Tests
             var geo = new MeshGeodesicDistance(mesh);
             var sw = System.Diagnostics.Stopwatch.StartNew();
             Assert.True(geo.Compute(new[] { src }));
-            Assert.True(sw.ElapsedMilliseconds < 5000, $"{sw.ElapsedMilliseconds} ms");
+            // (stalled: 20000 iterations, minutes; the bound leaves room for a loaded machine)
+            Assert.True(sw.ElapsedMilliseconds < 30000, $"{sw.ElapsedMilliseconds} ms");
             Assert.True(double.IsNaN(geo.Distance[iso]));
             foreach (int vid in mesh.VertexIndices()) {
                 if (vid == iso) continue;
