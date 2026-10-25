@@ -69,6 +69,27 @@ namespace geometry3Sharp.Tests
             Assert.True(Math.Abs(hs - h) <= 0.05 * h, $"deviation {hs:E3} at scale {scale} vs {h:E3}");
         }
 
+        [Theory]
+        [InlineData(0.05)]
+        [InlineData(0.2)]
+        public void MaxDeviation_ReducedSurfaceStaysWithinTolerance(double eps)
+        {
+            // without the limit, reducing to 300 triangles deviates by ~2 m
+            DMesh3 mesh = Terrain(61);
+            DMesh3 reduced = new DMesh3(mesh);
+            var reducer = new Reducer(reduced) { MaxDeviation = eps };
+            reducer.ReduceToTriangleCount(300);
+            var h = new MeshHausdorffDistance(reduced, mesh) { Symmetric = false, Tolerance = 1e-4 };
+            Assert.True(h.Compute());
+            Assert.True(h.UpperBound <= eps + 1e-4, $"deviation {h.UpperBound} > {eps}");
+            // and it still reduces as far as the tolerance allows
+            Assert.True(reduced.TriangleCount < 0.5 * mesh.TriangleCount, $"{reduced.TriangleCount} triangles");
+            DMesh3 free = Reduce(mesh, 300);
+            var hf = new MeshHausdorffDistance(free, mesh) { Symmetric = false, Tolerance = 1e-4 };
+            hf.Compute();
+            Assert.True(hf.LowerBound > eps, "test does not exercise the limit");
+        }
+
         [Fact]
         public void NoisyFlatSurface_NoSpikes()
         {

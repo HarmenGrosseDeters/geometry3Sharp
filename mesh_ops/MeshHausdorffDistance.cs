@@ -92,6 +92,7 @@ namespace gs
         {
             DMesh3 from, to;
             DMeshAABBTree3 spatial;
+            TriangleDeviationBounds bounds;
             double tol, prune;
             MeshHausdorffDistance owner;
 
@@ -108,6 +109,7 @@ namespace gs
             public OneSided(DMesh3 from, DMeshAABBTree3 spatialTo, double tol, double prune, MeshHausdorffDistance owner)
             {
                 this.from = from; this.to = spatialTo.Mesh; spatial = spatialTo;
+                bounds = new TriangleDeviationBounds(to);
                 this.tol = tol; this.prune = prune; this.owner = owner;
             }
 
@@ -223,139 +225,8 @@ namespace gs
             // upper bound of the distance to To over the triangle (i, j, k)
             double upper_bound(Index3i t)
             {
-                Vector3d p0 = pos[t.a], p1 = pos[t.b], p2 = pos[t.c];
-                double d0 = dist[t.a], d1 = dist[t.b], d2 = dist[t.c];
-                double dmax = Math.Max(d0, Math.Max(d1, d2));
-
-                // distance to a single triangle of To is convex: its max over the triangle is at a corner
-                int n0 = near[t.a], n1 = near[t.b], n2 = near[t.c];
-                if (n0 == n1 && n1 == n2)
-                    return dmax;
-                // the distance to a single triangle of To is convex: on any convex piece of the triangle its
-                // max is at a corner of the piece. Try single nearest triangles, and splits of the triangle
-                // by a plane between two of them (each side bounded by its own triangle)
-                List<int> cand = new List<int>(3) { n0 };
-                if (n1 != n0) cand.Add(n1);
-                if (n2 != n0 && n2 != n1) cand.Add(n2);
-                List<Vector3d> poly = new List<Vector3d>(3) { p0, p1, p2 };
-                double u0 = polygon_bound(poly, cand, 0, t);
-
-                // triangle inequality from a corner
-                double e01 = p0.Distance(p1), e12 = p1.Distance(p2), e20 = p2.Distance(p0);
-                double u1 = Math.Min(d0 + Math.Max(e01, e20), Math.Min(d1 + Math.Max(e01, e12), d2 + Math.Max(e12, e20)));
-
-                // every point is within the covering radius of some corner
-                double u2 = dmax + covering_radius(e01, e12, e20);
-
-                return Math.Min(u0, Math.Min(u1, u2));
-            }
-
-            // upper bound of the distance to To over a convex polygon (a piece of triangle t), using only the
-            // candidate triangles: the best single candidate, or a split by a plane between two candidates
-            double polygon_bound(List<Vector3d> poly, List<int> cand, int depth, Index3i t)
-            {
-                double best = double.MaxValue;
-                foreach (int tid in cand)
-                    best = Math.Min(best, max_distance(poly, tid, t));
-                if (cand.Count < 2 || depth >= 2 || best <= threshold())
-                    return best;
-                for (int i = 0; i < cand.Count; ++i)
-                    for (int j = i + 1; j < cand.Count; ++j) {
-                        Vector3d origin, normal;
-                        if (separating_plane(cand[i], cand[j], out origin, out normal) == false)
-                            continue;
-                        List<Vector3d> pi, pj;
-                        clip(poly, origin, normal, out pi, out pj);
-                        List<int> ci = new List<int>(), cj = new List<int>();
-                        foreach (int c in cand)
-                            ((c == cand[i] || (c != cand[j] && normal.Dot(to.GetTriCentroid(c) - origin) >= 0)) ? ci : cj).Add(c);
-                        double bi = (pi.Count >= 3) ? polygon_bound(pi, ci, depth + 1, t) : 0;
-                        if (bi >= best) continue;
-                        double bj = (pj.Count >= 3) ? polygon_bound(pj, cj, depth + 1, t) : 0;
-                        best = Math.Min(best, Math.Max(bi, bj));
-                    }
-                return best;
-            }
-
-            // max over the polygon corners of the distance to triangle tid (distances of t's corners are known)
-            double max_distance(List<Vector3d> poly, int tid, Index3i t)
-            {
-                double m = 0;
-                foreach (Vector3d p in poly) {
-                    double d;
-                    if (p == pos[t.a] && near[t.a] == tid) d = dist[t.a];
-                    else if (p == pos[t.b] && near[t.b] == tid) d = dist[t.b];
-                    else if (p == pos[t.c] && near[t.c] == tid) d = dist[t.c];
-                    else d = Math.Sqrt(MeshQueries.TriDistanceSqr(to, tid, p));
-                    m = Math.Max(m, d);
-                }
-                return m;
-            }
-
-            // plane between triangles ti and tj, normal towards ti. Adjacent: the plane through the shared
-            // edge that bisects the angle between them (points on ti's side are nearer to ti); otherwise the
-            // bisector of their centroids. Any plane gives a valid bound, this one gives a tight one.
-            bool separating_plane(int ti, int tj, out Vector3d origin, out Vector3d normal)
-            {
-                Index3i a = to.GetTriangle(ti), b = to.GetTriangle(tj);
-                int s0 = -1, s1 = -1, oi = -1, oj = -1;
-                for (int k = 0; k < 3; ++k) {
-                    if (a[k] == b.a || a[k] == b.b || a[k] == b.c) { if (s0 < 0) s0 = a[k]; else s1 = a[k]; } else oi = a[k];
-                    if (b[k] != a.a && b[k] != a.b && b[k] != a.c) oj = b[k];
-                }
-                if (s1 >= 0 && oi >= 0 && oj >= 0) {
-                    Vector3d e0 = to.GetVertex(s0), e = (to.GetVertex(s1) - e0).Normalized;
-                    Vector3d wi = to.GetVertex(oi) - e0, wj = to.GetVertex(oj) - e0;
-                    wi = (wi - wi.Dot(e) * e).Normalized; wj = (wj - wj.Dot(e) * e).Normalized;
-                    normal = wi - wj;
-                    origin = e0;
-                    if (normal.Length > 1e-6) {
-                        normal.Normalize();
-                        return true;
-                    }
-                }
-                Vector3d ci = to.GetTriCentroid(ti), cj = to.GetTriCentroid(tj);
-                normal = ci - cj;
-                origin = 0.5 * (ci + cj);
-                if (normal.Length < 1e-12)
-                    return false;
-                normal.Normalize();
-                return true;
-            }
-
-            // split a convex polygon by the plane: positive side and negative side (with the cut points)
-            static void clip(List<Vector3d> poly, Vector3d origin, Vector3d normal, out List<Vector3d> pos, out List<Vector3d> neg)
-            {
-                pos = new List<Vector3d>(); neg = new List<Vector3d>();
-                int n = poly.Count;
-                for (int k = 0; k < n; ++k) {
-                    Vector3d a = poly[k], b = poly[(k + 1) % n];
-                    double da = normal.Dot(a - origin), db = normal.Dot(b - origin);
-                    if (da >= 0) pos.Add(a);
-                    if (da <= 0) neg.Add(a);
-                    if ((da > 0 && db < 0) || (da < 0 && db > 0)) {
-                        Vector3d x = a + (da / (da - db)) * (b - a);
-                        pos.Add(x); neg.Add(x);
-                    }
-                }
-            }
-
-            // largest distance from a point of the triangle to its nearest corner: the circumradius for an
-            // acute triangle, otherwise half the longest edge
-            static double covering_radius(double a, double b, double c)
-            {
-                double l = Math.Max(a, Math.Max(b, c));
-                double a2 = a * a, b2 = b * b, c2 = c * c, l2 = l * l;
-                bool acute = (a2 + b2 + c2 - l2) > l2;
-                if (acute) {
-                    double s = 0.5 * (a + b + c);
-                    double area2 = s * (s - a) * (s - b) * (s - c);
-                    if (area2 > 0) {
-                        double R = a * b * c / (4 * Math.Sqrt(area2));
-                        return Math.Max(R, 0.5 * l);
-                    }
-                }
-                return 0.5 * l;
+                return bounds.UpperBound(pos[t.a], pos[t.b], pos[t.c], dist[t.a], dist[t.b], dist[t.c],
+                    near[t.a], near[t.b], near[t.c], threshold());
             }
         }
 

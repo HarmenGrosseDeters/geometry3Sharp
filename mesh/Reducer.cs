@@ -54,6 +54,16 @@ namespace g3
         /// </summary>
         public double QuadricRegularization = 1e-6;
 
+        /// <summary>
+        /// If > 0, a collapse is only done if every point of the new triangles stays within MaxDeviation
+        /// of the input surface (checked with the certified bounds of TriangleDeviationBounds, so the
+        /// reduced surface is guaranteed to lie within this distance of the input). One-sided: input
+        /// features thinner than the tolerance (eg a spike) can still be cut off.
+        /// </summary>
+        public double MaxDeviation = 0;
+        /// <summary> subdivision depth for the MaxDeviation check; deeper certifies more collapses </summary>
+        public int MaxDeviationDepth = 10;
+
         // if true, we try to keep boundary vertices on boundary. You probably want this.
         public bool PreserveBoundaryShape = true;
 
@@ -112,6 +122,10 @@ namespace g3
             begin_pass();
 
             begin_setup();
+            if (MaxDeviation > 0) {
+                deviationTarget = new DMeshAABBTree3(new DMesh3(mesh), true);
+                deviationBounds = new TriangleDeviationBounds(deviationTarget.Mesh);
+            }
             Precompute();
             if (Cancelled())
                 return;
@@ -292,6 +306,44 @@ namespace g3
 
 
         protected QuadricError[] vertQuadrics;
+
+        // copy of the input for MaxDeviation
+        protected DMeshAABBTree3 deviationTarget;
+        protected TriangleDeviationBounds deviationBounds;
+
+        // would the triangles around a and b, after collapsing to newPos, stay within MaxDeviation?
+        protected bool collapse_within_deviation(int a, int b, Vector3d newPos)
+        {
+            // the new vertex first: one query, rejects most collapses that go too far
+            if (deviationTarget.FindNearestTriangle(newPos, MaxDeviation) < 0)
+                return false;
+            List<Triangle3d> tris = new List<Triangle3d>();
+            foreach (int v in new int[] { a, b }) {
+                int other = (v == a) ? b : a;
+                foreach (int tid in mesh.VtxTrianglesItr(v)) {
+                    Index3i t = mesh.GetTriangle(tid);
+                    if (t.a == other || t.b == other || t.c == other)
+                        continue;      // removed by the collapse
+                    tris.Add(new Triangle3d((t.a == v) ? newPos : mesh.GetVertex(t.a),
+                        (t.b == v) ? newPos : mesh.GetVertex(t.b), (t.c == v) ? newPos : mesh.GetVertex(t.c)));
+                }
+            }
+            // cheap samples next: most collapses that exceed the tolerance are rejected here, before the
+            // (much more expensive) certification of the whole triangles
+            foreach (Triangle3d t in tris) {
+                Vector3d[] samples = { (t.V0 + t.V1 + t.V2) / 3, 0.5 * (t.V0 + t.V1), 0.5 * (t.V1 + t.V2), 0.5 * (t.V2 + t.V0) };
+                foreach (Vector3d p in samples) {
+                    if (deviationTarget.FindNearestTriangle(p, MaxDeviation) < 0)
+                        return false;
+                }
+            }
+            bool ok = true;
+            gParallel.ForEach(Interval1i.Range(tris.Count), (k) => {
+                if (ok && deviationBounds.IsWithin(deviationTarget, tris[k].V0, tris[k].V1, tris[k].V2, MaxDeviation, MaxDeviationDepth) == false)
+                    ok = false;
+            });
+            return ok;
+        }
 
         // quadrics are computed relative to this point (the mesh bounds center): in absolute coordinates far
         // from the origin (eg UTM, 5e6) the constant term is ~1e13 and errors drown in rounding
@@ -610,7 +662,8 @@ namespace g3
 			Ignored_Constrained = 4,
 			Ignored_CreatesFlip = 5,
 			Failed_OpNotSuccessful = 6,
-			Failed_NotAnEdge = 7
+			Failed_NotAnEdge = 7,
+			Ignored_ExceedsDeviation = 8
 		};
 
 		protected virtual ProcessResult CollapseEdge(int edgeID, Vector3d vNewPos, out int collapseToV) 
@@ -692,6 +745,10 @@ namespace g3
 				retVal = ProcessResult.Ignored_CreatesFlip;
 				goto skip_to_end;
 			}
+            if (MaxDeviation > 0 && collapse_within_deviation(a, b, vNewPos) == false) {
+                retVal = ProcessResult.Ignored_ExceedsDeviation;
+                goto skip_to_end;
+            }
 
             // lots of cases where we cannot collapse, but we should just let
             // mesh sort that out, right?
