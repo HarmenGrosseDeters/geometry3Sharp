@@ -135,8 +135,35 @@ namespace g3
 
         static void two_product(double a, double b, out double x, out double y)
         {
+#if NETCOREAPP3_0_OR_GREATER
             x = a * b;
             y = Math.FusedMultiplyAdd(a, b, -x);
+#else
+            TwoProductDekker(a, b, out x, out y);
+#endif
+        }
+
+        /// <summary> a * b = x + y exactly, without FMA (Dekker); used where FMA is not available (netstandard2.0) </summary>
+        internal static void TwoProductDekker(double a, double b, out double x, out double y)
+        {
+            x = a * b;
+            // split both factors into 26-bit halves, whose products are exact
+            double ahi, alo, bhi, blo;
+            split(a, out ahi, out alo);
+            split(b, out bhi, out blo);
+            double err1 = x - (ahi * bhi);
+            double err2 = err1 - (alo * bhi);
+            double err3 = err2 - (ahi * blo);
+            y = (alo * blo) - err3;
+        }
+
+        static void split(double a, out double hi, out double lo)
+        {
+            const double splitter = 134217729.0;        // 2^27 + 1
+            double c = splitter * a;
+            double abig = c - a;
+            hi = c - abig;
+            lo = a - hi;
         }
 
         // e + b (e an expansion of n components), zero components eliminated

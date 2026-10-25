@@ -121,6 +121,21 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        [Fact]
+        public void TwoProduct_DekkerMatchesFma()
+        {
+            // the netstandard2.0 build has no FMA and uses Dekker's split: same exact error term
+            var rnd = new Random(5);
+            for (int i = 0; i < 100000; ++i) {
+                double a = (rnd.NextDouble() - 0.5) * Math.Pow(10, rnd.Next(-90, 90));
+                double b = (rnd.NextDouble() - 0.5) * Math.Pow(10, rnd.Next(-90, 90));
+                double x, y;
+                ExactPredicates.TwoProductDekker(a, b, out x, out y);
+                Assert.Equal(a * b, x);
+                Assert.Equal(Math.FusedMultiplyAdd(a, b, -x), y);
+            }
+        }
+
         static int InCircleInt(long[] a, long[] b, long[] c, long[] d)
         {
             BigInteger adx = a[0] - d[0], ady = a[1] - d[1], bdx = b[0] - d[0], bdy = b[1] - d[1], cdx = c[0] - d[0], cdy = c[1] - d[1];
