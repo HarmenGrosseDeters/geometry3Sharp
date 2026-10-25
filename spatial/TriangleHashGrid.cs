@@ -101,6 +101,12 @@ namespace g3
             }
         }
 
+        /// <summary> the box stored for the triangle </summary>
+        public bool TryGetBox(int tid, out AxisAlignedBox3d box)
+        {
+            return boxes.TryGetValue(tid, out box);
+        }
+
         /// <summary> calls f for every triangle whose cells overlap the box (a triangle can come up more than once) </summary>
         public void Query(AxisAlignedBox3d box, Action<int> f)
         {
@@ -115,7 +121,7 @@ namespace g3
                     for (int i = lo.x; i <= hi.x; ++i) {
                         List<int> list;
                         if (cells.TryGetValue(key(i, j, k), out list))
-                            foreach (int tid in list.ToArray()) f(tid);
+                            for (int q = 0; q < list.Count; ++q) f(list[q]);
                     }
             foreach (int tid in large) f(tid);
         }

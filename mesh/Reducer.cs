@@ -344,7 +344,7 @@ namespace g3
                 Index2i ev = mesh.GetEdgeV(eid);
                 sum += mesh.GetVertex(ev.a).Distance(mesh.GetVertex(ev.b)); n++;
             }
-            triangleGrid = new TriangleHashGrid(mesh.CachedBounds.Min, Math.Max(4 * sum / Math.Max(1, n), MathUtil.ZeroTolerance));
+            triangleGrid = new TriangleHashGrid(mesh.CachedBounds.Min, Math.Max(1.5 * sum / Math.Max(1, n), MathUtil.ZeroTolerance));
             foreach (int tid in mesh.TriangleIndices())
                 triangleGrid.Insert(tid, tri_box(tid));
         }
@@ -390,6 +390,8 @@ namespace g3
                 bool hit = false;
                 triangleGrid.Query(box, (tc) => {
                     if (hit || gridRingTris.Contains(tc) || mesh.IsTriangle(tc) == false) return;
+                    AxisAlignedBox3d cbox;
+                    if (triangleGrid.TryGetBox(tc, out cbox) && cbox.Intersects(box) == false) return;
                     Index3i ic = mesh.GetTriangle(tc);
                     Triangle3d C = new Triangle3d(mesh.GetVertex(ic.a), mesh.GetVertex(ic.b), mesh.GetVertex(ic.c));
                     if (ExactTriangleIntersection.IsDegenerate(ref C)) return;
