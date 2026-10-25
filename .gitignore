@@ -40,3 +40,7 @@ obj
 
 # test meshes used by the unit tests
 !tests/geometry3Sharp.Tests/test_files/*.obj
+
+# CI output
+artifacts/
+test-results/

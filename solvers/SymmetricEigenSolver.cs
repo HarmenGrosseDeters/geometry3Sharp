@@ -221,11 +221,12 @@ namespace g3
                 mIsRotation = 1 - (mSize & 1);
                 if (mPermutation[0] >= 0) {
                     // Sorting was requested.
+                    if (permutation_is_odd())
+                        mIsRotation = 1 - mIsRotation;
                     Array.Clear(mVisited, 0, mVisited.Length);
                     for (int i = 0; i < mSize; ++i) {
                         if (mVisited[i] == 0 && mPermutation[i] != i) {
                             // The item starts a cycle with 2 or more elements.
-                            mIsRotation = 1 - mIsRotation;
                             int start = i, current = i, j, next;
                             for (j = 0; j < mSize; ++j) {
                                 mPVector[j] = eigenvectors[i + mSize * j];
@@ -266,27 +267,35 @@ namespace g3
                 if (mIsRotation == -1) {
                     // Without sorting, the matrix is a rotation when size is even.
                     mIsRotation = 1 - (mSize & 1);
-                    if (mPermutation[0] >= 0) {
-                        // With sorting, the matrix is a rotation when the number of
-                        // cycles in the permutation is even.
-                        Array.Clear(mVisited, 0, mVisited.Length);
-                        for (int i = 0; i < mSize; ++i) {
-                            if (mVisited[i] == 0 && mPermutation[i] != i) {
-                                // The item starts a cycle with 2 or more elements.
-                                int start = i, current = i, next;
-                                while ((next = mPermutation[current]) != start) {
-                                    mVisited[current] = 1;
-                                    current = next;
-                                }
-                                mVisited[current] = 1;
-                            }
-                        }
-                    }
+                    // With sorting, each column transposition flips rotation/reflection.
+                    if (mPermutation[0] >= 0 && permutation_is_odd())
+                        mIsRotation = 1 - mIsRotation;
                 }
                 return mIsRotation == 1;
             } else {
                 return false;
             }
+        }
+
+        // True if the sort permutation needs an odd number of transpositions. A cycle
+        // of length L takes L-1 transpositions.
+        private bool permutation_is_odd()
+        {
+            bool odd = false;
+            Array.Clear(mVisited, 0, mVisited.Length);
+            for (int i = 0; i < mSize; ++i) {
+                if (mVisited[i] != 0)
+                    continue;
+                int length = 0, current = i;
+                while (mVisited[current] == 0) {
+                    mVisited[current] = 1;
+                    current = mPermutation[current];
+                    length++;
+                }
+                if ((length & 1) == 0)
+                    odd = !odd;
+            }
+            return odd;
         }
 
         // Compute a single eigenvector, which amounts to computing column c
@@ -301,7 +310,7 @@ namespace g3
 
                 // Start with the Euclidean basis vector.
                 Array.Clear(x, 0, mSize);
-                if (mPermutation[c] >= 0) {
+                if (mPermutation[0] >= 0) {
                     x[mPermutation[c]] = 1;
                 } else {
                     x[c] = 1;
@@ -396,6 +405,11 @@ namespace g3
                         mVVector[r] *= invDenom;
                         vdv += mVVector[r] * mVVector[r];
                     }
+                } else {
+                    // The column is already zero. Still apply the reflection with v = e(i+1),
+                    // as GetEigenvectors() does, so Q matches the matrix and IsRotation()
+                    // can rely on exactly N-2 reflections.
+                    mVVector[ip1] = (double)1;
                 }
 
                 // Compute the rank-1 offsets v*w^T and w*v^T.

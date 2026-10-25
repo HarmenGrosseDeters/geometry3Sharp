@@ -25,7 +25,6 @@ namespace geometry3Sharp.Tests
         static DMesh3 Cylinder(double r, double h)
         {
             DMesh3 m = new CappedCylinderGenerator() { BaseRadius = (float)r, TopRadius = (float)r, Height = (float)h, Slices = 40 }.Generate().MakeDMesh();
-            m.ReverseOrientation();     // the generator makes it inside-out
             return m;
         }
         static DMesh3 Rotated(DMesh3 m)

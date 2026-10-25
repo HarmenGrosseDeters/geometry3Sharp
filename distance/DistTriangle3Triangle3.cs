@@ -87,8 +87,8 @@ namespace g3
                 DistSegment3Triangle3 queryST = new DistSegment3Triangle3(edge, triangle0);
                 sqrDistTmp = queryST.GetSquared();
                 if (sqrDistTmp < sqrDist) {
-                    Triangle0Closest = queryST.SegmentClosest;
-                    Triangle1Closest = queryST.TriangleClosest;
+                    Triangle0Closest = queryST.TriangleClosest;
+                    Triangle1Closest = queryST.SegmentClosest;
                     sqrDist = sqrDistTmp;
 
                     ratio = queryST.SegmentParam / edge.Extent;

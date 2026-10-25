@@ -20,7 +20,7 @@ namespace g3
         // that subinterval with SetTimeInterval.  This function requires that
         // tmin < tmax.
         public double GetMinTime () {
-            return mTMax;
+            return mTMin;
         }
         public double GetMaxTime () {
             return mTMax;

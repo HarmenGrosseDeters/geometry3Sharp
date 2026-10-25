@@ -73,7 +73,7 @@ namespace g3
 		}
 
 		public bool InBounds( float x, float y ) {
-			return (x >= LowX && x <= HighX && x >= LowY && x <= HighY);
+			return (x >= LowX && x <= HighX && y >= LowY && y <= HighY);
 		}
 
 		public float LowX {

@@ -23,8 +23,14 @@ namespace gs
         /// </summary>
         public static int SelfIntersections(DMesh3 mesh)
         {
+            return SelfIntersectionPairs(mesh).Count;
+        }
+
+        /// <summary> the intersecting triangle pairs (see SelfIntersections), each once, sorted </summary>
+        public static List<Index2i> SelfIntersectionPairs(DMesh3 mesh)
+        {
             var tree = new DMeshAABBTree3(mesh, true);
-            int count = 0;
+            var pairs = new List<Index2i>();
             object lockObj = new object();
             int[] tris = new List<int>(mesh.TriangleIndices()).ToArray();
             gParallel.ForEach(Interval1i.Range(tris.Length), (k) => {
@@ -33,21 +39,40 @@ namespace gs
                 if (ExactTriangleIntersection.IsDegenerate(ref A)) return;
                 AxisAlignedBox3d box = new AxisAlignedBox3d(A.V0); box.Contain(A.V1); box.Contain(A.V2);
                 Index3i ia = mesh.GetTriangle(ta);
-                int local = 0;
+                List<Index2i> local = null;
                 tree.DoTraversal(new DMeshAABBTree3.TreeTraversal() {
                     NextBoxDF = (b, depth) => b.Intersects(box),
                     NextTriangleF = (tb) => {
                         if (tb <= ta) return;
                         Triangle3d B = triangle(mesh, tb);
                         if (ExactTriangleIntersection.IsDegenerate(ref B)) return;
-                        if (ExactTriangleIntersection.IntersectsBeyondShared(ia, ref A, mesh.GetTriangle(tb), ref B))
-                            local++;
+                        if (ExactTriangleIntersection.IntersectsBeyondShared(ia, ref A, mesh.GetTriangle(tb), ref B)) {
+                            if (local == null) local = new List<Index2i>();
+                            local.Add(new Index2i(ta, tb));
+                        }
                     }
                 });
-                if (local > 0)
-                    lock (lockObj) count += local;
+                if (local != null)
+                    lock (lockObj) pairs.AddRange(local);
             });
-            return count;
+            pairs.Sort((x, y) => x.a != y.a ? x.a.CompareTo(y.a) : x.b.CompareTo(y.b));
+            return pairs;
+        }
+
+        /// <summary> interior edges whose triangles fold over by more than maxAngle degrees (non-degenerate triangles) </summary>
+        public static List<int> FoldedEdges(DMesh3 mesh, double maxAngle = 175)
+        {
+            double cos = Math.Cos(maxAngle * MathUtil.Deg2Rad);
+            var result = new List<int>();
+            foreach (int eid in mesh.EdgeIndices()) {
+                Index2i et = mesh.GetEdgeT(eid);
+                if (et.b < 0) continue;
+                Triangle3d A = triangle(mesh, et.a), B = triangle(mesh, et.b);
+                if (ExactTriangleIntersection.IsDegenerate(ref A) || ExactTriangleIntersection.IsDegenerate(ref B)) continue;
+                if (mesh.GetTriNormal(et.a).Dot(mesh.GetTriNormal(et.b)) < cos)
+                    result.Add(eid);
+            }
+            return result;
         }
 
         static Triangle3d triangle(DMesh3 mesh, int tid)

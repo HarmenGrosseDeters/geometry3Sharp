@@ -22,6 +22,7 @@ namespace g3
                 return;
             this.Box = fitter.Box;
             this.Box.Contain(points);
+            ResultValid = true;
         }
 
         public ContOrientedBox3(IEnumerable<Vector3d> points, IEnumerable<double> pointWeights)
@@ -32,6 +33,7 @@ namespace g3
                 return;
             this.Box = fitter.Box;
             this.Box.Contain(points);
+            ResultValid = true;
         }
     }
 }

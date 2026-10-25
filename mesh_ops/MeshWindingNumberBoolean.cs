@@ -43,15 +43,21 @@ namespace gs
         /// If the result has hidden gaps or walls (gaps or material narrower than a cell, see
         /// DualContouring.HiddenGapF / HiddenWallF), the cell size is halved until the narrowest is about two
         /// cells wide (see WindingContouring.ContourRefined); at most this many halvings. Hidden gaps make the
-        /// surfaces on both sides intersect, thin walls vanish or break up. Each level roughly quadruples the
-        /// work (the octree work scales with the surface). Adaptive (octree) mode only.
+        /// surfaces on both sides intersect, thin walls vanish or break up. With LocalRefinement only the
+        /// cells around them are refined; otherwise each level roughly quadruples the work (the octree work
+        /// scales with the surface). Adaptive (octree) mode only.
         /// </summary>
         public int MaxRefineLevels = 2;
         /// <summary>
-        /// refine only for at least this many hidden gap / wall edges (the refinement is global; fewer are a
-        /// small local defect, reported in HiddenGapEdges / HiddenWallEdges)
+        /// refine only for at least this many hidden gap / wall edges (fewer are reported in HiddenGapEdges /
+        /// HiddenWallEdges)
         /// </summary>
         public int MinRefineEdges = 8;
+        /// <summary>
+        /// refine only the cells around hidden gaps / walls (the rest keeps the cell size, see
+        /// WindingContouring.ContourRefined); false: refine the whole grid
+        /// </summary>
+        public bool LocalRefinement = true;
 
         public Func<bool> CancelF = () => { return false; };
 
@@ -67,7 +73,10 @@ namespace gs
         public List<KeyValuePair<Vector3d, double>> HiddenSamples = new List<KeyValuePair<Vector3d, double>>();
         /// <summary> hidden gap edges at each refinement level </summary>
         public List<int> GapEdgesPerLevel = new List<int>();
+        /// <summary> finest cell size used (CellSize unless refined) </summary>
         public double UsedCellSize;
+        /// <summary> local refinement: number of cells (of CellSize) refined, and the refinement factor (CellSize / UsedCellSize) </summary>
+        public int RefinedCells, RefineFactor = 1;
         public Dictionary<string, long> PhaseMilliseconds = new Dictionary<string, long>();
 
 
@@ -106,7 +115,7 @@ namespace gs
                 }
             }
             WindingContouring wc = new WindingContouring(inputs, combine, FastWindingBeta) {
-                CancelF = CancelF
+                CancelF = CancelF, LocalRefinement = LocalRefinement
             };
             DMesh3 contour = wc.ContourRefined(ref cellSize, MaxRefineLevels, MinRefineEdges);
             WindingEvaluations = wc.WindingEvaluations;
@@ -115,6 +124,7 @@ namespace gs
             HiddenWallEdges = wc.HiddenWallEdges;
             HiddenSamples = wc.HiddenSamples;
             GapEdgesPerLevel = new List<int>(wc.GapEdgesPerLevel);
+            RefinedCells = wc.RefinedCells; RefineFactor = wc.RefineFactor;
             foreach (var kv in wc.PhaseMilliseconds) PhaseMilliseconds["contour." + kv.Key] = kv.Value;
             UsedCellSize = cellSize;
             end_phase("contour");
