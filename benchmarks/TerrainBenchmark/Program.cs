@@ -4,6 +4,7 @@
 //   volume   before=<grid> after=<grid> [simplify=<m>] [heightcheck=1]
 //   repair   grid=<grid> variant=clean|tiles|overlap|holes mode=auto|cleanup|robust|tdc
 //   tdc      grid=<grid> [points=<cloud>] [cell=1] [tol=0]
+//   gtin     grid=<grid> [maxerr=0.1]   (TerrainGreedyTIN)
 //   offset   grid=<grid> d=<m> [cell=1]
 //   safety   grid=<grid> d=<m> mode=horizontal|surface|guaranteed|guaranteed [terrain=grid|tdc] [tol=0.05] [angle=20]
 //   geodesic grid=<grid> [src=center|crest] [tf=1]
@@ -50,6 +51,7 @@ class Program
                 case "volume": stage = kase; Volume(w); break;
                 case "repair": stage = kase; Repair(w); break;
                 case "tdc": stage = kase; Tdc(w); break;
+                case "gtin": stage = kase; GreedyTin(w); break;
                 case "offset": stage = kase; Offset(w); break;
                 case "safety": stage = kase; Safety(w); break;
                 case "geodesic": stage = kase; Geodesic(w); break;
@@ -267,6 +269,42 @@ class Program
         int miss = 0, stride = Math.Max(1, (int)Math.Sqrt(g.NX * (double)g.NY / 250000));
         for (int j = 2; j < g.NY - 2; j += stride)
             for (int i = 2; i < g.NX - 2; i += stride) {
+                var ray = new Ray3d(new Vector3d(g.X(i), g.Y(j), top) - origin, -Vector3d.AxisZ);
+                int tid = tree.FindNearestHitTriangle(ray, depth);
+                IntrRay3Triangle3 intr = (tid < 0) ? null : MeshQueries.TriangleIntersection(res, tid, ray);
+                if (intr == null || intr.Find() == false) { miss++; continue; }
+                err.Add(Math.Abs(ray.PointAt(intr.RayParameter).z - g[i, j]));
+            }
+        R["missed"] = miss;
+        Checks.Stats(err, "dz", R);
+        R["check_s"] = Secs(sw);
+    }
+
+
+    // ---------------------------------------------------------------- greedy insertion TIN
+    static void GreedyTin(double[] w)
+    {
+        var sw = Stopwatch.StartNew();
+        Grid g = LoadGrid(Arg("grid"), w);
+        var z = new double[g.NX * g.NY];
+        for (int k = 0; k < z.Length; ++k) z[k] = g.Z[k];
+        R["nodes"] = z.Length;
+        var gt = new TerrainGreedyTIN(z, g.NX, g.NY, g.X0 - origin.x, g.Y0 - origin.y, g.Dx) { MaxError = ArgD("maxerr", 0.1) };
+        bool ok = gt.Compute();
+        R["gtin_s"] = Secs(sw);
+        R["ok"] = ok;
+        if (!ok) return;
+        DMesh3 res = gt.Result;
+        R["result_tris"] = res.TriangleCount;
+        R["achieved_error"] = gt.AchievedError;
+        R["xy_overlaps"] = TerrainVolumeDifference.XYOverlaps(res);
+        // vertical error at every DGM node (independent: rays against the result)
+        var tree = new DMeshAABBTree3(res, true);
+        double top = res.CachedBounds.Max.z + 10, depth = res.CachedBounds.Depth + 20;
+        var err = new List<double>();
+        int miss = 0;
+        for (int j = 0; j < g.NY; ++j)
+            for (int i = 0; i < g.NX; ++i) {
                 var ray = new Ray3d(new Vector3d(g.X(i), g.Y(j), top) - origin, -Vector3d.AxisZ);
                 int tid = tree.FindNearestHitTriangle(ray, depth);
                 IntrRay3Triangle3 intr = (tid < 0) ? null : MeshQueries.TriangleIntersection(res, tid, ray);
