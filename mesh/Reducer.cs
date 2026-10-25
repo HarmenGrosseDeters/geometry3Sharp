@@ -59,6 +59,9 @@ namespace g3
         /// of the input surface (checked with the certified bounds of TriangleDeviationBounds, so the
         /// reduced surface is guaranteed to lie within this distance of the input). One-sided: input
         /// features thinner than the tolerance (eg a spike) can still be cut off.
+        /// The reference is the mesh at the first reduction with MaxDeviation (so repeated ReduceTo...
+        /// calls stay within MaxDeviation of the original), or the one given to SetDeviationReference.
+        /// Not covered: the projection of a ProjectionTarget (Reproject) after the collapses.
         /// </summary>
         public double MaxDeviation = 0;
         /// <summary> subdivision depth for the MaxDeviation check; deeper certifies more collapses </summary>
@@ -122,10 +125,7 @@ namespace g3
             begin_pass();
 
             begin_setup();
-            if (MaxDeviation > 0) {
-                deviationTarget = new DMeshAABBTree3(new DMesh3(mesh), true);
-                deviationBounds = new TriangleDeviationBounds(deviationTarget.Mesh);
-            }
+            ensure_deviation_reference();
             Precompute();
             if (Cancelled())
                 return;
@@ -237,6 +237,7 @@ namespace g3
 
             MinEdgeLength = fMinEdgeLength;
             double min_sqr = MinEdgeLength * MinEdgeLength;
+            ensure_deviation_reference();
 
             // we don't collapse on the boundary
             HaveBoundary = false;
@@ -310,6 +311,19 @@ namespace g3
         // copy of the input for MaxDeviation
         protected DMeshAABBTree3 deviationTarget;
         protected TriangleDeviationBounds deviationBounds;
+
+        /// <summary> the surface MaxDeviation is measured from (default: the mesh at the first reduction) </summary>
+        public void SetDeviationReference(DMesh3 reference)
+        {
+            deviationTarget = new DMeshAABBTree3(new DMesh3(reference), true);
+            deviationBounds = new TriangleDeviationBounds(deviationTarget.Mesh);
+        }
+
+        protected void ensure_deviation_reference()
+        {
+            if (MaxDeviation > 0 && deviationTarget == null)
+                SetDeviationReference(mesh);
+        }
 
         // would the triangles around a and b, after collapsing to newPos, stay within MaxDeviation?
         protected bool collapse_within_deviation(int a, int b, Vector3d newPos)
@@ -1036,7 +1050,7 @@ skip_to_end:
 			if (!(Math.Abs(det) > 1e-18 * scale * scale * scale))
 				return false;
 			det = 1.0 / det;
-			// x = -(A + lambda I)^-1 (b - lambda c); then two proximal steps with c = x, which converge to the
+			// x = -(A + lambda I)^-1 (b - lambda c); then proximal steps with c = x, which converge to the
 			// exact minimizer in the directions the quadric constrains (factor lambda/eigenvalue per step)
 			// and keep the others at center
 			Vector3d cur = center;

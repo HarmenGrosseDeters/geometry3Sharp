@@ -91,6 +91,47 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void MaxDeviation_RepeatedReductions_StayWithinToleranceOfTheOriginal()
+        {
+            DMesh3 mesh = Terrain(61);
+            DMesh3 reduced = new DMesh3(mesh);
+            var reducer = new Reducer(reduced) { MaxDeviation = 0.1 };
+            reducer.ReduceToTriangleCount(3000);
+            reducer.ReduceToTriangleCount(1000);
+            reducer.ReduceToTriangleCount(300);
+            var h = new MeshHausdorffDistance(reduced, mesh) { Symmetric = false, Tolerance = 1e-4 };
+            Assert.True(h.Compute());
+            Assert.True(h.UpperBound <= 0.1 + 1e-4, $"deviation {h.UpperBound}");
+        }
+
+        [Fact]
+        public void MaxDeviation_FastCollapsePass()
+        {
+            DMesh3 mesh = Terrain(61);
+            DMesh3 reduced = new DMesh3(mesh);
+            var reducer = new Reducer(reduced) { MaxDeviation = 0.05 };
+            reducer.FastCollapsePass(4.0, 3);
+            Assert.True(reduced.TriangleCount < mesh.TriangleCount);
+            var h = new MeshHausdorffDistance(reduced, mesh) { Symmetric = false, Tolerance = 1e-4 };
+            Assert.True(h.Compute());
+            Assert.True(h.UpperBound <= 0.05 + 1e-4, $"deviation {h.UpperBound}");
+        }
+
+        [Fact]
+        public void MaxDeviation_ExplicitReference()
+        {
+            DMesh3 mesh = Terrain(61);
+            DMesh3 work = new DMesh3(mesh);
+            new Reducer(work).ReduceToTriangleCount(4000);       // pre-reduced without a limit
+            var reducer = new Reducer(work) { MaxDeviation = 0.3 };
+            reducer.SetDeviationReference(mesh);
+            reducer.ReduceToTriangleCount(200);
+            var h = new MeshHausdorffDistance(work, mesh) { Symmetric = false, Tolerance = 1e-4 };
+            Assert.True(h.Compute());
+            Assert.True(h.UpperBound <= 0.3 + 1e-4, $"deviation {h.UpperBound}");
+        }
+
+        [Fact]
         public void NoisyFlatSurface_NoSpikes()
         {
             // nearly flat: plane quadrics are nearly singular in the plane directions
