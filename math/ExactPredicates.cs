@@ -7,8 +7,9 @@ namespace g3
     /// <summary>
     /// Exact orientation predicates for double coordinates. A floating-point filter with Shewchuk's error
     /// bounds ("Adaptive Precision Floating-Point Arithmetic and Fast Robust Geometric Predicates", 1997)
-    /// decides almost all cases; the uncertain ones are recomputed exactly with integers (every double is
-    /// m * 2^e). The sign is always right, also for nearly degenerate input and coordinates far from the
+    /// decides almost all cases; the uncertain ones go through Shewchuk's adaptive stages (AdaptivePredicates)
+    /// and, if those cannot decide, an exact evaluation (floating-point expansions, or integers where products
+    /// could overflow or underflow: every double is m * 2^e). The sign is always right, also for nearly degenerate input and coordinates far from the
     /// origin, unlike tests with a fixed epsilon.
     /// </summary>
     public static class ExactPredicates
@@ -76,8 +77,9 @@ namespace g3
         }
 
 
-        // exact versions: with floating-point expansions (Shewchuk) when no product can overflow or underflow,
-        // otherwise with all coordinates as integers with a common power-of-two scale
+        // exact versions: when no product can overflow or underflow, Shewchuk's adaptive stages B and C, then
+        // floating-point expansions of the whole determinant; otherwise all coordinates as integers with a
+        // common power-of-two scale
 
         static int incircle_exact(Vector2d a, Vector2d b, Vector2d c, Vector2d d)
         {
@@ -85,6 +87,9 @@ namespace g3
                 return 0;
             if (Expansion.InRange(a.x, a.y, b.x, b.y, c.x, c.y, d.x, d.y) == false)
                 return incircle_bigint(a, b, c, d);
+            int s = AdaptivePredicates.InCircle(a.x, a.y, b.x, b.y, c.x, c.y, d.x, d.y);
+            if (s != AdaptivePredicates.NotDecided)
+                return s;
             var t = Expansion.Terms.Get();
             int adx = t.Diff(a.x, d.x), ady = t.Diff(a.y, d.y), bdx = t.Diff(b.x, d.x), bdy = t.Diff(b.y, d.y);
             int cdx = t.Diff(c.x, d.x), cdy = t.Diff(c.y, d.y);
@@ -103,6 +108,9 @@ namespace g3
                 return 0;
             if (Expansion.InRange(a.x, a.y, b.x, b.y, c.x, c.y) == false)
                 return orient2d_bigint(a, b, c);
+            int s = AdaptivePredicates.Orient2d(a.x, a.y, b.x, b.y, c.x, c.y);
+            if (s != AdaptivePredicates.NotDecided)
+                return s;
             var t = Expansion.Terms.Get();
             int ux = t.Diff(b.x, a.x), uy = t.Diff(b.y, a.y), vx = t.Diff(c.x, a.x), vy = t.Diff(c.y, a.y);
             return t.Sign(t.Add(t.Mul(ux, vy), t.Neg(t.Mul(uy, vx))));
@@ -114,6 +122,10 @@ namespace g3
                 return 0;
             if (Expansion.InRange(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z, d.x, d.y, d.z) == false)
                 return orient3d_bigint(a, b, c, d);
+            // (Shewchuk's orient3d has the opposite sign)
+            int s = AdaptivePredicates.Orient3d(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z, d.x, d.y, d.z);
+            if (s != AdaptivePredicates.NotDecided)
+                return -s;
             var t = Expansion.Terms.Get();
             int ux = t.Diff(b.x, a.x), uy = t.Diff(b.y, a.y), uz = t.Diff(b.z, a.z);
             int vx = t.Diff(c.x, a.x), vy = t.Diff(c.y, a.y), vz = t.Diff(c.z, a.z);

@@ -155,6 +155,84 @@ namespace geometry3Sharp.Tests
             return (bits < 0) ? -new BigInteger(mant) : new BigInteger(mant);
         }
 
+        // a few ulps away from x
+        static double Ulps(double x, Random rnd, int k)
+        {
+            return BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(x) + rnd.Next(-k, k + 1));
+        }
+
+        [Theory]
+        [InlineData(1.0)]
+        [InlineData(1e6)]
+        [InlineData(1e-12)]
+        public void AdaptiveStages_DecideNearlyDegenerateCasesCorrectly(double scale)
+        {
+            // points a few ulps off a line / plane / circle: the floating-point filter cannot decide them; the
+            // adaptive stages decide most, and every sign they give is the exact one
+            var rnd = new Random(17);
+            int n = 20000, decided2 = 0, decided3 = 0, decidedC = 0;
+            for (int i = 0; i < n; ++i) {
+                Vector2d a = scale * new Vector2d(rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5);
+                Vector2d b = scale * new Vector2d(rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5);
+                double t = rnd.NextDouble();
+                Vector2d c = new Vector2d(Ulps(a.x + t * (b.x - a.x), rnd, 4), Ulps(a.y + t * (b.y - a.y), rnd, 4));
+                int s2 = AdaptivePredicates.Orient2d(a.x, a.y, b.x, b.y, c.x, c.y);
+                if (s2 != AdaptivePredicates.NotDecided) {
+                    decided2++;
+                    Assert.Equal(ExactPredicates.orient2d_bigint(a, b, c), s2);
+                }
+
+                Vector3d p = scale * new Vector3d(rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5);
+                Vector3d q = scale * new Vector3d(rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5);
+                Vector3d r = scale * new Vector3d(rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5);
+                double u = rnd.NextDouble(), v = rnd.NextDouble();
+                Vector3d w = p + u * (q - p) + v * (r - p);
+                w = new Vector3d(Ulps(w.x, rnd, 4), Ulps(w.y, rnd, 4), Ulps(w.z, rnd, 4));
+                int s3 = AdaptivePredicates.Orient3d(p.x, p.y, p.z, q.x, q.y, q.z, r.x, r.y, r.z, w.x, w.y, w.z);
+                if (s3 != AdaptivePredicates.NotDecided) {
+                    decided3++;
+                    Assert.Equal(ExactPredicates.orient3d_bigint(p, q, r, w), -s3);     // (Shewchuk's sign)
+                }
+
+                Vector2d center = scale * new Vector2d(rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5);
+                double rad = scale * (0.1 + rnd.NextDouble());
+                Vector2d[] cp = new Vector2d[4];
+                for (int k = 0; k < 4; ++k) {
+                    double th = rnd.NextDouble() * 2 * Math.PI;
+                    cp[k] = new Vector2d(Ulps(center.x + rad * Math.Cos(th), rnd, 4), Ulps(center.y + rad * Math.Sin(th), rnd, 4));
+                }
+                int sc = AdaptivePredicates.InCircle(cp[0].x, cp[0].y, cp[1].x, cp[1].y, cp[2].x, cp[2].y, cp[3].x, cp[3].y);
+                if (sc != AdaptivePredicates.NotDecided) {
+                    decidedC++;
+                    Assert.Equal(ExactPredicates.incircle_bigint(cp[0], cp[1], cp[2], cp[3]), sc);
+                }
+            }
+            Assert.True(decided2 > 0.9 * n, $"orient2d decided {decided2}");
+            Assert.True(decided3 > 0.9 * n, $"orient3d decided {decided3}");
+            Assert.True(decidedC > 0.9 * n, $"incircle decided {decidedC}");
+        }
+
+        [Fact]
+        public void AdaptiveStages_ExactDifferences_DecideDegenerateCases()
+        {
+            // on an integer grid the coordinate differences are exact: stage B is the exact value, also 0
+            var rnd = new Random(3);
+            for (int i = 0; i < 5000; ++i) {
+                int x0 = rnd.Next(-1000, 1000), y0 = rnd.Next(-1000, 1000), z0 = rnd.Next(-1000, 1000);
+                int dx = rnd.Next(-9, 10), dy = rnd.Next(-9, 10), dz = rnd.Next(-9, 10), t1 = rnd.Next(1, 5), t2 = rnd.Next(-5, 9);
+                Assert.Equal(0, AdaptivePredicates.Orient2d(x0, y0, x0 + t1 * dx, y0 + t1 * dy, x0 + t2 * dx, y0 + t2 * dy));
+                // the plane z = z0 + x + 2y
+                Func<int, int, Vector3d> pl = (x, y) => new Vector3d(x, y, z0 + x + 2 * y);
+                Vector3d p = pl(x0, y0), q = pl(x0 + dx, y0 + dy), r = pl(x0 + dy, y0 - dx), w = pl(x0 + t2, y0 - t1);
+                Assert.Equal(0, AdaptivePredicates.Orient3d(p.x, p.y, p.z, q.x, q.y, q.z, r.x, r.y, r.z, w.x, w.y, w.z));
+                // the circle of radius 5 around (x0, y0)
+                Assert.Equal(0, AdaptivePredicates.InCircle(x0 + 5, y0, x0 + 3, y0 + 4, x0 - 4, y0 + 3, x0, y0 - 5));
+                // just off the circle
+                int sOut = AdaptivePredicates.InCircle(x0 + 5, y0, x0 + 3, y0 + 4, x0 - 4, y0 + 3, x0, y0 - 5.000000000001);
+                Assert.Equal(-1, sOut == AdaptivePredicates.NotDecided ? ExactPredicates.InCircle(new Vector2d(x0 + 5, y0), new Vector2d(x0 + 3, y0 + 4), new Vector2d(x0 - 4, y0 + 3), new Vector2d(x0, y0 - 5.000000000001)) : sOut);
+            }
+        }
+
         static int InCircleInt(long[] a, long[] b, long[] c, long[] d)
         {
             BigInteger adx = a[0] - d[0], ady = a[1] - d[1], bdx = b[0] - d[0], bdy = b[1] - d[1], cdx = c[0] - d[0], cdy = c[1] - d[1];
