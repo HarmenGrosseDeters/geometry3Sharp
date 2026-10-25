@@ -31,7 +31,7 @@ selectively.
 - [x] Package metadata: SPDX license, README, XML docs, symbols
 - [x] Mesh formats PLY, 3MF, glTF/GLB (read and write)
 - [ ] Package ID and publishing (nuget.org ID `geometry3Sharp` belongs to upstream)
-- [ ] API docs and examples per operation
+- [x] API docs and examples per operation ([OPERATIONS.md](OPERATIONS.md), examples run as tests)
 
 ## Phase 2: robustness
 
@@ -46,7 +46,9 @@ selectively.
   booleans) no longer grows exponentially.
 - [ ] More than two meshes in one operation (the arrangement supports it already)
 - [ ] Rounding of the output without new self-intersections (snap rounding), or exact output coordinates
-- [ ] Alpha wrapping
+- [x] Alpha wrapping (`MeshAlphaWrap`, Portaneri et al. 2022): closed, manifold, intersection-free wrap with an offset
+  around any input (soups, open meshes, point clouds), on an own exact 3D Delaunay triangulation (`Delaunay3`).
+  Benchmark on Thingi10K: `BENCH_REPAIR=wrap`, `analyze_wrap.py` (comparison with the solidify fallback).
 
 | Feature | Research / port source | Why |
 |---|---|---|
@@ -55,14 +57,27 @@ selectively.
 
 ## Phase 3: parameterization and geodesics
 
-- Parameterization: LSCM, ARAP, SLIM (Rabinovich et al. 2017), Boundary First Flattening (Sawhney & Crane 2017); UV packing
-- Vector Heat Method (Sharp, Soliman, Crane 2019), including a robust log map (beyond `MeshLocalParam`)
-- Intrinsic Delaunay triangulations (Sharp & Crane), for stable Laplacians and heat on poor meshes
+- [x] Parameterization: LSCM, ARAP, SLIM (Rabinovich et al. 2017), Boundary First Flattening (Sawhney & Crane 2017);
+  UV packing; distortion measures; sparse Cholesky solver (`SparseCholesky`)
+- [ ] Cutting closed surfaces into discs (seams) and automatic chart segmentation; BFF with cone singularities
+- [x] Intrinsic Delaunay triangulations (Sharp & Crane), for stable Laplacians and heat on poor meshes:
+  `IntrinsicTriangulation` (edge flips with signposts, tracing of intrinsic edges over the input mesh,
+  intrinsic mollification of degenerate triangles); `MeshGeodesicDistance.IntrinsicDelaunay`. On a plane of
+  169-degree triangles the mean distance error drops from 2.2 to 0.06 edge lengths.
+- [x] Vector Heat Method (Sharp, Soliman, Crane 2019), including a robust log map (beyond `MeshLocalParam`):
+  `VectorHeatMethod` (transport, scalar extension, log map), on the intrinsic Delaunay triangulation,
+  with the direct solver `SparseCholesky`.
+- [ ] Intrinsic Delaunay *refinement* (vertex insertion): boundary edges opposite obtuse angles cannot be
+  flipped and keep negative cotan weights; integer coordinates (Gillespie et al. 2021) for a robust
+  common subdivision
 
 ## Phase 4: platform layer
 
-- CLI / MCP server over the operations
-- Analysis building blocks: wall thickness (shape diameter function, medial axis), deviation maps, primitive fitting
+- [x] CLI / MCP server over the operations: `tools/g3cli` (measure, repair, boolean, resolve, remesh, simplify,
+  convert; JSON results with result codes; `g3cli mcp` over stdio)
+- [x] Analysis building blocks: wall thickness (`MeshWallThickness`: ray, shape diameter function, inscribed ball /
+  medial axis), deviation maps (`MeshDeviation`, statistics in `DeviationStatistics`), primitive fitting
+  (`PrimitiveFit3`: plane, sphere, cylinder, cone; RANSAC + least squares)
 - A showcase domain: terrain / GIS (in progress) and biomedical / orthotics
 
 ## Later

@@ -33,7 +33,8 @@ namespace g3
 
         protected BitArray Bitmap {
             get {
-                if (tempBits == null)
+                // mesh may have grown since the bitmap was allocated
+                if (tempBits == null || tempBits.Length < Mesh.MaxTriangleID)
                     tempBits = new BitArray(Mesh.MaxTriangleID);
                 return tempBits;
             }

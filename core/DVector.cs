@@ -119,6 +119,11 @@ namespace g3
             this.Add(value);
         }
         public void pop_back() {
+            // resize() can leave an empty current block, then the last element is in the previous block
+            if (iCurBlockUsed == 0 && iCurBlock > 0) {
+                iCurBlock--;
+                iCurBlockUsed = nBlockSize;
+            }
             if (iCurBlockUsed > 0)
                 iCurBlockUsed--;
             if (iCurBlockUsed == 0 && iCurBlock > 0)
@@ -268,12 +273,12 @@ namespace g3
             int n = System.Runtime.InteropServices.Marshal.SizeOf(type);
             byte[] buffer = new byte[this.Length * n];
             int i = 0;
-            int N = Blocks.Count;
-            for ( int k = 0; k < N-1; ++k ) {
+            // blocks after iCurBlock may still be allocated, but are not used
+            for ( int k = 0; k < iCurBlock; ++k ) {
                 Buffer.BlockCopy(Blocks[k], 0, buffer, i, nBlockSize * n);
                 i += nBlockSize * n;
             }
-            Buffer.BlockCopy(Blocks[N-1], 0, buffer, i, iCurBlockUsed * n);
+            Buffer.BlockCopy(Blocks[iCurBlock], 0, buffer, i, iCurBlockUsed * n);
             return buffer;
         }
 
@@ -291,7 +296,7 @@ namespace g3
                 ai += nBlockSize;
             }
             iCurBlockUsed = data.Length - ai;
-            if (iCurBlockUsed != 0) {
+            if (iCurBlockUsed != 0 || Blocks.Count == 0) {
                 T[] last = new T[nBlockSize];
                 Array.Copy(data, ai, last, 0, iCurBlockUsed);
                 Blocks.Add(last);
@@ -305,12 +310,25 @@ namespace g3
 
 
         /// <summary>
-        /// Calls Array.Clear() on each block, which sets value to 'default' for type
+        /// Calls Array.Clear() on each block, which sets value to 'default' for type.
+        /// The length does not change, unlike List.Clear().
         /// </summary>
+        [Obsolete("Clear() sets every element to default but keeps the length (unlike List.Clear). Use Fill(default) for that, or resize(0) to empty the vector.")]
         public void Clear()
         {
+            Fill(default(T));
+        }
+
+        /// <summary>
+        /// Set every element to value. The length does not change.
+        /// </summary>
+        public void Fill(T value)
+        {
             foreach (var block in Blocks) {
-                Array.Clear(block, 0, block.Length);
+                if (block == null)
+                    continue;
+                for (int i = 0; i < block.Length; ++i)      // no Array.Fill in netstandard2.0
+                    block[i] = value;
             }
         }
 
@@ -322,12 +340,14 @@ namespace g3
         {
             for (int bi = 0; bi < iCurBlock; ++bi) {
                 T[] block = Blocks[bi];
+                int i0 = bi * nBlockSize;
                 for (int k = 0; k < nBlockSize; ++k)
-                    applyF(block[k], k);
+                    applyF(block[k], i0 + k);
             }
             T[] lastblock = Blocks[iCurBlock];
+            int last0 = iCurBlock * nBlockSize;
             for (int k = 0; k < iCurBlockUsed; ++k)
-                applyF(lastblock[k], k);
+                applyF(lastblock[k], last0 + k);
         }
 
 
@@ -338,12 +358,14 @@ namespace g3
         {
             for ( int bi = 0; bi < iCurBlock; ++bi ) {
                 T[] block = Blocks[bi];
+                int i0 = bi * nBlockSize;
                 for (int k = 0; k < nBlockSize; ++k)
-                    block[k] = applyF(block[k], k);
+                    block[k] = applyF(block[k], i0 + k);
             }
             T[] lastblock = Blocks[iCurBlock];
+            int last0 = iCurBlock * nBlockSize;
             for (int k = 0; k < iCurBlockUsed; ++k)
-                lastblock[k] = applyF(lastblock[k], k);
+                lastblock[k] = applyF(lastblock[k], last0 + k);
         }
 
 
@@ -358,7 +380,7 @@ namespace g3
         public static unsafe void FastGetBuffer(DVector<double> v, double * pBuffer)
         {
             IntPtr pCur = new IntPtr(pBuffer);
-            int N = v.Blocks.Count;
+            int N = v.iCurBlock + 1;     // blocks after iCurBlock are not used
             for (int k = 0; k < N - 1; k++) {
                 System.Runtime.InteropServices.Marshal.Copy(v.Blocks[k], 0, pCur, v.nBlockSize);
                 pCur = new IntPtr(
@@ -369,7 +391,7 @@ namespace g3
         public static unsafe void FastGetBuffer(DVector<float> v, float * pBuffer)
         {
             IntPtr pCur = new IntPtr(pBuffer);
-            int N = v.Blocks.Count;
+            int N = v.iCurBlock + 1;     // blocks after iCurBlock are not used
             for (int k = 0; k < N - 1; k++) {
                 System.Runtime.InteropServices.Marshal.Copy(v.Blocks[k], 0, pCur, v.nBlockSize);
                 pCur = new IntPtr(
@@ -380,7 +402,7 @@ namespace g3
         public static unsafe void FastGetBuffer(DVector<int> v, int * pBuffer)
         {
             IntPtr pCur = new IntPtr(pBuffer);
-            int N = v.Blocks.Count;
+            int N = v.iCurBlock + 1;     // blocks after iCurBlock are not used
             for (int k = 0; k < N - 1; k++) {
                 System.Runtime.InteropServices.Marshal.Copy(v.Blocks[k], 0, pCur, v.nBlockSize);
                 pCur = new IntPtr(

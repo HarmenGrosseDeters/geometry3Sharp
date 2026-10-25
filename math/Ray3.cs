@@ -115,6 +115,8 @@ namespace g3
         public float DistanceSquared(Vector3f p)
         {
             float t = (p - Origin).Dot(Direction);
+            if (t < 0)          // a ray, not a line: points behind the origin are closest to the origin
+                return Origin.DistanceSquared(p);
             Vector3f proj = Origin + t * Direction;
             return (proj - p).LengthSquared;
         }

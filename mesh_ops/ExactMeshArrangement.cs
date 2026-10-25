@@ -53,9 +53,21 @@ namespace g3
             public int[] Corners = new int[3];      // point ids
             public Vector3d V0, V1, V2;             // input coordinates of the corners
             public bool Degenerate;
-            public List<Segment> Segments = new List<Segment>();
-            public HashSet<int> Points = new HashSet<int>();
-            public List<int> Coplanar = new List<int>();    // input triangles of other meshes in the same plane, intersecting
+            // (allocated when the triangle is touched: most are not; the shared empty ones must not be changed, not
+            // even sorted)
+            List<Segment> segments;
+            HashSet<int> points;
+            List<int> coplanar;
+            static readonly List<Segment> noSegments = new List<Segment>();
+            static readonly HashSet<int> noPoints = new HashSet<int>();
+            static readonly List<int> noCoplanar = new List<int>();
+            public List<Segment> Segments { get { return segments ?? noSegments; } set { segments = value; } }
+            public HashSet<int> Points { get { return points ?? noPoints; } set { points = value; } }
+            /// <summary> input triangles of other meshes in the same plane, intersecting </summary>
+            public List<int> Coplanar { get { return coplanar ?? noCoplanar; } }
+            internal void AddSegment(Segment s) { (segments ?? (segments = new List<Segment>())).Add(s); }
+            internal void AddPoint(int p) { (points ?? (points = new HashSet<int>())).Add(p); }
+            internal void AddCoplanar(int t) { (coplanar ?? (coplanar = new List<int>())).Add(t); }
 
             // planes are computed when first needed (most triangles are far from all intersections)
             internal ExactMeshArrangement arr;
@@ -116,7 +128,7 @@ namespace g3
             }
         }
 
-        public class OutputTriangle
+        public struct OutputTriangle
         {
             public int Mesh, Source;     // Source: index into Triangles
             public int A, B, C;
@@ -156,10 +168,11 @@ namespace g3
         /// <summary> how a point is constructed </summary>
         internal enum PointKind : byte
         {
-            Rational = 0,       // given exactly (input vertices and AddPoint); A = point id
-            EdgePlane = 1,      // edge A (EdgeKey of two rational points) crossing plane B (plane key)
-            Segments = 2,       // edges A, B (EdgeKeys of rational points, A < B) crossing, in a common plane
-            Planes = 3          // the planes A < B < C (plane keys)
+            Input = 0,          // an input vertex (A = point id): its coordinates are exact doubles
+            Rational = 1,       // given exactly (AddPoint); A = point id
+            EdgePlane = 2,      // edge A (EdgeKey of two input points) crossing plane B (plane key)
+            Segments = 3,       // edges A, B (EdgeKeys of input points, A < B) crossing, in a common plane, projected by dropping axis C
+            Planes = 4          // the planes A < B < C (plane keys)
         }
 
         /// <summary> construction of a point: equal keys give the same point (but equal points can have different keys) </summary>
@@ -202,20 +215,16 @@ namespace g3
             public ExactBox(ExactPoint3 p) { P = p; }
         }
 
-        internal sealed class PointInfo
-        {
-            public readonly PointKey Key;
-            public readonly int Axis;               // Segments: the coordinate dropped by the projection
-            public volatile ExactBox Exact;         // computed when first needed
-            public PointInfo(PointKey key, int axis, ExactBox exact) { Key = key; Axis = axis; Exact = exact; }
-        }
-
         /// <summary> integer grid offset: input coordinate = (point + Center) * 2^ScaleExp (keeps the filters' error bounds small) </summary>
         public BigInteger[] Center = { BigInteger.Zero, BigInteger.Zero, BigInteger.Zero };
-        // per point: double approximation (grid units), a bound on the error of each coordinate, the construction
+        double[] centerD = new double[3];   // Center, exactly (a double)
+        // per point: double approximation (grid units), a bound on the error of each coordinate, the construction,
+        // the exact point (when computed); input points also have their input coordinates
         readonly ChunkedList<Vector3d> approx = new ChunkedList<Vector3d>();
         readonly ChunkedList<double> approxErr = new ChunkedList<double>();
-        readonly ChunkedList<PointInfo> info = new ChunkedList<PointInfo>();
+        readonly ChunkedList<PointKey> keys = new ChunkedList<PointKey>();
+        readonly ChunkedList<ExactBox> exactPoints = new ChunkedList<ExactBox>();
+        readonly ChunkedList<Vector3d> inputCoords = new ChunkedList<Vector3d>();
         int nextPoint;
         // implicit point ids by construction, in shards (by hash) so that threads adding points rarely wait for each other
         const int Shards = 64;
@@ -240,7 +249,7 @@ namespace g3
             return (c != null && id < c.Length) ? c[id] : id;
         }
 
-        internal PointKind KindOf(int id) { return info[id].Key.Kind; }
+        internal PointKind KindOf(int id) { return keys[id].Kind; }
         internal double ApproxError(int id) { return approxErr[id]; }
         internal Vector3d Approx(int id) { return approx[id]; }
 
@@ -249,11 +258,12 @@ namespace g3
             return System.Threading.Interlocked.Increment(ref nextPoint) - 1;
         }
 
-        void store(int id, Vector3d a, double e, PointInfo inf)
+        void store(int id, Vector3d a, double e, PointKey key, ExactBox exact)
         {
             approx.Set(id, a);
             approxErr.Set(id, e);
-            info.Set(id, inf);
+            keys.Set(id, key);
+            exactPoints.Set(id, exact);
         }
 
         /// <summary> id of an exactly given point, a new one if it is not known yet (thread-safe) </summary>
@@ -266,7 +276,7 @@ namespace g3
                 if (rationalIndex.TryGetValue(p, out id))
                     return id;
                 id = new_id();
-                store(id, a, e, new PointInfo(new PointKey(PointKind.Rational, id, 0, 0), 0, new ExactBox(p)));
+                store(id, a, e, new PointKey(PointKind.Rational, id, 0, 0), new ExactBox(p));
                 // published after the point is stored: other threads only see the id once its data is valid
                 rationalIndex[p] = id;
                 return id;
@@ -274,12 +284,12 @@ namespace g3
         }
 
         // id of an implicit point (thread-safe); a, e: its approximation and error bound
-        int add_implicit(PointKey key, int axis, Vector3d a, double e)
+        int add_implicit(PointKey key, Vector3d a, double e)
         {
             ExactBox exact = null;
             if (finite(a) == false || double.IsNaN(e) || double.IsInfinity(e)) {
                 // out of the double range (or no usable bound): from the exact point
-                ExactPoint3 x = compute_exact(key, axis, true);
+                ExactPoint3 x = compute_exact(key, true);
                 exact = new ExactBox(x);
                 a = x.ApproxVector3d();
                 e = 4 * U * max_abs(a);
@@ -290,7 +300,7 @@ namespace g3
                 if (shard.TryGetValue(key, out id))
                     return id;
                 id = new_id();
-                store(id, a, e, new PointInfo(key, axis, exact));
+                store(id, a, e, key, exact);
                 shard[key] = id;
                 return id;
             }
@@ -299,15 +309,32 @@ namespace g3
         /// <summary> the exact point (computed when first needed; thread-safe) </summary>
         public ExactPoint3 Exact(int id)
         {
-            PointInfo inf = info[id];
-            ExactBox b = inf.Exact;
-            if (b == null)
-                inf.Exact = b = new ExactBox(compute_exact(inf.Key, inf.Axis, true));
+            ExactBox b = exactPoints[id];
+            if (b == null) {
+                PointKey key = keys[id];
+                b = new ExactBox((key.Kind == PointKind.Input) ? input_exact(inputCoords[id]) : compute_exact(key, true));
+                // (another thread may store the same value)
+                exactPoints.Set(id, b);
+            }
             return b.P;
         }
 
+        // the grid point of input coordinates
+        ExactPoint3 input_exact(Vector3d v)
+        {
+            return ExactPoint3.FromInteger(GridValue(v.x, 0), GridValue(v.y, 1), GridValue(v.z, 2));
+        }
+
+        /// <summary> the grid coordinate (relative to Center) of the input coordinate v on axis k, exactly </summary>
+        public BigInteger GridValue(double v, int k)
+        {
+            BigInteger m; int e;
+            ExactPoint3.Decompose(v, out m, out e);
+            return (m.IsZero ? BigInteger.Zero : (m << (e - ScaleExp))) - Center[k];
+        }
+
         // the point of a construction, canonical if reduce (else W > 0 but not reduced, cheaper)
-        ExactPoint3 compute_exact(PointKey key, int axis, bool reduce)
+        ExactPoint3 compute_exact(PointKey key, bool reduce)
         {
             BigInteger x, y, z, w;
             switch (key.Kind) {
@@ -316,7 +343,7 @@ namespace g3
                     break;
                 case PointKind.Segments:
                     segments_exact(Exact((int)(key.A >> 32)), Exact((int)(key.A & 0xFFFFFFFF)),
-                        Exact((int)(key.B >> 32)), Exact((int)(key.B & 0xFFFFFFFF)), axis, out x, out y, out z, out w);
+                        Exact((int)(key.B >> 32)), Exact((int)(key.B & 0xFFFFFFFF)), (int)key.C, out x, out y, out z, out w);
                     break;
                 case PointKind.Planes:
                     planes_exact(PlaneOf((int)key.A), PlaneOf((int)key.B), PlaneOf((int)key.C), out x, out y, out z, out w);
@@ -392,7 +419,7 @@ namespace g3
             double sp = plane_value(pa, o, P, ep, out esp), sq = plane_value(pa, o, Q, eq, out esq);
             double e;
             Vector3d a = segment_point(P, ep, Q, eq, sp, esp, sq, esq, out e);
-            return add_implicit(new PointKey(PointKind.EdgePlane, EdgeKey(p, q), plane, 0), 0, a, e);
+            return add_implicit(new PointKey(PointKind.EdgePlane, EdgeKey(p, q), plane, 0), a, e);
         }
 
         /// <summary> where the edges p-q and r-s of rational points cross (in one plane, projected by dropping axis) </summary>
@@ -410,7 +437,7 @@ namespace g3
             double sq = orient2d_approx(R, S, Q, i, j, Math.Max(er, eq), out esq);
             double e;
             Vector3d a = segment_point(P, ep, Q, eq, sp, esp, sq, esq, out e);
-            return add_implicit(new PointKey(PointKind.Segments, e1, e2, 0), axis, a, e);
+            return add_implicit(new PointKey(PointKind.Segments, e1, e2, axis), a, e);
         }
 
         /// <summary> the point common to three planes (keys) of different triangles </summary>
@@ -421,7 +448,7 @@ namespace g3
             if (k1 > k2) { int tmp = k1; k1 = k2; k2 = tmp; }
             double e;
             Vector3d a = planes_approx(k1, k2, k3, out e);
-            return add_implicit(new PointKey(PointKind.Planes, k1, k2, k3), 0, a, e);
+            return add_implicit(new PointKey(PointKind.Planes, k1, k2, k3), a, e);
         }
 
         const double U = 2.220446049250313e-16;     // 2^-52
@@ -520,9 +547,11 @@ namespace g3
         /// <summary> input coordinates of a point, rounded to double (correctly: from the exact point) </summary>
         public Vector3d PointToVector(int id)
         {
-            PointInfo inf = info[id];
-            ExactBox b = inf.Exact;
-            return ToInputVector(b != null ? b.P : compute_exact(inf.Key, inf.Axis, false));
+            PointKey key = keys[id];
+            if (key.Kind == PointKind.Input)
+                return inputCoords[id];
+            ExactBox b = exactPoints[id];
+            return ToInputVector(b != null ? b.P : compute_exact(key, false));
         }
 
         /// <summary> PointToVector of many points, in parallel </summary>
@@ -641,7 +670,7 @@ namespace g3
                         continue;
                     int best = members[r0];
                     for (int r = r0 + 1; r < r1; ++r)
-                        if (info[members[r]].Key.CompareTo(info[best].Key) < 0)
+                        if (keys[members[r]].CompareTo(keys[best]) < 0)
                             best = members[r];
                     for (int r = r0; r < r1; ++r)
                         next[members[r]] = best;
@@ -677,8 +706,11 @@ namespace g3
             var constraints = new List<long>[Triangles.Count];
             gParallel.ForEach(Interval1i.Range(Triangles.Count), (ti) => triangulate(ti, out pieces[ti], out constraints[ti]));
             for (int ti = 0; ti < Triangles.Count; ++ti) {
+                InputTriangle t = Triangles[ti];
                 if (pieces[ti] != null)
                     Output.AddRange(pieces[ti]);
+                else if (t.Degenerate == false)
+                    Output.Add(new OutputTriangle() { Mesh = t.Mesh, Source = ti, A = t.Corners[0], B = t.Corners[1], C = t.Corners[2] });
                 if (constraints[ti] != null)
                     foreach (long key in constraints[ti])
                         ConstraintEdges.Add(key);
@@ -692,55 +724,84 @@ namespace g3
         {
             // common exponent: every coordinate is an integer multiple of 2^ScaleExp
             int eMin = int.MaxValue;
+            Vector3d min = Vector3d.Zero, max = Vector3d.Zero;
+            bool first = true;
             foreach (DMesh3 mesh in Meshes) {
                 foreach (int vid in mesh.VertexIndices()) {
                     Vector3d v = mesh.GetVertex(vid);
                     for (int k = 0; k < 3; ++k) {
-                        BigInteger m; int e;
-                        ExactPoint3.Decompose(v[k], out m, out e);
-                        if (m.IsZero == false)
-                            eMin = Math.Min(eMin, e);
+                        if (v[k] != 0)
+                            eMin = Math.Min(eMin, lowest_exponent(v[k]));
+                        if (first || v[k] < min[k]) min[k] = v[k];
+                        if (first || v[k] > max[k]) max[k] = v[k];
                     }
+                    first = false;
                 }
             }
             if (eMin == int.MaxValue)
                 eMin = 0;
             ScaleExp = eMin;
-
-            // integer coordinates, relative to the center of their box
-            var coords = new List<BigInteger[]>[Meshes.Count];
-            BigInteger[] min = new BigInteger[3], max = new BigInteger[3];
-            bool first = true;
-            for (int mi = 0; mi < Meshes.Count; ++mi) {
-                DMesh3 mesh = Meshes[mi];
-                coords[mi] = new List<BigInteger[]>();
-                foreach (int vid in mesh.VertexIndices()) {
-                    Vector3d v = mesh.GetVertex(vid);
-                    BigInteger[] c = new BigInteger[3];
-                    for (int k = 0; k < 3; ++k) {
-                        BigInteger m; int e;
-                        ExactPoint3.Decompose(v[k], out m, out e);
-                        c[k] = m.IsZero ? BigInteger.Zero : (m << (e - eMin));
-                        if (first || c[k] < min[k]) min[k] = c[k];
-                        if (first || c[k] > max[k]) max[k] = c[k];
-                    }
-                    first = false;
-                    coords[mi].Add(c);
-                }
+            // center of the box, a grid point that is a double (so that the approximations below are exact sums)
+            for (int k = 0; k < 3; ++k) {
+                double c = Math.Round(ExactPoint3.ScaleB(0.5 * min[k] + 0.5 * max[k], -ScaleExp));
+                if (double.IsInfinity(c) || double.IsNaN(c))
+                    c = 0;
+                centerD[k] = c;
+                Center[k] = new BigInteger(c);
             }
-            if (first == false)
-                for (int k = 0; k < 3; ++k)
-                    Center[k] = (min[k] + max[k]) / 2;
+
+            // input points (welded by position: equal doubles are equal points)
+            var index = new Dictionary<Vector3d, int>();
             VertexPoints = new int[Meshes.Count][];
             for (int mi = 0; mi < Meshes.Count; ++mi) {
                 DMesh3 mesh = Meshes[mi];
                 VertexPoints[mi] = new int[mesh.MaxVertexID];
-                int i = 0;
                 foreach (int vid in mesh.VertexIndices()) {
-                    BigInteger[] c = coords[mi][i++];
-                    VertexPoints[mi][vid] = AddPoint(ExactPoint3.FromInteger(c[0] - Center[0], c[1] - Center[1], c[2] - Center[2]));
+                    Vector3d v = mesh.GetVertex(vid);
+                    for (int k = 0; k < 3; ++k)
+                        if (v[k] == 0) v[k] = 0;    // -0.0
+                    int id;
+                    if (index.TryGetValue(v, out id) == false) {
+                        id = new_id();
+                        index[v] = id;
+                        inputCoords.Set(id, v);
+                        Vector3d a = Vector3d.Zero;
+                        double e = 0;
+                        ExactBox exact = null;
+                        for (int k = 0; k < 3; ++k) {
+                            // grid value v 2^-ScaleExp (exact) minus the center: rounded once, error below u |a|
+                            a[k] = ExactPoint3.ScaleB(v[k], -ScaleExp) - centerD[k];
+                            e = Math.Max(e, U * Math.Abs(a[k]));
+                        }
+                        if (finite(a) == false) {
+                            // beyond the double range in grid units
+                            ExactPoint3 x = input_exact(v);
+                            exact = new ExactBox(x);
+                            a = x.ApproxVector3d();
+                            e = 4 * U * max_abs(a);
+                        }
+                        store(id, a, e, new PointKey(PointKind.Input, id, 0, 0), exact);
+                    }
+                    VertexPoints[mi][vid] = id;
                 }
             }
+        }
+
+        // the exponent of the lowest set bit of v != 0 (v = m * 2^e with m odd)
+        static int lowest_exponent(double v)
+        {
+            long bits = BitConverter.DoubleToInt64Bits(v);
+            int exp = (int)((bits >> 52) & 0x7FF);
+            long man = bits & 0xFFFFFFFFFFFFFL;
+            if (exp == 0)
+                exp = 1;
+            else
+                man |= 1L << 52;
+            int e = exp - 1075;
+            while ((man & 1) == 0) {
+                man >>= 1; e++;
+            }
+            return e;
         }
 
 
@@ -980,10 +1041,10 @@ namespace g3
             foreach (int c in U.Corners)
                 if (c == T.Corners[0] || c == T.Corners[1] || c == T.Corners[2])
                     shared++;
-            // quick test (not for a shared edge, there the full test is one predicate and 2D tests): the corners
-            // of one triangle that are not shared all strictly on one side of the other's plane: then they meet
-            // at most in the shared vertices
-            if (shared < 2 && (one_side_except_shared(T, U) || one_side_except_shared(U, T)))
+            // quick test: the corners of one triangle that are not shared all strictly on one side of the other's
+            // plane: then they meet at most in the shared vertices (for a shared edge: the triangles are not
+            // coplanar, so the plane of one meets the other only in the edge)
+            if (shared < 3 && (one_side_except_shared(T, U) || (shared < 2 && one_side_except_shared(U, T))))
                 return true;
             // corners by point id, so that coincident (unwelded) vertices count as shared
             Index3i pa = new Index3i(T.Corners[0], T.Corners[1], T.Corners[2]), pb = new Index3i(U.Corners[0], U.Corners[1], U.Corners[2]);
@@ -1051,11 +1112,11 @@ namespace g3
                 return;
             System.Threading.Interlocked.Increment(ref IntersectingPairs);
             if (c == 0) {
-                lock (T) T.Points.Add(lo);
-                lock (U) U.Points.Add(lo);
+                lock (T) T.AddPoint(lo);
+                lock (U) U.AddPoint(lo);
             } else {
-                lock (T) T.Segments.Add(new Segment(lo, hi, 4 * ui));
-                lock (U) U.Segments.Add(new Segment(lo, hi, 4 * ti));
+                lock (T) T.AddSegment(new Segment(lo, hi, 4 * ui));
+                lock (U) U.AddSegment(new Segment(lo, hi, 4 * ti));
             }
         }
 
@@ -1094,8 +1155,8 @@ namespace g3
             }
             if (any) {
                 System.Threading.Interlocked.Increment(ref IntersectingPairs);
-                lock (T) T.Coplanar.Add(ui);
-                lock (U) U.Coplanar.Add(ti);
+                lock (T) T.AddCoplanar(ui);
+                lock (U) U.AddCoplanar(ti);
             }
         }
 
@@ -1125,9 +1186,9 @@ namespace g3
             min_max(cands, dx, dy, dz, out lo, out hi);
             lock (t) {
                 if (compare_along(dx, dy, dz, lo, hi) == 0)
-                    t.Points.Add(lo);
+                    t.AddPoint(lo);
                 else
-                    t.Segments.Add(new Segment(lo, hi, line));
+                    t.AddSegment(new Segment(lo, hi, line));
             }
             return true;
         }
@@ -1158,14 +1219,16 @@ namespace g3
             }
             // unique segments
             // deterministic order (the pairs were intersected in parallel)
-            t.Segments.Sort((x, y) => {
+            // (only lists with elements: Sort also changes the version of an empty list, and the empty ones are
+            // shared by all untouched triangles, which other threads enumerate)
+            if (t.Segments.Count > 1) t.Segments.Sort((x, y) => {
                 int xa = (ComparePoints(x.P, x.Q) <= 0) ? x.P : x.Q, xb = (xa == x.P) ? x.Q : x.P;
                 int ya = (ComparePoints(y.P, y.Q) <= 0) ? y.P : y.Q, yb = (ya == y.P) ? y.Q : y.P;
                 int c = ComparePoints(xa, ya);
                 if (c == 0) c = ComparePoints(xb, yb);
                 return (c != 0) ? c : x.Line.CompareTo(y.Line);
             });
-            t.Coplanar.Sort();
+            if (t.Coplanar.Count > 1) t.Coplanar.Sort();
             var unique = new List<Segment>();
             var seen = new HashSet<long>(EdgeKeyComparer.Instance);
             foreach (Segment s in t.Segments) {
@@ -1202,14 +1265,15 @@ namespace g3
             output = null;
             constraints = null;
             InputTriangle t = Triangles[ti];
-            if (t.Degenerate)
+            // (untouched triangles are output as they are, by the caller)
+            if (t.Degenerate || (t.Points.Count == 0 && t.Segments.Count == 0))
                 return;
-            output = new List<OutputTriangle>();
             var pts = new HashSet<int>();
             foreach (int p in t.Points)
                 pts.Add(Canonical(p));
             foreach (int c in t.Corners)
                 pts.Remove(c);
+            output = new List<OutputTriangle>();
             if (pts.Count == 0 && t.Segments.Count == 0) {
                 output.Add(new OutputTriangle() { Mesh = t.Mesh, Source = ti, A = t.Corners[0], B = t.Corners[1], C = t.Corners[2] });
                 return;
@@ -1259,7 +1323,8 @@ namespace g3
     /// </summary>
     public class ChunkedList<T>
     {
-        const int Shift = 12, Size = 1 << Shift, Mask = Size - 1;
+        // 2048 elements: chunks of structs up to 40 bytes stay below the large object heap threshold (85000 bytes)
+        const int Shift = 11, Size = 1 << Shift, Mask = Size - 1;
         volatile T[][] chunks = new T[16][];
         int count;
 
@@ -1314,7 +1379,7 @@ namespace g3
 
 
     /// <summary>
-    /// Hash for edge keys (a << 32 | b): the default long hash is a ^ b, which collides for most edges of a mesh
+    /// Hash for edge keys (a &lt;&lt; 32 | b): the default long hash is a ^ b, which collides for most edges of a mesh
     /// </summary>
     internal sealed class EdgeKeyComparer : IEqualityComparer<long>
     {

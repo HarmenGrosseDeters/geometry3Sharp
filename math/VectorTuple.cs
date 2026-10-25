@@ -113,8 +113,8 @@ namespace g3
                     if (key == 2) V2 = value;
                     else V3 = value;
                 } else {
-                    if (key == 1) V0 = value;
-                    else V1 = value;
+                    if (key == 1) V1 = value;
+                    else V0 = value;
                 }
             }
         }

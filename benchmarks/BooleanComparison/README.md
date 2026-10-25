@@ -67,3 +67,48 @@ A single run of our method, with phase times, counts and GC statistics:
 dotnet bin/Release/net10.0/BooleanComparison.dll export mesh.stl dir      # writes dir/A.off, dir/B.off
 dotnet bin/Release/net10.0/BooleanComparison.dll run dir/A.off dir/B.off union out.off
 ```
+
+## Results (80 Thingi10K meshes)
+
+Each mesh A with a rotated, shifted copy B; union, intersection and difference. Outcomes per mesh and method
+(all three operations): **rejected** (the tool refuses the input: CGAL needs closed polygon meshes without
+self-intersections, Manifold manifold ones), **crash**, **timeout** (300 s per operation), **not closed**,
+**volume** (closed, but a volume identity is off by more than 1e-6), **self-int.** (correct, but the output has
+self-intersections after rounding to double), **clean** (correct, closed manifold, no self-intersections).
+
+Inputs that all methods accept (38: closed, manifold, no self-intersections):
+
+| method | clean | self-int. | other |
+|---|---|---|---|
+| ExactMeshBoolean | 38 | 0 | – |
+| CGAL EPECK (exact constructions) | 38 | 0 | – |
+| CGAL EPICK (inexact constructions) | 38 | 0 | – |
+| Manifold | 38 | 0 | – |
+| Cherchi et al. | 3 | 35 | – |
+
+On the common inputs ExactMeshBoolean is as good as CGAL and Manifold, not better: every result of all four is
+clean (EPECK and EPICK alike; there is no EPECK failure to trace back to the rounding of its output). The
+difference is coverage, on the inputs that other tools refuse:
+
+| inputs | method | clean | self-int. | volume | not closed | crash / timeout | rejected |
+|---|---|---|---|---|---|---|---|
+| closed, self-intersecting or non-manifold (20) | ExactMeshBoolean | 8 | 9 | 3¹ | – | – | – |
+| | CGAL EPECK / EPICK | – | – | – | – | – | 20 |
+| | Manifold | 4 | 6 | 7 | – | – | 3 |
+| | Cherchi et al. | – | 4 | – | 6 | 10 | – |
+| open (22) | ExactMeshBoolean | 1 | 2 | – | 19² | – | – |
+| | CGAL EPECK / EPICK | – | – | – | – | – | 22 |
+| | Manifold | – | – | – | – | – | 22 |
+| | Cherchi et al. | – | – | – | 12 | 10 | – |
+
+¹ inputs whose solid has (almost) no volume (flat or sheet-like, volume 0 or 1e-12): the relative volume error
+is meaningless there; the results are closed. ² by design: open inputs use the generalized winding number,
+whose solid is in general not bounded by a closed surface.
+
+Self-intersections in our results on self-intersecting inputs come mostly from rounding the new vertices to
+double and from solids that touch (the touching sheets are kept apart only by duplicated vertices); see
+`MeshRobustRepair.SeparateTouchingVertices` for how the repair handles the latter.
+
+Time (union + intersection + difference, boolean only, median on the 38 common inputs): ExactMeshBoolean 994 ms,
+Cherchi et al. 264 ms, CGAL EPICK 110 ms, EPECK 110 ms, Manifold 57 ms. ExactMeshBoolean, Cherchi and Manifold
+use all cores, CGAL one.

@@ -5,8 +5,16 @@ using System.Linq;
 
 namespace g3
 {
+    /// <summary>
+    /// IMeshBuilder implementation that builds DMesh3 objects, used by the mesh readers (StandardMeshReader etc)
+    /// to collect one or more meshes plus materials and metadata. Unlike calling DMesh3.AppendTriangle directly,
+    /// AppendTriangle here does not drop non-manifold triangles by default: it duplicates their vertices
+    /// (see NonManifoldTriBehavior), and duplicate triangles are discarded (see DuplicateTriBehavior).
+    /// For building a single mesh from vertex and index arrays, use the static Build() function.
+    /// </summary>
     public class DMesh3Builder : IMeshBuilder
     {
+        /// <summary> What AppendTriangle does with a triangle that cannot be added as-is </summary>
         public enum AddTriangleFailBehaviors
         {
             DiscardTriangle = 0,
@@ -26,13 +34,18 @@ namespace g3
 
 
 
+        /// <summary> the meshes built so far, in order of AppendNewMesh() </summary>
         public List<DMesh3> Meshes;
+        /// <summary> materials passed to BuildMaterial() </summary>
         public List<GenericMaterial> Materials;
 
-        // this is a map from index into Meshes to index into Materials (-1 if no material)
-        //  (so, currently we can only have 1 material per mesh!)
+        /// <summary>
+        /// This is a map from index into Meshes to index into Materials (-1 if no material)
+        ///  (so, currently we can only have 1 material per mesh!)
+        /// </summary>
         public List<int> MaterialAssignment;
 
+        /// <summary> per-mesh metadata added with AppendMetaData() </summary>
         public List<Dictionary<string, object>> Metadata;
 
         int nActiveMesh;
@@ -46,6 +59,10 @@ namespace g3
             nActiveMesh = -1;
         }
 
+        /// <summary>
+        /// Start a new empty mesh with the given per-vertex/per-triangle attributes and make it the active mesh
+        /// (the target of AppendVertex / AppendTriangle). Returns its index in Meshes.
+        /// </summary>
         public int AppendNewMesh(bool bHaveVtxNormals, bool bHaveVtxColors, bool bHaveVtxUVs, bool bHaveFaceGroups)
         {
             int index = Meshes.Count;
@@ -57,6 +74,7 @@ namespace g3
             return index;
         }
 
+        /// <summary> Add an existing mesh and make it the active mesh. Returns its index in Meshes. </summary>
         public int AppendNewMesh(DMesh3 existingMesh)
         {
             int index = Meshes.Count;
@@ -68,6 +86,7 @@ namespace g3
         }
 
 
+        /// <summary> Make Meshes[id] the active mesh. Throws if id is out of range. </summary>
         public void SetActiveMesh(int id)
         {
             if (id >= 0 && id < Meshes.Count)
@@ -76,11 +95,18 @@ namespace g3
                 throw new ArgumentOutOfRangeException("active mesh id is out of range");
         }
 
+        /// <summary> Append triangle (i,j,k) without a group to the active mesh, see AppendTriangle(int,int,int,int) </summary>
         public int AppendTriangle(int i, int j, int k)
         {
             return AppendTriangle(i, j, k, -1);
         }
 
+        /// <summary>
+        /// Append triangle (i,j,k) with group g to the active mesh. If the triangle already exists, returns the existing
+        /// triangle ID (or appends a copy with duplicated vertices, see DuplicateTriBehavior). If it would be
+        /// non-manifold, appends it with duplicated vertices (default) or returns DMesh3.NonManifoldID,
+        /// see NonManifoldTriBehavior.
+        /// </summary>
         public int AppendTriangle(int i, int j, int k, int g)
         {
             // [RMS] What to do here? We definitely do not want to add a duplicate triangle!!
@@ -116,6 +142,7 @@ namespace g3
 
 
 
+        /// <summary> Append a vertex to the active mesh, returns its ID </summary>
         public int AppendVertex(double x, double y, double z)
         {
             return Meshes[nActiveMesh].AppendVertex(new Vector3d(x, y, z));
@@ -132,7 +159,7 @@ namespace g3
         }
 
 
-        // just store GenericMaterial object, we can't use it here
+        /// <summary> Just store GenericMaterial object, we can't use it here. Returns its index in Materials. </summary>
         public int BuildMaterial(GenericMaterial m)
         {
             int id = Materials.Count;
@@ -140,7 +167,7 @@ namespace g3
             return id;
         }
 
-        // do material assignment to mesh
+        /// <summary> Do material assignment to mesh. Throws if either index is out of range. </summary>
         public void AssignMaterial(int materialID, int meshID)
         {
             if (meshID >= MaterialAssignment.Count || materialID >= Materials.Count)
@@ -157,8 +184,15 @@ namespace g3
         //
 
         /// <summary>
-        /// ultimate generic mesh-builder, pass it arrays of floats/doubles, or lists
-        /// of Vector3d, or anything in-between. Will figure out how to interpret
+        /// Ultimate generic mesh-builder, pass it arrays of floats/doubles, or lists
+        /// of Vector3d, or anything in-between. Will figure out how to interpret.
+        /// Vertices: float/double (3 per vertex), Vector3f or Vector3d. Triangles: int (3 per triangle), Index3i or Vector3i.
+        /// Normals (optional): one per vertex, same element types as Vertices. TriGroups (optional): one per triangle.
+        /// Vertex IDs are the input indices. Triangles that cannot be added (invalid or non-manifold) are silently
+        /// skipped, so check TriangleCount if this matters. Throws NotSupportedException for other element types,
+        /// and if the normal or group counts do not match.
+        /// The type arguments must be given explicitly (NType cannot be inferred when Normals is omitted), eg
+        /// <c>DMesh3 m = DMesh3Builder.Build&lt;double, int, double&gt;(new double[] { 0,0,0, 1,0,0, 0,1,0 }, new int[] { 0,1,2 });</c>
         /// </summary>
         public static DMesh3 Build<VType,TType,NType>(IEnumerable<VType> Vertices,  
                                                       IEnumerable<TType> Triangles, 

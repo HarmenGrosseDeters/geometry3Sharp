@@ -118,6 +118,7 @@ namespace g3
                 for (int i = 0; i < N; ++i)
                     vertices.Add(newVertices[i]);
             }
+            Timestamp++;
         }
 
 
@@ -350,6 +351,10 @@ namespace g3
             return true;
         }
 
+        /// <summary>
+        /// True if the boundaries of the two polygons cross or touch. A polygon that lies completely
+        /// inside the other gives false; use Contains() for that.
+        /// </summary>
         public bool Intersects(Polygon2d o) {
 			if ( ! this.GetBounds().Intersects( o.GetBounds() ) )
 				return false;

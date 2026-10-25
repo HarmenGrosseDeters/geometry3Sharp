@@ -16,8 +16,17 @@ namespace g3
     /// The resulting unsigned grid is then signed using ray-intersection counting, which
     /// is also computed on the grid, so no BVH is necessary
     /// 
-    /// If you set ComputeMode to NarrowBandOnly, result is a narrow-band signed distance field.
+    /// If you set ComputeMode to NarrowBandOnly (the default), result is a narrow-band signed distance field.
     /// This is quite a bit faster as the sweeping is the most computationally-intensive step.
+    /// Outside the band, samples keep a large placeholder magnitude ((ni+nj+nk)*CellSize) but still get the correct sign.
+    /// 
+    /// Usage: <c>var sdf = new MeshSignedDistanceGrid(mesh, cellSize); sdf.Compute();</c> then read sdf[i,j,k],
+    /// sdf.Grid, sdf.GridOrigin and sdf.CellSize. Sample (i,j,k) is located at GridOrigin + CellSize*(i,j,k)
+    /// (see CellCenter). Sign convention: distances are NEGATIVE INSIDE the mesh and positive outside
+    /// (with the default ParityCount mode this assumes outward-facing triangle normals).
+    /// The grid covers the mesh bounds plus 2*ExactBandWidth cells (plus ExpandBounds) on each side.
+    /// Memory and time grow with the cube of (mesh size / cellSize). To get a mesh back from the grid, wrap it in
+    /// DenseGridTrilinearImplicit and run <see cref="MarchingCubes"/> with IsoValue = 0.
     /// 
     /// Caveats:
     ///  - the "narrow band" is based on triangle bounding boxes, so it is not necessarily
@@ -39,59 +48,81 @@ namespace g3
     /// </summary>
     public class MeshSignedDistanceGrid
     {
+        /// <summary> Input mesh. It is not modified. </summary>
         public DMesh3 Mesh;
+        /// <summary>
+        /// Optional built AABB tree for Mesh. If set (and UseParallel is true), it is used to compute the narrow band;
+        /// it is required for ComputeModes.NarrowBand_SpatialFloodFill.
+        /// </summary>
         public DMeshAABBTree3 Spatial;
+        /// <summary> Grid spacing, in mesh units </summary>
         public float CellSize;
 
-        // Width of the band around triangles for which exact distances are computed
-        // (In fact this is conservative, the band is often larger locally)
+        /// <summary>
+        /// Width (in cells) of the band around triangles for which exact distances are computed
+        /// (In fact this is conservative, the band is often larger locally)
+        /// </summary>
         public int ExactBandWidth = 1;
 
-        // Bounds of grid will be expanded this much in positive and negative directions.
-        // Useful for if you want field to extend outwards.
+        /// <summary>
+        /// Bounds of grid will be expanded this much (in mesh units) in positive and negative directions.
+        /// Useful for if you want field to extend outwards.
+        /// </summary>
         public Vector3d ExpandBounds = Vector3d.Zero;
 
-        // Most of this parallelizes very well, makes a huge speed difference
+        /// <summary> Most of this parallelizes very well, makes a huge speed difference </summary>
         public bool UseParallel = true;
 
-        // The narrow band is always computed exactly, and the full grid is always signed.
-        // Can also fill in the rest of the full grid with fast sweeping. This is 
-        // quite computationally intensive, though, and not parallelizable 
-        // (time only depends on grid resolution)
+        /// <summary>
+        /// The narrow band is always computed exactly, and the full grid is always signed (if ComputeSigns is true).
+        /// FullGrid also fills in the rest of the grid with fast sweeping. This is 
+        /// quite computationally intensive, though, and not parallelizable 
+        /// (time only depends on grid resolution).
+        /// NarrowBand_SpatialFloodFill computes exact distances out to NarrowBandMaxDistance using Spatial
+        /// (requires Spatial, NarrowBandMaxDistance &gt; 0 and UseParallel, otherwise Compute() throws).
+        /// </summary>
         public enum ComputeModes
         {
             FullGrid = 0,
             NarrowBandOnly = 1,
             NarrowBand_SpatialFloodFill = 2
         }
+        /// <summary> Which parts of the grid get distance values, see ComputeModes. Default is NarrowBandOnly. </summary>
         public ComputeModes ComputeMode = ComputeModes.NarrowBandOnly;
 
-        // how wide of narrow band should we compute. This value is 
-        // currently only used if there is a spatial data structure, as
-        // we can efficiently explore the space (in that case ExactBandWidth is not used)
+        /// <summary>
+        /// How wide of narrow band should we compute, in mesh units. This value is 
+        /// only used by ComputeModes.NarrowBand_SpatialFloodFill, which uses the Spatial data structure
+        /// to efficiently explore the space.
+        /// </summary>
         public double NarrowBandMaxDistance = 0;
 
-        // should we try to compute signs? if not, grid remains unsigned
+        /// <summary> Should we try to compute signs? If not, grid remains unsigned </summary>
         public bool ComputeSigns = true;
 
-        // What counts as "inside" the mesh. Crossing count does not use triangle
-        // orientation, so inverted faces are fine, but overlapping shells or self intersections
-        // will be filled using even/odd rules (as seen along X axis...)
-        // Parity count is basically mesh winding number, handles overlap shells and
-        // self-intersections, but inverted shells are 'subtracted', and inverted faces are a disaster.
-        // Both modes handle internal cavities, neither handles open sheets.
+        /// <summary>
+        /// What counts as "inside" the mesh. Crossing count does not use triangle
+        /// orientation, so inverted faces are fine, but overlapping shells or self intersections
+        /// will be filled using even/odd rules (as seen along X axis...)
+        /// Parity count is basically mesh winding number (inside if &gt; 0), handles overlap shells and
+        /// self-intersections, but inverted shells are 'subtracted', and inverted faces are a disaster.
+        /// Both modes handle internal cavities, neither handles open sheets.
+        /// </summary>
         public enum InsideModes
         {
             CrossingCount = 0,
             ParityCount = 1
         }
+        /// <summary> How inside/outside is decided, see InsideModes. Default is ParityCount. </summary>
         public InsideModes InsideMode = InsideModes.ParityCount;
 
-        // Implementation computes the triangle closest to each grid cell, can
-        // return this grid if desired (only reason not to is avoid hanging onto memory)
+        /// <summary>
+        /// Implementation computes the triangle closest to each grid cell, can
+        /// return this grid (ClosestTriGrid) if desired (only reason not to is avoid hanging onto memory)
+        /// </summary>
         public bool WantClosestTriGrid = false;
 
-        // grid of per-cell crossing or parity counts
+        /// <summary> If true, keep the grid of per-cell crossing or parity counts (IntersectionsGrid) </summary>
         public bool WantIntersectionsGrid = false;
 
         /// <summary> if this function returns true, we should abort calculation </summary>
@@ -107,6 +138,10 @@ namespace g3
         DenseGrid3i closest_tri_grid;
         DenseGrid3i intersections_grid;
 
+        /// <summary>
+        /// Set up the computation for mesh with the given grid spacing. Nothing is computed until Compute() is called.
+        /// spatial is optional, see Spatial.
+        /// </summary>
         public MeshSignedDistanceGrid(DMesh3 mesh, double cellSize, DMeshAABBTree3 spatial = null)
         {
             Mesh = mesh;
@@ -115,8 +150,14 @@ namespace g3
         }
 
 
+        /// <summary>
+        /// Compute the grid. After this, Grid, GridOrigin, Dimensions and the indexers are available.
+        /// Returns early (with a partial grid) if CancelF returns true.
+        /// </summary>
         public void Compute()
         {
+            if (Mesh.VertexCount == 0)      // the grid is sized from the bounds, which are Empty
+                throw new ArgumentException("MeshSignedDistanceGrid.Compute: mesh is empty");
             // figure out origin & dimensions
             AxisAlignedBox3d bounds = Mesh.CachedBounds;
 
@@ -150,25 +191,27 @@ namespace g3
 
 
 
+        /// <summary> Number of samples (ni, nj, nk) along each axis, available after Compute() </summary>
         public Vector3i Dimensions {
             get { return new Vector3i(grid.ni, grid.nj, grid.nk); }
         }
 
         /// <summary>
-        /// SDF grid available after calling Compute()
+        /// SDF grid available after calling Compute(). Values are negative inside the mesh.
         /// </summary>
         public DenseGrid3f Grid {
             get { return grid; }
         }
 
         /// <summary>
-        /// Origin of the SDF grid, in same coordinates as mesh
+        /// Origin of the SDF grid (position of sample [0,0,0]), in same coordinates as mesh
         /// </summary>
         public Vector3f GridOrigin {
             get { return grid_origin; }
         }
 
 
+        /// <summary> Closest triangle ID per sample (-1 if not computed). Throws unless WantClosestTriGrid was set before Compute(). </summary>
         public DenseGrid3i ClosestTriGrid {
             get {
                 if ( WantClosestTriGrid == false)
@@ -176,6 +219,7 @@ namespace g3
                 return closest_tri_grid;
             }
         }
+        /// <summary> Per-sample crossing/parity counts. Throws unless WantIntersectionsGrid was set before Compute(). </summary>
         public DenseGrid3i IntersectionsGrid {
             get {
                 if (WantIntersectionsGrid == false)
@@ -185,6 +229,7 @@ namespace g3
         }
 
 
+        /// <summary> Signed distance at sample (i,j,k) </summary>
         public float this[int i, int j, int k] {
             get { return grid[i, j, k]; }
         }
@@ -192,6 +237,10 @@ namespace g3
             get { return grid[idx.x, idx.y, idx.z]; }
         }
 
+        /// <summary>
+        /// Position of sample (i,j,k), ie GridOrigin + CellSize*(i,j,k). Note that despite the name,
+        /// samples are at the grid points, not at the centers of the cells between them.
+        /// </summary>
         public Vector3f CellCenter(int i, int j, int k) {
             return cell_center(new Vector3i(i, j, k));
         }
@@ -952,6 +1001,8 @@ namespace g3
         {
             Vector3f dx = x2 - x1;
             float m2 = dx.LengthSquared;
+            if (m2 == 0)    // degenerate segment
+                return x0.Distance(x1);
             // find parameter value of closest point on segment
             float s12 = (dx.Dot(x2 - x0) / m2);
             if (s12 < 0) {
@@ -969,6 +1020,8 @@ namespace g3
         {
             Vector3d dx = x2 - x1;
             double m2 = dx.LengthSquared;
+            if (m2 == 0)    // degenerate segment
+                return x0.Distance(x1);
             // find parameter value of closest point on segment
             double s12 = (dx.Dot(x2 - x0) / m2);
             if (s12 < 0) {
@@ -990,7 +1043,12 @@ namespace g3
             Vector3f x23 = (x2 - x3);
             Vector3f x03 = (x0 - x3);
             float m13 = x13.LengthSquared, m23 = x23.LengthSquared, d = x13.Dot(x23);
-            float invdet = 1.0f / Math.Max(m13 * m23 - d * d, 1e-30f);
+            float det = m13 * m23 - d * d;
+            // degenerate (collinear or coincident vertices) triangle: barycentrics are meaningless
+            if (!(det > 1e-6f * m13 * m23))
+                return Math.Min(point_segment_distance(ref x0, ref x1, ref x2),
+                    Math.Min(point_segment_distance(ref x0, ref x1, ref x3), point_segment_distance(ref x0, ref x2, ref x3)));
+            float invdet = 1.0f / det;
             float a = x13.Dot(x03), b = x23.Dot(x03);
             // the barycentric coordinates themselves
             float w23 = invdet * (m23 * a - d * b);
@@ -1017,7 +1075,12 @@ namespace g3
             Vector3d x23 = (x2 - x3);
             Vector3d x03 = (x0 - x3);
             double m13 = x13.LengthSquared, m23 = x23.LengthSquared, d = x13.Dot(ref x23);
-            double invdet = 1.0 / Math.Max(m13 * m23 - d * d, 1e-30);
+            double det = m13 * m23 - d * d;
+            // degenerate (collinear or coincident vertices) triangle: barycentrics are meaningless
+            if (!(det > 1e-12 * m13 * m23))
+                return Math.Min(point_segment_distance(ref x0, ref x1, ref x2),
+                    Math.Min(point_segment_distance(ref x0, ref x1, ref x3), point_segment_distance(ref x0, ref x2, ref x3)));
+            double invdet = 1.0 / det;
             double a = x13.Dot(ref x03), b = x23.Dot(ref x03);
             // the barycentric coordinates themselves
             double w23 = invdet * (m23 * a - d * b);

@@ -7,10 +7,10 @@ namespace g3
     /// <summary>
     /// Exact orientation predicates for double coordinates. A floating-point filter with Shewchuk's error
     /// bounds ("Adaptive Precision Floating-Point Arithmetic and Fast Robust Geometric Predicates", 1997)
-    /// decides almost all cases; the uncertain ones go through Shewchuk's adaptive stages (AdaptivePredicates)
-    /// and, if those cannot decide, an exact evaluation (floating-point expansions, or integers where products
-    /// could overflow or underflow: every double is m * 2^e). The sign is always right, also for nearly degenerate input and coordinates far from the
-    /// origin, unlike tests with a fixed epsilon.
+    /// decides almost all cases; the uncertain ones go through Shewchuk's adaptive stages B to D
+    /// (AdaptivePredicates, floating-point expansions, exact), or, where products could overflow or underflow,
+    /// through integer arithmetic (every double is m * 2^e). The sign is always right, also for nearly
+    /// degenerate input and coordinates far from the origin, unlike tests with a fixed epsilon.
     /// </summary>
     public static class ExactPredicates
     {
@@ -18,6 +18,7 @@ namespace g3
         const double Orient2dBound = (3.0 + 16.0 * Epsilon) * Epsilon;
         const double Orient3dBound = (7.0 + 56.0 * Epsilon) * Epsilon;
         const double InCircleBound = (10.0 + 96.0 * Epsilon) * Epsilon;
+        const double InSphereBound = (16.0 + 224.0 * Epsilon) * Epsilon;
         // below this the products may be subnormal (absolute, not relative rounding error)
         const double UnderflowLimit = 1e-200;
 
@@ -27,9 +28,11 @@ namespace g3
             double ux = b.x - a.x, uy = b.y - a.y, vx = c.x - a.x, vy = c.y - a.y;
             double l = ux * vy, r = uy * vx;
             double det = l - r;
-            double bound = Orient2dBound * (Math.Abs(l) + Math.Abs(r));
-            if (det > bound) return 1;
-            if (-det > bound) return -1;
+            double sum = Math.Abs(l) + Math.Abs(r);
+            double bound = Orient2dBound * sum;
+            // the relative error bound does not hold when products underflow (subnormal): exact then
+            if (det > bound && sum > UnderflowLimit) return 1;
+            if (-det > bound && sum > UnderflowLimit) return -1;
             return orient2d_exact(a, b, c);
         }
 
@@ -77,9 +80,71 @@ namespace g3
         }
 
 
-        // exact versions: when no product can overflow or underflow, Shewchuk's adaptive stages B and C, then
-        // floating-point expansions of the whole determinant; otherwise all coordinates as integers with a
-        // common power-of-two scale
+        /// <summary>
+        /// +1 if e lies inside the sphere through a, b, c, d (given positively oriented, Orient3d(a, b, c, d) > 0;
+        /// the sign is reversed for negative orientation), -1 outside, 0 if the five points are cospherical.
+        /// Exact (floating-point filter, integer arithmetic for the uncertain cases).
+        /// </summary>
+        public static int InSphere(Vector3d a, Vector3d b, Vector3d c, Vector3d d, Vector3d e)
+        {
+            double aex = a.x - e.x, bex = b.x - e.x, cex = c.x - e.x, dex = d.x - e.x;
+            double aey = a.y - e.y, bey = b.y - e.y, cey = c.y - e.y, dey = d.y - e.y;
+            double aez = a.z - e.z, bez = b.z - e.z, cez = c.z - e.z, dez = d.z - e.z;
+            double aexbey = aex * bey, bexaey = bex * aey, bexcey = bex * cey, cexbey = cex * bey;
+            double cexdey = cex * dey, dexcey = dex * cey, dexaey = dex * aey, aexdey = aex * dey;
+            double aexcey = aex * cey, cexaey = cex * aey, bexdey = bex * dey, dexbey = dex * bey;
+            double ab = aexbey - bexaey, bc = bexcey - cexbey, cd = cexdey - dexcey, da = dexaey - aexdey;
+            double ac = aexcey - cexaey, bd = bexdey - dexbey;
+            double abc = aez * bc - bez * ac + cez * ab;
+            double bcd = bez * cd - cez * bd + dez * bc;
+            double cda = cez * da + dez * ac + aez * cd;
+            double dab = dez * ab + aez * bd + bez * da;
+            double alift = aex * aex + aey * aey + aez * aez, blift = bex * bex + bey * bey + bez * bez;
+            double clift = cex * cex + cey * cey + cez * cez, dlift = dex * dex + dey * dey + dez * dez;
+            // (Shewchuk's insphere determinant; positive inside for his orientation, which is the opposite of Orient3d)
+            double det = (dlift * abc - clift * dab) + (blift * cda - alift * bcd);
+            double aezp = Math.Abs(aez), bezp = Math.Abs(bez), cezp = Math.Abs(cez), dezp = Math.Abs(dez);
+            double abp = Math.Abs(aexbey) + Math.Abs(bexaey), bcp = Math.Abs(bexcey) + Math.Abs(cexbey);
+            double cdp = Math.Abs(cexdey) + Math.Abs(dexcey), dap = Math.Abs(dexaey) + Math.Abs(aexdey);
+            double acp = Math.Abs(aexcey) + Math.Abs(cexaey), bdp = Math.Abs(bexdey) + Math.Abs(dexbey);
+            double permanent = (cdp * bezp + bdp * cezp + bcp * dezp) * alift
+                + (dap * cezp + acp * dezp + cdp * aezp) * blift
+                + (abp * dezp + bdp * aezp + dap * bezp) * clift
+                + (bcp * aezp + acp * bezp + abp * cezp) * dlift;
+            double bound = InSphereBound * permanent;
+            if (det > bound && permanent > UnderflowLimit) return -1;
+            if (-det > bound && permanent > UnderflowLimit) return 1;
+            return insphere_exact(a, b, c, d, e);
+        }
+
+        static int insphere_exact(Vector3d a, Vector3d b, Vector3d c, Vector3d d, Vector3d e)
+        {
+            if (a == e || b == e || c == e || d == e)
+                return 0;
+            return insphere_bigint(a, b, c, d, e);
+        }
+
+        internal static int insphere_bigint(Vector3d a, Vector3d b, Vector3d c, Vector3d d, Vector3d e)
+        {
+            BigInteger[] v = to_integers(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z, d.x, d.y, d.z, e.x, e.y, e.z);
+            BigInteger aex = v[0] - v[12], aey = v[1] - v[13], aez = v[2] - v[14];
+            BigInteger bex = v[3] - v[12], bey = v[4] - v[13], bez = v[5] - v[14];
+            BigInteger cex = v[6] - v[12], cey = v[7] - v[13], cez = v[8] - v[14];
+            BigInteger dex = v[9] - v[12], dey = v[10] - v[13], dez = v[11] - v[14];
+            BigInteger ab = aex * bey - bex * aey, bc = bex * cey - cex * bey, cd = cex * dey - dex * cey;
+            BigInteger da = dex * aey - aex * dey, ac = aex * cey - cex * aey, bd = bex * dey - dex * bey;
+            BigInteger abc = aez * bc - bez * ac + cez * ab;
+            BigInteger bcd = bez * cd - cez * bd + dez * bc;
+            BigInteger cda = cez * da + dez * ac + aez * cd;
+            BigInteger dab = dez * ab + aez * bd + bez * da;
+            BigInteger alift = aex * aex + aey * aey + aez * aez, blift = bex * bex + bey * bey + bez * bez;
+            BigInteger clift = cex * cex + cey * cey + cez * cez, dlift = dex * dex + dey * dey + dez * dez;
+            return -((dlift * abc - clift * dab) + (blift * cda - alift * bcd)).Sign;
+        }
+
+
+        // exact versions: when no product can overflow or underflow, Shewchuk's adaptive stages B to D;
+        // otherwise all coordinates as integers with a common power-of-two scale
 
         static int incircle_exact(Vector2d a, Vector2d b, Vector2d c, Vector2d d)
         {
@@ -87,19 +152,7 @@ namespace g3
                 return 0;
             if (Expansion.InRange(a.x, a.y, b.x, b.y, c.x, c.y, d.x, d.y) == false)
                 return incircle_bigint(a, b, c, d);
-            int s = AdaptivePredicates.InCircle(a.x, a.y, b.x, b.y, c.x, c.y, d.x, d.y);
-            if (s != AdaptivePredicates.NotDecided)
-                return s;
-            var t = Expansion.Terms.Get();
-            int adx = t.Diff(a.x, d.x), ady = t.Diff(a.y, d.y), bdx = t.Diff(b.x, d.x), bdy = t.Diff(b.y, d.y);
-            int cdx = t.Diff(c.x, d.x), cdy = t.Diff(c.y, d.y);
-            int alift = t.Add(t.Mul(adx, adx), t.Mul(ady, ady));
-            int blift = t.Add(t.Mul(bdx, bdx), t.Mul(bdy, bdy));
-            int clift = t.Add(t.Mul(cdx, cdx), t.Mul(cdy, cdy));
-            int bc = t.Add(t.Mul(bdx, cdy), t.Neg(t.Mul(cdx, bdy)));
-            int ca = t.Add(t.Mul(cdx, ady), t.Neg(t.Mul(adx, cdy)));
-            int ab = t.Add(t.Mul(adx, bdy), t.Neg(t.Mul(bdx, ady)));
-            return t.Sign(t.Add(t.Add(t.Mul(alift, bc), t.Mul(blift, ca)), t.Mul(clift, ab)));
+            return AdaptivePredicates.InCircle(a.x, a.y, b.x, b.y, c.x, c.y, d.x, d.y);
         }
 
         static int orient2d_exact(Vector2d a, Vector2d b, Vector2d c)
@@ -108,12 +161,7 @@ namespace g3
                 return 0;
             if (Expansion.InRange(a.x, a.y, b.x, b.y, c.x, c.y) == false)
                 return orient2d_bigint(a, b, c);
-            int s = AdaptivePredicates.Orient2d(a.x, a.y, b.x, b.y, c.x, c.y);
-            if (s != AdaptivePredicates.NotDecided)
-                return s;
-            var t = Expansion.Terms.Get();
-            int ux = t.Diff(b.x, a.x), uy = t.Diff(b.y, a.y), vx = t.Diff(c.x, a.x), vy = t.Diff(c.y, a.y);
-            return t.Sign(t.Add(t.Mul(ux, vy), t.Neg(t.Mul(uy, vx))));
+            return AdaptivePredicates.Orient2d(a.x, a.y, b.x, b.y, c.x, c.y);
         }
 
         static int orient3d_exact(Vector3d a, Vector3d b, Vector3d c, Vector3d d)
@@ -123,17 +171,7 @@ namespace g3
             if (Expansion.InRange(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z, d.x, d.y, d.z) == false)
                 return orient3d_bigint(a, b, c, d);
             // (Shewchuk's orient3d has the opposite sign)
-            int s = AdaptivePredicates.Orient3d(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z, d.x, d.y, d.z);
-            if (s != AdaptivePredicates.NotDecided)
-                return -s;
-            var t = Expansion.Terms.Get();
-            int ux = t.Diff(b.x, a.x), uy = t.Diff(b.y, a.y), uz = t.Diff(b.z, a.z);
-            int vx = t.Diff(c.x, a.x), vy = t.Diff(c.y, a.y), vz = t.Diff(c.z, a.z);
-            int wx = t.Diff(d.x, a.x), wy = t.Diff(d.y, a.y), wz = t.Diff(d.z, a.z);
-            int cx = t.Add(t.Mul(uy, vz), t.Neg(t.Mul(uz, vy)));
-            int cy = t.Add(t.Mul(uz, vx), t.Neg(t.Mul(ux, vz)));
-            int cz = t.Add(t.Mul(ux, vy), t.Neg(t.Mul(uy, vx)));
-            return t.Sign(t.Add(t.Add(t.Mul(wx, cx), t.Mul(wy, cy)), t.Mul(wz, cz)));
+            return -AdaptivePredicates.Orient3d(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z, d.x, d.y, d.z);
         }
 
         internal static int incircle_bigint(Vector2d a, Vector2d b, Vector2d c, Vector2d d)
@@ -166,6 +204,7 @@ namespace g3
         internal static int Orient3dExact(Vector3d a, Vector3d b, Vector3d c, Vector3d d) { return orient3d_exact(a, b, c, d); }
         internal static int Orient2dExact(Vector2d a, Vector2d b, Vector2d c) { return orient2d_exact(a, b, c); }
         internal static int InCircleExact(Vector2d a, Vector2d b, Vector2d c, Vector2d d) { return incircle_exact(a, b, c, d); }
+        internal static int InSphereExact(Vector3d a, Vector3d b, Vector3d c, Vector3d d, Vector3d e) { return insphere_exact(a, b, c, d, e); }
 
         static BigInteger[] to_integers(params double[] values)
         {
@@ -208,11 +247,8 @@ namespace g3
 
 
     /// <summary>
-    /// Exact sums and products of doubles with error-free transformations (Shewchuk, "Adaptive Precision
-    /// Floating-Point Arithmetic and Fast Robust Geometric Predicates", 1997). A value is a list of doubles whose
-    /// exact sum it is; products expand into the pairwise exact products (TwoProduct), the sign is taken after
-    /// summing the list into a non-overlapping expansion (grow-expansion). Exact as long as nothing overflows
-    /// or underflows (see InRange). Lists live in a per-thread buffer, no allocations per predicate.
+    /// Range check and exact product for the expansion arithmetic of AdaptivePredicates (Shewchuk, "Adaptive
+    /// Precision Floating-Point Arithmetic and Fast Robust Geometric Predicates", 1997).
     /// </summary>
     internal static class Expansion
     {
@@ -244,13 +280,6 @@ namespace g3
             return InRange(a, b, c, d, e, f) && InRange(g, h, i, j, k, l);
         }
 
-        static void two_sum(double a, double b, out double x, out double y)
-        {
-            x = a + b;
-            double bv = x - a, av = x - bv;
-            y = (a - av) + (b - bv);
-        }
-
         internal static void TwoProduct(double a, double b, out double x, out double y)
         {
             x = a * b;
@@ -258,115 +287,6 @@ namespace g3
             double d = Splitter * b, bhi = d - (d - b), blo = b - bhi;
             double err = x - ahi * bhi - alo * bhi - ahi * blo;
             y = alo * blo - err;
-        }
-
-        /// <summary> lists of doubles in one growing buffer; a list is (start, count), referenced by an id </summary>
-        public class Terms
-        {
-            [ThreadStatic] static Terms instance;
-            double[] buf = new double[1024];
-            int top;
-            int[] start = new int[64], count = new int[64];
-            int lists;
-
-            public static Terms Get()
-            {
-                if (instance == null)
-                    instance = new Terms();
-                instance.top = 0;
-                instance.lists = 0;
-                return instance;
-            }
-
-            int begin()
-            {
-                if (lists == start.Length) {
-                    Array.Resize(ref start, 2 * lists);
-                    Array.Resize(ref count, 2 * lists);
-                }
-                start[lists] = top;
-                count[lists] = 0;
-                return lists++;
-            }
-            void push(int id, double v)
-            {
-                if (v == 0) return;
-                if (top == buf.Length)
-                    Array.Resize(ref buf, 2 * buf.Length);
-                buf[top++] = v;
-                count[id]++;
-            }
-
-            /// <summary> a - b, exact (two doubles) </summary>
-            public int Diff(double a, double b)
-            {
-                int id = begin();
-                double x = a - b;
-                double bv = a - x, av = x + bv;
-                double y = (a - av) + (bv - b);
-                push(id, y);
-                push(id, x);
-                return id;
-            }
-
-            public int Neg(int e)
-            {
-                int id = begin();
-                for (int i = 0; i < count[e]; ++i)
-                    push(id, -buf[start[e] + i]);
-                return id;
-            }
-
-            public int Add(int e, int f)
-            {
-                int id = begin();
-                for (int i = 0; i < count[e]; ++i) push(id, buf[start[e] + i]);
-                for (int i = 0; i < count[f]; ++i) push(id, buf[start[f] + i]);
-                return id;
-            }
-
-            public int Mul(int e, int f)
-            {
-                int id = begin();
-                for (int i = 0; i < count[e]; ++i) {
-                    double ei = buf[start[e] + i];
-                    for (int j = 0; j < count[f]; ++j) {
-                        double x, y;
-                        TwoProduct(ei, buf[start[f] + j], out x, out y);
-                        push(id, y);
-                        push(id, x);
-                    }
-                }
-                return id;
-            }
-
-            [ThreadStatic] static double[] scratch;
-
-            /// <summary> exact sign of the sum of the list </summary>
-            public int Sign(int e)
-            {
-                int n = count[e];
-                if (scratch == null || scratch.Length < n + 1)
-                    scratch = new double[Math.Max(256, 2 * n)];
-                double[] h = scratch;
-                int k = 0;
-                for (int i = 0; i < n; ++i) {
-                    // grow-expansion in place: add buf[...] to the expansion h[0..k)
-                    double q = buf[start[e] + i];
-                    int m = 0;
-                    for (int j = 0; j < k; ++j) {
-                        double qn, hh;
-                        two_sum(q, h[j], out qn, out hh);
-                        q = qn;
-                        if (hh != 0)
-                            h[m++] = hh;
-                    }
-                    if (q != 0)
-                        h[m++] = q;
-                    k = m;
-                }
-                return (k == 0) ? 0 : Math.Sign(h[k - 1]);
-            }
         }
     }
 }

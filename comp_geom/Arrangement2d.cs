@@ -267,10 +267,10 @@ namespace g3
         {
             KeyValuePair<int, double> found = (ignore_vid == -1) ?
                 PointHash.FindNearestInRadius(pt, searchRadius,
-                            (b) => { return pt.DistanceSquared(Graph.GetVertex(b)); })
+                            (b) => { return pt.Distance(Graph.GetVertex(b)); })
                             :
                 PointHash.FindNearestInRadius(pt, searchRadius,
-                            (b) => { return pt.DistanceSquared(Graph.GetVertex(b)); },
+                            (b) => { return pt.Distance(Graph.GetVertex(b)); },
                             (vid) => { return vid == ignore_vid; });
             if (found.Key == PointHash.InvalidValue)
                 return -1;

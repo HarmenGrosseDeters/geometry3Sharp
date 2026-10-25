@@ -67,6 +67,8 @@ namespace g3
             // in this code the results get initialized in subroutines, so we
             // set the defautl value here...
             Result = IntersectionResult.NoIntersection;
+            Type = IntersectionType.Empty;
+            Quantity = 0;
 
             // a degenerate triangle has no plane, and the code below fails for it as triangle0 (all of
             // triangle1 lies 'in' the plane) and as triangle1 (its intersection with plane0 is a segment of

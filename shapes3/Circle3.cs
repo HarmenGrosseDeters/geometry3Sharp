@@ -15,7 +15,7 @@ namespace g3
         public Vector3d Normal;
         public Vector3d PlaneX, PlaneY;
 		public double Radius;
-		public bool IsReversed;		// use ccw orientation instead of cw
+		public bool IsReversed;		// sample clockwise around Normal instead of counter-clockwise
 
 		public Circle3d(Vector3d center, double radius, Vector3d axis0, Vector3d axis1, Vector3d normal)
 		{
@@ -41,7 +41,7 @@ namespace g3
 			Center = center;
             Normal = Vector3d.AxisY;
             PlaneX = Vector3d.AxisX;
-            PlaneY = Vector3d.AxisZ;
+            PlaneY = -Vector3d.AxisZ;       // right-handed: PlaneX x PlaneY = Normal
 			Radius = radius;
 		}
 

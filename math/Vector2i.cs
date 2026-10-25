@@ -95,7 +95,7 @@ namespace g3
         }
         public override bool Equals(object obj)
         {
-            return this == (Vector2i)obj;
+            return obj is Vector2i && this == (Vector2i)obj;
         }
         public override int GetHashCode()
         {
@@ -230,7 +230,7 @@ namespace g3
         }
         public override bool Equals(object obj)
         {
-            return this == (Vector2l)obj;
+            return obj is Vector2l && this == (Vector2l)obj;
         }
         public override int GetHashCode()
         {

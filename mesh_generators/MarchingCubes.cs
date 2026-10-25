@@ -9,7 +9,17 @@ namespace g3
 {
     /// <summary>
     /// Basic implementation of marching cubes mesh generation, which can be applied to
-    /// arbitrary Implicit function. Multi-threading enabled by default.
+    /// arbitrary Implicit function. Multi-threading enabled by default, so Implicit.Value() must be thread-safe
+    /// (or set ParallelCompute = false).
+    ///
+    /// Usage: set Implicit, Bounds, CubeSize and IsoValue, call Generate(), then read Mesh (a new DMesh3 each time).
+    /// The field is treated as "inside" where it is below IsoValue, so a signed distance field (negative inside,
+    /// eg from MeshSignedDistanceGrid wrapped in DenseGridTrilinearImplicit, or ImplicitSphere3d) gives a surface
+    /// with outward-facing triangles. Vertices are shared between cells, so the result is closed if the surface
+    /// does not leave Bounds. Bounds should extend at least one CubeSize beyond the surface. Cost is proportional
+    /// to the number of cells, ie (size / CubeSize)^3.
+    /// Example (remesh a signed distance grid): <c>var iso = new DenseGridTrilinearImplicit(sdf);
+    /// var mc = new MarchingCubes() { Implicit = iso, Bounds = iso.Bounds(), CubeSize = sdf.CellSize, IsoValue = 0 }; mc.Generate(); DMesh3 result = mc.Mesh;</c>
     /// 
     /// [TODO] support locking on Implicit.Value()? May not be thread-safe!!
     /// [TODO] extension that tracks set of triangles in each cube, so we can do partial updates?
@@ -26,7 +36,8 @@ namespace g3
 
         /// <summary>
         /// mesh surface will be at this isovalue. Normally 0 unless you want
-        /// offset surface or field is not a distance-field.
+        /// offset surface or field is not a distance-field (eg 0.5 for a winding-number field).
+        /// Field values below IsoValue are inside.
         /// </summary>
         public double IsoValue = 0;
 
@@ -49,6 +60,7 @@ namespace g3
         public bool ParallelCompute = true;
 
 
+        /// <summary> How vertex positions are found along cell edges: one linear interpolation, repeated interpolation, or bisection </summary>
         public enum RootfindingModes { SingleLerp, LerpSteps, Bisection }
 
         /// <summary>
@@ -69,18 +81,24 @@ namespace g3
          * Outputs
          */
 
-        // cube indices range from [Origin,CellDimensions)   
+        /// <summary> output: number of cells along each axis, cube indices range from [0,CellDimensions) </summary>
         public Vector3i CellDimensions;
 
-        // computed mesh
+        /// <summary> output: computed mesh, a new DMesh3 created by each Generate() call </summary>
         public DMesh3 Mesh;
 
-        // Vertices of mesh are stored in this hash table, to ensure uniqueness.
-        // Not sure what you would do with this, but it is exposed anyway.
+        /// <summary>
+        /// Vertices of mesh are stored in this hash table, to ensure uniqueness.
+        /// Not sure what you would do with this, but it is exposed anyway.
+        /// </summary>
         public Dictionary<Vector3d, int> VertexHash;
 
 
 
+        /// <summary>
+        /// Create with placeholder settings: an ImplicitSphere3d (with radius 0, so it produces an empty mesh) in a box
+        /// of half-size 8 around the origin, CubeSize 0.25. Set Implicit, Bounds and CubeSize before calling Generate().
+        /// </summary>
         public MarchingCubes()
         {
             // initialize w/ a basic sphere example
@@ -92,7 +110,7 @@ namespace g3
 
 
         /// <summary>
-        /// Run MC algorithm and generate Output mesh
+        /// Run MC algorithm and generate Output mesh (stored in Mesh). Returns early with a partial mesh if CancelF returns true.
         /// </summary>
         public void Generate()
         {

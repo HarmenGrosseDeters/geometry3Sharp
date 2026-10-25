@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Collections.Generic;
 using System.Text;
@@ -202,7 +203,7 @@ namespace g3
         }
         public override bool Equals(object obj)
         {
-            return this == (Vector2f)obj;
+            return obj is Vector2f && this == (Vector2f)obj;
         }
         public override int GetHashCode()
         {
@@ -246,7 +247,7 @@ namespace g3
 
 
         public override string ToString() {
-            return string.Format("{0:F8} {1:F8}", x, y);
+            return string.Format(CultureInfo.InvariantCulture, "{0:F8} {1:F8}", x, y);
         }
 
 

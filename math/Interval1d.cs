@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 
 namespace g3
 {
@@ -126,7 +127,7 @@ namespace g3
 
 
 		public static Interval1d operator -(Interval1d v) {
-			return new Interval1d(-v.a, -v.b);
+			return new Interval1d(-v.b, -v.a);
 		}
 
 
@@ -138,12 +139,12 @@ namespace g3
         }
 
         public static Interval1d operator *(Interval1d a, double f) {
-            return new Interval1d(a.a * f, a.b * f);
+            return (f >= 0) ? new Interval1d(a.a * f, a.b * f) : new Interval1d(a.b * f, a.a * f);
         }
 
 
         public override string ToString() {
-            return string.Format("[{0:F8},{1:F8}]", a, b);
+            return string.Format(CultureInfo.InvariantCulture, "[{0:F8},{1:F8}]", a, b);
         }
 
 

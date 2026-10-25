@@ -388,7 +388,8 @@ namespace g3
 
 
 
-        public static int DMesh3Version = 1;
+        // version 2 adds the vertex refcounts, so that isolated vertices (and point clouds) are kept
+        public static int DMesh3Version = 2;
 
         public static void Store(DMesh3 mesh, BinaryWriter writer)
         {
@@ -410,6 +411,8 @@ namespace g3
                 Store(mesh.UVBuffer, writer);
             if ((mesh.Components & MeshComponents.FaceGroups) != 0)
                 Store(mesh.GroupsBuffer, writer);
+
+            Store(mesh.VerticesRefCounts.RawRefCounts, writer);
         }
 
 
@@ -417,7 +420,7 @@ namespace g3
         public static void Restore(DMesh3 mesh, BinaryReader reader)
         {
             int version = reader.ReadInt32();
-            if (version != DMesh3Version)
+            if (version != 1 && version != DMesh3Version)
                 throw new Exception("gSerialization.Restore: Incorrect DMesh3Version!");
 
             MeshComponents components = (MeshComponents)reader.ReadInt32();
@@ -451,7 +454,37 @@ namespace g3
             } else
                 mesh.DiscardTriangleGroups();
 
+            DVector<short> vertexRefCounts = null;
+            if (version >= 2) {
+                vertexRefCounts = new DVector<short>();
+                Restore(vertexRefCounts, reader);
+            }
+
             mesh.RebuildFromEdgeRefcounts();
+
+            // vertices without edges are not restored by RebuildFromEdgeRefcounts()
+            if (vertexRefCounts != null) {
+                DVector<double> v = mesh.VerticesBuffer;
+                for (int vid = 0; vid < vertexRefCounts.size; ++vid) {
+                    if (vertexRefCounts[vid] <= 0 || mesh.IsVertex(vid))
+                        continue;
+                    NewVertexInfo vinfo = new NewVertexInfo(new Vector3d(v[3 * vid], v[3 * vid + 1], v[3 * vid + 2]));
+                    if (mesh.HasVertexNormals) {
+                        vinfo.bHaveN = true;
+                        vinfo.n = new Vector3f(mesh.NormalsBuffer[3 * vid], mesh.NormalsBuffer[3 * vid + 1], mesh.NormalsBuffer[3 * vid + 2]);
+                    }
+                    if (mesh.HasVertexColors) {
+                        vinfo.bHaveC = true;
+                        vinfo.c = new Vector3f(mesh.ColorsBuffer[3 * vid], mesh.ColorsBuffer[3 * vid + 1], mesh.ColorsBuffer[3 * vid + 2]);
+                    }
+                    if (mesh.HasVertexUVs) {
+                        vinfo.bHaveUV = true;
+                        vinfo.uv = new Vector2f(mesh.UVBuffer[2 * vid], mesh.UVBuffer[2 * vid + 1]);
+                    }
+                    mesh.InsertVertex(vid, ref vinfo, true);
+                }
+                mesh.EndUnsafeVerticesInsert();
+            }
         }
 
 

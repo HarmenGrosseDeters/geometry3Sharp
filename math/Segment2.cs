@@ -110,8 +110,9 @@ namespace g3
         public int WhichSide(Vector2d test, double tol = 0)
         {
             // [TODO] subtract Center from test?
-            Vector2d vec0 = Center + Extent * Direction;
-            Vector2d vec1 = Center - Extent * Direction;
+            // P0 then P1, as in the static WhichSide (these were swapped, which inverted the sign)
+            Vector2d vec0 = Center - Extent * Direction;
+            Vector2d vec1 = Center + Extent * Direction;
             double x0 = test.x - vec0.x;
             double y0 = test.y - vec0.y;
             double x1 = vec1.x - vec0.x;

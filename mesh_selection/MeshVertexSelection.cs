@@ -164,8 +164,12 @@ namespace g3
             while (queue.Count > 0) {
                 int vid = queue[queue.Count - 1];
                 queue.RemoveAt(queue.Count - 1);
-                foreach (int nbrid in Mesh.VtxVerticesItr(vid)) {
-                    if (Mesh.IsBoundaryVertex(nbrid) && found.Contains(nbrid) == false) {
+                // only walk along boundary edges, an interior edge can connect two different boundary loops
+                foreach (int eid in Mesh.VtxEdgesItr(vid)) {
+                    if (Mesh.IsBoundaryEdge(eid) == false)
+                        continue;
+                    int nbrid = Mesh.edge_other_v(eid, vid);
+                    if (found.Contains(nbrid) == false) {
                         found.Add(nbrid);
                         queue.Add(nbrid);
                     }
@@ -288,7 +292,7 @@ namespace g3
                 stack.pop_back();
 
                 foreach ( int nbr_vid in Mesh.VtxVerticesItr(vID) ) {
-                    if ( IsSelected(nbr_vid) == true || VertIncludedF(nbr_vid) == false)
+                    if ( IsSelected(nbr_vid) == true || (VertIncludedF != null && VertIncludedF(nbr_vid) == false) )
                         continue;
                     add(nbr_vid);
                     stack.push_back(nbr_vid);

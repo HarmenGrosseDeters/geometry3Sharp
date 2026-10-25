@@ -100,6 +100,14 @@ namespace g3
         /// the imposed signs.
         /// </summary>
         public List<Vector3i> ImposedCells = new List<Vector3i>();
+        /// <summary>
+        /// unrefined cells (grid cell coordinates) around polygons left out because they would create a
+        /// non-manifold edge (see NonManifoldTriangles): at an ambiguous face, both cells have one patch through
+        /// both of its surface segments. Refining there (SetRefinement) resolves it where the field separates the
+        /// segments at the finer sampling (as in Zint, Grosso, Guertler, "Resolving non-manifoldness on meshes
+        /// from dual marching cubes", 2022, who refine on the trilinear interpolant).
+        /// </summary>
+        public List<Vector3i> NonManifoldCells = new List<Vector3i>();
         /// <summary> local refinement: fine crossings that could not be assigned to a patch of a coarse cell (should be 0) </summary>
         public int TransitionErrors;
 
@@ -361,6 +369,8 @@ namespace g3
             // one polygon per crossing edge, connecting the vertices of its patches in the cells around it:
             // a quad, or a triangle for a fine edge inside a face of a coarse cell
             NonManifoldTriangles = 0;
+            var nonManifoldCells = new Dictionary<long, Vector3i>();
+            Cell[] polyCells = new Cell[4];
             int[] poly = new int[4];
             HashSet<int> transitionVertices = new HashSet<int>();
             for (int ci = 0; ci < NC; ++ci) {
@@ -369,6 +379,7 @@ namespace g3
                 for (int q = 0; q < 4 && valid; ++q) {
                     Cell cell;
                     if (quadrant_cell(e, q, out cell) == false) { valid = false; break; }
+                    polyCells[q] = cell;
                     long key = cell_key(cell);
                     int le = cell_edge_slot(cell, e, q);
                     poly[q] = (le >= 0) ? cellEdgeVertex[key][le] : cellFaceVertex[key][ci];
@@ -392,14 +403,21 @@ namespace g3
                         if (poly[q] != poly[(q + 3) % 4])
                             tri[n++] = poly[q];
                     if (n == 3) {
-                        if (Mesh.AppendTriangle(tri[0], tri[1], tri[2]) < 0)
+                        if (Mesh.AppendTriangle(tri[0], tri[1], tri[2]) < 0) {
                             NonManifoldTriangles++;
+                            add_non_manifold_cells(nonManifoldCells, polyCells);
+                        }
                         continue;
                     } else if (n != 4)
                         continue;
                 }
-                append_quad(poly[0], poly[1], poly[2], poly[3]);
+                if (append_quad(poly[0], poly[1], poly[2], poly[3]) == false)
+                    add_non_manifold_cells(nonManifoldCells, polyCells);
             }
+            var nmc = new List<KeyValuePair<long, Vector3i>>(nonManifoldCells);
+            nmc.Sort((x, y) => x.Key.CompareTo(y.Key));
+            NonManifoldCells = new List<Vector3i>();
+            foreach (var kv in nmc) NonManifoldCells.Add(kv.Value);
 
             SelfIntersectionsFound = SelfIntersectionsLeft = 0;
             Func<int, Vector3d> fallback = (v) => vertexMass[v];
@@ -1348,17 +1366,27 @@ namespace g3
 
         // split along the diagonal whose two triangles have the more similar normals; if that split
         // is rejected (would create a non-manifold edge), try the other diagonal
-        void append_quad(int v0, int v1, int v2, int v3)
+        void add_non_manifold_cells(Dictionary<long, Vector3i> cells, Cell[] polyCells)
+        {
+            foreach (Cell c in polyCells) {
+                Vector3i coarse = fdiv(c.Min, F);
+                if (F == 1 || c.Coarse)
+                    cells[node_key(coarse)] = coarse;
+            }
+        }
+
+        bool append_quad(int v0, int v1, int v2, int v3)
         {
             Vector3d p0 = Mesh.GetVertex(v0), p1 = Mesh.GetVertex(v1), p2 = Mesh.GetVertex(v2), p3 = Mesh.GetVertex(v3);
             double splitA = MathUtil.Normal(p0, p1, p2).Dot(MathUtil.Normal(p0, p2, p3));
             double splitB = MathUtil.Normal(p1, p2, p3).Dot(MathUtil.Normal(p1, p3, p0));
             bool preferA = splitA >= splitB;
             if (try_split(preferA ? v0 : v1, preferA ? v1 : v2, preferA ? v2 : v3, preferA ? v3 : v0))
-                return;
+                return true;
             if (try_split(preferA ? v1 : v0, preferA ? v2 : v1, preferA ? v3 : v2, preferA ? v0 : v3))
-                return;
+                return true;
             NonManifoldTriangles += 2;
+            return false;
         }
         bool try_split(int a, int b, int c, int d)
         {

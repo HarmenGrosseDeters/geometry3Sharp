@@ -10,8 +10,9 @@ using System.Threading;
 namespace g3
 {
 	//
-	// Parse OFF mesh format
+	// Parse ascii OFF mesh format, into one mesh. Polygons are fan-triangulated, vertex colors are ignored.
 	// https://en.wikipedia.org/wiki/OFF_(file_format)
+	// Internal; use StandardMeshReader with a .off file.
 	// 
     class OFFReader : IMeshReader
     {
@@ -108,14 +109,19 @@ namespace g3
                     emit_warning("found invalid OFF triangle line: " + line);
 
                 int nV = int.Parse(tokens[0], CultureInfo.InvariantCulture);
-                if ( nV != 3 )
-                    emit_warning("found non-triangle polygon in OFF, currently unsupported: " + line);
+                if ( nV < 3 || tokens.Length < nV + 1 ) {
+                    emit_warning("found invalid OFF polygon line: " + line);
+                    ti++;
+                    continue;
+                }
 
+                // polygons with more than 3 vertices are triangulated as a fan
                 int a = int.Parse(tokens[1], CultureInfo.InvariantCulture);
-                int b = int.Parse(tokens[2], CultureInfo.InvariantCulture);
-                int c = int.Parse(tokens[3], CultureInfo.InvariantCulture);
-
-                builder.AppendTriangle(a, b, c);
+                for (int j = 2; j < nV; ++j) {
+                    int b = int.Parse(tokens[j], CultureInfo.InvariantCulture);
+                    int c = int.Parse(tokens[j + 1], CultureInfo.InvariantCulture);
+                    builder.AppendTriangle(a, b, c);
+                }
                 ti++;
             }
             if (ti < nTriangleCount)

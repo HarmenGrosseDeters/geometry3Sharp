@@ -31,18 +31,34 @@ namespace g3
     /// retriangulated (SimplifyFlatRegions, ExactPlanarSimplify), so that repeated booleans do not split the
     /// faces again and again at rounded points.
     ///
+    /// Usage: construct with the two meshes and the operation, call Compute(), and read Result (a new mesh;
+    /// the inputs are not modified). Compute() returns false and sets Error for null inputs, non-finite
+    /// coordinates, or open meshes when AllowOpenMeshes is false; it throws InvalidOperationException in the
+    /// (not expected) case that no non-degenerate ray is found. Result has no normals, colors, UVs or groups.
+    /// Use a new instance per operation (the diagnostic counters are not reset by Compute()).
+    ///
+    /// Cost: exact predicates behind floating-point filters (BigInteger only where the filters cannot decide);
+    /// slower than floating-point methods, the phases run in parallel.
+    /// Prefer this class over <see cref="MeshBoolean"/> (floating-point, not robust, union of closed meshes
+    /// only). Use <see cref="gs.MeshWindingNumberBoolean"/> instead when a remeshed, volumetric result is
+    /// acceptable and very broken input (triangle soups) must give a closed mesh.
+    ///
     /// Implemented from the papers cited here and in ExactMeshArrangement, no code taken over (docs/SOURCES.md).
     /// </summary>
     public class ExactMeshBoolean
     {
+        /// <summary> the boolean operation; Difference is A minus B </summary>
         public enum Operations { Union = 0, Intersection = 1, Difference = 2 }
 
+        /// <summary> the input meshes (not modified) </summary>
         public DMesh3 MeshA, MeshB;
+        /// <summary> the operation computed by Compute() </summary>
         public Operations Operation;
 
         /// <summary> seed of the random ray directions (the result does not depend on it) </summary>
         public int Seed = 31337;
 
+        /// <summary> the result of Compute(): a new mesh (closed and manifold for closed inputs), or null if Compute() failed </summary>
         public DMesh3 Result;
         /// <summary> why Compute() failed, otherwise null </summary>
         public string Error;
@@ -79,6 +95,7 @@ namespace g3
         public Dictionary<string, long> Counts = new Dictionary<string, long>();
 
 
+        /// <summary> set up the boolean of meshes a and b; call Compute() to run it </summary>
         public ExactMeshBoolean(DMesh3 a, DMesh3 b, Operations op)
         {
             MeshA = a; MeshB = b; Operation = op;
@@ -87,6 +104,11 @@ namespace g3
 
         ExactMeshArrangement arr;
 
+        /// <summary>
+        /// Compute the boolean into Result. Returns false (and sets Error) if an input is null, has non-finite
+        /// coordinates, or is open while AllowOpenMeshes is false; otherwise true. An empty result (for example
+        /// the intersection of disjoint meshes) is a success with an empty Result mesh.
+        /// </summary>
         public bool Compute()
         {
             Result = null;
@@ -459,7 +481,8 @@ namespace g3
                 windingTrees[mesh] = new DMeshAABBTree3(m, true);
                 windingTrees[mesh].FastWindingNumber(Vector3d.Zero);
             }
-            Vector3d pv = arr.PointToVector(centroid(ot));
+            // (the generalized winding number is approximate: the centroid of the corners in doubles is enough)
+            Vector3d pv = (arr.PointToVector(ot.A) + arr.PointToVector(ot.B) + arr.PointToVector(ot.C)) / 3;
             double w = windingTrees[mesh].FastWindingNumber(pv);
             List<int> on = stack ?? new List<int>() { ot.Source };
             foreach (int ti in on) {
@@ -482,13 +505,19 @@ namespace g3
             if (bounds.TryGetValue(mesh, out b) == false) {
                 b = new[] { new BigInteger[3], new BigInteger[3] };
                 bool first = true;
+                // (from the extreme doubles: the grid map is monotone)
+                Vector3d lo = Vector3d.Zero, hi = Vector3d.Zero;
                 foreach (int vid in arr.Meshes[mesh].VertexIndices()) {
-                    ExactPoint3 v = arr.Exact(arr.VertexPoints[mesh][vid]);
+                    Vector3d v = arr.Meshes[mesh].GetVertex(vid);
                     for (int k = 0; k < 3; ++k) {
-                        if (first || v[k] < b[0][k]) b[0][k] = v[k];
-                        if (first || v[k] > b[1][k]) b[1][k] = v[k];
+                        if (first || v[k] < lo[k]) lo[k] = v[k];
+                        if (first || v[k] > hi[k]) hi[k] = v[k];
                     }
                     first = false;
+                }
+                for (int k = 0; k < 3 && first == false; ++k) {
+                    b[0][k] = arr.GridValue(lo[k], k);
+                    b[1][k] = arr.GridValue(hi[k], k);
                 }
                 bounds[mesh] = b;
             }

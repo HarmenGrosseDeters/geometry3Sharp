@@ -5,11 +5,20 @@ using System.Text;
 
 namespace g3
 {
+    /// <summary>
+    /// Static helper queries on a DMesh3: point-triangle and triangle-triangle distances and
+    /// intersections for individual mesh triangles, surface frames at a point or ray hit,
+    /// brute-force (linear search) nearest-vertex / nearest-triangle / ray-hit queries, and edge length statistics.
+    /// The functions taking an ISpatial (eg a built <see cref="DMeshAABBTree3"/>) use it to find the triangle
+    /// and then compute the exact result on that triangle. The _LinearSearch functions are O(n) and
+    /// mainly useful for testing or for meshes that are queried only once.
+    /// </summary>
     public static class MeshQueries
     {
 
         /// <summary>
-        /// construct a DistPoint3Triangle3 object for a mesh triangle
+        /// Construct a DistPoint3Triangle3 object for a mesh triangle, with the distance already computed
+        /// (see TriangleClosest, TriangleBaryCoords, Get()). Returns null if ti is not a valid triangle.
         /// </summary>
         public static DistPoint3Triangle3 TriangleDistance(DMesh3 mesh, int ti, Vector3d point)
         {
@@ -23,8 +32,9 @@ namespace g3
         }
 
         /// <summary>
-        /// Find point-normal(Z) frame at closest point to queryPoint on mesh.
-        /// Returns interpolated vertex-normal frame if available, otherwise tri-normal frame.
+        /// Find point-normal(Z) frame at closest point to queryPoint on mesh, using spatial to find the nearest triangle.
+        /// Returns interpolated vertex-normal frame if available (and bForceFaceNormal is false), otherwise tri-normal frame.
+        /// Throws if no nearest triangle is found (eg empty mesh).
         /// </summary>
         public static Frame3f NearestPointFrame(DMesh3 mesh, ISpatial spatial, Vector3d queryPoint, bool bForceFaceNormal = false)
         {
@@ -38,8 +48,8 @@ namespace g3
 
 
         /// <summary>
-        /// Find distance from point to mesh
-        /// Returns interpolated vertex-normal frame if available, otherwise tri-normal frame.
+        /// Find unsigned distance from queryPoint to the mesh surface, using spatial to find the nearest triangle.
+        /// Returns double.MaxValue if no triangle is found within maxDist.
         /// </summary>
         public static double NearestPointDistance(DMesh3 mesh, ISpatial spatial, Vector3d queryPoint, double maxDist = double.MaxValue)
         {
@@ -56,8 +66,9 @@ namespace g3
 
 
         /// <summary>
-        /// find distance between two triangles, with optional
-        /// transform on second triangle
+        /// Find distance between two triangles, with optional
+        /// transform on second triangle. Returns the computed DistTriangle3Triangle3
+        /// (closest points and distance), or null if either triangle ID is invalid.
         /// </summary>
         public static DistTriangle3Triangle3 TriangleTriangleDistance(DMesh3 mesh1, int ti, DMesh3 mesh2, int tj, Func<Vector3d, Vector3d> TransformF = null)
         {
@@ -79,7 +90,8 @@ namespace g3
 
 
         /// <summary>
-        /// convenience function to construct a IntrRay3Triangle3 object for a mesh triangle
+        /// Convenience function to construct a IntrRay3Triangle3 object for a mesh triangle, with Find() already called.
+        /// Check Result == IntersectionResult.Intersects and RayParameter. Returns null if ti is not a valid triangle.
         /// </summary>
         public static IntrRay3Triangle3 TriangleIntersection(DMesh3 mesh, int ti, Ray3d ray)
         {
@@ -94,7 +106,8 @@ namespace g3
 
 
         /// <summary>
-        /// convenience function to construct a IntrTriangle3Triangle3 object for two mesh triangles
+        /// Convenience function to construct a IntrTriangle3Triangle3 object for two mesh triangles, with Find() already called,
+        /// with optional transform on the second triangle. Returns null if either triangle ID is invalid.
         /// </summary>
         public static IntrTriangle3Triangle3 TrianglesIntersection(DMesh3 mesh1, int ti, DMesh3 mesh2, int tj, Func<Vector3d, Vector3d> TransformF = null)
         {
@@ -115,7 +128,8 @@ namespace g3
 
 
         /// <summary>
-        /// convenience function to construct a DistTriangle3Triangle3 object for two mesh triangles
+        /// Convenience function to construct a DistTriangle3Triangle3 object for two mesh triangles, with the distance
+        /// already computed, with optional transform on the second triangle. Returns null if either triangle ID is invalid.
         /// </summary>
         public static DistTriangle3Triangle3 TrianglesDistance(DMesh3 mesh1, int ti, DMesh3 mesh2, int tj, Func<Vector3d,Vector3d> TransformF = null)
         {
@@ -138,8 +152,9 @@ namespace g3
 
 
         /// <summary>
-        /// Find point-normal frame at ray-intersection point on mesh, or return false if no hit.
-        /// Returns interpolated vertex-normal frame if available, otherwise tri-normal frame.
+        /// Find point-normal frame at the nearest ray-intersection point on mesh, using spatial to find the hit triangle,
+        /// or return false if no hit. Returns interpolated vertex-normal frame if available (and bForceFaceNormal is false),
+        /// otherwise tri-normal frame.
         /// </summary>
         public static bool RayHitPointFrame(DMesh3 mesh, ISpatial spatial, Ray3d ray, out Frame3f hitPosFrame, bool bForceFaceNormal = false)
         {
@@ -160,8 +175,10 @@ namespace g3
 
 
         /// <summary>
-        /// Get point-normal frame on surface of mesh. Assumption is that point lies in tID.
-        /// returns interpolated vertex-normal frame if available, otherwise tri-normal frame.
+        /// Get point-normal frame on surface of mesh. Assumption is that point lies in tID
+        /// (the point is replaced by the point with the same barycentric coordinates in the triangle plane).
+        /// Returns interpolated vertex-normal frame if available, otherwise tri-normal frame.
+        /// Throws if tID is not a valid triangle.
         /// </summary>
         public static Frame3f SurfaceFrame(DMesh3 mesh, int tID, Vector3d point, bool bForceFaceNormal = false)
         {
@@ -180,7 +197,7 @@ namespace g3
 
 
         /// <summary>
-        /// Get barycentric coords of point in triangle
+        /// Get barycentric coords of point in triangle. Throws if tID is not a valid triangle.
         /// </summary>
         public static Vector3d BaryCoords(DMesh3 mesh, int tID, Vector3d point)
         {
@@ -193,7 +210,8 @@ namespace g3
 
 
         /// <summary>
-        /// Compute distance from point to triangle in mesh, with minimal extra objects/etc
+        /// Compute squared distance from point to triangle ti in mesh, with minimal extra objects/etc.
+        /// Degenerate triangles are handled. Does not check that ti is valid.
         /// </summary>
         public static double TriDistanceSqr(DMesh3 mesh, int ti, Vector3d point)
         {
@@ -367,7 +385,9 @@ namespace g3
 
 
 
-        // brute force search for nearest triangle to point
+        /// <summary>
+        /// Brute force O(n) search for nearest vertex to point. Returns DMesh3.InvalidID if the mesh has no vertices.
+        /// </summary>
         public static int FindNearestVertex_LinearSearch(DMesh3 mesh, Vector3d p)
         {
             int vNearest = DMesh3.InvalidID;
@@ -384,7 +404,9 @@ namespace g3
 
 
 
-        // brute force search for nearest triangle to point
+        /// <summary>
+        /// Brute force O(n) search for nearest triangle to point. Returns DMesh3.InvalidID if the mesh has no triangles.
+        /// </summary>
         public static int FindNearestTriangle_LinearSearch(DMesh3 mesh, Vector3d p)
         {
             int tNearest = DMesh3.InvalidID;
@@ -399,6 +421,10 @@ namespace g3
             return tNearest;
         }
 
+        /// <summary>
+        /// Brute force O(n) search for the triangle with the nearest ray hit (smallest ray parameter).
+        /// Returns DMesh3.InvalidID if the ray misses the mesh.
+        /// </summary>
         public static int FindHitTriangle_LinearSearch(DMesh3 mesh, Ray3d ray)
         {
             int tNearestID = DMesh3.InvalidID;
@@ -423,7 +449,8 @@ namespace g3
 
 
         /// <summary>
-        /// brute force search for any intersecting triangles on two meshes
+        /// Brute force O(n*m) search for any intersecting triangles on two meshes. Returns the first
+        /// pair (triangle of mesh1, triangle of mesh2) found, or Index2i.Max if there is none.
         /// </summary>
         public static Index2i FindIntersectingTriangles_LinearSearch(DMesh3 mesh1, DMesh3 mesh2)
         {
@@ -444,7 +471,8 @@ namespace g3
 
 
         /// <summary>
-        /// Brute-force search for closest pair of triangles on two meshes
+        /// Brute-force O(n*m) search for closest pair of triangles on two meshes. Returns (triangle of mesh1, triangle of mesh2)
+        /// and the squared distance in fNearestSqr; Index2i.Max if either mesh is empty.
         /// </summary>
         public static Index2i FindNearestTriangles_LinearSearch(DMesh3 mesh1, DMesh3 mesh2, out double fNearestSqr)
         {
@@ -464,12 +492,15 @@ namespace g3
                     }
                 }
             }
-            fNearestSqr = Math.Sqrt(fNearestSqr);
             return nearPair;
         }
 
 
 
+        /// <summary>
+        /// Compute min/max/average edge length of mesh. If samples &gt; 0, only about that many edges are visited
+        /// (in a deterministic stride order) to estimate the statistics. All values are 0 if the mesh has no edges.
+        /// </summary>
         public static void EdgeLengthStats(DMesh3 mesh, out double minEdgeLen, out double maxEdgeLen, out double avgEdgeLen, int samples = 0)
         {
             minEdgeLen = double.MaxValue;
@@ -477,6 +508,10 @@ namespace g3
             avgEdgeLen = 0;
             int avg_count = 0;
             int MaxID = mesh.MaxEdgeID;
+            if (MaxID == 0) {       // no edges
+                minEdgeLen = maxEdgeLen = 0;
+                return;
+            }
 
             // if we are only taking some samples, use a prime-modulo-loop instead of random
             int nPrime = (samples == 0 ) ? 1 : MathUtil.ModuloIterationStep(MaxID);
@@ -502,6 +537,10 @@ namespace g3
 
 
 
+        /// <summary>
+        /// Compute min/max/average edge length over the given edges (invalid edge IDs are skipped).
+        /// The samples parameter is currently ignored.
+        /// </summary>
         public static void EdgeLengthStatsFromEdges(DMesh3 mesh, IEnumerable<int> EdgeItr, out double minEdgeLen, out double maxEdgeLen, out double avgEdgeLen, int samples = 0)
         {
             minEdgeLen = double.MaxValue;

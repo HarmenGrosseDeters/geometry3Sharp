@@ -27,7 +27,7 @@ namespace g3
         /// <summary> construct interval [0, N-1] </summary>
         static public Interval1i Range(int N) { return new Interval1i(0, N - 1); }
 
-        /// <summary> construct interval [0, N-1] </summary>
+        /// <summary> construct interval [0, N] </summary>
         static public Interval1i RangeInclusive(int N) { return new Interval1i(0, N); }
 
         /// <summary> construct interval [start, start+N-1] </summary>
@@ -103,7 +103,7 @@ namespace g3
 
 
 		public static Interval1i operator -(Interval1i v) {
-			return new Interval1i(-v.a, -v.b);
+			return new Interval1i(-v.b, -v.a);
 		}
 
 
@@ -115,13 +115,19 @@ namespace g3
         }
 
         public static Interval1i operator *(Interval1i a, int f) {
-            return new Interval1i(a.a * f, a.b * f);
+            return (f >= 0) ? new Interval1i(a.a * f, a.b * f) : new Interval1i(a.b * f, a.a * f);
         }
 
 
         public IEnumerator<int> GetEnumerator() {
-            for (int i = a; i <= b; ++i)
+            if (a > b)
+                yield break;
+            // stop at b explicitly, ++i would wrap around for b == int.MaxValue
+            for (int i = a; ; ++i) {
                 yield return i;
+                if (i == b)
+                    yield break;
+            }
         }
         IEnumerator IEnumerable.GetEnumerator() {
             return GetEnumerator();

@@ -4,20 +4,20 @@ using System.Collections.Generic;
 namespace g3
 {
     /// <summary>
-    /// Singular Value Decomposition of arbitrary matrix A
+    /// Singular Value Decomposition of an MxN matrix A, M >= N > 1 (A does not have to be symmetric)
     /// Computes U/S/V of  A = U * S * V^T
     /// 
     /// Useful Properties:
-    ///  S = square-roots of eigenvalues of A
+    ///  S = square-roots of eigenvalues of A^T * A (the singular values, not the eigenvalues of A)
     ///  U = eigenvectors of A * A^T
     ///  V = eigenvectors of A^T * A
-    ///  U * V^T = rotation matrix closest to A 
-    ///  V * Inv(S) * U^T = psuedoinverse of A
+    ///  U * V^T = orthogonal matrix closest to A (if A is square)
+    ///  V * Inv(S) * U^T = psuedoinverse of A (Inv(S) inverts only the nonzero singular values)
     ///  
     /// U and/or V are rotation matrices but may also contain reflections
     /// Detection: det(U) or det(v) == -1
     /// Removal: if ( det(U) == -1 ) { U *= -1; S *= -1 }
-    ///          if ( det(V) == -1 ) { V *= -1; S *= -1 }     (right? seems to work)
+    ///          if ( det(V) == -1 ) { V *= -1; S *= -1 }     (negating flips det only for odd dimension, eg 3x3)
     ///  
     /// </summary>
     public class SingularValueDecomposition
@@ -26,7 +26,7 @@ namespace g3
         // of GTEngine SVD class) see geometrictools.com
 
 
-        // The solver processes MxN symmetric matrices, where M >= N > 1
+        // The solver processes MxN matrices (not necessarily symmetric), where M >= N > 1
         // ('numRows' is M and 'numCols' is N) and the matrix is stored in
         // row-major order.  The maximum number of iterations ('maxIterations')
         // must be specified for the reduction of a bidiagonal matrix to a

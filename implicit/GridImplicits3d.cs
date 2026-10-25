@@ -173,7 +173,8 @@ namespace g3
                 -fV110 * (fAx) * (fAy) +
                  fV111 * (fAx) * (fAy);
 
-            return new Vector3d(gradX, gradY, gradZ);
+            // gradient above is per grid cell, convert to world units
+            return new Vector3d(gradX, gradY, gradZ) / CellSize;
         }
 
     }
