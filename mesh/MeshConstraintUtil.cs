@@ -204,7 +204,7 @@ namespace g3
         {
             if (r.Constraints == null)
                 r.SetExternalConstraints(new MeshConstraints());
-            ConstrainVtxLoopTo(r.Constraints, r.Mesh, loopV, target);
+            ConstrainVtxLoopTo(r.Constraints, r.Mesh, loopV, target, setID);
         }
 
 
@@ -239,7 +239,7 @@ namespace g3
         {
             if (r.Constraints == null)
                 r.SetExternalConstraints(new MeshConstraints());
-            ConstrainVtxSpanTo(r.Constraints, r.Mesh, spanV, target);
+            ConstrainVtxSpanTo(r.Constraints, r.Mesh, spanV, target, setID);
         }
 
 

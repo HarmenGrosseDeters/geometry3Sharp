@@ -60,12 +60,14 @@ namespace g3
             vUVs[jTo] = vUVs[jFrom];
         }
 
+        // true if a normal or UV index differs from the vertex index. BuildMeshes_Simple() uses
+        // normal k and UV k for vertex k, so such triangles need BuildMeshes_ByMaterial()
         public bool is_complex()
         {
             for ( int j = 0; j < 3; ++j ) {
-                if (vNormals[j] != -1 && vNormals[j] != vNormals[j])
+                if (vNormals[j] != -1 && vNormals[j] != vIndices[j])
                     return true;
-                if (vUVs[j] != -1 && vUVs[j] != vUVs[j])
+                if (vUVs[j] != -1 && vUVs[j] != vIndices[j])
                     return true;
             }
             return false;
@@ -175,21 +177,23 @@ namespace g3
             if ( bHaveNormals == false && bHaveColors == false && bHaveUVs == false )
                 return builder.AppendVertex(vPositions[vi], vPositions[vi + 1], vPositions[vi + 2]);
 
+            // a face vertex may have no normal or UV index (-1 after the 1-based conversion, or less), or
+            // an invalid one: then the vertex gets the mesh's default
             NewVertexInfo vinfo = new NewVertexInfo();
             vinfo.bHaveC = vinfo.bHaveN = vinfo.bHaveUV = false;
             vinfo.v = new Vector3d(vPositions[vi], vPositions[vi + 1], vPositions[vi + 2]);
-            if ( bHaveNormals ) {
+            int ni = 3 * vertIdx.b;
+            if ( bHaveNormals && vertIdx.b >= 0 && ni + 2 < vNormals.Length ) {
                 vinfo.bHaveN = true;
-                int ni = 3 * vertIdx.b;
                 vinfo.n = new Vector3f(vNormals[ni], vNormals[ni + 1], vNormals[ni + 2]);
             }
-            if ( bHaveColors ) {
+            if ( bHaveColors && vi + 2 < vColors.Length ) {
                 vinfo.bHaveC = true;
                 vinfo.c = new Vector3f(vColors[vi], vColors[vi + 1], vColors[vi + 2]);
             }
-            if ( bHaveUVs ) {
+            int ui = 2 * vertIdx.c;
+            if ( bHaveUVs && vertIdx.c >= 0 && ui + 1 < vUVs.Length ) {
                 vinfo.bHaveUV = true;
-                int ui = 2 * vertIdx.c;
                 vinfo.uv = new Vector2f(vUVs[ui], vUVs[ui + 1]);
             }
 
@@ -275,7 +279,7 @@ namespace g3
                 return new IOReadResult(IOCode.GarbageDataError, "No triangles in file");
 
             bool bHaveNormals = (vNormals.Length > 0);
-            bool bHaveColors = (vColors.Length > 0);
+            bool bHaveColors = (vColors.Length == vPositions.Length);     // colors are per position, as in BuildMeshes_Simple()
             bool bHaveUVs = (vUVs.Length > 0);
 
             List<int> usedMaterialIDs = new List<int>(UsedMaterials.Keys);
@@ -287,7 +291,8 @@ namespace g3
                     OBJMaterial useMat = Materials[sMatName];
                     matID = builder.BuildMaterial(useMat);
                 }
-                bool bMatHaveUVs = (material_id == Triangle.InvalidMaterialID) ? false : bHaveUVs;
+                // keep UVs also without a material, as BuildMeshes_Simple() does
+                bool bMatHaveUVs = bHaveUVs;
 
 				// don't append mesh until we actually see triangles
 				int meshID = -1;
@@ -300,9 +305,11 @@ namespace g3
                     if (t.nMaterialID == material_id) {
 
 						if ( meshID == -1 )
-							meshID = builder.AppendNewMesh(bHaveNormals, bHaveColors, bMatHaveUVs, false);
+							meshID = builder.AppendNewMesh(bHaveNormals, bHaveColors, bMatHaveUVs, m_bOBJHasTriangleGroups);
 						
                         Triangle t2 = new Triangle();
+                        t2.clear();
+                        t2.nGroupID = t.nGroupID;
                         for (int j = 0; j < 3; ++j) {
                             Index3i vk = new Index3i(
 								t.vIndices[j] - 1, t.vNormals[j] - 1, t.vUVs[j] - 1 );
@@ -320,7 +327,7 @@ namespace g3
                     }
                 }
 
-                if ( matID != Triangle.InvalidMaterialID )
+                if ( matID != Triangle.InvalidMaterialID && meshID != -1 )
                     builder.AssignMaterial(matID, meshID);
             }
 

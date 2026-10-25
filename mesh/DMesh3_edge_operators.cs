@@ -163,6 +163,10 @@ namespace g3
 
         public virtual MeshResult SetTriangle(int tID, Index3i newv, bool bRemoveIsolatedVertices = true)
         {
+            if (!triangles_refcount.isValid(tID)) {
+                Debug.Assert(false);
+                return MeshResult.Failed_NotATriangle;
+            }
             Index3i tv = GetTriangle(tID);
             Index3i te = GetTriEdges(tID);
             if (tv.a == newv.a && tv.b == newv.b)
@@ -172,10 +176,6 @@ namespace g3
             if (tv.c == newv.c && tv.a == newv.a)
                 te.c = -1;
 
-            if (!triangles_refcount.isValid(tID)) {
-                Debug.Assert(false);
-                return MeshResult.Failed_NotATriangle;
-            }
             if (IsVertex(newv[0]) == false || IsVertex(newv[1]) == false || IsVertex(newv[2]) == false) {
                 Util.gDevAssert(false);
                 return MeshResult.Failed_NotAVertex;
@@ -184,15 +184,19 @@ namespace g3
                 Util.gDevAssert(false);
                 return MeshResult.Failed_BrokenTopology;
             }
-            // look up edges. if any already have two triangles, this would 
-            // create non-manifold geometry and so we do not allow it
-            int e0 = find_edge(newv[0], newv[1]);
-            int e1 = find_edge(newv[1], newv[2]);
-            int e2 = find_edge(newv[2], newv[0]);
-            if ((te.a != -1 && e0 != InvalidID && IsBoundaryEdge(e0) == false)
-                 || (te.b != -1 && e1 != InvalidID && IsBoundaryEdge(e1) == false)
-                 || (te.c != -1 && e2 != InvalidID && IsBoundaryEdge(e2) == false)) {
-                return MeshResult.Failed_BrokenTopology;
+            // look up edges. if any already have two triangles other than tID, this would
+            // create non-manifold geometry and so we do not allow it. (tID itself is about to
+            // leave its old edges, eg when the triangle is re-oriented)
+            for (int j = 0; j < 3; ++j) {
+                if (te[j] == -1)
+                    continue;
+                int eid = find_edge(newv[j], newv[(j + 1) % 3]);
+                if (eid != InvalidID) {
+                    Index2i et = GetEdgeT(eid);
+                    int others = ((et.a != InvalidID && et.a != tID) ? 1 : 0) + ((et.b != InvalidID && et.b != tID) ? 1 : 0);
+                    if (others >= 2)
+                        return MeshResult.Failed_BrokenTopology;
+                }
             }
 
 
@@ -215,36 +219,34 @@ namespace g3
                 }
             }
 
-            // Decrement vertex refcounts. If any hit 1 and we got remove-isolated flag,
-            // we need to remove that vertex
-            for (int j = 0; j < 3; ++j) {
-                int vid = tv[j];
-                if (vid == newv[j])     // we don't need to modify this vertex
-                    continue;
-                vertices_refcount.decrement(vid);
-                if (bRemoveIsolatedVertices && vertices_refcount.refCount(vid) == 1) {
-                    vertices_refcount.decrement(vid);
-                    Debug.Assert(vertices_refcount.isValid(vid) == false);
-                    vertex_edges.Clear(vid);
-                }
-            }
-
-
-            // ok now re-insert with new vertices
+            // re-insert with new vertices, updating vertex refcounts. Old vertices are only removed
+            // as isolated afterwards: an old vertex can be used again at another corner
             int i = 3 * tID;
             for (int j = 0; j < 3; ++j) {
                 if (newv[j] != tv[j]) {
+                    vertices_refcount.decrement(tv[j]);
                     triangles[i + j] = newv[j];
                     vertices_refcount.increment(newv[j]);
                 }
             }
+            if (bRemoveIsolatedVertices) {
+                for (int j = 0; j < 3; ++j) {
+                    int vid = tv[j];
+                    if (vid != newv[j] && vertices_refcount.isValid(vid) && vertices_refcount.refCount(vid) == 1) {
+                        vertices_refcount.decrement(vid);
+                        Debug.Assert(vertices_refcount.isValid(vid) == false);
+                        vertex_edges.Clear(vid);
+                    }
+                }
+            }
 
+            // look up the edges now, after the old ones have been removed above
             if ( te.a != -1 )
-                add_tri_edge(tID, newv[0], newv[1], 0, e0);
+                add_tri_edge(tID, newv[0], newv[1], 0, find_edge(newv[0], newv[1]));
             if (te.b != -1)
-                add_tri_edge(tID, newv[1], newv[2], 1, e1);
+                add_tri_edge(tID, newv[1], newv[2], 1, find_edge(newv[1], newv[2]));
             if (te.c != -1)
-                add_tri_edge(tID, newv[2], newv[0], 2, e2);
+                add_tri_edge(tID, newv[2], newv[0], 2, find_edge(newv[2], newv[0]));
 
             updateTimeStamp(true);
             return MeshResult.Ok;

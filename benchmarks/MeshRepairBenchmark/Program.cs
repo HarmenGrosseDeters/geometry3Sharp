@@ -70,7 +70,10 @@ class Program
             }
             DMesh3 result;
             bool ok;
-            if (repairMode == "boolean") {
+            if (repairMode == "exact") {
+                result = RunExactBooleans(original, r);
+                ok = true;
+            } else if (repairMode == "boolean") {
                 result = RunBooleans(original, r);
                 ok = true;
             } else if (repairMode == "instr") {
@@ -133,7 +136,7 @@ class Program
             stage = "stats_after";
             Stats(result, r, "after");
             Deviation(original, result, r);
-            if (repairMode != "boolean")
+            if (repairMode != "boolean" && repairMode != "exact")
                 Fidelity(original, result, r);
             bool valid = true;
             try { result.CheckValidity(false, FailMode.ReturnOnly); } catch { valid = false; }
@@ -145,6 +148,7 @@ class Program
             r["stage"] = stage;
             r["ms"] = sw.ElapsedMilliseconds;
             r["error"] = e.GetType().Name + ": " + e.Message;
+            r["trace"] = string.Join(" | ", (e.StackTrace ?? "").Split('\n').Take(3).Select(l => l.Trim()));
             r["trace"] = string.Join(" | ", (e.StackTrace ?? "").Split('\n')
                 .Select(l => l.Trim()).Where(l => l.StartsWith("at g3.")).Take(4)
                 .Select(l => l.Substring(3).Split(" in ")[0]));
@@ -208,6 +212,56 @@ class Program
         r["bool_diff_error"] = vA > 0 ? Math.Abs(vD - (vA - vI)) / vA : 0;
         return results["union"];
     }
+    // ExactMeshBoolean on the same input pair as RunBooleans (A and a rotated, shifted copy B). Exact results
+    // satisfy V(A u B) + V(A n B) = V(A) + V(B) up to the rounding of the output vertices.
+    static DMesh3 RunExactBooleans(DMesh3 a, System.Collections.Generic.Dictionary<string, object> r)
+    {
+        DMesh3 b = new DMesh3(a);
+        AxisAlignedBox3d bounds = a.CachedBounds;
+        Vector3d c = bounds.Center;
+        MeshTransforms.Rotate(b, c, Quaterniond.AxisAngleD(new Vector3d(1, 1, 0).Normalized, 20));
+        MeshTransforms.Translate(b, 0.25 * new Vector3d(bounds.Width, bounds.Height, bounds.Depth));
+        // the solids of A and B (self-intersections resolved), for the volume identities
+        var swr = Stopwatch.StartNew();
+        DMesh3 ra = ExactMeshBoolean.Resolve(a), rb = ExactMeshBoolean.Resolve(b);
+        r["exact_resolve_ms"] = swr.ElapsedMilliseconds;
+        double vA = ra != null ? Vol(ra) : Vol(a), vB = rb != null ? Vol(rb) : Vol(b);
+        r["exact_vA"] = vA; r["exact_vB"] = vB;
+        r["exact_vA_signed"] = Vol(a);
+        r["exact_wclosed_input"] = ExactMeshBoolean.IsWindingClosed(a);
+        var results = new System.Collections.Generic.Dictionary<string, DMesh3>();
+        long total = 0;
+        foreach (var op in new[] { ExactMeshBoolean.Operations.Union, ExactMeshBoolean.Operations.Intersection, ExactMeshBoolean.Operations.Difference }) {
+            string key = op.ToString().ToLower();
+            var sw = Stopwatch.StartNew();
+            var boolean = new ExactMeshBoolean(a, b, op);
+            bool ok = boolean.Compute();
+            total += sw.ElapsedMilliseconds;
+            r["exact_" + key + "_ms"] = sw.ElapsedMilliseconds;
+            if (!ok) {
+                r["exact_error"] = boolean.Error;
+                return a;
+            }
+            DMesh3 m = boolean.Result;
+            results[key] = m;
+            r["exact_phases_" + key] = boolean.PhaseMilliseconds;
+            r["exact_pairs"] = boolean.IntersectingPairs;
+            r["exact_" + key + "_tris"] = m.TriangleCount;
+            r["exact_" + key + "_volume"] = Vol(m);
+            r["exact_" + key + "_closed"] = m.TriangleCount == 0 || m.IsClosed();
+            r["exact_" + key + "_wclosed"] = ExactMeshBoolean.IsWindingClosed(m);
+            r["exact_windings_exact"] = boolean.ExactWindingA && boolean.ExactWindingB;
+            r["exact_selfpairs"] = boolean.SelfIntersectingPairs;
+            r["exact_" + key + "_nonmanifold"] = boolean.NonManifoldTriangles;
+            r["exact_" + key + "_selfint"] = m.TriangleCount <= 300000 ? MeshRepairMetrics.SelfIntersections(m) : -1;
+        }
+        r["exact_ms"] = total;
+        double vU = Vol(results["union"]), vI = Vol(results["intersection"]), vD = Vol(results["difference"]);
+        r["exact_ie_error"] = (vA + vB) > 0 ? Math.Abs(vU + vI - vA - vB) / (vA + vB) : 0;
+        r["exact_diff_error"] = vA > 0 ? Math.Abs(vD - (vA - vI)) / vA : 0;
+        return results["union"];
+    }
+
     static double Vol(DMesh3 m) { return m.TriangleCount == 0 ? 0 : MeshMeasurements.VolumeArea(m, m.TriangleIndices(), m.GetVertex).x; }
 
     // winding number solidify of the input (library class), BENCH_SOLID_RES cells along the diagonal

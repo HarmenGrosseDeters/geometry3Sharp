@@ -265,7 +265,8 @@ namespace g3
                 int next = (j + 1) % poly.VertexCount;
                 double len = poly[j].Distance(poly[next]);
                 if (len < length) {
-                    result.AppendVertex(poly[next]);
+                    if (j < poly.VertexCount - 1)       // the closing edge ends at vertex 0, already added
+                        result.AppendVertex(poly[next]);
                     continue;
                 }
 

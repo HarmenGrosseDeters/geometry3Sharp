@@ -110,11 +110,21 @@ namespace geometry3Sharp.Tests
                 arr.Compute();
                 var planes = arr.Triangles.Select(t => t.P).ToArray();
                 int id = arr.PlanesPoint(planes[0], planes[1], planes[2]);
-                ExactPoint3 x = arr.Points[id];
+                ExactPoint3 x = arr.Exact(id);
                 foreach (var pl in planes)
                     Assert.True((pl.A * x.X + pl.B * x.Y + pl.C * x.Z - pl.D * x.W).IsZero);
                 // the same point from the planes in another order is the same point id
                 Assert.Equal(id, arr.PlanesPoint(planes[2], planes[0], planes[1]));
+                // an edge crossing a plane: the direct formula gives the same point as three planes
+                var t0 = arr.Triangles[0];
+                for (int k = 0; k < 3; ++k) {
+                    int p = t0.Corners[k], q = t0.Corners[(k + 1) % 3];
+                    var pl = planes[1];
+                    var P = arr.Exact(p); var Q = arr.Exact(q);
+                    var sp = pl.A * P.X + pl.B * P.Y + pl.C * P.Z - pl.D; var sq = pl.A * Q.X + pl.B * Q.Y + pl.C * Q.Z - pl.D;
+                    if (sp.Sign * sq.Sign >= 0) continue;
+                    Assert.Equal(arr.PlanesPoint(t0.P, t0.EdgePlanes[k], pl), arr.EdgePlanePoint(p, q, pl));
+                }
             }
         }
 
@@ -250,6 +260,32 @@ namespace geometry3Sharp.Tests
                     }
                     Assert.Equal(0.5 * n.Length, area, 9);
                 }
+            }
+        }
+
+        [Fact]
+        public void Filters_MatchExact_OnRationalPoints()
+        {
+            // a triangle in the plane z = 0, and rational points whose double approximations are inexact
+            foreach (bool filters in new[] { true, false }) {
+                ExactMeshArrangement.InputTriangle tri;
+                var arr = Arrangement(new List<Vector3d>() { new Vector3d(0, 0, 0), new Vector3d(1, 0, 0), new Vector3d(0, 1, 0) }, out tri);
+                arr.DisableFilters = !filters;
+                Func<long, long, long, int> pt = (x, y, w) => arr.AddPoint(ExactPoint3.Create(x, y, 0, w));
+                // on the circle of radius 5/3: cocircular
+                int c0 = pt(5, 0, 3), c1 = pt(3, 4, 3), c2 = pt(0, 5, 3), c3 = pt(-4, 3, 3), c4 = pt(-5, 0, 3);
+                Assert.Equal(0, arr.InCircle(tri, c0, c1, c2, c3));
+                Assert.Equal(0, arr.InCircle(tri, c1, c2, c3, c4));
+                Assert.Equal(1, arr.InCircle(tri, c0, c1, c2, pt(1, 1, 3)));
+                Assert.Equal(-1, arr.InCircle(tri, c0, c1, c2, pt(16, 0, 3)));
+                // collinear: (1/3, 1/7) + k (2/3, 3/7)
+                int l0 = pt(7, 3, 21), l1 = pt(21, 12, 21), l2 = pt(35, 21, 21);
+                Assert.Equal(0, arr.Orient(tri, l0, l1, l2));
+                Assert.Equal(1, arr.Orient(tri, l0, l1, pt(7, 4, 21)));
+                // keys along d = (25, -1, 0): 25 * 7/25 - 7 = 0 for (7/25, 7) and the origin (in doubles 8.9e-16)
+                int k0 = pt(7, 175, 25), k1 = pt(0, 0, 1);
+                Assert.Equal(0, arr.compare_along(25, -1, 0, k0, k1));
+                Assert.Equal(-1, arr.compare_along(25, -1, 0, pt(7, 176, 25), k1));
             }
         }
     }

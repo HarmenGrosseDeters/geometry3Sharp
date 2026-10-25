@@ -135,7 +135,7 @@ namespace g3
         {
             SmoothLoopElement e = new SmoothLoopElement();
             e.ID = id_generator++;
-            e.source = new Polygon2DCurve() { Polygon = poly };
+            e.source = new Polygon2DCurve() { Polygon = new Polygon2d(poly) };   // own copy, Transform() modifies it
             e.polygon = new Polygon2d(poly);
             vElements.Add(e);
             return e;
@@ -146,7 +146,7 @@ namespace g3
         {
             SmoothCurveElement e = new SmoothCurveElement();
             e.ID = id_generator++;
-            e.source = new PolyLine2DCurve() { Polyline = pline };
+            e.source = new PolyLine2DCurve() { Polyline = new PolyLine2d(pline) };   // own copy, Transform() modifies it
             e.polyLine = new PolyLine2d(pline);
             vElements.Add(e);
             return e;

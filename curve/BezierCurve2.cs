@@ -218,7 +218,7 @@ namespace g3
             c2.mCtrlPoint = (Vector2d[])this.mCtrlPoint.Clone();
             c2.mDer1CtrlPoint = (Vector2d[])this.mDer1CtrlPoint.Clone();
             c2.mDer2CtrlPoint = (Vector2d[])this.mDer2CtrlPoint.Clone();
-            c2.mDer3CtrlPoint = (Vector2d[])this.mDer3CtrlPoint.Clone();
+            c2.mDer3CtrlPoint = (this.mDer3CtrlPoint == null) ? null : (Vector2d[])this.mDer3CtrlPoint.Clone();
             c2.mChoose = new DenseMatrix(this.mChoose);
             return c2;
         }

@@ -138,13 +138,11 @@ namespace g3
 
 			// start at a random vertex, add to newVertices
 			int nCurVertex = 0;
-			int newVi = 0;
-			int newEi = 0;
-			newVertices[newVi++] = m_vertices[nCurVertex];
+			newVertices.Add(m_vertices[nCurVertex]);
 
 			// loop until all vertices are done
 			int nLastEdge = -1;
-			while (newVi != m_vertices.Count) {
+			while (newVertices.Count != m_vertices.Count) {
 
 				// find the two edges connected to this vertex. If there are
 				// more than two, we are in trouble..
@@ -165,7 +163,7 @@ namespace g3
 				// have something bad...
 				int nWhichEdge = 0;
 				if (nLastEdge == -1)
-					nWhichEdge = 0;
+					nWhichEdge = tmpEdges[0];
 				else if (tmpEdges[0] == nLastEdge)
 					nWhichEdge = tmpEdges[1];
 				else if (tmpEdges[1] == nLastEdge)
@@ -175,12 +173,14 @@ namespace g3
 
 				// extract the other vertex from this edge
 				int nNextVertex = ( m_edges[nWhichEdge].v1 == nCurVertex ) ? m_edges[nWhichEdge].v2 : m_edges[nWhichEdge].v1;
+				if (nNextVertex == 0)
+					return false;		// back at the start before visiting all vertices: more than one loop
 
-				// add this vertex
-				newVertices[newVi++] = m_vertices[nNextVertex];
-
-                // add an edge
-                newEdges[newEi++] = new Edge(nCurVertex, nNextVertex);
+				// add this vertex, and an edge to it (in the new vertex order)
+				Vertex next = m_vertices[nNextVertex];
+				next.index = newVertices.Count;
+				newVertices.Add(next);
+                newEdges.Add(new Edge(newVertices.Count - 2, newVertices.Count - 1));
 
 				// update control variables
 				nCurVertex = nNextVertex;
@@ -188,7 +188,7 @@ namespace g3
 			}
 
             // [RMS TODO] should we close the loop here ??
-            newEdges[newEi++] = new Edge(nCurVertex, 0);
+            newEdges.Add(new Edge(newVertices.Count - 1, 0));
 
 			// replace edges and vertices of this stroke, and clear normals
 			m_edges = newEdges;

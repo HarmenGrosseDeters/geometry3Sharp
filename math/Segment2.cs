@@ -214,6 +214,16 @@ namespace g3
         {
             // see IntrLine2Line2 and IntrSegment2Segment2 for details on this code
 
+            // a segment of zero length has a zero Direction, which the line tests below take as parallel
+            // to everything (upstream #137). Test it as a point instead.
+            bool bPoint = (Direction == Vector2d.Zero), bPoint2 = (seg2.Direction == Vector2d.Zero);
+            if (bPoint && bPoint2)
+                return Center.Distance(seg2.Center) <= intervalThresh;
+            else if (bPoint)
+                return seg2.contains_point(Center, dotThresh, intervalThresh);
+            else if (bPoint2)
+                return contains_point(seg2.Center, dotThresh, intervalThresh);
+
             Vector2d diff = seg2.Center - Center;
             double D0DotPerpD1 = Direction.DotPerp(seg2.Direction);
             if (Math.Abs(D0DotPerpD1) > dotThresh) {   // Lines intersect in a single point.
@@ -246,6 +256,16 @@ namespace g3
         }
         public bool Intersects(Segment2d seg2, double dotThresh = double.Epsilon, double intervalThresh = 0) {
             return Intersects(ref seg2, dotThresh, intervalThresh);
+        }
+
+        // point test with the same thresholds as the collinear case of Intersects
+        bool contains_point(Vector2d p, double dotThresh, double intervalThresh)
+        {
+            Vector2d diff = p - Center;
+            if (Math.Abs(Direction.Dot(diff)) > Extent + intervalThresh)
+                return false;
+            diff.Normalize();
+            return Math.Abs(diff.DotPerp(Direction)) <= dotThresh;
         }
 
 

@@ -106,7 +106,7 @@ namespace g3
             int NStop = (IsLoop) ? vertices.Count : vertices.Count - 1;
             for (int si = 0; si < NStop; si++) {
                 int i0 = si, i1 = (si + 1) % N;
-                if (vertices[i0].DistanceSquared(vertices[i1]) > PreserveStraightSegLen)
+                if (vertices[i0].DistanceSquared(vertices[i1]) > PreserveStraightSegLen * PreserveStraightSegLen)
                     markers[i0] = true;
             }
 
@@ -203,6 +203,15 @@ namespace g3
                 // in polyline we always add last vertex
                 result.Add(input[input.Count - 1]);
             }
+
+            // keeping a segment can append a vertex that is already there: the end of a polyline, or the
+            // start of a loop when its closing segment is kept
+            for (int i = result.Count - 1; i > 0; --i) {
+                if (result[i].Distance(result[i - 1]) < MathUtil.Epsilon)
+                    result.RemoveAt(i);
+            }
+            if (IsLoop && result.Count > 1 && result[result.Count - 1].Distance(result[0]) < MathUtil.Epsilon)
+                result.RemoveAt(result.Count - 1);
 
             return result;
         }

@@ -41,6 +41,14 @@ namespace g3
             return new ExactPoint3(x, y, z, w);
         }
 
+        /// <summary> the point (x/w, y/w, z/w) with W > 0 but without reducing by the gcd (not canonical: not for comparisons by value) </summary>
+        public static ExactPoint3 CreateUnreduced(BigInteger x, BigInteger y, BigInteger z, BigInteger w)
+        {
+            if (w.IsZero)
+                throw new ArgumentException("ExactPoint3: W is zero");
+            return (w.Sign < 0) ? new ExactPoint3(-x, -y, -z, -w) : new ExactPoint3(x, y, z, w);
+        }
+
         public BigInteger this[int i] {
             get { return (i == 0) ? X : (i == 1) ? Y : Z; }
         }
@@ -74,6 +82,20 @@ namespace g3
             return ToVector3d().ToString();
         }
 
+
+        /// <summary>
+        /// Fast approximation of the coordinates (relative error below 4 * 2^-52): for floating-point filters
+        /// </summary>
+        public Vector3d ApproxVector3d()
+        {
+            double w = (double)W;
+            double x = (double)X / w, y = (double)Y / w, z = (double)Z / w;
+            if (is_safe(w) && is_safe_or_zero(x) && is_safe_or_zero(y) && is_safe_or_zero(z))
+                return new Vector3d(x, y, z);
+            return ToVector3d(0);
+        }
+        static bool is_safe(double v) { return double.IsInfinity(v) == false && double.IsNaN(v) == false && Math.Abs(v) > 1e-290; }
+        static bool is_safe_or_zero(double v) { return v == 0 || is_safe(v); }
 
         /// <summary> num / den * 2^scaleExp as double, den > 0 </summary>
         public static double ToDouble(BigInteger num, BigInteger den, int scaleExp)

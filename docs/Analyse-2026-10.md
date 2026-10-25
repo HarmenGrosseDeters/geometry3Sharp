@@ -96,9 +96,103 @@ Ebenfalls behoben:
 - `TrivialDiscGenerator` und `PuncturedDiscGenerator`: Bei einer Teilscheibe entstehen keine überzähligen
   (0,0,0)-Dreiecke mehr. Die Orientierung der Scheiben war bereits korrekt (+Y wie die Normalen).
 
-Bewusst zurückgestellt: `OBJReader.is_complex`. Der Fix leitet Dateien auf `BuildMeshes_ByMaterial` um. Dieser Pfad
-verwirft UVs bei Meshes ohne Material, übernimmt keine Gruppen und stürzt bei Faces ohne Normal-Index ab. Er muss deshalb
-zusammen mit diesem Pfad repariert werden.
+Sechste Runde, Kurven (`curve/`). Regressionstests stehen in `tests/geometry3Sharp.Tests/CurveFixesTests.cs`
+(23 Tests, ohne Fix scheitern alle).
+
+Behoben:
+- `BSplineBasis.Clone` (damit `NURBSCurve2.Clone`) und `BezierCurve2.Clone` bei Grad 2.
+- `Arc2d.Bounds` bei negativen Winkeln.
+- `Arc2d.Transform` bei Spiegelung.
+- `Polygon2DCurve`: tastet jetzt die schließende Kante ab; `TangentT` und `SampleArcLength` sind implementiert. Dadurch
+  funktionieren `PlanarComplex.JoinElements` und `Transform(..., bRecomputePolygons)` mit Polygonen.
+- `PolyLine2DCurve`: `ParamLength = VertexCount - 1`; `TangentT` und `SampleArcLength` sind implementiert. Gleiche
+  Wirkung auf `PlanarComplex` wie oben, für Polylinien.
+- `PlanarComplex.Add` verändert das Polygon bzw. die Polylinie des Aufrufers nicht mehr.
+- `CurveSampler2.SampleT(spacing)` und `SampleArcLen`: kein doppelter Start/End-Punkt bei geschlossenen Kurven.
+- `ParametricCurveSequence2(curves, isClosed)`.
+- `GeneralPolygon2d.Contains(Polygon2d)` mit Löchern.
+- `DPolyLine2f.OrderVertices`.
+- `CurveUtils.IterativeSmooth`/`InPlaceSmooth`: Endpunkte offener Kurven, Bereiche über das Ende geschlossener Kurven.
+- `CurveResampler.SplitResample`/`SplitCollapseResample` für geschlossene Kurven.
+- `CurveUtils2.SplitToTargetLength`.
+- `DGraph2Util.FindRayIntersection` (iteriert über Kanten) und `ChainOpenPaths` (keine doppelten Verbindungspunkte,
+  Eingaben bleiben unverändert).
+- `DGraph2Resampler` bei leerem Graph.
+- `PolySimplification2`: Längen-Schwelle und doppelte Endpunkte.
+- `Polygon2d.Chamfer`: konvex/konkav vertauscht.
+
+Zurückgestellt, weil sie sichtbares Verhalten ändern oder eine eigene Untersuchung brauchen:
+- `Circle3d`-Standard-Frame (linkshändig).
+- Periodische NURBS.
+- Semantik von `GeneralPolygon2d.Intersects`.
+- Orientierung bei `Circle2d`/`Ellipse2d.Transform` mit Spiegelung.
+
+Siebte Runde, Mesh-Klassen (`mesh/`). Regressionstests stehen in `tests/geometry3Sharp.Tests/MeshFixesTests.cs`
+(24 Tests, ohne Fix scheitern alle).
+
+Behoben:
+- `DMesh3.CompactInPlace`: `MapV` enthält auch die nicht verschobenen Vertices; der Timestamp wird erhöht.
+- `DMesh3.EnableTriangleGroups`/`AllocateTriangleGroup`: vergeben keine belegten IDs mehr und überspringen keine.
+- `DMesh3.Copy` und `NTMesh3.Copy`: alte Gruppen bleiben nicht stehen; `Copy` erhöht den Timestamp (`CachedBounds`).
+- `DMesh3.SetTriangle`: Kanten werden nach dem Entfernen der alten Kanten gesucht; ein Dreieck lässt sich umorientieren.
+- `DMesh3Builder.Build` mit Gruppen (#104).
+- `NTMesh3`: `GetOrientedBoundaryEdgeV`, `PokeTriangle(tid, bary)`, Konstruktor aus `DMesh3` (Normalen, Farben,
+  Gruppen).
+- `MeshEditor`: Rücknahme bei Fehler in `AddTriangleFan_OrderedEdgeLoop`, `StitchLoop`, `StitchSpan` und
+  `StitchUnorderedEdges` entfernt alle hinzugefügten Dreiecke.
+- `MeshDecomposition`: Min/Max der Vertex-IDs (keine falschen Dreiecke in Submeshes, kein Absturz).
+- `SimpleMesh.AppendVertices`/`AppendTriangles`: Normalen, Farben, UVs und Gruppen gehen nicht mehr verloren.
+- `EdgeLoop.IsSameLoop`, `MeshMeasurements.MassProperties(…, bodyCoords)`, `MeshMeasurements.ExtremeVertices`,
+  `MeshNormals.Compute` mit `VertexF`.
+- `FaceGroupUtil.CountAllGroups`/`FindTriangleSetsByGroup` mit Gruppe -1.
+- `MeshTransforms.Rotate(…, Quaternionf)`: Positionen in double (die Normalen wurden bereits rotiert).
+- `MeshWeights.VoronoiArea` (Fläche aus den nicht normierten Kanten) und `CotanCentroid` (rechter Winkel ist nicht
+  degeneriert).
+- `MeshConstraintUtil.ConstrainVtxLoopTo/SpanTo(Remesher…)` reichen `setID` weiter; `Remesher.update_after_split`
+  übernimmt auch `FixedSetID` 0.
+
+Bereits vorher behoben: `MeshTriInfoCache`, `EdgeSpan.CheckValidity`, `next_edge` (über `ModuloIterationStep`), die
+`BitArray`-Rennen in `Remesher`/`RemesherPro`.
+
+`MeshEditor.DisconnectBowtie` war schon auf master behoben (`8c8199d`, Union-Find über die Kanten am Vertex). Ergänzt
+wurden Tests in `MeshEditorBowtieTests.cs` für offene Fächer, drei Fächer an einem Vertex, einen einzelnen Fächer und die
+Attribute der Kopien. Gegen die alte Implementierung scheitern drei der fünf Tests, darunter der mit einem einzelnen
+offenen Fächer, den die alte Version ebenfalls zerlegte.
+
+`DSubmesh3`: Der Konstruktor mit Dreiecken rechnet sofort, also vor den Object-Initializern; `ComputeTriMaps`,
+`WantComponents` und `OverrideGroupID` aus einem Initializer wirkten nicht. Diese drei sind jetzt Properties: Ändert sich
+eine nach der Berechnung, wird das Submesh aus denselben (kopierten) Dreiecken neu berechnet. Der bisherige Weg
+(`new DSubmesh3(mesh) { … }` und dann `Compute(…)`) rechnet weiterhin nur einmal. Quellkompatibel; binär wechseln die
+drei Felder zu Properties. Tests in `DSubmesh3Tests.cs` (6 Tests, vor dem Fix rot: 4; die beiden anderen sichern den
+Zwei-Schritt-Weg und dass gleiche Werte nicht neu berechnen).
+
+Achte Runde, degenerierte Eingaben. Regressionstests stehen in `tests/geometry3Sharp.Tests/DegenerateFixesTests.cs`
+(8 Tests; ohne Fix scheitern 7, der achte prüft, dass nicht degenerierte Dreiecke unverändert behandelt werden).
+
+Behoben:
+- `IntrTriangle3Triangle3` (#85): Ein Dreieck mit kollinearen oder zusammenfallenden Ecken hat keine Normale, die
+  Trennachsen werden null und `Test`/`Intersects` meldeten Schnitte, die es nicht gibt. Solche Dreiecke werden jetzt als
+  Segment bzw. Punkt per Abstand getestet. `Find` meldet für sie nur, ob sie sich berühren (`Type` = `Unknown`, keine
+  Schnittpunkte); vorher lieferte es für ein degeneriertes `triangle0` und für ein degeneriertes `triangle1`, das die
+  Ebene durchstößt, falsche Ergebnisse.
+- `Segment2d.Intersects` (#137): Ein Segment der Länge 0 hat die Richtung null und galt als parallel zu allem; das
+  Ergebnis hing von der Reihenfolge ab. Es wird jetzt als Punkt getestet, mit denselben Schwellen wie der kollineare Fall.
+
+Bereits vorher behoben: `DistPoint3Triangle3` und `MeshQueries.TriDistanceSqr` mit degenerierten Dreiecken (Abstand zur
+nächsten Kante statt NaN).
+
+Neunte Runde, `OBJReader`. Regressionstests stehen in `tests/geometry3Sharp.Tests/OBJReaderFixesTests.cs` (7 Tests;
+ohne Fix scheitern 5, die beiden anderen sichern ab, dass einfache Dateien unverändert gelesen werden und Gruppen erhalten
+bleiben).
+
+Behoben:
+- `Triangle.is_complex` verglich jeden Normalen- und UV-Index mit sich selbst und war nie true. Dateien, deren Normalen-
+  oder UV-Indizes von den Vertex-Indizes abweichen, liefen deshalb durch `BuildMeshes_Simple`, der Vertex k Normale k und
+  UV k gibt: falsche UVs/Normalen, oder sie fielen weg, wenn ihre Anzahl nicht zur Vertex-Anzahl passte. Jetzt wird mit dem
+  Vertex-Index verglichen, und solche Dateien gehen durch `BuildMeshes_ByMaterial`.
+- `BuildMeshes_ByMaterial` (auch bei mehreren Materialien): behält die UVs von Dreiecken ohne Material und die Gruppen;
+  Faces ohne Normalen- oder UV-Index führen nicht mehr zu einer Exception, ihre Vertices bekommen den Standardwert;
+  Farben werden nur übernommen, wenn jeder Vertex eine hat.
 
 ---
 

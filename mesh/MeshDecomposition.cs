@@ -185,8 +185,9 @@ namespace g3
                         mapToCur[vid] = (subvi + 1);
                         subv[subvi] = vid;
 
+                        // not 'else if': the first vertex sets both ends of the range
                         if (vid < mapRange.a) mapRange.a = vid;
-                        else if (vid > mapRange.b) mapRange.b = vid;
+                        if (vid > mapRange.b) mapRange.b = vid;
 
                         if ( TrackVertexMapping )
                             add_submesh_mapv(vid, C.id, subvi);
