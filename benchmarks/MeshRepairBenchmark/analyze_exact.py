@@ -45,6 +45,8 @@ if ok:
     solid = [r for r in ok if min(abs(r['exact_vA']), abs(r['exact_vB'])) > 0 and r.get('exact_windings_exact', True)]
     for key, name in [('exact_ie_error', 'V(AuB)+V(AnB) vs V(A)+V(B)'), ('exact_diff_error', 'V(A-B) vs V(A)-V(AnB)')]:
         e = [r[key] for r in solid]
+        if not e:
+            continue
         print(f"\n{name} (relative): median {st.median(e):.2e}, p90 {pct(e, .9):.2e}, max {max(e):.2e}")
         print("  worst:", [(f"{r[key]:.1e}", r["file"], cat.get(r["file"], "?")) for r in sorted(solid, key=lambda r: -r[key])[:5]])
     t = [r['exact_ms'] / 1000 for r in ok]

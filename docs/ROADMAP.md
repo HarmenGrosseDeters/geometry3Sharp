@@ -38,7 +38,10 @@ selectively.
 - [x] `ExactMeshBoolean` / `ExactMeshArrangement`: exact arrangement of two meshes (integer grid, intersection points
   as canonical rational points of three planes, exact constrained Delaunay retriangulation), patches classified by
   exact ray parity, coplanar overlaps by orientation. About 6 s for two meshes of 200k triangles each.
-- [ ] Self-intersecting inputs and more than two meshes (winding numbers per arrangement cell instead of ray parity)
+- [x] Self-intersecting, nested and duplicated inputs: exact winding numbers per patch (signed ray crossings,
+  stacks of coincident triangles); generalized winding number for open inputs; touching solids split into
+  manifold sheets; `Resolve(mesh)` for one mesh. Benchmark on Thingi10K: `BENCH_REPAIR=exact`, `analyze_exact.py`.
+- [ ] More than two meshes in one operation (the arrangement supports it already)
 - [ ] Rounding of the output without new self-intersections (snap rounding), or exact output coordinates
 - [ ] Alpha wrapping
 
