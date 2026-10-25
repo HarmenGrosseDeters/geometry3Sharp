@@ -1223,7 +1223,9 @@ namespace g3
         }
 
         /// collect all triangles under iBox, find open edges [a,b],
-        /// and add them all to a list associated with iBox
+        /// and add them all to a list associated with iBox.
+        /// An edge between two triangles that run along it in the same direction (inconsistent orientation)
+        /// is part of the boundary of the patch too, twice; without it the winding number is wrong.
         protected void make_box_winding_cache(int iBox, HashSet<int> triangles)
         {
             Util.gDevAssert(WindingCache.ContainsKey(iBox) == false);
@@ -1233,9 +1235,12 @@ namespace g3
                 Index3i tri = Mesh.GetTriangle(tid);
                 Index3i nbr_tris = Mesh.GetTriNeighbourTris(tid);
                 for ( int j = 0; j < 3; ++j) {
-                    if ( nbr_tris[j] == DMesh3.InvalidID || triangles.Contains(nbr_tris[j]) == false ) {
-                        edges.Add(tri[(j+1) % 3]);
-                        edges.Add(tri[j]);
+                    int a = tri[j], b = tri[(j + 1) % 3];
+                    bool open = nbr_tris[j] == DMesh3.InvalidID || triangles.Contains(nbr_tris[j]) == false
+                        || IndexUtil.find_tri_ordered_edge(a, b, Mesh.GetTriangle(nbr_tris[j])) >= 0;
+                    if ( open ) {
+                        edges.Add(b);
+                        edges.Add(a);
                     }
                 }
             }
