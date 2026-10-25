@@ -63,7 +63,7 @@ namespace g3
                 case Linear.Yards:
                     return 0.9144;
                 case Linear.Miles:
-                    return 1609.34;
+                    return 1609.344;
             }
             throw new Exception("Units.ToMeters: input unit is not handled!");
         }
@@ -83,7 +83,7 @@ namespace g3
                 case Linear.Yards:
                     return 1.0 / 0.9144;
                 case Linear.Miles:
-                    return 1.0 / 1609.34;
+                    return 1.0 / 1609.344;
             }
             throw new Exception("Units.ToMeters: input unit is not handled!");
         }

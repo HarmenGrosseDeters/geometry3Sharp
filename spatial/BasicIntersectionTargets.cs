@@ -8,7 +8,7 @@ namespace g3
 
     public class TransformedIntersectionTarget : IIntersectionTarget
     {
-        DMeshIntersectionTarget BaseTarget = null;
+        public IIntersectionTarget BaseTarget = null;
 
         public Func<Ray3d, Ray3d> MapToBaseF = null;
         public Func<Vector3d, Vector3d> MapFromBasePosF = null;
@@ -21,7 +21,7 @@ namespace g3
             Ray3d baseRay = MapToBaseF(ray);
             if ( BaseTarget.RayIntersect(baseRay, out vHit, out vHitNormal) ) {
                 vHit = MapFromBasePosF(vHit);
-                vHitNormal = MapFromBasePosF(vHitNormal);
+                vHitNormal = MapFromBaseNormalF(vHitNormal);
                 return true;
             }
             return false;
@@ -79,7 +79,7 @@ namespace g3
         {
             Vector3f rayHit = PlaneFrame.RayPlaneIntersection((Vector3f)ray.Origin, (Vector3f)ray.Direction, NormalAxis);
             vHit = rayHit;
-            vHitNormal = Vector3f.AxisY;
+            vHitNormal = PlaneFrame.GetAxis(NormalAxis);
             return (rayHit != Vector3f.Invalid);
         }
     }

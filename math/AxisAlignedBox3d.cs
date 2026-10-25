@@ -366,13 +366,14 @@ namespace g3
         }
 
 
+        // not the (min, max) constructors: they sort their arguments, which turns an empty box into an infinite one
         public static implicit operator AxisAlignedBox3d(AxisAlignedBox3f v)
         {
-            return new AxisAlignedBox3d(v.Min, v.Max);
+            return new AxisAlignedBox3d() { Min = v.Min, Max = v.Max };
         }
         public static explicit operator AxisAlignedBox3f(AxisAlignedBox3d v)
         {
-            return new AxisAlignedBox3f((Vector3f)v.Min, (Vector3f)v.Max);
+            return new AxisAlignedBox3f() { Min = (Vector3f)v.Min, Max = (Vector3f)v.Max };
         }
 
 

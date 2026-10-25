@@ -27,8 +27,10 @@ namespace g3
 
         public DenseGrid3f(DenseGrid3f copy)
         {
-            Buffer = new float[copy.Buffer.Length];
-            Array.Copy(copy.Buffer, Buffer, Buffer.Length);
+            if (copy.Buffer != null) {
+                Buffer = new float[copy.Buffer.Length];
+                Array.Copy(copy.Buffer, Buffer, Buffer.Length);
+            }
             ni = copy.ni; nj = copy.nj; nk = copy.nk;
         }
 

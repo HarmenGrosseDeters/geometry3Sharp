@@ -66,6 +66,8 @@ namespace g3
         public void Clear(bool bFreeMemory = true) {
             if ( bFreeMemory )
                 nodes = new DVector<T>();
+            else
+                nodes.Clear();      // drop references to the old nodes
             num_nodes = 0;
         }
 
@@ -288,14 +290,14 @@ namespace g3
         /// </summary>
         public bool IsValidQueue()
         {
-            for (int i = 1; i < num_nodes; i++) {
+            for (int i = 1; i <= num_nodes; i++) {
                 if (nodes[i] != null) {
                     int childLeftIndex = 2 * i;
-                    if (childLeftIndex < num_nodes && nodes[childLeftIndex] != null && has_higher_priority(nodes[childLeftIndex], nodes[i]))
+                    if (childLeftIndex <= num_nodes && nodes[childLeftIndex] != null && has_higher_priority(nodes[childLeftIndex], nodes[i]))
                         return false;
 
                     int childRightIndex = childLeftIndex + 1;
-                    if (childRightIndex < num_nodes && nodes[childRightIndex] != null && has_higher_priority(nodes[childRightIndex], nodes[i]))
+                    if (childRightIndex <= num_nodes && nodes[childRightIndex] != null && has_higher_priority(nodes[childRightIndex], nodes[i]))
                         return false;
                 }
             }

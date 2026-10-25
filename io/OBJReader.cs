@@ -205,9 +205,9 @@ namespace g3
         int append_triangle(IMeshBuilder builder, int nTri, int[] mapV)
         {
             Triangle t = vTriangles[nTri];
-            int v0 = mapV[t.vIndices[0] - 1];
-            int v1 = mapV[t.vIndices[1] - 1];
-            int v2 = mapV[t.vIndices[2] - 1];
+            int v0 = map_vertex(mapV, t.vIndices[0] - 1);
+            int v1 = map_vertex(mapV, t.vIndices[1] - 1);
+            int v2 = map_vertex(mapV, t.vIndices[2] - 1);
             if ( v0 == -1 || v1 == -1 || v2 == -1 ) {
                 emit_warning(string.Format("[OBJReader] invalid triangle:  {0} {1} {2}  mapped to {3} {4} {5}",
                     t.vIndices[0], t.vIndices[1], t.vIndices[2], v0, v1, v2));
@@ -216,6 +216,11 @@ namespace g3
             int gid = (vTriangles[nTri].nGroupID == Triangle.InvalidGroupID) ? 
                 m_nSetInvalidGroupsTo : vTriangles[nTri].nGroupID;
             return builder.AppendTriangle(v0, v1, v2, gid);
+        }
+        // out-of-range OBJ indices map to -1, so they are reported as invalid triangles
+        static int map_vertex(int[] mapV, int i)
+        {
+            return (i >= 0 && i < mapV.Length) ? mapV[i] : -1;
         }
         int append_triangle(IMeshBuilder builder, Triangle t)
         {
@@ -401,7 +406,7 @@ namespace g3
                             if (tokens.Length >= 3) {
                                 vUVs.Add(float.Parse(tokens[1], CultureInfo.InvariantCulture));
                                 vUVs.Add(float.Parse(tokens[2], CultureInfo.InvariantCulture));
-                                nMaxUVLength = Math.Max(nMaxUVLength, tokens.Length);
+                                nMaxUVLength = Math.Max(nMaxUVLength, tokens.Length - 1);
                             } 
                             if ( tokens.Length != 3 )
                                 emit_warning("[OBJReader] UV has unknown format: " + line);
@@ -431,7 +436,9 @@ namespace g3
                         }
 
                     } else if (tokens[0][0] == 'g') {
-                        string sGroupName = (tokens.Length == 2) ? tokens[1] : line.Substring( line.IndexOf(tokens[1]) );
+                        // "g" without a name switches back to the default group
+                        string sGroupName = (tokens.Length == 1) ? "default" :
+                            (tokens.Length == 2) ? tokens[1] : line.Substring( line.IndexOf(tokens[1]) );
                         if ( GroupNames.ContainsKey(sGroupName) ) {
                             nActiveGroup = GroupNames[sGroupName];
                         } else {

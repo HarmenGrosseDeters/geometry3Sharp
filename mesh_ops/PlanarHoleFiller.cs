@@ -239,7 +239,7 @@ namespace g3
 
                         bool errors = (bad_indices != null && bad_indices.Count > 0);
                         if (errors) {
-                            failed_inserts.Add(new Index2i(fi, pi));
+                            failed_merges.Add(new Index2i(fi, pi));
                             OutputHasCracks = true;
                         }
                     }

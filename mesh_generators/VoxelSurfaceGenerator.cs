@@ -49,6 +49,7 @@ namespace g3
 
         public void Generate()
         {
+			Meshes = null;      // start a new result list, do not append to the previous one
 			append_mesh();
 
             AxisAlignedBox3i bounds = Voxels.GridBounds;

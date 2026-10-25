@@ -41,6 +41,7 @@ namespace g3
                 GroupNameF = options.GroupNameF;
 
             int nAccumCountV = 1;       // OBJ indices always start at 1
+            int nAccumCountN = 1;
             int nAccumCountUV = 1;
 
 			// collect materials
@@ -77,6 +78,9 @@ namespace g3
 					bVtxUVs = false;
 
 				int[] mapV = new int[mesh.MaxVertexID];
+				// vn and vt records are counted separately from v records, as not every mesh may have them
+				int[] mapN = (bNormals) ? new int[mesh.MaxVertexID] : null;
+				int[] mapVtxUV = (bVtxUVs) ? new int[mesh.MaxVertexID] : null;
 
 				// write vertices for this mesh
                 foreach ( int vi in mesh.VertexIndices() ) { 
@@ -90,18 +94,20 @@ namespace g3
                     }
 
 					if ( bNormals ) {
+						mapN[vi] = nAccumCountN++;
                         Vector3d n = mesh.GetVertexNormal(vi);
                         writer.WriteLine(string.Format(CultureInfo.InvariantCulture, "vn {0:F10} {1:F10} {2:F10}", n[0], n[1], n[2]));
                     }
 
 					if ( bVtxUVs ) {
+						mapVtxUV[vi] = nAccumCountUV++;
 						Vector2f uv = mesh.GetVertexUV(vi);
 						writer.WriteLine(string.Format(CultureInfo.InvariantCulture, "vt {0:F10} {1:F10}", uv.x, uv.y));
 					}
                 }
 
                 // write independent UVs for this mesh, if we have them
-				IIndexMap mapUV = (bVtxUVs) ? new IdentityIndexMap() : null;   
+				IIndexMap mapUV = (bVtxUVs) ? new IndexMap(mapVtxUV, mapVtxUV.Length) : null;
                 DenseUVMesh uvSet = null;
                 if ( vMeshes[mi].UVs != null ) {
                     uvSet = vMeshes[mi].UVs;
@@ -122,9 +128,9 @@ namespace g3
 				// various ways we can write triangles to minimize state changes...
 				// [TODO] support writing materials when mesh has groups!!
                 if (options.bWriteGroups && mesh.HasTriangleGroups)
-                    write_triangles_bygroup(writer, mesh, mapV, uvSet, mapUV, bNormals);
+                    write_triangles_bygroup(writer, mesh, mapV, uvSet, mapUV, mapN);
                 else
-					write_triangles_flat(writer, vMeshes[mi], mapV, uvSet, mapUV, bNormals, bWriteMaterials);
+					write_triangles_flat(writer, vMeshes[mi], mapV, uvSet, mapUV, mapN, bWriteMaterials);
 
                 if (options.ProgressFunc != null)
                     options.ProgressFunc(mi+1, vMeshes.Count);
@@ -138,13 +144,14 @@ namespace g3
 
 		// write triangles of mesh with re-ordering to minimize group changes
 		// (note: this may mean lots of material changes, depending on mesh...)
-		void write_triangles_bygroup(TextWriter writer, IMesh mesh, int[] mapV, DenseUVMesh uvSet, IIndexMap mapUV, bool bNormals)
+		void write_triangles_bygroup(TextWriter writer, IMesh mesh, int[] mapV, DenseUVMesh uvSet, IIndexMap mapUV, int[] mapN)
         {
             // This makes N passes over mesh indices, but doesn't use much extra memory.
             // would there be a faster way? could construct integer-pointer-list during initial
             // scan, this would need O(N) memory but then write is effectively O(N) instead of O(N*k)
 
             bool bUVs = (mapUV != null);
+            bool bNormals = (mapN != null);
 
             HashSet<int> vGroups = new HashSet<int>();
             foreach (int ti in mesh.TriangleIndices())
@@ -165,19 +172,18 @@ namespace g3
                     if (mesh.GetTriangleGroup(ti) != g)
                         continue;
 
-                    Index3i t = mesh.GetTriangle(ti);
-				    t[0] = mapV[t[0]];
-				    t[1] = mapV[t[1]];
-				    t[2] = mapV[t[2]];
+                    Index3i tri = mesh.GetTriangle(ti);
+                    Index3i t = new Index3i(mapV[tri.a], mapV[tri.b], mapV[tri.c]);
+                    Index3i tn = bNormals ? new Index3i(mapN[tri.a], mapN[tri.b], mapN[tri.c]) : t;
 
                     if (bUVs) {
-						Index3i tuv = (uvSet != null) ? uvSet.TriangleUVs[ti] : t;
+						Index3i tuv = (uvSet != null) ? uvSet.TriangleUVs[ti] : tri;
                         tuv[0] = mapUV[tuv[0]];
                         tuv[1] = mapUV[tuv[1]];
                         tuv[2] = mapUV[tuv[2]];
-                        write_tri(writer, ref t, bNormals, true, ref tuv);
+                        write_tri(writer, ref t, bNormals, ref tn, true, ref tuv);
                     } else {
-                        write_tri(writer, ref t, bNormals, false, ref t);
+                        write_tri(writer, ref t, bNormals, ref tn, false, ref t);
                     }
 
                 }
@@ -186,9 +192,10 @@ namespace g3
 
 
 		// sequential write of input mesh triangles. preserves triangle IDs up to constant shift.
-		void write_triangles_flat(TextWriter writer, WriteMesh write_mesh, int[] mapV, DenseUVMesh uvSet, IIndexMap mapUV, bool bNormals, bool bMaterials)
+		void write_triangles_flat(TextWriter writer, WriteMesh write_mesh, int[] mapV, DenseUVMesh uvSet, IIndexMap mapUV, int[] mapN, bool bMaterials)
         {
             bool bUVs = (mapUV != null);
+            bool bNormals = (mapN != null);
 
 			int cur_material = -1;
 
@@ -197,19 +204,18 @@ namespace g3
 				if ( bMaterials )
 					set_current_material(writer, ti, write_mesh, ref cur_material);
 
-                Index3i t = mesh.GetTriangle(ti);
-				t[0] = mapV[t[0]];
-				t[1] = mapV[t[1]];
-				t[2] = mapV[t[2]];
+                Index3i tri = mesh.GetTriangle(ti);
+                Index3i t = new Index3i(mapV[tri.a], mapV[tri.b], mapV[tri.c]);
+                Index3i tn = bNormals ? new Index3i(mapN[tri.a], mapN[tri.b], mapN[tri.c]) : t;
 
                 if (bUVs) {
-					Index3i tuv = (uvSet != null) ? uvSet.TriangleUVs[ti] : t;
+					Index3i tuv = (uvSet != null) ? uvSet.TriangleUVs[ti] : tri;
                     tuv[0] = mapUV[tuv[0]];
                     tuv[1] = mapUV[tuv[1]];
                     tuv[2] = mapUV[tuv[2]];
-                    write_tri(writer, ref t, bNormals, true, ref tuv);
+                    write_tri(writer, ref t, bNormals, ref tn, true, ref tuv);
                 } else {
-                    write_tri(writer, ref t, bNormals, false, ref t);
+                    write_tri(writer, ref t, bNormals, ref tn, false, ref t);
                 }
             }
         }
@@ -226,16 +232,16 @@ namespace g3
 
 
 		// actually write triangle line, in proper OBJ format
-        void write_tri(TextWriter writer, ref Index3i t, bool bNormals, bool bUVs, ref Index3i tuv)
+        void write_tri(TextWriter writer, ref Index3i t, bool bNormals, ref Index3i tn, bool bUVs, ref Index3i tuv)
         {
             if ( bNormals == false && bUVs == false ) {
                 writer.WriteLine(string.Format(CultureInfo.InvariantCulture, "f {0} {1} {2}", t[0], t[1], t[2]));
             } else if ( bNormals == true && bUVs == false ) {
-                writer.WriteLine(string.Format(CultureInfo.InvariantCulture, "f {0}//{0} {1}//{1} {2}//{2}", t[0], t[1], t[2]));
+                writer.WriteLine(string.Format(CultureInfo.InvariantCulture, "f {0}//{3} {1}//{4} {2}//{5}", t[0], t[1], t[2], tn[0], tn[1], tn[2]));
             } else if ( bNormals == false && bUVs == true ) {
                 writer.WriteLine(string.Format(CultureInfo.InvariantCulture, "f {0}/{3} {1}/{4} {2}/{5}", t[0], t[1], t[2], tuv[0], tuv[1], tuv[2]));
             } else {
-                writer.WriteLine(string.Format(CultureInfo.InvariantCulture, "f {0}/{3}/{0} {1}/{4}/{1} {2}/{5}/{2}", t[0], t[1], t[2], tuv[0], tuv[1], tuv[2]));
+                writer.WriteLine(string.Format(CultureInfo.InvariantCulture, "f {0}/{3}/{6} {1}/{4}/{7} {2}/{5}/{8}", t[0], t[1], t[2], tuv[0], tuv[1], tuv[2], tn[0], tn[1], tn[2]));
             }
         }
 

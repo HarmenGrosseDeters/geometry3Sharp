@@ -65,6 +65,12 @@ namespace g3
             // stitch interior
             MeshEditor edit = new MeshEditor(Mesh);
             NewTriangles = edit.StitchLoop(Loop.Vertices, NewLoop.Vertices, group_id);
+            if (NewTriangles == null) {
+                // stitch failed (and was backed out), remove the duplicated vertices again
+                foreach (int vid in NewLoop.Vertices)
+                    Mesh.RemoveVertex(vid, false);
+                return false;
+            }
 
             return true;
         }

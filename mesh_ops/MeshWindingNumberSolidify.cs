@@ -82,6 +82,8 @@ namespace gs
         // outputs
         public DMesh3 Result;
         public int NonManifoldTriangles;
+        /// <summary> adaptive dual contouring: refinements around polygons left out for non-manifold edges </summary>
+        public int NonManifoldRefinements;
         /// <summary> number of winding number evaluations </summary>
         public int WindingEvaluations;
         /// <summary> hidden gap edges in the final result (0 = none), and the cell size it was computed with </summary>
@@ -134,6 +136,7 @@ namespace gs
                 contour = wc.ContourRefined(ref cellSize, MaxRefineLevels, MinRefineEdges);
                 WindingEvaluations = wc.WindingEvaluations;
                 NonManifoldTriangles = wc.NonManifoldTriangles;
+                NonManifoldRefinements = wc.NonManifoldRefinements;
                 HiddenGapEdges = wc.HiddenGapEdges;
                 HiddenWallEdges = wc.HiddenWallEdges;
                 GapEdgesPerLevel = new List<int>(wc.GapEdgesPerLevel);

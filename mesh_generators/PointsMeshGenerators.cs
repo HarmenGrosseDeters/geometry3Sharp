@@ -42,6 +42,8 @@ namespace g3
                 Vector3d v = PointF(pid);
                 Vector3d n = NormalF(pid);
                 Frame3f f = new Frame3f(v, n);
+                Vector3f nf = (Vector3f)n.Normalized;
+                normals[vi] = normals[vi + 1] = normals[vi + 2] = nf;
                 triangles.Set(ti++, vi, vi + 1, vi + 2, Clockwise);
                 vertices[vi++] = f.FromPlaneUV(uva, 2);
                 vertices[vi++] = f.FromPlaneUV(uvb, 2);

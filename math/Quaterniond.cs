@@ -242,6 +242,13 @@ namespace g3
         public void SetToSlerp(Quaterniond p, Quaterniond q, double t)
         {
             double cs = p.Dot(q);
+            // q and -q are the same rotation: take the one on p's side, so the interpolation takes the
+            // short way and does not divide by sin(pi) = 0 for q = -p
+            if (cs < 0) {
+                q = new Quaterniond(-q.x, -q.y, -q.z, -q.w);
+                cs = -cs;
+            }
+            if (cs > 1) cs = 1;
             double angle = (double)Math.Acos(cs);
             if (Math.Abs(angle) >= MathUtil.ZeroTolerance) {
                 double sn = (double)Math.Sin(angle);

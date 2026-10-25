@@ -464,7 +464,6 @@ namespace g3
                     }
                 }
             }
-            fNearestSqr = Math.Sqrt(fNearestSqr);
             return nearPair;
         }
 
@@ -477,6 +476,10 @@ namespace g3
             avgEdgeLen = 0;
             int avg_count = 0;
             int MaxID = mesh.MaxEdgeID;
+            if (MaxID == 0) {       // no edges
+                minEdgeLen = maxEdgeLen = 0;
+                return;
+            }
 
             // if we are only taking some samples, use a prime-modulo-loop instead of random
             int nPrime = (samples == 0 ) ? 1 : MathUtil.ModuloIterationStep(MaxID);

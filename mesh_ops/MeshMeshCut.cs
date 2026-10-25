@@ -32,18 +32,23 @@ namespace g3
         // TODO: still missing some vertices??
         public List<int> CutVertices;
 
+        /// <summary>
+        /// Number of intersection segments that could not be inserted into Target by Compute().
+        /// If this is not zero, the cut path has gaps.
+        /// </summary>
+        public int FailedSegmentInsertions = 0;
+
 
         public void Compute()
         {
+            FailedSegmentInsertions = 0;
             double cellSize = Target.CachedBounds.MaxDim / 64;
             PointHash = new PointHashGrid3d<int>(cellSize, -1);
 
             // insert target vertices into hash
             foreach ( int vid in Target.VertexIndices()) {
                 Vector3d v = Target.GetVertex(vid);
-                int existing = find_existing_vertex(v);
-                if (existing != -1)
-                    System.Console.WriteLine("VERTEX {0} IS DUPLICATE OF {1}!", vid, existing);
+                // [TODO] duplicate (coincident) target vertices are not handled specially
                 PointHash.InsertPointUnsafe(vid, v);
             }
 
@@ -257,7 +262,7 @@ namespace g3
                 DMesh3.PokeTriangleInfo pokeInfo;
                 MeshResult result = Target.PokeTriangle(tid, out pokeInfo);
                 if (result != MeshResult.Ok)
-                    throw new Exception("shit");
+                    throw new Exception("MeshMeshCut.insert_face_vertices: poke triangle failed - " + result.ToString());
                 int new_v = pokeInfo.new_vid;
 
                 Target.SetVertex(new_v, v.v);
@@ -319,7 +324,7 @@ namespace g3
                 }
             }
 
-            System.Console.WriteLine("unsorted vertex!");
+            // could not classify the vertex (numerical problem), keep it on the first poke triangle
             sv.elem_id = pokeTris.a;
         }
 
@@ -437,7 +442,8 @@ namespace g3
                 try {
                     insert_segment(seg);
                 } catch (Exception) {
-                    // ignore?
+                    // the segment is missing from the cut, report it instead of failing the whole cut
+                    FailedSegmentInsertions++;
                 }
             }
         }

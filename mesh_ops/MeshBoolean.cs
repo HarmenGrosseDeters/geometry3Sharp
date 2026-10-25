@@ -97,17 +97,13 @@ namespace g3
             foreach (int vid in missing) {
                 Vector3d v = fromMesh.GetVertex(vid);
                 int near_eid = find_nearest_edge(toMesh, v, toVerts);
-                if ( near_eid == DMesh3.InvalidID) {
-                    System.Console.WriteLine("could not find edge to split?");
-                    continue;
-                }
+                if ( near_eid == DMesh3.InvalidID)
+                    continue;       // no boundary edge near this vertex, it stays unmatched
 
                 DMesh3.EdgeSplitInfo splitInfo;
                 MeshResult result = toMesh.SplitEdge(near_eid, out splitInfo);
-                if ( result != MeshResult.Ok ) {
-                    System.Console.WriteLine("edge split failed");
-                    continue;
-                }
+                if ( result != MeshResult.Ok )
+                    continue;       // vertex stays unmatched
 
                 toMesh.SetVertex(splitInfo.vNew, v);
                 toVerts.Add(splitInfo.vNew);

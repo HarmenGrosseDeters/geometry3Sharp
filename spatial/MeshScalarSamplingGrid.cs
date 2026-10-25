@@ -147,8 +147,9 @@ namespace gs
             // To seed propagation, we compute unsigned SDF and then compute values for any voxels
             // containing surface (ie w/ distance smaller than cellsize)
 
-            // compute unsigned SDF
-            MeshSignedDistanceGrid sdf = new MeshSignedDistanceGrid(Mesh, CellSize) { ComputeSigns = false };
+            // compute unsigned SDF. Its band width sets its grid padding, so it must match
+            // BufferCells for the SDF grid to line up with ours (ni,nj,nk / origin)
+            MeshSignedDistanceGrid sdf = new MeshSignedDistanceGrid(Mesh, CellSize) { ComputeSigns = false, ExactBandWidth = BufferCells };
             sdf.CancelF = this.CancelF;
             sdf.Compute();
             if (CancelF())
