@@ -101,8 +101,9 @@ namespace gs
             if (L == null)
                 precompute();
             List<int> src = new List<int>();
+            sourceVertices = new HashSet<int>();
             foreach (int s in sources)
-                if (Mesh.IsVertex(s)) src.Add(toIndex[s]);
+                if (Mesh.IsVertex(s)) { src.Add(toIndex[s]); sourceVertices.Add(s); }
             if (src.Count == 0 || N == 0)
                 return false;
 
@@ -165,6 +166,156 @@ namespace gs
             for (int i = 0; i < N; ++i)
                 Distance[toVertex[i]] = Math.Max(0, phi[i] - minSrc);
             return true;
+        }
+
+        HashSet<int> sourceVertices;
+        DMeshAABBTree3 spatial;
+
+        /// <summary>
+        /// Shortest path on the surface from the point (projected onto the mesh) to the nearest source of
+        /// the last Compute(), as a polyline ending at that source vertex: follows the steepest descent of
+        /// the distance across the triangles (along an edge where it runs into a valley).
+        /// </summary>
+        public List<Vector3d> TracePath(Vector3d point)
+        {
+            if (spatial == null)
+                spatial = new DMeshAABBTree3(Mesh, true);
+            int tid = spatial.FindNearestTriangle(point);
+            Vector3d p = MeshQueries.TriangleDistance(Mesh, tid, point).TriangleClosest;
+            List<Vector3d> path = new List<Vector3d>() { p };
+            trace(path, tid, p);
+            return path;
+        }
+
+        /// <summary> shortest path from a vertex to the nearest source (see TracePath(Vector3d)) </summary>
+        public List<Vector3d> TracePath(int vertex)
+        {
+            List<Vector3d> path = new List<Vector3d>() { Mesh.GetVertex(vertex) };
+            vertex_step(path, vertex);
+            return path;
+        }
+
+        double phi(int vid) { return Distance[vid]; }
+
+        // gradient of the linear distance over the triangle, and the gradients of its barycentric coordinates
+        bool gradients(int tid, out Vector3d g, Vector3d[] grads)
+        {
+            Index3i t = Mesh.GetTriangle(tid);
+            Vector3d p0 = Mesh.GetVertex(t.a), p1 = Mesh.GetVertex(t.b), p2 = Mesh.GetVertex(t.c);
+            Vector3d n = (p1 - p0).Cross(p2 - p0);
+            double area2 = n.Length;
+            g = Vector3d.Zero;
+            if (area2 < 1e-300) return false;
+            n /= area2;
+            grads[0] = n.Cross(p2 - p1) / area2;
+            grads[1] = n.Cross(p0 - p2) / area2;
+            grads[2] = n.Cross(p1 - p0) / area2;
+            g = phi(t.a) * grads[0] + phi(t.b) * grads[1] + phi(t.c) * grads[2];
+            return true;
+        }
+
+        void trace(List<Vector3d> path, int tid, Vector3d p)
+        {
+            Vector3d[] grads = new Vector3d[3];
+            int maxSteps = 4 * Mesh.TriangleCount + 10;
+            for (int step = 0; step < maxSteps; ++step) {
+                Index3i t = Mesh.GetTriangle(tid);
+                for (int k = 0; k < 3; ++k)
+                    if (sourceVertices.Contains(t[k])) { add(path, Mesh.GetVertex(t[k])); return; }
+                Vector3d g;
+                if (gradients(tid, out g, grads) == false || g.Length < 1e-12) {
+                    vertex_step(path, lowest_vertex(t)); return;
+                }
+                Vector3d d = -g.Normalized;
+                // barycentric coordinates of p and their rates along d; leave through the first one to reach 0
+                Vector3d bary = MathUtil.BarycentricCoords(p, Mesh.GetVertex(t.a), Mesh.GetVertex(t.b), Mesh.GetVertex(t.c));
+                double best = double.MaxValue; int exit = -1;
+                for (int k = 0; k < 3; ++k) {
+                    double rate = grads[k].Dot(d);
+                    if (rate < -1e-15) {
+                        double sk = Math.Max(0, bary[k]) / -rate;
+                        if (sk < best) { best = sk; exit = k; }
+                    }
+                }
+                if (exit < 0) { vertex_step(path, lowest_vertex(t)); return; }
+                Vector3d q = p + best * d;
+                add(path, q);
+                // edge opposite corner 'exit'
+                int va = t[(exit + 1) % 3], vb = t[(exit + 2) % 3];
+                Vector3d qb = MathUtil.BarycentricCoords(q, Mesh.GetVertex(t.a), Mesh.GetVertex(t.b), Mesh.GetVertex(t.c));
+                // at (or extremely close to) a corner: continue from the vertex
+                for (int k = 0; k < 3; ++k)
+                    if (qb[k] > 1 - 1e-9) { vertex_step(path, t[k]); return; }
+                int eid = Mesh.FindEdge(va, vb);
+                Index2i et = Mesh.GetEdgeT(eid);
+                int next = (et.a == tid) ? et.b : et.a;
+                if (next < 0 || descent_enters(next, va, vb) == false) {
+                    // boundary, or a valley along the edge: follow the edge downhill
+                    vertex_step(path, phi(va) < phi(vb) ? va : vb);
+                    return;
+                }
+                tid = next; p = q;
+            }
+        }
+
+        // does the steepest descent in triangle tid point into it from its edge (va, vb)?
+        bool descent_enters(int tid, int va, int vb)
+        {
+            Vector3d[] grads = new Vector3d[3];
+            Vector3d g;
+            if (gradients(tid, out g, grads) == false || g.Length < 1e-12) return false;
+            Index3i t = Mesh.GetTriangle(tid);
+            int opp = (t.a != va && t.a != vb) ? 0 : (t.b != va && t.b != vb) ? 1 : 2;
+            return grads[opp].Dot(-g) > 1e-15;
+        }
+
+        void vertex_step(List<Vector3d> path, int v)
+        {
+            Vector3d[] grads = new Vector3d[3];
+            for (int step = 0; step < Mesh.VertexCount + 10; ++step) {
+                add(path, Mesh.GetVertex(v));
+                if (sourceVertices.Contains(v))
+                    return;
+                // a triangle around v into which the steepest descent points (inside the corner at v)
+                int bestT = -1; double bestSlope = 0;
+                foreach (int tid in Mesh.VtxTrianglesItr(v)) {
+                    Vector3d g;
+                    if (gradients(tid, out g, grads) == false || g.Length < 1e-12) continue;
+                    Index3i t = Mesh.GetTriangle(tid);
+                    Vector3d d = -g;
+                    bool inside = true;
+                    for (int k = 0; k < 3; ++k)
+                        if (t[k] != v && grads[k].Dot(d) < 0) inside = false;
+                    if (inside && g.Length > bestSlope) { bestSlope = g.Length; bestT = tid; }
+                }
+                if (bestT >= 0) {
+                    trace(path, bestT, Mesh.GetVertex(v));
+                    return;
+                }
+                // otherwise down the steepest edge
+                int nextV = -1; double bestDrop = 0;
+                foreach (int nb in Mesh.VtxVerticesItr(v)) {
+                    double drop = (phi(v) - phi(nb)) / Mesh.GetVertex(v).Distance(Mesh.GetVertex(nb));
+                    if (drop > bestDrop) { bestDrop = drop; nextV = nb; }
+                }
+                if (nextV < 0)
+                    return;     // local minimum (should not happen away from the sources)
+                v = nextV;
+            }
+        }
+
+        int lowest_vertex(Index3i t)
+        {
+            int v = t.a;
+            if (phi(t.b) < phi(v)) v = t.b;
+            if (phi(t.c) < phi(v)) v = t.c;
+            return v;
+        }
+
+        static void add(List<Vector3d> path, Vector3d p)
+        {
+            if (path.Count == 0 || path[path.Count - 1].DistanceSquared(p) > 1e-24)
+                path.Add(p);
         }
 
         // neighbours with non-negative cotan weights (negative ones, at obtuse angles, set to 0)

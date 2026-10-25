@@ -109,6 +109,57 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        static double Length(List<Vector3d> path)
+        {
+            double l = 0;
+            for (int i = 1; i < path.Count; ++i) l += path[i].Distance(path[i - 1]);
+            return l;
+        }
+
+        [Fact]
+        public void Path_Plane_IsStraight()
+        {
+            DMesh3 mesh = Grid(-50, -50, 50, 50, 101, (x, y) => 0);
+            int src = NearestVertex(mesh, Vector3d.Zero);
+            var geo = new MeshGeodesicDistance(mesh);
+            Assert.True(geo.Compute(new[] { src }));
+            Vector3d start = new Vector3d(40, 25, 0);
+            List<Vector3d> path = geo.TracePath(start);
+            Assert.True(path.Count >= 2);
+            Assert.True(path[0].Distance(start) < 1e-9);
+            Assert.True(path[path.Count - 1].Distance(mesh.GetVertex(src)) < 1e-9, "path does not end at the source");
+            double straight = start.Length;
+            Assert.True(Math.Abs(Length(path) - straight) < 0.01 * straight, $"length {Length(path)} vs {straight}");
+            // close to the straight line
+            var seg = new Segment3d(start, Vector3d.Zero);
+            Assert.True(path.Max(p => seg.DistanceSquared(p)) < 1.0, "path leaves the straight line");
+        }
+
+        [Fact]
+        public void Path_HillyTerrain_OnSurfaceAndShortest()
+        {
+            Func<double, double, double> h = (x, y) => 8 * Math.Sin(x / 15.0) * Math.Cos(y / 11.0);
+            DMesh3 mesh = Grid(-50, -50, 50, 50, 101, h);
+            int src = NearestVertex(mesh, new Vector3d(-40, -40, 0));
+            var geo = new MeshGeodesicDistance(mesh);
+            Assert.True(geo.Compute(new[] { src }));
+            var spatial = new DMeshAABBTree3(mesh, true);
+            var dijkstra = DijkstraGraphDistance.MeshVertices(mesh);
+            dijkstra.AddSeed(src, 0);
+            dijkstra.Compute();
+            foreach (Vector3d target in new[] { new Vector3d(40, 40, 0), new Vector3d(45, -30, 0), new Vector3d(-35, 42, 0) }) {
+                int tv = NearestVertex(mesh, target);
+                List<Vector3d> path = geo.TracePath(tv);
+                Assert.True(path[path.Count - 1].Distance(mesh.GetVertex(src)) < 1e-9);
+                foreach (Vector3d p in path)
+                    Assert.True(Math.Sqrt(MeshQueries.TriDistanceSqr(mesh, spatial.FindNearestTriangle(p), p)) < 1e-6, "path point off the surface");
+                double len = Length(path);
+                Assert.True(len >= mesh.GetVertex(tv).Distance(mesh.GetVertex(src)) - 1e-6, "shorter than the straight line");
+                Assert.True(len <= dijkstra.GetDistance(tv) * 1.001, $"longer than the edge path: {len} vs {dijkstra.GetDistance(tv)}");
+                Assert.True(Math.Abs(len - geo.Distance[tv]) < 0.03 * geo.Distance[tv] + 1, $"length {len} vs distance {geo.Distance[tv]}");
+            }
+        }
+
         [Fact]
         public void UtmCoordinates_SameDistances()
         {
