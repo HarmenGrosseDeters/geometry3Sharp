@@ -52,10 +52,10 @@ int ExactPredicates.InCircle(Vector2d a, Vector2d b, Vector2d c, Vector2d d)
 1. **Stufe A, Filter:** Determinante in double, Fehlerschranke nach Shewchuk (`(3+16ε)ε`, `(7+56ε)ε`,
    `(10+96ε)ε` mal Permanente). Orient3d/InCircle entscheiden nur, wenn die Permanente > 1e-200 ist
    (`UnderflowLimit`, sonst gilt die relative Schranke wegen subnormaler Produkte nicht). Überlauf ergibt
-   ∞/NaN, der Vergleich `det > bound` ist dann falsch → weiter zu 2. Orient2d hat keinen Unterlauf-Test:
-   subnormale Produkte haben Fehler ≤ 2^-1075; ein von 0 verschiedenes Ergebnis hat Betrag ≥ 2^-1074, und
-   wegen Round-to-even können sich zwei halbe Einheiten nicht zu genau dieser Differenz addieren. Der
-   Harness bestätigt das bei 1e-160 und 1e-300 (0 Fehler).
+   ∞/NaN, der Vergleich `det > bound` ist dann falsch → weiter zu 2. Orient2d entscheidet ebenso nur, wenn
+   |l| + |r| > 1e-200 ist. *Korrigiert:* Ohne diese Grenze gab Orient2d bei exakt kollinearen Punkten um
+   1e-160 ±1 statt 0 – die Schranke rundet bei subnormalen Produkten auf 0, die Rundungsfehler der
+   Differenzen lassen aber ein `det` von 5e-324 übrig (Test `Orient2d_SubnormalProducts`).
 2. **Exakter Pfad** (`*_exact`): gleiche Punkte → 0. Liegen alle Koordinaten bei 0 oder in [2^-100, 2^100]
    (`Expansion.InRange`), dann
    - `AdaptivePredicates` (Stufen B und C nach Shewchuk), bei `NotDecided`
