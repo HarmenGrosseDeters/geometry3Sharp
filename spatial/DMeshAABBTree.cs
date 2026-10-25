@@ -10,6 +10,14 @@ namespace g3
     /// Hierarchical Axis-Aligned-Bounding-Box tree for a DMesh3 mesh.
     /// This class supports a variety of spatial queries, listed below.
     /// 
+    /// You must call Build() (or pass autoBuild = true to the constructor) before any query.
+    /// The tree does not update itself: if the mesh is modified afterwards (any vertex position or
+    /// topology change, see DMesh3.ShapeTimestamp), queries throw an Exception until Build() is called again.
+    /// Check IsValid to see if a rebuild is needed. Building is roughly O(n log n); queries are typically O(log n).
+    /// Queries return triangle/vertex IDs (DMesh3.InvalidID if nothing is found); use the MeshQueries
+    /// helpers (eg MeshQueries.TriangleDistance, MeshQueries.TriangleIntersection) to get points and distances.
+    /// Ray queries require a normalized ray direction.
+    /// 
     /// Various construction strategies are also available, the default is the
     /// fastest to build but if you are doing a *lot* of queries, you might experiment
     /// with the others (eg TopDownMedian)
@@ -34,6 +42,10 @@ namespace g3
         protected DMesh3 mesh;
         protected int mesh_timestamp;
 
+        /// <summary>
+        /// Create a tree for mesh m. If autoBuild is true, Build() is called immediately with the default strategy,
+        /// otherwise you must call Build() before running queries.
+        /// </summary>
         public DMeshAABBTree3(DMesh3 m, bool autoBuild = false)
         {
             mesh = m;
@@ -42,27 +54,35 @@ namespace g3
         }
 
 
+        /// <summary> The mesh this tree was created for </summary>
         public DMesh3 Mesh { get { return mesh; } }
 
 
         /// <summary>
         /// If non-null, only triangle IDs that pass this filter (ie filter is true) are considered
+        /// by the queries. Can be changed between queries without rebuilding the tree.
         /// </summary>
         public Func<int, bool> TriangleFilterF = null;
 
 
-        // Top-down build strategies will put at most this many triangles into a box.
-        // Larger value == shallower trees, but leaves cost more to test
+        /// <summary>
+        /// Top-down build strategies will put at most this many triangles into a box.
+        /// Larger value == shallower trees, but leaves cost more to test
+        /// </summary>
         public int TopDownLeafMaxTriCount = 4;
 
-        // bottom-up FastVolumeMetric cluster policy sorts available boxes along an axis
-        // and then proceeds from min to max, greedily grouping best-pairs. This value determines
-        // the range of the greedy search. Larger == slower but better bounding
-        // (at least in theory...)
+        /// <summary>
+        /// Bottom-up FastVolumeMetric cluster policy sorts available boxes along an axis
+        /// and then proceeds from min to max, greedily grouping best-pairs. This value determines
+        /// the range of the greedy search. Larger == slower but better bounding
+        /// (at least in theory...)
+        /// </summary>
         public int BottomUpClusterLookahead = 10;
 
 
-        // how should we build the tree?
+        /// <summary>
+        /// How should we build the tree? See the comments on each value.
+        /// </summary>
         public enum BuildStrategy
         {
             Default,                // currently TopDownMidpoint
@@ -78,6 +98,9 @@ namespace g3
                                     //   2-4x slower than TopDownMidpoint, but trees are generally more efficient and balanced.
         }
 
+        /// <summary>
+        /// Box clustering policy for BuildStrategy.BottomUpFromOneRings (ignored by the top-down strategies).
+        /// </summary>
         public enum ClusterPolicy
         {
             Default,               // currently FastVolumeMetric
@@ -90,7 +113,10 @@ namespace g3
         }
 
 
-        // Build the tree. Policy only matters for bottom-up strategies
+        /// <summary>
+        /// Build (or rebuild) the tree for the current state of the mesh. Must be called before any query,
+        /// and again after the mesh is modified. Policy only matters for bottom-up strategies.
+        /// </summary>
         public void Build(BuildStrategy eStrategy = BuildStrategy.TopDownMidpoint, 
                           ClusterPolicy ePolicy = ClusterPolicy.Default)
         {
@@ -106,6 +132,10 @@ namespace g3
         }
 
 
+        /// <summary>
+        /// True if the tree was built for the current mesh shape (ShapeTimestamp unchanged since Build()).
+        /// If false, queries will throw.
+        /// </summary>
         public bool IsValid { get { return mesh_timestamp == mesh.ShapeTimestamp; } }
 
 
@@ -116,8 +146,9 @@ namespace g3
 
 
         /// <summary>
-        /// Find the triangle closest to p, within distance fMaxDist, or return InvalidID
-        /// Use MeshQueries.TriangleDistance() to get more information
+        /// Find the triangle closest to p, within distance fMaxDist, or return DMesh3.InvalidID.
+        /// Use MeshQueries.TriangleDistance() to get the closest point and distance.
+        /// Throws if the tree is not built or the mesh was modified since Build().
         /// </summary>
         public virtual int FindNearestTriangle(Vector3d p, double fMaxDist = double.MaxValue)
         {
@@ -130,7 +161,8 @@ namespace g3
             return tNearID;
         }
         /// <summary>
-        /// Find the triangle closest to p, and distance to it, within distance fMaxDist, or return InvalidID
+        /// Find the triangle closest to p, within distance fMaxDist, or return DMesh3.InvalidID.
+        /// fNearestDistSqr is the SQUARED distance to that triangle (fMaxDist^2, or double.MaxValue, if none was found).
         /// Use MeshQueries.TriangleDistance() to get more information
         /// </summary>
         public virtual int FindNearestTriangle(Vector3d p, out double fNearestDistSqr, double fMaxDist = double.MaxValue)
@@ -194,7 +226,8 @@ namespace g3
 
 
         /// <summary>
-        /// Find the vertex closest to p, within distance fMaxDist, or return InvalidID
+        /// Find the vertex closest to p, within distance fMaxDist, or return DMesh3.InvalidID.
+        /// Only vertices of triangles in the tree are considered (isolated vertices are never found).
         /// </summary>
         public virtual int FindNearestVertex(Vector3d p, double fMaxDist = double.MaxValue)
         {
@@ -267,8 +300,10 @@ namespace g3
         public bool SupportsTriangleRayIntersection { get { return true; } }
 
         /// <summary>
-        /// find id of first triangle that ray hits, within distance fMaxDist, or return DMesh3.InvalidID
-        /// Use MeshQueries.TriangleIntersection() to get more information
+        /// Find id of first triangle that ray hits (smallest ray parameter), within distance fMaxDist
+        /// along the ray, or return DMesh3.InvalidID. Hits behind the ray origin are ignored; both
+        /// front and back faces are hit. The ray direction must be normalized, otherwise this throws.
+        /// Use MeshQueries.TriangleIntersection() to get the hit point / ray parameter.
         /// </summary>
         public virtual int FindNearestHitTriangle(Ray3d ray, double fMaxDist = double.MaxValue)
         {
@@ -359,8 +394,9 @@ namespace g3
 
 
         /// <summary>
-        /// Find the ids of all the triangles that they ray intersects, within distance fMaxDist from ray origin
-        /// Returns count of triangles.
+        /// Find the ids of all the triangles that the ray intersects, within distance fMaxDist from ray origin,
+        /// and append them to hitTriangles if it is not null (in no particular order).
+        /// Returns count of triangles. The ray direction must be normalized, otherwise this throws.
         /// </summary>
         public virtual int FindAllHitTriangles(Ray3d ray, List<int> hitTriangles = null, double fMaxDist = double.MaxValue)
         {
@@ -440,9 +476,11 @@ namespace g3
 
 
         /// <summary>
-        /// return true if *any* triangle of testMesh intersects with our tree.
+        /// Return true if *any* triangle of testMesh intersects with our tree.
         /// Use TransformF to transform vertices of testMesh into space of this tree.
-        /// if boundsCheck is false, we skip bbox/bbox early-out
+        /// If bBoundsCheck is false, we skip bbox/bbox early-out.
+        /// This tests each triangle of testMesh against the tree; for two large meshes,
+        /// TestIntersection(DMeshAABBTree3) is faster.
         /// </summary>
         public virtual bool TestIntersection(IMesh testMesh, Func<Vector3d, Vector3d> TransformF = null, bool bBoundsCheck = true)
         {
@@ -528,7 +566,9 @@ namespace g3
 
         /// <summary>
         /// Returns true if there is *any* intersection between our mesh and 'other' mesh.
-        /// TransformF takes vertices of otherTree into our tree - can be null if in same coord space
+        /// TransformF takes vertices of otherTree into our tree - can be null if in same coord space.
+        /// otherTree must also be built. Returns false if one mesh is entirely inside the other
+        /// without the surfaces crossing.
         /// </summary>
         public virtual bool TestIntersection(DMeshAABBTree3 otherTree, Func<Vector3d, Vector3d> TransformF = null)
         {
@@ -651,16 +691,27 @@ namespace g3
 
 
 
+        /// <summary>
+        /// Single-point intersection found by FindAllIntersections: t0 is the triangle of this tree's mesh,
+        /// t1 the triangle of the other mesh.
+        /// </summary>
         public struct PointIntersection
         {
             public int t0, t1;
             public Vector3d point;
         }
+        /// <summary>
+        /// Segment intersection [point0, point1] found by FindAllIntersections: t0 is the triangle of this tree's mesh,
+        /// t1 the triangle of the other mesh.
+        /// </summary>
         public struct SegmentIntersection
         {
             public int t0, t1;
             public Vector3d point0, point1;
         }
+        /// <summary>
+        /// Result of FindAllIntersections: lists of point and segment intersections (never null, possibly empty)
+        /// </summary>
         public class IntersectionsQueryResult
         {
             public List<PointIntersection> Points;
@@ -671,8 +722,9 @@ namespace g3
         /// <summary>
         /// Compute all intersections between two Meshes. 
         /// TransformF argument transforms vertices of otherTree to our tree (can be null if in same coord space)
-        /// Returns pairs of intersecting triangles, which could intersect in either point or segment
-        /// Currently *does not* return coplanar intersections.
+        /// Returns pairs of intersecting triangles, which could intersect in either point or segment,
+        /// in result.Points and result.Segments (points are in the coordinates of this tree).
+        /// Currently *does not* return coplanar intersections. otherTree must also be built.
         /// </summary>
         public virtual IntersectionsQueryResult FindAllIntersections(DMeshAABBTree3 otherTree, Func<Vector3d, Vector3d> TransformF = null)
         {
@@ -812,7 +864,8 @@ namespace g3
         /// <summary>
         /// Find nearest pair of triangles on this tree with otherTree, within max_dist.
         /// TransformF transforms vertices of otherTree into our coordinates. can be null.
-        /// returns triangle-id pair (my_tri,other_tri), or Index2i.Max if not found within max_dist
+        /// Returns triangle-id pair (my_tri,other_tri), or Index2i.Max if not found within max_dist.
+        /// distance is the (unsquared) distance between the pair, or double.MaxValue if none was found.
         /// Use MeshQueries.TrianglesDistance() to get more information
         /// </summary>
         public virtual Index2i FindNearestTriangles(DMeshAABBTree3 otherTree, Func<Vector3d, Vector3d> TransformF, out double distance, double max_dist = double.MaxValue)
@@ -964,7 +1017,10 @@ namespace g3
         public bool SupportsPointContainment { get { return true; } }
 
         /// <summary>
-        /// Returns true if point p is inside this mesh.
+        /// Returns true if point p is inside this mesh, using a ray-crossing parity test: a ray in a fixed
+        /// direction is cast from p and the point is inside if it hits an odd number of triangles.
+        /// Only reliable for closed meshes without self-intersections; can be wrong if the ray hits an
+        /// edge or vertex exactly. For open, non-manifold or noisy meshes use WindingNumber(p) &gt; 0.5 instead.
         /// </summary>
         public virtual bool IsInside(Vector3d p)
         {
@@ -1072,22 +1128,32 @@ namespace g3
 
 
         /// <summary>
-        /// Evaluate the mesh winding number at point. To do this, we must construct additional
+        /// Evaluate the generalized winding number of the mesh at point p (exact sum of triangle solid angles / 4pi).
+        /// For a closed mesh with outward-facing normals this is 1 inside, 0 outside (-1 inside for an
+        /// inside-out mesh, and n inside n nested shells). For open meshes it varies smoothly, and
+        /// WindingNumber &gt; 0.5 is a robust inside test. To do this, we must construct additional
         /// information to short-circuit tree branches. This happens on the first evaluation.
         /// This does consume some additional memory, mainly temporary memory during construction.
         /// (eg on a 500k sphere, about 30mb to construct, but then only 2-5mb is stored at the end)
         /// If you don't want this, just use Mesh.WindingNumber() directly. Also note that if you
         /// are only evaluating a few times, it is not sensible - assume you need at least 
         /// hundreds of evaluations to see speed improvements.
+        /// The cache is built without locking, so call this once before evaluating from multiple threads.
         /// </summary>
         public virtual double WindingNumber(Vector3d p)
         {
             if (mesh_timestamp != mesh.ShapeTimestamp)
                 throw new Exception("DMeshAABBTree3.WindingNumber: mesh has been modified since tree construction");
 
+            // built on first use, possibly by several threads at once: build it under a lock and set the
+            // (volatile) timestamp only once the cache is complete, as for FastWindingNumber
             if (WindingCache == null || winding_cache_timestamp != mesh.ShapeTimestamp) {
-                build_winding_cache();
-                winding_cache_timestamp = mesh.ShapeTimestamp;
+                lock (winding_cache_lock) {
+                    if (WindingCache == null || winding_cache_timestamp != mesh.ShapeTimestamp) {
+                        build_winding_cache();
+                        winding_cache_timestamp = mesh.ShapeTimestamp;
+                    }
+                }
             }
 
             double sum = branch_winding_num(root_index, p);
@@ -1145,7 +1211,8 @@ namespace g3
 
 
         Dictionary<int, List<int>> WindingCache;
-        int winding_cache_timestamp = -1;
+        volatile int winding_cache_timestamp = -1;
+        readonly object winding_cache_lock = new object();
 
         protected void build_winding_cache()
         {
@@ -1316,7 +1383,11 @@ namespace g3
 
 
         /// <summary>
-        /// Fast approximation of winding number using far-field approximations
+        /// Fast approximation of the winding number at p using far-field (dipole) approximations
+        /// (Barill et al. 2018, Fast Winding Numbers). Same conventions as WindingNumber(p) (1 inside,
+        /// 0 outside for a closed outward-oriented mesh), but the result is approximate (errors of a few
+        /// percent up to about 0.1 are normal); accuracy is controlled by FWNBeta and FWNApproxOrder. The cache is built on the first call
+        /// (thread-safe). Much faster than WindingNumber for many queries on large meshes.
         /// </summary>
         public virtual double FastWindingNumber(Vector3d p)
         {
@@ -1551,7 +1622,7 @@ namespace g3
 
 
         /// <summary>
-        /// Root bounding box of tree (note: tree must be generated by calling a query function first!)
+        /// Root bounding box of tree (note: tree must be built by calling Build() first!)
         /// </summary>
         public AxisAlignedBox3d Bounds {
             get { return get_boxd(root_index); }

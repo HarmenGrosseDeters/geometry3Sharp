@@ -25,38 +25,55 @@ namespace gs
     ///     are dropped.
     /// The symmetric distance is the max of both directions; the second direction is pruned against the
     /// first one's lower bound.
+    ///
+    /// Usage: <c>var hd = new MeshHausdorffDistance(meshA, meshB); if (hd.Compute()) use(hd.UpperBound);</c>
+    /// The meshes are not modified. Distances are in mesh units; the meshes must be in the same coordinate space.
+    /// The value is 0 for identical meshes and, for two concentric spheres of radii r1 &lt; r2, about r2 - r1.
     /// </summary>
     public class MeshHausdorffDistance
     {
+        /// <summary> input meshes (not modified). The one-sided distance is from A to B. </summary>
         public DMesh3 MeshA, MeshB;
-        /// <summary> optional spatial data structures (built if null) </summary>
+        /// <summary> optional built spatial data structures for MeshA / MeshB (built by Compute() if null; SpatialA only if Symmetric) </summary>
         public DMeshAABBTree3 SpatialA, SpatialB;
 
         /// <summary> symmetric distance max(h(A,B), h(B,A)); false = one-sided h(A,B) (A to B) </summary>
         public bool Symmetric = true;
         /// <summary> absolute tolerance for UpperBound - LowerBound; if 0, RelativeTolerance * bounding box diagonal </summary>
         public double Tolerance = 0;
+        /// <summary> tolerance relative to the diagonal of the combined bounding box, used if Tolerance is 0 </summary>
         public double RelativeTolerance = 1e-4;
         /// <summary> stop (Converged = false) after this many triangle subdivisions </summary>
         public int MaxSubdivisions = 20000000;
 
+        /// <summary> if this function returns true, the computation stops and Compute() returns false </summary>
         public Func<bool> CancelF = () => { return false; };
 
         // outputs
+        /// <summary> output: interval that contains the exact Hausdorff distance (NaN if Compute() failed on its inputs) </summary>
         public double LowerBound, UpperBound;
+        /// <summary> output: true if UpperBound - LowerBound is within the tolerance (false if stopped by MaxSubdivisions or CancelF) </summary>
         public bool Converged;
         /// <summary> point where the lower bound is attained (on A, or on B if WorstPointOnB), and its closest point on the other mesh </summary>
         public Vector3d WorstPoint, WorstPointClosest;
+        /// <summary> output: true if WorstPoint lies on MeshB (only possible if Symmetric) </summary>
         public bool WorstPointOnB;
+        /// <summary> output: number of triangle subdivisions performed </summary>
         public int Subdivisions;
 
 
+        /// <summary> Set up the distance computation between meshes a and b. Call Compute() to run it. </summary>
         public MeshHausdorffDistance(DMesh3 a, DMesh3 b)
         {
             MeshA = a; MeshB = b;
         }
 
 
+        /// <summary>
+        /// Compute LowerBound / UpperBound (and WorstPoint). Returns false, with LowerBound = UpperBound = NaN,
+        /// if either mesh has no triangles or a non-finite vertex; also returns false if cancelled.
+        /// Returns true otherwise, even if not Converged (check Converged).
+        /// </summary>
         public bool Compute()
         {
             LowerBound = UpperBound = double.NaN; Converged = false; Subdivisions = 0;

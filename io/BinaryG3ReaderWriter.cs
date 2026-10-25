@@ -9,6 +9,11 @@ using System.Threading;
 namespace g3
 {
 
+    /// <summary>
+    /// Writes the internal .g3mesh binary format: a mesh count followed by each DMesh3 stored with gSerialization.
+    /// Only DMesh3 meshes are supported (throws NotImplementedException otherwise), and only the BinaryWriter overload
+    /// (the TextWriter overload throws NotSupportedException). Not intended for exchange with other software.
+    /// </summary>
     public class BinaryG3Writer : IMeshWriter
     {
         public IOWriteResult Write(BinaryWriter writer, List<WriteMesh> vMeshes, WriteOptions options)
@@ -34,6 +39,11 @@ namespace g3
 
 
 
+    /// <summary>
+    /// Reads the internal .g3mesh binary format written by <see cref="BinaryG3Writer"/>, appending each stored DMesh3
+    /// to the builder. Only the BinaryReader overload is supported (the TextReader overload throws NotSupportedException).
+    /// Read errors throw; StandardMeshReader catches them and returns GenericReaderError.
+    /// </summary>
     public class BinaryG3Reader : IMeshReader
     {
         public IOReadResult Read(BinaryReader reader, ReadOptions options, IMeshBuilder builder)

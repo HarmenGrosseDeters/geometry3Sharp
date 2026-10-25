@@ -10,8 +10,9 @@ using System.Threading;
 namespace g3
 {
 	//
-	// Parse OFF mesh format
+	// Parse ascii OFF mesh format, into one mesh. Polygons are fan-triangulated, vertex colors are ignored.
 	// https://en.wikipedia.org/wiki/OFF_(file_format)
+	// Internal; use StandardMeshReader with a .off file.
 	// 
     class OFFReader : IMeshReader
     {

@@ -42,7 +42,7 @@ namespace g3 {
         {
             Center = seg.Center;
             AxisX = seg.Direction;
-            AxisY = seg.Direction.Perp;
+            AxisY = -seg.Direction.Perp;
             Extent = new Vector2d(seg.Extent, 0);
         }
 

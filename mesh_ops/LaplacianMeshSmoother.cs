@@ -4,8 +4,24 @@ using System.Diagnostics;
 
 namespace g3
 {
+    /// <summary>
+    /// Global Laplacian smoothing by a sparse least-squares solve: finds vertex positions x that minimize
+    /// |L x|^2 + sum over constrained vertices of (w_i |x_i - p_i|)^2, where L is a (uniform-like) graph
+    /// Laplacian of the mesh and p_i, w_i are soft constraints set with SetConstraint(). The target Laplacian
+    /// is zero, so unconstrained regions become as smooth (flat/minimal) as the constraints allow; the weights
+    /// control how strongly vertices are held. Without any constraints the problem is singular and the
+    /// result degenerates, so always constrain some vertices (eg the boundary, or all vertices with a small
+    /// weight to their current position for mild smoothing).
+    ///
+    /// Solve() writes the result to an array; SolveAndUpdateMesh() writes it to the mesh in place. Both return
+    /// false if the conjugate-gradient solve does not converge (the mesh is then not changed). Initialize()
+    /// (called automatically by the first solve) captures the mesh topology and positions, so do not change
+    /// the mesh topology afterwards. RegionSmooth() smooths a set of triangles with a fixed border.
+    /// For simple local smoothing with a fixed number of steps see <see cref="MeshIterativeSmooth"/>.
+    /// </summary>
     public class LaplacianMeshSmoother
     {
+        /// <summary> the mesh (SolveAndUpdateMesh() modifies it in place) </summary>
         public DMesh3 Mesh;
 
         // info that is fixed based on mesh
@@ -16,7 +32,7 @@ namespace g3
         int[] nbr_counts;
         double[] MLx, MLy, MLz;
 
-        // constraints
+        /// <summary> a soft position constraint (see SetConstraint) </summary>
         public struct SoftConstraintV
         {
             public Vector3d Position;
@@ -35,7 +51,10 @@ namespace g3
         DiagonalMatrix Preconditioner;
 
 
-        // Appendix C from http://sites.fas.harvard.edu/~cs277/papers/deformation_survey.pdf
+        /// <summary>
+        /// Solve the normal equations (L^T L + W^2) x = W^2 p of the least-squares problem (default). Appendix C from
+        /// http://sites.fas.harvard.edu/~cs277/papers/deformation_survey.pdf . Must be set before Initialize().
+        /// </summary>
         public bool UseSoftConstraintNormalEquations = true;
 
 
@@ -43,12 +62,18 @@ namespace g3
         double[] Sx, Sy, Sz;
 
 
+        /// <summary> smoother for mesh; set constraints, then call Solve() or SolveAndUpdateMesh() </summary>
         public LaplacianMeshSmoother(DMesh3 mesh)
         {
             Mesh = mesh;
         }
 
 
+        /// <summary>
+        /// Soft constraint: pull vertex vID towards targetPos with the given weight (larger = stronger; 0 = none).
+        /// If bForceToFixedPos, the vertex is also set exactly to targetPos after the solve.
+        /// Replaces an existing constraint of the vertex.
+        /// </summary>
         public void SetConstraint(int vID, Vector3d targetPos, double weight, bool bForceToFixedPos = false)
         {
             SoftConstraints[vID] = new SoftConstraintV() { Position = targetPos, Weight = weight, PostFix = bForceToFixedPos };
@@ -56,10 +81,12 @@ namespace g3
             need_solve_update = true;
         }
 
+        /// <summary> true if SetConstraint() was called for vertex vID </summary>
         public bool IsConstrained(int vID) {
             return SoftConstraints.ContainsKey(vID);
         }
 
+        /// <summary> remove all soft constraints </summary>
         public void ClearConstraints()
         {
             SoftConstraints.Clear();
@@ -68,6 +95,10 @@ namespace g3
         }
 
 
+        /// <summary>
+        /// Build the Laplacian system from the current mesh topology and vertex positions (the CG start values).
+        /// Called by the first solve if not called explicitly; call again if the mesh changed.
+        /// </summary>
         public void Initialize()
         {
             ToMeshV = new int[Mesh.MaxVertexID];
@@ -196,7 +227,11 @@ namespace g3
 
 
 
-        // Result must be as large as Mesh.MaxVertexID
+        /// <summary>
+        /// Solve with three separate preconditioned CG solves (x, y, z in parallel) and write the new position of
+        /// each vertex to Result[vid]. Result must be as large as Mesh.MaxVertexID. Returns false if a solve
+        /// does not converge (Result is then not written). Does not modify the mesh.
+        /// </summary>
         public bool SolveMultipleCG(Vector3d[] Result)
         {
             if (WeightsM == null)
@@ -259,7 +294,10 @@ namespace g3
 
 
 
-        // Result must be as large as Mesh.MaxVertexID
+        /// <summary>
+        /// Same as SolveMultipleCG(), with one CG solver for the three right-hand sides.
+        /// Result must be as large as Mesh.MaxVertexID. Does not modify the mesh.
+        /// </summary>
         public bool SolveMultipleRHS(Vector3d[] Result)
         {
             if (WeightsM == null)
@@ -316,6 +354,11 @@ namespace g3
         }
 
 
+        /// <summary>
+        /// Solve for the smoothed positions into Result (indexed by vertex id, size at least Mesh.MaxVertexID),
+        /// using SolveMultipleCG() below 10000 vertices and SolveMultipleRHS() above. Returns false if the
+        /// solve does not converge. Does not modify the mesh.
+        /// </summary>
         public bool Solve(Vector3d[] Result)
         {
             // for small problems, faster to use separate CGs?
@@ -328,6 +371,10 @@ namespace g3
 
 
 
+        /// <summary>
+        /// Solve() and set the mesh vertices to the result (in place). Returns false, leaving the mesh
+        /// unchanged, if the solve does not converge.
+        /// </summary>
         public bool SolveAndUpdateMesh()
         {
             int N = Mesh.MaxVertexID;
@@ -350,7 +397,10 @@ namespace g3
         /// border of subset always has soft constraint with borderWeight, 
         /// but is then snapped back to original vtx pos after solve.
         /// nConstrainLoops inner loops are also soft-constrained, with weight falloff via square roots (defines continuity)
-        /// interiorWeight is soft constraint added to all vertices
+        /// interiorWeight is soft constraint added to all vertices.
+        /// nIncludeExteriorRings expands the region by that many one-rings first; if bPreserveExteriorRings, the
+        /// added vertices are snapped back to their original positions after the solve.
+        /// The mesh is modified in place (only the region's vertex positions).
         /// </summary>
         public static void RegionSmooth(DMesh3 mesh, IEnumerable<int> triangles, 
             int nConstrainLoops, 

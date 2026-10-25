@@ -23,6 +23,11 @@
     <None Include="test_files\**" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <!-- the examples of docs/OPERATIONS.md are compiled into the tests and run by DocExamplesTests -->
+  <ItemGroup Condition="'$(UseNuGetG3)' != 'true'">
+    <Compile Include="..\..\docs\examples\*.cs" Link="DocExamples\%(Filename)%(Extension)" />
+  </ItemGroup>
+
   <ItemGroup Condition="'$(UseNuGetG3)' != 'true'">
     <ProjectReference Include="..\..\geometry3Sharp_netstandard.csproj" />
   </ItemGroup>

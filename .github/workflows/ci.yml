@@ -23,6 +23,8 @@ jobs:
         run: dotnet build geometry3Sharp_netstandard.csproj -c Release
       - name: Test (net10.0)
         run: dotnet test tests/geometry3Sharp.Tests -c Release --logger "trx;LogFileName=net10.trx" --results-directory test-results
+      - name: Test CLI / MCP server (tools/g3cli)
+        run: dotnet test tests/g3cli.Tests -c Release --logger "trx;LogFileName=g3cli.trx" --results-directory test-results
       - name: Pack
         run: dotnet pack geometry3Sharp_netstandard.csproj -c Release -o artifacts -p:Version=1.0.0-ci.${{ github.run_number }}
       - name: Package smoke test

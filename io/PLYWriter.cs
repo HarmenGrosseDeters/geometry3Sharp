@@ -6,15 +6,18 @@ using System.Text;
 
 namespace g3
 {
-    //
-    // Write PLY (Stanford polygon) mesh format, ascii or binary_little_endian
-    // http://paulbourke.net/dataformats/ply/
-    //
-    // PLY only stores one mesh, so all input meshes are combined.
-    // Positions are written as double if options.RealPrecisionDigits > 7, otherwise as float.
-    // Normals, colors (uchar) and UVs (s,t) are written if enabled in the options and all meshes have them.
-    // Meshes without triangles are written as point sets.
-    //
+    /// <summary>
+    /// Write PLY (Stanford polygon) mesh format, ascii or binary_little_endian
+    /// http://paulbourke.net/dataformats/ply/
+    /// 
+    /// The TextWriter overload writes ascii, the BinaryWriter overload binary_little_endian
+    /// (StandardMeshWriter picks one from options.bWriteBinary).
+    /// PLY only stores one mesh, so all input meshes are combined.
+    /// Positions are written as double if options.RealPrecisionDigits &gt; 7, otherwise as float.
+    /// Normals, colors (uchar) and UVs (s,t) are written if enabled in the options and all meshes have them.
+    /// options.AsciiHeaderFunc lines are written as header comments. Meshes without triangles are written as point sets.
+    /// WriteMesh names, materials and UV layers are ignored. Always returns Ok; exceptions are not caught here.
+    /// </summary>
     public class PLYWriter : IMeshWriter
     {
         struct Layout

@@ -13,28 +13,42 @@ namespace gs
     /// This is a fuzzy definition, current implementation is basically computing
     /// something akin to ambient occlusion, and if face is fully occluded, then
     /// we classify it as inside and remove it.
+    ///
+    /// Each triangle (centroid) or vertex (PerVertex) is tested at a point nudged out along its normal by
+    /// NormalOffset, with the test chosen by InsideMode. Triangles classified inside are removed from the
+    /// mesh in place (vertices left unused are removed too); their ids are in RemovedT. Used by
+    /// MeshAutoRepair.RemoveMode.
 	/// </summary>
 	public class RemoveOccludedTriangles
 	{
 		public DMesh3 Mesh;
+        /// <summary> optional prebuilt AABB tree of Mesh (not used in RayParity mode if the mesh has holes) </summary>
         public DMeshAABBTree3 Spatial;
 
-        // indices of removed triangles. List will be empty if nothing removed
+        /// <summary> ids of the removed triangles (unordered). Empty if nothing was removed. Not meaningful if Apply() returned false </summary>
         public List<int> RemovedT = null;
 
-        // Mesh.RemoveTriange() can return false, if that happens, this will be true
+        /// <summary> true if removing some of the triangles failed </summary>
         public bool RemoveFailed = false;
 
-        // if true, then we discard tris if any vertex is occluded.
-        // Otherwise we discard based on tri centroids
+        /// <summary>
+        /// if true, then we discard tris if any vertex is occluded.
+        /// Otherwise we discard based on tri centroids
+        /// </summary>
         public bool PerVertex = false;
 
-        // we nudge points out by this amount to try to counteract numerical issues
+        /// <summary> we nudge points out along the normal by this amount to try to counteract numerical issues </summary>
         public double NormalOffset = MathUtil.ZeroTolerance;
 
-        // use this as winding isovalue for WindingNumber mode
+        /// <summary> a point is inside if its winding number is above this (winding number modes) </summary>
         public double WindingIsoValue = 0.5;
 
+        /// <summary>
+        /// Inside test. RayParity: ray-crossing parity against the mesh (holes are filled with a fan in a copy
+        /// first). AnalyticWindingNumber / FastWindingNumber: exact or fast generalized winding number above
+        /// WindingIsoValue (robust for open meshes and soups). SimpleOcclusionTest: occluded if rays along all six
+        /// axis directions hit the mesh.
+        /// </summary>
         public enum CalculationMode
         {
             RayParity = 0,
@@ -42,11 +56,12 @@ namespace gs
             FastWindingNumber = 2,
             SimpleOcclusionTest = 3
         }
+        /// <summary> inside test, see CalculationMode; default RayParity </summary>
         public CalculationMode InsideMode = CalculationMode.RayParity;
 
 
         /// <summary>
-        /// Set this to be able to cancel running remesher
+        /// Set this to be able to cancel the running computation
         /// </summary>
         public ProgressCancel Progress = null;
 
@@ -71,6 +86,10 @@ namespace gs
         }
 
 
+        /// <summary>
+        /// Classify and remove the inside triangles.
+        /// </summary>
+        /// <returns>false if cancelled (nothing is removed then), true otherwise</returns>
         public virtual bool Apply()
         {
             DMesh3 testAgainstMesh = Mesh;

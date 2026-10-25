@@ -5,26 +5,31 @@ using System.Text;
 
 namespace g3
 {
-    //
-    // Read glTF 2.0 files, as .gltf (JSON) or .glb (binary container)
-    // https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html
-    //
-    // Every node of the scene that references a mesh becomes one mesh, with the node
-    // transforms (matrix or TRS, including parents) applied to positions and normals.
-    // All primitives of a glTF mesh are combined; if there is more than one primitive,
-    // the primitive index is stored as face group. Reads POSITION, NORMAL, COLOR_0 and
-    // TEXCOORD_0. Triangle lists, strips and fans are read; point and line primitives are skipped.
-    // Materials, textures, skins and animations are ignored. Coordinates are not converted
-    // (glTF is Y-up, in meters). Draco and meshopt compression are not supported.
-    //
+    /// <summary>
+    /// Read glTF 2.0 files, as .gltf (JSON) or .glb (binary container); the variant is detected from the data.
+    /// https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html
+    /// 
+    /// Every node of the default scene that references a mesh becomes one mesh (if there is no scene, all root
+    /// nodes are used; if there are no nodes, every glTF mesh is read once). Node transforms (matrix or TRS,
+    /// including parents) are applied to positions and normals unless ApplyNodeTransforms is false.
+    /// All primitives of a glTF mesh are combined; if there is more than one primitive,
+    /// the primitive index is stored as face group. The glTF mesh name is stored as "name" metadata if the
+    /// builder supports it. Reads POSITION, NORMAL, COLOR_0 (RGB) and TEXCOORD_0, including sparse and
+    /// normalized-integer accessors. Triangle lists, strips and fans are read; point and line primitives are skipped.
+    /// Materials, textures, skins and animations are ignored. Coordinates are not converted
+    /// (glTF is Y-up, in meters). Draco and meshopt compression are not supported (FormatNotSupportedError).
+    /// Buffers can be the GLB BIN chunk, base64 data URIs, or external files loaded through ResolveUri.
+    /// Errors are returned as an <see cref="IOReadResult"/> code, exceptions are caught.
+    /// </summary>
     public class GLTFReader
     {
-        // connect to this to get warning messages
+        /// <summary> connect to this to get warning messages </summary>
         public event ParsingMessagesHandler warningEvent;
 
         /// <summary>
-        /// Resolves external buffer URIs (relative paths) to bytes. When reading from a file,
-        /// StandardMeshReader sets this to load files next to the .gltf file.
+        /// Resolves external buffer URIs (relative paths, already URI-unescaped) to bytes. When reading from a file,
+        /// StandardMeshReader sets this to load files next to the .gltf file. If null (default), files with
+        /// external buffers fail with <see cref="IOCode.FileAccessError"/>.
         /// </summary>
         public Func<string, byte[]> ResolveUri = null;
 
@@ -80,6 +85,10 @@ namespace g3
         }
 
 
+        /// <summary>
+        /// Read a .gltf or .glb file from stream (read to the end) and append one mesh per mesh instance to builder.
+        /// options are ignored. Does not throw.
+        /// </summary>
         public IOReadResult Read(Stream stream, ReadOptions options, IMeshBuilder builder)
         {
             try {

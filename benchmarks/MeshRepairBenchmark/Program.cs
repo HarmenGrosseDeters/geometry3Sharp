@@ -46,6 +46,17 @@ class Program
                 MeshTransforms.Translate(mesh, new Vector3d(500000, 5000000, 0));
             r["load_ms"] = sw.ElapsedMilliseconds;
             Stats(mesh, r, "before");
+            if (Environment.GetEnvironmentVariable("BENCH_REPAIR") == "analysis") {
+                // analysis building blocks on the input instead of a repair (AnalysisBench.cs)
+                stage = "analysis";
+                r["repair_mode"] = "analysis";
+                sw.Restart();
+                AnalysisBench.Run(mesh, r);
+                r["analysis_ms"] = sw.ElapsedMilliseconds;
+                r["status"] = "ok";
+                Emit(r);
+                return 0;
+            }
             // AutoRepair modifies the mesh in place; keep the input for solidify and deviation
             DMesh3 original = new DMesh3(mesh);
 
@@ -59,7 +70,8 @@ class Program
             // self-intersections), solidify_dc_adaptive of the repaired mesh; hybrid_topo = the same without
             // the self-intersection check,
             // robust = MeshRobustRepair (hybrid plus the volume check against the input),
-            // instr = InstrumentedAutoRepair, records cheap quality metrics after every pipeline step
+            // instr = InstrumentedAutoRepair, records cheap quality metrics after every pipeline step,
+            // analysis = no repair: MeshWallThickness, MeshDeviation and PrimitiveFit3 on the input (see above)
             string repairMode = Environment.GetEnvironmentVariable("BENCH_REPAIR") ?? "default";
             r["repair_mode"] = repairMode;
             double tolFactor = 1;
