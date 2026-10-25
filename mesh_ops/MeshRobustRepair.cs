@@ -57,6 +57,12 @@ namespace gs
         /// Only for meshes that are closed in the winding number sense (exact winding numbers).
         /// </summary>
         public bool ExactResolve = true;
+        /// <summary>
+        /// exact resolve: repair the self-intersections and degenerate slivers that rounding the new vertices to double
+        /// leaves, by local edits checked exactly (ExactMeshBoolean.SafeRounding; after SeparateTouchingVertices again
+        /// with MeshRoundingRepair). Without it, the cleanup collapses slivers and the resolve is repeated.
+        /// </summary>
+        public bool SafeRounding = true;
         /// <summary> rounding the new vertices to double can create tiny self-intersections: resolve again, up to this often </summary>
         public int ExactResolveRounds = 4;
         /// <summary> last resort: alpha wrap the mesh if the solidify fails or its result is not clean </summary>
@@ -91,6 +97,11 @@ namespace gs
         public int ExactResolveRoundsUsed;
         /// <summary> per resolve round: self-intersecting triangle pairs of its result (diagnostics) </summary>
         public List<int> ExactResolveSelfIntersections = new List<int>();
+        /// <summary>
+        /// per resolve round with SafeRounding: edits (and triangles removed) of the repair after rounding the resolve,
+        /// and of the repair after SeparateTouchingVertices (diagnostics)
+        /// </summary>
+        public List<Index2i> ExactRoundingEdits = new List<Index2i>();
         /// <summary>
         /// milliseconds per phase of the last Apply() (summed if a phase runs more than once): "repair", "check"
         /// (cleanness incl. self-intersections), "volume" (VolumeIoU), "exact" (exact resolve incl. its checks;
@@ -137,6 +148,7 @@ namespace gs
             ExactResolveReason = "";
             ExactResolveRoundsUsed = 0;
             ExactResolveSelfIntersections.Clear();
+            ExactRoundingEdits.Clear();
             FallbackReason = "";
             RepairVolumeIoU = double.NaN;
             PhaseMilliseconds.Clear();
@@ -226,7 +238,8 @@ namespace gs
                 if (CancelF())
                     return null;
                 timer.Restart();
-                DMesh3 res = ExactMeshBoolean.Resolve(m);
+                var resolve = new ExactMeshBoolean(m, new DMesh3(), ExactMeshBoolean.Operations.Union) { SafeRounding = SafeRounding };
+                DMesh3 res = resolve.Compute() ? resolve.Result : null;
                 add_phase("exact.resolve", timer.ElapsedMilliseconds); timer.Restart();
                 ExactResolveRoundsUsed++;
                 if (res == null || res.TriangleCount == 0) {
@@ -242,9 +255,22 @@ namespace gs
                 // where solids touch (at a vertex or along an edge) Resolve gives manifold sheets with duplicated
                 // vertices, which touch: separate them minimally
                 SeparateTouchingVertices(res, SeparateFraction);
+                // (the separation and the cleanup can make new slivers and intersections)
+                int si = -1;
+                if (SafeRounding) {
+                    var rounding = new MeshRoundingRepair(res);
+                    rounding.Apply();
+                    int edits = rounding.Collapses + rounding.Flips + rounding.Moves + rounding.Zips + rounding.RemovedTriangles;
+                    if (edits > 0)
+                        res = new DMesh3(res, true);
+                    si = rounding.RemainingIntersections;
+                    var first = resolve.Rounding;
+                    ExactRoundingEdits.Add(new Index2i(first.Collapses + first.Flips + first.Moves + first.Zips + first.RemovedTriangles, edits));
+                }
                 reason = NotCleanReason(res, false);
                 if (reason == "" && CheckSelfIntersections) {
-                    int si = MeshRepairMetrics.SelfIntersections(res);
+                    if (si < 0)
+                        si = MeshRepairMetrics.SelfIntersections(res);
                     ExactResolveSelfIntersections.Add(si);
                     if (si > 0)
                         reason = "self-intersections";

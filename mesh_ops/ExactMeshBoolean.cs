@@ -25,7 +25,10 @@ namespace g3
     /// (open) meshes the generalized winding number is used (Jacobson et al. 2013, fast approximation), with the
     /// solid where it is above 0.5; then the result is generally not closed. An inside-out mesh (winding
     /// number -1) has an empty solid. Degenerate (zero-area) input
-    /// triangles are dropped. The rounding of new vertices can, rarely, create tiny self-intersections.
+    /// triangles are dropped. The rounding of new vertices can create tiny self-intersections, and intersection
+    /// points that nearly coincide give degenerate slivers: SafeRounding repairs both after the rounding
+    /// (MeshRoundingRepair, verified with exact predicates on the doubles), ComputeExactVertices gives the
+    /// exact rational coordinates of the vertices instead.
     /// New vertices that lie exactly inside a flat region of the result or on a straight edge between two flat
     /// regions (eg the crossings of the edges of overlapping coplanar faces) are removed and the regions
     /// retriangulated (SimplifyFlatRegions, ExactPlanarSimplify), so that repeated booleans do not split the
@@ -85,6 +88,29 @@ namespace g3
         public int RemovedVertices;
         /// <summary> if false, Compute() fails for meshes that are not closed in the winding number sense </summary>
         public bool AllowOpenMeshes = true;
+        /// <summary>
+        /// after rounding the vertices to double, repair the self-intersections and degenerate triangles (area below
+        /// 1e-12 of the squared diagonal) the rounding left, by local edits checked with exact predicates on the doubles
+        /// (MeshRoundingRepair: contractions of short edges, flips, tiny vertex moves, removal of components thinner
+        /// than 1e-5 of the diagonal that keep a sliver). Input vertices are kept where possible, and sheets that touch
+        /// at duplicated vertices still touch. RoundingClean tells whether the result is verified free of both.
+        /// </summary>
+        public bool SafeRounding = false;
+        /// <summary> the repair run by SafeRounding (its counts), or null </summary>
+        public MeshRoundingRepair Rounding;
+        /// <summary> SafeRounding ran and its result has no self-intersections and no degenerate triangles (exact check) </summary>
+        public bool RoundingClean { get { return Rounding != null && Rounding.IsClean; } }
+        /// <summary>
+        /// compute ResultExactVertices: the exact coordinates of the result's vertices, before they are rounded
+        /// </summary>
+        public bool ComputeExactVertices = false;
+        /// <summary>
+        /// if ComputeExactVertices: per vertex id of Result, its exact (rational) coordinates in the input's
+        /// coordinate system; Result's coordinates are these rounded to the nearest double (the vertices that split
+        /// edges where solids touch are the exact midpoints). With SafeRounding the entries are those before the
+        /// repair, for the vertex ids that remain (the repair moves some vertices by tiny amounts).
+        /// </summary>
+        public ExactPoint3[] ResultExactVertices;
         /// <summary> per input mesh: winding numbers exact (closed mesh) or generalized (open mesh) </summary>
         public bool ExactWindingA, ExactWindingB;
         // for tests: use generalized winding numbers also for closed meshes
@@ -156,6 +182,18 @@ namespace g3
             Result = assemble(keep, flip);
             PhaseMilliseconds["assembly"] = sw.ElapsedMilliseconds;
             Counts["removed_vertices"] = RemovedVertices;
+            Rounding = null;
+            if (SafeRounding) {
+                sw.Restart();
+                bool[] fixedV = resultFixed;
+                Rounding = new MeshRoundingRepair(Result) { SharedPositionsTouch = true, FixedVertexF = (v) => v < fixedV.Length && fixedV[v] };
+                Rounding.Apply();
+                PhaseMilliseconds["rounding"] = sw.ElapsedMilliseconds;
+                Counts["rounding_intersections"] = Rounding.InitialIntersections;
+                Counts["rounding_degenerate"] = Rounding.InitialDegenerate;
+                Counts["rounding_edits"] = Rounding.Collapses + Rounding.Flips + Rounding.Moves + Rounding.Zips;
+                Counts["rounding_removed_triangles"] = Rounding.RemovedTriangles;
+            }
             return true;
         }
 
@@ -166,7 +204,13 @@ namespace g3
         /// </summary>
         public static DMesh3 Resolve(DMesh3 mesh)
         {
-            var op = new ExactMeshBoolean(mesh, new DMesh3(), Operations.Union);
+            return Resolve(mesh, false);
+        }
+
+        /// <summary> as Resolve(mesh), with SafeRounding of the result if safeRounding </summary>
+        public static DMesh3 Resolve(DMesh3 mesh, bool safeRounding)
+        {
+            var op = new ExactMeshBoolean(mesh, new DMesh3(), Operations.Union) { SafeRounding = safeRounding };
             return op.Compute() ? op.Result : null;
         }
 
@@ -661,12 +705,12 @@ namespace g3
                 source.Add(ot.Source);
                 flipped.Add(flip[i]);
             }
+            var inputPoints = new HashSet<int>();
+            for (int m = 0; m < arr.VertexPoints.Length; ++m)
+                foreach (int vid in arr.Meshes[m].VertexIndices())
+                    inputPoints.Add(arr.Canonical(arr.VertexPoints[m][vid]));
             if (SimplifyFlatRegions) {
                 // new points inside flat regions and on straight edges between them are not needed
-                var inputPoints = new HashSet<int>();
-                for (int m = 0; m < arr.VertexPoints.Length; ++m)
-                    foreach (int vid in arr.Meshes[m].VertexIndices())
-                        inputPoints.Add(arr.Canonical(arr.VertexPoints[m][vid]));
                 var sw = System.Diagnostics.Stopwatch.StartNew();
                 var simplify = new ExactPlanarSimplify(arr, tris, source, flipped);
                 simplify.Run(inputPoints);
@@ -734,6 +778,9 @@ namespace g3
 
             // vertices: one per class of corner slots
             DMesh3 result = new DMesh3();
+            // per vertex: its point, or for the split vertices -2 - their index into splitPoints (the edge's ends)
+            var vertexPoint = new List<int>();
+            var splitPoints = new List<Index2i>();
             var vmap = new Dictionary<int, int>();
             int[] vids = new int[3 * tris.Count];
             for (int t = 0; t < tris.Count; ++t) {
@@ -741,6 +788,7 @@ namespace g3
                     int root = find(3 * t + k), vid;
                     if (vmap.TryGetValue(root, out vid) == false) {
                         vid = result.AppendVertex(coords[usedIndex[tris[t][k]]]);
+                        vertexPoint.Add(tris[t][k]);
                         vmap[root] = vid;
                     }
                     vids[3 * t + k] = vid;
@@ -769,6 +817,8 @@ namespace g3
                     foreach (var pair in group) {
                         Vector3d mid = 0.5 * (coords[usedIndex[u]] + coords[usedIndex[v]]);
                         int m = result.AppendVertex(mid);
+                        vertexPoint.Add(-2 - splitPoints.Count);
+                        splitPoints.Add(new Index2i(u, v));
                         foreach (int t in new[] { pair.Key, pair.Value }) {
                             int ku = slot(t, u) - 3 * t, kv = slot(t, v) - 3 * t;
                             int k = ((ku + 1) % 3 == kv) ? ku : kv;     // the edge (u, v) or (v, u) of t
@@ -791,26 +841,48 @@ namespace g3
                     }
                 }
                 if (first < 0) {
-                    append_triangle(result, poly[0], poly[1], poly[2]);
+                    append_triangle(result, poly[0], poly[1], poly[2], vertexPoint);
                     continue;
                 }
                 // fan from a split vertex: it is on one edge, so no fan triangle is degenerate
                 int n = poly.Count;
                 for (int j = 1; j + 1 < n; ++j)
-                    append_triangle(result, poly[first], poly[(first + j) % n], poly[(first + j + 1) % n]);
+                    append_triangle(result, poly[first], poly[(first + j) % n], poly[(first + j + 1) % n], vertexPoint);
+            }
+
+            // input vertices (kept by SafeRounding where possible) and exact coordinates
+            resultFixed = new bool[vertexPoint.Count];
+            for (int vid = 0; vid < vertexPoint.Count; ++vid)
+                resultFixed[vid] = vertexPoint[vid] >= 0 && inputPoints.Contains(vertexPoint[vid]);
+            ResultExactVertices = null;
+            if (ComputeExactVertices) {
+                var exact = new ExactPoint3[vertexPoint.Count];
+                for (int vid = 0; vid < vertexPoint.Count; ++vid) {
+                    if (vertexPoint[vid] >= 0) {
+                        exact[vid] = arr.ToInputExact(arr.Exact(vertexPoint[vid]));
+                    } else {
+                        Index2i uv = splitPoints[-2 - vertexPoint[vid]];
+                        ExactPoint3 pu = arr.ToInputExact(arr.Exact(uv.a)), pv = arr.ToInputExact(arr.Exact(uv.b));
+                        exact[vid] = ExactPoint3.Create(pu.X * pv.W + pv.X * pu.W, pu.Y * pv.W + pv.Y * pu.W, pu.Z * pv.W + pv.Z * pu.W, 2 * pu.W * pv.W);
+                    }
+                }
+                ResultExactVertices = exact;
             }
             return result;
         }
 
-        void append_triangle(DMesh3 result, int a, int b, int c)
+        // per vertex of the last assembled result: is it an input vertex
+        bool[] resultFixed;
+
+        void append_triangle(DMesh3 result, int a, int b, int c, List<int> vertexPoint)
         {
             if (result.AppendTriangle(a, b, c) >= 0)
                 return;
             // (an edge with more than two triangles that could not be split: kept, with its own vertices)
             NonManifoldTriangles++;
-            int a2 = result.AppendVertex(result.GetVertex(a));
-            int b2 = result.AppendVertex(result.GetVertex(b));
-            int c2 = result.AppendVertex(result.GetVertex(c));
+            int a2 = result.AppendVertex(result.GetVertex(a)); vertexPoint.Add(vertexPoint[a]);
+            int b2 = result.AppendVertex(result.GetVertex(b)); vertexPoint.Add(vertexPoint[b]);
+            int c2 = result.AppendVertex(result.GetVertex(c)); vertexPoint.Add(vertexPoint[c]);
             result.AppendTriangle(a2, b2, c2);
         }
 

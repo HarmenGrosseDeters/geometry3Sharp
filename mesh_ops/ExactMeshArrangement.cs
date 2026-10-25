@@ -562,6 +562,18 @@ namespace g3
             return v;
         }
 
+        /// <summary> the exact point p (grid coordinates) in input coordinates </summary>
+        public ExactPoint3 ToInputExact(ExactPoint3 p)
+        {
+            BigInteger x = p.X + Center[0] * p.W, y = p.Y + Center[1] * p.W, z = p.Z + Center[2] * p.W, w = p.W;
+            if (ScaleExp >= 0) {
+                x <<= ScaleExp; y <<= ScaleExp; z <<= ScaleExp;
+            } else {
+                w <<= -ScaleExp;
+            }
+            return ExactPoint3.Create(x, y, z, w);
+        }
+
         /// <summary> input coordinates of a grid point (rounded to double) </summary>
         public Vector3d ToInputVector(ExactPoint3 p)
         {

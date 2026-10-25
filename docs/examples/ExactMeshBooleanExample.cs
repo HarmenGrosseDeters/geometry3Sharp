@@ -25,5 +25,23 @@ namespace g3.Examples
 
             // ExactMeshBoolean.Resolve(mesh) does the same for one self-intersecting mesh (the boundary of its solid)
         }
+
+        /// <summary>
+        /// Union of the unit cube and a copy turned by 1e-11 radians: the intersection points nearly coincide, so
+        /// rounding them to double leaves slivers. SafeRounding repairs them; clean tells whether the result has no
+        /// self-intersections and no degenerate triangles (checked exactly).
+        /// </summary>
+        public static DMesh3 NearlyCoincidentUnion(out bool clean)
+        {
+            DMesh3 cube = new TrivialBox3Generator() { Box = new Box3d(new Vector3d(0.5, 0.5, 0.5), new Vector3d(0.5, 0.5, 0.5)) }.Generate().MakeDMesh();
+            DMesh3 turned = new DMesh3(cube);
+            MeshTransforms.Rotate(turned, new Vector3d(0.5, 0.5, 0.5), new Quaterniond(new Vector3d(0.3, 0.5, 0.8).Normalized, 1e-11 * MathUtil.Rad2Deg));
+
+            var boolean = new ExactMeshBoolean(cube, turned, ExactMeshBoolean.Operations.Union) { SafeRounding = true };
+            boolean.Compute();
+            clean = boolean.RoundingClean;
+            return boolean.Result;
+            // ComputeExactVertices = true would give the exact rational coordinates instead (ResultExactVertices)
+        }
     }
 }
