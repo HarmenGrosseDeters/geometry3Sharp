@@ -272,8 +272,9 @@ namespace gs
         /// Closed components whose orientation contradicts their nesting: an outer shell (inside an even
         /// number of other components) must have positive volume, a cavity (odd) negative volume. So
         /// inverted solids, and the cavities of a hollow solid that was inverted as a whole, are found.
-        /// Returns their triangle sets (empty if there are none, no closed components, or more than 500 closed
-        /// components). Does not modify the mesh.
+        /// Returns their triangle sets (empty if there are none or no closed components). Does not modify the mesh.
+        /// Cost: the nesting is tested only for components whose box lies inside another one's (found by a sweep,
+        /// so many components side by side are cheap), with a winding number tree per enclosing component.
         /// </summary>
         public static List<int[]> FindInvertedComponents(DMesh3 mesh)
         {
@@ -284,7 +285,7 @@ namespace gs
                 Index3i te = mesh.GetTriEdges(t);
                 return !mesh.IsBoundaryEdge(te.a) && !mesh.IsBoundaryEdge(te.b) && !mesh.IsBoundaryEdge(te.c);
             })).Select(c => c.Indices).ToList();
-            if (closed.Count == 0 || closed.Count > 500)
+            if (closed.Count == 0)
                 return result;
 
             Vector3d center = mesh.CachedBounds.Center;
@@ -300,6 +301,7 @@ namespace gs
                 return box;
             }).ToList();
             var trees = new DMeshAABBTree3[closed.Count];
+            var containers = enclosing_boxes(boxes);
             for (int i = 0; i < closed.Count; ++i) {
                 // count enclosing components (|winding number| > 0.5, whatever their orientation). Sample
                 // points lie slightly inside component i (the interiors of two components are disjoint or
@@ -308,9 +310,8 @@ namespace gs
                 // 0 and 1 by rounding, so the result would depend on the unit or the position of the mesh
                 List<Vector3d> samples = null;
                 int nInside = 0;
-                for (int j = 0; j < closed.Count; ++j) {
-                    // only a component whose box contains this one's can enclose it
-                    if (j == i || boxes[j].Contains(boxes[i]) == false) continue;
+                // only a component whose box contains this one's can enclose it
+                foreach (int j in containers[i]) {
                     if (trees[j] == null)
                         trees[j] = new DMeshAABBTree3(new DSubmesh3(mesh, closed[j]).SubMesh, true);
                     if (samples == null)
@@ -361,6 +362,30 @@ namespace gs
                 double h = Math.Min(maxOffset, 0.5 * cand.r);
                 result.Add(cand.c + (inverted ? h : -h) * cand.nrm);
             }
+            return result;
+        }
+
+        // for each box, the other boxes that contain it: a sweep along x, in which a box can only be contained in
+        // boxes that start at or before it and do not end before it starts
+        internal static List<int>[] enclosing_boxes(List<AxisAlignedBox3d> boxes)
+        {
+            int n = boxes.Count;
+            var result = new List<int>[n];
+            int[] order = Enumerable.Range(0, n).OrderBy(i => boxes[i].Min.x).ToArray();
+            var active = new List<int>();
+            int next = 0;
+            foreach (int i in order) {
+                double x = boxes[i].Min.x;
+                while (next < n && boxes[order[next]].Min.x <= x)
+                    active.Add(order[next++]);
+                active.RemoveAll(j => boxes[j].Max.x < x);
+                result[i] = new List<int>();
+                foreach (int j in active)
+                    if (j != i && boxes[j].Contains(boxes[i]))
+                        result[i].Add(j);
+            }
+            for (int i = 0; i < n; ++i)
+                result[i].Sort();
             return result;
         }
 

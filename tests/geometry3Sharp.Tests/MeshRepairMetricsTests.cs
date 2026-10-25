@@ -185,5 +185,136 @@ namespace geometry3Sharp.Tests
             // the input is not changed
             Assert.True(MeshMeasurements.VolumeArea(inverted, inverted.TriangleIndices(), inverted.GetVertex).x < 0);
         }
-}
+
+        static DMesh3 Sphere(Vector3d c)
+        {
+            DMesh3 m = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 8 }.Generate().MakeDMesh();
+            MeshTransforms.Translate(m, c);
+            return m;
+        }
+
+        [Fact]
+        public void VolumeIoU_ComponentsFarApart_LostOneDetected()
+        {
+            // two unit spheres 1000 apart fill 2e-5 of the common bounds: sampled there, no sample hit them and a
+            // result without one of them was accepted (NaN, "no solid"); sampled near the components, it is IoU 0.5
+            DMesh3 input = Sphere(Vector3d.Zero);
+            MeshEditor.Append(input, Sphere(new Vector3d(1000, 0, 0)));
+            DMesh3 one = Sphere(Vector3d.Zero);
+            double missing, extra, iou;
+            Assert.InRange(MeshRepairMetrics.VolumeIoU(input, one, out missing, out extra), 0.45, 0.55);
+            Assert.InRange(missing, 0.45, 0.55);
+            Assert.False(MeshRepairMetrics.VolumeIoUAtLeast(input, one, 0.99, out iou));
+            Assert.InRange(iou, 0.4, 0.6);
+            // the result with both is accepted
+            Assert.True(MeshRepairMetrics.VolumeIoU(input, new DMesh3(input), out missing, out extra) > 0.999);
+            Assert.True(MeshRepairMetrics.VolumeIoUAtLeast(input, new DMesh3(input), 0.99, out iou));
+        }
+
+        [Fact]
+        public void VolumeIoU_UnusedVertexFarAway_Ignored()
+        {
+            // an unused vertex (eg from an OBJ file) far away made the bounds 170x larger: no sample in the solid, NaN
+            DMesh3 input = Box(Vector3d.Zero, Vector3d.One);
+            input.AppendVertex(new Vector3d(100, 100, 100));
+            DMesh3 result = Box(Vector3d.Zero, Vector3d.One);
+            double missing, extra, iou;
+            Assert.True(MeshRepairMetrics.VolumeIoU(input, result, out missing, out extra) > 0.999);
+            Assert.True(MeshRepairMetrics.VolumeIoUAtLeast(input, result, 0.99, out iou));
+            Assert.True(iou > 0.99);
+            // shifted by a tenth: detected
+            DMesh3 shifted = Box(new Vector3d(0.1, 0, 0), new Vector3d(1.1, 1, 1));
+            Assert.False(MeshRepairMetrics.VolumeIoUAtLeast(input, shifted, 0.99, out iou));
+        }
+
+        [Fact]
+        public void VolumeIoUAtLeast_SmallInputSolid_LargeResultRejected()
+        {
+            // input solid 1e-5 of the result's: the first round had no sample in the input and stopped early with
+            // NaN, accepted (for most seeds); now rejected for every seed
+            DMesh3 input = Box(Vector3d.Zero, 0.02 * Vector3d.One);
+            DMesh3 result = Box(Vector3d.Zero, Vector3d.One);
+            for (int seed = 1; seed <= 20; ++seed) {
+                double iou;
+                Assert.False(MeshRepairMetrics.VolumeIoUAtLeast(input, result, 0.99, out iou, seed: seed), $"seed {seed}");
+                Assert.True(iou < 0.01, $"seed {seed}: {iou}");
+            }
+            // a solid so small that no sample of the IoU hits it: 0, not NaN ("no solid")
+            double missing, extra;
+            DMesh3 tiny = Box(Vector3d.Zero, 0.005 * Vector3d.One);
+            Assert.Equal(0, MeshRepairMetrics.VolumeIoU(tiny, result, out missing, out extra));
+            Assert.True(double.IsNaN(missing));
+            Assert.True(MeshRepairMetrics.VolumeIoU(input, result, out missing, out extra) < 0.01);
+        }
+
+        [Fact]
+        public void VolumeIoU_TriangleSoup_SampledEverywhereItsSolidIs()
+        {
+            // a box as 12 separate triangles (12 components): the region near the components must still cover
+            // the interior, which no single triangle encloses
+            DMesh3 box = Box(Vector3d.Zero, Vector3d.One);
+            DMesh3 soup = new DMesh3();
+            foreach (int t in box.TriangleIndices()) {
+                Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+                box.GetTriVertices(t, ref a, ref b, ref c);
+                soup.AppendTriangle(soup.AppendVertex(a), soup.AppendVertex(b), soup.AppendVertex(c));
+            }
+            DMesh3 far = new DMesh3(soup);
+            MeshEditor.Append(far, Box(new Vector3d(500, 0, 0), new Vector3d(501, 1, 1)));
+            DMesh3 expected = Box(Vector3d.Zero, Vector3d.One);
+            MeshEditor.Append(expected, Box(new Vector3d(500, 0, 0), new Vector3d(501, 1, 1)));
+            double missing, extra;
+            Assert.True(MeshRepairMetrics.VolumeIoU(soup, box, out missing, out extra) > 0.999);
+            Assert.True(MeshRepairMetrics.VolumeIoU(far, expected, out missing, out extra) > 0.999);
+            Assert.InRange(MeshRepairMetrics.VolumeIoU(far, box, out missing, out extra), 0.45, 0.55);
+            // every point of the soup's solid is in the sampled region (its center is half an edge from all triangles)
+            var region = MeshRepairMetrics.sample_region(soup, null);
+            var tree = new DMeshAABBTree3(soup, true);
+            for (int i = 0; i <= 10; ++i)
+                for (int j = 0; j <= 10; ++j)
+                    for (int k = 0; k <= 10; ++k) {
+                        Vector3d p = new Vector3d(i, j, k) / 10;
+                        if (tree.FastWindingNumber(p) > 0.5)
+                            Assert.True(region.Contains(p), $"{p}");
+                    }
+        }
+
+        [Fact]
+        public void VolumeIoU_ManyComponentsAndAnUnusedVertex_SampledInTheTriangleBounds()
+        {
+            // more components than MaxSampledComponents: sampled in the bounds of the triangles, which do not
+            // include the unused vertex
+            DMesh3 input = new DMesh3();
+            for (int i = 0; i < MeshRepairMetrics.MaxSampledComponents + 6; ++i)
+                MeshEditor.Append(input, Box(new Vector3d(2 * i, 0, 0), new Vector3d(2 * i + 1, 1, 1)));
+            DMesh3 result = new DMesh3(input);
+            input.AppendVertex(new Vector3d(1e4, 1e4, 1e4));
+            double missing, extra, iou;
+            Assert.True(MeshRepairMetrics.VolumeIoU(input, result, out missing, out extra) > 0.999);
+            Assert.True(MeshRepairMetrics.VolumeIoUAtLeast(input, result, 0.99, out iou));
+        }
+
+        [Fact]
+        public void VolumeIoUAtLeast_SmallReferenceSolid_NotDecidedBeforeASampleHitsIt()
+        {
+            // reference solid 1.25e-4 of the box: often no sample in it in the first round, which ended the check
+            // with NaN (accepted); with all samples some are in it
+            Func<Vector3d, bool> small = (p) => p.x >= 0 && p.y >= 0 && p.z >= 0 && p.x <= 0.05 && p.y <= 0.05 && p.z <= 0.05;
+            DMesh3 result = Box(Vector3d.Zero, Vector3d.One);
+            for (int seed = 1; seed <= 20; ++seed) {
+                double iou;
+                Assert.False(MeshRepairMetrics.VolumeIoUAtLeast(small, result.CachedBounds, result, 0.99, out iou, seed: seed), $"seed {seed}");
+                Assert.True(iou < 0.01, $"seed {seed}: {iou}");
+            }
+        }
+
+        [Fact]
+        public void VolumeIoUAtLeast_OpenSheet_NoSolidAccepted()
+        {
+            DMesh3 sheet = Tris(Vector3d.Zero, Vector3d.AxisX, Vector3d.AxisY);
+            double iou;
+            Assert.True(MeshRepairMetrics.VolumeIoUAtLeast(sheet, Box(Vector3d.Zero, Vector3d.One), 0.99, out iou));
+            Assert.True(double.IsNaN(iou));
+        }
+    }
 }

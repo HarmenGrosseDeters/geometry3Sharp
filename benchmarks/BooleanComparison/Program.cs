@@ -8,6 +8,7 @@
 //   obb --request <r.json> --result <r.json> [--write-last-only]
 //                                        runner for the Open Boolean Benchmark protocol (obb-runner/README.md)
 //   eval <dir>                           metrics of all results <method>_<op>.(off|obj) in dir, one JSON line per method
+//   nary grid|spheres <n> [variant]...   many meshes in one ExactMeshBoolean against chained pairwise booleans (Nary.cs)
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -32,6 +33,7 @@ static class Program
             case "run": return Run(args[1], args[2], args[3], args[4]);
             case "obb": return ObbRunner.Run(args.Skip(1).ToArray());
             case "eval": return Eval(args[1]);
+            case "nary": return Nary.Run(args.Skip(1).ToArray());
         }
         Console.Error.WriteLine("unknown mode " + args[0]);
         return 1;
