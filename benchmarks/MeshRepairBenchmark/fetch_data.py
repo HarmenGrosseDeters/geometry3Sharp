@@ -1,6 +1,8 @@
 # Downloads a reproducible selection of Thingi10K meshes (https://huggingface.co/datasets/Thingi10K/Thingi10K).
 #   data/meshes:       6 defect categories x 60 broken meshes (<= 100k faces) + 40 clean controls
 #   data/meshes_large: 30 broken meshes with 100k..1M faces  (skip with --no-large)
+# --holdout: a disjoint second selection of the same shape (other seeds, the default selection excluded)
+#   in data/holdout/ (selection_holdout.csv, selection_large_holdout.csv, meshes, meshes_large)
 # Thingi10K models carry individual licenses (mostly Creative Commons), see data/input_summary.csv.
 import csv, json, os, random, re, sys, urllib.request
 from concurrent.futures import ThreadPoolExecutor
@@ -32,23 +34,33 @@ cats = ["Closed", "Edge manifold", "Vertex manifold", "No degenerate faces", "No
 
 def faces(k): return int(g[k]["num_faces"])
 
-random.seed(42)
-ok = [k for k in s if k in g and k in files and faces(k) <= 100000]
-sel = {}
-for c in cats:
-    pool = [k for k in ok if s[k][c] == "FALSE" and k not in sel]
-    for k in random.sample(pool, min(60, len(pool))):
-        sel[k] = "broken:" + c
-clean = [k for k in ok if all(s[k][c] == "TRUE" for c in cats + ["Single Component"])]
-for k in random.sample(clean, 40):
-    sel[k] = "clean"
-selections = [("selection.csv", "meshes", sel)]
-
-if "--no-large" not in sys.argv:
-    random.seed(7)
-    pool = [k for k in s if k in g and k in files and 100000 < faces(k) <= 1000000 and any(s[k][c] == "FALSE" for c in cats)]
+def select(seed, seed_large, exclude=frozenset()):
+    random.seed(seed)
+    ok = [k for k in s if k in g and k in files and faces(k) <= 100000 and k not in exclude]
+    sel = {}
+    for c in cats:
+        pool = [k for k in ok if s[k][c] == "FALSE" and k not in sel]
+        for k in random.sample(pool, min(60, len(pool))):
+            sel[k] = "broken:" + c
+    clean = [k for k in ok if all(s[k][c] == "TRUE" for c in cats + ["Single Component"])]
+    for k in random.sample(clean, 40):
+        sel[k] = "clean"
+    random.seed(seed_large)
+    pool = [k for k in s if k in g and k in files and 100000 < faces(k) <= 1000000 and k not in exclude
+            and any(s[k][c] == "FALSE" for c in cats)]
     large = {k: "large:" + "/".join(c for c in cats if s[k][c] == "FALSE") for k in random.sample(pool, 30)}
-    selections.append(("selection_large.csv", "meshes_large", large))
+    return sel, large
+
+sel, large = select(42, 7)
+prefix, suffix = "", ""
+if "--holdout" in sys.argv:
+    # independent test set: other seeds, every mesh of the default selection excluded
+    sel, large = select(2026, 2027, set(sel) | set(large))
+    prefix, suffix = "holdout/", "_holdout"
+    os.makedirs("data/holdout", exist_ok=True)
+selections = [(f"{prefix}selection{suffix}.csv", f"{prefix}meshes", sel)]
+if "--no-large" not in sys.argv:
+    selections.append((f"{prefix}selection_large{suffix}.csv", f"{prefix}meshes_large", large))
 
 for csvname, folder, chosen in selections:
     os.makedirs(f"data/{folder}", exist_ok=True)

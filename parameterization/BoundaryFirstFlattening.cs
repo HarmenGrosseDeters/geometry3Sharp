@@ -64,13 +64,19 @@ namespace g3
             int m = loop.Length;
 
             // angle defects: K (interior), k (boundary)
+            // degenerate triangles count too (angles 0, 0, pi): Gauss-Bonnet, Sum K + Sum k = 2 pi, only holds
+            // with all triangles, and the Neumann problem and the closing of the boundary curve rely on it
             double[] angleSum = new double[N];
+            double[] corner = new double[3];
             for (int ti = 0; ti < pm.Tris.Count; ++ti) {
                 TriangleFrame f = pm.Frames[ti];
-                if (f.Degenerate) continue;
                 Index3i t = pm.Tris[ti];
+                if (f.Degenerate)
+                    degenerateAngles(pm.Pos[t.a], pm.Pos[t.b], pm.Pos[t.c], corner);
+                else
+                    for (int j = 0; j < 3; ++j) corner[j] = Math.Atan2(1, f.Cot[j]);
                 for (int j = 0; j < 3; ++j)
-                    angleSum[t[j]] += Math.Atan2(1, f.Cot[j]);
+                    angleSum[t[j]] += corner[j];
             }
             double[] K = new double[N];   // interior curvature, boundary entries 0
             double[] kb = new double[m];  // boundary geodesic curvature
@@ -82,7 +88,8 @@ namespace g3
             for (int k = 0; k < m; ++k)
                 len[k] = pm.Pos[loop[k]].Distance(pm.Pos[loop[(k + 1) % m]]);
 
-            // Dirichlet (boundary fixed) and Neumann (one pinned vertex) Laplacians
+            // Dirichlet (boundary fixed) and Neumann (one pinned vertex) Laplacians, with the degenerate triangles
+            // (mollified), which keep T-junction vertices on their edge
             bool[] dFixed = new bool[N];
             double[] dValue = new double[N];
             foreach (int i in loop) dFixed[i] = true;
@@ -93,7 +100,7 @@ namespace g3
             pm.ForEachCotanEdge((i, j, w) => {
                 dir.Add(i, i, w); dir.Add(j, j, w); dir.Add(i, j, -w);
                 neu.Add(i, i, w); neu.Add(j, j, w); neu.Add(i, j, -w);
-            });
+            }, true);
             if (!dir.Factorize())
                 return Result = ParameterizationResult.Failure(ParameterizationStatus.SolverFailed, "BFF Dirichlet system: " + dir.Error);
             if (!neu.Factorize())
@@ -218,6 +225,27 @@ namespace g3
             return Result = pm.MakeResult(u, v);
         }
 
+        // corner angles of a (nearly) degenerate triangle, summing to pi: the angles between its edges, and what
+        // is missing to pi goes to the corners opposite the longest edge (the corner between the other two
+        // points of a flat triangle; both ends of the zero-length edge of a triangle with coincident vertices)
+        internal static void degenerateAngles(Vector3d p0, Vector3d p1, Vector3d p2, double[] angle)
+        {
+            Vector3d[] p = { p0, p1, p2 };
+            double sum = 0, maxLen = 0;
+            double[] opp = new double[3];
+            for (int i = 0; i < 3; ++i) {
+                Vector3d a = p[(i + 1) % 3] - p[i], b = p[(i + 2) % 3] - p[i];
+                angle[i] = (a.LengthSquared > 0 && b.LengthSquared > 0) ? ParamMath.Angle(a, b) : 0;
+                sum += angle[i];
+                opp[i] = p[(i + 1) % 3].Distance(p[(i + 2) % 3]);
+                maxLen = Math.Max(maxLen, opp[i]);
+            }
+            int count = 0;
+            for (int i = 0; i < 3; ++i) if (opp[i] >= (1 - 1e-9) * maxLen) count++;
+            for (int i = 0; i < 3; ++i)
+                if (opp[i] >= (1 - 1e-9) * maxLen) angle[i] += (Math.PI - sum) / count;
+        }
+
         static double[] targetLengths(double[] len, double[] ub)
         {
             int m = len.Length;
@@ -235,7 +263,7 @@ namespace g3
             for (int k = 0; k < m; ++k) dValue[loop[k]] = ub[k];
             dir.Solve(negK, x);
             double[] Cu = new double[pm.N];
-            pm.ForEachCotanEdge((i, j, w) => { double d = w * (x[i] - x[j]); Cu[i] += d; Cu[j] -= d; });
+            pm.ForEachCotanEdge((i, j, w) => { double d = w * (x[i] - x[j]); Cu[i] += d; Cu[j] -= d; }, true);
             for (int k = 0; k < m; ++k)
                 kt[k] = kb[k] + Cu[loop[k]];
         }

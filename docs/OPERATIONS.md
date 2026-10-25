@@ -37,7 +37,7 @@ in `gs`. Add both: `using g3; using gs;`.
 | Fill holes | `gs.MinimalHoleFill`, `gs.SmoothedHoleFill`, `gs.AutoHoleFill`, `SimpleHoleFiller`, `MeshBoundaryLoops` | [HoleFillExample](examples/HoleFillExample.cs) |
 | Check a mesh (self-intersections, folds, volume IoU) | `gs.MeshRepairMetrics`, `MeshRobustRepair.NotCleanReason`, `DMesh3.CheckValidity`, `MeshValidation` | [RepairMetricsExample](examples/RepairMetricsExample.cs) |
 | Rebuild any input as a closed solid | `gs.MeshWindingNumberSolidify` | [WindingNumberSolidifyExample](examples/WindingNumberSolidifyExample.cs) |
-| Booleans (union, intersection, difference), resolve self-intersections | `ExactMeshBoolean`, `ExactMeshBoolean.Resolve` | [ExactMeshBooleanExample](examples/ExactMeshBooleanExample.cs) |
+| Booleans (union, intersection, difference) of two or more meshes, winding number predicates (eg inside at least k of n), resolve self-intersections | `ExactMeshBoolean`, `ExactMeshBoolean.AtLeast`, `ExactMeshBoolean.Resolve` | [ExactMeshBooleanExample](examples/ExactMeshBooleanExample.cs) |
 | Isotropic remeshing | `Remesher`, `gs.RemesherPro`, `MeshConstraintUtil`, `MeshProjectionTarget` | [RemeshExample](examples/RemeshExample.cs) |
 | Simplification, with a guaranteed maximum deviation | `Reducer` | [SimplificationExample](examples/SimplificationExample.cs) |
 | Smoothing | `MeshIterativeSmooth`, `LaplacianMeshSmoother` | [SmoothingExample](examples/SmoothingExample.cs) |
@@ -73,6 +73,21 @@ if (result == null)
 
 The test checks the exact volumes of union, intersection and difference of a cube and a bar with
 coplanar faces ([ExactMeshBooleanExample](examples/ExactMeshBooleanExample.cs)).
+
+More than two meshes go into one arrangement, with an operation or a predicate on the winding numbers of all
+inputs (Zhou et al. 2016). Status is the result code (`Success`, `InvalidInput`, `OpenInput`):
+
+```csharp
+var all = new ExactMeshBoolean(meshes, ExactMeshBoolean.Operations.Union);   // also Intersection; Difference = first minus all others
+var two = new ExactMeshBoolean(meshes, ExactMeshBoolean.AtLeast(2));          // inside at least two of the meshes
+var odd = new ExactMeshBoolean(meshes, w => w.Count(x => x > 0) % 2 == 1);   // any predicate on the winding numbers w[i]
+if (two.Compute() == false)
+    Console.WriteLine(two.Status + ": " + two.Error);
+```
+
+One operation over all inputs is faster than a chain of pairwise booleans and rounds the new vertices only
+once: the 10×10×10 cube grid with a void in each cube (2000 meshes, 1999 pairwise booleans) takes 27 s in one
+pass ([BooleanComparison](../benchmarks/BooleanComparison/README.md#many-meshes-in-one-operation)).
 
 ### Repair
 

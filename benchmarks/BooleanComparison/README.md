@@ -39,7 +39,7 @@ CGAL refuses inputs that are open or self-intersecting; Manifold refuses non-man
 | `cgal` | 89 CGAL test and example meshes, each with a rotated, shifted copy, and the pair of CGAL's corefinement examples (`blobby`, `eight`) | CAD and scanned models, some open or degenerate | `python3 data/fetch.py cgal <dir>` (CGAL v6.0.1) |
 | `cherchi` | the test meshes of Cherchi et al.: bunny with cow at 25k–200k triangles, two spheres, a cube with the armadillo, the stencil of the paper (fertility minus 703 spheres given as one mesh), five meshes with a rotated, shifted copy | larger inputs, time | `python3 data/fetch.py cherchi <dir>` (commit 7bd6c26) |
 | `synthetic` | 24 pairs of boxes and spheres | coplanar faces, solids touching at a face, an edge or a vertex, overlaps and gaps of 1e-9, nearly coplanar faces, UTM coordinates (3e5, 5.6e6), coordinates of 1e8, scale differences of 1e6 | `BooleanComparison synth <dir>` |
-| `sequence` | iterated cube grids: n³ overlapping unit cubes (spacing 0.9, so the faces of a layer are coplanar) united one after the other, then a cube of edge 0.5 subtracted at the centre of each (n = 5: 249 booleans, n = 10: 1999) | repeated booleans on results of booleans, exactly coplanar faces | `BooleanComparison synth <dir>` |
+| `sequence` | iterated cube grids: n³ overlapping unit cubes (spacing 0.9, so the faces of a layer are coplanar) united one after the other, then a cube of edge 0.5 subtracted at the centre of each (n = 5: 249 booleans, n = 10: 1999) | repeated booleans on results of booleans, exactly coplanar faces | `BooleanComparison synth <dir>`; one pass over all meshes: `BooleanComparison nary` (below) |
 
 `data/fetch.py` downloads the meshes at a fixed commit and writes a case manifest (`cases.jsonl`); nothing of the
 data is part of this repository (sources and licenses in `docs/SOURCES.md`). The `cube_grid` sequences are
@@ -206,6 +206,37 @@ to double these points lie slightly off the lines they were on. The next boolean
 results grow geometrically (after 29, 33, 37, 41 unions of the 10×10×10 grid: 1364, 2342, 6002, 21936
 triangles; 28 s for the 46th boolean). The results stay correct (closed, exact volume). A fix (simplifying flat
 regions of the result, or snap rounding) belongs in `ExactMeshBoolean` itself.
+
+### Many meshes in one operation
+
+`ExactMeshBoolean` takes any number of meshes into one arrangement, with an operation or a predicate on their
+winding numbers (n-ary union / intersection / difference, "inside at least k of n", ...). `BooleanComparison nary`
+compares this with the chain of pairwise booleans:
+
+```sh
+dotnet bin/Release/net10.0/BooleanComparison.dll nary grid 10                     # chained, onepass, twostep
+dotnet bin/Release/net10.0/BooleanComparison.dll nary spheres 100 chained onepass
+```
+
+`grid n` is the `sequence` case: n³ cubes united, minus a void in each cube. `onepass` is one ExactMeshBoolean
+over all 2n³ meshes with the predicate "inside a cube and in no void", `twostep` the n-ary union of the cubes and
+then the n-ary difference of that union and all voids. `spheres k` is the union of k random overlapping spheres
+(1536 triangles each). Run on 4 cores, booleans only (without building the inputs):
+
+| case | inputs | chained (pairwise booleans) | one pass | two steps | result |
+|---|---|---|---|---|---|
+| grid 3 | 54 | 1.6 s (53) | 0.38 s | 0.36 s | identical: 624 triangles, exact volume, clean |
+| grid 5 | 250 | 5.9 s (249) | 1.7 s | 1.7 s | identical: 2472 triangles, exact volume, clean |
+| grid 10 | 2000 | 184 s (1999) | 27 s | 26 s | identical: 16332 triangles, exact volume, clean |
+| spheres 20 | 20 | 4.3 s (19) | 0.95 s | – | same volume, clean; 30576 instead of 30864 triangles |
+| spheres 100 | 100 | 44 s (99) | 7.3 s | – | same volume, clean; 110934 instead of 113774 triangles |
+
+One pass is 3.5–7× faster: every input triangle is intersected and retriangulated once, instead of the growing
+intermediate result again in every step. Only meshes whose boxes overlap are intersected, and a patch gets a
+winding number ray only for the meshes whose box contains it, so far-apart inputs cost little. The one-pass
+result rounds the new vertices once; the chain keeps rounded vertices of intermediate results (more triangles on
+curved inputs). For grid 10 the time goes to the merge of intersection points (11 s), the classification of
+42048 patches (7 s) and the triangulation (5 s).
 
 ## Results (80 Thingi10K meshes)
 

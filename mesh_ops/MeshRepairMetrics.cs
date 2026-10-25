@@ -31,11 +31,28 @@ namespace gs
         /// <summary> the intersecting triangle pairs (see SelfIntersections), each once, sorted </summary>
         public static List<Index2i> SelfIntersectionPairs(DMesh3 mesh)
         {
+            return self_intersection_pairs(mesh, false);
+        }
+
+        /// <summary>
+        /// SelfIntersections(mesh) &gt; 0, but stops at the first intersecting pair (cheaper for meshes with
+        /// self-intersections; the same work for meshes without)
+        /// </summary>
+        public static bool HasSelfIntersections(DMesh3 mesh)
+        {
+            return self_intersection_pairs(mesh, true).Count > 0;
+        }
+
+        // firstOnly: stop after the first pair found (then at least one pair is returned if there is any)
+        static List<Index2i> self_intersection_pairs(DMesh3 mesh, bool firstOnly)
+        {
             var tree = new DMeshAABBTree3(mesh, true);
             var pairs = new List<Index2i>();
             object lockObj = new object();
+            int found = 0;
             int[] tris = new List<int>(mesh.TriangleIndices()).ToArray();
             gParallel.ForEach(Interval1i.Range(tris.Length), (k) => {
+                if (firstOnly && System.Threading.Volatile.Read(ref found) != 0) return;
                 int ta = tris[k];
                 Triangle3d A = triangle(mesh, ta);
                 if (ExactTriangleIntersection.IsDegenerate(ref A)) return;
@@ -43,9 +60,9 @@ namespace gs
                 Index3i ia = mesh.GetTriangle(ta);
                 List<Index2i> local = null;
                 tree.DoTraversal(new DMeshAABBTree3.TreeTraversal() {
-                    NextBoxDF = (b, depth) => b.Intersects(box),
+                    NextBoxDF = (b, depth) => b.Intersects(box) && (firstOnly == false || local == null),
                     NextTriangleF = (tb) => {
-                        if (tb <= ta) return;
+                        if (tb <= ta || (firstOnly && local != null)) return;
                         Triangle3d B = triangle(mesh, tb);
                         if (ExactTriangleIntersection.IsDegenerate(ref B)) return;
                         if (ExactTriangleIntersection.IntersectsBeyondShared(ia, ref A, mesh.GetTriangle(tb), ref B)) {
@@ -54,8 +71,10 @@ namespace gs
                         }
                     }
                 });
-                if (local != null)
+                if (local != null) {
                     lock (lockObj) pairs.AddRange(local);
+                    System.Threading.Volatile.Write(ref found, 1);
+                }
             });
             pairs.Sort((x, y) => x.a != y.a ? x.a.CompareTo(y.a) : x.b.CompareTo(y.b));
             return pairs;
@@ -84,13 +103,16 @@ namespace gs
         }
 
         /// <summary>
-        /// Intersection over union of the solids of input and result, from samples in the common bounds
-        /// (deterministic): a point is inside the input where the generalized winding number of its oriented
-        /// copy (WindingContouring.OrientedCopy: inside-out parts flipped, as the solidify fallback does) is > 0.5,
-        /// inside the result likewise. 1 = same solid. Also returns the parts of the input solid missing in
-        /// the result (eg lost thin walls) and the result solid not in the input (eg filled cavities),
-        /// relative to the input solid. NaN if the input encloses no volume (eg a single open sheet), 0 if the
-        /// input has no triangles. Estimated from samples random points (fixed seed, so repeatable); small
+        /// Intersection over union of the solids of input and result, from samples (deterministic): a point is
+        /// inside the input where the generalized winding number of its oriented copy (WindingContouring.OrientedCopy:
+        /// inside-out parts flipped, as the solidify fallback does) is > 0.5, inside the result likewise. 1 = same
+        /// solid. Also returns the parts of the input solid missing in the result (eg lost thin walls) and the result
+        /// solid not in the input (eg filled cavities), relative to the input solid. NaN if the input encloses no
+        /// volume (eg a single open sheet), 0 if the input has no triangles, and 0 (missing and extra NaN) if the
+        /// input's solid is too small to be hit by the samples at all (then the result's solid is far larger).
+        /// Estimated from samples random points (fixed seed, so repeatable) in the bounds of the triangles of both
+        /// meshes, or, for meshes with up to MaxSampledComponents components, only near the components (where the
+        /// winding number can reach 0.5), so components far apart are sampled as densely as a single one; small
         /// differences are sampling noise.
         /// </summary>
         public static double VolumeIoU(DMesh3 input, DMesh3 result, out double missing, out double extra, int samples = 100000, int seed = 1)
@@ -101,11 +123,93 @@ namespace gs
             // the solid the solidify fallback sees: inside-out inputs (winding number -1 inside) count as
             // their solid, not as none
             input = WindingContouring.OrientedCopy(input);
-            var ti = new DMeshAABBTree3(input, true);
-            ti.FastWindingNumber(Vector3d.Zero);    // cache before parallel use
-            AxisAlignedBox3d box = input.CachedBounds;
-            box.Contain(result.CachedBounds);
-            return VolumeIoU((p) => ti.FastWindingNumber(p) > 0.5, box, result, out missing, out extra, samples, seed);
+            Func<Vector3d, bool> inside = winding_inside(input);
+            double iou = volume_iou(inside, sample_region(input, result), result, out missing, out extra, samples, seed);
+            if (double.IsNaN(iou) && has_solid(inside, input, seed)) {
+                missing = extra = double.NaN;
+                return 0;
+            }
+            return iou;
+        }
+
+        /// <summary>
+        /// Is VolumeIoU(input, result) at least minIoU? The same samples as VolumeIoU, but only as many as the
+        /// answer needs: they are classified in rounds (samples / 32, then doubling), and after each round
+        /// the share of the union that is in only one of the solids gets a confidence interval (Wilson score,
+        /// z standard deviations); the answer is given as soon as the interval lies on one side of
+        /// 1 - minIoU and some sample is inside the input. With all samples (results close to minIoU) the
+        /// answer and iou are those of VolumeIoU. An early answer differs from the one with all samples only
+        /// by chance, about the probability of a z-sigma deviation (z = 4: about 3e-5, times the number of
+        /// rounds). iou is the estimate from the samples used; NaN (and true) if the input encloses no volume,
+        /// as VolumeIoU (no solid to compare with); 0 (and false) if its solid is too small to be hit by the samples.
+        /// Typically 10-30x cheaper than VolumeIoU for results that clearly agree with the input.
+        /// </summary>
+        public static bool VolumeIoUAtLeast(DMesh3 input, DMesh3 result, double minIoU, out double iou, int samples = 100000, int seed = 1, double z = 4)
+        {
+            iou = 0;
+            if (input.TriangleCount == 0)
+                return iou >= minIoU;
+            input = WindingContouring.OrientedCopy(input);
+            Func<Vector3d, bool> inside = winding_inside(input);
+            bool atLeast = volume_iou_at_least(inside, sample_region(input, result), result, minIoU, out iou, samples, seed, z);
+            if (double.IsNaN(iou) && has_solid(inside, input, seed)) {
+                iou = 0;
+                return iou >= minIoU;
+            }
+            return atLeast;
+        }
+
+        /// <summary> as above, against a reference solid given by its inside test (see VolumeIoU), sampled in box (expanded by 1%) </summary>
+        public static bool VolumeIoUAtLeast(Func<Vector3d, bool> referenceInside, AxisAlignedBox3d box, DMesh3 result, double minIoU, out double iou, int samples = 100000, int seed = 1, double z = 4)
+        {
+            box.Expand(0.01 * box.DiagonalLength);
+            return volume_iou_at_least(referenceInside, new SampleRegion(box), result, minIoU, out iou, samples, seed, z);
+        }
+
+        static bool volume_iou_at_least(Func<Vector3d, bool> referenceInside, SampleRegion region, DMesh3 result, double minIoU, out double iou, int samples, int seed, double z)
+        {
+            var tr = new DMeshAABBTree3(result, true);
+            tr.FastWindingNumber(Vector3d.Zero);
+            var rnd = new Random(seed);
+            Vector3d[] pts = new Vector3d[samples];
+            int[] cls = new int[samples];
+            int done = 0, both = 0, onlyOne = 0, inputSolid = 0;
+            double maxShare = 1 - minIoU;
+            int round = Math.Max(1, samples / 32);
+            while (true) {
+                int end = Math.Min(samples, done + round);
+                for (int k = done; k < end; ++k)        // same sequence as VolumeIoU
+                    pts[k] = region.Next(rnd);
+                gParallel.ForEach(Interval1i.FromToInclusive(done, end - 1), (k) => {
+                    bool a = referenceInside(pts[k]), b = result.TriangleCount > 0 && tr.FastWindingNumber(pts[k]) > 0.5;
+                    cls[k] = (a ? 1 : 0) | (b ? 2 : 0);
+                });
+                for (int k = done; k < end; ++k) {
+                    if (cls[k] == 3) both++; else if (cls[k] != 0) onlyOne++;
+                    if ((cls[k] & 1) != 0) inputSolid++;
+                }
+                done = end;
+                round = done;
+                int union = both + onlyOne;
+                if (done == samples)
+                    break;
+                // no sample in the input's solid yet: it may be small rather than absent, which only all samples
+                // (and has_solid) can tell
+                if (union == 0 || inputSolid == 0)
+                    continue;
+                // Wilson score interval of the share p of the union in only one solid (1 - IoU)
+                double n = union, ph = onlyOne / n, z2 = z * z;
+                double center = (ph + z2 / (2 * n)) / (1 + z2 / n);
+                double half = z * Math.Sqrt(ph * (1 - ph) / n + z2 / (4 * n * n)) / (1 + z2 / n);
+                if (center + half < maxShare || center - half > maxShare)
+                    break;
+            }
+            if (inputSolid == 0) {
+                iou = double.NaN;       // no reference solid (eg a single open sheet): not defined
+                return true;
+            }
+            iou = (double)both / (both + onlyOne);
+            return iou >= minIoU;
         }
 
         /// <summary>
@@ -115,14 +219,19 @@ namespace gs
         /// </summary>
         public static double VolumeIoU(Func<Vector3d, bool> referenceInside, AxisAlignedBox3d box, DMesh3 result, out double missing, out double extra, int samples = 100000, int seed = 1)
         {
+            box.Expand(0.01 * box.DiagonalLength);
+            return volume_iou(referenceInside, new SampleRegion(box), result, out missing, out extra, samples, seed);
+        }
+
+        static double volume_iou(Func<Vector3d, bool> referenceInside, SampleRegion region, DMesh3 result, out double missing, out double extra, int samples, int seed)
+        {
             missing = extra = 0;
             var tr = new DMeshAABBTree3(result, true);
             tr.FastWindingNumber(Vector3d.Zero);
-            box.Expand(0.01 * box.DiagonalLength);
             var rnd = new Random(seed);
             Vector3d[] pts = new Vector3d[samples];
             for (int k = 0; k < samples; ++k)
-                pts[k] = box.Min + new Vector3d(rnd.NextDouble() * box.Width, rnd.NextDouble() * box.Height, rnd.NextDouble() * box.Depth);
+                pts[k] = region.Next(rnd);
             int[] cls = new int[samples];
             gParallel.ForEach(Interval1i.Range(samples), (k) => {
                 bool a = referenceInside(pts[k]), b = result.TriangleCount > 0 && tr.FastWindingNumber(pts[k]) > 0.5;
@@ -141,6 +250,143 @@ namespace gs
                 return double.NaN;      // no reference solid (eg a single open sheet): not defined
             int union = both + onlyIn + onlyOut;
             return (double)both / union;
+        }
+
+        static Func<Vector3d, bool> winding_inside(DMesh3 mesh)
+        {
+            var tree = new DMeshAABBTree3(mesh, true);
+            tree.FastWindingNumber(Vector3d.Zero);    // cache before parallel use
+            return (p) => tree.FastWindingNumber(p) > 0.5;
+        }
+
+        // Does the input (with no sample of the IoU in its solid) enclose a volume after all, too small to be hit?
+        // Sampled only near the input itself.
+        static bool has_solid(Func<Vector3d, bool> inside, DMesh3 input, int seed)
+        {
+            SampleRegion region = sample_region(input, null);
+            var rnd = new Random(seed);
+            for (int k = 0; k < 4096; ++k)
+                if (inside(region.Next(rnd)))
+                    return true;
+            return false;
+        }
+
+        /// <summary>
+        /// VolumeIoU and VolumeIoUAtLeast sample only near the components if each mesh has at most this many
+        /// connected components (more: in the bounds of all triangles)
+        /// </summary>
+        public const int MaxSampledComponents = 64;
+
+        // The region the samples are taken from: the bounds of the triangles (not the vertices: unused ones far away
+        // would leave the solid without samples) of both meshes, expanded by 1%. For meshes with at most
+        // MaxSampledComponents connected components, only the part of it near the components: around a component of
+        // area A, its box expanded by r with A / (4 pi r^2) = 0.4 / N for N components. The winding number of a
+        // surface of area A at distance at least r from a point is at most A / (4 pi r^2) (solid angle <= area /
+        // distance^2), so outside all expanded boxes the winding number of the mesh is below 0.4 (margin for the
+        // approximation of the fast winding number): no point there is in either solid, and leaving it out does not
+        // change the IoU, only concentrates the samples (components far apart, eg parts of an assembly or buildings
+        // of a city model, are then hit as often as a single one).
+        internal static SampleRegion sample_region(DMesh3 input, DMesh3 result)
+        {
+            AxisAlignedBox3d clip = triangle_bounds(input);
+            if (result != null && result.TriangleCount > 0)
+                clip.Contain(triangle_bounds(result));
+            clip.Expand(0.01 * clip.DiagonalLength);
+            var boxes = new List<AxisAlignedBox3d>();
+            if (component_cover(input, clip, boxes) == false || (result != null && component_cover(result, clip, boxes) == false))
+                return new SampleRegion(clip);
+            // boxes inside others add nothing to the union (and identical ones would only lower the acceptance rate)
+            var kept = new List<AxisAlignedBox3d>();
+            for (int i = 0; i < boxes.Count; ++i) {
+                bool inside = false;
+                for (int j = 0; j < boxes.Count && inside == false; ++j)
+                    inside = j != i && boxes[j].Contains(boxes[i]) && (boxes[i].Contains(boxes[j]) == false || j < i);
+                if (inside == false)
+                    kept.Add(boxes[i]);
+            }
+            return kept.Count == 0 ? new SampleRegion(clip) : new SampleRegion(kept);
+        }
+
+        // adds the boxes around the components of mesh (see sample_region), clipped; false if it has too many components
+        static bool component_cover(DMesh3 mesh, AxisAlignedBox3d clip, List<AxisAlignedBox3d> boxes)
+        {
+            var comps = new MeshConnectedComponents(mesh);
+            comps.FindConnectedT();
+            int n = comps.Count;
+            if (n > MaxSampledComponents)
+                return false;
+            foreach (var comp in comps.Components) {
+                double area = 0;
+                var box = AxisAlignedBox3d.Empty;
+                foreach (int tid in comp.Indices) {
+                    area += mesh.GetTriArea(tid);
+                    box.Contain(mesh.GetTriBounds(tid));
+                }
+                if (!(area > 0))
+                    continue;       // encloses nothing
+                box.Expand(Math.Sqrt(n * area / (1.6 * Math.PI)));
+                box = box.Intersect(clip);
+                if (box.Volume > 0)
+                    boxes.Add(box);
+            }
+            return true;
+        }
+
+        static AxisAlignedBox3d triangle_bounds(DMesh3 mesh)
+        {
+            var box = AxisAlignedBox3d.Empty;
+            foreach (int tid in mesh.TriangleIndices())
+                box.Contain(mesh.GetTriBounds(tid));
+            return box;
+        }
+
+        // uniform random points in a union of boxes: a box picked by volume, a point in it, kept if no earlier box
+        // contains it (so every point of the union has the same density); one box: a point in it, as before
+        internal sealed class SampleRegion
+        {
+            readonly List<AxisAlignedBox3d> boxes;
+            readonly double[] cumulative;
+
+            public SampleRegion(AxisAlignedBox3d box) : this(new List<AxisAlignedBox3d>() { box }) { }
+
+            public SampleRegion(List<AxisAlignedBox3d> boxes)
+            {
+                this.boxes = boxes;
+                cumulative = new double[boxes.Count];
+                double sum = 0;
+                for (int i = 0; i < boxes.Count; ++i)
+                    cumulative[i] = sum += boxes[i].Volume;
+            }
+
+            public bool Contains(Vector3d p)
+            {
+                foreach (var box in boxes)
+                    if (box.Contains(p)) return true;
+                return false;
+            }
+
+            public Vector3d Next(Random rnd)
+            {
+                if (boxes.Count == 1)
+                    return point(boxes[0], rnd);
+                while (true) {
+                    double u = rnd.NextDouble() * cumulative[cumulative.Length - 1];
+                    int k = Array.BinarySearch(cumulative, u);
+                    k = k < 0 ? ~k : k + 1;
+                    k = Math.Min(k, boxes.Count - 1);
+                    Vector3d p = point(boxes[k], rnd);
+                    bool earlier = false;
+                    for (int j = 0; j < k && earlier == false; ++j)
+                        earlier = boxes[j].Contains(p);
+                    if (earlier == false)
+                        return p;
+                }
+            }
+
+            static Vector3d point(AxisAlignedBox3d box, Random rnd)
+            {
+                return box.Min + new Vector3d(rnd.NextDouble() * box.Width, rnd.NextDouble() * box.Height, rnd.NextDouble() * box.Depth);
+            }
         }
     }
 }

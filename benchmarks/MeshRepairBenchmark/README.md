@@ -11,6 +11,8 @@ python3 fetch_data.py            # ~1.5 GB: 400 meshes <= 100k faces + 30 meshes
 ./run_all.sh instr               # instrumented pipeline copy, quality after every step
 ./run_all.sh robust              # MeshRobustRepair: cleanup, solidify fallback, volume check
 BENCH_P=2 ./run_all.sh hybrid    # BENCH_P: meshes in parallel
+python3 fetch_data.py --holdout  # disjoint second selection in data/holdout/ (see "Holdout selection")
+BENCH_DATA=holdout ./run_all.sh robust              # runs on data/holdout/, writes results/holdout/
 python3 analyze_fidelity.py results/robust.jsonl    # repaired = clean + no self-intersections + faithful
 python3 analyze.py results/default.jsonl            # status per category, exceptions, triangle loss
 python3 analyze_quality.py results/cleanup.jsonl    # quality before/after
@@ -310,3 +312,156 @@ The results agree within the noise; CGAL makes about 10 % more triangles. MeshAl
 small inputs (a few hundred triangles, below 1 s), where the JIT warm-up of the fresh process dominates: warm, in
 one process, 97171.stl takes 182 ms (cold 451 ms; CGAL 598 ms) and 635745.stl 116 ms (CGAL 344 ms).
 
+## Holdout selection (second, independent sample)
+All fixes above were developed and measured on the same seeded selection, so the numbers may be tuned
+to it. `fetch_data.py --holdout` draws a second selection of the same shape (6 × 60 broken meshes ≤ 100k
+faces, 40 clean controls, 30 large meshes) with other seeds (2026, 2027), excluding every mesh of the
+default selection: 0 of 430 meshes in common. Runs with `BENCH_P=2 TIMEOUT=300`, library state of
+2026-10-25 evening. First selection with the same build: `default`, `cleanup` (rerun for this
+comparison; large meshes not rerun) and `robust` (rerun after the dual contouring fixes above);
+`solidify` and the large meshes of `default`/`cleanup` from the fidelity table above (older builds).
+
+| | default | cleanup | robust | solidify |
+|---|---|---|---|---|
+| clean¹ + no exact self-intersections, holdout | 119 | 193 | **367** | 365 |
+| ... first selection | 100 | 188 | 360 | 316 |
+| **repaired**, holdout | 110 | 170 | **217** | 182 |
+| ... first selection | 94 | 165 | 210 | 172 |
+| median repair time, holdout | 0.31 s | 0.38 s | 4.1 s | 4.3 s |
+| ... first selection | 0.32 s | 0.45 s | 3.7 s | 5.4 s |
+| large meshes repaired, holdout | 0/30 | 4/30 | 8/30 | 8/30 |
+| ... first selection | 4/30 | 5/30 | 9/30 | 6/30 |
+
+The sampling error is about ±10 meshes (±3 %) per 400. `hybrid` was stopped after 106 meshes
+(52 repaired); since `robust` is its library version, it was not rerun.
+
+- **No sign of overfitting.** On the same build, `robust` repairs 217 vs 210 and leaves 367 vs 360 clean
+  without self-intersections; `cleanup` repairs 170 vs 165 (193 vs 188 clean). All within the sampling
+  error. The differences beyond it go up, not down:
+  - `default`: +16 repaired, +19 clean on the same build. The holdout selection is easier for the plain
+    pipeline (the first-selection numbers did not change with the later fixes: 95 → 94). The gain
+    shrinks with the cleanup (+5) and `robust` (+7), so the fixes on top of it do not do better on the
+    first selection than on new data.
+  - `solidify`: +49 clean without self-intersections, the dual contouring fixes made after the
+    first-selection run (`robust` gained 13 from them on the first selection).
+- No crashes and no timeouts in any mode; all 400 meshes are closed after the repair.
+- `robust` per category (repaired / 60): degenerate faces 45, not closed 32, not PWN 32, not vertex
+  manifold 26, not edge manifold 23, duplicated faces 20; clean controls 39/40. Two clean controls
+  (101556.stl, 439140.stl) are solidified because they self-intersect.
+- What triggers the solidify in `robust`: kept the repair 174, self-intersections 105, degenerate
+  triangles 83, inside-out components 19, volume differs from the input 19 (first selection: 173, 96,
+  89, 25, 16).
+- Why `robust` misses the strict criterion (183 meshes, first selection rerun 190):
+  - 137 (first selection rerun 136): Hausdorff ≥ 1 % (133 of them solidified, e.g. 100026.stl,
+    1017013.stl; 4 kept repairs, e.g. 122126.stl). The grid-bounded fidelity of the solidify is the main
+    limit on both selections.
+  - 29: self-intersections after the solidify (e.g. 101085.stl, 101952.stl; first selection rerun: 38
+    meshes with self-intersections).
+  - 13: IoU ≤ 0.99 (e.g. 1004826.stl, 104509.stl).
+  - **4, not seen before: the solidified mesh is not consistently oriented** (4–87 edges; 100030.stl,
+    226568.stl, 37402.stl, the last also with 4 degenerate triangles).
+- Time: the solidify takes 85 % of the `robust` repair time (226 meshes, median 6.4 s); kept repairs
+  still take 2.1 s (median) against 0.38 s for `cleanup`, spent in the exact self-intersection and
+  volume IoU checks. Outliers that the size does not explain: 78968.stl (5k triangles, 150 s),
+  49998.stl (12k triangles, 118 s).
+
+### Which stage repaired which mesh (`robust`, 400 set)
+`analyze_paths.py results/robust.jsonl data/selection.csv [--csv out.csv] [--markdown]` sorts the meshes by the
+stage of `MeshRobustRepair` that produced the result: the repair itself (clean and the same volume as the
+input), the exact resolve, the solidify, or the alpha wrap (last resort, see above); then the outcome by the
+strict criterion and why the earlier stages were not used. One row per mesh (category, stage, outcome, reasons,
+Hausdorff, IoU, triangles, time): [`cases/robust_stages_2026-10-25.csv`](cases/robust_stages_2026-10-25.csv).
+The run below is master after #47 (alpha wrap fallback), before #44 (touching edges in the exact resolve),
+#49 (faster checks) and #40 (orientation seams); it will be replaced by the final run.
+
+Stage that produced the result, and its outcome ("deviation": Hausdorff ≥ 1 % of the diagonal):
+
+| stage | meshes | repaired | repaired (self-int. not checked) | deviation > 1 % | volume (IoU) | self-intersections | not clean | Hausdorff median | IoU median | triangles median | time median |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| repair | 172 | 165 | 0 | 7 | 0 | 0 | 0 | 0.11 % | 1.0000 | 3k | 2.0 s |
+| exact resolve | 122 | 80 | 0 | 42 | 0 | 0 | 0 | 0.56 % | 0.9999 | 8k | 4.0 s |
+| solidify | 75 | 9 | 0 | 59 | 7 | 0 | 0 | 2.36 % | 0.9735 | 7k | 7.2 s |
+| alpha wrap | 31 | 1 | 0 | 24 | 6 | 0 | 0 | 2.37 % | 0.9441 | 133k | 19.0 s |
+
+Why the stages before were not used (meshes):
+
+| exact resolve | meshes |
+|---|---|
+| repair: self-intersections | 69 |
+| repair: degenerate triangles | 40 |
+| repair: inside-out components | 10 |
+| repair: volume differs from the input | 3 |
+
+| solidify | meshes |
+|---|---|
+| repair: degenerate triangles | 32 |
+| exact: volume differs from the input | 26 |
+| repair: self-intersections | 22 |
+| exact: not closed (winding number) | 18 |
+| exact: not closed | 18 |
+| exact: degenerate triangles | 13 |
+| repair: inside-out components | 11 |
+| repair: volume differs from the input | 9 |
+| repair: not closed | 1 |
+
+| alpha wrap | meshes |
+|---|---|
+| solidify: self-intersections | 31 |
+| repair: degenerate triangles | 17 |
+| exact: not closed | 15 |
+| exact: not closed (winding number) | 10 |
+| repair: self-intersections | 6 |
+| exact: degenerate triangles | 4 |
+| repair: inside-out components | 4 |
+| repair: volume differs from the input | 4 |
+| exact: volume differs from the input | 2 |
+
+Stage per defect category (meshes; in brackets: repaired):
+
+| category | meshes | repair | exact resolve | solidify | alpha wrap |
+|---|---|---|---|---|---|
+| broken:Closed | 60 | 30 (29) | 9 (7) | 17 (1) | 4 (0) |
+| broken:Edge manifold | 60 | 20 (19) | 26 (19) | 10 (1) | 4 (1) |
+| broken:No degenerate faces | 60 | 28 (26) | 22 (16) | 5 (0) | 5 (0) |
+| broken:No duplicated faces | 60 | 18 (18) | 24 (15) | 13 (2) | 5 (0) |
+| broken:PWN | 60 | 20 (18) | 21 (12) | 14 (1) | 5 (0) |
+| broken:Vertex manifold | 60 | 19 (19) | 17 (9) | 16 (4) | 8 (0) |
+| clean | 40 | 37 (36) | 3 (2) | 0 (0) | 0 (0) |
+
+Reading: the repair alone gives 165 of the 255 repaired meshes (most clean controls and meshes that are only
+open); the exact resolve adds 80 and keeps the geometry (Hausdorff median 0.56 %). The solidify and the alpha
+wrap make every remaining mesh closed and free of self-intersections, but remesh it: about 2.4 % deviation in
+the median, so they rarely meet the strict criterion. Their inputs are mostly meshes the exact resolve cannot
+take: not closed in the winding number sense, or whose resolved solid differs from the input's.
+
+
+### `robust` on the current master (both selections)
+Master of 2026-10-25 night (`56a8ed5`), with the changes merged since `a66049b`: among them the exact resolve
+before the solidify, the alpha wrap as the last resort (#47) and the faster checks (#49). Before: the holdout run above (build `a66049b`). Same machine, `BENCH_P=2
+TIMEOUT=300`. The large meshes of the first selection were not rerun.
+
+| | holdout before | holdout now | first selection now |
+|---|---|---|---|
+| **repaired** | 217 | **256** | **258** |
+| clean¹ + no exact self-intersections | 367 | 399 | 399 |
+| meshes with exact self-intersections | 33 | 0 | 1 |
+| large meshes repaired | 8/30 | 13/30 | – |
+| median / p90 / max repair time | 4.1 s / 15.5 s / 150 s | 1.95 s / 10.0 s / 92 s | 1.96 s / 10.2 s / 57 s |
+| sum of repair times | 2991 s | 1782 s | 1731 s |
+
+- Both selections agree within 2 meshes. The holdout selection was used while developing #49, so the
+  first selection is the cross-check here: no sign of overfitting to either.
+- No crashes or timeouts; all meshes closed.
+- The size-independent outliers are gone: 78968.stl 150 s → 2 s, 49998.stl 118 s → 3 s.
+- Path taken (holdout / first selection) and median time:
+
+  | path | holdout | first | median (holdout) |
+  |---|---|---|---|
+  | repair kept | 174 | 172 | 0.67 s |
+  | exact resolve | 130 | 133 | 2.7 s |
+  | solidify | 73 | 69 | 6.5 s |
+  | alpha wrap | 23 | 26 | 22 s |
+
+- The alpha wrap cases now take a third of the total time (659 s holdout, 603 s first selection): each
+  first runs the exact resolve and the solidify, which are discarded (113906.stl: 11 s exact, 66 s
+  solidify, 12 s wrap). Deciding earlier that the solidify will fail is the next lever.

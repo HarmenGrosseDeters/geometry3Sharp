@@ -270,8 +270,9 @@ namespace gs
             return true;
         }
 
-        // point cloud: bins of size pointRadius, points relative to the origin of the bins
-        double pointRadius;
+        // point cloud: bins of size pointBinSize >= pointRadius (larger if there would be many more bins than
+        // points, eg a small PointRadius over a large area)
+        double pointRadius, pointBinSize;
         Vector2d pointBinOrigin;
         int pbx, pby;
         int[] binStart, binPoints;
@@ -283,13 +284,16 @@ namespace gs
             double spacing = Math.Sqrt(Math.Max(bounds.Width * bounds.Height, MathUtil.Epsilon) / n);
             pointRadius = (PointRadius > 0) ? PointRadius : 1.5 * spacing;
             pointBinOrigin = bounds.Min.xy;
-            pbx = (int)(bounds.Width / pointRadius) + 1;
-            pby = (int)(bounds.Height / pointRadius) + 1;
+            pointBinSize = pointRadius;
+            while ((Math.Floor(bounds.Width / pointBinSize) + 1) * (Math.Floor(bounds.Height / pointBinSize) + 1) > 4.0 * n + 1024)
+                pointBinSize *= 2;
+            pbx = (int)(bounds.Width / pointBinSize) + 1;
+            pby = (int)(bounds.Height / pointBinSize) + 1;
             int[] bin = new int[n];
             int[] count = new int[pbx * pby + 1];
             for (int k = 0; k < n; ++k) {
                 Vector3d p = points[k];
-                int i = Math.Min(pbx - 1, (int)((p.x - pointBinOrigin.x) / pointRadius)), j = Math.Min(pby - 1, (int)((p.y - pointBinOrigin.y) / pointRadius));
+                int i = Math.Min(pbx - 1, (int)((p.x - pointBinOrigin.x) / pointBinSize)), j = Math.Min(pby - 1, (int)((p.y - pointBinOrigin.y) / pointBinSize));
                 bin[k] = i + pbx * j;
                 count[bin[k] + 1]++;
             }
@@ -322,12 +326,13 @@ namespace gs
         {
             p = n = Vector3d.Zero;
             double R = pointRadius * radiusFactor, R2 = R * R;
-            int ci = (int)Math.Floor((x - pointBinOrigin.x) / pointRadius), cj = (int)Math.Floor((y - pointBinOrigin.y) / pointRadius);
+            int ci = (int)Math.Floor((x - pointBinOrigin.x) / pointBinSize), cj = (int)Math.Floor((y - pointBinOrigin.y) / pointBinSize);
+            int reach = (int)Math.Ceiling(R / pointBinSize);
             double s00 = 0, s01 = 0, s02 = 0, s11 = 0, s12 = 0, s22 = 0, r0 = 0, r1 = 0, r2 = 0, wsum = 0, mx = 0, my = 0;
             int count = 0;
-            for (int j = cj - radiusFactor; j <= cj + radiusFactor; ++j) {
+            for (int j = cj - reach; j <= cj + reach; ++j) {
                 if (j < 0 || j >= pby) continue;
-                for (int i = ci - radiusFactor; i <= ci + radiusFactor; ++i) {
+                for (int i = ci - reach; i <= ci + reach; ++i) {
                     if (i < 0 || i >= pbx) continue;
                     int b = i + pbx * j;
                     for (int q = binStart[b]; q < binStart[b + 1]; ++q) {

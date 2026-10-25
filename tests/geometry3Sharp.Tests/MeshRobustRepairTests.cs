@@ -149,6 +149,20 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void CleanButAFarComponentLost_InputUsed()
+        {
+            // two spheres 1000 apart: the volume check sampled the common bounds, where no sample hit them, so a
+            // repair that lost one of them was accepted ("no solid to compare with")
+            DMesh3 input = Sphere(1, Vector3d.Zero);
+            MeshEditor.Append(input, Sphere(1, new Vector3d(1000, 0, 0)));
+            var r = new MeshRobustRepair(new DMesh3(input)) { RepairF = (m) => Sphere(1, Vector3d.Zero) };
+            Assert.True(r.Apply());
+            Assert.Equal("volume differs from the input", r.FallbackReason);
+            Assert.True(r.UsedExactResolve, r.ExactResolveReason);
+            Assert.Equal(2 * Volume(Sphere(1, Vector3d.Zero)), Volume(r.Mesh), 6);
+        }
+
+        [Fact]
         public void ExactResolveThatLosesVolume_NotUsed()
         {
             // the repair drops a part (box c) and leaves two overlapping boxes: resolving them exactly is clean,
