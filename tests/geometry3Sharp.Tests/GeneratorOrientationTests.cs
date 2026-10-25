@@ -162,5 +162,62 @@ namespace geometry3Sharp.Tests
             Assert.True(SignedVolume(a) > 0);
             Assert.Equal(-SignedVolume(a), SignedVolume(b), 10);
         }
+        // --- wedge triangle counts, cone normals, cone tip ---
+
+        public static IEnumerable<object[]> Generators()
+        {
+            foreach (bool noShared in new[] { false, true }) {
+                foreach (float end in new[] { 360.0f, 90.0f, 270.0f }) {
+                    string variant = $"0-{end} noShared={noShared}";
+                    yield return new object[] { "open cylinder " + variant, new OpenCylinderGenerator() { EndAngleDeg = end, NoSharedVertices = noShared } };
+                    yield return new object[] { "capped cylinder " + variant, new CappedCylinderGenerator() { EndAngleDeg = end, NoSharedVertices = noShared } };
+                    yield return new object[] { "cone " + variant, new ConeGenerator() { EndAngleDeg = end, NoSharedVertices = noShared } };
+                }
+                yield return new object[] { $"generalized cylinder noShared={noShared}", new VerticalGeneralizedCylinderGenerator() {
+                    Sections = new[] { new MeshGenerator.CircularSection(1, 0), new MeshGenerator.CircularSection(0.5f, 1) }, NoSharedVertices = noShared } };
+            }
+        }
+
+        [Theory]
+        [MemberData(nameof(Generators))]
+        public void Generator_EveryTriangleIsUsedAndNonDegenerate(string name, MeshGenerator gen)
+        {
+            gen.Generate();
+            for (int i = 0; i < gen.triangles.Count; ++i) {
+                Index3i t = gen.triangles[i];
+                double area = MathUtil.Area(gen.vertices[t.a], gen.vertices[t.b], gen.vertices[t.c]);
+                Assert.True(area > 1e-8, $"{name}: triangle {i} ({t.a},{t.b},{t.c}) has area {area}");
+            }
+            DMesh3 m = gen.MakeDMesh();
+            Assert.Equal(gen.triangles.Count, m.TriangleCount);
+            int unused = m.VertexIndices().Count(v => m.GetVtxEdgeCount(v) == 0);
+            Assert.True(unused == 0, $"{name}: {unused} vertices are not used by any triangle");
+        }
+
+        [Theory]
+        [MemberData(nameof(SharedVertices))]
+        public void Cone_NormalsMatchTheSurface(bool noSharedVertices)
+        {
+            const float R = 1, H = 2;
+            var gen = new ConeGenerator() { BaseRadius = R, Height = H, Slices = 16, NoSharedVertices = noSharedVertices };
+            gen.Generate();
+            // ring vertex 0 is at angle 0: the surface normal there is (H, R, 0) normalized
+            Vector3d expected = new Vector3d(H, R, 0).Normalized;
+            Assert.True(((Vector3d)gen.normals[0]).Distance(expected) < 1e-6, $"normal at the base ring {gen.normals[0]}, expected {expected}");
+
+            // on the cone surface, the vertex normals of each triangle agree with its face normal
+            DMesh3 m = gen.MakeDMesh();
+            foreach (int tid in m.TriangleIndices()) {
+                Vector3d n = m.GetTriNormal(tid);
+                if (Math.Abs(n.y) > 0.999)
+                    continue;       // base cap
+                Index3i t = m.GetTriangle(tid);
+                foreach (int v in new[] { t.a, t.b, t.c }) {
+                    if (noSharedVertices == false && m.GetVertex(v).y == H)
+                        continue;   // the shared tip has the axis as normal
+                    Assert.True(n.Dot(m.GetVertexNormal(v)) > 0.95, $"triangle {tid}: vertex {v} normal {m.GetVertexNormal(v)} vs face {n}");
+                }
+            }
+        }
     }
 }
