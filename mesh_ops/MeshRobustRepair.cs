@@ -132,9 +132,15 @@ namespace gs
                     ExactResolveReason = "resolve failed";
                     return null;
                 }
-                string reason = NotCleanReason(res, CheckSelfIntersections);
+                // slivers where intersection curves nearly meet: collapsed or flipped by the cleanup
+                string reason = NotCleanReason(res, false);
+                if (reason == "degenerate triangles") {
+                    new MeshPostRepairCleanup(res).Apply();
+                    res = new DMesh3(res, true);
+                }
+                reason = NotCleanReason(res, CheckSelfIntersections);
                 if (reason == "self-intersections") {
-                    // from rounding the new vertices: tiny, resolved by the next round
+                    // from rounding the new vertices (or the cleanup): tiny, resolved by the next round
                     ExactResolveReason = reason;
                     m = res;
                     continue;
