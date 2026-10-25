@@ -63,7 +63,13 @@ selectively.
 
 - [x] Parameterization: LSCM, ARAP, SLIM (Rabinovich et al. 2017), Boundary First Flattening (Sawhney & Crane 2017);
   UV packing; distortion measures; sparse Cholesky solver (`SparseCholesky`)
-- [ ] Cutting closed surfaces into discs (seams) and automatic chart segmentation; BFF with cone singularities
+- [x] Cutting closed surfaces into discs (seams) and automatic chart segmentation; BFF with cone singularities:
+  `MeshDiscCut` (tree-cotree cut graph with shortest loops, Eppstein; Erickson & Whittlesey; any genus, boundaries,
+  components, bowties; vertices split along the seams), `MeshChartSegmentation` (normal-based region growing with
+  compactness, VSA / D-Charts style), `ConeFlattening` (BFF with greedily placed cones; a cube's corners become cones
+  and it unfolds without distortion), `UVOverlap` (exact overlap test), and the pipeline `UVAtlasGenerator`
+  (cones where overlap-free, else charts split until within the distortion limits, packing, status code);
+  `g3cli uv`. Cones are not guaranteed globally injective (eg on a torus); the pipeline then falls back to charts.
 - [x] Intrinsic Delaunay triangulations (Sharp & Crane), for stable Laplacians and heat on poor meshes:
   `IntrinsicTriangulation` (edge flips with signposts, tracing of intrinsic edges over the input mesh,
   intrinsic mollification of degenerate triangles); `MeshGeodesicDistance.IntrinsicDelaunay`. On a plane of
@@ -84,7 +90,7 @@ selectively.
 
 ## Phase 4: platform layer
 
-- [x] CLI / MCP server over the operations: `tools/g3cli` (measure, repair, boolean, resolve, remesh, simplify,
+- [x] CLI / MCP server over the operations: `tools/g3cli` (measure, repair, boolean, resolve, remesh, simplify, uv,
   convert; JSON results with result codes; `g3cli mcp` over stdio)
 - [x] Analysis building blocks: wall thickness (`MeshWallThickness`: ray, shape diameter function, inscribed ball /
   medial axis), deviation maps (`MeshDeviation`, statistics in `DeviationStatistics`), primitive fitting

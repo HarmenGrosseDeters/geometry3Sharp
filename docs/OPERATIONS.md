@@ -7,7 +7,7 @@ closedness, edge lengths, error bounds), so the examples cannot silently go stal
 the XML documentation of the classes (shipped in the NuGet package, so IDEs and coding agents see it).
 
 Without writing code: [tools/g3cli](../tools/g3cli/README.md) runs the main operations (measure, repair,
-boolean, resolve, remesh, simplify, convert) on mesh files, with JSON results, and as an MCP server.
+boolean, resolve, remesh, simplify, uv, convert) on mesh files, with JSON results, and as an MCP server.
 
 Namespaces: most classes are in `g3`; many mesh operations are in `gs` (repair, alpha wrap, solidify, hole
 filling, wall thickness, deviation, Hausdorff and geodesic distances, intrinsic triangulations, terrain).
@@ -50,6 +50,8 @@ Add both: `using g3; using gs;`.
 | Signed distance field, offset surfaces | `MeshSignedDistanceGrid`, `DenseGridTrilinearImplicit`, `MarchingCubes` | [OffsetSurfaceExample](examples/OffsetSurfaceExample.cs) |
 | Hausdorff distance, geodesic distance | `gs.MeshHausdorffDistance`, `gs.MeshGeodesicDistance` | [DistancesExample](examples/DistancesExample.cs) |
 | Intrinsic Delaunay triangulation and refinement: cotan Laplacian without negative weights, geodesics and vector heat on poor meshes, overlay with the input | `gs.IntrinsicTriangulation`, `gs.MeshGeodesicDistance.IntrinsicRefine`, `gs.VectorHeatMethod.IntrinsicRefine`, `gs.IntrinsicCommonSubdivision` | [IntrinsicTriangulationExample](examples/IntrinsicTriangulationExample.cs) |
+| UV atlas of any mesh: seams, charts, BFF with cones, packing, exact overlap test | `UVAtlasGenerator`, `MeshDiscCut`, `MeshChartSegmentation`, `ConeFlattening`, `UVOverlap`, `UVPacker` | [UVAtlasExample](examples/UVAtlasExample.cs) |
+| Parameterize a disc | `BoundaryFirstFlattening`, `LSCMParameterization`, `ARAPParameterization`, `SLIMParameterization`, `ParameterizationDistortion` | [UVAtlasExample](examples/UVAtlasExample.cs) |
 
 ## Which repair or boolean class?
 
@@ -193,6 +195,40 @@ if (result.code != IOCode.Ok)
 
 Format details (units, precision, supported features) are in the README table and the reader/writer class
 comments. See [MeshIOExample](examples/MeshIOExample.cs).
+
+### UV atlas and seams
+
+```csharp
+var atlas = new UVAtlasGenerator(mesh);            // closed or open, any genus, several components
+atlas.Compute();                                   // false unless atlas.Status == UVAtlasStatus.Success
+DMesh3 textured = atlas.AtlasMesh;                 // the triangles of mesh, split along the seams, vertex UVs in [0,1]^2
+int src = atlas.AtlasToInputVertex[vid];           // and AtlasToInputTriangle, TriangleChart
+
+var cut = new MeshDiscCut(mesh);                   // only the seams: one disc per component
+if (cut.Compute())
+    new BoundaryFirstFlattening(cut.CutMesh).Compute();
+```
+
+All parameterizations need discs. `MeshDiscCut` cuts any mesh into discs along a cut graph (tree-cotree with
+shortest paths: on a closed surface of genus g, 2g short loops; between boundary loops, shortest paths; for a
+sphere, a path), and splits the vertices along the seams in a new mesh. `ConeFlattening` is BFF with cone
+singularities: cones are placed greedily where the conformal scale factor is largest, the mesh is cut through
+them, and the rest becomes flat (a cube: its eight corners, unfolded without distortion). `UVAtlasGenerator`
+combines them: per component, cones if the result is overlap-free and within the distortion limits, otherwise
+charts grown by normal (`MeshChartSegmentation`) flattened with BFF and split in two while a chart overlaps
+itself or exceeds `MaxAreaDistortion` / `MaxConformalDistortion`; then `UVPacker`. The final UVs are checked
+with exact predicates (`UVOverlap`), in double and again as stored in the mesh (float; defects within the float
+resolution, eg at vertices 1e-7 apart, are only reported in `SubResolutionDefects`), and `Status` reports `DistortionLimitExceeded` when `MaxCharts` was not
+enough (the layout is still overlap-free). From the command line: `g3cli uv mesh.obj atlas.obj`.
+
+| Method | Charts | Use |
+|---|---|---|
+| `Auto` (default) | one chart per component where cones work, else several | texture atlases |
+| `Cones` | one chart through cones (falls back to charts if it overlaps) | few seams, low area distortion |
+| `Charts` | normal-based charts, split until within the limits | robust, more seams |
+| `SingleChart` | one chart (cut to a disc), plain BFF | when one chart is required; distorts closed surfaces |
+
+See [UVAtlasExample](examples/UVAtlasExample.cs).
 
 ## Adding an example
 

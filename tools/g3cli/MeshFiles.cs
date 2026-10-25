@@ -63,13 +63,19 @@ namespace g3cli
             return mesh;
         }
 
-        /// <summary> Writes the mesh (compacted); fails with unknown_format or write_error. </summary>
-        public static void Write(string path, DMesh3 mesh, bool binary = true)
+        /// <summary> formats that store per-vertex UVs </summary>
+        public static readonly string[] UVFormats = { "obj", "ply", "gltf", "glb", "g3mesh" };
+
+        public static bool StoresUVs(string path) => UVFormats.Contains(Extension(path));
+
+        /// <summary> Writes the mesh (compacted), with its vertex UVs if uvs; fails with unknown_format or write_error. </summary>
+        public static void Write(string path, DMesh3 mesh, bool binary = true, bool uvs = false)
         {
             CheckWritable(path);
             DMesh3 compact = mesh.IsCompact ? mesh : new DMesh3(mesh, true);
             WriteOptions options = WriteOptions.Defaults;
             options.bWriteBinary = binary;
+            options.bPerVertexUVs = uvs;
             IOWriteResult result;
             try {
                 string dir = Path.GetDirectoryName(Path.GetFullPath(path));
