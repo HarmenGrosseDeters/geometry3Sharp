@@ -47,13 +47,44 @@ namespace g3
     /// </summary>
     public class ExactMeshBoolean
     {
-        /// <summary> the boolean operation; Difference is A minus B </summary>
+        /// <summary>
+        /// the boolean operation; Difference is A minus B. With more than two meshes (Meshes): Union is inside
+        /// any of them, Intersection inside all of them, Difference inside the first and none of the others.
+        /// </summary>
         public enum Operations { Union = 0, Intersection = 1, Difference = 2 }
 
-        /// <summary> the input meshes (not modified) </summary>
+        /// <summary> result code of Compute() </summary>
+        public enum BooleanStatus
+        {
+            /// <summary> Result is set (possibly empty, eg the intersection of disjoint meshes) </summary>
+            Success = 0,
+            /// <summary> no input mesh, a null mesh, or non-finite coordinates (see Error) </summary>
+            InvalidInput = 1,
+            /// <summary> a mesh is not closed in the winding number sense while AllowOpenMeshes is false </summary>
+            OpenInput = 2,
+            /// <summary> Compute() was not called yet </summary>
+            NotComputed = 3
+        }
+
+        /// <summary> the input meshes of A op B (not modified); unused if Meshes is set </summary>
         public DMesh3 MeshA, MeshB;
-        /// <summary> the operation computed by Compute() </summary>
+        /// <summary>
+        /// the input meshes of an operation on any number of meshes, in one arrangement (not modified). If null,
+        /// the inputs are MeshA and MeshB. Mesh i is entry i of the winding number vector of WindingPredicate.
+        /// </summary>
+        public List<DMesh3> Meshes;
+        /// <summary> the operation computed by Compute() (unless WindingPredicate is set) </summary>
         public Operations Operation;
+        /// <summary>
+        /// if set, decides instead of Operation where the result's solid is (Zhou et al. 2016): called with the
+        /// winding numbers of all input meshes at a point (entry i for mesh i, in the order of Meshes, or A, B),
+        /// returns true for inside. The winding numbers are exact integers for closed meshes; for open meshes the
+        /// generalized winding number w is rounded to ceil(w - 1/2) (so w > 1/2 is at least 1). Called on both
+        /// sides of every patch, from one thread; the array is reused and must not be modified or kept. A point
+        /// far from all meshes has all winding numbers 0, so a predicate that is true there gives an unbounded
+        /// solid and no closed result. Examples: AtLeast(k), (w) => (w[0] > 0) != (w[1] > 0) (symmetric difference).
+        /// </summary>
+        public Func<int[], bool> WindingPredicate;
 
         /// <summary> seed of the random ray directions (the result does not depend on it) </summary>
         public int Seed = 31337;
@@ -62,6 +93,8 @@ namespace g3
         public DMesh3 Result;
         /// <summary> why Compute() failed, otherwise null </summary>
         public string Error;
+        /// <summary> result code of Compute(); Success iff Compute() returned true </summary>
+        public BooleanStatus Status = BooleanStatus.NotComputed;
         /// <summary> pairs of triangles of different meshes that intersect </summary>
         public int IntersectingPairs;
         /// <summary> pairs of triangles of the same mesh that intersect (other than at shared vertices and edges) </summary>
@@ -87,6 +120,8 @@ namespace g3
         public bool AllowOpenMeshes = true;
         /// <summary> per input mesh: winding numbers exact (closed mesh) or generalized (open mesh) </summary>
         public bool ExactWindingA, ExactWindingB;
+        /// <summary> the same for every input mesh (in the order of Meshes, or A, B), after Compute() </summary>
+        public bool[] ExactWinding;
         // for tests: use generalized winding numbers also for closed meshes
         internal bool ForceGeneralizedWinding = false;
         // for tests: no floating-point filters in the arrangement
@@ -103,39 +138,87 @@ namespace g3
             MeshA = a; MeshB = b; Operation = op;
         }
 
+        /// <summary>
+        /// set up an operation on any number of meshes in one arrangement: union (inside any), intersection
+        /// (inside all) or difference (inside the first and none of the others); call Compute() to run it
+        /// </summary>
+        public ExactMeshBoolean(IEnumerable<DMesh3> meshes, Operations op)
+        {
+            Meshes = new List<DMesh3>(meshes ?? new DMesh3[0]);
+            Operation = op;
+        }
+
+        /// <summary>
+        /// set up the solid of a winding number predicate over any number of meshes (see WindingPredicate), eg
+        /// AtLeast(2) for the points inside at least two of the meshes; call Compute() to run it
+        /// </summary>
+        public ExactMeshBoolean(IEnumerable<DMesh3> meshes, Func<int[], bool> windingPredicate)
+            : this(meshes, Operations.Union)
+        {
+            WindingPredicate = windingPredicate;
+        }
+
+        /// <summary> predicate for WindingPredicate: inside at least k of the meshes (winding number positive) </summary>
+        public static Func<int[], bool> AtLeast(int k)
+        {
+            return (w) => {
+                int count = 0;
+                for (int i = 0; i < w.Length; ++i)
+                    if (w[i] > 0 && ++count >= k)
+                        return true;
+                return k <= 0;
+            };
+        }
+
+        /// <summary> union of any number of meshes in one arrangement; null if Compute() fails </summary>
+        public static DMesh3 Union(IEnumerable<DMesh3> meshes)
+        {
+            var op = new ExactMeshBoolean(meshes, Operations.Union);
+            return op.Compute() ? op.Result : null;
+        }
+
+        /// <summary> intersection of any number of meshes in one arrangement; null if Compute() fails </summary>
+        public static DMesh3 Intersection(IEnumerable<DMesh3> meshes)
+        {
+            var op = new ExactMeshBoolean(meshes, Operations.Intersection);
+            return op.Compute() ? op.Result : null;
+        }
+
 
         ExactMeshArrangement arr;
 
         /// <summary>
-        /// Compute the boolean into Result. Returns false (and sets Error) if an input is null, has non-finite
-        /// coordinates, or is open while AllowOpenMeshes is false; otherwise true. An empty result (for example
-        /// the intersection of disjoint meshes) is a success with an empty Result mesh.
+        /// Compute the boolean into Result. Returns false (and sets Error and Status) if there is no input, an
+        /// input is null, has non-finite coordinates, or is open while AllowOpenMeshes is false; otherwise true
+        /// (Status Success). An empty result (for example the intersection of disjoint meshes) is a success with
+        /// an empty Result mesh.
         /// </summary>
         public bool Compute()
         {
             Result = null;
             Error = null;
-            if (MeshA == null || MeshB == null) {
-                Error = "input mesh is null";
-                return false;
-            }
-            foreach (DMesh3 m in new[] { MeshA, MeshB }) {
+            List<DMesh3> inputs = Meshes ?? new List<DMesh3>() { MeshA, MeshB };
+            if (inputs.Count == 0)
+                return fail(BooleanStatus.InvalidInput, "no input meshes");
+            foreach (DMesh3 m in inputs)
+                if (m == null)
+                    return fail(BooleanStatus.InvalidInput, "input mesh is null");
+            foreach (DMesh3 m in inputs) {
                 foreach (int vid in m.VertexIndices()) {
                     Vector3d v = m.GetVertex(vid);
-                    if (double.IsNaN(v.x + v.y + v.z) || double.IsInfinity(v.x + v.y + v.z)) {
-                        Error = "input meshes have non-finite coordinates";
-                        return false;
-                    }
+                    if (double.IsNaN(v.x + v.y + v.z) || double.IsInfinity(v.x + v.y + v.z))
+                        return fail(BooleanStatus.InvalidInput, "input meshes have non-finite coordinates");
                 }
             }
-            ExactWindingA = IsWindingClosed(MeshA) && ForceGeneralizedWinding == false;
-            ExactWindingB = IsWindingClosed(MeshB) && ForceGeneralizedWinding == false;
-            if (AllowOpenMeshes == false && (ExactWindingA == false || ExactWindingB == false)) {
-                Error = "input meshes must be closed (every edge used equally often in both directions)";
-                return false;
-            }
+            ExactWinding = new bool[inputs.Count];
+            for (int m = 0; m < inputs.Count; ++m)
+                ExactWinding[m] = IsWindingClosed(inputs[m]) && ForceGeneralizedWinding == false;
+            ExactWindingA = ExactWinding[0];
+            ExactWindingB = inputs.Count > 1 && ExactWinding[1];
+            if (AllowOpenMeshes == false && Array.IndexOf(ExactWinding, false) >= 0)
+                return fail(BooleanStatus.OpenInput, "input meshes must be closed (every edge used equally often in both directions)");
 
-            arr = new ExactMeshArrangement(new List<DMesh3>() { MeshA, MeshB }) { SelfIntersections = true, DisableFilters = DisableFilters };
+            arr = new ExactMeshArrangement(inputs) { SelfIntersections = true, DisableFilters = DisableFilters };
             arr.Compute();
             IntersectingPairs = arr.IntersectingPairs - arr.SelfIntersectingPairs;
             SelfIntersectingPairs = arr.SelfIntersectingPairs;
@@ -156,7 +239,15 @@ namespace g3
             Result = assemble(keep, flip);
             PhaseMilliseconds["assembly"] = sw.ElapsedMilliseconds;
             Counts["removed_vertices"] = RemovedVertices;
+            Status = BooleanStatus.Success;
             return true;
+        }
+
+        bool fail(BooleanStatus status, string error)
+        {
+            Status = status;
+            Error = error;
+            return false;
         }
 
 
@@ -224,14 +315,20 @@ namespace g3
         }
 
 
-        bool inside(double wa, double wb)
+        // the winding numbers at a point: winding[m] for every mesh m, of which only the meshes in touched can
+        // be nonzero (the others are 0)
+        bool inside(int[] winding, List<int> touched)
         {
-            // winding numbers are integers for closed meshes, generalized ones are thresholded at 0.5
-            bool a = wa > 0.5, b = wb > 0.5;
+            if (WindingPredicate != null)
+                return WindingPredicate(winding);
+            int count = 0;
+            foreach (int m in touched)
+                if (winding[m] > 0)
+                    count++;
             switch (Operation) {
-                case Operations.Union: return a || b;
-                case Operations.Intersection: return a && b;
-                default: return a && !b;
+                case Operations.Union: return count > 0;
+                case Operations.Intersection: return count == winding.Length;
+                default: return winding[0] > 0 && count == 1;
             }
         }
 
@@ -280,20 +377,30 @@ namespace g3
                 }
                 return x;
             };
+            var atEdge = new List<int>();
             for (int g0 = 0, g1 = 0; g0 < edgeKeys.Length; g0 = g1) {
                 g1 = g0 + 1;
                 while (g1 < edgeKeys.Length && edgeKeys[g1] == edgeKeys[g0]) g1++;
                 if (arr.ConstraintEdges.Contains(edgeKeys[g0]))
                     continue;
-                for (int mesh = 0; mesh < 2; ++mesh) {
-                    int a = -1, b = -1, count = 0;
-                    for (int g = g0; g < g1; ++g) {
-                        int t = edgeTri[g];
-                        if (output[t].Mesh != mesh) continue;
-                        if (count == 0) a = t; else b = t;
-                        count++;
+                // the pieces at the edge by mesh (stable insertion sort, the groups are small)
+                atEdge.Clear();
+                for (int g = g0; g < g1; ++g) {
+                    int t = edgeTri[g], k = atEdge.Count;
+                    atEdge.Add(t);
+                    while (k > 0 && output[atEdge[k - 1]].Mesh > output[t].Mesh) {
+                        atEdge[k] = atEdge[k - 1];
+                        k--;
                     }
-                    if (count != 2 || same_stack(stack[a], stack[b]) == false)
+                    atEdge[k] = t;
+                }
+                for (int s0 = 0, s1 = 0; s0 < atEdge.Count; s0 = s1) {
+                    s1 = s0 + 1;
+                    while (s1 < atEdge.Count && output[atEdge[s1]].Mesh == output[atEdge[s0]].Mesh) s1++;
+                    if (s1 - s0 != 2)
+                        continue;
+                    int a = atEdge[s0], b = atEdge[s0 + 1];
+                    if (same_stack(stack[a], stack[b]) == false)
                         continue;
                     int ra = find(a), rb = find(b);
                     if (ra != rb)
@@ -301,45 +408,88 @@ namespace g3
                 }
             }
 
-            var patchWinding = new Dictionary<int, double[]>();
+            // winding numbers in front of each patch, sparse (the nonzero ones, as pairs mesh, winding number):
+            // a closed mesh has winding number 0 outside its box, so only the meshes whose box contains the
+            // piece are evaluated
+            int nm = arr.Meshes.Count;
+            var patchWinding = new Dictionary<int, int[]>();
             var rng = new Random(Seed);
-            var trees = new TriangleBoxTree[2];
+            var closedBoxes = new List<AxisAlignedBox3d>();
+            var openMeshes = new List<int>();
+            for (int m = 0; m < nm; ++m) {
+                closedBoxes.Add(ExactWinding[m] ? input_bounds(m) : AxisAlignedBox3d.Empty);
+                if (ExactWinding[m] == false)
+                    openMeshes.Add(m);
+            }
+            var closedTree = new TriangleBoxTree(closedBoxes);
+            var candidates = new List<int>();
+            var sparse = new List<int>();
+            int[] winding = new int[nm];
+            bool[] isTouched = new bool[nm];
+            var touched = new List<int>();
+            Action<int, int> add = (m, d) => {
+                if (isTouched[m] == false) {
+                    isTouched[m] = true;
+                    touched.Add(m);
+                }
+                winding[m] += d;
+            };
             for (int i = 0; i < n; ++i) {
                 if (representative[i] == false)
                     continue;
                 var ot = output[i];
                 int root = find(i);
-                double[] w;
+                int[] w;
                 if (patchWinding.TryGetValue(root, out w) == false) {
-                    w = new double[2];
-                    for (int m = 0; m < 2; ++m) {
-                        if ((m == 0) ? ExactWindingA : ExactWindingB) {
-                            if (trees[m] == null)
-                                trees[m] = arr.Trees[m];
-                            w[m] = front_winding(i, m, trees[m], rng, stack[i]);
+                    int p = centroid(ot);
+                    Vector3d pv = arr.ToInputVector(arr.Exact(p));
+                    double pad = 1e-9 * (Math.Abs(pv.x) + Math.Abs(pv.y) + Math.Abs(pv.z)) + 1e-300;
+                    candidates.Clear();
+                    closedTree.Query(new AxisAlignedBox3d(pv - pad * Vector3d.One, pv + pad * Vector3d.One), (m) => candidates.Add(m));
+                    candidates.AddRange(openMeshes);
+                    candidates.Sort();
+                    sparse.Clear();
+                    foreach (int m in candidates) {
+                        int wm;
+                        if (ExactWinding[m]) {
+                            wm = front_winding(i, m, arr.Trees[m], rng, stack[i], p);
                         } else {
-                            w[m] = front_generalized_winding(i, m, stack[i]);
+                            // generalized winding numbers are thresholded at 1/2: ceil(w - 1/2) > 0 iff w > 1/2,
+                            // and it commutes with adding the integer changes across the patch
+                            wm = (int)Math.Ceiling(front_generalized_winding(i, m, stack[i]) - 0.5);
+                        }
+                        if (wm != 0) {
+                            sparse.Add(m);
+                            sparse.Add(wm);
                         }
                     }
+                    w = sparse.ToArray();
                     patchWinding[root] = w;
                     Patches++;
                 }
+                for (int k = 0; k < w.Length; k += 2)
+                    add(w[k], w[k + 1]);
+                bool inFront = inside(winding, touched);
                 // back side: crossing the stack from the back to the front changes the winding number of a
                 // mesh by -1 for each of its triangles oriented like the piece, +1 for opposite ones
-                double[] back = { w[0], w[1] };
                 if (stack[i] == null) {
-                    back[ot.Mesh] += 1;
+                    add(ot.Mesh, 1);
                 } else {
                     var src = arr.Triangles[ot.Source];
                     foreach (int ti in stack[i]) {
                         var U = arr.Triangles[ti];
                         BigInteger dot = src.NX * U.NX + src.NY * U.NY + src.NZ * U.NZ;
-                        back[U.Mesh] += (dot.Sign > 0) ? 1 : -1;
+                        add(U.Mesh, (dot.Sign > 0) ? 1 : -1);
                     }
                 }
-                bool inFront = inside(w[0], w[1]), inBack = inside(back[0], back[1]);
+                bool inBack = inside(winding, touched);
                 keep[i] = inFront != inBack;
                 flip[i] = inFront;
+                foreach (int m in touched) {
+                    winding[m] = 0;
+                    isTouched[m] = false;
+                }
+                touched.Clear();
             }
         }
 
@@ -401,7 +551,7 @@ namespace g3
         /// the triangles of the piece's stack. Exact; a new random direction is used if the segment passes
         /// through an edge or vertex.
         /// </summary>
-        int front_winding(int i, int mesh, TriangleBoxTree tree, Random rng, List<int> stack)
+        int front_winding(int i, int mesh, TriangleBoxTree tree, Random rng, List<int> stack, int p)
         {
             var ot = arr.Output[i];
             var src = arr.Triangles[ot.Source];
@@ -409,7 +559,6 @@ namespace g3
 
             BigInteger[] min, max;
             mesh_bounds(mesh, out min, out max);
-            int p = centroid(ot);
             ExactPoint3 P = arr.Exact(p);
             // outside the box of the mesh: winding number 0
             for (int k = 0; k < 3; ++k)
@@ -508,7 +657,7 @@ namespace g3
             return 2;
         }
 
-        readonly DMeshAABBTree3[] windingTrees = new DMeshAABBTree3[2];
+        readonly Dictionary<int, DMeshAABBTree3> windingTrees = new Dictionary<int, DMeshAABBTree3>();
 
         /// <summary>
         /// Generalized winding number of an open mesh just in front of output piece i: the fast winding number at
@@ -521,13 +670,14 @@ namespace g3
             var ot = arr.Output[i];
             var src = arr.Triangles[ot.Source];
             DMesh3 m = arr.Meshes[mesh];
-            if (windingTrees[mesh] == null) {
-                windingTrees[mesh] = new DMeshAABBTree3(m, true);
-                windingTrees[mesh].FastWindingNumber(Vector3d.Zero);
+            DMeshAABBTree3 tree;
+            if (windingTrees.TryGetValue(mesh, out tree) == false) {
+                windingTrees[mesh] = tree = new DMeshAABBTree3(m, true);
+                tree.FastWindingNumber(Vector3d.Zero);
             }
             // (the generalized winding number is approximate: the centroid of the corners in doubles is enough)
             Vector3d pv = (arr.PointToVector(ot.A) + arr.PointToVector(ot.B) + arr.PointToVector(ot.C)) / 3;
-            double w = windingTrees[mesh].FastWindingNumber(pv);
+            double w = tree.FastWindingNumber(pv);
             List<int> on = stack ?? new List<int>() { ot.Source };
             foreach (int ti in on) {
                 var U = arr.Triangles[ti];
@@ -542,6 +692,15 @@ namespace g3
         }
 
         readonly Dictionary<int, BigInteger[][]> bounds = new Dictionary<int, BigInteger[][]>();
+
+        // box of the input coordinates of a mesh (Empty for a mesh without vertices)
+        AxisAlignedBox3d input_bounds(int mesh)
+        {
+            AxisAlignedBox3d box = AxisAlignedBox3d.Empty;
+            foreach (int vid in arr.Meshes[mesh].VertexIndices())
+                box.Contain(arr.Meshes[mesh].GetVertex(vid));
+            return box;
+        }
 
         void mesh_bounds(int mesh, out BigInteger[] min, out BigInteger[] max)
         {
