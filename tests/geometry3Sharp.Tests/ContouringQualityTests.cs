@@ -78,5 +78,39 @@ namespace geometry3Sharp.Tests
             Assert.True(result.TriangleCount < slab.TriangleCount);
             Assert.Equal(0, MeshRepairMetrics.SelfIntersections(result));
         }
-    }
+    
+        // open, non-orientable: the winding number jumps across the strip, sheets of the contour pass close
+        // to each other in few cells (no sharp features)
+        static DMesh3 MoebiusStrip(int n = 200, int w = 6)
+        {
+            DMesh3 m = new DMesh3();
+            for (int i = 0; i < n; ++i)
+                for (int j = 0; j < w; ++j) {
+                    double u = 2 * Math.PI * i / n, v = -0.4 + 0.8 * j / (w - 1), r = 1 + v * Math.Cos(u / 2);
+                    m.AppendVertex(new Vector3d(r * Math.Cos(u), r * Math.Sin(u), v * Math.Sin(u / 2)));
+                }
+            for (int i = 0; i < n; ++i)
+                for (int j = 0; j < w - 1; ++j) {
+                    int i1 = (i + 1) % n;
+                    int a = i * w + j, b = i * w + j + 1, c = i1 * w + j, d = i1 * w + j + 1;
+                    if (i1 == 0) { c = w - 1 - j; d = w - 2 - j; }     // the half twist
+                    m.AppendTriangle(a, c, d);
+                    m.AppendTriangle(a, d, b);
+                }
+            return m;
+        }
+
+        [Theory]
+        [InlineData(0.0)]
+        [InlineData(0.05)]
+        public void NonOrientableInput_NoSelfIntersections(double reduceTol)
+        {
+            // (233 intersecting pairs when only triangles around feature vertices were checked)
+            var solid = new MeshWindingNumberSolidify(MoebiusStrip()) { GridResolution = 64, Adaptive = true, ReduceTolerance = reduceTol };
+            Assert.True(solid.Compute());
+            Assert.True(solid.Result.TriangleCount > 1000);
+            Assert.True(solid.Result.IsClosed());
+            Assert.Equal(0, MeshRepairMetrics.SelfIntersections(solid.Result));
+        }
+}
 }

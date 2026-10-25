@@ -263,6 +263,7 @@ namespace g3
             Vector3d[][] cellGroupPos = new Vector3d[cellList.Length][];
             Vector3d[][] cellGroupMass = new Vector3d[cellList.Length][];
             Vector3d[][] cellGroupPlane = new Vector3d[cellList.Length][];
+            Vector3d[][] cellGroupCentroid = new Vector3d[cellList.Length][];
             bool[][] cellGroupFeature = new bool[cellList.Length][];
             int transitionErrors = 0;
             Action<int> place_vertices = (idx) => {
@@ -288,7 +289,7 @@ namespace g3
                 }
                 Vector3d cmin = node_pos(cc.Cell.Min);
                 double csize = h * cell_size(cc.Cell);
-                Vector3d[] pos = new Vector3d[nGroups], mass = new Vector3d[nGroups], plane = new Vector3d[nGroups];
+                Vector3d[] pos = new Vector3d[nGroups], mass = new Vector3d[nGroups], plane = new Vector3d[nGroups], centroid = new Vector3d[nGroups];
                 bool[] feature = new bool[nGroups];
                 List<int> edges = new List<int>(12);
                 for (int g = 0; g < nGroups; ++g) {
@@ -301,12 +302,16 @@ namespace g3
                             if (faceGroups[i] == g)
                                 edges.Add(cc.FaceCrossings[i]);
                     pos[g] = solve_qef(cmin, csize, edges, hpoints, hnormals, out mass[g], out plane[g], out feature[g]);
+                    foreach (int ci in edges)
+                        centroid[g] += hpoints[ci];
+                    centroid[g] /= Math.Max(edges.Count, 1);
                 }
                 cellEdgeGroup[idx] = groups;
                 cellFaceGroup[idx] = faceGroups;
                 cellGroupPos[idx] = pos;
                 cellGroupMass[idx] = mass;
                 cellGroupPlane[idx] = plane;
+                cellGroupCentroid[idx] = centroid;
                 cellGroupFeature[idx] = feature;
             };
             if (ParallelCompute)
@@ -321,7 +326,7 @@ namespace g3
             var vertexMass = new List<Vector3d>();
             var vertexPlane = new List<Vector3d>();
             var vertexCell = new List<Cell>();
-            var featureVertices = new List<int>();
+            var vertexLast = new List<Vector3d>();
             Dictionary<long, int[]> cellEdgeVertex = new Dictionary<long, int[]>(cellList.Length);
             Dictionary<long, Dictionary<int, int>> cellFaceVertex = new Dictionary<long, Dictionary<int, int>>();
             for (int idx = 0; idx < cellList.Length; ++idx) {
@@ -331,7 +336,14 @@ namespace g3
                     vertexMass.Add(cellGroupMass[idx][g]);
                     vertexPlane.Add(cellGroupPlane[idx][g]);
                     vertexCell.Add(cellCrossings[cellList[idx]].Cell);
-                    if (cellGroupFeature[idx][g]) featureVertices.Add(groupVertex[g]);
+                    // last resort for resolving self-intersections: the cell center if it is a fine cell with
+                    // one patch (the polygons are then squares between cell centers), else halfway between the
+                    // patch's crossing centroid and the cell center; in a coarse cell (its center can be far
+                    // from the surface) the crossing centroid
+                    Cell vc = cellCrossings[cellList[idx]].Cell;
+                    Vector3d vcenter = node_pos(vc.Min) + 0.5 * h * cell_size(vc) * Vector3d.One;
+                    vertexLast.Add(vc.Coarse ? cellGroupCentroid[idx][g]
+                        : groupVertex.Length == 1 ? vcenter : Vector3d.Lerp(cellGroupCentroid[idx][g], vcenter, 0.5));
                 }
                 int[] edgeVertex = new int[12];
                 for (int le = 0; le < 12; ++le)
@@ -391,7 +403,7 @@ namespace g3
 
             SelfIntersectionsFound = SelfIntersectionsLeft = 0;
             Func<int, Vector3d> fallback = (v) => vertexMass[v];
-            if (ResolveSelfIntersections && (featureVertices.Count > 0 || transitionVertices.Count > 0)) {
+            if (ResolveSelfIntersections) {
                 // Polygons where fine and coarse cells meet can fold (the coarse cell spans more than a quadrant
                 // around a fine edge inside its face). Fallback for their vertices: the centroid of their
                 // neighbours (recomputed in each round), on their dominant plane (so they stay on the
@@ -413,8 +425,7 @@ namespace g3
                     return c;
                 };
                 fallback = (v) => transitionVertices.Contains(v) ? ring_target(v) : vertexMass[v];
-                featureVertices.AddRange(transitionVertices);
-                resolve_self_intersections(fallback, featureVertices);
+                resolve_self_intersections(fallback, (v) => vertexLast[v]);
             }
             phase("intersections");
 
@@ -1118,23 +1129,26 @@ namespace g3
         // minimize sum_i (n_i . (x - p_i))^2 around the mass point, with truncated pseudo-inverse,
         // and keep the result inside the cell
         /// <summary>
-        /// Vertices on sharp features (QEF of rank 2 or 3: edges, corners) can make neighbouring quads fold
-        /// through each other. If set, intersecting triangles around such vertices are found with exact
-        /// predicates and their vertices moved towards a fallback position until none are left (a few
-        /// rounds): the QEF solution on the dominant plane only, which stays on one input surface.
+        /// Neighbouring polygons can fold through each other: around vertices on sharp features (QEF of
+        /// rank 2 or 3: edges, corners), where fine and coarse cells meet, and where several thin sheets pass
+        /// through few cells (eg a winding number field of a non-orientable input). If set, intersecting
+        /// triangles are found with exact predicates and their vertices moved until none are left: halfway
+        /// to a fallback position four times, then onto it (the QEF solution on the dominant plane only, which
+        /// stays on one input surface), then onto a last resort (the center of a fine cell with one patch,
+        /// where polygons between such cells become non-intersecting squares between cell centers; else
+        /// halfway between the patch's crossing centroid and the cell center, or in a coarse cell the
+        /// crossing centroid).
         /// </summary>
         public bool ResolveSelfIntersections = true;
         /// <summary> intersecting triangle pairs found before / left after resolving </summary>
         public int SelfIntersectionsFound, SelfIntersectionsLeft;
 
-        void resolve_self_intersections(Func<int, Vector3d> fallback, List<int> featureVertices)
+        void resolve_self_intersections(Func<int, Vector3d> fallback, Func<int, Vector3d> lastResort)
         {
             var tree = new DMeshAABBTree3(Mesh, true);
-            HashSet<int> candidates = new HashSet<int>();
-            foreach (int v in featureVertices)
-                foreach (int t in Mesh.VtxTrianglesItr(v))
-                    candidates.Add(t);
-            for (int round = 0; round < 6; ++round) {
+            HashSet<int> candidates = new HashSet<int>(Mesh.TriangleIndices());
+            var moves = new Dictionary<int, int>();
+            for (int round = 0; round < 10; ++round) {
                 var moving = new HashSet<int>();
                 int pairs = 0;
                 object lockObj = new object();
@@ -1172,14 +1186,19 @@ namespace g3
                 SelfIntersectionsLeft = pairs;
                 if (pairs == 0)
                     return;
-                // halfway to the mass point (all the way in the last rounds)
-                double t = (round < 4) ? 0.5 : 1.0;
                 var targets = new List<KeyValuePair<int, Vector3d>>();
-                foreach (int v in moving)
-                    targets.Add(new KeyValuePair<int, Vector3d>(v, fallback(v)));
+                foreach (int v in moving) {
+                    int n;
+                    moves.TryGetValue(v, out n);
+                    moves[v] = n + 1;
+                    Vector3d p = Mesh.GetVertex(v);
+                    targets.Add(new KeyValuePair<int, Vector3d>(v,
+                        (n < 4) ? Vector3d.Lerp(p, fallback(v), 0.5) : (n < 6) ? fallback(v) : lastResort(v)));
+                }
                 foreach (var kv in targets)
-                    Mesh.SetVertex(kv.Key, Vector3d.Lerp(Mesh.GetVertex(kv.Key), kv.Value, t));
+                    Mesh.SetVertex(kv.Key, kv.Value);
                 tree = new DMeshAABBTree3(Mesh, true);
+                candidates.Clear();
                 foreach (int v in moving)
                     foreach (int tt in Mesh.VtxTrianglesItr(v))
                         candidates.Add(tt);
