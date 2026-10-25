@@ -129,6 +129,42 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void DegenerateTriangles_FiniteCertifiedBounds()
+        {
+            // zero-area triangles (collinear corners, a repeated corner) in both meshes, as in many repair inputs
+            DMesh3 a = Grid(0, 0, 10, 10, 11);
+            DMesh3 b = Grid(0, 0, 10, 10, 7, (x, y) => 0.25);
+            foreach (DMesh3 m in new[] { a, b }) {
+                int v0 = m.AppendVertex(new Vector3d(2, 2, 0.1)), v1 = m.AppendVertex(new Vector3d(4, 2, 0.1)), v2 = m.AppendVertex(new Vector3d(6, 2, 0.1));
+                m.AppendTriangle(v0, v1, v2);
+                int w0 = m.AppendVertex(new Vector3d(7, 7, 0.1)), w1 = m.AppendVertex(new Vector3d(8, 8, 0.1)), w2 = m.AppendVertex(new Vector3d(8, 8, 0.1));
+                m.AppendTriangle(w0, w1, w2);
+            }
+            var h = new MeshHausdorffDistance(a, b) { Tolerance = 1e-4 };
+            Assert.True(h.Compute());
+            Assert.True(h.Converged);
+            Assert.InRange(h.UpperBound, 0.25 - 1e-9, 0.25 + 1e-4);
+        }
+
+        [Fact]
+        public void PointTriangleDistance_DegenerateTriangle()
+        {
+            var tri = new Triangle3d(new Vector3d(0, 0, 0), new Vector3d(1, 0, 0), new Vector3d(2, 0, 0));
+            var p = new Vector3d(1.5, 1, 0);
+            double d = DistPoint3Triangle3.DistanceSqr(ref p, ref tri, out Vector3d c, out Vector3d bary);
+            Assert.Equal(1.0, d, 12);
+            Assert.True(c.Distance(new Vector3d(1.5, 0, 0)) < 1e-12);
+            DMesh3 m = new DMesh3();
+            m.AppendVertex(tri.V0); m.AppendVertex(tri.V1); m.AppendVertex(tri.V2);
+            m.AppendTriangle(0, 1, 2);
+            Assert.Equal(1.0, MeshQueries.TriDistanceSqr(m, 0, p), 12);
+            // repeated corner
+            var t2 = new Triangle3d(new Vector3d(0, 0, 0), new Vector3d(0, 0, 0), new Vector3d(0, 2, 0));
+            var q = new Vector3d(1, 1, 0);
+            Assert.Equal(1.0, DistPoint3Triangle3.DistanceSqr(ref q, ref t2, out c, out bary), 12);
+        }
+
+        [Fact]
         public void NonFiniteCoordinates_Fail_AndResetTheOutputs()
         {
             DMesh3 a = Grid(0, 0, 10, 10, 11);
@@ -217,11 +253,12 @@ namespace geometry3Sharp.Tests
             DMesh3 reduced = new DMesh3(original);
             var reducer = new Reducer(reduced);
             reducer.ReduceToTriangleCount(2000);
-            var sw = System.Diagnostics.Stopwatch.StartNew();
             var h = new MeshHausdorffDistance(original, reduced) { RelativeTolerance = 1e-4 };
             Assert.True(h.Compute());
             Assert.True(h.Converged);
-            Assert.True(sw.ElapsedMilliseconds < 20000, $"{sw.ElapsedMilliseconds} ms");
+            // "quickly" is checked by the amount of work (about 54k subdivisions), not by wall-clock time,
+            // which is unreliable on loaded CI machines and on Mono
+            Assert.True(h.Subdivisions < 200000, $"{h.Subdivisions} subdivisions");
             double sampled = Math.Max(SampledDense(original, reduced, 4), SampledDense(reduced, original, 4));
             Assert.True(sampled <= h.UpperBound + 1e-12);
             Assert.True(h.LowerBound >= sampled - (h.UpperBound - h.LowerBound) - 1e-12);

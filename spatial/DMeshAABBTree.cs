@@ -601,7 +601,7 @@ namespace g3
                     oChild1 = (-oChild1) - 1;
                     AxisAlignedBox3d oChild1Box = otherTree.get_boxd(oChild1, TransformF);
                     if (oChild1Box.Intersects(bounds) )
-                        return find_any_intersection(iBox, otherTree, TransformF, oBox, depth + 1);
+                        return find_any_intersection(iBox, otherTree, TransformF, oChild1, depth + 1);
 
                 } else {                            // 2 children
                     oChild1 = oChild1 - 1;          // [TODO] could descend one w/ larger overlap volume first??
@@ -1323,9 +1323,15 @@ namespace g3
             if (mesh_timestamp != mesh.ShapeTimestamp)
                 throw new Exception("DMeshAABBTree3.FastWindingNumber: mesh has been modified since tree construction");
 
+            // the cache is built on first use, possibly by several threads at once, so build it under a
+            // lock; the timestamp is set (volatile) only once the cache is complete
             if (FastWindingCache == null || fast_winding_cache_timestamp != mesh.ShapeTimestamp) {
-                build_fast_winding_cache();
-                fast_winding_cache_timestamp = mesh.ShapeTimestamp;
+                lock (fast_winding_cache_lock) {
+                    if (FastWindingCache == null || fast_winding_cache_timestamp != mesh.ShapeTimestamp) {
+                        build_fast_winding_cache();
+                        fast_winding_cache_timestamp = mesh.ShapeTimestamp;
+                    }
+                }
             }
 
             double sum = branch_fast_winding_num(root_index, p);
@@ -1391,7 +1397,8 @@ namespace g3
         }
 
         Dictionary<int, FWNInfo> FastWindingCache;
-        int fast_winding_cache_timestamp = -1;
+        volatile int fast_winding_cache_timestamp = -1;
+        readonly object fast_winding_cache_lock = new object();
 
         protected void build_fast_winding_cache()
         {

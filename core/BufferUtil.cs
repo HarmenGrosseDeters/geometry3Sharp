@@ -545,7 +545,14 @@ namespace g3
 
             ms.Position = 0;
             DeflateStream zip = new DeflateStream(ms, CompressionMode.Decompress);
-            zip.Read(buffer, 0, buffer.Length);
+            // Read can return fewer bytes than requested (it does on .NET Core), so loop until done
+            int offset = 0;
+            while (offset < buffer.Length) {
+                int n = zip.Read(buffer, offset, buffer.Length - offset);
+                if (n <= 0)
+                    throw new InvalidDataException("BufferUtil.DecompressZLib: compressed data is truncated");
+                offset += n;
+            }
 
             return buffer;
         }
