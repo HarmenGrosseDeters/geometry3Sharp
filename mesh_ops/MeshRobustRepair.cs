@@ -199,8 +199,9 @@ namespace gs
                     new MeshPostRepairCleanup(res).Apply();
                     res = new DMesh3(res, true);
                     // the cleanup keeps slivers whose collapse would distort or fold a neighbour: collapsed anyway,
-                    // the self-intersections that can create are resolved by the next round
-                    if (NotCleanReason(res, false) == "degenerate triangles" && CollapseSlivers(res) > 0)
+                    // the self-intersections that can create are found below and resolved by the next round (so
+                    // only when they are checked)
+                    if (CheckSelfIntersections && NotCleanReason(res, false) == "degenerate triangles" && CollapseSlivers(res) > 0)
                         res = new DMesh3(res, true);
                 }
                 // where solids touch (at a vertex or along an edge) Resolve gives manifold sheets with duplicated
@@ -241,9 +242,12 @@ namespace gs
         /// <summary>
         /// Collapses the triangles below the degenerate area of NotCleanReason (1e-12 * diagonal^2): for each, its
         /// shortest edge that is shorter than maxCollapse * diagonal and whose collapse keeps the mesh valid (link
-        /// condition), the vertices moved to the midpoint; otherwise an edge flipped, the longest first (caps). Unlike MeshPostRepairCleanup it does not avoid distorting or
-        /// folding the neighbours: they are tiny (the slivers come from intersection points that nearly coincide),
-        /// and the self-intersections that can create are resolved exactly afterwards. Returns the triangles fixed.
+        /// condition), the vertices moved to the midpoint; otherwise an edge flipped, the longest first (caps).
+        /// Closed components with a sliver and a total area below 1e-8 * diagonal^2 are removed (also a small but
+        /// real separate part, about 1e-4 * diagonal across). Unlike MeshPostRepairCleanup it does not avoid
+        /// distorting or folding the neighbours: they are tiny (the slivers come from intersection points that
+        /// nearly coincide), so the caller has to check for (and resolve) self-intersections afterwards.
+        /// Returns the triangles collapsed, flipped or removed.
         /// </summary>
         public static int CollapseSlivers(DMesh3 mesh, double maxCollapse = 1e-4, int maxPasses = 5)
         {
