@@ -295,17 +295,18 @@ All fixes above were developed and measured on the same seeded selection, so the
 to it. `fetch_data.py --holdout` draws a second selection of the same shape (6 × 60 broken meshes ≤ 100k
 faces, 40 clean controls, 30 large meshes) with other seeds (2026, 2027), excluding every mesh of the
 default selection: 0 of 430 meshes in common. Runs with `BENCH_P=2 TIMEOUT=300`, library state of
-2026-10-25 evening. First selection: `robust` from the rerun after the dual contouring fixes above (same
-build), the other modes from the fidelity table above (older builds).
+2026-10-25 evening. First selection with the same build: `default`, `cleanup` (rerun for this
+comparison; large meshes not rerun) and `robust` (rerun after the dual contouring fixes above);
+`solidify` and the large meshes of `default`/`cleanup` from the fidelity table above (older builds).
 
 | | default | cleanup | robust | solidify |
 |---|---|---|---|---|
 | clean¹ + no exact self-intersections, holdout | 119 | 193 | **367** | 365 |
 | ... first selection | 100 | 188 | 360 | 316 |
 | **repaired**, holdout | 110 | 170 | **217** | 182 |
-| ... first selection | 95 | 166 | 210 | 172 |
+| ... first selection | 94 | 165 | 210 | 172 |
 | median repair time, holdout | 0.31 s | 0.38 s | 4.1 s | 4.3 s |
-| ... first selection | 0.37 s | 0.60 s | 3.7 s | 5.4 s |
+| ... first selection | 0.32 s | 0.45 s | 3.7 s | 5.4 s |
 | large meshes repaired, holdout | 0/30 | 4/30 | 8/30 | 8/30 |
 | ... first selection | 4/30 | 5/30 | 9/30 | 6/30 |
 
@@ -313,11 +314,12 @@ The sampling error is about ±10 meshes (±3 %) per 400. `hybrid` was stopped af
 (52 repaired); since `robust` is its library version, it was not rerun.
 
 - **No sign of overfitting.** On the same build, `robust` repairs 217 vs 210 and leaves 367 vs 360 clean
-  without self-intersections; `cleanup` repairs 170 vs 166. All within the sampling error. The
-  differences beyond it go up, not down, and come from older first-selection builds:
-  - `default`: +15 repaired, +19 clean. The default pipeline has no fix tuned on the first selection,
-    so the holdout set is either slightly easier or later library fixes help; a rerun of `default` on
-    the first selection with the current build will tell.
+  without self-intersections; `cleanup` repairs 170 vs 165 (193 vs 188 clean). All within the sampling
+  error. The differences beyond it go up, not down:
+  - `default`: +16 repaired, +19 clean on the same build. The holdout selection is easier for the plain
+    pipeline (the first-selection numbers did not change with the later fixes: 95 → 94). The gain
+    shrinks with the cleanup (+5) and `robust` (+7), so the fixes on top of it do not do better on the
+    first selection than on new data.
   - `solidify`: +49 clean without self-intersections, the dual contouring fixes made after the
     first-selection run (`robust` gained 13 from them on the first selection).
 - No crashes and no timeouts in any mode; all 400 meshes are closed after the repair.
