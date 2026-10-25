@@ -64,10 +64,53 @@ namespace g3
             // the two halves meet along the cut curve, where resolve_vtx_pairs() made their boundary
             // vertices coincide: weld them into one mesh. Returns false if the result is not closed,
             // i.e. the cut curves could not be matched everywhere.
-            gs.MergeCoincidentEdges merge = new gs.MergeCoincidentEdges(Result) { MergeDistance = MatchTol };
-            merge.Apply();
+            weld_seam();
 
             return Result.IsClosed();
+        }
+
+
+        void weld_seam()
+        {
+            merge_seam_edges();
+
+            // Two seam vertices less than MatchTol apart can stay joined by a tiny boundary edge (a cut point
+            // that was matched on one side and split into an edge on the other). The long seam edges next to
+            // it then nearly coincide but share a vertex, so they cannot be merged. Collapse the tiny edges
+            // and weld again.
+            bool collapsed = false;
+            foreach (int eid in Result.BoundaryEdgeIndices().ToList()) {
+                if (Result.IsEdge(eid) == false || Result.IsBoundaryEdge(eid) == false)
+                    continue;
+                Index2i ev = Result.GetEdgeV(eid);
+                if (Result.GetVertex(ev.a).Distance(Result.GetVertex(ev.b)) >= MatchTol)
+                    continue;
+                DMesh3.EdgeCollapseInfo collapseInfo;
+                if (Result.CollapseEdge(ev.a, ev.b, out collapseInfo) == MeshResult.Ok)
+                    collapsed = true;
+            }
+            if (collapsed)
+                merge_seam_edges();
+
+            // what remains of the seam can be a single missing triangle (a hole with 3 edges): add it.
+            // Larger holes are left open, and Compute() returns false.
+            if (Result.IsClosed() == false) {
+                try {
+                    MeshBoundaryLoops loops = new MeshBoundaryLoops(Result);
+                    foreach (EdgeLoop loop in loops.Loops) {
+                        if (loop.VertexCount == 3)
+                            new SimpleHoleFiller(Result, loop).Fill();
+                    }
+                } catch (Exception) {
+                    // boundary loops could not be extracted (e.g. bowties); leave the holes open
+                }
+            }
+        }
+
+        void merge_seam_edges()
+        {
+            gs.MergeCoincidentEdges merge = new gs.MergeCoincidentEdges(Result) { MergeDistance = MatchTol };
+            merge.Apply();
         }
 
 
