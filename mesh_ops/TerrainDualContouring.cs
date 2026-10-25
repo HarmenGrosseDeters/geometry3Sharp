@@ -38,6 +38,15 @@ namespace gs
         /// <summary> neighbourhood radius for the point fit; 0 = 1.5 x the mean point spacing </summary>
         public double PointRadius = 0;
 
+        /// <summary> height and normal of the surface at world (x, y); false outside its footprint </summary>
+        public delegate bool HeightSampleFunc(double x, double y, out double z, out Vector3d normal);
+        /// <summary>
+        /// Alternatively any height field given by a sampling function over SampleBounds (eg TerrainOffset).
+        /// The normals are the Hermite data, so break lines of the sampled surface stay sharp.
+        /// </summary>
+        public HeightSampleFunc SampleF;
+        public AxisAlignedBox3d SampleBounds;
+
         /// <summary> finest cell size in XY. If zero, uses the larger XY extent / GridResolution </summary>
         public double CellSize = 0;
         public int GridResolution = 256;
@@ -75,11 +84,18 @@ namespace gs
             Points = points;
         }
 
+        /// <summary> for SampleF </summary>
+        public TerrainDualContouring()
+        {
+        }
+
 
         public bool Compute()
         {
             AxisAlignedBox3d bounds;
-            if (Points != null) {
+            if (SampleF != null) {
+                bounds = SampleBounds;
+            } else if (Points != null) {
                 if (Points.Count < 3)
                     return false;
                 bounds = AxisAlignedBox3d.Empty;
@@ -94,7 +110,9 @@ namespace gs
             if (cell <= 0)
                 return false;
             tolerance = (Tolerance > 0) ? Tolerance : 0.05 * cell;
-            if (Points != null)
+            if (SampleF != null)
+                rayTop = bounds.Max.z;
+            else if (Points != null)
                 build_point_grid(bounds);
             else
                 spatial = new DMeshAABBTree3(Mesh, true);
@@ -110,7 +128,7 @@ namespace gs
 
             sample_cells();
             if (CancelF()) return false;
-            if (Points == null)
+            if (Points == null && SampleF == null)
                 add_boundary_edges();
             else
                 segs = new List<BoundarySeg>[NX * NY];
@@ -173,6 +191,15 @@ namespace gs
         // top surface hit of a vertical ray at world (x,y): local point and upward normal
         bool sample(double x, double y, out Vector3d p, out Vector3d n)
         {
+            if (SampleF != null) {
+                double z;
+                p = n = Vector3d.Zero;
+                if (SampleF(x, y, out z, out n) == false)
+                    return false;
+                p = new Vector3d(x, y, z) - origin;
+                if (n.z < 0) n = -n;
+                return true;
+            }
             if (Points != null)
                 return sample_points(x, y, out p, out n);
             p = n = Vector3d.Zero;
