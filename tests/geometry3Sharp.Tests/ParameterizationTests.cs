@@ -112,6 +112,23 @@ namespace geometry3Sharp.Tests
             return mesh;
         }
 
+        /// <summary>
+        /// planar 2x2 square with a T-junction: vertex C = (1,1) lies on the edge A-B of the lower half, which is
+        /// closed by the zero-area triangle (A, B, C)
+        /// </summary>
+        static DMesh3 TJunction()
+        {
+            DMesh3 m = new DMesh3();
+            int P0 = m.AppendVertex(new Vector3d(0, 0, 0)), P1 = m.AppendVertex(new Vector3d(2, 0, 0));
+            int A = m.AppendVertex(new Vector3d(0, 1, 0)), B = m.AppendVertex(new Vector3d(2, 1, 0));
+            int C = m.AppendVertex(new Vector3d(1, 1, 0));
+            int Q0 = m.AppendVertex(new Vector3d(0, 2, 0)), Q1 = m.AppendVertex(new Vector3d(2, 2, 0));
+            foreach (Index3i t in new[] { new Index3i(P0, P1, B), new Index3i(P0, B, A), new Index3i(A, B, C),
+                                          new Index3i(C, B, Q1), new Index3i(A, C, Q0), new Index3i(C, Q1, Q0) })
+                Assert.True(m.AppendTriangle(t) >= 0);
+            return m;
+        }
+
         static void AssertNoFlips(DMesh3 mesh, ParameterizationResult r)
         {
             foreach (int tid in mesh.TriangleIndices()) {
@@ -507,6 +524,46 @@ namespace geometry3Sharp.Tests
             // conformal map with least area distortion: less than LSCM with its two arbitrary pins
             var lscm = new LSCMParameterization(mesh).Compute();
             Assert.True(r.Distortion.MeanAreaDistortion <= lscm.Distortion.MeanAreaDistortion * 1.05);
+        }
+
+        [Fact]
+        public void BFF_TJunction_DegenerateTriangleKeepsGaussBonnet()
+        {
+            // the zero-area triangle has the angles 0, 0, pi. Without them the angle sums were pi short at the
+            // T-junction vertex: curvature pi there, boundary angles summing to 3 pi, edge lengths off by 76%
+            // (and flipped triangles in Disk mode) on a planar mesh. And without its (mollified) cotan weights the
+            // harmonic extension did not keep the T-junction vertex on its edge (edge lengths off by 33%)
+            DMesh3 mesh = TJunction();
+            foreach (var ext in new[] { BoundaryFirstFlattening.ExtensionModes.Conformal, BoundaryFirstFlattening.ExtensionModes.Harmonic }) {
+                var bff = new BoundaryFirstFlattening(mesh) { Extension = ext };
+                var r = bff.Compute();
+                Assert.True(r.Succeeded, r.Error);
+                Assert.Equal(2 * Math.PI, bff.BoundaryAngles.Values.Sum(), 9);
+                foreach (double u in bff.BoundaryScaleFactors.Values)
+                    Assert.True(Math.Abs(u) < 1e-9, "scale factor " + u);
+                Assert.Equal(0, r.Distortion.FlippedTriangles);
+                Assert.True(r.Distortion.MaxConformal < 1 + 1e-5, ext + " conformal " + r.Distortion.MaxConformal);
+                Assert.True(MaxEdgeLengthError(mesh, r.UV) < 1e-5, ext + " edge error " + MaxEdgeLengthError(mesh, r.UV));
+
+            }
+            var disk = new BoundaryFirstFlattening(mesh) { BoundaryMode = BoundaryFirstFlattening.BoundaryModes.Disk }.Compute();
+            Assert.True(disk.Succeeded, disk.Error);
+            Assert.Equal(0, disk.Distortion.FlippedTriangles);
+        }
+
+        [Fact]
+        public void BFF_DegenerateTriangleAngles_SumToPi()
+        {
+            double[] a = new double[3];
+            // flat: pi at the middle point
+            BoundaryFirstFlattening.degenerateAngles(new Vector3d(0, 0, 0), new Vector3d(2, 0, 0), new Vector3d(0.5, 0, 0), a);
+            Assert.Equal(Math.PI, a.Sum(), 12);
+            Assert.Equal(Math.PI, a[2], 12);
+            // two coincident vertices: pi/2 at each of them (the limit of mollified lengths), 0 at the third
+            BoundaryFirstFlattening.degenerateAngles(new Vector3d(1, 1, 0), new Vector3d(1, 1, 0), new Vector3d(3, 1, 0), a);
+            Assert.Equal(Math.PI / 2, a[0], 12);
+            Assert.Equal(Math.PI / 2, a[1], 12);
+            Assert.Equal(0, a[2], 12);
         }
 
         [Fact]
