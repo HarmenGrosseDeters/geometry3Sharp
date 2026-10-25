@@ -394,5 +394,33 @@ namespace geometry3Sharp.Tests
             Assert.True(path[path.Count - 1].Distance(c) < 1e-9);    // the path ends at the source vertex
             Assert.InRange(path[0].Distance(c), 7.0, 7.08);          // and starts at the farthest vertex, a corner
         }
+
+        [Fact]
+        public void IntrinsicTriangulationExample_RefinedLaplacianGeodesicAndOverlay()
+        {
+            // 169 degree triangles, boundary edges opposite them
+            DMesh3 mesh = IntrinsicGeodesicsTests.ObtusePlane(10, 100, 1.0, 0.05);
+            IntrinsicTriangulation T;
+            IntrinsicRefinementResult result;
+            SymmetricSparseMatrix L = IntrinsicTriangulationExample.RefinedLaplacian(mesh, out T, out result);
+            Assert.Equal(IntrinsicRefinementStatus.Success, result.Status);
+            Assert.True(T.VertexCount > mesh.VertexCount);
+            foreach (var kv in L.NonZeros())
+                if (kv.Key.a != kv.Key.b) Assert.True(kv.Value <= 1e-9);     // no negative cotan weights
+
+            int source = IntrinsicGeodesicsTests.NearestVertex(mesh, new Vector3d(5, 2.5, 0));
+            Vector3d c = mesh.GetVertex(source);
+            double[] d = IntrinsicTriangulationExample.RefinedGeodesic(mesh, source, out result);
+            Assert.Equal(IntrinsicRefinementStatus.Success, result.Status);
+            foreach (int vid in mesh.VertexIndices()) {
+                Vector3d p = mesh.GetVertex(vid);
+                if (p.x >= 1 && p.x <= 9) Assert.True(Math.Abs(d[vid] - p.Distance(c)) < 0.15, $"{p}: {d[vid]}");
+            }
+
+            CommonSubdivisionStatus status;
+            DMesh3 overlay = IntrinsicTriangulationExample.CommonSubdivision(T, out status);
+            Assert.Equal(CommonSubdivisionStatus.Success, status);
+            Assert.Equal(MeshMeasurements.AreaT(mesh, mesh.TriangleIndices()), MeshMeasurements.AreaT(overlay, overlay.TriangleIndices()), 9);
+        }
     }
 }

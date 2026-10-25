@@ -47,6 +47,7 @@ in `gs`. Add both: `using g3; using gs;`.
 | Nearest neighbours among points | `PointHashGrid3d<T>`, `PointAABBTree3` | [PointQueriesExample](examples/PointQueriesExample.cs) |
 | Signed distance field, offset surfaces | `MeshSignedDistanceGrid`, `DenseGridTrilinearImplicit`, `MarchingCubes` | [OffsetSurfaceExample](examples/OffsetSurfaceExample.cs) |
 | Hausdorff distance, geodesic distance | `gs.MeshHausdorffDistance`, `gs.MeshGeodesicDistance` | [DistancesExample](examples/DistancesExample.cs) |
+| Intrinsic Delaunay triangulation and refinement: cotan Laplacian without negative weights, geodesics and vector heat on poor meshes, overlay with the input | `gs.IntrinsicTriangulation`, `gs.MeshGeodesicDistance.IntrinsicRefine`, `gs.VectorHeatMethod.IntrinsicRefine`, `gs.IntrinsicCommonSubdivision` | [IntrinsicTriangulationExample](examples/IntrinsicTriangulationExample.cs) |
 
 ## Which repair or boolean class?
 
@@ -118,6 +119,50 @@ double winding = tree.WindingNumber(point);     // ~1 inside, ~0 outside, also f
 See [MeasurementsExample](examples/MeasurementsExample.cs), [SpatialQueriesExample](examples/SpatialQueriesExample.cs),
 [PointQueriesExample](examples/PointQueriesExample.cs), [OffsetSurfaceExample](examples/OffsetSurfaceExample.cs)
 and [DistancesExample](examples/DistancesExample.cs).
+
+### Intrinsic triangulations
+
+```csharp
+// Delaunay by flips, then refined by vertex insertion: no negative cotan weights, angles >= 25 degrees
+IntrinsicRefinementResult result;
+var T = IntrinsicTriangulation.BuildDelaunay(mesh, true, out result, 25);
+SymmetricSparseMatrix L = T.CotanLaplacian();      // vertex indices; T.VertexID(i) = mesh vid, -1 if inserted
+Console.WriteLine(result);                          // Status, inserted vertices, min angle, skipped triangles
+
+var geodesic = new MeshGeodesicDistance(mesh) { IntrinsicRefine = true };   // same for VectorHeatMethod
+geodesic.Compute(new[] { source });                 // geodesic.Refinement: the same result record
+
+IntrinsicCommonSubdivision overlay = T.ExtractCommonSubdivision();   // polygons of input x intrinsic triangles
+```
+
+An intrinsic triangulation keeps the surface and the vertices of the mesh, but its edges are geodesics
+described by their lengths (signposts give their directions on the input). `FlipToDelaunay()` makes every
+interior cotan weight non-negative. Boundary edges opposite an obtuse angle cannot be flipped and keep a
+negative weight; `DelaunayRefine(minAngle, maxInsertions)` splits them at their midpoints and inserts the
+circumcenters of triangles with an angle below `minAngle` (Chew / Ruppert refinement on the intrinsic
+triangulation, Sharp, Soliman and Crane 2019). Inserted vertices lie on the input surface
+(`VertexPosition`, `GetInputLocation`); results of `MeshGeodesicDistance` and `VectorHeatMethod` are still
+reported at the mesh vertices only.
+
+- **Status** (`IntrinsicRefinementResult.Status`): `Success` (Delaunay, all weights non-negative, angle bound
+  met), `InsertionLimitReached` (valid and Delaunay, but triangles may remain below the bound; boundary splits
+  get twice the limit), `Incomplete` (a circumcenter fell onto an existing vertex), `NonManifoldInput`
+  (`MeshGeodesicDistance` with bowtie vertices: not refined, flips only).
+- **Small input angles**: triangles whose small angle comes from the input (a vertex with an angle sum below
+  60 degrees, eg a jagged boundary) cannot be improved and are counted in `SkippedTriangles`; boundary edges
+  there are split at powers of two from the corner (concentric shells), so the refinement terminates.
+- `minAngle` is clamped to [0, 30] degrees; 0 only splits the boundary edges opposite obtuse angles (few
+  insertions). The default insertion limit is 10 times the vertex count plus 1000.
+- On a plane of 169-degree triangles (8400 vertices) refinement inserts 10400 vertices in about 1 s and lowers
+  the mean heat method distance error from 0.06 to 0.02 edge lengths, the maximum from 0.8 to 0.1.
+- **Common subdivision**: every intrinsic edge is traced over the input and each input triangle is cut along
+  the traced segments. The result is checked (faces tile every input triangle and every intrinsic triangle,
+  areas to 1e-6); if traces are inconsistent (crossings in the wrong order) `Status` is `Inconsistent`
+  with an `Error` instead of wrong faces. Integer (normal) coordinates (Gillespie, Sharp and Crane 2021),
+  which make this combinatorially exact, are not implemented: with flips, insertions and edge splits the
+  traces are exact up to rounding, and the checks catch the cases where rounding would matter.
+
+See [IntrinsicTriangulationExample](examples/IntrinsicTriangulationExample.cs).
 
 ### Files
 

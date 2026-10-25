@@ -23,7 +23,7 @@ namespace geometry3Sharp.Tests
         /// Plane with rows of vertices that are close together (dy) and shifted by half a column against
         /// each other: every triangle has an angle of about 2 atan(h / 2dy), 169 degrees for dy = h / 20.
         /// </summary>
-        static DMesh3 ObtusePlane(int nx, int ny, double h, double dy)
+        internal static DMesh3 ObtusePlane(int nx, int ny, double h, double dy)
         {
             DMesh3 mesh = new DMesh3();
             var rows = new List<int[]>();
@@ -52,7 +52,7 @@ namespace geometry3Sharp.Tests
         /// Sphere from latitude rings, alternate rings shifted by half a step: with many rings and few
         /// vertices per ring nearly all triangles are very obtuse.
         /// </summary>
-        static DMesh3 RingSphere(double R, int rings, int perRing)
+        internal static DMesh3 RingSphere(double R, int rings, int perRing)
         {
             DMesh3 mesh = new DMesh3();
             int north = mesh.AppendVertex(new Vector3d(0, 0, R));
@@ -96,7 +96,7 @@ namespace geometry3Sharp.Tests
             return mesh;
         }
 
-        static DMesh3 GoodSphere(double R, int n)
+        internal static DMesh3 GoodSphere(double R, int n)
         {
             var gen = new Sphere3Generator_NormalizedCube() { Radius = R, EdgeVertices = n };
             DMesh3 mesh = gen.Generate().MakeDMesh();
@@ -104,7 +104,7 @@ namespace geometry3Sharp.Tests
             return mesh;
         }
 
-        static DMesh3 Grid(double size, int n, Func<double, double, double> height)
+        internal static DMesh3 Grid(double size, int n, Func<double, double, double> height)
         {
             DMesh3 mesh = new DMesh3();
             int[,] vid = new int[n, n];
@@ -126,9 +126,9 @@ namespace geometry3Sharp.Tests
             return mesh;
         }
 
-        static int NearestVertex(DMesh3 m, Vector3d p) { return m.VertexIndices().OrderBy(v => m.GetVertex(v).DistanceSquared(p)).First(); }
+        internal static int NearestVertex(DMesh3 m, Vector3d p) { return m.VertexIndices().OrderBy(v => m.GetVertex(v).DistanceSquared(p)).First(); }
 
-        static double SphereDistance(Vector3d a, Vector3d b, double R)
+        internal static double SphereDistance(Vector3d a, Vector3d b, double R)
         {
             double c = MathUtil.Clamp(a.Dot(b) / (a.Length * b.Length), -1, 1);
             return R * Math.Acos(c);
@@ -145,7 +145,7 @@ namespace geometry3Sharp.Tests
         }
 
         // mean and max absolute error of the distances of the vertices that pass the filter
-        static void Errors(DMesh3 mesh, double[] dist, Func<int, double> exact, Func<int, bool> use, out double mean, out double max)
+        internal static void Errors(DMesh3 mesh, double[] dist, Func<int, double> exact, Func<int, bool> use, out double mean, out double max)
         {
             mean = 0; max = 0; int n = 0;
             foreach (int v in mesh.VertexIndices()) {
@@ -315,6 +315,17 @@ namespace geometry3Sharp.Tests
             Errors(mesh, ext.Distance, exact, inner, out emean, out emax);
             output.WriteLine($"extrinsic: mean {emean} max {emax}");
             Assert.True(emean > 10 * mean, $"extrinsic {emean} vs intrinsic {mean}");
+
+            // intrinsic Delaunay refinement (vertex insertion) brings the error down further
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var refined = new MeshGeodesicDistance(mesh) { IntrinsicRefine = true };
+            Assert.True(refined.Compute(new[] { src }));
+            double rmean, rmax;
+            Errors(mesh, refined.Distance, exact, inner, out rmean, out rmax);
+            output.WriteLine($"refined: mean {rmean} max {rmax} ({refined.Refinement}, {sw.ElapsedMilliseconds} ms)");
+            Assert.Equal(IntrinsicRefinementStatus.Success, refined.Refinement.Status);
+            Assert.True(rmean < 0.5 * mean, $"refined {rmean} vs intrinsic {mean}");
+            Assert.True(rmax < 0.5 * max, $"refined max {rmax} vs intrinsic {max}");
         }
 
         [Fact]
