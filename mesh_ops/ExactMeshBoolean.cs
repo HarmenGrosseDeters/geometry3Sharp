@@ -26,19 +26,39 @@ namespace g3
     /// solid where it is above 0.5; then the result is generally not closed. An inside-out mesh (winding
     /// number -1) has an empty solid. Degenerate (zero-area) input
     /// triangles are dropped. The rounding of new vertices can, rarely, create tiny self-intersections.
+    /// New vertices that lie exactly inside a flat region of the result or on a straight edge between two flat
+    /// regions (eg the crossings of the edges of overlapping coplanar faces) are removed and the regions
+    /// retriangulated (SimplifyFlatRegions, ExactPlanarSimplify), so that repeated booleans do not split the
+    /// faces again and again at rounded points.
+    ///
+    /// Usage: construct with the two meshes and the operation, call Compute(), and read Result (a new mesh;
+    /// the inputs are not modified). Compute() returns false and sets Error for null inputs, non-finite
+    /// coordinates, or open meshes when AllowOpenMeshes is false; it throws InvalidOperationException in the
+    /// (not expected) case that no non-degenerate ray is found. Result has no normals, colors, UVs or groups.
+    /// Use a new instance per operation (the diagnostic counters are not reset by Compute()).
+    ///
+    /// Cost: exact predicates behind floating-point filters (BigInteger only where the filters cannot decide);
+    /// slower than floating-point methods, the phases run in parallel.
+    /// Prefer this class over <see cref="MeshBoolean"/> (floating-point, not robust, union of closed meshes
+    /// only). Use <see cref="gs.MeshWindingNumberBoolean"/> instead when a remeshed, volumetric result is
+    /// acceptable and very broken input (triangle soups) must give a closed mesh.
     ///
     /// Implemented from the papers cited here and in ExactMeshArrangement, no code taken over (docs/SOURCES.md).
     /// </summary>
     public class ExactMeshBoolean
     {
+        /// <summary> the boolean operation; Difference is A minus B </summary>
         public enum Operations { Union = 0, Intersection = 1, Difference = 2 }
 
+        /// <summary> the input meshes (not modified) </summary>
         public DMesh3 MeshA, MeshB;
+        /// <summary> the operation computed by Compute() </summary>
         public Operations Operation;
 
         /// <summary> seed of the random ray directions (the result does not depend on it) </summary>
         public int Seed = 31337;
 
+        /// <summary> the result of Compute(): a new mesh (closed and manifold for closed inputs), or null if Compute() failed </summary>
         public DMesh3 Result;
         /// <summary> why Compute() failed, otherwise null </summary>
         public string Error;
@@ -52,6 +72,15 @@ namespace g3
         public int NonManifoldTriangles;
         /// <summary> number of patches classified </summary>
         public int Patches;
+        /// <summary>
+        /// remove new vertices (not input vertices) that lie exactly inside a flat region of the result or on a
+        /// straight edge between two flat regions, and retriangulate there (ExactPlanarSimplify). Without it,
+        /// coplanar overlapping faces leave the crossings of their edges and diagonals in the result, which
+        /// repeated booleans split at again (the number of triangles grows quickly).
+        /// </summary>
+        public bool SimplifyFlatRegions = true;
+        /// <summary> vertices removed by SimplifyFlatRegions </summary>
+        public int RemovedVertices;
         /// <summary> if false, Compute() fails for meshes that are not closed in the winding number sense </summary>
         public bool AllowOpenMeshes = true;
         /// <summary> per input mesh: winding numbers exact (closed mesh) or generalized (open mesh) </summary>
@@ -66,6 +95,7 @@ namespace g3
         public Dictionary<string, long> Counts = new Dictionary<string, long>();
 
 
+        /// <summary> set up the boolean of meshes a and b; call Compute() to run it </summary>
         public ExactMeshBoolean(DMesh3 a, DMesh3 b, Operations op)
         {
             MeshA = a; MeshB = b; Operation = op;
@@ -74,6 +104,11 @@ namespace g3
 
         ExactMeshArrangement arr;
 
+        /// <summary>
+        /// Compute the boolean into Result. Returns false (and sets Error) if an input is null, has non-finite
+        /// coordinates, or is open while AllowOpenMeshes is false; otherwise true. An empty result (for example
+        /// the intersection of disjoint meshes) is a success with an empty Result mesh.
+        /// </summary>
         public bool Compute()
         {
             Result = null;
@@ -115,6 +150,7 @@ namespace g3
             PhaseMilliseconds["classification"] = sw.ElapsedMilliseconds; sw.Restart();
             Result = assemble(keep, flip);
             PhaseMilliseconds["assembly"] = sw.ElapsedMilliseconds;
+            Counts["removed_vertices"] = RemovedVertices;
             return true;
         }
 
@@ -445,7 +481,8 @@ namespace g3
                 windingTrees[mesh] = new DMeshAABBTree3(m, true);
                 windingTrees[mesh].FastWindingNumber(Vector3d.Zero);
             }
-            Vector3d pv = arr.PointToVector(centroid(ot));
+            // (the generalized winding number is approximate: the centroid of the corners in doubles is enough)
+            Vector3d pv = (arr.PointToVector(ot.A) + arr.PointToVector(ot.B) + arr.PointToVector(ot.C)) / 3;
             double w = windingTrees[mesh].FastWindingNumber(pv);
             List<int> on = stack ?? new List<int>() { ot.Source };
             foreach (int ti in on) {
@@ -507,11 +544,28 @@ namespace g3
         DMesh3 assemble(bool[] keep, bool[] flip)
         {
             var tris = new List<Index3i>();
+            var source = new List<int>();
+            var flipped = new List<bool>();
             for (int i = 0; i < arr.Output.Count; ++i) {
                 if (keep[i] == false)
                     continue;
                 var ot = arr.Output[i];
                 tris.Add(flip[i] ? new Index3i(ot.A, ot.C, ot.B) : new Index3i(ot.A, ot.B, ot.C));
+                source.Add(ot.Source);
+                flipped.Add(flip[i]);
+            }
+            if (SimplifyFlatRegions) {
+                // new points inside flat regions and on straight edges between them are not needed
+                var inputPoints = new HashSet<int>();
+                for (int m = 0; m < arr.VertexPoints.Length; ++m)
+                    foreach (int vid in arr.Meshes[m].VertexIndices())
+                        inputPoints.Add(arr.Canonical(arr.VertexPoints[m][vid]));
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                var simplify = new ExactPlanarSimplify(arr, tris, source, flipped);
+                simplify.Run(inputPoints);
+                tris = simplify.Result();
+                RemovedVertices = simplify.Removed;
+                PhaseMilliseconds["simplify"] = sw.ElapsedMilliseconds;
             }
 
             // corner slots (3 per triangle) joined across the edges where the triangles are neighbours

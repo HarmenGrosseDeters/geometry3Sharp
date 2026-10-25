@@ -244,26 +244,10 @@ namespace g3
 
         public static void sort_indices(ref Index3i tri)
         {
-            // possibly this can be re-ordered to have fewer tests? ...
-            if ( tri.a < tri.b && tri.a < tri.c ) {
-                if (tri.b > tri.c) {
-                    int b = tri.b; tri.b = tri.c; tri.c = b;
-                }
-            } else if ( tri.b < tri.a && tri.b < tri.c ) {
-                if ( tri.a < tri.c ) {
-                    int b = tri.b; tri.b = tri.a; tri.a = b;
-                } else {
-                    int a = tri.a, b = tri.b, c = tri.c;
-                    tri.a = b; tri.b = c; tri.c = a;
-                }
-            } else if ( tri.c < tri.a && tri.c < tri.b ) {
-                if ( tri.b < tri.a ) {
-                    int c = tri.c; tri.c = tri.a; tri.a = c;
-                } else {
-                    int a = tri.a, b = tri.b, c = tri.c;
-                    tri.a = c; tri.b = a; tri.c = b;
-                }
-            }
+            // 3-element sorting network, also correct for duplicate values
+            if (tri.a > tri.b) { int t = tri.a; tri.a = tri.b; tri.b = t; }
+            if (tri.b > tri.c) { int t = tri.b; tri.b = tri.c; tri.c = t; }
+            if (tri.a > tri.b) { int t = tri.a; tri.a = tri.b; tri.b = t; }
         }
 
 

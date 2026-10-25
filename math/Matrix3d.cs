@@ -247,7 +247,9 @@ namespace g3
             double i22 = a22*a11 - a21*a12;
 
             double det = a11 * i00 + a21 * i01 + a31 * i02;
-			if (Math.Abs(det) < double.Epsilon)
+            // relative to the Hadamard bound |det| <= |Row0|*|Row1|*|Row2|, so the test is
+            // independent of the matrix scale and catches determinants that are only round-off
+			if (Math.Abs(det) <= 8 * MathUtil.Epsilon * Row0.Length * Row1.Length * Row2.Length)
 				throw new Exception("Matrix3d.Inverse: matrix is not invertible");
 			det = 1.0 / det;
 			return new Matrix3d(i00 * det, i01 * det, i02 * det, i10 * det, i11 * det, i12 * det, i20 * det, i21 * det, i22 * det);

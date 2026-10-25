@@ -18,16 +18,27 @@ namespace gs
     ///  - RemeshIteration() applies remesh pass for modified edges
     ///  - TrackedSmoothPass() smooths all vertices but only adds to queue if edge changes enough
     ///  - TrackedProjectionPass() same
-    /// 
+    ///
+    /// Same options, constraints and in-place behaviour as <see cref="Remesher"/> (set the edge lengths with
+    /// SetTargetEdgeLength(), a projection target to keep the shape, and constraints to keep boundaries).
+    /// After the first full pass only queued edges are processed, so it is usually much faster than repeated
+    /// BasicRemeshPass() calls. Usual entry point: FastestRemesh(). Call ResetQueue() if the mesh is changed
+    /// externally between iterations. This class is in namespace gs.
     /// </summary>
     public class RemesherPro : Remesher
     {
 
+        /// <summary>
+        /// if true, the projection pass moves vertices to align triangles with the face normals of the projection
+        /// target (requires an IOrientedProjectionTarget), which recovers sharp edges; set by SharpEdgeReprojectionRemesh()
+        /// </summary>
         public bool UseFaceAlignedProjection = false;
+        /// <summary> number of face-aligned projection passes per RemeshIteration() if UseFaceAlignedProjection </summary>
         public int FaceProjectionPassesPerIteration = 1;
 
 
 
+        /// <summary> remesh mesh m in place </summary>
         public RemesherPro(DMesh3 m) : base(m)
         {
         }
@@ -94,7 +105,9 @@ namespace gs
 
 
         /// <summary>
-        /// Converge on remeshed result as quickly as possible
+        /// Converge on remeshed result as quickly as possible: split-only passes until fewer than 1% of the edges
+        /// split (at most about nMaxIterations), then nMaxIterations queued RemeshIteration() calls (projection
+        /// only on every other one, and on the last). Modifies the mesh in place; stops early if cancelled.
         /// </summary>
         public void FastestRemesh(int nMaxIterations = 25, bool bDoFastSplits = true)
         {
@@ -151,7 +164,10 @@ namespace gs
 
         /// <summary>
         /// This is a remesh that tries to recover sharp edges by aligning triangles to face normals
-        /// of our projection target (similar to Ohtake RZN-flow). 
+        /// of our projection target (similar to Ohtake RZN-flow): nRemeshIterations remesh iterations with
+        /// face-aligned projection, then nTuneIterations face-aligned projection passes.
+        /// Throws if ProjectionTarget is not set or is not an IOrientedProjectionTarget (eg MeshProjectionTarget).
+        /// Note: leaves FaceProjectionPassesPerIteration at 1.
         /// </summary>
         public void SharpEdgeReprojectionRemesh(int nRemeshIterations, int nTuneIterations, bool bDoFastSplits = true)
         {
@@ -248,8 +264,8 @@ namespace gs
 
 
         /// <summary>
-        /// This pass only does edge splits. Returns number of split edges.
-        /// Tracks previously-split 
+        /// This pass only does edge splits (of edges longer than MaxEdgeLength). Returns number of split edges.
+        /// The next call only processes the edges created by these splits that are still too long.
         /// </summary>
         public int FastSplitIteration()
         {
@@ -334,6 +350,11 @@ namespace gs
 
 
 
+        /// <summary>
+        /// One remesh pass (split/collapse/flip, smoothing, projection as in Remesher.BasicRemeshPass()). The first
+        /// call after construction or ResetQueue() processes all edges; later calls only process the edges queued by
+        /// the previous iteration (around split/collapsed/flipped edges, and edges smoothing or projection changed). ModifiedEdgesLastPass counts the edge operations.
+        /// </summary>
         public virtual void RemeshIteration()
         {
             if (mesh.TriangleCount == 0)    // badness if we don't catch this...
@@ -513,9 +534,9 @@ namespace gs
 
 
             if (bParallel) {
-                gParallel.ForEach<int>(smooth_vertices(), project);
+                gParallel.ForEach<int>(project_vertices(), project);
             } else {
-                foreach (int vID in smooth_vertices())
+                foreach (int vID in project_vertices())
                     project(vID);
             }
 
@@ -703,6 +724,7 @@ namespace gs
         }
         List<SettingState> stateStack = new List<SettingState>();
 
+        /// <summary> save the Enable* flags, edge lengths, smoothing and projection settings (restore with PopState()) </summary>
         public void PushState()
         {
             SettingState s = new SettingState() {
@@ -719,6 +741,7 @@ namespace gs
             stateStack.Add(s);
         }
 
+        /// <summary> restore the settings saved by the last PushState() </summary>
         public void PopState()
         {
             SettingState s = stateStack.Last();

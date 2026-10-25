@@ -9,10 +9,12 @@ using System.Threading;
 
 namespace g3
 {
-	//
-	// Write OFF mesh format
-	// https://en.wikipedia.org/wiki/OFF_(file_format)
-	//
+	/// <summary>
+	/// Write ascii OFF mesh format https://en.wikipedia.org/wiki/OFF_(file_format)
+	/// OFF only stores one mesh, so all input meshes are combined. Coordinates are written with
+	/// options.RealPrecisionDigits decimals. Only positions and triangles are written.
+	/// The BinaryWriter overload returns FormatNotSupportedError.
+	/// </summary>
     public class OFFWriter : IMeshWriter
     {
  

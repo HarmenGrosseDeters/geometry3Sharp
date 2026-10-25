@@ -176,7 +176,15 @@ namespace g3
         // an open spline clamps t to [0,1].  That is, if t > 1, t is set to 1;
         // if t < 0, t is set to 0.  A periodic spline wraps to to [0,1].  That
         // is, if t is outside [0,1], then t is set to t-floor(t).
+        //
+        // mBasis.Compute() fills buffers inside mBasis that are read afterwards, so
+        // evaluation is serialized on mBasis to make it safe to call from multiple threads
         public override Vector2d GetPosition(double t)
+        {
+            lock (mBasis)
+                return get_position(t);
+        }
+        Vector2d get_position(double t)
         {
             int i, imin = 0, imax = 0;
             mBasis.Compute(t, 0, ref imin, ref imax);
@@ -201,6 +209,11 @@ namespace g3
         }
 
         public override Vector2d GetFirstDerivative(double t)
+        {
+            lock (mBasis)
+                return get_first_derivative(t);
+        }
+        Vector2d get_first_derivative(double t)
         {
             int i, imin = 0, imax = 0;
             mBasis.Compute(t, 0, ref imin, ref imax);
@@ -263,6 +276,11 @@ namespace g3
             }
         }
         public void Get(double t, ref CurveDerivatives result)
+        {
+            lock (mBasis)
+                get(t, ref result);
+        }
+        void get(double t, ref CurveDerivatives result)
         {
             int i, imin = 0, imax = 0;
             if (result.bDer3) {

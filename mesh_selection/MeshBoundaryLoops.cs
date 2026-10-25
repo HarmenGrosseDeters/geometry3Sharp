@@ -6,6 +6,7 @@ using System.Diagnostics;
 
 namespace g3
 {
+	/// <summary> thrown by MeshBoundaryLoops.Compute() only if FailureBehavior or SpanBehavior is ThrowException </summary>
 	public class MeshBoundaryLoopsException : Exception
 	{
 		public MeshBoundaryLoopsException(string message) : base(message) {}
@@ -15,15 +16,27 @@ namespace g3
 	}
 
 	/// <summary>
-	/// Extract boundary EdgeLoops from Mesh. Can also extract EdgeSpans for open areas,
-    /// however default behavior is to ignore these. Set .SpanBehavior to configure.
+	/// Extract the boundary EdgeLoops (holes) of a mesh; the constructor computes them by default. Enumerate
+	/// the object, or use Loops / Count / this[i]. Each loop is a simple cycle (bowtie vertices split walks
+	/// into simple loops) oriented along the boundary orientation (as required by the hole fillers), or along
+	/// the majority of its edges if the triangles around it are inconsistently oriented (see
+	/// IsConsistentlyOriented, SawInconsistentOrientation). A closed mesh has no loops.
+	///
+	/// Can also extract EdgeSpans for open (unclosed) boundary chains, which come mainly from EdgeFilterF but
+	/// can also happen on meshes with bad bowties. By default (SpanBehavior = Compute,
+	/// FailureBehavior = ConvertToOpenSpan) they are collected in Spans and SawOpenSpans is set; no exception
+	/// is thrown unless a ThrowException behavior is selected. The mesh is not modified.
 	/// </summary>
     public class MeshBoundaryLoops : IEnumerable<EdgeLoop>
     {
+        /// <summary> the mesh whose boundary is extracted (not modified) </summary>
         public DMesh3 Mesh;
+        /// <summary> the boundary loops found by Compute() </summary>
         public List<EdgeLoop> Loops;
 
+        /// <summary> unclosed boundary chains found by Compute() (if SpanBehavior is Compute) </summary>
         public List<EdgeSpan> Spans;       // spans are unclosed loops
+        /// <summary> set to true if any open spans were found </summary>
         public bool SawOpenSpans = false;  // will be set to true if we find any open spans
         public bool FellBackToSpansOnFailure = false;       // set to true if we had to add spans to recover from failure
                                                             // currently this happens if we cannot extract simple loops from a loop with bowties
@@ -52,6 +65,7 @@ namespace g3
         public List<int> FailureBowties = null;
 
 
+        /// <summary> if bAutoCompute is true, Compute() runs here; otherwise set options and call Compute() </summary>
         public MeshBoundaryLoops(DMesh3 mesh, bool bAutoCompute = true)
         {
             this.Mesh = mesh;
@@ -79,7 +93,7 @@ namespace g3
 
 
         /// <summary>
-        /// Index of Loop with largest vertex count
+        /// Index of Loop with largest vertex count (0 if there are no loops, so check Count first)
         /// </summary>
         public int MaxVerticesLoopIndex {
             get {
@@ -139,8 +153,10 @@ namespace g3
 
 
 		/// <summary>
-		/// Find the set of boundary EdgeLoops. Note that if we encounter topological
-		/// issues, we will throw MeshBoundaryLoopsException w/ more info (if possible)
+		/// Find the set of boundary EdgeLoops (and Spans). If we encounter topological issues and
+		/// FailureBehavior or SpanBehavior is ThrowException, we throw MeshBoundaryLoopsException w/ more
+		/// info (if possible); with the default behaviors the problem chains become Spans instead.
+		/// Always returns true.
 		/// </summary>
 		public bool Compute()
         {

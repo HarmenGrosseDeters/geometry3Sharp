@@ -222,6 +222,83 @@ Behoben:
   Der falsche Assert fiel deshalb nicht auf. Die Tests dafür schalten `Util.DebugBreakOnDevAssert` ab und laufen
   deshalb nicht parallel zu anderen Testklassen.
 
+Elfte Runde, parallel in fünf Sessions (erst der rote Test, dann der Fix). Die Einzelheiten stehen in den PR-Beschreibungen:
+- `solvers/`, `intersection/`, `comp_geom/`: PR #21, `SolverIntersectionFixesTests.cs` (29 Tests). Unter anderem
+  `DenseMatrix` bei nicht-quadratischen Matrizen, `SparseSymmetricCG` (NaN bei RHS = 0, Abbruchkriterium), `PackedSparseMatrix`,
+  `Cholesky`, `IntrRay3Triangle3` (relative Toleranz), `IntrTriangle2Triangle2` (Umlaufsinn), `Arrangement2d` (Snap-Radius).
+- `spatial/`, `distance/`, `queries/`, `containment/`: PR #22, `SpatialFixesTests.cs` (35 Tests). Unter anderem
+  `make_grid` mit `BufferCells`, `MultigridIndexer` (Floor, Shifts), `ToGrid` (Floor), degenerierte Dreiecke in
+  `MeshSignedDistanceGrid`, `DCurve3BoxTree`/`Polygon2dBoxTree`, `DistPoint3Cylinder3`, `TilingUtil`, `RayIntersection`,
+  `ContMinBox2` (kollinear).
+- `implicit/`: PR #20, `ImplicitFixesTests.cs` (13 Tests). Gradienten (Klammern, Radius, CellSize), `MarchingQuads`
+  (positives Min, zweiter Lauf), Floor statt `(int)`, `CachingMeshSDF`-Marker, `ImplicitIntersection3d.Bounds`.
+- `core/`, `io/`, `color/`, `approximation/`: PR #24, `CoreIOFixesTests.cs` (45 Tests). Unter anderem `HBitArray`,
+  `OBJWriter` mit mehreren Meshes, `IsBinaryStream`, `GaussPointsFit3`, `gSerialization` (isolierte Vertices, Format
+  Version 2), `DVector`, Farben, `OFFReader` (Polygone), Fehlermeldungen von `StandardMeshReader`.
+- `mesh_ops/`, `mesh_generators/`, `mesh_selection/`: PR #23, `MeshOpsFixesTests.cs` (26 Tests). Unter anderem
+  `RoundRectGenerator`, `TubeGenerator` (Naht), `MergeCoincidentEdges.OnlyUniquePairs`, `MeshVertexSelection`,
+  `MeshIsoCurves`, `MeshBoundaryLoops` mit Filter, `MeshICP`, `MeshExtrude*`-Rückgaben, Debug-Ausgaben entfernt.
+
+Zwölfte Runde, die dort offen gelassenen Entscheidungen. Tests in `DesignDecisionFixesTests.cs` (9 Tests; vor dem Fix rot: 7,
+die übrigen sichern die vordefinierten Farben und das Winding-Number-Sampling ab):
+- `MeshBoolean.Compute` verschweißt die beiden Hälften entlang der Schnittkurve und gibt zurück, ob das Ergebnis geschlossen
+  ist (vorher immer `true`, Ergebnis immer offen). Abgleich und Verschweißen nutzen 2·`VertexSnapTol`, weil jede
+  `MeshMeshCut`-Seite ihre Schnittpunkte um bis zu `VertexSnapTol` einrastet. In einem Test mit 32 zufälligen
+  Kugel-Paaren sind 28 Ergebnisse geschlossen; bei den übrigen bleibt ein winziges Loch (3 bzw. 6 Kanten), und `Compute`
+  meldet das mit `false`. Solche Löcher werden absichtlich nicht automatisch gefüllt.
+- `Colorf(int,int,int,int)` ist `[Obsolete]` (Warnung, kein Fehler) mit Hinweis auf das neue `Colorf.FromBytes(...)`.
+  `new Colorf(1,0,0)` erzeugt damit eine Compiler-Warnung statt still fast Schwarz. Die vordefinierten Farben nutzen
+  `FromBytes`, ihre Werte sind unverändert.
+- `DVector.Clear()` ist `[Obsolete]`: Es füllt mit `default`, behält aber die Länge (anders als `List.Clear`). Neu ist
+  `Fill(value)`; geleert wird mit `resize(0)`. Die beiden internen Aufrufer nutzen `Fill(default)`.
+- `ReadOptions.Defaults` liefert bei jedem Zugriff eine neue Instanz. Wer `Defaults` absichtlich global verändert hat,
+  muss die Optionen jetzt übergeben.
+- `MeshScalarSamplingGrid`: Nicht berechnete Zellen bekommen den letzten bekannten Wert ihrer x-Zeile statt 0. Ist der
+  Zeilenanfang unbekannt, wird die Funktion dort ausgewertet. Vorher landete bei `IsoValue <= 0` (z. B. eine SDF mit
+  `IsoValue = 0`) das gesamte Innere auf der falschen Seite.
+- `DMeshAABBTree3.WindingNumber`: Der Cache wird unter einem Lock gebaut, wie der FastWinding-Cache (gleichzeitige erste
+  Aufrufe warfen `InvalidOperationException`).
+- `MergeCoincidentEdges`: Der Punkt-Puffer wurde beim Vergrößern gleich groß neu angelegt; ab 1024 Treffern lief die
+  Schleife endlos.
+- Kein Fehler: `MeshMeshCut.find_nearest_vertex` vergleicht echte Abstände mit dem Radius.
+
+Dreizehnte Runde, `MeshBoolean`. Tests in `MeshBooleanSeamTests.cs` (5 Tests, vor dem Fix alle rot): Nach dem Verschweißen
+werden Randkanten kollabiert, die kürzer als die Abgleich-Toleranz sind. Dort lagen zwei Nahtpunkte knapp beieinander, und
+die benachbarten langen Kanten waren fast deckungsgleich, teilten aber einen Vertex und ließen sich deshalb nicht
+verschmelzen. Danach wird erneut verschweißt. Bleibt ein Loch aus genau 3 Kanten (ein fehlendes Nahtdreieck), wird es mit
+diesem Dreieck geschlossen; größere Löcher bleiben offen, und `Compute` liefert `false`. In einer Stichprobe von 120
+zufälligen Kugel-Paaren sind 119 Ergebnisse geschlossen und gültig; im übrigen Fall fehlt ein echtes Viereck in der Naht.
+
+Vierzehnte Runde, die niedrig eingestuften Punkte, parallel in zwei Sessions. Jeder Punkt wurde zuerst mit einem Test
+geprüft und nur gefixt, wenn der Test rot war:
+- `math/`: PR #37, `MathLowFixesTests.cs` (36 Tests; vor dem Fix rot: 33). Behoben unter anderem `Equals(object)` bei
+  `null` oder fremdem Typ (17 Überschreibungen), kulturunabhängiges `ToString()`, `ClampAngleDeg/Rad`, `sort_indices` mit
+  Duplikaten, Größen der leeren int-Boxen, `Matrix3*.Inverse` (relative Toleranz statt `double.Epsilon`),
+  `Box2d(Segment2d)` (rechtshändig), `Frame3f.ToFrame(ref Box)` (Eingabe bleibt unverändert), `Interval1i`-Enumerator
+  bei `int.MaxValue`. Kein Fehler: `ComputeOrthogonalComplement` (v1 und v2 sind bereits `ref`).
+- `mesh/`, `curve/`: PR #36, `MeshCurveLowFixesTests.cs` (17 Tests; vor dem Fix rot: 14). Behoben unter anderem
+  `RemesherPro.TrackedProjectionPass` (nutzt `project_vertices()`), `AddTriangleStrip` mit Gruppe, `EdgeSpan.IsSameSpan`,
+  `DGraph*.GetBounds` bei leerem Graph, fehlende `Timestamp++` in `Polygon2d`/`PolyLine2d`, Comparator in
+  `PlanarComplex.FindSolidRegions`, `BezierCurve2.Reverse`, `Ellipse2d.FromCoefficients`, `NURBSCurve2` bei
+  gleichzeitiger Auswertung (Lock pro Basis), Orientierungs-Doku. Kein Fehler: `AppendTriangle` liefert im Release-Build
+  `InvalidID`; der Timestamp in parallelen `SetVertex`-Durchläufen verliert zwar Inkremente, der Cache verpasst aber keine
+  Änderung.
+
+Fünfzehnte Runde, die dort offenen Entscheidungen. Tests in `BoundsAndMirrorFixesTests.cs` (6 Tests; vor dem Fix rot: 4,
+dazu 2 Absicherungen):
+- `DMesh3.GetBounds()` liefert bei einem Mesh ohne Vertices `AxisAlignedBox3d.Empty` statt einer Null-Box im Ursprung.
+  `MeshSignedDistanceGrid`, `MeshWindingNumberGrid`, `MeshScalarSamplingGrid` und `CachingMeshSDF` berechnen ihre
+  Gittergröße aus den Bounds und werfen bei leerem Mesh jetzt eine `ArgumentException` (vorher ein 5×5×5-Gitter um den
+  Ursprung). Die übrigen Aufrufer nutzen `Center` oder `MaxDim` (für `Empty` wie vorher 0) oder steigen bei leerem Mesh
+  ohnehin früh aus.
+- `MeshTransforms.Scale(mesh, scale, origin, bFixOrientation)`: neue Überladung. Mit `true` werden die Normalen mit der
+  inversen Transponierten transformiert, und bei Spiegelung wird die Orientierung umgekehrt. Ohne den Parameter bleibt
+  `Scale` eine reine Vertex-Abbildung wie bisher.
+- `MeshTransforms.FlipLeftRightCoordSystems(Frame3f)`: spiegelt Ursprung, X und Y und setzt Z = X×Y. Punkte in der
+  XY-Ebene des Frames landen exakt auf den gespiegelten Punkten; der Frame bleibt rechtshändig.
+- Unverändert gelassen: Toleranz von `Matrix3*.Inverse` (8·eps relativ zur Hadamard-Schranke), `Floor` für Max in
+  `AxisAlignedBox*i.Contain(double)`, uneinheitliches `==`/`Equals` (nur dokumentiert).
+
 ---
 
 ## 1. Upstream-Issues

@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Collections.Generic;
 
 namespace g3
@@ -302,7 +303,7 @@ namespace g3
 
 
         public override string ToString() {
-            return string.Format("[{0:F8},{1:F8}] [{2:F8},{3:F8}]", Min.x, Max.x, Min.y, Max.y);
+            return string.Format(CultureInfo.InvariantCulture, "[{0:F8},{1:F8}] [{2:F8},{3:F8}]", Min.x, Max.x, Min.y, Max.y);
         }
 
 

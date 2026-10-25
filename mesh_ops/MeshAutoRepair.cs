@@ -9,8 +9,26 @@ using g3;
 namespace gs
 {
     /// <summary>
-    /// Mesh Auto Repair top-level driver.
-    /// 
+    /// Mesh Auto Repair top-level driver: tries to turn a broken triangle mesh (cracks, holes, inconsistent
+    /// orientation, bowties, tiny edges) into a closed, consistently and outward oriented mesh while keeping
+    /// the input triangles where possible. Steps: optional removal of interior/occluded triangles (RemoveMode),
+    /// component orientation (MeshRepairOrientation), crack closing (MergeCoincidentEdges), collapse of tiny
+    /// boundary edges, hole filling (SimpleHoleFiller / MinimalHoleFill / SmoothedHoleFill), bowtie
+    /// disconnection, and as a last resort repeated erosion of boundary triangles (ErosionIterations) before
+    /// filling again. Finally tiny edges are collapsed (MinEdgeLengthTol), the global orientation is solved and
+    /// optionally MeshPostRepairCleanup runs.
+    ///
+    /// Behaviour: the input mesh is modified in place, and at the end <see cref="Mesh"/> is replaced by a new,
+    /// compacted copy with vertex normals, so always read the result from <see cref="Mesh"/>.
+    /// Apply() returns false only if cancelled (see Progress); it returns true even if the mesh could not be
+    /// closed, so check eg Mesh.IsClosed(). Self-intersections are not removed, and erosion can delete parts
+    /// of the input. Tolerances are absolute (model units).
+    ///
+    /// Use MeshRobustRepair to get a clean solid in all cases (it runs this class first and falls back to
+    /// MeshWindingNumberSolidify, which remeshes); use MeshWindingNumberSolidify directly to rebuild any input
+    /// as a closed surface at a grid resolution; use ExactMeshBoolean.Resolve to resolve self-intersections and
+    /// nested shells of an already closed mesh exactly.
+    ///
     /// TODO:
     ///   - remove degenerate *faces*  (which may still have all edges > length)
     ///       - this is tricky, in many CAD meshes these faces can't just be collapsed. But can often remove via flipping...?
@@ -18,19 +36,35 @@ namespace gs
     /// </summary>
     public class MeshAutoRepair
     {
+        /// <summary>
+        /// Distance (absolute) within which boundary edges are merged to close cracks (up to 2x this in the
+        /// second round); boundary edges shorter than half of it are collapsed before that.
+        /// </summary>
 		public double RepairTolerance = MathUtil.ZeroTolerancef;
 
-        // assume edges shorter than this are degenerate and should be collapsed
+        /// <summary>
+        /// At the end, edges shorter than this (absolute) are assumed degenerate and collapsed. 0 disables.
+        /// </summary>
         public double MinEdgeLengthTol = 0.0001;
 
-        // number of times we will delete border triangles and try again
+        /// <summary>
+        /// If the mesh is still open after the first two rounds, up to this many times all triangles touching
+        /// the boundary are deleted and the repair is repeated. This removes input geometry.
+        /// </summary>
         public int ErosionIterations = 5;
 
 
         // [TODO] interior components?
+        /// <summary>
+        /// Which triangles to remove before the repair (see RemoveOccludedTriangles, per-vertex test: a
+        /// triangle is removed if any of its vertices is classified as inside).
+        /// None: keep all. Interior: fast winding number &gt; 0.5. Occluded: rays along all six axis
+        /// directions hit the mesh.
+        /// </summary>
         public enum RemoveModes {
 			None = 0, Interior = 1, Occluded = 2
 		};
+        /// <summary> see RemoveModes; default None </summary>
 		public RemoveModes RemoveMode = MeshAutoRepair.RemoveModes.None;
 
         /// <summary>
@@ -46,6 +80,7 @@ namespace gs
         /// smooth, boundary kept fixed) for holes with more than 4 vertices, falls back to Minimal.
         /// </summary>
         public enum HoleFillModes { Minimal = 0, Smoothed = 1 }
+        /// <summary> hole filling strategy for non-trivial holes (holes with 3 or 4 vertices always use the minimal fill) </summary>
         public HoleFillModes HoleFillMode = HoleFillModes.Minimal;
 
         bool fill_inconsistent_loops = false;
@@ -55,7 +90,8 @@ namespace gs
 
 
         /// <summary>
-        /// Set this to be able to cancel running remesher
+        /// Set this to be able to cancel the running repair (Apply() then returns false and the mesh is left
+        /// partially repaired)
         /// </summary>
         public ProgressCancel Progress = null;
 
@@ -71,18 +107,27 @@ namespace gs
 
 
 
+        /// <summary>
+        /// The mesh to repair. Modified in place during Apply(), and replaced by a compacted copy (with vertex
+        /// normals) at the end of a successful Apply(): read the result from here.
+        /// </summary>
         public DMesh3 Mesh;
 
         /// <summary> called after every pipeline step with its name and the current mesh (diagnostics) </summary>
         public Action<string, DMesh3> OnStage = null;
         void stage(string name) { OnStage?.Invoke(name, Mesh); }
 
+        /// <summary> the mesh is repaired in place (see Mesh) </summary>
 		public MeshAutoRepair(DMesh3 mesh3)
 		{
 			Mesh = mesh3;
 		}
 
 
+        /// <summary>
+        /// Run the repair pipeline (see class comment).
+        /// </summary>
+        /// <returns>false if cancelled, otherwise true, also if the mesh could not be closed (check Mesh.IsClosed())</returns>
 		public bool Apply()
 		{
 			bool do_checks = false;

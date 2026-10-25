@@ -11,6 +11,12 @@ namespace gs
     /// <summary>
     /// This fills a hole in a mesh by doing a trivial fill, optionally offsetting along a fixed vector,
     /// then doing a remesh, then a laplacian smooth, then a second remesh.
+    ///
+    /// Gives a smooth, evenly tessellated patch with new interior vertices (prefer MinimalHoleFill for flat
+    /// or CAD-like holes). The mesh is modified in place. TargetEdgeLength is absolute (model units) and its
+    /// default of 2.5 is arbitrary: set it, eg to the average edge length of the hole boundary. With
+    /// ConstrainToHoleInterior = false (default) triangles around the hole are remeshed too. Apply() returns
+    /// false if no loop was found or the initial fan fill failed.
     /// </summary>
     public class SmoothedHoleFill
     {
@@ -21,6 +27,7 @@ namespace gs
         public double OffsetDistance = 0.0;
 
         // remeshing parameters
+        /// <summary> target edge length (absolute, model units) of the remeshed fill </summary>
         public double TargetEdgeLength = 2.5;
         public double SmoothAlpha = 1.0;
         public int InitialRemeshPasses = 20;
@@ -65,6 +72,7 @@ namespace gs
         public int[] FillVertices;
 
 
+        /// <summary> fillLoop: the boundary loop to fill; if null, chosen in Apply() (see BorderHintTris) </summary>
         public SmoothedHoleFill(DMesh3 mesh, EdgeLoop fillLoop = null)
         {
             this.Mesh = mesh;
@@ -72,6 +80,11 @@ namespace gs
         }
 
 
+        /// <summary>
+        /// Fill the hole: FillLoop if set, otherwise the loop with the most edges in BorderHintTris, otherwise
+        /// the loop with the most vertices. Sets FillTriangles and FillVertices.
+        /// </summary>
+        /// <returns>false if the mesh has no boundary loop, the initial fill (or offset extrusion) failed; true otherwise</returns>
         public bool Apply()
         {
             EdgeLoop useLoop = null;

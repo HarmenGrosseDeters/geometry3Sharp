@@ -46,6 +46,17 @@ class Program
                 MeshTransforms.Translate(mesh, new Vector3d(500000, 5000000, 0));
             r["load_ms"] = sw.ElapsedMilliseconds;
             Stats(mesh, r, "before");
+            if (Environment.GetEnvironmentVariable("BENCH_REPAIR") == "analysis") {
+                // analysis building blocks on the input instead of a repair (AnalysisBench.cs)
+                stage = "analysis";
+                r["repair_mode"] = "analysis";
+                sw.Restart();
+                AnalysisBench.Run(mesh, r);
+                r["analysis_ms"] = sw.ElapsedMilliseconds;
+                r["status"] = "ok";
+                Emit(r);
+                return 0;
+            }
             // AutoRepair modifies the mesh in place; keep the input for solidify and deviation
             DMesh3 original = new DMesh3(mesh);
 
@@ -59,8 +70,11 @@ class Program
             // self-intersections), solidify_dc_adaptive of the repaired mesh; hybrid_topo = the same without
             // the self-intersection check,
             // robust = MeshRobustRepair (hybrid plus the volume check against the input),
+            // wrap = MeshAlphaWrap of the input (BENCH_WRAP_ALPHA / BENCH_WRAP_OFFSET: diagonal divided by alpha / offset),
+            // cgalwrap = the same with CGAL's alpha wrap (external program, CGAL_WRAP; for comparison only),
             // instr = InstrumentedAutoRepair, records cheap quality metrics after every pipeline step,
-            // steps = MeshAutoRepair (cleanup) with OnStage: quality, fidelity and winding closedness after every step
+            // steps = MeshAutoRepair (cleanup) with OnStage: quality, fidelity and winding closedness after every step,
+            // analysis = no repair: MeshWallThickness, MeshDeviation and PrimitiveFit3 on the input (see above)
             string repairMode = Environment.GetEnvironmentVariable("BENCH_REPAIR") ?? "default";
             r["repair_mode"] = repairMode;
             double tolFactor = 1;
@@ -146,6 +160,12 @@ class Program
                 r["robust_exact_reason"] = robust.ExactResolveReason;
                 r["robust_exact_rounds"] = robust.ExactResolveRoundsUsed;
                 r["robust_exact_selfint"] = robust.ExactResolveSelfIntersections;
+            } else if (repairMode == "cgalwrap") {
+                result = CgalWrap(args[0], r);
+                ok = result.TriangleCount > 0;
+            } else if (repairMode == "wrap") {
+                result = Wrap(original, r);
+                ok = r["wrap_status"].ToString() == "Success";
             } else if (repairMode.StartsWith("solidify_")) {
                 result = Solidify(original, repairMode == "solidify_mc" ? MeshWindingNumberSolidify.Methods.MarchingCubes
                     : MeshWindingNumberSolidify.Methods.DualContouring, repairMode == "solidify_dc_adaptive", r);
@@ -171,7 +191,7 @@ class Program
                         result = Solidify(result, MeshWindingNumberSolidify.Methods.DualContouring, true, r);
                 }
             }
-            r["repair_ms"] = sw.ElapsedMilliseconds;
+            r["repair_ms"] = (repairMode == "cgalwrap" && r.ContainsKey("wrap_ms")) ? r["wrap_ms"] : sw.ElapsedMilliseconds;
             r["apply_returned"] = ok;
 
             stage = "stats_after";
@@ -304,6 +324,55 @@ class Program
     }
 
     static double Vol(DMesh3 m) { return m.TriangleCount == 0 ? 0 : MeshMeasurements.VolumeArea(m, m.TriangleIndices(), m.GetVertex).x; }
+
+    // alpha wrap of the input (MeshAlphaWrap): alpha = diagonal / BENCH_WRAP_ALPHA, offset = diagonal / BENCH_WRAP_OFFSET
+    static DMesh3 Wrap(DMesh3 input, System.Collections.Generic.Dictionary<string, object> r)
+    {
+        var inv = System.Globalization.CultureInfo.InvariantCulture;
+        double relAlpha = double.Parse(Environment.GetEnvironmentVariable("BENCH_WRAP_ALPHA") ?? "100", inv);
+        double relOffset = double.Parse(Environment.GetEnvironmentVariable("BENCH_WRAP_OFFSET") ?? "1000", inv);
+        var sw = Stopwatch.StartNew();
+        var wrap = new MeshAlphaWrap(input) { RelativeAlpha = relAlpha, RelativeOffset = relOffset };
+        wrap.Compute();
+        r["wrap_ms"] = sw.ElapsedMilliseconds;
+        r["wrap_status"] = wrap.Status.ToString();
+        if (wrap.Error != null) r["wrap_error"] = wrap.Error;
+        r["wrap_rel_alpha"] = relAlpha;
+        r["wrap_rel_offset"] = relOffset;
+        r["wrap_alpha"] = wrap.UsedAlpha;
+        r["wrap_offset"] = wrap.UsedOffset;
+        r["wrap_counts"] = wrap.Counts;
+        r["wrap_phases"] = wrap.PhaseMilliseconds;
+        return wrap.Result ?? new DMesh3();
+    }
+
+    // CGAL's alpha wrap (external/cgal_wrap.cpp, path in CGAL_WRAP; GPL, for comparison only) on the input file,
+    // with the same relative alpha and offset as Wrap; repair_ms is CGAL's own time (without process start and I/O)
+    static DMesh3 CgalWrap(string file, System.Collections.Generic.Dictionary<string, object> r)
+    {
+        string exe = Environment.GetEnvironmentVariable("CGAL_WRAP") ?? "cgal_wrap";
+        string relAlpha = Environment.GetEnvironmentVariable("BENCH_WRAP_ALPHA") ?? "100";
+        string relOffset = Environment.GetEnvironmentVariable("BENCH_WRAP_OFFSET") ?? "1000";
+        string off = System.IO.Path.GetTempFileName() + ".off";
+        var psi = new ProcessStartInfo(exe, $"\"{file}\" {relAlpha} {relOffset} \"{off}\"") { RedirectStandardOutput = true, UseShellExecute = false };
+        using (var p = Process.Start(psi)) {
+            string line = p.StandardOutput.ReadToEnd().Trim();
+            p.WaitForExit();
+            var j = JsonDocument.Parse(line.Split('\n').Last()).RootElement;
+            r["wrap_status"] = j.GetProperty("ok").GetBoolean() ? "Success" : "Failed";
+            if (j.TryGetProperty("ms", out var ms)) r["wrap_ms"] = ms.GetInt64();
+        }
+        r["wrap_rel_alpha"] = relAlpha;
+        r["wrap_rel_offset"] = relOffset;
+        DMesh3Builder builder = new DMesh3Builder();
+        IOReadResult rr = StandardMeshReader.ReadFile(off, new ReadOptions(), builder);
+        System.IO.File.Delete(off);
+        if (rr.code != IOCode.Ok || builder.Meshes.Count == 0) {
+            r["wrap_error"] = "could not read the CGAL result: " + rr.message;
+            return new DMesh3();
+        }
+        return builder.Meshes[0];
+    }
 
     // winding number solidify of the input (library class), BENCH_SOLID_RES cells along the diagonal
     static DMesh3 Solidify(DMesh3 input, MeshWindingNumberSolidify.Methods method, bool adaptive, System.Collections.Generic.Dictionary<string, object> r)
