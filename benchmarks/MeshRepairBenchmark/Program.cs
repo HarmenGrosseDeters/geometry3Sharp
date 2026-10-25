@@ -45,7 +45,9 @@ class Program
             else if (xform == "geo")
                 MeshTransforms.Translate(mesh, new Vector3d(500000, 5000000, 0));
             r["load_ms"] = sw.ElapsedMilliseconds;
+            var swStats = Stopwatch.StartNew();
             Stats(mesh, r, "before");
+            r["stats_before_ms"] = swStats.ElapsedMilliseconds;
             if (Environment.GetEnvironmentVariable("BENCH_REPAIR") == "analysis") {
                 // analysis building blocks on the input instead of a repair (AnalysisBench.cs)
                 stage = "analysis";
@@ -195,7 +197,9 @@ class Program
             r["apply_returned"] = ok;
 
             stage = "stats_after";
+            swStats.Restart();
             Stats(result, r, "after");
+            r["stats_after_ms"] = swStats.ElapsedMilliseconds;
             Deviation(original, result, r);
             if (repairMode != "boolean" && repairMode != "exact")
                 Fidelity(original, result, r);
