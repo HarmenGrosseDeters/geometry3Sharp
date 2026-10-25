@@ -1,7 +1,8 @@
 ﻿# About this fork
 
 This fork tracks gradientspace/geometry3Sharp `master`, whose code is the same as NuGet package 1.0.324.
-Its direction is described in [docs/ROADMAP.md](docs/ROADMAP.md). It adds:
+Its direction is described in [docs/ROADMAP.md](docs/ROADMAP.md). [docs/OPERATIONS.md](docs/OPERATIONS.md) maps the main
+operations to their classes, with a tested example for each. It adds:
 
 - Mesh repair fixes:
   - `MeshEditor.DisconnectBowtie` no longer cuts cracks into the mesh. The old version was order-dependent.
@@ -23,6 +24,12 @@ Its direction is described in [docs/ROADMAP.md](docs/ROADMAP.md). It adds:
   `VectorHeatMethod` (parallel transport, scalar extension, log map). `SparseCholesky` is a direct sparse
   solver for the heat and Poisson systems.
 - Mesh file formats PLY, 3MF and glTF 2.0 (see below).
+- Analysis building blocks: `MeshWallThickness` (wall thickness per vertex / triangle: inward ray, shape
+  diameter function, largest inscribed ball / medial axis), `MeshDeviation` (signed deviation map of a mesh
+  against a reference, with statistics and the certified Hausdorff bound) and `PrimitiveFit3` (plane, sphere,
+  cylinder and cone, RANSAC plus least squares).
+- `tools/g3cli`: the mesh operations (measure, repair, boolean, resolve, remesh, simplify, convert) as a CLI with
+  JSON output and result codes, and as an MCP server (`g3cli mcp`). See [tools/g3cli/README.md](tools/g3cli/README.md).
 - `BufferUtil.DecompressZLib` fix: on .NET Core it returned partly empty buffers for large data.
 
 ## Build, targets, tests
@@ -34,12 +41,13 @@ mesh_ops classes such as `MeshAutoRepair`.
 ```
 dotnet test tests/geometry3Sharp.Tests                      # all tests on net10.0
 dotnet test tests/geometry3Sharp.Tests -f net48             # on Windows: tests against the netstandard2.0 build
+dotnet test tests/g3cli.Tests                               # CLI / MCP server integration tests
 dotnet pack geometry3Sharp_netstandard.csproj -c Release -o artifacts
 ```
 
 The package contains the XML documentation and a symbol package. `tests/PackageSmokeTest` consumes the packed
 `.nupkg` and checks it (see the comment in its project file). GitHub Actions (`.github/workflows/ci.yml`) runs
-all of this on every push: tests on net10.0 (Linux) and net48 (Windows), pack, package smoke test.
+all of this on every push: tests on net10.0 (Linux) and net48 (Windows), CLI tests, pack, package smoke test.
 
 ## Mesh file formats
 
@@ -175,6 +183,7 @@ Several tutorials for using g3Sharp have been posted on the Gradientspace blog:
 - **QuadraticFit2**: fit general quadratic or 2D circle to set of 2D points
 - **GaussPointsFit3**: fit mean/covariance of gaussian distribution to set of 3D points
 - **OrthogonalPlaneFit3**: fit of plane to 3D point set
+- **PrimitiveFit3**: robust fit of plane, sphere, cylinder or cone to 3D points (optionally with normals): RANSAC over minimal samples, then Levenberg-Marquardt on the orthogonal distances of the inliers
 
 
 ## Solvers
@@ -355,6 +364,8 @@ Several tutorials for using g3Sharp have been posted on the Gradientspace blog:
 - **MergeCoincidentEdges**: weld coincident open boundary edges of mesh (more robust than weld vertices!)
 - **RemoveDuplicateTriangles**: remove duplicate triangles of mesh
 - **RemoteOccludedTriangles**: remove triangles that are "occluded" under various definitions
+- **MeshWallThickness**: wall thickness per vertex and triangle: inward ray (watertight ray-triangle test), shape diameter function, or diameter of the largest inscribed ball (shrinking ball on the exact surface with a separation angle condition)
+- **MeshDeviation**: signed distance of every vertex to a reference mesh (pseudo-normal or winding-number sign), with area weighted statistics, percentiles, histogram and optional certified Hausdorff bound
 - **MeshAutoRepair**: apply many of the above algorithms in an attempt to automatically "repair" an input mesh, where "repaired" means the mesh is closed and manifold.
 
 
@@ -424,6 +435,7 @@ Several tutorials for using g3Sharp have been posted on the Gradientspace blog:
 ## 3D Solids
 
 - **Cylinder3d**
+- **Cone3d**: apex, axis, half angle; signed distance
 - **DenseGridTrilinearImplicit**: trilinear interpolant of 3D grid
 - **CachingDenseGridTrilinearImplicit**: variant of DenseGridTrilinearImplicit that does lazy evaluation of grid values based on an implicit function
 

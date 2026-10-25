@@ -61,13 +61,13 @@ namespace g3
         }
 
         public int Width {
-            get { return Math.Max(Max.x - Min.x, 0); }
+            get { return (Max.x > Min.x) ? Max.x - Min.x : 0; }
         }
         public int Height {
-            get { return Math.Max(Max.y - Min.y, 0); }
+            get { return (Max.y > Min.y) ? Max.y - Min.y : 0; }
         }
         public int Depth {
-            get { return Math.Max(Max.z - Min.z, 0); }
+            get { return (Max.z > Min.z) ? Max.z - Min.z : 0; }
         }
 
         public int Volume
@@ -107,7 +107,7 @@ namespace g3
             return a.Min != b.Min || a.Max != b.Max;
         }
         public override bool Equals(object obj) {
-            return this == (AxisAlignedBox3i)obj;
+            return obj is AxisAlignedBox3i && this == (AxisAlignedBox3i)obj;
         }
         public bool Equals(AxisAlignedBox3i other) {
             return this == other;
@@ -178,22 +178,22 @@ namespace g3
 
         public void Contain(Vector3d v)
         {
-            Min.x = Math.Min(Min.x, (int)v.x);
-            Min.y = Math.Min(Min.y, (int)v.y);
-            Min.z = Math.Min(Min.z, (int)v.z);
-            Max.x = Math.Max(Max.x, (int)v.x);
-            Max.y = Math.Max(Max.y, (int)v.y);
-            Max.z = Math.Max(Max.z, (int)v.z);
+            Min.x = Math.Min(Min.x, (int)Math.Floor(v.x));
+            Min.y = Math.Min(Min.y, (int)Math.Floor(v.y));
+            Min.z = Math.Min(Min.z, (int)Math.Floor(v.z));
+            Max.x = Math.Max(Max.x, (int)Math.Floor(v.x));
+            Max.y = Math.Max(Max.y, (int)Math.Floor(v.y));
+            Max.z = Math.Max(Max.z, (int)Math.Floor(v.z));
         }
 
         public void Contain(AxisAlignedBox3d box)
         {
-            Min.x = Math.Min(Min.x, (int)box.Min.x);
-            Min.y = Math.Min(Min.y, (int)box.Min.y);
-            Min.z = Math.Min(Min.z, (int)box.Min.z);
-            Max.x = Math.Max(Max.x, (int)box.Max.x);
-            Max.y = Math.Max(Max.y, (int)box.Max.y);
-            Max.z = Math.Max(Max.z, (int)box.Max.z);
+            Min.x = Math.Min(Min.x, (int)Math.Floor(box.Min.x));
+            Min.y = Math.Min(Min.y, (int)Math.Floor(box.Min.y));
+            Min.z = Math.Min(Min.z, (int)Math.Floor(box.Min.z));
+            Max.x = Math.Max(Max.x, (int)Math.Floor(box.Max.x));
+            Max.y = Math.Max(Max.y, (int)Math.Floor(box.Max.y));
+            Max.z = Math.Max(Max.z, (int)Math.Floor(box.Max.z));
 
         }
 

@@ -6,31 +6,57 @@ using UnityEngine;
 
 namespace g3
 {
+    /// <summary>
+    /// Base class of the parametric mesh generators (TrivialBox3Generator, GridBox3Generator,
+    /// Sphere3Generator_NormalizedCube, CappedCylinderGenerator, ...). Usage: set the public parameters,
+    /// call Generate() (which fills the vertices / normals / uv / triangles / groups arrays and returns this),
+    /// then convert with MakeDMesh() (or MakeSimpleMesh() / MakeNTMesh()), eg
+    /// <c>DMesh3 sphere = new Sphere3Generator_NormalizedCube() { Radius = 2, EdgeVertices = 16 }.Generate().MakeDMesh();</c>
+    /// By default triangles are counter-clockwise seen from outside, ie normals point outward and closed
+    /// generated meshes have positive volume. With NoSharedVertices = true (where available) faces/seams get
+    /// separate vertices, so the resulting mesh is not closed (it has boundary edges along the seams).
+    /// </summary>
     abstract public class MeshGenerator
     {
+        /// <summary> generated vertex positions (after Generate()) </summary>
         public VectorArray3d vertices;
+        /// <summary> generated per-vertex UVs (after Generate()) </summary>
         public VectorArray2f uv;
+        /// <summary> generated per-vertex normals (after Generate()) </summary>
         public VectorArray3f normals;
+        /// <summary> generated triangles, as indices into vertices (after Generate()) </summary>
         public IndexArray3i triangles;
+        /// <summary> generated per-triangle group IDs, or null if the generator does not produce groups </summary>
         public int[] groups;
 
+        /// <summary> if false, UVs are not copied into the output mesh </summary>
         public bool WantUVs = true;
+        /// <summary> if false, normals are not copied into the output mesh </summary>
         public bool WantNormals = true;
+        /// <summary> if false, triangle groups are not copied into the output mesh </summary>
         public bool WantGroups = true;
 
-        // "normal" meshes are counter-clockwise. Unity is CW though...
+        /// <summary>
+        /// "Normal" meshes are counter-clockwise (normals point outward). Unity is CW though...
+        /// Set to true to reverse the triangle orientation.
+        /// </summary>
         public bool Clockwise = false;
 
 
 
+        /// <summary>
+        /// Generate the mesh arrays from the current parameters. Returns this, so that a Make*() call can be chained.
+        /// </summary>
         abstract public MeshGenerator Generate();
 
 
+        /// <summary> Append the generated vertices and triangles to m. Generate() must have been called. </summary>
         public virtual void MakeMesh(SimpleMesh m)
         {
             m.AppendVertices(vertices, (WantNormals) ? normals : null, null, (WantUVs) ? uv : null);
             m.AppendTriangles(triangles);
         }
+        /// <summary> Create a new SimpleMesh from the generated arrays. Generate() must have been called. </summary>
         public virtual SimpleMesh MakeSimpleMesh()
         {
             SimpleMesh m = new SimpleMesh();
@@ -38,6 +64,11 @@ namespace g3
             return m;
         }
 
+        /// <summary>
+        /// Append the generated mesh to m, which should be empty: vertex i of the generator becomes vertex ID i.
+        /// Enables vertex normals / UVs / triangle groups on m if they were generated and wanted.
+        /// Generate() must have been called. Triangles that DMesh3 rejects (eg non-manifold) are skipped.
+        /// </summary>
         public virtual void MakeMesh(DMesh3 m)
         {
             int nV = vertices.Count;
@@ -70,6 +101,7 @@ namespace g3
                     m.AppendTriangle(triangles[i]);
             }
         }
+        /// <summary> Create a new DMesh3 from the generated arrays. Generate() must have been called. </summary>
         public virtual DMesh3 MakeDMesh()
         {
             DMesh3 m = new DMesh3();
@@ -82,6 +114,7 @@ namespace g3
 
 
 
+        /// <summary> Append the generated vertices, triangles and groups to the (empty) NTMesh3 m </summary>
         public virtual void MakeMesh(NTMesh3 m)
         {
             int nV = vertices.Count;
@@ -99,6 +132,7 @@ namespace g3
                     m.AppendTriangle(triangles[i]);
             }
         }
+        /// <summary> Create a new NTMesh3 from the generated arrays. Generate() must have been called. </summary>
         public virtual NTMesh3 MakeNTMesh()
         {
             NTMesh3 m = new NTMesh3();
@@ -114,6 +148,7 @@ namespace g3
 
 
 
+        /// <summary> Circle of the given radius at height SectionY, used by VerticalGeneralizedCylinderGenerator </summary>
         public struct CircularSection
         {
             public float Radius;

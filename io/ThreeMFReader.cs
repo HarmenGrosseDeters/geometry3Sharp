@@ -7,21 +7,27 @@ using System.Xml;
 
 namespace g3
 {
-    //
-    // Read 3MF (3D Manufacturing Format) files, core specification
-    // https://github.com/3MFConsortium/spec_core
-    //
-    // Each build item becomes one mesh. Components and item/component transforms are
-    // applied to the vertices. Vertices are converted to millimeters unless
-    // ConvertToMillimeters is false. Materials and extensions (beam lattices, slices, ...) are ignored.
-    //
+    /// <summary>
+    /// Read 3MF (3D Manufacturing Format) files, core specification
+    /// https://github.com/3MFConsortium/spec_core
+    /// 
+    /// Each build item becomes one mesh (with the object name as "name" metadata, if the builder supports it).
+    /// Components and item/component transforms are applied to the vertices, and objects in other model
+    /// parts (production extension "path" attribute) are followed. Vertices are converted to millimeters unless
+    /// ConvertToMillimeters is false. Invalid triangles are skipped with a warning.
+    /// Materials, colors and extensions (beam lattices, slices, ...) are ignored. ReadOptions are ignored.
+    /// Errors (not a zip package, missing model part, bad XML or numbers) are returned as
+    /// <see cref="IOCode.FileParsingError"/>, exceptions are caught. A file without build items reads Ok with no meshes.
+    /// The stream is left open.
+    /// </summary>
     public class ThreeMFReader
     {
+        /// <summary> XML namespace of the 3MF core specification </summary>
         public const string CoreNamespace = "http://schemas.microsoft.com/3dmanufacturing/core/2015/02";
         const string RelsNamespace = "http://schemas.openxmlformats.org/package/2006/relationships";
         const string StartPartType = "http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel";
 
-        // connect to this to get warning messages
+        /// <summary> connect to this to get warning messages </summary>
         public event ParsingMessagesHandler warningEvent;
 
         /// <summary>
@@ -30,7 +36,8 @@ namespace g3
         public bool ConvertToMillimeters = true;
 
         /// <summary>
-        /// The unit attribute of the last model that was read (3MF default is millimeter)
+        /// The unit attribute of the last model that was read (3MF default is millimeter): micron, millimeter,
+        /// centimeter, inch, foot or meter. Unknown units are not scaled.
         /// </summary>
         public string FileUnit = "millimeter";
 
@@ -75,6 +82,9 @@ namespace g3
         }
 
 
+        /// <summary>
+        /// Read a 3MF package from stream and append one mesh per build item to builder. Does not throw.
+        /// </summary>
         public IOReadResult Read(Stream stream, ReadOptions options, IMeshBuilder builder)
         {
             try {

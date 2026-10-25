@@ -20,18 +20,32 @@ namespace gs
     ///   - MarchingCubes: robust, but rounds sharp edges and produces many triangles.
     ///
     /// Features smaller than CellSize are lost in both cases.
+    ///
+    /// Behaviour: the input mesh is not modified (an oriented copy is used, with inside-out parts flipped so
+    /// inverted inputs still give their solid). Compute() writes a new mesh to Result; the input triangulation
+    /// and attributes are not kept. Cost grows with the resolution: a full grid for Adaptive = false, about
+    /// the surface area in cells for Adaptive = true (much cheaper at fine resolutions).
+    ///
+    /// Use this to rebuild any input (soups, open, self-intersecting) as a solid; prefer MeshAutoRepair to
+    /// keep the input triangles, MeshRobustRepair to try that first and solidify only if needed, and
+    /// ExactMeshBoolean.Resolve for an exact (not remeshed) resolution of self-intersections of closed meshes.
     /// </summary>
     public class MeshWindingNumberSolidify
     {
+        /// <summary> input mesh (not modified) </summary>
         public DMesh3 Mesh;
 
+        /// <summary> iso-surface extraction method, see class comment </summary>
         public enum Methods { DualContouring = 0, MarchingCubes = 1 }
+        /// <summary> iso-surface extraction method; default DualContouring </summary>
         public Methods Method = Methods.DualContouring;
 
         /// <summary> grid cell size. If zero, uses bounding box diagonal / GridResolution </summary>
         public double CellSize = 0;
+        /// <summary> number of cells along the bounding box diagonal, used if CellSize is zero </summary>
         public int GridResolution = 128;
 
+        /// <summary> winding number iso-value of the surface: points with a winding number above it are inside </summary>
         public double WindingIso = 0.5;
 
         /// <summary>
@@ -77,10 +91,13 @@ namespace gs
         /// </summary>
         public double ReduceTolerance = 0.05;
 
+        /// <summary> return true to cancel; Compute() then returns false </summary>
         public Func<bool> CancelF = () => { return false; };
 
         // outputs
+        /// <summary> the solid surface computed by Compute() (a new, compacted mesh); null before </summary>
         public DMesh3 Result;
+        /// <summary> dual contouring: number of triangles left out of the contour for non-manifold edges (0 for marching cubes) </summary>
         public int NonManifoldTriangles;
         /// <summary> adaptive dual contouring: refinements around polygons left out for non-manifold edges </summary>
         public int NonManifoldRefinements;
@@ -111,6 +128,13 @@ namespace gs
             Mesh = mesh;
         }
 
+        /// <summary>
+        /// Compute the solid surface into Result.
+        /// </summary>
+        /// <returns>
+        /// false if the input is empty, the cell size is not positive, the grid (or octree depth) would be too
+        /// large for the cell size, or the computation was cancelled; true otherwise.
+        /// </returns>
         public bool Compute()
         {
             double cellSize = (CellSize > 0) ? CellSize : Mesh.CachedBounds.DiagonalLength / GridResolution;

@@ -22,12 +22,19 @@ namespace gs
     /// triangulation of the mesh (see IntrinsicTriangulation): same surface, but all cotan weights are
     /// non-negative. Much more accurate on poor triangulations (slivers, obtuse triangles), where the
     /// cotan Laplacian of the mesh itself has negative weights.
+    ///
+    /// Usage: <c>var geo = new MeshGeodesicDistance(mesh); if (geo.Compute(new[] { sourceVid })) d = geo.Distance[vid];</c>
+    /// The mesh is not modified. The first Compute() builds the Laplacian (cost grows with the vertex count);
+    /// later calls with other sources reuse it until the mesh changes (ShapeTimestamp).
+    /// Distances are in mesh units, 0 at the sources and non-negative elsewhere.
     /// </summary>
     public class MeshGeodesicDistance
     {
+        /// <summary> input mesh (not modified) </summary>
         public DMesh3 Mesh;
         /// <summary> diffusion time = TimeFactor * (mean edge length)^2 </summary>
         public double TimeFactor = 1.0;
+        /// <summary> iteration limit of the linear solvers; Compute() returns false if the Poisson solve does not converge </summary>
         public int MaxIterations = 20000;
         /// <summary> compute on the intrinsic Delaunay triangulation of the mesh (recommended for poor meshes) </summary>
         public bool IntrinsicDelaunay = false;
@@ -38,6 +45,7 @@ namespace gs
         public double[] Distance;
 
 
+        /// <summary> Set up geodesic distances on mesh. Nothing is computed until Compute() is called. </summary>
         public MeshGeodesicDistance(DMesh3 mesh)
         {
             Mesh = mesh;
@@ -164,7 +172,11 @@ namespace gs
         }
 
 
-        /// <summary> distances from the given source vertices (to the nearest of them) </summary>
+        /// <summary>
+        /// Compute distances from the given source vertex IDs (to the nearest of them) into Distance.
+        /// Invalid and duplicate IDs are ignored. Returns false (and Distance is null) if there is no valid
+        /// source or the solver fails; otherwise true.
+        /// </summary>
         public bool Compute(IEnumerable<int> sources)
         {
             if (L == null || timestamp != Mesh.ShapeTimestamp || computedIntrinsic != IntrinsicDelaunay)
