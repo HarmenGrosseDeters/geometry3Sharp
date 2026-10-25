@@ -158,7 +158,7 @@ namespace g3cli
             c.Params.Add(Output());
             c.Params.Add(new Param("method", ParamType.String, "repair method") { Default = "robust", Enum = new[] { "robust", "auto" } });
             c.Params.Add(new Param("tolerance", ParamType.Number, "weld / crack-closing tolerance of MeshAutoRepair (default 1e-6)"));
-            c.Params.Add(new Param("solidify_resolution", ParamType.Integer, "robust: grid cells along the bounding box diagonal of the solidify fallback") { Default = 128 });
+            c.Params.Add(new Param("solidify_resolution", ParamType.Integer, "robust: grid cells along the bounding box diagonal of the solidify fallback, 8..2048") { Default = 128 });
             c.Params.Add(new Param("min_volume_iou", ParamType.Number, "robust: minimum volume IoU of the repair with the input before falling back (0 = no check)") { Default = 0.99 });
             c.Params.Add(new Param("exact_resolve", ParamType.Boolean, "robust: before the solidify, resolve the self-intersections exactly (ExactMeshBoolean.Resolve)") { Default = true });
             c.Params.Add(SelfIntersections());
@@ -186,8 +186,8 @@ namespace g3cli
                         throw new CommandException(ResultCodes.OperationFailed, "MeshAutoRepair failed");
                     result = repair.Mesh;
                 } else {
-                    if (args.Integer("solidify_resolution") < 8)
-                        throw new CommandException(ResultCodes.InvalidArguments, "'solidify_resolution' must be >= 8");
+                    if (args.Integer("solidify_resolution") < 8 || args.Integer("solidify_resolution") > 2048)
+                        throw new CommandException(ResultCodes.InvalidArguments, "'solidify_resolution' must be in 8..2048");
                     var repair = new MeshRobustRepair(new DMesh3(mesh)) {
                         SolidifyResolution = args.Integer("solidify_resolution"),
                         MinVolumeIoU = args.Number("min_volume_iou"),

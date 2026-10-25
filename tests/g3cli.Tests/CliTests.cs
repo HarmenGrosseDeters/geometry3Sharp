@@ -331,6 +331,11 @@ namespace g3cli.Tests
             (exit, r) = Run("measure", m.Cube, m.Shifted);
             AssertError(exit, r, "invalid_arguments", 2);
 
+            // the solidify grid of the robust repair grows with the resolution, so it is bounded
+            (exit, r) = Run("repair", m.Cube, m.Path_("r.obj"), "--solidify-resolution", "100000");
+            AssertError(exit, r, "invalid_arguments", 2);
+            Assert.Contains("solidify_resolution", S(r["message"]));
+
             (exit, r) = Run("frobnicate");
             AssertError(exit, r, "unknown_command", 2);
         }
