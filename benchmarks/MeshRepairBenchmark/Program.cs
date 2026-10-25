@@ -55,7 +55,10 @@ class Program
             // smoothfill = cleanup + HoleFillMode.Smoothed, interior = cleanup + RemoveMode.Interior (fast winding number),
             // solidify_dc / solidify_dc_adaptive / solidify_mc = MeshWindingNumberSolidify (dual contouring on a grid /
             // on an adaptive octree / marching cubes) on the input,
-            // hybrid = cleanup; if the result is not topologically clean, solidify_dc_adaptive of the repaired mesh,
+            // hybrid = cleanup; if the result is not clean (MeshRobustRepair.NotCleanReason, including exact
+            // self-intersections), solidify_dc_adaptive of the repaired mesh; hybrid_topo = the same without
+            // the self-intersection check,
+            // robust = MeshRobustRepair (hybrid plus the volume check against the input),
             // instr = InstrumentedAutoRepair, records cheap quality metrics after every pipeline step
             string repairMode = Environment.GetEnvironmentVariable("BENCH_REPAIR") ?? "default";
             r["repair_mode"] = repairMode;
@@ -90,6 +93,18 @@ class Program
                 ok = repair.Apply();
                 result = repair.Mesh;
                 r["stages"] = stages;
+            } else if (repairMode == "robust") {
+                // MeshRobustRepair: hybrid plus the volume check against the input's winding number solid
+                var robust = new MeshRobustRepair(mesh) { ConfigureRepair = (rep) => {
+                    rep.RepairTolerance *= tolFactor; rep.MinEdgeLengthTol *= tolFactor; } };
+                int res = int.Parse(Environment.GetEnvironmentVariable("BENCH_SOLID_RES") ?? "128");
+                robust.SolidifyResolution = res;
+                ok = robust.Apply();
+                result = robust.Mesh;
+                r["hybrid_fallback"] = robust.FallbackReason != "";
+                r["hybrid_reason"] = robust.FallbackReason;
+                r["robust_used_solidify"] = robust.UsedSolidify;
+                r["robust_repair_iou"] = robust.RepairVolumeIoU;
             } else if (repairMode.StartsWith("solidify_")) {
                 result = Solidify(original, repairMode == "solidify_mc" ? MeshWindingNumberSolidify.Methods.MarchingCubes
                     : MeshWindingNumberSolidify.Methods.DualContouring, repairMode == "solidify_dc_adaptive", r);
@@ -105,13 +120,13 @@ class Program
                     repair.HoleFillMode = MeshAutoRepair.HoleFillModes.Smoothed;
                 ok = repair.Apply();
                 result = repair.Mesh;
-                if (repairMode == "hybrid") {
-                    double areaEps = 1e-12 * result.CachedBounds.DiagonalLength * result.CachedBounds.DiagonalLength;
-                    bool clean = result.IsClosed() && !MeshIterators.BowtieVertices(result).Any()
-                        && MeshPostRepairCleanup.FindInvertedComponents(result).Count == 0
-                        && !result.TriangleIndices().Any(t => result.GetTriArea(t) < areaEps);
-                    r["hybrid_fallback"] = !clean;
-                    if (!clean)
+                if (repairMode == "hybrid" || repairMode == "hybrid_topo") {
+                    // as MeshRobustRepair: solidify the repaired mesh unless it is clean; hybrid also requires
+                    // no self-intersections, hybrid_topo (the earlier variant) only topological cleanness
+                    string reason = MeshRobustRepair.NotCleanReason(result, repairMode == "hybrid");
+                    r["hybrid_fallback"] = reason != "";
+                    r["hybrid_reason"] = reason;
+                    if (reason != "")
                         result = Solidify(result, MeshWindingNumberSolidify.Methods.DualContouring, true, r);
                 }
             }
