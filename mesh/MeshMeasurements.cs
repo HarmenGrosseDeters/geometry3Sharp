@@ -144,7 +144,7 @@ namespace g3
             MassProperties(
                 mesh.Triangles(),
                 (vID) => { return mesh.GetVertex(vID); },
-                out mass, out center, out inertia3x3, false);
+                out mass, out center, out inertia3x3, bodyCoords);
         }
 
 
@@ -389,10 +389,12 @@ namespace g3
             if (TransformF == null) {
                 foreach (int vid in mesh.VertexIndices()) {
                     double t = mesh.GetVertex(vid).Dot(ref axis);
+                    // two separate tests: the first vertex is both the min and the max so far
                     if ( t < extent.a ) {
                         extent.a = t;
                         extreme.a = vid;
-                    } else if ( t > extent.b ) {
+                    }
+                    if ( t > extent.b ) {
                         extent.b = t;
                         extreme.b = vid;
                     }
@@ -403,7 +405,8 @@ namespace g3
                     if (t < extent.a) {
                         extent.a = t;
                         extreme.a = vid;
-                    } else if (t > extent.b) {
+                    }
+                    if (t > extent.b) {
                         extent.b = t;
                         extreme.b = vid;
                     }

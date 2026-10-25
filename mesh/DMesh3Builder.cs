@@ -180,16 +180,16 @@ namespace g3
             }
 
             Index3i[] t = BufferUtil.ToIndex3i(Triangles);
-            for (int i = 0; i < t.Length; ++i)
-                mesh.AppendTriangle(t[i]);
-
+            List<int> groups = null;
             if ( TriGroups != null ) {
-                List<int> groups = new List<int>(TriGroups);
+                groups = new List<int>(TriGroups);
                 if (groups.Count != t.Length)
                     throw new Exception("DMesh3Builder.Build: incorect number of triangle groups");
-                for (int i = 0; i < t.Length; ++i)
-                    mesh.SetTriangleGroup(i, groups[i]);
             }
+            // pass the group with the triangle: a triangle that cannot be added (eg non-manifold) gets no id,
+            // so triangle ids are not the input indices once one has been skipped
+            for (int i = 0; i < t.Length; ++i)
+                mesh.AppendTriangle(t[i], (groups != null) ? groups[i] : -1);
 
             return mesh;
         }

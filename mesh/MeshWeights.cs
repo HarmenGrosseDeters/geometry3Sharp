@@ -38,23 +38,25 @@ namespace g3
 				mesh.GetVtxNbrhood(eid, v_i, ref v_j, ref opp_v1, ref opp_v2, ref t1, ref t2);
 				Vector3d Vj = mesh.GetVertex(v_j);
 
+				// VectorCot also returns 0 for a right angle, which is a valid weight, so test for a
+				// degenerate triangle separately
 				Vector3d Vo1 = mesh.GetVertex(opp_v1);
-				double cot_alpha_ij = MathUtil.VectorCot(
-					(Vi-Vo1).Normalized, (Vj-Vo1).Normalized );
-				if ( cot_alpha_ij == 0 ) {
+				Vector3d a1 = (Vi-Vo1).Normalized, b1 = (Vj-Vo1).Normalized;
+				if ( a1.Cross(b1).LengthSquared < MathUtil.ZeroTolerance ) {
 					bAborted = true;
 					break;
 				}
+				double cot_alpha_ij = MathUtil.VectorCot(a1, b1);
 				double w_ij = cot_alpha_ij;
 
 				if ( opp_v2 != DMesh3.InvalidID ) {
 					Vector3d Vo2 = mesh.GetVertex(opp_v2);
-					double cot_beta_ij = MathUtil.VectorCot(
-						(Vi-Vo2).Normalized, (Vj-Vo2).Normalized );
-					if ( cot_beta_ij == 0 ) {
+					Vector3d a2 = (Vi-Vo2).Normalized, b2 = (Vj-Vo2).Normalized;
+					if ( a2.Cross(b2).LengthSquared < MathUtil.ZeroTolerance ) {
 						bAborted = true;
 						break;
 					}
+					double cot_beta_ij = MathUtil.VectorCot(a2, b2);
 					w_ij += cot_beta_ij;
 				}
 
@@ -82,8 +84,8 @@ namespace g3
 				if ( MathUtil.IsObtuse(Vi, Vj, Vk) ) {
 					Vector3d Vij = Vj-Vi;
 					Vector3d Vik = Vk-Vi;
+					double areaT = 0.5 * Vij.Cross(Vik).Length;		// triangle area, from the unnormalized edges
 					Vij.Normalize(); Vik.Normalize();
-					double areaT = 0.5 * Vij.Cross(Vik).Length;
 					if ( Vector3d.AngleR(Vij, Vik) > MathUtil.HalfPI )
 						areaSum += (areaT * 0.5);   // obtuse at v_i
 					else

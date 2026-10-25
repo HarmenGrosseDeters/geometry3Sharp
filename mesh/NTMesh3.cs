@@ -102,8 +102,7 @@ namespace g3
             triangles = new DVector<int>(copy.triangles);
             triangle_edges = new DVector<int>(copy.triangle_edges);
             triangles_refcount = new RefCountVector(copy.triangles_refcount);
-            if (copy.triangle_groups != null)
-                triangle_groups = new DVector<int>(copy.triangle_groups);
+            triangle_groups = (copy.triangle_groups != null) ? new DVector<int>(copy.triangle_groups) : null;
             max_group_id = copy.max_group_id;
 
             edges = new DVector<int>(copy.edges);
@@ -119,9 +118,11 @@ namespace g3
 
             int[] mapV = new int[copy.MaxVertexID];
             foreach (int vid in copy.VertexIndices())
-                mapV[vid] = AppendVertex(copy.GetVertex(vid));
-            foreach ( Index3i tri in copy.Triangles()) {
-                AppendTriangle(mapV[tri.a], mapV[tri.b], mapV[tri.c]);
+                mapV[vid] = AppendVertex(copy.GetVertexAll(vid));      // with normals and colors
+            foreach (int tid in copy.TriangleIndices()) {
+                Index3i tri = copy.GetTriangle(tid);
+                int gid = copy.HasTriangleGroups ? copy.GetTriangleGroup(tid) : -1;
+                AppendTriangle(mapV[tri.a], mapV[tri.b], mapV[tri.c], gid);
             }
         }
 
@@ -476,7 +477,7 @@ namespace g3
                 int ei = 2 * eID;
                 int a = edges[ei], b = edges[ei + 1];
 
-                int ti = edge_triangles.First(eID);
+                int ti = 3 * edge_triangles.First(eID);
                 Index3i tri = new Index3i(triangles[ti], triangles[ti + 1], triangles[ti + 2]);
                 int ai = IndexUtil.find_edge_index_in_tri(a, b, ref tri);
                 return new Index2i(tri[ai], tri[(ai + 1) % 3]);
@@ -1405,9 +1406,20 @@ namespace g3
             Index3i tv = GetTriangle(tid);
             Index3i te = GetTriEdges(tid);
 
-            // create new vertex with interpolated vertex attribs
-            Vector3d midPt = (GetVertex(tv.a) + GetVertex(tv.b) + GetVertex(tv.c)) / 3.0;
-            int center = AppendVertex(midPt);
+            // create new vertex at the barycentric point, with interpolated vertex attribs
+            NewVertexInfo va = GetVertexAll(tv.a), vb = GetVertexAll(tv.b), vc = GetVertexAll(tv.c);
+            NewVertexInfo vinfo = new NewVertexInfo();
+            vinfo.v = baryCoordinates.x * va.v + baryCoordinates.y * vb.v + baryCoordinates.z * vc.v;
+            if (HasVertexNormals) {
+                vinfo.bHaveN = true;
+                vinfo.n = (float)baryCoordinates.x * va.n + (float)baryCoordinates.y * vb.n + (float)baryCoordinates.z * vc.n;
+                vinfo.n.Normalize();
+            }
+            if (HasVertexColors) {
+                vinfo.bHaveC = true;
+                vinfo.c = (float)baryCoordinates.x * va.c + (float)baryCoordinates.y * vb.c + (float)baryCoordinates.z * vc.c;
+            }
+            int center = AppendVertex(vinfo);
 
             // add in new edges to center vtx, do not connect to triangles yet
             int eaC = add_edge(tv.a, center, -1, -1);

@@ -456,7 +456,7 @@ namespace g3 {
                 VertexConstraint ca = constraints.GetVertexConstraint(va);
                 VertexConstraint cb = constraints.GetVertexConstraint(vb);
                 if (ca.Fixed && cb.Fixed) {
-                    int nSetID = (ca.FixedSetID > 0 && ca.FixedSetID == cb.FixedSetID) ?
+                    int nSetID = (ca.FixedSetID >= 0 && ca.FixedSetID == cb.FixedSetID) ?      // set ids start at 0, as in MeshRefinerBase
                         ca.FixedSetID : VertexConstraint.InvalidSetID;
                     constraints.SetOrUpdateVertexConstraint(splitInfo.vNew,
                         new VertexConstraint(true, nSetID));

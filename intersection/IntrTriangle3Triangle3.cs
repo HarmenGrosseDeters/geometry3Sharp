@@ -8,6 +8,8 @@ namespace g3
     // use Find() to compute full information
     // By default fully-contained co-planar triangles are not reported as intersecting.
     // set ReportCoplanarIntersection=true to handle this case (more expensive)
+    // A degenerate triangle (collinear or coincident vertices) is tested as a segment or point. For such
+    // input Find() only reports whether the triangles touch, with Type Unknown and no intersection points.
     public class IntrTriangle3Triangle3
     {
         Triangle3d triangle0;
@@ -65,6 +67,17 @@ namespace g3
             // in this code the results get initialized in subroutines, so we
             // set the defautl value here...
             Result = IntersectionResult.NoIntersection;
+
+            // a degenerate triangle has no plane, and the code below fails for it as triangle0 (all of
+            // triangle1 lies 'in' the plane) and as triangle1 (its intersection with plane0 is a segment of
+            // zero length). Only report whether the triangles touch: Type Unknown, no points.
+            if (is_degenerate(ref triangle0) || is_degenerate(ref triangle1)) {
+                bool bIntersects = degenerate_intersects(ref triangle0, ref triangle1);
+                Quantity = 0;
+                Type = bIntersects ? IntersectionType.Unknown : IntersectionType.Empty;
+                Result = bIntersects ? IntersectionResult.Intersects : IntersectionResult.NoIntersection;
+                return bIntersects;
+            }
 
 
             int i, iM, iP;
@@ -150,6 +163,14 @@ namespace g3
         }
 
 
+        // Test() for a degenerate triangle
+        bool test_degenerate()
+        {
+            bool bIntersects = degenerate_intersects(ref triangle0, ref triangle1);
+            Type = bIntersects ? IntersectionType.Unknown : IntersectionType.Empty;
+            return bIntersects;
+        }
+
         public bool Test()
         {
             // Get edge vectors for triangle0.
@@ -160,6 +181,8 @@ namespace g3
 
             // Get normal vector of triangle0.
             Vector3d N0 = E0[0].UnitCross(E0[1]);
+            if (N0 == Vector3d.Zero)
+                return test_degenerate();
 
             // Project triangle1 onto normal line of triangle0, test for separation.
             double N0dT0V0 = N0.Dot(triangle0.V0);
@@ -177,6 +200,8 @@ namespace g3
 
             // Get normal vector of triangle1.
             Vector3d N1 = E1[0].UnitCross(E1[1]);
+            if (N1 == Vector3d.Zero)
+                return test_degenerate();
 
             Vector3d dir;
             double min0, max0;
@@ -242,6 +267,86 @@ namespace g3
 
 
 
+        // A triangle with collinear or coincident vertices has no normal: the cross product of its edges is
+        // zero (UnitCross returns Vector3d.Zero). The separating axes built from it are zero as well, so
+        // the separating-axis tests miss separations and report intersections that do not exist
+        // (upstream #85). Such a triangle is the segment between its two farthest vertices, or a point,
+        // and is tested by distance instead.
+        static bool is_degenerate(ref Triangle3d tri)
+        {
+            Vector3d e0 = tri.V1 - tri.V0, e1 = tri.V2 - tri.V1;
+            return e0.UnitCross(ref e1) == Vector3d.Zero;
+        }
+
+        static Segment3d as_segment(ref Triangle3d tri)
+        {
+            double d01 = tri.V0.DistanceSquared(tri.V1), d12 = tri.V1.DistanceSquared(tri.V2), d20 = tri.V2.DistanceSquared(tri.V0);
+            if (d01 >= d12 && d01 >= d20)
+                return new Segment3d(tri.V0, tri.V1);
+            return (d12 >= d20) ? new Segment3d(tri.V1, tri.V2) : new Segment3d(tri.V2, tri.V0);
+        }
+
+        // at least one of the triangles is degenerate
+        static bool degenerate_intersects(ref Triangle3d triangle0, ref Triangle3d triangle1)
+        {
+            bool bDegen0 = is_degenerate(ref triangle0), bDegen1 = is_degenerate(ref triangle1);
+            Vector3d c0, c1;
+            if (bDegen0 && bDegen1) {
+                Segment3d seg0 = as_segment(ref triangle0), seg1 = as_segment(ref triangle1);
+                segment_closest_points(seg0.P0, seg0.P1, seg1.P0, seg1.P1, out c0, out c1);
+            } else {
+                Segment3d seg = bDegen0 ? as_segment(ref triangle0) : as_segment(ref triangle1);
+                Triangle3d tri = bDegen0 ? triangle1 : triangle0;
+                if (seg.Extent == 0 || seg.Direction == Vector3d.Zero) {
+                    c0 = seg.Center;
+                    DistPoint3Triangle3.DistanceSqr(ref c0, ref tri, out c1, out Vector3d bary);
+                } else {
+                    var dist = new DistSegment3Triangle3(seg, tri);
+                    dist.GetSquared();
+                    c0 = dist.SegmentClosest; c1 = dist.TriangleClosest;
+                }
+            }
+            // distance between the closest points, not the squared distance from the query: the latter has
+            // a large roundoff error far from the origin
+            return c0.Distance(c1) <= MathUtil.ZeroTolerance;
+        }
+
+        // closest points of segments p0-p1 and q0-q1; either may have zero length
+        // (Ericson, Real-Time Collision Detection, 5.1.9)
+        static void segment_closest_points(Vector3d p0, Vector3d p1, Vector3d q0, Vector3d q1, out Vector3d cp, out Vector3d cq)
+        {
+            Vector3d d1 = p1 - p0, d2 = q1 - q0, r = p0 - q0;
+            double a = d1.LengthSquared, e = d2.LengthSquared, f = d2.Dot(r);
+            double s, t;
+            if (a <= 0 && e <= 0) {
+                s = t = 0;
+            } else if (a <= 0) {
+                s = 0;
+                t = MathUtil.Clamp(f / e, 0, 1);
+            } else {
+                double c = d1.Dot(r);
+                if (e <= 0) {
+                    t = 0;
+                    s = MathUtil.Clamp(-c / a, 0, 1);
+                } else {
+                    double b = d1.Dot(d2);
+                    double denom = a * e - b * b;
+                    s = (denom > 0) ? MathUtil.Clamp((b * f - c * e) / denom, 0, 1) : 0;
+                    t = (b * s + f) / e;
+                    if (t < 0) {
+                        t = 0;
+                        s = MathUtil.Clamp(-c / a, 0, 1);
+                    } else if (t > 1) {
+                        t = 1;
+                        s = MathUtil.Clamp((b - c) / a, 0, 1);
+                    }
+                }
+            }
+            cp = p0 + s * d1;
+            cq = q0 + t * d2;
+        }
+
+
         public static bool Intersects(ref Triangle3d triangle0, ref Triangle3d triangle1)
         {
             // Get edge vectors for triangle0.
@@ -252,6 +357,8 @@ namespace g3
 
             // Get normal vector of triangle0.
             Vector3d N0 = E0.V0.UnitCross(ref E0.V1);
+            if (N0 == Vector3d.Zero)
+                return degenerate_intersects(ref triangle0, ref triangle1);
 
             // Project triangle1 onto normal line of triangle0, test for separation.
             double N0dT0V0 = N0.Dot(ref triangle0.V0);
@@ -269,6 +376,8 @@ namespace g3
 
             // Get normal vector of triangle1.
             Vector3d N1 = E1.V0.UnitCross(ref E1.V1);
+            if (N1 == Vector3d.Zero)
+                return degenerate_intersects(ref triangle0, ref triangle1);
 
             Vector3d dir;
             double min0, max0;
