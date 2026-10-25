@@ -178,21 +178,20 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void RobustRepair_UsesTheExactStage()
         {
-            // two nearly coincident spheres in one mesh: the exact resolve gives slivers, which the cleanup cannot
-            // all remove (without SafeRounding the solidify is used); the solid is the sphere
+            // two nearly coincident spheres in one mesh: the exact resolve gives slivers (before CollapseSlivers the
+            // solidify was used here); with SafeRounding the first resolve is clean, verified exactly
             var ab = NearlyCoincident(Sphere(6), new Vector3d(0.6, 0.3, 0.1), 1e-10, 1e-10 * new Vector3d(0.2, 0.9, 0.5));
             DMesh3 both = new DMesh3(ab[0]);
             new MeshEditor(both).AppendMesh(ab[1]);
+            Assert.Equal("degenerate triangles", MeshRobustRepair.NotCleanReason(ExactMeshBoolean.Resolve(both), false));
             var robust = new MeshRobustRepair(new DMesh3(both)) { AlphaWrapFallback = false };
             Assert.True(robust.Apply());
             Assert.True(robust.UsedExactResolve, $"exact: {robust.ExactResolveReason}");
+            Assert.Equal(1, robust.ExactResolveRoundsUsed);
+            Assert.Single(robust.ExactRoundingEdits);
+            Assert.True(robust.ExactRoundingEdits[0].a > 0);
             Assert.Equal("", MeshRobustRepair.NotCleanReason(robust.Mesh, true));
             Assert.Equal(Volume(ab[0]), Volume(robust.Mesh), 6);
-
-            // without the safe rounding the exact stage is not used here
-            var old = new MeshRobustRepair(new DMesh3(both)) { AlphaWrapFallback = false, SafeRounding = false };
-            Assert.True(old.Apply());
-            Assert.False(old.UsedExactResolve);
         }
 
 
