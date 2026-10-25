@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using g3;
@@ -226,5 +226,29 @@ namespace geometry3Sharp.Tests
             Assert.Equal(n, r.Mesh.TriangleCount);
             Assert.True(MeshMeasurements.VolumeArea(r.Mesh, r.Mesh.TriangleIndices(), r.Mesh.GetVertex).x > 0);
         }
-}
+
+        [Fact]
+        public void NestedPartAsSoup_ResolvedAsSolidNotCavity()
+        {
+            // a sphere inside a bigger one, given as unwelded triangles: its winding number adds to the outer
+            // sphere's (the input's solid is the outer ball). The repair welds it into a closed sphere, which
+            // the cleanup takes for a cavity (nested in another component); oriented by the input's solid
+            // before the exact resolve, it is an inner shell instead, and the resolve gives the outer ball.
+            // The outer sphere has a small hole, so the input itself is not closed and cannot be resolved
+            DMesh3 m = Sphere(1, Vector3d.Zero);
+            m.RemoveTriangle(m.TriangleIndices().First());
+            DMesh3 inner = Sphere(0.6, new Vector3d(0.1, 0, 0));
+            foreach (int tid in inner.TriangleIndices()) {
+                Index3i t = inner.GetTriangle(tid);
+                m.AppendTriangle(m.AppendVertex(inner.GetVertex(t.a)), m.AppendVertex(inner.GetVertex(t.b)), m.AppendVertex(inner.GetVertex(t.c)));
+            }
+            double outer = Volume(Sphere(1, Vector3d.Zero));
+            var r = new MeshRobustRepair(m);
+            Assert.True(r.Apply());
+            Assert.True(r.UsedExactResolve, r.FallbackReason + " / " + r.ExactResolveReason);
+            Assert.False(r.UsedSolidify);
+            Assert.Equal(outer, Volume(r.Mesh), 6);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(r.Mesh));
+        }
+    }
 }
