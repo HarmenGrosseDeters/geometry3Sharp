@@ -396,7 +396,9 @@ class Program
             Index2i ev = m.GetEdgeV(e); return m.GetVertex(ev.a).Distance(m.GetVertex(ev.b)) < 0.0001; });
     }
 
-    static void Emit(object o) => Console.WriteLine(JsonSerializer.Serialize(o));
+    // NaN / infinity (eg IoU without a reference solid) are written as strings ("NaN"), not rejected
+    static void Emit(object o) => Console.WriteLine(JsonSerializer.Serialize(o, new JsonSerializerOptions {
+        NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowNamedFloatingPointLiterals }));
 }
 
 static class Ext

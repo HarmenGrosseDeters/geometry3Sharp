@@ -22,8 +22,14 @@ def clean(r):
             and get(r, 'after_inconsistent_orient_edges', 1) == 0 and get(r, 'after_duplicate_tris', 1) == 0
             and get(r, 'after_degenerate_tris', 1) == 0 and get(r, 'after_inverted_components', 1) == 0)
 def no_selfint(r): return get(r, 'after_selfint_exact', 1) == 0
+def no_solid(r):
+    # the input encloses no volume (IoU not defined): "NaN", or IoU 0 with nothing missing (older runs)
+    v = r.get('iou')
+    return v == 'NaN' or (v == 0 and get(r, 'iou_missing', 1) == 0)
+def iou(r):
+    return 1.0 if no_solid(r) else float(get(r, 'iou', 0))
 def faithful(r):
-    return (get(r, 'hd_fwd_hi_rel', 1) < HD and get(r, 'hd_back_hi_rel', 1) < HD and get(r, 'iou', 0) > IOU)
+    return (get(r, 'hd_fwd_hi_rel', 1) < HD and get(r, 'hd_back_hi_rel', 1) < HD and iou(r) > IOU)
 
 c = sum(clean(r) for r in rs)
 cs = sum(clean(r) and no_selfint(r) for r in rs)
@@ -38,12 +44,13 @@ print(f"  status: {status}")
 for k in ['after_selfint_exact', 'after_bowties', 'after_degenerate_tris', 'after_inverted_components', 'after_folded_edges_gt175deg']:
     print(f"  meshes with {k}: {sum(1 for r in rs if get(r, k, 0) not in (0, None))}")
 hd = sorted(max(get(r, 'hd_fwd_hi_rel', 0), get(r, 'hd_back_hi_rel', 0)) for r in rs if 'hd_fwd_hi_rel' in r)
-iou = sorted(get(r, 'iou', 0) for r in rs if 'iou' in r)
+iou_l = sorted(iou(r) for r in rs if 'iou' in r and not no_solid(r))
+print(f"  inputs without a solid (IoU not defined): {sum(1 for r in rs if 'iou' in r and no_solid(r))}")
 if hd:
     q = lambda a, p: a[min(len(a) - 1, int(p * (len(a) - 1)))]
     print(f"  Hausdorff (max of both, rel): median {q(hd, .5):.4f}, p90 {q(hd, .9):.4f}, max {hd[-1]:.4f}; > {HD}: {sum(x >= HD for x in hd)}")
-    print(f"  IoU: median {q(iou, .5):.4f}, p10 {q(iou, .1):.4f}, min {iou[0]:.4f}; < {IOU}: {sum(x <= IOU for x in iou)}")
-    worst = sorted(rs, key=lambda r: get(r, 'iou', 1))[:5]
-    print("  lowest IoU:", [(r['file'], round(get(r, 'iou', 0), 3), round(get(r, 'iou_missing', 0), 3), round(get(r, 'iou_extra', 0), 3)) for r in worst])
+    print(f"  IoU: median {q(iou_l, .5):.4f}, p10 {q(iou_l, .1):.4f}, min {iou_l[0]:.4f}; < {IOU}: {sum(x <= IOU for x in iou_l)}")
+    worst = sorted([r for r in rs if 'iou' in r and not no_solid(r)], key=iou)[:5]
+    print("  lowest IoU:", [(r['file'], round(iou(r), 3), round(get(r, 'iou_missing', 0), 3), round(get(r, 'iou_extra', 0), 3)) for r in worst])
 ms = sorted(get(r, 'repair_ms', 0) for r in rs if 'repair_ms' in r)
 if ms: print(f"  repair time: median {ms[len(ms)//2]/1000:.2f} s, max {ms[-1]/1000:.1f} s")
