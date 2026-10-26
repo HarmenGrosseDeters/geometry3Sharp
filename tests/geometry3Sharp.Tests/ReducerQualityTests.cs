@@ -22,9 +22,29 @@ namespace geometry3Sharp.Tests
             Assert.True(q > 0.5);
             foreach (double scale in new[] { Math.Pow(2, -20), Math.Pow(2, -10), Math.Pow(2, 10) }) {
                 Vector3d sa = scale * a, sb = scale * b, sc = scale * c;
-                Assert.Equal(q, MeshRefinerBase.TriangleQuality(ref sa, ref sb, ref sc), 12);
+                Assert.Equal(q, MeshRefinerBase.TriangleQuality(ref sa, ref sb, ref sc));     // exact: 2^k scaling
             }
             Assert.Equal(0, MeshRefinerBase.TriangleQuality(ref a, ref a, ref a));
+        }
+
+        class FlipMetricProbe : MeshRefinerBase
+        {
+            public FlipMetricProbe() : base(new DMesh3()) { EdgeFlipTolerance = 0.5; }
+            public double Metric(Vector3d n0, Vector3d n1) => edge_flip_metric(ref n0, ref n1);
+        }
+
+        [Fact]
+        public void EdgeFlipMetric_DoesNotDependOnTheScale()
+        {
+            // the normals are unnormalized cross products (squared lengths): a tiny triangle's normal is not
+            // zero (Normalized used to treat lengths below 2.2e-16 as zero, so every collapse there was a 'flip')
+            var p = new FlipMetricProbe();
+            Vector3d n0 = new Vector3d(0.2, 0.1, 1), n1 = new Vector3d(-0.1, 0.3, 0.9);
+            double m = p.Metric(n0, n1);
+            Assert.True(m > 0.9);
+            foreach (double area in new[] { Math.Pow(2, -60), Math.Pow(2, -20), Math.Pow(2, 40) })
+                Assert.Equal(m, p.Metric(area * n0, area * n1), 15);
+            Assert.Equal(0, p.Metric(Vector3d.Zero, n1));
         }
 
         static DMesh3 Box(double size, Vector3d center)

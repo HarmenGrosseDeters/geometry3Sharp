@@ -103,7 +103,10 @@ namespace g3
             if (edge_flip_tol == 0) {
                 return n0.Dot(n1);
             } else {
-                return n0.Normalized.Dot(n1.Normalized);
+                // cosine of the angle; n0, n1 are unnormalized (squared lengths), so no absolute threshold:
+                // Normalized treats lengths below MathUtil.Epsilon as zero, which depends on the mesh scale
+                double l0 = n0.Length, l1 = n1.Length;
+                return (l0 > 0 && l1 > 0) ? n0.Dot(n1) / (l0 * l1) : 0;
             }
         }
 

@@ -389,6 +389,34 @@ namespace geometry3Sharp.Tests
             Assert.True(dist < 0.02, $"{s.Name}: remeshed surfaces {dist} apart");
         }
 
+        [Theory]
+        [InlineData(-20)]
+        [InlineData(20)]
+        public void ReducerAndRemesher_TinyAndHugeScales_SameResult(int log2)
+        {
+            // far below and above the scales of Similarity.All(): the quality and normal-flip tests have no
+            // absolute thresholds (a triangle quality of 0 below summed squared edges of 1e-8 and a normal
+            // test that treated cross products below 2.2e-16 as zero used to change the decisions). Below about
+            // 2^-25 the plain reducer still differs (another absolute constant, not in these tests).
+            var s = new Similarity("scale 2^" + log2, Math.Pow(2, log2), Matrix3d.Identity, Vector3d.Zero);
+            DMesh3 Reduce(DMesh3 m)
+            {
+                var r = new Reducer(m) { EdgeFlipTolerance = Math.Cos(60 * MathUtil.Deg2Rad), MinCollapseTriangleQuality = 0.05 };
+                r.ReduceToTriangleCount(400);
+                return m;
+            }
+            Assert.Equal("", Invariance.Difference(Reduce(BumpySphere()), Invariance.MappedBack(Reduce(Invariance.Transformed(BumpySphere(), s)), s)));
+            DMesh3 Remesh(DMesh3 mesh, double edge)
+            {
+                var r = new Remesher(mesh) { EnableParallelSmooth = false, EnableParallelProjection = false, PreventNormalFlips = true };
+                r.SetTargetEdgeLength(edge);
+                for (int k = 0; k < 5; ++k) r.BasicRemeshPass();
+                return mesh;
+            }
+            Assert.Equal("", Invariance.Difference(Remesh(BumpySphere(), 0.15),
+                Invariance.MappedBack(Remesh(Invariance.Transformed(BumpySphere(), s), s.ApplyLength(0.15)), s)));
+        }
+
         // ---- analysis ----
 
         [Theory]

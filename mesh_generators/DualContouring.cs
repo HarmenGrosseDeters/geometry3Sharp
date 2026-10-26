@@ -1306,8 +1306,9 @@ namespace g3
                     continue;
                 double err = qef_error(Am, b, y);
                 // ties within rounding (err is a squared length: relative to the cell, not absolute, so that
-                // the choice does not depend on the scale of the input)
-                double tie = 1e-15 * (cellSize * cellSize + Math.Abs(err));
+                // the choice does not depend on the scale of the input; its terms reach about cellSize^2 per
+                // plane, so the window lies clearly above their rounding)
+                double tie = 1e-12 * (cellSize * cellSize * edges.Count + Math.Abs(err));
                 if (err < bestErr - tie || (Math.Abs(err - bestErr) <= tie && y.LengthSquared < best.LengthSquared)) {
                     bestErr = err; best = y;
                 }
