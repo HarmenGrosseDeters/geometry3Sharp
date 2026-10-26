@@ -435,6 +435,9 @@ namespace g3 {
                 bool bTryFlip = flip_err < curr_err;
                 if (bTryFlip && PreventNormalFlips && flip_inverts_normals(a, b, c, d, t0))
                     bTryFlip = false;
+                // not for the valence if it creates a degenerate triangle (it would undo the flip below)
+                if (bTryFlip && flip_creates_degenerate(ref vA, ref vB, c, d))
+                    bTryFlip = false;
                 // a degenerate triangle on this edge (eg c or d slid onto it along a constrained curve, where
                 // no edge is short enough to collapse): flip it away if that gives two proper triangles
                 if (bTryFlip == false && flip_removes_degenerate(ref vA, ref vB, c, d))
@@ -551,6 +554,13 @@ namespace g3 {
 
         // quality (MeshRefinerBase.TriangleQuality) below which a triangle counts as degenerate for flips
         const double DegenerateFlipQuality = 1e-6;
+
+        // edge [a,b] with opposite vertices c and d: one of the triangles after the flip would be degenerate
+        bool flip_creates_degenerate(ref Vector3d vA, ref Vector3d vB, int c, int d)
+        {
+            Vector3d vC = mesh.GetVertex(c), vD = mesh.GetVertex(d);
+            return Math.Min(TriangleQuality(ref vC, ref vD, ref vB), TriangleQuality(ref vD, ref vC, ref vA)) < DegenerateFlipQuality;
+        }
 
         // edge [a,b] with opposite vertices c and d: true if one of its triangles is degenerate, both
         // triangles after the flip are not, and the flip keeps the orientation (cd crosses ab)

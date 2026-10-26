@@ -229,9 +229,13 @@ namespace geometry3Sharp.Tests
             Assert.Equal(1, mesh.TriangleIndices().Count(tid => mesh.GetTriArea(tid) < 1e-9));
             var r = new Remesher(mesh) { EnableCollapses = false, EnableSplits = false, EnableSmoothing = false };
             r.SetTargetEdgeLength(1);
-            r.BasicRemeshPass();
+            // several passes: the next pass must not flip it back to improve the valence (it did, so the
+            // result alternated with the number of passes)
+            for (int pass = 1; pass <= 4; ++pass) {
+                r.BasicRemeshPass();
+                Assert.Equal(0, mesh.TriangleIndices().Count(tid => mesh.GetTriArea(tid) < 1e-9));
+            }
             Assert.True(mesh.CheckValidity(true, FailMode.ReturnOnly));
-            Assert.Equal(0, mesh.TriangleIndices().Count(tid => mesh.GetTriArea(tid) < 1e-9));
             foreach (int tid in mesh.TriangleIndices())
                 Assert.True(mesh.GetTriNormal(tid).z > 0.99);
             Assert.Equal(36.0, mesh.TriangleIndices().Sum(tid => mesh.GetTriArea(tid)), 9);
