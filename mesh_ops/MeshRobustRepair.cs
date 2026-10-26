@@ -52,10 +52,13 @@ namespace gs
         /// <summary>
         /// also a result that lost a connected component of the input (MeshRepairMetrics.LostComponents: a part too small
         /// for the volume IoU, eg a screw of an assembly) is treated like one whose volume differs ("parts of the input lost").
-        /// Only with MinVolumeIoU &gt; 0 (0 turns off both). The fallbacks after such a rejection (solidify, wrap) are not
+        /// Only with MinVolumeIoU &gt; 0 (0 turns off both). Off by default: on the 430 Thingi10K meshes of
+        /// benchmarks/MeshRepairBenchmark it found no lost part, but rejected 3 repairs whose nested closed parts were
+        /// oriented differently from the reference (a part inside another taken for a cavity), and the fallbacks from
+        /// the open input were worse (one mesh fewer repaired). For inputs with separate small parts (assemblies). The fallbacks after such a rejection (solidify, wrap) are not
         /// checked for it: their ResultReason can be "" although they lost the same part, see FallbackReason and UsedInput.
         /// </summary>
-        public bool CheckLostComponents = true;
+        public bool CheckLostComponents = false;
         /// <summary> configures the first stage (eg tolerances) </summary>
         public Action<MeshAutoRepair> ConfigureRepair = null;
         /// <summary> replaces the first stage (input -> repaired mesh); null = MeshAutoRepair </summary>

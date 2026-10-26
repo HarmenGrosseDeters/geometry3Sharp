@@ -285,17 +285,17 @@ namespace geometry3Sharp.Tests
             MeshEditor.Append(input, small);
             Assert.Equal(1, MeshRepairMetrics.LostComponents(input, big));
             Assert.Equal(0, MeshRepairMetrics.LostComponents(input, new DMesh3(input)));
-            var r = new MeshRobustRepair(new DMesh3(input)) { RepairF = (m) => new DMesh3(big) };
+            var r = new MeshRobustRepair(new DMesh3(input)) { RepairF = (m) => new DMesh3(big), CheckLostComponents = true };
             Assert.True(r.Apply());
             Assert.Equal("parts of the input lost", r.FallbackReason);
             Assert.True(r.UsedInput);
             Assert.True(r.UsedExactResolve, r.ExactResolveReason);
             Assert.Equal(Volume(big) + Volume(small), Volume(r.Mesh), 6);
-            // without the check: accepted as before; MinVolumeIoU = 0 turns off all volume checks
-            var off = new MeshRobustRepair(new DMesh3(input)) { RepairF = (m) => new DMesh3(big), CheckLostComponents = false };
+            // without the check (the default): accepted as before; MinVolumeIoU = 0 turns off all volume checks
+            var off = new MeshRobustRepair(new DMesh3(input)) { RepairF = (m) => new DMesh3(big) };
             Assert.True(off.Apply());
             Assert.Equal("", off.FallbackReason);
-            var noVolume = new MeshRobustRepair(new DMesh3(input)) { RepairF = (m) => new DMesh3(big), MinVolumeIoU = 0 };
+            var noVolume = new MeshRobustRepair(new DMesh3(input)) { RepairF = (m) => new DMesh3(big), MinVolumeIoU = 0, CheckLostComponents = true };
             Assert.True(noVolume.Apply());
             Assert.Equal("", noVolume.FallbackReason);
         }
@@ -309,7 +309,7 @@ namespace geometry3Sharp.Tests
             DMesh3 withSpeck = new DMesh3(big);
             MeshEditor.Append(withSpeck, Box(3, 0, 0, 3.0001, 0.0001, 0.0001));
             Assert.Equal(0, MeshRepairMetrics.LostComponents(withSpeck, big));
-            var r = new MeshRobustRepair(new DMesh3(withSpeck)) { RepairF = (m) => new DMesh3(big) };
+            var r = new MeshRobustRepair(new DMesh3(withSpeck)) { RepairF = (m) => new DMesh3(big), CheckLostComponents = true };
             Assert.True(r.Apply());
             Assert.Equal("", r.FallbackReason);
             DMesh3 withPart = new DMesh3(big);
