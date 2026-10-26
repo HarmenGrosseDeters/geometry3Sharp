@@ -124,8 +124,8 @@ namespace g3
         /// <summary>
         /// after rounding the vertices to double, repair the self-intersections and degenerate triangles (area below
         /// 1e-12 of the squared diagonal) the rounding left, by local edits checked with exact predicates on the doubles
-        /// (MeshRoundingRepair: contractions of short edges, flips, tiny vertex moves, removal of components thinner
-        /// than 1e-5 of the diagonal that keep a sliver, counted in Rounding.RemovedComponents). Input vertices are kept
+        /// (MeshRoundingRepair: contractions of short edges, flips, tiny vertex moves, removal of closed components that
+        /// keep a sliver and are tiny or thinner than 1e-5 of the diagonal, counted in Rounding.RemovedComponents). Input vertices are kept
         /// where possible, and sheets that touch at duplicated vertices still touch, at the same points. Not every case
         /// can be repaired: Compute() still succeeds (Status Success) if defects remain; RoundingClean tells whether the
         /// result is verified free of both, Rounding has the counts.

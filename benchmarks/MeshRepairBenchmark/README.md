@@ -256,9 +256,12 @@ same time on the same machine, `BENCH_P=2` each (`results/robust_0.jsonl`, `resu
 5 meshes are repaired that were not before, none is lost: 1037029, 110378, 126542 (the cleanup left slivers),
 195683, 338196 (self-intersections after the rounds); large: 562346, 816587. The exact stage costs 20 % more where
 it is tried, but where it now succeeds the solidify or alpha wrap is saved, so the total time drops a little.
-Earlier builds of this change (cd15490 / 3d08569, before master's #94/#97) gave 266 → 273 in the same comparison;
-master's changes to the repair before the exact stage moved 2 meshes (1102667, 1505037) to "not closed (winding
-number)" in both columns.
+Exact stage used +12 against the two rows below (-13): one mesh failed for degenerate triangles before and now
+because its volume differs from the input. Earlier builds of this change (cd15490 / 3d08569, before master's
+#94/#97) gave 266 → 273 in the same comparison. Master's changes to the repair before the exact stage account for
+the difference: 112532 now deviates 1.12 % (Hausdorff) in both columns (-1 each); 1102667 is now "not closed
+(winding number)" before the exact stage and 1505037 hits the timeout in both columns, which were repaired only
+with safe rounding before (-2 in the second column).
 
 ³ The benchmark does not check results above 300k triangles for self-intersections and counts them as not repaired.
 The large results of the exact stage are checked by the stage itself (exactly); counted here, as the stage reports
@@ -270,32 +273,36 @@ without an intersection) the first build took 27 s for the safe rounding and 800
 separation, where `CollapseSlivers` had made 3000 intersections. The repair now bounds the evaluations (50 per defect)
 and the exact pair tests (2·10⁷), keeps the old count for proposals of the same triangles and indexes the changed
 triangles: 1368057 takes 78 s (60 s of it the exact stage, which still fails; then the solidify, as without safe
-rounding, which takes 29 s in all), the same edits elsewhere. It is the worst case of the run.
+rounding, which takes 29 s in all), the same edits elsewhere. It is the slowest mesh that finishes; 1505037 hits
+the 120 s timeout in both columns.
 
 ### Exact booleans with safe rounding (`BENCH_REPAIR=exact`, `analyze_exact.py`)
 `BENCH_REPAIR=exact` computes union, intersection and difference of each mesh with a rotated, shifted copy of
 itself (`ExactMeshBoolean`), here with `SafeRounding` (the default of the mode, `BENCH_SAFE_ROUNDING=0` switches it
-off). 400 set; without: build cd15490, with: 3d08569, the meshes where components were removed rerun with 9b06745
-(only closed components are removed: before, removing tiny open ones left 4 results with holes). `BENCH_P=2`/`3`:
+off). 400 set; without: build cd15490, `BENCH_P=2`; with: 3d08569, `BENCH_P=3`, the meshes where components were
+removed rerun with 9b06745 (only closed components are removed: before, removing tiny open ones left 4 results with
+holes). The booleans do not depend on the changes between these builds, but the runs had different loads: the times
+are not comparable (on the 391 meshes both finished, 2099 s against 2121 s).
 
 | 400 set | without safe rounding | with |
 |---|---|---|
 | exact winding (closed input), result closed and clean (`analyze_exact.py`) | 107 | **133** |
-| ... results (of 3 per mesh, 561) with degenerate triangles | 286 | **43** |
+| ... results (of 3 per mesh; 561 in both) with degenerate triangles | 286 | **43** |
 | ... with exact self-intersections ² | 181 | 111 |
 | ... not closed in the winding number sense | 0 | 0 |
-| all results (1176) with degenerate triangles | 698 | 291 |
+| all results (1173 / 1176, by the timeouts) with degenerate triangles | 698 | 291 |
 | results verified free of both by the repair (`RoundingClean`) | – | 882 |
 | timeouts (120 s) | 9 | 8 |
-| median / sum of the three booleans per mesh | 3.3 s / 2099 s | 3.2 s / 2229 s |
 
 ² `MeshRepairMetrics` counts sheets that touch at duplicated vertices (where the solids touch) as intersecting;
 safe rounding keeps those contacts, so part of the remaining count is not an intersection. Most of the results the
 repair leaves unclean come from open inputs (generalized winding numbers): their results are open, and the repair
 does not edit at boundary vertices. The volume identities (V(A∪B) + V(A∩B) = V(A) + V(B)) stay at 1e-14 relative in
-the median; the largest new deviations are inputs whose solid is empty or tiny (83719.stl and 51358.stl, eg
-83719 is inside-out: its resolved solid has volume 1e-12 at a diagonal of 64, removed as slivers; 51352: 1e-3 of a
-volume of 2e-5).
+the median. The largest new deviations are inputs that are inside-out, whose solid is empty or tiny, so that the
+results consist of slivers only:
+- 83719.stl: the resolved solid has volume 1e-12 at a diagonal of 64; it is removed as slivers.
+- 51352.stl and 51358.stl: the union's volume changes from 2e-5 to 1.2e-3 and from 0 to -4.4e-3. The vertex moves of
+  up to 1e-5 of the diagonal sweep that much; it is below 5e-8 of the inputs' signed volumes (-1e5).
 
 ### Spike: solidify resolution 256 (`BENCH_SOLID_RES=256`, 30 meshes)
 20 meshes that `robust` solidified and that missed the 1 % Hausdorff bound at resolution 128, and 10 it
