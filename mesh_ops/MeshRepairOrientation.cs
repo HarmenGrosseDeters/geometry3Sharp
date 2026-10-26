@@ -318,15 +318,14 @@ namespace gs
 		public void ComputeStatistics()
 		{
 			var s = this.Spatial;  // make sure this exists
-            double diag = Mesh.TriangleCount > 0 ? MeshRepairMetrics.TriangleBounds(Mesh).DiagonalLength : 0;
-            minArea = DegenerateAreaFactor * diag * diag;
+            areaDiag = Mesh.TriangleCount > 0 ? MeshRepairMetrics.TriangleBounds(Mesh).DiagonalLength : 0;
             // Cannot do in parallel because we set a filter on spatial DS. 
             // Also we are doing rays in parallel anyway...
             foreach ( var c in Components ) {
                 compute_statistics(c);
             }
 		}
-		double minArea;
+		double areaDiag;
 		void compute_statistics(Component c)
 		{
 			int NC = c.triangles.Count;
@@ -345,14 +344,17 @@ namespace gs
             // If it is not hit, or hit from both, that does not provide any evidence.
             // We collect up this keep/reverse evidence and use the larger to decide on the global orientation.
 
-            SpinLock count_lock = new SpinLock();
+            // per triangle (+area: hit from the front, -area: from the back), summed serially below in a fixed
+            // order, so that the result does not depend on the thread schedule
+            double[] evidence = new double[NC];
 
 			gParallel.BlockStartEnd(0, NC - 1, (a, b) => {
 				for (int i = a; i <= b; ++i) {
 					int ti = c.triangles[i];
 					Vector3d normal, centroid; double area;
 					Mesh.GetTriInfo(ti, out normal, out area, out centroid);
-					if (area < minArea || area == 0)
+					// (area / diag against factor * diag: no overflow of diag^2 for huge coordinates)
+					if (area == 0 || area / areaDiag < DegenerateAreaFactor * areaDiag)
 						continue;
 
                     // construct far away points
@@ -367,17 +369,15 @@ namespace gs
                     if (hit_pos == ti && hit_neg == ti)
                         continue;       // no evidence (?)
 
-                    bool taken = false;
-                    count_lock.Enter(ref taken);
-
-                    if (hit_neg == ti)
-                        c.inFacing += area;
-                    else if (hit_pos == ti)
-                        c.outFacing += area;
-
-                    count_lock.Exit();
+                    evidence[i] = (hit_neg == ti) ? -area : area;
 				}
 			});
+            for (int i = 0; i < NC; ++i) {
+                if (evidence[i] < 0)
+                    c.inFacing -= evidence[i];
+                else
+                    c.outFacing += evidence[i];
+            }
 
             spatial.TriangleFilterF = null;
         }

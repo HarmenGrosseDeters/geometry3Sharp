@@ -187,6 +187,35 @@ namespace geometry3Sharp.Tests
             Assert.Equal("", Invariance.Difference(fresh.Mesh, r.Mesh));
         }
 
+        [Theory]
+        [InlineData(1e6)]
+        [InlineData(double.PositiveInfinity)]
+        [InlineData(double.NaN)]
+        public void OutlierTriangle_DoesNotInflateTheTolerances(double x)
+        {
+            // one small triangle far away (or with a non-finite corner) makes the diagonal huge: the cap of 1/100 of the
+            // median edge length keeps the tolerances at the scale of the sphere, which survives
+            DMesh3 sphere = Defects.Sphere(Vector3d.Zero, 1);
+            DMesh3 m = new DMesh3(sphere);
+            int a = m.AppendVertex(new Vector3d(x, 0, 0)), b = m.AppendVertex(new Vector3d(x, 1, 0)), c = m.AppendVertex(new Vector3d(x, 0, 1));
+            m.AppendTriangle(a, b, c);
+            MeshAutoRepair r = Repair(m);
+            Assert.True(MathUtil.IsFinite(r.EffectiveRepairTolerance) && MathUtil.IsFinite(r.EffectiveMinEdgeLength));
+            Assert.True(r.EffectiveMinEdgeLength <= 0.01, $"min edge length {r.EffectiveMinEdgeLength}");
+            Assert.True(r.Mesh.TriangleCount >= sphere.TriangleCount, $"{r.Mesh.TriangleCount} triangles left of {sphere.TriangleCount}");
+        }
+
+        [Fact]
+        public void RepeatedRuns_BitIdentical()
+        {
+            // the global orientation sums evidence from parallel ray casts: in a fixed order
+            foreach (string name in new[] { "partly flipped", "inside-out", "overlapping spheres" }) {
+                DMesh3 first = Repair(Defects.ByName(name).Make()).Mesh;
+                for (int i = 0; i < 3; ++i)
+                    Assert.Equal("", Invariance.Difference(first, Repair(Defects.ByName(name).Make()).Mesh));
+            }
+        }
+
         [Fact]
         public void Orientation_DegenerateAreaIsRelative()
         {

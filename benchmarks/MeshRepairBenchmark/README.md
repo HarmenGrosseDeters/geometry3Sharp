@@ -96,7 +96,8 @@ The NuGet columns in this and the next section cannot be reproduced with the cod
   - 118/400 meshes lose more than 10 % of their triangles (max 88 %).
   - 32 of the 40 clean meshes are changed.
 
-  Scale both tolerances with the model size or unit.
+  Scale both tolerances with the model size or unit. (Since the relative tolerances PR this is the library default;
+  `run_all.sh` results without a tolerance factor are relative, earlier ones were absolute.)
 - Defects introduced by the pipeline (meshes affected, out of 400):
   - duplicate triangles: 40
   - new degenerate triangles: 59

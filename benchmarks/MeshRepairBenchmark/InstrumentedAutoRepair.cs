@@ -49,18 +49,52 @@ namespace MeshRepairBenchmark
 
         void compute_tolerances()
         {
-            double diag = 0, magnitude = 0;
+            double diag = 0, magnitude = 0, cap = double.PositiveInfinity;
             if (Mesh.TriangleCount > 0) {
                 AxisAlignedBox3d box = MeshRepairMetrics.TriangleBounds(Mesh);
                 diag = box.DiagonalLength;
                 magnitude = Math.Max(box.Min.MaxAbs, box.Max.MaxAbs);
+                cap = 0.01 * median_edge_length();
             }
-            double floor = 16 * MathUtil.Epsilon * magnitude;
+            double floor = MathUtil.IsFinite(magnitude) ? 16 * MathUtil.Epsilon * magnitude : 0;
+            double relRepair = relative_tolerance(RelativeRepairTolerance, diag, cap, floor, MathUtil.ZeroTolerancef);
+            double relMinEdge = (RelativeMinEdgeLength > 0)
+                ? relative_tolerance(RelativeMinEdgeLength, diag, cap, floor, 0.0001) : 0;
             bool absolute = ToleranceMode == ToleranceModes.Absolute;
-            EffectiveRepairTolerance = (absolute || repairToleranceSet) ? repairTolerance
-                : Math.Max(RelativeRepairTolerance * diag, floor);
-            EffectiveMinEdgeLength = (absolute || minEdgeLengthTolSet) ? minEdgeLengthTol
-                : (RelativeMinEdgeLength > 0 ? Math.Max(RelativeMinEdgeLength * diag, floor) : 0);
+            EffectiveRepairTolerance = (absolute || repairToleranceSet) ? repairTolerance : relRepair;
+            EffectiveMinEdgeLength = (absolute || minEdgeLengthTolSet) ? minEdgeLengthTol : relMinEdge;
+            // the scale of the other small lengths (degenerate hole loops, the offset of the occlusion test points):
+            // relative, also if RepairTolerance is set (it is the merge distance only); Absolute: as in 1.0.324
+            sizeTolerance = absolute ? MathUtil.ZeroTolerancef : relRepair;
+            // (at least the floor: far from the origin 1/100 of it would round away)
+            normalOffset = absolute ? 0.01 * MathUtil.ZeroTolerancef : Math.Max(0.01 * relRepair, floor);
+        }
+        double sizeTolerance = MathUtil.ZeroTolerancef, normalOffset = 0.01 * MathUtil.ZeroTolerancef;
+
+        // factor * diag, at most cap, at least floor; a mesh without a finite size gets the 1.0.324 value
+        static double relative_tolerance(double factor, double diag, double cap, double floor, double fallback)
+        {
+            double t = factor * diag;
+            if (!(t <= cap))
+                t = cap;          // (also for a NaN or infinite diagonal)
+            t = Math.Max(t, floor);
+            return MathUtil.IsFinite(t) ? t : fallback;
+        }
+
+        // median length of the edges with a finite length (+inf if there are none)
+        double median_edge_length()
+        {
+            var lengths = new List<double>(Mesh.EdgeCount);
+            foreach (int eid in Mesh.EdgeIndices()) {
+                Index2i ev = Mesh.GetEdgeV(eid);
+                double len = Mesh.GetVertex(ev.a).Distance(Mesh.GetVertex(ev.b));
+                if (MathUtil.IsFinite(len))
+                    lengths.Add(len);
+            }
+            if (lengths.Count == 0)
+                return double.PositiveInfinity;
+            lengths.Sort();
+            return lengths[lengths.Count / 2];
         }
 
         // number of times we will delete border triangles and try again
@@ -394,6 +428,7 @@ namespace MeshRepairBenchmark
 		{
 			RemoveOccludedTriangles remove = new RemoveOccludedTriangles(Mesh);
 			remove.PerVertex = true;
+			remove.NormalOffset = normalOffset;
 			remove.InsideMode = RemoveOccludedTriangles.CalculationMode.FastWindingNumber;
 			remove.Apply();
 			nRemoved = remove.RemovedT.Count();
@@ -403,6 +438,7 @@ namespace MeshRepairBenchmark
 		{
 			RemoveOccludedTriangles remove = new RemoveOccludedTriangles(Mesh);
 			remove.PerVertex = true;
+			remove.NormalOffset = normalOffset;
 			remove.InsideMode = RemoveOccludedTriangles.CalculationMode.SimpleOcclusionTest;
 			remove.Apply();
 			nRemoved = remove.RemovedT.Count();
