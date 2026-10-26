@@ -155,14 +155,16 @@ namespace gs
         public bool Compute()
         {
             StoppedOnSelfIntersections = false;
-            double cellSize = (CellSize > 0) ? CellSize : Mesh.CachedBounds.DiagonalLength / GridResolution;
+            // bounds of the triangles: CachedBounds includes unused vertices, which can lie far away
+            AxisAlignedBox3d bounds = MeshRepairMetrics.TriangleBounds(Mesh);
+            double cellSize = (CellSize > 0) ? CellSize : bounds.DiagonalLength / GridResolution;
             if (!(cellSize > 0) || Mesh.TriangleCount == 0)
                 return false;
             if (Adaptive && Method == Methods.DualContouring) {
-                if (WindingNumberOctree.RequiredDepth(Mesh.CachedBounds, cellSize) > WindingNumberOctree.MaxSupportedDepth)
+                if (WindingNumberOctree.RequiredDepth(bounds, cellSize) > WindingNumberOctree.MaxSupportedDepth)
                     return false;
             } else {
-                Vector3d n = Mesh.CachedBounds.Diagonal / cellSize + 16 * Vector3d.One;
+                Vector3d n = bounds.Diagonal / cellSize + 16 * Vector3d.One;
                 if (!(n.x * n.y * n.z <= DualContouring.MaxGridNodes))
                     return false;
             }
@@ -231,6 +233,7 @@ namespace gs
             // the grid by an odd fraction of a cell; it does not change winding numbers or distances.
             // The grids store float positions: computed relative to the center (UTM coordinates).
             DMesh3 shifted = new DMesh3(Mesh);
+            MeshEditor.RemoveUnusedVertices(shifted);       // (the grid spans all vertices)
             Vector3d center = shifted.CachedBounds.Center;
             MeshTransforms.Translate(shifted, -center);
             shifted.AppendVertex(shifted.CachedBounds.Min - cellSize * new Vector3d(0.1371, 0.2713, 0.3891));

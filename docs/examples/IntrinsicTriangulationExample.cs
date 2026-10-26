@@ -31,6 +31,18 @@ namespace g3.Examples
             return ok ? geodesic.Distance : null;
         }
 
+        /// <summary>
+        /// geodesic path between two mesh vertices (FlipOut) as a polyline on the surface, and a closed geodesic
+        /// from a loop along mesh edges; null if the path failed
+        /// </summary>
+        public static List<Vector3d> GeodesicPath(DMesh3 mesh, int source, int target, out double length)
+        {
+            var path = new MeshGeodesicPath(mesh);
+            GeodesicPathStatus status = path.Compute(source, target);   // or ComputeThrough(waypoints), Shorten(edgePath, closed)
+            length = path.Length;                                       // path.PathVertices: vertices it passes through
+            return status == GeodesicPathStatus.Success ? path.Path : null;
+        }
+
         /// <summary> the overlay of the intrinsic and the input triangles, as a mesh (triangle groups: intrinsic triangle) </summary>
         public static DMesh3 CommonSubdivision(IntrinsicTriangulation T, out CommonSubdivisionStatus status)
         {
