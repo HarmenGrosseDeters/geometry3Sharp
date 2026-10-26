@@ -496,28 +496,76 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void NonManifoldMesh_FallsBackToTheMeshTriangles()
+        public void BowtieMesh_SplitForTheTriangulation_PathsThroughTheBowtieRemain()
         {
-            // two grids sharing one corner vertex (a bowtie): no intrinsic triangulation, the mesh triangles are used
-            DMesh3 mesh = Grid(0, 0, 10, 10, 11, (x, y) => 0);
+            // two planes of 169 degree triangles sharing one corner vertex (a bowtie): IntrinsicTriangulation needs
+            // manifold vertices, so the bowtie is split into its two fans for the triangulation and joined again
+            // in the linear systems; the flips and boundary splits still apply to both planes
+            DMesh3 a = IntrinsicGeodesicsTests.ObtusePlane(10, 200, 1.0, 0.05);
+            DMesh3 mesh = new DMesh3(a);
             int corner = NearestVertex(mesh, new Vector3d(10, 10, 0));
-            int[,] map = new int[11, 11];
-            for (int j = 0; j < 11; ++j)
-                for (int i = 0; i < 11; ++i)
-                    map[i, j] = (i == 0 && j == 0) ? corner : mesh.AppendVertex(new Vector3d(10 + i, 10 + j, 0));
-            for (int j = 0; j < 10; ++j)
-                for (int i = 0; i < 10; ++i) {
-                    mesh.AppendTriangle(map[i, j], map[i + 1, j], map[i + 1, j + 1]);
-                    mesh.AppendTriangle(map[i, j], map[i + 1, j + 1], map[i, j + 1]);
-                }
+            var map = new Dictionary<int, int>();
+            foreach (int v in a.VertexIndices()) {
+                Vector3d p = a.GetVertex(v);
+                map[v] = (p.Distance(Vector3d.Zero) < 1e-12) ? corner : mesh.AppendVertex(new Vector3d(10 + p.x, 10 + p.y, 0));
+            }
+            foreach (int t in a.TriangleIndices()) {
+                Index3i tri = a.GetTriangle(t);
+                Assert.True(mesh.AppendTriangle(map[tri.a], map[tri.b], map[tri.c]) >= 0);
+            }
+            Assert.True(mesh.IsBowtieVertex(corner));
             Assert.Throws<ArgumentException>(() => new IntrinsicTriangulation(mesh));
-            var geo = new MeshGeodesicDistance(mesh) { IntrinsicRefine = true };
-            int src = NearestVertex(mesh, Vector3d.Zero);
+
+            int src = NearestVertex(mesh, new Vector3d(5, 5, 0));
+            Vector3d ps = mesh.GetVertex(src);
+            Func<int, double> exact = v => {
+                Vector3d p = mesh.GetVertex(v);       // second plane: through the corner
+                return (p.x > 10 + 1e-9) ? ps.Distance(mesh.GetVertex(corner)) + mesh.GetVertex(corner).Distance(p) : p.Distance(ps);
+            };
+            Func<MeshGeodesicDistance, double> meanError = g => {
+                double sum = 0; int n = 0;
+                foreach (int v in mesh.VertexIndices()) {
+                    Vector3d p = mesh.GetVertex(v);
+                    double x = (p.x > 10 + 1e-9) ? p.x - 10 : p.x;
+                    if (x < 1 || x > 9) continue;
+                    sum += Math.Abs(g.Distance[v] - exact(v)); n++;
+                }
+                return sum / n;
+            };
+            var geo = new MeshGeodesicDistance(mesh);
             Assert.True(geo.Compute(new[] { src }));
-            Assert.Equal(0, geo.IntrinsicFlips);
-            Assert.Equal(IntrinsicRefinementStatus.NonManifoldInput, geo.Refinement.Status);
-            double d = geo.Distance[NearestVertex(mesh, new Vector3d(20, 20, 0))];
-            Assert.True(Math.Abs(d - 20 * Math.Sqrt(2)) < 0.05 * 20 * Math.Sqrt(2) + 1, $"{d}");
+            Assert.True(geo.IntrinsicFlips > 1000, $"{geo.IntrinsicFlips} flips");
+            Assert.Equal(IntrinsicRefinementStatus.Success, geo.Refinement.Status);
+            double far = geo.Distance[NearestVertex(mesh, new Vector3d(15, 15, 0))];
+            Assert.True(Math.Abs(far - exact(NearestVertex(mesh, new Vector3d(15, 15, 0)))) < 0.5, $"{far}");
+            var plain = new MeshGeodesicDistance(mesh) { IntrinsicDelaunay = false };
+            Assert.True(plain.Compute(new[] { src }));
+            double e = meanError(geo), ep = meanError(plain);
+            Assert.True(e < 0.2 && e < 0.2 * ep, $"mean error {e}, mesh triangles {ep}");
+        }
+
+        [Fact]
+        public void Factorizations_ReusedForTheSameSources_NoLogSolvesNearby()
+        {
+            DMesh3 mesh = Grid(0, 0, 20, 20, 21, (x, y) => 0);
+            int a = NearestVertex(mesh, new Vector3d(5, 5, 0)), b = NearestVertex(mesh, new Vector3d(15, 12, 0));
+            int edge = NearestVertex(mesh, new Vector3d(10, 0, 0));
+            var geo = new MeshGeodesicDistance(mesh);
+            Assert.True(geo.Compute(new[] { a }));
+            int f1 = geo.FactorizationCount;
+            Assert.True(geo.Compute(new[] { b }));                  // single sources: all reused
+            Assert.Equal(f1, geo.FactorizationCount);
+            Assert.True(geo.Compute(new[] { a, b }));               // pinned Poisson for this set
+            int f2 = geo.FactorizationCount;
+            Assert.Equal(f1 + 1, f2);
+            Assert.True(geo.Compute(new[] { b, a }));               // the same set
+            Assert.Equal(f2, geo.FactorizationCount);
+            Assert.True(geo.Compute(new[] { edge }));               // Dirichlet heat with a boundary source
+            int f3 = geo.FactorizationCount;
+            Assert.True(geo.Compute(new[] { edge }));
+            Assert.Equal(f3, geo.FactorizationCount);
+            // 20 edge lengths: no underflow, also not from the zero heat on the Dirichlet boundary
+            Assert.Equal(0, geo.LogSolveCount);
         }
 
         [Fact]

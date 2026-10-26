@@ -115,6 +115,7 @@ namespace g3
                 analyze();
             }
             aVal = val;
+            logAbsL = null;
             factored = numeric();
             return factored;
         }
@@ -172,6 +173,11 @@ namespace g3
         {
             if (!factored)
                 throw new InvalidOperationException("SparseCholesky.SolveLog: matrix is not factorized");
+            if (logAbsL == null) {
+                var la = new double[Lx.Length];
+                for (int k = 0; k < la.Length; ++k) la[k] = Math.Log(Math.Abs(Lx[k]));
+                logAbsL = la;
+            }
             double[] y = new double[N];
             for (int k = 0; k < N; ++k)
                 y[k] = logB[perm[k]];
@@ -182,15 +188,15 @@ namespace g3
                     double acc = y[f + c];
                     int co = off + c * w;
                     for (int t = 0; t < c; ++t)
-                        if (add_term(ref acc, Lx[co + t], y[f + t]) == false) return false;
-                    y[f + c] = acc - Math.Log(Lx[co + c]);
+                        if (add_term(ref acc, Lx[co + t], logAbsL[co + t], y[f + t]) == false) return false;
+                    y[f + c] = acc - logAbsL[co + c];
                 }
                 for (int i = w; i < h; ++i) {
                     double acc = double.NegativeInfinity;
                     int io = off + i * w;
                     for (int t = 0; t < w; ++t)
-                        if (add_term(ref acc, Lx[io + t], y[f + t]) == false) return false;
-                    y[snRows[rp + i]] = log_add(y[snRows[rp + i]], acc);
+                        if (add_term(ref acc, Lx[io + t], logAbsL[io + t], y[f + t]) == false) return false;
+                    y[snRows[rp + i]] = LogAdd(y[snRows[rp + i]], acc);
                 }
             }
             // L^T z = y
@@ -199,8 +205,8 @@ namespace g3
                 for (int c = w - 1; c >= 0; --c) {
                     double acc = y[f + c];
                     for (int i = c + 1; i < h; ++i)
-                        if (add_term(ref acc, Lx[off + i * w + c], y[snRows[rp + i]]) == false) return false;
-                    y[f + c] = acc - Math.Log(Lx[off + c * w + c]);
+                        if (add_term(ref acc, Lx[off + i * w + c], logAbsL[off + i * w + c], y[snRows[rp + i]]) == false) return false;
+                    y[f + c] = acc - logAbsL[off + c * w + c];
                 }
             }
             for (int k = 0; k < N; ++k)
@@ -208,16 +214,19 @@ namespace g3
             return true;
         }
 
+        double[] logAbsL;           // log |Lx|, for SolveLog (built on first use after a factorization)
+
         // acc = log(exp(acc) - l * exp(logY)) for an entry l <= 0 of the factor; false if l > 0 meets a non-zero y
-        static bool add_term(ref double acc, double l, double logY)
+        static bool add_term(ref double acc, double l, double logAbsl, double logY)
         {
             if (l == 0 || double.IsNegativeInfinity(logY)) return true;
             if (l > 0) return false;
-            acc = log_add(acc, Math.Log(-l) + logY);
+            acc = LogAdd(acc, logAbsl + logY);
             return true;
         }
 
-        static double log_add(double a, double b)
+        /// <summary> log(exp(a) + exp(b)) without overflow or underflow </summary>
+        internal static double LogAdd(double a, double b)
         {
             if (double.IsNegativeInfinity(a)) return b;
             if (double.IsNegativeInfinity(b)) return a;

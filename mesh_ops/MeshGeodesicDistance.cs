@@ -18,15 +18,14 @@ namespace gs
     /// flow (the average of the Neumann and Dirichlet solutions, Crane et al.) is only an approximation there.
     /// Regular grids whose diagonals all point the same way are anisotropic and the least accurate;
     /// alternating diagonals or irregular triangulations do better. Computed relative to the mesh
-    /// center, so UTM coordinates are fine. Each connected component is measured from its own sources;
+    /// center, so UTM coordinates are fine (edge lengths are differences of nearby points). Each connected component is measured from its own sources;
     /// components without a source (and isolated vertices) get NaN. Far from the sources (beyond about
     /// 700 edge lengths) the heat underflows doubles; then it is computed as its logarithm.
     /// Computed on the intrinsic Delaunay triangulation of the mesh (IntrinsicDelaunay, IntrinsicTriangulation;
     /// Sharp, Soliman and Crane 2019): caps, needles and obtuse triangles, eg along constrained feature lines
     /// after remeshing, would otherwise give negative cotan weights and wrong distances. Degenerate triangles
-    /// are kept by intrinsic mollification (Sharp and Crane 2020). Meshes with non-manifold vertices (bowties)
-    /// have no intrinsic triangulation; they use the mesh triangles (IntrinsicFlips 0), without the
-    /// degenerate ones.
+    /// are kept by intrinsic mollification (Sharp and Crane 2020). Bowtie vertices are split into one vertex
+    /// per fan for the triangulation, and joined again in the linear systems (paths through them remain).
     ///
     /// Solvers: sparse Cholesky factorizations (SparseCholesky) of the heat flow and the Poisson problem,
     /// reused for further sources. The heat system is an M-matrix (cotan weights clamped to at least 0), so
@@ -104,8 +103,18 @@ namespace gs
         int[] representative;       // per component: a vertex, fixed in the Neumann Poisson problem
 
         // factorizations: heat flow (Neumann, Dirichlet on the boundary) of diffusion time heatTime, Poisson
-        SparseCholesky heatN, heatD, poissonN;
+        // (Neumann); the ones that depend on the sources (Dirichlet heat with sources on the boundary, Poisson
+        // pinned at several sources) for the last source set
+        SparseCholesky heatN, heatD, poissonN, heatDS, poissonP;
+        string heatDSources, poissonPSources;
         double heatTime = double.NaN;
+
+        static string source_key(List<int> src)
+        {
+            var sorted = new List<int>(src);
+            sorted.Sort();
+            return string.Join(",", sorted);
+        }
 
         // the options the triangulation was built with (a change rebuilds it)
         string builtSettings;
@@ -118,13 +127,13 @@ namespace gs
             return IntrinsicDelaunay ? "delaunay" : "mesh";       // (the refine options do not matter)
         }
 
-        internal int PrecomputeCount;       // (for tests)
+        internal int PrecomputeCount, FactorizationCount, LogSolveCount;       // (for tests)
 
         void precompute()
         {
             PrecomputeCount++;
             L = null;
-            heatN = heatD = poissonN = null; heatTime = double.NaN;
+            heatN = heatD = poissonN = heatDS = poissonP = null; heatDSources = poissonPSources = null; heatTime = double.NaN;
             spatial = null;
             toIndex = new int[Mesh.MaxVertexID];
             toVertex = new int[Mesh.VertexCount];
@@ -154,9 +163,10 @@ namespace gs
             IntrinsicTriangulation T = null;
             Refinement = null;
             IntrinsicFlips = 0;
+            int[] origin = null;        // vertex of the triangulated mesh -> mesh vertex (null: the same)
             if (IntrinsicDelaunay) {
                 try {
-                    T = new IntrinsicTriangulation(Mesh);
+                    T = new IntrinsicTriangulation(split_bowties(out origin));
                 } catch (ArgumentException) {
                     if (IntrinsicRefine || SplitObtuseBoundaryEdges)
                         Refinement = new IntrinsicRefinementResult() { Status = IntrinsicRefinementStatus.NonManifoldInput };
@@ -171,10 +181,12 @@ namespace gs
                 N = n0 + (T.VertexCount - T.InputVertexCount);
                 Array.Resize(ref toVertex, N);
                 boundaryIndex = new bool[N];
-                Func<int, int> index = (i) => T.IsInserted(i) ? n0 + (i - T.InputVertexCount) : toIndex[T.VertexID(i)];
+                // the fans of a split bowtie vertex are one vertex again in the linear systems
+                Func<int, int> index = (i) => T.IsInserted(i) ? n0 + (i - T.InputVertexCount)
+                    : toIndex[origin == null ? T.VertexID(i) : origin[T.VertexID(i)]];
                 for (int i = 0; i < T.VertexCount; ++i) {
                     if (T.IsInserted(i)) toVertex[index(i)] = -1;
-                    boundaryIndex[index(i)] = T.IsBoundaryVertex(i);
+                    if (T.IsBoundaryVertex(i)) boundaryIndex[index(i)] = true;
                 }
                 for (int t = 0; t < T.TriangleCount; ++t) {
                     Index3i ti = T.GetTriangleIndices(t);
@@ -189,9 +201,10 @@ namespace gs
                 boundaryIndex = new bool[N];
                 foreach (int vid in Mesh.VertexIndices())
                     if (Mesh.IsBoundaryVertex(vid)) boundaryIndex[toIndex[vid]] = true;
+                Vector3d center = Mesh.CachedBounds.Center;
                 foreach (int tid in Mesh.TriangleIndices()) {
                     Index3i t = Mesh.GetTriangle(tid);
-                    Vector3d p0 = Mesh.GetVertex(t.a), p1 = Mesh.GetVertex(t.b), p2 = Mesh.GetVertex(t.c);
+                    Vector3d p0 = Mesh.GetVertex(t.a) - center, p1 = Mesh.GetVertex(t.b) - center, p2 = Mesh.GetVertex(t.c) - center;
                     double l0 = (p1 - p0).Length, l1 = (p2 - p1).Length, l2 = (p0 - p2).Length;
                     double A = IntrinsicTriangulation.area_from_lengths(l0, l1, l2);
                     if (!(A > 1e-14 * (l0 * l0 + l2 * l2)))
@@ -259,6 +272,56 @@ namespace gs
             builtSettings = built_settings();
         }
 
+        // The mesh, with every bowtie vertex split into one vertex per fan of triangles (IntrinsicTriangulation
+        // needs manifold vertices); origin maps its vertices to the mesh vertices. Without bowties the mesh itself.
+        DMesh3 split_bowties(out int[] origin)
+        {
+            origin = null;
+            var bowties = new HashSet<int>(MeshIterators.BowtieVertices(Mesh));
+            if (bowties.Count == 0)
+                return Mesh;
+            var copy = new DMesh3();
+            var map = new Dictionary<int, int>();
+            var orig = new List<int>();
+            foreach (int vid in Mesh.VertexIndices()) {
+                map[vid] = copy.AppendVertex(Mesh.GetVertex(vid));
+                orig.Add(vid);
+            }
+            // per bowtie vertex: the fan of each triangle (triangles sharing an edge at the vertex), and its copy
+            var fanVertex = new Dictionary<long, int>();      // (vertex, triangle) -> vertex of the copy
+            foreach (int v in bowties) {
+                var tris = new List<int>(Mesh.VtxTrianglesItr(v));
+                var parent = new Dictionary<int, int>();
+                foreach (int t in tris) parent[t] = t;
+                Func<int, int> find = null;
+                find = (x) => { while (parent[x] != x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; };
+                foreach (int e in Mesh.VtxEdgesItr(v)) {
+                    Index2i et = Mesh.GetEdgeT(e);
+                    if (et.b >= 0) parent[find(et.a)] = find(et.b);
+                }
+                var fanCopy = new Dictionary<int, int>();
+                foreach (int t in tris) {
+                    int r = find(t), cv;
+                    if (fanCopy.TryGetValue(r, out cv) == false) {
+                        if (fanCopy.Count == 0) cv = map[v];
+                        else { cv = copy.AppendVertex(Mesh.GetVertex(v)); orig.Add(v); }
+                        fanCopy[r] = cv;
+                    }
+                    fanVertex[(long)v * Mesh.MaxTriangleID + t] = cv;
+                }
+            }
+            foreach (int tid in Mesh.TriangleIndices()) {
+                Index3i t = Mesh.GetTriangle(tid);
+                for (int k = 0; k < 3; ++k) {
+                    int cv;
+                    t[k] = fanVertex.TryGetValue((long)t[k] * Mesh.MaxTriangleID + tid, out cv) ? cv : map[t[k]];
+                }
+                copy.AppendTriangle(t);
+            }
+            origin = orig.ToArray();
+            return copy;
+        }
+
         void add_triangle(Index3i ti, Vector3d c, Vector3d q, double A, List<double> area)
         {
             if (!(A > 0)) return;
@@ -269,6 +332,7 @@ namespace gs
         // replaced by the identity
         SparseCholesky heat_factor(double t, bool[] fixedZero)
         {
+            FactorizationCount++;
             var e = new List<KeyValuePair<Index2i, double>>(N + 3 * heatEdges.Count);
             for (int i = 0; i < N; ++i)
                 e.Add(entry(i, i, (fixedZero != null && fixedZero[i]) || !(mass[i] > 0) ? 1 : mass[i]));
@@ -286,6 +350,7 @@ namespace gs
         // cotan Laplacian with the rows of the fixed vertices (and of vertices without triangles) replaced by the identity
         SparseCholesky poisson_factor(bool[] fixedV)
         {
+            FactorizationCount++;
             var e = new List<KeyValuePair<Index2i, double>>();
             for (int r = 0; r < N; ++r) {
                 bool fr = fixedV[r] || component[r] < 0;
@@ -305,30 +370,28 @@ namespace gs
         }
 
         // log of the heat (M + t L) u = sources, from a solve, or in the log domain where it underflows
-        bool log_heat(SparseCholesky A, List<int> src, bool[] hasSource, double[] logU)
+        // (fixedZero: the rows fixed to 0 in A, not checked for underflow; logDomain: the log solve is used
+        // directly, eg when the Neumann heat of the same sources underflowed)
+        bool log_heat(SparseCholesky A, List<int> src, bool[] hasSource, bool[] fixedZero, ref bool logDomain, double[] logU)
         {
             if (A.IsValid == false) return false;
             double[] b = new double[N];
-            foreach (int s in src) b[s] = 1;
-            double[] u = new double[N];
-            A.Solve(b, u);
-            bool underflow = false;
-            for (int i = 0; i < N && underflow == false; ++i)
-                if (component[i] >= 0 && hasSource[component[i]] && !(u[i] > 1e-280)) underflow = true;
-            if (underflow == false) {
-                for (int i = 0; i < N; ++i) logU[i] = (u[i] > 0) ? Math.Log(u[i]) : double.NegativeInfinity;
-                return true;
+            if (logDomain == false) {
+                foreach (int s in src) b[s] = 1;
+                double[] u = new double[N];
+                A.Solve(b, u);
+                for (int i = 0; i < N && logDomain == false; ++i)
+                    if (component[i] >= 0 && hasSource[component[i]] && (fixedZero == null || fixedZero[i] == false)
+                        && !(u[i] > 1e-280)) logDomain = true;
+                if (logDomain == false) {
+                    for (int i = 0; i < N; ++i) logU[i] = (u[i] > 0) ? Math.Log(u[i]) : double.NegativeInfinity;
+                    return true;
+                }
             }
+            LogSolveCount++;
             for (int i = 0; i < N; ++i) b[i] = double.NegativeInfinity;
             foreach (int s in src) b[s] = 0;
             return A.SolveLog(b, logU);
-        }
-
-        static double log_add(double a, double b)
-        {
-            double m = Math.Max(a, b);
-            if (double.IsNegativeInfinity(m)) return m;
-            return m + Math.Log(Math.Exp(a - m) + Math.Exp(b - m));
         }
 
 
@@ -371,11 +434,12 @@ namespace gs
             double t = TimeFactor * meanEdge * meanEdge;
             if (t != heatTime) {
                 heatN = heat_factor(t, null);
-                heatD = null;
+                heatD = heatDS = null; heatDSources = null;
                 heatTime = t;
             }
             double[] u = new double[N];
-            if (log_heat(heatN, src, hasSource, u) == false)
+            bool logDomain = false;
+            if (log_heat(heatN, src, hasSource, null, ref logDomain, u) == false)
                 return false;
             bool open = false;
             for (int i = 0; i < N && open == false; ++i) open = boundaryIndex[i];
@@ -384,18 +448,21 @@ namespace gs
                 bool srcOnBoundary = false;
                 foreach (int s in src) if (boundaryIndex[s]) srcOnBoundary = true;
                 SparseCholesky D;
+                bool[] fixedZero = boundaryIndex;
                 if (srcOnBoundary) {
-                    bool[] fixedZero = (bool[])boundaryIndex.Clone();
+                    fixedZero = (bool[])boundaryIndex.Clone();
                     foreach (int s in src) fixedZero[s] = false;
-                    D = heat_factor(t, fixedZero);
+                    string key = source_key(src);
+                    if (heatDSources != key) { heatDS = heat_factor(t, fixedZero); heatDSources = key; }
+                    D = heatDS;
                 } else {
                     if (heatD == null) heatD = heat_factor(t, boundaryIndex);
                     D = heatD;
                 }
                 double[] ud = new double[N];
-                if (log_heat(D, src, hasSource, ud) == false)
+                if (log_heat(D, src, hasSource, fixedZero, ref logDomain, ud) == false)
                     return false;
-                for (int i = 0; i < N; ++i) u[i] = log_add(u[i], ud[i]) - Math.Log(2);
+                for (int i = 0; i < N; ++i) u[i] = SparseCholesky.LogAdd(u[i], ud[i]) - Math.Log(2);
             }
 
             // 2. normalized gradient X = -grad u / |grad u| per triangle, 3. its divergence per vertex
@@ -448,12 +515,17 @@ namespace gs
                     rhs[i] = -(div[i] - csum[component[i]] / Math.Max(1, ccount[component[i]]));
             SparseCholesky P;
             if (pin) {
-                bool[] fixedV = (bool[])isSrc.Clone();
-                bool[] compFixed = new bool[componentCount];
-                foreach (int s in src) compFixed[component[s]] = true;
-                for (int c = 0; c < componentCount; ++c)
-                    if (compFixed[c] == false) fixedV[representative[c]] = true;
-                P = poisson_factor(fixedV);
+                string key = source_key(src);
+                if (poissonPSources != key) {
+                    bool[] fixedV = (bool[])isSrc.Clone();
+                    bool[] compFixed = new bool[componentCount];
+                    foreach (int s in src) compFixed[component[s]] = true;
+                    for (int c = 0; c < componentCount; ++c)
+                        if (compFixed[c] == false) fixedV[representative[c]] = true;
+                    poissonP = poisson_factor(fixedV);
+                    poissonPSources = key;
+                }
+                P = poissonP;
             } else {
                 if (poissonN == null) {
                     bool[] fixedV = new bool[N];
