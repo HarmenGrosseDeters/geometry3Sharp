@@ -157,6 +157,8 @@ namespace g3
         public bool[] ExactWinding;
         // for tests: use generalized winding numbers also for closed meshes
         internal bool ForceGeneralizedWinding = false;
+        // for tests: triangles per batch of the arrangement's candidate pair search
+        internal long CandidateBatchSize = 1 << 24;
         // for tests: no floating-point filters in the arrangement
         internal bool DisableFilters = false;
         /// <summary> time per phase, for diagnostics </summary>
@@ -191,7 +193,11 @@ namespace g3
             WindingPredicate = windingPredicate;
         }
 
-        /// <summary> predicate for WindingPredicate: inside at least k of the meshes (winding number positive) </summary>
+        /// <summary>
+        /// predicate for WindingPredicate: inside at least k of the meshes (winding number positive). k = 1 is the
+        /// union, k = number of meshes the intersection, a larger k gives an empty result; k &lt;= 0 is true
+        /// everywhere (no surface between inside and outside: an empty result).
+        /// </summary>
         public static Func<int[], bool> AtLeast(int k)
         {
             return (w) => {
@@ -230,6 +236,7 @@ namespace g3
         {
             Result = null;
             Error = null;
+            Status = BooleanStatus.NotComputed;
             Rounding = null;
             ResultExactVertices = null;
             // (the meshes or the operation may have changed since the last call)
@@ -250,7 +257,8 @@ namespace g3
             foreach (DMesh3 m in inputs) {
                 foreach (int vid in m.VertexIndices()) {
                     Vector3d v = m.GetVertex(vid);
-                    if (double.IsNaN(v.x + v.y + v.z) || double.IsInfinity(v.x + v.y + v.z))
+                    // (per coordinate: the sum of finite coordinates can overflow)
+                    if (finite(v.x) == false || finite(v.y) == false || finite(v.z) == false)
                         return fail(BooleanStatus.InvalidInput, "input meshes have non-finite coordinates");
                 }
             }
@@ -262,7 +270,7 @@ namespace g3
             if (AllowOpenMeshes == false && Array.IndexOf(ExactWinding, false) >= 0)
                 return fail(BooleanStatus.OpenInput, "input meshes must be closed (every edge used equally often in both directions)");
 
-            arr = new ExactMeshArrangement(inputs) { SelfIntersections = true, DisableFilters = DisableFilters };
+            arr = new ExactMeshArrangement(inputs) { SelfIntersections = true, DisableFilters = DisableFilters, CandidateBatchSize = CandidateBatchSize };
             arr.Compute();
             IntersectingPairs = arr.IntersectingPairs - arr.SelfIntersectingPairs;
             SelfIntersectingPairs = arr.SelfIntersectingPairs;
@@ -297,6 +305,11 @@ namespace g3
             }
             Status = BooleanStatus.Success;
             return true;
+        }
+
+        static bool finite(double x)
+        {
+            return double.IsNaN(x) == false && double.IsInfinity(x) == false;
         }
 
         bool fail(BooleanStatus status, string error)
@@ -504,6 +517,9 @@ namespace g3
                 int[] w;
                 if (patchWinding.TryGetValue(root, out w) == false) {
                     int p = centroid(ot);
+                    // (no error bound needed: the box corners are input doubles, the map from grid to input
+                    // coordinates is exact and its rounding to double monotone, so a point in the exact box rounds
+                    // into the double box; the pad only widens the query, front_winding tests the box exactly)
                     Vector3d pv = arr.ToInputVector(arr.Exact(p));
                     double pad = 1e-9 * (Math.Abs(pv.x) + Math.Abs(pv.y) + Math.Abs(pv.z)) + 1e-300;
                     candidates.Clear();
@@ -518,7 +534,9 @@ namespace g3
                         } else {
                             // generalized winding numbers are thresholded at 1/2: ceil(w - 1/2) > 0 iff w > 1/2,
                             // and it commutes with adding the integer changes across the patch
-                            wm = (int)Math.Ceiling(front_generalized_winding(i, m, stack[i]) - 0.5);
+                            // (clamped, so that adding the changes across the patch cannot overflow; NaN gives 0)
+                            double g = Math.Ceiling(front_generalized_winding(i, m, stack[i]) - 0.5);
+                            wm = (g > 1e6) ? 1000000 : (g < -1e6) ? -1000000 : (g == g) ? (int)g : 0;
                         }
                         if (wm != 0) {
                             sparse.Add(m);

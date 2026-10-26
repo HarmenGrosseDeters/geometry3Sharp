@@ -237,6 +237,87 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void TwoMeshes_SameCountsAsBeforeTheNaryChange()
+        {
+            // golden values of the two-mesh boolean before the n-ary classification (commit edb069f^1)
+            DMesh3 a = Sphere(Vector3d.Zero, 1), b = Sphere(new Vector3d(0.7, 0.3, 0.2), 0.8);
+            var expected = new Dictionary<Ops, int[]> {
+                { Ops.Union, new[] { 1660, 832 } }, { Ops.Intersection, new[] { 836, 420 } }, { Ops.Difference, new[] { 1448, 726 } } };
+            foreach (var kv in expected) {
+                var boolean = Check(new ExactMeshBoolean(a, b, kv.Key));
+                Assert.Equal(kv.Value[0], boolean.Result.TriangleCount);
+                Assert.Equal(kv.Value[1], boolean.Result.VertexCount);
+                Assert.Equal(4, boolean.Patches);
+                Assert.Equal(149, boolean.IntersectingPairs);
+            }
+        }
+
+        [Fact]
+        public void HugeCoordinates_ThreeMeshes()
+        {
+            // finite coordinates whose sum overflows (5e307 + 5e307 + 5e307): accepted, same result as at scale 1
+            var unit = new[] { Box(0, 0, 0, 2, 2, 2), Box(1, 0.5, 0.25, 3, 2.5, 1.75), Box(0.5, 1.25, -1, 1.75, 3, 1) };
+            var huge = unit.Select(m => { var c = new DMesh3(m); MeshTransforms.Scale(c, 5e307); return c; }).ToList();
+            // (DMesh3.CheckValidity overflows at these coordinates already for the inputs: checked here directly)
+            Func<ExactMeshBoolean, DMesh3> run = (boolean) => {
+                Assert.True(boolean.Compute(), boolean.Error);
+                Assert.Equal(Status.Success, boolean.Status);
+                Assert.True(boolean.Result.IsClosed());
+                Assert.True(ExactMeshBoolean.IsWindingClosed(boolean.Result));
+                return boolean.Result;
+            };
+            foreach (var op in new[] { Ops.Union, Ops.Intersection, Ops.Difference }) {
+                DMesh3 r1 = Run(unit, op), r2 = run(new ExactMeshBoolean(huge, op));
+                Assert.Equal(r1.TriangleCount, r2.TriangleCount);
+                Assert.Equal(r1.VertexCount, r2.VertexCount);
+            }
+            Assert.Equal(Run(unit, ExactMeshBoolean.AtLeast(2)).TriangleCount, run(new ExactMeshBoolean(huge, ExactMeshBoolean.AtLeast(2))).TriangleCount);
+        }
+
+        [Fact]
+        public void CandidateSearchInBatches_SameResult()
+        {
+            // the candidate pair search runs in batches of mesh pairs: tiny batches (one pair each, or a few
+            // triangles) find the same pairs and give the same result
+            var rand = new Random(9);
+            var meshes = new List<DMesh3>();
+            for (int k = 0; k < 6; ++k)
+                meshes.Add(Sphere(new Vector3d(rand.NextDouble(), rand.NextDouble(), rand.NextDouble()), 0.6, 6));
+            var full = Check(new ExactMeshBoolean(meshes, ExactMeshBoolean.AtLeast(2)));
+            foreach (long batch in new long[] { 1, 100, 500 }) {
+                var small = Check(new ExactMeshBoolean(meshes, ExactMeshBoolean.AtLeast(2)) { CandidateBatchSize = batch });
+                Assert.Equal(full.IntersectingPairs, small.IntersectingPairs);
+                Assert.Equal(full.SelfIntersectingPairs, small.SelfIntersectingPairs);
+                Assert.Equal(full.Result.TriangleCount, small.Result.TriangleCount);
+                Assert.Equal(Volume(full.Result), Volume(small.Result), 14);
+            }
+        }
+
+        [Fact]
+        public void Status_ResetByEveryCompute()
+        {
+            // a Compute() that throws (here the predicate) does not leave the Success of the previous call
+            var meshes = new[] { Box(0, 0, 0, 1, 1, 1), Box(0.5, 0, 0, 1.5, 1, 1), Box(0, 0.5, 0, 1, 1.5, 1) };
+            var boolean = Check(new ExactMeshBoolean(meshes, Ops.Union));
+            boolean.WindingPredicate = (w) => { throw new InvalidOperationException("predicate"); };
+            Assert.Throws<InvalidOperationException>(() => boolean.Compute());
+            Assert.Equal(Status.NotComputed, boolean.Status);
+            Assert.Null(boolean.Result);
+        }
+
+        [Fact]
+        public void OpenMeshFarAway_IsNotCulled()
+        {
+            // an open mesh far from all patches still gets its generalized winding number (near 0 there)
+            DMesh3 open = Box(10, 10, 10, 12, 12, 12);
+            open.RemoveTriangle(open.TriangleIndices().First(), true, false);
+            var boolean = new ExactMeshBoolean(new[] { Box(0, 0, 0, 1, 1, 1), Box(0.5, 0, 0, 1.5, 1, 1), open }, (w) => w[0] > 0 || w[1] > 0);
+            Assert.True(boolean.Compute(), boolean.Error);
+            Assert.Equal(new[] { true, true, false }, boolean.ExactWinding);
+            Assert.Equal(1.5, Volume(boolean.Result), 12);
+        }
+
+        [Fact]
         public void TwoMeshes_SameAsPairwise()
         {
             // the list API with two meshes is the two-mesh boolean
