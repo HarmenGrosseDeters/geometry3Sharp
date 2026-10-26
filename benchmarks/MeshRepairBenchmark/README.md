@@ -229,6 +229,45 @@ stage, 3 end with self-intersections after 4 rounds, 2 with another reason; 23 k
 collapsed (edges longer than the limit or link condition) nor flipped.
 
 
+**Safe rounding of the resolve** (`MeshRobustRepair.SafeRounding`, default on; `BENCH_SAFE_ROUNDING=0` switches it
+off). The resolve rounds the exact arrangement to double and then repairs the slivers and self-intersections that
+the rounding leaves (`ExactMeshBoolean.SafeRounding`, `MeshRoundingRepair`: local edits, each checked with exact
+predicates against the triangles near it), and repairs again after `SeparateTouchingVertices`. Master with #52
+(`CollapseSlivers`) and #79, `BENCH_P=2`; both columns from the same build (cd15490, the switch only), run at the same
+time on the same machine; the final build (3d08569, bounded work, see below) repairs the same 273, with no timeout
+(`results/robust_nosafe.jsonl`, `results/robust_safe.jsonl`, not versioned):
+
+| 400 set | without safe rounding | with |
+|---|---|---|
+| clean¹ + no exact self-intersections | 398 | 398 (final build: 399) |
+| **repaired** (also Hausdorff < 1 %, IoU > 0.99) | 266 | **273** |
+| exact stage used | 140 | **153** |
+| ... of them repaired | 91 | **100** |
+| exact stage not used because of degenerate triangles | 13 | **2** (final build: 3) |
+| ... because of self-intersections after 4 rounds | 2 | **0** |
+| exact stage needed more than one resolve round | 21 | **3** |
+| solidify / alpha wrap | 63 / 24 | 55 / 19 |
+| timeouts (120 s) | 1 | 1 (final build: 0) |
+| median repair time | 3.67 s | 3.63 s |
+| sum of repair times | 2638 s | 2507 s |
+| sum of the exact stage (227 meshes tried) | 534 s | 632 s |
+
+7 meshes are repaired that were not before, none is lost: 1037029, 1102667, 110378, 126542 (the cleanup left slivers),
+195683, 338196 (self-intersections after the rounds), 1505037 (timeout without). The safe rounding edits the
+resolve in 56 of 161 rounds, the repair after the separation in 20. The exact stage costs 18 % more where it is
+tried, but where it now succeeds the solidify or alpha wrap is saved, so the total time does not grow. Large
+meshes (30): exact stage used 13 → 16 (315359, 562346, 816587); the strict count goes 14 → 13 because the benchmark
+does not check results above 300k triangles for self-intersections, and these three are above (329k–497k). The exact
+stage checks them exactly, and `MeshRepairMetrics.SelfIntersections` finds 0 in all three: Hausdorff 0.55 / 0.39 /
+0.80 %, IoU 1.0 / 0.9999 / 0.995, so with them 18 → 20 large meshes are repaired, none is lost.
+
+**Bounded work.** On 1368057.stl (93k triangles, 3326 slivers after the rounding, 426 of which cannot be removed
+without an intersection) the first build took 27 s for the safe rounding and 800 s for the repair after the
+separation, where `CollapseSlivers` had made 3000 intersections. The repair now bounds the evaluations (50 per defect)
+and the exact pair tests (2·10⁷), keeps the old count for proposals of the same triangles and indexes the changed
+triangles: 1368057 takes 74 s in the final run (56 s of it the exact stage, then the solidify, as without safe
+rounding, which takes 30 s), the same edits elsewhere.
+
 ### Spike: solidify resolution 256 (`BENCH_SOLID_RES=256`, 30 meshes)
 20 meshes that `robust` solidified and that missed the 1 % Hausdorff bound at resolution 128, and 10 it
 solidified within the bound (random, seed 1; `results/robust_res256_spike.jsonl`, not versioned):
