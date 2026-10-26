@@ -58,11 +58,26 @@ namespace gs
                 b.Contain(pb[k]); b.Contain(pc[k]);
                 primBox[k] = b;
                 Bounds.Contain(b);
-                if (kind[k] == 2) pn[k] = (pb[k] - pa[k]).Cross(pc[k] - pa[k]).Normalized;
+                if (kind[k] == 2)
+                    pn[k] = Unit((pb[k] - pa[k]).Cross(pc[k] - pa[k]));
                 if (kind[k] == 0) Points++; else if (kind[k] == 1) Segments++; else Triangles++;
             }
             if (n > 0)
                 build();
+        }
+
+        /// <summary>
+        /// v / |v| for any nonzero finite v (scaled by its largest component first, so no underflow or overflow of the
+        /// squared length); not Vector3d.Normalized, which returns zero below an absolute length of 2.2e-16: a small
+        /// but valid triangle then had no normal, and every segment near it counted as entering the offset volume
+        /// </summary>
+        internal static Vector3d Unit(Vector3d v)
+        {
+            double m = Math.Max(Math.Abs(v.x), Math.Max(Math.Abs(v.y), Math.Abs(v.z)));
+            if (!(m > 0) || double.IsInfinity(m))
+                return Vector3d.Zero;
+            v /= m;
+            return v / v.Length;
         }
 
         static void add_triangle(Vector3d a, Vector3d b, Vector3d c, List<Vector3d> la, List<Vector3d> lb, List<Vector3d> lc, List<byte> lk)

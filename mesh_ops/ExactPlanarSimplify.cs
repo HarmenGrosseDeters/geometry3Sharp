@@ -144,15 +144,16 @@ namespace g3
             int first = Tris.Count;
             foreach (int v in candidates)
                 remove(v);
-            // the edges of the new triangles that remain
+            // the edges of the new triangles that remain (directed as in their first triangle: an EdgeKey puts the
+            // smaller point id first, and point ids depend on the thread schedule)
             var flipQueue = new List<long>();
             var queued = new HashSet<long>();
             for (int i = first; i < Tris.Count; ++i)
                 if (alive[i])
                     for (int k = 0; k < 3; ++k) {
-                        long e = ExactMeshArrangement.EdgeKey(Tris[i][k], Tris[i][(k + 1) % 3]);
-                        if (queued.Add(e))
-                            flipQueue.Add(e);
+                        int a = Tris[i][k], b = Tris[i][(k + 1) % 3];
+                        if (queued.Add(ExactMeshArrangement.EdgeKey(a, b)))
+                            flipQueue.Add(directed(a, b));
                     }
             delaunay(flipQueue);
         }
@@ -347,20 +348,28 @@ namespace g3
             return true;
         }
 
+        static long directed(int a, int b)
+        {
+            return ((long)a << 32) | (uint)b;
+        }
+
         // Lawson flips of the edges inside regions, starting from the given edges, towards the Delaunay
         // triangulation of the projection. Only for the shape of the triangles: an edge is flipped only if the
         // floating-point filter shows that the opposite point is strictly inside the circumcircle (so it
         // terminates, and does not depend on DisableFilters); nearly cocircular cases are left as they are. The
-        // new triangles are checked exactly (strictly convex quad).
+        // new triangles are checked exactly (strictly convex quad). The queue holds directed edges (directed());
+        // pending, their EdgeKeys.
         void delaunay(List<long> queue)
         {
-            var pending = new HashSet<long>(queue);
+            var pending = new HashSet<long>();
+            foreach (long d in queue)
+                pending.Add(ExactMeshArrangement.EdgeKey((int)(d >> 32), (int)(d & 0xFFFFFFFF)));
             var work = new Queue<long>(queue);
             var two = new List<int>(2);
             while (work.Count > 0) {
                 long e = work.Dequeue();
-                pending.Remove(e);
                 int x = (int)(e >> 32), y = (int)(e & 0xFFFFFFFF);
+                pending.Remove(ExactMeshArrangement.EdgeKey(x, y));
                 List<int> lx;
                 if (vt.TryGetValue(x, out lx) == false)
                     continue;
@@ -398,9 +407,8 @@ namespace g3
                         vt[f[k]].Add(t);
                 }
                 Flips++;
-                foreach (long k in new[] { ExactMeshArrangement.EdgeKey(x, q), ExactMeshArrangement.EdgeKey(q, y),
-                    ExactMeshArrangement.EdgeKey(y, p), ExactMeshArrangement.EdgeKey(p, x) })
-                    if (pending.Add(k))
+                foreach (long k in new[] { directed(x, q), directed(q, y), directed(y, p), directed(p, x) })
+                    if (pending.Add(ExactMeshArrangement.EdgeKey((int)(k >> 32), (int)(k & 0xFFFFFFFF))))
                         work.Enqueue(k);
             }
         }

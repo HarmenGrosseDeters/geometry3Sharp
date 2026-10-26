@@ -195,7 +195,7 @@ namespace gs
                 double[] ub = new double[tris.Count];
                 gParallel.ForEach(Interval1i.Range(tris.Count), (k) => ub[k] = upper_bound(tris[k]));
 
-                MaxHeap heap = new MaxHeap();
+                var heap = new DeviationMaxHeap<Index3i>();
                 for (int k = 0; k < tris.Count; ++k)
                     if (!(ub[k] <= threshold()))       // NaN (rounding in degenerate triangles) is kept
                         heap.Push(double.IsNaN(ub[k]) ? double.MaxValue : ub[k], tris[k]);
@@ -256,50 +256,6 @@ namespace gs
             {
                 return bounds.UpperBound(pos[t.a], pos[t.b], pos[t.c], dist[t.a], dist[t.b], dist[t.c],
                     near[t.a], near[t.b], near[t.c], threshold());
-            }
-        }
-
-
-        // binary max-heap of (key, triangle)
-        class MaxHeap
-        {
-            List<double> keys = new List<double>();
-            List<Index3i> items = new List<Index3i>();
-            public int Count { get { return keys.Count; } }
-            public double TopKey { get { return keys[0]; } }
-
-            public void Push(double key, Index3i item)
-            {
-                keys.Add(key); items.Add(item);
-                int i = keys.Count - 1;
-                while (i > 0) {
-                    int p = (i - 1) / 2;
-                    if (keys[p] >= keys[i]) break;
-                    swap(i, p); i = p;
-                }
-            }
-
-            public Index3i Pop()
-            {
-                Index3i top = items[0];
-                int last = keys.Count - 1;
-                swap(0, last);
-                keys.RemoveAt(last); items.RemoveAt(last);
-                int i = 0, n = keys.Count;
-                while (true) {
-                    int l = 2 * i + 1, r = l + 1, m = i;
-                    if (l < n && keys[l] > keys[m]) m = l;
-                    if (r < n && keys[r] > keys[m]) m = r;
-                    if (m == i) break;
-                    swap(i, m); i = m;
-                }
-                return top;
-            }
-
-            void swap(int i, int j)
-            {
-                double k = keys[i]; keys[i] = keys[j]; keys[j] = k;
-                Index3i t = items[i]; items[i] = items[j]; items[j] = t;
             }
         }
     }
