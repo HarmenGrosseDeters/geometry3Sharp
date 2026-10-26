@@ -45,14 +45,16 @@ early, eg after 7 iterations 1% above the minimum). By default SLIM starts from 
 
 | mesh | V | before: time (it) | SLIMnr | SLIMt (factorizations) | SLIM, default (factorizations) |
 |---|---|---|---|---|---|
-| hemisphere | 48k | 69 s (70) | 61 s (70) | 22 s (76; 21) | 4.3 s (6; 3) |
-| cap 0.8 pi | 48k | 84 s (83) | 73 s (82) | 22 s (86; 19) | 6.5 s (10; 5) |
-| ellipsoid | 48k | 99 s (100, not converged) | 88 s (100, not converged) | 24 s (100, not converged; 19) | 4.7 s (5; 3) |
-| cylinder | 58k | 24 s (17) | 18 s (15) | 8.4 s (17; 5) | 3.9 s (1; 1) |
-| hemisphere | 12k | 4.4 s (29) | 3.9 s (29) | 2.1 s (29; 11) | 0.59 s (6; 3) |
-| ellipsoid | 12k | 5.9 s (41) | 4.6 s (40) | 1.9 s (42; 12) | 0.73 s (5; 3) |
+| hemisphere | 48k | 69 s (70) | 61 s (70) | 22 s (76; 21) | 4.3 s (5; 3) |
+| cap 0.8 pi | 48k | 84 s (83) | 73 s (82) | 22 s (86; 19) | 6.1 s (10; 5) |
+| ellipsoid | 48k | 99 s (100, not converged) | 88 s (100, not converged) | 24 s (100, not converged; 19) | 4.5 s (4; 3) |
+| cylinder | 58k | 24 s (17) | 18 s (15) | 8.4 s (17; 5) | 3.6 s (1; 1) |
+| hemisphere | 12k | 4.4 s (29) | 3.9 s (29) | 2.1 s (29; 11) | 0.66 s (5; 3) |
+| ellipsoid | 12k | 5.9 s (41) | 4.6 s (40) | 1.9 s (42; 12) | 0.73 s (4; 3) |
 
-Per iteration at 48k: with a new factorization 0.83-1.15 s, with a kept one 56-80 ms (median); the start
+SLIMt and SLIMnr were measured one commit earlier, when a pass that only refactorizes (after a kept
+factorization stopped giving steps) still counted as an iteration; the time between two steps can include
+such a pass. Per iteration at 48k: with a new factorization 0.83-1.15 s, with a kept one 56-80 ms (median); the start
 (Tutte or LSCM with the overlap test, plus the ordering) 2.0-2.9 s. The energies are the same to 4 digits
 (ellipsoid: 4.0367 converged against 4.0572 at the iteration limit; cylinder from LSCM: the LSCM map is already
 the isometry, SD 4.0000). From Tutte, the ellipsoid still does not converge in 100 iterations: the steps stay
@@ -90,5 +92,5 @@ Findings:
 - SLIM (before the changes above) cost one factorization of the 2n x 2n proxy per iteration (about 0.9 s at
   48k vertices) and needed 30–100 iterations from Tutte; on the 48k ellipsoid it stopped at the iteration limit
   with a few very thin (but not flipped) UV triangles (max s1/s2 440). It now starts from LSCM when that is
-  injective and keeps factorizations: 4–7 s at 48k.
+  injective and keeps factorizations: 3.6–6.1 s at 48k.
 - BFF in disk mode distorts the developable cylinder strongly (a rectangle made round), as expected.

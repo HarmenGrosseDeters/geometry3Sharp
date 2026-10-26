@@ -1065,7 +1065,7 @@ namespace geometry3Sharp.Tests
             Assert.True(r.Succeeded, r.Error);
             Assert.True(r.Iterations < 1000, "iterations " + r.Iterations);
             Assert.True(r.Converged);
-            // a single iteration from Tutte is far from the minimum
+            // a single iteration is far from the minimum
             var one = new SLIMParameterization(mesh) { MaxIterations = 1 }.Compute();
             Assert.False(one.Converged);
             Assert.True(one.Energy > r.Energy);
@@ -1198,6 +1198,31 @@ namespace geometry3Sharp.Tests
             Assert.True(rr.Succeeded, rr.Error);
             Assert.False(rampSlim.StartedFromLSCM);
             AssertNoFlips(ramp, rr);
+        }
+
+        [Fact]
+        public void SLIM_AutoStart_CurvedCapWithZeroAreaEar_MatchesTutte()
+        {
+            // a sphere cap with a triangle of zero surface area on a boundary edge (apex at 0.9 of the edge): LSCM
+            // keeps the apex on the edge, a UV sliver that blocked every SLIM step when started from it (it stopped
+            // after a few iterations, not converged, far above the minimum). Auto must reach Tutte's minimum.
+            foreach (double cap in new[] { 0.4, 0.8 }) {
+                DMesh3 mesh = SphereCap(cap * Math.PI, 8, 24, 0.3);
+                int eid = MeshIterators.BoundaryEdges(mesh).First();
+                Index2i ev = mesh.GetOrientedBoundaryEdgeV(eid);
+                int apex = mesh.AppendVertex(Vector3d.Lerp(mesh.GetVertex(ev.a), mesh.GetVertex(ev.b), 0.9));
+                Assert.True(mesh.AppendTriangle(ev.b, ev.a, apex) >= 0);
+                var auto = new SLIMParameterization(mesh);
+                var ra = auto.Compute();
+                var rt = new SLIMParameterization(mesh) { StartMap = SLIMParameterization.StartMaps.Tutte }.Compute();
+                Assert.True(ra.Succeeded && rt.Succeeded, ra.Error + rt.Error);
+                Assert.True(ra.Converged, "cap " + cap + " not converged, energy " + ra.Energy);
+                AssertNoFlips(mesh, ra);
+                Assert.True(Math.Abs(ra.Energy - rt.Energy) < 1e-3 * rt.Energy, "cap " + cap + ": " + ra.Energy + " vs Tutte " + rt.Energy);
+                // the sliver is seen before SLIM starts (not only by the restart after getting stuck): the same run as Tutte
+                Assert.False(auto.StartedFromLSCM);
+                Assert.Equal(rt.Iterations, ra.Iterations);
+            }
         }
 
         [Fact]
