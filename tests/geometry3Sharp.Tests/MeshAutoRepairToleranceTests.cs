@@ -143,12 +143,19 @@ namespace geometry3Sharp.Tests
             MeshAutoRepair rel = Repair(Km());
             Assert.Equal(1e-8 * MeshRepairMetrics.TriangleBounds(Km()).DiagonalLength, rel.EffectiveRepairTolerance);
 
-            // set to the value of the old default: still explicit, so absolute
-            var abs = new MeshAutoRepair(Km()) { RepairTolerance = MathUtil.ZeroTolerancef };
+            // a value other than the 1.0.324 default is absolute
+            var abs = new MeshAutoRepair(Km()) { RepairTolerance = 2e-6 };
             Assert.True(abs.Apply());
-            Assert.Equal(MathUtil.ZeroTolerancef, abs.EffectiveRepairTolerance);
+            Assert.Equal(2e-6, abs.EffectiveRepairTolerance);
             Assert.Equal(1e-6 * MeshRepairMetrics.TriangleBounds(Km()).DiagonalLength, abs.EffectiveMinEdgeLength);
 
+            // exactly the default counts as not set (fields, binary compatible with 1.0.324): relative
+            var same = new MeshAutoRepair(Km()) { RepairTolerance = MathUtil.ZeroTolerancef, MinEdgeLengthTol = 1e-4 };
+            Assert.True(same.Apply());
+            Assert.Equal(rel.EffectiveRepairTolerance, same.EffectiveRepairTolerance);
+            Assert.Equal(rel.EffectiveMinEdgeLength, same.EffectiveMinEdgeLength);
+
+            // ToleranceModes.Absolute: the 1.0.324 values
             var mode = new MeshAutoRepair(Km()) { ToleranceMode = MeshAutoRepair.ToleranceModes.Absolute };
             Assert.True(mode.Apply());
             Assert.Equal(MathUtil.ZeroTolerancef, mode.EffectiveRepairTolerance);
@@ -160,17 +167,17 @@ namespace geometry3Sharp.Tests
             Assert.True(unwelded > welded, $"absolute 1e-6: {unwelded} vertices, relative: {welded}");
             Assert.Equal(unwelded, mode.Mesh.VertexCount);
 
-            // MinEdgeLengthTol set explicitly: the speck (edges below 1e-4) is collapsed as in 1.0.324, the relative
+            // MinEdgeLengthTol set explicitly: the speck (edges below 2e-4) is collapsed, the relative
             // default keeps it
             int sphereTris = Defects.Sphere(Vector3d.Zero, 1).TriangleCount;
             MeshAutoRepair keep = Repair(SphereAndSpeck());
             Assert.True(keep.Mesh.TriangleCount > sphereTris);
-            var collapse = new MeshAutoRepair(SphereAndSpeck()) { MinEdgeLengthTol = 1e-4 };
+            var collapse = new MeshAutoRepair(SphereAndSpeck()) { MinEdgeLengthTol = 2e-4 };
             Assert.True(collapse.Apply());
-            Assert.Equal(1e-4, collapse.EffectiveMinEdgeLength);
+            Assert.Equal(2e-4, collapse.EffectiveMinEdgeLength);
             Assert.Equal(1e-8 * MeshRepairMetrics.TriangleBounds(SphereAndSpeck()).DiagonalLength, collapse.EffectiveRepairTolerance);
             Assert.True(collapse.Mesh.TriangleCount < keep.Mesh.TriangleCount,
-                $"MinEdgeLengthTol 1e-4: {collapse.Mesh.TriangleCount} triangles, relative: {keep.Mesh.TriangleCount}");
+                $"MinEdgeLengthTol 2e-4: {collapse.Mesh.TriangleCount} triangles, relative: {keep.Mesh.TriangleCount}");
         }
 
         [Fact]

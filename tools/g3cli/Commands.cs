@@ -157,7 +157,7 @@ namespace g3cli
             c.Params.Add(Input());
             c.Params.Add(Output());
             c.Params.Add(new Param("method", ParamType.String, "repair method") { Default = "robust", Enum = new[] { "robust", "auto" } });
-            c.Params.Add(new Param("tolerance", ParamType.Number, "absolute weld / crack-closing tolerance of MeshAutoRepair (default 1e-8 of the bounding box diagonal of the triangles)"));
+            c.Params.Add(new Param("tolerance", ParamType.Number, "absolute weld / crack-closing tolerance of MeshAutoRepair (default 1e-8 of the bounding box diagonal of the triangles; exactly 1e-6 counts as the default)"));
             c.Params.Add(new Param("solidify_resolution", ParamType.Integer, "robust: grid cells along the bounding box diagonal of the solidify fallback, 8..2048") { Default = 128 });
             c.Params.Add(new Param("min_volume_iou", ParamType.Number, "robust: minimum volume IoU of the repair with the input before falling back (0 = no check)") { Default = 0.99 });
             c.Params.Add(new Param("exact_resolve", ParamType.Boolean, "robust: before the solidify, resolve the self-intersections exactly (ExactMeshBoolean.Resolve)") { Default = true });

@@ -100,6 +100,7 @@ class Program
             } else if (repairMode == "instr") {
                 var repair = new InstrumentedAutoRepair(mesh);
                 if (absTol) {
+                    repair.ToleranceMode = InstrumentedAutoRepair.ToleranceModes.Absolute;
                     repair.RepairTolerance = absRepairTol * tolFactor;
                     repair.MinEdgeLengthTol = absMinEdge * tolFactor;
                 }
@@ -122,6 +123,7 @@ class Program
                 // winding number sense after every step
                 var repair = new MeshAutoRepair(mesh) { PostRepairCleanup = true };
                 if (absTol) {
+                    repair.ToleranceMode = MeshAutoRepair.ToleranceModes.Absolute;
                     repair.RepairTolerance = absRepairTol * tolFactor;
                     repair.MinEdgeLengthTol = absMinEdge * tolFactor;
                 }
@@ -156,7 +158,7 @@ class Program
             } else if (repairMode == "robust") {
                 // MeshRobustRepair: hybrid plus the volume check against the input's winding number solid
                 var robust = new MeshRobustRepair(mesh) { ExactResolve = Environment.GetEnvironmentVariable("BENCH_EXACT") != "0", ConfigureRepair = (rep) => {
-                    if (absTol) { rep.RepairTolerance = absRepairTol * tolFactor; rep.MinEdgeLengthTol = absMinEdge * tolFactor; } } };
+                    if (absTol) { rep.ToleranceMode = MeshAutoRepair.ToleranceModes.Absolute; rep.RepairTolerance = absRepairTol * tolFactor; rep.MinEdgeLengthTol = absMinEdge * tolFactor; } } };
                 int res = int.Parse(Environment.GetEnvironmentVariable("BENCH_SOLID_RES") ?? "128");
                 robust.SolidifyResolution = res;
                 robust.ExactResolveRounds = int.Parse(Environment.GetEnvironmentVariable("BENCH_EXACT_ROUNDS") ?? "4");
@@ -191,6 +193,7 @@ class Program
             } else {
                 var repair = new MeshAutoRepair(mesh);
                 if (absTol) {
+                    repair.ToleranceMode = MeshAutoRepair.ToleranceModes.Absolute;
                     repair.RepairTolerance = absRepairTol * tolFactor;
                     repair.MinEdgeLengthTol = absMinEdge * tolFactor;
                 }

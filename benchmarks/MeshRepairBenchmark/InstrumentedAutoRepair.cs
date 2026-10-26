@@ -23,26 +23,19 @@ namespace MeshRepairBenchmark
     public class InstrumentedAutoRepair
     {
         // tolerances as in gs.MeshAutoRepair: relative to the diagonal of the triangles by default, absolute
-        // when set explicitly or with ToleranceModes.Absolute
+        // when set to a value other than the 1.0.324 default or with ToleranceModes.Absolute
         public enum ToleranceModes { Relative = 0, Absolute = 1 }
         public ToleranceModes ToleranceMode = ToleranceModes.Relative;
         public double RelativeRepairTolerance = 1e-8;
         public double RelativeMinEdgeLength = 1e-6;
 
-        public double RepairTolerance {
-            get { return repairTolerance; }
-            set { repairTolerance = value; repairToleranceSet = true; }
-        }
-        double repairTolerance = MathUtil.ZeroTolerancef;
-        bool repairToleranceSet = false;
+		public double RepairTolerance = DefaultRepairTolerance;
 
         // assume edges shorter than this are degenerate and should be collapsed
-        public double MinEdgeLengthTol {
-            get { return minEdgeLengthTol; }
-            set { minEdgeLengthTol = value; minEdgeLengthTolSet = true; }
-        }
-        double minEdgeLengthTol = 0.0001;
-        bool minEdgeLengthTolSet = false;
+        public double MinEdgeLengthTol = DefaultMinEdgeLengthTol;
+
+        // a field still at its 1.0.324 default counts as not set
+        const double DefaultRepairTolerance = MathUtil.ZeroTolerancef, DefaultMinEdgeLengthTol = 0.0001;
 
         public double EffectiveRepairTolerance { get; private set; }
         public double EffectiveMinEdgeLength { get; private set; }
@@ -61,8 +54,8 @@ namespace MeshRepairBenchmark
             double relMinEdge = (RelativeMinEdgeLength > 0)
                 ? relative_tolerance(RelativeMinEdgeLength, diag, cap, floor, 0.0001) : 0;
             bool absolute = ToleranceMode == ToleranceModes.Absolute;
-            EffectiveRepairTolerance = (absolute || repairToleranceSet) ? repairTolerance : relRepair;
-            EffectiveMinEdgeLength = (absolute || minEdgeLengthTolSet) ? minEdgeLengthTol : relMinEdge;
+            EffectiveRepairTolerance = (absolute || RepairTolerance != DefaultRepairTolerance) ? RepairTolerance : relRepair;
+            EffectiveMinEdgeLength = (absolute || MinEdgeLengthTol != DefaultMinEdgeLengthTol) ? MinEdgeLengthTol : relMinEdge;
             // the scale of the other small lengths (degenerate hole loops, the offset of the occlusion test points):
             // relative, also if RepairTolerance is set (it is the merge distance only); Absolute: as in 1.0.324
             sizeTolerance = absolute ? MathUtil.ZeroTolerancef : relRepair;

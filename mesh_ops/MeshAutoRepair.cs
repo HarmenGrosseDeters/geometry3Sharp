@@ -41,8 +41,9 @@ namespace gs
         /// RelativeMinEdgeLength times the diagonal of the axis-aligned bounds of the triangles at the start of
         /// Apply(), at most 1/100 of the median edge length, at least 16 rounding units of the largest coordinate),
         /// so a model gives the same result in mm, um or km, and far from the origin (a rotation can change the
-        /// axis-aligned diagonal by up to sqrt(3)). A tolerance set explicitly (RepairTolerance = x,
-        /// MinEdgeLengthTol = x) is absolute and used as given in both modes.
+        /// axis-aligned diagonal by up to sqrt(3)). RepairTolerance or MinEdgeLengthTol set to a value other than
+        /// its 1.0.324 default is absolute and used as given in both modes (set to exactly the default, it counts
+        /// as not set: use Absolute for that).
         /// Absolute: RepairTolerance and MinEdgeLengthTol are used as they are (with their defaults: as
         /// geometry3Sharp 1.0.324).
         /// </summary>
@@ -66,30 +67,25 @@ namespace gs
 
         /// <summary>
         /// Distance (absolute, model units) within which boundary edges are merged to close cracks (up to 2x this
-        /// in the second round); boundary edges shorter than half of it are collapsed before that. Setting it makes
-        /// it override RelativeRepairTolerance; unset it is only used with ToleranceModes.Absolute (default 1e-6:
-        /// reading it does not give the relative value, see EffectiveRepairTolerance). It sets the merge distance
-        /// only; the other small lengths (degenerate hole loops, occlusion test offset) stay relative.
+        /// in the second round); boundary edges shorter than half of it are collapsed before that. A value other
+        /// than the default 1e-6 (MathUtil.ZeroTolerancef) overrides RelativeRepairTolerance; the default itself
+        /// counts as not set and is only used with ToleranceModes.Absolute (reading it does not give the relative
+        /// value, see EffectiveRepairTolerance). It sets the merge distance only; the other small lengths
+        /// (degenerate hole loops, occlusion test offset) stay relative.
         /// </summary>
-        public double RepairTolerance {
-            get { return repairTolerance; }
-            set { repairTolerance = value; repairToleranceSet = true; }
-        }
-        double repairTolerance = MathUtil.ZeroTolerancef;
-        bool repairToleranceSet = false;
+		public double RepairTolerance = DefaultRepairTolerance;
 
         /// <summary>
         /// At the end, edges shorter than this (absolute, model units) are assumed degenerate and collapsed; 0
-        /// disables. Setting it makes it override RelativeMinEdgeLength; unset it is only used with
-        /// ToleranceModes.Absolute (default 1e-4; reading it does not give the relative value, see
-        /// EffectiveMinEdgeLength).
+        /// disables. A value other than the default 1e-4 overrides RelativeMinEdgeLength; the default itself counts
+        /// as not set and is only used with ToleranceModes.Absolute (reading it does not give the relative value,
+        /// see EffectiveMinEdgeLength).
         /// </summary>
-        public double MinEdgeLengthTol {
-            get { return minEdgeLengthTol; }
-            set { minEdgeLengthTol = value; minEdgeLengthTolSet = true; }
-        }
-        double minEdgeLengthTol = 0.0001;
-        bool minEdgeLengthTolSet = false;
+        public double MinEdgeLengthTol = DefaultMinEdgeLengthTol;
+
+        // the 1.0.324 defaults: a field still at its default is "not set" (fields, not properties: binary
+        // compatible with code compiled against 1.0.324)
+        const double DefaultRepairTolerance = MathUtil.ZeroTolerancef, DefaultMinEdgeLengthTol = 0.0001;
 
         /// <summary> the crack merging distance the last Apply() used (model units) </summary>
         public double EffectiveRepairTolerance { get; private set; }
@@ -117,8 +113,8 @@ namespace gs
             double relMinEdge = (RelativeMinEdgeLength > 0)
                 ? relative_tolerance(RelativeMinEdgeLength, diag, cap, floor, 0.0001) : 0;
             bool absolute = ToleranceMode == ToleranceModes.Absolute;
-            EffectiveRepairTolerance = (absolute || repairToleranceSet) ? repairTolerance : relRepair;
-            EffectiveMinEdgeLength = (absolute || minEdgeLengthTolSet) ? minEdgeLengthTol : relMinEdge;
+            EffectiveRepairTolerance = (absolute || RepairTolerance != DefaultRepairTolerance) ? RepairTolerance : relRepair;
+            EffectiveMinEdgeLength = (absolute || MinEdgeLengthTol != DefaultMinEdgeLengthTol) ? MinEdgeLengthTol : relMinEdge;
             // the scale of the other small lengths (degenerate hole loops, the offset of the occlusion test points):
             // relative, also if RepairTolerance is set (it is the merge distance only); Absolute: as in 1.0.324
             sizeTolerance = absolute ? MathUtil.ZeroTolerancef : relRepair;
