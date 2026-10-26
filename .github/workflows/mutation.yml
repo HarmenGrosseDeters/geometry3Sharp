@@ -1,0 +1,59 @@
+name: Mutation tests
+
+# Stryker.NET (Apache-2.0) on the exact arithmetic (tests/mutation, docs/QA.md 2.2): too slow for every PR
+# (about 50 minutes), so on PRs that change the mutated files or their tests, weekly, and on demand. The run
+# fails when the mutation score drops below the break threshold in tests/mutation/stryker-config.json; the
+# report lists the surviving mutants.
+
+on:
+  pull_request:
+    paths:
+      - 'math/ExactPredicates.cs'
+      - 'math/ExactPoint3.cs'
+      - 'math/AdaptivePredicates.cs'
+      - 'tests/geometry3Sharp.Tests/ExactPredicatesTests.cs'
+      - 'tests/geometry3Sharp.Tests/ExactImplicitPointTests.cs'
+      - 'tests/geometry3Sharp.Tests/ExactBooleanBuildingBlockTests.cs'
+      - 'tests/geometry3Sharp.Tests/geometry3Sharp.Tests.csproj'
+      - 'tests/mutation/**'
+      - '.config/dotnet-tools.json'
+      - '.github/workflows/mutation.yml'
+  schedule:
+    - cron: '23 3 * * 1'        # Mondays 03:23 UTC
+  workflow_dispatch:
+
+# a new push to the same PR cancels the running (50 minute) run
+concurrency:
+  group: mutation-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  exact-arithmetic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Restore tools
+        run: dotnet tool restore
+      - name: Stryker
+        working-directory: tests/mutation
+        run: dotnet stryker --config-file stryker-config.json
+      - name: Summary
+        if: always()
+        run: cat tests/mutation/StrykerOutput/*/reports/mutation-report.md >> "$GITHUB_STEP_SUMMARY" || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mutation-report
+          path: tests/mutation/StrykerOutput/*/reports/
+          if-no-files-found: error
