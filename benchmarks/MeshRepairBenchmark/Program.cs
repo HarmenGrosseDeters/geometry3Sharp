@@ -124,6 +124,7 @@ class Program
                 r["robust_repair_iou"] = robust.RepairVolumeIoU;
                 r["robust_used_exact"] = robust.UsedExactResolve;
                 r["robust_exact_reason"] = robust.ExactResolveReason;
+                r["robust_wrap_reason"] = robust.WrapReason;
                 r["robust_exact_rounds"] = robust.ExactResolveRoundsUsed;
                 r["robust_exact_selfint"] = robust.ExactResolveSelfIntersections;
                 r["robust_exact_rounding_edits"] = robust.ExactRoundingEdits.ConvertAll(e => new[] { e.a, e.b });

@@ -96,6 +96,11 @@ namespace gs
         public string SolidifyReason = "";
         /// <summary> true if the result is the alpha wrap (last resort) </summary>
         public bool UsedAlphaWrap;
+        /// <summary>
+        /// why the alpha wrap result was not used ("" if it was or did not run): its Status and Error, eg a result that
+        /// misses the guarantees (then the solidify result is used, or Apply() returns false)
+        /// </summary>
+        public string WrapReason = "";
         /// <summary> the alpha wrap fallback, if it ran; null otherwise </summary>
         public MeshAlphaWrap AlphaWrap;
         public bool UsedExactResolve;
@@ -153,6 +158,7 @@ namespace gs
             SolidifyReason = "";
             Solidify = null;
             AlphaWrap = null;
+            WrapReason = "";
             UsedExactResolve = false;
             ExactResolveReason = "";
             ExactResolveRoundsUsed = 0;
@@ -233,6 +239,7 @@ namespace gs
                     UsedAlphaWrap = true;
                     return true;
                 }
+                WrapReason = AlphaWrap.Status + (AlphaWrap.Error != null ? ": " + AlphaWrap.Error : "");
             }
             if (solidified == false)
                 return false;

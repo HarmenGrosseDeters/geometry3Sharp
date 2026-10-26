@@ -81,6 +81,8 @@ namespace gs
         public int MaxSteinerPoints = 2000000;
         /// <summary> make the result 2-manifold (otherwise it can have non-manifold edges and vertices, which DMesh3 rejects; for tests) </summary>
         internal bool MakeManifold = true;
+        /// <summary> the same margin on all sides of the box (as before; for tests of the result check) </summary>
+        internal bool SymmetricBox = false;
 
         /// <summary> return true to cancel (checked during the refinement and the manifold step); null = never </summary>
         public Func<bool> CancelF = () => { return false; };
@@ -152,9 +154,10 @@ namespace gs
                 return false;
 
             remove_pockets();
-            if (MakeManifold && make_manifold() == false) {
-                Status = cancelled() ? WrapStatus.Cancelled : WrapStatus.Failed;
-                Error = Status == WrapStatus.Cancelled ? null : "could not make the result manifold";
+            WrapStatus manifold = MakeManifold ? make_manifold() : WrapStatus.Success;
+            if (manifold != WrapStatus.Success) {
+                Status = manifold;
+                Error = manifold == WrapStatus.Cancelled ? null : "could not make the result manifold";
                 return false;
             }
             end_phase("manifold");
@@ -231,8 +234,12 @@ namespace gs
             // circumcenters are far off, and a rule 1 point from such a dual edge lands on an existing vertex
             // (rejected), so the cell stays inside up to the box (corners on the result; eg a unit sphere, alpha
             // diagonal / 10)
-            box.Min -= margin * new Vector3d(1.0137, 1.0291, 1.0413);
-            box.Max += margin * new Vector3d(1.0371, 1.0173, 1.0239);
+            if (SymmetricBox) {
+                box.Expand(margin);
+            } else {
+                box.Min -= margin * new Vector3d(1.0137, 1.0291, 1.0413);
+                box.Max += margin * new Vector3d(1.0371, 1.0173, 1.0239);
+            }
             dt = new Delaunay3(box);
             // the cell stamps of the new triangulation start again: entries of an earlier Compute() would match
             Array.Clear(centerStamp, 0, centerStamp.Length);
@@ -288,7 +295,7 @@ namespace gs
             ticksIntersection = ticksTouch = ticksInsert = 0;
             var removed = new List<int>();
             var added = new List<int>();
-            long rule1 = 0, rule2 = 0, carved = 0, rejected = 0, popped = 0;
+            long rule1 = 0, rule2 = 0, carved = 0, rejected = 0, rejected1 = 0, rejected2 = 0, popped = 0;
             int steiner = 0;
             WrapStatus status = WrapStatus.Success;
             while (gates.Count > 0) {
@@ -319,7 +326,7 @@ namespace gs
                     insert = rule_projection(c, i, to, out steinerPoint);
                     which = 2;
                     if (!insert) {
-                        rejected++;
+                        rejected++; rejected2++;
                         continue;       // keep the cell: the facet stays on the result
                     }
                 }
@@ -331,11 +338,14 @@ namespace gs
                     removed.Clear(); added.Clear();
                     // (no separation needed for correctness; tiny separations would only make slivers)
                     long t2 = Stopwatch.GetTimestamp();
+                    // (rejected: at an existing vertex, eg from the far-off floating-point circumcenters of a nearly flat
+                    // cell; replacement points on the offset surface did not help in such cases, see rejected_rule1)
                     var res = dt.Insert(steinerPoint, c, 1e-9 * alpha, out int vid, removed, added);
                     ticksInsert += Stopwatch.GetTimestamp() - t2;
                     if (res != Delaunay3.InsertResult.Inserted) {
                         rejected++;
-                        continue;
+                        if (which == 1) rejected1++; else rejected2++;
+                        continue;       // keep the cell: the facet stays on the result
                     }
                     steiner++;
                     if (which == 1) rule1++; else rule2++;
@@ -360,7 +370,12 @@ namespace gs
             Counts["steiner_points"] = steiner;
             Counts["steiner_intersection"] = rule1;
             Counts["steiner_projection"] = rule2;
+            // rejected: their cells stay inside with the gate facet on the result, which can then come closer to the
+            // input than the offset (a rule 1 rejection; never crossing it, the outside cell was checked) or reach the
+            // box (then caught by the result check)
             Counts["rejected_points"] = rejected;
+            Counts["rejected_rule1"] = rejected1;
+            Counts["rejected_rule2"] = rejected2;
             Counts["carved_cells"] = carved;
             Counts["gates_popped"] = popped;
             Counts["cells"] = dt.CellCount;
@@ -560,7 +575,8 @@ namespace gs
         /// every flip moves a cell inside for good, so this terminates. Vertices are checked from a work list (the
         /// vertices on the result, then those of flipped cells).
         /// </summary>
-        bool make_manifold()
+        // Success, Failed (no manifold result within the step limit) or Cancelled
+        WrapStatus make_manifold()
         {
             build_stars();      // (the triangulation does not change here, only labels)
             long flips = 0, processed = 0;
@@ -582,8 +598,10 @@ namespace gs
             long limit = 100L * dt.VertexCount + 1000;
             while (true) {
                 while (work.Count > 0) {
-                    if (++processed > limit || ((processed & 1023) == 0 && cancelled()))
-                        return false;
+                    if (++processed > limit)
+                        return WrapStatus.Failed;
+                    if ((processed & 1023) == 0 && cancelled())
+                        return WrapStatus.Cancelled;
                     int v = work.Dequeue();
                     queued[v] = false;
                     flippedCells.Clear();
@@ -620,7 +638,7 @@ namespace gs
             }
             Counts["manifold_flips"] = flips;
             Counts["manifold_vertex_checks"] = processed;
-            return true;
+            return WrapStatus.Success;
         }
 
         readonly List<int> flippedCells = new List<int>();

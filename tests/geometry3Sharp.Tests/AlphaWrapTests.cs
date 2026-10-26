@@ -676,8 +676,30 @@ namespace geometry3Sharp.Tests
             var w = new MeshAlphaWrap(s) { RelativeAlpha = relativeAlpha };
             Assert.True(w.Compute());
             Assert.Equal(0, w.Counts["result_box_corners"]);
-            Assert.Equal(0, w.Counts["rejected_points"]);
+            Assert.Equal(0, w.Counts["rejected_rule1"]);
             CheckWrap(w, Vertices(s));
+            // with the same margin on all sides (as before): box corners on the result, which the result check
+            // reports as Failed instead of Success
+            var symmetric = new MeshAlphaWrap(s) { RelativeAlpha = relativeAlpha, SymmetricBox = true };
+            Assert.False(symmetric.Compute());
+            Assert.Equal(MeshAlphaWrap.WrapStatus.Failed, symmetric.Status);
+            Assert.Equal("result box corners on the result", symmetric.Error);
+            Assert.True(symmetric.Counts["rejected_rule1"] > 0);
+        }
+
+        [Fact]
+        public void Wrap_CancelledInTheManifoldStep()
+        {
+            // cancelled once the refinement is done (its phase time is recorded): the manifold step notices, Cancelled
+            DMesh3 s = Sphere(1, 12);
+            MeshAlphaWrap w = null;
+            int callsAfterRefinement = 0;
+            w = new MeshAlphaWrap(s) { RelativeAlpha = 100, CancelF = () => w.PhaseMilliseconds.ContainsKey("wrap") && ++callsAfterRefinement > 0 };
+            Assert.False(w.Compute());
+            Assert.Equal(MeshAlphaWrap.WrapStatus.Cancelled, w.Status);
+            Assert.Null(w.Error);
+            Assert.True(w.Counts["steiner_points"] > 2048);     // enough vertex checks for the step to ask
+            Assert.False(w.PhaseMilliseconds.ContainsKey("manifold"));
         }
 
         [Fact]
