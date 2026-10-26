@@ -31,6 +31,7 @@ code can notice. New classes are not listed (see the README and [OPERATIONS.md](
 | `Units` miles | 1609.34 m | 1609.344 m |
 | `Util.IsBinaryStream` | a stream shorter than the search length counted as binary | not binary (affects STL ascii / binary detection of files under 500 bytes) |
 | `PlanarComplex.Add(polygon)` | kept a reference to the caller's polygon | stores a copy |
+| `OBJReader`, `OFFReader` with face indices out of range | OBJ: a normal or UV index outside the file's normals / UVs threw (`StandardMeshReader`: `GenericReaderError`). OFF: only triangles were read (the first three indices of a polygon); a negative vertex index threw, an index past the vertices dropped the triangle silently | OBJ: the vertex gets the default normal / UV. OFF: polygons are fan-triangulated, and a polygon with any index outside the file's vertices is skipped as a whole, with a warning |
 | `RoundRectGenerator.GetBorderLoop`, `RevolveGenerator` cap normals, `TrivialBox3Generator` normals | see the commit history | corrected |
 
 ## Signatures that change (recompile needed)
