@@ -40,6 +40,13 @@ namespace gs
 		/// </summary>
 		public bool KeepShortSeams = true;
 
+		/// <summary>
+		/// ComputeStatistics skips triangles with area below DegenerateAreaFactor * diag^2 (diagonal of the bounds of
+		/// the triangles): their normals give no evidence. Relative, so the result does not depend on the model units;
+		/// 1e-10 equals the absolute 1e-6 of geometry3Sharp 1.0.324 for a model of diagonal 100.
+		/// </summary>
+		public double DegenerateAreaFactor = 1e-10;
+
 		/// <summary> spatial is an optional prebuilt AABB tree of mesh3 (built on demand otherwise) </summary>
 		public MeshRepairOrientation(DMesh3 mesh3, DMeshAABBTree3 spatial = null)
 		{
@@ -311,12 +318,14 @@ namespace gs
 		public void ComputeStatistics()
 		{
 			var s = this.Spatial;  // make sure this exists
+            areaDiag = Mesh.TriangleCount > 0 ? MeshRepairMetrics.TriangleBounds(Mesh).DiagonalLength : 0;
             // Cannot do in parallel because we set a filter on spatial DS. 
             // Also we are doing rays in parallel anyway...
             foreach ( var c in Components ) {
                 compute_statistics(c);
             }
 		}
+		double areaDiag;
 		void compute_statistics(Component c)
 		{
 			int NC = c.triangles.Count;
@@ -335,14 +344,17 @@ namespace gs
             // If it is not hit, or hit from both, that does not provide any evidence.
             // We collect up this keep/reverse evidence and use the larger to decide on the global orientation.
 
-            SpinLock count_lock = new SpinLock();
+            // per triangle (+area: hit from the front, -area: from the back), summed serially below in a fixed
+            // order, so that the result does not depend on the thread schedule
+            double[] evidence = new double[NC];
 
 			gParallel.BlockStartEnd(0, NC - 1, (a, b) => {
 				for (int i = a; i <= b; ++i) {
 					int ti = c.triangles[i];
 					Vector3d normal, centroid; double area;
 					Mesh.GetTriInfo(ti, out normal, out area, out centroid);
-					if (area < MathUtil.ZeroTolerancef)
+					// (area / diag against factor * diag: no overflow of diag^2 for huge coordinates)
+					if (area == 0 || area / areaDiag < DegenerateAreaFactor * areaDiag)
 						continue;
 
                     // construct far away points
@@ -357,17 +369,15 @@ namespace gs
                     if (hit_pos == ti && hit_neg == ti)
                         continue;       // no evidence (?)
 
-                    bool taken = false;
-                    count_lock.Enter(ref taken);
-
-                    if (hit_neg == ti)
-                        c.inFacing += area;
-                    else if (hit_pos == ti)
-                        c.outFacing += area;
-
-                    count_lock.Exit();
+                    evidence[i] = (hit_neg == ti) ? -area : area;
 				}
 			});
+            for (int i = 0; i < NC; ++i) {
+                if (evidence[i] < 0)
+                    c.inFacing -= evidence[i];
+                else
+                    c.outFacing += evidence[i];
+            }
 
             spatial.TriangleFilterF = null;
         }

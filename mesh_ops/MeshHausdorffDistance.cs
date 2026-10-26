@@ -43,7 +43,7 @@ namespace gs
         public double Tolerance = 0;
         /// <summary> tolerance relative to the diagonal of the combined bounding box, used if Tolerance is 0 </summary>
         public double RelativeTolerance = 1e-4;
-        /// <summary> stop (Converged = false) after this many triangle subdivisions </summary>
+        /// <summary> stop (Converged = false) after this many triangle subdivisions (checked per batch of 256: up to 255 more per direction) </summary>
         public int MaxSubdivisions = 20000000;
 
         /// <summary> if this function returns true, the computation stops and Compute() returns false </summary>

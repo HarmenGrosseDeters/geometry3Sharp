@@ -366,7 +366,23 @@ namespace geometry3Sharp.Tests
             // repair_cracks swallowed the FindInBall exception; the hole filler then closed the crack with
             // extra triangles and kept the patch vertices
             DMesh3 m = MeshTestUtil.CubeWithShortCrack(0.01, 0.0003);
-            Assert.True(new MeshAutoRepair(m) { RepairTolerance = 0.001 }.Apply());
+            var repair = new MeshAutoRepair(m) { RepairTolerance = 0.001 };
+            Assert.True(repair.Apply());
+            Assert.Equal(0.001, repair.EffectiveRepairTolerance);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(m));
+            Assert.Equal(12, m.VertexCount);
+            Assert.Equal(20, m.TriangleCount);
+        }
+
+        [Fact]
+        public void MeshAutoRepair_RelativeTolerance_MergesShortCrack()
+        {
+            // the same with the relative tolerance (default mode): 5e-4 of the diagonal (about 1.73) is a merge
+            // distance of about 8.7e-4, far above the extent of the crack divided by 64
+            DMesh3 m = MeshTestUtil.CubeWithShortCrack(0.01, 0.0003);
+            var repair = new MeshAutoRepair(m) { RelativeRepairTolerance = 5e-4 };
+            Assert.True(repair.Apply());
+            Assert.InRange(repair.EffectiveRepairTolerance, 8e-4, 9e-4);
             Assert.Equal("", MeshRobustRepair.NotCleanReason(m));
             Assert.Equal(12, m.VertexCount);
             Assert.Equal(20, m.TriangleCount);

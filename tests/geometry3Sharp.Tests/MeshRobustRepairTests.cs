@@ -393,7 +393,7 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void LostComponents_SpecksBelowAThousandthOfTheDiagonalNotJudged()
         {
-            // a closed speck (1e-4 across, as MeshAutoRepair's MinEdgeLengthTol removes) next to a unit sphere: losing it
+            // a closed speck (1e-4 across, as MeshAutoRepair's MinEdgeLengthTol of 1.0.324 removed) next to a unit sphere: losing it
             // is not a lost component (a fallback would lose it as well); a part 1e-2 across is one
             DMesh3 big = Sphere(1, Vector3d.Zero);
             DMesh3 withSpeck = new DMesh3(big);
@@ -687,6 +687,72 @@ namespace geometry3Sharp.Tests
             double missing, extra;
             double iou = MeshRepairMetrics.VolumeIoU(ThinPlates(6), with.Mesh, out missing, out extra);
             Assert.True(missing < 0.01, $"missing {missing}");     // the wrap encloses the input
+
+            // the wrap result is simplified (SimplifyAlphaWrap, default): far fewer triangles, and every point
+            // stays within half the wrap offset of the unsimplified wrap (checked by a one-sided Hausdorff bound)
+            Assert.True(with.AlphaWrapSimplified);
+            Assert.Equal(with.AlphaWrap.Result.TriangleCount, with.AlphaWrapTriangles);
+            Assert.True(with.Mesh.TriangleCount < with.AlphaWrapTriangles / 2, $"{with.Mesh.TriangleCount} of {with.AlphaWrapTriangles}");
+            Assert.True(with.PhaseMilliseconds.ContainsKey("wrap.simplify"));
+            var hd = new MeshHausdorffDistance(with.Mesh, with.AlphaWrap.Result) { Symmetric = false, Tolerance = with.AlphaWrap.UsedOffset * 0.01 };
+            hd.Compute();
+            Assert.True(hd.LowerBound <= 0.5 * with.AlphaWrap.UsedOffset, $"hausdorff {hd.LowerBound} offset {with.AlphaWrap.UsedOffset}");
+
+            // cancelled during the simplification: false, as for the other phases, and Mesh is not replaced
+            DMesh3 input = ThinPlates(6);
+            var cancelled = new MeshRobustRepair(input) { RepairF = (m) => new DMesh3(m), ExactResolve = false, SolidifyResolution = 64 };
+            cancelled.CancelF = () => cancelled.PhaseMilliseconds.ContainsKey("wrap");
+            Assert.False(cancelled.Apply());
+            Assert.Same(input, cancelled.Mesh);
+            Assert.False(cancelled.AlphaWrapSimplified);
+        }
+
+        [Fact]
+        public void SimplifyWithin_KeptOnlyIfCertifiedWithinTheDistance()
+        {
+            DMesh3 sphere = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 40 }.Generate().MakeDMesh();
+            foreach (int vid in sphere.VertexIndices()) {
+                Vector3d p = sphere.GetVertex(vid);
+                sphere.SetVertex(vid, p * (1 + 0.1 * Math.Sin(5 * p.x + 1) * Math.Cos(4 * p.y - 0.5)));
+            }
+            DMesh3 copy = new DMesh3(sphere);
+            DMesh3 simp = MeshRobustRepair.SimplifyWithin(sphere, 0.01, 0.01, true, () => false);
+            Assert.NotNull(simp);
+            Assert.True(simp.TriangleCount < sphere.TriangleCount / 2, $"{simp.TriangleCount} of {sphere.TriangleCount}");
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(simp));
+            var hd = new MeshHausdorffDistance(simp, sphere) { Symmetric = false, Tolerance = 1e-4 };
+            hd.Compute();
+            Assert.True(hd.UpperBound <= 0.01, $"hausdorff {hd.UpperBound}");
+            Assert.True(SameMesh(copy, sphere));        // the input is not changed
+            // the same reduction, but not certified within a much smaller distance: rejected
+            Assert.Null(MeshRobustRepair.SimplifyWithin(sphere, 0.01, 1e-3, true, () => false));
+            Assert.Null(MeshRobustRepair.SimplifyWithin(sphere, 0.01, 0.01, true, () => true));     // cancelled
+        }
+
+        [Fact]
+        public void SimplifyWithin_InvariantUnderSimilarities()
+        {
+            DMesh3 sphere = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 24 }.Generate().MakeDMesh();
+            foreach (int vid in sphere.VertexIndices()) {
+                Vector3d p = sphere.GetVertex(vid);
+                sphere.SetVertex(vid, p * (1 + 0.1 * Math.Sin(5 * p.x + 1) * Math.Cos(4 * p.y - 0.5)));
+            }
+            DMesh3 s0 = MeshRobustRepair.SimplifyWithin(sphere, 0.01, 0.01, true, () => false);
+            Assert.NotNull(s0);
+            foreach (Similarity s in Similarity.All()) {
+                DMesh3 t = new DMesh3(sphere);
+                MeshTransforms.PerVertexTransform(t, s.Apply);
+                DMesh3 st = MeshRobustRepair.SimplifyWithin(t, s.ApplyLength(0.01), s.ApplyLength(0.01), true, () => false);
+                Assert.True(st != null, s.Name);
+                Assert.Equal("", MeshRobustRepair.NotCleanReason(st));
+                if (s.IsExact) {
+                    // the same collapses: the same mesh, scaled
+                    Assert.Equal(s0.TriangleCount, st.TriangleCount);
+                    Assert.True(s0.VertexIndices().All(v => st.GetVertex(v) == s.Apply(s0.GetVertex(v))), s.Name);
+                } else {
+                    Assert.True(Math.Abs(st.TriangleCount - s0.TriangleCount) < 0.1 * s0.TriangleCount, $"{s.Name}: {st.TriangleCount} vs {s0.TriangleCount}");
+                }
+            }
         }
 
         static bool SameMesh(DMesh3 a, DMesh3 b)
