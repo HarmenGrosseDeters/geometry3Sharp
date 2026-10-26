@@ -115,6 +115,7 @@ class Program
                 robust.SolidifyResolution = res;
                 robust.ExactResolveRounds = int.Parse(Environment.GetEnvironmentVariable("BENCH_EXACT_ROUNDS") ?? "4");
                 robust.AlphaWrapFallback = Environment.GetEnvironmentVariable("BENCH_WRAP_FALLBACK") != "0";
+                robust.SafeRounding = Environment.GetEnvironmentVariable("BENCH_SAFE_ROUNDING") != "0";
                 ok = robust.Apply();
                 result = robust.Mesh;
                 r["hybrid_fallback"] = robust.FallbackReason != "";
@@ -125,6 +126,7 @@ class Program
                 r["robust_exact_reason"] = robust.ExactResolveReason;
                 r["robust_exact_rounds"] = robust.ExactResolveRoundsUsed;
                 r["robust_exact_selfint"] = robust.ExactResolveSelfIntersections;
+                r["robust_exact_rounding_edits"] = robust.ExactRoundingEdits.ConvertAll(e => new[] { e.a, e.b });
                 r["robust_solidify_reason"] = robust.SolidifyReason;
                 r["robust_used_wrap"] = robust.UsedAlphaWrap;
                 r["robust_phases"] = robust.PhaseMilliseconds;
@@ -263,7 +265,8 @@ class Program
         foreach (var op in new[] { ExactMeshBoolean.Operations.Union, ExactMeshBoolean.Operations.Intersection, ExactMeshBoolean.Operations.Difference }) {
             string key = op.ToString().ToLower();
             var sw = Stopwatch.StartNew();
-            var boolean = new ExactMeshBoolean(a, b, op);
+            // BENCH_SAFE_ROUNDING=0: output vertices only rounded (no MeshRoundingRepair)
+            var boolean = new ExactMeshBoolean(a, b, op) { SafeRounding = Environment.GetEnvironmentVariable("BENCH_SAFE_ROUNDING") != "0" };
             bool ok = boolean.Compute();
             total += sw.ElapsedMilliseconds;
             r["exact_" + key + "_ms"] = sw.ElapsedMilliseconds;
@@ -283,6 +286,14 @@ class Program
             r["exact_selfpairs"] = boolean.SelfIntersectingPairs;
             r["exact_" + key + "_nonmanifold"] = boolean.NonManifoldTriangles;
             r["exact_" + key + "_selfint"] = m.TriangleCount <= 300000 ? MeshRepairMetrics.SelfIntersections(m) : -1;
+            double diag = m.TriangleCount > 0 ? m.CachedBounds.DiagonalLength : 0;
+            r["exact_" + key + "_degenerate"] = m.TriangleIndices().Count(t => m.GetTriArea(t) < 1e-12 * diag * diag);
+            if (boolean.Rounding != null) {
+                r["exact_" + key + "_rounding_clean"] = boolean.RoundingClean;
+                r["exact_" + key + "_rounding_initial"] = new[] { boolean.Rounding.InitialIntersections, boolean.Rounding.InitialDegenerate };
+                r["exact_" + key + "_rounding_remaining"] = new[] { boolean.Rounding.RemainingIntersections, boolean.Rounding.RemainingDegenerate };
+                r["exact_" + key + "_rounding_removed"] = boolean.Rounding.RemovedTriangles;
+            }
         }
         r["exact_ms"] = total;
         double vU = Vol(results["union"]), vI = Vol(results["intersection"]), vD = Vol(results["difference"]);

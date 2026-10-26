@@ -60,7 +60,7 @@ Add both: `using g3; using gs;`.
 | A mostly good mesh with small holes, duplicate vertices, degenerate triangles | `MeshAutoRepair` (with `PostRepairCleanup = true`) | the input triangles, welded and closed where possible; not guaranteed closed |
 | Any mesh, and you need a closed, manifold, self-intersection-free result | `MeshRobustRepair` | the repaired mesh if it is clean, otherwise its self-intersections resolved exactly (`UsedExactResolve`), otherwise the winding number solid (`UsedSolidify`), otherwise the alpha wrap (`UsedAlphaWrap`); see `FallbackReason`. If the clean result lost volume (`MinVolumeIoU`) the input itself is resolved or solidified instead. `Apply()` returns false (`Mesh` unchanged) if cancelled or if neither the solidify nor the alpha wrap gave a mesh; a solidified result that is not clean either is kept when the wrap fails or is off (`UsedSolidify` and `SolidifyReason`) |
 | A triangle soup, overlapping parts, large holes | `MeshWindingNumberSolidify` | a new, remeshed closed surface; features below the cell size are lost |
-| Closed meshes that intersect themselves or each other, where the triangles must be kept exactly | `ExactMeshBoolean`, `ExactMeshBoolean.Resolve(mesh)` | exact arrangement, only the output coordinates are rounded |
+| Closed meshes that intersect themselves or each other, where the triangles must be kept exactly | `ExactMeshBoolean`, `ExactMeshBoolean.Resolve(mesh)` | exact arrangement, only the output coordinates are rounded; `SafeRounding = true` repairs the slivers and self-intersections the rounding leaves (`MeshRoundingRepair`, checked exactly, `RoundingClean`), `ComputeExactVertices = true` gives the exact rational coordinates (`ResultExactVertices`) |
 | Booleans of broken meshes (open, soups, overlapping shells) | `gs.MeshWindingNumberBoolean` | a new, remeshed closed surface (winding numbers on an adaptive octree) |
 
 `MeshBoolean` is the old, non-robust union of the original library; prefer `ExactMeshBoolean`.
@@ -78,6 +78,15 @@ if (result == null)
 
 The test checks the exact volumes of union, intersection and difference of a cube and a bar with
 coplanar faces ([ExactMeshBooleanExample](examples/ExactMeshBooleanExample.cs)).
+
+Nearly coincident inputs give intersection points that nearly coincide: rounded to double, they leave slivers
+(degenerate triangles) and sometimes self-intersections. `SafeRounding` repairs them after the rounding:
+
+```csharp
+var boolean = new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Union) { SafeRounding = true };
+boolean.Compute();
+bool clean = boolean.RoundingClean;   // no self-intersections, no triangles below 1e-12 diagonal^2 (exact check)
+```
 
 More than two meshes go into one arrangement, with an operation or a predicate on the winding numbers of all
 inputs (Zhou et al. 2016). Status is the result code (`Success`, `InvalidInput`, `OpenInput`):
