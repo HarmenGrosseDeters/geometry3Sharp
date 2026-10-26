@@ -388,8 +388,12 @@ namespace geometry3Sharp.Tests
                 Assert.True(double.IsNaN(d1.TriangleDeviationLower[tid]) && double.IsNaN(d1.TriangleDeviationUpper[tid]));
             // the appended copy keeps the order of the triangles: tid + gap is triangle tid of m0. Far from the
             // origin without a local copy the rounding is about 1e-9
+            AxisAlignedBox3d box = m1.CachedBounds; box.Contain(r1.CachedBounds);
+            double tol = 1e-4 * box.DiagonalLength;
             foreach (int tid in m0.TriangleIndices()) {
                 double lo = d1.TriangleDeviationLower[tid + gap], hi = d1.TriangleDeviationUpper[tid + gap];
+                // the default tolerance is relative to the size of the meshes, also on far coordinates
+                Assert.True(hi - lo <= tol * (1 + 1e-6), tid + ": width " + (hi - lo));
                 Assert.True(lo <= d0.TriangleDeviationUpper[tid] + 1e-6 && d0.TriangleDeviationLower[tid] <= hi + 1e-6, tid + ": " + lo + " " + hi);
             }
         }
