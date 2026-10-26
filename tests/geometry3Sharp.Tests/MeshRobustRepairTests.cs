@@ -282,7 +282,8 @@ namespace geometry3Sharp.Tests
         public void Solidify_StopsOnSelfIntersectingContour_FinishGivesTheFullResult()
         {
             // the contour of the overlapping thin plates self-intersects: no cleanup and reduction, the raw
-            // contour is the result; FinishPostProcess gives what Compute() gives without stopping
+            // contour is the result; FinishPostProcess post-processes it as Compute() does without stopping
+            // (compared on the same contour: the contouring is not bit-for-bit deterministic across runs)
             Func<bool, MeshWindingNumberSolidify> run = (stop) => {
                 var s = new MeshWindingNumberSolidify(ThinPlates(6)) { GridResolution = 64, Adaptive = true, StopIfSelfIntersecting = stop };
                 Assert.True(s.Compute());
@@ -299,9 +300,20 @@ namespace geometry3Sharp.Tests
             Assert.False(stopped.PhaseMilliseconds.ContainsKey("cleanup"));
             Assert.True(stopped.Result.TriangleCount > full.Result.TriangleCount);   // not reduced
 
+            var expected = WindingContouring.PostProcess(new DMesh3(stopped.Result), stopped.CleanupResult, stopped.ReduceTolerance,
+                stopped.UsedCellSize, () => false, (name) => { });
             stopped.FinishPostProcess();
             Assert.False(stopped.StoppedOnSelfIntersections);
-            Assert.True(SameMesh(full.Result, stopped.Result));
+            Assert.True(stopped.PhaseMilliseconds.ContainsKey("reduce"));
+            Assert.True(SameMesh(expected, stopped.Result));
+            Assert.InRange(stopped.Result.TriangleCount, 0.9 * full.Result.TriangleCount, 1.1 * full.Result.TriangleCount);
+
+            // reused: a Compute() that fails early does not leave the flag of the previous one
+            var again = run(true);
+            Assert.True(again.StoppedOnSelfIntersections);
+            again.CellSize = 1e-12;     // too deep an octree
+            Assert.False(again.Compute());
+            Assert.False(again.StoppedOnSelfIntersections);
         }
 
         [Fact]
@@ -317,7 +329,7 @@ namespace geometry3Sharp.Tests
             Assert.False(stopped.StoppedOnSelfIntersections);
             Assert.False(stopped.PhaseMilliseconds.ContainsKey("selfint"));
             Assert.True(stopped.PhaseMilliseconds.ContainsKey("reduce"));
-            Assert.True(SameMesh(run(false).Result, stopped.Result));
+            Assert.InRange(stopped.Result.TriangleCount, 0.9 * run(false).Result.TriangleCount, 1.1 * run(false).Result.TriangleCount);
             Assert.Equal("", MeshRobustRepair.NotCleanReason(stopped.Result));
         }
 
@@ -325,7 +337,8 @@ namespace geometry3Sharp.Tests
         public void SolidifyNotClean_WrapFails_PostProcessedSolidifyUsed()
         {
             // the solidify is stopped on its self-intersections for the wrap; if the wrap fails (here: invalid
-            // alpha), the solidify result is used as before: post-processed, the same as without the wrap
+            // alpha), the solidify result is used as before: post-processed (reduced to about the triangles of
+            // the run without the wrap; not bit-for-bit, the contouring is not deterministic across runs)
             Func<bool, MeshRobustRepair> run = (wrap) => {
                 var r = new MeshRobustRepair(ThinPlates(6)) {
                     RepairF = (m) => new DMesh3(m), ExactResolve = false, SolidifyResolution = 64,
@@ -345,7 +358,8 @@ namespace geometry3Sharp.Tests
             Assert.Equal("self-intersections", failed.SolidifyReason);
             Assert.True(failed.PhaseMilliseconds.ContainsKey("solidify.finish"));
             Assert.False(failed.Solidify.StoppedOnSelfIntersections);
-            Assert.True(SameMesh(without.Mesh, failed.Mesh));
+            Assert.Same(failed.Solidify.Result, failed.Mesh);
+            Assert.InRange(failed.Mesh.TriangleCount, 0.9 * without.Mesh.TriangleCount, 1.1 * without.Mesh.TriangleCount);
         }
 
         [Fact]

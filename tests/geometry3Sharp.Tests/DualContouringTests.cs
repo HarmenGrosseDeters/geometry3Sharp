@@ -57,6 +57,13 @@ namespace geometry3Sharp.Tests
             };
             Assert.True(run(true).SelfIntersectionFree);
             Assert.False(run(false).SelfIntersectionFree);
+            // set only by a pass that found nothing: no pass (as when the rounds run out with pairs left)
+            var none = new DualContouring() {
+                Implicit = new SphereSDF(), IsoValue = 0, InsideIsLess = true, CellSize = 0.1,
+                Bounds = new AxisAlignedBox3d(Vector3d.Zero, 1.3), MaxResolveRounds = 0
+            };
+            none.Generate();
+            Assert.False(none.SelfIntersectionFree);
         }
 
         [Fact]

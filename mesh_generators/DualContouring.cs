@@ -1167,13 +1167,15 @@ namespace g3
         /// (ResolveSelfIntersections false)
         /// </summary>
         public bool SelfIntersectionFree;
+        /// <summary> rounds of the self-intersection resolve (each moves the vertices of the intersecting pairs) </summary>
+        internal int MaxResolveRounds = 10;
 
         void resolve_self_intersections(Func<int, Vector3d> fallback, Func<int, Vector3d> lastResort)
         {
             var tree = new DMeshAABBTree3(Mesh, true);
             HashSet<int> candidates = new HashSet<int>(Mesh.TriangleIndices());
             var moves = new Dictionary<int, int>();
-            for (int round = 0; round < 10; ++round) {
+            for (int round = 0; round < MaxResolveRounds; ++round) {
                 var moving = new HashSet<int>();
                 int pairs = 0;
                 object lockObj = new object();

@@ -154,6 +154,7 @@ namespace gs
         /// </returns>
         public bool Compute()
         {
+            StoppedOnSelfIntersections = false;
             double cellSize = (CellSize > 0) ? CellSize : Mesh.CachedBounds.DiagonalLength / GridResolution;
             if (!(cellSize > 0) || Mesh.TriangleCount == 0)
                 return false;
@@ -168,7 +169,6 @@ namespace gs
 
             PhaseMilliseconds.Clear();
             phase_timer.Restart();
-            StoppedOnSelfIntersections = false;
             bool knownFree = false;
             DMesh3 contour;
             HiddenGapEdges = HiddenWallEdges = 0;

@@ -220,9 +220,10 @@ namespace gs
             if (Solidify.StoppedOnSelfIntersections) {
                 // the wrap failed: the solidify result after all, post-processed as usual
                 Solidify.FinishPostProcess();
-                end_phase("solidify.finish");
-                if (CancelF())
+                if (CancelF() || Solidify.Result == null || Solidify.Result.TriangleCount == 0)
                     return false;
+                SolidifyReason = NotCleanReason(Solidify.Result, CheckSelfIntersections);
+                end_phase("solidify.finish");
             }
             Mesh = Solidify.Result;
             UsedSolidify = true;
