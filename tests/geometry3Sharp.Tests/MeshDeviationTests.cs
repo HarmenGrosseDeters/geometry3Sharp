@@ -267,6 +267,14 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0, dev.TriangleDeviationLower[0], 12);
             Assert.True(dev.TriangleDeviationUpper[0] >= 1);
             Assert.Equal(1, dev.TriangleBoundsUnconverged);
+            double loose = dev.TriangleDeviationUpper[0];
+            // ... capped by the certified Hausdorff bound if that is computed too
+            dev.ComputeCertifiedBound = true;
+            Assert.True(dev.Compute());
+            Assert.True(loose > dev.HausdorffUpperBound + 1e-3, "loose " + loose);
+            Assert.Equal(dev.HausdorffUpperBound, dev.TriangleDeviationUpper[0]);
+            Assert.True(dev.TriangleDeviationUpper[0] >= 1 - 1e-12);
+            Assert.Equal(1, dev.TriangleBoundsUnconverged);
         }
 
         // a coarse sphere against a finer, larger and shifted one: corners of different nearest triangles

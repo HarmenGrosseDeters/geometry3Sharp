@@ -56,7 +56,8 @@ namespace gs
         public bool ComputeTriangleBounds = false;
         /// <summary>
         /// ComputeTriangleBounds: subdivisions per triangle. A triangle that needs more keeps a wider, still
-        /// valid interval and is counted in TriangleBoundsUnconverged.
+        /// valid interval and is counted in TriangleBoundsUnconverged. With ComputeCertifiedBound, upper
+        /// bounds are capped by HausdorffUpperBound.
         /// </summary>
         public int MaxTriangleSubdivisions = 1000;
 
@@ -158,8 +159,6 @@ namespace gs
                 from = new DMesh3(Mesh, false, MeshComponents.None);
                 MeshTransforms.Translate(from, -refOffset);
             }
-            if (ComputeTriangleBounds && compute_triangle_bounds(from) == false)
-                return false;
             if (ComputeCertifiedBound) {
                 var h = new MeshHausdorffDistance(from, refMesh) {
                     SpatialB = refSpatial, Symmetric = false, Tolerance = CertifiedTolerance, CancelF = CancelF
@@ -169,6 +168,8 @@ namespace gs
                 HausdorffLowerBound = h.LowerBound;
                 HausdorffUpperBound = h.UpperBound;
             }
+            if (ComputeTriangleBounds && compute_triangle_bounds(from) == false)
+                return false;
             return true;
         }
 
@@ -199,6 +200,12 @@ namespace gs
                     ClosestTriangle[t.a], ClosestTriangle[t.b], ClosestTriangle[t.c],
                     tol, MaxTriangleSubdivisions, out lo[tid], out hi[tid], out w);
                 worst[tid] = w + refOffset;
+                // no point is farther than the certified Hausdorff bound: it caps triangles that ran out of
+                // subdivisions (lower is attained, so it stays below the bound up to rounding)
+                if (ComputeCertifiedBound && hi[tid] > HausdorffUpperBound) {
+                    hi[tid] = Math.Max(lo[tid], HausdorffUpperBound);
+                    converged[tid] = !(hi[tid] > lo[tid] + tol);
+                }
             });
             if (CancelF())
                 return false;
