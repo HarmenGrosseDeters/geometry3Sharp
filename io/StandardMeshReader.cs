@@ -529,14 +529,14 @@ namespace g3
         {
             return StandardMeshReader.ReadFileStream(sFilename, FileShare.Read, (stream) => {
                 string dir = Path.GetDirectoryName(Path.GetFullPath(sFilename));
-                return read(stream, builder, messages, (uri) => read_relative(dir, uri));
+                return read(stream, builder, options, messages, (uri) => read_relative(dir, uri));
             });
         }
 
         // external buffers (.bin files) cannot be resolved when reading from a stream
         public IOReadResult ReadFile(Stream stream, IMeshBuilder builder, ReadOptions options, ParsingMessagesHandler messages)
         {
-            return read(stream, builder, messages, null);
+            return read(stream, builder, options, messages, null);
         }
 
         // buffers must be relative paths to files in the directory of the .gltf file or below it; absolute paths,
@@ -556,11 +556,11 @@ namespace g3
             return File.ReadAllBytes(path);
         }
 
-        IOReadResult read(Stream stream, IMeshBuilder builder, ParsingMessagesHandler messages, Func<string, byte[]> resolve)
+        IOReadResult read(Stream stream, IMeshBuilder builder, ReadOptions options, ParsingMessagesHandler messages, Func<string, byte[]> resolve)
         {
             GLTFReader reader = new GLTFReader() { ResolveUri = resolve };
             reader.warningEvent += messages;
-            return reader.Read(stream, ReadOptions.Defaults, builder);
+            return reader.Read(stream, options ?? ReadOptions.Defaults, builder);
         }
     }
 
