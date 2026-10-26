@@ -81,6 +81,11 @@ namespace gs
         public int SkippedTriangles;
         /// <summary> split merged cells whose triangles overlap others in XY (keeps the result a height field) </summary>
         public bool RemoveOverlaps = true;
+        /// <summary>
+        /// SampleF with FootprintMesh: boundary cells whose vertex could not be sampled on the boundary line;
+        /// they got the vertex of their own samples (inside the cell) instead
+        /// </summary>
+        public int BoundaryFallbacks;
         /// <summary> merged cells that were split because their triangles overlapped others in XY </summary>
         public int SplitLeaves;
         /// <summary> triangles dropped because they overlapped others in XY (finest cells, boundary of point clouds) </summary>
@@ -410,6 +415,7 @@ namespace gs
         void add_boundary_edges()
         {
             BoundaryCells = 0;
+            BoundaryFallbacks = 0;
             double eps = 1e-3 * cell;
             DMesh3 bmesh = (SampleF != null) ? FootprintMesh : Mesh;
             List<int> candidates = new List<int>();
@@ -472,7 +478,9 @@ namespace gs
         }
 
 
-        bool is_valid(int c) { return hits[c] > 0 || segs[c] != null; }
+        // a boundary cell without samples is valid in Mesh mode (heights from the boundary edges), not with
+        // SampleF (FootprintMesh only gives the footprint, not the sampled heights)
+        bool is_valid(int c) { return hits[c] > 0 || (segs[c] != null && SampleF == null); }
         // fully covered interior cell, may be merged
         // fully sampled, no boundary, and not next to the edge of the data (cells around a merged leaf must
         // all exist, or the triangles between it and the boundary are missing: the point fit extrapolates
@@ -749,14 +757,23 @@ namespace gs
                 }
             }
             if (SampleF != null) {
-                // the vertical line through a boundary point can miss the footprint by rounding: try just inside
+                // the vertical line through a boundary point can miss the footprint by rounding: try just inside.
+                // The boundary edge's own height belongs to FootprintMesh, not to the sampled surface: if
+                // there is no sample, use the vertex of the cell's samples (is_valid: it has some)
+                bool sampled = false;
                 foreach (double off in new[] { 0, 1e-4, -1e-4 }) {
                     Vector3d sp, sn;
                     Vector2d q = result.xy + off * cell * nearN;
                     if (sample(q.x + origin.x, q.y + origin.y, out sp, out sn)) {
                         result.z = sp.z;
+                        sampled = true;
                         break;
                     }
+                }
+                if (sampled == false) {
+                    System.Threading.Interlocked.Increment(ref BoundaryFallbacks);
+                    Qef q = qef[cid(i, j)];
+                    return solve(ref q, new Vector2d(i * cell, j * cell), cell);
                 }
             }
             return result;

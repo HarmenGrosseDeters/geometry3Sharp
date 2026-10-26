@@ -66,6 +66,32 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void FootprintBoundary_WithoutSample_NoFootprintHeights()
+        {
+            // a sampled surface at z = 7 over the footprint of a flat square at z = 0, which cannot be sampled
+            // along the lower edge (y < 0.01) for x > 50, nor in the last cell column (x > 99.7) for y < 50
+            // (eg the offset's stepping gives up there). Boundary vertices there kept the height of the
+            // footprint's boundary edge (0) instead of the sampled surface; now they use the cell's samples,
+            // and boundary cells without any sample are left out
+            DMesh3 square = Grid(0, 0, 100, 100, 2, (x, y) => 0);
+            TerrainDualContouring.HeightSampleFunc f = (double x, double y, out double z, out Vector3d n) => {
+                z = 7; n = Vector3d.AxisZ;
+                return x >= 0 && y >= 0 && x <= 100 && y <= 100 && (y >= 0.01 || x <= 50) && (x <= 99.7 || y >= 50);
+            };
+            var tdc = new TerrainDualContouring() {
+                SampleF = f, SampleBounds = new AxisAlignedBox3d(new Vector3d(0, 0, 0), new Vector3d(100, 100, 7)),
+                FootprintMesh = square, GridResolution = 50
+            };
+            Assert.True(tdc.Compute());
+            Assert.True(tdc.BoundaryFallbacks > 0);
+            foreach (int vid in tdc.Result.VertexIndices())
+                Assert.Equal(7, tdc.Result.GetVertex(vid).z, 9);
+            // the rest of the boundary is still kept
+            Assert.Equal(0, tdc.Result.CachedBounds.Min.x, 6);
+            Assert.Equal(0, tdc.Result.CachedBounds.Min.y, 6);
+        }
+
+        [Fact]
         public void UtmCoordinates_SameResultAsAtTheOrigin()
         {
             // the same terrain at the origin and at UTM coordinates: the same offset surface (up to rounding)
