@@ -634,6 +634,24 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void Solidify_IsDeterministic()
+        {
+            // parallel octree and contouring: repeated runs give the same mesh, bit for bit (they used to
+            // differ in a few vertices by ~1e-8, and then in the triangle count after the reduction). A smoke
+            // test: the old code failed it in some runs only; the guard for the cause is
+            // AdaptiveOctreeTests.Octree_PropagatedNodeValues_DoNotDependOnTheQueryOrder
+            DMesh3 plates = ThinPlates(6);
+            Func<DMesh3> run = () => {
+                var s = new MeshWindingNumberSolidify(new DMesh3(plates)) { GridResolution = 64, Adaptive = true };
+                Assert.True(s.Compute());
+                return s.Result;
+            };
+            DMesh3 first = run();
+            for (int i = 0; i < 5; ++i)
+                Assert.True(SameMesh(first, run()), $"run {i + 2} differs from the first");
+        }
+
+        [Fact]
         public void SolidifyNotClean_WrapFails_PostProcessedSolidifyUsed()
         {
             // the solidify is stopped on its self-intersections for the wrap; if the wrap fails (here: invalid
@@ -687,24 +705,6 @@ namespace geometry3Sharp.Tests
             Assert.True(r.UsedSolidify);
             Assert.False(r.UsedAlphaWrap);
             Assert.StartsWith("InvalidParameters", r.WrapReason);
-        }
-
-        [Fact]
-        public void Solidify_IsDeterministic()
-        {
-            // parallel octree and contouring: repeated runs give the same mesh, bit for bit (they used to
-            // differ in a few vertices by ~1e-8, and then in the triangle count after the reduction). A smoke
-            // test: the old code failed it in some runs only; the guard for the cause is
-            // AdaptiveOctreeTests.Octree_PropagatedNodeValues_DoNotDependOnTheQueryOrder
-            DMesh3 plates = ThinPlates(6);
-            Func<DMesh3> run = () => {
-                var s = new MeshWindingNumberSolidify(new DMesh3(plates)) { GridResolution = 64, Adaptive = true };
-                Assert.True(s.Compute());
-                return s.Result;
-            };
-            DMesh3 first = run();
-            for (int i = 0; i < 5; ++i)
-                Assert.True(SameMesh(first, run()), $"run {i + 2} differs from the first");
         }
 
         [Fact]
