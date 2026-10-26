@@ -1019,17 +1019,35 @@ namespace g3
             // more than two triangles: then the edge is split for each pair at a new vertex of its own (at the
             // midpoint, the same position for all pairs, like other contacts), so that every edge has two triangles
             var splitAt = new Dictionary<int, int>();       // slot 3 t + k (edge from corner k to k + 1) -> vertex
-            foreach (var nm in nonManifold) {
+            // in a deterministic order (the new vertices are numbered in it): the edges and their pairs were found in
+            // the order of point ids, which depends on the thread schedule; by the slot of the edge in its first
+            // triangle, the pairs by their first triangle
+            var nmOrder = new List<KeyValuePair<int, int>>();      // (sort key, index into nonManifold)
+            for (int i = 0; i < nonManifold.Count; ++i) {
+                int u = (int)(nonManifold[i].Key >> 32), v = (int)(nonManifold[i].Key & 0xFFFFFFFF);
+                int t0 = int.MaxValue;
+                foreach (var pair in nonManifold[i].Value)
+                    t0 = Math.Min(t0, Math.Min(pair.Key, pair.Value));
+                int ku = slot(t0, u) - 3 * t0, kv = slot(t0, v) - 3 * t0;
+                nmOrder.Add(new KeyValuePair<int, int>(3 * t0 + (((ku + 1) % 3 == kv) ? ku : kv), i));
+                nonManifold[i].Value.Sort((x, y) => Math.Min(x.Key, x.Value).CompareTo(Math.Min(y.Key, y.Value)));
+            }
+            nmOrder.Sort((x, y) => x.Key.CompareTo(y.Key));
+            foreach (var ord in nmOrder) {
+                var nm = nonManifold[ord.Value];
                 int u = (int)(nm.Key >> 32), v = (int)(nm.Key & 0xFFFFFFFF);
                 var byVertices = new Dictionary<long, List<KeyValuePair<int, int>>>(EdgeKeyComparer.Instance);
+                var groups = new List<List<KeyValuePair<int, int>>>();      // (in the order of their first pair)
                 foreach (var pair in nm.Value) {
                     long key = ExactMeshArrangement.EdgeKey(vids[slot(pair.Key, u)], vids[slot(pair.Key, v)]);
                     List<KeyValuePair<int, int>> group;
-                    if (byVertices.TryGetValue(key, out group) == false)
+                    if (byVertices.TryGetValue(key, out group) == false) {
                         byVertices[key] = group = new List<KeyValuePair<int, int>>();
+                        groups.Add(group);
+                    }
                     group.Add(pair);
                 }
-                foreach (var group in byVertices.Values) {
+                foreach (var group in groups) {
                     if (group.Count < 2)
                         continue;
                     SplitNonManifoldEdges++;
