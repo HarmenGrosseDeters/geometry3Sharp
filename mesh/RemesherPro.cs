@@ -651,19 +651,23 @@ namespace gs
                 Vector3d projNormal;
                 Vector3d projPos = normalTarget.Project(centroid, out projNormal);
 
-                Index3i tv = mesh.GetTriangle(tid);
-                Vector3d v0 = mesh.GetVertex(tv.a), v1 = mesh.GetVertex(tv.b), v2 = mesh.GetVertex(tv.c);
-
-                // ugh could probably do this more efficiently...
-                Frame3f triF = new Frame3f(centroid, normal);
-                v0 = triF.ToFrameP(ref v0); v1 = triF.ToFrameP(ref v1); v2 = triF.ToFrameP(ref v2);
-                triF.AlignAxis(2, (Vector3f)projNormal);
-                triF.Origin = (Vector3f)projPos;
-                v0 = triF.FromFrameP(ref v0); v1 = triF.FromFrameP(ref v1); v2 = triF.FromFrameP(ref v2);
-
                 double dot = normal.Dot(projNormal);
                 dot = MathUtil.Clamp(dot, 0, 1.0);
                 double w = area * (dot * dot * dot);
+                if (!(w > 0)) {
+                    triWeights[tid] = 0;
+                    triPositions[3 * tid] = triPositions[3 * tid + 1] = triPositions[3 * tid + 2] = Vector3d.Zero;
+                    return;
+                }
+
+                // the triangle turned about its centroid so that its normal is the target's, moved to the
+                // projected centroid. In double: a float frame (Frame3f) lost the positions of meshes far from
+                // the origin (UTM coordinates: errors of centimetres, so every vertex 'moved' every pass)
+                Index3i tv = mesh.GetTriangle(tid);
+                Quaterniond q = Quaterniond.FromTo(normal, projNormal);
+                Vector3d v0 = projPos + q * (mesh.GetVertex(tv.a) - centroid);
+                Vector3d v1 = projPos + q * (mesh.GetVertex(tv.b) - centroid);
+                Vector3d v2 = projPos + q * (mesh.GetVertex(tv.c) - centroid);
 
                 triWeights[tid] = w;
                 triPositions[3 * tid] = w * v0; triPositions[3 * tid + 1] = w * v1; triPositions[3 * tid + 2] = w * v2;
