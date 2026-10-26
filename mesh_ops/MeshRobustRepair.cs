@@ -94,9 +94,9 @@ namespace gs
         public double WrapRelativeOffset = 3000;
         /// <summary>
         /// alpha wrap fallback: simplify the wrap (it has many small triangles, about alpha in size, also on flat
-        /// regions). Collapses keep the surface within the wrap offset of the unsimplified wrap (certified,
-        /// Reducer.MaxDeviation) and create no self-intersections (Reducer.PreventSelfIntersections); the result
-        /// is checked and the unsimplified wrap kept if it is not clean.
+        /// regions). Collapses create no self-intersections (Reducer.PreventSelfIntersections); the result is kept
+        /// only if it is clean and certified within the wrap offset of the unsimplified wrap (one-sided Hausdorff
+        /// upper bound), otherwise the unsimplified wrap is.
         /// </summary>
         public bool SimplifyAlphaWrap = true;
 
@@ -365,14 +365,31 @@ namespace gs
         {
             if (offset <= 0 || CancelF())
                 return wrap;
-            DMesh3 m = new DMesh3(wrap);
+            return SimplifyWithin(wrap, offset, offset, CheckSelfIntersections, CancelF) ?? wrap;
+        }
+
+        /// <summary>
+        /// mesh reduced (quadric error up to quadricDistance^2, no collapse that creates a self-intersection), or null
+        /// if the result is not clean or not certified within maxDistance of the mesh (one-sided Hausdorff upper
+        /// bound, from the result to the mesh). The distance is checked afterwards rather than per collapse
+        /// (Reducer.MaxDeviation): on alpha wraps that check took 10 to 30 times longer and changed nothing.
+        /// </summary>
+        internal static DMesh3 SimplifyWithin(DMesh3 mesh, double quadricDistance, double maxDistance, bool checkSelfIntersections, Func<bool> cancelF)
+        {
+            DMesh3 m = new DMesh3(mesh);
             Reducer reducer = new Reducer(m) {
-                MaxDeviation = offset, PreventSelfIntersections = true,
+                PreventSelfIntersections = true,
                 AreaWeightedQuadrics = false, MinCollapseTriangleQuality = 0.05, EdgeFlipTolerance = Math.Cos(60 * MathUtil.Deg2Rad)
             };
-            reducer.ReduceToMaxQuadricError(offset * offset);
+            reducer.ReduceToMaxQuadricError(quadricDistance * quadricDistance);
             m = new DMesh3(m, true);
-            return NotCleanReason(m, CheckSelfIntersections) == "" ? m : wrap;
+            if (cancelF() || NotCleanReason(m, checkSelfIntersections) != "")
+                return null;
+            // a coarse tolerance is enough: only the upper bound has to stay below maxDistance
+            var hd = new MeshHausdorffDistance(m, mesh) { Symmetric = false, Tolerance = 0.1 * maxDistance, CancelF = cancelF };
+            if (hd.Compute() == false || !(hd.UpperBound <= maxDistance))
+                return null;
+            return m;
         }
 
         // the solid of the mesh with its self-intersections resolved exactly, or null (ExactResolveReason says why)

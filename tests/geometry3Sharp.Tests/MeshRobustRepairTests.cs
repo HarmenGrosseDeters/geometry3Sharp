@@ -644,6 +644,28 @@ namespace geometry3Sharp.Tests
             Assert.True(hd.UpperBound <= with.AlphaWrap.UsedOffset * 1.02, $"hausdorff {hd.UpperBound} offset {with.AlphaWrap.UsedOffset}");
         }
 
+        [Fact]
+        public void SimplifyWithin_KeptOnlyIfCertifiedWithinTheDistance()
+        {
+            DMesh3 sphere = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 40 }.Generate().MakeDMesh();
+            foreach (int vid in sphere.VertexIndices()) {
+                Vector3d p = sphere.GetVertex(vid);
+                sphere.SetVertex(vid, p * (1 + 0.1 * Math.Sin(5 * p.x + 1) * Math.Cos(4 * p.y - 0.5)));
+            }
+            DMesh3 copy = new DMesh3(sphere);
+            DMesh3 simp = MeshRobustRepair.SimplifyWithin(sphere, 0.01, 0.01, true, () => false);
+            Assert.NotNull(simp);
+            Assert.True(simp.TriangleCount < sphere.TriangleCount / 2, $"{simp.TriangleCount} of {sphere.TriangleCount}");
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(simp));
+            var hd = new MeshHausdorffDistance(simp, sphere) { Symmetric = false, Tolerance = 1e-4 };
+            hd.Compute();
+            Assert.True(hd.UpperBound <= 0.01, $"hausdorff {hd.UpperBound}");
+            Assert.True(SameMesh(copy, sphere));        // the input is not changed
+            // the same reduction, but not certified within a much smaller distance: rejected
+            Assert.Null(MeshRobustRepair.SimplifyWithin(sphere, 0.01, 1e-3, true, () => false));
+            Assert.Null(MeshRobustRepair.SimplifyWithin(sphere, 0.01, 0.01, true, () => true));     // cancelled
+        }
+
         static bool SameMesh(DMesh3 a, DMesh3 b)
         {
             return a.VertexCount == b.VertexCount && a.TriangleCount == b.TriangleCount
