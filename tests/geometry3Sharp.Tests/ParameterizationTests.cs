@@ -934,6 +934,47 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void UVPacker_PaddingThatCannotBeMet_IsReported()
+        {
+            // 100 equal squares: with a gap of 0.1 of the side, 10 squares per row need more than the whole side
+            // for the gaps alone (11 * 0.1), so no packing has the padding
+            DMesh3 mesh = new DMesh3();
+            mesh.EnableVertexUVs(Vector2f.Zero);
+            for (int k = 0; k < 100; ++k) {
+                DMesh3 sq = Grid(2, 2, (s, t) => new Vector3d(s + 3 * k, t, 0));
+                sq.EnableVertexUVs(Vector2f.Zero);
+                foreach (int vid in sq.VertexIndices()) {
+                    Vector3d p = sq.GetVertex(vid);
+                    sq.SetVertexUV(vid, new Vector2f(p.x - 3 * k, p.y));
+                }
+                MeshEditor.Append(mesh, sq);
+            }
+            foreach (double padding in new[] { 0.1, 0.01 }) {
+                var packer = new UVPacker(mesh) { Padding = padding };
+                var r = packer.Compute();
+                Assert.True(r.Succeeded, r.Error);
+                bool feasible = padding < 0.05;
+                Assert.Equal(feasible, r.Converged);
+                if (feasible)
+                    Assert.True(packer.AchievedPadding >= padding * (1 - 1e-9), "padding " + packer.AchievedPadding);
+                else
+                    Assert.True(packer.AchievedPadding < padding && packer.AchievedPadding > 0, "padding " + packer.AchievedPadding);
+                // whatever the padding, the layout is consistent with AchievedPadding: inside the square, gaps kept
+                double g = packer.AchievedPadding * (1 - 1e-9);
+                foreach (int vid in mesh.VertexIndices()) {
+                    Assert.InRange(r.UV[vid].x, g, 1 - g);
+                    Assert.InRange(r.UV[vid].y, g, 1 - g);
+                }
+                for (int i = 0; i < packer.ChartCount; ++i)
+                    for (int j = i + 1; j < packer.ChartCount; ++j) {
+                        AxisAlignedBox2d a = packer.ChartBounds[i], b = packer.ChartBounds[j];
+                        double gap = Math.Max(Math.Max(b.Min.x - a.Max.x, a.Min.x - b.Max.x), Math.Max(b.Min.y - a.Max.y, a.Min.y - b.Max.y));
+                        Assert.True(gap >= g, "charts " + i + " and " + j + " gap " + gap);
+                    }
+            }
+        }
+
+        [Fact]
         public void UVPacker_InvalidInput()
         {
             DMesh3 mesh = FlatDisc(3, 8);
@@ -1079,10 +1120,183 @@ namespace geometry3Sharp.Tests
             Assert.True(r.Succeeded, r.Error);
             Assert.True(r.Iterations < 1000, "iterations " + r.Iterations);
             Assert.True(r.Converged);
-            // a single iteration from Tutte is far from the minimum
+            // a single iteration is far from the minimum
             var one = new SLIMParameterization(mesh) { MaxIterations = 1 }.Compute();
             Assert.False(one.Converged);
             Assert.True(one.Energy > r.Energy);
+        }
+
+        // 8x8 grid with random heights, InitialUV the grid jittered by up to 0.4999 cells (as in the search that
+        // found the early "converged" stop of the old criterion)
+        static DMesh3 BumpyGrid(int seed, out List<Vector2d> uv)
+        {
+            var rnd = new Random(seed);
+            int n = 8;
+            var mesh = new DMesh3();
+            int[,] id = new int[n + 1, n + 1];
+            uv = new List<Vector2d>();
+            for (int i = 0; i <= n; ++i)
+                for (int j = 0; j <= n; ++j) {
+                    bool inner = i > 0 && i < n && j > 0 && j < n;
+                    id[i, j] = mesh.AppendVertex(new Vector3d(i, j, inner ? rnd.NextDouble() * 3 : 0));
+                    double ju = inner ? 0.4999 : 0;
+                    uv.Add(new Vector2d(i + ju * (rnd.NextDouble() - 0.5) * 2, j + ju * (rnd.NextDouble() - 0.5) * 2));
+                }
+            for (int i = 0; i < n; ++i)
+                for (int j = 0; j < n; ++j) {
+                    mesh.AppendTriangle(id[i, j], id[i + 1, j], id[i + 1, j + 1]);
+                    mesh.AppendTriangle(id[i, j], id[i + 1, j + 1], id[i, j + 1]);
+                }
+            return mesh;
+        }
+
+        [Fact]
+        public void SLIM_ConvergedMeansNoFurtherDecrease()
+        {
+            // the old criterion (one step decreased the energy by less than the tolerance) stopped this case after 7
+            // iterations as converged, 1% above what a restart from its result reached. Converged now means the
+            // proxy predicts no decrease, so a restart from a converged result does not move.
+            List<Vector2d> uv;
+            DMesh3 mesh = BumpyGrid(126, out uv);
+            foreach (bool reuse in new[] { true, false }) {
+                var r = new SLIMParameterization(mesh) { InitialUV = uv, ReuseFactorization = reuse }.Compute();
+                Assert.True(r.Succeeded, r.Error);
+                Assert.True(r.Converged);
+                AssertNoFlips(mesh, r);
+                var again = new SLIMParameterization(mesh) { InitialUV = r.UV }.Compute();
+                Assert.True(again.Converged);
+                Assert.True(again.Energy >= r.Energy * (1 - 1e-6), "restart lowers the energy from " + r.Energy + " to " + again.Energy);
+            }
+        }
+
+        [Fact]
+        public void SLIM_GradientMatchesEnergy_LineSearchNeedsStrictDecrease()
+        {
+            DMesh3 mesh = SphereCap(0.4 * Math.PI, 5, 16, 0.4);   // projects injectively onto the xy plane
+            ParamMesh pm = new ParamMesh(mesh);
+            int N = pm.N;
+            double[] u = new double[N], v = new double[N];
+            for (int i = 0; i < N; ++i) { u[i] = 1.3 * pm.Pos[i].x; v[i] = 0.8 * pm.Pos[i].y + 0.1 * pm.Pos[i].x; }
+            double e0 = SLIMParameterization.Energy(pm, u, v);
+            Assert.True(MathUtil.IsFinite(e0));
+            // half the gradient of Sum A_T f = E * SurfaceArea, against central differences
+            double[] g = new double[2 * N];
+            SLIMParameterization.HalfGradient(pm, u, v, g);
+            double h = 1e-6;
+            for (int i = 0; i < N; i += 7)
+                for (int c = 0; c < 2; ++c) {
+                    double[] w = c == 0 ? u : v;
+                    double keep = w[i];
+                    w[i] = keep + h; double ep = SLIMParameterization.Energy(pm, u, v);
+                    w[i] = keep - h; double em = SLIMParameterization.Energy(pm, u, v);
+                    w[i] = keep;
+                    double fd = (ep - em) / (2 * h) * pm.SurfaceArea;
+                    Assert.True(Math.Abs(2 * g[2 * i + c] - fd) < 1e-5 * (1 + Math.Abs(fd)), "vertex " + i + " gradient " + 2 * g[2 * i + c] + " differences " + fd);
+                }
+            // the line search accepts only a strict decrease: along the gradient (ascent) it fails, against it it succeeds
+            double[] du = new double[N], dv = new double[N], tu = new double[N], tv = new double[N];
+            for (int sign = -1; sign <= 1; sign += 2) {
+                for (int i = 0; i < N; ++i) { du[i] = sign * g[2 * i]; dv[i] = sign * g[2 * i + 1]; }
+                double e1 = SLIMParameterization.LineSearch(pm, u, v, du, dv, e0, tu, tv);
+                if (sign > 0)
+                    Assert.False(e1 < e0);
+                else {
+                    Assert.True(e1 < e0);
+                    Assert.Equal(e1, SLIMParameterization.Energy(pm, tu, tv));
+                }
+            }
+            // the zero direction cannot decrease the energy either (the old line search accepted e1 == e0)
+            Array.Clear(du, 0, N); Array.Clear(dv, 0, N);
+            Assert.False(SLIMParameterization.LineSearch(pm, u, v, du, dv, e0, tu, tv) < e0);
+        }
+
+        [Fact]
+        public void SLIM_ReusedFactorization_SameMinimum_FewerFactorizations()
+        {
+            DMesh3 mesh = SphereCap(0.8 * Math.PI, 14, 48, 0.5);
+            var fresh = new SLIMParameterization(mesh) { ReuseFactorization = false, StartMap = SLIMParameterization.StartMaps.Tutte };
+            var reuse = new SLIMParameterization(mesh) { StartMap = SLIMParameterization.StartMaps.Tutte };
+            var rf = fresh.Compute();
+            var rr = reuse.Compute();
+            Assert.True(rf.Converged && rr.Converged);
+            AssertNoFlips(mesh, rr);
+            Assert.Equal(rf.Iterations, fresh.Factorizations);
+            Assert.True(reuse.Factorizations < fresh.Factorizations, "factorizations " + reuse.Factorizations + " vs " + fresh.Factorizations);
+            Assert.True(reuse.Factorizations < rr.Iterations);
+            Assert.True(Math.Abs(rr.Energy - rf.Energy) < 1e-4 * rf.Energy, "energy " + rr.Energy + " vs " + rf.Energy);
+        }
+
+        [Fact]
+        public void SLIM_StartsFromLSCMOnlyIfItIsInjective()
+        {
+            // a hemisphere: LSCM is injective and much closer to the minimum than Tutte
+            DMesh3 hemi = SphereCap(Math.PI / 2, 20, 64, 0.5);
+            var auto = new SLIMParameterization(hemi);
+            var tutte = new SLIMParameterization(hemi) { StartMap = SLIMParameterization.StartMaps.Tutte };
+            var ra = auto.Compute();
+            var rt = tutte.Compute();
+            Assert.True(auto.StartedFromLSCM);
+            Assert.False(tutte.StartedFromLSCM);
+            Assert.True(ra.Converged && rt.Converged);
+            Assert.True(ra.Iterations < rt.Iterations, "iterations " + ra.Iterations + " vs " + rt.Iterations);
+            Assert.True(Math.Abs(ra.Energy - rt.Energy) < 1e-4 * rt.Energy);
+
+            // a ramp winding 1.5 times around an axis: LSCM unrolls it nearly isometrically into a sector of
+            // 3 pi, which overlaps itself, so SLIM starts from the (injective) Tutte embedding
+            DMesh3 ramp = Grid(60, 4, (s, t) => {
+                double a = 3 * Math.PI * s, r = 1 + t;
+                return new Vector3d(r * Math.Cos(a), r * Math.Sin(a), 0.1 * a);
+            });
+            Assert.False(UVOverlap.Compute(ramp, new LSCMParameterization(ramp).Compute().UV).IsInjective);
+            var rampSlim = new SLIMParameterization(ramp);
+            var rr = rampSlim.Compute();
+            Assert.True(rr.Succeeded, rr.Error);
+            Assert.False(rampSlim.StartedFromLSCM);
+            AssertNoFlips(ramp, rr);
+        }
+
+        [Fact]
+        public void SLIM_AutoStart_CurvedCapWithZeroAreaEar_MatchesTutte()
+        {
+            // a sphere cap with a triangle of zero surface area on a boundary edge (apex at 0.9 of the edge): LSCM
+            // keeps the apex on the edge, a UV sliver that blocked every SLIM step when started from it (it stopped
+            // after a few iterations, not converged, far above the minimum). Auto must reach Tutte's minimum.
+            foreach (double cap in new[] { 0.4, 0.8 }) {
+                DMesh3 mesh = SphereCap(cap * Math.PI, 8, 24, 0.3);
+                int eid = MeshIterators.BoundaryEdges(mesh).First();
+                Index2i ev = mesh.GetOrientedBoundaryEdgeV(eid);
+                int apex = mesh.AppendVertex(Vector3d.Lerp(mesh.GetVertex(ev.a), mesh.GetVertex(ev.b), 0.9));
+                Assert.True(mesh.AppendTriangle(ev.b, ev.a, apex) >= 0);
+                var auto = new SLIMParameterization(mesh);
+                var ra = auto.Compute();
+                var rt = new SLIMParameterization(mesh) { StartMap = SLIMParameterization.StartMaps.Tutte }.Compute();
+                Assert.True(ra.Succeeded && rt.Succeeded, ra.Error + rt.Error);
+                Assert.True(ra.Converged, "cap " + cap + " not converged, energy " + ra.Energy);
+                AssertNoFlips(mesh, ra);
+                Assert.True(Math.Abs(ra.Energy - rt.Energy) < 1e-3 * rt.Energy, "cap " + cap + ": " + ra.Energy + " vs Tutte " + rt.Energy);
+                // the sliver is seen before SLIM starts (not only by the restart after getting stuck): the same run as Tutte
+                Assert.False(auto.StartedFromLSCM);
+                Assert.Equal(rt.Iterations, ra.Iterations);
+            }
+        }
+
+        [Fact]
+        public void SLIM_IterationCompleted_ReportsEachDecrease()
+        {
+            DMesh3 mesh = Hemisphere(0.5);
+            var energies = new List<double>();
+            var iterations = new List<int>();
+            var slim = new SLIMParameterization(mesh) { StartMap = SLIMParameterization.StartMaps.Tutte };
+            slim.IterationCompleted = (it, e) => { iterations.Add(it); energies.Add(e); };
+            var r = slim.Compute();
+            Assert.True(r.Converged);
+            Assert.NotEmpty(energies);
+            for (int k = 1; k < energies.Count; ++k) {
+                Assert.True(energies[k] < energies[k - 1]);
+                Assert.True(iterations[k] > iterations[k - 1]);
+            }
+            Assert.Equal(r.Energy, energies[energies.Count - 1]);
+            Assert.True(iterations[iterations.Count - 1] <= r.Iterations);
         }
 
         [Fact]
