@@ -66,7 +66,10 @@ namespace g3
             Success = 0,
             /// <summary> no input mesh, a null mesh, or non-finite coordinates (see Error) </summary>
             InvalidInput = 1,
-            /// <summary> a mesh is not closed in the winding number sense while AllowOpenMeshes is false </summary>
+            /// <summary>
+            /// a mesh is not closed in the winding number sense while AllowOpenMeshes is false (after flipped
+            /// triangles are reoriented, see ReorientedTriangles)
+            /// </summary>
             OpenInput = 2,
             /// <summary> Compute() was not called yet </summary>
             NotComputed = 3
@@ -159,7 +162,10 @@ namespace g3
         /// repair, for the vertex ids that remain (the repair moves some vertices by tiny amounts).
         /// </summary>
         public ExactPoint3[] ResultExactVertices;
-        /// <summary> per input mesh: winding numbers exact (closed mesh) or generalized (open mesh) </summary>
+        /// <summary>
+        /// per input mesh: winding numbers exact (closed mesh, after flipped triangles are reoriented) or generalized
+        /// (open mesh)
+        /// </summary>
         public bool ExactWindingA, ExactWindingB;
         /// <summary> the same for every input mesh (in the order of Meshes, or A, B), after Compute() </summary>
         public bool[] ExactWinding;
@@ -332,7 +338,8 @@ namespace g3
         /// <summary>
         /// The mesh with each component (triangles connected across edges with exactly two triangles, by vertex
         /// position, so unwelded copies of a vertex count as the same) oriented consistently, keeping the
-        /// orientation of the larger part by area (ties: of its first triangle); mesh itself if nothing changes.
+        /// orientation of the larger part by area (ties within a relative 1e-9: of its first triangle); mesh itself if
+        /// nothing changes.
         /// Components that cannot be oriented (Moebius strips) are left as they are.
         /// </summary>
         DMesh3 oriented(DMesh3 mesh)
@@ -413,7 +420,9 @@ namespace g3
                 foreach (int t in component) {
                     if (flipT[t]) flippedArea += mesh.GetTriArea(t); else keptArea += mesh.GetTriArea(t);
                 }
-                bool invert = flippedArea > keptArea;
+                // (nearly equal areas: the first triangle keeps its orientation, so that the choice does not depend on
+                // the rounding of the areas, eg under a rotation)
+                bool invert = flippedArea - keptArea > 1e-9 * (flippedArea + keptArea);
                 foreach (int t in component)
                     if (flipT[t] != invert)
                         (toFlip ?? (toFlip = new List<int>())).Add(t);

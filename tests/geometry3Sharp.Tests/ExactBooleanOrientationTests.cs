@@ -103,6 +103,23 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void OpenMeshWithInvertedShell_OnlyFlippedTriangleReoriented()
+        {
+            // one mesh: an outer box with a flipped triangle and an inverted cavity box (consistent on its own); the
+            // mesh is not closed in the winding sense, so it is reoriented: only the flipped triangle, the cavity
+            // stays inverted
+            DMesh3 m = Flipped(Box(Vector3d.Zero, 3 * Vector3d.One), (t) => t == 4);
+            DMesh3 cavity = Box(Vector3d.One, 2 * Vector3d.One);
+            cavity.ReverseOrientation();
+            MeshEditor.Append(m, cavity);
+            var b = new ExactMeshBoolean(m, new DMesh3(), ExactMeshBoolean.Operations.Union);
+            Assert.True(b.Compute(), b.Error);
+            Assert.Equal(1, b.ReorientedTriangles);
+            Assert.True(b.ExactWindingA);
+            AssertOriented(b.Result, 27 - 1);
+        }
+
+        [Fact]
         public void ConsistentInputs_NotReoriented()
         {
             // a consistently inverted shell (a cavity) and an open consistently oriented surface keep their orientation
@@ -168,14 +185,15 @@ namespace geometry3Sharp.Tests
             var b = new ExactMeshBoolean(m, new DMesh3(), ExactMeshBoolean.Operations.Union);
             Assert.True(b.Compute(), b.Error);
             Assert.Equal(2, b.ReorientedTriangles);
-            Assert.Equal(0, SameDirectionEdges(b.Result));
+            Assert.True(b.ExactWindingA);
+            Assert.Equal(0, b.Result.TriangleCount);
         }
     
         [Fact]
         public void Resolve_FlippedTriangleNextToFin_IsOrientedBox()
         {
-            // a fin (an open triangle) on two edges of the box, through which the orientation must not propagate
-            // (three triangles at an edge: no neighbour across it); one flipped triangle elsewhere
+            // two fins (open triangles) on one edge of the box, through which the orientation must not propagate
+            // (four triangles at the edge: no neighbour across it); one flipped triangle elsewhere
             DMesh3 box = Flipped(Box(Vector3d.Zero, Vector3d.One), (t) => t == 0);
             Index3i f = box.GetTriangle(5);
             Vector3d a = box.GetVertex(f.a), b = box.GetVertex(f.b), c = box.GetVertex(f.c);
@@ -189,6 +207,7 @@ namespace geometry3Sharp.Tests
             Assert.True(op.Compute(), op.Error);
             Assert.Equal(1, op.ReorientedTriangles);
             Assert.Equal(0, SameDirectionEdges(op.Result));
+            Assert.True(op.Result.CheckValidity(false, FailMode.ReturnOnly));
         }
 
         [Fact]
@@ -268,6 +287,76 @@ namespace geometry3Sharp.Tests
                 else
                     Assert.Equal("", Invariance.Difference(first, op.Result));
             }
+        }
+    
+        [Fact]
+        public void NaryConstructor_CallersListUnchanged_SameCountOnSecondCompute()
+        {
+            DMesh3 a = FlippedBox(), b = FlippedSphere();
+            var op = new ExactMeshBoolean(new List<DMesh3>() { a, b }, ExactMeshBoolean.Operations.Union);
+            Assert.True(op.Compute(), op.Error);
+            int count = op.ReorientedTriangles;
+            Assert.True(count > 0);
+            Assert.Same(a, op.Meshes[0]);
+            Assert.Same(b, op.Meshes[1]);
+            Assert.True(op.Compute(), op.Error);
+            Assert.Equal(count, op.ReorientedTriangles);
+            AssertOriented(op.Result, Volume(op.Result));
+        }
+
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void HalfFlippedBox_SameChoiceUnderSimilarity(string name)
+        {
+            // 6 of 12 triangles flipped: equal areas (up to their rounding); the first triangle keeps its orientation
+            // under every transform
+            Similarity s = Similarity.ByName(name);
+            DMesh3 m = Flipped(Box(Vector3d.Zero, Vector3d.One), (t) => t % 2 == 1);
+            var op = new ExactMeshBoolean(Invariance.Transformed(m, s), new DMesh3(), ExactMeshBoolean.Operations.Union);
+            Assert.True(op.Compute(), op.Error);
+            Assert.Equal(6, op.ReorientedTriangles);
+            Assert.True(op.ExactWindingA);
+            Assert.Equal(0, SameDirectionEdges(op.Result));
+            // triangle 0 is outward: the result is the box
+            Assert.Equal(12, op.Result.TriangleCount);
+        }
+
+        [Fact]
+        public void Resolve_SoupWithNegativeZeroAndDegenerateTriangle_IsOrientedBox()
+        {
+            // the box at the origin as a soup, with -0.0 in the copies of some vertices (welded with 0.0), one flipped
+            // face and a zero-area triangle on an edge (corners a, b and the midpoint of a-b)
+            DMesh3 box = Box(Vector3d.Zero, Vector3d.One);
+            var m = new DMesh3();
+            int k = 0;
+            foreach (int t in box.TriangleIndices()) {
+                Index3i f = box.GetTriangle(t);
+                if (t == 6) f = new Index3i(f.b, f.a, f.c);
+                Func<Vector3d, Vector3d> neg = (v) => (k++ % 2 == 0) ? new Vector3d(v.x == 0 ? -0.0 : v.x, v.y == 0 ? -0.0 : v.y, v.z == 0 ? -0.0 : v.z) : v;
+                m.AppendTriangle(m.AppendVertex(neg(box.GetVertex(f.a))), m.AppendVertex(neg(box.GetVertex(f.b))), m.AppendVertex(neg(box.GetVertex(f.c))));
+            }
+            Index3i e = box.GetTriangle(0);
+            Vector3d a = box.GetVertex(e.a), b = box.GetVertex(e.b);
+            m.AppendTriangle(m.AppendVertex(a), m.AppendVertex(b), m.AppendVertex(0.5 * (a + b)));
+            var op = new ExactMeshBoolean(m, new DMesh3(), ExactMeshBoolean.Operations.Union);
+            Assert.True(op.Compute(), op.Error);
+            Assert.Equal(1, op.ReorientedTriangles);
+            AssertOriented(op.Result, 1);
+        }
+    
+        [Fact]
+        public void NearlyHalfFlippedBox_FirstTriangleKeepsOrientation()
+        {
+            // 6 of 12 triangles flipped, the flipped ones larger by a relative 3e-13 (a vertex moved by 1e-12): within
+            // the tie band, so the first triangle keeps its orientation (outward: the box), not the larger part
+            DMesh3 box = Box(Vector3d.Zero, Vector3d.One);
+            box.SetVertex(2, box.GetVertex(2) + 1e-12 * Vector3d.AxisX);
+            DMesh3 m = Flipped(box, (t) => t % 2 == 1);
+            var op = new ExactMeshBoolean(m, new DMesh3(), ExactMeshBoolean.Operations.Union);
+            Assert.True(op.Compute(), op.Error);
+            Assert.Equal(6, op.ReorientedTriangles);
+            Assert.Equal(12, op.Result.TriangleCount);
+            Assert.Equal(0, SameDirectionEdges(op.Result));
         }
     }
 }
