@@ -14,11 +14,21 @@ on:
       - 'tests/geometry3Sharp.Tests/ExactPredicatesTests.cs'
       - 'tests/geometry3Sharp.Tests/ExactImplicitPointTests.cs'
       - 'tests/geometry3Sharp.Tests/ExactBooleanBuildingBlockTests.cs'
+      - 'tests/geometry3Sharp.Tests/geometry3Sharp.Tests.csproj'
       - 'tests/mutation/**'
+      - '.config/dotnet-tools.json'
       - '.github/workflows/mutation.yml'
   schedule:
     - cron: '23 3 * * 1'        # Mondays 03:23 UTC
   workflow_dispatch:
+
+# a new push to the same PR cancels the running (50 minute) run
+concurrency:
+  group: mutation-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 env:
   DOTNET_NOLOGO: true
@@ -46,3 +56,4 @@ jobs:
         with:
           name: mutation-report
           path: tests/mutation/StrykerOutput/*/reports/
+          if-no-files-found: error

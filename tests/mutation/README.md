@@ -46,36 +46,43 @@ covered.
 
 The `break` threshold is 80. Raise it as tests kill more mutants; never lower it to get a run green.
 
-The surviving mutants fall into these groups. Each group is a test gap to close with differential tests
-against exact evaluation (QA.md 2.4):
+Many survivors are **equivalent**. A mutant that only makes a filter decide less often (`>` against `>=`,
+`onlyD` forced to `true`, a larger bound, `permanent >= UnderflowLimit`) leaves the result unchanged, because
+the fallback computes the exact sign. The real gaps are the mutants that make a filter decide **more** often
+than its error bound allows, and the checks no test reaches. Each group below is a test gap to close, mostly
+with differential tests against exact evaluation (QA.md 2.4):
 
 1. **The filter error bounds can shrink without a test failing.**
    - In `ExactPredicates`, these mutants survive: removing terms of the bounds of orient3d, incircle and
-     insphere; `+` turned into `-`; and `*` turned into `/` in the permanents.
+     insphere; `+` turned into `-`; `*` turned into `/` in the insphere permanent; and `-det` turned into
+     `+det`.
    - In `AdaptivePredicates`, `- ResultErrBound * |det|` survives.
    - A smaller bound lets the filter return a sign that the exact evaluation would contradict.
    - The tests use configurations that are either clearly decided or exactly degenerate. They need inputs
-     whose floating-point determinant is wrong: points a few ulps off a line, plane, circle or sphere, at
-     several magnitudes, compared with the exact sign.
-2. **The underflow guards** (`permanent > UnderflowLimit`, `sum > UnderflowLimit`): mutants that flip or
-   remove these comparisons survive. They need inputs whose products are subnormal and whose filter would
-   otherwise accept.
-3. **Coincident-point shortcuts** (`a == e || b == e || ...`): the `||` to `&&` mutants survive. Only some
+     whose floating-point determinant is wrong: points a few ulps off a line, plane, circle or sphere, with
+     differences of very different magnitudes, compared with the exact sign.
+2. **The underflow guards:** `permanent < UnderflowLimit` (the guard inverted) survives. It needs inputs
+   whose products are subnormal and whose filter would otherwise accept.
+3. **Input checks in `ExactPredicates`:**
+   - Removing the `throw` for non-finite coordinates survives: no test checks that NaN or infinity throws on
+     that path.
+   - The `MinMagnitude` / `MaxMagnitude` limits survive.
+4. **Coincident-point shortcuts** (`a == e || b == e || ...`): the `||` to `&&` mutants survive. Only some
    positions of the repeated point are tested.
-4. **`ExactPoint3`**:
+5. **`ExactPoint3`**:
    - not tested, or only partly:
      - `ToDouble` near the limits of the double range: subnormal results, rounding to zero, the sign of
        zero, the shift for negative exponents;
      - the zero-W constructor (not covered at all);
      - the `is_safe` checks;
      - `GetHashCode`.
-   - Some of these mutants are equivalent: `>>` and `>>>` on a masked value are the same, and so are `|=`
-     and `^=` on a cleared bit. Record them as equivalent.
-5. **`AdaptivePredicates`**:
-   - The `onlyD` (stage D only) path and the `StageDCount` counters are not checked.
-   - The merge order in the expansion sums (line 284) is not checked either. Shewchuk's sums need the merge by
-     magnitude for non-overlapping output; a test with expansions of very different magnitudes would show it.
+   - Equivalent mutants here, and in `ExactPredicates.Decompose`: `>>` against `>>>` on a masked value,
+     `|=` against `^=` on a cleared bit.
+6. **`AdaptivePredicates`**:
+   - The `StageDCount` counters are not checked.
+   - The merge order in the expansion sums (lines 284 and 287) is not checked either. Shewchuk's sums need
+     the merge by magnitude for non-overlapping output; a test with expansions of very different magnitudes
+     would show it.
 
-Some mutants are equivalent: the code still computes the same result. An example is `det > bound` against
-`det >= bound` where the bound is never hit exactly. Mark such cases in the code with
-`// Stryker disable once <mutator>: <reason>` instead of writing a test for them.
+Mark equivalent mutants in the code with `// Stryker disable once <mutator>: <reason>` instead of writing a test
+for them.
