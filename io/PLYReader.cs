@@ -62,6 +62,7 @@ namespace g3
         /// </summary>
         public IOReadResult Read(TextReader reader, ReadOptions options, IMeshBuilder builder)
         {
+            readOptions = options;
             List<string> header = new List<string>();
             while (true) {
                 string line = reader.ReadLine();
@@ -91,6 +92,7 @@ namespace g3
         /// </summary>
         public IOReadResult Read(BinaryReader reader, ReadOptions options, IMeshBuilder builder)
         {
+            readOptions = options;
             List<string> header = new List<string>();
             StringBuilder line = new StringBuilder();
             while (true) {
@@ -218,6 +220,8 @@ namespace g3
 
 
         // readValue reads the next value of the given type (ascii files ignore the type)
+        ReadOptions readOptions;
+
         IOReadResult read_body(List<PlyElement> elements, Func<PlyType, double> readValue, IMeshBuilder builder)
         {
             try {
@@ -245,7 +249,9 @@ namespace g3
 
             builder.AppendNewMesh(bNormals, bColors, bUVs, false);
 
-            int[] vertexMap = new int[vertexElem.Count];
+            // grown per vertex read, not allocated from the header count (a damaged or hostile header can claim
+            // billions of vertices); a face can only use vertices read before it
+            List<int> vertexMap = new List<int>(Math.Min(vertexElem.Count, 1 << 20));
             double[] values = new double[vertexElem.Properties.Count];
             List<int> polygon = new List<int>();
             int nSkippedFaces = 0;
@@ -260,6 +266,8 @@ namespace g3
                         for (int pi = 0; pi < elem.Properties.Count; ++pi)
                             values[pi] = readValue(elem.Properties[pi].Type);
 
+                        if (ReadOptions.RejectsPosition(readOptions, values[ix], values[iy], values[iz]))
+                            return ReadOptions.NonFinitePosition(values[ix], values[iy], values[iz]);
                         NewVertexInfo info = new NewVertexInfo(new Vector3d(values[ix], values[iy], values[iz]));
                         if (bNormals) {
                             info.bHaveN = true;
@@ -274,7 +282,7 @@ namespace g3
                             info.bHaveUV = true;
                             info.uv = new Vector2f(values[iu], values[iv]);
                         }
-                        vertexMap[vi] = builder.AppendVertex(info);
+                        vertexMap.Add(builder.AppendVertex(info));
                     }
 
                 } else if (elem.Name == "face") {
@@ -288,15 +296,15 @@ namespace g3
                                 readValue(p.Type);
                                 continue;
                             }
-                            int n = (int)readValue(p.CountType);
+                            int n = list_length(readValue(p.CountType));
                             if (n < 0)
-                                return new IOReadResult(IOCode.FileParsingError, "negative PLY list length");
+                                return new IOReadResult(IOCode.FileParsingError, "invalid PLY list length");
                             if (pi == iIndices)
                                 polygon.Clear();
                             for (int k = 0; k < n; ++k) {
                                 double value = readValue(p.Type);
                                 if (pi == iIndices)
-                                    polygon.Add((int)value);
+                                    polygon.Add(index_value(value));
                             }
                         }
                         if (append_polygon(polygon, vertexMap, builder) == false)
@@ -304,11 +312,15 @@ namespace g3
                     }
 
                 } else {
-                    // skip unknown element
+                    // skip unknown element (one without properties has nothing to read, however large its count)
+                    if (elem.Properties.Count == 0)
+                        continue;
                     for (int i = 0; i < elem.Count; ++i) {
                         foreach (PlyProperty p in elem.Properties) {
                             if (p.IsList) {
-                                int n = (int)readValue(p.CountType);
+                                int n = list_length(readValue(p.CountType));
+                                if (n < 0)
+                                    return new IOReadResult(IOCode.FileParsingError, "invalid PLY list length");
                                 for (int k = 0; k < n; ++k)
                                     readValue(p.Type);
                             } else
@@ -334,13 +346,24 @@ namespace g3
         }
 
 
+        // a list length or a vertex index read as double (from any PLY type): -1 unless it is a non-negative integer
+        // in the int range (casting NaN or 1e300 to int depends on the runtime, and 2.9 would truncate)
+        static int list_length(double v)
+        {
+            return (v >= 0 && v <= int.MaxValue && v == Math.Floor(v)) ? (int)v : -1;
+        }
+        static int index_value(double v)
+        {
+            return list_length(v);
+        }
+
         // fan-triangulate polygon, returns false if polygon was invalid
-        static bool append_polygon(List<int> polygon, int[] vertexMap, IMeshBuilder builder)
+        static bool append_polygon(List<int> polygon, List<int> vertexMap, IMeshBuilder builder)
         {
             if (polygon.Count < 3)
                 return false;
             foreach (int idx in polygon) {
-                if (idx < 0 || idx >= vertexMap.Length)
+                if (idx < 0 || idx >= vertexMap.Count)
                     return false;
             }
             int a = vertexMap[polygon[0]];
@@ -376,7 +399,7 @@ namespace g3
                 }
                 if (token.Length == 0)
                     throw new EndOfStreamException("unexpected end of ascii PLY data");
-                return double.Parse(token.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture);
+                return MeshIOUtil.ParseDouble(token.ToString());
             }
         }
 

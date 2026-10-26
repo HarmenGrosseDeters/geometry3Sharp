@@ -42,6 +42,17 @@ namespace g3
             return r;
         }
 
+        // only overlapping pairs for which this is true are counted and stored (the triangle ids, in either order)
+        Func<int, int, bool> pairFilter;
+
+        /// <summary> as Compute, counting and storing only the overlapping pairs that pass the filter </summary>
+        internal static UVOverlap Compute(DMesh3 mesh, IList<Vector2d> uv, int maxReportedPairs, Func<int, int, bool> pairFilter)
+        {
+            var r = new UVOverlap() { MaxReportedPairs = maxReportedPairs, pairFilter = pairFilter };
+            r.compute(mesh, uv);
+            return r;
+        }
+
         /// <summary> test the vertex UVs of the mesh </summary>
         public static UVOverlap Compute(DMesh3 mesh)
         {
@@ -178,7 +189,7 @@ namespace g3
 
         void test(Tri s, Tri t)
         {
-            if (InteriorsOverlap(s.A, s.B, s.C, t.A, t.B, t.C)) {
+            if (InteriorsOverlap(s.A, s.B, s.C, t.A, t.B, t.C) && (pairFilter == null || pairFilter(s.Id, t.Id))) {
                 OverlappingPairs++;
                 if (Pairs.Count < MaxReportedPairs)
                     Pairs.Add(new Index2i(Math.Min(s.Id, t.Id), Math.Max(s.Id, t.Id)));
