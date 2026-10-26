@@ -90,6 +90,26 @@ namespace gs
             return pairs;
         }
 
+        /// <summary>
+        /// interior edges whose two triangles run through them in the same direction (the orientation is not
+        /// consistent there; 0 for a consistently oriented mesh)
+        /// </summary>
+        public static int InconsistentlyOrientedEdges(DMesh3 mesh)
+        {
+            int n = 0;
+            foreach (int eid in mesh.EdgeIndices()) {
+                Index2i et = mesh.GetEdgeT(eid);
+                if (et.b == DMesh3.InvalidID)
+                    continue;
+                Index2i ev = mesh.GetEdgeV(eid);
+                Index3i ta = mesh.GetTriangle(et.a), tb = mesh.GetTriangle(et.b);
+                if ((IndexUtil.find_tri_ordered_edge(ev.a, ev.b, ref ta) != DMesh3.InvalidID)
+                    == (IndexUtil.find_tri_ordered_edge(ev.a, ev.b, ref tb) != DMesh3.InvalidID))
+                    n++;
+            }
+            return n;
+        }
+
         /// <summary> interior edges whose triangles fold over by more than maxAngle degrees (non-degenerate triangles) </summary>
         public static List<int> FoldedEdges(DMesh3 mesh, double maxAngle = 175)
         {

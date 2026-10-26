@@ -16,9 +16,10 @@ namespace gs
     /// cell, see SolidifyResolution). If the solidify fails or its result is not clean either (rare:
     /// self-intersections where thin sheets meet in few cells), the mesh is alpha wrapped (MeshAlphaWrap,
     /// AlphaWrapFallback), whose result is always closed, manifold and free of self-intersections, but wraps
-    /// over cavities and gaps narrower than about 2 alpha and lies about Offset outside the input.
+    /// over cavities and gaps narrower than about 2 alpha and lies about Offset outside the input (simplified,
+    /// SimplifyAlphaWrap: within half an Offset of that).
     ///
-    /// Clean means: closed, no bowties, no degenerate triangles, no inside-out components and, if
+    /// Clean means: closed, no bowties, no degenerate triangles, consistently oriented, no inside-out components and, if
     /// CheckSelfIntersections, no self-intersections (exact, MeshRepairMetrics).
     ///
     /// A result can still have lost volume (eg a self-overlapping input made non-overlapping by dropping a
@@ -47,7 +48,10 @@ namespace gs
         public DMesh3 Mesh;
         /// <summary> cells along the bounding box diagonal for the solidify fallback </summary>
         public int SolidifyResolution = 128;
-        /// <summary> if true, self-intersections make the repair result unclean (triggers the solidify fallback) </summary>
+        /// <summary>
+        /// if true, self-intersections make the repair result unclean (triggers the solidify fallback). If false, the
+        /// exact stage does not check its results for them either: the sliver cleanup after the resolve can leave some
+        /// </summary>
         public bool CheckSelfIntersections = true;
         /// <summary> minimum volume IoU of the repaired mesh with the input's winding number solid (0 = no volume checks, also not CheckLostComponents) </summary>
         public double MinVolumeIoU = 0.99;
@@ -65,7 +69,7 @@ namespace gs
         public Action<MeshAutoRepair> ConfigureRepair = null;
         /// <summary> replaces the first stage (input -> repaired mesh); null = MeshAutoRepair </summary>
         public Func<DMesh3, DMesh3> RepairF = null;
-        /// <summary> return true to cancel (checked after the repair stage and during solidify) </summary>
+        /// <summary> return true to cancel (checked after the repair stage, during solidify, the alpha wrap and its simplification) </summary>
         public Func<bool> CancelF = () => { return false; };
         /// <summary>
         /// before solidifying: resolve the self-intersections exactly (the solid where the winding number is
@@ -92,6 +96,14 @@ namespace gs
         public double WrapRelativeAlpha = 300;
         /// <summary> alpha wrap fallback: offset = bounding box diagonal / WrapRelativeOffset </summary>
         public double WrapRelativeOffset = 3000;
+        /// <summary>
+        /// alpha wrap fallback: simplify the wrap (it has many small triangles, about alpha in size, also on flat
+        /// regions). Collapses create no self-intersections (Reducer.PreventSelfIntersections, exact, also if
+        /// CheckSelfIntersections is false); the result is kept only if it is clean and certified within half the
+        /// wrap offset of the unsimplified wrap (one-sided Hausdorff upper bound), so it stays about half an offset
+        /// outside the input; otherwise the unsimplified wrap is (AlphaWrapSimplified false).
+        /// </summary>
+        public bool SimplifyAlphaWrap = true;
 
         // outputs
         /// <summary> true if the result was produced by the solidify fallback (remeshed), false if it is the repair result </summary>
@@ -131,6 +143,10 @@ namespace gs
         public string WrapReason = "";
         /// <summary> the alpha wrap fallback, if it ran; null otherwise </summary>
         public MeshAlphaWrap AlphaWrap;
+        /// <summary> alpha wrap fallback: triangles of the wrap before simplification (0 if not run) </summary>
+        public int AlphaWrapTriangles;
+        /// <summary> alpha wrap fallback: true if the result is the simplified wrap (SimplifyAlphaWrap) </summary>
+        public bool AlphaWrapSimplified;
         public bool UsedExactResolve;
         /// <summary> why the exact resolve was not used ("" if it was or was not tried) </summary>
         public string ExactResolveReason = "";
@@ -148,7 +164,7 @@ namespace gs
         /// (cleanness incl. self-intersections), "volume" (VolumeIoU), "exact" (exact resolve incl. its checks;
         /// parts of it in "exact.orient", "exact.closed", "exact.resolve", "exact.check", "exact.volume"),
         /// "solidify", "solidify." + the phases of MeshWindingNumberSolidify, "solidify.check" (cleanness of
-        /// its result), "wrap" (alpha wrap fallback) and "solidify.finish" (post-processing a solidify that was
+        /// its result), "wrap" (alpha wrap fallback), "wrap.simplify" (SimplifyAlphaWrap) and "solidify.finish" (post-processing a solidify that was
         /// stopped on self-intersections, if the wrap failed)
         /// </summary>
         public Dictionary<string, long> PhaseMilliseconds = new Dictionary<string, long>();
@@ -186,6 +202,8 @@ namespace gs
             ResultReason = "not repaired";
             UsedInput = false;
             UsedAlphaWrap = false;
+            AlphaWrapTriangles = 0;
+            AlphaWrapSimplified = false;
             SolidifyReason = "";
             Solidify = null;
             AlphaWrap = null;
@@ -301,7 +319,16 @@ namespace gs
                 // (PointLimitReached: less detail, same guarantees)
                 if ((AlphaWrap.Status == MeshAlphaWrap.WrapStatus.Success || AlphaWrap.Status == MeshAlphaWrap.WrapStatus.PointLimitReached)
                     && AlphaWrap.Result != null && AlphaWrap.Result.TriangleCount > 0) {
-                    Mesh = AlphaWrap.Result;
+                    AlphaWrapTriangles = AlphaWrap.Result.TriangleCount;
+                    DMesh3 wrapped = AlphaWrap.Result;
+                    if (SimplifyAlphaWrap) {
+                        wrapped = simplify_wrap(AlphaWrap.Result, AlphaWrap.UsedOffset) ?? AlphaWrap.Result;
+                        end_phase("wrap.simplify");
+                        if (CancelF())
+                            return false;
+                    }
+                    AlphaWrapSimplified = wrapped != AlphaWrap.Result;
+                    Mesh = wrapped;
                     UsedAlphaWrap = true;
                     ResultReason = "";
                     return true;
@@ -348,6 +375,44 @@ namespace gs
         MeshRepairMetrics.SolidReference inputSolid;
         DMesh3 inputSolidOf;
 
+        // the wrap simplified within half the offset, without self-intersections; null if that is not clean or certified
+        DMesh3 simplify_wrap(DMesh3 wrap, double offset)
+        {
+            if (CancelF())
+                return null;
+            return SimplifyWithin(wrap, 0.5 * offset, 0.5 * offset, CheckSelfIntersections, CancelF);
+        }
+
+        /// <summary>
+        /// mesh reduced (quadric error up to quadricDistance^2, no collapse that creates a self-intersection), or null
+        /// if the result is not clean or not certified within maxDistance of the mesh (one-sided Hausdorff upper
+        /// bound, from the result to the mesh). The distance is checked afterwards rather than per collapse
+        /// (Reducer.MaxDeviation): on alpha wraps that check took 10 to 30 times longer and changed nothing.
+        /// </summary>
+        internal static DMesh3 SimplifyWithin(DMesh3 mesh, double quadricDistance, double maxDistance, bool checkSelfIntersections, Func<bool> cancelF)
+        {
+            DMesh3 m = new DMesh3(mesh);
+            Reducer reducer = new Reducer(m) {
+                PreventSelfIntersections = true, Progress = new ProgressCancel(cancelF),
+                AreaWeightedQuadrics = false, MinCollapseTriangleQuality = 0.05, EdgeFlipTolerance = Math.Cos(60 * MathUtil.Deg2Rad)
+            };
+            reducer.ReduceToMaxQuadricError(quadricDistance * quadricDistance);
+            m = new DMesh3(m, true);
+            if (cancelF() || NotCleanReason(m, checkSelfIntersections) != "")
+                return null;
+            // only the upper bound has to stay below maxDistance: a coarse tolerance first, a finer one if the
+            // distance is close to maxDistance
+            var spatial = new DMeshAABBTree3(mesh, true);
+            foreach (double tol in new double[] { 0.1, 0.01 }) {
+                var hd = new MeshHausdorffDistance(m, mesh) { Symmetric = false, SpatialB = spatial, Tolerance = tol * maxDistance, CancelF = cancelF };
+                if (hd.Compute() == false || !(hd.LowerBound <= maxDistance))
+                    return null;
+                if (hd.UpperBound <= maxDistance)
+                    return m;
+            }
+            return null;
+        }
+
         // the solid of the mesh with its self-intersections resolved exactly, or null (ExactResolveReason says why)
         DMesh3 resolve_exactly(DMesh3 from, DMesh3 input, bool orientByInput)
         {
@@ -385,7 +450,10 @@ namespace gs
                 }
                 // slivers where intersection curves nearly meet: collapsed or flipped by the cleanup
                 string reason = NotCleanReason(res, false);
+                // the safe rounding's count of intersections holds only for the mesh it returned
+                bool editedAfterRounding = false;
                 if (reason == "degenerate triangles") {
+                    editedAfterRounding = true;
                     new MeshPostRepairCleanup(res).Apply();
                     res = new DMesh3(res, true);
                     // the cleanup keeps slivers whose collapse would distort or fold a neighbour: collapsed anyway,
@@ -405,7 +473,10 @@ namespace gs
                     var first = resolve.Rounding;
                     int edits = 0;
                     if (separated.Count == 0) {
-                        si = first.RemainingIntersections;
+                        // (the cleanup and CollapseSlivers above can add intersections: then counted below, as the
+                        // count of MeshRepairMetrics)
+                        if (editedAfterRounding == false)
+                            si = first.RemainingIntersections;
                     } else {
                         // (all of the mesh: the edits at the former contacts, which the safe rounding must not
                         // make, are possible now)
@@ -648,7 +719,8 @@ namespace gs
 
         /// <summary>
         /// "" if the mesh is clean (see class comment), otherwise the first problem found, one of "empty",
-        /// "not closed", "bowties", "degenerate triangles" (area &lt; 1e-12 * diagonal^2, of the bounds of the triangles), "inside-out components",
+        /// "not closed", "bowties", "degenerate triangles" (area &lt; 1e-12 * diagonal^2, of the bounds of the triangles),
+        /// "inconsistent orientation" (an interior edge whose two triangles run the same way), "inside-out components",
         /// "self-intersections". Useful as a test assertion: NotCleanReason(mesh) == "".
         /// </summary>
         public static string NotCleanReason(DMesh3 mesh, bool checkSelfIntersections = true)
@@ -659,6 +731,7 @@ namespace gs
             double diag = MeshRepairMetrics.TriangleBounds(mesh).DiagonalLength;
             double areaEps = 1e-12 * diag * diag;
             if (mesh.TriangleIndices().Any(t => mesh.GetTriArea(t) < areaEps)) return "degenerate triangles";
+            if (MeshRepairMetrics.InconsistentlyOrientedEdges(mesh) > 0) return "inconsistent orientation";
             if (MeshPostRepairCleanup.FindInvertedComponents(mesh).Count > 0) return "inside-out components";
             if (checkSelfIntersections && MeshRepairMetrics.HasSelfIntersections(mesh)) return "self-intersections";
             return "";

@@ -29,7 +29,9 @@ python3 analyze_wrap.py results/wrap.jsonl results/cgalwrap.jsonl   # guarantees
 `run_all.sh <mode> [loader] [transform] [tolerance factor]` takes these options:
 - **loader:** `std` (StandardMeshReader, STL welding), `soup` (no welding) or `manual` (own exact weld + `AppendTriangle`)
 - **transform:** `meters` (scale ×0.001) or `geo` (translate by 500000, 5000000, 0)
-- **tolerance factor:** multiplies `RepairTolerance` and `MinEdgeLengthTol`
+- **tolerance factor:** `rel` (default): the library default, `MeshAutoRepair` tolerances relative to the size of
+  the mesh; a number: absolute tolerances, the 1.0.324 defaults (`RepairTolerance` 1e-6, `MinEdgeLengthTol` 1e-4)
+  times the factor (`1` reproduces the earlier absolute runs)
 
 Each mesh runs in its own process with a timeout (120 s, large meshes 900 s), so hangs and crashes are recorded too.
 
@@ -83,6 +85,36 @@ Build `5130ff3`: master after the review fixes #106, #111 and #112, plus #110. T
 
 Compared with master `e9e1599` (before #106, `BENCH_P=2`), every mesh takes the same path and gets the same outcome. The fixes of the review change no result on this set; they cover the failure cases found in the review: unused vertices, components far apart, symmetric inputs to the wrap, and more than 500 closed components.
 
+## Relative repair tolerances (`MeshAutoRepair.ToleranceMode`, 2026-10-26)
+`MeshAutoRepair` tolerances relative to the diagonal of the triangles (default) instead of absolute (1e-6 / 1e-4).
+`robust`, 400 set, `BENCH_P=2`, `TIMEOUT=300`; master `3e3d307` and the branch were run at the same time in the
+same container. Transforms: `meters` = scale ×0.001, `geo` = translate by (500000, 5000000, 0).
+
+| | repaired | clean | path: kept / exact / solidify / wrap | timeouts, crashes |
+|---|---|---|---|---|
+| master, mm | 272 | 400 | 171 / 178 / 34 / 17 | 0 |
+| master, meters | 272 | 399 | 149 / 197 / 34 / 20 | 0 |
+| master, geo | 273 | 400 | 171 / 178 / 32 / 19 | 0 |
+| relative, mm | 272 | 400 | 172 / 177 / 34 / 17 | 0 |
+| relative, meters | 273 | 399 | 174 / 172 / 34 / 20 | 0 |
+| relative, geo | 273 | 400 | 172 / 177 / 32 / 19 | 0 |
+
+Meshes whose result differs from the same mesh in mm (path / repaired / any of path, repaired, clean, triangle count):
+
+| | meters | geo |
+|---|---|---|
+| master | 47 / 10 / 332 | 2 / 1 / 73 |
+| relative | 6 / 1 / 114 | 2 / 1 / 74 |
+
+- In meters, master collapsed and merged at 1000 times the relative tolerance: 22 meshes went from "repair kept" to
+  the exact resolve, and 10 changed their repaired outcome. With relative tolerances 6 meshes still take another
+  path in meters (288801, 47979, 61134, 61460, 72002, 76966), and 1 changes its outcome (47918, which also changes
+  under geo). These come from rounding in the later stages (exact resolve, solidify, wrap), not from the repair
+  tolerances: `geo` has the same 2 path changes on master and on the branch.
+- mm, master vs relative: the same repaired count (272). 1 mesh takes another path (46583: exact resolve → repair
+  kept, repaired in both), and 32 meshes differ by a few triangles (the tolerances are 1e-8 / 1e-6 of the diagonal
+  instead of 1e-6 / 1e-4, and the orientation evidence is summed in a fixed order).
+
 ## Findings with geometry3Sharp 1.0.324 (NuGet)
 The NuGet columns in this and the next section cannot be reproduced with the code in this repository. The benchmark project only references the fork, and `Program.cs` uses classes that the NuGet package does not have (`MeshPostRepairCleanup`, `MeshRepairMetrics`, ...). They come from an earlier, unversioned setup.
 - No exceptions, hangs or crashes in any of the following setups:
@@ -94,7 +126,8 @@ The NuGet columns in this and the next section cannot be reproduced with the cod
   - 118/400 meshes lose more than 10 % of their triangles (max 88 %).
   - 32 of the 40 clean meshes are changed.
 
-  Scale both tolerances with the model size or unit.
+  Scale both tolerances with the model size or unit. (Since the relative tolerances PR this is the library default;
+  `run_all.sh` results without a tolerance factor are relative, earlier ones were absolute.)
 - Defects introduced by the pipeline (meshes affected, out of 400):
   - duplicate triangles: 40
   - new degenerate triangles: 59
@@ -830,6 +863,47 @@ but the wrap fits their winding number solid worse (IoU 0.958 → 0.421 and 0.99
 3.4 % → 4.8 %). Together with 56107.stl that is 3 of about 150 solidified meshes per two selections
 where stopping early gives up a cleaner (though still not repaired) solidify.
 
+### Is the wrap fallback still needed? With and without it, on the former wrap cases
+The 32 meshes of both selections that an earlier run (before #44, #49, #40) wrapped, `robust` on master `e30ee26`
+with and without `BENCH_WRAP_FALLBACK` (`BENCH_P=2`). 17 of them now go through the exact resolve; 13 are still
+wrapped. Without the wrap, these 13 are returned with 6 to 7944 exact self-intersections:
+
+| 32 former wrap cases | without wrap | with wrap |
+|---|---|---|
+| clean + no exact self-intersections | 19 | 31 (+1 not computed, > 300k triangles) |
+| repaired (strict criterion) | 5 | 5 |
+
+The wrap stays on as the last resort: it repairs none of them in the strict sense (its deviation is about the
+offset plus what it wraps over), but it turns 12 self-intersecting results into clean ones.
+
+### Simplifying the wrap result (`MeshRobustRepair.SimplifyAlphaWrap`)
+The wrap has triangles of about alpha everywhere, also on flat regions: median 160k triangles on the 13 cases above.
+`SimplifyAlphaWrap` (default on) reduces it (quadric error up to (offset / 2)², no collapse that creates a
+self-intersection) and keeps the result only if it is clean and a one-sided Hausdorff upper bound certifies it
+within half the offset of the unsimplified wrap, so that it stays about half an offset outside the input; otherwise
+the unsimplified wrap is the result (`AlphaWrapSimplified`). `BENCH_WRAP_SIMPLIFY=0` turns it off;
+`robust_wrap_tris` is the triangle count of the unsimplified wrap. The 13 wrapped meshes on master `42f53be` (with
+#145) plus this change, 2 in parallel:
+
+| 13 wrap cases | not simplified | simplified |
+|---|---|---|
+| triangles, median (max) | 160k (415k) | 34k (170k) |
+| triangles / not simplified, median (p10, p90) | | 0.29 (0.13, 0.66) |
+| simplified wrap accepted | | 13 of 13 |
+| Hausdorff to the input, median | 2.20 % | 2.20 % (largest change 0.014 points) |
+| IoU, median | 0.769 | 0.769 (largest change 0.002) |
+| clean + no exact self-intersections | 12 (+1 not computed, > 300k triangles) | 13 |
+| time per mesh, median (max) | 33 s (50 s) | 55 s (141 s) |
+| ... of it the simplification, median (max) | | 24 s (101 s) |
+
+Two earlier versions on the same 13 meshes (master `3d58441`):
+- Certifying every collapse (`Reducer.MaxDeviation` = offset) took 10 to 30 times longer than the
+  self-intersection guard and changed no triangle count (46244.stl: 15356 triangles either way, 176 s vs 14 s):
+  median 159 s per mesh, one timeout at 900 s. Checking the whole result afterwards is enough.
+- A bound of a full offset gives fewer triangles (median 30k; 46244.stl 15k instead of 22k), but the simplified
+  wrap can then reach the input (the wrap lies only about one offset outside it), and on 87345.stl the quadric
+  underestimated the distance (2.5 offsets, rejected by the check).
+
 ## Rejected rule 1 Steiner points in the alpha wrap: cause and fix
 The cause was the oracle's triangle normals, which came from `Vector3d.Normalized`. That returns zero below an absolute length of 2.2e-16, so a small but valid triangle got no normal (99911 has 10 of them). `slab_entry` then treated every segment through the triangle's node box as starting inside the offset volume (`FirstEntry` = 0). The wrap inserted the far end of the dual edge, which lies outside the box, and the insertion was rejected (`Outside`). The facet stayed on the result and could be closer to the input than the offset.
 
@@ -909,3 +983,48 @@ else on the machine, master `2a455dc` before, the change after:
 The ties in the QEF and the quality checks of small triangles now decide differently, which changes the triangle
 count of about a third of the solidified meshes, but not their quality or the time. Repair and exact-resolve
 results are unchanged.
+
+## Objaverse corpus (second data set)
+
+Thingi10K holds broken 3D-print meshes. [Objaverse 1.0](https://huggingface.co/datasets/allenai/objaverse)
+(Sketchfab models: game assets, scans, CAD exports) breaks differently: open shells, many separate parts,
+double-sided and interior faces, inconsistent normals. `fetch_objaverse.py` downloads a reproducible selection
+as a second corpus (docs/QA.md 2.7a):
+
+```
+python3 fetch_objaverse.py                      # ~620 MB: 300 objects with 500..100k faces, data/objaverse/
+BENCH_DATA=objaverse ./run_all.sh robust        # writes results/objaverse/robust.jsonl
+python3 analyze_fidelity.py results/objaverse/robust.jsonl
+python3 analyze_paths.py results/objaverse/robust.jsonl
+```
+
+- **Selection:** dataset revision pinned (`REVISION` in the script); 4 of the 160 metadata shards and 300 of
+  their objects drawn with seed 42 (`--count`, `--shards`, `--seed`).
+- **Licenses:** the collection is ODC-By; every object has its own license. Only CC0 and CC-BY objects are
+  selected (no NC, ND or SA). `data/objaverse/manifest.csv` lists uid, license, source URL and the
+  attribution of every object. Nothing of it is committed (CLAUDE.md); results that name objects must keep
+  their attribution.
+
+**Baseline (`robust`, master 6ec47ed, `BENCH_P=4`, 120 s timeout):**
+
+| Objaverse, 300 objects | |
+|---|---|
+| closed + topologically clean | 279 |
+| ... and no exact self-intersections | 272 |
+| **repaired** (also Hausdorff < 1 %, IoU > 0.99) | **64** |
+| `timeout_or_crash` | 17 |
+| repair time median / max | 9.6 s / 104 s |
+
+The 17 are timeouts under the parallel load, not crashes: run alone with a 200 s timeout, three of four
+checked finished in 50-60 s without an exception, the fourth took longer than 200 s. For comparison only (other
+conditions: `BENCH_P=2`, `TIMEOUT=300`, an older master), the robust repair of the Thingi10K selection repaired
+272 of 400 (above).
+
+Per stage (`analyze_paths.py`): the first stage repaired 23 of 26; the exact resolve 39 of 136, solidify
+2 of 64, alpha wrap 0 of 57. Most misses are deviation, not defects: the 97 exact-resolve results that miss
+are all clean, without self-intersections and with IoU > 0.99, at a median Hausdorff distance of 2.7 %
+(1.1 % to 25 %); in 82 of them the larger part is the distance from the input to the result (`hd_back`), ie
+input surface that the result does not have. The likely cause (not yet checked mesh by mesh): Objaverse models
+often carry interior and double-sided faces that the solid's boundary drops on purpose. A fidelity measure that
+ignores dropped interior faces would tell these apart from real losses; until then, compare runs on this corpus
+with each other, not with Thingi10K.
