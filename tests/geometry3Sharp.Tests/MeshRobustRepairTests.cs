@@ -291,10 +291,30 @@ namespace geometry3Sharp.Tests
             Assert.True(r.UsedInput);
             Assert.True(r.UsedExactResolve, r.ExactResolveReason);
             Assert.Equal(Volume(big) + Volume(small), Volume(r.Mesh), 6);
-            // without the check: accepted as before
+            // without the check: accepted as before; MinVolumeIoU = 0 turns off all volume checks
             var off = new MeshRobustRepair(new DMesh3(input)) { RepairF = (m) => new DMesh3(big), CheckLostComponents = false };
             Assert.True(off.Apply());
             Assert.Equal("", off.FallbackReason);
+            var noVolume = new MeshRobustRepair(new DMesh3(input)) { RepairF = (m) => new DMesh3(big), MinVolumeIoU = 0 };
+            Assert.True(noVolume.Apply());
+            Assert.Equal("", noVolume.FallbackReason);
+        }
+
+        [Fact]
+        public void LostComponents_SpecksBelowAThousandthOfTheDiagonalNotJudged()
+        {
+            // a closed speck (1e-4 across, as MeshAutoRepair's MinEdgeLengthTol removes) next to a unit sphere: losing it
+            // is not a lost component (a fallback would lose it as well); a part 1e-2 across is one
+            DMesh3 big = Sphere(1, Vector3d.Zero);
+            DMesh3 withSpeck = new DMesh3(big);
+            MeshEditor.Append(withSpeck, Box(3, 0, 0, 3.0001, 0.0001, 0.0001));
+            Assert.Equal(0, MeshRepairMetrics.LostComponents(withSpeck, big));
+            var r = new MeshRobustRepair(new DMesh3(withSpeck)) { RepairF = (m) => new DMesh3(big) };
+            Assert.True(r.Apply());
+            Assert.Equal("", r.FallbackReason);
+            DMesh3 withPart = new DMesh3(big);
+            MeshEditor.Append(withPart, Box(3, 0, 0, 3.01, 0.01, 0.01));
+            Assert.Equal(1, MeshRepairMetrics.LostComponents(withPart, big));
         }
 
         [Fact]

@@ -47,11 +47,13 @@ namespace gs
         public int SolidifyResolution = 128;
         /// <summary> if true, self-intersections make the repair result unclean (triggers the solidify fallback) </summary>
         public bool CheckSelfIntersections = true;
-        /// <summary> minimum volume IoU of the repaired mesh with the input's winding number solid (0 = no check) </summary>
+        /// <summary> minimum volume IoU of the repaired mesh with the input's winding number solid (0 = no volume checks, also not CheckLostComponents) </summary>
         public double MinVolumeIoU = 0.99;
         /// <summary>
         /// also a result that lost a connected component of the input (MeshRepairMetrics.LostComponents: a part too small
-        /// for the volume IoU, eg a screw of an assembly) is treated like one whose volume differs ("parts of the input lost")
+        /// for the volume IoU, eg a screw of an assembly) is treated like one whose volume differs ("parts of the input lost").
+        /// Only with MinVolumeIoU &gt; 0 (0 turns off both). The fallbacks after such a rejection (solidify, wrap) are not
+        /// checked for it: their ResultReason can be "" although they lost the same part, see FallbackReason and UsedInput.
         /// </summary>
         public bool CheckLostComponents = true;
         /// <summary> configures the first stage (eg tolerances) </summary>
@@ -253,8 +255,8 @@ namespace gs
         string volume_check(DMesh3 input, DMesh3 res, out double iou)
         {
             iou = double.NaN;
-            if (MinVolumeIoU <= 0 && CheckLostComponents == false)
-                return "";
+            if (MinVolumeIoU <= 0)
+                return "";      // (no volume checks at all)
             // (the input's solid once per Apply(), the result's once for both checks)
             if (inputSolid == null || inputSolidOf != input) {
                 inputSolid = new MeshRepairMetrics.SolidReference(input);

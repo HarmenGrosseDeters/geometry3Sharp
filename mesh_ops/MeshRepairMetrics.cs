@@ -158,6 +158,22 @@ namespace gs
         {
             internal readonly DMesh3 Mesh;
             internal readonly Func<Vector3d, bool> Inside;
+            List<AxisAlignedBox3d> componentBoxes;
+            /// <summary> boxes of the connected components of Mesh (computed once) </summary>
+            internal List<AxisAlignedBox3d> ComponentBoxes()
+            {
+                if (componentBoxes == null) {
+                    var comps = new MeshConnectedComponents(Mesh);
+                    comps.FindConnectedT();
+                    componentBoxes = comps.Components.Select(c => {
+                        var box = AxisAlignedBox3d.Empty;
+                        foreach (int tid in c.Indices) box.Contain(Mesh.GetTriBounds(tid));
+                        return box;
+                    }).ToList();
+                }
+                return componentBoxes;
+            }
+
             internal SolidReference(DMesh3 input)
             {
                 Mesh = input.TriangleCount > 0 ? WindingContouring.OrientedCopy(input) : input;
@@ -306,8 +322,15 @@ namespace gs
         /// sampled in its box (up to 1024, 256 if none of them lies in the solid) until 32 lie in the input's solid (winding number of its oriented copy
         /// &gt; 0.5, as VolumeIoU); the component is lost if fewer than minCoverage of them lie in the result's solid.
         /// Components with fewer than 8 such points (open sheets, soups, walls thinner than about 1/100 of their box)
-        /// are not judged. At most maxComponents components, the largest boxes first. Deterministic (seed).
+        /// are not judged, nor components whose box diagonal is below MinComponentDiagonal of the input's (specks that
+        /// the repair removes on purpose, eg below MeshAutoRepair.MinEdgeLengthTol, and that a fallback would lose as
+        /// well). At most maxComponents components, the largest boxes first (beyond that the smallest are not judged).
+        /// "In the input's solid" is the solid of the whole input, so a box that holds other parts as well is judged by
+        /// them too (a lost part can then count as kept). Deterministic (seed).
         /// </summary>
+        /// <summary> LostComponents does not judge components whose box diagonal is below this fraction of the input's </summary>
+        public const double MinComponentDiagonal = 1e-3;
+
         public static int LostComponents(DMesh3 input, DMesh3 result, double minCoverage = 0.5, int maxComponents = 1000, int seed = 1)
         {
             return LostComponents(new SolidReference(input), SolidInside(result), minCoverage, maxComponents, seed);
@@ -319,13 +342,9 @@ namespace gs
             if (input.TriangleCount == 0)
                 return 0;
             Func<Vector3d, bool> inInput = reference.Inside;
-            var comps = new MeshConnectedComponents(input);
-            comps.FindConnectedT();
-            var boxes = comps.Components.Select(c => {
-                var box = AxisAlignedBox3d.Empty;
-                foreach (int tid in c.Indices) box.Contain(input.GetTriBounds(tid));
-                return box;
-            }).Where(b => b.Volume > 0).OrderByDescending(b => b.Volume).Take(maxComponents).ToList();
+            double minDiagonal = MinComponentDiagonal * TriangleBounds(input).DiagonalLength;
+            var boxes = reference.ComponentBoxes().Where(b => b.Volume > 0 && b.DiagonalLength >= minDiagonal)
+                .OrderByDescending(b => b.Volume).Take(maxComponents).ToList();
             int[] lost = new int[boxes.Count];
             gParallel.ForEach(Interval1i.Range(boxes.Count), (k) => {
                 var rnd = new Random(seed + 7919 * k);
