@@ -261,10 +261,8 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void MutatedFiles_ReadSafely_G3Mesh() => AssertMutatedFilesReadSafely("g3mesh", true, false);
 
-        // STL (text and binary), OFF, binary PLY and glB report Ok for coordinates like 1e400 or NaN (or random bytes
-        // that are NaN as floats); OBJ, text PLY and 3MF reject them. Whether all readers should reject them is open
-        // (reported); enabled when decided.
-        [Theory(Skip = "readers accept non-finite coordinates (reported, decision pending)")]
+        // a result reported as Ok has finite coordinates (ReadOptions.AllowNonFiniteCoordinates is false by default)
+        [Theory]
         [MemberData(nameof(Formats))]
         public void MutatedFiles_OkMeansFiniteCoordinates(string extension, bool binary) => AssertMutatedFilesReadSafely(extension, binary, true);
     }
