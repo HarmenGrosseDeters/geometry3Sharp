@@ -670,5 +670,12 @@ Each fix has a unit test that fails on the code before the fix.
     no longer depends on the unit.
   - ShapeDiameter differs on 14 meshes. The SDF jumps where rays graze a wall.
   - The fits differ on 0–7 meshes per primitive: ties under rounding, as for the rotation.
-- **geo:** run pending.
+- **geo (offset 5e6):**
+  - Before the copy at the origin, `DMeshAABBTree3`'s float boxes (rounding 0.3 at 5e6) made the analysis
+    twice as slow (median 11.1 s vs 5.4 s per mesh, 29 timeouts), with up to 30 % of the NaN pattern
+    differing.
+  - Now ray and inscribed-ball thickness and their NaN shares are identical to the origin on all meshes,
+    with the same 3 timeouts and about the same time (median 6.2 s vs 5.7 s).
+  - ShapeDiameter differs on 13 meshes and the fits on 0–9, as for meters.
+  - The sign agreement differs on 8 meshes, by points near holes.
 
