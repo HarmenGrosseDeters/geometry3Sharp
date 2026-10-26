@@ -236,6 +236,45 @@ namespace geometry3Sharp.Tests
                 new Vector3d((x1 - x0) / 2, (y1 - y0) / 2, (z1 - z0) / 2)) }.Generate().MakeDMesh();
         }
 
+        // a unit box and a small sphere (radius 0.02: triangles of about 1e-5 area, not degenerate for the box's
+        // diagonal), and an unused vertex far away (eg from an OBJ file)
+        static DMesh3 BoxSmallSphereAndFarUnusedVertex()
+        {
+            DMesh3 m = Box(-1, -1, -1, 1, 1, 1);
+            MeshEditor.Append(m, Sphere(0.02, new Vector3d(3, 0, 0)));
+            m.AppendVertex(new Vector3d(1e4, 1e4, 1e4));
+            return m;
+        }
+
+        [Fact]
+        public void UnusedVertexFarAway_SmallPartKept()
+        {
+            // the unused vertex made the diagonal 1e4 times larger: the sphere's triangles were "degenerate", the
+            // cleanup collapsed the sphere, and the exact resolve, whose volume check does not notice a part this
+            // small, returned the box alone
+            DMesh3 m = BoxSmallSphereAndFarUnusedVertex();
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(m));
+            int n = m.TriangleCount;
+            var r = new MeshRobustRepair(m);
+            Assert.True(r.Apply());
+            Assert.Equal("", r.FallbackReason);
+            Assert.Equal(n, r.Mesh.TriangleCount);
+            Assert.True(r.Mesh.CachedBounds.Max.x < 3.1);       // the unused vertex is gone
+        }
+
+        [Fact]
+        public void UnusedVertexFarAway_SliversAndRoundingRepairKeepSmallTriangles()
+        {
+            // the same thresholds (relative to the triangles' bounds) in the sliver collapse and the rounding repair
+            DMesh3 m = BoxSmallSphereAndFarUnusedVertex();
+            int n = m.TriangleCount;
+            Assert.Equal(0, MeshRobustRepair.CollapseSlivers(m));
+            var rounding = new MeshRoundingRepair(m);
+            rounding.Apply();
+            Assert.Equal(0, rounding.InitialDegenerate);
+            Assert.Equal(n, m.TriangleCount);
+        }
+
         [Fact]
         public void TouchingSolids_SeparatedAfterTheExactResolve()
         {
