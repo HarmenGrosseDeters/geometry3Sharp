@@ -337,26 +337,25 @@ turn a short seam into a long one (101397: 2 → 175 inconsistent edges), and cl
 `MeshAutoRepair.CutOrientationSeams = false` (and `MeshRepairOrientation.KeepShortSeams = false`) restore the
 earlier behaviour; the erosion stays as the fallback for holes that still cannot be filled.
 
-Same machine, `BENCH_P=2`, `TIMEOUT=300`, master a8a5572 (with #44, #52, #79) with and without the change, both
-selections:
+Same machine, `BENCH_P=2`, `TIMEOUT=300`, master 7f0f97c (with #44, #52, #79, #96, #110–#112: safe rounding,
+lost-component check) with and without the change, both selections run at the same time:
 
 | | first selection, before | after | holdout, before | after |
 |---|---|---|---|---|
-| clean¹ + no exact self-intersections | 399 | 399 | 397 | 397 |
-| **repaired** (also Hausdorff < 1 %, IoU > 0.99) | 266 | **270** | 262 | **267** |
-| meshes repaired / lost | | +4 / −0 | | +5 / −0 |
-| IoU < 0.99 | 46 | **42** | 50 | **46** |
-| Hausdorff (max of both directions) > 1 % | 125 | **121** | 132 | **127** |
-| exact stage used | 140 | **158** | 148 | **159** |
-| median / p90 repair time | 3.8 / 16.5 s | 3.8 / 18.2 s | 3.6 / 15.9 s | 3.9 / 15.3 s |
-| timeouts (300 s) | 0 | 0 | 1 | 1 (the same mesh) |
+| **repaired** (clean¹, no exact self-intersections, Hausdorff < 1 %, IoU > 0.99) | 270 | **272** | 266 | **270** |
+| meshes repaired / lost | | +3 / −1 | | +4 / −0 |
+| IoU < 0.99 | 41 | **35** | 45 | **41** |
+| Hausdorff (max of both directions) > 1 % | 122 | **119** | 127 | **123** |
+| exact stage used | 156 | **178** | 160 | **168** |
+| median / p90 repair time | 3.9 / 15.3 s | 4.4 / 14.7 s | 4.0 / 15.0 s | 4.2 / 17.0 s |
+| timeouts (300 s) | 0 | 0 | 1 | 1 (the same mesh, 113906) |
 
-Gained: 101397, 277709, 56795, 73932; 132204, 195685, 409630, 49874, 88857. Before the change, the exact stage
-stopped at "not closed (winding number)" for 71 / 64 meshes (with #79 most of them are inputs, tried because the
-repair result lost volume); now the repair result is resolved first, and the remaining stops are inputs that
-cannot be resolved after a repair result that could not be either (mostly its volume differs: 35 / 47; degenerate
-triangles: 28 / 15). An earlier measurement on master 8597e32 (before #52 and #79) gave 258 → 264 and
-256 → 260 (one loss, 285605, slivers after the second resolve round).
+Gained: 101397, 277709, 73932; 132204, 195685, 49874, 88857. Lost: 498458. With the change, its exact stage
+succeeds (the repair result oriented by the input), and the safe rounding reports no intersections left, so the
+result is used; the benchmark's `MeshRepairMetrics.SelfIntersections` counts 10 pairs in it (the solidify that master
+uses there has none). The safe rounding takes its count from `MeshRoundingRepair` when no touching vertices were
+separated, which counts contacts differently (see ² above). Earlier measurements of this change: on master a8a5572
+266 → 270 / 262 → 267, on 8597e32 258 → 264 / 256 → 260.
 
 Cases the strict criterion cannot reach:
 - zero-volume fins of the input (123354, 124709: the repair is faithful, the solid loses them: 1.3–1.5 %);
