@@ -275,17 +275,26 @@ namespace gs
                 }
                 // where solids touch (at a vertex or along an edge) Resolve gives manifold sheets with duplicated
                 // vertices, which touch: separate them minimally
-                SeparateTouchingVertices(res, SeparateFraction);
-                // (the separation and the cleanup can make new slivers and intersections)
+                var separated = new List<int>();
+                SeparateTouchingVertices(res, SeparateFraction, separated);
+                // (the separation can make new slivers and intersections: repaired again; without moves the safe
+                // rounding's counts hold, there were no touching vertices)
                 int si = -1;
                 if (SafeRounding) {
-                    var rounding = new MeshRoundingRepair(res);
-                    rounding.Apply();
-                    int edits = rounding.Collapses + rounding.Flips + rounding.Moves + rounding.Zips + rounding.RemovedTriangles;
-                    if (edits > 0)
-                        res = new DMesh3(res, true);
-                    si = rounding.RemainingIntersections;
                     var first = resolve.Rounding;
+                    int edits = 0;
+                    if (separated.Count == 0) {
+                        si = first.RemainingIntersections;
+                    } else {
+                        // (all of the mesh: the edits at the former contacts, which the safe rounding must not
+                        // make, are possible now)
+                        var rounding = new MeshRoundingRepair(res);
+                        rounding.Apply();
+                        edits = rounding.Collapses + rounding.Flips + rounding.Moves + rounding.Zips + rounding.RemovedTriangles;
+                        if (edits > 0)
+                            res = new DMesh3(res, true);
+                        si = rounding.RemainingIntersections;
+                    }
                     ExactRoundingEdits.Add(new Index2i(first.Collapses + first.Flips + first.Moves + first.Zips + first.RemovedTriangles, edits));
                 }
                 reason = NotCleanReason(res, false);
@@ -408,6 +417,12 @@ namespace gs
         /// </summary>
         public static int SeparateTouchingVertices(DMesh3 mesh, double fraction)
         {
+            return SeparateTouchingVertices(mesh, fraction, null);
+        }
+
+        /// <summary> as SeparateTouchingVertices(mesh, fraction), and adds the vertices moved to moved (if not null) </summary>
+        public static int SeparateTouchingVertices(DMesh3 mesh, double fraction, List<int> moved)
+        {
             var at = new Dictionary<Vector3d, List<int>>();
             foreach (int vid in mesh.VertexIndices()) {
                 Vector3d v = mesh.GetVertex(vid);
@@ -431,8 +446,10 @@ namespace gs
                         moves.Add(new KeyValuePair<int, Vector3d>(vid, kv.Key + fraction * (c / n - kv.Key)));
                 }
             }
-            foreach (var m in moves)
+            foreach (var m in moves) {
                 mesh.SetVertex(m.Key, m.Value);
+                moved?.Add(m.Key);
+            }
             return moves.Count;
         }
 

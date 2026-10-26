@@ -261,6 +261,30 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void Repair_EvaluationLimit_StopsWithAValidMeshAndExactCounts()
+        {
+            DMesh3 m = Sphere(6);
+            foreach (int eid in m.EdgeIndices().ToArray()) {
+                if (eid % 7 != 0 || m.IsEdge(eid) == false)
+                    continue;
+                Index2i ev = m.GetEdgeV(eid);
+                Vector3d a = m.GetVertex(ev.a), b = m.GetVertex(ev.b);
+                DMesh3.EdgeSplitInfo info;
+                if (m.SplitEdge(eid, out info) == MeshResult.Ok)
+                    m.SetVertex(info.vNew, a + 1e-13 * (b - a).Normalized);
+            }
+            int before = Degenerate(m);
+            var repair = new MeshRoundingRepair(m) { MaxPairTests = 50 };
+            Assert.False(repair.Apply());
+            Assert.True(repair.EvaluationLimitReached);
+            Assert.True(m.CheckValidity(true, FailMode.ReturnOnly));
+            Assert.True(m.IsClosed());
+            Assert.Equal(Degenerate(m), repair.RemainingDegenerate);
+            Assert.True(repair.RemainingDegenerate > 0 && repair.RemainingDegenerate < before);
+            Assert.Equal(0, MeshRepairMetrics.SelfIntersections(m));
+        }
+
+        [Fact]
         public void Repair_VertexThroughThinWall_Moved()
         {
             // a slab 2e-4 thick whose top face has a vertex 1e-9 below the bottom face: separated by moving it

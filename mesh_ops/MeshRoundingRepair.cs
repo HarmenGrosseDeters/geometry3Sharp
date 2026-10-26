@@ -63,6 +63,16 @@ namespace g3
         public Func<int, bool> FixedVertexF = null;
         /// <summary> passes over the defects </summary>
         public int MaxPasses = 4;
+        /// <summary>
+        /// bounds the time on meshes with many defects that cannot be repaired: proposed edits evaluated at most, per
+        /// defect found at the start (plus 10000), and exact triangle pair tests in the evaluations at most
+        /// (EvaluationLimitReached tells; the result is valid, the defects left are counted)
+        /// </summary>
+        public int MaxEvaluationsPerDefect = 50;
+        /// <summary> see MaxEvaluationsPerDefect </summary>
+        public long MaxPairTests = 20000000;
+        /// <summary> the repair stopped at MaxEvaluationsPerDefect or MaxPairTests </summary>
+        public bool EvaluationLimitReached;
         /// <summary> remove tiny or thin components that keep a degenerate triangle or were edited (see class comment) </summary>
         public bool RemoveTinyComponents = true;
 
@@ -123,6 +133,9 @@ namespace g3
             List<int> bad = degenerate_triangles();
             InitialIntersections = pairs.Count;
             InitialDegenerate = bad.Count;
+            evaluations = pairTests = 0;
+            maxEvaluations = 10000 + (long)MaxEvaluationsPerDefect * (pairs.Count + bad.Count);
+            EvaluationLimitReached = false;
             for (int pass = 0; pass < MaxPasses && (pairs.Count > 0 || bad.Count > 0); ++pass) {
                 int edits = Collapses + Flips + Moves + Zips;
                 // after the first pass, only where the mesh changed since (elsewhere the same edits would fail again)
@@ -134,7 +147,7 @@ namespace g3
                     if (Mesh.IsTriangle(t) == false || is_bad(t) == false)
                         continue;
                     Index3i tv = Mesh.GetTriangle(t);
-                    if (retry == null || retry.Contains(tv.a) || retry.Contains(tv.b) || retry.Contains(tv.c))
+                    if ((retry == null || retry.Contains(tv.a) || retry.Contains(tv.b) || retry.Contains(tv.c)))
                         fix_degenerate(t);
                 }
                 // (no edit adds an intersecting pair: without pairs there are none to find)
@@ -147,7 +160,7 @@ namespace g3
                     pairs = intersecting_pairs();
                 }
                 bad = degenerate_triangles();
-                if (Collapses + Flips + Moves + Zips == edits)
+                if (Collapses + Flips + Moves + Zips == edits || EvaluationLimitReached)
                     break;
             }
             if (RemoveTinyComponents && (bad.Count > 0 || touched.Count > 0) && remove_tiny_components(bad) > 0) {
@@ -399,8 +412,14 @@ namespace g3
         int cacheOldI;
         readonly List<int> cacheRemoved = new List<int>();
 
+        long evaluations, maxEvaluations, pairTests;
+
         bool improves(double displacement = 0)
         {
+            if (++evaluations > maxEvaluations || pairTests > MaxPairTests) {
+                EvaluationLimitReached = true;
+                return false;
+            }
             int saveV = movedV;
             Vector3d savePos = movedPos;
             // (SharedPositionsTouch: a vertex moved onto other vertices would touch them uncounted)
@@ -462,6 +481,7 @@ namespace g3
                 if (ExactTriangleIntersection.IsDegenerate(ref T))
                     continue;
                 near(box(t), scratch);
+                pairTests += scratch.Count;
                 foreach (int x in scratch) {
                     if (x == r || (removedSet.Contains(x) && x < r))
                         continue;
@@ -482,6 +502,7 @@ namespace g3
                     continue;
                 Index3i t = added[i];
                 near(box(t), scratch);
+                pairTests += scratch.Count;
                 foreach (int x in scratch) {
                     if (removedSet.Contains(x))
                         continue;
@@ -792,7 +813,7 @@ namespace g3
                 foreach (int u in Mesh.VtxVerticesItr(v)) { ctr += Mesh.GetVertex(u); n++; }
                 Vector3d toCtr = (n > 0) ? (ctr / n - p).Normalized : Vector3d.Zero;
                 double ulp = 8 * 2.220446049250313e-16 * Math.Max(Math.Abs(p.x), Math.Max(Math.Abs(p.y), Math.Abs(p.z))) + 1e-300;
-                for (double s = ulp; s <= maxLength; s *= 4) {
+                for (double s = ulp; s <= maxLength; s *= 16) {
                     if (vn.Value.LengthSquared > 0.5 && (try_move(v, p + s * vn.Value) || try_move(v, p - s * vn.Value)))
                         return;
                     if (toCtr.LengthSquared > 0.5 && try_move(v, p + s * toCtr))
