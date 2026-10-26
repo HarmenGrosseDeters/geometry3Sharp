@@ -13,6 +13,21 @@ using gs;
 
 static class Program
 {
+    // median time of runs of f after one untimed warm-up run (JIT); returns the result of the last run
+    static T Timed<T>(Func<T> f, out long ms, int runs = 3)
+    {
+        T r = f();
+        var times = new List<long>();
+        for (int k = 0; k < runs; ++k) {
+            var sw = Stopwatch.StartNew();
+            r = f();
+            times.Add(sw.ElapsedMilliseconds);
+        }
+        times.Sort();
+        ms = times[runs / 2];
+        return r;
+    }
+
     static void Main()
     {
         Console.WriteLine("| mesh | method | vertices (+inserted) | min angle | negative weights | mean error | max error | time |");
@@ -38,10 +53,9 @@ static class Program
         DMesh3 lp = ObtusePlane(10, 200, 1.0, 0.05);
         int ls = Nearest(lp, new Vector3d(5, 5, 0));
         foreach (bool refine in new[] { false, true }) {
-            var sw = Stopwatch.StartNew();
-            var vhm = new VectorHeatMethod(lp) { IntrinsicRefine = refine };
+            long ms;
+            var vhm = Timed(() => { var m = new VectorHeatMethod(lp) { IntrinsicRefine = refine }; m.ComputeLogMap(ls); return m; }, out ms);
             Vector2d[] log = vhm.ComputeLogMap(ls);
-            sw.Stop();
             double sum = 0, max = 0; int n = 0;
             Vector3d c = lp.GetVertex(ls);
             foreach (int v in lp.VertexIndices()) {
@@ -50,7 +64,7 @@ static class Program
                 double e = (vhm.Triangulation.ToWorld(ls, log[v]) - (p - c)).Length;
                 sum += e; max = Math.Max(max, e); n++;
             }
-            Console.WriteLine($"| plane 169° 10 x 10 | {(refine ? "refined 25°" : "flips")} | {sum / n:F4} | {max:F4} | {sw.ElapsedMilliseconds} ms |");
+            Console.WriteLine($"| plane 169° 10 x 10 | {(refine ? "refined 25°" : "flips")} | {sum / n:F4} | {max:F4} | {ms} ms |");
         }
     }
 
@@ -60,10 +74,13 @@ static class Program
             ("mesh triangles", false, false, 0), ("intrinsic flips", true, false, 0),
             ("refined 0° (boundary only)", true, true, 0), ("refined 25°", true, true, 25) };
         foreach (var (label, intrinsic, refine, angle) in configs) {
-            var sw = Stopwatch.StartNew();
-            var geo = new MeshGeodesicDistance(mesh) { IntrinsicDelaunay = intrinsic, IntrinsicRefine = refine, RefineMinAngle = angle };
-            bool ok = geo.Compute(new[] { src });
-            sw.Stop();
+            long ms;
+            var geo = Timed(() => {
+                var g = new MeshGeodesicDistance(mesh) { IntrinsicDelaunay = intrinsic, IntrinsicRefine = refine, RefineMinAngle = angle };
+                g.Compute(new[] { src });
+                return g;
+            }, out ms);
+            bool ok = geo.Distance != null;
             double mean = 0, max = 0; int n = 0;
             if (ok)
                 foreach (int v in mesh.VertexIndices()) {
@@ -71,7 +88,8 @@ static class Program
                     double e = Math.Abs(geo.Distance[v] - exact(v));
                     mean += e; max = Math.Max(max, e); n++;
                 }
-            // angles and weights of the triangulation the distances were computed on
+            // angles and weights of the same kind of triangulation, built by IntrinsicTriangulation (for the flips
+            // MeshGeodesicDistance uses its own flip code, which ends in an intrinsic Delaunay triangulation too)
             IntrinsicRefinementResult r;
             var T = intrinsic ? IntrinsicTriangulation.BuildDelaunay(mesh, refine, out r, angle) : new IntrinsicTriangulation(mesh);
             int neg = 0;
@@ -79,7 +97,7 @@ static class Program
                 if ((T.Twin(h) < 0 || T.Twin(h) > h) && T.CotanWeight(h) < -1e-9) neg++;
             string verts = T.VertexCount + (T.VertexCount > T.InputVertexCount ? $" (+{T.VertexCount - T.InputVertexCount})" : "");
             Console.WriteLine($"| {name} | {label} | {verts} | {T.MinAngle() * 180 / Math.PI:F1}° | {neg} | " +
-                (ok ? $"{mean / n:F4} | {max:F4}" : "failed | failed") + $" | {sw.ElapsedMilliseconds} ms |");
+                (ok ? $"{mean / n:F4} | {max:F4}" : "failed | failed") + $" | {ms} ms |");
         }
     }
 

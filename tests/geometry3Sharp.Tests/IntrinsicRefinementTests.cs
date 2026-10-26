@@ -504,6 +504,28 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void CommonSubdivision_TraceThroughAnotherVertex_IsReported()
+        {
+            // a square of two input triangles, its diagonal flipped: the new edge crosses the input diagonal at its
+            // midpoint. An inserted vertex moved there (an inconsistent triangulation) must be reported as a
+            // vertex the trace passes through, not as a crossing point that coincides with it
+            DMesh3 mesh = Grid(2, 2, (x, y) => 0);
+            var T = new IntrinsicTriangulation(mesh);
+            int diag = Enumerable.Range(0, T.HalfedgeCount).First(h => T.Twin(h) >= 0);
+            Assert.True(T.FlipEdge(diag));
+            // (w goes into triangle 1, so the flipped edge, whose lower halfedge is in triangle 0, is traced first)
+            Vector2d q0, q1, q2;
+            T.GetTriangleLayout(1, out q0, out q1, out q2);
+            int w = T.InsertVertex(1, (q0 + q1 + q2) / 3);
+            Assert.True(w >= 0);
+            Assert.Equal(CommonSubdivisionStatus.Success, T.ExtractCommonSubdivision().Status);
+            T.place_inserted_vertex(w, diag, 0.5);       // (diag is the input halfedge of the diagonal)
+            var cs = T.ExtractCommonSubdivision();
+            Assert.Equal(CommonSubdivisionStatus.Inconsistent, cs.Status);
+            Assert.Contains("passes through vertex " + w, cs.Error);
+        }
+
+        [Fact]
         public void VectorHeat_BowtieMesh_Throws()
         {
             // documented: only MeshGeodesicDistance falls back to the flips for non-manifold vertices

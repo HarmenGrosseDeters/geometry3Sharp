@@ -585,6 +585,14 @@ namespace gs
             return WalkEnd.OutOfSteps;
         }
 
+        // (for tests of the consistency checks only) moves inserted vertex v to parameter u on input halfedge ih
+        // without changing the triangulation, which is then no longer consistent with its input locations
+        internal void place_inserted_vertex(int v, int ih, double u)
+        {
+            vInTri[v] = ih / 3;
+            vInPos[v] = inLayout[ih] + u * (inLayout[Next(ih)] - inLayout[ih]);
+        }
+
         /// <summary> position on the input surface of vertex index i (inserted vertices from their input location) </summary>
         public Vector3d VertexPosition(int i)
         {
