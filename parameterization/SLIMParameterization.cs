@@ -118,7 +118,7 @@ namespace g3
         {
             /// <summary>
             /// the LSCM map if it is injective (no flipped triangle, no overlap; exact test) and has no sliver
-            /// UV triangle (twice its area below 1e-6 of its longest edge squared), else the Tutte embedding; if
+            /// UV triangle (twice its area not above 1e-6 of its longest edge squared), else the Tutte embedding; if
             /// SLIM gets stuck from LSCM, it goes on from Tutte with the remaining iterations and keeps the lower
             /// energy. LSCM is usually much closer to the minimum: on a 48k vertex ellipsoid cap SLIM needs 4
             /// iterations from it instead of over 100 from Tutte.
@@ -131,7 +131,10 @@ namespace g3
         public StartMaps StartMap = StartMaps.Auto;
         /// <summary> keep the factorization of the proxy matrix while its steps are good (else one per iteration) </summary>
         public bool ReuseFactorization = true;
-        /// <summary> called after each step with the iteration number and the new energy (eg for progress or timing) </summary>
+        /// <summary>
+        /// called after each step with the iteration number and the new energy (eg for progress or timing). After a
+        /// restart from Tutte (see StartMap) the energies start over, and Result may keep the run from LSCM.
+        /// </summary>
         public Action<int, double> IterationCompleted;
 
         // cost of a factorization in steps with an existing one (assembly and numeric factorization against
@@ -188,9 +191,10 @@ namespace g3
                     int iterT;
                     double energyT;
                     bool convergedT, stuckT;
-                    failure = minimize(pm, tu, tv, iter, out iterT, out energyT, out convergedT, out stuckT);
+                    // a failure here keeps the (valid, flip-free) result from LSCM
+                    string failureT = minimize(pm, tu, tv, iter, out iterT, out energyT, out convergedT, out stuckT);
                     iter = iterT;
-                    if (failure == null && energyT < energy) {
+                    if (failureT == null && energyT < energy) {
                         u = tu; v = tv;
                         energy = energyT; converged = convergedT;
                         StartedFromLSCM = false;

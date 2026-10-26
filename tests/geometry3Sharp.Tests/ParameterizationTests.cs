@@ -1329,7 +1329,7 @@ namespace geometry3Sharp.Tests
             }
             Assert.Equal(r.Energy, energies[energies.Count - 1]);
             // one step per iteration, plus the final pass that finds convergence; passes that only refactorize
-            // (a kept factorization stopped giving steps) are not counted
+            // (here: after a kept factorization predicted no decrease) are not counted
             Assert.True(slim.Factorizations > 1 && slim.Factorizations < r.Iterations);
             Assert.Equal(energies.Count + 1, r.Iterations);
             Assert.Equal(r.Iterations - 1, iterations[iterations.Count - 1]);
