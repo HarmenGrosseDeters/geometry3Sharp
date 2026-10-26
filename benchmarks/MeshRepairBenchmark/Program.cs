@@ -461,7 +461,8 @@ class Program
 
     // Fidelity to the input without a reference result: certified Hausdorff distances in both directions
     // (relative to the bbox diagonal; hd_fwd = result to input, hd_back = input to result, lower and upper
-    // bound), and agreement with the input's winding number solid (IoU, missing and extra volume)
+    // bound), agreement with the input's winding number solid (IoU, missing and extra volume), and the
+    // MeshFidelityMetrics fields (fm_*, FidelityFields.cs)
     static void Fidelity(DMesh3 input, DMesh3 result, System.Collections.Generic.Dictionary<string, object> r)
     {
         if (input.TriangleCount == 0 || result.TriangleCount == 0)
@@ -484,6 +485,10 @@ class Program
         r["iou_missing"] = missing;
         r["iou_extra"] = extra;
         r["fidelity_ms"] = sw.ElapsedMilliseconds;
+        // further measures (MeshFidelityMetrics; fm_* fields, not part of the "repaired" criterion), against the
+        // input with inside-out components oriented as VolumeIoU sees it; BENCH_FIDELITY=0 skips them
+        if (Environment.GetEnvironmentVariable("BENCH_FIDELITY") != "0")
+            FidelityFields.Add(WindingContouring.OrientedCopy(input), result, r);
     }
 
     // naive wrapper-style construction: exact-position weld, AppendTriangle, skip failures

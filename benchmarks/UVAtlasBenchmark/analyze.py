@@ -54,6 +54,12 @@ def summary(rows):
         "mean area distortion median / p90": "%.3f / %.3f" % (pct([r["mean_area"] for r in done if "mean_area" in r], 0.5),
                                                           pct([r["mean_area"] for r in done if "mean_area" in r], 0.9)),
         "meshes with float rounding defects": sum(1 for r in done if r.get("float_defects", 0) > 0),
+        # Verdict triangle quality (TriangleQualityStatistics): min angle that 1% of the triangles are below, in 3D
+        # and in UV; and charts that are not discs (atlas components with genus > 0 or several boundary loops)
+        "min angle 1% worst, 3D / UV median (deg)": "%.1f / %.1f" % (pct([r["q3d"]["minangle"][1] for r in done if "q3d" in r], 0.5),
+                                                                   pct([r["quv"]["minangle"][1] for r in done if "quv" in r], 0.5)),
+        "meshes with charts that are not discs": sum(1 for r in done if "atlas_topo" in r
+                                                     and r["atlas_topo"]["discs"] < r["atlas_topo"]["components"]),
     }
 
 rows = [json.loads(l) for f in sys.argv[1:] for l in open(f) if l.strip()]

@@ -28,6 +28,19 @@ ROWS = [
     {'file': 'crash.stl', 'status': 'timeout_or_crash'},    # no result
 ]
 
+# the further measures of analyze_fidelity.py: flags on repaired meshes
+FM = dict(fm_ok=True, fm_f_0001=0.9, fm_f_0005=1.0, fm_f_001=1.0, fm_chamfer=1e-4, fm_nc=0.99, fm_reversed_fwd=0.0,
+          fm_ecd=1e-3, fm_er_0005=1.0, fm_ep_0005=1.0, fm_sharp_in=2.0, fm_topo_changes='None',
+          fm_q_out={'tris': 100, 'minangle_lt10': 0, 'minangle': [5, 20, 25, 40]})
+FM_ROWS = [
+    row('fm_ok.stl', **FM),
+    row('fm_reversed.stl', **dict(FM, fm_reversed_fwd=0.2)),
+    row('fm_edges.stl', **dict(FM, fm_er_0005=0.5)),
+    row('fm_smooth.stl', **dict(FM, fm_er_0005='NaN', fm_sharp_in=0.0, fm_ecd='Infinity')),   # no sharp edges in the input
+    row('fm_handle.stl', **dict(FM, fm_topo_changes='HandlesClosed, BoundaryLoopsRemoved')),
+    row('fm_far.stl', **dict(FM, fm_reversed_fwd=0.5, hd_back_hi_rel=0.02)),                # flagged, not repaired
+]
+
 
 def run(script, *args):
     with tempfile.TemporaryDirectory() as d:
@@ -70,6 +83,20 @@ class AnalysisScripts(unittest.TestCase):
             self.assertRegex(run('analyze_fidelity.py'), r'<- repaired')
         finally:
             ROWS = old
+
+    def test_fidelity_flags(self):
+        global ROWS
+        old = ROWS
+        try:
+            ROWS = FM_ROWS
+            out = run('analyze_fidelity.py')
+        finally:
+            ROWS = old
+        self.assertRegex(out, r'6 meshes with them, 5 of them repaired')
+        self.assertRegex(out, r'reversed\s+2 /\s+1 ')
+        self.assertRegex(out, r'edges\s+1 /\s+1 ')
+        self.assertRegex(out, r'handles\s+1 /\s+1 ')
+        self.assertRegex(out, r'repaired with any flag: 3 of 5')
 
     def test_failed_runs_in_the_denominators(self):
         out = run('analyze_quality.py')
