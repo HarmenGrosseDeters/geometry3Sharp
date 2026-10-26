@@ -285,7 +285,9 @@ namespace g3
             // Compute narrow-band distances. For each triangle, we find its grid-coord-bbox,
             // and compute exact distances within that box. The intersection_count grid
             // is also filled in this computation
-            double ddx = (double)dx;
+            // (multiplied by 1/dx like the parallel version: x / dx and x * (1/dx) can truncate to different cells for
+            // a vertex within a few ulps of a grid plane, and then the two versions cover different narrow bands)
+            double invdx = 1.0 / dx;
             double ox = (double)origin[0], oy = (double)origin[1], oz = (double)origin[2];
             Vector3d xp = Vector3d.Zero, xq = Vector3d.Zero, xr = Vector3d.Zero;
             foreach (int tid in Mesh.TriangleIndices()) {
@@ -294,9 +296,9 @@ namespace g3
                 Mesh.GetTriVertices(tid, ref xp, ref xq, ref xr);
 
                 // real ijk coordinates of xp/xq/xr
-                double fip = (xp[0] - ox) / ddx, fjp = (xp[1] - oy) / ddx, fkp = (xp[2] - oz) / ddx;
-                double fiq = (xq[0] - ox) / ddx, fjq = (xq[1] - oy) / ddx, fkq = (xq[2] - oz) / ddx;
-                double fir = (xr[0] - ox) / ddx, fjr = (xr[1] - oy) / ddx, fkr = (xr[2] - oz) / ddx;
+                double fip = (xp[0] - ox) * invdx, fjp = (xp[1] - oy) * invdx, fkp = (xp[2] - oz) * invdx;
+                double fiq = (xq[0] - ox) * invdx, fjq = (xq[1] - oy) * invdx, fkq = (xq[2] - oz) * invdx;
+                double fir = (xr[0] - ox) * invdx, fjr = (xr[1] - oy) * invdx, fkr = (xr[2] - oz) * invdx;
 
                 // clamped integer bounding box of triangle plus exact-band
                 int i0 = MathUtil.Clamp(((int)MathUtil.Min(fip, fiq, fir)) - exact_band, 0, ni - 1);
@@ -431,11 +433,13 @@ namespace g3
                         for (int i = i0; i <= i1; ++i) {
                             Vector3d gx = new Vector3d((float)i * dx + origin[0], (float)j * dx + origin[1], (float)k * dx + origin[2]);
                             float d = (float)point_triangle_distance(ref gx, ref xp, ref xq, ref xr);
-                            if (d < distances[i, j, k]) {
+                            if (d <= distances[i, j, k]) {
                                 int lock_idx = base_idx | ((i < wi) ? 0 : 4);
                                 bool taken = false;
                                 grid_locks[lock_idx].Enter(ref taken);
-                                if (d < distances[i, j, k]  ) {    // have to check again in case grid changed in another thread...
+                                // have to check again in case grid changed in another thread; equal distances go
+                                // to the lowest triangle id, as in the serial version (independent of the schedule)
+                                if (d < distances[i, j, k] || (d == distances[i, j, k] && tid < closest_tri[i, j, k])) {
                                     distances[i, j, k] = d;
                                     closest_tri[i, j, k] = tid;
                                 }

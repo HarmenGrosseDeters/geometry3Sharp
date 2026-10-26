@@ -107,7 +107,6 @@ namespace geometry3Sharp.Tests
             Assert.True(fresh.Compute());
             Assert.Equal(fresh.Status, eb.Status);
             Assert.True(fresh.Result.TriangleCount > 0);
-            // (the triangle order of the output varies between runs, see ExactBoolean_RepeatedRuns_BitIdentical)
             Assert.Equal("", Invariance.GeometricDifference(fresh.Result, eb.Result));
         }
 
@@ -122,10 +121,9 @@ namespace geometry3Sharp.Tests
                 Assert.Equal("", Invariance.GeometricDifference(first, BoxIntersectSphere()));
         }
 
-        // The same triangles, but their order (ids) depends on the thread schedule: two runs on the same input give
-        // differently numbered outputs, so downstream steps with ties (and output files) are not reproducible.
-        // Reported; enabled when fixed (ExactMesh* is being changed in another PR).
-        [Fact(Skip = "ExactMeshBoolean: output triangle order depends on the thread schedule (reported)")]
+        // The same triangles in the same order (ids), although the arrangement assigns point ids in parallel: output
+        // files and downstream steps with ties are reproducible (see also ExactBooleanDeterminismTests).
+        [Fact]
         public void ExactBoolean_RepeatedRuns_BitIdentical()
         {
             DMesh3 first = BoxIntersectSphere();

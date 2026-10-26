@@ -48,3 +48,6 @@ test-results/
 # Python bytecode
 __pycache__/
 *.pyc
+
+# Stryker.NET mutation test output (tests/mutation)
+StrykerOutput/

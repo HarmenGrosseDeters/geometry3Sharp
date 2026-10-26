@@ -1,0 +1,250 @@
+# Quality assurance and test strategy
+
+This page says how geometry3Sharp is tested, where the gaps are, and what is done about them, in order of
+priority: robustness and correctness first, performance second. The review checklist that goes with it is
+[REVIEW_CHECKLIST.md](REVIEW_CHECKLIST.md).
+
+## 1. Where we stand (October 2026)
+
+**Suite.**
+- `tests/geometry3Sharp.Tests` has 1216 xUnit tests, which take about 3.5 minutes wall clock on net10.0 and
+  13 minutes of CPU time.
+- The slowest tests are geodesics on rough terrain (70 s), terrain safety lines (35 s) and the
+  solidify/wrap paths of `MeshRobustRepair` (30 s each).
+- `tests/g3cli.Tests` covers the CLI and the MCP server.
+- CI runs both suites on Linux (net10.0), runs the library tests on Windows (net48 against the
+  netstandard2.0 build), packs the package with API validation against 1.0.324, and runs a smoke test
+  of the package.
+- Before the harness of 2.1 there were no skipped tests; it adds two that document reported bugs. No flaky
+  test showed up in repeated runs, after the `BitArray` races were fixed (ThreadingFixesTests).
+
+**Kinds of tests.**
+- Almost all tests are example-based regression tests: one hand-built input per bug, with the expected
+  output.
+- Robustness is tested case by case, for example UTM coordinates in some analysis and terrain tests,
+  and subnormal values in the predicate tests.
+
+**What is missing.**
+- There are no systematic invariance or property tests, no fuzzing, no coverage measurement, and no
+  automated mutation testing; mutation checks are done by hand, as CLAUDE.md requires.
+- Benchmarks (`benchmarks/`) run only by hand, mostly on Thingi10K meshes that cannot be committed (procedural
+  exceptions: the cube grid of `BooleanComparison`, synthetic terrain).
+
+**What the reviews found.**
+- The retroactive reviews (packages A-F) and the post-merge reviews led to 45 bug-fix PRs (#60-#112).
+- Of these, 33 came from package reviews, 7 from post-merge reviews, and 5 from benchmarks or real data.
+  No bug report came from a user.
+- By fault class, counting primary and secondary classes (the PRs are listed in the checklist; #84 fixed a
+  benchmark script, the others the library):
+
+| Fault class | Fixes | Would have been caught by |
+|---|---|---|
+| Silent success (result not verified, wrong status, hard limit reported as clean) | 10 | result validation in every success test (2.3) |
+| Scale, units, far from the origin, absolute tolerances | 8 | invariance tests (2.1) |
+| Degenerate input | 7 | defect generators in the invariance harness (2.1), fuzzing of mesh inputs (2.5) |
+| Floating-point range (subnormal, overflow, NaN casts) | 7 | randomized differential tests against exact arithmetic (2.4), mutation tests (2.2) |
+| Stale state, reused instances | 5 | reuse tests (2.1) |
+| Integer overflow, sizes, hard limits | 4 | large-extent and limit tests (2.1), fuzzing (2.5) |
+| Untrusted input (readers, CLI) | 4 | fuzzing (2.5) |
+| Open, non-manifold, bowtie input | 5 | defect generators (2.1) |
+| Complexity | 3 | scaling tests (3.2) |
+| Inexact ordering (`atan2`, angle sums) | 2 | randomized near-degenerate tests (2.4) |
+| Compatibility, undocumented behavior change | 2 | package validation (exists since #92), checklist |
+
+- Nondeterminism did not appear in that list because nobody looked for it. The first determinism tests
+  found three cases right away, and the invariance tests a fourth bug (2.1).
+- 2 of the 45 fixes made existing tests tighter: loose absolute bounds had hidden a UTM bug (#95), and
+  one test was missing (#101). Tests that compare with absolute bounds catch less than tests that
+  compare results with each other.
+
+## 2. Robustness and correctness, by priority
+
+### 2.1 Invariance, reuse and determinism tests (#120: `tests/geometry3Sharp.Tests/Harness/Invariance.cs`)
+
+A shared harness runs an operation on a procedural input, then on transformed copies, and compares the
+results mapped back to the original frame.
+
+**Similarities** (`Similarity.All()`):
+- the identity (the reference);
+- a translation to UTM (632117.25, 5712043.5, 113.75);
+- a scale of 1e-3 and of 1e3;
+- a rotation;
+- a rotation, a scale of 1e-3 and the UTM translation together.
+- **A scale by 2^-10 and by 2^10.** A power-of-two scale is exact in floating point, so an operation without
+  absolute constants must give the same result, scaled, up to the last bits; most tests check it bit for bit
+  (`Similarity.IsExact`). This catches
+  absolute tolerances that a scale by 1e3 hides in rounding noise.
+- The other similarities compare with a tolerance derived from the coordinate resolution
+  (`Similarity.Resolution`), not with a hand-picked constant.
+
+**Permutation of the input** (`Invariance.Permuted`): vertex order, triangle order and the starting corner of
+each triangle.
+
+**Reuse:** compute A, then B on the same instance, and compare with a fresh instance. This covers stale
+caches, counters and status.
+
+**Determinism:**
+- Parallel equals serial where the class has a switch (`ParallelCompute`, `UseParallel`,
+  `EnableParallel*`).
+- Repeated runs give bit-identical output (`Invariance.Difference`).
+- Where the id order may follow the thread schedule, the output must be the same set of triangles
+  (`Invariance.GeometricDifference`).
+
+**First findings:** four bugs within the first hour, one from the invariance tests and three from the
+determinism tests.
+- `MeshGeodesicDistance` regularizes its Poisson solve with an absolute `1e-8 * mass`. Its distances change
+  by 7e-4 (relative) at a scale of 2^10.
+- `ExactMeshBoolean` gives the same triangles in a different order from run to run: its output order depends
+  on the thread schedule.
+- `MarchingCubesPro` returns the double field value on the first evaluation of a grid corner and the float
+  value afterwards, so its parallel result depends on the thread schedule.
+- `MeshSignedDistanceGrid`'s parallel narrow band breaks distance ties by thread order.
+- The first two are in classes other PRs are changing; skipped tests document them until their fixes land.
+  The last two are fixed in #124 and #125, with tests in ThreadingFixesTests.
+
+**Not bugs:**
+- `MeshAlphaWrap`'s relative alpha comes from the axis-aligned bounds, so it changes under a rotation. This
+  is intended.
+- `Invariance.VertexDistance` has rounding noise of about 1e-8 times the size
+  (`Similarity.DistanceResolution`), because point-triangle distances come from squared distances.
+
+**Rule.** Every new operation, and every operation a PR changes, gets an invariance test over
+`Similarity.All()`, a reuse test if it has a `Compute()`, and a determinism test if it has a parallel
+path. The tests run in the normal suite, so they gate every PR.
+
+**Defect generators** (next step): procedural inputs for the degenerate, open, bowtie and nested cases of
+the checklist, so that each operation runs over the same set of awkward inputs:
+- zero-area ears;
+- T-junctions;
+- coincident vertices;
+- slivers;
+- an interior bowtie;
+- touching sheets;
+- tiny and nested components;
+- a mesh with an unused far vertex;
+- empty meshes and single triangles.
+
+### 2.2 Mutation testing in CI for the exact parts
+
+The exact arithmetic is the base of everything else, and a wrong error bound in it fails only on rare
+inputs. Stryker.NET (Apache-2.0) mutates `math/ExactPredicates.cs`, `math/ExactPoint3.cs` and
+`math/AdaptivePredicates.cs`, and runs the predicate tests against each mutant.
+
+- A scheduled workflow (weekly, and on demand) reports the mutation score and the surviving mutants.
+- A score below the break threshold fails the run. It starts at the measured score (rounded down) and only
+  goes up.
+- Surviving mutants are either killed with a new test or recorded as equivalent, with a reason.
+- Next targets: the exact parts of `mesh_ops/ExactMesh*`, and the result checks of the repair, such as
+  `NotCleanReason` and `MeshRepairMetrics`.
+- A survivor in a result check is a silent-success risk.
+- This does not replace the manual mutation check that CLAUDE.md asks for: it covers code the manual
+  check never revisits.
+
+### 2.3 Result validation in success tests
+
+Silent success is the most frequent fault class. Each test of a `Success` or `true` path checks the
+result itself, not only the status:
+- closed;
+- no bowties;
+- no self-intersections;
+- no lost components;
+- finite coordinates;
+- volume and area within the expected bounds.
+
+For mesh outputs, `MeshRobustRepair.NotCleanReason` is the standard check. The checklist also asks
+whether a hard limit can end in a success status.
+
+### 2.4 Differential tests against exact results
+
+- The double predicates and filters are compared with exact rational evaluation (`BigInteger`) on
+  randomized inputs.
+- The randomized inputs have exponents spread from subnormal to 1e300.
+- Some inputs are near-degenerate: almost collinear or almost coplanar, and points nudged by a few ulps.
+- `ExactMeshBoolean` is checked against identities that hold exactly, for example
+  vol(A ∪ B) + vol(A ∩ B) = vol(A) + vol(B).
+- The randomized tests are seeded and run a fixed number of cases in CI, so they are reproducible and not
+  flaky.
+- A failing seed becomes an example test.
+
+### 2.5 Fuzzing of the readers and of mesh inputs
+
+The readers (OBJ, STL, OFF, PLY, 3MF, glTF) and the CLI / MCP server take untrusted input.
+
+The fuzz tests are seeded and run inside the suite:
+- They take valid files generated in the test, and mutate them: flipped bytes, truncation, duplicated
+  blocks, huge counts, `NaN`, `1e400`, `1,5`, `../` paths.
+- They assert that a reader returns a result or a documented error within a time and memory budget, with
+  no other exception and no hang.
+
+Mesh inputs to the operations are fuzzed the same way:
+- random soups;
+- random edits of clean meshes (flips, removed or duplicated triangles, welded vertices).
+
+Each operation must return a documented status, never throw, and never report success on an output that
+fails 2.3. Coverage-guided fuzzing (SharpFuzz, MIT) can follow for the binary readers if the seeded fuzzing
+finds bugs.
+
+### 2.6 Coverage in CI
+
+- coverlet (MIT) collects line and branch coverage in the Linux job.
+- ReportGenerator (Apache-2.0) writes a summary per directory into the job summary.
+- At first there is no threshold. Coverage shows where tests are missing, and it is not a goal in itself.
+- A directory whose coverage drops in a PR is a question for the review.
+
+### 2.7 A small regression corpus as a CI smoke benchmark
+
+The Thingi10K benchmarks cannot run in CI, because of the license and the run time.
+
+A procedural corpus runs instead, in a few minutes:
+- generated defect meshes from 2.1;
+- the cube grid of the boolean benchmark;
+- terrain grids at UTM coordinates.
+
+It runs the main pipelines and checks the following against stored thresholds:
+- the pipelines: repair, robust repair, exact boolean, alpha wrap, remesh / reduce;
+- quality: clean result, volume error, Hausdorff distance;
+- run time: generous, to catch only order-of-magnitude regressions on shared runners.
+
+Meshes with a permissive license can be added if a case cannot be generated.
+
+### 2.8 API compatibility
+
+This is in place since #92: pack validates the public API against 1.0.324. Accepted breaks are listed in
+`CompatibilitySuppressions.xml`, and changed results in [UPSTREAM_CHANGES.md](UPSTREAM_CHANGES.md).
+
+## 3. Performance
+
+### 3.1 Micro benchmarks with regression detection
+
+BenchmarkDotNet (MIT) covers the kernels:
+- the exact predicates;
+- AABB tree queries;
+- the fast winding number;
+- the exact arrangement on a fixed input;
+- reducer and remesher passes.
+
+It runs by hand and in a scheduled workflow. The results are compared with the last stored run. Shared CI
+runners are noisy, so only large changes (more than 20 %) are flagged, and a performance claim in a PR
+still needs before/after numbers from one machine (CLAUDE.md).
+
+### 3.2 Complexity tests
+
+Each operation with a nested loop over the input gets a scaling test, which counts work at n and 4n
+(candidate pairs, visited cells, or time with a wide margin). It is cheaper and less noisy than timing.
+Past cases: #63, #72, #105.
+
+## 4. Assessment of the candidates
+
+| Candidate | Value for robustness | Cost | Decision |
+|---|---|---|---|
+| Invariance and property tests | High: covers scale and stale state, with the defect generators also degenerate and open input | Low (harness, seeded) | Done for the core operations; required for new ones |
+| FsCheck | Shrinking of counterexamples | A dependency, F# runtime on net48 | Optional, for the predicates only; seeded theories are enough elsewhere |
+| Differential tests against exact results | High for `math/`, filters | Low | Next |
+| Fuzzing | High for readers / CLI (4 security fixes) | Low in-suite, high coverage-guided | Seeded in-suite fuzzing |
+| Stryker.NET mutation tests | High for exact arithmetic | Long runs (scheduled) | Scheduled workflow for `math/Exact*` and `AdaptivePredicates.cs` |
+| Coverage in CI | Medium (shows gaps) | Low | Summary, no threshold |
+| Determinism tests | High: found three bugs at once | Low | Done; required for parallel paths |
+| Regression corpus in CI | High for the pipelines | Medium | After the harness's defect generators |
+| API compatibility | High for users | Done (#92) | Keep |
+| Review checklist | High (reviews found 40 of 45 bugs) | Low | [REVIEW_CHECKLIST.md](REVIEW_CHECKLIST.md) |
+| BenchmarkDotNet | Performance only | Medium | After the robustness items |
