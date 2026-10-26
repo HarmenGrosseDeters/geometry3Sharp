@@ -9,8 +9,9 @@ namespace geometry3Sharp.Tests
     /// <summary>
     /// The error bounds of the floating-point filters of ExactMeshArrangement, checked against exact values on
     /// adversarial inputs: nearly degenerate configurations (where the filters decide at their bound), large
-    /// offsets (cancellation in the differences), huge and subnormal magnitudes, and exact points at the worst
-    /// corners of the error boxes of their approximations. Every comparison is exact (scaled integers).
+    /// offsets (cancellation in the differences), huge and subnormal magnitudes, and exact points at the corners
+    /// of the error boxes of their approximations (the worst case where the value is affine in each coordinate;
+    /// incircle is not, so it also gets points inside the boxes). Every comparison is exact (scaled integers).
     /// </summary>
     public class ExactFilterBoundTests
     {
@@ -106,7 +107,8 @@ namespace geometry3Sharp.Tests
             var r = new Random(2);
             foreach (var (k, off) in Scales()) {
                 if (k > 200 || k < -1000)
-                    continue;       // (degree 4: beyond the double range, the filter has no bound)
+                    continue;       // (degree 4: beyond the double range the filter has no bound; below 2^-1000 the
+                                    // bound is the absolute term alone, as at k = -900)
                 for (int iter = 0; iter < 12; ++iter) {
                     double o = (off == int.MinValue) ? 0 : Math.Pow(2, off);
                     // four points nearly on a circle (rounded), d sometimes exactly a, b or c
@@ -121,12 +123,18 @@ namespace geometry3Sharp.Tests
                     double e = ErrorOf(r, k, iter % 4);
                     double bound;
                     double f = ExactMeshArrangement.incircle_approx(p[0], p[1], p[2], p[3], 0, 1, e, out bound);
-                    for (int mask = 0; mask < 256; ++mask) {
+                    // the 256 corners, then random points inside the boxes (the determinant is cubic in each point)
+                    for (int mask = 0; mask < 256 + 64; ++mask) {
                         var X = new BigInteger[4];
                         var Y = new BigInteger[4];
                         for (int m = 0; m < 4; ++m) {
-                            X[m] = Corner(p[m].x, e, mask, 2 * m);
-                            Y[m] = Corner(p[m].y, e, mask, 2 * m + 1);
+                            if (mask < 256) {
+                                X[m] = Corner(p[m].x, e, mask, 2 * m);
+                                Y[m] = Corner(p[m].y, e, mask, 2 * m + 1);
+                            } else {
+                                X[m] = Q(p[m].x) + Q(e) * new BigInteger(r.Next(-1000, 1001)) / 1000;
+                                Y[m] = Q(p[m].y) + Q(e) * new BigInteger(r.Next(-1000, 1001)) / 1000;
+                            }
                         }
                         BigInteger adx = X[0] - X[3], ady = Y[0] - Y[3], bdx = X[1] - X[3], bdy = Y[1] - Y[3], cdx = X[2] - X[3], cdy = Y[2] - Y[3];
                         BigInteger det = (adx * adx + ady * ady) * (bdx * cdy - cdx * bdy) + (bdx * bdx + bdy * bdy) * (cdx * ady - adx * cdy)
@@ -167,7 +175,7 @@ namespace geometry3Sharp.Tests
         public void OrderKey_BoundHolds_AtWorstCorners()
         {
             // the weights are exact doubles; their exact value as integers over 2^53
-            double[] alpha = { 1.0, 0.7548776662466927, 0.5698402909980532 };
+            double[] alpha = ExactMeshArrangement.Alpha;
             var r = new Random(4);
             foreach (var (k, off) in Scales())
                 for (int iter = 0; iter < 30; ++iter) {
@@ -262,12 +270,9 @@ namespace geometry3Sharp.Tests
             AssertWithin(a.x, err, 3, 2, 1074, "subnormal segment point");
         }
 
-        // the point common to three planes, exactly: Cramer with the coefficients as integers scaled by 2^S
-        static bool PlanesExact(double[][] pl, out BigInteger[] num, out BigInteger den)
+        // the point common to three planes with exact coefficients p (any common scale), by Cramer
+        static bool PlanesExact(BigInteger[][] p, out BigInteger[] num, out BigInteger den)
         {
-            BigInteger[][] p = new BigInteger[3][];
-            for (int m = 0; m < 3; ++m)
-                p[m] = new[] { Q(pl[m][0]), Q(pl[m][1]), Q(pl[m][2]), Q(pl[m][3]) };
             BigInteger c23x = p[1][1] * p[2][2] - p[1][2] * p[2][1], c23y = p[1][2] * p[2][0] - p[1][0] * p[2][2], c23z = p[1][0] * p[2][1] - p[1][1] * p[2][0];
             BigInteger c31x = p[2][1] * p[0][2] - p[2][2] * p[0][1], c31y = p[2][2] * p[0][0] - p[2][0] * p[0][2], c31z = p[2][0] * p[0][1] - p[2][1] * p[0][0];
             BigInteger c12x = p[0][1] * p[1][2] - p[0][2] * p[1][1], c12y = p[0][2] * p[1][0] - p[0][0] * p[1][2], c12z = p[0][0] * p[1][1] - p[0][1] * p[1][0];
@@ -278,17 +283,31 @@ namespace geometry3Sharp.Tests
                 den = -den;
                 for (int k = 0; k < 3; ++k) num[k] = -num[k];
             }
-            // num / den is the point: the 2^S of the coefficients cancel; scale num by 2^S for the comparison
+            // num / den is the point (the scale of the coefficients cancels); scale num by 2^S for the comparison
             for (int k = 0; k < 3; ++k) num[k] <<= S;
             return den.IsZero == false;
         }
 
-        static void AssertPlanes(double[][] pl, string what)
+        static double[][] Rounded(BigInteger[][] p, int scale)
         {
+            var pl = new double[3][];
+            for (int m = 0; m < 3; ++m) {
+                pl[m] = new double[4];
+                for (int c = 0; c < 4; ++c)
+                    pl[m][c] = (scale == 0) ? (double)p[m][c] : ExactPoint3.ToDouble(p[m][c], BigInteger.One, -scale);
+            }
+            return pl;
+        }
+
+        // planes_approx of the coefficients rounded to double (relative errors 2^-53) against the exact point of
+        // the exact coefficients p / 2^scale
+        static void AssertPlanes(BigInteger[][] p, int scale, string what)
+        {
+            var pl = Rounded(p, scale);
             double err;
             Vector3d x = ExactMeshArrangement.planes_approx(pl[0], 0, pl[1], 0, pl[2], 0, out err);
             BigInteger[] num; BigInteger den;
-            if (PlanesExact(pl, out num, out den) == false || double.IsInfinity(err))
+            if (PlanesExact(p, out num, out den) == false || double.IsInfinity(err))
                 return;     // (dependent or nearly dependent: computed exactly, no bound)
             for (int k = 0; k < 3; ++k)
                 AssertWithin(x[k], err, num[k], den, S, $"{what} coordinate {k}");
@@ -301,17 +320,21 @@ namespace geometry3Sharp.Tests
             int bounded = 0;
             foreach (int k in new[] { 0, 20, 52, 100, 300 })
                 for (int iter = 0; iter < 200; ++iter) {
-                    // three planes through about the same line (nearly dependent), integer coefficients of about 2^k
+                    // three planes through about the same line (nearly dependent), integer coefficients of about
+                    // 2^k, with low bits beyond the 53 of a double (rounded for planes_approx)
                     var n0 = new Vector3d(Rnd(r, 0), Rnd(r, 0), Rnd(r, 0)).Normalized;
-                    var pl = new double[3][];
+                    var p = new BigInteger[3][];
                     double eps = Math.Pow(2, -r.Next(1, 50));
+                    int extra = (iter % 2 == 0) ? 30 : 0;
+                    Func<double, BigInteger> big = (v) => (new BigInteger(Math.Round(v)) << extra) + r.Next(0, 1 << 30) * (extra > 0 ? 1 : 0);
                     for (int m = 0; m < 3; ++m) {
                         Vector3d n = (m == 0) ? n0 : (n0 + new Vector3d(Rnd(r, 0), Rnd(r, 0), Rnd(r, 0)) * eps);
                         double s = Math.Pow(2, k);
-                        pl[m] = new[] { Math.Round(n.x * s), Math.Round(n.y * s), Math.Round(n.z * s), Math.Round(Rnd(r, k + 10)) };
+                        p[m] = new[] { big(n.x * s), big(n.y * s), big(n.z * s), big(Rnd(r, k + 10)) };
                     }
-                    AssertPlanes(pl, $"planes k={k} iter={iter}");
+                    AssertPlanes(p, 0, $"planes k={k} iter={iter}");
                     double err;
+                    var pl = Rounded(p, 0);
                     ExactMeshArrangement.planes_approx(pl[0], 0, pl[1], 0, pl[2], 0, out err);
                     if (double.IsInfinity(err) == false)
                         bounded++;
@@ -325,7 +348,10 @@ namespace geometry3Sharp.Tests
             // x = 2^-1074 / 3 rounds to 0, the relative terms of the bound underflow (coefficients that are not
             // integers: the contract of the function, not the planes of the arrangement)
             var pl = new[] { new[] { 3.0, 0, 0, double.Epsilon }, new[] { 0, 1.0, 0, 0 }, new[] { 0, 0, 1.0, 0 } };
-            AssertPlanes(pl, "subnormal planes point");
+            var p = new BigInteger[3][];
+            for (int m = 0; m < 3; ++m)
+                p[m] = new[] { Q(pl[m][0]), Q(pl[m][1]), Q(pl[m][2]), Q(pl[m][3]) };
+            AssertPlanes(p, S, "subnormal planes point");
             double err;
             ExactMeshArrangement.planes_approx(pl[0], 0, pl[1], 0, pl[2], 0, out err);
             Assert.True(err > 0);

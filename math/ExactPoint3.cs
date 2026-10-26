@@ -92,7 +92,8 @@ namespace g3
 
 
         /// <summary>
-        /// Fast approximation of the coordinates (relative error below 4 * 2^-52): for floating-point filters
+        /// Fast approximation of the coordinates (relative error below 4 * 2^-52, plus an absolute 2^-1074 where a
+        /// coordinate is subnormal or below the double range): for floating-point filters
         /// </summary>
         public Vector3d ApproxVector3d()
         {

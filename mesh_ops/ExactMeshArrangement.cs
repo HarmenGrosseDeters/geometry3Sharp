@@ -455,9 +455,9 @@ namespace g3
 
         const double U = 2.220446049250313e-16;     // 2^-52
         // absolute term of the error bounds of approximations: relative bounds (multiples of U) fail where a result
-        // is subnormal or underflows to zero (absolute error up to 2^-1075 per rounding, or the whole value); far
-        // above that, and far below anything a grid coordinate (an integer, or a quotient of bounded integers near
-        // a grid point) needs
+        // is subnormal or underflows to zero (absolute error up to 2^-1075 per rounding, or the whole value). Far
+        // above that, and far below the distances of distinct points (quotients of bounded integers), so the
+        // filters still decide
         internal const double Tiny = 1e-300;
         // for tests: always evaluate the predicates exactly
         internal bool DisableFilters = false;
@@ -509,7 +509,7 @@ namespace g3
             double bx = b[i] - a[i], by = b[j] - a[j], cx = c[i] - a[i], cy = c[j] - a[j];
             double M = Math.Max(Math.Max(Math.Abs(bx), Math.Abs(by)), Math.Max(Math.Abs(cx), Math.Abs(cy)));
             double eps = 2 * e + U * M;
-            err = 1.01 * (2 * eps * (2 * M + eps) + 3 * U * M * M) + 1e-300;
+            err = 1.01 * (2 * eps * (2 * M + eps) + 3 * U * M * M) + Tiny;
             return bx * cy - by * cx;
         }
 
@@ -597,7 +597,7 @@ namespace g3
 
         // order of the points: by a generic linear function a . p (few points with different coordinates have equal
         // values, unlike for a single coordinate, so the exact points are rarely needed), then lexicographic
-        static readonly double[] Alpha = { 1.0, 0.7548776662466927, 0.5698402909980532 };
+        internal static readonly double[] Alpha = { 1.0, 0.7548776662466927, 0.5698402909980532 };
         static readonly BigInteger[] AlphaInt = { alpha_int(Alpha[0]), alpha_int(Alpha[1]), alpha_int(Alpha[2]) };
         static BigInteger alpha_int(double a)
         {
@@ -611,7 +611,7 @@ namespace g3
         internal static double order_key(Vector3d a, double e, out double err)
         {
             double x = Alpha[0] * a.x, y = Alpha[1] * a.y, z = Alpha[2] * a.z;
-            err = 1.01 * (2.33 * e + 2 * U * (Math.Abs(x) + Math.Abs(y) + Math.Abs(z))) + 1e-300;
+            err = 1.01 * (2.33 * e + 2 * U * (Math.Abs(x) + Math.Abs(y) + Math.Abs(z))) + Tiny;
             return x + y + z;
         }
 
@@ -883,9 +883,6 @@ namespace g3
         internal int InCircleFiltered(InputTriangle t, int p, int q, int r, int s)
         {
             int i = (t.Axis + 1) % 3, j = (t.Axis + 2) % 3;
-            // differences at most M with errors eps = 2 e + U M; lifts and 2x2 minors at most 2 M^2 with errors
-            // eta = 2 eps (2 M + eps); the three terms: 3 eta (4 M^2 + eta); rounding (Shewchuk) 10 u of the
-            // absolute terms, at most 12 M^4
             double e = Math.Max(Math.Max(approxErr[p], approxErr[q]), Math.Max(approxErr[r], approxErr[s]));
             double bound;
             double fdet = incircle_approx(approx[p], approx[q], approx[r], approx[s], i, j, e, out bound);
@@ -898,13 +895,16 @@ namespace g3
         // bound on its error
         internal static double incircle_approx(Vector3d fa, Vector3d fb, Vector3d fc, Vector3d fd, int i, int j, double e, out double bound)
         {
+            // differences at most M with errors eps = 2 e + U M; lifts and 2x2 minors at most 2 M^2 with errors
+            // eta = 2 eps (2 M + eps); the three terms: 3 eta (4 M^2 + eta); rounding (Shewchuk) 10 u of the
+            // absolute terms, at most 12 M^4
             double adx = fa[i] - fd[i], ady = fa[j] - fd[j], bdx = fb[i] - fd[i], bdy = fb[j] - fd[j], cdx = fc[i] - fd[i], cdy = fc[j] - fd[j];
             double fdet = (adx * adx + ady * ady) * (bdx * cdy - cdx * bdy)
                 + (bdx * bdx + bdy * bdy) * (cdx * ady - adx * cdy)
                 + (cdx * cdx + cdy * cdy) * (adx * bdy - bdx * ady);
             double M = Math.Max(Math.Max(Math.Max(Math.Abs(adx), Math.Abs(ady)), Math.Max(Math.Abs(bdx), Math.Abs(bdy))), Math.Max(Math.Abs(cdx), Math.Abs(cdy)));
             double eps = 2 * e + U * M, eta = 2 * eps * (2 * M + eps), M2 = M * M;
-            bound = 1.01 * (3 * eta * (4 * M2 + eta) + 64 * U * M2 * M2) + 1e-300;
+            bound = 1.01 * (3 * eta * (4 * M2 + eta) + 64 * U * M2 * M2) + Tiny;
             return fdet;
         }
 
@@ -980,7 +980,7 @@ namespace g3
         {
             double ux = fa.x - fb.x, uy = fa.y - fb.y, uz = fa.z - fb.z;
             bound = 1.01 * (2 * e * (Math.Abs(fdx) + Math.Abs(fdy) + Math.Abs(fdz))
-                + 5 * U * (Math.Abs(fdx * ux) + Math.Abs(fdy * uy) + Math.Abs(fdz * uz))) + 1e-300;
+                + 5 * U * (Math.Abs(fdx * ux) + Math.Abs(fdy * uy) + Math.Abs(fdz * uz))) + Tiny;
             return fdx * ux + fdy * uy + fdz * uz;
         }
 
