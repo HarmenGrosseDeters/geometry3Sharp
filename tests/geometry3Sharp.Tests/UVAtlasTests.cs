@@ -866,6 +866,7 @@ namespace geometry3Sharp.Tests
             DMesh3 cube = Cube(6);
             var atlas = new UVAtlasGenerator(cube);
             Assert.True(atlas.Compute(), atlas.Error);
+            Assert.Equal(1, atlas.ComponentCount);
             Assert.Equal(1, atlas.ConeComponents);
             Assert.Equal(8, atlas.ConeCount);
             Assert.Equal(1, atlas.ChartCount);
@@ -897,6 +898,8 @@ namespace geometry3Sharp.Tests
             Assert.True(atlas.Compute(), atlas.Error);
             AssertAtlas(mesh, atlas, 0.15, 1.1);
             Assert.True(atlas.ChartCount >= 4);
+            Assert.Equal(4, atlas.ComponentCount);
+            Assert.True(atlas.ConeComponents <= atlas.ComponentCount);
             // charts do not span components
             var compOf = new Dictionary<int, int>();
             var cc = new MeshConnectedComponents(mesh);
@@ -904,6 +907,29 @@ namespace geometry3Sharp.Tests
             for (int i = 0; i < cc.Count; ++i) foreach (int t in cc.Components[i].Indices) compOf[t] = i;
             foreach (var g in atlas.AtlasMesh.TriangleIndices().GroupBy(t => atlas.TriangleChart[t]))
                 Assert.Single(g.Select(t => compOf[atlas.AtlasToInputTriangle[t]]).Distinct());
+        }
+
+        [Fact]
+        public void Atlas_ComponentCount_SplitsBowties()
+        {
+            // two triangle fans that share only their center vertex: one component of the input by vertices, two
+            // after the bowtie vertex is split
+            DMesh3 mesh = new DMesh3();
+            int c = mesh.AppendVertex(Vector3d.Zero);
+            for (int side = 0; side < 2; ++side) {
+                int prev = -1;
+                for (int k = 0; k < 4; ++k) {
+                    double a = (side == 0 ? 0.2 : Math.PI + 0.2) + 0.5 * k;
+                    int v = mesh.AppendVertex(new Vector3d(Math.Cos(a), Math.Sin(a), 0.1 * k));
+                    if (prev >= 0) Assert.True(mesh.AppendTriangle(c, prev, v) >= 0);
+                    prev = v;
+                }
+            }
+            var atlas = new UVAtlasGenerator(mesh);
+            atlas.Compute();
+            Assert.NotEqual(UVAtlasStatus.InvalidMesh, atlas.Status);
+            Assert.Equal(2, atlas.ComponentCount);
+            Assert.True(atlas.ChartCount >= 2);
         }
 
         [Fact]

@@ -656,6 +656,90 @@ namespace g3
                 }
             }
         }
+        /// <summary>
+        /// Cut the mesh open along the given interior edges. At every endpoint the triangle fan is split where it
+        /// crosses a cut edge, and each piece after the first (largest) gets its own copy of the vertex; a cut edge
+        /// becomes two boundary edges where this separates its two triangles. It does not where the fan of
+        /// neither end is split: eg an edge whose ends are both inside the mesh with no other cut edge at them
+        /// (a slit needs a hole or a boundary to open into), or a fan with a single cut edge. Fans at the endpoints
+        /// that were already separate (bowties) are split as well. Returns the number of vertices added.
+        /// </summary>
+        public int CutAlongEdges(IEnumerable<int> edges)
+        {
+            HashSet<int> cut = new HashSet<int>();
+            HashSet<int> verts = new HashSet<int>();
+            foreach (int eid in edges) {
+                if (Mesh.IsEdge(eid) == false || Mesh.IsBoundaryEdge(eid))
+                    continue;
+                cut.Add(eid);
+                Index2i ev = Mesh.GetEdgeV(eid);
+                verts.Add(ev.a);
+                verts.Add(ev.b);
+            }
+            if (cut.Count == 0)
+                return 0;
+            // the cut edges are identified by their vertices (partners of each end): splitting one endpoint replaces
+            // the edge ids, and a copy of a vertex inherits its partners, since a cut edge can move to the copy with
+            // both its triangles (a fan of a bowtie vertex with a single cut edge)
+            Dictionary<int, HashSet<int>> partners = new Dictionary<int, HashSet<int>>();
+            Action<int, int> add_partner = (x, y) => {
+                HashSet<int> set;
+                if (partners.TryGetValue(x, out set) == false)
+                    partners[x] = set = new HashSet<int>();
+                set.Add(y);
+            };
+            foreach (int eid in cut) {
+                Index2i ev = Mesh.GetEdgeV(eid);
+                add_partner(ev.a, ev.b);
+                add_partner(ev.b, ev.a);
+            }
+            int added = 0;
+            foreach (int vid in verts) {
+                HashSet<int> vpartners = partners[vid];
+                Dictionary<int, int> parent = new Dictionary<int, int>();
+                foreach (int tid in Mesh.VtxTrianglesItr(vid))
+                    parent[tid] = tid;
+                foreach (int eid in Mesh.VtxEdgesItr(vid)) {
+                    Index2i et = Mesh.GetEdgeT(eid);
+                    if (et.b == DMesh3.InvalidID)
+                        continue;
+                    Index2i ev = Mesh.GetEdgeV(eid);
+                    if (vpartners.Contains(ev.a == vid ? ev.b : ev.a))
+                        continue;
+                    parent[find_root(parent, et.a)] = find_root(parent, et.b);
+                }
+                Dictionary<int, List<int>> setMap = new Dictionary<int, List<int>>();
+                foreach (int tid in Mesh.VtxTrianglesItr(vid)) {
+                    int root = find_root(parent, tid);
+                    List<int> set;
+                    if (setMap.TryGetValue(root, out set) == false)
+                        setMap[root] = set = new List<int>();
+                    set.Add(tid);
+                }
+                if (setMap.Count < 2)
+                    continue;
+                List<List<int>> sets = new List<List<int>>(setMap.Values);
+                sets.Sort(bowtie_sorter);
+                for (int k = 1; k < sets.Count; ++k) {
+                    int copy_vid = Mesh.AppendVertex(Mesh, vid);
+                    added++;
+                    foreach (int tid in sets[k]) {
+                        Index3i t = Mesh.GetTriangle(tid);
+                        if (t.a == vid) t.a = copy_vid;
+                        else if (t.b == vid) t.b = copy_vid;
+                        else t.c = copy_vid;
+                        Mesh.SetTriangle(tid, t, false);
+                    }
+                    foreach (int other in vpartners) {
+                        add_partner(copy_vid, other);
+                        add_partner(other, copy_vid);
+                    }
+                }
+            }
+            return added;
+        }
+
+
         static int find_root(Dictionary<int, int> parent, int tid) {
             int root = tid;
             while (parent[root] != root)
