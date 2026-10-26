@@ -98,11 +98,14 @@ namespace gs
         }
         List<int> sorted_buffer = new List<int>();
 
-        // a projected vertex closer than this to its position did not move (relative to the edge lengths, so
-        // the result does not depend on the scale of the mesh; was MathUtil.ZeroTolerancef)
-        double moved_tolerance()
+        // a projected vertex closer than this to its position p did not move: relative to the edge lengths
+        // (MinEdgeLength, set by SetTargetEdgeLength), so the result does not depend on the scale of the mesh
+        // (was MathUtil.ZeroTolerancef), and at least a few units in the last place of p's coordinates, so
+        // rounding noise far from the origin does not count as a move. Both scale exactly by powers of two.
+        double moved_tolerance(Vector3d p)
         {
-            return MathUtil.ZeroTolerancef * MinEdgeLength;
+            double magnitude = Math.Max(Math.Abs(p.x), Math.Max(Math.Abs(p.y), Math.Abs(p.z)));
+            return Math.Max(MathUtil.ZeroTolerancef * MinEdgeLength, 8 * MathUtil.Epsilon * magnitude);
         }
 
         void queue_edge_safe(int eid) {
@@ -541,7 +544,7 @@ namespace gs
                 Vector3d vCur = Mesh.GetVertex(vID);
                 bool bModified = false;
                 Vector3d vProjected = ComputeProjectedVertexPos(vID, out bModified);
-                if (vCur.EpsilonEqual(vProjected, moved_tolerance()))
+                if (vCur.EpsilonEqual(vProjected, moved_tolerance(vCur)))
                     bModified = false;
                 if (bModified) {
                     vModifiedV[vID] = true;
@@ -654,7 +657,9 @@ namespace gs
                 double dot = normal.Dot(projNormal);
                 dot = MathUtil.Clamp(dot, 0, 1.0);
                 double w = area * (dot * dot * dot);
-                if (!(w > 0)) {
+                // (a triangle almost perpendicular to the target: a weight in the subnormal range would lose
+                // the positions it multiplies; relative to the area, so independent of the scale)
+                if (!(w > 1e-200 * area)) {
                     triWeights[tid] = 0;
                     triPositions[3 * tid] = triPositions[3 * tid + 1] = triPositions[3 * tid + 2] = Vector3d.Zero;
                     return;
@@ -702,7 +707,7 @@ namespace gs
 
                 Vector3d curpos = mesh.GetVertex(vID);
                 Vector3d projPos = vBufferV[vID] / vBufferVWeights[vID];
-                if (curpos.EpsilonEqual(projPos, moved_tolerance()))
+                if (curpos.EpsilonEqual(projPos, moved_tolerance(curpos)))
                     return;
 
                 vModifiedV[vID] = true;
