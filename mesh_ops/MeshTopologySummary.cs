@@ -33,7 +33,11 @@ namespace gs
             public double Genus;
         }
 
-        /// <summary> what changed from one mesh (eg the input) to another (eg the repair result) </summary>
+        /// <summary>
+        /// what changed from one mesh (eg the input) to another (eg the repair result), by the totals; a handle closed
+        /// on one component and one created on another (same total genus, other genera of the components) sets both
+        /// HandlesClosed and HandlesCreated. Weld triangle soups first (each unwelded triangle is a component).
+        /// </summary>
         [Flags]
         public enum Changes
         {
@@ -59,9 +63,24 @@ namespace gs
             if (to.Components > from.Components) c |= Changes.ComponentsAdded;
             if (to.Genus < from.Genus) c |= Changes.HandlesClosed;
             if (to.Genus > from.Genus) c |= Changes.HandlesCreated;
+            if (to.Genus == from.Genus && same_genera(from, to) == false)
+                c |= Changes.HandlesClosed | Changes.HandlesCreated;    // moved between components
             if (to.BoundaryLoops < from.BoundaryLoops) c |= Changes.BoundaryLoopsRemoved;
             if (to.BoundaryLoops > from.BoundaryLoops) c |= Changes.BoundaryLoopsAdded;
             return c;
+        }
+
+        // the components of positive genus have the same genera (sorted), so no handle moved between components
+        static bool same_genera(MeshTopologySummary a, MeshTopologySummary b)
+        {
+            var ga = new List<double>(); var gb = new List<double>();
+            foreach (var c in a.ComponentList) if (c.Genus != 0) ga.Add(c.Genus);
+            foreach (var c in b.ComponentList) if (c.Genus != 0) gb.Add(c.Genus);
+            ga.Sort(); gb.Sort();
+            if (ga.Count != gb.Count) return false;
+            for (int i = 0; i < ga.Count; ++i)
+                if (ga[i] != gb[i]) return false;
+            return true;
         }
 
         public static MeshTopologySummary Compute(DMesh3 mesh)

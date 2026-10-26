@@ -107,6 +107,9 @@ namespace geometry3Sharp.Tests
             foreach (var t in new[] { f.ReferenceTopology, f.MeshTopology })
                 v.AddRange(new double[] { t.Components, t.Vertices, t.Edges, t.Triangles, t.BoundaryEdges, t.BoundaryLoops, t.BowtieVertices,
                     t.ClosedComponents, t.EulerCharacteristic, t.Genus });
+            v.AddRange(new[] { f.MaxDistanceMeshToReference, f.MaxDistanceReferenceToMesh, f.OuterShare, f.OuterDistanceReferenceToMesh, f.OuterMaxDistanceReferenceToMesh });
+            v.AddRange(f.OuterRecall);
+            v.AddRange(f.OuterFScore);
             return v;
         }
 
@@ -441,6 +444,35 @@ namespace geometry3Sharp.Tests
             bow.AppendTriangle(c0, v[0], v[1]); bow.AppendTriangle(c0, v[2], v[3]);
             var bt = MeshTopologySummary.Compute(bow);
             Assert.Equal(2, bt.Components); Assert.Equal(2, bt.BoundaryLoops); Assert.Equal(1, bt.BowtieVertices);
+            // in one component: a 3 x 3 grid without its center and corner quad, the hole touching the outer boundary
+            // at a bowtie vertex: one boundary loop counted (two when split there), genus 1/2 (documented)
+            DMesh3 ring = new DMesh3();
+            for (int j = 0; j <= 3; ++j)
+                for (int i = 0; i <= 3; ++i)
+                    ring.AppendVertex(new Vector3d(i, j, 0));
+            for (int j = 0; j < 3; ++j)
+                for (int i = 0; i < 3; ++i) {
+                    if ((i == 1 && j == 1) || (i == 0 && j == 0)) continue;
+                    int a = j * 4 + i;
+                    ring.AppendTriangle(a, a + 1, a + 5);
+                    ring.AppendTriangle(a, a + 5, a + 4);
+                }
+            var rt = MeshTopologySummary.Compute(ring);
+            Assert.Equal(1, rt.Components); Assert.Equal(1, rt.BowtieVertices); Assert.Equal(1, rt.BoundaryLoops);
+            Assert.Equal(0.5, rt.Genus);
+            // a handle moved between components (two tori to a sphere and a genus 2 part): same total genus,
+            // other genera of the components, both flags
+            Func<double[], MeshTopologySummary> summary = (genera) => {
+                var t = new MeshTopologySummary() { Components = genera.Length };
+                foreach (double g in genera) {
+                    t.Genus += g;
+                    t.ComponentList.Add(new MeshTopologySummary.ComponentTopology() { Genus = g });
+                }
+                return t;
+            };
+            Assert.Equal(MeshTopologySummary.Changes.HandlesClosed | MeshTopologySummary.Changes.HandlesCreated,
+                MeshTopologySummary.Compare(summary(new double[] { 1, 1 }), summary(new double[] { 2, 0 })));
+            Assert.Equal(MeshTopologySummary.Changes.None, MeshTopologySummary.Compare(summary(new double[] { 1, 0 }), summary(new double[] { 0, 1 })));
         }
 
         [Fact]
@@ -453,6 +485,120 @@ namespace geometry3Sharp.Tests
             Assert.True((f.TopologyChanges & MeshTopologySummary.Changes.HandlesClosed) != 0);
             Assert.Equal(1, f.ReferenceTopology.Genus);
             Assert.Equal(0, f.MeshTopology.Genus);
+        }
+
+        static DMesh3 Box(Vector3d min, Vector3d max)
+        {
+            return new TrivialBox3Generator() { Box = new Box3d(0.5 * (min + max), 0.5 * (max - min)) }.Generate().MakeDMesh();
+        }
+
+        // quad in the plane given by origin and two edge vectors, normal u x v (flip: reversed)
+        static DMesh3 Quad(Vector3d o, Vector3d u, Vector3d v, int n, bool flip)
+        {
+            var m = new DMesh3();
+            for (int j = 0; j <= n; ++j)
+                for (int i = 0; i <= n; ++i)
+                    m.AppendVertex(o + ((double)i / n) * u + ((double)j / n) * v);
+            for (int j = 0; j < n; ++j)
+                for (int i = 0; i < n; ++i) {
+                    int a = j * (n + 1) + i, b = a + 1, c = a + n + 1, d = c + 1;
+                    if (flip) { m.AppendTriangle(a, d, b); m.AppendTriangle(a, c, d); }
+                    else { m.AppendTriangle(a, b, d); m.AppendTriangle(a, d, c); }
+                }
+            return m;
+        }
+
+        [Fact]
+        public void OuterSurface_LeavesOutInteriorFacesAndDoubleSidedFins()
+        {
+            // reference: a box with a single face inside it, a nested shell inside it, and a double-sided fin outside
+            // (two coincident opposite quads); the repair to the solid drops all three: recall and the sampled
+            // Hausdorff distance see them as lost, the outer surface measures do not
+            DMesh3 box = Box(Vector3d.Zero, Vector3d.One);
+            DMesh3 reference = new DMesh3(box);
+            DMesh3 inner = Quad(new Vector3d(0.2, 0.2, 0.3), new Vector3d(0.6, 0, 0), new Vector3d(0, 0.6, 0), 6, false);
+            DMesh3 shell = Box(new Vector3d(0.3, 0.3, 0.55), new Vector3d(0.7, 0.7, 0.85));
+            DMesh3 finA = Quad(new Vector3d(1, 0.5, 0), new Vector3d(0.5, 0, 0), new Vector3d(0, 0, 1), 5, false);
+            DMesh3 finB = Quad(new Vector3d(1, 0.5, 0), new Vector3d(0.5, 0, 0), new Vector3d(0, 0, 1), 5, true);
+            foreach (var part in new[] { inner, shell, finA, finB }) MeshEditor.Append(reference, part);
+            // inner face 0.6 x 0.6; shell 0.4 x 0.4 top and bottom, 0.4 x 0.3 sides; fin 2 x 0.5 x 1
+            double boxArea = 6, otherArea = 0.36 + (2 * 0.16 + 4 * 0.12) + 1.0;
+            var f = Run(reference, box);
+            Assert.True(f.Recall[2] < 0.9);
+            Assert.True(f.MaxDistanceReferenceToMesh * f.Size > 0.2);
+            Assert.InRange(f.OuterShare, boxArea / (boxArea + otherArea) - 0.01, boxArea / (boxArea + otherArea) + 0.01);
+            for (int k = 0; k < f.OuterRecall.Length; ++k) {
+                Assert.Equal(1.0, f.OuterRecall[k]);
+                Assert.Equal(1.0, f.OuterFScore[k]);
+            }
+            Assert.True(f.OuterMaxDistanceReferenceToMesh < 1e-6);
+            // an open sheet and a cavity wall are outer
+            DMesh3 sheet = Plate(0, 1, 0, 10);
+            var fs = Run(sheet, new DMesh3(sheet));
+            Assert.Equal(1.0, fs.OuterShare);
+            DMesh3 cavity = new DMesh3(box);
+            DMesh3 hole = Box(new Vector3d(0.3, 0.3, 0.3), new Vector3d(0.7, 0.7, 0.7));
+            foreach (int tid in hole.TriangleIndices().ToArray()) hole.ReverseTriOrientation(tid);
+            MeshEditor.Append(cavity, hole);
+            var fc = Run(cavity, new DMesh3(cavity));
+            Assert.InRange(fc.OuterShare, 0.995, 1.0);
+            // off: the outer measures stay NaN
+            var off = new MeshFidelityMetrics(reference, box) { OuterSurface = false };
+            Assert.True(off.Compute());
+            Assert.True(double.IsNaN(off.OuterShare) && double.IsNaN(off.OuterRecall[0]) && double.IsNaN(off.OuterFScore[0]));
+        }
+
+        [Fact]
+        public void NothingToSample_ReturnsFalse()
+        {
+            Assert.False(new MeshFidelityMetrics(Cube(), Cube()) { SurfaceSamples = 0 }.Compute());
+            Assert.False(new MeshFidelityMetrics(Cube(), Cube()) { EdgeSamples = 0 }.Compute());
+            // the mesh has only triangles below 1e-12 of the reference's size squared
+            DMesh3 tiny = Cube();
+            MeshTransforms.Scale(tiny, 1e-7);
+            var f = new MeshFidelityMetrics(Cube(), tiny);
+            Assert.False(f.Compute());
+            Assert.Null(f.FScore);
+            Assert.Null(f.MeshTopology);
+        }
+
+        [Fact]
+        public void Cancel_AtAnyPoint_ClearsAllOutputs()
+        {
+            DMesh3 reference, mesh;
+            Pair(out reference, out mesh);
+            int total = 0;
+            var counting = new MeshFidelityMetrics(reference, mesh) { CancelF = () => { total++; return false; } };
+            Assert.True(counting.Compute());
+            Assert.True(total >= 4);
+            for (int stop = 1; stop <= total; ++stop) {
+                int calls = 0;
+                var f = new MeshFidelityMetrics(reference, mesh) { CancelF = () => ++calls >= stop };
+                Assert.False(f.Compute());
+                Assert.True(double.IsNaN(f.Size) && double.IsNaN(f.Chamfer) && double.IsNaN(f.EdgeChamfer) && double.IsNaN(f.OuterShare));
+                Assert.True(f.FScore == null && f.OuterRecall == null && f.EdgeRecall == null && f.NormalsMeshToReference == null);
+                Assert.True(f.MeshQuality == null && f.ReferenceQuality == null && f.MeshTopology == null && f.ReferenceTopology == null);
+                Assert.Equal(MeshTopologySummary.Changes.None, f.TopologyChanges);
+            }
+        }
+
+        [Fact]
+        public void Soup_SameSurfaceMeasuresAsWelded()
+        {
+            // documented: weld soups first; the surface measures stay close, the topology does not
+            DMesh3 welded = Sphere(1, 20);
+            DMesh3 soup = new DMesh3();
+            foreach (int tid in welded.TriangleIndices()) {
+                Index3i t = welded.GetTriangle(tid);
+                soup.AppendTriangle(soup.AppendVertex(welded.GetVertex(t.a)), soup.AppendVertex(welded.GetVertex(t.b)), soup.AppendVertex(welded.GetVertex(t.c)));
+            }
+            DMesh3 other = Sphere(1.01, 24);
+            var a = Run(welded, other);
+            var b = Run(soup, other);
+            Assert.Equal(a.FScore[1], b.FScore[1]);
+            Assert.InRange(b.NormalConsistency, a.NormalConsistency - 1e-3, a.NormalConsistency + 1e-3);
+            Assert.Equal(a.SharpEdgeLengthReference, b.SharpEdgeLengthReference);
+            Assert.Equal(welded.TriangleCount, b.ReferenceTopology.Components);
         }
 
         [Fact]

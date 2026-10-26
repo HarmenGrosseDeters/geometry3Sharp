@@ -15,7 +15,9 @@ namespace g3.Examples
         {
             /// <summary> F-score at 1% of the size: 1 = every part of either surface is that close to the other </summary>
             public double FScore;
-            /// <summary> share of the result's surface whose normals point against the input's </summary>
+            /// <summary> the same against the input's outer surface only (interior faces that a repair drops do not count) </summary>
+            public double OuterFScore;
+            /// <summary> share of the result's surface near the input (within 1%) whose normals point against the input's </summary>
             public double Reversed;
             /// <summary> Edge Chamfer distance (relative), and the share of the input's sharp edges kept within 0.5% </summary>
             public double EdgeChamfer, EdgeRecall;
@@ -32,6 +34,7 @@ namespace g3.Examples
                 return null;        // an empty or non-finite mesh
             return new Report() {
                 FScore = f.FScore[1],
+                OuterFScore = f.OuterFScore[1],
                 Reversed = f.NormalsMeshToReference.ReversedFraction,
                 EdgeChamfer = f.EdgeChamfer,
                 EdgeRecall = f.EdgeRecall[0],

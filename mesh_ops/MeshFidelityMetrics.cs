@@ -19,6 +19,8 @@ namespace gs
     ///   - Edge Chamfer distance (as in Chen et al., "Neural Dual Contouring", SIGGRAPH 2022): Chamfer distance
     ///     between the sharp edges (dihedral angle above SharpEdgeAngle) of both meshes, and the edge
     ///     precision / recall at the thresholds: feature preservation;
+    ///   - the same against the outer surface of the reference only (OuterSurface), so interior faces that a
+    ///     repair to a solid drops on purpose do not count as lost;
     ///   - triangle quality (TriangleQualityStatistics, Verdict definitions) and topology (MeshTopologySummary)
     ///     of both meshes, and the topology changes.
     ///
@@ -40,7 +42,9 @@ namespace gs
     /// run in sample order, so Parallel = false gives the same results bit for bit.
     ///
     /// Usage: <c>var f = new MeshFidelityMetrics(input, result); if (f.Compute()) use(f.FScore[0]);</c>
-    /// The meshes are not modified. Orientation matters for the reversed share only: a correct result of an
+    /// The meshes are not modified. Weld triangle soups first: the sharp edges are found by position, but the
+    /// pseudo-normals at edges and vertices and the topology (each soup triangle is a component) use the
+    /// mesh's connectivity. Orientation matters for the reversed share only: a correct result of an
     /// input with inverted patches shows them as reversed, so orient the reference (eg MeshRepairOrientation)
     /// if only the result's orientation is to be judged.
     /// </summary>
@@ -57,6 +61,18 @@ namespace gs
         public double[] RelativeThresholds = { 0.001, 0.005, 0.01 };
         /// <summary> an edge is sharp if the angle between the normals of its triangles exceeds this (degrees) </summary>
         public double SharpEdgeAngle = 30;
+        /// <summary>
+        /// also measure against the outer surface of the reference only (OuterRecall, OuterFScore, Outer*): the
+        /// reference samples where the generalized winding number w of the reference (tested at OuterOffset * Size
+        /// along the normal, w+ and w-) jumps by one (|w+ - w-| &gt; 0.5: a single layer) and the rest of the
+        /// reference does not enclose the point (|w+ + w-| / 2 &lt; 0.75: 0.5 on the boundary of a solid, 0 on an open
+        /// sheet). Leaves out faces inside the solid (single faces, nested shells: mean 1 or more), internal double
+        /// walls and double-sided sheets (jump 0), which a repair to a solid drops on purpose; keeps cavity walls
+        /// and open sheets. Orient inside-out components of the reference first (eg WindingContouring.OrientedCopy).
+        /// </summary>
+        public bool OuterSurface = true;
+        /// <summary> offset of the two winding number tests of OuterSurface, relative to Size (walls thinner than that are not outer) </summary>
+        public double OuterOffset = 1e-5;
         /// <summary> seed of the sampling </summary>
         public int Seed = 1;
         /// <summary> run the queries in parallel (the results are the same) </summary>
@@ -71,6 +87,17 @@ namespace gs
         public double[] Precision, Recall, FScore;
         /// <summary> output: mean distance of the mesh's samples to the reference, of the reference's samples to the mesh, and their mean (Chamfer-L1), relative to Size </summary>
         public double DistanceMeshToReference = double.NaN, DistanceReferenceToMesh = double.NaN, Chamfer = double.NaN;
+        /// <summary> output: largest distance of the mesh's samples to the reference, and of the reference's to the mesh (a sampled lower bound of the one-sided Hausdorff distances), relative to Size </summary>
+        public double MaxDistanceMeshToReference = double.NaN, MaxDistanceReferenceToMesh = double.NaN;
+        /// <summary> output (OuterSurface): share of the reference's surface that is outer, see OuterSurface </summary>
+        public double OuterShare = double.NaN;
+        /// <summary>
+        /// output (OuterSurface): per threshold, share of the reference's outer surface within tau of the mesh, and its
+        /// harmonic mean with Precision; NaN if the reference has no outer surface
+        /// </summary>
+        public double[] OuterRecall, OuterFScore;
+        /// <summary> output (OuterSurface): mean and largest distance of the outer surface's samples to the mesh, relative to Size </summary>
+        public double OuterDistanceReferenceToMesh = double.NaN, OuterMaxDistanceReferenceToMesh = double.NaN;
         /// <summary> output: normal agreement of the mesh's samples with the reference, and of the reference's samples with the mesh </summary>
         public NormalAgreement NormalsMeshToReference, NormalsReferenceToMesh;
         /// <summary> output: mean |cos| of both directions (1 = all normals parallel at corresponding points) </summary>
@@ -105,14 +132,15 @@ namespace gs
 
 
         /// <summary>
-        /// Compute all outputs. Returns false (outputs NaN or null) if either mesh has no triangles or a
-        /// non-finite vertex, if the reference's triangles have zero extent, or if cancelled.
+        /// Compute all outputs. Returns false (all outputs NaN or null) if either mesh has no triangles, no
+        /// triangle with area above 1e-12 Size^2 (nothing to sample) or a non-finite vertex, if the reference's
+        /// triangles have zero extent, if SurfaceSamples or EdgeSamples is not positive, or if cancelled.
         /// </summary>
         public bool Compute()
         {
             reset();
             if (Reference == null || Mesh == null || Reference.TriangleCount == 0 || Mesh.TriangleCount == 0
-                || finite(Reference) == false || finite(Mesh) == false)
+                || finite(Reference) == false || finite(Mesh) == false || SurfaceSamples <= 0 || EdgeSamples <= 0)
                 return false;
             Vector3d center;
             double size = SizeOf(Reference, out center);
@@ -128,37 +156,49 @@ namespace gs
                 maxTau = Math.Max(maxTau, tau[k]);
             }
 
-            // topology and triangle quality
-            ReferenceTopology = MeshTopologySummary.Compute(reference);
-            MeshTopology = MeshTopologySummary.Compute(mesh);
-            TopologyChanges = MeshTopologySummary.Compare(ReferenceTopology, MeshTopology);
-            ReferenceQuality = TriangleQualityStatistics.Compute(reference);
-            MeshQuality = TriangleQualityStatistics.Compute(mesh);
-            if (CancelF())
-                return false;
-
             // surface samples, both directions
-            var refSurface = new Surface(reference, degenerateArea);
-            var meshSurface = new Surface(mesh, degenerateArea);
             var rnd = new Random(Seed);
             SurfaceSample[] onMesh = sample_surface(mesh, SurfaceSamples, rnd, degenerateArea);
             SurfaceSample[] onRef = sample_surface(reference, SurfaceSamples, rnd, degenerateArea);
+            if (onMesh.Length == 0 || onRef.Length == 0)
+                return false;       // only degenerate triangles on one side
+            var refSurface = new Surface(reference, degenerateArea);
+            var meshSurface = new Surface(mesh, degenerateArea);
             query(onMesh, refSurface);
             if (CancelF())
-                return false;
+                return fail();
             query(onRef, meshSurface);
+            if (OuterSurface)
+                classify_outer(onRef, refSurface, OuterOffset * size);
             if (CancelF())
-                return false;
+                return fail();
 
             Precision = new double[nt]; Recall = new double[nt]; FScore = new double[nt];
+            OuterRecall = new double[nt]; OuterFScore = new double[nt];
+            int outer = 0;
+            foreach (var smp in onRef)
+                if (smp.Outer) outer++;
+            SurfaceSample[] onOuter = new SurfaceSample[outer];
+            outer = 0;
+            foreach (var smp in onRef)
+                if (smp.Outer) onOuter[outer++] = smp;
             for (int k = 0; k < nt; ++k) {
                 Precision[k] = share_within(onMesh, tau[k]);
                 Recall[k] = share_within(onRef, tau[k]);
                 FScore[k] = fscore(Precision[k], Recall[k]);
+                OuterRecall[k] = OuterSurface ? share_within(onOuter, tau[k]) : double.NaN;
+                OuterFScore[k] = fscore(Precision[k], OuterRecall[k]);
             }
             DistanceMeshToReference = mean_distance(onMesh) / size;
             DistanceReferenceToMesh = mean_distance(onRef) / size;
             Chamfer = 0.5 * (DistanceMeshToReference + DistanceReferenceToMesh);
+            MaxDistanceMeshToReference = max_distance(onMesh) / size;
+            MaxDistanceReferenceToMesh = max_distance(onRef) / size;
+            if (OuterSurface) {
+                OuterShare = (double)onOuter.Length / onRef.Length;
+                OuterDistanceReferenceToMesh = mean_distance(onOuter) / size;
+                OuterMaxDistanceReferenceToMesh = max_distance(onOuter) / size;
+            }
             NormalsMeshToReference = NormalAgreement.Compute(onMesh, maxTau);
             NormalsReferenceToMesh = NormalAgreement.Compute(onRef, maxTau);
             NormalConsistency = 0.5 * (NormalsMeshToReference.MeanAbsCos + NormalsReferenceToMesh.MeanAbsCos);
@@ -170,35 +210,51 @@ namespace gs
             SharpEdgeLengthMesh = total_length(meshEdges) / size;
             double[] fromMesh = edge_distances(meshEdges, refEdges, rnd);
             if (CancelF())
-                return false;
+                return fail();
             double[] fromRef = edge_distances(refEdges, meshEdges, rnd);
             if (CancelF())
-                return false;
+                return fail();
             EdgePrecision = new double[nt]; EdgeRecall = new double[nt]; EdgeFScore = new double[nt];
             for (int k = 0; k < nt; ++k) {
                 EdgePrecision[k] = share_within(fromMesh, tau[k]);
                 EdgeRecall[k] = share_within(fromRef, tau[k]);
-                EdgeFScore[k] = (double.IsNaN(EdgePrecision[k]) || double.IsNaN(EdgeRecall[k])) ? double.NaN
-                    : fscore(EdgePrecision[k], EdgeRecall[k]);
+                EdgeFScore[k] = fscore(EdgePrecision[k], EdgeRecall[k]);
             }
             EdgeDistanceMeshToReference = mean(fromMesh) / size;
             EdgeDistanceReferenceToMesh = mean(fromRef) / size;
-            if (fromMesh.Length == 0 && fromRef.Length == 0)
+            if (meshEdges.Count == 0 && refEdges.Count == 0)
                 EdgeChamfer = 0;
-            else if (fromMesh.Length == 0 || fromRef.Length == 0)
+            else if (meshEdges.Count == 0 || refEdges.Count == 0)
                 EdgeChamfer = double.PositiveInfinity;
             else
                 EdgeChamfer = 0.5 * (EdgeDistanceMeshToReference + EdgeDistanceReferenceToMesh);
+
+            // topology and triangle quality
+            ReferenceTopology = MeshTopologySummary.Compute(reference);
+            MeshTopology = MeshTopologySummary.Compute(mesh);
+            TopologyChanges = MeshTopologySummary.Compare(ReferenceTopology, MeshTopology);
+            ReferenceQuality = TriangleQualityStatistics.Compute(reference);
+            MeshQuality = TriangleQualityStatistics.Compute(mesh);
+            if (CancelF())
+                return fail();
             Size = size;
             return true;
         }
 
+        bool fail()
+        {
+            reset();
+            return false;
+        }
 
         void reset()
         {
             Size = double.NaN;
             Precision = Recall = FScore = null;
+            OuterRecall = OuterFScore = null;
             DistanceMeshToReference = DistanceReferenceToMesh = Chamfer = double.NaN;
+            MaxDistanceMeshToReference = MaxDistanceReferenceToMesh = double.NaN;
+            OuterShare = OuterDistanceReferenceToMesh = OuterMaxDistanceReferenceToMesh = double.NaN;
             NormalsMeshToReference = NormalsReferenceToMesh = null;
             NormalConsistency = double.NaN;
             SharpEdgeLengthReference = SharpEdgeLengthMesh = double.NaN;
@@ -207,6 +263,22 @@ namespace gs
             ReferenceQuality = MeshQuality = null;
             ReferenceTopology = MeshTopology = null;
             TopologyChanges = MeshTopologySummary.Changes.None;
+        }
+
+        // marks the reference samples on the outer surface (see OuterSurface), from the winding numbers w+, w- at
+        // p +- offset n: the surface is a single layer there (|w+ - w-| about 1, not 0 as for two coincident opposite
+        // faces) and the rest of the mesh does not enclose it (|w+ + w-| / 2 about 0.5 at the boundary of a solid, 0 at
+        // an open sheet, 1 or more at a face inside a solid)
+        void classify_outer(SurfaceSample[] samples, Surface reference, double offset)
+        {
+            reference.PrepareWinding();
+            gParallel.BlockStartEnd(0, samples.Length - 1, (start, end) => {
+                for (int i = start; i <= end; ++i) {
+                    Vector3d p = samples[i].Point, d = offset * samples[i].Normal;
+                    double front = reference.Winding(p + d), back = reference.Winding(p - d);
+                    samples[i].Outer = Math.Abs(front - back) > 0.5 && Math.Abs(front + back) < 1.5;
+                }
+            }, 256, Parallel == false);
         }
 
         /// <summary>
@@ -259,8 +331,11 @@ namespace gs
             return copy;
         }
 
+        // NaN if either share is (nothing sampled on that side)
         static double fscore(double p, double r)
         {
+            if (double.IsNaN(p) || double.IsNaN(r))
+                return double.NaN;
             return (p + r > 0) ? 2 * p * r / (p + r) : 0;
         }
 
@@ -271,6 +346,8 @@ namespace gs
             public Vector3d Point, Normal;
             /// <summary> distance to the other surface, and cos of the angle to its normal there (NaN if no normal) </summary>
             public double Distance, Cos;
+            /// <summary> on the boundary of the solid of its mesh (reference samples, if OuterSurface) </summary>
+            public bool Outer;
         }
 
         // n samples, area weighted and stratified: sample i in the slice [i, i + 1) / n of the cumulative area
@@ -343,6 +420,14 @@ namespace gs
             foreach (var s in samples)
                 sum += s.Distance;
             return samples.Length > 0 ? sum / samples.Length : double.NaN;
+        }
+
+        static double max_distance(SurfaceSample[] samples)
+        {
+            double m = double.NaN;
+            foreach (var s in samples)
+                if (!(s.Distance <= m)) m = s.Distance;
+            return m;
         }
 
         static double mean(double[] values)
@@ -494,6 +579,10 @@ namespace gs
                     }
                 }
             }
+
+            // builds the winding number cache (before parallel queries)
+            public void PrepareWinding() { tree.FastWindingNumber(Vector3d.Zero); }
+            public double Winding(Vector3d p) { return tree.FastWindingNumber(p); }
 
             // distance of p to the mesh, and the unit pseudo-normal at the closest point (zero if none)
             public double Distance(Vector3d p, out Vector3d normal)

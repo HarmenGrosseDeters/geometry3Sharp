@@ -10,7 +10,8 @@ static class FidelityFields
     static readonly string[] tags = { "0001", "0005", "001" };
 
     /// <summary>
-    /// fm_* fields: F-score, precision and recall at 0.1%, 0.5%, 1% of the size, Chamfer distance, normal
+    /// fm_* fields: F-score, precision and recall at 0.1%, 0.5%, 1% of the size, the same against the input's outer
+    /// surface (fm_of_*, fm_or_*, fm_outer_*), sampled max distances, Chamfer distance, normal
     /// consistency, reversed shares, sharp edge lengths, Edge Chamfer distance and edge F-scores, topology of
     /// both meshes and its changes, triangle quality of the result (and of the input if withInputQuality).
     /// The reference is used as given (orient it first if only the result's orientation is to be judged).
@@ -25,6 +26,7 @@ static class FidelityFields
         }
         r["fm_ok"] = true;
         r["fm_size"] = f.Size;
+        r["fm_bbox_diag"] = reference.CachedBounds.DiagonalLength;     // the unit of hd_*_rel
         for (int k = 0; k < tags.Length; ++k) {
             r["fm_f_" + tags[k]] = f.FScore[k];
             r["fm_p_" + tags[k]] = f.Precision[k];
@@ -32,7 +34,14 @@ static class FidelityFields
             r["fm_ef_" + tags[k]] = f.EdgeFScore[k];
             r["fm_ep_" + tags[k]] = f.EdgePrecision[k];
             r["fm_er_" + tags[k]] = f.EdgeRecall[k];
+            r["fm_of_" + tags[k]] = f.OuterFScore[k];
+            r["fm_or_" + tags[k]] = f.OuterRecall[k];
         }
+        r["fm_max_fwd"] = f.MaxDistanceMeshToReference;
+        r["fm_max_back"] = f.MaxDistanceReferenceToMesh;
+        r["fm_outer_share"] = f.OuterShare;
+        r["fm_outer_mean"] = f.OuterDistanceReferenceToMesh;
+        r["fm_outer_max"] = f.OuterMaxDistanceReferenceToMesh;
         r["fm_chamfer"] = f.Chamfer;
         r["fm_nc"] = f.NormalConsistency;
         r["fm_nangle_fwd"] = f.NormalsMeshToReference.MeanAngle;

@@ -25,7 +25,7 @@ namespace gs
     {
         /// <summary> number of triangles </summary>
         public int Triangles;
-        /// <summary> triangles with area at most 1e-12 times the squared diagonal of the triangles' bounds </summary>
+        /// <summary> triangles with area at most 1e-12 times the squared size (MeshFidelityMetrics.SizeOf, independent of the rotation) </summary>
         public int Degenerate;
         /// <summary> distributions of the metrics (Worst is the smallest min angle and scaled Jacobian, the largest of the others) </summary>
         public QualityDistribution MinAngle, MaxAngle, AspectRatio, ScaledJacobian, Condition;
@@ -70,14 +70,15 @@ namespace gs
             }
         }
 
-        /// <summary> the statistics of the triangles of mesh (all fields NaN / 0 for a mesh without triangles) </summary>
+        /// <summary> the statistics of the triangles of mesh, which must have finite vertices (all fields NaN / 0 for a mesh without triangles) </summary>
         public static TriangleQualityStatistics Compute(DMesh3 mesh)
         {
             var r = new TriangleQualityStatistics();
             int n = mesh.TriangleCount;
             double[] minA = new double[n], maxA = new double[n], aspect = new double[n], sj = new double[n], cond = new double[n];
-            double diag = MeshRepairMetrics.TriangleBounds(mesh).DiagonalLength;
-            double degenerateArea = n > 0 ? 1e-12 * diag * diag : 0;
+            Vector3d centroid;
+            double size = MeshFidelityMetrics.SizeOf(mesh, out centroid);
+            double degenerateArea = size > 0 ? 1e-12 * size * size : 0;
             Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
             int i = 0;
             foreach (int tid in mesh.TriangleIndices()) {

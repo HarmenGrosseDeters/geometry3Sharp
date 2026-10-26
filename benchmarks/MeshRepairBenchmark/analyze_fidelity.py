@@ -81,6 +81,8 @@ if fm:
     print(f"\nFurther measures (fm_*, relative to the input size; {len(fm)} meshes with them, {len(rep)} of them repaired)")
     print(f"  {'measure':38s} {'all: median':>12s} {'p10/p90':>9s} {'repaired: median':>17s} {'p10/p90':>9s}")
     cols = [('F-score 0.1%', 'fm_f_0001', .1), ('F-score 0.5%', 'fm_f_0005', .1), ('F-score 1%', 'fm_f_001', .1),
+            ('F-score 1%, outer surface of the input', 'fm_of_001', .1), ('outer share of the input', 'fm_outer_share', .1),
+            ('max dist. input to result (sampled)', 'fm_max_back', .9), ('... from its outer surface', 'fm_outer_max', .9),
             ('Chamfer distance', 'fm_chamfer', .9), ('normal consistency |cos|', 'fm_nc', .1),
             ('reversed share (result to input)', 'fm_reversed_fwd', .9), ('Edge Chamfer distance', 'fm_ecd', .9),
             ('edge recall 0.5%', 'fm_er_0005', .1), ('edge precision 0.5%', 'fm_ep_0005', .1)]
@@ -101,3 +103,12 @@ if fm:
         hit = [r for r in rep if flag(r)]
         print(f"    {name:10s} {sum(1 for r in fm if flag(r)):4d} / {len(hit):4d}   repaired examples: {[r['file'] for r in hit[:6]]}")
     print(f"  repaired with any flag: {sum(1 for r in rep if any(f(r) for f in FLAGS.values()))} of {len(rep)}")
+    # the "repaired" criterion with the input-to-result Hausdorff distance replaced by the sampled one from the
+    # input's outer surface (interior and double-sided faces that the repair drops do not count)
+    def outer_faithful(r):
+        return (clean(r) and get(r, 'after_selfint_exact', 1) == 0 and float(get(r, 'hd_fwd_hi_rel', 1)) < HD
+                and num(r, 'fm_outer_max', 1) * num(r, 'fm_size', 0) / max(num(r, 'fm_bbox_diag', 0), 1e-300) < HD
+                and iou(r) > IOU)
+    gained = [r for r in fm if outer_faithful(r) and not repaired(r, HD, IOU)]
+    print(f"  repaired with Hausdorff input->result from the outer surface instead (sampled): "
+          f"{sum(1 for r in fm if outer_faithful(r))}; newly: {len(gained)} {[r['file'] for r in gained[:8]]}")
