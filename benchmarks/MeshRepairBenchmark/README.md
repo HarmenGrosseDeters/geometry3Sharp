@@ -229,7 +229,7 @@ stage, 3 end with self-intersections after 4 rounds, 2 with another reason; 23 k
 collapsed (edges longer than the limit or link condition) nor flipped.
 
 
-**Repair before the exact resolve: orientation seams instead of erosion.** Measured after every step
+**Repair before the exact resolve: cut orientation seams before eroding.** Measured after every step
 (`BENCH_REPAIR=steps`), several deviations came from the repair, not the resolve: where a non-orientable
 region (a seam of inconsistently oriented edges) ends at a hole, the hole runs against the boundary orientation
 and was not filled; the repair eroded the mesh instead (boundary triangles removed, up to 5 times) and filled
@@ -243,23 +243,31 @@ turn a short seam into a long one (101397: 2 → 175 inconsistent edges), and cl
   the input's solid (a nested part had been taken for a cavity, 116077), and skips the exact stage above
   `ExactResolveMaxPairs` (200 000) self-intersecting pairs (55928, about 500 000, would otherwise time out).
 
-Same machine, `BENCH_P=2`, `TIMEOUT=300`, master with #44 and #26 with and without the change, both selections:
+`MeshAutoRepair.CutOrientationSeams = false` (and `MeshRepairOrientation.KeepShortSeams = false`) restore the
+earlier behaviour; the erosion stays as the fallback for holes that still cannot be filled.
+
+Same machine, `BENCH_P=2`, `TIMEOUT=300`, master a8a5572 (with #44, #52, #79) with and without the change, both
+selections:
 
 | | first selection, before | after | holdout, before | after |
 |---|---|---|---|---|
-| clean¹ + no exact self-intersections | 399 | 399 | 399 | 399 |
-| **repaired** (also Hausdorff < 1 %, IoU > 0.99) | 258 | **264** | 256 | **260** |
-| meshes repaired / lost | | +6 / −0 | | +5 / −1 |
-| IoU < 0.99 | 77 | **59** | 74 | **67** |
-| Hausdorff (max of both directions) > 1 % | 129 | **124** | 136 | **130** |
-| exact stage used | 132 | **146** | 130 | **140** |
-| exact stage not used: not closed (winding number) | 28 | **1** | 34 | **0** |
-| median / p90 repair time | 3.6 / 18.7 s | 3.5 / 15.4 s | 3.2 / 17.3 s | 3.3 / 14.7 s |
+| clean¹ + no exact self-intersections | 399 | 399 | 397 | 397 |
+| **repaired** (also Hausdorff < 1 %, IoU > 0.99) | 266 | **270** | 262 | **267** |
+| meshes repaired / lost | | +4 / −0 | | +5 / −0 |
+| IoU < 0.99 | 46 | **42** | 50 | **46** |
+| Hausdorff (max of both directions) > 1 % | 125 | **121** | 132 | **127** |
+| exact stage used | 140 | **158** | 148 | **159** |
+| median / p90 repair time | 3.8 / 16.5 s | 3.8 / 18.2 s | 3.6 / 15.9 s | 3.9 / 15.3 s |
+| timeouts (300 s) | 0 | 0 | 1 | 1 (the same mesh) |
 
-The holdout loss (285605) is faithful after the repair (Hausdorff 0.14 %), but the second resolve round leaves
-slivers the cleanup cannot remove. The exact stage now mostly stops at the next checks: degenerate triangles
-after the resolve (43 / 40) and a volume that differs from the input (35 / 45, of these 13 / 15 with an input
-that cannot be resolved either). Cases the strict criterion cannot reach:
+Gained: 101397, 277709, 56795, 73932; 132204, 195685, 409630, 49874, 88857. Before the change, the exact stage
+stopped at "not closed (winding number)" for 71 / 64 meshes (with #79 most of them are inputs, tried because the
+repair result lost volume); now the repair result is resolved first, and the remaining stops are inputs that
+cannot be resolved after a repair result that could not be either (mostly its volume differs: 35 / 47; degenerate
+triangles: 28 / 15). An earlier measurement on master 8597e32 (before #52 and #79) gave 258 → 264 and
+256 → 260 (one loss, 285605, slivers after the second resolve round).
+
+Cases the strict criterion cannot reach:
 - zero-volume fins of the input (123354, 124709: the repair is faithful, the solid loses them: 1.3–1.5 %);
 - a nested inner shell (116077: resolved exactly, the shell is not part of the solid: Hausdorff 4 %);
 - inputs with flipped triangles (100037: the repair agrees with the consistently oriented input, IoU 0.9998,
