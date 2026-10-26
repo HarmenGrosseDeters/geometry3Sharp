@@ -845,7 +845,8 @@ namespace geometry3Sharp.Tests
             var w = new MeshAlphaWrap(new[] { new Vector3d(1e308, 1e308, 1e308), new Vector3d(-1e308, 1e308, 1e308) });
             bool ok = w.Compute();
             Assert.NotEqual(MeshAlphaWrap.WrapStatus.InvalidInput, w.Status);
-            // where the coordinates are this large, a reported success must still hold its guarantees
+            // (today this ends in InvalidParameters: the relative alpha of a 1e308 box overflows. If it ever succeeds,
+            // the guarantees must hold where the coordinates are this large.)
             if (ok) {
                 ResultChecks.AssertClosed(w.Result);
                 Assert.Equal(0, MeshRepairMetrics.SelfIntersections(w.Result));

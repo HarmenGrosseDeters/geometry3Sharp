@@ -29,8 +29,9 @@ namespace geometry3Sharp.Tests
         /// <summary> clean in the sense of MeshRobustRepair.NotCleanReason, and valid </summary>
         public static void AssertClean(DMesh3 mesh, string what = "result", bool checkSelfIntersections = true)
         {
-            Assert.Equal("", MeshRobustRepair.NotCleanReason(mesh, checkSelfIntersections));
             AssertValid(mesh, what);
+            string reason = MeshRobustRepair.NotCleanReason(mesh, checkSelfIntersections);
+            Assert.True(reason == "", what + ": " + reason);
         }
 
         public static double Volume(DMesh3 mesh) => MeshMeasurements.VolumeArea(mesh, mesh.TriangleIndices(), mesh.GetVertex).x;

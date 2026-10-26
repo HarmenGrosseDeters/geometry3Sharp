@@ -87,7 +87,9 @@ namespace geometry3Sharp.Tests
             AssertRepeatable(() => new ExactMeshBoolean(box, sphere, ExactMeshBoolean.Operations.Intersection) { SafeRounding = true, ComputeExactVertices = true },
                 (b) => {
                     Assert.NotNull(b.ResultExactVertices);
-                    // SafeRounding: no self-intersections or degenerate triangles from rounding
+                    // SafeRounding: verified free of self-intersections and degenerate triangles (RoundingClean, the
+                    // documented flag), and an independent check of the same
+                    Assert.True(b.RoundingClean);
                     ResultChecks.AssertClean(b.Result);
                 });
         }
