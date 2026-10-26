@@ -49,7 +49,11 @@ selectively.
   overlapping boxes are intersected, and only the meshes whose box contains a patch get a winding number ray.
   The 10x10x10 cube grid with voids (2000 meshes) in one pass: 27 s instead of 1999 pairwise booleans
   (`BooleanComparison nary`); CLI `g3cli boolean --more ... --op at_least --k 2`.
-- [ ] Rounding of the output without new self-intersections (snap rounding), or exact output coordinates
+- [x] Rounding of the output without new self-intersections, or exact output coordinates: `ExactMeshBoolean.SafeRounding`
+  (`MeshRoundingRepair`: after rounding, local edits checked with exact predicates on the doubles, after Milenkovic &
+  Sacks 2019; the result is verified free of self-intersections and slivers, or the remaining ones are counted) and
+  `ComputeExactVertices` (exact rational coordinates). `MeshRobustRepair` uses it in its exact stage: Thingi10K
+  `robust` 266 → 273 repaired.
 - [x] Alpha wrapping (`MeshAlphaWrap`, Portaneri et al. 2022): closed, manifold, intersection-free wrap with an offset
   around any input (soups, open meshes, point clouds), on an own exact 3D Delaunay triangulation (`Delaunay3`).
   Benchmark on Thingi10K: `BENCH_REPAIR=wrap`, `analyze_wrap.py` (comparison with the solidify fallback).
