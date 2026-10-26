@@ -393,7 +393,7 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void LostComponents_SpecksBelowAThousandthOfTheDiagonalNotJudged()
         {
-            // a closed speck (1e-4 across, as MeshAutoRepair's MinEdgeLengthTol removes) next to a unit sphere: losing it
+            // a closed speck (1e-4 across, as MeshAutoRepair's MinEdgeLengthTol of 1.0.324 removed) next to a unit sphere: losing it
             // is not a lost component (a fallback would lose it as well); a part 1e-2 across is one
             DMesh3 big = Sphere(1, Vector3d.Zero);
             DMesh3 withSpeck = new DMesh3(big);

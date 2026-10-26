@@ -1,6 +1,6 @@
 // Runs MeshAutoRepair on one mesh file and prints one JSON line with the result
 // (mesh statistics and quality metrics before and after the repair).
-// Usage: MeshRepairBenchmark <meshfile> [std|soup|manual] [none|meters|geo] [tolerance factor]
+// Usage: MeshRepairBenchmark <meshfile> [std|soup|manual] [none|meters|geo] [rel|tolerance factor]
 //   std    = StandardMeshReader defaults (STL vertex welding, DMesh3Builder)
 //   soup   = STL triangle soup, no vertex welding
 //   manual = weld by exact position ourselves and call DMesh3.AppendTriangle directly
@@ -79,12 +79,16 @@ class Program
             // analysis = no repair: MeshWallThickness, MeshDeviation and PrimitiveFit3 on the input (see above)
             string repairMode = Environment.GetEnvironmentVariable("BENCH_REPAIR") ?? "default";
             r["repair_mode"] = repairMode;
-            double tolFactor = 1;
-            // optional 4th arg: multiply default tolerances (e.g. 0.001 when the data is in meters)
-            if (args.Length > 3) {
+            // optional 4th arg: absolute tolerances, the 1.0.324 defaults (RepairTolerance 1e-6, MinEdgeLengthTol 1e-4)
+            // times this factor (e.g. 0.001 when the data is in meters); "rel" or missing: the library default,
+            // tolerances relative to the size of the mesh
+            double tolFactor = double.NaN;
+            if (args.Length > 3 && args[3] != "rel") {
                 tolFactor = double.Parse(args[3], System.Globalization.CultureInfo.InvariantCulture);
                 r["tol_factor"] = tolFactor;
             }
+            bool absTol = double.IsNaN(tolFactor) == false;
+            const double absRepairTol = MathUtil.ZeroTolerancef, absMinEdge = 1e-4;
             DMesh3 result;
             bool ok;
             if (repairMode == "exact") {
@@ -95,8 +99,11 @@ class Program
                 ok = true;
             } else if (repairMode == "instr") {
                 var repair = new InstrumentedAutoRepair(mesh);
-                repair.RepairTolerance *= tolFactor;
-                repair.MinEdgeLengthTol *= tolFactor;
+                if (absTol) {
+                    repair.ToleranceMode = InstrumentedAutoRepair.ToleranceModes.Absolute;
+                    repair.RepairTolerance = absRepairTol * tolFactor;
+                    repair.MinEdgeLengthTol = absMinEdge * tolFactor;
+                }
                 var stages = new System.Collections.Generic.List<object>();
                 repair.OnStage = (name, sm) => {
                     var q = new System.Collections.Generic.Dictionary<string, object>();
@@ -115,8 +122,11 @@ class Program
                 // quality, distance to the input (certified Hausdorff bounds), volume IoU and closedness in the
                 // winding number sense after every step
                 var repair = new MeshAutoRepair(mesh) { PostRepairCleanup = true };
-                repair.RepairTolerance *= tolFactor;
-                repair.MinEdgeLengthTol *= tolFactor;
+                if (absTol) {
+                    repair.ToleranceMode = MeshAutoRepair.ToleranceModes.Absolute;
+                    repair.RepairTolerance = absRepairTol * tolFactor;
+                    repair.MinEdgeLengthTol = absMinEdge * tolFactor;
+                }
                 var stages = new System.Collections.Generic.List<object>();
                 double diag = original.CachedBounds.DiagonalLength;
                 repair.OnStage = (name, sm) => {
@@ -148,7 +158,7 @@ class Program
             } else if (repairMode == "robust") {
                 // MeshRobustRepair: hybrid plus the volume check against the input's winding number solid
                 var robust = new MeshRobustRepair(mesh) { ExactResolve = Environment.GetEnvironmentVariable("BENCH_EXACT") != "0", ConfigureRepair = (rep) => {
-                    rep.RepairTolerance *= tolFactor; rep.MinEdgeLengthTol *= tolFactor; } };
+                    if (absTol) { rep.ToleranceMode = MeshAutoRepair.ToleranceModes.Absolute; rep.RepairTolerance = absRepairTol * tolFactor; rep.MinEdgeLengthTol = absMinEdge * tolFactor; } } };
                 int res = int.Parse(Environment.GetEnvironmentVariable("BENCH_SOLID_RES") ?? "128");
                 robust.SolidifyResolution = res;
                 robust.ExactResolveRounds = int.Parse(Environment.GetEnvironmentVariable("BENCH_EXACT_ROUNDS") ?? "4");
@@ -184,8 +194,11 @@ class Program
                 ok = true;
             } else {
                 var repair = new MeshAutoRepair(mesh);
-                repair.RepairTolerance *= tolFactor;
-                repair.MinEdgeLengthTol *= tolFactor;
+                if (absTol) {
+                    repair.ToleranceMode = MeshAutoRepair.ToleranceModes.Absolute;
+                    repair.RepairTolerance = absRepairTol * tolFactor;
+                    repair.MinEdgeLengthTol = absMinEdge * tolFactor;
+                }
                 repair.PostRepairCleanup = repairMode != "default";
                 if (repairMode == "interior")
                     repair.RemoveMode = MeshAutoRepair.RemoveModes.Interior;
