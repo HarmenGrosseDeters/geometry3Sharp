@@ -127,7 +127,7 @@ namespace geometry3Sharp.Tests
             var b = new ClothSimulationFilter(utm) { ClothResolution = 1.0 };
             Assert.True(a.Compute() && b.Compute());
             int differ = Enumerable.Range(0, local.Count).Count(i => a.IsGround[i] != b.IsGround[i]);
-            Assert.True(differ <= local.Count / 1000, $"{differ} points classified differently");
+            Assert.True(differ == 0, $"{differ} points classified differently");     // heights relative to a local reference
         }
 
         [Fact]
