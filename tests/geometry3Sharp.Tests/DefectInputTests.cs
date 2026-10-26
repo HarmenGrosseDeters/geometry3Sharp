@@ -235,9 +235,9 @@ namespace geometry3Sharp.Tests
             }
         }
 
-        // The cell size comes from Mesh.CachedBounds, which includes unused vertices: a unit sphere with one unused vertex
-        // 1e6 away gets cells of about 5e4, and Compute() returns true with an empty result. Reported; enabled when fixed.
-        [Fact(Skip = "MeshWindingNumberSolidify sizes its grid from bounds that include unused vertices (reported)")]
+        // The cell size comes from the bounds of the triangles: an unused vertex 1e6 away (in CachedBounds) used to give
+        // cells of about 5e4 and an empty result.
+        [Fact]
         public void MeshWindingNumberSolidify_UnusedFarVertex_KeepsTheSolid()
         {
             var s = new MeshWindingNumberSolidify(Defects.ByName("unused far vertex").Make()) { GridResolution = 32 };
