@@ -194,6 +194,8 @@ namespace geometry3Sharp.Tests
             Assert.True(solid.Compute());
             Assert.Equal(0, solid.HiddenGapEdges);
             Assert.Equal(0.5, solid.UsedCellSize);
+            ResultChecks.AssertClean(solid.Result);
+            Assert.InRange(ResultChecks.Volume(solid.Result), 0.99 * 1000, 1.01 * 1000);
         }
 
         [Fact]
@@ -210,6 +212,8 @@ namespace geometry3Sharp.Tests
             Assert.True(solid.Compute());
             Assert.Equal(0, solid.HiddenGapEdges);
             Assert.Equal(mesh.CachedBounds.DiagonalLength / 96, solid.UsedCellSize, 9);
+            ResultChecks.AssertClean(solid.Result);
+            Assert.InRange(ResultChecks.Volume(solid.Result), 512, 1024);
         }
 
         [Fact]

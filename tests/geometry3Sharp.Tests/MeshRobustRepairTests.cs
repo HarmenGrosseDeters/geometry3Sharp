@@ -31,6 +31,8 @@ namespace geometry3Sharp.Tests
             Assert.Equal("", r.FallbackReason);
             Assert.Equal("", r.ResultReason);
             Assert.Equal(n, r.Mesh.TriangleCount);
+            // ResultReason is the class's own report: check the result independently
+            ResultChecks.AssertClean(r.Mesh);
         }
 
         static double Volume(DMesh3 m)
@@ -125,6 +127,9 @@ namespace geometry3Sharp.Tests
             Assert.False(r.UsedExactResolve);
             Assert.Equal("not closed (winding number)", r.ExactResolveReason);
             Assert.True(r.UsedSolidify);
+            // the solidify closes it; whatever is left must be reported
+            ResultChecks.AssertClosed(r.Mesh);
+            Assert.Equal(MeshRobustRepair.NotCleanReason(r.Mesh), r.ResultReason);
         }
 
         [Fact]
@@ -532,6 +537,8 @@ namespace geometry3Sharp.Tests
             MeshRobustRepair.CollapseSlivers(m);
             Assert.True(m.TriangleCount > n);
             Assert.True(m.IsVertex(v3));
+            Assert.True(m.CheckValidity(true, FailMode.ReturnOnly));
+            Assert.True(m.Vertices().All(v => v.IsFinite));
         }
 
         [Fact]
@@ -640,7 +647,7 @@ namespace geometry3Sharp.Tests
         {
             // the contour of the overlapping thin plates self-intersects: no cleanup and reduction, the raw
             // contour is the result; FinishPostProcess post-processes it as Compute() does without stopping
-            // (compared on the same contour: the contouring is not bit-for-bit deterministic across runs)
+            // (the same mesh as an independent run, the solidify is deterministic)
             Func<bool, MeshWindingNumberSolidify> run = (stop) => {
                 var s = new MeshWindingNumberSolidify(ThinPlates(6)) { GridResolution = 64, Adaptive = true, StopIfSelfIntersecting = stop };
                 Assert.True(s.Compute());
@@ -663,7 +670,7 @@ namespace geometry3Sharp.Tests
             Assert.False(stopped.StoppedOnSelfIntersections);
             Assert.True(stopped.PhaseMilliseconds.ContainsKey("reduce"));
             Assert.True(SameMesh(expected, stopped.Result));
-            Assert.InRange(stopped.Result.TriangleCount, 0.9 * full.Result.TriangleCount, 1.1 * full.Result.TriangleCount);
+            Assert.True(SameMesh(full.Result, stopped.Result));
 
             // reused: a Compute() that fails early does not leave the flag of the previous one
             var again = run(true);
@@ -686,17 +693,33 @@ namespace geometry3Sharp.Tests
             Assert.False(stopped.StoppedOnSelfIntersections);
             Assert.False(stopped.PhaseMilliseconds.ContainsKey("selfint"));
             Assert.True(stopped.PhaseMilliseconds.ContainsKey("reduce"));
-            int full = run(false).Result.TriangleCount;
-            Assert.InRange(stopped.Result.TriangleCount, 0.9 * full, 1.1 * full);
+            Assert.True(SameMesh(run(false).Result, stopped.Result));
             Assert.Equal("", MeshRobustRepair.NotCleanReason(stopped.Result));
+        }
+
+        [Fact]
+        public void Solidify_IsDeterministic()
+        {
+            // parallel octree and contouring: repeated runs give the same mesh, bit for bit (they used to
+            // differ in a few vertices by ~1e-8, and then in the triangle count after the reduction). A smoke
+            // test: the old code failed it in some runs only; the guard for the cause is
+            // AdaptiveOctreeTests.Octree_PropagatedNodeValues_DoNotDependOnTheQueryOrder
+            DMesh3 plates = ThinPlates(6);
+            Func<DMesh3> run = () => {
+                var s = new MeshWindingNumberSolidify(new DMesh3(plates)) { GridResolution = 64, Adaptive = true };
+                Assert.True(s.Compute());
+                return s.Result;
+            };
+            DMesh3 first = run();
+            for (int i = 0; i < 5; ++i)
+                Assert.True(SameMesh(first, run()), $"run {i + 2} differs from the first");
         }
 
         [Fact]
         public void SolidifyNotClean_WrapFails_PostProcessedSolidifyUsed()
         {
             // the solidify is stopped on its self-intersections for the wrap; if the wrap fails (here: invalid
-            // alpha), the solidify result is used as before: post-processed (reduced to about the triangles of
-            // the run without the wrap; not bit-for-bit, the contouring is not deterministic across runs)
+            // alpha), the solidify result is used as before: post-processed, the same mesh as without the wrap
             Func<bool, MeshRobustRepair> run = (wrap) => {
                 var r = new MeshRobustRepair(ThinPlates(6)) {
                     RepairF = (m) => new DMesh3(m), ExactResolve = false, SolidifyResolution = 64,
@@ -718,7 +741,7 @@ namespace geometry3Sharp.Tests
             Assert.True(failed.PhaseMilliseconds.ContainsKey("solidify.reduce"));     // the finish's phases reported
             Assert.False(failed.Solidify.StoppedOnSelfIntersections);
             Assert.Same(failed.Solidify.Result, failed.Mesh);
-            Assert.InRange(failed.Mesh.TriangleCount, 0.9 * without.Mesh.TriangleCount, 1.1 * without.Mesh.TriangleCount);
+            Assert.True(SameMesh(without.Mesh, failed.Mesh));
         }
 
         [Fact]
@@ -746,6 +769,10 @@ namespace geometry3Sharp.Tests
             Assert.True(r.UsedSolidify);
             Assert.False(r.UsedAlphaWrap);
             Assert.StartsWith("InvalidParameters", r.WrapReason);
+            // an unclean result is allowed here, but it must be reported as such
+            Assert.Equal(MeshRobustRepair.NotCleanReason(r.Mesh), r.ResultReason);
+            Assert.True(r.Mesh.IsClosed());
+            Assert.True(r.Mesh.Vertices().All(v => v.IsFinite));
         }
 
         [Fact]
@@ -758,6 +785,11 @@ namespace geometry3Sharp.Tests
             Assert.Equal("", r.SolidifyReason);
             Assert.Equal("", r.ResultReason);
             Assert.Null(r.AlphaWrap);
+            ResultChecks.AssertClean(r.Mesh);
+            // RepairF adds a second sphere, which the volume check against the input (one sphere) rejects: the input
+            // is solidified, so the result is about the unit sphere
+            Assert.True(r.UsedInput);
+            Assert.InRange(ResultChecks.Volume(r.Mesh), 0.97 * 4.18879, 1.01 * 4.18879);
         }
     }
 }

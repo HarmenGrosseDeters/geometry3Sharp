@@ -409,6 +409,7 @@ namespace geometry3Sharp.Tests
             var b = new ExactMeshBoolean(ab[0], ab[1], Ops.Intersection) { ComputeExactVertices = true };
             Assert.True(b.Compute());
             DMesh3 r = b.Result;
+            ResultChecks.AssertClosed(r);
             Assert.NotNull(b.ResultExactVertices);
             Assert.Equal(r.MaxVertexID, b.ResultExactVertices.Length);
             int onFace = 0;
@@ -467,6 +468,10 @@ namespace geometry3Sharp.Tests
             MeshTransforms.Translate(c, new Vector3d(500000.2505, -3.4996, 7.0003));
             var b = new ExactMeshBoolean(a, c, Ops.Union) { ComputeExactVertices = true };
             Assert.True(b.Compute());
+            // far from the origin: a closed result, larger than one sphere and smaller than both
+            ResultChecks.AssertClosed(b.Result);
+            double one = ResultChecks.Volume(a);
+            Assert.InRange(ResultChecks.Volume(b.Result), one, 2 * one);
             foreach (int vid in b.Result.VertexIndices())
                 Assert.Equal(b.Result.GetVertex(vid), b.ResultExactVertices[vid].ToVector3d());
             // input vertices are exact doubles
