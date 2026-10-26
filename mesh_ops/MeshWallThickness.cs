@@ -175,7 +175,7 @@ namespace gs
 
         // smallest ray parameter of a hit (relative to the mesh size, so that the result scales exactly with
         // the mesh), and the padding of the (float) tree boxes
-        double eps, boxPad, tieTol, degenerateArea;
+        double eps, boxPad, tieTol, degenerateArea, coordRounding;
 
         // triangles taken with reversed orientation (OrientInvertedParts)
         bool[] flipped;
@@ -227,10 +227,14 @@ namespace gs
                 flipped = OrientInvertedParts ? InvertedTriangles(Mesh) : null;
                 flippedStamp = Mesh.ShapeTimestamp; flippedMode = OrientInvertedParts;
             }
+            // relative to the mesh size, plus the rounding of the coordinates where they are large (eg geo
+            // coordinates far from the origin): doubles for the geometry, floats for the tree boxes
             AxisAlignedBox3d b = Mesh.CachedBounds;
-            eps = 1e-9 * b.DiagonalLength;
-            boxPad = 1e-6 * (b.DiagonalLength + Math.Max(b.Min.MaxAbs, b.Max.MaxAbs));
-            tieTol = 1e-9 * (b.DiagonalLength + Math.Max(b.Min.MaxAbs, b.Max.MaxAbs));
+            double maxAbs = Math.Max(b.Min.MaxAbs, b.Max.MaxAbs);
+            coordRounding = 64 * MathUtil.Epsilon * maxAbs;
+            eps = 1e-9 * b.DiagonalLength + coordRounding;
+            tieTol = 1e-9 * b.DiagonalLength + coordRounding;
+            boxPad = 1e-6 * b.DiagonalLength + 2.5e-7 * maxAbs;
             degenerateArea = 1e-12 * b.DiagonalLength * b.DiagonalLength;
         }
 
@@ -372,7 +376,7 @@ namespace gs
             // the inward ray bounds the ball's diameter: its hit point lies on the diameter through p
             double t = ray_length(p, -n, vid, tid, maxDist);
             double r = double.IsNaN(t) ? 0.5 * maxDist : 0.5 * t;
-            double tol = 1e-12 * maxDist;
+            double tol = 1e-12 * maxDist + coordRounding;
             double cosSep = Math.Cos(MathUtil.Clamp(SeparationAngle, 0, 180) * MathUtil.Deg2Rad);
             for (int iter = 0; iter < MaxBallIterations; ++iter) {
                 Vector3d c = p - r * n;
