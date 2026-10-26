@@ -24,15 +24,16 @@ namespace geometry3Sharp.Tests
         };
 
         /// <summary>
-        /// "the same error": the exception type and the first line of its message with every number replaced by '#'
-        /// (counts and ids change while the input shrinks)
+        /// "the same error": the exception type and its message with every number replaced by '#' and the whitespace
+        /// collapsed (counts, ids and the column markers of xunit's string comparisons change while the input shrinks).
+        /// The whole message, since eg Assert.Equal("", problem) has the problem only in its later lines.
         /// </summary>
         public static string Signature(Exception e) => e.GetType().FullName + ": " + Signature(e.Message);
 
         public static string Signature(string message)
         {
-            string first = (message ?? "").Split('\n')[0].Trim();
-            return Regex.Replace(first, @"[-+]?\d+(\.\d+)?([eE][-+]?\d+)?", "#");
+            string masked = Regex.Replace(message ?? "", @"[-+]?\d+(\.\d+)?([eE][-+]?\d+)?", "#");
+            return Regex.Replace(masked, @"\s+", " ").Trim();
         }
 
         /// <summary>
@@ -45,15 +46,27 @@ namespace geometry3Sharp.Tests
         {
             if (enabled == false) { check(make()); return; }
             Exception failure;
+            var clock = System.Diagnostics.Stopwatch.StartNew();
             try { check(make()); return; } catch (Exception e) { failure = e; }
             string signature = Signature(failure);
-            MeshMinimizer.Result r = MeshMinimizer.Minimize(make(), m => {
-                try { check(m); return false; } catch (Exception e) { return Signature(e) == signature; }
-            }, options ?? Options());
-            string code = MeshMinimizer.ToCSharp(r.Mesh, "Minimized" + MeshMinimizer.Identifier(name),
-                $"\"{name}\" minimized by MeshMinimizer ({r}):\n{signature}");
-            string path = MeshMinimizer.WriteRepro(name, r.Mesh, code);
-            throw new XunitException($"{failure.Message}\n\nminimized ({r}), written to {path}:\n{code}");
+            string report;
+            try {
+                options = options ?? Options();
+                // a slow check must not time out on the input itself
+                if (options.PredicateTimeout > TimeSpan.Zero && options.PredicateTimeout < TimeSpan.FromTicks(3 * clock.Elapsed.Ticks))
+                    options.PredicateTimeout = TimeSpan.FromTicks(3 * clock.Elapsed.Ticks);
+                MeshMinimizer.Result r = MeshMinimizer.Minimize(make(), m => {
+                    try { check(m); return false; } catch (Exception e) { return Signature(e) == signature; }
+                }, options);
+                string code = MeshMinimizer.ToCSharp(r.Mesh, "Minimized" + MeshMinimizer.Identifier(name),
+                    $"\"{name}\" minimized by MeshMinimizer ({r}):\n{failure.GetType().FullName}: {failure.Message.Split('\n')[0]}");
+                string path = MeshMinimizer.WriteRepro(name, r.Mesh, code);
+                report = $"minimized ({r}), written to {path}:\n{code}";
+            } catch (Exception e) {
+                // the minimizer must not hide the failure
+                report = "minimizing failed: " + e;
+            }
+            throw new XunitException($"{failure.Message}\n\n{report}\n\noriginal stack trace:\n{failure.StackTrace}");
         }
 
         /// <summary>
@@ -63,7 +76,9 @@ namespace geometry3Sharp.Tests
         public static string BytesReport(string name, string extension, byte[] data, string failure, Func<byte[], string> check, bool text, MinimizeOptions options = null)
         {
             string signature = Signature(failure);
-            DeltaDebug.BytesResult r = DeltaDebug.MinimizeBytes(data, d => Signature(check(d)) == signature, text, options ?? Options());
+            // (check times itself: no second timeout around it)
+            if (options == null) { options = Options(); options.PredicateTimeout = TimeSpan.Zero; }
+            DeltaDebug.BytesResult r = DeltaDebug.MinimizeBytes(data, d => Signature(check(d)) == signature, text, options);
             if (r.Reproduced == false)
                 return "not reproduced by the minimizer";
             string path = Path.Combine(MeshMinimizer.ReproDirectory(), MeshMinimizer.Identifier(name) + "." + extension);

@@ -99,9 +99,16 @@ namespace geometry3Sharp.Tests
             }
 
             public bool SameAs(State o) =>
-                Tris.SequenceEqual(o.Tris) && Unused.SequenceEqual(o.Unused) && P.SequenceEqual(o.P)
+                Tris.SequenceEqual(o.Tris) && Unused.SequenceEqual(o.Unused) && P.Length == o.P.Length && P.Select((p, i) => Same(p, o.P[i])).All(x => x)
                 && VertexAttributes == o.VertexAttributes && Groups == o.Groups;
         }
+
+        /// <summary> equal bits (NaN equals NaN, -0 differs from +0) </summary>
+        static bool Same(Vector3d a, Vector3d b) =>
+            BitConverter.DoubleToInt64Bits(a.x) == BitConverter.DoubleToInt64Bits(b.x) && BitConverter.DoubleToInt64Bits(a.y) == BitConverter.DoubleToInt64Bits(b.y)
+            && BitConverter.DoubleToInt64Bits(a.z) == BitConverter.DoubleToInt64Bits(b.z);
+
+        const int MaxRounds = 8;
 
         /// <summary> minimizes mesh (not modified) while fails is true; see the class comment </summary>
         public static Result Minimize(DMesh3 mesh, Func<DMesh3, bool> fails, MinimizeOptions options = null)
@@ -137,7 +144,11 @@ namespace geometry3Sharp.Tests
                     }
                     result.Log.Add($"attributes: vertex attributes {(s.VertexAttributes && hasVertexAttributes ? "kept" : "dropped")}, groups {(s.Groups && mesh.HasTriangleGroups ? "kept" : "dropped")}");
                 }
-                for (int round = 1; round <= 8 && probe.Stopped == false; ++round) {
+                bool fixpoint = false;
+                // the grid of the coordinates is fixed at the first rounding (after the first triangle step): rounding
+                // shrinks the extent, and a grid that followed it would never settle
+                int? gridExponent = null;
+                for (int round = 1; round <= MaxRounds && probe.Stopped == false && fixpoint == false; ++round) {
                     State start = s;
                     int before;
 
@@ -166,13 +177,14 @@ namespace geometry3Sharp.Tests
                     // 4. coordinates
                     if (options.SimplifyCoordinates) {
                         int changed;
-                        s = SimplifyCoordinates(s, Fails, out changed);
-                        result.Log.Add($"round {round}, coordinates: {changed} vertices rounded");
+                        s = SimplifyCoordinates(s, Fails, ref gridExponent, out changed);
+                        result.Log.Add($"round {round}, coordinates: {changed} roundings accepted");
                     }
 
-                    if (s.SameAs(start)) break;
+                    fixpoint = s.SameAs(start);
                 }
-                result.Status = probe.Stopped ? MinimizeStatus.Stopped : MinimizeStatus.Minimized;
+                if (fixpoint == false && probe.Stopped == false) result.Log.Add($"no fixpoint after {MaxRounds} rounds");
+                result.Status = (probe.Stopped || fixpoint == false) ? MinimizeStatus.Stopped : MinimizeStatus.Minimized;
             }
             result.Mesh = s.Build();
             result.Evaluations = probe.Evaluations;
@@ -208,7 +220,7 @@ namespace geometry3Sharp.Tests
         /// together first, then each vertex on its own. The grid is a power of two relative to the extent, so a
         /// power-of-two scale of the input gives the same result, scaled, bit for bit.
         /// </summary>
-        static State SimplifyCoordinates(State s, Func<State, bool> fails, out int changed)
+        static State SimplifyCoordinates(State s, Func<State, bool> fails, ref int? gridExponent, out int changed)
         {
             changed = 0;
             bool[] used = s.UsedByTriangles();
@@ -219,8 +231,12 @@ namespace geometry3Sharp.Tests
             for (int i = 0; i < s.P.Length; ++i)
                 if (used[i] && s.P[i].IsFinite) box.Contain(s.P[i]);
             if (box.Max.x >= box.Min.x) extent = Math.Max(box.Width, Math.Max(box.Height, box.Depth));
-            if (!(extent > 1e-290) || double.IsInfinity(extent)) return s;
-            int e = Exponent(extent) + 1;
+            if (gridExponent == null) {
+                if (!(extent > 1e-290) || double.IsInfinity(extent)) return s;
+                gridExponent = Exponent(extent) + 1;
+            }
+            int e = gridExponent.Value;
+            if (e > 1023) return s;      // (2^e would overflow)
 
             Vector3d[] Rounded(Vector3d[] p, int level, int only)
             {
@@ -234,15 +250,15 @@ namespace geometry3Sharp.Tests
 
             foreach (int level in Levels) {
                 Vector3d[] q = Rounded(s.P, level, -1);
-                if (q.SequenceEqual(s.P)) break;
-                if (fails(s.With(p: q))) { s = s.With(p: q); break; }
+                if (s.With(p: q).SameAs(s)) break;
+                if (fails(s.With(p: q))) { changed = q.Where((p, i) => Same(p, s.P[i]) == false).Count(); s = s.With(p: q); break; }
             }
             for (int i = 0; i < s.P.Length; ++i) {
                 if (used[i] == false) continue;
                 foreach (int level in Levels) {
                     Vector3d[] q = Rounded(s.P, level, i);
-                    if (q[i] == s.P[i]) break;
-                    if (fails(s.With(p: q))) { s = s.With(p: q); break; }
+                    if (Same(q[i], s.P[i])) break;
+                    if (fails(s.With(p: q))) { ++changed; s = s.With(p: q); break; }
                 }
             }
             return s;
@@ -304,7 +320,10 @@ namespace geometry3Sharp.Tests
             sb.Append("    };\n");
             if (groups)
                 sb.Append("    int[] g = { ").Append(string.Join(", ", mesh.TriangleIndices().Select(t => mesh.GetTriangleGroup(t)))).Append(" };\n");
-            sb.Append(groups ? "    var m = new DMesh3(false, false, false, true);\n" : "    var m = new DMesh3();\n");
+            if (mesh.HasVertexNormals || mesh.HasVertexColors || mesh.HasVertexUVs)
+                sb.Append("    // (the mesh has vertex normals, colors or uvs, which are not written here)\n");
+            // (no attributes: DMesh3() would add normals)
+            sb.Append($"    var m = new DMesh3(false, false, false, {(groups ? "true" : "false")});\n");
             sb.Append("    for (int i = 0; i < v.Length; i += 3) m.AppendVertex(new Vector3d(v[i], v[i + 1], v[i + 2]));\n");
             sb.Append("    for (int i = 0; i < t.Length; i += 3)\n");
             sb.Append(groups ? "        if (m.AppendTriangle(new Index3i(t[i], t[i + 1], t[i + 2]), g[i / 3]) < 0)\n"

@@ -71,6 +71,13 @@ namespace geometry3Sharp.Tests
             }
             Assert.True(r.Mesh.CheckValidity(true, FailMode.ReturnOnly));
             AssertOneMinimal(r.Mesh, HasCoincidentPair);
+            // the C# code builds the tested mesh: same ids, coordinates, no attributes
+            string code = MeshMinimizer.ToCSharp(r.Mesh);
+            Assert.Contains("var m = new DMesh3(false, false, false, false);", code);
+            DMesh3 back = ParseCSharp(code);
+            Assert.Equal("", Invariance.Difference(r.Mesh, back));
+            Assert.Equal(r.Mesh.Components, back.Components);
+            Assert.Equal(MeshComponents.None, r.Mesh.Components);
             // the input is not modified
             Assert.Equal(SphereWithDuplicate().TriangleCount, input.TriangleCount);
         }
@@ -141,6 +148,35 @@ namespace geometry3Sharp.Tests
             Assert.Contains("round 2, triangles: 3 -> 1", string.Join("\n", r.Log));
         }
 
+        // an extent near double.MaxValue: no overflow of the grid step into NaN coordinates
+        [Fact]
+        public void Coordinates_HugeExtent_StayFinite()
+        {
+            // (an extent of at least 2^1023: the step 2^1024 overflows)
+            var m = new DMesh3(false);
+            m.AppendVertex(Vector3d.Zero); m.AppendVertex(new Vector3d(1.7e308, 0, 0)); m.AppendVertex(new Vector3d(0, 1.7e308, 0));
+            m.AppendTriangle(0, 1, 2);
+            m.AppendVertex(new Vector3d(0, 0, 1)); m.AppendVertex(new Vector3d(1, 0, 1)); m.AppendVertex(new Vector3d(0, 1, 1));
+            m.AppendTriangle(3, 4, 5);
+            Func<DMesh3, bool> fails = x => x.Vertices().Any(p => p.x > 1e308);
+            var r = MeshMinimizer.Minimize(m, fails, Inline());
+            Assert.Equal(1, r.Mesh.TriangleCount);
+            Assert.True(r.Mesh.Vertices().All(p => double.IsNaN(p.x) == false && double.IsNaN(p.y) == false && double.IsNaN(p.z) == false));
+        }
+
+        // a NaN coordinate: compared by bits, so the rounds reach a fixpoint
+        [Fact]
+        public void Coordinates_NaN_ReachesAFixpoint()
+        {
+            DMesh3 m = Defects.Sphere(Vector3d.Zero, 1);
+            m.SetVertex(0, new Vector3d(double.NaN, 0.3, 0.7));
+            Func<DMesh3, bool> fails = x => x.Vertices().Any(p => double.IsNaN(p.x));
+            var r = MeshMinimizer.Minimize(m, fails, Inline());
+            Assert.Equal(MeshMinimizer.MinimizeStatus.Minimized, r.Status);
+            Assert.Equal(1, r.Mesh.TriangleCount);
+            Assert.DoesNotContain(r.Log, l => l.StartsWith("round 3"));
+        }
+
         static int MantissaBits(double x)
         {
             if (x == 0) return 0;
@@ -180,8 +216,9 @@ namespace geometry3Sharp.Tests
         public void Timeouts_CountAsDifferentError()
         {
             DMesh3 m = Defects.ByName("open sheet").Make();
-            Func<DMesh3, bool> fails = x => { if (x.TriangleCount < 3) Thread.Sleep(3000); return true; };
-            var options = new MinimizeOptions() { PredicateTimeout = TimeSpan.FromMilliseconds(100), MaxTimeouts = 1000, SimplifyCoordinates = false };
+            foreach (int t in m.TriangleIndices().Skip(6).ToList()) m.RemoveTriangle(t);
+            Func<DMesh3, bool> fails = x => { if (x.TriangleCount < 3) Thread.Sleep(10000); return true; };
+            var options = new MinimizeOptions() { PredicateTimeout = TimeSpan.FromMilliseconds(500), MaxTimeouts = 1000, SimplifyCoordinates = false };
             var r = MeshMinimizer.Minimize(m, fails, options);
             Assert.Equal(MeshMinimizer.MinimizeStatus.Minimized, r.Status);
             Assert.Equal(3, r.Mesh.TriangleCount);
@@ -199,8 +236,9 @@ namespace geometry3Sharp.Tests
         public void TimeBudget_StopsWithAFailingResult()
         {
             DMesh3 m = SphereWithDuplicate();
-            Func<DMesh3, bool> slow = x => { Thread.Sleep(20); return HasCoincidentPair(x); };
-            var budget = TimeSpan.FromMilliseconds(300);
+            // (about 13 calls before the first reduction, several hundred for the whole run)
+            Func<DMesh3, bool> slow = x => { Thread.Sleep(50); return HasCoincidentPair(x); };
+            var budget = TimeSpan.FromSeconds(3);
             var r = MeshMinimizer.Minimize(m, slow, new MinimizeOptions() { TimeBudget = budget });
             Assert.Equal(MeshMinimizer.MinimizeStatus.Stopped, r.Status);
             Assert.True(r.Elapsed < budget + TimeSpan.FromSeconds(5), r.Elapsed.ToString());
@@ -278,7 +316,8 @@ namespace geometry3Sharp.Tests
             }).ToArray();
             double[] v = Doubles("double[] v");
             int[] t = Array(code, "int[] t").Select(int.Parse).ToArray();
-            var m = new DMesh3();
+            Assert.Matches(@"var m = new DMesh3\(false, false, false, (true|false)\);", code);
+            var m = new DMesh3(false, false, false, false);
             for (int i = 0; i < v.Length; i += 3) m.AppendVertex(new Vector3d(v[i], v[i + 1], v[i + 2]));
             for (int i = 0; i < t.Length; i += 3) Assert.True(m.AppendTriangle(t[i], t[i + 1], t[i + 2]) >= 0);
             return m;
@@ -365,8 +404,10 @@ namespace geometry3Sharp.Tests
         {
             Assert.Equal(FailureMinimizer.Signature("random edits 6: 12 edges, at -1.5e-7"), FailureMinimizer.Signature("random edits 6: 3 edges, at 2"));
             Assert.NotEqual(FailureMinimizer.Signature("3 open edges"), FailureMinimizer.Signature("3 bowtie vertices"));
-            // only the first line
-            Assert.Equal(FailureMinimizer.Signature("a\nb"), FailureMinimizer.Signature("a\nc"));
+            // the whole message: xunit's Assert.Equal("", problem) has the problem in its later lines, with column markers
+            Exception Equal(string problem) { try { Assert.Equal("", problem); } catch (Exception e) { return e; } return null; }
+            Assert.NotEqual(FailureMinimizer.Signature(Equal("triangle 3 repeats a vertex")), FailureMinimizer.Signature(Equal("edge 3 without triangles")));
+            Assert.Equal(FailureMinimizer.Signature(Equal("triangle 3 repeats a vertex")), FailureMinimizer.Signature(Equal("triangle 12345 repeats a vertex")));
         }
 
         [Fact]

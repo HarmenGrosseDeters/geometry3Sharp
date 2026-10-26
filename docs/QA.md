@@ -284,7 +284,7 @@ that shows the same error, by delta debugging (Zeller and Hildebrandt 2002, ddmi
 - `MeshMinimizer.Minimize(mesh, fails, options)` takes a mesh and a predicate "the error is still present". The
   steps, coarse to fine, repeat until nothing changes: drop the attributes, the connected components, ddmin
   over the triangles down to single ones (the result is 1-minimal), the unused vertices, then round the
-  coordinates to power-of-two grids relative to the extent (all together, then vertex by vertex), so the case
+  coordinates of the triangles' vertices to power-of-two grids relative to the extent (all together, then vertex by vertex), so the case
   becomes readable.
 - `MinimizeOptions`: a time budget (the best case so far is returned, status `Stopped`), a timeout per call, a
   seed for the order of the subsets. A predicate that throws or does not finish is a different error, not the

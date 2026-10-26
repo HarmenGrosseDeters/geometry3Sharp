@@ -99,12 +99,13 @@ namespace geometry3Sharp.Tests
                 c = c.OrderBy(i => rand.Next()).ToList();
             }
             // every subset is tested once: a failing one becomes c, and later candidates are strict subsets of it, so a
-            // subset seen before did not fail
-            var tested = new HashSet<string>();
+            // subset seen before did not fail. (Keyed by a 64-bit hash, not the index list, which needs O(n^2) memory for
+            // byte inputs; a collision only skips a test, the result still fails.)
+            var tested = new HashSet<ulong>();
             bool Fails(List<int> s)
             {
                 List<int> sorted = s.OrderBy(i => i).ToList();
-                if (tested.Add(string.Join(",", sorted)) == false) return false;
+                if (tested.Add(Hash(sorted)) == false) return false;
                 return fails(sorted.Select(i => items[i]).ToList());
             }
             List<T> Result() => c.OrderBy(i => i).Select(i => items[i]).ToList();
@@ -129,6 +130,15 @@ namespace geometry3Sharp.Tests
                 }
             }
             return Result();
+        }
+
+        // FNV-1a over the indices and the count
+        static ulong Hash(List<int> s)
+        {
+            ulong h = 14695981039346656037UL;
+            foreach (int i in s) { h ^= (uint)i; h *= 1099511628211UL; }
+            h ^= (uint)s.Count; h *= 1099511628211UL;
+            return h;
         }
 
         /// <summary> c in n contiguous chunks of almost equal size </summary>

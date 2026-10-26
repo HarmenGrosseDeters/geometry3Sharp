@@ -16,7 +16,8 @@ namespace geometry3Sharp.Tests
         public static System.Collections.Generic.IEnumerable<object[]> Cases() => Defects.Names();
 
         /// <summary> runs check on the case; with G3_MINIMIZE=1 a failure is minimized (Harness/FailureMinimizer.cs) </summary>
-        static void Check(string name, Action<DMesh3> check) => FailureMinimizer.Check(name, () => Defects.ByName(name).Make(), check);
+        static void Check(string name, Action<DMesh3> check, [System.Runtime.CompilerServices.CallerMemberName] string test = "") =>
+            FailureMinimizer.Check(test + " " + name, () => Defects.ByName(name).Make(), check);
 
         /// <summary>
         /// interior edges whose two triangles run through them in the same direction. DMesh3 accepts such triangles (the
@@ -218,7 +219,7 @@ namespace geometry3Sharp.Tests
                 4, 7, 6,
                 6, 7, 0,
             };
-            var m = new DMesh3();
+            var m = new DMesh3(false, false, false, false);
             for (int i = 0; i < v.Length; i += 3) m.AppendVertex(new Vector3d(v[i], v[i + 1], v[i + 2]));
             for (int i = 0; i < t.Length; i += 3)
                 if (m.AppendTriangle(t[i], t[i + 1], t[i + 2]) < 0)
