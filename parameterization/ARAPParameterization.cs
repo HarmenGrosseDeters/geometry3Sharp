@@ -9,7 +9,8 @@ namespace g3
     /// Gortler (2008): minimizes Sum_T A_T |J_T - R_T|^2 over the UVs and a rotation R_T per triangle, so that
     /// lengths and angles are preserved as well as possible (natural scale, free boundary). The local step
     /// takes the rotation closest to each Jacobian, the global step solves a cotan Laplacian system, whose
-    /// factorization is computed once.
+    /// factorization is computed once. Triangles that are degenerate on the surface take part with mollified
+    /// cotangents.
     ///
     /// Starts from LSCM (or InitialUV). Works on any connected mesh with a boundary. Does not guarantee
     /// a flip-free result (use SLIM for that).
@@ -38,10 +39,9 @@ namespace g3
             int N = pm.N;
             double[] u = new double[N], v = new double[N];
             if (InitialUV != null) {
-                for (int i = 0; i < N; ++i) {
-                    Vector2d p = InitialUV[pm.ToVertex[i]];
-                    u[i] = p.x; v[i] = p.y;
-                }
+                string error = pm.ReadInitialUV(InitialUV, u, v);
+                if (error != null)
+                    return Result = ParameterizationResult.Failure(ParameterizationStatus.InvalidConstraints, error);
             } else {
                 string error;
                 ParameterizationStatus status = LSCMParameterization.Solve(pm, null, out u, out v, out error);
@@ -50,24 +50,32 @@ namespace g3
                 pm.ScaleToSurfaceArea(u, v);
             }
 
-            // one pinned vertex fixes the translation; the energy is invariant to it
+            int T = pm.Tris.Count;
+            double[] w; Vector2d[] e;
+            edgeTargets(pm, out w, out e);
+
+            // one pinned vertex fixes the translation; the energy is invariant to it. u and v share the matrix:
+            // one factorization, the pinned value is set before each solve
             int pin = pm.BoundaryLoops[0][0];
+            double pinU = u[pin], pinV = v[pin];
             bool[] isFixed = new bool[N];
             isFixed[pin] = true;
-            double[] fixedU = new double[N], fixedV = new double[N];
-            fixedU[pin] = u[pin]; fixedV[pin] = v[pin];
-            ConstrainedQuadratic qu = new ConstrainedQuadratic(N, isFixed, fixedU);
-            ConstrainedQuadratic qv = new ConstrainedQuadratic(N, isFixed, fixedV);
-            foreach (ConstrainedQuadratic q in new[] { qu, qv }) {
-                ConstrainedQuadratic qq = q;
-                pm.ForEachCotanEdge((i, j, w) => { qq.Add(i, i, w); qq.Add(j, j, w); qq.Add(i, j, -w); });
-                if (!qq.Factorize())
-                    return Result = ParameterizationResult.Failure(ParameterizationStatus.SolverFailed, "ARAP system: " + qq.Error);
+            double[] fixedValue = new double[N];
+            ConstrainedQuadratic q = new ConstrainedQuadratic(N, isFixed, fixedValue);
+            for (int ti = 0; ti < T; ++ti) {
+                Index3i t = pm.Tris[ti];
+                for (int k = 0; k < 3; ++k) {
+                    double wk = w[3 * ti + k];
+                    if (wk == 0) continue;
+                    int i = t[(k + 1) % 3], j = t[(k + 2) % 3];
+                    q.Add(i, i, wk); q.Add(j, j, wk); q.Add(i, j, -wk);
+                }
             }
+            if (!q.Factorize())
+                return Result = ParameterizationResult.Failure(ParameterizationStatus.SolverFailed, "ARAP system: " + q.Error);
 
-            int T = pm.Tris.Count;
             double[] angle = new double[T];
-            double energy = Energy(pm, u, v, angle);
+            double energy = Energy(pm, w, e, u, v, angle);
             int iter = 0;
             bool converged = false;
             double[] bu = new double[N], bv = new double[N];
@@ -76,23 +84,24 @@ namespace g3
                 // global step: Sum_edges w (u_i - u_j - R e_ij)^2
                 Array.Clear(bu, 0, N); Array.Clear(bv, 0, N);
                 for (int ti = 0; ti < T; ++ti) {
-                    TriangleFrame f = pm.Frames[ti];
-                    if (f.Degenerate) continue;
                     Index3i t = pm.Tris[ti];
                     double c = Math.Cos(angle[ti]), s = Math.Sin(angle[ti]);
                     for (int k = 0; k < 3; ++k) {
-                        int k1 = (k + 1) % 3, k2 = (k + 2) % 3;
-                        double w = 0.5 * f.Cot[k];
-                        Vector2d e = f.Corner(k1) - f.Corner(k2);
-                        double rx = c * e.x - s * e.y, ry = s * e.x + c * e.y;
-                        bu[t[k1]] += w * rx; bu[t[k2]] -= w * rx;
-                        bv[t[k1]] += w * ry; bv[t[k2]] -= w * ry;
+                        double wk = w[3 * ti + k];
+                        if (wk == 0) continue;
+                        Vector2d ek = e[3 * ti + k];
+                        double rx = c * ek.x - s * ek.y, ry = s * ek.x + c * ek.y;
+                        int i = t[(k + 1) % 3], j = t[(k + 2) % 3];
+                        bu[i] += wk * rx; bu[j] -= wk * rx;
+                        bv[i] += wk * ry; bv[j] -= wk * ry;
                     }
                 }
-                qu.Solve(bu, u);
-                qv.Solve(bv, v);
-                // local step (in Energy): rotations closest to the new Jacobians
-                double e1 = Energy(pm, u, v, angle);
+                fixedValue[pin] = pinU;
+                q.Solve(bu, u);
+                fixedValue[pin] = pinV;
+                q.Solve(bv, v);
+                // local step (in Energy): rotations closest to the new edges
+                double e1 = Energy(pm, w, e, u, v, angle);
                 double decrease = energy - e1;
                 energy = e1;
                 if (decrease <= ConvergenceTolerance * Math.Max(energy, 1e-12)) {
@@ -109,24 +118,68 @@ namespace g3
             return Result;
         }
 
-        /// <summary>
-        /// ARAP energy per unit area, Sum A_T |J_T - R_T|^2 / A, with R_T the closest rotations (stored in angle)
-        /// </summary>
-        internal static double Energy(ParamMesh pm, double[] u, double[] v, double[] angle)
+        // per corner k of each triangle: weight w = cot/2 of the angle at k and the 2D edge e opposite k (from
+        // corner k+1 to k+2). Sum_k w |M e|^2 = A |M|^2 for any 2x2 M, so Sum w |du - R e|^2 is the ARAP energy
+        // A |J - R|^2. Triangles degenerate on the surface get mollified cotangents and a flat layout along their
+        // longest edge, so that a vertex used only by them is still held (and a T-junction stays on its edge).
+        static void edgeTargets(ParamMesh pm, out double[] w, out Vector2d[] e)
         {
-            double e = 0;
-            for (int ti = 0; ti < pm.Tris.Count; ++ti) {
+            int T = pm.Tris.Count;
+            w = new double[3 * T];
+            e = new Vector2d[3 * T];
+            for (int ti = 0; ti < T; ++ti) {
                 TriangleFrame f = pm.Frames[ti];
-                if (f.Degenerate) { angle[ti] = 0; continue; }
                 Index3i t = pm.Tris[ti];
-                Matrix2d J = f.Jacobian(new Vector2d(u[t.a], v[t.a]), new Vector2d(u[t.b], v[t.b]), new Vector2d(u[t.c], v[t.c]));
-                double a = ParamMath.ClosestRotationAngle(J);
+                Vector3d cot = f.Cot;
+                Vector2d[] corner = { Vector2d.Zero, f.P1, f.P2 };
+                if (f.Degenerate) {
+                    if (!ParamMesh.MollifiedCotangents(pm.Pos[t.a], pm.Pos[t.b], pm.Pos[t.c], out cot))
+                        continue;
+                    Vector3d axis = Vector3d.Zero;
+                    for (int k = 0; k < 3; ++k) {
+                        Vector3d d = pm.Pos[t[(k + 1) % 3]] - pm.Pos[t[k]];
+                        if (d.LengthSquared > axis.LengthSquared) axis = d;
+                    }
+                    axis.Normalize();
+                    for (int k = 0; k < 3; ++k)
+                        corner[k] = new Vector2d((pm.Pos[t[k]] - pm.Pos[t.a]).Dot(axis), 0);
+                }
+                for (int k = 0; k < 3; ++k) {
+                    w[3 * ti + k] = 0.5 * cot[k];
+                    e[3 * ti + k] = corner[(k + 1) % 3] - corner[(k + 2) % 3];
+                }
+            }
+        }
+
+        /// <summary>
+        /// ARAP energy per unit area, Sum_T A_T |J_T - R_T|^2 / A, with R_T the closest rotations (stored in
+        /// angle): the rotation that best maps the 2D edges e onto the UV edges (for a non-degenerate triangle
+        /// the one closest to J_T, since Sum_k w e e^T = A I)
+        /// </summary>
+        static double Energy(ParamMesh pm, double[] w, Vector2d[] e, double[] u, double[] v, double[] angle)
+        {
+            double energy = 0;
+            for (int ti = 0; ti < pm.Tris.Count; ++ti) {
+                Index3i t = pm.Tris[ti];
+                // S = Sum w du e^T
+                double s00 = 0, s01 = 0, s10 = 0, s11 = 0;
+                for (int k = 0; k < 3; ++k) {
+                    int i = t[(k + 1) % 3], j = t[(k + 2) % 3];
+                    double wk = w[3 * ti + k], du = u[i] - u[j], dv = v[i] - v[j];
+                    Vector2d ek = e[3 * ti + k];
+                    s00 += wk * du * ek.x; s01 += wk * du * ek.y; s10 += wk * dv * ek.x; s11 += wk * dv * ek.y;
+                }
+                double a = Math.Atan2(s10 - s01, s00 + s11);
                 angle[ti] = a;
                 double c = Math.Cos(a), s = Math.Sin(a);
-                double d00 = J.m00 - c, d01 = J.m01 + s, d10 = J.m10 - s, d11 = J.m11 - c;
-                e += f.Area * (d00 * d00 + d01 * d01 + d10 * d10 + d11 * d11);
+                for (int k = 0; k < 3; ++k) {
+                    int i = t[(k + 1) % 3], j = t[(k + 2) % 3];
+                    Vector2d ek = e[3 * ti + k];
+                    double rx = u[i] - u[j] - (c * ek.x - s * ek.y), ry = v[i] - v[j] - (s * ek.x + c * ek.y);
+                    energy += w[3 * ti + k] * (rx * rx + ry * ry);
+                }
             }
-            return e / pm.SurfaceArea;
+            return energy / pm.SurfaceArea;
         }
     }
 }

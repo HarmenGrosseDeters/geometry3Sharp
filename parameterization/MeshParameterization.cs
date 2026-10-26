@@ -313,7 +313,8 @@ namespace g3
             }
             EulerCharacteristic = N - edges.Count + Tris.Count;
 
-            // union-find over triangles sharing edges -> components
+            // union-find over the vertices of the triangles -> components. Triangles that only share a vertex count
+            // as connected; such a vertex is a bowtie, which is rejected below
             int[] parent = new int[N];
             for (int i = 0; i < N; ++i) parent[i] = i;
             Func<int, int> find = null;
@@ -487,6 +488,22 @@ namespace g3
             for (int i = 0; i < N; ++i) { cu += u[i]; cv += v[i]; }
             cu /= N; cv /= N;
             for (int i = 0; i < N; ++i) { u[i] = (u[i] - cu) * s; v[i] = (v[i] - cv) * s; }
+        }
+
+        /// <summary>
+        /// initial UVs by vertex id into u, v (by index); returns an error if the list is too short or not finite
+        /// </summary>
+        public string ReadInitialUV(IList<Vector2d> uv, double[] u, double[] v)
+        {
+            if (uv.Count < Mesh.MaxVertexID)
+                return "InitialUV has " + uv.Count + " entries, fewer than MaxVertexID " + Mesh.MaxVertexID;
+            for (int i = 0; i < N; ++i) {
+                Vector2d p = uv[ToVertex[i]];
+                if (!MathUtil.IsFinite(p.x) || !MathUtil.IsFinite(p.y))
+                    return "InitialUV of vertex " + ToVertex[i] + " is not finite";
+                u[i] = p.x; v[i] = p.y;
+            }
+            return null;
         }
 
         public bool AllFinite(double[] u, double[] v)

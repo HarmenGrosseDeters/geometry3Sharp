@@ -536,6 +536,9 @@ namespace geometry3Sharp.Tests
             DMesh3 mesh = CylinderCutOpen(32, 8);
             var r = new SLIMParameterization(mesh) { MaxIterations = 300, ConvergenceTolerance = 1e-9 }.Compute();
             Assert.True(r.Succeeded, r.Error);
+            // stops at the minimum (the tolerance is below what the line search can resolve), well before the limit
+            Assert.True(r.Converged);
+            Assert.True(r.Iterations < 300);
             AssertNoFlips(mesh, r);
             Assert.True(r.Distortion.SymmetricDirichlet < 4 + 1e-3, "symmetric Dirichlet " + r.Distortion.SymmetricDirichlet);
             Assert.True(MaxEdgeLengthError(mesh, r.UV) < 0.02);
@@ -881,6 +884,111 @@ namespace geometry3Sharp.Tests
             DMesh3 mesh = FlatDisc(3, 8);
             Assert.Equal(ParameterizationStatus.InvalidMesh, new UVPacker(mesh).Compute().Status);
             Assert.Equal(ParameterizationStatus.InvalidConstraints, new UVPacker(mesh) { UV = new Vector2d[2] }.Compute().Status);
+        }
+
+
+        // ---------- review fixes ----------
+
+        /// <summary>
+        /// flat disc with an extra zero-area "ear" on a boundary edge: its apex is the midpoint of the edge and
+        /// belongs to no other triangle, so it only appears in a triangle that is degenerate on the surface
+        /// </summary>
+        static DMesh3 DiscWithDegenerateEar(out int apex)
+        {
+            DMesh3 mesh = FlatDisc(6, 16);
+            int eid = MeshIterators.BoundaryEdges(mesh).First();
+            Index2i ev = mesh.GetOrientedBoundaryEdgeV(eid);
+            apex = mesh.AppendVertex(0.5 * (mesh.GetVertex(ev.a) + mesh.GetVertex(ev.b)));
+            Assert.True(mesh.AppendTriangle(ev.b, ev.a, apex) >= 0);
+            return mesh;
+        }
+
+        [Fact]
+        public void VertexOnlyInDegenerateTriangles_AllMethodsSucceed()
+        {
+            int apex;
+            DMesh3 mesh = DiscWithDegenerateEar(out apex);
+            var results = new Dictionary<string, ParameterizationResult>() {
+                { "LSCM", new LSCMParameterization(mesh).Compute() },
+                { "BFF", new BoundaryFirstFlattening(mesh).Compute() },
+                { "ARAP", new ARAPParameterization(mesh).Compute() },
+                { "SLIM", new SLIMParameterization(mesh).Compute() },
+                { "Tutte", new TutteEmbedding(mesh).Compute() },
+            };
+            foreach (var kv in results) {
+                Assert.True(kv.Value.Succeeded, kv.Key + ": " + kv.Value.Error);
+                Assert.True(MathUtil.IsFinite(kv.Value.UV[apex].x) && MathUtil.IsFinite(kv.Value.UV[apex].y), kv.Key);
+            }
+            // the planar part stays an isometry (up to scale for the conformal maps)
+            Assert.True(results["ARAP"].Distortion.ARAPEnergy < 1e-6, "ARAP energy " + results["ARAP"].Distortion.ARAPEnergy);
+            // SLIM keeps every UV triangle positive, also the one that is degenerate on the surface
+            AssertNoFlips(mesh, results["SLIM"]);
+            Assert.True(results["SLIM"].Distortion.SymmetricDirichlet < 4 + 1e-3);
+        }
+
+        [Fact]
+        public void InitialUV_TooShort_IsInvalidConstraints()
+        {
+            DMesh3 mesh = FlatDisc(4, 12);
+            var shortUV = new Vector2d[mesh.MaxVertexID - 1];
+            Assert.Equal(ParameterizationStatus.InvalidConstraints, new ARAPParameterization(mesh) { InitialUV = shortUV }.Compute().Status);
+            Assert.Equal(ParameterizationStatus.InvalidConstraints, new SLIMParameterization(mesh) { InitialUV = shortUV }.Compute().Status);
+            var nan = new Vector2d[mesh.MaxVertexID];
+            nan[1] = new Vector2d(double.NaN, 0);
+            Assert.Equal(ParameterizationStatus.InvalidConstraints, new ARAPParameterization(mesh) { InitialUV = nan }.Compute().Status);
+        }
+
+        [Fact]
+        public void BFF_TargetScaleFactors_AreValidated()
+        {
+            DMesh3 mesh = FlatDisc(4, 12);
+            var none = new BoundaryFirstFlattening(mesh) { BoundaryMode = BoundaryFirstFlattening.BoundaryModes.TargetScaleFactors };
+            Assert.Equal(ParameterizationStatus.InvalidConstraints, none.Compute().Status);
+            var interior = new BoundaryFirstFlattening(mesh) {
+                BoundaryMode = BoundaryFirstFlattening.BoundaryModes.TargetScaleFactors,
+                TargetScaleFactors = new Dictionary<int, double>() { { 0, 0.5 } }   // vertex 0 is the center
+            };
+            Assert.Equal(ParameterizationStatus.InvalidConstraints, interior.Compute().Status);
+        }
+
+        [Fact]
+        public void BFF_Disk_DeepSphereCap_BoundaryIsCircle()
+        {
+            // strongly curved: the boundary scale factors change a lot, the target angles must match the final lengths
+            DMesh3 mesh = SphereCap(0.8 * Math.PI, 16, 48, 0.5);
+            MeshTransforms.Scale(mesh, 2, 1, 1);   // ellipsoid: the scale factors vary along the boundary
+            var r = new BoundaryFirstFlattening(mesh) {
+                BoundaryMode = BoundaryFirstFlattening.BoundaryModes.Disk,
+                Extension = BoundaryFirstFlattening.ExtensionModes.Harmonic
+            }.Compute();
+            Assert.True(r.Succeeded, r.Error);
+            AssertNoFlips(mesh, r);
+            // the boundary vertices are not evenly spaced, so measure from the circumcenter of three of them
+            List<int> loop = BoundaryLoop(mesh);
+            int n = loop.Count;
+            Vector2d a = r.UV[loop[0]], b = r.UV[loop[n / 3]], d = r.UV[loop[2 * n / 3]];
+            double D = 2 * (a.x * (b.y - d.y) + b.x * (d.y - a.y) + d.x * (a.y - b.y));
+            Vector2d c = new Vector2d(
+                (a.LengthSquared * (b.y - d.y) + b.LengthSquared * (d.y - a.y) + d.LengthSquared * (a.y - b.y)) / D,
+                (a.LengthSquared * (d.x - b.x) + b.LengthSquared * (a.x - d.x) + d.LengthSquared * (b.x - a.x)) / D);
+            double rmin = loop.Min(v => r.UV[v].Distance(c)), rmax = loop.Max(v => r.UV[v].Distance(c));
+            Assert.True(rmax / rmin < 1 + 1e-9, "radius ratio - 1 = " + (rmax / rmin - 1));
+        }
+
+        [Fact]
+        public void SLIM_ConvergedOnlyAtTheMinimum()
+        {
+            // with tolerance 0 the iteration ends when no step lowers the energy any more: at the minimum
+            // (Converged), not at the iteration limit
+            DMesh3 mesh = Hemisphere(0.5);
+            var r = new SLIMParameterization(mesh) { ConvergenceTolerance = 0, MaxIterations = 1000 }.Compute();
+            Assert.True(r.Succeeded, r.Error);
+            Assert.True(r.Iterations < 1000, "iterations " + r.Iterations);
+            Assert.True(r.Converged);
+            // a single iteration from Tutte is far from the minimum
+            var one = new SLIMParameterization(mesh) { MaxIterations = 1 }.Compute();
+            Assert.False(one.Converged);
+            Assert.True(one.Energy > r.Energy);
         }
     }
 }

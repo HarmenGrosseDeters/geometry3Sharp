@@ -115,12 +115,21 @@ namespace g3
             switch (BoundaryMode) {
                 case BoundaryModes.MinimalAreaDistortion:
                 case BoundaryModes.TargetScaleFactors:
+                    if (BoundaryMode == BoundaryModes.TargetScaleFactors) {
+                        if (TargetScaleFactors == null)
+                            return Result = ParameterizationResult.Failure(ParameterizationStatus.InvalidConstraints, "TargetScaleFactors is null");
+                        foreach (var kv in TargetScaleFactors) {
+                            int vid = kv.Key;
+                            if (vid < 0 || vid >= pm.ToIndex.Length || pm.ToIndex[vid] < 0 || !pm.IsBoundary[pm.ToIndex[vid]])
+                                return Result = ParameterizationResult.Failure(ParameterizationStatus.InvalidConstraints, "vertex " + vid + " is not a boundary vertex");
+                            if (!MathUtil.IsFinite(kv.Value))
+                                return Result = ParameterizationResult.Failure(ParameterizationStatus.InvalidConstraints, "target scale factor is not finite");
+                        }
+                    }
                     for (int k = 0; k < m; ++k) {
                         double s = 0;
-                        if (BoundaryMode == BoundaryModes.TargetScaleFactors && TargetScaleFactors != null)
+                        if (BoundaryMode == BoundaryModes.TargetScaleFactors)
                             TargetScaleFactors.TryGetValue(pm.ToVertex[loop[k]], out s);
-                        if (!MathUtil.IsFinite(s))
-                            return Result = ParameterizationResult.Failure(ParameterizationStatus.InvalidConstraints, "target scale factor is not finite");
                         ub[k] = s;
                     }
                     dirichletToNeumann(pm, dir, dValue, negK, loop, kb, ub, kt, x);
@@ -151,15 +160,15 @@ namespace g3
                 }
 
                 case BoundaryModes.Disk: {
-                    // exterior angles proportional to the dual lengths of the target curve, which depend on u
+                    // the exterior angles of the polygon with the target lengths inscribed in a circle. The lengths
+                    // depend on u, which depends on the angles; a few rounds bring them close (iterating further
+                    // drifts: conformal maps onto the disk are only unique up to a Moebius transform). The final
+                    // angles are those of the final lengths, so the boundary curve is exactly that polygon.
                     for (int iter = 0; iter < 4; ++iter) {
-                        double[] lt = targetLengths(len, ub);
-                        double L = 0;
-                        foreach (double l in lt) L += l;
-                        for (int k = 0; k < m; ++k)
-                            kt[k] = 2 * Math.PI * 0.5 * (lt[(k + m - 1) % m] + lt[k]) / L;
+                        inscribedAngles(targetLengths(len, ub), kt);
                         neumannToDirichlet(pm, neu, negK, loop, kb, kt, len, ub, x);
                     }
+                    inscribedAngles(targetLengths(len, ub), kt);
                     break;
                 }
             }
@@ -244,6 +253,33 @@ namespace g3
             for (int i = 0; i < 3; ++i) if (opp[i] >= (1 - 1e-9) * maxLen) count++;
             for (int i = 0; i < 3; ++i)
                 if (opp[i] >= (1 - 1e-9) * maxLen) angle[i] += (Math.PI - sum) / count;
+        }
+
+        // exterior angles of the polygon with edge lengths lt inscribed in a circle: central angles
+        // 2 asin(l / 2R) with R such that they sum to 2 pi; the turn at a vertex is the mean of its two edges'.
+        // If the longest edge is longer than that allows (the center would lie outside the polygon), the angles
+        // are proportional to the dual lengths.
+        static void inscribedAngles(double[] lt, double[] kt)
+        {
+            int m = lt.Length;
+            double L = 0, lmax = 0;
+            foreach (double l in lt) { L += l; lmax = Math.Max(lmax, l); }
+            Func<double, double> central = (R) => { double a = 0; foreach (double l in lt) a += 2 * Math.Asin(Math.Min(1, l / (2 * R))); return a; };
+            double[] theta = new double[m];
+            if (central(0.5 * lmax) >= 2 * Math.PI) {
+                double lo = 0.5 * lmax, hi = L;
+                for (int it = 0; it < 200 && hi - lo > 1e-15 * hi; ++it) {
+                    double mid = 0.5 * (lo + hi);
+                    if (central(mid) > 2 * Math.PI) lo = mid; else hi = mid;
+                }
+                double R = 0.5 * (lo + hi), sum = 0;
+                for (int k = 0; k < m; ++k) { theta[k] = 2 * Math.Asin(Math.Min(1, lt[k] / (2 * R))); sum += theta[k]; }
+                for (int k = 0; k < m; ++k) theta[k] *= 2 * Math.PI / sum;     // remove the bisection residual
+            } else {
+                for (int k = 0; k < m; ++k) theta[k] = 2 * Math.PI * lt[k] / L;
+            }
+            for (int k = 0; k < m; ++k)
+                kt[k] = 0.5 * (theta[(k + m - 1) % m] + theta[k]);
         }
 
         static double[] targetLengths(double[] len, double[] ub)
