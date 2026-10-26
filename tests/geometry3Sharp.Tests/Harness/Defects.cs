@@ -43,8 +43,10 @@ namespace geometry3Sharp.Tests
 
             /// <summary>
             /// The DMesh3 of the soup. A triangle that DMesh3 rejects as non-manifold (a third triangle on an edge, or a
-            /// duplicate) gets its own copies of its vertices, as the readers do, so every triangle of the soup is kept;
-            /// triangles with a repeated index are dropped (DMesh3 cannot hold them).
+            /// duplicate) gets its own copies of its vertices, as the readers do, so every triangle of the soup is kept,
+            /// but only geometrically on that edge (DMesh3 cannot hold a non-manifold edge); triangles with a repeated
+            /// index are dropped (DMesh3 cannot hold them). Soup vertices left without a triangle are removed (a case
+            /// that wants an unused vertex adds it to the mesh).
             /// </summary>
             public DMesh3 ToMesh()
             {
@@ -57,6 +59,8 @@ namespace geometry3Sharp.Tests
                         m.AppendTriangle(new Index3i(a, b, c));
                     }
                 }
+                for (int v = 0; v < P.Count; ++v)
+                    if (m.GetVtxEdgeCount(v) == 0) m.RemoveVertex(v);
                 return m;
             }
         }
@@ -143,10 +147,11 @@ namespace geometry3Sharp.Tests
                 return r.ToMesh();
             });
             yield return C("interior bowtie", () => {
-                // two spheres that share one vertex
-                Soup a = SphereSoup(Vector3d.Zero, 1);
+                // two spheres that share one vertex, at their poles (an odd EdgeVertices puts a vertex at the centre of
+                // each cube face: a unique extreme vertex along x)
+                Soup a = SphereSoup(Vector3d.Zero, 1, 5);
                 int va = Enumerable.Range(0, a.P.Count).OrderByDescending(i => a.P[i].x).First();
-                Soup b = SphereSoup(Vector3d.Zero, 1);
+                Soup b = SphereSoup(Vector3d.Zero, 1, 5);
                 int vb = Enumerable.Range(0, b.P.Count).OrderBy(i => b.P[i].x).First();
                 Vector3d shift = a.P[va] - b.P[vb];
                 for (int i = 0; i < b.P.Count; ++i) b.P[i] += shift;
@@ -181,6 +186,7 @@ namespace geometry3Sharp.Tests
                     if (s.P[s.T[i].a].x > 0.5) s.T[i] = new Index3i(s.T[i].b, s.T[i].a, s.T[i].c);
                 return s.ToMesh();
             });
+            // (the duplicates get their own vertices: coincident triangles, as the readers produce them)
             yield return C("duplicated triangles", () => {
                 Soup s = SphereSoup(Vector3d.Zero, 1);
                 int n = s.T.Count;
@@ -188,7 +194,8 @@ namespace geometry3Sharp.Tests
                 return s.ToMesh();
             });
             yield return C("non-manifold fin", () => {
-                // a third triangle on an edge of a sphere, pointing outwards
+                // a third triangle on an edge of a sphere, pointing outwards (with its own vertices: DMesh3 cannot hold a
+                // non-manifold edge, so the fin touches the edge geometrically, as the readers produce it)
                 Soup s = SphereSoup(Vector3d.Zero, 1);
                 Index3i t = s.T[0];
                 int tip = s.AddVertex(2 * (s.P[t.a] + s.P[t.b]));
@@ -222,8 +229,8 @@ namespace geometry3Sharp.Tests
         }
 
         /// <summary>
-        /// Seeded random edits of a clean sphere (docs/QA.md 2.5): triangles flipped, removed or duplicated, vertices
-        /// welded onto a neighbour or moved by a few ulps, a stray triangle across the inside.
+        /// Seeded random edits of a clean sphere (docs/QA.md 2.5): triangles flipped, removed or duplicated, a vertex moved
+        /// onto a neighbour (a zero-length edge) or by a few ulps, a stray triangle across the inside.
         /// </summary>
         public static Case RandomEdits(int seed)
         {

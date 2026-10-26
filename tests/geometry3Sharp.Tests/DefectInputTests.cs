@@ -33,14 +33,53 @@ namespace geometry3Sharp.Tests
         }
 
         /// <summary>
+        /// the structure of a DMesh3 without its orientation (CheckValidity also requires consistent orientation):
+        /// triangles with distinct, existing vertices, each side an edge that lists the triangle, edges with existing
+        /// vertices and one or two triangles that contain both of them, and vertex edge lists that agree with the edges
+        /// </summary>
+        static string StructureProblem(DMesh3 mesh)
+        {
+            foreach (int t in mesh.TriangleIndices()) {
+                Index3i tv = mesh.GetTriangle(t), te = mesh.GetTriEdges(t);
+                if (tv.a == tv.b || tv.b == tv.c || tv.a == tv.c) return $"triangle {t} repeats a vertex";
+                for (int j = 0; j < 3; ++j) {
+                    if (mesh.IsVertex(tv[j]) == false) return $"triangle {t}: no vertex {tv[j]}";
+                    int e = te[j];
+                    if (mesh.IsEdge(e) == false) return $"triangle {t}: no edge {e}";
+                    Index2i ev = mesh.GetEdgeV(e), et = mesh.GetEdgeT(e);
+                    if (IndexUtil.same_pair_unordered(ev.a, ev.b, tv[j], tv[(j + 1) % 3]) == false) return $"triangle {t}: edge {e} has other vertices";
+                    if (et.a != t && et.b != t) return $"edge {e} does not list triangle {t}";
+                }
+            }
+            foreach (int e in mesh.EdgeIndices()) {
+                Index2i ev = mesh.GetEdgeV(e), et = mesh.GetEdgeT(e);
+                if (mesh.IsVertex(ev.a) == false || mesh.IsVertex(ev.b) == false) return $"edge {e}: missing vertex";
+                foreach (int t in new[] { et.a, et.b }) {
+                    if (t == DMesh3.InvalidID) continue;
+                    if (mesh.IsTriangle(t) == false) return $"edge {e}: no triangle {t}";
+                    Index3i tv = mesh.GetTriangle(t);
+                    Func<int, bool> has = (v) => tv.a == v || tv.b == v || tv.c == v;
+                    if (has(ev.a) == false || has(ev.b) == false) return $"edge {e}: triangle {t} misses a vertex";
+                }
+                if (et.a == DMesh3.InvalidID) return $"edge {e} without triangles";
+                if (mesh.FindEdge(ev.a, ev.b) != e) return $"edge {e} not found from its vertices";
+            }
+            foreach (int v in mesh.VertexIndices())
+                foreach (int e in mesh.VtxEdgesItr(v))
+                    if (mesh.IsEdge(e) == false || mesh.GetEdgeV(e).a != v && mesh.GetEdgeV(e).b != v) return $"vertex {v}: wrong edge {e}";
+            return "";
+        }
+
+        /// <summary>
         /// a valid DMesh3 with finite coordinates. Inconsistently oriented edges are accepted only if the input had them
-        /// (an operation that keeps the input triangles keeps them); otherwise CheckValidity must pass.
+        /// (an operation that keeps the input triangles keeps them); the rest of the structure must be valid in any case.
         /// </summary>
         static void AssertValid(DMesh3 mesh, string what, bool inputInconsistent = false)
         {
             Assert.True(mesh != null, what + ": no mesh");
             int bad = InconsistentEdges(mesh);
             Assert.True(bad == 0 || inputInconsistent, what + $": {bad} inconsistently oriented edges");
+            Assert.Equal("", StructureProblem(mesh));
             if (bad == 0)
                 Assert.True(mesh.CheckValidity(true, FailMode.ReturnOnly), what + ": invalid DMesh3");
             Assert.True(Invariance.AllFinite(mesh), what + ": non-finite coordinates");
@@ -58,6 +97,8 @@ namespace geometry3Sharp.Tests
         {
             var r = new MeshAutoRepair(Defects.ByName(name).Make());
             Assert.True(r.Apply(), name + ": Apply returned false without a cancel");
+            // (consistent orientation is not promised, the repair only tries; it gets there on all these cases, so this
+            // guards against a regression)
             AssertValid(r.Mesh, name);
         }
 
@@ -90,7 +131,7 @@ namespace geometry3Sharp.Tests
         public static System.Collections.Generic.IEnumerable<object[]> InconsistentCases() =>
             Defects.Names().Where(c => HasInconsistentInput((string)c[0]));
 
-        static void UnionWithBox(string name)
+        static void UnionWithBox(string name, bool allowInconsistentResult = false)
         {
             DMesh3 a = Defects.ByName(name).Make();
             DMesh3 box = new TrivialBox3Generator() { Box = new Box3d(new Vector3d(0.5, 0.5, 0.5), new Vector3d(0.6, 0.4, 0.7)) }.Generate().MakeDMesh();
@@ -99,19 +140,19 @@ namespace geometry3Sharp.Tests
             Assert.True(ok == (eb.Status == ExactMeshBoolean.BooleanStatus.Success), name + ": status and return value disagree");
             Assert.True(ok, $"{name}: {eb.Status} {eb.Error}");
             // a new mesh: consistently oriented whatever the input
-            AssertValid(eb.Result, name + " (union with a box)");
-            // documented: closed and manifold for closed inputs
+            AssertValid(eb.Result, name + " (union with a box)", allowInconsistentResult);
+            // documented: closed for closed inputs (and the touching vertices are duplicated: no bowties)
             if (a.IsClosed() && Inconsistent(a) == false) {
                 Assert.True(eb.Result.IsClosed(), name + ": result not closed");
                 Assert.False(HasBowtie(eb.Result), name + ": result has bowtie vertices");
             }
         }
 
-        static void Resolve(string name)
+        static void Resolve(string name, bool allowInconsistentResult = false)
         {
             DMesh3 a = Defects.ByName(name).Make();
             DMesh3 r = ExactMeshBoolean.Resolve(a);
-            AssertValid(r, name + " (resolve)");
+            AssertValid(r, name + " (resolve)", allowInconsistentResult);
             if (a.IsClosed() && Inconsistent(a) == false) {
                 // (empty for inputs without a solid: inside-out, flat)
                 Assert.True(r.TriangleCount == 0 || r.IsClosed(), name + ": result not closed");
@@ -126,6 +167,15 @@ namespace geometry3Sharp.Tests
         [Theory]
         [MemberData(nameof(ConsistentCases))]
         public void ExactMeshBoolean_Resolve_DefectInput(string name) => Resolve(name);
+
+        // inconsistently oriented inputs: everything but the result's orientation (see the skipped test below)
+        [Theory]
+        [MemberData(nameof(InconsistentCases))]
+        public void ExactMeshBoolean_InconsistentInput_ValidStructure(string name)
+        {
+            UnionWithBox(name, true);
+            Resolve(name, true);
+        }
 
         // Inputs with inconsistently oriented triangles (a flipped triangle): the result keeps the input triangles with
         // their input orientation where the solid's boundary runs along them, so it has inconsistently oriented edges
@@ -153,7 +203,8 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(MeshAlphaWrap.WrapStatus.EmptyInput, w.Status);
                 return;
             }
-            Assert.True(ok, $"{name}: {w.Status}");
+            // Compute() is true only for Success; PointLimitReached also has a result with all the guarantees
+            Assert.True(ok == (w.Status == MeshAlphaWrap.WrapStatus.Success), $"{name}: {w.Status} returned {ok}");
             Assert.True(w.Status == MeshAlphaWrap.WrapStatus.Success || w.Status == MeshAlphaWrap.WrapStatus.PointLimitReached, $"{name}: {w.Status}");
             AssertValid(w.Result, name);
             // documented: closed, manifold, free of self-intersections
@@ -173,8 +224,26 @@ namespace geometry3Sharp.Tests
                 Assert.False(ok, name + ": an empty input is documented to fail");
                 return;
             }
-            if (ok)
-                AssertValid(s.Result, name);
+            // documented: false only for an empty input, a bad cell size, a too large grid or a cancel
+            Assert.True(ok, name + ": Compute failed");
+            AssertValid(s.Result, name);
+            // documented: closed, without self-intersections (empty where the input has no solid: open sheet, flat,
+            // inside-out)
+            if (s.Result.TriangleCount > 0) {
+                Assert.True(s.Result.IsClosed(), name + ": not closed");
+                Assert.False(MeshRepairMetrics.HasSelfIntersections(s.Result), name + ": self-intersections");
+            }
+        }
+
+        // The cell size comes from Mesh.CachedBounds, which includes unused vertices: a unit sphere with one unused vertex
+        // 1e6 away gets cells of about 5e4, and Compute() returns true with an empty result. Reported; enabled when fixed.
+        [Fact(Skip = "MeshWindingNumberSolidify sizes its grid from bounds that include unused vertices (reported)")]
+        public void MeshWindingNumberSolidify_UnusedFarVertex_KeepsTheSolid()
+        {
+            var s = new MeshWindingNumberSolidify(Defects.ByName("unused far vertex").Make()) { GridResolution = 32 };
+            Assert.True(s.Compute());
+            Assert.True(s.Result.TriangleCount > 0, "empty result");
+            Assert.InRange(Invariance.Volume(s.Result), 0.8 * 4.18879, 1.1 * 4.18879);
         }
 
         // ---- remesh, reduce ----
