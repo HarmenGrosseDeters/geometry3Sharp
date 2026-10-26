@@ -461,5 +461,63 @@ namespace geometry3Sharp.Tests
                 Assert.True(geo.Distance[vid2] > 0.92 * e, $"{mesh.GetVertex(vid2)}: {geo.Distance[vid2]} vs straight {e}");
             }
         }
+
+        static DMesh3 Strip(int len, out int[,] vid)
+        {
+            DMesh3 mesh = new DMesh3();
+            vid = new int[len + 1, 3];
+            for (int j = 0; j < 3; ++j)
+                for (int i = 0; i <= len; ++i) vid[i, j] = mesh.AppendVertex(new Vector3d(i, j, 0));
+            for (int j = 0; j < 2; ++j)
+                for (int i = 0; i < len; ++i) {
+                    mesh.AppendTriangle(vid[i, j], vid[i + 1, j], vid[i + 1, j + 1]);
+                    mesh.AppendTriangle(vid[i, j], vid[i + 1, j + 1], vid[i, j + 1]);
+                }
+            return mesh;
+        }
+
+        [Fact]
+        public void VeryLongStrip_DirectSolvesInTheLogDomain()
+        {
+            // 25000 edge lengths: the heat underflows after ~700 and the Jacobi / CG iterations did not reach the
+            // far end (Compute false after 36 s; at 5000 edge lengths distances wrong by 100)
+            int len = 25000;
+            int[,] vid;
+            DMesh3 mesh = Strip(len, out vid);
+            var geo = new MeshGeodesicDistance(mesh);
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            Assert.True(geo.Compute(new[] { vid[0, 1] }));
+            foreach (int x in new[] { 100, 1000, 5000, 12000, 25000 })
+                Assert.True(Math.Abs(geo.Distance[vid[x, 1]] - x) < 0.02 * x + 0.5, $"x = {x}: {geo.Distance[vid[x, 1]]}");
+            // and from the middle, a second source set reusing the factorizations
+            Assert.True(geo.Compute(new[] { vid[len / 2, 1] }));
+            Assert.True(Math.Abs(geo.Distance[vid[0, 1]] - len / 2) < 0.02 * len / 2 + 0.5);
+            Assert.Equal(1, geo.PrecomputeCount);
+        }
+
+        [Fact]
+        public void NonManifoldMesh_FallsBackToTheMeshTriangles()
+        {
+            // two grids sharing one corner vertex (a bowtie): no intrinsic triangulation, the mesh triangles are used
+            DMesh3 mesh = Grid(0, 0, 10, 10, 11, (x, y) => 0);
+            int corner = NearestVertex(mesh, new Vector3d(10, 10, 0));
+            int[,] map = new int[11, 11];
+            for (int j = 0; j < 11; ++j)
+                for (int i = 0; i < 11; ++i)
+                    map[i, j] = (i == 0 && j == 0) ? corner : mesh.AppendVertex(new Vector3d(10 + i, 10 + j, 0));
+            for (int j = 0; j < 10; ++j)
+                for (int i = 0; i < 10; ++i) {
+                    mesh.AppendTriangle(map[i, j], map[i + 1, j], map[i + 1, j + 1]);
+                    mesh.AppendTriangle(map[i, j], map[i + 1, j + 1], map[i, j + 1]);
+                }
+            Assert.Throws<ArgumentException>(() => new IntrinsicTriangulation(mesh));
+            var geo = new MeshGeodesicDistance(mesh) { IntrinsicRefine = true };
+            int src = NearestVertex(mesh, Vector3d.Zero);
+            Assert.True(geo.Compute(new[] { src }));
+            Assert.Equal(0, geo.IntrinsicFlips);
+            Assert.Equal(IntrinsicRefinementStatus.NonManifoldInput, geo.Refinement.Status);
+            double d = geo.Distance[NearestVertex(mesh, new Vector3d(20, 20, 0))];
+            Assert.True(Math.Abs(d - 20 * Math.Sqrt(2)) < 0.05 * 20 * Math.Sqrt(2) + 1, $"{d}");
+        }
     }
 }

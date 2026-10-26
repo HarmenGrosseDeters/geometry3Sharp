@@ -21,9 +21,17 @@ namespace gs
     /// center, so UTM coordinates are fine. Each connected component is measured from its own sources;
     /// components without a source (and isolated vertices) get NaN. Far from the sources (beyond about
     /// 700 edge lengths) the heat underflows doubles; then it is computed as its logarithm.
-    /// Computed on the intrinsic Delaunay triangulation of the mesh (IntrinsicDelaunay; Sharp and Crane,
-    /// "A Laplacian for Nonmanifold Triangle Meshes", 2020): caps and needles, eg along constrained
-    /// feature lines after remeshing, would otherwise make the solves stall.
+    /// Computed on the intrinsic Delaunay triangulation of the mesh (IntrinsicDelaunay, IntrinsicTriangulation;
+    /// Sharp, Soliman and Crane 2019): caps, needles and obtuse triangles, eg along constrained feature lines
+    /// after remeshing, would otherwise give negative cotan weights and wrong distances. Degenerate triangles
+    /// are kept by intrinsic mollification (Sharp and Crane 2020). Meshes with non-manifold vertices (bowties)
+    /// have no intrinsic triangulation; they use the mesh triangles (IntrinsicFlips 0), without the
+    /// degenerate ones.
+    ///
+    /// Solvers: sparse Cholesky factorizations (SparseCholesky) of the heat flow and the Poisson problem,
+    /// reused for further sources. The heat system is an M-matrix (cotan weights clamped to at least 0), so
+    /// its solution is accurate entry by entry; where it underflows it is solved in the log domain
+    /// (SparseCholesky.SolveLog). Several thousand edge lengths from the sources cost no more than near ones.
     ///
     /// Usage: <c>var geo = new MeshGeodesicDistance(mesh); if (geo.Compute(new[] { sourceVid })) d = geo.Distance[vid];</c>
     /// The mesh is not modified. The first Compute() builds the Laplacian (cost grows with the vertex count);
@@ -36,7 +44,7 @@ namespace gs
         public DMesh3 Mesh;
         /// <summary> diffusion time = TimeFactor * (mean edge length)^2 </summary>
         public double TimeFactor = 1.0;
-        /// <summary> iteration limit of the linear solvers; Compute() returns false if the Poisson solve does not converge </summary>
+        /// <summary> no longer used: the linear systems are solved directly (kept for API compatibility) </summary>
         public int MaxIterations = 20000;
         /// <summary>
         /// compute on the intrinsic Delaunay triangulation of the mesh (same surface, edges flipped by
@@ -72,19 +80,25 @@ namespace gs
         }
 
 
-        int N;
+        int N;                      // indices: mesh vertices, then vertices inserted by the refinement
         int[] toIndex, toVertex;
         PackedSparseMatrix L;      // cotan Laplacian, positive semidefinite
-        double[] mass, diagL;
+        double[] mass;
         double meanEdge;
         List<Index3i> tris;         // the (intrinsic) triangles, by vertex index
         List<Vector3d> cot;         // cotangent at each corner of tris
         List<Vector3d> layout;      // tris in the plane: corners (0,0), (x,0), (y,z)
+        List<KeyValuePair<Index2i, double>> heatEdges;     // edge weights of the heat flow (cotan, at least 0)
 
         int timestamp = -1;
         bool[] boundaryIndex;       // per index: on the boundary (mesh vertices and inserted vertices)
         int[] component;            // per index; -1 for vertices without a (non-degenerate) triangle
         int componentCount;
+        int[] representative;       // per component: a vertex, fixed in the Neumann Poisson problem
+
+        // factorizations: heat flow (Neumann, Dirichlet on the boundary) of diffusion time heatTime, Poisson
+        SparseCholesky heatN, heatD, poissonN;
+        double heatTime = double.NaN;
 
         // the options the triangulation was built with (a change rebuilds it)
         string builtSettings;
@@ -100,9 +114,9 @@ namespace gs
         void precompute()
         {
             PrecomputeCount++;
-            timestamp = Mesh.ShapeTimestamp;
-            builtSettings = built_settings();
-            nbStart = null; spatial = null;
+            L = null;
+            heatN = heatD = poissonN = null; heatTime = double.NaN;
+            spatial = null;
             toIndex = new int[Mesh.MaxVertexID];
             toVertex = new int[Mesh.VertexCount];
             N = 0;
@@ -110,72 +124,105 @@ namespace gs
                 toIndex[vid] = N;
                 toVertex[N++] = vid;
             }
-            Vector3d center = Mesh.CachedBounds.Center;
-            Vector3d[] pos = new Vector3d[N];   // (N grows with the refinement below)
-            for (int i = 0; i < N; ++i)
-                pos[i] = Mesh.GetVertex(toVertex[i]) - center;
-
-            // the triangles by their edge lengths (edge k from corner k to k+1), made intrinsic Delaunay
+            int n0 = N;
             tris = new List<Index3i>();
-            var lengths = new List<Vector3d>();
+            cot = new List<Vector3d>();
+            layout = new List<Vector3d>();
+            var area = new List<double>();
             double edgeSum = 0; int edgeCount = 0;
             foreach (int tid in Mesh.TriangleIndices()) {
                 Index3i t = Mesh.GetTriangle(tid);
-                Index3i ti = new Index3i(toIndex[t.a], toIndex[t.b], toIndex[t.c]);
-                Vector3d p0 = pos[ti.a], p1 = pos[ti.b], p2 = pos[ti.c];
-                double area = 0.5 * (p1 - p0).Cross(p2 - p0).Length;
-                if (area < 1e-14 * ((p1 - p0).LengthSquared + (p2 - p0).LengthSquared))
+                Vector3d p0 = Mesh.GetVertex(t.a), p1 = Mesh.GetVertex(t.b), p2 = Mesh.GetVertex(t.c);
+                if (0.5 * (p1 - p0).Cross(p2 - p0).Length < 1e-14 * ((p1 - p0).LengthSquared + (p2 - p0).LengthSquared))
                     continue;
-                tris.Add(ti);
-                lengths.Add(new Vector3d((p1 - p0).Length, (p2 - p1).Length, (p0 - p2).Length));
                 edgeSum += (p1 - p0).Length + (p2 - p1).Length + (p0 - p2).Length;
                 edgeCount += 3;
             }
-            boundaryIndex = new bool[N];
-            foreach (int vid in Mesh.VertexIndices())
-                if (Mesh.IsBoundaryVertex(vid)) boundaryIndex[toIndex[vid]] = true;
-            Refinement = null;
-            if (IntrinsicDelaunay && IntrinsicRefine && refine(tris, lengths)) {
-                IntrinsicFlips = Refinement.Flips;
-            } else
-                IntrinsicFlips = IntrinsicDelaunay ? flip_to_delaunay(tris, lengths) : 0;
+            meanEdge = (edgeCount > 0) ? edgeSum / edgeCount : 1;
 
-            SymmetricSparseMatrix M = new SymmetricSparseMatrix();
-            mass = new double[N];
-            diagL = new double[N];
-            cot = new List<Vector3d>(tris.Count);
-            layout = new List<Vector3d>(tris.Count);
-            int keep = 0;
-            for (int k = 0; k < tris.Count; ++k) {
-                Index3i ti = tris[k];
-                Vector3d l = lengths[k];
-                double area = heron(l.x, l.y, l.z);
-                if (!(area > 1e-14 * (l.x * l.x + l.z * l.z)))
-                    continue;
-                // cotangent at corner a from the lengths of its two edges and the opposite one
-                Vector3d c = Vector3d.Zero;
-                for (int a = 0; a < 3; ++a) {
-                    double e0 = l[a], e1 = l[(a + 2) % 3], opp = l[(a + 1) % 3];
-                    c[a] = (e0 * e0 + e1 * e1 - opp * opp) / (4 * area);
+            // the intrinsic Delaunay triangulation (flipped, or refined); non-manifold meshes and
+            // IntrinsicDelaunay = false use the mesh triangles
+            IntrinsicTriangulation T = null;
+            Refinement = null;
+            IntrinsicFlips = 0;
+            if (IntrinsicDelaunay) {
+                try {
+                    T = new IntrinsicTriangulation(Mesh);
+                } catch (ArgumentException) {
+                    if (IntrinsicRefine)
+                        Refinement = new IntrinsicRefinementResult() { Status = IntrinsicRefinementStatus.NonManifoldInput };
                 }
-                tris[keep++] = ti;
-                cot.Add(c);
-                // corners in the plane: (0,0), (l0,0), (x,y), counter-clockwise
-                double x = (l.x * l.x + l.z * l.z - l.y * l.y) / (2 * l.x);
-                layout.Add(new Vector3d(l.x, x, 2 * area / l.x));
-                for (int a = 0; a < 3; ++a) {
-                    int i = ti[a], j = ti[(a + 1) % 3];
-                    double w = 0.5 * c[(a + 2) % 3];     // the corner opposite edge (i, j)
-                    M.Set(i, j, M[i, j] - w);
-                    diagL[i] += w; diagL[j] += w;
-                    mass[ti[a]] += area / 3;
+                if (T != null && IntrinsicRefine) {
+                    Refinement = T.DelaunayRefine(RefineMinAngle, RefineMaxInsertions);
+                    IntrinsicFlips = Refinement.Flips;
+                } else if (T != null)
+                    IntrinsicFlips = T.FlipToDelaunay();
+            }
+            if (T != null) {
+                N = n0 + (T.VertexCount - T.InputVertexCount);
+                Array.Resize(ref toVertex, N);
+                boundaryIndex = new bool[N];
+                Func<int, int> index = (i) => T.IsInserted(i) ? n0 + (i - T.InputVertexCount) : toIndex[T.VertexID(i)];
+                for (int i = 0; i < T.VertexCount; ++i) {
+                    if (T.IsInserted(i)) toVertex[index(i)] = -1;
+                    boundaryIndex[index(i)] = T.IsBoundaryVertex(i);
+                }
+                for (int t = 0; t < T.TriangleCount; ++t) {
+                    Index3i ti = T.GetTriangleIndices(t);
+                    Vector2d q0, q1, q2;
+                    T.GetTriangleLayout(t, out q0, out q1, out q2);
+                    // cotangent at corner k: opposite halfedge k+1
+                    add_triangle(new Index3i(index(ti.a), index(ti.b), index(ti.c)),
+                        new Vector3d(T.OppositeCotan(3 * t + 1), T.OppositeCotan(3 * t + 2), T.OppositeCotan(3 * t)),
+                        new Vector3d(q1.x, q2.x, q2.y), T.TriangleArea(t), area);
+                }
+            } else {
+                boundaryIndex = new bool[N];
+                foreach (int vid in Mesh.VertexIndices())
+                    if (Mesh.IsBoundaryVertex(vid)) boundaryIndex[toIndex[vid]] = true;
+                foreach (int tid in Mesh.TriangleIndices()) {
+                    Index3i t = Mesh.GetTriangle(tid);
+                    Vector3d p0 = Mesh.GetVertex(t.a), p1 = Mesh.GetVertex(t.b), p2 = Mesh.GetVertex(t.c);
+                    double l0 = (p1 - p0).Length, l1 = (p2 - p1).Length, l2 = (p0 - p2).Length;
+                    double A = IntrinsicTriangulation.area_from_lengths(l0, l1, l2);
+                    if (!(A > 1e-14 * (l0 * l0 + l2 * l2)))
+                        continue;
+                    double x = (l0 * l0 + l2 * l2 - l1 * l1) / (2 * l0);
+                    add_triangle(new Index3i(toIndex[t.a], toIndex[t.b], toIndex[t.c]),
+                        new Vector3d(IntrinsicTriangulation.cotan_from_lengths(l1, l0, l2),
+                                     IntrinsicTriangulation.cotan_from_lengths(l2, l0, l1),
+                                     IntrinsicTriangulation.cotan_from_lengths(l0, l1, l2)),
+                        new Vector3d(l0, x, 2 * A / l0), A, area);
                 }
             }
-            tris.RemoveRange(keep, tris.Count - keep);
-            for (int i = 0; i < N; ++i)
-                M.Set(i, i, diagL[i]);
+
+            // cotan Laplacian (Poisson) and the heat flow weights: per vertex pair, summed over both triangles
+            // (and parallel intrinsic edges), negative sums (boundary edges opposite obtuse angles, or the mesh
+            // triangles) set to 0 so that the heat system is an M-matrix
+            mass = new double[N];
+            var weights = new Dictionary<long, double>();
+            for (int k = 0; k < tris.Count; ++k) {
+                Index3i ti = tris[k];
+                for (int a = 0; a < 3; ++a) {
+                    int i = ti[a], j = ti[(a + 1) % 3];
+                    mass[i] += area[k] / 3;
+                    if (i == j) continue;
+                    long key = (long)Math.Min(i, j) * N + Math.Max(i, j);
+                    double w = 0.5 * cot[k][(a + 2) % 3], cur;     // the corner opposite edge (i, j)
+                    weights[key] = weights.TryGetValue(key, out cur) ? cur + w : w;
+                }
+            }
+            var M = new SymmetricSparseMatrix(N);
+            double[] diag = new double[N];
+            heatEdges = new List<KeyValuePair<Index2i, double>>(weights.Count);
+            foreach (var kv in weights) {
+                int i = (int)(kv.Key / N), j = (int)(kv.Key % N);
+                M[i, j] = -kv.Value;
+                diag[i] += kv.Value; diag[j] += kv.Value;
+                if (kv.Value > 0) heatEdges.Add(new KeyValuePair<Index2i, double>(new Index2i(i, j), kv.Value));
+            }
+            for (int i = 0; i < N; ++i) M[i, i] = diag[i];
             L = new PackedSparseMatrix(M);
-            meanEdge = (edgeCount > 0) ? edgeSum / edgeCount : 1;
 
             // connected components of the (non-degenerate) triangles
             int[] parent = new int[N];
@@ -190,151 +237,89 @@ namespace gs
             }
             component = new int[N];
             var ids = new Dictionary<int, int>();
+            var reps = new List<int>();
             for (int i = 0; i < N; ++i) {
                 if (used[i] == false) { component[i] = -1; continue; }
                 int r = find(i), c;
-                if (ids.TryGetValue(r, out c) == false) { c = ids.Count; ids[r] = c; }
+                if (ids.TryGetValue(r, out c) == false) { c = ids.Count; ids[r] = c; reps.Add(i); }
                 component[i] = c;
             }
             componentCount = ids.Count;
+            representative = reps.ToArray();
+            timestamp = Mesh.ShapeTimestamp;
+            builtSettings = built_settings();
         }
 
-        // Replaces tris and lengths by the refined intrinsic triangulation (IntrinsicTriangulation.DelaunayRefine);
-        // inserted vertices get the indices from N on. False (nothing changed) for non-manifold meshes.
-        bool refine(List<Index3i> tris, List<Vector3d> lengths)
+        void add_triangle(Index3i ti, Vector3d c, Vector3d q, double A, List<double> area)
         {
-            IntrinsicTriangulation T;
-            try {
-                T = new IntrinsicTriangulation(Mesh);
-            } catch (ArgumentException) {
-                Refinement = new IntrinsicRefinementResult() { Status = IntrinsicRefinementStatus.NonManifoldInput };
-                return false;
-            }
-            Refinement = T.DelaunayRefine(RefineMinAngle, RefineMaxInsertions);
-            int n0 = N;
-            Func<int, int> index = (i) => T.IsInserted(i) ? n0 + (i - T.InputVertexCount) : toIndex[T.VertexID(i)];
-            N = n0 + (T.VertexCount - T.InputVertexCount);
-            Array.Resize(ref toVertex, N);
-            Array.Resize(ref boundaryIndex, N);
-            for (int i = T.InputVertexCount; i < T.VertexCount; ++i) {
-                toVertex[index(i)] = -1;
-                boundaryIndex[index(i)] = T.IsBoundaryVertex(i);
-            }
-            tris.Clear(); lengths.Clear();
-            for (int t = 0; t < T.TriangleCount; ++t) {
-                Index3i ti = T.GetTriangleIndices(t);
-                tris.Add(new Index3i(index(ti.a), index(ti.b), index(ti.c)));
-                lengths.Add(new Vector3d(T.Length(3 * t), T.Length(3 * t + 1), T.Length(3 * t + 2)));
-            }
-            return true;
+            if (!(A > 0)) return;
+            tris.Add(ti); cot.Add(c); layout.Add(q); area.Add(A);
         }
 
-        // triangle area from the edge lengths (Kahan's stable form of Heron's formula); 0 if not a triangle
-        static double heron(double a, double b, double c)
+        // (mass + t * heat weights) with the rows of the fixed vertices (and of vertices without triangles)
+        // replaced by the identity
+        SparseCholesky heat_factor(double t, bool[] fixedZero)
         {
-            if (a < b) { double t = a; a = b; b = t; }
-            if (b < c) { double t = b; b = c; c = t; }
-            if (a < b) { double t = a; a = b; b = t; }
-            double p = (a + (b + c)) * (c - (a - b)) * (c + (a - b)) * (a + (b - c));
-            return (p > 0) ? 0.25 * Math.Sqrt(p) : 0;
+            var e = new List<KeyValuePair<Index2i, double>>(N + 3 * heatEdges.Count);
+            for (int i = 0; i < N; ++i)
+                e.Add(entry(i, i, (fixedZero != null && fixedZero[i]) || !(mass[i] > 0) ? 1 : mass[i]));
+            foreach (var kv in heatEdges) {
+                int i = kv.Key.a, j = kv.Key.b;
+                bool fi = fixedZero != null && fixedZero[i], fj = fixedZero != null && fixedZero[j];
+                double w = t * kv.Value;
+                if (fi == false) e.Add(entry(i, i, w));
+                if (fj == false) e.Add(entry(j, j, w));
+                if (fi == false && fj == false) e.Add(entry(i, j, -w));
+            }
+            return new SparseCholesky(N, e);
         }
 
-        // cotangent of the angle opposite the side of length a in the triangle with sides a, b, c
-        static double cot_opposite(double a, double b, double c)
+        // cotan Laplacian with the rows of the fixed vertices (and of vertices without triangles) replaced by the identity
+        SparseCholesky poisson_factor(bool[] fixedV)
         {
-            double area = heron(a, b, c);
-            return (area > 0) ? (b * b + c * c - a * a) / (4 * area) : double.NegativeInfinity;
-        }
-
-        /// <summary>
-        /// Flips edges of the triangulation intrinsically (the edge lengths change, the surface does not;
-        /// Bobenko and Springborn, Fisher et al. 2007) until every interior edge is Delaunay: the angles
-        /// opposite it sum to at most pi. Removes the large and negative cotangent weights of caps and
-        /// needles (eg vertices next to feature lines after remeshing), which make the heat and Poisson
-        /// solves stall; on a Delaunay mesh nothing changes. Boundary and non-manifold edges are kept.
-        /// Returns the number of flips; tris and lengths are updated (same number of triangles).
-        /// </summary>
-        static int flip_to_delaunay(List<Index3i> tris, List<Vector3d> lengths)
-        {
-            int H = 3 * tris.Count;
-            int[] org = new int[H], nxt = new int[H], twin = new int[H];
-            double[] len = new double[H];
-            long nV = 0;
-            for (int f = 0; f < tris.Count; ++f)
-                for (int a = 0; a < 3; ++a) {
-                    int h = 3 * f + a;
-                    org[h] = tris[f][a]; nxt[h] = 3 * f + (a + 1) % 3; len[h] = lengths[f][a]; twin[h] = -1;
-                    nV = Math.Max(nV, tris[f][a] + 1);
-                }
-            // interior edges: exactly two half edges in opposite directions. Same direction (inconsistent
-            // orientation) or more than two (non-manifold): not flipped
-            var first = new Dictionary<long, int>();
-            var notFlippable = new HashSet<long>();
-            for (int h = 0; h < H; ++h) {
-                int i = org[h], j = org[nxt[h]];
-                long key = Math.Min(i, j) * nV + Math.Max(i, j);
-                int o;
-                if (first.TryGetValue(key, out o) == false)
-                    first[key] = h;
-                else if (twin[o] < 0 && org[o] == j && notFlippable.Contains(key) == false) {
-                    twin[h] = o; twin[o] = h;
-                } else
-                    notFlippable.Add(key);
-            }
-            foreach (long key in notFlippable) {
-                int o = first[key];
-                if (twin[o] >= 0) { twin[twin[o]] = -1; twin[o] = -1; }
-            }
-            // corner angle opposite half edge h in its triangle, as cotangent
-            Func<int, double> cotOpp = (h) => cot_opposite(len[h], len[nxt[h]], len[nxt[nxt[h]]]);
-            Func<double, double, double, double> angle = (a, b, opp) => Math.Acos(MathUtil.Clamp((a * a + b * b - opp * opp) / (2 * a * b), -1, 1));
-            var queue = new Queue<int>();
-            var queued = new bool[H];
-            for (int h = 0; h < H; ++h)
-                if (twin[h] > h) { queue.Enqueue(h); queued[h] = true; }
-            int flips = 0, maxFlips = 50 * H + 100;
-            while (queue.Count > 0 && flips < maxFlips) {
-                int h = queue.Dequeue();
-                queued[h] = false;
-                int t = twin[h];
-                if (t < 0 || cotOpp(h) + cotOpp(t) >= -1e-10)
-                    continue;
-                int h1 = nxt[h], h2 = nxt[h1], g1 = nxt[t], g2 = nxt[g1];
-                int k = org[h2], l = org[g2];
-                if (k == l)
-                    continue;
-                // unfold both triangles at the edge ends i = org[h] and j: the quad must be strictly convex there
-                double ai = angle(len[h], len[h2], len[h1]) + angle(len[t], len[g1], len[g2]);
-                double aj = angle(len[h], len[h1], len[h2]) + angle(len[t], len[g2], len[g1]);
-                if (ai >= Math.PI - 1e-12 || aj >= Math.PI - 1e-12)
-                    continue;
-                double kl2 = len[h2] * len[h2] + len[g1] * len[g1] - 2 * len[h2] * len[g1] * Math.Cos(ai);
-                if (!(kl2 > 0))
-                    continue;
-                // triangles (i, j, k) + (j, i, l) -> (l, k, i) + (k, l, j)
-                org[h] = l; nxt[h] = h2; nxt[h2] = g1; nxt[g1] = h;
-                org[t] = k; nxt[t] = g2; nxt[g2] = h1; nxt[h1] = t;
-                len[h] = len[t] = Math.Sqrt(kl2);
-                flips++;
-                foreach (int e in new[] { h1, h2, g1, g2 }) {
-                    int c = (twin[e] >= 0 && twin[e] < e) ? twin[e] : e;
-                    if (twin[c] >= 0 && queued[c] == false) { queue.Enqueue(c); queued[c] = true; }
+            var e = new List<KeyValuePair<Index2i, double>>();
+            for (int r = 0; r < N; ++r) {
+                bool fr = fixedV[r] || component[r] < 0;
+                if (fr) { e.Add(entry(r, r, 1)); continue; }
+                for (int k = L.Rows[r].Length - 1; k >= 0; --k) {
+                    int c = L.Rows[r][k].j;
+                    if (c < r || (c != r && (fixedV[c] || component[c] < 0))) continue;
+                    e.Add(entry(r, c, L.Rows[r][k].d));
                 }
             }
-            if (flips == 0)
-                return 0;
-            // read the triangles back (each triangle is a cycle of three half edges)
-            var seen = new bool[H];
-            int nf = 0;
-            for (int h = 0; h < H; ++h) {
-                if (seen[h]) continue;
-                int b = nxt[h], c = nxt[b];
-                seen[h] = seen[b] = seen[c] = true;
-                tris[nf] = new Index3i(org[h], org[b], org[c]);
-                lengths[nf] = new Vector3d(len[h], len[b], len[c]);
-                nf++;
+            return new SparseCholesky(N, e);
+        }
+
+        static KeyValuePair<Index2i, double> entry(int i, int j, double v)
+        {
+            return new KeyValuePair<Index2i, double>(new Index2i(i, j), v);
+        }
+
+        // log of the heat (M + t L) u = sources, from a solve, or in the log domain where it underflows
+        bool log_heat(SparseCholesky A, List<int> src, bool[] hasSource, double[] logU)
+        {
+            if (A.IsValid == false) return false;
+            double[] b = new double[N];
+            foreach (int s in src) b[s] = 1;
+            double[] u = new double[N];
+            A.Solve(b, u);
+            bool underflow = false;
+            for (int i = 0; i < N && underflow == false; ++i)
+                if (component[i] >= 0 && hasSource[component[i]] && !(u[i] > 1e-280)) underflow = true;
+            if (underflow == false) {
+                for (int i = 0; i < N; ++i) logU[i] = (u[i] > 0) ? Math.Log(u[i]) : double.NegativeInfinity;
+                return true;
             }
-            return flips;
+            for (int i = 0; i < N; ++i) b[i] = double.NegativeInfinity;
+            foreach (int s in src) b[s] = 0;
+            return A.SolveLog(b, logU);
+        }
+
+        static double log_add(double a, double b)
+        {
+            double m = Math.Max(a, b);
+            if (double.IsNegativeInfinity(m)) return m;
+            return m + Math.Log(Math.Exp(a - m) + Math.Exp(b - m));
         }
 
 
@@ -368,31 +353,40 @@ namespace gs
                 return true;
             }
 
-            // 1. heat flow: (M + t L) u = delta. u decays like exp(-distance / sqrt(t)) (eg 1e-30 at 70 edge
-            // lengths), far below the accuracy of CG relative to |u|. With non-negative weights the system is
-            // an M-matrix, and Jacobi iteration sums only positive terms: every entry is accurate relative
-            // to itself, however small.
+            // 1. heat flow: (M + t L) u = delta, with non-negative weights an M-matrix: the Cholesky
+            // substitutions only add terms of one sign, so every entry of u is accurate relative to itself,
+            // however small (u decays like exp(-distance / sqrt(t)), eg 1e-30 at 70 edge lengths). Where u
+            // underflows doubles (beyond about 700 edge lengths) the same substitutions run on log(u).
             // On meshes with a boundary, the average of the Neumann (insulated) and Dirichlet (u = 0)
             // solutions avoids the bending of the distance along the boundary (Crane et al.).
             double t = TimeFactor * meanEdge * meanEdge;
-            bool open = Mesh.IsClosed() == false;
-            // u holds log(heat) (-inf for 0): first computed directly, in the log domain if it underflows
-            double[] u = heat(src, t, false);
-            bool underflow = false;
-            for (int i = 0; i < N && underflow == false; ++i)
-                if (component[i] >= 0 && hasSource[component[i]] && !(u[i] > 1e-280)) underflow = true;
-            if (underflow) {
-                u = heat_log(src, t, false);
-                if (open) {
-                    double[] ud = heat_log(src, t, true);
-                    for (int i = 0; i < N; ++i) u[i] = log_add(u[i], ud[i]) - Math.Log(2);
+            if (t != heatTime) {
+                heatN = heat_factor(t, null);
+                heatD = null;
+                heatTime = t;
+            }
+            double[] u = new double[N];
+            if (log_heat(heatN, src, hasSource, u) == false)
+                return false;
+            bool open = false;
+            for (int i = 0; i < N && open == false; ++i) open = boundaryIndex[i];
+            if (open) {
+                // Dirichlet: u = 0 on the boundary, except at sources on the boundary
+                bool srcOnBoundary = false;
+                foreach (int s in src) if (boundaryIndex[s]) srcOnBoundary = true;
+                SparseCholesky D;
+                if (srcOnBoundary) {
+                    bool[] fixedZero = (bool[])boundaryIndex.Clone();
+                    foreach (int s in src) fixedZero[s] = false;
+                    D = heat_factor(t, fixedZero);
+                } else {
+                    if (heatD == null) heatD = heat_factor(t, boundaryIndex);
+                    D = heatD;
                 }
-            } else {
-                if (open) {
-                    double[] ud = heat(src, t, true);
-                    for (int i = 0; i < N; ++i) u[i] = 0.5 * (u[i] + ud[i]);
-                }
-                for (int i = 0; i < N; ++i) u[i] = Math.Log(u[i]);
+                double[] ud = new double[N];
+                if (log_heat(D, src, hasSource, ud) == false)
+                    return false;
+                for (int i = 0; i < N; ++i) u[i] = log_add(u[i], ud[i]) - Math.Log(2);
             }
 
             // 2. normalized gradient X = -grad u / |grad u| per triangle, 3. its divergence per vertex
@@ -426,16 +420,16 @@ namespace gs
             // 4. Poisson: L phi = -div (L is minus the Laplacian). With several sources (eg a crest line)
             // phi = 0 at all of them (Dirichlet): otherwise phi differs between them, and shifting it by the
             // minimum puts the other sources (and their surroundings) metres too far away. A single source is
-            // not pinned (Neumann, phi shifted to 0 there): pinning one vertex concentrates the discretization
+            // not pinned (Neumann, phi shifted to 0 there): pinning the source concentrates the discretization
             // error of the divergence there and gives an error growing with the distance (7% at 500 m on a
-            // 1 m grid, below the straight distance). The regularization keeps the system definite.
-            double eps = 1e-8;
+            // 1 m grid, below the straight distance). The Neumann problem is solved exactly: the divergence
+            // sums to 0 on each component (up to rounding, removed per component), so fixing one arbitrary
+            // vertex per component only picks the additive constant.
             bool pin = src.Count > 1;
             bool[] isSrc = new bool[N];
             if (pin)
                 foreach (int s in src) isSrc[s] = true;
-            double[] phi = new double[N], rhs = new double[N], free = new double[N];
-            // (Neumann: the divergence sums to 0 on each component; the rounding error is removed per component)
+            double[] phi = new double[N], rhs = new double[N];
             double[] csum = new double[componentCount]; int[] ccount = new int[componentCount];
             if (pin == false)
                 for (int i = 0; i < N; ++i)
@@ -443,13 +437,26 @@ namespace gs
             for (int i = 0; i < N; ++i)
                 if (component[i] >= 0 && hasSource[component[i]] && isSrc[i] == false)
                     rhs[i] = -(div[i] - csum[component[i]] / Math.Max(1, ccount[component[i]]));
-            if (solve((x, r) => {
-                    for (int i = 0; i < N; ++i) free[i] = isSrc[i] ? 0 : x[i];
-                    L.Multiply_Parallel(free, r);
-                    for (int i = 0; i < N; ++i) r[i] = isSrc[i] ? x[i] : r[i] + eps * mass[i] * x[i];
-                },
-                (i) => isSrc[i] ? 1 : diagL[i] + eps * mass[i], rhs, phi) == false)
+            SparseCholesky P;
+            if (pin) {
+                bool[] fixedV = (bool[])isSrc.Clone();
+                bool[] compFixed = new bool[componentCount];
+                foreach (int s in src) compFixed[component[s]] = true;
+                for (int c = 0; c < componentCount; ++c)
+                    if (compFixed[c] == false) fixedV[representative[c]] = true;
+                P = poisson_factor(fixedV);
+            } else {
+                if (poissonN == null) {
+                    bool[] fixedV = new bool[N];
+                    foreach (int r in representative) fixedV[r] = true;
+                    poissonN = poisson_factor(fixedV);
+                }
+                P = poissonN;
+                foreach (int r in representative) rhs[r] = 0;
+            }
+            if (P.IsValid == false)
                 return false;
+            P.Solve(rhs, phi);
 
             // distances relative to the sources of each component (0 at all of them when pinned)
             double[] minSrc = new double[componentCount];
@@ -632,155 +639,5 @@ namespace gs
                 path.Add(p);
         }
 
-        // neighbours with non-negative cotan weights (negative ones, at obtuse angles, set to 0)
-        int[] nbStart, nbIndex;
-        double[] nbWeight;
-
-        void build_neighbours()
-        {
-            var lists = new List<KeyValuePair<int, double>>[N];
-            for (int i = 0; i < N; ++i) lists[i] = new List<KeyValuePair<int, double>>();
-            Dictionary<long, double> w = new Dictionary<long, double>();
-            for (int k = 0; k < tris.Count; ++k) {
-                Index3i ti = tris[k];
-                for (int a = 0; a < 3; ++a) {
-                    int i = ti[a], j = ti[(a + 1) % 3];
-                    long key = (long)Math.Min(i, j) * N + Math.Max(i, j);
-                    double c = 0.5 * cot[k][(a + 2) % 3];
-                    double cur;
-                    w[key] = w.TryGetValue(key, out cur) ? cur + c : c;
-                }
-            }
-            foreach (var kv in w) {
-                int i = (int)(kv.Key / N), j = (int)(kv.Key % N);
-                double c = Math.Max(0, kv.Value);
-                lists[i].Add(new KeyValuePair<int, double>(j, c));
-                lists[j].Add(new KeyValuePair<int, double>(i, c));
-            }
-            nbStart = new int[N + 1];
-            for (int i = 0; i < N; ++i) nbStart[i + 1] = nbStart[i] + lists[i].Count;
-            nbIndex = new int[nbStart[N]];
-            nbWeight = new double[nbStart[N]];
-            for (int i = 0; i < N; ++i)
-                for (int k = 0; k < lists[i].Count; ++k) {
-                    nbIndex[nbStart[i] + k] = lists[i][k].Key;
-                    nbWeight[nbStart[i] + k] = lists[i][k].Value;
-                }
-        }
-
-        // Jacobi iteration for (M + t L+) u = delta until every entry has converged relative to itself
-        double[] heat(List<int> src, double t, bool dirichlet)
-        {
-            if (nbStart == null)
-                build_neighbours();
-            bool[] fixedZero = new bool[N];
-            if (dirichlet) {
-                for (int i = 0; i < N; ++i) fixedZero[i] = boundaryIndex[i];
-                foreach (int s in src) fixedZero[s] = false;
-            }
-            double[] u = new double[N], next = new double[N], b = new double[N];
-            foreach (int s in src) b[s] = 1;
-            double[] diag = new double[N];
-            for (int i = 0; i < N; ++i) {
-                double sw = 0;
-                for (int k = nbStart[i]; k < nbStart[i + 1]; ++k) sw += nbWeight[k];
-                diag[i] = mass[i] + t * sw;
-            }
-            for (int iter = 0; iter < MaxIterations; ++iter) {
-                double maxRel = 0;
-                object lockObj = new object();
-                gParallel.BlockStartEnd(0, N - 1, (i0, i1) => {
-                    double localMax = 0;
-                    for (int i = i0; i <= i1; ++i) {
-                        if (fixedZero[i] || diag[i] <= 0) { next[i] = 0; continue; }
-                        double sum = b[i];
-                        for (int k = nbStart[i]; k < nbStart[i + 1]; ++k)
-                            sum += t * nbWeight[k] * u[nbIndex[k]];
-                        double v = sum / diag[i];
-                        next[i] = v;
-                        if (v > 0)
-                            localMax = Math.Max(localMax, Math.Abs(v - u[i]) / v);
-                        else if (u[i] != 0)
-                            localMax = 1;
-                    }
-                    lock (lockObj) maxRel = Math.Max(maxRel, localMax);
-                });
-                double[] tmp = u; u = next; next = tmp;
-                // all entries reached (non-zero) and converged
-                if (maxRel < 1e-10 && iter > 2)
-                    return u;
-            }
-            return u;
-        }
-
-        static double log_add(double a, double b)
-        {
-            double m = Math.Max(a, b);
-            if (double.IsNegativeInfinity(m)) return m;
-            return m + Math.Log(Math.Exp(a - m) + Math.Exp(b - m));
-        }
-
-        // the same Jacobi iteration on log(u): no underflow however far from the sources
-        double[] heat_log(List<int> src, double t, bool dirichlet)
-        {
-            if (nbStart == null)
-                build_neighbours();
-            bool[] fixedZero = new bool[N];
-            if (dirichlet) {
-                for (int i = 0; i < N; ++i) fixedZero[i] = boundaryIndex[i];
-                foreach (int s in src) fixedZero[s] = false;
-            }
-            bool[] isSource = new bool[N];
-            foreach (int s in src) isSource[s] = true;
-            double[] u = new double[N], next = new double[N], logDiag = new double[N];
-            double[] logW = new double[nbIndex.Length];
-            for (int k = 0; k < logW.Length; ++k) logW[k] = (nbWeight[k] > 0) ? Math.Log(t * nbWeight[k]) : double.NegativeInfinity;
-            for (int i = 0; i < N; ++i) {
-                double sw = 0;
-                for (int k = nbStart[i]; k < nbStart[i + 1]; ++k) sw += nbWeight[k];
-                logDiag[i] = Math.Log(mass[i] + t * sw);
-                u[i] = double.NegativeInfinity;
-            }
-            for (int iter = 0; iter < MaxIterations; ++iter) {
-                double maxChange = 0;
-                object lockObj = new object();
-                gParallel.BlockStartEnd(0, N - 1, (i0, i1) => {
-                    double localMax = 0;
-                    for (int i = i0; i <= i1; ++i) {
-                        if (fixedZero[i] || double.IsNegativeInfinity(logDiag[i])) { next[i] = double.NegativeInfinity; continue; }
-                        double m = isSource[i] ? 0 : double.NegativeInfinity;
-                        for (int k = nbStart[i]; k < nbStart[i + 1]; ++k)
-                            m = Math.Max(m, logW[k] + u[nbIndex[k]]);
-                        if (double.IsNegativeInfinity(m)) { next[i] = m; continue; }
-                        double sum = isSource[i] ? Math.Exp(-m) : 0;
-                        for (int k = nbStart[i]; k < nbStart[i + 1]; ++k)
-                            sum += Math.Exp(logW[k] + u[nbIndex[k]] - m);
-                        double v = m + Math.Log(sum) - logDiag[i];
-                        next[i] = v;
-                        localMax = Math.Max(localMax, double.IsNegativeInfinity(u[i]) ? 1 : Math.Abs(v - u[i]));
-                    }
-                    lock (lockObj) maxChange = Math.Max(maxChange, localMax);
-                });
-                double[] tmp = u; u = next; next = tmp;
-                if (maxChange < 1e-10 && iter > 2)
-                    return u;
-            }
-            return u;
-        }
-
-        // Jacobi-preconditioned conjugate gradients
-        bool solve(Action<double[], double[]> multiply, Func<int, double> diag, double[] b, double[] x)
-        {
-            double[] inv = new double[N];
-            for (int i = 0; i < N; ++i) {
-                double d = diag(i);
-                inv[i] = (d > 0) ? 1.0 / d : 1.0;
-            }
-            var cg = new SparseSymmetricCG() {
-                B = b, X = x, MultiplyF = multiply, MaxIterations = MaxIterations, UseXAsInitialGuess = false,
-                PreconditionMultiplyF = (v, r) => { for (int i = 0; i < N; ++i) r[i] = inv[i] * v[i]; }
-            };
-            return cg.SolvePreconditioned();
-        }
     }
 }
