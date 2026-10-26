@@ -81,6 +81,8 @@ namespace g3
         public int ChartsOverLimit;
         /// <summary> cone singularities used (Cones and Auto) </summary>
         public int ConeCount;
+        /// <summary> connected components (through edges, after splitting bowtie vertices) </summary>
+        public int ComponentCount;
         /// <summary> components flattened with cones </summary>
         public int ConeComponents;
         /// <summary> total length of the seams (input edges that became boundary edges) </summary>
@@ -149,7 +151,7 @@ namespace g3
         public bool Compute()
         {
             Status = UVAtlasStatus.Success; Error = null; AtlasMesh = null; UV = null;
-            ChartCount = ChartsOverLimit = ConeCount = ConeComponents = CollapsedTriangleCount = FloatRoundingDefects = 0; SeamLength = 0; Coverage = 0;
+            ChartCount = ChartsOverLimit = ConeCount = ConeComponents = ComponentCount = CollapsedTriangleCount = FloatRoundingDefects = 0; SeamLength = 0; Coverage = 0;
             Charts = new List<ChartInfo>();
             Overlap = null; Distortion = null;
             if (Mesh.TriangleCount == 0)
@@ -165,6 +167,7 @@ namespace g3
             charts = new List<Chart>();
 
             List<List<int>> components = triangleComponents(work);
+            ComponentCount = components.Count;
             for (int ci = 0; ci < components.Count; ++ci) {
                 List<int> comp = components[ci];
                 int budget = Math.Max(1, MaxCharts - charts.Count - (components.Count - ci - 1));

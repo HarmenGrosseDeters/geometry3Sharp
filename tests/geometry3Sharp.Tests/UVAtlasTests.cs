@@ -866,6 +866,7 @@ namespace geometry3Sharp.Tests
             DMesh3 cube = Cube(6);
             var atlas = new UVAtlasGenerator(cube);
             Assert.True(atlas.Compute(), atlas.Error);
+            Assert.Equal(1, atlas.ComponentCount);
             Assert.Equal(1, atlas.ConeComponents);
             Assert.Equal(8, atlas.ConeCount);
             Assert.Equal(1, atlas.ChartCount);
@@ -897,6 +898,8 @@ namespace geometry3Sharp.Tests
             Assert.True(atlas.Compute(), atlas.Error);
             AssertAtlas(mesh, atlas, 0.15, 1.1);
             Assert.True(atlas.ChartCount >= 4);
+            Assert.Equal(4, atlas.ComponentCount);
+            Assert.True(atlas.ConeComponents <= atlas.ComponentCount);
             // charts do not span components
             var compOf = new Dictionary<int, int>();
             var cc = new MeshConnectedComponents(mesh);
