@@ -1281,6 +1281,38 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void SLIM_StuckFromLSCM_GoesOnFromTutte()
+        {
+            // without the sliver check the LSCM start is taken and SLIM gets stuck at the sliver of the ear; it goes
+            // on from Tutte within the same iteration budget and keeps the lower energy
+            DMesh3 mesh = SphereCap(0.8 * Math.PI, 8, 24, 0.3);
+            int eid = MeshIterators.BoundaryEdges(mesh).First();
+            Index2i ev = mesh.GetOrientedBoundaryEdgeV(eid);
+            int apex = mesh.AppendVertex(Vector3d.Lerp(mesh.GetVertex(ev.a), mesh.GetVertex(ev.b), 0.9));
+            Assert.True(mesh.AppendTriangle(ev.b, ev.a, apex) >= 0);
+            var rt = new SLIMParameterization(mesh) { StartMap = SLIMParameterization.StartMaps.Tutte }.Compute();
+            var steps = new List<int>();
+            var slim = new SLIMParameterization(mesh) { SliverTolerance = 0 };
+            slim.IterationCompleted = (it, e) => steps.Add(it);
+            var r = slim.Compute();
+            Assert.True(r.Succeeded, r.Error);
+            Assert.False(slim.StartedFromLSCM);
+            Assert.True(r.Converged);
+            AssertNoFlips(mesh, r);
+            Assert.True(Math.Abs(r.Energy - rt.Energy) < 1e-3 * rt.Energy, r.Energy + " vs Tutte " + rt.Energy);
+            // the iterations from LSCM count, and the numbers go on across the restart
+            Assert.True(r.Iterations > rt.Iterations);
+            for (int k = 1; k < steps.Count; ++k)
+                Assert.True(steps[k] > steps[k - 1]);
+            // the budget is shared: with fewer iterations than the LSCM part plus the Tutte part it ends unconverged
+            var shortRun = new SLIMParameterization(mesh) { SliverTolerance = 0, MaxIterations = rt.Iterations };
+            var rs = shortRun.Compute();
+            Assert.True(rs.Iterations <= rt.Iterations);
+            Assert.False(rs.Converged);
+            AssertNoFlips(mesh, rs);
+        }
+
+        [Fact]
         public void SLIM_IterationCompleted_ReportsEachDecrease()
         {
             DMesh3 mesh = Hemisphere(0.5);
@@ -1296,7 +1328,11 @@ namespace geometry3Sharp.Tests
                 Assert.True(iterations[k] > iterations[k - 1]);
             }
             Assert.Equal(r.Energy, energies[energies.Count - 1]);
-            Assert.True(iterations[iterations.Count - 1] <= r.Iterations);
+            // one step per iteration, plus the final pass that finds convergence; passes that only refactorize
+            // (here: after a kept factorization predicted no decrease) are not counted
+            Assert.True(slim.Factorizations > 1 && slim.Factorizations < r.Iterations);
+            Assert.Equal(energies.Count + 1, r.Iterations);
+            Assert.Equal(r.Iterations - 1, iterations[iterations.Count - 1]);
         }
 
         [Fact]

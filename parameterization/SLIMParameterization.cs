@@ -118,7 +118,9 @@ namespace g3
         {
             /// <summary>
             /// the LSCM map if it is injective (no flipped triangle, no overlap; exact test) and has no sliver
-            /// UV triangle, else the Tutte embedding; if SLIM gets stuck from LSCM it starts over from Tutte. LSCM is usually much closer to the minimum: on a 48k vertex ellipsoid cap SLIM needs 5
+            /// UV triangle (twice its area not above 1e-6 of its longest edge squared), else the Tutte embedding; if
+            /// SLIM gets stuck from LSCM, it goes on from Tutte with the remaining iterations and keeps the lower
+            /// energy. LSCM is usually much closer to the minimum: on a 48k vertex ellipsoid cap SLIM needs 4
             /// iterations from it instead of over 100 from Tutte.
             /// </summary>
             Auto = 0,
@@ -129,7 +131,10 @@ namespace g3
         public StartMaps StartMap = StartMaps.Auto;
         /// <summary> keep the factorization of the proxy matrix while its steps are good (else one per iteration) </summary>
         public bool ReuseFactorization = true;
-        /// <summary> called after each step with the iteration number and the new energy (eg for progress or timing) </summary>
+        /// <summary>
+        /// called after each step with the iteration number and the new energy (eg for progress or timing). After a
+        /// restart from Tutte (see StartMap) the energies start over, and Result may keep the run from LSCM.
+        /// </summary>
         public Action<int, double> IterationCompleted;
 
         // cost of a factorization in steps with an existing one (assembly and numeric factorization against
@@ -137,9 +142,12 @@ namespace g3
         const double FactorCost = 8;
 
         public ParameterizationResult Result;
+        // LSCM start: smallest twice area of a UV triangle relative to its longest edge squared (tests lower it)
+        internal double SliverTolerance = 1e-6;
+
         /// <summary> factorizations of the proxy matrix in the last Compute() </summary>
         public int Factorizations;
-        /// <summary> the last Compute() started from the LSCM map (StartMap Auto), not from the Tutte embedding </summary>
+        /// <summary> the result of the last Compute() comes from the LSCM map (StartMap Auto), not from the Tutte embedding </summary>
         public bool StartedFromLSCM;
 
         public SLIMParameterization(DMesh3 mesh)
@@ -167,24 +175,31 @@ namespace g3
                 if (!(StartMap == StartMaps.Auto && injectiveLSCM(pm, out u, out v)) && !tutte(pm, out u, out v, out string error))
                     return Result = ParameterizationResult.Failure(ParameterizationStatus.SolverFailed, error);
             }
-            for (int ti = 0; ti < pm.Tris.Count; ++ti)
-                if (!(ParamMesh.SignedArea2(u, v, pm.Tris[ti]) > 0))
-                    return Result = ParameterizationResult.Failure(ParameterizationStatus.InvalidConstraints,
-                        "initial UVs have flipped or degenerate triangles");
+            if (!flipFree(pm, u, v))
+                return Result = ParameterizationResult.Failure(ParameterizationStatus.InvalidConstraints,
+                    "initial UVs have flipped or degenerate triangles");
 
             int iter;
             double energy;
             bool converged, stuck;
-            string failure = minimize(pm, u, v, out iter, out energy, out converged, out stuck);
-            if (failure == null && stuck && StartedFromLSCM) {
+            string failure = minimize(pm, u, v, 0, out iter, out energy, out converged, out stuck);
+            if (failure == null && stuck && StartedFromLSCM && iter < MaxIterations) {
                 // the LSCM start can still hold a nearly degenerate triangle that blocks every step: start over
-                // from the Tutte embedding
-                StartedFromLSCM = false;
-                if (!tutte(pm, out u, out v, out failure))
-                    return Result = ParameterizationResult.Failure(ParameterizationStatus.SolverFailed, failure);
-                int iterLSCM = iter;
-                failure = minimize(pm, u, v, out iter, out energy, out converged, out stuck);
-                iter += iterLSCM;
+                // from the Tutte embedding with the remaining iterations, and keep the lower energy
+                double[] tu, tv;
+                if (tutte(pm, out tu, out tv, out string error) && flipFree(pm, tu, tv)) {
+                    int iterT;
+                    double energyT;
+                    bool convergedT, stuckT;
+                    // a failure here keeps the (valid, flip-free) result from LSCM
+                    string failureT = minimize(pm, tu, tv, iter, out iterT, out energyT, out convergedT, out stuckT);
+                    iter = iterT;
+                    if (failureT == null && energyT < energy) {
+                        u = tu; v = tv;
+                        energy = energyT; converged = convergedT;
+                        StartedFromLSCM = false;
+                    }
+                }
             }
             if (failure != null)
                 return Result = ParameterizationResult.Failure(ParameterizationStatus.SolverFailed, failure);
@@ -197,6 +212,14 @@ namespace g3
             return Result;
         }
 
+        static bool flipFree(ParamMesh pm, double[] u, double[] v)
+        {
+            for (int ti = 0; ti < pm.Tris.Count; ++ti)
+                if (!(ParamMesh.SignedArea2(u, v, pm.Tris[ti]) > 0))
+                    return false;
+            return true;
+        }
+
         static bool tutte(ParamMesh pm, out double[] u, out double[] v, out string error)
         {
             if (!TutteEmbedding.Solve(pm, out u, out v, out error))
@@ -205,9 +228,10 @@ namespace g3
             return true;
         }
 
-        // SLIM iterations from (u, v), which are updated. Returns an error message if the proxy cannot be
-        // factorized. stuck: no step lowers the energy although the proxy predicts a decrease.
-        string minimize(ParamMesh pm, double[] u, double[] v, out int iter, out double energy, out bool converged, out bool stuck)
+        // SLIM iterations from (u, v), which are updated, counted on from iter0 up to MaxIterations. Returns an
+        // error message if the proxy cannot be factorized. stuck: no step lowers the energy although the proxy
+        // predicts a decrease.
+        string minimize(ParamMesh pm, double[] u, double[] v, int iter0, out int iter, out double energy, out bool converged, out bool stuck)
         {
             int N = pm.N;
             // the proxy is translation invariant: one vertex does not move (its step is fixed at 0)
@@ -216,7 +240,7 @@ namespace g3
             isFixed[2 * pin] = isFixed[2 * pin + 1] = true;
             ConstrainedQuadratic q = new ConstrainedQuadratic(2 * N, isFixed, new double[2 * N], 2);
             energy = Energy(pm, u, v);
-            iter = 0;
+            iter = iter0;
             converged = stuck = false;
             bool factored = false;
             // steps and energy decrease since the last factorization
@@ -309,7 +333,7 @@ namespace g3
                         int i = t[k], j = t[(k + 1) % 3];
                         maxLenSqr = Math.Max(maxLenSqr, (u[i] - u[j]) * (u[i] - u[j]) + (v[i] - v[j]) * (v[i] - v[j]));
                     }
-                    StartedFromLSCM = ParamMesh.SignedArea2(u, v, t) > 1e-6 * maxLenSqr;
+                    StartedFromLSCM = ParamMesh.SignedArea2(u, v, t) > SliverTolerance * maxLenSqr;
                 }
                 StartedFromLSCM = StartedFromLSCM && UVOverlap.Compute(Mesh, uv, 0).IsInjective;
             }

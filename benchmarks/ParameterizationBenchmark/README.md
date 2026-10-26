@@ -41,7 +41,8 @@ Changes: the step is -H^-1 grad E with the proxy matrix H; the factorization of 
 the energy at least at the average rate since it was made (counting a factorization as 8 steps). Converged
 means the proxy predicts a decrease below the tolerance (before: one step decreased by less, which also stopped
 early, eg after 7 iterations 1% above the minimum). By default SLIM starts from LSCM if that is injective
-(exact overlap test), else from Tutte.
+(exact overlap test) and has no UV sliver, else from Tutte; a run from LSCM that gets stuck goes on from
+Tutte with the remaining iterations.
 
 | mesh | V | before: time (it) | SLIMnr | SLIMt (factorizations) | SLIM, default (factorizations) |
 |---|---|---|---|---|---|
@@ -60,7 +61,7 @@ such a pass. Per iteration at 48k: with a new factorization 0.83-1.15 s, with a 
 the isometry, SD 4.0000). From Tutte, the ellipsoid still does not converge in 100 iterations: the steps stay
 cut by the flip bound at the strongly stretched triangles near the pole (eg s1 = 30, s2 = 0.04 at 12k vertices), so
 the gain there is per iteration only. Anderson acceleration was not added for this reason: with the LSCM start
-3-10 iterations remain, and from Tutte the step length, not the direction, is the limit.
+1-10 iterations remain, and from Tutte the step length, not the direction, is the limit.
 
 ### Before / after the review fixes (PR #109)
 
@@ -92,5 +93,5 @@ Findings:
 - SLIM (before the changes above) cost one factorization of the 2n x 2n proxy per iteration (about 0.9 s at
   48k vertices) and needed 30–100 iterations from Tutte; on the 48k ellipsoid it stopped at the iteration limit
   with a few very thin (but not flipped) UV triangles (max s1/s2 440). It now starts from LSCM when that is
-  injective and keeps factorizations: 3.6–6.1 s at 48k.
+  injective and keeps factorizations: 4.3–6.1 s at 48k vertices (3.6 s for the 58k cylinder).
 - BFF in disk mode distorts the developable cylinder strongly (a rectangle made round), as expected.
