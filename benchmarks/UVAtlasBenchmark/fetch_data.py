@@ -8,18 +8,22 @@ import csv, json, os, random, re, sys, urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
 BASE = "https://huggingface.co/datasets/Thingi10K/Thingi10K"
+# dataset revision the selection was made on (October 2026), so that it stays the same
+REV = "2d5d3b2f3cd3711028ad75b12788c13b25559ec6"
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 os.makedirs("data", exist_ok=True)
 
 def fetch(url, path):
+    # through a .part file, so that an interrupted download is fetched again
     if not os.path.exists(path):
-        urllib.request.urlretrieve(url, path)
+        urllib.request.urlretrieve(url, path + ".part")
+        os.replace(path + ".part", path)
 
 for f in ["geometry_data.csv", "input_summary.csv"]:
-    fetch(f"{BASE}/resolve/main/metadata/{f}", f"data/{f}")
+    fetch(f"{BASE}/resolve/{REV}/metadata/{f}", f"data/{f}")
 
 if not os.path.exists("data/raw_files.tsv"):
-    url, out = f"{BASE.replace('/datasets/', '/api/datasets/')}/tree/main/raw_meshes?limit=1000", []
+    url, out = f"{BASE.replace('/datasets/', '/api/datasets/')}/tree/{REV}/raw_meshes?limit=1000", []
     while url:
         r = urllib.request.urlopen(url)
         out += [(x["path"], x["size"]) for x in json.load(r)]
@@ -64,5 +68,5 @@ for csvname, folder, chosen in selections:
         for k, v in chosen.items():
             f.write(f"{k},{files[k]},{v}\n")
     with ThreadPoolExecutor(8) as ex:
-        list(ex.map(lambda k: fetch(f"{BASE}/resolve/main/{files[k]}", f"data/{folder}/{os.path.basename(files[k])}"), chosen))
+        list(ex.map(lambda k: fetch(f"{BASE}/resolve/{REV}/{files[k]}", f"data/{folder}/{os.path.basename(files[k])}"), chosen))
     print(f"data/{folder}: {len(chosen)} meshes")

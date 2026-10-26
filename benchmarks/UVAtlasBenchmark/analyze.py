@@ -1,6 +1,7 @@
 # Summary of a UV atlas benchmark run per category (data/selection*.csv):
 #   python3 analyze.py results/auto.jsonl [results/auto_large.jsonl ...]
-# Rows without a result (timeout, crash, exception) stay in the counts as failures.
+# Rows without a result (timeout, crash, exception) stay in the counts as failures. Time, charts, coverage and
+# seams are over all meshes with an atlas (also Failed ones); distortion over those with a distortion measure.
 import csv, json, os, statistics, sys
 
 here = os.path.dirname(os.path.abspath(__file__))
@@ -12,7 +13,9 @@ for name in ["selection.csv", "selection_large.csv"]:
             cat[os.path.basename(r["path"])] = r["category"]
 
 def pct(xs, q):
+    # nearest-rank percentile; q = 0.5 is the median
     if not xs: return float("nan")
+    if q == 0.5: return statistics.median(xs)
     xs = sorted(xs)
     return xs[min(len(xs) - 1, int(q * len(xs)))]
 

@@ -910,6 +910,29 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void Atlas_ComponentCount_SplitsBowties()
+        {
+            // two triangle fans that share only their center vertex: one component of the input by vertices, two
+            // after the bowtie vertex is split
+            DMesh3 mesh = new DMesh3();
+            int c = mesh.AppendVertex(Vector3d.Zero);
+            for (int side = 0; side < 2; ++side) {
+                int prev = -1;
+                for (int k = 0; k < 4; ++k) {
+                    double a = (side == 0 ? 0.2 : Math.PI + 0.2) + 0.5 * k;
+                    int v = mesh.AppendVertex(new Vector3d(Math.Cos(a), Math.Sin(a), 0.1 * k));
+                    if (prev >= 0) Assert.True(mesh.AppendTriangle(c, prev, v) >= 0);
+                    prev = v;
+                }
+            }
+            var atlas = new UVAtlasGenerator(mesh);
+            atlas.Compute();
+            Assert.NotEqual(UVAtlasStatus.InvalidMesh, atlas.Status);
+            Assert.Equal(2, atlas.ComponentCount);
+            Assert.True(atlas.ChartCount >= 2);
+        }
+
+        [Fact]
         public void Atlas_StatusCodes()
         {
             // a single chart of a sphere can not meet the limits: reported, but still overlap-free

@@ -44,7 +44,9 @@ static class Program
             gen.Compute();
             r["ms"] = sw.Elapsed.TotalMilliseconds;
             r["status"] = gen.Status.ToString();
-            r["error"] = gen.Error;
+            // Error can keep the message of a path that a fallback then replaced: only reported on failure
+            if (gen.Status != UVAtlasStatus.Success)
+                r["error"] = gen.Error;
             r["components"] = gen.ComponentCount;
             r["cone_components"] = gen.ConeComponents;
             r["cones"] = gen.ConeCount;
@@ -75,7 +77,6 @@ static class Program
                 r["mean_area"] = d.MeanAreaDistortion;
                 r["max_area"] = d.MaxAreaDistortion;
                 r["mean_angle_deg"] = d.MeanAngleError * 180 / Math.PI;
-                r["flipped"] = d.FlippedTriangles;
             }
         } catch (Exception e) {
             r["status"] = "exception";

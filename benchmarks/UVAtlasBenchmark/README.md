@@ -3,7 +3,7 @@
 `UVAtlasGenerator` (default options, `Method = Auto`) on real meshes from
 [Thingi10K](https://huggingface.co/datasets/Thingi10K/Thingi10K): status, time, how many components are
 flattened with cones and how many with chart segmentation, charts per method, coverage, seam length,
-overlaps and distortion. No mesh files are committed: `fetch_data.py` downloads them into the git-ignored
+overlaps and distortion. No mesh files are committed: `fetch_data.py` downloads them (pinned dataset revision) into the git-ignored
 `data/` (Thingi10K models carry individual licenses, see `data/input_summary.csv`).
 
 ```
@@ -30,6 +30,9 @@ Each mesh runs in its own process with a timeout (300 s, large meshes 1200 s). C
   vertices); triangles in cone charts: share of all triangles
 - coverage: fraction of the unit square covered after packing; seam length relative to sqrt(surface area)
 - distortion: area weighted means over the whole atlas (`ParameterizationDistortion`)
+- time, charts, coverage and seams count every mesh with an atlas (also `Failed`), distortion every mesh with a
+  distortion measure; medians are true medians, p90 is nearest rank
+- `error` in the JSON lines is only written when the status is not `Success`
 
 ## Results
 
@@ -45,16 +48,16 @@ container), .NET 10, Release, `BENCH_P=3`, October 2026.
 | InvalidMesh / load_failed | 0 | 0 | 0 | 0 | 0 |
 | timeout / crash / exception | 0 | 0 | 0 | 0 | 0 |
 | with overlaps or inverted UVs | 2 | 0 | 1 | 2 | 5 |
-| time median / p90 / max (s) | 1.78 / 8.85 / 97.9 | 2.88 / 50.34 / 72.7 | 2.82 / 29.12 / 118.6 | 2.20 / 17.76 / 51.6 | 2.36 / 17.76 / 118.6 |
+| time median / p90 / max (s) | 1.72 / 8.85 / 97.9 | 2.79 / 50.34 / 72.7 | 2.80 / 29.12 / 118.6 | 2.15 / 17.76 / 51.6 | 2.33 / 17.76 / 118.6 |
 | components flattened with cones | 7 of 100 (7%) | 1 of 50 (2%) | 112 of 388 (29%) | 578 of 2538 (23%) | 698 of 3076 (23%) |
 | triangles in cone charts | 3% | 0% | 7% | 10% | 5% |
-| charts per mesh median / p90 | 51 / 128 | 104 / 128 | 128 / 128 | 74 / 128 | 74 / 128 |
+| charts per mesh median / p90 | 50 / 128 | 98 / 128 | 128 / 128 | 70 / 128 | 73 / 128 |
 | charts by method | bff 5636, tutte 232, slim 207, cones 7 | bff 3601, tutte 240, slim 213, cones 1 | bff 4548, tutte 238, slim 188, cones 112 | bff 2675, cones 578, slim 216, tutte 168, point 1 | bff 16460, tutte 878, slim 824, cones 698, point 1 |
 | meshes with charts over the limits | 18 | 17 | 28 | 16 | 79 |
-| coverage median | 0.48 | 0.40 | 0.51 | 0.43 | 0.46 |
-| seam length / sqrt(area) median | 19.7 | 22.5 | 25.9 | 18.2 | 20.4 |
-| mean conformal distortion median / p90 | 1.005 / 7.637 | 1.024 / 17.174 | 1.219 / 24.539 | 1.017 / 757.674 | 1.013 / 17.676 |
-| mean area distortion median / p90 | 0.005 / 0.209 | 0.009 / 0.834 | 0.067 / 1.336 | 0.021 / 1.585 | 0.009 / 0.792 |
+| coverage median | 0.48 | 0.39 | 0.51 | 0.43 | 0.46 |
+| seam length / sqrt(area) median | 19.6 | 21.6 | 25.9 | 17.9 | 20.3 |
+| mean conformal distortion median / p90 | 1.005 / 7.637 | 1.022 / 17.174 | 1.210 / 24.539 | 1.017 / 757.674 | 1.013 / 17.676 |
+| mean area distortion median / p90 | 0.004 / 0.209 | 0.009 / 0.834 | 0.062 / 1.336 | 0.020 / 1.585 | 0.009 / 0.792 |
 | meshes with float rounding defects | 9 | 6 | 11 | 18 | 44 |
 
 The failures (`analyze.py` lists them):
@@ -90,16 +93,16 @@ Large set (20 clean meshes, 100k..500k faces):
 | InvalidMesh / load_failed | 0 |
 | timeout / crash / exception | 0 |
 | with overlaps or inverted UVs | 0 |
-| time median / p90 / max (s) | 259.06 / 663.23 / 686.8 |
+| time median / p90 / max (s) | 232.52 / 663.23 / 686.8 |
 | components flattened with cones | 0 of 20 (0%) |
 | triangles in cone charts | 0% |
 | charts per mesh median / p90 | 128 / 128 |
 | charts by method | bff 1913, tutte 314, slim 100 |
 | meshes with charts over the limits | 16 |
-| coverage median | 0.41 |
-| seam length / sqrt(area) median | 41.3 |
-| mean conformal distortion median / p90 | 6.348 / 159.877 |
-| mean area distortion median / p90 | 0.147 / 1.718 |
+| coverage median | 0.40 |
+| seam length / sqrt(area) median | 41.1 |
+| mean conformal distortion median / p90 | 4.593 / 159.877 |
+| mean area distortion median / p90 | 0.121 / 1.718 |
 | meshes with float rounding defects | 8 |
 
 ## Findings
@@ -108,8 +111,9 @@ Large set (20 clean meshes, 100k..500k faces):
 - **Cones vs. charts.** `Auto` uses cones for 23% of the components but only 5% of the triangles: cones succeed
   on small, simple components (eg the many small parts of the broken meshes), while larger components fall
   back to the chart segmentation. On the clean single-component meshes 7 of 100 are flattened with cones.
-- **Charts.** 74 charts per mesh (median); 82 of 250 meshes reach `MaxCharts` (128), 75 of them with charts
-  still over the limits. BFF flattens 87% of the charts, SLIM 4%, the Tutte fallback 5%.
+- **Charts.** 73 charts per mesh (median); 84 of 250 meshes reach `MaxCharts` (128), 77 of them with charts
+  still over the limits. Two meshes have more charts than `MaxCharts` (145 and 253): every component gets at
+  least one chart. BFF flattens 87% of the charts, SLIM 4%, the Tutte fallback 5%.
   Coverage of the unit square is about 0.46 (median).
 - **Failed, 17 of 250:**
   - 9 broken meshes: `MeshDiscCut` cannot cut a chart into a disc (a component with Euler characteristic 1 but
@@ -122,7 +126,7 @@ Large set (20 clean meshes, 100k..500k faces):
     These are not boundary overlaps of SLIM, so a scaffold (Jiang et al. 2017) would not remove them; the
     packing needs an exact check per chart (eg fall back to an unrotated placement, or move the chart's UVs
     to a grid that keeps the orientations).
-- **Large meshes** take 4 min (median, up to 11 min) and all reach `MaxCharts`; 16 of 20 keep charts over the
+- **Large meshes** take 3.9 min (median, up to 11 min); 16 of 20 reach `MaxCharts` and keep charts over the
   limits, and 13% of their charts are Tutte fallbacks (mean conformal distortion 6.3, median). `MaxCharts`
   should grow with the mesh for these.
 - Float rounding: 44 meshes have defects only in the float UVs stored in the mesh (`FloatRoundingDefects`),

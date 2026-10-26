@@ -55,6 +55,7 @@ namespace g3
         public double MaxConformalDistortion = 1.2;
         /// <summary> charts: largest angle in degrees between a triangle normal and its chart normal </summary>
         public double MaxNormalAngle = 50;
+        /// <summary> chart budget; every component gets at least one chart, so meshes with more components get more </summary>
         public int MaxCharts = 128;
         /// <summary> seams prefer sharp edges (MeshDiscCut.FeatureWeight) </summary>
         public double FeatureWeight = 1;
