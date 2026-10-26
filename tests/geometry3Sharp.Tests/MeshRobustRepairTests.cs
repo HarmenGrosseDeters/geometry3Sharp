@@ -635,6 +635,34 @@ namespace geometry3Sharp.Tests
             Assert.True(missing < 0.01, $"missing {missing}");     // the wrap encloses the input
         }
 
+        [Fact]
+        public void AlphaWrap_Simplified_WithinOffsetAndClean()
+        {
+            Func<bool, MeshRobustRepair> run = (simplify) => {
+                var r = new MeshRobustRepair(ThinPlates(6)) { RepairF = (m) => new DMesh3(m), ExactResolve = false, SolidifyResolution = 64, SimplifyAlphaWrap = simplify };
+                Assert.True(r.Apply());
+                Assert.True(r.UsedAlphaWrap);
+                Assert.Equal("", MeshRobustRepair.NotCleanReason(r.Mesh));
+                Assert.Equal(r.AlphaWrap.Result.TriangleCount, r.AlphaWrapTriangles);
+                return r;
+            };
+            var plain = run(false);
+            Assert.Equal(plain.AlphaWrapTriangles, plain.Mesh.TriangleCount);
+
+            var simp = run(true);
+            Assert.Equal(plain.AlphaWrapTriangles, simp.AlphaWrapTriangles);
+            Assert.True(simp.Mesh.TriangleCount < simp.AlphaWrapTriangles / 2, $"{simp.Mesh.TriangleCount} of {simp.AlphaWrapTriangles}");
+            Assert.True(simp.PhaseMilliseconds.ContainsKey("wrap.simplify"));
+            // the certified bound: within the wrap offset of the unsimplified wrap (both directions)
+            var hd = new MeshHausdorffDistance(simp.Mesh, simp.AlphaWrap.Result) { Symmetric = true };
+            hd.Compute();
+            double offset = simp.AlphaWrap.UsedOffset;
+            Assert.True(hd.UpperBound <= offset * 1.05, $"hausdorff {hd.UpperBound} offset {offset}");
+            double missing, extra;
+            MeshRepairMetrics.VolumeIoU(ThinPlates(6), simp.Mesh, out missing, out extra);
+            Assert.True(missing < 0.01, $"missing {missing}");
+        }
+
         static bool SameMesh(DMesh3 a, DMesh3 b)
         {
             return a.VertexCount == b.VertexCount && a.TriangleCount == b.TriangleCount

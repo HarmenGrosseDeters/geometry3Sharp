@@ -92,6 +92,13 @@ namespace gs
         public double WrapRelativeAlpha = 300;
         /// <summary> alpha wrap fallback: offset = bounding box diagonal / WrapRelativeOffset </summary>
         public double WrapRelativeOffset = 3000;
+        /// <summary>
+        /// alpha wrap fallback: simplify the wrap (it has many small triangles, about alpha in size, also on flat
+        /// regions). Collapses keep the surface within the wrap offset of the unsimplified wrap (certified,
+        /// Reducer.MaxDeviation) and create no self-intersections (Reducer.PreventSelfIntersections); the result
+        /// is checked and the unsimplified wrap kept if it is not clean.
+        /// </summary>
+        public bool SimplifyAlphaWrap = true;
 
         // outputs
         /// <summary> true if the result was produced by the solidify fallback (remeshed), false if it is the repair result </summary>
@@ -131,6 +138,8 @@ namespace gs
         public string WrapReason = "";
         /// <summary> the alpha wrap fallback, if it ran; null otherwise </summary>
         public MeshAlphaWrap AlphaWrap;
+        /// <summary> alpha wrap fallback: triangles of the wrap before simplification (0 if not run) </summary>
+        public int AlphaWrapTriangles;
         public bool UsedExactResolve;
         /// <summary> why the exact resolve was not used ("" if it was or was not tried) </summary>
         public string ExactResolveReason = "";
@@ -186,6 +195,7 @@ namespace gs
             ResultReason = "not repaired";
             UsedInput = false;
             UsedAlphaWrap = false;
+            AlphaWrapTriangles = 0;
             SolidifyReason = "";
             Solidify = null;
             AlphaWrap = null;
@@ -301,7 +311,9 @@ namespace gs
                 // (PointLimitReached: less detail, same guarantees)
                 if ((AlphaWrap.Status == MeshAlphaWrap.WrapStatus.Success || AlphaWrap.Status == MeshAlphaWrap.WrapStatus.PointLimitReached)
                     && AlphaWrap.Result != null && AlphaWrap.Result.TriangleCount > 0) {
-                    Mesh = AlphaWrap.Result;
+                    AlphaWrapTriangles = AlphaWrap.Result.TriangleCount;
+                    Mesh = SimplifyAlphaWrap ? simplify_wrap(AlphaWrap.Result, AlphaWrap.UsedOffset) : AlphaWrap.Result;
+                    end_phase("wrap.simplify");
                     UsedAlphaWrap = true;
                     ResultReason = "";
                     return true;
@@ -347,6 +359,21 @@ namespace gs
         }
         MeshRepairMetrics.SolidReference inputSolid;
         DMesh3 inputSolidOf;
+
+        // the wrap simplified within the offset, without self-intersections; the wrap itself if that is not clean
+        DMesh3 simplify_wrap(DMesh3 wrap, double offset)
+        {
+            if (offset <= 0 || CancelF())
+                return wrap;
+            DMesh3 m = new DMesh3(wrap);
+            Reducer reducer = new Reducer(m) {
+                MaxDeviation = offset, PreventSelfIntersections = true,
+                AreaWeightedQuadrics = false, MinCollapseTriangleQuality = 0.05, EdgeFlipTolerance = Math.Cos(60 * MathUtil.Deg2Rad)
+            };
+            reducer.ReduceToMaxQuadricError(offset * offset);
+            m = new DMesh3(m, true);
+            return NotCleanReason(m, CheckSelfIntersections) == "" ? m : wrap;
+        }
 
         // the solid of the mesh with its self-intersections resolved exactly, or null (ExactResolveReason says why)
         DMesh3 resolve_exactly(DMesh3 from, DMesh3 input, bool orientByInput)
