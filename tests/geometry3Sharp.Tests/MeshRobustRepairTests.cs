@@ -348,6 +348,16 @@ namespace geometry3Sharp.Tests
             smallInverted.ReverseOrientation();
             MeshEditor.Append(withInverted, smallInverted);
             Assert.Equal(1, MeshRepairMetrics.LostComponents(withInverted, Sphere(1, Vector3d.Zero)));
+            // a sphere as a soup of single triangles: open components, not judged (near each, the solid is that of the
+            // triangles around it; on Thingi10K such fragments gave false alarms)
+            DMesh3 soup = new DMesh3();
+            DMesh3 sphere = Sphere(1, Vector3d.Zero);
+            foreach (int t in sphere.TriangleIndices()) {
+                Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+                sphere.GetTriVertices(t, ref a, ref b, ref c);
+                soup.AppendTriangle(soup.AppendVertex(a), soup.AppendVertex(b), soup.AppendVertex(c));
+            }
+            Assert.Equal(0, MeshRepairMetrics.LostComponents(soup, new DMesh3()));
             // a component whose box holds only a few points of the solid (a thin slab of it, 0.3 %: 5 of 1024 samples): too few to judge
             // it, not counted as lost; a thicker slab (3 %) is judged
             Func<double, int> slab = (t) => MeshRepairMetrics.LostComponents(

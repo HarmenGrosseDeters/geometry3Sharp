@@ -159,13 +159,16 @@ namespace gs
             internal readonly DMesh3 Mesh;
             internal readonly Func<Vector3d, bool> Inside;
             List<AxisAlignedBox3d> componentBoxes;
-            /// <summary> boxes of the connected components of Mesh (computed once) </summary>
+            /// <summary> boxes of the closed connected components of Mesh (computed once) </summary>
             internal List<AxisAlignedBox3d> ComponentBoxes()
             {
                 if (componentBoxes == null) {
                     var comps = new MeshConnectedComponents(Mesh);
                     comps.FindConnectedT();
-                    componentBoxes = comps.Components.Select(c => {
+                    componentBoxes = comps.Components.Where(c => c.Indices.All(t => {
+                        Index3i te = Mesh.GetTriEdges(t);
+                        return !Mesh.IsBoundaryEdge(te.a) && !Mesh.IsBoundaryEdge(te.b) && !Mesh.IsBoundaryEdge(te.c);
+                    })).Select(c => {
                         var box = AxisAlignedBox3d.Empty;
                         foreach (int tid in c.Indices) box.Contain(Mesh.GetTriBounds(tid));
                         return box;
@@ -317,12 +320,13 @@ namespace gs
         }
 
         /// <summary>
-        /// Connected components of the input whose solid the result lost (the volume IoU does not notice a part below
+        /// Closed connected components of the input whose solid the result lost (the volume IoU does not notice a part below
         /// 1 - IoU of the volume, eg a screw of an assembly or a small separate shell). For each component, points are
         /// sampled in its box (up to 1024, 256 if none of them lies in the solid) until 32 lie in the input's solid (winding number of its oriented copy
         /// &gt; 0.5, as VolumeIoU); the component is lost if fewer than minCoverage of them lie in the result's solid.
-        /// Components with fewer than 8 such points (open sheets, soups, walls thinner than about 1/100 of their box)
-        /// are not judged, nor components whose box diagonal is below MinComponentDiagonal of the input's (specks that
+        /// Open components (sheets, soup triangles: near them the input's solid is that of the parts around, which
+        /// gave false alarms on Thingi10K) and components with fewer than 8 such points (walls thinner than about
+        /// 1/100 of their box) are not judged, nor components whose box diagonal is below MinComponentDiagonal of the input's (specks that
         /// the repair removes on purpose, eg below MeshAutoRepair.MinEdgeLengthTol, and that a fallback would lose as
         /// well). At most maxComponents components, the largest boxes first (beyond that the smallest are not judged).
         /// "In the input's solid" is the solid of the whole input, so a box that holds other parts as well is judged by
