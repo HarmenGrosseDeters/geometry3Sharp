@@ -12,8 +12,10 @@ surviving mutant marks a test gap: a change to that code that the tests would le
 - `math/ExactPoint3.cs`
 - `math/AdaptivePredicates.cs`
 
-The tests that run against the mutants are `ExactPredicatesTests`, `ExactImplicitPointTests` and
-`ExactBooleanBuildingBlockTests`. These are the unit tests of these files; the boolean and repair tests are
+The tests that run against the mutants are `ExactPredicatesTests`, `ExactImplicitPointTests`,
+`ExactBooleanBuildingBlockTests`, `PredicateDifferentialTests` and `ExactPoint3ConversionTests`. A new test
+class for these files must be added to the `test-case-filter` and to the paths of the workflow. These are
+the unit tests of these files; the boolean and repair tests are
 too slow to run against every mutant.
 
 ## Running
@@ -44,7 +46,11 @@ covered.
 | `ExactPredicates.cs` | 458 | 74 | 1 |
 | `ExactPoint3.cs` | 122 (+4 timeouts) | 53 | 16 |
 
-The `break` threshold is 80. Raise it as tests kill more mutants; never lower it to get a run green.
+**Current (October 2026, with `PredicateDifferentialTests` and `ExactPoint3ConversionTests`): 87.05 %**
+(GitHub runner, 37 minutes).
+
+The `break` threshold is 86: the measured score rounded down, less one point, because timeouts (which count as
+killed) vary between runners. Raise it as tests kill more mutants; never lower it to get a run green.
 
 Many survivors are **equivalent**. A mutant that only makes a filter decide less often (`>` against `>=`,
 `onlyD` forced to `true`, a larger bound, `permanent >= UnderflowLimit`) leaves the result unchanged, because

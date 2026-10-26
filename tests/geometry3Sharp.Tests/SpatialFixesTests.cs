@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Threading.Tasks;
 using g3;
 using gs;
 using Xunit;
@@ -33,8 +32,7 @@ namespace geometry3Sharp.Tests
         /// </summary>
         static void AssertTerminates(Action action, string what)
         {
-            Task t = Task.Run(action);
-            Assert.True(t.Wait(TimeSpan.FromSeconds(5)), $"{what} did not terminate");
+            Assert.True(Timed.Finishes(action, TimeSpan.FromSeconds(5)), $"{what} did not terminate");
         }
 
 

@@ -14,6 +14,8 @@ on:
       - 'tests/geometry3Sharp.Tests/ExactPredicatesTests.cs'
       - 'tests/geometry3Sharp.Tests/ExactImplicitPointTests.cs'
       - 'tests/geometry3Sharp.Tests/ExactBooleanBuildingBlockTests.cs'
+      - 'tests/geometry3Sharp.Tests/PredicateDifferentialTests.cs'
+      - 'tests/geometry3Sharp.Tests/ExactPoint3ConversionTests.cs'
       - 'tests/geometry3Sharp.Tests/geometry3Sharp.Tests.csproj'
       - 'tests/mutation/**'
       - '.config/dotnet-tools.json'
