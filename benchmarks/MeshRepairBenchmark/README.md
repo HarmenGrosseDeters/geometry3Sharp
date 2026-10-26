@@ -686,3 +686,16 @@ Each fix has a unit test that fails on the code before the fix.
   - ShapeDiameter differs on 13 meshes and the fits on 0–9, as for meters.
   - The sign agreement differs on 8 meshes, by points near holes.
 
+
+## Lost components check (`MeshRobustRepair.CheckLostComponents`, off by default)
+`MeshRepairMetrics.LostComponents` finds input components whose solid a result lost. The volume IoU check does not notice such parts when they are below 1 % of the volume (eg a screw of an assembly). When the check is on, a repair result (clean or not) or exact resolve that lost a part is rejected, and the fallbacks start from the input. The table shows its effect on `robust` (400 + 30 set, `BENCH_LOST_COMPONENTS=1`). Base is master d5eeda1. "Meshes changed" counts meshes that ended at a different stage or with a different repaired outcome than the base.
+
+| variant | meshes changed | of those repaired (base → with check) |
+|---|---|---|
+| all components judged (first version) | 29 | 15 → 9 (all 430: 283 → 276) |
+| closed components only, box diagonal ≥ 1e-3 of the input's | 3 | 15 → 14 |
+
+- **First version:** most rejections came from open fragments, such as single soup triangles. Next to them the input's solid is the solid of the parts around them, and the result does not reproduce that. The fallbacks then started from the open input: the exact resolve failed with "not closed (winding number)", and the mesh was solidified instead.
+- **Closed components only:** three repairs are still rejected. In each, a nested closed part (a part inside another one) was oriented by the repair as a cavity, and the input reference treats it as solid. The fallbacks from the input were worse for 105335 (repaired before, not repaired after). For 1017012 and 67785 the outcome did not change.
+- **Conclusion:** the check found no lost part on Thingi10K. It is off by default and meant for inputs with separate small parts.
+- **Method:** only the 29 meshes changed by the first version were rerun with the second. The second version judges a subset of what the first judged, so it can change no other mesh. All runs used `BENCH_P=2` on the same machine.
