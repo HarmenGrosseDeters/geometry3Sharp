@@ -829,3 +829,20 @@ self-intersects but whose reduction removed the intersecting pairs are wrapped n
 but the wrap fits their winding number solid worse (IoU 0.958 → 0.421 and 0.993 → 0.512; Hausdorff 8.8 % → 1.3 % and
 3.4 % → 4.8 %). Together with 56107.stl that is 3 of about 150 solidified meshes per two selections
 where stopping early gives up a cleaner (though still not repaired) solidify.
+
+## Rejected rule 1 Steiner points in the alpha wrap: cause and fix
+The cause was the oracle's triangle normals, which came from `Vector3d.Normalized`. That returns zero below an absolute length of 2.2e-16, so a small but valid triangle got no normal (99911 has 10 of them). `slab_entry` then treated every segment through the triangle's node box as starting inside the offset volume (`FirstEntry` = 0). The wrap inserted the far end of the dual edge, which lies outside the box, and the insertion was rejected (`Outside`). The facet stayed on the result and could be closer to the input than the offset.
+
+The normals now come from `AlphaWrapOracle.Unit`, which has no absolute epsilon. A rule 1 rejection that still happens makes a Success result `Failed`. The manifold step keeps outside components with a box corner outside. Base: master 7f0f97c. `BENCH_P=2`, 400 set (`wrap`) and the 25 meshes that reach the wrap fallback (`robust`):
+
+| | master | this change |
+|---|---|---|
+| `wrap`: Success | 400 | 400 |
+| `wrap`: meshes with rejected rule 1 points | 2 (99911: 1835, 1681235: 5) | 0 |
+| `wrap`: Hausdorff both < 1 % | 44 | 46 |
+| `wrap`: IoU median / p10 | 0.924 / 0.688 | 0.924 / 0.688 |
+| `wrap`: box retries | 0 | 0 |
+| `robust`, 25 meshes that reach the wrap: repaired / median Hausdorff / median IoU | 1 / 1.93 % / 0.926 | 1 / 1.93 % / 0.926 |
+| `robust`, all: repaired | 270 / 400, 13 / 30 | the same (the wrap runs only on those 25) |
+
+Rule 1 rejections no longer happen on this set, so the stricter status (a Success with rejected rule 1 points is now Failed) costs nothing here. The change in how the normals are computed rounds them differently in the last bits. That changes many wrap results slightly: 275 of 400 differ in triangle count, but not in quality.

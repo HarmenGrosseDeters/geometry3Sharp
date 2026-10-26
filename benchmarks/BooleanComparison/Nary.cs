@@ -56,10 +56,34 @@ static class Nary
         int n = int.Parse(args[1]);
         var variants = args.Skip(2).ToList();
         if (variants.Count == 0)
-            variants = new List<string> { "chained", "onepass", "twostep" };
-        // (JIT and thread pool warm-up, not timed)
-        Pairwise(Box(0, 0, 0, 1, 1, 1), Box(0.5, 0.5, 0.5, 2, 2, 2), ExactMeshBoolean.Operations.Union);
+            variants = (kind == "grid") ? new List<string> { "chained", "onepass", "twostep" } : new List<string> { "chained", "onepass" };
+        if ((kind != "grid" && kind != "spheres") || n < 1) {
+            Console.Error.WriteLine("usage: nary grid|spheres <n >= 1> [variant]...");
+            return 1;
+        }
+        foreach (string v in variants)
+            if (v != "chained" && v != "onepass" && v != "twostep") {
+                Console.Error.WriteLine("unknown variant " + v);
+                return 1;
+            }
+        // Warm-up, not timed: the requested variants on a small case of the same kind, repeated for 3 s. A cold
+        // run pays about 1 s, mostly for JIT compilation (tiered: optimized code only after enough calls or loop
+        // iterations), partly for growing the GC heap (grid 5 onepass: 2.8-3.6 s cold, 1.6-1.9 s warm); before,
+        // the time of a variant depended on whether another variant ran before it in the same process.
+        var warm = Stopwatch.StartNew();
+        while (warm.ElapsedMilliseconds < 3000) {
+            int code = Measure(kind, Math.Min(n, kind == "grid" ? 3 : 5), variants, false);
+            if (code != 0)
+                return code;
+        }
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+        return Measure(kind, n, variants, true);
+    }
 
+    static int Measure(string kind, int n, List<string> variants, bool print)
+    {
         var cubes = new List<DMesh3>();
         var voids = new List<DMesh3>();
         double expected;
@@ -120,6 +144,8 @@ static class Nary
                 return 1;
             }
             info["ms"] = sw.ElapsedMilliseconds;
+            if (print == false)
+                continue;
             info["triangles"] = r.TriangleCount;
             info["vertices"] = r.VertexCount;
             double vol = Volume(r);

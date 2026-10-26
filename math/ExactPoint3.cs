@@ -49,8 +49,16 @@ namespace g3
             return (w.Sign < 0) ? new ExactPoint3(-x, -y, -z, -w) : new ExactPoint3(x, y, z, w);
         }
 
+        /// <summary> coordinate i of the numerator: X, Y, Z for i = 0, 1, 2 </summary>
         public BigInteger this[int i] {
-            get { return (i == 0) ? X : (i == 1) ? Y : Z; }
+            get {
+                switch (i) {
+                    case 0: return X;
+                    case 1: return Y;
+                    case 2: return Z;
+                    default: throw new ArgumentOutOfRangeException(nameof(i), "ExactPoint3: coordinate index must be 0, 1 or 2");
+                }
+            }
         }
 
         public bool Equals(ExactPoint3 o)
@@ -84,7 +92,8 @@ namespace g3
 
 
         /// <summary>
-        /// Fast approximation of the coordinates (relative error below 4 * 2^-52): for floating-point filters
+        /// Fast approximation of the coordinates (relative error below 4 * 2^-52, plus an absolute 2^-1074 where a
+        /// coordinate is subnormal or below the double range): for floating-point filters
         /// </summary>
         public Vector3d ApproxVector3d()
         {

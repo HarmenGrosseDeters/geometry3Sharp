@@ -28,7 +28,122 @@ static class Program
         return r;
     }
 
-    static void Main()
+    static T Once<T>(Func<T> f, out long ms)
+    {
+        var sw = Stopwatch.StartNew();
+        T r = f();
+        ms = sw.ElapsedMilliseconds;
+        return r;
+    }
+
+    static void Main(string[] args)
+    {
+        bool onlyScaling = args.Contains("--scaling");
+        if (onlyScaling == false)
+            Quality();
+        Scaling();
+    }
+
+    // runtime and accuracy over the mesh size: flat grids with alternating diagonals (Delaunay, so all three
+    // methods agree), and a long strip, far beyond the underflow of the heat
+    static void Scaling()
+    {
+        Console.WriteLine();
+        Console.WriteLine("| mesh | vertices | method | first Compute (incl. setup) | further Compute | mean error | max error |");
+        Console.WriteLine("|---|---|---|---|---|---|---|");
+        foreach (int n in new[] { 51, 101, 201, 401 }) {
+            DMesh3 grid = Grid(n - 1, n);
+            int src = Nearest(grid, new Vector3d((n - 1) / 2.0, (n - 1) / 2.0, 0));
+            Vector3d ps = grid.GetVertex(src);
+            foreach (var (label, split) in new[] { ("flips", false), ("default (boundary split)", true) })
+                ScalingRow($"grid {n} x {n}", grid, src, label, split, v => grid.GetVertex(v).Distance(ps), v => true);
+        }
+        foreach (int len in new[] { 1000, 5000, 25000 }) {
+            DMesh3 strip = Strip(len);
+            int src = Nearest(strip, new Vector3d(0, 1, 0));
+            Vector3d ps = strip.GetVertex(src);
+            ScalingRow($"strip {len} x 2", strip, src, "default (boundary split)", true, v => strip.GetVertex(v).Distance(ps), v => true);
+        }
+
+        Console.WriteLine();
+        Console.WriteLine("| mesh | vertices | log map (incl. factorization) | log map mean error | log map max error |");
+        Console.WriteLine("|---|---|---|---|---|");
+        foreach (int n in new[] { 51, 101, 201 }) {
+            DMesh3 grid = Grid(n - 1, n);
+            int src = Nearest(grid, new Vector3d((n - 1) / 2.0, (n - 1) / 2.0, 0));
+            Vector3d c = grid.GetVertex(src);
+            long ms;
+            var vhm = Timed(() => { var m = new VectorHeatMethod(grid); m.ComputeLogMap(src); return m; }, out ms);
+            Vector2d[] log = vhm.ComputeLogMap(src);
+            double sum = 0, max = 0; int k = 0;
+            foreach (int v in grid.VertexIndices()) {
+                if (grid.IsBoundaryVertex(v)) continue;
+                double e = (vhm.Triangulation.ToWorld(src, log[v]) - (grid.GetVertex(v) - c)).Length;
+                sum += e; max = Math.Max(max, e); k++;
+            }
+            Console.WriteLine($"| grid {n} x {n} | {grid.VertexCount} | {ms} ms | {sum / k:F4} | {max:F4} |");
+        }
+    }
+
+    static void ScalingRow(string name, DMesh3 mesh, int src, string label, bool split, Func<int, double> exact, Func<int, bool> use)
+    {
+        // median of 3 after a warm-up run, single runs for the largest meshes (and the slow old solver)
+        bool large = mesh.VertexCount > 50000;
+        long first, second;
+        Func<MeshGeodesicDistance> fresh = () => new MeshGeodesicDistance(mesh) { SplitObtuseBoundaryEdges = split };
+        MeshGeodesicDistance geo = large ? Once(() => { var g = fresh(); g.Compute(new[] { src }); return g; }, out first)
+                                         : Timed(() => { var g = fresh(); g.Compute(new[] { src }); return g; }, out first);
+        bool ok = geo.Distance != null;
+        if (large) Once(() => geo.Compute(new[] { src }), out second);
+        else Timed(() => geo.Compute(new[] { src }), out second);
+        double mean = 0, max = 0; int n = 0;
+        if (ok)
+            foreach (int v in mesh.VertexIndices()) {
+                if (use(v) == false) continue;
+                double e = Math.Abs(geo.Distance[v] - exact(v));
+                mean += e; max = Math.Max(max, e); n++;
+            }
+        Console.WriteLine($"| {name} | {mesh.VertexCount} | {label} | {first} ms | {second} ms | " +
+            (ok ? $"{mean / n:F4} | {max:F4}" : "failed | failed") + " |");
+    }
+
+    // n x n vertices with spacing size / (n - 1), alternating diagonals
+    static DMesh3 Grid(double size, int n)
+    {
+        DMesh3 mesh = new DMesh3();
+        int[,] vid = new int[n, n];
+        for (int j = 0; j < n; ++j)
+            for (int i = 0; i < n; ++i)
+                vid[i, j] = mesh.AppendVertex(new Vector3d(size * i / (n - 1), size * j / (n - 1), 0));
+        for (int j = 0; j + 1 < n; ++j)
+            for (int i = 0; i + 1 < n; ++i) {
+                if ((i + j) % 2 == 0) {
+                    mesh.AppendTriangle(vid[i, j], vid[i + 1, j], vid[i + 1, j + 1]);
+                    mesh.AppendTriangle(vid[i, j], vid[i + 1, j + 1], vid[i, j + 1]);
+                } else {
+                    mesh.AppendTriangle(vid[i, j], vid[i + 1, j], vid[i, j + 1]);
+                    mesh.AppendTriangle(vid[i + 1, j], vid[i + 1, j + 1], vid[i, j + 1]);
+                }
+            }
+        return mesh;
+    }
+
+    // len x 2 unit squares, 3 rows of vertices
+    static DMesh3 Strip(int len)
+    {
+        DMesh3 mesh = new DMesh3();
+        int[,] vid = new int[len + 1, 3];
+        for (int i = 0; i <= len; ++i)
+            for (int j = 0; j < 3; ++j) vid[i, j] = mesh.AppendVertex(new Vector3d(i, j, 0));
+        for (int i = 0; i < len; ++i)
+            for (int j = 0; j < 2; ++j) {
+                mesh.AppendTriangle(vid[i, j], vid[i + 1, j], vid[i + 1, j + 1]);
+                mesh.AppendTriangle(vid[i, j], vid[i + 1, j + 1], vid[i, j + 1]);
+            }
+        return mesh;
+    }
+
+    static void Quality()
     {
         Console.WriteLine("| mesh | method | vertices (+inserted) | min angle | negative weights | mean error | max error | time |");
         Console.WriteLine("|---|---|---|---|---|---|---|---|");
@@ -72,11 +187,12 @@ static class Program
     {
         var configs = new (string, bool, bool, double)[] {
             ("mesh triangles", false, false, 0), ("intrinsic flips", true, false, 0),
-            ("refined 0° (boundary only)", true, true, 0), ("refined 25°", true, true, 25) };
+            ("refined 0° (boundary only, the default)", true, true, 0), ("refined 25°", true, true, 25) };
         foreach (var (label, intrinsic, refine, angle) in configs) {
             long ms;
             var geo = Timed(() => {
-                var g = new MeshGeodesicDistance(mesh) { IntrinsicDelaunay = intrinsic, IntrinsicRefine = refine, RefineMinAngle = angle };
+                var g = new MeshGeodesicDistance(mesh) { IntrinsicDelaunay = intrinsic, IntrinsicRefine = refine, RefineMinAngle = angle,
+                    SplitObtuseBoundaryEdges = false };
                 g.Compute(new[] { src });
                 return g;
             }, out ms);
@@ -88,8 +204,7 @@ static class Program
                     double e = Math.Abs(geo.Distance[v] - exact(v));
                     mean += e; max = Math.Max(max, e); n++;
                 }
-            // angles and weights of the same kind of triangulation, built by IntrinsicTriangulation (for the flips
-            // MeshGeodesicDistance uses its own flip code, which ends in an intrinsic Delaunay triangulation too)
+            // angles and weights of the same triangulation, built by IntrinsicTriangulation
             IntrinsicRefinementResult r;
             var T = intrinsic ? IntrinsicTriangulation.BuildDelaunay(mesh, refine, out r, angle) : new IntrinsicTriangulation(mesh);
             int neg = 0;

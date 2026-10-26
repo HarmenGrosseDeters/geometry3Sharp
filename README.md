@@ -385,7 +385,7 @@ Several tutorials for using g3Sharp have been posted on the Gradientspace blog:
 - **RemoveDuplicateTriangles**: remove duplicate triangles of mesh
 - **RemoteOccludedTriangles**: remove triangles that are "occluded" under various definitions
 - **MeshWallThickness**: wall thickness per vertex and triangle: inward ray (watertight ray-triangle test), shape diameter function, or diameter of the largest inscribed ball (shrinking ball on the exact surface with a separation angle condition)
-- **MeshDeviation**: signed distance of every vertex to a reference mesh (pseudo-normal or winding-number sign), with area weighted statistics, percentiles, histogram and optional certified Hausdorff bound
+- **MeshDeviation**: signed distance of every vertex to a reference mesh (pseudo-normal or winding-number sign), with area weighted statistics, percentiles, histogram, optional certified Hausdorff bound and optional certified interval of the largest deviation per triangle (reliable between the vertices)
 - **MeshAutoRepair**: apply many of the above algorithms in an attempt to automatically "repair" an input mesh, where "repaired" means the mesh is closed and manifold.
 
 
