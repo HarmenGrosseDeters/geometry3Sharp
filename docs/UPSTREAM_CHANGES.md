@@ -15,6 +15,7 @@ code can notice. New classes are not listed (see the README and [OPERATIONS.md](
 | `DMesh3.AllocateTriangleGroup()` | skipped an id (6 on a mesh whose groups are 0..4) | returns the next unused id (5) |
 | `MeshTransforms.Rotate(mesh, origin, Quaternionf)` | positions only | also rotates vertex normals, in double precision |
 | `MeshMeasurements.MassProperties(..., bodyCoords)` | `bodyCoords` was ignored | honored |
+| `Remesher` flips | only to improve the valence | also an edge of a degenerate (zero-area) triangle, when both new triangles are proper and face the same way (removes slivers that no collapse can remove, eg between pinned corners or along feature curves) |
 | `MeshBoundaryLoops` | bowtie or inconsistently oriented boundaries often became spans | decomposed into loops (rewritten walk; somewhat slower on meshes with very many holes) |
 | `CurveSampler2` on closed curves | the first point was repeated as the last sample | not repeated |
 | `PolyLine2DCurve.ParamLength` | `VertexCount` | `VertexCount - 1` (segment i is `[i, i+1]`); `Polygon2DCurve.SampleT` wraps to vertex 0 |

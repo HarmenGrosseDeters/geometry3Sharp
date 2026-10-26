@@ -122,6 +122,87 @@ namespace g3cli.Tests
             AssertCleanCube(r["mesh"], 8);
         }
 
+        // ---- uv ----
+
+        static string WriteTorus(TestMeshes m)
+        {
+            var torus = new g3.DMesh3();
+            int nu = 32, nv = 12;
+            for (int i = 0; i < nu; ++i)
+                for (int j = 0; j < nv; ++j) {
+                    double u = 2 * Math.PI * i / nu, v = 2 * Math.PI * j / nv;
+                    torus.AppendVertex(new g3.Vector3d((2 + 0.7 * Math.Cos(v)) * Math.Cos(u), (2 + 0.7 * Math.Cos(v)) * Math.Sin(u), 0.7 * Math.Sin(v)));
+                }
+            for (int i = 0; i < nu; ++i)
+                for (int j = 0; j < nv; ++j) {
+                    int a = i * nv + j, b = ((i + 1) % nu) * nv + j, c = ((i + 1) % nu) * nv + (j + 1) % nv, d = i * nv + (j + 1) % nv;
+                    torus.AppendTriangle(a, b, c);
+                    torus.AppendTriangle(a, c, d);
+                }
+            string path = m.Path_("torus.obj");
+            g3.StandardMeshWriter.WriteMesh(path, torus, g3.WriteOptions.Defaults);
+            return path;
+        }
+
+        [Fact]
+        public void Uv_TorusAndSphere_OverlapFreeAtlas()
+        {
+            foreach (string input in new[] { WriteTorus(m), m.Sphere, m.Cube }) {
+                string output = m.Path_(Path.GetFileNameWithoutExtension(input) + "_atlas.g3mesh");
+                var (exit, r) = Run("uv", input, output);
+                AssertOk(exit, r);
+                Assert.Equal("success", S(r["atlas_status"]));
+                Assert.Equal(0, I(r["overlapping_pairs"]));
+                Assert.Equal(0, I(r["inverted_triangles"]));
+                Assert.Equal(0, I(r["distortion"]["flipped_triangles"]));
+                Assert.Equal(0, I(r["float_uv_defects"]));
+                Assert.Equal(0, I(r["float_uv_sub_resolution_defects"]));
+                Assert.True(D(r["distortion"]["mean_area"]) < 0.25);
+                Assert.True(I(r["charts"]) >= 1);
+                Assert.True(D(r["seam_length"]) > 0);
+                Assert.Empty(r["warnings"].AsArray());
+                // the written mesh has the UVs, and the input's triangles
+                g3.DMesh3 atlas = g3.StandardMeshReader.ReadMesh(output);
+                Assert.True(atlas.HasVertexUVs);
+                Assert.Equal(I(r["input_mesh"]["triangles"]), atlas.TriangleCount);
+                Assert.Equal(I(r["vertices"]), atlas.VertexCount);
+                Assert.True(g3.UVOverlap.Compute(atlas).IsInjective);
+            }
+            // the cube: cones at its corners
+            var (e2, r2) = Run("uv", m.Cube, m.Path_("cube_atlas.obj"));
+            AssertOk(e2, r2);
+            Assert.Equal(8, I(r2["cones"]));
+            Assert.Equal(1, I(r2["charts"]));
+            Assert.Equal(1, I(r2["chart_methods"]["cones"]));
+            Assert.Contains("vt ", File.ReadAllText(m.Path_("cube_atlas.obj")));
+        }
+
+        [Fact]
+        public void Uv_LimitsAndWarnings()
+        {
+            // one chart of a sphere exceeds the limits: ok, but reported
+            var (exit, r) = Run("uv", m.Sphere, m.Path_("single.obj"), "--method", "single");
+            AssertOk(exit, r);
+            Assert.Equal("distortion_limit_exceeded", S(r["atlas_status"]));
+            Assert.Equal(1, I(r["charts_over_limit"]));
+            Assert.Equal(0, I(r["overlapping_pairs"]));
+            Assert.NotEmpty(r["warnings"].AsArray());
+
+            // STL does not store UVs
+            (exit, r) = Run("uv", m.Cube, m.Path_("atlas.stl"));
+            AssertOk(exit, r);
+            Assert.Contains(r["warnings"].AsArray(), w => S(w).Contains("does not store UVs"));
+
+            (exit, r) = Run("uv", m.Cube, m.Path_("a.obj"), "--max_charts", "0");
+            AssertError(exit, r, "invalid_arguments", 2);
+            (exit, r) = Run("uv", m.Cube, m.Path_("a.obj"), "--padding", "0.5");
+            AssertError(exit, r, "invalid_arguments", 2);
+            (exit, r) = Run("uv", m.Cube, m.Path_("a.obj"), "--method", "magic");
+            AssertError(exit, r, "invalid_arguments", 2);
+            (exit, r) = Run("uv", m.Empty, m.Path_("a.obj"));
+            AssertError(exit, r, "empty_mesh", 1);
+        }
+
         [Fact]
         public void Convert_AsciiStl()
         {
@@ -374,6 +455,11 @@ namespace g3cli.Tests
             (exit, r) = Run("measure", m.Cube, m.Shifted);
             AssertError(exit, r, "invalid_arguments", 2);
 
+            // the solidify grid of the robust repair grows with the resolution, so it is bounded
+            (exit, r) = Run("repair", m.Cube, m.Path_("r.obj"), "--solidify-resolution", "100000");
+            AssertError(exit, r, "invalid_arguments", 2);
+            Assert.Contains("solidify_resolution", S(r["message"]));
+
             (exit, r) = Run("frobnicate");
             AssertError(exit, r, "unknown_command", 2);
         }
@@ -384,7 +470,7 @@ namespace g3cli.Tests
             var (exit, r) = Run();
             AssertOk(exit, r);
             var names = r["commands"].AsArray().Select(c => S(c["name"])).ToArray();
-            Assert.Equal(new[] { "measure", "repair", "boolean", "resolve", "remesh", "simplify", "convert", "mcp" }, names);
+            Assert.Equal(new[] { "measure", "repair", "boolean", "resolve", "remesh", "simplify", "uv", "convert", "mcp" }, names);
             Assert.Equal(3, I(r["result_codes"]["read_error"]));
 
             (exit, r) = Run("help", "boolean");

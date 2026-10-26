@@ -108,6 +108,60 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void InsideOutReference_SignsAsIfOriented()
+        {
+            DMesh3 reference = Sphere(1, 20);
+            reference.ReverseOrientation();
+            foreach (var sign in new[] { MeshDeviation.Signs.PseudoNormal, MeshDeviation.Signs.WindingNumber }) {
+                foreach (double r in new[] { 0.9, 1.1 }) {
+                    var dev = new MeshDeviation(Sphere(r, 9), reference) { Sign = sign };
+                    Assert.True(dev.Compute());
+                    Assert.True(Math.Sign(dev.Statistics.Min) == Math.Sign(r - 1) && Math.Sign(dev.Statistics.Max) == Math.Sign(r - 1), sign + " " + r);
+                }
+            }
+            // without the correction the pseudo-normal follows the stored orientation
+            var raw = new MeshDeviation(Sphere(1.1, 9), reference) { OrientInvertedParts = false };
+            Assert.True(raw.Compute());
+            Assert.True(raw.Statistics.Max < 0);
+        }
+
+        [Fact]
+        public void PseudoNormalSign_DoesNotDependOnTheUnit()
+        {
+            // cube offset outwards (edge and corner regions use edge and vertex pseudo-normals), in a tiny unit
+            const double s = 1e-5;
+            DMesh3 cube = new GridBox3Generator() { Box = new Box3d(Vector3d.Zero, Vector3d.One), EdgeVertices = 8 }.Generate().MakeDMesh();
+            DMesh3 outer = new GridBox3Generator() { Box = new Box3d(Vector3d.Zero, 1.1 * Vector3d.One), EdgeVertices = 3 }.Generate().MakeDMesh();
+            MeshTransforms.Scale(cube, s);
+            MeshTransforms.Scale(outer, s);
+            var dev = new MeshDeviation(outer, cube);
+            Assert.True(dev.Compute());
+            Assert.True(dev.Statistics.Min > 0, "min " + dev.Statistics.Min);
+            Assert.Equal(0.1 * s, dev.Statistics.Min, 12);
+        }
+
+        [Fact]
+        public void OpenReference_IsNeverFlipped()
+        {
+            // open terrain (normals +z), mostly flat with one tall peak: its signed volume about the bounds
+            // center is negative, which says nothing about the orientation of an open sheet. Points above
+            // the flat part must stay positive (OrientInvertedParts is on by default).
+            Func<double, double, double> h = (x, y) => 8 * Math.Exp(-(x * x + y * y));
+            DMesh3 reference = Grid(-10, -10, 10, 10, 41, h);
+            Vector3d c = reference.CachedBounds.Center;
+            double vol = 0;
+            foreach (int tid in reference.TriangleIndices()) {
+                Index3i t = reference.GetTriangle(tid);
+                vol += (reference.GetVertex(t.a) - c).Dot((reference.GetVertex(t.b) - c).Cross(reference.GetVertex(t.c) - c));
+            }
+            Assert.True(vol < 0);
+            DMesh3 mesh = Grid(-9, -9, -5, -5, 5, (x, y) => h(x, y) + 0.5);
+            var dev = new MeshDeviation(mesh, reference);
+            Assert.True(dev.Compute());
+            Assert.True(dev.Statistics.Min > 0.49, "min " + dev.Statistics.Min);
+        }
+
+        [Fact]
         public void CertifiedBound_ContainsVertexMaximum()
         {
             DMesh3 reference = Sphere(1, 12);
