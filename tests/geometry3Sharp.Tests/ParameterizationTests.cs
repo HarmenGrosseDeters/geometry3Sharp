@@ -1145,6 +1145,85 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        // T-junction charts (one slanted, one mirrored) and the parameterized charts of ChartsMesh, with their UVs
+        static DMesh3 PackerInput(out Vector2d[] uv)
+        {
+            double[] areas;
+            DMesh3 mesh = ChartsMesh(out areas);
+            var uvs = new List<Vector2d>();
+            for (int v = 0; v < mesh.MaxVertexID; ++v) uvs.Add(mesh.IsVertex(v) ? (Vector2d)mesh.GetVertexUV(v) : Vector2d.Zero);
+            foreach (bool mirror in new[] { false, true }) {
+                double ang = mirror ? 0 : 0.47;
+                DMesh3 tj = TJunctionChart(30, 12, new Vector2d(Math.Cos(ang), Math.Sin(ang)), new Vector2d(35, 15));
+                var map = new int[tj.MaxVertexID];
+                foreach (int v in tj.VertexIndices()) {
+                    Vector3d p = tj.GetVertex(v);
+                    map[v] = mesh.AppendVertex(new Vector3d(p.x, p.y, 5 + (mirror ? 1 : 0)));
+                    while (uvs.Count <= map[v]) uvs.Add(Vector2d.Zero);
+                    uvs[map[v]] = new Vector2d(mirror ? -p.x : p.x, p.y);
+                }
+                foreach (int t in tj.TriangleIndices()) {
+                    Index3i tri = tj.GetTriangle(t);
+                    mesh.AppendTriangle(map[tri.a], map[tri.b], map[tri.c]);
+                }
+            }
+            uv = uvs.ToArray();
+            return mesh;
+        }
+
+        [Fact]
+        public void UVPacker_InvariantUnderSimilarities_ReusedInstance()
+        {
+            // the packing depends on the surface only through the chart areas: a power-of-two scale of the surface gives
+            // the same UVs bit for bit, any similarity an overlap-free packing with the same charts
+            Vector2d[] uv;
+            DMesh3 mesh = PackerInput(out uv);
+            var reference = new UVPacker(mesh) { UV = uv, Padding = 0.01 };
+            var r0 = reference.Compute();
+            Assert.True(r0.Succeeded, r0.Error);
+            Assert.True(reference.UnrotatedCharts + reference.RepairedVertices > 0);
+            foreach (Similarity sim in Similarity.All()) {
+                DMesh3 m = Invariance.Transformed(mesh, sim);
+                var packer = new UVPacker(m) { UV = uv, Padding = 0.01 };
+                var r = packer.Compute();
+                Assert.True(r.Succeeded, sim + ": " + r.Error);
+                Assert.Equal(reference.ChartCount, packer.ChartCount);
+                Assert.Equal(0, packer.RemainingDefects);
+                var ov = UVOverlap.Compute(m, r.UV);
+                Assert.True(ov.OverlappingPairs == 0 && ov.DegenerateTriangles == 0, sim + ": " + ov.OverlappingPairs + " pairs");
+                if (sim.IsExact)
+                    foreach (int v in mesh.VertexIndices())
+                        Assert.Equal(r0.UV[v], r.UV[v]);
+            }
+
+            // reuse: the same chart plain, then mirrored, on one instance give what fresh instances give (a stale
+            // per-triangle cache of the plain input would flag every mirrored triangle)
+            DMesh3 other = TJunctionChart(17, 7, new Vector2d(Math.Cos(0.9), Math.Sin(0.9)), new Vector2d(25, 9));
+            var plainUV = new Vector2d[other.MaxVertexID];
+            var mirrorUV = new Vector2d[other.MaxVertexID];
+            foreach (int v in other.VertexIndices()) {
+                Vector3d p = other.GetVertex(v);
+                plainUV[v] = new Vector2d(p.x, p.y);
+                mirrorUV[v] = new Vector2d(-p.x, p.y);
+            }
+            var fresh = new UVPacker(other) { UV = mirrorUV, Padding = 0.01 };
+            var rf = fresh.Compute();
+            reference.Mesh = other; reference.UV = plainUV;
+            reference.Compute();
+            reference.UV = mirrorUV;
+            var rr = reference.Compute();
+            Assert.Equal(fresh.ChartCount, reference.ChartCount);
+            Assert.Equal(fresh.UnrotatedCharts, reference.UnrotatedCharts);
+            Assert.Equal(fresh.RepairedVertices, reference.RepairedVertices);
+            Assert.Equal(fresh.RemainingDefects, reference.RemainingDefects);
+            foreach (int v in other.VertexIndices())
+                Assert.Equal(rf.UV[v], rr.UV[v]);
+            reference.Mesh = mesh; reference.UV = uv;
+            var again = reference.Compute();
+            foreach (int v in mesh.VertexIndices())
+                Assert.Equal(r0.UV[v], again.UV[v]);
+        }
+
         [Fact]
         public void UVPacker_InvalidInput()
         {
