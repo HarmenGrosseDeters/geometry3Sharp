@@ -1043,6 +1043,73 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void UVPacker_DefectsOfTheInputAreNotRepaired()
+        {
+            // a strip whose UVs fold back and forth (every triangle overlaps many others in the input) and a
+            // mirrored (clockwise) chart: their overlaps and inversions are the input's, not the packer's; nothing is
+            // moved or unrotated (the check of the placed charts compares with the input)
+            DMesh3 mesh = new DMesh3();
+            int n = 400;
+            var uv = new List<Vector2d>();
+            int[] lo = new int[n + 1], hi = new int[n + 1];
+            for (int i = 0; i <= n; ++i) {
+                double x = (i % 2) * 1.0 + 0.001 * i;   // accordion: x goes 0, 1, 0, 1, ...
+                lo[i] = mesh.AppendVertex(new Vector3d(i, 0, 0)); uv.Add(new Vector2d(x, 0));
+                hi[i] = mesh.AppendVertex(new Vector3d(i, 1, 0)); uv.Add(new Vector2d(x, 1));
+            }
+            for (int i = 0; i < n; ++i) {
+                mesh.AppendTriangle(lo[i], lo[i + 1], hi[i + 1]);
+                mesh.AppendTriangle(lo[i], hi[i + 1], hi[i]);
+            }
+            DMesh3 mirrored = TJunctionChart(20, 10, new Vector2d(1, 0), new Vector2d(30, 19));
+            int offset = mesh.MaxVertexID;
+            MeshEditor.Append(mesh, mirrored);
+            foreach (int v in mirrored.VertexIndices()) { Vector3d p = mirrored.GetVertex(v); uv.Add(new Vector2d(-p.x, p.y)); }
+            Assert.True(UVOverlap.Compute(mesh, uv).OverlappingPairs > 10000);
+            var packer = new UVPacker(mesh) { UV = uv, Padding = 0.01 };
+            var r = packer.Compute();
+            Assert.True(r.Succeeded, r.Error);
+            Assert.Equal(2, packer.ChartCount);
+            Assert.Equal(0, packer.RepairedVertices);
+            Assert.Equal(0, packer.UnrotatedCharts);
+            // without the check the layout is the same here
+            var plain = new UVPacker(mesh) { UV = uv, Padding = 0.01, ExactCheck = false }.Compute();
+            foreach (int v in mesh.VertexIndices())
+                Assert.Equal(plain.UV[v], r.UV[v]);
+        }
+
+        [Fact]
+        public void UVPacker_NeedleTrianglesKeepTheirOrientation()
+        {
+            // needles whose apex is 1e-20 (relative) above the base: translating them into the unit square rounds
+            // the apex onto the base line, a degenerate UV triangle that is not degenerate in the input; the apex is
+            // moved back up by a few ulps
+            DMesh3 mesh = new DMesh3();
+            var uv = new List<Vector2d>();
+            for (int k = 0; k < 12; ++k) {
+                double h = (1 + k) * 1e-20;
+                int a = mesh.AppendVertex(new Vector3d(0, 3 * k, 0)), b = mesh.AppendVertex(new Vector3d(1, 3 * k, 0)),
+                    c = mesh.AppendVertex(new Vector3d(0.37, 3 * k + h, 0));
+                uv.Add(new Vector2d(2 * k, 0)); uv.Add(new Vector2d(2 * k + 1, 0)); uv.Add(new Vector2d(2 * k + 0.37, h));
+                mesh.AppendTriangle(a, b, c);
+            }
+            Assert.True(UVOverlap.Compute(mesh, uv).IsInjective, "input");
+            var packer = new UVPacker(mesh) { UV = uv, Padding = 0.01, AllowRotation = false, ScaleChartsToSurfaceArea = false };
+            var r = packer.Compute();
+            Assert.True(r.Succeeded, r.Error);
+            var ov = UVOverlap.Compute(mesh, r.UV);
+            Assert.True(ov.IsInjective, ov.DegenerateTriangles + " degenerate, " + ov.InvertedTriangles + " inverted");
+            Assert.True(packer.RepairedVertices > 0, "repaired " + packer.RepairedVertices);
+            foreach (int v in mesh.VertexIndices()) {
+                Assert.InRange(r.UV[v].x, 0, 1);
+                Assert.InRange(r.UV[v].y, 0, 1);
+                // ChartBounds include the moved vertices
+                AxisAlignedBox2d box = packer.ChartBounds[packer.TriangleChart[v / 3]];
+                Assert.True(r.UV[v].x >= box.Min.x && r.UV[v].x <= box.Max.x && r.UV[v].y >= box.Min.y && r.UV[v].y <= box.Max.y);
+            }
+        }
+
+        [Fact]
         public void UVPacker_InvalidInput()
         {
             DMesh3 mesh = FlatDisc(3, 8);

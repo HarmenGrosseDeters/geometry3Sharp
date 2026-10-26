@@ -27,6 +27,12 @@ namespace g3
         public double Padding = 0.005;
         /// <summary> rotate charts to their minimum-area bounding rectangle and by 90 degrees when it packs better </summary>
         public bool AllowRotation = true;
+        /// <summary>
+        /// check the placed charts with exact predicates and undo rounding defects (see the class summary). Its cost
+        /// grows with the overlapping triangle pairs of the input: switch it off for charts that overlap themselves
+        /// in the input UVs anyway
+        /// </summary>
+        public bool ExactCheck = true;
         /// <summary> scale each chart so that its UV area equals its surface area before packing </summary>
         public bool ScaleChartsToSurfaceArea = true;
 
@@ -100,25 +106,34 @@ namespace g3
             List<Chart> charts = findCharts(uv);
             double pad, side, scale;
             bool padded;
-            int iterations;
+            int iterations = 0;
             Vector2d[] outUV;
+            Defects defects;
             while (true) {
                 foreach (Chart c in charts)
                     prepare(c, uv);
-                if (!pack(charts, out pad, out side, out padded, out iterations))
+                int packIterations;
+                if (!pack(charts, out pad, out side, out padded, out packIterations))
                     return Result = ParameterizationResult.Failure(ParameterizationStatus.InvalidMesh, "all charts have zero size");
+                iterations += packIterations;
                 scale = 1.0 / side;
                 outUV = place(charts, pad, scale);
+                defects = ExactCheck ? roundingDefects(uv, outUV) : new Defects();
                 // a rotation by any other angle than a multiple of 90 degrees is rounded: vertices exactly on the
                 // line of another triangle's edge (T-junctions, collinear chains of a flat CAD face) can move to the
                 // wrong side, and the chart overlaps itself. Scaling and translating keep each coordinate's order,
                 // so such charts are packed again without the rotation.
-                if (!AllowRotation || !uncoverRotationDefects(charts, outUV))
+                if (!AllowRotation || !unrotateDefectCharts(charts, defects))
                     break;
             }
             // scaling and translating still round: a vertex nearly on the line of another triangle's edge can end
             // on its other side. Such vertices are moved by a few ulps back to their side in the input UVs.
-            repairRounding(uv, outUV);
+            repairRounding(uv, outUV, defects);
+            for (int ci = 0; ci < charts.Count; ++ci) {
+                AxisAlignedBox2d box = AxisAlignedBox2d.Empty;
+                foreach (int v in charts[ci].Verts) box.Contain(outUV[v]);
+                ChartBounds[ci] = box;
+            }
             ChartCount = charts.Count;
             Coverage = 0;
             foreach (int tid in Mesh.TriangleIndices()) {
@@ -172,17 +187,45 @@ namespace g3
             return outUV;
         }
 
-        // charts rotated to their minimum-area rectangle whose placed UVs have overlapping, inverted or degenerate
-        // triangles (exact test) lose the rotation; true if there are such charts
-        bool uncoverRotationDefects(List<Chart> charts, Vector2d[] outUV)
+        // UV triangles of the placed charts that overlap (within a chart), flip or collapse, but do not in the
+        // input UVs: defects of the input itself (overlapping or mirrored input charts) are not the packer's
+        class Defects
         {
-            if (!charts.Any(c => c.Angled))
-                return false;
-            UVOverlap ov = UVOverlap.Compute(Mesh, outUV, int.MaxValue);
+            public List<Index2i> Pairs = new List<Index2i>();
+            public List<int> Triangles = new List<int>();
+            public int Count { get { return Pairs.Count + Triangles.Count; } }
+        }
+
+        const int MaxCheckedPairs = 100000;
+
+        Defects roundingDefects(IList<Vector2d> uv, Vector2d[] outUV)
+        {
+            var d = new Defects();
+            UVOverlap ov = UVOverlap.Compute(Mesh, outUV, MaxCheckedPairs);
+            if (ov.IsInjective)
+                return d;
+            foreach (Index2i pr in ov.Pairs) {
+                if (TriangleChart[pr.a] != TriangleChart[pr.b])
+                    continue;
+                Index3i a = Mesh.GetTriangle(pr.a), b = Mesh.GetTriangle(pr.b);
+                if (ExactPredicates.Orient2d(uv[a.a], uv[a.b], uv[a.c]) > 0 && ExactPredicates.Orient2d(uv[b.a], uv[b.b], uv[b.c]) > 0
+                    && !UVOverlap.InteriorsOverlap(uv[a.a], uv[a.b], uv[a.c], uv[b.a], uv[b.b], uv[b.c]))
+                    d.Pairs.Add(pr);
+            }
+            foreach (int tid in ov.InvertedTriangleIds.Concat(ov.DegenerateTriangleIds)) {
+                Index3i t = Mesh.GetTriangle(tid);
+                if (ExactPredicates.Orient2d(uv[t.a], uv[t.b], uv[t.c]) > 0)
+                    d.Triangles.Add(tid);
+            }
+            return d;
+        }
+
+        // charts rotated to their minimum-area rectangle with defects lose the rotation; true if there are such
+        bool unrotateDefectCharts(List<Chart> charts, Defects defects)
+        {
             var bad = new HashSet<int>();
-            foreach (Index2i pr in ov.Pairs) { bad.Add(TriangleChart[pr.a]); bad.Add(TriangleChart[pr.b]); }
-            foreach (int t in ov.InvertedTriangleIds) bad.Add(TriangleChart[t]);
-            foreach (int t in ov.DegenerateTriangleIds) bad.Add(TriangleChart[t]);
+            foreach (Index2i pr in defects.Pairs) bad.Add(TriangleChart[pr.a]);
+            foreach (int t in defects.Triangles) bad.Add(TriangleChart[t]);
             bool any = false;
             foreach (int ci in bad)
                 if (charts[ci].Angled) {
@@ -193,27 +236,31 @@ namespace g3
             return any;
         }
 
-        // UV triangles that overlap, flip or collapse in outUV but not in uv: the vertices of each such triangle
-        // (pair) that changed sides relative to an edge of the other (or the opposite edge of its own) triangle
-        // are moved back to their side in uv, a few ulps at a time, checked with exact predicates
-        void repairRounding(IList<Vector2d> uv, Vector2d[] outUV)
+        // the vertices of each defect triangle (pair) that changed sides relative to an edge of the other (or the
+        // opposite edge of its own) triangle are moved back to their side in uv, a few ulps at a time, checked with
+        // exact predicates. A round that does not reduce the defects is undone.
+        void repairRounding(IList<Vector2d> uv, Vector2d[] outUV, Defects defects)
         {
-            for (int round = 0; round < 8; ++round) {
-                UVOverlap ov = UVOverlap.Compute(Mesh, outUV, int.MaxValue);
-                if (ov.IsInjective)
-                    return;
+            for (int round = 0; round < 8 && defects.Count > 0; ++round) {
+                Vector2d[] before = (Vector2d[])outUV.Clone();
                 int moved = 0;
-                foreach (Index2i pr in ov.Pairs) {
+                foreach (Index2i pr in defects.Pairs) {
                     Index3i a = Mesh.GetTriangle(pr.a), b = Mesh.GetTriangle(pr.b);
                     moved += restoreSides(uv, outUV, a, b) + restoreSides(uv, outUV, b, a);
                 }
-                foreach (int tid in ov.InvertedTriangleIds.Concat(ov.DegenerateTriangleIds)) {
+                foreach (int tid in defects.Triangles) {
                     Index3i t = Mesh.GetTriangle(tid);
                     moved += restoreSides(uv, outUV, t, t);
                 }
-                RepairedVertices += moved;
                 if (moved == 0)
                     return;
+                Defects after = roundingDefects(uv, outUV);
+                if (after.Count >= defects.Count) {
+                    Array.Copy(before, outUV, outUV.Length);
+                    return;
+                }
+                RepairedVertices += moved;
+                defects = after;
             }
         }
 
@@ -249,10 +296,13 @@ namespace g3
                     n = n.Normalized;
                     Vector2d x0 = outUV[x];
                     double step = 4 * MathUtil.Epsilon * Math.Max(1, Math.Max(Math.Abs(x0.x), Math.Abs(x0.y)));
-                    // at most about 2^12 ulps; else the vertex stays
+                    // at most 2^13 machine epsilons (relative to max(1, |x|)), inside the unit square; else the vertex stays
                     bool done = false;
                     for (int k = 0; k < 12 && !done; ++k, step *= 2) {
-                        outUV[x] = x0 + step * n;
+                        Vector2d y = x0 + step * n;
+                        if (!(y.x >= 0 && y.x <= 1 && y.y >= 0 && y.y <= 1))
+                            break;
+                        outUV[x] = y;
                         done = ExactPredicates.Orient2d(outUV[p], outUV[q], outUV[x]) == want;
                     }
                     if (done)

@@ -136,6 +136,9 @@ Now the packed charts are checked with exact predicates: a chart with overlappin
 triangles is packed again without the rotation (`UnrotatedCharts`), and a vertex that rounding moved across a
 nearby edge is moved back to its side in the input by a few ulps (`RepairedVertices`).
 
+Before: master 2be7cd8, after: master fcf8da7 with the check; between the two only doc comments and
+`ComponentCount` changed in `UVAtlasGenerator`, so the difference is the check.
+
 | main set (250) | before (master 2be7cd8) | after |
 |---|---|---|
 | Success | 155 | 159 |
