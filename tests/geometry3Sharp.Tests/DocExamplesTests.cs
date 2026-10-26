@@ -494,5 +494,21 @@ namespace geometry3Sharp.Tests
             Assert.Equal(CommonSubdivisionStatus.Success, status);
             Assert.Equal(MeshMeasurements.AreaT(mesh, mesh.TriangleIndices()), MeshMeasurements.AreaT(overlay, overlay.TriangleIndices()), 9);
         }
+
+        [Fact]
+        public void IntrinsicTriangulationExample_GeodesicPathIsStraightOnAPlane()
+        {
+            // on a plane of 169 degree triangles the geodesic is the straight segment
+            DMesh3 mesh = IntrinsicGeodesicsTests.ObtusePlane(10, 100, 1.0, 0.05);
+            int a = IntrinsicGeodesicsTests.NearestVertex(mesh, new Vector3d(1, 0.5, 0));
+            int b = IntrinsicGeodesicsTests.NearestVertex(mesh, new Vector3d(9, 4.5, 0));
+            double length;
+            List<Vector3d> path = IntrinsicTriangulationExample.GeodesicPath(mesh, a, b, out length);
+            Assert.NotNull(path);
+            Vector3d pa = mesh.GetVertex(a), pb = mesh.GetVertex(b);
+            Assert.True(Math.Abs(length - pa.Distance(pb)) < 1e-9, $"{length} vs {pa.Distance(pb)}");
+            var line = new Segment3d(pa, pb);
+            foreach (Vector3d p in path) Assert.True(line.DistanceSquared(p) < 1e-18);
+        }
     }
 }

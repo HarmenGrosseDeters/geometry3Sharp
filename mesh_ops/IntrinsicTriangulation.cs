@@ -414,6 +414,20 @@ namespace gs
             return true;
         }
 
+        /// <summary>
+        /// Where the record of halfedge x is after FlipEdge(h) (with twin ta = Twin(h) before the flip): the
+        /// flip moves the four outer halfedges of the diamond to other slots (see FlipEdge); h and ta
+        /// themselves then hold the new edge, other halfedges are not moved.
+        /// </summary>
+        internal static int FlipRelocated(int x, int h, int ta)
+        {
+            if (x == Next(h)) return Prev(h);
+            if (x == Prev(ta)) return Next(h);
+            if (x == Prev(h)) return Next(ta);
+            if (x == Next(ta)) return Prev(ta);
+            return x;
+        }
+
 
         /// <summary>
         /// Cotan Laplacian of the triangulation (positive semidefinite: L_ii = sum of the weights, L_ij =

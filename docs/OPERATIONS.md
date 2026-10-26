@@ -49,7 +49,7 @@ Add both: `using g3; using gs;`.
 | Nearest neighbours among points | `PointHashGrid3d<T>`, `PointAABBTree3` | [PointQueriesExample](examples/PointQueriesExample.cs) |
 | Signed distance field, offset surfaces | `MeshSignedDistanceGrid`, `DenseGridTrilinearImplicit`, `MarchingCubes` | [OffsetSurfaceExample](examples/OffsetSurfaceExample.cs) |
 | Hausdorff distance, geodesic distance | `gs.MeshHausdorffDistance`, `gs.MeshGeodesicDistance` | [DistancesExample](examples/DistancesExample.cs) |
-| Intrinsic Delaunay triangulation and refinement: cotan Laplacian without negative weights, geodesics and vector heat on poor meshes, overlay with the input | `gs.IntrinsicTriangulation`, `gs.MeshGeodesicDistance.IntrinsicRefine`, `gs.VectorHeatMethod.IntrinsicRefine`, `gs.IntrinsicCommonSubdivision` | [IntrinsicTriangulationExample](examples/IntrinsicTriangulationExample.cs) |
+| Intrinsic Delaunay triangulation and refinement: cotan Laplacian without negative weights, geodesics and vector heat on poor meshes, overlay with the input; geodesic paths and loops (FlipOut) | `gs.IntrinsicTriangulation`, `gs.MeshGeodesicDistance.IntrinsicRefine`, `gs.VectorHeatMethod.IntrinsicRefine`, `gs.IntrinsicCommonSubdivision`, `gs.MeshGeodesicPath` | [IntrinsicTriangulationExample](examples/IntrinsicTriangulationExample.cs) |
 | UV atlas of any mesh: seams, charts, BFF with cones, packing, exact overlap test | `UVAtlasGenerator`, `MeshDiscCut`, `MeshChartSegmentation`, `ConeFlattening`, `UVOverlap`, `UVPacker` | [UVAtlasExample](examples/UVAtlasExample.cs) |
 | Parameterize a disc | `BoundaryFirstFlattening`, `LSCMParameterization`, `ARAPParameterization`, `SLIMParameterization`, `ParameterizationDistortion` | [UVAtlasExample](examples/UVAtlasExample.cs) |
 
@@ -192,6 +192,31 @@ reported at the mesh vertices only.
   with an `Error` instead of wrong faces. Integer (normal) coordinates (Gillespie, Sharp and Crane 2021),
   which make this combinatorially exact, are not implemented: with flips, insertions and edge splits the
   traces are exact up to rounding, and the checks catch the cases where rounding would matter.
+
+#### Geodesic paths and loops
+
+```csharp
+var path = new MeshGeodesicPath(mesh);
+path.Compute(source, target);                       // Status; Length; Path (polyline); PathVertices
+path.ComputeThrough(new[] { a, b, c }, closed: true);   // through fixed waypoints
+path.Shorten(edgeLoop, closed: true);               // tighten a loop along mesh edges to a closed geodesic
+```
+
+`MeshGeodesicPath` starts from a path along mesh edges (Dijkstra between the waypoints, or the given one) and
+straightens it by intrinsic edge flips (FlipOut, Sharp and Crane 2020): wherever the path turns by less than pi
+at a free vertex, the edges inside that wedge are flipped and the path rerouted along its outer side. The
+result is an exact geodesic of the mesh's (intrinsic) geometry, in the homotopy class of the initial path: it
+passes through a vertex only where the angle is at least pi on both sides (saddles, reflex boundary corners).
+On developable meshes it is the straight line in the unfolding to rounding (the tests check plane, cube surface
+and cylinder against closed forms). `Compute(a, b)` from the Dijkstra path usually gives the globally shortest
+geodesic, but this is not guaranteed. The mesh is not modified.
+
+- **Status**: `Success` (geodesic), `Collapsed` (a contractible closed loop shrank to a point), `NotConverged`
+  (`MaxIterations`; valid and shorter), `Stuck` (a wedge holds edges of the same, self-overlapping path, which
+  are not flipped; valid), `NoPath` (waypoints not connected), `InvalidInput` (ids, a non-adjacent edge path,
+  bowtie vertices).
+- Boundaries are allowed (the path stays on the surface); a geodesic loop around a handle or a cylinder is found
+  with `Shorten(loop, closed: true)`, also when it winds around more than once.
 
 See [IntrinsicTriangulationExample](examples/IntrinsicTriangulationExample.cs).
 
