@@ -239,19 +239,74 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void SparseCholesky_RejectsIndefiniteAndSingular()
+        public void SparseCholesky_RejectsIndefiniteAndExactlySingular()
         {
             SparseCholesky chol = new SparseCholesky(3);
             chol.Add(0, 0, 1); chol.Add(1, 1, 1); chol.Add(2, 2, 1); chol.Add(0, 2, 2);
             Assert.False(chol.Factorize());
             Assert.NotNull(chol.Error);
-            // graph Laplacian without a fixed vertex: singular
+            // graph Laplacian without a fixed vertex, small integers: the last pivot is exactly 0
             SparseCholesky lap = new SparseCholesky(3);
             for (int i = 0; i < 3; ++i) {
                 int j = (i + 1) % 3;
                 lap.Add(i, i, 1); lap.Add(j, j, 1); lap.Add(i, j, -1);
             }
             Assert.False(lap.Factorize());
+        }
+
+        [Fact]
+        public void SparseCholesky_IsValidDoesNotDetectSingularity()
+        {
+            // the documented limit of IsValid: the Laplacian of a ring (edge weights 1..3, one heavy edge) without a
+            // fixed vertex is singular, but its last pivot is rounding noise and often positive. Which rings are
+            // accepted depends on the ordering and the summation order, so several are tried: at least one of
+            // them is accepted, and every accepted one gives a solution dominated by the null vector.
+            Func<int, double, bool, SparseCholesky> ring = (n, heavy, pin) => {
+                var c = new SparseCholesky(n);
+                for (int i = 0; i < n; ++i) {
+                    int j = (i + 1) % n;
+                    double w = j == 0 ? heavy : 1 + i % 3;
+                    c.Add(i, i, w); c.Add(j, j, w); c.Add(i, j, -w);
+                }
+                if (pin)
+                    c.Add(0, 0, 1);
+                c.Factorize();
+                return c;
+            };
+            int accepted = 0;
+            foreach (double heavy in new[] { 10.0, 100, 1000, 1e4 })
+                for (int n = 20; n <= 72; n += 4) {
+                    SparseCholesky singular = ring(n, heavy, false);
+                    if (!singular.IsValid)
+                        continue;
+                    accepted++;
+                    // L x = e_0 has no solution (the rows of L sum to zero, e_0 does not), yet Solve() returns
+                    // finite values with a huge mean
+                    double[] e0 = new double[n], y = new double[n];
+                    e0[0] = 1;
+                    singular.Solve(e0, y);
+                    double sum = 0;
+                    for (int i = 0; i < n; ++i) {
+                        Assert.False(double.IsNaN(y[i]) || double.IsInfinity(y[i]));
+                        sum += y[i];
+                    }
+                    Assert.True(Math.Abs(sum / n) > 1e6, "n " + n + " heavy " + heavy + " mean " + sum / n);
+                }
+            Assert.True(accepted > 0);
+
+            // a mass term on vertex 0 makes the matrix definite: (L + e_0 e_0^T) x = b is solved accurately
+            int m = 60;
+            SparseCholesky pinned = ring(m, 1000, true);
+            Assert.True(pinned.IsValid);
+            double[] b = new double[m], x = new double[m];
+            b[0] = 1; b[m / 2] = -1;
+            pinned.Solve(b, x);
+            for (int i = 0; i < m; ++i) {
+                int p = (i + m - 1) % m, q = (i + 1) % m;
+                double wp = p == m - 1 ? 1000 : 1 + p % 3, wq = q == 0 ? 1000 : 1 + i % 3;
+                double r = (wp + wq) * x[i] - wp * x[p] - wq * x[q] + (i == 0 ? x[0] : 0) - b[i];
+                Assert.True(Math.Abs(r) < 1e-9, "residual " + r + " at " + i);
+            }
         }
 
 
