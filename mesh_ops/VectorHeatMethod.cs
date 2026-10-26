@@ -95,12 +95,10 @@ namespace gs
             builtRefine = IntrinsicRefine; builtRefineAngle = RefineMinAngle; builtRefineMax = RefineMaxInsertions;
             builtTimeFactor = TimeFactor;
             timeScale = 1;
-            triangulation = new IntrinsicTriangulation(Mesh);
             refinement = null;
-            if (IntrinsicDelaunay && IntrinsicRefine)
-                refinement = triangulation.DelaunayRefine(RefineMinAngle, RefineMaxInsertions);
-            else if (IntrinsicDelaunay)
-                triangulation.FlipToDelaunay();
+            triangulation = IntrinsicDelaunay
+                ? IntrinsicTriangulation.BuildDelaunay(Mesh, IntrinsicRefine, out refinement, RefineMinAngle, RefineMaxInsertions)
+                : new IntrinsicTriangulation(Mesh);
             IntrinsicTriangulation T = triangulation;
             N = T.VertexCount;
             mass = T.VertexAreas();
