@@ -74,8 +74,11 @@ first read as test gaps. Differential tests aimed at them changed the picture:
    - Shewchuk's bounds are worst-case bounds with a margin of several times the typical error. A bound
      made smaller by one term gives a wrong sign only on inputs constructed for that worst case, as for
      the permanent above.
-2. **Underflow guards:** `permanent < UnderflowLimit` and `>=` only choose between two exact paths.
-   Equivalent.
+2. **Underflow guards:**
+   - `>=` instead of `>` differs only when the permanent equals `UnderflowLimit` exactly. Equivalent.
+   - `<` lets the filter decide only for tiny permanents (below `UnderflowLimit`). There the bound rests on
+     the absolute subnormal term alone, which item 1 leaves untested. The mutant is equivalent if that term is
+     sound. Its margin (`UnderflowUnit`) is 256 times the smallest subnormal.
 3. **Input checks in `ExactPredicates`:**
    - The `throw` for NaN in `Expansion.in_range` is equivalent: NaN fails the range check, and the integer
      path throws anyway.
@@ -87,7 +90,8 @@ first read as test gaps. Differential tests aimed at them changed the picture:
      `ApproxVector3d` exactly, in integer arithmetic, over the whole double range: subnormal results,
      overflow, the sign of zero, quotients of very different sizes.
    - The file's mutants: killed 126 before, 154 after; without coverage 16 before, 2 after. The file's score
-     went from 65 % to 81 %.
+     went from 65 % to 81 %. (The second run counts 190 mutants instead of 195, because Stryker's
+     "block already covered" filter removes a different number of them.)
    - The remaining survivors are mostly equivalent:
      - exception messages;
      - `>>` against `>>>` on a masked value;

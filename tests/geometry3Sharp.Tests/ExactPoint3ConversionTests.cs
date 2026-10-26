@@ -184,7 +184,8 @@ namespace geometry3Sharp.Tests
             Assert.Equal(Math.Pow(2, -10), v.x);
             Assert.Equal(3 * Math.Pow(2, -5), v.y);
             Assert.Equal(0.0, v.z);         // 2^-1100: below the subnormal range
-            // a quotient in the subnormal range: the double quotient loses its relative precision
+            // quotients in the subnormal range, with W beyond the double range as well: the fallback is taken (the
+            // plain division would give 0 here)
             ExactPoint3 s = ExactPoint3.Create(3, 5, 7, BigInteger.One << 1060);
             Vector3d a = s.ApproxVector3d(), e = s.ToVector3d();
             Assert.Equal(e, a);
