@@ -87,18 +87,24 @@ namespace g3
         const double OrientedArea = 100;
         // vertices per position (SharedPositionsTouch)
         Dictionary<Vector3d, List<int>> atPosition;
-        // spatial index over the triangles at the last build; triangles changed since are in dirty
-        TriangleBoxTree tree;
-        List<int> treeTids;
+        // spatial index over the triangles at the last build; triangles changed since are in dirty, with an index
+        // of their own (rebuilt when they change, it is small)
+        TriangleBoxTree tree, dirtyTree;
+        List<int> treeTids, dirtyTids;
         HashSet<int> dirty = new HashSet<int>();
+        // applied edits so far (a version of the mesh)
+        long version;
         // vertices of applied edits
         HashSet<int> touched = new HashSet<int>();
+        // vertices of the triangles changed in the current pass
+        HashSet<int> changed = new HashSet<int>();
 
         /// <summary> repair (see class comment); returns IsClean </summary>
         public bool Apply()
         {
             Collapses = Flips = Moves = Zips = RemovedComponents = RemovedTriangles = 0;
             touched.Clear();
+            changed.Clear();
             if (Mesh.TriangleCount == 0) {
                 InitialIntersections = InitialDegenerate = RemainingIntersections = RemainingDegenerate = 0;
                 return true;
@@ -119,11 +125,18 @@ namespace g3
             InitialDegenerate = bad.Count;
             for (int pass = 0; pass < MaxPasses && (pairs.Count > 0 || bad.Count > 0); ++pass) {
                 int edits = Collapses + Flips + Moves + Zips;
+                // after the first pass, only where the mesh changed since (elsewhere the same edits would fail again)
+                HashSet<int> retry = (pass > 0) ? changed : null;
+                changed = new HashSet<int>();
                 // smallest first: their contraction often fixes the larger neighbours too
                 bad.Sort((x, y) => area(x).CompareTo(area(y)));
-                foreach (int t in bad)
-                    if (Mesh.IsTriangle(t) && is_bad(t))
+                foreach (int t in bad) {
+                    if (Mesh.IsTriangle(t) == false || is_bad(t) == false)
+                        continue;
+                    Index3i tv = Mesh.GetTriangle(t);
+                    if (retry == null || retry.Contains(tv.a) || retry.Contains(tv.b) || retry.Contains(tv.c))
                         fix_degenerate(t);
+                }
                 // (no edit adds an intersecting pair: without pairs there are none to find)
                 if (pairs.Count > 0) {
                     if (Collapses + Flips + Moves + Zips > edits)
@@ -272,13 +285,21 @@ namespace g3
             }
             tree = new TriangleBoxTree(boxes);
             dirty.Clear();
+            dirtyTree = null;
+            version++;
         }
 
         void mark_dirty(int tid)
         {
             dirty.Add(tid);
+            dirtyTree = null;
+            version++;
+            if (Mesh.IsTriangle(tid)) {
+                Index3i tv = Mesh.GetTriangle(tid);
+                changed.Add(tv.a); changed.Add(tv.b); changed.Add(tv.c);
+            }
             // (the changed triangles are searched linearly)
-            if (dirty.Count > Math.Min(Math.Max(256, Mesh.TriangleCount / 64), 2048))
+            if (dirty.Count > Math.Max(1024, Mesh.TriangleCount / 16))
                 rebuild_tree();
         }
 
@@ -296,9 +317,23 @@ namespace g3
                 if (dirty.Contains(t) == false && Mesh.IsTriangle(t))
                     result.Add(t);
             });
-            foreach (int t in dirty)
-                if (Mesh.IsTriangle(t) && overlaps(query, box(Mesh.GetTriangle(t))))
-                    result.Add(t);
+            if (dirty.Count == 0)
+                return;
+            if (dirtyTree == null) {
+                dirtyTids = new List<int>();
+                var boxes = new List<AxisAlignedBox3d>();
+                int save = movedV;
+                movedV = -1;
+                foreach (int t in dirty) {
+                    if (Mesh.IsTriangle(t) == false)
+                        continue;
+                    dirtyTids.Add(t);
+                    boxes.Add(box(Mesh.GetTriangle(t)));
+                }
+                movedV = save;
+                dirtyTree = new TriangleBoxTree(boxes);
+            }
+            dirtyTree.Query(query, (i) => result.Add(dirtyTids[i]));
         }
 
         List<Index2i> intersecting_pairs()
@@ -360,6 +395,10 @@ namespace g3
         // intersecting pairs and degenerate triangles among the removed triangles and their neighbours, with
         // the current geometry, against the same for the added triangles with the proposed geometry: true if
         // neither count grows and their sum drops, and no added triangle turns over
+        long cacheVersion = -1;
+        int cacheOldI;
+        readonly List<int> cacheRemoved = new List<int>();
+
         bool improves(double displacement = 0)
         {
             int saveV = movedV;
@@ -370,14 +409,13 @@ namespace g3
                 foreach (int u in there)
                     if (u != saveV && u != vanishing)
                         return false;
+            // the cheap tests first: degenerate triangles and orientation, then the intersections
             movedV = -1;
             int oldI = 0, oldB = 0;
-            var removedSet = new HashSet<int>(removed);
             var oldCross = new Vector3d[removed.Count];
             Vector3d crossSum = Vector3d.Zero;
             for (int i = 0; i < removed.Count; ++i) {
-                int r = removed[i];
-                Index3i t = Mesh.GetTriangle(r);
+                Index3i t = Mesh.GetTriangle(removed[i]);
                 Triangle3d T = triangle(t);
                 oldCross[i] = (T.V1 - T.V0).Cross(T.V2 - T.V0);
                 if (is_bad(t))
@@ -389,20 +427,8 @@ namespace g3
                     oldCross[i] = Vector3d.Zero;
                 else
                     crossSum += oldCross[i];
-                if (ExactTriangleIntersection.IsDegenerate(ref T))
-                    continue;
-                near(box(t), scratch);
-                foreach (int x in scratch) {
-                    if (x == r || (removedSet.Contains(x) && x < r))
-                        continue;
-                    Index3i u = Mesh.GetTriangle(x);
-                    Triangle3d U = triangle(u);
-                    if (ExactTriangleIntersection.IsDegenerate(ref U) == false && intersects(t, ref T, u, ref U))
-                        oldI++;
-                }
             }
             movedV = saveV; movedPos = savePos;
-
             int newI = 0, newB = 0;
             var tris = new Triangle3d[added.Count];
             var degen = new bool[added.Count];
@@ -420,6 +446,37 @@ namespace g3
                 if (newB > oldB)
                     return false;
             }
+
+            movedV = -1;
+            var removedSet = new HashSet<int>(removed);
+            // (the same triangles were evaluated for the last proposal, eg a move by another distance: the same count)
+            bool cached = version == cacheVersion && removed.Count == cacheRemoved.Count;
+            for (int i = 0; cached && i < removed.Count; ++i)
+                cached = removed[i] == cacheRemoved[i];
+            if (cached)
+                oldI = cacheOldI;
+            for (int i = 0; cached == false && i < removed.Count; ++i) {
+                int r = removed[i];
+                Index3i t = Mesh.GetTriangle(r);
+                Triangle3d T = triangle(t);
+                if (ExactTriangleIntersection.IsDegenerate(ref T))
+                    continue;
+                near(box(t), scratch);
+                foreach (int x in scratch) {
+                    if (x == r || (removedSet.Contains(x) && x < r))
+                        continue;
+                    Index3i u = Mesh.GetTriangle(x);
+                    Triangle3d U = triangle(u);
+                    if (ExactTriangleIntersection.IsDegenerate(ref U) == false && intersects(t, ref T, u, ref U))
+                        oldI++;
+                }
+            }
+            cacheVersion = version; cacheOldI = oldI;
+            cacheRemoved.Clear(); cacheRemoved.AddRange(removed);
+            movedV = saveV; movedPos = savePos;
+            // (with as many degenerate triangles as before, it must remove an intersection)
+            if (newB == oldB && oldI == 0)
+                return false;
             for (int i = 0; i < added.Count; ++i) {
                 if (degen[i])
                     continue;
