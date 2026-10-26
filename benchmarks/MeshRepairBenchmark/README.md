@@ -845,26 +845,31 @@ offset plus what it wraps over), but it turns 12 self-intersecting results into 
 
 ### Simplifying the wrap result (`MeshRobustRepair.SimplifyAlphaWrap`)
 The wrap has triangles of about alpha everywhere, also on flat regions: median 160k triangles on the 13 cases above.
-`SimplifyAlphaWrap` (default on) reduces it (quadric error up to offset², no collapse that creates a
+`SimplifyAlphaWrap` (default on) reduces it (quadric error up to (offset / 2)², no collapse that creates a
 self-intersection) and keeps the result only if it is clean and a one-sided Hausdorff upper bound certifies it
-within the offset of the unsimplified wrap; otherwise the unsimplified wrap is the result. `BENCH_WRAP_SIMPLIFY=0`
-turns it off; `robust_wrap_tris` is the triangle count of the unsimplified wrap. The 13 wrapped meshes, 2 in
-parallel:
+within half the offset of the unsimplified wrap, so that it stays about half an offset outside the input; otherwise
+the unsimplified wrap is the result (`AlphaWrapSimplified`). `BENCH_WRAP_SIMPLIFY=0` turns it off;
+`robust_wrap_tris` is the triangle count of the unsimplified wrap. The 13 wrapped meshes on master `42f53be` (with
+#145) plus this change, 2 in parallel:
 
-| 13 wrap cases | not simplified | with `Reducer.MaxDeviation` (first version) | simplified, checked afterwards |
-|---|---|---|---|
-| triangles, median (max) | 160k (415k) | 26k (149k) | 30k (149k) |
-| triangles / not simplified, median (p10, p90) | | | 0.18 (0.09, 0.54) |
-| Hausdorff to the input, median | 2.20 % | | 2.20 % (largest change 0.014 points) |
-| IoU, median | 0.769 | | 0.768 (largest change 0.003) |
-| clean + no exact self-intersections | 13 (1 not computed) | 12 (1 timed out at 900 s) | 13 |
-| time per mesh, median (max) | 46 s (64 s) | 159 s (826 s) | 49 s (122 s) |
+| 13 wrap cases | not simplified | simplified |
+|---|---|---|
+| triangles, median (max) | 160k (415k) | 34k (170k) |
+| triangles / not simplified, median (p10, p90) | | 0.29 (0.13, 0.66) |
+| simplified wrap accepted | | 13 of 13 |
+| Hausdorff to the input, median | 2.20 % | 2.20 % (largest change 0.014 points) |
+| IoU, median | 0.769 | 0.769 (largest change 0.002) |
+| clean + no exact self-intersections | 12 (+1 not computed, > 300k triangles) | 13 |
+| time per mesh, median (max) | 33 s (50 s) | 55 s (141 s) |
+| ... of it the simplification, median (max) | | 24 s (101 s) |
 
-The first version certified every collapse (`Reducer.MaxDeviation`); on these meshes that took 10 to 30 times
-longer than the self-intersection guard and changed no triangle count (46244.stl: 15356 triangles either way,
-176 s vs 14 s). Checking the whole result afterwards is enough: 12 of 13 pass the check (measured on 4 of them:
-0.73 to 0.94 offsets from the wrap). On 87345.stl the reduced wrap is 2.5 offsets away (thin parts, where the quadric underestimates the
-distance); the check rejects it and the unsimplified wrap (63k triangles) is returned.
+Two earlier versions on the same 13 meshes (master `3d58441`):
+- Certifying every collapse (`Reducer.MaxDeviation` = offset) took 10 to 30 times longer than the
+  self-intersection guard and changed no triangle count (46244.stl: 15356 triangles either way, 176 s vs 14 s):
+  median 159 s per mesh, one timeout at 900 s. Checking the whole result afterwards is enough.
+- A bound of a full offset gives fewer triangles (median 30k; 46244.stl 15k instead of 22k), but the simplified
+  wrap can then reach the input (the wrap lies only about one offset outside it), and on 87345.stl the quadric
+  underestimated the distance (2.5 offsets, rejected by the check).
 
 ## Rejected rule 1 Steiner points in the alpha wrap: cause and fix
 The cause was the oracle's triangle normals, which came from `Vector3d.Normalized`. That returns zero below an absolute length of 2.2e-16, so a small but valid triangle got no normal (99911 has 10 of them). `slab_entry` then treated every segment through the triangle's node box as starting inside the offset volume (`FirstEntry` = 0). The wrap inserted the far end of the dual edge, which lies outside the box, and the insertion was rejected (`Outside`). The facet stayed on the result and could be closer to the input than the offset.
