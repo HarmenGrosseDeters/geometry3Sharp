@@ -360,9 +360,9 @@ namespace gs
         // of a city model, are then hit as often as a single one).
         internal static SampleRegion sample_region(DMesh3 input, DMesh3 result)
         {
-            AxisAlignedBox3d clip = triangle_bounds(input);
+            AxisAlignedBox3d clip = TriangleBounds(input);
             if (result != null && result.TriangleCount > 0)
-                clip.Contain(triangle_bounds(result));
+                clip.Contain(TriangleBounds(result));
             clip.Expand(0.01 * clip.DiagonalLength);
             var boxes = new List<AxisAlignedBox3d>();
             if (component_cover(input, clip, boxes) == false || (result != null && component_cover(result, clip, boxes) == false))
@@ -404,7 +404,11 @@ namespace gs
             return true;
         }
 
-        static AxisAlignedBox3d triangle_bounds(DMesh3 mesh)
+        /// <summary>
+        /// Bounds of the vertices of the triangles (CachedBounds includes unused vertices, which can lie far away and
+        /// make thresholds relative to the diagonal meaningless); empty for a mesh without triangles
+        /// </summary>
+        public static AxisAlignedBox3d TriangleBounds(DMesh3 mesh)
         {
             var box = AxisAlignedBox3d.Empty;
             foreach (int tid in mesh.TriangleIndices())

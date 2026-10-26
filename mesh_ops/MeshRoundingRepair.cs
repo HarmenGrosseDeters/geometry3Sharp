@@ -120,7 +120,7 @@ namespace g3
                 InitialIntersections = InitialDegenerate = RemainingIntersections = RemainingDegenerate = 0;
                 return true;
             }
-            double diag = Mesh.CachedBounds.DiagonalLength;
+            double diag = gs.MeshRepairMetrics.TriangleBounds(Mesh).DiagonalLength;
             areaEps = DegenerateArea * diag * diag;
             maxLength = MaxDisplacement * diag;
             if (SharedPositionsTouch) {

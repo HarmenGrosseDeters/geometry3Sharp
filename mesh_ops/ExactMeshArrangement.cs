@@ -974,6 +974,8 @@ namespace g3
 
         /// <summary> also intersect the triangles of each mesh with each other (self-intersections) </summary>
         public bool SelfIntersections = false;
+        /// <summary> triangles per batch of the candidate pair search (bounds its memory; smaller for tests) </summary>
+        internal long CandidateBatchSize = 1 << 24;
         public int SelfIntersectingPairs;
         /// <summary> per mesh: box tree of its triangles (in the order of MeshTriangles), after Compute() </summary>
         public TriangleBoxTree[] Trees;
@@ -1016,42 +1018,49 @@ namespace g3
                     meshPairs.Add(new Index2i(ma, mb));
             }
             // candidate pairs (boxes overlap, not separated by a plane, not only touching), in parallel per
-            // triangle of the first mesh of each pair of meshes
-            var offsets = new int[meshPairs.Count + 1];
-            for (int p = 0; p < meshPairs.Count; ++p)
-                offsets[p + 1] = offsets[p] + MeshTriangles[meshPairs[p].a].Count;
-            var found = new List<long>[offsets[meshPairs.Count]];
-            int self = 0;
-            gParallel.ForEach(Interval1i.Range(found.Length), (j) => {
-                int p = Array.BinarySearch(offsets, j);
-                if (p < 0)      // (the offsets increase strictly: every pair has triangles of its first mesh)
-                    p = ~p - 1;
-                int ma = meshPairs[p].a, mb = meshPairs[p].b, ka = j - offsets[p];
-                InputTriangle T = Triangles[MeshTriangles[ma][ka]];
-                if (T.Degenerate) return;
-                trees[mb].Query(boxes[ma][ka], (kb) => {
-                    if (ma == mb && kb <= ka)
-                        return;
-                    InputTriangle U = Triangles[MeshTriangles[mb][kb]];
-                    if (U.Degenerate)
-                        return;
-                    if (ma == mb) {
-                        if (touch_only(T, U))
-                            return;
-                    } else if (separated(T, U))
-                        return;
-                    if (ma == mb)
-                        System.Threading.Interlocked.Increment(ref self);
-                    if (found[j] == null)
-                        found[j] = new List<long>();
-                    found[j].Add(((long)MeshTriangles[ma][ka] << 32) | (uint)MeshTriangles[mb][kb]);
-                });
-            });
-            SelfIntersectingPairs += self;
+            // triangle of the first mesh of each pair of meshes; in batches of consecutive pairs, so that the
+            // per-triangle lists stay bounded with many overlapping meshes (the order is that of the pairs)
             var pairs = new List<long>();
-            foreach (var list in found)
-                if (list != null)
-                    pairs.AddRange(list);
+            int self = 0;
+            for (int p0 = 0, p1 = 0; p0 < meshPairs.Count; p0 = p1) {
+                long size = 0;
+                p1 = p0;
+                while (p1 < meshPairs.Count && (p1 == p0 || size + MeshTriangles[meshPairs[p1].a].Count <= CandidateBatchSize))
+                    size += MeshTriangles[meshPairs[p1++].a].Count;
+                var offsets = new int[p1 - p0 + 1];
+                for (int p = p0; p < p1; ++p)
+                    offsets[p - p0 + 1] = offsets[p - p0] + MeshTriangles[meshPairs[p].a].Count;
+                var found = new List<long>[offsets[p1 - p0]];
+                gParallel.ForEach(Interval1i.Range(found.Length), (j) => {
+                    int p = Array.BinarySearch(offsets, j);
+                    if (p < 0)      // (the offsets increase strictly: every pair has triangles of its first mesh)
+                        p = ~p - 1;
+                    int ma = meshPairs[p0 + p].a, mb = meshPairs[p0 + p].b, ka = j - offsets[p];
+                    InputTriangle T = Triangles[MeshTriangles[ma][ka]];
+                    if (T.Degenerate) return;
+                    trees[mb].Query(boxes[ma][ka], (kb) => {
+                        if (ma == mb && kb <= ka)
+                            return;
+                        InputTriangle U = Triangles[MeshTriangles[mb][kb]];
+                        if (U.Degenerate)
+                            return;
+                        if (ma == mb) {
+                            if (touch_only(T, U))
+                                return;
+                        } else if (separated(T, U))
+                            return;
+                        if (ma == mb)
+                            System.Threading.Interlocked.Increment(ref self);
+                        if (found[j] == null)
+                            found[j] = new List<long>();
+                        found[j].Add(((long)MeshTriangles[ma][ka] << 32) | (uint)MeshTriangles[mb][kb]);
+                    });
+                });
+                foreach (var list in found)
+                    if (list != null)
+                        pairs.AddRange(list);
+            }
+            SelfIntersectingPairs += self;
             PhaseMilliseconds["intersections.pairs"] = sw.ElapsedMilliseconds; sw.Restart();
             // planes of the triangles involved (computed once, before the parallel use)
             var needed = new bool[Triangles.Count];

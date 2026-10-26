@@ -236,6 +236,45 @@ namespace geometry3Sharp.Tests
                 new Vector3d((x1 - x0) / 2, (y1 - y0) / 2, (z1 - z0) / 2)) }.Generate().MakeDMesh();
         }
 
+        // a unit box and a small sphere (radius 0.02: triangles of about 1e-5 area, not degenerate for the box's
+        // diagonal), and an unused vertex far away (eg from an OBJ file)
+        static DMesh3 BoxSmallSphereAndFarUnusedVertex()
+        {
+            DMesh3 m = Box(-1, -1, -1, 1, 1, 1);
+            MeshEditor.Append(m, Sphere(0.02, new Vector3d(3, 0, 0)));
+            m.AppendVertex(new Vector3d(1e4, 1e4, 1e4));
+            return m;
+        }
+
+        [Fact]
+        public void UnusedVertexFarAway_SmallPartKept()
+        {
+            // the unused vertex made the diagonal 1e4 times larger: the sphere's triangles were "degenerate", the
+            // cleanup collapsed the sphere, and the exact resolve, whose volume check does not notice a part this
+            // small, returned the box alone
+            DMesh3 m = BoxSmallSphereAndFarUnusedVertex();
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(m));
+            int n = m.TriangleCount;
+            var r = new MeshRobustRepair(m);
+            Assert.True(r.Apply());
+            Assert.Equal("", r.FallbackReason);
+            Assert.Equal(n, r.Mesh.TriangleCount);
+            Assert.True(r.Mesh.CachedBounds.Max.x < 3.1);       // the unused vertex is gone
+        }
+
+        [Fact]
+        public void UnusedVertexFarAway_SliversAndRoundingRepairKeepSmallTriangles()
+        {
+            // the same thresholds (relative to the triangles' bounds) in the sliver collapse and the rounding repair
+            DMesh3 m = BoxSmallSphereAndFarUnusedVertex();
+            int n = m.TriangleCount;
+            Assert.Equal(0, MeshRobustRepair.CollapseSlivers(m));
+            var rounding = new MeshRoundingRepair(m);
+            rounding.Apply();
+            Assert.Equal(0, rounding.InitialDegenerate);
+            Assert.Equal(n, m.TriangleCount);
+        }
+
         [Fact]
         public void CleanButASmallPartLost_InputUsed()
         {
@@ -415,6 +454,23 @@ namespace geometry3Sharp.Tests
             Assert.Equal(n, m.TriangleCount);
             Assert.True(m.IsClosed());
             Assert.Equal(1.0, Volume(m), 9);
+        }
+
+        [Fact]
+        public void CollapseSlivers_KeepsTinyOpenComponents()
+        {
+            // a tiny open sliver sheet next to a box: it may close another part by position, so it is not removed
+            // (only closed tiny components are)
+            DMesh3 m = Box(0, 0, 0, 1, 1, 1);
+            int n = m.TriangleCount;
+            Vector3d o = new Vector3d(2, 0, 0);
+            int v0 = m.AppendVertex(o), v1 = m.AppendVertex(o + new Vector3d(1e-7, 0, 0)),
+                v2 = m.AppendVertex(o + new Vector3d(5e-8, 1e-15, 0)), v3 = m.AppendVertex(o + new Vector3d(5e-8, -1e-7, 0));
+            m.AppendTriangle(v0, v1, v2); m.AppendTriangle(v0, v3, v1);
+            Assert.True(Degenerate(m) > 0);
+            MeshRobustRepair.CollapseSlivers(m);
+            Assert.True(m.TriangleCount > n);
+            Assert.True(m.IsVertex(v3));
         }
 
         [Fact]

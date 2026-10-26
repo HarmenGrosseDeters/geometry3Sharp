@@ -635,5 +635,170 @@ namespace geometry3Sharp.Tests
             Assert.False(new SparseCholesky(2, new[] { new KeyValuePair<Index2i, double>(new Index2i(0, 0), -1),
                 new KeyValuePair<Index2i, double>(new Index2i(1, 1), 1) }).IsValid);
         }
+
+        // ---------------------------------------------------------------- review fixes
+
+        static DMesh3 Strip(int n)
+        {
+            DMesh3 mesh = new DMesh3();
+            int[,] vid = new int[n + 1, 3];
+            for (int i = 0; i <= n; ++i)
+                for (int j = 0; j < 3; ++j) vid[i, j] = mesh.AppendVertex(new Vector3d(i, j, 0));
+            for (int i = 0; i < n; ++i)
+                for (int j = 0; j < 2; ++j) {
+                    mesh.AppendTriangle(vid[i, j], vid[i + 1, j], vid[i + 1, j + 1]);
+                    mesh.AppendTriangle(vid[i, j], vid[i + 1, j + 1], vid[i, j + 1]);
+                }
+            return mesh;
+        }
+
+        [Fact]
+        public void VectorHeat_LongerDiffusionTimeOnlyForTheQueryThatUnderflows()
+        {
+            // 800 edge lengths: heat from one end underflows at the other, so that query diffuses longer; a
+            // later query from the middle must not inherit it
+            DMesh3 mesh = Strip(800);
+            int end = NearestVertex(mesh, new Vector3d(0, 1, 0)), mid = NearestVertex(mesh, new Vector3d(400, 1, 0));
+            var vhm = new VectorHeatMethod(mesh);
+            var fresh = new VectorHeatMethod(mesh);
+            Vector2d[] expected = fresh.ComputeLogMap(mid);
+            double t0 = fresh.DiffusionTime;
+
+            double[] f = vhm.ExtendScalar(new[] { new KeyValuePair<int, double>(end, 1) });
+            Assert.True(vhm.DiffusionTime > t0, $"{vhm.DiffusionTime} vs {t0}");
+            Assert.Equal(1, f[NearestVertex(mesh, new Vector3d(800, 1, 0))], 6);
+
+            Vector2d[] log = vhm.ComputeLogMap(mid);
+            Assert.Equal(t0, vhm.DiffusionTime);
+            foreach (int v in mesh.VertexIndices())
+                Assert.True(log[v].Distance(expected[v]) < 1e-9, $"{v}: {log[v]} vs {expected[v]}");
+        }
+
+        [Fact]
+        public void LogMap_BoundarySource_EveryNeighbourExact()
+        {
+            DMesh3 mesh = Grid(20, 11, (x, y) => 0);
+            foreach (Vector3d p in new[] { new Vector3d(0, -10, 0), new Vector3d(-10, 4, 0), new Vector3d(-10, -10, 0) }) {
+                int src = NearestVertex(mesh, p);
+                Assert.True(mesh.IsBoundaryVertex(src));
+                var vhm = new VectorHeatMethod(mesh);
+                Vector2d[] log = vhm.ComputeLogMap(src);
+                foreach (int k in mesh.VtxVerticesItr(src)) {
+                    Vector3d d = mesh.GetVertex(k) - mesh.GetVertex(src);
+                    Vector3d got = vhm.Triangulation.ToWorld(src, log[k]);
+                    Assert.True(got.Distance(d) < 1e-9, $"source {p}, neighbour {d}: {got}");
+                }
+            }
+        }
+
+        [Fact]
+        public void VectorHeat_TimeFactorChange_KeepsTheTriangulation()
+        {
+            DMesh3 mesh = GoodSphere(1, 10);
+            var vhm = new VectorHeatMethod(mesh);
+            int src = mesh.VertexIndices().First();
+            vhm.ComputeLogMap(src);
+            IntrinsicTriangulation T = vhm.Triangulation;
+            double t1 = vhm.DiffusionTime;
+            vhm.TimeFactor = 2;
+            vhm.ComputeLogMap(src);
+            Assert.Same(T, vhm.Triangulation);
+            Assert.Equal(2 * t1, vhm.DiffusionTime, 12);
+        }
+
+        [Fact]
+        public void InvalidUse_ClearErrors()
+        {
+            DMesh3 mesh = Grid(4, 5, (x, y) => 0);
+            int isolated = mesh.AppendVertex(new Vector3d(9, 9, 9));
+            var vhm = new VectorHeatMethod(mesh);
+            int src = mesh.VertexIndices().First();
+            Assert.Throws<ArgumentException>(() => vhm.Triangulation.ToWorld(isolated, new Vector2d(1, 0)));
+            Assert.Throws<ArgumentException>(() => vhm.Triangulation.FromWorld(isolated, Vector3d.AxisX));
+            Assert.Throws<ArgumentException>(() => vhm.Triangulation.ToWorld(mesh.MaxVertexID + 5, new Vector2d(1, 0)));
+            Assert.Throws<ArgumentException>(() => vhm.ComputeLogMap(isolated));
+            vhm.TimeFactor = -1;
+            Assert.Throws<ArgumentException>(() => vhm.ComputeLogMap(src));
+            vhm.TimeFactor = 1;
+            Assert.Equal(Vector2d.Zero, vhm.ComputeLogMap(src)[src]);
+        }
+
+        [Fact]
+        public void VectorHeat_FailedFactorization_ClearErrorAndRecovers()
+        {
+            // a diffusion time of 1e300 edge lengths squared: mass + t L is not numerically positive definite
+            DMesh3 mesh = Grid(4, 5, (x, y) => 0);
+            int src = mesh.VertexIndices().First();
+            var vhm = new VectorHeatMethod(mesh) { TimeFactor = 1e300 };
+            var e = Assert.Throws<InvalidOperationException>(() => vhm.ComputeLogMap(src));
+            Assert.Contains("heat operator", e.Message);
+            Assert.Throws<InvalidOperationException>(() => vhm.ComputeLogMap(src));     // not cached as valid
+
+            // back to a sane time: the same results as a fresh instance
+            vhm.TimeFactor = 1;
+            Vector2d[] log = vhm.ComputeLogMap(src), expected = new VectorHeatMethod(mesh).ComputeLogMap(src);
+            foreach (int v in mesh.VertexIndices())
+                Assert.True(log[v].Distance(expected[v]) < 1e-12);
+        }
+
+        [Fact]
+        public void VectorHeat_TriangulationGetter_DoesNotTouchTheHeatOperators()
+        {
+            DMesh3 mesh = Strip(800);
+            var vhm = new VectorHeatMethod(mesh);
+            vhm.ExtendScalar(new[] { new KeyValuePair<int, double>(NearestVertex(mesh, new Vector3d(0, 1, 0)), 1) });
+            double t = vhm.DiffusionTime;
+            Assert.NotNull(vhm.Triangulation);
+            Assert.Equal(t, vhm.DiffusionTime);     // still the time the last query used
+            vhm.TimeFactor = 0;
+            Assert.NotNull(vhm.Triangulation);      // needs no diffusion time
+        }
+
+        [Fact]
+        public void ToWorld_FoldedFan_EdgesExactAndClosingCornerTheShortWay()
+        {
+            // an interior saddle vertex whose fan folds back in the projection into its tangent plane: the third
+            // rim point lies (projected) before the second one
+            DMesh3 mesh = new DMesh3();
+            int v = mesh.AppendVertex(Vector3d.Zero);
+            double[] deg = { 0, 110, 30, 150, 230, 310 }, z = { 0, 1, -1, 0, 0, 0 };
+            var rim = new List<int>();
+            for (int k = 0; k < deg.Length; ++k) {
+                double a = deg[k] * Math.PI / 180;
+                rim.Add(mesh.AppendVertex(new Vector3d(Math.Cos(a), Math.Sin(a), z[k])));
+            }
+            for (int k = 0; k < rim.Count; ++k) Assert.True(mesh.AppendTriangle(v, rim[k], rim[(k + 1) % rim.Count]) >= 0);
+            var T = new IntrinsicTriangulation(mesh);
+            int iv = T.VertexIndex(v);
+            Vector3d e1, e2, n;
+            T.GetTangentBasis(v, out e1, out e2, out n);
+            Func<Vector3d, double> proj = d => Math.Atan2(d.Dot(e2), d.Dot(e1));
+
+            // the edges in signpost order, with their projected directions; the projection must fold
+            var edges = new List<KeyValuePair<double, Vector3d>>();
+            int h0 = T.VertexHalfedge(iv), h = h0;
+            do {
+                edges.Add(new KeyValuePair<double, Vector3d>(T.Signpost(h), mesh.GetVertex(T.VertexID(T.Head(h)))));
+                h = T.NextAroundVertex(h);
+            } while (h != h0);
+            bool folds = false;
+            for (int k = 1; k < edges.Count; ++k)
+                if (IntrinsicTriangulation.wrap(proj(edges[k].Value) - proj(edges[k - 1].Value)) > Math.PI) folds = true;
+            Assert.True(folds);
+
+            Func<double, Vector3d> toWorld = a => T.ToWorld(v, new Vector2d(Math.Cos(a), Math.Sin(a)));
+            foreach (var kv in edges) {
+                Vector3d d = kv.Value - kv.Value.Dot(n) * n;
+                Assert.True(AngleBetween(toWorld(kv.Key), d) < 1e-9, $"edge at signpost {kv.Key}");
+            }
+            // the corner between the last and the first edge maps into the short arc between their projections
+            double last = edges[edges.Count - 1].Key;
+            double aLast = proj(edges[edges.Count - 1].Value), aFirst = proj(edges[0].Value);
+            double arc = IntrinsicTriangulation.wrap(aFirst - aLast);
+            Assert.True(arc < Math.PI);
+            Vector3d mid = toWorld(0.5 * (last + 2 * Math.PI));
+            double off = IntrinsicTriangulation.wrap(proj(mid) - aLast);
+            Assert.True(off > 0 && off < arc, $"closing corner maps to {off} outside (0, {arc})");
+        }
     }
 }
