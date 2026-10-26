@@ -799,3 +799,34 @@ The normals now come from `AlphaWrapOracle.Unit`, which has no absolute epsilon.
 | `robust`, all: repaired | 270 / 400, 13 / 30 | the same (the wrap runs only on those 25) |
 
 Rule 1 rejections no longer happen on this set, so the stricter status (a Success with rejected rule 1 points is now Failed) costs nothing here. The change in how the normals are computed rounds them differently in the last bits. That changes many wrap results slightly: 275 of 400 differ in triangle count, but not in quality.
+
+## Deterministic solidify (`WindingNumberOctree`, propagated node values)
+`MeshWindingNumberSolidify` was not bit-for-bit deterministic across runs: with propagation, a node of the
+winding number octree either evaluated its own fast winding number or copied a cached neighbour's, depending on
+which neighbours other threads had evaluated first. The two differ in the last digits, which moved a few contour
+vertices by about 1e-8 and, after the reduction, changed the triangle count (procedural thin plates at resolution
+64, 2 cores: 13812 or 13828 triangles; the raw contour differed in 4 vertices in about a third of the runs). Values
+that may be copied are now computed from the winding numbers rounded to integers (exact off the surface of closed,
+oriented meshes), so a copy equals the node's own value.
+
+`robust` on both selections, `BENCH_P=2 TIMEOUT=300`, both selections at the same time on 4 cores, master
+`7f0f97c` before (a run without other load on the machine), the change after:
+
+| | first selection, before | after | holdout, before | after |
+|---|---|---|---|---|
+| repaired | 270 | 270 | 266 | 266 |
+| clean + no exact self-intersections | 399 | 399 | 395 | 395 |
+| path changes | | 0 | | 0 |
+| solidify phase, meshes that solidified (73 / 65) | 1164 s | 1164 s | 1042 s | 1085 s |
+| all 400: total time | 4147 s | 4206 s (+1.4 %) | 3573 s | 3663 s (+2.5 %) |
+| a second run of the same build: meshes that differ | 1 | 0 | 0 | 0 |
+
+- No measurable cost: the time differences are within the noise of the shared machine. Two runs of the same build
+  differed by up to 4 % in total time.
+- The rounding does not change the results measurably: the same repaired and clean counts, no path changes; 135 of
+  the 136 solidified or wrapped meshes have the same triangle count as on master.
+- Two runs of the change give the same triangles, Hausdorff bounds, IoU and path on all 800 meshes. On this set
+  the solidify's nondeterminism did not show up on master either: the one difference between two master runs,
+  1017012.stl, is an exact-resolve result whose Hausdorff bound differs in the fifth digit. The unit tests show it
+  (`AdaptiveOctreeTests.Octree_PropagatedNodeValues_DoNotDependOnTheQueryOrder`, which fails on the old code every
+  time, and `MeshRobustRepairTests.Solidify_IsDeterministic`).
