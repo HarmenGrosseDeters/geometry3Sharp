@@ -6,7 +6,8 @@ namespace g3
 {
     /// <summary>
     /// Sparse Cholesky factorization A = L L^T of a symmetric positive definite matrix, for systems that are
-    /// solved many times (parameterization, Laplacians with fixed boundary values).
+    /// solved many times (parameterization, Laplacians with fixed boundary values). The caller makes sure the
+    /// matrix is positive definite; a singular one is not reliably rejected (see IsValid).
     ///
     /// Usage: Add() the entries, Factorize(), then Solve() any number of right-hand sides. To refactor a matrix
     /// with new values, Clear() and Add() again; if the nonzero pattern is the same, the ordering and the
@@ -80,7 +81,19 @@ namespace g3
         {
         }
 
-        /// <summary> the last Factorize() succeeded (the matrix is numerically positive definite) </summary>
+        /// <summary>
+        /// The last Factorize() ran to the end: every pivot was positive, above 1e-14 times the absolute value of
+        /// the diagonal entry of A it came from (false before the first Factorize() and after Clear()). False for clearly indefinite matrices, and for singular ones only where rounding leaves a pivot
+        /// at or below the bound (eg the Laplacian of a small graph with integer weights, whose last pivot is 0).
+        ///
+        /// It is not a test for singularity: on a positive semidefinite matrix the last pivots are rounding noise,
+        /// and they can come out positive and above the bound, eg on a graph Laplacian without a fixed vertex with
+        /// edge weights of different magnitudes. IsValid is then true and Solve() returns
+        /// values dominated by a huge, arbitrary multiple of the null vector. No
+        /// bound on the pivots can fix this (a matrix with condition number near 1e16 is indistinguishable from a
+        /// singular one in double precision), so make the matrix definite before factorizing it: fix (pin) at
+        /// least one unknown per connected component of a Laplacian, or add a mass term.
+        /// </summary>
         public bool IsValid { get { return factored; } }
 
         /// <summary>
@@ -100,7 +113,8 @@ namespace g3
         }
 
         /// <summary>
-        /// Factorize the accumulated matrix. Returns false (and sets Error) if it is not positive definite.
+        /// Factorize the accumulated matrix. Returns false (and sets Error) if a pivot is not positive; see IsValid
+        /// for why a singular matrix can still be accepted.
         /// </summary>
         public bool Factorize()
         {
@@ -115,6 +129,7 @@ namespace g3
                 analyze();
             }
             aVal = val;
+            logAbsL = null;
             factored = numeric();
             return factored;
         }
@@ -157,6 +172,80 @@ namespace g3
             }
             for (int k = 0; k < N; ++k)
                 x[perm[k]] = y[k];
+        }
+
+
+        /// <summary>
+        /// Solve A x = b in the log domain, for an M-matrix A (positive diagonal, off-diagonal entries &lt;= 0)
+        /// and b &gt;= 0: logB[i] = log(b[i]) (negative infinity for 0), logX[i] = log(x[i]). The Cholesky factor
+        /// of an M-matrix has no positive off-diagonal entries, so both substitutions only add non-negative
+        /// terms: every entry of x is as accurate as with Solve(), relative to itself, and none underflows
+        /// (eg heat 1000 edge lengths from its source, below 1e-308). Returns false (logX undefined) if the
+        /// factor has a positive off-diagonal entry, ie A is not an M-matrix.
+        /// </summary>
+        public bool SolveLog(double[] logB, double[] logX)
+        {
+            if (!factored)
+                throw new InvalidOperationException("SparseCholesky.SolveLog: matrix is not factorized");
+            if (logAbsL == null) {
+                var la = new double[Lx.Length];
+                for (int k = 0; k < la.Length; ++k) la[k] = Math.Log(Math.Abs(Lx[k]));
+                logAbsL = la;
+            }
+            double[] y = new double[N];
+            for (int k = 0; k < N; ++k)
+                y[k] = logB[perm[k]];
+            // L y = Pb: y_c = (b_c + sum_t |L_ct| y_t) / L_cc
+            for (int J = 0; J < snCount; ++J) {
+                int f = snFirst[J], w = snFirst[J + 1] - f, rp = snRowPtr[J], h = snRowPtr[J + 1] - rp, off = snVal[J];
+                for (int c = 0; c < w; ++c) {
+                    double acc = y[f + c];
+                    int co = off + c * w;
+                    for (int t = 0; t < c; ++t)
+                        if (add_term(ref acc, Lx[co + t], logAbsL[co + t], y[f + t]) == false) return false;
+                    y[f + c] = acc - logAbsL[co + c];
+                }
+                for (int i = w; i < h; ++i) {
+                    double acc = double.NegativeInfinity;
+                    int io = off + i * w;
+                    for (int t = 0; t < w; ++t)
+                        if (add_term(ref acc, Lx[io + t], logAbsL[io + t], y[f + t]) == false) return false;
+                    y[snRows[rp + i]] = LogAdd(y[snRows[rp + i]], acc);
+                }
+            }
+            // L^T z = y
+            for (int J = snCount - 1; J >= 0; --J) {
+                int f = snFirst[J], w = snFirst[J + 1] - f, rp = snRowPtr[J], h = snRowPtr[J + 1] - rp, off = snVal[J];
+                for (int c = w - 1; c >= 0; --c) {
+                    double acc = y[f + c];
+                    for (int i = c + 1; i < h; ++i)
+                        if (add_term(ref acc, Lx[off + i * w + c], logAbsL[off + i * w + c], y[snRows[rp + i]]) == false) return false;
+                    y[f + c] = acc - logAbsL[off + c * w + c];
+                }
+            }
+            for (int k = 0; k < N; ++k)
+                logX[perm[k]] = y[k];
+            return true;
+        }
+
+        double[] logAbsL;           // log |Lx|, for SolveLog (built on first use after a factorization)
+
+        // acc = log(exp(acc) - l * exp(logY)) for an entry l <= 0 of the factor; false if l > 0 meets a non-zero y
+        static bool add_term(ref double acc, double l, double logAbsl, double logY)
+        {
+            if (l == 0 || double.IsNegativeInfinity(logY)) return true;
+            if (l > 0) return false;
+            acc = LogAdd(acc, logAbsl + logY);
+            return true;
+        }
+
+        /// <summary> log(exp(a) + exp(b)) without overflow or underflow </summary>
+        internal static double LogAdd(double a, double b)
+        {
+            if (double.IsNegativeInfinity(a)) return b;
+            if (double.IsNegativeInfinity(b)) return a;
+            double m = Math.Max(a, b);
+            return m + Math.Log(1 + Math.Exp(-Math.Abs(a - b)));
         }
 
 
