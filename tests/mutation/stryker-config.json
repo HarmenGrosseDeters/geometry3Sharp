@@ -8,7 +8,7 @@
       "**/math/ExactPoint3.cs",
       "**/math/AdaptivePredicates.cs"
     ],
-    "test-case-filter": "FullyQualifiedName~ExactPredicatesTests|FullyQualifiedName~ExactImplicitPointTests|FullyQualifiedName~ExactBooleanBuildingBlockTests",
+    "test-case-filter": "FullyQualifiedName~ExactPredicatesTests|FullyQualifiedName~ExactImplicitPointTests|FullyQualifiedName~ExactBooleanBuildingBlockTests|FullyQualifiedName~PredicateDifferentialTests|FullyQualifiedName~ExactPoint3ConversionTests",
     "coverage-analysis": "perTest",
     "configuration": "Release",
     "additional-timeout": 30000,

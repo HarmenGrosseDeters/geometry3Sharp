@@ -12,8 +12,10 @@ surviving mutant marks a test gap: a change to that code that the tests would le
 - `math/ExactPoint3.cs`
 - `math/AdaptivePredicates.cs`
 
-The tests that run against the mutants are `ExactPredicatesTests`, `ExactImplicitPointTests` and
-`ExactBooleanBuildingBlockTests`. These are the unit tests of these files; the boolean and repair tests are
+The tests that run against the mutants are `ExactPredicatesTests`, `ExactImplicitPointTests`,
+`ExactBooleanBuildingBlockTests`, `PredicateDifferentialTests` and `ExactPoint3ConversionTests`. A new test
+class for these files must be added to the `test-case-filter` and to the paths of the workflow. These are
+the unit tests of these files; the boolean and repair tests are
 too slow to run against every mutant.
 
 ## Running
