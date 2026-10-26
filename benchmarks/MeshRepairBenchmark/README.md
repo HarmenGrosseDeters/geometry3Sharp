@@ -513,6 +513,41 @@ TIMEOUT=300`. The large meshes of the first selection were not rerun.
   first runs the exact resolve and the solidify, which are discarded (113906.stl: 11 s exact, 66 s
   solidify, 12 s wrap). Deciding earlier that the solidify will fail is the next lever.
 
+### Effect of the faster checks (#49) alone
+A/B on the same machine, one build after the other: master before #49 (`8e98439`) against the #49 branch
+(`c5cf323`, the same master plus the speedups), `robust`, `BENCH_P=2`, `TIMEOUT=300` (large meshes 900).
+What #49 changes, all with the same results except where noted:
+- volume check: `MeshRepairMetrics.VolumeIoUAtLeast` classifies the samples in doubling rounds and stops
+  once a Wilson interval (z = 4) lies on one side of `MinVolumeIoU` (all samples near the threshold);
+- exact resolve: plane sides and `orient3d` along the classification rays of `ExactMeshBoolean` decided in
+  doubles with error bounds, exact only where the filter cannot decide;
+- reduction with `PreventSelfIntersections`: hierarchical `TriangleHashGrid`, each triangle reported once
+  per query and only if its box overlaps (before: about 196 candidates per query, mostly duplicates);
+- fast winding number: cache in arrays, leaf triangle corners contiguous (same values, about 25 % faster);
+- `HasSelfIntersections` stops at the first pair (`NotCleanReason` only needs yes/no).
+
+| | holdout before | holdout after | first selection before | first selection after | holdout large before | holdout large after |
+|---|---|---|---|---|---|---|
+| repaired | 253 | 253 | 254 | 254 | 13/30 | 13/30 |
+| clean¹ + no exact self-intersections | 375 | 375 | 369 | 370 | 20 | 20 |
+| sum of repair times | 2665 s | **1600 s** | 2450 s | **1551 s** | 1237 s | **627 s** |
+| median repair time | 4.06 s | **1.89 s** | 3.85 s | **1.91 s** | 14.8 s | **10.0 s** |
+| p90 / max | 13.9 s / 168 s | 9.3 s / 78 s | 11.2 s / 65 s | 8.9 s / 46 s | 67 s / 550 s | 51 s / 129 s |
+| solidified meshes: sum | 1514 s | 1104 s | 1227 s | 956 s | 967 s | 443 s |
+
+- Per mesh the time halves (median ratio 0.50 on both selections, 0.79 on the large meshes). The slowest
+  meshes gain least: their time is in the solidify contouring, where the fast winding number is slow for CAD
+  meshes with long triangles (hundreds of exact solid angles per query); the slowest 10 % now take 48 %
+  of the time (before 42 %).
+- Largest gains: 247516.stl (large) 550 → 70 s, 113906.stl 168 → 78 s, 1313553.stl 88 → 40 s (reduction
+  50 → 19 s), 270401.stl 64 → 16 s, 1514500.stl 36 → 10 s (exact classification 17.7 → 2.9 s).
+- No mesh of the holdout selection takes another path. On the first selection two do: 79020.stl flips
+  between the solidify and the exact resolve from run to run already before #49 (`MeshAutoRepair` is not
+  deterministic there); 45561.stl was accepted after the exact resolve because the volume check decided
+  before any sample had hit the (tiny) input solid, fixed on master since (bfb1b0a: no early answer
+  without an input sample).
+- The losses are 0.2–1.4 s per mesh on solidified meshes, within the run-to-run noise of the solidify.
+
 ## Analysis building blocks (`BENCH_REPAIR=analysis`)
 `AnalysisBench.cs` runs `MeshWallThickness`, `MeshDeviation` and `PrimitiveFit3` on the inputs as they are
 (no repair). `BENCH_ANALYSIS=thickness,deviation,fitting` picks the parts. Thingi10K has no reference
