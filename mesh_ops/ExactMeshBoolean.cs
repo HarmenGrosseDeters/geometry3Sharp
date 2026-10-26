@@ -24,7 +24,10 @@ namespace g3
     /// equally often in both directions; non-manifold edges and self-intersections are allowed). For other
     /// (open) meshes the generalized winding number is used (Jacobson et al. 2013, fast approximation), with the
     /// solid where it is above 0.5; then the result is generally not closed. An inside-out mesh (winding
-    /// number -1) has an empty solid. Degenerate (zero-area) input
+    /// number -1) has an empty solid. A mesh with inconsistently oriented triangles (flipped faces) is first
+    /// oriented consistently per component (triangles connected across edges with two triangles, by vertex
+    /// position), keeping the orientation of the larger part by area (ReorientedTriangles); components that
+    /// cannot be oriented are left as they are. Degenerate (zero-area) input
     /// triangles are dropped. The rounding of new vertices can create tiny self-intersections, and intersection
     /// points that nearly coincide give degenerate slivers: SafeRounding repairs both after the rounding
     /// (MeshRoundingRepair, verified with exact predicates on the doubles), ComputeExactVertices gives the
@@ -110,6 +113,11 @@ namespace g3
         public int SplitNonManifoldEdges;
         /// <summary> number of patches classified </summary>
         public int Patches;
+        /// <summary>
+        /// input triangles flipped to orient their component consistently (see Compute; 0 for consistently oriented
+        /// inputs)
+        /// </summary>
+        public int ReorientedTriangles;
         /// <summary>
         /// remove new vertices (not input vertices) that lie exactly inside a flat region of the result or on a
         /// straight edge between two flat regions, and retriangulate there (ExactPlanarSimplify). Without it,
@@ -241,6 +249,7 @@ namespace g3
             ResultExactVertices = null;
             // (the meshes or the operation may have changed since the last call)
             IntersectingPairs = SelfIntersectingPairs = NonManifoldEdges = NonManifoldTriangles = SplitNonManifoldEdges = Patches = RemovedVertices = 0;
+            ReorientedTriangles = 0;
             ExactWindingA = ExactWindingB = false;
             ExactWinding = null;
             PhaseMilliseconds = new Dictionary<string, long>();
@@ -262,9 +271,22 @@ namespace g3
                         return fail(BooleanStatus.InvalidInput, "input meshes have non-finite coordinates");
                 }
             }
+            // inconsistently oriented inputs (flipped triangles, as from broken files) are oriented consistently per
+            // component first, on copies: their winding numbers are not meaningful otherwise (the generalized
+            // winding number jumps the wrong way across a flipped triangle, so next to it the inside reads as outside)
+            inputs = new List<DMesh3>(inputs);
             ExactWinding = new bool[inputs.Count];
-            for (int m = 0; m < inputs.Count; ++m)
-                ExactWinding[m] = IsWindingClosed(inputs[m]) && ForceGeneralizedWinding == false;
+            for (int m = 0; m < inputs.Count; ++m) {
+                bool closed = IsWindingClosed(inputs[m]);
+                if (closed == false) {
+                    DMesh3 o = oriented(inputs[m]);
+                    if (o != inputs[m]) {
+                        inputs[m] = o;
+                        closed = IsWindingClosed(o);
+                    }
+                }
+                ExactWinding[m] = closed && ForceGeneralizedWinding == false;
+            }
             ExactWindingA = ExactWinding[0];
             ExactWindingB = inputs.Count > 1 && ExactWinding[1];
             if (AllowOpenMeshes == false && Array.IndexOf(ExactWinding, false) >= 0)
@@ -305,6 +327,104 @@ namespace g3
             }
             Status = BooleanStatus.Success;
             return true;
+        }
+
+        /// <summary>
+        /// The mesh with each component (triangles connected across edges with exactly two triangles, by vertex
+        /// position, so unwelded copies of a vertex count as the same) oriented consistently, keeping the
+        /// orientation of the larger part by area (ties: of its first triangle); mesh itself if nothing changes.
+        /// Components that cannot be oriented (Moebius strips) are left as they are.
+        /// </summary>
+        DMesh3 oriented(DMesh3 mesh)
+        {
+            // vertices welded by position
+            var ids = new Dictionary<Vector3d, int>();
+            var pos = new int[mesh.MaxVertexID];
+            foreach (int vid in mesh.VertexIndices()) {
+                Vector3d v = mesh.GetVertex(vid);
+                if (v.x == 0) v.x = 0;      // -0.0
+                if (v.y == 0) v.y = 0;
+                if (v.z == 0) v.z = 0;
+                int k;
+                if (ids.TryGetValue(v, out k) == false) {
+                    k = ids.Count;
+                    ids[v] = k;
+                }
+                pos[vid] = k;
+            }
+            Func<int, Index3i> tri = (t) => { Index3i f = mesh.GetTriangle(t); return new Index3i(pos[f.a], pos[f.b], pos[f.c]); };
+            // the triangles at each undirected edge (by welded vertices)
+            var edgeTris = new Dictionary<long, List<int>>(EdgeKeyComparer.Instance);
+            foreach (int t in mesh.TriangleIndices()) {
+                Index3i f = tri(t);
+                for (int k = 0; k < 3; ++k) {
+                    int u = f[k], v = f[(k + 1) % 3];
+                    if (u == v)
+                        continue;
+                    long key = ExactMeshArrangement.EdgeKey(u, v);
+                    List<int> l;
+                    if (edgeTris.TryGetValue(key, out l) == false)
+                        edgeTris[key] = l = new List<int>(2);
+                    l.Add(t);
+                }
+            }
+            int maxT = mesh.MaxTriangleID;
+            var flipT = new bool[maxT];
+            var seen = new bool[maxT];
+            var component = new List<int>();
+            var stack = new Stack<int>();
+            List<int> toFlip = null;
+            foreach (int root in mesh.TriangleIndices()) {
+                if (seen[root])
+                    continue;
+                component.Clear();
+                bool orientable = true;
+                seen[root] = true;
+                stack.Push(root);
+                while (stack.Count > 0) {
+                    int t = stack.Pop();
+                    component.Add(t);
+                    Index3i f = tri(t);
+                    for (int k = 0; k < 3; ++k) {
+                        int u = f[k], v = f[(k + 1) % 3];
+                        if (u == v)
+                            continue;
+                        List<int> l = edgeTris[ExactMeshArrangement.EdgeKey(u, v)];
+                        if (l.Count != 2)
+                            continue;
+                        int o = (l[0] == t) ? l[1] : l[0];
+                        if (o == t)
+                            continue;
+                        // the neighbour runs the edge u -> v the same way: one of the two is flipped
+                        bool want = flipT[t] ^ runs(tri(o), u, v);
+                        if (seen[o]) {
+                            if (flipT[o] != want)
+                                orientable = false;
+                            continue;
+                        }
+                        seen[o] = true;
+                        flipT[o] = want;
+                        stack.Push(o);
+                    }
+                }
+                if (orientable == false)
+                    continue;
+                double flippedArea = 0, keptArea = 0;
+                foreach (int t in component) {
+                    if (flipT[t]) flippedArea += mesh.GetTriArea(t); else keptArea += mesh.GetTriArea(t);
+                }
+                bool invert = flippedArea > keptArea;
+                foreach (int t in component)
+                    if (flipT[t] != invert)
+                        (toFlip ?? (toFlip = new List<int>())).Add(t);
+            }
+            if (toFlip == null)
+                return mesh;
+            var copy = new DMesh3(mesh, false, MeshComponents.None);
+            foreach (int t in toFlip)
+                copy.ReverseTriOrientation(t);
+            ReorientedTriangles += toFlip.Count;
+            return copy;
         }
 
         static bool finite(double x)
