@@ -457,6 +457,84 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        [Fact]
+        public void Walks_ArriveForEveryEdge()
+        {
+            // every intrinsic edge, traced over the input, must arrive (not stop at the boundary or the step
+            // limit): also edges ending exactly at a vertex, where a rounding remainder used to spin around it
+            var meshes = new List<DMesh3>() { Grid(4, 5, (x, y) => 0.2 * x * y), RingSphere(1, 30, 10), ObtusePlane(6, 30, 1.0, 0.05) };
+            foreach (DMesh3 mesh in meshes)
+                for (int pass = 0; pass < 2; ++pass) {
+                    var T = new IntrinsicTriangulation(mesh);
+                    if (pass == 1) T.DelaunayRefine(25);
+                    for (int h = 0; h < T.HalfedgeCount; ++h) {
+                        int t; Vector2d p, d;
+                        T.start_walk(T.Tail(h), T.Signpost(h), out t, out p, out d);
+                        Assert.True(T.walk_input(ref t, ref p, ref d, T.Length(h), null), $"halfedge {h} (pass {pass}) does not arrive");
+                    }
+                }
+        }
+
+        [Fact]
+        public void WalkIntrinsic_StopsAtTheBoundaryAndReportsTheStepLimit()
+        {
+            DMesh3 mesh = Grid(4, 5, (x, y) => 0);
+            var T = new IntrinsicTriangulation(mesh);
+            int hb = Enumerable.Range(0, T.HalfedgeCount).First(h => T.Twin(h) < 0);
+            int f = hb / 3, k = hb % 3;
+            Vector2d[] q = new Vector2d[3];
+            T.GetTriangleLayout(f, out q[0], out q[1], out q[2]);
+            Vector2d a = q[k], b = q[(k + 1) % 3];
+            // from the middle of the boundary edge, pointing slightly out of the surface: stops right there,
+            // through that edge (the walk over the input slides along the boundary instead)
+            int ff = f, hit;
+            Vector2d m = 0.5 * (a + b), e = (b - a).Normalized;
+            Vector2d p = m, d = (e + 1e-6 * new Vector2d(e.y, -e.x)).Normalized;
+            Assert.Equal(IntrinsicTriangulation.WalkEnd.Boundary, T.walk_intrinsic(ref ff, ref p, ref d, 10, 100, out hit));
+            Assert.Equal(hb, hit);
+            Assert.True(p.Distance(m) < 1e-12, $"{p} vs {m}");
+            // across the whole grid with a single step allowed
+            ff = f; Vector2d c = (q[0] + q[1] + q[2]) / 3;
+            p = c; d = (c - 0.5 * (a + b)).Normalized;
+            Assert.Equal(IntrinsicTriangulation.WalkEnd.OutOfSteps, T.walk_intrinsic(ref ff, ref p, ref d, 3, 1, out hit));
+            // a short walk inside the triangle arrives
+            ff = f; p = c;
+            Assert.Equal(IntrinsicTriangulation.WalkEnd.Reached, T.walk_intrinsic(ref ff, ref p, ref d, 1e-3, 100, out hit));
+            Assert.Equal(f, ff);
+        }
+
+        [Fact]
+        public void VectorHeat_BowtieMesh_Throws()
+        {
+            // documented: only MeshGeodesicDistance falls back to the flips for non-manifold vertices
+            DMesh3 mesh = new DMesh3();
+            int a = mesh.AppendVertex(new Vector3d(0, 0, 0));
+            int b = mesh.AppendVertex(new Vector3d(1, 0, 0)), c = mesh.AppendVertex(new Vector3d(0, 1, 0));
+            int d = mesh.AppendVertex(new Vector3d(-1, 0, 0)), e = mesh.AppendVertex(new Vector3d(0, -1, 0));
+            mesh.AppendTriangle(a, b, c);
+            mesh.AppendTriangle(a, d, e);
+            var vhm = new VectorHeatMethod(mesh) { IntrinsicRefine = true };
+            Assert.Throws<ArgumentException>(() => vhm.Refinement);
+        }
+
+        [Fact]
+        public void HeatDistance_UnusedRefineOptions_DoNotRebuild()
+        {
+            DMesh3 mesh = Grid(4, 9, (x, y) => 0);
+            var geo = new MeshGeodesicDistance(mesh);
+            Assert.True(geo.Compute(new[] { 0 }));
+            Assert.Equal(1, geo.PrecomputeCount);
+            geo.RefineMinAngle = 20; geo.RefineMaxInsertions = 50;      // refinement is off: no effect
+            Assert.True(geo.Compute(new[] { 0 }));
+            Assert.Equal(1, geo.PrecomputeCount);
+            geo.IntrinsicRefine = true;
+            Assert.True(geo.Compute(new[] { 0 }));
+            Assert.Equal(2, geo.PrecomputeCount);
+            geo.RefineMinAngle = 25;
+            Assert.True(geo.Compute(new[] { 0 }));
+            Assert.Equal(3, geo.PrecomputeCount);
+        }
+
         // ---------------------------------------------------------------- common subdivision
 
         static void CheckSubdivision(DMesh3 mesh, IntrinsicTriangulation T, ITestOutputHelper output)

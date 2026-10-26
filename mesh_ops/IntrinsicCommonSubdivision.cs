@@ -155,7 +155,8 @@ namespace gs
                 int t; Vector2d p, d;
                 start_walk(vs, hAngle[h], out t, out p, out d);
                 crossings.Clear();
-                walk_input(ref t, ref p, ref d, hLen[h], crossings);
+                if (walk_input(ref t, ref p, ref d, hLen[h], crossings) == false)
+                    return fail("trace of intrinsic edge " + h + " does not reach its head (boundary or step limit)");
                 segs.Clear();
                 int cur = vs;
                 bool ended = false;
@@ -170,6 +171,13 @@ namespace gs
                         double cu = toCanonical(c.Halfedge, c.U);
                         if (onEdge[vs] >= 0 && canonical(onEdge[vs]) == ce && Math.Abs(toCanonical(onEdge[vs], onEdgeU[vs]) - cu) < snap) corner = vs;
                         else if (onEdge[ve] >= 0 && canonical(onEdge[ve]) == ce && Math.Abs(toCanonical(onEdge[ve], onEdgeU[ve]) - cu) < snap) corner = ve;
+                        else {
+                            // another inserted vertex on this input edge at the crossing
+                            List<SubPoint> l;
+                            if (edgePts.TryGetValue(ce, out l))
+                                foreach (SubPoint sp in l)
+                                    if (sp.Id < N && Math.Abs(sp.U - cu) < snap) { corner = sp.Id; break; }
+                        }
                     }
                     if (corner >= 0) {
                         if (corner == vs && cur == vs) continue;            // still leaving the start vertex

@@ -121,7 +121,7 @@ namespace gs
         /// <summary> next outgoing halfedge counter-clockwise around the tail, -1 after the last at a boundary vertex </summary>
         public int NextAroundVertex(int h) { return hTwin[Prev(h)]; }
 
-        /// <summary> triangle t as mesh vertex ids </summary>
+        /// <summary> triangle t as mesh vertex ids (-1 for vertices inserted by DelaunayRefine; GetTriangleIndices gives all) </summary>
         public Index3i GetTriangle(int t)
         {
             return new Index3i(toVertex[hV[3 * t]], toVertex[hV[3 * t + 1]], toVertex[hV[3 * t + 2]]);
@@ -398,41 +398,12 @@ namespace gs
             double phiL = add_angle(vl, hAngle[tc], vScale[vl] * angL);
 
             // new triangles: slot (ha, hb, hc) = (k->l, l->j, j->k), slot (ta, tb, tc) = (l->k, k->i, i->l)
-            int[] from = { hb, tc, hc, tb };
-            int[] to = { hc, hb, tb, tc };
-            int[] oV = new int[4], oT = new int[4];
-            double[] oL = new double[4], oA = new double[4];
-            for (int m = 0; m < 4; ++m) {
-                oV[m] = hV[from[m]]; oT[m] = hTwin[from[m]]; oL[m] = hLen[from[m]]; oA[m] = hAngle[from[m]];
-            }
-            Func<int, int> map = (x) => {
-                for (int m = 0; m < 4; ++m) if (from[m] == x) return to[m];
-                return x;
-            };
-            for (int m = 0; m < 4; ++m) {
-                int s = to[m];
-                hV[s] = oV[m]; hLen[s] = oL[m]; hAngle[s] = oA[m];
-                int tw = oT[m];
-                if (tw < 0) hTwin[s] = -1;
-                else {
-                    int mt = map(tw);
-                    hTwin[s] = mt;
-                    if (mt == tw) hTwin[tw] = s;
-                }
-            }
-            hV[ha] = vk; hLen[ha] = lkl; hAngle[ha] = phiK; hTwin[ha] = ta;
-            hV[ta] = vl; hLen[ta] = lkl; hAngle[ta] = phiL; hTwin[ta] = ha;
-
-            // vertex halfedges that moved or vanished (all read before any is written)
-            int[] vs = { vi, vj, vk, vl };
-            int[] nv = new int[4];
-            for (int m = 0; m < 4; ++m) {
-                int v = vs[m], cur = vHe[v];
-                if (cur == ha) nv[m] = tc;                  // i->j is gone: i->l
-                else if (cur == ta) nv[m] = hc;             // j->i is gone: j->k
-                else nv[m] = map(cur);
-            }
-            for (int m = 0; m < 4; ++m) vHe[vs[m]] = nv[m];
+            relocate(new[] { hb, tc, hc, tb }, new[] { hc, hb, tb, tc });
+            set_he(ha, vk, ta, lkl, phiK);
+            set_he(ta, vl, ha, lkl, phiL);
+            // vertex halfedges on the flipped edge: i->j is gone (i->l, now in tc), j->i too (j->k, now in hc)
+            if (vHe[vi] == ha) vHe[vi] = tc;
+            if (vHe[vj] == ta) vHe[vj] = hc;
             return true;
         }
 
@@ -524,25 +495,48 @@ namespace gs
             d = new Vector2d(Math.Cos(a0), Math.Sin(a0));
         }
 
+        internal enum WalkEnd { Reached, Boundary, OutOfSteps }
+
         // Walks straight from p (in the layout of input triangle t) in the unit direction d for the given
-        // length, unfolding across input edges; on return t, p, d describe the end point and the arriving
-        // direction. The crossed input edges are added to crossings (if not null). Points on an edge of
-        // the triangle (eg a start vertex) leave through it only if the direction points out of it;
-        // along a boundary edge the walk slides. Returns false if it ran into the boundary.
+        // length over the input triangles (see walk). Returns false if it ran into the boundary or did not
+        // arrive.
         internal bool walk_input(ref int t, ref Vector2d p, ref Vector2d d, double length, List<WalkCrossing> crossings)
         {
+            int hit;
+            return walk(ref t, ref p, ref d, length, input_layout, inTwin, 6 * F0 + 20, true, crossings, out hit) == WalkEnd.Reached;
+        }
+
+        void input_layout(int t, Vector2d[] q)
+        {
+            q[0] = inLayout[3 * t]; q[1] = inLayout[3 * t + 1]; q[2] = inLayout[3 * t + 2];
+        }
+
+        // Walks straight from p (in the layout of triangle t, corners of halfedges 3t, 3t+1, 3t+2 given by
+        // layoutOf) in the unit direction d for the given length, unfolding across edges (twin); on return
+        // t, p, d describe the end point and the arriving direction, and the crossed edges are added to
+        // crossings (if not null). Points on an edge of the triangle (eg a start vertex) leave through it
+        // only if the direction points out of it, and never through the edge just entered. At the
+        // boundary the walk stops (hit: the boundary halfedge), or with slide, if it is running along a
+        // boundary edge, slides along it. Shared by the walks over the input and over the intrinsic triangles.
+        WalkEnd walk(ref int t, ref Vector2d p, ref Vector2d d, double length, Action<int, Vector2d[]> layoutOf,
+            int[] twin, int maxSteps, bool slide, List<WalkCrossing> crossings, out int hit)
+        {
+            hit = -1;
             double remaining = length;
             int entered = -1;
-            int maxSteps = 6 * F0 + 20;
+            Vector2d[] q = new Vector2d[3], q2 = new Vector2d[3];
             for (int step = 0; step < maxSteps; ++step) {
+                // arrived up to rounding (eg exactly at a vertex, where it would otherwise keep crossing the
+                // edges around the vertex at distance 0)
+                if (remaining <= 1e-12 * length) return WalkEnd.Reached;
+                layoutOf(t, q);
                 double scale = 0;
-                for (int k = 0; k < 3; ++k) scale = Math.Max(scale, inLayout[3 * t + k].Distance(inLayout[3 * t + (k + 1) % 3]));
+                for (int k = 0; k < 3; ++k) scale = Math.Max(scale, q[k].Distance(q[(k + 1) % 3]));
                 double tol = 1e-12 * scale;
                 double bestS = double.MaxValue; int exit = -1;
                 for (int k = 0; k < 3; ++k) {
                     if (3 * t + k == entered) continue;      // a straight line crosses an edge once
-                    Vector2d a = inLayout[3 * t + k], b = inLayout[3 * t + (k + 1) % 3];
-                    Vector2d e = b - a;
+                    Vector2d a = q[k], e = q[(k + 1) % 3] - a;
                     double el = e.Length;
                     if (!(el > 0)) continue;
                     double rate = (e.x * d.y - e.y * d.x) / el;           // < 0: towards the edge
@@ -554,22 +548,24 @@ namespace gs
                 }
                 if (exit < 0 || remaining <= bestS) {
                     p = p + remaining * d;
-                    return true;
+                    return WalkEnd.Reached;
                 }
                 int eh = 3 * t + exit;
-                Vector2d A = inLayout[eh], B = inLayout[3 * t + (exit + 1) % 3];
+                Vector2d A = q[exit], B = q[(exit + 1) % 3];
                 Vector2d x = p + bestS * d;
                 double u = MathUtil.Clamp((x - A).Dot(B - A) / (B - A).LengthSquared, 0, 1);
                 x = A + u * (B - A);
-                int tw = inTwin[eh];
+                int tw = twin[eh];
                 if (tw < 0) {
+                    hit = eh;
                     p = x;
+                    if (slide == false) return WalkEnd.Boundary;
                     remaining -= bestS;
-                    if (bestS > 1e-9 * length) return remaining <= 1e-9 * length;
+                    if (bestS > 1e-9 * length) return remaining <= 1e-9 * length ? WalkEnd.Reached : WalkEnd.Boundary;
                     // on the boundary edge: slide along it
                     Vector2d ue = unit(B - A);
                     double along = d.Dot(ue);
-                    if (Math.Abs(along) < 1e-9) return false;
+                    if (Math.Abs(along) < 1e-9) return WalkEnd.Boundary;
                     d = along > 0 ? ue : -ue;
                     entered = eh;                   // do not leave through the edge it slides along
                     continue;
@@ -577,17 +573,16 @@ namespace gs
                 if (crossings != null) crossings.Add(new WalkCrossing() { Halfedge = eh, U = u, Point = x });
                 remaining -= bestS;
                 // unfold into the neighbour: the edge runs B -> A there
-                Vector2d u1 = unit(B - A);
-                Vector2d n1 = new Vector2d(-u1.y, u1.x);
                 int t2 = tw / 3;
-                Vector2d A2 = inLayout[3 * t2 + (tw % 3 + 1) % 3], B2 = inLayout[tw];
-                Vector2d u2 = unit(B2 - A2);
-                Vector2d n2 = new Vector2d(-u2.y, u2.x);
+                layoutOf(t2, q2);
+                Vector2d A2 = q2[(tw % 3 + 1) % 3], B2 = q2[tw % 3];
+                Vector2d u1 = unit(B - A), n1 = new Vector2d(-u1.y, u1.x);
+                Vector2d u2 = unit(B2 - A2), n2 = new Vector2d(-u2.y, u2.x);
                 d = unit(d.Dot(u1) * u2 + d.Dot(n1) * n2);
                 p = A2 + u * (B2 - A2);
                 t = t2; entered = tw;
             }
-            return false;
+            return WalkEnd.OutOfSteps;
         }
 
         /// <summary> position on the input surface of vertex index i (inserted vertices from their input location) </summary>
