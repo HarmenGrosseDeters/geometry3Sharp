@@ -974,6 +974,177 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        // a flat chart (UV = xy) like a CAD face with T-junctions: a triangle over the base (0,0)-(len,0), below it a
+        // strip whose vertices lie on that base (not shared with the triangle), and a long thin triangle that
+        // tilts the minimum-area rectangle; dir rotates everything (exact for dir = (1,0))
+        static DMesh3 TJunctionChart(int n, double len, Vector2d dir, Vector2d far)
+        {
+            var mesh = new DMesh3();
+            mesh.EnableVertexUVs(Vector2f.Zero);
+            Func<double, double, int> vert = (x, y) => {
+                Vector2d p = new Vector2d(x * dir.x - y * dir.y, x * dir.y + y * dir.x);
+                return mesh.AppendVertex(new Vector3d(p.x, p.y, 0));
+            };
+            int a = vert(0, 0), b = vert(len, 0), c = vert(0.5 * len, 1);
+            mesh.AppendTriangle(a, b, c);
+            int[] top = new int[n + 1], bottom = new int[n];
+            top[0] = a; top[n] = b;
+            Vector2d pa = mesh.GetVertex(a).xy, pb = mesh.GetVertex(b).xy;
+            for (int i = 1; i < n; ++i) {
+                top[i] = vert(i * len / n, 0);
+                // rotated, the vertex is only nearly on the base: keep it off the triangle above (exactly)
+                Vector3d p = mesh.GetVertex(top[i]);
+                for (double h = 1e-15; ExactPredicates.Orient2d(pa, pb, p.xy) > 0; h *= 2)
+                    p = new Vector3d(p.x + h * dir.y, p.y - h * dir.x, 0);
+                mesh.SetVertex(top[i], p);
+            }
+            for (int i = 0; i < n; ++i) bottom[i] = vert((i + 0.5) * len / n, -1);
+            for (int i = 0; i < n; ++i) {
+                mesh.AppendTriangle(top[i], bottom[i], top[i + 1]);
+                if (i + 1 < n) mesh.AppendTriangle(bottom[i], bottom[i + 1], top[i + 1]);
+            }
+            mesh.AppendTriangle(b, vert(far.x, far.y), vert(far.x, far.y + 1));
+            foreach (int v in mesh.VertexIndices()) {
+                Vector3d p = mesh.GetVertex(v);
+                mesh.SetVertexUV(v, new Vector2f((float)p.x, (float)p.y));
+            }
+            return mesh;
+        }
+
+        [Fact]
+        public void UVPacker_PlacedChartsStayOverlapFree()
+        {
+            // the old packer rotated these charts to their (tilted) minimum-area rectangle; rounding moved vertices
+            // of the T-junctions off the base line, into the triangle above: overlapping UV triangles in a chart
+            // that is overlap-free in its input UVs. Without rotation, scaling and translating still round, which
+            // moves vertices nearly on a slanted line (dir) to its other side.
+            int checkedCharts = 0, unrotated = 0, repaired = 0;
+            foreach (bool mirror in new[] { false, true })
+            foreach (bool allowRotation in new[] { true, false })
+                for (int k = 0; k < 6; ++k) {
+                    double ang = allowRotation ? 0 : 0.3 + 0.17 * k;
+                    Vector2d dir = new Vector2d(Math.Cos(ang), Math.Sin(ang));
+                    DMesh3 mesh = TJunctionChart(24 + 7 * k, 10 + 3.1 * k, dir, new Vector2d(30 + 5 * k, 19 - 2 * k));
+                    var uv = new Vector2d[mesh.MaxVertexID];
+                    // mirrored: a valid chart with clockwise triangles, which must be checked as well
+                    foreach (int v in mesh.VertexIndices()) { Vector3d p = mesh.GetVertex(v); uv[v] = new Vector2d(mirror ? -p.x : p.x, p.y); }
+                    var ov0 = UVOverlap.Compute(mesh, uv);
+                    Assert.True(ov0.OverlappingPairs == 0 && ov0.DegenerateTriangles == 0, "input " + k);
+                    var packer = new UVPacker(mesh) { UV = uv, Padding = 0.01, AllowRotation = allowRotation };
+                    var r = packer.Compute();
+                    Assert.True(r.Succeeded, r.Error);
+                    var ov = UVOverlap.Compute(mesh, r.UV);
+                    Assert.True(ov.OverlappingPairs == 0 && ov.DegenerateTriangles == 0 && ov.InvertedTriangles == ov0.InvertedTriangles,
+                        "mirror " + mirror + " rotation " + allowRotation + " case " + k + ": " + ov.OverlappingPairs + " pairs, "
+                        + ov.InvertedTriangles + " inverted, " + ov.DegenerateTriangles + " degenerate");
+                    Assert.Equal(0, packer.RemainingDefects);
+                    // every triangle keeps its input orientation
+                    foreach (int tid in mesh.TriangleIndices()) {
+                        Index3i t = mesh.GetTriangle(tid);
+                        Assert.Equal(ExactPredicates.Orient2d(uv[t.a], uv[t.b], uv[t.c]), ExactPredicates.Orient2d(r.UV[t.a], r.UV[t.b], r.UV[t.c]));
+                    }
+                    checkedCharts++;
+                    unrotated += packer.UnrotatedCharts;
+                    repaired += packer.RepairedVertices;
+                }
+            Assert.Equal(24, checkedCharts);
+            // both fallbacks were needed somewhere
+            Assert.True(unrotated > 0 && repaired > 0, "unrotated " + unrotated + ", repaired " + repaired);
+        }
+
+        [Fact]
+        public void UVPacker_DefectsOfTheInputAreNotRepaired()
+        {
+            // a strip whose UVs fold back and forth (every triangle overlaps many others in the input), turned so
+            // that it is rotated to its minimum-area rectangle: its overlaps are the input's, not the packer's;
+            // nothing is moved or unrotated, the layout is that of the packer without the check
+            List<Vector2d> uv;
+            DMesh3 mesh = Accordion(400, 0.4, out uv);
+            Assert.True(UVOverlap.Compute(mesh, uv).OverlappingPairs > 100000);
+            var packer = new UVPacker(mesh) { UV = uv, Padding = 0.01 };
+            var r = packer.Compute();
+            Assert.True(r.Succeeded, r.Error);
+            Assert.Equal(0, packer.RepairedVertices);
+            Assert.Equal(0, packer.UnrotatedCharts);
+            Assert.Equal(0, packer.RemainingDefects);
+            var plain = new UVPacker(mesh) { UV = uv, Padding = 0.01, ExactCheck = false }.Compute();
+            foreach (int v in mesh.VertexIndices())
+                Assert.Equal(plain.UV[v], r.UV[v]);
+
+            // with T-junction charts (one mirrored) next to it: more than MaxCheckedPairs overlaps in the input
+            // do not hide the defects of the other charts
+            foreach (bool mirror in new[] { false, true }) {
+                DMesh3 both = Accordion(400, 0.4, out uv);
+                int firstTJ = both.MaxTriangleID;
+                DMesh3 tj = TJunctionChart(24, 10, new Vector2d(1, 0), new Vector2d(30, 19));
+                MeshEditor.Append(both, tj);
+                foreach (int v in tj.VertexIndices()) { Vector3d p = tj.GetVertex(v); uv.Add(new Vector2d(mirror ? -p.x : p.x, p.y)); }
+                var pk = new UVPacker(both) { UV = uv, Padding = 0.01 };
+                var rb = pk.Compute();
+                Assert.True(rb.Succeeded, rb.Error);
+                var ov = UVOverlap.Compute(both, rb.UV, int.MaxValue);
+                Assert.DoesNotContain(ov.Pairs, pr => pr.a >= firstTJ || pr.b >= firstTJ);
+                Assert.DoesNotContain(ov.DegenerateTriangleIds, t => t >= firstTJ);
+                foreach (int tid in both.TriangleIndices()) {
+                    if (tid < firstTJ) continue;
+                    Index3i t = both.GetTriangle(tid);
+                    Assert.Equal(ExactPredicates.Orient2d(uv[t.a], uv[t.b], uv[t.c]), ExactPredicates.Orient2d(rb.UV[t.a], rb.UV[t.b], rb.UV[t.c]));
+                }
+                Assert.True(pk.UnrotatedCharts + pk.RepairedVertices > 0);
+                Assert.Equal(0, pk.RemainingDefects);
+            }
+        }
+
+        // a strip of 2n triangles whose UVs fold back and forth (x = 0, 1, 0, 1, ...), turned by angle
+        static DMesh3 Accordion(int n, double angle, out List<Vector2d> uv)
+        {
+            DMesh3 mesh = new DMesh3();
+            uv = new List<Vector2d>();
+            double c = Math.Cos(angle), sn = Math.Sin(angle);
+            int[] lo = new int[n + 1], hi = new int[n + 1];
+            for (int i = 0; i <= n; ++i) {
+                double x = (i % 2) * 1.0 + 0.001 * i;
+                lo[i] = mesh.AppendVertex(new Vector3d(i, 0, 0)); uv.Add(new Vector2d(c * x, sn * x));
+                hi[i] = mesh.AppendVertex(new Vector3d(i, 1, 0)); uv.Add(new Vector2d(c * x - sn, sn * x + c));
+            }
+            for (int i = 0; i < n; ++i) {
+                mesh.AppendTriangle(lo[i], lo[i + 1], hi[i + 1]);
+                mesh.AppendTriangle(lo[i], hi[i + 1], hi[i]);
+            }
+            return mesh;
+        }
+
+        [Fact]
+        public void UVPacker_NeedleTrianglesKeepTheirOrientation()
+        {
+            // needles whose apex is 1e-20 (relative) above the base: translating them into the unit square rounds
+            // the apex onto the base line, a degenerate UV triangle that is not degenerate in the input; the apex is
+            // moved back up by a few ulps
+            DMesh3 mesh = new DMesh3();
+            var uv = new List<Vector2d>();
+            for (int k = 0; k < 12; ++k) {
+                double h = (1 + k) * 1e-20;
+                int a = mesh.AppendVertex(new Vector3d(0, 3 * k, 0)), b = mesh.AppendVertex(new Vector3d(1, 3 * k, 0)),
+                    c = mesh.AppendVertex(new Vector3d(0.37, 3 * k + h, 0));
+                uv.Add(new Vector2d(2 * k, 0)); uv.Add(new Vector2d(2 * k + 1, 0)); uv.Add(new Vector2d(2 * k + 0.37, h));
+                mesh.AppendTriangle(a, b, c);
+            }
+            Assert.True(UVOverlap.Compute(mesh, uv).IsInjective, "input");
+            var packer = new UVPacker(mesh) { UV = uv, Padding = 0.01, AllowRotation = false, ScaleChartsToSurfaceArea = false };
+            var r = packer.Compute();
+            Assert.True(r.Succeeded, r.Error);
+            var ov = UVOverlap.Compute(mesh, r.UV);
+            Assert.True(ov.IsInjective, ov.DegenerateTriangles + " degenerate, " + ov.InvertedTriangles + " inverted");
+            Assert.True(packer.RepairedVertices > 0, "repaired " + packer.RepairedVertices);
+            foreach (int v in mesh.VertexIndices()) {
+                Assert.InRange(r.UV[v].x, 0, 1);
+                Assert.InRange(r.UV[v].y, 0, 1);
+                // ChartBounds include the moved vertices
+                AxisAlignedBox2d box = packer.ChartBounds[packer.TriangleChart[v / 3]];
+                Assert.True(r.UV[v].x >= box.Min.x && r.UV[v].x <= box.Max.x && r.UV[v].y >= box.Min.y && r.UV[v].y <= box.Max.y);
+            }
+        }
+
         [Fact]
         public void UVPacker_InvalidInput()
         {

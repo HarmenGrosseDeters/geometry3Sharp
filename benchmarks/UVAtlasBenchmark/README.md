@@ -36,19 +36,20 @@ Each mesh runs in its own process with a timeout (300 s, large meshes 1200 s). C
 
 ## Results
 
-master 2be7cd8 (with the SLIM changes of #122) plus `ComponentCount`, 4 cores (Intel Xeon 2.1 GHz, cloud
-container), .NET 10, Release, `BENCH_P=3`, October 2026.
+Main set: master fcf8da7 plus the exact check of the packed charts (`UVPacker`, commit 5fe85a5, see below); large set: master
+2be7cd8 (with the SLIM changes of #122) plus `ComponentCount`, before that check. 4 cores (Intel Xeon 2.1 GHz,
+cloud container), .NET 10, Release, `BENCH_P=3`, October 2026.
 
 | | clean | open | multi | broken | all |
 |---|---|---|---|---|---|
 | meshes | 100 | 50 | 50 | 50 | 250 |
-| Success | 80 | 31 | 21 | 23 | 155 |
-| DistortionLimitExceeded | 18 | 17 | 28 | 15 | 78 |
-| Failed | 2 | 2 | 1 | 12 | 17 |
+| Success | 82 | 31 | 22 | 24 | 159 |
+| DistortionLimitExceeded | 18 | 17 | 28 | 16 | 79 |
+| Failed | 0 | 2 | 0 | 10 | 12 |
 | InvalidMesh / load_failed | 0 | 0 | 0 | 0 | 0 |
 | timeout / crash / exception | 0 | 0 | 0 | 0 | 0 |
-| with overlaps or inverted UVs | 2 | 0 | 1 | 2 | 5 |
-| time median / p90 / max (s) | 1.72 / 8.85 / 97.9 | 2.79 / 50.34 / 72.7 | 2.80 / 29.12 / 118.6 | 2.15 / 17.76 / 51.6 | 2.33 / 17.76 / 118.6 |
+| with overlaps or inverted UVs | 0 | 0 | 0 | 0 | 0 |
+| time median / p90 / max (s) | 1.98 / 8.78 / 100.1 | 3.33 / 51.55 / 71.6 | 3.03 / 31.03 / 147.8 | 2.16 / 21.29 / 57.3 | 2.60 / 21.29 / 147.8 |
 | components flattened with cones | 7 of 100 (7%) | 1 of 50 (2%) | 112 of 388 (29%) | 578 of 2538 (23%) | 698 of 3076 (23%) |
 | triangles in cone charts | 3% | 0% | 7% | 10% | 5% |
 | charts per mesh median / p90 | 50 / 128 | 98 / 128 | 128 / 128 | 70 / 128 | 73 / 128 |
@@ -65,21 +66,16 @@ The failures (`analyze.py` lists them):
 ```
 1051179.stl (open): Failed no injective parameterization of a chart (Tutte embedding not injective, eg degenerate surface triangles)
 112853.stl (broken): Failed cutting a chart into a disc failed: the cut mesh is not a set of discs: a component has Euler characteristic 1 and 258 b
-123302.stl (broken): Failed 6 overlapping UV triangle pairs, 0 inverted UV triangles, 0 UV triangles of zero area on non-degenerate surface triangle
 130013.stl (broken): Failed cutting a chart into a disc failed: the cut mesh is not a set of discs: a component has Euler characteristic 1 and 2 bou
 136393.stl (broken): Failed cutting a chart into a disc failed: the cut mesh is not a set of discs: a component has Euler characteristic 1 and 3 bou
-1582393.stl (clean): Failed 1 overlapping UV triangle pairs, 0 inverted UV triangles, 0 UV triangles of zero area on non-degenerate surface triangle
-270395.stl (broken): Failed 3 overlapping UV triangle pairs, 1 inverted UV triangles, 0 UV triangles of zero area on non-degenerate surface triangle
 283361.stl (broken): Failed no injective parameterization of a chart (Tutte embedding not injective, eg degenerate surface triangles)
 44096.stl (broken): Failed cutting a chart into a disc failed: the cut mesh is not a set of discs: a component has Euler characteristic 1 and 39 bo
 52310.stl (broken): Failed cutting a chart into a disc failed: the cut mesh is not a set of discs: a component has Euler characteristic 1 and 142 b
-53749.stl (clean): Failed 4 overlapping UV triangle pairs, 0 inverted UV triangles, 0 UV triangles of zero area on non-degenerate surface triangle
 56106.stl (broken): Failed cutting a chart into a disc failed: the cut mesh is not a set of discs: a component has Euler characteristic 1 and 56 bo
 59323.stl (broken): Failed cutting a chart into a disc failed: the cut mesh is not a set of discs: a component has Euler characteristic 1 and 113 b
 636815.stl (open): Failed no injective parameterization of a chart (Tutte embedding not injective, eg degenerate surface triangles)
 888455.stl (broken): Failed cutting a chart into a disc failed: the cut mesh is not a set of discs: a component has Euler characteristic 1 and 18 bo
 93704.stl (broken): Failed cutting a chart into a disc failed: the cut mesh is not a set of discs: a component has Euler characteristic 1 and 2 bou
-96070.stl (multi): Failed 10 overlapping UV triangle pairs, 0 inverted UV triangles, 0 UV triangles of zero area on non-degenerate surface triangl
 ```
 
 Large set (20 clean meshes, 100k..500k faces):
@@ -115,19 +111,43 @@ Large set (20 clean meshes, 100k..500k faces):
   still over the limits. Two meshes have more charts than `MaxCharts` (145 and 253): every component gets at
   least one chart. BFF flattens 87% of the charts, SLIM 4%, the Tutte fallback 5%.
   Coverage of the unit square is about 0.46 (median).
-- **Failed, 17 of 250:**
+- **Failed, 12 of 250** (17 before the packer check):
   - 9 broken meshes: `MeshDiscCut` cannot cut a chart into a disc (a component with Euler characteristic 1 but
     several boundaries, ie the chart mesh is not a manifold surface after the bowtie split).
   - 3 meshes: no injective map of a chart, the Tutte fallback is not injective either (degenerate surface
     triangles).
-  - 5 meshes (2 clean): overlaps in the *packed* atlas. In all five, every chart is overlap-free before packing
-    (`Pack = false` gives no overlap): the similarity transform of `UVPacker` (rotation to the minimum-area
-    rectangle, scale, translation) is rounded, and triangles that nearly touch inside a chart then overlap.
-    These are not boundary overlaps of SLIM, so a scaffold (Jiang et al. 2017) would not remove them; the
-    packing needs an exact check per chart (eg fall back to an unrotated placement, or move the chart's UVs
-    to a grid that keeps the orientations).
+
 - **Large meshes** take 3.9 min (median, up to 11 min); 16 of 20 reach `MaxCharts` and keep charts over the
   limits, and 13% of their charts are Tutte fallbacks (mean conformal distortion 6.3, median). `MaxCharts`
   should grow with the mesh for these.
 - Float rounding: 44 meshes have defects only in the float UVs stored in the mesh (`FloatRoundingDefects`),
   reported, not failed.
+
+### Before / after: exact check of the packed charts
+
+Before, 5 meshes (2 clean) failed with overlaps in the *packed* atlas, although every chart was overlap-free
+before packing (`Pack = false` gave no overlap). Cause: `UVPacker` rotates a chart to its minimum-area
+rectangle, and the rotation is rounded; in charts of flat CAD faces, vertices lie exactly on the line of another
+triangle's edge (T-junctions, collinear chains), and rounding moves some of them across it. Scaling and
+translating keep the order of each coordinate, which keeps axis-parallel chains, but can still move a vertex
+across a nearly collinear slanted edge.
+
+Now the packed charts are checked with exact predicates: a chart with overlapping, inverted or degenerate UV
+triangles is packed again without the rotation (`UnrotatedCharts`), and a vertex that rounding moved across a
+nearby edge is moved back to its side in the input by a few ulps (`RepairedVertices`).
+
+Before: master 2be7cd8, after: master fcf8da7 with the check; between the two only doc comments and
+`ComponentCount` changed in `UVAtlasGenerator`, so the difference is the check.
+
+| main set (250) | before (master 2be7cd8) | after |
+|---|---|---|
+| Success | 155 | 159 |
+| DistortionLimitExceeded | 78 | 79 |
+| Failed | 17 | 12 |
+| with overlaps or inverted UVs | 5 | 0 |
+| time median / p90 / max (s) | 2.33 / 17.76 / 118.6 | 2.60 / 21.29 / 147.8 |
+
+The five meshes: 53749, 96070, 123302 and 1582393 now succeed, 270395 has no overlap but a chart over the
+limits. Time per mesh after / before: median 1.04 (p10 0.90, p90 1.35), sum 2083 s against 1959 s. The check costs
+one more `UVOverlap` of the packed atlas (two with an unrotated repack), and the run overlapped with test runs
+on the same machine, so part of the 6% is load.
