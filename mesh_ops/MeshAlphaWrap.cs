@@ -60,7 +60,8 @@ namespace gs
             PointLimitReached = 5,
             /// <summary>
             /// internal failure (should not happen), see Error; also if the result misses the guarantees (not closed,
-            /// bowtie vertices, box corners on a Success result): Result is then kept for diagnostics
+            /// bowtie vertices; for a Success result also box corners on it or rejected rule 1 Steiner points): Result
+            /// is then kept for diagnostics
             /// </summary>
             Failed = 6
         }
@@ -83,6 +84,10 @@ namespace gs
         internal bool MakeManifold = true;
         /// <summary> if the result misses the guarantees, wrap once more with a different box margin (off: for tests of the result check) </summary>
         internal bool RetryWithOtherBox = true;
+        /// <summary> for tests: the first wrap with the box of the retry (different margins on each side), no retry </summary>
+        internal bool StartWithOtherBox = false;
+        /// <summary> for tests: rejects the insertion of a Steiner point of the given rule (1 or 2) when it returns true </summary>
+        internal Func<int, bool> RejectInsertF;
         bool asymmetricBox;
 
         /// <summary> return true to cancel (checked during the refinement and the manifold step); null = never </summary>
@@ -139,13 +144,13 @@ namespace gs
         /// <summary> computes Result; true on Success (see Status; Result is also set for PointLimitReached) </summary>
         public bool Compute()
         {
-            asymmetricBox = false;
+            asymmetricBox = StartWithOtherBox;
             bool ok = compute_once();
             // a result that misses the guarantees (box corners on it, from cells that stayed inside up to the box,
             // or a non-manifold remainder): once more with a slightly different margin on each side of the box. With
             // the same margin on all sides, symmetric inputs (eg a unit sphere, alpha = diagonal / 10) make nearly flat
             // cells of box corners and Steiner points; their Steiner points can be rejected, and the cells stay inside.
-            if (Status == WrapStatus.Failed && Result != null && RetryWithOtherBox) {
+            if (Status == WrapStatus.Failed && Result != null && RetryWithOtherBox && !StartWithOtherBox) {
                 asymmetricBox = true;
                 ok = compute_once();
                 Counts["box_retries"] = 1;
@@ -192,8 +197,11 @@ namespace gs
             Counts["result_box_corners"] = boxCornersInResult;
             // the guarantees, checked (topology only, cheap): a result that misses them is not reported as one that
             // has them (Result is kept for diagnostics)
+            // (a rejected rule 1 point leaves a facet whose dual edge crosses the offset surface on the result: it can
+            // come closer to the input than the offset, so the offset is not guaranteed)
             string violated = !Result.IsClosed() ? "not closed" : MeshIterators.BowtieVertices(Result).Any() ? "bowtie vertices"
-                : (Status == WrapStatus.Success && boxCornersInResult > 0) ? "box corners on the result" : null;
+                : (Status == WrapStatus.Success && boxCornersInResult > 0) ? "box corners on the result"
+                : (Status == WrapStatus.Success && Counts["rejected_rule1"] > 0) ? "rule 1 Steiner points rejected (offset not guaranteed)" : null;
             if (violated != null) {
                 Status = WrapStatus.Failed;
                 Error = "result " + violated;
@@ -351,9 +359,9 @@ namespace gs
                     removed.Clear(); added.Clear();
                     // (no separation needed for correctness; tiny separations would only make slivers)
                     long t2 = Stopwatch.GetTimestamp();
-                    // (rejected: at an existing vertex, eg from the far-off floating-point circumcenters of a nearly flat
-                    // cell; replacement points on the offset surface did not help in such cases, see rejected_rule1)
-                    var res = dt.Insert(steinerPoint, c, 1e-9 * alpha, out int vid, removed, added);
+                    // (rejected: too close to a vertex, or outside the box; see the result check)
+                    var res = RejectInsertF != null && RejectInsertF(which) ? Delaunay3.InsertResult.Failed
+                        : dt.Insert(steinerPoint, c, 1e-9 * alpha, out int vid, removed, added);
                     ticksInsert += Stopwatch.GetTimestamp() - t2;
                     if (res != Delaunay3.InsertResult.Inserted) {
                         rejected++;
@@ -523,7 +531,7 @@ namespace gs
             } else {
                 // circumcenter on the input: go towards the outside cell
                 Index3i f = dt.FacetVertices(c, i);
-                dir = (dt.GetVertex(f.b) - dt.GetVertex(f.a)).Cross(dt.GetVertex(f.c) - dt.GetVertex(f.a)).Normalized;
+                dir = AlphaWrapOracle.Unit((dt.GetVertex(f.b) - dt.GetVertex(f.a)).Cross(dt.GetVertex(f.c) - dt.GetVertex(f.a)));
             }
             p = q + offset * dir;
             return double.IsNaN(p.x + p.y + p.z) == false;
@@ -668,6 +676,7 @@ namespace gs
         readonly List<byte> compLabel = new List<byte>();
         readonly List<bool> compExterior = new List<bool>();
         readonly List<double> compVolume = new List<double>();
+        readonly List<bool> compCorner = new List<bool>();
         readonly Stack<int> compStack = new Stack<int>();
 
         int fix_star(int v, int w)
@@ -697,11 +706,12 @@ namespace gs
                 if (nIn == 0 || nOut == 0 || (nIn == 1 && nOut == 1))
                     return flipped;       // not on the result, or manifold
                 if (nOut > 1) {
-                    // keep the outside connected to the box boundary, otherwise the largest outside component
+                    // keep the outside connected to the box boundary, otherwise the outside component with a box corner
+                    // (moving it inside would put the corner on the result), otherwise the largest one
                     int keep = -1;
                     for (int k = 0; k < compLabel.Count; ++k) {
                         if (compLabel[k] != Outside || exterior) continue;
-                        if (keep < 0 || compVolume[k] > compVolume[keep]) keep = k;
+                        if (keep < 0 || compCorner[k] && !compCorner[keep] || compCorner[k] == compCorner[keep] && compVolume[k] > compVolume[keep]) keep = k;
                     }
                     for (int k = 0; k < n; ++k) {
                         int ck = comp[k];
@@ -750,19 +760,20 @@ namespace gs
             int n = local.Count;
             comp.Clear();
             for (int k = 0; k < n; ++k) comp.Add(-1);
-            compLabel.Clear(); compExterior.Clear(); compVolume.Clear();
+            compLabel.Clear(); compExterior.Clear(); compVolume.Clear(); compCorner.Clear();
             var stack = compStack;
             for (int k = 0; k < n; ++k) {
                 if (comp[k] >= 0) continue;
                 int id = compLabel.Count;
                 byte lab = label[local[k]];
-                compLabel.Add(lab); compExterior.Add(false); compVolume.Add(0);
+                compLabel.Add(lab); compExterior.Add(false); compVolume.Add(0); compCorner.Add(false);
                 comp[k] = id;
                 stack.Push(k);
                 while (stack.Count > 0) {
                     int kk = stack.Pop();
                     int c = local[kk];
                     compVolume[id] += dt.CellVolume(c);
+                    if (has_corner(c)) compCorner[id] = true;
                     for (int i = 0; i < 4; ++i) {
                         int cvx = dt.CellVertex(c, i);
                         if (cvx == v || cvx == w) continue;     // facet i does not contain the vertex / edge
@@ -777,6 +788,13 @@ namespace gs
             }
         }
 
+        // does cell c have a box corner (vertices 0 to 7) as a vertex?
+        bool has_corner(int c)
+        {
+            for (int i = 0; i < 4; ++i)
+                if (dt.CellVertex(c, i) < 8) return true;
+            return false;
+        }
         int boxCornersInResult;
 
         DMesh3 extract()

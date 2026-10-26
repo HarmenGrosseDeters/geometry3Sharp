@@ -86,9 +86,16 @@ namespace g3
     /// <summary>
     /// Scalable locally injective mappings (Rabinovich, Poranne, Panozzo, Sorkine-Hornung 2017): minimizes
     /// the symmetric Dirichlet energy Sum_T A_T (|J|^2 + |J^-1|^2), which goes to infinity when a triangle
-    /// degenerates, starting from the flip-free Tutte embedding. Each iteration solves a reweighted
-    /// ARAP-like proxy (local/global with weights W_T from the singular values of J_T) and does a line search
-    /// whose step is limited so that no triangle flips (Smith and Schaefer 2015).
+    /// degenerates, starting from a flip-free map (LSCM if it is injective, else the Tutte embedding; see
+    /// StartMap). Each iteration solves a reweighted
+    /// ARAP-like proxy (with weights W_T from the singular values of J_T) and does a line search whose step is
+    /// limited so that no triangle flips (Smith and Schaefer 2015).
+    ///
+    /// The proxy step is -H^-1 grad E, with H the proxy matrix (its gradient at the current UVs is the energy
+    /// gradient). With ReuseFactorization, the factorization of H is kept for further iterations (a lagged
+    /// Hessian) while each step lowers the energy at least at the average rate since the factorization was made,
+    /// counting the factorization as 8 steps; this saves most factorizations. Converged means the proxy predicts a decrease below ConvergenceTolerance
+    /// (the Newton decrement, on a new factorization), not merely that one step decreased little.
     ///
     /// Guarantees: for a disc, the result has no flipped (or degenerate) UV triangles, including triangles
     /// that are degenerate on the surface. The boundary is free and may in rare cases overlap itself (local,
@@ -98,14 +105,50 @@ namespace g3
     {
         public DMesh3 Mesh;
         public int MaxIterations = 100;
-        /// <summary> stop when the energy decreases by less than this fraction in an iteration </summary>
+        /// <summary>
+        /// stop when the decrease predicted by the proxy for a full step, relative to the energy, is below this
+        /// </summary>
         public double ConvergenceTolerance = 1e-5;
         /// <summary>
-        /// optional initial UVs by vertex id, which must have no flipped triangles (default: Tutte embedding)
+        /// optional initial UVs by vertex id, which must have no flipped triangles (default: see StartMap)
         /// </summary>
         public IList<Vector2d> InitialUV;
 
+        public enum StartMaps
+        {
+            /// <summary>
+            /// the LSCM map if it is injective (no flipped triangle, no overlap; exact test) and has no sliver
+            /// UV triangle (twice its area not above 1e-6 of its longest edge squared), else the Tutte embedding; if
+            /// SLIM gets stuck from LSCM, it goes on from Tutte with the remaining iterations and keeps the lower
+            /// energy. LSCM is usually much closer to the minimum: on a 48k vertex ellipsoid cap SLIM needs 4
+            /// iterations from it instead of over 100 from Tutte.
+            /// </summary>
+            Auto = 0,
+            /// <summary> the Tutte embedding (always injective, but strongly distorted) </summary>
+            Tutte = 1
+        }
+        /// <summary> the initial map when InitialUV is null </summary>
+        public StartMaps StartMap = StartMaps.Auto;
+        /// <summary> keep the factorization of the proxy matrix while its steps are good (else one per iteration) </summary>
+        public bool ReuseFactorization = true;
+        /// <summary>
+        /// called after each step with the iteration number and the new energy (eg for progress or timing). After a
+        /// restart from Tutte (see StartMap) the energies start over, and Result may keep the run from LSCM.
+        /// </summary>
+        public Action<int, double> IterationCompleted;
+
+        // cost of a factorization in steps with an existing one (assembly and numeric factorization against
+        // gradient, solve and line search; measured about 8-10 at 12k-48k vertices)
+        const double FactorCost = 8;
+
         public ParameterizationResult Result;
+        // LSCM start: smallest twice area of a UV triangle relative to its longest edge squared (tests lower it)
+        internal double SliverTolerance = 1e-6;
+
+        /// <summary> factorizations of the proxy matrix in the last Compute() </summary>
+        public int Factorizations;
+        /// <summary> the result of the last Compute() comes from the LSCM map (StartMap Auto), not from the Tutte embedding </summary>
+        public bool StartedFromLSCM;
 
         public SLIMParameterization(DMesh3 mesh)
         {
@@ -114,6 +157,8 @@ namespace g3
 
         public ParameterizationResult Compute()
         {
+            Factorizations = 0;
+            StartedFromLSCM = false;
             ParamMesh pm = new ParamMesh(Mesh);
             int N = pm.N;
             double[] u, v;
@@ -127,68 +172,37 @@ namespace g3
             } else {
                 if (!pm.RequireDisc())
                     return Result = pm.Failure();
-                string error;
-                if (!TutteEmbedding.Solve(pm, out u, out v, out error))
+                if (!(StartMap == StartMaps.Auto && injectiveLSCM(pm, out u, out v)) && !tutte(pm, out u, out v, out string error))
                     return Result = ParameterizationResult.Failure(ParameterizationStatus.SolverFailed, error);
-                pm.ScaleToSurfaceArea(u, v);
             }
-            int T = pm.Tris.Count;
-            for (int ti = 0; ti < T; ++ti)
-                if (!(ParamMesh.SignedArea2(u, v, pm.Tris[ti]) > 0))
-                    return Result = ParameterizationResult.Failure(ParameterizationStatus.InvalidConstraints,
-                        "initial UVs have flipped or degenerate triangles");
+            if (!flipFree(pm, u, v))
+                return Result = ParameterizationResult.Failure(ParameterizationStatus.InvalidConstraints,
+                    "initial UVs have flipped or degenerate triangles");
 
-            int pin = pm.BoundaryLoops[0][0];
-            bool[] isFixed = new bool[2 * N];
-            double[] fixedValue = new double[2 * N];
-            ConstrainedQuadratic q = null;
-            double energy = Energy(pm, u, v);
-            int iter = 0;
-            bool converged = false;
-            double[] x = new double[2 * N], b = new double[2 * N];
-            double[] du = new double[N], dv = new double[N], tu = new double[N], tv = new double[N];
-            while (iter < MaxIterations) {
-                iter++;
-                // the proxy is translation invariant: pin one vertex at its current position
-                isFixed[2 * pin] = isFixed[2 * pin + 1] = true;
-                fixedValue[2 * pin] = u[pin]; fixedValue[2 * pin + 1] = v[pin];
-                if (q == null)
-                    q = new ConstrainedQuadratic(2 * N, isFixed, fixedValue, 2);
-                else
-                    q.Clear();
-                Array.Clear(b, 0, b.Length);
-                assembleProxy(pm, u, v, q, b);
-                if (!q.Factorize())
-                    return Result = ParameterizationResult.Failure(ParameterizationStatus.SolverFailed, "SLIM proxy system: " + q.Error);
-                q.Solve(b, x);
-                for (int i = 0; i < N; ++i) { du[i] = x[2 * i] - u[i]; dv[i] = x[2 * i + 1] - v[i]; }
-
-                // line search, never past the first step at which a triangle degenerates
-                double t = Math.Min(1.0, 0.9 * maxInjectiveStep(pm, u, v, du, dv));
-                double e1 = double.PositiveInfinity;
-                while (t > 1e-12) {
-                    for (int i = 0; i < N; ++i) { tu[i] = u[i] + t * du[i]; tv[i] = v[i] + t * dv[i]; }
-                    e1 = Energy(pm, tu, tv);
-                    if (e1 <= energy)
-                        break;
-                    t *= 0.5;
-                }
-                if (!(e1 <= energy)) {
-                    // no step lowers the energy: converged if the proxy step itself is negligible (at a minimum the
-                    // proxy reproduces the current UVs), else stuck
-                    double step = 0;
-                    for (int i = 0; i < N; ++i) step = Math.Max(step, Math.Max(Math.Abs(du[i]), Math.Abs(dv[i])));
-                    converged = step <= 1e-6 * Math.Sqrt(pm.SurfaceArea);
-                    break;
-                }
-                Array.Copy(tu, u, N); Array.Copy(tv, v, N);
-                double decrease = energy - e1;
-                energy = e1;
-                if (decrease <= ConvergenceTolerance * energy) {
-                    converged = true;
-                    break;
+            int iter;
+            double energy;
+            bool converged, stuck;
+            string failure = minimize(pm, u, v, 0, out iter, out energy, out converged, out stuck);
+            if (failure == null && stuck && StartedFromLSCM && iter < MaxIterations) {
+                // the LSCM start can still hold a nearly degenerate triangle that blocks every step: start over
+                // from the Tutte embedding with the remaining iterations, and keep the lower energy
+                double[] tu, tv;
+                if (tutte(pm, out tu, out tv, out string error) && flipFree(pm, tu, tv)) {
+                    int iterT;
+                    double energyT;
+                    bool convergedT, stuckT;
+                    // a failure here keeps the (valid, flip-free) result from LSCM
+                    string failureT = minimize(pm, tu, tv, iter, out iterT, out energyT, out convergedT, out stuckT);
+                    iter = iterT;
+                    if (failureT == null && energyT < energy) {
+                        u = tu; v = tv;
+                        energy = energyT; converged = convergedT;
+                        StartedFromLSCM = false;
+                    }
                 }
             }
+            if (failure != null)
+                return Result = ParameterizationResult.Failure(ParameterizationStatus.SolverFailed, failure);
             if (!pm.AllFinite(u, v))
                 return Result = ParameterizationResult.Failure(ParameterizationStatus.SolverFailed, "SLIM solution is not finite");
             Result = pm.MakeResult(u, v);
@@ -196,6 +210,155 @@ namespace g3
             Result.Converged = converged;
             Result.Energy = energy;
             return Result;
+        }
+
+        static bool flipFree(ParamMesh pm, double[] u, double[] v)
+        {
+            for (int ti = 0; ti < pm.Tris.Count; ++ti)
+                if (!(ParamMesh.SignedArea2(u, v, pm.Tris[ti]) > 0))
+                    return false;
+            return true;
+        }
+
+        static bool tutte(ParamMesh pm, out double[] u, out double[] v, out string error)
+        {
+            if (!TutteEmbedding.Solve(pm, out u, out v, out error))
+                return false;
+            pm.ScaleToSurfaceArea(u, v);
+            return true;
+        }
+
+        // SLIM iterations from (u, v), which are updated, counted on from iter0 up to MaxIterations. Returns an
+        // error message if the proxy cannot be factorized. stuck: no step lowers the energy although the proxy
+        // predicts a decrease.
+        string minimize(ParamMesh pm, double[] u, double[] v, int iter0, out int iter, out double energy, out bool converged, out bool stuck)
+        {
+            int N = pm.N;
+            // the proxy is translation invariant: one vertex does not move (its step is fixed at 0)
+            int pin = pm.BoundaryLoops[0][0];
+            bool[] isFixed = new bool[2 * N];
+            isFixed[2 * pin] = isFixed[2 * pin + 1] = true;
+            ConstrainedQuadratic q = new ConstrainedQuadratic(2 * N, isFixed, new double[2 * N], 2);
+            energy = Energy(pm, u, v);
+            iter = iter0;
+            converged = stuck = false;
+            bool factored = false;
+            // steps and energy decrease since the last factorization
+            int sinceFactor = 0;
+            double sinceDecrease = 0;
+            double[] g = new double[2 * N], d = new double[2 * N];
+            double[] du = new double[N], dv = new double[N], tu = new double[N], tv = new double[N];
+            while (iter < MaxIterations) {
+                iter++;
+                bool fresh = !factored;
+                if (fresh) {
+                    q.Clear();
+                    assembleProxy(pm, u, v, q);
+                    Factorizations++;
+                    if (!q.Factorize())
+                        return "SLIM proxy system: " + q.Error;
+                    factored = ReuseFactorization;
+                }
+                // the minimizer of the quadratic model 1/2 d^T H d + g^T d (q holds H / 2 and gets g / 2)
+                HalfGradient(pm, u, v, g);
+                for (int i = 0; i < 2 * N; ++i) g[i] = -g[i];
+                q.Solve(g, d);
+                double slope = 0;   // -grad E . d, per unit area: twice the decrease the model predicts
+                for (int i = 0; i < 2 * N; ++i) slope += g[i] * d[i];
+                slope *= 2 / pm.SurfaceArea;
+                for (int i = 0; i < N; ++i) { du[i] = d[2 * i]; dv[i] = d[2 * i + 1]; }
+                if (!(0.5 * slope > ConvergenceTolerance * energy)) {
+                    // the model predicts (almost) no decrease: converged, or check with a new factorization (a pass
+                    // that only refactorizes is not counted as an iteration)
+                    if (fresh) {
+                        converged = true;
+                        break;
+                    }
+                    factored = false;
+                    iter--;
+                    continue;
+                }
+
+                double e1 = LineSearch(pm, u, v, du, dv, energy, tu, tv);
+                if (!(e1 < energy)) {
+                    // no step lowers the energy: with an old factorization try a new one; else converged if the
+                    // step itself is negligible (at a minimum the proxy reproduces the current UVs), else stuck
+                    if (!fresh) {
+                        factored = false;
+                        iter--;
+                        continue;
+                    }
+                    double step = 0;
+                    for (int i = 0; i < N; ++i) step = Math.Max(step, Math.Max(Math.Abs(du[i]), Math.Abs(dv[i])));
+                    converged = step <= 1e-6 * Math.Sqrt(pm.SurfaceArea);
+                    stuck = !converged;
+                    break;
+                }
+                Array.Copy(tu, u, N); Array.Copy(tv, v, N);
+                // keep the factorization while its steps decrease the energy at least at the average rate since
+                // it was made, counting the factorization as FactorCost steps (the marginal value rule)
+                double decrease = energy - e1;
+                if (fresh) {
+                    sinceFactor = 0;
+                    sinceDecrease = 0;
+                }
+                sinceFactor++;
+                sinceDecrease += decrease;
+                if (!fresh && decrease < sinceDecrease / (FactorCost + sinceFactor))
+                    factored = false;
+                energy = e1;
+                IterationCompleted?.Invoke(iter, energy);
+            }
+            return null;
+        }
+
+        // the LSCM map (free boundary) scaled to the surface area, if it is injective (no flipped or degenerate
+        // triangle, no overlap; exact test) and has no sliver UV triangle
+        bool injectiveLSCM(ParamMesh pm, out double[] u, out double[] v)
+        {
+            string error;
+            StartedFromLSCM = LSCMParameterization.Solve(pm, null, out u, out v, out error) == ParameterizationStatus.Success
+                && pm.AllFinite(u, v);
+            if (StartedFromLSCM) {
+                pm.ScaleToSurfaceArea(u, v);
+                Vector2d[] uv = new Vector2d[Mesh.MaxVertexID];
+                for (int i = 0; i < pm.N; ++i)
+                    uv[pm.ToVertex[i]] = new Vector2d(u[i], v[i]);
+                // no nearly degenerate UV triangle (LSCM keeps the apex of a triangle of zero surface area on its
+                // edge), which would block the steps of SLIM
+                for (int ti = 0; ti < pm.Tris.Count && StartedFromLSCM; ++ti) {
+                    Index3i t = pm.Tris[ti];
+                    double maxLenSqr = 0;
+                    for (int k = 0; k < 3; ++k) {
+                        int i = t[k], j = t[(k + 1) % 3];
+                        maxLenSqr = Math.Max(maxLenSqr, (u[i] - u[j]) * (u[i] - u[j]) + (v[i] - v[j]) * (v[i] - v[j]));
+                    }
+                    StartedFromLSCM = ParamMesh.SignedArea2(u, v, t) > SliverTolerance * maxLenSqr;
+                }
+                StartedFromLSCM = StartedFromLSCM && UVOverlap.Compute(Mesh, uv, 0).IsInjective;
+            }
+            return StartedFromLSCM;
+        }
+
+        /// <summary>
+        /// Backtracking line search along (du, dv) for a strict decrease of the energy, starting at the full step
+        /// or 0.9 of the first step at which a triangle degenerates. Returns the new energy with the UVs in
+        /// (tu, tv), or a value not below energy if no step down to 1e-12 lowers it.
+        /// </summary>
+        internal static double LineSearch(ParamMesh pm, double[] u, double[] v, double[] du, double[] dv, double energy,
+            double[] tu, double[] tv)
+        {
+            int N = pm.N;
+            double t = Math.Min(1.0, 0.9 * maxInjectiveStep(pm, u, v, du, dv));
+            double e1 = double.PositiveInfinity;
+            while (t > 1e-12) {
+                for (int i = 0; i < N; ++i) { tu[i] = u[i] + t * du[i]; tv[i] = v[i] + t * dv[i]; }
+                e1 = Energy(pm, tu, tv);
+                if (e1 < energy)
+                    break;
+                t *= 0.5;
+            }
+            return e1;
         }
 
         /// <summary> symmetric Dirichlet energy per unit area (infinity if a triangle is flipped) </summary>
@@ -217,25 +380,44 @@ namespace g3
             return e / pm.SurfaceArea;
         }
 
-        // proxy Sum_T A_T |W_T (J_T - R_T)|^2, W_T = U diag(w1,w2) U^T, w_i = sqrt(f'(s_i) / (2 (s_i - 1)))
-        // with f(s) = s^2 + s^-2, which simplifies to w = sqrt((s+1)(s^2+1)/s^3)
-        static void assembleProxy(ParamMesh pm, double[] u, double[] v, ConstrainedQuadratic q, double[] b)
+        // half the gradient of Sum_T A_T f(J_T), f = |J|^2 (1 + det^-2), interleaved (u, v) per vertex
+        internal static void HalfGradient(ParamMesh pm, double[] u, double[] v, double[] g)
         {
-            double[] coef = new double[6];
-            int[] var = new int[6];
+            Array.Clear(g, 0, g.Length);
+            for (int ti = 0; ti < pm.Tris.Count; ++ti) {
+                TriangleFrame f = pm.Frames[ti];
+                if (f.Degenerate) continue;
+                Index3i t = pm.Tris[ti];
+                Matrix2d J = f.Jacobian(new Vector2d(u[t.a], v[t.a]), new Vector2d(u[t.b], v[t.b]), new Vector2d(u[t.c], v[t.c]));
+                double a = J.m00, b = J.m01, c = J.m10, dd = J.m11;
+                double det = a * dd - b * c, fro = a * a + b * b + c * c + dd * dd;
+                double s = 1 + 1 / (det * det), k = fro / (det * det * det);
+                // half of df/dJ: J (1 + det^-2) - |J|^2 det^-3 cof(J)
+                double ga = f.Area * (a * s - k * dd), gb = f.Area * (b * s + k * c);
+                double gc = f.Area * (c * s + k * b), gd = f.Area * (dd * s - k * a);
+                for (int j = 0; j < 3; ++j) {
+                    g[2 * t[j]] += ga * f.Dx[j] + gb * f.Dy[j];
+                    g[2 * t[j] + 1] += gc * f.Dx[j] + gd * f.Dy[j];
+                }
+            }
+        }
+
+        // proxy Sum_T A_T |W_T (J_T - R_T)|^2, W_T = U diag(w1,w2) U^T, w_i = sqrt(f'(s_i) / (2 (s_i - 1)))
+        // with f(s) = s^2 + s^-2, which simplifies to w^2 = (s+1)(s^2+1)/s^3. q gets half its Hessian,
+        // A_T (W_T^2 kron (Dx Dx^T + Dy Dy^T)) on the variables (u, v) of the corners.
+        static void assembleProxy(ParamMesh pm, double[] u, double[] v, ConstrainedQuadratic q)
+        {
             for (int ti = 0; ti < pm.Tris.Count; ++ti) {
                 TriangleFrame f = pm.Frames[ti];
                 Index3i t = pm.Tris[ti];
                 if (f.Degenerate) {
-                    // no energy (and no Jacobian) on the surface: unit springs that keep its current UV edges, so a
-                    // vertex used only by such triangles is still held (the matrix stays positive definite)
+                    // no energy (and no Jacobian) on the surface: unit springs on its UV edges, so a vertex used
+                    // only by such triangles is still held (the matrix stays positive definite)
                     for (int k = 0; k < 3; ++k) {
                         int i = t[k], j = t[(k + 1) % 3];
                         for (int c = 0; c < 2; ++c) {
                             int vi = 2 * i + c, vj = 2 * j + c;
-                            double d = c == 0 ? u[i] - u[j] : v[i] - v[j];
                             q.Add(vi, vi, 1); q.Add(vj, vj, 1); q.Add(vi, vj, -1);
-                            b[vi] += d; b[vj] -= d;
                         }
                     }
                     continue;
@@ -243,37 +425,27 @@ namespace g3
                 Matrix2d J = f.Jacobian(new Vector2d(u[t.a], v[t.a]), new Vector2d(u[t.b], v[t.b]), new Vector2d(u[t.c], v[t.c]));
                 double s1, s2, phi, theta;
                 ParamMath.SignedSVD(J, out s1, out s2, out phi, out theta);
-                double w1 = weight(s1), w2 = weight(s2);
+                double w1 = weight2(s1), w2 = weight2(s2);
                 double cp = Math.Cos(phi), sp = Math.Sin(phi);
-                // W = U diag(w1, w2) U^T with U = Rot(phi)
+                // W^2 = U diag(w1^2, w2^2) U^T with U = Rot(phi)
                 double W00 = w1 * cp * cp + w2 * sp * sp, W11 = w1 * sp * sp + w2 * cp * cp, W01 = (w1 - w2) * cp * sp;
-                double ra = phi + theta, cr = Math.Cos(ra), sr = Math.Sin(ra);
-                // R = [[cr, -sr], [sr, cr]], columns c = x, y
-                for (int col = 0; col < 2; ++col) {
-                    Vector3d D = col == 0 ? f.Dx : f.Dy;
-                    double R0 = col == 0 ? cr : -sr, R1 = col == 0 ? sr : cr;
-                    for (int row = 0; row < 2; ++row) {
-                        double Wr0 = row == 0 ? W00 : W01, Wr1 = row == 0 ? W01 : W11;
-                        // residual = Wr0 (D.u - R0) + Wr1 (D.v - R1)
-                        for (int k = 0; k < 3; ++k) {
-                            var[2 * k] = 2 * t[k]; coef[2 * k] = Wr0 * D[k];
-                            var[2 * k + 1] = 2 * t[k] + 1; coef[2 * k + 1] = Wr1 * D[k];
-                        }
-                        double target = Wr0 * R0 + Wr1 * R1;
-                        for (int p = 0; p < 6; ++p) {
-                            b[var[p]] += f.Area * coef[p] * target;
-                            for (int r = p; r < 6; ++r)
-                                q.Add(var[p], var[r], f.Area * coef[p] * coef[r]);   // the six variables are distinct
-                        }
+                for (int k = 0; k < 3; ++k)
+                    for (int l = k; l < 3; ++l) {
+                        double L = f.Area * (f.Dx[k] * f.Dx[l] + f.Dy[k] * f.Dy[l]);
+                        int uk = 2 * t[k], ul = 2 * t[l];
+                        q.Add(uk, ul, W00 * L);
+                        q.Add(uk + 1, ul + 1, W11 * L);
+                        q.Add(uk, ul + 1, W01 * L);
+                        if (l != k)
+                            q.Add(uk + 1, ul, W01 * L);
                     }
-                }
             }
         }
 
-        static double weight(double s)
+        static double weight2(double s)
         {
             s = Math.Max(Math.Abs(s), 1e-8);
-            return Math.Sqrt((s + 1) * (s * s + 1) / (s * s * s));
+            return (s + 1) * (s * s + 1) / (s * s * s);
         }
 
         // largest t in (0, inf) such that no triangle has zero area for any step in [0, t)
