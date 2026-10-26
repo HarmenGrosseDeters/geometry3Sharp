@@ -560,11 +560,24 @@ namespace geometry3Sharp.Tests
             Assert.Equal("self-intersections", with.SolidifyReason);
             Assert.True(with.UsedAlphaWrap);
             Assert.False(with.UsedSolidify);
+            Assert.Equal("", with.WrapReason);
             Assert.Equal("", with.ResultReason);
             Assert.Equal("", MeshRobustRepair.NotCleanReason(with.Mesh));
             double missing, extra;
             double iou = MeshRepairMetrics.VolumeIoU(ThinPlates(6), with.Mesh, out missing, out extra);
             Assert.True(missing < 0.01, $"missing {missing}");     // the wrap encloses the input
+        }
+
+        [Fact]
+        public void WrapFailed_ReasonReported()
+        {
+            // the wrap fails (alpha 0: invalid parameters): the unclean solidify result is used, and why the wrap was
+            // not is said
+            var r = new MeshRobustRepair(ThinPlates(6)) { RepairF = (m) => new DMesh3(m), ExactResolve = false, SolidifyResolution = 64, WrapRelativeAlpha = 0 };
+            Assert.True(r.Apply());
+            Assert.True(r.UsedSolidify);
+            Assert.False(r.UsedAlphaWrap);
+            Assert.StartsWith("InvalidParameters", r.WrapReason);
         }
 
         [Fact]
