@@ -342,6 +342,48 @@ namespace geometry3Sharp.Tests
             Assert.True(dist < 0.02, $"{s.Name}: remeshed surfaces {dist} apart");
         }
 
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void MergeCoincidentEdges_ShortCrack_SameResultUnderSimilarity(string name)
+        {
+            Similarity s = Similarity.ByName(name);
+            DMesh3 m0 = MeshTestUtil.CubeWithShortCrack(0.01, 0.0003);
+            new MergeCoincidentEdges(m0) { MergeDistance = 0.001 }.Apply();
+            Assert.True(m0.IsClosed());
+            DMesh3 m = Invariance.Transformed(MeshTestUtil.CubeWithShortCrack(0.01, 0.0003), s);
+            new MergeCoincidentEdges(m) { MergeDistance = s.ApplyLength(0.001) }.Apply();
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(m));
+            Assert.Equal(m0.VertexCount, m.VertexCount);
+            Assert.Equal(m0.TriangleCount, m.TriangleCount);
+            DMesh3 back = Invariance.MappedBack(m, s);
+            if (s.IsExact)
+                Assert.Equal("", Invariance.Difference(m0, back));
+            double dist = Invariance.VertexDistance(m0, back);
+            Assert.True(dist <= s.DistanceResolution(1), $"{s.Name}: results {dist} apart");
+        }
+
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void RemoveDuplicateTriangles_SmallDuplicates_SameResultUnderSimilarity(string name)
+        {
+            Similarity s = Similarity.ByName(name);
+            DMesh3 m0 = MeshTestUtil.DuplicatedSmallTriangle(0.01, 3, false);
+            var d0 = new RemoveDuplicateTriangles(m0) { VertexTolerance = 0.001 };
+            d0.Apply();
+            Assert.Equal(2, d0.Removed);
+            DMesh3 m = Invariance.Transformed(MeshTestUtil.DuplicatedSmallTriangle(0.01, 3, false), s);
+            var d = new RemoveDuplicateTriangles(m) { VertexTolerance = s.ApplyLength(0.001) };
+            d.Apply();
+            Assert.Equal(d0.Removed, d.Removed);
+            Assert.Equal(m0.TriangleCount, m.TriangleCount);
+            Assert.Equal(m0.VertexCount, m.VertexCount);
+            DMesh3 back = Invariance.MappedBack(m, s);
+            if (s.IsExact)
+                Assert.Equal("", Invariance.Difference(m0, back));
+            double dist = Invariance.VertexDistance(m0, back);
+            Assert.True(dist <= s.DistanceResolution(0.01), $"{s.Name}: results {dist} apart");
+        }
+
         // ---- analysis ----
 
         [Theory]
