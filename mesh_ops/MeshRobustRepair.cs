@@ -401,8 +401,11 @@ namespace gs
             comps.FindConnectedT();
             int removed = 0;
             foreach (var comp in comps.Components) {
-                // a sliver, and in all below 10^4 times the degenerate area (1e-8 * diagonal^2)
+                // closed, a sliver, and in all below 10^4 times the degenerate area (1e-8 * diagonal^2); an open
+                // component is kept: it may close the rest by position (sheets that touch with their own vertices)
                 if (comp.Indices.Any(tid => mesh.GetTriArea(tid) < areaEps) == false || comp.Indices.Sum(tid => mesh.GetTriArea(tid)) >= 1e4 * areaEps)
+                    continue;
+                if (comp.Indices.Any(tid => { Index3i te = mesh.GetTriEdges(tid); return mesh.IsBoundaryEdge(te.a) || mesh.IsBoundaryEdge(te.b) || mesh.IsBoundaryEdge(te.c); }))
                     continue;
                 foreach (int tid in comp.Indices)
                     mesh.RemoveTriangle(tid, true, false);

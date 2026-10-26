@@ -379,6 +379,23 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void CollapseSlivers_KeepsTinyOpenComponents()
+        {
+            // a tiny open sliver sheet next to a box: it may close another part by position, so it is not removed
+            // (only closed tiny components are)
+            DMesh3 m = Box(0, 0, 0, 1, 1, 1);
+            int n = m.TriangleCount;
+            Vector3d o = new Vector3d(2, 0, 0);
+            int v0 = m.AppendVertex(o), v1 = m.AppendVertex(o + new Vector3d(1e-7, 0, 0)),
+                v2 = m.AppendVertex(o + new Vector3d(5e-8, 1e-15, 0)), v3 = m.AppendVertex(o + new Vector3d(5e-8, -1e-7, 0));
+            m.AppendTriangle(v0, v1, v2); m.AppendTriangle(v0, v3, v1);
+            Assert.True(Degenerate(m) > 0);
+            MeshRobustRepair.CollapseSlivers(m);
+            Assert.True(m.TriangleCount > n);
+            Assert.True(m.IsVertex(v3));
+        }
+
+        [Fact]
         public void InsideOutInput_RepairKeptNotSolidified()
         {
             // two disjoint spheres, one inside out: the repair flips it, the result is the solid of both
