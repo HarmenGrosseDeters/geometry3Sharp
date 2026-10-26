@@ -823,8 +823,8 @@ oriented meshes), so a copy equals the node's own value.
 
 - No measurable cost: the time differences are within the noise of the shared machine. Two runs of the same build
   differed by up to 4 % in total time.
-- The rounding does not change the results measurably: the same repaired and clean counts, no path changes; 135 of
-  the 136 solidified or wrapped meshes have the same triangle count as on master.
+- The rounding does not change the results measurably: the same repaired and clean counts, no path changes; 137 of
+  the 138 solidified or wrapped meshes have the same triangle count as on master (not 498458.stl).
 - Two runs of the change give the same triangles, Hausdorff bounds, IoU and path on all 800 meshes. On this set
   the solidify's nondeterminism did not show up on master either: the one difference between two master runs,
   1017012.stl, is an exact-resolve result whose Hausdorff bound differs in the fifth digit. The unit tests show it
