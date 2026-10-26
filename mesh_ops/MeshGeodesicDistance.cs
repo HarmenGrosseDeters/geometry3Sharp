@@ -60,11 +60,18 @@ namespace gs
         /// NonManifoldInput and the flips alone are used.
         /// </summary>
         public bool IntrinsicRefine = false;
+        /// <summary>
+        /// without IntrinsicRefine: still split the boundary edges opposite obtuse angles (DelaunayRefine with a
+        /// minimum angle of 0), the only edges whose cotan weights the flips leave negative. Few inserted
+        /// vertices and no cost per Compute; on a plane of 169 degree triangles the maximum error drops from
+        /// 0.81 to 0.23 edge lengths (benchmarks/IntrinsicBenchmark). Needs IntrinsicDelaunay.
+        /// </summary>
+        public bool SplitObtuseBoundaryEdges = true;
         /// <summary> minimum angle (degrees, at most 30) of the refinement </summary>
         public double RefineMinAngle = 25;
         /// <summary> insertion limit of the refinement (0: 10 * vertices + 1000) </summary>
         public int RefineMaxInsertions = 0;
-        /// <summary> result of the refinement (status, inserted vertices, minimum angle); null if not refined </summary>
+        /// <summary> result of the refinement (status, inserted vertices, minimum angle); null without IntrinsicRefine and SplitObtuseBoundaryEdges </summary>
         public IntrinsicRefinementResult Refinement;
 
         /// <summary> distance per vertex id (size MaxVertexID; NaN for unreachable or unused ids) </summary>
@@ -106,6 +113,8 @@ namespace gs
         {
             if (IntrinsicDelaunay && IntrinsicRefine)
                 return "refine " + RefineMinAngle.ToString("R") + " " + RefineMaxInsertions;
+            if (IntrinsicDelaunay && SplitObtuseBoundaryEdges)
+                return "boundary " + RefineMaxInsertions;
             return IntrinsicDelaunay ? "delaunay" : "mesh";       // (the refine options do not matter)
         }
 
@@ -149,11 +158,11 @@ namespace gs
                 try {
                     T = new IntrinsicTriangulation(Mesh);
                 } catch (ArgumentException) {
-                    if (IntrinsicRefine)
+                    if (IntrinsicRefine || SplitObtuseBoundaryEdges)
                         Refinement = new IntrinsicRefinementResult() { Status = IntrinsicRefinementStatus.NonManifoldInput };
                 }
-                if (T != null && IntrinsicRefine) {
-                    Refinement = T.DelaunayRefine(RefineMinAngle, RefineMaxInsertions);
+                if (T != null && (IntrinsicRefine || SplitObtuseBoundaryEdges)) {
+                    Refinement = T.DelaunayRefine(IntrinsicRefine ? RefineMinAngle : 0, RefineMaxInsertions);
                     IntrinsicFlips = Refinement.Flips;
                 } else if (T != null)
                     IntrinsicFlips = T.FlipToDelaunay();

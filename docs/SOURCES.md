@@ -53,6 +53,7 @@ Implemented from the papers, no code taken over (geometry-central, MIT, was not 
 | Heat method for geodesic distance (also on the intrinsic triangulation) | K. Crane, C. Weischedel, M. Wardetzky, *Geodesics in Heat*, ACM TOG 2013; *The Heat Method for Distance Computation*, CACM 2017 |
 | Vector heat method: connection Laplacian, parallel transport, scalar extension, log map | N. Sharp, Y. Soliman, K. Crane, *The Vector Heat Method*, ACM TOG 2019 |
 | Log map direction from the gradient of half the squared distance against the transported reference vector | Gauss lemma (eg M. do Carmo, *Riemannian Geometry*, 1992, ch. 3); own derivation, replaces the paper's diffused radial field, which is biased by the shape of the source's one-ring |
+| Heat flow far beyond the double range: the Cholesky substitutions of an M-matrix only add non-negative terms, so they run unchanged on logarithms (`SparseCholesky.SolveLog`) | Own derivation (sign pattern of the Cholesky factor of an M-matrix, eg R. A. Horn, C. R. Johnson, *Topics in Matrix Analysis*, 1991, ch. 2.5) |
 | Kahan's stable formula for the triangle area from its sides | W. Kahan, *Miscalculating Area and Angles of a Needle-like Triangle*, 2014 |
 
 The comparison with `MeshLocalParam` (the discrete exponential map, R. Schmidt, C. Grimm, B. Wyvill,

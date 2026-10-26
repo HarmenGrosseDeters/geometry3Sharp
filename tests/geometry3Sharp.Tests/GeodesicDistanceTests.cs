@@ -519,5 +519,32 @@ namespace geometry3Sharp.Tests
             double d = geo.Distance[NearestVertex(mesh, new Vector3d(20, 20, 0))];
             Assert.True(Math.Abs(d - 20 * Math.Sqrt(2)) < 0.05 * 20 * Math.Sqrt(2) + 1, $"{d}");
         }
+
+        [Fact]
+        public void Default_SplitsObtuseBoundaryEdges()
+        {
+            // a plane of 169 degree triangles: the flips leave negative weights at the boundary edges opposite
+            // those angles; by default they are split (refinement with 0 degrees), which bounds the maximum error
+            DMesh3 mesh = IntrinsicGeodesicsTests.ObtusePlane(20, 400, 1.0, 0.05);
+            int src = NearestVertex(mesh, new Vector3d(10, 10, 0));
+            Vector3d ps = mesh.GetVertex(src);
+            Func<MeshGeodesicDistance, double> maxError = g => {
+                double m = 0;
+                foreach (int v in mesh.VertexIndices()) {
+                    Vector3d p = mesh.GetVertex(v);
+                    if (p.x >= 1 && p.x <= 19) m = Math.Max(m, Math.Abs(g.Distance[v] - p.Distance(ps)));
+                }
+                return m;
+            };
+            var geo = new MeshGeodesicDistance(mesh);
+            Assert.True(geo.Compute(new[] { src }));
+            Assert.NotNull(geo.Refinement);
+            Assert.True(geo.Refinement.InsertedVertices > 0 && geo.Refinement.InsertedVertices < 100, $"{geo.Refinement}");
+            double withSplit = maxError(geo);
+            var flipsOnly = new MeshGeodesicDistance(mesh) { SplitObtuseBoundaryEdges = false };
+            Assert.True(flipsOnly.Compute(new[] { src }));
+            double flips = maxError(flipsOnly);
+            Assert.True(withSplit < 0.3 && flips > 0.6, $"max error {withSplit} (flips only {flips})");
+        }
     }
 }

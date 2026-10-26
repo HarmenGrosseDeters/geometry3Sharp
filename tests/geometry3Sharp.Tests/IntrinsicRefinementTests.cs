@@ -543,7 +543,7 @@ namespace geometry3Sharp.Tests
         public void HeatDistance_UnusedRefineOptions_DoNotRebuild()
         {
             DMesh3 mesh = Grid(4, 9, (x, y) => 0);
-            var geo = new MeshGeodesicDistance(mesh);
+            var geo = new MeshGeodesicDistance(mesh) { SplitObtuseBoundaryEdges = false };
             Assert.True(geo.Compute(new[] { 0 }));
             Assert.Equal(1, geo.PrecomputeCount);
             geo.RefineMinAngle = 20; geo.RefineMaxInsertions = 50;      // refinement is off: no effect
@@ -630,7 +630,7 @@ namespace geometry3Sharp.Tests
             Func<int, double> exact = v => mesh.GetVertex(v).Distance(ps);
             Func<int, bool> inner = v => mesh.GetVertex(v).x >= 1 && mesh.GetVertex(v).x <= 9;
 
-            var flip = new MeshGeodesicDistance(mesh);
+            var flip = new MeshGeodesicDistance(mesh) { SplitObtuseBoundaryEdges = false };
             Assert.True(flip.Compute(new[] { src }));
             Assert.Null(flip.Refinement);
             double fmean, fmax;

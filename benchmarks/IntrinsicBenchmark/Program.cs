@@ -55,14 +55,14 @@ static class Program
             DMesh3 grid = Grid(n - 1, n);
             int src = Nearest(grid, new Vector3d((n - 1) / 2.0, (n - 1) / 2.0, 0));
             Vector3d ps = grid.GetVertex(src);
-            foreach (var (label, refine) in new[] { ("flips", false), ("refined 0°", true) })
-                ScalingRow($"grid {n} x {n}", grid, src, label, refine, v => grid.GetVertex(v).Distance(ps), v => true);
+            foreach (var (label, split) in new[] { ("flips", false), ("default (boundary split)", true) })
+                ScalingRow($"grid {n} x {n}", grid, src, label, split, v => grid.GetVertex(v).Distance(ps), v => true);
         }
         foreach (int len in new[] { 1000, 5000, 25000 }) {
             DMesh3 strip = Strip(len);
             int src = Nearest(strip, new Vector3d(0, 1, 0));
             Vector3d ps = strip.GetVertex(src);
-            ScalingRow($"strip {len} x 2", strip, src, "flips", false, v => strip.GetVertex(v).Distance(ps), v => true);
+            ScalingRow($"strip {len} x 2", strip, src, "default (boundary split)", true, v => strip.GetVertex(v).Distance(ps), v => true);
         }
 
         Console.WriteLine();
@@ -85,12 +85,12 @@ static class Program
         }
     }
 
-    static void ScalingRow(string name, DMesh3 mesh, int src, string label, bool refine, Func<int, double> exact, Func<int, bool> use)
+    static void ScalingRow(string name, DMesh3 mesh, int src, string label, bool split, Func<int, double> exact, Func<int, bool> use)
     {
         // median of 3 after a warm-up run, single runs for the largest meshes (and the slow old solver)
         bool large = mesh.VertexCount > 50000;
         long first, second;
-        Func<MeshGeodesicDistance> fresh = () => new MeshGeodesicDistance(mesh) { IntrinsicRefine = refine, RefineMinAngle = 0 };
+        Func<MeshGeodesicDistance> fresh = () => new MeshGeodesicDistance(mesh) { SplitObtuseBoundaryEdges = split };
         MeshGeodesicDistance geo = large ? Once(() => { var g = fresh(); g.Compute(new[] { src }); return g; }, out first)
                                          : Timed(() => { var g = fresh(); g.Compute(new[] { src }); return g; }, out first);
         bool ok = geo.Distance != null;
@@ -187,11 +187,12 @@ static class Program
     {
         var configs = new (string, bool, bool, double)[] {
             ("mesh triangles", false, false, 0), ("intrinsic flips", true, false, 0),
-            ("refined 0° (boundary only)", true, true, 0), ("refined 25°", true, true, 25) };
+            ("refined 0° (boundary only, the default)", true, true, 0), ("refined 25°", true, true, 25) };
         foreach (var (label, intrinsic, refine, angle) in configs) {
             long ms;
             var geo = Timed(() => {
-                var g = new MeshGeodesicDistance(mesh) { IntrinsicDelaunay = intrinsic, IntrinsicRefine = refine, RefineMinAngle = angle };
+                var g = new MeshGeodesicDistance(mesh) { IntrinsicDelaunay = intrinsic, IntrinsicRefine = refine, RefineMinAngle = angle,
+                    SplitObtuseBoundaryEdges = false };
                 g.Compute(new[] { src });
                 return g;
             }, out ms);
@@ -203,8 +204,7 @@ static class Program
                     double e = Math.Abs(geo.Distance[v] - exact(v));
                     mean += e; max = Math.Max(max, e); n++;
                 }
-            // angles and weights of the same kind of triangulation, built by IntrinsicTriangulation (for the flips
-            // MeshGeodesicDistance uses its own flip code, which ends in an intrinsic Delaunay triangulation too)
+            // angles and weights of the same triangulation, built by IntrinsicTriangulation
             IntrinsicRefinementResult r;
             var T = intrinsic ? IntrinsicTriangulation.BuildDelaunay(mesh, refine, out r, angle) : new IntrinsicTriangulation(mesh);
             int neg = 0;
