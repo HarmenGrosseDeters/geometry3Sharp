@@ -636,3 +636,22 @@ The only changed path is 56107.stl (solidified before, wrapped now; Hausdorff 4.
 total includes 56107.stl). The raw contour remains the larger part of the remaining wrap-case time (439 s and
 463 s of the solidify, wrap 279 s and 284 s); avoiding it would need a predictor before the contouring, which
 the data above does not offer.
+
+Rerun after merging master `a8c9f8d` (safe rounding of the exact output, `MeshRoundingRepair`), which sends more
+meshes through the exact resolve and fewer to the wrap; same setup, master before, this change after:
+
+| | first selection, before | after | holdout, before | after |
+|---|---|---|---|---|
+| repaired | 270 | 270 | 266 | 266 |
+| clean + no exact self-intersections | 399 | 399 | 395 | 395 |
+| path: repair / exact / solidify / wrap | 171 / 156 / 53 / 20 | 171 / 156 / 53 / 20 | 174 / 160 / 51 / 14 | 174 / 160 / 49 / 16 |
+| wrap cases (wrapped before): total time | 679 s | 603 s (−11 %) | 467 s | 398 s (−15 %) |
+| ... of it cleanup + reduce of the solidify | 77 s | 0 s | 65 s | 0 s |
+| all 400: total time | 2724 s | 2629 s (−3.5 %) | 2371 s | 2298 s (−3.1 %) |
+
+113906.stl times out (300 s) before and after (holdout; counted as not repaired). Two more meshes whose contour
+self-intersects but whose reduction removed the intersecting pairs are wrapped now instead of solidified:
+112854.stl and 99736.stl (holdout). Neither is repaired before or after (Hausdorff 8.8 % and 3.4 % solidified),
+but the wrap fits their winding number solid worse (IoU 0.958 → 0.421 and 0.993 → 0.512; the Hausdorff distance
+improves to 1.3 % and 4.8 %). Together with 56107.stl that is 3 of about 150 solidified meshes per two selections
+where stopping early gives up a cleaner (though still not repaired) solidify.
