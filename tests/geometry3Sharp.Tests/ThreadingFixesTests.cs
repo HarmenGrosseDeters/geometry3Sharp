@@ -276,7 +276,9 @@ namespace geometry3Sharp.Tests
                 mc.Generate();
                 return mc.Mesh;
             };
-            List<string> serial = TriangleSet(run(false));
+            DMesh3 serialMesh = run(false);
+            ResultChecks.AssertValid(serialMesh, "serial");
+            List<string> serial = TriangleSet(serialMesh);
             Assert.True(serial.Count > 1000);
             for (int k = 0; k < 4; ++k)
                 Assert.True(serial.SequenceEqual(TriangleSet(run(true))), "parallel run " + k);

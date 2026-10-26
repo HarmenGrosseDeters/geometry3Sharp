@@ -54,6 +54,9 @@ namespace geometry3Sharp.Tests
                 ExactMeshBoolean b = make();
                 Assert.True(b.Compute(), b.Error);
                 check?.Invoke(b);
+                // closed inputs: a closed, manifold result (the runs are identical, so checking the first is enough)
+                if (run == 0)
+                    ResultChecks.AssertClosed(b.Result);
                 string print = Fingerprint(b.Result);
                 if (b.ResultExactVertices != null)
                     print += "|" + string.Join(";", b.ResultExactVertices.Select(p => $"{p.X},{p.Y},{p.Z},{p.W}"));
@@ -82,7 +85,13 @@ namespace geometry3Sharp.Tests
             DMesh3 box = Box(new Vector3d(-1.2, -1.1, -0.9), new Vector3d(0.3, 0.6, 1.1));
             DMesh3 sphere = Sphere(new Vector3d(-0.6, -0.5, 0.2), 0.7, 6);
             AssertRepeatable(() => new ExactMeshBoolean(box, sphere, ExactMeshBoolean.Operations.Intersection) { SafeRounding = true, ComputeExactVertices = true },
-                (b) => Assert.NotNull(b.ResultExactVertices));
+                (b) => {
+                    Assert.NotNull(b.ResultExactVertices);
+                    // SafeRounding: verified free of self-intersections and degenerate triangles (RoundingClean, the
+                    // documented flag), and an independent check of the same
+                    Assert.True(b.RoundingClean);
+                    ResultChecks.AssertClean(b.Result);
+                });
         }
 
         [Fact]
@@ -94,7 +103,11 @@ namespace geometry3Sharp.Tests
                 for (int j = 0; j < 2; ++j)
                     for (int k = 0; k < 2; ++k)
                         meshes.Add(Box(new Vector3d(0.9 * i, 0.9 * j, 0.9 * k), new Vector3d(0.9 * i + 1, 0.9 * j + 1, 0.9 * k + 1)));
-            AssertRepeatable(() => new ExactMeshBoolean(meshes, ExactMeshBoolean.Operations.Union), (b) => Assert.True(b.RemovedVertices > 0));
+            AssertRepeatable(() => new ExactMeshBoolean(meshes, ExactMeshBoolean.Operations.Union), (b) => {
+                Assert.True(b.RemovedVertices > 0);
+                // the union is the cube [0, 1.9]^3, exactly
+                Assert.Equal(1.9 * 1.9 * 1.9, ResultChecks.Volume(b.Result), 12);
+            });
         }
 
         [Theory]

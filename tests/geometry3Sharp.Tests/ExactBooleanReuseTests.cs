@@ -73,6 +73,9 @@ namespace geometry3Sharp.Tests
         {
             var boolean = new ExactMeshBoolean(Box(0, 0, 0, 1, 1, 1), Box(0.5, 0.5, 0.5, 2, 2, 2), Ops.Union);
             Assert.True(boolean.Compute());
+            ResultChecks.AssertClosed(boolean.Result);
+            // 1 + 1.5^3 - 0.5^3
+            Assert.Equal(1 + 3.375 - 0.125, ResultChecks.Volume(boolean.Result), 12);
             var counts = boolean.Counts;
             Assert.True(boolean.ExactWindingA && boolean.PhaseMilliseconds.Count > 0 && counts.Count > 0);
             boolean.MeshB = null;

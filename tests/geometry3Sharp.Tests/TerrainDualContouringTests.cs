@@ -217,6 +217,12 @@ namespace geometry3Sharp.Tests
             Assert.True(b.Compute());
             Assert.Equal(a.Result.TriangleCount, b.Result.TriangleCount);
             Assert.Equal(a.FinestCells, b.FinestCells);
+            AssertCleanTerrain(b.Result);
+            // the plane, not pulled towards the stray vertex at the origin
+            foreach (int v in b.Result.VertexIndices()) {
+                Vector3d p = b.Result.GetVertex(v) - utm;
+                Assert.Equal(0.1 * p.x, p.z, 6);
+            }
         }
 
         [Fact]
@@ -241,6 +247,9 @@ namespace geometry3Sharp.Tests
             var tdc = new TerrainDualContouring(points) { CellSize = 2 };
             Assert.True(tdc.Compute());
             Assert.Equal(tdc0.Result.TriangleCount, tdc.Result.TriangleCount);
+            // the non-finite points must not reach the result
+            AssertCleanTerrain(tdc.Result);
+            Assert.True(tdc.Result.Vertices().All(v => v.IsFinite));
         }
 
         [Fact]

@@ -46,9 +46,13 @@ namespace geometry3Sharp.Tests
             for (int i = 0; i < 1100; ++i)
                 mesh.AppendTriangle(mesh.AppendVertex(Vector3d.Zero), mesh.AppendVertex(Vector3d.AxisX), mesh.AppendVertex(Vector3d.AxisY));
             var merge = new MergeCoincidentEdges(mesh);
-            var worker = new Thread(() => { try { merge.Apply(); } catch (Exception) { } }) { IsBackground = true };
+            Exception error = null;
+            var worker = new Thread(() => { try { merge.Apply(); } catch (Exception e) { error = e; } }) { IsBackground = true };
             worker.Start();
             Assert.True(worker.Join(TimeSpan.FromSeconds(20)), "MergeCoincidentEdges.Apply did not terminate");
+            // it must also finish without an exception and leave a valid mesh
+            Assert.Null(error);
+            Assert.True(mesh.CheckValidity(true, FailMode.ReturnOnly));
         }
 
         // --- Colorf: new Colorf(1,0,0) silently takes the byte constructor ---
