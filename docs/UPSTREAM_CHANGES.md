@@ -31,6 +31,7 @@ code can notice. New classes are not listed (see the README and [OPERATIONS.md](
 | `Units` miles | 1609.34 m | 1609.344 m |
 | `Util.IsBinaryStream` | a stream shorter than the search length counted as binary | not binary (affects STL ascii / binary detection of files under 500 bytes) |
 | `PlanarComplex.Add(polygon)` | kept a reference to the caller's polygon | stores a copy |
+| `MeshSignedDistanceGrid` with `UseParallel` (default) and no `Spatial` | a grid point at equal distance from several triangles kept the one whose thread came first (`ClosestTriGrid`), and the sweep that follows propagates from that triangle, so values varied between runs; the serial version computed cell indices with `/ dx`, the parallel one with `* (1/dx)` | the lowest triangle id, as in the serial computation, and `* (1/dx)` in both: the parallel grid equals the serial one. With `Spatial` set (another algorithm) nothing changes |
 | `RoundRectGenerator.GetBorderLoop`, `RevolveGenerator` cap normals, `TrivialBox3Generator` normals | see the commit history | corrected |
 
 ## Signatures that change (recompile needed)
