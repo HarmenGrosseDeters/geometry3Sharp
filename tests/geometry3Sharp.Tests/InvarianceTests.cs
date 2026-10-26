@@ -495,9 +495,10 @@ namespace geometry3Sharp.Tests
             Assert.True(g0.Compute(new[] { src }));
             var g = new MeshGeodesicDistance(Invariance.Transformed(mesh, s));
             Assert.True(g.Compute(new[] { src }));
-            double tol = s.IsExact ? 1e-12 : 1e-9 + 64 * s.Resolution(2);
+            // 2^k scales: the same bits (the heat source scales with the mesh, so its log does not round differently)
+            double tol = s.IsExact ? 0 : 1e-9 + 64 * s.Resolution(2);
             foreach (int vid in mesh.VertexIndices())
-                Assert.True(Math.Abs(g0.Distance[vid] - g.Distance[vid] / s.Scale) < tol,
+                Assert.True(s.IsExact ? g0.Distance[vid] == g.Distance[vid] / s.Scale : Math.Abs(g0.Distance[vid] - g.Distance[vid] / s.Scale) < tol,
                     $"{s.Name} vertex {vid}: {g0.Distance[vid]} vs {g.Distance[vid] / s.Scale}");
         }
     }

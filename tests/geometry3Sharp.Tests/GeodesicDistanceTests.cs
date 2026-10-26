@@ -568,6 +568,38 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0, geo.LogSolveCount);
         }
 
+        [Theory]
+        [InlineData(0.01)]
+        [InlineData(1.0)]
+        [InlineData(100.0)]
+        public void OpenStrip_NeumannHeatLinear_DirichletHeatLog_ConsistentAtAnyScale(double edge)
+        {
+            // 700 edges long: the Neumann heat still fits doubles, the Dirichlet heat (0 on the boundary)
+            // underflows and is solved in the log domain. Both are averaged, so their sources must have the same
+            // value in both domains (t, the diffusion time: it scales with the mesh); with 1 in the linear and
+            // log(1) in the log domain they differed by the factor t (at edge 0.01: errors of 38%)
+            int nx = 700, ny = 4;
+            var m = new DMesh3();
+            int[,] v = new int[nx + 1, ny + 1];
+            for (int j = 0; j <= ny; ++j)
+                for (int i = 0; i <= nx; ++i) v[i, j] = m.AppendVertex(new Vector3d(i * edge, j * edge, 0));
+            for (int j = 0; j < ny; ++j)
+                for (int i = 0; i < nx; ++i) {
+                    m.AppendTriangle(v[i, j], v[i + 1, j], v[i + 1, j + 1]);
+                    m.AppendTriangle(v[i, j], v[i + 1, j + 1], v[i, j + 1]);
+                }
+            int src = v[0, 2];
+            var geo = new MeshGeodesicDistance(m);
+            Assert.True(geo.Compute(new[] { src }));
+            Assert.Equal(1, geo.LogSolveCount);
+            double maxRel = 0;
+            foreach (int vid in m.VertexIndices()) {
+                double d = m.GetVertex(vid).Distance(m.GetVertex(src));
+                if (d > 10 * edge) maxRel = Math.Max(maxRel, Math.Abs(geo.Distance[vid] - d) / d);
+            }
+            Assert.True(maxRel < 0.03, $"edge {edge}: max relative error {maxRel}");
+        }
+
         [Fact]
         public void Default_SplitsObtuseBoundaryEdges()
         {

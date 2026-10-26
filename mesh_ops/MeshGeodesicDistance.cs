@@ -375,9 +375,12 @@ namespace gs
         bool log_heat(SparseCholesky A, List<int> src, bool[] hasSource, bool[] fixedZero, ref bool logDomain, double[] logU)
         {
             if (A.IsValid == false) return false;
+            // the heat at the sources is t, an area like the entries of M + t L: u has no units, so it and its
+            // log are the same bits when the mesh is scaled by a power of two (with 1, u scaled with 1 / s^2 and
+            // the logs were rounded differently)
             double[] b = new double[N];
             if (logDomain == false) {
-                foreach (int s in src) b[s] = 1;
+                foreach (int s in src) b[s] = heatTime;
                 double[] u = new double[N];
                 A.Solve(b, u);
                 for (int i = 0; i < N && logDomain == false; ++i)
@@ -390,7 +393,7 @@ namespace gs
             }
             LogSolveCount++;
             for (int i = 0; i < N; ++i) b[i] = double.NegativeInfinity;
-            foreach (int s in src) b[s] = 0;
+            foreach (int s in src) b[s] = Math.Log(heatTime);
             return A.SolveLog(b, logU);
         }
 
