@@ -385,11 +385,17 @@ namespace gs
             m = new DMesh3(m, true);
             if (cancelF() || NotCleanReason(m, checkSelfIntersections) != "")
                 return null;
-            // a coarse tolerance is enough: only the upper bound has to stay below maxDistance
-            var hd = new MeshHausdorffDistance(m, mesh) { Symmetric = false, Tolerance = 0.1 * maxDistance, CancelF = cancelF };
-            if (hd.Compute() == false || !(hd.UpperBound <= maxDistance))
-                return null;
-            return m;
+            // only the upper bound has to stay below maxDistance: a coarse tolerance first, a finer one if the
+            // distance is close to maxDistance
+            var spatial = new DMeshAABBTree3(mesh, true);
+            foreach (double tol in new double[] { 0.1, 0.01 }) {
+                var hd = new MeshHausdorffDistance(m, mesh) { Symmetric = false, SpatialB = spatial, Tolerance = tol * maxDistance, CancelF = cancelF };
+                if (hd.Compute() == false || !(hd.LowerBound <= maxDistance))
+                    return null;
+                if (hd.UpperBound <= maxDistance)
+                    return m;
+            }
+            return null;
         }
 
         // the solid of the mesh with its self-intersections resolved exactly, or null (ExactResolveReason says why)
