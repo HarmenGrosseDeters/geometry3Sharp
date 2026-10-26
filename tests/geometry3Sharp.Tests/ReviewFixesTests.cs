@@ -213,6 +213,9 @@ namespace geometry3Sharp.Tests
             Assert.True(pro.CellDimensions.y > 4096);
             Assert.Equal(mc.Mesh.VertexCount, pro.Mesh.VertexCount);
             Assert.Equal(mc.Mesh.TriangleCount, pro.Mesh.TriangleCount);
+            // an edge-hash collision shows as edges with too many triangles or bowtie vertices (the cylinder is open
+            // at the ends of the bounds)
+            ResultChecks.AssertValid(pro.Mesh);
         }
 
         // --- mesh_ops ---

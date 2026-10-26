@@ -308,6 +308,8 @@ namespace geometry3Sharp.Tests
             MeshTransforms.Translate(b, new Vector3d(0.7, 0.3, 0.1));
             var op = new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Union);
             Assert.True(op.Compute());
+            // (without SafeRounding the rounding can leave degenerate slivers: only closed is documented)
+            ResultChecks.AssertClosed(op.Result);
             long sides = op.Counts["winding_plane_sides"], exact = op.Counts["winding_plane_sides_exact"];
             Assert.True(sides > 0);
             Assert.True(exact < sides / 10, $"exact {exact} of {sides}");

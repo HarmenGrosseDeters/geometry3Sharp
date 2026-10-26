@@ -54,6 +54,7 @@ namespace geometry3Sharp.Tests
             Assert.False(m.IsCompactT);
             var s = new MeshWindingNumberSolidify(m) { Adaptive = true, GridResolution = 64 };
             Assert.True(s.Compute());
+            ResultChecks.AssertClean(s.Result);
         }
 
         [Fact]
@@ -84,6 +85,9 @@ namespace geometry3Sharp.Tests
             Vector3d corner = new Vector3d(10, 10, 0);
             double d = u.Result.VertexIndices().Min(v => u.Result.GetVertex(v).Distance(corner));
             Assert.True(d < 0.05 * cell, $"corner moved by {d / cell:F2} cells");
+            // documented: a closed result; the union is larger than each box and smaller than both together
+            ResultChecks.AssertClean(u.Result);
+            Assert.InRange(ResultChecks.Volume(u.Result), 1000, 2000);
         }
 
         [Fact]

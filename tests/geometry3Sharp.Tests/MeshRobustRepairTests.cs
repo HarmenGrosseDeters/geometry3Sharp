@@ -31,6 +31,8 @@ namespace geometry3Sharp.Tests
             Assert.Equal("", r.FallbackReason);
             Assert.Equal("", r.ResultReason);
             Assert.Equal(n, r.Mesh.TriangleCount);
+            // ResultReason is the class's own report: check the result independently
+            ResultChecks.AssertClean(r.Mesh);
         }
 
         static double Volume(DMesh3 m)
@@ -125,6 +127,9 @@ namespace geometry3Sharp.Tests
             Assert.False(r.UsedExactResolve);
             Assert.Equal("not closed (winding number)", r.ExactResolveReason);
             Assert.True(r.UsedSolidify);
+            // the solidify closes it; whatever is left must be reported
+            ResultChecks.AssertClosed(r.Mesh);
+            Assert.Equal(MeshRobustRepair.NotCleanReason(r.Mesh), r.ResultReason);
         }
 
         [Fact]
@@ -532,6 +537,8 @@ namespace geometry3Sharp.Tests
             MeshRobustRepair.CollapseSlivers(m);
             Assert.True(m.TriangleCount > n);
             Assert.True(m.IsVertex(v3));
+            Assert.True(m.CheckValidity(true, FailMode.ReturnOnly));
+            Assert.True(m.Vertices().All(v => v.IsFinite));
         }
 
         [Fact]
@@ -762,6 +769,10 @@ namespace geometry3Sharp.Tests
             Assert.True(r.UsedSolidify);
             Assert.False(r.UsedAlphaWrap);
             Assert.StartsWith("InvalidParameters", r.WrapReason);
+            // an unclean result is allowed here, but it must be reported as such
+            Assert.Equal(MeshRobustRepair.NotCleanReason(r.Mesh), r.ResultReason);
+            Assert.True(r.Mesh.IsClosed());
+            Assert.True(r.Mesh.Vertices().All(v => v.IsFinite));
         }
 
         [Fact]
@@ -774,6 +785,11 @@ namespace geometry3Sharp.Tests
             Assert.Equal("", r.SolidifyReason);
             Assert.Equal("", r.ResultReason);
             Assert.Null(r.AlphaWrap);
+            ResultChecks.AssertClean(r.Mesh);
+            // RepairF adds a second sphere, which the volume check against the input (one sphere) rejects: the input
+            // is solidified, so the result is about the unit sphere
+            Assert.True(r.UsedInput);
+            Assert.InRange(ResultChecks.Volume(r.Mesh), 0.97 * 4.18879, 1.01 * 4.18879);
         }
     }
 }

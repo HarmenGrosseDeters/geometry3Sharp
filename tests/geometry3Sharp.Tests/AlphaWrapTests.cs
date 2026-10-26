@@ -604,7 +604,9 @@ namespace geometry3Sharp.Tests
             MeshEditor.Append(s, Box(new Vector3d(0.5, 0.5, 0.5), new Vector3d(1.5, 1.2, 1.1)));
             var a = new MeshAlphaWrap(s) { RelativeAlpha = 25 };
             var b = new MeshAlphaWrap(s) { RelativeAlpha = 25 };
-            a.Compute(); b.Compute();
+            Assert.True(a.Compute() && b.Compute());
+            ResultChecks.AssertClosed(a.Result);
+            Assert.Equal(0, MeshRepairMetrics.SelfIntersections(a.Result));
             Assert.Equal(a.Result.TriangleCount, b.Result.TriangleCount);
             Assert.True(a.Result.VertexIndices().All(v => a.Result.GetVertex(v) == b.Result.GetVertex(v)));
         }
@@ -841,8 +843,14 @@ namespace geometry3Sharp.Tests
         {
             // the finiteness test summed the coordinates, which overflows for large finite values
             var w = new MeshAlphaWrap(new[] { new Vector3d(1e308, 1e308, 1e308), new Vector3d(-1e308, 1e308, 1e308) });
-            w.Compute();
+            bool ok = w.Compute();
             Assert.NotEqual(MeshAlphaWrap.WrapStatus.InvalidInput, w.Status);
+            // (today this ends in InvalidParameters: the relative alpha of a 1e308 box overflows. If it ever succeeds,
+            // the guarantees must hold where the coordinates are this large.)
+            if (ok) {
+                ResultChecks.AssertClosed(w.Result);
+                Assert.Equal(0, MeshRepairMetrics.SelfIntersections(w.Result));
+            }
             var nan = new MeshAlphaWrap(new[] { new Vector3d(double.NaN, 0, 0), Vector3d.One });
             Assert.False(nan.Compute());
             Assert.Equal(MeshAlphaWrap.WrapStatus.InvalidInput, nan.Status);

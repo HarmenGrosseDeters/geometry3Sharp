@@ -92,6 +92,9 @@ namespace geometry3Sharp.Tests
             foreach (EdgeLoop loop in loops.Where(l => l.VertexCount == 4))
                 Assert.True(new SimpleHoleFiller(mesh, loop).Fill());
             Assert.Single(new MeshBoundaryLoops(mesh).Loops);   // only the outer border is left
+            // the fills close the holes: no bowtie vertex left, and no fan triangle of zero area
+            ResultChecks.AssertValid(mesh);
+            Assert.True(mesh.TriangleIndices().All(t => mesh.GetTriArea(t) > 0));
         }
 
         [Fact]

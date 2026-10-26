@@ -550,12 +550,25 @@ namespace geometry3Sharp.Tests
                 Tuple.Create(rot, Sphere(new Vector3d(0.5, 0.2, 0.1), 1, 9)),
                 Tuple.Create(Box(500000, 5700000, 0, 500010, 5700010, 10), Box(500005, 5700002.5, 5, 500015, 5700007.5, 15)),
             };
-            foreach (var c in cases) {
+            // exact volumes of the box cases: unit boxes overlapping by half, and boxes at UTM coordinates
+            // overlapping in 5 x 5 x 5
+            var volumes = new Dictionary<Tuple<int, Ops>, double>() {
+                { Tuple.Create(0, Ops.Union), 1.5 }, { Tuple.Create(0, Ops.Difference), 0.5 },
+                { Tuple.Create(3, Ops.Union), 1000 + 500 - 125 }, { Tuple.Create(3, Ops.Difference), 1000 - 125 },
+            };
+            for (int ci = 0; ci < cases.Count; ++ci) {
+                var c = cases[ci];
                 foreach (Ops op in new[] { Ops.Union, Ops.Difference }) {
                     var fast = new ExactMeshBoolean(c.Item1, c.Item2, op);
                     var exact = new ExactMeshBoolean(c.Item1, c.Item2, op) { DisableFilters = true };
                     Assert.True(fast.Compute() && exact.Compute());
                     DMesh3 a = fast.Result, b = exact.Result;
+                    // (the difference of the sphere and its 1e-15 shifted copy may be empty)
+                    if (b.TriangleCount > 0)
+                        ResultChecks.AssertClosed(b, $"case {ci} {op}");
+                    double vol;
+                    if (volumes.TryGetValue(Tuple.Create(ci, op), out vol))
+                        Assert.Equal(vol, ResultChecks.Volume(b), 6);
                     Assert.Equal(b.TriangleCount, a.TriangleCount);
                     Assert.Equal(b.VertexCount, a.VertexCount);
                     foreach (int vid in b.VertexIndices())
@@ -579,7 +592,11 @@ namespace geometry3Sharp.Tests
                 for (int run = 0; run < 4; ++run) {
                     var op = new ExactMeshBoolean(c.Item1, c.Item2, Ops.Union);
                     Assert.True(op.Compute());
-                    if (first == null) { first = op.Result; continue; }
+                    if (first == null) {
+                        first = op.Result;
+                        ResultChecks.AssertClosed(first);
+                        continue;
+                    }
                     Assert.Equal(first.VertexCount, op.Result.VertexCount);
                     Assert.Equal(first.TriangleCount, op.Result.TriangleCount);
                     foreach (int vid in first.VertexIndices())

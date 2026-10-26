@@ -48,6 +48,7 @@ namespace geometry3Sharp.Tests
             Assert.Equal(nT, mesh.TriangleCount);
             Assert.Equal(0, cleanup.RemovedDuplicates + cleanup.FixedDegenerate + cleanup.FixedFolds
                 + cleanup.DisconnectedBowties + cleanup.FlippedComponents);
+            ResultChecks.AssertClean(mesh);
         }
 
         [Fact]
@@ -346,6 +347,7 @@ namespace geometry3Sharp.Tests
             cleanup.Apply();
             Assert.Equal(0, cleanup.FixedDegenerate);
             Assert.Equal(n, mesh.TriangleCount);
+            ResultChecks.AssertClosed(mesh);
         }
     }
 }
