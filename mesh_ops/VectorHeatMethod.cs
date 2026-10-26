@@ -107,8 +107,6 @@ namespace gs
             ops = null;
             heatCache.Clear();
             builtTimeFactor = double.NaN;
-            IntrinsicTriangulation built = new IntrinsicTriangulation(Mesh);
-            triangulation = built;
             try {
                 build_structure();
             } catch {
@@ -123,10 +121,9 @@ namespace gs
         void build_structure()
         {
             refinement = null;
-            if (IntrinsicDelaunay && IntrinsicRefine)
-                refinement = triangulation.DelaunayRefine(RefineMinAngle, RefineMaxInsertions);
-            else if (IntrinsicDelaunay)
-                triangulation.FlipToDelaunay();
+            triangulation = IntrinsicDelaunay
+                ? IntrinsicTriangulation.BuildDelaunay(Mesh, IntrinsicRefine, out refinement, RefineMinAngle, RefineMaxInsertions)
+                : new IntrinsicTriangulation(Mesh);
             IntrinsicTriangulation T = triangulation;
             N = T.VertexCount;
             mass = T.VertexAreas();
