@@ -164,6 +164,19 @@ The sources named in the code:
 | Regularized optimal collapse point (`Reducer.QuadricRegularization`) | P. Trettner, L. Kobbelt, *Fast and Robust QEF Minimization using Probabilistic Quadrics*, Computer Graphics Forum (Eurographics) 2020 |
 | Triangle-triangle intersection test (`ExactTriangleIntersection`) | O. Devillers, P. Guigue, *Faster triangle-triangle intersection tests*, INRIA RR-4488, 2002 |
 
+## Evaluation metrics (`MeshFidelityMetrics`, `TriangleQualityStatistics`, `MeshTopologySummary`)
+
+Implemented from the papers and definitions (no code ported):
+
+| Part | Source |
+|---|---|
+| F-score at a distance threshold (precision and recall of the surfaces within tau) | M. Tatarchenko, S. R. Richter, R. Ranftl, Z. Li, V. Koltun, T. Brox, *What Do Single-view 3D Reconstruction Networks Learn?*, CVPR 2019 |
+| Normal consistency (mean \|cos\| between the normals at corresponding nearest points) | L. Mescheder, M. Oechsle, M. Niemeyer, S. Nowozin, A. Geiger, *Occupancy Networks: Learning 3D Reconstruction in Function Space*, CVPR 2019 |
+| Edge Chamfer distance (Chamfer distance between the sharp edges) | Z. Chen, A. Tagliasacchi, T. Funkhouser, H. Zhang, *Neural Dual Contouring*, ACM TOG (SIGGRAPH) 2022; Z. Chen, H. Zhang, *Neural Marching Cubes*, ACM TOG (SIGGRAPH Asia) 2021 |
+| Normal at the closest point: angle weighted pseudo-normal of the face, edge or vertex | J. A. Baerentzen, H. Aanaes, *Signed distance computation using the angle weighted pseudonormal*, IEEE TVCG 2005 |
+| Triangle quality metrics (min / max angle, aspect ratio, scaled Jacobian, condition number) and their acceptable ranges | C. J. Stimpson, C. D. Ernst, P. Knupp, P. P. Pebay, D. Thompson, *The Verdict Geometric Quality Library*, Sandia report SAND2007-1751, 2007 (the library is BSD; implemented from the definitions); P. M. Knupp, *Algebraic mesh quality metrics*, SIAM J. Sci. Comput. 23(1), 2001 |
+| Genus from the Euler characteristic and the boundary loops (chi = 2 - 2g - b) | standard (eg M. Botsch, L. Kobbelt, M. Pauly, P. Alliez, B. Levy, *Polygon Mesh Processing*, 2010, ch. 1) |
+
 ## Dual contouring and winding number solids (`DualContouring`, `WindingNumberOctree`, `MeshWindingNumberSolidify`, `MeshWindingNumberBoolean`)
 
 | Part | Source |
