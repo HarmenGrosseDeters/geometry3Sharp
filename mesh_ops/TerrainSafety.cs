@@ -754,6 +754,9 @@ namespace gs
             remesher.SmoothSpeedT = 0.5;
             for (int k = 0; k < 8; ++k)
                 remesher.BasicRemeshPass();
+            // a last pass without smoothing collapses / flips away triangles the last smoothing made degenerate
+            remesher.EnableSmoothing = false;
+            remesher.BasicRemeshPass();
             DMesh3 mesh = RemeshedTerrain;
 
             // sources mapped to the nearest vertices; sources off the terrain are ignored
