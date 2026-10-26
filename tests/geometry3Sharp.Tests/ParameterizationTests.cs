@@ -951,6 +951,15 @@ namespace geometry3Sharp.Tests
             mesh.AppendVertex(new Vector3d(5, 5, 0));
             var r = new ARAPParameterization(mesh) { InitialUV = good }.Compute();
             Assert.True(r.Succeeded, r.Error);
+            // a deleted vertex id at the end (a gap: MaxVertexID stays larger than the list)
+            DMesh3 gap = FlatDisc(4, 12);
+            var gapUV = new Vector2d[gap.MaxVertexID];
+            foreach (int vid in gap.VertexIndices()) gapUV[vid] = new Vector2d(gap.GetVertex(vid).x, gap.GetVertex(vid).y);
+            int last = gap.AppendVertex(new Vector3d(5, 5, 0));
+            Assert.Equal(MeshResult.Ok, gap.RemoveVertex(last, true, false));
+            Assert.True(gap.MaxVertexID > gapUV.Length);
+            Assert.True(new ARAPParameterization(gap) { InitialUV = gapUV }.Compute().Succeeded);
+            Assert.True(new SLIMParameterization(gap) { InitialUV = gapUV }.Compute().Succeeded);
         }
 
         [Fact]

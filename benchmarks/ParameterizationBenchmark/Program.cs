@@ -10,7 +10,8 @@ using g3;
 /// (sphere caps, an ellipsoid cap, a cut-open cylinder) of growing size. One line per case:
 ///   method, mesh, vertices, milliseconds, iterations, converged, flipped triangles, mean / max conformal
 ///   distortion, mean area distortion, symmetric Dirichlet energy.
-/// Usage: dotnet run -c Release [-- maxRings]   (default 120: about 48k vertices)
+/// Usage: dotnet run -c Release [-- maxRings [methods]]   (default 120: about 48k vertices; methods: a comma
+/// separated subset of LSCM,BFF,BFFdsk,ARAP,Tutte,SLIM,Cholesky, default all)
 /// </summary>
 static class Program
 {
@@ -66,8 +67,11 @@ static class Program
         return mesh;
     }
 
+    static Func<string, bool> Want = (name) => true;
+
     static void Report(string method, string name, DMesh3 mesh, Func<ParameterizationResult> run)
     {
+        if (!Want(method)) return;
         var sw = Stopwatch.StartNew();
         ParameterizationResult r = run();
         double ms = sw.Elapsed.TotalMilliseconds;
@@ -81,6 +85,8 @@ static class Program
     static void Main(string[] args)
     {
         int maxRings = args.Length > 0 ? int.Parse(args[0]) : 120;
+        var only = args.Length > 1 ? new HashSet<string>(args[1].Split(',')) : null;
+        Want = (name) => only == null || only.Contains(name);
         // warm up the JIT
         DMesh3 small = Cap(Math.PI / 2, 8);
         new LSCMParameterization(small).Compute(); new ARAPParameterization(small).Compute();
@@ -103,7 +109,9 @@ static class Program
                 Report("SLIM", kv.Key, m, () => new SLIMParameterization(m).Compute());
             }
 
-            // the solver alone: cotan Laplacian with one fixed vertex (block 1) and the interleaved u,v system (block 2)
+            // the solver alone: cotan Laplacian plus 1 on the diagonal of vertex 0 (which makes it definite), as
+            // one system (block 1) and as the interleaved u,v system (block 2)
+            if (!Want("Cholesky")) continue;
             DMesh3 hemi = meshes[0].Value;
             foreach (int block in new[] { 1, 2 }) {
                 int n = hemi.MaxVertexID * block;
@@ -123,7 +131,7 @@ static class Program
                             }
                         }
                     }
-                    for (int s = 0; s < block; ++s) chol.Add(s, s, 1);   // pin vertex 0
+                    for (int s = 0; s < block; ++s) chol.Add(s, s, 1);   // definite: +1 on the diagonal of vertex 0
                 };
                 fill();
                 var sw = Stopwatch.StartNew();
