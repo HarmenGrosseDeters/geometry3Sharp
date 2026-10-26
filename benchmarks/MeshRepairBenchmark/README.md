@@ -576,22 +576,23 @@ Each fix has a unit test that fails on the code before the fix.
   It finds some small part quickly and then stops, and as it depends on a grid it is not rotation
   invariant: rotated quality differed on 16 of 17 checked meshes instead of 6.
 
-### Results (400 set, final run)
+### Results (400 set, final run, master of 2026-10-26 with #97)
 - **No exceptions or wrong results; every invariant holds:**
-  - inscribed ball ≤ ray everywhere;
+  - inscribed ball ≤ ray everywhere, with the same NaN pattern (master's separation angle fix);
   - self deviation 0;
   - no bound violated (397 of 397 reductions);
   - every fit deterministic and its inliers within the threshold.
 - **Timeouts:** 3 meshes exceed the 120 s budget of the whole analysis. Each fit runs three times
   (normal, determinism, rotated), and on these meshes (44k–93k triangles) a cylinder or cone fit takes
-  9–14 s. Alone they finish in 73–112 s.
+  9–16 s. Alone they finish in 73–112 s.
 - **Median / p95 time per mesh:**
-  - Ray 0.4 / 1.2 s, InscribedSphere 0.6 / 5.4 s, ShapeDiameter 1.0 / 6.9 s;
-  - deviation with the certified bound 0.3 / 1.5 s;
-  - fits 0.1–0.4 / 0.9–3.7 s.
-- **NaN shares:** the median ray NaN share is 0.3 %. It is above 10 % on 56 meshes, all open or
-  self-intersecting (the clean ones stay below 1 %).
-- **Sign disagreement:** pseudo-normal and winding number disagree on more than 1 % of the points on 64
+  - Ray 0.4 / 1.3 s, InscribedSphere 0.5 / 5.2 s, ShapeDiameter 1.0 / 6.6 s;
+  - deviation with the certified bound 0.3 / 1.4 s;
+  - fits 0.1–0.4 / 0.9–3.1 s.
+- **Fit results:** 6 fits end in `RejectedByLimits` (1 sphere, 2 cylinders, 3 cones), 4 in `Failed`.
+- **NaN shares:** the median ray NaN share is 0.3 %. It is above 10 % on 63 meshes, all open or
+  self-intersecting (the clean ones stay below 1 %); open meshes are never flipped.
+- **Sign disagreement:** pseudo-normal and winding number disagree on more than 1 % of the points on 70
   meshes, all broken ones (holes, self-intersections). On clean meshes there are at most 1.8 %
   disagreements, from self-intersections.
 - **Rotated input:** the quality of the rotated fit differs by more than 1 % of the points on 0 (plane),
@@ -599,13 +600,11 @@ Each fix has a unit test that fails on the code before the fix.
   structures (5–10 % of the points) whose vertex normals are too noisy for the minimal samples at the
   strict threshold.
 - **mm vs meters:**
-  - Thickness and NaN shares are identical except on 3 meshes.
-    - 702409 and 702413: their inside-out detection (`MeshPostRepairCleanup.FindInvertedComponents`)
-      decides differently, probably because touching components put the sample points on another
-      component's surface (w ≈ 0.5). This is a separate issue in that function.
-    - 100040: 4 triangles of a mesh without a defined inside, whose rays pass exactly through edges of
-      self-intersecting regions.
-  - ShapeDiameter differs on 11 meshes. The SDF jumps where rays graze a wall.
+  - Thickness and NaN shares are identical except on 100040: 3 triangles of a mesh without a defined
+    inside, whose rays pass exactly through edges of self-intersecting regions.
+  - 702409 and 702413, which differed before, now agree: master's `FindInvertedComponents` nesting test
+    no longer depends on the unit.
+  - ShapeDiameter differs on 14 meshes. The SDF jumps where rays graze a wall.
   - The fits differ on 0–7 meshes per primitive: ties under rounding, as for the rotation.
 - **geo:** run pending.
 
