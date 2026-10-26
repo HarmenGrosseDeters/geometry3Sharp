@@ -172,6 +172,7 @@ namespace gs
             if (keepCache == false) {
                 cache = new ConcurrentDictionary<long, float>();
                 notCopyable = new ConcurrentDictionary<long, byte>();
+                anyNotCopyable = false;
                 evaluations = 0;
             }
             keepCache = false;
@@ -214,31 +215,34 @@ namespace gs
         // does not depend on the thread timing (without this, the fast winding number error of the two differed
         // in the last digits and moved contour vertices). Values that rounding would move into the margin or
         // across WindingIso (a large approximation error) are kept as they are and never copied.
+        // (the margin is tested on the stored float, as try_copy_from_neighbour does)
         float evaluate_rounded(long key, Vector3d pos)
         {
             Interlocked.Increment(ref evaluations);
-            double[] w = new double[Meshes.Length];
-            for (int i = 0; i < Meshes.Length; ++i)
-                w[i] = Spatials[i].FastWindingNumber(pos);
-            double value = combine(w);
-            if (Math.Abs(value - WindingIso) <= PropagateMargin)
-                return (float)value;
-            for (int i = 0; i < w.Length; ++i)
-                w[i] = Math.Round(w[i]);
-            double rounded = combine(w);
-            if (Math.Abs(rounded - WindingIso) > PropagateMargin && (rounded > WindingIso) == (value > WindingIso))
-                return (float)rounded;
+            double value, rounded;
+            if (Meshes.Length == 1) {
+                value = Spatial.FastWindingNumber(pos);
+                rounded = Math.Round(value);
+            } else {
+                double[] w = winding_numbers(pos);
+                value = CombineF(w);
+                for (int i = 0; i < w.Length; ++i)
+                    w[i] = Math.Round(w[i]);
+                rounded = CombineF(w);
+            }
+            float fv = (float)value, fr = (float)rounded;
+            if (Math.Abs(fv - WindingIso) <= PropagateMargin)
+                return fv;
+            if (Math.Abs(fr - WindingIso) > PropagateMargin && (fr > WindingIso) == (fv > WindingIso))
+                return fr;
             notCopyable[key] = 0;
-            return (float)value;
-        }
-
-        double combine(double[] w)
-        {
-            return (CombineF == null) ? w[0] : CombineF(w);
+            anyNotCopyable = true;
+            return fv;
         }
 
         // nodes whose value is outside the margin but must not be copied (see evaluate_rounded)
         ConcurrentDictionary<long, byte> notCopyable;
+        volatile bool anyNotCopyable;
 
         // the winding number is piecewise constant (an integer) only for a closed, consistently oriented
         // mesh: an edge whose two triangles run along it in the same direction acts like a boundary
@@ -267,10 +271,15 @@ namespace gs
         {
             if (Meshes.Length == 1)
                 return Spatial.FastWindingNumber(pos);
+            return CombineF(winding_numbers(pos));
+        }
+
+        double[] winding_numbers(Vector3d pos)
+        {
             double[] w = new double[Meshes.Length];
             for (int i = 0; i < Meshes.Length; ++i)
                 w[i] = Spatials[i].FastWindingNumber(pos);
-            return CombineF(w);
+            return w;
         }
 
 
@@ -285,7 +294,7 @@ namespace gs
                 Vector3i nb = node + axis_neighbours[k];
                 float nbValue;
                 long nbKey = node_key(nb.x, nb.y, nb.z);
-                if (cache.TryGetValue(nbKey, out nbValue) == false || notCopyable.ContainsKey(nbKey))
+                if (cache.TryGetValue(nbKey, out nbValue) == false || (anyNotCopyable && notCopyable.ContainsKey(nbKey)))
                     continue;
                 if (Math.Abs(nbValue - WindingIso) <= PropagateMargin)
                     continue;

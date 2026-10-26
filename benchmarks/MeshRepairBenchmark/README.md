@@ -809,8 +809,9 @@ vertices by about 1e-8 and, after the reduction, changed the triangle count (pro
 that may be copied are now computed from the winding numbers rounded to integers (exact off the surface of closed,
 oriented meshes), so a copy equals the node's own value.
 
-`robust` on both selections, `BENCH_P=2 TIMEOUT=300`, both selections at the same time on 4 cores, master
-`7f0f97c` before (a run without other load on the machine), the change after:
+`robust` on both selections, `BENCH_P=2 TIMEOUT=300`, both selections at the same time on 4 cores and nothing
+else on the machine, master `7f0f97c` before, the change after (the first revision; the final one also no
+longer allocates an array per node evaluation, which only removes work, and gives the same node values):
 
 | | first selection, before | after | holdout, before | after |
 |---|---|---|---|---|
@@ -821,8 +822,9 @@ oriented meshes), so a copy equals the node's own value.
 | all 400: total time | 4147 s | 4206 s (+1.4 %) | 3573 s | 3663 s (+2.5 %) |
 | a second run of the same build: meshes that differ | 1 | 0 | 0 | 0 |
 
-- No measurable cost: the time differences are within the noise of the shared machine. Two runs of the same build
-  differed by up to 4 % in total time.
+- Time: +1.4 % and +2.5 % in total, the solidify phase +0 % and +4 %. Two other runs of the change (one with
+  other load during part of it) differed from each other by 3–5 % in total, so the difference is not clearly
+  outside the noise of this machine; the change adds one rounding per evaluated node.
 - The rounding does not change the results measurably: the same repaired and clean counts, no path changes; 137 of
   the 138 solidified or wrapped meshes have the same triangle count as on master (not 498458.stl).
 - Two runs of the change give the same triangles, Hausdorff bounds, IoU and path on all 800 meshes. On this set

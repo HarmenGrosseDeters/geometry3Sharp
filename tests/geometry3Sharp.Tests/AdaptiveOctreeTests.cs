@@ -96,6 +96,41 @@ namespace geometry3Sharp.Tests
             o.BuildOnGrid(o.Origin, o.LeafCellSize, o.MaxDepth);
             var again = nodes.Select(v => o.NodeValue(v)).ToList();
             Assert.All(again.Where(w => w > 0.8), w => Assert.Equal(1.0, w));
+            // and rounded values are not reused with a margin under which they would not be rounded
+            o.PropagateMargin = 0.6;
+            o.BuildOnGrid(o.Origin, o.LeafCellSize, o.MaxDepth);
+            var wide = nodes.Select(v => o.NodeValue(v)).ToList();
+            Assert.Contains(wide, w => w > 0.5 && w != 1.0);
+        }
+
+        [Fact]
+        public void Octree_ValuesThatCannotBeRounded_AreNotCopied()
+        {
+            // a combine that puts the rounded winding numbers into the margin: such values are kept as they are
+            // and never copied, so they do not depend on the query order either
+            DMesh3 sphere = new Sphere3Generator_NormalizedCube() { Radius = 5, EdgeVertices = 16 }.Generate().MakeDMesh();
+            DMesh3 far = Box(0.1, new Vector3d(40, 40, 40));
+            Func<WindingNumberOctree> make = () => {
+                var o = new WindingNumberOctree(new[] { sphere, far }, new[] { new DMeshAABBTree3(sphere, true), new DMeshAABBTree3(far, true) },
+                    (w) => (w[0] == Math.Round(w[0])) ? 0.6 : w[0]) { MaxDepth = 7, RegionF = (min, size) => false };
+                o.Build();
+                return o;
+            };
+            var probe = make();
+            int n = probe.LeafCount;
+            Func<Vector3d, Vector3i> node = (p) => {
+                Vector3d g = (p - probe.Origin) / probe.LeafCellSize;
+                return new Vector3i((int)Math.Round(g.x), (int)Math.Round(g.y), (int)Math.Round(g.z));
+            };
+            // a line through the sphere (the far box only stretches the grid)
+            Vector3i a = node(new Vector3d(-4, 0.3, 0.2)), b = node(new Vector3d(4, 0.3, 0.2));
+            var nodes = Enumerable.Range(a.x, b.x - a.x + 1).Select(i => new Vector3i(i, a.y, a.z)).ToList();
+            var forward = make();
+            var f = nodes.Select(v => forward.NodeValue(v)).ToList();
+            var backward = make();
+            var r = Enumerable.Reverse(nodes).Select(v => backward.NodeValue(v)).Reverse().ToList();
+            Assert.Contains(f, w => w > 0.8 && w < 1);      // raw values outside the margin, kept
+            Assert.Equal(f, r);
         }
 
         [Fact]
