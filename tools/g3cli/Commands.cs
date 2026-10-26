@@ -261,6 +261,8 @@ namespace g3cli
                     files.AddRange(args.String("more").Split(';').Select(f => f.Trim()).Where(f => f.Length > 0));
                 var warnings = new List<string>();
                 var meshes = files.Select(f => MeshFiles.Read(f, warnings)).ToList();
+                if (opName == "at_least" && args.Integer("k") > meshes.Count)
+                    warnings.Add($"k = {args.Integer("k")} is more than the {meshes.Count} inputs: the result is empty");
                 ExactMeshBoolean op;
                 if (opName == "at_least") {
                     op = new ExactMeshBoolean(meshes, ExactMeshBoolean.AtLeast(args.Integer("k")));
