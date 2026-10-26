@@ -37,6 +37,103 @@ namespace geometry3Sharp.Tests
 
 
         [Fact]
+        public void Octree_PropagatedNodeValues_DoNotDependOnTheQueryOrder()
+        {
+            // With propagation a node copies an already cached neighbour value instead of evaluating its own;
+            // which neighbours are cached depends on the order (in parallel: on the thread timing). The values
+            // must be the same either way (the fast winding number of two nodes differs in the last digits).
+            DMesh3 sphere = new Sphere3Generator_NormalizedCube() { Radius = 5, EdgeVertices = 16 }.Generate().MakeDMesh();
+            Func<WindingNumberOctree> make = () => {
+                var o = new WindingNumberOctree(sphere, new DMeshAABBTree3(sphere, true)) { MaxDepth = 6, RegionF = (min, size) => false };
+                o.Build();      // no cells: nothing evaluated yet
+                return o;
+            };
+            var nodes = new List<Vector3i>();
+            var probe = make();
+            int n = probe.LeafCount;
+            for (int i = 0; i < n; ++i)
+                for (int j = n / 4; j <= 3 * n / 4; j += n / 8)
+                    nodes.Add(new Vector3i(i, j, n / 2));
+            var forward = make();
+            var a = nodes.Select(v => forward.NodeValue(v)).ToList();
+            var backward = make();
+            var b = Enumerable.Reverse(nodes).Select(v => backward.NodeValue(v)).Reverse().ToList();
+            Assert.True(forward.WindingEvaluations < nodes.Count);     // values were propagated
+            int differ = Enumerable.Range(0, nodes.Count).Count(k => a[k] != b[k]);
+            Assert.Equal(0, differ);
+            Assert.Contains(a, w => w > 0.99);     // the line runs through the inside
+        }
+
+        [Fact]
+        public void Octree_PropagatedValues_NonIntegerCombine_NotRounded()
+        {
+            // the winding numbers are rounded before CombineF, not its result: a combine that is not an
+            // integer for integer inputs keeps its values (inside B only: 0 - 0.4 * 1 = -0.4)
+            DMesh3 a = Box(4, new Vector3d(-3, 0, 0)), b = Box(4, new Vector3d(3, 0, 0));
+            var o = new WindingNumberOctree(new[] { a, b }, new[] { new DMeshAABBTree3(a, true), new DMeshAABBTree3(b, true) },
+                (w) => w[0] - 0.4 * w[1]) { MaxDepth = 6 };
+            o.Build();
+            Func<Vector3d, Vector3i> node = (p) => {
+                Vector3d g = (p - o.Origin) / o.LeafCellSize;
+                return new Vector3i((int)Math.Round(g.x), (int)Math.Round(g.y), (int)Math.Round(g.z));
+            };
+            Assert.Equal(-0.4, o.NodeValue(node(new Vector3d(3, 0.1, 0.1))), 3);
+            Assert.Equal(1.0, o.NodeValue(node(new Vector3d(-3, 0.1, 0.1))), 6);
+        }
+
+        [Fact]
+        public void Octree_BuildOnGrid_DoesNotKeepValuesComputedWithOtherRules()
+        {
+            // values computed without propagation (not rounded) are not reused by a build with propagation
+            DMesh3 sphere = new Sphere3Generator_NormalizedCube() { Radius = 5, EdgeVertices = 16 }.Generate().MakeDMesh();
+            var o = new WindingNumberOctree(sphere, new DMeshAABBTree3(sphere, true)) { MaxDepth = 6, PropagateValues = false, RegionF = (min, size) => false };
+            o.Build();
+            int n = o.LeafCount;
+            var nodes = Enumerable.Range(0, n).Select(i => new Vector3i(i, n / 2, n / 2)).ToList();
+            var raw = nodes.Select(v => o.NodeValue(v)).ToList();
+            Assert.Contains(raw, w => w > 0.5 && w != 1.0);     // the fast winding number is not exact inside
+            o.PropagateValues = true;
+            o.BuildOnGrid(o.Origin, o.LeafCellSize, o.MaxDepth);
+            var again = nodes.Select(v => o.NodeValue(v)).ToList();
+            Assert.All(again.Where(w => w > 0.8), w => Assert.Equal(1.0, w));
+            // and rounded values are not reused with a margin under which they would not be rounded
+            o.PropagateMargin = 0.6;
+            o.BuildOnGrid(o.Origin, o.LeafCellSize, o.MaxDepth);
+            var wide = nodes.Select(v => o.NodeValue(v)).ToList();
+            Assert.Contains(wide, w => w > 0.5 && w != 1.0);
+        }
+
+        [Fact]
+        public void Octree_ValuesThatCannotBeRounded_AreNotCopied()
+        {
+            // a combine that puts the rounded winding numbers into the margin: such values are kept as they are
+            // and never copied, so they do not depend on the query order either
+            DMesh3 sphere = new Sphere3Generator_NormalizedCube() { Radius = 5, EdgeVertices = 16 }.Generate().MakeDMesh();
+            DMesh3 far = Box(0.1, new Vector3d(40, 40, 40));
+            Func<WindingNumberOctree> make = () => {
+                var o = new WindingNumberOctree(new[] { sphere, far }, new[] { new DMeshAABBTree3(sphere, true), new DMeshAABBTree3(far, true) },
+                    (w) => (w[0] == Math.Round(w[0])) ? 0.6 : w[0]) { MaxDepth = 7, RegionF = (min, size) => false };
+                o.Build();
+                return o;
+            };
+            var probe = make();
+            int n = probe.LeafCount;
+            Func<Vector3d, Vector3i> node = (p) => {
+                Vector3d g = (p - probe.Origin) / probe.LeafCellSize;
+                return new Vector3i((int)Math.Round(g.x), (int)Math.Round(g.y), (int)Math.Round(g.z));
+            };
+            // a line through the sphere (the far box only stretches the grid)
+            Vector3i a = node(new Vector3d(-4, 0.3, 0.2)), b = node(new Vector3d(4, 0.3, 0.2));
+            var nodes = Enumerable.Range(a.x, b.x - a.x + 1).Select(i => new Vector3i(i, a.y, a.z)).ToList();
+            var forward = make();
+            var f = nodes.Select(v => forward.NodeValue(v)).ToList();
+            var backward = make();
+            var r = Enumerable.Reverse(nodes).Select(v => backward.NodeValue(v)).Reverse().ToList();
+            Assert.Contains(f, w => w > 0.8 && w < 1);      // raw values outside the margin, kept
+            Assert.Equal(f, r);
+        }
+
+        [Fact]
         public void Octree_RefinesOnlyNearSurface()
         {
             DMesh3 box = Box(10);

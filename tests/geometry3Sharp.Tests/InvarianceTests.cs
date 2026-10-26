@@ -217,6 +217,73 @@ namespace geometry3Sharp.Tests
             Assert.True(dist <= 1e-6 + s.DistanceResolution(4), $"{s.Name}: repaired surfaces {dist} apart");
         }
 
+        // ---- MeshWindingNumberSolidify (winding number octree with propagated node values) ----
+
+        static DMesh3 Solidify(DMesh3 mesh)
+        {
+            var sol = new MeshWindingNumberSolidify(mesh) { GridResolution = 48, Adaptive = true };
+            Assert.True(sol.Compute());
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(sol.Result));
+            return sol.Result;
+        }
+
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void Solidify_SameResultUnderSimilarity(string name)
+        {
+            // two overlapping closed spheres: closed and oriented, so node values are propagated (and rounded)
+            Similarity s = Similarity.ByName(name);
+            DMesh3 Input() { DMesh3 m = BumpySphere(); MeshEditor.Append(m, Sphere(new Vector3d(0.9, 0.2, 0.1), 0.7, 10)); return m; }
+            DMesh3 m0 = Solidify(Input());
+            DMesh3 back = Invariance.MappedBack(Solidify(Invariance.Transformed(Input(), s)), s);
+            // the same solid up to about a cell (diagonal 3.4 / 48). Not bit for bit under 2^k scales yet: the raw
+            // contour already differs in a few vertices (an absolute constant in the contouring, not in the octree,
+            // whose node values are checked bit for bit in WindingOctree_NodeValuesUnderSimilarity)
+            AssertRelative(Invariance.Volume(m0), Invariance.Volume(back), 0.01, s.Name);
+            double dist = Invariance.VertexDistance(m0, back);
+            Assert.True(dist < 0.1, $"{s.Name}: solidified surfaces {dist} apart");
+        }
+
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void WindingOctree_NodeValuesUnderSimilarity(string name)
+        {
+            // node values along lines through a closed mesh (propagated and rounded where far from the surface):
+            // bit for bit under exact similarities; otherwise the grid moves relative to the shape, and the nodes
+            // away from the surface still have exactly integer values
+            Similarity s = Similarity.ByName(name);
+            List<double> Values(DMesh3 m)
+            {
+                var o = new WindingNumberOctree(m, new DMeshAABBTree3(m, true)) { MaxDepth = 6, RegionF = (min, size) => false };
+                o.Build();
+                int n = o.LeafCount;
+                var v = new List<double>();
+                for (int i = 0; i < n; ++i)
+                    for (int j = n / 4; j <= 3 * n / 4; j += n / 8)
+                        v.Add(o.NodeValue(new Vector3i(i, j, n / 2)));
+                return v;
+            }
+            List<double> v0 = Values(BumpySphere()), v1 = Values(Invariance.Transformed(BumpySphere(), s));
+            Assert.Contains(v1, w => w == 1.0);
+            Assert.All(v1, w => Assert.True(Math.Abs(w - 0.5) <= 0.3 || w == Math.Round(w), $"{s.Name}: {w:R}"));
+            if (s.IsExact)
+                Assert.Equal(v0, v1);
+        }
+
+        [Fact]
+        public void Solidify_ReusedInstance_EqualsFreshInstance()
+        {
+            DMesh3 a = BumpySphere(), b = Sphere(new Vector3d(0.3, 0, 0), 0.8, 12);
+            var sol = new MeshWindingNumberSolidify(a) { GridResolution = 48, Adaptive = true };
+            Assert.True(sol.Compute());
+            sol.Mesh = b;
+            Assert.True(sol.Compute());
+            Assert.Equal("", Invariance.Difference(Solidify(b), sol.Result));
+            sol.Mesh = a;
+            Assert.True(sol.Compute());
+            Assert.Equal("", Invariance.Difference(Solidify(a), sol.Result));
+        }
+
         // ---- Reducer, Remesher ----
 
         /// <summary>A sphere with a smooth bump, so that the reducer has few ties between equal collapse costs.</summary>
