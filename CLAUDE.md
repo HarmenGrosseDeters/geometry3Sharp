@@ -1,7 +1,8 @@
 # Working on geometry3Sharp
 
 Direction, phases and open items: [docs/ROADMAP.md](docs/ROADMAP.md). Sources of ported or implemented
-methods: [docs/SOURCES.md](docs/SOURCES.md). Test strategy: [docs/QA.md](docs/QA.md).
+methods: [docs/SOURCES.md](docs/SOURCES.md). Test strategy: [docs/QA.md](docs/QA.md), local
+setup (SDK install): [docs/QA.md#5-local-setup](docs/QA.md#5-local-setup).
 
 ## Rules
 

@@ -67,18 +67,11 @@ namespace geometry3Sharp.Tests
             yield return new object[] { "stl", true };
             yield return new object[] { "3mf", true };
             yield return new object[] { "glb", true };
-        }
-
-        /// <summary>Formats with reported findings (see the skipped tests at the end).</summary>
-        public static IEnumerable<object[]> FormatsWithFindings()
-        {
             yield return new object[] { "obj", false };
             yield return new object[] { "off", false };
             yield return new object[] { "ply", false };
             yield return new object[] { "ply", true };
         }
-
-        public static IEnumerable<object[]> AllFormats() => Formats().Concat(FormatsWithFindings());
 
         /// <summary>One mutation of the input, described for the failure message.</summary>
         static byte[] Mutate(byte[] input, bool text, Random rand, out string what)
@@ -264,24 +257,15 @@ namespace geometry3Sharp.Tests
         [MemberData(nameof(Formats))]
         public void MutatedFiles_ReadSafely(string extension, bool binary) => AssertMutatedFilesReadSafely(extension, binary, false);
 
-        // OBJ: a face whose normal or UV index is out of range throws ArgumentOutOfRange in append_vertex; OFF: a face
-        // with a negative vertex index throws ArgumentOutOfRange inside DMesh3; PLY (text and binary): a header count
-        // like "element vertex 400000000" allocates 1.5 GB for an 11 KB file. Reported; enabled when fixed.
-        [Theory(Skip = "OBJ / OFF index checks, PLY header counts (reported)")]
-        [MemberData(nameof(FormatsWithFindings))]
-        public void MutatedFiles_ReadSafely_Findings(string extension, bool binary) => AssertMutatedFilesReadSafely(extension, binary, false);
-
-        // The .g3mesh reader restores the DMesh3 buffers (edges, reference counts) as stored and allocates the sizes the
-        // file claims: mutated files give invalid meshes reported as Ok, allocations of hundreds of MB from 14 KB, and
-        // reads that do not finish. Reported; enabled when fixed.
-        [Fact(Skip = "BinaryG3Reader trusts the stored buffers and sizes (reported)")]
+        // .g3mesh (#130: the reader used to trust the stored buffers and sizes)
+        [Fact]
         public void MutatedFiles_ReadSafely_G3Mesh() => AssertMutatedFilesReadSafely("g3mesh", true, false);
 
         // STL (text and binary), OFF, binary PLY and glB report Ok for coordinates like 1e400 or NaN (or random bytes
         // that are NaN as floats); OBJ, text PLY and 3MF reject them. Whether all readers should reject them is open
         // (reported); enabled when decided.
         [Theory(Skip = "readers accept non-finite coordinates (reported, decision pending)")]
-        [MemberData(nameof(AllFormats))]
+        [MemberData(nameof(Formats))]
         public void MutatedFiles_OkMeansFiniteCoordinates(string extension, bool binary) => AssertMutatedFilesReadSafely(extension, binary, true);
     }
 }
