@@ -47,7 +47,10 @@ namespace gs
         public DMesh3 Mesh;
         /// <summary> cells along the bounding box diagonal for the solidify fallback </summary>
         public int SolidifyResolution = 128;
-        /// <summary> if true, self-intersections make the repair result unclean (triggers the solidify fallback) </summary>
+        /// <summary>
+        /// if true, self-intersections make the repair result unclean (triggers the solidify fallback). If false, the
+        /// exact stage does not check its results for them either: the sliver cleanup after the resolve can leave some
+        /// </summary>
         public bool CheckSelfIntersections = true;
         /// <summary> minimum volume IoU of the repaired mesh with the input's winding number solid (0 = no volume checks, also not CheckLostComponents) </summary>
         public double MinVolumeIoU = 0.99;

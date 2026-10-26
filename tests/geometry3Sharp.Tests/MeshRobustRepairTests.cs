@@ -111,9 +111,13 @@ namespace geometry3Sharp.Tests
             // count (none) no longer holds then: the exact stage must not accept the result
             var r = new MeshRobustRepair(NearlyCoincidentBoxes(9, 6)) { RepairF = (m) => new DMesh3(m), AlphaWrapFallback = false };
             Assert.True(r.Apply());
+            // the scenario: resolved exactly, after a round whose cleaned result had intersections (if a later change
+            // to the resolve or the rounding no longer gives it, this test must be given a new scene)
+            Assert.True(r.UsedExactResolve, r.ExactResolveReason);
+            Assert.True(r.ExactResolveSelfIntersections.Count >= 2 && r.ExactResolveSelfIntersections[0] > 0,
+                string.Join(",", r.ExactResolveSelfIntersections));
             Assert.Equal(0, MeshRepairMetrics.SelfIntersections(r.Mesh));
-            if (r.UsedExactResolve)
-                Assert.Equal("", MeshRobustRepair.NotCleanReason(r.Mesh));
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(r.Mesh));
         }
 
         [Fact]
