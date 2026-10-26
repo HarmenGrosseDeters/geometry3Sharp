@@ -29,7 +29,9 @@ python3 analyze_wrap.py results/wrap.jsonl results/cgalwrap.jsonl   # guarantees
 `run_all.sh <mode> [loader] [transform] [tolerance factor]` takes these options:
 - **loader:** `std` (StandardMeshReader, STL welding), `soup` (no welding) or `manual` (own exact weld + `AppendTriangle`)
 - **transform:** `meters` (scale ×0.001) or `geo` (translate by 500000, 5000000, 0)
-- **tolerance factor:** multiplies `RepairTolerance` and `MinEdgeLengthTol`
+- **tolerance factor:** `rel` (default): the library default, `MeshAutoRepair` tolerances relative to the size of
+  the mesh; a number: absolute tolerances, the 1.0.324 defaults (`RepairTolerance` 1e-6, `MinEdgeLengthTol` 1e-4)
+  times the factor (`1` reproduces the earlier absolute runs)
 
 Each mesh runs in its own process with a timeout (120 s, large meshes 900 s), so hangs and crashes are recorded too.
 

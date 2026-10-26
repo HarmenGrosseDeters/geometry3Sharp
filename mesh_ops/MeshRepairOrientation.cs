@@ -40,6 +40,13 @@ namespace gs
 		/// </summary>
 		public bool KeepShortSeams = true;
 
+		/// <summary>
+		/// ComputeStatistics skips triangles with area below DegenerateAreaFactor * diag^2 (diagonal of the bounds of
+		/// the triangles): their normals give no evidence. Relative, so the result does not depend on the model units;
+		/// 1e-10 equals the absolute 1e-6 of geometry3Sharp 1.0.324 for a model of diagonal 100.
+		/// </summary>
+		public double DegenerateAreaFactor = 1e-10;
+
 		/// <summary> spatial is an optional prebuilt AABB tree of mesh3 (built on demand otherwise) </summary>
 		public MeshRepairOrientation(DMesh3 mesh3, DMeshAABBTree3 spatial = null)
 		{
@@ -311,12 +318,15 @@ namespace gs
 		public void ComputeStatistics()
 		{
 			var s = this.Spatial;  // make sure this exists
+            double diag = Mesh.TriangleCount > 0 ? MeshRepairMetrics.TriangleBounds(Mesh).DiagonalLength : 0;
+            minArea = DegenerateAreaFactor * diag * diag;
             // Cannot do in parallel because we set a filter on spatial DS. 
             // Also we are doing rays in parallel anyway...
             foreach ( var c in Components ) {
                 compute_statistics(c);
             }
 		}
+		double minArea;
 		void compute_statistics(Component c)
 		{
 			int NC = c.triangles.Count;
@@ -342,7 +352,7 @@ namespace gs
 					int ti = c.triangles[i];
 					Vector3d normal, centroid; double area;
 					Mesh.GetTriInfo(ti, out normal, out area, out centroid);
-					if (area < MathUtil.ZeroTolerancef)
+					if (area < minArea || area == 0)
 						continue;
 
                     // construct far away points

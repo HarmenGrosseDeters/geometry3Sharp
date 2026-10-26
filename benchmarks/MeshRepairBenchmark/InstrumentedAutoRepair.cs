@@ -22,10 +22,46 @@ namespace MeshRepairBenchmark
     /// </summary>
     public class InstrumentedAutoRepair
     {
-		public double RepairTolerance = MathUtil.ZeroTolerancef;
+        // tolerances as in gs.MeshAutoRepair: relative to the diagonal of the triangles by default, absolute
+        // when set explicitly or with ToleranceModes.Absolute
+        public enum ToleranceModes { Relative = 0, Absolute = 1 }
+        public ToleranceModes ToleranceMode = ToleranceModes.Relative;
+        public double RelativeRepairTolerance = 1e-8;
+        public double RelativeMinEdgeLength = 1e-6;
+
+        public double RepairTolerance {
+            get { return repairTolerance; }
+            set { repairTolerance = value; repairToleranceSet = true; }
+        }
+        double repairTolerance = MathUtil.ZeroTolerancef;
+        bool repairToleranceSet = false;
 
         // assume edges shorter than this are degenerate and should be collapsed
-        public double MinEdgeLengthTol = 0.0001;
+        public double MinEdgeLengthTol {
+            get { return minEdgeLengthTol; }
+            set { minEdgeLengthTol = value; minEdgeLengthTolSet = true; }
+        }
+        double minEdgeLengthTol = 0.0001;
+        bool minEdgeLengthTolSet = false;
+
+        public double EffectiveRepairTolerance { get; private set; }
+        public double EffectiveMinEdgeLength { get; private set; }
+
+        void compute_tolerances()
+        {
+            double diag = 0, magnitude = 0;
+            if (Mesh.TriangleCount > 0) {
+                AxisAlignedBox3d box = MeshRepairMetrics.TriangleBounds(Mesh);
+                diag = box.DiagonalLength;
+                magnitude = Math.Max(box.Min.MaxAbs, box.Max.MaxAbs);
+            }
+            double floor = 16 * MathUtil.Epsilon * magnitude;
+            bool absolute = ToleranceMode == ToleranceModes.Absolute;
+            EffectiveRepairTolerance = (absolute || repairToleranceSet) ? repairTolerance
+                : Math.Max(RelativeRepairTolerance * diag, floor);
+            EffectiveMinEdgeLength = (absolute || minEdgeLengthTolSet) ? minEdgeLengthTol
+                : (RelativeMinEdgeLength > 0 ? Math.Max(RelativeMinEdgeLength * diag, floor) : 0);
+        }
 
         // number of times we will delete border triangles and try again
         public int ErosionIterations = 5;
@@ -75,6 +111,7 @@ namespace MeshRepairBenchmark
 
 			if ( do_checks ) Mesh.CheckValidity();
 
+            compute_tolerances();
 
             /*
              * Remove parts of the mesh we don't want before we bother with anything else
@@ -97,7 +134,7 @@ namespace MeshRepairBenchmark
              *  Do safe close-cracks to handle easy cases
              */
 
-            repair_cracks(true, RepairTolerance); Stage("cracks_unique");
+            repair_cracks(true, EffectiveRepairTolerance); Stage("cracks_unique");
                 if (Mesh.IsClosed()) goto all_done;
                 if (Cancelled()) return false;
 
@@ -106,11 +143,11 @@ namespace MeshRepairBenchmark
              * then allow for handling of ambiguous cases
              */
 
-            collapse_all_degenerate_edges(RepairTolerance*0.5, true); Stage("collapse_boundary_edges");
+            collapse_all_degenerate_edges(EffectiveRepairTolerance*0.5, true); Stage("collapse_boundary_edges");
                 if (Cancelled()) return false;
-            repair_cracks(true, 2*RepairTolerance); Stage("cracks_unique_2x");
+            repair_cracks(true, 2*EffectiveRepairTolerance); Stage("cracks_unique_2x");
                 if (Cancelled()) return false;
-            repair_cracks(false, 2*RepairTolerance); Stage("cracks_any_2x");
+            repair_cracks(false, 2*EffectiveRepairTolerance); Stage("cracks_any_2x");
                 if (Cancelled()) return false;
                 if (Mesh.IsClosed()) goto all_done;
 
@@ -182,8 +219,8 @@ namespace MeshRepairBenchmark
             /*
              * Remove tiny edges
              */
-            if (MinEdgeLengthTol > 0) {
-                collapse_all_degenerate_edges(MinEdgeLengthTol, false); Stage("collapse_short_edges");
+            if (EffectiveMinEdgeLength > 0) {
+                collapse_all_degenerate_edges(EffectiveMinEdgeLength, false); Stage("collapse_short_edges");
             }
                 if (Cancelled()) return false;
 
