@@ -443,6 +443,112 @@ namespace geometry3Sharp.Tests
             Assert.True(Math.Abs(g.Length - 2 * n * Chord(n)) < 1e-12, $"{g.Length} vs {2 * n * Chord(n)}");
         }
 
+        /// <summary>
+        /// open square pyramid with apex height H over the square [-1, 1]^2: a middle ring at half height, the base
+        /// square as the boundary; the apex is a cone vertex with angle sum 8 atan(1 / sqrt(H^2 + 1))
+        /// </summary>
+        static DMesh3 Pyramid(double H, out int apex, out int[] ring)
+        {
+            var m = new DMesh3();
+            apex = m.AppendVertex(new Vector3d(0, 0, H));
+            var c = new[] { new Vector2d(1, 1), new Vector2d(-1, 1), new Vector2d(-1, -1), new Vector2d(1, -1) };
+            ring = c.Select(p => m.AppendVertex(new Vector3d(0.5 * p.x, 0.5 * p.y, 0.5 * H))).ToArray();
+            int[] baseRing = c.Select(p => m.AppendVertex(new Vector3d(p.x, p.y, 0))).ToArray();
+            for (int k = 0; k < 4; ++k) {
+                int k1 = (k + 1) % 4;
+                m.AppendTriangle(apex, ring[k], ring[k1]);
+                m.AppendTriangle(ring[k], baseRing[k], baseRing[k1]);
+                m.AppendTriangle(ring[k], baseRing[k1], ring[k1]);
+            }
+            return m;
+        }
+
+        [Theory]
+        [InlineData(0.5)]       // cone angle 334 degrees
+        [InlineData(1.0)]       // 282 degrees
+        [InlineData(3.0)]       // 140 degrees
+        [InlineData(8.0)]       // 57 degrees
+        public void Pyramid_LoopAroundTheApexCollapses(double H)
+        {
+            // a closed loop on a disk is contractible; with a cone angle below pi it collapses through loops of one segment
+            int apex; int[] ring;
+            DMesh3 mesh = Pyramid(H, out apex, out ring);
+            var g = new MeshGeodesicPath(mesh);
+            Assert.Equal(GeodesicPathStatus.Collapsed, g.Shorten(ring, true));
+            Assert.Equal(0, g.Length);
+            Assert.Single(g.Path);
+            Assert.Equal(mesh.GetVertex(g.PathVertices[0]), g.Path[0]);
+        }
+
+        [Fact]
+        public void ContractibleLoop_WithAFixedVertex_CollapsesToIt()
+        {
+            int[,] ids;
+            DMesh3 mesh = JitteredPlane(8, 8, 0.1, 7, out ids);
+            var loop = new List<int>();
+            for (int i = 2; i <= 6; ++i) loop.Add(ids[i, 2]);
+            for (int j = 3; j <= 6; ++j) loop.Add(ids[6, j]);
+            for (int i = 5; i >= 2; --i) loop.Add(ids[i, 6]);
+            for (int j = 5; j >= 3; --j) loop.Add(ids[2, j]);
+            int pin = ids[6, 4];
+            var g = new MeshGeodesicPath(mesh);
+            Assert.Equal(GeodesicPathStatus.Collapsed, g.Shorten(loop, true, new[] { pin }));
+            Assert.Equal(new[] { pin }, g.PathVertices);
+            Assert.Equal(mesh.GetVertex(pin), g.Path[0]);
+        }
+
+        [Fact]
+        public void RepeatedWaypoint_GoesThereAndBack()
+        {
+            int[,] ids;
+            DMesh3 mesh = JitteredPlane(8, 8, 0.1, 4, out ids);
+            int a = ids[1, 1], b = ids[6, 5], c = ids[7, 1];
+            var g = new MeshGeodesicPath(mesh);
+            Assert.Equal(GeodesicPathStatus.Success, g.ComputeThrough(new[] { a, b, a, c }));
+            AssertValidPath(g, mesh, a, c);
+            Vector3d pa = mesh.GetVertex(a), pb = mesh.GetVertex(b), pc = mesh.GetVertex(c);
+            Assert.True(Math.Abs(g.Length - (2 * pa.Distance(pb) + pa.Distance(pc))) < 1e-12, $"{g.Length}");
+            Assert.Equal(new[] { a, b, a, c }, g.PathVertices);
+        }
+
+        [Fact]
+        public void DegenerateTriangle_IsMollified()
+        {
+            // a zero-area triangle (a, b, midpoint) on the boundary edge a-b: the surface stays the flat rectangle,
+            // and the intrinsic mollification makes the triangle valid
+            int[,] ids;
+            DMesh3 mesh = JitteredPlane(8, 8, 0.1, 6, out ids);
+            int a = ids[3, 0], b = ids[4, 0];
+            int tid = mesh.GetEdgeT(mesh.FindEdge(a, b)).a;      // a boundary edge: one triangle
+            Index3i tri = mesh.GetTriangle(tid);
+            int k = tri.a == a ? 0 : tri.b == a ? 1 : 2;
+            Assert.Equal(b, tri[(k + 1) % 3]);
+            int top = tri[(k + 2) % 3];
+            mesh.RemoveTriangle(tid);
+            int mid = mesh.AppendVertex(0.5 * (mesh.GetVertex(a) + mesh.GetVertex(b)));
+            mesh.AppendTriangle(a, mid, top);
+            mesh.AppendTriangle(mid, b, top);
+            mesh.AppendTriangle(mid, a, b);
+            int s = ids[0, 2], t = ids[8, 1];
+            var g = new MeshGeodesicPath(mesh);
+            Assert.Equal(GeodesicPathStatus.Success, g.Compute(s, t));
+            Assert.True(g.Triangulation.MollificationDelta > 0, "mollified (exercised)");
+            // Length is in the mollified geometry: every edge is longer by the delta
+            AssertValidPath(g, mesh, s, t, g.Triangulation.MollificationDelta);
+            double straight = mesh.GetVertex(s).Distance(mesh.GetVertex(t));
+            Assert.True(Math.Abs(g.Length - straight) < 1e-5 * straight, $"{g.Length} vs {straight}");
+        }
+
+        [Fact]
+        public void FailedTrace_IsReported()
+        {
+            int[,] ids;
+            DMesh3 mesh = JitteredPlane(6, 6, 0.1, 2, out ids);
+            var g = new MeshGeodesicPath(mesh) { TraceTolerance = -1 };     // every trace counts as failed
+            Assert.Equal(GeodesicPathStatus.TraceFailed, g.Compute(ids[0, 0], ids[6, 5]));
+            Assert.Equal(mesh.GetVertex(ids[0, 0]).Distance(mesh.GetVertex(ids[6, 5])), g.Length, 12);
+        }
+
         [Fact]
         public void BacktrackingEdgePath_IsRemoved()
         {

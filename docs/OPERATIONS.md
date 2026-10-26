@@ -211,10 +211,14 @@ On developable meshes it is the straight line in the unfolding to rounding (the 
 and cylinder against closed forms). `Compute(a, b)` from the Dijkstra path usually gives the globally shortest
 geodesic, but this is not guaranteed. The mesh is not modified.
 
-- **Status**: `Success` (geodesic), `Collapsed` (a contractible closed loop shrank to a point), `NotConverged`
-  (`MaxIterations`; valid and shorter), `Stuck` (a wedge holds edges of the same, self-overlapping path, which
-  are not flipped; valid), `NoPath` (waypoints not connected), `InvalidInput` (ids, a non-adjacent edge path,
-  bowtie vertices).
+- **Status**: `Success` (geodesic), `Collapsed` (a contractible closed loop shrank to a point, to its fixed
+  vertex if it has one), `NotConverged` (`MaxIterations`; valid and shorter), `Stuck` (a wedge holds edges of
+  the same, self-overlapping path, which are not flipped; valid), `NoPath` (waypoints not connected),
+  `InvalidInput` (ids, a non-adjacent edge path, bowtie vertices), `TraceFailed` (`Length` is valid, but an edge
+  could not be traced over the mesh triangles, so `Path` may cut across the surface there).
+- A loop around a cone vertex with an angle below pi (a sharp tip) can only contract through the tip, which is
+  longer for a moment; a loop of one edge whose wedge only goes out to the tip and back is therefore reported
+  as `Collapsed` directly.
 - Boundaries are allowed (the path stays on the surface); a geodesic loop around a handle or a cylinder is found
   with `Shorten(loop, closed: true)`, also when it winds around more than once.
 

@@ -9,7 +9,10 @@ namespace gs
     {
         /// <summary> the path is a geodesic: at every free vertex on it the angle is at least pi on both sides </summary>
         Success,
-        /// <summary> a closed loop without fixed vertices contracted to a point (Length 0, Path and PathVertices one point) </summary>
+        /// <summary>
+        /// a closed loop contracted to a point, at its fixed vertex if it has one (Length 0, Path and PathVertices
+        /// one point)
+        /// </summary>
         Collapsed,
         /// <summary> MaxIterations reached; the path is valid and shorter than the initial one, but not yet a geodesic </summary>
         NotConverged,
@@ -21,7 +24,12 @@ namespace gs
         /// <summary> two consecutive waypoints are not connected </summary>
         NoPath,
         /// <summary> invalid vertex ids, an edge path whose vertices are not adjacent, or a non-manifold mesh </summary>
-        InvalidInput
+        InvalidInput,
+        /// <summary>
+        /// the path was found (Length is valid), but an edge of it could not be traced over the mesh triangles
+        /// (the walk ended away from its vertex), so Path may cut across the surface there
+        /// </summary>
+        TraceFailed
     }
 
     /// <summary>
@@ -164,6 +172,8 @@ namespace gs
         List<bool> fixedTail;
         bool closed;
         int emptyVertex;        // the vertex a path without segments is at
+        /// <summary> (tests) the path's segments, see above </summary>
+        internal List<int> Segments { get { return segs; } }
 
         int seg_tail(int s) { return s >= 0 ? T.Tail(s) : T.Head(~s); }
         int seg_head(int s) { return s >= 0 ? T.Head(s) : T.Tail(~s); }
@@ -372,8 +382,10 @@ namespace gs
                 return true;
             }
             int n = fan.Count;
-            // flip interior edges of the wedge (not carrying the path) until none can be flipped
-            while (true) {
+            // flip interior edges of the wedge (not carrying the path) until none can be flipped; every flip
+            // removes an edge from the wedge (Sharp and Crane 2020), the cap only guards against rounding
+            int flipsHere = 0;
+            while (flipsHere++ <= T.HalfedgeCount) {
                 bool flipped = false;
                 for (int i = w.From + 1; ; ++i) {
                     int idx = i % n;
@@ -396,14 +408,41 @@ namespace gs
                 chain.Add(o);
                 chainLen += T.Length(o);
             }
-            double oldLen = seg_length(segs[kIn]) + seg_length(segs[k]);
-            if (!(chainLen < oldLen)) return false;
             if (w.OutToIn) {
                 chain.Reverse();
                 for (int j = 0; j < chain.Count; ++j) chain[j] = seg_reverse(chain[j]);
             }
-            replace_pair(kIn, k, chain);
+            if (m == 1 && cancels_out(chain)) {
+                // a loop edge at b around a disk whose outer chain only goes out and back (eg around a cone vertex
+                // with an angle below pi): contractible, but only through a longer path (b -> apex -> b), which
+                // the shortening steps never take
+                int b = seg_tail(segs[0]);
+                segs.Clear(); fixedTail.Clear();
+                emptyVertex = b;
+                return true;
+            }
+            // (a closed path of one segment, a loop edge at b, is both segments of the joint)
+            double oldLen = m == 1 ? seg_length(segs[k]) : seg_length(segs[kIn]) + seg_length(segs[k]);
+            if (!(chainLen < oldLen)) return false;
+            if (m == 1) {
+                bool fixedB = fixedTail[0];
+                segs.Clear(); fixedTail.Clear();
+                segs.AddRange(chain);
+                for (int j = 0; j < chain.Count; ++j) fixedTail.Add(j == 0 && fixedB);
+            } else
+                replace_pair(kIn, k, chain);
             return true;
+        }
+
+        // does the path of segments reduce to nothing when each segment followed by its reverse is removed?
+        bool cancels_out(List<int> path)
+        {
+            var stack = new List<int>();
+            foreach (int s in path) {
+                if (stack.Count > 0 && stack[stack.Count - 1] == seg_reverse(s)) stack.RemoveAt(stack.Count - 1);
+                else stack.Add(s);
+            }
+            return stack.Count == 0;
         }
 
         void remove_pair(int kIn, int k)
@@ -463,11 +502,16 @@ namespace gs
                 if (best < 0) { status = anyStuck ? GeodesicPathStatus.Stuck : GeodesicPathStatus.Success; break; }
                 if (Iterations >= maxIter) { status = GeodesicPathStatus.NotConverged; break; }
                 Iterations++;
+                int flipsBefore = Flips;
                 if (flip_out(best, fan, cum)) stuck.Clear();
-                else stuck.Add(joint_key(best));
+                else {
+                    // its flips changed the wedges of other joints: those may no longer be stuck
+                    if (Flips != flipsBefore) stuck.Clear();
+                    stuck.Add(joint_key(best));
+                }
             }
             Status = status;
-            build_output();
+            if (build_output() == false) Status = GeodesicPathStatus.TraceFailed;
             return Status;
         }
 
@@ -477,8 +521,13 @@ namespace gs
             return ((long)segs[(k - 1 + m) % m] << 32) ^ (uint)segs[k];
         }
 
-        void build_output()
+        /// <summary> how far (relative to the edge length) a traced edge may end from its vertex (tests set it below 0) </summary>
+        internal double TraceTolerance = 1e-6;
+
+        // Path, PathVertices, Length; false if a traced edge did not end at its vertex
+        bool build_output()
         {
+            bool traced = true;
             Path = new List<Vector3d>();
             PathVertices = new List<int>();
             Length = path_length();
@@ -486,10 +535,13 @@ namespace gs
                 // a loop contracted to a point, or an open path from a vertex back to it
                 PathVertices.Add(T.VertexID(emptyVertex));
                 Path.Add(T.VertexPosition(emptyVertex));
-                return;
+                return true;
             }
             foreach (int s in segs) {
-                List<Vector3d> pts = T.TraceEdge(seg_halfedge(s));
+                int h = seg_halfedge(s);
+                List<Vector3d> pts = T.TraceEdge(h);
+                // the walk from the tail of h must arrive at its head
+                if (!(pts[pts.Count - 1].Distance(T.VertexPosition(T.Head(h))) <= TraceTolerance * T.Length(h))) traced = false;
                 if (s < 0) pts.Reverse();
                 // the joints are vertices: exact positions instead of the ends of the walks
                 pts[0] = T.VertexPosition(seg_tail(s));
@@ -499,6 +551,7 @@ namespace gs
                 PathVertices.Add(T.VertexID(seg_tail(s)));
             }
             if (closed == false) PathVertices.Add(T.VertexID(seg_head(segs[segs.Count - 1])));
+            return traced;
         }
     }
 }
