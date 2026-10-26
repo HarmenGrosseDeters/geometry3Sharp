@@ -26,6 +26,8 @@ namespace g3cli.Tests
         public string Overlapping => Path.Combine(Dir, "overlapping.off");
         /// <summary> unit sphere, 6 * 2 * 8^2 triangles </summary>
         public string Sphere => Path.Combine(Dir, "sphere.ply");
+        /// <summary> the sphere with every 20th triangle reversed (closed, orientation not consistent) </summary>
+        public string Flipped => Path.Combine(Dir, "flipped.off");
         /// <summary> not a mesh </summary>
         public string Garbage => Path.Combine(Dir, "garbage.obj");
         /// <summary> a valid file without triangles </summary>
@@ -52,6 +54,12 @@ namespace g3cli.Tests
 
             DMesh3 sphere = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 9 }.Generate().MakeDMesh();
             Write(Sphere, sphere);
+            DMesh3 flipped = new DMesh3(sphere);
+            int k = 0;
+            foreach (int tid in flipped.TriangleIndices().ToList())
+                if (k++ % 20 == 0)
+                    flipped.ReverseTriOrientation(tid);
+            Write(Flipped, flipped);
 
             File.WriteAllText(Garbage, "this is not\na mesh file\nf 1 2 x\n");
             File.WriteAllText(Empty, "OFF\n1 0 0\n0 0 0\n");

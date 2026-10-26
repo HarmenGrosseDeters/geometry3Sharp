@@ -251,6 +251,25 @@ It runs the main pipelines and checks the following against stored thresholds:
 
 Meshes with a permissive license can be added if a case cannot be generated.
 
+### 2.7a Data sets beyond Thingi10K (benchmarks, by hand)
+
+The benchmarks (`benchmarks/`) use Thingi10K (repair, booleans, UV atlas), the boolean benchmark's cases
+and NRW terrain (dl-de/zero). Thingi10K covers broken 3D-print meshes; other kinds of input fail
+differently, so a result tuned on Thingi10K alone can be misleading. As for Thingi10K, every data set is
+fetched by a `fetch_data.py` of the benchmark, never committed (CLAUDE.md), and its source and license
+are listed in the benchmark's README. The license of every object is checked before it is used.
+
+| Data set | Kind of input | For | License (checked October 2026) | Priority |
+|---|---|---|---|---|
+| [Objaverse-XL](https://huggingface.co/datasets/allenai/objaverse-xl) / Objaverse | game, scan and CAD exports from Sketchfab, GitHub and others: open surfaces, many parts, wrong normals | a second repair and wrap corpus | ODC-By for the collection; each object has its own license (metadata column `license`): keep CC0, CC-BY and permissive code licenses, drop NC, GPL and Polycam objects (non-commercial) | 1 |
+| [ABC](https://archive.nyu.edu/handle/2451/43778) (1 million Onshape models) | CAD: sharp edges, thin walls, exactly coplanar and cocircular faces | exact booleans, `ExactPlanarSimplify`, ties of the intrinsic Delaunay | the release is MIT; the models belong to their creators under the Onshape terms of use (section 1.g.ii, not checked): read before use | 2 |
+| [swissALTI3D](https://opendata.swiss/en/dataset/swissalti3d) | high mountains, cliffs | terrain dual contouring, TIN, safety lines | open use, also commercial, with attribution to swisstopo | 3 |
+| [Keenan Crane's model repository](https://www.cs.cmu.edu/~kmcrane/Projects/ModelRepository/) | smooth reference meshes (Spot, Bob, Blub) | parameterization, geodesics, remeshing; comparable with the papers | CC0 | 4 |
+| Benchmark of "Lifting Simplices to Find Injectivity" (Du et al. 2020, Zenodo 3827969) | 10,743 hard parameterization cases | `parameterization/`, UV atlas | not confirmed yet: check the Zenodo record before use | 5 |
+| Stanford 3D Scanning Repository | scans (bunny, dragon, Armadillo) | reference only | no license; the page asks not to apply boolean operators to the models, among others (to be confirmed on the page): not for boolean or repair benchmarks | — |
+
+Not used: ShapeNet and ModelNet (non-commercial research licenses).
+
 ### 2.8 API compatibility
 
 This is in place since #92: pack validates the public API against 1.0.324. Accepted breaks are listed in
