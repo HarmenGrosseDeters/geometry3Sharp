@@ -42,6 +42,27 @@ namespace geometry3Sharp.Tests
 
         [Theory]
         [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void NotCleanReason_InconsistentOrientation_SameUnderSimilarity(string name)
+        {
+            // a closed sphere with some triangles reversed: the same reason and the same count of inconsistently
+            // oriented edges in any placement, and clean once the reversed triangles are flipped back
+            Similarity s = Similarity.ByName(name);
+            DMesh3 m = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 8 }.Generate().MakeDMesh();
+            var flipped = m.TriangleIndices().Where(t => t % 37 == 0).ToList();
+            foreach (int t in flipped)
+                m.ReverseTriOrientation(t);
+            int count = MeshRepairMetrics.InconsistentlyOrientedEdges(m);
+            Assert.True(count > 0);
+            DMesh3 x = Invariance.Transformed(m, s);
+            Assert.Equal("inconsistent orientation", MeshRobustRepair.NotCleanReason(x));
+            Assert.Equal(count, MeshRepairMetrics.InconsistentlyOrientedEdges(x));
+            foreach (int t in flipped)
+                x.ReverseTriOrientation(t);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(x));
+        }
+
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
         public void ExactBoolean_Difference_SameVolumeUnderSimilarity(string name)
         {
             Similarity s = Similarity.ByName(name);
