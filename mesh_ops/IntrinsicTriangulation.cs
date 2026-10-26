@@ -110,7 +110,14 @@ namespace gs
         /// <summary> signpost: direction of halfedge h in the tangent space of its tail (see class comment) </summary>
         public double Signpost(int h) { return hAngle[h]; }
         /// <summary> direction of the edge of h at its head vertex, pointing back to the tail </summary>
-        public double ReverseSignpost(int h) { return hTwin[h] >= 0 ? hAngle[hTwin[h]] : vAngleSum[Head(h)]; }
+        public double ReverseSignpost(int h) { return hTwin[h] >= 0 ? hAngle[hTwin[h]] : LastSignpost(Head(h)); }
+        /// <summary> signpost of the second boundary edge of boundary vertex index i (its angle sum; boundary vertices are not scaled) </summary>
+        public double LastSignpost(int i) { return vScale[i] * vAngleSum[i]; }
+
+        internal static double vertex_scale(bool boundary, double angleSum)
+        {
+            return (boundary || !(angleSum > 0)) ? 1 : 2 * Math.PI / angleSum;
+        }
         public bool IsBoundaryVertex(int i) { return vBoundary[i]; }
         /// <summary> sum of the triangle angles at vertex index i (2 pi minus the angle defect) </summary>
         public double AngleSum(int i) { return vAngleSum[i]; }
@@ -270,7 +277,7 @@ namespace gs
                 }
                 fanCount[i] = count;
                 vAngleSum[i] = s;
-                vScale[i] = (s > 0 && vBoundary[i] == false) ? 2 * Math.PI / s : 1;
+                vScale[i] = vertex_scale(vBoundary[i], s);
                 double phi = 0;
                 h = h0;
                 for (int k = 0; k < count; ++k) {
@@ -632,7 +639,9 @@ namespace gs
         /// </summary>
         public void GetTangentBasis(int vid, out Vector3d e1, out Vector3d e2, out Vector3d n)
         {
-            int i = toIndex[vid];
+            int i = VertexIndex(vid);
+            if (i < 0 || i >= N0)
+                throw new ArgumentException("IntrinsicTriangulation: " + vid + " is not a mesh vertex with triangles");
             Vector3d p = Mesh.GetVertex(vid);
             n = Vector3d.Zero;
             int h0 = inVHe[i], hh = h0, guard = 0;
@@ -673,7 +682,7 @@ namespace gs
         {
             Vector3d n;
             GetTangentBasis(vid, out e1, out e2, out n);
-            int i = toIndex[vid];
+            int i = VertexIndex(vid);
             Vector3d p = Mesh.GetVertex(vid);
             sign = new List<double>();
             world = new List<double>();
@@ -683,7 +692,11 @@ namespace gs
                 Vector3d d = Mesh.GetVertex(toVertex[hV_input_head(hh)]) - p;
                 double w = Math.Atan2(d.Dot(e2), d.Dot(e1));
                 if (sign.Count == 0) w = 0;
-                else { while (w < prevW) w += 2 * Math.PI; }
+                else {
+                    while (w < prevW) w += 2 * Math.PI;
+                    // a fan that folds over in the projection (saddles): keep the sequence monotone
+                    w = Math.Min(w, 2 * Math.PI);
+                }
                 sign.Add(inAngle[hh]); world.Add(w);
                 prevW = w;
                 // the head of the last input corner, at a boundary vertex
@@ -692,13 +705,15 @@ namespace gs
                     Vector3d dl = Mesh.GetVertex(toVertex[hV_input_head(Next(hh))]) - p;
                     double wl = Math.Atan2(dl.Dot(e2), dl.Dot(e1));
                     while (wl < prevW) wl += 2 * Math.PI;
-                    sign.Add(vAngleSum[i]); world.Add(wl);
+                    sign.Add(LastSignpost(i)); world.Add(Math.Min(wl, 2 * Math.PI));
                     break;
                 }
                 if (nh == h0 || ++guard > 3 * F0) break;
                 hh = nh;
             }
-            sign.Add(2 * Math.PI); world.Add(2 * Math.PI);
+            // close the circle (a boundary vertex with an angle sum above 2 pi has signposts beyond it; directions
+            // are only defined modulo 2 pi there, so those alias with the first corners)
+            sign.Add(Math.Max(2 * Math.PI, sign[sign.Count - 1])); world.Add(2 * Math.PI);
         }
 
         static double map_angle(double a, List<double> from, List<double> to)

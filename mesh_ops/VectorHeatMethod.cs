@@ -131,22 +131,40 @@ namespace gs
             bool[] isPinned = new bool[N];
             foreach (int p in pinned) isPinned[p] = true;
             var entries = new List<KeyValuePair<Index2i, double>>();
-            for (int h = 0; h < T.HalfedgeCount; ++h) {
-                int i = T.Tail(h), j = T.Head(h);
-                if (i == j) continue;
-                double c = 0.5 * T.OppositeCotan(h);
-                if (isPinned[i] == false) entries.Add(entry(i, i, c));
-                if (isPinned[j] == false) entries.Add(entry(j, j, c));
-                if (isPinned[i] == false && isPinned[j] == false) entries.Add(entry(i, j, -c));
-            }
+            add_laplacian(entries, h => T.CotanWeight(h), isPinned);
             foreach (int p in pinned) entries.Add(entry(p, p, 1));
-            poisson = new SparseCholesky(N, entries);
+            poisson = factor(N, entries, "Poisson problem");
             factor_heat();
         }
 
         static KeyValuePair<Index2i, double> entry(int i, int j, double v)
         {
             return new KeyValuePair<Index2i, double>(new Index2i(i, j), v);
+        }
+
+        // cotan Laplacian entries with the given edge weights (once per edge, summed over parallel edges);
+        // rows and columns of fixed vertices (null: none) are left out
+        void add_laplacian(List<KeyValuePair<Index2i, double>> entries, Func<int, double> weight, bool[] fixedV)
+        {
+            IntrinsicTriangulation T = triangulation;
+            for (int h = 0; h < T.HalfedgeCount; ++h) {
+                if (T.Twin(h) >= 0 && T.Twin(h) < h) continue;
+                int i = T.Tail(h), j = T.Head(h);
+                if (i == j) continue;
+                double c = weight(h);
+                bool fi = fixedV != null && fixedV[i], fj = fixedV != null && fixedV[j];
+                if (fi == false) entries.Add(entry(i, i, c));
+                if (fj == false) entries.Add(entry(j, j, c));
+                if (fi == false && fj == false) entries.Add(entry(i, j, -c));
+            }
+        }
+
+        static SparseCholesky factor(int n, List<KeyValuePair<Index2i, double>> entries, string what)
+        {
+            var chol = new SparseCholesky(n, entries);
+            if (chol.IsValid == false)
+                throw new InvalidOperationException("VectorHeatMethod: factorization of the " + what + " failed: " + chol.Error);
+            return chol;
         }
 
         void factor_heat()
@@ -162,6 +180,7 @@ namespace gs
                 v.Add(entry(2 * i, 2 * i, mass[i]));
                 v.Add(entry(2 * i + 1, 2 * i + 1, mass[i]));
             }
+            add_laplacian(s, h => t * heat_weight(h), null);
             for (int h = 0; h < T.HalfedgeCount; ++h) {
                 if (T.Twin(h) >= 0 && T.Twin(h) < h) continue;      // once per edge
                 int i = T.Tail(h), j = T.Head(h);
@@ -174,7 +193,6 @@ namespace gs
                     v.Add(entry(2 * i + 1, 2 * i + 1, 2 * c * (1 - cr)));
                     continue;
                 }
-                s.Add(entry(i, i, c)); s.Add(entry(j, j, c)); s.Add(entry(i, j, -c));
                 // Hermitian connection Laplacian: (i, j) = -c r_ji, r_ji = exp(i rho) transports from j to i;
                 // as a real 2x2 block [[a, -b], [b, a]] of the complex entry a + ib
                 double a = -c * cr, b = -c * sr;
@@ -185,8 +203,9 @@ namespace gs
                 v.Add(entry(2 * i + 1, 2 * j, b));
                 v.Add(entry(2 * i + 1, 2 * j + 1, a));
             }
-            scalarHeat = new SparseCholesky(N, s);
-            vectorHeat = new SparseCholesky(2 * N, v);
+            scalarHeat = factor(N, s, "heat operator");
+            vectorHeat = factor(2 * N, v, "vector heat operator");
+            dirichletHeat = null;
         }
 
         // Edge weight of the heat operators: the cotan weight, but at least 0. After the Delaunay flips only
@@ -206,12 +225,22 @@ namespace gs
             return triangulation.Signpost(h) - triangulation.ReverseSignpost(h) + Math.PI;
         }
 
+        // Rebuilds what changed. Every query starts from the diffusion time TimeFactor * h^2: an increase
+        // against underflow (indicator_heat) holds only for the query that needed it.
         void check()
         {
+            if (!(TimeFactor > 0))
+                throw new ArgumentException("VectorHeatMethod: TimeFactor must be positive");
             if (triangulation == null || timestamp != Mesh.ShapeTimestamp || builtIntrinsic != IntrinsicDelaunay
-                || builtTimeFactor != TimeFactor || builtRefine != IntrinsicRefine
+                || builtRefine != IntrinsicRefine
                 || (IntrinsicRefine && (builtRefineAngle != RefineMinAngle || builtRefineMax != RefineMaxInsertions)))
                 precompute();
+            else if (builtTimeFactor != TimeFactor || timeScale != 1) {
+                // only the heat operators depend on the diffusion time
+                builtTimeFactor = TimeFactor;
+                timeScale = 1;
+                factor_heat();
+            }
         }
 
         int index_of(int vid)
@@ -394,7 +423,19 @@ namespace gs
                     double a = T.Signpost(hh);
                     log[j] = new Vector2d(l * Math.Cos(a), l * Math.Sin(a));
                 }
-                hh = T.NextAroundVertex(hh);
+                int next = T.NextAroundVertex(hh);
+                if (next < 0) {
+                    // boundary source: the last neighbour is reached by the incoming boundary edge
+                    int hin = IntrinsicTriangulation.Prev(hh);
+                    int k = T.Tail(hin);
+                    double lk = T.Length(hin);
+                    if (k != x && (shortest.TryGetValue(k, out cur) == false || lk < cur)) {
+                        shortest[k] = lk;
+                        double a = T.LastSignpost(x);
+                        log[k] = new Vector2d(lk * Math.Cos(a), lk * Math.Sin(a));
+                    }
+                }
+                hh = next;
             } while (hh >= 0 && hh != h0 && ++guard < T.HalfedgeCount);
             return per_vertex(i => log[i], nan, has);
         }
@@ -457,16 +498,8 @@ namespace gs
             var s = new List<KeyValuePair<Index2i, double>>();
             for (int i = 0; i < N; ++i)
                 s.Add(entry(i, i, isBoundary[i] ? 1 : mass[i]));
-            for (int h = 0; h < T.HalfedgeCount; ++h) {
-                if (T.Twin(h) >= 0 && T.Twin(h) < h) continue;
-                int i = T.Tail(h), j = T.Head(h);
-                if (i == j) continue;
-                double c = t * heat_weight(h);
-                if (isBoundary[i] == false) s.Add(entry(i, i, c));
-                if (isBoundary[j] == false) s.Add(entry(j, j, c));
-                if (isBoundary[i] == false && isBoundary[j] == false) s.Add(entry(i, j, -c));
-            }
-            dirichletHeat = new SparseCholesky(N, s);
+            add_laplacian(s, h => t * heat_weight(h), isBoundary);
+            dirichletHeat = factor(N, s, "Dirichlet heat operator");
             dirichletTime = t;
             return dirichletHeat;
         }

@@ -635,5 +635,92 @@ namespace geometry3Sharp.Tests
             Assert.False(new SparseCholesky(2, new[] { new KeyValuePair<Index2i, double>(new Index2i(0, 0), -1),
                 new KeyValuePair<Index2i, double>(new Index2i(1, 1), 1) }).IsValid);
         }
+
+        // ---------------------------------------------------------------- review fixes
+
+        static DMesh3 Strip(int n)
+        {
+            DMesh3 mesh = new DMesh3();
+            int[,] vid = new int[n + 1, 3];
+            for (int i = 0; i <= n; ++i)
+                for (int j = 0; j < 3; ++j) vid[i, j] = mesh.AppendVertex(new Vector3d(i, j, 0));
+            for (int i = 0; i < n; ++i)
+                for (int j = 0; j < 2; ++j) {
+                    mesh.AppendTriangle(vid[i, j], vid[i + 1, j], vid[i + 1, j + 1]);
+                    mesh.AppendTriangle(vid[i, j], vid[i + 1, j + 1], vid[i, j + 1]);
+                }
+            return mesh;
+        }
+
+        [Fact]
+        public void VectorHeat_LongerDiffusionTimeOnlyForTheQueryThatUnderflows()
+        {
+            // 800 edge lengths: heat from one end underflows at the other, so that query diffuses longer; a
+            // later query from the middle must not inherit it
+            DMesh3 mesh = Strip(800);
+            int end = NearestVertex(mesh, new Vector3d(0, 1, 0)), mid = NearestVertex(mesh, new Vector3d(400, 1, 0));
+            var vhm = new VectorHeatMethod(mesh);
+            var fresh = new VectorHeatMethod(mesh);
+            Vector2d[] expected = fresh.ComputeLogMap(mid);
+            double t0 = fresh.DiffusionTime;
+
+            double[] f = vhm.ExtendScalar(new[] { new KeyValuePair<int, double>(end, 1) });
+            Assert.True(vhm.DiffusionTime > t0, $"{vhm.DiffusionTime} vs {t0}");
+            Assert.Equal(1, f[NearestVertex(mesh, new Vector3d(800, 1, 0))], 6);
+
+            Vector2d[] log = vhm.ComputeLogMap(mid);
+            Assert.Equal(t0, vhm.DiffusionTime);
+            foreach (int v in mesh.VertexIndices())
+                Assert.True(log[v].Distance(expected[v]) < 1e-9, $"{v}: {log[v]} vs {expected[v]}");
+        }
+
+        [Fact]
+        public void LogMap_BoundarySource_EveryNeighbourExact()
+        {
+            DMesh3 mesh = Grid(20, 11, (x, y) => 0);
+            foreach (Vector3d p in new[] { new Vector3d(0, -10, 0), new Vector3d(-10, 4, 0), new Vector3d(-10, -10, 0) }) {
+                int src = NearestVertex(mesh, p);
+                Assert.True(mesh.IsBoundaryVertex(src));
+                var vhm = new VectorHeatMethod(mesh);
+                Vector2d[] log = vhm.ComputeLogMap(src);
+                foreach (int k in mesh.VtxVerticesItr(src)) {
+                    Vector3d d = mesh.GetVertex(k) - mesh.GetVertex(src);
+                    Vector3d got = vhm.Triangulation.ToWorld(src, log[k]);
+                    Assert.True(got.Distance(d) < 1e-9, $"source {p}, neighbour {d}: {got}");
+                }
+            }
+        }
+
+        [Fact]
+        public void VectorHeat_TimeFactorChange_KeepsTheTriangulation()
+        {
+            DMesh3 mesh = GoodSphere(1, 10);
+            var vhm = new VectorHeatMethod(mesh);
+            int src = mesh.VertexIndices().First();
+            vhm.ComputeLogMap(src);
+            IntrinsicTriangulation T = vhm.Triangulation;
+            double t1 = vhm.DiffusionTime;
+            vhm.TimeFactor = 2;
+            vhm.ComputeLogMap(src);
+            Assert.Same(T, vhm.Triangulation);
+            Assert.Equal(2 * t1, vhm.DiffusionTime, 12);
+        }
+
+        [Fact]
+        public void InvalidUse_ClearErrors()
+        {
+            DMesh3 mesh = Grid(4, 5, (x, y) => 0);
+            int isolated = mesh.AppendVertex(new Vector3d(9, 9, 9));
+            var vhm = new VectorHeatMethod(mesh);
+            int src = mesh.VertexIndices().First();
+            Assert.Throws<ArgumentException>(() => vhm.Triangulation.ToWorld(isolated, new Vector2d(1, 0)));
+            Assert.Throws<ArgumentException>(() => vhm.Triangulation.FromWorld(isolated, Vector3d.AxisX));
+            Assert.Throws<ArgumentException>(() => vhm.Triangulation.ToWorld(mesh.MaxVertexID + 5, new Vector2d(1, 0)));
+            Assert.Throws<ArgumentException>(() => vhm.ComputeLogMap(isolated));
+            vhm.TimeFactor = -1;
+            Assert.Throws<ArgumentException>(() => vhm.ComputeLogMap(src));
+            vhm.TimeFactor = 1;
+            Assert.Equal(Vector2d.Zero, vhm.ComputeLogMap(src)[src]);
+        }
     }
 }

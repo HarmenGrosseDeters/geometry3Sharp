@@ -547,7 +547,7 @@ namespace gs
                 h = NextAroundVertex(h);
             } while (h >= 0 && h != h0 && fan.Count < 3 * F);
             vAngleSum[v] = sum;
-            vScale[v] = (vBoundary[v] || !(sum > 0)) ? 1 : 2 * Math.PI / sum;
+            vScale[v] = vertex_scale(vBoundary[v], sum);
             double phi = 0;
             foreach (int g in fan) {
                 hAngle[g] = phi;
