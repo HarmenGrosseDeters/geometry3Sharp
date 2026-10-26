@@ -330,7 +330,7 @@ namespace g3
         // the chart's disc flattened with SLIM (from the Tutte embedding), null if SLIM fails
         Chart slim(Chart c)
         {
-            ParameterizationResult r = new SLIMParameterization(c.Disc).Compute();
+            ParameterizationResult r = new SLIMParameterization(c.Disc) { StartMap = SLIMParameterization.StartMaps.Tutte }.Compute();
             if (!r.Succeeded) return null;
             var s = new Chart() { Disc = c.Disc, ToWorkV = c.ToWorkV, ToWorkT = c.ToWorkT };
             s.Info.Triangles = c.Info.Triangles;
@@ -351,7 +351,7 @@ namespace g3
                 }
                 c = makeChart(cut.CutMesh, cut.CutToInputVertex, cut.CutToInputTriangle, subToWorkV, subToWorkT);
             }
-            ParameterizationResult r = new SLIMParameterization(c.Disc).Compute();
+            ParameterizationResult r = new SLIMParameterization(c.Disc) { StartMap = SLIMParameterization.StartMaps.Tutte }.Compute();
             if (r.Succeeded) {
                 evaluate(c, r, "slim");
                 if (c.Injective) return c;

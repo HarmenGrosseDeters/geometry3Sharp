@@ -32,6 +32,7 @@ code can notice. New classes are not listed (see the README and [OPERATIONS.md](
 | `Util.IsBinaryStream` | a stream shorter than the search length counted as binary | not binary (affects STL ascii / binary detection of files under 500 bytes) |
 | `PlanarComplex.Add(polygon)` | kept a reference to the caller's polygon | stores a copy |
 | `gSerialization.Restore(DMesh3, ...)` (`.g3mesh` reader) and `Restore(DVector<...>, ...)` | stored buffers and counts taken over as they are; a truncated array was filled with zeros | inconsistent mesh data (buffer sizes, edge / triangle references, duplicate edges) and counts beyond the stream throw (the reader reports `GenericReaderError`); a truncated array throws `EndOfStreamException`. Files written by `gSerialization.Store` read as before |
+| `MarchingCubesPro` with `ParallelCompute` (default) | a grid corner's field value was a double on its first evaluation and a float afterwards, and an edge's vertex depended on which of its two cells computed it (the snap near the iso value takes the first corner); with parallel slabs both depended on the thread schedule | float values throughout and a fixed corner order per edge: the parallel output equals the serial one. Edge vertices that used the double value move by about ulp(f) / \|f2 - f1\| of a cell; near-iso snaps can move to the edge's other end |
 | `RoundRectGenerator.GetBorderLoop`, `RevolveGenerator` cap normals, `TrivialBox3Generator` normals | see the commit history | corrected |
 
 ## Signatures that change (recompile needed)

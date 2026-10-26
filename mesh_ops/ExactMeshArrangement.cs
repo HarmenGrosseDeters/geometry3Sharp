@@ -272,7 +272,7 @@ namespace g3
         public int AddPoint(ExactPoint3 p)
         {
             Vector3d a = p.ApproxVector3d();
-            double e = (p.W.IsOne ? 1 : 4) * U * max_abs(a);
+            double e = (p.W.IsOne ? 1 : 4) * U * max_abs(a) + Tiny;
             lock (rationalIndex) {
                 int id;
                 if (rationalIndex.TryGetValue(p, out id))
@@ -294,7 +294,7 @@ namespace g3
                 ExactPoint3 x = compute_exact(key, true);
                 exact = new ExactBox(x);
                 a = x.ApproxVector3d();
-                e = 4 * U * max_abs(a);
+                e = 4 * U * max_abs(a) + Tiny;
             }
             var shard = keyIndex[(key.GetHashCode() & 0x7FFFFFFF) % Shards];
             lock (shard) {
@@ -454,6 +454,11 @@ namespace g3
         }
 
         const double U = 2.220446049250313e-16;     // 2^-52
+        // absolute term of the error bounds of approximations: relative bounds (multiples of U) fail where a result
+        // is subnormal or underflows to zero (absolute error up to 2^-1075 per rounding, or the whole value). Far
+        // above that, and far below the distances of distinct points (quotients of bounded integers), so the
+        // filters still decide
+        internal const double Tiny = 1e-300;
         // for tests: always evaluate the predicates exactly
         internal bool DisableFilters = false;
 
@@ -469,7 +474,7 @@ namespace g3
         }
 
         // A x + B y + C z - D for the plane at pa[o..o+3] (relative errors 2^-52) and a point with coordinate errors e
-        static double plane_value(double[] pa, int o, Vector3d x, double e, out double err)
+        internal static double plane_value(double[] pa, int o, Vector3d x, double e, out double err)
         {
             double A = pa[o], B = pa[o + 1], C = pa[o + 2], D = pa[o + 3];
             double ax = A * x.x, by = B * x.y, cz = C * x.z;
@@ -492,26 +497,31 @@ namespace g3
             double dt = (den > 2 * ee) ? ee / (den - ee) + 2 * U : 1;
             if (!(dt < 1)) dt = 1;
             Vector3d d = Q - P;
-            err = 1.01 * (Math.Max(ep, eq) + dt * max_abs(d) + 3 * U * (max_abs(P) + max_abs(d)));
+            err = 1.01 * (Math.Max(ep, eq) + dt * max_abs(d) + 3 * U * (max_abs(P) + max_abs(d))) + Tiny;
             return P + t * d;
         }
 
         // orient2d of the approximations in coordinates (i, j), with coordinate errors at most e: the determinant and
         // a bound on its error. With errors eps = 2 e + U M of the differences (all at most M): products 2 eps (2 M + eps),
         // rounding 2 U M^2 (Shewchuk: 3 u + 16 u^2 of the terms)
-        static double orient2d_approx(Vector3d a, Vector3d b, Vector3d c, int i, int j, double e, out double err)
+        internal static double orient2d_approx(Vector3d a, Vector3d b, Vector3d c, int i, int j, double e, out double err)
         {
             double bx = b[i] - a[i], by = b[j] - a[j], cx = c[i] - a[i], cy = c[j] - a[j];
             double M = Math.Max(Math.Max(Math.Abs(bx), Math.Abs(by)), Math.Max(Math.Abs(cx), Math.Abs(cy)));
             double eps = 2 * e + U * M;
-            err = 1.01 * (2 * eps * (2 * M + eps) + 3 * U * M * M) + 1e-300;
+            err = 1.01 * (2 * eps * (2 * M + eps) + 3 * U * M * M) + Tiny;
             return bx * cy - by * cx;
         }
 
         Vector3d planes_approx(int k1, int k2, int k3, out double err)
         {
-            double[] q1 = Triangles[k1 >> 2].PlaneApprox, q2 = Triangles[k2 >> 2].PlaneApprox, q3 = Triangles[k3 >> 2].PlaneApprox;
-            int o1 = 4 * (k1 & 3), o2 = 4 * (k2 & 3), o3 = 4 * (k3 & 3);
+            return planes_approx(Triangles[k1 >> 2].PlaneApprox, 4 * (k1 & 3), Triangles[k2 >> 2].PlaneApprox, 4 * (k2 & 3),
+                Triangles[k3 >> 2].PlaneApprox, 4 * (k3 & 3), out err);
+        }
+
+        // the point common to the planes at q1[o1..o1+3], q2[o2..], q3[o3..] (coefficients with relative errors 2^-52)
+        internal static Vector3d planes_approx(double[] q1, int o1, double[] q2, int o2, double[] q3, int o3, out double err)
+        {
             double a1 = q1[o1], b1 = q1[o1 + 1], c1 = q1[o1 + 2], d1 = q1[o1 + 3];
             double a2 = q2[o2], b2 = q2[o2 + 1], c2 = q2[o2 + 2], d2 = q2[o2 + 3];
             double a3 = q3[o3], b3 = q3[o3 + 1], c3 = q3[o3 + 2], d3 = q3[o3 + 3];
@@ -539,7 +549,7 @@ namespace g3
             if (ad > 2.02 * edet) {
                 double den = ad - 1.01 * edet;
                 double ex = (enx + Math.Abs(x.x) * edet) / den, ey = (eny + Math.Abs(x.y) * edet) / den, ez = (enz + Math.Abs(x.z) * edet) / den;
-                err = 1.01 * Math.Max(ex, Math.Max(ey, ez)) + 2 * U * max_abs(x);
+                err = 1.01 * Math.Max(ex, Math.Max(ey, ez)) + 2 * U * max_abs(x) + Tiny;
             }
             return x;
         }
@@ -587,7 +597,7 @@ namespace g3
 
         // order of the points: by a generic linear function a . p (few points with different coordinates have equal
         // values, unlike for a single coordinate, so the exact points are rarely needed), then lexicographic
-        static readonly double[] Alpha = { 1.0, 0.7548776662466927, 0.5698402909980532 };
+        internal static readonly double[] Alpha = { 1.0, 0.7548776662466927, 0.5698402909980532 };
         static readonly BigInteger[] AlphaInt = { alpha_int(Alpha[0]), alpha_int(Alpha[1]), alpha_int(Alpha[2]) };
         static BigInteger alpha_int(double a)
         {
@@ -598,10 +608,10 @@ namespace g3
         }
 
         // a . p of the approximation, with a bound on its error
-        static double order_key(Vector3d a, double e, out double err)
+        internal static double order_key(Vector3d a, double e, out double err)
         {
             double x = Alpha[0] * a.x, y = Alpha[1] * a.y, z = Alpha[2] * a.z;
-            err = 1.01 * (2.33 * e + 2 * U * (Math.Abs(x) + Math.Abs(y) + Math.Abs(z))) + 1e-300;
+            err = 1.01 * (2.33 * e + 2 * U * (Math.Abs(x) + Math.Abs(y) + Math.Abs(z))) + Tiny;
             return x + y + z;
         }
 
@@ -873,21 +883,29 @@ namespace g3
         internal int InCircleFiltered(InputTriangle t, int p, int q, int r, int s)
         {
             int i = (t.Axis + 1) % 3, j = (t.Axis + 2) % 3;
+            double e = Math.Max(Math.Max(approxErr[p], approxErr[q]), Math.Max(approxErr[r], approxErr[s]));
+            double bound;
+            double fdet = incircle_approx(approx[p], approx[q], approx[r], approx[s], i, j, e, out bound);
+            if (fdet > bound) return t.Sign;
+            if (-fdet > bound) return -t.Sign;
+            return 0;
+        }
+
+        // incircle determinant of the approximations in coordinates (i, j), with coordinate errors at most e, and a
+        // bound on its error
+        internal static double incircle_approx(Vector3d fa, Vector3d fb, Vector3d fc, Vector3d fd, int i, int j, double e, out double bound)
+        {
             // differences at most M with errors eps = 2 e + U M; lifts and 2x2 minors at most 2 M^2 with errors
             // eta = 2 eps (2 M + eps); the three terms: 3 eta (4 M^2 + eta); rounding (Shewchuk) 10 u of the
             // absolute terms, at most 12 M^4
-            Vector3d fa = approx[p], fb = approx[q], fc = approx[r], fd = approx[s];
-            double e = Math.Max(Math.Max(approxErr[p], approxErr[q]), Math.Max(approxErr[r], approxErr[s]));
             double adx = fa[i] - fd[i], ady = fa[j] - fd[j], bdx = fb[i] - fd[i], bdy = fb[j] - fd[j], cdx = fc[i] - fd[i], cdy = fc[j] - fd[j];
             double fdet = (adx * adx + ady * ady) * (bdx * cdy - cdx * bdy)
                 + (bdx * bdx + bdy * bdy) * (cdx * ady - adx * cdy)
                 + (cdx * cdx + cdy * cdy) * (adx * bdy - bdx * ady);
             double M = Math.Max(Math.Max(Math.Max(Math.Abs(adx), Math.Abs(ady)), Math.Max(Math.Abs(bdx), Math.Abs(bdy))), Math.Max(Math.Abs(cdx), Math.Abs(cdy)));
             double eps = 2 * e + U * M, eta = 2 * eps * (2 * M + eps), M2 = M * M;
-            double bound = 1.01 * (3 * eta * (4 * M2 + eta) + 64 * U * M2 * M2) + 1e-300;
-            if (fdet > bound) return t.Sign;
-            if (-fdet > bound) return -t.Sign;
-            return 0;
+            bound = 1.01 * (3 * eta * (4 * M2 + eta) + 64 * U * M2 * M2) + Tiny;
+            return fdet;
         }
 
         /// <summary> +1 if s is inside the circle through p, q, r (counter-clockwise in the projection of t) </summary>
@@ -944,15 +962,8 @@ namespace g3
             if (p1 == p2)
                 return 0;
             if (DisableFilters == false) {
-                // direction rounded to double (relative error U), differences of the points with errors 2 e + U |.|,
-                // rounding of the dot product
-                double fdx = (double)dx, fdy = (double)dy, fdz = (double)dz;
-                Vector3d fa = approx[p1], fb = approx[p2];
-                double e = Math.Max(approxErr[p1], approxErr[p2]);
-                double ux = fa.x - fb.x, uy = fa.y - fb.y, uz = fa.z - fb.z;
-                double diff = fdx * ux + fdy * uy + fdz * uz;
-                double bound = 1.01 * (2 * e * (Math.Abs(fdx) + Math.Abs(fdy) + Math.Abs(fdz))
-                    + 5 * U * (Math.Abs(fdx * ux) + Math.Abs(fdy * uy) + Math.Abs(fdz * uz))) + 1e-300;
+                double bound;
+                double diff = along_approx((double)dx, (double)dy, (double)dz, approx[p1], approx[p2], Math.Max(approxErr[p1], approxErr[p2]), out bound);
                 if (diff > bound) return 1;
                 if (-diff > bound) return -1;
             }
@@ -960,6 +971,17 @@ namespace g3
             BigInteger ka = (dx * a.X + dy * a.Y + dz * a.Z) * b.W;
             BigInteger kb = (dx * b.X + dy * b.Y + dz * b.Z) * a.W;
             return ka.CompareTo(kb);
+        }
+
+        // d . (a - b) for the direction d rounded to double (fdx, fdy, fdz: relative errors U) and approximations a, b
+        // with coordinate errors at most e, and a bound on its error: differences with errors 2 e + U |.|, rounding
+        // of the dot product
+        internal static double along_approx(double fdx, double fdy, double fdz, Vector3d fa, Vector3d fb, double e, out double bound)
+        {
+            double ux = fa.x - fb.x, uy = fa.y - fb.y, uz = fa.z - fb.z;
+            bound = 1.01 * (2 * e * (Math.Abs(fdx) + Math.Abs(fdy) + Math.Abs(fdz))
+                + 5 * U * (Math.Abs(fdx * ux) + Math.Abs(fdy * uy) + Math.Abs(fdz * uz))) + Tiny;
+            return fdx * ux + fdy * uy + fdz * uz;
         }
 
         // direction of the line where the plane line meets the triangle plane
