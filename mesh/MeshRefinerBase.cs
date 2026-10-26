@@ -46,7 +46,8 @@ namespace g3
         public static double TriangleQuality(ref Vector3d a, ref Vector3d b, ref Vector3d c)
         {
             double l2 = a.DistanceSquared(b) + b.DistanceSquared(c) + c.DistanceSquared(a);
-            if (l2 < MathUtil.ZeroTolerance)
+            // (the quality has no units: only a triangle without extent is degenerate, whatever the scale)
+            if (!(l2 > 0))
                 return 0;
             return 4 * Math.Sqrt(3) * 0.5 * (b - a).Cross(c - a).Length / l2;
         }

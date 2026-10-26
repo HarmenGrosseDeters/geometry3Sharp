@@ -236,9 +236,10 @@ namespace geometry3Sharp.Tests
             DMesh3 Input() { DMesh3 m = BumpySphere(); MeshEditor.Append(m, Sphere(new Vector3d(0.9, 0.2, 0.1), 0.7, 10)); return m; }
             DMesh3 m0 = Solidify(Input());
             DMesh3 back = Invariance.MappedBack(Solidify(Invariance.Transformed(Input(), s)), s);
-            // the same solid up to about a cell (diagonal 3.4 / 48). Not bit for bit under 2^k scales yet: the raw
-            // contour already differs in a few vertices (an absolute constant in the contouring, not in the octree,
-            // whose node values are checked bit for bit in WindingOctree_NodeValuesUnderSimilarity)
+            // bit for bit under 2^k scales; otherwise the grid lies differently on the shape: the same solid up to
+            // about a cell (diagonal 3.4 / 48)
+            if (s.IsExact)
+                Assert.Equal("", Invariance.Difference(m0, back));
             AssertRelative(Invariance.Volume(m0), Invariance.Volume(back), 0.01, s.Name);
             double dist = Invariance.VertexDistance(m0, back);
             Assert.True(dist < 0.1, $"{s.Name}: solidified surfaces {dist} apart");

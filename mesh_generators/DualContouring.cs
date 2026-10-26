@@ -1305,7 +1305,10 @@ namespace g3
                 if (solve_restricted(Am, b, fixedState, lo, hi, evalTol, out y) == false || inside(y, lo, hi, eps) == false)
                     continue;
                 double err = qef_error(Am, b, y);
-                if (err < bestErr - 1e-15 * (1 + Math.Abs(err)) || (Math.Abs(err - bestErr) <= 1e-15 * (1 + Math.Abs(err)) && y.LengthSquared < best.LengthSquared)) {
+                // ties within rounding (err is a squared length: relative to the cell, not absolute, so that
+                // the choice does not depend on the scale of the input)
+                double tie = 1e-15 * (cellSize * cellSize + Math.Abs(err));
+                if (err < bestErr - tie || (Math.Abs(err - bestErr) <= tie && y.LengthSquared < best.LengthSquared)) {
                     bestErr = err; best = y;
                 }
             }
