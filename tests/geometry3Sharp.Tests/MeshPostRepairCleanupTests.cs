@@ -132,6 +132,107 @@ namespace geometry3Sharp.Tests
             Assert.True(vols[1] > 0 && vols[2] > 0);
         }
 
+        /// <summary>
+        /// Closed outward box [min, max] whose face at min[axis] is an n x n grid (2 n^2 triangles) and whose
+        /// other faces are coarse fans, so most triangles lie on that face.
+        /// </summary>
+        static DMesh3 BoxWithDenseFace(Vector3d min, Vector3d max, int axis, int n)
+        {
+            // local (u, v, w) = cyclic permutation of (x, y, z) starting at axis, the dense face is u = 0
+            Func<double, double, double, Vector3d> world = (u, v, w) => {
+                double[] l = { u, v, w }, x = new double[3];
+                for (int k = 0; k < 3; ++k) {
+                    int a = (axis + k) % 3;
+                    x[a] = min[a] + l[k] * (max[a] - min[a]);
+                }
+                return new Vector3d(x[0], x[1], x[2]);
+            };
+            Func<int, Vector3d> axisDir = k => { var d = Vector3d.Zero; d[(axis + k) % 3] = 1; return d; };
+            var mesh = new DMesh3();
+            var g = new int[n + 1, n + 1];
+            for (int a = 0; a <= n; ++a)
+                for (int b = 0; b <= n; ++b)
+                    g[a, b] = mesh.AppendVertex(world(0, (double)a / n, (double)b / n));
+            var f = new int[2, 2];
+            for (int a = 0; a < 2; ++a)
+                for (int b = 0; b < 2; ++b)
+                    f[a, b] = mesh.AppendVertex(world(1, a, b));
+            // orient every triangle by the outward normal of its face
+            Action<int, int, int, Vector3d> tri = (i0, i1, i2, outward) => {
+                Vector3d nrm = (mesh.GetVertex(i1) - mesh.GetVertex(i0)).Cross(mesh.GetVertex(i2) - mesh.GetVertex(i0));
+                if (nrm.Dot(outward) > 0) mesh.AppendTriangle(i0, i1, i2);
+                else mesh.AppendTriangle(i0, i2, i1);
+            };
+            for (int a = 0; a < n; ++a)
+                for (int b = 0; b < n; ++b) {
+                    tri(g[a, b], g[a + 1, b], g[a + 1, b + 1], -axisDir(0));
+                    tri(g[a, b], g[a + 1, b + 1], g[a, b + 1], -axisDir(0));
+                }
+            tri(f[0, 0], f[1, 0], f[1, 1], axisDir(0));
+            tri(f[0, 0], f[1, 1], f[0, 1], axisDir(0));
+            // side faces: fan from the far corner next to the first boundary vertex
+            Action<Func<int, int>, int, int, Vector3d> side = (bd, farFirst, farLast, outward) => {
+                for (int k = 0; k < n; ++k)
+                    tri(bd(k), bd(k + 1), farFirst, outward);
+                tri(bd(n), farLast, farFirst, outward);
+            };
+            side(k => g[0, k], f[0, 0], f[0, 1], -axisDir(1));
+            side(k => g[n, k], f[1, 0], f[1, 1], axisDir(1));
+            side(k => g[k, 0], f[0, 0], f[1, 0], -axisDir(2));
+            side(k => g[k, n], f[0, 1], f[1, 1], axisDir(2));
+            return mesh;
+        }
+
+        [Fact]
+        public void InvertedComponents_TouchingBoxesAndCavity_DoNotDependOnUnitOrPosition()
+        {
+            // A = [0,2]x[0,1]^2 outwards; B = inverted box touching A at x = 2; C = cavity in A (inwards =
+            // correct) touching A's wall y = 0. B and C are thin slabs whose contact face is densely
+            // triangulated (A's coarsely), so most of their triangles, and the best-shaped ones, lie on A's
+            // surface, where the winding number of A is 0 or 1 depending on rounding. Only B is inverted.
+            DMesh3 a = BoxWithDenseFace(new Vector3d(0, 0, 0), new Vector3d(2, 1, 1), 0, 1);
+            DMesh3 b = BoxWithDenseFace(new Vector3d(2, 0, 0), new Vector3d(2.02, 1, 1), 0, 12);
+            b.ReverseOrientation();
+            DMesh3 c = BoxWithDenseFace(new Vector3d(0.5, 0, 0.25), new Vector3d(1.5, 0.02, 0.75), 1, 12);
+            c.ReverseOrientation();
+            foreach (DMesh3 m in new[] { a, b, c })
+                Assert.True(m.IsClosed());
+            Assert.True(Volume(a) > 0 && Volume(b) < 0 && Volume(c) < 0);
+            DMesh3 mesh = new DMesh3(a);
+            MeshEditor.Append(mesh, b);
+            MeshEditor.Append(mesh, c);
+            // generic rotation: the contact faces are coplanar only up to rounding, as in real meshes
+            MeshTransforms.Rotate(mesh, Vector3d.Zero, new Quaterniond(new Vector3d(1, 2, 3).Normalized, 37));
+            int bTris = b.TriangleCount;
+
+            foreach (var (scale, offset) in new[] { (1.0, 0.0), (0.001, 0.0), (0.1, 0.0), (1.0, 5e6) }) {
+                DMesh3 m = new DMesh3(mesh);
+                MeshTransforms.Scale(m, scale);
+                MeshTransforms.Translate(m, new Vector3d(offset, offset, offset));
+                var inverted = MeshPostRepairCleanup.FindInvertedComponents(m);
+                Assert.True(inverted.Count == 1 && inverted[0].Length == bTris,
+                    $"scale {scale}, offset {offset}: {inverted.Count} inverted components");
+            }
+        }
+
+        [Fact]
+        public void InvertedComponents_ThinCavityTouchingWall_IsNotInverted()
+        {
+            // thin cavity plate (thickness 1e-4 of its size, correctly oriented inwards) touching the outer
+            // wall y = 0 of [0,2]^3: sample points must not be pushed through the plate to outside the box
+            foreach (double t in new[] { 1e-2, 1e-4, 2e-5 }) {
+                DMesh3 mesh = new GridBox3Generator() {
+                    Box = new Box3d(new Vector3d(1, 1, 1), new Vector3d(1, 1, 1)), EdgeVertices = 3 }.Generate().MakeDMesh();
+                DMesh3 plate = new GridBox3Generator() {
+                    Box = new Box3d(new Vector3d(1, t / 2, 1), new Vector3d(0.5, t / 2, 0.5)), EdgeVertices = 8 }.Generate().MakeDMesh();
+                plate.ReverseOrientation();
+                MeshEditor.Append(mesh, plate);
+                Assert.True(mesh.IsClosed());
+                MeshTransforms.Rotate(mesh, Vector3d.Zero, new Quaterniond(new Vector3d(1, 2, 3).Normalized, 37));
+                Assert.Empty(MeshPostRepairCleanup.FindInvertedComponents(mesh));
+            }
+        }
+
         [Fact]
         public void AutoRepair_WithPostRepairCleanup_GivesCleanClosedMesh()
         {
