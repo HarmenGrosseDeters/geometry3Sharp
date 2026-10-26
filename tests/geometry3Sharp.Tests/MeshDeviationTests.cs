@@ -277,6 +277,27 @@ namespace geometry3Sharp.Tests
             Assert.Equal(1, dev.TriangleBoundsUnconverged);
         }
 
+        [Fact]
+        public void TriangleBounds_CapByHausdorffCanConverge()
+        {
+            // a corner at the hole center: the largest distance (1) is at that corner, so the Hausdorff
+            // interval caps the loose bound without subdivisions to within the tolerance
+            DMesh3 mesh, reference;
+            HoleCase(out mesh, out reference);
+            mesh = new DMesh3();
+            mesh.AppendTriangle(mesh.AppendVertex(new Vector3d(0, 0, 0)), mesh.AppendVertex(new Vector3d(2.5, -2.5, 0)),
+                mesh.AppendVertex(new Vector3d(2.5, 2.5, 0)));
+            var dev = new MeshDeviation(mesh, reference) { ComputeTriangleBounds = true, CertifiedTolerance = 1e-3, MaxTriangleSubdivisions = 0 };
+            Assert.True(dev.Compute());
+            Assert.Equal(1, dev.TriangleDeviationLower[0], 12);
+            Assert.True(dev.TriangleDeviationUpper[0] > 1 + 1e-3);
+            Assert.Equal(1, dev.TriangleBoundsUnconverged);
+            dev.ComputeCertifiedBound = true;
+            Assert.True(dev.Compute());
+            Assert.InRange(dev.TriangleDeviationUpper[0], 1 - 1e-12, 1 + 1e-3 + 1e-12);
+            Assert.Equal(0, dev.TriangleBoundsUnconverged);
+        }
+
         // a coarse sphere against a finer, larger and shifted one: corners of different nearest triangles
         static void SphereCase(Vector3d off, double scale, out DMesh3 mesh, out DMesh3 reference)
         {
