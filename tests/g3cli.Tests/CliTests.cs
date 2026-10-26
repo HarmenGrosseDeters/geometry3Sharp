@@ -155,8 +155,7 @@ namespace g3cli.Tests
                 Assert.Equal(0, I(r["overlapping_pairs"]));
                 Assert.Equal(0, I(r["inverted_triangles"]));
                 Assert.Equal(0, I(r["distortion"]["flipped_triangles"]));
-                Assert.Equal(0, I(r["float_uv_defects"]));
-                Assert.Equal(0, I(r["float_uv_sub_resolution_defects"]));
+                Assert.Equal(0, I(r["float_rounding_defects"]));
                 Assert.True(D(r["distortion"]["mean_area"]) < 0.25);
                 Assert.True(I(r["charts"]) >= 1);
                 Assert.True(D(r["seam_length"]) > 0);
@@ -311,6 +310,11 @@ namespace g3cli.Tests
             AssertError(exit, r, "invalid_arguments", 2);
             (exit, r) = Run("boolean", m.Cube, m.Shifted, m.Path_("x.obj"), "--op", "union", "--k", "2");
             AssertError(exit, r, "invalid_arguments", 2);
+            // k beyond the number of inputs: an empty result, with a warning
+            (exit, r) = Run("boolean", m.Cube, m.Shifted, m.Path_("k3.obj"), "--op", "at_least", "--k", "3");
+            AssertOk(exit, r);
+            Assert.True(B(r["empty_result"]));
+            Assert.Contains(r["warnings"].AsArray(), w => S(w).Contains("more than the 2 inputs"));
             // an open third input, rejected on request: the status is in the message
             (exit, r) = Run("boolean", m.Cube, m.Shifted, m.Path_("x.obj"), "--op", "union", "--more", m.Open, "--allow-open=false");
             AssertError(exit, r, "operation_failed", 1);

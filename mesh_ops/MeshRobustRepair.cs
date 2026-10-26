@@ -23,11 +23,14 @@ namespace gs
     ///
     /// A result can still have lost volume (eg a self-overlapping input made non-overlapping by dropping a
     /// layer, or parts removed by erosion): if its solid agrees with the input's winding number solid less than
-    /// MinVolumeIoU, the input itself is used instead, resolved exactly, solidified or wrapped (its winding number
-    /// solid is the reference; UsedInput).
+    /// MinVolumeIoU, or it lost a whole component of the input (CheckLostComponents: a part too small for the IoU),
+    /// the input itself is used instead, resolved exactly, solidified or wrapped (its winding number solid is the
+    /// reference; UsedInput). The solidify and the wrap themselves are not checked (they change the geometry by about
+    /// a cell or the offset, and lose parts smaller than that).
     ///
     /// Behaviour: the result is in <see cref="Mesh"/> after Apply(), a new mesh object. The mesh passed to the
-    /// constructor is used as the working mesh of MeshAutoRepair and is modified by it, so pass a copy if
+    /// constructor is used as the working mesh of MeshAutoRepair and is modified by it (also its unused vertices are
+    /// removed, they are no part of the solid), so pass a copy if
     /// you need the input afterwards. Check UsedExactResolve / UsedSolidify / UsedAlphaWrap / FallbackReason (and
     /// ExactResolveReason, SolidifyReason) to see which path was taken.
     /// Cost: the self-intersection check and the volume comparison are cheap compared to the solidify
@@ -46,8 +49,18 @@ namespace gs
         public int SolidifyResolution = 128;
         /// <summary> if true, self-intersections make the repair result unclean (triggers the solidify fallback) </summary>
         public bool CheckSelfIntersections = true;
-        /// <summary> minimum volume IoU of the repaired mesh with the input's winding number solid (0 = no check) </summary>
+        /// <summary> minimum volume IoU of the repaired mesh with the input's winding number solid (0 = no volume checks, also not CheckLostComponents) </summary>
         public double MinVolumeIoU = 0.99;
+        /// <summary>
+        /// also a result that lost a connected component of the input (MeshRepairMetrics.LostComponents: a part too small
+        /// for the volume IoU, eg a screw of an assembly) is treated like one whose volume differs ("parts of the input lost").
+        /// Only with MinVolumeIoU &gt; 0 (0 turns off both). Off by default: on the 430 Thingi10K meshes of
+        /// benchmarks/MeshRepairBenchmark it found no lost part, but rejected 3 repairs whose nested closed parts were
+        /// oriented differently from the reference (a part inside another taken for a cavity), and the fallbacks from
+        /// the open input were worse (one mesh fewer repaired). For inputs with separate small parts (assemblies). The fallbacks after such a rejection (solidify, wrap) are not
+        /// checked for it: their ResultReason can be "" although they lost the same part, see FallbackReason and UsedInput.
+        /// </summary>
+        public bool CheckLostComponents = false;
         /// <summary> configures the first stage (eg tolerances) </summary>
         public Action<MeshAutoRepair> ConfigureRepair = null;
         /// <summary> replaces the first stage (input -> repaired mesh); null = MeshAutoRepair </summary>
@@ -93,10 +106,22 @@ namespace gs
         public double RepairVolumeIoU = double.NaN;
         /// <summary> the solidify fallback, if it ran (for its statistics); null otherwise </summary>
         public MeshWindingNumberSolidify Solidify;
+        /// <summary>
+        /// "" if the result in Mesh is clean (see class comment), otherwise why not (NotCleanReason): Apply() also returns
+        /// true with an unclean solidify result when the alpha wrap is off or failed. Set by every successful Apply()
+        /// from the checks it ran anyway (the repair, exact resolve and wrap results are clean by the checks or by
+        /// construction).
+        /// </summary>
+        public string ResultReason = "";
         /// <summary> why the solidify result was not used ("" if it was or did not run) </summary>
         public string SolidifyReason = "";
         /// <summary> true if the result is the alpha wrap (last resort) </summary>
         public bool UsedAlphaWrap;
+        /// <summary>
+        /// why the alpha wrap result was not used ("" if it was or did not run): its Status and Error, eg a result that
+        /// misses the guarantees (then the solidify result is used, or Apply() returns false)
+        /// </summary>
+        public string WrapReason = "";
         /// <summary> the alpha wrap fallback, if it ran; null otherwise </summary>
         public MeshAlphaWrap AlphaWrap;
         public bool UsedExactResolve;
@@ -145,16 +170,19 @@ namespace gs
         /// </summary>
         /// <returns>
         /// false if cancelled, if the input is empty, or if both the solidify fallback (eg the grid
-        /// would be too large) and the alpha wrap failed; Mesh is then not replaced. true otherwise.
+        /// would be too large) and the alpha wrap failed; Mesh is then not replaced. true otherwise, also for an
+        /// unclean solidify result (when the wrap is off or failed): check ResultReason.
         /// </returns>
         public bool Apply()
         {
             UsedSolidify = false;
+            ResultReason = "not repaired";
             UsedInput = false;
             UsedAlphaWrap = false;
             SolidifyReason = "";
             Solidify = null;
             AlphaWrap = null;
+            WrapReason = "";
             UsedExactResolve = false;
             ExactResolveReason = "";
             ExactResolveRoundsUsed = 0;
@@ -164,6 +192,9 @@ namespace gs
             RepairVolumeIoU = double.NaN;
             PhaseMilliseconds.Clear();
             phase_timer.Restart();
+            // unused vertices are no part of the solid, but far away they would make every threshold relative to the
+            // diagonal (degenerate area, solidify cell size, wrap alpha) meaningless
+            MeshEditor.RemoveUnusedVertices(Mesh);
             DMesh3 input = new DMesh3(Mesh);
             DMesh3 result;
             if (RepairF != null) {
@@ -180,24 +211,26 @@ namespace gs
             FallbackReason = NotCleanReason(result, CheckSelfIntersections);
             end_phase("check");
             DMesh3 solidifyFrom = result;
-            if (FallbackReason == "" && MinVolumeIoU > 0) {
+            if (FallbackReason == "") {
                 // (NaN: the input has no solid to compare with, accepted)
-                if (MeshRepairMetrics.VolumeIoUAtLeast(input, result, MinVolumeIoU, out RepairVolumeIoU) == false) {
-                    FallbackReason = "volume differs from the input";
+                string differs = volume_check(input, result, out RepairVolumeIoU);
+                if (differs != "") {
+                    FallbackReason = differs;
                     solidifyFrom = input;
                 }
                 end_phase("volume");
-            } else if (FallbackReason != "") {
+            } else {
                 // an unclean result can have lost parts of the input as well (eg erosion of an open region, which
                 // the volume check of the exact stage rejects, but the solidify and the wrap do not check): then the
                 // fallbacks start from the input, like for a clean result whose volume differs
-                if (result.TriangleCount == 0 || (MinVolumeIoU > 0 && MeshRepairMetrics.VolumeIoUAtLeast(input, result, MinVolumeIoU, out RepairVolumeIoU) == false))
+                if (result.TriangleCount == 0 || volume_check(input, result, out RepairVolumeIoU) != "")
                     solidifyFrom = input;
                 end_phase("volume");
             }
             UsedInput = solidifyFrom == input;
             if (FallbackReason == "") {
                 Mesh = result;
+                ResultReason = "";
                 return true;
             }
             if (solidifyFrom.TriangleCount == 0)
@@ -210,6 +243,7 @@ namespace gs
                 if (exact != null) {
                     Mesh = exact;
                     UsedExactResolve = true;
+                    ResultReason = "";
                     return true;
                 }
             }
@@ -240,8 +274,10 @@ namespace gs
                     && AlphaWrap.Result != null && AlphaWrap.Result.TriangleCount > 0) {
                     Mesh = AlphaWrap.Result;
                     UsedAlphaWrap = true;
+                    ResultReason = "";
                     return true;
                 }
+                WrapReason = AlphaWrap.Status + (AlphaWrap.Error != null ? ": " + AlphaWrap.Error : "");
             }
             if (solidified == false || CancelF())
                 return false;
@@ -256,8 +292,30 @@ namespace gs
             }
             Mesh = Solidify.Result;
             UsedSolidify = true;
+            ResultReason = SolidifyReason;
             return true;
         }
+
+        // "" if the solid of res agrees with the input's (IoU at least MinVolumeIoU, no component lost), otherwise why not
+        string volume_check(DMesh3 input, DMesh3 res, out double iou)
+        {
+            iou = double.NaN;
+            if (MinVolumeIoU <= 0)
+                return "";      // (no volume checks at all)
+            // (the input's solid once per Apply(), the result's once for both checks)
+            if (inputSolid == null || inputSolidOf != input) {
+                inputSolid = new MeshRepairMetrics.SolidReference(input);
+                inputSolidOf = input;
+            }
+            Func<Vector3d, bool> resultInside = MeshRepairMetrics.SolidInside(res);
+            if (MinVolumeIoU > 0 && MeshRepairMetrics.VolumeIoUAtLeast(inputSolid, res, resultInside, MinVolumeIoU, out iou) == false)
+                return "volume differs from the input";
+            if (CheckLostComponents && MeshRepairMetrics.LostComponents(inputSolid, resultInside) > 0)
+                return "parts of the input lost";
+            return "";
+        }
+        MeshRepairMetrics.SolidReference inputSolid;
+        DMesh3 inputSolidOf;
 
         // the solid of the mesh with its self-intersections resolved exactly, or null (ExactResolveReason says why)
         DMesh3 resolve_exactly(DMesh3 from, DMesh3 input)
@@ -338,15 +396,16 @@ namespace gs
                     ExactResolveReason = reason;
                     return null;
                 }
-                if (MinVolumeIoU > 0) {
+                {
                     double iou;
-                    bool agrees = MeshRepairMetrics.VolumeIoUAtLeast(input, res, MinVolumeIoU, out iou);
+                    string differs = volume_check(input, res, out iou);
                     add_phase("exact.volume", timer.ElapsedMilliseconds);
-                    if (agrees == false) {
-                        ExactResolveReason = "volume differs from the input";
+                    if (differs != "") {
+                        ExactResolveReason = differs;
                         return null;
                     }
-                    RepairVolumeIoU = iou;
+                    if (MinVolumeIoU > 0)
+                        RepairVolumeIoU = iou;
                 }
                 ExactResolveReason = "";
                 return res;
@@ -366,7 +425,7 @@ namespace gs
         /// </summary>
         public static int CollapseSlivers(DMesh3 mesh, double maxCollapse = 1e-4, int maxPasses = 5)
         {
-            double diag = mesh.CachedBounds.DiagonalLength;
+            double diag = MeshRepairMetrics.TriangleBounds(mesh).DiagonalLength;
             double areaEps = 1e-12 * diag * diag, maxLength = maxCollapse * diag;
             int fixedCount = 0;
             for (int pass = 0; pass < maxPasses; ++pass) {
@@ -419,8 +478,11 @@ namespace gs
             comps.FindConnectedT();
             int removed = 0;
             foreach (var comp in comps.Components) {
-                // a sliver, and in all below 10^4 times the degenerate area (1e-8 * diagonal^2)
+                // closed, a sliver, and in all below 10^4 times the degenerate area (1e-8 * diagonal^2); an open
+                // component is kept: it may close the rest by position (sheets that touch with their own vertices)
                 if (comp.Indices.Any(tid => mesh.GetTriArea(tid) < areaEps) == false || comp.Indices.Sum(tid => mesh.GetTriArea(tid)) >= 1e4 * areaEps)
+                    continue;
+                if (comp.Indices.Any(tid => { Index3i te = mesh.GetTriEdges(tid); return mesh.IsBoundaryEdge(te.a) || mesh.IsBoundaryEdge(te.b) || mesh.IsBoundaryEdge(te.c); }))
                     continue;
                 foreach (int tid in comp.Indices)
                     mesh.RemoveTriangle(tid, true, false);
@@ -477,7 +539,7 @@ namespace gs
 
         /// <summary>
         /// "" if the mesh is clean (see class comment), otherwise the first problem found, one of "empty",
-        /// "not closed", "bowties", "degenerate triangles" (area &lt; 1e-12 * diagonal^2), "inside-out components",
+        /// "not closed", "bowties", "degenerate triangles" (area &lt; 1e-12 * diagonal^2, of the bounds of the triangles), "inside-out components",
         /// "self-intersections". Useful as a test assertion: NotCleanReason(mesh) == "".
         /// </summary>
         public static string NotCleanReason(DMesh3 mesh, bool checkSelfIntersections = true)
@@ -485,7 +547,7 @@ namespace gs
             if (mesh.TriangleCount == 0) return "empty";
             if (mesh.IsClosed() == false) return "not closed";
             if (MeshIterators.BowtieVertices(mesh).Any()) return "bowties";
-            double diag = mesh.CachedBounds.DiagonalLength;
+            double diag = MeshRepairMetrics.TriangleBounds(mesh).DiagonalLength;
             double areaEps = 1e-12 * diag * diag;
             if (mesh.TriangleIndices().Any(t => mesh.GetTriArea(t) < areaEps)) return "degenerate triangles";
             if (MeshPostRepairCleanup.FindInvertedComponents(mesh).Count > 0) return "inside-out components";

@@ -182,8 +182,10 @@ reported at the mesh vertices only.
   there are split at powers of two from the corner (concentric shells), so the refinement terminates.
 - `minAngle` is clamped to [0, 30] degrees; 0 only splits the boundary edges opposite obtuse angles (few
   insertions). The default insertion limit is 10 times the vertex count plus 1000.
-- On a plane of 169-degree triangles (8400 vertices) refinement inserts 10400 vertices in about 1 s and lowers
-  the mean heat method distance error from 0.06 to 0.02 edge lengths, the maximum from 0.8 to 0.1.
+- On a plane of 169-degree triangles (8200 vertices) refinement inserts 10250 vertices in about 1.5 s and lowers
+  the mean heat method distance error from 0.06 to 0.02 edge lengths, the maximum from 0.8 to 0.1; splitting
+  only the boundary edges (0 degrees, 40 vertices) already lowers the maximum to 0.23
+  ([IntrinsicBenchmark](../benchmarks/IntrinsicBenchmark/README.md), also the ring sphere and the log map).
 - **Common subdivision**: every intrinsic edge is traced over the input and each input triangle is cut along
   the traced segments. The result is checked (faces tile every input triangle and every intrinsic triangle,
   areas to 1e-6); if traces are inconsistent (crossings in the wrong order) `Status` is `Inconsistent`
@@ -226,8 +228,9 @@ them, and the rest becomes flat (a cube: its eight corners, unfolded without dis
 combines them: per component, cones if the result is overlap-free and within the distortion limits, otherwise
 charts grown by normal (`MeshChartSegmentation`) flattened with BFF and split in two while a chart overlaps
 itself or exceeds `MaxAreaDistortion` / `MaxConformalDistortion`; then `UVPacker`. The final UVs are checked
-with exact predicates (`UVOverlap`), in double and again as stored in the mesh (float; defects within the float
-resolution, eg at vertices 1e-7 apart, are only reported in `SubResolutionDefects`), and `Status` reports `DistortionLimitExceeded` when `MaxCharts` was not
+with exact predicates (`UVOverlap`) on the double UVs; the float UVs stored in the mesh are tested too, and
+defects caused only by rounding (tiny or sliver triangles, eg vertices 1e-7 apart) are reported in
+`FloatRoundingDefects`), and `Status` reports `DistortionLimitExceeded` when `MaxCharts` was not
 enough (the layout is still overlap-free). From the command line: `g3cli uv mesh.obj atlas.obj`.
 
 | Method | Charts | Use |

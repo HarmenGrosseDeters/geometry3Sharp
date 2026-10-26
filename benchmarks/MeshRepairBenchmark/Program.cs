@@ -116,6 +116,7 @@ class Program
                 robust.ExactResolveRounds = int.Parse(Environment.GetEnvironmentVariable("BENCH_EXACT_ROUNDS") ?? "4");
                 robust.AlphaWrapFallback = Environment.GetEnvironmentVariable("BENCH_WRAP_FALLBACK") != "0";
                 robust.SafeRounding = Environment.GetEnvironmentVariable("BENCH_SAFE_ROUNDING") != "0";
+                robust.CheckLostComponents = Environment.GetEnvironmentVariable("BENCH_LOST_COMPONENTS") == "1";
                 ok = robust.Apply();
                 result = robust.Mesh;
                 r["hybrid_fallback"] = robust.FallbackReason != "";
@@ -124,6 +125,7 @@ class Program
                 r["robust_repair_iou"] = robust.RepairVolumeIoU;
                 r["robust_used_exact"] = robust.UsedExactResolve;
                 r["robust_exact_reason"] = robust.ExactResolveReason;
+                r["robust_wrap_reason"] = robust.WrapReason;
                 r["robust_exact_rounds"] = robust.ExactResolveRoundsUsed;
                 r["robust_exact_selfint"] = robust.ExactResolveSelfIntersections;
                 r["robust_exact_rounding_edits"] = robust.ExactRoundingEdits.ConvertAll(e => new[] { e.a, e.b });

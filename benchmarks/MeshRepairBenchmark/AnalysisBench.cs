@@ -31,7 +31,9 @@ namespace MeshRepairBenchmark
         // --- wall thickness: per triangle (vertex values are derived), all three methods
         static void Thickness(DMesh3 mesh, double diag, Dictionary<string, object> r)
         {
-            var spatial = new DMeshAABBTree3(mesh, true);
+            // no tree passed in: the library builds its own, on a copy at the origin for geo coordinates; one
+            // instance for all methods, so the tree (and the copy) are built once
+            var wt = new MeshWallThickness(mesh) { ComputeVertices = false };
             var values = new Dictionary<MeshWallThickness.Methods, double[]>();
             int sdfMax = int.Parse(Environment.GetEnvironmentVariable("BENCH_SDF_MAXTRIS") ?? "50000");
             foreach (var method in new[] { MeshWallThickness.Methods.Ray, MeshWallThickness.Methods.InscribedSphere, MeshWallThickness.Methods.ShapeDiameter }) {
@@ -41,7 +43,7 @@ namespace MeshRepairBenchmark
                     continue;
                 }
                 var sw = Stopwatch.StartNew();
-                var wt = new MeshWallThickness(mesh) { Spatial = spatial, Method = method, ComputeVertices = false };
+                wt.Method = method;
                 bool ok = wt.Compute();
                 r[key + "_ms"] = sw.ElapsedMilliseconds;
                 r[key + "_ok"] = ok;
@@ -75,17 +77,16 @@ namespace MeshRepairBenchmark
         // --- deviation: self deviation, sign agreement of the two sign modes, certified bound
         static void Deviation(DMesh3 mesh, double diag, Dictionary<string, object> r)
         {
-            var spatial = new DMeshAABBTree3(mesh, true);
+            // no tree passed in, as above
             var sw = Stopwatch.StartNew();
-            var self = new MeshDeviation(mesh, mesh) { ReferenceSpatial = spatial };
+            var self = new MeshDeviation(mesh, mesh);
             if (self.Compute())
                 r["dev_self_max_rel"] = Rel(self.Statistics.MaxAbsolute, diag);
             r["dev_self_ms"] = sw.ElapsedMilliseconds;
 
             // the two sign modes on random points of the (expanded) bounding box, away from the surface
-            var pn = new MeshDeviation(mesh, mesh) { ReferenceSpatial = spatial, Sign = MeshDeviation.Signs.PseudoNormal };
-            var wn = new MeshDeviation(mesh, mesh) { ReferenceSpatial = spatial, Sign = MeshDeviation.Signs.WindingNumber };
-            spatial.FastWindingNumber(Vector3d.Zero);
+            var pn = new MeshDeviation(mesh, mesh) { Sign = MeshDeviation.Signs.PseudoNormal };
+            var wn = new MeshDeviation(mesh, mesh) { Sign = MeshDeviation.Signs.WindingNumber };
             AxisAlignedBox3d box = mesh.CachedBounds;
             box.Expand(0.1 * diag);
             var rnd = new Random(1);

@@ -256,9 +256,12 @@ same time on the same machine, `BENCH_P=2` each (`results/robust_0.jsonl`, `resu
 5 meshes are repaired that were not before, none is lost: 1037029, 110378, 126542 (the cleanup left slivers),
 195683, 338196 (self-intersections after the rounds); large: 562346, 816587. The exact stage costs 20 % more where
 it is tried, but where it now succeeds the solidify or alpha wrap is saved, so the total time drops a little.
-Earlier builds of this change (cd15490 / 3d08569, before master's #94/#97) gave 266 → 273 in the same comparison;
-master's changes to the repair before the exact stage moved 2 meshes (1102667, 1505037) to "not closed (winding
-number)" in both columns.
+Exact stage used +12 against the two rows below (-13): one mesh failed for degenerate triangles before and now
+because its volume differs from the input. Earlier builds of this change (cd15490 / 3d08569, before master's
+#94/#97) gave 266 → 273 in the same comparison. Master's changes to the repair before the exact stage account for
+the difference: 112532 now deviates 1.12 % (Hausdorff) in both columns (-1 each); 1102667 is now "not closed
+(winding number)" before the exact stage and 1505037 hits the timeout in both columns, which were repaired only
+with safe rounding before (-2 in the second column).
 
 ³ The benchmark does not check results above 300k triangles for self-intersections and counts them as not repaired.
 The large results of the exact stage are checked by the stage itself (exactly); counted here, as the stage reports
@@ -270,32 +273,36 @@ without an intersection) the first build took 27 s for the safe rounding and 800
 separation, where `CollapseSlivers` had made 3000 intersections. The repair now bounds the evaluations (50 per defect)
 and the exact pair tests (2·10⁷), keeps the old count for proposals of the same triangles and indexes the changed
 triangles: 1368057 takes 78 s (60 s of it the exact stage, which still fails; then the solidify, as without safe
-rounding, which takes 29 s in all), the same edits elsewhere. It is the worst case of the run.
+rounding, which takes 29 s in all), the same edits elsewhere. It is the slowest mesh that finishes; 1505037 hits
+the 120 s timeout in both columns.
 
 ### Exact booleans with safe rounding (`BENCH_REPAIR=exact`, `analyze_exact.py`)
 `BENCH_REPAIR=exact` computes union, intersection and difference of each mesh with a rotated, shifted copy of
 itself (`ExactMeshBoolean`), here with `SafeRounding` (the default of the mode, `BENCH_SAFE_ROUNDING=0` switches it
-off). 400 set; without: build cd15490, with: 3d08569, the meshes where components were removed rerun with 9b06745
-(only closed components are removed: before, removing tiny open ones left 4 results with holes). `BENCH_P=2`/`3`:
+off). 400 set; without: build cd15490, `BENCH_P=2`; with: 3d08569, `BENCH_P=3`, the meshes where components were
+removed rerun with 9b06745 (only closed components are removed: before, removing tiny open ones left 4 results with
+holes). The booleans do not depend on the changes between these builds, but the runs had different loads: the times
+are not comparable (on the 391 meshes both finished, 2099 s against 2121 s).
 
 | 400 set | without safe rounding | with |
 |---|---|---|
 | exact winding (closed input), result closed and clean (`analyze_exact.py`) | 107 | **133** |
-| ... results (of 3 per mesh, 561) with degenerate triangles | 286 | **43** |
+| ... results (of 3 per mesh; 561 in both) with degenerate triangles | 286 | **43** |
 | ... with exact self-intersections ² | 181 | 111 |
 | ... not closed in the winding number sense | 0 | 0 |
-| all results (1176) with degenerate triangles | 698 | 291 |
+| all results (1173 / 1176, by the timeouts) with degenerate triangles | 698 | 291 |
 | results verified free of both by the repair (`RoundingClean`) | – | 882 |
 | timeouts (120 s) | 9 | 8 |
-| median / sum of the three booleans per mesh | 3.3 s / 2099 s | 3.2 s / 2229 s |
 
 ² `MeshRepairMetrics` counts sheets that touch at duplicated vertices (where the solids touch) as intersecting;
 safe rounding keeps those contacts, so part of the remaining count is not an intersection. Most of the results the
 repair leaves unclean come from open inputs (generalized winding numbers): their results are open, and the repair
 does not edit at boundary vertices. The volume identities (V(A∪B) + V(A∩B) = V(A) + V(B)) stay at 1e-14 relative in
-the median; the largest new deviations are inputs whose solid is empty or tiny (83719.stl and 51358.stl, eg
-83719 is inside-out: its resolved solid has volume 1e-12 at a diagonal of 64, removed as slivers; 51352: 1e-3 of a
-volume of 2e-5).
+the median. The largest new deviations are inputs that are inside-out, whose solid is empty or tiny, so that the
+results consist of slivers only:
+- 83719.stl: the resolved solid has volume 1e-12 at a diagonal of 64; it is removed as slivers.
+- 51352.stl and 51358.stl: the union's volume changes from 2e-5 to 1.2e-3 and from 0 to -4.4e-3. The vertex moves of
+  up to 1e-5 of the diagonal sweep that much; it is below 5e-8 of the inputs' signed volumes (-1e5).
 
 ### Spike: solidify resolution 256 (`BENCH_SOLID_RES=256`, 30 meshes)
 20 meshes that `robust` solidified and that missed the 1 % Hausdorff bound at resolution 128, and 10 it
@@ -606,48 +613,57 @@ Each fix has a unit test that fails on the code before the fix.
   1e-12 diagonal² of area they get no value and do not count as walls. The vertex normal no longer
   compares its length with the absolute `MathUtil.ZeroTolerance` (`MeshAnalysisNormals`).
 - **Fit depended on the rotation:** on 18 of 206 meshes, a fit of the rotated input reached another
-  quality. RANSAC depended on which of several nearly equal samples won. New:
-  - LO-RANSAC: every new best is refined by least squares on its inliers.
+  quality. RANSAC depended on which of several nearly equal samples won. Changes:
+  - LO-RANSAC: every new best is refined by least squares on its inliers. This helped in the first
+    configuration (11 of 17 checked meshes became stable). In the final one it helps little; see the table
+    below.
   - The better model was often a sphere or cylinder of huge radius, or a flat cone, imitating the dominant
-    plane. New limits `MaxRadius` (10 × diagonal) and `MaxConeAngle` (88°).
+    plane. New limits `MaxRadius` (10 × diagonal) and `MaxConeAngle` (88°). Candidates beyond them are
+    counted in `RejectedByLimits`.
 - **Fit missed small structures:**
   - Spheres from 4-point samples ran into `MaxIterations` (9 of 12 cases). With normals, every other
     sample is now 2 points with normals.
   - The test that a sample's own points are inliers threw away rough candidates from noisy vertex normals.
     Removed.
   - Instead, a bail-out pre-test on 500 fixed random points keeps the time down (Capel 2005), and the
-    local optimization uses at most 2000 inliers. `LocalOptimization = false` turns the local optimization
-    off (plain RANSAC).
+    local optimization uses at most 2000 inliers.
 
-  Compared with the first version (sample test, 4-point spheres), over the 400 meshes (more than 1 % of
-  the points better / worse):
+  Over the 400 meshes: better / worse by more than 1 % of the points, and how often the rotated input
+  reaches another quality. "first" is the version with the sample test and 4-point spheres; "now, LO off"
+  is `LocalOptimization = false`.
 
-  | | better | worse | median time first → now |
-  |---|---|---|---|
-  | plane | 26 | 4 | 52 → 162 ms |
-  | sphere | 131 | 28 | 51 → 142 ms |
-  | cylinder | 113 | 43 | 37 → 120 ms |
-  | cone | 89 | 21 | 250 → 420 ms |
+  | | now vs first: better / worse | now, LO on vs off: better / worse | rotated differs: first / LO off / LO on | median time: first / LO off / LO on |
+  |---|---|---|---|---|
+  | plane | 26 / 4 | 3 / 4 | 0 / 0 / 0 | 52 / 144 / 148 ms |
+  | sphere | 131 / 28 | 32 / 15 | 12 / 21 / 27 | 51 / 139 / 145 ms |
+  | cylinder | 113 / 43 | 46 / 42 | 23 / 16 / 29 | 37 / 108 / 94 ms |
+  | cone | 89 / 21 | 52 / 44 | 16 / 16 / 23 | 250 / 298 / 320 ms |
+
+  - The gain over the first version, and the extra time, come from the sample changes (2-point spheres, no
+    sample test).
+  - LO-RANSAC costs about the same time (median −13 % to +7 % per primitive). It gives somewhat better models, but a rotated input reaches another quality a
+    little more often. It stays on by default (`LocalOptimization`).
 - **Tried and dropped:** localized sampling (Schnabel et al.: the other points of a sample near the first).
   It finds some small part quickly and then stops, and as it depends on a grid it is not rotation
   invariant: rotated quality differed on 16 of 17 checked meshes instead of 6.
 
-### Results (400 set, final run)
+### Results (400 set, final run, master of 2026-10-26 with #97)
 - **No exceptions or wrong results; every invariant holds:**
-  - inscribed ball ≤ ray everywhere;
+  - inscribed ball ≤ ray everywhere, with the same NaN pattern (master's separation angle fix);
   - self deviation 0;
   - no bound violated (397 of 397 reductions);
   - every fit deterministic and its inliers within the threshold.
 - **Timeouts:** 3 meshes exceed the 120 s budget of the whole analysis. Each fit runs three times
   (normal, determinism, rotated), and on these meshes (44k–93k triangles) a cylinder or cone fit takes
-  9–14 s. Alone they finish in 73–112 s.
+  9–16 s. Alone they finish in 73–112 s.
 - **Median / p95 time per mesh:**
-  - Ray 0.4 / 1.2 s, InscribedSphere 0.6 / 5.4 s, ShapeDiameter 1.0 / 6.9 s;
-  - deviation with the certified bound 0.3 / 1.5 s;
-  - fits 0.1–0.4 / 0.9–3.7 s.
-- **NaN shares:** the median ray NaN share is 0.3 %. It is above 10 % on 56 meshes, all open or
-  self-intersecting (the clean ones stay below 1 %).
-- **Sign disagreement:** pseudo-normal and winding number disagree on more than 1 % of the points on 64
+  - Ray 0.4 / 1.3 s, InscribedSphere 0.5 / 5.2 s, ShapeDiameter 1.0 / 6.6 s;
+  - deviation with the certified bound 0.3 / 1.4 s;
+  - fits 0.1–0.4 / 0.9–3.1 s.
+- **Fit results:** 6 fits end in `RejectedByLimits` (1 sphere, 2 cylinders, 3 cones), 4 in `Failed`.
+- **NaN shares:** the median ray NaN share is 0.3 %. It is above 10 % on 63 meshes, all open or
+  self-intersecting (the clean ones stay below 1 %); open meshes are never flipped.
+- **Sign disagreement:** pseudo-normal and winding number disagree on more than 1 % of the points on 70
   meshes, all broken ones (holes, self-intersections). On clean meshes there are at most 1.8 %
   disagreements, from self-intersections.
 - **Rotated input:** the quality of the rotated fit differs by more than 1 % of the points on 0 (plane),
@@ -655,15 +671,48 @@ Each fix has a unit test that fails on the code before the fix.
   structures (5–10 % of the points) whose vertex normals are too noisy for the minimal samples at the
   strict threshold.
 - **mm vs meters:**
-  - Thickness and NaN shares are identical except on 3 meshes.
-    - 702409 and 702413: their inside-out detection (`MeshPostRepairCleanup.FindInvertedComponents`)
-      decides differently, probably because touching components put the sample points on another
-      component's surface (w ≈ 0.5). This is a separate issue in that function.
-    - 100040: 4 triangles of a mesh without a defined inside, whose rays pass exactly through edges of
-      self-intersecting regions.
-  - ShapeDiameter differs on 11 meshes. The SDF jumps where rays graze a wall.
+  - Thickness and NaN shares are identical except on 100040: 3 triangles of a mesh without a defined
+    inside, whose rays pass exactly through edges of self-intersecting regions.
+  - 702409 and 702413, which differed before, now agree: master's `FindInvertedComponents` nesting test
+    no longer depends on the unit.
+  - ShapeDiameter differs on 14 meshes. The SDF jumps where rays graze a wall.
   - The fits differ on 0–7 meshes per primitive: ties under rounding, as for the rotation.
-- **geo:** run pending.
+- **geo (offset 5e6):**
+  - Before the copy at the origin, `DMeshAABBTree3`'s float boxes (rounding 0.3 at 5e6) made the analysis
+    twice as slow (median 11.1 s vs 5.4 s per mesh, 29 timeouts), with up to 30 % of the NaN pattern
+    differing.
+  - Now ray and inscribed-ball thickness and their NaN shares are identical to the origin on all meshes,
+    with the same 3 timeouts and about the same time (median 6.2 s vs 5.7 s).
+  - ShapeDiameter differs on 13 meshes and the fits on 0–9, as for meters.
+  - The sign agreement differs on 8 meshes, by points near holes.
+
+## Lost components check (`MeshRobustRepair.CheckLostComponents`, off by default)
+`MeshRepairMetrics.LostComponents` finds input components whose solid a result lost. The volume IoU check does not notice such parts when they are below 1 % of the volume (eg a screw of an assembly). When the check is on, a repair result (clean or not) or exact resolve that lost a part is rejected, and the fallbacks start from the input. The table shows its effect on `robust` (400 + 30 set, `BENCH_LOST_COMPONENTS=1`). Base is master d5eeda1. "Meshes changed" counts meshes that ended at a different stage or with a different repaired outcome than the base.
+
+| variant | meshes changed | of those repaired (base → with check) |
+|---|---|---|
+| all components judged (first version) | 29 | 15 → 9 (all 430: 283 → 276) |
+| closed components only, box diagonal ≥ 1e-3 of the input's | 3 | 15 → 14 |
+
+- **First version:** most rejections came from open fragments, such as single soup triangles. Next to them the input's solid is the solid of the parts around them, and the result does not reproduce that. The fallbacks then started from the open input: the exact resolve failed with "not closed (winding number)", and the mesh was solidified instead.
+- **Closed components only:** three repairs are still rejected. In each, a nested closed part (a part inside another one) was oriented by the repair as a cavity, and the input reference treats it as solid. The fallbacks from the input were worse for 105335 (repaired before, not repaired after). For 1017012 and 67785 the outcome did not change.
+- **Conclusion:** the check found no lost part on Thingi10K. It is off by default and meant for inputs with separate small parts.
+- **Method:** only the 29 meshes changed by the first version were rerun with the second. The second version judges a subset of what the first judged, so it can change no other mesh. All runs used `BENCH_P=2` on the same machine.
+
+## Alpha wrap result check and box retry (#110)
+`MeshAlphaWrap` now checks its result before it reports Success. The result must be closed, have no bowties and no box corners. If the check fails, the wrap runs once more with a slightly different margin on each side of the box (`Counts["box_retries"]`). Rejected Steiner points are counted per rule (`rejected_rule1`, `rejected_rule2`). `wrap` mode, 400 set, base master d5eeda1, `BENCH_P=2`:
+
+| | master | box with different margins on all sides, always (first version) | same box first, retry if the check fails (merged version) |
+|---|---|---|---|
+| Success | 400 | 399 (286985: box corner on the result, from the manifold step) | 400 |
+| results different from master | | most (other box) | none (no retry needed) |
+| Hausdorff both < 1 % | 44 | 46 | 44 |
+| meshes with rejected rule 1 points | 3 (99911: 1835, 1681235: 5, 702413: 1) | 2 (99911: 2090, 1681235: 24) | as master |
+
+- Synthetic sweep (spheres, boxes, a cylinder, soups; alpha = diagonal / 5 to / 50; 84 wraps): master reported Success with box corners on the result for 2 of them (a unit sphere, alpha = d/10 and d/15). The merged version retries those 2 and gets results without box corners.
+- `robust`: the 25 meshes that reach the wrap fallback give the same results as before.
+- Rejected rule 1 points with Success stay possible, as on master (99911). They are counted. The result still encloses the input and does not cross it, but it can come closer to the input than the offset there.
+- I also tried exact circumcenters for nearly flat cells. They did not change the rejections on these meshes, so they are not included.
 
 ### Wrap fallback without the discarded solidify post-processing (`robust`, both selections)
 Meshes that end in the alpha wrap ran the whole solidify first, including its cleanup and reduction, only to

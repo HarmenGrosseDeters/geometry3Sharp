@@ -17,8 +17,7 @@ namespace g3
     ///      InlierDistance and, if normals are known, its normal is within MaxNormalAngle of the surface
     ///      normal (unoriented). The number of samples adapts to the inlier ratio (Confidence). Every new
     ///      best candidate is refined by least squares on its inliers and scored again (LO-RANSAC, Chum,
-    ///      Matas and Kittler, "Locally optimized RANSAC", DAGM 2003): the result no longer depends on
-    ///      which of several nearly equal minimal samples happened to win, and fewer samples are needed.
+    ///      Matas and Kittler, "Locally optimized RANSAC", DAGM 2003; LocalOptimization).
     ///   2. Least squares on the inliers: orthogonal regression (PCA) for the plane, Levenberg-Marquardt on
     ///      the geometric (orthogonal) distances for the other primitives, then the inliers are selected again;
     ///      repeated until the inlier set no longer changes (at most RefineIterations).
@@ -65,9 +64,12 @@ namespace g3
         /// <summary> largest half opening angle of a cone (degrees); flatter cones imitate a plane </summary>
         public double MaxConeAngle = 88;
         /// <summary>
-        /// LO-RANSAC: refine every new best candidate by least squares on (at most 2000 of) its inliers. Finds
-        /// better and more stable models on real data, at a cost in time (both measured on Thingi10K in
-        /// benchmarks/MeshRepairBenchmark/README.md); false = plain RANSAC with the same bail-out pre-test.
+        /// LO-RANSAC: refine every new best candidate by least squares on (at most 2000 of) its inliers. On the
+        /// 400 Thingi10K meshes of benchmarks/MeshRepairBenchmark, at about the same median time (-13 % to
+        /// +7 % per primitive): somewhat better models
+        /// (better / worse by more than 1 % of the points on 32/15 meshes for spheres, 46/42 cylinders, 52/44
+        /// cones), but a rotated input reaches another quality slightly more often (27/29/23 instead of
+        /// 21/16/16 meshes). false = plain RANSAC with the same bail-out pre-test.
         /// </summary>
         public bool LocalOptimization = true;
         /// <summary> estimate normals (if Normals is null) for cylinder and cone </summary>

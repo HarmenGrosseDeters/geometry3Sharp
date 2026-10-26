@@ -87,7 +87,7 @@ selectively.
   angles, status codes); options `IntrinsicRefine` in `MeshGeodesicDistance` and `VectorHeatMethod`,
   `IntrinsicTriangulation.BuildDelaunay` for the cotan Laplacian. All cotan weights non-negative also on the
   boundary; on the plane of 169-degree triangles the mean distance error drops from 0.06 to 0.02 edge
-  lengths (max 0.8 to 0.1). Common subdivision by tracing (`ExtractCommonSubdivision`, area-checked, reports
+  lengths (max 0.8 to 0.1; `benchmarks/IntrinsicBenchmark`). Common subdivision by tracing (`ExtractCommonSubdivision`, area-checked, reports
   `Inconsistent` instead of wrong faces).
   - [ ] Integer (normal) coordinates (Gillespie, Sharp, Crane 2021) for a combinatorially exact common
     subdivision; signposts with the area checks suffice for the current operations

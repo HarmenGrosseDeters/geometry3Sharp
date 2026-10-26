@@ -645,5 +645,168 @@ namespace geometry3Sharp.Tests
             Assert.Equal(Vertices(fresh.Result), Vertices(w.Result));
             CheckWrap(w, Vertices(box));
         }
+
+        [Fact]
+        public void Wrap_ResultWithoutTheGuarantees_NotReportedAsSuccess()
+        {
+            // without the manifold step the pinch between nearly touching boxes leaves bowties and open edges:
+            // Status was Success all the same; the result is checked now
+            DMesh3 m = Box(Vector3d.Zero, Vector3d.One);
+            MeshEditor.Append(m, Box(new Vector3d(1.02, 1.02, 0), new Vector3d(2, 2, 1)));
+            var w = new MeshAlphaWrap(m) { Alpha = 0.05, Offset = 0.005, MakeManifold = false };
+            Assert.False(w.Compute());
+            Assert.Equal(MeshAlphaWrap.WrapStatus.Failed, w.Status);
+            Assert.StartsWith("result ", w.Error);
+            Assert.NotNull(w.Result);       // kept for diagnostics
+            // with it: Success
+            var ok = new MeshAlphaWrap(m) { Alpha = 0.05, Offset = 0.005 };
+            Assert.True(ok.Compute());
+            CheckWrap(ok, Vertices(m));
+        }
+
+        [Theory]
+        [InlineData(10)]
+        [InlineData(15)]
+        public void Wrap_SymmetricInput_NoBoxCornersOnTheResult(double relativeAlpha)
+        {
+            // a sphere centred in a box with the same margin on all sides: two rule 1 points were rejected (at existing
+            // vertices) and their cells stayed inside up to the box: two box corners on a Success result. Checked now,
+            // and wrapped once more in a box with a different margin on each side
+            DMesh3 s = Sphere(1, 12);
+            var w = new MeshAlphaWrap(s) { RelativeAlpha = relativeAlpha };
+            Assert.True(w.Compute());
+            Assert.Equal(0, w.Counts["result_box_corners"]);
+            Assert.Equal(0, w.Counts["rejected_rule1"]);
+            Assert.Equal(1, w.Counts["box_retries"]);       // the first box (same margin on all sides) failed
+            CheckWrap(w, Vertices(s));
+            // without the retry: box corners on the result, which the result check reports as Failed, not Success
+            var symmetric = new MeshAlphaWrap(s) { RelativeAlpha = relativeAlpha, RetryWithOtherBox = false };
+            Assert.False(symmetric.Compute());
+            Assert.Equal(MeshAlphaWrap.WrapStatus.Failed, symmetric.Status);
+            Assert.Equal("result box corners on the result", symmetric.Error);
+            Assert.True(symmetric.Counts["rejected_rule1"] > 0);
+        }
+
+        [Fact]
+        public void Wrap_CancelledInTheManifoldStep()
+        {
+            // cancelled once the refinement is done (its phase time is recorded): the manifold step notices, Cancelled
+            DMesh3 s = Sphere(1, 12);
+            MeshAlphaWrap w = null;
+            int callsAfterRefinement = 0;
+            w = new MeshAlphaWrap(s) { RelativeAlpha = 100, CancelF = () => w.PhaseMilliseconds.ContainsKey("wrap") && ++callsAfterRefinement > 0 };
+            Assert.False(w.Compute());
+            Assert.Equal(MeshAlphaWrap.WrapStatus.Cancelled, w.Status);
+            Assert.Null(w.Error);
+            Assert.True(w.Counts["steiner_points"] > 2048);     // enough vertex checks for the step to ask
+            Assert.False(w.PhaseMilliseconds.ContainsKey("manifold"));
+        }
+
+        [Fact]
+        public void Wrap_NullCancelF_NeverCancels()
+        {
+            var w = new MeshAlphaWrap(Sphere(1, 6)) { RelativeAlpha = 10, CancelF = null };
+            Assert.True(w.Compute());       // (was a NullReferenceException)
+            CheckWrap(w, Vertices(Sphere(1, 6)));
+        }
+
+        [Fact]
+        public void Wrap_LargeFiniteCoordinates_NotInvalidInput()
+        {
+            // the finiteness test summed the coordinates, which overflows for large finite values
+            var w = new MeshAlphaWrap(new[] { new Vector3d(1e308, 1e308, 1e308), new Vector3d(-1e308, 1e308, 1e308) });
+            w.Compute();
+            Assert.NotEqual(MeshAlphaWrap.WrapStatus.InvalidInput, w.Status);
+            var nan = new MeshAlphaWrap(new[] { new Vector3d(double.NaN, 0, 0), Vector3d.One });
+            Assert.False(nan.Compute());
+            Assert.Equal(MeshAlphaWrap.WrapStatus.InvalidInput, nan.Status);
+        }
+
+        [Theory]
+        [InlineData(1e-4)]
+        [InlineData(1e-6)]
+        public void Wrap_UtmCoordinates_SmallOffset(double offset)
+        {
+            // a 10 m sphere at UTM coordinates with an offset far below a millimetre: the floating-point distance
+            // tests (absolute coordinates, about 1e-9 rounding) must still keep the result outside the input
+            DMesh3 s = Sphere(5, 6);
+            MeshTransforms.Translate(s, new Vector3d(512345.678, 5812345.678, 312.5));
+            var w = new MeshAlphaWrap(s) { Alpha = 1, Offset = offset };
+            Assert.True(w.Compute());
+            DMesh3 r = w.Result;
+            Assert.True(r.IsClosed());
+            Assert.Equal(0, MeshRepairMetrics.SelfIntersections(r));
+            // no result triangle crosses the input, and the input is inside
+            DMesh3 both = new DMesh3(r);
+            MeshEditor.Append(both, s);
+            Assert.Equal(0, MeshRepairMetrics.SelfIntersections(both));
+            var spatial = new DMeshAABBTree3(r, true);
+            Assert.All(Vertices(s), p => Assert.True(spatial.WindingNumber(p) > 0.99));
+            var tree = new DMeshAABBTree3(s, true);
+            foreach (int vid in r.VertexIndices()) {
+                Vector3d p = r.GetVertex(vid);
+                double d = Math.Sqrt(MeshQueries.TriangleDistance(s, tree.FindNearestTriangle(p), p).DistanceSquared);
+                Assert.True(d > 0.99 * offset, $"vertex at distance {d}, offset {offset}");
+            }
+        }
+
+        [Fact]
+        public void Wrap_MicrometreScale()
+        {
+            DMesh3 s = Sphere(1e-6, 6);
+            var w = new MeshAlphaWrap(s) { RelativeAlpha = 10 };
+            Assert.True(w.Compute());
+            CheckWrap(w, Vertices(s));
+        }
+
+        [Theory]
+        [InlineData(0)]
+        [InlineData(1)]
+        public void Wrap_PointLimitAlmostZero_TheBoxEnclosesTheInput(int limit)
+        {
+            // no or one Steiner point: the result is the box (corners on the result, which PointLimitReached allows),
+            // closed and around the input
+            DMesh3 s = Sphere(1, 6);
+            var w = new MeshAlphaWrap(s) { RelativeAlpha = 10, MaxSteinerPoints = limit };
+            Assert.False(w.Compute());
+            Assert.Equal(MeshAlphaWrap.WrapStatus.PointLimitReached, w.Status);
+            Assert.True(w.Result.IsClosed());
+            Assert.Equal(8, w.Counts["result_box_corners"]);
+            var spatial = new DMeshAABBTree3(w.Result, true);
+            Assert.All(Vertices(s), p => Assert.True(spatial.WindingNumber(p) > 0.99));
+        }
+
+        [Fact]
+        public void Delaunay3_DegeneratePointSets_Valid()
+        {
+            // coplanar, collinear, cospherical (cube corners) and duplicated points: the box corners make every set
+            // full-dimensional, the triangulation stays valid and Delaunay
+            var box = new AxisAlignedBox3d(new Vector3d(-2, -2, -2), new Vector3d(2, 2, 2));
+            var sets = new List<List<Vector3d>>();
+            var rnd = new Random(5);
+            sets.Add(Enumerable.Range(0, 50).Select(k => new Vector3d(rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5, 0)).ToList());
+            sets.Add(Enumerable.Range(0, 20).Select(k => new Vector3d(0.05 * k - 0.5, 0.1, 0.2)).ToList());
+            sets.Add(new List<Vector3d>() { new Vector3d(-1, -1, -1), new Vector3d(1, -1, -1), new Vector3d(-1, 1, -1), new Vector3d(1, 1, -1),
+                new Vector3d(-1, -1, 1), new Vector3d(1, -1, 1), new Vector3d(-1, 1, 1), new Vector3d(1, 1, 1), Vector3d.Zero });
+            sets.Add(Enumerable.Range(0, 30).Select(k => { double a = 2 * Math.PI * k / 30; return new Vector3d(Math.Cos(a), Math.Sin(a), 0); }).ToList());
+            foreach (var pts in sets) {
+                var dt = new Delaunay3(box);
+                foreach (var p in pts)
+                    Assert.Equal(Delaunay3.InsertResult.Inserted, dt.Insert(p, -1, 0, out int v));
+                foreach (var p in pts)      // duplicates: rejected
+                    Assert.Equal(Delaunay3.InsertResult.TooClose, dt.Insert(p, -1, 0, out int v));
+                Assert.Null(dt.Validate(true));
+                Assert.Equal(box.Volume, dt.CellIndices().Sum(c => dt.CellVolume(c)), 9);
+            }
+            // a grid of points at UTM coordinates (10 m across, 0.5 m apart): cospherical everywhere, and the
+            // coordinates far from the origin
+            Vector3d o = new Vector3d(512345.678, 5812345.678, 312.5);
+            var utm = new Delaunay3(new AxisAlignedBox3d(o - 6 * Vector3d.One, o + 6 * Vector3d.One));
+            for (int i = 0; i < 6; ++i)
+                for (int j = 0; j < 6; ++j)
+                    for (int k = 0; k < 6; ++k)
+                        Assert.Equal(Delaunay3.InsertResult.Inserted, utm.Insert(o + 0.5 * new Vector3d(i, j, k), -1, 0, out int v));
+            Assert.Null(utm.Validate(true));
+        }
     }
 }
