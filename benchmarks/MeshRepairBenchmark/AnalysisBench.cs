@@ -123,6 +123,102 @@ namespace MeshRepairBenchmark
             } catch (Exception e) {
                 r["dev_reduced_error"] = e.GetType().Name + ": " + e.Message;
             }
+
+            TriangleBounds(mesh, diag, r);
+        }
+
+        // --- certified deviation per triangle (MeshDeviation.ComputeTriangleBounds), against the vertex values.
+        //   tri_red:  the copy reduced to half against the input (big triangles over the input's details; the
+        //             Reducer depends on rounding, so this one is not compared across transforms)
+        //   tri_pert: the input against a copy whose vertices are moved along their normals by up to 2e-3 of
+        //             the diagonal, a fixed pattern per vertex ID: the same case in every transform
+        static void TriangleBounds(DMesh3 mesh, double diag, Dictionary<string, object> r)
+        {
+            try {
+                DMesh3 reduced = new DMesh3(mesh);
+                new Reducer(reduced).ReduceToTriangleCount(Math.Max(4, mesh.TriangleCount / 2));
+                TriangleBoundsCase(reduced, mesh, diag, "dev_tri_red", true, r);
+            } catch (Exception e) {
+                r["dev_tri_red_error"] = e.GetType().Name + ": " + e.Message;
+            }
+            try {
+                DMesh3 perturbed = new DMesh3(mesh);
+                foreach (int vid in mesh.VertexIndices()) {
+                    if (mesh.GetVtxEdgeCount(vid) == 0) continue;
+                    // hash of the ID in [-1, 1]
+                    uint h = (uint)vid * 2654435761u; h ^= h >> 16; h *= 2246822519u; h ^= h >> 13;
+                    double s = (h & 0xFFFFFF) / (double)0xFFFFFF * 2 - 1;
+                    perturbed.SetVertex(vid, mesh.GetVertex(vid) + (2e-3 * diag * s) * MeshAnalysisNormals.VertexNormal(mesh, vid));
+                }
+                TriangleBoundsCase(mesh, perturbed, diag, "dev_tri_pert", false, r);
+            } catch (Exception e) {
+                r["dev_tri_pert_error"] = e.GetType().Name + ": " + e.Message;
+            }
+        }
+
+        static void TriangleBoundsCase(DMesh3 from, DMesh3 to, double diag, string key, bool withHausdorff, Dictionary<string, object> r)
+        {
+            double tol = 1e-4 * diag;
+            // vertex values only, then with the triangle bounds (and the certified Hausdorff interval)
+            var sw = Stopwatch.StartNew();
+            var vtx = new MeshDeviation(from, to) { Sign = MeshDeviation.Signs.Unsigned };
+            if (vtx.Compute() == false) { r[key + "_ok"] = false; return; }
+            r[key + "_vertex_ms"] = sw.ElapsedMilliseconds;
+            sw.Restart();
+            var dev = new MeshDeviation(from, to) { Sign = MeshDeviation.Signs.Unsigned, ComputeTriangleBounds = true, CertifiedTolerance = tol };
+            bool ok = dev.Compute();
+            r[key + "_ms"] = sw.ElapsedMilliseconds;
+            r[key + "_ok"] = ok;
+            if (!ok) return;
+            r[key + "_unconverged"] = dev.TriangleBoundsUnconverged;
+
+            // per triangle: largest corner value, the interval, and where the interior exceeds the corners
+            double maxLo = 0, maxHi = 0, maxAbove = 0, areaAbove = 0, area = 0;
+            int lowBelowCorner = 0, inverted = 0, above = 0, nan = 0, n = 0;
+            foreach (int tid in from.TriangleIndices()) {
+                double lo = dev.TriangleDeviationLower[tid], hi = dev.TriangleDeviationUpper[tid];
+                if (double.IsNaN(lo) || double.IsNaN(hi)) { nan++; continue; }
+                n++;
+                Index3i t = from.GetTriangle(tid);
+                double corner = Math.Max(dev.VertexDeviation[t.a], Math.Max(dev.VertexDeviation[t.b], dev.VertexDeviation[t.c]));
+                if (lo < corner * (1 - 1e-12) - 1e-15 * diag) lowBelowCorner++;
+                if (hi < lo) inverted++;
+                maxLo = Math.Max(maxLo, lo); maxHi = Math.Max(maxHi, hi);
+                double a = from.GetTriArea(tid);
+                area += a;
+                // the interior is certainly (lower bound) farther than the corners by more than the tolerance
+                if (lo > corner + tol) { above++; areaAbove += a; }
+                maxAbove = Math.Max(maxAbove, lo - corner);
+            }
+            r[key + "_nan"] = nan;
+            r[key + "_lower_below_corner"] = lowBelowCorner;
+            r[key + "_inverted"] = inverted;
+            r[key + "_vertex_max_rel"] = Rel(dev.Statistics.MaxAbsolute, diag);
+            r[key + "_lo_max_rel"] = Rel(maxLo, diag);
+            r[key + "_hi_max_rel"] = Rel(maxHi, diag);
+            r[key + "_above_frac"] = n > 0 ? (double)above / n : 0;
+            r[key + "_above_area_frac"] = area > 0 ? areaAbove / area : 0;
+            r[key + "_above_max_rel"] = Rel(maxAbove, diag);
+            // certified area fractions within 1e-3 / 1e-2 of the diagonal, and from the vertex values (not certified)
+            r[key + "_within3_area_frac"] = dev.TriangleUpperStatistics.FractionWithin(1e-3 * diag);
+            r[key + "_within2_area_frac"] = dev.TriangleUpperStatistics.FractionWithin(1e-2 * diag);
+            r[key + "_vertex_within3_frac"] = dev.Statistics.FractionWithin(1e-3 * diag);
+            r[key + "_vertex_within2_frac"] = dev.Statistics.FractionWithin(1e-2 * diag);
+            r[key + "_hi_p95_rel"] = Rel(dev.TriangleUpperStatistics.AbsolutePercentile(0.95), diag);
+            r[key + "_vertex_p95_rel"] = Rel(dev.Statistics.AbsolutePercentile(0.95), diag);
+
+            if (withHausdorff) {
+                sw.Restart();
+                var h = new MeshDeviation(from, to) { Sign = MeshDeviation.Signs.Unsigned, ComputeCertifiedBound = true, CertifiedTolerance = tol };
+                if (h.Compute()) {
+                    r[key + "_hd_ms"] = sw.ElapsedMilliseconds;
+                    r[key + "_hd_lo_rel"] = Rel(h.HausdorffLowerBound, diag);
+                    r[key + "_hd_hi_rel"] = Rel(h.HausdorffUpperBound, diag);
+                    // both are intervals of the same maximum: they must overlap
+                    double eps = 1e-12 * diag;
+                    r[key + "_hd_disjoint"] = maxLo > h.HausdorffUpperBound + eps || h.HausdorffLowerBound > maxHi + eps;
+                }
+            }
         }
 
         // --- fitting on the vertices: success, inlier fraction, determinism and invariance under a rotation

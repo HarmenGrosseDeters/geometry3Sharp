@@ -52,6 +52,70 @@ namespace g3
 
 
         /// <summary>
+        /// Certified interval [lower, upper] of the largest distance to Target over the triangle (a, b, c):
+        /// lower is the distance of a point of the triangle (a corner or a subdivision point, returned in
+        /// worst), and no point of the triangle is farther than upper. Branch and bound as in
+        /// MeshHausdorffDistance, restricted to this triangle: the piece with the largest upper bound is split
+        /// into 4 until upper - lower &lt;= tol or after maxSubdivisions splits (then false, with a wider but
+        /// still valid interval). d_i and n_i are the corner distances and nearest triangles in spatial, whose
+        /// mesh must be Target. Sequential and deterministic, so it can run in parallel over triangles.
+        /// Non-finite corners give NaN. A piece whose bound is NaN (rounding in a degenerate piece) counts as
+        /// unbounded, so upper can be +Infinity if it cannot be resolved within the budget.
+        /// </summary>
+        public bool MaxDistance(DMeshAABBTree3 spatial, Vector3d a, Vector3d b, Vector3d c, double da, double db, double dc,
+            int na, int nb, int nc, double tol, int maxSubdivisions, out double lower, out double upper, out Vector3d worst)
+        {
+            if (spatial.Mesh != Target)
+                throw new ArgumentException("TriangleDeviationBounds.MaxDistance: spatial is not built on Target");
+            worst = a;
+            lower = upper = double.NaN;
+            if (!(finite(a) && finite(b) && finite(c)) || double.IsNaN(da + db + dc) || double.IsInfinity(da + db + dc))
+                return false;
+            lower = da;
+            if (db > lower) { lower = db; worst = b; }
+            if (dc > lower) { lower = dc; worst = c; }
+
+            var heap = new DeviationMaxHeap<Item>();
+            Item root = new Item() { P0 = a, P1 = b, P2 = c, D0 = da, D1 = db, D2 = dc, N0 = na, N1 = nb, N2 = nc };
+            push(heap, root, lower);
+            int splits = 0;
+            while (heap.Count > 0 && heap.TopKey > lower + tol && splits < maxSubdivisions) {
+                Item t = heap.Pop();
+                splits++;
+                Vector3d m01 = 0.5 * (t.P0 + t.P1), m12 = 0.5 * (t.P1 + t.P2), m20 = 0.5 * (t.P2 + t.P0);
+                double d01, d12, d20; int n01, n12, n20;
+                query(spatial, m01, double.MaxValue, out d01, out n01);
+                query(spatial, m12, double.MaxValue, out d12, out n12);
+                query(spatial, m20, double.MaxValue, out d20, out n20);
+                if (d01 > lower) { lower = d01; worst = m01; }
+                if (d12 > lower) { lower = d12; worst = m12; }
+                if (d20 > lower) { lower = d20; worst = m20; }
+                push(heap, new Item() { P0 = t.P0, P1 = m01, P2 = m20, D0 = t.D0, D1 = d01, D2 = d20, N0 = t.N0, N1 = n01, N2 = n20 }, lower);
+                push(heap, new Item() { P0 = m01, P1 = t.P1, P2 = m12, D0 = d01, D1 = t.D1, D2 = d12, N0 = n01, N1 = t.N1, N2 = n12 }, lower);
+                push(heap, new Item() { P0 = m20, P1 = m12, P2 = t.P2, D0 = d20, D1 = d12, D2 = t.D2, N0 = n20, N1 = n12, N2 = t.N2 }, lower);
+                push(heap, new Item() { P0 = m01, P1 = m12, P2 = m20, D0 = d01, D1 = d12, D2 = d20, N0 = n01, N1 = n12, N2 = n20 }, lower);
+            }
+            // pieces dropped or still in the heap below lower cannot exceed it (lower only grows)
+            upper = Math.Max(lower, (heap.Count > 0) ? heap.TopKey : 0);
+            return upper - lower <= tol;
+        }
+
+        // push a piece unless its upper bound shows that it cannot exceed lower
+        void push(DeviationMaxHeap<Item> heap, Item t, double lower)
+        {
+            double ub = UpperBound(t.P0, t.P1, t.P2, t.D0, t.D1, t.D2, t.N0, t.N1, t.N2, lower);
+            if (!(ub <= lower))
+                heap.Push(double.IsNaN(ub) ? double.PositiveInfinity : ub, t);
+        }
+
+        static bool finite(Vector3d v)
+        {
+            double s = v.x + v.y + v.z;
+            return !(double.IsNaN(s) || double.IsInfinity(s));
+        }
+
+
+        /// <summary>
         /// Is every point of the triangle (a, b, c) within eps of Target? Conservative: answers false if
         /// that cannot be shown with maxDepth levels of subdivision.
         /// </summary>
@@ -214,6 +278,50 @@ namespace g3
                 }
             }
             return 0.5 * l;
+        }
+    }
+
+
+    /// <summary> binary max-heap of (key, item); ties pop in a fixed order, so the use is deterministic </summary>
+    internal class DeviationMaxHeap<T>
+    {
+        List<double> keys = new List<double>();
+        List<T> items = new List<T>();
+        public int Count { get { return keys.Count; } }
+        public double TopKey { get { return keys[0]; } }
+
+        public void Push(double key, T item)
+        {
+            keys.Add(key); items.Add(item);
+            int i = keys.Count - 1;
+            while (i > 0) {
+                int p = (i - 1) / 2;
+                if (keys[p] >= keys[i]) break;
+                swap(i, p); i = p;
+            }
+        }
+
+        public T Pop()
+        {
+            T top = items[0];
+            int last = keys.Count - 1;
+            swap(0, last);
+            keys.RemoveAt(last); items.RemoveAt(last);
+            int i = 0, n = keys.Count;
+            while (true) {
+                int l = 2 * i + 1, r = l + 1, m = i;
+                if (l < n && keys[l] > keys[m]) m = l;
+                if (r < n && keys[r] > keys[m]) m = r;
+                if (m == i) break;
+                swap(i, m); i = m;
+            }
+            return top;
+        }
+
+        void swap(int i, int j)
+        {
+            double k = keys[i]; keys[i] = keys[j]; keys[j] = k;
+            T t = items[i]; items[i] = items[j]; items[j] = t;
         }
     }
 }
