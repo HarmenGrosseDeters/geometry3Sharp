@@ -412,3 +412,39 @@ wrap make every remaining mesh closed and free of self-intersections, but remesh
 the median, so they rarely meet the strict criterion. Their inputs are mostly meshes the exact resolve cannot
 take: not closed in the winding number sense, or whose resolved solid differs from the input's.
 
+
+### Wrap fallback without the discarded solidify post-processing (`robust`, both selections)
+Meshes that end in the alpha wrap ran the whole solidify first, including its cleanup and reduction, only to
+discard the result for its self-intersections. Measured on the 191 meshes that `robust` solidified or wrapped
+(both selections, contour checked before and after each post-processing step): all 49 discarded solidifies
+already self-intersect in the raw contour, and of the 142 kept ones only one does (56107.stl, whose 4
+intersecting pairs the reduction happened to remove; the result misses the strict criterion either way, Hausdorff
+4.6 %). No cheap criterion before the solidify separated the two groups: the self-intersections of its input,
+the reason the exact resolve failed and the hidden gap counts of the coarsest contour all overlap.
+
+So `MeshWindingNumberSolidify.StopIfSelfIntersecting` (set by `MeshRobustRepair` when it wraps on
+self-intersections) checks the raw contour and, if it self-intersects, skips the cleanup and the reduction; the
+alpha wrap follows right away (`FinishPostProcess()` completes the solidify if the wrap fails). The check is free
+where the dual contouring has already verified its contour (`DualContouring.SelfIntersectionFree`, it resolves
+self-intersections and stops when an exact pass finds none): of the 141 kept solidifies, 6 needed the explicit
+check (non-manifold fills or unresolved pairs), 2.6 s in total.
+
+`BENCH_P=2 TIMEOUT=300`, both selections run at the same time on a 4-core machine (so the times are about 1.5×
+those of a single run), master `d545c60` before, this change after:
+
+| | first selection, before | after | holdout, before | after |
+|---|---|---|---|---|
+| repaired | 258 | 258 | 256 | 256 |
+| clean + no exact self-intersections | 399 | 399 | 399 | 399 |
+| path: repair / exact / solidify / wrap | 172 / 133 / 69 / 26 | 172 / 133 / 69 / 26 | 174 / 130 / 73 / 23 | 174 / 130 / 72 / 24 |
+| wrap cases (meshes wrapped before): total time | 974 s | 853 s (−12 %) | 1011 s | 866 s (−14 %) |
+| ... median | 30.0 s | 26.0 s | 35.0 s | 30.5 s |
+| ... of it cleanup + reduce of the solidify | 110 s | 0 s | 122 s | 0 s |
+| solidify cases (solidified before): total time | 778 s | 761 s | 872 s | 896 s |
+| all 400: total time | 2723 s | 2599 s (−4.6 %) | 2678 s | 2572 s (−4.0 %) |
+
+The only changed path is 56107.stl (solidified before, wrapped now; Hausdorff 4.6 % → 6.4 %, IoU 0.983 →
+0.959, neither repaired). The solidify-case times differ within the noise of the shared machine (the holdout
+total includes 56107.stl). The raw contour remains the larger part of the remaining wrap-case time (439 s and
+463 s of the solidify, wrap 279 s and 284 s); avoiding it would need a predictor before the contouring, which
+the data above does not offer.
