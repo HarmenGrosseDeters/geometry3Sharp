@@ -536,7 +536,7 @@ namespace g3
                             // and it commutes with adding the integer changes across the patch
                             // (clamped, so that adding the changes across the patch cannot overflow; NaN gives 0)
                             double g = Math.Ceiling(front_generalized_winding(i, m, stack[i]) - 0.5);
-                            wm = (g > 1e6) ? 1000000 : (g < -1e6) ? -1000000 : (g == g) ? (int)g : 0;
+                            wm = (g > 1e6) ? 1000000 : (g < -1e6) ? -1000000 : double.IsNaN(g) ? 0 : (int)g;
                         }
                         if (wm != 0) {
                             sparse.Add(m);

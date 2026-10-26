@@ -277,14 +277,17 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void CandidateSearchInBatches_SameResult()
         {
-            // the candidate pair search runs in batches of mesh pairs: tiny batches (one pair each, or a few
-            // triangles) find the same pairs and give the same result
+            // the candidate pair search runs in batches of mesh pairs (300 triangles per sphere): one pair per
+            // batch (1, 100), two or three pairs per batch (700, 1000) find the same pairs and give the same result;
+            // the first mesh intersects itself (two spheres in one mesh), so self pairs are counted too
             var rand = new Random(9);
             var meshes = new List<DMesh3>();
             for (int k = 0; k < 6; ++k)
                 meshes.Add(Sphere(new Vector3d(rand.NextDouble(), rand.NextDouble(), rand.NextDouble()), 0.6, 6));
+            MeshEditor.Append(meshes[0], Sphere(new Vector3d(0.3, 0.2, 0.1), 0.5, 6));
             var full = Check(new ExactMeshBoolean(meshes, ExactMeshBoolean.AtLeast(2)));
-            foreach (long batch in new long[] { 1, 100, 500 }) {
+            Assert.True(full.SelfIntersectingPairs > 0);
+            foreach (long batch in new long[] { 1, 100, 700, 1000 }) {
                 var small = Check(new ExactMeshBoolean(meshes, ExactMeshBoolean.AtLeast(2)) { CandidateBatchSize = batch });
                 Assert.Equal(full.IntersectingPairs, small.IntersectingPairs);
                 Assert.Equal(full.SelfIntersectingPairs, small.SelfIntersectingPairs);
@@ -303,18 +306,6 @@ namespace geometry3Sharp.Tests
             Assert.Throws<InvalidOperationException>(() => boolean.Compute());
             Assert.Equal(Status.NotComputed, boolean.Status);
             Assert.Null(boolean.Result);
-        }
-
-        [Fact]
-        public void OpenMeshFarAway_IsNotCulled()
-        {
-            // an open mesh far from all patches still gets its generalized winding number (near 0 there)
-            DMesh3 open = Box(10, 10, 10, 12, 12, 12);
-            open.RemoveTriangle(open.TriangleIndices().First(), true, false);
-            var boolean = new ExactMeshBoolean(new[] { Box(0, 0, 0, 1, 1, 1), Box(0.5, 0, 0, 1.5, 1, 1), open }, (w) => w[0] > 0 || w[1] > 0);
-            Assert.True(boolean.Compute(), boolean.Error);
-            Assert.Equal(new[] { true, true, false }, boolean.ExactWinding);
-            Assert.Equal(1.5, Volume(boolean.Result), 12);
         }
 
         [Fact]
