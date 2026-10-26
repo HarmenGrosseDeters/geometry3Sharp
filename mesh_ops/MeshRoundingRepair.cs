@@ -24,9 +24,9 @@ namespace g3
     /// alone. No triangle may turn over in an edit (a fold, which is not an intersection), except slivers
     /// (below 100 times the degenerate area) and triangles not higher than twice the distance a vertex moves
     /// (a move cannot turn over a triangle higher than the move, so the rule matters for flips and zips: tiny
-    /// triangles may turn over, they are only checked for intersections and degeneracy). Components that keep a degenerate triangle
-    /// or were edited, and are tiny (below 1e4 times the degenerate area, eg a flat tetrahedron between
-    /// intersection points that nearly coincide) or closed and thinner than MaxDisplacement times the diagonal
+    /// triangles may turn over, they are only checked for intersections and degeneracy). Closed components that keep a
+    /// degenerate triangle or were edited, and are tiny (below 1e4 times the degenerate area, eg a flat tetrahedron
+    /// between intersection points that nearly coincide) or thinner than MaxDisplacement times the diagonal
     /// (eg the slivers that are the difference of two nearly coincident solids), are removed if
     /// RemoveTinyComponents, as Milenkovic and Sacks do.
     ///
@@ -852,7 +852,9 @@ namespace g3
                     Index3i te = Mesh.GetTriEdges(t);
                     closed &= Mesh.IsBoundaryEdge(te.a) == false && Mesh.IsBoundaryEdge(te.b) == false && Mesh.IsBoundaryEdge(te.c) == false;
                 }
-                if (sum >= 1e4 * areaEps && (closed == false || 2 * Math.Abs(volume) >= maxLength * sum))
+                // (only closed ones: an open component may close the rest by position, eg sheets that touch along an
+                // edge with their own vertices; removing it would leave holes)
+                if (closed == false || (sum >= 1e4 * areaEps && 2 * Math.Abs(volume) >= maxLength * sum))
                     continue;
                 foreach (int t in comp.Indices)
                     Mesh.RemoveTriangle(t, true, false);

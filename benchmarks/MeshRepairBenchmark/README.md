@@ -233,40 +233,69 @@ collapsed (edges longer than the limit or link condition) nor flipped.
 off). The resolve rounds the exact arrangement to double and then repairs the slivers and self-intersections that
 the rounding leaves (`ExactMeshBoolean.SafeRounding`, `MeshRoundingRepair`: local edits, each checked with exact
 predicates against the triangles near it), and repairs again after `SeparateTouchingVertices`. Master with #52
-(`CollapseSlivers`) and #79, `BENCH_P=2`; both columns from the same build (cd15490, the switch only), run at the same
-time on the same machine; the final build (3d08569, bounded work, see below) repairs the same 273, with no timeout
-(`results/robust_nosafe.jsonl`, `results/robust_safe.jsonl`, not versioned):
+(`CollapseSlivers`), #79 and #94/#97, build 9b06745; both columns from the same build (the switch only), run at the
+same time on the same machine, `BENCH_P=2` each (`results/robust_0.jsonl`, `results/robust_1.jsonl`, not versioned):
 
 | 400 set | without safe rounding | with |
 |---|---|---|
-| clean¹ + no exact self-intersections | 398 | 398 (final build: 399) |
-| **repaired** (also Hausdorff < 1 %, IoU > 0.99) | 266 | **273** |
-| exact stage used | 140 | **153** |
-| ... of them repaired | 91 | **100** |
-| exact stage not used because of degenerate triangles | 13 | **2** (final build: 3) |
-| ... because of self-intersections after 4 rounds | 2 | **0** |
-| exact stage needed more than one resolve round | 21 | **3** |
-| solidify / alpha wrap | 63 / 24 | 55 / 19 |
-| timeouts (120 s) | 1 | 1 (final build: 0) |
-| median repair time | 3.67 s | 3.63 s |
-| sum of repair times | 2638 s | 2507 s |
-| sum of the exact stage (227 meshes tried) | 534 s | 632 s |
+| clean¹ + no exact self-intersections | 398 | 398 |
+| **repaired** (also Hausdorff < 1 %, IoU > 0.99) | 265 | **270** |
+| exact stage used | 144 | **156** |
+| ... of them repaired | 91 | **98** |
+| exact stage not used because of degenerate triangles | 15 | **3** |
+| ... because of self-intersections after 4 rounds | 1 | **0** |
+| exact stage needed more than one resolve round | 23 | **4** |
+| solidify / alpha wrap | 60 / 24 | 53 / 19 |
+| timeouts (120 s) | 1 | 1 |
+| median / p90 repair time | 3.64 s / 14.8 s | **3.38 s / 13.6 s** |
+| sum of repair times | 2573 s | **2504 s** |
+| sum of the exact stage (228 meshes tried) | 622 s | 746 s |
+| large meshes repaired (30) ³ | 18 | **20** |
+| large meshes: exact stage used | 13 | 16 |
 
-7 meshes are repaired that were not before, none is lost: 1037029, 1102667, 110378, 126542 (the cleanup left slivers),
-195683, 338196 (self-intersections after the rounds), 1505037 (timeout without). The safe rounding edits the
-resolve in 56 of 161 rounds, the repair after the separation in 20. The exact stage costs 18 % more where it is
-tried, but where it now succeeds the solidify or alpha wrap is saved, so the total time does not grow. Large
-meshes (30): exact stage used 13 → 16 (315359, 562346, 816587); the strict count goes 14 → 13 because the benchmark
-does not check results above 300k triangles for self-intersections, and these three are above (329k–497k). The exact
-stage checks them exactly, and `MeshRepairMetrics.SelfIntersections` finds 0 in all three: Hausdorff 0.55 / 0.39 /
-0.80 %, IoU 1.0 / 0.9999 / 0.995, so with them 18 → 20 large meshes are repaired, none is lost.
+5 meshes are repaired that were not before, none is lost: 1037029, 110378, 126542 (the cleanup left slivers),
+195683, 338196 (self-intersections after the rounds); large: 562346, 816587. The exact stage costs 20 % more where
+it is tried, but where it now succeeds the solidify or alpha wrap is saved, so the total time drops a little.
+Earlier builds of this change (cd15490 / 3d08569, before master's #94/#97) gave 266 → 273 in the same comparison;
+master's changes to the repair before the exact stage moved 2 meshes (1102667, 1505037) to "not closed (winding
+number)" in both columns.
+
+³ The benchmark does not check results above 300k triangles for self-intersections and counts them as not repaired.
+The large results of the exact stage are checked by the stage itself (exactly); counted here, as the stage reports
+them. Strictly counted: 14 → 13 (315359, 562346, 816587 are 329k–497k triangles; `MeshRepairMetrics.SelfIntersections`
+finds 0 in all three, Hausdorff 0.55 / 0.39 / 0.80 %, IoU 1.0 / 0.9999 / 0.995).
 
 **Bounded work.** On 1368057.stl (93k triangles, 3326 slivers after the rounding, 426 of which cannot be removed
 without an intersection) the first build took 27 s for the safe rounding and 800 s for the repair after the
 separation, where `CollapseSlivers` had made 3000 intersections. The repair now bounds the evaluations (50 per defect)
 and the exact pair tests (2·10⁷), keeps the old count for proposals of the same triangles and indexes the changed
-triangles: 1368057 takes 74 s in the final run (56 s of it the exact stage, then the solidify, as without safe
-rounding, which takes 30 s), the same edits elsewhere.
+triangles: 1368057 takes 78 s (60 s of it the exact stage, which still fails; then the solidify, as without safe
+rounding, which takes 29 s in all), the same edits elsewhere. It is the worst case of the run.
+
+### Exact booleans with safe rounding (`BENCH_REPAIR=exact`, `analyze_exact.py`)
+`BENCH_REPAIR=exact` computes union, intersection and difference of each mesh with a rotated, shifted copy of
+itself (`ExactMeshBoolean`), here with `SafeRounding` (the default of the mode, `BENCH_SAFE_ROUNDING=0` switches it
+off). 400 set; without: build cd15490, with: 3d08569, the meshes where components were removed rerun with 9b06745
+(only closed components are removed: before, removing tiny open ones left 4 results with holes). `BENCH_P=2`/`3`:
+
+| 400 set | without safe rounding | with |
+|---|---|---|
+| exact winding (closed input), result closed and clean (`analyze_exact.py`) | 107 | **133** |
+| ... results (of 3 per mesh, 561) with degenerate triangles | 286 | **43** |
+| ... with exact self-intersections ² | 181 | 111 |
+| ... not closed in the winding number sense | 0 | 0 |
+| all results (1176) with degenerate triangles | 698 | 291 |
+| results verified free of both by the repair (`RoundingClean`) | – | 882 |
+| timeouts (120 s) | 9 | 8 |
+| median / sum of the three booleans per mesh | 3.3 s / 2099 s | 3.2 s / 2229 s |
+
+² `MeshRepairMetrics` counts sheets that touch at duplicated vertices (where the solids touch) as intersecting;
+safe rounding keeps those contacts, so part of the remaining count is not an intersection. Most of the results the
+repair leaves unclean come from open inputs (generalized winding numbers): their results are open, and the repair
+does not edit at boundary vertices. The volume identities (V(A∪B) + V(A∩B) = V(A) + V(B)) stay at 1e-14 relative in
+the median; the largest new deviations are inputs whose solid is empty or tiny (83719.stl and 51358.stl, eg
+83719 is inside-out: its resolved solid has volume 1e-12 at a diagonal of 64, removed as slivers; 51352: 1e-3 of a
+volume of 2e-5).
 
 ### Spike: solidify resolution 256 (`BENCH_SOLID_RES=256`, 30 meshes)
 20 meshes that `robust` solidified and that missed the 1 % Hausdorff bound at resolution 128, and 10 it
@@ -512,6 +541,41 @@ TIMEOUT=300`. The large meshes of the first selection were not rerun.
 - The alpha wrap cases now take a third of the total time (659 s holdout, 603 s first selection): each
   first runs the exact resolve and the solidify, which are discarded (113906.stl: 11 s exact, 66 s
   solidify, 12 s wrap). Deciding earlier that the solidify will fail is the next lever.
+
+### Effect of the faster checks (#49) alone
+A/B on the same machine, one build after the other: master before #49 (`8e98439`) against the #49 branch
+(`c5cf323`, the same master plus the speedups), `robust`, `BENCH_P=2`, `TIMEOUT=300` (large meshes 900).
+What #49 changes, all with the same results except where noted:
+- volume check: `MeshRepairMetrics.VolumeIoUAtLeast` classifies the samples in doubling rounds and stops
+  once a Wilson interval (z = 4) lies on one side of `MinVolumeIoU` (all samples near the threshold);
+- exact resolve: plane sides and `orient3d` along the classification rays of `ExactMeshBoolean` decided in
+  doubles with error bounds, exact only where the filter cannot decide;
+- reduction with `PreventSelfIntersections`: hierarchical `TriangleHashGrid`, each triangle reported once
+  per query and only if its box overlaps (before: about 196 candidates per query, mostly duplicates);
+- fast winding number: cache in arrays, leaf triangle corners contiguous (same values, about 25 % faster);
+- `HasSelfIntersections` stops at the first pair (`NotCleanReason` only needs yes/no).
+
+| | holdout before | holdout after | first selection before | first selection after | holdout large before | holdout large after |
+|---|---|---|---|---|---|---|
+| repaired | 253 | 253 | 254 | 254 | 13/30 | 13/30 |
+| clean¹ + no exact self-intersections | 375 | 375 | 369 | 370 | 20 | 20 |
+| sum of repair times | 2665 s | **1600 s** | 2450 s | **1551 s** | 1237 s | **627 s** |
+| median repair time | 4.06 s | **1.89 s** | 3.85 s | **1.91 s** | 14.8 s | **10.0 s** |
+| p90 / max | 13.9 s / 168 s | 9.3 s / 78 s | 11.2 s / 65 s | 8.9 s / 46 s | 67 s / 550 s | 51 s / 129 s |
+| solidified meshes: sum | 1514 s | 1104 s | 1227 s | 956 s | 967 s | 443 s |
+
+- Per mesh the time halves (median ratio 0.50 on both selections, 0.79 on the large meshes). The slowest
+  meshes gain least: their time is in the solidify contouring, where the fast winding number is slow for CAD
+  meshes with long triangles (hundreds of exact solid angles per query); the slowest 10 % now take 48 %
+  of the time (before 42 %).
+- Largest gains: 247516.stl (large) 550 → 70 s, 113906.stl 168 → 78 s, 1313553.stl 88 → 40 s (reduction
+  50 → 19 s), 270401.stl 64 → 16 s, 1514500.stl 36 → 10 s (exact classification 17.7 → 2.9 s).
+- No mesh of the holdout selection takes another path. On the first selection two do: 79020.stl flips
+  between the solidify and the exact resolve from run to run already before #49 (`MeshAutoRepair` is not
+  deterministic there); 45561.stl was accepted after the exact resolve because the volume check decided
+  before any sample had hit the (tiny) input solid, fixed on master since (bfb1b0a: no early answer
+  without an input sample).
+- The losses are 0.2–1.4 s per mesh on solidified meshes, within the run-to-run noise of the solidify.
 
 ## Analysis building blocks (`BENCH_REPAIR=analysis`)
 `AnalysisBench.cs` runs `MeshWallThickness`, `MeshDeviation` and `PrimitiveFit3` on the inputs as they are
