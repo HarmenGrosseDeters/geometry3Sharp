@@ -1,7 +1,11 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <Version>1.0.0.0</Version>
+    <Version>1.1.0</Version>
+    <!-- fixed, so that CI versions (-p:Version=1.0.0-ci.N) also stay above the upstream assembly version 1.0.324.0:
+         .NET (Core) refuses to load an assembly with a lower version than the one a consumer was compiled against -->
+    <AssemblyVersion>1.1.0.0</AssemblyVersion>
+    <FileVersion>1.1.0.0</FileVersion>
     <Title>geometry3Sharp</Title>
     <Authors>Ryan Schmidt</Authors>
     <Company>gradientspace</Company>
@@ -19,6 +23,13 @@
     <IncludeSymbols>true</IncludeSymbols>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
     <Deterministic>true</Deterministic>
+    <!-- pack checks the public API against the upstream package 1.0.324 (the fork stays API compatible with it;
+         this downloads the baseline package from nuget.org).
+         Known, accepted breaks are listed in CompatibilitySuppressions.xml: the dropped net45 target (netstandard2.0
+         covers net461+), Util.ParseInt returning int instead of float, and the protected fields Remesher.vModifiedV
+         and DMeshAABBTree3.box_centers/box_extents whose types changed -->
+    <EnablePackageValidation>true</EnablePackageValidation>
+    <PackageValidationBaselineVersion>1.0.324</PackageValidationBaselineVersion>
     <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
   </PropertyGroup>
 

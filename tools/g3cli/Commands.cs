@@ -19,7 +19,7 @@ namespace g3cli
     public static class Commands
     {
         public static readonly List<Command> All = new List<Command>() {
-            Measure(), Repair(), Boolean(), Resolve(), Remesh(), Simplify(), Convert()
+            Measure(), Repair(), Boolean(), Resolve(), Remesh(), Simplify(), Uv(), Convert()
         };
 
         public static Command Find(string name)
@@ -158,7 +158,7 @@ namespace g3cli
             c.Params.Add(Output());
             c.Params.Add(new Param("method", ParamType.String, "repair method") { Default = "robust", Enum = new[] { "robust", "auto" } });
             c.Params.Add(new Param("tolerance", ParamType.Number, "weld / crack-closing tolerance of MeshAutoRepair (default 1e-6)"));
-            c.Params.Add(new Param("solidify_resolution", ParamType.Integer, "robust: grid cells along the bounding box diagonal of the solidify fallback") { Default = 128 });
+            c.Params.Add(new Param("solidify_resolution", ParamType.Integer, "robust: grid cells along the bounding box diagonal of the solidify fallback, 8..2048") { Default = 128 });
             c.Params.Add(new Param("min_volume_iou", ParamType.Number, "robust: minimum volume IoU of the repair with the input before falling back (0 = no check)") { Default = 0.99 });
             c.Params.Add(new Param("exact_resolve", ParamType.Boolean, "robust: before the solidify, resolve the self-intersections exactly (ExactMeshBoolean.Resolve)") { Default = true });
             c.Params.Add(SelfIntersections());
@@ -186,8 +186,8 @@ namespace g3cli
                         throw new CommandException(ResultCodes.OperationFailed, "MeshAutoRepair failed");
                     result = repair.Mesh;
                 } else {
-                    if (args.Integer("solidify_resolution") < 8)
-                        throw new CommandException(ResultCodes.InvalidArguments, "'solidify_resolution' must be >= 8");
+                    if (args.Integer("solidify_resolution") < 8 || args.Integer("solidify_resolution") > 2048)
+                        throw new CommandException(ResultCodes.InvalidArguments, "'solidify_resolution' must be in 8..2048");
                     var repair = new MeshRobustRepair(new DMesh3(mesh)) {
                         SolidifyResolution = args.Integer("solidify_resolution"),
                         MinVolumeIoU = args.Number("min_volume_iou"),
@@ -465,6 +465,103 @@ namespace g3cli
                 o["mesh"] = MeshReport.Metrics(mesh, args.Bool("self_intersections"));
                 if (args.Bool("deviation"))
                     o["hausdorff"] = Hausdorff(input, mesh);
+                o["warnings"] = Warnings(warnings);
+                return o;
+            };
+            return c;
+        }
+
+
+        // ---- uv ----
+
+        static JsonObject DistortionInfo(ParameterizationDistortion d)
+        {
+            return new JsonObject() {
+                ["mean_area"] = MeshReport.Num(d.MeanAreaDistortion),
+                ["max_area"] = MeshReport.Num(d.MaxAreaDistortion),
+                ["mean_conformal"] = MeshReport.Num(d.MeanConformal),
+                ["max_conformal"] = MeshReport.Num(d.MaxConformal),
+                ["mean_angle_error"] = MeshReport.Num(d.MeanAngleError),
+                ["flipped_triangles"] = d.FlippedTriangles,
+            };
+        }
+
+        static Command Uv()
+        {
+            var c = new Command() {
+                Name = "uv",
+                Description = "UV atlas (UVAtlasGenerator) of any mesh, closed or open, of any genus: seams through automatically placed cones " +
+                    "(BFF with cone singularities) where that gives one overlap-free chart, otherwise charts grown by normal and flattened with BFF, " +
+                    "split while a chart exceeds the distortion limits; packed into the unit square and checked for overlaps with exact predicates. " +
+                    "The output has the vertices split along the seams, with per-vertex UVs (OBJ, PLY, glTF/GLB, g3mesh keep them). " +
+                    "atlas_status 'distortion_limit_exceeded' means overlap-free, but max_charts was not enough for the limits.",
+            };
+            c.Params.Add(Input());
+            c.Params.Add(Output());
+            c.Params.Add(new Param("method", ParamType.String, "auto: cones where they work, else charts; cones; charts; single: one chart per component") {
+                Default = "auto", Enum = new[] { "auto", "cones", "charts", "single" } });
+            c.Params.Add(new Param("max_area_distortion", ParamType.Number, "per chart: mean |log(area ratio)| (0 = area preserving)") { Default = 0.25 });
+            c.Params.Add(new Param("max_conformal_distortion", ParamType.Number, "per chart: mean conformal distortion s1/s2 (1 = conformal)") { Default = 1.2 });
+            c.Params.Add(new Param("max_charts", ParamType.Integer, "at most this many charts") { Default = 128 });
+            c.Params.Add(new Param("max_normal_angle", ParamType.Number, "charts: largest angle between a triangle normal and its chart normal (degrees)") { Default = 50.0 });
+            c.Params.Add(new Param("feature_weight", ParamType.Number, "seams prefer sharp edges (0 = shortest seams)") { Default = 1.0 });
+            c.Params.Add(new Param("padding", ParamType.Number, "gap between charts in the unit square, in [0, 0.25)") { Default = 0.005 });
+            c.Params.Add(Binary());
+            c.Run = args => {
+                MeshFiles.CheckWritable(args.String("output"));
+                double maxArea = args.Number("max_area_distortion"), maxConf = args.Number("max_conformal_distortion");
+                double padding = args.Number("padding"), angle = args.Number("max_normal_angle");
+                if (!(maxArea > 0))
+                    throw new CommandException(ResultCodes.InvalidArguments, "'max_area_distortion' must be > 0");
+                if (!(maxConf >= 1))
+                    throw new CommandException(ResultCodes.InvalidArguments, "'max_conformal_distortion' must be >= 1");
+                if (args.Integer("max_charts") < 1)
+                    throw new CommandException(ResultCodes.InvalidArguments, "'max_charts' must be >= 1");
+                if (!(padding >= 0 && padding < 0.25))
+                    throw new CommandException(ResultCodes.InvalidArguments, "'padding' must be in [0, 0.25)");
+                if (!(angle > 0 && angle <= 180))
+                    throw new CommandException(ResultCodes.InvalidArguments, "'max_normal_angle' must be in (0, 180]");
+                if (!(args.Number("feature_weight") >= 0))
+                    throw new CommandException(ResultCodes.InvalidArguments, "'feature_weight' must be >= 0");
+                var warnings = new List<string>();
+                if (!MeshFiles.StoresUVs(args.String("output")))
+                    warnings.Add("the output format does not store UVs (use " + string.Join(", ", MeshFiles.UVFormats) + ")");
+                DMesh3 mesh = MeshFiles.Read(args.String("input"), warnings);
+                var methods = new Dictionary<string, UVAtlasGenerator.Methods>() {
+                    ["auto"] = UVAtlasGenerator.Methods.Auto, ["cones"] = UVAtlasGenerator.Methods.Cones,
+                    ["charts"] = UVAtlasGenerator.Methods.Charts, ["single"] = UVAtlasGenerator.Methods.SingleChart,
+                };
+                var atlas = new UVAtlasGenerator(mesh) {
+                    Method = methods[args.String("method")],
+                    MaxAreaDistortion = maxArea, MaxConformalDistortion = maxConf,
+                    MaxCharts = args.Integer("max_charts"), MaxNormalAngle = angle,
+                    FeatureWeight = args.Number("feature_weight"), Padding = padding,
+                };
+                atlas.Compute();
+                if (atlas.Status == UVAtlasStatus.InvalidMesh || atlas.Status == UVAtlasStatus.Failed || atlas.AtlasMesh == null)
+                    throw new CommandException(ResultCodes.OperationFailed, "uv atlas failed: " + atlas.Error);
+                if (atlas.Status == UVAtlasStatus.DistortionLimitExceeded)
+                    warnings.Add(atlas.Error);
+                MeshFiles.Write(args.String("output"), atlas.AtlasMesh, args.Bool("binary"), uvs: true);
+
+                var o = new JsonObject() { ["input"] = args.String("input"), ["output"] = args.String("output"), ["method"] = args.String("method") };
+                o["atlas_status"] = atlas.Status == UVAtlasStatus.Success ? "success" : "distortion_limit_exceeded";
+                o["charts"] = atlas.ChartCount;
+                o["charts_over_limit"] = atlas.ChartsOverLimit;
+                o["chart_methods"] = new JsonObject(atlas.Charts.GroupBy(ch => ch.Method).OrderBy(g => g.Key)
+                    .Select(g => new KeyValuePair<string, JsonNode>(g.Key, g.Count())));
+                o["cones"] = atlas.ConeCount;
+                o["cone_components"] = atlas.ConeComponents;
+                o["seam_length"] = MeshReport.Num(atlas.SeamLength);
+                o["coverage"] = MeshReport.Num(atlas.Coverage);
+                o["overlapping_pairs"] = atlas.Overlap.OverlappingPairs;
+                o["inverted_triangles"] = atlas.Overlap.InvertedTriangles;
+                o["float_uv_defects"] = atlas.StoredDefects;
+                o["float_uv_sub_resolution_defects"] = atlas.SubResolutionDefects;
+                o["distortion"] = DistortionInfo(atlas.Distortion);
+                o["input_mesh"] = MeshReport.Metrics(mesh, false);
+                o["vertices"] = atlas.AtlasMesh.VertexCount;
+                o["triangles"] = atlas.AtlasMesh.TriangleCount;
                 o["warnings"] = Warnings(warnings);
                 return o;
             };
