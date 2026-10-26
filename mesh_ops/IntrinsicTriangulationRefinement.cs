@@ -94,8 +94,8 @@ namespace gs
         /// only splits the boundary edges opposite obtuse angles. Triangles whose small angle comes from
         /// the input (at a vertex with an angle sum below 60 degrees, or whose shortest edge connects two
         /// boundary edges of such a vertex) cannot be improved and are skipped (Shewchuk 2002); boundary
-        /// edges at such vertices are split at powers of two from the vertex (concentric shells), so the
-        /// refinement there terminates. maxInsertions (0: 10 * input vertices + 1000) bounds the work;
+        /// edges at such vertices are split at powers of two times the mean input edge length from the vertex
+        /// (concentric shells), so the refinement there terminates. maxInsertions (0: 10 * input vertices + 1000) bounds the work;
         /// boundary edges opposite obtuse angles are split up to twice that limit.
         /// The geometry is not changed; inserted vertices lie on the input surface.
         /// </summary>
@@ -106,6 +106,8 @@ namespace gs
             double theta = r.MinAngleBound * Math.PI / 180;
             int limit = maxInsertions > 0 ? maxInsertions : 10 * N0 + 1000;
             int n0 = N;
+            // unit of the concentric shells: the mean input edge length, so that the shells scale with the mesh
+            shellUnit = (MeanEdgeLength > 0 && double.IsInfinity(MeanEdgeLength) == false) ? MeanEdgeLength : 1;
             r.Flips += FlipToDelaunay();
 
             var faceQ = new Queue<int>();
@@ -322,6 +324,9 @@ namespace gs
             return -1;
         }
 
+        // unit length of the concentric shells (set by DelaunayRefine)
+        double shellUnit = 1;
+
         // Splits a boundary edge: at its midpoint, or, if it ends at a small input angle, at a power of two
         // from that vertex (concentric shells, Shewchuk 2002), so that splits from both sides of the angle
         // match and do not encroach each other forever
@@ -337,7 +342,8 @@ namespace gs
             else if (tj == 1 && small_angle_vertex(vh)) { v = vh; di = (1 - ti) * L; dj = 0; }
             if (v >= 0) {
                 double hi = Math.Max(di, dj);
-                double pw = Math.Pow(2, Math.Round(Math.Log(0.5 * hi, 2)));
+                // (powers of two times a length of the input, not absolute: the shells scale with the mesh)
+                double pw = shellUnit * Math.Pow(2, Math.Round(Math.Log(0.5 * hi / shellUnit, 2)));
                 if (pw > 0.25 * hi && pw < 0.75 * hi) s = (pw - di) / (dj - di);
             }
             return split_edge(h, s);
