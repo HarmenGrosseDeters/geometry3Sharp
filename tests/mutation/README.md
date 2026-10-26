@@ -48,41 +48,58 @@ The `break` threshold is 80. Raise it as tests kill more mutants; never lower it
 
 Many survivors are **equivalent**. A mutant that only makes a filter decide less often (`>` against `>=`,
 `onlyD` forced to `true`, a larger bound, `permanent >= UnderflowLimit`) leaves the result unchanged, because
-the fallback computes the exact sign. The real gaps are the mutants that make a filter decide **more** often
-than its error bound allows, and the checks no test reaches. Each group below is a test gap to close, mostly
-with differential tests against exact evaluation (QA.md 2.4):
+the fallback computes the exact sign.
 
-1. **The filter error bounds can shrink without a test failing.**
-   - In `ExactPredicates`, these mutants survive: removing terms of the bounds of orient3d, incircle and
-     insphere; `+` turned into `-`; `*` turned into `/` in the insphere permanent; and `-det` turned into
-     `+det`.
-   - In `AdaptivePredicates`, `- ResultErrBound * |det|` survives.
-   - A smaller bound lets the filter return a sign that the exact evaluation would contradict.
-   - The tests use configurations that are either clearly decided or exactly degenerate. They need inputs
-     whose floating-point determinant is wrong: points a few ulps off a line, plane, circle or sphere, with
-     differences of very different magnitudes, compared with the exact sign.
-2. **The underflow guards:** `permanent < UnderflowLimit` (the guard inverted) survives. It needs inputs
-   whose products are subnormal and whose filter would otherwise accept.
+**Follow-up measurement (`PredicateDifferentialTests`, `ExactPoint3ConversionTests`).** The groups below were
+first read as test gaps. Differential tests aimed at them changed the picture:
+
+1. **Filter error bounds (`ExactPredicates`): one real gap, now closed; the rest practically equivalent.**
+   - `PredicateDifferentialTests` compares nearly degenerate configurations with exact integer evaluation.
+     The points are a few ulps off a line, plane, circle or sphere, with differences of very different
+     magnitudes, far from the origin.
+   - These random configurations alone killed none of the 74 survivors in `ExactPredicates`.
+   - The InSphere permanent was a real gap. Mutants such as `cdp * bezp` to `cdp / bezp` shrink the bound
+     where one z difference is large and the others are 0, and the filter then returns wrong signs.
+     `InSphere_OnePointFarOutOfPlane_OthersNearlyCoplanar` builds such inputs: one point far along z, one far
+     along x, two nearly on a line in the plane z = 0. With it, the file has 467 killed and 65 survived
+     (before: 458 and 74). The score of the file went from 85.9 % to 87.6 %.
+   - Of the 11 InSphere survivors left:
+     - `-det > bound` to `+det > bound` cannot be reached, because the line before already returns for
+       `det > bound`.
+     - Four change the underflow guards (`permanent < UnderflowLimit` or `>=`); see 2.
+     - Six mutate the subnormal error term (`... * UnderflowUnit`). It matters only in a narrow band of
+       inputs whose products are just above the underflow range. That is untested, but no realistic input
+       reaches it.
+   - The survivors in `Orient2d`, `Orient3d` and `InCircle` are of the same kinds.
+   - Shewchuk's bounds are worst-case bounds with a margin of several times the typical error. A bound
+     made smaller by one term gives a wrong sign only on inputs constructed for that worst case, as for
+     the permanent above.
+2. **Underflow guards:** `permanent < UnderflowLimit` and `>=` only choose between two exact paths.
+   Equivalent.
 3. **Input checks in `ExactPredicates`:**
-   - Removing the `throw` for non-finite coordinates survives: no test checks that NaN or infinity throws on
-     that path.
-   - The `MinMagnitude` / `MaxMagnitude` limits survive.
-4. **Coincident-point shortcuts** (`a == e || b == e || ...`): the `||` to `&&` mutants survive. Only some
-   positions of the repeated point are tested.
-5. **`ExactPoint3`**:
-   - not tested, or only partly:
-     - `ToDouble` near the limits of the double range: subnormal results, rounding to zero, the sign of
-       zero, the shift for negative exponents;
-     - the zero-W constructor (not covered at all);
-     - the `is_safe` checks;
-     - `GetHashCode`.
-   - Equivalent mutants here, and in `ExactPredicates.Decompose`: `>>` against `>>>` on a masked value,
-     `|=` against `^=` on a cleared bit.
+   - The `throw` for NaN in `Expansion.in_range` is equivalent: NaN fails the range check, and the integer
+     path throws anyway.
+   - The `MinMagnitude` / `MaxMagnitude` boundaries only choose between two exact paths. Equivalent.
+4. **Coincident-point shortcuts** (`a == e || ...`): the shortcuts save time, and the exact paths give 0 for
+   coincident points as well. Equivalent.
+5. **`ExactPoint3`: a real gap, now closed for the most part.**
+   - `ExactPoint3ConversionTests` checks `ToDouble`, `ScaleB`, `BitLength`, `Decompose`, `Create` and
+     `ApproxVector3d` exactly, in integer arithmetic, over the whole double range: subnormal results,
+     overflow, the sign of zero, quotients of very different sizes.
+   - The file's mutants: killed 126 before, 154 after; without coverage 16 before, 2 after. The file's score
+     went from 65 % to 81 %.
+   - The remaining survivors are mostly equivalent:
+     - exception messages;
+     - `>>` against `>>>` on a masked value;
+     - `|=` against `^=` on a cleared bit;
+     - `GetHashCode`, whose arithmetic only needs to be deterministic.
 6. **`AdaptivePredicates`**:
    - The `StageDCount` counters are not checked.
    - The merge order in the expansion sums (lines 284 and 287) is not checked either. Shewchuk's sums need
      the merge by magnitude for non-overlapping output; a test with expansions of very different magnitudes
      would show it.
+   - Open.
 
 Mark equivalent mutants in the code with `// Stryker disable once <mutator>: <reason>` instead of writing a test
-for them.
+for them. This happens when the files in `math/Exact*` are next changed anyway; they are being worked on in
+other PRs.
