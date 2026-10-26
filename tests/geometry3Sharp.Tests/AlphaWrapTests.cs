@@ -669,18 +669,18 @@ namespace geometry3Sharp.Tests
         [InlineData(15)]
         public void Wrap_SymmetricInput_NoBoxCornersOnTheResult(double relativeAlpha)
         {
-            // a sphere centred in a box with the same margin on all sides: nearly flat cells of two box corners and two
-            // Steiner points had far-off circumcenters, a rule 1 point landed on an existing vertex (rejected) and the
-            // cell stayed inside up to the box: two box corners on a Success result
+            // a sphere centred in a box with the same margin on all sides: two rule 1 points were rejected (at existing
+            // vertices) and their cells stayed inside up to the box: two box corners on a Success result. Checked now,
+            // and wrapped once more in a box with a different margin on each side
             DMesh3 s = Sphere(1, 12);
             var w = new MeshAlphaWrap(s) { RelativeAlpha = relativeAlpha };
             Assert.True(w.Compute());
             Assert.Equal(0, w.Counts["result_box_corners"]);
             Assert.Equal(0, w.Counts["rejected_rule1"]);
+            Assert.Equal(1, w.Counts["box_retries"]);       // the first box (same margin on all sides) failed
             CheckWrap(w, Vertices(s));
-            // with the same margin on all sides (as before): box corners on the result, which the result check
-            // reports as Failed instead of Success
-            var symmetric = new MeshAlphaWrap(s) { RelativeAlpha = relativeAlpha, SymmetricBox = true };
+            // without the retry: box corners on the result, which the result check reports as Failed, not Success
+            var symmetric = new MeshAlphaWrap(s) { RelativeAlpha = relativeAlpha, RetryWithOtherBox = false };
             Assert.False(symmetric.Compute());
             Assert.Equal(MeshAlphaWrap.WrapStatus.Failed, symmetric.Status);
             Assert.Equal("result box corners on the result", symmetric.Error);

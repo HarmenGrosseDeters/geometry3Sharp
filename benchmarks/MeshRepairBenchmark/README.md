@@ -672,3 +672,18 @@ Each fix has a unit test that fails on the code before the fix.
   - The fits differ on 0–7 meshes per primitive: ties under rounding, as for the rotation.
 - **geo:** run pending.
 
+
+## Alpha wrap result check and box retry (#110)
+`MeshAlphaWrap` now checks its result before it reports Success. The result must be closed, have no bowties and no box corners. If the check fails, the wrap runs once more with a slightly different margin on each side of the box (`Counts["box_retries"]`). Rejected Steiner points are counted per rule (`rejected_rule1`, `rejected_rule2`). `wrap` mode, 400 set, base master d5eeda1, `BENCH_P=2`:
+
+| | master | box with different margins on all sides, always (first version) | same box first, retry if the check fails (merged version) |
+|---|---|---|---|
+| Success | 400 | 399 (286985: box corner on the result, from the manifold step) | 400 |
+| results different from master | | most (other box) | none (no retry needed) |
+| Hausdorff both < 1 % | 44 | 46 | 44 |
+| meshes with rejected rule 1 points | 3 (99911: 1835, 1681235: 5, 702413: 1) | 2 (99911: 2090, 1681235: 24) | as master |
+
+- Synthetic sweep (spheres, boxes, a cylinder, soups; alpha = diagonal / 5 to / 50; 84 wraps): master reported Success with box corners on the result for 2 of them (a unit sphere, alpha = d/10 and d/15). The merged version retries those 2 and gets results without box corners.
+- `robust`: the 25 meshes that reach the wrap fallback give the same results as before.
+- Rejected rule 1 points with Success stay possible, as on master (99911). They are counted. The result still encloses the input and does not cross it, but it can come closer to the input than the offset there.
+- I also tried exact circumcenters for nearly flat cells. They did not change the rejections on these meshes, so they are not included.

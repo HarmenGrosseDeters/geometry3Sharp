@@ -81,8 +81,9 @@ namespace gs
         public int MaxSteinerPoints = 2000000;
         /// <summary> make the result 2-manifold (otherwise it can have non-manifold edges and vertices, which DMesh3 rejects; for tests) </summary>
         internal bool MakeManifold = true;
-        /// <summary> the same margin on all sides of the box (as before; for tests of the result check) </summary>
-        internal bool SymmetricBox = false;
+        /// <summary> if the result misses the guarantees, wrap once more with a different box margin (off: for tests of the result check) </summary>
+        internal bool RetryWithOtherBox = true;
+        bool asymmetricBox;
 
         /// <summary> return true to cancel (checked during the refinement and the manifold step); null = never </summary>
         public Func<bool> CancelF = () => { return false; };
@@ -137,6 +138,22 @@ namespace gs
 
         /// <summary> computes Result; true on Success (see Status; Result is also set for PointLimitReached) </summary>
         public bool Compute()
+        {
+            asymmetricBox = false;
+            bool ok = compute_once();
+            // a result that misses the guarantees (box corners on it, from cells that stayed inside up to the box,
+            // or a non-manifold remainder): once more with a slightly different margin on each side of the box. With
+            // the same margin on all sides, symmetric inputs (eg a unit sphere, alpha = diagonal / 10) make nearly flat
+            // cells of box corners and Steiner points; their Steiner points can be rejected, and the cells stay inside.
+            if (Status == WrapStatus.Failed && Result != null && RetryWithOtherBox) {
+                asymmetricBox = true;
+                ok = compute_once();
+                Counts["box_retries"] = 1;
+            }
+            return ok;
+        }
+
+        bool compute_once()
         {
             Result = null;
             Error = null;
@@ -229,16 +246,12 @@ namespace gs
             // the box keeps the offset surface strictly inside, with room for alpha balls around it
             AxisAlignedBox3d box = bounds;
             double margin = 2 * (offset + alpha) + 1e-3 * Math.Max(diag, offset);
-            // a slightly different margin on each side: symmetric inputs (spheres, CAD parts) are not symmetric to the
-            // box, whose corners otherwise make nearly flat cells with the Steiner points; their floating-point
-            // circumcenters are far off, and a rule 1 point from such a dual edge lands on an existing vertex
-            // (rejected), so the cell stays inside up to the box (corners on the result; eg a unit sphere, alpha
-            // diagonal / 10)
-            if (SymmetricBox) {
-                box.Expand(margin);
-            } else {
+            // (the retry of Compute: a slightly different margin on each side, so the box is not symmetric to the input)
+            if (asymmetricBox) {
                 box.Min -= margin * new Vector3d(1.0137, 1.0291, 1.0413);
                 box.Max += margin * new Vector3d(1.0371, 1.0173, 1.0239);
+            } else {
+                box.Expand(margin);
             }
             dt = new Delaunay3(box);
             // the cell stamps of the new triangulation start again: entries of an earlier Compute() would match
