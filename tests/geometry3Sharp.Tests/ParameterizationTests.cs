@@ -921,7 +921,16 @@ namespace geometry3Sharp.Tests
             }
             // the planar part stays an isometry (up to scale for the conformal maps)
             Assert.True(results["ARAP"].Distortion.ARAPEnergy < 1e-6, "ARAP energy " + results["ARAP"].Distortion.ARAPEnergy);
-            // SLIM keeps every UV triangle positive, also the one that is degenerate on the surface
+            // the reported ARAP energy includes the stiff, mollified degenerate triangle; its term is negligible, so it
+            // agrees with the distortion measure, which skips it
+            Assert.Equal(results["ARAP"].Distortion.ARAPEnergy, results["ARAP"].Energy, 9);
+            foreach (double lift in new[] { 0.3, 0.6 }) {
+                DMesh3 curved = TJunction(lift);
+                var ra = new ARAPParameterization(curved).Compute();
+                Assert.True(ra.Succeeded, ra.Error);
+                Assert.Equal(ra.Distortion.ARAPEnergy, ra.Energy, 9);
+            }
+                        // SLIM keeps every UV triangle positive, also the one that is degenerate on the surface
             AssertNoFlips(mesh, results["SLIM"]);
             Assert.True(results["SLIM"].Distortion.SymmetricDirichlet < 4 + 1e-3);
         }
@@ -936,6 +945,12 @@ namespace geometry3Sharp.Tests
             var nan = new Vector2d[mesh.MaxVertexID];
             nan[1] = new Vector2d(double.NaN, 0);
             Assert.Equal(ParameterizationStatus.InvalidConstraints, new ARAPParameterization(mesh) { InitialUV = nan }.Compute().Status);
+            // trailing vertex ids without triangles need no entry
+            var good = new Vector2d[mesh.MaxVertexID];
+            foreach (int vid in mesh.VertexIndices()) good[vid] = new Vector2d(mesh.GetVertex(vid).x, mesh.GetVertex(vid).y);
+            mesh.AppendVertex(new Vector3d(5, 5, 0));
+            var r = new ARAPParameterization(mesh) { InitialUV = good }.Compute();
+            Assert.True(r.Succeeded, r.Error);
         }
 
         [Fact]
@@ -944,11 +959,26 @@ namespace geometry3Sharp.Tests
             DMesh3 mesh = FlatDisc(4, 12);
             var none = new BoundaryFirstFlattening(mesh) { BoundaryMode = BoundaryFirstFlattening.BoundaryModes.TargetScaleFactors };
             Assert.Equal(ParameterizationStatus.InvalidConstraints, none.Compute().Status);
-            var interior = new BoundaryFirstFlattening(mesh) {
+            var unknown = new BoundaryFirstFlattening(mesh) {
                 BoundaryMode = BoundaryFirstFlattening.BoundaryModes.TargetScaleFactors,
-                TargetScaleFactors = new Dictionary<int, double>() { { 0, 0.5 } }   // vertex 0 is the center
+                TargetScaleFactors = new Dictionary<int, double>() { { 9999, 0.5 } }
             };
-            Assert.Equal(ParameterizationStatus.InvalidConstraints, interior.Compute().Status);
+            Assert.Equal(ParameterizationStatus.InvalidConstraints, unknown.Compute().Status);
+            var nan = new BoundaryFirstFlattening(mesh) {
+                BoundaryMode = BoundaryFirstFlattening.BoundaryModes.TargetScaleFactors,
+                TargetScaleFactors = BoundaryLoop(mesh).ToDictionary(v => v, v => double.NaN)
+            };
+            Assert.Equal(ParameterizationStatus.InvalidConstraints, nan.Compute().Status);
+            // a per-vertex field: the interior entries are ignored, the result equals the boundary-only one
+            var field = mesh.VertexIndices().ToDictionary(v => v, v => 0.1 * mesh.GetVertex(v).x);
+            var all = new BoundaryFirstFlattening(mesh) { BoundaryMode = BoundaryFirstFlattening.BoundaryModes.TargetScaleFactors, TargetScaleFactors = field }.Compute();
+            var boundaryOnly = new BoundaryFirstFlattening(mesh) {
+                BoundaryMode = BoundaryFirstFlattening.BoundaryModes.TargetScaleFactors,
+                TargetScaleFactors = BoundaryLoop(mesh).ToDictionary(v => v, v => field[v])
+            }.Compute();
+            Assert.True(all.Succeeded, all.Error);
+            foreach (int v in mesh.VertexIndices())
+                Assert.True(all.UV[v].Distance(boundaryOnly.UV[v]) < 1e-12);
         }
 
         [Fact]
@@ -989,6 +1019,38 @@ namespace geometry3Sharp.Tests
             var one = new SLIMParameterization(mesh) { MaxIterations = 1 }.Compute();
             Assert.False(one.Converged);
             Assert.True(one.Energy > r.Energy);
+        }
+
+        [Fact]
+        public void BFF_InscribedAngles_ClosePolygonOnCircle()
+        {
+            // regular, irregular, and with one long edge whose circle center lies outside the polygon
+            foreach (double[] lt in new[] {
+                new double[] { 1, 1, 1, 1, 1, 1 },
+                new double[] { 0.3, 1.2, 0.7, 0.9, 0.2, 1.1, 0.5 },
+                new double[] { 1, 1, 1.9 },
+                new double[] { 0.2, 0.3, 0.25, 0.7 } }) {
+                int m = lt.Length;
+                double[] kt = new double[m];
+                BoundaryFirstFlattening.inscribedAngles(lt, kt);
+                Assert.Equal(2 * Math.PI, kt.Sum(), 9);
+                // integrate the polygon: it closes, and all vertices lie on one circle
+                var p = new List<Vector2d>() { Vector2d.Zero };
+                double phi = 0;
+                for (int k = 0; k < m; ++k) {
+                    if (k > 0) phi += kt[k];
+                    p.Add(p[k] + lt[k] * new Vector2d(Math.Cos(phi), Math.Sin(phi)));
+                }
+                Assert.True(p[m].Length < 1e-9, "polygon does not close: " + p[m].Length);
+                Vector2d a = p[0], b = p[1], d = p[2];
+                double D = 2 * (a.x * (b.y - d.y) + b.x * (d.y - a.y) + d.x * (a.y - b.y));
+                Vector2d c = new Vector2d(
+                    (a.LengthSquared * (b.y - d.y) + b.LengthSquared * (d.y - a.y) + d.LengthSquared * (a.y - b.y)) / D,
+                    (a.LengthSquared * (d.x - b.x) + b.LengthSquared * (a.x - d.x) + d.LengthSquared * (b.x - a.x)) / D);
+                double R = a.Distance(c);
+                for (int k = 0; k < m; ++k)
+                    Assert.Equal(R, p[k].Distance(c), 9);
+            }
         }
     }
 }

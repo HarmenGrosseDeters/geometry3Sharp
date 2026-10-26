@@ -32,7 +32,10 @@ namespace g3
         public DMesh3 Mesh;
         public BoundaryModes BoundaryMode = BoundaryModes.MinimalAreaDistortion;
         public ExtensionModes Extension = ExtensionModes.Conformal;
-        /// <summary> TargetScaleFactors: log scale factor by boundary vertex id (missing vertices: 0) </summary>
+        /// <summary>
+        /// TargetScaleFactors: log scale factor by boundary vertex id (missing vertices: 0; interior vertices are
+        /// ignored, so a per-vertex field can be passed)
+        /// </summary>
         public Dictionary<int, double> TargetScaleFactors;
         /// <summary>
         /// TargetAngles: exterior (turning) angle in radians by boundary vertex id (missing vertices: 0);
@@ -120,9 +123,10 @@ namespace g3
                             return Result = ParameterizationResult.Failure(ParameterizationStatus.InvalidConstraints, "TargetScaleFactors is null");
                         foreach (var kv in TargetScaleFactors) {
                             int vid = kv.Key;
-                            if (vid < 0 || vid >= pm.ToIndex.Length || pm.ToIndex[vid] < 0 || !pm.IsBoundary[pm.ToIndex[vid]])
-                                return Result = ParameterizationResult.Failure(ParameterizationStatus.InvalidConstraints, "vertex " + vid + " is not a boundary vertex");
-                            if (!MathUtil.IsFinite(kv.Value))
+                            // interior vertices may be given (a per-vertex field) and are ignored
+                            if (vid < 0 || vid >= pm.ToIndex.Length || pm.ToIndex[vid] < 0)
+                                return Result = ParameterizationResult.Failure(ParameterizationStatus.InvalidConstraints, "vertex " + vid + " is not a vertex of a triangle");
+                            if (pm.IsBoundary[pm.ToIndex[vid]] && !MathUtil.IsFinite(kv.Value))
                                 return Result = ParameterizationResult.Failure(ParameterizationStatus.InvalidConstraints, "target scale factor is not finite");
                         }
                     }
@@ -255,28 +259,46 @@ namespace g3
                 if (opp[i] >= (1 - 1e-9) * maxLen) angle[i] += (Math.PI - sum) / count;
         }
 
-        // exterior angles of the polygon with edge lengths lt inscribed in a circle: central angles
-        // 2 asin(l / 2R) with R such that they sum to 2 pi; the turn at a vertex is the mean of its two edges'.
-        // If the longest edge is longer than that allows (the center would lie outside the polygon), the angles
-        // are proportional to the dual lengths.
-        static void inscribedAngles(double[] lt, double[] kt)
+        // exterior angles of the polygon with edge lengths lt inscribed in a circle (inscribed angle theorem: the
+        // turn at a vertex is half the arcs of its two edges). Usually every edge spans the minor arc 2 asin(l/2R)
+        // and R makes them sum to 2 pi. If the longest edge is long enough that the center lies outside the
+        // polygon, it spans the major arc 2 pi - 2 asin(lmax/2R) and the others sum to its minor arc. Only if the
+        // longest edge is at least as long as all others together (no closed polygon) the arcs are proportional
+        // to the lengths.
+        internal static void inscribedAngles(double[] lt, double[] kt)
         {
             int m = lt.Length;
             double L = 0, lmax = 0;
-            foreach (double l in lt) { L += l; lmax = Math.Max(lmax, l); }
-            Func<double, double> central = (R) => { double a = 0; foreach (double l in lt) a += 2 * Math.Asin(Math.Min(1, l / (2 * R))); return a; };
+            int imax = 0;
+            for (int k = 0; k < m; ++k) {
+                L += lt[k];
+                if (lt[k] > lmax) { lmax = lt[k]; imax = k; }
+            }
+            Func<double, double, double> arc = (l, rad) => 2 * Math.Asin(Math.Min(1, l / (2 * rad)));
+            Func<double, double> others = (rad) => { double a = 0; for (int k = 0; k < m; ++k) if (k != imax) a += arc(lt[k], rad); return a; };
             double[] theta = new double[m];
-            if (central(0.5 * lmax) >= 2 * Math.PI) {
-                double lo = 0.5 * lmax, hi = L;
+            bool centerInside = others(0.5 * lmax) + Math.PI >= 2 * Math.PI;
+            if (!centerInside && L - lmax <= lmax * (1 + 1e-12)) {
+                for (int k = 0; k < m; ++k) theta[k] = 2 * Math.PI * lt[k] / L;
+            } else {
+                // f(R) decreases from f(lmax/2) >= 0 (inside) or rises from f(lmax/2) < 0 (outside); bisect its sign change
+                Func<double, double> f = centerInside
+                    ? (Func<double, double>)((rad) => others(rad) + arc(lmax, rad) - 2 * Math.PI)
+                    : (rad) => others(rad) - arc(lmax, rad);
+                double lo = 0.5 * lmax, hi = lo;
+                double flo = f(lo);
+                do { hi *= 2; } while (Math.Sign(f(hi)) == Math.Sign(flo) && hi < 1e12 * L);
                 for (int it = 0; it < 200 && hi - lo > 1e-15 * hi; ++it) {
                     double mid = 0.5 * (lo + hi);
-                    if (central(mid) > 2 * Math.PI) lo = mid; else hi = mid;
+                    if (Math.Sign(f(mid)) == Math.Sign(flo)) lo = mid; else hi = mid;
                 }
                 double R = 0.5 * (lo + hi), sum = 0;
-                for (int k = 0; k < m; ++k) { theta[k] = 2 * Math.Asin(Math.Min(1, lt[k] / (2 * R))); sum += theta[k]; }
+                for (int k = 0; k < m; ++k) {
+                    theta[k] = arc(lt[k], R);
+                    if (k == imax && !centerInside) theta[k] = 2 * Math.PI - theta[k];
+                    sum += theta[k];
+                }
                 for (int k = 0; k < m; ++k) theta[k] *= 2 * Math.PI / sum;     // remove the bisection residual
-            } else {
-                for (int k = 0; k < m; ++k) theta[k] = 2 * Math.PI * lt[k] / L;
             }
             for (int k = 0; k < m; ++k)
                 kt[k] = 0.5 * (theta[(k + m - 1) % m] + theta[k]);

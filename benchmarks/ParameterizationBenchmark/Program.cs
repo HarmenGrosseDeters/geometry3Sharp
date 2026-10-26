@@ -131,7 +131,7 @@ static class Program
                 double first = sw.Elapsed.TotalMilliseconds;
                 fill();
                 sw.Restart();
-                chol.Factorize();
+                ok = chol.Factorize() && ok;
                 double refactor = sw.Elapsed.TotalMilliseconds;
                 double[] bvec = new double[n], x = new double[n];
                 bvec[n - 1] = 1;

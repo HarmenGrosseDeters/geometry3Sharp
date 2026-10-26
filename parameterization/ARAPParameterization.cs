@@ -130,11 +130,11 @@ namespace g3
             for (int ti = 0; ti < T; ++ti) {
                 TriangleFrame f = pm.Frames[ti];
                 Index3i t = pm.Tris[ti];
-                Vector3d cot = f.Cot;
+                Vector3d cot;
+                if (!pm.TriangleCotangents(ti, true, out cot))
+                    continue;
                 Vector2d[] corner = { Vector2d.Zero, f.P1, f.P2 };
                 if (f.Degenerate) {
-                    if (!ParamMesh.MollifiedCotangents(pm.Pos[t.a], pm.Pos[t.b], pm.Pos[t.c], out cot))
-                        continue;
                     Vector3d axis = Vector3d.Zero;
                     for (int k = 0; k < 3; ++k) {
                         Vector3d d = pm.Pos[t[(k + 1) % 3]] - pm.Pos[t[k]];
@@ -154,7 +154,8 @@ namespace g3
         /// <summary>
         /// ARAP energy per unit area, Sum_T A_T |J_T - R_T|^2 / A, with R_T the closest rotations (stored in
         /// angle): the rotation that best maps the 2D edges e onto the UV edges (for a non-degenerate triangle
-        /// the one closest to J_T, since Sum_k w e e^T = A I)
+        /// the one closest to J_T, since Sum_k w e e^T = A I). The mollified degenerate triangles are stiff, so
+        /// their terms stay negligible (about 1e-6 of the energy on a curved T-junction).
         /// </summary>
         static double Energy(ParamMesh pm, double[] w, Vector2d[] e, double[] u, double[] v, double[] angle)
         {
