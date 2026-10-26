@@ -486,9 +486,13 @@ class Program
         r["iou_extra"] = extra;
         r["fidelity_ms"] = sw.ElapsedMilliseconds;
         // further measures (MeshFidelityMetrics; fm_* fields, not part of the "repaired" criterion), against the
-        // input with inside-out components oriented as VolumeIoU sees it; BENCH_FIDELITY=0 skips them
-        if (Environment.GetEnvironmentVariable("BENCH_FIDELITY") != "0")
-            FidelityFields.Add(WindingContouring.OrientedCopy(input), result, r);
+        // input with inside-out closed components reversed (as VolumeIoU sees it); BENCH_FIDELITY=0 skips them
+        if (Environment.GetEnvironmentVariable("BENCH_FIDELITY") != "0") {
+            DMesh3 oriented = new DMesh3(input);
+            foreach (int[] comp in MeshPostRepairCleanup.FindInvertedComponents(oriented))
+                foreach (int tid in comp) oriented.ReverseTriOrientation(tid);
+            FidelityFields.Add(oriented, result, r);
+        }
     }
 
     // naive wrapper-style construction: exact-position weld, AppendTriangle, skip failures
