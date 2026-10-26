@@ -35,7 +35,7 @@ namespace gs
         /// </summary>
         public static int SelfIntersectionsAtMost(DMesh3 mesh, int limit)
         {
-            return self_intersection_pairs(mesh, Math.Max(limit, 0) + 1).Count;
+            return self_intersection_pairs(mesh, limit >= int.MaxValue - 1 ? int.MaxValue : Math.Max(limit, 0) + 1).Count;
         }
 
         /// <summary> the intersecting triangle pairs (see SelfIntersections), each once, sorted </summary>

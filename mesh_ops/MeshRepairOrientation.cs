@@ -34,13 +34,13 @@ namespace gs
 			}
 		}
 
-		/// <summary> spatial is an optional prebuilt AABB tree of mesh3 (built on demand otherwise) </summary>
 		/// <summary>
 		/// OrientComponents keeps consistently oriented patches together and leaves a short seam in non-orientable
 		/// components (default). false: the depth-first propagation of geometry3Sharp 1.0.324.
 		/// </summary>
 		public bool KeepShortSeams = true;
 
+		/// <summary> spatial is an optional prebuilt AABB tree of mesh3 (built on demand otherwise) </summary>
 		public MeshRepairOrientation(DMesh3 mesh3, DMeshAABBTree3 spatial = null)
 		{
 			Mesh = mesh3;

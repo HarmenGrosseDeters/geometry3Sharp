@@ -574,6 +574,9 @@ namespace geometry3Sharp.Tests
             Assert.True(r.UsedExactResolve, r.FallbackReason + " / " + r.ExactResolveReason);
             Assert.False(r.UsedSolidify);
             Assert.False(r.UsedInput);      // the repair result was resolved, not the input
+            // the clean result whose volume differs is not resolved as it is (that gives its own solid again), only
+            // oriented by the input: one resolve
+            Assert.Equal(1, r.ExactResolveRoundsUsed);
             Assert.Equal(outer, Volume(r.Mesh), 6);
             Assert.Equal("", MeshRobustRepair.NotCleanReason(r.Mesh));
         }

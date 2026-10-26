@@ -75,11 +75,6 @@ namespace gs
         public bool PostRepairCleanup = false;
 
         /// <summary>
-        /// Minimal: MinimalHoleFill (falls back to SimpleHoleFiller).
-        /// Smoothed: SmoothedHoleFill (fan fill, remesh to the average border edge length, laplacian
-        /// smooth, boundary kept fixed) for holes with more than 4 vertices, falls back to Minimal.
-        /// </summary>
-        /// <summary>
         /// Non-orientable regions: if true (default), the orientation keeps a short seam
         /// (MeshRepairOrientation.KeepShortSeams), and the mesh is cut open along it before the hole filling, so that
         /// holes at the seam are filled instead of eroded, and once more at the end for closed non-orientable meshes
@@ -89,6 +84,11 @@ namespace gs
         /// </summary>
         public bool CutOrientationSeams = true;
 
+        /// <summary>
+        /// Minimal: MinimalHoleFill (falls back to SimpleHoleFiller).
+        /// Smoothed: SmoothedHoleFill (fan fill, remesh to the average border edge length, laplacian
+        /// smooth, boundary kept fixed) for holes with more than 4 vertices, falls back to Minimal.
+        /// </summary>
         public enum HoleFillModes { Minimal = 0, Smoothed = 1 }
         /// <summary> hole filling strategy for non-trivial holes (holes with 3 or 4 vertices always use the minimal fill) </summary>
         public HoleFillModes HoleFillMode = HoleFillModes.Minimal;
@@ -299,12 +299,16 @@ namespace gs
             if (CutOrientationSeams && Mesh.IsClosed() && has_orientation_seams()) {
                 DMesh3 uncut = new DMesh3(Mesh);
                 cut_orientation_seams();
+                    if (Cancelled()) return false;
                 repair_orientation(false);
+                    if (Cancelled()) return false;
                 fill_trivial_holes(out nHoles, out bSawSpans);
                 fill_any_holes(out nHoles, out bSawSpans);
-                // a cut side that could not be filled: keep the closed, non-orientable mesh
+                    if (Cancelled()) return false;
+                // a cut side that could not be filled: keep the closed, non-orientable mesh (in the same object,
+                // the mesh is repaired in place)
                 if (Mesh.IsClosed() == false)
-                    Mesh = uncut;
+                    Mesh.Copy(uncut);
                 stage("cut_seams_final");
             }
                 if (Cancelled()) return false;

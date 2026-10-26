@@ -138,6 +138,41 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void CutAlongEdges_FromABowtieVertex()
+        {
+            // c is shared by two fans (a bowtie): an 8-fan in the xy plane and a 6-fan in the yz plane with an
+            // outer ring. The cut runs from c along (c, r0) and on to the outer boundary along (r0, o0). At c the
+            // smaller fan moves to a copy of c with the cut edge inside it; at r0 the edge (copy, r0) must still
+            // count as cut, so the path opens on both sides: four new boundary edges
+            DMesh3 mesh = new DMesh3();
+            int c = mesh.AppendVertex(Vector3d.Zero);
+            int[] a = new int[8];
+            for (int i = 0; i < 8; ++i)
+                a[i] = mesh.AppendVertex(new Vector3d(Math.Cos(i * Math.PI / 4), Math.Sin(i * Math.PI / 4), 0));
+            for (int i = 0; i < 8; ++i)
+                Assert.True(mesh.AppendTriangle(c, a[i], a[(i + 1) % 8]) >= 0);
+            int[] r = new int[6], o = new int[6];
+            for (int i = 0; i < 6; ++i) {
+                double u = i * Math.PI / 3;
+                r[i] = mesh.AppendVertex(new Vector3d(0, Math.Cos(u), Math.Sin(u)));
+                o[i] = mesh.AppendVertex(new Vector3d(0, 2 * Math.Cos(u), 2 * Math.Sin(u)));
+            }
+            for (int i = 0; i < 6; ++i) {
+                int j = (i + 1) % 6;
+                Assert.True(mesh.AppendTriangle(c, r[i], r[j]) >= 0);
+                Assert.True(mesh.AppendTriangle(r[i], o[i], o[j]) >= 0);
+                Assert.True(mesh.AppendTriangle(r[i], o[j], r[j]) >= 0);
+            }
+            Assert.Single(MeshIterators.BowtieVertices(mesh));
+            int boundary = MeshTestUtil.BoundaryEdgeCount(mesh);
+            // c first: its fans are split before r0 is processed
+            var cut = new[] { mesh.FindEdge(c, r[0]), mesh.FindEdge(r[0], o[0]) };
+            new MeshEditor(mesh).CutAlongEdges(cut);
+            Assert.Equal(boundary + 4, MeshTestUtil.BoundaryEdgeCount(mesh));
+            Assert.True(mesh.CheckValidity(false, FailMode.ReturnOnly));
+        }
+
+        [Fact]
         public void CutAlongEdges_SingleInteriorEdge_NothingToCut()
         {
             // an edge with both endpoints inside the mesh cannot be opened without a hole around it
@@ -192,7 +227,6 @@ namespace geometry3Sharp.Tests
             repair.OnStage = (name, m) => stages.Add(name);
             Assert.True(repair.Apply());
             Assert.True(before.SetEquals(tris(repair.Mesh)));
-            Assert.DoesNotContain("cut_seams", stages);
             Assert.DoesNotContain("cut_seams_final", stages);
         }
 

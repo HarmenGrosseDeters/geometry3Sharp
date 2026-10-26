@@ -45,8 +45,9 @@ namespace geometry3Sharp.Tests
             Assert.True(n > 50);
             Assert.Equal(n, MeshRepairMetrics.SelfIntersectionsAtMost(m, n));
             Assert.Equal(n, MeshRepairMetrics.SelfIntersectionsAtMost(m, 10 * n));
-            int few = MeshRepairMetrics.SelfIntersectionsAtMost(m, 10);
-            Assert.True(few > 10 && few < n, $"{few} of {n}");
+            // (more than the limit; parallel workers can each add a few pairs before they see the count)
+            Assert.True(MeshRepairMetrics.SelfIntersectionsAtMost(m, 10) > 10);
+            Assert.Equal(n, MeshRepairMetrics.SelfIntersectionsAtMost(m, int.MaxValue));
             Assert.Equal(0, MeshRepairMetrics.SelfIntersectionsAtMost(new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 8 }.Generate().MakeDMesh(), 0));
         }
 

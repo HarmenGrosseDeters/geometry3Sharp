@@ -247,11 +247,14 @@ namespace gs
                 // input's volume, and resolving keeps the repaired geometry
                 DMesh3 exact = null;
                 if (result.TriangleCount > 0) {
-                    exact = resolve_exactly(result, input, false);
+                    // a clean result whose volume differs resolves to its own solid again: skip to the next try
+                    bool cleanButDiffers = FallbackReason == VolumeDiffers || FallbackReason == PartsLost;
+                    if (cleanButDiffers == false)
+                        exact = resolve_exactly(result, input, false);
                     // its volume may differ (or a part be lost) only because components are oriented differently from
                     // the input (eg a nested part taken for a cavity): then resolve it again, oriented by the input's
                     // solid, if that orientation differs at all
-                    if (exact == null && (ExactResolveReason == "volume differs from the input" || ExactResolveReason == "parts of the input lost") && CancelF() == false)
+                    if (exact == null && (cleanButDiffers || ExactResolveReason == VolumeDiffers || ExactResolveReason == PartsLost) && CancelF() == false)
                         exact = resolve_exactly(result, input, true);
                 }
                 bool fromResult = exact != null;
@@ -322,6 +325,8 @@ namespace gs
             return true;
         }
 
+        const string VolumeDiffers = "volume differs from the input", PartsLost = "parts of the input lost";
+
         // "" if the solid of res agrees with the input's (IoU at least MinVolumeIoU, no component lost), otherwise why not
         string volume_check(DMesh3 input, DMesh3 res, out double iou)
         {
@@ -335,9 +340,9 @@ namespace gs
             }
             Func<Vector3d, bool> resultInside = MeshRepairMetrics.SolidInside(res);
             if (MinVolumeIoU > 0 && MeshRepairMetrics.VolumeIoUAtLeast(inputSolid, res, resultInside, MinVolumeIoU, out iou) == false)
-                return "volume differs from the input";
+                return VolumeDiffers;
             if (CheckLostComponents && MeshRepairMetrics.LostComponents(inputSolid, resultInside) > 0)
-                return "parts of the input lost";
+                return PartsLost;
             return "";
         }
         MeshRepairMetrics.SolidReference inputSolid;
@@ -471,23 +476,23 @@ namespace gs
                 return m;
             var comps = new MeshConnectedComponents(m);
             comps.FindConnectedT();
-            DMeshAABBTree3 tree = null;
-            foreach (var comp in comps.Components) {
-                int[] tris = comp.Indices;
-                bool closed = tris.All(t => {
-                    Index3i te = m.GetTriEdges(t);
-                    return !m.IsBoundaryEdge(te.a) && !m.IsBoundaryEdge(te.b) && !m.IsBoundaryEdge(te.c);
-                });
-                if (closed == false)
-                    continue;
-                if (tree == null) {
-                    tree = new DMeshAABBTree3(WindingContouring.OrientedCopy(reference), true);
-                    tree.FastWindingNumber(Vector3d.Zero);
-                }
+            var closedComps = comps.Components.Select(c => c.Indices).Where(tris => tris.All(t => {
+                Index3i te = m.GetTriEdges(t);
+                return !m.IsBoundaryEdge(te.a) && !m.IsBoundaryEdge(te.b) && !m.IsBoundaryEdge(te.c);
+            })).ToList();
+            if (closedComps.Count == 0)
+                return m;
+            var tree = new DMeshAABBTree3(WindingContouring.OrientedCopy(reference), true);
+            tree.FastWindingNumber(Vector3d.Zero);     // cache before parallel use
+            // up to 200 samples per component, at most about 50000 in all (assemblies with many parts), at least 8
+            int perComp = Math.Max(8, Math.Min(200, 50000 / closedComps.Count));
+            bool[] flip = new bool[closedComps.Count];
+            gParallel.ForEach(Interval1i.Range(closedComps.Count), (ci) => {
+                int[] tris = closedComps[ci];
                 // area of the sampled triangles with the reference solid only on the inner side, only on the
                 // outer side, on both
                 double inner = 0, outer = 0, both = 0, total = 0;
-                int samples = Math.Min(200, tris.Length);
+                int samples = Math.Min(perComp, tris.Length);
                 for (int k = 0; k < samples; ++k) {
                     int tid = tris[(int)((long)k * tris.Length / samples)];
                     Vector3d n, c;
@@ -502,16 +507,17 @@ namespace gs
                     else if (sIn) inner += area;
                     else if (sOut) outer += area;
                 }
-                bool flip = false;
                 if (outer > inner && outer > 0.5 * total)
-                    flip = true;
+                    flip[ci] = true;
                 else if (both > 0.5 * total && inner < 0.25 * total && outer < 0.25 * total)
-                    flip = MeshMeasurements.VolumeArea(m, tris, m.GetVertex).x < 0;
-                if (flip) {
-                    foreach (int tid in tris)
-                        m.ReverseTriOrientation(tid);
-                    flipped++;
-                }
+                    flip[ci] = MeshMeasurements.VolumeArea(m, tris, m.GetVertex).x < 0;
+            });
+            for (int ci = 0; ci < closedComps.Count; ++ci) {
+                if (flip[ci] == false)
+                    continue;
+                foreach (int tid in closedComps[ci])
+                    m.ReverseTriOrientation(tid);
+                flipped++;
             }
             return m;
         }

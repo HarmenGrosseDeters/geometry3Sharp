@@ -678,14 +678,24 @@ namespace g3
             }
             if (cut.Count == 0)
                 return 0;
-            // the cut edges are identified by their vertices: splitting one endpoint replaces the edge ids
-            HashSet<Index2i> cutV = new HashSet<Index2i>();
+            // the cut edges are identified by their vertices (partners of each end): splitting one endpoint replaces
+            // the edge ids, and a copy of a vertex inherits its partners, since a cut edge can move to the copy with
+            // both its triangles (a fan of a bowtie vertex with a single cut edge)
+            Dictionary<int, HashSet<int>> partners = new Dictionary<int, HashSet<int>>();
+            Action<int, int> add_partner = (x, y) => {
+                HashSet<int> set;
+                if (partners.TryGetValue(x, out set) == false)
+                    partners[x] = set = new HashSet<int>();
+                set.Add(y);
+            };
             foreach (int eid in cut) {
                 Index2i ev = Mesh.GetEdgeV(eid);
-                cutV.Add(new Index2i(Math.Min(ev.a, ev.b), Math.Max(ev.a, ev.b)));
+                add_partner(ev.a, ev.b);
+                add_partner(ev.b, ev.a);
             }
             int added = 0;
             foreach (int vid in verts) {
+                HashSet<int> vpartners = partners[vid];
                 Dictionary<int, int> parent = new Dictionary<int, int>();
                 foreach (int tid in Mesh.VtxTrianglesItr(vid))
                     parent[tid] = tid;
@@ -694,7 +704,7 @@ namespace g3
                     if (et.b == DMesh3.InvalidID)
                         continue;
                     Index2i ev = Mesh.GetEdgeV(eid);
-                    if (cutV.Contains(new Index2i(Math.Min(ev.a, ev.b), Math.Max(ev.a, ev.b))))
+                    if (vpartners.Contains(ev.a == vid ? ev.b : ev.a))
                         continue;
                     parent[find_root(parent, et.a)] = find_root(parent, et.b);
                 }
@@ -720,8 +730,10 @@ namespace g3
                         else t.c = copy_vid;
                         Mesh.SetTriangle(tid, t, false);
                     }
-                    // (the cut edges at vid now have one triangle each, at vid and at the copy: boundary edges,
-                    // which the fans of their other ends do not join over)
+                    foreach (int other in vpartners) {
+                        add_partner(copy_vid, other);
+                        add_partner(other, copy_vid);
+                    }
                 }
             }
             return added;
