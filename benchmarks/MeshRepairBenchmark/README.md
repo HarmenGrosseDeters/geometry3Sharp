@@ -700,7 +700,6 @@ Each fix has a unit test that fails on the code before the fix.
   - ShapeDiameter differs on 13 meshes and the fits on 0–9, as for meters.
   - The sign agreement differs on 8 meshes, by points near holes.
 
-
 ## Lost components check (`MeshRobustRepair.CheckLostComponents`, off by default)
 `MeshRepairMetrics.LostComponents` finds input components whose solid a result lost. The volume IoU check does not notice such parts when they are below 1 % of the volume (eg a screw of an assembly). When the check is on, a repair result (clean or not) or exact resolve that lost a part is rejected, and the fallbacks start from the input. The table shows its effect on `robust` (400 + 30 set, `BENCH_LOST_COMPONENTS=1`). Base is master d5eeda1. "Meshes changed" counts meshes that ended at a different stage or with a different repaired outcome than the base.
 
@@ -728,3 +727,58 @@ Each fix has a unit test that fails on the code before the fix.
 - `robust`: the 25 meshes that reach the wrap fallback give the same results as before.
 - Rejected rule 1 points with Success stay possible, as on master (99911). They are counted. The result still encloses the input and does not cross it, but it can come closer to the input than the offset there.
 - I also tried exact circumcenters for nearly flat cells. They did not change the rejections on these meshes, so they are not included.
+
+### Wrap fallback without the discarded solidify post-processing (`robust`, both selections)
+Meshes that end in the alpha wrap ran the whole solidify first, including its cleanup and reduction, only to
+discard the result for its self-intersections. Measured on the 191 meshes that `robust` solidified or wrapped
+(both selections, contour checked before and after each post-processing step): all 49 discarded solidifies
+already self-intersect in the raw contour, and of the 142 kept ones only one does (56107.stl, whose 4
+intersecting pairs the reduction happened to remove; the result misses the strict criterion either way, Hausdorff
+4.6 %). No cheap criterion before the solidify separated the two groups: the self-intersections of its input,
+the reason the exact resolve failed and the hidden gap counts of the coarsest contour all overlap.
+
+So `MeshWindingNumberSolidify.StopIfSelfIntersecting` (set by `MeshRobustRepair` when it wraps on
+self-intersections) checks the raw contour and, if it self-intersects, skips the cleanup and the reduction; the
+alpha wrap follows right away (`FinishPostProcess()` completes the solidify if the wrap fails). The check is free
+where the dual contouring has already verified its contour (`DualContouring.SelfIntersectionFree`, it resolves
+self-intersections and stops when an exact pass finds none): of the 141 kept solidifies, 6 needed the explicit
+check (non-manifold fills or unresolved pairs), 2.6 s in total.
+
+`BENCH_P=2 TIMEOUT=300`, both selections run at the same time on a 4-core machine (so the times are about 1.5×
+those of a single run), master `d545c60` before, this change after:
+
+| | first selection, before | after | holdout, before | after |
+|---|---|---|---|---|
+| repaired | 258 | 258 | 256 | 256 |
+| clean + no exact self-intersections | 399 | 399 | 399 | 399 |
+| path: repair / exact / solidify / wrap | 172 / 133 / 69 / 26 | 172 / 133 / 69 / 26 | 174 / 130 / 73 / 23 | 174 / 130 / 72 / 24 |
+| wrap cases (meshes wrapped before): total time | 974 s | 853 s (−12 %) | 1011 s | 866 s (−14 %) |
+| ... median | 30.0 s | 26.0 s | 35.0 s | 30.5 s |
+| ... of it cleanup + reduce of the solidify | 110 s | 0 s | 122 s | 0 s |
+| solidify cases (solidified before): total time | 778 s | 761 s | 872 s | 896 s |
+| all 400: total time | 2723 s | 2599 s (−4.6 %) | 2678 s | 2572 s (−4.0 %) |
+
+The only changed path is 56107.stl (solidified before, wrapped now; Hausdorff 4.6 % → 6.4 %, IoU 0.983 →
+0.959, neither repaired). The solidify-case times differ within the noise of the shared machine (the holdout
+total includes 56107.stl). The raw contour remains the larger part of the remaining wrap-case time (439 s and
+463 s of the solidify, wrap 279 s and 284 s); avoiding it would need a predictor before the contouring, which
+the data above does not offer.
+
+Rerun after merging master `a8c9f8d` (safe rounding of the exact output, `MeshRoundingRepair`), which sends more
+meshes through the exact resolve and fewer to the wrap; same setup, master before, this change after:
+
+| | first selection, before | after | holdout, before | after |
+|---|---|---|---|---|
+| repaired | 270 | 270 | 266 | 266 |
+| clean + no exact self-intersections | 399 | 399 | 395 | 395 |
+| path: repair / exact / solidify / wrap | 171 / 156 / 53 / 20 | 171 / 156 / 53 / 20 | 174 / 160 / 51 / 14 | 174 / 160 / 49 / 16 |
+| wrap cases (wrapped before): total time | 679 s | 603 s (−11 %) | 467 s | 398 s (−15 %) |
+| ... of it cleanup + reduce of the solidify | 77 s | 0 s | 65 s | 0 s |
+| all 400: total time | 2724 s | 2629 s (−3.5 %) | 2371 s | 2298 s (−3.1 %) |
+
+113906.stl times out (300 s) before and after (holdout; counted as not repaired). Two more meshes whose contour
+self-intersects but whose reduction removed the intersecting pairs are wrapped now instead of solidified:
+112854.stl and 99736.stl (holdout). Neither is repaired before or after (Hausdorff 8.8 % and 3.4 % solidified),
+but the wrap fits their winding number solid worse (IoU 0.958 → 0.421 and 0.993 → 0.512; Hausdorff 8.8 % → 1.3 % and
+3.4 % → 4.8 %). Together with 56107.stl that is 3 of about 150 solidified meshes per two selections
+where stopping early gives up a cleaner (though still not repaired) solidify.
