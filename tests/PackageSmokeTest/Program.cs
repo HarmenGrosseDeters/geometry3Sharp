@@ -29,6 +29,9 @@ static class Program
         string asm = typeof(DMesh3).Assembly.Location;
         Console.WriteLine("geometry3Sharp from " + asm);
         check(File.Exists(Path.ChangeExtension(asm, ".xml")), "XML documentation next to the assembly");
+        // consumers compiled against upstream geometry3Sharp 1.0.324 fail to load a lower assembly version
+        Version version = typeof(DMesh3).Assembly.GetName().Version;
+        check(version >= new Version(1, 0, 324, 0), "assembly version " + version + " >= upstream 1.0.324.0");
 
         DMesh3 mesh = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 4 }.Generate().MakeDMesh();
         string dir = Path.Combine(Path.GetTempPath(), "g3smoke_" + Guid.NewGuid().ToString("N"));

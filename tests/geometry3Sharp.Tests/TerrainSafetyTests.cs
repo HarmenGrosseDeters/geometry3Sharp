@@ -193,11 +193,11 @@ namespace geometry3Sharp.Tests
             comps.FindConnectedT();
             Assert.Equal(1, comps.Count);
             Assert.Empty(MeshIterators.BowtieVertices(band));
-            // the remesher can still leave a few zero-area ears on straight parts of the band boundary, whose
-            // tip gets no distance; the band reaches 3 x the safety distance, those are far outside the line
+            // no zero-area ears on straight parts of the band boundary (the remesher could not collapse them;
+            // their tip got no distance)
+            Assert.Equal(0, band.TriangleIndices().Count(tid => band.GetTriArea(tid) < 1e-6));
             foreach (int vid in band.VertexIndices())
-                if (band.GetVertex(vid).Distance(src) < 25)
-                    Assert.False(double.IsNaN(safety.Geodesic.Distance[vid]));
+                Assert.False(double.IsNaN(safety.Geodesic.Distance[vid]));
             foreach (Vector3d p in safety.Lines[0])
                 Assert.True(Math.Abs(p.Distance(src) - 10 - 0.35 * 10.0 / 8) < 1.2, $"{p - off}: {p.Distance(src)}");
         }

@@ -195,6 +195,104 @@ namespace geometry3Sharp.Tests
             Assert.True(Math.Abs(fit.Cylinder.Axis.Direction.Dot(Vector3d.AxisY)) > 0.9999);
             // vertices lie on the radius, the polygon's sides inside: the fit is between
             Assert.InRange(fit.Cylinder.Radius, 1.5 * Math.Cos(Math.PI / 48) - 1e-3, 1.5 + 1e-6);
+
+            // the same in a tiny unit: the vertex normals must survive (no absolute degeneracy threshold)
+            const double s = 1e-5;
+            MeshTransforms.Scale(mesh, s);
+            var small = new PrimitiveFit3(mesh) { Primitive = PrimitiveFit3.Primitives.Cylinder, InlierDistance = 0.01 * s };
+            Assert.True(small.Normals.All(n => n.Length > 0.99));
+            Assert.True(small.Compute());
+            Assert.Equal(fit.Cylinder.Radius, small.Cylinder.Radius / s, 6);
+        }
+
+        [Theory]
+        [InlineData(0.0)]       // default limit: 10 x bounding box diagonal
+        public void Sphere_OnPlaneDominatedInput_IsNotAHugePlaneImitation(double maxRadius)
+        {
+            // a large plate (most points) with a small dome on it: the sphere fit must find the dome, not a
+            // huge sphere that imitates the plate within the threshold (found on Thingi10K parts)
+            var rnd = new Random(7);
+            var pts = new List<Vector3d>();
+            for (int i = 0; i < 3000; ++i)
+                pts.Add(new Vector3d(rnd.NextDouble() * 20 - 10, rnd.NextDouble() * 20 - 10, Noise * Gauss(rnd)));
+            Vector3d c = new Vector3d(3, -2, 0);
+            for (int i = 0; i < 400; ++i) {
+                Vector3d d = GaussVec(rnd).Normalized;
+                if (d.z < 0) d.z = -d.z;
+                pts.Add(c + (1 + Noise * Gauss(rnd)) * d);
+            }
+            var fit = new PrimitiveFit3(pts) { Primitive = PrimitiveFit3.Primitives.Sphere, InlierDistance = 4 * Noise, MaxRadius = maxRadius };
+            Assert.True(fit.Compute());
+            Assert.True(fit.SphereCenter.Distance(c) < 0.01, "center " + fit.SphereCenter + " radius " + fit.SphereRadius);
+            Assert.True(Math.Abs(fit.SphereRadius - 1) < 0.01);
+        }
+
+        [Fact]
+        public void Fit_IsInvariantUnderRotation()
+        {
+            // same points rotated (same order and seed): the same inliers (a guard; on real parts the local
+            // optimization is what makes this hold, see the analysis mode of benchmarks/MeshRepairBenchmark)
+            Vector3d axis = new Vector3d(0.2, 1, -0.3).Normalized, a = new Vector3d(1, 0, 0);
+            Vector3d b1, b2;
+            Frame(axis, out b1, out b2);
+            Vector3d[] pts, nrm; bool[] outlier;
+            Sample((rnd) => {
+                double phi = 2 * Math.PI * rnd.NextDouble(), h = (rnd.NextDouble() - 0.5) * 2;
+                Vector3d radial = Math.Cos(phi) * b1 + Math.Sin(phi) * b2;
+                return new[] { a + h * axis + 0.5 * radial, radial };
+            }, 1000, 9, out pts, out nrm, out outlier);
+            Quaterniond rot = Quaterniond.AxisAngleD(new Vector3d(1, 2, 3).Normalized, 37);
+            // (a cone is left out: on a cylinder it is ill-posed, its apex runs off to the limit)
+            foreach (var prim in new[] { PrimitiveFit3.Primitives.Plane, PrimitiveFit3.Primitives.Sphere, PrimitiveFit3.Primitives.Cylinder }) {
+                var f1 = new PrimitiveFit3(pts, nrm) { Primitive = prim, InlierDistance = 4 * Noise };
+                var f2 = new PrimitiveFit3(pts.Select(p => rot * p), nrm.Select(n => rot * n)) { Primitive = prim, InlierDistance = 4 * Noise };
+                Assert.True(f1.Compute() && f2.Compute(), prim.ToString());
+                Assert.True(Math.Abs(f1.InlierCount - f2.InlierCount) <= 0.01 * pts.Length, prim + ": " + f1.InlierCount + " vs " + f2.InlierCount);
+            }
+        }
+
+        [Fact]
+        public void FlatCap_NeedsLargerMaxRadius()
+        {
+            // a lens-like cap: sphere of radius 100 over a disc of radius 2 (sag 0.02, far above the noise),
+            // beyond the default limit of 10 bounding box diagonals
+            var rnd = new Random(11);
+            const double R = 100;
+            var pts = new List<Vector3d>();
+            var nrm = new List<Vector3d>();
+            for (int i = 0; i < 1000; ++i) {
+                double r = 2 * Math.Sqrt(rnd.NextDouble()), phi = 2 * Math.PI * rnd.NextDouble();
+                Vector3d d = new Vector3d(r * Math.Cos(phi), r * Math.Sin(phi), Math.Sqrt(R * R - r * r)).Normalized;
+                pts.Add(R * d + Noise * Gauss(rnd) * d);
+                nrm.Add(d);
+            }
+            // default: the full cap is rejected by the limit (counted), at best a smaller sphere fits part of it
+            var fit = new PrimitiveFit3(pts, nrm) { Primitive = PrimitiveFit3.Primitives.Sphere, InlierDistance = 4 * Noise };
+            bool ok = fit.Compute();
+            Assert.True(fit.RejectedByLimits > 0);
+            Assert.True(ok == false ? fit.Result == PrimitiveFit3.Results.RejectedByLimits : fit.InlierCount < 0.9 * pts.Count,
+                fit.Result + " inliers " + fit.InlierCount + " radius " + fit.SphereRadius);
+            var wide = new PrimitiveFit3(pts, nrm) { Primitive = PrimitiveFit3.Primitives.Sphere, InlierDistance = 4 * Noise, MaxRadius = 1000 };
+            Assert.True(wide.Compute());
+            Assert.InRange(wide.SphereRadius, 0.98 * R, 1.02 * R);
+            Assert.True(wide.InlierCount > 0.98 * pts.Count);
+        }
+
+        [Fact]
+        public void LocalOptimization_CanBeTurnedOff()
+        {
+            Vector3d c = new Vector3d(1, -2, 3);
+            Vector3d[] pts, nrm; bool[] outlier;
+            Sample((rnd) => {
+                Vector3d d = GaussVec(rnd).Normalized;
+                return new[] { c + 2 * d, d };
+            }, 1000, 12, out pts, out nrm, out outlier);
+            foreach (bool lo in new[] { true, false }) {
+                var fit = new PrimitiveFit3(pts, nrm) { Primitive = PrimitiveFit3.Primitives.Sphere, InlierDistance = 4 * Noise, LocalOptimization = lo };
+                Assert.True(fit.Compute());
+                Assert.True(fit.SphereCenter.Distance(c) < 0.005);
+                AssertInliers(fit, outlier);
+            }
         }
 
         [Fact]
