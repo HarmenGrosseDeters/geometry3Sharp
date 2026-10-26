@@ -909,3 +909,42 @@ else on the machine, master `2a455dc` before, the change after:
 The ties in the QEF and the quality checks of small triangles now decide differently, which changes the triangle
 count of about a third of the solidified meshes, but not their quality or the time. Repair and exact-resolve
 results are unchanged.
+
+## Objaverse corpus (second data set)
+
+Thingi10K holds broken 3D-print meshes. [Objaverse 1.0](https://huggingface.co/datasets/allenai/objaverse)
+(Sketchfab models: game assets, scans, CAD exports) breaks differently: open shells, many separate parts,
+double-sided and interior faces, inconsistent normals. `fetch_objaverse.py` downloads a reproducible selection
+as a second corpus (docs/QA.md 2.7a):
+
+```
+python3 fetch_objaverse.py                      # ~620 MB: 300 objects with 500..100k faces, data/objaverse/
+BENCH_DATA=objaverse ./run_all.sh robust        # writes results/objaverse/robust.jsonl
+python3 analyze_fidelity.py results/objaverse/robust.jsonl
+python3 analyze_paths.py results/objaverse/robust.jsonl
+```
+
+- **Selection:** dataset revision pinned (`REVISION` in the script); 4 of the 160 metadata shards and 300 of
+  their objects drawn with seed 42 (`--count`, `--shards`, `--seed`).
+- **Licenses:** the collection is ODC-By; every object has its own license. Only CC0 and CC-BY objects are
+  selected (no NC, ND or SA). `data/objaverse/manifest.csv` lists uid, license, source URL and the
+  attribution of every object. Nothing of it is committed (CLAUDE.md); results that name objects must keep
+  their attribution.
+
+**Baseline (`robust`, master 6ec47ed, 4 meshes in parallel, 120 s timeout):**
+
+| | Objaverse (300) | Thingi10K (400, above) |
+|---|---|---|
+| closed + topologically clean | 279 | |
+| ... and no exact self-intersections | 272 | |
+| **repaired** (also Hausdorff < 1 %, IoU > 0.99) | **64** | 270 |
+| timeout (no crash; alone they finish in 50-60 s, one takes > 200 s) | 17 | |
+| repair time median / max | 9.6 s / 104 s | |
+
+Per stage (`analyze_paths.py`): the first stage repaired 23 of 26; the exact resolve 39 of 136, solidify
+2 of 64, alpha wrap 0 of 57. Most misses are deviation, not defects: the 97 exact-resolve results that miss
+are all clean, without self-intersections and with IoU > 0.99, at a median Hausdorff distance of 2 %. The
+likely cause (not yet checked mesh by mesh): Objaverse models often carry interior and double-sided faces
+that the solid's boundary drops on purpose, and the two-sided Hausdorff distance counts them. A fidelity
+measure that ignores dropped interior faces would tell these apart from real losses; until then, compare
+runs on this corpus with each other, not with Thingi10K.
