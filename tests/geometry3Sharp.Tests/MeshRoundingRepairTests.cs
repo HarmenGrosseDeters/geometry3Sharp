@@ -567,8 +567,10 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0, AssertBoundaryKept(before, m));
             // the old mesh again, its vertices where they were
             Assert.Equal(original.VertexCount, m.VertexCount);
-            foreach (int v in original.VertexIndices())
+            foreach (int v in original.VertexIndices()) {
+                Assert.True(m.IsVertex(v));
                 Assert.Equal(original.GetVertex(v), m.GetVertex(v));
+            }
         }
 
         // m with the vertex ids in reverse order (the edges' vertices in the other order)
@@ -605,8 +607,10 @@ namespace geometry3Sharp.Tests
             Assert.True(repair.Collapses >= splits);
             Assert.Equal(0, AssertBoundaryKept(before, m));
             Assert.Equal(original.VertexCount, m.VertexCount);
-            foreach (int v in original.VertexIndices())
+            foreach (int v in original.VertexIndices()) {
+                Assert.True(m.IsVertex(v));
                 Assert.Equal(original.GetVertex(v), m.GetVertex(v));
+            }
         }
 
         [Fact]
@@ -648,8 +652,8 @@ namespace geometry3Sharp.Tests
         public void Repair_StripPinchedToANeedle_NotContractedAcross()
         {
             // a strip of quads whose top boundary dips to 1e-13 above the bottom one at x = 2: the short edge between
-            // the two boundaries is not contracted (it would pinch the strip into a bowtie); the top vertex is moved
-            // along the top boundary instead
+            // the two boundaries is not contracted (it would pinch the strip into a bowtie; DMesh3.CollapseEdge refuses
+            // it too); the top vertex is moved along the top boundary instead
             var m = new DMesh3();
             const int n = 4;
             var b = new int[n + 1];
@@ -729,6 +733,70 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0, MeshRepairMetrics.SelfIntersections(robust.Mesh));
             // (the separation sweeps a volume of about 6e-5)
             Assert.Equal(Volume(m), Volume(robust.Mesh), 3);
+        }
+
+        // a strip of 12 quads (randomly split into triangles), its top boundary dipping to 1e-13 .. 1e-10 above or
+        // below the bottom one at random vertices, with edges split 1e-9 .. 1e-14 from an end and a few vertices
+        // moved by up to 5e-7 across
+        static DMesh3 PinchedStrip(int seed)
+        {
+            var r = new Random(seed);
+            var m = new DMesh3();
+            const int n = 12;
+            var b = new int[n + 1];
+            var t = new int[n + 1];
+            for (int i = 0; i <= n; ++i) {
+                double y = (r.NextDouble() < 0.4) ? Math.Pow(10, -13 + r.Next(4)) * ((r.Next(2) == 0) ? 1 : -0.3) : 1;
+                b[i] = m.AppendVertex(new Vector3d(i + (r.NextDouble() - 0.5) * 0.3, 0, 0));
+                t[i] = m.AppendVertex(new Vector3d(i + (r.NextDouble() - 0.5) * 0.6, y, (r.NextDouble() - 0.5) * 1e-9));
+            }
+            for (int i = 0; i < n; ++i) {
+                if (r.Next(2) == 0) {
+                    m.AppendTriangle(b[i], b[i + 1], t[i + 1]);
+                    m.AppendTriangle(b[i], t[i + 1], t[i]);
+                } else {
+                    m.AppendTriangle(b[i], b[i + 1], t[i]);
+                    m.AppendTriangle(b[i + 1], t[i + 1], t[i]);
+                }
+            }
+            foreach (int eid in m.EdgeIndices().ToArray()) {
+                if (m.IsEdge(eid) == false || r.NextDouble() > 0.35)
+                    continue;
+                Index2i ev = m.GetEdgeV(eid);
+                int a = (r.Next(2) == 0) ? ev.a : ev.b, c = (a == ev.a) ? ev.b : ev.a;
+                Vector3d pa = m.GetVertex(a), pc = m.GetVertex(c);
+                DMesh3.EdgeSplitInfo info;
+                if (m.SplitEdge(eid, out info) != MeshResult.Ok)
+                    continue;
+                Vector3d p = pa + Math.Pow(10, -9 - r.Next(6)) * (pc - pa).Normalized;
+                if (r.Next(3) == 0)
+                    p += new Vector3d(r.NextDouble() - 0.5, r.NextDouble() - 0.5, r.NextDouble() - 0.5) * 1e-12;
+                m.SetVertex(info.vNew, p);
+            }
+            foreach (int v in m.VertexIndices().ToArray())
+                if (r.NextDouble() < 0.05)
+                    m.SetVertex(v, m.GetVertex(v) + new Vector3d(0, 0, (r.NextDouble() - 0.5) * 1e-6));
+            return m;
+        }
+
+        [Theory]
+        [InlineData(14)]
+        [InlineData(92)]
+        [InlineData(215)]
+        [InlineData(320)]
+        public void Repair_PinchedStrips_BoundaryStaysOnTheInputCurve(int seed)
+        {
+            // many edits along the boundary: a vertex slid after its neighbour on the boundary was contracted away
+            // (along the new, shorter edge) or slid back the other way would leave the input curve; it stays on it
+            DMesh3 m = PinchedStrip(seed);
+            DMesh3 before = new DMesh3(m);
+            int intersections = MeshRepairMetrics.SelfIntersections(m), degenerate = Degenerate(m);
+            var repair = new MeshRoundingRepair(m) { RemoveTinyComponents = false };
+            repair.Apply();
+            Assert.True(repair.Collapses > 5);
+            AssertBoundaryKept(before, m);
+            Assert.True(MeshRepairMetrics.SelfIntersections(m) <= intersections && Degenerate(m) <= degenerate);
+            Assert.Equal(MeshRepairMetrics.SelfIntersections(m), repair.RemainingIntersections);
         }
     }
 }

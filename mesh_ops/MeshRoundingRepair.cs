@@ -24,10 +24,12 @@ namespace g3
     /// meshes stay on the boundary curve: a boundary vertex keeps its coordinates in a contraction and is
     /// removed only by contracting a boundary edge into its other end (an interior edge between two boundary
     /// vertices, which would pinch the mesh, is not contracted; an interior vertex may be contracted into a
-    /// boundary vertex), and it moves only along one of its two boundary edges (not past its other end); flips
-    /// and zips do not change boundary edges. So the boundary keeps its loops, every boundary vertex left stays
-    /// where it was or on the old curve, and the curve moves by at most the length of a contracted edge or a
-    /// move. Bowtie vertices on the boundary are not edited. No triangle may turn over in an edit (a fold, which is not an intersection), except slivers
+    /// boundary vertex), and it moves only along one of its boundary edges of the input whose other end has not
+    /// moved (not past that end, and over several moves towards the same end); flips and zips do not change
+    /// boundary edges. So the boundary keeps its loops, every boundary vertex left stays where it was or on the
+    /// input curve, and the curve moves by at most the length of a contracted edge or a move. Bowtie vertices on
+    /// the boundary are not edited. No triangle may turn over in an edit (a fold, which is not an intersection),
+    /// except slivers
     /// (below 100 times the degenerate area) and triangles not higher than twice the distance a vertex moves
     /// (a move cannot turn over a triangle higher than the move, so the rule matters for flips and zips: tiny
     /// triangles may turn over, they are only checked for intersections and degeneracy). Closed components that keep a
@@ -115,12 +117,26 @@ namespace g3
         HashSet<int> touched = new HashSet<int>();
         // vertices of the triangles changed in the current pass
         HashSet<int> changed = new HashSet<int>();
+        // boundary vertices at the start and their positions, the boundary edges at the start (as vertex pairs,
+        // the smaller id first), and the vertex a slid vertex was moved towards
+        Dictionary<int, Vector3d> inputBoundary = new Dictionary<int, Vector3d>();
+        HashSet<Index2i> inputBoundaryEdges = new HashSet<Index2i>();
+        Dictionary<int, int> slidTowards = new Dictionary<int, int>();
 
         /// <summary> repair (see class comment); returns IsClean </summary>
         public bool Apply()
         {
             Collapses = Flips = Moves = Zips = RemovedComponents = RemovedTriangles = 0;
             touched.Clear();
+            inputBoundary.Clear();
+            inputBoundaryEdges.Clear();
+            slidTowards.Clear();
+            foreach (int eid in Mesh.BoundaryEdgeIndices()) {
+                Index2i ev = Mesh.GetEdgeV(eid);
+                inputBoundaryEdges.Add(new Index2i(Math.Min(ev.a, ev.b), Math.Max(ev.a, ev.b)));
+                inputBoundary[ev.a] = Mesh.GetVertex(ev.a);
+                inputBoundary[ev.b] = Mesh.GetVertex(ev.b);
+            }
             changed.Clear();
             if (Mesh.TriangleCount == 0) {
                 InitialIntersections = InitialDegenerate = RemainingIntersections = RemainingDegenerate = 0;
@@ -697,20 +713,31 @@ namespace g3
             return true;
         }
 
-        // move the boundary vertex v by s along one of its two boundary edges (not to or past their other ends)
+        // move the boundary vertex v to s from its input position along one of its two boundary edges (not to or
+        // past their other ends). So that it stays on the input curve over several edits: only along an edge of the
+        // input boundary whose other end u is where it was, and towards the same u as before if v was slid already
         bool try_slide(int v, double s)
         {
-            if (Mesh.IsBowtieVertex(v))
+            Vector3d p;
+            if (Mesh.IsBowtieVertex(v) || inputBoundary.TryGetValue(v, out p) == false)
                 return false;
-            Vector3d p = Mesh.GetVertex(v);
+            int before;
+            bool slid = slidTowards.TryGetValue(v, out before);
             foreach (int eid in Mesh.VtxEdgesItr(v)) {
                 if (Mesh.IsBoundaryEdge(eid) == false)
                     continue;
                 Index2i ev = Mesh.GetEdgeV(eid);
-                Vector3d d = Mesh.GetVertex(ev.a == v ? ev.b : ev.a) - p;
+                int u = (ev.a == v) ? ev.b : ev.a;
+                Vector3d pu;
+                if ((slid && u != before) || inputBoundaryEdges.Contains(new Index2i(Math.Min(v, u), Math.Max(v, u))) == false
+                    || inputBoundary.TryGetValue(u, out pu) == false || Mesh.GetVertex(u) != pu)
+                    continue;
+                Vector3d d = pu - p;
                 double len = d.Length;
-                if (s < len && try_move(v, p + (s / len) * d))
+                if (s < len && try_move(v, p + (s / len) * d)) {
+                    slidTowards[v] = u;
                     return true;
+                }
             }
             return false;
         }
