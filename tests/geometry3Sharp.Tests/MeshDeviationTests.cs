@@ -162,6 +162,24 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void FarFromOrigin_SameAsAtOrigin()
+        {
+            Vector3d off = new Vector3d(500000, 5000000, 300);
+            DMesh3 reference = Sphere(1, 20), mesh = Sphere(1.1, 9);
+            var d0 = new MeshDeviation(mesh, reference);
+            Assert.True(d0.Compute());
+            MeshTransforms.Translate(reference, off);
+            MeshTransforms.Translate(mesh, off);
+            var d1 = new MeshDeviation(mesh, reference);
+            Assert.True(d1.Compute());
+            foreach (int vid in mesh.VertexIndices()) {
+                Assert.Equal(d0.VertexDeviation[vid], d1.VertexDeviation[vid], 6);
+                // (the closest triangle may differ where two are equally close, eg at an edge)
+                Assert.True((d0.ClosestPoint[vid] + off).Distance(d1.ClosestPoint[vid]) < 1e-6);
+            }
+        }
+
+        [Fact]
         public void CertifiedBound_ContainsVertexMaximum()
         {
             DMesh3 reference = Sphere(1, 12);

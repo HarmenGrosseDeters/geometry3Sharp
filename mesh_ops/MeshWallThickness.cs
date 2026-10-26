@@ -88,6 +88,13 @@ namespace gs
             VertexThickness = null; TriangleThickness = null; Statistics = null;
             if (Mesh.TriangleCount == 0)
                 return false;
+            MeshWallThickness local = local_instance();
+            if (local != null) {
+                bool ok = local.Compute();
+                VertexThickness = local.VertexThickness; TriangleThickness = local.TriangleThickness;
+                Statistics = local.Statistics;
+                return ok;
+            }
             if (Spatial == null)
                 Spatial = new DMeshAABBTree3(Mesh, true);
             double maxDist = (MaxDistance > 0) ? MaxDistance : Mesh.CachedBounds.DiagonalLength;
@@ -148,6 +155,9 @@ namespace gs
         /// </summary>
         public double ThicknessAt(Vector3d p, Vector3d n)
         {
+            MeshWallThickness local = local_instance();
+            if (local != null)
+                return local.ThicknessAt(p - localOffset, n);
             if (Spatial == null)
                 Spatial = new DMeshAABBTree3(Mesh, true);
             double maxDist = (MaxDistance > 0) ? MaxDistance : Mesh.CachedBounds.DiagonalLength;
@@ -183,6 +193,45 @@ namespace gs
 
         // triangles taken with reversed orientation (OrientInvertedParts)
         bool[] flipped;
+
+        /// <summary>
+        /// true if the mesh lies so far from the origin (more than 10 bounding box diagonals) that the float
+        /// boxes of DMeshAABBTree3, which round by 2^-24 of the coordinates (0.3 at 5e6), become coarse
+        /// against the mesh size: queries then run on a copy moved to the origin
+        /// </summary>
+        public static bool FarFromOrigin(DMesh3 mesh)
+        {
+            AxisAlignedBox3d b = mesh.CachedBounds;
+            return Math.Max(b.Min.MaxAbs, b.Max.MaxAbs) > 10 * b.DiagonalLength;
+        }
+
+        // for a mesh far from the origin and no given Spatial: the same computation on a copy moved to the
+        // origin (same IDs; thickness does not change under a translation). Null otherwise.
+        MeshWallThickness localCopy;
+        Vector3d localOffset;
+        int localStamp = -1;
+
+        MeshWallThickness local_instance()
+        {
+            if (Spatial != null || FarFromOrigin(Mesh) == false)
+                return null;
+            lock (toleranceLock) {
+                if (localCopy == null || localStamp != Mesh.ShapeTimestamp) {
+                    localOffset = Mesh.CachedBounds.Center;
+                    DMesh3 m = new DMesh3(Mesh, false, MeshComponents.None);
+                    MeshTransforms.Translate(m, -localOffset);
+                    localCopy = new MeshWallThickness(m);
+                    localStamp = Mesh.ShapeTimestamp;
+                }
+                // current settings
+                localCopy.Method = Method; localCopy.ConeAngle = ConeAngle; localCopy.RayCount = RayCount;
+                localCopy.MaxDistance = MaxDistance; localCopy.MaxBallIterations = MaxBallIterations;
+                localCopy.SeparationAngle = SeparationAngle; localCopy.OrientInvertedParts = OrientInvertedParts;
+                localCopy.ComputeVertices = ComputeVertices; localCopy.ComputeTriangles = ComputeTriangles;
+                localCopy.CancelF = CancelF;
+                return localCopy;
+            }
+        }
 
         // zero for degenerate triangles (area below 1e-12 diag^2): their normal is rounding noise, which
         // depends on the unit; they get no value and do not count as walls

@@ -255,6 +255,34 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void FarFromOrigin_SameAsAtOrigin()
+        {
+            // geo coordinates: the tree's float boxes round by 0.3 at 5e6, so the computation runs on a copy
+            // at the origin; IDs must survive (here with gaps from removed triangles)
+            // gaps in the ID space: a second shell appended first and removed again (the rest stays closed)
+            DMesh3 a = Sphere(0.3, 6, new Vector3d(5, 0, 0));
+            int gap = a.MaxTriangleID;
+            new MeshEditor(a).AppendMesh(SphereShell(1, 0.8, 12));
+            foreach (int tid in a.TriangleIndices().Where(t => t < gap).ToList())
+                a.RemoveTriangle(tid, true, false);
+            Assert.Equal(0, MeshTestUtil.BoundaryEdgeCount(a));
+            DMesh3 b = new DMesh3(a);
+            MeshTransforms.Translate(b, new Vector3d(500000, 5000000, 300));
+            foreach (var method in new[] { MeshWallThickness.Methods.Ray, MeshWallThickness.Methods.InscribedSphere }) {
+                var wa = new MeshWallThickness(a) { Method = method };
+                var wb = new MeshWallThickness(b) { Method = method };
+                Assert.True(wa.Compute() && wb.Compute());
+                foreach (int tid in a.TriangleIndices()) {
+                    double x = wa.TriangleThickness[tid], y = wb.TriangleThickness[tid];
+                    Assert.True(double.IsNaN(x) == double.IsNaN(y), method + " triangle " + tid);
+                    if (!double.IsNaN(x)) Assert.Equal(x, y, 6);
+                }
+                Vector3d p = a.GetTriCentroid(a.TriangleIndices().First()), n = a.GetTriNormal(a.TriangleIndices().First());
+                Assert.Equal(wa.ThicknessAt(p, n), wb.ThicknessAt(p + new Vector3d(500000, 5000000, 300), n), 6);
+            }
+        }
+
+        [Fact]
         public void InsideOutParts_AreTakenFlipped()
         {
             // Thingi10K has closed meshes that are inside out as a whole: their rays all leave through front
