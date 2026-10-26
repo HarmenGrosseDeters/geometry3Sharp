@@ -196,6 +196,24 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void Oracle_SmallValidTriangle_FirstEntryOnlyNearIt()
+        {
+            // a valid triangle with edges of 1e-8 (|cross| = 1e-16, below the absolute epsilon of Vector3d.Normalized):
+            // its normal was zero, so every segment through its node box counted as starting inside the offset volume
+            // (entry 0); the alpha wrap then inserted the segment's far end and rejected it (outside the box)
+            var tris = new List<Vector3d> { Vector3d.Zero, new Vector3d(1e-8, 0, 0), new Vector3d(0, 1e-8, 0) };
+            var o = new AlphaWrapOracle(tris, new List<Vector3d>());
+            Assert.Equal(1, o.Triangles);
+            Vector3d a = new Vector3d(0.9, 0.9, 5), b = new Vector3d(0.9, 0.9, -5);       // 1.27 from the triangle
+            Assert.Equal(-1, o.FirstEntry(a, b, 1));
+            Assert.Equal(-1, o.FirstEntry(b, a, 1));
+            // entering where it is within r: at z = sqrt(1 - 0.5^2) for x = y = 0.5 / sqrt(2)
+            double h = 0.5 / Math.Sqrt(2);
+            double t = o.FirstEntry(new Vector3d(h, h, 5), new Vector3d(h, h, -5), 1);
+            Assert.Equal((5 - Math.Sqrt(0.75)) / 10, t, 6);
+        }
+
+        [Fact]
         public void Oracle_TetrahedronTouches_IsConservative()
         {
             var tris = new List<Vector3d> { new Vector3d(0, 0, 0), new Vector3d(1, 0, 0), new Vector3d(0, 1, 0),
@@ -700,6 +718,114 @@ namespace geometry3Sharp.Tests
             Assert.Null(w.Error);
             Assert.True(w.Counts["steiner_points"] > 2048);     // enough vertex checks for the step to ask
             Assert.False(w.PhaseMilliseconds.ContainsKey("manifold"));
+        }
+
+        static DMesh3 SphereWithFloatingSpecks()
+        {
+            // a sphere and 20 valid triangles with edges of 1e-8 floating around it (as in Thingi10K 99911)
+            DMesh3 m = Sphere(1, 8);
+            var rnd = new Random(2);
+            for (int k = 0; k < 20; ++k) {
+                Vector3d c = new Vector3d(rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5).Normalized * (1.3 + 0.5 * rnd.NextDouble());
+                m.AppendTriangle(m.AppendVertex(c), m.AppendVertex(c + new Vector3d(1e-8, 0, 0)), m.AppendVertex(c + new Vector3d(0, 1e-8, 0)));
+            }
+            return m;
+        }
+
+        [Fact]
+        public void Wrap_SmallValidTriangles_NoRejectedSteinerPoints()
+        {
+            // the tiny triangles had no normal in the oracle: dual edges near them "entered the offset volume" at their
+            // far end, outside the box, and were rejected (5 here, 1835 in Thingi10K 99911), leaving facets that can be
+            // closer to the input than the offset
+            DMesh3 m = SphereWithFloatingSpecks();
+            var w = new MeshAlphaWrap(m) { RelativeAlpha = 20, RelativeOffset = 300 };
+            Assert.True(w.Compute());
+            Assert.Equal(0, w.Counts["rejected_rule1"]);
+            CheckWrap(w, Vertices(m));
+        }
+
+        [Fact]
+        public void Wrap_RejectedRule1Points_NotSuccess()
+        {
+            // a rejected rule 1 point leaves a facet that can come closer to the input than the offset: the result is
+            // kept, but not reported as Success (also not after the retry with the other box)
+            int calls = 0;
+            DMesh3 cube = Box(Vector3d.Zero, Vector3d.One);     // (many rule 1 points, unlike a sphere)
+            var w = new MeshAlphaWrap(cube) { RelativeAlpha = 10, RetryWithOtherBox = false,
+                RejectInsertF = (rule) => rule == 1 && ++calls > 20 && calls % 3 == 0 };
+            Assert.False(w.Compute());
+            Assert.Equal(MeshAlphaWrap.WrapStatus.Failed, w.Status);
+            Assert.Equal("result rule 1 Steiner points rejected (offset not guaranteed)", w.Error);
+            Assert.True(w.Counts["rejected_rule1"] > 0);
+            Assert.Equal(0, w.Counts["result_box_corners"]);
+            Assert.NotNull(w.Result);
+            // with the retry (the default) it is tried once more, rejecting points there too: still Failed
+            calls = 0;
+            var retried = new MeshAlphaWrap(cube) { RelativeAlpha = 10, RejectInsertF = (rule) => rule == 1 && ++calls > 20 && calls % 3 == 0 };
+            Assert.False(retried.Compute());
+            Assert.Equal(1, retried.Counts["box_retries"]);
+            Assert.Equal(MeshAlphaWrap.WrapStatus.Failed, retried.Status);
+            // rejected rule 2 points alone do not (their cells touch the input; caught by the box corner check if they
+            // reach the box)
+            calls = 0;
+            var w2 = new MeshAlphaWrap(Sphere(1, 8)) { RelativeAlpha = 10, RejectInsertF = (rule) => rule == 2 && ++calls % 7 == 0 };
+            w2.Compute();
+            Assert.True(w2.Counts["rejected_rule2"] > 0);
+            Assert.Equal(0, w2.Counts["rejected_rule1"]);
+            Assert.NotEqual("result rule 1 Steiner points rejected (offset not guaranteed)", w2.Error);
+            // PointLimitReached promises closed, manifold and enclosing only, which a rule 1 rejection keeps: it stays
+            // PointLimitReached (no Failed, no retry)
+            calls = 0;
+            var limited = new MeshAlphaWrap(cube) { RelativeAlpha = 10, MaxSteinerPoints = 60, RejectInsertF = (rule) => rule == 1 && ++calls % 5 == 0 };
+            limited.Compute();
+            Assert.True(limited.Counts["rejected_rule1"] > 0);
+            Assert.Equal(MeshAlphaWrap.WrapStatus.PointLimitReached, limited.Status);
+            Assert.False(limited.Counts.ContainsKey("box_retries"));
+        }
+
+        [Fact]
+        public void Oracle_Unit_NoUnderOrOverflow()
+        {
+            // the triangle normals (and the projection direction of rule 2) are normalized without an absolute epsilon:
+            // unit length also where the squared length underflows or overflows, zero only for a zero vector
+            Assert.Equal(1.0, AlphaWrapOracle.Unit(new Vector3d(3e-16, 4e-16, 0)).Length, 15);      // Normalized: zero
+            Assert.Equal(1.0, AlphaWrapOracle.Unit(new Vector3d(3e-300, 4e-300, 0)).Length, 15);
+            Assert.Equal(1.0, AlphaWrapOracle.Unit(new Vector3d(3e300, 4e300, 0)).Length, 15);
+            Assert.Equal(0.6, AlphaWrapOracle.Unit(new Vector3d(3e300, 4e300, 0)).x, 15);
+            Assert.Equal(Vector3d.Zero, AlphaWrapOracle.Unit(Vector3d.Zero));
+        }
+
+        // random soups of 3 to 42 triangles in the unit cube, the k-th of the sequence from seed 1
+        static DMesh3 RandomSoup(int k)
+        {
+            var rnd = new Random(1);
+            DMesh3 m = null;
+            for (int s = 0; s <= k; ++s) {
+                m = new DMesh3();
+                int nt = 3 + rnd.Next(40);
+                for (int t = 0; t < nt; ++t) {
+                    Vector3d c = new Vector3d(rnd.NextDouble(), rnd.NextDouble(), rnd.NextDouble());
+                    double sz = 0.05 + 0.4 * rnd.NextDouble();
+                    Func<Vector3d> jitter = () => new Vector3d(rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5);
+                    int a = m.AppendVertex(c + sz * jitter()), b = m.AppendVertex(c + sz * jitter()), d = m.AppendVertex(c + sz * jitter());
+                    m.AppendTriangle(a, b, d);
+                }
+            }
+            return m;
+        }
+
+        [Fact]
+        public void Wrap_ManifoldStep_KeepsBoxCornerCellsOutside()
+        {
+            // the manifold step kept the largest of several outside components around a vertex and moved the others
+            // inside, also one with a box corner: the corner on the result (here with the box of the retry; Thingi10K
+            // 286985 likewise). The outside component with a box corner is kept now
+            DMesh3 m = RandomSoup(136);
+            var w = new MeshAlphaWrap(m) { RelativeAlpha = 10, RelativeOffset = 300, StartWithOtherBox = true };
+            Assert.True(w.Compute(), w.Error);
+            Assert.Equal(0, w.Counts["result_box_corners"]);
+            CheckWrap(w, Vertices(m));
         }
 
         [Fact]

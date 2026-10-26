@@ -221,22 +221,32 @@ dotnet bin/Release/net10.0/BooleanComparison.dll nary spheres 100 chained onepas
 `grid n` is the `sequence` case: n³ cubes united, minus a void in each cube. `onepass` is one ExactMeshBoolean
 over all 2n³ meshes with the predicate "inside a cube and in no void", `twostep` the n-ary union of the cubes and
 then the n-ary difference of that union and all voids. `spheres k` is the union of k random overlapping spheres
-(1536 triangles each). Run on 4 cores, booleans only (without building the inputs):
+(1536 triangles each). Before timing, the requested variants run untimed on a small case of the same kind for
+3 s (warm-up, see below). Run on 4 cores, booleans only (without building the inputs):
 
 | case | inputs | chained (pairwise booleans) | one pass | two steps | result |
 |---|---|---|---|---|---|
-| grid 3 | 54 | 1.6 s (53) | 0.38 s | 0.36 s | identical: 624 triangles, exact volume, clean |
-| grid 5 | 250 | 5.9 s (249) | 1.7 s | 1.7 s | identical: 2472 triangles, exact volume, clean |
-| grid 10 | 2000 | 184 s (1999) | 27 s | 26 s | identical: 16332 triangles, exact volume, clean |
-| spheres 20 | 20 | 4.3 s (19) | 0.95 s | – | same volume, clean; 30576 instead of 30864 triangles |
-| spheres 100 | 100 | 44 s (99) | 7.3 s | – | same volume, clean; 110934 instead of 113774 triangles |
+| grid 3 | 54 | 0.56 s (53) | 0.14 s | 0.21 s | identical: 624 triangles, exact volume, clean |
+| grid 5 | 250 | 3.2 s (249) | 1.3 s | 1.5 s | identical: 2472 triangles, exact volume, clean |
+| grid 10 | 2000 | 124 s (1999) | 15.3 s | 15.8 s | identical: 16332 triangles, exact volume, clean |
+| spheres 20 | 20 | 1.8 s (19) | 0.73 s | – | same volume, clean; 30576 instead of 30864 triangles |
+| spheres 100 | 100 | 31 s (99) | 5.7 s | – | same volume, clean; 110934 instead of 113774 triangles |
 
-One pass is 3.5–7× faster: every input triangle is intersected and retriangulated once, instead of the growing
+One pass is 2.5–8× faster: every input triangle is intersected and retriangulated once, instead of the growing
 intermediate result again in every step. Only meshes whose boxes overlap are intersected, and a patch gets a
 winding number ray only for the meshes whose box contains it, so far-apart inputs cost little. The one-pass
 result rounds the new vertices once; the chain keeps rounded vertices of intermediate results (more triangles on
-curved inputs). For grid 10 the time goes to the merge of intersection points (11 s), the classification of
-42048 patches (7 s) and the triangulation (5 s).
+curved inputs). For grid 10 the time goes to the merge of intersection points (6.3 s), the classification of
+42048 patches (4.0 s), the triangulation (2.6 s) and the intersections (2.3 s).
+
+**Warm-up.** A variant run alone in a cold process used to take much longer than in the table: grid 5 one pass
+2.8–3.6 s alone, 1.6 s after the chained variant. This was not a regression of the library: the PR head of the
+n-ary booleans (24fc5cd), its merge (edb069f) and master at 7f0f97c all take 2.8–3.6 s cold and 1.5–2.0 s in the
+second or third run in the same process. The difference is mostly JIT compilation (tiered: optimized code only
+after enough calls; `DOTNET_TieredCompilation=0`: 2.1 s cold), partly growth of the GC heap (server GC,
+`DOTNET_gcServer=1`, which the benchmark does not use: 1.0–1.4 s warm). The earlier table was measured with all
+variants in one process, so one pass came after the chained run. Now every run warms up on a small case first
+(this covers the JIT, the heap only partly); grid 5 one pass alone: 1.6–1.9 s (before: 2.8–3.6 s).
 
 ## Results (80 Thingi10K meshes)
 
