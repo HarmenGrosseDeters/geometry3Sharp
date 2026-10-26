@@ -29,7 +29,9 @@ python3 analyze_wrap.py results/wrap.jsonl results/cgalwrap.jsonl   # guarantees
 `run_all.sh <mode> [loader] [transform] [tolerance factor]` takes these options:
 - **loader:** `std` (StandardMeshReader, STL welding), `soup` (no welding) or `manual` (own exact weld + `AppendTriangle`)
 - **transform:** `meters` (scale ×0.001) or `geo` (translate by 500000, 5000000, 0)
-- **tolerance factor:** multiplies `RepairTolerance` and `MinEdgeLengthTol`
+- **tolerance factor:** `rel` (default): the library default, `MeshAutoRepair` tolerances relative to the size of
+  the mesh; a number: absolute tolerances, the 1.0.324 defaults (`RepairTolerance` 1e-6, `MinEdgeLengthTol` 1e-4)
+  times the factor (`1` reproduces the earlier absolute runs)
 
 Each mesh runs in its own process with a timeout (120 s, large meshes 900 s), so hangs and crashes are recorded too.
 
@@ -83,6 +85,36 @@ Build `5130ff3`: master after the review fixes #106, #111 and #112, plus #110. T
 
 Compared with master `e9e1599` (before #106, `BENCH_P=2`), every mesh takes the same path and gets the same outcome. The fixes of the review change no result on this set; they cover the failure cases found in the review: unused vertices, components far apart, symmetric inputs to the wrap, and more than 500 closed components.
 
+## Relative repair tolerances (`MeshAutoRepair.ToleranceMode`, 2026-10-26)
+`MeshAutoRepair` tolerances relative to the diagonal of the triangles (default) instead of absolute (1e-6 / 1e-4).
+`robust`, 400 set, `BENCH_P=2`, `TIMEOUT=300`; master `3e3d307` and the branch were run at the same time in the
+same container. Transforms: `meters` = scale ×0.001, `geo` = translate by (500000, 5000000, 0).
+
+| | repaired | clean | path: kept / exact / solidify / wrap | timeouts, crashes |
+|---|---|---|---|---|
+| master, mm | 272 | 400 | 171 / 178 / 34 / 17 | 0 |
+| master, meters | 272 | 399 | 149 / 197 / 34 / 20 | 0 |
+| master, geo | 273 | 400 | 171 / 178 / 32 / 19 | 0 |
+| relative, mm | 272 | 400 | 172 / 177 / 34 / 17 | 0 |
+| relative, meters | 273 | 399 | 174 / 172 / 34 / 20 | 0 |
+| relative, geo | 273 | 400 | 172 / 177 / 32 / 19 | 0 |
+
+Meshes whose result differs from the same mesh in mm (path / repaired / any of path, repaired, clean, triangle count):
+
+| | meters | geo |
+|---|---|---|
+| master | 47 / 10 / 332 | 2 / 1 / 73 |
+| relative | 6 / 1 / 114 | 2 / 1 / 74 |
+
+- In meters, master collapsed and merged at 1000 times the relative tolerance: 22 meshes went from "repair kept" to
+  the exact resolve, and 10 changed their repaired outcome. With relative tolerances 6 meshes still take another
+  path in meters (288801, 47979, 61134, 61460, 72002, 76966), and 1 changes its outcome (47918, which also changes
+  under geo). These come from rounding in the later stages (exact resolve, solidify, wrap), not from the repair
+  tolerances: `geo` has the same 2 path changes on master and on the branch.
+- mm, master vs relative: the same repaired count (272). 1 mesh takes another path (46583: exact resolve → repair
+  kept, repaired in both), and 32 meshes differ by a few triangles (the tolerances are 1e-8 / 1e-6 of the diagonal
+  instead of 1e-6 / 1e-4, and the orientation evidence is summed in a fixed order).
+
 ## Findings with geometry3Sharp 1.0.324 (NuGet)
 The NuGet columns in this and the next section cannot be reproduced with the code in this repository. The benchmark project only references the fork, and `Program.cs` uses classes that the NuGet package does not have (`MeshPostRepairCleanup`, `MeshRepairMetrics`, ...). They come from an earlier, unversioned setup.
 - No exceptions, hangs or crashes in any of the following setups:
@@ -94,7 +126,8 @@ The NuGet columns in this and the next section cannot be reproduced with the cod
   - 118/400 meshes lose more than 10 % of their triangles (max 88 %).
   - 32 of the 40 clean meshes are changed.
 
-  Scale both tolerances with the model size or unit.
+  Scale both tolerances with the model size or unit. (Since the relative tolerances PR this is the library default;
+  `run_all.sh` results without a tolerance factor are relative, earlier ones were absolute.)
 - Defects introduced by the pipeline (meshes affected, out of 400):
   - duplicate triangles: 40
   - new degenerate triangles: 59
