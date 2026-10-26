@@ -17,6 +17,8 @@ python3 analyze_fidelity.py results/robust.jsonl    # repaired = clean + no self
 python3 analyze.py results/default.jsonl            # status per category, exceptions, triangle loss
 python3 analyze_quality.py results/cleanup.jsonl    # quality before/after
 python3 analyze_stages.py results/instr.jsonl       # which pipeline step introduces which defect
+./run_all.sh steps               # library MeshAutoRepair (OnStage): fidelity and winding closedness after every step
+python3 analyze_steps.py results/steps.jsonl 0.01 0.99 123354.stl   # which step crosses the bounds (+ steps of a mesh)
 ./run_all.sh analysis; ./run_all.sh analysis std meters; ./run_all.sh analysis std geo   # analysis building blocks
 python3 analyze_analysis.py results/analysis.jsonl results/analysis_std_meters.jsonl results/analysis_std_geo.jsonl
 ./run_all.sh wrap                # MeshAlphaWrap (BENCH_WRAP_ALPHA / BENCH_WRAP_OFFSET: diagonal / alpha, / offset)
@@ -317,6 +319,51 @@ results consist of slivers only:
 - 83719.stl: the resolved solid has volume 1e-12 at a diagonal of 64; it is removed as slivers.
 - 51352.stl and 51358.stl: the union's volume changes from 2e-5 to 1.2e-3 and from 0 to -4.4e-3. The vertex moves of
   up to 1e-5 of the diagonal sweep that much; it is below 5e-8 of the inputs' signed volumes (-1e5).
+
+**Repair before the exact resolve: cut orientation seams before eroding.** Measured after every step
+(`BENCH_REPAIR=steps`), several deviations came from the repair, not the resolve: where a non-orientable
+region (a seam of inconsistently oriented edges) ends at a hole, the hole runs against the boundary orientation
+and was not filled; the repair eroded the mesh instead (boundary triangles removed, up to 5 times) and filled
+the larger holes (123354, 124709: Hausdorff 1.0 % → 1.9–2.3 %). The depth-first `OrientComponents` could also
+turn a short seam into a long one (101397: 2 → 175 inconsistent edges), and closed non-orientable meshes
+(112866) were not closed in the winding number sense, so the exact stage was not tried. Now:
+- `OrientComponents` orients patches of consistent triangles along a maximum spanning tree and keeps a short seam;
+- `MeshAutoRepair` cuts the mesh open along remaining seams before the hole filling (and once more at the end
+  for closed meshes), so the holes are filled without erosion and the result is closed in the winding number sense;
+- `MeshRobustRepair` resolves a repaired mesh whose volume differs once more with its closed components oriented by
+  the input's solid (a nested part had been taken for a cavity, 116077), and skips the exact stage above
+  `ExactResolveMaxPairs` (200 000) self-intersecting pairs (55928, about 500 000, would otherwise time out).
+
+`MeshAutoRepair.CutOrientationSeams = false` (and `MeshRepairOrientation.KeepShortSeams = false`) restore the
+earlier behaviour; the erosion stays as the fallback for holes that still cannot be filled.
+
+Same machine, `BENCH_P=2`, `TIMEOUT=300`, master 7f0f97c (with #44, #52, #79, #96, #110–#112: safe rounding,
+lost-component check) with and without the change, both selections run at the same time:
+
+| | first selection, before | after | holdout, before | after |
+|---|---|---|---|---|
+| **repaired** (clean¹, no exact self-intersections, Hausdorff < 1 %, IoU > 0.99) | 270 | **272** | 266 | **270** |
+| meshes repaired / lost | | +3 / −1 | | +4 / −0 |
+| IoU < 0.99 | 41 | **35** | 45 | **41** |
+| Hausdorff (max of both directions) > 1 % | 122 | **119** | 127 | **123** |
+| exact stage used | 156 | **178** | 160 | **168** |
+| median / p90 repair time | 3.9 / 15.3 s | 4.4 / 14.7 s | 4.0 / 15.0 s | 4.2 / 17.0 s |
+| timeouts (300 s) | 0 | 0 | 1 | 1 (the same mesh, 113906) |
+
+Gained: 101397, 277709, 73932; 132204, 195685, 49874, 88857. Lost: 498458. With the change, its exact stage
+succeeds (the repair result oriented by the input), and the safe rounding reports no intersections left, so the
+result is used; the benchmark's `MeshRepairMetrics.SelfIntersections` counts 10 pairs in it (the solidify that master
+uses there has none). The safe rounding takes its count from `MeshRoundingRepair` when no touching vertices were
+separated, which counts contacts differently (see ² above). Earlier measurements of this change: on master a8a5572
+266 → 270 / 262 → 267, on 8597e32 258 → 264 / 256 → 260.
+
+Cases the strict criterion cannot reach:
+- zero-volume fins of the input (123354, 124709: the repair is faithful, the solid loses them: 1.3–1.5 %);
+- a nested inner shell (116077: resolved exactly, the shell is not part of the solid: Hausdorff 4 %);
+- inputs with flipped triangles (100037: the repair agrees with the consistently oriented input, IoU 0.9998,
+  but the IoU reference is the winding number solid of the input as given, IoU 0.907);
+- large open regions (106620, a relief without a bottom: any cap is more than 1 % from the input surface).
+
 
 ### Spike: solidify resolution 256 (`BENCH_SOLID_RES=256`, 30 meshes)
 20 meshes that `robust` solidified and that missed the 1 % Hausdorff bound at resolution 128, and 10 it

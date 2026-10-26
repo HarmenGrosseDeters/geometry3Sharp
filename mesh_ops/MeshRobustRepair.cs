@@ -81,6 +81,11 @@ namespace gs
         public bool SafeRounding = true;
         /// <summary> rounding the new vertices to double can create tiny self-intersections: resolve again, up to this often </summary>
         public int ExactResolveRounds = 4;
+        /// <summary>
+        /// the exact resolve is not tried for meshes with more self-intersecting triangle pairs than this (its time
+        /// grows with them; a heavily overlapping mesh is solidified instead); 0 = no limit
+        /// </summary>
+        public int ExactResolveMaxPairs = 200000;
         /// <summary> last resort: alpha wrap the mesh if the solidify fails or its result is not clean </summary>
         public bool AlphaWrapFallback = true;
         /// <summary> alpha wrap fallback: alpha = bounding box diagonal / WrapRelativeAlpha </summary>
@@ -93,7 +98,9 @@ namespace gs
         public bool UsedSolidify;
         /// <summary>
         /// true if the fallbacks (exact resolve, solidify, alpha wrap) started from the input instead of the repair
-        /// result, because the repair result's solid differs from the input's (or it is empty)
+        /// result, because the repair result's solid differs from the input's (or it is empty). The exact resolve
+        /// tries the repair result first even then (its result must agree with the input's volume): false if that
+        /// was used
         /// </summary>
         public bool UsedInput;
         /// <summary> why the repair result was not used ("" if it was) </summary>
@@ -236,13 +243,35 @@ namespace gs
             if (solidifyFrom.TriangleCount == 0)
                 return false;
             if (ExactResolve) {
-                DMesh3 exact = resolve_exactly(solidifyFrom, input);
+                // the repair result first, also when it lost volume (UsedInput): its resolve is checked against the
+                // input's volume, and resolving keeps the repaired geometry
+                DMesh3 exact = null;
+                if (result.TriangleCount > 0) {
+                    // a clean result whose volume differs resolves to its own solid again: skip to the next try
+                    bool cleanButDiffers = FallbackReason == VolumeDiffers || FallbackReason == PartsLost;
+                    if (cleanButDiffers == false)
+                        exact = resolve_exactly(result, input, false);
+                    // its volume may differ (or a part be lost) only because components are oriented differently from
+                    // the input (eg a nested part taken for a cavity): then resolve it again, oriented by the input's
+                    // solid, if that orientation differs at all
+                    if (exact == null && (cleanButDiffers || ExactResolveReason == VolumeDiffers || ExactResolveReason == PartsLost) && CancelF() == false)
+                        exact = resolve_exactly(result, input, true);
+                }
+                bool fromResult = exact != null;
+                // then the input itself (a clean result whose volume differs, or an unclean one that lost volume)
+                if (exact == null && solidifyFrom != result && CancelF() == false) {
+                    string reason = ExactResolveReason;
+                    exact = resolve_exactly(solidifyFrom, input, false);
+                    if (exact == null && reason != "")
+                        ExactResolveReason = reason + "; input: " + ExactResolveReason;
+                }
                 end_phase("exact");
                 if (CancelF())
                     return false;
                 if (exact != null) {
                     Mesh = exact;
                     UsedExactResolve = true;
+                    UsedInput = !fromResult;
                     ResultReason = "";
                     return true;
                 }
@@ -296,6 +325,8 @@ namespace gs
             return true;
         }
 
+        const string VolumeDiffers = "volume differs from the input", PartsLost = "parts of the input lost";
+
         // "" if the solid of res agrees with the input's (IoU at least MinVolumeIoU, no component lost), otherwise why not
         string volume_check(DMesh3 input, DMesh3 res, out double iou)
         {
@@ -309,26 +340,36 @@ namespace gs
             }
             Func<Vector3d, bool> resultInside = MeshRepairMetrics.SolidInside(res);
             if (MinVolumeIoU > 0 && MeshRepairMetrics.VolumeIoUAtLeast(inputSolid, res, resultInside, MinVolumeIoU, out iou) == false)
-                return "volume differs from the input";
+                return VolumeDiffers;
             if (CheckLostComponents && MeshRepairMetrics.LostComponents(inputSolid, resultInside) > 0)
-                return "parts of the input lost";
+                return PartsLost;
             return "";
         }
         MeshRepairMetrics.SolidReference inputSolid;
         DMesh3 inputSolidOf;
 
         // the solid of the mesh with its self-intersections resolved exactly, or null (ExactResolveReason says why)
-        DMesh3 resolve_exactly(DMesh3 from, DMesh3 input)
+        DMesh3 resolve_exactly(DMesh3 from, DMesh3 input, bool orientByInput)
         {
             var timer = Stopwatch.StartNew();
-            // inside-out parts flipped, so that the solid is where the winding number is positive
-            DMesh3 m = WindingContouring.OrientedCopy(from);
+            // inside-out parts flipped, so that the solid is where the winding number is positive (guessed from
+            // the nesting of the components, or from the input's solid)
+            int flipped = 0;
+            DMesh3 m = orientByInput ? oriented_by_reference(from, input, out flipped) : WindingContouring.OrientedCopy(from);
             add_phase("exact.orient", timer.ElapsedMilliseconds); timer.Restart();
+            if (orientByInput && flipped == 0)
+                return null;        // the same orientation as before: the same result (ExactResolveReason kept)
             bool closed = ExactMeshBoolean.IsWindingClosed(m);
             add_phase("exact.closed", timer.ElapsedMilliseconds); timer.Restart();
             if (closed == false) {
                 ExactResolveReason = "not closed (winding number)";
                 return null;
+            }
+            if (ExactResolveMaxPairs > 0) {
+                if (MeshRepairMetrics.SelfIntersectionsAtMost(m, ExactResolveMaxPairs) > ExactResolveMaxPairs) {
+                    ExactResolveReason = "too many self-intersections";
+                    return null;
+                }
             }
             for (int round = 0; round < ExactResolveRounds; ++round) {
                 if (CancelF())
@@ -411,6 +452,74 @@ namespace gs
                 return res;
             }
             return null;
+        }
+
+        /// <summary>
+        /// Compacted copy of mesh with inside-out parts flipped (WindingContouring.OrientedCopy), then each
+        /// closed component oriented by the solid of reference (where its generalized winding number is
+        /// > 0.5), sampled just off both sides of its triangles: reversed if the reference has its solid on
+        /// the outer side and none on the inner (OrientedCopy guesses a cavity or an inverted part from the
+        /// nesting alone, eg makes a part nested in another one a cavity), and turned outwards if the
+        /// reference is solid on both sides (an inner shell of a solid, not a cavity).
+        /// </summary>
+        public static DMesh3 OrientedByReference(DMesh3 mesh, DMesh3 reference)
+        {
+            int flipped;
+            return oriented_by_reference(mesh, reference, out flipped);
+        }
+        // flipped: components reversed against WindingContouring.OrientedCopy
+        static DMesh3 oriented_by_reference(DMesh3 mesh, DMesh3 reference, out int flipped)
+        {
+            flipped = 0;
+            DMesh3 m = WindingContouring.OrientedCopy(mesh);
+            if (reference == null || reference.TriangleCount == 0)
+                return m;
+            var comps = new MeshConnectedComponents(m);
+            comps.FindConnectedT();
+            var closedComps = comps.Components.Select(c => c.Indices).Where(tris => tris.All(t => {
+                Index3i te = m.GetTriEdges(t);
+                return !m.IsBoundaryEdge(te.a) && !m.IsBoundaryEdge(te.b) && !m.IsBoundaryEdge(te.c);
+            })).ToList();
+            if (closedComps.Count == 0)
+                return m;
+            var tree = new DMeshAABBTree3(WindingContouring.OrientedCopy(reference), true);
+            tree.FastWindingNumber(Vector3d.Zero);     // cache before parallel use
+            // up to 200 samples per component, at most about 50000 in all (assemblies with many parts), at least 8
+            int perComp = Math.Max(8, Math.Min(200, 50000 / closedComps.Count));
+            bool[] flip = new bool[closedComps.Count];
+            gParallel.ForEach(Interval1i.Range(closedComps.Count), (ci) => {
+                int[] tris = closedComps[ci];
+                // area of the sampled triangles with the reference solid only on the inner side, only on the
+                // outer side, on both
+                double inner = 0, outer = 0, both = 0, total = 0;
+                int samples = Math.Min(perComp, tris.Length);
+                for (int k = 0; k < samples; ++k) {
+                    int tid = tris[(int)((long)k * tris.Length / samples)];
+                    Vector3d n, c;
+                    double area;
+                    m.GetTriInfo(tid, out n, out area, out c);
+                    if (area <= 0 || n.IsNormalized == false)
+                        continue;
+                    double eps = 0.01 * Math.Sqrt(area);
+                    bool sIn = tree.FastWindingNumber(c - eps * n) > 0.5, sOut = tree.FastWindingNumber(c + eps * n) > 0.5;
+                    total += area;
+                    if (sIn && sOut) both += area;
+                    else if (sIn) inner += area;
+                    else if (sOut) outer += area;
+                }
+                if (outer > inner && outer > 0.5 * total)
+                    flip[ci] = true;
+                else if (both > 0.5 * total && inner < 0.25 * total && outer < 0.25 * total)
+                    flip[ci] = MeshMeasurements.VolumeArea(m, tris, m.GetVertex).x < 0;
+            });
+            for (int ci = 0; ci < closedComps.Count; ++ci) {
+                if (flip[ci] == false)
+                    continue;
+                foreach (int tid in closedComps[ci])
+                    m.ReverseTriOrientation(tid);
+                flipped++;
+            }
+            return m;
         }
 
         /// <summary>

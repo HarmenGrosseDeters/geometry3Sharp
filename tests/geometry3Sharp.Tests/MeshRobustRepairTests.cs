@@ -69,6 +69,35 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void EmptyRepairResult_InputResolvedOnly()
+        {
+            // an empty repair result is not resolved: the exact stage starts from the input right away, with as
+            // many rounds as for the input on its own
+            var own = new MeshRobustRepair(OverlappingSpheres()) { RepairF = (m) => new DMesh3(m) };
+            Assert.True(own.Apply());
+            var r = new MeshRobustRepair(OverlappingSpheres()) { RepairF = (m) => new DMesh3() };
+            Assert.True(r.Apply());
+            Assert.Equal("empty", r.FallbackReason);
+            Assert.True(r.UsedInput);
+            Assert.True(r.UsedExactResolve, r.ExactResolveReason);
+            Assert.Equal("", r.ExactResolveReason);
+            Assert.Equal(own.ExactResolveRoundsUsed, r.ExactResolveRoundsUsed);
+        }
+
+        [Fact]
+        public void TooManySelfIntersections_SolidifiedInsteadOfResolved()
+        {
+            // the exact resolve takes too long for heavily overlapping meshes: above ExactResolveMaxPairs the
+            // repaired mesh is solidified right away
+            var r = new MeshRobustRepair(OverlappingSpheres()) { ExactResolveMaxPairs = 10 };
+            Assert.True(r.Apply());
+            Assert.False(r.UsedExactResolve);
+            Assert.Equal("too many self-intersections", r.ExactResolveReason);
+            Assert.True(r.UsedSolidify);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(r.Mesh));
+        }
+
+        [Fact]
         public void SelfIntersectingInput_WithoutExactResolve_SolidifiedClean()
         {
             var r = new MeshRobustRepair(OverlappingSpheres()) { ExactResolve = false };
@@ -524,6 +553,34 @@ namespace geometry3Sharp.Tests
             Assert.True(MeshMeasurements.VolumeArea(r.Mesh, r.Mesh.TriangleIndices(), r.Mesh.GetVertex).x > 0);
         }
 
+        [Fact]
+        public void NestedPartAsSoup_ResolvedAsSolidNotCavity()
+        {
+            // a sphere inside a bigger one, given as unwelded triangles: its winding number adds to the outer
+            // sphere's (the input's solid is the outer ball). The repair welds it into a closed sphere, which
+            // the cleanup takes for a cavity (nested in another component); oriented by the input's solid
+            // before the exact resolve, it is an inner shell instead, and the resolve gives the outer ball.
+            // The outer sphere has a small hole, so the input itself is not closed and cannot be resolved
+            DMesh3 m = Sphere(1, Vector3d.Zero);
+            m.RemoveTriangle(m.TriangleIndices().First());
+            DMesh3 inner = Sphere(0.6, new Vector3d(0.1, 0, 0));
+            foreach (int tid in inner.TriangleIndices()) {
+                Index3i t = inner.GetTriangle(tid);
+                m.AppendTriangle(m.AppendVertex(inner.GetVertex(t.a)), m.AppendVertex(inner.GetVertex(t.b)), m.AppendVertex(inner.GetVertex(t.c)));
+            }
+            double outer = Volume(Sphere(1, Vector3d.Zero));
+            var r = new MeshRobustRepair(m);
+            Assert.True(r.Apply());
+            Assert.True(r.UsedExactResolve, r.FallbackReason + " / " + r.ExactResolveReason);
+            Assert.False(r.UsedSolidify);
+            Assert.False(r.UsedInput);      // the repair result was resolved, not the input
+            // the clean result whose volume differs is not resolved as it is (that gives its own solid again), only
+            // oriented by the input: one resolve
+            Assert.Equal(1, r.ExactResolveRoundsUsed);
+            Assert.Equal(outer, Volume(r.Mesh), 6);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(r.Mesh));
+        }
+
         // thin rotated plates (about a cell thick at resolution 64), overlapping: the solidify leaves
         // self-intersections where the sheets meet in few cells
         static DMesh3 ThinPlates(int seed)
@@ -702,5 +759,5 @@ namespace geometry3Sharp.Tests
             Assert.Equal("", r.ResultReason);
             Assert.Null(r.AlphaWrap);
         }
-}
+    }
 }
