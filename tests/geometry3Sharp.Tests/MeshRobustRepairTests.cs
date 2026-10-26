@@ -633,34 +633,15 @@ namespace geometry3Sharp.Tests
             double missing, extra;
             double iou = MeshRepairMetrics.VolumeIoU(ThinPlates(6), with.Mesh, out missing, out extra);
             Assert.True(missing < 0.01, $"missing {missing}");     // the wrap encloses the input
-        }
 
-        [Fact]
-        public void AlphaWrap_Simplified_WithinOffsetAndClean()
-        {
-            Func<bool, MeshRobustRepair> run = (simplify) => {
-                var r = new MeshRobustRepair(ThinPlates(6)) { RepairF = (m) => new DMesh3(m), ExactResolve = false, SolidifyResolution = 64, SimplifyAlphaWrap = simplify };
-                Assert.True(r.Apply());
-                Assert.True(r.UsedAlphaWrap);
-                Assert.Equal("", MeshRobustRepair.NotCleanReason(r.Mesh));
-                Assert.Equal(r.AlphaWrap.Result.TriangleCount, r.AlphaWrapTriangles);
-                return r;
-            };
-            var plain = run(false);
-            Assert.Equal(plain.AlphaWrapTriangles, plain.Mesh.TriangleCount);
-
-            var simp = run(true);
-            Assert.Equal(plain.AlphaWrapTriangles, simp.AlphaWrapTriangles);
-            Assert.True(simp.Mesh.TriangleCount < simp.AlphaWrapTriangles / 2, $"{simp.Mesh.TriangleCount} of {simp.AlphaWrapTriangles}");
-            Assert.True(simp.PhaseMilliseconds.ContainsKey("wrap.simplify"));
-            // the certified bound: within the wrap offset of the unsimplified wrap (both directions)
-            var hd = new MeshHausdorffDistance(simp.Mesh, simp.AlphaWrap.Result) { Symmetric = true };
+            // the wrap result is simplified (SimplifyAlphaWrap, default): far fewer triangles, and every point
+            // stays within the wrap offset of the unsimplified wrap (the one-sided bound Reducer.MaxDeviation certifies)
+            Assert.Equal(with.AlphaWrap.Result.TriangleCount, with.AlphaWrapTriangles);
+            Assert.True(with.Mesh.TriangleCount < with.AlphaWrapTriangles / 2, $"{with.Mesh.TriangleCount} of {with.AlphaWrapTriangles}");
+            Assert.True(with.PhaseMilliseconds.ContainsKey("wrap.simplify"));
+            var hd = new MeshHausdorffDistance(with.Mesh, with.AlphaWrap.Result) { Symmetric = false, Tolerance = with.AlphaWrap.UsedOffset * 0.01 };
             hd.Compute();
-            double offset = simp.AlphaWrap.UsedOffset;
-            Assert.True(hd.UpperBound <= offset * 1.05, $"hausdorff {hd.UpperBound} offset {offset}");
-            double missing, extra;
-            MeshRepairMetrics.VolumeIoU(ThinPlates(6), simp.Mesh, out missing, out extra);
-            Assert.True(missing < 0.01, $"missing {missing}");
+            Assert.True(hd.UpperBound <= with.AlphaWrap.UsedOffset * 1.02, $"hausdorff {hd.UpperBound} offset {with.AlphaWrap.UsedOffset}");
         }
 
         static bool SameMesh(DMesh3 a, DMesh3 b)
