@@ -115,6 +115,7 @@ namespace g3
                 analyze();
             }
             aVal = val;
+            logAbsL = null;
             factored = numeric();
             return factored;
         }
@@ -157,6 +158,80 @@ namespace g3
             }
             for (int k = 0; k < N; ++k)
                 x[perm[k]] = y[k];
+        }
+
+
+        /// <summary>
+        /// Solve A x = b in the log domain, for an M-matrix A (positive diagonal, off-diagonal entries &lt;= 0)
+        /// and b &gt;= 0: logB[i] = log(b[i]) (negative infinity for 0), logX[i] = log(x[i]). The Cholesky factor
+        /// of an M-matrix has no positive off-diagonal entries, so both substitutions only add non-negative
+        /// terms: every entry of x is as accurate as with Solve(), relative to itself, and none underflows
+        /// (eg heat 1000 edge lengths from its source, below 1e-308). Returns false (logX undefined) if the
+        /// factor has a positive off-diagonal entry, ie A is not an M-matrix.
+        /// </summary>
+        public bool SolveLog(double[] logB, double[] logX)
+        {
+            if (!factored)
+                throw new InvalidOperationException("SparseCholesky.SolveLog: matrix is not factorized");
+            if (logAbsL == null) {
+                var la = new double[Lx.Length];
+                for (int k = 0; k < la.Length; ++k) la[k] = Math.Log(Math.Abs(Lx[k]));
+                logAbsL = la;
+            }
+            double[] y = new double[N];
+            for (int k = 0; k < N; ++k)
+                y[k] = logB[perm[k]];
+            // L y = Pb: y_c = (b_c + sum_t |L_ct| y_t) / L_cc
+            for (int J = 0; J < snCount; ++J) {
+                int f = snFirst[J], w = snFirst[J + 1] - f, rp = snRowPtr[J], h = snRowPtr[J + 1] - rp, off = snVal[J];
+                for (int c = 0; c < w; ++c) {
+                    double acc = y[f + c];
+                    int co = off + c * w;
+                    for (int t = 0; t < c; ++t)
+                        if (add_term(ref acc, Lx[co + t], logAbsL[co + t], y[f + t]) == false) return false;
+                    y[f + c] = acc - logAbsL[co + c];
+                }
+                for (int i = w; i < h; ++i) {
+                    double acc = double.NegativeInfinity;
+                    int io = off + i * w;
+                    for (int t = 0; t < w; ++t)
+                        if (add_term(ref acc, Lx[io + t], logAbsL[io + t], y[f + t]) == false) return false;
+                    y[snRows[rp + i]] = LogAdd(y[snRows[rp + i]], acc);
+                }
+            }
+            // L^T z = y
+            for (int J = snCount - 1; J >= 0; --J) {
+                int f = snFirst[J], w = snFirst[J + 1] - f, rp = snRowPtr[J], h = snRowPtr[J + 1] - rp, off = snVal[J];
+                for (int c = w - 1; c >= 0; --c) {
+                    double acc = y[f + c];
+                    for (int i = c + 1; i < h; ++i)
+                        if (add_term(ref acc, Lx[off + i * w + c], logAbsL[off + i * w + c], y[snRows[rp + i]]) == false) return false;
+                    y[f + c] = acc - logAbsL[off + c * w + c];
+                }
+            }
+            for (int k = 0; k < N; ++k)
+                logX[perm[k]] = y[k];
+            return true;
+        }
+
+        double[] logAbsL;           // log |Lx|, for SolveLog (built on first use after a factorization)
+
+        // acc = log(exp(acc) - l * exp(logY)) for an entry l <= 0 of the factor; false if l > 0 meets a non-zero y
+        static bool add_term(ref double acc, double l, double logAbsl, double logY)
+        {
+            if (l == 0 || double.IsNegativeInfinity(logY)) return true;
+            if (l > 0) return false;
+            acc = LogAdd(acc, logAbsl + logY);
+            return true;
+        }
+
+        /// <summary> log(exp(a) + exp(b)) without overflow or underflow </summary>
+        internal static double LogAdd(double a, double b)
+        {
+            if (double.IsNegativeInfinity(a)) return b;
+            if (double.IsNegativeInfinity(b)) return a;
+            double m = Math.Max(a, b);
+            return m + Math.Log(1 + Math.Exp(-Math.Abs(a - b)));
         }
 
 
