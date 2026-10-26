@@ -45,7 +45,9 @@ class Program
             else if (xform == "geo")
                 MeshTransforms.Translate(mesh, new Vector3d(500000, 5000000, 0));
             r["load_ms"] = sw.ElapsedMilliseconds;
+            var swStats = Stopwatch.StartNew();
             Stats(mesh, r, "before");
+            r["stats_before_ms"] = swStats.ElapsedMilliseconds;
             if (Environment.GetEnvironmentVariable("BENCH_REPAIR") == "analysis") {
                 // analysis building blocks on the input instead of a repair (AnalysisBench.cs)
                 stage = "analysis";
@@ -73,6 +75,7 @@ class Program
             // wrap = MeshAlphaWrap of the input (BENCH_WRAP_ALPHA / BENCH_WRAP_OFFSET: diagonal divided by alpha / offset),
             // cgalwrap = the same with CGAL's alpha wrap (external program, CGAL_WRAP; for comparison only),
             // instr = InstrumentedAutoRepair, records cheap quality metrics after every pipeline step,
+            // steps = MeshAutoRepair (cleanup) with OnStage: quality, fidelity and winding closedness after every step,
             // analysis = no repair: MeshWallThickness, MeshDeviation and PrimitiveFit3 on the input (see above)
             string repairMode = Environment.GetEnvironmentVariable("BENCH_REPAIR") ?? "default";
             r["repair_mode"] = repairMode;
@@ -102,6 +105,41 @@ class Program
                     q["tris"] = sm.TriangleCount;
                     q["boundary_edges"] = MeshIterators.BoundaryEdges(sm).Count();
                     q["bowties"] = sm.VertexIndices().Count(v => sm.IsBowtieVertex(v));
+                    stages.Add(q);
+                };
+                ok = repair.Apply();
+                result = repair.Mesh;
+                r["stages"] = stages;
+            } else if (repairMode == "steps") {
+                // the library pipeline (MeshAutoRepair with PostRepairCleanup) with its OnStage callback: cheap
+                // quality, distance to the input (certified Hausdorff bounds), volume IoU and closedness in the
+                // winding number sense after every step
+                var repair = new MeshAutoRepair(mesh) { PostRepairCleanup = true };
+                repair.RepairTolerance *= tolFactor;
+                repair.MinEdgeLengthTol *= tolFactor;
+                var stages = new System.Collections.Generic.List<object>();
+                double diag = original.CachedBounds.DiagonalLength;
+                repair.OnStage = (name, sm) => {
+                    var q = new System.Collections.Generic.Dictionary<string, object>();
+                    q["stage"] = name;
+                    DMesh3 c = new DMesh3(sm, true);
+                    Quality(c, q, "q", false);
+                    q["tris"] = c.TriangleCount;
+                    q["boundary_edges"] = MeshIterators.BoundaryEdges(c).Count();
+                    q["bowties"] = c.VertexIndices().Count(v => c.IsBowtieVertex(v));
+                    foreach (int[] comp in MeshPostRepairCleanup.FindInvertedComponents(c))
+                        foreach (int tid in comp) c.ReverseTriOrientation(tid);
+                    q["wclosed"] = ExactMeshBoolean.IsWindingClosed(c);
+                    if (c.TriangleCount > 0) {
+                        foreach (bool fwd in new[] { true, false }) {
+                            var h = new MeshHausdorffDistance(fwd ? c : original, fwd ? original : c) {
+                                Symmetric = false, RelativeTolerance = 1e-3, MaxSubdivisions = 500000 };
+                            if (h.Compute())
+                                q[fwd ? "hd_fwd_hi_rel" : "hd_back_hi_rel"] = h.UpperBound / diag;
+                        }
+                        double missing, extra;
+                        q["iou"] = MeshRepairMetrics.VolumeIoU(original, c, out missing, out extra, 30000);
+                    }
                     stages.Add(q);
                 };
                 ok = repair.Apply();
@@ -167,7 +205,9 @@ class Program
             r["apply_returned"] = ok;
 
             stage = "stats_after";
+            swStats.Restart();
             Stats(result, r, "after");
+            r["stats_after_ms"] = swStats.ElapsedMilliseconds;
             Deviation(original, result, r);
             if (repairMode != "boolean" && repairMode != "exact")
                 Fidelity(original, result, r);

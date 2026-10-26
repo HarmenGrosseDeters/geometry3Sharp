@@ -99,6 +99,7 @@ namespace g3
         /// </summary>
         public IOReadResult Read(Stream stream, ReadOptions options, IMeshBuilder builder)
         {
+            readOptions = options;
             try {
                 return read(stream, builder);
             } catch (Exception e) {
@@ -106,6 +107,8 @@ namespace g3
             }
         }
 
+
+        ReadOptions readOptions;
 
         IOReadResult read(Stream stream, IMeshBuilder builder)
         {
@@ -325,8 +328,12 @@ namespace g3
             if (obj.Mesh != null) {
                 Mesh3MF mesh = obj.Mesh;
                 int[] map = new int[mesh.Vertices.Count];
-                for (int i = 0; i < mesh.Vertices.Count; ++i)
-                    map[i] = builder.AppendVertex(new NewVertexInfo(scale * transform.Apply(mesh.Vertices[i])));
+                for (int i = 0; i < mesh.Vertices.Count; ++i) {
+                    Vector3d p = scale * transform.Apply(mesh.Vertices[i]);
+                    if (ReadOptions.RejectsPosition(readOptions, p.x, p.y, p.z))
+                        return ReadOptions.NonFinitePosition(p.x, p.y, p.z);
+                    map[i] = builder.AppendVertex(new NewVertexInfo(p));
+                }
                 int nInvalid = 0;
                 foreach (Index3i t in mesh.Triangles) {
                     if (t.a < 0 || t.b < 0 || t.c < 0 || t.a >= map.Length || t.b >= map.Length || t.c >= map.Length || t.a == t.b || t.b == t.c || t.a == t.c) {
@@ -374,7 +381,10 @@ namespace g3
 
         static double parse_double(XmlReader xml, string name)
         {
-            return double.Parse(xml.GetAttribute(name), NumberStyles.Float, CultureInfo.InvariantCulture);
+            string value = xml.GetAttribute(name);
+            if (value == null)
+                throw new FormatException("3MF: attribute " + name + " is missing");
+            return MeshIOUtil.ParseDouble(value);
         }
 
         static int parse_int(XmlReader xml, string name)

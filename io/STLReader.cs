@@ -162,6 +162,12 @@ namespace g3
                     Marshal.Copy(tri_bytes, 0, bufptr, tri_size);
                     stl_triangle tri = (stl_triangle)Marshal.PtrToStructure(bufptr, tri_type);
 
+                    if (ReadOptions.RejectsPosition(options, tri.ax, tri.ay, tri.az))
+                        return ReadOptions.NonFinitePosition(tri.ax, tri.ay, tri.az);
+                    if (ReadOptions.RejectsPosition(options, tri.bx, tri.by, tri.bz))
+                        return ReadOptions.NonFinitePosition(tri.bx, tri.by, tri.bz);
+                    if (ReadOptions.RejectsPosition(options, tri.cx, tri.cy, tri.cz))
+                        return ReadOptions.NonFinitePosition(tri.cx, tri.cy, tri.cz);
                     append_vertex(tri.ax, tri.ay, tri.az);
                     append_vertex(tri.bx, tri.by, tri.bz);
                     append_vertex(tri.cx, tri.cy, tri.cz);
@@ -223,9 +229,11 @@ namespace g3
                     continue;
 
                 if (tokens[0].Equals("vertex", StringComparison.OrdinalIgnoreCase)) {
-                    float x = (tokens.Length > 1) ? Single.Parse(tokens[1], NumberStyles.Float, CultureInfo.InvariantCulture) : 0;
-                    float y = (tokens.Length > 2) ? Single.Parse(tokens[2], NumberStyles.Float, CultureInfo.InvariantCulture) : 0;
-                    float z = (tokens.Length > 3) ? Single.Parse(tokens[3], NumberStyles.Float, CultureInfo.InvariantCulture) : 0;
+                    float x = (tokens.Length > 1) ? MeshIOUtil.ParseFloat(tokens[1]) : 0;
+                    float y = (tokens.Length > 2) ? MeshIOUtil.ParseFloat(tokens[2]) : 0;
+                    float z = (tokens.Length > 3) ? MeshIOUtil.ParseFloat(tokens[3]) : 0;
+                    if (ReadOptions.RejectsPosition(options, x, y, z))
+                        return ReadOptions.NonFinitePosition(x, y, z);
                     append_vertex(x, y, z);
 
                 // [RMS] we don't really care about these lines...

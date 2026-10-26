@@ -316,34 +316,23 @@ namespace geometry3Sharp.Tests
                     $"{s.Name} vertex {vid}: {d0.VertexDeviation[vid]} vs {d.VertexDeviation[vid] / s.Scale}");
         }
 
-        // MeshGeodesicDistance regularizes the Poisson solve with eps * mass (1e-8 times an area), which is not
-        // scale-invariant: at scale 2^10 the distances change by 7e-4 (relative). Reported; the scaled cases are
-        // enabled when it is fixed (the class is being changed in another PR). The sub-millimetre mesh at UTM
-        // coordinates loses about 1e-3 (relative), 100 times its coordinate resolution: also reported, to be checked.
+        // (on the bumpy sphere: the cube sphere has many exactly cocircular quads, where the intrinsic Delaunay flips
+        // are ties that a perturbation of 1e-9 decides differently, changing the distances by about 1%, the
+        // discretization error; away from such ties the distances follow a perturbation one to one)
         [Theory]
-        [InlineData("identity")]
-        [InlineData("utm")]
-        [InlineData("rotated")]
-        [InlineData("scale 1e-3")]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
         public void GeodesicDistance_ScalesWithTheInput(string name) => GeodesicDistanceCase(name);
-
-        [Theory(Skip = "MeshGeodesicDistance: absolute regularization eps * mass, scale dependent (reported)")]
-        [InlineData("scale 2^-10")]
-        [InlineData("scale 2^10")]
-        [InlineData("scale 1e3")]
-        [InlineData("rotated, scale 1e-3, utm")]
-        public void GeodesicDistance_ScalesWithTheInput_Reported(string name) => GeodesicDistanceCase(name);
 
         static void GeodesicDistanceCase(string name)
         {
             Similarity s = Similarity.ByName(name);
-            DMesh3 mesh = Sphere(Vector3d.Zero, 1, 10);
+            DMesh3 mesh = BumpySphere();
             int src = mesh.VertexIndices().First();
             var g0 = new MeshGeodesicDistance(mesh);
             Assert.True(g0.Compute(new[] { src }));
             var g = new MeshGeodesicDistance(Invariance.Transformed(mesh, s));
             Assert.True(g.Compute(new[] { src }));
-            double tol = s.IsExact ? 1e-12 : 1e-6 + 1e3 * s.Resolution(2);
+            double tol = s.IsExact ? 1e-12 : 1e-9 + 64 * s.Resolution(2);
             foreach (int vid in mesh.VertexIndices())
                 Assert.True(Math.Abs(g0.Distance[vid] - g.Distance[vid] / s.Scale) < tol,
                     $"{s.Name} vertex {vid}: {g0.Distance[vid]} vs {g.Distance[vid] / s.Scale}");
