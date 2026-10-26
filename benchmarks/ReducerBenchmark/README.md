@@ -48,3 +48,27 @@ kept). Test case: 40 x 40 terrain (3200 triangles) of the same kind, tolerance 0
 Reduced triangles span many prisms. No single prism holds them, so the floating-point filters cannot decide,
 and the exact clipping costs 40-55 ms per query. Sampling points on the triangle first rejected only a few of
 the queries.
+
+## Profiling the distance bounds check
+
+Terrain of the same kind, 150 x 150 cells (45000 triangles), tolerance 0.003, reduced to 903 triangles in
+about 5.3 s:
+
+- 94 % of the checked collapses are accepted (22300 of 23670). Each acceptance certifies the 6-8 new triangles
+  around the vertex: 155800 `IsWithin` calls, 1.36 million nearest-triangle searches, about 34 µs per call.
+- Of the reduction time, `IsWithin` takes 74 %: the polygon bounds 31 %, nearest-triangle searches 30 %,
+  separating planes 6 %.
+
+Tried, without a gain (same result, 903 triangles):
+
+| change | time |
+|---|---|
+| none (parallel check of the new triangles) | 5.3 s |
+| serial check with early exit | 2.8 s instead of 2.5 s (20000 triangles): slower |
+| `MaxDeviationDepth` 8 / 6 / 4 instead of 10 | 5.2 / 5.5 / 5.5 s (depth 4: 913 triangles) |
+| cache of the nearest-triangle searches by point | 5.8-6.3 s |
+
+The check is not slow because of deep subdivision or repeated searches, but because every accepted collapse
+certifies all its new triangles. A large speedup would need a different certification. The exact envelope is
+not that either: even with floating-point filters in its clipping, about 20-50 µs per triangle can be expected
+(estimate, not measured). Its gain would be exactness and platform independence, not speed.
