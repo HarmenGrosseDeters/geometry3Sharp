@@ -183,6 +183,14 @@ The sources named in the code:
 | Geodesic safety lines (`AlongSurface`) | the heat method, K. Crane, C. Weischedel, M. Wardetzky, *Geodesics in Heat*, ACM TOG 2013 (via `MeshGeodesicDistance`) |
 | Offset surface, horizontal safety lines, break lines, cut and fill volumes | own methods (no external source) |
 
+## Test harness (`tests/geometry3Sharp.Tests/Harness/`)
+
+Implemented from the paper, no code taken over.
+
+| Part | Source |
+|---|---|
+| Test-case minimization (`DeltaDebug.Minimize`, `MeshMinimizer`): ddmin over components, triangles, unused vertices and the bytes or lines of reader inputs | A. Zeller, R. Hildebrandt, *Simplifying and Isolating Failure-Inducing Input*, IEEE Transactions on Software Engineering 28(2), 2002 |
+
 ## Benchmarks
 
 `benchmarks/BooleanComparison` runs CGAL (GPL), Cherchi et al. (MIT) and Manifold (Apache-2.0) as separate
