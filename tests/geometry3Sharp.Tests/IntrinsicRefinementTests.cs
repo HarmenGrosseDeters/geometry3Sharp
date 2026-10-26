@@ -89,12 +89,14 @@ namespace geometry3Sharp.Tests
             AssertConsistent(T);
             Assert.Equal(area0, TotalArea(T), 9);
             Assert.True(PlanarLengthError(T) < 1e-9, $"{PlanarLengthError(T)}");
-            // the inserted vertices lie on the boundary of the plane
+            // the inserted vertices lie on the boundary of the plane (the bottom and top rows, and the zigzag sides,
+            // where the concentric shells around the 11 degree corners can put a split)
+            var boundary = mesh.BoundaryEdgeIndices().Select(e => new Segment3d(mesh.GetVertex(mesh.GetEdgeV(e).a), mesh.GetVertex(mesh.GetEdgeV(e).b))).ToList();
             for (int i = T.InputVertexCount; i < T.VertexCount; ++i) {
                 Assert.True(T.IsBoundaryVertex(i));
                 Assert.Equal(-1, T.VertexID(i));
                 Vector3d p = T.VertexPosition(i);
-                Assert.True(Math.Abs(p.y) < 1e-12 || Math.Abs(p.y - 5) < 1e-12, $"{p}");
+                Assert.True(boundary.Min(seg => seg.DistanceSquared(p)) < 1e-24, $"{p}");
             }
             // the cotan Laplacian has no positive off-diagonal entries (a maximum principle)
             foreach (var kv in T.CotanLaplacian().NonZeros())

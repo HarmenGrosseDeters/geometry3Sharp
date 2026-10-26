@@ -200,8 +200,9 @@ namespace g3
             NewVertexInfo vinfo = new NewVertexInfo();
             vinfo.bHaveC = vinfo.bHaveN = vinfo.bHaveUV = false;
             vinfo.v = new Vector3d(vPositions[vi], vPositions[vi + 1], vPositions[vi + 2]);
+            // (indices compared before multiplying: 3 * index overflows for indices above 715 million)
             int ni = 3 * vertIdx.b;
-            if ( bHaveNormals && vertIdx.b >= 0 && ni + 2 < vNormals.Length ) {
+            if ( bHaveNormals && vertIdx.b >= 0 && vertIdx.b < vNormals.Length / 3 ) {
                 vinfo.bHaveN = true;
                 vinfo.n = new Vector3f(vNormals[ni], vNormals[ni + 1], vNormals[ni + 2]);
             }
@@ -210,7 +211,7 @@ namespace g3
                 vinfo.c = new Vector3f(vColors[vi], vColors[vi + 1], vColors[vi + 2]);
             }
             int ui = 2 * vertIdx.c;
-            if ( bHaveUVs && vertIdx.c >= 0 && ui + 1 < vUVs.Length ) {
+            if ( bHaveUVs && vertIdx.c >= 0 && vertIdx.c < vUVs.Length / 2 ) {
                 vinfo.bHaveUV = true;
                 vinfo.uv = new Vector2f(vUVs[ui], vUVs[ui + 1]);
             }
