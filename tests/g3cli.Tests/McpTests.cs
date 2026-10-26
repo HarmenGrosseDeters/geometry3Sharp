@@ -54,7 +54,7 @@ namespace g3cli.Tests
 
             r = Handle(server, Request(3, "tools/list"));
             var tools = r["result"]["tools"].AsArray();
-            Assert.Equal(new[] { "measure", "repair", "boolean", "resolve", "remesh", "simplify", "convert" },
+            Assert.Equal(new[] { "measure", "repair", "boolean", "resolve", "remesh", "simplify", "uv", "convert" },
                 tools.Select(t => S(t["name"])).ToArray());
             foreach (JsonNode t in tools) {
                 Assert.False(string.IsNullOrEmpty(S(t["description"])));
@@ -120,6 +120,19 @@ namespace g3cli.Tests
 
             r = Handle(server, Call(5, "repair", new JsonObject() { ["input"] = m.Cube, ["output"] = m.Path_("x.dwg") }));
             Assert.Equal("unknown_format", S(r["result"]["structuredContent"]["code"]));
+        }
+
+        [Fact]
+        public void NonFiniteNumbers_AreInvalidArguments()
+        {
+            // 1e400 is a valid JSON number but infinite as a double; the CLI already rejected "--tolerance 1e400"
+            var server = Server();
+            string call = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"measure\",\"arguments\":" +
+                "{\"input\":" + JsonValue.Create(m.Cube).ToJsonString() + ",\"compare\":" + JsonValue.Create(m.Shifted).ToJsonString() + ",\"tolerance\":1e400}}}";
+            JsonObject r = server.Handle(call).AsObject();
+            Assert.True(B(r["result"]["isError"]), r.ToJsonString());
+            Assert.Equal("invalid_arguments", S(r["result"]["structuredContent"]["code"]));
+            Assert.Contains("tolerance", S(r["result"]["structuredContent"]["message"]));
         }
 
         [Fact]

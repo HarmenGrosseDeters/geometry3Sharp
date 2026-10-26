@@ -239,7 +239,8 @@ namespace g3cli
                     if (e.ValueKind == JsonValueKind.String) return e.GetString();
                     break;
                 case ParamType.Number:
-                    if (e.ValueKind == JsonValueKind.Number) return e.GetDouble();
+                    // as on the command line, numbers must be finite (1e400 would be infinity)
+                    if (e.ValueKind == JsonValueKind.Number && e.TryGetDouble(out double v) && double.IsFinite(v)) return v;
                     break;
                 case ParamType.Integer:
                     if (e.ValueKind == JsonValueKind.Number && e.TryGetInt32(out int i)) return i;

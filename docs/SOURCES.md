@@ -28,6 +28,10 @@ Implemented from the papers, no code taken over (geometry-central, MIT, was not 
 | Part | Source |
 |---|---|
 | Intrinsic triangulations as edge lengths, signposts (direction and length of each halfedge at its tail), flips and their signpost update, tracing intrinsic edges over the input mesh | N. Sharp, Y. Soliman, K. Crane, *Navigating Intrinsic Triangulations*, ACM TOG (SIGGRAPH) 2019 |
+| Vertex insertion in faces and on edges with the signpost update, locating inserted points by tracing, intrinsic Delaunay refinement by circumcenter insertion, common subdivision by tracing the intrinsic edges | N. Sharp, Y. Soliman, K. Crane, *Navigating Intrinsic Triangulations*, ACM TOG (SIGGRAPH) 2019 |
+| Delaunay refinement: circumcenters of bad triangles, encroached boundary segments split at their midpoints instead | L. P. Chew, *Guaranteed-Quality Mesh Generation for Curved Surfaces*, ACM Symposium on Computational Geometry 1993; J. Ruppert, *A Delaunay Refinement Algorithm for Quality 2-Dimensional Mesh Generation*, Journal of Algorithms 1995 |
+| Small input angles: concentric shells (splits at powers of two from the corner), not refining triangles whose small angle comes from the input; a segment is encroached iff the opposite vertex of its Delaunay triangle is | J. R. Shewchuk, *Delaunay Refinement Algorithms for Triangular Mesh Generation*, Computational Geometry: Theory and Applications 2002 |
+| Integer coordinates for a robust common subdivision (not implemented; why the tracing suffices is in OPERATIONS.md) | M. Gillespie, N. Sharp, K. Crane, *Integer Coordinates for Intrinsic Geometry Processing*, ACM TOG (SIGGRAPH Asia) 2021 |
 | Intrinsic Delaunay triangulations, non-negative cotan weights, flip algorithm | A. I. Bobenko, B. A. Springborn, *A Discrete Laplace-Beltrami Operator for Simplicial Surfaces*, Discrete & Computational Geometry 2007; C. Indermitte, T. M. Liebling, M. Troyanov, H. Clémençon, *Voronoi diagrams on piecewise flat surfaces and an application to biological growth*, Theoretical Computer Science 2001 (termination of the flips) |
 | Intrinsic mollification of degenerate triangles | N. Sharp, K. Crane, *A Laplacian for Nonmanifold Triangle Meshes*, Computer Graphics Forum (SGP) 2020 |
 | Heat method for geodesic distance (also on the intrinsic triangulation) | K. Crane, C. Weischedel, M. Wardetzky, *Geodesics in Heat*, ACM TOG 2013; *The Heat Method for Distance Computation*, CACM 2017 |
@@ -73,6 +77,25 @@ Implemented from the papers, no code taken over.
 | Skyline bottom-left rectangle packing | J. Jylänki, *A Thousand Ways to Pack the Bin – A Practical Approach to Two-Dimensional Rectangle Bin Packing*, 2010 |
 | Minimum-area bounding rectangle of a chart | existing `ContMinBox2` (rotating calipers, WildMagic port) |
 
+## Seams, charts, cones, UV atlas (`MeshDiscCut`, `MeshChartSegmentation`, `ConeFlattening`, `UVOverlap`, `UVAtlasGenerator`)
+
+Implemented from the papers, no code taken over. geometry-central (MIT) and the BFF reference implementation
+(github.com/GeometryCollective/boundary-first-flattening, MIT) have cut and cone code; neither was used as a
+source. CGAL's `Surface_mesh_parameterization` / seam code (GPL) was not used.
+
+| Part | Source |
+|---|---|
+| Cut graph by tree-cotree decomposition: primal spanning tree, dual spanning tree of the remaining edges, the 2g leftover edges close the generator loops | D. Eppstein, *Dynamic Generators of Topologically Embedded Graphs*, SODA 2003 |
+| Shortest path tree from a root and maximum dual spanning tree weighted by the loop length d(u) + l(e) + d(v): the greedy shortest system of loops | J. Erickson, K. Whittlesey, *Greedy Optimal Homotopy and Homology Generators*, SODA 2005 |
+| Removing dangling branches of the cut (leaves that are not required) keeps the disc topology | J. Erickson, S. Har-Peled, *Optimally Cutting a Surface into a Disk*, Discrete & Computational Geometry 2004; X. Gu, S. Gortler, H. Hoppe, *Geometry Images*, ACM TOG (SIGGRAPH) 2002 |
+| Surfaces with boundary (tree edges in the dual tree where needed), required vertices joined along the shortest path tree, the single-edge slit of genus 0, feature weighted edge costs, splitting vertices into wedges by a union-find over triangle corners | own choices, described in the code comments |
+| BFF with cone singularities: scale factors with u = 0 at the cones, the cut through the cones, Dirichlet data on the cut disc | R. Sawhney, K. Crane, *Boundary First Flattening*, ACM TOG 2017 (section on cone singularities) |
+| Greedy cone placement at the largest scale factor of the Yamabe equation C u = -K, first cone from the uniform curvature flow | M. Ben-Chen, C. Gotsman, G. Bunin, *Conformal Flattening by Curvature Prescription and Metric Scaling*, Computer Graphics Forum (Eurographics) 2008; B. Springborn, P. Schröder, U. Pinkall, *Conformal Equivalence of Triangle Meshes*, ACM TOG 2008 |
+| Chart growing with proxies (normal, L2,1 metric) and Lloyd iterations, new charts at the worst triangle | D. Cohen-Steiner, P. Alliez, M. Desbrun, *Variational Shape Approximation*, ACM TOG (SIGGRAPH) 2004 |
+| Compactness term in the growing cost | D. Julius, V. Kraevoy, A. Sheffer, *D-Charts: Quasi-Developable Mesh Segmentation*, Computer Graphics Forum (Eurographics) 2005 |
+| Charts for an atlas, flattened conformally; splitting charts while the distortion is too high | B. Lévy, S. Petitjean, N. Ray, J. Maillot, *Least Squares Conformal Maps for Automatic Texture Atlas Generation*, ACM TOG (SIGGRAPH) 2002; K. Zhou, J. Snyder, B. Guo, H.-Y. Shum, *Iso-charts: Stretch-driven Mesh Parameterization using Spectral Analysis*, SGP 2004 |
+| Exact overlap test of UV triangles: separating axis among the six edge lines, exact orientation predicate | separating axis theorem for convex polygons (eg C. Ericson, *Real-Time Collision Detection*, 2005); J. R. Shewchuk 1997 (predicates, see above) |
+
 ## Sparse Cholesky (`SparseCholesky`)
 
 Implemented from the papers and textbooks, no code taken over (not from CHOLMOD or CSparse, which are LGPL/GPL, nor from the BSD-licensed SuiteSparse AMD).
@@ -96,6 +119,7 @@ Implemented from the papers, no code taken over.
 | Watertight ray-triangle test (shear into the ray frame, shared edge functions) | S. Woop, C. Benthin, I. Wald, *Watertight Ray/Triangle Intersection*, Journal of Computer Graphics Techniques 2013 |
 | Sign of the distance to a mesh from the angle weighted pseudo-normal of the closest feature | J. A. Baerentzen, H. Aanaes, *Signed distance computation using the angle weighted pseudonormal*, IEEE TVCG 2005 |
 | Sign from the generalized winding number | A. Jacobson, L. Kavan, O. Sorkine-Hornung 2013 (see above), via `FastWindingNumber` |
+| Nesting of closed components for the inverted-component test (`MeshPostRepairCleanup.FindInvertedComponents`, used via `MeshWallThickness.InvertedTriangles`): winding number of each candidate enclosing component at points moved slightly inside the component (relative to its size), majority of several samples | own reasoning; winding number as above |
 | RANSAC | M. A. Fischler, R. C. Bolles, *Random sample consensus*, Communications of the ACM 1981 |
 | Truncated quadratic (MSAC) scoring | P. H. S. Torr, A. Zisserman, *MLESAC: A new robust estimator with application to estimating image geometry*, CVIU 2000 |
 | Minimal samples with normals (cylinder from 2 points, cone from 3 points), normal deviation test | R. Schnabel, R. Wahl, R. Klein, *Efficient RANSAC for point-cloud shape detection*, Computer Graphics Forum 2007 |

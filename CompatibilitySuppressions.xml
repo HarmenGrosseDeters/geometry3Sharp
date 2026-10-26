@@ -1,0 +1,36 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<!-- https://learn.microsoft.com/dotnet/fundamentals/package-validation/diagnostic-ids -->
+<Suppressions xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+  <Suppression>
+    <DiagnosticId>CP0002</DiagnosticId>
+    <Target>F:g3.DMeshAABBTree3.box_centers</Target>
+    <Left>lib/netstandard2.0/geometry3Sharp.dll</Left>
+    <Right>lib/netstandard2.0/geometry3Sharp.dll</Right>
+    <IsBaselineSuppression>true</IsBaselineSuppression>
+  </Suppression>
+  <Suppression>
+    <DiagnosticId>CP0002</DiagnosticId>
+    <Target>F:g3.DMeshAABBTree3.box_extents</Target>
+    <Left>lib/netstandard2.0/geometry3Sharp.dll</Left>
+    <Right>lib/netstandard2.0/geometry3Sharp.dll</Right>
+    <IsBaselineSuppression>true</IsBaselineSuppression>
+  </Suppression>
+  <Suppression>
+    <DiagnosticId>CP0002</DiagnosticId>
+    <Target>F:g3.Remesher.vModifiedV</Target>
+    <Left>lib/netstandard2.0/geometry3Sharp.dll</Left>
+    <Right>lib/netstandard2.0/geometry3Sharp.dll</Right>
+    <IsBaselineSuppression>true</IsBaselineSuppression>
+  </Suppression>
+  <Suppression>
+    <DiagnosticId>CP0002</DiagnosticId>
+    <Target>M:g3.Util.ParseInt(System.String,System.Int32)</Target>
+    <Left>lib/netstandard2.0/geometry3Sharp.dll</Left>
+    <Right>lib/netstandard2.0/geometry3Sharp.dll</Right>
+    <IsBaselineSuppression>true</IsBaselineSuppression>
+  </Suppression>
+  <Suppression>
+    <DiagnosticId>PKV006</DiagnosticId>
+    <Target>.NETFramework,Version=v4.5</Target>
+  </Suppression>
+</Suppressions>
