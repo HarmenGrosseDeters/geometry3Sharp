@@ -290,6 +290,9 @@ namespace gs
                 modified_edges = new HashSet<int>();
             } else {
                 edges_buffer.Clear(); edges_buffer.AddRange(modified_edges);
+                // the parallel smooth / projection passes fill modified_edges in thread order, and the set
+                // enumerates in insertion order: sort, so the edges are processed in the same order every run
+                edges_buffer.Sort();
                 edgesItr = edges_buffer;
                 modified_edges.Clear();
             }
@@ -374,6 +377,9 @@ namespace gs
                 modified_edges = new HashSet<int>();
             } else {
                 edges_buffer.Clear(); edges_buffer.AddRange(modified_edges);
+                // the parallel smooth / projection passes fill modified_edges in thread order, and the set
+                // enumerates in insertion order: sort, so the edges are processed in the same order every run
+                edges_buffer.Sort();
                 edgesItr = edges_buffer;
                 modified_edges.Clear();
             }

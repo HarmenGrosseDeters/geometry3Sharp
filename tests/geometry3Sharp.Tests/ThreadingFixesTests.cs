@@ -167,6 +167,31 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void RemesherPro_FullRemesh_ParallelEqualsSerialAndRepeats()
+        {
+            // with splits, collapses and flips: the parallel smooth / projection passes queue the edges to
+            // process next in thread order, and the queue (a hash set) enumerates in insertion order, so the
+            // edges were processed in a different order from run to run (MinimalHoleFill, and with it
+            // MeshAutoRepair, gave different triangulations now and then)
+            DMesh3 input = NoisySphere(40, 4);
+            DMesh3 target = Sphere(40);
+            double edge = input.EdgeIndices().Average(e => { Index2i ev = input.GetEdgeV(e); return input.GetVertex(ev.a).Distance(input.GetVertex(ev.b)); });
+            DMesh3 Run(bool parallel)
+            {
+                DMesh3 mesh = new DMesh3(input);
+                var r = new RemesherPro(mesh) { EnableParallelSmooth = parallel, EnableParallelProjection = parallel };
+                r.SetProjectionTarget(MeshProjectionTarget.Auto(target));
+                r.SetTargetEdgeLength(0.6 * edge);
+                r.FastestRemesh();
+                return mesh;
+            }
+            DMesh3 serial = Run(false);
+            Assert.True(serial.TriangleCount > input.TriangleCount);
+            for (int k = 0; k < 4; ++k)
+                Assert.Equal("", Invariance.Difference(serial, Run(true)));
+        }
+
+        [Fact]
         public void RemesherPro_FaceAlignedProjection_IsDeterministic()
         {
             // TrackedFaceProjectionPass has no serial variant, so run it repeatedly on the same input.
