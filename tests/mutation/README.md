@@ -46,7 +46,11 @@ covered.
 | `ExactPredicates.cs` | 458 | 74 | 1 |
 | `ExactPoint3.cs` | 122 (+4 timeouts) | 53 | 16 |
 
-The `break` threshold is 80. Raise it as tests kill more mutants; never lower it to get a run green.
+**Current (October 2026, with `PredicateDifferentialTests` and `ExactPoint3ConversionTests`): 87.05 %**
+(GitHub runner, 37 minutes).
+
+The `break` threshold is 86: the measured score rounded down, less one point, because timeouts (which count as
+killed) vary between runners. Raise it as tests kill more mutants; never lower it to get a run green.
 
 Many survivors are **equivalent**. A mutant that only makes a filter decide less often (`>` against `>=`,
 `onlyD` forced to `true`, a larger bound, `permanent >= UnderflowLimit`) leaves the result unchanged, because
