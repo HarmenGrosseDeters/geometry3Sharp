@@ -264,6 +264,86 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void ParallelQueries_SameAnswersAsSerial()
+        {
+            DMesh3 mesh = BumpySphere(8);
+            var env = new MeshEnvelope(mesh, 0.02);
+            var rand = new Random(5);
+            var tris = mesh.TriangleIndices().ToList();
+            var queries = new List<Vector3d[]>();
+            Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+            for (int k = 0; k < 300; ++k) {
+                mesh.GetTriVertices(tris[rand.Next(tris.Count)], ref a, ref b, ref c);
+                Vector3d n = Normal(a, b, c), ctr = (a + b + c) / 3;
+                double scale = 0.5 + 2 * rand.NextDouble(), lift = (rand.NextDouble() - 0.5) * 0.03;
+                queries.Add(new[] { ctr + scale * (a - ctr) + lift * n, ctr + scale * (b - ctr), ctr + scale * (c - ctr) - lift * n });
+            }
+            bool[] serial = queries.Select(q => env.ContainsTriangle(q[0], q[1], q[2])).ToArray();
+            bool[] points = queries.Select(q => env.Contains(q[0])).ToArray();
+            for (int round = 0; round < 3; ++round) {
+                var par = new bool[queries.Count];
+                var parPoints = new bool[queries.Count];
+                System.Threading.Tasks.Parallel.For(0, queries.Count, (k) => {
+                    par[k] = env.ContainsTriangle(queries[k][0], queries[k][1], queries[k][2]);
+                    parPoints[k] = env.Contains(queries[k][0]);
+                });
+                Assert.Equal(serial, par);
+                Assert.Equal(points, parPoints);
+            }
+            Assert.Contains(true, serial);
+            Assert.Contains(false, serial);
+        }
+
+        [Fact]
+        public void CollinearAndSliverInputTriangles_InGeneralPosition()
+        {
+            // a collinear triangle and a sliver with coordinates in general position: an edge cross product
+            // would be rounding noise in an arbitrary direction
+            var m = new DMesh3();
+            Vector3d p0 = new Vector3d(0, 0, 0), p1 = new Vector3d(0.1, 0.2, 0.3), p2 = new Vector3d(0.3, 0.6, 0.9);
+            Vector3d s2 = new Vector3d(0.3, 0.6 + 1e-9, 0.9 - 2e-9);
+            m.AppendTriangle(m.AppendVertex(p0), m.AppendVertex(p1), m.AppendVertex(p2));
+            m.AppendTriangle(m.AppendVertex(p0 + Vector3d.AxisX), m.AppendVertex(p2 + Vector3d.AxisX), m.AppendVertex(s2 + Vector3d.AxisX));
+            double eps = 0.01;
+            var env = new MeshEnvelope(m, eps);
+            Assert.Equal(EnvelopeStatus.Ready, env.Status);
+            Assert.True(env.ContainsTriangle(p0, p1, p2));
+            Assert.True(env.ContainsTriangle(p0 + Vector3d.AxisX, p2 + Vector3d.AxisX, s2 + Vector3d.AxisX));
+            Vector3d dir = (p2 - p0).Normalized, side = dir.Cross(Vector3d.AxisZ).Normalized;
+            Vector3d mid = 0.5 * (p0 + p2);
+            Assert.True(env.Contains(mid + 0.5 * eps * side));
+            Assert.False(env.Contains(mid + 1.01 * eps * side));
+            Assert.False(env.Contains(mid + 1.01 * eps * dir.Cross(side)));
+        }
+
+        [Fact]
+        public void TinyCoordinates()
+        {
+            // far below 1 but above the subnormal range: works; an epsilon near the subnormal range: TooThin
+            DMesh3 mesh = Invariance.Transformed(Plane(4, 0.25), new Similarity("tiny", 1e-200, Matrix3d.Identity, Vector3d.Zero));
+            var env = new MeshEnvelope(mesh, 1e-202);
+            Assert.Equal(EnvelopeStatus.Ready, env.Status);
+            Vector3d p = new Vector3d(0.3e-200, 0.6e-200, 0);
+            Assert.True(env.Contains(p + new Vector3d(0, 0, 0.5e-202)));
+            Assert.False(env.Contains(p + new Vector3d(0, 0, 1.0e-202)));
+            Assert.True(env.ContainsTriangle(p, p + new Vector3d(0.2e-200, 0, 0), p + new Vector3d(0, 0.2e-200, 0.3e-202)));
+            Assert.Equal(EnvelopeStatus.TooThin, new MeshEnvelope(mesh, 1e-290).Status);
+        }
+
+        [Fact]
+        public void PieceLimit_AnswersFalse()
+        {
+            DMesh3 mesh = Plane(10, 0.1);
+            var env = new MeshEnvelope(mesh, 0.01) { MaxExactPieces = 2 };
+            Vector3d a = new Vector3d(0.05, 0.05, 0.004), b = new Vector3d(0.95, 0.1, -0.003), c = new Vector3d(0.3, 0.9, 0.002);
+            Assert.False(env.ContainsTriangle(a, b, c));
+            Assert.Equal(1, env.AbortedQueries);
+            env.MaxExactPieces = 100000;
+            Assert.True(env.ContainsTriangle(a, b, c));
+            Assert.Equal(1, env.AbortedQueries);
+        }
+
+        [Fact]
         public void Statuses()
         {
             DMesh3 mesh = Plane(2, 1);
@@ -298,8 +378,8 @@ namespace geometry3Sharp.Tests
 
         static List<(Vector3d, Vector3d, Vector3d, bool)> OffsetQueries(DMesh3 mesh)
         {
-            // input triangles moved along their normal by 0.5 eps (inside) and 1.2 eps (beyond the guarantee),
-            // and grown around their centroid (across neighbouring prisms)
+            // input triangles (contained) and the same grown by 1.3 around their centroid (across neighbouring
+            // prisms; the expected flag is not used)
             var list = new List<(Vector3d, Vector3d, Vector3d, bool)>();
             Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
             foreach (int t in mesh.TriangleIndices().Where(t => t % 7 == 0)) {

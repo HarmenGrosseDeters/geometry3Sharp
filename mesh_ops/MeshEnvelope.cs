@@ -13,13 +13,15 @@ namespace gs
         /// <summary> epsilon is not a positive finite number </summary>
         InvalidEpsilon,
         /// <summary>
-        /// epsilon is too small for the coordinates: rounding of the prisms would take more than a percent of
-        /// it (eg epsilon below about 1e-7 of the coordinates, or near-degenerate triangles far from planar in
-        /// floating point)
+        /// epsilon is too small for the coordinates: the rounding margin of the prisms (64 units in the last place
+        /// of the largest coordinate) would take more than a percent of it, ie epsilon below about 1.3e-12 times
+        /// the coordinates; or epsilon below 1e-280 (near the subnormal range)
         /// </summary>
         TooThin,
         /// <summary> the mesh has no triangles; nothing is contained </summary>
-        Empty
+        Empty,
+        /// <summary> more than 33 million triangles (the prism arrays would exceed the array size limit) </summary>
+        TooLarge
     }
 
     /// <summary>
@@ -38,7 +40,8 @@ namespace gs
     ///
     /// Triangles are tested by clipping: the query triangle, in its own (u, v) parameters, minus each nearby
     /// prism's convex cross-section, until nothing (contained) or a piece of positive area (not contained)
-    /// remains. The mesh may be a soup; degenerate triangles get a prism around their longest edge (or point).
+    /// remains, or false if more than MaxExactPieces pieces arise (conservative; counted in AbortedQueries). The
+    /// mesh may be a soup; degenerate and sliver triangles get a prism around their longest edge (or point).
     /// The envelope is a snapshot: later changes to the mesh are not seen. Queries may run in parallel.
     /// </summary>
     public class MeshEnvelope
@@ -51,11 +54,22 @@ namespace gs
         public int ExactQueries { get { return exactQueries; } }
         int exactQueries;
 
+        /// <summary> number of triangle queries that exceeded MaxExactPieces (answered false) </summary>
+        public int AbortedQueries { get { return abortedQueries; } }
+        int abortedQueries;
+
         /// <summary>
-        /// (tests) after an exact triangle query that returned false: a point of the piece left uncovered (the
-        /// centroid of its vertices, rounded to doubles), else null
+        /// limit of the pieces the exact test of a triangle may cut it into (a triangle across very many prisms);
+        /// beyond, the query is answered false, which keeps the guarantee of true
         /// </summary>
-        internal Vector3d? LastWitness;
+        public int MaxExactPieces = 100000;
+
+        /// <summary>
+        /// (tests) after an exact triangle query of this thread that returned false: a point of the piece left
+        /// uncovered (the centroid of its vertices, rounded to doubles), else null
+        /// </summary>
+        internal Vector3d? LastWitness { get { return lastWitness.Value; } }
+        readonly System.Threading.ThreadLocal<Vector3d?> lastWitness = new System.Threading.ThreadLocal<Vector3d?>();
 
         /// <summary> (tests) skip the floating-point filters: every query is decided exactly </summary>
         internal bool SkipFilters;
@@ -67,6 +81,8 @@ namespace gs
 
         const int MaxPlanes = 16;
         const double U = 1.1102230246251565e-16;       // unit roundoff 2^-53
+        // absolute error term of the bounds: covers products that underflow (at most 2^-1074 each)
+        const double Tiny = 1e-300;
 
         int prismCount;
         double[] planes;            // per prism MaxPlanes x (mx, my, mz, s): m . x <= s
@@ -80,6 +96,8 @@ namespace gs
             Epsilon = epsilon;
             if (!(epsilon > 0) || double.IsInfinity(epsilon)) { Status = EnvelopeStatus.InvalidEpsilon; return; }
             if (mesh.TriangleCount == 0) { Status = EnvelopeStatus.Empty; return; }
+            if (epsilon < 1e-280) { Status = EnvelopeStatus.TooThin; return; }
+            if (mesh.TriangleCount > int.MaxValue / (MaxPlanes * 4)) { Status = EnvelopeStatus.TooLarge; return; }
             Status = build();
         }
 
@@ -109,7 +127,11 @@ namespace gs
             }
             prismCount = p;
             double cell = Math.Max(sumEdge / (3 * p) + 2 * Epsilon, Epsilon);
-            grid = new TriangleHashGrid(Mesh.CachedBounds.Min, cell);
+            // origin at the prisms (the mesh bounds would also count unused vertices)
+            var all = new AxisAlignedBox3d(boxes[0].Min);
+            for (int k = 0; k < p; ++k) all.Contain(boxes[k].Min);
+            Vector3d origin = all.Min;
+            grid = new TriangleHashGrid(origin, cell);
             for (int k = 0; k < p; ++k) grid.Insert(k, boxes[k]);
             return EnvelopeStatus.Ready;
         }
@@ -121,7 +143,12 @@ namespace gs
             int L = 0;
             for (int k = 1; k < 3; ++k) if (e[k].LengthSquared > e[L].LengthSquared) L = k;
             Vector3d u1 = e[L].LengthSquared > 0 ? e[L].Normalized : Vector3d.AxisX;
-            Vector3d nrm = e[0].Cross(v2 - v0);
+            // the normal from the longest edge and the third vertex' offset perpendicular to it: for slivers a
+            // cross product of two edges would be rounding noise in an arbitrary direction, this keeps the
+            // triangle close to the plane (its spread along the normal is at most the offset plus rounding)
+            Vector3d d = v[(L + 2) % 3] - v[L];
+            Vector3d perp = d - d.Dot(u1) * u1;
+            Vector3d nrm = u1.Cross(perp);
             Vector3d nh;
             if (nrm.LengthSquared > 0 && nrm.IsFinite) nh = nrm.Normalized;
             else {
@@ -173,7 +200,7 @@ namespace gs
                 maxd = Math.Max(maxd, m.Dot(q));
                 mag = Math.Max(mag, Math.Abs(m.x * q.x) + Math.Abs(m.y * q.y) + Math.Abs(m.z * q.z));
             }
-            double s = maxd + 8 * U * mag + offset;
+            double s = maxd + 8 * U * mag + Tiny + offset;
             s += 4 * U * Math.Abs(s);
             int o = (p * MaxPlanes + c) * 4;
             planes[o] = m.x; planes[o + 1] = m.y; planes[o + 2] = m.z; planes[o + 3] = s;
@@ -226,7 +253,7 @@ namespace gs
             bool r = SkipFilters ? false : fast_filters(cand, q, out decided);
             if (decided) return r;
             System.Threading.Interlocked.Increment(ref exactQueries);
-            LastWitness = null;
+            lastWitness.Value = null;
             // (also for degenerate triangles: the parameter triangle in (u, v) is never degenerate, and the
             // query is contained if and only if the preimages of the prisms cover it)
             return triangle_exact(cand, a, b, c);
@@ -235,7 +262,9 @@ namespace gs
         List<int> candidates(AxisAlignedBox3d box)
         {
             var list = new List<int>();
-            grid.Query(box, (k) => { if (boxes[k].Intersects(box)) list.Add(k); });
+            // (the grid marks what a query has seen: not for concurrent queries)
+            lock (grid)
+                grid.Query(box, (k) => { if (boxes[k].Intersects(box)) list.Add(k); });
             list.Sort();        // deterministic order, independent of the grid's hashing
             return list;
         }
@@ -248,7 +277,7 @@ namespace gs
             for (int k = 0; k < planeCount[p]; ++k, o += 4) {
                 double mx = planes[o], my = planes[o + 1], mz = planes[o + 2], s = planes[o + 3];
                 double val = mx * q.x + my * q.y + mz * q.z - s;
-                double err = 8 * U * (Math.Abs(mx * q.x) + Math.Abs(my * q.y) + Math.Abs(mz * q.z) + Math.Abs(s));
+                double err = 8 * U * (Math.Abs(mx * q.x) + Math.Abs(my * q.y) + Math.Abs(mz * q.z) + Math.Abs(s)) + Tiny;
                 if (val > err) return 1;
                 if (!(val < -err)) inside = false;
             }
@@ -509,8 +538,12 @@ namespace gs
                 }
                 pieces = next;
                 if (pieces.Count == 0) return true;
+                if (pieces.Count > MaxExactPieces) {
+                    System.Threading.Interlocked.Increment(ref abortedQueries);
+                    return false;
+                }
             }
-            LastWitness = centroid(pieces[0], a, b, c);
+            lastWitness.Value = centroid(pieces[0], a, b, c);
             return false;
         }
 

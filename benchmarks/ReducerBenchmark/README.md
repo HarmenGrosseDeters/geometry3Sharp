@@ -35,19 +35,29 @@ Findings:
 - It is needed. Without it, the same triangle count deviates 1.5-3.3 times the tolerance.
 - With it, the result stays within the tolerance. 1.01 is the 1 % accuracy of the measurement.
 
-## Experiment: exact envelope instead of the distance bounds
+## Exact envelope instead of the distance bounds
 
-`MeshEnvelope` (exact polyhedral envelope, clipping the query against the prisms) was tried as the check (not
-kept). Test case: 40 x 40 terrain (3200 triangles) of the same kind, tolerance 0.003.
+```
+dotnet run -c Release --project benchmarks/ReducerBenchmark -- queries
+```
 
-| check | result triangles | time |
+Compares the cost of one query: the triangles of a reduction with the distance bounds check are checked again,
+with `TriangleDeviationBounds.IsWithin` and with `MeshEnvelope.ContainsTriangle` at the same tolerance. These
+are the triangles the envelope would have to accept if it replaced the check.
+
+Terrain 40 x 40 (3200 triangles), tolerance 0.003, 951 reduced triangles:
+
+| check | within | time per triangle |
 |---|---|---|
-| distance bounds | 283 | 0.84 s |
-| envelope | 370 | 91 s (10553 exact queries) |
+| distance bounds (`IsWithin`) | 951 | 62 µs |
+| envelope (`ContainsTriangle`) | 625 | 7109 µs (728 exact) |
 
-Reduced triangles span many prisms. No single prism holds them, so the floating-point filters cannot decide,
-and the exact clipping costs 40-55 ms per query. Sampling points on the triangle first rejected only a few of
-the queries.
+Findings:
+- Reduced triangles span many prisms, and no single prism holds them. The floating-point filters cannot decide,
+  so the exact clipping runs, about 115 times slower than the distance bounds.
+- The envelope accepts fewer triangles, because its prisms are thinner than the tolerance ball.
+- An earlier try of the envelope as the `Reducer`'s check (not kept) took 91 s instead of 0.84 s on this
+  terrain. Sampling points on the triangle first rejected only a few of the queries.
 
 ## Profiling the distance bounds check
 
