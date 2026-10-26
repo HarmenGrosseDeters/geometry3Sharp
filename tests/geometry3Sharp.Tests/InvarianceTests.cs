@@ -271,6 +271,52 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(v0, v1);
         }
 
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void Solidify_UnusedFarVertex_IgnoredForTheGrid(bool adaptive)
+        {
+            // the grid is sized from the triangles: an unused vertex far away (CachedBounds includes it) used to
+            // make the cells so large that Compute() returned true with an empty result
+            DMesh3 Input(bool far)
+            {
+                DMesh3 m = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 6 }.Generate().MakeDMesh();
+                if (far)
+                    m.AppendVertex(new Vector3d(1e6, -2e6, 5e5));
+                return m;
+            }
+            DMesh3 Run(DMesh3 m)
+            {
+                var sol = new MeshWindingNumberSolidify(m) { GridResolution = 32, Adaptive = adaptive };
+                Assert.True(sol.Compute());
+                return sol.Result;
+            }
+            DMesh3 withFar = Run(Input(true));
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(withFar));
+            Assert.Equal("", Invariance.GeometricDifference(Run(Input(false)), withFar));
+        }
+
+        [Fact]
+        public void WindingBoolean_UnusedFarVertex_IgnoredForTheGrid()
+        {
+            DMesh3 Sphere1(bool far)
+            {
+                DMesh3 m = Sphere(Vector3d.Zero, 1, 8);
+                if (far)
+                    m.AppendVertex(new Vector3d(1e6, -2e6, 5e5));
+                return m;
+            }
+            DMesh3 Run(bool far)
+            {
+                var b = new MeshWindingNumberBoolean(Sphere1(far), Sphere(new Vector3d(0.8, 0, 0), 0.7, 8), MeshWindingNumberBoolean.Operations.Union) { GridResolution = 32 };
+                Assert.True(b.Compute());
+                return b.Result;
+            }
+            DMesh3 withFar = Run(true);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(withFar));
+            Assert.Equal("", Invariance.GeometricDifference(Run(false), withFar));
+        }
+
         [Fact]
         public void Solidify_ReusedInstance_EqualsFreshInstance()
         {
