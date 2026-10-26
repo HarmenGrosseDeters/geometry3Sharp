@@ -342,7 +342,9 @@ namespace geometry3Sharp.Tests
             DMesh3 back = ParseCSharp(code);
             Assert.Equal(m.TriangleCount, back.TriangleCount);
             Assert.Equal("", Invariance.GeometricDifference(m, back));
+            // (the same text on .NET Framework and .NET Core)
             Assert.Contains("-0.0, 1E-310, double.NaN", code);
+            Assert.Contains("double.PositiveInfinity, double.NegativeInfinity, 0.1,", code);
             Assert.Equal(1 / -0.0, 1 / back.GetVertex(0).x);
             foreach (double x in new[] { 0.1, 1.0 / 3, 632117.25, 5712043.123456789, double.Epsilon, double.MaxValue, -1e-300 })
                 Assert.Equal(x, double.Parse(MeshMinimizer.Literal(x), CultureInfo.InvariantCulture));

@@ -287,10 +287,13 @@ namespace geometry3Sharp.Tests
             if (double.IsPositiveInfinity(x)) return "double.PositiveInfinity";
             if (double.IsNegativeInfinity(x)) return "double.NegativeInfinity";
             if (x == 0) return (1 / x < 0) ? "-0.0" : "0";
-            string r = x.ToString("R", CultureInfo.InvariantCulture);
-            // ("R" does not round-trip every value on .NET Framework)
-            if (double.Parse(r, CultureInfo.InvariantCulture) != x) r = x.ToString("G17", CultureInfo.InvariantCulture);
-            return r;
+            // the fewest significant digits that round-trip: the same text on .NET Framework and .NET Core ("R" differs
+            // between them, and does not round-trip every value on .NET Framework)
+            for (int digits = 1; digits < 17; ++digits) {
+                string r = x.ToString("G" + digits, CultureInfo.InvariantCulture);
+                if (double.Parse(r, CultureInfo.InvariantCulture) == x) return r;
+            }
+            return x.ToString("G17", CultureInfo.InvariantCulture);
         }
 
         /// <summary>
@@ -333,6 +336,8 @@ namespace geometry3Sharp.Tests
             return sb.ToString();
         }
 
+        static string Number(double x) => (double.IsNaN(x) || double.IsInfinity(x) || x == 0) ? x.ToString(CultureInfo.InvariantCulture) : Literal(x);
+
         /// <summary> the mesh as OBJ text with exact (round-trip) coordinates </summary>
         public static string ToObj(DMesh3 mesh)
         {
@@ -341,8 +346,7 @@ namespace geometry3Sharp.Tests
             foreach (int v in mesh.VertexIndices()) {
                 map[v] = map.Count + 1;
                 Vector3d p = mesh.GetVertex(v);
-                sb.Append("v ").Append(p.x.ToString("R", CultureInfo.InvariantCulture)).Append(' ')
-                  .Append(p.y.ToString("R", CultureInfo.InvariantCulture)).Append(' ').Append(p.z.ToString("R", CultureInfo.InvariantCulture)).Append('\n');
+                sb.Append("v ").Append(Number(p.x)).Append(' ').Append(Number(p.y)).Append(' ').Append(Number(p.z)).Append('\n');
             }
             foreach (int t in mesh.TriangleIndices()) {
                 Index3i tv = mesh.GetTriangle(t);
