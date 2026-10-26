@@ -225,9 +225,9 @@ namespace geometry3Sharp.Tests
             DMesh3 plane = Heightfield((x, y) => 0.1 * x, 0, 0, 10, 10, 11);
             Assert.False(new TerrainDualContouring(plane) { SamplesPerCell = 0 }.Compute());
             Assert.False(new TerrainDualContouring(plane) { CellSize = 1e-6 }.Compute());      // 1e14 cells
-            // larger than the terrain: no cell has four sampled neighbours
-            var big = new TerrainDualContouring(plane) { CellSize = 100 };
-            Assert.True(big.Compute() == false || big.Result.TriangleCount > 0);
+            // larger than the terrain: no cell has four sampled neighbours (the old check, false or some
+            // triangles, could not fail: Compute returns whether there are triangles)
+            Assert.False(new TerrainDualContouring(plane) { CellSize = 100 }.Compute());
         }
 
         [Fact]
@@ -241,6 +241,34 @@ namespace geometry3Sharp.Tests
             var tdc = new TerrainDualContouring(points) { CellSize = 2 };
             Assert.True(tdc.Compute());
             Assert.Equal(tdc0.Result.TriangleCount, tdc.Result.TriangleCount);
+        }
+
+        [Fact]
+        public void PointCloud_SmallPointRadiusOverALargeArea()
+        {
+            // 65 km across with PointRadius = 1 m: 4e9 bins of the point radius overflowed (OverflowException)
+            var points = PitPoints(2.0, 0, Vector3d.Zero);
+            points.Add(new Vector3d(65535, 65535, 0));
+            var far = new TerrainDualContouring(points) { PointRadius = 1, GridResolution = 64 };
+            far.Compute();      // the pit is smaller than a cell: no result, but no exception
+
+            // more bins of the point radius than 4x the points: larger bins, the same samples. Plane z = 0.1 x
+            // + 0.05 y sampled every 2 m, PointRadius 0.9 (fitted within up to 4 x 0.9 m)
+            var plane = new List<Vector3d>();
+            for (int i = 0; i <= 50; ++i)
+                for (int j = 0; j <= 50; ++j)
+                    plane.Add(new Vector3d(2 * i, 2 * j, 0.1 * 2 * i + 0.05 * 2 * j));
+            var tdc = new TerrainDualContouring(plane) { PointRadius = 0.9, CellSize = 4 };
+            Assert.True(tdc.Compute());
+            // the whole cloud is sampled (up to about a cell at its border)
+            AxisAlignedBox3d rb = tdc.Result.CachedBounds;
+            Assert.True(rb.Min.x < 5 && rb.Min.y < 5 && rb.Max.x > 95 && rb.Max.y > 95, rb.ToString());
+            double areaXY = tdc.Result.TriangleIndices().Sum(tid => Math.Abs(tdc.Result.GetTriNormal(tid).z) * tdc.Result.GetTriArea(tid));
+            Assert.True(areaXY > 0.9 * 100 * 100, $"{areaXY} m^2 covered");
+            foreach (int vid in tdc.Result.VertexIndices()) {
+                Vector3d v = tdc.Result.GetVertex(vid);
+                Assert.Equal(0.1 * v.x + 0.05 * v.y, v.z, 6);
+            }
         }
 
         static List<Vector3d> PitPoints(double spacing, double noise, Vector3d offset, int seed = 1)
@@ -295,7 +323,13 @@ namespace geometry3Sharp.Tests
             var tdc = new TerrainDualContouring(PitPoints(0.5, 0.02, offset)) { GridResolution = 100 };
             Assert.True(tdc.Compute());
             AssertCleanTerrain(tdc.Result);
-            Assert.True(ErrorToPit(tdc.Result, offset).Item1 < 0.1);
+            double rms = ErrorToPit(tdc.Result, offset).Item1;
+            Assert.True(rms < 0.1);
+            // the same points at the origin: the same result (rms 0.02 m both)
+            var tdc0 = new TerrainDualContouring(PitPoints(0.5, 0.02, Vector3d.Zero)) { GridResolution = 100 };
+            Assert.True(tdc0.Compute());
+            Assert.Equal(tdc0.Result.TriangleCount, tdc.Result.TriangleCount);
+            Assert.True(Math.Abs(rms - ErrorToPit(tdc0.Result, Vector3d.Zero).Item1) < 1e-6);
         }
 
         [Fact]
@@ -333,15 +367,26 @@ namespace geometry3Sharp.Tests
             Assert.True(tdc.Compute());
             DMesh3 result = tdc.Result;
             AssertCleanTerrain(result);
+            // the same input at the origin gives the same result: an absolute bound against the input (0.5 m,
+            // it is 0.26 m) would hide a UTM-only loss of precision
+            DMesh3 local = new DMesh3(input);
+            MeshTransforms.Translate(local, -offset);
+            var tdc0 = new TerrainDualContouring(local) { GridResolution = 100 };
+            Assert.True(tdc0.Compute());
+            Assert.Equal(tdc0.Result.TriangleCount, result.TriangleCount);
             var spatial = new DMeshAABBTree3(result, true);
+            var spatial0 = new DMeshAABBTree3(tdc0.Result, true);
             var inputSpatial = new DMeshAABBTree3(input, true);
             var rnd = new Random(9);
-            double max = 0;
+            double max = 0, maxDiff = 0;
             for (int i = 0; i < 5000; ++i) {
-                double x = offset.x + rnd.NextDouble() * 190 - 95, y = offset.y + rnd.NextDouble() * 190 - 95;
-                max = Math.Max(max, Math.Abs(HeightAt(spatial, x, y) - HeightAt(inputSpatial, x, y)));
+                double x = rnd.NextDouble() * 190 - 95, y = rnd.NextDouble() * 190 - 95;
+                double z = HeightAt(spatial, offset.x + x, offset.y + y);
+                max = Math.Max(max, Math.Abs(z - HeightAt(inputSpatial, offset.x + x, offset.y + y)));
+                maxDiff = Math.Max(maxDiff, Math.Abs(z - offset.z - HeightAt(spatial0, x, y)));
             }
             Assert.True(max < 0.5, $"max error {max:F3} m");
+            Assert.True(maxDiff < 1e-6, $"{maxDiff} m between the UTM and the origin result");
         }
         [Fact]
         public void MergedCells_NoOverlappingTrianglesInXY()
@@ -365,7 +410,8 @@ namespace geometry3Sharp.Tests
             // usable for volumes against the input
             var vd = new TerrainVolumeDifference(mesh, tdc.Result);
             Assert.True(vd.Compute());
-            Assert.True(Math.Abs(vd.NetVolume) < 0.05 * vd.OverlapArea, $"net {vd.NetVolume} over {vd.OverlapArea}");
+            // no bias: the net volume is 0.15 mm times the area here
+            Assert.True(Math.Abs(vd.NetVolume) < 0.002 * vd.OverlapArea, $"net {vd.NetVolume} over {vd.OverlapArea}");
         }
     }
 }

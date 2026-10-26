@@ -9,11 +9,16 @@ namespace g3
     /// optional normals. Two stages:
     ///   1. RANSAC (Fischler and Bolles, "Random sample consensus", CACM 1981) over minimal samples, with
     ///      the minimal sets of Schnabel, Wahl and Klein, "Efficient RANSAC for point-cloud shape detection"
-    ///      (Computer Graphics Forum 2007): plane from 3 points, sphere from 4 points, cylinder from 2 points
-    ///      with normals, cone from 3 points with normals. Candidates are scored with the truncated quadratic
+    ///      (Computer Graphics Forum 2007): plane from 3 points, sphere from 2 points with normals (4 points
+    ///      without normals), cylinder from 2 points
+    ///      with normals, cone from 3 points with normals. (Their localized sampling is not used: it finds
+    ///      some small part quickly, which suits detecting many shapes, but stops before the largest one.) Candidates are scored with the truncated quadratic
     ///      loss of MSAC (Torr and Zisserman, "MLESAC", CVIU 2000); a point counts as inlier when it is within
     ///      InlierDistance and, if normals are known, its normal is within MaxNormalAngle of the surface
-    ///      normal (unoriented). The number of samples adapts to the inlier ratio (Confidence).
+    ///      normal (unoriented). The number of samples adapts to the inlier ratio (Confidence). Every new
+    ///      best candidate is refined by least squares on its inliers and scored again (LO-RANSAC, Chum,
+    ///      Matas and Kittler, "Locally optimized RANSAC", DAGM 2003): the result no longer depends on
+    ///      which of several nearly equal minimal samples happened to win, and fewer samples are needed.
     ///   2. Least squares on the inliers: orthogonal regression (PCA) for the plane, Levenberg-Marquardt on
     ///      the geometric (orthogonal) distances for the other primitives, then the inliers are selected again;
     ///      repeated until the inlier set no longer changes (at most RefineIterations).
@@ -31,7 +36,8 @@ namespace g3
     public class PrimitiveFit3
     {
         public enum Primitives { Plane, Sphere, Cylinder, Cone }
-        public enum Results { NotComputed, Success, TooFewPoints, NoNormals, Failed }
+        /// <summary> RejectedByLimits: no model, and candidates were rejected by MaxRadius / MaxConeAngle (raise them for very flat shapes) </summary>
+        public enum Results { NotComputed, Success, TooFewPoints, NoNormals, Failed, RejectedByLimits }
 
         public Vector3d[] Points;
         /// <summary> optional unit normals per point (orientation does not matter; zero = unknown) </summary>
@@ -48,6 +54,22 @@ namespace g3
         public double Confidence = 0.9999;
         public int Seed = 1;
         public int RefineIterations = 5;
+        /// <summary>
+        /// largest sphere / cylinder radius, and the distance of a cone apex from the points; 0 = 10 times the
+        /// bounding box diagonal. Larger shapes would only imitate a plane (a sphere of radius R deviates from
+        /// a plane by D^2/(8R) over an extent D). Behaviour change against the first version (limit 100 times
+        /// the diagonal, cone angle below 89.94 degrees): a genuinely flat cap, eg a lens surface with R above
+        /// 10 times its extent, needs a larger MaxRadius (Result is RejectedByLimits if nothing else fits).
+        /// </summary>
+        public double MaxRadius = 0;
+        /// <summary> largest half opening angle of a cone (degrees); flatter cones imitate a plane </summary>
+        public double MaxConeAngle = 88;
+        /// <summary>
+        /// LO-RANSAC: refine every new best candidate by least squares on (at most 2000 of) its inliers. Finds
+        /// better and more stable models on real data, at a cost in time (both measured on Thingi10K in
+        /// benchmarks/MeshRepairBenchmark/README.md); false = plain RANSAC with the same bail-out pre-test.
+        /// </summary>
+        public bool LocalOptimization = true;
         /// <summary> estimate normals (if Normals is null) for cylinder and cone </summary>
         public bool EstimateNormals = true;
         public int NormalNeighbors = 12;
@@ -69,6 +91,8 @@ namespace g3
         public double RMSError = double.NaN, MaxError = double.NaN;
         /// <summary> number of RANSAC samples drawn </summary>
         public int Iterations;
+        /// <summary> RANSAC candidates rejected by MaxRadius / MaxConeAngle </summary>
+        public int RejectedByLimits;
 
 
         public PrimitiveFit3(IEnumerable<Vector3d> points, IEnumerable<Vector3d> normals = null)
@@ -86,7 +110,7 @@ namespace g3
             foreach (int vid in (vertices ?? mesh.VertexIndices())) {
                 if (mesh.IsVertex(vid) == false || mesh.GetVtxEdgeCount(vid) == 0) continue;
                 pts.Add(mesh.GetVertex(vid));
-                nrm.Add(MeshNormals.QuickCompute(mesh, vid));
+                nrm.Add(gs.MeshAnalysisNormals.VertexNormal(mesh, vid));
             }
             Points = pts.ToArray();
             Normals = nrm.ToArray();
@@ -96,7 +120,7 @@ namespace g3
         public bool Compute()
         {
             Result = Results.NotComputed;
-            IsInlier = null; InlierCount = 0; RMSError = MaxError = double.NaN; Iterations = 0;
+            IsInlier = null; InlierCount = 0; RMSError = MaxError = double.NaN; Iterations = 0; RejectedByLimits = 0;
             int n = (Points == null) ? 0 : Points.Length;
             int minSample = minimal_sample_size(Primitive);
             if (n < Math.Max(minSample, least_squares_size(Primitive))) {
@@ -106,6 +130,7 @@ namespace g3
             AxisAlignedBox3d box = BoundsUtil.Bounds(Points);
             scale = Math.Max(box.DiagonalLength, MathUtil.Epsilon);
             eps = (InlierDistance > 0) ? InlierDistance : 0.01 * scale;
+            maxRadius = (MaxRadius > 0) ? MaxRadius : 10 * scale;
             cosNormal = Math.Cos(MathUtil.Clamp(MaxNormalAngle, 0, 90) * MathUtil.Deg2Rad);
 
             normals = Normals;
@@ -129,7 +154,7 @@ namespace g3
             bool[] inl;
             if (UseRansac) {
                 if (ransac(out model) == false) {
-                    Result = Results.Failed;
+                    Result = (RejectedByLimits > 0) ? Results.RejectedByLimits : Results.Failed;
                     return false;
                 }
                 inl = inliers(model);
@@ -188,7 +213,7 @@ namespace g3
         }
 
         Model fitted;
-        double scale, eps, cosNormal;
+        double scale, eps, cosNormal, maxRadius;
         Vector3d[] normals;
 
 
@@ -243,14 +268,14 @@ namespace g3
                 case Primitives.Plane:
                     return m.d;
                 case Primitives.Sphere:
-                    return (p - m.a).Normalized;
+                    return unit(p - m.a);
                 case Primitives.Cylinder: {
                         Vector3d w = p - m.a;
-                        return (w - w.Dot(m.d) * m.d).Normalized;
+                        return unit(w - w.Dot(m.d) * m.d);
                     }
                 default: {
                         Vector3d w = p - m.a;
-                        Vector3d radial = (w - w.Dot(m.d) * m.d).Normalized;
+                        Vector3d radial = unit(w - w.Dot(m.d) * m.d);
                         return (Math.Cos(m.r) * radial - Math.Sin(m.r) * m.d).Normalized;
                     }
             }
@@ -278,11 +303,32 @@ namespace g3
             return inl;
         }
 
+        // scale-free normalization (positions differences can be tiny in meters)
+        static Vector3d unit(Vector3d v)
+        {
+            return gs.MeshAnalysisNormals.Unit(v);
+        }
+
         static int count(bool[] b)
         {
             int c = 0;
             foreach (bool x in b) if (x) c++;
             return c;
+        }
+
+        // finite, but beyond MaxRadius / MaxConeAngle
+        bool exceeds_limits(Model m)
+        {
+            switch (Primitive) {
+                case Primitives.Sphere:
+                case Primitives.Cylinder:
+                    return m.r > maxRadius && !double.IsInfinity(m.r);
+                case Primitives.Cone:
+                    return m.r > MathUtil.Clamp(MaxConeAngle, 1, 89.9) * MathUtil.Deg2Rad && m.r < 0.5 * Math.PI
+                        || (m.a - Points[0]).Length > maxRadius && !double.IsInfinity(m.a.x + m.a.y + m.a.z);
+                default:
+                    return false;
+            }
         }
 
         bool valid(Model m)
@@ -294,9 +340,9 @@ namespace g3
             switch (Primitive) {
                 case Primitives.Sphere:
                 case Primitives.Cylinder:
-                    return m.r > 0 && m.r < 100 * scale;
+                    return m.r > 0 && m.r <= maxRadius;
                 case Primitives.Cone:
-                    return m.r > 1e-3 && m.r < 0.5 * Math.PI - 1e-3 && (m.a - Points[0]).Length < 100 * scale;
+                    return m.r > 1e-3 && m.r <= MathUtil.Clamp(MaxConeAngle, 1, 89.9) * MathUtil.Deg2Rad && (m.a - Points[0]).Length <= maxRadius;
                 default:
                     return true;
             }
@@ -307,52 +353,124 @@ namespace g3
         {
             int n = Points.Length;
             int k = minimal_sample_size(Primitive);
+            // with normals, every other sphere sample is 2 points with normals (Schnabel et al.): found at a
+            // low inlier ratio, where 4-point samples are rare, while 4 points do not suffer from noisy normals
+            bool sphereFromNormals = Primitive == Primitives.Sphere && normals != null;
             var rnd = new Random(Seed);
-            int[] sample = new int[k];
+            int[] sample = new int[k], sample2 = new int[2];
+
+            // a fixed random subset for a quick pre-test of every candidate, a bail-out test as in Capel, "An
+            // effective bail-out test for RANSAC consensus scoring" (BMVC 2005): only candidates whose inlier
+            // count there is within about two standard deviations of the best one's are scored on all points
+            int[] perm = new int[n];
+            for (int i = 0; i < n; ++i) perm[i] = i;
+            var prnd = new Random(Seed + 7919);
+            for (int i = n - 1; i > 0; --i) { int j = prnd.Next(i + 1); int t = perm[i]; perm[i] = perm[j]; perm[j] = t; }
+            int m = Math.Min(n, 500);
+
             best = new Model();
             double bestCost = double.MaxValue;
-            int bestCount = 0;
+            int bestCount = 0, bestSub = 0;
             long needed = MaxIterations;
             double eps2 = eps * eps;
             for (Iterations = 0; Iterations < Math.Min(needed, MaxIterations); ) {
                 Iterations++;
-                for (int j = 0; j < k; ++j) {
+                int[] smp = (sphereFromNormals && (Iterations & 1) == 1) ? sample2 : sample;
+                for (int j = 0; j < smp.Length; ++j) {
                     int s;
-                    do { s = rnd.Next(n); } while (Array.IndexOf(sample, s, 0, j) >= 0);
-                    sample[j] = s;
+                    do { s = rnd.Next(n); } while (Array.IndexOf(smp, s, 0, j) >= 0);
+                    smp[j] = s;
                 }
                 bool known = true;
-                if (Primitive == Primitives.Cylinder || Primitive == Primitives.Cone)
-                    for (int j = 0; j < k && known; ++j) known = normals[sample[j]] != Vector3d.Zero;
-                Model m;
-                if (known == false || minimal_model(sample, out m) == false || valid(m) == false)
+                if (Primitive == Primitives.Cylinder || Primitive == Primitives.Cone || smp == sample2)
+                    for (int j = 0; j < smp.Length && known; ++j) known = normals[smp[j]] != Vector3d.Zero;
+                Model cand;
+                if (known == false || minimal_model(smp, out cand) == false)
                     continue;
-                // the sample itself must be consistent (normals)
-                bool consistent = true;
+                if (valid(cand) == false) {
+                    if (exceeds_limits(cand)) RejectedByLimits++;
+                    continue;
+                }
+                // no consistency test of the sample's own points: a rough candidate from noisy normals is
+                // still a good start for the local optimization below
                 double d;
-                for (int j = 0; j < k && consistent; ++j)
-                    consistent = is_inlier(m, sample[j], out d);
-                if (consistent == false)
-                    continue;
-
+                if (bestCount > 0) {
+                    int sub = 0;
+                    for (int i = 0; i < m; ++i)
+                        if (is_inlier(cand, perm[i], out d)) sub++;
+                    if (sub < bestSub - 2 * Math.Sqrt(bestSub) - 1)
+                        continue;
+                }
                 double cost = 0;
                 int cnt = 0;
                 for (int i = 0; i < n && cost < bestCost; ++i) {
-                    if (is_inlier(m, i, out d)) {
+                    if (is_inlier(cand, i, out d)) {
                         cost += d * d; cnt++;
                     } else cost += eps2;
                 }
                 if (cost < bestCost) {
-                    bestCost = cost; best = m; bestCount = cnt;
-                    double w = (double)cnt / n;
+                    bestCost = cost; best = cand; bestCount = cnt;
+                    // local optimization: least squares on (at most 2000 of) the inliers of the new best model,
+                    // while that lowers the cost, so that nearly equal candidates end at the same model
+                    for (int lo = 0; lo < (LocalOptimization ? 4 : 0); ++lo) {
+                        bool[] inl = cap(inliers(best), 2000);
+                        Model refined;
+                        if (least_squares(best, inl, out refined) == false)
+                            break;
+                        int rc;
+                        double rcost = msac_cost(refined, out rc);
+                        if (!(rcost < bestCost * (1 - 1e-12)))
+                            break;
+                        bestCost = rcost; best = refined; bestCount = rc;
+                    }
+                    bestSub = 0;
+                    for (int i = 0; i < m; ++i)
+                        if (is_inlier(best, perm[i], out d)) bestSub++;
+                    // the stopping rule assumes the larger (4-point) sample for mixed sphere sampling
+                    double w = (double)bestCount / n;
                     double pk = Math.Pow(w, k);
                     if (pk >= 1 - 1e-12)
                         needed = Iterations;
-                    else if (pk > 0)
-                        needed = (long)Math.Ceiling(Math.Log(1 - Confidence) / Math.Log(1 - pk));
+                    else if (pk > 0) {
+                        // log(1 - pk) rounds to 0 for pk < 1e-16 (few inliers in a large cloud): use -pk.
+                        // Confidence >= 1 or NaN: never confident enough. Compared as doubles, a cast of
+                        // +-infinity or of more than long.MaxValue is undefined (long.MinValue on .NET Framework)
+                        double l1 = (pk < 1e-8) ? -pk : Math.Log(1 - pk);
+                        double iters = Math.Ceiling(Math.Log(1 - Confidence) / l1);
+                        if (iters < MaxIterations)
+                            needed = (long)iters;
+                    }
                 }
             }
             return bestCount >= least_squares_size(Primitive);
+        }
+
+        // at most max of the set flags, evenly spread
+        static bool[] cap(bool[] inl, int max)
+        {
+            int c = count(inl);
+            if (c <= max)
+                return inl;
+            bool[] r = new bool[inl.Length];
+            long seen = 0, kept = 0;
+            for (int i = 0; i < inl.Length; ++i) {
+                if (!inl[i]) continue;
+                if ((seen++ * max) / c >= kept) { r[i] = true; kept++; }
+            }
+            return r;
+        }
+
+
+        double msac_cost(Model m, out int cnt)
+        {
+            double cost = 0, d;
+            cnt = 0;
+            for (int i = 0; i < Points.Length; ++i) {
+                if (is_inlier(m, i, out d)) {
+                    cost += d * d; cnt++;
+                } else cost += eps * eps;
+            }
+            return cost;
         }
 
 
@@ -368,6 +486,13 @@ namespace g3
                         return true;
                     }
                 case Primitives.Sphere: {
+                        if (s.Length == 2) {
+                            // center: closest point of the two normal lines, radius: mean distance to it
+                            Vector3d c2;
+                            if (line_line(Points[s[0]], normals[s[0]], Points[s[1]], normals[s[1]], out c2) == false) return false;
+                            m = new Model(c2, Vector3d.AxisZ, 0.5 * (Points[s[0]].Distance(c2) + Points[s[1]].Distance(c2)));
+                            return true;
+                        }
                         // 2 (p_i - p_0) . c = |p_i|^2 - |p_0|^2, relative to p_0 for accuracy
                         Vector3d p0 = Points[s[0]];
                         double[] A = new double[9], b = new double[3];
@@ -407,7 +532,7 @@ namespace g3
                         if (solve(A, b, 3, out x) == false) return false;
                         Vector3d apex = Points[s[0]] + new Vector3d(x[0], x[1], x[2]);
                         // the unit directions to the points lie on a circle around the axis
-                        Vector3d u0 = (Points[s[0]] - apex).Normalized, u1 = (Points[s[1]] - apex).Normalized, u2 = (Points[s[2]] - apex).Normalized;
+                        Vector3d u0 = unit(Points[s[0]] - apex), u1 = unit(Points[s[1]] - apex), u2 = unit(Points[s[2]] - apex);
                         Vector3d d = (u1 - u0).Cross(u2 - u0);
                         if (d.Length < MathUtil.ZeroTolerance) return false;
                         d.Normalize();
@@ -500,12 +625,12 @@ namespace g3
                         Vector3d umean = Vector3d.Zero;
                         int cnt = 0;
                         for (int i = 0; i < n; ++i)
-                            if (inl[i]) { umean += (Points[i] - apex).Normalized; cnt++; }
+                            if (inl[i]) { umean += unit(Points[i] - apex); cnt++; }
                         umean /= cnt;
                         double[] C = new double[9];
                         for (int i = 0; i < n; ++i) {
                             if (!inl[i]) continue;
-                            Vector3d u = (Points[i] - apex).Normalized - umean;
+                            Vector3d u = unit(Points[i] - apex) - umean;
                             add_outer(C, u, u);
                         }
                         Vector3d d = smallest_eigenvector(C);

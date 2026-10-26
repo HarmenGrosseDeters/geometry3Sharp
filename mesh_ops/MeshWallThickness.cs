@@ -35,7 +35,9 @@ namespace gs
     /// intersection" (JCGT 2013): a ray through a shared edge or vertex hits at least one of the triangles,
     /// so no ray slips through the surface. A ray that leaves the solid through a front face (normal facing
     /// the ray) hit an inconsistently oriented or open part; it is ignored. Points without any valid ray
-    /// get NaN.
+    /// get NaN, and so do degenerate triangles (area below 1e-12 times the squared bounding box diagonal),
+    /// which also do not count as walls. Closed components that are inside out for their nesting, and a mesh that is inside out as
+    /// a whole, are taken with flipped normals (OrientInvertedParts; the mesh is not changed).
     /// </summary>
     public class MeshWallThickness
     {
@@ -57,6 +59,9 @@ namespace gs
         /// <summary> InscribedSphere: smallest angle (degrees) at the ball center between p and a contact that limits the ball </summary>
         public double SeparationAngle = 30;
 
+        /// <summary> treat inside-out closed components (MeshPostRepairCleanup.FindInvertedComponents) and an inside-out mesh as flipped </summary>
+        public bool OrientInvertedParts = true;
+
         public bool ComputeVertices = true;
         public bool ComputeTriangles = true;
 
@@ -67,7 +72,7 @@ namespace gs
         public double[] VertexThickness;
         /// <summary> thickness per triangle ID, at the centroid (NaN for unused IDs and triangles without a valid ray) </summary>
         public double[] TriangleThickness;
-        /// <summary> statistics over the computed triangle values (area weighted), or the vertex values if no triangles were computed </summary>
+        /// <summary> statistics over the triangle values (area weighted), or over the vertex values if ComputeTriangles is false </summary>
         public DeviationStatistics Statistics;
 
 
@@ -97,7 +102,7 @@ namespace gs
                     TriangleThickness[i] = double.NaN;
                 gParallel.ForEach(Mesh.TriangleIndices(), (tid) => {
                     if (CancelF()) return;
-                    Vector3d n = Mesh.GetTriNormal(tid);
+                    Vector3d n = tri_normal(tid);
                     if (n == Vector3d.Zero || double.IsNaN(n.x)) return;
                     TriangleThickness[tid] = thickness(Mesh.GetTriCentroid(tid), n, -1, tid, cone, maxDist);
                 });
@@ -122,7 +127,7 @@ namespace gs
 
             var values = new List<double>();
             var weights = new List<double>();
-            if (TriangleThickness != null) {
+            if (TriangleThickness != null && ComputeTriangles) {
                 foreach (int tid in Mesh.TriangleIndices()) {
                     values.Add(TriangleThickness[tid]); weights.Add(Mesh.GetTriArea(tid));
                 }
@@ -136,14 +141,18 @@ namespace gs
         }
 
 
-        /// <summary> thickness at a surface point p with outward unit normal n (see Method); NaN if no valid ray </summary>
+        /// <summary>
+        /// thickness at a surface point p with outward unit normal n (see Method); NaN if no valid ray.
+        /// May be called from several threads at once (the first call builds Spatial if it is null; set it,
+        /// or call Compute, before concurrent use).
+        /// </summary>
         public double ThicknessAt(Vector3d p, Vector3d n)
         {
             if (Spatial == null)
                 Spatial = new DMeshAABBTree3(Mesh, true);
             double maxDist = (MaxDistance > 0) ? MaxDistance : Mesh.CachedBounds.DiagonalLength;
             set_tolerances();
-            return thickness(p, n.Normalized, -1, -1, cone_directions(), Math.Max(maxDist, MathUtil.Epsilonf));
+            return thickness(p, MeshAnalysisNormals.Unit(n), -1, -1, cone_directions(), Math.Max(maxDist, MathUtil.Epsilonf));
         }
 
 
@@ -170,26 +179,95 @@ namespace gs
 
         // smallest ray parameter of a hit (relative to the mesh size, so that the result scales exactly with
         // the mesh), and the padding of the (float) tree boxes
-        double eps, boxPad;
+        double eps, boxPad, tieTol, degenerateArea, coordRounding;
 
+        // triangles taken with reversed orientation (OrientInvertedParts)
+        bool[] flipped;
+
+        // zero for degenerate triangles (area below 1e-12 diag^2): their normal is rounding noise, which
+        // depends on the unit; they get no value and do not count as walls
+        Vector3d tri_normal(int tid)
+        {
+            double area;
+            Vector3d n = MeshAnalysisNormals.TriNormal(Mesh, tid, out area);
+            if (!(area >= degenerateArea))
+                return Vector3d.Zero;
+            return (flipped != null && flipped[tid]) ? -n : n;
+        }
+
+        /// <summary>
+        /// Triangles of mesh to reverse so that it is outward oriented: those of closed components that are
+        /// inside out for their nesting (MeshPostRepairCleanup.FindInvertedComponents); then, only if the mesh
+        /// has no boundary edges at all, all of them if the signed volume is still negative (a fallback for
+        /// when FindInvertedComponents does not decide, eg more than 500 components). For an open mesh the
+        /// sign of the volume says nothing about its orientation (an open terrain with one tall peak has a
+        /// negative one), so open parts are never flipped. The mesh and its IDs are not changed. Null if none.
+        /// </summary>
+        public static bool[] InvertedTriangles(DMesh3 mesh)
+        {
+            bool[] flip = new bool[mesh.MaxTriangleID];
+            bool any = false;
+            foreach (int[] comp in MeshPostRepairCleanup.FindInvertedComponents(mesh))
+                foreach (int tid in comp) { flip[tid] = true; any = true; }
+            bool closed = true;
+            foreach (int eid in mesh.EdgeIndices())
+                if (mesh.IsBoundaryEdge(eid)) { closed = false; break; }
+            if (closed) {
+                Vector3d c = mesh.CachedBounds.Center;
+                double vol = 0;
+                foreach (int tid in mesh.TriangleIndices()) {
+                    Index3i t = mesh.GetTriangle(tid);
+                    Vector3d a = mesh.GetVertex(t.a) - c, b = mesh.GetVertex(t.b) - c, d = mesh.GetVertex(t.c) - c;
+                    double v = a.Dot(b.Cross(d));
+                    vol += flip[tid] ? -v : v;
+                }
+                if (vol < 0) {
+                    foreach (int tid in mesh.TriangleIndices()) flip[tid] = !flip[tid];
+                    any = true;
+                }
+            }
+            return any ? flip : null;
+        }
+
+        int flippedStamp = -1;
+        bool flippedMode;
+
+        readonly object toleranceLock = new object();
+
+        // also called by ThicknessAt, possibly from several threads: under a lock
         void set_tolerances()
         {
+            lock (toleranceLock)
+                set_tolerances_locked();
+        }
+
+        void set_tolerances_locked()
+        {
+            if (flippedStamp != Mesh.ShapeTimestamp || flippedMode != OrientInvertedParts) {
+                flipped = OrientInvertedParts ? InvertedTriangles(Mesh) : null;
+                flippedStamp = Mesh.ShapeTimestamp; flippedMode = OrientInvertedParts;
+            }
+            // relative to the mesh size, plus the rounding of the coordinates where they are large (eg geo
+            // coordinates far from the origin): doubles for the geometry, floats for the tree boxes
             AxisAlignedBox3d b = Mesh.CachedBounds;
-            eps = 1e-9 * b.DiagonalLength;
-            boxPad = 1e-6 * (b.DiagonalLength + Math.Max(b.Min.MaxAbs, b.Max.MaxAbs));
+            double maxAbs = Math.Max(b.Min.MaxAbs, b.Max.MaxAbs);
+            coordRounding = 64 * MathUtil.Epsilon * maxAbs;
+            eps = 1e-9 * b.DiagonalLength + coordRounding;
+            tieTol = 1e-9 * b.DiagonalLength + coordRounding;
+            boxPad = 1e-6 * b.DiagonalLength + 2.5e-7 * maxAbs;
+            degenerateArea = 1e-12 * b.DiagonalLength * b.DiagonalLength;
         }
 
         Vector3d vertex_normal(int vid)
         {
             Vector3d n = Vector3d.Zero;
             foreach (int tid in Mesh.VtxTrianglesItr(vid)) {
-                Vector3d tn, c; double area;
-                Mesh.GetTriInfo(tid, out tn, out area, out c);
-                if (double.IsNaN(tn.x)) continue;
+                double area;
+                Vector3d tn = MeshAnalysisNormals.TriNormal(Mesh, tid, out area);
+                if (flipped != null && flipped[tid]) tn = -tn;
                 n += area * tn;
             }
-            double len = n.Length;
-            return (len > MathUtil.ZeroTolerance) ? n / len : Vector3d.Zero;
+            return MeshAnalysisNormals.Unit(n);
         }
 
 
@@ -255,10 +333,17 @@ namespace gs
                     if (vid >= 0 && (tv.a == vid || tv.b == vid || tv.c == vid)) return;
                     double t;
                     if (ray.Intersect(Mesh.GetVertex(tv.a), Mesh.GetVertex(tv.b), Mesh.GetVertex(tv.c), out t) == false) return;
-                    if (t <= eps || t > best) return;
-                    double dot = Mesh.GetTriNormal(ti).Dot(dir);
-                    // through an edge both triangles report the same t: prefer the one the ray leaves through
-                    if (t == best && bestTri != DMesh3.InvalidID && dot <= bestDot) return;
+                    if (t <= eps || t > maxDist || t > best + tieTol) return;
+                    Vector3d tn = tri_normal(ti);
+                    if (tn == Vector3d.Zero) return;        // degenerate: no wall
+                    double dot = tn.Dot(dir);
+                    // coincident faces (touching parts, duplicates) are hit at the same t up to rounding:
+                    // prefer the one the ray leaves through, whatever the rounding (it depends on the unit)
+                    if (bestTri != DMesh3.InvalidID && Math.Abs(t - best) <= tieTol) {
+                        if (dot > bestDot) { bestTri = ti; bestDot = dot; }
+                        best = Math.Min(best, t);
+                        return;
+                    }
                     best = t; bestTri = ti; bestDot = dot;
                 }
             });
@@ -310,8 +395,10 @@ namespace gs
         {
             // the inward ray bounds the ball's diameter: its hit point lies on the diameter through p
             double t = ray_length(p, -n, vid, tid, maxDist);
-            double r = double.IsNaN(t) ? 0.5 * maxDist : 0.5 * t;
-            double tol = 1e-12 * maxDist;
+            if (double.IsNaN(t))
+                return double.NaN;  // no valid opposite wall (open or inconsistently oriented part)
+            double r = 0.5 * t;
+            double tol = 1e-12 * maxDist + coordRounding;
             double cosSep = Math.Cos(MathUtil.Clamp(SeparationAngle, 0, 180) * MathUtil.Deg2Rad);
             for (int iter = 0; iter < MaxBallIterations; ++iter) {
                 Vector3d c = p - r * n;
@@ -330,7 +417,8 @@ namespace gs
                         if (!(dsqr < bestSqr)) return;
                         Vector3d w = closest - c;
                         double wl = w.Length;
-                        if (wl > 0 && (-n).Dot(w) > cosSep * wl)
+                        // p lies in direction +n from c
+                        if (wl > 0 && n.Dot(w) > cosSep * wl)
                             return;         // seen close to p: the folded neighborhood, not a wall
                         bestSqr = dsqr; q = closest; found = true;
                     }
@@ -346,8 +434,6 @@ namespace gs
                     break;
                 r = rnew;
             }
-            if (double.IsNaN(t) && r >= 0.5 * maxDist * (1 - 1e-12))
-                return double.NaN;  // no opposite wall at all
             return 2 * r;
         }
 

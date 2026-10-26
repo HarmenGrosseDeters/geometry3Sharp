@@ -1138,7 +1138,7 @@ namespace g3
         /// If you don't want this, just use Mesh.WindingNumber() directly. Also note that if you
         /// are only evaluating a few times, it is not sensible - assume you need at least 
         /// hundreds of evaluations to see speed improvements.
-        /// The cache is built without locking, so call this once before evaluating from multiple threads.
+        /// The cache is built on first use (under a lock), so this can be called from multiple threads.
         /// </summary>
         public virtual double WindingNumber(Vector3d p)
         {

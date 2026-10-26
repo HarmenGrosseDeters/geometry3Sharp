@@ -143,6 +143,8 @@ namespace g3
         public List<int>[] MeshTriangles;   // per mesh: indices into Triangles
         public int IntersectingPairs;
         public int SegmentCrossings;        // points where two intersection segments cross inside a triangle
+        /// <summary> segment pairs and segment-point pairs examined in the triangles (for tests: about linear in their number) </summary>
+        public long CandidateTests;
         /// <summary> points that were merged because different constructions gave the same point </summary>
         public int MergedPoints;
 
@@ -562,6 +564,18 @@ namespace g3
             return v;
         }
 
+        /// <summary> the exact point p (grid coordinates) in input coordinates </summary>
+        public ExactPoint3 ToInputExact(ExactPoint3 p)
+        {
+            BigInteger x = p.X + Center[0] * p.W, y = p.Y + Center[1] * p.W, z = p.Z + Center[2] * p.W, w = p.W;
+            if (ScaleExp >= 0) {
+                x <<= ScaleExp; y <<= ScaleExp; z <<= ScaleExp;
+            } else {
+                w <<= -ScaleExp;
+            }
+            return ExactPoint3.Create(x, y, z, w);
+        }
+
         /// <summary> input coordinates of a grid point (rounded to double) </summary>
         public Vector3d ToInputVector(ExactPoint3 p)
         {
@@ -638,6 +652,12 @@ namespace g3
                 e = 1.01 * e + U * Math.Abs(key);
                 lo[k] = key - e;
                 hi[k] = key + e;
+                // an approximation beyond the double range (key or error infinite, interval NaN): the point
+                // may equal any other
+                if (!(lo[k] <= hi[k])) {
+                    lo[k] = double.NegativeInfinity;
+                    hi[k] = double.PositiveInfinity;
+                }
                 order[k] = k;
             });
             double[] sortLo = (double[])lo.Clone();
@@ -971,40 +991,67 @@ namespace g3
                 trees[mi] = new TriangleBoxTree(boxes[mi]);
             }
             PhaseMilliseconds["intersections.trees"] = sw.ElapsedMilliseconds; sw.Restart();
-            // candidate pairs (boxes overlap, not separated by a plane, not only touching), in parallel per triangle
-            var pairs = new List<long>();
-            for (int ma = 0; ma < Meshes.Count; ++ma) {
-                for (int mb = (SelfIntersections ? ma : ma + 1); mb < Meshes.Count; ++mb) {
-                    int na = MeshTriangles[ma].Count;
-                    var found = new List<long>[na];
-                    int self = 0;
-                    gParallel.ForEach(Interval1i.Range(na), (ka) => {
-                        InputTriangle T = Triangles[MeshTriangles[ma][ka]];
-                        if (T.Degenerate) return;
-                        trees[mb].Query(boxes[ma][ka], (kb) => {
-                            if (ma == mb && kb <= ka)
-                                return;
-                            InputTriangle U = Triangles[MeshTriangles[mb][kb]];
-                            if (U.Degenerate)
-                                return;
-                            if (ma == mb) {
-                                if (touch_only(T, U))
-                                    return;
-                            } else if (separated(T, U))
-                                return;
-                            if (ma == mb)
-                                System.Threading.Interlocked.Increment(ref self);
-                            if (found[ka] == null)
-                                found[ka] = new List<long>();
-                            found[ka].Add(((long)MeshTriangles[ma][ka] << 32) | (uint)MeshTriangles[mb][kb]);
-                        });
-                    });
-                    SelfIntersectingPairs += self;
-                    foreach (var list in found)
-                        if (list != null)
-                            pairs.AddRange(list);
-                }
+            // the pairs of meshes to intersect (their boxes overlap; with many meshes most pairs are far apart),
+            // in the order (ma, mb), mb >= ma (> ma without self-intersections)
+            var meshBoxes = new List<AxisAlignedBox3d>();
+            for (int mi = 0; mi < Meshes.Count; ++mi) {
+                AxisAlignedBox3d mb = AxisAlignedBox3d.Empty;
+                foreach (AxisAlignedBox3d b in boxes[mi])
+                    mb.Contain(b);
+                meshBoxes.Add(mb);
             }
+            var meshTree = new TriangleBoxTree(meshBoxes);
+            var meshPairs = new List<Index2i>();
+            var near = new List<int>();
+            for (int ma = 0; ma < Meshes.Count; ++ma) {
+                if (boxes[ma].Count == 0)
+                    continue;
+                near.Clear();
+                meshTree.Query(meshBoxes[ma], (mb) => {
+                    if (mb > ma || (mb == ma && SelfIntersections))
+                        near.Add(mb);
+                });
+                near.Sort();
+                foreach (int mb in near)
+                    meshPairs.Add(new Index2i(ma, mb));
+            }
+            // candidate pairs (boxes overlap, not separated by a plane, not only touching), in parallel per
+            // triangle of the first mesh of each pair of meshes
+            var offsets = new int[meshPairs.Count + 1];
+            for (int p = 0; p < meshPairs.Count; ++p)
+                offsets[p + 1] = offsets[p] + MeshTriangles[meshPairs[p].a].Count;
+            var found = new List<long>[offsets[meshPairs.Count]];
+            int self = 0;
+            gParallel.ForEach(Interval1i.Range(found.Length), (j) => {
+                int p = Array.BinarySearch(offsets, j);
+                if (p < 0)      // (the offsets increase strictly: every pair has triangles of its first mesh)
+                    p = ~p - 1;
+                int ma = meshPairs[p].a, mb = meshPairs[p].b, ka = j - offsets[p];
+                InputTriangle T = Triangles[MeshTriangles[ma][ka]];
+                if (T.Degenerate) return;
+                trees[mb].Query(boxes[ma][ka], (kb) => {
+                    if (ma == mb && kb <= ka)
+                        return;
+                    InputTriangle U = Triangles[MeshTriangles[mb][kb]];
+                    if (U.Degenerate)
+                        return;
+                    if (ma == mb) {
+                        if (touch_only(T, U))
+                            return;
+                    } else if (separated(T, U))
+                        return;
+                    if (ma == mb)
+                        System.Threading.Interlocked.Increment(ref self);
+                    if (found[j] == null)
+                        found[j] = new List<long>();
+                    found[j].Add(((long)MeshTriangles[ma][ka] << 32) | (uint)MeshTriangles[mb][kb]);
+                });
+            });
+            SelfIntersectingPairs += self;
+            var pairs = new List<long>();
+            foreach (var list in found)
+                if (list != null)
+                    pairs.AddRange(list);
             PhaseMilliseconds["intersections.pairs"] = sw.ElapsedMilliseconds; sw.Restart();
             // planes of the triangles involved (computed once, before the parallel use)
             var needed = new bool[Triangles.Count];
@@ -1241,20 +1288,22 @@ namespace g3
                 t.Points.Add(s.P);
                 t.Points.Add(s.Q);
             }
-            for (int i = 0; i < unique.Count; ++i) {
-                Segment a = unique[i];
-                for (int j = i + 1; j < unique.Count; ++j) {
-                    Segment b = unique[j];
-                    if (a.P == b.P || a.P == b.Q || a.Q == b.P || a.Q == b.Q)
-                        continue;
-                    int o1 = Orient(t, a.P, a.Q, b.P), o2 = Orient(t, a.P, a.Q, b.Q);
-                    if (o1 * o2 >= 0) continue;
-                    int o3 = Orient(t, b.P, b.Q, a.P), o4 = Orient(t, b.P, b.Q, a.Q);
-                    if (o3 * o4 >= 0) continue;
-                    t.Points.Add(PlanesPointImplicit(4 * ti, a.Line, b.Line));
-                    System.Threading.Interlocked.Increment(ref SegmentCrossings);
-                }
-            }
+            // pairs of segments whose boxes overlap (a grid of the boxes: a triangle can have thousands of segments)
+            var grid = new BoxGrid2(this, t, unique.Count);
+            foreach (Segment s in unique)
+                grid.Add(s.P, s.Q);
+            grid.ForEachPair((i, j) => {
+                Segment a = unique[i], b = unique[j];
+                if (a.P == b.P || a.P == b.Q || a.Q == b.P || a.Q == b.Q)
+                    return;
+                int o1 = Orient(t, a.P, a.Q, b.P), o2 = Orient(t, a.P, a.Q, b.Q);
+                if (o1 * o2 >= 0) return;
+                int o3 = Orient(t, b.P, b.Q, a.P), o4 = Orient(t, b.P, b.Q, a.Q);
+                if (o3 * o4 >= 0) return;
+                t.Points.Add(PlanesPointImplicit(4 * ti, a.Line, b.Line));
+                System.Threading.Interlocked.Increment(ref SegmentCrossings);
+            });
+            System.Threading.Interlocked.Add(ref CandidateTests, grid.Examined);
             foreach (int c in t.Corners)
                 t.Points.Remove(c);
         }
@@ -1288,15 +1337,20 @@ namespace g3
                 tri.InsertPoint(p);
             tri.MakeDelaunay();
 
-            // segments split at the points on them
-            var all = new List<int>(ordered);
-            all.AddRange(t.Corners);
+            // segments split at the points on them (the points whose boxes overlap the segment's, from a grid)
+            var grid = new BoxGrid2(this, t, ordered.Count);
+            foreach (int p in ordered)
+                grid.Add(p, p);
+            var candidates = new List<int>();
             foreach (Segment s in t.Segments) {
                 BigInteger dx, dy, dz;
                 line_direction(t, PlaneOf(s.Line), out dx, out dy, out dz);
                 int sp = Canonical(s.P), sq = Canonical(s.Q);
                 var on = new List<int>() { sp, sq };
-                foreach (int r in all) {
+                candidates.Clear();
+                grid.Query(sp, sq, (k) => candidates.Add(ordered[k]));
+                candidates.AddRange(t.Corners);
+                foreach (int r in candidates) {
                     if (r == sp || r == sq) continue;
                     if (Orient(t, sp, sq, r) == 0 && between(dx, dy, dz, sp, sq, r))
                         on.Add(r);
@@ -1307,9 +1361,162 @@ namespace g3
                     constraints.Add(EdgeKey(on[k], on[k + 1]));
                 }
             }
+            System.Threading.Interlocked.Add(ref CandidateTests, grid.Examined);
             tri.MakeDelaunay();
             foreach (Index3i f in tri.Triangles())
                 output.Add(new OutputTriangle() { Mesh = t.Mesh, Source = ti, A = f.a, B = f.b, C = f.c });
+        }
+
+
+        /// <summary>
+        /// Uniform grid over the projection of a triangle, of the boxes of items (segments p-q or points p = q):
+        /// each box contains the exact item (approximations widened by their error bounds), so items whose exact
+        /// points meet have overlapping boxes. About one cell per item; fewer cells where the boxes are large (long
+        /// oblique segments cover many cells), so that the cells hold at most a few times as many entries as there
+        /// are items; a single cell for few items.
+        /// </summary>
+        sealed class BoxGrid2
+        {
+            readonly ExactMeshArrangement arr;
+            readonly int i, j, n0;
+            readonly double[] bounds;
+            int n;
+            double cx, cy;
+            readonly List<double[]> boxes = new List<double[]>();
+            List<int>[] cells;
+            /// <summary> pairs of items (or of the query and an item) whose boxes were compared </summary>
+            public long Examined;
+
+            public BoxGrid2(ExactMeshArrangement arr, InputTriangle t, int count)
+            {
+                this.arr = arr;
+                i = (t.Axis + 1) % 3; j = (t.Axis + 2) % 3;
+                double[] b = box(t.Corners[0], t.Corners[0]);
+                foreach (int c in t.Corners) {
+                    double[] cb = box(c, c);
+                    b[0] = Math.Min(b[0], cb[0]); b[1] = Math.Min(b[1], cb[1]); b[2] = Math.Max(b[2], cb[2]); b[3] = Math.Max(b[3], cb[3]);
+                }
+                bounds = b;
+                n0 = (count < 16) ? 1 : Math.Min(1024, (int)Math.Ceiling(Math.Sqrt(count)));
+            }
+
+            void set_size(int size)
+            {
+                n = size;
+                cx = (bounds[2] - bounds[0]) / n; cy = (bounds[3] - bounds[1]) / n;
+                if (!(cx > 0 && cy > 0 && cx < double.MaxValue && cy < double.MaxValue))
+                    n = 1;
+            }
+
+            // the cells, after all items are added: the grid is made coarser while the boxes would have more than
+            // 8 entries per item (64 at least)
+            void build()
+            {
+                if (cells != null)
+                    return;
+                long limit = 8L * boxes.Count + 64;
+                for (set_size(n0); n > 1; set_size(n / 2)) {
+                    long entries = 0;
+                    foreach (double[] b in boxes) {
+                        int ix0, iy0, ix1, iy1;
+                        range(b, out ix0, out iy0, out ix1, out iy1);
+                        entries += (long)(ix1 - ix0 + 1) * (iy1 - iy0 + 1);
+                    }
+                    if (entries <= limit)
+                        break;
+                }
+                cells = new List<int>[n * n];
+                for (int k = 0; k < boxes.Count; ++k) {
+                    int ix0, iy0, ix1, iy1;
+                    range(boxes[k], out ix0, out iy0, out ix1, out iy1);
+                    for (int x = ix0; x <= ix1; ++x)
+                        for (int y = iy0; y <= iy1; ++y)
+                            (cells[x * n + y] ?? (cells[x * n + y] = new List<int>())).Add(k);
+                }
+            }
+
+            // the box of the segment p-q: min x, min y, max x, max y
+            double[] box(int p, int q)
+            {
+                Vector3d a = arr.approx[p], c = arr.approx[q];
+                double e = Math.Max(arr.approxErr[p], arr.approxErr[q]);
+                double[] r = { Math.Min(a[i], c[i]), Math.Min(a[j], c[j]), Math.Max(a[i], c[i]), Math.Max(a[j], c[j]) };
+                for (int k = 0; k < 4; ++k) {
+                    // widened by the error bound and the rounding of this sum
+                    double w = e + 4 * U * (Math.Abs(r[k]) + e);
+                    r[k] += (k < 2) ? -w : w;
+                }
+                return r;
+            }
+
+            int cell(double v, double v0, double c)
+            {
+                double f = Math.Floor((v - v0) / c);
+                return !(f > 0) ? 0 : (f >= n - 1) ? n - 1 : (int)f;
+            }
+
+            void range(double[] b, out int ix0, out int iy0, out int ix1, out int iy1)
+            {
+                if (n == 1) { ix0 = iy0 = ix1 = iy1 = 0; return; }
+                ix0 = cell(b[0], bounds[0], cx); iy0 = cell(b[1], bounds[1], cy); ix1 = cell(b[2], bounds[0], cx); iy1 = cell(b[3], bounds[1], cy);
+            }
+
+            static bool overlap(double[] a, double[] b)
+            {
+                return !(a[2] < b[0] || b[2] < a[0] || a[3] < b[1] || b[3] < a[1]);
+            }
+
+            /// <summary> add an item (index: the number of items added before), before the first query </summary>
+            public void Add(int p, int q)
+            {
+                if (cells != null)
+                    throw new InvalidOperationException("BoxGrid2: items added after a query");
+                boxes.Add(box(p, q));
+            }
+
+            /// <summary> f(k) once for every item k whose box overlaps the box of the segment p-q </summary>
+            public void Query(int p, int q, Action<int> f)
+            {
+                build();
+                double[] b = box(p, q);
+                int ix0, iy0, ix1, iy1;
+                range(b, out ix0, out iy0, out ix1, out iy1);
+                for (int x = ix0; x <= ix1; ++x)
+                    for (int y = iy0; y <= iy1; ++y) {
+                        List<int> list = cells[x * n + y];
+                        if (list == null) continue;
+                        foreach (int k in list) {
+                            Examined++;
+                            // (reported in the first cell of the query that has the item)
+                            int kx0, ky0, kx1, ky1;
+                            range(boxes[k], out kx0, out ky0, out kx1, out ky1);
+                            if (x == Math.Max(ix0, kx0) && y == Math.Max(iy0, ky0) && overlap(b, boxes[k]))
+                                f(k);
+                        }
+                    }
+            }
+
+            /// <summary> f(a, b), a &lt; b, once for every pair of items whose boxes overlap </summary>
+            public void ForEachPair(Action<int, int> f)
+            {
+                build();
+                var r = new int[boxes.Count * 4];
+                for (int k = 0; k < boxes.Count; ++k)
+                    range(boxes[k], out r[4 * k], out r[4 * k + 1], out r[4 * k + 2], out r[4 * k + 3]);
+                for (int x = 0; x < n; ++x)
+                    for (int y = 0; y < n; ++y) {
+                        List<int> list = cells[x * n + y];
+                        if (list == null) continue;
+                        for (int s = 0; s < list.Count; ++s)
+                            for (int u = s + 1; u < list.Count; ++u) {
+                                int a = list[s], b = list[u];
+                                Examined++;
+                                // (reported in the first cell that has both)
+                                if (x == Math.Max(r[4 * a], r[4 * b]) && y == Math.Max(r[4 * a + 1], r[4 * b + 1]) && overlap(boxes[a], boxes[b]))
+                                    f(a, b);
+                            }
+                    }
+            }
         }
     }
 

@@ -21,9 +21,10 @@ namespace gs
     /// Clean means: closed, no bowties, no degenerate triangles, no inside-out components and, if
     /// CheckSelfIntersections, no self-intersections (exact, MeshRepairMetrics).
     ///
-    /// A clean result can still have lost volume (eg a self-overlapping input made non-overlapping by
-    /// dropping a layer): if its solid agrees with the input's winding number solid less than MinVolumeIoU,
-    /// the input itself is used instead, resolved exactly or solidified (its winding number solid is the reference).
+    /// A result can still have lost volume (eg a self-overlapping input made non-overlapping by dropping a
+    /// layer, or parts removed by erosion): if its solid agrees with the input's winding number solid less than
+    /// MinVolumeIoU, the input itself is used instead, resolved exactly, solidified or wrapped (its winding number
+    /// solid is the reference; UsedInput).
     ///
     /// Behaviour: the result is in <see cref="Mesh"/> after Apply(), a new mesh object. The mesh passed to the
     /// constructor is used as the working mesh of MeshAutoRepair and is modified by it, so pass a copy if
@@ -59,6 +60,12 @@ namespace gs
         /// Only for meshes that are closed in the winding number sense (exact winding numbers).
         /// </summary>
         public bool ExactResolve = true;
+        /// <summary>
+        /// exact resolve: repair the self-intersections and degenerate slivers that rounding the new vertices to double
+        /// leaves, by local edits checked exactly (ExactMeshBoolean.SafeRounding; after SeparateTouchingVertices again
+        /// with MeshRoundingRepair). Without it, the cleanup collapses slivers and the resolve is repeated.
+        /// </summary>
+        public bool SafeRounding = true;
         /// <summary> rounding the new vertices to double can create tiny self-intersections: resolve again, up to this often </summary>
         public int ExactResolveRounds = 4;
         /// <summary> last resort: alpha wrap the mesh if the solidify fails or its result is not clean </summary>
@@ -71,11 +78,17 @@ namespace gs
         // outputs
         /// <summary> true if the result was produced by the solidify fallback (remeshed), false if it is the repair result </summary>
         public bool UsedSolidify;
+        /// <summary>
+        /// true if the fallbacks (exact resolve, solidify, alpha wrap) started from the input instead of the repair
+        /// result, because the repair result's solid differs from the input's (or it is empty)
+        /// </summary>
+        public bool UsedInput;
         /// <summary> why the repair result was not used ("" if it was) </summary>
         public string FallbackReason = "";
         /// <summary>
-        /// volume IoU of the repair result with the input (NaN if the input has no solid or not checked); an
-        /// estimate from as many samples as the check needed (MeshRepairMetrics.VolumeIoUAtLeast)
+        /// volume IoU with the input (NaN if the input has no solid or not checked) of the repair result, or of the
+        /// exact resolve if that is used; an estimate from as many samples as the check needed
+        /// (MeshRepairMetrics.VolumeIoUAtLeast)
         /// </summary>
         public double RepairVolumeIoU = double.NaN;
         /// <summary> the solidify fallback, if it ran (for its statistics); null otherwise </summary>
@@ -93,6 +106,11 @@ namespace gs
         public int ExactResolveRoundsUsed;
         /// <summary> per resolve round: self-intersecting triangle pairs of its result (diagnostics) </summary>
         public List<int> ExactResolveSelfIntersections = new List<int>();
+        /// <summary>
+        /// per resolve round with SafeRounding: edits (and triangles removed) of the repair after rounding the resolve,
+        /// and of the repair after SeparateTouchingVertices (diagnostics)
+        /// </summary>
+        public List<Index2i> ExactRoundingEdits = new List<Index2i>();
         /// <summary>
         /// milliseconds per phase of the last Apply() (summed if a phase runs more than once): "repair", "check"
         /// (cleanness incl. self-intersections), "volume" (VolumeIoU), "exact" (exact resolve incl. its checks;
@@ -126,12 +144,13 @@ namespace gs
         /// Repair, check, and solidify if needed (see class comment). On success Mesh is the result.
         /// </summary>
         /// <returns>
-        /// false if cancelled, if the mesh to solidify is empty, or if both the solidify fallback (eg the grid
+        /// false if cancelled, if the input is empty, or if both the solidify fallback (eg the grid
         /// would be too large) and the alpha wrap failed; Mesh is then not replaced. true otherwise.
         /// </returns>
         public bool Apply()
         {
             UsedSolidify = false;
+            UsedInput = false;
             UsedAlphaWrap = false;
             SolidifyReason = "";
             Solidify = null;
@@ -140,6 +159,7 @@ namespace gs
             ExactResolveReason = "";
             ExactResolveRoundsUsed = 0;
             ExactResolveSelfIntersections.Clear();
+            ExactRoundingEdits.Clear();
             FallbackReason = "";
             RepairVolumeIoU = double.NaN;
             PhaseMilliseconds.Clear();
@@ -167,7 +187,15 @@ namespace gs
                     solidifyFrom = input;
                 }
                 end_phase("volume");
+            } else if (FallbackReason != "") {
+                // an unclean result can have lost parts of the input as well (eg erosion of an open region, which
+                // the volume check of the exact stage rejects, but the solidify and the wrap do not check): then the
+                // fallbacks start from the input, like for a clean result whose volume differs
+                if (result.TriangleCount == 0 || (MinVolumeIoU > 0 && MeshRepairMetrics.VolumeIoUAtLeast(input, result, MinVolumeIoU, out RepairVolumeIoU) == false))
+                    solidifyFrom = input;
+                end_phase("volume");
             }
+            UsedInput = solidifyFrom == input;
             if (FallbackReason == "") {
                 Mesh = result;
                 return true;
@@ -247,7 +275,8 @@ namespace gs
                 if (CancelF())
                     return null;
                 timer.Restart();
-                DMesh3 res = ExactMeshBoolean.Resolve(m);
+                var resolve = new ExactMeshBoolean(m, new DMesh3(), ExactMeshBoolean.Operations.Union) { SafeRounding = SafeRounding };
+                DMesh3 res = resolve.Compute() ? resolve.Result : null;
                 add_phase("exact.resolve", timer.ElapsedMilliseconds); timer.Restart();
                 ExactResolveRoundsUsed++;
                 if (res == null || res.TriangleCount == 0) {
@@ -259,13 +288,40 @@ namespace gs
                 if (reason == "degenerate triangles") {
                     new MeshPostRepairCleanup(res).Apply();
                     res = new DMesh3(res, true);
+                    // the cleanup keeps slivers whose collapse would distort or fold a neighbour: collapsed anyway,
+                    // the self-intersections that can create are found below and resolved by the next round (so
+                    // only when they are checked)
+                    if (CheckSelfIntersections && NotCleanReason(res, false) == "degenerate triangles" && CollapseSlivers(res) > 0)
+                        res = new DMesh3(res, true);
                 }
                 // where solids touch (at a vertex or along an edge) Resolve gives manifold sheets with duplicated
                 // vertices, which touch: separate them minimally
-                SeparateTouchingVertices(res, SeparateFraction);
+                var separated = new List<int>();
+                SeparateTouchingVertices(res, SeparateFraction, separated);
+                // (the separation can make new slivers and intersections: repaired again; without moves the safe
+                // rounding's counts hold, there were no touching vertices)
+                int si = -1;
+                if (SafeRounding) {
+                    var first = resolve.Rounding;
+                    int edits = 0;
+                    if (separated.Count == 0) {
+                        si = first.RemainingIntersections;
+                    } else {
+                        // (all of the mesh: the edits at the former contacts, which the safe rounding must not
+                        // make, are possible now)
+                        var rounding = new MeshRoundingRepair(res);
+                        rounding.Apply();
+                        edits = rounding.Collapses + rounding.Flips + rounding.Moves + rounding.Zips + rounding.RemovedTriangles;
+                        if (edits > 0)
+                            res = new DMesh3(res, true);
+                        si = rounding.RemainingIntersections;
+                    }
+                    ExactRoundingEdits.Add(new Index2i(first.Collapses + first.Flips + first.Moves + first.Zips + first.RemovedTriangles, edits));
+                }
                 reason = NotCleanReason(res, false);
                 if (reason == "" && CheckSelfIntersections) {
-                    int si = MeshRepairMetrics.SelfIntersections(res);
+                    if (si < 0)
+                        si = MeshRepairMetrics.SelfIntersections(res);
                     ExactResolveSelfIntersections.Add(si);
                     if (si > 0)
                         reason = "self-intersections";
@@ -297,6 +353,81 @@ namespace gs
             return null;
         }
 
+        /// <summary>
+        /// Collapses the triangles below the degenerate area of NotCleanReason (1e-12 * diagonal^2): for each, its
+        /// shortest edge that is shorter than maxCollapse * diagonal and whose collapse keeps the mesh valid (link
+        /// condition), the vertices moved to the midpoint; otherwise an edge flipped, the longest first (caps).
+        /// Closed components with a sliver and a total area below 1e-8 * diagonal^2 are removed (also a small but
+        /// real separate part, about 1e-4 * diagonal across). Unlike MeshPostRepairCleanup it does not avoid
+        /// distorting or folding the neighbours: they are tiny (the slivers come from intersection points that
+        /// nearly coincide), so the caller has to check for (and resolve) self-intersections afterwards.
+        /// Returns the triangles collapsed, flipped or removed.
+        /// </summary>
+        public static int CollapseSlivers(DMesh3 mesh, double maxCollapse = 1e-4, int maxPasses = 5)
+        {
+            double diag = mesh.CachedBounds.DiagonalLength;
+            double areaEps = 1e-12 * diag * diag, maxLength = maxCollapse * diag;
+            int fixedCount = 0;
+            for (int pass = 0; pass < maxPasses; ++pass) {
+                int n = 0;
+                foreach (int tid in mesh.TriangleIndices().ToArray()) {
+                    if (mesh.IsTriangle(tid) == false || mesh.GetTriArea(tid) >= areaEps)
+                        continue;
+                    Index3i tv = mesh.GetTriangle(tid);
+                    Index3i te = mesh.GetTriEdges(tid);
+                    int[] order = { 0, 1, 2 };
+                    double[] len = new double[3];
+                    for (int k = 0; k < 3; ++k)
+                        len[k] = mesh.GetVertex(tv[k]).Distance(mesh.GetVertex(tv[(k + 1) % 3]));
+                    Array.Sort((double[])len.Clone(), order);
+                    bool done = false;
+                    foreach (int k in order) {
+                        if (len[k] >= maxLength)
+                            break;
+                        Index2i ev = mesh.GetEdgeV(te[k]);
+                        Vector3d mid = 0.5 * (mesh.GetVertex(ev.a) + mesh.GetVertex(ev.b));
+                        DMesh3.EdgeCollapseInfo info;
+                        if (mesh.CollapseEdge(ev.a, ev.b, out info) == MeshResult.Ok) {
+                            mesh.SetVertex(info.vKept, mid);
+                            done = true;
+                            break;
+                        }
+                    }
+                    // otherwise flip an edge (longest first): caps, and needles whose ends have more than two common
+                    // neighbours (the collapse would not be manifold) until the next pass
+                    for (int j = 2; j >= 0 && done == false; --j) {
+                        DMesh3.EdgeFlipInfo flip;
+                        done = mesh.FlipEdge(te[order[j]], out flip) == MeshResult.Ok;
+                    }
+                    if (done)
+                        n++;
+                }
+                // tiny closed components with slivers (eg a flat tetrahedron where intersection points nearly
+                // coincide): removed, they enclose no volume to speak of
+                n += remove_tiny_components(mesh, areaEps);
+                fixedCount += n;
+                if (n == 0)
+                    break;
+            }
+            return fixedCount;
+        }
+
+        static int remove_tiny_components(DMesh3 mesh, double areaEps)
+        {
+            var comps = new MeshConnectedComponents(mesh);
+            comps.FindConnectedT();
+            int removed = 0;
+            foreach (var comp in comps.Components) {
+                // a sliver, and in all below 10^4 times the degenerate area (1e-8 * diagonal^2)
+                if (comp.Indices.Any(tid => mesh.GetTriArea(tid) < areaEps) == false || comp.Indices.Sum(tid => mesh.GetTriArea(tid)) >= 1e4 * areaEps)
+                    continue;
+                foreach (int tid in comp.Indices)
+                    mesh.RemoveTriangle(tid, true, false);
+                removed += comp.Indices.Length;
+            }
+            return removed;
+        }
+
         /// <summary> how far SeparateTouchingVertices moves a vertex, relative to the distance to the centroid of its neighbours </summary>
         public double SeparateFraction = 1e-4;
 
@@ -306,6 +437,12 @@ namespace gs
         /// neighbours, so the sheets separate. Returns the number of vertices moved.
         /// </summary>
         public static int SeparateTouchingVertices(DMesh3 mesh, double fraction)
+        {
+            return SeparateTouchingVertices(mesh, fraction, null);
+        }
+
+        /// <summary> as SeparateTouchingVertices(mesh, fraction), and adds the vertices moved to moved (if not null) </summary>
+        public static int SeparateTouchingVertices(DMesh3 mesh, double fraction, List<int> moved)
         {
             var at = new Dictionary<Vector3d, List<int>>();
             foreach (int vid in mesh.VertexIndices()) {
@@ -330,8 +467,10 @@ namespace gs
                         moves.Add(new KeyValuePair<int, Vector3d>(vid, kv.Key + fraction * (c / n - kv.Key)));
                 }
             }
-            foreach (var m in moves)
+            foreach (var m in moves) {
                 mesh.SetVertex(m.Key, m.Value);
+                moved?.Add(m.Key);
+            }
             return moves.Count;
         }
 

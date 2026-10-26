@@ -14,10 +14,13 @@ namespace gs
     ///   - PseudoNormal: the angle weighted pseudo-normal of the closest feature (face, edge or vertex) of
     ///     the reference, after Baerentzen and Aanaes, "Signed distance computation using the angle weighted
     ///     pseudonormal" (IEEE TVCG 2005). Correct for any point when the reference is closed, manifold and
-    ///     consistently oriented; for open references it is the side of the nearest patch.
-    ///   - WindingNumber: inside where the generalized winding number of the reference is > 0.5 (Jacobson
-    ///     et al. 2013, via FastWindingNumber). Robust to holes, self-intersections and inconsistent
-    ///     orientation of a (nearly) closed reference, but undefined for open sheets.
+    ///     consistently oriented; for open references it is the side of the nearest patch. Closed parts that
+    ///     are inside out for their nesting, and an inside-out reference as a whole, are taken with flipped
+    ///     normals (OrientInvertedParts, see MeshWallThickness.InvertedTriangles).
+    ///   - WindingNumber: inside where the absolute generalized winding number of the reference is > 0.5
+    ///     (Jacobson et al. 2013, via FastWindingNumber; absolute, so that inside-out parts count as solid).
+    ///     Robust to holes, self-intersections and inconsistent orientation of a (nearly) closed reference,
+    ///     but undefined for open sheets.
     ///   - Unsigned: the plain distance.
     ///
     /// The vertex values sample the deviation; the largest one is a lower bound of the one-sided Hausdorff
@@ -32,6 +35,8 @@ namespace gs
 
         public enum Signs { PseudoNormal, WindingNumber, Unsigned }
         public Signs Sign = Signs.PseudoNormal;
+        /// <summary> PseudoNormal: take inside-out closed components and an inside-out reference as flipped </summary>
+        public bool OrientInvertedParts = true;
 
         /// <summary> also compute the certified one-sided Hausdorff distance from Mesh to Reference </summary>
         public bool ComputeCertifiedBound = false;
@@ -139,9 +144,11 @@ namespace gs
                 case Signs.Unsigned:
                     return d;
                 case Signs.WindingNumber:
-                    return (ReferenceSpatial.FastWindingNumber(p) > 0.5) ? -d : d;
+                    return (Math.Abs(ReferenceSpatial.FastWindingNumber(p)) > 0.5) ? -d : d;
                 default:
                     Vector3d n = feature_normal(tid, tv, bary);
+                    if (n == Vector3d.Zero)     // only degenerate triangles around: no direction to judge by
+                        return (Math.Abs(ReferenceSpatial.FastWindingNumber(p)) > 0.5) ? -d : d;
                     return ((p - closest).Dot(n) < 0) ? -d : d;
             }
         }
@@ -149,16 +156,38 @@ namespace gs
 
         // angle weighted vertex pseudo-normals of the reference (Baerentzen and Aanaes 2005)
         Vector3d[] vertexNormals;
+        bool[] flipped;
+
+        // zero for degenerate triangles (area below 1e-12 diag^2): their normal is rounding noise
+        Vector3d tri_normal(int tid)
+        {
+            double area;
+            Vector3d n = MeshAnalysisNormals.TriNormal(Reference, tid, out area);
+            if (!(area >= degenerateArea))
+                return Vector3d.Zero;
+            return (flipped != null && flipped[tid]) ? -n : n;
+        }
+        double degenerateArea;
 
         void compute_pseudonormals()
         {
+            flipped = OrientInvertedParts ? MeshWallThickness.InvertedTriangles(Reference) : null;
+            double diag = Reference.CachedBounds.DiagonalLength;
+            degenerateArea = 1e-12 * diag * diag;
+            // the winding number decides where degenerate triangles leave no normal: build its cache now,
+            // before the parallel queries
+            foreach (int tid in Reference.TriangleIndices())
+                if (tri_normal(tid) == Vector3d.Zero) {
+                    ReferenceSpatial.FastWindingNumber(Vector3d.Zero);
+                    break;
+                }
             vertexNormals = new Vector3d[Reference.MaxVertexID];
             foreach (int tid in Reference.TriangleIndices()) {
-                Vector3d n = Reference.GetTriNormal(tid);
+                Vector3d n = tri_normal(tid);
                 if (double.IsNaN(n.x)) continue;
                 Index3i t = Reference.GetTriangle(tid);
                 for (int j = 0; j < 3; ++j) {
-                    double angle = Reference.GetTriInternalAngleR(tid, j);
+                    double angle = MeshAnalysisNormals.InternalAngle(Reference, tid, j);
                     if (double.IsNaN(angle)) continue;
                     vertexNormals[t[j]] += angle * n;
                 }
@@ -175,7 +204,7 @@ namespace gs
             }
             if (zeros >= 2)
                 return vertexNormals[tv[nonzero]];
-            Vector3d n = Reference.GetTriNormal(tid);
+            Vector3d n = tri_normal(tid);
             if (zeros == 1) {
                 int a = tv[(zero + 1) % 3], b = tv[(zero + 2) % 3];
                 int eid = Reference.FindEdge(a, b);
@@ -183,9 +212,11 @@ namespace gs
                     Index2i et = Reference.GetEdgeT(eid);
                     int other = (et.a == tid) ? et.b : et.a;
                     if (other != DMesh3.InvalidID)
-                        n += Reference.GetTriNormal(other);
+                        n += tri_normal(other);
                 }
             }
+            if (n == Vector3d.Zero)     // degenerate triangle: the pseudo-normals of its corners
+                n = vertexNormals[tv.a] + vertexNormals[tv.b] + vertexNormals[tv.c];
             return n;
         }
     }

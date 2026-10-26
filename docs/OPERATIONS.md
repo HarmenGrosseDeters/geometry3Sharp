@@ -7,10 +7,11 @@ closedness, edge lengths, error bounds), so the examples cannot silently go stal
 the XML documentation of the classes (shipped in the NuGet package, so IDEs and coding agents see it).
 
 Without writing code: [tools/g3cli](../tools/g3cli/README.md) runs the main operations (measure, repair,
-boolean, resolve, remesh, simplify, convert) on mesh files, with JSON results, and as an MCP server.
+boolean, resolve, remesh, simplify, uv, convert) on mesh files, with JSON results, and as an MCP server.
 
-Namespaces: most classes are in `g3`; repair, solidify, hole filling, Hausdorff and geodesic distances are
-in `gs`. Add both: `using g3; using gs;`.
+Namespaces: most classes are in `g3`; many mesh operations are in `gs` (repair, alpha wrap, solidify, hole
+filling, wall thickness, deviation, Hausdorff and geodesic distances, intrinsic triangulations, terrain).
+Add both: `using g3; using gs;`.
 
 ## Common patterns
 
@@ -24,7 +25,8 @@ in `gs`. Add both: `using g3; using gs;`.
   `Reducer`, smoothers, hole fillers, `MeshPlaneCut`. New mesh in `Result`: `ExactMeshBoolean`,
   `MeshWindingNumberSolidify`. Pass `new DMesh3(mesh)` to keep the input of an in-place operation.
 - **Files**: `StandardMeshReader` / `StandardMeshWriter` pick the format from the extension and return an
-  `IOCode` with a message instead of throwing.
+  `IOCode` with a message instead of throwing (`StandardMeshReader.ReadMesh` returns null on failure, and
+  throws if the file was read but contains no mesh).
 
 ## Operations
 
@@ -37,7 +39,7 @@ in `gs`. Add both: `using g3; using gs;`.
 | Fill holes | `gs.MinimalHoleFill`, `gs.SmoothedHoleFill`, `gs.AutoHoleFill`, `SimpleHoleFiller`, `MeshBoundaryLoops` | [HoleFillExample](examples/HoleFillExample.cs) |
 | Check a mesh (self-intersections, folds, volume IoU) | `gs.MeshRepairMetrics`, `MeshRobustRepair.NotCleanReason`, `DMesh3.CheckValidity`, `MeshValidation` | [RepairMetricsExample](examples/RepairMetricsExample.cs) |
 | Rebuild any input as a closed solid | `gs.MeshWindingNumberSolidify` | [WindingNumberSolidifyExample](examples/WindingNumberSolidifyExample.cs) |
-| Booleans (union, intersection, difference), resolve self-intersections | `ExactMeshBoolean`, `ExactMeshBoolean.Resolve` | [ExactMeshBooleanExample](examples/ExactMeshBooleanExample.cs) |
+| Booleans (union, intersection, difference) of two or more meshes, winding number predicates (eg inside at least k of n), resolve self-intersections | `ExactMeshBoolean`, `ExactMeshBoolean.AtLeast`, `ExactMeshBoolean.Resolve` | [ExactMeshBooleanExample](examples/ExactMeshBooleanExample.cs) |
 | Isotropic remeshing | `Remesher`, `gs.RemesherPro`, `MeshConstraintUtil`, `MeshProjectionTarget` | [RemeshExample](examples/RemeshExample.cs) |
 | Simplification, with a guaranteed maximum deviation | `Reducer` | [SimplificationExample](examples/SimplificationExample.cs) |
 | Smoothing | `MeshIterativeSmooth`, `LaplacianMeshSmoother` | [SmoothingExample](examples/SmoothingExample.cs) |
@@ -47,15 +49,18 @@ in `gs`. Add both: `using g3; using gs;`.
 | Nearest neighbours among points | `PointHashGrid3d<T>`, `PointAABBTree3` | [PointQueriesExample](examples/PointQueriesExample.cs) |
 | Signed distance field, offset surfaces | `MeshSignedDistanceGrid`, `DenseGridTrilinearImplicit`, `MarchingCubes` | [OffsetSurfaceExample](examples/OffsetSurfaceExample.cs) |
 | Hausdorff distance, geodesic distance | `gs.MeshHausdorffDistance`, `gs.MeshGeodesicDistance` | [DistancesExample](examples/DistancesExample.cs) |
+| Intrinsic Delaunay triangulation and refinement: cotan Laplacian without negative weights, geodesics and vector heat on poor meshes, overlay with the input | `gs.IntrinsicTriangulation`, `gs.MeshGeodesicDistance.IntrinsicRefine`, `gs.VectorHeatMethod.IntrinsicRefine`, `gs.IntrinsicCommonSubdivision` | [IntrinsicTriangulationExample](examples/IntrinsicTriangulationExample.cs) |
+| UV atlas of any mesh: seams, charts, BFF with cones, packing, exact overlap test | `UVAtlasGenerator`, `MeshDiscCut`, `MeshChartSegmentation`, `ConeFlattening`, `UVOverlap`, `UVPacker` | [UVAtlasExample](examples/UVAtlasExample.cs) |
+| Parameterize a disc | `BoundaryFirstFlattening`, `LSCMParameterization`, `ARAPParameterization`, `SLIMParameterization`, `ParameterizationDistortion` | [UVAtlasExample](examples/UVAtlasExample.cs) |
 
 ## Which repair or boolean class?
 
 | You have | Use | Result |
 |---|---|---|
 | A mostly good mesh with small holes, duplicate vertices, degenerate triangles | `MeshAutoRepair` (with `PostRepairCleanup = true`) | the input triangles, welded and closed where possible; not guaranteed closed |
-| Any mesh, and you need a closed, manifold, self-intersection-free result | `MeshRobustRepair` | the repaired mesh if it is clean, otherwise its self-intersections resolved exactly (`UsedExactResolve`), otherwise the winding number solid (`UsedSolidify`, `FallbackReason`) |
+| Any mesh, and you need a closed, manifold, self-intersection-free result | `MeshRobustRepair` | the repaired mesh if it is clean, otherwise its self-intersections resolved exactly (`UsedExactResolve`), otherwise the winding number solid (`UsedSolidify`), otherwise the alpha wrap (`UsedAlphaWrap`); see `FallbackReason`. If the clean result lost volume (`MinVolumeIoU`) the input itself is resolved or solidified instead. `Apply()` returns false (`Mesh` unchanged) if cancelled or if neither the solidify nor the alpha wrap gave a mesh; a solidified result that is not clean either is kept when the wrap fails or is off (`UsedSolidify` and `SolidifyReason`) |
 | A triangle soup, overlapping parts, large holes | `MeshWindingNumberSolidify` | a new, remeshed closed surface; features below the cell size are lost |
-| Closed meshes that intersect themselves or each other, where the triangles must be kept exactly | `ExactMeshBoolean`, `ExactMeshBoolean.Resolve(mesh)` | exact arrangement, only the output coordinates are rounded |
+| Closed meshes that intersect themselves or each other, where the triangles must be kept exactly | `ExactMeshBoolean`, `ExactMeshBoolean.Resolve(mesh)` | exact arrangement, only the output coordinates are rounded; `SafeRounding = true` repairs the slivers and self-intersections the rounding leaves (`MeshRoundingRepair`, checked exactly, `RoundingClean`), `ComputeExactVertices = true` gives the exact rational coordinates (`ResultExactVertices`) |
 | Booleans of broken meshes (open, soups, overlapping shells) | `gs.MeshWindingNumberBoolean` | a new, remeshed closed surface (winding numbers on an adaptive octree) |
 
 `MeshBoolean` is the old, non-robust union of the original library; prefer `ExactMeshBoolean`.
@@ -74,6 +79,30 @@ if (result == null)
 The test checks the exact volumes of union, intersection and difference of a cube and a bar with
 coplanar faces ([ExactMeshBooleanExample](examples/ExactMeshBooleanExample.cs)).
 
+Nearly coincident inputs give intersection points that nearly coincide: rounded to double, they leave slivers
+(degenerate triangles) and sometimes self-intersections. `SafeRounding` repairs them after the rounding:
+
+```csharp
+var boolean = new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Union) { SafeRounding = true };
+boolean.Compute();
+bool clean = boolean.RoundingClean;   // no self-intersections, no triangles below 1e-12 diagonal^2 (exact check)
+```
+
+More than two meshes go into one arrangement, with an operation or a predicate on the winding numbers of all
+inputs (Zhou et al. 2016). Status is the result code (`Success`, `InvalidInput`, `OpenInput`):
+
+```csharp
+var all = new ExactMeshBoolean(meshes, ExactMeshBoolean.Operations.Union);   // also Intersection; Difference = first minus all others
+var two = new ExactMeshBoolean(meshes, ExactMeshBoolean.AtLeast(2));          // inside at least two of the meshes
+var odd = new ExactMeshBoolean(meshes, w => w.Count(x => x > 0) % 2 == 1);   // any predicate on the winding numbers w[i]
+if (two.Compute() == false)
+    Console.WriteLine(two.Status + ": " + two.Error);
+```
+
+One operation over all inputs is faster than a chain of pairwise booleans and rounds the new vertices only
+once: the 10×10×10 cube grid with a void in each cube (2000 meshes, 1999 pairwise booleans) takes 27 s in one
+pass ([BooleanComparison](../benchmarks/BooleanComparison/README.md#many-meshes-in-one-operation)).
+
 ### Repair
 
 ```csharp
@@ -82,7 +111,8 @@ repair.Apply();
 DMesh3 repaired = repair.Mesh;           // a compacted copy: always read repair.Mesh
 
 var robust = new MeshRobustRepair(mesh);
-robust.Apply();                          // robust.Mesh is closed, manifold, without self-intersections
+if (robust.Apply())                      // robust.Mesh: closed, manifold, no self-intersections, except
+    mesh = robust.Mesh;                  // in the rare case UsedSolidify && SolidifyReason != ""
 ```
 
 See [MeshRepairExample](examples/MeshRepairExample.cs), [HoleFillExample](examples/HoleFillExample.cs),
@@ -119,6 +149,50 @@ See [MeasurementsExample](examples/MeasurementsExample.cs), [SpatialQueriesExamp
 [PointQueriesExample](examples/PointQueriesExample.cs), [OffsetSurfaceExample](examples/OffsetSurfaceExample.cs)
 and [DistancesExample](examples/DistancesExample.cs).
 
+### Intrinsic triangulations
+
+```csharp
+// Delaunay by flips, then refined by vertex insertion: no negative cotan weights, angles >= 25 degrees
+IntrinsicRefinementResult result;
+var T = IntrinsicTriangulation.BuildDelaunay(mesh, true, out result, 25);
+SymmetricSparseMatrix L = T.CotanLaplacian();      // vertex indices; T.VertexID(i) = mesh vid, -1 if inserted
+Console.WriteLine(result);                          // Status, inserted vertices, min angle, skipped triangles
+
+var geodesic = new MeshGeodesicDistance(mesh) { IntrinsicRefine = true };   // same for VectorHeatMethod
+geodesic.Compute(new[] { source });                 // geodesic.Refinement: the same result record
+
+IntrinsicCommonSubdivision overlay = T.ExtractCommonSubdivision();   // polygons of input x intrinsic triangles
+```
+
+An intrinsic triangulation keeps the surface and the vertices of the mesh, but its edges are geodesics
+described by their lengths (signposts give their directions on the input). `FlipToDelaunay()` makes every
+interior cotan weight non-negative. Boundary edges opposite an obtuse angle cannot be flipped and keep a
+negative weight; `DelaunayRefine(minAngle, maxInsertions)` splits them at their midpoints and inserts the
+circumcenters of triangles with an angle below `minAngle` (Chew / Ruppert refinement on the intrinsic
+triangulation, Sharp, Soliman and Crane 2019). Inserted vertices lie on the input surface
+(`VertexPosition`, `GetInputLocation`); results of `MeshGeodesicDistance` and `VectorHeatMethod` are still
+reported at the mesh vertices only.
+
+- **Status** (`IntrinsicRefinementResult.Status`): `Success` (Delaunay, all weights non-negative, angle bound
+  met), `InsertionLimitReached` (valid and Delaunay, but triangles may remain below the bound; boundary splits
+  get twice the limit), `Incomplete` (a circumcenter fell onto an existing vertex), `NonManifoldInput`
+  (`MeshGeodesicDistance` with bowtie vertices: not refined, flips only).
+- **Small input angles**: triangles whose small angle comes from the input (a vertex with an angle sum below
+  60 degrees, eg a jagged boundary) cannot be improved and are counted in `SkippedTriangles`; boundary edges
+  there are split at powers of two from the corner (concentric shells), so the refinement terminates.
+- `minAngle` is clamped to [0, 30] degrees; 0 only splits the boundary edges opposite obtuse angles (few
+  insertions). The default insertion limit is 10 times the vertex count plus 1000.
+- On a plane of 169-degree triangles (8400 vertices) refinement inserts 10400 vertices in about 1 s and lowers
+  the mean heat method distance error from 0.06 to 0.02 edge lengths, the maximum from 0.8 to 0.1.
+- **Common subdivision**: every intrinsic edge is traced over the input and each input triangle is cut along
+  the traced segments. The result is checked (faces tile every input triangle and every intrinsic triangle,
+  areas to 1e-6); if traces are inconsistent (crossings in the wrong order) `Status` is `Inconsistent`
+  with an `Error` instead of wrong faces. Integer (normal) coordinates (Gillespie, Sharp and Crane 2021),
+  which make this combinatorially exact, are not implemented: with flips, insertions and edge splits the
+  traces are exact up to rounding, and the checks catch the cases where rounding would matter.
+
+See [IntrinsicTriangulationExample](examples/IntrinsicTriangulationExample.cs).
+
 ### Files
 
 ```csharp
@@ -130,6 +204,40 @@ if (result.code != IOCode.Ok)
 
 Format details (units, precision, supported features) are in the README table and the reader/writer class
 comments. See [MeshIOExample](examples/MeshIOExample.cs).
+
+### UV atlas and seams
+
+```csharp
+var atlas = new UVAtlasGenerator(mesh);            // closed or open, any genus, several components
+atlas.Compute();                                   // false unless atlas.Status == UVAtlasStatus.Success
+DMesh3 textured = atlas.AtlasMesh;                 // the triangles of mesh, split along the seams, vertex UVs in [0,1]^2
+int src = atlas.AtlasToInputVertex[vid];           // and AtlasToInputTriangle, TriangleChart
+
+var cut = new MeshDiscCut(mesh);                   // only the seams: one disc per component
+if (cut.Compute())
+    new BoundaryFirstFlattening(cut.CutMesh).Compute();
+```
+
+All parameterizations need discs. `MeshDiscCut` cuts any mesh into discs along a cut graph (tree-cotree with
+shortest paths: on a closed surface of genus g, 2g short loops; between boundary loops, shortest paths; for a
+sphere, a path), and splits the vertices along the seams in a new mesh. `ConeFlattening` is BFF with cone
+singularities: cones are placed greedily where the conformal scale factor is largest, the mesh is cut through
+them, and the rest becomes flat (a cube: its eight corners, unfolded without distortion). `UVAtlasGenerator`
+combines them: per component, cones if the result is overlap-free and within the distortion limits, otherwise
+charts grown by normal (`MeshChartSegmentation`) flattened with BFF and split in two while a chart overlaps
+itself or exceeds `MaxAreaDistortion` / `MaxConformalDistortion`; then `UVPacker`. The final UVs are checked
+with exact predicates (`UVOverlap`), in double and again as stored in the mesh (float; defects within the float
+resolution, eg at vertices 1e-7 apart, are only reported in `SubResolutionDefects`), and `Status` reports `DistortionLimitExceeded` when `MaxCharts` was not
+enough (the layout is still overlap-free). From the command line: `g3cli uv mesh.obj atlas.obj`.
+
+| Method | Charts | Use |
+|---|---|---|
+| `Auto` (default) | one chart per component where cones work, else several | texture atlases |
+| `Cones` | one chart through cones (falls back to charts if it overlaps) | few seams, low area distortion |
+| `Charts` | normal-based charts, split until within the limits | robust, more seams |
+| `SingleChart` | one chart (cut to a disc), plain BFF | when one chart is required; distorts closed surfaces |
+
+See [UVAtlasExample](examples/UVAtlasExample.cs).
 
 ## Adding an example
 

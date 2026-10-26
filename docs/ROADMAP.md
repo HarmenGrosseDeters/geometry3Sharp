@@ -44,8 +44,16 @@ selectively.
 - [x] Iterated booleans with coplanar faces: new vertices inside flat regions and on straight edges between them
   are removed exactly and the regions retriangulated (`ExactPlanarSimplify`); the 10x10x10 cube grid (1999
   booleans) no longer grows exponentially.
-- [ ] More than two meshes in one operation (the arrangement supports it already)
-- [ ] Rounding of the output without new self-intersections (snap rounding), or exact output coordinates
+- [x] More than two meshes in one operation: n-ary union / intersection / difference and any predicate on the
+  winding numbers of all inputs (Zhou et al. 2016, eg `AtLeast(k)`), result code `Status`; only meshes with
+  overlapping boxes are intersected, and only the meshes whose box contains a patch get a winding number ray.
+  The 10x10x10 cube grid with voids (2000 meshes) in one pass: 27 s instead of 1999 pairwise booleans
+  (`BooleanComparison nary`); CLI `g3cli boolean --more ... --op at_least --k 2`.
+- [x] Rounding of the output without new self-intersections, or exact output coordinates: `ExactMeshBoolean.SafeRounding`
+  (`MeshRoundingRepair`: after rounding, local edits checked with exact predicates on the doubles, after Milenkovic &
+  Sacks 2019; the result is verified free of self-intersections and slivers, or the remaining ones are counted) and
+  `ComputeExactVertices` (exact rational coordinates). `MeshRobustRepair` uses it in its exact stage: Thingi10K
+  `robust` 266 → 273 repaired.
 - [x] Alpha wrapping (`MeshAlphaWrap`, Portaneri et al. 2022): closed, manifold, intersection-free wrap with an offset
   around any input (soups, open meshes, point clouds), on an own exact 3D Delaunay triangulation (`Delaunay3`).
   Benchmark on Thingi10K: `BENCH_REPAIR=wrap`, `analyze_wrap.py` (comparison with the solidify fallback).
@@ -59,7 +67,13 @@ selectively.
 
 - [x] Parameterization: LSCM, ARAP, SLIM (Rabinovich et al. 2017), Boundary First Flattening (Sawhney & Crane 2017);
   UV packing; distortion measures; sparse Cholesky solver (`SparseCholesky`)
-- [ ] Cutting closed surfaces into discs (seams) and automatic chart segmentation; BFF with cone singularities
+- [x] Cutting closed surfaces into discs (seams) and automatic chart segmentation; BFF with cone singularities:
+  `MeshDiscCut` (tree-cotree cut graph with shortest loops, Eppstein; Erickson & Whittlesey; any genus, boundaries,
+  components, bowties; vertices split along the seams), `MeshChartSegmentation` (normal-based region growing with
+  compactness, VSA / D-Charts style), `ConeFlattening` (BFF with greedily placed cones; a cube's corners become cones
+  and it unfolds without distortion), `UVOverlap` (exact overlap test), and the pipeline `UVAtlasGenerator`
+  (cones where overlap-free, else charts split until within the distortion limits, packing, status code);
+  `g3cli uv`. Cones are not guaranteed globally injective (eg on a torus); the pipeline then falls back to charts.
 - [x] Intrinsic Delaunay triangulations (Sharp & Crane), for stable Laplacians and heat on poor meshes:
   `IntrinsicTriangulation` (edge flips with signposts, tracing of intrinsic edges over the input mesh,
   intrinsic mollification of degenerate triangles); `MeshGeodesicDistance.IntrinsicDelaunay`. On a plane of
@@ -67,13 +81,20 @@ selectively.
 - [x] Vector Heat Method (Sharp, Soliman, Crane 2019), including a robust log map (beyond `MeshLocalParam`):
   `VectorHeatMethod` (transport, scalar extension, log map), on the intrinsic Delaunay triangulation,
   with the direct solver `SparseCholesky`.
-- [ ] Intrinsic Delaunay *refinement* (vertex insertion): boundary edges opposite obtuse angles cannot be
-  flipped and keep negative cotan weights; integer coordinates (Gillespie et al. 2021) for a robust
-  common subdivision
+- [x] Intrinsic Delaunay *refinement* (vertex insertion): `IntrinsicTriangulation.DelaunayRefine` (insertion in
+  faces and on edges with signpost updates, Chew / Ruppert circumcenter refinement with a minimum angle,
+  boundary edges opposite obtuse angles split, concentric shells and skipped triangles at small input
+  angles, status codes); options `IntrinsicRefine` in `MeshGeodesicDistance` and `VectorHeatMethod`,
+  `IntrinsicTriangulation.BuildDelaunay` for the cotan Laplacian. All cotan weights non-negative also on the
+  boundary; on the plane of 169-degree triangles the mean distance error drops from 0.06 to 0.02 edge
+  lengths (max 0.8 to 0.1). Common subdivision by tracing (`ExtractCommonSubdivision`, area-checked, reports
+  `Inconsistent` instead of wrong faces).
+  - [ ] Integer (normal) coordinates (Gillespie, Sharp, Crane 2021) for a combinatorially exact common
+    subdivision; signposts with the area checks suffice for the current operations
 
 ## Phase 4: platform layer
 
-- [x] CLI / MCP server over the operations: `tools/g3cli` (measure, repair, boolean, resolve, remesh, simplify,
+- [x] CLI / MCP server over the operations: `tools/g3cli` (measure, repair, boolean, resolve, remesh, simplify, uv,
   convert; JSON results with result codes; `g3cli mcp` over stdio)
 - [x] Analysis building blocks: wall thickness (`MeshWallThickness`: ray, shape diameter function, inscribed ball /
   medial axis), deviation maps (`MeshDeviation`, statistics in `DeviationStatistics`), primitive fitting

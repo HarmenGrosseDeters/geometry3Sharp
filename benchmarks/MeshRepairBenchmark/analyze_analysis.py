@@ -37,7 +37,7 @@ def med(rs, key):
     return statistics.median(v) if v else float("nan")
 
 print(f"{f0}: {len(base)} meshes")
-cols = ["category", "n", "fail", "ray NaN", "ins>ray", "selfdev>0", "sign dis.", "HD viol.", "fit !ok", "nondet", "rot<0.99", "ms"]
+cols = ["category", "n", "fail", "ray NaN", "ins>ray", "selfdev>0", "sign dis.", "HD viol.", "fit !ok", "nondet", "rot dq>1%", "ms"]
 print(" | ".join(cols))
 for c in sorted(groups) + ["all"]:
     rs = list(base.values()) if c == "all" else groups[c]
@@ -51,7 +51,9 @@ for c in sorted(groups) + ["all"]:
     prims = ["plane", "sphere", "cylinder", "cone"]
     fit_bad = frac(ok, lambda r: any(r.get(f"fit_{p}_max_err_ok") is False for p in prims))
     nondet = frac(ok, lambda r: any(r.get(f"fit_{p}_deterministic") is False for p in prims))
-    rot = frac(ok, lambda r: any((num(r.get(f"fit_{p}_rot_jaccard")) or 1) < 0.99 for p in prims))
+    # rotated input: a different model of (nearly) the same quality is a tie between equal features, a
+    # different quality means RANSAC missed the best model in one of the runs
+    rot = frac(ok, lambda r: any(abs((num(r.get(f"fit_{p}_rot_inlier_frac")) or 0) - (num(r.get(f"fit_{p}_inlier_frac")) or 0)) > 0.01 for p in prims))
     ms = med(ok, "analysis_ms")
     print(" | ".join(str(x) for x in [c, len(rs), fail, f"{ray_nan:.3f}", ins_above, selfdev, sign, hd, fit_bad, nondet, rot, f"{ms:.0f}"]))
 
@@ -72,8 +74,10 @@ for name, r in sorted(base.items()):
         print(f"  {name}: {v:.4f}")
 
 # invariance across transforms: relative values per mesh
-keys = ["wt_ray_median_rel", "wt_inscribedsphere_median_rel", "wt_shapediameter_median_rel",
-        "wt_ray_nan_frac", "dev_reduced_max_rel", "fit_plane_inlier_frac", "fit_cylinder_inlier_frac"]
+# (not dev_reduced_*: the Reducer's collapse order depends on rounding, so the reference differs per run)
+keys = ["wt_ray_median_rel", "wt_ray_nan_frac", "wt_inscribedsphere_median_rel", "wt_inscribedsphere_nan_frac",
+        "wt_shapediameter_median_rel", "dev_self_max_rel", "dev_sign_disagree_frac",
+        "fit_plane_inlier_frac", "fit_sphere_inlier_frac", "fit_cylinder_inlier_frac", "fit_cone_inlier_frac"]
 for f, other in runs[1:]:
     print(f"\n{f0} vs {f}: meshes whose relative value differs by more than 1e-6 (relative) / 1e-3 (fractions)")
     for k in keys:
@@ -82,7 +86,9 @@ for f, other in runs[1:]:
             a, b = num(r.get(k)), num(other.get(name, {}).get(k))
             if a is None or b is None:
                 continue
-            tol = 1e-3 if "frac" in k else 1e-6 * max(abs(a), 1e-12)
+            # fractions: 1e-3 of the triangles / points; the sign agreement is over 2000 samples, 5 of
+            # which may flip near holes of open meshes (winding number ~0.5) with the rounding
+            tol = 2.5e-3 if k == "dev_sign_disagree_frac" else 1e-3 if "frac" in k else 1e-6 * max(abs(a), 1e-12)
             if abs(a - b) > tol:
                 diffs.append((abs(a - b) / max(abs(a), 1e-12), name))
         diffs.sort(reverse=True)

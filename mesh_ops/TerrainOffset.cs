@@ -14,6 +14,10 @@ namespace gs
     /// |Distance|), the first point farther than |Distance| is found by stepping and bisection; the
     /// direction from its closest terrain point is the exact normal of the offset. The surface is built
     /// with TerrainDualContouring, so the normals are Hermite data and it has few triangles.
+    ///
+    /// The result covers exactly the XY footprint of the terrain (its boundary lines are kept, see
+    /// TerrainDualContouring.FootprintMesh). Beyond the terrain's border there is nothing, so a positive
+    /// offset does not continue around the border (the round part of the true offset is not produced).
     /// </summary>
     public class TerrainOffset
     {
@@ -54,7 +58,7 @@ namespace gs
             bounds.Min.z -= Math.Abs(Distance);
             bounds.Max.z += Math.Abs(Distance);
             var tdc = new TerrainDualContouring() {
-                SampleF = sample, SampleBounds = bounds, CellSize = CellSize, GridResolution = GridResolution,
+                SampleF = sample, SampleBounds = bounds, FootprintMesh = Terrain, CellSize = CellSize, GridResolution = GridResolution,
                 Tolerance = Tolerance, CancelF = CancelF
             };
             if (tdc.Compute() == false)
@@ -97,7 +101,8 @@ namespace gs
             Vector3d c;
             // inside the band at the vertical distance d; step outwards until farther than d. The distance
             // changes at most as fast as z, so from distance delta a step of d - delta cannot skip the exit;
-            // next to a high wall the exit can be the wall height away
+            // the step is at least 0.25 d, which could only step over an exit interval shorter than that (the
+            // line leaving the band and entering it again). Next to a high wall the exit can be the wall height away
             double zin = zs + dir * d, zout = double.NaN;
             double delta = distance(new Vector3d(x, y, zin), out c);
             int maxSteps = (int)(depth / (0.25 * d)) + 10;
