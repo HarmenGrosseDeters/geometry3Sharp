@@ -36,7 +36,8 @@ namespace g3
     public class PrimitiveFit3
     {
         public enum Primitives { Plane, Sphere, Cylinder, Cone }
-        public enum Results { NotComputed, Success, TooFewPoints, NoNormals, Failed }
+        /// <summary> RejectedByLimits: no model, and candidates were rejected by MaxRadius / MaxConeAngle (raise them for very flat shapes) </summary>
+        public enum Results { NotComputed, Success, TooFewPoints, NoNormals, Failed, RejectedByLimits }
 
         public Vector3d[] Points;
         /// <summary> optional unit normals per point (orientation does not matter; zero = unknown) </summary>
@@ -56,11 +57,19 @@ namespace g3
         /// <summary>
         /// largest sphere / cylinder radius, and the distance of a cone apex from the points; 0 = 10 times the
         /// bounding box diagonal. Larger shapes would only imitate a plane (a sphere of radius R deviates from
-        /// a plane by D^2/(8R) over an extent D).
+        /// a plane by D^2/(8R) over an extent D). Behaviour change against the first version (limit 100 times
+        /// the diagonal, cone angle below 89.94 degrees): a genuinely flat cap, eg a lens surface with R above
+        /// 10 times its extent, needs a larger MaxRadius (Result is RejectedByLimits if nothing else fits).
         /// </summary>
         public double MaxRadius = 0;
         /// <summary> largest half opening angle of a cone (degrees); flatter cones imitate a plane </summary>
         public double MaxConeAngle = 88;
+        /// <summary>
+        /// LO-RANSAC: refine every new best candidate by least squares on (at most 2000 of) its inliers. Finds
+        /// better and more stable models on real data, at a cost in time (both measured on Thingi10K in
+        /// benchmarks/MeshRepairBenchmark/README.md); false = plain RANSAC with the same bail-out pre-test.
+        /// </summary>
+        public bool LocalOptimization = true;
         /// <summary> estimate normals (if Normals is null) for cylinder and cone </summary>
         public bool EstimateNormals = true;
         public int NormalNeighbors = 12;
@@ -82,6 +91,8 @@ namespace g3
         public double RMSError = double.NaN, MaxError = double.NaN;
         /// <summary> number of RANSAC samples drawn </summary>
         public int Iterations;
+        /// <summary> RANSAC candidates rejected by MaxRadius / MaxConeAngle </summary>
+        public int RejectedByLimits;
 
 
         public PrimitiveFit3(IEnumerable<Vector3d> points, IEnumerable<Vector3d> normals = null)
@@ -109,7 +120,7 @@ namespace g3
         public bool Compute()
         {
             Result = Results.NotComputed;
-            IsInlier = null; InlierCount = 0; RMSError = MaxError = double.NaN; Iterations = 0;
+            IsInlier = null; InlierCount = 0; RMSError = MaxError = double.NaN; Iterations = 0; RejectedByLimits = 0;
             int n = (Points == null) ? 0 : Points.Length;
             int minSample = minimal_sample_size(Primitive);
             if (n < Math.Max(minSample, least_squares_size(Primitive))) {
@@ -143,7 +154,7 @@ namespace g3
             bool[] inl;
             if (UseRansac) {
                 if (ransac(out model) == false) {
-                    Result = Results.Failed;
+                    Result = (RejectedByLimits > 0) ? Results.RejectedByLimits : Results.Failed;
                     return false;
                 }
                 inl = inliers(model);
@@ -305,6 +316,21 @@ namespace g3
             return c;
         }
 
+        // finite, but beyond MaxRadius / MaxConeAngle
+        bool exceeds_limits(Model m)
+        {
+            switch (Primitive) {
+                case Primitives.Sphere:
+                case Primitives.Cylinder:
+                    return m.r > maxRadius && !double.IsInfinity(m.r);
+                case Primitives.Cone:
+                    return m.r > MathUtil.Clamp(MaxConeAngle, 1, 89.9) * MathUtil.Deg2Rad && m.r < 0.5 * Math.PI
+                        || (m.a - Points[0]).Length > maxRadius && !double.IsInfinity(m.a.x + m.a.y + m.a.z);
+                default:
+                    return false;
+            }
+        }
+
         bool valid(Model m)
         {
             if (double.IsNaN(m.a.x + m.a.y + m.a.z + m.d.x + m.d.y + m.d.z + m.r) || double.IsInfinity(m.a.x + m.a.y + m.a.z + m.r))
@@ -333,8 +359,9 @@ namespace g3
             var rnd = new Random(Seed);
             int[] sample = new int[k], sample2 = new int[2];
 
-            // a fixed random subset for a quick pre-test of every candidate (as the T(d,d) test of Matas and
-            // Chum 2002): only candidates about as good there as the best one are scored on all points
+            // a fixed random subset for a quick pre-test of every candidate, a bail-out test as in Capel, "An
+            // effective bail-out test for RANSAC consensus scoring" (BMVC 2005): only candidates whose inlier
+            // count there is within about two standard deviations of the best one's are scored on all points
             int[] perm = new int[n];
             for (int i = 0; i < n; ++i) perm[i] = i;
             var prnd = new Random(Seed + 7919);
@@ -358,8 +385,12 @@ namespace g3
                 if (Primitive == Primitives.Cylinder || Primitive == Primitives.Cone || smp == sample2)
                     for (int j = 0; j < smp.Length && known; ++j) known = normals[smp[j]] != Vector3d.Zero;
                 Model cand;
-                if (known == false || minimal_model(smp, out cand) == false || valid(cand) == false)
+                if (known == false || minimal_model(smp, out cand) == false)
                     continue;
+                if (valid(cand) == false) {
+                    if (exceeds_limits(cand)) RejectedByLimits++;
+                    continue;
+                }
                 // no consistency test of the sample's own points: a rough candidate from noisy normals is
                 // still a good start for the local optimization below
                 double d;
@@ -381,7 +412,7 @@ namespace g3
                     bestCost = cost; best = cand; bestCount = cnt;
                     // local optimization: least squares on (at most 2000 of) the inliers of the new best model,
                     // while that lowers the cost, so that nearly equal candidates end at the same model
-                    for (int lo = 0; lo < 4; ++lo) {
+                    for (int lo = 0; lo < (LocalOptimization ? 4 : 0); ++lo) {
                         bool[] inl = cap(inliers(best), 2000);
                         Model refined;
                         if (least_squares(best, inl, out refined) == false)

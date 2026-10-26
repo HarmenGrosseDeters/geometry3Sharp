@@ -512,8 +512,9 @@ Each fix has a unit test that fails on the code before the fix.
     sample is now 2 points with normals.
   - The test that a sample's own points are inliers threw away rough candidates from noisy vertex normals.
     Removed.
-  - Instead, a pre-test on 500 fixed random points keeps the time down (as the T(d,d) test of Matas and
-    Chum), and the local optimization uses at most 2000 inliers.
+  - Instead, a bail-out pre-test on 500 fixed random points keeps the time down (Capel 2005), and the
+    local optimization uses at most 2000 inliers. `LocalOptimization = false` turns the local optimization
+    off (plain RANSAC).
 
   Compared with the first version (sample test, 4-point spheres), over the 400 meshes (more than 1 % of
   the points better / worse):

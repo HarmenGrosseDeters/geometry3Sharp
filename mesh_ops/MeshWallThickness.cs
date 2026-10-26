@@ -141,7 +141,11 @@ namespace gs
         }
 
 
-        /// <summary> thickness at a surface point p with outward unit normal n (see Method); NaN if no valid ray </summary>
+        /// <summary>
+        /// thickness at a surface point p with outward unit normal n (see Method); NaN if no valid ray.
+        /// May be called from several threads at once (the first call builds Spatial if it is null; set it,
+        /// or call Compute, before concurrent use).
+        /// </summary>
         public double ThicknessAt(Vector3d p, Vector3d n)
         {
             if (Spatial == null)
@@ -193,9 +197,11 @@ namespace gs
 
         /// <summary>
         /// Triangles of mesh to reverse so that it is outward oriented: those of closed components that are
-        /// inside out for their nesting (MeshPostRepairCleanup.FindInvertedComponents), then all of them if
-        /// the signed volume (relative to the bounds center) is still negative, as WindingContouring.OrientedCopy
-        /// does, but without changing the mesh or its IDs. Null if none.
+        /// inside out for their nesting (MeshPostRepairCleanup.FindInvertedComponents); then, only if the mesh
+        /// has no boundary edges at all, all of them if the signed volume is still negative (a fallback for
+        /// when FindInvertedComponents does not decide, eg more than 500 components). For an open mesh the
+        /// sign of the volume says nothing about its orientation (an open terrain with one tall peak has a
+        /// negative one), so open parts are never flipped. The mesh and its IDs are not changed. Null if none.
         /// </summary>
         public static bool[] InvertedTriangles(DMesh3 mesh)
         {
@@ -203,17 +209,22 @@ namespace gs
             bool any = false;
             foreach (int[] comp in MeshPostRepairCleanup.FindInvertedComponents(mesh))
                 foreach (int tid in comp) { flip[tid] = true; any = true; }
-            Vector3d c = mesh.CachedBounds.Center;
-            double vol = 0;
-            foreach (int tid in mesh.TriangleIndices()) {
-                Index3i t = mesh.GetTriangle(tid);
-                Vector3d a = mesh.GetVertex(t.a) - c, b = mesh.GetVertex(t.b) - c, d = mesh.GetVertex(t.c) - c;
-                double v = a.Dot(b.Cross(d));
-                vol += flip[tid] ? -v : v;
-            }
-            if (vol < 0) {
-                foreach (int tid in mesh.TriangleIndices()) flip[tid] = !flip[tid];
-                any = true;
+            bool closed = true;
+            foreach (int eid in mesh.EdgeIndices())
+                if (mesh.IsBoundaryEdge(eid)) { closed = false; break; }
+            if (closed) {
+                Vector3d c = mesh.CachedBounds.Center;
+                double vol = 0;
+                foreach (int tid in mesh.TriangleIndices()) {
+                    Index3i t = mesh.GetTriangle(tid);
+                    Vector3d a = mesh.GetVertex(t.a) - c, b = mesh.GetVertex(t.b) - c, d = mesh.GetVertex(t.c) - c;
+                    double v = a.Dot(b.Cross(d));
+                    vol += flip[tid] ? -v : v;
+                }
+                if (vol < 0) {
+                    foreach (int tid in mesh.TriangleIndices()) flip[tid] = !flip[tid];
+                    any = true;
+                }
             }
             return any ? flip : null;
         }
@@ -221,7 +232,16 @@ namespace gs
         int flippedStamp = -1;
         bool flippedMode;
 
+        readonly object toleranceLock = new object();
+
+        // also called by ThicknessAt, possibly from several threads: under a lock
         void set_tolerances()
+        {
+            lock (toleranceLock)
+                set_tolerances_locked();
+        }
+
+        void set_tolerances_locked()
         {
             if (flippedStamp != Mesh.ShapeTimestamp || flippedMode != OrientInvertedParts) {
                 flipped = OrientInvertedParts ? InvertedTriangles(Mesh) : null;
@@ -313,7 +333,7 @@ namespace gs
                     if (vid >= 0 && (tv.a == vid || tv.b == vid || tv.c == vid)) return;
                     double t;
                     if (ray.Intersect(Mesh.GetVertex(tv.a), Mesh.GetVertex(tv.b), Mesh.GetVertex(tv.c), out t) == false) return;
-                    if (t <= eps || t > best + tieTol) return;
+                    if (t <= eps || t > maxDist || t > best + tieTol) return;
                     Vector3d tn = tri_normal(ti);
                     if (tn == Vector3d.Zero) return;        // degenerate: no wall
                     double dot = tn.Dot(dir);

@@ -147,6 +147,8 @@ namespace gs
                     return (Math.Abs(ReferenceSpatial.FastWindingNumber(p)) > 0.5) ? -d : d;
                 default:
                     Vector3d n = feature_normal(tid, tv, bary);
+                    if (n == Vector3d.Zero)     // only degenerate triangles around: no direction to judge by
+                        return (Math.Abs(ReferenceSpatial.FastWindingNumber(p)) > 0.5) ? -d : d;
                     return ((p - closest).Dot(n) < 0) ? -d : d;
             }
         }
@@ -172,6 +174,13 @@ namespace gs
             flipped = OrientInvertedParts ? MeshWallThickness.InvertedTriangles(Reference) : null;
             double diag = Reference.CachedBounds.DiagonalLength;
             degenerateArea = 1e-12 * diag * diag;
+            // the winding number decides where degenerate triangles leave no normal: build its cache now,
+            // before the parallel queries
+            foreach (int tid in Reference.TriangleIndices())
+                if (tri_normal(tid) == Vector3d.Zero) {
+                    ReferenceSpatial.FastWindingNumber(Vector3d.Zero);
+                    break;
+                }
             vertexNormals = new Vector3d[Reference.MaxVertexID];
             foreach (int tid in Reference.TriangleIndices()) {
                 Vector3d n = tri_normal(tid);

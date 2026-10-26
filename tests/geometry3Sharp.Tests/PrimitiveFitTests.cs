@@ -252,6 +252,50 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void FlatCap_NeedsLargerMaxRadius()
+        {
+            // a lens-like cap: sphere of radius 100 over a disc of radius 2 (sag 0.02, far above the noise),
+            // beyond the default limit of 10 bounding box diagonals
+            var rnd = new Random(11);
+            const double R = 100;
+            var pts = new List<Vector3d>();
+            var nrm = new List<Vector3d>();
+            for (int i = 0; i < 1000; ++i) {
+                double r = 2 * Math.Sqrt(rnd.NextDouble()), phi = 2 * Math.PI * rnd.NextDouble();
+                Vector3d d = new Vector3d(r * Math.Cos(phi), r * Math.Sin(phi), Math.Sqrt(R * R - r * r)).Normalized;
+                pts.Add(R * d + Noise * Gauss(rnd) * d);
+                nrm.Add(d);
+            }
+            // default: the full cap is rejected by the limit (counted), at best a smaller sphere fits part of it
+            var fit = new PrimitiveFit3(pts, nrm) { Primitive = PrimitiveFit3.Primitives.Sphere, InlierDistance = 4 * Noise };
+            bool ok = fit.Compute();
+            Assert.True(fit.RejectedByLimits > 0);
+            Assert.True(ok == false ? fit.Result == PrimitiveFit3.Results.RejectedByLimits : fit.InlierCount < 0.9 * pts.Count,
+                fit.Result + " inliers " + fit.InlierCount + " radius " + fit.SphereRadius);
+            var wide = new PrimitiveFit3(pts, nrm) { Primitive = PrimitiveFit3.Primitives.Sphere, InlierDistance = 4 * Noise, MaxRadius = 1000 };
+            Assert.True(wide.Compute());
+            Assert.InRange(wide.SphereRadius, 0.98 * R, 1.02 * R);
+            Assert.True(wide.InlierCount > 0.98 * pts.Count);
+        }
+
+        [Fact]
+        public void LocalOptimization_CanBeTurnedOff()
+        {
+            Vector3d c = new Vector3d(1, -2, 3);
+            Vector3d[] pts, nrm; bool[] outlier;
+            Sample((rnd) => {
+                Vector3d d = GaussVec(rnd).Normalized;
+                return new[] { c + 2 * d, d };
+            }, 1000, 12, out pts, out nrm, out outlier);
+            foreach (bool lo in new[] { true, false }) {
+                var fit = new PrimitiveFit3(pts, nrm) { Primitive = PrimitiveFit3.Primitives.Sphere, InlierDistance = 4 * Noise, LocalOptimization = lo };
+                Assert.True(fit.Compute());
+                Assert.True(fit.SphereCenter.Distance(c) < 0.005);
+                AssertInliers(fit, outlier);
+            }
+        }
+
+        [Fact]
         public void TooFewPoints_AndDeterminism()
         {
             var few = new PrimitiveFit3(new[] { Vector3d.Zero, Vector3d.AxisX, Vector3d.AxisY }) { Primitive = PrimitiveFit3.Primitives.Sphere };

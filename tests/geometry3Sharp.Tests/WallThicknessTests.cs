@@ -231,6 +231,30 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void OpenParts_AreNotFlipped()
+        {
+            // a closed cube next to a large open sheet below it: the sheet makes the signed volume negative,
+            // but neither part may be flipped; the open sheet itself has no opposite wall (NaN)
+            DMesh3 mesh = Box(Vector3d.Zero, Vector3d.One);
+            DMesh3 sheet = new DMesh3();
+            int a = sheet.AppendVertex(new Vector3d(-50, -50, -2)), b = sheet.AppendVertex(new Vector3d(50, -50, -2)),
+                c = sheet.AppendVertex(new Vector3d(50, 50, -2)), d = sheet.AppendVertex(new Vector3d(-50, 50, -2));
+            sheet.AppendTriangle(a, b, c);
+            sheet.AppendTriangle(a, c, d);
+            int firstSheetTri = mesh.MaxTriangleID;
+            new MeshEditor(mesh).AppendMesh(sheet);
+            Assert.Null(MeshWallThickness.InvertedTriangles(mesh));
+            var wt = new MeshWallThickness(mesh) { Method = MeshWallThickness.Methods.Ray, ComputeVertices = false };
+            Assert.True(wt.Compute());
+            foreach (int tid in mesh.TriangleIndices()) {
+                if (tid >= firstSheetTri)
+                    Assert.True(double.IsNaN(wt.TriangleThickness[tid]));
+                else
+                    Assert.Equal(2, wt.TriangleThickness[tid], 9);
+            }
+        }
+
+        [Fact]
         public void InsideOutParts_AreTakenFlipped()
         {
             // Thingi10K has closed meshes that are inside out as a whole: their rays all leave through front

@@ -141,6 +141,27 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void OpenReference_IsNeverFlipped()
+        {
+            // open terrain (normals +z), mostly flat with one tall peak: its signed volume about the bounds
+            // center is negative, which says nothing about the orientation of an open sheet. Points above
+            // the flat part must stay positive (OrientInvertedParts is on by default).
+            Func<double, double, double> h = (x, y) => 8 * Math.Exp(-(x * x + y * y));
+            DMesh3 reference = Grid(-10, -10, 10, 10, 41, h);
+            Vector3d c = reference.CachedBounds.Center;
+            double vol = 0;
+            foreach (int tid in reference.TriangleIndices()) {
+                Index3i t = reference.GetTriangle(tid);
+                vol += (reference.GetVertex(t.a) - c).Dot((reference.GetVertex(t.b) - c).Cross(reference.GetVertex(t.c) - c));
+            }
+            Assert.True(vol < 0);
+            DMesh3 mesh = Grid(-9, -9, -5, -5, 5, (x, y) => h(x, y) + 0.5);
+            var dev = new MeshDeviation(mesh, reference);
+            Assert.True(dev.Compute());
+            Assert.True(dev.Statistics.Min > 0.49, "min " + dev.Statistics.Min);
+        }
+
+        [Fact]
         public void CertifiedBound_ContainsVertexMaximum()
         {
             DMesh3 reference = Sphere(1, 12);

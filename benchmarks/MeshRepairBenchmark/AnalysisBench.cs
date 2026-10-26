@@ -138,10 +138,12 @@ namespace MeshRepairBenchmark
             }
             Vector3d center = mesh.CachedBounds.Center;
             Quaterniond rot = Quaterniond.AxisAngleD(new Vector3d(1, 2, 3).Normalized, 37);
+            // BENCH_FIT_LO=0: plain RANSAC (PrimitiveFit3.LocalOptimization = false)
+            bool lo = Environment.GetEnvironmentVariable("BENCH_FIT_LO") != "0";
             foreach (var prim in new[] { PrimitiveFit3.Primitives.Plane, PrimitiveFit3.Primitives.Sphere, PrimitiveFit3.Primitives.Cylinder, PrimitiveFit3.Primitives.Cone }) {
                 string key = "fit_" + prim.ToString().ToLower();
                 var sw = Stopwatch.StartNew();
-                var fit = new PrimitiveFit3(pts, nrm) { Primitive = prim, InlierDistance = 1e-3 * diag };
+                var fit = new PrimitiveFit3(pts, nrm) { Primitive = prim, InlierDistance = 1e-3 * diag, LocalOptimization = lo };
                 bool ok = fit.Compute();
                 r[key + "_ms"] = sw.ElapsedMilliseconds;
                 r[key + "_result"] = fit.Result.ToString();
@@ -153,14 +155,14 @@ namespace MeshRepairBenchmark
                 r[key + "_max_err_ok"] = fit.MaxError <= 1e-3 * diag * (1 + 1e-9);
 
                 // same input again: identical
-                var again = new PrimitiveFit3(pts, nrm) { Primitive = prim, InlierDistance = 1e-3 * diag };
+                var again = new PrimitiveFit3(pts, nrm) { Primitive = prim, InlierDistance = 1e-3 * diag, LocalOptimization = lo };
                 again.Compute();
                 r[key + "_deterministic"] = again.InlierCount == fit.InlierCount && again.RMSError.Equals(fit.RMSError);
 
                 // rotated input (same point order and seed): the same inliers up to points near the threshold
                 var rp = pts.Select(p => center + rot * (p - center)).ToList();
                 var rn = nrm.Select(n => rot * n).ToList();
-                var rf = new PrimitiveFit3(rp, rn) { Primitive = prim, InlierDistance = 1e-3 * diag };
+                var rf = new PrimitiveFit3(rp, rn) { Primitive = prim, InlierDistance = 1e-3 * diag, LocalOptimization = lo };
                 if (rf.Compute()) {
                     int both = 0, any = 0;
                     for (int i = 0; i < pts.Count; ++i) {
