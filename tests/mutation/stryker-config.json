@@ -1,0 +1,18 @@
+{
+  "stryker-config": {
+    "project": "geometry3Sharp_netstandard.csproj",
+    "test-projects": [ "../geometry3Sharp.Tests/geometry3Sharp.Tests.csproj" ],
+    "target-framework": "net10.0",
+    "mutate": [
+      "**/math/ExactPredicates.cs",
+      "**/math/ExactPoint3.cs",
+      "**/math/AdaptivePredicates.cs"
+    ],
+    "test-case-filter": "FullyQualifiedName~ExactPredicatesTests|FullyQualifiedName~ExactImplicitPointTests|FullyQualifiedName~ExactBooleanBuildingBlockTests",
+    "coverage-analysis": "perTest",
+    "configuration": "Release",
+    "additional-timeout": 30000,
+    "reporters": [ "progress", "html", "json", "markdown" ],
+    "thresholds": { "high": 90, "low": 80, "break": 80 }
+  }
+}
