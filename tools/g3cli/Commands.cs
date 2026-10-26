@@ -558,8 +558,7 @@ namespace g3cli
                 o["coverage"] = MeshReport.Num(atlas.Coverage);
                 o["overlapping_pairs"] = atlas.Overlap.OverlappingPairs;
                 o["inverted_triangles"] = atlas.Overlap.InvertedTriangles;
-                o["float_uv_defects"] = atlas.StoredDefects;
-                o["float_uv_sub_resolution_defects"] = atlas.SubResolutionDefects;
+                o["float_rounding_defects"] = atlas.FloatRoundingDefects;
                 o["distortion"] = DistortionInfo(atlas.Distortion);
                 o["input_mesh"] = MeshReport.Metrics(mesh, false);
                 o["vertices"] = atlas.AtlasMesh.VertexCount;
