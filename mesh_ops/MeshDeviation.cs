@@ -25,7 +25,9 @@ namespace gs
     ///
     /// The vertex values sample the deviation; the largest one is a lower bound of the one-sided Hausdorff
     /// distance from Mesh to Reference. ComputeCertifiedBound adds the certified interval of that distance
-    /// (MeshHausdorffDistance), which also covers points inside the triangles.
+    /// (MeshHausdorffDistance), which also covers points inside the triangles. ComputeTriangleBounds adds
+    /// such an interval per triangle (TriangleDeviationLower / Upper), so that the map is reliable between
+    /// the vertices too: no point of a triangle is farther from the reference than its upper bound.
     /// </summary>
     public class MeshDeviation
     {
@@ -47,6 +49,17 @@ namespace gs
         public bool ComputeCertifiedBound = false;
         /// <summary> absolute tolerance of the certified bound; 0 = 1e-4 times the bounding box diagonal </summary>
         public double CertifiedTolerance = 0;
+        /// <summary>
+        /// also compute, per triangle of Mesh, the certified interval of the largest (unsigned) distance of its
+        /// points to the reference, to CertifiedTolerance (TriangleDeviationBounds.MaxDistance)
+        /// </summary>
+        public bool ComputeTriangleBounds = false;
+        /// <summary>
+        /// ComputeTriangleBounds: subdivisions per triangle. A triangle that needs more keeps a wider, still
+        /// valid interval and is counted in TriangleBoundsUnconverged. With ComputeCertifiedBound, upper
+        /// bounds are capped by HausdorffUpperBound.
+        /// </summary>
+        public int MaxTriangleSubdivisions = 1000;
 
         public Func<bool> CancelF = () => { return false; };
 
@@ -62,6 +75,25 @@ namespace gs
         public DeviationStatistics VertexStatistics;
         /// <summary> certified interval of the one-sided Hausdorff distance (if ComputeCertifiedBound) </summary>
         public double HausdorffLowerBound = double.NaN, HausdorffUpperBound = double.NaN;
+        /// <summary>
+        /// per triangle ID of Mesh (if ComputeTriangleBounds; NaN for unused IDs): the largest distance of a
+        /// point of the triangle to the reference lies in [TriangleDeviationLower, TriangleDeviationUpper].
+        /// Lower is attained (at TriangleWorstPoint) and at least the largest |VertexDeviation| of the corners;
+        /// every point of the triangle is within Upper of the reference. Unsigned: the sign can change inside
+        /// a triangle that crosses the reference.
+        /// </summary>
+        public double[] TriangleDeviationLower, TriangleDeviationUpper;
+        /// <summary> per triangle ID: the point where TriangleDeviationLower is attained </summary>
+        public Vector3d[] TriangleWorstPoint;
+        /// <summary> number of triangles whose interval is wider than the tolerance (MaxTriangleSubdivisions) </summary>
+        public int TriangleBoundsUnconverged;
+        /// <summary>
+        /// statistics of TriangleDeviationUpper weighted by triangle area. FractionWithin(tol) is a certified
+        /// lower bound of the area fraction of Mesh within tol of the reference. An unresolved (infinite) upper
+        /// bound enters as double.MaxValue, which leaves the fractions and percentiles meaningful but not the
+        /// mean, RMS and standard deviation.
+        /// </summary>
+        public DeviationStatistics TriangleUpperStatistics;
 
 
         public MeshDeviation(DMesh3 mesh, DMesh3 reference)
@@ -76,6 +108,8 @@ namespace gs
             VertexDeviation = null; ClosestPoint = null; ClosestTriangle = null;
             Statistics = VertexStatistics = null;
             HausdorffLowerBound = HausdorffUpperBound = double.NaN;
+            TriangleDeviationLower = TriangleDeviationUpper = null; TriangleWorstPoint = null;
+            TriangleBoundsUnconverged = 0; TriangleUpperStatistics = null;
             if (Mesh.TriangleCount == 0 || Reference.TriangleCount == 0)
                 return false;
             prepare_reference();
@@ -116,13 +150,16 @@ namespace gs
             Statistics = DeviationStatistics.Compute(values, weights);
             VertexStatistics = DeviationStatistics.Compute(values);
 
+            if (ComputeCertifiedBound == false && ComputeTriangleBounds == false)
+                return true;
+            // far from the origin: both meshes moved by the same offset, on the reference's local tree. The
+            // vertex queries above used p - refOffset, the same coordinates as this copy
+            DMesh3 from = Mesh;
+            if (refOffset != Vector3d.Zero) {
+                from = new DMesh3(Mesh, false, MeshComponents.None);
+                MeshTransforms.Translate(from, -refOffset);
+            }
             if (ComputeCertifiedBound) {
-                // far from the origin: both meshes moved by the same offset, on the reference's local tree
-                DMesh3 from = Mesh;
-                if (refOffset != Vector3d.Zero) {
-                    from = new DMesh3(Mesh, false, MeshComponents.None);
-                    MeshTransforms.Translate(from, -refOffset);
-                }
                 var h = new MeshHausdorffDistance(from, refMesh) {
                     SpatialB = refSpatial, Symmetric = false, Tolerance = CertifiedTolerance, CancelF = CancelF
                 };
@@ -131,6 +168,58 @@ namespace gs
                 HausdorffLowerBound = h.LowerBound;
                 HausdorffUpperBound = h.UpperBound;
             }
+            if (ComputeTriangleBounds && compute_triangle_bounds(from) == false)
+                return false;
+            return true;
+        }
+
+
+        // per triangle interval of the largest distance, on the local copies (from: Mesh with the reference's
+        // offset); the corners reuse the vertex distances and closest triangles
+        bool compute_triangle_bounds(DMesh3 from)
+        {
+            AxisAlignedBox3d box = from.CachedBounds;
+            box.Contain(refMesh.CachedBounds);
+            // relative to the size of the meshes (as MeshHausdorffDistance), not to the coordinates
+            double tol = (CertifiedTolerance > 0) ? CertifiedTolerance : 1e-4 * box.DiagonalLength;
+            int NT = Mesh.MaxTriangleID;
+            double[] lo = new double[NT], hi = new double[NT];
+            Vector3d[] worst = new Vector3d[NT];
+            bool[] converged = new bool[NT];
+            for (int i = 0; i < NT; ++i) {
+                lo[i] = hi[i] = double.NaN;
+                converged[i] = true;
+            }
+            var bounds = new TriangleDeviationBounds(refSpatial.Mesh);
+            gParallel.ForEach(Mesh.TriangleIndices(), (tid) => {
+                if (CancelF()) return;
+                Index3i t = Mesh.GetTriangle(tid);
+                Vector3d w;
+                converged[tid] = bounds.MaxDistance(refSpatial, from.GetVertex(t.a), from.GetVertex(t.b), from.GetVertex(t.c),
+                    Math.Abs(VertexDeviation[t.a]), Math.Abs(VertexDeviation[t.b]), Math.Abs(VertexDeviation[t.c]),
+                    ClosestTriangle[t.a], ClosestTriangle[t.b], ClosestTriangle[t.c],
+                    tol, MaxTriangleSubdivisions, out lo[tid], out hi[tid], out w);
+                worst[tid] = w + refOffset;
+                // no point is farther than the certified Hausdorff bound: it caps triangles that ran out of
+                // subdivisions (lower is attained, so it stays below the bound up to rounding)
+                if (ComputeCertifiedBound && hi[tid] > HausdorffUpperBound) {
+                    hi[tid] = Math.Max(lo[tid], HausdorffUpperBound);
+                    converged[tid] = !(hi[tid] > lo[tid] + tol);
+                }
+            });
+            if (CancelF())
+                return false;
+            var values = new List<double>();
+            var weights = new List<double>();
+            foreach (int tid in Mesh.TriangleIndices()) {
+                if (double.IsNaN(hi[tid])) continue;       // non-finite input, not an unconverged interval
+                if (converged[tid] == false) TriangleBoundsUnconverged++;
+                // an unresolved (infinite) bound must count as far, not be skipped
+                values.Add(double.IsInfinity(hi[tid]) ? double.MaxValue : hi[tid]);
+                weights.Add(Mesh.GetTriArea(tid));
+            }
+            TriangleDeviationLower = lo; TriangleDeviationUpper = hi; TriangleWorstPoint = worst;
+            TriangleUpperStatistics = DeviationStatistics.Compute(values, weights);
             return true;
         }
 
