@@ -97,7 +97,8 @@ namespace g3
             }
             // pieces dropped or still in the heap below lower cannot exceed it (lower only grows)
             upper = Math.Max(lower, (heap.Count > 0) ? heap.TopKey : 0);
-            return upper - lower <= tol;
+            // the same test as the loop, so that a stop by it always counts as converged
+            return !(upper > lower + tol);
         }
 
         // push a piece unless its upper bound shows that it cannot exceed lower

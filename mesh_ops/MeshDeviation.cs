@@ -88,7 +88,9 @@ namespace gs
         public int TriangleBoundsUnconverged;
         /// <summary>
         /// statistics of TriangleDeviationUpper weighted by triangle area. FractionWithin(tol) is a certified
-        /// lower bound of the area fraction of Mesh within tol of the reference.
+        /// lower bound of the area fraction of Mesh within tol of the reference. An unresolved (infinite) upper
+        /// bound enters as double.MaxValue, which leaves the fractions and percentiles meaningful but not the
+        /// mean, RMS and standard deviation.
         /// </summary>
         public DeviationStatistics TriangleUpperStatistics;
 
@@ -203,8 +205,8 @@ namespace gs
             var values = new List<double>();
             var weights = new List<double>();
             foreach (int tid in Mesh.TriangleIndices()) {
+                if (double.IsNaN(hi[tid])) continue;       // non-finite input, not an unconverged interval
                 if (converged[tid] == false) TriangleBoundsUnconverged++;
-                if (double.IsNaN(hi[tid])) continue;
                 // an unresolved (infinite) bound must count as far, not be skipped
                 values.Add(double.IsInfinity(hi[tid]) ? double.MaxValue : hi[tid]);
                 weights.Add(Mesh.GetTriArea(tid));

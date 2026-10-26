@@ -362,6 +362,39 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void TriangleBounds_GapsInTheMeshAndGivenTree()
+        {
+            DMesh3 m0, r0;
+            SphereCase(Vector3d.Zero, 1, out m0, out r0);
+            var d0 = new MeshDeviation(m0, r0) { ComputeTriangleBounds = true };
+            Assert.True(d0.Compute());
+            // the same mesh with gaps in its IDs (a second copy appended first and removed), far from the
+            // origin, against a tree given by the caller
+            Vector3d off = new Vector3d(500000, 5000000, 300);
+            DMesh3 m1 = new DMesh3();
+            var ed = new MeshEditor(m1);
+            ed.AppendMesh(m0);
+            int gap = m1.MaxTriangleID;
+            ed.AppendMesh(m0);
+            foreach (int tid in m1.TriangleIndices().Where(t => t < gap).ToList())
+                m1.RemoveTriangle(tid, true, false);
+            DMesh3 r1 = new DMesh3(r0);
+            MeshTransforms.Translate(m1, off);
+            MeshTransforms.Translate(r1, off);
+            var d1 = new MeshDeviation(m1, r1) { ComputeTriangleBounds = true, ReferenceSpatial = new DMeshAABBTree3(r1, true) };
+            Assert.True(d1.Compute());
+            Assert.Equal(0, d1.TriangleBoundsUnconverged);
+            for (int tid = 0; tid < gap; ++tid)
+                Assert.True(double.IsNaN(d1.TriangleDeviationLower[tid]) && double.IsNaN(d1.TriangleDeviationUpper[tid]));
+            // the appended copy keeps the order of the triangles: tid + gap is triangle tid of m0. Far from the
+            // origin without a local copy the rounding is about 1e-9
+            foreach (int tid in m0.TriangleIndices()) {
+                double lo = d1.TriangleDeviationLower[tid + gap], hi = d1.TriangleDeviationUpper[tid + gap];
+                Assert.True(lo <= d0.TriangleDeviationUpper[tid] + 1e-6 && d0.TriangleDeviationLower[tid] <= hi + 1e-6, tid + ": " + lo + " " + hi);
+            }
+        }
+
+        [Fact]
         public void TriangleDeviationBounds_MaxDistance_Inputs()
         {
             DMesh3 mesh, reference;

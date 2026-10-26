@@ -167,6 +167,7 @@ namespace MeshRepairBenchmark
             sw.Restart();
             var dev = new MeshDeviation(from, to) { Sign = MeshDeviation.Signs.Unsigned, ComputeTriangleBounds = true, CertifiedTolerance = tol };
             bool ok = dev.Compute();
+            // the whole run, vertex pass included (the triangle bounds cost _ms - _vertex_ms)
             r[key + "_ms"] = sw.ElapsedMilliseconds;
             r[key + "_ok"] = ok;
             if (!ok) return;
