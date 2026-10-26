@@ -68,7 +68,21 @@ self-intersections, its Hausdorff upper bound is below 1 % of the diagonal in bo
 is above 0.99. Thingi10K has no reference repairs, so the input itself (its winding number solid) is the
 reference.
 
+## Current state (`robust`, 2026-10-26)
+Build `5130ff3`: master after the review fixes #106, #111 and #112, plus #110. The result is the same as master `3219260`. Run with `BENCH_P=3`, default options, `analyze_fidelity.py` / `criteria.py`. The numbers in the sections further down come from older builds and different machine loads; they are a history, not the current state.
+
+| | 400 set | large set (30) |
+|---|---|---|
+| **repaired** (clean, no exact self-intersections, Hausdorff < 1 %, IoU > 0.99) | **270** | **13** |
+| path: repair kept / exact resolve / solidify / alpha wrap | 171 / 156 / 53 / 20 | 6 / 16 / 3 / 5 |
+| repaired per path | 165 / 98 / 6 / 1 | 5 / 8 / 0 / 0 |
+| median / p90 / max repair time | 2.9 s / 10.8 s / 99 s | 20.5 s / 50.5 s / 68 s |
+| timeouts, crashes | 0 | 0 |
+
+Compared with master `e9e1599` (before #106, `BENCH_P=2`), every mesh takes the same path and gets the same outcome. The fixes of the review change no result on this set; they cover the failure cases found in the review: unused vertices, components far apart, symmetric inputs to the wrap, and more than 500 closed components.
+
 ## Findings with geometry3Sharp 1.0.324 (NuGet)
+The NuGet columns in this and the next section cannot be reproduced with the code in this repository. The benchmark project only references the fork, and `Program.cs` uses classes that the NuGet package does not have (`MeshPostRepairCleanup`, `MeshRepairMetrics`, ...). They come from an earlier, unversioned setup.
 - No exceptions, hangs or crashes in any of the following setups:
   - the three loaders
   - meshes up to 1M triangles
