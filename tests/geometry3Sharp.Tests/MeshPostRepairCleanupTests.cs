@@ -331,5 +331,21 @@ namespace geometry3Sharp.Tests
                 }
             }
         }
+
+        [Fact]
+        public void UnusedVertexFarAway_SmallTrianglesNotDegenerate()
+        {
+            // the degenerate area is relative to the triangles' bounds: an unused vertex 1e4 away made the triangles of
+            // a sphere of radius 0.02 "degenerate", and the cleanup collapsed it
+            DMesh3 mesh = Cube(Vector3d.Zero, 1);
+            DMesh3 sphere = Sphere(0.02, new Vector3d(3, 0, 0));
+            MeshEditor.Append(mesh, sphere);
+            mesh.AppendVertex(new Vector3d(1e4, 1e4, 1e4));
+            int n = mesh.TriangleCount;
+            var cleanup = new MeshPostRepairCleanup(mesh);
+            cleanup.Apply();
+            Assert.Equal(0, cleanup.FixedDegenerate);
+            Assert.Equal(n, mesh.TriangleCount);
+        }
     }
 }

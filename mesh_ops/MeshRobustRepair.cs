@@ -27,7 +27,8 @@ namespace gs
     /// solid is the reference; UsedInput).
     ///
     /// Behaviour: the result is in <see cref="Mesh"/> after Apply(), a new mesh object. The mesh passed to the
-    /// constructor is used as the working mesh of MeshAutoRepair and is modified by it, so pass a copy if
+    /// constructor is used as the working mesh of MeshAutoRepair and is modified by it (also its unused vertices are
+    /// removed, they are no part of the solid), so pass a copy if
     /// you need the input afterwards. Check UsedExactResolve / UsedSolidify / UsedAlphaWrap / FallbackReason (and
     /// ExactResolveReason, SolidifyReason) to see which path was taken.
     /// Cost: the self-intersection check and the volume comparison are cheap compared to the solidify
@@ -161,6 +162,9 @@ namespace gs
             RepairVolumeIoU = double.NaN;
             PhaseMilliseconds.Clear();
             phase_timer.Restart();
+            // unused vertices are no part of the solid, but far away they would make every threshold relative to the
+            // diagonal (degenerate area, solidify cell size, wrap alpha) meaningless
+            MeshEditor.RemoveUnusedVertices(Mesh);
             DMesh3 input = new DMesh3(Mesh);
             DMesh3 result;
             if (RepairF != null) {
@@ -344,7 +348,7 @@ namespace gs
         /// </summary>
         public static int CollapseSlivers(DMesh3 mesh, double maxCollapse = 1e-4, int maxPasses = 5)
         {
-            double diag = mesh.CachedBounds.DiagonalLength;
+            double diag = MeshRepairMetrics.TriangleBounds(mesh).DiagonalLength;
             double areaEps = 1e-12 * diag * diag, maxLength = maxCollapse * diag;
             int fixedCount = 0;
             for (int pass = 0; pass < maxPasses; ++pass) {
@@ -455,7 +459,7 @@ namespace gs
 
         /// <summary>
         /// "" if the mesh is clean (see class comment), otherwise the first problem found, one of "empty",
-        /// "not closed", "bowties", "degenerate triangles" (area &lt; 1e-12 * diagonal^2), "inside-out components",
+        /// "not closed", "bowties", "degenerate triangles" (area &lt; 1e-12 * diagonal^2, of the bounds of the triangles), "inside-out components",
         /// "self-intersections". Useful as a test assertion: NotCleanReason(mesh) == "".
         /// </summary>
         public static string NotCleanReason(DMesh3 mesh, bool checkSelfIntersections = true)
@@ -463,7 +467,7 @@ namespace gs
             if (mesh.TriangleCount == 0) return "empty";
             if (mesh.IsClosed() == false) return "not closed";
             if (MeshIterators.BowtieVertices(mesh).Any()) return "bowties";
-            double diag = mesh.CachedBounds.DiagonalLength;
+            double diag = MeshRepairMetrics.TriangleBounds(mesh).DiagonalLength;
             double areaEps = 1e-12 * diag * diag;
             if (mesh.TriangleIndices().Any(t => mesh.GetTriArea(t) < areaEps)) return "degenerate triangles";
             if (MeshPostRepairCleanup.FindInvertedComponents(mesh).Count > 0) return "inside-out components";
