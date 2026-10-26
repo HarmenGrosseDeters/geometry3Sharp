@@ -163,6 +163,7 @@ class Program
                 robust.SolidifyResolution = res;
                 robust.ExactResolveRounds = int.Parse(Environment.GetEnvironmentVariable("BENCH_EXACT_ROUNDS") ?? "4");
                 robust.AlphaWrapFallback = Environment.GetEnvironmentVariable("BENCH_WRAP_FALLBACK") != "0";
+                robust.SimplifyAlphaWrap = Environment.GetEnvironmentVariable("BENCH_WRAP_SIMPLIFY") != "0";
                 robust.SafeRounding = Environment.GetEnvironmentVariable("BENCH_SAFE_ROUNDING") != "0";
                 robust.CheckLostComponents = Environment.GetEnvironmentVariable("BENCH_LOST_COMPONENTS") == "1";
                 ok = robust.Apply();
@@ -179,6 +180,7 @@ class Program
                 r["robust_exact_rounding_edits"] = robust.ExactRoundingEdits.ConvertAll(e => new[] { e.a, e.b });
                 r["robust_solidify_reason"] = robust.SolidifyReason;
                 r["robust_used_wrap"] = robust.UsedAlphaWrap;
+                r["robust_wrap_tris"] = robust.AlphaWrapTriangles;
                 r["robust_phases"] = robust.PhaseMilliseconds;
             } else if (repairMode == "cgalwrap") {
                 result = CgalWrap(args[0], r);
