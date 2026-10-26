@@ -778,6 +778,10 @@ namespace geometry3Sharp.Tests
             ParameterizationResult noCones = new ConeFlattening(Sphere(6)) { MaxCones = 0 }.Compute();
             Assert.Equal(ParameterizationStatus.InvalidConstraints, noCones.Status);
             Assert.Contains("MaxCones", noCones.Error);
+            // a torus needs no cones: MaxCones = 0 flattens it without any
+            var torus0 = new ConeFlattening(Torus(2, 0.7, 24, 12)) { MaxCones = 0 };
+            Assert.True(torus0.Compute().Succeeded, torus0.Result.Error);
+            Assert.Empty(torus0.ConeVertices);
             // a torus can be flattened without cones
             var flatTorus = new ConeFlattening(Torus()) { Cones = new int[0] };
             Assert.True(flatTorus.Compute().Succeeded, flatTorus.Result.Error);
@@ -938,7 +942,7 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void Atlas_StrayDegenerateTriangle_DoesNotFailTheAtlas()
         {
-            // a separate collinear triangle: nothing to flatten, its chart lies on a line
+            // a separate collinear triangle: nothing to flatten, its chart is a point
             DMesh3 mesh = Sphere(6);
             int a = mesh.AppendVertex(new Vector3d(3, 0, 0)), b = mesh.AppendVertex(new Vector3d(4, 0, 0)), c = mesh.AppendVertex(new Vector3d(5, 0, 0));
             mesh.AppendTriangle(a, b, c);
@@ -946,10 +950,24 @@ namespace geometry3Sharp.Tests
                 var atlas = new UVAtlasGenerator(mesh) { Method = method };
                 atlas.Compute();
                 Assert.NotEqual(UVAtlasStatus.Failed, atlas.Status);
-                Assert.Contains(atlas.Charts, ch => ch.Method == "line");
+                Assert.Contains(atlas.Charts, ch => ch.Method == "point");
                 Assert.Equal(0, atlas.Overlap.OverlappingPairs);
                 Assert.Equal(0, atlas.CollapsedTriangleCount);
             }
+        }
+
+        [Fact]
+        public void Atlas_LongDegenerateTriangle_DoesNotShrinkTheAtlas()
+        {
+            DMesh3 cube = Cube(3);
+            var plain = new UVAtlasGenerator(cube);
+            Assert.True(plain.Compute(), plain.Error);
+            DMesh3 mesh = Cube(3);
+            int a = mesh.AppendVertex(new Vector3d(2, 0, 0)), b = mesh.AppendVertex(new Vector3d(500, 0, 0)), c = mesh.AppendVertex(new Vector3d(1000, 0, 0));
+            mesh.AppendTriangle(a, b, c);
+            var atlas = new UVAtlasGenerator(mesh);
+            Assert.True(atlas.Compute(), atlas.Error);
+            Assert.True(atlas.Coverage > 0.8 * plain.Coverage, $"coverage {atlas.Coverage} vs {plain.Coverage}");
         }
 
         [Fact]
@@ -984,7 +1002,7 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void Atlas_NoPacking_ReportsAtlasTriangleIds()
         {
-            // a cube and a separate collinear triangle (its chart lies on a line), not packed
+            // a cube and a separate collinear triangle (its chart is a point), not packed
             DMesh3 mesh = Cube(3);
             int a = mesh.AppendVertex(new Vector3d(3, 0, 0)), b = mesh.AppendVertex(new Vector3d(4, 0, 0)), c = mesh.AppendVertex(new Vector3d(5, 0, 0));
             int stray = mesh.AppendTriangle(a, b, c);

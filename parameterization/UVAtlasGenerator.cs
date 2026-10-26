@@ -89,12 +89,14 @@ namespace g3
         public int CollapsedTriangleCount;
         /// <summary>
         /// the same test of the UVs as stored in AtlasMesh (rounded to float). Rounding moves each UV by at most
-        /// half a float ulp (6e-8 in [0,1]), so its overlaps are at most that deep; they are reported, not failed.
+        /// half a float ulp (6e-8 in the packed [0,1]^2; relative to the chart size with Pack = false), so its
+        /// overlaps are at most that deep; they are reported, not failed.
         /// </summary>
         public UVOverlap StoredOverlap;
         /// <summary>
-        /// overlapping pairs, inverted and collapsed triangles that appear only in the float UVs (rounding of
-        /// tiny or sliver triangles, eg vertices 1e-7 apart); reported only
+        /// overlapping pairs, inverted and collapsed triangles of the float UVs (StoredOverlap). With Status not
+        /// Failed the double UVs have none, so these come from rounding tiny or sliver triangles (eg vertices
+        /// 1e-7 apart); reported only
         /// </summary>
         public int FloatRoundingDefects;
         /// <summary> exact overlap test of the final UVs (double, as in UV) </summary>
@@ -109,7 +111,7 @@ namespace g3
         public class ChartInfo
         {
             public int Triangles;
-            /// <summary> "cones", "bff", "lscm", "slim", "tutte" or "line" (a chart of degenerate triangles only) </summary>
+            /// <summary> "cones", "bff", "lscm", "slim", "tutte" or "point" (a chart of degenerate triangles only, all its UVs at one point) </summary>
             public string Method;
             public int Cones;
             public ParameterizationDistortion Distortion;
@@ -272,10 +274,10 @@ namespace g3
             }
             DMesh3 disc = cut.CutMesh;
             if (allDegenerate(disc)) {
-                // nothing to flatten (eg a stray collinear triangle): the vertices on a line, which the final
+                // nothing to flatten (eg a stray collinear triangle): the vertices at one point, which the final
                 // checks accept because the surface triangles are degenerate too
                 Chart lc = makeChart(disc, cut.CutToInputVertex, cut.CutToInputTriangle, subToWorkV, subToWorkT);
-                evaluate(lc, lineLayout(disc), "line");
+                evaluate(lc, pointLayout(disc), "point");
                 return lc;
             }
             ParameterizationResult r = new BoundaryFirstFlattening(disc) { ScaleToSurfaceArea = true }.Compute();
@@ -303,14 +305,11 @@ namespace g3
             return true;
         }
 
-        // UVs of a chart of degenerate triangles: the positions along the longest axis of the bounding box
-        static ParameterizationResult lineLayout(DMesh3 mesh)
+        // UVs of a chart of degenerate triangles: all at one point. It has no area to texture, and a line of
+        // its 3D length would not be scaled by the packer (zero UV area) and could dominate the atlas.
+        static ParameterizationResult pointLayout(DMesh3 mesh)
         {
-            AxisAlignedBox3d box = mesh.GetBounds();
-            int axis = box.Width >= box.Height ? (box.Width >= box.Depth ? 0 : 2) : (box.Height >= box.Depth ? 1 : 2);
             Vector2d[] uv = new Vector2d[mesh.MaxVertexID];
-            foreach (int v in mesh.VertexIndices())
-                uv[v] = new Vector2d(mesh.GetVertex(v)[axis] - box.Min[axis], 0);
             return new ParameterizationResult() { UV = uv, Distortion = ParameterizationDistortion.Compute(mesh, uv) };
         }
 

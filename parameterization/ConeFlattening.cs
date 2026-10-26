@@ -140,7 +140,7 @@ namespace g3
                     return Result = ParameterizationResult.Failure(ParameterizationStatus.InvalidConstraints,
                         "a closed surface with Euler characteristic " + Math.Round(Ktot / (2 * Math.PI)) + " can not be flattened without cones");
                 // a flat torus needs no cones
-                if (Cones == null && (Math.Abs(Ktot) > 1e-6 || Math.Abs(u[best] - mean) > MaxScaleFactor)) {
+                if (Cones == null && MaxCones >= 1 && (Math.Abs(Ktot) > 1e-6 || Math.Abs(u[best] - mean) > MaxScaleFactor)) {
                     isCone[best] = true; cones.Add(best);
                 } else {
                     for (int i = 0; i < N; ++i) u[i] -= mean;
