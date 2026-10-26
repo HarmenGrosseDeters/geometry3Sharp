@@ -830,6 +830,42 @@ but the wrap fits their winding number solid worse (IoU 0.958 → 0.421 and 0.99
 3.4 % → 4.8 %). Together with 56107.stl that is 3 of about 150 solidified meshes per two selections
 where stopping early gives up a cleaner (though still not repaired) solidify.
 
+### Is the wrap fallback still needed? With and without it, on the former wrap cases
+The 32 meshes of both selections that an earlier run (before #44, #49, #40) wrapped, `robust` on master `e30ee26`
+with and without `BENCH_WRAP_FALLBACK` (`BENCH_P=2`). 17 of them now go through the exact resolve; 13 are still
+wrapped. Without the wrap, these 13 are returned with 6 to 7944 exact self-intersections:
+
+| 32 former wrap cases | without wrap | with wrap |
+|---|---|---|
+| clean + no exact self-intersections | 19 | 31 (+1 not computed, > 300k triangles) |
+| repaired (strict criterion) | 5 | 5 |
+
+The wrap stays on as the last resort: it repairs none of them in the strict sense (its deviation is about the
+offset plus what it wraps over), but it turns 12 self-intersecting results into clean ones.
+
+### Simplifying the wrap result (`MeshRobustRepair.SimplifyAlphaWrap`)
+The wrap has triangles of about alpha everywhere, also on flat regions: median 160k triangles on the 13 cases above.
+`SimplifyAlphaWrap` (default on) reduces it (quadric error up to offset², no collapse that creates a
+self-intersection) and keeps the result only if it is clean and a one-sided Hausdorff upper bound certifies it
+within the offset of the unsimplified wrap; otherwise the unsimplified wrap is the result. `BENCH_WRAP_SIMPLIFY=0`
+turns it off; `robust_wrap_tris` is the triangle count of the unsimplified wrap. The 13 wrapped meshes, 2 in
+parallel:
+
+| 13 wrap cases | not simplified | with `Reducer.MaxDeviation` (first version) | simplified, checked afterwards |
+|---|---|---|---|
+| triangles, median (max) | 160k (415k) | 26k (149k) | 30k (149k) |
+| triangles / not simplified, median (p10, p90) | | | 0.18 (0.09, 0.54) |
+| Hausdorff to the input, median | 2.20 % | | 2.20 % (largest change 0.014 points) |
+| IoU, median | 0.769 | | 0.768 (largest change 0.003) |
+| clean + no exact self-intersections | 13 (1 not computed) | 12 (1 timed out at 900 s) | 13 |
+| time per mesh, median (max) | 46 s (64 s) | 159 s (826 s) | 49 s (122 s) |
+
+The first version certified every collapse (`Reducer.MaxDeviation`); on these meshes that took 10 to 30 times
+longer than the self-intersection guard and changed no triangle count (46244.stl: 15356 triangles either way,
+176 s vs 14 s). Checking the whole result afterwards is enough: 12 of 13 pass the check (measured on 4 of them:
+0.73 to 0.94 offsets from the wrap). On 87345.stl the reduced wrap is 2.5 offsets away (thin parts, where the quadric underestimates the
+distance); the check rejects it and the unsimplified wrap (63k triangles) is returned.
+
 ## Rejected rule 1 Steiner points in the alpha wrap: cause and fix
 The cause was the oracle's triangle normals, which came from `Vector3d.Normalized`. That returns zero below an absolute length of 2.2e-16, so a small but valid triangle got no normal (99911 has 10 of them). `slab_entry` then treated every segment through the triangle's node box as starting inside the offset volume (`FirstEntry` = 0). The wrap inserted the far end of the dual edge, which lies outside the box, and the insertion was rejected (`Outside`). The facet stayed on the result and could be closer to the input than the offset.
 
