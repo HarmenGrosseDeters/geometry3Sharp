@@ -54,26 +54,31 @@ namespace g3
                 isFixed[loop[k]] = true;
                 fu[loop[k]] = Math.Cos(a); fv[loop[k]] = Math.Sin(a);
             }
-            // uniform graph Laplacian over the edges
+            // uniform graph Laplacian over the edges; u and v share it (one factorization, the boundary values
+            // are set before each solve)
             var edges = new HashSet<long>();
-            ConstrainedQuadratic qu = new ConstrainedQuadratic(N, isFixed, fu);
-            ConstrainedQuadratic qv = new ConstrainedQuadratic(N, isFixed, fv);
+            double[] fixedValue = new double[N];
+            ConstrainedQuadratic q = new ConstrainedQuadratic(N, isFixed, fixedValue);
             foreach (Index3i t in pm.Tris)
                 for (int j = 0; j < 3; ++j) {
                     int a = t[j], b = t[(j + 1) % 3];
                     if (!edges.Add(a < b ? (long)a * N + b : (long)b * N + a))
                         continue;
-                    foreach (ConstrainedQuadratic q in new[] { qu, qv }) {
-                        q.Add(a, a, 1); q.Add(b, b, 1); q.Add(a, b, -1);
-                    }
+                    q.Add(a, a, 1); q.Add(b, b, 1); q.Add(a, b, -1);
                 }
-            if (!qu.Factorize() || !qv.Factorize()) {
-                error = "Tutte system: " + (qu.Error ?? qv.Error);
+            if (!q.Factorize()) {
+                error = "Tutte system: " + q.Error;
                 return false;
             }
-            qu.Solve(null, u);
-            qv.Solve(null, v);
-            return pm.AllFinite(u, v);
+            Array.Copy(fu, fixedValue, N);
+            q.Solve(null, u);
+            Array.Copy(fv, fixedValue, N);
+            q.Solve(null, v);
+            if (!pm.AllFinite(u, v)) {
+                error = "Tutte solution is not finite";
+                return false;
+            }
+            return true;
         }
     }
 
@@ -116,10 +121,9 @@ namespace g3
                 if (!pm.RequireOpenComponent())
                     return Result = pm.Failure();
                 u = new double[N]; v = new double[N];
-                for (int i = 0; i < N; ++i) {
-                    Vector2d p = InitialUV[pm.ToVertex[i]];
-                    u[i] = p.x; v[i] = p.y;
-                }
+                string error = pm.ReadInitialUV(InitialUV, u, v);
+                if (error != null)
+                    return Result = ParameterizationResult.Failure(ParameterizationStatus.InvalidConstraints, error);
             } else {
                 if (!pm.RequireDisc())
                     return Result = pm.Failure();
@@ -170,7 +174,11 @@ namespace g3
                     t *= 0.5;
                 }
                 if (!(e1 <= energy)) {
-                    converged = true;   // no descent possible along the proxy direction
+                    // no step lowers the energy: converged if the proxy step itself is negligible (at a minimum the
+                    // proxy reproduces the current UVs), else stuck
+                    double step = 0;
+                    for (int i = 0; i < N; ++i) step = Math.Max(step, Math.Max(Math.Abs(du[i]), Math.Abs(dv[i])));
+                    converged = step <= 1e-6 * Math.Sqrt(pm.SurfaceArea);
                     break;
                 }
                 Array.Copy(tu, u, N); Array.Copy(tv, v, N);
@@ -219,13 +227,17 @@ namespace g3
                 TriangleFrame f = pm.Frames[ti];
                 Index3i t = pm.Tris[ti];
                 if (f.Degenerate) {
-                    // keep the nonzero pattern the same in every iteration
-                    for (int k = 0; k < 3; ++k)
-                        for (int l = 0; l < 3; ++l)
-                            for (int c1 = 0; c1 < 2; ++c1)
-                                for (int c2 = 0; c2 < 2; ++c2)
-                                    if (2 * t[k] + c1 <= 2 * t[l] + c2)
-                                        q.Add(2 * t[k] + c1, 2 * t[l] + c2, 0);
+                    // no energy (and no Jacobian) on the surface: unit springs that keep its current UV edges, so a
+                    // vertex used only by such triangles is still held (the matrix stays positive definite)
+                    for (int k = 0; k < 3; ++k) {
+                        int i = t[k], j = t[(k + 1) % 3];
+                        for (int c = 0; c < 2; ++c) {
+                            int vi = 2 * i + c, vj = 2 * j + c;
+                            double d = c == 0 ? u[i] - u[j] : v[i] - v[j];
+                            q.Add(vi, vi, 1); q.Add(vj, vj, 1); q.Add(vi, vj, -1);
+                            b[vi] += d; b[vj] -= d;
+                        }
+                    }
                     continue;
                 }
                 Matrix2d J = f.Jacobian(new Vector2d(u[t.a], v[t.a]), new Vector2d(u[t.b], v[t.b]), new Vector2d(u[t.c], v[t.c]));
@@ -251,7 +263,7 @@ namespace g3
                         for (int p = 0; p < 6; ++p) {
                             b[var[p]] += f.Area * coef[p] * target;
                             for (int r = p; r < 6; ++r)
-                                q.Add(var[p], var[r], (p == r ? 1 : (var[p] == var[r] ? 2 : 1)) * f.Area * coef[p] * coef[r]);
+                                q.Add(var[p], var[r], f.Area * coef[p] * coef[r]);   // the six variables are distinct
                         }
                     }
                 }
