@@ -263,5 +263,105 @@ namespace geometry3Sharp.Tests
             Assert.True(sampled <= h.UpperBound + 1e-12);
             Assert.True(h.LowerBound >= sampled - (h.UpperBound - h.LowerBound) - 1e-12);
         }
-    }
+    
+        // sphere with random bumps (seeded), so that the nearest triangles change across most triangles
+        static DMesh3 RandomBumpySphere(int seed, int n)
+        {
+            var rnd = new Random(seed);
+            double a = 0.05 + 0.2 * rnd.NextDouble(), f = 2 + 6 * rnd.NextDouble(), g = 2 + 6 * rnd.NextDouble(), ph = 6 * rnd.NextDouble();
+            DMesh3 m = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = n }.Generate().MakeDMesh();
+            foreach (int vid in m.VertexIndices()) {
+                Vector3d p = m.GetVertex(vid);
+                m.SetVertex(vid, p * (1 + a * Math.Sin(f * p.x + ph) * Math.Cos(g * p.y - 0.5) + 0.01 * (rnd.NextDouble() - 0.5)));
+            }
+            return m;
+        }
+
+        [Fact]
+        public void UpperBound_ValidWithCoarseToleranceAndWithoutConvergence()
+        {
+            // the upper bound is used as an acceptance test (MeshRobustRepair.SimplifyWithin): it must hold with a
+            // coarse tolerance and also when the subdivision budget stops the refinement (Converged false)
+            for (int seed = 0; seed < 6; ++seed) {
+                // from a coarse mesh to a fine one of the same shape: the largest distance lies inside the coarse
+                // triangles, not at their corners, so a bound that ignores the unrefined parts is caught
+                DMesh3 a = RandomBumpySphere(seed, 6), b = RandomBumpySphere(seed, 16);
+                if (seed % 2 == 1) {
+                    // a simplified copy against the original, as in the wrap simplification
+                    a = new DMesh3(b);
+                    new Reducer(a).ReduceToTriangleCount(b.TriangleCount / 10);
+                    a = new DMesh3(a, true);
+                }
+                double sampled = SampledDense(a, b, 8);
+                Assert.True(sampled > 1e-3, $"seed {seed}: sampled {sampled}");
+                foreach (int budget in new[] { 0, 30, 20000000 }) {
+                    foreach (double tol in new[] { 0.3 * sampled, 1e-4 }) {
+                        var h = new MeshHausdorffDistance(a, b) { Symmetric = false, Tolerance = tol, MaxSubdivisions = budget };
+                        Assert.True(h.Compute());
+                        string what = $"seed {seed} budget {budget} tol {tol}: [{h.LowerBound}, {h.UpperBound}] converged {h.Converged} subdivisions {h.Subdivisions} sampled {sampled}";
+                        Assert.True(sampled <= h.UpperBound + 1e-12, $"{what}: sampled {sampled} above upper {h.UpperBound}");
+                        Assert.True(h.LowerBound <= h.UpperBound, what);
+                        if (budget == 20000000) {
+                            Assert.True(h.Converged, what);
+                            Assert.True(h.UpperBound - h.LowerBound <= tol + 1e-12, what);
+                        }
+                        Assert.True(h.Subdivisions < budget + 256, what);     // (checked per batch of 256)
+                        if (h.Converged)
+                            Assert.True(h.UpperBound - h.LowerBound <= tol + 1e-12, what);
+                    }
+                }
+            }
+        }
+
+        [Fact]
+        public void Cancelled_ReturnsFalse()
+        {
+            DMesh3 a = RandomBumpySphere(1, 14), b = RandomBumpySphere(2, 9);
+            var h = new MeshHausdorffDistance(a, b) { Symmetric = false, Tolerance = 1e-6, CancelF = () => true };
+            Assert.False(h.Compute());
+            Assert.False(h.Converged);
+        }
+
+        [Fact]
+        public void Reuse_And_PrebuiltSpatial_SameBounds()
+        {
+            DMesh3 a = RandomBumpySphere(3, 14), b = RandomBumpySphere(4, 9);
+            var h = new MeshHausdorffDistance(a, b) { Symmetric = true, Tolerance = 1e-4 };
+            Assert.True(h.Compute());
+            double lo = h.LowerBound, up = h.UpperBound;
+            Assert.True(h.Compute());       // computed twice on one instance
+            Assert.Equal(lo, h.LowerBound);
+            Assert.Equal(up, h.UpperBound);
+            var pre = new MeshHausdorffDistance(a, b) { Symmetric = true, Tolerance = 1e-4,
+                SpatialA = new DMeshAABBTree3(a, true), SpatialB = new DMeshAABBTree3(b, true) };
+            Assert.True(pre.Compute());
+            Assert.Equal(lo, pre.LowerBound);
+            Assert.Equal(up, pre.UpperBound);
+        }
+
+        [Fact]
+        public void Invariant_UnderSimilarities()
+        {
+            DMesh3 a = RandomBumpySphere(5, 12), b = RandomBumpySphere(6, 8);
+            foreach (bool symmetric in new[] { false, true }) {
+                var h0 = new MeshHausdorffDistance(a, b) { Symmetric = symmetric };       // relative tolerance
+                Assert.True(h0.Compute());
+                foreach (Similarity s in Similarity.All()) {
+                    DMesh3 ta = new DMesh3(a), tb = new DMesh3(b);
+                    MeshTransforms.PerVertexTransform(ta, s.Apply);
+                    MeshTransforms.PerVertexTransform(tb, s.Apply);
+                    var h = new MeshHausdorffDistance(ta, tb) { Symmetric = symmetric };
+                    Assert.True(h.Compute());
+                    if (s.IsExact) {
+                        Assert.Equal(h0.LowerBound, h.LowerBound / s.Scale);
+                        Assert.Equal(h0.UpperBound, h.UpperBound / s.Scale);
+                    } else {
+                        // both intervals contain the exact distance (up to the coordinates' rounding)
+                        double eps = 100 * s.Resolution(2);
+                        Assert.True(h.LowerBound / s.Scale <= h0.UpperBound + eps && h0.LowerBound <= h.UpperBound / s.Scale + eps, s.Name);
+                    }
+                }
+            }
+        }
+}
 }
