@@ -18,7 +18,7 @@ namespace gs
     /// AlphaWrapFallback), whose result is always closed, manifold and free of self-intersections, but wraps
     /// over cavities and gaps narrower than about 2 alpha and lies about Offset outside the input.
     ///
-    /// Clean means: closed, no bowties, no degenerate triangles, no inside-out components and, if
+    /// Clean means: closed, no bowties, no degenerate triangles, consistently oriented, no inside-out components and, if
     /// CheckSelfIntersections, no self-intersections (exact, MeshRepairMetrics).
     ///
     /// A result can still have lost volume (eg a self-overlapping input made non-overlapping by dropping a
@@ -47,7 +47,10 @@ namespace gs
         public DMesh3 Mesh;
         /// <summary> cells along the bounding box diagonal for the solidify fallback </summary>
         public int SolidifyResolution = 128;
-        /// <summary> if true, self-intersections make the repair result unclean (triggers the solidify fallback) </summary>
+        /// <summary>
+        /// if true, self-intersections make the repair result unclean (triggers the solidify fallback). If false, the
+        /// exact stage does not check its results for them either: the sliver cleanup after the resolve can leave some
+        /// </summary>
         public bool CheckSelfIntersections = true;
         /// <summary> minimum volume IoU of the repaired mesh with the input's winding number solid (0 = no volume checks, also not CheckLostComponents) </summary>
         public double MinVolumeIoU = 0.99;
@@ -385,7 +388,10 @@ namespace gs
                 }
                 // slivers where intersection curves nearly meet: collapsed or flipped by the cleanup
                 string reason = NotCleanReason(res, false);
+                // the safe rounding's count of intersections holds only for the mesh it returned
+                bool editedAfterRounding = false;
                 if (reason == "degenerate triangles") {
+                    editedAfterRounding = true;
                     new MeshPostRepairCleanup(res).Apply();
                     res = new DMesh3(res, true);
                     // the cleanup keeps slivers whose collapse would distort or fold a neighbour: collapsed anyway,
@@ -405,7 +411,10 @@ namespace gs
                     var first = resolve.Rounding;
                     int edits = 0;
                     if (separated.Count == 0) {
-                        si = first.RemainingIntersections;
+                        // (the cleanup and CollapseSlivers above can add intersections: then counted below, as the
+                        // count of MeshRepairMetrics)
+                        if (editedAfterRounding == false)
+                            si = first.RemainingIntersections;
                     } else {
                         // (all of the mesh: the edits at the former contacts, which the safe rounding must not
                         // make, are possible now)
@@ -648,7 +657,8 @@ namespace gs
 
         /// <summary>
         /// "" if the mesh is clean (see class comment), otherwise the first problem found, one of "empty",
-        /// "not closed", "bowties", "degenerate triangles" (area &lt; 1e-12 * diagonal^2, of the bounds of the triangles), "inside-out components",
+        /// "not closed", "bowties", "degenerate triangles" (area &lt; 1e-12 * diagonal^2, of the bounds of the triangles),
+        /// "inconsistent orientation" (an interior edge whose two triangles run the same way), "inside-out components",
         /// "self-intersections". Useful as a test assertion: NotCleanReason(mesh) == "".
         /// </summary>
         public static string NotCleanReason(DMesh3 mesh, bool checkSelfIntersections = true)
@@ -659,6 +669,7 @@ namespace gs
             double diag = MeshRepairMetrics.TriangleBounds(mesh).DiagonalLength;
             double areaEps = 1e-12 * diag * diag;
             if (mesh.TriangleIndices().Any(t => mesh.GetTriArea(t) < areaEps)) return "degenerate triangles";
+            if (MeshRepairMetrics.InconsistentlyOrientedEdges(mesh) > 0) return "inconsistent orientation";
             if (MeshPostRepairCleanup.FindInvertedComponents(mesh).Count > 0) return "inside-out components";
             if (checkSelfIntersections && MeshRepairMetrics.HasSelfIntersections(mesh)) return "self-intersections";
             return "";
