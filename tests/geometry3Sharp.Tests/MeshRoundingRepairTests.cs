@@ -488,5 +488,247 @@ namespace geometry3Sharp.Tests
             }
             Assert.True(kept > 10);
         }
+
+
+        // ---- open meshes: edits along the boundary curve ----
+
+        // the sphere without its cap above z = 0.3: open, one boundary loop
+        static DMesh3 OpenSphere()
+        {
+            DMesh3 m = Sphere(6);
+            foreach (int t in m.TriangleIndices().ToArray())
+                if (m.GetTriCentroid(t).z > 0.3)
+                    m.RemoveTriangle(t, true, false);
+            Assert.Single(new MeshBoundaryLoops(m).Loops);
+            return m;
+        }
+
+        static double DistanceToBoundary(DMesh3 m, Vector3d p)
+        {
+            return m.BoundaryEdgeIndices().Min(e => {
+                Index2i ev = m.GetEdgeV(e);
+                return Math.Sqrt(new Segment3d(m.GetVertex(ev.a), m.GetVertex(ev.b)).DistanceSquared(p));
+            });
+        }
+
+        // the boundary of the repaired mesh m is that of before (a copy of m before the repair): as many loops, no
+        // bowties, every boundary vertex was one before and is where it was or on the old curve; returns the number
+        // of boundary vertices moved along the curve
+        static int AssertBoundaryKept(DMesh3 before, DMesh3 m)
+        {
+            Assert.True(m.CheckValidity(true, FailMode.ReturnOnly));
+            Assert.Equal(new MeshBoundaryLoops(before).Count, new MeshBoundaryLoops(m).Count);
+            Assert.Empty(MeshIterators.BowtieVertices(m));
+            int moved = 0;
+            foreach (int v in m.VertexIndices().Where(v => m.IsBoundaryVertex(v))) {
+                Assert.True(before.IsVertex(v) && before.IsBoundaryVertex(v), $"new boundary vertex {v}");
+                if (m.GetVertex(v) == before.GetVertex(v))
+                    continue;
+                Assert.True(DistanceToBoundary(before, m.GetVertex(v)) < 1e-14, $"vertex {v} off the boundary");
+                moved++;
+            }
+            return moved;
+        }
+
+        // splits the edges chosen by pick 1e-13 from their vertex end(edge vertices); returns the number of splits
+        static int SplitNear(DMesh3 m, Func<int, bool> pick, Func<Index2i, int> end)
+        {
+            int splits = 0;
+            foreach (int eid in m.EdgeIndices().ToArray()) {
+                if (m.IsEdge(eid) == false || pick(eid) == false)
+                    continue;
+                Index2i ev = m.GetEdgeV(eid);
+                int a = end(ev), b = (a == ev.a) ? ev.b : ev.a;
+                Vector3d pa = m.GetVertex(a), pb = m.GetVertex(b);
+                DMesh3.EdgeSplitInfo info;
+                if (m.SplitEdge(eid, out info) != MeshResult.Ok)
+                    continue;
+                m.SetVertex(info.vNew, pa + 1e-13 * (pb - pa).Normalized);
+                splits++;
+            }
+            return splits;
+        }
+
+        [Fact]
+        public void Repair_NeedlesOnTheBoundary_ContractedAlongIt()
+        {
+            // boundary edges of an open mesh split 1e-13 from their end: needles with a short boundary edge, contracted
+            // into the old boundary vertex, so that the boundary is as before
+            DMesh3 m = OpenSphere();
+            DMesh3 original = new DMesh3(m);
+            int splits = SplitNear(m, e => m.IsBoundaryEdge(e) && e % 2 == 0, ev => ev.a);
+            Assert.True(splits > 5);
+            Assert.True(Degenerate(m) > 0);
+            DMesh3 before = new DMesh3(m);
+            var repair = new MeshRoundingRepair(m);
+            Assert.True(repair.Apply());
+            Assert.Equal(0, Degenerate(m));
+            Assert.True(repair.Collapses >= splits);
+            Assert.Equal(0, AssertBoundaryKept(before, m));
+            // the old mesh again, its vertices where they were
+            Assert.Equal(original.VertexCount, m.VertexCount);
+            foreach (int v in original.VertexIndices())
+                Assert.Equal(original.GetVertex(v), m.GetVertex(v));
+        }
+
+        // m with the vertex ids in reverse order (the edges' vertices in the other order)
+        static DMesh3 ReversedIds(DMesh3 m)
+        {
+            var r = new DMesh3();
+            var map = new System.Collections.Generic.Dictionary<int, int>();
+            foreach (int v in m.VertexIndices().Reverse())
+                map[v] = r.AppendVertex(m.GetVertex(v));
+            foreach (int t in m.TriangleIndices()) {
+                Index3i tv = m.GetTriangle(t);
+                r.AppendTriangle(map[tv.a], map[tv.b], map[tv.c]);
+            }
+            return r;
+        }
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void Repair_NeedlesAtTheBoundary_ContractedIntoTheBoundaryVertex(bool reversed)
+        {
+            // interior edges from a boundary vertex split 1e-13 from it: the new interior vertex is contracted into the
+            // boundary vertex, which stays where it is (with the ids reversed, the boundary vertex is the edge's other end)
+            DMesh3 m = reversed ? ReversedIds(OpenSphere()) : OpenSphere();
+            DMesh3 original = new DMesh3(m);
+            int splits = SplitNear(m, e => e % 3 == 0 && m.IsBoundaryVertex(m.GetEdgeV(e).a) != m.IsBoundaryVertex(m.GetEdgeV(e).b),
+                ev => m.IsBoundaryVertex(ev.a) ? ev.a : ev.b);
+            Assert.True(splits > 5);
+            Assert.True(Degenerate(m) > 0);
+            DMesh3 before = new DMesh3(m);
+            var repair = new MeshRoundingRepair(m);
+            Assert.True(repair.Apply());
+            Assert.Equal(0, Degenerate(m));
+            Assert.True(repair.Collapses >= splits);
+            Assert.Equal(0, AssertBoundaryKept(before, m));
+            Assert.Equal(original.VertexCount, m.VertexCount);
+            foreach (int v in original.VertexIndices())
+                Assert.Equal(original.GetVertex(v), m.GetVertex(v));
+        }
+
+        [Fact]
+        public void Repair_BoundaryVertexThroughASheet_SlidAlongTheBoundary()
+        {
+            // a vertical open sheet (x-z plane, z in [1e-3, 1]) above a horizontal one at z = 0, one vertex of its lower
+            // boundary 1e-9 below the horizontal sheet: moved along one of its boundary edges (which rise to the
+            // neighbours at z = 1e-3) until it is above, not straight up off the boundary
+            var m = new DMesh3();
+            int w0 = m.AppendVertex(new Vector3d(-1, -1, 0)), w1 = m.AppendVertex(new Vector3d(2, -1, 0));
+            int w2 = m.AppendVertex(new Vector3d(2, 1, 0)), w3 = m.AppendVertex(new Vector3d(-1, 1, 0));
+            m.AppendTriangle(w0, w1, w2);
+            m.AppendTriangle(w0, w2, w3);
+            const int n = 10;
+            var bottom = new int[n + 1];
+            var top = new int[n + 1];
+            for (int i = 0; i <= n; ++i) {
+                bottom[i] = m.AppendVertex(new Vector3d(i / (double)n, 0, 1e-3));
+                top[i] = m.AppendVertex(new Vector3d(i / (double)n, 0, 1));
+            }
+            for (int i = 0; i < n; ++i) {
+                m.AppendTriangle(bottom[i], bottom[i + 1], top[i + 1]);
+                m.AppendTriangle(bottom[i], top[i + 1], top[i]);
+            }
+            int v = bottom[n / 2];
+            m.SetVertex(v, new Vector3d(0.5, 0, -1e-9));
+            Assert.True(MeshRepairMetrics.SelfIntersections(m) > 0);
+            DMesh3 before = new DMesh3(m);
+            var repair = new MeshRoundingRepair(m);
+            Assert.True(repair.Apply());
+            Assert.Equal(0, MeshRepairMetrics.SelfIntersections(m));
+            Assert.Equal(0, Degenerate(m));
+            Assert.True(repair.Moves > 0);
+            Assert.True(AssertBoundaryKept(before, m) > 0);
+            Assert.True(m.GetVertex(v).z > 0 && m.GetVertex(v).Distance(before.GetVertex(v)) < 1e-5);
+        }
+
+        [Fact]
+        public void Repair_StripPinchedToANeedle_NotContractedAcross()
+        {
+            // a strip of quads whose top boundary dips to 1e-13 above the bottom one at x = 2: the short edge between
+            // the two boundaries is not contracted (it would pinch the strip into a bowtie); the top vertex is moved
+            // along the top boundary instead
+            var m = new DMesh3();
+            const int n = 4;
+            var b = new int[n + 1];
+            var t = new int[n + 1];
+            for (int i = 0; i <= n; ++i) {
+                b[i] = m.AppendVertex(new Vector3d(i, 0, 0));
+                t[i] = m.AppendVertex(new Vector3d(i, (i == 2) ? 1e-13 : 1, 0));
+            }
+            for (int i = 0; i < n; ++i) {
+                m.AppendTriangle(b[i], b[i + 1], t[i + 1]);
+                m.AppendTriangle(b[i], t[i + 1], t[i]);
+            }
+            Assert.True(Degenerate(m) > 0);
+            DMesh3 before = new DMesh3(m);
+            var repair = new MeshRoundingRepair(m);
+            Assert.True(repair.Apply());
+            Assert.Equal(0, Degenerate(m));
+            Assert.Equal(0, repair.Collapses);
+            Assert.Equal(1, AssertBoundaryKept(before, m));
+            Assert.Equal(before.VertexCount, m.VertexCount);
+        }
+
+        // ---- the repair after MeshRobustRepair.SeparateTouchingVertices ----
+
+        // a box [-1, 1]^2 x [-2, 0] whose top is a dent down to (0, 0, -0.5), and a pyramid pointing down into it
+        // with its tip on the bottom of the dent (base of half width 0.3 at height height above the tip), in one mesh
+        static DMesh3 PyramidInADent(double height)
+        {
+            var m = new DMesh3();
+            int[] top = { m.AppendVertex(new Vector3d(-1, -1, 0)), m.AppendVertex(new Vector3d(1, -1, 0)), m.AppendVertex(new Vector3d(1, 1, 0)), m.AppendVertex(new Vector3d(-1, 1, 0)) };
+            int[] bottom = { m.AppendVertex(new Vector3d(-1, -1, -2)), m.AppendVertex(new Vector3d(1, -1, -2)), m.AppendVertex(new Vector3d(1, 1, -2)), m.AppendVertex(new Vector3d(-1, 1, -2)) };
+            Vector3d dent = new Vector3d(0, 0, -0.5);
+            int p = m.AppendVertex(dent);
+            for (int i = 0; i < 4; ++i) {
+                int j = (i + 1) % 4;
+                m.AppendTriangle(p, top[i], top[j]);
+                m.AppendTriangle(top[i], bottom[i], bottom[j]);
+                m.AppendTriangle(top[i], bottom[j], top[j]);
+            }
+            m.AppendTriangle(bottom[0], bottom[2], bottom[1]);
+            m.AppendTriangle(bottom[0], bottom[3], bottom[2]);
+            int tip = m.AppendVertex(dent);
+            int[] b = new int[4];
+            for (int i = 0; i < 4; ++i)
+                b[i] = m.AppendVertex(dent + new Vector3d((i == 0 || i == 3) ? -0.3 : 0.3, (i < 2) ? -0.3 : 0.3, height));
+            for (int i = 0; i < 4; ++i)
+                m.AppendTriangle(tip, b[(i + 1) % 4], b[i]);
+            m.AppendTriangle(b[0], b[1], b[2]);
+            m.AppendTriangle(b[0], b[2], b[3]);
+            return m;
+        }
+
+        [Fact]
+        public void RobustRepair_SeparationMadeIntersections_RepairedAgain()
+        {
+            // the solids touch at the bottom of the dent; the resolve keeps two vertices there, which
+            // SeparateTouchingVertices moves by 1e-4 of the way to the centroid of their neighbours: the box's up by
+            // 5e-5, the pyramid's up by 4.9e-5, so the pyramid's tip ends up below the dent's surface. The repair
+            // after the separation moves them apart; without it the result would have self-intersections (the
+            // rounding of the resolve had nothing to do, so its count, 0, would be taken)
+            DMesh3 m = PyramidInADent(0.49);
+            Assert.True(m.IsClosed());
+            DMesh3 resolved = ExactMeshBoolean.Resolve(m, true);
+            Assert.Equal(2, MeshRobustRepair.SeparateTouchingVertices(resolved, 1e-4));
+            var separated = new MeshRoundingRepair(resolved) { MaxPasses = 0 };
+            Assert.False(separated.Apply());
+            Assert.True(separated.InitialIntersections > 0);
+
+            var robust = new MeshRobustRepair(new DMesh3(m)) { AlphaWrapFallback = false };
+            Assert.True(robust.Apply());
+            Assert.True(robust.UsedExactResolve, $"exact: {robust.ExactResolveReason}");
+            Assert.Equal(1, robust.ExactResolveRoundsUsed);
+            Assert.Single(robust.ExactRoundingEdits);
+            Assert.Equal(0, robust.ExactRoundingEdits[0].a);
+            Assert.True(robust.ExactRoundingEdits[0].b > 0);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(robust.Mesh, true));
+            Assert.Equal(0, MeshRepairMetrics.SelfIntersections(robust.Mesh));
+            // (the separation sweeps a volume of about 6e-5)
+            Assert.Equal(Volume(m), Volume(robust.Mesh), 3);
+        }
     }
 }
