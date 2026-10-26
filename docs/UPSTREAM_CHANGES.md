@@ -31,6 +31,7 @@ code can notice. New classes are not listed (see the README and [OPERATIONS.md](
 | `Units` miles | 1609.34 m | 1609.344 m |
 | `Util.IsBinaryStream` | a stream shorter than the search length counted as binary | not binary (affects STL ascii / binary detection of files under 500 bytes) |
 | `PlanarComplex.Add(polygon)` | kept a reference to the caller's polygon | stores a copy |
+| `gSerialization.Restore(DMesh3, ...)` (`.g3mesh` reader) and `Restore(DVector<...>, ...)` | stored buffers and counts taken over as they are; a truncated array was filled with zeros | inconsistent mesh data (buffer sizes, edge / triangle references, duplicate edges) and counts beyond the stream throw (the reader reports `GenericReaderError`); a truncated array throws `EndOfStreamException`. Files written by `gSerialization.Store` read as before |
 | `RoundRectGenerator.GetBorderLoop`, `RevolveGenerator` cap normals, `TrivialBox3Generator` normals | see the commit history | corrected |
 
 ## Signatures that change (recompile needed)
