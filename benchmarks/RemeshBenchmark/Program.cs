@@ -259,6 +259,7 @@ static class Program
         }
         q.Sort();
         R["q_min"] = q[0]; R["q_p5"] = Pct(q, 0.05); R["q_mean"] = q.Average();
+        R["q_below_0.1"] = q.Count(x => x < 0.1);
         var hd = new MeshHausdorffDistance(c.Input, m) { RelativeTolerance = 1e-3 };
         hd.Compute();
         R["hausdorff_rel"] = hd.UpperBound / c.Target;
@@ -386,13 +387,13 @@ static class Program
     static void PrintTable(List<Dictionary<string, object>> rows)
     {
         Console.WriteLine();
-        Console.WriteLine("| case | config | time s | tris | len mean | len p5 | len p95 | q min | q p5 | hausdorff/target | det. | serial= | 2^-10= | 2^10= | band min/max excess |");
-        Console.WriteLine("|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---|---|---|---|");
+        Console.WriteLine("| case | config | time s | tris | len mean | len p5 | len p95 | q min | q p5 | q<0.1 | hausdorff/target | det. | serial= | 2^-10= | 2^10= | band min/max excess |");
+        Console.WriteLine("|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---|---|---|---|");
         foreach (var r in rows) {
             object v;
             string band = r.TryGetValue("band_min_excess", out v) ? F(v, "0.000") + " / " + F(r["band_max_excess"], "0.000") : "";
             Console.WriteLine($"| {r["case"]} | {r["config"]} | {F(r["time_s"], "0.000")} | {r["tris"]} | {F(r["len_mean"])} | {F(r["len_p5"])} | {F(r["len_p95"])} | " +
-                $"{F(r["q_min"])} | {F(r["q_p5"])} | {F(r["hausdorff_rel"])} | {r["deterministic"]} | {r["serial_equal"]} | {r["scale_2^-10_equal"]} | {r["scale_2^10_equal"]} | {band} |");
+                $"{F(r["q_min"])} | {F(r["q_p5"])} | {r["q_below_0.1"]} | {F(r["hausdorff_rel"])} | {r["deterministic"]} | {r["serial_equal"]} | {r["scale_2^-10_equal"]} | {r["scale_2^10_equal"]} | {band} |");
         }
     }
 }
