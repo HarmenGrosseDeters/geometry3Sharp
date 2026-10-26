@@ -24,7 +24,8 @@ namespace gs
     /// surface is crossed, so if no triangle touches the grid edge to the neighbour, the value is the same.
     /// With open borders (holes, cracks) or inconsistent orientation (edges whose two triangles run along
     /// them in the same direction act like borders) the winding number varies continuously, so then all
-    /// values are evaluated.
+    /// values are evaluated. Values that may be copied are computed from the winding numbers rounded to
+    /// integers, so the result does not depend on the order in which (parallel) evaluations fill the cache.
     ///
     /// With several input meshes, node values are CombineF(winding numbers of all meshes), eg max for a
     /// union (see MeshWindingNumberBoolean); cells overlapping triangles of any mesh are refined.
@@ -54,7 +55,10 @@ namespace gs
 
         /// <summary> for closed, consistently oriented meshes, copy neighbour values instead of evaluating (see class comment) </summary>
         public bool PropagateValues = true;
-        /// <summary> only values with |w - WindingIso| above this are copied to neighbours </summary>
+        /// <summary>
+        /// only values with |w - WindingIso| above this are copied to neighbours; with propagation they are
+        /// computed from the rounded (integer) winding numbers (see NodeValue)
+        /// </summary>
         public double PropagateMargin = 0.3;
 
         public Func<bool> CancelF = () => { return false; };
@@ -154,19 +158,26 @@ namespace gs
         }
 
         bool keepCache = false;
+        double cacheIso, cacheMargin;
 
         void build()
         {
+            bool prop = PropagateValues;
+            for (int i = 0; i < Meshes.Length; ++i) {
+                Spatials[i].FastWindingNumber(Vector3d.Zero);    // build the winding cache before parallel use
+                prop = prop && is_closed_and_oriented(Meshes[i]);
+            }
+            // the cached values were computed with the same rules (rounded or not, see evaluate_rounded)
+            keepCache = keepCache && prop == propagate && WindingIso == cacheIso && PropagateMargin == cacheMargin;
             if (keepCache == false) {
                 cache = new ConcurrentDictionary<long, float>();
+                notCopyable = new ConcurrentDictionary<long, byte>();
                 evaluations = 0;
             }
             keepCache = false;
-            propagate = PropagateValues;
-            for (int i = 0; i < Meshes.Length; ++i) {
-                Spatials[i].FastWindingNumber(Vector3d.Zero);    // build the winding cache before parallel use
-                propagate = propagate && is_closed_and_oriented(Meshes[i]);
-            }
+            propagate = prop;
+            cacheIso = WindingIso;
+            cacheMargin = PropagateMargin;
 
             ConcurrentBag<Vector3i> cells = new ConcurrentBag<Vector3i>();
             refine(Vector3i.Zero, LeafCount, cells, 0);
@@ -176,7 +187,11 @@ namespace gs
         }
 
 
-        /// <summary> winding number at leaf-grid node (i,j,k), computed (or copied from a neighbour) on first use </summary>
+        /// <summary>
+        /// winding number at leaf-grid node (i,j,k), computed (or copied from a neighbour) on first use. With
+        /// propagation, values away from WindingIso (by more than PropagateMargin) are computed from the
+        /// winding numbers rounded to integers, so they do not depend on whether they were copied.
+        /// </summary>
         public double NodeValue(Vector3i node)
         {
             long key = node_key(node.x, node.y, node.z);
@@ -184,25 +199,46 @@ namespace gs
             if (cache.TryGetValue(key, out value))
                 return value;
             Vector3d pos = Origin + LeafCellSize * new Vector3d(node.x, node.y, node.z);
-            if (propagate == false || try_copy_from_neighbour(node, pos, out value) == false)
-                value = propagate ? snap(evaluate(pos)) : evaluate(pos);
+            if (propagate == false)
+                value = evaluate(pos);
+            else if (try_copy_from_neighbour(node, pos, out value) == false)
+                value = evaluate_rounded(key, pos);
             cache[key] = value;
             return value;
         }
 
         // With propagation, a node gets either its own value or a copy of a neighbour's, depending on which
         // neighbours the other threads have evaluated first. Off the surface of closed, oriented meshes the
-        // winding number is an integer, so values that may be copied (|w - WindingIso| > PropagateMargin) are
-        // rounded to it: then the copy and the node's own value are the same and the result does not depend
-        // on the thread timing (without this, the fast winding number error of the two differed in the last
-        // digits and moved contour vertices).
-        float snap(float value)
+        // winding numbers are integers, so values that may be copied (|value - WindingIso| > PropagateMargin)
+        // are computed from the rounded winding numbers: then a copy equals the node's own value and the result
+        // does not depend on the thread timing (without this, the fast winding number error of the two differed
+        // in the last digits and moved contour vertices). Values that rounding would move into the margin or
+        // across WindingIso (a large approximation error) are kept as they are and never copied.
+        float evaluate_rounded(long key, Vector3d pos)
         {
+            Interlocked.Increment(ref evaluations);
+            double[] w = new double[Meshes.Length];
+            for (int i = 0; i < Meshes.Length; ++i)
+                w[i] = Spatials[i].FastWindingNumber(pos);
+            double value = combine(w);
             if (Math.Abs(value - WindingIso) <= PropagateMargin)
-                return value;
-            float r = (float)Math.Round(value);
-            return ((r > WindingIso) == (value > WindingIso)) ? r : value;
+                return (float)value;
+            for (int i = 0; i < w.Length; ++i)
+                w[i] = Math.Round(w[i]);
+            double rounded = combine(w);
+            if (Math.Abs(rounded - WindingIso) > PropagateMargin && (rounded > WindingIso) == (value > WindingIso))
+                return (float)rounded;
+            notCopyable[key] = 0;
+            return (float)value;
         }
+
+        double combine(double[] w)
+        {
+            return (CombineF == null) ? w[0] : CombineF(w);
+        }
+
+        // nodes whose value is outside the margin but must not be copied (see evaluate_rounded)
+        ConcurrentDictionary<long, byte> notCopyable;
 
         // the winding number is piecewise constant (an integer) only for a closed, consistently oriented
         // mesh: an edge whose two triangles run along it in the same direction acts like a boundary
@@ -248,7 +284,8 @@ namespace gs
             for (int k = 0; k < 6; ++k) {
                 Vector3i nb = node + axis_neighbours[k];
                 float nbValue;
-                if (cache.TryGetValue(node_key(nb.x, nb.y, nb.z), out nbValue) == false)
+                long nbKey = node_key(nb.x, nb.y, nb.z);
+                if (cache.TryGetValue(nbKey, out nbValue) == false || notCopyable.ContainsKey(nbKey))
                     continue;
                 if (Math.Abs(nbValue - WindingIso) <= PropagateMargin)
                     continue;

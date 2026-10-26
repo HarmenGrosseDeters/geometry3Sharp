@@ -65,6 +65,40 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void Octree_PropagatedValues_NonIntegerCombine_NotRounded()
+        {
+            // the winding numbers are rounded before CombineF, not its result: a combine that is not an
+            // integer for integer inputs keeps its values (inside B only: 0 - 0.4 * 1 = -0.4)
+            DMesh3 a = Box(4, new Vector3d(-3, 0, 0)), b = Box(4, new Vector3d(3, 0, 0));
+            var o = new WindingNumberOctree(new[] { a, b }, new[] { new DMeshAABBTree3(a, true), new DMeshAABBTree3(b, true) },
+                (w) => w[0] - 0.4 * w[1]) { MaxDepth = 6 };
+            o.Build();
+            Func<Vector3d, Vector3i> node = (p) => {
+                Vector3d g = (p - o.Origin) / o.LeafCellSize;
+                return new Vector3i((int)Math.Round(g.x), (int)Math.Round(g.y), (int)Math.Round(g.z));
+            };
+            Assert.Equal(-0.4, o.NodeValue(node(new Vector3d(3, 0.1, 0.1))), 3);
+            Assert.Equal(1.0, o.NodeValue(node(new Vector3d(-3, 0.1, 0.1))), 6);
+        }
+
+        [Fact]
+        public void Octree_BuildOnGrid_DoesNotKeepValuesComputedWithOtherRules()
+        {
+            // values computed without propagation (not rounded) are not reused by a build with propagation
+            DMesh3 sphere = new Sphere3Generator_NormalizedCube() { Radius = 5, EdgeVertices = 16 }.Generate().MakeDMesh();
+            var o = new WindingNumberOctree(sphere, new DMeshAABBTree3(sphere, true)) { MaxDepth = 6, PropagateValues = false, RegionF = (min, size) => false };
+            o.Build();
+            int n = o.LeafCount;
+            var nodes = Enumerable.Range(0, n).Select(i => new Vector3i(i, n / 2, n / 2)).ToList();
+            var raw = nodes.Select(v => o.NodeValue(v)).ToList();
+            Assert.Contains(raw, w => w > 0.5 && w != 1.0);     // the fast winding number is not exact inside
+            o.PropagateValues = true;
+            o.BuildOnGrid(o.Origin, o.LeafCellSize, o.MaxDepth);
+            var again = nodes.Select(v => o.NodeValue(v)).ToList();
+            Assert.All(again.Where(w => w > 0.8), w => Assert.Equal(1.0, w));
+        }
+
+        [Fact]
         public void Octree_RefinesOnlyNearSurface()
         {
             DMesh3 box = Box(10);
