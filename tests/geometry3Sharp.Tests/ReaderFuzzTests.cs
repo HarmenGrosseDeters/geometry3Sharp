@@ -4,7 +4,6 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
-using System.Threading.Tasks;
 using g3;
 using Xunit;
 
@@ -158,7 +157,7 @@ namespace geometry3Sharp.Tests
             DMesh3Builder builder = new DMesh3Builder();
             long allocated = 0;
             Exception thrown = null;
-            Task task = Task.Run(() => {
+            bool finished = Timed.Finishes(() => {
                 try {
 #if NETCOREAPP
                     long before = GC.GetAllocatedBytesForCurrentThread();
@@ -173,8 +172,8 @@ namespace geometry3Sharp.Tests
                 } catch (Exception e) {
                     thrown = e;
                 }
-            });
-            if (task.Wait(TimeBudget) == false)
+            }, TimeBudget);
+            if (finished == false)
                 return $"no result after {TimeBudget.TotalSeconds} s";
             // readers report bad input with these (StandardMeshReader returns them as GenericReaderError); anything else,
             // eg IndexOutOfRange, NullReference, OutOfMemory, is a crash on the input
