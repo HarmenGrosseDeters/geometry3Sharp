@@ -460,7 +460,10 @@ namespace g3
                 Restore(vertexRefCounts, reader);
             }
 
+            // the stored buffers are taken over as they are: check them before the rebuild trusts them
+            check_buffers(mesh, vertexRefCounts);
             mesh.RebuildFromEdgeRefcounts();
+            check_rebuilt(mesh);
 
             // vertices without edges are not restored by RebuildFromEdgeRefcounts()
             if (vertexRefCounts != null) {
@@ -488,6 +491,75 @@ namespace g3
         }
 
 
+        static void check(bool ok, string what)
+        {
+            if (ok == false)
+                throw new Exception("gSerialization.Restore: invalid mesh data (" + what + ")");
+        }
+
+        // sizes of the stored buffers, and every live edge's vertices and triangles
+        static void check_buffers(DMesh3 mesh, DVector<short> vertexRefCounts)
+        {
+            DVector<double> vertices = mesh.VerticesBuffer;
+            DVector<int> triangles = mesh.TrianglesBuffer, edges = mesh.EdgesBuffer;
+            DVector<short> edgeRefs = mesh.EdgesRefCounts.RawRefCounts;
+            check(vertices.size % 3 == 0 && triangles.size % 3 == 0 && edges.size % 4 == 0, "buffer sizes");
+            int nV = vertices.size / 3, nT = triangles.size / 3, nE = edges.size / 4;
+            check(edgeRefs.size == nE, "edge reference counts");
+            if (mesh.HasVertexNormals) check(mesh.NormalsBuffer.size == 3 * nV, "normals");
+            if (mesh.HasVertexColors) check(mesh.ColorsBuffer.size == 3 * nV, "colors");
+            if (mesh.HasVertexUVs) check(mesh.UVBuffer.size == 2 * nV, "uvs");
+            if (mesh.HasTriangleGroups) check(mesh.GroupsBuffer.size == nT, "groups");
+            if (vertexRefCounts != null) check(vertexRefCounts.size <= nV, "vertex reference counts");
+            for (int eid = 0; eid < nE; ++eid) {
+                short r = edgeRefs[eid];
+                if (r <= 0) {
+                    edgeRefs[eid] = RefCountVector.invalid;     // a free slot (the rebuild skips it too)
+                    continue;
+                }
+                check(r == 1, "edge reference count");
+                int va = edges[4 * eid], vb = edges[4 * eid + 1], t0 = edges[4 * eid + 2], t1 = edges[4 * eid + 3];
+                check(va >= 0 && va < nV && vb >= 0 && vb < nV && va < vb, "edge vertices");
+                check(t0 >= 0 && t0 < nT && (t1 == DMesh3.InvalidID || (t1 >= 0 && t1 < nT && t1 != t0)), "edge triangles");
+                Index3i tri0 = new Index3i(triangles[3 * t0], triangles[3 * t0 + 1], triangles[3 * t0 + 2]);
+                check(IndexUtil.find_edge_index_in_tri(va, vb, ref tri0) != DMesh3.InvalidID, "edge not in its triangle");
+                if (t1 != DMesh3.InvalidID) {
+                    Index3i tri1 = new Index3i(triangles[3 * t1], triangles[3 * t1 + 1], triangles[3 * t1 + 2]);
+                    check(IndexUtil.find_edge_index_in_tri(va, vb, ref tri1) != DMesh3.InvalidID, "edge not in its triangle");
+                }
+            }
+        }
+
+        // after the rebuild: every triangle has three distinct vertices and the three edges that reference it, and
+        // each vertex pair has one edge
+        static void check_rebuilt(DMesh3 mesh)
+        {
+            foreach (int tid in mesh.TriangleIndices()) {
+                Index3i tv = mesh.GetTriangle(tid);
+                check(mesh.IsVertex(tv.a) && mesh.IsVertex(tv.b) && mesh.IsVertex(tv.c), "triangle vertices");
+                check(tv.a != tv.b && tv.b != tv.c && tv.c != tv.a, "repeated triangle vertex");
+                Index3i te = mesh.GetTriEdges(tid);
+                for (int j = 0; j < 3; ++j) {
+                    int eid = te[j];
+                    check(mesh.IsEdge(eid), "triangle edges");
+                    Index2i ev = mesh.GetEdgeV(eid), et = mesh.GetEdgeT(eid);
+                    check(IndexUtil.same_pair_unordered(tv[j], tv[(j + 1) % 3], ev.a, ev.b) && (et.a == tid || et.b == tid), "triangle edges");
+                }
+            }
+            // (per vertex, its edges' other ends marked with the vertex id: linear, also around high-valence vertices)
+            int[] mark = new int[mesh.MaxVertexID];
+            for (int k = 0; k < mark.Length; ++k) mark[k] = -1;
+            foreach (int vid in mesh.VertexIndices()) {
+                foreach (int eid in mesh.VtxEdgesItr(vid)) {
+                    Index2i ev = mesh.GetEdgeV(eid);
+                    int other = (ev.a == vid) ? ev.b : ev.a;
+                    check(mark[other] != vid, "duplicate edge");
+                    mark[other] = vid;
+                }
+            }
+        }
+
+
         // [TODO] these could be a lot faster if DVector had a block-iterator...
         public static void Store(DVector<double> vec, BinaryWriter writer)
         {
@@ -501,8 +573,8 @@ namespace g3
         }
         public static void Restore(DVector<double> vec, BinaryReader reader)
         {
-            int N = reader.ReadInt32();
-            byte[] bytes = reader.ReadBytes(N * sizeof(double));
+            int N = read_count(reader, sizeof(double));
+            byte[] bytes = read_bytes(reader, N * sizeof(double));
             double[] buffer = new double[N];
             Buffer.BlockCopy(bytes, 0, buffer, 0, bytes.Length);
             vec.Initialize(buffer);
@@ -520,8 +592,8 @@ namespace g3
         }
         public static void Restore(DVector<float> vec, BinaryReader reader)
         {
-            int N = reader.ReadInt32();
-            byte[] bytes = reader.ReadBytes(N * sizeof(float));
+            int N = read_count(reader, sizeof(float));
+            byte[] bytes = read_bytes(reader, N * sizeof(float));
             float[] buffer = new float[N];
             Buffer.BlockCopy(bytes, 0, buffer, 0, bytes.Length);
             vec.Initialize(buffer);
@@ -539,8 +611,8 @@ namespace g3
         }
         public static void Restore(DVector<int> vec, BinaryReader reader)
         {
-            int N = reader.ReadInt32();
-            byte[] bytes = reader.ReadBytes(N * sizeof(int));
+            int N = read_count(reader, sizeof(int));
+            byte[] bytes = read_bytes(reader, N * sizeof(int));
             int[] buffer = new int[N];
             Buffer.BlockCopy(bytes, 0, buffer, 0, bytes.Length);
             vec.Initialize(buffer);
@@ -558,12 +630,54 @@ namespace g3
         }
         public static void Restore(DVector<short> vec, BinaryReader reader)
         {
-            int N = reader.ReadInt32();
-            byte[] bytes = reader.ReadBytes(N * sizeof(short));
+            int N = read_count(reader, sizeof(short));
+            byte[] bytes = read_bytes(reader, N * sizeof(short));
             short[] buffer = new short[N];
             Buffer.BlockCopy(bytes, 0, buffer, 0, bytes.Length);
             vec.Initialize(buffer);
         }
+
+
+
+        // An element count stored in the stream: not negative, and (for a seekable stream) not more elements of
+        // elementSize bytes than the stream has left, so that a damaged or hostile file cannot make us allocate
+        // gigabytes before the read fails.
+        static int read_count(BinaryReader reader, int elementSize)
+        {
+            int N = reader.ReadInt32();
+            if (N < 0)
+                throw new Exception("gSerialization.Restore: negative element count " + N);
+            long bytes = (long)N * elementSize;
+            if (bytes > int.MaxValue)
+                throw new Exception("gSerialization.Restore: element count " + N + " too large");
+            Stream stream = reader.BaseStream;
+            if (stream.CanSeek && bytes > stream.Length - stream.Position)
+                throw new EndOfStreamException("gSerialization.Restore: element count " + N + " beyond the end of the stream");
+            return N;
+        }
+
+        static byte[] read_bytes(BinaryReader reader, int count)
+        {
+            byte[] bytes;
+            if (reader.BaseStream.CanSeek || count <= ReadChunk) {
+                bytes = reader.ReadBytes(count);
+            } else {
+                // (a stream without a length: read in chunks, so that memory follows the data that is there, not the
+                // count the stream claims)
+                var stream = new MemoryStream();
+                while (stream.Length < count) {
+                    byte[] chunk = reader.ReadBytes((int)Math.Min(ReadChunk, count - stream.Length));
+                    if (chunk.Length == 0)
+                        break;
+                    stream.Write(chunk, 0, chunk.Length);
+                }
+                bytes = stream.ToArray();
+            }
+            if (bytes.Length != count)
+                throw new EndOfStreamException("gSerialization.Restore: stream ends inside an array");
+            return bytes;
+        }
+        const int ReadChunk = 1 << 20;
 
 
 
@@ -575,8 +689,8 @@ namespace g3
         }
         public static void Restore(ref string s, BinaryReader reader)
         {
-            int N = reader.ReadInt32();
-            byte[] bytes = reader.ReadBytes(N);
+            int N = read_count(reader, 1);
+            byte[] bytes = read_bytes(reader, N);
             s = System.Text.Encoding.UTF8.GetString(bytes);
         }
 
@@ -589,7 +703,7 @@ namespace g3
         }
         public static void Restore(ref string[] s, BinaryReader reader)
         {
-            int N = reader.ReadInt32();
+            int N = read_count(reader, sizeof(int));
             s = new string[N];
             for (int i = 0; i < N; ++i)
                 Restore(ref s[i], reader);
