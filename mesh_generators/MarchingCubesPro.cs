@@ -241,9 +241,17 @@ namespace gs
             // re-acquire the lock we need to check again that we have not already
             // computed this edge, otherwise we will end up with duplicate vertices!
 
+            // the cells on either side of an edge pass its corners in opposite orders, and find_iso depends on the
+            // order (eg both values near the iso value); with parallel slabs either cell can come first, so the
+            // corners are put in a fixed order (the edge's lower corner first)
+            Vector3i c1 = idx1, c2 = idx2;
+            if (c2.x + c2.y + c2.z < c1.x + c1.y + c1.z) {
+                c1 = idx2; c2 = idx1;
+                double tmp = f1; f1 = f2; f2 = tmp;
+            }
             Vector3d pa = Vector3d.Zero, pb = Vector3d.Zero;
-            corner_pos(ref idx1, ref pa);
-            corner_pos(ref idx2, ref pb);
+            corner_pos(ref c1, ref pa);
+            corner_pos(ref c2, ref pb);
             Vector3d pos = Vector3d.Zero;
             find_iso(ref pa, ref pb, f1, f2, ref pos);
 
@@ -318,9 +326,12 @@ namespace gs
                 return val;
 
             Vector3d v = corner_pos(ref idx);
-            val = Implicit.Value(ref v);
-            corner_values_grid[idx] = (float)val;
-            return val;
+            // return the value as stored (float), also on the first evaluation: otherwise the cell that evaluates a
+            // corner first sees the double and its neighbors the float, and with parallel slabs which one is first
+            // depends on the thread schedule (edge vertices and the inside test of the corner differ between runs)
+            float fval = (float)Implicit.Value(ref v);
+            corner_values_grid[idx] = fval;
+            return fval;
         }
         void initialize_cell_values_grid(GridCell cell, bool shift)
         {
