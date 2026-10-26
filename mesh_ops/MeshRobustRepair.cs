@@ -16,7 +16,8 @@ namespace gs
     /// cell, see SolidifyResolution). If the solidify fails or its result is not clean either (rare:
     /// self-intersections where thin sheets meet in few cells), the mesh is alpha wrapped (MeshAlphaWrap,
     /// AlphaWrapFallback), whose result is always closed, manifold and free of self-intersections, but wraps
-    /// over cavities and gaps narrower than about 2 alpha and lies about Offset outside the input.
+    /// over cavities and gaps narrower than about 2 alpha and lies about Offset outside the input (simplified,
+    /// SimplifyAlphaWrap: within half an Offset of that).
     ///
     /// Clean means: closed, no bowties, no degenerate triangles, no inside-out components and, if
     /// CheckSelfIntersections, no self-intersections (exact, MeshRepairMetrics).
@@ -65,7 +66,7 @@ namespace gs
         public Action<MeshAutoRepair> ConfigureRepair = null;
         /// <summary> replaces the first stage (input -> repaired mesh); null = MeshAutoRepair </summary>
         public Func<DMesh3, DMesh3> RepairF = null;
-        /// <summary> return true to cancel (checked after the repair stage and during solidify) </summary>
+        /// <summary> return true to cancel (checked after the repair stage, during solidify, the alpha wrap and its simplification) </summary>
         public Func<bool> CancelF = () => { return false; };
         /// <summary>
         /// before solidifying: resolve the self-intersections exactly (the solid where the winding number is
@@ -94,9 +95,10 @@ namespace gs
         public double WrapRelativeOffset = 3000;
         /// <summary>
         /// alpha wrap fallback: simplify the wrap (it has many small triangles, about alpha in size, also on flat
-        /// regions). Collapses create no self-intersections (Reducer.PreventSelfIntersections); the result is kept
-        /// only if it is clean and certified within the wrap offset of the unsimplified wrap (one-sided Hausdorff
-        /// upper bound), otherwise the unsimplified wrap is.
+        /// regions). Collapses create no self-intersections (Reducer.PreventSelfIntersections, exact, also if
+        /// CheckSelfIntersections is false); the result is kept only if it is clean and certified within half the
+        /// wrap offset of the unsimplified wrap (one-sided Hausdorff upper bound), so it stays about half an offset
+        /// outside the input; otherwise the unsimplified wrap is (AlphaWrapSimplified false).
         /// </summary>
         public bool SimplifyAlphaWrap = true;
 
@@ -140,6 +142,8 @@ namespace gs
         public MeshAlphaWrap AlphaWrap;
         /// <summary> alpha wrap fallback: triangles of the wrap before simplification (0 if not run) </summary>
         public int AlphaWrapTriangles;
+        /// <summary> alpha wrap fallback: true if the result is the simplified wrap (SimplifyAlphaWrap) </summary>
+        public bool AlphaWrapSimplified;
         public bool UsedExactResolve;
         /// <summary> why the exact resolve was not used ("" if it was or was not tried) </summary>
         public string ExactResolveReason = "";
@@ -157,7 +161,7 @@ namespace gs
         /// (cleanness incl. self-intersections), "volume" (VolumeIoU), "exact" (exact resolve incl. its checks;
         /// parts of it in "exact.orient", "exact.closed", "exact.resolve", "exact.check", "exact.volume"),
         /// "solidify", "solidify." + the phases of MeshWindingNumberSolidify, "solidify.check" (cleanness of
-        /// its result), "wrap" (alpha wrap fallback) and "solidify.finish" (post-processing a solidify that was
+        /// its result), "wrap" (alpha wrap fallback), "wrap.simplify" (SimplifyAlphaWrap) and "solidify.finish" (post-processing a solidify that was
         /// stopped on self-intersections, if the wrap failed)
         /// </summary>
         public Dictionary<string, long> PhaseMilliseconds = new Dictionary<string, long>();
@@ -196,6 +200,7 @@ namespace gs
             UsedInput = false;
             UsedAlphaWrap = false;
             AlphaWrapTriangles = 0;
+            AlphaWrapSimplified = false;
             SolidifyReason = "";
             Solidify = null;
             AlphaWrap = null;
@@ -312,8 +317,15 @@ namespace gs
                 if ((AlphaWrap.Status == MeshAlphaWrap.WrapStatus.Success || AlphaWrap.Status == MeshAlphaWrap.WrapStatus.PointLimitReached)
                     && AlphaWrap.Result != null && AlphaWrap.Result.TriangleCount > 0) {
                     AlphaWrapTriangles = AlphaWrap.Result.TriangleCount;
-                    Mesh = SimplifyAlphaWrap ? simplify_wrap(AlphaWrap.Result, AlphaWrap.UsedOffset) : AlphaWrap.Result;
-                    end_phase("wrap.simplify");
+                    DMesh3 wrapped = AlphaWrap.Result;
+                    if (SimplifyAlphaWrap) {
+                        wrapped = simplify_wrap(AlphaWrap.Result, AlphaWrap.UsedOffset) ?? AlphaWrap.Result;
+                        end_phase("wrap.simplify");
+                        if (CancelF())
+                            return false;
+                    }
+                    AlphaWrapSimplified = wrapped != AlphaWrap.Result;
+                    Mesh = wrapped;
                     UsedAlphaWrap = true;
                     ResultReason = "";
                     return true;
@@ -360,12 +372,12 @@ namespace gs
         MeshRepairMetrics.SolidReference inputSolid;
         DMesh3 inputSolidOf;
 
-        // the wrap simplified within the offset, without self-intersections; the wrap itself if that is not clean
+        // the wrap simplified within half the offset, without self-intersections; null if that is not clean or certified
         DMesh3 simplify_wrap(DMesh3 wrap, double offset)
         {
-            if (offset <= 0 || CancelF())
-                return wrap;
-            return SimplifyWithin(wrap, offset, offset, CheckSelfIntersections, CancelF) ?? wrap;
+            if (CancelF())
+                return null;
+            return SimplifyWithin(wrap, 0.5 * offset, 0.5 * offset, CheckSelfIntersections, CancelF);
         }
 
         /// <summary>
@@ -378,7 +390,7 @@ namespace gs
         {
             DMesh3 m = new DMesh3(mesh);
             Reducer reducer = new Reducer(m) {
-                PreventSelfIntersections = true,
+                PreventSelfIntersections = true, Progress = new ProgressCancel(cancelF),
                 AreaWeightedQuadrics = false, MinCollapseTriangleQuality = 0.05, EdgeFlipTolerance = Math.Cos(60 * MathUtil.Deg2Rad)
             };
             reducer.ReduceToMaxQuadricError(quadricDistance * quadricDistance);
