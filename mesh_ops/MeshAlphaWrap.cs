@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using g3;
 
 namespace gs
@@ -57,7 +58,10 @@ namespace gs
             /// (closed, manifold, encloses the input), but has less detail than requested.
             /// </summary>
             PointLimitReached = 5,
-            /// <summary> internal failure (should not happen), see Error </summary>
+            /// <summary>
+            /// internal failure (should not happen), see Error; also if the result misses the guarantees (not closed,
+            /// bowtie vertices, box corners on a Success result): Result is then kept for diagnostics
+            /// </summary>
             Failed = 6
         }
 
@@ -78,7 +82,10 @@ namespace gs
         /// <summary> make the result 2-manifold (otherwise it can have non-manifold edges and vertices, which DMesh3 rejects; for tests) </summary>
         internal bool MakeManifold = true;
 
+        /// <summary> return true to cancel (checked during the refinement and the manifold step); null = never </summary>
         public Func<bool> CancelF = () => { return false; };
+
+        bool cancelled() { return CancelF != null && CancelF(); }
 
         // outputs
         public DMesh3 Result;
@@ -146,11 +153,15 @@ namespace gs
 
             remove_pockets();
             if (MakeManifold && make_manifold() == false) {
-                Status = WrapStatus.Failed;
-                Error = "could not make the result manifold";
+                Status = cancelled() ? WrapStatus.Cancelled : WrapStatus.Failed;
+                Error = Status == WrapStatus.Cancelled ? null : "could not make the result manifold";
                 return false;
             }
             end_phase("manifold");
+            if (cancelled()) {
+                Status = WrapStatus.Cancelled;
+                return false;
+            }
             Result = extract();
             end_phase("extract");
             if (Result == null) {
@@ -159,6 +170,15 @@ namespace gs
             }
             Counts["result_triangles"] = Result.TriangleCount;
             Counts["result_box_corners"] = boxCornersInResult;
+            // the guarantees, checked (topology only, cheap): a result that misses them is not reported as one that
+            // has them (Result is kept for diagnostics)
+            string violated = !Result.IsClosed() ? "not closed" : MeshIterators.BowtieVertices(Result).Any() ? "bowtie vertices"
+                : (Status == WrapStatus.Success && boxCornersInResult > 0) ? "box corners on the result" : null;
+            if (violated != null) {
+                Status = WrapStatus.Failed;
+                Error = "result " + violated;
+                return false;
+            }
             return Status == WrapStatus.Success;
         }
 
@@ -183,7 +203,7 @@ namespace gs
             }
             foreach (var list in new[] { tris, pts })
                 foreach (Vector3d v in list)
-                    if (double.IsNaN(v.x + v.y + v.z) || double.IsInfinity(v.x + v.y + v.z)) {
+                    if (!MathUtil.IsFinite(v.x) || !MathUtil.IsFinite(v.y) || !MathUtil.IsFinite(v.z)) {
                         Error = "input has non-finite coordinates";
                         return WrapStatus.InvalidInput;
                     }
@@ -205,7 +225,14 @@ namespace gs
 
             // the box keeps the offset surface strictly inside, with room for alpha balls around it
             AxisAlignedBox3d box = bounds;
-            box.Expand(2 * (offset + alpha) + 1e-3 * Math.Max(diag, offset));
+            double margin = 2 * (offset + alpha) + 1e-3 * Math.Max(diag, offset);
+            // a slightly different margin on each side: symmetric inputs (spheres, CAD parts) are not symmetric to the
+            // box, whose corners otherwise make nearly flat cells with the Steiner points; their floating-point
+            // circumcenters are far off, and a rule 1 point from such a dual edge lands on an existing vertex
+            // (rejected), so the cell stays inside up to the box (corners on the result; eg a unit sphere, alpha
+            // diagonal / 10)
+            box.Min -= margin * new Vector3d(1.0137, 1.0291, 1.0413);
+            box.Max += margin * new Vector3d(1.0371, 1.0173, 1.0239);
             dt = new Delaunay3(box);
             // the cell stamps of the new triangulation start again: entries of an earlier Compute() would match
             Array.Clear(centerStamp, 0, centerStamp.Length);
@@ -265,7 +292,7 @@ namespace gs
             int steiner = 0;
             WrapStatus status = WrapStatus.Success;
             while (gates.Count > 0) {
-                if ((++popped & 1023) == 0 && CancelF())
+                if ((++popped & 1023) == 0 && cancelled())
                     return WrapStatus.Cancelled;
                 gates.Pop(out int c, out int i, out int stampC);
                 if (!dt.IsCell(c) || dt.CellStamp(c) != stampC || label[c] != Inside)
@@ -555,7 +582,7 @@ namespace gs
             long limit = 100L * dt.VertexCount + 1000;
             while (true) {
                 while (work.Count > 0) {
-                    if (++processed > limit)
+                    if (++processed > limit || ((processed & 1023) == 0 && cancelled()))
                         return false;
                     int v = work.Dequeue();
                     queued[v] = false;
