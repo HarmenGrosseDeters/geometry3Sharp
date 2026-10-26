@@ -110,7 +110,14 @@ namespace gs
         /// <summary> signpost: direction of halfedge h in the tangent space of its tail (see class comment) </summary>
         public double Signpost(int h) { return hAngle[h]; }
         /// <summary> direction of the edge of h at its head vertex, pointing back to the tail </summary>
-        public double ReverseSignpost(int h) { return hTwin[h] >= 0 ? hAngle[hTwin[h]] : vAngleSum[Head(h)]; }
+        public double ReverseSignpost(int h) { return hTwin[h] >= 0 ? hAngle[hTwin[h]] : LastSignpost(Head(h)); }
+        /// <summary> signpost of the second boundary edge of boundary vertex index i (its angle sum; boundary vertices are not scaled) </summary>
+        public double LastSignpost(int i) { return vScale[i] * vAngleSum[i]; }
+
+        internal static double vertex_scale(bool boundary, double angleSum)
+        {
+            return (boundary || !(angleSum > 0)) ? 1 : 2 * Math.PI / angleSum;
+        }
         public bool IsBoundaryVertex(int i) { return vBoundary[i]; }
         /// <summary> sum of the triangle angles at vertex index i (2 pi minus the angle defect) </summary>
         public double AngleSum(int i) { return vAngleSum[i]; }
@@ -121,7 +128,7 @@ namespace gs
         /// <summary> next outgoing halfedge counter-clockwise around the tail, -1 after the last at a boundary vertex </summary>
         public int NextAroundVertex(int h) { return hTwin[Prev(h)]; }
 
-        /// <summary> triangle t as mesh vertex ids </summary>
+        /// <summary> triangle t as mesh vertex ids (-1 for vertices inserted by DelaunayRefine; GetTriangleIndices gives all) </summary>
         public Index3i GetTriangle(int t)
         {
             return new Index3i(toVertex[hV[3 * t]], toVertex[hV[3 * t + 1]], toVertex[hV[3 * t + 2]]);
@@ -270,7 +277,7 @@ namespace gs
                 }
                 fanCount[i] = count;
                 vAngleSum[i] = s;
-                vScale[i] = (s > 0 && vBoundary[i] == false) ? 2 * Math.PI / s : 1;
+                vScale[i] = vertex_scale(vBoundary[i], s);
                 double phi = 0;
                 h = h0;
                 for (int k = 0; k < count; ++k) {
@@ -398,41 +405,12 @@ namespace gs
             double phiL = add_angle(vl, hAngle[tc], vScale[vl] * angL);
 
             // new triangles: slot (ha, hb, hc) = (k->l, l->j, j->k), slot (ta, tb, tc) = (l->k, k->i, i->l)
-            int[] from = { hb, tc, hc, tb };
-            int[] to = { hc, hb, tb, tc };
-            int[] oV = new int[4], oT = new int[4];
-            double[] oL = new double[4], oA = new double[4];
-            for (int m = 0; m < 4; ++m) {
-                oV[m] = hV[from[m]]; oT[m] = hTwin[from[m]]; oL[m] = hLen[from[m]]; oA[m] = hAngle[from[m]];
-            }
-            Func<int, int> map = (x) => {
-                for (int m = 0; m < 4; ++m) if (from[m] == x) return to[m];
-                return x;
-            };
-            for (int m = 0; m < 4; ++m) {
-                int s = to[m];
-                hV[s] = oV[m]; hLen[s] = oL[m]; hAngle[s] = oA[m];
-                int tw = oT[m];
-                if (tw < 0) hTwin[s] = -1;
-                else {
-                    int mt = map(tw);
-                    hTwin[s] = mt;
-                    if (mt == tw) hTwin[tw] = s;
-                }
-            }
-            hV[ha] = vk; hLen[ha] = lkl; hAngle[ha] = phiK; hTwin[ha] = ta;
-            hV[ta] = vl; hLen[ta] = lkl; hAngle[ta] = phiL; hTwin[ta] = ha;
-
-            // vertex halfedges that moved or vanished (all read before any is written)
-            int[] vs = { vi, vj, vk, vl };
-            int[] nv = new int[4];
-            for (int m = 0; m < 4; ++m) {
-                int v = vs[m], cur = vHe[v];
-                if (cur == ha) nv[m] = tc;                  // i->j is gone: i->l
-                else if (cur == ta) nv[m] = hc;             // j->i is gone: j->k
-                else nv[m] = map(cur);
-            }
-            for (int m = 0; m < 4; ++m) vHe[vs[m]] = nv[m];
+            relocate(new[] { hb, tc, hc, tb }, new[] { hc, hb, tb, tc });
+            set_he(ha, vk, ta, lkl, phiK);
+            set_he(ta, vl, ha, lkl, phiL);
+            // vertex halfedges on the flipped edge: i->j is gone (i->l, now in tc), j->i too (j->k, now in hc)
+            if (vHe[vi] == ha) vHe[vi] = tc;
+            if (vHe[vj] == ta) vHe[vj] = hc;
             return true;
         }
 
@@ -524,25 +502,48 @@ namespace gs
             d = new Vector2d(Math.Cos(a0), Math.Sin(a0));
         }
 
+        internal enum WalkEnd { Reached, Boundary, OutOfSteps }
+
         // Walks straight from p (in the layout of input triangle t) in the unit direction d for the given
-        // length, unfolding across input edges; on return t, p, d describe the end point and the arriving
-        // direction. The crossed input edges are added to crossings (if not null). Points on an edge of
-        // the triangle (eg a start vertex) leave through it only if the direction points out of it;
-        // along a boundary edge the walk slides. Returns false if it ran into the boundary.
+        // length over the input triangles (see walk). Returns false if it ran into the boundary or did not
+        // arrive.
         internal bool walk_input(ref int t, ref Vector2d p, ref Vector2d d, double length, List<WalkCrossing> crossings)
         {
+            int hit;
+            return walk(ref t, ref p, ref d, length, input_layout, inTwin, 6 * F0 + 20, true, crossings, out hit) == WalkEnd.Reached;
+        }
+
+        void input_layout(int t, Vector2d[] q)
+        {
+            q[0] = inLayout[3 * t]; q[1] = inLayout[3 * t + 1]; q[2] = inLayout[3 * t + 2];
+        }
+
+        // Walks straight from p (in the layout of triangle t, corners of halfedges 3t, 3t+1, 3t+2 given by
+        // layoutOf) in the unit direction d for the given length, unfolding across edges (twin); on return
+        // t, p, d describe the end point and the arriving direction, and the crossed edges are added to
+        // crossings (if not null). Points on an edge of the triangle (eg a start vertex) leave through it
+        // only if the direction points out of it, and never through the edge just entered. At the
+        // boundary the walk stops (hit: the boundary halfedge), or with slide, if it is running along a
+        // boundary edge, slides along it. Shared by the walks over the input and over the intrinsic triangles.
+        WalkEnd walk(ref int t, ref Vector2d p, ref Vector2d d, double length, Action<int, Vector2d[]> layoutOf,
+            int[] twin, int maxSteps, bool slide, List<WalkCrossing> crossings, out int hit)
+        {
+            hit = -1;
             double remaining = length;
             int entered = -1;
-            int maxSteps = 6 * F0 + 20;
+            Vector2d[] q = new Vector2d[3], q2 = new Vector2d[3];
             for (int step = 0; step < maxSteps; ++step) {
+                // arrived up to rounding (eg exactly at a vertex, where it would otherwise keep crossing the
+                // edges around the vertex at distance 0)
+                if (remaining <= 1e-12 * length) return WalkEnd.Reached;
+                layoutOf(t, q);
                 double scale = 0;
-                for (int k = 0; k < 3; ++k) scale = Math.Max(scale, inLayout[3 * t + k].Distance(inLayout[3 * t + (k + 1) % 3]));
+                for (int k = 0; k < 3; ++k) scale = Math.Max(scale, q[k].Distance(q[(k + 1) % 3]));
                 double tol = 1e-12 * scale;
                 double bestS = double.MaxValue; int exit = -1;
                 for (int k = 0; k < 3; ++k) {
                     if (3 * t + k == entered) continue;      // a straight line crosses an edge once
-                    Vector2d a = inLayout[3 * t + k], b = inLayout[3 * t + (k + 1) % 3];
-                    Vector2d e = b - a;
+                    Vector2d a = q[k], e = q[(k + 1) % 3] - a;
                     double el = e.Length;
                     if (!(el > 0)) continue;
                     double rate = (e.x * d.y - e.y * d.x) / el;           // < 0: towards the edge
@@ -554,22 +555,24 @@ namespace gs
                 }
                 if (exit < 0 || remaining <= bestS) {
                     p = p + remaining * d;
-                    return true;
+                    return WalkEnd.Reached;
                 }
                 int eh = 3 * t + exit;
-                Vector2d A = inLayout[eh], B = inLayout[3 * t + (exit + 1) % 3];
+                Vector2d A = q[exit], B = q[(exit + 1) % 3];
                 Vector2d x = p + bestS * d;
                 double u = MathUtil.Clamp((x - A).Dot(B - A) / (B - A).LengthSquared, 0, 1);
                 x = A + u * (B - A);
-                int tw = inTwin[eh];
+                int tw = twin[eh];
                 if (tw < 0) {
+                    hit = eh;
                     p = x;
+                    if (slide == false) return WalkEnd.Boundary;
                     remaining -= bestS;
-                    if (bestS > 1e-9 * length) return remaining <= 1e-9 * length;
+                    if (bestS > 1e-9 * length) return remaining <= 1e-9 * length ? WalkEnd.Reached : WalkEnd.Boundary;
                     // on the boundary edge: slide along it
                     Vector2d ue = unit(B - A);
                     double along = d.Dot(ue);
-                    if (Math.Abs(along) < 1e-9) return false;
+                    if (Math.Abs(along) < 1e-9) return WalkEnd.Boundary;
                     d = along > 0 ? ue : -ue;
                     entered = eh;                   // do not leave through the edge it slides along
                     continue;
@@ -577,17 +580,24 @@ namespace gs
                 if (crossings != null) crossings.Add(new WalkCrossing() { Halfedge = eh, U = u, Point = x });
                 remaining -= bestS;
                 // unfold into the neighbour: the edge runs B -> A there
-                Vector2d u1 = unit(B - A);
-                Vector2d n1 = new Vector2d(-u1.y, u1.x);
                 int t2 = tw / 3;
-                Vector2d A2 = inLayout[3 * t2 + (tw % 3 + 1) % 3], B2 = inLayout[tw];
-                Vector2d u2 = unit(B2 - A2);
-                Vector2d n2 = new Vector2d(-u2.y, u2.x);
+                layoutOf(t2, q2);
+                Vector2d A2 = q2[(tw % 3 + 1) % 3], B2 = q2[tw % 3];
+                Vector2d u1 = unit(B - A), n1 = new Vector2d(-u1.y, u1.x);
+                Vector2d u2 = unit(B2 - A2), n2 = new Vector2d(-u2.y, u2.x);
                 d = unit(d.Dot(u1) * u2 + d.Dot(n1) * n2);
                 p = A2 + u * (B2 - A2);
                 t = t2; entered = tw;
             }
-            return false;
+            return WalkEnd.OutOfSteps;
+        }
+
+        // (for tests of the consistency checks only) moves inserted vertex v to parameter u on input halfedge ih
+        // without changing the triangulation, which is then no longer consistent with its input locations
+        internal void place_inserted_vertex(int v, int ih, double u)
+        {
+            vInTri[v] = ih / 3;
+            vInPos[v] = inLayout[ih] + u * (inLayout[Next(ih)] - inLayout[ih]);
         }
 
         /// <summary> position on the input surface of vertex index i (inserted vertices from their input location) </summary>
@@ -632,7 +642,9 @@ namespace gs
         /// </summary>
         public void GetTangentBasis(int vid, out Vector3d e1, out Vector3d e2, out Vector3d n)
         {
-            int i = toIndex[vid];
+            int i = VertexIndex(vid);
+            if (i < 0)
+                throw new ArgumentException("IntrinsicTriangulation: " + vid + " is not a mesh vertex with triangles");
             Vector3d p = Mesh.GetVertex(vid);
             n = Vector3d.Zero;
             int h0 = inVHe[i], hh = h0, guard = 0;
@@ -673,7 +685,7 @@ namespace gs
         {
             Vector3d n;
             GetTangentBasis(vid, out e1, out e2, out n);
-            int i = toIndex[vid];
+            int i = VertexIndex(vid);
             Vector3d p = Mesh.GetVertex(vid);
             sign = new List<double>();
             world = new List<double>();
@@ -692,13 +704,24 @@ namespace gs
                     Vector3d dl = Mesh.GetVertex(toVertex[hV_input_head(Next(hh))]) - p;
                     double wl = Math.Atan2(dl.Dot(e2), dl.Dot(e1));
                     while (wl < prevW) wl += 2 * Math.PI;
-                    sign.Add(vAngleSum[i]); world.Add(wl);
+                    sign.Add(LastSignpost(i)); world.Add(wl);
                     break;
                 }
                 if (nh == h0 || ++guard > 3 * F0) break;
                 hh = nh;
             }
-            sign.Add(2 * Math.PI); world.Add(2 * Math.PI);
+            // close the circle back at the first edge, keeping both sequences increasing: a boundary vertex with
+            // an angle sum above 2 pi has signposts beyond 2 pi, and the projection of a folded fan (saddles)
+            // winds more than once. Directions are only defined modulo 2 pi, so map_angle uses the first corner
+            // that contains an angle.
+            sign.Add(next_turn(sign[sign.Count - 1])); world.Add(next_turn(world[world.Count - 1]));
+        }
+
+        // smallest multiple of 2 pi, at least 2 pi, that is above a (or equal to it)
+        static double next_turn(double a)
+        {
+            const double twoPi = 2 * Math.PI;
+            return Math.Max(1, Math.Ceiling(a / twoPi - 1e-12)) * twoPi;
         }
 
         static double map_angle(double a, List<double> from, List<double> to)

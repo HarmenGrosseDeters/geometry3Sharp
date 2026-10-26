@@ -261,6 +261,8 @@ namespace g3cli
                     files.AddRange(args.String("more").Split(';').Select(f => f.Trim()).Where(f => f.Length > 0));
                 var warnings = new List<string>();
                 var meshes = files.Select(f => MeshFiles.Read(f, warnings)).ToList();
+                if (opName == "at_least" && args.Integer("k") > meshes.Count)
+                    warnings.Add($"k = {args.Integer("k")} is more than the {meshes.Count} inputs: the result is empty");
                 ExactMeshBoolean op;
                 if (opName == "at_least") {
                     op = new ExactMeshBoolean(meshes, ExactMeshBoolean.AtLeast(args.Integer("k")));
@@ -556,8 +558,7 @@ namespace g3cli
                 o["coverage"] = MeshReport.Num(atlas.Coverage);
                 o["overlapping_pairs"] = atlas.Overlap.OverlappingPairs;
                 o["inverted_triangles"] = atlas.Overlap.InvertedTriangles;
-                o["float_uv_defects"] = atlas.StoredDefects;
-                o["float_uv_sub_resolution_defects"] = atlas.SubResolutionDefects;
+                o["float_rounding_defects"] = atlas.FloatRoundingDefects;
                 o["distortion"] = DistortionInfo(atlas.Distortion);
                 o["input_mesh"] = MeshReport.Metrics(mesh, false);
                 o["vertices"] = atlas.AtlasMesh.VertexCount;

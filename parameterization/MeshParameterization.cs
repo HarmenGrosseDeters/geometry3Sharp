@@ -313,7 +313,8 @@ namespace g3
             }
             EulerCharacteristic = N - edges.Count + Tris.Count;
 
-            // union-find over triangles sharing edges -> components
+            // union-find over the vertices of the triangles -> components. Triangles that only share a vertex count
+            // as connected; such a vertex is a bowtie, which is rejected below
             int[] parent = new int[N];
             for (int i = 0; i < N; ++i) parent[i] = i;
             Func<int, int> find = null;
@@ -421,14 +422,29 @@ namespace g3
         public void ForEachCotanEdge(Action<int, int, double> f, bool mollifyDegenerate = false)
         {
             for (int ti = 0; ti < Tris.Count; ++ti) {
-                TriangleFrame fr = Frames[ti];
-                Index3i t = Tris[ti];
-                Vector3d cot = fr.Cot;
-                if (fr.Degenerate && (mollifyDegenerate == false || MollifiedCotangents(Pos[t.a], Pos[t.b], Pos[t.c], out cot) == false))
+                Vector3d cot;
+                if (!TriangleCotangents(ti, mollifyDegenerate, out cot))
                     continue;
+                Index3i t = Tris[ti];
                 for (int j = 0; j < 3; ++j)
                     f(t[(j + 1) % 3], t[(j + 2) % 3], 0.5 * cot[j]);
             }
+        }
+
+        /// <summary>
+        /// cotangents at the corners of triangle ti; a degenerate triangle is skipped (false) or, with
+        /// mollifyDegenerate, gets those of its mollified edge lengths (false only if its vertices coincide)
+        /// </summary>
+        public bool TriangleCotangents(int ti, bool mollifyDegenerate, out Vector3d cot)
+        {
+            TriangleFrame fr = Frames[ti];
+            cot = fr.Cot;
+            if (!fr.Degenerate)
+                return true;
+            if (!mollifyDegenerate)
+                return false;
+            Index3i t = Tris[ti];
+            return MollifiedCotangents(Pos[t.a], Pos[t.b], Pos[t.c], out cot);
         }
 
         /// <summary>
@@ -487,6 +503,23 @@ namespace g3
             for (int i = 0; i < N; ++i) { cu += u[i]; cv += v[i]; }
             cu /= N; cv /= N;
             for (int i = 0; i < N; ++i) { u[i] = (u[i] - cu) * s; v[i] = (v[i] - cv) * s; }
+        }
+
+        /// <summary>
+        /// initial UVs by vertex id into u, v (by index); returns an error if a vertex of a triangle has no entry or
+        /// a non-finite one
+        /// </summary>
+        public string ReadInitialUV(IList<Vector2d> uv, double[] u, double[] v)
+        {
+            for (int i = 0; i < N; ++i) {
+                if (ToVertex[i] >= uv.Count)
+                    return "InitialUV has " + uv.Count + " entries, but vertex " + ToVertex[i] + " is used by a triangle";
+                Vector2d p = uv[ToVertex[i]];
+                if (!MathUtil.IsFinite(p.x) || !MathUtil.IsFinite(p.y))
+                    return "InitialUV of vertex " + ToVertex[i] + " is not finite";
+                u[i] = p.x; v[i] = p.y;
+            }
+            return null;
         }
 
         public bool AllFinite(double[] u, double[] v)
