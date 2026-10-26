@@ -25,7 +25,10 @@ namespace g3
     /// (open) meshes the generalized winding number is used (Jacobson et al. 2013, fast approximation), with the
     /// solid where it is above 0.5; then the result is generally not closed. An inside-out mesh (winding
     /// number -1) has an empty solid. Degenerate (zero-area) input
-    /// triangles are dropped. The rounding of new vertices can, rarely, create tiny self-intersections.
+    /// triangles are dropped. The rounding of new vertices can create tiny self-intersections, and intersection
+    /// points that nearly coincide give degenerate slivers: SafeRounding repairs both after the rounding
+    /// (MeshRoundingRepair, verified with exact predicates on the doubles), ComputeExactVertices gives the
+    /// exact rational coordinates of the vertices instead.
     /// New vertices that lie exactly inside a flat region of the result or on a straight edge between two flat
     /// regions (eg the crossings of the edges of overlapping coplanar faces) are removed and the regions
     /// retriangulated (SimplifyFlatRegions, ExactPlanarSimplify), so that repeated booleans do not split the
@@ -118,12 +121,44 @@ namespace g3
         public int RemovedVertices;
         /// <summary> if false, Compute() fails for meshes that are not closed in the winding number sense </summary>
         public bool AllowOpenMeshes = true;
+        /// <summary>
+        /// after rounding the vertices to double, repair the self-intersections and degenerate triangles (area below
+        /// 1e-12 of the squared diagonal) the rounding left, by local edits checked with exact predicates on the doubles
+        /// (MeshRoundingRepair: contractions of short edges, flips, tiny vertex moves, removal of closed components that
+        /// keep a sliver and are tiny or thinner than 1e-5 of the diagonal, counted in Rounding.RemovedComponents). Input vertices are kept
+        /// where possible, and sheets that touch at duplicated vertices still touch, at the same points. Not every case
+        /// can be repaired: Compute() still succeeds (Status Success) if defects remain; RoundingClean tells whether the
+        /// result is verified free of both, Rounding has the counts.
+        /// </summary>
+        public bool SafeRounding = false;
+        /// <summary> the repair run by SafeRounding (its counts), or null </summary>
+        public MeshRoundingRepair Rounding;
+        /// <summary>
+        /// SafeRounding ran and its result has no self-intersections and no degenerate triangles (exact check; contacts
+        /// at duplicated vertices, where solids touch, are not intersections). False with Status Success means that
+        /// defects remain (Rounding.RemainingIntersections, RemainingDegenerate).
+        /// </summary>
+        public bool RoundingClean { get { return Rounding != null && Rounding.IsClean; } }
+        /// <summary>
+        /// compute ResultExactVertices: the exact coordinates of the result's vertices, before they are rounded
+        /// </summary>
+        public bool ComputeExactVertices = false;
+        /// <summary>
+        /// if ComputeExactVertices: per vertex id of Result, its exact (rational) coordinates in the input's
+        /// coordinate system; Result's coordinates are these rounded to the nearest double, except the vertices that split
+        /// edges where solids touch: their entries are the exact midpoints of the edges, their coordinates the midpoints
+        /// of the rounded ends (which can differ from the rounded exact midpoint by an ulp). With SafeRounding the entries are those before the
+        /// repair, for the vertex ids that remain (the repair moves some vertices by tiny amounts).
+        /// </summary>
+        public ExactPoint3[] ResultExactVertices;
         /// <summary> per input mesh: winding numbers exact (closed mesh) or generalized (open mesh) </summary>
         public bool ExactWindingA, ExactWindingB;
         /// <summary> the same for every input mesh (in the order of Meshes, or A, B), after Compute() </summary>
         public bool[] ExactWinding;
         // for tests: use generalized winding numbers also for closed meshes
         internal bool ForceGeneralizedWinding = false;
+        // for tests: triangles per batch of the arrangement's candidate pair search
+        internal long CandidateBatchSize = 1 << 24;
         // for tests: no floating-point filters in the arrangement
         internal bool DisableFilters = false;
         /// <summary> time per phase, for diagnostics </summary>
@@ -158,7 +193,11 @@ namespace g3
             WindingPredicate = windingPredicate;
         }
 
-        /// <summary> predicate for WindingPredicate: inside at least k of the meshes (winding number positive) </summary>
+        /// <summary>
+        /// predicate for WindingPredicate: inside at least k of the meshes (winding number positive). k = 1 is the
+        /// union, k = number of meshes the intersection, a larger k gives an empty result; k &lt;= 0 is true
+        /// everywhere (no surface between inside and outside: an empty result).
+        /// </summary>
         public static Func<int[], bool> AtLeast(int k)
         {
             return (w) => {
@@ -197,6 +236,9 @@ namespace g3
         {
             Result = null;
             Error = null;
+            Status = BooleanStatus.NotComputed;
+            Rounding = null;
+            ResultExactVertices = null;
             // (the meshes or the operation may have changed since the last call)
             IntersectingPairs = SelfIntersectingPairs = NonManifoldEdges = NonManifoldTriangles = SplitNonManifoldEdges = Patches = RemovedVertices = 0;
             ExactWindingA = ExactWindingB = false;
@@ -215,7 +257,8 @@ namespace g3
             foreach (DMesh3 m in inputs) {
                 foreach (int vid in m.VertexIndices()) {
                     Vector3d v = m.GetVertex(vid);
-                    if (double.IsNaN(v.x + v.y + v.z) || double.IsInfinity(v.x + v.y + v.z))
+                    // (per coordinate: the sum of finite coordinates can overflow)
+                    if (finite(v.x) == false || finite(v.y) == false || finite(v.z) == false)
                         return fail(BooleanStatus.InvalidInput, "input meshes have non-finite coordinates");
                 }
             }
@@ -227,7 +270,7 @@ namespace g3
             if (AllowOpenMeshes == false && Array.IndexOf(ExactWinding, false) >= 0)
                 return fail(BooleanStatus.OpenInput, "input meshes must be closed (every edge used equally often in both directions)");
 
-            arr = new ExactMeshArrangement(inputs) { SelfIntersections = true, DisableFilters = DisableFilters };
+            arr = new ExactMeshArrangement(inputs) { SelfIntersections = true, DisableFilters = DisableFilters, CandidateBatchSize = CandidateBatchSize };
             arr.Compute();
             IntersectingPairs = arr.IntersectingPairs - arr.SelfIntersectingPairs;
             SelfIntersectingPairs = arr.SelfIntersectingPairs;
@@ -248,8 +291,25 @@ namespace g3
             Result = assemble(keep, flip);
             PhaseMilliseconds["assembly"] = sw.ElapsedMilliseconds;
             Counts["removed_vertices"] = RemovedVertices;
+            if (SafeRounding) {
+                sw.Restart();
+                bool[] fixedV = resultFixed;
+                Rounding = new MeshRoundingRepair(Result) { SharedPositionsTouch = true, FixedVertexF = (v) => v < fixedV.Length && fixedV[v] };
+                Rounding.Apply();
+                PhaseMilliseconds["rounding"] = sw.ElapsedMilliseconds;
+                Counts["rounding_intersections"] = Rounding.InitialIntersections;
+                Counts["rounding_degenerate"] = Rounding.InitialDegenerate;
+                Counts["rounding_edits"] = Rounding.Collapses + Rounding.Flips + Rounding.Moves + Rounding.Zips;
+                Counts["rounding_removed_triangles"] = Rounding.RemovedTriangles;
+                Counts["rounding_removed_components"] = Rounding.RemovedComponents;
+            }
             Status = BooleanStatus.Success;
             return true;
+        }
+
+        static bool finite(double x)
+        {
+            return double.IsNaN(x) == false && double.IsInfinity(x) == false;
         }
 
         bool fail(BooleanStatus status, string error)
@@ -266,7 +326,13 @@ namespace g3
         /// </summary>
         public static DMesh3 Resolve(DMesh3 mesh)
         {
-            var op = new ExactMeshBoolean(mesh, new DMesh3(), Operations.Union);
+            return Resolve(mesh, false);
+        }
+
+        /// <summary> as Resolve(mesh), with SafeRounding of the result if safeRounding </summary>
+        public static DMesh3 Resolve(DMesh3 mesh, bool safeRounding)
+        {
+            var op = new ExactMeshBoolean(mesh, new DMesh3(), Operations.Union) { SafeRounding = safeRounding };
             return op.Compute() ? op.Result : null;
         }
 
@@ -451,6 +517,9 @@ namespace g3
                 int[] w;
                 if (patchWinding.TryGetValue(root, out w) == false) {
                     int p = centroid(ot);
+                    // (no error bound needed: the box corners are input doubles, the map from grid to input
+                    // coordinates is exact and its rounding to double monotone, so a point in the exact box rounds
+                    // into the double box; the pad only widens the query, front_winding tests the box exactly)
                     Vector3d pv = arr.ToInputVector(arr.Exact(p));
                     double pad = 1e-9 * (Math.Abs(pv.x) + Math.Abs(pv.y) + Math.Abs(pv.z)) + 1e-300;
                     candidates.Clear();
@@ -465,7 +534,9 @@ namespace g3
                         } else {
                             // generalized winding numbers are thresholded at 1/2: ceil(w - 1/2) > 0 iff w > 1/2,
                             // and it commutes with adding the integer changes across the patch
-                            wm = (int)Math.Ceiling(front_generalized_winding(i, m, stack[i]) - 0.5);
+                            // (clamped, so that adding the changes across the patch cannot overflow; NaN gives 0)
+                            double g = Math.Ceiling(front_generalized_winding(i, m, stack[i]) - 0.5);
+                            wm = (g > 1e6) ? 1000000 : (g < -1e6) ? -1000000 : double.IsNaN(g) ? 0 : (int)g;
                         }
                         if (wm != 0) {
                             sparse.Add(m);
@@ -581,7 +652,7 @@ namespace g3
             // pad: the rounding of the point to double (relative 1e-16), with a wide margin
             double pad = 1e-9 * (Math.Abs(pv.x) + Math.Abs(pv.y) + Math.Abs(pv.z)) + 1e-300;
             // grid coordinates of the point as doubles, for the filtered plane sides
-            double gx = ExactPoint3.ToDouble(P.X, P.W, 0), gy = ExactPoint3.ToDouble(P.Y, P.W, 0), gz = ExactPoint3.ToDouble(P.Z, P.W, 0);
+            double gx = grid_coord(P.X, P.W), gy = grid_coord(P.Y, P.W), gz = grid_coord(P.Z, P.W);
             for (int attempt = 0; attempt < 200; ++attempt) {
                 int axis = rng.Next(3);
                 long[] dir = new long[3];
@@ -608,13 +679,14 @@ namespace g3
                     var U = arr.Triangles[ti];
                     if (U.Degenerate || ti == ot.Source || (stack != null && stack.Contains(ti))) return;
                     // sides of the plane: in doubles where the error bound decides, else exact
-                    windingSides += 2;
+                    windingSides++;
                     int sr = DisableFilters ? 2 : plane_side_filtered(U.PlaneApprox, rx, ry, rz);
                     if (sr == 2) {
                         sr = (U.P.A * Rp.X + U.P.B * Rp.Y + U.P.C * Rp.Z - U.P.D).Sign;
                         windingExactSides++;
                     }
                     if (sr == 0) { degenerate = true; return; }
+                    windingSides++;
                     int sp = DisableFilters ? 2 : plane_side_filtered(U.PlaneApprox, gx, gy, gz);
                     if (sp == 2) {
                         sp = (U.P.A * P.X + U.P.B * P.Y + U.P.C * P.Z - U.P.D * P.W).Sign;
@@ -649,10 +721,13 @@ namespace g3
         /// <summary>
         /// sign of A x + B y + C z - D for a plane given by doubles pa[0..3] (each with relative error at most
         /// 2^-52, ExactMeshArrangement.InputTriangle.PlaneApprox) at a point given by doubles (relative error at
-        /// most 2^-52 each); 2 if the error bound does not decide (also for overflow or tiny values)
+        /// most 2^-52 each); 2 if the error bound does not decide (also for overflow or tiny values, and for
+        /// coordinates below TinyCoordinate, where the relative error of the rounding is not bounded)
         /// </summary>
         internal static int plane_side_filtered(double[] pa, double x, double y, double z)
         {
+            if (tiny(x) || tiny(y) || tiny(z))
+                return 2;
             double a = pa[0] * x, b = pa[1] * y, c = pa[2] * z, d = pa[3];
             double mag = Math.Abs(a) + Math.Abs(b) + Math.Abs(c) + Math.Abs(d);
             // per term: 2^-52 (coefficient) + 2^-52 (coordinate) + 2^-53 (product); the sum adds 3 * 2^-53 of
@@ -736,14 +811,29 @@ namespace g3
             min = b[0]; max = b[1];
         }
 
-        // sign of the 4x4 determinant of homogeneous points (consistent orientation, used for crossing tests)
-        // the grid coordinates of the point as doubles (each with relative error at most 2^-52)
+        // the grid coordinates of the point as doubles (each with relative error at most 2^-52, or NaN, see grid_coord)
         static Vector3d grid_double(ExactPoint3 p)
         {
             if (p.W.IsOne)
                 return new Vector3d((double)p.X, (double)p.Y, (double)p.Z);
-            return new Vector3d(ExactPoint3.ToDouble(p.X, p.W, 0), ExactPoint3.ToDouble(p.Y, p.W, 0), ExactPoint3.ToDouble(p.Z, p.W, 0));
+            return new Vector3d(grid_coord(p.X, p.W), grid_coord(p.Y, p.W), grid_coord(p.Z, p.W));
         }
+
+        /// <summary>
+        /// Nonzero coordinates smaller than this are not used by the filters: near the subnormal range the
+        /// rounding to double has no relative error bound (it can even flush to 0), and squares in the bounds
+        /// underflow. Above it every nonzero difference of two coordinates is at least 2^-352 and its square normal.
+        /// </summary>
+        internal const double TinyCoordinate = 4.909093465297727e-91;     // 2^-300
+
+        // num / den (den > 0) as double, NaN if it is nonzero but below TinyCoordinate (the filters then decline)
+        internal static double grid_coord(BigInteger num, BigInteger den)
+        {
+            double r = ExactPoint3.ToDouble(num, den, 0);
+            return (num.IsZero == false && !(Math.Abs(r) >= TinyCoordinate)) ? double.NaN : r;
+        }
+
+        static bool tiny(double v) { return v != 0 && !(Math.Abs(v) >= TinyCoordinate); }
 
         /// <summary>
         /// orient3d(a, b, c, d) with a floating-point filter: the doubles da..dd approximate the points (relative
@@ -761,7 +851,8 @@ namespace g3
 
         /// <summary>
         /// sign of the homogeneous 4x4 determinant of orient3d for points given approximately by doubles (relative
-        /// error at most 2^-52 per coordinate, positive weights), or 2 if the error bound does not decide.
+        /// error at most 2^-52 per coordinate, positive weights), or 2 if the error bound does not decide (also for
+        /// coordinates below TinyCoordinate, NaN or infinite ones).
         /// det4 [a 1; b 1; c 1; d 1] = -det3 [b-a; c-a; d-a]; the rows u, v, w of the 3x3 determinant are
         /// computed with absolute errors eu, ev, ew (inputs and subtraction), which change the determinant by at
         /// most (|u|+eu)(|v|+ev)(|w|+ew) - |u||v||w| (expanding it multilinearly, Hadamard's inequality for
@@ -769,6 +860,9 @@ namespace g3
         /// </summary>
         internal static int orient3d_filtered(ref Vector3d a, ref Vector3d b, ref Vector3d c, ref Vector3d d)
         {
+            if (tiny(a.x) || tiny(a.y) || tiny(a.z) || tiny(b.x) || tiny(b.y) || tiny(b.z)
+                || tiny(c.x) || tiny(c.y) || tiny(c.z) || tiny(d.x) || tiny(d.y) || tiny(d.z))
+                return 2;
             double ux = b.x - a.x, uy = b.y - a.y, uz = b.z - a.z;
             double vx = c.x - a.x, vy = c.y - a.y, vz = c.z - a.z;
             double wx = d.x - a.x, wy = d.y - a.y, wz = d.z - a.z;
@@ -800,6 +894,7 @@ namespace g3
             return Math.Sqrt(x * x + y * y + z * z) * (1 + 1e-15);
         }
 
+        // sign of the 4x4 determinant of homogeneous points (consistent orientation, used for crossing tests)
         static int orient3d(ExactPoint3 a, ExactPoint3 b, ExactPoint3 c, ExactPoint3 d)
         {
             BigInteger[,] m = new BigInteger[4, 4];
@@ -829,12 +924,12 @@ namespace g3
                 source.Add(ot.Source);
                 flipped.Add(flip[i]);
             }
+            var inputPoints = new HashSet<int>();
+            for (int m = 0; m < arr.VertexPoints.Length; ++m)
+                foreach (int vid in arr.Meshes[m].VertexIndices())
+                    inputPoints.Add(arr.Canonical(arr.VertexPoints[m][vid]));
             if (SimplifyFlatRegions) {
                 // new points inside flat regions and on straight edges between them are not needed
-                var inputPoints = new HashSet<int>();
-                for (int m = 0; m < arr.VertexPoints.Length; ++m)
-                    foreach (int vid in arr.Meshes[m].VertexIndices())
-                        inputPoints.Add(arr.Canonical(arr.VertexPoints[m][vid]));
                 var sw = System.Diagnostics.Stopwatch.StartNew();
                 var simplify = new ExactPlanarSimplify(arr, tris, source, flipped);
                 simplify.Run(inputPoints);
@@ -902,6 +997,9 @@ namespace g3
 
             // vertices: one per class of corner slots
             DMesh3 result = new DMesh3();
+            // per vertex: its point, or for the split vertices -2 - their index into splitPoints (the edge's ends)
+            var vertexPoint = new List<int>();
+            var splitPoints = new List<Index2i>();
             var vmap = new Dictionary<int, int>();
             int[] vids = new int[3 * tris.Count];
             for (int t = 0; t < tris.Count; ++t) {
@@ -909,6 +1007,7 @@ namespace g3
                     int root = find(3 * t + k), vid;
                     if (vmap.TryGetValue(root, out vid) == false) {
                         vid = result.AppendVertex(coords[usedIndex[tris[t][k]]]);
+                        vertexPoint.Add(tris[t][k]);
                         vmap[root] = vid;
                     }
                     vids[3 * t + k] = vid;
@@ -937,6 +1036,8 @@ namespace g3
                     foreach (var pair in group) {
                         Vector3d mid = 0.5 * (coords[usedIndex[u]] + coords[usedIndex[v]]);
                         int m = result.AppendVertex(mid);
+                        vertexPoint.Add(-2 - splitPoints.Count);
+                        splitPoints.Add(new Index2i(u, v));
                         foreach (int t in new[] { pair.Key, pair.Value }) {
                             int ku = slot(t, u) - 3 * t, kv = slot(t, v) - 3 * t;
                             int k = ((ku + 1) % 3 == kv) ? ku : kv;     // the edge (u, v) or (v, u) of t
@@ -959,26 +1060,48 @@ namespace g3
                     }
                 }
                 if (first < 0) {
-                    append_triangle(result, poly[0], poly[1], poly[2]);
+                    append_triangle(result, poly[0], poly[1], poly[2], vertexPoint);
                     continue;
                 }
                 // fan from a split vertex: it is on one edge, so no fan triangle is degenerate
                 int n = poly.Count;
                 for (int j = 1; j + 1 < n; ++j)
-                    append_triangle(result, poly[first], poly[(first + j) % n], poly[(first + j + 1) % n]);
+                    append_triangle(result, poly[first], poly[(first + j) % n], poly[(first + j + 1) % n], vertexPoint);
+            }
+
+            // input vertices (kept by SafeRounding where possible) and exact coordinates
+            resultFixed = new bool[vertexPoint.Count];
+            for (int vid = 0; vid < vertexPoint.Count; ++vid)
+                resultFixed[vid] = vertexPoint[vid] >= 0 && inputPoints.Contains(vertexPoint[vid]);
+            ResultExactVertices = null;
+            if (ComputeExactVertices) {
+                var exact = new ExactPoint3[vertexPoint.Count];
+                for (int vid = 0; vid < vertexPoint.Count; ++vid) {
+                    if (vertexPoint[vid] >= 0) {
+                        exact[vid] = arr.ToInputExact(arr.Exact(vertexPoint[vid]));
+                    } else {
+                        Index2i uv = splitPoints[-2 - vertexPoint[vid]];
+                        ExactPoint3 pu = arr.ToInputExact(arr.Exact(uv.a)), pv = arr.ToInputExact(arr.Exact(uv.b));
+                        exact[vid] = ExactPoint3.Create(pu.X * pv.W + pv.X * pu.W, pu.Y * pv.W + pv.Y * pu.W, pu.Z * pv.W + pv.Z * pu.W, 2 * pu.W * pv.W);
+                    }
+                }
+                ResultExactVertices = exact;
             }
             return result;
         }
 
-        void append_triangle(DMesh3 result, int a, int b, int c)
+        // per vertex of the last assembled result: is it an input vertex
+        bool[] resultFixed;
+
+        void append_triangle(DMesh3 result, int a, int b, int c, List<int> vertexPoint)
         {
             if (result.AppendTriangle(a, b, c) >= 0)
                 return;
             // (an edge with more than two triangles that could not be split: kept, with its own vertices)
             NonManifoldTriangles++;
-            int a2 = result.AppendVertex(result.GetVertex(a));
-            int b2 = result.AppendVertex(result.GetVertex(b));
-            int c2 = result.AppendVertex(result.GetVertex(c));
+            int a2 = result.AppendVertex(result.GetVertex(a)); vertexPoint.Add(vertexPoint[a]);
+            int b2 = result.AppendVertex(result.GetVertex(b)); vertexPoint.Add(vertexPoint[b]);
+            int c2 = result.AppendVertex(result.GetVertex(c)); vertexPoint.Add(vertexPoint[c]);
             result.AppendTriangle(a2, b2, c2);
         }
 

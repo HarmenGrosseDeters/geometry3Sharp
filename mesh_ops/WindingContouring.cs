@@ -38,6 +38,11 @@ namespace gs
         public Dictionary<string, long> PhaseMilliseconds = new Dictionary<string, long>();
         /// <summary> hidden gap edges at each refinement level of ContourRefined </summary>
         public List<int> GapEdgesPerLevel = new List<int>();
+        /// <summary>
+        /// true if the last contour is known to have no self-intersections (the dual contouring checked it
+        /// exactly and nothing was added after); false if it has some or was not checked
+        /// </summary>
+        public bool SelfIntersectionFree;
 
 
         /// <summary>
@@ -95,6 +100,7 @@ namespace gs
         /// </summary>
         public DMesh3 ContourAdaptive(double cellSize)
         {
+            SelfIntersectionFree = false;
             hiddenWidths.Clear();
             WindingNumberOctree octree = build_octree(cellSize);
             if (octree == null)
@@ -138,6 +144,7 @@ namespace gs
 
         DMesh3 finish(DualContouring dc)
         {
+            SelfIntersectionFree = false;
             HiddenGapEdges = dc.HiddenGapEdges;
             HiddenWallEdges = dc.HiddenWallEdges;
             classify_hidden(dc);
@@ -145,6 +152,8 @@ namespace gs
             if (CancelF() || dc.Mesh == null)
                 return null;
             NonManifoldTriangles = dc.NonManifoldTriangles;
+            // (the hole fills are not checked)
+            SelfIntersectionFree = dc.SelfIntersectionFree && NonManifoldTriangles == 0;
             if (NonManifoldTriangles > 0)
                 FillSmallHoles(dc.Mesh);
             return dc.Mesh;
@@ -224,6 +233,7 @@ namespace gs
         public DMesh3 ContourRefined(ref double cellSize, int maxLevels, int minEdges = 1)
         {
             MinFixableWidth = cellSize / Math.Pow(2, maxLevels);
+            SelfIntersectionFree = false;
             GapEdgesPerLevel.Clear();
             RefinedCells = 0; RefineFactor = 1; NonManifoldRefinements = 0;
             int evaluations = 0;

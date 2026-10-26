@@ -14,7 +14,10 @@ namespace gs
         InsertionLimitReached,
         /// <summary> some triangles could not be refined (their circumcenter fell onto an existing vertex) </summary>
         Incomplete,
-        /// <summary> not refined: the mesh has non-manifold (bowtie) vertices (MeshGeodesicDistance, VectorHeatMethod then use the flips alone) </summary>
+        /// <summary>
+        /// not refined: the mesh has non-manifold (bowtie) vertices; MeshGeodesicDistance then uses the flips
+        /// alone (IntrinsicTriangulation and VectorHeatMethod do not accept such meshes at all: ArgumentException)
+        /// </summary>
         NonManifoldInput
     }
 
@@ -263,7 +266,9 @@ namespace gs
             if (len > 0) {
                 Vector2d d = dir / len;
                 int hit;
-                if (walk_intrinsic(ref fe, ref pe, ref d, len, out hit) == false) {
+                WalkEnd end = walk_intrinsic(ref fe, ref pe, ref d, len, 3 * F + 20, out hit);
+                if (end == WalkEnd.OutOfSteps) return -1;
+                if (end == WalkEnd.Boundary) {
                     boundarySplit = true;
                     return split_boundary(hit);
                 }
@@ -354,56 +359,16 @@ namespace gs
             return tj > ti;
         }
 
+        // straight walk across the intrinsic triangles (see walk); stops at the boundary (hit)
+        internal WalkEnd walk_intrinsic(ref int f, ref Vector2d p, ref Vector2d d, double length, int maxSteps, out int hit)
+        {
+            return walk(ref f, ref p, ref d, length, layout, hTwin, maxSteps, false, null, out hit);
+        }
+
         // isometric layout of triangle t (corners of halfedges 3t, 3t+1, 3t+2)
         void layout(int t, Vector2d[] q)
         {
             GetTriangleLayout(t, out q[0], out q[1], out q[2]);
-        }
-
-        // Walks straight across the intrinsic triangles from p (layout of face f) in direction d (unit)
-        // for the given length. Returns false (and the boundary halfedge in hit) if it leaves the surface.
-        bool walk_intrinsic(ref int f, ref Vector2d p, ref Vector2d d, double length, out int hit)
-        {
-            hit = -1;
-            double remaining = length;
-            int entered = -1;
-            Vector2d[] q = new Vector2d[3], q2 = new Vector2d[3];
-            for (int step = 0; step < 3 * F + 20; ++step) {
-                layout(f, q);
-                double scale = Math.Max(hLen[3 * f], Math.Max(hLen[3 * f + 1], hLen[3 * f + 2]));
-                double tol = 1e-12 * scale;
-                double bestS = double.MaxValue; int exit = -1;
-                for (int k = 0; k < 3; ++k) {
-                    if (3 * f + k == entered) continue;      // a straight line crosses an edge once
-                    Vector2d a = q[k], e = q[(k + 1) % 3] - a;
-                    double el = e.Length;
-                    double rate = (e.x * d.y - e.y * d.x) / el;
-                    if (rate >= -1e-12) continue;                     // away from it or parallel (rounding)
-                    double dist = (e.x * (p.y - a.y) - e.y * (p.x - a.x)) / el;
-                    double s = (dist <= tol) ? 0 : dist / -rate;
-                    if (s < bestS) { bestS = s; exit = k; }
-                }
-                if (exit < 0 || remaining <= bestS) {
-                    p = p + remaining * d;
-                    return true;
-                }
-                int eh = 3 * f + exit;
-                Vector2d A = q[exit], B = q[(exit + 1) % 3];
-                double u = MathUtil.Clamp((p + bestS * d - A).Dot(B - A) / (B - A).LengthSquared, 0, 1);
-                Vector2d x = A + u * (B - A);
-                int tw = hTwin[eh];
-                if (tw < 0) { hit = eh; p = x; return false; }
-                remaining -= bestS;
-                int g = tw / 3;
-                layout(g, q2);
-                Vector2d A2 = q2[(tw % 3 + 1) % 3], B2 = q2[tw % 3];
-                Vector2d u1 = unit(B - A), n1 = new Vector2d(-u1.y, u1.x);
-                Vector2d u2 = unit(B2 - A2), n2 = new Vector2d(-u2.y, u2.x);
-                d = unit(d.Dot(u1) * u2 + d.Dot(n1) * n2);
-                p = A2 + u * (B2 - A2);
-                f = g; entered = tw;
-            }
-            return true;
         }
 
         /// <summary>
@@ -445,6 +410,14 @@ namespace gs
             double phA = add_angle(a, hAngle[h0], vScale[a] * angle_from_lengths(lbp, lab, lap));
             double phB = add_angle(b, hAngle[h1], vScale[b] * angle_from_lengths(lcp, lbc, lbp));
             double phC = add_angle(c, hAngle[h2], vScale[c] * angle_from_lengths(lap, lca, lcp));
+            // locate on the input by tracing from the nearest corner, before anything is changed
+            int corner = 0;
+            if (lbp < lap && lbp <= lcp) corner = 1;
+            else if (lcp < lap && lcp < lbp) corner = 2;
+            int lt; Vector2d lp, ld;
+            if (trace_to(corner == 0 ? a : corner == 1 ? b : c, corner == 0 ? phA : corner == 1 ? phB : phC,
+                    corner == 0 ? lap : corner == 1 ? lbp : lcp, out lt, out lp, out ld) == false)
+                return -1;
             int f1 = add_face(), f2 = add_face();
             int p = add_vertex(false);
             relocate(new[] { h1, h2 }, new[] { 3 * f1, 3 * f2 });
@@ -457,11 +430,7 @@ namespace gs
             set_he(3 * f2 + 2, p, 3 * f1 + 1, lcp, 0);
             vHe[p] = 3 * f + 2;
             init_vertex_signposts(p);
-            // locate on the input by tracing from the nearest corner
-            int from = 3 * f2 + 1;
-            if (lbp < lap && lbp <= lcp) from = 3 * f + 1;
-            else if (lcp < lap && lcp < lbp) from = 3 * f1 + 1;
-            locate_from(p, from);
+            set_location(p, corner == 0 ? 3 * f2 + 1 : corner == 1 ? 3 * f + 1 : 3 * f1 + 1, lt, lp, ld);
             return p;
         }
 
@@ -490,6 +459,10 @@ namespace gs
                 if (!(lml > 0)) return -1;
                 phL = add_angle(lv, hAngle[tc], vScale[lv] * angle_from_lengths(lmj, llj, lml));
             }
+            // an interior point is located by tracing from the nearer end, before anything is changed
+            int lt = -1; Vector2d lp = Vector2d.Zero, ld = Vector2d.Zero;
+            if (!boundary && trace_to(s <= 0.5 ? i : j, s <= 0.5 ? hAngle[h] : hAngle[ta], s <= 0.5 ? lim : lmj, out lt, out lp, out ld) == false)
+                return -1;
             int m = add_vertex(boundary);
             int f2 = add_face();
             int g2 = boundary ? -1 : add_face();
@@ -518,20 +491,26 @@ namespace gs
                 vInEdge[m] = ib;
                 vInEdgeT[m] = tm;
             } else
-                locate_from(m, s <= 0.5 ? h : ta);
+                set_location(m, s <= 0.5 ? h : ta, lt, lp, ld);
             return m;
         }
 
-        // input location of the new vertex v at the head of halfedge hFrom, by tracing hFrom over the input
-        void locate_from(int v, int hFrom)
+        // traces from vertex u in the direction of signpost phi for the given length over the input: the
+        // input triangle, position and arriving direction; false if the walk does not arrive (it ran into
+        // the boundary or out of steps), and then the point is not inserted
+        bool trace_to(int u, double phi, double length, out int t, out Vector2d p, out Vector2d d)
         {
-            int u = hV[hFrom];
-            int t; Vector2d p, d;
-            start_walk(u, hAngle[hFrom], out t, out p, out d);
-            walk_input(ref t, ref p, ref d, hLen[hFrom], null);
+            start_walk(u, phi, out t, out p, out d);
+            return walk_input(ref t, ref p, ref d, length, null);
+        }
+
+        // input location of the new vertex v at the head of halfedge hFrom, traced to (t, p) arriving in
+        // direction d (trace_to)
+        void set_location(int v, int hFrom, int t, Vector2d p, Vector2d d)
+        {
             vInTri[v] = t;
             vInPos[v] = p;
-            // the edge back to u leaves v in direction -d
+            // the edge back to the tail of hFrom leaves v in direction -d
             vInRef[v] = Math.Atan2(-d.y, -d.x) - hAngle[hTwin[hFrom]] / vScale[v];
         }
 
@@ -547,7 +526,7 @@ namespace gs
                 h = NextAroundVertex(h);
             } while (h >= 0 && h != h0 && fan.Count < 3 * F);
             vAngleSum[v] = sum;
-            vScale[v] = (vBoundary[v] || !(sum > 0)) ? 1 : 2 * Math.PI / sum;
+            vScale[v] = vertex_scale(vBoundary[v], sum);
             double phi = 0;
             foreach (int g in fan) {
                 hAngle[g] = phi;

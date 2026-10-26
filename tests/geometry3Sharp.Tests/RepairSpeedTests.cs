@@ -265,6 +265,40 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void ExactBooleanFilters_DeclineTinyCoordinates()
+        {
+            // near the subnormal range the rounding to double has no relative error bound: a rational grid
+            // coordinate 3 / 2^1076 rounds to 2^-1074 (+33 %), which made both filters return a wrong sign
+            Assert.Equal(ExactMeshBoolean.TinyCoordinate, Math.Pow(2, -300));
+            BigInteger W = BigInteger.One << 1076;
+            Assert.True(double.IsNaN(ExactMeshBoolean.grid_coord(3, W)));
+            Assert.True(double.IsNaN(ExactMeshBoolean.grid_coord(1, BigInteger.One << 1200)));     // flushed to 0 otherwise
+            Assert.Equal(0.0, ExactMeshBoolean.grid_coord(0, W));
+            Assert.Equal(0.75, ExactMeshBoolean.grid_coord(3, 4));
+
+            // plane 2^997 x + y = 0 at (3 / 2^1076, -7 * 2^-80, 0): exactly 3 * 2^-79 - 7 * 2^-80 = -2^-80 < 0
+            double[] pa = { Math.Pow(2, 997), 1, 0, 0 };
+            double gx = ExactPoint3.ToDouble(3, W, 0), gy = -7 * Math.Pow(2, -80);
+            BigInteger exact = (BigInteger.One << 997) * (3 << 4) - 7 * (BigInteger.One << 1000);    // times 2^-1080
+            Assert.Equal(-1, exact.Sign);
+            int f = ExactMeshBoolean.plane_side_filtered(pa, gx, gy, 0);
+            Assert.True(f == 2 || f == exact.Sign, "plane side " + f);
+            Assert.Equal(2, ExactMeshBoolean.plane_side_filtered(pa, ExactMeshBoolean.grid_coord(3, W), gy, 0));
+
+            // orient3d of P = (3, -4, 0) / 2^1076, (0, 0, 2^100), 0, (-9 * 2^150, 10 * 2^150, 0)
+            var pts = new[] { ExactPoint3.Create(3, -4, 0, W), ExactPoint3.FromInteger(0, 0, BigInteger.One << 100),
+                ExactPoint3.FromInteger(0, 0, 0), ExactPoint3.FromInteger(-9 * (BigInteger.One << 150), 10 * (BigInteger.One << 150), 0) };
+            var m = new BigInteger[4, 4];
+            for (int k = 0; k < 4; ++k) {
+                m[k, 0] = pts[k].X; m[k, 1] = pts[k].Y; m[k, 2] = pts[k].Z; m[k, 3] = pts[k].W;
+            }
+            int exactOrient = ExactMeshArrangement.Det4(m).Sign;
+            Vector3d a = Approx(pts[0]), b = Approx(pts[1]), c = Approx(pts[2]), d = Approx(pts[3]);
+            int o = ExactMeshBoolean.orient3d_filtered(ref a, ref b, ref c, ref d);
+            Assert.True(o == 2 || o == exactOrient, $"orient {o}, exact {exactOrient}");
+        }
+
+        [Fact]
         public void ExactBooleanWinding_FiltersDecideMostPlaneSides()
         {
             // the classification casts a ray per patch; the plane sides of the triangles along it are

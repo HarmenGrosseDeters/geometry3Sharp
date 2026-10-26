@@ -1,6 +1,7 @@
 // Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using g3;
 
 namespace gs
@@ -155,13 +156,62 @@ namespace gs
         /// </summary>
         public static bool VolumeIoUAtLeast(DMesh3 input, DMesh3 result, double minIoU, out double iou, int samples = 100000, int seed = 1, double z = 4)
         {
+            return VolumeIoUAtLeast(new SolidReference(input), result, SolidInside(result), minIoU, out iou, samples, seed, z);
+        }
+
+        /// <summary>
+        /// The input's solid as the metrics see it (its oriented copy and a winding number tree), built once for several
+        /// results (eg the stages of MeshRobustRepair)
+        /// </summary>
+        internal sealed class SolidReference
+        {
+            internal readonly DMesh3 Mesh;
+            internal readonly Func<Vector3d, bool> Inside;
+            List<AxisAlignedBox3d> componentBoxes;
+            /// <summary> boxes of the closed connected components of Mesh (computed once) </summary>
+            internal List<AxisAlignedBox3d> ComponentBoxes()
+            {
+                if (componentBoxes == null) {
+                    var comps = new MeshConnectedComponents(Mesh);
+                    comps.FindConnectedT();
+                    componentBoxes = comps.Components.Where(c => c.Indices.All(t => {
+                        Index3i te = Mesh.GetTriEdges(t);
+                        return !Mesh.IsBoundaryEdge(te.a) && !Mesh.IsBoundaryEdge(te.b) && !Mesh.IsBoundaryEdge(te.c);
+                    })).Select(c => {
+                        var box = AxisAlignedBox3d.Empty;
+                        foreach (int tid in c.Indices) box.Contain(Mesh.GetTriBounds(tid));
+                        return box;
+                    }).ToList();
+                }
+                return componentBoxes;
+            }
+
+            internal SolidReference(DMesh3 input)
+            {
+                Mesh = input.TriangleCount > 0 ? WindingContouring.OrientedCopy(input) : input;
+                Inside = SolidInside(Mesh);
+            }
+            /// <summary> mesh (its components) with a given inside test (for tests) </summary>
+            internal SolidReference(DMesh3 mesh, Func<Vector3d, bool> inside)
+            {
+                Mesh = mesh;
+                Inside = inside;
+            }
+        }
+
+        /// <summary> inside test of a mesh's solid (generalized winding number &gt; 0.5), thread-safe; false everywhere for no triangles </summary>
+        internal static Func<Vector3d, bool> SolidInside(DMesh3 mesh)
+        {
+            return mesh.TriangleCount > 0 ? winding_inside(mesh) : (p) => false;
+        }
+
+        internal static bool VolumeIoUAtLeast(SolidReference input, DMesh3 result, Func<Vector3d, bool> resultInside, double minIoU, out double iou, int samples = 100000, int seed = 1, double z = 4)
+        {
             iou = 0;
-            if (input.TriangleCount == 0)
+            if (input.Mesh.TriangleCount == 0)
                 return iou >= minIoU;
-            input = WindingContouring.OrientedCopy(input);
-            Func<Vector3d, bool> inside = winding_inside(input);
-            bool atLeast = volume_iou_at_least(inside, sample_region(input, result), result, minIoU, out iou, samples, seed, z);
-            if (double.IsNaN(iou) && has_solid(inside, input, seed)) {
+            bool atLeast = volume_iou_at_least(input.Inside, sample_region(input.Mesh, result), resultInside, minIoU, out iou, samples, seed, z);
+            if (double.IsNaN(iou) && has_solid(input.Inside, input.Mesh, seed)) {
                 iou = 0;
                 return iou >= minIoU;
             }
@@ -172,13 +222,11 @@ namespace gs
         public static bool VolumeIoUAtLeast(Func<Vector3d, bool> referenceInside, AxisAlignedBox3d box, DMesh3 result, double minIoU, out double iou, int samples = 100000, int seed = 1, double z = 4)
         {
             box.Expand(0.01 * box.DiagonalLength);
-            return volume_iou_at_least(referenceInside, new SampleRegion(box), result, minIoU, out iou, samples, seed, z);
+            return volume_iou_at_least(referenceInside, new SampleRegion(box), SolidInside(result), minIoU, out iou, samples, seed, z);
         }
 
-        static bool volume_iou_at_least(Func<Vector3d, bool> referenceInside, SampleRegion region, DMesh3 result, double minIoU, out double iou, int samples, int seed, double z)
+        static bool volume_iou_at_least(Func<Vector3d, bool> referenceInside, SampleRegion region, Func<Vector3d, bool> resultInside, double minIoU, out double iou, int samples, int seed, double z)
         {
-            var tr = new DMeshAABBTree3(result, true);
-            tr.FastWindingNumber(Vector3d.Zero);
             var rnd = new Random(seed);
             Vector3d[] pts = new Vector3d[samples];
             int[] cls = new int[samples];
@@ -190,7 +238,7 @@ namespace gs
                 for (int k = done; k < end; ++k)        // same sequence as VolumeIoU
                     pts[k] = region.Next(rnd);
                 gParallel.ForEach(Interval1i.FromToInclusive(done, end - 1), (k) => {
-                    bool a = referenceInside(pts[k]), b = result.TriangleCount > 0 && tr.FastWindingNumber(pts[k]) > 0.5;
+                    bool a = referenceInside(pts[k]), b = resultInside(pts[k]);
                     cls[k] = (a ? 1 : 0) | (b ? 2 : 0);
                 });
                 for (int k = done; k < end; ++k) {
@@ -281,6 +329,53 @@ namespace gs
         }
 
         /// <summary>
+        /// Closed connected components of the input whose solid the result lost (the volume IoU does not notice a part below
+        /// 1 - IoU of the volume, eg a screw of an assembly or a small separate shell). For each component, points are
+        /// sampled in its box (up to 1024, 256 if none of them lies in the solid) until 32 lie in the input's solid (winding number of its oriented copy
+        /// &gt; 0.5, as VolumeIoU); the component is lost if fewer than minCoverage of them lie in the result's solid.
+        /// Open components (sheets, soup triangles: near them the input's solid is that of the parts around, which
+        /// gave false alarms on Thingi10K) and components with fewer than 8 such points (walls thinner than about
+        /// 1/100 of their box) are not judged, nor components whose box diagonal is below MinComponentDiagonal of the input's (specks that
+        /// the repair removes on purpose, eg below MeshAutoRepair.MinEdgeLengthTol, and that a fallback would lose as
+        /// well). At most maxComponents components, the largest boxes first (beyond that the smallest are not judged).
+        /// "In the input's solid" is the solid of the whole input, so a box that holds other parts as well is judged by
+        /// them too (a lost part can then count as kept). Deterministic (seed).
+        /// </summary>
+        /// <summary> LostComponents does not judge components whose box diagonal is below this fraction of the input's </summary>
+        public const double MinComponentDiagonal = 1e-3;
+
+        public static int LostComponents(DMesh3 input, DMesh3 result, double minCoverage = 0.5, int maxComponents = 1000, int seed = 1)
+        {
+            return LostComponents(new SolidReference(input), SolidInside(result), minCoverage, maxComponents, seed);
+        }
+
+        internal static int LostComponents(SolidReference reference, Func<Vector3d, bool> inResult, double minCoverage = 0.5, int maxComponents = 1000, int seed = 1)
+        {
+            DMesh3 input = reference.Mesh;
+            if (input.TriangleCount == 0)
+                return 0;
+            Func<Vector3d, bool> inInput = reference.Inside;
+            double minDiagonal = MinComponentDiagonal * TriangleBounds(input).DiagonalLength;
+            var boxes = reference.ComponentBoxes().Where(b => b.Volume > 0 && b.DiagonalLength >= minDiagonal)
+                .OrderByDescending(b => b.Volume).Take(maxComponents).ToList();
+            int[] lost = new int[boxes.Count];
+            gParallel.ForEach(Interval1i.Range(boxes.Count), (k) => {
+                var rnd = new Random(seed + 7919 * k);
+                AxisAlignedBox3d box = boxes[k];
+                int inside = 0, covered = 0;
+                for (int tries = 0; tries < 1024 && inside < 32 && (tries < 256 || inside > 0); ++tries) {
+                    Vector3d p = box.Min + new Vector3d(rnd.NextDouble() * box.Width, rnd.NextDouble() * box.Height, rnd.NextDouble() * box.Depth);
+                    if (inInput(p) == false) continue;
+                    inside++;
+                    if (inResult(p)) covered++;
+                }
+                if (inside >= 8 && covered < minCoverage * inside)
+                    lost[k] = 1;
+            });
+            return lost.Sum();
+        }
+
+        /// <summary>
         /// VolumeIoU and VolumeIoUAtLeast sample only near the components if each mesh has at most this many
         /// connected components (more: in the bounds of all triangles)
         /// </summary>
@@ -297,9 +392,9 @@ namespace gs
         // of a city model, are then hit as often as a single one).
         internal static SampleRegion sample_region(DMesh3 input, DMesh3 result)
         {
-            AxisAlignedBox3d clip = triangle_bounds(input);
+            AxisAlignedBox3d clip = TriangleBounds(input);
             if (result != null && result.TriangleCount > 0)
-                clip.Contain(triangle_bounds(result));
+                clip.Contain(TriangleBounds(result));
             clip.Expand(0.01 * clip.DiagonalLength);
             var boxes = new List<AxisAlignedBox3d>();
             if (component_cover(input, clip, boxes) == false || (result != null && component_cover(result, clip, boxes) == false))
@@ -341,7 +436,11 @@ namespace gs
             return true;
         }
 
-        static AxisAlignedBox3d triangle_bounds(DMesh3 mesh)
+        /// <summary>
+        /// Bounds of the vertices of the triangles (CachedBounds includes unused vertices, which can lie far away and
+        /// make thresholds relative to the diagonal meaningless); empty for a mesh without triangles
+        /// </summary>
+        public static AxisAlignedBox3d TriangleBounds(DMesh3 mesh)
         {
             var box = AxisAlignedBox3d.Empty;
             foreach (int tid in mesh.TriangleIndices())

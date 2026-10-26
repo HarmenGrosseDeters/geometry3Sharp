@@ -90,11 +90,16 @@ namespace gs
         string builtSettings;
         string built_settings()
         {
-            return IntrinsicDelaunay + " " + IntrinsicRefine + " " + RefineMinAngle.ToString("R") + " " + RefineMaxInsertions;
+            if (IntrinsicDelaunay && IntrinsicRefine)
+                return "refine " + RefineMinAngle.ToString("R") + " " + RefineMaxInsertions;
+            return IntrinsicDelaunay ? "delaunay" : "mesh";       // (the refine options do not matter)
         }
+
+        internal int PrecomputeCount;       // (for tests)
 
         void precompute()
         {
+            PrecomputeCount++;
             timestamp = Mesh.ShapeTimestamp;
             builtSettings = built_settings();
             nbStart = null; spatial = null;

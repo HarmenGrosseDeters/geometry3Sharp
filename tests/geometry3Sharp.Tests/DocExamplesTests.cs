@@ -143,6 +143,16 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void ExactMeshBooleanExample_NearlyCoincidentUnionIsClean()
+        {
+            bool clean;
+            DMesh3 result = ExactMeshBooleanExample.NearlyCoincidentUnion(out clean);
+            Assert.True(clean);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(result));
+            Assert.Equal(1.0, Volume(result), 9);
+        }
+
+        [Fact]
         public void ExactMeshBooleanExample_AtLeastTwoOfThree()
         {
             ExactMeshBoolean.BooleanStatus status;

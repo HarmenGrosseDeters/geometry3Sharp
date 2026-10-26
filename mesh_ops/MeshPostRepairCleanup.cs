@@ -24,7 +24,7 @@ namespace gs
         /// <summary> the mesh to clean, modified in place </summary>
         public DMesh3 Mesh;
 
-        /// <summary> triangles with area below DegenerateAreaFactor * diag^2 (bounding box diagonal) are degenerate </summary>
+        /// <summary> triangles with area below DegenerateAreaFactor * diag^2 (diagonal of the bounds of the triangles) are degenerate </summary>
         public double DegenerateAreaFactor = 1e-12;
         /// <summary> triangles with longest-edge/height ratio above this are treated like degenerate ones </summary>
         public double MaxAspectRatio = 1000;
@@ -52,7 +52,7 @@ namespace gs
         /// </summary>
         public void Apply()
         {
-            double diag = Math.Max(Mesh.CachedBounds.DiagonalLength, MathUtil.Epsilon);
+            double diag = Math.Max(MeshRepairMetrics.TriangleBounds(Mesh).DiagonalLength, MathUtil.Epsilon);
             areaEps = DegenerateAreaFactor * diag * diag;
             foldCos = Math.Cos(FoldAngleDeg * MathUtil.Deg2Rad);
 

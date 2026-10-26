@@ -198,6 +198,7 @@ namespace g3
 
         public void Generate()
         {
+            SelfIntersectionFree = false;
             if (crossings == null)
                 FindCrossings();
             if (CancelF() || crossings == null) return;
@@ -1160,13 +1161,21 @@ namespace g3
         public bool ResolveSelfIntersections = true;
         /// <summary> intersecting triangle pairs found before / left after resolving </summary>
         public int SelfIntersectionsFound, SelfIntersectionsLeft;
+        /// <summary>
+        /// true if the last Generate() checked its result for intersecting triangle pairs (exactly, as
+        /// MeshRepairMetrics.SelfIntersections) and found none; false if some are left or nothing was checked
+        /// (ResolveSelfIntersections false)
+        /// </summary>
+        public bool SelfIntersectionFree;
+        /// <summary> rounds of the self-intersection resolve (each moves the vertices of the intersecting pairs) </summary>
+        internal int MaxResolveRounds = 10;
 
         void resolve_self_intersections(Func<int, Vector3d> fallback, Func<int, Vector3d> lastResort)
         {
             var tree = new DMeshAABBTree3(Mesh, true);
             HashSet<int> candidates = new HashSet<int>(Mesh.TriangleIndices());
             var moves = new Dictionary<int, int>();
-            for (int round = 0; round < 10; ++round) {
+            for (int round = 0; round < MaxResolveRounds; ++round) {
                 var moving = new HashSet<int>();
                 int pairs = 0;
                 object lockObj = new object();
@@ -1202,8 +1211,10 @@ namespace g3
                 });
                 if (round == 0) SelfIntersectionsFound = pairs;
                 SelfIntersectionsLeft = pairs;
-                if (pairs == 0)
+                if (pairs == 0) {
+                    SelfIntersectionFree = true;
                     return;
+                }
                 var targets = new List<KeyValuePair<int, Vector3d>>();
                 foreach (int v in moving) {
                     int n;

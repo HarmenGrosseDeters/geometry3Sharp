@@ -23,15 +23,20 @@ namespace gs
     ///
     /// A result can still have lost volume (eg a self-overlapping input made non-overlapping by dropping a
     /// layer, or parts removed by erosion): if its solid agrees with the input's winding number solid less than
-    /// MinVolumeIoU, the input itself is used instead, resolved exactly, solidified or wrapped (its winding number
-    /// solid is the reference; UsedInput).
+    /// MinVolumeIoU, or it lost a whole component of the input (CheckLostComponents: a part too small for the IoU),
+    /// the input itself is used instead, resolved exactly, solidified or wrapped (its winding number solid is the
+    /// reference; UsedInput). The solidify and the wrap themselves are not checked (they change the geometry by about
+    /// a cell or the offset, and lose parts smaller than that).
     ///
     /// Behaviour: the result is in <see cref="Mesh"/> after Apply(), a new mesh object. The mesh passed to the
-    /// constructor is used as the working mesh of MeshAutoRepair and is modified by it, so pass a copy if
+    /// constructor is used as the working mesh of MeshAutoRepair and is modified by it (also its unused vertices are
+    /// removed, they are no part of the solid), so pass a copy if
     /// you need the input afterwards. Check UsedExactResolve / UsedSolidify / UsedAlphaWrap / FallbackReason (and
     /// ExactResolveReason, SolidifyReason) to see which path was taken.
     /// Cost: the self-intersection check and the volume comparison are cheap compared to the solidify
-    /// fallback, whose cost grows with SolidifyResolution.
+    /// fallback, whose cost grows with SolidifyResolution. With the alpha wrap fallback (and
+    /// CheckSelfIntersections), a solidify whose contour self-intersects is stopped before its cleanup and
+    /// reduction (MeshWindingNumberSolidify.StopIfSelfIntersecting) and wrapped right away.
     ///
     /// Use MeshAutoRepair alone if the input triangles must be kept (no remeshing), MeshWindingNumberSolidify
     /// to always remesh, ExactMeshBoolean.Resolve to resolve self-intersections exactly without remeshing.
@@ -44,8 +49,18 @@ namespace gs
         public int SolidifyResolution = 128;
         /// <summary> if true, self-intersections make the repair result unclean (triggers the solidify fallback) </summary>
         public bool CheckSelfIntersections = true;
-        /// <summary> minimum volume IoU of the repaired mesh with the input's winding number solid (0 = no check) </summary>
+        /// <summary> minimum volume IoU of the repaired mesh with the input's winding number solid (0 = no volume checks, also not CheckLostComponents) </summary>
         public double MinVolumeIoU = 0.99;
+        /// <summary>
+        /// also a result that lost a connected component of the input (MeshRepairMetrics.LostComponents: a part too small
+        /// for the volume IoU, eg a screw of an assembly) is treated like one whose volume differs ("parts of the input lost").
+        /// Only with MinVolumeIoU &gt; 0 (0 turns off both). Off by default: on the 430 Thingi10K meshes of
+        /// benchmarks/MeshRepairBenchmark it found no lost part, but rejected 3 repairs whose nested closed parts were
+        /// oriented differently from the reference (a part inside another taken for a cavity), and the fallbacks from
+        /// the open input were worse (one mesh fewer repaired). For inputs with separate small parts (assemblies). The fallbacks after such a rejection (solidify, wrap) are not
+        /// checked for it: their ResultReason can be "" although they lost the same part, see FallbackReason and UsedInput.
+        /// </summary>
+        public bool CheckLostComponents = false;
         /// <summary> configures the first stage (eg tolerances) </summary>
         public Action<MeshAutoRepair> ConfigureRepair = null;
         /// <summary> replaces the first stage (input -> repaired mesh); null = MeshAutoRepair </summary>
@@ -58,6 +73,12 @@ namespace gs
         /// Only for meshes that are closed in the winding number sense (exact winding numbers).
         /// </summary>
         public bool ExactResolve = true;
+        /// <summary>
+        /// exact resolve: repair the self-intersections and degenerate slivers that rounding the new vertices to double
+        /// leaves, by local edits checked exactly (ExactMeshBoolean.SafeRounding; after SeparateTouchingVertices again
+        /// with MeshRoundingRepair). Without it, the cleanup collapses slivers and the resolve is repeated.
+        /// </summary>
+        public bool SafeRounding = true;
         /// <summary> rounding the new vertices to double can create tiny self-intersections: resolve again, up to this often </summary>
         public int ExactResolveRounds = 4;
         /// <summary>
@@ -92,10 +113,22 @@ namespace gs
         public double RepairVolumeIoU = double.NaN;
         /// <summary> the solidify fallback, if it ran (for its statistics); null otherwise </summary>
         public MeshWindingNumberSolidify Solidify;
+        /// <summary>
+        /// "" if the result in Mesh is clean (see class comment), otherwise why not (NotCleanReason): Apply() also returns
+        /// true with an unclean solidify result when the alpha wrap is off or failed. Set by every successful Apply()
+        /// from the checks it ran anyway (the repair, exact resolve and wrap results are clean by the checks or by
+        /// construction).
+        /// </summary>
+        public string ResultReason = "";
         /// <summary> why the solidify result was not used ("" if it was or did not run) </summary>
         public string SolidifyReason = "";
         /// <summary> true if the result is the alpha wrap (last resort) </summary>
         public bool UsedAlphaWrap;
+        /// <summary>
+        /// why the alpha wrap result was not used ("" if it was or did not run): its Status and Error, eg a result that
+        /// misses the guarantees (then the solidify result is used, or Apply() returns false)
+        /// </summary>
+        public string WrapReason = "";
         /// <summary> the alpha wrap fallback, if it ran; null otherwise </summary>
         public MeshAlphaWrap AlphaWrap;
         public bool UsedExactResolve;
@@ -106,11 +139,17 @@ namespace gs
         /// <summary> per resolve round: self-intersecting triangle pairs of its result (diagnostics) </summary>
         public List<int> ExactResolveSelfIntersections = new List<int>();
         /// <summary>
+        /// per resolve round with SafeRounding: edits (and triangles removed) of the repair after rounding the resolve,
+        /// and of the repair after SeparateTouchingVertices (diagnostics)
+        /// </summary>
+        public List<Index2i> ExactRoundingEdits = new List<Index2i>();
+        /// <summary>
         /// milliseconds per phase of the last Apply() (summed if a phase runs more than once): "repair", "check"
         /// (cleanness incl. self-intersections), "volume" (VolumeIoU), "exact" (exact resolve incl. its checks;
         /// parts of it in "exact.orient", "exact.closed", "exact.resolve", "exact.check", "exact.volume"),
         /// "solidify", "solidify." + the phases of MeshWindingNumberSolidify, "solidify.check" (cleanness of
-        /// its result) and "wrap" (alpha wrap fallback)
+        /// its result), "wrap" (alpha wrap fallback) and "solidify.finish" (post-processing a solidify that was
+        /// stopped on self-intersections, if the wrap failed)
         /// </summary>
         public Dictionary<string, long> PhaseMilliseconds = new Dictionary<string, long>();
 
@@ -138,24 +177,31 @@ namespace gs
         /// </summary>
         /// <returns>
         /// false if cancelled, if the input is empty, or if both the solidify fallback (eg the grid
-        /// would be too large) and the alpha wrap failed; Mesh is then not replaced. true otherwise.
+        /// would be too large) and the alpha wrap failed; Mesh is then not replaced. true otherwise, also for an
+        /// unclean solidify result (when the wrap is off or failed): check ResultReason.
         /// </returns>
         public bool Apply()
         {
             UsedSolidify = false;
+            ResultReason = "not repaired";
             UsedInput = false;
             UsedAlphaWrap = false;
             SolidifyReason = "";
             Solidify = null;
             AlphaWrap = null;
+            WrapReason = "";
             UsedExactResolve = false;
             ExactResolveReason = "";
             ExactResolveRoundsUsed = 0;
             ExactResolveSelfIntersections.Clear();
+            ExactRoundingEdits.Clear();
             FallbackReason = "";
             RepairVolumeIoU = double.NaN;
             PhaseMilliseconds.Clear();
             phase_timer.Restart();
+            // unused vertices are no part of the solid, but far away they would make every threshold relative to the
+            // diagonal (degenerate area, solidify cell size, wrap alpha) meaningless
+            MeshEditor.RemoveUnusedVertices(Mesh);
             DMesh3 input = new DMesh3(Mesh);
             DMesh3 result;
             if (RepairF != null) {
@@ -172,24 +218,26 @@ namespace gs
             FallbackReason = NotCleanReason(result, CheckSelfIntersections);
             end_phase("check");
             DMesh3 solidifyFrom = result;
-            if (FallbackReason == "" && MinVolumeIoU > 0) {
+            if (FallbackReason == "") {
                 // (NaN: the input has no solid to compare with, accepted)
-                if (MeshRepairMetrics.VolumeIoUAtLeast(input, result, MinVolumeIoU, out RepairVolumeIoU) == false) {
-                    FallbackReason = "volume differs from the input";
+                string differs = volume_check(input, result, out RepairVolumeIoU);
+                if (differs != "") {
+                    FallbackReason = differs;
                     solidifyFrom = input;
                 }
                 end_phase("volume");
-            } else if (FallbackReason != "") {
+            } else {
                 // an unclean result can have lost parts of the input as well (eg erosion of an open region, which
                 // the volume check of the exact stage rejects, but the solidify and the wrap do not check): then the
                 // fallbacks start from the input, like for a clean result whose volume differs
-                if (result.TriangleCount == 0 || (MinVolumeIoU > 0 && MeshRepairMetrics.VolumeIoUAtLeast(input, result, MinVolumeIoU, out RepairVolumeIoU) == false))
+                if (result.TriangleCount == 0 || volume_check(input, result, out RepairVolumeIoU) != "")
                     solidifyFrom = input;
                 end_phase("volume");
             }
             UsedInput = solidifyFrom == input;
             if (FallbackReason == "") {
                 Mesh = result;
+                ResultReason = "";
                 return true;
             }
             if (solidifyFrom.TriangleCount == 0)
@@ -200,10 +248,10 @@ namespace gs
                 DMesh3 exact = null;
                 if (result.TriangleCount > 0) {
                     exact = resolve_exactly(result, input, false);
-                    // its volume may differ only because components are oriented differently from the input (eg a
-                    // nested part taken for a cavity): then resolve it again, oriented by the input's solid, if
-                    // that orientation differs at all
-                    if (exact == null && ExactResolveReason == "volume differs from the input" && CancelF() == false)
+                    // its volume may differ (or a part be lost) only because components are oriented differently from
+                    // the input (eg a nested part taken for a cavity): then resolve it again, oriented by the input's
+                    // solid, if that orientation differs at all
+                    if (exact == null && (ExactResolveReason == "volume differs from the input" || ExactResolveReason == "parts of the input lost") && CancelF() == false)
                         exact = resolve_exactly(result, input, true);
                 }
                 bool fromResult = exact != null;
@@ -221,16 +269,27 @@ namespace gs
                     Mesh = exact;
                     UsedExactResolve = true;
                     UsedInput = !fromResult;
+                    ResultReason = "";
                     return true;
                 }
             }
-            Solidify = new MeshWindingNumberSolidify(solidifyFrom) { GridResolution = SolidifyResolution, Adaptive = true, CancelF = CancelF };
+            // a self-intersecting contour is discarded for the alpha wrap: stop the solidify before its
+            // post-processing (which rarely removes them), finish it only if the wrap fails
+            bool wrapOnSelfIntersections = CheckSelfIntersections && AlphaWrapFallback;
+            Solidify = new MeshWindingNumberSolidify(solidifyFrom) {
+                GridResolution = SolidifyResolution, Adaptive = true, CancelF = CancelF, StopIfSelfIntersecting = wrapOnSelfIntersections
+            };
             bool solidified = Solidify.Compute() && Solidify.Result != null && Solidify.Result.TriangleCount > 0;
             end_phase("solidify");
             foreach (var kv in Solidify.PhaseMilliseconds) PhaseMilliseconds["solidify." + kv.Key] = kv.Value;
             if (CancelF())
                 return false;
-            SolidifyReason = solidified ? NotCleanReason(Solidify.Result, CheckSelfIntersections) : "solidify failed";
+            if (solidified == false)
+                SolidifyReason = "solidify failed";
+            else if (Solidify.StoppedOnSelfIntersections)
+                SolidifyReason = "self-intersections";
+            else
+                SolidifyReason = NotCleanReason(Solidify.Result, CheckSelfIntersections);
             end_phase("solidify.check");
             if (SolidifyReason != "" && AlphaWrapFallback) {
                 AlphaWrap = new MeshAlphaWrap(solidifyFrom) { RelativeAlpha = WrapRelativeAlpha, RelativeOffset = WrapRelativeOffset, CancelF = CancelF };
@@ -241,15 +300,48 @@ namespace gs
                     && AlphaWrap.Result != null && AlphaWrap.Result.TriangleCount > 0) {
                     Mesh = AlphaWrap.Result;
                     UsedAlphaWrap = true;
+                    ResultReason = "";
                     return true;
                 }
+                WrapReason = AlphaWrap.Status + (AlphaWrap.Error != null ? ": " + AlphaWrap.Error : "");
             }
-            if (solidified == false)
+            if (solidified == false || CancelF())
                 return false;
+            if (Solidify.StoppedOnSelfIntersections) {
+                // the wrap failed: the solidify result after all, post-processed as usual
+                Solidify.FinishPostProcess();
+                foreach (var kv in Solidify.PhaseMilliseconds) PhaseMilliseconds["solidify." + kv.Key] = kv.Value;
+                end_phase("solidify.finish");
+                if (CancelF() || Solidify.Result == null || Solidify.Result.TriangleCount == 0)
+                    return false;
+                SolidifyReason = NotCleanReason(Solidify.Result, CheckSelfIntersections);
+            }
             Mesh = Solidify.Result;
             UsedSolidify = true;
+            ResultReason = SolidifyReason;
             return true;
         }
+
+        // "" if the solid of res agrees with the input's (IoU at least MinVolumeIoU, no component lost), otherwise why not
+        string volume_check(DMesh3 input, DMesh3 res, out double iou)
+        {
+            iou = double.NaN;
+            if (MinVolumeIoU <= 0)
+                return "";      // (no volume checks at all)
+            // (the input's solid once per Apply(), the result's once for both checks)
+            if (inputSolid == null || inputSolidOf != input) {
+                inputSolid = new MeshRepairMetrics.SolidReference(input);
+                inputSolidOf = input;
+            }
+            Func<Vector3d, bool> resultInside = MeshRepairMetrics.SolidInside(res);
+            if (MinVolumeIoU > 0 && MeshRepairMetrics.VolumeIoUAtLeast(inputSolid, res, resultInside, MinVolumeIoU, out iou) == false)
+                return "volume differs from the input";
+            if (CheckLostComponents && MeshRepairMetrics.LostComponents(inputSolid, resultInside) > 0)
+                return "parts of the input lost";
+            return "";
+        }
+        MeshRepairMetrics.SolidReference inputSolid;
+        DMesh3 inputSolidOf;
 
         // the solid of the mesh with its self-intersections resolved exactly, or null (ExactResolveReason says why)
         DMesh3 resolve_exactly(DMesh3 from, DMesh3 input, bool orientByInput)
@@ -278,7 +370,8 @@ namespace gs
                 if (CancelF())
                     return null;
                 timer.Restart();
-                DMesh3 res = ExactMeshBoolean.Resolve(m);
+                var resolve = new ExactMeshBoolean(m, new DMesh3(), ExactMeshBoolean.Operations.Union) { SafeRounding = SafeRounding };
+                DMesh3 res = resolve.Compute() ? resolve.Result : null;
                 add_phase("exact.resolve", timer.ElapsedMilliseconds); timer.Restart();
                 ExactResolveRoundsUsed++;
                 if (res == null || res.TriangleCount == 0) {
@@ -298,10 +391,32 @@ namespace gs
                 }
                 // where solids touch (at a vertex or along an edge) Resolve gives manifold sheets with duplicated
                 // vertices, which touch: separate them minimally
-                SeparateTouchingVertices(res, SeparateFraction);
+                var separated = new List<int>();
+                SeparateTouchingVertices(res, SeparateFraction, separated);
+                // (the separation can make new slivers and intersections: repaired again; without moves the safe
+                // rounding's counts hold, there were no touching vertices)
+                int si = -1;
+                if (SafeRounding) {
+                    var first = resolve.Rounding;
+                    int edits = 0;
+                    if (separated.Count == 0) {
+                        si = first.RemainingIntersections;
+                    } else {
+                        // (all of the mesh: the edits at the former contacts, which the safe rounding must not
+                        // make, are possible now)
+                        var rounding = new MeshRoundingRepair(res);
+                        rounding.Apply();
+                        edits = rounding.Collapses + rounding.Flips + rounding.Moves + rounding.Zips + rounding.RemovedTriangles;
+                        if (edits > 0)
+                            res = new DMesh3(res, true);
+                        si = rounding.RemainingIntersections;
+                    }
+                    ExactRoundingEdits.Add(new Index2i(first.Collapses + first.Flips + first.Moves + first.Zips + first.RemovedTriangles, edits));
+                }
                 reason = NotCleanReason(res, false);
                 if (reason == "" && CheckSelfIntersections) {
-                    int si = MeshRepairMetrics.SelfIntersections(res);
+                    if (si < 0)
+                        si = MeshRepairMetrics.SelfIntersections(res);
                     ExactResolveSelfIntersections.Add(si);
                     if (si > 0)
                         reason = "self-intersections";
@@ -317,15 +432,16 @@ namespace gs
                     ExactResolveReason = reason;
                     return null;
                 }
-                if (MinVolumeIoU > 0) {
+                {
                     double iou;
-                    bool agrees = MeshRepairMetrics.VolumeIoUAtLeast(input, res, MinVolumeIoU, out iou);
+                    string differs = volume_check(input, res, out iou);
                     add_phase("exact.volume", timer.ElapsedMilliseconds);
-                    if (agrees == false) {
-                        ExactResolveReason = "volume differs from the input";
+                    if (differs != "") {
+                        ExactResolveReason = differs;
                         return null;
                     }
-                    RepairVolumeIoU = iou;
+                    if (MinVolumeIoU > 0)
+                        RepairVolumeIoU = iou;
                 }
                 ExactResolveReason = "";
                 return res;
@@ -412,7 +528,7 @@ namespace gs
         /// </summary>
         public static int CollapseSlivers(DMesh3 mesh, double maxCollapse = 1e-4, int maxPasses = 5)
         {
-            double diag = mesh.CachedBounds.DiagonalLength;
+            double diag = MeshRepairMetrics.TriangleBounds(mesh).DiagonalLength;
             double areaEps = 1e-12 * diag * diag, maxLength = maxCollapse * diag;
             int fixedCount = 0;
             for (int pass = 0; pass < maxPasses; ++pass) {
@@ -465,8 +581,11 @@ namespace gs
             comps.FindConnectedT();
             int removed = 0;
             foreach (var comp in comps.Components) {
-                // a sliver, and in all below 10^4 times the degenerate area (1e-8 * diagonal^2)
+                // closed, a sliver, and in all below 10^4 times the degenerate area (1e-8 * diagonal^2); an open
+                // component is kept: it may close the rest by position (sheets that touch with their own vertices)
                 if (comp.Indices.Any(tid => mesh.GetTriArea(tid) < areaEps) == false || comp.Indices.Sum(tid => mesh.GetTriArea(tid)) >= 1e4 * areaEps)
+                    continue;
+                if (comp.Indices.Any(tid => { Index3i te = mesh.GetTriEdges(tid); return mesh.IsBoundaryEdge(te.a) || mesh.IsBoundaryEdge(te.b) || mesh.IsBoundaryEdge(te.c); }))
                     continue;
                 foreach (int tid in comp.Indices)
                     mesh.RemoveTriangle(tid, true, false);
@@ -484,6 +603,12 @@ namespace gs
         /// neighbours, so the sheets separate. Returns the number of vertices moved.
         /// </summary>
         public static int SeparateTouchingVertices(DMesh3 mesh, double fraction)
+        {
+            return SeparateTouchingVertices(mesh, fraction, null);
+        }
+
+        /// <summary> as SeparateTouchingVertices(mesh, fraction), and adds the vertices moved to moved (if not null) </summary>
+        public static int SeparateTouchingVertices(DMesh3 mesh, double fraction, List<int> moved)
         {
             var at = new Dictionary<Vector3d, List<int>>();
             foreach (int vid in mesh.VertexIndices()) {
@@ -508,14 +633,16 @@ namespace gs
                         moves.Add(new KeyValuePair<int, Vector3d>(vid, kv.Key + fraction * (c / n - kv.Key)));
                 }
             }
-            foreach (var m in moves)
+            foreach (var m in moves) {
                 mesh.SetVertex(m.Key, m.Value);
+                moved?.Add(m.Key);
+            }
             return moves.Count;
         }
 
         /// <summary>
         /// "" if the mesh is clean (see class comment), otherwise the first problem found, one of "empty",
-        /// "not closed", "bowties", "degenerate triangles" (area &lt; 1e-12 * diagonal^2), "inside-out components",
+        /// "not closed", "bowties", "degenerate triangles" (area &lt; 1e-12 * diagonal^2, of the bounds of the triangles), "inside-out components",
         /// "self-intersections". Useful as a test assertion: NotCleanReason(mesh) == "".
         /// </summary>
         public static string NotCleanReason(DMesh3 mesh, bool checkSelfIntersections = true)
@@ -523,7 +650,7 @@ namespace gs
             if (mesh.TriangleCount == 0) return "empty";
             if (mesh.IsClosed() == false) return "not closed";
             if (MeshIterators.BowtieVertices(mesh).Any()) return "bowties";
-            double diag = mesh.CachedBounds.DiagonalLength;
+            double diag = MeshRepairMetrics.TriangleBounds(mesh).DiagonalLength;
             double areaEps = 1e-12 * diag * diag;
             if (mesh.TriangleIndices().Any(t => mesh.GetTriArea(t) < areaEps)) return "degenerate triangles";
             if (MeshPostRepairCleanup.FindInvertedComponents(mesh).Count > 0) return "inside-out components";

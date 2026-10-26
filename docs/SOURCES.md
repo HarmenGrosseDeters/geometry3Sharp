@@ -21,6 +21,22 @@ Implemented from the papers, no code taken over.
 The error bounds of the implicit points' approximations (`segment_point`, `plane_value`, `planes_approx`) and of
 the filters on them are derived in the code comments.
 
+## Rounding the exact output (`MeshRoundingRepair`, `ExactMeshBoolean.SafeRounding`, `ExactMeshBoolean.ComputeExactVertices`)
+
+Implemented from the papers, no code taken over. Read for the design (what the exact methods do with their output):
+
+| Part | Source |
+|---|---|
+| Local edits after rounding, each accepted only if it creates no intersection: contraction of short edges (link condition), flips of skinny triangles; removal of components thinner than the rounding distance; the d-separation argument (why rounding a separated mesh is safe) | V. Milenkovic, E. Sacks, *Geometric rounding and feature separation in meshes*, Computer-Aided Design 108, 2019 (arXiv 1805.03252). Their expansion and optimization stages (linear programs that separate the remaining close features before rounding) are not implemented; instead single vertices are moved by tiny amounts after rounding, accepted under the same rule |
+| Needles collapsed, caps flipped | M. Botsch, L. Kobbelt, *A Robust Procedure to Eliminate Degenerate Faces from Triangle Meshes*, VMV 2001 |
+| Snap rounding in 2D: hot pixels, iterated snap rounding (each vertex half a pixel from every non-incident edge) | J. D. Hobby, *Practical segment intersection with finite precision output*, CGTA 1999; D. Halperin, E. Packer, *Iterated Snap Rounding*, CGTA 23(2), 2002. Background only: the 2D methods have no direct 3D counterpart |
+| Rounding polyhedral meshes in 3D with guarantees (Hausdorff distance at most 3/2 grid units, no new intersections; worst case O(n^13) size) | O. Devillers, S. Lazard, W. Lenhart, *Rounding meshes in 3D*, Discrete & Computational Geometry 64, 2020 (SoCG 2018: *3D snap rounding*); S. Fortune, *Vertex-rounding a three-dimensional polyhedral subdivision*, DCG 1999. Not implemented: the output size makes them impractical for meshes of 10^5 triangles |
+| How the exact arrangements handle their output: rational coordinates kept, or rounded to double (which can create intersections; Zhou et al. round and resolve again, as `MeshRobustRepair` did before) | Q. Zhou et al. 2016, G. Cherchi et al. 2020 / 2022 (see above); G. Trettner, J. Nehring-Wirxel, L. Kobbelt, *EMBER: Exact Mesh Booleans via Efficient & Robust Local Arrangements*, ACM TOG (SIGGRAPH) 2022 (plane-based, exact homogeneous output) |
+| Manifold (Apache-2.0) | its documentation only (removes degenerate triangles and unneeded vertices when building a manifold, with a tolerance); no code read or taken over |
+
+The exact output coordinates (`ResultExactVertices`) are the rational points of the arrangement mapped back from the
+integer grid (`ExactMeshArrangement.ToInputExact`).
+
 ## Intrinsic triangulations and geodesics (`IntrinsicTriangulation`, `VectorHeatMethod`, `MeshGeodesicDistance`)
 
 Implemented from the papers, no code taken over (geometry-central, MIT, was not used as a source).
@@ -76,6 +92,8 @@ Implemented from the papers, no code taken over.
 | Minimal area distortion with u = 0 on the boundary | B. Springborn, P. Schröder, U. Pinkall, *Conformal Equivalence of Triangle Meshes*, ACM TOG (SIGGRAPH) 2008 |
 | Skyline bottom-left rectangle packing | J. Jylänki, *A Thousand Ways to Pack the Bin – A Practical Approach to Two-Dimensional Rectangle Bin Packing*, 2010 |
 | Minimum-area bounding rectangle of a chart | existing `ContMinBox2` (rotating calipers, WildMagic port) |
+| BFF disk mode: exterior angles of the boundary polygon inscribed in a circle (inscribed angle theorem, the longest edge on the major arc if the center lies outside) | elementary geometry; own derivation |
+| ARAP and SLIM with degenerate triangles: mollified cotangents and a flat layout along the longest edge (ARAP), unit springs on the current UV edges in the SLIM proxy | own adaptation of the intrinsic mollification of Sharp & Crane 2020 (see Intrinsic triangulations); the rotations as Procrustes over the edges, O. Sorkine, M. Alexa, *As-Rigid-As-Possible Surface Modeling*, SGP 2007 |
 
 ## Seams, charts, cones, UV atlas (`MeshDiscCut`, `MeshChartSegmentation`, `ConeFlattening`, `UVOverlap`, `UVAtlasGenerator`)
 

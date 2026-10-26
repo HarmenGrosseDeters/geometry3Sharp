@@ -255,6 +255,81 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void FarFromOrigin_SameAsAtOrigin()
+        {
+            // geo coordinates: the tree's float boxes round by 0.3 at 5e6, so the computation runs on a copy
+            // at the origin; IDs must survive (here with gaps from removed triangles)
+            // gaps in the ID space: a second shell appended first and removed again (the rest stays closed)
+            DMesh3 a = Sphere(0.3, 6, new Vector3d(5, 0, 0));
+            int gap = a.MaxTriangleID;
+            new MeshEditor(a).AppendMesh(SphereShell(1, 0.8, 12));
+            foreach (int tid in a.TriangleIndices().Where(t => t < gap).ToList())
+                a.RemoveTriangle(tid, true, false);
+            Assert.Equal(0, MeshTestUtil.BoundaryEdgeCount(a));
+            DMesh3 b = new DMesh3(a);
+            MeshTransforms.Translate(b, new Vector3d(500000, 5000000, 300));
+            foreach (var method in new[] { MeshWallThickness.Methods.Ray, MeshWallThickness.Methods.InscribedSphere }) {
+                var wa = new MeshWallThickness(a) { Method = method };
+                var wb = new MeshWallThickness(b) { Method = method };
+                Assert.True(wa.Compute() && wb.Compute());
+                foreach (int tid in a.TriangleIndices()) {
+                    double x = wa.TriangleThickness[tid], y = wb.TriangleThickness[tid];
+                    Assert.True(double.IsNaN(x) == double.IsNaN(y), method + " triangle " + tid);
+                    if (!double.IsNaN(x)) Assert.Equal(x, y, 6);
+                }
+                Vector3d p = a.GetTriCentroid(a.TriangleIndices().First()), n = a.GetTriNormal(a.TriangleIndices().First());
+                Assert.Equal(wa.ThicknessAt(p, n), wb.ThicknessAt(p + new Vector3d(500000, 5000000, 300), n), 6);
+            }
+        }
+
+        [Fact]
+        public void FarFromOrigin_RunsOnALocalCopy()
+        {
+            // far from the origin the computation runs on a copy at the origin with its own tree: Spatial
+            // stays null. A tree the caller sets is used as it is.
+            Vector3d off = new Vector3d(500000, 5000000, 300);
+            DMesh3 mesh = SphereShell(1, 0.8, 8);
+            MeshTransforms.Translate(mesh, off);
+            var wt = new MeshWallThickness(mesh) { Method = MeshWallThickness.Methods.Ray };
+            Assert.True(wt.Compute());
+            Assert.Null(wt.Spatial);
+            var given = new DMeshAABBTree3(mesh, true);
+            var wg = new MeshWallThickness(mesh) { Method = MeshWallThickness.Methods.Ray, Spatial = given };
+            Assert.True(wg.Compute());
+            Assert.Same(given, wg.Spatial);
+            foreach (int tid in mesh.TriangleIndices())
+                Assert.Equal(wt.TriangleThickness[tid], wg.TriangleThickness[tid], 6);
+        }
+
+        [Fact]
+        public void ChangedMesh_IsNotServedFromTheCache()
+        {
+            // two meshes built the same way have the same ShapeTimestamp: the caches must check the object
+            foreach (Vector3d off in new[] { Vector3d.Zero, new Vector3d(500000, 5000000, 300) }) {
+                DMesh3 m1 = SphereShell(1, 0.8, 10), m2 = SphereShell(1, 0.5, 10);
+                MeshTransforms.Translate(m1, off);
+                MeshTransforms.Translate(m2, off);
+                Assert.Equal(m1.ShapeTimestamp, m2.ShapeTimestamp);
+                var wt = new MeshWallThickness(m1) { Method = MeshWallThickness.Methods.Ray };
+                Assert.True(wt.Compute());
+                Assert.InRange(wt.Statistics.Mean, 0.19, 0.21);
+                wt.Mesh = m2;
+                Assert.True(wt.Compute());
+                Assert.InRange(wt.Statistics.Mean, 0.48, 0.51);
+            }
+
+            // a mesh first computed near the origin, then moved far away: the tree built for it is not
+            // taken as the caller's, so the computation moves to the local copy
+            DMesh3 m = SphereShell(1, 0.8, 10);
+            var w = new MeshWallThickness(m) { Method = MeshWallThickness.Methods.Ray };
+            Assert.True(w.Compute());
+            double before = w.Statistics.Mean;
+            MeshTransforms.Translate(m, new Vector3d(500000, 5000000, 300));
+            Assert.True(w.Compute());
+            Assert.Equal(before, w.Statistics.Mean, 6);
+        }
+
+        [Fact]
         public void InsideOutParts_AreTakenFlipped()
         {
             // Thingi10K has closed meshes that are inside out as a whole: their rays all leave through front

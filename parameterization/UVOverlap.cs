@@ -12,8 +12,8 @@ namespace g3
     ///
     /// Two triangles with disjoint interiors are separated by the line through one of their six edges
     /// (separating axis theorem for convex polygons), which is what is tested. Candidate pairs come from a
-    /// uniform grid over the UV bounding box (cells of twice the median triangle size); the few triangles that
-    /// would cover many cells are tested against all others.
+    /// hierarchy of uniform grids over the UV bounding box (cells of twice the median size of the triangles of
+    /// each level), so that mixed triangle sizes stay near linear.
     /// </summary>
     public class UVOverlap
     {
@@ -79,58 +79,99 @@ namespace g3
             if (tris.Count < 2)
                 return;
 
-            // grid with cells of about twice the median triangle size, at most ~4M cells; triangles that would
-            // cover more than LargeCells cells are tested against all others instead
-            var sizes = new List<double>(tris.Count);
-            foreach (Tri t in tris) sizes.Add(Math.Max(t.Box.Width, t.Box.Height));
-            sizes.Sort();
-            double h = 2 * sizes[sizes.Count / 2];
-            double W = Math.Max(all.Width, 1e-300), H = Math.Max(all.Height, 1e-300);
-            if (!(h > 0)) h = Math.Max(W, H);
-            int nx = (int)Math.Min(2048, Math.Max(1, Math.Ceiling(W / h)));
-            int ny = (int)Math.Min(2048, Math.Max(1, Math.Ceiling(H / h)));
-            double hx = W / nx, hy = H / ny;
-            Func<double, int> cx = (x) => Math.Min(nx - 1, Math.Max(0, (int)((x - all.Min.x) / hx)));
-            Func<double, int> cy = (y) => Math.Min(ny - 1, Math.Max(0, (int)((y - all.Min.y) / hy)));
-            var cells = new Dictionary<int, List<int>>();
-            var large = new List<int>();
-            bool[] isLarge = new bool[tris.Count];
+            // a hierarchy of uniform grids: each level has cells of about twice the median size of the triangles
+            // that did not fit a finer level, and keeps the triangles covering at most LargeCells of its cells (at
+            // least half of them). Pairs within a level are tested in the cell of the lower left corner of their
+            // box intersection, pairs across levels by looking up the finer triangle in the coarser grids.
+            var levels = new List<Level>();
+            int[] levelOf = new int[tris.Count];
+            var remaining = new List<int>();
+            for (int i = 0; i < tris.Count; ++i) remaining.Add(i);
+            while (remaining.Count > 0) {
+                var level = new Level(tris, remaining, all, levels.Count == MaxLevels - 1);
+                foreach (int i in level.Members) levelOf[i] = levels.Count;
+                levels.Add(level);
+                remaining = level.Rest;
+            }
+            foreach (Level level in levels) {
+                foreach (var kv in level.Cells) {
+                    List<int> list = kv.Value;
+                    for (int p = 0; p < list.Count; ++p)
+                        for (int q = p + 1; q < list.Count; ++q) {
+                            Tri s = tris[list[p]], t = tris[list[q]];
+                            if (!boxesOverlap(s.Box, t.Box))
+                                continue;
+                            int rx = level.CX(Math.Max(s.Box.Min.x, t.Box.Min.x)), ry = level.CY(Math.Max(s.Box.Min.y, t.Box.Min.y));
+                            if (ry * level.NX + rx != kv.Key)
+                                continue;
+                            test(s, t);
+                        }
+                }
+            }
+            int[] stamp = new int[tris.Count];
             for (int i = 0; i < tris.Count; ++i) {
                 AxisAlignedBox2d b = tris[i].Box;
-                int x0 = cx(b.Min.x), x1 = cx(b.Max.x), y0 = cy(b.Min.y), y1 = cy(b.Max.y);
-                if ((long)(x1 - x0 + 1) * (y1 - y0 + 1) > LargeCells) { large.Add(i); isLarge[i] = true; continue; }
-                for (int y = y0; y <= y1; ++y)
-                    for (int x = x0; x <= x1; ++x) {
-                        int key = y * nx + x;
-                        List<int> list;
-                        if (!cells.TryGetValue(key, out list)) { list = new List<int>(); cells[key] = list; }
-                        list.Add(i);
-                    }
-            }
-            foreach (var kv in cells) {
-                List<int> list = kv.Value;
-                int key = kv.Key;
-                for (int p = 0; p < list.Count; ++p)
-                    for (int q = p + 1; q < list.Count; ++q) {
-                        Tri s = tris[list[p]], t = tris[list[q]];
-                        // interiors can only overlap if the open boxes overlap
-                        if (!(s.Box.Min.x < t.Box.Max.x && t.Box.Min.x < s.Box.Max.x && s.Box.Min.y < t.Box.Max.y && t.Box.Min.y < s.Box.Max.y))
-                            continue;
-                        // test each pair once: in the cell of the lower left corner of the box intersection
-                        int rx = cx(Math.Max(s.Box.Min.x, t.Box.Min.x)), ry = cy(Math.Max(s.Box.Min.y, t.Box.Min.y));
-                        if (ry * nx + rx != key)
-                            continue;
-                        test(s, t);
-                    }
-            }
-            // large triangles against all others (large pairs once)
-            foreach (int i in large)
-                for (int j = 0; j < tris.Count; ++j) {
-                    if (j == i || (isLarge[j] && j < i)) continue;
-                    Tri s = tris[i], t = tris[j];
-                    if (s.Box.Min.x < t.Box.Max.x && t.Box.Min.x < s.Box.Max.x && s.Box.Min.y < t.Box.Max.y && t.Box.Min.y < s.Box.Max.y)
-                        test(s, t);
+                for (int l = levelOf[i] + 1; l < levels.Count; ++l) {
+                    Level level = levels[l];
+                    int x0 = level.CX(b.Min.x), x1 = level.CX(b.Max.x), y0 = level.CY(b.Min.y), y1 = level.CY(b.Max.y);
+                    for (int y = y0; y <= y1; ++y)
+                        for (int x = x0; x <= x1; ++x) {
+                            List<int> list;
+                            if (!level.Cells.TryGetValue(y * level.NX + x, out list)) continue;
+                            foreach (int j in list) {
+                                if (stamp[j] == i + 1) continue;
+                                stamp[j] = i + 1;
+                                if (boxesOverlap(b, tris[j].Box))
+                                    test(tris[i], tris[j]);
+                            }
+                        }
                 }
+            }
+        }
+
+        // interiors can only overlap if the open boxes overlap
+        static bool boxesOverlap(AxisAlignedBox2d s, AxisAlignedBox2d t)
+        {
+            return s.Min.x < t.Max.x && t.Min.x < s.Max.x && s.Min.y < t.Max.y && t.Min.y < s.Max.y;
+        }
+
+        const int MaxLevels = 32;
+
+        class Level
+        {
+            public int NX, NY;
+            double hx, hy, x0, y0;
+            public Dictionary<int, List<int>> Cells = new Dictionary<int, List<int>>();
+            public List<int> Members = new List<int>(), Rest = new List<int>();
+
+            public Level(List<Tri> tris, List<int> items, AxisAlignedBox2d all, bool last)
+            {
+                var sizes = new List<double>(items.Count);
+                foreach (int i in items) sizes.Add(Math.Max(tris[i].Box.Width, tris[i].Box.Height));
+                sizes.Sort();
+                double h = 2 * sizes[sizes.Count / 2];
+                double W = Math.Max(all.Width, 1e-300), H = Math.Max(all.Height, 1e-300);
+                if (!(h > 0)) h = Math.Max(W, H);
+                NX = (int)Math.Min(2048, Math.Max(1, Math.Ceiling(W / h)));
+                NY = (int)Math.Min(2048, Math.Max(1, Math.Ceiling(H / h)));
+                hx = W / NX; hy = H / NY; x0 = all.Min.x; y0 = all.Min.y;
+                foreach (int i in items) {
+                    AxisAlignedBox2d b = tris[i].Box;
+                    int cx0 = CX(b.Min.x), cx1 = CX(b.Max.x), cy0 = CY(b.Min.y), cy1 = CY(b.Max.y);
+                    if (!last && (long)(cx1 - cx0 + 1) * (cy1 - cy0 + 1) > LargeCells) { Rest.Add(i); continue; }
+                    Members.Add(i);
+                    for (int y = cy0; y <= cy1; ++y)
+                        for (int x = cx0; x <= cx1; ++x) {
+                            int key = y * NX + x;
+                            List<int> list;
+                            if (!Cells.TryGetValue(key, out list)) { list = new List<int>(); Cells[key] = list; }
+                            list.Add(i);
+                        }
+                }
+            }
+
+            public int CX(double x) { return Math.Min(NX - 1, Math.Max(0, (int)((x - x0) / hx))); }
+            public int CY(double y) { return Math.Min(NY - 1, Math.Max(0, (int)((y - y0) / hy))); }
         }
 
         const int LargeCells = 64;
