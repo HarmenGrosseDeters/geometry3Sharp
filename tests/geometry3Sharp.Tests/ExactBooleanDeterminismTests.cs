@@ -55,6 +55,8 @@ namespace geometry3Sharp.Tests
                 Assert.True(b.Compute(), b.Error);
                 check?.Invoke(b);
                 string print = Fingerprint(b.Result);
+                if (b.ResultExactVertices != null)
+                    print += "|" + string.Join(";", b.ResultExactVertices.Select(p => $"{p.X},{p.Y},{p.Z},{p.W}"));
                 if (first == null)
                     first = print;
                 else
@@ -72,6 +74,15 @@ namespace geometry3Sharp.Tests
             DMesh3 box = Box(new Vector3d(-1.2, -1.1, -0.9), new Vector3d(0.3, 0.6, 1.1));
             DMesh3 sphere = Sphere(new Vector3d(-0.6, -0.5, 0.2), 0.7, 6);
             AssertRepeatable(() => new ExactMeshBoolean(box, sphere, op), (b) => Assert.True(b.RemovedVertices > 0));
+        }
+
+        [Fact]
+        public void SafeRoundingAndExactVertices_RepeatedRuns_BitIdentical()
+        {
+            DMesh3 box = Box(new Vector3d(-1.2, -1.1, -0.9), new Vector3d(0.3, 0.6, 1.1));
+            DMesh3 sphere = Sphere(new Vector3d(-0.6, -0.5, 0.2), 0.7, 6);
+            AssertRepeatable(() => new ExactMeshBoolean(box, sphere, ExactMeshBoolean.Operations.Intersection) { SafeRounding = true, ComputeExactVertices = true },
+                (b) => Assert.NotNull(b.ResultExactVertices));
         }
 
         [Fact]

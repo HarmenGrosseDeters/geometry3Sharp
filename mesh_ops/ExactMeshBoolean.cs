@@ -973,6 +973,7 @@ namespace g3
                 list.Clear();
                 for (int g = g0; g < g1; ++g)
                     list.Add(edgeTri[g]);
+                list.Sort();        // (Array.Sort above is not stable: the first triangle is the reference half-plane)
                 var pairs = pair_around_edge(tris, list, u, v);
                 foreach (var pair in pairs) {
                     join(slot(pair.Key, u), slot(pair.Value, u));
@@ -1024,6 +1025,8 @@ namespace g3
             // triangle, the pairs by their first triangle
             var nmOrder = new List<KeyValuePair<int, int>>();      // (sort key, index into nonManifold)
             for (int i = 0; i < nonManifold.Count; ++i) {
+                if (nonManifold[i].Value.Count == 0)
+                    continue;       // (no pairs: all pieces run the same way, nothing to split)
                 int u = (int)(nonManifold[i].Key >> 32), v = (int)(nonManifold[i].Key & 0xFFFFFFFF);
                 int t0 = int.MaxValue;
                 foreach (var pair in nonManifold[i].Value)
@@ -1136,6 +1139,9 @@ namespace g3
             }
             // the triangles' half-planes in the order of increasing angle around the axis u -> v (exact: half-planes
             // can differ by less than the rounding of the points), from the half-plane of the first triangle
+            // the axis from the smaller point to the larger one by ComparePoints, not by id (ids depend on the thread
+            // schedule; the order of equal half-planes, by triangle, would not reverse with the axis)
+            if (arr.ComparePoints(u, v) > 0) { int tmp = u; u = v; v = tmp; }
             ExactPoint3 U = arr.Exact(u), V = arr.Exact(v);
             BigInteger[] axis = scaled_difference(V, U);
             var dir = new Dictionary<int, BigInteger[]>();
