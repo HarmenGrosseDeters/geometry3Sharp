@@ -104,6 +104,13 @@ namespace gs
         public double RepairVolumeIoU = double.NaN;
         /// <summary> the solidify fallback, if it ran (for its statistics); null otherwise </summary>
         public MeshWindingNumberSolidify Solidify;
+        /// <summary>
+        /// "" if the result in Mesh is clean (see class comment), otherwise why not (NotCleanReason): Apply() also returns
+        /// true with an unclean solidify result when the alpha wrap is off or failed. Set by every successful Apply()
+        /// from the checks it ran anyway (the repair, exact resolve and wrap results are clean by the checks or by
+        /// construction).
+        /// </summary>
+        public string ResultReason = "";
         /// <summary> why the solidify result was not used ("" if it was or did not run) </summary>
         public string SolidifyReason = "";
         /// <summary> true if the result is the alpha wrap (last resort) </summary>
@@ -155,11 +162,13 @@ namespace gs
         /// </summary>
         /// <returns>
         /// false if cancelled, if the input is empty, or if both the solidify fallback (eg the grid
-        /// would be too large) and the alpha wrap failed; Mesh is then not replaced. true otherwise.
+        /// would be too large) and the alpha wrap failed; Mesh is then not replaced. true otherwise, also for an
+        /// unclean solidify result (when the wrap is off or failed): check ResultReason.
         /// </returns>
         public bool Apply()
         {
             UsedSolidify = false;
+            ResultReason = "not repaired";
             UsedInput = false;
             UsedAlphaWrap = false;
             SolidifyReason = "";
@@ -212,6 +221,7 @@ namespace gs
             UsedInput = solidifyFrom == input;
             if (FallbackReason == "") {
                 Mesh = result;
+                ResultReason = "";
                 return true;
             }
             if (solidifyFrom.TriangleCount == 0)
@@ -224,6 +234,7 @@ namespace gs
                 if (exact != null) {
                     Mesh = exact;
                     UsedExactResolve = true;
+                    ResultReason = "";
                     return true;
                 }
             }
@@ -244,6 +255,7 @@ namespace gs
                     && AlphaWrap.Result != null && AlphaWrap.Result.TriangleCount > 0) {
                     Mesh = AlphaWrap.Result;
                     UsedAlphaWrap = true;
+                    ResultReason = "";
                     return true;
                 }
             }
@@ -251,6 +263,7 @@ namespace gs
                 return false;
             Mesh = Solidify.Result;
             UsedSolidify = true;
+            ResultReason = SolidifyReason;
             return true;
         }
 

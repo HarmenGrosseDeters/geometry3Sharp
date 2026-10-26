@@ -29,6 +29,7 @@ namespace geometry3Sharp.Tests
             Assert.True(r.Apply());
             Assert.False(r.UsedSolidify);
             Assert.Equal("", r.FallbackReason);
+            Assert.Equal("", r.ResultReason);
             Assert.Equal(n, r.Mesh.TriangleCount);
         }
 
@@ -53,6 +54,7 @@ namespace geometry3Sharp.Tests
             var r = new MeshRobustRepair(m);
             Assert.True(r.Apply());
             Assert.True(r.UsedExactResolve, r.ExactResolveReason);
+            Assert.Equal("", r.ResultReason);
             Assert.False(r.UsedSolidify);
             Assert.Equal("self-intersections", r.FallbackReason);
             Assert.Equal("", MeshRobustRepair.NotCleanReason(r.Mesh));
@@ -552,11 +554,13 @@ namespace geometry3Sharp.Tests
             var without = run(false);
             Assert.True(without.UsedSolidify);
             Assert.Equal("self-intersections", MeshRobustRepair.NotCleanReason(without.Mesh));
+            Assert.Equal("self-intersections", without.ResultReason);      // returned all the same: said so
 
             var with = run(true);
             Assert.Equal("self-intersections", with.SolidifyReason);
             Assert.True(with.UsedAlphaWrap);
             Assert.False(with.UsedSolidify);
+            Assert.Equal("", with.ResultReason);
             Assert.Equal("", MeshRobustRepair.NotCleanReason(with.Mesh));
             double missing, extra;
             double iou = MeshRepairMetrics.VolumeIoU(ThinPlates(6), with.Mesh, out missing, out extra);
@@ -571,6 +575,7 @@ namespace geometry3Sharp.Tests
             Assert.True(r.UsedSolidify);
             Assert.False(r.UsedAlphaWrap);
             Assert.Equal("", r.SolidifyReason);
+            Assert.Equal("", r.ResultReason);
             Assert.Null(r.AlphaWrap);
         }
 }
