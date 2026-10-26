@@ -128,19 +128,27 @@ namespace g3
                     emit_warning("found invalid OFF triangle line: " + line);
 
                 int nV = int.Parse(tokens[0], CultureInfo.InvariantCulture);
-                if ( nV < 3 || tokens.Length < nV + 1 ) {
+                if ( nV < 3 || nV > tokens.Length - 1 ) {      // (not nV + 1: overflows for nV = int.MaxValue)
                     emit_warning("found invalid OFF polygon line: " + line);
                     ti++;
                     continue;
                 }
 
-                // polygons with more than 3 vertices are triangulated as a fan
-                int a = int.Parse(tokens[1], CultureInfo.InvariantCulture);
-                for (int j = 2; j < nV; ++j) {
-                    int b = int.Parse(tokens[j], CultureInfo.InvariantCulture);
-                    int c = int.Parse(tokens[j + 1], CultureInfo.InvariantCulture);
-                    builder.AppendTriangle(a, b, c);
+                // polygons with more than 3 vertices are triangulated as a fan; a polygon with a vertex index outside
+                // the file's vertices is skipped
+                int[] poly = new int[nV];
+                bool valid = true;
+                for (int j = 0; j < nV; ++j) {
+                    poly[j] = int.Parse(tokens[j + 1], CultureInfo.InvariantCulture);
+                    valid = valid && poly[j] >= 0 && poly[j] < nVertexCount;
                 }
+                if (valid == false) {
+                    emit_warning("found OFF polygon with an invalid vertex index: " + line);
+                    ti++;
+                    continue;
+                }
+                for (int j = 1; j + 1 < nV; ++j)
+                    builder.AppendTriangle(poly[0], poly[j], poly[j + 1]);
                 ti++;
             }
             if (ti < nTriangleCount)
