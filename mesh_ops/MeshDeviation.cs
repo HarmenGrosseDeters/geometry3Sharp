@@ -31,8 +31,10 @@ namespace gs
     {
         public DMesh3 Mesh, Reference;
         /// <summary>
-        /// optional spatial data structure of the reference (built if null; for a reference far from the
-        /// origin the queries then run on a copy moved to the origin, and this stays null)
+        /// optional spatial data structure of the reference. If null it is built (and rebuilt when Reference
+        /// changes); for a reference far from the origin (MeshWallThickness.FarFromOrigin) the queries then
+        /// run on a copy moved to the origin, with its own tree, and this stays null. A tree set here is used
+        /// as it is (also far from the origin).
         /// </summary>
         public DMeshAABBTree3 ReferenceSpatial;
 
@@ -115,8 +117,14 @@ namespace gs
             VertexStatistics = DeviationStatistics.Compute(values);
 
             if (ComputeCertifiedBound) {
-                var h = new MeshHausdorffDistance(Mesh, Reference) {
-                    SpatialB = (refMesh == Reference) ? refSpatial : null, Symmetric = false, Tolerance = CertifiedTolerance, CancelF = CancelF
+                // far from the origin: both meshes moved by the same offset, on the reference's local tree
+                DMesh3 from = Mesh;
+                if (refOffset != Vector3d.Zero) {
+                    from = new DMesh3(Mesh, false, MeshComponents.None);
+                    MeshTransforms.Translate(from, -refOffset);
+                }
+                var h = new MeshHausdorffDistance(from, refMesh) {
+                    SpatialB = refSpatial, Symmetric = false, Tolerance = CertifiedTolerance, CancelF = CancelF
                 };
                 if (h.Compute() == false)
                     return false;
@@ -130,10 +138,11 @@ namespace gs
         /// <summary> signed distance of p to the reference (see Sign), its closest point and triangle </summary>
         public double SignedDistance(Vector3d p, out Vector3d closest, out int tid)
         {
-            if (refSpatial == null)
+            lock (prepareLock) {
                 prepare_reference();
-            if (Sign == Signs.PseudoNormal && vertexNormals == null)
-                compute_pseudonormals();
+                if (Sign == Signs.PseudoNormal && vertexNormals == null)
+                    compute_pseudonormals();
+            }
             Vector3d q = p - refOffset;
             double d = signed_distance_local(q, out closest, out tid);
             closest += refOffset;
@@ -165,27 +174,44 @@ namespace gs
 
 
         // The reference the queries run on: Reference itself, or, if it lies far from the origin (eg geo
-        // coordinates) and no ReferenceSpatial was given, a copy moved to the origin with the same IDs. The
-        // tree's boxes are floats, which round by 2^-24 of the coordinates (0.3 at 5e6): far from the origin
-        // they would prune the nearest triangle wrongly and visit far too many boxes.
+        // coordinates) and the caller set no ReferenceSpatial, a copy moved to the origin with the same IDs.
+        // The tree's boxes are floats, which round by 2^-24 of the coordinates (0.3 at 5e6): far from the
+        // origin they would visit far too many boxes. Rebuilt only when Reference or ReferenceSpatial
+        // changes (another object, or the reference was edited).
         DMesh3 refMesh;
         DMeshAABBTree3 refSpatial;
         Vector3d refOffset = Vector3d.Zero;
+        DMesh3 refSource;
+        int refStamp = -1;
+        DMeshAABBTree3 refFromField;        // ReferenceSpatial as it was when the state was prepared
+        DMeshAABBTree3 ownReferenceSpatial; // a tree this instance built on Reference itself
+        readonly object prepareLock = new object();
 
         void prepare_reference()
         {
+            if (refSpatial != null && refSource == Reference && refStamp == Reference.ShapeTimestamp
+                && refFromField == ReferenceSpatial)
+                return;
+            // anything cached for the previous reference is stale
+            vertexNormals = null; flipped = null;
+            bool given = ReferenceSpatial != null && ReferenceSpatial != ownReferenceSpatial;
             refOffset = Vector3d.Zero;
-            if (ReferenceSpatial == null && MeshWallThickness.FarFromOrigin(Reference)) {
+            if (given) {
+                refMesh = Reference;
+                refSpatial = ReferenceSpatial;
+            } else if (MeshWallThickness.FarFromOrigin(Reference)) {
                 refOffset = Reference.CachedBounds.Center;
                 refMesh = new DMesh3(Reference, false, MeshComponents.None);
                 MeshTransforms.Translate(refMesh, -refOffset);
                 refSpatial = new DMeshAABBTree3(refMesh, true);
+                ReferenceSpatial = null;
             } else {
-                if (ReferenceSpatial == null)
-                    ReferenceSpatial = new DMeshAABBTree3(Reference, true);
+                ownReferenceSpatial = new DMeshAABBTree3(Reference, true);
+                ReferenceSpatial = ownReferenceSpatial;
                 refMesh = Reference;
-                refSpatial = ReferenceSpatial;
+                refSpatial = ownReferenceSpatial;
             }
+            refSource = Reference; refStamp = Reference.ShapeTimestamp; refFromField = ReferenceSpatial;
         }
 
 

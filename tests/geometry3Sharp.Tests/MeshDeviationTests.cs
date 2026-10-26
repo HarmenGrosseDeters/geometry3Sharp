@@ -165,7 +165,13 @@ namespace geometry3Sharp.Tests
         public void FarFromOrigin_SameAsAtOrigin()
         {
             Vector3d off = new Vector3d(500000, 5000000, 300);
-            DMesh3 reference = Sphere(1, 20), mesh = Sphere(1.1, 9);
+            // gaps in the reference's ID space: a second sphere appended first and removed again
+            DMesh3 reference = Sphere(0.2, 5), mesh = Sphere(1.1, 9);
+            MeshTransforms.Translate(reference, new Vector3d(5, 0, 0));
+            int gap = reference.MaxTriangleID;
+            new MeshEditor(reference).AppendMesh(Sphere(1, 20));
+            foreach (int tid in reference.TriangleIndices().Where(t => t < gap).ToList())
+                reference.RemoveTriangle(tid, true, false);
             var d0 = new MeshDeviation(mesh, reference);
             Assert.True(d0.Compute());
             MeshTransforms.Translate(reference, off);
@@ -176,6 +182,36 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(d0.VertexDeviation[vid], d1.VertexDeviation[vid], 6);
                 // (the closest triangle may differ where two are equally close, eg at an edge)
                 Assert.True((d0.ClosestPoint[vid] + off).Distance(d1.ClosestPoint[vid]) < 1e-6);
+                Assert.True(d1.ClosestTriangle[vid] >= gap);
+            }
+            // the queries ran on a local copy (no tree on the far reference)
+            Assert.Null(d1.ReferenceSpatial);
+            // certified bound on the local copies: same interval
+            var c0 = new MeshDeviation(mesh, reference) { ComputeCertifiedBound = true, CertifiedTolerance = 1e-4 };
+            Assert.True(c0.Compute());
+            Assert.InRange(c0.HausdorffLowerBound, d0.Statistics.MaxAbsolute - 1e-6, c0.HausdorffUpperBound);
+            Assert.Equal(d0.Statistics.MaxAbsolute, d1.Statistics.MaxAbsolute, 6);
+        }
+
+        [Fact]
+        public void ChangedReference_IsNotServedFromTheCache()
+        {
+            foreach (Vector3d off in new[] { Vector3d.Zero, new Vector3d(500000, 5000000, 300) }) {
+                DMesh3 r1 = Sphere(1, 12), r2 = Sphere(0.5, 12), mesh = Sphere(1.1, 5);
+                foreach (DMesh3 m in new[] { r1, r2, mesh }) MeshTransforms.Translate(m, off);
+                Vector3d p = off + new Vector3d(2, 0, 0);
+                foreach (var sign in new[] { MeshDeviation.Signs.Unsigned, MeshDeviation.Signs.PseudoNormal }) {
+                    var d = new MeshDeviation(mesh, r1) { Sign = sign };
+                    Assert.True(d.Compute());
+                    Vector3d c; int t;
+                    Assert.InRange(d.SignedDistance(p, out c, out t), 0.99, 1.01);
+                    d.Reference = r2;               // another reference, same edit stamp
+                    d.ReferenceSpatial = null;
+                    Assert.InRange(d.SignedDistance(p, out c, out t), 1.49, 1.51);
+                    d.Reference = r1;
+                    d.ReferenceSpatial = new DMeshAABBTree3(r1, true);     // given by the caller
+                    Assert.InRange(d.SignedDistance(p, out c, out t), 0.99, 1.01);
+                }
             }
         }
 

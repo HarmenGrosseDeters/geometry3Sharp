@@ -634,7 +634,7 @@ Each fix has a unit test that fails on the code before the fix.
 
   - The gain over the first version, and the extra time, come from the sample changes (2-point spheres, no
     sample test).
-  - LO-RANSAC costs no time. It gives somewhat better models, but a rotated input reaches another quality a
+  - LO-RANSAC costs about the same time (median −13 % to +7 % per primitive). It gives somewhat better models, but a rotated input reaches another quality a
     little more often. It stays on by default (`LocalOptimization`).
 - **Tried and dropped:** localized sampling (Schnabel et al.: the other points of a sample near the first).
   It finds some small part quickly and then stops, and as it depends on a grid it is not rotation

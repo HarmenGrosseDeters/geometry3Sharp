@@ -65,7 +65,8 @@ namespace g3
         public double MaxConeAngle = 88;
         /// <summary>
         /// LO-RANSAC: refine every new best candidate by least squares on (at most 2000 of) its inliers. On the
-        /// 400 Thingi10K meshes of benchmarks/MeshRepairBenchmark at the same time: somewhat better models
+        /// 400 Thingi10K meshes of benchmarks/MeshRepairBenchmark, at about the same median time (-13 % to
+        /// +7 % per primitive): somewhat better models
         /// (better / worse by more than 1 % of the points on 32/15 meshes for spheres, 46/42 cylinders, 52/44
         /// cones), but a rotated input reaches another quality slightly more often (27/29/23 instead of
         /// 21/16/16 meshes). false = plain RANSAC with the same bail-out pre-test.
