@@ -115,7 +115,7 @@ namespace g3cli
             var c = new Command() {
                 Name = "measure",
                 Description = "Measure a mesh: counts, components, closedness, volume, area, bounds, genus, " +
-                    "degenerate triangles, bowties, inside-out components, self-intersections (exact) and whether it is a clean solid. " +
+                    "degenerate triangles, bowties, inconsistently oriented edges, inside-out components, self-intersections (exact) and whether it is a clean solid. " +
                     "With 'compare', also the certified Hausdorff distance to a second mesh.",
             };
             c.Params.Add(Input());

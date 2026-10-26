@@ -86,6 +86,60 @@ namespace geometry3Sharp.Tests
             Assert.Equal(own.ExactResolveRoundsUsed, r.ExactResolveRoundsUsed);
         }
 
+        // copies of one box rotated and shifted by tiny amounts: the resolve's intersection curves nearly meet,
+        // which leaves slivers after the safe rounding
+        static DMesh3 NearlyCoincidentBoxes(int seed, int n)
+        {
+            var rnd = new Random(seed);
+            DMesh3 m = new DMesh3();
+            var c = new Vector3d(0.5, 0.5, 0.5);
+            for (int i = 0; i < n; ++i) {
+                rnd.NextDouble(); rnd.NextDouble(); rnd.NextDouble();      // (the sequence the case was found with)
+                DMesh3 p = new TrivialBox3Generator() { Box = new Box3d(c, new Vector3d(0.3, 0.2, 0.25)) }.Generate().MakeDMesh();
+                var axis = new Vector3d(rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5).Normalized;
+                MeshTransforms.Rotate(p, c, Quaterniond.AxisAngleD(axis, Math.Pow(10, -2 - 5 * rnd.NextDouble())));
+                MeshTransforms.Translate(p, Math.Pow(10, -3 - 6 * rnd.NextDouble()) * axis);
+                MeshEditor.Append(m, p);
+            }
+            return m;
+        }
+
+        [Fact]
+        public void ExactResolve_SliversCleanedAfterSafeRounding_IntersectionsCountedAgain()
+        {
+            // the safe rounding leaves slivers, which the cleanup removes, adding self-intersections. The rounding's
+            // count (none) no longer holds then: the exact stage must not accept the result
+            var r = new MeshRobustRepair(NearlyCoincidentBoxes(9, 6)) { RepairF = (m) => new DMesh3(m), AlphaWrapFallback = false };
+            Assert.True(r.Apply());
+            // the scenario: resolved exactly, after a round whose cleaned result had intersections (if a later change
+            // to the resolve or the rounding no longer gives it, this test must be given a new scene)
+            Assert.True(r.UsedExactResolve, r.ExactResolveReason);
+            Assert.True(r.ExactResolveSelfIntersections.Count >= 2 && r.ExactResolveSelfIntersections[0] > 0,
+                string.Join(",", r.ExactResolveSelfIntersections));
+            Assert.Equal(0, MeshRepairMetrics.SelfIntersections(r.Mesh));
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(r.Mesh));
+        }
+
+        [Fact]
+        public void NotCleanReason_InconsistentOrientation()
+        {
+            // a closed sphere with some triangles reversed: closed, no bowties, no degenerate triangles, but not a
+            // consistently oriented surface (the inside-out test sees only the whole components)
+            DMesh3 m = Sphere(1, Vector3d.Zero);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(m));
+            int k = 0;
+            foreach (int tid in m.TriangleIndices().ToList())
+                if (k++ % 50 == 0)
+                    m.ReverseTriOrientation(tid);
+            Assert.True(MeshRepairMetrics.InconsistentlyOrientedEdges(m) > 0);
+            Assert.Equal("inconsistent orientation", MeshRobustRepair.NotCleanReason(m));
+            // the robust repair orients it consistently again
+            var r = new MeshRobustRepair(m);
+            Assert.True(r.Apply());
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(r.Mesh));
+            Assert.Equal(0, MeshRepairMetrics.InconsistentlyOrientedEdges(r.Mesh));
+        }
+
         [Fact]
         public void TooManySelfIntersections_SolidifiedInsteadOfResolved()
         {
