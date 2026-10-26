@@ -640,7 +640,7 @@ namespace gs
         public void GetTangentBasis(int vid, out Vector3d e1, out Vector3d e2, out Vector3d n)
         {
             int i = VertexIndex(vid);
-            if (i < 0 || i >= N0)
+            if (i < 0)
                 throw new ArgumentException("IntrinsicTriangulation: " + vid + " is not a mesh vertex with triangles");
             Vector3d p = Mesh.GetVertex(vid);
             n = Vector3d.Zero;
@@ -692,11 +692,7 @@ namespace gs
                 Vector3d d = Mesh.GetVertex(toVertex[hV_input_head(hh)]) - p;
                 double w = Math.Atan2(d.Dot(e2), d.Dot(e1));
                 if (sign.Count == 0) w = 0;
-                else {
-                    while (w < prevW) w += 2 * Math.PI;
-                    // a fan that folds over in the projection (saddles): keep the sequence monotone
-                    w = Math.Min(w, 2 * Math.PI);
-                }
+                else { while (w < prevW) w += 2 * Math.PI; }
                 sign.Add(inAngle[hh]); world.Add(w);
                 prevW = w;
                 // the head of the last input corner, at a boundary vertex
@@ -705,15 +701,24 @@ namespace gs
                     Vector3d dl = Mesh.GetVertex(toVertex[hV_input_head(Next(hh))]) - p;
                     double wl = Math.Atan2(dl.Dot(e2), dl.Dot(e1));
                     while (wl < prevW) wl += 2 * Math.PI;
-                    sign.Add(LastSignpost(i)); world.Add(Math.Min(wl, 2 * Math.PI));
+                    sign.Add(LastSignpost(i)); world.Add(wl);
                     break;
                 }
                 if (nh == h0 || ++guard > 3 * F0) break;
                 hh = nh;
             }
-            // close the circle (a boundary vertex with an angle sum above 2 pi has signposts beyond it; directions
-            // are only defined modulo 2 pi there, so those alias with the first corners)
-            sign.Add(Math.Max(2 * Math.PI, sign[sign.Count - 1])); world.Add(2 * Math.PI);
+            // close the circle back at the first edge, keeping both sequences increasing: a boundary vertex with
+            // an angle sum above 2 pi has signposts beyond 2 pi, and the projection of a folded fan (saddles)
+            // winds more than once. Directions are only defined modulo 2 pi, so map_angle uses the first corner
+            // that contains an angle.
+            sign.Add(next_turn(sign[sign.Count - 1])); world.Add(next_turn(world[world.Count - 1]));
+        }
+
+        // smallest multiple of 2 pi, at least 2 pi, that is above a (or equal to it)
+        static double next_turn(double a)
+        {
+            const double twoPi = 2 * Math.PI;
+            return Math.Max(1, Math.Ceiling(a / twoPi - 1e-12)) * twoPi;
         }
 
         static double map_angle(double a, List<double> from, List<double> to)

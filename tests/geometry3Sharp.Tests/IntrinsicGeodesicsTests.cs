@@ -722,5 +722,83 @@ namespace geometry3Sharp.Tests
             vhm.TimeFactor = 1;
             Assert.Equal(Vector2d.Zero, vhm.ComputeLogMap(src)[src]);
         }
+
+        [Fact]
+        public void VectorHeat_FailedFactorization_ClearErrorAndRecovers()
+        {
+            // a diffusion time of 1e300 edge lengths squared: mass + t L is not numerically positive definite
+            DMesh3 mesh = Grid(4, 5, (x, y) => 0);
+            int src = mesh.VertexIndices().First();
+            var vhm = new VectorHeatMethod(mesh) { TimeFactor = 1e300 };
+            var e = Assert.Throws<InvalidOperationException>(() => vhm.ComputeLogMap(src));
+            Assert.Contains("heat operator", e.Message);
+            Assert.Throws<InvalidOperationException>(() => vhm.ComputeLogMap(src));     // not cached as valid
+
+            // back to a sane time: the same results as a fresh instance
+            vhm.TimeFactor = 1;
+            Vector2d[] log = vhm.ComputeLogMap(src), expected = new VectorHeatMethod(mesh).ComputeLogMap(src);
+            foreach (int v in mesh.VertexIndices())
+                Assert.True(log[v].Distance(expected[v]) < 1e-12);
+        }
+
+        [Fact]
+        public void VectorHeat_TriangulationGetter_DoesNotTouchTheHeatOperators()
+        {
+            DMesh3 mesh = Strip(800);
+            var vhm = new VectorHeatMethod(mesh);
+            vhm.ExtendScalar(new[] { new KeyValuePair<int, double>(NearestVertex(mesh, new Vector3d(0, 1, 0)), 1) });
+            double t = vhm.DiffusionTime;
+            Assert.NotNull(vhm.Triangulation);
+            Assert.Equal(t, vhm.DiffusionTime);     // still the time the last query used
+            vhm.TimeFactor = 0;
+            Assert.NotNull(vhm.Triangulation);      // needs no diffusion time
+        }
+
+        [Fact]
+        public void ToWorld_FoldedFan_EdgesExactAndClosingCornerTheShortWay()
+        {
+            // an interior saddle vertex whose fan folds back in the projection into its tangent plane: the third
+            // rim point lies (projected) before the second one
+            DMesh3 mesh = new DMesh3();
+            int v = mesh.AppendVertex(Vector3d.Zero);
+            double[] deg = { 0, 110, 30, 150, 230, 310 }, z = { 0, 1, -1, 0, 0, 0 };
+            var rim = new List<int>();
+            for (int k = 0; k < deg.Length; ++k) {
+                double a = deg[k] * Math.PI / 180;
+                rim.Add(mesh.AppendVertex(new Vector3d(Math.Cos(a), Math.Sin(a), z[k])));
+            }
+            for (int k = 0; k < rim.Count; ++k) Assert.True(mesh.AppendTriangle(v, rim[k], rim[(k + 1) % rim.Count]) >= 0);
+            var T = new IntrinsicTriangulation(mesh);
+            int iv = T.VertexIndex(v);
+            Vector3d e1, e2, n;
+            T.GetTangentBasis(v, out e1, out e2, out n);
+            Func<Vector3d, double> proj = d => Math.Atan2(d.Dot(e2), d.Dot(e1));
+
+            // the edges in signpost order, with their projected directions; the projection must fold
+            var edges = new List<KeyValuePair<double, Vector3d>>();
+            int h0 = T.VertexHalfedge(iv), h = h0;
+            do {
+                edges.Add(new KeyValuePair<double, Vector3d>(T.Signpost(h), mesh.GetVertex(T.VertexID(T.Head(h)))));
+                h = T.NextAroundVertex(h);
+            } while (h != h0);
+            bool folds = false;
+            for (int k = 1; k < edges.Count; ++k)
+                if (IntrinsicTriangulation.wrap(proj(edges[k].Value) - proj(edges[k - 1].Value)) > Math.PI) folds = true;
+            Assert.True(folds);
+
+            Func<double, Vector3d> toWorld = a => T.ToWorld(v, new Vector2d(Math.Cos(a), Math.Sin(a)));
+            foreach (var kv in edges) {
+                Vector3d d = kv.Value - kv.Value.Dot(n) * n;
+                Assert.True(AngleBetween(toWorld(kv.Key), d) < 1e-9, $"edge at signpost {kv.Key}");
+            }
+            // the corner between the last and the first edge maps into the short arc between their projections
+            double last = edges[edges.Count - 1].Key;
+            double aLast = proj(edges[edges.Count - 1].Value), aFirst = proj(edges[0].Value);
+            double arc = IntrinsicTriangulation.wrap(aFirst - aLast);
+            Assert.True(arc < Math.PI);
+            Vector3d mid = toWorld(0.5 * (last + 2 * Math.PI));
+            double off = IntrinsicTriangulation.wrap(proj(mid) - aLast);
+            Assert.True(off > 0 && off < arc, $"closing corner maps to {off} outside (0, {arc})");
+        }
     }
 }

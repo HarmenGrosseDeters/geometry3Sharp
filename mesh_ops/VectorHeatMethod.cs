@@ -31,7 +31,9 @@ namespace gs
     /// from the one-ring of the source instead is biased by the shape of the one-ring, by some 20 degrees
     /// on a mesh whose vertices have six neighbours, independently of the resolution.) r^2 is smooth at
     /// the source, so the direction is well defined up to the cut locus. Like the heat method distance,
-    /// it is less accurate within a few edge lengths of boundary corners.
+    /// it is less accurate within a few edge lengths of boundary corners. At a boundary source whose angle sum
+    /// exceeds 2 pi (a ruffled boundary) log map angles beyond 2 pi are exact as signposts, but a tangent
+    /// vector only determines its angle modulo 2 pi, so ToWorld maps them into the first corners.
     ///
     /// Heat decays by about a factor 2.6 per edge length; beyond ~600 edge lengths from a source it
     /// would underflow, and then the diffusion time is increased automatically (DiffusionTime).
@@ -58,11 +60,11 @@ namespace gs
         /// <summary> insertion limit of the refinement (0: 10 * vertices + 1000) </summary>
         public int RefineMaxInsertions = 0;
         /// <summary> result of the refinement; null if not refined </summary>
-        public IntrinsicRefinementResult Refinement { get { check(); return refinement; } }
+        public IntrinsicRefinementResult Refinement { get { check_structure(); return refinement; } }
         IntrinsicRefinementResult refinement;
 
         /// <summary> the triangulation the operators are built on (built on first use) </summary>
-        public IntrinsicTriangulation Triangulation { get { check(); return triangulation; } }
+        public IntrinsicTriangulation Triangulation { get { check_structure(); return triangulation; } }
         IntrinsicTriangulation triangulation;
 
         /// <summary> diffusion time of the last computation </summary>
@@ -80,22 +82,46 @@ namespace gs
         int[] component;
         int componentCount;
         int[] pinned;               // per component: vertex fixed to 0 in the Poisson problem
-        SparseCholesky scalarHeat, vectorHeat, poisson;
+        SparseCholesky poisson;
+        double[] heatWeight;        // per halfedge (first of its edge): cotan weight, at least 0
         int timestamp = -1;
         bool builtIntrinsic, builtRefine;
         double builtRefineAngle;
         int builtRefineMax;
-        double builtTimeFactor;
-        double timeScale = 1;       // growth of the diffusion time against underflow
+
+        // heat operators of one diffusion time; the Dirichlet one is built when needed
+        class HeatOperators
+        {
+            public SparseCholesky Scalar, Vector, Dirichlet;
+        }
+        // per growth factor of the diffusion time against underflow (1 = TimeFactor * h^2), for builtTimeFactor
+        Dictionary<double, HeatOperators> heatCache = new Dictionary<double, HeatOperators>();
+        double builtTimeFactor = double.NaN;
+        double timeScale = 1;
+        HeatOperators ops;          // operators of the current query
 
         void precompute()
         {
+            // a failure (eg a factorization) leaves nothing that claims to be up to date
+            triangulation = null;
+            ops = null;
+            heatCache.Clear();
+            builtTimeFactor = double.NaN;
+            IntrinsicTriangulation built = new IntrinsicTriangulation(Mesh);
+            triangulation = built;
+            try {
+                build_structure();
+            } catch {
+                triangulation = null;
+                throw;
+            }
             timestamp = Mesh.ShapeTimestamp;
             builtIntrinsic = IntrinsicDelaunay;
             builtRefine = IntrinsicRefine; builtRefineAngle = RefineMinAngle; builtRefineMax = RefineMaxInsertions;
-            builtTimeFactor = TimeFactor;
-            timeScale = 1;
-            triangulation = new IntrinsicTriangulation(Mesh);
+        }
+
+        void build_structure()
+        {
             refinement = null;
             if (IntrinsicDelaunay && IntrinsicRefine)
                 refinement = triangulation.DelaunayRefine(RefineMinAngle, RefineMaxInsertions);
@@ -125,7 +151,9 @@ namespace gs
             hasBoundary = false;
             for (int i = 0; i < N; ++i)
                 if (T.IsBoundaryVertex(i)) { isBoundary[i] = true; hasBoundary = true; }
-            dirichletHeat = null;
+            heatWeight = new double[T.HalfedgeCount];
+            for (int h = 0; h < T.HalfedgeCount; ++h)
+                if (T.Twin(h) < 0 || T.Twin(h) > h) heatWeight[h] = heat_weight(h);
 
             // Poisson problem: cotan Laplacian with one vertex per component fixed
             bool[] isPinned = new bool[N];
@@ -134,7 +162,6 @@ namespace gs
             add_laplacian(entries, h => T.CotanWeight(h), isPinned);
             foreach (int p in pinned) entries.Add(entry(p, p, 1));
             poisson = factor(N, entries, "Poisson problem");
-            factor_heat();
         }
 
         static KeyValuePair<Index2i, double> entry(int i, int j, double v)
@@ -167,12 +194,29 @@ namespace gs
             return chol;
         }
 
-        void factor_heat()
+        double diffusion_time(double scale)
+        {
+            double h0 = triangulation.MeanEdgeLength;
+            return TimeFactor * scale * h0 * h0;
+        }
+
+        // makes the heat operators of diffusion time TimeFactor * scale * h^2 current (cached per scale)
+        void select_heat(double scale)
+        {
+            ops = null;
+            timeScale = scale;
+            DiffusionTime = diffusion_time(scale);
+            HeatOperators o;
+            if (heatCache.TryGetValue(scale, out o) == false) {
+                o = factor_heat(DiffusionTime);
+                heatCache[scale] = o;
+            }
+            ops = o;
+        }
+
+        HeatOperators factor_heat(double t)
         {
             IntrinsicTriangulation T = triangulation;
-            double h0 = T.MeanEdgeLength;
-            double t = TimeFactor * timeScale * h0 * h0;
-            DiffusionTime = t;
             var s = new List<KeyValuePair<Index2i, double>>();
             var v = new List<KeyValuePair<Index2i, double>>();
             for (int i = 0; i < N; ++i) {
@@ -180,11 +224,10 @@ namespace gs
                 v.Add(entry(2 * i, 2 * i, mass[i]));
                 v.Add(entry(2 * i + 1, 2 * i + 1, mass[i]));
             }
-            add_laplacian(s, h => t * heat_weight(h), null);
             for (int h = 0; h < T.HalfedgeCount; ++h) {
                 if (T.Twin(h) >= 0 && T.Twin(h) < h) continue;      // once per edge
                 int i = T.Tail(h), j = T.Head(h);
-                double c = t * heat_weight(h);
+                double c = t * heatWeight[h];
                 double rho = transport_angle(h);
                 double cr = Math.Cos(rho), sr = Math.Sin(rho);
                 if (i == j) {
@@ -193,6 +236,7 @@ namespace gs
                     v.Add(entry(2 * i + 1, 2 * i + 1, 2 * c * (1 - cr)));
                     continue;
                 }
+                s.Add(entry(i, i, c)); s.Add(entry(j, j, c)); s.Add(entry(i, j, -c));
                 // Hermitian connection Laplacian: (i, j) = -c r_ji, r_ji = exp(i rho) transports from j to i;
                 // as a real 2x2 block [[a, -b], [b, a]] of the complex entry a + ib
                 double a = -c * cr, b = -c * sr;
@@ -203,9 +247,9 @@ namespace gs
                 v.Add(entry(2 * i + 1, 2 * j, b));
                 v.Add(entry(2 * i + 1, 2 * j + 1, a));
             }
-            scalarHeat = factor(N, s, "heat operator");
-            vectorHeat = factor(2 * N, v, "vector heat operator");
-            dirichletHeat = null;
+            return new HeatOperators() {
+                Scalar = factor(N, s, "heat operator"), Vector = factor(2 * N, v, "vector heat operator")
+            };
         }
 
         // Edge weight of the heat operators: the cotan weight, but at least 0. After the Delaunay flips only
@@ -225,22 +269,29 @@ namespace gs
             return triangulation.Signpost(h) - triangulation.ReverseSignpost(h) + Math.PI;
         }
 
-        // Rebuilds what changed. Every query starts from the diffusion time TimeFactor * h^2: an increase
-        // against underflow (indicator_heat) holds only for the query that needed it.
-        void check()
+        // rebuilds the triangulation and the Poisson factor if the mesh or their options changed
+        void check_structure()
         {
-            if (!(TimeFactor > 0))
-                throw new ArgumentException("VectorHeatMethod: TimeFactor must be positive");
             if (triangulation == null || timestamp != Mesh.ShapeTimestamp || builtIntrinsic != IntrinsicDelaunay
                 || builtRefine != IntrinsicRefine
                 || (IntrinsicRefine && (builtRefineAngle != RefineMinAngle || builtRefineMax != RefineMaxInsertions)))
                 precompute();
-            else if (builtTimeFactor != TimeFactor || timeScale != 1) {
-                // only the heat operators depend on the diffusion time
-                builtTimeFactor = TimeFactor;
-                timeScale = 1;
-                factor_heat();
-            }
+        }
+
+        // Start of every query: the structure, and the heat operators of TimeFactor * h^2. A longer diffusion
+        // time against underflow (indicator_heat) holds only for the query that needed it; its operators stay
+        // cached for the next such query.
+        void check()
+        {
+            if (!(TimeFactor > 0) || double.IsInfinity(TimeFactor))
+                throw new ArgumentException("VectorHeatMethod: TimeFactor must be positive and finite");
+            check_structure();
+            if (builtTimeFactor != TimeFactor) {
+                heatCache.Clear();
+                select_heat(1);
+                builtTimeFactor = TimeFactor;       // only after the factorizations succeeded
+            } else
+                select_heat(1);
         }
 
         int index_of(int vid)
@@ -257,14 +308,13 @@ namespace gs
                 double[] b = new double[N];
                 foreach (int s in src) b[s] = 1;
                 double[] phi = new double[N];
-                scalarHeat.Solve(b, phi);
+                ops.Scalar.Solve(b, phi);
                 bool underflow = false;
                 for (int i = 0; i < N && underflow == false; ++i)
                     if (hasSource[component[i]] && !(phi[i] > 1e-250)) underflow = true;
                 if (underflow == false || timeScale > 1e12)
                     return phi;
-                timeScale *= 4;
-                factor_heat();
+                select_heat(timeScale * 4);
             }
         }
 
@@ -304,7 +354,7 @@ namespace gs
             bool[] has = source_components(src);
             double[] phi = indicator_heat(src, has);
             double[] u = new double[N];
-            scalarHeat.Solve(b, u);
+            ops.Scalar.Solve(b, u);
             return per_vertex(i => u[i] / phi[i], double.NaN, has);
         }
 
@@ -329,9 +379,9 @@ namespace gs
             bool[] has = source_components(src);
             double[] phi = indicator_heat(src, has);
             double[] u = new double[N];
-            scalarHeat.Solve(bm, u);
+            ops.Scalar.Solve(bm, u);
             double[] y = new double[2 * N];
-            vectorHeat.Solve(b, y);
+            ops.Vector.Solve(b, y);
             Vector2d nan = new Vector2d(double.NaN, double.NaN);
             return per_vertex(i => {
                 double l = Math.Sqrt(y[2 * i] * y[2 * i] + y[2 * i + 1] * y[2 * i + 1]);
@@ -366,7 +416,7 @@ namespace gs
             double[] b = new double[2 * N];
             b[2 * x] = 1;
             double[] R = new double[2 * N];
-            vectorHeat.Solve(b, R);
+            ops.Vector.Solve(b, R);
 
             // geodesic distance r (heat method), and per vertex the gradient of r^2 / 2: by the Gauss
             // lemma it is the log map vector transported along the geodesic, so relative to the
@@ -431,7 +481,7 @@ namespace gs
                     double lk = T.Length(hin);
                     if (k != x && (shortest.TryGetValue(k, out cur) == false || lk < cur)) {
                         shortest[k] = lk;
-                        double a = T.LastSignpost(x);
+                        double a = T.ReverseSignpost(hin);
                         log[k] = new Vector2d(lk * Math.Cos(a), lk * Math.Sin(a));
                     }
                 }
@@ -485,24 +535,20 @@ namespace gs
             return r;
         }
 
-        SparseCholesky dirichletHeat;
         bool hasBoundary;
         bool[] isBoundary;
 
         SparseCholesky dirichlet_heat()
         {
-            if (dirichletHeat != null && dirichletTime == DiffusionTime)
-                return dirichletHeat;
-            IntrinsicTriangulation T = triangulation;
+            if (ops.Dirichlet != null)
+                return ops.Dirichlet;
             double t = DiffusionTime;
             var s = new List<KeyValuePair<Index2i, double>>();
             for (int i = 0; i < N; ++i)
                 s.Add(entry(i, i, isBoundary[i] ? 1 : mass[i]));
-            add_laplacian(s, h => t * heat_weight(h), isBoundary);
-            dirichletHeat = factor(N, s, "Dirichlet heat operator");
-            dirichletTime = t;
-            return dirichletHeat;
+            add_laplacian(s, h => t * heatWeight[h], isBoundary);
+            ops.Dirichlet = factor(N, s, "Dirichlet heat operator");
+            return ops.Dirichlet;
         }
-        double dirichletTime;
     }
 }
