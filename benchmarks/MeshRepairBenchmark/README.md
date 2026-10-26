@@ -542,28 +542,36 @@ Each fix has a unit test that fails on the code before the fix.
   1e-12 diagonal² of area they get no value and do not count as walls. The vertex normal no longer
   compares its length with the absolute `MathUtil.ZeroTolerance` (`MeshAnalysisNormals`).
 - **Fit depended on the rotation:** on 18 of 206 meshes, a fit of the rotated input reached another
-  quality. RANSAC depended on which of several nearly equal samples won. New:
-  - LO-RANSAC: every new best is refined by least squares on its inliers.
+  quality. RANSAC depended on which of several nearly equal samples won. Changes:
+  - LO-RANSAC: every new best is refined by least squares on its inliers. This helped in the first
+    configuration (11 of 17 checked meshes became stable). In the final one it helps little; see the table
+    below.
   - The better model was often a sphere or cylinder of huge radius, or a flat cone, imitating the dominant
-    plane. New limits `MaxRadius` (10 × diagonal) and `MaxConeAngle` (88°).
+    plane. New limits `MaxRadius` (10 × diagonal) and `MaxConeAngle` (88°). Candidates beyond them are
+    counted in `RejectedByLimits`.
 - **Fit missed small structures:**
   - Spheres from 4-point samples ran into `MaxIterations` (9 of 12 cases). With normals, every other
     sample is now 2 points with normals.
   - The test that a sample's own points are inliers threw away rough candidates from noisy vertex normals.
     Removed.
   - Instead, a bail-out pre-test on 500 fixed random points keeps the time down (Capel 2005), and the
-    local optimization uses at most 2000 inliers. `LocalOptimization = false` turns the local optimization
-    off (plain RANSAC).
+    local optimization uses at most 2000 inliers.
 
-  Compared with the first version (sample test, 4-point spheres), over the 400 meshes (more than 1 % of
-  the points better / worse):
+  Over the 400 meshes: better / worse by more than 1 % of the points, and how often the rotated input
+  reaches another quality. "first" is the version with the sample test and 4-point spheres; "now, LO off"
+  is `LocalOptimization = false`.
 
-  | | better | worse | median time first → now |
-  |---|---|---|---|
-  | plane | 26 | 4 | 52 → 162 ms |
-  | sphere | 131 | 28 | 51 → 142 ms |
-  | cylinder | 113 | 43 | 37 → 120 ms |
-  | cone | 89 | 21 | 250 → 420 ms |
+  | | now vs first: better / worse | now, LO on vs off: better / worse | rotated differs: first / LO off / LO on | median time: first / LO off / LO on |
+  |---|---|---|---|---|
+  | plane | 26 / 4 | 3 / 4 | 0 / 0 / 0 | 52 / 144 / 148 ms |
+  | sphere | 131 / 28 | 32 / 15 | 12 / 21 / 27 | 51 / 139 / 145 ms |
+  | cylinder | 113 / 43 | 46 / 42 | 23 / 16 / 29 | 37 / 108 / 94 ms |
+  | cone | 89 / 21 | 52 / 44 | 16 / 16 / 23 | 250 / 298 / 320 ms |
+
+  - The gain over the first version, and the extra time, come from the sample changes (2-point spheres, no
+    sample test).
+  - LO-RANSAC costs no time. It gives somewhat better models, but a rotated input reaches another quality a
+    little more often. It stays on by default (`LocalOptimization`).
 - **Tried and dropped:** localized sampling (Schnabel et al.: the other points of a sample near the first).
   It finds some small part quickly and then stops, and as it depends on a grid it is not rotation
   invariant: rotated quality differed on 16 of 17 checked meshes instead of 6.
