@@ -237,6 +237,67 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void CleanButASmallPartLost_InputUsed()
+        {
+            // a unit-radius sphere and a small separate sphere (0.15: 0.3 % of the volume, within the IoU of 0.99): a
+            // repair that drops the small one passed the volume check; the lost component is noticed now
+            DMesh3 big = Sphere(1, Vector3d.Zero), small = Sphere(0.15, new Vector3d(3, 0, 0));
+            DMesh3 input = new DMesh3(big);
+            MeshEditor.Append(input, small);
+            Assert.Equal(1, MeshRepairMetrics.LostComponents(input, big));
+            Assert.Equal(0, MeshRepairMetrics.LostComponents(input, new DMesh3(input)));
+            var r = new MeshRobustRepair(new DMesh3(input)) { RepairF = (m) => new DMesh3(big) };
+            Assert.True(r.Apply());
+            Assert.Equal("parts of the input lost", r.FallbackReason);
+            Assert.True(r.UsedInput);
+            Assert.True(r.UsedExactResolve, r.ExactResolveReason);
+            Assert.Equal(Volume(big) + Volume(small), Volume(r.Mesh), 6);
+            // without the check: accepted as before
+            var off = new MeshRobustRepair(new DMesh3(input)) { RepairF = (m) => new DMesh3(big), CheckLostComponents = false };
+            Assert.True(off.Apply());
+            Assert.Equal("", off.FallbackReason);
+        }
+
+        [Fact]
+        public void LostComponents_RepairsThatKeepTheSolidLoseNothing()
+        {
+            // overlapping spheres resolved into one shell, an inside-out sphere flipped, a cavity filled partly: the
+            // components' solids are kept, nothing counts as lost; a hollow sphere whose cavity is filled loses nothing
+            // either (the cavity component's solid is the shell material, which is kept)
+            DMesh3 overlapping = Sphere(1, Vector3d.Zero);
+            MeshEditor.Append(overlapping, Sphere(1, new Vector3d(1.2, 0, 0)));
+            var union = new ExactMeshBoolean(Sphere(1, Vector3d.Zero), Sphere(1, new Vector3d(1.2, 0, 0)), ExactMeshBoolean.Operations.Union);
+            Assert.True(union.Compute());
+            Assert.Equal(0, MeshRepairMetrics.LostComponents(overlapping, union.Result));
+            DMesh3 inverted = Sphere(1, Vector3d.Zero);
+            inverted.ReverseOrientation();
+            Assert.Equal(0, MeshRepairMetrics.LostComponents(inverted, Sphere(1, Vector3d.Zero)));
+            DMesh3 hollow = Sphere(1, Vector3d.Zero);
+            DMesh3 cavity = Sphere(0.5, Vector3d.Zero);
+            cavity.ReverseOrientation();
+            MeshEditor.Append(hollow, cavity);
+            Assert.Equal(0, MeshRepairMetrics.LostComponents(hollow, Sphere(1, Vector3d.Zero)));
+            // a thin open sheet has no solid to lose
+            DMesh3 sheet = new DMesh3();
+            sheet.AppendTriangle(sheet.AppendVertex(Vector3d.Zero), sheet.AppendVertex(Vector3d.AxisX), sheet.AppendVertex(Vector3d.AxisY));
+            Assert.Equal(0, MeshRepairMetrics.LostComponents(sheet, new DMesh3()));
+            // everything lost
+            Assert.Equal(2, MeshRepairMetrics.LostComponents(overlapping, new DMesh3()));
+            // an inside-out part counts as its solid (oriented copy), so losing it is noticed
+            DMesh3 withInverted = Sphere(1, Vector3d.Zero);
+            DMesh3 smallInverted = Sphere(0.15, new Vector3d(3, 0, 0));
+            smallInverted.ReverseOrientation();
+            MeshEditor.Append(withInverted, smallInverted);
+            Assert.Equal(1, MeshRepairMetrics.LostComponents(withInverted, Sphere(1, Vector3d.Zero)));
+            // a component whose box holds only a few points of the solid (a thin slab of it, 0.3 %: 5 of 1024 samples): too few to judge
+            // it, not counted as lost; a thicker slab (3 %) is judged
+            Func<double, int> slab = (t) => MeshRepairMetrics.LostComponents(
+                new MeshRepairMetrics.SolidReference(Box(0, 0, 0, 1, 1, 1), (p) => p.x < t), (p) => false);
+            Assert.Equal(0, slab(0.003));
+            Assert.Equal(1, slab(0.03));
+        }
+
+        [Fact]
         public void TouchingSolids_SeparatedAfterTheExactResolve()
         {
             // boxes touching along an edge, one of them overlapped by a third box: the resolve splits the touching
@@ -252,6 +313,23 @@ namespace geometry3Sharp.Tests
             Assert.Equal("", MeshRobustRepair.NotCleanReason(r.Mesh));
             double v = 2 + 0.25 * 0.25 * 0.5;       // two unit boxes and the part of the third above the first
             Assert.Equal(v, Volume(r.Mesh), 3);
+        }
+
+        [Theory]
+        [InlineData(1.0)]
+        [InlineData(1e-6)]
+        public void SeparateTouchingVertices_AtUtmCoordinates(double size)
+        {
+            // the move (1e-4 of the distance to the neighbours, 1e-10 for a 1 micrometre part) is below the rounding of
+            // y = 5.8e6 (9e-10), but it has x and z components, which are resolved finer: the contact is removed
+            DMesh3 m = Box(0, 0, 0, 1, 1, 1);
+            MeshEditor.Append(m, Box(1, 1, 0, 2, 2, 1));
+            MeshTransforms.Scale(m, size);
+            MeshTransforms.Translate(m, new Vector3d(512345.678, 5812345.678, 312.5));
+            DMesh3 res = ExactMeshBoolean.Resolve(m);
+            Assert.True(MeshRepairMetrics.SelfIntersections(res) > 0);
+            Assert.Equal(4, MeshRobustRepair.SeparateTouchingVertices(res, 1e-4));
+            Assert.Equal(0, MeshRepairMetrics.SelfIntersections(res));
         }
 
         [Fact]

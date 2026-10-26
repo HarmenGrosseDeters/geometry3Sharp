@@ -23,8 +23,10 @@ namespace gs
     ///
     /// A result can still have lost volume (eg a self-overlapping input made non-overlapping by dropping a
     /// layer, or parts removed by erosion): if its solid agrees with the input's winding number solid less than
-    /// MinVolumeIoU, the input itself is used instead, resolved exactly, solidified or wrapped (its winding number
-    /// solid is the reference; UsedInput).
+    /// MinVolumeIoU, or it lost a whole component of the input (CheckLostComponents: a part too small for the IoU),
+    /// the input itself is used instead, resolved exactly, solidified or wrapped (its winding number solid is the
+    /// reference; UsedInput). The solidify and the wrap themselves are not checked (they change the geometry by about
+    /// a cell or the offset, and lose parts smaller than that).
     ///
     /// Behaviour: the result is in <see cref="Mesh"/> after Apply(), a new mesh object. The mesh passed to the
     /// constructor is used as the working mesh of MeshAutoRepair and is modified by it, so pass a copy if
@@ -46,6 +48,11 @@ namespace gs
         public bool CheckSelfIntersections = true;
         /// <summary> minimum volume IoU of the repaired mesh with the input's winding number solid (0 = no check) </summary>
         public double MinVolumeIoU = 0.99;
+        /// <summary>
+        /// also a result that lost a connected component of the input (MeshRepairMetrics.LostComponents: a part too small
+        /// for the volume IoU, eg a screw of an assembly) is treated like one whose volume differs ("parts of the input lost")
+        /// </summary>
+        public bool CheckLostComponents = true;
         /// <summary> configures the first stage (eg tolerances) </summary>
         public Action<MeshAutoRepair> ConfigureRepair = null;
         /// <summary> replaces the first stage (input -> repaired mesh); null = MeshAutoRepair </summary>
@@ -177,18 +184,19 @@ namespace gs
             FallbackReason = NotCleanReason(result, CheckSelfIntersections);
             end_phase("check");
             DMesh3 solidifyFrom = result;
-            if (FallbackReason == "" && MinVolumeIoU > 0) {
+            if (FallbackReason == "") {
                 // (NaN: the input has no solid to compare with, accepted)
-                if (MeshRepairMetrics.VolumeIoUAtLeast(input, result, MinVolumeIoU, out RepairVolumeIoU) == false) {
-                    FallbackReason = "volume differs from the input";
+                string differs = volume_check(input, result, out RepairVolumeIoU);
+                if (differs != "") {
+                    FallbackReason = differs;
                     solidifyFrom = input;
                 }
                 end_phase("volume");
-            } else if (FallbackReason != "") {
+            } else {
                 // an unclean result can have lost parts of the input as well (eg erosion of an open region, which
                 // the volume check of the exact stage rejects, but the solidify and the wrap do not check): then the
                 // fallbacks start from the input, like for a clean result whose volume differs
-                if (result.TriangleCount == 0 || (MinVolumeIoU > 0 && MeshRepairMetrics.VolumeIoUAtLeast(input, result, MinVolumeIoU, out RepairVolumeIoU) == false))
+                if (result.TriangleCount == 0 || volume_check(input, result, out RepairVolumeIoU) != "")
                     solidifyFrom = input;
                 end_phase("volume");
             }
@@ -236,6 +244,27 @@ namespace gs
             UsedSolidify = true;
             return true;
         }
+
+        // "" if the solid of res agrees with the input's (IoU at least MinVolumeIoU, no component lost), otherwise why not
+        string volume_check(DMesh3 input, DMesh3 res, out double iou)
+        {
+            iou = double.NaN;
+            if (MinVolumeIoU <= 0 && CheckLostComponents == false)
+                return "";
+            // (the input's solid once per Apply(), the result's once for both checks)
+            if (inputSolid == null || inputSolidOf != input) {
+                inputSolid = new MeshRepairMetrics.SolidReference(input);
+                inputSolidOf = input;
+            }
+            Func<Vector3d, bool> resultInside = MeshRepairMetrics.SolidInside(res);
+            if (MinVolumeIoU > 0 && MeshRepairMetrics.VolumeIoUAtLeast(inputSolid, res, resultInside, MinVolumeIoU, out iou) == false)
+                return "volume differs from the input";
+            if (CheckLostComponents && MeshRepairMetrics.LostComponents(inputSolid, resultInside) > 0)
+                return "parts of the input lost";
+            return "";
+        }
+        MeshRepairMetrics.SolidReference inputSolid;
+        DMesh3 inputSolidOf;
 
         // the solid of the mesh with its self-intersections resolved exactly, or null (ExactResolveReason says why)
         DMesh3 resolve_exactly(DMesh3 from, DMesh3 input)
@@ -316,15 +345,16 @@ namespace gs
                     ExactResolveReason = reason;
                     return null;
                 }
-                if (MinVolumeIoU > 0) {
+                {
                     double iou;
-                    bool agrees = MeshRepairMetrics.VolumeIoUAtLeast(input, res, MinVolumeIoU, out iou);
+                    string differs = volume_check(input, res, out iou);
                     add_phase("exact.volume", timer.ElapsedMilliseconds);
-                    if (agrees == false) {
-                        ExactResolveReason = "volume differs from the input";
+                    if (differs != "") {
+                        ExactResolveReason = differs;
                         return null;
                     }
-                    RepairVolumeIoU = iou;
+                    if (MinVolumeIoU > 0)
+                        RepairVolumeIoU = iou;
                 }
                 ExactResolveReason = "";
                 return res;
