@@ -43,7 +43,13 @@ namespace gs
             int hashN = 64;
             if (Mesh.TriangleCount > 100000)   hashN = 128;
             if (Mesh.TriangleCount > 1000000)  hashN = 256;
-			hash.Build(hashN);
+            // FindInBall needs cells at least MergeDistance wide: when the boundary is one short crack, the
+            // midpoints span far less than hashN * MergeDistance
+            // (written so that a NaN MergeDistance keeps the grid's own cell size)
+            AxisAlignedBox3d bounds = BoundsUtil.Bounds(pointset);
+            double cellSize = bounds.MaxDim / hashN;
+            if (MergeDistance > cellSize) cellSize = MergeDistance;
+            hash.Build(cellSize, bounds.Min);
 
 			Vector3d a = Vector3d.Zero, b = Vector3d.Zero;
 			Vector3d c = Vector3d.Zero, d = Vector3d.Zero;
