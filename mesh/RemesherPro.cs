@@ -78,6 +78,26 @@ namespace gs
             }
         }
 
+        // modified_edges into edges_buffer in a fixed order: the parallel smooth / projection passes fill the
+        // set in thread order, and it enumerates in insertion order, so the edges were processed in a different
+        // order from run to run. Sorted, then walked with a prime step like the full passes (Remesher.start_edges:
+        // consecutive ids, eg a loop of tiny edges, are not collapsed one after the other)
+        void order_queued_edges()
+        {
+            edges_buffer.Clear();
+            edges_buffer.AddRange(modified_edges);
+            edges_buffer.Sort();
+            int n = edges_buffer.Count;
+            if (n < 2)
+                return;
+            long step = MathUtil.ModuloIterationStep(n);
+            sorted_buffer.Clear();
+            sorted_buffer.AddRange(edges_buffer);
+            for (int i = 0; i < n; ++i)
+                edges_buffer[i] = sorted_buffer[(int)((i * step) % n)];
+        }
+        List<int> sorted_buffer = new List<int>();
+
         void queue_edge_safe(int eid) {
             bool taken = false;
             modified_edges_lock.Enter(ref taken);
@@ -289,10 +309,7 @@ namespace gs
             if (modified_edges == null) {
                 modified_edges = new HashSet<int>();
             } else {
-                edges_buffer.Clear(); edges_buffer.AddRange(modified_edges);
-                // the parallel smooth / projection passes fill modified_edges in thread order, and the set
-                // enumerates in insertion order: sort, so the edges are processed in the same order every run
-                edges_buffer.Sort();
+                order_queued_edges();
                 edgesItr = edges_buffer;
                 modified_edges.Clear();
             }
@@ -376,10 +393,7 @@ namespace gs
             if (modified_edges == null) {
                 modified_edges = new HashSet<int>();
             } else {
-                edges_buffer.Clear(); edges_buffer.AddRange(modified_edges);
-                // the parallel smooth / projection passes fill modified_edges in thread order, and the set
-                // enumerates in insertion order: sort, so the edges are processed in the same order every run
-                edges_buffer.Sort();
+                order_queued_edges();
                 edgesItr = edges_buffer;
                 modified_edges.Clear();
             }
