@@ -198,6 +198,7 @@ namespace g3
 
         public void Generate()
         {
+            SelfIntersectionFree = false;
             if (crossings == null)
                 FindCrossings();
             if (CancelF() || crossings == null) return;
@@ -420,7 +421,6 @@ namespace g3
             foreach (var kv in nmc) NonManifoldCells.Add(kv.Value);
 
             SelfIntersectionsFound = SelfIntersectionsLeft = 0;
-            SelfIntersectionFree = false;
             Func<int, Vector3d> fallback = (v) => vertexMass[v];
             if (ResolveSelfIntersections) {
                 // Polygons where fine and coarse cells meet can fold (the coarse cell spans more than a quadrant

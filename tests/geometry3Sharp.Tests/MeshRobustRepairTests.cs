@@ -460,7 +460,8 @@ namespace geometry3Sharp.Tests
             Assert.False(stopped.StoppedOnSelfIntersections);
             Assert.False(stopped.PhaseMilliseconds.ContainsKey("selfint"));
             Assert.True(stopped.PhaseMilliseconds.ContainsKey("reduce"));
-            Assert.InRange(stopped.Result.TriangleCount, 0.9 * run(false).Result.TriangleCount, 1.1 * run(false).Result.TriangleCount);
+            int full = run(false).Result.TriangleCount;
+            Assert.InRange(stopped.Result.TriangleCount, 0.9 * full, 1.1 * full);
             Assert.Equal("", MeshRobustRepair.NotCleanReason(stopped.Result));
         }
 
@@ -488,9 +489,25 @@ namespace geometry3Sharp.Tests
             Assert.True(failed.UsedSolidify);
             Assert.Equal("self-intersections", failed.SolidifyReason);
             Assert.True(failed.PhaseMilliseconds.ContainsKey("solidify.finish"));
+            Assert.True(failed.PhaseMilliseconds.ContainsKey("solidify.reduce"));     // the finish's phases reported
             Assert.False(failed.Solidify.StoppedOnSelfIntersections);
             Assert.Same(failed.Solidify.Result, failed.Mesh);
             Assert.InRange(failed.Mesh.TriangleCount, 0.9 * without.Mesh.TriangleCount, 1.1 * without.Mesh.TriangleCount);
+        }
+
+        [Fact]
+        public void CancelledDuringWrap_NoFinish()
+        {
+            // cancelled once the wrap has started: Apply() returns false without post-processing the solidify
+            MeshRobustRepair r = null;
+            r = new MeshRobustRepair(ThinPlates(6)) {
+                RepairF = (m) => new DMesh3(m), ExactResolve = false, SolidifyResolution = 64,
+                CancelF = () => r.AlphaWrap != null
+            };
+            Assert.False(r.Apply());
+            Assert.Equal(MeshAlphaWrap.WrapStatus.Cancelled, r.AlphaWrap.Status);
+            Assert.True(r.Solidify.StoppedOnSelfIntersections);
+            Assert.False(r.PhaseMilliseconds.ContainsKey("solidify.finish"));
         }
 
         [Fact]

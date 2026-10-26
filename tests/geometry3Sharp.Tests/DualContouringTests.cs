@@ -55,8 +55,13 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(0, MeshRepairMetrics.SelfIntersections(dc.Mesh));
                 return dc;
             };
-            Assert.True(run(true).SelfIntersectionFree);
+            var verified = run(true);
+            Assert.True(verified.SelfIntersectionFree);
             Assert.False(run(false).SelfIntersectionFree);
+            // a cancelled Generate() does not keep the flag of the one before
+            verified.CancelF = () => true;
+            verified.Generate();
+            Assert.False(verified.SelfIntersectionFree);
             // set only by a pass that found nothing: no pass (as when the rounds run out with pairs left)
             var none = new DualContouring() {
                 Implicit = new SphereSDF(), IsoValue = 0, InsideIsLess = true, CellSize = 0.1,

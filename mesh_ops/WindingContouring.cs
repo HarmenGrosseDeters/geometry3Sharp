@@ -100,6 +100,7 @@ namespace gs
         /// </summary>
         public DMesh3 ContourAdaptive(double cellSize)
         {
+            SelfIntersectionFree = false;
             hiddenWidths.Clear();
             WindingNumberOctree octree = build_octree(cellSize);
             if (octree == null)
@@ -232,6 +233,7 @@ namespace gs
         public DMesh3 ContourRefined(ref double cellSize, int maxLevels, int minEdges = 1)
         {
             MinFixableWidth = cellSize / Math.Pow(2, maxLevels);
+            SelfIntersectionFree = false;
             GapEdgesPerLevel.Clear();
             RefinedCells = 0; RefineFactor = 1; NonManifoldRefinements = 0;
             int evaluations = 0;

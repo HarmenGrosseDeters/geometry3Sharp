@@ -243,15 +243,16 @@ namespace gs
                     return true;
                 }
             }
-            if (solidified == false)
+            if (solidified == false || CancelF())
                 return false;
             if (Solidify.StoppedOnSelfIntersections) {
                 // the wrap failed: the solidify result after all, post-processed as usual
                 Solidify.FinishPostProcess();
+                foreach (var kv in Solidify.PhaseMilliseconds) PhaseMilliseconds["solidify." + kv.Key] = kv.Value;
+                end_phase("solidify.finish");
                 if (CancelF() || Solidify.Result == null || Solidify.Result.TriangleCount == 0)
                     return false;
                 SolidifyReason = NotCleanReason(Solidify.Result, CheckSelfIntersections);
-                end_phase("solidify.finish");
             }
             Mesh = Solidify.Result;
             UsedSolidify = true;
