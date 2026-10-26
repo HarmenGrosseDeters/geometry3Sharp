@@ -500,8 +500,12 @@ namespace g3
             return ok;
         }
 
-        // quadrics are computed relative to this point (the mesh bounds center): in absolute coordinates far
-        // from the origin (eg UTM, 5e6) the constant term is ~1e13 and errors drown in rounding
+        /// <summary>
+        /// Quadrics are relative to this point (the mesh bounds center, set by InitializeVertexQuadrics): in
+        /// absolute coordinates far from the origin (eg UTM, 5e6) the constant term is ~1e13 and errors drown
+        /// in rounding. Subclasses that build or evaluate quadrics (vertQuadrics, OnEdgeCollapse) must use
+        /// plane_quadric / evaluate or subtract quadricOrigin (unlike 1.0.324, where they were absolute).
+        /// </summary>
         protected Vector3d quadricOrigin = Vector3d.Zero;
 
         protected QuadricError plane_quadric(Vector3d n, Vector3d p)

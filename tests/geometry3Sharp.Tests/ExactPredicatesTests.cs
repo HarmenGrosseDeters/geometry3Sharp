@@ -98,6 +98,46 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void Predicates_SubnormalPartialProducts_TimesLargeFactors()
+        {
+            // the permanents are far above the underflow limit, but 2x2 products are subnormal (absolute rounding
+            // errors) and multiplied by large coordinates or lifts: 1.6 and 1.4 units of 2^-1074 round to 2 and 1,
+            // the computed minor is 1 unit instead of 0.2, and a term of -0.5 units flips the sign
+            double s = Math.Pow(2, -537);
+            Vector3d a = Vector3d.Zero, b = new Vector3d(0, s, s), c = new Vector3d(1, 1.4 * s, 1.6 * s), d = new Vector3d(Math.Pow(2, 600), -Math.Pow(2, 62), 0);
+            Assert.Equal(-1, ExactPredicates.orient3d_bigint(a, b, c, d));
+            Assert.Equal(-1, ExactPredicates.Orient3d(a, b, c, d));
+
+            double X = Math.Pow(2, 210), unit = double.Epsilon;
+            Vector2d p = new Vector2d(X, -8.93 * X * X * unit), q = new Vector2d(0.8, 2 * unit), r = new Vector2d(0.7, 2 * unit);
+            Assert.Equal(-1, ExactPredicates.incircle_bigint(p, q, r, Vector2d.Zero));
+            Assert.Equal(-1, ExactPredicates.InCircle(p, q, r, Vector2d.Zero));
+
+            Vector3d[] e = {
+                new Vector3d(-1.533029625205798E-241, -2.6234477870025E-113, -1.11634E-319),
+                new Vector3d(5.42385483877849E-239, 5.359945562533891E-39, -3.323151427154333E+113),
+                new Vector3d(1.4195398889734518E-169, 8.85220279967162E-187, 3.050922758200515E-157),
+                new Vector3d(5.677733035144346E-209, -0.001472248891108203, 3.664814583832122E-210),
+                new Vector3d(5.443689989319026E-232, -2.1100996564666743E-113, -2.8027266704634148E-273) };
+            Assert.Equal(1, ExactPredicates.insphere_bigint(e[0], e[1], e[2], e[3], e[4]));
+            Assert.Equal(1, ExactPredicates.InSphere(e[0], e[1], e[2], e[3], e[4]));
+
+            // random coordinates of independent magnitudes (2^-1080 to 2^400), against the integer arithmetic
+            var rnd = new Random(5);
+            Func<double> coord = () => (rnd.NextDouble() - 0.5) * Math.Pow(2, rnd.Next(-1080, 400));
+            for (int i = 0; i < 100000; ++i) {
+                Vector3d[] v = new Vector3d[5];
+                for (int k = 0; k < 5; ++k)
+                    v[k] = new Vector3d(coord(), coord(), coord());
+                Assert.Equal(ExactPredicates.orient3d_bigint(v[0], v[1], v[2], v[3]), ExactPredicates.Orient3d(v[0], v[1], v[2], v[3]));
+                Assert.Equal(ExactPredicates.orient2d_bigint(v[0].xy, v[1].xy, v[2].xy), ExactPredicates.Orient2d(v[0].xy, v[1].xy, v[2].xy));
+                Assert.Equal(ExactPredicates.incircle_bigint(v[0].xy, v[1].xy, v[2].xy, v[3].xy), ExactPredicates.InCircle(v[0].xy, v[1].xy, v[2].xy, v[3].xy));
+                if (i % 10 == 0)
+                    Assert.Equal(ExactPredicates.insphere_bigint(v[0], v[1], v[2], v[3], v[4]), ExactPredicates.InSphere(v[0], v[1], v[2], v[3], v[4]));
+            }
+        }
+
+        [Fact]
         public void Predicates_NearDegenerate_ScaledIntoTheSubnormalRange()
         {
             // the integer near-degenerate cases, scaled by powers of two (exact): the signs must not change

@@ -18,8 +18,14 @@ namespace g3
         const double Orient2dBound = (3.0 + 16.0 * Epsilon) * Epsilon;
         const double Orient3dBound = (7.0 + 56.0 * Epsilon) * Epsilon;
         const double InCircleBound = (10.0 + 96.0 * Epsilon) * Epsilon;
+        const double InSphereBound = (16.0 + 224.0 * Epsilon) * Epsilon;
         // below this the products may be subnormal (absolute, not relative rounding error)
         const double UnderflowLimit = 1e-200;
+        // A larger permanent does not exclude subnormal partial products either: a subnormal 2x2 product (absolute
+        // error up to 2^-1075) times a large coordinate or lift. With fl(x * y) = x y (1 + d) + n, |n| <= 2^-1075
+        // (sums that underflow are exact), these errors add at most 4 * 2^-1075 times the sum of the factors they
+        // are multiplied by (plus 1); the filters add that sum times 2^-1066.
+        const double UnderflowUnit = double.Epsilon * 256;     // 2^-1066
 
         /// <summary> sign of (b - a) x (c - a): +1 if a, b, c are counter-clockwise, -1 clockwise, 0 collinear </summary>
         public static int Orient2d(Vector2d a, Vector2d b, Vector2d c)
@@ -49,8 +55,8 @@ namespace g3
             double permanent = Math.Abs(wx) * (Math.Abs(uyvz) + Math.Abs(uzvy))
                 + Math.Abs(wy) * (Math.Abs(uzvx) + Math.Abs(uxvz))
                 + Math.Abs(wz) * (Math.Abs(uxvy) + Math.Abs(uyvx));
-            double bound = Orient3dBound * permanent;
-            // the relative error bound does not hold when products underflow (subnormal): exact then
+            // (the 2x2 products have absolute errors of their own, multiplied by |w|)
+            double bound = Orient3dBound * permanent + (Math.Abs(wx) + Math.Abs(wy) + Math.Abs(wz) + 1) * UnderflowUnit;
             if (det > bound && permanent > UnderflowLimit) return 1;
             if (-det > bound && permanent > UnderflowLimit) return -1;
             return orient3d_exact(a, b, c, d);
@@ -72,10 +78,78 @@ namespace g3
             double permanent = (Math.Abs(bdxcdy) + Math.Abs(cdxbdy)) * alift
                 + (Math.Abs(cdxady) + Math.Abs(adxcdy)) * blift
                 + (Math.Abs(adxbdy) + Math.Abs(bdxady)) * clift;
-            double bound = InCircleBound * permanent;
+            // (the 2x2 products and the lifts have absolute errors of their own, multiplied by each other)
+            double bound = InCircleBound * permanent + (alift + blift + clift + Math.Abs(bdxcdy) + Math.Abs(cdxbdy)
+                + Math.Abs(cdxady) + Math.Abs(adxcdy) + Math.Abs(adxbdy) + Math.Abs(bdxady) + 1) * UnderflowUnit;
             if (det > bound && permanent > UnderflowLimit) return 1;
             if (-det > bound && permanent > UnderflowLimit) return -1;
             return incircle_exact(a, b, c, d);
+        }
+
+
+        /// <summary>
+        /// +1 if e lies inside the sphere through a, b, c, d (given positively oriented, Orient3d(a, b, c, d) > 0;
+        /// the sign is reversed for negative orientation), -1 outside, 0 if the five points are cospherical.
+        /// Exact (floating-point filter, integer arithmetic for the uncertain cases).
+        /// </summary>
+        public static int InSphere(Vector3d a, Vector3d b, Vector3d c, Vector3d d, Vector3d e)
+        {
+            double aex = a.x - e.x, bex = b.x - e.x, cex = c.x - e.x, dex = d.x - e.x;
+            double aey = a.y - e.y, bey = b.y - e.y, cey = c.y - e.y, dey = d.y - e.y;
+            double aez = a.z - e.z, bez = b.z - e.z, cez = c.z - e.z, dez = d.z - e.z;
+            double aexbey = aex * bey, bexaey = bex * aey, bexcey = bex * cey, cexbey = cex * bey;
+            double cexdey = cex * dey, dexcey = dex * cey, dexaey = dex * aey, aexdey = aex * dey;
+            double aexcey = aex * cey, cexaey = cex * aey, bexdey = bex * dey, dexbey = dex * bey;
+            double ab = aexbey - bexaey, bc = bexcey - cexbey, cd = cexdey - dexcey, da = dexaey - aexdey;
+            double ac = aexcey - cexaey, bd = bexdey - dexbey;
+            double abc = aez * bc - bez * ac + cez * ab;
+            double bcd = bez * cd - cez * bd + dez * bc;
+            double cda = cez * da + dez * ac + aez * cd;
+            double dab = dez * ab + aez * bd + bez * da;
+            double alift = aex * aex + aey * aey + aez * aez, blift = bex * bex + bey * bey + bez * bez;
+            double clift = cex * cex + cey * cey + cez * cez, dlift = dex * dex + dey * dey + dez * dez;
+            // (Shewchuk's insphere determinant; positive inside for his orientation, which is the opposite of Orient3d)
+            double det = (dlift * abc - clift * dab) + (blift * cda - alift * bcd);
+            double aezp = Math.Abs(aez), bezp = Math.Abs(bez), cezp = Math.Abs(cez), dezp = Math.Abs(dez);
+            double abp = Math.Abs(aexbey) + Math.Abs(bexaey), bcp = Math.Abs(bexcey) + Math.Abs(cexbey);
+            double cdp = Math.Abs(cexdey) + Math.Abs(dexcey), dap = Math.Abs(dexaey) + Math.Abs(aexdey);
+            double acp = Math.Abs(aexcey) + Math.Abs(cexaey), bdp = Math.Abs(bexdey) + Math.Abs(dexbey);
+            double permanent = (cdp * bezp + bdp * cezp + bcp * dezp) * alift
+                + (dap * cezp + acp * dezp + cdp * aezp) * blift
+                + (abp * dezp + bdp * aezp + dap * bezp) * clift
+                + (bcp * aezp + acp * bezp + abp * cezp) * dlift;
+            // (the 2x2 products have absolute errors, multiplied by z and the lifts; the lifts', multiplied by
+            // the 3x3 minors)
+            double bound = InSphereBound * permanent + ((alift + blift + clift + dlift) * (aezp + bezp + cezp + dezp + 1)
+                + Math.Abs(abc) + Math.Abs(bcd) + Math.Abs(cda) + Math.Abs(dab) + 1) * UnderflowUnit;
+            if (det > bound && permanent > UnderflowLimit) return -1;
+            if (-det > bound && permanent > UnderflowLimit) return 1;
+            return insphere_exact(a, b, c, d, e);
+        }
+
+        static int insphere_exact(Vector3d a, Vector3d b, Vector3d c, Vector3d d, Vector3d e)
+        {
+            if (a == e || b == e || c == e || d == e)
+                return 0;
+            return insphere_bigint(a, b, c, d, e);
+        }
+
+        internal static int insphere_bigint(Vector3d a, Vector3d b, Vector3d c, Vector3d d, Vector3d e)
+        {
+            BigInteger[] v = to_integers(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z, d.x, d.y, d.z, e.x, e.y, e.z);
+            BigInteger aex = v[0] - v[12], aey = v[1] - v[13], aez = v[2] - v[14];
+            BigInteger bex = v[3] - v[12], bey = v[4] - v[13], bez = v[5] - v[14];
+            BigInteger cex = v[6] - v[12], cey = v[7] - v[13], cez = v[8] - v[14];
+            BigInteger dex = v[9] - v[12], dey = v[10] - v[13], dez = v[11] - v[14];
+            BigInteger ab = aex * bey - bex * aey, bc = bex * cey - cex * bey, cd = cex * dey - dex * cey;
+            BigInteger da = dex * aey - aex * dey, ac = aex * cey - cex * aey, bd = bex * dey - dex * bey;
+            BigInteger abc = aez * bc - bez * ac + cez * ab;
+            BigInteger bcd = bez * cd - cez * bd + dez * bc;
+            BigInteger cda = cez * da + dez * ac + aez * cd;
+            BigInteger dab = dez * ab + aez * bd + bez * da;
+            BigInteger alift = aex * aex + aey * aey + aez * aez, blift = bex * bex + bey * bey + bez * bez;
+            BigInteger clift = cex * cex + cey * cey + cez * cez, dlift = dex * dex + dey * dey + dez * dez;
+            return -((dlift * abc - clift * dab) + (blift * cda - alift * bcd)).Sign;
         }
 
 
@@ -140,6 +214,7 @@ namespace g3
         internal static int Orient3dExact(Vector3d a, Vector3d b, Vector3d c, Vector3d d) { return orient3d_exact(a, b, c, d); }
         internal static int Orient2dExact(Vector2d a, Vector2d b, Vector2d c) { return orient2d_exact(a, b, c); }
         internal static int InCircleExact(Vector2d a, Vector2d b, Vector2d c, Vector2d d) { return incircle_exact(a, b, c, d); }
+        internal static int InSphereExact(Vector3d a, Vector3d b, Vector3d c, Vector3d d, Vector3d e) { return insphere_exact(a, b, c, d, e); }
 
         static BigInteger[] to_integers(params double[] values)
         {

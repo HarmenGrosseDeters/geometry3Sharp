@@ -174,6 +174,71 @@ namespace geometry3Sharp.Tests
             Assert.InRange(Length(line), 0.98 * 2 * Math.PI * r, (mode == TerrainSafetyLines.Modes.Horizontal ? 1.01 : 1.05) * 2 * Math.PI * (r + 1));
         }
 
+        [Theory]
+        [InlineData(0, 0, 0)]
+        [InlineData(632000, 5712000, 100)]     // UTM
+        public void SafetyLine_AlongSurface_BandIsOneCleanPiece(double ox, double oy, double oz)
+        {
+            // the band cut out of the refined square used to fall apart into islands joined at bowtie vertices;
+            // the heat distance on an island without a source is arbitrary and made a second line at UTM
+            Vector3d off = new Vector3d(ox, oy, oz);
+            DMesh3 square = CoarseSquare();
+            MeshTransforms.Translate(square, off);
+            Vector3d src = off + new Vector3d(50, 50, 0);
+            var safety = new TerrainSafetyLines(square, new[] { new List<Vector3d>() { src } }, 10) { Mode = TerrainSafetyLines.Modes.AlongSurface };
+            Assert.True(safety.Compute());
+            Assert.Single(safety.Lines);
+            DMesh3 band = safety.RemeshedTerrain;
+            var comps = new MeshConnectedComponents(band);
+            comps.FindConnectedT();
+            Assert.Equal(1, comps.Count);
+            Assert.Empty(MeshIterators.BowtieVertices(band));
+            // no zero-area ears on straight parts of the band boundary (the remesher could not collapse them;
+            // their tip got no distance)
+            Assert.Equal(0, band.TriangleIndices().Count(tid => band.GetTriArea(tid) < 1e-6));
+            foreach (int vid in band.VertexIndices())
+                Assert.False(double.IsNaN(safety.Geodesic.Distance[vid]));
+            foreach (Vector3d p in safety.Lines[0])
+                Assert.True(Math.Abs(p.Distance(src) - 10 - 0.35 * 10.0 / 8) < 1.2, $"{p - off}: {p.Distance(src)}");
+        }
+
+        [Theory]
+        [InlineData(0, 0, 0)]
+        [InlineData(632000, 5712000, 100)]     // UTM
+        public void SafetyLine_AlongSurface_IgnoresTerrainOnlyNearInSpace(double ox, double oy, double oz)
+        {
+            // U-shaped flat terrain: arms x in [0,40] and [45,100] joined at y < 10. Seen from a source at
+            // (35, 80) the other arm is 10 away in space but 80 along the terrain: the band cut around the
+            // source contains a piece of it, unconnected to the source, where the heat distance is arbitrary
+            Vector3d off = new Vector3d(ox, oy, oz);
+            DMesh3 u = new DMesh3();
+            var ids = new int[21, 21];
+            for (int i = 0; i <= 20; ++i)
+                for (int j = 0; j <= 20; ++j)
+                    ids[i, j] = u.AppendVertex(off + new Vector3d(5 * i, 5 * j, 0));
+            for (int i = 0; i < 20; ++i)
+                for (int j = 0; j < 20; ++j) {
+                    if (i == 8 && j >= 2) continue;         // the slot x in [40, 45], y >= 10
+                    u.AppendTriangle(ids[i, j], ids[i + 1, j], ids[i + 1, j + 1]);
+                    u.AppendTriangle(ids[i, j], ids[i + 1, j + 1], ids[i, j + 1]);
+                }
+            Vector3d src = off + new Vector3d(35, 80, 0);
+            var safety = new TerrainSafetyLines(u, new[] { new List<Vector3d>() { src } }, 10) { Mode = TerrainSafetyLines.Modes.AlongSurface };
+            Assert.True(safety.Compute());
+            DMesh3 band = safety.RemeshedTerrain;
+            var comps = new MeshConnectedComponents(band);
+            comps.FindConnectedT();
+            Assert.Equal(1, comps.Count);
+            Assert.True(band.CachedBounds.Max.x - off.x <= 40 + 1e-6, "the band stays on the source's arm");
+            // the line is the circle around the source, cut off by the slot edge at x = 40
+            Assert.NotEmpty(safety.Lines);
+            foreach (var line in safety.Lines)
+                foreach (Vector3d p in line) {
+                    Assert.True(p.x - off.x <= 40 + 1e-6, $"{p - off}");
+                    Assert.True(Math.Abs(p.Distance(src) - 10 - 0.35 * 10.0 / 8) < 1.2, $"{p - off}: {p.Distance(src)}");
+                }
+        }
+
         [Fact]
         public void SafetyLine_Horizontal_NeverInsideTheDistanceByMoreThanTheTolerance()
         {
@@ -199,6 +264,7 @@ namespace geometry3Sharp.Tests
         [Theory]
         [InlineData(TerrainSafetyLines.Modes.Horizontal)]
         [InlineData(TerrainSafetyLines.Modes.AlongSurface)]
+        [InlineData(TerrainSafetyLines.Modes.Guaranteed)]
         public void SafetyLine_SourcesOutsideTheTerrain_NoLines(TerrainSafetyLines.Modes mode)
         {
             var outside = new List<Vector3d>() { new Vector3d(-30, 0, 0), new Vector3d(-30, 100, 0) };
@@ -212,10 +278,109 @@ namespace geometry3Sharp.Tests
         [InlineData(TerrainSafetyLines.Modes.Horizontal, -5.0)]
         [InlineData(TerrainSafetyLines.Modes.AlongSurface, 0.0)]
         [InlineData(TerrainSafetyLines.Modes.AlongSurface, -5.0)]
+        [InlineData(TerrainSafetyLines.Modes.Guaranteed, 0.0)]
         public void SafetyLine_InvalidDistance_Fails(TerrainSafetyLines.Modes mode, double d)
         {
             var safety = new TerrainSafetyLines(CoarseSquare(), new[] { new List<Vector3d>() { new Vector3d(50, 50, 0) } }, d) { Mode = mode };
             Assert.False(safety.Compute());
+        }
+
+        static double DistanceToPolyline(List<Vector3d> l, Vector3d p)
+        {
+            double best = double.MaxValue;
+            for (int i = 0; i + 1 < l.Count; ++i) best = Math.Min(best, Math.Sqrt(new Segment3d(l[i], l[i + 1]).DistanceSquared(p)));
+            return best;
+        }
+
+        [Fact]
+        public void SafetyLine_Guaranteed_OutsideTheDistanceAndCertified()
+        {
+            // 12 m from the top crest: outside on flat ground, inside down the bench face and onto the berm
+            DMesh3 terrain = PitTerrain();
+            var crest = TopCrest();
+            var safety = new TerrainSafetyLines(terrain, new[] { crest }, 12) { Mode = TerrainSafetyLines.Modes.Guaranteed };
+            Assert.True(safety.Compute());
+            Assert.True(safety.Lines.Count >= 2);
+            int n = 0;
+            for (int li = 0; li < safety.Lines.Count; ++li)
+                for (int k = 0; k < safety.Lines[li].Count; ++k) {
+                    Vector3d p = safety.Lines[li][k];
+                    // the straight distance (a lower bound of the distance along the terrain): at 12 + Tolerance
+                    Assert.True(Math.Abs(DistanceToPolyline(crest, p) - 12.01) < 1e-6, $"{p}: {DistanceToPolyline(crest, p)}");
+                    // the certified upper bound is consistent with it
+                    Assert.True(safety.Excess[li][k] >= 0.01 - 1e-6, $"excess {safety.Excess[li][k]}");
+                    n++;
+                }
+            Assert.True(n > 100);
+            // the whole lines (segments, not only their points): outside 12 m, and certified within 0.2 m of it
+            Assert.True(safety.MinLineDistance >= 12, $"{safety.MinLineDistance}");
+            Assert.True(safety.Certified, $"max excess {safety.MaxExcess}, {safety.UncertifiedSegments} segments");
+            // with 3 points per edge the bound is 0.4 m too long on flat ground: certified with more
+            Assert.True(safety.UsedSteinerPoints > 3);
+        }
+
+        [Fact]
+        public void SafetyLine_Guaranteed_GapNotCertified()
+        {
+            // a 30 m deep trench, 8 m wide at the top: across it the straight distance is short, along the
+            // terrain (down and up again) long. The line on the far rim is safe but far too conservative
+            DMesh3 m = new DMesh3();
+            int nx = 81, ny = 41;
+            int[,] vid = new int[nx, ny];
+            for (int j = 0; j < ny; ++j)
+                for (int i = 0; i < nx; ++i) {
+                    double x = i - 40, y = j;
+                    vid[i, j] = m.AppendVertex(new Vector3d(x, y, -30 * Math.Max(0, 1 - Math.Abs(x) / 4)));
+                }
+            for (int j = 0; j + 1 < ny; ++j)
+                for (int i = 0; i + 1 < nx; ++i) {
+                    m.AppendTriangle(vid[i, j], vid[i + 1, j], vid[i + 1, j + 1]);
+                    m.AppendTriangle(vid[i, j], vid[i + 1, j + 1], vid[i, j + 1]);
+                }
+            var rim = new List<Vector3d>() { new Vector3d(-4, 0, 0), new Vector3d(-4, 40, 0) };
+            var safety = new TerrainSafetyLines(m, new[] { rim }, 10) { Mode = TerrainSafetyLines.Modes.Guaranteed };
+            Assert.True(safety.Compute());
+            Assert.False(safety.Certified);
+            Assert.True(safety.UncertifiedSegments > 0);
+            // the line behind the rim (x = -14) is certified, the one beyond the trench (x = +2) is not
+            for (int li = 0; li < safety.Lines.Count; ++li)
+                for (int k = 0; k < safety.Lines[li].Count; ++k) {
+                    Vector3d p = safety.Lines[li][k];
+                    if (p.y < 2 || p.y > 38) continue;
+                    if (p.x < -10) Assert.True(safety.Excess[li][k] < 0.2, $"{p}: {safety.Excess[li][k]}");
+                    if (p.x > 0) Assert.True(safety.Excess[li][k] > 5, $"{p}: {safety.Excess[li][k]}");
+                }
+            safety.RequireCertified = true;
+            Assert.False(safety.Compute());
+        }
+
+        [Fact]
+        public void BreakLines_GapClosing_ManyPieces_FastAndClosestFirst()
+        {
+            // 1200 pieces of one zigzag line, 0.5 m gaps, and a square ring of 4 pieces: the gap closing
+            // searched all end pairs again for every join (cubic: 105 s for 1500 lines of real crests)
+            var lines = new List<List<Vector3d>>();
+            for (int k = 0; k < 1200; ++k) {
+                double x = 2.5 * k;
+                lines.Add(new List<Vector3d>() { new Vector3d(x, k % 2, 0), new Vector3d(x + 2, k % 2, 0) });
+            }
+            // shuffled, so the pieces are not in order
+            var rnd = new Random(5);
+            lines = lines.OrderBy(l => rnd.Next()).ToList();
+            var square = new[] { new Vector3d(0, 100, 0), new Vector3d(10, 100, 0), new Vector3d(10, 110, 0), new Vector3d(0, 110, 0) };
+            for (int k = 0; k < 4; ++k)
+                lines.Add(new List<Vector3d>() { square[k], Vector3d.Lerp(square[k], square[(k + 1) % 4], 0.95) });
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            TerrainBreakLines.close_gaps(lines, 1.5);
+            Assert.True(sw.Elapsed.TotalSeconds < 2, $"{sw.Elapsed.TotalSeconds} s");
+            // the zigzag pieces: each end is 0.5 m (straight) or 1.1 m (diagonal) from the next piece's
+            // start: one line; the square: one closed ring
+            Assert.Equal(2, lines.Count);
+            var zig = lines.Single(l => l[0].y < 50);
+            Assert.Equal(2400, zig.Count);
+            var ring = lines.Single(l => l[0].y >= 50);
+            Assert.True(ring[0].Distance(ring[ring.Count - 1]) < 1e-9);
+            Assert.Equal(9, ring.Count);
         }
 
         static Vector2d UV(Vector3d p)

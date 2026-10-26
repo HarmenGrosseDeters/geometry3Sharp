@@ -46,6 +46,13 @@ namespace gs
         /// </summary>
         public HeightSampleFunc SampleF;
         public AxisAlignedBox3d SampleBounds;
+        /// <summary>
+        /// SampleF, optional: a mesh whose boundary is the boundary of the sampled footprint (eg the terrain
+        /// that TerrainOffset offsets). Its boundary lines are kept exactly as for Mesh (the heights of the
+        /// vertices there come from SampleF); without it the result ends where the cells do, up to a cell
+        /// inside the footprint.
+        /// </summary>
+        public DMesh3 FootprintMesh;
 
         /// <summary> finest cell size in XY. If zero, uses the larger XY extent / GridResolution </summary>
         public double CellSize = 0;
@@ -72,6 +79,17 @@ namespace gs
         public int FinestCells, LeafCells, BoundaryCells;
         /// <summary> dual triangles that were skipped because they would face down </summary>
         public int SkippedTriangles;
+        /// <summary> split merged cells whose triangles overlap others in XY (keeps the result a height field) </summary>
+        public bool RemoveOverlaps = true;
+        /// <summary>
+        /// SampleF with FootprintMesh: boundary cells whose vertex could not be sampled on the boundary line;
+        /// they got the vertex of their own samples (inside the cell) instead
+        /// </summary>
+        public int BoundaryFallbacks;
+        /// <summary> merged cells that were split because their triangles overlapped others in XY </summary>
+        public int SplitLeaves;
+        /// <summary> triangles dropped because they overlapped others in XY (finest cells, boundary of point clouds) </summary>
+        public int RemovedTriangles;
 
 
         public TerrainDualContouring(DMesh3 mesh)
@@ -138,7 +156,7 @@ namespace gs
 
             sample_cells();
             if (CancelF()) return false;
-            if (Points == null && SampleF == null)
+            if (Points == null && (SampleF == null || FootprintMesh != null))
                 add_boundary_edges();
             else
                 segs = new List<BoundarySeg>[NX * NY];
@@ -148,6 +166,38 @@ namespace gs
             if (Adaptive)
                 balance();
             build_mesh();
+            if (CancelF()) return false;
+            // a merged cell's vertex can lie far from the corners its dual triangles fan around, and a
+            // triangle then covers a neighbour's vertex: overlapping triangles in XY (eg 24 in 11M on a
+            // real open pit), not a height field. The leaves of such triangles are split and the mesh rebuilt.
+            SplitLeaves = 0;
+            for (int round = 0; round < 16 && Adaptive && RemoveOverlaps; ++round) {
+                var split = new HashSet<int>();
+                foreach (Index2i pair in TerrainVolumeDifference.XYOverlapPairs(Result))
+                    foreach (int tid in new[] { pair.a, pair.b }) {
+                        Index3i tv = Result.GetTriangle(tid);
+                        for (int k = 0; k < 3; ++k)
+                            if (leaves[vertexLeaf[tv[k]]].Level > 0) split.Add(vertexLeaf[tv[k]]);
+                    }
+                if (split.Count == 0 || CancelF())
+                    break;
+                foreach (int li in split)
+                    split_leaf(li);
+                SplitLeaves += split.Count;
+                balance();
+                build_mesh();
+            }
+            // left: finest cells, at the outer boundary of a point cloud (vertices of neighbouring boundary
+            // cells on the same edge of the bounds): the smaller triangle of each pair is dropped
+            RemovedTriangles = 0;
+            if (RemoveOverlaps && CancelF() == false) {
+                var pairs = TerrainVolumeDifference.XYOverlapPairs(Result);
+                foreach (Index2i pair in pairs) {
+                    if (Result.IsTriangle(pair.a) == false || Result.IsTriangle(pair.b) == false) continue;
+                    int drop = (xy_area(Result, pair.a) < xy_area(Result, pair.b)) ? pair.a : pair.b;
+                    if (Result.RemoveTriangle(drop, true, false) == MeshResult.Ok) RemovedTriangles++;
+                }
+            }
             if (CancelF()) return false;
             // eg cells larger than the footprint: every vertex needs four sampled cells around it
             return Result != null && Result.TriangleCount > 0;
@@ -232,8 +282,9 @@ namespace gs
             return true;
         }
 
-        // point cloud: bins of size pointRadius, points relative to the origin of the bins
-        double pointRadius;
+        // point cloud: bins of size pointBinSize >= pointRadius (larger if there would be many more bins than
+        // points, eg a small PointRadius over a large area)
+        double pointRadius, pointBinSize;
         Vector2d pointBinOrigin;
         int pbx, pby;
         int[] binStart, binPoints;
@@ -245,13 +296,16 @@ namespace gs
             double spacing = Math.Sqrt(Math.Max(bounds.Width * bounds.Height, MathUtil.Epsilon) / n);
             pointRadius = (PointRadius > 0) ? PointRadius : 1.5 * spacing;
             pointBinOrigin = bounds.Min.xy;
-            pbx = (int)(bounds.Width / pointRadius) + 1;
-            pby = (int)(bounds.Height / pointRadius) + 1;
+            pointBinSize = pointRadius;
+            while ((Math.Floor(bounds.Width / pointBinSize) + 1) * (Math.Floor(bounds.Height / pointBinSize) + 1) > 4.0 * n + 1024)
+                pointBinSize *= 2;
+            pbx = (int)(bounds.Width / pointBinSize) + 1;
+            pby = (int)(bounds.Height / pointBinSize) + 1;
             int[] bin = new int[n];
             int[] count = new int[pbx * pby + 1];
             for (int k = 0; k < n; ++k) {
                 Vector3d p = points[k];
-                int i = Math.Min(pbx - 1, (int)((p.x - pointBinOrigin.x) / pointRadius)), j = Math.Min(pby - 1, (int)((p.y - pointBinOrigin.y) / pointRadius));
+                int i = Math.Min(pbx - 1, (int)((p.x - pointBinOrigin.x) / pointBinSize)), j = Math.Min(pby - 1, (int)((p.y - pointBinOrigin.y) / pointBinSize));
                 bin[k] = i + pbx * j;
                 count[bin[k] + 1]++;
             }
@@ -284,12 +338,13 @@ namespace gs
         {
             p = n = Vector3d.Zero;
             double R = pointRadius * radiusFactor, R2 = R * R;
-            int ci = (int)Math.Floor((x - pointBinOrigin.x) / pointRadius), cj = (int)Math.Floor((y - pointBinOrigin.y) / pointRadius);
+            int ci = (int)Math.Floor((x - pointBinOrigin.x) / pointBinSize), cj = (int)Math.Floor((y - pointBinOrigin.y) / pointBinSize);
+            int reach = (int)Math.Ceiling(R / pointBinSize);
             double s00 = 0, s01 = 0, s02 = 0, s11 = 0, s12 = 0, s22 = 0, r0 = 0, r1 = 0, r2 = 0, wsum = 0, mx = 0, my = 0;
             int count = 0;
-            for (int j = cj - radiusFactor; j <= cj + radiusFactor; ++j) {
+            for (int j = cj - reach; j <= cj + reach; ++j) {
                 if (j < 0 || j >= pby) continue;
-                for (int i = ci - radiusFactor; i <= ci + radiusFactor; ++i) {
+                for (int i = ci - reach; i <= ci + reach; ++i) {
                     if (i < 0 || i >= pbx) continue;
                     int b = i + pbx * j;
                     for (int q = binStart[b]; q < binStart[b + 1]; ++q) {
@@ -360,14 +415,16 @@ namespace gs
         void add_boundary_edges()
         {
             BoundaryCells = 0;
+            BoundaryFallbacks = 0;
             double eps = 1e-3 * cell;
+            DMesh3 bmesh = (SampleF != null) ? FootprintMesh : Mesh;
             List<int> candidates = new List<int>();
-            foreach (int eid in Mesh.BoundaryEdgeIndices())
+            foreach (int eid in bmesh.BoundaryEdgeIndices())
                 candidates.Add(eid);
             bool[] isBoundary = new bool[candidates.Count];
             gParallel.ForEach(Interval1i.Range(candidates.Count), (k) => {
-                Index2i ev = Mesh.GetEdgeV(candidates[k]);
-                Vector3d a = Mesh.GetVertex(ev.a), b = Mesh.GetVertex(ev.b);
+                Index2i ev = bmesh.GetEdgeV(candidates[k]);
+                Vector3d a = bmesh.GetVertex(ev.a), b = bmesh.GetVertex(ev.b);
                 Vector2d d = b.xy - a.xy;
                 double len = d.Length;
                 if (len < 1e-9 * cell)
@@ -380,8 +437,8 @@ namespace gs
             for (int k = 0; k < candidates.Count; ++k) {
                 if (isBoundary[k] == false)
                     continue;
-                Index2i ev = Mesh.GetEdgeV(candidates[k]);
-                Vector3d a = Mesh.GetVertex(ev.a) - origin, b = Mesh.GetVertex(ev.b) - origin;
+                Index2i ev = bmesh.GetEdgeV(candidates[k]);
+                Vector3d a = bmesh.GetVertex(ev.a) - origin, b = bmesh.GetVertex(ev.b) - origin;
                 Vector2d d = b.xy - a.xy;
                 Vector2d n2 = new Vector2d(-d.y, d.x).Normalized;
                 int i0 = clampi((int)Math.Floor(Math.Min(a.x, b.x) / cell), NX), i1 = clampi((int)Math.Floor(Math.Max(a.x, b.x) / cell), NX);
@@ -421,7 +478,9 @@ namespace gs
         }
 
 
-        bool is_valid(int c) { return hits[c] > 0 || segs[c] != null; }
+        // a boundary cell without samples is valid in Mesh mode (heights from the boundary edges), not with
+        // SampleF (FootprintMesh only gives the footprint, not the sampled heights)
+        bool is_valid(int c) { return hits[c] > 0 || (segs[c] != null && SampleF == null); }
         // fully covered interior cell, may be merged
         // fully sampled, no boundary, and not next to the edge of the data (cells around a merged leaf must
         // all exist, or the triangles between it and the boundary are missing: the point fit extrapolates
@@ -542,16 +601,22 @@ namespace gs
                         continue;
                     if (has_small_neighbour(leaf) == false)
                         continue;
-                    leaf.Alive = false;
-                    leaves[li] = leaf;
-                    for (int k = 0; k < 4; ++k)
-                        add_leaf(leaf.Level - 1, 2 * leaf.I + (k & 1), 2 * leaf.J + (k >> 1));
+                    split_leaf(li);
                     changed = true;
                 }
             }
             LeafCells = 0;
             foreach (Leaf leaf in leaves)
                 if (leaf.Alive) LeafCells++;
+        }
+
+        void split_leaf(int li)
+        {
+            Leaf leaf = leaves[li];
+            leaf.Alive = false;
+            leaves[li] = leaf;
+            for (int k = 0; k < 4; ++k)
+                add_leaf(leaf.Level - 1, 2 * leaf.I + (k & 1), 2 * leaf.J + (k >> 1));
         }
 
         bool has_small_neighbour(Leaf leaf)
@@ -642,7 +707,8 @@ namespace gs
         }
 
         // vertex of a finest cell on the input boundary: XY at the 2D QEF minimum of the boundary lines
-        // (on the line, or at the corner where two lines meet), Z from the boundary edge itself
+        // (on the line, or at the corner where two lines meet), Z from the boundary edge itself (SampleF:
+        // sampled there, or just inside)
         Vector3d solve_boundary(int i, int j)
         {
             List<BoundarySeg> list = segs[cid(i, j)];
@@ -676,6 +742,7 @@ namespace gs
             // height (and exact position) from the nearest point on the boundary segments
             double best = double.MaxValue;
             Vector3d result = new Vector3d(xy.x, xy.y, 0);
+            Vector2d nearN = Vector2d.AxisX;
             foreach (BoundarySeg s in list) {
                 Segment2d seg = new Segment2d(s.A.xy, s.B.xy);
                 double t = seg.Project(xy);
@@ -686,6 +753,27 @@ namespace gs
                     double u = (seg.Extent > 0) ? 0.5 * (t / seg.Extent + 1) : 0.5;
                     Vector3d p = Vector3d.Lerp(s.A, s.B, u);
                     result = (d < 1e-18 * cell * cell) ? p : new Vector3d(xy.x, xy.y, p.z);
+                    nearN = s.N;
+                }
+            }
+            if (SampleF != null) {
+                // the vertical line through a boundary point can miss the footprint by rounding: try just inside.
+                // The boundary edge's own height belongs to FootprintMesh, not to the sampled surface: if
+                // there is no sample, use the vertex of the cell's samples (is_valid: it has some)
+                bool sampled = false;
+                foreach (double off in new[] { 0, 1e-4, -1e-4 }) {
+                    Vector3d sp, sn;
+                    Vector2d q = result.xy + off * cell * nearN;
+                    if (sample(q.x + origin.x, q.y + origin.y, out sp, out sn)) {
+                        result.z = sp.z;
+                        sampled = true;
+                        break;
+                    }
+                }
+                if (sampled == false) {
+                    System.Threading.Interlocked.Increment(ref BoundaryFallbacks);
+                    Qef q = qef[cid(i, j)];
+                    return solve(ref q, new Vector2d(i * cell, j * cell), cell);
                 }
             }
             return result;
@@ -701,6 +789,8 @@ namespace gs
         }
 
 
+        int[] vertexLeaf;       // leaf of each vertex of Result
+
         void build_mesh()
         {
             DMesh3 mesh = new DMesh3();
@@ -712,6 +802,9 @@ namespace gs
             });
             for (int li = 0; li < leaves.Count; ++li)
                 leafVertex[li] = leaves[li].Alive ? mesh.AppendVertex(pos[li]) : -1;
+            vertexLeaf = new int[mesh.MaxVertexID];
+            for (int li = 0; li < leaves.Count; ++li)
+                if (leafVertex[li] >= 0) vertexLeaf[leafVertex[li]] = li;
 
             // corners of the leaves (finest-lattice points), each once
             HashSet<long> corners = new HashSet<long>();
@@ -787,6 +880,13 @@ namespace gs
 
             MeshTransforms.Translate(mesh, origin);
             Result = mesh;
+        }
+
+        static double xy_area(DMesh3 mesh, int tid)
+        {
+            Index3i t = mesh.GetTriangle(tid);
+            Vector3d a = mesh.GetVertex(t.a), b = mesh.GetVertex(t.b), c = mesh.GetVertex(t.c);
+            return Math.Abs((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x));
         }
 
         bool faces_up(DMesh3 mesh, int a, int b, int c)

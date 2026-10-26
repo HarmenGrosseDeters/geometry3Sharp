@@ -8,10 +8,11 @@ tools of an MCP server (stdio), for coding agents and scripts.
 |---|---|---|
 | `measure` | counts, components, closedness, volume, area, bounds, genus, bowties, degenerate and inside-out parts, self-intersections (exact), Hausdorff distance to a second mesh | `MeshMeasurements`, `MeshRepairMetrics`, `MeshHausdorffDistance` |
 | `repair` | repair into a closed solid (`--method robust`, default, or `auto`) | `MeshRobustRepair`, `MeshAutoRepair` |
-| `boolean` | union, intersection, difference (a minus b), exact | `ExactMeshBoolean` |
+| `boolean` | union, intersection, difference (a minus the others), at least k of n; two or more meshes (`--more`) in one exact operation | `ExactMeshBoolean` |
 | `resolve` | boundary of the solid of one mesh: removes self-intersections, nested shells, duplicate faces | `ExactMeshBoolean.Resolve` |
 | `remesh` | isotropic remeshing to a target edge length, boundary and sharp edges kept | `Remesher`, `MeshConstraintUtil` |
 | `simplify` | quadric edge collapse to a triangle count, ratio, error or edge length | `Reducer` |
+| `uv` | UV atlas: seams / cones / charts, BFF, packing, exact overlap test, distortion limits | `UVAtlasGenerator`, `MeshDiscCut`, `ConeFlattening` |
 | `convert` | STL, OBJ, OFF, PLY, 3MF, glTF/GLB, g3mesh (by file extension) | `StandardMeshReader`, `StandardMeshWriter` |
 
 ## Build and run
@@ -89,9 +90,10 @@ meshes; `--no-self-intersections` skips it (`null`).
 ## Examples
 
 ```
-# repair: robust repair, falls back to winding-number solidify if needed
+# repair: robust repair; self-intersections resolved exactly, winding-number solidify only if that is not clean
 g3cli repair scan.obj scan_fixed.stl
-#   -> "used_solidify": true, "fallback_reason": "self-intersections", "mesh": { "closed": true, "clean": true, ... }
+#   -> "used_exact_resolve": true, "used_solidify": false, "fallback_reason": "self-intersections", "mesh": { "closed": true, "clean": true, ... }
+g3cli repair scan.obj scan_fixed.stl --no-exact-resolve     # solidify fallback only (as before)
 
 # keep the input triangles (MeshAutoRepair only)
 g3cli repair scan.obj scan_fixed.stl --method auto --tolerance 1e-5
@@ -99,6 +101,9 @@ g3cli repair scan.obj scan_fixed.stl --method auto --tolerance 1e-5
 # exact booleans
 g3cli boolean part.stl tool.stl cut.3mf --op difference
 g3cli boolean --a a.obj --b b.obj --output ab.glb --op union --allow-open=false
+# more than two meshes in one operation (one arrangement): files separated by ';'
+g3cli boolean a.stl b.stl all.stl --op union --more "c.stl;d.stl"
+g3cli boolean a.stl b.stl two.stl --op at_least --k 2 --more c.stl
 
 # self-intersecting / overlapping shells in one file -> one clean solid
 g3cli resolve assembly.off solid.ply
@@ -109,6 +114,10 @@ g3cli remesh part.stl part_remeshed.obj --edge-length 0.5 --crease-angle 40 --de
 # simplify to 10% of the triangles, or to at most 5000
 g3cli simplify scan.ply scan_small.ply --ratio 0.1 --deviation
 g3cli simplify scan.ply scan_small.stl --triangles 5000
+
+# UV atlas (OBJ, PLY, glTF/GLB, g3mesh keep the UVs); atlas_status "distortion_limit_exceeded" if max_charts was not enough
+g3cli uv part.stl part_uv.obj
+g3cli uv part.stl part_uv.glb --method charts --max-area-distortion 0.1 --max-charts 64
 
 # Hausdorff distance (certified: distance = upper bound, within the tolerance of the lower bound)
 g3cli measure original.stl --compare simplified.stl --tolerance 1e-4

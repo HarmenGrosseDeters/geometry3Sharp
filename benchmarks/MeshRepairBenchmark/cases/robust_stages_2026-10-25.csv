@@ -1,0 +1,401 @@
+file,category,stage,outcome,why_earlier_stages_not_used,hausdorff_rel,iou,tris_before,tris_after,repair_ms
+100032.stl,broken:PWN,solidify,volume (IoU),repair: volume differs from the input; exact: not closed (winding number),0.00965,0.98278,3128,2060,6087
+100033.stl,broken:Vertex manifold,repair,repaired,,0.00104,0.99637,420,418,1124
+100035.stl,broken:PWN,solidify,deviation > 1 %,repair: volume differs from the input; exact: not closed (winding number),0.23178,0.96832,670,4934,5807
+100037.stl,broken:Closed,solidify,deviation > 1 %,repair: degenerate triangles; exact: volume differs from the input,0.02929,0.90672,375,612,5165
+100040.stl,broken:PWN,solidify,deviation > 1 %,repair: self-intersections; exact: volume differs from the input,0.01584,0.00559,736,706,3922
+100732.stl,broken:Closed,repair,repaired,,0.00109,1.00000,3722,3576,2966
+101338.stl,clean,exact resolve,repaired,repair: self-intersections,0.00103,1.00000,63502,63506,6280
+101397.stl,broken:PWN,solidify,deviation > 1 %,repair: self-intersections; exact: not closed (winding number),0.02091,0.96702,14348,17426,14847
+1017012.stl,broken:No duplicated faces,solidify,deviation > 1 %,repair: degenerate triangles; exact: not closed,0.04435,0.99282,10522,7498,8586
+1017016.stl,broken:Vertex manifold,solidify,deviation > 1 %,repair: degenerate triangles; exact: degenerate triangles,0.03136,0.94050,5930,4538,7940
+102375.stl,broken:No degenerate faces,repair,repaired,,0.00100,1.00000,92890,92692,4058
+1037029.stl,broken:Edge manifold,solidify,volume (IoU),repair: degenerate triangles; exact: not closed,0.00559,0.97020,6914,7350,8166
+103742.stl,broken:Edge manifold,exact resolve,repaired,repair: degenerate triangles,0.00137,1.00000,10353,10328,5397
+1038436.stl,broken:No duplicated faces,alpha wrap,deviation > 1 %,repair: degenerate triangles; exact: not closed; solidify: self-intersections,0.07673,0.97702,3082,188182,19299
+1038440.stl,broken:No degenerate faces,solidify,deviation > 1 %,repair: degenerate triangles; exact: not closed,0.05196,0.97345,2893,6462,9361
+1038446.stl,broken:Closed,solidify,deviation > 1 %,repair: degenerate triangles; exact: not closed,0.05370,0.99793,12770,4650,19381
+104787.stl,broken:Edge manifold,repair,repaired,,0.00105,1.00000,91549,87674,4915
+105335.stl,broken:Vertex manifold,repair,repaired,,0.00124,0.99583,15136,13992,2674
+105867.stl,broken:PWN,exact resolve,repaired,repair: self-intersections,0.00393,1.00000,29537,29412,5821
+106146.stl,clean,repair,repaired,,0.00417,0.99799,3678,3650,1397
+1064115.stl,broken:Edge manifold,repair,repaired,,0.00114,0.99945,736,586,627
+106620.stl,broken:PWN,solidify,deviation > 1 %,repair: self-intersections; exact: volume differs from the input,0.04987,0.74899,47520,157548,23023
+108334.stl,broken:Vertex manifold,exact resolve,repaired,repair: self-intersections,0.00103,1.00000,326,328,1236
+109132.stl,broken:Edge manifold,repair,repaired,,0.00102,1.00000,10666,10572,3054
+110205.stl,clean,repair,repaired,,0.00104,1.00000,2408,2392,1417
+1102667.stl,broken:PWN,alpha wrap,volume (IoU),repair: degenerate triangles; exact: not closed; solidify: self-intersections,0.00737,0.94916,12159,133426,17067
+110378.stl,broken:No duplicated faces,alpha wrap,deviation > 1 %,repair: degenerate triangles; exact: not closed; solidify: self-intersections,0.02535,0.96550,16435,119076,26155
+110785.stl,broken:No degenerate faces,repair,repaired,,0.00099,1.00000,4444,4444,2418
+1120761.stl,clean,repair,repaired,,0.00144,1.00000,892,890,875
+112532.stl,broken:Closed,exact resolve,repaired,repair: inside-out components,0.00765,1.00000,7568,7808,2720
+112852.stl,broken:Vertex manifold,solidify,deviation > 1 %,repair: inside-out components; exact: volume differs from the input,0.01841,0.00758,444,826,3489
+112866.stl,broken:PWN,solidify,deviation > 1 %,repair: self-intersections; exact: not closed (winding number),0.01863,0.99676,11770,22878,7629
+113417.stl,broken:PWN,repair,repaired,,0.00130,1.00000,44276,43298,3579
+114255.stl,broken:Vertex manifold,exact resolve,deviation > 1 %,repair: degenerate triangles,0.11646,1.00000,29620,29568,8000
+1146188.stl,clean,repair,repaired,,0.00124,0.99997,3510,3488,2140
+1146199.stl,clean,repair,repaired,,0.00108,1.00000,68228,66570,8839
+115059.stl,broken:No duplicated faces,repair,repaired,,0.00100,1.00000,3229,3230,1539
+115070.stl,broken:Vertex manifold,repair,repaired,,0.00100,1.00000,2867,2868,2420
+1153645.stl,broken:Closed,repair,repaired,,0.00100,1.00000,776,776,1442
+116060.stl,broken:PWN,alpha wrap,deviation > 1 %,repair: degenerate triangles; exact: not closed; solidify: self-intersections,0.02372,0.94057,33878,64416,18261
+116076.stl,clean,repair,repaired,,0.00100,1.00000,196,196,695
+116077.stl,broken:Vertex manifold,solidify,deviation > 1 %,repair: self-intersections; exact: volume differs from the input,0.04439,0.92310,2781,14384,5020
+117020.stl,broken:No degenerate faces,repair,repaired,,0.00105,0.99994,612,530,1005
+119867.stl,broken:Closed,exact resolve,repaired,repair: degenerate triangles,0.00194,1.00000,13212,12984,4676
+122347.stl,broken:Edge manifold,exact resolve,repaired,repair: self-intersections,0.00868,0.99887,10430,10318,5018
+1224384.stl,clean,repair,repaired,,0.00100,1.00000,238,238,645
+1228193.stl,clean,repair,repaired,,0.00100,1.00000,2210,2194,3623
+1228624.stl,broken:PWN,exact resolve,repaired,repair: degenerate triangles,0.00213,1.00000,3890,3866,3865
+123354.stl,broken:PWN,exact resolve,deviation > 1 %,repair: self-intersections,0.01467,0.99848,571,562,2131
+124709.stl,broken:PWN,exact resolve,deviation > 1 %,repair: inside-out components,0.01377,0.99958,1840,1820,2769
+125882.stl,broken:Edge manifold,solidify,deviation > 1 %,repair: degenerate triangles; exact: not closed (winding number),0.04997,0.97011,30425,34072,10146
+126542.stl,broken:Edge manifold,alpha wrap,deviation > 1 %,repair: self-intersections; exact: degenerate triangles; solidify: self-intersections,0.01703,0.12935,39704,118608,15542
+126545.stl,broken:Vertex manifold,solidify,volume (IoU),repair: self-intersections; exact: degenerate triangles,0.00884,0.98895,26592,31098,6623
+127253.stl,broken:Closed,exact resolve,repaired,repair: degenerate triangles,0.00863,1.00000,22359,22358,3989
+127261.stl,broken:Edge manifold,exact resolve,repaired,repair: degenerate triangles,0.00491,1.00000,37131,37130,4793
+127316.stl,broken:No duplicated faces,exact resolve,repaired,repair: degenerate triangles,0.00914,1.00000,17895,17884,3144
+127890.stl,broken:No degenerate faces,exact resolve,repaired,repair: volume differs from the input,0.00099,1.00000,136,136,1187
+128001.stl,broken:PWN,repair,repaired,,0.00225,1.00000,66424,65960,9573
+130037.stl,broken:Vertex manifold,exact resolve,repaired,repair: self-intersections,0.00165,1.00000,9870,9790,2667
+130449.stl,broken:Edge manifold,solidify,deviation > 1 %,repair: degenerate triangles; exact: not closed,0.01034,0.99793,3515,7312,7495
+131326.stl,broken:Vertex manifold,repair,repaired,,0.00128,1.00000,11442,11422,4711
+131376.stl,broken:Closed,exact resolve,repaired,repair: inside-out components,0.00542,0.99676,1113,1222,4067
+132434.stl,clean,repair,repaired,,0.00100,1.00000,4586,4586,1983
+1329186.stl,broken:Edge manifold,exact resolve,repaired,repair: self-intersections,0.00122,0.99991,24402,24112,6438
+135753.stl,broken:Vertex manifold,solidify,volume (IoU),repair: self-intersections; exact: volume differs from the input,0.00291,0.71706,2620,2028,6739
+136393.stl,broken:No degenerate faces,solidify,deviation > 1 %,repair: volume differs from the input; exact: not closed (winding number),0.15053,0.98789,1368,4376,3534
+1368057.stl,broken:No degenerate faces,solidify,deviation > 1 %,repair: degenerate triangles; exact: not closed,0.01064,0.99785,97412,50110,25435
+1368064.stl,broken:Edge manifold,repair,repaired,,0.00296,0.99998,29316,28400,5696
+1368075.stl,broken:Vertex manifold,exact resolve,repaired,repair: degenerate triangles,0.00165,1.00000,82764,77856,7312
+138039.stl,broken:No duplicated faces,repair,repaired,,0.00100,1.00000,288,288,2276
+138092.stl,broken:Edge manifold,repair,repaired,,0.00125,1.00000,2364,2358,1634
+138095.stl,broken:Edge manifold,repair,repaired,,0.00100,1.00000,618,618,1248
+138101.stl,broken:Edge manifold,repair,repaired,,0.00092,1.00000,1152,1152,2151
+138187.stl,broken:No duplicated faces,repair,repaired,,0.00101,1.00000,2852,2852,2523
+138189.stl,broken:No duplicated faces,repair,repaired,,0.00100,1.00000,756,756,927
+138194.stl,broken:No duplicated faces,repair,repaired,,0.00213,0.99992,6750,6720,3641
+138199.stl,broken:No duplicated faces,repair,repaired,,0.00100,1.00000,1120,1120,2496
+139733.stl,broken:No duplicated faces,exact resolve,repaired,repair: self-intersections,0.00103,1.00000,31681,31488,4452
+139737.stl,broken:Edge manifold,exact resolve,repaired,repair: self-intersections,0.00122,1.00000,12040,11796,2648
+139763.stl,broken:No duplicated faces,solidify,repaired,repair: degenerate triangles; exact: not closed,0.00858,0.99435,19218,18322,4999
+1417961.stl,broken:Edge manifold,exact resolve,deviation > 1 %,repair: degenerate triangles,0.03714,0.99950,36442,39540,7736
+1450317.stl,broken:No degenerate faces,repair,repaired,,0.00120,1.00000,6508,5838,3477
+1450323.stl,clean,repair,repaired,,0.00103,1.00000,35584,34836,8680
+1458675.stl,broken:Edge manifold,repair,repaired,,0.00103,1.00000,9586,9484,3363
+1458679.stl,broken:No duplicated faces,exact resolve,repaired,repair: self-intersections,0.00107,0.99994,9557,9474,2570
+1501550.stl,broken:No degenerate faces,exact resolve,repaired,repair: degenerate triangles,0.00113,0.99975,21493,13736,16520
+1505024.stl,broken:Vertex manifold,solidify,repaired,repair: inside-out components; exact: degenerate triangles,0.00628,0.99326,3032,9150,10305
+1505037.stl,broken:Vertex manifold,alpha wrap,deviation > 1 %,repair: degenerate triangles; exact: not closed; solidify: self-intersections,0.02570,0.92120,38513,226566,66693
+152776.stl,broken:Edge manifold,exact resolve,repaired,repair: degenerate triangles,0.00100,1.00000,532,532,1245
+1572508.stl,broken:Closed,repair,repaired,,0.00242,1.00000,16062,16056,4617
+1582375.stl,broken:Edge manifold,repair,repaired,,0.00106,1.00000,242,168,1025
+1619332.stl,broken:No duplicated faces,exact resolve,deviation > 1 %,repair: degenerate triangles,0.01093,0.99161,7301,7508,8119
+162092.stl,broken:Edge manifold,exact resolve,deviation > 1 %,repair: degenerate triangles,0.01169,0.99996,4368,4318,2988
+163738.stl,broken:PWN,alpha wrap,deviation > 1 %,repair: degenerate triangles; exact: volume differs from the input; solidify: self-intersections,0.11526,0.83908,3188,128144,16698
+1646872.stl,broken:PWN,repair,repaired,,0.00114,1.00000,8540,8442,2932
+1681235.stl,broken:No duplicated faces,solidify,deviation > 1 %,repair: degenerate triangles; exact: not closed (winding number),0.22995,0.50643,21919,13444,10847
+1681239.stl,broken:Vertex manifold,alpha wrap,deviation > 1 %,repair: inside-out components; exact: not closed (winding number); solidify: self-intersections,0.08717,0.96342,3068,210688,20636
+170991.stl,broken:No duplicated faces,alpha wrap,deviation > 1 %,repair: degenerate triangles; exact: not closed (winding number); solidify: self-intersections,0.02202,0.72549,16583,50738,16767
+1750620.stl,broken:Vertex manifold,exact resolve,repaired,repair: self-intersections,0.00109,1.00000,17172,16898,4549
+180694.stl,broken:Closed,solidify,deviation > 1 %,repair: inside-out components; exact: not closed,0.08599,0.91397,1520,11536,9143
+186543.stl,broken:Closed,exact resolve,deviation > 1 %,repair: self-intersections,0.01048,1.00000,322,346,660
+186549.stl,broken:No degenerate faces,repair,repaired,,0.00623,0.99457,611,574,1280
+189520.stl,broken:PWN,repair,repaired,,0.00513,0.99649,662,652,840
+191078.stl,clean,repair,repaired,,0.00100,1.00000,596,596,919
+195682.stl,broken:Vertex manifold,solidify,deviation > 1 %,repair: self-intersections; exact: not closed,0.02304,0.98647,22607,24038,3355
+195683.stl,broken:Vertex manifold,solidify,deviation > 1 %,repair: degenerate triangles; exact: not closed,0.01958,0.97804,27786,27412,9556
+199819.stl,broken:No degenerate faces,repair,repaired,,0.00109,1.00000,162,154,600
+200007.stl,broken:Closed,repair,repaired,,0.00100,1.00000,2938,2932,1338
+201957.stl,broken:Closed,alpha wrap,deviation > 1 %,repair: degenerate triangles; exact: volume differs from the input; solidify: self-intersections,0.04615,0.94412,1272,185730,28828
+204243.stl,broken:No degenerate faces,exact resolve,deviation > 1 %,repair: self-intersections,0.01046,0.99861,18418,18202,4805
+204391.stl,broken:No duplicated faces,exact resolve,repaired,repair: self-intersections,0.00547,0.99951,5147,5100,4372
+206317.stl,broken:No duplicated faces,repair,repaired,,0.00102,1.00000,6898,6868,957
+206318.stl,broken:Vertex manifold,repair,repaired,,0.00104,1.00000,16770,16684,2159
+224108.stl,broken:PWN,exact resolve,deviation > 1 %,repair: self-intersections,0.01160,0.99988,11180,11094,4092
+225954.stl,clean,repair,repaired,,0.00097,1.00000,834,834,1096
+229605.stl,clean,repair,repaired,,0.00099,1.00000,384,384,1098
+229959.stl,broken:Closed,alpha wrap,deviation > 1 %,repair: degenerate triangles; exact: not closed; solidify: self-intersections,0.04699,0.93390,13880,279906,51260
+230923.stl,broken:No duplicated faces,exact resolve,repaired,repair: degenerate triangles,0.00178,1.00000,90349,90412,6286
+237181.stl,broken:Edge manifold,exact resolve,repaired,repair: degenerate triangles,0.00295,0.99990,4148,3676,4592
+237627.stl,broken:Vertex manifold,exact resolve,deviation > 1 %,repair: degenerate triangles,0.01367,0.99994,5549,5296,2278
+237738.stl,broken:Vertex manifold,repair,repaired,,0.00253,0.99992,10456,7950,2704
+239184.stl,broken:No degenerate faces,repair,repaired,,0.00898,0.99753,1292,1282,1934
+239189.stl,clean,repair,repaired,,0.00686,0.99962,8694,8630,2819
+242232.stl,broken:No degenerate faces,exact resolve,repaired,repair: self-intersections,0.00756,1.00000,43114,42120,5311
+250142.stl,broken:Closed,exact resolve,deviation > 1 %,repair: inside-out components,0.04923,1.00000,686,542,2557
+250397.stl,clean,repair,repaired,,0.00142,1.00000,3424,2380,1950
+255239.stl,broken:No duplicated faces,solidify,deviation > 1 %,repair: degenerate triangles; exact: degenerate triangles,0.02342,0.99013,49552,25164,8409
+255241.stl,broken:Vertex manifold,solidify,repaired,repair: inside-out components; exact: not closed (winding number),0.00632,0.99446,64634,30936,8647
+257595.stl,broken:Vertex manifold,exact resolve,repaired,repair: self-intersections,0.00114,1.00000,90900,90424,5873
+270401.stl,broken:No degenerate faces,exact resolve,deviation > 1 %,repair: self-intersections,0.01432,0.99968,66644,65620,62287
+277709.stl,broken:No degenerate faces,alpha wrap,deviation > 1 %,repair: degenerate triangles; exact: not closed (winding number); solidify: self-intersections,0.01933,0.96440,32471,80880,5567
+281374.stl,broken:No duplicated faces,repair,repaired,,0.00144,1.00000,552,548,1034
+281459.stl,broken:No degenerate faces,repair,repaired,,0.00156,1.00000,12576,12208,2784
+285367.stl,broken:No duplicated faces,repair,repaired,,0.00122,1.00000,598,594,669
+286985.stl,broken:No degenerate faces,repair,repaired,,0.00107,1.00000,10584,10404,3179
+288801.stl,broken:Edge manifold,exact resolve,repaired,repair: self-intersections,0.00181,0.99989,618,616,920
+301927.stl,broken:Edge manifold,exact resolve,repaired,repair: self-intersections,0.00962,1.00000,792,758,1019
+301931.stl,broken:No degenerate faces,exact resolve,repaired,repair: self-intersections,0.00838,0.99848,51696,50252,5287
+301933.stl,broken:No duplicated faces,exact resolve,deviation > 1 %,repair: self-intersections,0.04074,1.00000,7094,7528,7188
+313876.stl,broken:Closed,solidify,volume (IoU),repair: degenerate triangles; exact: degenerate triangles,0.00712,0.98851,46900,3754,5198
+314748.stl,broken:Edge manifold,solidify,deviation > 1 %,repair: degenerate triangles; exact: volume differs from the input,0.08729,0.71048,760,3114,6958
+318045.stl,broken:Vertex manifold,repair,repaired,,0.00100,1.00000,5924,5920,3460
+318918.stl,broken:Vertex manifold,exact resolve,repaired,repair: self-intersections,0.00106,0.99992,29312,28994,6627
+338196.stl,broken:No duplicated faces,solidify,deviation > 1 %,repair: degenerate triangles; exact: degenerate triangles,0.01047,0.99633,7261,10644,8053
+346287.stl,broken:No duplicated faces,exact resolve,repaired,repair: degenerate triangles,0.00958,1.00000,5886,8204,5064
+357788.stl,broken:No degenerate faces,exact resolve,repaired,repair: self-intersections,0.00559,0.99963,43752,42932,9043
+360007.stl,broken:PWN,exact resolve,deviation > 1 %,repair: self-intersections,0.01489,0.99963,3986,4000,3115
+37010.stl,broken:No degenerate faces,alpha wrap,volume (IoU),repair: volume differs from the input; exact: not closed (winding number); solidify: self-intersections,0.00558,0.49984,13247,160414,18561
+37065.stl,broken:Vertex manifold,exact resolve,deviation > 1 %,repair: degenerate triangles,0.02006,0.99840,1470,1454,3603
+37111.stl,broken:Closed,exact resolve,repaired,repair: degenerate triangles,0.00266,1.00000,88034,88868,7936
+37211.stl,broken:No duplicated faces,repair,repaired,,0.00714,0.99848,742,734,1175
+37323.stl,clean,repair,repaired,,0.00100,1.00000,1210,1210,1125
+37415.stl,broken:Vertex manifold,alpha wrap,deviation > 1 %,repair: degenerate triangles; exact: not closed; solidify: self-intersections,0.05312,0.77044,13340,134524,70566
+375263.stl,clean,repair,repaired,,0.00099,1.00000,1066,1066,1760
+37621.stl,broken:No degenerate faces,repair,repaired,,0.00095,1.00000,16,16,277
+37772.stl,broken:No duplicated faces,solidify,deviation > 1 %,repair: degenerate triangles; exact: not closed,0.07261,0.99869,8927,17452,5507
+37885.stl,broken:PWN,repair,repaired,,0.00099,1.00000,304,304,960
+38066.stl,broken:PWN,exact resolve,repaired,repair: self-intersections,0.00131,0.99994,1332,1330,1443
+38558.stl,broken:Closed,repair,repaired,,0.00542,0.99967,57754,57332,3758
+38636.stl,clean,repair,repaired,,0.00101,1.00000,2668,2660,1586
+38781.stl,broken:Closed,repair,repaired,,0.00109,1.00000,16528,16438,7738
+39086.stl,broken:Closed,repair,repaired,,0.00100,1.00000,85750,85676,3201
+39246.stl,broken:Closed,solidify,deviation > 1 %,repair: degenerate triangles; exact: volume differs from the input,0.04509,0.98251,1858,1296,6051
+39298.stl,broken:No degenerate faces,alpha wrap,deviation > 1 %,repair: degenerate triangles; exact: not closed; solidify: self-intersections,0.01572,0.94977,34169,373226,39512
+39370.stl,broken:No degenerate faces,exact resolve,repaired,repair: self-intersections,0.00307,0.99978,4107,3860,7748
+40017.stl,broken:Edge manifold,exact resolve,repaired,repair: degenerate triangles,0.00513,0.99899,3529,3444,2474
+40194.stl,broken:No degenerate faces,exact resolve,repaired,repair: self-intersections,0.00791,0.99995,2546,2306,3157
+40282.stl,broken:Closed,repair,repaired,,0.00106,1.00000,12476,12504,1857
+40296.stl,broken:Vertex manifold,repair,repaired,,0.00123,1.00000,8540,8238,3173
+404959.stl,broken:No degenerate faces,repair,repaired,,0.00100,1.00000,1466,1466,1393
+41085.stl,broken:No duplicated faces,exact resolve,deviation > 1 %,repair: inside-out components,0.01540,0.99417,9284,8834,11484
+41090.stl,broken:No duplicated faces,repair,repaired,,0.00098,1.00000,180,180,726
+41140.stl,broken:Vertex manifold,repair,repaired,,0.00133,1.00000,12576,12524,3185
+41308.stl,broken:Edge manifold,repair,repaired,,0.00117,1.00000,1728,1736,3634
+41704.stl,broken:No duplicated faces,repair,repaired,,0.00518,0.99989,652,642,1332
+41705.stl,broken:No duplicated faces,exact resolve,deviation > 1 %,repair: degenerate triangles,0.01413,0.99632,4067,3956,3732
+41939.stl,broken:No duplicated faces,solidify,deviation > 1 %,repair: degenerate triangles; exact: not closed,0.01300,0.98946,34967,25018,9434
+42237.stl,broken:Edge manifold,repair,deviation > 1 %,,0.01641,0.99834,1628,1626,2825
+42327.stl,broken:No degenerate faces,exact resolve,deviation > 1 %,repair: inside-out components,0.03100,0.99985,4624,3482,51842
+42329.stl,broken:No degenerate faces,exact resolve,deviation > 1 %,repair: inside-out components,0.03100,0.99985,4756,3610,53503
+425320.stl,broken:Closed,alpha wrap,deviation > 1 %,repair: self-intersections; exact: degenerate triangles; solidify: self-intersections,0.01589,0.98420,9875,183568,53114
+42637.stl,broken:No degenerate faces,exact resolve,repaired,repair: self-intersections,0.00990,0.99893,1454,1432,2811
+42821.stl,broken:No duplicated faces,exact resolve,repaired,repair: degenerate triangles,0.00940,1.00000,10080,10064,3959
+42941.stl,broken:No degenerate faces,repair,repaired,,0.00133,1.00000,4622,4620,1705
+42942.stl,broken:PWN,exact resolve,deviation > 1 %,repair: degenerate triangles,0.01940,0.99946,2152,2082,3024
+42944.stl,broken:No degenerate faces,exact resolve,repaired,repair: self-intersections,0.00325,0.99987,4822,4816,2589
+42945.stl,broken:Vertex manifold,repair,repaired,,0.00100,0.99988,2280,2280,1650
+43747.stl,broken:Edge manifold,repair,repaired,,0.00492,0.99992,316,314,826
+43748.stl,clean,repair,repaired,,0.00090,1.00000,100,100,491
+44001.stl,broken:No degenerate faces,repair,repaired,,0.00130,0.99984,6264,5934,2398
+44315.stl,broken:Edge manifold,exact resolve,repaired,repair: self-intersections,0.00138,1.00000,4828,4666,2904
+44397.stl,clean,repair,repaired,,0.00130,1.00000,2708,2690,2170
+44998.stl,clean,repair,repaired,,0.00100,1.00000,3894,3894,1780
+45132.stl,broken:Edge manifold,repair,repaired,,0.00124,1.00000,2370,2368,1518
+45133.stl,broken:No degenerate faces,exact resolve,repaired,repair: degenerate triangles,0.00302,0.99981,8382,8336,3877
+45139.stl,broken:No duplicated faces,repair,repaired,,0.00123,0.99995,2392,2384,3036
+45328.stl,broken:No duplicated faces,exact resolve,deviation > 1 %,repair: self-intersections,0.01421,0.99879,4273,4258,2068
+45341.stl,broken:Vertex manifold,exact resolve,deviation > 1 %,repair: self-intersections,0.03306,0.99968,4348,4458,4012
+45561.stl,broken:PWN,solidify,deviation > 1 %,repair: inside-out components; exact: volume differs from the input,0.01375,0.00000,8107,2054,10256
+45612.stl,clean,repair,repaired,,0.00112,1.00000,2588,2584,1196
+46244.stl,broken:PWN,alpha wrap,volume (IoU),repair: volume differs from the input; exact: not closed (winding number); solidify: self-intersections,0.00455,0.76874,448,164916,14491
+464845.stl,broken:Closed,repair,repaired,,0.00240,1.00000,985,984,1961
+464848.stl,broken:PWN,solidify,deviation > 1 %,repair: inside-out components; exact: volume differs from the input,0.11225,0.96907,2220,10510,8722
+46529.stl,broken:No degenerate faces,repair,repaired,,0.00973,0.99811,1058,1030,1943
+46541.stl,broken:Closed,solidify,deviation > 1 %,repair: inside-out components; exact: volume differs from the input,0.08227,0.41390,628,9454,8623
+46542.stl,broken:Vertex manifold,alpha wrap,volume (IoU),repair: volume differs from the input; exact: not closed (winding number); solidify: self-intersections,0.00424,0.73141,574,179058,12732
+46583.stl,broken:No duplicated faces,solidify,repaired,repair: degenerate triangles; exact: degenerate triangles,0.00805,0.99706,76767,36390,5347
+46810.stl,broken:Edge manifold,solidify,repaired,repair: degenerate triangles; exact: degenerate triangles,0.00452,0.99660,11964,13660,7188
+47094.stl,broken:Edge manifold,exact resolve,deviation > 1 %,repair: self-intersections,0.04883,0.99884,8554,8444,3927
+471993.stl,clean,repair,repaired,,0.00106,1.00000,15234,14752,4354
+472037.stl,clean,repair,repaired,,0.00101,1.00000,61884,61762,6355
+472060.stl,clean,repair,repaired,,0.00113,0.99988,2736,2656,2209
+472174.stl,clean,repair,repaired,,0.00100,1.00000,14526,14522,2883
+472177.stl,broken:Closed,repair,repaired,,0.00557,0.99921,33680,33574,6553
+474360.stl,broken:Vertex manifold,exact resolve,deviation > 1 %,repair: degenerate triangles,0.02015,0.99891,8020,7954,6724
+47564.stl,broken:Vertex manifold,exact resolve,repaired,repair: degenerate triangles,0.00371,0.99890,2311,2058,5493
+47875.stl,broken:Closed,repair,repaired,,0.00245,0.99984,3471,3434,4165
+47878.stl,broken:Closed,solidify,deviation > 1 %,repair: degenerate triangles; exact: not closed (winding number),0.02434,0.95870,1311,2430,5282
+47918.stl,broken:No duplicated faces,exact resolve,deviation > 1 %,repair: self-intersections,0.02289,1.00000,2063,2062,2164
+47979.stl,broken:Vertex manifold,alpha wrap,deviation > 1 %,repair: degenerate triangles; exact: not closed; solidify: self-intersections,0.02057,0.97670,7241,120558,18078
+479927.stl,broken:Vertex manifold,repair,repaired,,0.00107,1.00000,14712,14526,3314
+48354.stl,broken:Closed,repair,deviation > 1 %,,0.02306,0.99978,21361,21926,2400
+486343.stl,broken:No degenerate faces,exact resolve,repaired,repair: self-intersections,0.00457,0.99974,2104,2114,2296
+486700.stl,broken:Vertex manifold,exact resolve,deviation > 1 %,repair: self-intersections,0.02706,0.99997,572,550,1757
+486785.stl,broken:No degenerate faces,repair,repaired,,0.00270,1.00000,20740,20432,3053
+48950.stl,broken:PWN,solidify,deviation > 1 %,repair: degenerate triangles; exact: not closed,0.01540,0.90627,65858,10954,13051
+48954.stl,broken:Closed,solidify,deviation > 1 %,repair: degenerate triangles; exact: not closed,0.01546,0.89620,65858,11476,15266
+49038.stl,broken:PWN,alpha wrap,deviation > 1 %,repair: inside-out components; exact: not closed (winding number); solidify: self-intersections,0.03059,0.97976,3508,238912,21115
+49417.stl,broken:PWN,solidify,deviation > 1 %,repair: self-intersections; exact: volume differs from the input,0.03442,0.98613,716,1620,4223
+498458.stl,broken:Closed,solidify,repaired,repair: self-intersections; exact: degenerate triangles,0.00663,0.99533,47422,36852,30122
+50108.stl,broken:Closed,repair,repaired,,0.00167,0.99992,2276,2158,3860
+50240.stl,broken:No duplicated faces,solidify,deviation > 1 %,repair: degenerate triangles; exact: volume differs from the input,0.05856,0.93223,5851,1080,6765
+50309.stl,broken:PWN,exact resolve,repaired,repair: self-intersections,0.00111,1.00000,1077,1070,2061
+50405.stl,broken:PWN,exact resolve,deviation > 1 %,repair: self-intersections,0.01302,1.00000,38420,35264,6278
+50738.stl,broken:PWN,repair,repaired,,0.00131,0.99987,1094,1088,1019
+51297.stl,broken:PWN,exact resolve,repaired,repair: self-intersections,0.00133,1.00000,36366,36348,5212
+51321.stl,broken:Edge manifold,solidify,deviation > 1 %,repair: volume differs from the input; exact: not closed (winding number),0.26973,0.97873,708,21702,6004
+51348.stl,broken:No degenerate faces,repair,deviation > 1 %,,0.01136,0.99764,5440,5400,2432
+51350.stl,broken:No duplicated faces,exact resolve,deviation > 1 %,repair: self-intersections,0.01275,0.99556,7512,7436,4032
+51352.stl,broken:PWN,exact resolve,deviation > 1 %,repair: self-intersections,0.05448,0.99704,5470,5450,3217
+51358.stl,broken:PWN,exact resolve,repaired,repair: self-intersections,0.00584,0.99916,6233,6142,5323
+51359.stl,broken:No duplicated faces,exact resolve,repaired,repair: self-intersections,0.00584,0.99902,6233,6142,5373
+51472.stl,broken:Vertex manifold,solidify,deviation > 1 %,repair: degenerate triangles; exact: volume differs from the input,0.01025,0.49467,2010,11950,4440
+51474.stl,broken:No degenerate faces,alpha wrap,volume (IoU),repair: volume differs from the input; exact: not closed (winding number); solidify: self-intersections,0.00505,0.73893,1698,170994,19208
+519510.stl,broken:Closed,repair,repaired,,0.00101,0.99995,65132,64860,8987
+521421.stl,broken:Closed,repair,repaired,,0.00103,0.99996,7044,7042,4606
+521422.stl,broken:Closed,repair,repaired,,0.00116,1.00000,6706,6680,4525
+521423.stl,broken:PWN,repair,repaired,,0.00106,1.00000,5388,5374,3802
+53090.stl,broken:Vertex manifold,repair,repaired,,0.00100,1.00000,1060,1060,1906
+53118.stl,broken:Vertex manifold,solidify,deviation > 1 %,repair: degenerate triangles; exact: volume differs from the input,0.05136,0.98738,1640,782,6870
+53121.stl,broken:Vertex manifold,solidify,deviation > 1 %,repair: not closed; exact: not closed (winding number),0.05124,0.99867,1624,564,4659
+53122.stl,broken:Edge manifold,exact resolve,deviation > 1 %,repair: degenerate triangles,0.05136,0.99045,1612,994,2781
+53466.stl,broken:Closed,repair,repaired,,0.00100,1.00000,3048,3048,1921
+53889.stl,broken:No degenerate faces,exact resolve,repaired,repair: self-intersections,0.00883,0.99992,504,502,1536
+54624.stl,broken:No duplicated faces,solidify,deviation > 1 %,repair: volume differs from the input; exact: not closed (winding number),0.11830,0.96962,5048,13088,7286
+548870.stl,broken:Closed,repair,repaired,,0.00113,1.00000,24000,23032,3958
+548877.stl,broken:Closed,repair,repaired,,0.00424,0.99495,81356,79232,7136
+55278.stl,broken:No degenerate faces,exact resolve,repaired,repair: degenerate triangles,0.00099,1.00000,432,426,745
+55574.stl,broken:Closed,repair,repaired,,0.00157,0.99997,789,750,1172
+55578.stl,broken:PWN,repair,repaired,,0.00156,0.99987,685,626,1267
+55928.stl,broken:Closed,alpha wrap,deviation > 1 %,repair: degenerate triangles; exact: not closed (winding number); solidify: self-intersections,0.03270,0.99092,88353,83588,11640
+56106.stl,broken:Vertex manifold,alpha wrap,deviation > 1 %,repair: degenerate triangles; exact: not closed; solidify: self-intersections,0.01926,0.96722,5192,106086,12201
+56527.stl,broken:PWN,repair,repaired,,0.00100,1.00000,19404,19404,2953
+56535.stl,broken:Edge manifold,exact resolve,deviation > 1 %,repair: degenerate triangles,0.01112,0.99903,5304,5188,4092
+56539.stl,broken:Edge manifold,repair,repaired,,0.00424,0.99987,3366,3298,2838
+56795.stl,broken:No duplicated faces,solidify,deviation > 1 %,repair: degenerate triangles; exact: degenerate triangles,0.06749,0.92090,3589,13984,9543
+57080.stl,clean,repair,repaired,,0.00135,0.99973,2120,2078,2351
+57312.stl,broken:PWN,exact resolve,deviation > 1 %,repair: self-intersections,0.03157,0.99927,33505,35064,7544
+57428.stl,broken:No duplicated faces,repair,repaired,,0.00311,1.00000,21228,20886,4052
+58167.stl,broken:Edge manifold,exact resolve,repaired,repair: self-intersections,0.00100,1.00000,5132,5132,3269
+591226.stl,broken:Edge manifold,repair,repaired,,0.00100,1.00000,992,986,791
+60171.stl,broken:Vertex manifold,repair,repaired,,0.00150,1.00000,268,268,1427
+60267.stl,broken:PWN,repair,repaired,,0.00145,1.00000,1178,1172,2447
+61084.stl,broken:PWN,exact resolve,repaired,repair: self-intersections,0.00208,0.99975,7960,7928,3385
+61134.stl,broken:No degenerate faces,solidify,deviation > 1 %,repair: degenerate triangles; exact: volume differs from the input,0.02363,0.43419,2272,2934,8136
+611680.stl,broken:No degenerate faces,exact resolve,repaired,repair: self-intersections,0.00119,1.00000,29783,28698,6158
+61201.stl,broken:No duplicated faces,repair,repaired,,0.00135,1.00000,13195,12732,4109
+61460.stl,broken:No duplicated faces,exact resolve,repaired,repair: self-intersections,0.00111,0.99943,110,92,1529
+61583.stl,clean,repair,repaired,,0.00106,1.00000,19290,19262,3010
+61760.stl,broken:Closed,exact resolve,repaired,repair: degenerate triangles,0.00559,0.99990,16776,16730,10919
+61765.stl,broken:No duplicated faces,exact resolve,deviation > 1 %,repair: degenerate triangles,0.02115,0.99604,43814,44406,17182
+63405.stl,broken:Edge manifold,exact resolve,repaired,repair: self-intersections,0.00149,1.00000,23628,23626,4277
+63465.stl,broken:Edge manifold,repair,repaired,,0.00100,0.99996,1182,1056,2374
+635745.stl,broken:No duplicated faces,repair,repaired,,0.00099,1.00000,524,524,1778
+65754.stl,clean,repair,repaired,,0.00100,1.00000,2400,2398,1737
+66639.stl,broken:PWN,repair,deviation > 1 %,,0.02200,0.99996,16320,16432,2878
+66640.stl,broken:Closed,solidify,volume (IoU),repair: self-intersections; exact: degenerate triangles,0.00328,0.88352,9800,10286,8068
+67709.stl,broken:PWN,exact resolve,deviation > 1 %,repair: degenerate triangles,0.03677,0.99308,11968,17704,23950
+67785.stl,broken:Edge manifold,exact resolve,repaired,repair: self-intersections,0.00596,0.99814,1720,1702,1736
+679616.stl,broken:No degenerate faces,repair,repaired,,0.00643,0.99723,796,778,1909
+68339.stl,broken:Closed,repair,repaired,,0.00436,0.99984,5426,5402,2283
+68435.stl,broken:Closed,solidify,deviation > 1 %,repair: self-intersections; exact: volume differs from the input,0.02327,0.04127,182,2612,9281
+68807.stl,broken:PWN,exact resolve,repaired,repair: degenerate triangles,0.00105,1.00000,29139,28984,4184
+68813.stl,clean,repair,deviation > 1 %,,0.01663,0.99691,584,570,1300
+688363.stl,broken:Vertex manifold,repair,repaired,,0.00121,0.99963,46338,44714,3543
+69165.stl,broken:Closed,repair,repaired,,0.00100,1.00000,620,620,877
+69352.stl,broken:Closed,solidify,volume (IoU),repair: self-intersections; exact: volume differs from the input,0.00555,0.04387,910,4642,20211
+693566.stl,broken:PWN,repair,repaired,,0.00200,0.99967,13050,10334,8562
+70023.stl,broken:No degenerate faces,repair,repaired,,0.00370,0.99993,3948,3496,2677
+702409.stl,broken:No duplicated faces,exact resolve,repaired,repair: inside-out components,0.00314,0.99777,9268,4736,3744
+702413.stl,broken:No duplicated faces,exact resolve,repaired,repair: inside-out components,0.00313,0.99948,9406,4284,4033
+71158.stl,broken:Closed,repair,repaired,,0.00100,1.00000,8188,8188,1264
+71166.stl,broken:Vertex manifold,repair,repaired,,0.00102,1.00000,8834,8668,1612
+71380.stl,broken:No duplicated faces,exact resolve,repaired,repair: degenerate triangles,0.00361,1.00000,39848,39422,6051
+71531.stl,broken:No duplicated faces,exact resolve,deviation > 1 %,repair: degenerate triangles,0.01604,0.99958,37072,37096,4600
+71622.stl,broken:PWN,exact resolve,repaired,repair: self-intersections,0.00125,1.00000,2658,2646,2377
+71691.stl,broken:Closed,exact resolve,repaired,repair: degenerate triangles,0.00106,1.00000,11005,11000,3696
+71989.stl,broken:PWN,exact resolve,repaired,repair: degenerate triangles,0.00245,1.00000,64005,63996,8197
+71991.stl,broken:PWN,solidify,repaired,repair: self-intersections; exact: not closed (winding number),0.00765,0.99063,67014,35888,8340
+72002.stl,broken:Edge manifold,alpha wrap,volume (IoU),repair: degenerate triangles; exact: not closed (winding number); solidify: self-intersections,0.00360,0.97822,81278,119220,17518
+72014.stl,broken:No duplicated faces,repair,repaired,,0.00137,1.00000,774,770,690
+72189.stl,clean,repair,repaired,,0.00099,1.00000,72,72,415
+72217.stl,broken:No degenerate faces,exact resolve,deviation > 1 %,repair: self-intersections,0.01857,0.99954,1840,1674,2605
+72599.stl,broken:No degenerate faces,exact resolve,repaired,repair: self-intersections,0.00169,1.00000,5264,5270,1960
+72600.stl,broken:Vertex manifold,solidify,repaired,repair: self-intersections; exact: degenerate triangles,0.00647,0.99936,7440,5200,4149
+72609.stl,broken:Vertex manifold,solidify,repaired,repair: self-intersections; exact: degenerate triangles,0.00555,0.99735,4160,5248,2846
+72612.stl,broken:No degenerate faces,repair,repaired,,0.00100,1.00000,1336,1336,957
+72896.stl,clean,exact resolve,repaired,repair: self-intersections,0.00956,1.00000,24752,24792,3053
+73134.stl,broken:No degenerate faces,exact resolve,repaired,repair: degenerate triangles,0.00384,1.00000,27227,26210,7600
+73179.stl,broken:Closed,repair,repaired,,0.00102,1.00000,42195,42148,6201
+73269.stl,broken:No degenerate faces,repair,repaired,,0.00343,0.99996,494,468,1235
+73336.stl,broken:Closed,solidify,deviation > 1 %,repair: volume differs from the input; exact: not closed (winding number),0.02833,0.98957,132,1224,1860
+73473.stl,broken:No degenerate faces,repair,repaired,,0.00148,0.99992,7172,7152,2697
+73785.stl,broken:No degenerate faces,repair,repaired,,0.00459,0.99994,5219,5126,1924
+73865.stl,broken:Edge manifold,exact resolve,repaired,repair: degenerate triangles,0.00181,1.00000,5772,5770,3025
+73932.stl,broken:No degenerate faces,exact resolve,deviation > 1 %,repair: self-intersections,0.01788,0.99900,472,478,1287
+740253.stl,broken:Vertex manifold,exact resolve,repaired,repair: self-intersections,0.00602,1.00000,7540,7490,4115
+74452.stl,broken:Edge manifold,solidify,deviation > 1 %,repair: self-intersections; exact: not closed,0.02802,0.94402,440,1450,4786
+75059.stl,broken:Edge manifold,exact resolve,deviation > 1 %,repair: self-intersections,0.01604,0.99824,79855,78138,7484
+75846.obj,broken:No degenerate faces,alpha wrap,deviation > 1 %,repair: self-intersections; exact: degenerate triangles; solidify: self-intersections,0.06536,0.50196,78629,77140,19041
+75946.stl,broken:Vertex manifold,alpha wrap,deviation > 1 %,repair: self-intersections; exact: not closed; solidify: self-intersections,0.05539,0.89509,2376,126212,13963
+76678.stl,clean,exact resolve,deviation > 1 %,repair: self-intersections,0.03144,1.00000,41376,40608,3788
+76712.stl,clean,repair,repaired,,0.00100,1.00000,5662,5662,1187
+76898.stl,broken:Edge manifold,exact resolve,repaired,repair: self-intersections,0.00102,1.00000,6216,6222,2752
+76902.stl,broken:Vertex manifold,repair,repaired,,0.00100,1.00000,1848,1848,1326
+76966.stl,broken:No duplicated faces,alpha wrap,deviation > 1 %,repair: self-intersections; exact: degenerate triangles; solidify: self-intersections,0.03526,0.96861,33802,203734,55787
+77931.stl,clean,repair,repaired,,0.00100,1.00000,2932,2932,2542
+79020.stl,broken:Edge manifold,alpha wrap,repaired,repair: self-intersections; exact: not closed; solidify: self-intersections,0.00801,0.99069,25306,98558,11737
+79191.stl,clean,repair,repaired,,0.00100,1.00000,11280,11280,1743
+79241.stl,clean,repair,repaired,,0.00100,1.00000,74278,74274,4034
+79787.stl,broken:PWN,repair,repaired,,0.00323,1.00000,16526,16498,2906
+79850.stl,broken:No degenerate faces,repair,repaired,,0.00153,1.00000,5516,5282,2002
+79935.stl,broken:Edge manifold,repair,repaired,,0.00100,1.00000,268,268,382
+79937.stl,broken:No duplicated faces,repair,repaired,,0.00100,1.00000,644,628,1052
+80904.stl,broken:Edge manifold,exact resolve,deviation > 1 %,repair: inside-out components,0.05071,0.99987,556,608,1239
+81084.stl,broken:No duplicated faces,exact resolve,repaired,repair: self-intersections,0.00370,0.99983,29351,24794,4544
+81085.stl,broken:No duplicated faces,exact resolve,repaired,repair: self-intersections,0.00284,0.99981,29388,25116,5192
+81214.stl,broken:Closed,solidify,deviation > 1 %,repair: self-intersections; exact: not closed,0.01851,0.99916,11991,6150,5616
+81370.stl,broken:Closed,repair,repaired,,0.00100,1.00000,20163,20164,2033
+814760.stl,broken:Vertex manifold,repair,repaired,,0.00168,0.99687,17989,17912,3689
+815479.stl,broken:Vertex manifold,exact resolve,deviation > 1 %,repair: self-intersections,0.07090,1.00000,71388,70190,9718
+82056.stl,broken:Closed,solidify,deviation > 1 %,repair: self-intersections; exact: not closed,0.01472,0.99494,4141,5104,7637
+83597.stl,broken:Vertex manifold,repair,repaired,,0.00106,1.00000,52936,52490,4034
+83688.stl,broken:PWN,exact resolve,repaired,repair: self-intersections,0.00118,1.00000,10972,10876,2690
+83694.stl,broken:PWN,exact resolve,repaired,repair: self-intersections,0.00135,1.00000,55532,55154,6567
+83719.stl,clean,repair,repaired,,0.00103,1.00000,13732,13592,2046
+838515.stl,broken:Closed,repair,repaired,,0.00175,0.99990,37584,37106,5519
+838516.stl,broken:Closed,repair,repaired,,0.00100,1.00000,968,968,1514
+838518.stl,broken:Closed,repair,repaired,,0.00107,1.00000,69484,68958,3626
+84020.stl,broken:Edge manifold,exact resolve,repaired,repair: self-intersections,0.00100,1.00000,2950,2950,1643
+84612.stl,broken:Edge manifold,repair,repaired,,0.00103,1.00000,7481,7170,1958
+85797.stl,broken:Closed,solidify,deviation > 1 %,repair: self-intersections; exact: volume differs from the input,0.03258,0.98358,810,1772,5504
+86324.stl,broken:PWN,repair,repaired,,0.00113,0.99995,45930,45618,4695
+87345.stl,broken:No duplicated faces,alpha wrap,deviation > 1 %,repair: inside-out components; exact: not closed; solidify: self-intersections,0.03671,0.27837,20032,61376,20483
+87394.stl,broken:PWN,repair,repaired,,0.00116,1.00000,2270,2258,1617
+87718.stl,broken:No degenerate faces,repair,repaired,,0.00100,1.00000,920,920,1574
+88572.stl,broken:No degenerate faces,repair,repaired,,0.00452,0.99770,3306,2794,1243
+888455.stl,broken:Vertex manifold,solidify,deviation > 1 %,repair: self-intersections; exact: not closed (winding number),0.05626,0.96378,45104,16468,4875
+89802.stl,broken:Edge manifold,solidify,deviation > 1 %,repair: inside-out components; exact: not closed,0.05532,0.95523,5696,1768,6947
+904507.stl,broken:PWN,repair,repaired,,0.00100,1.00000,10894,10894,2220
+91122.stl,broken:Vertex manifold,exact resolve,deviation > 1 %,repair: self-intersections,0.03208,0.99991,7502,7746,5334
+91138.stl,broken:Edge manifold,solidify,deviation > 1 %,repair: inside-out components; exact: volume differs from the input,0.08018,0.92041,344,2174,6763
+91141.stl,broken:Closed,solidify,deviation > 1 %,repair: self-intersections; exact: volume differs from the input,0.02198,0.98163,319,1068,4771
+91205.stl,broken:Edge manifold,exact resolve,repaired,repair: self-intersections,0.00142,0.99996,1155,1142,2205
+91419.stl,broken:Edge manifold,solidify,deviation > 1 %,repair: degenerate triangles; exact: volume differs from the input,0.04499,0.98121,7341,7398,10717
+91588.stl,broken:Vertex manifold,solidify,deviation > 1 %,repair: volume differs from the input; exact: not closed (winding number),0.18998,0.99482,692,10022,6012
+916909.stl,broken:PWN,solidify,deviation > 1 %,repair: volume differs from the input; exact: not closed (winding number),0.04424,0.76022,36644,29086,7849
+91942.stl,broken:Edge manifold,exact resolve,repaired,repair: degenerate triangles,0.00499,0.99733,3176,3134,3470
+91945.stl,broken:Vertex manifold,exact resolve,repaired,repair: volume differs from the input,0.00100,1.00000,4256,4256,7634
+92066.stl,broken:No duplicated faces,exact resolve,repaired,repair: volume differs from the input,0.00491,0.99984,300,302,2472
+92068.stl,broken:No degenerate faces,repair,deviation > 1 %,,0.02777,0.99541,1356,1344,1486
+93075.stl,broken:Edge manifold,repair,repaired,,0.00099,1.00000,164,158,709
+93704.stl,broken:No duplicated faces,solidify,deviation > 1 %,repair: degenerate triangles; exact: volume differs from the input,0.06523,0.95843,663,3196,7469
+939893.stl,broken:Vertex manifold,alpha wrap,deviation > 1 %,repair: degenerate triangles; exact: not closed; solidify: self-intersections,0.01061,0.96418,17712,127830,20059
+94085.stl,broken:No degenerate faces,solidify,deviation > 1 %,repair: degenerate triangles; exact: volume differs from the input,0.02444,0.96834,15016,51996,22246
+94481.stl,broken:PWN,repair,deviation > 1 %,,0.02228,0.99947,556,538,2526
+95414.stl,clean,repair,repaired,,0.00108,1.00000,782,774,1321
+95763.stl,broken:No degenerate faces,repair,repaired,,0.00203,1.00000,56212,55216,4849
+95777.stl,broken:PWN,solidify,deviation > 1 %,repair: volume differs from the input; exact: not closed (winding number),0.22731,0.97956,3696,1914,5602
+96307.stl,broken:No duplicated faces,solidify,deviation > 1 %,repair: inside-out components; exact: volume differs from the input,0.01594,0.90381,486,1704,3390
+96373.stl,broken:Edge manifold,alpha wrap,deviation > 1 %,repair: inside-out components; exact: not closed; solidify: self-intersections,0.08986,0.71827,656,408394,33439
+97160.stl,broken:PWN,repair,repaired,,0.00158,1.00000,2694,2686,1365
+97167.stl,broken:PWN,repair,repaired,,0.00100,1.00000,1864,1864,973
+97171.stl,broken:Closed,repair,repaired,,0.00100,1.00000,228,228,1064
+97187.stl,broken:Closed,repair,repaired,,0.00100,1.00000,1928,1928,1223
+97515.stl,broken:Edge manifold,repair,repaired,,0.00385,1.00000,14350,14222,2853
+97909.stl,broken:Vertex manifold,repair,repaired,,0.00155,0.99990,13246,12676,3025
+98654.stl,broken:PWN,repair,repaired,,0.00119,1.00000,2134,2094,1356
+99911.stl,broken:No degenerate faces,repair,repaired,,0.00102,0.99994,652,572,1337
+99944.stl,broken:PWN,solidify,deviation > 1 %,repair: inside-out components; exact: volume differs from the input,0.01132,0.40041,3908,2754,2719

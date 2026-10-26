@@ -5,8 +5,10 @@ namespace g3.Examples
 {
     /// <summary>
     /// Mesh repair. MeshAutoRepair keeps the input triangles where it can (welds, removes degenerate and
-    /// duplicate parts, fills holes, orients). MeshRobustRepair runs it and falls back to winding number
-    /// solidify when the result is not clean (open, non-manifold or self-intersecting).
+    /// duplicate parts, fills holes, orients). MeshRobustRepair runs it; when the result is not clean (open,
+    /// non-manifold or self-intersecting) it resolves the self-intersections exactly (keeps the geometry),
+    /// falls back to winding number solidify when that is not clean either, and to an alpha wrap as the
+    /// last resort (AlphaWrapFallback).
     /// </summary>
     public static class MeshRepairExample
     {
@@ -20,15 +22,19 @@ namespace g3.Examples
             return repair.Mesh; // a compacted copy, with vertex normals
         }
 
-        /// <summary> Repair with a guaranteed clean result. usedSolidify says whether the fallback was needed. </summary>
-        public static DMesh3 RobustRepair(DMesh3 input, out bool usedSolidify, out string fallbackReason)
+        /// <summary>
+        /// Repair with a guaranteed clean result. usedExactResolve / usedSolidify say which fallback was needed
+        /// (neither: the repair result was clean).
+        /// </summary>
+        public static DMesh3 RobustRepair(DMesh3 input, out bool usedExactResolve, out bool usedSolidify, out string fallbackReason)
         {
             var repair = new MeshRobustRepair(new DMesh3(input)) { SolidifyResolution = 96 };
             if (!repair.Apply()) {
-                usedSolidify = false;
+                usedExactResolve = usedSolidify = false;
                 fallbackReason = "failed";
                 return null;
             }
+            usedExactResolve = repair.UsedExactResolve;   // why not: repair.ExactResolveReason
             usedSolidify = repair.UsedSolidify;
             fallbackReason = repair.FallbackReason;       // "" if the repair result was clean, eg "self-intersections"
             return repair.Mesh;                           // MeshRobustRepair.NotCleanReason(repair.Mesh) == ""

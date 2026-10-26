@@ -183,6 +183,20 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void TinyCoordinate_GridBeyondTheDoubleRange()
+        {
+            // a coordinate of 1e-300 makes the grid unit about 2^-1050: the grid coordinates of the other points
+            // (and their approximations) are beyond the double range; coincident points from different
+            // constructions (the coplanar faces) must still be merged
+            DMesh3 a = Box(0, 0, 0, 2, 2, 1), b = Box(1, 1, 0, 3, 3, 2);
+            MeshEditor.Append(a, Box(1e-300, 5, 5, 1, 6, 6));
+            Assert.Equal(4 + 8 - 1 + 1, Volume(Run(a, b, Ops.Union)), 12);
+            Assert.Equal(1, Volume(Run(a, b, Ops.Intersection)), 12);
+            Assert.Equal(3 + 1, Volume(Run(a, b, Ops.Difference)), 12);
+            Assert.Equal(7, Volume(Run(b, a, Ops.Difference)), 12);
+        }
+
+        [Fact]
         public void SharedVerticesAndEdges()
         {
             // b is a corner of a, cut out by a box with the same corner: shared vertex and coplanar faces
@@ -262,6 +276,63 @@ namespace geometry3Sharp.Tests
             var comps = new MeshConnectedComponents(r);
             comps.FindConnectedT();
             Assert.Equal(2, comps.Count);
+        }
+
+        // two unit cubes in a checkerboard (touching along the vertical edge x = y = 1) between two slabs that
+        // overlap them: the solid is connected around both ends of the contact, so they cannot be duplicated
+        static DMesh3[] PinchedSolid()
+        {
+            return new[] { Box(0, 0, 0, 1, 1, 1), Box(1, 1, 0, 2, 2, 1), Box(0, 0, -1, 2, 2, 0.25), Box(0, 0, 0.75, 2, 2, 2) };
+        }
+        const double PinchedVolume = 2 * 4 * 1.25 + 2 * 0.5;     // the slabs and the cubes between them
+
+        static void AssertClosedManifold(ExactMeshBoolean boolean, double volume)
+        {
+            DMesh3 r = boolean.Result;
+            Assert.True(r.IsClosed(), "open edges: " + r.EdgeIndices().Count(e => r.IsBoundaryEdge(e)));
+            Assert.Equal(0, boolean.NonManifoldTriangles);
+            Assert.True(boolean.SplitNonManifoldEdges > 0);
+            Assert.True(r.CheckValidity(false, FailMode.ReturnOnly));
+            Assert.Equal(volume, Volume(r), 9);
+            Assert.True(ExactMeshBoolean.IsWindingClosed(r));
+        }
+
+        [Fact]
+        public void SolidTouchingItselfAlongAnEdge_Resolve()
+        {
+            // the contact edge has four pieces whose pairs get the same end vertices: each pair gets the edge split
+            // at a vertex of its own, instead of two pieces cut loose (a hole)
+            var boolean = new ExactMeshBoolean(Merge(PinchedSolid()), new DMesh3(), Ops.Union);
+            Assert.True(boolean.Compute());
+            AssertClosedManifold(boolean, PinchedVolume);
+            Assert.Equal(1, boolean.SplitNonManifoldEdges);
+        }
+
+        [Fact]
+        public void SolidTouchingItselfAlongAnEdge_UnionOfTwoMeshes()
+        {
+            var parts = PinchedSolid();
+            var boolean = new ExactMeshBoolean(Merge(parts[0], parts[2], parts[3]), parts[1], Ops.Union);
+            Assert.True(boolean.Compute());
+            AssertClosedManifold(boolean, PinchedVolume);
+            // the difference (the second cube, which is inside the slabs and between them, removed) has no contact left
+            var diff = new ExactMeshBoolean(Merge(parts[0], parts[2], parts[3]), parts[1], Ops.Difference);
+            Assert.True(diff.Compute());
+            Assert.True(diff.Result.IsClosed());
+            Assert.Equal(0, diff.SplitNonManifoldEdges);
+            Assert.Equal(PinchedVolume - 1, Volume(diff.Result), 9);
+        }
+
+        [Fact]
+        public void SolidTouchingItselfAlongAnEdge_RobustRepairResolvesExactly()
+        {
+            // the repair separates the coincident split vertices (by 1e-4 of the distance to their neighbours): clean,
+            // and the volume up to that
+            var r = new gs.MeshRobustRepair(Merge(PinchedSolid())) { RepairF = (m) => new DMesh3(m) };
+            Assert.True(r.Apply());
+            Assert.True(r.UsedExactResolve, r.ExactResolveReason);
+            Assert.Equal("", gs.MeshRobustRepair.NotCleanReason(r.Mesh));
+            Assert.InRange(Volume(r.Mesh), PinchedVolume * (1 - 1e-5), PinchedVolume);
         }
 
         [Fact]

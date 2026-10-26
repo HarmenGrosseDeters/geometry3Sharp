@@ -7,8 +7,10 @@ namespace g3.Examples
 {
     /// <summary>
     /// Filling holes, in place: find the boundary loops with MeshBoundaryLoops, then fill each one.
-    /// MinimalHoleFill builds a fill of minimal area without new vertices; SmoothedHoleFill adds vertices
-    /// at about the border edge length (better for large holes); AutoHoleFill tries minimal and falls back.
+    /// MinimalHoleFill triangulates the boundary vertices (normally no new vertices) and flips towards a
+    /// flat, developable fill (good for CAD-like holes); SmoothedHoleFill adds vertices at TargetEdgeLength
+    /// (absolute, set it, eg to the border edge length; smooth patches for large holes); AutoHoleFill runs
+    /// MinimalHoleFill and falls back to SmoothedHoleFill.
     /// </summary>
     public static class HoleFillExample
     {

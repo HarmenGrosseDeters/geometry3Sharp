@@ -29,7 +29,7 @@ namespace g3
 
         /// <summary>
         /// Add a strip of new vertices and triangles: two vertices per frame at Origin + span.a * Y and
-        /// Origin + span.b * Y. Returns the new triangles. group_id is currently not applied.
+        /// Origin + span.b * Y. Returns the new triangles, in group group_id.
         /// </summary>
         public virtual int[] AddTriangleStrip(IList<Frame3f> frames, IList<Interval1d> spans, int group_id = -1)
         {
@@ -53,8 +53,8 @@ namespace g3
                 int b = Mesh.AppendVertex(vb);
 
                 if ( prev_a != -1 ) {
-                    new_tris[ti++] = Mesh.AppendTriangle(prev_a, b, prev_b);
-                    new_tris[ti++] = Mesh.AppendTriangle(prev_a, a, b);
+                    new_tris[ti++] = Mesh.AppendTriangle(prev_a, b, prev_b, group_id);
+                    new_tris[ti++] = Mesh.AppendTriangle(prev_a, a, b, group_id);
 
                 }
                 prev_a = a; prev_b = b;

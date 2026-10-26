@@ -272,8 +272,9 @@ namespace gs
         /// Closed components whose orientation contradicts their nesting: an outer shell (inside an even
         /// number of other components) must have positive volume, a cavity (odd) negative volume. So
         /// inverted solids, and the cavities of a hollow solid that was inverted as a whole, are found.
-        /// Returns their triangle sets (empty if there are none, no closed components, or more than 500 closed
-        /// components). Does not modify the mesh.
+        /// Returns their triangle sets (empty if there are none or no closed components). Does not modify the mesh.
+        /// Cost: the nesting is tested only for components whose box lies inside another one's (found by a sweep,
+        /// so many components side by side are cheap), with a winding number tree per enclosing component.
         /// </summary>
         public static List<int[]> FindInvertedComponents(DMesh3 mesh)
         {
@@ -284,11 +285,12 @@ namespace gs
                 Index3i te = mesh.GetTriEdges(t);
                 return !mesh.IsBoundaryEdge(te.a) && !mesh.IsBoundaryEdge(te.b) && !mesh.IsBoundaryEdge(te.c);
             })).Select(c => c.Indices).ToList();
-            if (closed.Count == 0 || closed.Count > 500)
+            if (closed.Count == 0)
                 return result;
 
             Vector3d center = mesh.CachedBounds.Center;
-            var vols = closed.Select(c => MeshMeasurements.VolumeArea(mesh, c, (vid) => mesh.GetVertex(vid) - center).x).ToList();
+            var volAreas = closed.Select(c => MeshMeasurements.VolumeArea(mesh, c, (vid) => mesh.GetVertex(vid) - center)).ToList();
+            var vols = volAreas.Select(va => va.x).ToList();
             if (closed.Count == 1) {
                 if (vols[0] < 0) result.Add(closed[0]);
                 return result;
@@ -299,26 +301,91 @@ namespace gs
                 return box;
             }).ToList();
             var trees = new DMeshAABBTree3[closed.Count];
+            var containers = enclosing_boxes(boxes);
             for (int i = 0; i < closed.Count; ++i) {
-                // count enclosing components (|winding number| > 0.5, whatever their orientation); a few
-                // sample triangles vote, so one triangle touching another component does not decide
-                int samples = Math.Min(5, closed[i].Length), nInside = 0;
-                for (int j = 0; j < closed.Count; ++j) {
-                    // only a component whose box contains this one's can enclose it
-                    if (j == i || boxes[j].Contains(boxes[i]) == false) continue;
+                // count enclosing components (|winding number| > 0.5, whatever their orientation). Sample
+                // points lie slightly inside component i (the interiors of two components are disjoint or
+                // nested, so any interior point decides), not on its surface: where components touch, a
+                // surface point lies on the other component too, and there its winding number jumps between
+                // 0 and 1 by rounding, so the result would depend on the unit or the position of the mesh
+                List<Vector3d> samples = null;
+                int nInside = 0;
+                // only a component whose box contains this one's can enclose it
+                foreach (int j in containers[i]) {
                     if (trees[j] == null)
                         trees[j] = new DMeshAABBTree3(new DSubmesh3(mesh, closed[j]).SubMesh, true);
-                    int votes = 0;
-                    for (int k = 0; k < samples; ++k) {
-                        Vector3d p = mesh.GetTriCentroid(closed[i][(int)((long)k * closed[i].Length / samples)]);
-                        if (Math.Abs(trees[j].FastWindingNumber(p)) > 0.5) votes++;
-                    }
-                    if (2 * votes > samples) nInside++;
+                    if (samples == null)
+                        samples = interior_samples(mesh, closed[i], vols[i] < 0,
+                            Math.Min(1e-4 * boxes[i].DiagonalLength, 0.25 * Math.Abs(vols[i]) / volAreas[i].y));
+                    // a few samples vote, so one sample near a thin feature or another component does not decide
+                    int votes = samples.Count(p => Math.Abs(trees[j].FastWindingNumber(p)) > 0.5);
+                    if (2 * votes > samples.Count) nInside++;
                 }
                 bool cavity = (nInside % 2) == 1;
                 if ((vols[i] < 0) != cavity)
                     result.Add(closed[i]);
             }
+            return result;
+        }
+
+        /// <summary>
+        /// Up to 9 points just inside the closed component tris: centroids of well-shaped triangles (the
+        /// largest inradius among evenly spread candidates), moved against the outward normal by
+        /// min(maxOffset, inradius / 2). The caller limits maxOffset by 1e-4 * diag and by a quarter of
+        /// |volume| / area (about t / 8 for a slab of thickness t), so that a point does not leave a thin
+        /// component through its opposite side, and all lengths are relative to the component, so the points
+        /// do not depend on the unit. inverted: the component has negative volume, its normals point inwards.
+        /// If no candidate is a proper triangle, the plain centroids are returned.
+        /// </summary>
+        static List<Vector3d> interior_samples(DMesh3 mesh, int[] tris, bool inverted, double maxOffset)
+        {
+            const int nSamples = 9, nCandidates = 4 * nSamples;
+            int n = Math.Min(nCandidates, tris.Length);
+            var cands = new List<(double r, Vector3d c, Vector3d nrm)>(n);
+            Vector3d va = Vector3d.Zero, vb = Vector3d.Zero, vc = Vector3d.Zero;
+            for (int k = 0; k < n; ++k) {
+                int tid = tris[(int)((long)k * tris.Length / n)];
+                mesh.GetTriVertices(tid, ref va, ref vb, ref vc);
+                Vector3d nrm = (vb - va).Cross(vc - va);
+                double area2 = nrm.Length;
+                double perim = va.Distance(vb) + vb.Distance(vc) + vc.Distance(va);
+                if (!(area2 > 0) || !(perim > 0)) continue;
+                cands.Add((area2 / perim, (va + vb + vc) / 3, nrm / area2));    // inradius = 2 area / perimeter
+            }
+            var result = new List<Vector3d>(nSamples);
+            if (cands.Count == 0) {
+                for (int k = 0; k < Math.Min(nSamples, tris.Length); ++k)
+                    result.Add(mesh.GetTriCentroid(tris[(int)((long)k * tris.Length / Math.Min(nSamples, tris.Length))]));
+                return result;
+            }
+            foreach (var cand in cands.OrderByDescending(x => x.r).Take(nSamples)) {
+                double h = Math.Min(maxOffset, 0.5 * cand.r);
+                result.Add(cand.c + (inverted ? h : -h) * cand.nrm);
+            }
+            return result;
+        }
+
+        // for each box, the other boxes that contain it: a sweep along x, in which a box can only be contained in
+        // boxes that start at or before it and do not end before it starts
+        internal static List<int>[] enclosing_boxes(List<AxisAlignedBox3d> boxes)
+        {
+            int n = boxes.Count;
+            var result = new List<int>[n];
+            int[] order = Enumerable.Range(0, n).OrderBy(i => boxes[i].Min.x).ToArray();
+            var active = new List<int>();
+            int next = 0;
+            foreach (int i in order) {
+                double x = boxes[i].Min.x;
+                while (next < n && boxes[order[next]].Min.x <= x)
+                    active.Add(order[next++]);
+                active.RemoveAll(j => boxes[j].Max.x < x);
+                result[i] = new List<int>();
+                foreach (int j in active)
+                    if (j != i && boxes[j].Contains(boxes[i]))
+                        result[i].Add(j);
+            }
+            for (int i = 0; i < n; ++i)
+                result[i].Sort();
             return result;
         }
 

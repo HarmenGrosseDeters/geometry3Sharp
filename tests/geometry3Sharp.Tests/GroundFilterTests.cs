@@ -100,6 +100,16 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void HugeExtent_FailsInsteadOfOverflowing()
+        {
+            // a 70 km diagonal corridor at 1 m: 4.9e9 cloth particles, nx * ny overflowed int
+            var points = new List<Vector3d>() { new Vector3d(0, 0, 0), new Vector3d(70000, 70000, 0) };
+            var csf = new ClothSimulationFilter(points) { ClothResolution = 1.0 };
+            Assert.False(csf.Compute());
+            Assert.True(new ClothSimulationFilter(points) { ClothResolution = 100 }.Compute());
+        }
+
+        [Fact]
         public void BareGround_AllGround()
         {
             var (points, truth) = Scene(Hills, 100, 1.0, 3, default(Vector3d), false);
@@ -117,7 +127,7 @@ namespace geometry3Sharp.Tests
             var b = new ClothSimulationFilter(utm) { ClothResolution = 1.0 };
             Assert.True(a.Compute() && b.Compute());
             int differ = Enumerable.Range(0, local.Count).Count(i => a.IsGround[i] != b.IsGround[i]);
-            Assert.True(differ <= local.Count / 1000, $"{differ} points classified differently");
+            Assert.True(differ == 0, $"{differ} points classified differently");     // heights relative to a local reference
         }
 
         [Fact]

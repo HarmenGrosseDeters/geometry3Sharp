@@ -143,6 +143,17 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void ExactMeshBooleanExample_AtLeastTwoOfThree()
+        {
+            ExactMeshBoolean.BooleanStatus status;
+            DMesh3 result = ExactMeshBooleanExample.AtLeastTwoOfThree(out status);
+            Assert.Equal(ExactMeshBoolean.BooleanStatus.Success, status);
+            Assert.True(result.IsClosed());
+            // x in [0.5, 1.5] is inside two of the boxes
+            Assert.Equal(1.0, Volume(result), 12);
+        }
+
+        [Fact]
         public void WindingNumberSolidifyExample_ClosesAndUnitesBrokenInput()
         {
             DMesh3 result = WindingNumberSolidifyExample.Run();
@@ -172,20 +183,23 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void MeshRepairExample_RobustRepairKeepsCleanInputAndSolidifiesOverlaps()
+        public void MeshRepairExample_RobustRepairKeepsCleanInputAndResolvesOverlaps()
         {
-            bool usedSolidify;
+            bool usedExact, usedSolidify;
             string reason;
             DMesh3 clean = Sphere(1, Vector3d.Zero);
-            DMesh3 result = MeshRepairExample.RobustRepair(clean, out usedSolidify, out reason);
+            DMesh3 result = MeshRepairExample.RobustRepair(clean, out usedExact, out usedSolidify, out reason);
+            Assert.False(usedExact);
             Assert.False(usedSolidify);
             Assert.Equal("", reason);
             Assert.Equal(clean.TriangleCount, result.TriangleCount);
 
+            // overlapping spheres: self-intersecting, resolved exactly (no remeshing)
             DMesh3 overlapping = Sphere(1, Vector3d.Zero);
             MeshEditor.Append(overlapping, Sphere(1, new Vector3d(1.2, 0, 0)));
-            result = MeshRepairExample.RobustRepair(overlapping, out usedSolidify, out reason);
-            Assert.True(usedSolidify);
+            result = MeshRepairExample.RobustRepair(overlapping, out usedExact, out usedSolidify, out reason);
+            Assert.True(usedExact);
+            Assert.False(usedSolidify);
             Assert.Equal("self-intersections", reason);
             Assert.Equal("", MeshRobustRepair.NotCleanReason(result));
         }
@@ -305,6 +319,57 @@ namespace geometry3Sharp.Tests
             Assert.InRange(Volume(mesh), 0.95 * 2.0 / 3 * Math.PI, 1.0 * 2.0 / 3 * Math.PI);  // half sphere
         }
 
+        static DMesh3 Torus(double R, double r, int nu, int nv)
+        {
+            var mesh = new DMesh3();
+            for (int i = 0; i < nu; ++i)
+                for (int j = 0; j < nv; ++j) {
+                    double u = 2 * Math.PI * i / nu, v = 2 * Math.PI * j / nv;
+                    mesh.AppendVertex(new Vector3d((R + r * Math.Cos(v)) * Math.Cos(u), (R + r * Math.Cos(v)) * Math.Sin(u), r * Math.Sin(v)));
+                }
+            for (int i = 0; i < nu; ++i)
+                for (int j = 0; j < nv; ++j) {
+                    int a = i * nv + j, b = ((i + 1) % nu) * nv + j, c = ((i + 1) % nu) * nv + (j + 1) % nv, d = i * nv + (j + 1) % nv;
+                    mesh.AppendTriangle(a, b, c);
+                    mesh.AppendTriangle(a, c, d);
+                }
+            return mesh;
+        }
+
+        [Fact]
+        public void UVAtlasExample_TorusAtlas_DiscCut_CubeCones()
+        {
+            // the atlas of a torus: overlap-free (exact test), charts within the limits, UVs in the unit square
+            DMesh3 torus = Torus(2, 0.7, 48, 20);
+            UVAtlasGenerator atlas = UVAtlasExample.Run(torus);
+            Assert.Equal(UVAtlasStatus.Success, atlas.Status);
+            Assert.Equal(torus.TriangleCount, atlas.AtlasMesh.TriangleCount);
+            Assert.True(atlas.AtlasMesh.HasVertexUVs);
+            Assert.True(UVOverlap.Compute(atlas.AtlasMesh).IsInjective);
+            Assert.True(atlas.Distortion.MeanAreaDistortion < 0.25);
+            Assert.True(MeshDiscCut.IsDiscs(atlas.AtlasMesh, out string why), why);
+            foreach (int v in atlas.AtlasMesh.VertexIndices()) {
+                Vector2f uv = atlas.AtlasMesh.GetVertexUV(v);
+                Assert.InRange(uv.x, 0, 1);
+                Assert.InRange(uv.y, 0, 1);
+            }
+
+            // the torus cut into one disc: Euler characteristic 1, one boundary loop
+            DMesh3 disc;
+            ParameterizationResult r = UVAtlasExample.CutAndFlatten(torus, out disc);
+            Assert.True(r.Succeeded, r.Error);
+            Assert.Equal(1, disc.VertexCount - disc.EdgeCount + disc.TriangleCount);
+            Assert.Equal(1, new MeshBoundaryLoops(disc).Count);
+
+            // the cube: eight cones at the corners, unfolded without distortion
+            DMesh3 cube = new GridBox3Generator() { EdgeVertices = 5 }.Generate().MakeDMesh();
+            ConeFlattening cones = UVAtlasExample.Cones(cube);
+            Assert.True(cones.Result.Succeeded, cones.Result.Error);
+            Assert.Equal(8, cones.ConeVertices.Count);
+            Assert.True(cones.Result.Distortion.MaxAreaDistortion < 1e-6);
+            Assert.True(UVOverlap.Compute(cones.CutMesh, cones.Result.UV).IsInjective);
+        }
+
         [Fact]
         public void MeasurementsExample_MeasuresBoxAndTorusGenus()
         {
@@ -378,18 +443,46 @@ namespace geometry3Sharp.Tests
             double[] d = DistancesExample.Geodesic(plane, source, out path);
             Assert.NotNull(d);
             Assert.Equal(0, d[source], 9);
-            // on a plane the geodesic distance is the euclidean one (about 2% plus half an edge length),
-            // away from the open boundary (there it is a few percent less)
+            // on a plane the geodesic distance is the euclidean one: about 2% plus half the mean edge length,
+            // near the open boundary 2% plus one mean edge length
+            double h = AverageEdgeLength(plane);
             foreach (int vid in plane.VertexIndices()) {
                 Vector3d p = plane.GetVertex(vid);
-                if (Math.Min(Math.Min(p.x, p.y), Math.Min(10 - p.x, 10 - p.y)) < 1)
-                    continue;
-                double exact = plane.GetVertex(vid).Distance(c);
-                Assert.True(Math.Abs(d[vid] - exact) < 0.02 * exact + 0.125, $"{d[vid]} vs {exact}");
+                bool nearBoundary = Math.Min(Math.Min(p.x, p.y), Math.Min(10 - p.x, 10 - p.y)) < 1;
+                double exact = p.Distance(c);
+                Assert.True(Math.Abs(d[vid] - exact) < 0.02 * exact + (nearBoundary ? h : 0.5 * h), $"{p}: {d[vid]} vs {exact}");
             }
             Assert.True(path.Count >= 2);
             Assert.True(path[path.Count - 1].Distance(c) < 1e-9);    // the path ends at the source vertex
             Assert.InRange(path[0].Distance(c), 7.0, 7.08);          // and starts at the farthest vertex, a corner
+        }
+
+        [Fact]
+        public void IntrinsicTriangulationExample_RefinedLaplacianGeodesicAndOverlay()
+        {
+            // 169 degree triangles, boundary edges opposite them
+            DMesh3 mesh = IntrinsicGeodesicsTests.ObtusePlane(10, 100, 1.0, 0.05);
+            IntrinsicTriangulation T;
+            IntrinsicRefinementResult result;
+            SymmetricSparseMatrix L = IntrinsicTriangulationExample.RefinedLaplacian(mesh, out T, out result);
+            Assert.Equal(IntrinsicRefinementStatus.Success, result.Status);
+            Assert.True(T.VertexCount > mesh.VertexCount);
+            foreach (var kv in L.NonZeros())
+                if (kv.Key.a != kv.Key.b) Assert.True(kv.Value <= 1e-9);     // no negative cotan weights
+
+            int source = IntrinsicGeodesicsTests.NearestVertex(mesh, new Vector3d(5, 2.5, 0));
+            Vector3d c = mesh.GetVertex(source);
+            double[] d = IntrinsicTriangulationExample.RefinedGeodesic(mesh, source, out result);
+            Assert.Equal(IntrinsicRefinementStatus.Success, result.Status);
+            foreach (int vid in mesh.VertexIndices()) {
+                Vector3d p = mesh.GetVertex(vid);
+                if (p.x >= 1 && p.x <= 9) Assert.True(Math.Abs(d[vid] - p.Distance(c)) < 0.15, $"{p}: {d[vid]}");
+            }
+
+            CommonSubdivisionStatus status;
+            DMesh3 overlay = IntrinsicTriangulationExample.CommonSubdivision(T, out status);
+            Assert.Equal(CommonSubdivisionStatus.Success, status);
+            Assert.Equal(MeshMeasurements.AreaT(mesh, mesh.TriangleIndices()), MeshMeasurements.AreaT(overlay, overlay.TriangleIndices()), 9);
         }
     }
 }

@@ -47,6 +47,85 @@ namespace geometry3Sharp.Tests
         }
 
         [Theory]
+        [InlineData(5)]
+        [InlineData(-5)]
+        public void FlatSquare_FootprintIsKept(double d)
+        {
+            // the result ended where the cells did, up to a cell inside the terrain (x from 0.98 to 99.98,
+            // y from 0.71 to 99.71 with 2 m cells); the terrain's boundary lines are kept now
+            DMesh3 terrain = Grid(0, 0, 100, 100, 11, (x, y) => 0);
+            var off = new TerrainOffset(terrain, d) { GridResolution = 50 };
+            Assert.True(off.Compute());
+            AxisAlignedBox3d b = off.Result.CachedBounds;
+            Assert.Equal(0, b.Min.x, 6); Assert.Equal(0, b.Min.y, 6);
+            Assert.Equal(100, b.Max.x, 6); Assert.Equal(100, b.Max.y, 6);
+            foreach (int vid in off.Result.VertexIndices())     // (the bisection stops at 1e-6 (1 + |d|))
+                Assert.True(Math.Abs(off.Result.GetVertex(vid).z - d) < 1e-5);
+            double areaXY = off.Result.TriangleIndices().Sum(tid => Math.Abs(off.Result.GetTriNormal(tid).z) * off.Result.GetTriArea(tid));
+            Assert.Equal(100 * 100, areaXY, 3);
+        }
+
+        [Fact]
+        public void FootprintBoundary_WithoutSample_NoFootprintHeights()
+        {
+            // a sampled surface at z = 7 over the footprint of a flat square at z = 0, which cannot be sampled
+            // along the lower edge (y < 0.01) for x > 50, nor in the last cell column (x > 99.7) for y < 50
+            // (eg the offset's stepping gives up there). Boundary vertices there kept the height of the
+            // footprint's boundary edge (0) instead of the sampled surface; now they use the cell's samples,
+            // and boundary cells without any sample are left out
+            DMesh3 square = Grid(0, 0, 100, 100, 2, (x, y) => 0);
+            TerrainDualContouring.HeightSampleFunc f = (double x, double y, out double z, out Vector3d n) => {
+                z = 7; n = Vector3d.AxisZ;
+                return x >= 0 && y >= 0 && x <= 100 && y <= 100 && (y >= 0.01 || x <= 50) && (x <= 99.7 || y >= 50);
+            };
+            var tdc = new TerrainDualContouring() {
+                SampleF = f, SampleBounds = new AxisAlignedBox3d(new Vector3d(0, 0, 0), new Vector3d(100, 100, 7)),
+                FootprintMesh = square, GridResolution = 50
+            };
+            Assert.True(tdc.Compute());
+            Assert.True(tdc.BoundaryFallbacks > 0);
+            foreach (int vid in tdc.Result.VertexIndices())
+                Assert.Equal(7, tdc.Result.GetVertex(vid).z, 9);
+            // the rest of the boundary is still kept
+            Assert.Equal(0, tdc.Result.CachedBounds.Min.x, 6);
+            Assert.Equal(0, tdc.Result.CachedBounds.Min.y, 6);
+        }
+
+        [Fact]
+        public void UtmCoordinates_SameResultAsAtTheOrigin()
+        {
+            // the same terrain at the origin and at UTM coordinates: the same offset surface (up to rounding)
+            Vector3d utm = new Vector3d(632000, 5712000, 100);
+            Func<double, double, double> h = (x, y) => Pit(x, y);
+            DMesh3 local = Grid(-100, -100, 100, 100, 101, h);
+            DMesh3 far = new DMesh3(local);
+            MeshTransforms.Translate(far, utm);
+            var a = new TerrainOffset(local, -5) { GridResolution = 50 };
+            var b = new TerrainOffset(far, -5) { GridResolution = 50 };
+            Assert.True(a.Compute() && b.Compute());
+            var sa = new DMeshAABBTree3(a.Result, true);
+            var sb = new DMeshAABBTree3(b.Result, true);
+            var rnd = new Random(2);
+            double maxDiff = 0;
+            for (int i = 0; i < 2000; ++i) {
+                double x = rnd.NextDouble() * 190 - 95, y = rnd.NextDouble() * 190 - 95;
+                double za = HeightAt(sa, x, y), zb = HeightAt(sb, x + utm.x, y + utm.y) - utm.z;
+                Assert.False(double.IsNaN(za) || double.IsNaN(zb), $"{x}, {y}");
+                maxDiff = Math.Max(maxDiff, Math.Abs(za - zb));
+            }
+            Assert.True(maxDiff < 1e-3, $"{maxDiff} m between the origin and UTM results");
+        }
+
+        static double HeightAt(DMeshAABBTree3 s, double x, double y)
+        {
+            Ray3d ray = new Ray3d(new Vector3d(x, y, s.Mesh.CachedBounds.Max.z + 10), -Vector3d.AxisZ);
+            int tid = s.FindNearestHitTriangle(ray);
+            if (tid < 0) return double.NaN;
+            var intr = MeshQueries.TriangleIntersection(s.Mesh, tid, ray);
+            return intr.Find() ? ray.PointAt(intr.RayParameter).z : double.NaN;
+        }
+
+        [Theory]
         [InlineData(-5)]
         [InlineData(3)]
         public void OpenPit_OffsetAtDistance(double d)

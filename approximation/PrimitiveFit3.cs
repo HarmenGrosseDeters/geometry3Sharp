@@ -400,8 +400,15 @@ namespace g3
                     double pk = Math.Pow(w, k);
                     if (pk >= 1 - 1e-12)
                         needed = Iterations;
-                    else if (pk > 0)
-                        needed = (long)Math.Ceiling(Math.Log(1 - Confidence) / Math.Log(1 - pk));
+                    else if (pk > 0) {
+                        // log(1 - pk) rounds to 0 for pk < 1e-16 (few inliers in a large cloud): use -pk.
+                        // Confidence >= 1 or NaN: never confident enough. Compared as doubles, a cast of
+                        // +-infinity or of more than long.MaxValue is undefined (long.MinValue on .NET Framework)
+                        double l1 = (pk < 1e-8) ? -pk : Math.Log(1 - pk);
+                        double iters = Math.Ceiling(Math.Log(1 - Confidence) / l1);
+                        if (iters < MaxIterations)
+                            needed = (long)iters;
+                    }
                 }
             }
             return bestCount >= least_squares_size(Primitive);

@@ -159,8 +159,14 @@ namespace gs
         /// </summary>
         public static int XYOverlaps(DMesh3 mesh)
         {
+            return XYOverlapPairs(mesh).Count;
+        }
+
+        /// <summary> the triangle pairs counted by XYOverlaps (a &lt; b) </summary>
+        public static List<Index2i> XYOverlapPairs(DMesh3 mesh)
+        {
             var spatial = new DMeshAABBTree3(mesh, true);
-            int count = 0;
+            var pairs = new List<Index2i>();
             object lockObj = new object();
             int[] tris = new List<int>(mesh.TriangleIndices()).ToArray();
             gParallel.ForEach(Interval1i.Range(tris.Length), (k) => {
@@ -168,20 +174,22 @@ namespace gs
                 Vector2d[] A = ccw_xy(mesh, ta);
                 if (A == null) return;
                 AxisAlignedBox2d box = new AxisAlignedBox2d(A[0]); box.Contain(A[1]); box.Contain(A[2]);
-                int local = 0;
+                List<Index2i> local = null;
                 spatial.DoTraversal(new DMeshAABBTree3.TreeTraversal() {
                     NextBoxDF = (b, depth) => b.Min.x <= box.Max.x && b.Max.x >= box.Min.x && b.Min.y <= box.Max.y && b.Max.y >= box.Min.y,
                     NextTriangleF = (tb) => {
                         if (tb <= ta) return;
                         Vector2d[] B = ccw_xy(mesh, tb);
-                        if (B != null && separated(A, B) == false && separated(B, A) == false)
-                            local++;
+                        if (B != null && separated(A, B) == false && separated(B, A) == false) {
+                            if (local == null) local = new List<Index2i>();
+                            local.Add(new Index2i(ta, tb));
+                        }
                     }
                 });
-                if (local > 0)
-                    lock (lockObj) count += local;
+                if (local != null)
+                    lock (lockObj) pairs.AddRange(local);
             });
-            return count;
+            return pairs;
         }
 
         static Vector2d[] ccw_xy(DMesh3 mesh, int tid)
