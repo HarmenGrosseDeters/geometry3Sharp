@@ -28,7 +28,8 @@ namespace g3
     /// degenerate triangle or were edited, and are tiny (below 1e4 times the degenerate area, eg a flat tetrahedron
     /// between intersection points that nearly coincide) or thinner than MaxDisplacement times the diagonal
     /// (eg the slivers that are the difference of two nearly coincident solids), are removed if
-    /// RemoveTinyComponents, as Milenkovic and Sacks do.
+    /// RemoveTinyComponents, as Milenkovic and Sacks do. Open components are kept (they may close the rest of the
+    /// mesh by position), so an isolated sliver that no edit can repair is left and counted in RemainingDegenerate.
     ///
     /// The degenerate test is the one of MeshRobustRepair.NotCleanReason (area below DegenerateArea times the
     /// squared diagonal, or exactly collinear corners); intersections are those of
@@ -73,7 +74,7 @@ namespace g3
         public long MaxPairTests = 20000000;
         /// <summary> the repair stopped at MaxEvaluationsPerDefect or MaxPairTests </summary>
         public bool EvaluationLimitReached;
-        /// <summary> remove tiny or thin components that keep a degenerate triangle or were edited (see class comment) </summary>
+        /// <summary> remove closed components that are tiny or thin and keep a degenerate triangle or were edited (see class comment) </summary>
         public bool RemoveTinyComponents = true;
 
         /// <summary> intersecting triangle pairs and degenerate triangles before the repair </summary>
