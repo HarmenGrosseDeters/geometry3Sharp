@@ -37,6 +37,12 @@ namespace g3
         public double Coverage;
         /// <summary> placed bounding rectangle of each chart (in the unit square), after Compute() </summary>
         public List<AxisAlignedBox2d> ChartBounds;
+        /// <summary>
+        /// gap kept between the bounding rectangles of the charts and to the border, in units of the unit square,
+        /// after Compute(). Below Padding (and Result.Converged false) if the padding could not be met, eg when
+        /// there are so many charts that the gaps alone fill the square.
+        /// </summary>
+        public double AchievedPadding;
 
         public UVPacker(DMesh3 mesh)
         {
@@ -55,7 +61,7 @@ namespace g3
 
         public ParameterizationResult Compute()
         {
-            ChartCount = 0; TriangleChart = null; Coverage = 0; ChartBounds = null;
+            ChartCount = 0; TriangleChart = null; Coverage = 0; ChartBounds = null; AchievedPadding = 0;
             IList<Vector2d> uv = UV;
             if (uv == null) {
                 if (!Mesh.HasVertexUVs)
@@ -85,9 +91,13 @@ namespace g3
             double area = charts.Sum(c => c.W * c.H);
             double pad = Padding * Math.Sqrt(Math.Max(area, 1e-300)) * 1.2;
             double side = 0;
-            for (int iter = 0; iter < 20; ++iter) {
+            bool padded = false;
+            int iterations = 0;
+            while (true) {
+                iterations++;
                 side = packBest(charts, pad);
-                if (pad >= Padding * side * (1 - 1e-9) || Padding == 0)
+                padded = pad >= Padding * side * (1 - 1e-9) || Padding == 0;
+                if (padded || iterations == 20)
                     break;
                 pad = Padding * side * 1.0001;
             }
@@ -114,8 +124,11 @@ namespace g3
                 Index3i t = Mesh.GetTriangle(tid);
                 Coverage += 0.5 * Math.Abs((outUV[t.b] - outUV[t.a]).Cross(outUV[t.c] - outUV[t.a]));
             }
+            AchievedPadding = pad * scale;
             Result = new ParameterizationResult();
             Result.UV = outUV;
+            Result.Iterations = iterations;
+            Result.Converged = padded;
             Result.Distortion = ParameterizationDistortion.Compute(Mesh, outUV);
             return Result;
         }

@@ -11,7 +11,8 @@ using g3;
 ///   method, mesh, vertices, milliseconds, iterations, converged, flipped triangles, mean / max conformal
 ///   distortion, mean area distortion, symmetric Dirichlet energy.
 /// Usage: dotnet run -c Release [-- maxRings [methods]]   (default 120: about 48k vertices; methods: a comma
-/// separated subset of LSCM,BFF,BFFdsk,ARAP,Tutte,SLIM,Cholesky, default all)
+/// separated subset of LSCM,BFF,BFFdsk,ARAP,Tutte,SLIM,SLIMt,SLIMnr,Cholesky, default all; SLIM: default
+/// options, SLIMt: from the Tutte embedding, SLIMnr: from Tutte and one factorization per iteration)
 /// </summary>
 static class Program
 {
@@ -82,6 +83,32 @@ static class Program
             d?.MaxConformal, d?.MeanAreaDistortion, d?.SymmetricDirichlet, r.Succeeded ? "" : r.Status + ": " + r.Error));
     }
 
+    // SLIM with the time of each iteration measured (from the IterationCompleted callback): median and max
+    // per iteration, and the factorizations of the proxy matrix
+    static ParameterizationResult SLIM(DMesh3 m, bool reuse, SLIMParameterization.StartMaps start)
+    {
+        var slim = new SLIMParameterization(m) { ReuseFactorization = reuse, StartMap = start };
+        var times = new List<double>();
+        var sw = new Stopwatch();
+        double last = 0;
+        slim.IterationCompleted = (it, e) => {
+            double now = sw.Elapsed.TotalMilliseconds;
+            times.Add(now - last);
+            last = now;
+        };
+        sw.Start();
+        ParameterizationResult r = slim.Compute();
+        // the first interval includes the start map (Tutte or LSCM): reported separately
+        double first = times.Count > 0 ? times[0] : 0;
+        if (times.Count > 0) times.RemoveAt(0);
+        times.Sort();
+        Console.WriteLine(string.Format(CultureInfo.InvariantCulture,
+            "  SLIM start {0} + first iteration {1:F0} ms; later iterations: median {2:F0} ms, max {3:F0} ms; factorizations {4}",
+            slim.StartedFromLSCM ? "LSCM" : "Tutte", first, times.Count > 0 ? times[times.Count / 2] : 0,
+            times.Count > 0 ? times[times.Count - 1] : 0, slim.Factorizations));
+        return r;
+    }
+
     static void Main(string[] args)
     {
         int maxRings = args.Length > 0 ? int.Parse(args[0]) : 120;
@@ -106,7 +133,9 @@ static class Program
                 Report("BFFdsk", kv.Key, m, () => new BoundaryFirstFlattening(m) { BoundaryMode = BoundaryFirstFlattening.BoundaryModes.Disk }.Compute());
                 Report("ARAP", kv.Key, m, () => new ARAPParameterization(m).Compute());
                 Report("Tutte", kv.Key, m, () => new TutteEmbedding(m).Compute());
-                Report("SLIM", kv.Key, m, () => new SLIMParameterization(m).Compute());
+                Report("SLIM", kv.Key, m, () => SLIM(m, true, SLIMParameterization.StartMaps.Auto));
+                Report("SLIMt", kv.Key, m, () => SLIM(m, true, SLIMParameterization.StartMaps.Tutte));
+                Report("SLIMnr", kv.Key, m, () => SLIM(m, false, SLIMParameterization.StartMaps.Tutte));
             }
 
             // the solver alone: cotan Laplacian plus 1 on the diagonal of vertex 0 (which makes it definite), as

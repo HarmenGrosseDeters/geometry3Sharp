@@ -800,5 +800,43 @@ namespace geometry3Sharp.Tests
             double off = IntrinsicTriangulation.wrap(proj(mid) - aLast);
             Assert.True(off > 0 && off < arc, $"closing corner maps to {off} outside (0, {arc})");
         }
+
+        [Fact]
+        public void SparseCholesky_SolveLog_BeyondTheDoubleRange()
+        {
+            // heat on a path of 3000 vertices, (I + t L) u = delta: u decays by a fixed ratio per vertex, down to
+            // about 1e-1250, far below the smallest double; the log-domain substitutions keep every entry exact
+            int m = 3000; double t = 0.25;
+            var path = new List<KeyValuePair<Index2i, double>>();
+            for (int i = 0; i < m; ++i) path.Add(new KeyValuePair<Index2i, double>(new Index2i(i, i), 1));
+            for (int i = 0; i + 1 < m; ++i) {
+                path.Add(new KeyValuePair<Index2i, double>(new Index2i(i, i + 1), -t));
+                path.Add(new KeyValuePair<Index2i, double>(new Index2i(i, i), t));
+                path.Add(new KeyValuePair<Index2i, double>(new Index2i(i + 1, i + 1), t));
+            }
+            var pc = new SparseCholesky(m, path);
+            Assert.True(pc.IsValid);
+            double[] logB = new double[m], logU = new double[m];
+            for (int i = 0; i < m; ++i) logB[i] = double.NegativeInfinity;
+            logB[0] = 0;
+            Assert.True(pc.SolveLog(logB, logU));
+            double ratio = ((1 + 2 * t) - Math.Sqrt((1 + 2 * t) * (1 + 2 * t) - 4 * t * t)) / (2 * t);
+            for (int i = 1; i < m - 100; ++i)
+                Assert.Equal(Math.Log(ratio), logU[i + 1] - logU[i], 9);
+            Assert.True(logU[m - 1] < -2000);
+
+            // the same as Solve where that does not underflow
+            double[] b = new double[m], u = new double[m];
+            b[0] = 1;
+            pc.Solve(b, u);
+            for (int i = 0; i < 100; ++i) Assert.Equal(Math.Log(u[i]), logU[i], 9);
+
+            // not an M-matrix (a positive off-diagonal entry): refused
+            var notM = new SparseCholesky(2, new[] {
+                new KeyValuePair<Index2i, double>(new Index2i(0, 0), 2), new KeyValuePair<Index2i, double>(new Index2i(1, 1), 2),
+                new KeyValuePair<Index2i, double>(new Index2i(0, 1), 1) });
+            Assert.True(notM.IsValid);
+            Assert.False(notM.SolveLog(new[] { 0.0, double.NegativeInfinity }, new double[2]));
+        }
     }
 }

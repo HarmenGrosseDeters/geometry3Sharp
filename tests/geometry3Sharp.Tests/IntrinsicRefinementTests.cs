@@ -528,7 +528,7 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void VectorHeat_BowtieMesh_Throws()
         {
-            // documented: only MeshGeodesicDistance falls back to the flips for non-manifold vertices
+            // documented: IntrinsicTriangulation and VectorHeatMethod need manifold vertices (MeshGeodesicDistance splits bowties)
             DMesh3 mesh = new DMesh3();
             int a = mesh.AppendVertex(new Vector3d(0, 0, 0));
             int b = mesh.AppendVertex(new Vector3d(1, 0, 0)), c = mesh.AppendVertex(new Vector3d(0, 1, 0));
@@ -543,7 +543,7 @@ namespace geometry3Sharp.Tests
         public void HeatDistance_UnusedRefineOptions_DoNotRebuild()
         {
             DMesh3 mesh = Grid(4, 9, (x, y) => 0);
-            var geo = new MeshGeodesicDistance(mesh);
+            var geo = new MeshGeodesicDistance(mesh) { SplitObtuseBoundaryEdges = false };
             Assert.True(geo.Compute(new[] { 0 }));
             Assert.Equal(1, geo.PrecomputeCount);
             geo.RefineMinAngle = 20; geo.RefineMaxInsertions = 50;      // refinement is off: no effect
@@ -555,6 +555,25 @@ namespace geometry3Sharp.Tests
             geo.RefineMinAngle = 25;
             Assert.True(geo.Compute(new[] { 0 }));
             Assert.Equal(3, geo.PrecomputeCount);
+        }
+
+        [Fact]
+        public void HeatDistance_DefaultBoundarySplit_RebuildsOnlyForItsOptions()
+        {
+            DMesh3 mesh = Grid(4, 9, (x, y) => 0);
+            var geo = new MeshGeodesicDistance(mesh);
+            Assert.True(geo.Compute(new[] { 0 }));
+            Assert.Equal(1, geo.PrecomputeCount);
+            geo.RefineMinAngle = 20;                    // not used by the boundary split
+            Assert.True(geo.Compute(new[] { 0 }));
+            Assert.Equal(1, geo.PrecomputeCount);
+            geo.RefineMaxInsertions = 50;               // used
+            Assert.True(geo.Compute(new[] { 0 }));
+            Assert.Equal(2, geo.PrecomputeCount);
+            geo.SplitObtuseBoundaryEdges = false;
+            Assert.True(geo.Compute(new[] { 0 }));
+            Assert.Equal(3, geo.PrecomputeCount);
+            Assert.Null(geo.Refinement);
         }
 
         // ---------------------------------------------------------------- common subdivision
@@ -630,7 +649,7 @@ namespace geometry3Sharp.Tests
             Func<int, double> exact = v => mesh.GetVertex(v).Distance(ps);
             Func<int, bool> inner = v => mesh.GetVertex(v).x >= 1 && mesh.GetVertex(v).x <= 9;
 
-            var flip = new MeshGeodesicDistance(mesh);
+            var flip = new MeshGeodesicDistance(mesh) { SplitObtuseBoundaryEdges = false };
             Assert.True(flip.Compute(new[] { src }));
             Assert.Null(flip.Refinement);
             double fmean, fmax;
@@ -725,9 +744,10 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void Refinement_NonManifoldInput_Reported()
+        public void Refinement_BowtieMesh_SplitAndRefined()
         {
-            // two triangles sharing only a vertex (bowtie)
+            // two triangles sharing only a vertex (bowtie): MeshGeodesicDistance splits it into its fans for the
+            // triangulation, so it is refined as well, and joins them again (the path b - a - d remains)
             DMesh3 mesh = new DMesh3();
             int a = mesh.AppendVertex(new Vector3d(0, 0, 0));
             int b = mesh.AppendVertex(new Vector3d(1, 0, 0));
@@ -738,8 +758,9 @@ namespace geometry3Sharp.Tests
             mesh.AppendTriangle(a, d, e);
             var geo = new MeshGeodesicDistance(mesh) { IntrinsicRefine = true };
             Assert.True(geo.Compute(new[] { b }));
-            Assert.Equal(IntrinsicRefinementStatus.NonManifoldInput, geo.Refinement.Status);
+            Assert.Equal(IntrinsicRefinementStatus.Success, geo.Refinement.Status);
             Assert.True(geo.Distance[c] > 1 && geo.Distance[c] < 2);
+            Assert.True(geo.Distance[d] > 1.5 && geo.Distance[d] < 2.5, $"{geo.Distance[d]}");
         }
     }
 }

@@ -15,8 +15,8 @@ namespace gs
         /// <summary> some triangles could not be refined (their circumcenter fell onto an existing vertex) </summary>
         Incomplete,
         /// <summary>
-        /// not refined: the mesh has non-manifold (bowtie) vertices; MeshGeodesicDistance then uses the flips
-        /// alone (IntrinsicTriangulation and VectorHeatMethod do not accept such meshes at all: ArgumentException)
+        /// not refined: the mesh has non-manifold (bowtie) vertices (IntrinsicTriangulation and VectorHeatMethod
+        /// do not accept such meshes: ArgumentException; MeshGeodesicDistance splits them for its triangulation)
         /// </summary>
         NonManifoldInput
     }
