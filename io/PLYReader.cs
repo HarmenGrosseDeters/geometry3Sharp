@@ -62,6 +62,7 @@ namespace g3
         /// </summary>
         public IOReadResult Read(TextReader reader, ReadOptions options, IMeshBuilder builder)
         {
+            readOptions = options;
             List<string> header = new List<string>();
             while (true) {
                 string line = reader.ReadLine();
@@ -91,6 +92,7 @@ namespace g3
         /// </summary>
         public IOReadResult Read(BinaryReader reader, ReadOptions options, IMeshBuilder builder)
         {
+            readOptions = options;
             List<string> header = new List<string>();
             StringBuilder line = new StringBuilder();
             while (true) {
@@ -218,6 +220,8 @@ namespace g3
 
 
         // readValue reads the next value of the given type (ascii files ignore the type)
+        ReadOptions readOptions;
+
         IOReadResult read_body(List<PlyElement> elements, Func<PlyType, double> readValue, IMeshBuilder builder)
         {
             try {
@@ -260,6 +264,8 @@ namespace g3
                         for (int pi = 0; pi < elem.Properties.Count; ++pi)
                             values[pi] = readValue(elem.Properties[pi].Type);
 
+                        if (ReadOptions.RejectsPosition(readOptions, values[ix], values[iy], values[iz]))
+                            return ReadOptions.NonFinitePosition(values[ix], values[iy], values[iz]);
                         NewVertexInfo info = new NewVertexInfo(new Vector3d(values[ix], values[iy], values[iz]));
                         if (bNormals) {
                             info.bHaveN = true;
@@ -376,7 +382,7 @@ namespace g3
                 }
                 if (token.Length == 0)
                     throw new EndOfStreamException("unexpected end of ascii PLY data");
-                return double.Parse(token.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture);
+                return MeshIOUtil.ParseDouble(token.ToString());
             }
         }
 

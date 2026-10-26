@@ -400,13 +400,17 @@ namespace g3
                             // parse all values before adding any, so that a bad value skips the whole line
                             // (a partly added line would shift all following vertices)
                             if (tokens.Length == 7) {
-                                double x = Double.Parse(tokens[1], NumberStyles.Float, CultureInfo.InvariantCulture), y = Double.Parse(tokens[2], NumberStyles.Float, CultureInfo.InvariantCulture), z = Double.Parse(tokens[3], NumberStyles.Float, CultureInfo.InvariantCulture);
+                                double x = MeshIOUtil.ParseDouble(tokens[1]), y = MeshIOUtil.ParseDouble(tokens[2]), z = MeshIOUtil.ParseDouble(tokens[3]);
                                 float r = float.Parse(tokens[4], NumberStyles.Float, CultureInfo.InvariantCulture), g = float.Parse(tokens[5], NumberStyles.Float, CultureInfo.InvariantCulture), b = float.Parse(tokens[6], NumberStyles.Float, CultureInfo.InvariantCulture);
+                                if (ReadOptions.RejectsPosition(options, x, y, z))
+                                    return ReadOptions.NonFinitePosition(x, y, z);
                                 vPositions.Add(x); vPositions.Add(y); vPositions.Add(z);
                                 vColors.Add(r); vColors.Add(g); vColors.Add(b);
                                 bVerticesHaveColors = true;
                             } else if (tokens.Length >= 4) {
-                                double x = Double.Parse(tokens[1], NumberStyles.Float, CultureInfo.InvariantCulture), y = Double.Parse(tokens[2], NumberStyles.Float, CultureInfo.InvariantCulture), z = Double.Parse(tokens[3], NumberStyles.Float, CultureInfo.InvariantCulture);
+                                double x = MeshIOUtil.ParseDouble(tokens[1]), y = MeshIOUtil.ParseDouble(tokens[2]), z = MeshIOUtil.ParseDouble(tokens[3]);
+                                if (ReadOptions.RejectsPosition(options, x, y, z))
+                                    return ReadOptions.NonFinitePosition(x, y, z);
                                 vPositions.Add(x); vPositions.Add(y); vPositions.Add(z);
                             } 
                             if ( tokens.Length != 4 && tokens.Length != 7)

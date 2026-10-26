@@ -87,10 +87,11 @@ namespace g3
 
         /// <summary>
         /// Read a .gltf or .glb file from stream (read to the end) and append one mesh per mesh instance to builder.
-        /// options are ignored. Does not throw.
+        /// Of options only AllowNonFiniteCoordinates is used. Does not throw.
         /// </summary>
         public IOReadResult Read(Stream stream, ReadOptions options, IMeshBuilder builder)
         {
+            readOptions = options;
             try {
                 return read(stream, builder);
             } catch (Exception e) {
@@ -514,6 +515,8 @@ namespace g3
 
 
 
+        ReadOptions readOptions;
+
         void append_mesh(List<Primitive> prims, Affine3d xform, string name, IMeshBuilder builder)
         {
             bool bNormals = false, bColors = false, bUVs = false;
@@ -538,7 +541,10 @@ namespace g3
                 Primitive p = prims[pi];
                 int[] map = new int[p.Positions.Length];
                 for (int i = 0; i < p.Positions.Length; ++i) {
-                    NewVertexInfo info = new NewVertexInfo(xform.TransformPoint(p.Positions[i]));
+                    Vector3d pos = xform.TransformPoint(p.Positions[i]);
+                    if (ReadOptions.RejectsPosition(readOptions, pos.x, pos.y, pos.z))
+                        throw new FormatException(ReadOptions.NonFinitePosition(pos.x, pos.y, pos.z).message);
+                    NewVertexInfo info = new NewVertexInfo(pos);
                     if (bNormals) {
                         info.bHaveN = true;
                         info.n = (p.Normals != null) ? (Vector3f)(normalXform * (Vector3d)p.Normals[i]).Normalized : Vector3f.AxisY;

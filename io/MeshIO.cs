@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Globalization;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -66,6 +67,27 @@ namespace g3
         /// Currently only <see cref="STLReader"/> reads these (<see cref="STLReader.StrategyFlag"/>, <see cref="STLReader.PerTriAttribFlag"/>).
         /// </summary>
         public CommandArgumentSet CustomFlags = new CommandArgumentSet();
+
+        /// <summary>
+        /// If false (the default), a vertex position with a NaN or infinite coordinate (eg "1e400" or "nan" in a text
+        /// format, or such a value in a binary one) fails the read with <see cref="IOCode.FileParsingError"/>. True
+        /// keeps such vertices, as geometry3Sharp 1.0.324 did. Normals, colors and UVs are not checked.
+        /// </summary>
+        public bool AllowNonFiniteCoordinates = false;
+
+        /// <summary> true if options reject the position (x, y, z): a coordinate is NaN or infinite and options (or the defaults) do not allow it </summary>
+        internal static bool RejectsPosition(ReadOptions options, double x, double y, double z)
+        {
+            if (options != null && options.AllowNonFiniteCoordinates)
+                return false;
+            return double.IsNaN(x) || double.IsInfinity(x) || double.IsNaN(y) || double.IsInfinity(y) || double.IsNaN(z) || double.IsInfinity(z);
+        }
+
+        internal static IOReadResult NonFinitePosition(double x, double y, double z)
+        {
+            return new IOReadResult(IOCode.FileParsingError, string.Format(CultureInfo.InvariantCulture,
+                "non-finite vertex coordinate ({0}, {1}, {2}); set ReadOptions.AllowNonFiniteCoordinates to keep it", x, y, z));
+        }
 
         public ReadOptions()
         {
