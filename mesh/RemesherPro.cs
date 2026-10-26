@@ -98,6 +98,13 @@ namespace gs
         }
         List<int> sorted_buffer = new List<int>();
 
+        // a projected vertex closer than this to its position did not move (relative to the edge lengths, so
+        // the result does not depend on the scale of the mesh; was MathUtil.ZeroTolerancef)
+        double moved_tolerance()
+        {
+            return MathUtil.ZeroTolerancef * MinEdgeLength;
+        }
+
         void queue_edge_safe(int eid) {
             bool taken = false;
             modified_edges_lock.Enter(ref taken);
@@ -534,7 +541,7 @@ namespace gs
                 Vector3d vCur = Mesh.GetVertex(vID);
                 bool bModified = false;
                 Vector3d vProjected = ComputeProjectedVertexPos(vID, out bModified);
-                if (vCur.EpsilonEqual(vProjected, MathUtil.ZeroTolerancef))
+                if (vCur.EpsilonEqual(vProjected, moved_tolerance()))
                     bModified = false;
                 if (bModified) {
                     vModifiedV[vID] = true;
@@ -682,7 +689,7 @@ namespace gs
             // under min/max edge length thresholds
             gParallel.ForEach(mesh.VertexIndices(), (vID) => {
                 vModifiedV[vID] = false;
-                if (vBufferVWeights[vID] < MathUtil.ZeroTolerance)
+                if (!(vBufferVWeights[vID] > 0))     // (weights are areas: no absolute threshold)
                     return;
                 if (vertex_is_constrained(vID))
                     return;
@@ -691,7 +698,7 @@ namespace gs
 
                 Vector3d curpos = mesh.GetVertex(vID);
                 Vector3d projPos = vBufferV[vID] / vBufferVWeights[vID];
-                if (curpos.EpsilonEqual(projPos, MathUtil.ZeroTolerancef))
+                if (curpos.EpsilonEqual(projPos, moved_tolerance()))
                     return;
 
                 vModifiedV[vID] = true;

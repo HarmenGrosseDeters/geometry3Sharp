@@ -390,6 +390,34 @@ namespace geometry3Sharp.Tests
         }
 
         [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void RemesherPro_SameResultUnderSimilarity(string name)
+        {
+            // queued passes with projection (and face-aligned projection): bit for bit under 2^k scales (the
+            // 'vertex did not move' and weight tests used absolute tolerances)
+            Similarity s = Similarity.ByName(name);
+            DMesh3 Remesh(DMesh3 mesh, DMesh3 target, double edge, bool faceAligned)
+            {
+                var r = new RemesherPro(mesh) { UseFaceAlignedProjection = faceAligned };
+                r.SetProjectionTarget(MeshProjectionTarget.Auto(target));
+                r.SetTargetEdgeLength(edge);
+                r.FastestRemesh();
+                Assert.Equal("", MeshRobustRepair.NotCleanReason(mesh, false));
+                return mesh;
+            }
+            foreach (bool faceAligned in new[] { false, true }) {
+                DMesh3 m0 = Remesh(BumpySphere(), BumpySphere(), 0.1, faceAligned);
+                DMesh3 back = Invariance.MappedBack(Remesh(Invariance.Transformed(BumpySphere(), s), Invariance.Transformed(BumpySphere(), s),
+                    s.ApplyLength(0.1), faceAligned), s);
+                if (s.IsExact)
+                    Assert.Equal("", Invariance.Difference(m0, back));
+                AssertRelative(m0.TriangleCount, back.TriangleCount, 0.05, s.Name);
+                double dist = Invariance.VertexDistance(m0, back);
+                Assert.True(dist < 0.02, $"{s.Name}: remeshed surfaces {dist} apart");
+            }
+        }
+
+        [Theory]
         [InlineData(-20)]
         [InlineData(20)]
         public void ReducerAndRemesher_TinyAndHugeScales_SameResult(int log2)
