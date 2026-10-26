@@ -63,7 +63,7 @@ namespace g3
         public int RepairedVertices;
         /// <summary>
         /// UV triangles (and overlapping pairs) that the packing broke and that could not be repaired, after Compute()
-        /// (0 unless ExactCheck is off or the repair failed)
+        /// (0 if the repair succeeded, and 0 if ExactCheck is off: then nothing is checked)
         /// </summary>
         public int RemainingDefects;
 
@@ -86,7 +86,7 @@ namespace g3
 
         public ParameterizationResult Compute()
         {
-            ChartCount = 0; TriangleChart = null; Coverage = 0; ChartBounds = null; AchievedPadding = 0; UnrotatedCharts = 0; RepairedVertices = 0; RemainingDefects = 0;
+            ChartCount = 0; TriangleChart = null; Coverage = 0; ChartBounds = null; AchievedPadding = 0; inputOrientation = null; UnrotatedCharts = 0; RepairedVertices = 0; RemainingDefects = 0;
             IList<Vector2d> uv = UV;
             if (uv == null) {
                 if (!Mesh.HasVertexUVs)
@@ -198,19 +198,27 @@ namespace g3
         {
             public List<Index2i> Pairs = new List<Index2i>();
             public List<int> Triangles = new List<int>();
-            public int Count { get { return Pairs.Count + Triangles.Count; } }
             public int Total;   // also the pairs beyond MaxCheckedPairs
         }
 
         const int MaxCheckedPairs = 100000;
+        // orientation of each triangle in the input UVs (during Compute)
+        int[] inputOrientation;
 
         Defects roundingDefects(IList<Vector2d> uv, Vector2d[] outUV)
         {
             var d = new Defects();
             // single triangles: the orientation changed (mirrored, clockwise input charts included)
+            if (inputOrientation == null) {
+                inputOrientation = new int[Mesh.MaxTriangleID];
+                foreach (int tid in Mesh.TriangleIndices()) {
+                    Index3i t = Mesh.GetTriangle(tid);
+                    inputOrientation[tid] = ExactPredicates.Orient2d(uv[t.a], uv[t.b], uv[t.c]);
+                }
+            }
             foreach (int tid in Mesh.TriangleIndices()) {
                 Index3i t = Mesh.GetTriangle(tid);
-                int s = ExactPredicates.Orient2d(uv[t.a], uv[t.b], uv[t.c]);
+                int s = inputOrientation[tid];
                 if (s != 0 && ExactPredicates.Orient2d(outUV[t.a], outUV[t.b], outUV[t.c]) != s)
                     d.Triangles.Add(tid);
             }
@@ -220,7 +228,7 @@ namespace g3
                 if (TriangleChart[ta] != TriangleChart[tb])
                     return false;
                 Index3i a = Mesh.GetTriangle(ta), b = Mesh.GetTriangle(tb);
-                int sa = ExactPredicates.Orient2d(uv[a.a], uv[a.b], uv[a.c]), sb = ExactPredicates.Orient2d(uv[b.a], uv[b.b], uv[b.c]);
+                int sa = inputOrientation[ta], sb = inputOrientation[tb];
                 if (sa == 0 || sb == 0)
                     return false;
                 Vector2d a1 = sa > 0 ? uv[a.b] : uv[a.c], a2 = sa > 0 ? uv[a.c] : uv[a.b];

@@ -1038,6 +1038,11 @@ namespace geometry3Sharp.Tests
                         "mirror " + mirror + " rotation " + allowRotation + " case " + k + ": " + ov.OverlappingPairs + " pairs, "
                         + ov.InvertedTriangles + " inverted, " + ov.DegenerateTriangles + " degenerate");
                     Assert.Equal(0, packer.RemainingDefects);
+                    // every triangle keeps its input orientation
+                    foreach (int tid in mesh.TriangleIndices()) {
+                        Index3i t = mesh.GetTriangle(tid);
+                        Assert.Equal(ExactPredicates.Orient2d(uv[t.a], uv[t.b], uv[t.c]), ExactPredicates.Orient2d(r.UV[t.a], r.UV[t.b], r.UV[t.c]));
+                    }
                     checkedCharts++;
                     unrotated += packer.UnrotatedCharts;
                     repaired += packer.RepairedVertices;
@@ -1080,6 +1085,11 @@ namespace geometry3Sharp.Tests
                 var ov = UVOverlap.Compute(both, rb.UV, int.MaxValue);
                 Assert.DoesNotContain(ov.Pairs, pr => pr.a >= firstTJ || pr.b >= firstTJ);
                 Assert.DoesNotContain(ov.DegenerateTriangleIds, t => t >= firstTJ);
+                foreach (int tid in both.TriangleIndices()) {
+                    if (tid < firstTJ) continue;
+                    Index3i t = both.GetTriangle(tid);
+                    Assert.Equal(ExactPredicates.Orient2d(uv[t.a], uv[t.b], uv[t.c]), ExactPredicates.Orient2d(rb.UV[t.a], rb.UV[t.b], rb.UV[t.c]));
+                }
                 Assert.True(pk.UnrotatedCharts + pk.RepairedVertices > 0);
                 Assert.Equal(0, pk.RemainingDefects);
             }

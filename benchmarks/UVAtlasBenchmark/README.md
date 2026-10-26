@@ -36,7 +36,7 @@ Each mesh runs in its own process with a timeout (300 s, large meshes 1200 s). C
 
 ## Results
 
-Main set: master fcf8da7 plus the exact check of the packed charts (`UVPacker`, see below); large set: master
+Main set: master fcf8da7 plus the exact check of the packed charts (`UVPacker`, commit 5fe85a5, see below); large set: master
 2be7cd8 (with the SLIM changes of #122) plus `ComponentCount`, before that check. 4 cores (Intel Xeon 2.1 GHz,
 cloud container), .NET 10, Release, `BENCH_P=3`, October 2026.
 
@@ -49,7 +49,7 @@ cloud container), .NET 10, Release, `BENCH_P=3`, October 2026.
 | InvalidMesh / load_failed | 0 | 0 | 0 | 0 | 0 |
 | timeout / crash / exception | 0 | 0 | 0 | 0 | 0 |
 | with overlaps or inverted UVs | 0 | 0 | 0 | 0 | 0 |
-| time median / p90 / max (s) | 1.65 / 8.29 / 96.0 | 2.85 / 48.81 / 69.4 | 2.90 / 30.24 / 111.3 | 2.03 / 19.40 / 58.9 | 2.23 / 19.40 / 111.3 |
+| time median / p90 / max (s) | 1.98 / 8.78 / 100.1 | 3.33 / 51.55 / 71.6 | 3.03 / 31.03 / 147.8 | 2.16 / 21.29 / 57.3 | 2.60 / 21.29 / 147.8 |
 | components flattened with cones | 7 of 100 (7%) | 1 of 50 (2%) | 112 of 388 (29%) | 578 of 2538 (23%) | 698 of 3076 (23%) |
 | triangles in cone charts | 3% | 0% | 7% | 10% | 5% |
 | charts per mesh median / p90 | 50 / 128 | 98 / 128 | 128 / 128 | 70 / 128 | 73 / 128 |
@@ -145,8 +145,9 @@ Before: master 2be7cd8, after: master fcf8da7 with the check; between the two on
 | DistortionLimitExceeded | 78 | 79 |
 | Failed | 17 | 12 |
 | with overlaps or inverted UVs | 5 | 0 |
-| time median / p90 / max (s) | 2.33 / 17.76 / 118.6 | 2.23 / 19.40 / 111.3 |
+| time median / p90 / max (s) | 2.33 / 17.76 / 118.6 | 2.60 / 21.29 / 147.8 |
 
 The five meshes: 53749, 96070, 123302 and 1582393 now succeed, 270395 has no overlap but a chart over the
-limits. Time per mesh after / before: median 0.98 (p10 0.83, p90 1.13), sum 1894 s after against 1959 s
-before, ie within the noise of the machine; the exact check costs one more `UVOverlap` of the packed atlas.
+limits. Time per mesh after / before: median 1.04 (p10 0.90, p90 1.35), sum 2083 s against 1959 s. The check costs
+one more `UVOverlap` of the packed atlas (two with an unrotated repack), and the run overlapped with test runs
+on the same machine, so part of the 6% is load.
