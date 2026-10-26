@@ -6,7 +6,8 @@ namespace g3
 {
     /// <summary>
     /// Sparse Cholesky factorization A = L L^T of a symmetric positive definite matrix, for systems that are
-    /// solved many times (parameterization, Laplacians with fixed boundary values).
+    /// solved many times (parameterization, Laplacians with fixed boundary values). The caller makes sure the
+    /// matrix is positive definite; a singular one is not reliably rejected (see IsValid).
     ///
     /// Usage: Add() the entries, Factorize(), then Solve() any number of right-hand sides. To refactor a matrix
     /// with new values, Clear() and Add() again; if the nonzero pattern is the same, the ordering and the
@@ -80,7 +81,19 @@ namespace g3
         {
         }
 
-        /// <summary> the last Factorize() succeeded (the matrix is numerically positive definite) </summary>
+        /// <summary>
+        /// The last Factorize() ran to the end: every pivot was positive, above 1e-14 times the absolute value of
+        /// the diagonal entry of A it came from (false before the first Factorize() and after Clear()). False for clearly indefinite matrices, and for singular ones only where rounding leaves a pivot
+        /// at or below the bound (eg the Laplacian of a small graph with integer weights, whose last pivot is 0).
+        ///
+        /// It is not a test for singularity: on a positive semidefinite matrix the last pivots are rounding noise,
+        /// and they can come out positive and above the bound, eg on a graph Laplacian without a fixed vertex with
+        /// edge weights of different magnitudes. IsValid is then true and Solve() returns
+        /// values dominated by a huge, arbitrary multiple of the null vector. No
+        /// bound on the pivots can fix this (a matrix with condition number near 1e16 is indistinguishable from a
+        /// singular one in double precision), so make the matrix definite before factorizing it: fix (pin) at
+        /// least one unknown per connected component of a Laplacian, or add a mass term.
+        /// </summary>
         public bool IsValid { get { return factored; } }
 
         /// <summary>
@@ -100,7 +113,8 @@ namespace g3
         }
 
         /// <summary>
-        /// Factorize the accumulated matrix. Returns false (and sets Error) if it is not positive definite.
+        /// Factorize the accumulated matrix. Returns false (and sets Error) if a pivot is not positive; see IsValid
+        /// for why a singular matrix can still be accepted.
         /// </summary>
         public bool Factorize()
         {
