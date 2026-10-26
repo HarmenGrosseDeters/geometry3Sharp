@@ -100,13 +100,16 @@ namespace gs
         /// <summary> deepest supported octree (node keys have 21 bits per axis) </summary>
         public const int MaxSupportedDepth = 20;
 
-        /// <summary> bounds of the meshes with triangles (empty meshes do not drag in the origin) </summary>
+        /// <summary>
+        /// bounds of the triangles of the meshes (empty meshes do not drag in the origin, nor do unused
+        /// vertices, which CachedBounds includes)
+        /// </summary>
         public static AxisAlignedBox3d Bounds(IEnumerable<DMesh3> meshes)
         {
             AxisAlignedBox3d bounds = AxisAlignedBox3d.Empty;
             foreach (DMesh3 m in meshes)
                 if (m.TriangleCount > 0)
-                    bounds.Contain(m.CachedBounds);
+                    bounds.Contain(MeshRepairMetrics.TriangleBounds(m));
             return bounds;
         }
 

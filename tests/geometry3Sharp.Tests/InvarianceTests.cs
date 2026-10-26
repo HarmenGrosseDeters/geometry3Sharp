@@ -42,6 +42,27 @@ namespace geometry3Sharp.Tests
 
         [Theory]
         [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void NotCleanReason_InconsistentOrientation_SameUnderSimilarity(string name)
+        {
+            // a closed sphere with some triangles reversed: the same reason and the same count of inconsistently
+            // oriented edges in any placement, and clean once the reversed triangles are flipped back
+            Similarity s = Similarity.ByName(name);
+            DMesh3 m = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 8 }.Generate().MakeDMesh();
+            var flipped = m.TriangleIndices().Where(t => t % 37 == 0).ToList();
+            foreach (int t in flipped)
+                m.ReverseTriOrientation(t);
+            int count = MeshRepairMetrics.InconsistentlyOrientedEdges(m);
+            Assert.True(count > 0);
+            DMesh3 x = Invariance.Transformed(m, s);
+            Assert.Equal("inconsistent orientation", MeshRobustRepair.NotCleanReason(x));
+            Assert.Equal(count, MeshRepairMetrics.InconsistentlyOrientedEdges(x));
+            foreach (int t in flipped)
+                x.ReverseTriOrientation(t);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(x));
+        }
+
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
         public void ExactBoolean_Difference_SameVolumeUnderSimilarity(string name)
         {
             Similarity s = Similarity.ByName(name);
@@ -236,9 +257,10 @@ namespace geometry3Sharp.Tests
             DMesh3 Input() { DMesh3 m = BumpySphere(); MeshEditor.Append(m, Sphere(new Vector3d(0.9, 0.2, 0.1), 0.7, 10)); return m; }
             DMesh3 m0 = Solidify(Input());
             DMesh3 back = Invariance.MappedBack(Solidify(Invariance.Transformed(Input(), s)), s);
-            // the same solid up to about a cell (diagonal 3.4 / 48). Not bit for bit under 2^k scales yet: the raw
-            // contour already differs in a few vertices (an absolute constant in the contouring, not in the octree,
-            // whose node values are checked bit for bit in WindingOctree_NodeValuesUnderSimilarity)
+            // bit for bit under 2^k scales; otherwise the grid lies differently on the shape: the same solid up to
+            // about a cell (diagonal 3.4 / 48)
+            if (s.IsExact)
+                Assert.Equal("", Invariance.Difference(m0, back));
             AssertRelative(Invariance.Volume(m0), Invariance.Volume(back), 0.01, s.Name);
             double dist = Invariance.VertexDistance(m0, back);
             Assert.True(dist < 0.1, $"{s.Name}: solidified surfaces {dist} apart");
@@ -268,6 +290,52 @@ namespace geometry3Sharp.Tests
             Assert.All(v1, w => Assert.True(Math.Abs(w - 0.5) <= 0.3 || w == Math.Round(w), $"{s.Name}: {w:R}"));
             if (s.IsExact)
                 Assert.Equal(v0, v1);
+        }
+
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void Solidify_UnusedFarVertex_IgnoredForTheGrid(bool adaptive)
+        {
+            // the grid is sized from the triangles: an unused vertex far away (CachedBounds includes it) used to
+            // make the cells so large that Compute() returned true with an empty result
+            DMesh3 Input(bool far)
+            {
+                DMesh3 m = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 6 }.Generate().MakeDMesh();
+                if (far)
+                    m.AppendVertex(new Vector3d(1e6, -2e6, 5e5));
+                return m;
+            }
+            DMesh3 Run(DMesh3 m)
+            {
+                var sol = new MeshWindingNumberSolidify(m) { GridResolution = 32, Adaptive = adaptive };
+                Assert.True(sol.Compute());
+                return sol.Result;
+            }
+            DMesh3 withFar = Run(Input(true));
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(withFar));
+            Assert.Equal("", Invariance.GeometricDifference(Run(Input(false)), withFar));
+        }
+
+        [Fact]
+        public void WindingBoolean_UnusedFarVertex_IgnoredForTheGrid()
+        {
+            DMesh3 Sphere1(bool far)
+            {
+                DMesh3 m = Sphere(Vector3d.Zero, 1, 8);
+                if (far)
+                    m.AppendVertex(new Vector3d(1e6, -2e6, 5e5));
+                return m;
+            }
+            DMesh3 Run(bool far)
+            {
+                var b = new MeshWindingNumberBoolean(Sphere1(far), Sphere(new Vector3d(0.8, 0, 0), 0.7, 8), MeshWindingNumberBoolean.Operations.Union) { GridResolution = 32 };
+                Assert.True(b.Compute());
+                return b.Result;
+            }
+            DMesh3 withFar = Run(true);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(withFar));
+            Assert.Equal("", Invariance.GeometricDifference(Run(false), withFar));
         }
 
         [Fact]
@@ -340,6 +408,34 @@ namespace geometry3Sharp.Tests
             // both approximate the same surface: apart by about the sagitta of an edge, not by an edge
             double dist = Invariance.VertexDistance(m0, back);
             Assert.True(dist < 0.02, $"{s.Name}: remeshed surfaces {dist} apart");
+        }
+
+        [Theory]
+        [InlineData(-20)]
+        [InlineData(20)]
+        public void ReducerAndRemesher_TinyAndHugeScales_SameResult(int log2)
+        {
+            // far below and above the scales of Similarity.All(): the quality and normal-flip tests have no
+            // absolute thresholds (a triangle quality of 0 below summed squared edges of 1e-8 and a normal
+            // test that treated cross products below 2.2e-16 as zero used to change the decisions). Below about
+            // 2^-25 the plain reducer still differs (another absolute constant, not in these tests).
+            var s = new Similarity("scale 2^" + log2, Math.Pow(2, log2), Matrix3d.Identity, Vector3d.Zero);
+            DMesh3 Reduce(DMesh3 m)
+            {
+                var r = new Reducer(m) { EdgeFlipTolerance = Math.Cos(60 * MathUtil.Deg2Rad), MinCollapseTriangleQuality = 0.05 };
+                r.ReduceToTriangleCount(400);
+                return m;
+            }
+            Assert.Equal("", Invariance.Difference(Reduce(BumpySphere()), Invariance.MappedBack(Reduce(Invariance.Transformed(BumpySphere(), s)), s)));
+            DMesh3 Remesh(DMesh3 mesh, double edge)
+            {
+                var r = new Remesher(mesh) { EnableParallelSmooth = false, EnableParallelProjection = false, PreventNormalFlips = true };
+                r.SetTargetEdgeLength(edge);
+                for (int k = 0; k < 5; ++k) r.BasicRemeshPass();
+                return mesh;
+            }
+            Assert.Equal("", Invariance.Difference(Remesh(BumpySphere(), 0.15),
+                Invariance.MappedBack(Remesh(Invariance.Transformed(BumpySphere(), s), s.ApplyLength(0.15)), s)));
         }
 
         // ---- analysis ----

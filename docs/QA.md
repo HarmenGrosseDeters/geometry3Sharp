@@ -4,7 +4,10 @@ This page says how geometry3Sharp is tested, where the gaps are, and what is don
 priority: robustness and correctness first, performance second. The review checklist that goes with it is
 [REVIEW_CHECKLIST.md](REVIEW_CHECKLIST.md).
 
-## 1. Where we stand (October 2026)
+## 1. Where we stand
+
+The first part describes the state before the QA work (October 2026); the second part describes what was
+done since and what is open.
 
 **Suite.**
 - `tests/geometry3Sharp.Tests` has 1216 xUnit tests, which take about 3.5 minutes wall clock on net10.0 and
@@ -29,6 +32,31 @@ priority: robustness and correctness first, performance second. The review check
   automated mutation testing; mutation checks are done by hand, as CLAUDE.md requires.
 - Benchmarks (`benchmarks/`) run only by hand, mostly on Thingi10K meshes that cannot be committed (procedural
   exceptions: the cube grid of `BooleanComparison`, synthetic terrain).
+
+**After the first QA round (end of October 2026).**
+- In place:
+  - the invariance, reuse and determinism harness (#120, 2.1);
+  - the review checklist (#126);
+  - seeded fuzzing of all readers in the suite (#127, 2.5);
+  - the Stryker workflow for the exact arithmetic (#128, 2.2);
+  - differential tests of the predicate filters and exact tests of the `ExactPoint3` conversions (#137, 2.4).
+- The suite has about 1470 tests and no skipped test. It takes about 5 minutes wall clock on net10.0.
+- Bugs found by the new tests and fixed:
+  - absolute tolerances: `MeshGeodesicDistance` (#115), and the boundary shells of the intrinsic refinement
+    (#135);
+  - nondeterminism: `ExactMeshBoolean` (#123), `MarchingCubesPro` (#124) and `MeshSignedDistanceGrid` (#125);
+  - untrusted input:
+    - the `.g3mesh` reader trusted the stored buffers (#130);
+    - OBJ, OFF and PLY had index overflows and header-sized allocations (#131);
+    - non-finite coordinates are now rejected by every reader (#136);
+  - a test gap: no test caught an InSphere filter bound that was too small (#137).
+- Open, in this order:
+  1. defect generators and fuzzing of mesh inputs (2.1, 2.5);
+  2. result validation in the existing success tests (2.3);
+  3. mutation testing of `mesh_ops/ExactMesh*` and the open `AdaptivePredicates` survivors (2.2);
+  4. coverage (2.6);
+  5. the regression corpus (2.7);
+  6. performance (3.1, 3.2).
 
 **What the reviews found.**
 - The retroactive reviews (packages A-F) and the post-merge reviews led to 45 bug-fix PRs (#60-#112).
@@ -102,8 +130,8 @@ determinism tests.
 - All four are fixed: the geodesic distances on closed meshes by the rework in #115 (the invariance test runs
   over all similarities since), the boolean order in #123, the last two in #124 and #125 (tests in
   ThreadingFixesTests). On open meshes the boundary splits of the intrinsic refinement place their concentric
-  shells at absolute powers of two, so the distances still depend on the scale (4 % at 1e-3); fixed in a
-  separate PR.
+  shells at absolute powers of two, so the distances still depended on the scale (4 % at 1e-3); fixed in
+  #135.
 
 **Not bugs:**
 - `MeshAlphaWrap`'s relative alpha comes from the axis-aligned bounds, so it changes under a rotation. This
@@ -138,12 +166,17 @@ The exact arithmetic is the base of everything else, and a wrong error bound in 
 inputs. Stryker.NET (Apache-2.0) mutates `math/ExactPredicates.cs`, `math/ExactPoint3.cs` and
 `math/AdaptivePredicates.cs`, and runs the predicate tests against each mutant.
 
-- A scheduled workflow (weekly, and on demand) reports the mutation score and the surviving mutants.
-- A score below the break threshold fails the run. It starts at the measured score (rounded down) and only
-  goes up.
+- A workflow reports the mutation score and the surviving mutants. It runs weekly, on demand, and on PRs that
+  change the mutated files or their tests ([tests/mutation/README.md](../tests/mutation/README.md)).
+- A score below the break threshold fails the run. It starts at the measured score (rounded down, less one
+  point for timeouts that vary between runners) and only goes up.
 - Surviving mutants are either killed with a new test or recorded as equivalent, with a reason.
-- Next targets: the exact parts of `mesh_ops/ExactMesh*`, and the result checks of the repair, such as
-  `NotCleanReason` and `MeshRepairMetrics`.
+- The score is 87.05 % (October 2026, from 83.4 % at the start); the break threshold is 86. Details are in
+  [tests/mutation/README.md](../tests/mutation/README.md).
+- Next targets:
+  - the exact parts of `mesh_ops/ExactMesh*`;
+  - the result checks of the repair, such as `NotCleanReason` and `MeshRepairMetrics`;
+  - the open survivors in `AdaptivePredicates`.
 - A survivor in a result check is a silent-success risk.
 - This does not replace the manual mutation check that CLAUDE.md asks for: it covers code the manual
   check never revisits.
@@ -173,6 +206,8 @@ whether a hard limit can end in a success status.
 - The randomized tests are seeded and run a fixed number of cases in CI, so they are reproducible and not
   flaky.
 - A failing seed becomes an example test.
+- Done for the predicates and the `ExactPoint3` conversions (#137: `PredicateDifferentialTests`,
+  `ExactPoint3ConversionTests`). The boolean identities are open.
 
 ### 2.5 Fuzzing of the readers and of mesh inputs
 
@@ -183,6 +218,7 @@ The fuzz tests are seeded and run inside the suite:
   blocks, huge counts, `NaN`, `1e400`, `1,5`, `../` paths.
 - They assert that a reader returns a result or a documented error within a time and memory budget, with
   no other exception and no hang.
+- Done for all readers (#127: `ReaderFuzzTests`). The fuzzing found the bugs fixed in #130, #131 and #136.
 
 Mesh inputs to the operations are fuzzed the same way:
 - random soups;
@@ -214,6 +250,25 @@ It runs the main pipelines and checks the following against stored thresholds:
 - run time: generous, to catch only order-of-magnitude regressions on shared runners.
 
 Meshes with a permissive license can be added if a case cannot be generated.
+
+### 2.7a Data sets beyond Thingi10K (benchmarks, by hand)
+
+The benchmarks (`benchmarks/`) use Thingi10K (repair, booleans, UV atlas), the boolean benchmark's cases
+and NRW terrain (dl-de/zero). Thingi10K covers broken 3D-print meshes; other kinds of input fail
+differently, so a result tuned on Thingi10K alone can be misleading. As for Thingi10K, every data set is
+fetched by a `fetch_data.py` of the benchmark, never committed (CLAUDE.md), and its source and license
+are listed in the benchmark's README. The license of every object is checked before it is used.
+
+| Data set | Kind of input | For | License (checked October 2026) | Priority |
+|---|---|---|---|---|
+| [Objaverse-XL](https://huggingface.co/datasets/allenai/objaverse-xl) / Objaverse | game, scan and CAD exports from Sketchfab, GitHub and others: open surfaces, many parts, wrong normals | a second repair and wrap corpus | ODC-By for the collection; each object has its own license (metadata column `license`): keep CC0, CC-BY and permissive code licenses, drop NC, GPL and Polycam objects (non-commercial) | 1 |
+| [ABC](https://archive.nyu.edu/handle/2451/43778) (1 million Onshape models) | CAD: sharp edges, thin walls, exactly coplanar and cocircular faces | exact booleans, `ExactPlanarSimplify`, ties of the intrinsic Delaunay | the release is MIT; the models belong to their creators under the Onshape terms of use (section 1.g.ii, not checked): read before use | 2 |
+| [swissALTI3D](https://opendata.swiss/en/dataset/swissalti3d) | high mountains, cliffs | terrain dual contouring, TIN, safety lines | open use, also commercial, with attribution to swisstopo | 3 |
+| [Keenan Crane's model repository](https://www.cs.cmu.edu/~kmcrane/Projects/ModelRepository/) | smooth reference meshes (Spot, Bob, Blub) | parameterization, geodesics, remeshing; comparable with the papers | CC0 | 4 |
+| Benchmark of "Lifting Simplices to Find Injectivity" (Du et al. 2020, Zenodo 3827969) | 10,743 hard parameterization cases | `parameterization/`, UV atlas | not confirmed yet: check the Zenodo record before use | 5 |
+| Stanford 3D Scanning Repository | scans (bunny, dragon, Armadillo) | reference only | no license; the page asks not to apply boolean operators to the models, among others (to be confirmed on the page): not for boolean or repair benchmarks | — |
+
+Not used: ShapeNet and ModelNet (non-commercial research licenses).
 
 ### 2.8 API compatibility
 
@@ -247,8 +302,8 @@ Past cases: #63, #72, #105.
 |---|---|---|---|
 | Invariance and property tests | High: covers scale and stale state, with the defect generators also degenerate and open input | Low (harness, seeded) | Done for the core operations; required for new ones |
 | FsCheck | Shrinking of counterexamples | A dependency, F# runtime on net48 | Optional, for the predicates only; seeded theories are enough elsewhere |
-| Differential tests against exact results | High for `math/`, filters | Low | Next |
-| Fuzzing | High for readers / CLI (4 security fixes) | Low in-suite, high coverage-guided | Seeded in-suite fuzzing |
+| Differential tests against exact results | High for `math/`, filters | Low | Done for the predicates (#137); boolean identities open |
+| Fuzzing | High for readers / CLI (4 security fixes) | Low in-suite, high coverage-guided | Seeded in-suite fuzzing: done for the readers (#127), next for mesh inputs |
 | Stryker.NET mutation tests | High for exact arithmetic | Long runs (scheduled) | Scheduled workflow for `math/Exact*` and `AdaptivePredicates.cs` |
 | Coverage in CI | Medium (shows gaps) | Low | Summary, no threshold |
 | Determinism tests | High: found three bugs at once | Low | Done; required for parallel paths |

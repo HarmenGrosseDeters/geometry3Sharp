@@ -168,7 +168,7 @@ namespace geometry3Sharp.Tests
         [MemberData(nameof(ConsistentCases))]
         public void ExactMeshBoolean_Resolve_DefectInput(string name) => Resolve(name);
 
-        // inconsistently oriented inputs: everything but the result's orientation (see the skipped test below)
+        // inconsistently oriented inputs: everything but the result's orientation (see the test below)
         [Theory]
         [MemberData(nameof(InconsistentCases))]
         public void ExactMeshBoolean_InconsistentInput_ValidStructure(string name)
@@ -177,17 +177,32 @@ namespace geometry3Sharp.Tests
             Resolve(name, true);
         }
 
-        // Inputs with inconsistently oriented triangles (a flipped triangle): the result keeps the input triangles with
-        // their input orientation where the solid's boundary runs along them, so it has inconsistently oriented edges
-        // (not a valid oriented surface; DMesh3.CheckValidity fails). Minimal case: a unit box with one triangle
-        // flipped; its winding number inside is about 0.83, so the result should be the box, consistently oriented.
-        // Reported; enabled when fixed.
-        [Theory(Skip = "ExactMeshBoolean keeps the orientation of flipped input triangles (reported)")]
-        [MemberData(nameof(InconsistentCases))]
+        // Inputs with inconsistently oriented triangles (a flipped triangle): ExactMeshBoolean orients each component
+        // consistently first, so the result is a consistently oriented surface (DMesh3.CheckValidity passes). Minimal
+        // case: a unit box with one triangle flipped gives the box (see also ExactBooleanOrientationTests).
+        [Theory]
+        [MemberData(nameof(InconsistentCasesOrientable))]
         public void ExactMeshBoolean_InconsistentInput_ConsistentResult(string name)
         {
             UnionWithBox(name);
             Resolve(name);
+        }
+
+        // the inconsistent cases without "random edits 6" (see the skipped test below)
+        public static System.Collections.Generic.IEnumerable<object[]> InconsistentCasesOrientable() =>
+            InconsistentCases().Where(c => (string)c[0] != "random edits 6");
+
+        // "random edits 6": the union with the box has an inconsistently oriented edge, but not because of the
+        // orientation: the stray triangle through the inside of the sphere alone (edit 0, no flips) gives it, and
+        // the input is not reoriented there. The mesh is open, so it is classified by generalized winding numbers;
+        // next to the sheet they are near 0.5 and 1.5, at the threshold 1/2, and patches evaluated independently
+        // decide inconsistently. A consistent classification needs winding numbers propagated across patches with
+        // integer jumps. Reported; enabled when fixed.
+        [Fact(Skip = "ExactMeshBoolean: generalized winding patch classification at the 1/2 threshold is inconsistent next to an interior sheet (reported)")]
+        public void ExactMeshBoolean_OpenInputWithInteriorSheet_ConsistentResult()
+        {
+            UnionWithBox("random edits 6");
+            Resolve("random edits 6");
         }
 
         // ---- wrap, solidify ----
@@ -235,9 +250,9 @@ namespace geometry3Sharp.Tests
             }
         }
 
-        // The cell size comes from Mesh.CachedBounds, which includes unused vertices: a unit sphere with one unused vertex
-        // 1e6 away gets cells of about 5e4, and Compute() returns true with an empty result. Reported; enabled when fixed.
-        [Fact(Skip = "MeshWindingNumberSolidify sizes its grid from bounds that include unused vertices (reported)")]
+        // The cell size comes from the bounds of the triangles: an unused vertex 1e6 away (in CachedBounds) used to give
+        // cells of about 5e4 and an empty result.
+        [Fact]
         public void MeshWindingNumberSolidify_UnusedFarVertex_KeepsTheSolid()
         {
             var s = new MeshWindingNumberSolidify(Defects.ByName("unused far vertex").Make()) { GridResolution = 32 };

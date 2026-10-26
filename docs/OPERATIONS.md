@@ -49,7 +49,7 @@ Add both: `using g3; using gs;`.
 | Nearest neighbours among points | `PointHashGrid3d<T>`, `PointAABBTree3` | [PointQueriesExample](examples/PointQueriesExample.cs) |
 | Signed distance field, offset surfaces | `MeshSignedDistanceGrid`, `DenseGridTrilinearImplicit`, `MarchingCubes` | [OffsetSurfaceExample](examples/OffsetSurfaceExample.cs) |
 | Hausdorff distance, geodesic distance | `gs.MeshHausdorffDistance`, `gs.MeshGeodesicDistance` | [DistancesExample](examples/DistancesExample.cs) |
-| Intrinsic Delaunay triangulation and refinement: cotan Laplacian without negative weights, geodesics and vector heat on poor meshes, overlay with the input | `gs.IntrinsicTriangulation`, `gs.MeshGeodesicDistance.IntrinsicRefine`, `gs.VectorHeatMethod.IntrinsicRefine`, `gs.IntrinsicCommonSubdivision` | [IntrinsicTriangulationExample](examples/IntrinsicTriangulationExample.cs) |
+| Intrinsic Delaunay triangulation and refinement: cotan Laplacian without negative weights, geodesics and vector heat on poor meshes, overlay with the input; geodesic paths and loops (FlipOut) | `gs.IntrinsicTriangulation`, `gs.MeshGeodesicDistance.IntrinsicRefine`, `gs.VectorHeatMethod.IntrinsicRefine`, `gs.IntrinsicCommonSubdivision`, `gs.MeshGeodesicPath` | [IntrinsicTriangulationExample](examples/IntrinsicTriangulationExample.cs) |
 | UV atlas of any mesh: seams, charts, BFF with cones, packing, exact overlap test | `UVAtlasGenerator`, `MeshDiscCut`, `MeshChartSegmentation`, `ConeFlattening`, `UVOverlap`, `UVPacker` | [UVAtlasExample](examples/UVAtlasExample.cs) |
 | Parameterize a disc | `BoundaryFirstFlattening`, `LSCMParameterization`, `ARAPParameterization`, `SLIMParameterization`, `ParameterizationDistortion` | [UVAtlasExample](examples/UVAtlasExample.cs) |
 
@@ -60,7 +60,7 @@ Add both: `using g3; using gs;`.
 | A mostly good mesh with small holes, duplicate vertices, degenerate triangles | `MeshAutoRepair` (with `PostRepairCleanup = true`) | the input triangles, welded and closed where possible; not guaranteed closed |
 | Any mesh, and you need a closed, manifold, self-intersection-free result | `MeshRobustRepair` | the repaired mesh if it is clean, otherwise its self-intersections resolved exactly (`UsedExactResolve`), otherwise the winding number solid (`UsedSolidify`), otherwise the alpha wrap (`UsedAlphaWrap`); see `FallbackReason`. If the clean result lost volume (`MinVolumeIoU`) the input itself is resolved or solidified instead. `Apply()` returns false (`Mesh` unchanged) if cancelled or if neither the solidify nor the alpha wrap gave a mesh; a solidified result that is not clean either is kept when the wrap fails or is off (`UsedSolidify` and `SolidifyReason`) |
 | A triangle soup, overlapping parts, large holes | `MeshWindingNumberSolidify` | a new, remeshed closed surface; features below the cell size are lost |
-| Closed meshes that intersect themselves or each other, where the triangles must be kept exactly | `ExactMeshBoolean`, `ExactMeshBoolean.Resolve(mesh)` | exact arrangement, only the output coordinates are rounded; `SafeRounding = true` repairs the slivers and self-intersections the rounding leaves (`MeshRoundingRepair`, checked exactly, `RoundingClean`), `ComputeExactVertices = true` gives the exact rational coordinates (`ResultExactVertices`) |
+| Closed meshes that intersect themselves or each other, where the triangles must be kept exactly | `ExactMeshBoolean`, `ExactMeshBoolean.Resolve(mesh)` | exact arrangement, only the output coordinates are rounded; `SafeRounding = true` repairs the slivers and self-intersections the rounding leaves (`MeshRoundingRepair`, checked exactly, `RoundingClean`), `ComputeExactVertices = true` gives the exact rational coordinates (`ResultExactVertices`); flipped input triangles are reoriented per component first (the larger part by area keeps its orientation, `ReorientedTriangles`) |
 | Booleans of broken meshes (open, soups, overlapping shells) | `gs.MeshWindingNumberBoolean` | a new, remeshed closed surface (winding numbers on an adaptive octree) |
 
 `MeshBoolean` is the old, non-robust union of the original library; prefer `ExactMeshBoolean`.
@@ -192,6 +192,35 @@ reported at the mesh vertices only.
   with an `Error` instead of wrong faces. Integer (normal) coordinates (Gillespie, Sharp and Crane 2021),
   which make this combinatorially exact, are not implemented: with flips, insertions and edge splits the
   traces are exact up to rounding, and the checks catch the cases where rounding would matter.
+
+#### Geodesic paths and loops
+
+```csharp
+var path = new MeshGeodesicPath(mesh);
+path.Compute(source, target);                       // Status; Length; Path (polyline); PathVertices
+path.ComputeThrough(new[] { a, b, c }, closed: true);   // through fixed waypoints
+path.Shorten(edgeLoop, closed: true);               // tighten a loop along mesh edges to a closed geodesic
+```
+
+`MeshGeodesicPath` starts from a path along mesh edges (Dijkstra between the waypoints, or the given one) and
+straightens it by intrinsic edge flips (FlipOut, Sharp and Crane 2020): wherever the path turns by less than pi
+at a free vertex, the edges inside that wedge are flipped and the path rerouted along its outer side. The
+result is an exact geodesic of the mesh's (intrinsic) geometry, in the homotopy class of the initial path: it
+passes through a vertex only where the angle is at least pi on both sides (saddles, reflex boundary corners).
+On developable meshes it is the straight line in the unfolding to rounding (the tests check plane, cube surface
+and cylinder against closed forms). `Compute(a, b)` from the Dijkstra path usually gives the globally shortest
+geodesic, but this is not guaranteed. The mesh is not modified.
+
+- **Status**: `Success` (geodesic), `Collapsed` (a contractible closed loop shrank to a point, to its fixed
+  vertex if it has one), `NotConverged` (`MaxIterations`; valid and shorter), `Stuck` (a wedge holds edges of
+  the same, self-overlapping path, which are not flipped; valid), `NoPath` (waypoints not connected),
+  `InvalidInput` (ids, a non-adjacent edge path, bowtie vertices), `TraceFailed` (`Length` is valid, but an edge
+  could not be traced over the mesh triangles, so `Path` may cut across the surface there).
+- A loop around a cone vertex with an angle below pi (a sharp tip) can only contract through the tip, which is
+  longer for a moment; a loop of one edge whose wedge only goes out to the tip and back is therefore reported
+  as `Collapsed` directly.
+- Boundaries are allowed (the path stays on the surface); a geodesic loop around a handle or a cylinder is found
+  with `Shorten(loop, closed: true)`, also when it winds around more than once.
 
 See [IntrinsicTriangulationExample](examples/IntrinsicTriangulationExample.cs).
 

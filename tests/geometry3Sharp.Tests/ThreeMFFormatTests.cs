@@ -228,8 +228,7 @@ namespace geometry3Sharp.Tests
             Assert.True(new ThreeMFReader().MaxElements < (1L << 40));
             IOReadResult r = default(IOReadResult);
             ThreeMFReader reader = new ThreeMFReader() { MaxElements = 1000000 };
-            System.Threading.Tasks.Task task = System.Threading.Tasks.Task.Run(() => { r = reader.Read(new MemoryStream(package), ReadOptions.Defaults, new DMesh3Builder()); });
-            Assert.True(task.Wait(TimeSpan.FromSeconds(60)), "reading did not finish");
+            Assert.True(Timed.Finishes(() => { r = reader.Read(new MemoryStream(package), ReadOptions.Defaults, new DMesh3Builder()); }, TimeSpan.FromSeconds(60)), "reading did not finish");
             Assert.Equal(IOCode.FileParsingError, r.code);
             Assert.Contains("MaxElements", r.message);
         }

@@ -73,6 +73,13 @@ namespace g3cli.Tests
             Assert.True(I(r["mesh"]["self_intersections"]) > 0);
             Assert.Equal("self-intersections", S(r["mesh"]["not_clean_reason"]));
 
+            (exit, r) = Run("measure", m.Flipped);
+            AssertOk(exit, r);
+            Assert.True(B(r["mesh"]["closed"]));
+            Assert.True(I(r["mesh"]["inconsistent_orientation_edges"]) > 0);
+            Assert.Equal("inconsistent orientation", S(r["mesh"]["not_clean_reason"]));
+            Assert.False(B(r["mesh"]["clean"]));
+
             (exit, r) = Run("measure", m.Overlapping, "--no-self-intersections");
             AssertOk(exit, r);
             Assert.Null(r["mesh"]["self_intersections"]);
