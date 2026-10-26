@@ -285,6 +285,33 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void Repair_TinyOpenComponent_Kept()
+        {
+            // a sphere and, apart from it, a single tiny degenerate triangle: an open component, which may close
+            // other parts by position (sheets touching along an edge), so it is not removed; a closed tiny one is
+            DMesh3 m = Sphere(6);
+            int n = m.TriangleCount;
+            Vector3d p = new Vector3d(3, 0, 0);
+            int a = m.AppendVertex(p), b = m.AppendVertex(p + new Vector3d(1e-7, 0, 0)), c = m.AppendVertex(p + new Vector3d(2e-7, 1e-20, 0));
+            m.AppendTriangle(a, b, c);
+            var repair = new MeshRoundingRepair(m);
+            Assert.False(repair.Apply());
+            Assert.Equal(0, repair.RemovedComponents);
+            Assert.Equal(n + 1, m.TriangleCount);
+            Assert.Equal(1, repair.RemainingDegenerate);
+
+            // the same as a closed flat tetrahedron: removed
+            DMesh3 t = Sphere(6);
+            int[] v = { t.AppendVertex(p), t.AppendVertex(p + new Vector3d(1e-7, 0, 0)), t.AppendVertex(p + new Vector3d(0, 1e-7, 0)), t.AppendVertex(p + new Vector3d(3e-8, 3e-8, 1e-20)) };
+            t.AppendTriangle(v[0], v[2], v[1]); t.AppendTriangle(v[0], v[1], v[3]); t.AppendTriangle(v[1], v[2], v[3]); t.AppendTriangle(v[2], v[0], v[3]);
+            var repair2 = new MeshRoundingRepair(t);
+            Assert.True(repair2.Apply());
+            Assert.Equal(1, repair2.RemovedComponents);
+            Assert.Equal(n, t.TriangleCount);
+            Assert.True(t.IsClosed());
+        }
+
+        [Fact]
         public void Repair_VertexThroughThinWall_Moved()
         {
             // a slab 2e-4 thick whose top face has a vertex 1e-9 below the bottom face: separated by moving it
