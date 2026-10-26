@@ -652,6 +652,6 @@ meshes through the exact resolve and fewer to the wrap; same setup, master befor
 113906.stl times out (300 s) before and after (holdout; counted as not repaired). Two more meshes whose contour
 self-intersects but whose reduction removed the intersecting pairs are wrapped now instead of solidified:
 112854.stl and 99736.stl (holdout). Neither is repaired before or after (Hausdorff 8.8 % and 3.4 % solidified),
-but the wrap fits their winding number solid worse (IoU 0.958 → 0.421 and 0.993 → 0.512; the Hausdorff distance
-improves to 1.3 % and 4.8 %). Together with 56107.stl that is 3 of about 150 solidified meshes per two selections
+but the wrap fits their winding number solid worse (IoU 0.958 → 0.421 and 0.993 → 0.512; Hausdorff 8.8 % → 1.3 % and
+3.4 % → 4.8 %). Together with 56107.stl that is 3 of about 150 solidified meshes per two selections
 where stopping early gives up a cleaner (though still not repaired) solidify.
