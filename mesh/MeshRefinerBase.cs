@@ -46,7 +46,8 @@ namespace g3
         public static double TriangleQuality(ref Vector3d a, ref Vector3d b, ref Vector3d c)
         {
             double l2 = a.DistanceSquared(b) + b.DistanceSquared(c) + c.DistanceSquared(a);
-            if (l2 < MathUtil.ZeroTolerance)
+            // (the quality has no units: only a triangle without extent is degenerate, whatever the scale)
+            if (!(l2 > 0))
                 return 0;
             return 4 * Math.Sqrt(3) * 0.5 * (b - a).Cross(c - a).Length / l2;
         }
@@ -102,7 +103,10 @@ namespace g3
             if (edge_flip_tol == 0) {
                 return n0.Dot(n1);
             } else {
-                return n0.Normalized.Dot(n1.Normalized);
+                // cosine of the angle; n0, n1 are unnormalized (squared lengths), so no absolute threshold:
+                // Normalized treats lengths below MathUtil.Epsilon as zero, which depends on the mesh scale
+                double l0 = n0.Length, l1 = n1.Length;
+                return (l0 > 0 && l1 > 0) ? n0.Dot(n1) / (l0 * l1) : 0;
             }
         }
 

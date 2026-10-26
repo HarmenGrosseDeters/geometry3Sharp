@@ -879,3 +879,33 @@ longer allocates an array per node evaluation, which only removes work, and give
   1017012.stl, is an exact-resolve result whose Hausdorff bound differs in the fifth digit. The unit tests show it
   (`AdaptiveOctreeTests.Octree_PropagatedNodeValues_DoNotDependOnTheQueryOrder`, which fails on the old code every
   time, and `MeshRobustRepairTests.Solidify_IsDeterministic`).
+
+## Solidify bit for bit under 2^k scales
+`InvarianceTests.Solidify_SameResultUnderSimilarity` found that the solidify gave different meshes for the same
+input scaled by 2^10 or 2^-10 (exact in floating point), from absolute constants:
+- the dual contouring's QEF compared the errors of the cell-restricted solutions with `1e-15 * (1 + |err|)`, an
+  absolute tolerance for a squared length (one vertex moved by half a cell at 2^10); now
+  `1e-12 * (cellSize^2 * planes + |err|)`;
+- `MeshRefinerBase.TriangleQuality` was 0 when the summed squared edge lengths were below 1e-8, so on small meshes
+  the reducer's `MinCollapseTriangleQuality` (used by the solidify) did nothing and the remesher's degenerate-flip
+  tests were always on; and its normal-flip metric treated cross products below 2.2e-16 as zero;
+- `MeshWindingNumberSolidify` and `WindingNumberOctree.Bounds` (also `MeshWindingNumberBoolean`) sized the grid
+  from `CachedBounds`, which includes unused vertices: one far away gave an empty result (reported by QA).
+
+`robust` on both selections, `BENCH_P=2 TIMEOUT=300`, both selections at the same time on 4 cores and nothing
+else on the machine, master `2a455dc` before, the change after:
+
+| | first selection, before | after | holdout, before | after |
+|---|---|---|---|---|
+| repaired | 272 | 272 | 270 | 270 |
+| clean + no exact self-intersections | 398 | 398 | 395 | 395 |
+| path changes | | 0 | | 0 |
+| solidified or wrapped meshes / with another triangle count | 51 | 16 | 58 | 21 |
+| ... Hausdorff (max of both directions), median | 3.67 % | 3.67 % | 4.66 % | 4.66 % |
+| ... IoU, median | 0.9742 | 0.9741 | 0.9808 | 0.9808 |
+| solidify phase | 660 s | 648 s | 847 s | 854 s |
+| all 400: total time | 4001 s | 3993 s | 3751 s | 3694 s |
+
+The ties in the QEF and the quality checks of small triangles now decide differently, which changes the triangle
+count of about a third of the solidified meshes, but not their quality or the time. Repair and exact-resolve
+results are unchanged.

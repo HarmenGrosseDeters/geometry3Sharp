@@ -107,7 +107,50 @@ selectively.
 - Feature-preserving offsets (Zint et al. 2023)
 - Quad remeshing (Instant Meshes 2015, QuadWild 2021)
 - Deformation: ARAP, biharmonic, cage coordinates
-- Tetrahedral meshing (fTetWild, MIT)
+- Tetrahedral meshing: see Phase 5 (constrained Delaunay tetrahedrization). fTetWild is MPL-2.0 (file-level
+  copyleft), not MIT: implement from the paper (Hu et al. 2020) rather than port
 - TPMS / lattice structures from the implicit functions
 - Sparse SDF grids (OpenVDB-like), SIMD via `System.Numerics`
 - AI bridges as a separate package (ONNX Runtime): project 2D segmentation masks (SAM, DINO) from several views onto face selections, texture reprojection via ExpMap
+
+## Phase 5: candidates from recent research
+
+Checked against what the library already has (exact booleans, alpha wrap, intrinsic triangulations, BFF / SLIM,
+vector heat). Ordered by priority: effort against what it builds on and what it unlocks. Licenses checked at the
+source repositories (October 2026); "paper only" means the reference code may not be ported.
+
+| # | Feature | Research / port source | License of reference code | Why / builds on |
+|---|---|---|---|---|
+| 1 | Geodesic paths, loops and Bézier curves on surfaces (FlipOut). **Done:** paths, waypoints, loops (`MeshGeodesicPath`); Bézier curves open | Sharp & Crane 2020 *You Can Find Geodesic Paths in Triangle Meshes by Just Flipping Edges*; geometry-central | MIT | Almost entirely on `IntrinsicTriangulation`; cut lines (orthotics), UV seams, curves on surfaces |
+| 2 | Polyhedral envelope containment (exact, rounding-proof containment predicate) | Wang, Schneider, Hu, Attene, Panozzo 2020 *Exact and Efficient Polyhedral Envelope Containment Check*; `fast-envelope` | MIT | On `ExactPredicates` / `AdaptivePredicates`. The `Reducer` already guarantees a one-sided bound (`MaxDeviation`, certified by `TriangleDeviationBounds`), so the gain is speed and exactness of that check, not a new guarantee: benchmark against `MaxDeviation` before adopting |
+| 3 | ~~Robust 2D polygon booleans and offsets: port Clipper2~~ Not planned: Clipper2 (Angus Johnson, Boost-1.0) has an official C# version on NuGet; use it directly (at most a thin adapter to `GeneralPolygon2d`). A port would only duplicate it. Straight skeleton / 2D medial axis from papers if needed (CGAL is GPL) | Clipper2 | Boost-1.0 | |
+| 4 | Constrained Delaunay tetrahedrization, then tetrahedral meshing | Diazzi, Panozzo, Vaxman, Attene 2023 *Constrained Delaunay Tetrahedrization: A Robust and Practical Approach*; Hu et al. 2020 *Fast Tetrahedral Meshing in the Wild* | CDT: GPL / LGPL, paper only; fTetWild: MPL-2.0, paper only | On `Delaunay3` and the implicit points of `ExactMeshArrangement` |
+| 5 | Generalized signed distance and winding numbers for open / broken inputs | Feng & Crane 2024 *A Heat Method for Generalized Signed Distance*; Feng, Gillespie, Crane 2023 *Winding Numbers on Discrete Surfaces* | paper | Complements `MeshGeodesicDistance`, `VectorHeatMethod` and the repair stages |
+| 6 | Grid-free PDE solving (Monte Carlo geometry processing) | Sawhney & Crane 2020 *Monte Carlo Geometry Processing* (walk on spheres); Sawhney et al. 2023 *Walk on Stars*; Zombie | MIT | Needs only closest-point and ray queries (`DMeshAABBTree`, winding numbers); works on dirty geometry |
+| 7 | Foldover-free (injective) maps | Garanzha et al. 2021 *Foldover-free maps in 50 lines of code* | paper | Closes the gap noted in Phase 3: cone parameterizations are not guaranteed globally injective |
+| 8 | Continuous collision detection | Wang et al. 2021 *A Large Scale Benchmark and an Inclusion-Based Algorithm for Continuous Collision Detection* (Tight-Inclusion); Li et al. 2020 *IPC* | Tight-Inclusion: MIT | Conservative, provably correct CCD; Unity, robotics |
+| 9 | Simplification with intrinsic error metrics | Liu et al. 2023 *Surface Simplification using Intrinsic Error Metrics* | paper | On the intrinsic triangulation infrastructure |
+| 10 | Mesh from coarse / sparse SDFs | Sellán et al. 2023 *Reach for the Spheres*; 2024 *Reach for the Arcs* | paper | With the sparse SDF grids and TPMS items under Later |
+
+## Open research questions
+
+Problems where the library already has a head start and that could be researched (and published) here:
+
+- **Practical 3D snap rounding with guarantees.** `SafeRounding` (after Milenkovic & Sacks 2019) verifies and repairs;
+  open is a rounding that *guarantees* no new self-intersections with bounded displacement and practical running time
+  (Devillers et al. 2018 is impractical). Thingi10K as the benchmark.
+- **An envelope-guaranteed exact pipeline.** Boolean → rounding → simplification / remeshing with every stage
+  provably inside an ε-envelope and free of self-intersections (needs Phase 5 #2).
+- **Metamorphic testing and fuzzing of geometry kernels.** Systematize the invariance tests over `Similarity.All()`,
+  the defect generators and the differential predicate tests into a method and benchmark, applicable to other
+  kernels as black boxes (without porting their code).
+- **Bit-for-bit determinism across platforms.** net48 / net10, x64 / ARM, FMA, parallel paths: reproducible geometry
+  for CAD and certification (eg medical devices).
+- **Exact or certified intrinsic triangulations.** Integer coordinates (Gillespie, Sharp, Crane 2021, Phase 3) combined
+  with exact predicates, so that signposts never fail silently.
+- **Monte Carlo PDEs directly on polygon soups.** Walk on stars with generalized winding numbers instead of a clean
+  inside / outside test, without a prior repair (needs Phase 5 #5, #6).
+- **Geometry APIs for coding agents.** A benchmark of mesh / CAD tasks solved by agents through `g3cli` / MCP, and
+  which API patterns (result codes, `NotCleanReason`, options objects) actually help them.
+- **Showcase domains with error bounds.** Terrain: DEM → TIN with guaranteed error, exact cut / fill volumes.
+  Orthotics: geodesic cut lines, wall thickness, feature-preserving offsets.
