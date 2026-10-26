@@ -30,7 +30,12 @@ namespace gs
     public class MeshDeviation
     {
         public DMesh3 Mesh, Reference;
-        /// <summary> optional spatial data structure of the reference (built if null) </summary>
+        /// <summary>
+        /// optional spatial data structure of the reference. If null it is built (and rebuilt when Reference
+        /// changes); for a reference far from the origin (MeshWallThickness.FarFromOrigin) the queries then
+        /// run on a copy moved to the origin, with its own tree, and this stays null. A tree set here is used
+        /// as it is (also far from the origin).
+        /// </summary>
         public DMeshAABBTree3 ReferenceSpatial;
 
         public enum Signs { PseudoNormal, WindingNumber, Unsigned }
@@ -73,12 +78,11 @@ namespace gs
             HausdorffLowerBound = HausdorffUpperBound = double.NaN;
             if (Mesh.TriangleCount == 0 || Reference.TriangleCount == 0)
                 return false;
-            if (ReferenceSpatial == null)
-                ReferenceSpatial = new DMeshAABBTree3(Reference, true);
+            prepare_reference();
             if (Sign == Signs.PseudoNormal)
                 compute_pseudonormals();
             else if (Sign == Signs.WindingNumber)
-                ReferenceSpatial.FastWindingNumber(Vector3d.Zero);     // cache before parallel use
+                refSpatial.FastWindingNumber(Vector3d.Zero);     // cache before parallel use
 
             int NV = Mesh.MaxVertexID;
             VertexDeviation = new double[NV];
@@ -113,8 +117,14 @@ namespace gs
             VertexStatistics = DeviationStatistics.Compute(values);
 
             if (ComputeCertifiedBound) {
-                var h = new MeshHausdorffDistance(Mesh, Reference) {
-                    SpatialB = ReferenceSpatial, Symmetric = false, Tolerance = CertifiedTolerance, CancelF = CancelF
+                // far from the origin: both meshes moved by the same offset, on the reference's local tree
+                DMesh3 from = Mesh;
+                if (refOffset != Vector3d.Zero) {
+                    from = new DMesh3(Mesh, false, MeshComponents.None);
+                    MeshTransforms.Translate(from, -refOffset);
+                }
+                var h = new MeshHausdorffDistance(from, refMesh) {
+                    SpatialB = refSpatial, Symmetric = false, Tolerance = CertifiedTolerance, CancelF = CancelF
                 };
                 if (h.Compute() == false)
                     return false;
@@ -128,29 +138,80 @@ namespace gs
         /// <summary> signed distance of p to the reference (see Sign), its closest point and triangle </summary>
         public double SignedDistance(Vector3d p, out Vector3d closest, out int tid)
         {
-            if (ReferenceSpatial == null)
-                ReferenceSpatial = new DMeshAABBTree3(Reference, true);
-            if (Sign == Signs.PseudoNormal && vertexNormals == null)
-                compute_pseudonormals();
-            tid = ReferenceSpatial.FindNearestTriangle(p);
+            lock (prepareLock) {
+                prepare_reference();
+                if (Sign == Signs.PseudoNormal && vertexNormals == null)
+                    compute_pseudonormals();
+            }
+            Vector3d q = p - refOffset;
+            double d = signed_distance_local(q, out closest, out tid);
+            closest += refOffset;
+            return d;
+        }
+
+        double signed_distance_local(Vector3d p, out Vector3d closest, out int tid)
+        {
+            tid = refSpatial.FindNearestTriangle(p);
             closest = p;
             if (tid == DMesh3.InvalidID)
                 return double.NaN;
-            Index3i tv = Reference.GetTriangle(tid);
-            Triangle3d tri = new Triangle3d(Reference.GetVertex(tv.a), Reference.GetVertex(tv.b), Reference.GetVertex(tv.c));
+            Index3i tv = refMesh.GetTriangle(tid);
+            Triangle3d tri = new Triangle3d(refMesh.GetVertex(tv.a), refMesh.GetVertex(tv.b), refMesh.GetVertex(tv.c));
             Vector3d bary;
             double d = Math.Sqrt(DistPoint3Triangle3.DistanceSqr(ref p, ref tri, out closest, out bary));
             switch (Sign) {
                 case Signs.Unsigned:
                     return d;
                 case Signs.WindingNumber:
-                    return (Math.Abs(ReferenceSpatial.FastWindingNumber(p)) > 0.5) ? -d : d;
+                    return (Math.Abs(refSpatial.FastWindingNumber(p)) > 0.5) ? -d : d;
                 default:
                     Vector3d n = feature_normal(tid, tv, bary);
                     if (n == Vector3d.Zero)     // only degenerate triangles around: no direction to judge by
-                        return (Math.Abs(ReferenceSpatial.FastWindingNumber(p)) > 0.5) ? -d : d;
+                        return (Math.Abs(refSpatial.FastWindingNumber(p)) > 0.5) ? -d : d;
                     return ((p - closest).Dot(n) < 0) ? -d : d;
             }
+        }
+
+
+        // The reference the queries run on: Reference itself, or, if it lies far from the origin (eg geo
+        // coordinates) and the caller set no ReferenceSpatial, a copy moved to the origin with the same IDs.
+        // The tree's boxes are floats, which round by 2^-24 of the coordinates (0.3 at 5e6): far from the
+        // origin they would visit far too many boxes. Rebuilt only when Reference or ReferenceSpatial
+        // changes (another object, or the reference was edited).
+        DMesh3 refMesh;
+        DMeshAABBTree3 refSpatial;
+        Vector3d refOffset = Vector3d.Zero;
+        DMesh3 refSource;
+        int refStamp = -1;
+        DMeshAABBTree3 refFromField;        // ReferenceSpatial as it was when the state was prepared
+        DMeshAABBTree3 ownReferenceSpatial; // a tree this instance built on Reference itself
+        readonly object prepareLock = new object();
+
+        void prepare_reference()
+        {
+            if (refSpatial != null && refSource == Reference && refStamp == Reference.ShapeTimestamp
+                && refFromField == ReferenceSpatial)
+                return;
+            // anything cached for the previous reference is stale
+            vertexNormals = null; flipped = null;
+            bool given = ReferenceSpatial != null && ReferenceSpatial != ownReferenceSpatial;
+            refOffset = Vector3d.Zero;
+            if (given) {
+                refMesh = Reference;
+                refSpatial = ReferenceSpatial;
+            } else if (MeshWallThickness.FarFromOrigin(Reference)) {
+                refOffset = Reference.CachedBounds.Center;
+                refMesh = new DMesh3(Reference, false, MeshComponents.None);
+                MeshTransforms.Translate(refMesh, -refOffset);
+                refSpatial = new DMeshAABBTree3(refMesh, true);
+                ReferenceSpatial = null;
+            } else {
+                ownReferenceSpatial = new DMeshAABBTree3(Reference, true);
+                ReferenceSpatial = ownReferenceSpatial;
+                refMesh = Reference;
+                refSpatial = ownReferenceSpatial;
+            }
+            refSource = Reference; refStamp = Reference.ShapeTimestamp; refFromField = ReferenceSpatial;
         }
 
 
@@ -162,7 +223,7 @@ namespace gs
         Vector3d tri_normal(int tid)
         {
             double area;
-            Vector3d n = MeshAnalysisNormals.TriNormal(Reference, tid, out area);
+            Vector3d n = MeshAnalysisNormals.TriNormal(refMesh, tid, out area);
             if (!(area >= degenerateArea))
                 return Vector3d.Zero;
             return (flipped != null && flipped[tid]) ? -n : n;
@@ -171,23 +232,23 @@ namespace gs
 
         void compute_pseudonormals()
         {
-            flipped = OrientInvertedParts ? MeshWallThickness.InvertedTriangles(Reference) : null;
-            double diag = Reference.CachedBounds.DiagonalLength;
+            flipped = OrientInvertedParts ? MeshWallThickness.InvertedTriangles(refMesh) : null;
+            double diag = refMesh.CachedBounds.DiagonalLength;
             degenerateArea = 1e-12 * diag * diag;
             // the winding number decides where degenerate triangles leave no normal: build its cache now,
             // before the parallel queries
-            foreach (int tid in Reference.TriangleIndices())
+            foreach (int tid in refMesh.TriangleIndices())
                 if (tri_normal(tid) == Vector3d.Zero) {
-                    ReferenceSpatial.FastWindingNumber(Vector3d.Zero);
+                    refSpatial.FastWindingNumber(Vector3d.Zero);
                     break;
                 }
-            vertexNormals = new Vector3d[Reference.MaxVertexID];
-            foreach (int tid in Reference.TriangleIndices()) {
+            vertexNormals = new Vector3d[refMesh.MaxVertexID];
+            foreach (int tid in refMesh.TriangleIndices()) {
                 Vector3d n = tri_normal(tid);
                 if (double.IsNaN(n.x)) continue;
-                Index3i t = Reference.GetTriangle(tid);
+                Index3i t = refMesh.GetTriangle(tid);
                 for (int j = 0; j < 3; ++j) {
-                    double angle = MeshAnalysisNormals.InternalAngle(Reference, tid, j);
+                    double angle = MeshAnalysisNormals.InternalAngle(refMesh, tid, j);
                     if (double.IsNaN(angle)) continue;
                     vertexNormals[t[j]] += angle * n;
                 }
@@ -207,9 +268,9 @@ namespace gs
             Vector3d n = tri_normal(tid);
             if (zeros == 1) {
                 int a = tv[(zero + 1) % 3], b = tv[(zero + 2) % 3];
-                int eid = Reference.FindEdge(a, b);
+                int eid = refMesh.FindEdge(a, b);
                 if (eid != DMesh3.InvalidID) {
-                    Index2i et = Reference.GetEdgeT(eid);
+                    Index2i et = refMesh.GetEdgeT(eid);
                     int other = (et.a == tid) ? et.b : et.a;
                     if (other != DMesh3.InvalidID)
                         n += tri_normal(other);
