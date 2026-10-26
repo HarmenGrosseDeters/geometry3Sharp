@@ -1019,25 +1019,30 @@ namespace geometry3Sharp.Tests
             // that is overlap-free in its input UVs. Without rotation, scaling and translating still round, which
             // moves vertices nearly on a slanted line (dir) to its other side.
             int checkedCharts = 0, unrotated = 0, repaired = 0;
+            foreach (bool mirror in new[] { false, true })
             foreach (bool allowRotation in new[] { true, false })
                 for (int k = 0; k < 6; ++k) {
                     double ang = allowRotation ? 0 : 0.3 + 0.17 * k;
                     Vector2d dir = new Vector2d(Math.Cos(ang), Math.Sin(ang));
                     DMesh3 mesh = TJunctionChart(24 + 7 * k, 10 + 3.1 * k, dir, new Vector2d(30 + 5 * k, 19 - 2 * k));
                     var uv = new Vector2d[mesh.MaxVertexID];
-                    foreach (int v in mesh.VertexIndices()) { Vector3d p = mesh.GetVertex(v); uv[v] = new Vector2d(p.x, p.y); }
-                    Assert.True(UVOverlap.Compute(mesh, uv).IsInjective, "input " + k);
+                    // mirrored: a valid chart with clockwise triangles, which must be checked as well
+                    foreach (int v in mesh.VertexIndices()) { Vector3d p = mesh.GetVertex(v); uv[v] = new Vector2d(mirror ? -p.x : p.x, p.y); }
+                    var ov0 = UVOverlap.Compute(mesh, uv);
+                    Assert.True(ov0.OverlappingPairs == 0 && ov0.DegenerateTriangles == 0, "input " + k);
                     var packer = new UVPacker(mesh) { UV = uv, Padding = 0.01, AllowRotation = allowRotation };
                     var r = packer.Compute();
                     Assert.True(r.Succeeded, r.Error);
                     var ov = UVOverlap.Compute(mesh, r.UV);
-                    Assert.True(ov.IsInjective, "rotation " + allowRotation + " case " + k + ": " + ov.OverlappingPairs + " pairs, "
-                        + ov.InvertedTriangles + " inverted, " + ov.DegenerateTriangles + " degenerate; repaired " + packer.RepairedVertices + " unrotated " + packer.UnrotatedCharts + " " + string.Join(";", ov.Pairs));
+                    Assert.True(ov.OverlappingPairs == 0 && ov.DegenerateTriangles == 0 && ov.InvertedTriangles == ov0.InvertedTriangles,
+                        "mirror " + mirror + " rotation " + allowRotation + " case " + k + ": " + ov.OverlappingPairs + " pairs, "
+                        + ov.InvertedTriangles + " inverted, " + ov.DegenerateTriangles + " degenerate");
+                    Assert.Equal(0, packer.RemainingDefects);
                     checkedCharts++;
                     unrotated += packer.UnrotatedCharts;
                     repaired += packer.RepairedVertices;
                 }
-            Assert.Equal(12, checkedCharts);
+            Assert.Equal(24, checkedCharts);
             // both fallbacks were needed somewhere
             Assert.True(unrotated > 0 && repaired > 0, "unrotated " + unrotated + ", repaired " + repaired);
         }
@@ -1045,37 +1050,58 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void UVPacker_DefectsOfTheInputAreNotRepaired()
         {
-            // a strip whose UVs fold back and forth (every triangle overlaps many others in the input) and a
-            // mirrored (clockwise) chart: their overlaps and inversions are the input's, not the packer's; nothing is
-            // moved or unrotated (the check of the placed charts compares with the input)
+            // a strip whose UVs fold back and forth (every triangle overlaps many others in the input), turned so
+            // that it is rotated to its minimum-area rectangle: its overlaps are the input's, not the packer's;
+            // nothing is moved or unrotated, the layout is that of the packer without the check
+            List<Vector2d> uv;
+            DMesh3 mesh = Accordion(400, 0.4, out uv);
+            Assert.True(UVOverlap.Compute(mesh, uv).OverlappingPairs > 100000);
+            var packer = new UVPacker(mesh) { UV = uv, Padding = 0.01 };
+            var r = packer.Compute();
+            Assert.True(r.Succeeded, r.Error);
+            Assert.Equal(0, packer.RepairedVertices);
+            Assert.Equal(0, packer.UnrotatedCharts);
+            Assert.Equal(0, packer.RemainingDefects);
+            var plain = new UVPacker(mesh) { UV = uv, Padding = 0.01, ExactCheck = false }.Compute();
+            foreach (int v in mesh.VertexIndices())
+                Assert.Equal(plain.UV[v], r.UV[v]);
+
+            // with T-junction charts (one mirrored) next to it: more than MaxCheckedPairs overlaps in the input
+            // do not hide the defects of the other charts
+            foreach (bool mirror in new[] { false, true }) {
+                DMesh3 both = Accordion(400, 0.4, out uv);
+                int firstTJ = both.MaxTriangleID;
+                DMesh3 tj = TJunctionChart(24, 10, new Vector2d(1, 0), new Vector2d(30, 19));
+                MeshEditor.Append(both, tj);
+                foreach (int v in tj.VertexIndices()) { Vector3d p = tj.GetVertex(v); uv.Add(new Vector2d(mirror ? -p.x : p.x, p.y)); }
+                var pk = new UVPacker(both) { UV = uv, Padding = 0.01 };
+                var rb = pk.Compute();
+                Assert.True(rb.Succeeded, rb.Error);
+                var ov = UVOverlap.Compute(both, rb.UV, int.MaxValue);
+                Assert.DoesNotContain(ov.Pairs, pr => pr.a >= firstTJ || pr.b >= firstTJ);
+                Assert.DoesNotContain(ov.DegenerateTriangleIds, t => t >= firstTJ);
+                Assert.True(pk.UnrotatedCharts + pk.RepairedVertices > 0);
+                Assert.Equal(0, pk.RemainingDefects);
+            }
+        }
+
+        // a strip of 2n triangles whose UVs fold back and forth (x = 0, 1, 0, 1, ...), turned by angle
+        static DMesh3 Accordion(int n, double angle, out List<Vector2d> uv)
+        {
             DMesh3 mesh = new DMesh3();
-            int n = 400;
-            var uv = new List<Vector2d>();
+            uv = new List<Vector2d>();
+            double c = Math.Cos(angle), sn = Math.Sin(angle);
             int[] lo = new int[n + 1], hi = new int[n + 1];
             for (int i = 0; i <= n; ++i) {
-                double x = (i % 2) * 1.0 + 0.001 * i;   // accordion: x goes 0, 1, 0, 1, ...
-                lo[i] = mesh.AppendVertex(new Vector3d(i, 0, 0)); uv.Add(new Vector2d(x, 0));
-                hi[i] = mesh.AppendVertex(new Vector3d(i, 1, 0)); uv.Add(new Vector2d(x, 1));
+                double x = (i % 2) * 1.0 + 0.001 * i;
+                lo[i] = mesh.AppendVertex(new Vector3d(i, 0, 0)); uv.Add(new Vector2d(c * x, sn * x));
+                hi[i] = mesh.AppendVertex(new Vector3d(i, 1, 0)); uv.Add(new Vector2d(c * x - sn, sn * x + c));
             }
             for (int i = 0; i < n; ++i) {
                 mesh.AppendTriangle(lo[i], lo[i + 1], hi[i + 1]);
                 mesh.AppendTriangle(lo[i], hi[i + 1], hi[i]);
             }
-            DMesh3 mirrored = TJunctionChart(20, 10, new Vector2d(1, 0), new Vector2d(30, 19));
-            int offset = mesh.MaxVertexID;
-            MeshEditor.Append(mesh, mirrored);
-            foreach (int v in mirrored.VertexIndices()) { Vector3d p = mirrored.GetVertex(v); uv.Add(new Vector2d(-p.x, p.y)); }
-            Assert.True(UVOverlap.Compute(mesh, uv).OverlappingPairs > 10000);
-            var packer = new UVPacker(mesh) { UV = uv, Padding = 0.01 };
-            var r = packer.Compute();
-            Assert.True(r.Succeeded, r.Error);
-            Assert.Equal(2, packer.ChartCount);
-            Assert.Equal(0, packer.RepairedVertices);
-            Assert.Equal(0, packer.UnrotatedCharts);
-            // without the check the layout is the same here
-            var plain = new UVPacker(mesh) { UV = uv, Padding = 0.01, ExactCheck = false }.Compute();
-            foreach (int v in mesh.VertexIndices())
-                Assert.Equal(plain.UV[v], r.UV[v]);
+            return mesh;
         }
 
         [Fact]

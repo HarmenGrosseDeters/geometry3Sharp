@@ -61,6 +61,11 @@ namespace g3
         /// has in the input UVs (scaling and translating rounds; nearly collinear vertices can change sides)
         /// </summary>
         public int RepairedVertices;
+        /// <summary>
+        /// UV triangles (and overlapping pairs) that the packing broke and that could not be repaired, after Compute()
+        /// (0 unless ExactCheck is off or the repair failed)
+        /// </summary>
+        public int RemainingDefects;
 
         public UVPacker(DMesh3 mesh)
         {
@@ -81,7 +86,7 @@ namespace g3
 
         public ParameterizationResult Compute()
         {
-            ChartCount = 0; TriangleChart = null; Coverage = 0; ChartBounds = null; AchievedPadding = 0; UnrotatedCharts = 0; RepairedVertices = 0;
+            ChartCount = 0; TriangleChart = null; Coverage = 0; ChartBounds = null; AchievedPadding = 0; UnrotatedCharts = 0; RepairedVertices = 0; RemainingDefects = 0;
             IList<Vector2d> uv = UV;
             if (uv == null) {
                 if (!Mesh.HasVertexUVs)
@@ -128,7 +133,7 @@ namespace g3
             }
             // scaling and translating still round: a vertex nearly on the line of another triangle's edge can end
             // on its other side. Such vertices are moved by a few ulps back to their side in the input UVs.
-            repairRounding(uv, outUV, defects);
+            RemainingDefects = repairRounding(uv, outUV, defects);
             for (int ci = 0; ci < charts.Count; ++ci) {
                 AxisAlignedBox2d box = AxisAlignedBox2d.Empty;
                 foreach (int v in charts[ci].Verts) box.Contain(outUV[v]);
@@ -194,6 +199,7 @@ namespace g3
             public List<Index2i> Pairs = new List<Index2i>();
             public List<int> Triangles = new List<int>();
             public int Count { get { return Pairs.Count + Triangles.Count; } }
+            public int Total;   // also the pairs beyond MaxCheckedPairs
         }
 
         const int MaxCheckedPairs = 100000;
@@ -201,22 +207,29 @@ namespace g3
         Defects roundingDefects(IList<Vector2d> uv, Vector2d[] outUV)
         {
             var d = new Defects();
-            UVOverlap ov = UVOverlap.Compute(Mesh, outUV, MaxCheckedPairs);
-            if (ov.IsInjective)
-                return d;
-            foreach (Index2i pr in ov.Pairs) {
-                if (TriangleChart[pr.a] != TriangleChart[pr.b])
-                    continue;
-                Index3i a = Mesh.GetTriangle(pr.a), b = Mesh.GetTriangle(pr.b);
-                if (ExactPredicates.Orient2d(uv[a.a], uv[a.b], uv[a.c]) > 0 && ExactPredicates.Orient2d(uv[b.a], uv[b.b], uv[b.c]) > 0
-                    && !UVOverlap.InteriorsOverlap(uv[a.a], uv[a.b], uv[a.c], uv[b.a], uv[b.b], uv[b.c]))
-                    d.Pairs.Add(pr);
-            }
-            foreach (int tid in ov.InvertedTriangleIds.Concat(ov.DegenerateTriangleIds)) {
+            // single triangles: the orientation changed (mirrored, clockwise input charts included)
+            foreach (int tid in Mesh.TriangleIndices()) {
                 Index3i t = Mesh.GetTriangle(tid);
-                if (ExactPredicates.Orient2d(uv[t.a], uv[t.b], uv[t.c]) > 0)
+                int s = ExactPredicates.Orient2d(uv[t.a], uv[t.b], uv[t.c]);
+                if (s != 0 && ExactPredicates.Orient2d(outUV[t.a], outUV[t.b], outUV[t.c]) != s)
                     d.Triangles.Add(tid);
             }
+            // pairs: overlapping in a chart, but not in the input (the filter runs inside the test, so overlaps of
+            // the input do not count against the stored pairs)
+            Func<int, int, bool> fromRounding = (ta, tb) => {
+                if (TriangleChart[ta] != TriangleChart[tb])
+                    return false;
+                Index3i a = Mesh.GetTriangle(ta), b = Mesh.GetTriangle(tb);
+                int sa = ExactPredicates.Orient2d(uv[a.a], uv[a.b], uv[a.c]), sb = ExactPredicates.Orient2d(uv[b.a], uv[b.b], uv[b.c]);
+                if (sa == 0 || sb == 0)
+                    return false;
+                Vector2d a1 = sa > 0 ? uv[a.b] : uv[a.c], a2 = sa > 0 ? uv[a.c] : uv[a.b];
+                Vector2d b1 = sb > 0 ? uv[b.b] : uv[b.c], b2 = sb > 0 ? uv[b.c] : uv[b.b];
+                return !UVOverlap.InteriorsOverlap(uv[a.a], a1, a2, uv[b.a], b1, b2);
+            };
+            UVOverlap ov = UVOverlap.Compute(Mesh, outUV, MaxCheckedPairs, fromRounding);
+            d.Pairs.AddRange(ov.Pairs);
+            d.Total = ov.OverlappingPairs + d.Triangles.Count;
             return d;
         }
 
@@ -239,9 +252,9 @@ namespace g3
         // the vertices of each defect triangle (pair) that changed sides relative to an edge of the other (or the
         // opposite edge of its own) triangle are moved back to their side in uv, a few ulps at a time, checked with
         // exact predicates. A round that does not reduce the defects is undone.
-        void repairRounding(IList<Vector2d> uv, Vector2d[] outUV, Defects defects)
+        int repairRounding(IList<Vector2d> uv, Vector2d[] outUV, Defects defects)
         {
-            for (int round = 0; round < 8 && defects.Count > 0; ++round) {
+            for (int round = 0; round < 8 && defects.Total > 0; ++round) {
                 Vector2d[] before = (Vector2d[])outUV.Clone();
                 int moved = 0;
                 foreach (Index2i pr in defects.Pairs) {
@@ -253,15 +266,16 @@ namespace g3
                     moved += restoreSides(uv, outUV, t, t);
                 }
                 if (moved == 0)
-                    return;
+                    break;
                 Defects after = roundingDefects(uv, outUV);
-                if (after.Count >= defects.Count) {
+                if (after.Total >= defects.Total) {
                     Array.Copy(before, outUV, outUV.Length);
-                    return;
+                    break;
                 }
                 RepairedVertices += moved;
                 defects = after;
             }
+            return defects.Total;
         }
 
         // the vertices of a that are not vertices of b, against the lines of the edges of b
