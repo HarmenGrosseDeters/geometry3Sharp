@@ -974,6 +974,74 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        // a flat chart (UV = xy) like a CAD face with T-junctions: a triangle over the base (0,0)-(len,0), below it a
+        // strip whose vertices lie on that base (not shared with the triangle), and a long thin triangle that
+        // tilts the minimum-area rectangle; dir rotates everything (exact for dir = (1,0))
+        static DMesh3 TJunctionChart(int n, double len, Vector2d dir, Vector2d far)
+        {
+            var mesh = new DMesh3();
+            mesh.EnableVertexUVs(Vector2f.Zero);
+            Func<double, double, int> vert = (x, y) => {
+                Vector2d p = new Vector2d(x * dir.x - y * dir.y, x * dir.y + y * dir.x);
+                return mesh.AppendVertex(new Vector3d(p.x, p.y, 0));
+            };
+            int a = vert(0, 0), b = vert(len, 0), c = vert(0.5 * len, 1);
+            mesh.AppendTriangle(a, b, c);
+            int[] top = new int[n + 1], bottom = new int[n];
+            top[0] = a; top[n] = b;
+            Vector2d pa = mesh.GetVertex(a).xy, pb = mesh.GetVertex(b).xy;
+            for (int i = 1; i < n; ++i) {
+                top[i] = vert(i * len / n, 0);
+                // rotated, the vertex is only nearly on the base: keep it off the triangle above (exactly)
+                Vector3d p = mesh.GetVertex(top[i]);
+                for (double h = 1e-15; ExactPredicates.Orient2d(pa, pb, p.xy) > 0; h *= 2)
+                    p = new Vector3d(p.x + h * dir.y, p.y - h * dir.x, 0);
+                mesh.SetVertex(top[i], p);
+            }
+            for (int i = 0; i < n; ++i) bottom[i] = vert((i + 0.5) * len / n, -1);
+            for (int i = 0; i < n; ++i) {
+                mesh.AppendTriangle(top[i], bottom[i], top[i + 1]);
+                if (i + 1 < n) mesh.AppendTriangle(bottom[i], bottom[i + 1], top[i + 1]);
+            }
+            mesh.AppendTriangle(b, vert(far.x, far.y), vert(far.x, far.y + 1));
+            foreach (int v in mesh.VertexIndices()) {
+                Vector3d p = mesh.GetVertex(v);
+                mesh.SetVertexUV(v, new Vector2f((float)p.x, (float)p.y));
+            }
+            return mesh;
+        }
+
+        [Fact]
+        public void UVPacker_PlacedChartsStayOverlapFree()
+        {
+            // the old packer rotated these charts to their (tilted) minimum-area rectangle; rounding moved vertices
+            // of the T-junctions off the base line, into the triangle above: overlapping UV triangles in a chart
+            // that is overlap-free in its input UVs. Without rotation, scaling and translating still round, which
+            // moves vertices nearly on a slanted line (dir) to its other side.
+            int checkedCharts = 0, unrotated = 0, repaired = 0;
+            foreach (bool allowRotation in new[] { true, false })
+                for (int k = 0; k < 6; ++k) {
+                    double ang = allowRotation ? 0 : 0.3 + 0.17 * k;
+                    Vector2d dir = new Vector2d(Math.Cos(ang), Math.Sin(ang));
+                    DMesh3 mesh = TJunctionChart(24 + 7 * k, 10 + 3.1 * k, dir, new Vector2d(30 + 5 * k, 19 - 2 * k));
+                    var uv = new Vector2d[mesh.MaxVertexID];
+                    foreach (int v in mesh.VertexIndices()) { Vector3d p = mesh.GetVertex(v); uv[v] = new Vector2d(p.x, p.y); }
+                    Assert.True(UVOverlap.Compute(mesh, uv).IsInjective, "input " + k);
+                    var packer = new UVPacker(mesh) { UV = uv, Padding = 0.01, AllowRotation = allowRotation };
+                    var r = packer.Compute();
+                    Assert.True(r.Succeeded, r.Error);
+                    var ov = UVOverlap.Compute(mesh, r.UV);
+                    Assert.True(ov.IsInjective, "rotation " + allowRotation + " case " + k + ": " + ov.OverlappingPairs + " pairs, "
+                        + ov.InvertedTriangles + " inverted, " + ov.DegenerateTriangles + " degenerate; repaired " + packer.RepairedVertices + " unrotated " + packer.UnrotatedCharts + " " + string.Join(";", ov.Pairs));
+                    checkedCharts++;
+                    unrotated += packer.UnrotatedCharts;
+                    repaired += packer.RepairedVertices;
+                }
+            Assert.Equal(12, checkedCharts);
+            // both fallbacks were needed somewhere
+            Assert.True(unrotated > 0 && repaired > 0, "unrotated " + unrotated + ", repaired " + repaired);
+        }
+
         [Fact]
         public void UVPacker_InvalidInput()
         {

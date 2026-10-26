@@ -14,7 +14,9 @@ namespace g3
     /// minimum-area bounding rectangle (rotating calipers, ContMinBox2), and the rectangles are packed with the
     /// skyline bottom-left heuristic (J. Jylänki, A Thousand Ways to Pack the Bin, 2010), trying 90 degree
     /// rotations and several bin widths for the smallest square. Charts keep their relative scale.
-    /// Charts are at least Padding apart and from the border of the square.
+    /// Charts are at least Padding apart and from the border of the square. The placed charts are checked with
+    /// exact predicates: a chart whose rotated UVs overlap or flip (rounding at exactly collinear vertices) is
+    /// placed again without the rotation, which keeps the order of each coordinate.
     /// </summary>
     public class UVPacker
     {
@@ -43,6 +45,16 @@ namespace g3
         /// there are so many charts that the gaps alone fill the square.
         /// </summary>
         public double AchievedPadding;
+        /// <summary>
+        /// charts placed without the rotation to their minimum-area rectangle, after Compute(): the rotated UVs had
+        /// overlapping, inverted or degenerate triangles (rounding at exactly collinear vertices, eg T-junctions)
+        /// </summary>
+        public int UnrotatedCharts;
+        /// <summary>
+        /// vertices moved by a few ulps after Compute(), so that each keeps its side of the nearby triangle edges it
+        /// has in the input UVs (scaling and translating rounds; nearly collinear vertices can change sides)
+        /// </summary>
+        public int RepairedVertices;
 
         public UVPacker(DMesh3 mesh)
         {
@@ -57,11 +69,13 @@ namespace g3
             public double W, H;
             public bool Rotated;       // placed rotated by 90 degrees
             public double X, Y;        // placement of the padded rectangle
+            public bool Angled;        // rotated to its minimum-area rectangle (by an angle that is rounded)
+            public bool KeepAxes;      // not rotated to the minimum-area rectangle
         }
 
         public ParameterizationResult Compute()
         {
-            ChartCount = 0; TriangleChart = null; Coverage = 0; ChartBounds = null; AchievedPadding = 0;
+            ChartCount = 0; TriangleChart = null; Coverage = 0; ChartBounds = null; AchievedPadding = 0; UnrotatedCharts = 0; RepairedVertices = 0;
             IList<Vector2d> uv = UV;
             if (uv == null) {
                 if (!Mesh.HasVertexUVs)
@@ -84,40 +98,27 @@ namespace g3
             }
 
             List<Chart> charts = findCharts(uv);
-            foreach (Chart c in charts)
-                prepare(c, uv);
-
-            // pack, then grow the padding (in chart units) until it is at least Padding in the unit square
-            double area = charts.Sum(c => c.W * c.H);
-            double pad = Padding * Math.Sqrt(Math.Max(area, 1e-300)) * 1.2;
-            double side = 0;
-            bool padded = false;
-            int iterations = 0;
+            double pad, side, scale;
+            bool padded;
+            int iterations;
+            Vector2d[] outUV;
             while (true) {
-                iterations++;
-                side = packBest(charts, pad);
-                padded = pad >= Padding * side * (1 - 1e-9) || Padding == 0;
-                if (padded || iterations == 20)
+                foreach (Chart c in charts)
+                    prepare(c, uv);
+                if (!pack(charts, out pad, out side, out padded, out iterations))
+                    return Result = ParameterizationResult.Failure(ParameterizationStatus.InvalidMesh, "all charts have zero size");
+                scale = 1.0 / side;
+                outUV = place(charts, pad, scale);
+                // a rotation by any other angle than a multiple of 90 degrees is rounded: vertices exactly on the
+                // line of another triangle's edge (T-junctions, collinear chains of a flat CAD face) can move to the
+                // wrong side, and the chart overlaps itself. Scaling and translating keep each coordinate's order,
+                // so such charts are packed again without the rotation.
+                if (!AllowRotation || !uncoverRotationDefects(charts, outUV))
                     break;
-                pad = Padding * side * 1.0001;
             }
-            if (!(side > 0))
-                return Result = ParameterizationResult.Failure(ParameterizationStatus.InvalidMesh, "all charts have zero size");
-
-            double scale = 1.0 / side;
-            Vector2d[] outUV = new Vector2d[Mesh.MaxVertexID];
-            ChartBounds = new List<AxisAlignedBox2d>();
-            foreach (Chart c in charts) {
-                double ox = c.X + pad, oy = c.Y + pad;
-                AxisAlignedBox2d box = AxisAlignedBox2d.Empty;
-                for (int k = 0; k < c.Verts.Count; ++k) {
-                    Vector2d p = c.Rotated ? new Vector2d(c.H - c.P[k].y, c.P[k].x) : c.P[k];
-                    Vector2d q = new Vector2d((ox + p.x) * scale, (oy + p.y) * scale);
-                    outUV[c.Verts[k]] = q;
-                    box.Contain(q);
-                }
-                ChartBounds.Add(box);
-            }
+            // scaling and translating still round: a vertex nearly on the line of another triangle's edge can end
+            // on its other side. Such vertices are moved by a few ulps back to their side in the input UVs.
+            repairRounding(uv, outUV);
             ChartCount = charts.Count;
             Coverage = 0;
             foreach (int tid in Mesh.TriangleIndices()) {
@@ -131,6 +132,136 @@ namespace g3
             Result.Converged = padded;
             Result.Distortion = ParameterizationDistortion.Compute(Mesh, outUV);
             return Result;
+        }
+
+        // pack, then grow the padding (in chart units) until it is at least Padding in the unit square
+        bool pack(List<Chart> charts, out double pad, out double side, out bool padded, out int iterations)
+        {
+            double area = charts.Sum(c => c.W * c.H);
+            pad = Padding * Math.Sqrt(Math.Max(area, 1e-300)) * 1.2;
+            side = 0;
+            padded = false;
+            iterations = 0;
+            while (true) {
+                iterations++;
+                side = packBest(charts, pad);
+                padded = pad >= Padding * side * (1 - 1e-9) || Padding == 0;
+                if (padded || iterations == 20)
+                    break;
+                pad = Padding * side * 1.0001;
+            }
+            return side > 0;
+        }
+
+        // UVs of the placed charts in the unit square, and their bounds
+        Vector2d[] place(List<Chart> charts, double pad, double scale)
+        {
+            Vector2d[] outUV = new Vector2d[Mesh.MaxVertexID];
+            ChartBounds = new List<AxisAlignedBox2d>();
+            foreach (Chart c in charts) {
+                double ox = c.X + pad, oy = c.Y + pad;
+                AxisAlignedBox2d box = AxisAlignedBox2d.Empty;
+                for (int k = 0; k < c.Verts.Count; ++k) {
+                    Vector2d p = c.Rotated ? new Vector2d(c.H - c.P[k].y, c.P[k].x) : c.P[k];
+                    Vector2d q = new Vector2d((ox + p.x) * scale, (oy + p.y) * scale);
+                    outUV[c.Verts[k]] = q;
+                    box.Contain(q);
+                }
+                ChartBounds.Add(box);
+            }
+            return outUV;
+        }
+
+        // charts rotated to their minimum-area rectangle whose placed UVs have overlapping, inverted or degenerate
+        // triangles (exact test) lose the rotation; true if there are such charts
+        bool uncoverRotationDefects(List<Chart> charts, Vector2d[] outUV)
+        {
+            if (!charts.Any(c => c.Angled))
+                return false;
+            UVOverlap ov = UVOverlap.Compute(Mesh, outUV, int.MaxValue);
+            var bad = new HashSet<int>();
+            foreach (Index2i pr in ov.Pairs) { bad.Add(TriangleChart[pr.a]); bad.Add(TriangleChart[pr.b]); }
+            foreach (int t in ov.InvertedTriangleIds) bad.Add(TriangleChart[t]);
+            foreach (int t in ov.DegenerateTriangleIds) bad.Add(TriangleChart[t]);
+            bool any = false;
+            foreach (int ci in bad)
+                if (charts[ci].Angled) {
+                    charts[ci].KeepAxes = true;
+                    UnrotatedCharts++;
+                    any = true;
+                }
+            return any;
+        }
+
+        // UV triangles that overlap, flip or collapse in outUV but not in uv: the vertices of each such triangle
+        // (pair) that changed sides relative to an edge of the other (or the opposite edge of its own) triangle
+        // are moved back to their side in uv, a few ulps at a time, checked with exact predicates
+        void repairRounding(IList<Vector2d> uv, Vector2d[] outUV)
+        {
+            for (int round = 0; round < 8; ++round) {
+                UVOverlap ov = UVOverlap.Compute(Mesh, outUV, int.MaxValue);
+                if (ov.IsInjective)
+                    return;
+                int moved = 0;
+                foreach (Index2i pr in ov.Pairs) {
+                    Index3i a = Mesh.GetTriangle(pr.a), b = Mesh.GetTriangle(pr.b);
+                    moved += restoreSides(uv, outUV, a, b) + restoreSides(uv, outUV, b, a);
+                }
+                foreach (int tid in ov.InvertedTriangleIds.Concat(ov.DegenerateTriangleIds)) {
+                    Index3i t = Mesh.GetTriangle(tid);
+                    moved += restoreSides(uv, outUV, t, t);
+                }
+                RepairedVertices += moved;
+                if (moved == 0)
+                    return;
+            }
+        }
+
+        // the vertices of a that are not vertices of b, against the lines of the edges of b
+        int restoreSides(IList<Vector2d> uv, Vector2d[] outUV, Index3i a, Index3i b)
+        {
+            int moved = 0;
+            for (int i = 0; i < 3; ++i) {
+                int x = a[i];
+                if (x == b.a || x == b.b || x == b.c)
+                    if (a != b) continue;
+                for (int e = 0; e < 3; ++e) {
+                    int p = b[e], q = b[(e + 1) % 3], r = b[(e + 2) % 3];
+                    if (x == p || x == q)
+                        continue;
+                    // side of x in the input; on the line: the side away from the rest of b
+                    int want = ExactPredicates.Orient2d(uv[p], uv[q], uv[x]);
+                    if (want == 0) {
+                        if (a == b) continue;
+                        want = -ExactPredicates.Orient2d(uv[p], uv[q], uv[r]);
+                    }
+                    if (want == 0 || ExactPredicates.Orient2d(outUV[p], outUV[q], outUV[x]) == want)
+                        continue;
+                    // only a vertex beside the edge (a T-junction): far from the segment the side of a nearly
+                    // collinear vertex depends on the rounded direction of a short edge, and moving it does not help
+                    Vector2d d = outUV[q] - outUV[p];
+                    double tpar = (outUV[x] - outUV[p]).Dot(d) / d.LengthSquared;
+                    if (!(tpar > 0 && tpar < 1))
+                        continue;
+                    Vector2d n = want * new Vector2d(-d.y, d.x);
+                    if (!(n.Length > 0))
+                        continue;
+                    n = n.Normalized;
+                    Vector2d x0 = outUV[x];
+                    double step = 4 * MathUtil.Epsilon * Math.Max(1, Math.Max(Math.Abs(x0.x), Math.Abs(x0.y)));
+                    // at most about 2^12 ulps; else the vertex stays
+                    bool done = false;
+                    for (int k = 0; k < 12 && !done; ++k, step *= 2) {
+                        outUV[x] = x0 + step * n;
+                        done = ExactPredicates.Orient2d(outUV[p], outUV[q], outUV[x]) == want;
+                    }
+                    if (done)
+                        moved++;
+                    else
+                        outUV[x] = x0;
+                }
+            }
+            return moved;
         }
 
         List<Chart> findCharts(IList<Vector2d> uv)
@@ -184,13 +315,15 @@ namespace g3
                     for (int k = 0; k < n; ++k) p[k] *= s;
                 }
             }
-            if (AllowRotation && n >= 3) {
+            c.Angled = false;
+            if (AllowRotation && !c.KeepAxes && n >= 3) {
                 Box2d box = new ContMinBox2(p, 1e-10, QueryNumberType.QT_DOUBLE, false).MinBox;
                 Vector2d ax = box.AxisX;
                 if (box.Extent.y > box.Extent.x)
                     ax = box.AxisY;
                 if (ax.Length > 0 && MathUtil.IsFinite(ax.x)) {
                     ax = ax.Normalized;
+                    c.Angled = !(ax.y == 0 && ax.x > 0);
                     for (int k = 0; k < n; ++k)
                         p[k] = new Vector2d(p[k].x * ax.x + p[k].y * ax.y, -p[k].x * ax.y + p[k].y * ax.x);
                 }
