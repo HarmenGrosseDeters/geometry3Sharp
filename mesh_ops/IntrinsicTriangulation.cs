@@ -110,7 +110,14 @@ namespace gs
         /// <summary> signpost: direction of halfedge h in the tangent space of its tail (see class comment) </summary>
         public double Signpost(int h) { return hAngle[h]; }
         /// <summary> direction of the edge of h at its head vertex, pointing back to the tail </summary>
-        public double ReverseSignpost(int h) { return hTwin[h] >= 0 ? hAngle[hTwin[h]] : vAngleSum[Head(h)]; }
+        public double ReverseSignpost(int h) { return hTwin[h] >= 0 ? hAngle[hTwin[h]] : LastSignpost(Head(h)); }
+        /// <summary> signpost of the second boundary edge of boundary vertex index i (its angle sum; boundary vertices are not scaled) </summary>
+        public double LastSignpost(int i) { return vScale[i] * vAngleSum[i]; }
+
+        internal static double vertex_scale(bool boundary, double angleSum)
+        {
+            return (boundary || !(angleSum > 0)) ? 1 : 2 * Math.PI / angleSum;
+        }
         public bool IsBoundaryVertex(int i) { return vBoundary[i]; }
         /// <summary> sum of the triangle angles at vertex index i (2 pi minus the angle defect) </summary>
         public double AngleSum(int i) { return vAngleSum[i]; }
@@ -270,7 +277,7 @@ namespace gs
                 }
                 fanCount[i] = count;
                 vAngleSum[i] = s;
-                vScale[i] = (s > 0 && vBoundary[i] == false) ? 2 * Math.PI / s : 1;
+                vScale[i] = vertex_scale(vBoundary[i], s);
                 double phi = 0;
                 h = h0;
                 for (int k = 0; k < count; ++k) {
@@ -635,7 +642,9 @@ namespace gs
         /// </summary>
         public void GetTangentBasis(int vid, out Vector3d e1, out Vector3d e2, out Vector3d n)
         {
-            int i = toIndex[vid];
+            int i = VertexIndex(vid);
+            if (i < 0)
+                throw new ArgumentException("IntrinsicTriangulation: " + vid + " is not a mesh vertex with triangles");
             Vector3d p = Mesh.GetVertex(vid);
             n = Vector3d.Zero;
             int h0 = inVHe[i], hh = h0, guard = 0;
@@ -676,7 +685,7 @@ namespace gs
         {
             Vector3d n;
             GetTangentBasis(vid, out e1, out e2, out n);
-            int i = toIndex[vid];
+            int i = VertexIndex(vid);
             Vector3d p = Mesh.GetVertex(vid);
             sign = new List<double>();
             world = new List<double>();
@@ -695,13 +704,24 @@ namespace gs
                     Vector3d dl = Mesh.GetVertex(toVertex[hV_input_head(Next(hh))]) - p;
                     double wl = Math.Atan2(dl.Dot(e2), dl.Dot(e1));
                     while (wl < prevW) wl += 2 * Math.PI;
-                    sign.Add(vAngleSum[i]); world.Add(wl);
+                    sign.Add(LastSignpost(i)); world.Add(wl);
                     break;
                 }
                 if (nh == h0 || ++guard > 3 * F0) break;
                 hh = nh;
             }
-            sign.Add(2 * Math.PI); world.Add(2 * Math.PI);
+            // close the circle back at the first edge, keeping both sequences increasing: a boundary vertex with
+            // an angle sum above 2 pi has signposts beyond 2 pi, and the projection of a folded fan (saddles)
+            // winds more than once. Directions are only defined modulo 2 pi, so map_angle uses the first corner
+            // that contains an angle.
+            sign.Add(next_turn(sign[sign.Count - 1])); world.Add(next_turn(world[world.Count - 1]));
+        }
+
+        // smallest multiple of 2 pi, at least 2 pi, that is above a (or equal to it)
+        static double next_turn(double a)
+        {
+            const double twoPi = 2 * Math.PI;
+            return Math.Max(1, Math.Ceiling(a / twoPi - 1e-12)) * twoPi;
         }
 
         static double map_angle(double a, List<double> from, List<double> to)
