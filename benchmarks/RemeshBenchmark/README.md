@@ -6,13 +6,19 @@ split-only passes).
 
 ## Usage
 ```
-dotnet run -c Release --project benchmarks/RemeshBenchmark -- runs=5 > results/procedural.txt
+mkdir -p benchmarks/RemeshBenchmark/results
+dotnet run -c Release --project benchmarks/RemeshBenchmark -- runs=5 > benchmarks/RemeshBenchmark/results/procedural.txt
 python3 benchmarks/RemeshBenchmark/fetch_data.py          # optional: 20 clean Thingi10K meshes to data/meshes
-dotnet run -c Release --project benchmarks/RemeshBenchmark -- runs=3 thingi=benchmarks/RemeshBenchmark/data/meshes only=thingi > results/thingi.txt
-python3 benchmarks/RemeshBenchmark/summarize.py results/thingi.txt
+dotnet run -c Release --project benchmarks/RemeshBenchmark -- runs=3 thingi=benchmarks/RemeshBenchmark/data/meshes only=thingi > benchmarks/RemeshBenchmark/results/thingi.txt
+python3 benchmarks/RemeshBenchmark/summarize.py benchmarks/RemeshBenchmark/results/thingi.txt
 ```
 `only=<regex>` selects cases. The program prints one JSON line per case and configuration, then a markdown
-table. No mesh files are committed; Thingi10K models carry individual licenses (`data/input_summary.csv`).
+table. No mesh files are committed; Thingi10K models carry individual licenses (`data/input_summary.csv`). The
+selection (seed 42 over the current Thingi10K metadata) was: 129918 1043471 39460 299291 242225 135363 125069
+89451 118679 996810 63709 105686 1053376 121869 237642 267659 78295 104582 93370 196126.
+
+RemesherPro is deterministic only with the sorted edge queue of PR #151; without it the RemesherPro rows vary
+from run to run.
 
 ## Configurations
 | caller | Remesher today | `pro_fastest` | `pro_iter` |
@@ -27,11 +33,12 @@ The target edge length is a multiple of the input's mean edge length (`g3cli`'s 
 - `sphere_refine`: normalized-cube sphere (6.3k triangles), target 0.5 x mean edge (refinement).
 - `bumpy_uniform`: bumpy sphere (75k triangles), target 1 x mean edge (equalization).
 - `noisy_coarsen`: noisy sphere (303k triangles), target 3 x mean edge (coarsening).
-- `open_stretched`: open heightfield with anisotropic triangles (aspect 2.5), target 1 x mean edge, boundary kept.
-- `terrain_band`: the band `TerrainSafetyLines` remeshes (within 3 d + 2 h of the crest, triangles of edge 2 h, as
-  `refine_near_sources` leaves them) at a pit edge: plateau, 35 degree slope, straight crest. The exact distance
-  along the surface to the crest is known, so the AlongSurface line (heat method from the vertices nearest the
-  crest, iso line at d + 0.35 h, as in `TerrainSafetyLines`) computed on each remeshed band is checked against it:
+- `open_stretched`: open heightfield, 64 x 40 cells on 4 x 1 (cell aspect 2.5), target 1 x mean edge, boundary kept.
+- `terrain_band`: the band `TerrainSafetyLines` remeshes, built as there from an 80 x 80 m pit on a 1 m grid
+  (plateau, 35 degree slope, straight crest at y = 40): edges longer than 2 h near the crest split
+  (`refine_near_sources`), then the triangles within 3 d + 2 h of the crest cut out. The exact distance along the
+  surface to the crest is known, so the AlongSurface line (heat method from the vertices nearest the crest, iso
+  line at d + 0.35 h, as in `TerrainSafetyLines`) computed on each remeshed band is checked against it:
   `band min/max excess` is the exact distance of the line points minus d (negative = too close).
 - `terrain_band_bumpy`: the same with 0.3 m bumps (no exact distance).
 - `terrain_safety`: `TerrainSafetyLines` AlongSurface end to end on the full 80 x 80 m pit, with whatever remesher
@@ -40,11 +47,14 @@ The target edge length is a multiple of the input's mean edge length (`g3cli`'s 
   target 1 x mean edge (the `g3cli remesh` default).
 
 ## Metrics
-- `time s`: median of `runs` runs (after one warm-up run), parallel smoothing and projection on (the default).
+- `time s`: median of `runs` runs (after one warm-up run, a full GC before each), parallel smoothing and projection
+  on (the default). It includes what the callers pay besides the passes: the projection target (AABB tree) and the
+  constraints.
 - `tris`; `len mean/p5/p95`: edge lengths relative to the target.
 - `q min/p5`: triangle quality 4 sqrt(3) area / sum of squared edge lengths (1 equilateral, 0 degenerate);
   `q<0.1`: the number of poor triangles.
-- `hausdorff/target`: symmetric Hausdorff distance to the input (`MeshHausdorffDistance`, upper bound) / target.
+- `hausdorff/target`: symmetric Hausdorff distance to the input (`MeshHausdorffDistance`, upper bound, within
+  0.01 target of the lower bound) / target.
 - `det.`: all runs bit-identical; `serial=`: parallel equals serial (smoothing and projection);
   `2^-10=`, `2^10=`: the input scaled by 2^k and the result scaled back is bit-identical (scaling by 2^k is exact,
   so a scale-invariant method gives the same bits).

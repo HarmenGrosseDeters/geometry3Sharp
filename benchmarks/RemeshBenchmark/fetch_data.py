@@ -10,8 +10,10 @@ os.chdir(os.path.dirname(os.path.abspath(__file__)))
 os.makedirs("data/meshes", exist_ok=True)
 
 def fetch(url, path):
+    # to a temporary name first, so an interrupted download is not taken for a complete file
     if not os.path.exists(path):
-        urllib.request.urlretrieve(url, path)
+        urllib.request.urlretrieve(url, path + ".part")
+        os.replace(path + ".part", path)
 
 for f in ["geometry_data.csv", "input_summary.csv"]:
     fetch(f"{BASE}/resolve/main/metadata/{f}", f"data/{f}")

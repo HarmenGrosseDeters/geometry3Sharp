@@ -49,7 +49,7 @@ static class Program
         cases.Add(G3(  "sphere_refine", Sphere(24), 0.5));
         cases.Add(G3(  "bumpy_uniform", Bumpy(Sphere(80)), 1.0));
         cases.Add(G3(  "noisy_coarsen", Noisy(Sphere(160), 0.002), 3.0));
-        cases.Add(G3(  "open_stretched", Heightfield(160, 40, 4.0, (x, y) => 0.15 * Math.Sin(3 * x) * Math.Cos(2 * y)), 1.0));
+        cases.Add(G3(  "open_stretched", Heightfield(64, 40, 4.0, (x, y) => 0.15 * Math.Sin(3 * x) * Math.Cos(2 * y)), 1.0));
         cases.Add(TerrainBand("terrain_band", 0));
         cases.Add(TerrainBand("terrain_band_bumpy", 0.3));
         if (A.ContainsKey("thingi"))
@@ -105,7 +105,7 @@ static class Program
         return m;
     }
 
-    // nx x ny cells on [0, sx] x [0, 1]: anisotropic triangles (sx / nx != 1 / ny)
+    // nx x ny cells on [0, sx] x [0, 1]: anisotropic triangles if sx / nx != 1 / ny (64 x 40 cells on 4 x 1: aspect 2.5)
     static DMesh3 Heightfield(int nx, int ny, double sx, Func<double, double, double> z)
     {
         return Grid(nx, ny, (i, j) => { double x = sx * i / nx, y = (double)j / ny; return new Vector3d(x, y, z(x, y)); });
@@ -139,19 +139,53 @@ static class Program
         return (p.y <= 40) ? 40 - p.y : (p.y - 40) / Math.Cos(SlopeAngle);
     }
 
-    // the band TerrainSafetyLines remeshes: within 3 d + 2 h of the crest, with triangles of edge 2 h (what
-    // refine_near_sources leaves near the sources)
+    // the 80 x 80 m pit on a 1 m grid, crest from (0, 40) to (80, 40)
+    static DMesh3 Pit(double bumps)
+    {
+        return Grid(80, 80, (i, j) => new Vector3d(i, j, PitHeight(i, j, bumps)));
+    }
+
+    // the band TerrainSafetyLines.AlongSurface remeshes, built as there: edges longer than 2 h near the crest split
+    // (refine_near_sources, horizontal distance), then the triangles within 3 d + 2 h of the crest (3D distance of
+    // the centroid, plus its radius) cut out
     static Case TerrainBand(string name, double bumps)
     {
-        double band = 3 * SafetyD + 2 * H, cell = 2 * H;
-        int nx = 64, rows = (int)Math.Ceiling(band / cell);
-        double y0 = 40 - rows * cell;
-        DMesh3 m = Grid(nx, 2 * rows, (i, j) => { double x = i * cell, y = y0 + j * cell; return new Vector3d(x, y, PitHeight(x, y, bumps)); });
+        double band = 3 * SafetyD + 2 * H;
+        DMesh3 mesh = Pit(bumps);
+        Func<Vector3d, double> crestDist3 = (p) => {
+            double x = Math.Max(0, Math.Min(80, p.x));
+            return p.Distance(new Vector3d(x, 40, 0));
+        };
+        var queue = new Queue<int>(mesh.EdgeIndices());
+        while (queue.Count > 0) {
+            int eid = queue.Dequeue();
+            if (!mesh.IsEdge(eid)) continue;
+            Index2i ev = mesh.GetEdgeV(eid);
+            Vector3d a = mesh.GetVertex(ev.a), b = mesh.GetVertex(ev.b);
+            if (a.Distance(b) <= 2 * H) continue;
+            Vector2d mid = 0.5 * (a.xy + b.xy);
+            double r = band + 0.5 * a.xy.Distance(b.xy);
+            double hdist = new Vector2d(Math.Max(0, Math.Min(80, mid.x)), 40).Distance(mid);
+            if (hdist > r) continue;
+            DMesh3.EdgeSplitInfo split;
+            if (mesh.SplitEdge(eid, out split) != MeshResult.Ok) continue;
+            queue.Enqueue(eid); queue.Enqueue(split.eNewBN); queue.Enqueue(split.eNewCN);
+            if (split.eNewDN >= 0) queue.Enqueue(split.eNewDN);
+        }
+        var sel = new MeshFaceSelection(mesh);
+        foreach (int tid in mesh.TriangleIndices()) {
+            Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+            mesh.GetTriVertices(tid, ref a, ref b, ref c);
+            Vector3d m = (a + b + c) / 3;
+            double rad = Math.Max(m.Distance(a), Math.Max(m.Distance(b), m.Distance(c)));
+            if (crestDist3(m) <= band + rad) sel.Select(tid);
+        }
+        DMesh3 m3 = new DSubmesh3(mesh, sel).SubMesh;
         var crest = new List<Vector3d>();
-        for (double x = 0; x <= nx * cell + 1e-9; x += 0.5 * H)
+        for (double x = 0; x <= 80 + 1e-9; x += 0.5 * H)
             crest.Add(new Vector3d(x, 40, 0));
         return new Case() {
-            Name = name, Input = m, Kind = Kind.TerrainBand, Target = H, Crest = crest, X0 = 0, X1 = nx * cell,
+            Name = name, Input = m3, Kind = Kind.TerrainBand, Target = H, Crest = crest, X0 = 0, X1 = 80,
             Distance = (bumps == 0) ? PitDistance : (Func<Vector3d, double>)null
         };
     }
@@ -167,6 +201,7 @@ static class Program
         }
         double target = scale * c.Target;
         DMesh3 mesh = new DMesh3(input);
+        GC.Collect(); GC.WaitForPendingFinalizers();
         var sw = Stopwatch.StartNew();
         bool pro = cfg != "remesher";
         Remesher r = pro ? new RemesherPro(mesh) : new Remesher(mesh);
@@ -260,9 +295,10 @@ static class Program
         q.Sort();
         R["q_min"] = q[0]; R["q_p5"] = Pct(q, 0.05); R["q_mean"] = q.Average();
         R["q_below_0.1"] = q.Count(x => x < 0.1);
-        var hd = new MeshHausdorffDistance(c.Input, m) { RelativeTolerance = 1e-3 };
-        hd.Compute();
+        var hd = new MeshHausdorffDistance(c.Input, m) { Tolerance = 0.01 * c.Target };
+        R["hausdorff_converged"] = hd.Compute() && hd.Converged;
         R["hausdorff_rel"] = hd.UpperBound / c.Target;
+        R["hausdorff_lower_rel"] = hd.LowerBound / c.Target;
         R["boundary_edges"] = m.BoundaryEdgeIndices().Count();
         R["input_boundary_edges"] = c.Input.BoundaryEdgeIndices().Count();
         R["not_clean"] = (c.Input.IsClosed() ? MeshRobustRepair.NotCleanReason(m, true) : null) ?? "";
@@ -316,7 +352,7 @@ static class Program
     {
         var R = new Dictionary<string, object>();
         R["case"] = "terrain_safety"; R["config"] = "library";
-        DMesh3 terrain = Grid(80, 80, (i, j) => new Vector3d(i, j, PitHeight(i, j, 0)));
+        DMesh3 terrain = Pit(0);
         var crest = new List<Vector3d>() { new Vector3d(0, 40, 0), new Vector3d(80, 40, 0) };
         Func<TerrainSafetyLines> run = () => {
             var s = new TerrainSafetyLines(terrain, new[] { crest }, SafetyD) { Mode = TerrainSafetyLines.Modes.AlongSurface };
@@ -328,6 +364,7 @@ static class Program
         var hashes = new HashSet<ulong>();
         TerrainSafetyLines sl = null;
         for (int k = 0; k < runs; ++k) {
+            GC.Collect(); GC.WaitForPendingFinalizers();
             var sw = Stopwatch.StartNew();
             sl = run();
             times.Add(sw.Elapsed.TotalSeconds);
@@ -373,9 +410,11 @@ static class Program
     static ulong HashLines(List<List<Vector3d>> lines)
     {
         ulong h = 14695981039346656037;
-        foreach (var l in lines)
+        foreach (var l in lines) {
+            h ^= (ulong)l.Count; h *= 1099511628211;
             foreach (Vector3d p in l)
                 foreach (double x in new[] { p.x, p.y, p.z }) { h ^= (ulong)BitConverter.DoubleToInt64Bits(x); h *= 1099511628211; }
+        }
         return h;
     }
 
