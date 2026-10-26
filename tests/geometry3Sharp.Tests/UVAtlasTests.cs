@@ -454,13 +454,14 @@ namespace geometry3Sharp.Tests
         public void UVOverlap_Grid_MatchesBruteForce()
         {
             var rnd = new Random(7);
-            for (int round = 0; round < 6; ++round) {
+            for (int round = 0; round < 7; ++round) {
                 var tris = new List<Vector2d[]>();
                 int n = 300;
                 for (int i = 0; i < n; ++i) {
                     Vector2d c = V(rnd.NextDouble() * 10, rnd.NextDouble() * 10);
                     // round 4: large triangles spanning many cells; round 5: a few huge ones among small ones
-                    double s = round == 4 ? 3 : (round == 5 && i % 50 == 0 ? 12 : 0.3);
+                    // round 6: three size classes, most triangles tiny (several grid levels)
+                    double s = round == 4 ? 3 : (round == 5 && i % 50 == 0 ? 12 : (round == 6 ? (i % 3 == 0 ? 2 : (i % 3 == 1 ? 0.2 : 0.01)) : 0.3));
                     Vector2d[] t = { c, c + V(rnd.NextDouble() * s, rnd.NextDouble() * s * 0.2), c + V(rnd.NextDouble() * s * 0.2, rnd.NextDouble() * s) };
                     if (ExactPredicates.Orient2d(t[0], t[1], t[2]) < 0) { Vector2d tmp = t[1]; t[1] = t[2]; t[2] = tmp; }
                     tris.Add(t);
@@ -485,6 +486,27 @@ namespace geometry3Sharp.Tests
                 Assert.True(brute > 0);
                 Assert.Equal(0, o.InvertedTriangles);
             }
+        }
+
+        [Fact]
+        public void UVOverlap_MixedSizes_NotQuadratic()
+        {
+            // 120k tiny and 40k larger triangles: with one grid level the larger ones were tested against all
+            // triangles (about a minute); the levels make it near linear
+            var rnd = new Random(5);
+            var tris = new List<Vector2d[]>();
+            for (int i = 0; i < 160200; ++i) {
+                // and 200 triangles the size of the domain, which one grid level would put in millions of cells
+                double s = i < 120000 ? 1e-4 : (i < 160000 ? 3e-3 : 0.4);
+                Vector2d c = V(rnd.NextDouble() * 0.4, rnd.NextDouble() * 0.4);
+                tris.Add(new[] { c, c + V(s, 0), c + V(0, s) });
+            }
+            Vector2d[] uv;
+            DMesh3 mesh = TriangleSoup(tris, out uv);
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            UVOverlap o = UVOverlap.Compute(mesh, uv);
+            Assert.True(sw.Elapsed.TotalSeconds < 15, "UVOverlap took " + sw.Elapsed.TotalSeconds + " s");
+            Assert.True(o.OverlappingPairs > 0);
         }
 
         [Fact]
@@ -609,6 +631,22 @@ namespace geometry3Sharp.Tests
                 int n0 = labels.Count(l => l == 0);
                 Assert.InRange(n0, tris.Count / 5, 4 * tris.Count / 5);
             }
+            // a flat strip with a cap at its far end: the second chart is not seeded at the cap (it would keep
+            // a zero normal and stay a chart of one degenerate triangle)
+            DMesh3 capped = Grid(20, 4, false, false, (s, t) => new Vector3d(10 * s, 2 * t, 0));
+            int farT = capped.TriangleIndices().OrderByDescending(t => capped.GetTriCentroid(t).x).First();
+            Index3i ft3 = capped.GetTriangle(farT);
+            Vector3d bary = Vector3d.Zero;
+            for (int j = 0; j < 3; ++j) if (capped.GetVertex(ft3[j]).x == 10) bary[j] = 0.5;
+            Assert.Equal(1, bary.x + bary.y + bary.z, 12);
+            DMesh3.PokeTriangleInfo pi;
+            Assert.Equal(MeshResult.Ok, capped.PokeTriangle(farT, bary, out pi));
+            var ct = capped.TriangleIndices().ToList();
+            int[] cl;
+            Assert.Equal(2, MeshChartSegmentation.SplitInTwo(capped, ct, 0.1, out cl));
+            for (int k = 0; k < 2; ++k)
+                Assert.Contains(Enumerable.Range(0, ct.Count), i => cl[i] == k && capped.GetTriArea(ct[i]) > 1e-6);
+
             // a flat strip is split across its length
             var ft = flat.TriangleIndices().ToList();
             int[] fl;
@@ -737,6 +775,9 @@ namespace geometry3Sharp.Tests
             Assert.Equal(ParameterizationStatus.InvalidConstraints, new ConeFlattening(Sphere(6)) { Cones = new int[0] }.Compute().Status);
             Assert.Equal(ParameterizationStatus.InvalidConstraints, new ConeFlattening(Sphere(6)) { MaxCones = 1 }.Compute().Status);
             Assert.Equal(ParameterizationStatus.InvalidConstraints, new ConeFlattening(Sphere(6)) { Cones = new[] { 0 } }.Compute().Status);
+            ParameterizationResult noCones = new ConeFlattening(Sphere(6)) { MaxCones = 0 }.Compute();
+            Assert.Equal(ParameterizationStatus.InvalidConstraints, noCones.Status);
+            Assert.Contains("MaxCones", noCones.Error);
             // a torus can be flattened without cones
             var flatTorus = new ConeFlattening(Torus()) { Cones = new int[0] };
             Assert.True(flatTorus.Compute().Succeeded, flatTorus.Result.Error);
@@ -766,8 +807,7 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0, atlas.Overlap.OverlappingPairs);
             Assert.Equal(0, atlas.Distortion.FlippedTriangles);
             Assert.Equal(0, atlas.CollapsedTriangleCount);
-            // the float UVs as stored: no defects above the float resolution, and the test agrees
-            Assert.Equal(0, atlas.StoredDefects);
+            // the float UVs as stored: the reported test agrees with a test of the mesh's UVs
             UVOverlap stored = UVOverlap.Compute(m);
             Assert.Equal(atlas.StoredOverlap.OverlappingPairs, stored.OverlappingPairs);
             Assert.Equal(atlas.StoredOverlap.InvertedTriangles, stored.InvertedTriangles);
@@ -810,9 +850,9 @@ namespace geometry3Sharp.Tests
                     // the marching cubes mesh has vertices 1e-7 apart, which float UVs can not separate: reported,
                     // not failed; the regular meshes survive the rounding exactly
                     if (c.name == "genus2")
-                        Assert.True(atlas.SubResolutionDefects > 0);
+                        Assert.True(atlas.FloatRoundingDefects > 0);
                     else
-                        Assert.True(atlas.SubResolutionDefects == 0 && atlas.StoredOverlap.OverlappingPairs == 0 && atlas.StoredOverlap.InvertedTriangles == 0);
+                        Assert.True(atlas.FloatRoundingDefects == 0 && atlas.StoredOverlap.OverlappingPairs == 0 && atlas.StoredOverlap.InvertedTriangles == 0);
                 }
         }
 
@@ -894,6 +934,72 @@ namespace geometry3Sharp.Tests
         }
 
         static UVAtlasStatus run(UVAtlasGenerator g) { g.Compute(); return g.Status; }
+
+        [Fact]
+        public void Atlas_StrayDegenerateTriangle_DoesNotFailTheAtlas()
+        {
+            // a separate collinear triangle: nothing to flatten, its chart lies on a line
+            DMesh3 mesh = Sphere(6);
+            int a = mesh.AppendVertex(new Vector3d(3, 0, 0)), b = mesh.AppendVertex(new Vector3d(4, 0, 0)), c = mesh.AppendVertex(new Vector3d(5, 0, 0));
+            mesh.AppendTriangle(a, b, c);
+            foreach (var method in new[] { UVAtlasGenerator.Methods.Auto, UVAtlasGenerator.Methods.Charts, UVAtlasGenerator.Methods.Cones, UVAtlasGenerator.Methods.SingleChart }) {
+                var atlas = new UVAtlasGenerator(mesh) { Method = method };
+                atlas.Compute();
+                Assert.NotEqual(UVAtlasStatus.Failed, atlas.Status);
+                Assert.Contains(atlas.Charts, ch => ch.Method == "line");
+                Assert.Equal(0, atlas.Overlap.OverlappingPairs);
+                Assert.Equal(0, atlas.CollapsedTriangleCount);
+            }
+        }
+
+        [Fact]
+        public void Atlas_ManyCaps_ChartsAreNotSeededAtCaps()
+        {
+            // caps (zero-area triangles from poking an edge point) all over a sphere
+            for (int seed = 0; seed < 6; ++seed) {
+                DMesh3 mesh = Sphere(12);
+                var rnd = new Random(seed);
+                foreach (int tid in mesh.TriangleIndices().Where(t => t % 4 == 0).ToList()) {
+                    double t = 0.2 + 0.6 * rnd.NextDouble();
+                    DMesh3.PokeTriangleInfo info;
+                    mesh.PokeTriangle(tid, new Vector3d(t, 1 - t, 0), out info);
+                }
+                foreach (var method in new[] { UVAtlasGenerator.Methods.Auto, UVAtlasGenerator.Methods.Charts }) {
+                    var atlas = new UVAtlasGenerator(mesh) { Method = method };
+                    Assert.True(atlas.Compute(), $"seed {seed} {method}: {atlas.Status} {atlas.Error}");
+                }
+            }
+            // a flat square with one cap, split as far as the limit asks
+            var sq = new DMesh3();
+            sq.AppendVertex(new Vector3d(0, 0, 0)); sq.AppendVertex(new Vector3d(1, 0, 0));
+            sq.AppendVertex(new Vector3d(1, 1, 0)); sq.AppendVertex(new Vector3d(0, 1, 0));
+            sq.AppendTriangle(0, 1, 2); sq.AppendTriangle(0, 2, 3);
+            DMesh3.PokeTriangleInfo pinfo;
+            sq.PokeTriangle(0, new Vector3d(0.5, 0.5, 0), out pinfo);
+            var tiny = new UVAtlasGenerator(sq) { Method = UVAtlasGenerator.Methods.Charts, MaxAreaDistortion = 1e-9 };
+            tiny.Compute();
+            Assert.NotEqual(UVAtlasStatus.Failed, tiny.Status);
+        }
+
+        [Fact]
+        public void Atlas_NoPacking_ReportsAtlasTriangleIds()
+        {
+            // a cube and a separate collinear triangle (its chart lies on a line), not packed
+            DMesh3 mesh = Cube(3);
+            int a = mesh.AppendVertex(new Vector3d(3, 0, 0)), b = mesh.AppendVertex(new Vector3d(4, 0, 0)), c = mesh.AppendVertex(new Vector3d(5, 0, 0));
+            int stray = mesh.AppendTriangle(a, b, c);
+            var atlas = new UVAtlasGenerator(mesh) { Method = UVAtlasGenerator.Methods.Charts, Pack = false };
+            atlas.Compute();
+            Assert.NotEqual(UVAtlasStatus.Failed, atlas.Status);
+            // the degenerate triangle is reported with its AtlasMesh triangle id
+            Assert.True(atlas.Overlap.DegenerateTriangles > 0);
+            Assert.Equal(atlas.Overlap.DegenerateTriangles, atlas.Overlap.DegenerateTriangleIds.Count);
+            foreach (int t in atlas.Overlap.DegenerateTriangleIds) {
+                Assert.True(atlas.AtlasMesh.GetTriArea(t) < 1e-12);
+                Assert.Equal(stray, atlas.AtlasToInputTriangle[t]);
+            }
+            Assert.Equal(atlas.StoredOverlap.DegenerateTriangles, atlas.StoredOverlap.DegenerateTriangleIds.Count);
+        }
 
         [Fact]
         public void Atlas_DegenerateSurfaceTriangles()

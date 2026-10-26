@@ -160,16 +160,18 @@ namespace g3
 
                 // worst triangle: largest normal deviation (ties, eg in a flat chart: farthest from the seed);
                 // slivers (eg from marching cubes) have arbitrary normals and do not count
+                // (and are never seeds: a chart seeded at a cap keeps a zero normal and stays a single cap)
                 int worst = -1; double worstAngle = -1, worstDist = -1;
-                for (int t = 0; t < n; ++t) {
-                    if (area[t] < sliverArea && worst >= 0) continue;
-                    double ang = nrm[t].LengthSquared > 0 ? Vector3d.AngleD(nrm[t], pN[labels[t]]) : 0;
-                    if (!MathUtil.IsFinite(ang)) ang = 0;
-                    double dist = (cen[t] - cen[seeds[labels[t]]]).LengthSquared;
-                    if (ang > worstAngle + 1e-9 || (Math.Abs(ang - worstAngle) <= 1e-9 && dist > worstDist)) {
-                        worst = t; worstAngle = ang; worstDist = dist;
+                for (int pass = 0; pass < 2 && worst < 0; ++pass)
+                    for (int t = 0; t < n; ++t) {
+                        if (pass == 0 && area[t] < sliverArea) continue;
+                        double ang = nrm[t].LengthSquared > 0 ? Vector3d.AngleD(nrm[t], pN[labels[t]]) : 0;
+                        if (!MathUtil.IsFinite(ang)) ang = 0;
+                        double dist = (cen[t] - cen[seeds[labels[t]]]).LengthSquared;
+                        if (ang > worstAngle + 1e-9 || (Math.Abs(ang - worstAngle) <= 1e-9 && dist > worstDist)) {
+                            worst = t; worstAngle = ang; worstDist = dist;
+                        }
                     }
-                }
                 maxAngleDeg = Math.Max(worstAngle, 0);
                 bool needMore = seeds.Count < minCharts || worstAngle > maxNormalAngleDeg;
                 bool canAdd = seeds.Count < maxCharts && !seeds.Contains(worst) && !(seeds.Count >= minCharts && worstAngle < 1e-6);
@@ -182,10 +184,12 @@ namespace g3
                 // in a flat region the deviation is about the same everywhere: seed at the farthest triangle
                 if (worstAngle < 1e-3) {
                     double far = -1;
-                    for (int t = 0; t < n; ++t) {
-                        double dist = (cen[t] - cen[seeds[labels[t]]]).LengthSquared;
-                        if (dist > far && !seeds.Contains(t)) { far = dist; worst = t; }
-                    }
+                    for (int pass = 0; pass < 2 && far < 0; ++pass)
+                        for (int t = 0; t < n; ++t) {
+                            if (pass == 0 && area[t] < sliverArea) continue;
+                            double dist = (cen[t] - cen[seeds[labels[t]]]).LengthSquared;
+                            if (dist > far && !seeds.Contains(t)) { far = dist; worst = t; }
+                        }
                 }
                 seeds.Add(worst);
                 pN.Add(nrm[worst]); pC.Add(cen[worst]);

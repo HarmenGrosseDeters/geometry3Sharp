@@ -111,6 +111,13 @@ namespace g3
 
             double[] u = new double[N];
             bool closed = pm.BoundaryLoops.Count == 0;
+            if (closed && cones.Count == 0 && Cones == null && MaxCones < 1) {
+                double Kt = 0;
+                foreach (double k in K) Kt += k;
+                if (Math.Abs(Kt) > 1e-6)
+                    return Result = ParameterizationResult.Failure(ParameterizationStatus.InvalidConstraints,
+                        "MaxCones = " + MaxCones + ", but a closed surface with Euler characteristic " + Math.Round(Kt / (2 * Math.PI)) + " needs cones");
+            }
             if (closed && cones.Count == 0) {
                 // first cone: largest |u| of the flow to uniform curvature (Neumann problem, u up to a constant)
                 double Ktot = 0;

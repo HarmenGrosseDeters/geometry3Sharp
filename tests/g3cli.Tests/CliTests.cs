@@ -155,8 +155,7 @@ namespace g3cli.Tests
                 Assert.Equal(0, I(r["overlapping_pairs"]));
                 Assert.Equal(0, I(r["inverted_triangles"]));
                 Assert.Equal(0, I(r["distortion"]["flipped_triangles"]));
-                Assert.Equal(0, I(r["float_uv_defects"]));
-                Assert.Equal(0, I(r["float_uv_sub_resolution_defects"]));
+                Assert.Equal(0, I(r["float_rounding_defects"]));
                 Assert.True(D(r["distortion"]["mean_area"]) < 0.25);
                 Assert.True(I(r["charts"]) >= 1);
                 Assert.True(D(r["seam_length"]) > 0);
