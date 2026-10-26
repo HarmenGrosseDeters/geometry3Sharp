@@ -225,6 +225,32 @@ namespace geometry3Sharp.Tests
             Assert.True(failures.Count == 0, string.Join("\n", failures));
         }
 
+        [Fact]
+        public void SignedDistanceGrid_ParallelEqualsSerial()
+        {
+            // a grid point at equal distance from two triangles (eg across a shared edge) kept the triangle whose thread
+            // came first; the sweep then propagates distances from that triangle, so the grid varied between runs
+            DMesh3 mesh = Sphere(14);
+            foreach (int vid in mesh.VertexIndices()) {
+                Vector3d p = mesh.GetVertex(vid);
+                mesh.SetVertex(vid, p * (1 + 0.15 * Math.Sin(3 * p.x + 1) * Math.Cos(2 * p.y - 0.5)));
+            }
+            foreach (var mode in new[] { MeshSignedDistanceGrid.ComputeModes.NarrowBandOnly, MeshSignedDistanceGrid.ComputeModes.FullGrid }) {
+                Func<bool, MeshSignedDistanceGrid> run = (parallel) => {
+                    var sdf = new MeshSignedDistanceGrid(mesh, 0.12) { UseParallel = parallel, ComputeMode = mode, WantClosestTriGrid = true };
+                    sdf.Compute();
+                    return sdf;
+                };
+                MeshSignedDistanceGrid serial = run(false);
+                for (int k = 0; k < 4; ++k) {
+                    MeshSignedDistanceGrid parallel = run(true);
+                    Assert.True(serial.Grid.Buffer.SequenceEqual(parallel.Grid.Buffer), mode + ", parallel run " + k);
+                    // (in the narrow band only, a tie changes the closest triangle but not the distance)
+                    Assert.True(serial.ClosestTriGrid.Buffer.SequenceEqual(parallel.ClosestTriGrid.Buffer), mode + ", closest triangles, parallel run " + k);
+                }
+            }
+        }
+
         /// <summary>The triangles of a mesh as sorted strings of exact coordinates, independent of ids.</summary>
         static List<string> TriangleSet(DMesh3 mesh)
         {
