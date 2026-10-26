@@ -154,7 +154,7 @@ Implemented from the papers, no code taken over.
 | Normal estimation by PCA of the nearest neighbors | H. Hoppe, T. DeRose, T. Duchamp, J. McDonald, W. Stuetzle, *Surface reconstruction from unorganized points*, SIGGRAPH 1992 |
 | Iteratively reweighted least squares with Cauchy weights (robust local planes) | P. W. Holland, R. E. Welsch, *Robust regression using iteratively reweighted least-squares*, Communications in Statistics 1977 |
 
-## Distances and simplification (`MeshHausdorffDistance`, `TriangleDeviationBounds`, `Reducer`)
+## Distances and simplification (`MeshHausdorffDistance`, `TriangleDeviationBounds`, `Reducer`, `MeshEnvelope`)
 
 The sources named in the code:
 
@@ -163,6 +163,7 @@ The sources named in the code:
 | Hausdorff distance with guaranteed bounds (branch and bound over triangles, cascading upper bounds; `TriangleDeviationBounds`, also used by `Reducer.MaxDeviation` and, per triangle, by `MeshDeviation.ComputeTriangleBounds`) | L. Sacht, A. Jacobson, *Cascading upper bounds for triangle soup Pompeiu-Hausdorff distance*, SGP 2024 |
 | Regularized optimal collapse point (`Reducer.QuadricRegularization`) | P. Trettner, L. Kobbelt, *Fast and Robust QEF Minimization using Probabilistic Quadrics*, Computer Graphics Forum (Eurographics) 2020 |
 | Triangle-triangle intersection test (`ExactTriangleIntersection`) | O. Devillers, P. Guigue, *Faster triangle-triangle intersection tests*, INRIA RR-4488, 2002 |
+| Exact containment in a polyhedral envelope (`MeshEnvelope`): a convex prism per triangle inside triangle + epsilon ball, queries decided exactly against the union. Own construction of the prisms (slab along the normal, side half-spaces in uniform and edge normal directions with offsets that bound them by 0.6 epsilon, rounding margins) and own exact test (clipping the query triangle in its parameter plane with integer half-planes, floating-point filters first) | B. Wang, T. Schneider, Y. Hu, M. Attene, D. Panozzo, *Exact and Efficient Polyhedral Envelope Containment Check*, ACM TOG (SIGGRAPH) 2020 (idea of the envelope as a union of prisms and the exact containment check; `fast-envelope`, MIT, has an implementation, not used as a source) |
 
 ## Dual contouring and winding number solids (`DualContouring`, `WindingNumberOctree`, `MeshWindingNumberSolidify`, `MeshWindingNumberBoolean`)
 

@@ -41,9 +41,10 @@ static class Program
         return m;
     }
 
-    static double OneSidedHausdorff(DMesh3 from, DMesh3 to)
+    // certified upper bound of the one-sided distance, to 1 % of the tolerance
+    static double OneSidedHausdorff(DMesh3 from, DMesh3 to, double tol)
     {
-        var h = new MeshHausdorffDistance(from, to) { Symmetric = false, RelativeTolerance = 1e-3 };
+        var h = new MeshHausdorffDistance(from, to) { Symmetric = false, Tolerance = 0.01 * tol };
         h.Compute();
         return h.UpperBound;
     }
@@ -70,7 +71,7 @@ static class Program
                 new Reducer(without).ReduceToTriangleCount(withCheck.TriangleCount);
                 long tWithout = sw.ElapsedMilliseconds;
 
-                double devWith = OneSidedHausdorff(withCheck, input), devWithout = OneSidedHausdorff(without, input);
+                double devWith = OneSidedHausdorff(withCheck, input, tol), devWithout = OneSidedHausdorff(without, input, tol);
                 Console.WriteLine($"| {name} | {input.TriangleCount} | {rel:0.###} | {withCheck.TriangleCount} | {tWith} ms | {tWithout} ms | {100.0 * (tWith - tWithout) / tWith:F0} % | {devWithout / tol:F2} x tolerance (with check: {devWith / tol:F2}) |");
             }
         }

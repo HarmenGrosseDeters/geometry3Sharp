@@ -41,7 +41,7 @@ Add both: `using g3; using gs;`.
 | Rebuild any input as a closed solid | `gs.MeshWindingNumberSolidify` | [WindingNumberSolidifyExample](examples/WindingNumberSolidifyExample.cs) |
 | Booleans (union, intersection, difference) of two or more meshes, winding number predicates (eg inside at least k of n), resolve self-intersections | `ExactMeshBoolean`, `ExactMeshBoolean.AtLeast`, `ExactMeshBoolean.Resolve` | [ExactMeshBooleanExample](examples/ExactMeshBooleanExample.cs) |
 | Isotropic remeshing | `Remesher`, `gs.RemesherPro`, `MeshConstraintUtil`, `MeshProjectionTarget` | [RemeshExample](examples/RemeshExample.cs) |
-| Simplification, with a guaranteed maximum deviation | `Reducer` | [SimplificationExample](examples/SimplificationExample.cs) |
+| Simplification, with a guaranteed maximum deviation; exact envelope containment | `Reducer`, `gs.MeshEnvelope` | [SimplificationExample](examples/SimplificationExample.cs) |
 | Smoothing | `MeshIterativeSmooth`, `LaplacianMeshSmoother` | [SmoothingExample](examples/SmoothingExample.cs) |
 | Plane cut and cap | `MeshPlaneCut` | [PlaneCutExample](examples/PlaneCutExample.cs) |
 | Measurements (volume, area, bounds, edge lengths, genus) | `MeshMeasurements`, `MeshQueries` | [MeasurementsExample](examples/MeasurementsExample.cs) |
@@ -130,7 +130,22 @@ for (int i = 0; i < 20; ++i)
     remesher.BasicRemeshPass();
 
 new Reducer(mesh) { MaxDeviation = 0.01 }.ReduceToTriangleCount(1000);
+
+var envelope = new MeshEnvelope(reference, 0.01);         // Status: Ready, InvalidEpsilon, TooThin, Empty
+bool inside = envelope.ContainsTriangle(a, b, c);         // exact; also Contains(p), ContainsSegment(a, b)
 ```
+
+`Reducer.MaxDeviation` guarantees that every point of the result lies within the tolerance of the input,
+checked with certified distance bounds (`TriangleDeviationBounds`).
+
+`MeshEnvelope` (after Wang et al. 2020) decides exactly whether a point, segment or triangle lies in the union
+of convex prisms around the mesh triangles. The prisms lie inside the epsilon envelope: 0.8 epsilon along the
+normal, 0.55 epsilon sideways. A result of true guarantees the distance bound whatever the rounding. A result
+of false means some point lies outside all prisms.
+
+Queries whose triangle lies in one prism, or whose corner is outside all prisms, are decided in floating point.
+Otherwise the query is clipped exactly, which is slow for triangles that span many prisms. It is therefore not
+used for the `Reducer`: see [ReducerBenchmark](../benchmarks/ReducerBenchmark/README.md).
 
 See [RemeshExample](examples/RemeshExample.cs), [SimplificationExample](examples/SimplificationExample.cs),
 [SmoothingExample](examples/SmoothingExample.cs) and [PlaneCutExample](examples/PlaneCutExample.cs).
