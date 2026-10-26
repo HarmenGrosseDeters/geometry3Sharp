@@ -257,14 +257,15 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void SparseCholesky_IsValidDoesNotDetectSingularity()
         {
-            // the documented limit of IsValid: the Laplacian of a ring of 60 vertices (edge weights 1..3, one edge
-            // 1000) without a fixed vertex is singular, but its last pivot is positive rounding noise
-            int n = 60;
-            Func<bool, SparseCholesky> ring = (pin) => {
+            // the documented limit of IsValid: the Laplacian of a ring (edge weights 1..3, one heavy edge) without a
+            // fixed vertex is singular, but its last pivot is rounding noise and often positive. Which rings are
+            // accepted depends on the ordering and the summation order, so several are tried: at least one of
+            // them is accepted, and every accepted one gives a solution dominated by the null vector.
+            Func<int, double, bool, SparseCholesky> ring = (n, heavy, pin) => {
                 var c = new SparseCholesky(n);
                 for (int i = 0; i < n; ++i) {
                     int j = (i + 1) % n;
-                    double w = j == 0 ? 1000 : 1 + i % 3;
+                    double w = j == 0 ? heavy : 1 + i % 3;
                     c.Add(i, i, w); c.Add(j, j, w); c.Add(i, j, -w);
                 }
                 if (pin)
@@ -272,29 +273,37 @@ namespace geometry3Sharp.Tests
                 c.Factorize();
                 return c;
             };
-            // L x = e_0 has no solution (the rows of L sum to zero, e_0 does not)
-            double[] b = new double[n], x = new double[n];
-            b[0] = 1;
-
-            SparseCholesky singular = ring(false);
-            Assert.True(singular.IsValid);
-            singular.Solve(b, x);
-            // ... yet Solve() returns finite values, dominated by a huge multiple of the null vector (1, ..., 1)
-            double sum = 0;
-            for (int i = 0; i < n; ++i) {
-                Assert.False(double.IsNaN(x[i]) || double.IsInfinity(x[i]));
-                sum += x[i];
-            }
-            Assert.True(Math.Abs(sum / n) > 1e6, "mean " + sum / n);
+            int accepted = 0;
+            foreach (double heavy in new[] { 10.0, 100, 1000, 1e4 })
+                for (int n = 20; n <= 72; n += 4) {
+                    SparseCholesky singular = ring(n, heavy, false);
+                    if (!singular.IsValid)
+                        continue;
+                    accepted++;
+                    // L x = e_0 has no solution (the rows of L sum to zero, e_0 does not), yet Solve() returns
+                    // finite values with a huge mean
+                    double[] e0 = new double[n], y = new double[n];
+                    e0[0] = 1;
+                    singular.Solve(e0, y);
+                    double sum = 0;
+                    for (int i = 0; i < n; ++i) {
+                        Assert.False(double.IsNaN(y[i]) || double.IsInfinity(y[i]));
+                        sum += y[i];
+                    }
+                    Assert.True(Math.Abs(sum / n) > 1e6, "n " + n + " heavy " + heavy + " mean " + sum / n);
+                }
+            Assert.True(accepted > 0);
 
             // a mass term on vertex 0 makes the matrix definite: (L + e_0 e_0^T) x = b is solved accurately
-            SparseCholesky pinned = ring(true);
+            int m = 60;
+            SparseCholesky pinned = ring(m, 1000, true);
             Assert.True(pinned.IsValid);
-            b[n / 2] = -1;
+            double[] b = new double[m], x = new double[m];
+            b[0] = 1; b[m / 2] = -1;
             pinned.Solve(b, x);
-            for (int i = 0; i < n; ++i) {
-                int p = (i + n - 1) % n, q = (i + 1) % n;
-                double wp = p == n - 1 ? 1000 : 1 + p % 3, wq = q == 0 ? 1000 : 1 + i % 3;
+            for (int i = 0; i < m; ++i) {
+                int p = (i + m - 1) % m, q = (i + 1) % m;
+                double wp = p == m - 1 ? 1000 : 1 + p % 3, wq = q == 0 ? 1000 : 1 + i % 3;
                 double r = (wp + wq) * x[i] - wp * x[p] - wq * x[q] + (i == 0 ? x[0] : 0) - b[i];
                 Assert.True(Math.Abs(r) < 1e-9, "residual " + r + " at " + i);
             }
