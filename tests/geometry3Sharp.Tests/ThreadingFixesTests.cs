@@ -224,5 +224,64 @@ namespace geometry3Sharp.Tests
             }
             Assert.True(failures.Count == 0, string.Join("\n", failures));
         }
+
+        /// <summary>The triangles of a mesh as sorted strings of exact coordinates, independent of ids.</summary>
+        static List<string> TriangleSet(DMesh3 mesh)
+        {
+            var result = new List<string>();
+            foreach (int t in mesh.TriangleIndices()) {
+                Index3i tri = mesh.GetTriangle(t);
+                var corners = new[] { mesh.GetVertex(tri.a), mesh.GetVertex(tri.b), mesh.GetVertex(tri.c) }
+                    .Select(v => BitConverter.DoubleToInt64Bits(v.x) + "," + BitConverter.DoubleToInt64Bits(v.y) + "," + BitConverter.DoubleToInt64Bits(v.z))
+                    .ToArray();
+                int first = 0;
+                for (int k = 1; k < 3; ++k)
+                    if (string.CompareOrdinal(corners[k], corners[first]) < 0) first = k;
+                result.Add(corners[first] + " " + corners[(first + 1) % 3] + " " + corners[(first + 2) % 3]);
+            }
+            result.Sort(StringComparer.Ordinal);
+            return result;
+        }
+
+        static void AssertMarchingCubesProParallelEqualsSerial(BoundedImplicitFunction3d f, AxisAlignedBox3d bounds, double cubeSize)
+        {
+            Func<bool, DMesh3> run = (parallel) => {
+                var mc = new MarchingCubesPro() { Implicit = f, Bounds = bounds, CubeSize = cubeSize, ParallelCompute = parallel };
+                mc.Generate();
+                return mc.Mesh;
+            };
+            List<string> serial = TriangleSet(run(false));
+            Assert.True(serial.Count > 1000);
+            for (int k = 0; k < 4; ++k)
+                Assert.True(serial.SequenceEqual(TriangleSet(run(true))), "parallel run " + k);
+        }
+
+        [Fact]
+        public void MarchingCubesPro_ParallelEqualsSerial()
+        {
+            // MarchingCubesPro returned the double value on the first evaluation of a grid corner and the float stored in
+            // the grid afterwards, so with parallel z-slabs the edge vertices depended on which cell came first
+            var blob = new ImplicitSmoothUnion3d() {
+                A = new ImplicitSphere3d() { Origin = new Vector3d(0.1, -0.2, 0.05), Radius = 0.9 },
+                B = new ImplicitSphere3d() { Origin = new Vector3d(0.8, 0.5, 0.3), Radius = 0.6 }
+            };
+            AssertMarchingCubesProParallelEqualsSerial(blob, blob.Bounds().Expanded(0.2), 0.05);
+        }
+
+        /// <summary>A plane x = x0 with a small gradient (field values within 1e-5 of the iso value at both ends of an edge).</summary>
+        class ShallowPlane : BoundedImplicitFunction3d
+        {
+            public double Value(ref Vector3d p) => 3e-4 * (p.x - 0.525);
+            public AxisAlignedBox3d Bounds() => new AxisAlignedBox3d(Vector3d.Zero, 1);
+        }
+
+        [Fact]
+        public void MarchingCubesPro_ShallowField_ParallelEqualsSerial()
+        {
+            // find_iso snaps to the first corner when both are near the iso value, and the cells on either side of an
+            // edge passed the corners in opposite orders: the vertex jumped by a cell depending on which cell was first
+            var f = new ShallowPlane();
+            AssertMarchingCubesProParallelEqualsSerial(f, f.Bounds(), 0.05);
+        }
     }
 }
