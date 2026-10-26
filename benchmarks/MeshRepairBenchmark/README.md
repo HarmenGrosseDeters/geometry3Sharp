@@ -931,20 +931,26 @@ python3 analyze_paths.py results/objaverse/robust.jsonl
   attribution of every object. Nothing of it is committed (CLAUDE.md); results that name objects must keep
   their attribution.
 
-**Baseline (`robust`, master 6ec47ed, 4 meshes in parallel, 120 s timeout):**
+**Baseline (`robust`, master 6ec47ed, `BENCH_P=4`, 120 s timeout):**
 
-| | Objaverse (300) | Thingi10K (400, above) |
-|---|---|---|
-| closed + topologically clean | 279 | |
-| ... and no exact self-intersections | 272 | |
-| **repaired** (also Hausdorff < 1 %, IoU > 0.99) | **64** | 270 |
-| timeout (no crash; alone they finish in 50-60 s, one takes > 200 s) | 17 | |
-| repair time median / max | 9.6 s / 104 s | |
+| Objaverse, 300 objects | |
+|---|---|
+| closed + topologically clean | 279 |
+| ... and no exact self-intersections | 272 |
+| **repaired** (also Hausdorff < 1 %, IoU > 0.99) | **64** |
+| `timeout_or_crash` | 17 |
+| repair time median / max | 9.6 s / 104 s |
+
+The 17 are timeouts under the parallel load, not crashes: run alone with a 200 s timeout, three of four
+checked finished in 50-60 s without an exception, the fourth took longer than 200 s. For comparison only (other
+conditions: `BENCH_P=2`, `TIMEOUT=300`, an older master), the robust repair of the Thingi10K selection repaired
+272 of 400 (above).
 
 Per stage (`analyze_paths.py`): the first stage repaired 23 of 26; the exact resolve 39 of 136, solidify
 2 of 64, alpha wrap 0 of 57. Most misses are deviation, not defects: the 97 exact-resolve results that miss
-are all clean, without self-intersections and with IoU > 0.99, at a median Hausdorff distance of 2 %. The
-likely cause (not yet checked mesh by mesh): Objaverse models often carry interior and double-sided faces
-that the solid's boundary drops on purpose, and the two-sided Hausdorff distance counts them. A fidelity
-measure that ignores dropped interior faces would tell these apart from real losses; until then, compare
-runs on this corpus with each other, not with Thingi10K.
+are all clean, without self-intersections and with IoU > 0.99, at a median Hausdorff distance of 2.7 %
+(1.1 % to 25 %); in 82 of them the larger part is the distance from the input to the result (`hd_back`), ie
+input surface that the result does not have. The likely cause (not yet checked mesh by mesh): Objaverse models
+often carry interior and double-sided faces that the solid's boundary drops on purpose. A fidelity measure that
+ignores dropped interior faces would tell these apart from real losses; until then, compare runs on this corpus
+with each other, not with Thingi10K.
