@@ -99,12 +99,20 @@ determinism tests.
 - `MarchingCubesPro` returns the double field value on the first evaluation of a grid corner and the float
   value afterwards, so its parallel result depends on the thread schedule.
 - `MeshSignedDistanceGrid`'s parallel narrow band breaks distance ties by thread order.
-- The first two are in classes other PRs are changing; skipped tests document them until their fixes land.
-  The last two are fixed in #124 and #125, with tests in ThreadingFixesTests.
+- All four are fixed: the geodesic distances on closed meshes by the rework in #115 (the invariance test runs
+  over all similarities since), the boolean order in #123, the last two in #124 and #125 (tests in
+  ThreadingFixesTests). On open meshes the boundary splits of the intrinsic refinement place their concentric
+  shells at absolute powers of two, so the distances still depend on the scale (4 % at 1e-3); fixed in a
+  separate PR.
 
 **Not bugs:**
 - `MeshAlphaWrap`'s relative alpha comes from the axis-aligned bounds, so it changes under a rotation. This
   is intended.
+- `MeshGeodesicDistance` with `IntrinsicDelaunay` is discontinuous at cocircular quads: on the cube sphere,
+  many of whose quads are exactly cocircular, a perturbation of 1e-9 (above the flip tolerance of 1e-10)
+  decides the Delaunay flips differently and moves the distances by about 1 % (the lumped masses and
+  per-triangle gradients differ; the cotan Laplacian is the same). Away from such ties the distances follow a
+  perturbation one to one. Invariance tests of intrinsic methods therefore use an input without exact ties.
 - `Invariance.VertexDistance` has rounding noise of about 1e-8 times the size
   (`Similarity.DistanceResolution`), because point-triangle distances come from squared distances.
 
