@@ -37,6 +37,34 @@ namespace geometry3Sharp.Tests
 
 
         [Fact]
+        public void Octree_PropagatedNodeValues_DoNotDependOnTheQueryOrder()
+        {
+            // With propagation a node copies an already cached neighbour value instead of evaluating its own;
+            // which neighbours are cached depends on the order (in parallel: on the thread timing). The values
+            // must be the same either way (the fast winding number of two nodes differs in the last digits).
+            DMesh3 sphere = new Sphere3Generator_NormalizedCube() { Radius = 5, EdgeVertices = 16 }.Generate().MakeDMesh();
+            Func<WindingNumberOctree> make = () => {
+                var o = new WindingNumberOctree(sphere, new DMeshAABBTree3(sphere, true)) { MaxDepth = 6, RegionF = (min, size) => false };
+                o.Build();      // no cells: nothing evaluated yet
+                return o;
+            };
+            var nodes = new List<Vector3i>();
+            var probe = make();
+            int n = probe.LeafCount;
+            for (int i = 0; i < n; ++i)
+                for (int j = n / 4; j <= 3 * n / 4; j += n / 8)
+                    nodes.Add(new Vector3i(i, j, n / 2));
+            var forward = make();
+            var a = nodes.Select(v => forward.NodeValue(v)).ToList();
+            var backward = make();
+            var b = Enumerable.Reverse(nodes).Select(v => backward.NodeValue(v)).Reverse().ToList();
+            Assert.True(forward.WindingEvaluations < nodes.Count);     // values were propagated
+            int differ = Enumerable.Range(0, nodes.Count).Count(k => a[k] != b[k]);
+            Assert.Equal(0, differ);
+            Assert.Contains(a, w => w > 0.99);     // the line runs through the inside
+        }
+
+        [Fact]
         public void Octree_RefinesOnlyNearSurface()
         {
             DMesh3 box = Box(10);

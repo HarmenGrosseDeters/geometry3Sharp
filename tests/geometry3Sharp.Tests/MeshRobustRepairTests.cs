@@ -692,6 +692,22 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void Solidify_IsDeterministic()
+        {
+            // parallel octree and contouring: repeated runs give the same mesh, bit for bit (they used to
+            // differ in a few vertices by ~1e-8, and then in the triangle count after the reduction)
+            DMesh3 plates = ThinPlates(6);
+            Func<DMesh3> run = () => {
+                var s = new MeshWindingNumberSolidify(new DMesh3(plates)) { GridResolution = 64, Adaptive = true };
+                Assert.True(s.Compute());
+                return s.Result;
+            };
+            DMesh3 first = run();
+            for (int i = 0; i < 5; ++i)
+                Assert.True(SameMesh(first, run()), $"run {i + 2} differs from the first");
+        }
+
+        [Fact]
         public void CleanSolidify_NotWrapped()
         {
             var r = new MeshRobustRepair(Sphere(1, Vector3d.Zero)) { RepairF = (m) => { var c = new DMesh3(m); MeshEditor.Append(c, Sphere(1, new Vector3d(1.2, 0, 0))); return c; }, ExactResolve = false };

@@ -185,9 +185,23 @@ namespace gs
                 return value;
             Vector3d pos = Origin + LeafCellSize * new Vector3d(node.x, node.y, node.z);
             if (propagate == false || try_copy_from_neighbour(node, pos, out value) == false)
-                value = evaluate(pos);
+                value = propagate ? snap(evaluate(pos)) : evaluate(pos);
             cache[key] = value;
             return value;
+        }
+
+        // With propagation, a node gets either its own value or a copy of a neighbour's, depending on which
+        // neighbours the other threads have evaluated first. Off the surface of closed, oriented meshes the
+        // winding number is an integer, so values that may be copied (|w - WindingIso| > PropagateMargin) are
+        // rounded to it: then the copy and the node's own value are the same and the result does not depend
+        // on the thread timing (without this, the fast winding number error of the two differed in the last
+        // digits and moved contour vertices).
+        float snap(float value)
+        {
+            if (Math.Abs(value - WindingIso) <= PropagateMargin)
+                return value;
+            float r = (float)Math.Round(value);
+            return ((r > WindingIso) == (value > WindingIso)) ? r : value;
         }
 
         // the winding number is piecewise constant (an integer) only for a closed, consistently oriented
