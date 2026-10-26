@@ -63,6 +63,8 @@ namespace g3cli
             MeshMeasurements.GenusResult genus = MeshMeasurements.Genus(mesh);
             o["genus"] = genus.Valid ? genus.Genus : (JsonNode)null;
 
+            int inconsistent = MeshRepairMetrics.InconsistentlyOrientedEdges(mesh);
+            o["inconsistent_orientation_edges"] = inconsistent;
             int inverted = closed ? MeshPostRepairCleanup.FindInvertedComponents(mesh).Count : 0;
             o["inverted_components"] = inverted;
 
@@ -76,6 +78,7 @@ namespace g3cli
                 : closed == false ? "not closed"
                 : bowties > 0 ? "bowties"
                 : degenerate > 0 ? "degenerate triangles"
+                : inconsistent > 0 ? "inconsistent orientation"
                 : inverted > 0 ? "inside-out components"
                 : (selfInt ?? 0) > 0 ? "self-intersections" : "";
             o["clean"] = reason == "" && selfInt.HasValue;

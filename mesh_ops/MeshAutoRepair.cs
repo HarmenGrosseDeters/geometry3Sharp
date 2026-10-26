@@ -22,7 +22,7 @@ namespace gs
     /// compacted copy with vertex normals, so always read the result from <see cref="Mesh"/>.
     /// Apply() returns false only if cancelled (see Progress); it returns true even if the mesh could not be
     /// closed, so check eg Mesh.IsClosed(). Self-intersections are not removed, and erosion can delete parts
-    /// of the input. Tolerances are absolute (model units).
+    /// of the input. Tolerances are relative to the size of the mesh by default (see ToleranceMode).
     ///
     /// Use MeshRobustRepair to get a clean solid in all cases (it runs this class first and falls back to
     /// MeshWindingNumberSolidify, which remeshes); use MeshWindingNumberSolidify directly to rebuild any input
@@ -37,15 +37,117 @@ namespace gs
     public class MeshAutoRepair
     {
         /// <summary>
-        /// Distance (absolute) within which boundary edges are merged to close cracks (up to 2x this in the
-        /// second round); boundary edges shorter than half of it are collapsed before that.
+        /// Relative (default): the tolerances are fractions of the size of the mesh (RelativeRepairTolerance,
+        /// RelativeMinEdgeLength times the diagonal of the axis-aligned bounds of the triangles at the start of
+        /// Apply(), at most 1/100 of the median edge length, at least 16 rounding units of the largest coordinate),
+        /// so a model gives the same result in mm, um or km, and far from the origin (a rotation can change the
+        /// axis-aligned diagonal by up to sqrt(3)). RepairTolerance or MinEdgeLengthTol set to a value other than
+        /// its 1.0.324 default is absolute and used as given in both modes (set to exactly the default, it counts
+        /// as not set: use Absolute for that).
+        /// Absolute: RepairTolerance and MinEdgeLengthTol are used as they are (with their defaults: as
+        /// geometry3Sharp 1.0.324).
         /// </summary>
-		public double RepairTolerance = MathUtil.ZeroTolerancef;
+        public enum ToleranceModes { Relative = 0, Absolute = 1 }
+        /// <summary> see ToleranceModes; default Relative </summary>
+        public ToleranceModes ToleranceMode = ToleranceModes.Relative;
 
         /// <summary>
-        /// At the end, edges shorter than this (absolute) are assumed degenerate and collapsed. 0 disables.
+        /// Crack merging distance as a fraction of the diagonal of the triangles (ToleranceModes.Relative, if
+        /// RepairTolerance is not set). 1e-8 gives the absolute 1e-6 of 1.0.324 for a model of diagonal 100. Also
+        /// 0 keeps the floor of 16 rounding units of the largest coordinate (coincident edges are still merged).
         /// </summary>
-        public double MinEdgeLengthTol = 0.0001;
+        public double RelativeRepairTolerance = 1e-8;
+
+        /// <summary>
+        /// Final short edge collapse length as a fraction of the diagonal of the triangles (ToleranceModes.Relative,
+        /// if MinEdgeLengthTol is not set); 0 disables. 1e-6 gives the absolute 1e-4 of 1.0.324 for a model of
+        /// diagonal 100.
+        /// </summary>
+        public double RelativeMinEdgeLength = 1e-6;
+
+        /// <summary>
+        /// Distance (absolute, model units) within which boundary edges are merged to close cracks (up to 2x this
+        /// in the second round); boundary edges shorter than half of it are collapsed before that. A value other
+        /// than the default 1e-6 (MathUtil.ZeroTolerancef) overrides RelativeRepairTolerance; the default itself
+        /// counts as not set and is only used with ToleranceModes.Absolute (reading it does not give the relative
+        /// value, see EffectiveRepairTolerance). It sets the merge distance only; the other small lengths
+        /// (degenerate hole loops, occlusion test offset) stay relative.
+        /// </summary>
+		public double RepairTolerance = DefaultRepairTolerance;
+
+        /// <summary>
+        /// At the end, edges shorter than this (absolute, model units) are assumed degenerate and collapsed; 0
+        /// disables. A value other than the default 1e-4 overrides RelativeMinEdgeLength; the default itself counts
+        /// as not set and is only used with ToleranceModes.Absolute (reading it does not give the relative value,
+        /// see EffectiveMinEdgeLength).
+        /// </summary>
+        public double MinEdgeLengthTol = DefaultMinEdgeLengthTol;
+
+        // the 1.0.324 defaults: a field still at its default is "not set" (fields, not properties: binary
+        // compatible with code compiled against 1.0.324)
+        const double DefaultRepairTolerance = MathUtil.ZeroTolerancef, DefaultMinEdgeLengthTol = 0.0001;
+
+        /// <summary> the crack merging distance the last Apply() used (model units) </summary>
+        public double EffectiveRepairTolerance { get; private set; }
+        /// <summary> the short edge collapse length the last Apply() used (model units) </summary>
+        public double EffectiveMinEdgeLength { get; private set; }
+
+        /// <summary>
+        /// The tolerances for the current mesh: explicitly set or Absolute mode: the absolute values; otherwise
+        /// the relative factors times the diagonal of the triangles, at most 1/100 of the median edge length (one
+        /// far away or non-finite triangle would otherwise inflate the diagonal and collapse the whole mesh), but at
+        /// least 16 rounding units of the largest coordinate, so that cracks of rounding noise far from the origin
+        /// (UTM) still close. All terms scale exactly with the mesh under scaling by a power of two.
+        /// </summary>
+        void compute_tolerances()
+        {
+            double diag = 0, magnitude = 0, cap = double.PositiveInfinity;
+            if (Mesh.TriangleCount > 0) {
+                AxisAlignedBox3d box = MeshRepairMetrics.TriangleBounds(Mesh);
+                diag = box.DiagonalLength;
+                magnitude = Math.Max(box.Min.MaxAbs, box.Max.MaxAbs);
+                cap = 0.01 * median_edge_length();
+            }
+            double floor = MathUtil.IsFinite(magnitude) ? 16 * MathUtil.Epsilon * magnitude : 0;
+            double relRepair = relative_tolerance(RelativeRepairTolerance, diag, cap, floor, MathUtil.ZeroTolerancef);
+            double relMinEdge = (RelativeMinEdgeLength > 0)
+                ? relative_tolerance(RelativeMinEdgeLength, diag, cap, floor, 0.0001) : 0;
+            bool absolute = ToleranceMode == ToleranceModes.Absolute;
+            EffectiveRepairTolerance = (absolute || RepairTolerance != DefaultRepairTolerance) ? RepairTolerance : relRepair;
+            EffectiveMinEdgeLength = (absolute || MinEdgeLengthTol != DefaultMinEdgeLengthTol) ? MinEdgeLengthTol : relMinEdge;
+            // the scale of the other small lengths (degenerate hole loops, the offset of the occlusion test points):
+            // relative, also if RepairTolerance is set (it is the merge distance only); Absolute: as in 1.0.324
+            sizeTolerance = absolute ? MathUtil.ZeroTolerancef : relRepair;
+            // (at least the floor: far from the origin 1/100 of it would round away)
+            normalOffset = absolute ? 0.01 * MathUtil.ZeroTolerancef : Math.Max(0.01 * relRepair, floor);
+        }
+        double sizeTolerance = MathUtil.ZeroTolerancef, normalOffset = 0.01 * MathUtil.ZeroTolerancef;
+
+        // factor * diag, at most cap, at least floor; a mesh without a finite size gets the 1.0.324 value
+        static double relative_tolerance(double factor, double diag, double cap, double floor, double fallback)
+        {
+            double t = factor * diag;
+            if (!(t <= cap))
+                t = cap;          // (also for a NaN or infinite diagonal)
+            t = Math.Max(t, floor);
+            return MathUtil.IsFinite(t) ? t : fallback;
+        }
+
+        // median length of the edges with a finite length (+inf if there are none)
+        double median_edge_length()
+        {
+            var lengths = new List<double>(Mesh.EdgeCount);
+            foreach (int eid in Mesh.EdgeIndices()) {
+                Index2i ev = Mesh.GetEdgeV(eid);
+                double len = Mesh.GetVertex(ev.a).Distance(Mesh.GetVertex(ev.b));
+                if (MathUtil.IsFinite(len))
+                    lengths.Add(len);
+            }
+            if (lengths.Count == 0)
+                return double.PositiveInfinity;
+            lengths.Sort();
+            return lengths[lengths.Count / 2];
+        }
 
         /// <summary>
         /// If the mesh is still open after the first two rounds, up to this many times all triangles touching
@@ -144,6 +246,9 @@ namespace gs
 
 			if ( do_checks ) Mesh.CheckValidity();
 
+            // (from the input, before anything is removed: the same tolerances for all rounds)
+            compute_tolerances();
+
 
             /*
              * Remove parts of the mesh we don't want before we bother with anything else
@@ -167,7 +272,7 @@ namespace gs
              *  Do safe close-cracks to handle easy cases
              */
 
-            repair_cracks(true, RepairTolerance); stage("cracks_unique");
+            repair_cracks(true, EffectiveRepairTolerance); stage("cracks_unique");
                 if (Mesh.IsClosed()) goto all_done;
                 if (Cancelled()) return false;
 
@@ -176,11 +281,11 @@ namespace gs
              * then allow for handling of ambiguous cases
              */
 
-            collapse_all_degenerate_edges(RepairTolerance*0.5, true); stage("collapse_boundary_edges");
+            collapse_all_degenerate_edges(EffectiveRepairTolerance*0.5, true); stage("collapse_boundary_edges");
                 if (Cancelled()) return false;
-            repair_cracks(true, 2*RepairTolerance); stage("cracks_unique_2x");
+            repair_cracks(true, 2*EffectiveRepairTolerance); stage("cracks_unique_2x");
                 if (Cancelled()) return false;
-            repair_cracks(false, 2*RepairTolerance); stage("cracks_any_2x");
+            repair_cracks(false, 2*EffectiveRepairTolerance); stage("cracks_any_2x");
                 if (Cancelled()) return false;
                 if (Mesh.IsClosed()) goto all_done;
 
@@ -200,8 +305,8 @@ namespace gs
                 repair_orientation(false);
                 // coincident boundary edges that now run in opposite directions (eg the two sides of a slit
                 // left by the cut) are joined again; MergeEdges never joins edges that run the same way
-                repair_cracks(true, 2 * RepairTolerance);
-                repair_cracks(false, 2 * RepairTolerance);
+                repair_cracks(true, 2 * EffectiveRepairTolerance);
+                repair_cracks(false, 2 * EffectiveRepairTolerance);
                 stage("cut_seams");
             }
 
@@ -276,8 +381,8 @@ namespace gs
             /*
              * Remove tiny edges
              */
-            if (MinEdgeLengthTol > 0) {
-                collapse_all_degenerate_edges(MinEdgeLengthTol, false); stage("collapse_short_edges");
+            if (EffectiveMinEdgeLength > 0) {
+                collapse_all_degenerate_edges(EffectiveMinEdgeLength, false); stage("collapse_short_edges");
             }
                 if (Cancelled()) return false;
 
@@ -413,7 +518,8 @@ namespace gs
             int NV = loop.VertexCount;
             for (int i = 0; i < NV; ++i)
                 len += Mesh.GetVertex(loop.Vertices[i]).Distance(Mesh.GetVertex(loop.Vertices[(i + 1) % NV]));
-            if (len < MathUtil.ZeroTolerancef)
+            // (a degenerate loop: nothing to remesh)
+            if (len <= sizeTolerance)
                 return false;
             try {
                 SmoothedHoleFill fill = new SmoothedHoleFill(Mesh, loop);
@@ -529,6 +635,7 @@ namespace gs
 		{
 			RemoveOccludedTriangles remove = new RemoveOccludedTriangles(Mesh);
 			remove.PerVertex = true;
+			remove.NormalOffset = normalOffset;
 			remove.InsideMode = RemoveOccludedTriangles.CalculationMode.FastWindingNumber;
 			remove.Apply();
 			nRemoved = remove.RemovedT.Count();
@@ -538,6 +645,7 @@ namespace gs
 		{
 			RemoveOccludedTriangles remove = new RemoveOccludedTriangles(Mesh);
 			remove.PerVertex = true;
+			remove.NormalOffset = normalOffset;
 			remove.InsideMode = RemoveOccludedTriangles.CalculationMode.SimpleOcclusionTest;
 			remove.Apply();
 			nRemoved = remove.RemovedT.Count();
