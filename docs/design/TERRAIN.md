@@ -994,7 +994,8 @@ the line there (`TargetHeights`, `TargetHeightLines`).
 ## 11. Implementation phases (after review)
 
 1. The slope oracle (`SlopeSpec`, `Slope.IsNotSteeper`, `IsSupportedBy`, exact for 1:n and percent) with its exact
-   predicate, error-bound review, and tests. Round-trip exact writers (OBJ `"R"`), with a test.
+   predicate, error-bound review, and tests. Round-trip exact writers (OBJ `"R"`) and the quantized output
+   path (`OutputGrid`: quantize, re-check, repair or reject), with read-back tests.
 2. S̃ for constant slope per segment (the simple standard): pieces, plane-based exact envelope, realization with
    the margin, repair, O1 / O2 tests, invariance. Explicit side, lateral limits by the end normals.
 3. Piecewise-constant slopes with jumps (values per segment end), then continuous change with the three
@@ -1004,7 +1005,8 @@ the line there (`TargetHeights`, `TargetHeightLines`).
 5. Mixed cut and fill (clamp).
 6. Target heights and their lines (the hook for berms).
 7. Benchmark at km scale; docs (OPERATIONS.md, SOURCES.md).
-8. Later, each a development step of its own: sector polygons, exterior distance, berms with constant then variable
+8. Later, each a development step of its own: inter-ramp / overall slope check along profiles, sector polygons,
+   exterior distance, a proven bound for the catch-line uncertainty, berms with constant then variable
    widths, ramps, a proven interval tan for angle input, volume per cell, lofting utility.
 
 ## 12. Open questions for the user
