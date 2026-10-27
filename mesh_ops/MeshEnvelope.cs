@@ -22,7 +22,10 @@ namespace gs
         Empty,
         /// <summary> more than 33 million triangles (the prism arrays would exceed the array size limit) </summary>
         TooLarge,
-        /// <summary> coordinates or epsilon so large that the prisms overflow (offsets, boxes not finite) </summary>
+        /// <summary>
+        /// non-finite vertex coordinates, or values so large that the prisms overflow (edge vectors, plane
+        /// offsets, boxes or the grid cell not finite)
+        /// </summary>
         OutOfRange
     }
 
@@ -124,13 +127,13 @@ namespace gs
                 var box = new AxisAlignedBox3d(v0); box.Contain(v1); box.Contain(v2);
                 // the prism is within epsilon of the triangle
                 box.Expand(1.01 * Epsilon);
-                if (!(box.Min.IsFinite && box.Max.IsFinite)) return EnvelopeStatus.OutOfRange;
+                if (!(finite(box.Min) && finite(box.Max))) return EnvelopeStatus.OutOfRange;
                 boxes[p] = box;
-                sumEdge += v0.Distance(v1) + v1.Distance(v2) + v2.Distance(v0);
+                sumEdge += (length(v1 - v0) + length(v2 - v1) + length(v0 - v2)) / 3;
                 p++;
             }
             prismCount = p;
-            double cell = Math.Max(sumEdge / (3 * p) + 2 * Epsilon, Epsilon);
+            double cell = Math.Max(sumEdge / p + 2 * Epsilon, Epsilon);
             if (double.IsInfinity(cell) || double.IsNaN(cell)) return EnvelopeStatus.OutOfRange;
             // origin at the prisms (the mesh bounds would also count unused vertices)
             var all = new AxisAlignedBox3d(boxes[0].Min);
@@ -139,6 +142,23 @@ namespace gs
             grid = new TriangleHashGrid(origin, cell);
             for (int k = 0; k < p; ++k) grid.Insert(k, boxes[k]);
             return EnvelopeStatus.Ready;
+        }
+
+        // length without overflow or underflow of the squares (scaled by a power of two)
+        static double length(Vector3d v)
+        {
+            double m = Math.Max(Math.Abs(v.x), Math.Max(Math.Abs(v.y), Math.Abs(v.z)));
+            if (!(m > 0) || double.IsInfinity(m)) return m;
+            int e = (int)Math.Floor(Math.Log(m, 2));
+            Vector3d w = new Vector3d(ExactPoint3.ScaleB(v.x, -e), ExactPoint3.ScaleB(v.y, -e), ExactPoint3.ScaleB(v.z, -e));
+            return ExactPoint3.ScaleB(w.Length, e);
+        }
+
+        // all components finite (Vector3d.IsFinite tests their sum, which overflows for (1e308, 1e308, 0))
+        static bool finite(Vector3d v)
+        {
+            return !(double.IsNaN(v.x) || double.IsInfinity(v.x) || double.IsNaN(v.y) || double.IsInfinity(v.y)
+                || double.IsNaN(v.z) || double.IsInfinity(v.z));
         }
 
         // unit vector along v, false if v is zero or not finite. Scaled by a power of two first (exact), so that
@@ -160,6 +180,9 @@ namespace gs
         {
             Vector3d[] v = { v0, v1, v2 };
             Vector3d[] e = { v1 - v0, v2 - v1, v0 - v2 };
+            // every edge needs its normals (the bound of the lateral offsets): no edge vector may overflow
+            foreach (Vector3d q in v) if (finite(q) == false) return EnvelopeStatus.OutOfRange;
+            foreach (Vector3d q in e) if (finite(q) == false) return EnvelopeStatus.OutOfRange;
             int L = 0;
             for (int k = 1; k < 3; ++k) if (e[k].LengthSquared > e[L].LengthSquared) L = k;
             Vector3d u1;
@@ -169,6 +192,7 @@ namespace gs
             // triangle close to the plane (its spread along the normal is at most the offset plus rounding)
             Vector3d d = v[(L + 2) % 3] - v[L];
             Vector3d perp = d - d.Dot(u1) * u1;
+            if (finite(perp) == false) return EnvelopeStatus.OutOfRange;
             Vector3d nrm = u1.Cross(perp);
             Vector3d nh;
             if (unit(nrm, out nh) == false) {
@@ -195,21 +219,22 @@ namespace gs
                 return EnvelopeStatus.TooThin;
 
             int c = 0;
-            bool finite = true;
-            finite &= add_plane(p, ref c, nh, v, normalOffset);
-            finite &= add_plane(p, ref c, -nh, v, normalOffset);
+            bool offsetsFinite = true;
+            offsetsFinite &= add_plane(p, ref c, nh, v, normalOffset);
+            offsetsFinite &= add_plane(p, ref c, -nh, v, normalOffset);
             for (int k = 0; k < 8; ++k) {
                 double a = k * Math.PI / 4;
-                finite &= add_plane(p, ref c, Math.Cos(a) * u1 + Math.Sin(a) * u2, v, lateralOffset);
+                offsetsFinite &= add_plane(p, ref c, Math.Cos(a) * u1 + Math.Sin(a) * u2, v, lateralOffset);
             }
             for (int k = 0; k < 3; ++k) {
                 Vector3d w;
-                if (unit(nh.Cross(e[k]), out w) == false) continue;     // a zero-length edge
-                finite &= add_plane(p, ref c, w, v, lateralOffset);
-                finite &= add_plane(p, ref c, -w, v, lateralOffset);
+                if (e[k].x == 0 && e[k].y == 0 && e[k].z == 0) continue;     // a zero-length edge has no normal
+                if (unit(nh.Cross(e[k]), out w) == false) return EnvelopeStatus.OutOfRange;
+                offsetsFinite &= add_plane(p, ref c, w, v, lateralOffset);
+                offsetsFinite &= add_plane(p, ref c, -w, v, lateralOffset);
             }
             planeCount[p] = c;
-            return finite ? EnvelopeStatus.Ready : EnvelopeStatus.OutOfRange;
+            return offsetsFinite ? EnvelopeStatus.Ready : EnvelopeStatus.OutOfRange;
         }
 
         // half-space m . x <= max_j m . v_j + offset, with the offset raised by the rounding error of the dot
@@ -236,7 +261,7 @@ namespace gs
         /// <summary> is the point in the envelope? </summary>
         public bool Contains(Vector3d q)
         {
-            if (Status != EnvelopeStatus.Ready) return false;
+            if (Status != EnvelopeStatus.Ready || finite(q) == false) return false;
             List<int> cand = candidates(new AxisAlignedBox3d(q));
             bool uncertain = SkipFilters;
             if (SkipFilters == false) foreach (int p in cand) {
@@ -254,7 +279,7 @@ namespace gs
         /// <summary> is the whole segment in the envelope? </summary>
         public bool ContainsSegment(Vector3d a, Vector3d b)
         {
-            if (Status != EnvelopeStatus.Ready) return false;
+            if (Status != EnvelopeStatus.Ready || finite(a) == false || finite(b) == false) return false;
             var box = new AxisAlignedBox3d(a); box.Contain(b);
             List<int> cand = candidates(box);
             Vector3d[] q = { a, b };
@@ -268,7 +293,7 @@ namespace gs
         /// <summary> is the whole triangle in the envelope? (also for degenerate triangles) </summary>
         public bool ContainsTriangle(Vector3d a, Vector3d b, Vector3d c)
         {
-            if (Status != EnvelopeStatus.Ready) return false;
+            if (Status != EnvelopeStatus.Ready || finite(a) == false || finite(b) == false || finite(c) == false) return false;
             var box = new AxisAlignedBox3d(a); box.Contain(b); box.Contain(c);
             List<int> cand = candidates(box);
             Vector3d[] q = { a, b, c };

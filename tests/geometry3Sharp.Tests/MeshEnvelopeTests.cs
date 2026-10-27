@@ -413,6 +413,42 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void OverflowingEdge_GivesAStatus()
+        {
+            // the edge v0 -> v1 overflows to inf: without its normals the prism would reach about 1e306 sideways
+            double c = Math.Cos(Math.PI / 8), s = Math.Sin(Math.PI / 8);
+            var m = new DMesh3();
+            m.AppendTriangle(m.AppendVertex(new Vector3d(-c, -s, 0) * 1e308), m.AppendVertex(new Vector3d(c, s, 0) * 1e308),
+                m.AppendVertex(new Vector3d(-c * 1e308, -0.5e308, 0)));
+            var env = new MeshEnvelope(m, 1e300);
+            Assert.Equal(EnvelopeStatus.OutOfRange, env.Status);
+            Assert.False(env.Contains(1e306 * new Vector3d(-s, c, 0)));
+            // non-finite vertices too, and a box whose component sum overflows is still fine
+            var bad = new DMesh3();
+            bad.AppendTriangle(bad.AppendVertex(Vector3d.Zero), bad.AppendVertex(new Vector3d(double.NaN, 0, 0)), bad.AppendVertex(new Vector3d(0, 1, 0)));
+            Assert.Equal(EnvelopeStatus.OutOfRange, new MeshEnvelope(bad, 0.01).Status);
+            var big = new DMesh3();
+            big.AppendTriangle(big.AppendVertex(new Vector3d(1e308, 1e308, 0)), big.AppendVertex(new Vector3d(1e308 - 1e293, 1e308, 0)), big.AppendVertex(new Vector3d(1e308, 1e308 - 1e293, 0)));
+            var benv = new MeshEnvelope(big, 1e297);
+            Assert.Equal(EnvelopeStatus.Ready, benv.Status);
+            Assert.True(benv.Contains(new Vector3d(1e308, 1e308, 0)));
+        }
+
+        [Fact]
+        public void NonFiniteQueries_AreNotContained()
+        {
+            var m = new DMesh3();
+            m.AppendTriangle(m.AppendVertex(Vector3d.Zero), m.AppendVertex(new Vector3d(1, 0, 0)), m.AppendVertex(new Vector3d(0, 1, 0)));
+            var env = new MeshEnvelope(m, 0.01);
+            Vector3d a = new Vector3d(0.2, 0.2, 0);
+            foreach (Vector3d q in new[] { new Vector3d(double.PositiveInfinity, 0.2, 0), new Vector3d(0.2, double.NaN, 0), new Vector3d(0, 0, double.NegativeInfinity) }) {
+                Assert.False(env.Contains(q));
+                Assert.False(env.ContainsSegment(a, q));
+                Assert.False(env.ContainsTriangle(a, q, new Vector3d(0.3, 0.2, 0)));
+            }
+        }
+
+        [Fact]
         public void Statuses()
         {
             DMesh3 mesh = Plane(2, 1);
