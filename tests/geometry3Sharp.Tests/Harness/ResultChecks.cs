@@ -30,7 +30,8 @@ namespace geometry3Sharp.Tests
         public static void AssertClean(DMesh3 mesh, string what = "result", bool checkSelfIntersections = true)
         {
             AssertValid(mesh, what);
-            string reason = MeshRobustRepair.NotCleanReason(mesh, checkSelfIntersections);
+            // (all reasons, not only the first: a failure message that names every defect)
+            string reason = MeshRobustRepair.NotCleanReasons(mesh, checkSelfIntersections);
             Assert.True(reason == "", what + ": " + reason);
         }
 

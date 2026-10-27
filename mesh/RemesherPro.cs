@@ -59,6 +59,16 @@ namespace gs
         }
 
 
+        /// <summary> the number of edges queued for the next RemeshIteration (for tests) </summary>
+        internal int QueuedEdgeCount { get { return modified_edges == null ? 0 : modified_edges.Count; } }
+
+        /// <summary> MinTriangleQuality rejected a move of vID: its edges are processed again (eg flipped) </summary>
+        protected override void OnVertexMoveRejected(int vID)
+        {
+            if (modified_edges != null)
+                queue_one_ring_safe(vID);
+        }
+
         void queue_one_ring_safe(int vid) {
             if ( mesh.IsVertex(vid) ) {
                 bool taken = false;
@@ -546,6 +556,12 @@ namespace gs
                 Vector3d vProjected = ComputeProjectedVertexPos(vID, out bModified);
                 if (vCur.EpsilonEqual(vProjected, moved_tolerance(vCur)))
                     bModified = false;
+                // MinTriangleQuality: no moves that flip an incident triangle (against the positions before the pass,
+                // which is buffered); a shorter step if the full one would
+                if (bModified && MinTriangleQuality > 0) {
+                    vProjected = guarded_projection(vID, vCur, vProjected);
+                    bModified = vProjected != vCur;
+                }
                 if (bModified) {
                     vModifiedV[vID] = true;
                     vBufferV[vID] = vProjected;

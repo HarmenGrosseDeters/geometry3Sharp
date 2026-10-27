@@ -58,7 +58,9 @@ The target edge length is a multiple of the input's mean edge length (`g3cli`'s 
 - `det.`: all runs bit-identical; `serial=`: parallel equals serial (smoothing and projection);
   `2^-10=`, `2^10=`: the input scaled by 2^k and the result scaled back is bit-identical (scaling by 2^k is exact,
   so a scale-invariant method gives the same bits).
-- `not_clean` (JSON only): `MeshRobustRepair.NotCleanReason` for closed inputs.
+- `not_clean` (JSON only): `MeshRobustRepair.NotCleanReasons` for closed inputs, every failed check separated by ", "
+  (earlier runs: only the first one, `NotCleanReason`: "degenerate triangles" hid self-intersections and inside-out
+  results).
 
 ## Results
 Measured on 4 cores (net10.0, Release) with PR #151 (head c0a333e, merged as master 3f18aa3: RemesherPro
