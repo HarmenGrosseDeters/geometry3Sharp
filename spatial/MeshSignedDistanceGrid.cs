@@ -21,7 +21,7 @@ namespace g3
     /// Outside the band, samples keep a large placeholder magnitude ((ni+nj+nk)*CellSize) but still get the correct sign.
     /// 
     /// Usage: <c>var sdf = new MeshSignedDistanceGrid(mesh, cellSize); sdf.Compute();</c> then read sdf[i,j,k],
-    /// sdf.Grid, sdf.GridOrigin and sdf.CellSize. Sample (i,j,k) is located at GridOrigin + CellSize*(i,j,k)
+    /// sdf.Grid, sdf.GridOriginD and sdf.CellSize. Sample (i,j,k) is located at GridOriginD + CellSize*(i,j,k)
     /// (see CellCenter). Sign convention: distances are NEGATIVE INSIDE the mesh and positive outside
     /// (with the default ParityCount mode this assumes outward-facing triangle normals).
     /// The grid covers the mesh bounds plus 2*ExactBandWidth cells (plus ExpandBounds) on each side.
@@ -133,7 +133,7 @@ namespace g3
 
 
         // computed results
-        Vector3f grid_origin;
+        Vector3d grid_origin;
         DenseGrid3f grid;
         DenseGrid3i closest_tri_grid;
         DenseGrid3i intersections_grid;
@@ -164,10 +164,10 @@ namespace g3
             float fBufferWidth = 2 * ExactBandWidth * CellSize;
             if (ComputeMode == ComputeModes.NarrowBand_SpatialFloodFill)
                 fBufferWidth = (float)Math.Max(fBufferWidth, 2 * NarrowBandMaxDistance);
-            // (GridOrigin is a float: rounded down, it holds the origin exactly, and the samples are computed in double
-            // from it, so GridOrigin + CellSize*(i,j,k) is their exact position also at UTM coordinates)
-            Vector3f origin = FloatOriginGrid.FloorToFloat(bounds.Min - (double)fBufferWidth * Vector3d.One - ExpandBounds);
-            Vector3i dims = FloatOriginGrid.Dimensions(origin, bounds.Max + (double)fBufferWidth * Vector3d.One + ExpandBounds, CellSize);
+            // (the origin and the sample positions are doubles: upstream computed them in float, up to 0.25 off at UTM
+            // coordinates; GridOrigin is the origin rounded to float, GridOriginD the exact one)
+            Vector3d origin = bounds.Min - (double)fBufferWidth * Vector3d.One - ExpandBounds;
+            Vector3i dims = SamplingGridSize.Dimensions(origin, bounds.Max + (double)fBufferWidth * Vector3d.One + ExpandBounds, CellSize);
             if (dims.x < 0)
                 throw new ArgumentException("MeshSignedDistanceGrid.Compute: the cell size and the mesh bounds must be finite and give a grid that fits in an array");
             int ni = dims.x, nj = dims.y, nk = dims.z;
@@ -210,6 +210,14 @@ namespace g3
         /// Origin of the SDF grid (position of sample [0,0,0]), in same coordinates as mesh
         /// </summary>
         public Vector3f GridOrigin {
+            get { return (Vector3f)grid_origin; }
+        }
+
+        /// <summary>
+        /// Origin of the grid (position of sample [0,0,0]) in double precision: sample (i,j,k) is at
+        /// GridOriginD + CellSize*(i,j,k). GridOrigin is this rounded to float (up to 0.25 off at UTM coordinates).
+        /// </summary>
+        public Vector3d GridOriginD {
             get { return grid_origin; }
         }
 
@@ -240,8 +248,8 @@ namespace g3
             get { return grid[idx.x, idx.y, idx.z]; }
         }
 
-        /// <summary>
-        /// Position of sample (i,j,k), ie GridOrigin + CellSize*(i,j,k). Note that despite the name,
+        /// Position of sample (i,j,k), ie GridOriginD + CellSize*(i,j,k), rounded to float. Note that despite the name,
+        /// Position of sample (i,j,k), ie GridOriginD + CellSize (rounded to float)*(i,j,k). Note that despite the name,
         /// samples are at the grid points, not at the centers of the cells between them.
         /// </summary>
         public Vector3f CellCenter(int i, int j, int k) {
@@ -270,7 +278,7 @@ namespace g3
 
 
 
-        void make_level_set3(Vector3f origin, float dx,
+        void make_level_set3(Vector3d origin, float dx,
                              int ni, int nj, int nk,
                              DenseGrid3f distances, int exact_band)
         {
@@ -374,7 +382,7 @@ namespace g3
 
 
 
-        void make_level_set3_parallel(Vector3f origin, float dx,
+        void make_level_set3_parallel(Vector3d origin, float dx,
                              int ni, int nj, int nk,
                              DenseGrid3f distances, int exact_band)
         {
@@ -501,7 +509,7 @@ namespace g3
 
 
 
-        void make_level_set3_parallel_spatial(Vector3f origin, float dx,
+        void make_level_set3_parallel_spatial(Vector3d origin, float dx,
                              int ni, int nj, int nk,
                              DenseGrid3f distances, int exact_band)
         {
@@ -646,7 +654,7 @@ namespace g3
 
 
 
-        void make_level_set3_parallel_floodfill(Vector3f origin, float dx,
+        void make_level_set3_parallel_floodfill(Vector3d origin, float dx,
                              int ni, int nj, int nk,
                              DenseGrid3f distances, int exact_band)
         {
@@ -814,7 +822,7 @@ namespace g3
 
 
         // sweep through grid in different directions, distances and closest tris
-        void sweep_pass(Vector3f origin, float dx,
+        void sweep_pass(Vector3d origin, float dx,
                         DenseGrid3f distances, DenseGrid3i closest_tri)
         {
             sweep(distances, closest_tri, origin, dx, +1, +1, +1);
@@ -837,7 +845,7 @@ namespace g3
 
         // single sweep pass
         void sweep(DenseGrid3f phi, DenseGrid3i closest_tri, 
-                   Vector3f origin, float dx,
+                   Vector3d origin, float dx,
                    int di, int dj, int dk)
         {
             int i0, i1;
@@ -883,7 +891,7 @@ namespace g3
 
 
         // fill the intersection grid w/ number of intersections in each cell
-        void compute_intersections(Vector3f origin, float dx, int ni, int nj, int nk, DenseGrid3i intersection_count)
+        void compute_intersections(Vector3d origin, float dx, int ni, int nj, int nk, DenseGrid3i intersection_count)
         {
             double ox = (double)origin[0], oy = (double)origin[1], oz = (double)origin[2];
             double invdx = 1.0 / dx;

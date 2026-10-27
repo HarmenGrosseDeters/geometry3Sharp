@@ -92,7 +92,7 @@ namespace g3
 
 
         // computed results
-        Vector3f grid_origin;
+        Vector3d grid_origin;
         DenseGrid3f grid;
         DenseGrid3i closest_tri_grid;
         DenseGrid3i intersections_grid;
@@ -117,10 +117,10 @@ namespace g3
             AxisAlignedBox3d bounds = Mesh.CachedBounds;
 
             float fBufferWidth = (float)Math.Max(4*CellSize, 2*MaxOffsetDistance + 2*CellSize);
-            // (GridOrigin is a float: rounded down, it holds the origin exactly, and the samples are computed in double
-            // from it, so GridOrigin + CellSize*(i,j,k) is their exact position also at UTM coordinates)
-            Vector3f origin = FloatOriginGrid.FloorToFloat(bounds.Min - (double)fBufferWidth * Vector3d.One - ExpandBounds);
-            Vector3i dims = FloatOriginGrid.Dimensions(origin, bounds.Max + (double)fBufferWidth * Vector3d.One + ExpandBounds, CellSize);
+            // (the origin and the sample positions are doubles: upstream computed them in float, up to 0.25 off at UTM
+            // coordinates; GridOrigin is the origin rounded to float, GridOriginD the exact one)
+            Vector3d origin = bounds.Min - (double)fBufferWidth * Vector3d.One - ExpandBounds;
+            Vector3i dims = SamplingGridSize.Dimensions(origin, bounds.Max + (double)fBufferWidth * Vector3d.One + ExpandBounds, CellSize);
             if (dims.x < 0)
                 throw new ArgumentException("CachingMeshSDF.Initialize: the cell size and the mesh bounds must be finite and give a grid that fits in an array");
             int ni = dims.x, nj = dims.y, nk = dims.z;
@@ -202,6 +202,14 @@ namespace g3
         /// Origin of the SDF grid, in same coordinates as mesh
         /// </summary>
         public Vector3f GridOrigin {
+            get { return (Vector3f)grid_origin; }
+        }
+
+        /// <summary>
+        /// Origin of the grid (position of sample [0,0,0]) in double precision: sample (i,j,k) is at
+        /// GridOriginD + CellSize*(i,j,k). GridOrigin is this rounded to float (up to 0.25 off at UTM coordinates).
+        /// </summary>
+        public Vector3d GridOriginD {
             get { return grid_origin; }
         }
 
@@ -246,7 +254,7 @@ namespace g3
 
 
         // fill the intersection grid w/ number of intersections in each cell
-        void compute_intersections(Vector3f origin, float dx, int ni, int nj, int nk, DenseGrid3i intersection_count)
+        void compute_intersections(Vector3d origin, float dx, int ni, int nj, int nk, DenseGrid3i intersection_count)
         {
             double ox = (double)origin[0], oy = (double)origin[1], oz = (double)origin[2];
             double invdx = 1.0 / dx;
@@ -434,7 +442,7 @@ namespace g3
         public CachingMeshSDFImplicit(CachingMeshSDF sdf)
         {
             SDF = sdf;
-            GridOrigin = sdf.GridOrigin;
+            GridOrigin = sdf.GridOriginD;
             CellSize = sdf.CellSize;
         }
 

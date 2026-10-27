@@ -16,7 +16,7 @@ namespace gs
     /// outward-facing normals, and fractional near holes, so this is useful for open / broken meshes.
     /// Extract a surface with <see cref="MarchingCubes"/> at IsoValue = WindingIsoValue (0.5).
     /// Usage: <c>var g = new MeshWindingNumberGrid(mesh, new DMeshAABBTree3(mesh, true), cellSize); g.Compute();</c>
-    /// The spatial tree must be built. Sample (i,j,k) is located at GridOrigin + (float)CellSize*(i,j,k) (the spacing of the inner MeshSignedDistanceGrid).
+    /// The spatial tree must be built. Sample (i,j,k) is located at GridOriginD + (float)CellSize*(i,j,k) (the spacing of the inner MeshSignedDistanceGrid).
     /// 
     /// TODO: 
     ///   - I think we are over-exploring the grid most of the time. eg along an x-ray that
@@ -86,7 +86,7 @@ namespace gs
         }
 
         // computed results
-        Vector3f grid_origin;
+        Vector3d grid_origin;
         DenseGrid3f winding_grid;
 
         // sdf grid we compute in narrow-band mode
@@ -117,10 +117,10 @@ namespace gs
             AxisAlignedBox3d bounds = Mesh.CachedBounds;
 
             float fBufferWidth = 2 * BufferCells * (float)CellSize;
-            // (GridOrigin is a float: rounded down, it holds the origin exactly, and the samples are computed in double
-            // from it, so GridOrigin + CellSize*(i,j,k) is their exact position also at UTM coordinates)
-            Vector3f origin = FloatOriginGrid.FloorToFloat(bounds.Min - (double)fBufferWidth * Vector3d.One);
-            Vector3i dims = FloatOriginGrid.Dimensions(origin, bounds.Max + (double)fBufferWidth * Vector3d.One, (float)CellSize);
+            // (the origin and the sample positions are doubles: upstream computed them in float, up to 0.25 off at UTM
+            // coordinates; GridOrigin is the origin rounded to float, GridOriginD the exact one)
+            Vector3d origin = bounds.Min - (double)fBufferWidth * Vector3d.One;
+            Vector3i dims = SamplingGridSize.Dimensions(origin, bounds.Max + (double)fBufferWidth * Vector3d.One, (float)CellSize);
             if (dims.x < 0)
                 throw new ArgumentException("MeshWindingNumberGrid.Compute: the cell size and the mesh bounds must be finite and give a grid that fits in an array");
             int ni = dims.x, nj = dims.y, nk = dims.z;
@@ -151,6 +151,14 @@ namespace gs
         /// Origin of the winding-number grid, in same coordinates as mesh
         /// </summary>
         public Vector3f GridOrigin {
+            get { return (Vector3f)grid_origin; }
+        }
+
+        /// <summary>
+        /// Origin of the grid (position of sample [0,0,0]) in double precision: sample (i,j,k) is at
+        /// GridOriginD + CellSize*(i,j,k). GridOrigin is this rounded to float (up to 0.25 off at UTM coordinates).
+        /// </summary>
+        public Vector3d GridOriginD {
             get { return grid_origin; }
         }
 
@@ -169,7 +177,7 @@ namespace gs
             get { return winding_grid[i, j, k]; }
         }
 
-        /// <summary> Position of sample (i,j,k), ie GridOrigin + (float)CellSize*(i,j,k) (a grid point, not a cell center) </summary>
+        /// <summary> Position of sample (i,j,k), ie GridOriginD + (float)CellSize*(i,j,k), rounded to float (a grid point, not a cell center) </summary>
         public Vector3f CellCenter(int i, int j, int k)
         {
             double dx = (float)CellSize;
@@ -179,7 +187,7 @@ namespace gs
 
 
 
-        void make_grid(Vector3f origin, float dx,
+        void make_grid(Vector3d origin, float dx,
                              int ni, int nj, int nk,
                              DenseGrid3f winding)
         {
@@ -339,7 +347,7 @@ namespace gs
 
 
 
-        void make_grid_dense(Vector3f origin, float dx,
+        void make_grid_dense(Vector3d origin, float dx,
                              int ni, int nj, int nk,
                              DenseGrid3f winding)
         {

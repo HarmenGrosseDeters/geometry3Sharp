@@ -7,12 +7,12 @@ using Xunit;
 namespace geometry3Sharp.Tests
 {
     /// <summary>
-    /// The sampling grids with a Vector3f GridOrigin (docs/ROBUSTNESS_SWEEP.md R3, R9): the value of sample (i,j,k) is
-    /// the value at GridOrigin + CellSize*(i,j,k), also at UTM coordinates where a float position is off by up to 0.25
-    /// (the samples were computed in float), and invalid cell sizes or bounds are an ArgumentException from Compute
-    /// instead of an overflow, an out-of-memory or an IndexOutOfRange deep inside.
+    /// The sampling grids (docs/ROBUSTNESS_SWEEP.md R3, R9, R10): the value of sample (i,j,k) is the value at
+    /// GridOriginD + CellSize*(i,j,k), also at UTM coordinates where a float position is off by up to 0.25 (the samples
+    /// were computed in float); the grid has the same size in any placement; invalid cell sizes or bounds are an
+    /// ArgumentException from Compute instead of an overflow, an out-of-memory or an IndexOutOfRange deep inside.
     /// </summary>
-    public class GridFloatOriginTests
+    public class SamplingGridPrecisionTests
     {
         static DMesh3 Sphere(Similarity s)
         {
@@ -20,7 +20,7 @@ namespace geometry3Sharp.Tests
             return Invariance.Transformed(m, s);
         }
 
-        static Vector3d SamplePosition(Vector3f origin, double cellSize, int i, int j, int k) =>
+        static Vector3d SamplePosition(Vector3d origin, double cellSize, int i, int j, int k) =>
             new Vector3d(origin.x + i * cellSize, origin.y + j * cellSize, origin.z + k * cellSize);
 
         /// <summary> the largest difference between |sample| and the distance from its position to the mesh, over the narrow band </summary>
@@ -31,7 +31,7 @@ namespace geometry3Sharp.Tests
             DenseGrid3f g = sdf.Grid;
             for (int k = 0; k < g.nk; ++k) for (int j = 0; j < g.nj; ++j) for (int i = 0; i < g.ni; ++i) {
                 if (Math.Abs(g[i, j, k]) > band) continue;
-                Vector3d p = SamplePosition(sdf.GridOrigin, sdf.CellSize, i, j, k);
+                Vector3d p = SamplePosition(sdf.GridOriginD, sdf.CellSize, i, j, k);
                 double d = Math.Sqrt(MeshQueries.TriDistanceSqr(mesh, tree.FindNearestTriangle(p), p));
                 max = Math.Max(max, Math.Abs(Math.Abs(g[i, j, k]) - d));
             }
@@ -50,19 +50,24 @@ namespace geometry3Sharp.Tests
             // the float distance rounds by about 1e-7 of the band; a float sample position was off by 0.03 to 0.25 at UTM
             double err = MaxSdfError(mesh, sdf, 3 * cell) / s.Scale;
             Assert.True(err < 1e-5, $"{name}: sample value differs from the distance at GridOrigin + CellSize*ijk by {err:E2} (input units)");
-            // the origin is below the bounds (rounded down to a float)
+            // the grid covers the bounds, with the same number of samples in any placement (an origin rounded down to a
+            // float lay up to 0.5 below the bounds at UTM coordinates: 5014 samples instead of 28 with millimetre cells)
             Vector3d min = mesh.CachedBounds.Min;
-            Assert.True(sdf.GridOrigin.x <= min.x && sdf.GridOrigin.y <= min.y && sdf.GridOrigin.z <= min.z);
+            Assert.True(sdf.GridOriginD.x <= min.x && sdf.GridOriginD.y <= min.y && sdf.GridOriginD.z <= min.z);
+            var sdfId = new MeshSignedDistanceGrid(Sphere(Similarity.Identity), 0.2) { ExactBandWidth = 2 };
+            sdfId.Compute();
+            for (int k = 0; k < 3; ++k)
+                Assert.True(Math.Abs(sdf.Dimensions[k] - sdfId.Dimensions[k]) <= 1, $"{name}: dimensions {sdf.Dimensions} vs {sdfId.Dimensions}");
             if (s.IsExact) {
                 // a power-of-two scale gives the same grid, scaled, bit for bit
                 var sdf0 = new MeshSignedDistanceGrid(Sphere(Similarity.Identity), 0.2) { ExactBandWidth = 2 };
                 sdf0.Compute();
                 Assert.Equal(sdf0.Dimensions, sdf.Dimensions);
-                Assert.True((Vector3d)sdf.GridOrigin == s.Scale * (Vector3d)sdf0.GridOrigin, $"origin {sdf.GridOrigin} vs {sdf0.GridOrigin}");
+                Assert.True(sdf.GridOriginD == s.Scale * sdf0.GridOriginD, $"origin {sdf.GridOriginD} vs {sdf0.GridOriginD}");
                 for (int q = 0; q < sdf.Grid.size; ++q)
                     Assert.True(sdf.Grid[q] == (float)(s.Scale * sdf0.Grid[q]), $"sample {q}: {sdf.Grid[q]} vs {sdf0.Grid[q]}");
             }
-            Vector3d last = SamplePosition(sdf.GridOrigin, sdf.CellSize, sdf.Grid.ni - 1, sdf.Grid.nj - 1, sdf.Grid.nk - 1);
+            Vector3d last = SamplePosition(sdf.GridOriginD, sdf.CellSize, sdf.Grid.ni - 1, sdf.Grid.nj - 1, sdf.Grid.nk - 1);
             Vector3d max = mesh.CachedBounds.Max;
             Assert.True(last.x >= max.x && last.y >= max.y && last.z >= max.z, "grid does not cover the bounds");
         }
@@ -118,9 +123,10 @@ namespace geometry3Sharp.Tests
             scalar.Compute();
             double max = 0;
             for (int k = 0; k < scalar.Grid.nk; ++k) for (int j = 0; j < scalar.Grid.nj; ++j) for (int i = 0; i < scalar.Grid.ni; ++i) {
-                Vector3d p = SamplePosition(scalar.GridOrigin, (float)scalar.CellSize, i, j, k);
+                Vector3d p = SamplePosition(scalar.GridOriginD, (float)scalar.CellSize, i, j, k);
                 max = Math.Max(max, Math.Abs(scalar.Grid[i, j, k] - (p - c).Dot(dir)));
                 Assert.True(scalar.CellCenter(i, j, k) == (Vector3f)p);
+                Assert.True(scalar.GridOrigin == (Vector3f)scalar.GridOriginD);
             }
             Assert.True(max < 1e-5, $"scalar grid: {max:E2}");
 
@@ -129,7 +135,7 @@ namespace geometry3Sharp.Tests
             winding.Compute();
             max = 0;
             for (int k = 0; k < winding.Grid.nk; k += 2) for (int j = 0; j < winding.Grid.nj; j += 2) for (int i = 0; i < winding.Grid.ni; i += 2) {
-                Vector3d p = SamplePosition(winding.GridOrigin, (float)winding.CellSize, i, j, k);
+                Vector3d p = SamplePosition(winding.GridOriginD, (float)winding.CellSize, i, j, k);
                 max = Math.Max(max, Math.Abs(winding.Grid[i, j, k] - tree.WindingNumber(p)));
             }
             Assert.True(max < 1e-4, $"winding grid: {max:E2}");
@@ -144,7 +150,7 @@ namespace geometry3Sharp.Tests
             sdf.Initialize();
             double max = 0;
             for (int k = 0; k < sdf.Grid.nk; ++k) for (int j = 0; j < sdf.Grid.nj; ++j) for (int i = 0; i < sdf.Grid.ni; ++i) {
-                Vector3d p = SamplePosition(sdf.GridOrigin, sdf.CellSize, i, j, k);
+                Vector3d p = SamplePosition(sdf.GridOriginD, sdf.CellSize, i, j, k);
                 double d = Math.Sqrt(MeshQueries.TriDistanceSqr(mesh, tree.FindNearestTriangle(p), p));
                 if (d > 0.3) continue;
                 max = Math.Max(max, Math.Abs(Math.Abs(sdf.GetValue(new Vector3i(i, j, k))) - d));
@@ -162,7 +168,7 @@ namespace geometry3Sharp.Tests
             var parallel = new MeshSignedDistanceGrid(mesh, 0.2) { ExactBandWidth = 2, UseParallel = true };
             parallel.Compute();
             parallel.Compute();
-            Assert.Equal(serial.GridOrigin, parallel.GridOrigin);
+            Assert.Equal(serial.GridOriginD, parallel.GridOriginD);
             Assert.Equal(serial.Dimensions, parallel.Dimensions);
             for (int k = 0; k < serial.Grid.size; ++k)
                 Assert.Equal(serial.Grid[k], parallel.Grid[k]);
@@ -250,11 +256,11 @@ namespace geometry3Sharp.Tests
             DMesh3 mesh = Sphere(Similarity.Identity);
             var sdf = new MeshSignedDistanceGrid(mesh, 0.2);
             sdf.Compute();
-            Vector3f origin = sdf.GridOrigin;
+            Vector3d origin = sdf.GridOriginD;
             DenseGrid3f grid = sdf.Grid;
             sdf.CellSize = float.NaN;
             Assert.Throws<ArgumentException>(() => sdf.Compute());
-            Assert.Equal(origin, sdf.GridOrigin);
+            Assert.Equal(origin, sdf.GridOriginD);
             Assert.Same(grid, sdf.Grid);
         }
     }
