@@ -254,7 +254,7 @@ namespace gs
 
  
 
-            // coordinates in the frame's XY plane, in double: upstream cast the positions to float first, which jittered
+        // coordinates in the frame's XY plane, in double: upstream cast the positions to float first, which jittered
         // the polygon and the projected region by up to 0.25 at UTM coordinates (docs/ROBUSTNESS_SWEEP.md S3)
         static Vector2d to_plane_uv(Frame3f frame, Vector3d v)
         {

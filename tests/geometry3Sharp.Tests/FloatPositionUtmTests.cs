@@ -41,8 +41,7 @@ namespace geometry3Sharp.Tests
             foreach (int t in m.TriangleIndices().ToList())
                 if (m.GetTriCentroid(t).z > c.z + 0.6) m.RemoveTriangle(t, true, false);
             m = new DMesh3(m, true);
-            var plane = new Frame3f(c + new Vector3d(0, 0, 1.25), Vector3d.AxisZ);
-            plane = new Frame3f(plane.Origin, Vector3f.AxisZ, 1);
+            var plane = new Frame3f((Vector3f)(c + new Vector3d(0, 0, 1.25)), Vector3f.AxisZ, 1);
             var close = new MeshLoopClosure(m, new MeshBoundaryLoops(m).Loops[0]) { FlatClosePlane = plane };
             Assert.True(close.Close());
             ResultChecks.AssertValid(m);

@@ -253,13 +253,15 @@ namespace g3
         }
 
 
-            // projection onto the plane of FlatClosePlane (perpendicular to its Y axis) in double: upstream cast the vertex
+        // projection onto the plane of FlatClosePlane (perpendicular to its Y axis) in double: upstream cast the vertex
         // to float, which moved every loop vertex by up to 0.25 at UTM coordinates (docs/ROBUSTNESS_SWEEP.md S4)
         Vector3d project_to_plane(Vector3d v)
         {
-            Vector3d local = FlatClosePlane.ToFrameP(v);
-            local.y = 0;
-            return FlatClosePlane.FromFrameP(local);
+            // (along the axis directly: a round trip through the float quaternion moves points within the plane by
+            // about 6e-8 of their distance from the frame origin)
+            Vector3d n = FlatClosePlane.GetAxis(1);
+            n.Normalize();
+            return v - (v - (Vector3d)FlatClosePlane.Origin).Dot(n) * n;
         }
     }
 

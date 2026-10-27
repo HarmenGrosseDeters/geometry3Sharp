@@ -60,6 +60,57 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0, q.Get());
         }
 
+        public static TheoryData<string, int> TouchingCases()
+        {
+            var d = new TheoryData<string, int>();
+            foreach (object[] n in Similarity.Names())
+                for (int c = 0; c < 3; ++c) d.Add((string)n[0], c);
+            return d;
+        }
+
+        [Theory]
+        [MemberData(nameof(TouchingCases))]
+        public void TriangleTriangleDistance_Touching_ExactlyZero(string name, int touching)
+        {
+            // a shared vertex, a shared edge (coplanar neighbours), a vertex on the other's face: the edge and point
+            // queries leave rounding noise, which must still count as touching in every placement
+            Similarity s = Similarity.ByName(name);
+            Vector3d[] b;
+            if (touching == 0) b = new[] { A[1], new Vector3d(2, 0.3, 0.4), new Vector3d(1.5, 1, -0.2) };
+            else if (touching == 1) b = new[] { A[1], A[2], new Vector3d(1, 1, 0) };
+            else b = new[] { new Vector3d(0.3, 0.3, 0), new Vector3d(0.6, 0.4, 1), new Vector3d(0.2, 0.7, 1) };
+            var q = new DistTriangle3Triangle3(Tri(s, A[0], A[1], A[2]), Tri(s, b[0], b[1], b[2]));
+            Assert.Equal(0, q.Get());
+        }
+
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void IntersectionUtil_SmallTriangles_HitUnderSimilarity(string name)
+        {
+            // a triangle of 2^-20 (edges about 1e-6) in every placement
+            Similarity s = Similarity.ByName(name);
+            double k = Math.Pow(2, -20);
+            Vector3d v0 = s.Apply(k * A[0]), v1 = s.Apply(k * A[1]), v2 = s.Apply(k * A[2]);
+            Vector3d o = s.Apply(k * new Vector3d(0.25, 0.25, 1)), down = s.ApplyDirection(-Vector3d.AxisZ);
+            Assert.True(IntersectionUtil.Intersects(o, down, v0, v1, v2), name);
+            Assert.False(IntersectionUtil.Intersects(o, -down, v0, v1, v2), name);
+        }
+
+        [Theory]
+        [InlineData(-30)]
+        [InlineData(-10)]
+        [InlineData(0)]
+        public void LineTriangleDistance_ThroughSmallTriangle_Zero(int exponent)
+        {
+            // UnitCross zeroed the normal of triangles with edges below about 1e-8: the line counted as parallel and the
+            // distance came from the edges
+            double k = Math.Pow(2, exponent);
+            var tri = new Triangle3d(k * A[0], k * A[1], k * A[2]);
+            var line = new Line3d(k * new Vector3d(0.25, 0.25, 1), new Vector3d(0.1, 0.05, -1).Normalized);
+            var q = new DistLine3Triangle3(line, tri);
+            Assert.Equal(0, q.GetSquared());
+        }
+
         [Fact]
         public void FindNearestTriangles_MillimetreModels_ReportTheGap()
         {
