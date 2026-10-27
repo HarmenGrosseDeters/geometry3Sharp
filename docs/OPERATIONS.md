@@ -131,7 +131,7 @@ for (int i = 0; i < 20; ++i)
 
 new Reducer(mesh) { MaxDeviation = 0.01 }.ReduceToTriangleCount(1000);
 
-var envelope = new MeshEnvelope(reference, 0.01);         // Status: Ready, InvalidEpsilon, TooThin, Empty
+var envelope = new MeshEnvelope(reference, 0.01);         // Status: Ready, InvalidEpsilon, TooThin, Empty, TooLarge, OutOfRange
 bool inside = envelope.ContainsTriangle(a, b, c);         // exact; also Contains(p), ContainsSegment(a, b)
 ```
 

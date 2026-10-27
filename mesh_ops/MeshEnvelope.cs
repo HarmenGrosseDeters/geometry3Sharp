@@ -21,7 +21,9 @@ namespace gs
         /// <summary> the mesh has no triangles; nothing is contained </summary>
         Empty,
         /// <summary> more than 33 million triangles (the prism arrays would exceed the array size limit) </summary>
-        TooLarge
+        TooLarge,
+        /// <summary> coordinates or epsilon so large that the prisms overflow (offsets, boxes not finite) </summary>
+        OutOfRange
     }
 
     /// <summary>
@@ -117,16 +119,19 @@ namespace gs
             Vector3d v0 = Vector3d.Zero, v1 = Vector3d.Zero, v2 = Vector3d.Zero;
             foreach (int tid in Mesh.TriangleIndices()) {
                 Mesh.GetTriVertices(tid, ref v0, ref v1, ref v2);
-                if (build_prism(p, v0, v1, v2) == false) return EnvelopeStatus.TooThin;
+                EnvelopeStatus st = build_prism(p, v0, v1, v2);
+                if (st != EnvelopeStatus.Ready) return st;
                 var box = new AxisAlignedBox3d(v0); box.Contain(v1); box.Contain(v2);
                 // the prism is within epsilon of the triangle
                 box.Expand(1.01 * Epsilon);
+                if (!(box.Min.IsFinite && box.Max.IsFinite)) return EnvelopeStatus.OutOfRange;
                 boxes[p] = box;
                 sumEdge += v0.Distance(v1) + v1.Distance(v2) + v2.Distance(v0);
                 p++;
             }
             prismCount = p;
             double cell = Math.Max(sumEdge / (3 * p) + 2 * Epsilon, Epsilon);
+            if (double.IsInfinity(cell) || double.IsNaN(cell)) return EnvelopeStatus.OutOfRange;
             // origin at the prisms (the mesh bounds would also count unused vertices)
             var all = new AxisAlignedBox3d(boxes[0].Min);
             for (int k = 0; k < p; ++k) all.Contain(boxes[k].Min);
@@ -136,13 +141,29 @@ namespace gs
             return EnvelopeStatus.Ready;
         }
 
-        bool build_prism(int p, Vector3d v0, Vector3d v1, Vector3d v2)
+        // unit vector along v, false if v is zero or not finite. Scaled by a power of two first (exact), so that
+        // tiny vectors neither underflow nor hit the absolute threshold of Vector3d.Normalized (2.2e-16)
+        static bool unit(Vector3d v, out Vector3d u)
+        {
+            u = Vector3d.Zero;
+            double m = Math.Max(Math.Abs(v.x), Math.Max(Math.Abs(v.y), Math.Abs(v.z)));
+            if (!(m > 0) || double.IsInfinity(m)) return false;
+            int e = (int)Math.Floor(Math.Log(m, 2));
+            Vector3d w = new Vector3d(ExactPoint3.ScaleB(v.x, -e), ExactPoint3.ScaleB(v.y, -e), ExactPoint3.ScaleB(v.z, -e));
+            double l = w.Length;
+            if (!(l > 0) || double.IsInfinity(l)) return false;
+            u = w / l;
+            return true;
+        }
+
+        EnvelopeStatus build_prism(int p, Vector3d v0, Vector3d v1, Vector3d v2)
         {
             Vector3d[] v = { v0, v1, v2 };
             Vector3d[] e = { v1 - v0, v2 - v1, v0 - v2 };
             int L = 0;
             for (int k = 1; k < 3; ++k) if (e[k].LengthSquared > e[L].LengthSquared) L = k;
-            Vector3d u1 = e[L].LengthSquared > 0 ? e[L].Normalized : Vector3d.AxisX;
+            Vector3d u1;
+            if (unit(e[L], out u1) == false) u1 = Vector3d.AxisX;
             // the normal from the longest edge and the third vertex' offset perpendicular to it: for slivers a
             // cross product of two edges would be rounding noise in an arbitrary direction, this keeps the
             // triangle close to the plane (its spread along the normal is at most the offset plus rounding)
@@ -150,15 +171,15 @@ namespace gs
             Vector3d perp = d - d.Dot(u1) * u1;
             Vector3d nrm = u1.Cross(perp);
             Vector3d nh;
-            if (nrm.LengthSquared > 0 && nrm.IsFinite) nh = nrm.Normalized;
-            else {
+            if (unit(nrm, out nh) == false) {
                 // a segment or a point: any plane through it
                 Vector3d axis = Math.Abs(u1.x) <= Math.Abs(u1.y) && Math.Abs(u1.x) <= Math.Abs(u1.z) ? Vector3d.AxisX
                     : Math.Abs(u1.y) <= Math.Abs(u1.z) ? Vector3d.AxisY : Vector3d.AxisZ;
-                nh = u1.Cross(axis).Normalized;
+                unit(u1.Cross(axis), out nh);
             }
-            Vector3d u2 = nh.Cross(u1).Normalized;
-            u1 = u2.Cross(nh).Normalized;
+            Vector3d u2;
+            unit(nh.Cross(u1), out u2);
+            unit(u2.Cross(nh), out u1);
 
             // rounding margin: errors of the dot products and offsets, relative to the coordinates, and the
             // spread of the triangle along the (rounded) normal
@@ -171,29 +192,30 @@ namespace gs
             double normalOffset = NormalFraction * Epsilon - spread - margin;
             double lateralOffset = LateralFraction * Epsilon - margin;
             if (!(normalOffset > 0.5 * NormalFraction * Epsilon) || !(lateralOffset > 0.99 * LateralFraction * Epsilon))
-                return false;
+                return EnvelopeStatus.TooThin;
 
             int c = 0;
-            add_plane(p, ref c, nh, v, normalOffset);
-            add_plane(p, ref c, -nh, v, normalOffset);
+            bool finite = true;
+            finite &= add_plane(p, ref c, nh, v, normalOffset);
+            finite &= add_plane(p, ref c, -nh, v, normalOffset);
             for (int k = 0; k < 8; ++k) {
                 double a = k * Math.PI / 4;
-                add_plane(p, ref c, Math.Cos(a) * u1 + Math.Sin(a) * u2, v, lateralOffset);
+                finite &= add_plane(p, ref c, Math.Cos(a) * u1 + Math.Sin(a) * u2, v, lateralOffset);
             }
             for (int k = 0; k < 3; ++k) {
-                Vector3d w = nh.Cross(e[k]);
-                if (!(w.LengthSquared > 0)) continue;
-                w = w.Normalized;
-                add_plane(p, ref c, w, v, lateralOffset);
-                add_plane(p, ref c, -w, v, lateralOffset);
+                Vector3d w;
+                if (unit(nh.Cross(e[k]), out w) == false) continue;     // a zero-length edge
+                finite &= add_plane(p, ref c, w, v, lateralOffset);
+                finite &= add_plane(p, ref c, -w, v, lateralOffset);
             }
             planeCount[p] = c;
-            return true;
+            return finite ? EnvelopeStatus.Ready : EnvelopeStatus.OutOfRange;
         }
 
         // half-space m . x <= max_j m . v_j + offset, with the offset raised by the rounding error of the dot
         // products, so that the triangle is inside exactly
-        void add_plane(int p, ref int c, Vector3d m, Vector3d[] v, double offset)
+        // (false if the offset overflows)
+        bool add_plane(int p, ref int c, Vector3d m, Vector3d[] v, double offset)
         {
             double maxd = double.MinValue, mag = 0;
             foreach (Vector3d q in v) {
@@ -205,6 +227,7 @@ namespace gs
             int o = (p * MaxPlanes + c) * 4;
             planes[o] = m.x; planes[o + 1] = m.y; planes[o + 2] = m.z; planes[o + 3] = s;
             c++;
+            return !(double.IsInfinity(s) || double.IsNaN(s));
         }
 
 

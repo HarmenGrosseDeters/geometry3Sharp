@@ -344,6 +344,75 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void TinyNormals_DoNotMakeThePrismUnbounded()
+        {
+            // Vector3d.Normalized returns zero below a length of 2.2e-16 (absolute): a sliver of height 1e-17 or a
+            // triangle with edges of 1e-16 must still get a bounded prism
+            var sliver = new DMesh3();
+            sliver.AppendTriangle(sliver.AppendVertex(Vector3d.Zero), sliver.AppendVertex(new Vector3d(1, 0, 0)), sliver.AppendVertex(new Vector3d(0.5, 1e-17, 0)));
+            foreach (bool skip in new[] { false, true }) {
+                var env = new MeshEnvelope(sliver, 0.01) { SkipFilters = skip };
+                Assert.Equal(EnvelopeStatus.Ready, env.Status);
+                Assert.False(env.Contains(new Vector3d(-0.0101, -0.0101, 0.0101)), "0.0175 from the sliver");
+                Assert.False(env.Contains(new Vector3d(0.5, 0, 0.0101)));
+                Assert.True(env.Contains(new Vector3d(0.5, 0, 0.005)));
+            }
+            var small = new DMesh3();
+            small.AppendTriangle(small.AppendVertex(Vector3d.Zero), small.AppendVertex(new Vector3d(1e-16, 0, 0)), small.AppendVertex(new Vector3d(0, 1e-16, 0)));
+            foreach (bool skip in new[] { false, true }) {
+                var env = new MeshEnvelope(small, 1e-10) { SkipFilters = skip };
+                Assert.Equal(EnvelopeStatus.Ready, env.Status);
+                Assert.False(env.Contains(new Vector3d(1.0099e-10, 1.0099e-10, 1.0099e-10)), "1.75e-10 from the triangle");
+                Assert.True(env.Contains(new Vector3d(3e-17, 3e-17, 0.5e-10)));
+            }
+        }
+
+        [Fact]
+        public void PlaneScaledBy2PowMinus56_SameAnswersBitForBit()
+        {
+            // a unit-size mesh at 1.4e-17: edges below the absolute 2.2e-16 of Vector3d.Normalized
+            var sim = new Similarity("scale 2^-56", Math.Pow(2, -56), Matrix3d.Identity, Vector3d.Zero);
+            DMesh3 mesh = Plane(10, 0.1);
+            double eps = 0.01;
+            var env0 = new MeshEnvelope(mesh, eps);
+            var env = new MeshEnvelope(Invariance.Transformed(mesh, sim), sim.Scale * eps);
+            Assert.Equal(EnvelopeStatus.Ready, env.Status);
+            var rand = new Random(3);
+            int inside = 0;
+            for (int k = 0; k < 200; ++k) {
+                Vector3d p = new Vector3d(1.2 * rand.NextDouble() - 0.1, 1.2 * rand.NextDouble() - 0.1, 0.03 * (rand.NextDouble() - 0.5));
+                bool r0 = env0.Contains(p);
+                Assert.Equal(r0, env.Contains(sim.Apply(p)));
+                Vector3d q = p + new Vector3d(0.05, 0.02, 0.002), w = p + new Vector3d(0.01, 0.06, -0.003);
+                Assert.Equal(env0.ContainsTriangle(p, q, w), env.ContainsTriangle(sim.Apply(p), sim.Apply(q), sim.Apply(w)));
+                if (r0) inside++;
+            }
+            Assert.True(inside > 20 && inside < 180, $"{inside} inside (exercised)");
+        }
+
+        [Fact]
+        public void UnderflowingEdges_StillBuild()
+        {
+            // coordinates around 1e-160: squared lengths underflow to 0
+            DMesh3 mesh = Invariance.Transformed(Plane(4, 0.25), new Similarity("1e-160", 1e-160, Matrix3d.Identity, Vector3d.Zero));
+            var env = new MeshEnvelope(mesh, 1e-162);
+            Assert.Equal(EnvelopeStatus.Ready, env.Status);
+            Vector3d p = new Vector3d(0.3e-160, 0.6e-160, 0);
+            Assert.True(env.Contains(p + new Vector3d(0, 0, 0.5e-162)));
+            Assert.False(env.Contains(p + new Vector3d(0, 0, 1.0e-162)));
+        }
+
+        [Fact]
+        public void Overflow_GivesAStatus_NoException()
+        {
+            var m = new DMesh3();
+            m.AppendTriangle(m.AppendVertex(new Vector3d(1.7e308, 0, 0)), m.AppendVertex(new Vector3d(1.7e308, 1e300, 0)), m.AppendVertex(new Vector3d(1.6e308, 0, 1e300)));
+            var env = new MeshEnvelope(m, 1e308);
+            Assert.Equal(EnvelopeStatus.OutOfRange, env.Status);
+            Assert.False(env.Contains(new Vector3d(1.7e308, 0, 0)));
+        }
+
+        [Fact]
         public void Statuses()
         {
             DMesh3 mesh = Plane(2, 1);
