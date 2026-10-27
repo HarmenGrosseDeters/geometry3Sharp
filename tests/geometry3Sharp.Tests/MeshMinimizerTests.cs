@@ -237,19 +237,19 @@ namespace geometry3Sharp.Tests
         {
             DMesh3 m = SphereWithDuplicate();
             // (about 13 calls before the first reduction, a few dozen more for the whole run). The first calls are
-            // fast, so a reduction exists before the budget even on a loaded CI runner; the rest are slow, so the
-            // whole run takes far longer than the budget
+            // fast, so a reduction exists before the budget even on a loaded CI runner (3 s were not enough once on
+            // the net48 runner); the rest are slow, so the whole run takes far longer than the budget
             int calls = 0;
             Func<DMesh3, bool> slow = x => {
-                if (Interlocked.Increment(ref calls) > 20) Thread.Sleep(250);
+                if (Interlocked.Increment(ref calls) > 20) Thread.Sleep(1000);
                 return HasCoincidentPair(x);
             };
-            var budget = TimeSpan.FromSeconds(3);
+            var budget = TimeSpan.FromSeconds(8);
             var r = MeshMinimizer.Minimize(m, slow, new MinimizeOptions() { TimeBudget = budget });
             Assert.Equal(MeshMinimizer.MinimizeStatus.Stopped, r.Status);
             Assert.True(r.Elapsed < budget + TimeSpan.FromSeconds(5), r.Elapsed.ToString());
-            Assert.True(r.Mesh.TriangleCount < m.TriangleCount);
-            Assert.True(HasCoincidentPair(r.Mesh));
+            Assert.True(r.Mesh.TriangleCount < m.TriangleCount, $"not reduced: {r}, {calls} calls");
+            Assert.True(HasCoincidentPair(r.Mesh), $"result does not fail: {r}, {calls} calls");
         }
 
         // an error with many minimal cases (any 3 triangles above z = 0.5): the seed picks one, reproducibly
