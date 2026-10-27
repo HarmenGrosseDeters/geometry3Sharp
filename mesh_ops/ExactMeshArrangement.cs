@@ -1003,7 +1003,7 @@ namespace g3
             Vector3d[] earlier = triangleCoords;
             triangleCoords = new Vector3d[3 * total];
             if (earlier != null)
-                Array.Copy(earlier, triangleCoords, earlier.Length);
+                Array.Copy(earlier, triangleCoords, 3 * Triangles.Count);
             for (int mi = 0; mi < Meshes.Count; ++mi) {
                 DMesh3 mesh = Meshes[mi];
                 var tids = new List<int>(mesh.TriangleIndices());

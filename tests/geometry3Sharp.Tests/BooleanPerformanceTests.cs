@@ -202,7 +202,9 @@ namespace geometry3Sharp.Tests
             var meshes = new List<DMesh3>() { a, b };
             var arr = new ExactMeshArrangement(meshes);
             arr.Compute();
+            var firstCorners = arr.Triangles.Select(t => t.Corners).ToList();
             arr.Compute();
+            Assert.Equal(firstCorners, arr.Triangles.Take(firstCorners.Count).Select(t => t.Corners));
             int expected = 2 * (a.TriangleCount + b.TriangleCount);
             Assert.Equal(expected, arr.Triangles.Count);
             Assert.Contains(arr.Triangles, t => t.Degenerate);
