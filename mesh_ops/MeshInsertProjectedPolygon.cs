@@ -107,8 +107,7 @@ namespace gs
 
             Polygon = new Polygon2d();
             foreach (Vector3d v3 in polygon3.Vertices) {
-                Vector2f uv = frame.ToPlaneUV((Vector3f)v3, 2);
-                Polygon.AppendVertex(uv);
+                Polygon.AppendVertex(to_plane_uv(frame, v3));
             }
         }
 
@@ -126,8 +125,7 @@ namespace gs
         {
             Func<int, bool> is_contained_v = (vid) => {
                 Vector3d v = Mesh.GetVertex(vid);
-                Vector2f vf2 = ProjectFrame.ToPlaneUV((Vector3f)v, 2);
-                return Polygon.Contains(vf2);
+                return Polygon.Contains(to_plane_uv(ProjectFrame, v));
             };
 
             MeshVertexSelection vertexROI = new MeshVertexSelection(Mesh);
@@ -166,7 +164,7 @@ namespace gs
 
             // map roi mesh to plane
             MeshTransforms.PerVertexTransform(roiMesh, roiMesh.VertexIndices(), (v, vid) => {
-                Vector2f uv = ProjectFrame.ToPlaneUV((Vector3f)v, 2);
+                Vector2d uv = to_plane_uv(ProjectFrame, v);
                 initialPositions[vid] = v;
                 return new Vector3d(uv.x, uv.y, 0);
             });
@@ -256,5 +254,12 @@ namespace gs
 
  
 
+        // coordinates in the frame's XY plane, in double: upstream cast the positions to float first, which jittered
+        // the polygon and the projected region by up to 0.25 at UTM coordinates (docs/ROBUSTNESS_SWEEP.md S3)
+        static Vector2d to_plane_uv(Frame3f frame, Vector3d v)
+        {
+            Vector3d local = frame.ToFrameP(v);
+            return new Vector2d(local.x, local.y);
+        }
     }
 }
