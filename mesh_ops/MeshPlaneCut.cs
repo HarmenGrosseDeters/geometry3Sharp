@@ -12,8 +12,8 @@ namespace g3
 	/// Also FillHoles() for a topological fill of the closed loops. Or use CutLoops and fill yourself.
 	///
 	/// Cut() returns true (it throws if an edge split fails); check CutLoopsFailed for the loop extraction.
-	/// Vertices within MathUtil.Epsilon of the plane count as on the plane (use a unit-length normal, the
-	/// tolerance is applied to (p-o).n). Crossing edges are split at the exact plane intersection.
+	/// Vertices within 4 * MathUtil.Epsilon times the largest coordinate (of the mesh bounds and the plane origin)
+	/// of the plane count as on the plane, ie within the rounding of (p-o).n (use a unit-length normal). Crossing edges are split at the exact plane intersection.
 	/// Use MeshPlaneCut to trim a mesh or open it along a plane; to cut a mesh with another mesh see
 	/// <see cref="MeshMeshCut"/> and <see cref="ExactMeshBoolean"/>.
 	/// 
@@ -46,8 +46,18 @@ namespace g3
         /// </summary>
         public bool CollapseDegenerateEdgesOnCut = true;
 
-        /// <summary> the min-edge-length if we are collapsing degenerate edges </summary>
+        /// <summary>
+        /// the min-edge-length if we are collapsing degenerate edges, in absolute units. Left at its default (1e-6),
+        /// RelativeDegenerateEdgeTol is used instead (upstream used the absolute 1e-6, which collapsed real cut edges
+        /// of small meshes, docs/ROBUSTNESS_SWEEP.md R5); any other value is used as given.
+        /// </summary>
         public double DegenerateEdgeTol = MathUtil.ZeroTolerancef;
+
+        /// <summary> the min-edge-length of the collapse as a fraction of the diagonal of the mesh bounds (used while DegenerateEdgeTol has its default) </summary>
+        public double RelativeDegenerateEdgeTol = 1e-6;
+
+        /// <summary> the min-edge-length the last Cut() used (DegenerateEdgeTol, or RelativeDegenerateEdgeTol times the bounds diagonal) </summary>
+        public double EffectiveDegenerateEdgeTol { get; private set; }
 
         /// <summary> if non-null, we will only cut the edges of these triangles and remove their vertices </summary>
         public MeshFaceSelection CutFaceSet = null;
@@ -100,6 +110,19 @@ namespace g3
                 CutVertexSet = new MeshVertexSelection(Mesh, CutEdgeSet);
             }
 
+			// tolerances relative to the mesh: the degenerate-edge length to the bounds diagonal, the on-plane test to
+			// the rounding of the signed distances (a few ulps of the largest coordinate; upstream used MathUtil.Epsilon
+			// absolute, which is below that rounding at UTM coordinates)
+			AxisAlignedBox3d bounds = Mesh.CachedBounds;
+			EffectiveDegenerateEdgeTol = DegenerateEdgeTol;
+			double zeroTol = MathUtil.Epsilon;
+			if (bounds.Volume >= 0 && bounds.Min.IsFinite && bounds.Max.IsFinite && PlaneOrigin.IsFinite) {
+				if (DegenerateEdgeTol == MathUtil.ZeroTolerancef)
+					EffectiveDegenerateEdgeTol = RelativeDegenerateEdgeTol * bounds.DiagonalLength;
+				double maxAbs = Math.Max(bounds.Min.MaxAbs, Math.Max(bounds.Max.MaxAbs, PlaneOrigin.MaxAbs));
+				zeroTol = 4 * MathUtil.Epsilon * maxAbs;
+			}
+
 			// compute signs
 			int MaxVID = Mesh.MaxVertexID;
 			double[] signs = new double[MaxVID];
@@ -137,8 +160,8 @@ namespace g3
 
 				// If both signs are 0, this edge is on-contour
 				// If one sign is 0, that vertex is on-contour
-				int n0 = (Math.Abs(f0) < MathUtil.Epsilon) ? 1 : 0;
-				int n1 = (Math.Abs(f1) < MathUtil.Epsilon) ? 1 : 0;
+				int n0 = (Math.Abs(f0) < zeroTol) ? 1 : 0;
+				int n1 = (Math.Abs(f1) < zeroTol) ? 1 : 0;
 				if (n0 + n1 > 0) {
 					if (n0 + n1 == 2)
 						ZeroEdges.Add(eid);
@@ -218,7 +241,7 @@ namespace g3
         {
             HashSet<int>[] sets = new HashSet<int>[2] { OnCutEdges, ZeroEdges };
 
-            double tol2 = DegenerateEdgeTol * DegenerateEdgeTol;
+            double tol2 = EffectiveDegenerateEdgeTol * EffectiveDegenerateEdgeTol;
             Vector3d a = Vector3d.Zero, b = Vector3d.Zero;
             int collapsed = 0;
             do {

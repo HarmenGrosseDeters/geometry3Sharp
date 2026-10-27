@@ -326,7 +326,6 @@ namespace geometry3Sharp.Tests
             { "MeshNormals|scale 1e-3", "R1" },
             { "MeshNormals|scale 2^-10", "R1" },
             { "MeshNormals|scale 2^-24", "R1" },
-            { "MeshPlaneCut|scale 2^-24", "R5" },
             { "MeshSignedDistanceGrid+MarchingCubes|+Inf param", "R9" },
             { "MeshSignedDistanceGrid+MarchingCubes|+Inf vertex", "R9" },
             { "MeshSignedDistanceGrid+MarchingCubes|-Inf param", "R9" },
