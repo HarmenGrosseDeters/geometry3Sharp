@@ -46,6 +46,9 @@ cases() {
   for e in 0.05 0.1 0.2 0.5; do echo "gtin grid=dgm2022 win=$T1 maxerr=$e"; echo "gtin grid=dgm2022 win=$T1 maxerr=$e remove=1"; done
   for e in 0.05 0.2; do echo "gtin grid=dgm2022 win=$T12 maxerr=$e"; done
   echo "gtin grid=dgm2022 win=$T1 maxerr=0.1 coords=local"
+  # fidelity of the simplified TINs (curvature, sharp edges at the benches) against the full grid TIN
+  for e in 0.05 0.2 0.5 1; do for r in 0 1; do echo "gtin grid=dgm2022 win=$T1 maxerr=$e remove=$r fidelity=1"; done; done
+  echo "gtin grid=dgm2022 win=$T1 maxerr=0.2 fidelity=1 coords=local"
   for c in utm local; do
     for d in 5 -5 20; do echo "offset grid=dgm2022 win=$C250 d=$d coords=$c"; done
   done

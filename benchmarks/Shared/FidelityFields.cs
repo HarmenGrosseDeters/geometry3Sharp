@@ -18,10 +18,12 @@ static class FidelityFields
     /// of the result (and of the input if withInputQuality).
     /// The reference is used as given (orient it first if only the result's orientation is to be judged).
     /// </summary>
-    public static void Add(DMesh3 reference, DMesh3 result, Dictionary<string, object> r, bool withInputQuality = true, int samples = 50000)
+    /// volumeSamples: points of the volume IoUs (0: skipped, eg for open terrain, which encloses no volume).
+    public static void Add(DMesh3 reference, DMesh3 result, Dictionary<string, object> r, bool withInputQuality = true, int samples = 50000,
+        int volumeSamples = 100000)
     {
         var sw = Stopwatch.StartNew();
-        var f = new MeshFidelityMetrics(reference, result) { SurfaceSamples = samples, RelativeThresholds = new[] { 0.001, 0.005, 0.01 } };
+        var f = new MeshFidelityMetrics(reference, result) { SurfaceSamples = samples, VolumeSamples = volumeSamples, RelativeThresholds = new[] { 0.001, 0.005, 0.01 } };
         if (f.Compute() == false) {
             r["fm_ok"] = false;
             return;
