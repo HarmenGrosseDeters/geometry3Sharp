@@ -15,7 +15,7 @@ namespace gs
     ///   - Chamfer distance: the mean distances of both directions;
     ///   - normal consistency: |cos| of the angle between the normal at a sample and the normal at its closest
     ///     point on the other surface (mean, and as a mean angle), in both directions; separately the share of
-    ///     samples within the largest tau whose normals point the other way (cos &lt; 0): inverted patches;
+    ///     samples within the largest tau whose normals point the other way (cos &lt; -0.001): inverted patches;
     ///   - Edge Chamfer distance (as in Chen et al., "Neural Dual Contouring", SIGGRAPH 2022): Chamfer distance
     ///     between the sharp edges (dihedral angle above SharpEdgeAngle, not at slivers narrower than
     ///     SharpEdgeMinHeight) of both meshes, and the edge
@@ -74,12 +74,16 @@ namespace gs
         /// reference samples where the generalized winding number w of the reference (tested at OuterOffset * Size
         /// along the normal, w+ and w-) jumps by one (|w+ - w-| &gt; 0.5: a single layer) and the rest of the
         /// reference does not enclose the point (|w+ + w-| / 2 &lt; 0.75: 0.5 on the boundary of a solid, 0 on an open
-        /// sheet). Leaves out faces inside the solid (single faces, nested shells: mean 1 or more), internal double
-        /// walls and double-sided sheets (jump 0), which a repair to a solid drops on purpose; keeps cavity walls
-        /// and open sheets. Orient inside-out components of the reference first (eg WindingContouring.OrientedCopy).
+        /// sheet), or one side is outside and the other inside the solid (|w| &lt; 0.25 and &gt; 0.75: coincident duplicate
+        /// shells, w 0 and 2). Leaves out faces inside the solid (single faces, nested shells: mean 1 or more), internal
+        /// double walls and double-sided sheets (jump 0), which a repair to a solid drops on purpose; keeps cavity
+        /// walls, duplicated outer shells and open sheets. Orient inside-out components of the reference first (eg WindingContouring.OrientedCopy).
         /// </summary>
         public bool OuterSurface = true;
-        /// <summary> offset of the two winding number tests of OuterSurface, relative to Size (walls thinner than that are not outer) </summary>
+        /// <summary>
+        /// offset of the two winding number tests of OuterSurface, relative to Size: both faces of a wall thinner than
+        /// this, and faces across a gap narrower than this, are not outer
+        /// </summary>
         public double OuterOffset = 1e-5;
         /// <summary> seed of the sampling </summary>
         public int Seed = 1;
@@ -300,7 +304,7 @@ namespace gs
                 for (int i = start; i <= end; ++i) {
                     Vector3d p = samples[i].Point, d = offset * samples[i].Normal;
                     double front = reference.Winding(p + d), back = reference.Winding(p - d);
-                    samples[i].Outer = Math.Abs(front - back) > 0.5 && Math.Abs(front + back) < 1.5;
+                    samples[i].Outer = is_outer(front, back);
                 }
             }, 256, Parallel == false);
         }
@@ -510,6 +514,16 @@ namespace gs
             return distances;
         }
 
+        // the outer surface rule (see OuterSurface) on the winding numbers on both sides; also outer: one side outside
+        // and the other inside the solid, eg coincident duplicate shells (w 0 and 2)
+        static bool is_outer(double front, double back)
+        {
+            if (Math.Abs(front - back) > 0.5 && Math.Abs(front + back) < 1.5)
+                return true;
+            double lo = Math.Min(Math.Abs(front), Math.Abs(back)), hi = Math.Max(Math.Abs(front), Math.Abs(back));
+            return lo < 0.25 && hi > 0.75;
+        }
+
         // the distances of the edge samples on the reference's outer surface (see OuterSurface), tested at
         // p +- offset n along the edge's mean normal
         double[] outer_edge_distances(double[] distances, Vector3d[] points, int[] segments, List<Vector3d> normals,
@@ -522,7 +536,7 @@ namespace gs
                     Vector3d d = offset * normals[segments[i]];
                     if (d == Vector3d.Zero) continue;
                     double front = reference.Winding(points[i] + d), back = reference.Winding(points[i] - d);
-                    outer[i] = Math.Abs(front - back) > 0.5 && Math.Abs(front + back) < 1.5;
+                    outer[i] = is_outer(front, back);
                 }
             }, 256, Parallel == false);
             var result = new List<double>();
@@ -546,9 +560,10 @@ namespace gs
         /// sharp if the angle between the normals of its two triangles exceeds angleDeg, with the normals oriented
         /// consistently across the edge (an orientation flip at the edge is not a crease), or if more than two
         /// triangles share it (non-manifold). Boundary edges and edges at triangles of height at most minHeight
-        /// (twice the area over the longest edge; no reliable normal) are not sharp. In the order of first
-        /// appearance (triangle order). normals (if given) gets the unit sum of the two oriented face normals of each
-        /// sharp edge (the first face's normal at a non-manifold edge, zero if that is degenerate).
+        /// (twice the area over the longest edge; no reliable normal) are not sharp; non-manifold edges are always sharp. In the order of first
+        /// appearance (triangle order). normals (if given) gets the unit sum of the oriented normals of the first two
+        /// faces of each sharp edge (zero if one is degenerate). At an edge where two solids only touch (non-manifold,
+        /// the first two faces from one solid) that direction points into the other solid, and the edge is not outer.
         /// </summary>
         internal static List<Vector3d> SharpEdges(DMesh3 mesh, double angleDeg, double minHeight, List<Vector3d> normals = null)
         {
@@ -705,10 +720,16 @@ namespace gs
         /// <summary> samples within the largest threshold of the other surface (the ones that correspond to a point there) </summary>
         public int MatchedSamples;
         /// <summary>
-        /// share of the matched samples whose normals point the other way (cos &lt; 0): inverted patches. Samples
+        /// share of the matched samples whose normals point the other way (cos &lt; -ReversedCos): inverted patches. Samples
         /// farther away are left out, as their closest point need not correspond (eg on a lost part). NaN if none is matched.
         /// </summary>
         public double ReversedFraction = double.NaN;
+
+        /// <summary>
+        /// a normal is reversed if cos &lt; -ReversedCos (angle above 90.06 degrees): perpendicular normals (eg a face
+        /// ending on another one) have a cos of 0 up to rounding, whose sign must not count
+        /// </summary>
+        public const double ReversedCos = 1e-3;
 
         internal static NormalAgreement Compute(MeshFidelityMetrics.SurfaceSample[] samples, double matchDistance)
         {
@@ -724,7 +745,7 @@ namespace gs
                 sumAngle += Math.Acos(c) * MathUtil.Rad2Deg;
                 if (s.Distance < matchDistance) {
                     r.MatchedSamples++;
-                    if (s.Cos < 0) reversed++;
+                    if (s.Cos < -ReversedCos) reversed++;
                 }
             }
             if (r.Samples > 0) {

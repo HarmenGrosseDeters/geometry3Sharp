@@ -56,11 +56,17 @@ if ms: print(f"  repair time: median {ms[len(ms)//2]/1000:.2f} s, max {ms[-1]/10
 FLAGS = {
     'surface': lambda r: num(r, 'fm_f_0005', 1) < 0.95,
     'reversed': lambda r: not no_solid(r) and num(r, 'fm_reversed_fwd', 0) > 0.01,
-    'edges': lambda r: num(r, 'fm_sharp_in', 0) > 0 and num(r, 'fm_oer_0005', num(r, 'fm_er_0005', 1)) < 0.9,
+    'edges': lambda r: num(r, 'fm_sharp_in', 0) > 0 and edge_recall(r) < 0.9,
     'handles': lambda r: clean_topology(r) and any(c in str(r.get('fm_topo_changes', '')) for c in ('HandlesClosed', 'HandlesCreated')),
     'parts': lambda r: clean_topology(r) and 'ComponentsLost' in str(r.get('fm_topo_changes', '')),
     'triangles': lambda r: num_q(r, 'minangle_lt10') > num_q(r, 'minangle_lt10', 'fm_q_in') + 0.01,
 }
+
+
+def edge_recall(r):
+    # of the outer sharp edges; of all if none is outer (eg walls thinner than the offset) or not recorded
+    v = num(r, 'fm_oer_0005')
+    return v if v == v else num(r, 'fm_er_0005', 1)
 
 
 def clean_topology(r):

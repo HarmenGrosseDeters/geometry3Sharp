@@ -36,7 +36,8 @@ namespace gs
         /// <summary>
         /// what changed from one mesh (eg the input) to another (eg the repair result), by the totals; a handle closed
         /// on one component and one created on another (same total genus, other genera of the components) sets both
-        /// HandlesClosed and HandlesCreated. Weld triangle soups first (each unwelded triangle is a component).
+        /// HandlesClosed and HandlesCreated (so does a component split into parts of smaller genus, eg at a bowtie,
+        /// although no handle changed). Weld triangle soups first (each unwelded triangle is a component).
         /// </summary>
         [Flags]
         public enum Changes

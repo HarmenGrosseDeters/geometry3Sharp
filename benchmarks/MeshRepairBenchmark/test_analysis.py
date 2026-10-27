@@ -40,6 +40,7 @@ FM_ROWS = [
     row('fm_reversed.stl', **dict(FM, fm_reversed_fwd=0.2)),
     row('fm_edges.stl', **dict(FM, fm_er_0005=0.5, fm_oer_0005=0.5)),
     row('fm_union.stl', **dict(FM, fm_er_0005=0.5, fm_oer_0005=1.0)),      # edges inside the solid: not lost
+    row('fm_noouter.stl', **dict(FM, fm_er_0005=0.2, fm_oer_0005='NaN')),  # no outer edges: judged by all edges
     row('fm_smooth.stl', **dict(FM, fm_er_0005='NaN', fm_sharp_in=0.0, fm_ecd='Infinity')),   # no sharp edges in the input
     row('fm_handle.stl', **dict(FM, fm_topo_changes='HandlesClosed, BoundaryLoopsRemoved')),
     row('fm_far.stl', **dict(FM, fm_reversed_fwd=0.5, hd_back_hi_rel=0.02, fm_outer_max=0.02, fm_max_back=0.02)),              # flagged, not repaired
@@ -100,13 +101,13 @@ class AnalysisScripts(unittest.TestCase):
             out = run('analyze_fidelity.py')
         finally:
             ROWS = old
-        self.assertRegex(out, r'10 meshes with them, 8 of them repaired')
+        self.assertRegex(out, r'11 meshes with them, 9 of them repaired')
         self.assertRegex(out, r'triangles\s+1 /\s+1 ')     # not the open input whose slivers were there before
-        self.assertRegex(out, r'from the whole input: 8, from its outer surface: 9 \(\+1 \[.fm_interior.stl.\]\)')
+        self.assertRegex(out, r'from the whole input: 9, from its outer surface: 10 \(\+1 \[.fm_interior.stl.\]\)')
         self.assertRegex(out, r'reversed\s+2 /\s+1 ')
-        self.assertRegex(out, r'edges\s+1 /\s+1 ')
+        self.assertRegex(out, r'edges\s+2 /\s+2 ')
         self.assertRegex(out, r'handles\s+1 /\s+1 ')
-        self.assertRegex(out, r'repaired with any flag: 4 of 8')
+        self.assertRegex(out, r'repaired with any flag: 5 of 9')
 
     def test_failed_runs_in_the_denominators(self):
         out = run('analyze_quality.py')

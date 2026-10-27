@@ -589,6 +589,19 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void OuterSurface_DuplicateShells()
+        {
+            // a box appended twice (coincident, same orientation; winding number 0 outside, 2 inside): all outer
+            DMesh3 box = Box(Vector3d.Zero, Vector3d.One);
+            DMesh3 twice = new DMesh3(box);
+            MeshEditor.Append(twice, box);
+            var f = Run(twice, box);
+            Assert.Equal(1.0, f.OuterShare);
+            Assert.Equal(1.0, f.OuterEdgeShare);
+            Assert.Equal(1.0, f.OuterRecall[0]);
+        }
+
+        [Fact]
         public void NothingToSample_ReturnsFalse()
         {
             Assert.False(new MeshFidelityMetrics(Cube(), Cube()) { SurfaceSamples = 0 }.Compute());
@@ -669,6 +682,10 @@ namespace geometry3Sharp.Tests
             DMesh3 s1 = Sphere(0.3, 12);
             MeshTransforms.Translate(s1, new Vector3d(2, 0.5, 0.5));
             MeshEditor.Append(reference, s1);
+            // inner geometry, so that the outer surface and edge classification is part of the comparisons: a face
+            // inside the bevelled cube and a box overlapping it (its part inside is inner)
+            MeshEditor.Append(reference, Quad(new Vector3d(0.2, 0.2, 0.4), new Vector3d(0.6, 0, 0), new Vector3d(0, 0.6, 0), 4, false));
+            MeshEditor.Append(reference, Box(new Vector3d(0.7, 0.3, 0.3), new Vector3d(1.3, 0.6, 0.6)));
             mesh = Cube();
             DMesh3 s2 = Sphere(0.31, 16);
             MeshTransforms.Translate(s2, new Vector3d(2, 0.5, 0.52));
@@ -686,6 +703,8 @@ namespace geometry3Sharp.Tests
             Assert.True(baseF.Compute());
             List<double> expected = Values(baseF);
             Assert.True(baseF.NormalsMeshToReference.ReversedFraction > 0.01);
+            Assert.InRange(baseF.OuterShare, 0.5, 0.95);
+            Assert.InRange(baseF.OuterEdgeShare, 0.5, 0.95);
             foreach (Similarity s in Similarity.All()) {
                 var f = new MeshFidelityMetrics(Invariance.Transformed(reference, s), Invariance.Transformed(mesh, s)) { SurfaceSamples = 20000, EdgeSamples = 5000 };
                 Assert.True(f.Compute(), s.Name);
