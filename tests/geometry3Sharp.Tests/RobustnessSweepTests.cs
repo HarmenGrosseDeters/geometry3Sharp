@@ -17,7 +17,8 @@ namespace geometry3Sharp.Tests
     /// - with a NaN or infinite vertex and a NaN or infinite parameter: it must finish, must not throw from deep inside
     ///   (an ArgumentException from the operation's own type is accepted), must not spread non-finite coordinates to
     ///   vertices that were finite, and a non-finite parameter must give a failure status or a finite result.
-    /// A case listed in KnownFailures must still fail (strict expected failure): a fix removes its entry. Set
+    /// A case listed in KnownFailures must still fail (strict expected failure): a fix removes its entry. Known hangs
+    /// are not run (not strict), and on .NET Framework the list is not strict (it is taken on net10). Set
     /// G3_SWEEP_REPORT=1 to print the outcome of every case instead of asserting.
     /// </summary>
     public class RobustnessSweepTests
@@ -34,6 +35,9 @@ namespace geometry3Sharp.Tests
             public bool Failed;
             /// <summary> the mesh the operation produced or edited, if any (checked for spreading non-finite values) </summary>
             public DMesh3 Output;
+            /// <summary> per-vertex values the operation produced without an output mesh (normals, UVs, distances), checked for spreading like Output </summary>
+            public int NonFiniteValues = -1;
+            public Sig PerVertex(IEnumerable<double> values) { NonFiniteValues = values.Count(x => double.IsNaN(x) || double.IsInfinity(x)); return this; }
             readonly Similarity s;
             public Sig(Similarity s) { this.s = s; }
 
@@ -77,7 +81,7 @@ namespace geometry3Sharp.Tests
             /// <summary> the scalar parameter in the input's units (a length, mapped with Similarity.ApplyLength), NaN for none </summary>
             public double Param = double.NaN;
             public string ParamName = "";
-            /// <summary> tolerance of non-exact similarities, relative to the size (1) to the power of the value's dimension </summary>
+            /// <summary> tolerance of non-exact similarities, in the input's units (the inputs have size about 1) </summary>
             public double Tol = 1e-6;
             /// <summary> relative tolerance of counts under non-exact similarities (rotation changes ties) </summary>
             public double CountTol = 0;
@@ -120,7 +124,7 @@ namespace geometry3Sharp.Tests
                     var n = new MeshNormals(m); n.Compute();
                     var sig = new Sig(s);
                     foreach (int v in m.VertexIndices()) sig.Direction("n" + v, n.Normals[v]);
-                    return sig;
+                    return sig.PerVertex(m.VertexIndices().Select(v => n.Normals[v].x + n.Normals[v].y + n.Normals[v].z));
                 } },
             new Op { Name = "MeshMeasurements", Type = typeof(MeshMeasurements), Input = () => Sphere(),
                 Run = (m, s, p) => {
@@ -198,7 +202,8 @@ namespace geometry3Sharp.Tests
                     var sdf = new MeshSignedDistanceGrid(m, p) { ExactBandWidth = 2 };
                     sdf.Compute();
                     AxisAlignedBox3d b = m.CachedBounds; b.Expand(2 * p);
-                    var mc = new MarchingCubes() { Implicit = new DenseGridTrilinearImplicit(sdf.Grid, sdf.GridOrigin, sdf.CellSize), IsoValue = 0, Bounds = b, CubeSize = p };
+                    // (serial: the parallel version appends the triangles in thread order, S31)
+                    var mc = new MarchingCubes() { Implicit = new DenseGridTrilinearImplicit(sdf.Grid, sdf.GridOrigin, sdf.CellSize), IsoValue = 0, Bounds = b, CubeSize = p, ParallelCompute = false };
                     mc.Generate();
                     // (the grid is axis aligned: under rotation only the volume is comparable)
                     var sig = new Sig(s);
@@ -226,7 +231,7 @@ namespace geometry3Sharp.Tests
                 Run = (m, s, p) => {
                     var g = new MeshGeodesicDistance(m);
                     var sig = new Sig(s) { Failed = g.Compute(new[] { 0 }) == false };
-                    return sig.Failed ? sig : sig.Length("max", m.VertexIndices().Max(v => g.Distance[v]));
+                    return sig.Failed ? sig : sig.Length("max", m.VertexIndices().Max(v => g.Distance[v])).PerVertex(m.VertexIndices().Select(v => g.Distance[v]));
                 } },
             new Op { Name = "MeshHausdorffDistance", Type = typeof(MeshHausdorffDistance), Input = () => Sphere(), Tol = 1e-5,
                 Run = (m, s, p) => {
@@ -242,7 +247,7 @@ namespace geometry3Sharp.Tests
                     MeshTransforms.Translate(src, s.ApplyDirection(new Vector3d(0.03, -0.02, 0.01)) * s.Scale);
                     var icp = new MeshICP(src, new DMeshAABBTree3(m, true));
                     icp.Solve();
-                    return new Sig(s) { Failed = icp.Converged == false }.Length("error", Math.Sqrt(Math.Max(icp.Error, 0)));
+                    return new Sig(s) { Failed = icp.Converged == false }.Length("error", icp.Error);
                 } },
             new Op { Name = "LSCMParameterization", Type = typeof(LSCMParameterization), Input = Cap, Tol = 1e-6,
                 Run = (m, s, p) => {
@@ -250,7 +255,7 @@ namespace geometry3Sharp.Tests
                     var sig = new Sig(s) { Failed = r.Status != ParameterizationStatus.Success };
                     if (sig.Failed) return sig;
                     var d = ParameterizationDistortion.Compute(m, r.UV);
-                    return sig.Count("flipped", d.FlippedTriangles).Scalar("meanConformal", d.MeanConformal);
+                    return sig.Count("flipped", d.FlippedTriangles).Scalar("meanConformal", d.MeanConformal).PerVertex(m.VertexIndices().Select(v => r.UV[v].x + r.UV[v].y));
                 } },
             new Op { Name = "BoundaryFirstFlattening", Type = typeof(BoundaryFirstFlattening), Input = Cap, Tol = 1e-6,
                 Run = (m, s, p) => {
@@ -258,7 +263,7 @@ namespace geometry3Sharp.Tests
                     var sig = new Sig(s) { Failed = r.Status != ParameterizationStatus.Success };
                     if (sig.Failed) return sig;
                     var d = ParameterizationDistortion.Compute(m, r.UV);
-                    return sig.Count("flipped", d.FlippedTriangles).Scalar("meanConformal", d.MeanConformal);
+                    return sig.Count("flipped", d.FlippedTriangles).Scalar("meanConformal", d.MeanConformal).PerVertex(m.VertexIndices().Select(v => r.UV[v].x + r.UV[v].y));
                 } },
         };
 
@@ -315,6 +320,8 @@ namespace geometry3Sharp.Tests
             { "MeshIsoCurves|scale 2^-24", "R15" },
             { "MeshIterativeSmooth|+Inf vertex", "R13" },
             { "MeshIterativeSmooth|NaN vertex", "R13" },
+            { "MeshNormals|+Inf vertex", "R20" },
+            { "MeshNormals|NaN vertex", "R20" },
             { "MeshNormals|rotated, scale 1e-3, utm", "R1" },
             { "MeshNormals|scale 1e-3", "R1" },
             { "MeshNormals|scale 2^-10", "R1" },
@@ -364,7 +371,7 @@ namespace geometry3Sharp.Tests
                 if (exact) {
                     if (x.value.Equals(y.value) == false) return $"{x.name}: {x.value:R} vs {y.value:R} (not bit identical under an exact scale)";
                 } else if (x.count) {
-                    if (Math.Abs(x.value - y.value) > op.CountTol * Math.Max(1, Math.Abs(x.value))) return $"{x.name}: {x.value} vs {y.value}";
+                    if ((Math.Abs(x.value - y.value) <= op.CountTol * Math.Max(1, Math.Abs(x.value))) == false) return $"{x.name}: {x.value} vs {y.value}";
                 } else if ((Math.Abs(x.value - y.value) <= op.Tol) == false) {
                     return $"{x.name}: {x.value:R} vs {y.value:R} (difference {Math.Abs(x.value - y.value):E2} > {op.Tol:E0})";
                 }
@@ -392,6 +399,15 @@ namespace geometry3Sharp.Tests
             return $"{e.GetType().Name} in {where}: {e.Message.Split('\n')[0]}";
         }
 
+        /// <summary> t is the operation's type, one of its base types, or a type nested in one of them (closures) </summary>
+        static bool IsOwnType(Type op, Type t)
+        {
+            for (; t != null; t = t.DeclaringType)
+                for (Type b = op; b != null && b != typeof(object); b = b.BaseType)
+                    if (t == b) return true;
+            return false;
+        }
+
         static int NonFiniteVertices(DMesh3 m) => m == null ? 0 : m.VertexIndices().Count(v => m.GetVertex(v).IsFinite == false);
 
         string NonFiniteOutcome(Op op, string c)
@@ -411,13 +427,16 @@ namespace geometry3Sharp.Tests
             try {
                 sig = RunOp(op, input, Similarity.Identity, param);
             } catch (Exception e) {
-                bool rejection = e is ArgumentException && e.TargetSite?.DeclaringType == op.Type;
+                bool rejection = e is ArgumentException && IsOwnType(op.Type, e.TargetSite?.DeclaringType);
                 return rejection ? "" : Describe(e);
             }
+            // (an output mesh may keep the bad input vertex; more is spreading)
             if (sig.Output != null) {
                 int after = NonFiniteVertices(sig.Output);
                 if (after > before) return $"silent garbage: {after} non-finite vertices in the output, {before} in the input";
             }
+            if (sig.NonFiniteValues > before && sig.Failed == false)
+                return $"silent garbage: {sig.NonFiniteValues} non-finite per-vertex values with success, {before} non-finite vertices in the input";
             if (c.EndsWith("param") && sig.Failed == false) {
                 var bad = sig.Values.FirstOrDefault(x => double.IsNaN(x.value) || double.IsInfinity(x.value));
                 if (bad.name != null) return $"silent garbage: success with {bad.name} = {bad.value}";
@@ -439,9 +458,14 @@ namespace geometry3Sharp.Tests
                 Console.WriteLine($"SWEEP {key} => {(outcome == "" ? "ok" : outcome)}");
                 return;
             }
-            if (KnownFailures.TryGetValue(key, out string finding))
+            if (KnownFailures.TryGetValue(key, out string finding)) {
+#if NETFRAMEWORK
+                // (the list is taken on net10, where double -> int casts saturate; .NET Framework casts NaN and out of
+                // range values to int.MinValue, so a listed case may fail differently or not at all: not strict here)
+                return;
+#endif
                 Assert.True(outcome != "", $"{key} passes now: remove its entry ({finding}) from KnownFailures and update docs/ROBUSTNESS_SWEEP.md");
-            else
+            } else
                 Assert.True(outcome == "", $"{key}: {outcome}");
         }
 
@@ -468,6 +492,75 @@ namespace geometry3Sharp.Tests
             var keys = new HashSet<string>(SimilarityCases().Concat(NonFiniteCases()).Select(x => x[0] + "|" + x[1]));
             foreach (string key in KnownFailures.Keys)
                 Assert.True(keys.Contains(key), "unknown case " + key);
+            // every finding id has a row in docs/ROBUSTNESS_SWEEP.md (found from the test directory upwards)
+            string dir = AppContext.BaseDirectory, doc = null;
+            for (; dir != null && doc == null; dir = System.IO.Path.GetDirectoryName(dir)) {
+                string f = System.IO.Path.Combine(dir, "docs", "ROBUSTNESS_SWEEP.md");
+                if (System.IO.File.Exists(f)) doc = System.IO.File.ReadAllText(f);
+            }
+            Assert.True(doc != null, "docs/ROBUSTNESS_SWEEP.md not found");
+            foreach (string id in KnownFailures.Values.Select(f => f.Split(' ').Last()).Distinct())
+                Assert.True(doc.Contains("| " + id + " |"), $"finding {id} has no row in docs/ROBUSTNESS_SWEEP.md");
+        }
+
+        // ---- self-test of the harness: operations with a known defect must fail, an invariant one must pass ----
+
+        static Op SelfTestOp(string name, Func<DMesh3, Similarity, Sig> run) =>
+            new Op { Name = name, Type = typeof(SelfTestThrower), Input = () => Sphere(), Run = (m, s, p) => run(m, s) };
+
+        sealed class SelfTestThrower
+        {
+            public static void Reject(double x) { if (double.IsNaN(x)) throw new ArgumentException("rejected"); }
+        }
+
+        [Fact]
+        public void Harness_InvariantOperation_PassesEverySimilarity()
+        {
+            Op op = SelfTestOp("invariant", (m, s) => {
+                Vector3d c = m.VertexIndices().Aggregate(Vector3d.Zero, (a, v) => a + m.GetVertex(v)) / m.VertexCount;
+                return new Sig(s).Mesh("mesh", m).Point("centroid", c).Length("edge", m.GetVertex(0).Distance(m.GetVertex(1)))
+                    .Direction("normal", m.GetTriNormal(0)).Count("vertices", m.VertexCount);
+            });
+            op.Tol = 1e-5;     // (rotated, 1e-3, utm: the coordinates themselves resolve about 7e-7)
+            foreach (Similarity s in Similarities())
+                Assert.Equal("", SimilarityOutcome(op, s));
+        }
+
+        [Fact]
+        public void Harness_AbsoluteThresholdAndFloat_AreFound()
+        {
+            // an absolute threshold changes a count under power-of-two scales; a float position moves at UTM
+            Op threshold = SelfTestOp("threshold", (m, s) => new Sig(s).Count("long edges",
+                m.EdgeIndices().Count(e => m.GetVertex(m.GetEdgeV(e).a).Distance(m.GetVertex(m.GetEdgeV(e).b)) > 0.3)));
+            Assert.NotEqual("", SimilarityOutcome(threshold, Similarity.Pow2Small));
+            Assert.NotEqual("", SimilarityOutcome(threshold, Similarity.Pow2Large));
+            Op single = SelfTestOp("float", (m, s) => new Sig(s).Point("p", (Vector3d)(Vector3f)m.GetVertex(3)));
+            Assert.Equal("", SimilarityOutcome(single, Similarity.Pow2Small));
+            Assert.NotEqual("", SimilarityOutcome(single, Similarity.Utm));
+            // a value with the wrong dimension (a length reported as an area) fails exact scales
+            Op unit = SelfTestOp("unit", (m, s) => new Sig(s).Area("edge", m.GetVertex(0).Distance(m.GetVertex(1))));
+            Assert.NotEqual("", SimilarityOutcome(unit, Similarity.Pow2Large));
+        }
+
+        [Fact]
+        public void Harness_NonFiniteOutcomes_AreClassified()
+        {
+            // spreading to a neighbour, a deep exception, a hang-free rejection, and passing the bad vertex through
+            Op spread = SelfTestOp("spread", (m, s) => {
+                foreach (int v in m.VertexIndices().ToList())
+                    if (m.GetVertex(v).IsFinite == false)
+                        foreach (int w in m.VtxVerticesItr(v).ToList()) m.SetVertex(w, m.GetVertex(v));
+                return new Sig(s).Mesh("mesh", m);
+            });
+            Assert.StartsWith("silent garbage", NonFiniteOutcome(spread, "NaN vertex"));
+            Op values = SelfTestOp("values", (m, s) => new Sig(s).PerVertex(m.VertexIndices().Select(v => m.GetVertex(v).x + 0 * m.Vertices().Sum(p => p.x))));
+            Assert.StartsWith("silent garbage", NonFiniteOutcome(values, "+Inf vertex"));
+            Op deep = SelfTestOp("deep", (m, s) => { int[] a = new int[1]; return new Sig(s).Count("x", a[m.VertexCount]); });
+            Assert.StartsWith("IndexOutOfRangeException", NonFiniteOutcome(deep, "NaN vertex"));
+            Op reject = SelfTestOp("reject", (m, s) => { foreach (int v in m.VertexIndices()) SelfTestThrower.Reject(m.GetVertex(v).x); return new Sig(s); });
+            Assert.Equal("", NonFiniteOutcome(reject, "NaN vertex"));
+            Op passThrough = SelfTestOp("pass through", (m, s) => new Sig(s).Mesh("mesh", m));
+            Assert.Equal("", NonFiniteOutcome(passThrough, "NaN vertex"));
         }
 
         [Theory]

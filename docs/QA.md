@@ -321,8 +321,14 @@ volumes, points, directions). Every operation runs:
   vertices that were finite. With a non-finite parameter it must report failure or give a finite result.
 
 Known failures are listed in `RobustnessSweepTests.KnownFailures` with their finding id. The list is strict: a
-listed case that passes fails the test, so a fix removes the entry. Known hangs are not run in the normal
-suite. `G3_SWEEP_REPORT=1` prints the outcome of every case (hangs included) instead of asserting:
+listed case that passes fails the test, so a fix removes the entry. Two exceptions: known hangs are not run
+in the normal suite, so they are not strict, and on .NET Framework the list is not strict because it was taken
+on net10, where double-to-int casts saturate. Operations without an output mesh report their per-vertex values
+(normals, UVs, distances) with `Sig.PerVertex`, and the spreading check covers those values too.
+`Harness_*` tests check the harness itself: an invariant operation passes, and an absolute threshold, a float
+position, a value with the wrong unit, spreading and a deep exception are all found.
+`G3_SWEEP_REPORT=1` prints the outcome of every case, hangs included, instead of asserting. Hanging threads
+keep running until the process exits:
 
 ```
 G3_SWEEP_REPORT=1 dotnet test tests/geometry3Sharp.Tests -c Release --filter "FullyQualifiedName~RobustnessSweepTests" --logger "console;verbosity=detailed" | grep SWEEP
