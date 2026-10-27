@@ -311,6 +311,8 @@ namespace geometry3Sharp.Tests
                     case "double.NaN": return double.NaN;
                     case "double.PositiveInfinity": return double.PositiveInfinity;
                     case "double.NegativeInfinity": return double.NegativeInfinity;
+                    // (in C# source -0.0 is the negation of 0.0; double.Parse("-0.0") is +0 on .NET Framework)
+                    case "-0.0": return -0.0;
                     default: return double.Parse(s, CultureInfo.InvariantCulture);
                 }
             }).ToArray();
@@ -346,6 +348,12 @@ namespace geometry3Sharp.Tests
             Assert.Contains("-0.0, 1E-310, double.NaN", code);
             Assert.Contains("double.PositiveInfinity, double.NegativeInfinity, 0.1,", code);
             Assert.Equal(1 / -0.0, 1 / back.GetVertex(0).x);
+            // the special values by name, independent of the runtime's number formatting
+            Assert.Equal("-0.0", MeshMinimizer.Literal(-0.0));
+            Assert.Equal("0", MeshMinimizer.Literal(0.0));
+            Assert.Equal("double.NaN", MeshMinimizer.Literal(double.NaN));
+            Assert.Equal("double.PositiveInfinity", MeshMinimizer.Literal(double.PositiveInfinity));
+            Assert.Equal("double.NegativeInfinity", MeshMinimizer.Literal(double.NegativeInfinity));
             foreach (double x in new[] { 0.1, 1.0 / 3, 632117.25, 5712043.123456789, double.Epsilon, double.MaxValue, -1e-300 })
                 Assert.Equal(x, double.Parse(MeshMinimizer.Literal(x), CultureInfo.InvariantCulture));
             // obj: one line per vertex and triangle
