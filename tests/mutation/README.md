@@ -7,6 +7,9 @@ surviving mutant marks a test gap: a change to that code that the tests would le
 
 ## Scope
 
+Two jobs of the [mutation workflow](../../.github/workflows/mutation.yml): `exact-arithmetic` (this section and
+the next ones) and `exact-mesh` (the exact mesh pipeline, [below](#exact-mesh-pipeline-stryker-mesh-json)).
+
 [stryker-config.json](stryker-config.json) covers the exact arithmetic:
 - `math/ExactPredicates.cs`
 - `math/ExactPoint3.cs`
@@ -113,3 +116,112 @@ first read as test gaps. Differential tests aimed at them changed the picture:
 Mark equivalent mutants in the code with `// Stryker disable once <mutator>: <reason>` instead of writing a test
 for them. This happens when the files in `math/Exact*` are next changed anyway; they are being worked on in
 other PRs.
+
+## Exact mesh pipeline (stryker-mesh-*.json)
+
+The `exact-mesh` job mutates the exact mesh pipeline, in shards that run in parallel (a matrix job, one runner
+each). Each shard runs the unit tests of its file (the `test-case-filter` of its config):
+
+| Shard | Mutated | Tests |
+|---|---|---|
+| `rounding` | `mesh_ops/MeshRoundingRepair.cs` | `MeshRoundingRepairTests`, `MeshRoundingRepairStrategyTests`, `ExactMeshBooleanTests` |
+| `boolean-1`, `boolean-2` | `mesh_ops/ExactMeshBoolean.cs`, split at `front_winding` | `ExactMeshBooleanTests`, `ExactMeshBooleanNaryTests`, `ExactBooleanOrientationTests`, `ExactBooleanReuseTests`, `ExactBooleanEdgeOrderTests`, the `ExactVertices` tests of `MeshRoundingRepairTests`; `boolean-2` also `ExactBooleanFilterTests` |
+| `arrangement-1`, `arrangement-2` | `mesh_ops/ExactMeshArrangement.cs`, split at `build_triangles` | `ExactFilterBoundTests`, `ExactArrangementScalingTests`, `ExactMeshBooleanTests`, `ExactBooleanEdgeOrderTests`, `ExactBooleanBuildingBlockTests`, the `ExactVertices` tests |
+| `planar` | `mesh_ops/ExactPlanarSimplify.cs`, `mesh_ops/ExactTriangulation2.cs` | `ExactPlanarSimplifyTests`, `ExactTriangulation2Tests`, `ExactBooleanBuildingBlockTests`, `ExactMeshBooleanTests` |
+
+On a pull request, the workflow's `changes` job starts `exact-mesh` only if one of these files, their tests or
+the configs changed (not this README) (and `exact-arithmetic` only for its own files); schedule and "Run workflow" start both. A new
+test class for these files goes into the filter of its shard, the workflow's `paths` and the `mesh` pattern of the
+`changes` job. The job also prints the surviving and uncovered mutants to its log (step "Surviving mutants").
+
+Things to know:
+- **Stryker instruments the whole library**, not only the mutated files (about 97 000 mutants are created and all
+  but the shard's are then ignored). The tests run on instrumented code, so a shard takes 1 to 3 hours on a
+  GitHub runner, most of it in the boolean tests. Locally, `dotnet stryker --config-file stryker-mesh-<shard>.json`
+  in this directory.
+- **The splits are character offsets**, not lines: Stryker.NET reads `File.cs{a..b}` as a text span. The offsets
+  are at the start of a method (`build_triangles`, `front_winding`); the second shard runs to the end of the file.
+  After larger changes to the file, move the offset back to the start of that method (both shards of the file
+  must be updated together), else mutants near the boundary are tested twice or not at all.
+- **Memory:** a mutant can make a loop allocate without end. `DOTNET_GCHeapHardLimit` (6 GB per process) and
+  `concurrency: 2` turn that into an OutOfMemoryException in the test host (the mutant is killed); without them
+  the first run lost its runner.
+- **Timeouts** count as killed, and their number varies between runs: the first run of `ExactMeshBoolean.cs`
+  (one shard, on a busier runner) had 215 timeouts and 85.5 %, the second (two shards) 63 timeouts and 71 %
+  together. The thresholds below are set from the second kind of run: the score rounded down, less two points,
+  and less half the share of timeouts in shards with many of them (`boolean-1` 13 %, `arrangement-1` 20 %, `arrangement-2` 33 %), so
+  that a quieter runner that turns timeouts into survivors does not fail the job.
+
+### Scores (October 2026)
+
+Mutation score per shard (killed and timeouts over all tested and uncovered mutants), on GitHub runners:
+
+| Shard | Before | After | Break |
+|---|---|---|---|
+| `rounding` | 54.1 % (370 killed, 17 timeouts, 264 survived, 64 no coverage) | 59.9 % (416 killed, 12 timeouts, 231 survived, 56 no coverage) | 57 |
+| `boolean-1` | 86.5 % (317 killed, 55 timeouts, 45 survived, 13 no coverage) | (final run pending) | 80 |
+| `boolean-2` | 60.8 % (382 killed, 8 timeouts, 199 survived, 53 no coverage) | (final run pending) | 58 |
+| `arrangement-1` | 83.0 % (516 killed, 164 timeouts, 113 survived, 26 no coverage) | (final run pending) | 75 |
+| `arrangement-2` | 94.7 % (668 killed, 354 timeouts, 29 survived, 28 no coverage) | (final run pending) | 75 |
+| `planar` | 60.0 % (348 killed, 12 timeouts, 189 survived, 51 no coverage) | 68.2 % (397 killed, 12 timeouts, 162 survived, 29 no coverage) | 66 |
+
+"Before" is the first run with the existing tests (for the two boolean shards the run with the split; for the
+arrangement the first run whose span matched), "after" the run with the tests below.
+
+### What the survivors showed
+
+New tests, written from the survivors:
+- **`MeshRoundingRepairStrategyTests`** (`rounding`). The tests of the whole repair passed with the edge flip, the
+  zip of two caps or the move of a cap's apex broken, because another edit or a later pass fixed the mesh as well,
+  and no test looked at the counts (`Flips`, `Zips`, `Moves`) or at where the vertices went. Each edit now has a
+  hand-built mesh where only it can fix the defect: the counts, the topology and the positions are checked. Also
+  the removal of thin closed components against thick and open ones (`maxLength / sum` for `maxLength * sum`, and
+  `||` for `&&` in the closed check, survived), and `Apply` twice.
+- **`ExactTriangulation2Tests`** (`planar`). The class was only tested through the boolean, which never hands it
+  collinear points, points on the outer edges or invalid input. Now: random grid points (many collinear, a third
+  on the outer edges) and non-crossing constraints with exact integer predicates, checked against the definition
+  of a constrained Delaunay triangulation (tiling, constraints present, locally Delaunay); a constraint across many
+  edges; the documented exceptions.
+- **`ExactPlanarSimplifyTests`** (`planar`): a box standing on another, turned by 45 degrees (the difference is
+  the box: 8 vertices, every crossing point removed), and the retriangulated regions are Delaunay.
+- **`ExactBooleanFilterTests`** (`boolean-2`). The floating-point filters of `ExactMeshBoolean` (`orient3d_filtered`,
+  `plane_side_filtered`) were only reached through the booleans. Now: where a filter decides, its sign must hold
+  for every exact input within the documented error of the doubles, at all corners of the error boxes, for points
+  moved off the plane by growing powers of two (the first decided ones are close to the bound); it must decide for
+  separated points, and not for tiny, NaN or infinite ones.
+- The `ExactVertices` tests of `MeshRoundingRepairTests` cover the exact result coordinates (`ComputeExactVertices`,
+  `ToInputExact` with scaled input): they were in no filter of the boolean and arrangement shards.
+
+Groups of survivors that are equivalent or practically equivalent (no test for them):
+- **Filter bounds** (`orient3d_filtered`, `planes_approx`, `segment_point` and the other bounds in
+  `ExactMeshArrangement`): mutants that drop a term or shrink a factor of a worst-case bound. The bounds are
+  Hadamard and Shewchuk bounds with margin; the corner tests above pass even with the input-error factor of
+  `orient3d_filtered` divided by three. A wrong sign needs an input constructed for that worst case (as found for
+  the InSphere permanent, see above). Mutants that make a filter decide wrongly by more are killed.
+- **Performance only**: the point-location walk of `ExactTriangulation2` (its pseudo-random start, the step limit,
+  the linear-search fallback), the dirty-triangle tree and the retry sets of `MeshRoundingRepair`, the
+  `queued`/`pending` sets of the Delaunay flips, hash and key bit operations, `Counts` keys and statistics
+  counters (`windingExactSides`, `LinearSearches`).
+- **Guards that the preconditions or earlier checks make unreachable**: in `ExactTriangulation2.crosses` the
+  shared-end test and `o1 * o2 >= 0` (with no point on a constraint a collinear end is never inside the segment),
+  `s == 0` in `walk_crossings` (no vertex on a constraint), `sc < sd` against `sc <= sd` in `try_zip` (equal values
+  returned before), the `tid < 0` undo of `try_zip`; in `ExactPlanarSimplify` the sign normalization of the plane
+  (either sign is a canonical form), the orientation of a group (opposite orientations of one plane never meet in
+  one fan of a closed result), the reverse direction in `is_link_edge`.
+- **The pass loop of `MeshRoundingRepair.Apply`**: one pass more or less, or a sum of the counts that is zero
+  for other edits, ends with the same mesh, because a pass without edits changes nothing.
+
+Open (real gaps, not yet tested):
+- `MeshRoundingRepair`: the contraction to the midpoint of an edge (both ends fail, the midpoint not), and
+  `overlaps`, which is never called (dead code, reported).
+- `ExactPlanarSimplify`: the convexity check before a Delaunay flip (`&&` for `||` survives: no test has a
+  non-convex quad whose diagonal fails the incircle test).
+- `ExactMeshBoolean`: the generalized winding numbers of open input (`front_generalized_winding`, the 1/2
+  threshold), which another change is reworking; edges with more than two triangles (`pair_around_edge`, the
+  order around the edge for ties); the fallback for rays through an edge (`front_winding`, no coverage).
+- `ExactMeshArrangement` (`arrangement-2`): the clipping of coplanar triangles into each other (`clip_into`, `|=`
+  against `&=`, the corner index), the strict and non-strict orientation tests of the segment crossings, and the
+  padding and slack of the candidate boxes (larger boxes only cost time). A third of its mutants time out: a
+  broken arrangement makes the boolean loop, which counts as killed but makes the shard slow (3 h 40 min).
+
+Set `break` from a measured score as above and only raise it.

@@ -8,7 +8,7 @@
     "mutate": [
       "**/mesh_ops/ExactMeshBoolean.cs{40084..1000000}"
     ],
-    "test-case-filter": "FullyQualifiedName~ExactMeshBooleanTests|FullyQualifiedName~ExactMeshBooleanNaryTests|FullyQualifiedName~ExactBooleanOrientationTests|FullyQualifiedName~ExactBooleanReuseTests|FullyQualifiedName~ExactBooleanEdgeOrderTests",
+    "test-case-filter": "FullyQualifiedName~ExactMeshBooleanTests|FullyQualifiedName~ExactMeshBooleanNaryTests|FullyQualifiedName~ExactBooleanOrientationTests|FullyQualifiedName~ExactBooleanReuseTests|FullyQualifiedName~ExactBooleanEdgeOrderTests|FullyQualifiedName~MeshRoundingRepairTests.ExactVertices|FullyQualifiedName~ExactBooleanFilterTests",
     "coverage-analysis": "perTest",
     "configuration": "Release",
     "additional-timeout": 30000,
@@ -21,7 +21,7 @@
     "thresholds": {
       "high": 90,
       "low": 60,
-      "break": 0
+      "break": 58
     },
     "concurrency": 2
   }

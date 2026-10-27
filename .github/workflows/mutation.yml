@@ -30,7 +30,7 @@ on:
       - 'tests/geometry3Sharp.Tests/MeshRoundingRepair*Tests.cs'
       - 'tests/geometry3Sharp.Tests/ExactTriangulation2Tests.cs'
       - 'tests/geometry3Sharp.Tests/geometry3Sharp.Tests.csproj'
-      - 'tests/mutation/**'
+      - 'tests/mutation/*.json'
       - '.config/dotnet-tools.json'
       - '.github/workflows/mutation.yml'
   schedule:
@@ -72,7 +72,7 @@ jobs:
           files=$(git diff --name-only "$BASE...$HEAD")
           echo "$files"
           # the test project, the tools, the workflow and the building-block tests (they test both) start both jobs
-          common='^(tests/geometry3Sharp\.Tests/geometry3Sharp\.Tests\.csproj|tests/geometry3Sharp\.Tests/ExactBooleanBuildingBlockTests\.cs|tests/mutation/README\.md|\.config/dotnet-tools\.json|\.github/workflows/mutation\.yml)$'
+          common='^(tests/geometry3Sharp\.Tests/geometry3Sharp\.Tests\.csproj|tests/geometry3Sharp\.Tests/ExactBooleanBuildingBlockTests\.cs|\.config/dotnet-tools\.json|\.github/workflows/mutation\.yml)$'
           arithmetic='^(math/(ExactPredicates|ExactPoint3|AdaptivePredicates)\.cs|tests/mutation/stryker-config\.json|tests/geometry3Sharp\.Tests/(ExactPredicates|ExactImplicitPoint|PredicateDifferential|ExactPoint3Conversion)Tests\.cs)$'
           mesh='^(mesh_ops/(ExactMesh[^/]*|ExactPlanarSimplify|ExactTriangulation2|MeshRoundingRepair)\.cs|tests/mutation/stryker-mesh-[^/]*\.json|tests/geometry3Sharp\.Tests/(ExactMeshBoolean[^/]*|ExactBoolean[^/]*|ExactFilterBound|ExactArrangementScaling|ExactPlanarSimplify|ExactTriangulation2|MeshRoundingRepair[^/]*)Tests\.cs)$'
           a=false; m=false
@@ -109,7 +109,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.mesh == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 330
+    timeout-minutes: 350
     strategy:
       fail-fast: false
       matrix:

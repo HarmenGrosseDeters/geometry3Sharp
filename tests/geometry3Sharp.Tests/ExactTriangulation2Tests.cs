@@ -188,6 +188,12 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0, tr.LinearSearches);
         }
 
+        static void AssertThrows(string reason, Action a)
+        {
+            var ex = Assert.Throws<InvalidOperationException>(a);
+            Assert.Contains(reason, ex.Message);
+        }
+
         [Fact]
         public void InvalidInput_Throws()
         {
@@ -197,21 +203,21 @@ namespace geometry3Sharp.Tests
             int outside = pts.Add(8, 8), copy = pts.Add(2, 2), notInserted = pts.Add(1, 1);
 
             var tr = pts.Triangulation(outer[0], outer[1], outer[2]);
-            Assert.Throws<InvalidOperationException>(() => tr.InsertPoint(outside));
+            AssertThrows("outside of the outer triangle", () => tr.InsertPoint(outside));
             tr.InsertPoint(p);
-            Assert.Throws<InvalidOperationException>(() => tr.InsertPoint(copy));
+            AssertThrows("coincides with a vertex", () => tr.InsertPoint(copy));
             // (a corner of the outer triangle at another index)
-            Assert.Throws<InvalidOperationException>(() => tr.InsertPoint(pts.Add(10, 0)));
+            AssertThrows("coincides with a vertex", () => tr.InsertPoint(pts.Add(10, 0)));
             tr.InsertPoint(q); tr.InsertPoint(r); tr.InsertPoint(s); tr.InsertPoint(t);
-            Assert.Throws<InvalidOperationException>(() => tr.InsertConstraint(p, notInserted));
-            Assert.Throws<InvalidOperationException>(() => tr.InsertConstraint(notInserted, p));
+            AssertThrows("endpoint is not a vertex", () => tr.InsertConstraint(p, notInserted));
+            AssertThrows("endpoint is not a vertex", () => tr.InsertConstraint(notInserted, p));
             // through the point r
-            Assert.Throws<InvalidOperationException>(() => tr.InsertConstraint(p, q));
+            AssertThrows("was not inserted", () => tr.InsertConstraint(p, q));
             // crossing a constraint (without r, which (s, t) would pass through)
             var tr2 = pts.Triangulation(outer[0], outer[1], outer[2]);
             foreach (int k in new[] { p, q, s, t }) tr2.InsertPoint(k);
             tr2.InsertConstraint(s, t);
-            Assert.Throws<InvalidOperationException>(() => tr2.InsertConstraint(p, q));
+            AssertThrows("constraint segments cross", () => tr2.InsertConstraint(p, q));
         }
     }
 }

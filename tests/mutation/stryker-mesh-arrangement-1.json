@@ -8,7 +8,7 @@
     "mutate": [
       "**/mesh_ops/ExactMeshArrangement.cs{0..43334}"
     ],
-    "test-case-filter": "FullyQualifiedName~ExactFilterBoundTests|FullyQualifiedName~ExactArrangementScalingTests|FullyQualifiedName~ExactMeshBooleanTests|FullyQualifiedName~ExactBooleanEdgeOrderTests|FullyQualifiedName~ExactBooleanBuildingBlockTests",
+    "test-case-filter": "FullyQualifiedName~ExactFilterBoundTests|FullyQualifiedName~ExactArrangementScalingTests|FullyQualifiedName~ExactMeshBooleanTests|FullyQualifiedName~ExactBooleanEdgeOrderTests|FullyQualifiedName~ExactBooleanBuildingBlockTests|FullyQualifiedName~MeshRoundingRepairTests.ExactVertices",
     "coverage-analysis": "perTest",
     "configuration": "Release",
     "additional-timeout": 30000,
@@ -20,8 +20,8 @@
     ],
     "thresholds": {
       "high": 90,
-      "low": 60,
-      "break": 0
+      "low": 77,
+      "break": 75
     },
     "concurrency": 2
   }
