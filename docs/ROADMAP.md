@@ -66,7 +66,7 @@ selectively.
   flip normals; `benchmarks/RemeshQualityBenchmark`). Open: the default (to be decided with the fidelity metrics).
 - [ ] Remeshers produce self-intersections: with the `g3cli remesh` settings 19 of 20 Thingi10K results have
   self-intersecting triangle pairs (19910 pairs, the inputs 1522), mostly from valence flips and collapses (no
-  geometric check by default). `MinTriangleQuality` reduces them (3331 pairs; far fewer are created during the passes)
+  geometric check by default). `MinTriangleQuality` reduces them (3158 pairs; far fewer are created during the passes)
   but does not prevent them, and 10 of 150 procedural primitives end with a few more pairs than without it, all at the
   bottom rim where the flat cap meets the side (projection moves across the rim, no normal flips): repro cases in
   `benchmarks/RemeshQualityBenchmark`: taper10_x0.15 (12 -> 16 pairs), taper16_x0.1 (0 -> 12), taper32_x0.1 (0 -> 12),

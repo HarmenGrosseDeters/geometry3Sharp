@@ -104,6 +104,10 @@ namespace geometry3Sharp.Tests
                         var hd0 = new MeshHausdorffDistance(input, before) { Tolerance = 0.01 * edge };
                         Assert.True(hd0.Compute());
                         Assert.True(hd.UpperBound < hd0.UpperBound + edge, $"{name}: {hd.UpperBound} from the input, {hd0.UpperBound} without the option");
+                        // the guards keep a few vertices near the apex off the surface, by at most about an edge
+                        var spatial = new DMeshAABBTree3(input, true);
+                        double maxOff = after.Vertices().Max(p => Math.Sqrt(MeshQueries.TriDistanceSqr(input, spatial.FindNearestTriangle(p), p)));
+                        Assert.True(maxOff < 1.5 * edge, $"{name}: a vertex {maxOff / edge} edges off the input");
                     } else
                         Assert.True(hd.UpperBound < 0.5 * edge, $"{name}: {hd.UpperBound} from the input");
                 }
@@ -463,6 +467,80 @@ namespace geometry3Sharp.Tests
             r.RemeshIteration();
             Assert.Equal(Vector3d.Zero, m.GetVertex(center));
             Assert.True(r.QueuedEdgeCount >= 6, $"{r.QueuedEdgeCount} edges queued");
+        }
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void FlatTriangle_NotFoldedOver(bool pro)
+        {
+            // a fan with its pinned rim and its centre exactly on the rim edge r0-r1 (a flat triangle); the target
+            // pulls the centre below that edge, which would turn the flat triangle over the other way than its
+            // neighbours: rejected (it may only move so that the triangle faces like the others, or stays flat)
+            var m = new DMesh3();
+            int center = m.AppendVertex(new Vector3d(0.5, 0, 0));
+            int[] rim = { m.AppendVertex(new Vector3d(0, 0, 0)), m.AppendVertex(new Vector3d(1, 0, 0)),
+                m.AppendVertex(new Vector3d(1, 1, 0)), m.AppendVertex(new Vector3d(0, 1, 0)) };
+            for (int k = 0; k < 4; ++k)
+                m.AppendTriangle(center, rim[k], rim[(k + 1) % 4]);
+            var target = new DMesh3();
+            int a = target.AppendVertex(new Vector3d(0.4, -0.6, 0)), b = target.AppendVertex(new Vector3d(0.6, -0.6, 0));
+            int c = target.AppendVertex(new Vector3d(0.5, -0.4, 0));
+            target.AppendTriangle(a, b, c);
+            Remesher r = pro ? new RemesherPro(m) : new Remesher(m);
+            r.MinTriangleQuality = 0.2;
+            r.EnableFlips = r.EnableCollapses = r.EnableSplits = r.EnableSmoothing = false;
+            MeshConstraintUtil.FixAllBoundaryEdges(r);
+            r.SetProjectionTarget(new MeshProjectionTarget(target));
+            if (pro) ((RemesherPro)r).RemeshIteration(); else r.BasicRemeshPass();
+            foreach (int tid in m.TriangleIndices())
+                Assert.True(Q(m, tid) < 1e-6 || m.GetTriNormal(tid).z > 0, $"triangle {tid} folded over, centre {m.GetVertex(center)}");
+        }
+
+        [Theory]
+        [InlineData(1)]
+        [InlineData(3)]
+        public void CurveEndOrJunction_NotSmoothed(int curveEdges)
+        {
+            // a vertex constrained to a curve target with one edge of that curve (an end) or three (a junction):
+            // it stays (with the surface smoothing it would move)
+            var m = new DMesh3();
+            int center = m.AppendVertex(new Vector3d(0.3, 0.1, 0));
+            int[] rim = Enumerable.Range(0, 6).Select(k => m.AppendVertex(new Vector3d(Math.Cos(k * Math.PI / 3), Math.Sin(k * Math.PI / 3), 0))).ToArray();
+            for (int k = 0; k < 6; ++k)
+                m.AppendTriangle(center, rim[k], rim[(k + 1) % 6]);
+            Func<double, Vector3d> after = (quality) => {
+                DMesh3 c = new DMesh3(m);
+                var r = new Remesher(c) { MinTriangleQuality = quality, SmoothSpeedT = 1, EnableFlips = false, EnableCollapses = false, EnableSplits = false };
+                MeshConstraintUtil.FixAllBoundaryEdges(r);
+                // the curve: the plane z = 0 as a target (any point stays where the smoothing puts it)
+                var plane = new MeshProjectionTarget(new DMesh3(c));
+                r.Constraints.SetOrUpdateVertexConstraint(center, new VertexConstraint(plane));
+                for (int k = 0; k < curveEdges; ++k)
+                    r.Constraints.SetOrUpdateEdgeConstraint(c.FindEdge(center, rim[2 * k]), new EdgeConstraint(EdgeRefineFlags.NoFlip, plane));
+                r.BasicRemeshPass();
+                return c.GetVertex(center);
+            };
+            Assert.NotEqual(m.GetVertex(center), after(0));
+            Assert.Equal(m.GetVertex(center), after(0.2));
+        }
+
+        [Fact]
+        public void RemesherPro_RejectedSmoothingMove_QueuesItsEdges()
+        {
+            // the fan of SmoothingMove_BelowTheQuality_Rejected with RemesherPro: the rejected smoothing move queues
+            // the edges of the centre
+            var m = new DMesh3();
+            int center = m.AppendVertex(new Vector3d(0.6, 0, 0));
+            int[] rim = { m.AppendVertex(new Vector3d(1, 0, 0)), m.AppendVertex(new Vector3d(0.6, 0.3, 0)),
+                m.AppendVertex(new Vector3d(-6, 0, 0)), m.AppendVertex(new Vector3d(0.6, -0.3, 0)) };
+            for (int k = 0; k < 4; ++k)
+                m.AppendTriangle(center, rim[k], rim[(k + 1) % 4]);
+            var r = new RemesherPro(m) { MinTriangleQuality = 0.2, SmoothSpeedT = 1, EnableFlips = false, EnableCollapses = false, EnableSplits = false };
+            MeshConstraintUtil.FixAllBoundaryEdges(r);
+            r.RemeshIteration();
+            Assert.Equal(new Vector3d(0.6, 0, 0), m.GetVertex(center));
+            Assert.True(r.QueuedEdgeCount >= 4, $"{r.QueuedEdgeCount} edges queued");
         }
 
         [Fact]

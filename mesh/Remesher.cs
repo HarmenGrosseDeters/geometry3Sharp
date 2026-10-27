@@ -69,7 +69,7 @@ namespace g3 {
         ///    a third one on it) is rejected. Other collapses are not restricted: blocking poor but not flat results
         ///    (eg with MinCollapseTriangleQuality) keeps short edges that the splits around them multiply.
         /// Not guarded: the projection of a new vertex after a split. Together, on 20 Thingi10K meshes remeshed with
-        /// creases kept, 28% of the poor (q &lt; 0.1) and 13% of the flat (q &lt; 1e-3) triangles and 17% of the
+        /// creases kept, 28% of the poor (q &lt; 0.1) and 13% of the flat (q &lt; 1e-3) triangles and 16% of the
         /// self-intersecting pairs remain (benchmarks/RemeshQualityBenchmark). RemesherPro queues the edges of a
         /// vertex whose move was rejected.
         /// </summary>
@@ -682,6 +682,8 @@ namespace g3 {
         protected bool move_degrades(int vID, Vector3d newPos, bool flipsOnly = false)
         {
             double qOld = double.MaxValue, qNew = double.MaxValue;
+            Vector3d ring = Vector3d.Zero;      // the summed normals of the triangles that are not flat
+            bool anyFlat = false;
             foreach (int tid in mesh.VtxTrianglesItr(vID)) {
                 Index3i t = mesh.GetTriangle(tid);
                 Vector3d a = mesh.GetVertex(t.a), b = mesh.GetVertex(t.b), c = mesh.GetVertex(t.c);
@@ -690,12 +692,36 @@ namespace g3 {
                 qOld = Math.Min(qOld, q0);
                 if (t.a == vID) a = newPos; else if (t.b == vID) b = newPos; else c = newPos;
                 Vector3d n1 = (b - a).Cross(c - a);
-                // (a flat triangle has no orientation to keep: the move may be the one that repairs it)
-                if (q0 >= DegenerateFlipQuality && !(n0.Dot(n1) > 0))
-                    return true;
+                if (q0 >= DegenerateFlipQuality) {
+                    if (!(n0.Dot(n1) > 0))
+                        return true;
+                    ring += n0;
+                } else
+                    anyFlat = true;
                 qNew = Math.Min(qNew, TriangleQuality(ref a, ref b, ref c));
             }
+            // a flat triangle has no orientation to keep (the move may be the one that repairs it), but if it does not
+            // stay flat it must face the way its neighbours around vID did, not fold over
+            if (anyFlat && folds_flat_triangle(vID, newPos, ref ring))
+                return true;
             return flipsOnly == false && qNew < MinTriangleQuality && qNew < qOld;
+        }
+
+        // moving vID to newPos turns one of its flat triangles into one facing against ring
+        bool folds_flat_triangle(int vID, Vector3d newPos, ref Vector3d ring)
+        {
+            foreach (int tid in mesh.VtxTrianglesItr(vID)) {
+                Index3i t = mesh.GetTriangle(tid);
+                Vector3d a = mesh.GetVertex(t.a), b = mesh.GetVertex(t.b), c = mesh.GetVertex(t.c);
+                if (TriangleQuality(ref a, ref b, ref c) >= DegenerateFlipQuality)
+                    continue;
+                if (t.a == vID) a = newPos; else if (t.b == vID) b = newPos; else c = newPos;
+                if (TriangleQuality(ref a, ref b, ref c) < DegenerateFlipQuality)
+                    continue;       // still flat: not worse
+                if (!((b - a).Cross(c - a).Dot(ring) > 0))
+                    return true;
+            }
+            return false;
         }
 
         /// <summary>
@@ -826,10 +852,22 @@ namespace g3 {
                     if (!(vModifiedV[t.a] || vModifiedV[t.b] || vModifiedV[t.c]))
                         continue;
                     Vector3d a = mesh.GetVertex(t.a), b = mesh.GetVertex(t.b), c = mesh.GetVertex(t.c);
-                    if (TriangleQuality(ref a, ref b, ref c) < DegenerateFlipQuality)
-                        continue;
-                    Vector3d n0 = (b - a).Cross(c - a);
                     Vector3d na = vModifiedV[t.a] ? vBufferV[t.a] : a, nb = vModifiedV[t.b] ? vBufferV[t.b] : b, nc = vModifiedV[t.c] ? vBufferV[t.c] : c;
+                    Vector3d n0 = (b - a).Cross(c - a);
+                    if (TriangleQuality(ref a, ref b, ref c) < DegenerateFlipQuality) {
+                        // flat before: if it does not stay flat, it must face the way its (not flat) neighbours did
+                        if (TriangleQuality(ref na, ref nb, ref nc) < DegenerateFlipQuality)
+                            continue;
+                        n0 = Vector3d.Zero;
+                        Index3i nbrs = mesh.GetTriNeighbourTris(tid);
+                        for (int k = 0; k < 3; ++k) {
+                            if (nbrs[k] == DMesh3.InvalidID) continue;
+                            Vector3d p = Vector3d.Zero, q = Vector3d.Zero, r = Vector3d.Zero;
+                            mesh.GetTriVertices(nbrs[k], ref p, ref q, ref r);
+                            if (TriangleQuality(ref p, ref q, ref r) >= DegenerateFlipQuality)
+                                n0 += (q - p).Cross(r - p);
+                        }
+                    }
                     if ((nb - na).Cross(nc - na).Dot(n0) > 0)
                         continue;
                     foreach (int v in new[] { t.a, t.b, t.c })

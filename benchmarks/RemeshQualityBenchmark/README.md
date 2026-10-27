@@ -29,14 +29,15 @@ and the list of cases that get worse. No mesh files are committed.
 
 | group | cases | q<0.1 off / on | q<1e-3 off / on | cases with q<1e-3 off / on | self-intersecting pairs off / on | cases with self-int. off / on | mean hausdorff/target off / on | time s off / on | worse: more pairs / more q<1e-3 / hausdorff |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---|
-| primitives | 150 | 50 / 7 | 38 / 0 | 22 / 0 | 461 / 285 | 35 / 16 | 0.333 / 0.344 | 4.3 / 6.5 | 10 / 0 / 14 |
-| gears | 18 | 1229 / 438 | 602 / 0 | 10 / 0 | 7697 / 0 | 17 / 0 | 0.161 / 0.010 | 0.3 / 0.4 | 0 / 0 / 0 |
-| thingi | 20 | 5763 / 1642 | 1541 / 205 | 17 / 11 | 19910 / 3331 | 19 / 17 | 1.115 / 1.012 | 7.8 / 12.6 | 0 / 0 / 5 |
+| primitives | 150 | 50 / 7 | 38 / 0 | 22 / 0 | 461 / 285 | 35 / 16 | 0.333 / 0.344 | 4.0 / 6.1 | 10 / 0 / 14 |
+| gears | 18 | 1229 / 438 | 602 / 0 | 10 / 0 | 7697 / 0 | 17 / 0 | 0.161 / 0.010 | 0.3 / 0.3 | 0 / 0 / 0 |
+| thingi | 20 | 5763 / 1638 | 1541 / 205 | 17 / 11 | 19910 / 3158 | 19 / 17 | 1.115 / 1.017 | 7.1 / 11.3 | 0 / 0 / 5 |
 
 "worse" counts the cases with more self-intersecting pairs, with more q < 1e-3 triangles, or with a Hausdorff
 distance more than 0.02 target larger (the two measurement tolerances) than without the option. Without the
 self-intersection check, `MeshRobustRepair.NotCleanReason` finds 17 of the 20 Thingi10K results not clean without the
-option (degenerate triangles), 1 with it (its test, area below 1e-12 diagonal^2, is far weaker than q < 1e-3).
+option (degenerate triangles), 1 with it (135363: an inside-out component, and 132 of its 492 triangles below
+q = 1e-3; the degenerate test of `NotCleanReason`, area below 1e-12 diagonal^2, is far weaker than q < 1e-3).
 
 ### Cases that get worse
 - **More self-intersecting pairs (10 primitives, none of the gears or Thingi meshes):** taper10_x0.15 (12 -> 16),
@@ -54,7 +55,7 @@ option (degenerate triangles), 1 with it (its test, area below 1e-12 diagonal^2,
 - **Hausdorff distance, other primitives (3):** cylinder16_x0.15 0.121 -> 0.162, taper16_x0.6 0.178 -> 0.235,
   taper32_x0.6 0.131 -> 0.221 target.
 - **Hausdorff distance, Thingi10K (5 of 20):** 237642 +0.02, 242225 +0.04, 299291 +0.14, 63709 +0.17, 1053376 +0.30
-  target edge lengths; the mean improves from 1.115 to 1.012. Not analysed per mesh: the option rejects some smoothing
+  target edge lengths; the mean improves from 1.115 to 1.017. Not analysed per mesh: the option rejects some smoothing
   moves, collapses and flips, so the vertices end in other places; these meshes also lose most of their flat triangles
   and self-intersections (eg 1053376: 292 -> 66 pairs, 48 -> 9 flat; 63709: 1366 -> 876 pairs, 12 -> 1 flat).
 
