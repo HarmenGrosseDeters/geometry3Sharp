@@ -71,6 +71,9 @@ oracle.
     conservative interval evaluation of tan (a later item, with a derived error bound, tested against a
     high-precision reference on net48 and net10).
 - **Arc length** along the toe (for interpolation) is measured in XY.
+- **Meaning of the input slope** (decided, 2.5): the maximum admissible **local** slope of the generated surface,
+  checked for every output triangle. It is not an overall or inter-ramp angle; those are checked separately and
+  later (section 10). Which slope is entered in a given planning task is decided by the application.
 - **Slope of a triangle**: with n = (b−a)×(c−a), ‖∇z‖ = sqrt(nx² + ny²) / |nz|. It is independent of the
   direction, and the fall line has exactly this slope. The angle is measured against the horizontal plane, so the
   reference is the vertical axis. This is why only rotations **about z** are admissible similarities for this
@@ -219,6 +222,11 @@ The answers to the open questions of the first version, worked into the sections
 | Q6 | angle convention | ratio 1:n is the reference input convention; internally s = rise / run. All three converters (1:n, percent, angle), with the origin of the input kept for the check. For angles, phase 1 guarantees against the double s used, a guarantee against the angle needs a proven interval evaluation. For 1:n the exact check s·n ≤ 1 is straightforward | 1 |
 | Q7 | berms and ramps | berms first by absolute target heights (bench / floor levels as the primary input, relative heights as an optional convenience); berm width constant per section first, variable widths later with a clear transition rule; inclined toe sections allowed. Ramps are separate design geometry: a ramp needs width, grade and connection geometry, which do not follow from an inclined toe. The core already offers "build the slope up to a target height and return the line there" | 10, 6 |
 | Q8 | output | all three, separately retrievable: slope surface, catch lines, composite terrain. The catch line alone is an important result, so building the full composite terrain must not be mandatory. Besides the triangle groups, a separate mapping to the original toe edge and its parameter interval, because internal piece ids change with subdivision. The slope guarantee applies to newly generated slope triangles, not to unchanged terrain in the composite | 5.5, 6 |
+
+| Q9 | per triangle or overall / inter-ramp angle | per triangle for the constructed slope faces; the overall slope additionally and separately. These are different requirements: **bench face**: every generated triangle stays within the admissible face slope; **berms**: their own check of height, horizontal position and minimum width; **inter-ramp / overall slope**: an additional check across several benches and berms along defined profiles or measuring directions. An inter-ramp angle must not be used as the limit of every bench triangle, since bench faces may be steeper when berms reduce the overall slope. Phase 1: the input slope is the maximum admissible local slope of the generated surface, checked for every output triangle. An overall / inter-ramp check is a later, separate function. Which slope is entered in a given planning task is for the application to decide | 1, 10 |
+| Q10 | export precision | no fixed number of decimals is assumed. The guarantee must include the state actually stored. Two cases: in-memory doubles or a text format with round-trip formatting (checked coordinates kept unchanged); quantized output (eg a mm grid): quantize to the output grid before the final check, then check slope, degeneracies and topology again. A larger minimum feature size alone guarantees nothing, since rounding can change the slope of larger triangles too. Flow: construct → map to the output precision → repair or reject → final check → store → read back and check in an integration test. Rounding later by an external exporter is outside the guarantee, and the documentation says so | 5.4 |
+| Q11 | conservative rejection of influence through the design area | acceptable for phase 1, and better than an unnoticed wrong result, provided: a status of its own that is easy to understand; the causing toe edges and the affected areas named; no automatic change of toe heights or slopes; no silent fallback to another attribution rule; partial results only explicitly marked as incomplete / not released. The message distinguishes "this design is not supported by the restricted phase 1 method" from "this design is geometrically impossible". `CrossDesignInfluence` must not be read as a proof of impossibility; that is what the later exterior mode is for | 5.2, 6 |
+| Q12 | horizontal uncertainty of the catch line | set by the caller in the library. 10 cm is a sensible configurable warning threshold to start with in an application, not a library default and not a proven accuracy requirement. There is no fixed relation like "1 cm vertical means 1 cm horizontal": locally δ_xy ≈ ε_D / \|∇(S − T)\|, with ε_D the vertical uncertainty of the height difference, so nearly parallel surfaces give a large horizontal uncertainty. Distinguish: warning threshold exceeded → result with the affected catch-line sections and their uncertainty; a binding horizontal accuracy required → refine, and fail explicitly if it cannot be reached; tangential or planar contact → marked separately, since there may be no unique catch line. Documented whether the number is a local estimate or a proven bound. Exact signs alone do not secure the exact position of the intersection, and survey errors of the terrain are not included without additional input data | 5.5, 6 |
 
 Two corrections of the first version came with the answers and are worked in:
 - "The fall line runs straight to the governing toe point" is not guaranteed for the lower envelope (2.2).
@@ -479,11 +487,22 @@ terminates.
 ids. It never returns a violating result. `MaxSlopeRatio` is an upper bound (rounded up) of ‖∇‖ / s_k over the
 slope triangles, < 1 on success; the exact pass/fail per triangle is what counts.
 
-**Export.** The guarantee holds for the doubles in memory. Writers must be round-trip exact: `OBJWriter` writes
-with `"{0}"`, which on net48 gives 15 significant digits (about 5e-9 m at UTM, more than an ulp), so it needs
-`"R"` / `"G17"` and a test. Binary STL (float32, about 0.25 m at UTM) cannot carry the guarantee. Exchange formats
-with fixed decimals (often 3 in mining: 1 mm on a 5 mm feature is up to 20 % slope error) need an `OutputGrid`
-option: snap to the grid first, derive δ and `MinFeatureSize` from the grid, then verify.
+**Export** (decided, 2.5). No fixed number of decimals is assumed; the guarantee covers the state that is actually
+stored. Two output contracts:
+
+- **Doubles in memory, or a text format with round trip:** the checked coordinates are kept unchanged and written
+  with round-trip formatting. `OBJWriter` writes with `"{0}"`, which on net48 gives 15 significant digits (about
+  5e-9 m at UTM, more than an ulp), so it needs `"R"` / `"G17"` and a test. Binary STL (float32, about 0.25 m at
+  UTM) cannot carry the guarantee.
+- **Quantized output** (eg a mm grid, `OutputGrid`): the coordinates are quantized to the output grid **before**
+  the final check, then slope, degeneracies and topology are checked again. A larger `MinFeatureSize` alone
+  guarantees nothing: rounding to a grid can change the slope of larger triangles too (a 1 mm shift on a 1 m
+  triangle changes its slope by up to about 0.4 %, which is far above the margin). So the margin and the repair
+  run against the grid, and what does not pass is repaired or rejected.
+
+Flow: construct → map to the output precision → repair or reject → final check → store → read back and check (an
+integration test per format). Rounding afterwards by an external exporter is **outside the guarantee**; the class
+documentation says so.
 
 ### 5.5 Overlay with the terrain, catch line, final surface
 
@@ -518,12 +537,24 @@ option: snap to the grid first, derive δ and `MinFeatureSize` from the grid, th
   identities into polylines. These are simple, closed or ending at the footprint boundary, by construction. **No
   chaining tolerance.** Grazing intersections give correct topology (possibly many small loops where the surfaces
   nearly coincide, which is the real geometry); only the positions are rounded.
-- **Horizontal accuracy of the catch line.** A vertical tolerance does not bound where the catch line lies in plan.
-  Where the slope cuts the terrain nearly tangentially, a height error ε moves the line horizontally by about
-  ε / |∇D| (D = slope minus terrain). Every catch-line segment therefore gets |∇D| and the resulting horizontal
-  uncertainty for `Tolerance`. Segments whose uncertainty exceeds a caller-set limit are **reported as
-  ill-conditioned** (`IllConditionedCatchLine`, with toe ranges). This is part of the result, not an optional
-  extra.
+- **Horizontal accuracy of the catch line** (decided, 2.5). A vertical tolerance does not bound where the catch
+  line lies in plan. Locally δ_xy ≈ ε_D / |∇(S − T)|, with ε_D the vertical uncertainty of the height difference;
+  nearly parallel surfaces make the denominator small and the horizontal uncertainty large.
+  - **ε_D** = `Tolerance` (the conservative approximation) plus the terrain's vertical uncertainty
+    (`TerrainVerticalUncertainty`, a caller input, default 0). Survey errors of the terrain are not included
+    unless they are given. Exact signs decide the topology of the catch line, not its exact position.
+  - Every catch-line segment carries |∇D| and δ_xy. In phase 1, δ_xy is a **local linearized estimate**,
+    documented as such; a proven bound would need the minimum of |∇D| over the neighbourhood and is a later
+    item.
+  - **Warning threshold exceeded** (`CatchLineWarningThreshold`, set by the caller; 10 cm is a sensible start in
+    an application, not a library default): the result is returned, with the affected catch-line sections and
+    their uncertainty (`IllConditionedCatchLine`).
+  - **Binding horizontal accuracy required** (`RequiredCatchLineAccuracy`): refine (a smaller `Tolerance` in the
+    affected pieces) until δ_xy meets it; if that is not reachable (eg because of `TerrainVerticalUncertainty`),
+    fail explicitly.
+  - **Tangential or planar contact** (D = 0 over an edge or a face, or |∇D| = 0): marked separately
+    (`TangentialContact`), since a unique catch line may not exist there. The SoS rule still gives a consistent
+    topology, but it is a convention, not a measurement.
 - **Realizing the clipped slope triangles** (so that the KO check of 5.4 passes):
   - catch-line vertices get their XY rounded to the final coordinates, and z from the plane of the *stored* S̃
     triangle (the plane through its three doubles), evaluated at that XY;
@@ -566,6 +597,24 @@ option: snap to the grid first, derive δ and `MinFeatureSize` from the grid, th
 | **s = 0 or very small** (berms, flat fills) | s must be > 0 for the cone model. Horizontal pieces are berms (section 10). Small s gives large D_max and needs a larger δ (5.4) |
 | **Toe validation** | rejected with `InvalidInput` and the location: duplicate consecutive vertices, zero-length or vertical segments (in XY), a toe that self-intersects or pinches in XY (exact), a `Toe` that is not on the `Design` boundary when both are given, NaN or infinite coordinates or slopes. Missing `Side` or slopes that do not match the segments are rejected too. A toe that does not lie on the terrain is fine: that is the normal cut or fill case |
 | **Not a height field** (overhangs, overlapping TINs) | rejected with `TerrainVolumeDifference.XYOverlaps` (exact), as `RequireHeightField` does today |
+
+**What a failure means** (decided, 2.5). Every non-success status says which kind of failure it is
+(`StatusKind`), so that "not supported by the restricted phase 1 method" is never mistaken for "geometrically
+impossible":
+
+| kind | statuses | meaning |
+|---|---|---|
+| `UnsupportedByMethod` | `CrossDesignInfluence`; `ToeUndercut` / `ToeOvertopped` when the causing cone reaches the toe through the design area; `NotImplemented` | the phase 1 method (Euclidean cone envelope) cannot handle this design. It is not a proof that the design is impossible; the later exterior mode is meant for these cases |
+| `GeometricallyInfeasible` | `ToeSteeperThanSlope`; `ToeUndercut` / `ToeOvertopped` when the causing path runs outside the design area | no surface satisfies the specification, in any mode |
+| `NotCertified` | `SlopeViolation`, `CatchLineAccuracyNotReached` | the computation could not certify its own result |
+| (not a failure) | `NoDaylight` | the slope does not reach the terrain within its footprint; the result is partial |
+
+Rules for every failure, in particular the conservative rejections:
+- the causing toe edges and the affected areas are named (`ToeProblems`, `CrossDesignToeRanges`);
+- toe heights and slopes are never changed automatically;
+- there is no silent fallback to another attribution rule or mode;
+- partial results are only returned explicitly marked as incomplete (`IsComplete = false`), never as a released
+  result.
 
 ### 5.7 Volumes
 
@@ -651,7 +700,11 @@ namespace gs
         public enum Modes { ConeEnvelope /* R1, phase 1 */, SectorPolygons /* later */, ExteriorDistance /* later */ }
         public enum Statuses { Success, InvalidInput, NotHeightField, NotImplemented /* modes not yet available */,
                                ToeSteeperThanSlope, ToeUndercut, ToeOvertopped, CrossDesignInfluence,
-                               NoDaylight, SlopeViolation, Cancelled }
+                               NoDaylight, CatchLineAccuracyNotReached, SlopeViolation, Cancelled }
+        /// what a failure means (section 5.6): the method cannot handle the design, the design is impossible as
+        /// specified, or the computation could not certify its own result
+        public enum StatusKinds { Success, InvalidInput, UnsupportedByMethod, GeometricallyInfeasible,
+                                  NotCertified, Cancelled }
 
         // inputs
         public DMesh3 Terrain;                 // TIN, height field
@@ -660,16 +713,21 @@ namespace gs
         public Directions Direction = Directions.Auto;
         public Modes Mode = Modes.ConeEnvelope;
         public double Tolerance = double.NaN;  // required: max vertical deviation from the exact R1 surface (data units)
-        public double CatchLineUncertaintyLimit = double.PositiveInfinity;  // horizontal; above it a segment is ill-conditioned
+        public double TerrainVerticalUncertainty = 0;               // part of ε_D (5.5); survey errors are not known otherwise
+        public double CatchLineWarningThreshold = double.NaN;       // required: horizontal; above it a section is reported
+        public double RequiredCatchLineAccuracy = double.PositiveInfinity;  // binding: refine, else fail
         public double SlopeMargin = 1e-6;      // start value of δ; raised automatically if the check needs it (5.4)
         public double OutputGrid = 0;          // > 0: coordinates snapped to this grid before the check (export, 5.4)
         public List<double> TargetHeights;     // optional: build up to these heights and return the lines there (berms)
+        // the input slope is the maximum admissible local slope; inter-ramp / overall checks are a separate later function
         public bool BuildComposite = false;    // the composite terrain is optional
         public bool ComputeVolumes = false;    // from the same overlay
         public Func<bool> CancelF = () => false;
 
         // outputs, each retrievable without the others
         public Statuses Status;
+        public StatusKinds StatusKind;
+        public bool IsComplete;                // false: partial results only, marked as incomplete / not released
         public DMesh3 SlopeSurface;            // new slope triangles only; group id = index into Pieces
         public List<SlopePiece> Pieces;        // group id -> (toe index, segment index, parameter interval, s_k, cut / fill)
         public List<CatchLine> CatchLines;     // 3D polyline, Closed, end reasons (FootprintBoundary, Hole, LateralLimit),
@@ -679,7 +737,8 @@ namespace gs
         public List<List<Vector3d>> SideLines; // where the slope ends at a lateral limit
         public double CutVolume, FillVolume, CutArea, FillArea;   // if ComputeVolumes
         // diagnostics
-        public List<ToeRange> NoDaylightToeRanges, ToeProblems, IllConditionedCatchLine, CrossDesignToeRanges;
+        public List<ToeRange> NoDaylightToeRanges, ToeProblems, IllConditionedCatchLine, TangentialContact,
+                              CrossDesignToeRanges;
         public List<int> ProblemTriangles;     // failing triangles if Status == SlopeViolation
         public double MaxSlopeRatio;           // upper bound of |grad| / s_k over the slope triangles, < 1 on Success
         public double UsedSlopeMargin;         // the δ in the end
@@ -765,7 +824,10 @@ valleys), grids triangulated in both diagonal directions, and random perturbatio
 | no `Tolerance` given | `InvalidInput` (no hidden default) |
 | near-tangential catch line | reported as ill-conditioned with its horizontal uncertainty |
 | catch lines only (`BuildComposite = false`, `ComputeVolumes = false`) | the catch lines are complete without building the composite terrain |
-| export: OBJ round trip at UTM; `OutputGrid` = 1 mm | O1 still passes on the re-read mesh |
+| export: OBJ round trip at UTM; `OutputGrid` = 1 mm | O1 still passes on the re-read mesh; with the grid, a larger triangle that the rounding would tip over is repaired or rejected before storing (not only slivers) |
+| failure kinds | `CrossDesignInfluence` reports `UnsupportedByMethod`, `ToeSteeperThanSlope` reports `GeometricallyInfeasible`; toe heights and slopes unchanged; partial results have `IsComplete = false` |
+| catch-line accuracy: warning threshold exceeded; a binding accuracy that refinement reaches; one it cannot reach (large `TerrainVerticalUncertainty`); planar contact | sections reported with δ_xy; refined result; `CatchLineAccuracyNotReached`; `TangentialContact` marked |
+| missing `CatchLineWarningThreshold` | `InvalidInput` |
 | cancel during each stage | `Cancelled`, no partial result presented as complete |
 
 **Required by CLAUDE.md:**
@@ -903,13 +965,18 @@ L_k) with a horizontal berm of width w. The overall (inter-ramp) slope is H / (H
   "berms are just a loop around phase 1", though. With variable widths, inclined toes and topology changes (a berm
   closing off, a level line splitting into several loops), the minimum berm width has to be **proven separately**
   for each step, by the oracle below, and not assumed from the construction.
-- **New guarantees for berms:**
-  - faces never steeper than s_f (O1 per face triangle);
+- **New guarantees for berms** (three separate checks, decided in 2.5):
+  - faces never steeper than s_f (O1 per face triangle). The face slope is the local limit; an inter-ramp angle is
+    **not** used as the limit of every face triangle, because the berms reduce the overall slope and the faces may
+    be steeper than it;
   - berms horizontal (z exactly L_k, an exact check);
   - **berm width never less than w**: this holds by the definition of the offset (every point of toe k+1 is at
     distance w from crest k), as long as the polyhedral approximation of the offset is conservative, ie the
     tangent planes keep it at distance ≥ w. Oracle: the exact minimum distance between the two polylines, as
     `TerrainSafetyLines` computes `MinLineDistance`.
+  - **inter-ramp / overall slope** as an additional, separate check across several benches and berms, along
+    defined profiles or measuring directions given by the caller. A later function of its own, not part of the
+    per-triangle check.
 - **Open points:**
   - how per-vertex slopes and widths pass from toe k to toe k+1: each vertex of toe k+1 takes the values of the
     piece of toe k that supports it (the attribution of 5.4);
@@ -942,18 +1009,8 @@ the line there (`TargetHeights`, `TargetHeightLines`).
 
 ## 12. Open questions for the user
 
-Q1–Q8 of the first version are answered (2.5). Still open:
-
-- **Q9: what is checked in practice.** A per-triangle "never steeper" is stricter than common mining practice,
-  which measures the overall or inter-ramp angle from toe to crest (and the face angle per bench). Is per triangle
-  what is meant, possibly with the inter-ramp angle as an additional check once berms exist?
-- **Q10: export.** Which formats and how many decimals are the results written to? With 3 decimals, the guarantee
-  needs `OutputGrid` = 1 mm and a correspondingly larger minimum feature size (5.4).
-- **Q11: rejections in phase 1.** The check for influence through the design area (5.2) is conservative: it may
-  reject a case that would be fine. Is it acceptable for phase 1 that such cases end in `CrossDesignInfluence`, with
-  the causing edges named, until the exterior distance exists?
-- **Q12: horizontal accuracy.** Which horizontal uncertainty of the catch line should count as ill-conditioned by
-  default? Or should the caller always set it, like `Tolerance`?
+All questions of the review rounds are answered (2.5: Q1–Q12). New questions will be added here as the
+implementation raises them.
 
 ## Appendix A: derivations
 
