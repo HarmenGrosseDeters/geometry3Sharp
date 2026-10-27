@@ -486,11 +486,16 @@ class Program
         r["iou_extra"] = extra;
         r["fidelity_ms"] = sw.ElapsedMilliseconds;
         // further measures (MeshFidelityMetrics; fm_* fields, not part of the "repaired" criterion), against the
-        // input with inside-out closed components reversed (as VolumeIoU sees it); BENCH_FIDELITY=0 skips them
+        // input with inside-out closed components reversed (as VolumeIoU sees it), and reversed as a whole if its
+        // signed volume is negative; BENCH_FIDELITY=0 skips them
         if (Environment.GetEnvironmentVariable("BENCH_FIDELITY") != "0") {
             DMesh3 oriented = new DMesh3(input);
             foreach (int[] comp in MeshPostRepairCleanup.FindInvertedComponents(oriented))
                 foreach (int tid in comp) oriented.ReverseTriOrientation(tid);
+            // an open input that is inside-out as a whole (negative signed volume; FindInvertedComponents judges
+            // closed components only): the reversed share would only report that the result is outward
+            if (Vol(oriented) < 0)
+                foreach (int tid in oriented.TriangleIndices().ToArray()) oriented.ReverseTriOrientation(tid);
             FidelityFields.Add(oriented, result, r);
         }
     }

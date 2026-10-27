@@ -17,7 +17,8 @@ namespace gs
     ///     point on the other surface (mean, and as a mean angle), in both directions; separately the share of
     ///     samples within the largest tau whose normals point the other way (cos &lt; 0): inverted patches;
     ///   - Edge Chamfer distance (as in Chen et al., "Neural Dual Contouring", SIGGRAPH 2022): Chamfer distance
-    ///     between the sharp edges (dihedral angle above SharpEdgeAngle) of both meshes, and the edge
+    ///     between the sharp edges (dihedral angle above SharpEdgeAngle, not at slivers narrower than
+    ///     SharpEdgeMinHeight) of both meshes, and the edge
     ///     precision / recall at the thresholds: feature preservation;
     ///   - the same against the outer surface of the reference only (OuterSurface), so interior faces that a
     ///     repair to a solid drops on purpose do not count as lost;
@@ -61,6 +62,13 @@ namespace gs
         public double[] RelativeThresholds = { 0.001, 0.005, 0.01 };
         /// <summary> an edge is sharp if the angle between the normals of its triangles exceeds this (degrees) </summary>
         public double SharpEdgeAngle = 30;
+        /// <summary>
+        /// edges at triangles whose height (twice the area over the longest edge) is at most this, relative to Size,
+        /// are not sharp: the normal of such a sliver comes from the rounding of its corners (eg float STL
+        /// coordinates), not from a feature, and a crease that narrow is far below the thresholds. On Thingi10K
+        /// inputs every lost "sharp edge" of the repairs that kept the triangles was at a triangle below 1e-5.
+        /// </summary>
+        public double SharpEdgeMinHeight = 1e-5;
         /// <summary>
         /// also measure against the outer surface of the reference only (OuterRecall, OuterFScore, Outer*): the
         /// reference samples where the generalized winding number w of the reference (tested at OuterOffset * Size
@@ -204,8 +212,8 @@ namespace gs
             NormalConsistency = 0.5 * (NormalsMeshToReference.MeanAbsCos + NormalsReferenceToMesh.MeanAbsCos);
 
             // sharp edges
-            List<Vector3d> refEdges = SharpEdges(reference, SharpEdgeAngle, degenerateArea);
-            List<Vector3d> meshEdges = SharpEdges(mesh, SharpEdgeAngle, degenerateArea);
+            List<Vector3d> refEdges = SharpEdges(reference, SharpEdgeAngle, SharpEdgeMinHeight * size);
+            List<Vector3d> meshEdges = SharpEdges(mesh, SharpEdgeAngle, SharpEdgeMinHeight * size);
             SharpEdgeLengthReference = total_length(refEdges) / size;
             SharpEdgeLengthMesh = total_length(meshEdges) / size;
             double[] fromMesh = edge_distances(meshEdges, refEdges, rnd);
@@ -489,10 +497,11 @@ namespace gs
         /// of their endpoints, so triangle soups (unwelded STL) give the same edges as welded meshes. An edge is
         /// sharp if the angle between the normals of its two triangles exceeds angleDeg, with the normals oriented
         /// consistently across the edge (an orientation flip at the edge is not a crease), or if more than two
-        /// triangles share it (non-manifold). Boundary edges and edges at degenerate triangles (area at most
-        /// degenerateArea, no reliable normal) are not sharp. In the order of first appearance (triangle order).
+        /// triangles share it (non-manifold). Boundary edges and edges at triangles of height at most minHeight
+        /// (twice the area over the longest edge; no reliable normal) are not sharp. In the order of first
+        /// appearance (triangle order).
         /// </summary>
-        internal static List<Vector3d> SharpEdges(DMesh3 mesh, double angleDeg, double degenerateArea)
+        internal static List<Vector3d> SharpEdges(DMesh3 mesh, double angleDeg, double minHeight)
         {
             double cosMax = Math.Cos(angleDeg * MathUtil.Deg2Rad);
             var index = new Dictionary<(Vector3d, Vector3d), int>();
@@ -504,8 +513,9 @@ namespace gs
                     v[j] = mesh.GetVertex(t[j]) + Vector3d.Zero;    // -0 to +0, for the hash
                 double area;
                 Vector3d n = MeshAnalysisNormals.TriNormal(mesh, tid, out area);
-                if (!(area > degenerateArea))
-                    n = Vector3d.Zero;
+                double lmax = Math.Max(v[0].Distance(v[1]), Math.Max(v[1].Distance(v[2]), v[2].Distance(v[0])));
+                if (!(2 * area > minHeight * lmax))
+                    n = Vector3d.Zero;      // narrower than minHeight: its normal is rounding noise
                 for (int j = 0; j < 3; ++j) {
                     Vector3d p = v[j], q = v[(j + 1) % 3];
                     int cmp = p.CompareTo(q);

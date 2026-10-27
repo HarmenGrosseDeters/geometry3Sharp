@@ -296,6 +296,23 @@ namespace geometry3Sharp.Tests
             Assert.Equal(Length(bevel), Length(MeshFidelityMetrics.SharpEdges(flippedFace, 30, degenerate)), 12);
         }
 
+        [Fact]
+        public void SharpEdges_NotAtSlivers()
+        {
+            // a flat triangle and a needle hinged on its edge, tilted by 45 degrees: sharp, unless the needle is
+            // narrower than the minimum height (its normal then comes from rounding, not from a feature)
+            foreach (double h in new[] { 1e-2, 1e-7 }) {
+                var m = new DMesh3();
+                int a = m.AppendVertex(new Vector3d(0, 0, 0)), b = m.AppendVertex(new Vector3d(1, 0, 0));
+                int c = m.AppendVertex(new Vector3d(0.5, -1, 0));
+                int d = m.AppendVertex(new Vector3d(0.5, h * Math.Sqrt(0.5), h * Math.Sqrt(0.5)));
+                m.AppendTriangle(a, b, c);
+                m.AppendTriangle(b, a, d);
+                List<Vector3d> e = MeshFidelityMetrics.SharpEdges(m, 30, 1e-5);
+                Assert.Equal(h > 1e-5 ? 2 : 0, e.Count);
+            }
+        }
+
         static double Length(List<Vector3d> e)
         {
             double s = 0;
