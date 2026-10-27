@@ -43,7 +43,8 @@ namespace g3
         bool HavePostFixedConstraints = false;
 
 
-        // positions are solved relative to this point (the bounds center at Initialize): the CG tolerance is relative to
+        // positions are solved relative to this point (the bounds center at Initialize(); a mesh moved far away afterwards
+        // needs Initialize() again for this accuracy): the CG tolerance is relative to
         // the right-hand side, which grew with the distance from the coordinate origin (upstream lost about 1e-8 of the
         // UTM coordinates, ie centimetres, docs/ROBUSTNESS_SWEEP.md R2)
         Vector3d origin = Vector3d.Zero;
@@ -121,7 +122,13 @@ namespace g3
             nbr_counts = new int[N];
             SymmetricSparseMatrix M = new SymmetricSparseMatrix();
 
-            origin = Mesh.CachedBounds.Center;
+            // (the bounds of the vertices with edges: an unused far vertex must not move the origin away from the
+            // geometry; a non-finite center falls back to the upstream absolute coordinates)
+            AxisAlignedBox3d used = AxisAlignedBox3d.Empty;
+            foreach (int vid in Mesh.VertexIndices())
+                if (Mesh.GetVtxEdgeCount(vid) > 0)
+                    used.Contain(Mesh.GetVertex(vid));
+            origin = (used.Max.x >= used.Min.x) ? used.Center : Vector3d.Zero;
             if (origin.IsFinite == false)
                 origin = Vector3d.Zero;
             for (int i = 0; i < N; ++i) {
