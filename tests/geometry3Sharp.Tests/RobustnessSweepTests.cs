@@ -201,9 +201,10 @@ namespace geometry3Sharp.Tests
                 Run = (m, s, p) => {
                     var sdf = new MeshSignedDistanceGrid(m, p) { ExactBandWidth = 2 };
                     sdf.Compute();
-                    AxisAlignedBox3d b = m.CachedBounds; b.Expand(2 * p);
-                    // (serial: the parallel version appends the triangles in thread order, S31)
-                    var mc = new MarchingCubes() { Implicit = new DenseGridTrilinearImplicit(sdf.Grid, sdf.GridOrigin, sdf.CellSize), IsoValue = 0, Bounds = b, CubeSize = p, ParallelCompute = false };
+                    // (cubes on the grid samples, as in the documented usage; serial: the parallel version appends the
+                    // triangles in thread order, S31)
+                    var iso = new DenseGridTrilinearImplicit(sdf);
+                    var mc = new MarchingCubes() { Implicit = iso, IsoValue = 0, Bounds = iso.Bounds(), CubeSize = sdf.CellSize, ParallelCompute = false };
                     mc.Generate();
                     // (the grid is axis aligned: under rotation only the volume is comparable)
                     var sig = new Sig(s);
@@ -327,16 +328,6 @@ namespace geometry3Sharp.Tests
             { "MeshNormals|scale 2^-10", "R1" },
             { "MeshNormals|scale 2^-24", "R1" },
             { "MeshPlaneCut|scale 2^-24", "R5" },
-            { "MeshSignedDistanceGrid+MarchingCubes|+Inf param", "R9" },
-            { "MeshSignedDistanceGrid+MarchingCubes|+Inf vertex", "R9" },
-            { "MeshSignedDistanceGrid+MarchingCubes|-Inf param", "R9" },
-            { "MeshSignedDistanceGrid+MarchingCubes|NaN param", "R9" },
-            { "MeshSignedDistanceGrid+MarchingCubes|rotated, scale 1e-3, utm", "R3" },
-            { "MeshSignedDistanceGrid+MarchingCubes|scale 2^-10", "R10" },
-            { "MeshSignedDistanceGrid+MarchingCubes|scale 2^-24", "R10" },
-            { "MeshSignedDistanceGrid+MarchingCubes|scale 2^10", "R10" },
-            { "MeshSignedDistanceGrid+MarchingCubes|scale 2^20", "R10" },
-            { "MeshSignedDistanceGrid+MarchingCubes|utm", "R3" },
             { "PointHashGrid3d|rotated, scale 1e-3, utm", "hang R4" },
             { "Reducer.MaxDeviation|scale 2^-24", "R14" },
             { "Reducer.TriangleCount|+Inf vertex", "R13" },
