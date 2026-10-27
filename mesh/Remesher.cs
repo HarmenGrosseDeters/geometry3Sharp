@@ -69,8 +69,9 @@ namespace g3 {
         ///    a third one on it) is rejected. Other collapses are not restricted: blocking poor but not flat results
         ///    (eg with MinCollapseTriangleQuality) keeps short edges that the splits around them multiply.
         /// Not guarded: the projection of a new vertex after a split. Together, on 20 Thingi10K meshes remeshed with
-        /// creases kept, about a third of the poor and an eighth of the flat triangles and self-intersecting pairs
-        /// remain (benchmarks/RemeshQualityBenchmark); RemesherPro queues the edges of a vertex whose move was rejected.
+        /// creases kept, 28% of the poor (q &lt; 0.1) and 13% of the flat (q &lt; 1e-3) triangles and 17% of the
+        /// self-intersecting pairs remain (benchmarks/RemeshQualityBenchmark). RemesherPro queues the edges of a
+        /// vertex whose move was rejected.
         /// </summary>
         public double MinTriangleQuality = 0;
 

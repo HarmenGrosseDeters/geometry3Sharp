@@ -78,7 +78,7 @@ namespace geometry3Sharp.Tests
             // per case: no flat triangles; in all fewer self-intersecting pairs than without the option. (Not per case:
             // the option creates far fewer intersections during the passes, but which survive the last one is
             // chance, and projection moves across the rim of a flat cap can intersect without flipping a normal; in
-            // benchmarks/RemeshQualityBenchmark 9 of 150 primitives end with a few more pairs, see docs/ROADMAP.md)
+            // benchmarks/RemeshQualityBenchmark 10 of 150 primitives end with a few more pairs, see docs/ROADMAP.md)
             int flatBefore = 0, selfBefore = 0, selfAfter = 0, n = 0;
             foreach (var (name, input) in Inputs())
                 foreach (double f in new[] { 0.15, 0.3 }) {
