@@ -77,7 +77,7 @@ namespace g3
             // extrude loop to this plane
             MeshExtrudeLoop extrude = new MeshExtrudeLoop(Mesh, fill_loop);
             extrude.PositionF = (v, n, i) => {
-                return FlatClosePlane.ProjectToPlane((Vector3f)v, 1);
+                return project_to_plane(v);
             };
             extrude.Extrude(extrude_group);
             MeshValidation.IsBoundaryLoop(Mesh, extrude.NewLoop);
@@ -87,7 +87,7 @@ namespace g3
             // smooth the extrude loop
             MeshLoopSmooth loop_smooth = new MeshLoopSmooth(Mesh, extrude.NewLoop);
             loop_smooth.ProjectF = (v, i) => {
-                return FlatClosePlane.ProjectToPlane((Vector3f)v, 1);
+                return project_to_plane(v);
             };
             loop_smooth.Alpha = 0.5f;
             loop_smooth.Rounds = 100;
@@ -253,6 +253,14 @@ namespace g3
         }
 
 
+            // projection onto the plane of FlatClosePlane (perpendicular to its Y axis) in double: upstream cast the vertex
+        // to float, which moved every loop vertex by up to 0.25 at UTM coordinates (docs/ROBUSTNESS_SWEEP.md S4)
+        Vector3d project_to_plane(Vector3d v)
+        {
+            Vector3d local = FlatClosePlane.ToFrameP(v);
+            local.y = 0;
+            return FlatClosePlane.FromFrameP(local);
+        }
     }
 
 

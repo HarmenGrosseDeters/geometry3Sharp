@@ -59,11 +59,11 @@ Severity order: **wrong answer** > **silent garbage** (garbage output with a suc
 
 | Id | Location | Class | Consequence | Severity |
 |---|---|---|---|---|
-| S1 | `distance/DistTriangle3Triangle3.cs:76,101` | 1 | Squared distance ≤ `ZeroTolerance` (1e-8, so a distance of 1e-4) is reported as 0. At 1e-3 scale that is 10% of the model. Reaches `MeshQueries.TrianglesDistance` and `DMeshAABBTree3.FindNearestTriangles`. | wrong answer |
+| S1 | **fixed** `distance/DistTriangle3Triangle3.cs:76,101` | 1 | Squared distance ≤ `ZeroTolerance` (1e-8, so a distance of 1e-4) is reported as 0. At 1e-3 scale that is 10% of the model. Reaches `MeshQueries.TrianglesDistance` and `DMeshAABBTree3.FindNearestTriangles`. | wrong answer |
 | S2 | `intersection/IntrTriangle3Triangle3.cs:491-494,313`, and `UnitCross` at Epsilon (186-381) | 1 | Vertices within 1e-8 of the plane snap onto it, and tiny triangles count as degenerate. Wrong intersections at about 2^-20. Reaches `DMeshAABBTree3.FindAllIntersections` and `TestIntersection`. | wrong answer (small scale) |
-| S3 | `mesh_ops/MeshInsertProjectedPolygon.cs:110,129,169` | 2 | Positions are cast to `Vector3f` before `Frame3f.ToPlaneUV`: 2D jitter up to 0.25 m at UTM, so flipped or collapsed edges, wrong containment, and lifted vertices off. | wrong answer |
-| S4 | `mesh_ops/MeshLoopClosure.cs:80,90` | 2 | `ProjectToPlane((Vector3f)v)` with a float plane origin moves every loop vertex by up to 0.25 m at UTM. | wrong answer |
-| S5 | `mesh/MeshUtil.cs:44-47` (`ScaleMesh`) | 2 | Every vertex goes through `Vector3f`: up to 0.25 m at UTM, even at scale 1. | wrong answer |
+| S3 | **fixed** `mesh_ops/MeshInsertProjectedPolygon.cs:110,129,169` | 2 | Positions are cast to `Vector3f` before `Frame3f.ToPlaneUV`: 2D jitter up to 0.25 m at UTM, so flipped or collapsed edges, wrong containment, and lifted vertices off. | wrong answer |
+| S4 | **fixed** `mesh_ops/MeshLoopClosure.cs:80,90` | 2 | `ProjectToPlane((Vector3f)v)` with a float plane origin moves every loop vertex by up to 0.25 m at UTM. | wrong answer |
+| S5 | **fixed** `mesh/MeshUtil.cs:44-47` (`ScaleMesh`) | 2 | Every vertex goes through `Vector3f`: up to 0.25 m at UTM, even at scale 1. | wrong answer |
 | S6 | `queries/MeshQueries.cs:39-46,159-195` (`NearestPointFrame`, `RayHitPointFrame`, `SurfaceFrame`); `mesh/DMesh3.cs:590-608,824-841` (`GetVertexFrame`, `GetTriFrame`) | 2 | They return a `Frame3f` with the surface point as origin: the position is off by up to 0.25 m. These are API return types (cannot change); new double variants are needed. | wrong answer (API) |
 | S7 | `mesh_ops/AutoHoleFill.cs:222,273,281` | 2 | The planar-spans path flattens loops in float: wrong nesting of nearby holes at UTM. | wrong answer (rare) |
 | S8 | `spatial/BasicIntersectionTargets.cs:74-80` (`PlaneIntersectionTarget`) | 2 | Ray and plane are intersected in float, d = -n·origin in float: up to 0.5 m. | wrong answer |
@@ -73,7 +73,7 @@ Severity order: **wrong answer** > **silent garbage** (garbage output with a suc
 | S12 | `mesh_ops/PlanarHoleFiller.cs:251,321` | 1 | Vertex merge at an absolute 1e-6: bad merges and cracks at small scale. | conservative failure |
 | S13 | `mesh_ops/MergeCoincidentEdges.cs:21`, `RemoveDuplicateTriangles.cs:21` defaults, as used by `MeshAssembly.cs:58-62` | 1 | 1e-6 absolute: distinct edges are welded and distinct triangles deleted at small scale. The classes themselves have invariance tests with explicit tolerances, but `MeshAssembly` calls them with the defaults. | wrong answer (small scale) |
 | S14 | `containment/ContMinCircle2.cs:28,156,99` | 1 | A 1e-5 epsilon on a 2x2 determinant (L²): at 1e-3 scale every 3-point circle is rejected. | wrong answer |
-| S15 | `queries/IntersectionUtil.cs:54-56` | 1 | dir·(E1×E2) < 1e-8 counts as parallel: triangles with edges below about 1e-4 are missed. This is the same bug already fixed in `IntrRay3Triangle3`. No internal callers. | wrong answer (API) |
+| S15 | **fixed** `queries/IntersectionUtil.cs:54-56` | 1 | dir·(E1×E2) < 1e-8 counts as parallel: triangles with edges below about 1e-4 are missed. This is the same bug already fixed in `IntrRay3Triangle3`. No internal callers. | wrong answer (API) |
 | S16 | `mesh_ops/RemoveOccludedTriangles.cs:41` | 1 | `NormalOffset = ZeroTolerance` (absolute) is only about 10 ulp at UTM, so test points stay on the surface. `MeshAutoRepair` overrides it with a relative value. | wrong answer (direct use) |
 | S17 | `mesh_generators/DualContouring.cs:648` | 1 | Imposed sign ±1e-3 on distance fields: at small scale the crossings are pushed to cell edges. | silent garbage |
 | S18 | `mesh_ops/MeshPostRepairCleanup.cs:180` (known) | 1 | `oldN.Normalized` is Zero for one-ring areas ≤ 2.2e-16 (edges about 1e-8), so fold flips are refused. | conservative failure |
@@ -103,6 +103,6 @@ Reported to the PR manager, not edited here (other sessions own these files): R1
 4. R7 (+ R14): local origin for the `Reducer` quadrics.
 5. Done: R5 (`MeshPlaneCut`: degenerate-edge length relative to the bounds diagonal while `DegenerateEdgeTol` has its default, on-plane test relative to the coordinate rounding).
 6. R4: clamp or reject cell ranges in the hash grids (no hang on any input).
-7. S1, S2, S14, S15: relative thresholds in distance and intersection queries.
-8. S3 to S10: double frames for positions; new double members where the API returns `Frame3f`.
+7. Done: S1, S15 (and the `UnitCross` threshold in `DistLine3Triangle3`); S2, S14 open.
+8. Done: S3 to S5 (positions mapped through the `Frame3f` in double); S6 to S10 open.
 9. R6, R8, R11 to R13, R15, S11 to S13, S25 to S32.

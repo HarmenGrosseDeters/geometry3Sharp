@@ -53,6 +53,9 @@ namespace g3
 
             // Compare edges of triangle0 to the interior of triangle1.
             double sqrDist = Double.MaxValue, sqrDistTmp;
+            // touching / intersecting triangles: a squared distance at the rounding noise of the triangles' size
+            // (upstream used an absolute 1e-8, ie distances up to 1e-4, which is 10% of a model at millimetre scale)
+            double zeroSqr = zero_sqr_tolerance(ref triangle0, ref triangle1);
             Segment3d edge = new Segment3d();
             double ratio;
             int i0, i1;
@@ -73,7 +76,7 @@ namespace g3
                     Triangle0BaryCoords[3 - i0 - i1] = 0;
                     Triangle1BaryCoords = queryST.TriangleBaryCoords;
 
-                    if (sqrDist <= MathUtil.ZeroTolerance) {
+                    if (sqrDist <= zeroSqr) {
                         DistanceSquared = 0;
                         return 0;
                     }
@@ -98,7 +101,7 @@ namespace g3
                     Triangle1BaryCoords[3 - i0 - i1] = 0;
                     Triangle0BaryCoords = queryST.TriangleBaryCoords;
 
-                    if (sqrDist <= MathUtil.ZeroTolerance) {
+                    if (sqrDist <= zeroSqr) {
                         DistanceSquared = 0;
                         return 0;
                     }
@@ -107,6 +110,18 @@ namespace g3
 
             DistanceSquared = sqrDist;
             return DistanceSquared;
+        }
+
+
+        /// <summary> (ZeroTolerance times the largest edge of the two triangles)^2: relative, exact under power-of-two scaling </summary>
+        static double zero_sqr_tolerance(ref Triangle3d t0, ref Triangle3d t1)
+        {
+            double maxSqr = 0;
+            for (int i = 0; i < 3; ++i) {
+                maxSqr = Math.Max(maxSqr, t0[i].DistanceSquared(t0[(i + 1) % 3]));
+                maxSqr = Math.Max(maxSqr, t1[i].DistanceSquared(t1[(i + 1) % 3]));
+            }
+            return MathUtil.ZeroTolerance * MathUtil.ZeroTolerance * maxSqr;
         }
     }
 
