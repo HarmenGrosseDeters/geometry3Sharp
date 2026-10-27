@@ -210,8 +210,7 @@ namespace geometry3Sharp.Tests
                     sig.Output = mc.Mesh;
                     return sig.Volume("volume", Invariance.Volume(mc.Mesh));
                 } },
-            // (not bit exact: the removal order of MeshMeshCut.RemoveContained follows the thread schedule, R19)
-            new Op { Name = "MeshBoolean", Type = typeof(MeshBoolean), Input = () => Sphere(), BitExact = false, Tol = 1e-8,
+            new Op { Name = "MeshBoolean", Type = typeof(MeshBoolean), Input = () => Sphere(), Tol = 1e-8,
                 Run = (m, s, p) => {
                     DMesh3 tool = Defects.Sphere(Vector3d.Zero, 0.7, 5);
                     foreach (int v in tool.VertexIndices()) tool.SetVertex(v, s.Apply(tool.GetVertex(v) + new Vector3d(0.6, 0.1, 0.05)));
@@ -296,40 +295,25 @@ namespace geometry3Sharp.Tests
 
         public static readonly Dictionary<string, string> KnownFailures = new Dictionary<string, string> {
             { "DMeshAABBTree3|scale 2^-24", "R17" },
-            { "LaplacianMeshSmoother|rotated", "R2" },
-            { "LaplacianMeshSmoother|rotated, scale 1e-3, utm", "R2" },
-            { "LaplacianMeshSmoother|utm", "R2" },
-            { "MeshAutoRepair|+Inf vertex", "R11" },
+            { "LaplacianMeshSmoother|rotated", "R21" },
+            { "LaplacianMeshSmoother|rotated, scale 1e-3, utm", "R21" },
             { "MeshBoolean|rotated", "R6" },
             { "MeshBoolean|rotated, scale 1e-3, utm", "hang R6" },
             { "MeshBoolean|scale 1e-3", "R6" },
             { "MeshBoolean|scale 2^-10", "R6" },
             { "MeshBoolean|scale 2^-24", "R6" },
             { "MeshGeodesicDistance|rotated, scale 1e-3, utm", "R16" },
-            { "MeshICP|+Inf vertex", "hang R12" },
-            { "MeshICP|NaN vertex", "hang R12" },
-            { "MeshICP|rotated, scale 1e-3, utm", "R8" },
-            { "MeshICP|scale 1e-3", "R8" },
-            { "MeshICP|scale 1e3", "R8" },
-            { "MeshICP|scale 2^-10", "R8" },
             { "MeshICP|scale 2^-24", "R8" },
-            { "MeshICP|scale 2^10", "R8" },
-            { "MeshICP|scale 2^20", "R8" },
-            { "MeshICP|utm", "R8" },
             { "MeshIsoCurves|NaN param", "R15" },
             { "MeshIsoCurves|scale 2^-24", "R15" },
             { "MeshIterativeSmooth|+Inf vertex", "R13" },
             { "MeshIterativeSmooth|NaN vertex", "R13" },
-            { "MeshPlaneCut|scale 2^-24", "R5" },
-            { "PointHashGrid3d|rotated, scale 1e-3, utm", "hang R4" },
             { "Reducer.MaxDeviation|scale 2^-24", "R14" },
             { "Reducer.TriangleCount|+Inf vertex", "R13" },
             { "Reducer.TriangleCount|NaN vertex", "R13" },
             { "Reducer.TriangleCount|rotated, scale 1e-3, utm", "R7" },
             { "Reducer.TriangleCount|scale 2^-24", "R14" },
             { "Reducer.TriangleCount|utm", "R7" },
-            { "SmoothedHoleFill|rotated, scale 1e-3, utm", "R2" },
-            { "SmoothedHoleFill|utm", "R2" },
         };
 
         static readonly TimeSpan Budget = TimeSpan.FromSeconds(20);

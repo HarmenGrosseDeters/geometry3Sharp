@@ -17,6 +17,7 @@ Implemented from the papers, no code taken over.
 | Constrained Delaunay triangulation (constraint insertion by flips) | S. W. Sloan, *A fast algorithm for generating constrained Delaunay triangulations*, Computers & Structures 1993; C. L. Lawson 1977 (flips) |
 | Removal of unneeded vertices in flat regions (`ExactPlanarSimplify`): ear clipping of the hole, Lawson flips | G. H. Meisters, *Polygons have ears*, American Mathematical Monthly 1975 (ear clipping); C. L. Lawson, *Software for C1 surface interpolation*, 1977 (flips towards Delaunay) |
 | Generalized winding number for open meshes | A. Jacobson, L. Kavan, O. Sorkine-Hornung, *Robust Inside-Outside Segmentation using Generalized Winding Numbers*, ACM TOG 2013 (via the existing `FastWindingNumber`, Barill et al. 2018) |
+| Open inputs where an open boundary lies on an edge that other pieces meet (`ConflictEdges`): the jumps of the winding numbers around the edge do not add up to zero, so no labelling of the regions around it fits all pieces (the input is not PWN there, the condition of Zhou et al. 2016); pieces that run the edge the same way are not joined | own reasoning |
 
 The error bounds of the implicit points' approximations (`segment_point`, `plane_value`, `planes_approx`) and of
 the filters on them are derived in the code comments.

@@ -358,6 +358,12 @@ class Program
             r["exact_windings_exact"] = boolean.ExactWindingA && boolean.ExactWindingB;
             r["exact_selfpairs"] = boolean.SelfIntersectingPairs;
             r["exact_" + key + "_nonmanifold"] = boolean.NonManifoldTriangles;
+            // orientation of the result (interior edges whose two triangles run the same way) and its open edges
+            r["exact_" + key + "_inconsistent"] = m.EdgeIndices().Count(e => {
+                Index2i et = m.GetEdgeT(e), ev = m.GetEdgeV(e);
+                return et.b != DMesh3.InvalidID && edge_dir(m.GetTriangle(et.a), ev.a, ev.b) == edge_dir(m.GetTriangle(et.b), ev.a, ev.b);
+            });
+            r["exact_" + key + "_boundary"] = m.EdgeIndices().Count(e => m.IsBoundaryEdge(e));
             r["exact_" + key + "_selfint"] = m.TriangleCount <= 300000 ? MeshRepairMetrics.SelfIntersections(m) : -1;
             double diag = m.TriangleCount > 0 ? m.CachedBounds.DiagonalLength : 0;
             r["exact_" + key + "_degenerate"] = m.TriangleIndices().Count(t => m.GetTriArea(t) < 1e-12 * diag * diag);

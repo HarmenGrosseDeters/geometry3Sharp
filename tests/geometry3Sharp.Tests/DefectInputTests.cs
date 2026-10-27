@@ -177,29 +177,26 @@ namespace geometry3Sharp.Tests
         // consistently first, so the result is a consistently oriented surface (DMesh3.CheckValidity passes). Minimal
         // case: a unit box with one triangle flipped gives the box (see also ExactBooleanOrientationTests).
         [Theory]
-        [MemberData(nameof(InconsistentCasesOrientable))]
+        [MemberData(nameof(InconsistentCases))]
         public void ExactMeshBoolean_InconsistentInput_ConsistentResult(string name)
             => Check(name, a => { UnionWithBox(new DMesh3(a), name); Resolve(a, name); });
 
-        // the inconsistent cases without "random edits 6" (see the skipped test below)
-        public static System.Collections.Generic.IEnumerable<object[]> InconsistentCasesOrientable() =>
-            InconsistentCases().Where(c => (string)c[0] != "random edits 6");
-
-        // "random edits 6": the union with the box has an inconsistently oriented edge, but not because of the
-        // orientation: the stray triangle through the inside of the sphere alone (edit 0, no flips) gives it, and
-        // the input is not reoriented there. The mesh is open, so it is classified by generalized winding numbers;
-        // next to the sheet they are near 0.5 and 1.5, at the threshold 1/2, and patches evaluated independently
-        // decide inconsistently. A consistent classification needs winding numbers propagated across patches with
-        // integer jumps. Reported; enabled when fixed.
-        [Fact(Skip = "ExactMeshBoolean: generalized winding patch classification at the 1/2 threshold is inconsistent next to an interior sheet (reported)")]
+        // "random edits 6" is open (removed triangles) and has a stray triangle through the inside of the sphere whose
+        // edge lies on the sphere (an edge with three triangles). It is classified by generalized winding numbers, and
+        // around such an edge the integer jumps across the pieces do not add up to zero (an open boundary of the input
+        // lies on it): no inside/outside choice for the regions around the edge agrees with all pieces, so the union
+        // keeps three pieces there, or two that run the edge the same way. Assembled like the other pieces, they gave
+        // an inconsistently oriented edge; now pieces that run an edge the same way are not joined there
+        // (ExactMeshBoolean.ConflictEdges: the result is open along the edge).
+        [Fact]
         public void ExactMeshBoolean_OpenInputWithInteriorSheet_ConsistentResult()
             => Check("random edits 6", a => { UnionWithBox(new DMesh3(a), "random edits 6"); Resolve(a, "random edits 6"); });
 
         // "random edits 6" minimized by MeshMinimizer (G3_MINIMIZE=1, docs/QA.md 2.9; 301 -> 5 triangles, 1158
-        // evaluations, 10 s): the union with the box still has an inconsistently oriented edge. Five open triangles, no
-        // interior sheet; without the coordinate rounding (G3_MINIMIZE_ROUND=0) 34 triangles of the sphere next to the
-        // box remain, also without the stray triangle. Enabled when fixed.
-        static DMesh3 MinimizedRandomEdits6()
+        // evaluations, 10 s), with the coordinates rounded. Five open triangles: three are coplanar (two of them
+        // coincide with opposite orientations, so they cancel), and the open edge of a fourth lies inside the coplanar
+        // ones, which is the same kind of edge as above. Vertices that coincide differ in the sign of zero.
+        internal static DMesh3 MinimizedRandomEdits6()
         {
             // 8 vertices, 5 triangles
             double[] v = {
@@ -219,6 +216,94 @@ namespace geometry3Sharp.Tests
                 4, 7, 6,
                 6, 7, 0,
             };
+            return Build(v, t);
+        }
+
+        // the same without the rounding (G3_MINIMIZE_ROUND=0; 1115 evaluations, 8 s): 34 triangles of the sphere next
+        // to the box and the stray triangle (the last one, its two vertices on the sphere unwelded), whose edge on the
+        // sphere has three triangles. Here the inconsistent edge appeared only with SimplifyFlatRegions (which
+        // retriangulates the flat region next to that edge).
+        internal static DMesh3 MinimizedRandomEdits6Unrounded()
+        {
+            // 35 vertices, 34 triangles
+            double[] v = {
+                0.66332495807108, -0.34641016151377557, 0.66332495807108,
+                0.7023769168568493, -0.11547005383792515, 0.7023769168568493,
+                0.7023769168568493, 0.11547005383792515, 0.7023769168568493,
+                0.11547005383792515, 0.7023769168568493, 0.7023769168568493,
+                -0.11547005383792515, 0.7023769168568493, 0.7023769168568493,
+                0.66332495807108, 0.66332495807108, -0.34641016151377557,
+                0.7023769168568493, 0.7023769168568493, -0.11547005383792515,
+                -0.1404753833713698, -0.1404753833713698, 0.9800680248499761,
+                0.1404753833713698, -0.1404753833713698, 0.9800680248499761,
+                0.4214261501141096, -0.13266499161421597, 0.8971064596802322,
+                -0.1404753833713698, 0.1404753833713698, 0.9800680248499761,
+                0.1404753833713698, 0.1404753833713698, 0.9800680248499761,
+                0.4214261501141096, 0.13266499161421597, 0.8971064596802322,
+                -0.13266499161421597, 0.4214261501141096, 0.8971064596802322,
+                0.13266499161421597, 0.4214261501141096, 0.8971064596802322,
+                0.8265591327908731, -0.3979949748426481, 0.3979949748426481,
+                0.8971064596802322, -0.13266499161421597, 0.4214261501141096,
+                0.9800680248499761, -0.1404753833713698, 0.1404753833713698,
+                0.9800680248499761, -0.1404753833713698, -0.1404753833713698,
+                0.8971064596802322, 0.13266499161421597, 0.4214261501141096,
+                0.9800680248499761, 0.1404753833713698, 0.1404753833713698,
+                0.9800680248499761, 0.1404753833713698, -0.1404753833713698,
+                0.8971064596802322, 0.13266499161421597, -0.4214261501141096,
+                0.8971064596802322, 0.4214261501141096, -0.13266499161421597,
+                0.8265591327908731, 0.3979949748426481, -0.3979949748426481,
+                -0.13266499161421597, 0.8971064596802322, 0.4214261501141096,
+                0.13266499161421597, 0.8971064596802322, 0.4214261501141096,
+                0.1404753833713698, 0.9800680248499761, 0.1404753833713698,
+                0.4214261501141096, 0.8971064596802322, 0.13266499161421597,
+                0.1404753833713698, 0.9800680248499761, -0.1404753833713698,
+                0.4214261501141096, 0.8971064596802322, -0.13266499161421597,
+                0.3979949748426481, 0.8265591327908731, -0.3979949748426481,
+                0.8971064596802322, -0.13266499161421597, 0.4214261501141096,
+                -0.3979949748426481, 0.8265591327908731, 0.3979949748426481,
+                0.8971064596802322, 0.13266499161421597, 0.4214261501141096,
+            };
+            int[] t = {
+                7, 8, 11,
+                7, 11, 10,
+                8, 9, 12,
+                8, 12, 11,
+                9, 1, 2,
+                9, 2, 12,
+                10, 11, 14,
+                10, 14, 13,
+                13, 14, 3,
+                13, 3, 4,
+                0, 15, 16,
+                0, 16, 1,
+                15, 17, 16,
+                1, 16, 19,
+                1, 19, 2,
+                16, 17, 20,
+                16, 20, 19,
+                17, 18, 21,
+                17, 21, 20,
+                18, 22, 21,
+                21, 22, 24,
+                21, 24, 23,
+                23, 24, 5,
+                23, 5, 6,
+                4, 3, 26,
+                4, 26, 25,
+                25, 26, 27,
+                26, 28, 27,
+                27, 28, 30,
+                27, 30, 29,
+                29, 30, 31,
+                30, 6, 5,
+                30, 5, 31,
+                32, 33, 34,
+            };
+            return Build(v, t);
+        }
+
+        static DMesh3 Build(double[] v, int[] t)
+        {
             var m = new DMesh3(false, false, false, false);
             for (int i = 0; i < v.Length; i += 3) m.AppendVertex(new Vector3d(v[i], v[i + 1], v[i + 2]));
             for (int i = 0; i < t.Length; i += 3)
@@ -227,8 +312,11 @@ namespace geometry3Sharp.Tests
             return m;
         }
 
-        [Fact(Skip = "ExactMeshBoolean: inconsistently oriented edge in the union of five open triangles with a box (minimized from random edits 6; reported)")]
+        [Fact]
         public void ExactMeshBoolean_MinimizedRandomEdits6_ConsistentResult() => UnionWithBox(MinimizedRandomEdits6(), "random edits 6, minimized");
+
+        [Fact]
+        public void ExactMeshBoolean_MinimizedRandomEdits6Unrounded_ConsistentResult() => UnionWithBox(MinimizedRandomEdits6Unrounded(), "random edits 6, minimized without rounding");
 
         // ---- wrap, solidify ----
 

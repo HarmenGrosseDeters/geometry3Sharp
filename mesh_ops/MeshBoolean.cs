@@ -20,6 +20,9 @@ namespace g3
     /// checked with Util.gDevAssert, which throws (or breaks into the debugger) otherwise. Compute() always
     /// returns true; the inputs are not modified (copies are cut).
     ///
+    /// Not robust across scales: VertexSnapTol (and the MergeCoincidentEdges tolerance, twice that) is an absolute 1e-5,
+    /// so at millimetre scale it throws ("unsortable vertex") and at UTM coordinates it can hang or give a different
+    /// result (docs/ROBUSTNESS_SWEEP.md R6). Scale VertexSnapTol to the model if you use it.
     /// Prefer <see cref="ExactMeshBoolean"/> (exact, robust, all operations, closed result), or
     /// <see cref="gs.MeshWindingNumberBoolean"/> for a volumetric result from broken input.
     /// </summary>
