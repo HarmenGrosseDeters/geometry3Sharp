@@ -17,6 +17,8 @@ namespace g3
     /// Intersection points within VertexSnapTol are merged with existing vertices. Not robust: segments that
     /// cannot be inserted are counted in FailedSegmentInsertions (the cut then has gaps), and only
     /// intersection segments are used, so coplanar overlaps (intersection polygons) are not handled. Used by <see cref="MeshBoolean"/>; for robust booleans use <see cref="ExactMeshBoolean"/>.
+    /// VertexSnapTol is an absolute 1e-5: scale it to the model (millimetre models and UTM coordinates fail with the
+    /// default, docs/ROBUSTNESS_SWEEP.md R6).
     ///
     /// TODO:
     ///    - track descendant triangles of each input face

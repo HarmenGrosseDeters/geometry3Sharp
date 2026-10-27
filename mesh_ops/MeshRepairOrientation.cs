@@ -356,6 +356,10 @@ namespace gs
 					// (area / diag against factor * diag: no overflow of diag^2 for huge coordinates)
 					if (area == 0 || area / areaDiag < DegenerateAreaFactor * areaDiag)
 						continue;
+					// (a triangle with a non-finite vertex gives no evidence: its NaN normal made the ray query throw,
+					// eg MeshAutoRepair with an infinite vertex, docs/ROBUSTNESS_SWEEP.md R11)
+					if (normal.IsFinite == false || centroid.IsFinite == false || double.IsInfinity(area) || double.IsNaN(area))
+						continue;
 
                     // construct far away points
                     Vector3d pos_pt = centroid + dist * normal;
