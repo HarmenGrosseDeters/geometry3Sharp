@@ -236,8 +236,14 @@ namespace geometry3Sharp.Tests
         public void TimeBudget_StopsWithAFailingResult()
         {
             DMesh3 m = SphereWithDuplicate();
-            // (about 13 calls before the first reduction, several hundred for the whole run)
-            Func<DMesh3, bool> slow = x => { Thread.Sleep(50); return HasCoincidentPair(x); };
+            // (about 13 calls before the first reduction, a few dozen more for the whole run). The first calls are
+            // fast, so a reduction exists before the budget even on a loaded CI runner; the rest are slow, so the
+            // whole run takes far longer than the budget
+            int calls = 0;
+            Func<DMesh3, bool> slow = x => {
+                if (Interlocked.Increment(ref calls) > 20) Thread.Sleep(250);
+                return HasCoincidentPair(x);
+            };
             var budget = TimeSpan.FromSeconds(3);
             var r = MeshMinimizer.Minimize(m, slow, new MinimizeOptions() { TimeBudget = budget });
             Assert.Equal(MeshMinimizer.MinimizeStatus.Stopped, r.Status);
