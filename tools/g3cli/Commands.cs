@@ -340,12 +340,41 @@ namespace g3cli
             return n > 0 ? sum / n : 0;
         }
 
+        // the wall thickness of thin parts: the 10th percentile of the distances from triangle centroids inward along
+        // the normal to the next surface, over up to 2000 triangles; NaN if no ray hits (eg an open sheet)
+        static double WallThickness(DMesh3 mesh)
+        {
+            var tree = new DMeshAABBTree3(mesh, true);
+            int step = Math.Max(1, mesh.TriangleCount / 2000), k = 0;
+            var dist = new List<double>();
+            foreach (int tid in mesh.TriangleIndices()) {
+                if (k++ % step != 0)
+                    continue;
+                Vector3d n = mesh.GetTriNormal(tid);
+                if (n.LengthSquared < 0.5)      // degenerate
+                    continue;
+                var ray = new Ray3d(mesh.GetTriCentroid(tid), -n);
+                tree.TriangleFilterF = t => t != tid;
+                int hit = tree.FindNearestHitTriangle(ray);
+                if (hit == DMesh3.InvalidID)
+                    continue;
+                IntrRay3Triangle3 intr = MeshQueries.TriangleIntersection(mesh, hit, ray);
+                if (intr.Result == IntersectionResult.Intersects && intr.RayParameter > 0)     // (not a coincident face)
+                    dist.Add(intr.RayParameter);
+            }
+            if (dist.Count == 0)
+                return double.NaN;
+            dist.Sort();
+            return dist[(dist.Count - 1) / 10];
+        }
+
         static Command Remesh()
         {
             var c = new Command() {
                 Name = "remesh",
                 Description = "Isotropic remeshing (Remesher: splits, collapses, flips, smoothing) towards a target edge length, " +
-                    "projected back onto the input surface. Boundary and sharp edges can be kept.",
+                    "projected back onto the input surface. Boundary and sharp edges can be kept. Passes that would turn a closed " +
+                    "part inside out are rolled back (rejected_passes); an edge length far above the wall thickness gives a warning.",
             };
             c.Params.Add(Input());
             c.Params.Add(Output());
@@ -385,16 +414,25 @@ namespace g3cli
                     else
                         MeshConstraintUtil.FixAllBoundaryEdges(r);
                 }
+                double thickness = WallThickness(input);
+                if (len > 4 * thickness)
+                    warnings.Add($"the edge length {len:G4} is {len / thickness:F1} times the estimated wall thickness {thickness:G4} " +
+                        "(10% of the inward distances are smaller): thinner walls are folded through each other (self-intersections, " +
+                        "inside-out parts); use a smaller edge length");
                 r.SetTargetEdgeLength(len);
                 for (int k = 0; k < iterations; ++k)
                     r.BasicRemeshPass();
                 if (mesh.TriangleCount == 0)
                     throw new CommandException(ResultCodes.OperationFailed, "remeshing removed all triangles");
+                if (r.InvertingPassesRejected > 0)
+                    warnings.Add($"{r.InvertingPassesRejected} of {iterations} passes were rolled back because they turned a closed part " +
+                        "inside out (edge length far above the wall thickness?): the result is the state after the last pass that kept the orientation");
                 MeshFiles.Write(args.String("output"), mesh, args.Bool("binary"));
 
                 var o = new JsonObject() { ["input"] = args.String("input"), ["output"] = args.String("output") };
                 o["edge_length"] = len;
                 o["iterations"] = iterations;
+                o["rejected_passes"] = r.InvertingPassesRejected;
                 o["input_mesh"] = MeshReport.Metrics(input, false);
                 o["mesh"] = MeshReport.Metrics(mesh, args.Bool("self_intersections"));
                 if (args.Bool("deviation"))

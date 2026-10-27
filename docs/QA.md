@@ -55,7 +55,7 @@ done since and what is open.
   2. result validation in the existing success tests (2.3);
   3. mutation testing of `mesh_ops/ExactMesh*` and the open `AdaptivePredicates` survivors (2.2);
   4. coverage (2.6);
-  5. the regression corpus (2.7);
+  5. the regression corpus (2.7; first part done: `RegressionCorpusTests`);
   6. performance (3.1, 3.2).
 
 **What the reviews found.**
@@ -251,6 +251,27 @@ It runs the main pipelines and checks the following against stored thresholds:
 
 Meshes with a permissive license can be added if a case cannot be generated.
 
+**Done, first part (October 2026): `RegressionCorpusTests`.**
+- The corpus is the defect cases of 2.1 (`Harness/Defects.cs`: 20 fixed cases, 12 seeded random edits), at the
+  origin and at UTM coordinates: 64 meshes, all generated, no mesh file.
+- Seven pipelines run over it: `MeshAutoRepair`, `MeshRobustRepair`, `ExactMeshBoolean` (union with a box, and
+  `Resolve`), `Remesher`, `Reducer` and `MeshAlphaWrap`.
+- The outcome of a case is the result's `MeshRobustRepair.NotCleanReason`, or "clean" and the volume (1 %
+  tolerance). A table in the test stores the outcome of every case and pipeline; a change in either direction
+  fails, with the list of changed cases and the counts of clean results. An improvement updates the table
+  (`G3_CORPUS_PRINT=1` prints it).
+- Counts of clean results (of 64): auto repair 46, robust repair 62 (the two empty inputs fail as documented),
+  union with a box 39, resolve 31, remesh 12, reduce 12, alpha wrap 62.
+- It is a test class of the suite, not a CI job of its own: the suite already runs in CI on net10.0 and net48,
+  and a job of its own would build everything again for about a minute of work. The cases run in parallel; the
+  class takes about a minute on 4 cores, most of it in three robust repairs ("flat", "partly flipped", "single
+  triangle") that take the solidify path.
+- `DefectInputTests` checks that each operation keeps its documented guarantees; the corpus checks what the
+  operations achieve. It caught both mutations of the check (orientation repair of `MeshAutoRepair` removed, alpha
+  of `MeshAlphaWrap` changed), which `DefectInputTests` lets through.
+- Open: the cube grid of the boolean benchmark and terrain grids (both have their own tests, but no stored
+  outcomes), the Hausdorff distance, and run-time limits.
+
 ### 2.7a Data sets beyond Thingi10K (benchmarks, by hand)
 
 The benchmarks (`benchmarks/`) use Thingi10K (repair, booleans, UV atlas), the boolean benchmark's cases
@@ -315,7 +336,7 @@ volumes, points, directions). Every operation runs:
 - under `Similarity.All()` plus scales of 2^-24 and 2^20. Under power-of-two scales the signature must be bit
   identical, which catches absolute thresholds. Under the other similarities it must agree within the
   operation's tolerance, which catches float code at UTM coordinates. Operations whose result varies in the
-  last bits from run to run (R18, R19) are compared with the tolerance only.
+  last bits from run to run (R19) are compared with the tolerance only.
 - with a NaN or +Inf vertex, and a NaN or ±Inf parameter. The operation must finish within 20 s. It must not
   throw, except an `ArgumentException` from its own type. It must not spread non-finite coordinates to
   vertices that were finite. With a non-finite parameter it must report failure or give a finite result.
@@ -369,7 +390,7 @@ Past cases: #63, #72, #105.
 | Stryker.NET mutation tests | High for exact arithmetic | Long runs (scheduled) | Scheduled workflow for `math/Exact*` and `AdaptivePredicates.cs` |
 | Coverage in CI | Medium (shows gaps) | Low | Summary, no threshold |
 | Determinism tests | High: found three bugs at once | Low | Done; required for parallel paths |
-| Regression corpus in CI | High for the pipelines | Medium | After the harness's defect generators |
+| Regression corpus in CI | High for the pipelines | Medium | Done for the defect cases (`RegressionCorpusTests`, 2.7); cube grid and terrain open |
 | API compatibility | High for users | Done (#92) | Keep |
 | Review checklist | High (reviews found 40 of 45 bugs) | Low | [REVIEW_CHECKLIST.md](REVIEW_CHECKLIST.md) |
 | BenchmarkDotNet | Performance only | Medium | After the robustness items |
