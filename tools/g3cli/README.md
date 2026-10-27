@@ -112,6 +112,10 @@ g3cli resolve assembly.off solid.ply
 
 # remesh to edge length 0.5, keep edges sharper than 40 degrees, report the deviation
 g3cli remesh part.stl part_remeshed.obj --edge-length 0.5 --crease-angle 40 --deviation
+# CAD and feature meshes: guard against poor and flat triangles (Remesher.MinTriangleQuality; benchmarks/RemeshQualityBenchmark:
+# on extruded gears no flat triangles and no self-intersections left, edge precision 0.84 -> 1.0). Not for thin walls far
+# below the edge length, where it makes the result worse
+g3cli remesh part.stl part_remeshed.obj --min-quality 0.2
 
 # simplify to 10% of the triangles, or to at most 5000
 g3cli simplify scan.ply scan_small.ply --ratio 0.1 --deviation
