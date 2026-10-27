@@ -6,7 +6,7 @@ self-intersections and stays close to the input: Hausdorff upper bound < HD (rel
 both directions and IoU > IOU.
 Usage: analyze_fidelity.py results/<run>.jsonl [HD=0.01] [IOU=0.99]"""
 import json, sys
-from criteria import get, clean, no_solid, iou, faithful as faithful_hd_iou
+from criteria import get, clean, no_solid, iou, hd as hd_of, selfint, faithful as faithful_hd_iou
 
 f = sys.argv[1]
 HD = float(sys.argv[2]) if len(sys.argv) > 2 else 0.01
@@ -63,6 +63,14 @@ FLAGS = {
 }
 
 
+def outer_iou(r):
+    """the volume IoU against the solid of the input's outer faces; 1 for inputs without a solid (as iou), 0 if missing"""
+    v = num(r, 'fm_oviou')
+    if v != v:
+        return 1.0 if no_solid(r) else 0.0
+    return v
+
+
 def edge_recall(r):
     # of the outer sharp edges; of all if none is outer (eg walls thinner than the offset) or not recorded
     v = num(r, 'fm_oer_0005')
@@ -100,7 +108,12 @@ if fm:
             ('Chamfer distance', 'fm_chamfer', .9), ('normal consistency |cos|', 'fm_nc', .1),
             ('reversed share (result to input)', 'fm_reversed_fwd', .9), ('Edge Chamfer distance', 'fm_ecd', .9),
             ('edge recall 0.5%', 'fm_er_0005', .1), ('... of the outer sharp edges', 'fm_oer_0005', .1),
-            ('edge precision 0.5%', 'fm_ep_0005', .1)]
+            ('edge precision 0.5%', 'fm_ep_0005', .1),
+            ('volume IoU, input\'s winding number solid', 'fm_viou', .1), ('... solid of the input\'s outer faces', 'fm_oviou', .1),
+            ('outer face share of the input (area)', 'fm_outer_face_share', .1),
+            ('mean curvature error |dH| size', 'fm_h_err', .9), ('Gaussian curvature error |dK| size^2', 'fm_k_err', .9),
+            ('mean curvature W1 (distributions)', 'fm_h_w1', .9), ('Gaussian curvature W1 (distributions)', 'fm_k_w1', .9),
+            ('mean |H| size of the input', 'fm_h_abs_in', .9)]
     for name, k, p in cols:
         a = sorted(x for x in (num(r, k) for r in fm) if x == x)
         b = sorted(x for x in (num(r, k) for r in rep) if x == x)
@@ -121,12 +134,22 @@ if fm:
     # the "repaired" criterion with the certified input-to-result Hausdorff distance replaced by the sampled one
     # (max over the samples, a lower bound), from the whole input and from its outer surface only (interior and
     # double-sided faces that the repair drops do not count); the difference of the two is the outer surface's effect
-    def sampled_faithful(r, key):
+    def sampled_faithful(r, key, iou_f=iou):
         return (clean(r) and get(r, 'after_selfint_exact', 1) == 0 and float(get(r, 'hd_fwd_hi_rel', 1)) < HD
                 and num(r, key, 1) * num(r, 'fm_size', 0) / max(num(r, 'fm_bbox_diag', 0), 1e-300) < HD
-                and iou(r) > IOU)
+                and iou_f(r) > IOU)
     whole = [r for r in fm if sampled_faithful(r, 'fm_max_back')]
     outer = [r for r in fm if sampled_faithful(r, 'fm_outer_max')]
     gained = [r for r in outer if not sampled_faithful(r, 'fm_max_back')]
     print(f"  repaired with Hausdorff input->result sampled (max of the samples) from the whole input: {len(whole)}, "
           f"from its outer surface: {len(outer)} (+{len(gained)} {[r['file'] for r in gained[:8]]})")
+    # the same with the volume IoU against the solid of the input's outer faces (fm_oviou) instead of its winding
+    # number solid (iou): interior faces, nested shells and double-sided sheets no longer distort the reference solid
+    both = [r for r in fm if sampled_faithful(r, 'fm_outer_max', outer_iou)]
+    gained = [r for r in both if not sampled_faithful(r, 'fm_outer_max')]
+    lost = [r for r in outer if not sampled_faithful(r, 'fm_outer_max', outer_iou)]
+    print(f"  ... and the IoU against the solid of the input's outer faces: {len(both)} "
+          f"(+{len(gained)} {[r['file'] for r in gained[:8]]}, -{len(lost)} {[r['file'] for r in lost[:8]]})")
+    rep_outer = [r for r in fm if clean(r) and selfint(r) == 0 and hd_of(r) < HD and outer_iou(r) > IOU]
+    print(f"  repaired (certified Hausdorff) with the IoU against the outer faces' solid: {len(rep_outer)} "
+          f"(with the winding number IoU: {len(rep)})")

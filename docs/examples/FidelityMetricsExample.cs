@@ -5,8 +5,8 @@ namespace g3.Examples
 {
     /// <summary>
     /// Comparing a result (repair, remesh, solidify, wrap) with its input beyond Hausdorff distance and volume IoU:
-    /// F-score at a threshold, normals (reversed patches), sharp edges (lost features), triangle quality and
-    /// topology. MeshFidelityMetrics is read-only and deterministic (seeded samples); all distances are relative to
+    /// F-score at a threshold, normals (reversed patches), sharp edges (lost features), the volume IoU against the
+    /// solid of the input's outer faces (interior faces do not distort it), curvature, triangle quality and topology. MeshFidelityMetrics is read-only and deterministic (seeded samples); all distances are relative to
     /// the input's size.
     /// </summary>
     public static class FidelityMetricsExample
@@ -21,6 +21,10 @@ namespace g3.Examples
             public double Reversed;
             /// <summary> Edge Chamfer distance (relative), and the share of the input's sharp edges kept within 0.5% </summary>
             public double EdgeChamfer, EdgeRecall;
+            /// <summary> volume IoU of the result against the solid of the input's outer faces (NaN if the input encloses nothing) </summary>
+            public double OuterVolumeIoU;
+            /// <summary> mean difference of the mean curvature at corresponding points, times the size (2 on a sphere) </summary>
+            public double MeanCurvatureError;
             /// <summary> what changed: components, handles, boundary loops </summary>
             public MeshTopologySummary.Changes TopologyChanges;
             /// <summary> the min angle that 1% of the result's triangles are below (degrees) </summary>
@@ -38,6 +42,8 @@ namespace g3.Examples
                 Reversed = f.NormalsMeshToReference.ReversedFraction,
                 EdgeChamfer = f.EdgeChamfer,
                 EdgeRecall = f.EdgeRecall[0],
+                OuterVolumeIoU = f.OuterVolumeIoU,
+                MeanCurvatureError = f.MeanCurvatureError,
                 TopologyChanges = f.TopologyChanges,
                 MinAngle1Percent = f.MeshQuality.MinAngle.Worst1Percent
             };

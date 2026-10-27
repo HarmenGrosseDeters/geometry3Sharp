@@ -32,7 +32,7 @@ ROWS = [
 FM = dict(fm_ok=True, fm_f_0001=0.9, fm_f_0005=1.0, fm_f_001=1.0, fm_chamfer=1e-4, fm_nc=0.99, fm_reversed_fwd=0.0,
           fm_ecd=1e-3, fm_er_0005=1.0, fm_ep_0005=1.0, fm_sharp_in=2.0, fm_topo_changes='None',
           fm_q_out={'tris': 100, 'minangle_lt10': 0, 'minangle': [5, 20, 25, 40]}, fm_size=1.0, fm_bbox_diag=1.0,
-          fm_outer_max=0.001, fm_of_001=1.0, fm_outer_share=1.0, fm_max_back=0.001,
+          fm_outer_max=0.001, fm_of_001=1.0, fm_outer_share=1.0, fm_max_back=0.001, fm_oviou=0.999,
           fm_topo_in={'components': 1, 'closed': 1, 'bowties': 0},
           fm_q_in={'tris': 100, 'minangle_lt10': 0})
 FM_ROWS = [
@@ -48,6 +48,10 @@ FM_ROWS = [
     row('fm_openin.stl', **dict(FM, fm_topo_changes='HandlesClosed', fm_topo_in={'components': 1, 'closed': 0, 'bowties': 0},
                                 fm_q_in={'tris': 100, 'minangle_lt10': 30}, fm_q_out={'tris': 100, 'minangle_lt10': 30, 'minangle': [1, 2, 3, 4]})),
     row('fm_slivers.stl', **dict(FM, fm_q_out={'tris': 100, 'minangle_lt10': 5, 'minangle': [1, 2, 3, 4]})),
+    # the winding number IoU distorted by interior faces, the outer faces' IoU not; and the other way round
+    row('fm_layers.stl', **dict(FM, iou=0.95, fm_oviou=0.999)),
+    row('fm_lostcavity.stl', **dict(FM, fm_oviou=0.9)),
+    row('fm_nosolid.stl', **dict(FM, iou='NaN', fm_oviou='NaN')),
 ]
 
 
@@ -101,13 +105,15 @@ class AnalysisScripts(unittest.TestCase):
             out = run('analyze_fidelity.py')
         finally:
             ROWS = old
-        self.assertRegex(out, r'11 meshes with them, 9 of them repaired')
+        self.assertRegex(out, r'14 meshes with them, 11 of them repaired')
         self.assertRegex(out, r'triangles\s+1 /\s+1 ')     # not the open input whose slivers were there before
-        self.assertRegex(out, r'from the whole input: 9, from its outer surface: 10 \(\+1 \[.fm_interior.stl.\]\)')
+        self.assertRegex(out, r'from the whole input: 11, from its outer surface: 12 \(\+1 \[.fm_interior.stl.\]\)')
+        self.assertRegex(out, r"IoU against the solid of the input's outer faces: 12 \(\+1 \[.fm_layers.stl.\], -1 \[.fm_lostcavity.stl.\]\)")
+        self.assertRegex(out, r"repaired \(certified Hausdorff\) with the IoU against the outer faces' solid: 11 \(with the winding number IoU: 11\)")
         self.assertRegex(out, r'reversed\s+2 /\s+1 ')
         self.assertRegex(out, r'edges\s+2 /\s+2 ')
         self.assertRegex(out, r'handles\s+1 /\s+1 ')
-        self.assertRegex(out, r'repaired with any flag: 5 of 9')
+        self.assertRegex(out, r'repaired with any flag: 5 of 11')
 
     def test_failed_runs_in_the_denominators(self):
         out = run('analyze_quality.py')

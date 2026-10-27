@@ -107,9 +107,10 @@ selectively.
   (its guards keep a few vertices near the apex up to an edge off the surface). Cones with up to 10 slices keep the
   apex as a junction of creases. Detect and pin sharp vertices (eg by the normal cone or the angle deficit of their
   one-ring) in `PreserveBoundaryAndFeatures`.
-- [ ] `MeshRobustRepair.NotCleanReason` reports only the first failed check: "degenerate triangles" hid the
-  self-intersections of most remeshed meshes, and the inside-out result of 135363 without `MinTriangleQuality`. Report all reasons (or a separate self-intersection count) in the
-  diagnostics and benchmarks.
+- [x] `MeshRobustRepair.NotCleanReason` reported only the first failed check: "degenerate triangles" hid the
+  self-intersections of most remeshed meshes, and the inside-out result of 135363 without `MinTriangleQuality`. Done in
+  #159: `MeshRobustRepair.FindDefects` / `NotCleanReasons` report every failed check (`NotCleanReason` keeps the first),
+  and the benchmarks write them (eg RemeshBenchmark `not_clean`).
 
 | Feature | Research / port source | Why |
 |---|---|---|

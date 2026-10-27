@@ -112,6 +112,11 @@ namespace geometry3Sharp.Tests
             v.AddRange(f.OuterFScore);
             v.AddRange(f.OuterEdgeRecall);
             v.Add(f.OuterEdgeShare);
+            v.AddRange(new[] { f.VolumeIoU, f.VolumeMissing, f.VolumeExtra, f.OuterVolumeIoU, f.OuterVolumeMissing, f.OuterVolumeExtra, f.OuterFaceShare });
+            foreach (var c in new[] { f.CurvatureMeshToReference, f.CurvatureReferenceToMesh })
+                v.AddRange(new[] { c.Samples, c.MeanError, c.GaussianError, c.MeanAbs, c.GaussianAbs });
+            v.AddRange(new[] { f.MeanCurvatureError, f.GaussianCurvatureError, f.MeanCurvatureDistance, f.GaussianCurvatureDistance,
+                f.TotalAbsMeanCurvatureReference, f.TotalAbsMeanCurvatureMesh, f.TotalAbsGaussianCurvatureReference, f.TotalAbsGaussianCurvatureMesh });
             return v;
         }
 
@@ -599,6 +604,225 @@ namespace geometry3Sharp.Tests
             Assert.Equal(1.0, f.OuterShare);
             Assert.Equal(1.0, f.OuterEdgeShare);
             Assert.Equal(1.0, f.OuterRecall[0]);
+        }
+
+        [Fact]
+        public void OuterVolumeIoU_InteriorShellAndLayers_EqualsShellFree()
+        {
+            // a closed box with an interior shell (same orientation, winding number 2 inside it) and two stacked interior
+            // layers facing down (below both, their winding numbers add to about -0.8, so the box's solid gets a hole
+            // there), against the box itself (the repair to the solid): the whole reference's solid misses the region
+            // under the layers, the solid of its outer faces is the box's, sample for sample
+            DMesh3 box = Box(Vector3d.Zero, Vector3d.One);
+            DMesh3 reference = new DMesh3(box);
+            MeshEditor.Append(reference, Box(new Vector3d(0.6, 0.6, 0.6), new Vector3d(0.9, 0.9, 0.9)));
+            MeshEditor.Append(reference, Quad(new Vector3d(0.1, 0.1, 0.5), new Vector3d(0, 0.8, 0), new Vector3d(0.8, 0, 0), 4, false));
+            MeshEditor.Append(reference, Quad(new Vector3d(0.1, 0.1, 0.4), new Vector3d(0, 0.8, 0), new Vector3d(0.8, 0, 0), 4, false));
+            Assert.True(MeshAnalysisNormals.TriNormal(reference, reference.TriangleCount - 1).z < -0.99);
+            var withInterior = Run(reference, box);
+            var shellFree = Run(new DMesh3(box), box);
+            Assert.Equal(1.0, shellFree.VolumeIoU);
+            Assert.Equal(1.0, shellFree.OuterVolumeIoU);
+            Assert.Equal(1.0, shellFree.OuterFaceShare);
+            // the interior distorts the winding number solid: about 2 % of the box missing
+            Assert.InRange(withInterior.VolumeIoU, 0.9, 0.995);
+            Assert.Equal(0.0, withInterior.VolumeMissing);
+            Assert.InRange(withInterior.VolumeExtra, 0.005, 0.1);
+            Assert.Equal(shellFree.OuterVolumeIoU, withInterior.OuterVolumeIoU);
+            Assert.Equal(0.0, withInterior.OuterVolumeMissing);
+            Assert.Equal(0.0, withInterior.OuterVolumeExtra);
+            // outer faces: the box (area 6 of 6 + 0.54 + 2 * 0.64). The shell and the upper layer go in the first round; the
+            // part of the lower layer under the upper one passes the rule of OuterSurface then (the upper layer lowers its
+            // mean winding number below 0.75), and goes in the second
+            Assert.Equal(6 / (6 + 0.54 + 1.28), withInterior.OuterFaceShare, 9);
+
+            // the same with the box open (a quad of its top missing): the solids of the open box are the same with and
+            // without the interior, the whole one is not
+            DMesh3 open = Quad(Vector3d.Zero, new Vector3d(0, 1, 0), new Vector3d(1, 0, 0), 4, false);
+            foreach (var side in new[] {
+                Quad(Vector3d.Zero, new Vector3d(1, 0, 0), new Vector3d(0, 0, 1), 4, false),
+                Quad(new Vector3d(0, 1, 0), new Vector3d(0, 0, 1), new Vector3d(1, 0, 0), 4, false),
+                Quad(Vector3d.Zero, new Vector3d(0, 0, 1), new Vector3d(0, 1, 0), 4, false),
+                Quad(new Vector3d(1, 0, 0), new Vector3d(0, 1, 0), new Vector3d(0, 0, 1), 4, false) })
+                MeshEditor.Append(open, side);
+            DMesh3 top = Quad(new Vector3d(0, 0, 1), new Vector3d(1, 0, 0), new Vector3d(0, 1, 0), 4, false);
+            foreach (int tid in top.TriangleIndices().ToArray())
+                if (top.GetTriCentroid(tid).x > 0.5 && top.GetTriCentroid(tid).x < 0.75 && top.GetTriCentroid(tid).y > 0.5 && top.GetTriCentroid(tid).y < 0.75)
+                    top.RemoveTriangle(tid);
+            MeshEditor.Append(open, top);
+            DMesh3 openInterior = new DMesh3(open);
+            MeshEditor.Append(openInterior, Box(new Vector3d(0.6, 0.6, 0.6), new Vector3d(0.9, 0.9, 0.9)));
+            MeshEditor.Append(openInterior, Quad(new Vector3d(0.1, 0.1, 0.5), new Vector3d(0, 0.8, 0), new Vector3d(0.8, 0, 0), 4, false));
+            MeshEditor.Append(openInterior, Quad(new Vector3d(0.1, 0.1, 0.4), new Vector3d(0, 0.8, 0), new Vector3d(0.8, 0, 0), 4, false));
+            var o1 = Run(openInterior, box);
+            var o0 = Run(open, box);
+            Assert.Equal(o0.OuterVolumeIoU, o1.OuterVolumeIoU);
+            Assert.True(o1.VolumeIoU < o0.VolumeIoU - 0.005, $"{o1.VolumeIoU} vs {o0.VolumeIoU}");
+            Assert.InRange(o0.OuterVolumeIoU, 0.99, 1.0);
+        }
+
+        [Fact]
+        public void OuterVolumeIoU_OverlappingPartsAndSheets()
+        {
+            // overlapping closed boxes against their union: the faces inside the other box are left out, the ones that
+            // cross it are kept, and the outer faces still enclose the union
+            DMesh3 a = Box(Vector3d.Zero, Vector3d.One), b = Box(new Vector3d(0.5, 0.25, 0.25), new Vector3d(1.5, 0.75, 0.75));
+            var union = new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Union);
+            Assert.True(union.Compute());
+            DMesh3 reference = new DMesh3(a);
+            MeshEditor.Append(reference, b);
+            var f = Run(reference, union.Result);
+            Assert.True(f.VolumeIoU > 0.995, $"{f.VolumeIoU}");
+            Assert.True(f.OuterVolumeIoU > 0.99, $"{f.OuterVolumeIoU}");
+            Assert.True(f.OuterFaceShare < 1, $"{f.OuterFaceShare}");
+            // a double-sided fin on the box adds no volume, its faces are not outer
+            DMesh3 finned = Box(Vector3d.Zero, Vector3d.One);
+            MeshEditor.Append(finned, Quad(new Vector3d(1, 0.5, 0), new Vector3d(0.5, 0, 0), new Vector3d(0, 0, 1), 5, false));
+            MeshEditor.Append(finned, Quad(new Vector3d(1, 0.5, 0), new Vector3d(0.5, 0, 0), new Vector3d(0, 0, 1), 5, true));
+            var ff = Run(finned, Box(Vector3d.Zero, Vector3d.One));
+            Assert.Equal(1.0, ff.OuterVolumeIoU);
+            Assert.Equal(6.0 / 7.0, ff.OuterFaceShare, 9);
+            // an open sheet encloses nothing: NaN, also for the outer faces (all of them)
+            DMesh3 sheet = Plate(0, 1, 0, 10);
+            var fs = Run(sheet, new DMesh3(sheet));
+            Assert.True(double.IsNaN(fs.VolumeIoU) && double.IsNaN(fs.VolumeMissing) && double.IsNaN(fs.OuterVolumeIoU));
+            Assert.Equal(1.0, fs.OuterFaceShare);
+            // a solid that the mesh misses entirely, and off switches
+            DMesh3 far = Box(new Vector3d(5, 5, 5), new Vector3d(6, 6, 6));
+            var fm = Run(a, far, 0.01);
+            Assert.Equal(0.0, fm.VolumeIoU);
+            Assert.Equal(1.0, fm.VolumeMissing);
+            Assert.InRange(fm.VolumeExtra, 0.95, 1.05);       // the same volume, sampled
+            Assert.Equal(0.0, fm.OuterVolumeIoU);
+            var off = new MeshFidelityMetrics(reference, union.Result) { VolumeSamples = 0 };
+            Assert.True(off.Compute());
+            Assert.True(double.IsNaN(off.VolumeIoU) && double.IsNaN(off.OuterVolumeIoU) && double.IsNaN(off.OuterFaceShare));
+            var noOuter = new MeshFidelityMetrics(reference, union.Result) { OuterSurface = false };
+            Assert.True(noOuter.Compute());
+            Assert.Equal(f.VolumeIoU, noOuter.VolumeIoU);
+            Assert.True(double.IsNaN(noOuter.OuterVolumeIoU) && double.IsNaN(noOuter.OuterFaceShare));
+        }
+
+        [Fact]
+        public void VolumeIoU_SameAsMeshRepairMetrics()
+        {
+            // the same samples as MeshRepairMetrics.VolumeIoU (a mesh at the origin, so the local copies are the meshes)
+            DMesh3 reference = Sphere(1, 16), mesh = Sphere(1.05, 12);
+            Vector3d center;
+            MeshFidelityMetrics.SizeOf(reference, out center);
+            MeshTransforms.Translate(reference, -center);
+            MeshTransforms.Translate(mesh, -center);
+            var f = Run(reference, mesh);
+            double missing, extra;
+            double iou = MeshRepairMetrics.VolumeIoU(reference, mesh, out missing, out extra);
+            Assert.Equal(iou, f.VolumeIoU);
+            Assert.Equal(missing, f.VolumeMissing);
+            Assert.Equal(extra, f.VolumeExtra);
+            // about (1 / 1.05)^3
+            Assert.InRange(f.VolumeIoU, 0.85, 0.88);
+        }
+
+        [Fact]
+        public void Curvature_IdenticalAndRefinedSpheres()
+        {
+            DMesh3 sphere = MeshCurvatureTests.Icosphere(1, 3);
+            var same = Run(sphere, new DMesh3(sphere));
+            Assert.True(same.MeanCurvatureError < 1e-9 && same.GaussianCurvatureError < 1e-9, $"{same.MeanCurvatureError} {same.GaussianCurvatureError}");
+            // (other samples on the same surface)
+            Assert.True(same.MeanCurvatureDistance < 1e-6 && same.GaussianCurvatureDistance < 1e-5, $"{same.MeanCurvatureDistance} {same.GaussianCurvatureDistance}");
+            Assert.Equal(same.SurfaceSamples, same.CurvatureMeshToReference.Samples);
+            // H * Size = 2, K * Size^2 = 4 on a sphere (Size = its diameter)
+            Assert.Equal(2, same.CurvatureMeshToReference.MeanAbs, 3);
+            Assert.InRange(same.CurvatureMeshToReference.GaussianAbs, 3.96, 4.04);
+            // total |H| A_M / Size = 4 pi r^2 / r / 2r = 2 pi; total |deficit| = 4 pi
+            // (of the polyhedron's area, H = 1 within 3e-5)
+            double area = sphere.TriangleIndices().Sum(t => sphere.GetTriArea(t));
+            Assert.InRange(area / 2, 2 * Math.PI * 0.99, 2 * Math.PI);
+            Assert.Equal(area / 2, same.TotalAbsMeanCurvatureReference, 3);
+            Assert.Equal(4 * Math.PI, same.TotalAbsGaussianCurvatureReference, 9);
+            // a sphere against its refinement: small differences (the discretization error of both), shrinking with the
+            // refinement by about 4 (second order)
+            var r4 = Run(sphere, MeshCurvatureTests.Icosphere(1, 4));
+            var r45 = Run(MeshCurvatureTests.Icosphere(1, 4), MeshCurvatureTests.Icosphere(1, 5));
+            Assert.True(r4.MeanCurvatureError < 2e-3 && r4.GaussianCurvatureError < 0.05, $"{r4.MeanCurvatureError} {r4.GaussianCurvatureError}");
+            Assert.True(r45.GaussianCurvatureError < r4.GaussianCurvatureError / 3, $"{r45.GaussianCurvatureError} {r4.GaussianCurvatureError}");
+            Assert.True(r45.GaussianCurvatureDistance < r4.GaussianCurvatureDistance / 3, $"{r45.GaussianCurvatureDistance} {r4.GaussianCurvatureDistance}");
+            Assert.True(r45.MeanCurvatureError < r4.MeanCurvatureError / 3, $"{r45.MeanCurvatureError} {r4.MeanCurvatureError}");
+            // a larger sphere (radius 1.1): H * Size 2 / 1.1, K * Size^2 4 / 1.21, everywhere (threshold 10 %, so the
+            // samples are matched)
+            DMesh3 large = MeshCurvatureTests.Icosphere(1.1, 4);
+            var fl = Run(MeshCurvatureTests.Icosphere(1, 4), large, 0.1);
+            double dh = 2 - 2 / 1.1, dk = 4 - 4 / 1.21;
+            // (within the discretization error of K at 2562 vertices, 0.15 %)
+            Assert.InRange(fl.MeanCurvatureDistance, dh * 0.999, dh * 1.001);
+            Assert.InRange(fl.MeanCurvatureError, dh * 0.999, dh * 1.001);
+            Assert.InRange(fl.GaussianCurvatureDistance, dk * 0.99, dk * 1.01);
+            Assert.InRange(fl.GaussianCurvatureError, dk * 0.99, dk * 1.01);
+            // an ellipsoid (z * 1.3) differs far more than the refinement
+            DMesh3 ellipsoid = MeshCurvatureTests.Icosphere(1, 4);
+            MeshTransforms.Scale(ellipsoid, new Vector3d(1, 1, 1.3), Vector3d.Zero);
+            var fe = Run(sphere, ellipsoid, 0.2);
+            Assert.True(fe.MeanCurvatureError > 50 * r4.MeanCurvatureError, $"{fe.MeanCurvatureError} vs {r4.MeanCurvatureError}");
+            Assert.True(fe.GaussianCurvatureDistance > 10 * r4.GaussianCurvatureDistance, $"{fe.GaussianCurvatureDistance} vs {r4.GaussianCurvatureDistance}");
+        }
+
+        [Fact]
+        public void Curvature_PlaneAndCylinder_OpenAndDegenerate()
+        {
+            // a plane remeshed: H = K = 0 on both; only the interior vertices count (boundary not Valid)
+            var plane = Run(Plate(0, 1, 0, 10), Plate(0, 1, 0, 7));
+            Assert.True(plane.MeanCurvatureError < 1e-9 && plane.GaussianCurvatureError < 1e-9);
+            Assert.True(plane.MeanCurvatureDistance < 1e-9 && plane.GaussianCurvatureDistance < 1e-9);
+            Assert.True(plane.CurvatureMeshToReference.Samples > 0.9 * plane.SurfaceSamples);
+            Assert.Equal(0, plane.TotalAbsGaussianCurvatureReference, 9);
+            // a cylinder of radius 1 and height 3 at two resolutions: K = 0, H = 1 / 2 (H * Size = Size / 2)
+            DMesh3 c1 = MeshCurvatureTests.Cylinder(1, 3, 64, 32), c2 = MeshCurvatureTests.Cylinder(1, 3, 48, 40);
+            var fc = Run(c1, c2);
+            Assert.True(fc.GaussianCurvatureError < 1e-6, $"{fc.GaussianCurvatureError}");
+            Assert.True(fc.MeanCurvatureError < 2e-3 * fc.CurvatureMeshToReference.MeanAbs, $"{fc.MeanCurvatureError}");
+            Assert.Equal(0.5 * fc.Size, fc.CurvatureMeshToReference.MeanAbs, 2);
+            // a mesh made only of degenerate triangles has no surface to sample (false), one with a few degenerate
+            // triangles gives finite values
+            DMesh3 withSliver = new DMesh3(c1);
+            int eid = withSliver.EdgeIndices().First(e => withSliver.IsBoundaryEdge(e) == false);
+            Index2i ev = withSliver.GetEdgeV(eid);
+            DMesh3.EdgeSplitInfo info;
+            Assert.Equal(MeshResult.Ok, withSliver.SplitEdge(eid, out info));
+            withSliver.SetVertex(info.vNew, withSliver.GetVertex(ev.a));
+            var fd = Run(c1, withSliver);
+            Assert.True(double.IsFinite(fd.MeanCurvatureError) && double.IsFinite(fd.GaussianCurvatureError)
+                && double.IsFinite(fd.MeanCurvatureDistance) && double.IsFinite(fd.GaussianCurvatureDistance));
+            // off: NaN
+            var off = new MeshFidelityMetrics(c1, c2) { Curvature = false };
+            Assert.True(off.Compute());
+            Assert.True(double.IsNaN(off.MeanCurvatureError) && double.IsNaN(off.TotalAbsMeanCurvatureMesh) && off.CurvatureMeshToReference == null);
+        }
+
+        [Fact]
+        public void Curvature_OnlyMatchedSamplesCompared()
+        {
+            // the reference has a flat plate far from the sphere that the mesh lost: its samples have no counterpart
+            // (the F-score shows the loss) and are not compared, so the errors stay those of the sphere; the
+            // distributions see the plate's zeros
+            DMesh3 sphere = MeshCurvatureTests.Icosphere(1, 3);
+            DMesh3 reference = new DMesh3(sphere);
+            MeshEditor.Append(reference, Plate(4, 6, 0, 12));
+            var f = Run(reference, new DMesh3(sphere));
+            // (plate area 2 of 2 + 12.5)
+            Assert.InRange(f.CurvatureReferenceToMesh.Samples, 0.82 * f.SurfaceSamples, 0.9 * f.SurfaceSamples);
+            Assert.Equal(f.SurfaceSamples, f.CurvatureMeshToReference.Samples);
+            Assert.True(f.MeanCurvatureError < 1e-9 && f.GaussianCurvatureError < 1e-9, $"{f.MeanCurvatureError} {f.GaussianCurvatureError}");
+            Assert.True(f.MeanCurvatureDistance > 0.1, $"{f.MeanCurvatureDistance}");
+        }
+
+        [Fact]
+        public void Wasserstein1_Analytic()
+        {
+            Assert.Equal(0.0, MeshFidelityMetrics.Wasserstein1(new[] { 1.0, 2, 3 }, new[] { 3.0, 1, 2 }));
+            Assert.Equal(0.5, MeshFidelityMetrics.Wasserstein1(new[] { 0.0, 1 }, new[] { 0.5, 1.5 }), 15);
+            // a point mass against a uniform pair: |0 - 1| / 2 + |2 - 1| / 2
+            Assert.Equal(1.0, MeshFidelityMetrics.Wasserstein1(new[] { 1.0 }, new[] { 0.0, 2 }), 15);
+            Assert.True(double.IsNaN(MeshFidelityMetrics.Wasserstein1(new double[0], new[] { 1.0 })));
         }
 
         [Fact]
