@@ -67,24 +67,27 @@ selectively.
 - [ ] Remeshers produce self-intersections: with the `g3cli remesh` settings 19 of 20 Thingi10K results have
   self-intersecting triangle pairs (19910 pairs, the inputs 1522), mostly from valence flips and collapses (no
   geometric check by default). `MinTriangleQuality` reduces them (3158 pairs; far fewer are created during the passes)
-  but does not prevent them, and 10 of 150 procedural primitives end with a few more pairs than without it, all at the
+  but does not prevent them, and 9 of 150 procedural primitives end with a few more pairs than without it, all at the
   bottom rim where the flat cap meets the side (projection moves across the rim, no normal flips): repro cases in
   `benchmarks/RemeshQualityBenchmark`: taper10_x0.15 (12 -> 16 pairs), taper16_x0.1 (0 -> 12), taper32_x0.1 (0 -> 12),
-  taper32_x0.6 (0 -> 8), cone16_x0.45 (0 -> 10), cone16_x0.6 (51 -> 67), cone24_x0.15 (0 -> 6), cone24_x0.3 (0 -> 10),
-  cone24_x0.6 (0 -> 31), cone32_x0.6 (0 -> 8). Needs an intersection check per operation (local AABB of the
+  taper32_x0.6 (0 -> 8), cone16_x0.45 (0 -> 10), cone24_x0.15 (0 -> 6), cone24_x0.3 (0 -> 10), cone24_x0.6 (0 -> 31),
+  cone32_x0.6 (0 -> 8) (and cone12_x0.6, cone16_x0.6, flattened to zero volume without `RejectInvertingPasses`). Needs an intersection check per operation (local AABB of the
   one-ring) or a repair pass after remeshing.
 - [ ] Remeshing far above the wall thickness folds walls through each other and can turn a mesh inside out, with
   and without `MinTriangleQuality`: Thingi10K 135363 (a 0.8 plate with thin-walled tubes, walls 0.75, target = mean
   edge 11.6) ends inside-out in both variants (signed volume 4448 -> -4706 without, -4021 with the option; the sign
   changes at pass 10 / 8); the thin-walled tubes of `benchmarks/RemeshQualityBenchmark` (wall 0.05 / 0.1, targets
   0.5..1.6) end with dozens to hundreds of self-intersecting pairs in every case and 2%..700% of the input volume,
-  some inside-out (`Remesher`: 3 of 24 without the option, none with it; `RemesherPro`: tube16_w0.05_t1.6 only without,
-  tube32_w0.05_t1.6 only with it), the sign of the volume changing back and forth over the passes. Needs thickness-aware sizing (target below the local wall thickness) or
-  the intersection check above; at least a guard that detects it (signed volume of each closed component per pass,
-  roll back or report) and a warning in `g3cli remesh` when the target exceeds the wall thickness.
+  some inside-out (`Remesher`: 3 of 24 without the option, none with it; `RemesherPro`: tube16_w0.05_t1.6 only
+  without, tube32_w0.05_t1.6 only with it), the sign of the volume changing back and forth over the passes.
+  Done: `Remesher.RejectInvertingPasses` (default on, also `RemesherPro`) rolls back a pass that turns a closed
+  component inside out and counts it (`InvertingPassesRejected`); `g3cli remesh` reports the rolled-back passes and
+  warns when the edge length is more than 4 times the estimated wall thickness. Open: the result is still
+  self-intersecting and far off the volume (the guard only keeps the orientation); needs thickness-aware sizing
+  (target below the local wall thickness) or the intersection check above.
 - [ ] Feature detection misses vertex features: the apex of a smooth cone (no crease edges) is not pinned and is rounded
   off by the remeshers: cones with 12 or more slices (their side edges are no creases) 1.4..2.8 target edge lengths
-  from the input; with `MinTriangleQuality` 1.4..3.2, more in 11 of these 24 cases of `benchmarks/RemeshQualityBenchmark`
+  from the input; with `MinTriangleQuality` 1.4..3.2, more in 12 of these 24 cases of `benchmarks/RemeshQualityBenchmark`
   (its guards keep a few vertices near the apex up to an edge off the surface). Cones with up to 10 slices keep the
   apex as a junction of creases. Detect and pin sharp vertices (eg by the normal cone or the angle deficit of their
   one-ring) in `PreserveBoundaryAndFeatures`.
@@ -133,6 +136,17 @@ selectively.
 - [x] Analysis building blocks: wall thickness (`MeshWallThickness`: ray, shape diameter function, inscribed ball /
   medial axis), deviation maps (`MeshDeviation`, statistics in `DeviationStatistics`), primitive fitting
   (`PrimitiveFit3`: plane, sphere, cylinder, cone; RANSAC + least squares)
+- [x] Evaluation metrics, so that optimization decisions do not rest on Hausdorff distance and volume IoU alone (they
+  miss lost features, reversed patches and topology changes): `MeshFidelityMetrics` (F-score at relative thresholds,
+  Chamfer distance, normal consistency and the share of reversed normals, Edge Chamfer distance and edge
+  precision / recall on sharp edges), `TriangleQualityStatistics` (Verdict metrics as distributions),
+  `MeshTopologySummary` (components, Euler characteristic, genus, boundary loops, changes).
+  - [x] In the benchmarks: MeshRepairBenchmark (`fm_*` fields, `analyze_fidelity.py` columns and flags, baseline on
+    Thingi10K and Objaverse with the outer surface measures), RemeshBenchmark, UVAtlasBenchmark (UV quality, charts
+    that are not discs)
+  - [ ] Volume IoU restricted to the outer surface (the input's winding number solid is distorted by the same
+    interior faces; on Objaverse the next most common miss)
+  - [ ] Curvature fidelity (discrete mean / Gaussian curvature after Meyer et al. 2003, difference of the distributions)
 - A showcase domain: terrain / GIS (in progress) and biomedical / orthotics
 
 ## Later

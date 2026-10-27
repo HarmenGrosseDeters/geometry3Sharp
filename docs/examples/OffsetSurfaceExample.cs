@@ -16,7 +16,7 @@ namespace g3.Examples
             var sdf = new MeshSignedDistanceGrid(mesh, cellSize) { ExactBandWidth = band };
             sdf.Compute();
 
-            var implicitF = new DenseGridTrilinearImplicit(sdf.Grid, sdf.GridOrigin, sdf.CellSize);
+            var implicitF = new DenseGridTrilinearImplicit(sdf.Grid, sdf.GridOriginD, sdf.CellSize);
             AxisAlignedBox3d bounds = mesh.CachedBounds;
             bounds.Expand(System.Math.Max(offset, 0) + 2 * cellSize);
             var mc = new MarchingCubes() {

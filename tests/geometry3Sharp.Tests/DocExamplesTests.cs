@@ -256,6 +256,28 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void FidelityMetricsExample_SeesWhatHausdorffMisses()
+        {
+            // the same sphere with a reversed cap: Hausdorff 0, but a share of reversed normals
+            DMesh3 s = Sphere(1, Vector3d.Zero);
+            DMesh3 flipped = new DMesh3(s);
+            foreach (int tid in flipped.TriangleIndices().ToArray())
+                if (flipped.GetTriCentroid(tid).z > 0.5) flipped.ReverseTriOrientation(tid);
+            FidelityMetricsExample.Report r = FidelityMetricsExample.Compare(s, flipped);
+            Assert.Equal(1.0, r.FScore);
+            Assert.InRange(r.Reversed, 0.15, 0.35);
+            Assert.Equal(MeshTopologySummary.Changes.None, r.TopologyChanges);
+            Assert.True(r.MinAngle1Percent > 20);
+            // a box against a sphere: its sharp edges are lost
+            DMesh3 box = new TrivialBox3Generator() { Box = new Box3d(Vector3d.Zero, 0.6 * Vector3d.One) }.Generate().MakeDMesh();
+            FidelityMetricsExample.Report lost = FidelityMetricsExample.Compare(box, s);
+            Assert.True(double.IsPositiveInfinity(lost.EdgeChamfer));
+            Assert.Equal(0.0, lost.EdgeRecall);
+            Assert.True(lost.FScore < 0.5);
+            Assert.Null(FidelityMetricsExample.Compare(box, new DMesh3()));
+        }
+
+        [Fact]
         public void RemeshExample_ReachesTargetEdgeLengthAndKeepsBoundary()
         {
             DMesh3 mesh = Grid(10, 10);     // edge length 1 (diagonals 1.41)

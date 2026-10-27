@@ -54,7 +54,7 @@ namespace gs
         public bool DebugPrint = false;
 
         // computed results
-        Vector3f grid_origin;
+        Vector3d grid_origin;
         DenseGrid3f scalar_grid;
 
         // sdf grid we compute in narrow-band mode
@@ -77,11 +77,14 @@ namespace gs
             AxisAlignedBox3d bounds = Mesh.CachedBounds;
 
             float fBufferWidth = 2 * BufferCells * (float)CellSize;
-            grid_origin = (Vector3f)bounds.Min - fBufferWidth * Vector3f.One;
-            Vector3f max = (Vector3f)bounds.Max + fBufferWidth * Vector3f.One;
-            int ni = (int)((max.x - grid_origin.x) / (float)CellSize) + 1;
-            int nj = (int)((max.y - grid_origin.y) / (float)CellSize) + 1;
-            int nk = (int)((max.z - grid_origin.z) / (float)CellSize) + 1;
+            // (the origin and the sample positions are doubles: upstream computed them in float, up to 0.25 off at UTM
+            // coordinates; GridOrigin is the origin rounded to float, GridOriginD the exact one)
+            Vector3d origin = bounds.Min - (double)fBufferWidth * Vector3d.One;
+            Vector3i dims = SamplingGridSize.Dimensions(origin, bounds.Max + (double)fBufferWidth * Vector3d.One, (float)CellSize);
+            if (dims.x < 0)
+                throw new ArgumentException("MeshScalarSamplingGrid.Compute: the cell size and the mesh bounds must be finite and give a grid that fits in an array");
+            int ni = dims.x, nj = dims.y, nk = dims.z;
+            grid_origin = origin;
 
             scalar_grid = new DenseGrid3f();
             if ( ComputeMode == ComputeModes.FullGrid )
@@ -107,6 +110,14 @@ namespace gs
         /// Origin of the grid, in same coordinates as mesh
         /// </summary>
         public Vector3f GridOrigin {
+            get { return (Vector3f)grid_origin; }
+        }
+
+        /// <summary>
+        /// Origin of the grid (position of sample [0,0,0]) in double precision: sample (i,j,k) is at
+        /// GridOriginD + CellSize*(i,j,k). GridOrigin is this rounded to float (up to 0.25 off at UTM coordinates).
+        /// </summary>
+        public Vector3d GridOriginD {
             get { return grid_origin; }
         }
 
@@ -126,15 +137,14 @@ namespace gs
 
         public Vector3f CellCenter(int i, int j, int k)
         {
-            return new Vector3f((float)i * CellSize + grid_origin.x,
-                                (float)j * CellSize + grid_origin.y,
-                                (float)k * CellSize + grid_origin.z);
+            double dx = (float)CellSize;
+            return (Vector3f)new Vector3d(i * dx + grid_origin.x, j * dx + grid_origin.y, k * dx + grid_origin.z);
         }
 
 
 
 
-        void make_grid(Vector3f origin, float dx,
+        void make_grid(Vector3d origin, float dx,
                              int ni, int nj, int nk,
                              DenseGrid3f scalars)
         {
@@ -172,7 +182,7 @@ namespace gs
                     float dist = distances[ijk];
                     // this could be tighter? but I don't think it matters...
                     if (dist < CellSize) {
-                        Vector3d gx = new Vector3d((float)ijk.x * dx + origin[0], (float)ijk.y * dx + origin[1], (float)ijk.z * dx + origin[2]);
+                        Vector3d gx = new Vector3d((double)ijk.x * dx + origin[0], (double)ijk.y * dx + origin[1], (double)ijk.z * dx + origin[2]);
                         scalars[ijk] = (float)ScalarF(gx);
                     }
                 }
@@ -230,7 +240,7 @@ namespace gs
                             continue;
                         float val2 = scalars[nijk];
                         if (val2 == float.MaxValue) {
-                            Vector3d gx = new Vector3d((float)nijk.x * dx + origin[0], (float)nijk.y * dx + origin[1], (float)nijk.z * dx + origin[2]);
+                            Vector3d gx = new Vector3d((double)nijk.x * dx + origin[0], (double)nijk.y * dx + origin[1], (double)nijk.z * dx + origin[2]);
                             val2 = (float)ScalarF(gx);
                             scalars[nijk] = val2;
                         }
@@ -291,7 +301,7 @@ namespace gs
 
 
 
-        void make_grid_dense(Vector3f origin, float dx,
+        void make_grid_dense(Vector3d origin, float dx,
                              int ni, int nj, int nk,
                              DenseGrid3f scalars)
         {
@@ -305,7 +315,7 @@ namespace gs
                 if (abort)
                     return;
 
-                Vector3d gx = new Vector3d((float)ijk.x * dx + origin[0], (float)ijk.y * dx + origin[1], (float)ijk.z * dx + origin[2]);
+                Vector3d gx = new Vector3d((double)ijk.x * dx + origin[0], (double)ijk.y * dx + origin[1], (double)ijk.z * dx + origin[2]);
                 scalars[ijk] = (float)ScalarF(gx);
             });
 
@@ -319,13 +329,13 @@ namespace gs
         // known cell in its x-row; only its side of IsoValue matters. (This used to propagate 0 for every value
         // below IsoValue and start rows at 0, as in MeshWindingNumberGrid, which puts the cells on the wrong
         // side for a function whose outside is not below IsoValue, e.g. a signed distance with IsoValue 0.)
-        void fill_spans(Vector3f origin, float dx, int ni, int nj, int nk, DenseGrid3f scalars)
+        void fill_spans(Vector3d origin, float dx, int ni, int nj, int nk, DenseGrid3f scalars)
         {
             gParallel.ForEach(gIndices.Grid3IndicesYZ(nj, nk), (idx) => {
                 int j = idx.y, k = idx.z;
                 if (scalars[0, j, k] == float.MaxValue) {
                     // nothing known at the start of the row: evaluate the function there
-                    Vector3d gx = new Vector3d(origin[0], (float)j * dx + origin[1], (float)k * dx + origin[2]);
+                    Vector3d gx = new Vector3d(origin[0], (double)j * dx + origin[1], (double)k * dx + origin[2]);
                     scalars[0, j, k] = (float)ScalarF(gx);
                 }
                 float last = scalars[0, j, k];

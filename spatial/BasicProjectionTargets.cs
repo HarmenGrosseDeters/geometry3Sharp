@@ -32,6 +32,8 @@ namespace g3
         public virtual Vector3d Project(Vector3d vPoint, int identifier = -1)
         {
             int tNearestID = Spatial.FindNearestTriangle(vPoint);
+            if (tNearestID == DMesh3.InvalidID)     // no triangle (eg a NaN point or target): the point stays
+                return vPoint;
             Triangle3d triangle = new Triangle3d();
             Mesh.GetTriVertices(tNearestID, ref triangle.V0, ref triangle.V1, ref triangle.V2);
             Vector3d nearPt, bary;
@@ -42,6 +44,10 @@ namespace g3
         public virtual Vector3d Project(Vector3d vPoint, out Vector3d vProjectNormal, int identifier = -1)
         {
             int tNearestID = Spatial.FindNearestTriangle(vPoint);
+            if (tNearestID == DMesh3.InvalidID) {
+                vProjectNormal = Vector3d.Zero;
+                return vPoint;
+            }
             Triangle3d triangle = new Triangle3d();
             Mesh.GetTriVertices(tNearestID, ref triangle.V0, ref triangle.V1, ref triangle.V2);
             Vector3d nearPt, bary;
