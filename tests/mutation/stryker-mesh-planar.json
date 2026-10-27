@@ -23,6 +23,7 @@
       "high": 90,
       "low": 60,
       "break": 0
-    }
+    },
+    "concurrency": 2
   }
 }

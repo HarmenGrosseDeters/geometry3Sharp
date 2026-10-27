@@ -122,10 +122,21 @@ jobs:
         run: dotnet tool restore
       - name: Stryker
         working-directory: tests/mutation
+        # a mutant can turn a loop into one that allocates without end: a heap limit per process makes that an
+        # OutOfMemoryException in the test host (the mutant is killed) instead of a runner that runs out of memory
+        env:
+          DOTNET_GCHeapHardLimit: '0x180000000'   # 6 GB
         run: dotnet stryker --config-file stryker-mesh-${{ matrix.shard }}.json
       - name: Summary
         if: always()
         run: cat tests/mutation/StrykerOutput/*/reports/mutation-report.md >> "$GITHUB_STEP_SUMMARY" || true
+      - name: Surviving mutants
+        if: always()
+        run: >
+          jq -r '.files | to_entries[] | .key as $f | .value.mutants[]
+          | select(.status == "Survived" or .status == "NoCoverage")
+          | "\(.status) \($f | split("/") | last):\(.location.start.line) \(.mutatorName): \(.replacement // "" | gsub("\n"; " ") | .[0:160])"'
+          tests/mutation/StrykerOutput/*/reports/mutation-report.json || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:
