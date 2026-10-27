@@ -40,9 +40,10 @@ namespace geometry3Sharp.Tests
                 var g = new MeshGeodesicDistance(Invariance.Transformed(mesh, s)) { IntrinsicRefine = refine };
                 Assert.True(g.Compute(new[] { src }));
                 Assert.Equal(g0.Refinement.InsertedVertices, g.Refinement.InsertedVertices);
-                double tol = s.IsExact ? 1e-12 : 1e-9 + 64 * s.Resolution(2);
+                // 2^k scales: the same bits
+                double tol = s.IsExact ? 0 : 1e-9 + 64 * s.Resolution(2);
                 foreach (int vid in mesh.VertexIndices())
-                    Assert.True(Math.Abs(g0.Distance[vid] - g.Distance[vid] / s.Scale) < tol,
+                    Assert.True(s.IsExact ? g0.Distance[vid] == g.Distance[vid] / s.Scale : Math.Abs(g0.Distance[vid] - g.Distance[vid] / s.Scale) < tol,
                         $"{s.Name}, refine {refine}, vertex {vid}: {g0.Distance[vid]} vs {g.Distance[vid] / s.Scale}");
             }
         }
