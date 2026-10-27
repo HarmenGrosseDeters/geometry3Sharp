@@ -38,6 +38,7 @@ Add both: `using g3; using gs;`.
 | Repair with a clean result guaranteed | `gs.MeshRobustRepair` | [MeshRepairExample](examples/MeshRepairExample.cs) |
 | Fill holes | `gs.MinimalHoleFill`, `gs.SmoothedHoleFill`, `gs.AutoHoleFill`, `SimpleHoleFiller`, `MeshBoundaryLoops` | [HoleFillExample](examples/HoleFillExample.cs) |
 | Check a mesh (self-intersections, folds, volume IoU) | `gs.MeshRepairMetrics`, `MeshRobustRepair.NotCleanReason` (first failed check; `NotCleanReasons` / `FindDefects`: all of them), `DMesh3.CheckValidity`, `MeshValidation` | [RepairMetricsExample](examples/RepairMetricsExample.cs) |
+| Compare a result with its input: F-score, normal consistency and reversed normals, sharp edges kept (Edge Chamfer), triangle quality (Verdict), topology changes | `gs.MeshFidelityMetrics`, `gs.TriangleQualityStatistics`, `gs.MeshTopologySummary` | [FidelityMetricsExample](examples/FidelityMetricsExample.cs) |
 | Rebuild any input as a closed solid | `gs.MeshWindingNumberSolidify` | [WindingNumberSolidifyExample](examples/WindingNumberSolidifyExample.cs) |
 | Booleans (union, intersection, difference) of two or more meshes, winding number predicates (eg inside at least k of n), resolve self-intersections | `ExactMeshBoolean`, `ExactMeshBoolean.AtLeast`, `ExactMeshBoolean.Resolve` | [ExactMeshBooleanExample](examples/ExactMeshBooleanExample.cs) |
 | Isotropic remeshing | `Remesher`, `gs.RemesherPro`, `MeshConstraintUtil`, `MeshProjectionTarget` | [RemeshExample](examples/RemeshExample.cs) |
@@ -63,7 +64,16 @@ Add both: `using g3; using gs;`.
 | Closed meshes that intersect themselves or each other, where the triangles must be kept exactly | `ExactMeshBoolean`, `ExactMeshBoolean.Resolve(mesh)` | exact arrangement, only the output coordinates are rounded; `SafeRounding = true` repairs the slivers and self-intersections the rounding leaves (`MeshRoundingRepair`, checked exactly, `RoundingClean`), `ComputeExactVertices = true` gives the exact rational coordinates (`ResultExactVertices`); flipped input triangles are reoriented per component first (the larger part by area keeps its orientation, `ReorientedTriangles`) |
 | Booleans of broken meshes (open, soups, overlapping shells) | `gs.MeshWindingNumberBoolean` | a new, remeshed closed surface (winding numbers on an adaptive octree) |
 
-`MeshBoolean` is the old, non-robust union of the original library; prefer `ExactMeshBoolean`.
+`MeshBoolean` is the old, non-robust union of the original library; prefer `ExactMeshBoolean`. Its snap
+tolerance (`VertexSnapTol`, 1e-5) is absolute: with the default it throws at millimetre scale and can hang or give
+other results at UTM coordinates.
+
+`ExactMeshBoolean` also takes open meshes (`AllowOpenMeshes`, default true): their solid is where the generalized
+winding number is above 1/2 (`ExactWinding[i]` false), and the result is generally open (`IsClosed()` false,
+`MeshRobustRepair.NotCleanReason` "not closed"). It is consistently oriented, also where an open boundary of an
+input lies on an edge that other pieces meet: there no inside/outside choice fits all the pieces, the pieces that
+run the edge the same way are not joined, and the result is open along the edge; `ConflictEdges` counts these edges
+(0 for closed inputs).
 
 ## The examples
 

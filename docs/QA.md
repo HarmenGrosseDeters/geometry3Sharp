@@ -333,7 +333,41 @@ G3_MINIMIZE=1 dotnet test tests/geometry3Sharp.Tests -c Release --filter "FullyQ
 Rounding can turn a case into a degenerate one with the same message (ddmin finds the smallest input with
 that message, not necessarily with the same cause). Check both the rounded and the unrounded case. Example:
 "random edits 6" (301 triangles) became 5 triangles in 10 s
-(`DefectInputTests.MinimizedRandomEdits6`), unrounded 34.
+(`DefectInputTests.MinimizedRandomEdits6`), unrounded 34 (`MinimizedRandomEdits6Unrounded`). Here both had the same
+cause, an open boundary on an edge that other pieces meet, in different shapes: the rounding made three triangles
+coplanar (with the sign of zero as the only difference between coincident vertices), the unrounded case kept the
+stray triangle that the comment of the original test called an interior sheet.
+
+### 2.10 Robustness sweep (`RobustnessSweepTests`, findings in [ROBUSTNESS_SWEEP.md](ROBUSTNESS_SWEEP.md))
+
+A table of public operations (mostly upstream code), each with a procedural input of size 1, its scalar
+parameter (a length, if any) and a signature of its result in the input's units (counts, lengths, areas,
+volumes, points, directions). Every operation runs:
+
+- under `Similarity.All()` plus scales of 2^-24 and 2^20. Under power-of-two scales the signature must be bit
+  identical, which catches absolute thresholds. Under the other similarities it must agree within the
+  operation's tolerance, which catches float code at UTM coordinates. An operation whose result varies in the
+  last bits from run to run would set `BitExact = false` (none does since R18 and R19 are fixed).
+- with a NaN or +Inf vertex, and a NaN or ±Inf parameter. The operation must finish within 20 s. It must not
+  throw, except an `ArgumentException` from its own type. It must not spread non-finite coordinates to
+  vertices that were finite. With a non-finite parameter it must report failure or give a finite result.
+
+Known failures are listed in `RobustnessSweepTests.KnownFailures` with their finding id. The list is strict: a
+listed case that passes fails the test, so a fix removes the entry. Two exceptions: known hangs are not run
+in the normal suite, so they are not strict, and on .NET Framework the list is not strict because it was taken
+on net10, where double-to-int casts saturate. Operations without an output mesh report their per-vertex values
+(normals, UVs, distances) with `Sig.PerVertex`, and the spreading check covers those values too.
+`Harness_*` tests check the harness itself: an invariant operation passes, and an absolute threshold, a float
+position, a value with the wrong unit, spreading and a deep exception are all found.
+`G3_SWEEP_REPORT=1` prints the outcome of every case, hangs included, instead of asserting. Hanging threads
+keep running until the process exits:
+
+```
+G3_SWEEP_REPORT=1 dotnet test tests/geometry3Sharp.Tests -c Release --filter "FullyQualifiedName~RobustnessSweepTests" --logger "console;verbosity=detailed" | grep SWEEP
+```
+
+To add an operation, add an `Op` to `RobustnessSweepTests.Ops`, run the report, and list its failures as
+findings.
 
 ## 3. Performance
 

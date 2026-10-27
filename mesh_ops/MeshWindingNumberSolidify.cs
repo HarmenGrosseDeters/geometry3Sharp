@@ -251,7 +251,7 @@ namespace gs
                 return null;
             end_phase("winding");
 
-            DenseGridTrilinearImplicit iso = new DenseGridTrilinearImplicit(mwn.Grid, mwn.GridOrigin, mwn.CellSize);
+            DenseGridTrilinearImplicit iso = new DenseGridTrilinearImplicit(mwn.Grid, mwn.GridOriginD, mwn.CellSize);
             iso.Outside = 0;    // default is a large value (meant for distance fields), but winding number 0 = outside
             AxisAlignedBox3d bounds = iso.Bounds();
             bounds.Expand(3 * cellSize);
