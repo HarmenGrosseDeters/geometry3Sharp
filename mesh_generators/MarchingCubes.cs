@@ -411,16 +411,20 @@ namespace g3
             // Since DMesh3 disallows that, it results in holes. So we pull 
             // slightly towards the other point along this edge. This means we will get
             // repeated nearly-coincident vertices, but the mesh will be manifold.
+            // (the thresholds are relative to the change of the field along the edge: the absolute 1e-5 of upstream
+            // snapped the crossings of a distance field to the edge ends or midpoints at small scales)
             const double dt = 0.999999;
-            if (Math.Abs(valp1 - valp2) < 0.00001) {
+            double tol = 0.00001 * (Math.Abs(IsoValue - valp1) + Math.Abs(IsoValue - valp2));
+            if (double.IsInfinity(tol)) tol = 0;      // (an infinite value: interpolate to the finite end, as upstream did)
+            if (Math.Abs(valp1 - valp2) <= tol) {
                 pIso = (p1 + p2) * 0.5;
                 return;
             }
-            if (Math.Abs(IsoValue - valp1) < 0.00001) {
+            if (Math.Abs(IsoValue - valp1) < tol) {
                 pIso = dt*p1 + (1.0-dt)*p2;
                 return;
             }
-            if (Math.Abs(IsoValue - valp2) < 0.00001) {
+            if (Math.Abs(IsoValue - valp2) < tol) {
                 pIso = (dt)*p2 + (1.0-dt)*p1;
                 return;
             }
