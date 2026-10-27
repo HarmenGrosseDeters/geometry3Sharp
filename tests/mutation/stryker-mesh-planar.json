@@ -9,7 +9,7 @@
       "**/mesh_ops/ExactPlanarSimplify.cs",
       "**/mesh_ops/ExactTriangulation2.cs"
     ],
-    "test-case-filter": "FullyQualifiedName~ExactPlanarSimplifyTests|FullyQualifiedName~ExactBooleanBuildingBlockTests|FullyQualifiedName~ExactMeshBooleanTests",
+    "test-case-filter": "FullyQualifiedName~ExactPlanarSimplifyTests|FullyQualifiedName~ExactBooleanBuildingBlockTests|FullyQualifiedName~ExactMeshBooleanTests|FullyQualifiedName~ExactTriangulation2Tests",
     "coverage-analysis": "perTest",
     "configuration": "Release",
     "additional-timeout": 30000,

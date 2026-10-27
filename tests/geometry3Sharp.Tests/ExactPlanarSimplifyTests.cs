@@ -146,5 +146,67 @@ namespace geometry3Sharp.Tests
                     if (off.Vertices().Contains(v))
                         Assert.Contains(v, verts);
         }
+
+        // A box standing on the top face of a larger one, turned by 45 degrees so that its bottom edges cross the top
+        // edges of the larger box: the difference is the larger box, and all the crossing points (on the top face
+        // and on its edges between the top and the sides) are removed again. The top face gets triangles from both
+        // inputs, whose planes have opposite normals (the bottom of the small box, flipped): one region.
+        [Fact]
+        public void Difference_BoxStandingOnTheTop_IsTheBox()
+        {
+            DMesh3 a = Box(0, 0, 0, 2, 2, 1);
+            DMesh3 b = Box(-1.2, -1.2, 1, 1.2, 1.2, 2);
+            MeshTransforms.Rotate(b, Vector3d.Zero, new Quaterniond(Vector3d.AxisZ, 45));
+            MeshTransforms.Translate(b, new Vector3d(1, 1, 0));
+            // (the corners of b are outside the top face, its edges cross the face's edges)
+            Assert.True(b.Vertices().All(v => v.x < 0 || v.x > 2 || v.y < 0 || v.y > 2));
+            var boolean = new ExactMeshBoolean(a, b, Ops.Difference);
+            Assert.True(boolean.Compute(), boolean.Error);
+            DMesh3 r = boolean.Result;
+            var plain = new ExactMeshBoolean(a, b, Ops.Difference) { SimplifyFlatRegions = false };
+            Assert.True(plain.Compute());
+            Assert.True(plain.Result.VertexCount > 8, "the case has no points to remove");
+            Assert.Equal(plain.Result.VertexCount - 8, boolean.RemovedVertices);
+            Assert.Equal(8, r.VertexCount);
+            Assert.Equal(12, r.TriangleCount);
+            Assert.True(r.IsClosed());
+            Assert.Equal(4.0, Volume(r), 12);
+            AssertInputCoordinates(r, new[] { 0.0, 1, 2 });
+        }
+
+        // the triangles of each flat region of the simplified result are (nearly) Delaunay: the point opposite an edge
+        // inside a region is not inside the circumcircle of the triangle on the other side (relative margin 1e-9,
+        // below which the simplification leaves nearly cocircular cases as they are). Only for results where every
+        // region was retriangulated: the flips start at the new triangles, and triangles of the arrangement that no
+        // removal touches stay as they are (on random boxes, eg, some are not Delaunay).
+        static void AssertFlatRegionsDelaunay(DMesh3 m)
+        {
+            int checkedEdges = 0;
+            foreach (int e in m.EdgeIndices()) {
+                Index2i et = m.GetEdgeT(e);
+                if (et.b == DMesh3.InvalidID || m.GetTriNormal(et.a).Distance(m.GetTriNormal(et.b)) > 1e-9)
+                    continue;
+                Index2i ev = m.GetEdgeV(e);
+                Index2i ov = m.GetEdgeOpposingV(e);
+                Vector3d a = m.GetVertex(ev.a), b = m.GetVertex(ev.b), p = m.GetVertex(ov.a), q = m.GetVertex(ov.b);
+                // circumcentre of a, b, p in their plane
+                Vector3d ab = b - a, ap = p - a, n = ab.Cross(ap);
+                Vector3d ctr = a + (ap.LengthSquared * n.Cross(ab) + ab.LengthSquared * ap.Cross(n)) / (2 * n.LengthSquared);
+                double rad = ctr.Distance(a);
+                Assert.True(ctr.Distance(q) >= rad * (1 - 1e-9), $"edge {a}-{b} (p {p}, q {q}): opposite point {(rad - ctr.Distance(q)) / rad:E2} inside the circumcircle");
+                checkedEdges++;
+            }
+            Assert.True(checkedEdges > 0);
+        }
+
+        [Fact]
+        public void Simplified_FlatRegionsAreDelaunay()
+        {
+            DMesh3 cur = Box(0, 0, 0, 1, 1, 1);
+            foreach (double z in new[] { 0.9, 1.8 })
+                cur = Run(cur, Box(0, 0, z, 1, 1, z + 1), Ops.Union);
+            AssertFlatRegionsDelaunay(cur);
+            AssertFlatRegionsDelaunay(Run(Box(0, 0, 0, 2, 1, 1), Box(1, 0, 0.5, 3, 1, 1.5), Ops.Union));
+        }
     }
 }

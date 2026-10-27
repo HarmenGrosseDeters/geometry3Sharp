@@ -8,7 +8,7 @@
     "mutate": [
       "**/mesh_ops/MeshRoundingRepair.cs"
     ],
-    "test-case-filter": "FullyQualifiedName~MeshRoundingRepairTests|FullyQualifiedName~ExactMeshBooleanTests",
+    "test-case-filter": "FullyQualifiedName~MeshRoundingRepairTests|FullyQualifiedName~ExactMeshBooleanTests|FullyQualifiedName~MeshRoundingRepairStrategyTests",
     "coverage-analysis": "perTest",
     "configuration": "Release",
     "additional-timeout": 30000,

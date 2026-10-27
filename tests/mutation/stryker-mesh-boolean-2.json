@@ -6,7 +6,7 @@
     ],
     "target-framework": "net10.0",
     "mutate": [
-      "**/mesh_ops/ExactMeshBoolean.cs"
+      "**/mesh_ops/ExactMeshBoolean.cs{40084..1000000}"
     ],
     "test-case-filter": "FullyQualifiedName~ExactMeshBooleanTests|FullyQualifiedName~ExactMeshBooleanNaryTests|FullyQualifiedName~ExactBooleanOrientationTests|FullyQualifiedName~ExactBooleanReuseTests|FullyQualifiedName~ExactBooleanEdgeOrderTests",
     "coverage-analysis": "perTest",
