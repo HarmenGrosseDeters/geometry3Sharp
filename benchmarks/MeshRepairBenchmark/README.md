@@ -1054,4 +1054,4 @@ triangle count of about one mesh in seven and, through the later stages, the pat
 1102667.stl is now repaired (exact resolve instead of the wrap), 42637.stl now just misses the Hausdorff bound
 (1.00 % instead of 0.99 %), 1505037.stl and 94484.stl are wrapped instead of resolved exactly (IoU 0.993 → 0.926 and
 0.991 → 0.973, neither repaired before), 1368057.stl no longer times out. 57312.stl now gives 36154 triangles every
-run (20 of 20 processes).
+run (10 of 10 processes with the final build).
