@@ -108,9 +108,10 @@ selectively.
   (its guards keep a few vertices near the apex up to an edge off the surface). Cones with up to 10 slices keep the
   apex as a junction of creases. Detect and pin sharp vertices (eg by the normal cone or the angle deficit of their
   one-ring) in `PreserveBoundaryAndFeatures`.
-- [ ] `MeshRobustRepair.NotCleanReason` reports only the first failed check: "degenerate triangles" hid the
-  self-intersections of most remeshed meshes, and the inside-out result of 135363 without `MinTriangleQuality`. Report all reasons (or a separate self-intersection count) in the
-  diagnostics and benchmarks.
+- [x] `MeshRobustRepair.NotCleanReason` reported only the first failed check: "degenerate triangles" hid the
+  self-intersections of most remeshed meshes, and the inside-out result of 135363 without `MinTriangleQuality`. Done in
+  #159: `MeshRobustRepair.FindDefects` / `NotCleanReasons` report every failed check (`NotCleanReason` keeps the first),
+  and the benchmarks write them (eg RemeshBenchmark `not_clean`).
 
 | Feature | Research / port source | Why |
 |---|---|---|
@@ -161,9 +162,16 @@ selectively.
   - [x] In the benchmarks: MeshRepairBenchmark (`fm_*` fields, `analyze_fidelity.py` columns and flags, baseline on
     Thingi10K and Objaverse with the outer surface measures), RemeshBenchmark, UVAtlasBenchmark (UV quality, charts
     that are not discs)
-  - [ ] Volume IoU restricted to the outer surface (the input's winding number solid is distorted by the same
-    interior faces; on Objaverse the next most common miss)
-  - [ ] Curvature fidelity (discrete mean / Gaussian curvature after Meyer et al. 2003, difference of the distributions)
+  - [x] Volume IoU restricted to the outer surface: `MeshFidelityMetrics.OuterVolumeIoU` (solid of the reference's outer
+    faces, classified in rounds, innermost interior faces first), next to `VolumeIoU`; `fm_oviou` in the benchmarks.
+    Result on Objaverse (300 objects): the repaired count stays 65, and under the outer surface Hausdorff criterion it
+    drops 121 → 115; the IoU misses are real volume losses, not interior faces (benchmarks/MeshRepairBenchmark README).
+    The winding number IoU stays the criterion
+  - [x] Curvature fidelity: `MeshCurvature` (Meyer et al. 2003: mixed areas, mean curvature normal, angle deficit;
+    degenerate, boundary and bowtie vertices handled) and in `MeshFidelityMetrics` the curvature errors at corresponding
+    points, the 1-Wasserstein distance of the distributions and the total absolute curvatures (`fm_h_*`, `fm_k_*`), in
+    MeshRepairBenchmark, RemeshBenchmark and TerrainBenchmark (Hambach DGM1: the F-score is 1 for every TerrainGreedyTIN
+    result, the curvature measures order them by MaxError)
 - A showcase domain: terrain / GIS (in progress) and biomedical / orthotics
   - [ ] Slope construction and daylighting on TINs (open-pit mining; design in
     [design/TERRAIN.md](design/TERRAIN.md)): per-segment slopes, never steeper than specified (verified per

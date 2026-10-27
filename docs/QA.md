@@ -53,7 +53,8 @@ done since and what is open.
 - Open, in this order:
   1. defect generators and fuzzing of mesh inputs (2.1, 2.5);
   2. result validation in the existing success tests (2.3);
-  3. mutation testing of `mesh_ops/ExactMesh*` and the open `AdaptivePredicates` survivors (2.2);
+  3. mutation testing of `mesh_ops/ExactMesh*` (2.2; done, open gaps in tests/mutation/README.md) and the open
+     `AdaptivePredicates` survivors;
   4. coverage (2.6);
   5. the regression corpus (2.7; first part done: `RegressionCorpusTests`);
   6. performance (3.1, 3.2).
@@ -173,8 +174,15 @@ inputs. Stryker.NET (Apache-2.0) mutates `math/ExactPredicates.cs`, `math/ExactP
 - Surviving mutants are either killed with a new test or recorded as equivalent, with a reason.
 - The score is 87.05 % (October 2026, from 83.4 % at the start); the break threshold is 86. Details are in
   [tests/mutation/README.md](../tests/mutation/README.md).
+- **The exact mesh pipeline** (October 2026): a second job, `exact-mesh`, mutates `mesh_ops/ExactMeshBoolean.cs`,
+  `ExactMeshArrangement.cs`, `ExactPlanarSimplify.cs`, `ExactTriangulation2.cs` and `MeshRoundingRepair.cs` in six
+  shards that run in parallel (1 to 5 hours each). The survivors led to three new test classes
+  (`MeshRoundingRepairStrategyTests`, `ExactTriangulation2Tests`, `ExactBooleanFilterTests`) and cases in
+  `ExactPlanarSimplifyTests`: each edit of the rounding repair on its own, the triangulation against the definition
+  of a constrained Delaunay triangulation, the boolean's own filters against exact signs. Scores per shard, break
+  thresholds, the equivalent groups and the open gaps are in [tests/mutation/README.md](../tests/mutation/README.md).
 - Next targets:
-  - the exact parts of `mesh_ops/ExactMesh*`;
+  - the open gaps of the mesh shards (README);
   - the result checks of the repair, such as `NotCleanReason` and `MeshRepairMetrics`;
   - the open survivors in `AdaptivePredicates`.
 - A survivor in a result check is a silent-success risk.
@@ -410,7 +418,7 @@ Past cases: #63, #72, #105.
 | FsCheck | Shrinking of counterexamples | A dependency, F# runtime on net48 | Optional, for the predicates only; seeded theories are enough elsewhere |
 | Differential tests against exact results | High for `math/`, filters | Low | Done for the predicates (#137); boolean identities open |
 | Fuzzing | High for readers / CLI (4 security fixes) | Low in-suite, high coverage-guided | Seeded in-suite fuzzing: done for the readers (#127), next for mesh inputs |
-| Stryker.NET mutation tests | High for exact arithmetic | Long runs (scheduled) | Scheduled workflow for `math/Exact*` and `AdaptivePredicates.cs` |
+| Stryker.NET mutation tests | High for exact arithmetic | Long runs (scheduled) | Scheduled workflow for `math/Exact*`, `AdaptivePredicates.cs` and the exact mesh pipeline (sharded) |
 | Coverage in CI | Medium (shows gaps) | Low | Summary, no threshold |
 | Determinism tests | High: found three bugs at once | Low | Done; required for parallel paths |
 | Regression corpus in CI | High for the pipelines | Medium | Done for the defect cases (`RegressionCorpusTests`, 2.7); cube grid and terrain open |

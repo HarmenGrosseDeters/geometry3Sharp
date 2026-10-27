@@ -4,7 +4,8 @@
 //   volume   before=<grid> after=<grid> [simplify=<m>] [heightcheck=1]
 //   repair   grid=<grid> variant=clean|tiles|overlap|holes mode=auto|cleanup|robust|tdc
 //   tdc      grid=<grid> [points=<cloud>] [cell=1] [tol=0]
-//   gtin     grid=<grid> [maxerr=0.1] [remove=0|1]   (TerrainGreedyTIN)
+//   gtin     grid=<grid> [maxerr=0.1] [remove=0|1] [fidelity=0|1]   (TerrainGreedyTIN; fidelity: MeshFidelityMetrics
+//            of the TIN against the full grid TIN, fm_* fields: F-score, normals, sharp edges, curvature)
 //   offset   grid=<grid> d=<m> [cell=1]
 //   safety   grid=<grid> d=<m> mode=horizontal|surface|guaranteed|guaranteed [terrain=grid|tdc] [tol=0.05] [angle=20]
 //   geodesic grid=<grid> [src=center|crest] [tf=1]
@@ -315,6 +316,11 @@ class Program
         R["missed"] = miss;
         Checks.Stats(err, "dz", R);
         R["check_s"] = Secs(sw);
+        if (Arg("fidelity", "0") == "1") {
+            // against the TIN of all grid nodes (open: no volume IoU); relative to the window's size (1 km: 1.4e3)
+            FidelityFields.Add(g.BuildMesh(origin), res, R, false, 50000, 0);
+            R["fidelity_s"] = Secs(sw);
+        }
     }
 
 

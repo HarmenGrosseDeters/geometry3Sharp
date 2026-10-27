@@ -29,6 +29,8 @@ for cfg in ["pro_fastest", "pro_iter"]:
         return st.median(xs) if xs else float("nan")
     fms = (f"; F 0.1% median {med('fm_f_0001', cfg):.4f} vs {med('fm_f_0001', 'remesher'):.4f}, "
            f"edge recall 0.5% {med('fm_er_0005', cfg):.3f} vs {med('fm_er_0005', 'remesher'):.3f}, "
+           f"curvature error H {med('fm_h_err', cfg):.4f} vs {med('fm_h_err', 'remesher'):.4f}, "
+           f"K {med('fm_k_err', cfg):.3f} vs {med('fm_k_err', 'remesher'):.3f}, "
            f"min angle 1% worst {st.median(by[c][cfg]['fm_q_out']['minangle'][1] for c in fm):.1f} vs "
            f"{st.median(by[c]['remesher']['fm_q_out']['minangle'][1] for c in fm):.1f}") if fm else ""
     print(f"{cfg}: speedup median {st.median(sp):.2f} (min {min(sp):.2f}, max {max(sp):.2f}), total time ratio {total:.2f}; "

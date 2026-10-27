@@ -179,3 +179,25 @@ Hausdorff (ratio 1.00 between the configurations) and `q < 0.1` do not show:
   edge recall 0.96 instead of 0.92), while `pro_iter` moves the edges it keeps (Edge Chamfer 4x).
 - On `noisy_coarsen` the "sharp edges" are the noise that the coarsening is meant to remove, so a low edge recall
   is expected there.
+
+**Curvature fidelity** (`fm_h_*`, `fm_k_*`: `MeshCurvature` after Meyer et al. 2003 at corresponding points, mean of
+both directions; H * size and K * size², W1 = 1-Wasserstein distance of the distributions). Procedural cases,
+`runs=1`, this branch:
+
+| case | config | H error | K error | H W1 | K W1 |
+|---|---|---:|---:|---:|---:|
+| sphere_refine | remesher / pro_fastest / pro_iter | 0.469 / 0.485 / 0.464 | 2.09 / 2.18 / 2.04 | 0.467 / 0.481 / 0.461 | 2.08 / 2.18 / 2.03 |
+| bumpy_uniform | remesher / pro_fastest / pro_iter | 0.115 / 0.112 / 0.114 | 1.05 / 1.03 / 1.05 | 0.031 / 0.017 / 0.021 | 0.19 / 0.17 / 0.22 |
+| open_stretched | remesher / pro_fastest / pro_iter | 0.192 / 0.204 / 0.202 | 0.88 / 1.05 / 1.01 | 0.037 / 0.037 / 0.033 | 0.26 / 0.31 / 0.29 |
+| terrain_band | remesher / pro_fastest / pro_iter | 0.315 / 0.318 / 0.302 | 0.00 / **3.65** / 0.00 | 0.264 / 0.256 / 0.275 | 0.00 / **3.64** / 0.00 |
+| terrain_band_bumpy | remesher / pro_fastest / pro_iter | 4.99 / 4.86 / 5.03 | 61.5 / 58.9 / 61.5 | 4.14 / 3.93 / 4.15 | 47.6 / 43.8 / 46.3 |
+
+- `terrain_band`: only `pro_fastest` creates Gaussian curvature (K W1 3.6, the others 0): the corners where it adds
+  the sharp edges that its edge precision of 0.97 shows. The band of the plateau, slope and crest is developable, so
+  any vertex with an angle deficit there is a defect.
+- `sphere_refine` refines the input polyhedron (target 0.5 x its edge, projection onto it): the new vertices lie on
+  its flat faces (H = K = 0) and the curvature stays at its edges and corners, so the distributions differ by about
+  a quarter of H * size = 2 although the surface is the same (F 1.0). This is the resolution dependence at
+  creases that `MeshFidelityMetrics.Curvature` documents, not a loss.
+- `terrain_band_bumpy`: `pro_fastest` is closest in curvature too (H W1 3.93, K W1 43.8), in line with its higher
+  F-score and edge recall.
