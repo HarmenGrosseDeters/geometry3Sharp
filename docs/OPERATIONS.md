@@ -68,6 +68,13 @@ Add both: `using g3; using gs;`.
 tolerance (`VertexSnapTol`, 1e-5) is absolute: with the default it throws at millimetre scale and can hang or give
 other results at UTM coordinates.
 
+`ExactMeshBoolean` also takes open meshes (`AllowOpenMeshes`, default true): their solid is where the generalized
+winding number is above 1/2 (`ExactWinding[i]` false), and the result is generally open (`IsClosed()` false,
+`MeshRobustRepair.NotCleanReason` "not closed"). It is consistently oriented, also where an open boundary of an
+input lies on an edge that other pieces meet: there no inside/outside choice fits all the pieces, the pieces that
+run the edge the same way are not joined, and the result is open along the edge; `ConflictEdges` counts these edges
+(0 for closed inputs).
+
 ## The examples
 
 ### Booleans

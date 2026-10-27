@@ -23,7 +23,8 @@ namespace g3
     /// The winding numbers are exact for meshes that are closed in the winding number sense (every edge used
     /// equally often in both directions; non-manifold edges and self-intersections are allowed). For other
     /// (open) meshes the generalized winding number is used (Jacobson et al. 2013, fast approximation), with the
-    /// solid where it is above 0.5; then the result is generally not closed. An inside-out mesh (winding
+    /// solid where it is above 0.5; then the result is generally not closed, also along edges where an open boundary
+    /// of an input meets other pieces and the kept pieces run the edge the same way (ConflictEdges). An inside-out mesh (winding
     /// number -1) has an empty solid. A mesh with inconsistently oriented triangles (flipped faces) is first
     /// oriented consistently per component (triangles connected across edges with two triangles, by vertex
     /// position), keeping the orientation of the larger part by area (ReorientedTriangles); components that
@@ -110,8 +111,20 @@ namespace g3
         public int SelfIntersectingPairs;
         /// <summary> edges of the result where solids touch (more than two pieces); split into manifold pairs </summary>
         public int NonManifoldEdges;
-        /// <summary> triangles that could not be added to the result mesh and got their own vertices (should be 0) </summary>
+        /// <summary>
+        /// triangles that could not be added to the result mesh and got copies of some of their vertices: at an edge with
+        /// more than two triangles that could not be split, or at an edge they would run the same way as the triangle
+        /// there (see ConflictEdges); expected to be 0 for closed inputs
+        /// </summary>
         public int NonManifoldTriangles;
+        /// <summary>
+        /// edges where the kept pieces cannot all be joined as neighbours that run the edge in opposite directions (two
+        /// that run it the same way, or pieces left without such a neighbour around the edge), so that the result is open
+        /// along the edge (and consistently oriented). Only with open inputs: where an open boundary of an input lies on an
+        /// edge that other pieces meet, the jumps of the winding numbers across the pieces around the edge do not add up
+        /// to zero, and no inside/outside choice for the regions around the edge fits all the pieces. 0 for closed inputs.
+        /// </summary>
+        public int ConflictEdges;
         /// <summary> edges where the solid touches itself and that were split per pair of triangles (see assemble) </summary>
         public int SplitNonManifoldEdges;
         /// <summary> number of patches classified </summary>
@@ -254,7 +267,7 @@ namespace g3
             Rounding = null;
             ResultExactVertices = null;
             // (the meshes or the operation may have changed since the last call)
-            IntersectingPairs = SelfIntersectingPairs = NonManifoldEdges = NonManifoldTriangles = SplitNonManifoldEdges = Patches = RemovedVertices = 0;
+            IntersectingPairs = SelfIntersectingPairs = NonManifoldEdges = NonManifoldTriangles = SplitNonManifoldEdges = ConflictEdges = Patches = RemovedVertices = 0;
             ReorientedTriangles = 0;
             ExactWindingA = ExactWindingB = false;
             ExactWinding = null;
@@ -1095,8 +1108,13 @@ namespace g3
                 while (g1 < edgeKeys.Length && edgeKeys[g1] == edgeKeys[g0]) g1++;
                 int u = (int)(edgeKeys[g0] >> 32), v = (int)(edgeKeys[g0] & 0xFFFFFFFF);
                 if (g1 - g0 == 2) {
-                    join(slot(edgeTri[g0], u), slot(edgeTri[g0 + 1], u));
-                    join(slot(edgeTri[g0], v), slot(edgeTri[g0 + 1], v));
+                    // two pieces that run the edge the same way are not neighbours there (see ConflictEdges)
+                    if (runs(tris[edgeTri[g0]], u, v) != runs(tris[edgeTri[g0 + 1]], u, v)) {
+                        join(slot(edgeTri[g0], u), slot(edgeTri[g0 + 1], u));
+                        join(slot(edgeTri[g0], v), slot(edgeTri[g0 + 1], v));
+                    } else {
+                        ConflictEdges++;
+                    }
                     continue;
                 }
                 list.Clear();
@@ -1108,6 +1126,9 @@ namespace g3
                     join(slot(pair.Key, u), slot(pair.Value, u));
                     join(slot(pair.Key, v), slot(pair.Value, v));
                 }
+                // (pieces left without a neighbour: an odd number, or more running one way than the other)
+                if (g1 - g0 > 2 && 2 * pairs.Count < g1 - g0)
+                    ConflictEdges++;
                 if (g1 - g0 > 2) {
                     NonManifoldEdges++;
                     nonManifold.Add(new KeyValuePair<long, List<KeyValuePair<int, int>>>(edgeKeys[g0], pairs));
@@ -1245,14 +1266,53 @@ namespace g3
 
         void append_triangle(DMesh3 result, int a, int b, int c, List<int> vertexPoint)
         {
-            if (result.AppendTriangle(a, b, c) >= 0)
+            // (a triangle that would run an edge of the mesh the same way as the triangle there is not added there
+            // either: the pieces' corners can be joined around both ends of an edge where they are not neighbours)
+            if (runs_existing(result, a, b) == false && runs_existing(result, b, c) == false && runs_existing(result, c, a) == false
+                && result.AppendTriangle(a, b, c) >= 0)
                 return;
-            // (an edge with more than two triangles that could not be split: kept, with its own vertices)
+            // (an edge with more than two triangles that could not be split, or one that the triangle would run the
+            // same way as the triangle there: kept, with copies of as few of its vertices as possible, so that it keeps
+            // the neighbours it can have and no vertex is left without triangles)
             NonManifoldTriangles++;
-            int a2 = result.AppendVertex(result.GetVertex(a)); vertexPoint.Add(vertexPoint[a]);
-            int b2 = result.AppendVertex(result.GetVertex(b)); vertexPoint.Add(vertexPoint[b]);
-            int c2 = result.AppendVertex(result.GetVertex(c)); vertexPoint.Add(vertexPoint[c]);
-            result.AppendTriangle(a2, b2, c2);
+            int[] f = { a, b, c };
+            foreach (int mask in new[] { 1, 2, 4, 3, 5, 6, 7 }) {
+                bool ok = true;
+                for (int k = 0; k < 3 && ok; ++k) {
+                    int k1 = (k + 1) % 3;
+                    if ((mask & (1 << k)) == 0 && (mask & (1 << k1)) == 0)
+                        ok = can_add_edge(result, f[k], f[k1]);
+                }
+                if (ok == false)
+                    continue;
+                int[] g = new int[3];
+                for (int k = 0; k < 3; ++k) {
+                    g[k] = f[k];
+                    if ((mask & (1 << k)) != 0) {
+                        g[k] = result.AppendVertex(result.GetVertex(f[k]));
+                        vertexPoint.Add(vertexPoint[f[k]]);
+                    }
+                }
+                result.AppendTriangle(g[0], g[1], g[2]);
+                return;
+            }
+        }
+
+        // a triangle can run a -> b: no edge (a, b) yet, or one with one triangle that runs it b -> a
+        static bool can_add_edge(DMesh3 mesh, int a, int b)
+        {
+            int eid = mesh.FindEdge(a, b);
+            return eid == DMesh3.InvalidID || (mesh.IsBoundaryEdge(eid) && runs_existing(mesh, a, b) == false);
+        }
+
+        // the edge (a, b) of the mesh exists and a triangle at it runs a -> b
+        static bool runs_existing(DMesh3 mesh, int a, int b)
+        {
+            int eid = mesh.FindEdge(a, b);
+            if (eid == DMesh3.InvalidID)
+                return false;
+            Index2i et = mesh.GetEdgeT(eid);
+            return runs(mesh.GetTriangle(et.a), a, b) || (et.b != DMesh3.InvalidID && runs(mesh.GetTriangle(et.b), a, b));
         }
 
         // pairs of triangles that are neighbours across edge (u, v): for two triangles the pair, for more each
