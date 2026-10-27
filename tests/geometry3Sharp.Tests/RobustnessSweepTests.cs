@@ -344,8 +344,6 @@ namespace geometry3Sharp.Tests
             { "Reducer.TriangleCount|rotated, scale 1e-3, utm", "R7" },
             { "Reducer.TriangleCount|scale 2^-24", "R14" },
             { "Reducer.TriangleCount|utm", "R7" },
-            { "Remesher|+Inf vertex", "R13" },
-            { "Remesher|NaN vertex", "R13" },
             { "SmoothedHoleFill|rotated, scale 1e-3, utm", "R2" },
             { "SmoothedHoleFill|utm", "R2" },
         };
