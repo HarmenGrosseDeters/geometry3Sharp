@@ -337,7 +337,6 @@ namespace geometry3Sharp.Tests
             { "MeshSignedDistanceGrid+MarchingCubes|scale 2^10", "R10" },
             { "MeshSignedDistanceGrid+MarchingCubes|scale 2^20", "R10" },
             { "MeshSignedDistanceGrid+MarchingCubes|utm", "R3" },
-            { "PointHashGrid3d|rotated, scale 1e-3, utm", "hang R4" },
             { "Reducer.MaxDeviation|scale 2^-24", "R14" },
             { "Reducer.TriangleCount|+Inf vertex", "R13" },
             { "Reducer.TriangleCount|NaN vertex", "R13" },

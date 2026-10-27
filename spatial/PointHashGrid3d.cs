@@ -140,21 +140,31 @@ namespace g3
             if (ignoreF == null)
                 ignoreF = (pt) => { return false; };
 
-            for (int zi = min_idx.z; zi <= max_idx.z; zi++) {
-                for (int yi = min_idx.y; yi <= max_idx.y; yi++) {
-                    for (int xi = min_idx.x; xi <= max_idx.x; xi++) {
-                        Vector3i idx = new Vector3i(xi, yi ,zi);
-                        List<T> values;
-                        if (Hash.TryGetValue(idx, out values) == false)
-                            continue;
-                        foreach (T value in values) {
-                            if (ignoreF(value))
+            void visit(List<T> values)
+            {
+                foreach (T value in values) {
+                    if (ignoreF(value))
+                        continue;
+                    double dist = distF(value);
+                    if (dist < radius && dist < min_dist) {
+                        nearest = value;
+                        min_dist = dist;
+                    }
+                }
+            }
+            if (HashGridCells.ScanOccupied(min_idx, max_idx, Hash.Count)) {
+                foreach (var cell in Hash)
+                    if (HashGridCells.Contains(min_idx, max_idx, cell.Key))
+                        visit(cell.Value);
+            } else {
+                for (int zi = min_idx.z; zi <= max_idx.z; zi++) {
+                    for (int yi = min_idx.y; yi <= max_idx.y; yi++) {
+                        for (int xi = min_idx.x; xi <= max_idx.x; xi++) {
+                            Vector3i idx = new Vector3i(xi, yi ,zi);
+                            List<T> values;
+                            if (Hash.TryGetValue(idx, out values) == false)
                                 continue;
-                            double dist = distF(value);
-                            if (dist < radius && dist < min_dist) {
-                                nearest = value;
-                                min_dist = dist;
-                            }
+                            visit(values);
                         }
                     }
                 }

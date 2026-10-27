@@ -124,20 +124,30 @@ namespace g3
             if (ignoreF == null)
                 ignoreF = (pt) => { return false; };
 
-            for (int yi = min_idx.y; yi <= max_idx.y; yi++) {
-                for (int xi = min_idx.x; xi <= max_idx.x; xi++) {
-                    Vector2i idx = new Vector2i(xi, yi);
-                    List<T> values;
-                    if (Hash.TryGetValue(idx, out values) == false)
+            void visit(List<T> values)
+            {
+                foreach (T value in values) {
+                    if (ignoreF(value))
                         continue;
-                    foreach (T value in values) {
-                        if (ignoreF(value))
+                    double dist = distF(value);
+                    if (dist < radius && dist < min_dist) {
+                        nearest = value;
+                        min_dist = dist;
+                    }
+                }
+            }
+            if (HashGridCells.ScanOccupied(min_idx, max_idx, Hash.Count)) {
+                foreach (var cell in Hash)
+                    if (HashGridCells.Contains(min_idx, max_idx, cell.Key))
+                        visit(cell.Value);
+            } else {
+                for (int yi = min_idx.y; yi <= max_idx.y; yi++) {
+                    for (int xi = min_idx.x; xi <= max_idx.x; xi++) {
+                        Vector2i idx = new Vector2i(xi, yi);
+                        List<T> values;
+                        if (Hash.TryGetValue(idx, out values) == false)
                             continue;
-                        double dist = distF(value);
-                        if (dist < radius && dist < min_dist) {
-                            nearest = value;
-                            min_dist = dist;
-                        }
+                        visit(values);
                     }
                 }
             }
