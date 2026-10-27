@@ -11,8 +11,10 @@ namespace g3 {
 	/// MaxEdgeLength, collapses edges shorter than MinEdgeLength, flips edges to improve vertex valence, then
 	/// applies tangential-ish Laplacian smoothing and (optionally) projects the vertices onto a target surface.
 	/// Call SetTargetEdgeLength() and then BasicRemeshPass() several times (typically 5-20 passes;
-	/// ModifiedEdgesLastPass gives a convergence hint). There is no return value or failure state; the mesh
-	/// (passed to the constructor) is modified directly, vertex and triangle ids are not preserved.
+	/// ModifiedEdgesLastPass gives a convergence hint). There is no return value; the mesh (passed to the
+	/// constructor) is modified directly, vertex and triangle ids are not preserved. A pass that would turn a closed
+	/// component inside out (a target edge length far above the wall thickness) is rolled back and counted in
+	/// InvertingPassesRejected (RejectInvertingPasses).
 	///
 	/// Important behaviour: without a projection target the smoothing shrinks and rounds the surface, so for
 	/// shape-preserving remeshing call SetProjectionTarget(MeshProjectionTarget.Auto(originalMesh)). Boundary
@@ -72,10 +74,32 @@ namespace g3 {
         /// creases kept, 28% of the poor (q &lt; 0.1) and 13% of the flat (q &lt; 1e-3) triangles and 16% of the
         /// self-intersecting pairs remain (benchmarks/RemeshQualityBenchmark). RemesherPro queues the edges of a
         /// vertex whose move was rejected. With a target edge length far above the wall thickness the result is
-        /// undefined with and without this option: the walls are folded through each other (self-intersections),
-        /// and closed meshes can end inside out (docs/ROADMAP.md).
+        /// undefined with and without this option: the walls are folded through each other (self-intersections);
+        /// passes that turn a closed component inside out are rolled back (RejectInvertingPasses).
         /// </summary>
         public double MinTriangleQuality = 0;
+
+        /// <summary>
+        /// Roll back a pass (BasicRemeshPass, RemesherPro.RemeshIteration) that turns a closed component of the mesh
+        /// inside out (an outer surface or a cavity): after it, the number of closed components with a positive or
+        /// with a negative signed volume differs from before, or a component has another sign than most of its
+        /// vertices had before (a volume within 1e-9 area^1.5 of zero counts as neither, so a component flattened to
+        /// zero volume is rolled back too). This happens when the target edge length
+        /// is far above the wall thickness (the walls are folded through each other), with or without
+        /// MinTriangleQuality. The mesh and the constraints are restored to their state before the pass and
+        /// InvertingPassesRejected is incremented; the next pass starts from there again (and is usually rolled back
+        /// too, so the result stays at the last pass that kept the orientation). Costs a copy of the mesh and the
+        /// constraints per pass if the mesh has a closed component. The rollback is for the whole mesh: one small part
+        /// that keeps inverting (eg a coarse cone among finer parts) stops the remeshing of all other parts too. In
+        /// RemesherPro.FastestRemesh a rolled-back last iteration leaves the state after an iteration without
+        /// projection. Not guarded: the other passes (FullSmoothPass, FullProjectionPass,
+        /// RemesherPro.FastSplitIteration, TrackedFaceProjectionPass) and a cancelled pass. Default true (false in
+        /// EdgeLoopRemesher).
+        /// </summary>
+        public bool RejectInvertingPasses = true;
+
+        /// <summary> status: the number of passes rolled back by RejectInvertingPasses so far </summary>
+        public int InvertingPassesRejected = 0;
 
 		/// <summary> smoothing step per pass, in [0,1]: each vertex moves this fraction towards its smoothed position </summary>
 		public double SmoothSpeedT = 0.1f;
@@ -233,6 +257,7 @@ namespace g3 {
                 return;
 
             begin_pass();
+            object inversionGuard = begin_inversion_guard();
 
             // Iterate over all edges in the mesh at start of pass.
             // Some may be removed, so we skip those.
@@ -282,9 +307,174 @@ namespace g3 {
             if (Cancelled())
                 return;
 
+            end_inversion_guard(inversionGuard);
             end_pass();
 		}
 
+
+
+        // RejectInvertingPasses: the closed components of a mesh by the sign of their signed volume
+        sealed class ComponentSigns
+        {
+            public Index2i Counts;          // components with a positive (a) and a negative (b) volume
+            public sbyte[] VertexSign;      // per vertex id: the sign of its closed component (0: open, no volume, no vertex)
+        }
+
+        // the state before the pass
+        sealed class InversionSnapshot
+        {
+            public DMesh3 Mesh;
+            public MeshConstraints Constraints;
+            public ComponentSigns Signs;
+        }
+
+        // the signs after the last guarded pass, valid while mesh.Timestamp is unchanged (saves one count per pass)
+        ComponentSigns signsCached;
+        int signsTimestamp = -1;
+
+        /// <summary> RejectInvertingPasses: snapshot of the mesh before a pass, or null (off, or no closed component with a volume) </summary>
+        protected object begin_inversion_guard()
+        {
+            if (RejectInvertingPasses == false)
+                return null;
+            if (signsCached == null || mesh.Timestamp != signsTimestamp) {
+                signsCached = compute_component_signs(mesh, null, out _);
+                signsTimestamp = mesh.Timestamp;
+            }
+            if (signsCached.Counts.a == 0 && signsCached.Counts.b == 0)
+                return null;
+            return new InversionSnapshot() {
+                Mesh = new DMesh3(mesh), Constraints = constraints?.Copy(), Signs = signsCached
+            };
+        }
+
+        /// <summary> RejectInvertingPasses: restore the snapshot if the pass turned a closed component inside out. Returns true if it did </summary>
+        protected bool end_inversion_guard(object guard)
+        {
+            var snapshot = guard as InversionSnapshot;
+            if (snapshot == null)
+                return false;
+            ComponentSigns signs = compute_component_signs(mesh, snapshot.Signs.VertexSign, out bool componentChanged);
+            if (componentChanged == false && signs.Counts.a == snapshot.Signs.Counts.a && signs.Counts.b == snapshot.Signs.Counts.b) {
+                signsCached = signs;
+                signsTimestamp = mesh.Timestamp;
+                return false;
+            }
+            mesh.Copy(snapshot.Mesh);
+            signsCached = snapshot.Signs;
+            signsTimestamp = mesh.Timestamp;
+            if (constraints != null)
+                constraints.CopyFrom(snapshot.Constraints);
+            ModifiedEdgesLastPass = 0;
+            InvertingPassesRejected++;
+            OnPassRolledBack();
+            return true;
+        }
+
+        /// <summary> called after RejectInvertingPasses restored the mesh (subclasses reset their state that refers to ids) </summary>
+        protected virtual void OnPassRolledBack()
+        {
+        }
+
+        /// <summary>
+        /// The number of closed components (connected through edges, without a boundary edge) of mesh with a positive
+        /// (a) and a negative (b) signed volume; a volume within 1e-9 area^1.5 of zero counts as neither.
+        /// </summary>
+        internal static Index2i ClosedComponentSigns(DMesh3 mesh)
+        {
+            return compute_component_signs(mesh, null, out _).Counts;
+        }
+
+        // The signs of the closed components. With before (VertexSign of an earlier state), componentChanged is true
+        // if a closed component has another sign than most of its vertices had before (by id; ids reused within the
+        // pass are outvoted): catches two components that change sign in opposite directions in the same pass, which
+        // leaves the counts unchanged.
+        static ComponentSigns compute_component_signs(DMesh3 mesh, sbyte[] before, out bool componentChanged)
+        {
+            // the buffers directly: this runs twice per pass
+            DVector<int> edges = mesh.EdgesBuffer, tris = mesh.TrianglesBuffer;
+            DVector<double> verts = mesh.VerticesBuffer;
+            RefCountVector edgesRef = mesh.EdgesRefCounts, trisRef = mesh.TrianglesRefCounts;
+            int NT = mesh.MaxTriangleID, NE = mesh.MaxEdgeID;
+            int[] parent = new int[NT];
+            for (int t = 0; t < NT; ++t)
+                parent[t] = t;
+            int find(int t) {
+                while (parent[t] != t) {
+                    parent[t] = parent[parent[t]];
+                    t = parent[t];
+                }
+                return t;
+            }
+            var open = new List<int>();
+            for (int eid = 0; eid < NE; ++eid) {
+                if (edgesRef.isValidUnsafe(eid) == false)
+                    continue;
+                int ta = edges[4 * eid + 2], tb = edges[4 * eid + 3];
+                if (tb == DMesh3.InvalidID) {
+                    open.Add(ta);
+                } else {
+                    int ra = find(ta), rb = find(tb);
+                    if (ra != rb)
+                        parent[Math.Max(ra, rb)] = Math.Min(ra, rb);
+                }
+            }
+            bool[] isOpen = new bool[NT];
+            foreach (int t in open)
+                isOpen[find(t)] = true;
+
+            // relative to a vertex of the component (the lowest triangle's first one), so a translation of the
+            // mesh changes the volume only by rounding
+            int[] origin = new int[NT];
+            double[] volume = new double[NT], area = new double[NT];
+            long[] votes = (before != null) ? new long[NT] : null;
+            for (int t = 0; t < NT; ++t)
+                origin[t] = -1;
+            for (int t = 0; t < NT; ++t) {
+                if (trisRef.isValidUnsafe(t) == false)
+                    continue;
+                int r = find(t);
+                if (isOpen[r])
+                    continue;
+                int va = tris[3 * t], vb = tris[3 * t + 1], vc = tris[3 * t + 2];
+                if (origin[r] < 0)
+                    origin[r] = va;
+                int o = 3 * origin[r];
+                double ox = verts[o], oy = verts[o + 1], oz = verts[o + 2];
+                Vector3d a = new Vector3d(verts[3 * va] - ox, verts[3 * va + 1] - oy, verts[3 * va + 2] - oz);
+                Vector3d b = new Vector3d(verts[3 * vb] - ox, verts[3 * vb + 1] - oy, verts[3 * vb + 2] - oz);
+                Vector3d c = new Vector3d(verts[3 * vc] - ox, verts[3 * vc + 1] - oy, verts[3 * vc + 2] - oz);
+                volume[r] += a.Dot(b.Cross(c));
+                area[r] += (b - a).Cross(c - a).Length;
+                if (votes != null) {
+                    if (va < before.Length) votes[r] += before[va];
+                    if (vb < before.Length) votes[r] += before[vb];
+                    if (vc < before.Length) votes[r] += before[vc];
+                }
+            }
+            int nPositive = 0, nNegative = 0;
+            sbyte[] sign = new sbyte[NT];
+            componentChanged = false;
+            for (int r = 0; r < NT; ++r) {
+                if (origin[r] < 0)
+                    continue;
+                double V = volume[r] / 6, A = area[r] / 2, tol = 1e-9 * A * Math.Sqrt(A);
+                if (V > tol) { nPositive++; sign[r] = 1; }
+                else if (V < -tol) { nNegative++; sign[r] = -1; }
+                if (votes != null && votes[r] != 0 && Math.Sign(votes[r]) != sign[r])
+                    componentChanged = true;
+            }
+            var result = new ComponentSigns() { Counts = new Index2i(nPositive, nNegative), VertexSign = new sbyte[mesh.MaxVertexID] };
+            for (int t = 0; t < NT; ++t) {
+                if (trisRef.isValidUnsafe(t) == false)
+                    continue;
+                int r = find(t);
+                if (isOpen[r])
+                    continue;
+                result.VertexSign[tris[3 * t]] = result.VertexSign[tris[3 * t + 1]] = result.VertexSign[tris[3 * t + 2]] = sign[r];
+            }
+            return result;
+        }
 
 
         // subclasses can override these to implement custom behavior...

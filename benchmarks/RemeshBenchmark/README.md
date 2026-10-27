@@ -91,6 +91,8 @@ triangles, line points 0.211..0.396 beyond d); 0.336 s with the band remeshed by
 `runs=5`, 18116 triangles, 0.215..0.383 beyond d). Both deterministic, no line point too close.
 
 ### Thingi10K (20 meshes, target = mean edge length, the `g3cli remesh` default)
+Measured before `Remesher.RejectInvertingPasses` (default on since): it changes only thingi_135363 (passes that
+turn it inside out are rolled back, in all three configurations) and costs 5..11% of the time.
 ```
 20 cases
 pro_fastest: speedup median 0.67 (min 0.20, max 1.31), total time ratio 0.44; hausdorff ratio median 1.02 (max 3.68); triangles q < 0.1: 6365 vs 5763; deterministic and serial-equal: 20/20 vs 20/20

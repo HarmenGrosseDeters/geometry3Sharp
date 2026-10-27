@@ -63,6 +63,12 @@ namespace gs
         internal int QueuedEdgeCount { get { return modified_edges == null ? 0 : modified_edges.Count; } }
 
         /// <summary> MinTriangleQuality rejected a move of vID: its edges are processed again (eg flipped) </summary>
+        // the queued edge ids belong to the rolled-back mesh: process all edges in the next iteration
+        protected override void OnPassRolledBack()
+        {
+            ResetQueue();
+        }
+
         protected override void OnVertexMoveRejected(int vID)
         {
             if (modified_edges != null)
@@ -401,6 +407,7 @@ namespace gs
                 return;
 
             begin_pass();
+            object inversionGuard = begin_inversion_guard();
 
             // Iterate over all edges in the mesh at start of pass.
             // Some may be removed, so we skip those.
@@ -487,6 +494,7 @@ namespace gs
             }
             end_project();
 
+            end_inversion_guard(inversionGuard);
             end_pass();
         }
 
