@@ -22,6 +22,7 @@ namespace g3
 
         readonly List<int[]> tris = new List<int[]>();
         readonly List<int> free = new List<int>();
+        readonly List<int[]> spare = new List<int[]>();
         readonly Dictionary<long, int> edgeTri = new Dictionary<long, int>(EdgeKeyComparer.Instance);     // directed edge -> triangle
         readonly HashSet<long> constrained = new HashSet<long>(EdgeKeyComparer.Instance);                 // undirected
         readonly HashSet<int> vertices = new HashSet<int>();
@@ -53,7 +54,15 @@ namespace g3
         int add_tri(int a, int b, int c)
         {
             int ti;
-            int[] t = new[] { a, b, c };
+            // (the arrays of removed triangles are reused: nothing keeps them after remove_tri)
+            int[] t;
+            if (spare.Count > 0) {
+                t = spare[spare.Count - 1];
+                spare.RemoveAt(spare.Count - 1);
+                t[0] = a; t[1] = b; t[2] = c;
+            } else {
+                t = new[] { a, b, c };
+            }
             if (free.Count > 0) {
                 ti = free[free.Count - 1];
                 free.RemoveAt(free.Count - 1);
@@ -74,6 +83,7 @@ namespace g3
             edgeTri.Remove(dkey(t[0], t[1])); edgeTri.Remove(dkey(t[1], t[2])); edgeTri.Remove(dkey(t[2], t[0]));
             tris[ti] = null;
             free.Add(ti);
+            spare.Add(t);
         }
 
         // vertex of triangle ti opposite to directed edge (a, b)

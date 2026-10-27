@@ -553,7 +553,7 @@ namespace g3
 
         public int GetMaxVtxEdgeCount() {
             int max = 0;
-            foreach (int vid in vertices_refcount)
+            foreach (int vid in vertices_refcount.Indices())
                 max = Math.Max(max, vertex_edges.Count(vid));
             return max;
         }
@@ -1368,16 +1368,16 @@ namespace g3
 
         /// <summary> Enumerate the IDs of all live vertices (including isolated ones), in increasing order </summary>
         public IEnumerable<int> VertexIndices() {
-            foreach (int vid in vertices_refcount)
+            foreach (int vid in vertices_refcount.Indices())
                 yield return vid;
         }
         /// <summary> Enumerate the IDs of all live triangles, in increasing order </summary>
         public IEnumerable<int> TriangleIndices() {
-            foreach (int tid in triangles_refcount)
+            foreach (int tid in triangles_refcount.Indices())
                 yield return tid;
         }
         public IEnumerable<int> EdgeIndices() {
-            foreach (int eid in edges_refcount)
+            foreach (int eid in edges_refcount.Indices())
                 yield return eid;
         }
 
@@ -1397,7 +1397,7 @@ namespace g3
         /// Enumerate positions of all live vertices, in the order of VertexIndices() (IDs are not returned)
         /// </summary>
         public IEnumerable<Vector3d> Vertices() {
-            foreach (int vid in vertices_refcount) {
+            foreach (int vid in vertices_refcount.Indices()) {
                 int i = 3 * vid;
                 yield return new Vector3d(vertices[i], vertices[i + 1], vertices[i + 2]);
             }
@@ -1407,7 +1407,7 @@ namespace g3
         /// Enumerate vertex-index triples of all live triangles, in the order of TriangleIndices() (IDs are not returned)
         /// </summary>
         public IEnumerable<Index3i> Triangles() {
-            foreach (int tid in triangles_refcount) {
+            foreach (int tid in triangles_refcount.Indices()) {
                 int i = 3 * tid;
                 yield return new Index3i(triangles[i], triangles[i + 1], triangles[i + 2]);
             }
@@ -1417,7 +1417,7 @@ namespace g3
         /// Enumerage edges. return value is [v0,v1,t0,t1], where t1 will be InvalidID if this is a boundary edge
         /// </summary>
         public IEnumerable<Index4i> Edges() {
-            foreach (int eid in edges_refcount) {
+            foreach (int eid in edges_refcount.Indices()) {
                 int i = 4 * eid;
                 yield return new Index4i(edges[i], edges[i + 1], edges[i + 2], edges[i + 3]);
             }
@@ -2089,7 +2089,7 @@ namespace g3
                 return false;
             // [RMS] under possibly-mistaken belief that foreach() has some overhead...
             if (MaxEdgeID / EdgeCount > 5) {
-                foreach (int eid in edges_refcount)
+                foreach (int eid in edges_refcount.Indices())
                     if (IsBoundaryEdge(eid))
                         return false;
             } else {

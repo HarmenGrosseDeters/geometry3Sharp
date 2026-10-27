@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 
 namespace g3
@@ -228,6 +229,18 @@ namespace g3
 
 
 
+
+        /// <summary>
+        /// the valid indices in increasing order, as GetEnumerator gives them but without boxing each index (the end is
+        /// max_index when the enumeration starts)
+        /// </summary>
+        internal IEnumerable<int> Indices()
+        {
+            int nLast = max_index;
+            for (int nIndex = 0; nIndex < nLast; ++nIndex)
+                if (ref_counts[nIndex] > 0)
+                    yield return nIndex;
+        }
 
         public System.Collections.IEnumerator GetEnumerator()
         {

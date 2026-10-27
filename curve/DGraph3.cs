@@ -107,7 +107,7 @@ namespace g3
 
         public IEnumerable<Segment3d> Segments()
         {
-            foreach (int eid in edges_refcount) {
+            foreach (int eid in edges_refcount.Indices()) {
                 yield return GetEdgeSegment(eid);
             }
         }
@@ -181,7 +181,7 @@ namespace g3
 
 
 		public IEnumerable<Vector3d> Vertices() {
-			foreach (int vid in vertices_refcount) {
+			foreach (int vid in vertices_refcount.Indices()) {
 				int i = 3 * vid;
 				yield return new Vector3d(vertices[i], vertices[i+1], vertices[i+2]);
 			}
@@ -198,12 +198,12 @@ namespace g3
 			if (VertexCount == 0)
 				return AxisAlignedBox3d.Empty;
 			double x = 0, y = 0, z = 0;
-			foreach (int vi in vertices_refcount) {
+			foreach (int vi in vertices_refcount.Indices()) {
 				x = vertices[3*vi]; y = vertices[3*vi +1]; z = vertices[3*vi +2];
 				break;
 			}
             double minx = x, maxx = x, miny = y, maxy = y, minz = z, maxz = z;
-			foreach (int vi in vertices_refcount) {
+			foreach (int vi in vertices_refcount.Indices()) {
                 int i = 3 * vi;
                 x = vertices[i]; y = vertices[i + 1]; z = vertices[i + 2];
                 if (x < minx) minx = x; else if (x > maxx) maxx = x;

@@ -875,6 +875,10 @@ namespace g3
             var pieces = new List<OutputTriangle>[Triangles.Count];
             var constraints = new List<long>[Triangles.Count];
             gParallel.ForRange(Triangles.Count, (ti) => triangulate(ti, out pieces[ti], out constraints[ti]));
+            int pieceCount = 0;
+            for (int ti = 0; ti < Triangles.Count; ++ti)
+                pieceCount += (pieces[ti] != null) ? pieces[ti].Count : 1;
+            Output.Capacity = Math.Max(Output.Capacity, Output.Count + pieceCount);
             for (int ti = 0; ti < Triangles.Count; ++ti) {
                 InputTriangle t = Triangles[ti];
                 if (pieces[ti] != null)
@@ -922,7 +926,10 @@ namespace g3
             }
 
             // input points (welded by position: equal doubles are equal points)
-            var index = new Dictionary<Vector3d, int>();
+            int vertexCount = 0;
+            foreach (DMesh3 mesh in Meshes)
+                vertexCount += mesh.VertexCount;
+            var index = new Dictionary<Vector3d, int>(vertexCount);
             VertexPoints = new int[Meshes.Count][];
             for (int mi = 0; mi < Meshes.Count; ++mi) {
                 DMesh3 mesh = Meshes[mi];

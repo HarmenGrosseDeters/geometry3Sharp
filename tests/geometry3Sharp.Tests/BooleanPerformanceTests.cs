@@ -158,6 +158,31 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void RefCountVector_Indices_SameAsEnumerator()
+        {
+            // the valid indices in increasing order, with gaps (freed indices, also at the start and the end)
+            var rand = new Random(9);
+            var v = new RefCountVector();
+            for (int i = 0; i < 5000; ++i)
+                v.allocate();
+            for (int i = 0; i < 5000; ++i)
+                if (rand.Next(3) == 0 || i < 7 || i > 4990)
+                    v.decrement(i);
+            var expected = new List<int>();
+            foreach (int i in v)
+                expected.Add(i);
+            Assert.Equal(expected, v.Indices().ToList());
+            Assert.True(expected.Count > 1000 && expected[0] == 7);
+            // a mesh's ids enumerate the same way after removals
+            DMesh3 mesh = new Sphere3Generator_NormalizedCube() { EdgeVertices = 8 }.Generate().MakeDMesh();
+            foreach (int t in mesh.TriangleIndices().Where(t => t % 5 == 0).ToList())
+                mesh.RemoveTriangle(t, true, false);
+            Assert.Equal(Enumerable.Range(0, mesh.MaxTriangleID).Where(mesh.IsTriangle), mesh.TriangleIndices());
+            Assert.Equal(Enumerable.Range(0, mesh.MaxVertexID).Where(mesh.IsVertex), mesh.VertexIndices());
+            Assert.Equal(Enumerable.Range(0, mesh.MaxEdgeID).Where(mesh.IsEdge), mesh.EdgeIndices());
+        }
+
+        [Fact]
         public void ForRange_ThrowsTheExceptionOfTheBody()
         {
             // (not an AggregateException: as the serial loops before, eg ExactMeshBoolean's "no non-degenerate ray")

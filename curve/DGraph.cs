@@ -113,7 +113,7 @@ namespace g3
         public int GetMaxVtxEdgeCount()
         {
             int max = 0;
-            foreach (int vid in vertices_refcount)
+            foreach (int vid in vertices_refcount.Indices())
                 max = Math.Max(max, vertex_edges[vid].Count);
             return max;
         }
@@ -224,12 +224,12 @@ namespace g3
 
         public IEnumerable<int> VertexIndices()
         {
-            foreach (int vid in vertices_refcount)
+            foreach (int vid in vertices_refcount.Indices())
                 yield return vid;
         }
         public IEnumerable<int> EdgeIndices()
         {
-            foreach (int eid in edges_refcount)
+            foreach (int eid in edges_refcount.Indices())
                 yield return eid;
         }
 
@@ -239,7 +239,7 @@ namespace g3
         // return value is [v0,v1,gid]
         public IEnumerable<Index3i> Edges()
         {
-            foreach (int eid in edges_refcount) {
+            foreach (int eid in edges_refcount.Indices()) {
                 int i = 3 * eid;
                 yield return new Index3i(edges[i], edges[i + 1], edges[i + 2]);
             }

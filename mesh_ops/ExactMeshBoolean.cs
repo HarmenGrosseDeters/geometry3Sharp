@@ -805,7 +805,7 @@ namespace g3
 
         /// <summary>
         /// sorts keys (non-negative) and items by the keys, stably (equal keys keep the order of their items): a radix
-        /// sort by 16-bit digits, skipping the digits that are the same in all keys. (Array.Sort of two arrays is
+        /// sort by 11-bit digits (a small count array), skipping the digits that are the same in all keys. (Array.Sort of two arrays is
         /// not stable, and the runtime's generic sort over these types starts as unoptimized code.)
         /// </summary>
         [MethodImpl(JitHints.Optimize)]
@@ -816,20 +816,21 @@ namespace g3
             int n = keys.Length;
             long[] k2 = new long[n];
             int[] i2 = new int[n];
-            var count = new int[65537];
-            for (int shift = 0; shift < 64; shift += 16) {
+            const int Bits = 11, Digits = 1 << Bits, Mask = Digits - 1;
+            var count = new int[Digits + 1];
+            for (int shift = 0; shift < 64; shift += Bits) {
                 Array.Clear(count, 0, count.Length);
                 for (int i = 0; i < n; ++i)
-                    count[(int)((keys[i] >> shift) & 0xFFFF) + 1]++;
+                    count[(int)((keys[i] >> shift) & Mask) + 1]++;
                 bool constant = false;
-                for (int d = 0; d < 65536 && constant == false; ++d)
+                for (int d = 0; d < Digits && constant == false; ++d)
                     constant = count[d + 1] == n;
                 if (constant)
                     continue;
-                for (int d = 0; d < 65536; ++d)
+                for (int d = 0; d < Digits; ++d)
                     count[d + 1] += count[d];
                 for (int i = 0; i < n; ++i) {
-                    int at = count[(int)((keys[i] >> shift) & 0xFFFF)]++;
+                    int at = count[(int)((keys[i] >> shift) & Mask)]++;
                     k2[at] = keys[i];
                     i2[at] = items[i];
                 }
@@ -1194,9 +1195,9 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         DMesh3 assemble(bool[] keep, bool[] flip)
         {
-            var tris = new List<Index3i>();
-            var source = new List<int>();
-            var flipped = new List<bool>();
+            var tris = new List<Index3i>(arr.Output.Count);
+            var source = new List<int>(arr.Output.Count);
+            var flipped = new List<bool>(arr.Output.Count);
             for (int i = 0; i < arr.Output.Count; ++i) {
                 if (keep[i] == false)
                     continue;
