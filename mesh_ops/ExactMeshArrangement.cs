@@ -1297,20 +1297,22 @@ namespace g3
                 needed[(int)(pr >> 32)] = true;
                 needed[(int)(pr & 0xFFFFFFFF)] = true;
             }
-            gParallel.ForRange(Triangles.Count, (ti) => {
-                if (needed[ti]) { var plane = Triangles[ti].P; }
-            });
             // and the same plane for triangles in one plane: candidates by a key from the plane's double
-            // approximation (normalized by its largest normal component, rounded), then compared exactly (equal planes
-            // whose keys round apart are only constructed separately, as before)
+            // approximation (normalized by its largest normal component, rounded), then compared exactly with at most
+            // MaxPlaneCandidates planes of the bucket. Equal planes whose keys round apart, or that are not among those
+            // candidates, are only constructed separately, as before; planes whose approximation is not finite too.
+            var bucketKeys = new (double, double, double, double)[Triangles.Count];
+            gParallel.ForRange(Triangles.Count, (ti) => {
+                if (needed[ti])
+                    bucketKeys[ti] = plane_bucket(Triangles[ti].PlaneApprox);
+            });
             var buckets = new Dictionary<(double, double, double, double), List<int>>();
-            var rep = new int[4 * Triangles.Count];
-            for (int key = 0; key < rep.Length; ++key)
-                rep[key] = key;
+            var rep = new int[Triangles.Count];
             for (int ti = 0; ti < Triangles.Count; ++ti) {
-                if (needed[ti] == false)
+                rep[ti] = ti;
+                var bucketKey = bucketKeys[ti];
+                if (needed[ti] == false || finite(bucketKey) == false)
                     continue;
-                var bucketKey = plane_bucket(Triangles[ti].PlaneApprox);
                 List<int> reps;
                 if (buckets.TryGetValue(bucketKey, out reps) == false)
                     buckets[bucketKey] = reps = new List<int>(1);
@@ -1318,8 +1320,8 @@ namespace g3
                 foreach (int r in reps)
                     if (same_plane(Triangles[r].P, Triangles[ti].P)) { same = r; break; }
                 if (same >= 0)
-                    rep[4 * ti] = 4 * same;
-                else
+                    rep[ti] = same;
+                else if (reps.Count < MaxPlaneCandidates)
                     reps.Add(ti);
             }
             planeRep = rep;
@@ -1330,19 +1332,28 @@ namespace g3
         }
         public int CandidatePairs;
 
-        // per plane key: the key of an equal plane that stands for it (after find_intersections; null before: each its
-        // own)
+        // per triangle: a triangle in the same plane that stands for its plane (after find_intersections; null before:
+        // each its own)
         int[] planeRep;
+        // planes of one bucket compared exactly (distinct planes rarely share a bucket; bounds the time if they do)
+        const int MaxPlaneCandidates = 8;
+
+        static bool finite((double, double, double, double) k)
+        {
+            double s = k.Item1 + k.Item2 + k.Item3 + k.Item4;
+            return double.IsNaN(s) == false && double.IsInfinity(s) == false;
+        }
 
         /// <summary>
-        /// the key of a plane (PlaneOf) that stands for equal planes: a triangle's plane by the first triangle in the same
-        /// plane (in the order of the triangles), so that the same point is the same construction (a key) when it is
-        /// constructed with different triangles in one plane (grids of coplanar faces); edge planes as they are
+        /// the key of a plane (PlaneOf) that stands for equal planes: a triangle's plane by the first triangle (in the
+        /// order of the triangles) in the same plane and the same rounding bucket (see find_intersections), so that the
+        /// same point is the same construction (a key) when it is constructed with different triangles in one plane
+        /// (grids of coplanar faces); edge planes as they are
         /// </summary>
         internal int CanonicalPlane(int key)
         {
             int[] r = planeRep;
-            return (r == null || ShareCoplanarConstructions == false) ? key : r[key];
+            return (r == null || ShareCoplanarConstructions == false || (key & 3) != 0) ? key : 4 * r[key >> 2];
         }
 
         // for tests: points constructed with triangles of one plane share their key (CanonicalPlane)
@@ -1370,7 +1381,7 @@ namespace g3
         }
 
         // the planes are the same point set: (A, B, C, D) proportional (all 2x2 minors zero)
-        static bool same_plane(Plane p, Plane q)
+        internal static bool same_plane(Plane p, Plane q)
         {
             return p.A * q.B == q.A * p.B && p.A * q.C == q.A * p.C && p.B * q.C == q.B * p.C
                 && p.A * q.D == q.A * p.D && p.B * q.D == q.B * p.D && p.C * q.D == q.C * p.D;

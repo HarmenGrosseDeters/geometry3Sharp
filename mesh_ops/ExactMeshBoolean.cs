@@ -1255,7 +1255,7 @@ namespace g3
                 list.Clear();
                 for (int g = g0; g < g1; ++g)
                     list.Add(edgeTri[g]);
-                list.Sort();        // (Array.Sort above is not stable: the first triangle is the reference half-plane)
+                list.Sort();        // (the first triangle is the reference half-plane; sort_by_key keeps them in order already)
                 var pairs = pair_around_edge(tris, list, u, v);
                 foreach (var pair in pairs) {
                     join(slot(pair.Key, u), slot(pair.Value, u));

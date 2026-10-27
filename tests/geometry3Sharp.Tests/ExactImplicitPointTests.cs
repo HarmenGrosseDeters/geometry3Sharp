@@ -354,6 +354,85 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        static ExactMeshArrangement.Plane P(long a, long b, long c, BigInteger d) { return new ExactMeshArrangement.Plane(a, b, c, d); }
+
+        [Fact]
+        public void SamePlane_IsExactProportionality()
+        {
+            BigInteger h = BigInteger.One << 40;
+            // parallel planes one grid unit apart at a large offset (their approximations share a rounding bucket)
+            Assert.False(ExactMeshArrangement.same_plane(P(0, 0, 3, 3 * h), P(0, 0, 3, 3 * (h + 1))));
+            Assert.False(ExactMeshArrangement.same_plane(P(0, 0, 1, h), P(0, 0, 1, h + 1)));
+            // the same plane scaled, also by a negative factor (opposite normals), and through the origin (D = 0)
+            Assert.True(ExactMeshArrangement.same_plane(P(1, 2, 3, h), P(-2, -4, -6, -2 * h)));
+            Assert.True(ExactMeshArrangement.same_plane(P(0, 0, 5, 0), P(0, 0, -1, 0)));
+            Assert.False(ExactMeshArrangement.same_plane(P(0, 0, 1, 0), P(0, 1, 0, 0)));
+            Assert.False(ExactMeshArrangement.same_plane(P(1, 1, 0, 0), P(1, -1, 0, 0)));
+            Assert.False(ExactMeshArrangement.same_plane(P(0, 1, 1, 0), P(0, 1, 2, 0)));
+        }
+
+        [Fact]
+        public void ParallelPlanesOneUnitApart_AreNotShared()
+        {
+            // two flat squares at z = 2^40 and z = 2^40 + 1 (grid units: integer input), each split by a slanted box
+            // edge: their points are on different planes; with and without shared constructions the same output
+            double h = Math.Pow(2, 40);
+            Func<double, DMesh3> square = (z) => {
+                var m = new DMesh3();
+                m.AppendVertex(new Vector3d(-8, -8, z)); m.AppendVertex(new Vector3d(8, -8, z));
+                m.AppendVertex(new Vector3d(8, 8, z)); m.AppendVertex(new Vector3d(-8, 8, z));
+                m.AppendTriangle(0, 1, 2); m.AppendTriangle(0, 2, 3);
+                return m;
+            };
+            var slanted = new DMesh3();
+            slanted.AppendVertex(new Vector3d(-3, -1, h - 4)); slanted.AppendVertex(new Vector3d(5, 2, h + 6)); slanted.AppendVertex(new Vector3d(1, 6, h + 5));
+            slanted.AppendTriangle(0, 1, 2);
+            // (and a triangle far below, so that the grid center is far from the squares: their planes' offsets are
+            // large, 2^41, and round to the same bucket key)
+            var far = new DMesh3();
+            far.AppendVertex(new Vector3d(0, 0, -3 * h)); far.AppendVertex(new Vector3d(1, 0, -3 * h)); far.AppendVertex(new Vector3d(0, 1, -3 * h));
+            far.AppendTriangle(0, 1, 2);
+            var meshes = new List<DMesh3>() { square(h), square(h + 1), slanted, far };
+            string reference = null;
+            foreach (bool share in new[] { false, true }) {
+                var arr = new ExactMeshArrangement(meshes) { ShareCoplanarConstructions = share };
+                arr.Compute();
+                AssertDistinctPoints(arr);
+                // every piece of a square lies in its plane
+                foreach (var o in arr.Output.Where(o => o.Mesh < 2))
+                    foreach (int id in new[] { o.A, o.B, o.C }) {
+                        ExactPoint3 x = arr.ToInputExact(arr.Exact(id));
+                        Assert.Equal(new BigInteger(h + o.Mesh) * x.W, x.Z);
+                    }
+                string print = string.Join(";", arr.Output.Select(o => o.Mesh + ":" + string.Join(",", new[] { o.A, o.B, o.C }.Select(id => {
+                    var x = arr.Exact(id); return x.X + "," + x.Y + "," + x.Z + "," + x.W; }))));
+                if (reference == null) reference = print;
+                else Assert.Equal(reference, print);
+            }
+        }
+
+        [Fact]
+        public void TouchingBoxes_OppositeNormals_ShareConstructions()
+        {
+            // boxes stacked face to face (the top of one and the bottom of the other: one plane, opposite normals) and
+            // a rotated box through both: the same output with and without shared constructions
+            var meshes = new List<DMesh3>() { Box(new Vector3d(0, 0, 0), 0.5, Quaterniond.Identity), Box(new Vector3d(0, 0, 1), 0.5, Quaterniond.Identity),
+                Box(new Vector3d(0.1, 0.2, 0.5), 0.6, new Quaterniond(new Vector3d(1, 2, 3).Normalized, 30)) };
+            string reference = null;
+            int shared = 0, separate = 0;
+            foreach (bool share in new[] { false, true }) {
+                var arr = new ExactMeshArrangement(meshes) { SelfIntersections = true, ShareCoplanarConstructions = share };
+                arr.Compute();
+                AssertDistinctPoints(arr);
+                if (share) shared = arr.PointCount; else separate = arr.PointCount;
+                string print = string.Join(";", arr.Output.Select(o => o.Mesh + ":" + string.Join(",", new[] { o.A, o.B, o.C }.Select(id => {
+                    var x = arr.Exact(id); return x.X + "," + x.Y + "," + x.Z + "," + x.W; }))));
+                if (reference == null) reference = print;
+                else Assert.Equal(reference, print);
+            }
+            Assert.True(shared < separate, $"{shared} {separate}");
+        }
+
         [Theory]
         [InlineData(2, 0)]
         [InlineData(3, 1)]
