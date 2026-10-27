@@ -854,6 +854,40 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void VolumeIoU_OpenReference_OrientedByItsBoundsCenter()
+        {
+            // an open bowl (the half x < 0 of the unit sphere, outward, open at x = 0) and three copies of a closed box at
+            // x in [-3, -2]. The signed volume (MeshMeasurements.VolumeArea, flux along x) about a point p is about
+            // 5.08 + pi p.x: positive about the bounds center (x = -1.5), negative about the area centroid (x about -2,
+            // pulled towards the boxes). Reversed by the centroid's sign, the reference would enclose nothing of the mesh
+            // (here the same mesh); WindingContouring.OrientedCopy decides by the bounds center
+            DMesh3 sphere = MeshCurvatureTests.Icosphere(1, 3);
+            DMesh3 reference = new DMesh3();
+            var map = new Dictionary<int, int>();
+            foreach (int tid in sphere.TriangleIndices()) {
+                Index3i t = sphere.GetTriangle(tid);
+                if (sphere.GetTriCentroid(tid).x > 0) continue;
+                Index3i n = Index3i.Zero;
+                for (int j = 0; j < 3; ++j) {
+                    int v;
+                    if (map.TryGetValue(t[j], out v) == false) map[t[j]] = v = reference.AppendVertex(sphere.GetVertex(t[j]));
+                    n[j] = v;
+                }
+                reference.AppendTriangle(n);
+            }
+            for (int k = 0; k < 3; ++k)
+                MeshEditor.Append(reference, Box(new Vector3d(-3, -0.5, -0.5), new Vector3d(-2, 0.5, 0.5)));
+            Vector3d centroid;
+            MeshFidelityMetrics.SizeOf(reference, out centroid);
+            Vector3d bc = MeshRepairMetrics.TriangleBounds(reference).Center;
+            Func<Vector3d, double> volume = (p) => MeshMeasurements.VolumeArea(reference, reference.TriangleIndices(), (v) => reference.GetVertex(v) - p).x;
+            Assert.True(volume(bc) > 0 && volume(centroid) < 0, $"{volume(bc)} {volume(centroid)}");
+            var f = Run(reference, new DMesh3(reference));
+            Assert.Equal(1.0, f.VolumeIoU);
+            Assert.Equal(0.0, f.VolumeMissing);
+        }
+
+        [Fact]
         public void VolumeIoU_SolidTooSmallToHit_Zero()
         {
             // a tiny box inside a huge one: no sample hits the tiny solid, but it is there: 0 (as MeshRepairMetrics), not

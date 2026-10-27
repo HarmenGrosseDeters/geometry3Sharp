@@ -164,7 +164,8 @@ namespace gs
         public double OuterEdgeShare = double.NaN;
         /// <summary>
         /// output (VolumeSamples): volume IoU of the solid of the reference (generalized winding number &gt; 0.5; the reference
-        /// reversed as a whole if its signed volume is negative, but its components are not oriented by their nesting as in
+        /// reversed as a whole if its signed volume relative to the center of its bounds is negative, as
+        /// WindingContouring.OrientedCopy does, but its components are not oriented by their nesting as in
         /// MeshRepairMetrics.VolumeIoU: a shell nested in another with the same orientation stays a solid part, not a
         /// cavity; orient the reference first if that is wanted, eg WindingContouring.OrientedCopy) and of the mesh,
         /// and the parts of the reference's solid missing in the mesh and the mesh's solid not in the reference, relative
@@ -412,11 +413,13 @@ namespace gs
         }
 
         // VolumeIoU (solid of the whole reference) and OuterVolumeIoU (solid of its outer faces) against the mesh's solid;
-        // the reference reversed as a whole if its signed volume is negative
+        // the reference reversed as a whole if its signed volume is negative (relative to the center of its triangles' bounds,
+        // as WindingContouring.OrientedCopy decides it: for an open reference the sign depends on that point)
         void volume_ious(DMesh3 reference, DMesh3 mesh, Surface meshSurface, double size, double degenerateArea)
         {
             DMesh3 oriented = reference;
-            if (MeshMeasurements.VolumeArea(reference, reference.TriangleIndices(), reference.GetVertex).x < 0) {
+            Vector3d bc = MeshRepairMetrics.TriangleBounds(reference).Center;
+            if (MeshMeasurements.VolumeArea(reference, reference.TriangleIndices(), (vid) => reference.GetVertex(vid) - bc).x < 0) {
                 oriented = new DMesh3(reference, false, MeshComponents.None);
                 oriented.ReverseOrientation(false);
             }
