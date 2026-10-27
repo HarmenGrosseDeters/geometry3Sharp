@@ -135,6 +135,14 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void ForRange_ThrowsTheExceptionOfTheBody()
+        {
+            // (not an AggregateException: as the serial loops before, eg ExactMeshBoolean's "no non-degenerate ray")
+            Assert.Throws<InvalidOperationException>(() => gParallel.ForRange(1000, (i) => { if (i == 500) throw new InvalidOperationException("x"); }));
+            Assert.Throws<InvalidOperationException>(() => gParallel.ForRange(1000, () => 0, (i, local) => { if (i == 7) throw new InvalidOperationException("x"); }));
+        }
+
+        [Fact]
         public void ForRange_VisitsEveryIndexOnce_WithItsOwnLocalState()
         {
             foreach (int n in new[] { 0, 1, 17, 100000 }) {

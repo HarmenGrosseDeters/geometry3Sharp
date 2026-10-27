@@ -325,6 +325,34 @@ namespace geometry3Sharp.Tests
                 Assert.True(seen.Add(arr.Exact(id)), "two point ids for one point");
         }
 
+        [Theory]
+        [InlineData(0)]
+        [InlineData(3)]
+        [InlineData(7)]
+        public void MergedPoints_SameWithHashedAndSortedClusters(int seed)
+        {
+            // merge_points groups the points of a cluster by their exact points, or sorts larger clusters: the
+            // same merges and the same canonical ids either way (coplanar boxes: many coincident constructions)
+            var meshes = new List<DMesh3>();
+            for (int i = 0; i < 2; ++i)
+                for (int j = 0; j < 2; ++j)
+                    meshes.Add(Box(new Vector3d(0.9 * i, 0.9 * j, 0.45 * (i + j)), 1, Quaterniond.Identity));
+            var rand = new Random(seed);
+            meshes.Add(Box(new Vector3d(0.4, 0.5, 0.3), 1.1, Rotation(rand, 360)));
+            string reference = null;
+            foreach (int limit in new[] { 64, 2, 0 }) {
+                var arr = new ExactMeshArrangement(meshes) { SelfIntersections = true, MaxHashedCluster = limit };
+                arr.Compute();
+                Assert.True(arr.MergedPoints > 3);
+                AssertDistinctPoints(arr);
+                // the pieces with their points (ids are assigned in parallel: by exact point and construction kind)
+                string print = string.Join(";", arr.Output.Select(o => string.Join(",", new[] { o.A, o.B, o.C }.Select(id => { var x = arr.Exact(id); return arr.KindOf(id) + "@" + x.X + "," + x.Y + "," + x.Z + "," + x.W; }))))
+                    + "|" + arr.MergedPoints;
+                if (reference == null) reference = print;
+                else Assert.Equal(reference, print);
+            }
+        }
+
         [Fact]
         public void CoincidentConstructions_AreMerged()
         {

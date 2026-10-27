@@ -516,7 +516,8 @@ namespace g3
         // above that, and far below the distances of distinct points (quotients of bounded integers), so the
         // filters still decide
         internal const double Tiny = 1e-300;
-        // for tests: always evaluate the predicates exactly
+        // for tests: always evaluate the predicates exactly (integer points with double coordinates still go
+        // through ExactPredicates, whose own filter is exact)
         internal bool DisableFilters = false;
 
         static double max_abs(Vector3d a)
@@ -712,6 +713,34 @@ namespace g3
             return 0;
         }
 
+        // clusters larger than this are sorted (ComparePoints separates most of their points by the filter, without
+        // the exact points): a point whose approximation is beyond the double range overlaps all others
+        internal int MaxHashedCluster = 64;
+
+        // merge_cluster by sorting with ComparePoints: equal points are adjacent
+        int merge_sorted(List<int> ids, int[] order, int k0, int k1, int[] next)
+        {
+            var members = new List<int>(k1 - k0);
+            for (int k = k0; k < k1; ++k)
+                members.Add(ids[order[k]]);
+            members.Sort(ComparePoints);
+            int merged = 0;
+            for (int r0 = 0, r1; r0 < members.Count; r0 = r1) {
+                r1 = r0 + 1;
+                while (r1 < members.Count && ComparePoints(members[r0], members[r1]) == 0) r1++;
+                if (r1 - r0 == 1)
+                    continue;
+                int best = members[r0];
+                for (int r = r0 + 1; r < r1; ++r)
+                    if (keys[members[r]].CompareTo(keys[best]) < 0)
+                        best = members[r];
+                for (int r = r0; r < r1; ++r)
+                    next[members[r]] = best;
+                merged += r1 - r0 - 1;
+            }
+            return merged;
+        }
+
         // the points ids[order[k0..k1-1]] (a cluster of overlapping order key intervals): equal points get the id
         // with the smallest key (next); returns the number of points merged. The points are grouped by their exact
         // (canonical) points, so that each is computed once instead of in every comparison of a sort; two points
@@ -727,6 +756,8 @@ namespace g3
                 next[a] = next[b] = best;
                 return 1;
             }
+            if (k1 - k0 > MaxHashedCluster)
+                return merge_sorted(ids, order, k0, k1, next);
             var groups = new Dictionary<ExactPoint3, List<int>>();
             for (int k = k0; k < k1; ++k) {
                 int id = ids[order[k]];
