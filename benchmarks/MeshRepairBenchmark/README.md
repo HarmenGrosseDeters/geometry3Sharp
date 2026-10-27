@@ -1028,3 +1028,30 @@ input surface that the result does not have. The likely cause (not yet checked m
 often carry interior and double-sided faces that the solid's boundary drops on purpose. A fidelity measure that
 ignores dropped interior faces would tell these apart from real losses; until then, compare runs on this corpus
 with each other, not with Thingi10K.
+
+## Deterministic hole fill (`RemesherPro` queue order)
+57312.stl gave 35796 or 35850 triangles from run to run (about one process in five). `MeshAutoRepair`'s hole
+filling (`MinimalHoleFill`) remeshes the fill with `RemesherPro`, whose parallel smooth and projection passes
+queued the edges for the next pass in thread order; the queue is now processed in a fixed order. The same PR makes
+`RemesherPro`'s projection passes scale invariant (relative tolerances, the face-aligned rotation in double); the
+repair benchmark does not use them.
+
+`robust` on both selections, `BENCH_P=2 TIMEOUT=300`, master `6ec47ed` before, the change after (the times of the
+before run are not comparable: other tests ran on the machine during it):
+
+| | first selection, before | after | holdout, before | after |
+|---|---|---|---|---|
+| repaired | 272 | 273 | 270 | 270 |
+| clean + no exact self-intersections | 397 | 398 | 395 | 395 |
+| meshes with another triangle count | | 62 | | 53 |
+| ... of them exact resolve / solidify / wrap | | 58 / 1 / 2 | | 51 / 2 / 0 |
+| ... Hausdorff (max), median | 1.28 % | 1.28 % | 0.88 % | 0.88 % |
+| ... IoU, median | 0.9997 | 0.9997 | 0.9998 | 0.9997 |
+| path changes | | 6 | | 3 |
+
+The hole fills are triangulated differently (the queue order changed for serial runs too), which changes the
+triangle count of about one mesh in seven and, through the later stages, the path of 9 meshes in both directions:
+1102667.stl is now repaired (exact resolve instead of the wrap), 42637.stl now just misses the Hausdorff bound
+(1.00 % instead of 0.99 %), 1505037.stl and 94484.stl are wrapped instead of resolved exactly (IoU 0.993 → 0.926 and
+0.991 → 0.973, neither repaired before), 1368057.stl no longer times out. 57312.stl now gives 36154 triangles every
+run (10 of 10 processes with the final build).

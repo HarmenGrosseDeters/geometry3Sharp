@@ -167,6 +167,61 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void RemesherPro_FullRemesh_ParallelEqualsSerialAndRepeats()
+        {
+            // with splits, collapses and flips: the parallel smooth / projection passes queue the edges to
+            // process next in thread order, and the queue (a hash set) enumerates in insertion order, so the
+            // edges were processed in a different order from run to run (MinimalHoleFill, and with it
+            // MeshAutoRepair, gave different triangulations now and then)
+            DMesh3 input = NoisySphere(40, 4);
+            DMesh3 target = Sphere(40);
+            double edge = input.EdgeIndices().Average(e => { Index2i ev = input.GetEdgeV(e); return input.GetVertex(ev.a).Distance(input.GetVertex(ev.b)); });
+            DMesh3 Run(bool parallel)
+            {
+                DMesh3 mesh = new DMesh3(input);
+                var r = new RemesherPro(mesh) { EnableParallelSmooth = parallel, EnableParallelProjection = parallel };
+                r.SetProjectionTarget(MeshProjectionTarget.Auto(target));
+                r.SetTargetEdgeLength(0.6 * edge);
+                r.FastestRemesh();
+                return mesh;
+            }
+            DMesh3 serial = Run(false);
+            Assert.True(serial.TriangleCount > input.TriangleCount);
+            Assert.True(serial.CheckValidity(false, FailMode.ReturnOnly));
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(serial, false));
+            for (int k = 0; k < 4; ++k)
+                Assert.Equal("", Invariance.Difference(serial, Run(true)));
+        }
+
+        [Fact]
+        public void MinimalHoleFill_RepeatedRuns_BitIdentical()
+        {
+            // MinimalHoleFill remeshes the fill with RemesherPro (parallel smoothing): the same hole must get
+            // the same triangles every time (MeshAutoRepair's hole filling used to differ now and then)
+            DMesh3 Holed()
+            {
+                DMesh3 m = NoisySphere(40, 5);
+                var cut = m.TriangleIndices().Where(t => m.GetTriCentroid(t).z > 0.55).ToList();
+                new MeshEditor(m).RemoveTriangles(cut, true);
+                return m;
+            }
+            DMesh3 Fill()
+            {
+                DMesh3 m = Holed();
+                var loops = new MeshBoundaryLoops(m);
+                Assert.Single(loops.Loops);
+                Assert.True(new MinimalHoleFill(m, loops.Loops[0]).Apply());
+                return m;
+            }
+            DMesh3 first = Fill();
+            Assert.True(first.IsClosed());
+            Assert.True(first.CheckValidity(false, FailMode.ReturnOnly));
+            Assert.True(first.TriangleCount > Holed().TriangleCount);
+            for (int k = 0; k < 4; ++k)
+                Assert.Equal("", Invariance.Difference(first, Fill()));
+        }
+
+        [Fact]
         public void RemesherPro_FaceAlignedProjection_IsDeterministic()
         {
             // TrackedFaceProjectionPass has no serial variant, so run it repeatedly on the same input.

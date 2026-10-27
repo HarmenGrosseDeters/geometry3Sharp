@@ -78,6 +78,36 @@ namespace gs
             }
         }
 
+        // modified_edges into edges_buffer in a fixed order: the parallel smooth / projection passes fill the
+        // set in thread order, and it enumerates in insertion order, so the edges were processed in a different
+        // order from run to run. Sorted, then walked with a prime step like the full passes (Remesher.start_edges:
+        // consecutive ids, eg a loop of tiny edges, are not collapsed one after the other)
+        void order_queued_edges()
+        {
+            edges_buffer.Clear();
+            edges_buffer.AddRange(modified_edges);
+            edges_buffer.Sort();
+            int n = edges_buffer.Count;
+            if (n < 2)
+                return;
+            long step = MathUtil.ModuloIterationStep(n);
+            sorted_buffer.Clear();
+            sorted_buffer.AddRange(edges_buffer);
+            for (int i = 0; i < n; ++i)
+                edges_buffer[i] = sorted_buffer[(int)((i * step) % n)];
+        }
+        List<int> sorted_buffer = new List<int>();
+
+        // a projected vertex closer than this to its position p did not move: relative to the edge lengths
+        // (MinEdgeLength, set by SetTargetEdgeLength), so the result does not depend on the scale of the mesh
+        // (was MathUtil.ZeroTolerancef), and at least a few units in the last place of p's coordinates, so
+        // rounding noise far from the origin does not count as a move. Both scale exactly by powers of two.
+        double moved_tolerance(Vector3d p)
+        {
+            double magnitude = Math.Max(Math.Abs(p.x), Math.Max(Math.Abs(p.y), Math.Abs(p.z)));
+            return Math.Max(MathUtil.ZeroTolerancef * MinEdgeLength, 8 * MathUtil.Epsilon * magnitude);
+        }
+
         void queue_edge_safe(int eid) {
             bool taken = false;
             modified_edges_lock.Enter(ref taken);
@@ -289,7 +319,7 @@ namespace gs
             if (modified_edges == null) {
                 modified_edges = new HashSet<int>();
             } else {
-                edges_buffer.Clear(); edges_buffer.AddRange(modified_edges);
+                order_queued_edges();
                 edgesItr = edges_buffer;
                 modified_edges.Clear();
             }
@@ -373,7 +403,7 @@ namespace gs
             if (modified_edges == null) {
                 modified_edges = new HashSet<int>();
             } else {
-                edges_buffer.Clear(); edges_buffer.AddRange(modified_edges);
+                order_queued_edges();
                 edgesItr = edges_buffer;
                 modified_edges.Clear();
             }
@@ -514,7 +544,7 @@ namespace gs
                 Vector3d vCur = Mesh.GetVertex(vID);
                 bool bModified = false;
                 Vector3d vProjected = ComputeProjectedVertexPos(vID, out bModified);
-                if (vCur.EpsilonEqual(vProjected, MathUtil.ZeroTolerancef))
+                if (vCur.EpsilonEqual(vProjected, moved_tolerance(vCur)))
                     bModified = false;
                 if (bModified) {
                     vModifiedV[vID] = true;
@@ -624,19 +654,25 @@ namespace gs
                 Vector3d projNormal;
                 Vector3d projPos = normalTarget.Project(centroid, out projNormal);
 
-                Index3i tv = mesh.GetTriangle(tid);
-                Vector3d v0 = mesh.GetVertex(tv.a), v1 = mesh.GetVertex(tv.b), v2 = mesh.GetVertex(tv.c);
-
-                // ugh could probably do this more efficiently...
-                Frame3f triF = new Frame3f(centroid, normal);
-                v0 = triF.ToFrameP(ref v0); v1 = triF.ToFrameP(ref v1); v2 = triF.ToFrameP(ref v2);
-                triF.AlignAxis(2, (Vector3f)projNormal);
-                triF.Origin = (Vector3f)projPos;
-                v0 = triF.FromFrameP(ref v0); v1 = triF.FromFrameP(ref v1); v2 = triF.FromFrameP(ref v2);
-
                 double dot = normal.Dot(projNormal);
                 dot = MathUtil.Clamp(dot, 0, 1.0);
                 double w = area * (dot * dot * dot);
+                // (a triangle almost perpendicular to the target: a weight in the subnormal range would lose
+                // the positions it multiplies; relative to the area, so independent of the scale)
+                if (!(w > 1e-200 * area)) {
+                    triWeights[tid] = 0;
+                    triPositions[3 * tid] = triPositions[3 * tid + 1] = triPositions[3 * tid + 2] = Vector3d.Zero;
+                    return;
+                }
+
+                // the triangle turned about its centroid so that its normal is the target's, moved to the
+                // projected centroid. In double: a float frame (Frame3f) lost the positions of meshes far from
+                // the origin (UTM coordinates: errors of centimetres, so every vertex 'moved' every pass)
+                Index3i tv = mesh.GetTriangle(tid);
+                Quaterniond q = Quaterniond.FromTo(normal, projNormal);
+                Vector3d v0 = projPos + q * (mesh.GetVertex(tv.a) - centroid);
+                Vector3d v1 = projPos + q * (mesh.GetVertex(tv.b) - centroid);
+                Vector3d v2 = projPos + q * (mesh.GetVertex(tv.c) - centroid);
 
                 triWeights[tid] = w;
                 triPositions[3 * tid] = w * v0; triPositions[3 * tid + 1] = w * v1; triPositions[3 * tid + 2] = w * v2;
@@ -662,7 +698,7 @@ namespace gs
             // under min/max edge length thresholds
             gParallel.ForEach(mesh.VertexIndices(), (vID) => {
                 vModifiedV[vID] = false;
-                if (vBufferVWeights[vID] < MathUtil.ZeroTolerance)
+                if (!(vBufferVWeights[vID] > 0))     // (weights are areas: no absolute threshold)
                     return;
                 if (vertex_is_constrained(vID))
                     return;
@@ -671,7 +707,7 @@ namespace gs
 
                 Vector3d curpos = mesh.GetVertex(vID);
                 Vector3d projPos = vBufferV[vID] / vBufferVWeights[vID];
-                if (curpos.EpsilonEqual(projPos, MathUtil.ZeroTolerancef))
+                if (curpos.EpsilonEqual(projPos, moved_tolerance(curpos)))
                     return;
 
                 vModifiedV[vID] = true;
