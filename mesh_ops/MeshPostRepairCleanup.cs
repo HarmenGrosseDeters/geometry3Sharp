@@ -271,8 +271,10 @@ namespace gs
         /// <summary>
         /// Closed components whose orientation contradicts their nesting: an outer shell (inside an even
         /// number of other components) must have positive volume, a cavity (odd) negative volume. So
-        /// inverted solids, and the cavities of a hollow solid that was inverted as a whole, are found.
-        /// Returns their triangle sets (empty if there are none or no closed components). Does not modify the mesh.
+        /// inverted solids, and the cavities of a hollow solid that was inverted as a whole, are found. For an
+        /// inside-out component, nearly closed open components (|winding number| above 0.75 inside it) count as
+        /// enclosing as well, so the cavity of an open shell is not taken for an inverted part. Returns their triangle sets (empty if
+        /// there are none or no closed components). Does not modify the mesh.
         /// Cost: the nesting is tested only for components whose box lies inside another one's (found by a sweep,
         /// so many components side by side are cheap), with a winding number tree per enclosing component.
         /// </summary>
@@ -281,49 +283,63 @@ namespace gs
             var result = new List<int[]>();
             var comps = new MeshConnectedComponents(mesh);
             comps.FindConnectedT();
-            var closed = comps.Components.Where(c => c.Indices.All(t => {
+            var all = comps.Components.Select(c => c.Indices).ToList();
+            bool[] isClosed = all.Select(c => c.All(t => {
                 Index3i te = mesh.GetTriEdges(t);
                 return !mesh.IsBoundaryEdge(te.a) && !mesh.IsBoundaryEdge(te.b) && !mesh.IsBoundaryEdge(te.c);
-            })).Select(c => c.Indices).ToList();
-            if (closed.Count == 0)
+            })).ToArray();
+            if (isClosed.Any(c => c) == false)
                 return result;
 
             Vector3d center = mesh.CachedBounds.Center;
-            var volAreas = closed.Select(c => MeshMeasurements.VolumeArea(mesh, c, (vid) => mesh.GetVertex(vid) - center)).ToList();
-            var vols = volAreas.Select(va => va.x).ToList();
-            if (closed.Count == 1) {
-                if (vols[0] < 0) result.Add(closed[0]);
+            var volAreas = new Vector2d[all.Count];
+            for (int i = 0; i < all.Count; ++i)
+                if (isClosed[i])
+                    volAreas[i] = MeshMeasurements.VolumeArea(mesh, all[i], (vid) => mesh.GetVertex(vid) - center);
+            if (all.Count == 1) {
+                if (volAreas[0].x < 0) result.Add(all[0]);
                 return result;
             }
-            var boxes = closed.Select(c => {
+            var boxes = all.Select(c => {
                 var box = AxisAlignedBox3d.Empty;
                 foreach (int t in c) box.Contain(mesh.GetTriBounds(t));
                 return box;
             }).ToList();
-            var trees = new DMeshAABBTree3[closed.Count];
+            var trees = new DMeshAABBTree3[all.Count];
             var containers = enclosing_boxes(boxes);
-            for (int i = 0; i < closed.Count; ++i) {
+            for (int i = 0; i < all.Count; ++i) {
+                if (isClosed[i] == false)
+                    continue;
+                double vol = volAreas[i].x;
                 // count enclosing components (|winding number| > 0.5, whatever their orientation). Sample
                 // points lie slightly inside component i (the interiors of two components are disjoint or
                 // nested, so any interior point decides), not on its surface: where components touch, a
                 // surface point lies on the other component too, and there its winding number jumps between
-                // 0 and 1 by rounding, so the result would depend on the unit or the position of the mesh
+                // 0 and 1 by rounding, so the result would depend on the unit or the position of the mesh.
+                // Open components enclose an inside-out component too when they are nearly closed (eg a few
+                // boundary edges left: the cavity of an open shell); they count only above |winding number|
+                // 0.75, so that an open sheet or bowl around a part (about 0.5 and below) does not, and only for
+                // inside-out components, so that this can only take back an "inverted", never add one (an
+                // outward shell inside an open body stays a part, which a union or solidify absorbs)
                 List<Vector3d> samples = null;
                 int nInside = 0;
                 // only a component whose box contains this one's can enclose it
                 foreach (int j in containers[i]) {
+                    if (isClosed[j] == false && vol >= 0)
+                        continue;
                     if (trees[j] == null)
-                        trees[j] = new DMeshAABBTree3(new DSubmesh3(mesh, closed[j]).SubMesh, true);
+                        trees[j] = new DMeshAABBTree3(new DSubmesh3(mesh, all[j]).SubMesh, true);
                     if (samples == null)
-                        samples = interior_samples(mesh, closed[i], vols[i] < 0,
-                            Math.Min(1e-4 * boxes[i].DiagonalLength, 0.25 * Math.Abs(vols[i]) / volAreas[i].y));
+                        samples = interior_samples(mesh, all[i], vol < 0,
+                            Math.Min(1e-4 * boxes[i].DiagonalLength, 0.25 * Math.Abs(vol) / volAreas[i].y));
+                    double threshold = isClosed[j] ? 0.5 : 0.75;
                     // a few samples vote, so one sample near a thin feature or another component does not decide
-                    int votes = samples.Count(p => Math.Abs(trees[j].FastWindingNumber(p)) > 0.5);
+                    int votes = samples.Count(p => Math.Abs(trees[j].FastWindingNumber(p)) > threshold);
                     if (2 * votes > samples.Count) nInside++;
                 }
                 bool cavity = (nInside % 2) == 1;
-                if ((vols[i] < 0) != cavity)
-                    result.Add(closed[i]);
+                if ((vol < 0) != cavity)
+                    result.Add(all[i]);
             }
             return result;
         }

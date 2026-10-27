@@ -107,6 +107,77 @@ namespace geometry3Sharp.Tests
             Assert.True(mesh.CheckValidity(false, FailMode.ReturnOnly));
         }
 
+        // a sphere with a few triangles near its top removed: open, but nearly closed
+        static DMesh3 NearlyClosedSphere(double radius, int removed)
+        {
+            DMesh3 m = Sphere(radius);
+            foreach (int t in m.TriangleIndices().OrderByDescending(t => m.GetTriCentroid(t).z).ThenBy(t => t).Take(removed).ToArray())
+                m.RemoveTriangle(t);
+            return m;
+        }
+
+        [Fact]
+        public void CavityOfAnOpenShell_IsNotInverted()
+        {
+            // Thingi10K 814760 / 105335: a body with a few boundary edges left and an inside-out closed shell in it:
+            // a cavity (winding number of the open body about 1 there), not an inverted part. Before, only closed
+            // components could enclose, so the cavity was flipped into a solid part (VolumeIoU's reference, the
+            // orientation before the exact resolve and the solidify of the input)
+            DMesh3 mesh = NearlyClosedSphere(1, 2);
+            Assert.False(mesh.IsClosed());
+            DMesh3 cavity = Sphere(0.5);
+            cavity.ReverseOrientation();
+            MeshEditor.Append(mesh, cavity);
+            Assert.Empty(MeshPostRepairCleanup.FindInvertedComponents(mesh));
+            // the same under the similarities of the invariance tests
+            foreach (Similarity sim in Similarity.All())
+                Assert.Empty(MeshPostRepairCleanup.FindInvertedComponents(Invariance.Transformed(mesh, sim)));
+            // an outward sphere inside the open one is not taken for an inverted cavity (open bodies only take back
+            // an "inverted"; DualContouringTests.Solidify_BrokenBox_IsClosedAndRemovesInteriorShell)
+            DMesh3 nested = NearlyClosedSphere(1, 2);
+            MeshEditor.Append(nested, Sphere(0.5));
+            Assert.Empty(MeshPostRepairCleanup.FindInvertedComponents(nested));
+            // a separate inside-out sphere next to the open one is still inverted
+            DMesh3 apart = Sphere(0.5, new Vector3d(5, 0, 0));
+            apart.ReverseOrientation();
+            MeshEditor.Append(mesh, apart);
+            Assert.Single(MeshPostRepairCleanup.FindInvertedComponents(mesh));
+        }
+
+        [Fact]
+        public void PartInAnOpenBowl_IsNotACavity()
+        {
+            // an open hemisphere (winding number about 0.5 at its center) around a small outward sphere: the bowl
+            // does not enclose it, so the sphere is not taken for a cavity (and not flipped)
+            DMesh3 bowl = Sphere(1);
+            foreach (int t in bowl.TriangleIndices().Where(t => bowl.GetTriCentroid(t).z > 0).ToArray())
+                bowl.RemoveTriangle(t);
+            DMesh3 mesh = new DMesh3(bowl);
+            MeshEditor.Append(mesh, Sphere(0.2, new Vector3d(0, 0, -0.3)));
+            Assert.Empty(MeshPostRepairCleanup.FindInvertedComponents(mesh));
+            // the inside-out version of the small sphere is inverted, bowl or not
+            DMesh3 inv = Sphere(0.2, new Vector3d(0, 0, -0.3));
+            inv.ReverseOrientation();
+            DMesh3 mesh2 = new DMesh3(bowl);
+            MeshEditor.Append(mesh2, inv);
+            Assert.Single(MeshPostRepairCleanup.FindInvertedComponents(mesh2));
+        }
+
+        [Fact]
+        public void CavityOfAnOpenShell_VolumeIoUAgreesWithTheClosedResult()
+        {
+            // the input's solid (VolumeIoU orients it with FindInvertedComponents) keeps the cavity, so the closed
+            // shell with the same cavity agrees with it
+            DMesh3 input = NearlyClosedSphere(1, 2);
+            DMesh3 cavity = Sphere(0.5);
+            cavity.ReverseOrientation();
+            MeshEditor.Append(input, cavity);
+            DMesh3 result = Sphere(1);
+            MeshEditor.Append(result, cavity);
+            double missing, extra;
+            Assert.True(MeshRepairMetrics.VolumeIoU(input, result, out missing, out extra) > 0.99);
+        }
+
         [Fact]
         public void InsideOutComponent_IsFlipped_ButCavityIsKept()
         {
