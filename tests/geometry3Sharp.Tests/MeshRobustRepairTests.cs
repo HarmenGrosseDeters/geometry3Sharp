@@ -140,6 +140,95 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0, MeshRepairMetrics.InconsistentlyOrientedEdges(r.Mesh));
         }
 
+        // a unit box (at o) with a face triangle poked at a point 1e-13 off the midpoint of one of its edges, in
+        // the face's plane (as CollapseSlivers_FlipsCaps): a cap of area below 1e-12 * diagonal^2, closed, manifold,
+        // consistently oriented, no self-intersections (on the edge itself the cap's neighbours would touch the
+        // triangle across it: a self-intersection)
+        internal static DMesh3 BoxWithDegenerateTriangle(Vector3d o)
+        {
+            DMesh3 m = Box(o.x, o.y, o.z, o.x + 1, o.y + 1, o.z + 1);
+            int tid = m.TriangleIndices().First();
+            Index3i t = m.GetTriangle(tid);
+            Vector3d a = m.GetVertex(t.a), b = m.GetVertex(t.b), c = m.GetVertex(t.c);
+            DMesh3.PokeTriangleInfo poke;
+            Assert.Equal(MeshResult.Ok, m.PokeTriangle(tid, out poke));
+            m.SetVertex(poke.new_vid, 0.5 * (a + b) + 1e-13 * (c - 0.5 * (a + b)));
+            return m;
+        }
+
+        [Fact]
+        public void NotCleanReasons_DegenerateAndInsideOut()
+        {
+            // degenerate triangles hid the inside-out result (eg Thingi10K 135363 after a remesh): NotCleanReason
+            // still names only the first (callers compare it), NotCleanReasons / FindDefects name both
+            DMesh3 m = BoxWithDegenerateTriangle(Vector3d.Zero);
+            Assert.Equal(MeshRobustRepair.Defects.DegenerateTriangles, MeshRobustRepair.FindDefects(m));
+            Assert.Equal("degenerate triangles", MeshRobustRepair.NotCleanReasons(m));
+            m.ReverseOrientation();
+            Assert.Equal("degenerate triangles", MeshRobustRepair.NotCleanReason(m));
+            Assert.Equal(MeshRobustRepair.Defects.DegenerateTriangles | MeshRobustRepair.Defects.InsideOutComponents,
+                MeshRobustRepair.FindDefects(m));
+            Assert.Equal("degenerate triangles, inside-out components", MeshRobustRepair.NotCleanReasons(m));
+            Assert.Equal("degenerate triangles, inside-out components", MeshRobustRepair.NotCleanReasons(m, false));
+        }
+
+        [Fact]
+        public void NotCleanReasons_DegenerateAndSelfIntersections()
+        {
+            // degenerate triangles hid the self-intersections (19 of 20 remesh results of the RemeshBenchmark);
+            // the expensive check runs only with checkSelfIntersections
+            DMesh3 m = BoxWithDegenerateTriangle(Vector3d.Zero);
+            MeshEditor.Append(m, Box(0.5, 0.25, 0.25, 1.5, 0.75, 0.75));
+            Assert.Equal("degenerate triangles", MeshRobustRepair.NotCleanReason(m));
+            Assert.Equal(MeshRobustRepair.Defects.DegenerateTriangles | MeshRobustRepair.Defects.SelfIntersections,
+                MeshRobustRepair.FindDefects(m));
+            Assert.Equal("degenerate triangles, self-intersections", MeshRobustRepair.NotCleanReasons(m));
+            Assert.Equal(MeshRobustRepair.Defects.DegenerateTriangles, MeshRobustRepair.FindDefects(m, false));
+            Assert.Equal("degenerate triangles", MeshRobustRepair.NotCleanReasons(m, false));
+        }
+
+        [Fact]
+        public void NotCleanReasons_StartsWithNotCleanReason()
+        {
+            // every single defect, a few combinations, clean and empty: the first reason is NotCleanReason's
+            DMesh3 clean = Box(0, 0, 0, 1, 1, 1);
+            DMesh3 open = new DMesh3(clean);
+            open.RemoveTriangle(open.TriangleIndices().First());
+            DMesh3 inconsistent = Sphere(1, Vector3d.Zero);
+            inconsistent.ReverseTriOrientation(inconsistent.TriangleIndices().First());
+            DMesh3 inverted = new DMesh3(clean);
+            inverted.ReverseOrientation();
+            DMesh3 overlapping = Box(0, 0, 0, 1, 1, 1);
+            MeshEditor.Append(overlapping, Box(0.5, 0.25, 0.25, 1.5, 0.75, 0.75));
+            // two boxes sharing the corner (1, 1, 1)
+            DMesh3 bowtie = Box(0, 0, 0, 1, 1, 1), second = Box(1, 1, 1, 2, 2, 2);
+            int corner = bowtie.VertexIndices().First(v => bowtie.GetVertex(v) == Vector3d.One);
+            var map = new Dictionary<int, int>();
+            foreach (int v in second.VertexIndices())
+                map[v] = second.GetVertex(v) == Vector3d.One ? corner : bowtie.AppendVertex(second.GetVertex(v));
+            foreach (Index3i t in second.Triangles())
+                bowtie.AppendTriangle(map[t.a], map[t.b], map[t.c]);
+            DMesh3 openDegenerate = BoxWithDegenerateTriangle(Vector3d.Zero);
+            openDegenerate.RemoveTriangle(openDegenerate.TriangleIndices().Last());
+            var cases = new[] {
+                (clean, MeshRobustRepair.Defects.None, ""),
+                (new DMesh3(), MeshRobustRepair.Defects.Empty, "empty"),
+                (open, MeshRobustRepair.Defects.NotClosed, "not closed"),
+                (bowtie, MeshRobustRepair.Defects.Bowties, "bowties"),
+                (inconsistent, MeshRobustRepair.Defects.InconsistentOrientation, "inconsistent orientation"),
+                (inverted, MeshRobustRepair.Defects.InsideOutComponents, "inside-out components"),
+                (overlapping, MeshRobustRepair.Defects.SelfIntersections, "self-intersections"),
+                (openDegenerate, MeshRobustRepair.Defects.NotClosed | MeshRobustRepair.Defects.DegenerateTriangles, "not closed, degenerate triangles"),
+            };
+            foreach (var (mesh, defects, reasons) in cases) {
+                Assert.Equal(defects, MeshRobustRepair.FindDefects(mesh));
+                Assert.Equal(reasons, MeshRobustRepair.NotCleanReasons(mesh));
+                Assert.Equal(reasons, MeshRobustRepair.DescribeDefects(defects));
+                string first = MeshRobustRepair.NotCleanReason(mesh);
+                Assert.Equal(first, reasons.Split(new[] { ", " }, StringSplitOptions.None)[0]);
+            }
+        }
+
         [Fact]
         public void TooManySelfIntersections_SolidifiedInsteadOfResolved()
         {

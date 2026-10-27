@@ -63,6 +63,27 @@ namespace geometry3Sharp.Tests
 
         [Theory]
         [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void FindDefects_SameUnderSimilarity(string name)
+        {
+            // every defect of a mesh with several, in any placement: a degenerate cap with an inside-out box, and
+            // with a second, overlapping box
+            Similarity s = Similarity.ByName(name);
+            DMesh3 inverted = MeshRobustRepairTests.BoxWithDegenerateTriangle(Vector3d.Zero);
+            inverted.ReverseOrientation();
+            DMesh3 overlapping = MeshRobustRepairTests.BoxWithDegenerateTriangle(Vector3d.Zero);
+            MeshEditor.Append(overlapping, Box(new Vector3d(0.5, 0.25, 0.25), new Vector3d(1.5, 0.75, 0.75)));
+            // (the cap's apex lies 1e-13 from its edge: an inexact placement, eg at UTM coordinates, rounds it onto the
+            // edge, where the cap's neighbours touch the triangle across it, a real self-intersection of that mesh)
+            var invertedDefects = MeshRobustRepair.FindDefects(Invariance.Transformed(inverted, s));
+            if (s.IsExact == false)
+                invertedDefects &= ~MeshRobustRepair.Defects.SelfIntersections;
+            Assert.Equal(MeshRobustRepair.Defects.DegenerateTriangles | MeshRobustRepair.Defects.InsideOutComponents, invertedDefects);
+            Assert.Equal(MeshRobustRepair.Defects.DegenerateTriangles | MeshRobustRepair.Defects.SelfIntersections,
+                MeshRobustRepair.FindDefects(Invariance.Transformed(overlapping, s)));
+        }
+
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
         public void ExactBoolean_Difference_SameVolumeUnderSimilarity(string name)
         {
             Similarity s = Similarity.ByName(name);

@@ -301,7 +301,8 @@ static class Program
         R["hausdorff_lower_rel"] = hd.LowerBound / c.Target;
         R["boundary_edges"] = m.BoundaryEdgeIndices().Count();
         R["input_boundary_edges"] = c.Input.BoundaryEdgeIndices().Count();
-        R["not_clean"] = (c.Input.IsClosed() ? MeshRobustRepair.NotCleanReason(m, true) : null) ?? "";
+        // every failed check (NotCleanReason stops at the first: degenerate triangles hid self-intersections)
+        R["not_clean"] = c.Input.IsClosed() ? MeshRobustRepair.NotCleanReasons(m, true) : "";
         if (c.Kind == Kind.TerrainBand && c.Distance != null)
             SafetyCheck(m, c.Crest, c.Distance, c.X0 + 2 * SafetyD, c.X1 - 2 * SafetyD, R, "band_");
     }

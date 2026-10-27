@@ -180,7 +180,9 @@ Known remaining issues:
 Modes (`BENCH_REPAIR`):
 - `hybrid_topo`: cleanup; if the result is not topologically clean, solidify the repaired mesh
   (`MeshWindingNumberSolidify`, adaptive dual contouring, resolution 128).
-- `hybrid`: as `hybrid_topo`, and exact self-intersections also trigger the solidify.
+- `hybrid`: as `hybrid_topo`, and exact self-intersections also trigger the solidify. `hybrid_reason` is the first
+  failed check of the repair result (`MeshRobustRepair.NotCleanReason`, which decides), `hybrid_defects` all of them
+  (`NotCleanReasons`, computed after the timing).
 - `solidify_dc_adaptive`: solidify the input directly.
 - `robust`: `MeshRobustRepair`, the library version of `hybrid`. In addition, a clean result whose
   solid differs from the input's (volume IoU < 0.99) is replaced by the solidified input.

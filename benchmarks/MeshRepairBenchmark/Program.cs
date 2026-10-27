@@ -91,6 +91,7 @@ class Program
             const double absRepairTol = MathUtil.ZeroTolerancef, absMinEdge = 1e-4;
             DMesh3 result;
             bool ok;
+            DMesh3 hybridUnclean = null;     // the hybrid repair result that was not clean (its defects: after the timing)
             if (repairMode == "exact") {
                 result = RunExactBooleans(original, r);
                 ok = true;
@@ -212,12 +213,17 @@ class Program
                     string reason = MeshRobustRepair.NotCleanReason(result, repairMode == "hybrid");
                     r["hybrid_fallback"] = reason != "";
                     r["hybrid_reason"] = reason;
-                    if (reason != "")
+                    if (reason != "") {
+                        hybridUnclean = result;     // (the solidify does not change its input)
                         result = Solidify(result, MeshWindingNumberSolidify.Methods.DualContouring, true, r);
+                    }
                 }
             }
             r["repair_ms"] = (repairMode == "cgalwrap" && r.ContainsKey("wrap_ms")) ? r["wrap_ms"] : sw.ElapsedMilliseconds;
             r["apply_returned"] = ok;
+            // every failed check of the unclean hybrid repair result (hybrid_reason is the first, which decides)
+            if (repairMode == "hybrid" || repairMode == "hybrid_topo")
+                r["hybrid_defects"] = hybridUnclean == null ? "" : MeshRobustRepair.NotCleanReasons(hybridUnclean, repairMode == "hybrid");
 
             stage = "stats_after";
             swStats.Restart();

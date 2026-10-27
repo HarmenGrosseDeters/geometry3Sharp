@@ -722,19 +722,92 @@ namespace gs
         /// "not closed", "bowties", "degenerate triangles" (area &lt; 1e-12 * diagonal^2, of the bounds of the triangles),
         /// "inconsistent orientation" (an interior edge whose two triangles run the same way), "inside-out components",
         /// "self-intersections". Useful as a test assertion: NotCleanReason(mesh) == "".
+        /// Stops at the first problem, which can hide the others (eg degenerate triangles hide self-intersections):
+        /// NotCleanReasons / FindDefects report all of them.
         /// </summary>
         public static string NotCleanReason(DMesh3 mesh, bool checkSelfIntersections = true)
         {
             if (mesh.TriangleCount == 0) return "empty";
             if (mesh.IsClosed() == false) return "not closed";
             if (MeshIterators.BowtieVertices(mesh).Any()) return "bowties";
-            double diag = MeshRepairMetrics.TriangleBounds(mesh).DiagonalLength;
-            double areaEps = 1e-12 * diag * diag;
-            if (mesh.TriangleIndices().Any(t => mesh.GetTriArea(t) < areaEps)) return "degenerate triangles";
+            if (has_degenerate_triangles(mesh)) return "degenerate triangles";
             if (MeshRepairMetrics.InconsistentlyOrientedEdges(mesh) > 0) return "inconsistent orientation";
             if (MeshPostRepairCleanup.FindInvertedComponents(mesh).Count > 0) return "inside-out components";
             if (checkSelfIntersections && MeshRepairMetrics.HasSelfIntersections(mesh)) return "self-intersections";
             return "";
+        }
+
+        /// <summary> the checks of NotCleanReason, as flags (FindDefects) </summary>
+        [Flags]
+        public enum Defects
+        {
+            None = 0,
+            Empty = 1,
+            NotClosed = 2,
+            Bowties = 4,
+            DegenerateTriangles = 8,
+            InconsistentOrientation = 16,
+            InsideOutComponents = 32,
+            SelfIntersections = 64
+        }
+
+        /// <summary>
+        /// every failed check of NotCleanReason (None if the mesh is clean). An empty mesh is Empty only. The other
+        /// checks do not depend on each other: inside-out components are searched among the closed components,
+        /// self-intersections ignore exactly degenerate triangles. Costs as much as NotCleanReason on a clean mesh;
+        /// on an unclean one all checks run (with checkSelfIntersections also the expensive one).
+        /// </summary>
+        public static Defects FindDefects(DMesh3 mesh, bool checkSelfIntersections = true)
+        {
+            if (mesh.TriangleCount == 0) return Defects.Empty;
+            Defects d = Defects.None;
+            if (mesh.IsClosed() == false) d |= Defects.NotClosed;
+            if (MeshIterators.BowtieVertices(mesh).Any()) d |= Defects.Bowties;
+            if (has_degenerate_triangles(mesh)) d |= Defects.DegenerateTriangles;
+            if (MeshRepairMetrics.InconsistentlyOrientedEdges(mesh) > 0) d |= Defects.InconsistentOrientation;
+            if (MeshPostRepairCleanup.FindInvertedComponents(mesh).Count > 0) d |= Defects.InsideOutComponents;
+            if (checkSelfIntersections && MeshRepairMetrics.HasSelfIntersections(mesh)) d |= Defects.SelfIntersections;
+            return d;
+        }
+
+        /// <summary>
+        /// the reasons of NotCleanReason for the defects, in its order, separated by ", " ("" for None): the first
+        /// one is what NotCleanReason returns
+        /// </summary>
+        public static string DescribeDefects(Defects defects)
+        {
+            var reasons = new List<string>();
+            foreach (var kv in defect_reasons)
+                if ((defects & kv.Key) != 0)
+                    reasons.Add(kv.Value);
+            return string.Join(", ", reasons);
+        }
+
+        /// <summary>
+        /// all reasons why the mesh is not clean, eg "degenerate triangles, inside-out components" ("" if it is clean):
+        /// DescribeDefects(FindDefects(mesh, checkSelfIntersections)). Starts with NotCleanReason(mesh, checkSelfIntersections).
+        /// </summary>
+        public static string NotCleanReasons(DMesh3 mesh, bool checkSelfIntersections = true)
+        {
+            return DescribeDefects(FindDefects(mesh, checkSelfIntersections));
+        }
+
+        static readonly KeyValuePair<Defects, string>[] defect_reasons = {
+            new KeyValuePair<Defects, string>(Defects.Empty, "empty"),
+            new KeyValuePair<Defects, string>(Defects.NotClosed, "not closed"),
+            new KeyValuePair<Defects, string>(Defects.Bowties, "bowties"),
+            new KeyValuePair<Defects, string>(Defects.DegenerateTriangles, "degenerate triangles"),
+            new KeyValuePair<Defects, string>(Defects.InconsistentOrientation, "inconsistent orientation"),
+            new KeyValuePair<Defects, string>(Defects.InsideOutComponents, "inside-out components"),
+            new KeyValuePair<Defects, string>(Defects.SelfIntersections, "self-intersections"),
+        };
+
+        // a triangle with area below 1e-12 * diagonal^2 (of the bounds of the triangles)
+        static bool has_degenerate_triangles(DMesh3 mesh)
+        {
+            double diag = MeshRepairMetrics.TriangleBounds(mesh).DiagonalLength;
+            double areaEps = 1e-12 * diag * diag;
+            return mesh.TriangleIndices().Any(t => mesh.GetTriArea(t) < areaEps);
         }
     }
 }
