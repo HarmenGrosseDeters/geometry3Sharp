@@ -114,7 +114,7 @@ namespace g3
         /// <summary>
         /// triangles that could not be added to the result mesh and got copies of some of their vertices: at an edge with
         /// more than two triangles that could not be split, or at an edge they would run the same way as the triangle
-        /// there (see ConflictEdges); 0 for closed inputs
+        /// there (see ConflictEdges); expected to be 0 for closed inputs
         /// </summary>
         public int NonManifoldTriangles;
         /// <summary>

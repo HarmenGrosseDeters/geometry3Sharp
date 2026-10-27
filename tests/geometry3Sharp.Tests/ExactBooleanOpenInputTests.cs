@@ -34,7 +34,7 @@ namespace geometry3Sharp.Tests
             return n;
         }
 
-        static void AssertConsistent(ExactMeshBoolean op, string what)
+        static void AssertConsistent(ExactMeshBoolean op, string what, bool conflicts = true)
         {
             Assert.True(op.Status == ExactMeshBoolean.BooleanStatus.Success, what + ": " + op.Error);
             DMesh3 r = op.Result;
@@ -44,7 +44,8 @@ namespace geometry3Sharp.Tests
             Assert.True(r.CheckValidity(false, FailMode.ReturnOnly), what + ": invalid DMesh3");
             Assert.True(r.VertexIndices().All(v => r.GetVtxEdgeCount(v) > 0), what + ": vertex without triangles");
             // the edges left open where the pieces do not fit together are counted
-            Assert.True(op.ConflictEdges > 0, what + ": no conflict edges");
+            if (conflicts)
+                Assert.True(op.ConflictEdges > 0, what + ": no conflict edges");
             Assert.True(r.Vertices().All(v => v.IsFinite), what + ": non-finite coordinates");
         }
 
@@ -102,6 +103,15 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(0, b.NonManifoldTriangles);
                 ResultChecks.AssertClosed(b.Result);
             }
+            // solids touching along an edge: more than two pieces there, all paired
+            var boxes = new List<DMesh3>() { Box(new Vector3d(0.5, 0.5, 0.5), new Vector3d(0.5, 0.5, 0.5)),
+                Box(new Vector3d(1.5, 1.5, 0.5), new Vector3d(0.5, 0.5, 0.6)), Box(new Vector3d(-0.5, 1.5, 0.5), new Vector3d(0.5, 0.5, 0.4)) };
+            var touching = new ExactMeshBoolean(boxes, ExactMeshBoolean.Operations.Union);
+            Assert.True(touching.Compute(), touching.Error);
+            Assert.True(touching.NonManifoldEdges > 0);
+            Assert.Equal(0, touching.ConflictEdges);
+            Assert.Equal(0, touching.NonManifoldTriangles);
+            ResultChecks.AssertClosed(touching.Result);
         }
 
         public static IEnumerable<object[]> SimilarityCases()
@@ -123,7 +133,7 @@ namespace geometry3Sharp.Tests
             Assert.True(op.Compute(), op.Error);
             // a consistent result under every transform; the same one under the exact ones (the others round the
             // coordinates, and the case depends on exact coplanarity and coincidence: another arrangement)
-            AssertConsistent(op, s.Name);
+            AssertConsistent(op, s.Name, s.IsExact);
             if (s.IsExact) {
                 Assert.Equal(op0.ConflictEdges, op.ConflictEdges);
                 Assert.Equal("", Invariance.GeometricDifference(op0.Result, Invariance.MappedBack(op.Result, s)));
