@@ -193,7 +193,9 @@ namespace gs
         public double OuterFaceShare = double.NaN;
         /// <summary>
         /// output (VolumeSamples and OuterSurface): rounds of the outer face classification, and whether the set of faces
-        /// stopped changing within MaxOuterFaceRounds (if not, the faces of the last round are used)
+        /// stopped changing within MaxOuterFaceRounds (if not, the faces of the last round are used). The number of rounds
+        /// can change with rounding (eg a rotated copy): faces whose mean is near a round's threshold go in this round or
+        /// the next
         /// </summary>
         public int OuterFaceRounds;
         public bool OuterFacesConverged;

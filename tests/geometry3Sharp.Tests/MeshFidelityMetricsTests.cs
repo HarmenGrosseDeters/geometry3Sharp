@@ -1024,8 +1024,13 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(expected.Count, got.Count);
                 // the normal agreement block of Values: Samples, MeanAbsCos, MeanAngle, MatchedSamples, ReversedFraction
                 int normals = 11 + 6 * baseF.RelativeThresholds.Length;
+                // OuterFaceRounds (after it: OuterFacesConverged, 2 x 5 curvature agreement values, 8 curvature values): which
+                // faces a round removes depends on means near the round's threshold, so rounding can split or merge rounds;
+                // the faces kept in the end (OuterFaceShare, OuterVolumeIoU) are compared
+                int rounds = expected.Count - 20;
                 for (int i = 0; i < expected.Count; ++i) {
                     double x = expected[i], y = got[i];
+                    if (i == rounds) continue;
                     if (double.IsNaN(x) || double.IsInfinity(x)) { Assert.True(x.Equals(y), $"{s}: value {i}: {x} vs {y}"); continue; }
                     // shares can move by a few samples whose distance is at a threshold; counts by a few elements
                     double tol = 2e-3 * Math.Max(1, Math.Abs(x));
