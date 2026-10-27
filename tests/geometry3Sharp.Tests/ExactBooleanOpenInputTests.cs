@@ -77,6 +77,9 @@ namespace geometry3Sharp.Tests
             Assert.True(b.Compute(), b.Error);
             AssertConsistent(b, "union");
             Assert.True(b.ConflictEdges > 0);
+            // reported as open, not silently: the result is not closed
+            Assert.False(b.Result.IsClosed());
+            Assert.Equal("not closed", gs.MeshRobustRepair.NotCleanReason(b.Result));
             Assert.Contains(b.Result.BoundaryEdgeIndices(), e => b.Result.GetEdgeV(e) is Index2i ev
                 && (b.Result.GetVertex(ev.a).Length == 0 || b.Result.GetVertex(ev.b).Length == 0));
         }
