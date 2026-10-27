@@ -50,7 +50,9 @@ selectively.
   where patches cross the missing surface of an open input; the orientation is consistent without it. Synthetic
   sweep (open box / box without two faces / holed sphere against 1200 random boxes, 3 operations): tolerance 0.5
   4 cases with fewer crack edges and 2 with more, tolerance 0.3 6 and 0. Heuristic, not merged; experiment on branch
-  `claude/exact-boolean-gwn-propagation` (THINGI).
+  `claude/exact-boolean-gwn-propagation`. Thingi10K, `BENCH_REPAIR=exact` on the 195 open meshes of the 400 set
+  (tolerance 0.5, against the assembly fix alone): boundary edges 303564 → 272575 in all, but 128 of the 585 results
+  have fewer and 136 more, closed results 128 → 127, and one more timeout. No clear gain.
 - [x] Iterated booleans with coplanar faces: new vertices inside flat regions and on straight edges between them
   are removed exactly and the regions retriangulated (`ExactPlanarSimplify`); the 10x10x10 cube grid (1999
   booleans) no longer grows exponentially.
