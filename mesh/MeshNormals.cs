@@ -78,7 +78,10 @@ namespace g3
 
 
 
-        // TODO: parallel version, cache tri normals
+        // Area-weighted face normals (half cross products) computed in parallel, summed into the vertices serially in
+        // triangle order (deterministic: a parallel sum under a lock varied with the thread schedule), then normalized
+        // whenever the sum is not zero (scale invariant: upstream left sums with |sum|^2 below 1e-6, ie one-rings with
+        // an area below about 1e-3, unnormalized).
         void Compute_FaceAvg_AreaWeighted()
         {
             int NV = Mesh.MaxVertexID;
@@ -87,31 +90,34 @@ namespace g3
             for (int i = 0; i < NV; ++i)
                 Normals[i] = Vector3d.Zero;
 
-            SpinLock Normals_lock = new SpinLock();
-
+            int NT = Mesh.MaxTriangleID;
+            Vector3d[] triN = new Vector3d[NT];
             gParallel.ForEach(Mesh.TriangleIndices(), (ti) => {
                 Index3i tri = Mesh.GetTriangle(ti);
-                Vector3d va = VertexF(tri.a);
-                Vector3d vb = VertexF(tri.b);
-                Vector3d vc = VertexF(tri.c);
-                Vector3d N = MathUtil.Normal(ref va, ref vb, ref vc);
-                double a = MathUtil.Area(ref va, ref vb, ref vc);
-                bool taken = false;
-                Normals_lock.Enter(ref taken);
-                Normals[tri.a] += a * N;
-                Normals[tri.b] += a * N;
-                Normals[tri.c] += a * N;
-                Normals_lock.Exit();
+                triN[ti] = AreaNormal(VertexF(tri.a), VertexF(tri.b), VertexF(tri.c));
             });
+            foreach (int ti in Mesh.TriangleIndices()) {
+                Index3i tri = Mesh.GetTriangle(ti);
+                Normals[tri.a] += triN[ti];
+                Normals[tri.b] += triN[ti];
+                Normals[tri.c] += triN[ti];
+            }
 
             gParallel.BlockStartEnd(0, NV - 1, (vi_start, vi_end) => {
-                for (int vi = vi_start; vi <= vi_end; vi++) {
-                    if (Normals[vi].LengthSquared > MathUtil.ZeroTolerancef)
-                        Normals[vi] = Normals[vi].Normalized;
-                }
+                for (int vi = vi_start; vi <= vi_end; vi++)
+                    Normals[vi] = UnitOrZero(Normals[vi]);
             });
         }
 
+        /// <summary> the normal of triangle (a,b,c) times its area </summary>
+        static Vector3d AreaNormal(Vector3d a, Vector3d b, Vector3d c) => 0.5 * (b - a).Cross(c - a);
+
+        /// <summary> v normalized if its length is positive and finite, else Zero (no absolute threshold) </summary>
+        static Vector3d UnitOrZero(Vector3d v)
+        {
+            double len = v.Length;
+            return (len > 0 && len < double.PositiveInfinity) ? v / len : Vector3d.Zero;
+        }
 
 
 
@@ -132,12 +138,12 @@ namespace g3
         public static Vector3d QuickCompute(DMesh3 mesh, int vid, NormalsTypes type = NormalsTypes.Vertex_OneRingFaceAverage_AreaWeighted)
         {
             Vector3d sum = Vector3d.Zero;
-            Vector3d n, c; double a;
+            Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
             foreach ( int tid in mesh.VtxTrianglesItr(vid)) {
-                mesh.GetTriInfo(tid, out n, out a, out c);
-                sum += a * n;
+                mesh.GetTriVertices(tid, ref a, ref b, ref c);
+                sum += AreaNormal(a, b, c);
             }
-            return sum.Normalized;
+            return UnitOrZero(sum);
         }
 
 

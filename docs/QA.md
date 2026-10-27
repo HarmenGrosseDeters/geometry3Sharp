@@ -315,7 +315,7 @@ volumes, points, directions). Every operation runs:
 - under `Similarity.All()` plus scales of 2^-24 and 2^20. Under power-of-two scales the signature must be bit
   identical, which catches absolute thresholds. Under the other similarities it must agree within the
   operation's tolerance, which catches float code at UTM coordinates. Operations whose result varies in the
-  last bits from run to run (R18, R19) are compared with the tolerance only.
+  last bits from run to run (R19) are compared with the tolerance only.
 - with a NaN or +Inf vertex, and a NaN or ±Inf parameter. The operation must finish within 20 s. It must not
   throw, except an `ArgumentException` from its own type. It must not spread non-finite coordinates to
   vertices that were finite. With a non-finite parameter it must report failure or give a finite result.

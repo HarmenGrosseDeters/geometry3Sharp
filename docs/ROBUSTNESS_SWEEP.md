@@ -29,7 +29,7 @@ Severity order: **wrong answer** > **silent garbage** (garbage output with a suc
 
 | Id | Operation | Class | Repro (sweep case) | Severity | Cause |
 |---|---|---|---|---|---|
-| R1 | `MeshNormals.Compute` (area weighted vertex normals) | 1 | scale 1e-3 or 2^-10: normal (0.56, …) becomes (7.6e-8, …) | wrong answer | `mesh/MeshNormals.cs:109` normalizes only if \|Σ area·n\|² > `ZeroTolerancef` (an L⁴ quantity against 1e-6). One-rings with an area below about 1e-3 keep tiny, non-unit normals. Everything that offsets along vertex normals is affected (`RemoveOccludedTriangles` PerVertex, extrusions). `QuickCompute(mesh, vid)` (line 140) uses `Normalized` at Epsilon, which is the same issue at extreme scales. |
+| R1 | **fixed** `MeshNormals.Compute` (area weighted vertex normals) | 1 | scale 1e-3 or 2^-10: normal (0.56, …) becomes (7.6e-8, …) | wrong answer | `mesh/MeshNormals.cs:109` normalizes only if \|Σ area·n\|² > `ZeroTolerancef` (an L⁴ quantity against 1e-6). One-rings with an area below about 1e-3 keep tiny, non-unit normals. Everything that offsets along vertex normals is affected (`RemoveOccludedTriangles` PerVertex, extrusions). `QuickCompute(mesh, vid)` (line 140) uses `Normalized` at Epsilon, which is the same issue at extreme scales. |
 | R2 | `LaplacianMeshSmoother`, and through it `SmoothedHoleFill` | 1/precision | utm: smoothed area 11.17 becomes 11.90; `SmoothedHoleFill` area 12.56 becomes 12.38 | wrong answer | The CG solve runs on absolute coordinates with a tolerance relative to \|b\|. At UTM, \|b\| is about 6e6, so the error is about 0.06, of the order of the model. Rotation also changes the result (3.9e-5). Fix: solve relative to a local origin (bounds center). |
 | R3 | `MeshSignedDistanceGrid` (also `CachingMeshSDF`, `MeshWindingNumberGrid`, `MeshScalarSamplingGrid`) | 2 | utm: MC volume 3.988 becomes 3.956; rotated, 1e-3, utm: volume 0 | wrong answer | The grid origin is a `Vector3f`, and sample points are computed in float (`spatial/MeshSignedDistanceGrid.cs:136,167,249,316,434,570`). The same pattern is in `implicit/CachingMeshSDF.cs:95,120,234`, `spatial/MeshWindingNumberGrid.cs:89,120,172,…` and `spatial/MeshScalarSamplingGrid.cs:57,80,…`. `MeshWindingNumberSolidify` recenters first and is not affected. |
 | R4 | `PointHashGrid3d.FindNearestInRadius` (also `PointHashGrid2d`, `SegmentHashGrid`) | 3/1 | rotated, 1e-3, utm (cell 3e-4 at 5.7e6): hang | exception (hang) | A cell index ≥ 2^31 saturates to `int.MaxValue` on .NET 9 and later (net10), and `for (xi = …; xi <= max; xi++)` wraps forever (`spatial/PointHashGrid3d.cs:134-145`). .NET Framework casts such values to `int.MinValue` instead, which gives wrong cell ranges rather than a hang. From reading the code, an infinite query point, or a cell size of 0, hangs the same way on net10; the sweep's parameter is cell size and radius at once and does not show it. This also reaches `MeshMeshCut`/`MeshBoolean` snapping and `TerrainSafety` queries. |
@@ -46,9 +46,9 @@ Severity order: **wrong answer** > **silent garbage** (garbage output with a suc
 | R15 | `MeshIsoCurves` | 1/3 | scale 2^-24: 48 vs 47 graph vertices; NaN iso value: success with NaN geometry | wrong answer (extreme scale) / silent garbage | 1e-8 on field differences in the root finder (`mesh_ops/MeshIsoCurves.cs:290`). Non-finite field values are not rejected. |
 | R16 | `MeshGeodesicDistance` | precision | rotated, 1e-3, utm: max distance 3.0087 vs 3.0114 (9e-4 relative) | to investigate | Larger than the coordinate resolution there (about 1e-7 of the size). It could be intrinsic Delaunay flips on near ties. Fork code. |
 | R17 | `DMeshAABBTree3.WindingNumber` | 1 | scale 2^-24: -1.5e-17 vs 0 | negligible | Not bit identical under a power-of-two scale. Some absolute threshold in the fast winding or solid-angle path. |
-| R18 | `MeshNormals.Compute` | 4 | repeated runs differ in the last bits (seen as flaky 2^k comparisons) | nondeterminism | Area-weighted face normals are summed into the vertices under a SpinLock in thread order (`mesh/MeshNormals.cs:92-104`). Everything downstream of vertex normals inherits it. |
+| R18 | **fixed** `MeshNormals.Compute` | 4 | repeated runs differ in the last bits (seen as flaky 2^k comparisons) | nondeterminism | Area-weighted face normals are summed into the vertices under a SpinLock in thread order (`mesh/MeshNormals.cs:92-104`). Everything downstream of vertex normals inherits it. |
 | R19 | `MeshBoolean` (`MeshMeshCut.RemoveContained`) | 4 | 2^20: bit identical in some runs and not in others | nondeterminism | `SafeListBuilder` order follows the thread schedule, which changes the removal and free-list order and so the later ids (`mesh_ops/MeshMeshCut.cs:80-86`). |
-| R20 | `MeshNormals.Compute` | 3 | NaN or +Inf vertex: NaN normals on its one-ring (7 vertices), no status | silent garbage (low) | Inherent to normals of faces with a bad corner; there is no status to report it. |
+| R20 | **fixed** `MeshNormals.Compute` | 3 | NaN or +Inf vertex: NaN normals on its one-ring (7 vertices), no status | silent garbage (low) | Inherent to normals of faces with a bad corner; there is no status to report it. |
 
 ## Static findings (code reading, not yet reproduced by the sweep)
 
@@ -94,7 +94,7 @@ Reported to the PR manager, not edited here (other sessions own these files): R1
 
 1. R3 (+ R9, R10): grids with a double origin and double sample points, guards for non-finite or oversized
    grids, and relative MC root thresholds.
-2. R1 (+ R18): relative normalization in `MeshNormals`, and a deterministic per-vertex sum.
+2. Done: R1, R18, R20 (relative normalization in `MeshNormals`, a deterministic per-vertex sum, Zero for non-finite sums).
 3. R2: local origin in `LaplacianMeshSmoother` (this fixes `SmoothedHoleFill` too).
 4. R7 (+ R14): local origin for the `Reducer` quadrics.
 5. R5: relative degenerate-edge and on-plane tolerances in `MeshPlaneCut` (defaults that keep the public fields).
