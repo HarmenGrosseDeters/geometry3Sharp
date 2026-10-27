@@ -59,6 +59,8 @@ namespace g3 {
         ///    the pair's minimum quality and keeps the orientation;
         ///  - an edge with a flat neighbouring triangle (its opposite vertex on the edge) is not split, which would
         ///    put the new vertex onto that vertex.
+        ///  - collapses and flips that would flip a triangle normal are rejected (as with PreventNormalFlips): with
+        ///    them, the remeshed Thingi10K meshes had 6x as many self-intersecting triangle pairs;
         ///  - a collapse that would create a flat triangle (eg two vertices of a straight feature curve joined over
         ///    a third one on it) is rejected. Other collapses are not restricted: blocking poor but not flat results
         ///    (eg with MinCollapseTriangleQuality) keeps short edges that the splits around them multiply.
@@ -399,7 +401,7 @@ namespace g3 {
 
                 // if new position would flip normal of one of the existing triangles
                 // either one-ring, don't allow it
-                if (PreventNormalFlips) {
+                if (PreventNormalFlips || MinTriangleQuality > 0) {
                     if (collapse_creates_flip_or_invalid(a, b, ref vNewPos, t0, t1) || collapse_creates_flip_or_invalid(b, a, ref vNewPos, t0, t1)) {
                         goto abort_collapse;
                     }
@@ -457,7 +459,7 @@ namespace g3 {
 				                   + Math.Abs((valence_c+1)-valence_c_target) + Math.Abs((valence_d+1)-valence_d_target);
 
                 bool bTryFlip = flip_err < curr_err;
-                if (bTryFlip && PreventNormalFlips && flip_inverts_normals(a, b, c, d, t0))
+                if (bTryFlip && (PreventNormalFlips || MinTriangleQuality > 0) && flip_inverts_normals(a, b, c, d, t0))
                     bTryFlip = false;
                 // not for the valence if it creates a degenerate triangle (it would undo the flip below)
                 if (bTryFlip && flip_creates_degenerate(ref vA, ref vB, c, d))
