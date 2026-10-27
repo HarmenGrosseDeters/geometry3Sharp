@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json.Nodes;
 using Xunit;
+using g3;
 using static g3cli.Tests.TestMeshes;
 
 namespace g3cli.Tests
@@ -270,6 +271,48 @@ namespace g3cli.Tests
             Assert.Equal("self-intersections", S(r["fallback_reason"]));
             Assert.True(B(r["mesh"]["closed"]));
             Assert.InRange(D(r["mesh"]["volume"]), 11.5, 12.5);
+        }
+
+
+        [Fact]
+        public void Repair_RobustWarnsOnAGenusChange()
+        {
+            // a bar bent around a square whose end runs back into its start: genus 0, its union a ring (genus 1);
+            // see MeshRobustRepairTests.BentBarOverlappingItself
+            var c = new[] { new Vector2d(0, -2), new Vector2d(2, -2), new Vector2d(2, 2), new Vector2d(-2, 2), new Vector2d(-2, -2), new Vector2d(1, -1.9) };
+            double h = 0.5;
+            var l = new[] { new Vector2d(0, h), new Vector2d(-h, h), new Vector2d(-h, -h), new Vector2d(h, -h), new Vector2d(h, h), new Vector2d(0.0316, h) };
+            var bar = new DMesh3();
+            var ids = new int[c.Length, 4];
+            for (int i = 0; i < c.Length; ++i) {
+                Vector2d a = c[i] - l[i], b = c[i] + l[i];
+                ids[i, 0] = bar.AppendVertex(new Vector3d(a.x, a.y, 0)); ids[i, 1] = bar.AppendVertex(new Vector3d(b.x, b.y, 0));
+                ids[i, 2] = bar.AppendVertex(new Vector3d(b.x, b.y, 1)); ids[i, 3] = bar.AppendVertex(new Vector3d(a.x, a.y, 1));
+            }
+            Action<int, int, int, int> quad = (p0, p1, p2, p3) => { bar.AppendTriangle(p0, p1, p2); bar.AppendTriangle(p0, p2, p3); };
+            for (int i = 0; i + 1 < c.Length; ++i)
+                for (int k = 0; k < 4; ++k)
+                    quad(ids[i, k], ids[i + 1, k], ids[i + 1, (k + 1) % 4], ids[i, (k + 1) % 4]);
+            int e = c.Length - 1;
+            quad(ids[0, 0], ids[0, 3], ids[0, 2], ids[0, 1]);
+            quad(ids[e, 0], ids[e, 1], ids[e, 2], ids[e, 3]);
+            if (MeshMeasurements.VolumeArea(bar, bar.TriangleIndices(), bar.GetVertex).x < 0)
+                bar.ReverseOrientation(false);
+            string input = m.Path_("bent_bar.obj");
+            StandardMeshWriter.WriteMesh(input, bar, WriteOptions.Defaults);
+            var (exit, r) = Run("repair", input, m.Path_("bent_bar_repaired.obj"), "--solidify-resolution", "64");
+            AssertOk(exit, r);
+            Assert.True(B(r["used_exact_resolve"]));
+            Assert.Equal(0, D(r["genus_before"]));
+            Assert.Equal(1, D(r["genus_after"]));
+            Assert.Contains(r["warnings"].AsArray(), w => w.ToString().Contains("genus from 0 to 1"));
+            // no warning where the resolve keeps the genus
+            (exit, r) = Run("repair", m.Overlapping, m.Path_("repaired_overlap3.obj"), "--solidify-resolution", "64");
+            AssertOk(exit, r);
+            Assert.True(r.ContainsKey("genus_before"));
+            Assert.Equal(0, D(r["genus_before"]));      // two overlapping spheres: genus 0, kept
+            Assert.Equal(0, D(r["genus_after"]));
+            Assert.DoesNotContain(r["warnings"].AsArray(), w => w.ToString().Contains("genus"));
         }
 
 

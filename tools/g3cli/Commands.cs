@@ -200,6 +200,13 @@ namespace g3cli
                             "MeshRobustRepair failed" + (repair.FallbackReason != "" ? " (repair result: " + repair.FallbackReason + ", solidify gave no surface)" : ""));
                     result = repair.Mesh;
                     o["used_exact_resolve"] = repair.UsedExactResolve;
+                    // genus of the mesh the exact stage resolved and of its result (null without the exact stage or where
+                    // the genus is not defined); a warning where a component gained or lost handles
+                    o["genus_before"] = MeshReport.Num(repair.GenusBefore);
+                    o["genus_after"] = MeshReport.Num(repair.GenusAfter);
+                    if (repair.TopologyChanged)
+                        warnings.Add("the exact resolve changed the genus from " + repair.GenusBefore.ToString(System.Globalization.CultureInfo.InvariantCulture) +
+                            " to " + repair.GenusAfter.ToString(System.Globalization.CultureInfo.InvariantCulture) + " (self-overlapping parts form handles or tunnels)");
                     o["exact_resolve_reason"] = repair.ExactResolveReason == "" ? null : repair.ExactResolveReason;
                     o["used_solidify"] = repair.UsedSolidify;
                     o["fallback_reason"] = repair.FallbackReason == "" ? null : repair.FallbackReason;
