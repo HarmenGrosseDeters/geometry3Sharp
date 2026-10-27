@@ -63,6 +63,8 @@ code can notice. New classes are not listed (see the README and [OPERATIONS.md](
 | `Remesher.vModifiedV` (protected) | `BitArray` | `bool[]` |
 | `DMeshAABBTree3.box_centers`, `box_extents` (protected) | `DVector<Vector3f>` | `DVector<Vector3d>` (no misses far from the origin, eg UTM) |
 | `DVector.Clear()` | | `[Obsolete]` (warning) |
+| `MeshICP.Solve` | the translation update was added without the rotation update applied to the current translation (the code had a TODO on it): near the coordinate origin a slightly wrong path, at UTM coordinates the iteration diverged (mean distance up to 1e8); `ConvergeTolerance` an absolute 1e-5 (millimetre models stopped early, kilometre ones never converged); a NaN or infinite source vertex made the SVD loop forever | `Translation = RotUpdate * Translation + TransUpdate`; while `ConvergeTolerance` has its default, `RelativeConvergeTolerance` (5e-6) times the target's bounds diagonal (`EffectiveConvergeTolerance`); non-finite source points are ignored |
+| `MeshRepairOrientation` (and `MeshAutoRepair`), `RemoveOccludedTriangles` | a triangle with an infinite vertex threw from inside the ray query ("ray direction is not normalized") | such triangles give no orientation evidence and count as not occluded |
 
 ## Performance
 
