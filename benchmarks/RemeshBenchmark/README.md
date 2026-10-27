@@ -17,8 +17,8 @@ table. No mesh files are committed; Thingi10K models carry individual licenses (
 selection (seed 42 over the current Thingi10K metadata) was: 129918 1043471 39460 299291 242225 135363 125069
 89451 118679 996810 63709 105686 1053376 121869 237642 267659 78295 104582 93370 196126.
 
-RemesherPro is deterministic only with the sorted edge queue of PR #151; without it the RemesherPro rows vary
-from run to run.
+RemesherPro is deterministic and scale invariant only with PR #151 (sorted edge queue, relative projection
+tolerances); without it the RemesherPro rows vary from run to run.
 
 ## Configurations
 | caller | Remesher today | `pro_fastest` | `pro_iter` |
@@ -61,55 +61,51 @@ The target edge length is a multiple of the input's mean edge length (`g3cli`'s 
 - `not_clean` (JSON only): `MeshRobustRepair.NotCleanReason` for closed inputs.
 
 ## Results
-Measured on 4 cores (net10.0, Release) with the RemesherPro determinism fix (sorted edge queue, PR #151 at
-8517f16; Remesher is unchanged by it); `runs=5` procedural, `runs=3` Thingi10K. All Hausdorff computations
+Measured on 4 cores (net10.0, Release) on top of PR #151 at c0a333e (RemesherPro determinism and scale
+invariance; Remesher is unchanged by it); `runs=5` procedural, `runs=3` Thingi10K. All Hausdorff computations
 converged.
 
 ### Procedural inputs and the TerrainSafety band
 | case | config | time s | tris | len mean | len p5 | len p95 | q min | q p5 | q<0.1 | hausdorff/target | det. | serial= | 2^-10= | 2^10= | band min/max excess |
 |---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---|---|---|---|
-| sphere_refine | remesher | 0.595 | 24446 | 0.953 | 0.765 | 1.137 | 0.638 | 0.946 | 0 | 0.04 | True | True | True | True |  |
-| sphere_refine | pro_fastest | 0.336 | 24390 | 0.955 | 0.764 | 1.143 | 0.698 | 0.943 | 0 | 0.042 | True | True | False | False |  |
-| sphere_refine | pro_iter | 0.450 | 24340 | 0.955 | 0.765 | 1.137 | 0.346 | 0.945 | 0 | 0.04 | True | True | False | False |  |
-| bumpy_uniform | remesher | 2.029 | 74750 | 0.963 | 0.759 | 1.23 | 0.59 | 0.847 | 0 | 0.043 | True | True | False | True |  |
-| bumpy_uniform | pro_fastest | 0.608 | 74254 | 0.966 | 0.761 | 1.231 | 0.33 | 0.848 | 0 | 0.041 | True | True | False | False |  |
-| bumpy_uniform | pro_iter | 0.782 | 74544 | 0.964 | 0.76 | 1.232 | 0.454 | 0.847 | 0 | 0.041 | True | True | False | False |  |
-| noisy_coarsen | remesher | 3.151 | 32456 | 0.952 | 0.748 | 1.15 | 0 | 0.885 | 23 | 0.092 | True | True | False | True |  |
-| noisy_coarsen | pro_fastest | 3.532 | 32400 | 0.952 | 0.746 | 1.153 | 0.009 | 0.881 | 29 | 0.09 | True | True | False | False |  |
-| noisy_coarsen | pro_iter | 3.615 | 32450 | 0.952 | 0.747 | 1.151 | 0 | 0.881 | 16 | 0.09 | True | True | False | False |  |
-| open_stretched | remesher | 0.085 | 3890 | 0.949 | 0.765 | 1.13 | 0.706 | 0.928 | 0 | 0.032 | True | True | True | True |  |
-| open_stretched | pro_fastest | 0.059 | 3809 | 0.957 | 0.762 | 1.151 | 0.678 | 0.936 | 0 | 0.035 | True | True | False | False |  |
-| open_stretched | pro_iter | 0.057 | 3940 | 0.941 | 0.752 | 1.13 | 0.774 | 0.938 | 0 | 0.033 | True | True | False | False |  |
-| terrain_band | remesher | 0.141 | 18062 | 0.948 | 0.749 | 1.156 | 0.024 | 0.88 | 1 | 0.01 | True | True | True | True | 0.231 / 0.441 |
-| terrain_band | pro_fastest | 0.091 | 18251 | 0.945 | 0.728 | 1.195 | 0.116 | 0.862 | 0 | 0.01 | True | True | True | True | 0.235 / 0.383 |
-| terrain_band | pro_iter | 0.123 | 18002 | 0.95 | 0.746 | 1.17 | 0 | 0.874 | 2 | 0.01 | True | True | True | True | 0.205 / 0.386 |
+| sphere_refine | remesher | 0.597 | 24446 | 0.953 | 0.765 | 1.137 | 0.638 | 0.946 | 0 | 0.04 | True | True | True | True |  |
+| sphere_refine | pro_fastest | 0.388 | 24484 | 0.953 | 0.762 | 1.14 | 0.608 | 0.941 | 0 | 0.041 | True | True | True | True |  |
+| sphere_refine | pro_iter | 0.444 | 24288 | 0.956 | 0.765 | 1.14 | 0.77 | 0.946 | 0 | 0.04 | True | True | True | True |  |
+| bumpy_uniform | remesher | 2.002 | 74750 | 0.963 | 0.759 | 1.23 | 0.59 | 0.847 | 0 | 0.043 | True | True | False | True |  |
+| bumpy_uniform | pro_fastest | 0.702 | 74326 | 0.966 | 0.761 | 1.23 | 0.408 | 0.848 | 0 | 0.039 | True | True | True | True |  |
+| bumpy_uniform | pro_iter | 0.861 | 74442 | 0.965 | 0.76 | 1.23 | 0.527 | 0.848 | 0 | 0.039 | True | True | False | True |  |
+| noisy_coarsen | remesher | 3.168 | 32456 | 0.952 | 0.748 | 1.15 | 0 | 0.885 | 23 | 0.092 | True | True | False | True |  |
+| noisy_coarsen | pro_fastest | 4.013 | 32334 | 0.954 | 0.749 | 1.153 | 0.008 | 0.877 | 13 | 0.091 | True | True | False | True |  |
+| noisy_coarsen | pro_iter | 4.269 | 32394 | 0.952 | 0.749 | 1.153 | 0 | 0.884 | 11 | 0.089 | True | True | False | True |  |
+| open_stretched | remesher | 0.083 | 3890 | 0.949 | 0.765 | 1.13 | 0.706 | 0.928 | 0 | 0.032 | True | True | True | True |  |
+| open_stretched | pro_fastest | 0.062 | 3796 | 0.958 | 0.765 | 1.145 | 0.665 | 0.939 | 0 | 0.033 | True | True | False | False |  |
+| open_stretched | pro_iter | 0.068 | 3921 | 0.943 | 0.751 | 1.138 | 0.719 | 0.929 | 0 | 0.033 | True | True | True | True |  |
+| terrain_band | remesher | 0.139 | 18062 | 0.948 | 0.749 | 1.156 | 0.024 | 0.88 | 1 | 0.01 | True | True | True | True | 0.231 / 0.441 |
+| terrain_band | pro_fastest | 0.095 | 18325 | 0.944 | 0.724 | 1.194 | 0.174 | 0.858 | 0 | 0.01 | True | True | True | True | 0.232 / 0.459 |
+| terrain_band | pro_iter | 0.159 | 18048 | 0.948 | 0.749 | 1.158 | 0.028 | 0.885 | 1 | 0.01 | True | True | True | True | 0.215 / 0.363 |
 | terrain_band_bumpy | remesher | 0.157 | 18505 | 0.939 | 0.742 | 1.144 | 0.02 | 0.882 | 3 | 0.238 | True | True | True | True |  |
-| terrain_band_bumpy | pro_fastest | 0.130 | 18716 | 0.932 | 0.736 | 1.141 | 0.196 | 0.897 | 0 | 0.229 | True | True | True | True |  |
-| terrain_band_bumpy | pro_iter | 0.137 | 18664 | 0.936 | 0.745 | 1.148 | 0.017 | 0.875 | 3 | 0.23 | True | True | True | True |  |
-With `runs=15` the band remesh takes 0.139 s (Remesher) / 0.098 s (`pro_fastest`) / 0.132 s (`pro_iter`) on
-`terrain_band`, and 0.157 / 0.123 / 0.140 s on `terrain_band_bumpy`.
-
-`terrain_safety` (TerrainSafetyLines AlongSurface end to end with Remesher, `runs=15`): 0.350 s, 18186
-remeshed triangles, deterministic, line points 0.211..0.396 beyond d (none too close). With the band remeshed by
-`FastestRemesh(8)` instead (prototype): 0.280 s, 0.214..0.434 beyond d.
+| terrain_band_bumpy | pro_fastest | 0.144 | 18708 | 0.932 | 0.735 | 1.141 | 0.041 | 0.903 | 1 | 0.223 | True | True | True | True |  |
+| terrain_band_bumpy | pro_iter | 0.167 | 18432 | 0.941 | 0.746 | 1.148 | 0.017 | 0.881 | 2 | 0.242 | True | True | True | True |  |
+`terrain_safety` (TerrainSafetyLines AlongSurface end to end): 0.350 s with Remesher (`runs=15`, 18186 remeshed
+triangles, line points 0.211..0.396 beyond d); 0.336 s with the band remeshed by 8 x `RemeshIteration` (prototype,
+`runs=5`, 18116 triangles, 0.215..0.383 beyond d). Both deterministic, no line point too close.
 
 ### Thingi10K (20 meshes, target = mean edge length, the `g3cli remesh` default)
 ```
 20 cases
-pro_fastest: speedup median 0.74 (min 0.27, max 1.48), total time ratio 0.58; hausdorff ratio median 1.03 (max 3.88); triangles q < 0.1: 6335 vs 5763; deterministic and serial-equal: 20/20 vs 20/20
-pro_iter: speedup median 0.89 (min 0.60, max 1.34), total time ratio 0.87; hausdorff ratio median 1.00 (max 3.08); triangles q < 0.1: 5899 vs 5763; deterministic and serial-equal: 20/20 vs 20/20
+pro_fastest: speedup median 0.67 (min 0.20, max 1.31), total time ratio 0.44; hausdorff ratio median 1.02 (max 3.68); triangles q < 0.1: 6365 vs 5763; deterministic and serial-equal: 20/20 vs 20/20
+pro_iter: speedup median 0.81 (min 0.56, max 1.18), total time ratio 0.80; hausdorff ratio median 1.00 (max 1.52); triangles q < 0.1: 5830 vs 5763; deterministic and serial-equal: 20/20 vs 20/20
 ```
 Speedup = Remesher time / RemesherPro time per mesh (> 1: RemesherPro faster); total time ratio = sum of the
-Remesher times / sum of the RemesherPro times. Worst cases: thingi_104582 `pro_fastest` 0.27x (RemesherPro
-3.04 s vs Remesher 0.82 s); thingi_78295 `pro_fastest` 0.50x with the Hausdorff distance 6.02 vs 4.13 targets and
-331 vs 80 triangles with q < 0.1; thingi_1053376 Hausdorff 1.64 (`pro_fastest`) / 1.40 (`pro_iter`) vs 0.45
-targets; thingi_129918 `pro_fastest` 1.16 vs 0.30.
+Remesher times / sum of the RemesherPro times. Worst cases: thingi_104582 `pro_fastest` 0.20x (RemesherPro 4.43 s
+vs Remesher 0.89 s); thingi_78295 `pro_fastest` 0.41x with the Hausdorff distance 5.43 vs 4.13 targets and 333 vs
+80 triangles with q < 0.1; thingi_129918 `pro_fastest` Hausdorff 1.10 vs 0.30 targets, thingi_1053376 1.58 vs 0.45.
 
-### TerrainSafetyLines on real terrain
+### TerrainSafetyLines on real terrain (earlier state of #151)
 `benchmarks/TerrainBenchmark` AlongSurface cases (`safety ... mode=surface`) on the DGM1 2022 of the Hambach mine
 (windows C250 with d = 5 and C500 with d = 10 of `run_all.sh`, the grid TIN and the simplified `tdc` TIN), with
-the band remeshed by Remesher (today) and by RemesherPro (prototype in `TerrainSafety.cs`), measured on top of
-PR #151. Remesh step alone (stopwatch around it, median of 3):
+the band remeshed by Remesher and by RemesherPro (prototype in `TerrainSafety.cs`), measured on top of PR #151 at
+8517f16 (sorted queue only). Remesh step alone (stopwatch around it, median of 3):
 
 | window, terrain | Remesher | `FastestRemesh(8)` | 8 x `RemeshIteration` |
 |---|---:|---:|---:|
@@ -118,31 +114,27 @@ PR #151. Remesh step alone (stopwatch around it, median of 3):
 | C500 d=10 tdc | 5.53 s | 6.12 s (0.90x) | 5.02 s (1.10x) |
 | C500 d=10 grid | 5.14 s | 2.74 s (1.88x) | 2.46 s (2.09x) |
 
-End to end (`safety_s`, all checks of the TerrainBenchmark) with 8 x `RemeshIteration`: 12.15 -> 10.37 s (C250 grid,
-utm), 11.68 -> 10.40 (local), 10.88 -> 9.89 (C250 tdc, utm), 10.74 -> 10.29 (local), 16.02 -> 14.45 (C500 tdc),
-17.48 -> 14.05 (C500 grid): 1.04..1.24x. The results stay equivalent: line points closer than d by the
-Dijkstra bound 1106 vs 1120 and 905 vs 900, uncovered source points within 1%, remeshed triangles within 0.4%; all
-runs deterministic.
+End to end with 8 x `RemeshIteration`: 1.04..1.24x, with equivalent lines (closer than d by the Dijkstra bound 1106
+vs 1120 and 905 vs 900, uncovered source points within 1%).
 
 ### Findings
-- `g3cli remesh`: RemesherPro is faster on the smooth procedural inputs (`bumpy_uniform` 3.3x, `sphere_refine`
-  1.8x, `open_stretched` 1.4x), but slower when coarsening (`noisy_coarsen` 0.89x) and on the Thingi10K meshes,
-  which are what the command sees: median 0.74x (`FastestRemesh`) / 0.89x (`RemeshIteration`), 0.58x / 0.87x in
-  total. The median Hausdorff distance is equal, but single meshes get clearly worse (above), and both variants
-  leave more triangles with q < 0.1 (6335 / 5899 vs 5763).
-- TerrainSafety band: on the procedural band `FastestRemesh` is 1.42x / 1.27x faster with fewer poor triangles,
-  `RemeshIteration` 1.05x / 1.12x. On real terrain `FastestRemesh` is slower on the simplified TIN (0.84..0.90x),
-  while 8 x `RemeshIteration` is faster on all four (1.05..2.09x, end to end 1.04..1.24x) with equivalent lines.
-- Determinism: with the fix every configuration is bit-identical run to run, and parallel equals serial.
-- Scale invariance: without projection (terrain band) all configurations are 2^k scale invariant. With projection
-  RemesherPro is not; Remesher is not at 2^-10 on some inputs (`bumpy_uniform`, `noisy_coarsen`, 2 Thingi meshes).
-  Both are open (the absolute `ZeroTolerancef` in `RemesherPro.TrackedProjectionPass`; for Remesher probably ties in
-  `MeshProjectionTarget.Project`, not verified).
+- `g3cli remesh`: RemesherPro is faster on the smooth procedural inputs (`bumpy_uniform` 2.9x, `sphere_refine`
+  1.5x, `open_stretched` 1.3x), but slower when coarsening (`noisy_coarsen` 0.79x) and on the Thingi10K meshes,
+  which are what the command sees: median 0.67x (`FastestRemesh`) / 0.81x (`RemeshIteration`), 0.44x / 0.80x in
+  total, with single meshes clearly worse in the Hausdorff distance (above).
+- TerrainSafety band: on the earlier state of #151, 8 x `RemeshIteration` was faster on real terrain (above) and on
+  the procedural band. With the final #151 (fixed edge order, prime-step walk) it is slower on the procedural band
+  (0.159 vs 0.139 s, 0.167 vs 0.157 s), and switching TerrainSafetyLines to it fails an existing test: the band
+  of `TerrainSafetyTests.SafetyLine_AlongSurface_BandIsOneCleanPiece` keeps a zero-area triangle (Remesher: none).
+- Determinism: with #151 every configuration is bit-identical run to run, and parallel equals serial.
+- Scale invariance: without projection (terrain band) all configurations are 2^k scale invariant; with projection
+  RemesherPro mostly is now (#151), Remesher is not at 2^-10 on some inputs (`bumpy_uniform`, `noisy_coarsen`,
+  2 Thingi meshes; probably ties in `MeshProjectionTarget.Project`, not verified).
 - Poor triangles: both remeshers leave degenerate triangles or self-intersections on 18 of the 20 Thingi10K meshes
-  (`MeshRobustRepair.NotCleanReason`); 99% of the triangles with q < 0.1 touch a feature constraint (pre-existing,
-  a separate task).
+  (`MeshRobustRepair.NotCleanReason`); 99% of the triangles with q < 0.1 touch a feature constraint. A separate
+  opt-in quality pass follows in its own PR.
 
 ### Decision
 - `g3cli remesh` keeps Remesher: RemesherPro is not faster at equal quality on real meshes.
-- `TerrainSafetyLines` (AlongSurface) switches to RemesherPro with 8 x `RemeshIteration` and a last full pass
-  without smoothing, once the determinism fix (#151) is in master.
+- `TerrainSafetyLines` keeps Remesher: with the final #151 RemesherPro is not faster on the band and leaves a
+  degenerate triangle in an existing test. To be measured again with the quality pass.
