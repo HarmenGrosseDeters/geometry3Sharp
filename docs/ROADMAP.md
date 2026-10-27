@@ -138,7 +138,11 @@ selectively.
   Chamfer distance, normal consistency and the share of reversed normals, Edge Chamfer distance and edge
   precision / recall on sharp edges), `TriangleQualityStatistics` (Verdict metrics as distributions),
   `MeshTopologySummary` (components, Euler characteristic, genus, boundary loops, changes).
-  - [ ] In the benchmarks: MeshRepairBenchmark (`analyze_fidelity.py` columns, baseline), RemeshBenchmark, UVAtlasBenchmark
+  - [x] In the benchmarks: MeshRepairBenchmark (`fm_*` fields, `analyze_fidelity.py` columns and flags, baseline on
+    Thingi10K and Objaverse with the outer surface measures), RemeshBenchmark, UVAtlasBenchmark (UV quality, charts
+    that are not discs)
+  - [ ] Volume IoU restricted to the outer surface (the input's winding number solid is distorted by the same
+    interior faces; on Objaverse the next most common miss)
   - [ ] Curvature fidelity (discrete mean / Gaussian curvature after Meyer et al. 2003, difference of the distributions)
 - A showcase domain: terrain / GIS (in progress) and biomedical / orthotics
 
