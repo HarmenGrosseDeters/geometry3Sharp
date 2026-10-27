@@ -296,9 +296,8 @@ namespace geometry3Sharp.Tests
 
         public static readonly Dictionary<string, string> KnownFailures = new Dictionary<string, string> {
             { "DMeshAABBTree3|scale 2^-24", "R17" },
-            { "LaplacianMeshSmoother|rotated", "R2" },
-            { "LaplacianMeshSmoother|rotated, scale 1e-3, utm", "R2" },
-            { "LaplacianMeshSmoother|utm", "R2" },
+            { "LaplacianMeshSmoother|rotated", "R21" },
+            { "LaplacianMeshSmoother|rotated, scale 1e-3, utm", "R21" },
             { "MeshAutoRepair|+Inf vertex", "R11" },
             { "MeshBoolean|rotated", "R6" },
             { "MeshBoolean|rotated, scale 1e-3, utm", "hang R6" },
@@ -328,8 +327,6 @@ namespace geometry3Sharp.Tests
             { "Reducer.TriangleCount|rotated, scale 1e-3, utm", "R7" },
             { "Reducer.TriangleCount|scale 2^-24", "R14" },
             { "Reducer.TriangleCount|utm", "R7" },
-            { "SmoothedHoleFill|rotated, scale 1e-3, utm", "R2" },
-            { "SmoothedHoleFill|utm", "R2" },
         };
 
         static readonly TimeSpan Budget = TimeSpan.FromSeconds(20);
