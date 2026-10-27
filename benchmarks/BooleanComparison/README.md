@@ -471,6 +471,17 @@ noise of the runs; results bit-identical. The same batching without SIMD (scalar
 slower than the original (pair search 977 / 1009 ms). Not worth a second code path per platform, so the determinism
 rules for SIMD paths (and a switch to force the scalar path) are not needed.
 
+### Tried, no measurable gain (left out)
+
+- **Reused buffers in the intersection of a pair** (the two arrays of sides and the two lists of plane points per
+  candidate pair, from a per-thread buffer): tri-tri 325 / 329 -> 319 / 314 ms on the 17 cases above, total
+  3744 / 3728 -> 3790 / 3740 ms: within the noise. The other temporary lists and arrays in the hot loops are smaller.
+- **`readonly` members of the core structs** (`Vector3d`, `Index3i`, `AxisAlignedBox3d`, ...): they only avoid
+  defensive copies when instance members are called on `in` parameters or `readonly` fields; the hot code of the
+  pipeline does not do that (its operators are static, its `in` parameters are read by field), so there was nothing to
+  measure. Not changed.
+- **ReadyToRun**: see above.
+
 ### What is left
 
 - **GC pauses** (9-28 %): the input triangles are objects (with an array of corners each), and the exact stages
