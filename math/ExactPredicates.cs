@@ -30,6 +30,7 @@ namespace g3
         /// <summary> sign of (b - a) x (c - a): +1 if a, b, c are counter-clockwise, -1 clockwise, 0 collinear </summary>
         public static int Orient2d(Vector2d a, Vector2d b, Vector2d c)
         {
+            PredicateStats.Call(PredicateStats.Kind.Orient2d);
             double ux = b.x - a.x, uy = b.y - a.y, vx = c.x - a.x, vy = c.y - a.y;
             double l = ux * vy, r = uy * vx;
             double det = l - r;
@@ -38,6 +39,7 @@ namespace g3
             // the relative error bound does not hold when products underflow (subnormal): exact then
             if (det > bound && sum > UnderflowLimit) return 1;
             if (-det > bound && sum > UnderflowLimit) return -1;
+            PredicateStats.ExactStage(PredicateStats.Kind.Orient2d);
             return orient2d_exact(a, b, c);
         }
 
@@ -47,6 +49,7 @@ namespace g3
         /// </summary>
         public static int Orient3d(Vector3d a, Vector3d b, Vector3d c, Vector3d d)
         {
+            PredicateStats.Call(PredicateStats.Kind.Orient3d);
             double ux = b.x - a.x, uy = b.y - a.y, uz = b.z - a.z;
             double vx = c.x - a.x, vy = c.y - a.y, vz = c.z - a.z;
             double wx = d.x - a.x, wy = d.y - a.y, wz = d.z - a.z;
@@ -59,6 +62,7 @@ namespace g3
             double bound = Orient3dBound * permanent + (Math.Abs(wx) + Math.Abs(wy) + Math.Abs(wz) + 1) * UnderflowUnit;
             if (det > bound && permanent > UnderflowLimit) return 1;
             if (-det > bound && permanent > UnderflowLimit) return -1;
+            PredicateStats.ExactStage(PredicateStats.Kind.Orient3d);
             return orient3d_exact(a, b, c, d);
         }
 
@@ -69,6 +73,7 @@ namespace g3
         /// </summary>
         public static int InCircle(Vector2d a, Vector2d b, Vector2d c, Vector2d d)
         {
+            PredicateStats.Call(PredicateStats.Kind.InCircle);
             double adx = a.x - d.x, bdx = b.x - d.x, cdx = c.x - d.x;
             double ady = a.y - d.y, bdy = b.y - d.y, cdy = c.y - d.y;
             double bdxcdy = bdx * cdy, cdxbdy = cdx * bdy, alift = adx * adx + ady * ady;
@@ -83,6 +88,7 @@ namespace g3
                 + Math.Abs(cdxady) + Math.Abs(adxcdy) + Math.Abs(adxbdy) + Math.Abs(bdxady) + 1) * UnderflowUnit;
             if (det > bound && permanent > UnderflowLimit) return 1;
             if (-det > bound && permanent > UnderflowLimit) return -1;
+            PredicateStats.ExactStage(PredicateStats.Kind.InCircle);
             return incircle_exact(a, b, c, d);
         }
 

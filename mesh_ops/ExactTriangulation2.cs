@@ -1,6 +1,7 @@
 // Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
 using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 
 namespace g3
 {
@@ -73,6 +74,7 @@ namespace g3
         }
 
         // vertex of triangle ti opposite to directed edge (a, b)
+        [MethodImpl(JitHints.Optimize)]
         int opposite(int ti, int a, int b)
         {
             int[] t = tris[ti];
@@ -114,6 +116,7 @@ namespace g3
         // incremental Delaunay: flip the edges around a new point while they are not locally Delaunay (constrained
         // edges stay), so that the triangulation stays well shaped for walking; MakeDelaunay finishes
         readonly Stack<long> legalStack = new Stack<long>();
+        [MethodImpl(JitHints.Optimize)]
         void legalize(int a0, int b0)
         {
             legalStack.Push(dkey(a0, b0));
@@ -144,6 +147,7 @@ namespace g3
         // a triangle that contains p (closed), with the orientations of p to its edges: walk from the last inserted
         // triangle across edges that p is behind (the first one from a pseudo-random edge, so that the walk does not
         // cycle), with a linear search if the walk is long
+        [MethodImpl(JitHints.Optimize)]
         int locate(int p, out int o0, out int o1, out int o2)
         {
             int ti = (last < tris.Count && tris[last] != null) ? last : -1;
@@ -246,6 +250,7 @@ namespace g3
 
 
         /// <summary> make the segment (u, v) between two inserted points an edge of the triangulation </summary>
+        [MethodImpl(JitHints.Optimize)]
         public void InsertConstraint(int u, int v)
         {
             if (u == v)
@@ -316,6 +321,7 @@ namespace g3
         // the edges crossed by the segment u-v, in order: rotate around u to the triangle that the segment leaves
         // through its opposite edge, then march across the crossed edges to v. False if that is not possible (the
         // segment passes through a vertex or leaves the triangulation)
+        [MethodImpl(JitHints.Optimize)]
         bool walk_crossings(int u, int v, Queue<long> queue)
         {
             int ti;
@@ -369,6 +375,7 @@ namespace g3
         }
 
         /// <summary> flip non-constrained edges until the triangulation is constrained Delaunay </summary>
+        [MethodImpl(JitHints.Optimize)]
         public void MakeDelaunay()
         {
             var stack = new Stack<long>();

@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Numerics;
+using System.Runtime.CompilerServices;
 
 namespace g3
 {
@@ -37,7 +38,11 @@ namespace g3
         readonly List<int> groupPlane = new List<int>();
         readonly List<ExactMeshArrangement.InputTriangle> groupTri = new List<ExactMeshArrangement.InputTriangle>();
         readonly List<int> groupSign = new List<int>();
-        readonly Dictionary<int, List<int>> vt = new Dictionary<int, List<int>>();
+        // triangles at each point (by point id): from arrays of the initial triangles (start, tris; built by Run), as a
+        // list once the point's triangles change; removed: points removed (no triangles, like points without any)
+        int[] vtStart, vtTris;
+        List<int>[] vtList;
+        bool[] vtRemoved;
 
         /// <summary> number of points removed </summary>
         public int Removed;
@@ -51,6 +56,7 @@ namespace g3
         readonly Dictionary<(BigInteger, BigInteger, BigInteger, BigInteger), int> planes = new Dictionary<(BigInteger, BigInteger, BigInteger, BigInteger), int>();
 
         /// <summary> tris: triangles of point ids; source: input triangle (arr.Triangles) of each; flipped: oriented opposite to it </summary>
+        [MethodImpl(JitHints.Optimize)]
         public ExactPlanarSimplify(ExactMeshArrangement arr, List<Index3i> tris, List<int> source, List<bool> flipped)
         {
             this.arr = arr;
@@ -101,14 +107,26 @@ namespace g3
             return g;
         }
 
+        // the triangles at p, as a list that can be changed
         List<int> incident(int p)
         {
-            List<int> l;
-            if (vt.TryGetValue(p, out l) == false) {
-                l = new List<int>(6);
-                vt[p] = l;
+            List<int> l = vtList[p];
+            if (l == null) {
+                l = new List<int>(Math.Max(6, vtStart[p + 1] - vtStart[p]));
+                if (vtRemoved[p])
+                    vtRemoved[p] = false;       // (a removed point gets triangles again: none of the old ones)
+                else
+                    for (int k = vtStart[p]; k < vtStart[p + 1]; ++k)
+                        l.Add(vtTris[k]);
+                vtList[p] = l;
             }
             return l;
+        }
+
+        // p has triangles, or had some (a list, also when it became empty), and is not removed
+        bool has_incidence(int p)
+        {
+            return vtRemoved[p] == false && (vtList[p] != null || vtStart[p + 1] > vtStart[p]);
         }
 
         // +1 if p, q, r are counter-clockwise in the oriented plane of group g
@@ -119,25 +137,46 @@ namespace g3
 
 
         /// <summary> removes the points that are not input vertices where possible; the triangles are in Result() </summary>
-        public void Run(HashSet<int> keep)
+        [MethodImpl(JitHints.Optimize)]
+        public void Run(bool[] keep)
         {
             bool any = false;
             foreach (Index3i f in Tris)
-                if (keep.Contains(f.a) == false || keep.Contains(f.b) == false || keep.Contains(f.c) == false) {
+                if (keep[f.a] == false || keep[f.b] == false || keep[f.c] == false) {
                     any = true;
                     break;
                 }
             if (any == false)
                 return;
+            // (the triangles of each point in increasing order, as lists filled in the order of the triangles)
+            int np = keep.Length;
+            vtStart = new int[np + 1];
+            foreach (Index3i f in Tris) {
+                vtStart[f.a + 1]++; vtStart[f.b + 1]++; vtStart[f.c + 1]++;
+            }
+            for (int p = 0; p < np; ++p)
+                vtStart[p + 1] += vtStart[p];
+            vtTris = new int[vtStart[np]];
+            var fill = (int[])vtStart.Clone();
             for (int i = 0; i < Tris.Count; ++i) {
                 Index3i f = Tris[i];
                 for (int k = 0; k < 3; ++k)
-                    incident(f[k]).Add(i);
+                    vtTris[fill[f[k]]++] = i;
             }
+            vtList = new List<int>[np];
+            vtRemoved = new bool[np];
+            // (in the order of their first triangle: the regions get their numbers in the order fan() meets them)
             var candidates = new List<int>();
-            foreach (var kv in vt)
-                if (keep.Contains(kv.Key) == false && fan(kv.Key) != null)
-                    candidates.Add(kv.Key);
+            var seen = new bool[np];
+            foreach (Index3i f in Tris)
+                for (int k = 0; k < 3; ++k) {
+                    int p = f[k];
+                    if (seen[p] == false) {
+                        seen[p] = true;
+                        if (keep[p] == false && fan(p) != null)
+                            candidates.Add(p);
+                    }
+                }
             if (candidates.Count == 0)
                 return;
             candidates.Sort(arr.ComparePoints);
@@ -159,6 +198,7 @@ namespace g3
         }
 
         /// <summary> the remaining triangles, in a deterministic order </summary>
+        [MethodImpl(JitHints.Optimize)]
         public List<Index3i> Result()
         {
             var r = new List<Index3i>();
@@ -179,9 +219,10 @@ namespace g3
         /// The polygons around v to retriangulate (each counter-clockwise in its group's plane, with the group as
         /// the last element), or null if v cannot be removed.
         /// </summary>
+        [MethodImpl(JitHints.Optimize)]
         List<List<int>> fan(int v)
         {
-            List<int> list = vt[v];
+            List<int> list = incident(v);
             int n = list.Count;
             if (n < 3)
                 return null;
@@ -249,11 +290,20 @@ namespace g3
             return polys;
         }
 
+        [MethodImpl(JitHints.Optimize)]
         bool has_edge(int a, int b)
         {
-            List<int> l;
-            if (vt.TryGetValue(a, out l) == false)
+            if (has_incidence(a) == false)
                 return false;
+            List<int> l = vtList[a];
+            if (l == null) {
+                for (int k = vtStart[a]; k < vtStart[a + 1]; ++k) {
+                    Index3i f = Tris[vtTris[k]];
+                    if (f.a == b || f.b == b || f.c == b)
+                        return true;
+                }
+                return false;
+            }
             foreach (int t in l) {
                 Index3i f = Tris[t];
                 if (f.a == b || f.b == b || f.c == b)
@@ -262,6 +312,7 @@ namespace g3
             return false;
         }
 
+        [MethodImpl(JitHints.Optimize)]
         void remove(int v)
         {
             List<List<int>> polys = fan(v);
@@ -284,14 +335,15 @@ namespace g3
                     if (has_edge(a, b) && is_link_edge(v, a, b) == false)
                         return;
                 }
-            foreach (int t in vt[v].ToArray()) {
+            foreach (int t in incident(v).ToArray()) {
                 alive[t] = false;
                 Index3i f = Tris[t];
                 for (int k = 0; k < 3; ++k)
                     if (f[k] != v)
-                        vt[f[k]].Remove(t);
+                        incident(f[k]).Remove(t);
             }
-            vt.Remove(v);
+            vtList[v] = null;
+            vtRemoved[v] = true;
             for (int i = 0; i < add.Count; ++i) {
                 int t = Tris.Count;
                 Tris.Add(add[i]);
@@ -304,9 +356,10 @@ namespace g3
         }
 
         // a-b is an edge of a triangle around v that is not incident to v (it stays)
+        [MethodImpl(JitHints.Optimize)]
         bool is_link_edge(int v, int a, int b)
         {
-            foreach (int t in vt[v]) {
+            foreach (int t in incident(v)) {
                 Index3i f = at(t, v);
                 if ((f.b == a && f.c == b) || (f.b == b && f.c == a))
                     return true;
@@ -315,6 +368,7 @@ namespace g3
         }
 
         // triangulates a simple counter-clockwise polygon (no repeated vertices) without new vertices
+        [MethodImpl(JitHints.Optimize)]
         bool ear_clip(int g, List<int> poly, List<Index3i> add)
         {
             var p = new List<int>(poly);
@@ -359,6 +413,7 @@ namespace g3
         // terminates, and does not depend on DisableFilters); nearly cocircular cases are left as they are. The
         // new triangles are checked exactly (strictly convex quad). The queue holds directed edges (directed());
         // pending, their EdgeKeys.
+        [MethodImpl(JitHints.Optimize)]
         void delaunay(List<long> queue)
         {
             var pending = new HashSet<long>();
@@ -370,9 +425,9 @@ namespace g3
                 long e = work.Dequeue();
                 int x = (int)(e >> 32), y = (int)(e & 0xFFFFFFFF);
                 pending.Remove(ExactMeshArrangement.EdgeKey(x, y));
-                List<int> lx;
-                if (vt.TryGetValue(x, out lx) == false)
+                if (has_incidence(x) == false)
                     continue;
+                List<int> lx = incident(x);
                 two.Clear();
                 foreach (int t in lx) {
                     Index3i f = Tris[t];
@@ -397,14 +452,14 @@ namespace g3
                 foreach (int t in new[] { ia, ib }) {
                     Index3i f = Tris[t];
                     for (int k = 0; k < 3; ++k)
-                        vt[f[k]].Remove(t);
+                        incident(f[k]).Remove(t);
                 }
                 Tris[ia] = new Index3i(p, x, q);
                 Tris[ib] = new Index3i(q, y, p);
                 foreach (int t in new[] { ia, ib }) {
                     Index3i f = Tris[t];
                     for (int k = 0; k < 3; ++k)
-                        vt[f[k]].Add(t);
+                        incident(f[k]).Add(t);
                 }
                 Flips++;
                 foreach (long k in new[] { directed(x, q), directed(q, y), directed(y, p), directed(p, x) })

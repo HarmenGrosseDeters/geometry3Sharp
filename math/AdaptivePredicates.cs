@@ -1,5 +1,6 @@
 // Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
 using System;
+using System.Runtime.CompilerServices;
 
 namespace g3
 {
@@ -215,6 +216,7 @@ namespace g3
         }
 
         // adds (x^2 + y^2) T + Lt (M + T) to D (T in w.T)
+        [MethodImpl(JitHints.Optimize)]
         static void incircle_term(double x, double xtail, double y, double ytail, double[] m, int mlen, Workspace w)
         {
             if (w.T.N > 0) {
@@ -277,6 +279,7 @@ namespace g3
 
         // e + f: merge by magnitude, then accumulate with error-free sums (Shewchuk's fast-expansion-sum,
         // with Two-Sum in place of Fast-Two-Sum, which gives the same components)
+        [MethodImpl(JitHints.Optimize)]
         static int sum(double[] e, int elen, double[] f, int flen, double[] h)
         {
             int i = 0, j = 0, k = 0;
@@ -295,6 +298,7 @@ namespace g3
         }
 
         // e * b
+        [MethodImpl(JitHints.Optimize)]
         static int scale(double[] e, int elen, double b, double[] h)
         {
             int k = 0;
@@ -378,6 +382,7 @@ namespace g3
             }
         }
 
+        [MethodImpl(JitHints.Optimize)]
         static double estimate(double[] e, int n)
         {
             double s = e[0];

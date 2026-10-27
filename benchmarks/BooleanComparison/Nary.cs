@@ -82,11 +82,12 @@ static class Nary
         return Measure(kind, n, variants, true);
     }
 
-    static int Measure(string kind, int n, List<string> variants, bool print)
+    // the inputs of a case: cubes (or spheres), voids (empty for spheres), the predicate of the one-pass boolean and
+    // the expected volume (NaN if not known)
+    internal static void Inputs(string kind, int n, out List<DMesh3> cubes, out List<DMesh3> voids, out Func<int[], bool> predicate, out double expected)
     {
-        var cubes = new List<DMesh3>();
-        var voids = new List<DMesh3>();
-        double expected;
+        cubes = new List<DMesh3>();
+        voids = new List<DMesh3>();
         if (kind == "grid") {
             for (int i = 0; i < n; ++i) for (int j = 0; j < n; ++j) for (int k = 0; k < n; ++k) {
                 cubes.Add(Box(0.9 * i, 0.9 * j, 0.9 * k, 0.9 * i + 1, 0.9 * j + 1, 0.9 * k + 1));
@@ -104,8 +105,7 @@ static class Nary
             expected = double.NaN;
         }
         int nc = cubes.Count;
-        var all = cubes.Concat(voids).ToList();
-        Func<int[], bool> predicate = (w) => {
+        predicate = (w) => {
             bool inCube = false;
             for (int m = 0; m < nc && inCube == false; ++m)
                 inCube = w[m] > 0;
@@ -116,6 +116,16 @@ static class Nary
                     return false;
             return true;
         };
+    }
+
+    static int Measure(string kind, int n, List<string> variants, bool print)
+    {
+        List<DMesh3> cubes, voids;
+        Func<int[], bool> predicate;
+        double expected;
+        Inputs(kind, n, out cubes, out voids, out predicate, out expected);
+        int nc = cubes.Count;
+        var all = cubes.Concat(voids).ToList();
 
         foreach (string variant in variants) {
             var info = new Dictionary<string, object> { ["case"] = $"{kind}_{n}", ["variant"] = variant, ["inputs"] = all.Count };

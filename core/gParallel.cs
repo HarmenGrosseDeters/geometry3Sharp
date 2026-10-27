@@ -29,6 +29,30 @@ namespace g3
 
 
         /// <summary>
+        /// body(i, local) for every i in [0, count), in parallel over index ranges; local comes from localInit, once
+        /// per worker task, and is never used by two threads at the same time (buffers that a body reuses)
+        /// </summary>
+        internal static void ForRange<TLocal>(int count, Func<TLocal> localInit, Action<int, TLocal> body)
+        {
+#if G3_USING_UNITY && (NET_2_0 || NET_2_0_SUBSET)
+            for_each<int>(Interval1i.Range(count), (i) => body(i, localInit()));
+#else
+            Parallel.For(0, count, localInit, (i, loop, local) => { body(i, local); return local; }, (local) => { });
+#endif
+        }
+
+        /// <summary> body(i) for every i in [0, count), in parallel over index ranges </summary>
+        internal static void ForRange(int count, Action<int> body)
+        {
+#if G3_USING_UNITY && (NET_2_0 || NET_2_0_SUBSET)
+            for_each<int>(Interval1i.Range(count), body);
+#else
+            Parallel.For(0, count, body);
+#endif
+        }
+
+
+        /// <summary>
         /// Evaluate input actions in parallel
         /// </summary>
         public static void Evaluate(params Action[] funcs)

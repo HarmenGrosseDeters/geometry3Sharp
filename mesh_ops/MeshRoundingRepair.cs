@@ -1,6 +1,7 @@
 // Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
 using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 
 namespace g3
 {
@@ -124,6 +125,7 @@ namespace g3
         Dictionary<int, int> slidTowards = new Dictionary<int, int>();
 
         /// <summary> repair (see class comment); returns IsClean </summary>
+        [MethodImpl(JitHints.Optimize)]
         public bool Apply()
         {
             Collapses = Flips = Moves = Zips = RemovedComponents = RemovedTriangles = 0;
@@ -271,6 +273,7 @@ namespace g3
         }
 
         // the vertex id that stands for all vertices at v's position (SharedPositionsTouch), else v
+        [MethodImpl(JitHints.Optimize)]
         int canonical(int v)
         {
             if (atPosition == null)
@@ -311,6 +314,7 @@ namespace g3
 
         // ---- spatial queries ----
 
+        [MethodImpl(JitHints.Optimize)]
         void rebuild_tree()
         {
             var boxes = new List<AxisAlignedBox3d>();
@@ -345,6 +349,7 @@ namespace g3
         }
 
         // the current triangles whose box overlaps query (each once)
+        [MethodImpl(JitHints.Optimize)]
         void near(AxisAlignedBox3d query, List<int> result)
         {
             result.Clear();
@@ -404,6 +409,7 @@ namespace g3
             return pairs;
         }
 
+        [MethodImpl(JitHints.Optimize)]
         List<int> degenerate_triangles()
         {
             var list = new List<int>();
@@ -437,6 +443,7 @@ namespace g3
 
         long evaluations, maxEvaluations, pairTests;
 
+        [MethodImpl(JitHints.Optimize)]
         bool improves(double displacement = 0)
         {
             if (++evaluations > maxEvaluations || pairTests > MaxPairTests) {
@@ -560,6 +567,7 @@ namespace g3
         }
 
         // contract edge (a, b): b is kept, at position p
+        [MethodImpl(JitHints.Optimize)]
         bool try_collapse(int a, int b, Vector3d p)
         {
             int eid = Mesh.FindEdge(a, b);
@@ -644,6 +652,7 @@ namespace g3
         // the segment split at the other apex, so that the two sides are zipped together. With the order a, c,
         // d, b along the edge: N1 = (c, b, x) across (b, c) becomes (c, d, x), (d, b, x); N2 = (d, a, y) across
         // (a, d) becomes (d, c, y), (c, a, y).
+        [MethodImpl(JitHints.Optimize)]
         bool try_zip(int eid)
         {
             if (Mesh.IsEdge(eid) == false || Mesh.IsBoundaryEdge(eid))
@@ -716,6 +725,7 @@ namespace g3
         // move the boundary vertex v to s from its input position along one of its two boundary edges (not to or
         // past their other ends). So that it stays on the input curve over several edits: only along an edge of the
         // input boundary whose other end u is where it was, and towards the same u as before if v was slid already
+        [MethodImpl(JitHints.Optimize)]
         bool try_slide(int v, double s)
         {
             Vector3d p;
@@ -743,6 +753,7 @@ namespace g3
         }
 
         // move v to p (a boundary vertex only by try_slide)
+        [MethodImpl(JitHints.Optimize)]
         bool try_move(int v, Vector3d p)
         {
             if (p == Mesh.GetVertex(v) || double.IsNaN(p.x + p.y + p.z))
@@ -777,6 +788,7 @@ namespace g3
 
         // contract one of the edges of the triangles (shortest first, at most maxLength), the kept vertex at
         // a fixed end, else at either end or the midpoint
+        [MethodImpl(JitHints.Optimize)]
         bool collapse_any(params int[] tids)
         {
             var edges = new List<KeyValuePair<double, int>>();
@@ -810,6 +822,7 @@ namespace g3
             return false;
         }
 
+        [MethodImpl(JitHints.Optimize)]
         void fix_degenerate(int t)
         {
             if (collapse_any(t))
@@ -856,6 +869,7 @@ namespace g3
                     return;
         }
 
+        [MethodImpl(JitHints.Optimize)]
         void fix_intersection(int ta, int tb)
         {
             if (collapse_any(ta, tb))
@@ -902,6 +916,7 @@ namespace g3
         }
 
         // components with a degenerate triangle or an edited vertex that are tiny or thin
+        [MethodImpl(JitHints.Optimize)]
         int remove_tiny_components(List<int> bad)
         {
             var comps = new MeshConnectedComponents(Mesh);

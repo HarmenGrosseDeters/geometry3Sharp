@@ -1798,12 +1798,8 @@ namespace g3
             //   commented out code is robust to incorrect ordering, but slower.
             int vO = Math.Max(vA, vB);
             int vI = Math.Min(vA, vB);
-            foreach (int eid in vertex_edges.ValueItr(vI)) {
-                if (edges[4 * eid + 1] == vO)
-                    //if (edge_has_v(eid, vO))
-                    return eid;
-            }
-            return InvalidID;
+            // (the first edge of vI with edges[4 eid + 1] == vO, as foreach over ValueItr(vI), without its iterator)
+            return vertex_edges.FindByKey(vI, edges, vO, InvalidID);
 
             // this is slower, likely because it creates new func<> every time. can we do w/o that?
             //return vertex_edges.Find(vI, (eid) => { return edges[4 * eid + 1] == vO; }, InvalidID);
