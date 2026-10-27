@@ -41,7 +41,7 @@ namespace gs
     {
         /// <summary> input mesh (not modified) </summary>
         public DMesh3 Mesh;
-        /// <summary> diffusion time = TimeFactor * (mean edge length)^2 </summary>
+        /// <summary> diffusion time = TimeFactor * (mean edge length)^2; must be positive and finite (else Compute returns false) </summary>
         public double TimeFactor = 1.0;
         /// <summary> no longer used: the linear systems are solved directly (kept for API compatibility) </summary>
         public int MaxIterations = 20000;
@@ -328,18 +328,20 @@ namespace gs
             tris.Add(ti); cot.Add(c); layout.Add(q); area.Add(A);
         }
 
-        // (mass + t * heat weights) with the rows of the fixed vertices (and of vertices without triangles)
-        // replaced by the identity
+        // (mass / t + heat weights) with the rows of the fixed vertices (and of vertices without triangles)
+        // replaced by the identity: the heat flow (M + t L) u = delta divided by t. mass / t and the cotan weights
+        // have no units, so the factorization, the heat and its log are the same bits when the mesh is scaled by
+        // a power of two (with M + t L and the source 1, u scaled with 1 / s^2 and its log rounded differently)
         SparseCholesky heat_factor(double t, bool[] fixedZero)
         {
             FactorizationCount++;
             var e = new List<KeyValuePair<Index2i, double>>(N + 3 * heatEdges.Count);
             for (int i = 0; i < N; ++i)
-                e.Add(entry(i, i, (fixedZero != null && fixedZero[i]) || !(mass[i] > 0) ? 1 : mass[i]));
+                e.Add(entry(i, i, (fixedZero != null && fixedZero[i]) || !(mass[i] > 0) ? 1 : mass[i] / t));
             foreach (var kv in heatEdges) {
                 int i = kv.Key.a, j = kv.Key.b;
                 bool fi = fixedZero != null && fixedZero[i], fj = fixedZero != null && fixedZero[j];
-                double w = t * kv.Value;
+                double w = kv.Value;
                 if (fi == false) e.Add(entry(i, i, w));
                 if (fj == false) e.Add(entry(j, j, w));
                 if (fi == false && fj == false) e.Add(entry(i, j, -w));
@@ -369,7 +371,7 @@ namespace gs
             return new KeyValuePair<Index2i, double>(new Index2i(i, j), v);
         }
 
-        // log of the heat (M + t L) u = sources, from a solve, or in the log domain where it underflows
+        // log of the heat (M / t + L) u = sources, from a solve, or in the log domain where it underflows
         // (fixedZero: the rows fixed to 0 in A, not checked for underflow; logDomain: the log solve is used
         // directly, eg when the Neumann heat of the same sources underflowed)
         bool log_heat(SparseCholesky A, List<int> src, bool[] hasSource, bool[] fixedZero, ref bool logDomain, double[] logU)
@@ -405,6 +407,9 @@ namespace gs
             if (L == null || timestamp != Mesh.ShapeTimestamp || built_settings() != builtSettings)
                 precompute();
             Distance = null; sourceVertices = null;
+            double t = TimeFactor * meanEdge * meanEdge;
+            if (!(t > 0) || double.IsInfinity(t))
+                return false;           // TimeFactor not positive and finite (or a mesh without extent)
             List<int> src = new List<int>();
             var srcVertices = new HashSet<int>();
             bool[] hasSource = new bool[componentCount];
@@ -425,13 +430,12 @@ namespace gs
                 return true;
             }
 
-            // 1. heat flow: (M + t L) u = delta, with non-negative weights an M-matrix: the Cholesky
-            // substitutions only add terms of one sign, so every entry of u is accurate relative to itself,
-            // however small (u decays like exp(-distance / sqrt(t)), eg 1e-30 at 70 edge lengths). Where u
-            // underflows doubles (beyond about 700 edge lengths) the same substitutions run on log(u).
-            // On meshes with a boundary, the average of the Neumann (insulated) and Dirichlet (u = 0)
+            // 1. heat flow: (M + t L) u = delta, solved divided by t (heat_factor), with non-negative weights an
+            // M-matrix: the Cholesky substitutions only add terms of one sign, so every entry of u is accurate
+            // relative to itself, however small (u decays like exp(-distance / sqrt(t)), eg 1e-30 at 70 edge
+            // lengths). Where u underflows doubles (beyond about 700 edge lengths) the same substitutions run on
+            // log(u). On meshes with a boundary, the average of the Neumann (insulated) and Dirichlet (u = 0)
             // solutions avoids the bending of the distance along the boundary (Crane et al.).
-            double t = TimeFactor * meanEdge * meanEdge;
             if (t != heatTime) {
                 heatN = heat_factor(t, null);
                 heatD = heatDS = null; heatDSources = null;
