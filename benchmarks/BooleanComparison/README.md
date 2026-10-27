@@ -128,8 +128,8 @@ dotnet build -c Release -p:G3PredicateStats=true     # a build that also counts 
 Run on 4 cores, `-j 1`, timeout 300 s per boolean (900 s per sequence); ExactMeshBoolean as of this branch
 (master with the faster exact booleans). The times of ExactMeshBoolean below are from before the performance work
 of October 2026 (see [Profile and performance work](#profile-and-performance-work-october-2026)), which made a
-boolean measured the same way (one process per boolean, as `compare.py` runs it) about 2.3 times faster on the
-`cgal` and Thingi10K inputs and 1.3-1.9 times faster on the `cherchi` inputs; the other methods were not rerun. Outcomes per case and method over all its operations, as defined at
+boolean measured the same way (one process per boolean, as `compare.py` runs it) 2.4-2.8 times faster on the
+`cgal` and Thingi10K inputs and 1.3-2.3 times faster on the `cherchi` inputs; the other methods were not rerun. Outcomes per case and method over all its operations, as defined at
 the top of `analyze.py`: **clean** (correct, closed manifold, no self-intersections), **self-int.** (correct,
 but self-intersections after rounding to double or where solids touch), **volume** (closed, but a volume
 identity or a known volume off by more than 1e-6), **not closed**, **failed** (the tool reports a failure on an
@@ -405,37 +405,57 @@ with master: 0 differences over all warm runs and 263 exact runs), on 1, 2 and 4
   `ExactPlanarSimplify` as arrays, lists only for the points that change; no checks before `AppendTriangle` that
   cannot fail (no edge with more than two pieces and no conflicting pieces); `DMesh3.FindEdge` without an iterator.
 - **Allocations**: planes of the input triangles in an object created only for the triangles that need them,
-  directions of segment lines rounded to double once, smaller point index shards.
+  directions of segment lines rounded to double once, smaller point index shards; the ids of `DMesh3` (and
+  `NTMesh3`, `DGraph*`) enumerated without boxing each id (`RefCountVector` had only a non-generic enumerator);
+  presized lists; `ExactTriangulation2` reuses the arrays of removed triangles.
+- **Unoptimized runtime code**: the edges are grouped with a radix sort of our own (stable) instead of
+  `Array.Sort(long[], int[])`, whose generic code took about 14 % of a cold boolean's main thread; loop bodies of the
+  parallel phases are methods with the JIT hint instead of lambdas.
+- **Coplanar triangles share their constructions**: triangles in the same plane (exactly; candidates found by a
+  rounded key of the plane's approximation) get one plane key, so an edge crossing that plane is one implicit point,
+  not one per triangle. In grid 10, 95 % of the points were such duplicates: 656k points -> 143k, merge 2.6 -> 1.0 s.
 
 ### After (warm)
 
 | class | median / case before | after | speedup (median of cases) | total before | after | GC pause | alloc / run |
 |---|---|---|---|---|---|---|---|
-| cherchi | 1208 ms | 752 ms | 1.35 | 32.1 s | 23.9 s | 34 % -> 29 % | 467 -> 352 MB |
-| cgal | 67 ms | 60 ms | 1.15 | 12.5 s | 10.1 s | 15 % -> 10 % | 61 -> 44 MB |
-| thingi | 120 ms | 102 ms | 1.17 | 12.4 s | 9.2 s | 23 % -> 14 % | 91 -> 66 MB |
+| cherchi | 1208 ms | 685 ms | 1.61 | 32.1 s | 22.0 s | 34 % -> 28 % | 467 -> 322 MB |
+| cgal | 67 ms | 56 ms | 1.21 | 12.5 s | 9.3 s | 15 % -> 9 % | 61 -> 41 MB |
+| thingi | 120 ms | 106 ms | 1.20 | 12.4 s | 8.9 s | 23 % -> 9 % | 91 -> 62 MB |
 
 | n-ary case | before | after | merge | triangulation | classification |
 |---|---|---|---|---|---|
-| grid 5 | 1278 ms | 781 ms | 365 -> 158 ms | 464 -> 306 ms | 305 -> 194 ms |
-| grid 10 | 13.7 s | 8.2 s | 5.8 -> 2.7 s | 2.6 -> 1.6 s | 3.3 -> 2.0 s |
-| spheres 20 | 531 ms | 385 ms | 140 -> 28 ms | 57 -> 164 ms | 167 -> 40 ms |
+| grid 5 | 1278 ms | 746 ms | 365 -> 139 ms | 464 -> 258 ms | 305 -> 250 ms |
+| grid 10 | 13.7 s | 5.7 s | 5.8 -> 1.0 s | 2.6 -> 1.7 s | 3.3 -> 1.9 s |
+| spheres 20 | 531 ms | 375 ms | 140 -> 21 ms | 57 -> 161 ms | 167 -> 36 ms |
 
-(spheres 20: the phases moved, the GC pauses fall into different phases; the total went down.)
+(The class rows are from the state before the shared constructions of coplanar triangles, which changes nothing
+measurable outside the n-ary grid: on 17 cases of the three classes 3.96 / 3.97 s before, 3.97 / 3.82 s after. The
+n-ary rows include it. spheres 20: the GC pauses fall into different phases; the total went down.)
 
 ### After (cold, one process per boolean)
 
 | class | median / case before | after | speedup (median of cases) | total before | after |
 |---|---|---|---|---|---|
-| cgal (50 cases) | 602 ms | 230 ms | 2.46 | 56.1 s | 27.4 s |
-| Thingi10K (32 cases) | 917 ms | 399 ms | 2.29 | 49.7 s | 23.6 s |
-| cherchi, 5 smaller cases | 2166 ms | 1032 ms | 1.86 | 14.4 s | 7.8 s |
-| bunny 200k + cow 200k | 7.9 s | 5.6 s | 1.41 | | |
-| stencil (fertility minus 703 spheres) | 16.7 s | 13.2 s | 1.26 | | |
+| cgal (50 cases) | 602 ms | 199 ms | 2.84 | 56.1 s | 23.1 s |
+| Thingi10K (32 cases) | 917 ms | 325 ms | 2.41 | 49.7 s | 22.1 s |
+| cherchi, 5 smaller cases | 2166 ms | 846 ms | 2.30 | 14.4 s | 6.1 s |
+| bunny 200k + cow 200k | 7.9 s | 4.7 s | 1.69 | | |
+| stencil (fertility minus 703 spheres) | 16.7 s | 13.3 s | 1.26 | | |
 
-Parallel scaling after (warm, the cases of the table above): 5 `cherchi` cases 6.6 / 4.2 / 3.2 s on 1 / 2 / 4
-cores (2.05), 12 Thingi10K cases 7.3 / 4.9 / 3.6 s (2.05), grid 5 1.56 / 1.05 / 0.76 s (2.05), bunny 200k +
-cow 200k 5.5 / 4.1 / 3.3 s (1.65).
+Parallel scaling after (warm, the cases of the table above): 5 `cherchi` cases 6.1 / 3.9 / 2.9 s on 1 / 2 / 4
+cores (2.08), 12 Thingi10K cases 6.9 / 4.6 / 3.3 s (2.09), grid 5 1.47 / 1.01 / 0.73 s (2.01), bunny 200k +
+cow 200k 4.8 / 3.6 / 2.8 s (1.68).
+
+**Cold runs and the application's JIT settings.** A cold boolean still takes about 3 times as long as a warm one:
+the runtime's generic collections over the library's value types (dictionaries of point keys, lists of segments)
+start as unoptimized code. ReadyToRun does not help: the tool published with `PublishReadyToRun` (the library
+precompiled) took the same time (`cgal/elephant` 139 against 144 ms, Thingi10K 79241 1099 against 791 ms). The
+methods with the JIT hint are not precompiled by it, and the generic code of the runtime over the library's types is
+not part of the library's image. What helps is a setting of the application that runs single booleans:
+`<TieredCompilation>false</TieredCompilation>` in its project (or `DOTNET_TieredCompilation=0`) made the same cold
+booleans 1.4-1.9 times faster (`cgal/elephant` 144 -> 75 ms, Thingi10K 79241 791 -> 552 ms); `<TieredPGO>false</TieredPGO>`
+is a milder version. Long-running applications (many booleans in one process) do not need it.
 
 ### SIMD spike (not merged)
 
@@ -453,11 +473,10 @@ rules for SIMD paths (and a switch to force the scalar path) are not needed.
 
 ### What is left
 
-- **GC pauses** (10-29 %): the input triangles are objects (with an array of corners each), the triangulations
-  allocate an array per triangle, and the exact stages allocate `BigInteger`s.
+- **GC pauses** (9-28 %): the input triangles are objects (with an array of corners each), and the exact stages
+  allocate `BigInteger`s.
 - **Pair search** (15-26 %): mostly the exact tests of neighbouring triangles of the same mesh (needed to find
   self-intersections), with exact stages where neighbours are coplanar.
-- **The n-ary grid**: still dominated by `BigInteger` arithmetic of coincident and cocircular implicit points.
-- **Cold runs** still take about 3 times as long as warm ones: generic collections of the runtime over the library's
-  value types (dictionaries of point keys, lists of segments) and the parallel loop bodies (lambdas) still start
-  unoptimized.
+- **The n-ary grid**: still dominated by `BigInteger` arithmetic of the remaining coincident points (other kinds of
+  constructions of the same point) and of cocircular points in the triangulation.
+- **Cold runs** still take about 3 times as long as warm ones (see above; an application setting, not the library).
