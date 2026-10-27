@@ -1287,12 +1287,11 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         bool separated(InputTriangle T, InputTriangle U)
         {
-            Vector3d t0 = input_vertex(T, 0), t1 = input_vertex(T, 1), t2 = input_vertex(T, 2);
-            Vector3d u0 = input_vertex(U, 0), u1 = input_vertex(U, 1), u2 = input_vertex(U, 2);
-            int a = ExactPredicates.Orient3d(u0, u1, u2, t0), b = ExactPredicates.Orient3d(u0, u1, u2, t1), c = ExactPredicates.Orient3d(u0, u1, u2, t2);
+            int a, b, c;
+            ExactPredicates.Orient3d3(U.V0, U.V1, U.V2, T.V0, T.V1, T.V2, 7, out a, out b, out c);
             if ((a > 0 && b > 0 && c > 0) || (a < 0 && b < 0 && c < 0))
                 return true;
-            a = ExactPredicates.Orient3d(t0, t1, t2, u0); b = ExactPredicates.Orient3d(t0, t1, t2, u1); c = ExactPredicates.Orient3d(t0, t1, t2, u2);
+            ExactPredicates.Orient3d3(T.V0, T.V1, T.V2, U.V0, U.V1, U.V2, 7, out a, out b, out c);
             return (a > 0 && b > 0 && c > 0) || (a < 0 && b < 0 && c < 0);
         }
 
@@ -1318,13 +1317,20 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         bool one_side_except_shared(InputTriangle T, InputTriangle U)
         {
-            Vector3d t0 = input_vertex(T, 0), t1 = input_vertex(T, 1), t2 = input_vertex(T, 2);
-            int side = 0;
+            // the sides of the corners of U that are not corners of T (all at once: the same signs as one by one)
+            int lanes = 0;
             for (int k = 0; k < 3; ++k) {
                 int c = U.Corners[k];
-                if (c == T.Corners[0] || c == T.Corners[1] || c == T.Corners[2])
+                if (c != T.Corners[0] && c != T.Corners[1] && c != T.Corners[2])
+                    lanes |= 1 << k;
+            }
+            int o0, o1, o2;
+            ExactPredicates.Orient3d3(T.V0, T.V1, T.V2, U.V0, U.V1, U.V2, lanes, out o0, out o1, out o2);
+            int side = 0;
+            for (int k = 0; k < 3; ++k) {
+                if ((lanes & (1 << k)) == 0)
                     continue;
-                int o = ExactPredicates.Orient3d(t0, t1, t2, input_vertex(U, k));
+                int o = (k == 0) ? o0 : (k == 1) ? o1 : o2;
                 if (o == 0 || (side != 0 && o != side))
                     return false;
                 side = o;
@@ -1354,10 +1360,11 @@ namespace g3
             Vector3d t0 = input_vertex(T, 0), t1 = input_vertex(T, 1), t2 = input_vertex(T, 2);
             Vector3d u0 = input_vertex(U, 0), u1 = input_vertex(U, 1), u2 = input_vertex(U, 2);
             // sides with the exact double predicates (same sign as N . (v - a) on the integer grid)
-            int[] sT = { ExactPredicates.Orient3d(u0, u1, u2, t0), ExactPredicates.Orient3d(u0, u1, u2, t1), ExactPredicates.Orient3d(u0, u1, u2, t2) };
+            int[] sT = new int[3], sU = new int[3];
+            ExactPredicates.Orient3d3(u0, u1, u2, t0, t1, t2, 7, out sT[0], out sT[1], out sT[2]);
             if ((sT[0] > 0 && sT[1] > 0 && sT[2] > 0) || (sT[0] < 0 && sT[1] < 0 && sT[2] < 0))
                 return;
-            int[] sU = { ExactPredicates.Orient3d(t0, t1, t2, u0), ExactPredicates.Orient3d(t0, t1, t2, u1), ExactPredicates.Orient3d(t0, t1, t2, u2) };
+            ExactPredicates.Orient3d3(t0, t1, t2, u0, u1, u2, 7, out sU[0], out sU[1], out sU[2]);
             if ((sU[0] > 0 && sU[1] > 0 && sU[2] > 0) || (sU[0] < 0 && sU[1] < 0 && sU[2] < 0))
                 return;
 

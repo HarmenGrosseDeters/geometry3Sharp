@@ -13,7 +13,7 @@ namespace g3
     /// through integer arithmetic (every double is m * 2^e). The sign is always right, also for nearly
     /// degenerate input and coordinates far from the origin, unlike tests with a fixed epsilon.
     /// </summary>
-    public static class ExactPredicates
+    public static partial class ExactPredicates
     {
         const double Epsilon = 1.1102230246251565e-16;     // 2^-53
         const double Orient2dBound = (3.0 + 16.0 * Epsilon) * Epsilon;
