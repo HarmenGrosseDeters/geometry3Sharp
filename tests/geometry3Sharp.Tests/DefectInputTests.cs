@@ -15,6 +15,10 @@ namespace geometry3Sharp.Tests
     {
         public static System.Collections.Generic.IEnumerable<object[]> Cases() => Defects.Names();
 
+        /// <summary> runs check on the case; with G3_MINIMIZE=1 a failure is minimized (Harness/FailureMinimizer.cs) </summary>
+        static void Check(string name, Action<DMesh3> check, [System.Runtime.CompilerServices.CallerMemberName] string test = "") =>
+            FailureMinimizer.Check(test + " " + name, () => Defects.ByName(name).Make(), check);
+
         /// <summary>
         /// interior edges whose two triangles run through them in the same direction. DMesh3 accepts such triangles (the
         /// readers create them for inconsistently oriented files), but CheckValidity reports them.
@@ -93,20 +97,17 @@ namespace geometry3Sharp.Tests
 
         [Theory]
         [MemberData(nameof(Cases))]
-        public void MeshAutoRepair_DefectInput(string name)
-        {
-            var r = new MeshAutoRepair(Defects.ByName(name).Make());
+        public void MeshAutoRepair_DefectInput(string name) => Check(name, input => {
+            var r = new MeshAutoRepair(input);
             Assert.True(r.Apply(), name + ": Apply returned false without a cancel");
             // (consistent orientation is not promised, the repair only tries; it gets there on all these cases, so this
             // guards against a regression)
             AssertValid(r.Mesh, name);
-        }
+        });
 
         [Theory]
         [MemberData(nameof(Cases))]
-        public void MeshRobustRepair_DefectInput_CleanWhenReportedClean(string name)
-        {
-            DMesh3 input = Defects.ByName(name).Make();
+        public void MeshRobustRepair_DefectInput_CleanWhenReportedClean(string name) => Check(name, input => {
             bool empty = input.TriangleCount == 0;
             var r = new MeshRobustRepair(input) { SolidifyResolution = 64 };
             bool ok = r.Apply();
@@ -119,7 +120,7 @@ namespace geometry3Sharp.Tests
             // ResultReason "" claims a clean result: check it independently
             if (r.ResultReason == "")
                 Assert.Equal("", MeshRobustRepair.NotCleanReason(r.Mesh));
-        }
+        });
 
         // ---- boolean ----
 
@@ -131,9 +132,8 @@ namespace geometry3Sharp.Tests
         public static System.Collections.Generic.IEnumerable<object[]> InconsistentCases() =>
             Defects.Names().Where(c => HasInconsistentInput((string)c[0]));
 
-        static void UnionWithBox(string name, bool allowInconsistentResult = false)
+        static void UnionWithBox(DMesh3 a, string name, bool allowInconsistentResult = false)
         {
-            DMesh3 a = Defects.ByName(name).Make();
             DMesh3 box = new TrivialBox3Generator() { Box = new Box3d(new Vector3d(0.5, 0.5, 0.5), new Vector3d(0.6, 0.4, 0.7)) }.Generate().MakeDMesh();
             var eb = new ExactMeshBoolean(a, box, ExactMeshBoolean.Operations.Union);
             bool ok = eb.Compute();
@@ -148,9 +148,8 @@ namespace geometry3Sharp.Tests
             }
         }
 
-        static void Resolve(string name, bool allowInconsistentResult = false)
+        static void Resolve(DMesh3 a, string name, bool allowInconsistentResult = false)
         {
-            DMesh3 a = Defects.ByName(name).Make();
             DMesh3 r = ExactMeshBoolean.Resolve(a);
             AssertValid(r, name + " (resolve)", allowInconsistentResult);
             if (a.IsClosed() && Inconsistent(a) == false) {
@@ -162,20 +161,17 @@ namespace geometry3Sharp.Tests
 
         [Theory]
         [MemberData(nameof(ConsistentCases))]
-        public void ExactMeshBoolean_UnionWithBox_DefectInput(string name) => UnionWithBox(name);
+        public void ExactMeshBoolean_UnionWithBox_DefectInput(string name) => Check(name, a => UnionWithBox(a, name));
 
         [Theory]
         [MemberData(nameof(ConsistentCases))]
-        public void ExactMeshBoolean_Resolve_DefectInput(string name) => Resolve(name);
+        public void ExactMeshBoolean_Resolve_DefectInput(string name) => Check(name, a => Resolve(a, name));
 
         // inconsistently oriented inputs: everything but the result's orientation (see the test below)
         [Theory]
         [MemberData(nameof(InconsistentCases))]
         public void ExactMeshBoolean_InconsistentInput_ValidStructure(string name)
-        {
-            UnionWithBox(name, true);
-            Resolve(name, true);
-        }
+            => Check(name, a => { UnionWithBox(new DMesh3(a), name, true); Resolve(a, name, true); });
 
         // Inputs with inconsistently oriented triangles (a flipped triangle): ExactMeshBoolean orients each component
         // consistently first, so the result is a consistently oriented surface (DMesh3.CheckValidity passes). Minimal
@@ -183,10 +179,7 @@ namespace geometry3Sharp.Tests
         [Theory]
         [MemberData(nameof(InconsistentCasesOrientable))]
         public void ExactMeshBoolean_InconsistentInput_ConsistentResult(string name)
-        {
-            UnionWithBox(name);
-            Resolve(name);
-        }
+            => Check(name, a => { UnionWithBox(new DMesh3(a), name); Resolve(a, name); });
 
         // the inconsistent cases without "random edits 6" (see the skipped test below)
         public static System.Collections.Generic.IEnumerable<object[]> InconsistentCasesOrientable() =>
@@ -200,18 +193,48 @@ namespace geometry3Sharp.Tests
         // integer jumps. Reported; enabled when fixed.
         [Fact(Skip = "ExactMeshBoolean: generalized winding patch classification at the 1/2 threshold is inconsistent next to an interior sheet (reported)")]
         public void ExactMeshBoolean_OpenInputWithInteriorSheet_ConsistentResult()
+            => Check("random edits 6", a => { UnionWithBox(new DMesh3(a), "random edits 6"); Resolve(a, "random edits 6"); });
+
+        // "random edits 6" minimized by MeshMinimizer (G3_MINIMIZE=1, docs/QA.md 2.9; 301 -> 5 triangles, 1158
+        // evaluations, 10 s): the union with the box still has an inconsistently oriented edge. Five open triangles, no
+        // interior sheet; without the coordinate rounding (G3_MINIMIZE_ROUND=0) 34 triangles of the sphere next to the
+        // box remain, also without the stray triangle. Enabled when fixed.
+        static DMesh3 MinimizedRandomEdits6()
         {
-            UnionWithBox("random edits 6");
-            Resolve("random edits 6");
+            // 8 vertices, 5 triangles
+            double[] v = {
+                0.5, 0.5, -0.5,
+                0, -0.0, 0,
+                1, -0.0, -0.0,
+                1, 0, 0,
+                1, 0.125, -0.125,
+                1, 0, -0.5,
+                1, 0, -0.0,
+                0, 0, -0.0,
+            };
+            int[] t = {
+                1, 4, 3,
+                2, 5, 4,
+                4, 5, 7,
+                4, 7, 6,
+                6, 7, 0,
+            };
+            var m = new DMesh3(false, false, false, false);
+            for (int i = 0; i < v.Length; i += 3) m.AppendVertex(new Vector3d(v[i], v[i + 1], v[i + 2]));
+            for (int i = 0; i < t.Length; i += 3)
+                if (m.AppendTriangle(t[i], t[i + 1], t[i + 2]) < 0)
+                    throw new InvalidOperationException("repro: triangle " + i / 3);
+            return m;
         }
+
+        [Fact(Skip = "ExactMeshBoolean: inconsistently oriented edge in the union of five open triangles with a box (minimized from random edits 6; reported)")]
+        public void ExactMeshBoolean_MinimizedRandomEdits6_ConsistentResult() => UnionWithBox(MinimizedRandomEdits6(), "random edits 6, minimized");
 
         // ---- wrap, solidify ----
 
         [Theory]
         [MemberData(nameof(Cases))]
-        public void MeshAlphaWrap_DefectInput_GuaranteesOnSuccess(string name)
-        {
-            DMesh3 a = Defects.ByName(name).Make();
+        public void MeshAlphaWrap_DefectInput_GuaranteesOnSuccess(string name) => Check(name, a => {
             var w = new MeshAlphaWrap(a);
             bool ok = w.Compute();
             if (a.VertexCount == 0) {
@@ -226,13 +249,11 @@ namespace geometry3Sharp.Tests
             Assert.True(w.Result.IsClosed(), name + ": not closed");
             Assert.False(HasBowtie(w.Result), name + ": bowtie vertices");
             Assert.False(MeshRepairMetrics.HasSelfIntersections(w.Result), name + ": self-intersections");
-        }
+        });
 
         [Theory]
         [MemberData(nameof(Cases))]
-        public void MeshWindingNumberSolidify_DefectInput(string name)
-        {
-            DMesh3 a = Defects.ByName(name).Make();
+        public void MeshWindingNumberSolidify_DefectInput(string name) => Check(name, a => {
             var s = new MeshWindingNumberSolidify(a) { GridResolution = 32 };
             bool ok = s.Compute();
             if (a.TriangleCount == 0) {
@@ -248,7 +269,7 @@ namespace geometry3Sharp.Tests
                 Assert.True(s.Result.IsClosed(), name + ": not closed");
                 Assert.False(MeshRepairMetrics.HasSelfIntersections(s.Result), name + ": self-intersections");
             }
-        }
+        });
 
         // The cell size comes from the bounds of the triangles: an unused vertex 1e6 away (in CachedBounds) used to give
         // cells of about 5e4 and an empty result.
@@ -268,35 +289,29 @@ namespace geometry3Sharp.Tests
 
         [Theory]
         [MemberData(nameof(Cases))]
-        public void Remesher_DefectInput(string name)
-        {
-            DMesh3 m = Defects.ByName(name).Make();
+        public void Remesher_DefectInput(string name) => Check(name, m => {
             bool inconsistent = Inconsistent(m);
             var r = new Remesher(m);
             r.SetTargetEdgeLength(MeanEdgeLength(m));
             for (int k = 0; k < 3; ++k)
                 r.BasicRemeshPass();
             AssertValid(m, name, inconsistent);
-        }
+        });
 
         [Theory]
         [MemberData(nameof(Cases))]
-        public void Reducer_DefectInput(string name)
-        {
-            DMesh3 m = Defects.ByName(name).Make();
+        public void Reducer_DefectInput(string name) => Check(name, m => {
             bool inconsistent = Inconsistent(m);
             var r = new Reducer(m);
             r.ReduceToTriangleCount(m.TriangleCount / 2);
             AssertValid(m, name, inconsistent);
-        }
+        });
 
         // ---- queries and analysis ----
 
         [Theory]
         [MemberData(nameof(Cases))]
-        public void Queries_DefectInput(string name)
-        {
-            DMesh3 m = Defects.ByName(name).Make();
+        public void Queries_DefectInput(string name) => Check(name, m => {
             var tree = new DMeshAABBTree3(m, true);
             Vector3d q = new Vector3d(0.3, -0.2, 0.1);
             int t = tree.FindNearestTriangle(q);
@@ -318,6 +333,6 @@ namespace geometry3Sharp.Tests
             } catch (MeshBoundaryLoopsException) {
                 // documented failure for boundaries it cannot walk (bowties, open spans)
             }
-        }
+        });
     }
 }
