@@ -117,13 +117,16 @@ namespace g3
             AxisAlignedBox3d bounds = Mesh.CachedBounds;
 
             float fBufferWidth = (float)Math.Max(4*CellSize, 2*MaxOffsetDistance + 2*CellSize);
-            grid_origin = (Vector3f)bounds.Min - fBufferWidth * Vector3f.One - (Vector3f)ExpandBounds;
-            Vector3f max = (Vector3f)bounds.Max + fBufferWidth * Vector3f.One + (Vector3f)ExpandBounds;
-            int ni = (int)((max.x - grid_origin.x) / CellSize) + 1;
-            int nj = (int)((max.y - grid_origin.y) / CellSize) + 1;
-            int nk = (int)((max.z - grid_origin.z) / CellSize) + 1;
+            // (GridOrigin is a float: rounded down, it holds the origin exactly, and the samples are computed in double
+            // from it, so GridOrigin + CellSize*(i,j,k) is their exact position also at UTM coordinates)
+            Vector3f origin = FloatOriginGrid.FloorToFloat(bounds.Min - (double)fBufferWidth * Vector3d.One - ExpandBounds);
+            Vector3i dims = FloatOriginGrid.Dimensions(origin, bounds.Max + (double)fBufferWidth * Vector3d.One + ExpandBounds, CellSize);
+            if (dims.x < 0)
+                throw new ArgumentException("CachingMeshSDF.Initialize: the cell size and the mesh bounds must be finite and give a grid that fits in an array");
+            int ni = dims.x, nj = dims.y, nk = dims.z;
+            grid_origin = origin;
 
-            UpperBoundDistance = (float)((ni+nj+nk) * CellSize);
+            UpperBoundDistance = (float)(((double)ni+nj+nk) * CellSize);
             grid = new DenseGrid3f(ni, nj, nk, UpperBoundDistance);
 
             MaxDistQueryDist = MaxOffsetDistance + (2*CellSize*MathUtil.SqrtTwo);
@@ -227,13 +230,13 @@ namespace g3
         }
 
         public Vector3f CellCenter(int i, int j, int k) {
-            return cell_center(new Vector3i(i, j, k));
+            return (Vector3f)cell_center(new Vector3i(i, j, k));
         }
-        Vector3f cell_center(Vector3i ijk)
+        Vector3d cell_center(Vector3i ijk)
         {
-            return new Vector3f((float)ijk.x * CellSize + grid_origin[0],
-                                (float)ijk.y * CellSize + grid_origin[1],
-                                (float)ijk.z * CellSize + grid_origin[2]);
+            return new Vector3d((double)ijk.x * CellSize + grid_origin[0],
+                                (double)ijk.y * CellSize + grid_origin[1],
+                                (double)ijk.z * CellSize + grid_origin[2]);
         }
 
 

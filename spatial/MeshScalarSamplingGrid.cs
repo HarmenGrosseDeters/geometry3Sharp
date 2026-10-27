@@ -77,11 +77,14 @@ namespace gs
             AxisAlignedBox3d bounds = Mesh.CachedBounds;
 
             float fBufferWidth = 2 * BufferCells * (float)CellSize;
-            grid_origin = (Vector3f)bounds.Min - fBufferWidth * Vector3f.One;
-            Vector3f max = (Vector3f)bounds.Max + fBufferWidth * Vector3f.One;
-            int ni = (int)((max.x - grid_origin.x) / (float)CellSize) + 1;
-            int nj = (int)((max.y - grid_origin.y) / (float)CellSize) + 1;
-            int nk = (int)((max.z - grid_origin.z) / (float)CellSize) + 1;
+            // (GridOrigin is a float: rounded down, it holds the origin exactly, and the samples are computed in double
+            // from it, so GridOrigin + CellSize*(i,j,k) is their exact position also at UTM coordinates)
+            Vector3f origin = FloatOriginGrid.FloorToFloat(bounds.Min - (double)fBufferWidth * Vector3d.One);
+            Vector3i dims = FloatOriginGrid.Dimensions(origin, bounds.Max + (double)fBufferWidth * Vector3d.One, (float)CellSize);
+            if (dims.x < 0)
+                throw new ArgumentException("MeshScalarSamplingGrid.Compute: the cell size and the mesh bounds must be finite and give a grid that fits in an array");
+            int ni = dims.x, nj = dims.y, nk = dims.z;
+            grid_origin = origin;
 
             scalar_grid = new DenseGrid3f();
             if ( ComputeMode == ComputeModes.FullGrid )
@@ -126,9 +129,8 @@ namespace gs
 
         public Vector3f CellCenter(int i, int j, int k)
         {
-            return new Vector3f((float)i * CellSize + grid_origin.x,
-                                (float)j * CellSize + grid_origin.y,
-                                (float)k * CellSize + grid_origin.z);
+            double dx = (float)CellSize;
+            return (Vector3f)new Vector3d(i * dx + grid_origin.x, j * dx + grid_origin.y, k * dx + grid_origin.z);
         }
 
 
@@ -172,7 +174,7 @@ namespace gs
                     float dist = distances[ijk];
                     // this could be tighter? but I don't think it matters...
                     if (dist < CellSize) {
-                        Vector3d gx = new Vector3d((float)ijk.x * dx + origin[0], (float)ijk.y * dx + origin[1], (float)ijk.z * dx + origin[2]);
+                        Vector3d gx = new Vector3d((double)ijk.x * dx + origin[0], (double)ijk.y * dx + origin[1], (double)ijk.z * dx + origin[2]);
                         scalars[ijk] = (float)ScalarF(gx);
                     }
                 }
@@ -230,7 +232,7 @@ namespace gs
                             continue;
                         float val2 = scalars[nijk];
                         if (val2 == float.MaxValue) {
-                            Vector3d gx = new Vector3d((float)nijk.x * dx + origin[0], (float)nijk.y * dx + origin[1], (float)nijk.z * dx + origin[2]);
+                            Vector3d gx = new Vector3d((double)nijk.x * dx + origin[0], (double)nijk.y * dx + origin[1], (double)nijk.z * dx + origin[2]);
                             val2 = (float)ScalarF(gx);
                             scalars[nijk] = val2;
                         }
@@ -305,7 +307,7 @@ namespace gs
                 if (abort)
                     return;
 
-                Vector3d gx = new Vector3d((float)ijk.x * dx + origin[0], (float)ijk.y * dx + origin[1], (float)ijk.z * dx + origin[2]);
+                Vector3d gx = new Vector3d((double)ijk.x * dx + origin[0], (double)ijk.y * dx + origin[1], (double)ijk.z * dx + origin[2]);
                 scalars[ijk] = (float)ScalarF(gx);
             });
 
@@ -325,7 +327,7 @@ namespace gs
                 int j = idx.y, k = idx.z;
                 if (scalars[0, j, k] == float.MaxValue) {
                     // nothing known at the start of the row: evaluate the function there
-                    Vector3d gx = new Vector3d(origin[0], (float)j * dx + origin[1], (float)k * dx + origin[2]);
+                    Vector3d gx = new Vector3d(origin[0], (double)j * dx + origin[1], (double)k * dx + origin[2]);
                     scalars[0, j, k] = (float)ScalarF(gx);
                 }
                 float last = scalars[0, j, k];

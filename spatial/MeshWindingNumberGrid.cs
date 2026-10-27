@@ -16,7 +16,7 @@ namespace gs
     /// outward-facing normals, and fractional near holes, so this is useful for open / broken meshes.
     /// Extract a surface with <see cref="MarchingCubes"/> at IsoValue = WindingIsoValue (0.5).
     /// Usage: <c>var g = new MeshWindingNumberGrid(mesh, new DMeshAABBTree3(mesh, true), cellSize); g.Compute();</c>
-    /// The spatial tree must be built. Sample (i,j,k) is located at GridOrigin + CellSize*(i,j,k).
+    /// The spatial tree must be built. Sample (i,j,k) is located at GridOrigin + (float)CellSize*(i,j,k) (the spacing of the inner MeshSignedDistanceGrid).
     /// 
     /// TODO: 
     ///   - I think we are over-exploring the grid most of the time. eg along an x-ray that
@@ -117,11 +117,14 @@ namespace gs
             AxisAlignedBox3d bounds = Mesh.CachedBounds;
 
             float fBufferWidth = 2 * BufferCells * (float)CellSize;
-            grid_origin = (Vector3f)bounds.Min - fBufferWidth * Vector3f.One;
-            Vector3f max = (Vector3f)bounds.Max + fBufferWidth * Vector3f.One;
-            int ni = (int)((max.x - grid_origin.x) / (float)CellSize) + 1;
-            int nj = (int)((max.y - grid_origin.y) / (float)CellSize) + 1;
-            int nk = (int)((max.z - grid_origin.z) / (float)CellSize) + 1;
+            // (GridOrigin is a float: rounded down, it holds the origin exactly, and the samples are computed in double
+            // from it, so GridOrigin + CellSize*(i,j,k) is their exact position also at UTM coordinates)
+            Vector3f origin = FloatOriginGrid.FloorToFloat(bounds.Min - (double)fBufferWidth * Vector3d.One);
+            Vector3i dims = FloatOriginGrid.Dimensions(origin, bounds.Max + (double)fBufferWidth * Vector3d.One, (float)CellSize);
+            if (dims.x < 0)
+                throw new ArgumentException("MeshWindingNumberGrid.Compute: the cell size and the mesh bounds must be finite and give a grid that fits in an array");
+            int ni = dims.x, nj = dims.y, nk = dims.z;
+            grid_origin = origin;
 
             winding_grid = new DenseGrid3f();
             if ( ComputeMode == ComputeModes.FullGrid )
@@ -166,12 +169,11 @@ namespace gs
             get { return winding_grid[i, j, k]; }
         }
 
-        /// <summary> Position of sample (i,j,k), ie GridOrigin + CellSize*(i,j,k) (a grid point, not a cell center) </summary>
+        /// <summary> Position of sample (i,j,k), ie GridOrigin + (float)CellSize*(i,j,k) (a grid point, not a cell center) </summary>
         public Vector3f CellCenter(int i, int j, int k)
         {
-            return new Vector3f((float)i * CellSize + grid_origin.x,
-                                (float)j * CellSize + grid_origin.y,
-                                (float)k * CellSize + grid_origin.z);
+            double dx = (float)CellSize;
+            return (Vector3f)new Vector3d(i * dx + grid_origin.x, j * dx + grid_origin.y, k * dx + grid_origin.z);
         }
 
 
@@ -218,7 +220,7 @@ namespace gs
                     float dist = distances[ijk];
                     // this could be tighter? but I don't think it matters...
                     if (dist < CellSize) {
-                        Vector3d gx = new Vector3d((float)ijk.x * dx + origin[0], (float)ijk.y * dx + origin[1], (float)ijk.z * dx + origin[2]);
+                        Vector3d gx = new Vector3d((double)ijk.x * dx + origin[0], (double)ijk.y * dx + origin[1], (double)ijk.z * dx + origin[2]);
                         winding[ijk] = (float)winding_number(gx);
                     }
                 }
@@ -276,7 +278,7 @@ namespace gs
                             continue;
                         float val2 = winding[nijk];
                         if (val2 == float.MaxValue) {
-                            Vector3d gx = new Vector3d((float)nijk.x * dx + origin[0], (float)nijk.y * dx + origin[1], (float)nijk.z * dx + origin[2]);
+                            Vector3d gx = new Vector3d((double)nijk.x * dx + origin[0], (double)nijk.y * dx + origin[1], (double)nijk.z * dx + origin[2]);
                             val2 = (float)winding_number(gx);
                             winding[nijk] = val2;
                         }
@@ -352,7 +354,7 @@ namespace gs
                 if (abort)
                     return;
 
-                Vector3d gx = new Vector3d((float)ijk.x * dx + origin[0], (float)ijk.y * dx + origin[1], (float)ijk.z * dx + origin[2]);
+                Vector3d gx = new Vector3d((double)ijk.x * dx + origin[0], (double)ijk.y * dx + origin[1], (double)ijk.z * dx + origin[2]);
                 winding[ijk] = (float)winding_number(gx);
             });
 

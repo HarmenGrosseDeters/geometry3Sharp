@@ -164,11 +164,14 @@ namespace g3
             float fBufferWidth = 2 * ExactBandWidth * CellSize;
             if (ComputeMode == ComputeModes.NarrowBand_SpatialFloodFill)
                 fBufferWidth = (float)Math.Max(fBufferWidth, 2 * NarrowBandMaxDistance);
-            grid_origin = (Vector3f)bounds.Min - fBufferWidth * Vector3f.One - (Vector3f)ExpandBounds;
-            Vector3f max = (Vector3f)bounds.Max + fBufferWidth * Vector3f.One + (Vector3f)ExpandBounds;
-            int ni = (int)((max.x - grid_origin.x) / CellSize) + 1;
-            int nj = (int)((max.y - grid_origin.y) / CellSize) + 1;
-            int nk = (int)((max.z - grid_origin.z) / CellSize) + 1;
+            // (GridOrigin is a float: rounded down, it holds the origin exactly, and the samples are computed in double
+            // from it, so GridOrigin + CellSize*(i,j,k) is their exact position also at UTM coordinates)
+            Vector3f origin = FloatOriginGrid.FloorToFloat(bounds.Min - (double)fBufferWidth * Vector3d.One - ExpandBounds);
+            Vector3i dims = FloatOriginGrid.Dimensions(origin, bounds.Max + (double)fBufferWidth * Vector3d.One + ExpandBounds, CellSize);
+            if (dims.x < 0)
+                throw new ArgumentException("MeshSignedDistanceGrid.Compute: the cell size and the mesh bounds must be finite and give a grid that fits in an array");
+            int ni = dims.x, nj = dims.y, nk = dims.z;
+            grid_origin = origin;
 
             grid = new DenseGrid3f();
             if (ComputeMode == ComputeModes.NarrowBand_SpatialFloodFill) {
@@ -242,18 +245,18 @@ namespace g3
         /// samples are at the grid points, not at the centers of the cells between them.
         /// </summary>
         public Vector3f CellCenter(int i, int j, int k) {
-            return cell_center(new Vector3i(i, j, k));
+            return (Vector3f)cell_center(new Vector3i(i, j, k));
         }
-        Vector3f cell_center(Vector3i ijk)
+        Vector3d cell_center(Vector3i ijk)
         {
-            return new Vector3f((float)ijk.x * CellSize + grid_origin[0],
-                                (float)ijk.y * CellSize + grid_origin[1],
-                                (float)ijk.z * CellSize + grid_origin[2]);
+            return new Vector3d((double)ijk.x * CellSize + grid_origin[0],
+                                (double)ijk.y * CellSize + grid_origin[1],
+                                (double)ijk.z * CellSize + grid_origin[2]);
         }
 
         float upper_bound(DenseGrid3f grid)
         {
-            return (float)((grid.ni + grid.nj + grid.nk) * CellSize);
+            return (float)(((double)grid.ni + grid.nj + grid.nk) * CellSize);
         }
 
         float cell_tri_dist(Vector3i idx, int tid)
@@ -313,7 +316,7 @@ namespace g3
                 for (int k = k0; k <= k1; ++k) {
                     for (int j = j0; j <= j1; ++j) {
                         for (int i = i0; i <= i1; ++i) {
-                            Vector3d gx = new Vector3d((float)i * dx + origin[0], (float)j * dx + origin[1], (float)k * dx + origin[2]);
+                            Vector3d gx = new Vector3d((double)i * dx + origin[0], (double)j * dx + origin[1], (double)k * dx + origin[2]);
                             float d = (float)point_triangle_distance(ref gx, ref xp, ref xq, ref xr);
                             if (d < distances[i, j, k]) {
                                 distances[i, j, k] = d;
@@ -431,7 +434,7 @@ namespace g3
                         int base_idx = ((j < wj) ? 0 : 1) | ((k < wk) ? 0 : 2);    // construct index into spinlocks array
 
                         for (int i = i0; i <= i1; ++i) {
-                            Vector3d gx = new Vector3d((float)i * dx + origin[0], (float)j * dx + origin[1], (float)k * dx + origin[2]);
+                            Vector3d gx = new Vector3d((double)i * dx + origin[0], (double)j * dx + origin[1], (double)k * dx + origin[2]);
                             float d = (float)point_triangle_distance(ref gx, ref xp, ref xq, ref xr);
                             if (d <= distances[i, j, k]) {
                                 int lock_idx = base_idx | ((i < wi) ? 0 : 4);
@@ -567,7 +570,7 @@ namespace g3
             gParallel.ForEach(grid.Indices(), (idx) => {
                 if ( distances[idx] == 1 ) {
                     int i = idx.x, j = idx.y, k = idx.z;
-                    Vector3d p = new Vector3d((float)i * dx + origin[0], (float)j * dx + origin[1], (float)k * dx + origin[2]);
+                    Vector3d p = new Vector3d((double)i * dx + origin[0], (double)j * dx + origin[1], (double)k * dx + origin[2]);
                     int near_tid = Spatial.FindNearestTriangle(p, max_dist);
                     if ( near_tid == DMesh3.InvalidID ) {
                         distances[idx] = upper_bound;
@@ -847,7 +850,7 @@ namespace g3
                 if (CancelF()) return;
                 for (int j = j0; j != j1; j += dj) {
                     for (int i = i0; i != i1; i += di) {
-                        Vector3d gx = new Vector3d(i * dx + origin[0], j * dx + origin[1], k * dx + origin[2]);
+                        Vector3d gx = new Vector3d((double)i * dx + origin[0], (double)j * dx + origin[1], (double)k * dx + origin[2]);
                         check_neighbour(phi, closest_tri, ref gx, i, j, k, i - di, j, k);
                         check_neighbour(phi, closest_tri, ref gx, i, j, k, i, j - dj, k);
                         check_neighbour(phi, closest_tri, ref gx, i, j, k, i - di, j - dj, k);
