@@ -11,4 +11,8 @@
     <ProjectReference Include="..\..\geometry3Sharp_netstandard.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Include="..\Shared\FidelityFields.cs" Link="FidelityFields.cs" />
+  </ItemGroup>
+
 </Project>

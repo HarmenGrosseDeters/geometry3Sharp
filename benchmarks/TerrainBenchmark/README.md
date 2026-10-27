@@ -112,6 +112,36 @@ For a height grid, greedy insertion is 5–10x faster, needs less memory and gua
 at every node (the result is Delaunay in XY, so a height field by construction). TerrainDualContouring
 remains the tool for broken meshes (soups, overlapping survey files) and point clouds.
 
+
+### Fidelity of the simplified TINs (`gtin ... fidelity=1`, `MeshFidelityMetrics`)
+The TerrainGreedyTIN results of the 1 km² window against the TIN of all 1M grid nodes (`fm_*` fields of
+`benchmarks/Shared/FidelityFields.cs`, 50k samples; open terrain, so no volume IoU). Relative to the window's size
+(1423 m): H * size and K * size² (`MeshCurvature`, Meyer et al. 2003), errors at corresponding points (mean of
+both directions), W1 = 1-Wasserstein distance of the curvature distributions, totals Σ|H| A / size and Σ|angle
+deficit| of the Valid vertices (grid TIN: 59.0 and 12844):
+
+| MaxError | RemoveVertices | triangles | F 0.1 % | normal consistency | edge recall 0.5 % | H error | H W1 | K W1 | Σ\|H\| A / size | Σ\|deficit\| |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 0.05 m | | 758k | 1.000 | 0.9962 | 0.999 | 40.7 | 9.7 | 2831 | 54.2 | 10496 |
+| 0.05 m | yes | 525k | 1.000 | 0.9940 | 1.000 | 54.3 | 4.2 | 3774 | 60.2 | 9815 |
+| 0.2 m | | 200k | 1.000 | 0.9927 | 0.998 | 61.0 | 34.0 | 9353 | 37.6 | 5772 |
+| 0.2 m | yes | 120k | 1.000 | 0.9896 | 0.998 | 67.9 | 30.4 | 10161 | 40.1 | 4913 |
+| 0.5 m | | 65k | 1.000 | 0.9885 | 0.976 | 71.8 | 50.5 | 13200 | 25.1 | 2644 |
+| 0.5 m | yes | 36k | 1.000 | 0.9857 | 0.976 | 74.9 | 49.6 | 13902 | 25.2 | 2074 |
+| 1 m | | 25k | 1.000 | 0.9836 | 0.912 | 76.4 | 60.8 | 15094 | 17.2 | 1181 |
+| 1 m | yes | 12k | 1.000 | 0.9805 | 0.913 | 78.2 | 61.0 | 15561 | 16.4 | 798 |
+
+- The F-score cannot tell the TINs apart: at 0.1 % of the size (1.4 m) every one is within the threshold. The
+  curvature measures order them by MaxError, as do normal consistency and edge recall at a lower resolution.
+- The pointwise H error is about the mean |H| of the grid TIN (82.6) already at 0.05 m: the 1 m laser scan grid
+  carries curvature noise at the node spacing, which any simplification removes. The distribution distance and
+  the totals show what is kept: the share of the grid's total |H| (92 % at 0.05 m, 29 % at 1 m) and of its total
+  |angle deficit| (82 %, 9 %).
+- RemoveVertices at 0.05 m keeps the curvature distribution better (H W1 4.2 instead of 9.7, total |H| 102 % of
+  the grid's) at 31 % fewer triangles; at 0.2 m and above it is about the same.
+- `coords=local` (0.2 m) gives the same values as UTM up to 1e-8 relative (H error 60.973698924 vs 60.973698712).
+- The metrics take 16-35 s per case (50k samples, a 2M triangle reference).
+
 ### TerrainOffset (250 m crop, d = ±5, 20 m; 500 m crop, d = 10 m)
 The distance of the result vertices to the terrain is |d| within -9 / +19 cm (p01 / p99: -3 / +6 cm), none on
 the wrong side; 15–24 s for 250 x 250 m, 115 s for 500 x 500 m.

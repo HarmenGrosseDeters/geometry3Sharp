@@ -306,7 +306,8 @@ static class Program
         if (c.Kind == Kind.TerrainBand && c.Distance != null)
             SafetyCheck(m, c.Crest, c.Distance, c.X0 + 2 * SafetyD, c.X1 - 2 * SafetyD, R, "band_");
         // MeshFidelityMetrics against the input (fm_* fields, benchmarks/Shared/FidelityFields.cs): F-score, normals,
-        // sharp edges kept (the remeshers keep 20 / 30 degree creases), Verdict triangle quality, topology
+        // sharp edges kept (the remeshers keep 20 / 30 degree creases), curvature, volume IoU, Verdict triangle quality,
+        // topology
         FidelityFields.Add(c.Input, m, R, false, 20000);
     }
 
@@ -440,14 +441,15 @@ static class Program
         }
         // the further fidelity measures (relative to the input's size, see MeshFidelityMetrics)
         Console.WriteLine();
-        Console.WriteLine("| case | config | F 0.1% | normal consistency | reversed | Edge Chamfer | edge recall 0.5% | edge precision 0.5% | min angle 1% worst | scaled Jacobian 1% worst | topology changes |");
-        Console.WriteLine("|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|");
+        Console.WriteLine("| case | config | F 0.1% | normal consistency | reversed | Edge Chamfer | edge recall 0.5% | edge precision 0.5% | H error | K error | H W1 | K W1 | min angle 1% worst | scaled Jacobian 1% worst | topology changes |");
+        Console.WriteLine("|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|");
         foreach (var r in rows) {
             if (r.ContainsKey("fm_ok") == false || (bool)r["fm_ok"] == false)
                 continue;
             var q = (Dictionary<string, object>)r["fm_q_out"];
             Console.WriteLine($"| {r["case"]} | {r["config"]} | {F(r["fm_f_0001"], "0.0000")} | {F(r["fm_nc"], "0.0000")} | {F(r["fm_reversed_fwd"], "0.0000")} | " +
-                $"{F(r["fm_ecd"], "0.00000")} | {F(r["fm_er_0005"], "0.000")} | {F(r["fm_ep_0005"], "0.000")} | {F(((double[])q["minangle"])[1], "0.0")} | " +
+                $"{F(r["fm_ecd"], "0.00000")} | {F(r["fm_er_0005"], "0.000")} | {F(r["fm_ep_0005"], "0.000")} | " +
+                $"{F(r["fm_h_err"], "0.000")} | {F(r["fm_k_err"], "0.00")} | {F(r["fm_h_w1"], "0.000")} | {F(r["fm_k_w1"], "0.00")} | {F(((double[])q["minangle"])[1], "0.0")} | " +
                 $"{F(((double[])q["sj"])[1], "0.000")} | {r["fm_topo_changes"]} |");
         }
     }

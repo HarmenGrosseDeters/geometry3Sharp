@@ -1136,9 +1136,43 @@ and as failing in `analyze_fidelity.py`):
 | other (result→input + IoU, not clean, self-intersections) | 8 |
 
 The IoU uses the input's winding number solid, which the same interior faces also distort. That would be the
-next measure to restrict to the outer surface. Of the 65 repaired objects, 18 raise a flag: 15 the sliver share,
+next measure to restrict to the outer surface. (Measured in the next section: it is not the cause.) Of the 65 repaired objects, 18 raise a flag: 15 the sliver share,
 3 the reversed share and 3 the outer edge recall. So on this corpus too the flags list cases to look at, they do
 not change the count.
+
+### Volume IoU against the outer faces, curvature (`fm_oviou`, `fm_h_*`, `fm_k_*`; branch `claude/phase4-metrics`)
+
+Same 300 objects, robust repair, `BENCH_P=3`, `TIMEOUT=300` (20 `timeout_or_crash` rerun once, 10 left; 4 objects
+of the first part rerun after the change of the orientation rule). `fm_viou` is the IoU against the input's winding
+number solid (as `iou`, with the benchmark's orientation of the input: `|fm_viou - iou| > 0.02` for 6 objects),
+`fm_oviou` against the solid of the input's outer faces only (`MeshFidelityMetrics.OuterVolumeIoU`: faces that are
+not outer by the `OuterSurface` rule removed in rounds, innermost first).
+
+| Objaverse, 300 objects | |
+|---|---|
+| repaired (certified Hausdorff < 1 % both ways, IoU > 0.99) | 65 (as above) |
+| ... with the IoU against the outer faces' solid instead | **65** (none gained, none lost) |
+| repaired with the Hausdorff input→result sampled from the outer surface (`fm_outer_max`) | 121 |
+| ... and the IoU against the outer faces' solid | **115** (none gained, 6 lost) |
+| `fm_oviou` vs `fm_viou` (284 objects with both) | within 0.01: 221, lower: 53, higher: 10; median difference 0 |
+| clean results within the outer surface Hausdorff bound: IoU ≤ 0.99 / outer faces' IoU ≤ 0.99 | 32 / 38 of 153 |
+
+**The IoU misses are not caused by interior faces.** The 32 results that miss only by the IoU differ in real volume:
+20 of them miss 25-99 % of the input's solid (`iou_missing`), 15 add more than 5 % to it (`iou_extra`), and for 29 the
+outer faces' solid gives the same IoU (within 0.005) or a lower one. Where
+it is lower, removing the faces that are not outer opens the shells that the repair closes with them: the 6 objects
+lost above keep 37-91 % of the input's area as outer faces (`fm_outer_face_share`) and their outer IoU drops from
+0.99-1.0 to 0.62-0.98. So the winding number IoU stays the criterion; the outer faces' IoU is reported as a field.
+
+Cost: the metrics (`fm_ms`) take a median of 7.2 s per object. The outer face classification needs 3 rounds or fewer
+for 157 objects and more than 16 for 32. Two objects stop at 64 rounds without converging (`fm_outer_converged`), and
+the slowest takes 189 s (63 s with the first version, which classified the faces in a single round but lost outer
+faces under stacks of interior layers).
+
+Curvature (`MeshCurvature`, Meyer et al. 2003; H * size, K * size²), medians over all / repaired: mean curvature
+error 14.1 / 3.4, its distribution distance (W1) 11.1 / 4.3, mean |H| * size of the input 12.6 / 9.3. Values do not
+change any criterion here; the remesh and terrain benchmarks show what they separate (benchmarks/RemeshBenchmark,
+benchmarks/TerrainBenchmark READMEs).
 
 ## Re-evaluation with the fidelity measures (findings of #157)
 

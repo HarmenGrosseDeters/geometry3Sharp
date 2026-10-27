@@ -268,12 +268,18 @@ namespace geometry3Sharp.Tests
             Assert.InRange(r.Reversed, 0.15, 0.35);
             Assert.Equal(MeshTopologySummary.Changes.None, r.TopologyChanges);
             Assert.True(r.MinAngle1Percent > 20);
+            // the reversed cap encloses nothing of its own: the solid is the sphere's less the cap; its mean curvature
+            // has the other sign there (H * size -2 instead of 2 on about a quarter of the surface)
+            Assert.InRange(r.OuterVolumeIoU, 0.5, 0.99);
+            Assert.InRange(r.MeanCurvatureError, 0.5, 1.5);
+            Assert.True(FidelityMetricsExample.Compare(s, new DMesh3(s)).MeanCurvatureError < 1e-9);
             // a box against a sphere: its sharp edges are lost
             DMesh3 box = new TrivialBox3Generator() { Box = new Box3d(Vector3d.Zero, 0.6 * Vector3d.One) }.Generate().MakeDMesh();
             FidelityMetricsExample.Report lost = FidelityMetricsExample.Compare(box, s);
             Assert.True(double.IsPositiveInfinity(lost.EdgeChamfer));
             Assert.Equal(0.0, lost.EdgeRecall);
             Assert.True(lost.FScore < 0.5);
+            Assert.InRange(lost.OuterVolumeIoU, 0.3, 0.9);
             Assert.Null(FidelityMetricsExample.Compare(box, new DMesh3()));
         }
 
