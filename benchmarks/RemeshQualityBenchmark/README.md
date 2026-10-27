@@ -4,8 +4,9 @@
 smoothing 0.5, projection onto the input, boundary and 30 degree creases kept by `PreserveBoundaryAndFeatures`,
 target = a multiple of the input's mean edge length; on = 0.2). Per case: poor (q < 0.1) and flat (q < 1e-3)
 triangles, self-intersecting triangle pairs (`MeshRepairMetrics.SelfIntersections`), inside-out components
-(`MeshPostRepairCleanup.FindInvertedComponents`, directly: `NotCleanReason` stops at its first failed check), Hausdorff
-distance to the input (`MeshHausdorffDistance`, within 0.01 target) and time, and the cases that get worse with the option.
+(`MeshPostRepairCleanup.FindInvertedComponents`, directly: `NotCleanReason` stops at its first failed check), passes
+rolled back by `Remesher.RejectInvertingPasses` (default on, in both runs), Hausdorff distance to the input
+(`MeshHausdorffDistance`, within 0.01 target) and time, and the cases that get worse with the option.
 
 ## Usage
 ```
@@ -31,41 +32,48 @@ and the list of cases that get worse. No mesh files are committed.
 ## Results
 4 cores, net10.0, Release, `runs=3` (median time; the results are deterministic, two full runs gave the same numbers).
 
-| group | cases | q<0.1 off / on | q<1e-3 off / on | cases with q<1e-3 off / on | self-intersecting pairs off / on | cases with self-int. off / on | cases inside-out off / on | mean hausdorff/target off / on | time s off / on | worse: more pairs / more q<1e-3 / hausdorff / inside-out |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
-| primitives | 150 | 50 / 7 | 38 / 0 | 22 / 0 | 461 / 285 | 35 / 16 | 0 / 0 | 0.333 / 0.344 | 4.7 / 6.6 | 10 / 0 / 14 / 0 |
-| gears | 18 | 1229 / 438 | 602 / 0 | 10 / 0 | 7697 / 0 | 17 / 0 | 0 / 0 | 0.161 / 0.010 | 0.3 / 0.4 | 0 / 0 / 0 / 0 |
-| tubes | 24 | 132 / 103 | 1 / 0 | 1 / 0 | 6098 / 5344 | 24 / 24 | 3 / 0 | 0.402 / 0.307 | 0.2 / 0.2 | 4 / 0 / 4 / 0 |
-| thingi | 20 | 5763 / 1638 | 1541 / 205 | 17 / 11 | 19910 / 3158 | 19 / 17 | 1 / 1 | 1.115 / 1.017 | 7.2 / 11.4 | 0 / 0 / 5 / 0 |
+| group | cases | q<0.1 off / on | q<1e-3 off / on | cases with q<1e-3 off / on | self-intersecting pairs off / on | cases with self-int. off / on | cases inside-out off / on | cases with rejected passes off / on | mean hausdorff/target off / on | time s off / on | worse: more pairs / more q<1e-3 / hausdorff / inside-out |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| primitives | 150 | 50 / 7 | 38 / 0 | 22 / 0 | 409 / 281 | 35 / 16 | 0 / 0 | 2 / 2 | 0.330 / 0.341 | 5.1 / 7.4 | 11 / 0 / 15 / 0 |
+| gears | 18 | 1229 / 438 | 602 / 0 | 10 / 0 | 7697 / 0 | 17 / 0 | 0 / 0 | 0 / 0 | 0.161 / 0.010 | 0.3 / 0.4 | 0 / 0 / 0 / 0 |
+| tubes | 24 | 113 / 100 | 1 / 0 | 1 / 0 | 5969 / 5352 | 20 / 24 | 0 / 0 | 8 / 4 | 0.239 / 0.311 | 0.3 / 0.3 | 6 / 0 / 9 / 0 |
+| thingi | 20 | 5750 / 1640 | 1536 / 204 | 17 / 11 | 19768 / 3105 | 19 / 17 | 0 / 0 | 1 / 1 | 1.115 / 1.017 | 8.6 / 13.3 | 0 / 0 / 5 / 0 |
 
 "worse" counts the cases with more self-intersecting pairs, with more q < 1e-3 triangles, with a Hausdorff
 distance more than 0.02 target larger (the two measurement tolerances) than without the option, or inside-out only
 with it. Without the
 self-intersection check, `MeshRobustRepair.NotCleanReason` finds 17 of the 20 Thingi10K results not clean without the
-option (degenerate triangles), 1 with it (135363: inside-out; the degenerate test of `NotCleanReason`, area below
-1e-12 diagonal^2, is far weaker than q < 1e-3). 135363 is inside-out without the option too, hidden behind
-"degenerate triangles" (next section).
+option (degenerate triangles), none with it (the degenerate test of `NotCleanReason`, area below 1e-12 diagonal^2,
+is far weaker than q < 1e-3).
 
-### Target far above the wall thickness: undefined result in both variants
+### Target far above the wall thickness: rolled-back passes
 135363 is a 0.8 plate with thin-walled tubes (walls 0.75); the target (its mean edge) is 11.6. The remeshers fold the
 inner and outer walls through each other (a tube becomes about four chords) and the signed volume drifts through
-zero: 4448 (input) -> -4706 without the option (sign change at pass 10), -4021 with it (pass 8). The `tubes` group
-reproduces this procedurally: every case ends with dozens to hundreds of self-intersecting pairs and 2%..700% of the
-input volume, the sign of the volume changing back and forth over the passes; which cases end inside-out is chance
-(`Remesher`: 3 without the option, none with it; `RemesherPro`: tube16_w0.05_t1.6 only without, tube32_w0.05_t1.6
-only with it). The 4 tubes with more pairs and the 4 with a larger Hausdorff distance are of the same kind.
-Results for such inputs are undefined with and without `MinTriangleQuality`; a guard that reports inside-out
-results and a wall-thickness warning are in `docs/ROADMAP.md`.
+zero: before `RejectInvertingPasses`, 4448 (input) -> -4706 without the option (sign change at pass 10), -4021 with
+it (pass 8), both results inside out. The `tubes` group reproduces this procedurally: every case ends with dozens to
+hundreds of self-intersecting pairs and 2%..700% of the input volume, the sign of the volume changing back and forth
+over the passes; which cases ended inside-out was chance (`Remesher`: 3 without the option, none with it;
+`RemesherPro`: tube16_w0.05_t1.6 only without, tube32_w0.05_t1.6 only with it). `RejectInvertingPasses` (default on)
+rolls such passes back: no result is inside out now, 135363 has 11 / 13 rolled-back passes (off / on), the tubes
+8 / 4 cases with rolled-back passes. In 4 tubes without the option the first pass already inverts, so all 20 are
+rolled back and the result is the input (0 pairs, Hausdorff 0.01): these account for most of the tubes counted as
+worse with the option (more pairs, larger Hausdorff distance), where the passes happen to keep the orientation.
+The results of such inputs remain self-intersecting and far off the volume; `g3cli remesh` warns when the edge
+length is more than 4 times the estimated wall thickness (`docs/ROADMAP.md`).
+
+The guard also catches cone12_x0.6 and cone16_x0.6: without it, the coarse remesh flattens the cone into a double
+layer of zero volume (pass 17 / 16, Hausdorff 2.3 / 2.6 target); with it the last passes are rolled back.
 
 ### Cases that get worse
-- **More self-intersecting pairs (10 primitives, none of the gears or Thingi meshes):** taper10_x0.15 (12 -> 16),
-  taper16_x0.1 (0 -> 12), taper32_x0.1 (0 -> 12), taper32_x0.6 (0 -> 8), cone16_x0.45 (0 -> 10), cone16_x0.6
-  (51 -> 67), cone24_x0.15 (0 -> 6), cone24_x0.3 (0 -> 10), cone24_x0.6 (0 -> 31), cone32_x0.6 (0 -> 8). All at the
-  bottom rim, where the flat cap meets the side. Counted per phase (taper16_x0.1, taper10_x0.15), the option creates
+- **More self-intersecting pairs (11 primitives, none of the gears or Thingi meshes):** taper10_x0.15 (12 -> 16),
+  taper16_x0.1 (0 -> 12), taper32_x0.1 (0 -> 12), taper32_x0.6 (0 -> 8), cone16_x0.45 (0 -> 10), cone24_x0.15
+  (0 -> 6), cone24_x0.3 (0 -> 10), cone24_x0.6 (0 -> 31), cone32_x0.6 (0 -> 8): all at the bottom rim, where the flat
+  cap meets the side; cone12_x0.6 (23 -> 70) and cone16_x0.6 (39 -> 52): the flattened cones above, where the
+  rolled-back passes end in different states. Counted per phase (taper16_x0.1, taper10_x0.15), the option creates
   far fewer intersections during the passes (edge operations 1248 -> 230 and 395 -> 56, before the review fixes), but projection moves across
   the rim intersect without flipping a normal, and which intersections survive the last pass is chance. Preventing
   them needs an intersection test per operation: `docs/ROADMAP.md`, "Remeshers produce self-intersections".
-- **Hausdorff distance, cone apex (11 primitives):** cone12, cone16, cone24 and cone32 at some targets, by up to 0.81
+- **Hausdorff distance, cone apex (12 primitives):** cone12, cone16, cone24 and cone32 at some targets, by up to 0.81
   target edge lengths (cone16_x0.1 2.35 -> 3.15). The apex of a cone with 12 or more slices is no feature (its side
   edges are no creases), so both variants round it off (1.4..2.8 without, 1.4..3.2 with the option); the option's
   guards (rejected smoothing moves, shortened projections) keep a few vertices near the apex up to an edge off the

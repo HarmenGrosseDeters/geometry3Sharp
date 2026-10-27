@@ -20,7 +20,7 @@ static class Program
 {
     class Result
     {
-        public int Tris, Poor, Flat, SelfPairs, Inverted;
+        public int Tris, Poor, Flat, SelfPairs, Inverted, RejectedPasses;
         public double Hausdorff, Seconds;
         public string NotClean;
     }
@@ -56,7 +56,7 @@ static class Program
                     cases.Add(("thingi", System.IO.Path.GetFileNameWithoutExtension(f), m, MeanEdge(m)));
             }
 
-        Remesh(cases[0].input, cases[0].target, quality);      // warm-up (JIT)
+        Remesh(cases[0].input, cases[0].target, quality, out _);      // warm-up (JIT)
         var json = new JsonSerializerOptions() { IncludeFields = true, NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowNamedFloatingPointLiterals };
         var rows = new List<(string group, string name, Result off, Result on)>();
         foreach (var c in cases) {
@@ -77,14 +77,15 @@ static class Program
     {
         var times = new List<double>();
         DMesh3 m = null;
+        int rejected = 0;
         for (int k = 0; k < runs; ++k) {
             GC.Collect(); GC.WaitForPendingFinalizers();
             var sw = Stopwatch.StartNew();
-            m = Remesh(input, target, quality);
+            m = Remesh(input, target, quality, out rejected);
             times.Add(sw.Elapsed.TotalSeconds);
         }
         times.Sort();
-        var r = new Result() { Tris = m.TriangleCount, Seconds = times[times.Count / 2] };
+        var r = new Result() { Tris = m.TriangleCount, Seconds = times[times.Count / 2], RejectedPasses = rejected };
         foreach (int t in m.TriangleIndices()) {
             Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
             m.GetTriVertices(t, ref a, ref b, ref c);
@@ -103,7 +104,7 @@ static class Program
     }
 
     // tools/g3cli/Commands.cs, remesh with its defaults
-    static DMesh3 Remesh(DMesh3 input, double target, double quality)
+    static DMesh3 Remesh(DMesh3 input, double target, double quality, out int rejectedPasses)
     {
         DMesh3 mesh = new DMesh3(input);
         var r = new Remesher(mesh) { SmoothSpeedT = 0.5, MinTriangleQuality = quality };
@@ -111,14 +112,15 @@ static class Program
         MeshConstraintUtil.PreserveBoundaryAndFeatures(r, 30);
         r.SetTargetEdgeLength(target);
         for (int k = 0; k < 20; ++k) r.BasicRemeshPass();
+        rejectedPasses = r.InvertingPassesRejected;      // RejectInvertingPasses (default on)
         return mesh;
     }
 
     static void Summary(List<(string group, string name, Result off, Result on)> rows, double quality)
     {
         Console.WriteLine();
-        Console.WriteLine($"| group | cases | q<0.1 off / on | q<1e-3 off / on | cases with q<1e-3 off / on | self-intersecting pairs off / on | cases with self-int. off / on | cases inside-out off / on | mean hausdorff/target off / on | time s off / on | worse: more pairs / more q<1e-3 / hausdorff / inside-out |");
-        Console.WriteLine("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|");
+        Console.WriteLine($"| group | cases | q<0.1 off / on | q<1e-3 off / on | cases with q<1e-3 off / on | self-intersecting pairs off / on | cases with self-int. off / on | cases inside-out off / on | cases with rejected passes off / on | mean hausdorff/target off / on | time s off / on | worse: more pairs / more q<1e-3 / hausdorff / inside-out |");
+        Console.WriteLine("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|");
         foreach (var g in rows.GroupBy(r => r.group)) {
             var l = g.ToList();
             int morePairs = l.Count(r => r.on.SelfPairs > r.off.SelfPairs), moreFlat = l.Count(r => r.on.Flat > r.off.Flat);
@@ -127,6 +129,7 @@ static class Program
             Console.WriteLine($"| {g.Key} | {l.Count} | {l.Sum(r => r.off.Poor)} / {l.Sum(r => r.on.Poor)} | {l.Sum(r => r.off.Flat)} / {l.Sum(r => r.on.Flat)} | " +
                 $"{l.Count(r => r.off.Flat > 0)} / {l.Count(r => r.on.Flat > 0)} | {l.Sum(r => r.off.SelfPairs)} / {l.Sum(r => r.on.SelfPairs)} | " +
                 $"{l.Count(r => r.off.SelfPairs > 0)} / {l.Count(r => r.on.SelfPairs > 0)} | {l.Count(r => r.off.Inverted > 0)} / {l.Count(r => r.on.Inverted > 0)} | " +
+                $"{l.Count(r => r.off.RejectedPasses > 0)} / {l.Count(r => r.on.RejectedPasses > 0)} | " +
                 $"{l.Average(r => r.off.Hausdorff):F3} / {l.Average(r => r.on.Hausdorff):F3} | " +
                 $"{l.Sum(r => r.off.Seconds):F1} / {l.Sum(r => r.on.Seconds):F1} | {morePairs} / {moreFlat} / {worseHd} / {newInverted} |");
         }
