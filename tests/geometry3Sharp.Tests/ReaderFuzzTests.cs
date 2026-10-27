@@ -241,8 +241,14 @@ namespace geometry3Sharp.Tests
                 string what;
                 byte[] data = Mutate(valid, text, rand, out what);
                 string failure = Check(data, extension, requireFinite);
-                if (failure != "")
-                    failures.Add($"{extension}{(binary ? " binary" : "")} seed {seed} ({what}): {failure}");
+                if (failure != "") {
+                    string name = $"{extension}{(binary ? " binary" : "")} seed {seed}";
+                    // G3_MINIMIZE=1: the smallest input with the same failure (Harness/FailureMinimizer.cs; not for hangs,
+                    // whose reads keep running)
+                    if (FailureMinimizer.Enabled && failure.StartsWith("no result") == false)
+                        failure += "\n  " + FailureMinimizer.BytesReport(name, extension, data, failure, d => Check(d, extension, requireFinite), text);
+                    failures.Add($"{name} ({what}): {failure}");
+                }
                 // a read that timed out keeps running (it cannot be cancelled): stop before more of them pile up
                 if (failure.StartsWith("no result"))
                     break;

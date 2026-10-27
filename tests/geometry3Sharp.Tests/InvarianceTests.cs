@@ -411,6 +411,76 @@ namespace geometry3Sharp.Tests
         }
 
         [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void RemesherPro_SameResultUnderSimilarity(string name)
+        {
+            // queued passes with projection (and face-aligned projection): bit for bit under 2^k scales (the
+            // 'vertex did not move' and weight tests used absolute tolerances)
+            Similarity s = Similarity.ByName(name);
+            DMesh3 Remesh(DMesh3 mesh, DMesh3 target, double edge, bool faceAligned)
+            {
+                var r = new RemesherPro(mesh) { UseFaceAlignedProjection = faceAligned };
+                r.SetProjectionTarget(MeshProjectionTarget.Auto(target));
+                r.SetTargetEdgeLength(edge);
+                r.FastestRemesh();
+                Assert.Equal("", MeshRobustRepair.NotCleanReason(mesh, false));
+                return mesh;
+            }
+            foreach (bool faceAligned in new[] { false, true }) {
+                DMesh3 m0 = Remesh(BumpySphere(), BumpySphere(), 0.1, faceAligned);
+                DMesh3 back = Invariance.MappedBack(Remesh(Invariance.Transformed(BumpySphere(), s), Invariance.Transformed(BumpySphere(), s),
+                    s.ApplyLength(0.1), faceAligned), s);
+                if (s.IsExact)
+                    Assert.Equal("", Invariance.Difference(m0, back));
+                AssertRelative(m0.TriangleCount, back.TriangleCount, 0.05, s.Name);
+                double dist = Invariance.VertexDistance(m0, back);
+                Assert.True(dist < 0.02, $"{s.Name}: remeshed surfaces {dist} apart");
+            }
+        }
+
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void MergeCoincidentEdges_ShortCrack_SameResultUnderSimilarity(string name)
+        {
+            Similarity s = Similarity.ByName(name);
+            DMesh3 m0 = MeshTestUtil.CubeWithShortCrack(0.01, 0.0003);
+            new MergeCoincidentEdges(m0) { MergeDistance = 0.001 }.Apply();
+            Assert.True(m0.IsClosed());
+            DMesh3 m = Invariance.Transformed(MeshTestUtil.CubeWithShortCrack(0.01, 0.0003), s);
+            new MergeCoincidentEdges(m) { MergeDistance = s.ApplyLength(0.001) }.Apply();
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(m));
+            Assert.Equal(m0.VertexCount, m.VertexCount);
+            Assert.Equal(m0.TriangleCount, m.TriangleCount);
+            DMesh3 back = Invariance.MappedBack(m, s);
+            if (s.IsExact)
+                Assert.Equal("", Invariance.Difference(m0, back));
+            double dist = Invariance.VertexDistance(m0, back);
+            Assert.True(dist <= s.DistanceResolution(1), $"{s.Name}: results {dist} apart");
+        }
+
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void RemoveDuplicateTriangles_SmallDuplicates_SameResultUnderSimilarity(string name)
+        {
+            Similarity s = Similarity.ByName(name);
+            DMesh3 m0 = MeshTestUtil.DuplicatedSmallTriangle(0.01, 3, false);
+            var d0 = new RemoveDuplicateTriangles(m0) { VertexTolerance = 0.001 };
+            d0.Apply();
+            Assert.Equal(2, d0.Removed);
+            DMesh3 m = Invariance.Transformed(MeshTestUtil.DuplicatedSmallTriangle(0.01, 3, false), s);
+            var d = new RemoveDuplicateTriangles(m) { VertexTolerance = s.ApplyLength(0.001) };
+            d.Apply();
+            Assert.Equal(d0.Removed, d.Removed);
+            Assert.Equal(m0.TriangleCount, m.TriangleCount);
+            Assert.Equal(m0.VertexCount, m.VertexCount);
+            DMesh3 back = Invariance.MappedBack(m, s);
+            if (s.IsExact)
+                Assert.Equal("", Invariance.Difference(m0, back));
+            double dist = Invariance.VertexDistance(m0, back);
+            Assert.True(dist <= s.DistanceResolution(0.01), $"{s.Name}: results {dist} apart");
+        }
+
+        [Theory]
         [InlineData(-20)]
         [InlineData(20)]
         public void ReducerAndRemesher_TinyAndHugeScales_SameResult(int log2)

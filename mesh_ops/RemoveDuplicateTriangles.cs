@@ -41,7 +41,12 @@ namespace gs
             TriCentroids pointset = new TriCentroids() { Mesh = this.Mesh };
 			PointSetHashtable hash = new PointSetHashtable(pointset);
             int hashN = (Mesh.TriangleCount > 100000) ? 128 : 64;
-			hash.Build(hashN);
+            // FindInBall needs cells at least VertexTolerance wide: duplicates in a small region have centroids
+            // that span far less than hashN * VertexTolerance (written so that a NaN tolerance keeps the grid's cell size)
+            AxisAlignedBox3d bounds = BoundsUtil.Bounds(pointset);
+            double cellSize = bounds.MaxDim / hashN;
+            if (VertexTolerance > cellSize) cellSize = VertexTolerance;
+            hash.Build(cellSize, bounds.Min);
 
             Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
             Vector3d x = Vector3d.Zero, y = Vector3d.Zero, z = Vector3d.Zero;
@@ -57,7 +62,7 @@ namespace gs
                 Vector3d centroid = Mesh.GetTriCentroid(tid);
 				int N;
 				while (hash.FindInBall(centroid, VertexTolerance, buffer, out N) == false)
-					buffer = new int[buffer.Length];
+					buffer = new int[2 * buffer.Length];        // too many points for the buffer: grow it
 				if (N == 1 && buffer[0] != tid)
 					throw new Exception("RemoveDuplicateTriangles.Apply: how could this happen?!");
 				if (N <= 1)

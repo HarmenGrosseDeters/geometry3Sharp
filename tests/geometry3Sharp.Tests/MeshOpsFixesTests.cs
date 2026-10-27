@@ -346,6 +346,76 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void MergeCoincidentEdges_ClosesShortCrackWithinMergeDistance()
+        {
+            // the boundary edge midpoints span 0.01, so a hash grid of 64 cells over them has cells far smaller
+            // than MergeDistance; FindInBall threw on those
+            DMesh3 m = MeshTestUtil.CubeWithShortCrack(0.01, 0.0003);
+            Assert.False(m.IsClosed());
+            new MergeCoincidentEdges(m) { MergeDistance = 0.001 }.Apply();
+            Assert.True(m.IsClosed());
+            Assert.Equal(12, m.VertexCount);
+            Assert.Equal(20, m.TriangleCount);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(m));
+            m.CheckValidity();
+        }
+
+        [Fact]
+        public void MeshAutoRepair_MergesShortCrackInsteadOfFillingIt()
+        {
+            // repair_cracks swallowed the FindInBall exception; the hole filler then closed the crack with
+            // extra triangles and kept the patch vertices
+            DMesh3 m = MeshTestUtil.CubeWithShortCrack(0.01, 0.0003);
+            var repair = new MeshAutoRepair(m) { RepairTolerance = 0.001 };
+            Assert.True(repair.Apply());
+            Assert.Equal(0.001, repair.EffectiveRepairTolerance);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(m));
+            Assert.Equal(12, m.VertexCount);
+            Assert.Equal(20, m.TriangleCount);
+        }
+
+        [Fact]
+        public void MeshAutoRepair_RelativeTolerance_MergesShortCrack()
+        {
+            // the same with the relative tolerance (default mode): 5e-4 of the diagonal (about 1.73) is a merge
+            // distance of about 8.7e-4, far above the extent of the crack divided by 64
+            DMesh3 m = MeshTestUtil.CubeWithShortCrack(0.01, 0.0003);
+            var repair = new MeshAutoRepair(m) { RelativeRepairTolerance = 5e-4 };
+            Assert.True(repair.Apply());
+            Assert.InRange(repair.EffectiveRepairTolerance, 8e-4, 9e-4);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(m));
+            Assert.Equal(12, m.VertexCount);
+            Assert.Equal(20, m.TriangleCount);
+        }
+
+        [Fact]
+        public void RemoveDuplicateTriangles_RemovesSmallDuplicatesWithinTolerance()
+        {
+            // the centroids coincide, so a hash grid over them had cells far smaller than VertexTolerance (zero
+            // here); FindInBall threw on those
+            DMesh3 m = MeshTestUtil.DuplicatedSmallTriangle(0.01, 2, false);
+            var dupe = new RemoveDuplicateTriangles(m) { VertexTolerance = 0.001 };
+            dupe.Apply();
+            Assert.Equal(1, dupe.Removed);
+            Assert.Equal(1, m.TriangleCount);
+            Assert.Equal(3, m.VertexCount);
+            m.CheckValidity();
+        }
+
+        [Fact]
+        public void RemoveDuplicateTriangles_MoreDuplicatesThanTheQueryBuffer()
+        {
+            // 1100 copies of one triangle: FindInBall finds more points than the initial buffer of 1024 holds, and
+            // the buffer was replaced by one of the same size, forever
+            DMesh3 m = MeshTestUtil.DuplicatedSmallTriangle(0.01, 1100, true);
+            var dupe = new RemoveDuplicateTriangles(m) { VertexTolerance = 0.001 };
+            Assert.True(Timed.Finishes(() => dupe.Apply(), TimeSpan.FromSeconds(60)), "no result after 60 s");
+            Assert.Equal(1099, dupe.Removed);
+            Assert.Equal(2, m.TriangleCount);
+            Assert.Equal(6, m.VertexCount);
+        }
+
+        [Fact]
         public void IsoCurves_RecomputeReplacesPreviousEdgeCrossings()
         {
             DMesh3 m = GridXY(4);
