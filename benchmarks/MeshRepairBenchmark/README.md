@@ -984,6 +984,59 @@ The ties in the QEF and the quality checks of small triangles now decide differe
 count of about a third of the solidified meshes, but not their quality or the time. Repair and exact-resolve
 results are unchanged.
 
+## Further fidelity measures (`MeshFidelityMetrics`, `fm_*` fields)
+
+Hausdorff distance and volume IoU decide "repaired". They do not see lost features, reversed patches, topology
+changes or slivers, and they count interior faces that a repair to a solid drops on purpose as lost. Every run
+now also records `gs.MeshFidelityMetrics` against the input (`benchmarks/Shared/FidelityFields.cs`; inside-out
+closed components of the input reversed, and the whole input if its signed volume is negative;
+`BENCH_FIDELITY=0` skips it). `analyze_fidelity.py` prints these measures as extra columns. The "repaired"
+criterion stays as it is.
+
+| Field | Measure (relative to the input's size: the diameter of its bounding sphere around the area centroid) |
+|---|---|
+| `fm_f_*`, `fm_p_*`, `fm_r_*` | F-score, precision (result within τ of the input), recall (input within τ of the result) at τ = 0.1 %, 0.5 %, 1 % (Tatarchenko et al. 2019); 50k area-weighted samples per mesh |
+| `fm_of_*`, `fm_or_*`, `fm_outer_*` | the same against the input's **outer surface** only: where the input's winding number jumps by one (a single layer) and the rest does not enclose the point. Leaves out interior faces, nested shells, internal double walls and double-sided fins; `fm_outer_share` is the outer share of the input, `fm_outer_max` the largest sampled distance from it to the result |
+| `fm_max_fwd/back` | largest sampled distance in each direction (a lower bound of the Hausdorff distance) |
+| `fm_nc`, `fm_nangle_*`, `fm_reversed_*` | normal consistency (mean \|cos\| at the closest points), mean angle, share of samples within 1 % whose normals point against the other mesh's |
+| `fm_ecd*`, `fm_ef/ep/er_*`, `fm_oer_*` | Edge Chamfer distance and edge F-score / precision / recall on sharp edges (dihedral > 30°, not at slivers narrower than 1e-5 of the size; Chen et al. 2022); `fm_oer_*`: recall of the input's outer sharp edges (edges inside the solid, eg of overlapping parts, left out) |
+| `fm_topo_in/out`, `fm_topo_changes` | components, closed components, genus, Euler characteristic, boundary loops, bowties, discs; components lost / added, handles closed / created, boundary loops removed / added |
+| `fm_q_in/out` | Verdict triangle quality: min / max angle, aspect ratio, scaled Jacobian, condition number (worst, 1 %, 5 %, median), counts outside the acceptable ranges |
+
+They take a median of 1.5 s per mesh (max 13 s), next to 2.2 s for the Hausdorff and IoU measures.
+
+### What they show that Hausdorff and IoU miss (`robust`, 400 set, branch 44cd69f, `BENCH_P=3`, `TIMEOUT=300`)
+
+273 of 400 repaired, the same as on master (#147: 272-273). **19 of the 273 repaired meshes** raise a flag
+(`analyze_fidelity.py`). These are cases where the "repaired" criterion is satisfied but something is not right,
+or at least worth a look:
+
+| Flag | Repaired meshes | Example: what the measures see (Hausdorff max of both directions, IoU) |
+|---|---|---|
+| handles: genus changed, input topologically clean | 4 | 357788 (exact resolve, HD 0.56 %, IoU 0.9996): one closed component, **genus 1 → 3**: the resolve created two handles |
+| parts: components lost, input topologically clean | 3 | 702409, 702413 (exact, HD 0.31 %, IoU 1.0): 18 overlapping parts → 1, genus 4 → 0; the union of overlapping parts, expected for a solid, but the outer sharp edges are only 69 % / 82 % kept (`fm_oer`) and the triangles drop from 9268 to 3748 |
+| reversed: > 1 % of the result points against the input | 3 | 814760 (repair kept the triangles, HD 0.10 %, IoU 0.997): **4.8 % of the result is inside-out**. The input has a closed inside-out part, and against the raw input the result agrees everywhere, so the part kept its orientation. `FindInvertedComponents` and `NotCleanReason` no longer report it in the result (3 → 2 components). 105335 (2 inside-out parts in the input) looks the same at 2.1 % (not checked mesh by mesh). 88572: a wall 0.03 % thick moved by 0.1 %, so the closest points lie on its other side (the measure cannot tell this from a flip) |
+| edges: < 90 % of the outer sharp edges kept within 0.5 % | 6 | 1458679, 301927 (exact): 26 % / 27 % of the outer sharp edges lost at HD 0.11 % / 0.96 %; 72609 (solidify at 128 cells): 13 % rounded off; 39086 (kept): 13 % of very few edges |
+| triangles: share with min angle < 10° up by > 1 % | 8 | 498458 (exact, HD 0.64 %, IoU 0.992): triangles 47k → 91k, **slivers 40 % → 53 %**; 1037029: 35 % → 44 %. The exact resolve's retriangulation adds slivers |
+| surface: F-score 0.5 % < 0.95 | 2 | 346287 (exact): F 0.93; 45561 (wrap of an input without a solid): F 0.94 |
+
+Two corrections were needed on real data before the measures could be trusted. Both are covered by tests now:
+- **Sharp edges at slivers:** a first run counted 16 repaired meshes with lost edges. Every "lost" edge lay at a
+  triangle of the input with a height below 1e-5 of the size (float STL rounding tilts such slivers by tens of
+  degrees). These edges are no longer sharp (`SharpEdgeMinHeight`).
+- **Inside-out open inputs:** two inputs that are open and inside-out as a whole (50309, 51358) showed 100 %
+  reversed against correct, outward results. The benchmark now reverses such inputs first.
+
+The flags are a list to look at, not a verdict. The union of overlapping parts (702409) and the genus change of
+broken inputs are often what a solid repair should do. That is why the topology flags only count inputs whose
+topology is defined (closed, no bowties). The reversed share, the outer edge recall, the handle count and the
+sliver share are the ones that point at real defects above.
+
+**Outer surface instead of the whole input** (the Objaverse question below): with the input-to-result
+Hausdorff distance taken as the largest sampled distance (`fm_max_back`, a lower bound), 277 of 400 pass. Taken
+from the outer surface only (`fm_outer_max`), 313 pass, **36 more**. The difference is only the interior and
+double-sided faces of the input (its median outer share is 1.0, p10 0.86).
+
 ## Objaverse corpus (second data set)
 
 Thingi10K holds broken 3D-print meshes. [Objaverse 1.0](https://huggingface.co/datasets/allenai/objaverse)
@@ -1024,7 +1077,41 @@ Per stage (`analyze_paths.py`): the first stage repaired 23 of 26; the exact res
 2 of 64, alpha wrap 0 of 57. Most misses are deviation, not defects: the 97 exact-resolve results that miss
 are all clean, without self-intersections and with IoU > 0.99, at a median Hausdorff distance of 2.7 %
 (1.1 % to 25 %); in 82 of them the larger part is the distance from the input to the result (`hd_back`), ie
-input surface that the result does not have. The likely cause (not yet checked mesh by mesh): Objaverse models
-often carry interior and double-sided faces that the solid's boundary drops on purpose. A fidelity measure that
-ignores dropped interior faces would tell these apart from real losses; until then, compare runs on this corpus
-with each other, not with Thingi10K.
+input surface that the result does not have. The likely cause was interior and double-sided faces that the
+solid's boundary drops on purpose. The outer surface measures (next section) confirm it for most of them.
+
+### With the outer surface measures (branch 44cd69f, `BENCH_P=3`, `TIMEOUT=300`)
+
+Same 300 objects, robust repair, `fm_*` fields (section "Further fidelity measures"). 64 repaired, as in the
+baseline above, and 5 `timeout_or_crash` (17 above at `BENCH_P=4`, 120 s):
+
+| Objaverse, 300 objects | |
+|---|---|
+| repaired (certified Hausdorff < 1 % both ways, IoU > 0.99) | 64 |
+| ... with Hausdorff input→result sampled from the whole input (`fm_max_back`) | 70 |
+| ... sampled from the input's **outer surface** only (`fm_outer_max`) | **124** (+54) |
+| outer share of the input: median / p10 | 0.94 / 0.58 (Thingi10K: 1.0 / 0.86) |
+| F-score 1 %: against the whole input / its outer surface, median | 0.994 / 1.0 |
+
+The baseline's misses: 120 results are clean, without self-intersections and with IoU > 0.99, but not
+repaired. In 96 of them the input→result direction dominates. 60 of these 96 pass once only the outer surface
+counts. Their input's outer share has a median of 0.90 and a p10 of 0.56: those were interior and double-sided
+faces, not losses. The other 36 also miss from the outer surface. 16 of them miss in the result→input direction
+as well, so they are real deviations.
+
+Remaining reasons under the outer surface criterion (295 objects with a result, counted once per combination;
+"outer" = the sampled outer surface distance is ≥ 1 %):
+
+| failing | objects |
+|---|---|
+| IoU only | 31 |
+| result→input Hausdorff only | 31 |
+| outer + IoU | 45 |
+| outer only | 18 |
+| result→input + outer (+ IoU) | 35 |
+| other (result→input + IoU, not clean, self-intersections) | 9 |
+
+The IoU uses the input's winding number solid, which the same interior faces also distort. That would be the
+next measure to restrict to the outer surface. Of the 64 repaired objects, 17 raise a flag: 14 the sliver share,
+3 the reversed share and 3 the outer edge recall. So on this corpus too the flags list cases to look at, they do
+not change the count.
