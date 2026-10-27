@@ -672,7 +672,7 @@ namespace g3 {
         /// True if moving vertex vID to newPos flips one of its triangles, or leaves one below MinTriangleQuality and
         /// below the worst quality around vID before the move.
         /// </summary>
-        protected bool move_degrades(int vID, Vector3d newPos)
+        protected bool move_degrades(int vID, Vector3d newPos, bool flipsOnly = false)
         {
             double qOld = double.MaxValue, qNew = double.MaxValue;
             foreach (int tid in mesh.VtxTrianglesItr(vID)) {
@@ -686,7 +686,7 @@ namespace g3 {
                     return true;
                 qNew = Math.Min(qNew, TriangleQuality(ref a, ref b, ref c));
             }
-            return qNew < MinTriangleQuality && qNew < qOld;
+            return flipsOnly == false && qNew < MinTriangleQuality && qNew < qOld;
         }
 
         // used by collapse-edge to get projected position for new vertex
@@ -880,7 +880,7 @@ namespace g3 {
                     if (VertexControlF != null && (VertexControlF(vID) & VertexControl.NoProject) != 0)
                         return;
                     Vector3d projected = target.Project(mesh.GetVertex(vID), vID);
-                    if (move_degrades(vID, projected))
+                    if (move_degrades(vID, projected, true))
                         return;
                     vModifiedV[vID] = true;
                     vBufferV[vID] = projected;

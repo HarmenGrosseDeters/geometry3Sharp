@@ -546,6 +546,10 @@ namespace gs
                 Vector3d vProjected = ComputeProjectedVertexPos(vID, out bModified);
                 if (vCur.EpsilonEqual(vProjected, moved_tolerance(vCur)))
                     bModified = false;
+                // MinTriangleQuality: no moves that flip or degrade the incident triangles (against the positions
+                // before the pass, which is buffered)
+                if (bModified && MinTriangleQuality > 0 && move_degrades(vID, vProjected, true))
+                    bModified = false;
                 if (bModified) {
                     vModifiedV[vID] = true;
                     vBufferV[vID] = vProjected;
