@@ -112,6 +112,13 @@ namespace g3
         public int NonManifoldEdges;
         /// <summary> triangles that could not be added to the result mesh and got their own vertices (should be 0) </summary>
         public int NonManifoldTriangles;
+        /// <summary>
+        /// edges where two kept pieces run the same way, so that they are not joined there (the result is open along the
+        /// edge, which keeps it consistently oriented). Only for open inputs, at edges where the generalized winding
+        /// number is not consistent with the jumps of the pieces around the edge (an open boundary of an input lies on
+        /// the edge, see classify); 0 for closed inputs.
+        /// </summary>
+        public int ConflictEdges;
         /// <summary> edges where the solid touches itself and that were split per pair of triangles (see assemble) </summary>
         public int SplitNonManifoldEdges;
         /// <summary> number of patches classified </summary>
@@ -254,7 +261,7 @@ namespace g3
             Rounding = null;
             ResultExactVertices = null;
             // (the meshes or the operation may have changed since the last call)
-            IntersectingPairs = SelfIntersectingPairs = NonManifoldEdges = NonManifoldTriangles = SplitNonManifoldEdges = Patches = RemovedVertices = 0;
+            IntersectingPairs = SelfIntersectingPairs = NonManifoldEdges = NonManifoldTriangles = SplitNonManifoldEdges = ConflictEdges = Patches = RemovedVertices = 0;
             ReorientedTriangles = 0;
             ExactWindingA = ExactWindingB = false;
             ExactWinding = null;
@@ -567,10 +574,12 @@ namespace g3
             }
 
             // patches: pieces of one mesh connected across edges that are not on an intersection curve, with
-            // exactly two pieces of that mesh (then they are oriented consistently, the meshes are winding
-            // closed); the winding numbers are the same on the front sides of all pieces of a patch
+            // exactly two pieces of that mesh, running the edge in opposite directions (for winding closed meshes they
+            // always do; an open mesh can be non-orientable); the winding numbers are the same on the front sides of
+            // all pieces of a patch
             long[] edgeKeys; int[] edgeTri;
-            group_edges(n, (i) => new Index3i(output[i].A, output[i].B, output[i].C), out edgeKeys, out edgeTri);
+            Func<int, Index3i> pieceTri = (i) => new Index3i(output[i].A, output[i].B, output[i].C);
+            group_edges(n, pieceTri, out edgeKeys, out edgeTri);
             int[] parent = new int[n];
             for (int i = 0; i < n; ++i)
                 parent[i] = i;
@@ -587,6 +596,7 @@ namespace g3
                 while (g1 < edgeKeys.Length && edgeKeys[g1] == edgeKeys[g0]) g1++;
                 if (arr.ConstraintEdges.Contains(edgeKeys[g0]))
                     continue;
+                int eu = (int)(edgeKeys[g0] >> 32), ev = (int)(edgeKeys[g0] & 0xFFFFFFFF);
                 // the pieces at the edge by mesh (stable insertion sort, the groups are small)
                 atEdge.Clear();
                 for (int g = g0; g < g1; ++g) {
@@ -616,7 +626,6 @@ namespace g3
             // a closed mesh has winding number 0 outside its box, so only the meshes whose box contains the
             // piece are evaluated
             int nm = arr.Meshes.Count;
-            var patchWinding = new Dictionary<int, int[]>();
             var rng = new Random(Seed);
             var closedBoxes = new List<AxisAlignedBox3d>();
             var openMeshes = new List<int>();
@@ -628,6 +637,74 @@ namespace g3
             var closedTree = new TriangleBoxTree(closedBoxes);
             var candidates = new List<int>();
             var sparse = new List<int>();
+            // patches in the order of their first representative piece: per patch that piece, the sparse winding
+            // numbers of the closed meshes, and the generalized winding numbers of the open meshes (in the order of
+            // openMeshes) in front of that piece
+            int[] patchOf = new int[n];
+            var patchFirst = new List<int>();
+            var patchWinding = new List<int[]>();
+            var patchGeneralized = new List<double[]>();
+            var patchIndex = new Dictionary<int, int>();
+            for (int i = 0; i < n; ++i) {
+                if (representative[i] == false)
+                    continue;
+                var ot = output[i];
+                int root = find(i), pi;
+                if (patchIndex.TryGetValue(root, out pi) == false) {
+                    pi = patchFirst.Count;
+                    patchIndex[root] = pi;
+                    patchFirst.Add(i);
+                    int p = centroid(ot);
+                    // (no error bound needed: the box corners are input doubles, the map from grid to input
+                    // coordinates is exact and its rounding to double monotone, so a point in the exact box rounds
+                    // into the double box; the pad only widens the query, front_winding tests the box exactly)
+                    Vector3d pv = arr.ToInputVector(arr.Exact(p));
+                    double pad = 1e-9 * (Math.Abs(pv.x) + Math.Abs(pv.y) + Math.Abs(pv.z)) + 1e-300;
+                    candidates.Clear();
+                    closedTree.Query(new AxisAlignedBox3d(pv - pad * Vector3d.One, pv + pad * Vector3d.One), (m) => candidates.Add(m));
+                    candidates.Sort();
+                    sparse.Clear();
+                    foreach (int m in candidates) {
+                        int wm = front_winding(i, m, arr.Trees[m], rng, stack[i], p);
+                        if (wm != 0) {
+                            sparse.Add(m);
+                            sparse.Add(wm);
+                        }
+                    }
+                    patchWinding.Add(sparse.ToArray());
+                    double[] gw = new double[openMeshes.Count];
+                    for (int k = 0; k < openMeshes.Count; ++k)
+                        gw[k] = front_generalized_winding(i, openMeshes[k], stack[i]);
+                    patchGeneralized.Add(gw);
+                    Patches++;
+                }
+                patchOf[i] = pi;
+            }
+            if (openMeshes.Count > 0 && Environment.GetEnvironmentVariable("G3_NOPROP") == "1") {
+                for (int pi = 0; pi < patchFirst.Count; ++pi) {
+                    sparse.Clear(); sparse.AddRange(patchWinding[pi]);
+                    for (int k = 0; k < openMeshes.Count; ++k) { double g = Math.Ceiling(patchGeneralized[pi][k] - 0.5); int wm = (g > 1e6) ? 1000000 : (g < -1e6) ? -1000000 : double.IsNaN(g) ? 0 : (int)g; if (wm != 0) { sparse.Add(openMeshes[k]); sparse.Add(wm); } }
+                    patchWinding[pi] = sparse.ToArray();
+                }
+            }
+            if (openMeshes.Count > 0 && Environment.GetEnvironmentVariable("G3_NOPROP") != "1") {
+                // the generalized winding numbers, propagated across the patches (see propagate_generalized) and
+                // thresholded at 1/2: ceil(w - 1/2) > 0 iff w > 1/2, and it commutes with adding the integer changes
+                // across the patch
+                int[][] open = propagate_generalized(patchFirst, patchOf, patchGeneralized, openMeshes, stack, representative, edgeKeys, edgeTri);
+                for (int pi = 0; pi < patchFirst.Count; ++pi) {
+                    sparse.Clear();
+                    sparse.AddRange(patchWinding[pi]);
+                    for (int k = 0; k < openMeshes.Count; ++k) {
+                        if (open[pi][k] != 0) {
+                            sparse.Add(openMeshes[k]);
+                            sparse.Add(open[pi][k]);
+                        }
+                    }
+                    patchWinding[pi] = sparse.ToArray();
+                }
+            }
+
             int[] winding = new int[nm];
             bool[] isTouched = new bool[nm];
             var touched = new List<int>();
@@ -642,55 +719,13 @@ namespace g3
                 if (representative[i] == false)
                     continue;
                 var ot = output[i];
-                int root = find(i);
-                int[] w;
-                if (patchWinding.TryGetValue(root, out w) == false) {
-                    int p = centroid(ot);
-                    // (no error bound needed: the box corners are input doubles, the map from grid to input
-                    // coordinates is exact and its rounding to double monotone, so a point in the exact box rounds
-                    // into the double box; the pad only widens the query, front_winding tests the box exactly)
-                    Vector3d pv = arr.ToInputVector(arr.Exact(p));
-                    double pad = 1e-9 * (Math.Abs(pv.x) + Math.Abs(pv.y) + Math.Abs(pv.z)) + 1e-300;
-                    candidates.Clear();
-                    closedTree.Query(new AxisAlignedBox3d(pv - pad * Vector3d.One, pv + pad * Vector3d.One), (m) => candidates.Add(m));
-                    candidates.AddRange(openMeshes);
-                    candidates.Sort();
-                    sparse.Clear();
-                    foreach (int m in candidates) {
-                        int wm;
-                        if (ExactWinding[m]) {
-                            wm = front_winding(i, m, arr.Trees[m], rng, stack[i], p);
-                        } else {
-                            // generalized winding numbers are thresholded at 1/2: ceil(w - 1/2) > 0 iff w > 1/2,
-                            // and it commutes with adding the integer changes across the patch
-                            // (clamped, so that adding the changes across the patch cannot overflow; NaN gives 0)
-                            double g = Math.Ceiling(front_generalized_winding(i, m, stack[i]) - 0.5);
-                            wm = (g > 1e6) ? 1000000 : (g < -1e6) ? -1000000 : double.IsNaN(g) ? 0 : (int)g;
-                        }
-                        if (wm != 0) {
-                            sparse.Add(m);
-                            sparse.Add(wm);
-                        }
-                    }
-                    w = sparse.ToArray();
-                    patchWinding[root] = w;
-                    Patches++;
-                }
+                int[] w = patchWinding[patchOf[i]];
                 for (int k = 0; k < w.Length; k += 2)
                     add(w[k], w[k + 1]);
                 bool inFront = inside(winding, touched);
                 // back side: crossing the stack from the back to the front changes the winding number of a
                 // mesh by -1 for each of its triangles oriented like the piece, +1 for opposite ones
-                if (stack[i] == null) {
-                    add(ot.Mesh, 1);
-                } else {
-                    var src = arr.Triangles[ot.Source];
-                    foreach (int ti in stack[i]) {
-                        var U = arr.Triangles[ti];
-                        BigInteger dot = src.NX * U.NX + src.NY * U.NY + src.NZ * U.NZ;
-                        add(U.Mesh, (dot.Sign > 0) ? 1 : -1);
-                    }
-                }
+                add_jumps(i, stack[i], add);
                 bool inBack = inside(winding, touched);
                 keep[i] = inFront != inBack;
                 flip[i] = inFront;
@@ -700,6 +735,182 @@ namespace g3
                 }
                 touched.Clear();
             }
+        }
+
+        // the changes of the winding numbers from the front to the back of piece i (with its stack), as add(mesh, change)
+        void add_jumps(int i, List<int> stack, Action<int, int> add)
+        {
+            var ot = arr.Output[i];
+            if (stack == null) {
+                add(ot.Mesh, 1);
+                return;
+            }
+            var src = arr.Triangles[ot.Source];
+            foreach (int ti in stack) {
+                var U = arr.Triangles[ti];
+                BigInteger dot = src.NX * U.NX + src.NY * U.NY + src.NZ * U.NZ;
+                add(U.Mesh, (dot.Sign > 0) ? 1 : -1);
+            }
+        }
+
+        /// <summary>
+        /// The thresholded generalized winding numbers of the open meshes in front of each patch, propagated across
+        /// the patches. The generalized winding number of a mesh changes by exactly the integer jump across its
+        /// surface and is continuous elsewhere (Jacobson et al. 2013); for closed meshes it is the winding number,
+        /// which is propagated across patches by these jumps (Zhou et al. 2016). Evaluated independently at the
+        /// centroid of each patch, the values next to an edge can lie on both sides of the threshold 1/2 in the same
+        /// region of space, and the kept pieces at the edge do not fit together.
+        ///
+        /// The sides of the patches are the nodes, related by the exact jump across each patch and, around every edge
+        /// where pieces of other patches meet, by "same value" for the two sides that face each other (sorted around
+        /// the edge, exactly). The relations are taken in the order of increasing difference of the two sides'
+        /// estimates, into groups with integer offsets (union-find), as long as they are consistent (an open boundary
+        /// of a mesh along the edge makes a cycle inconsistent: there the result is left open, see ConflictEdges) and
+        /// the groups' estimates agree within 1/2 (they differ by about 1 across the "missing surface" of an open
+        /// mesh, which is not crossed). A group's value is the area-weighted mean of its patches' estimates; a patch
+        /// that is in no group with others keeps its own estimate, as without propagation. Edges with one piece (open
+        /// boundaries that nothing else meets) relate nothing.
+        /// </summary>
+        static double PropagationTolerance = double.Parse(Environment.GetEnvironmentVariable("G3_PTOL") ?? "0.5", System.Globalization.CultureInfo.InvariantCulture);
+        int[][] propagate_generalized(List<int> patchFirst, int[] patchOf, List<double[]> generalized, List<int> openMeshes,
+            List<int>[] stack, bool[] representative, long[] edgeKeys, int[] edgeTri)
+        {
+            List<ExactMeshArrangement.OutputTriangle> output = arr.Output;
+            int np = patchFirst.Count, no = openMeshes.Count;
+            Func<int, Index3i> pieceTri = (i) => new Index3i(output[i].A, output[i].B, output[i].C);
+            // areas of the patches (the weights of their estimates)
+            double[] area = new double[np];
+            for (int i = 0; i < output.Count; ++i)
+                if (representative[i])
+                    area[patchOf[i]] += MathUtil.Area(arr.PointToVector(output[i].A), arr.PointToVector(output[i].B), arr.PointToVector(output[i].C));
+            // jumps from the front to the back of each patch, per open mesh
+            int[][] jump = new int[np][];
+            int[] openIndex = new int[arr.Meshes.Count];
+            for (int m = 0; m < openIndex.Length; ++m)
+                openIndex[m] = -1;
+            for (int k = 0; k < no; ++k)
+                openIndex[openMeshes[k]] = k;
+            for (int pi = 0; pi < np; ++pi) {
+                int[] j = jump[pi] = new int[no];
+                add_jumps(patchFirst[pi], stack[patchFirst[pi]], (m, d) => { if (openIndex[m] >= 0) j[openIndex[m]] += d; });
+            }
+
+            // the pairs of patch sides (2 pi front, 2 pi + 1 back) that face each other around an edge
+            var sideA = new List<int>();
+            var sideB = new List<int>();
+            var list = new List<int>();
+            for (int g0 = 0, g1 = 0; g0 < edgeKeys.Length; g0 = g1) {
+                g1 = g0 + 1;
+                while (g1 < edgeKeys.Length && edgeKeys[g1] == edgeKeys[g0]) g1++;
+                list.Clear();
+                for (int g = g0; g < g1; ++g)
+                    if (representative[edgeTri[g]])
+                        list.Add(edgeTri[g]);
+                if (list.Count < 2 || (list.Count == 2 && patchOf[list[0]] == patchOf[list[1]]))
+                    continue;
+                list.Sort();
+                int u = (int)(edgeKeys[g0] >> 32), v = (int)(edgeKeys[g0] & 0xFFFFFFFF);
+                List<int> sorted = sort_around_edge(pieceTri, list, ref u, ref v);
+                // a piece running u -> v has its front towards increasing angle
+                for (int k = 0; k < sorted.Count; ++k) {
+                    int p = sorted[k], q = sorted[(k + 1) % sorted.Count];
+                    int a = 2 * patchOf[p] + (runs(pieceTri(p), u, v) ? 0 : 1);
+                    int b = 2 * patchOf[q] + (runs(pieceTri(q), u, v) ? 1 : 0);
+                    if (a != b) {
+                        sideA.Add(Math.Min(a, b));
+                        sideB.Add(Math.Max(a, b));
+                    }
+                }
+            }
+
+            int[][] result = new int[np][];
+            for (int pi = 0; pi < np; ++pi)
+                result[pi] = new int[no];
+            int ns = 2 * np;
+            var up = new int[ns];
+            var off = new int[ns];          // value(x) = value(up[x]) + off[x]
+            var size = new int[ns];
+            var count = new int[ns];        // per group (at its root): estimates, their weights and sums relative to the root
+            var weight = new double[ns];
+            var sum = new double[ns];
+            var plainSum = new double[ns];
+            var order = new int[sideA.Count];
+            var key = new double[sideA.Count];
+            Func<int, int, double> estimate = (s, k) => generalized[s >> 1][k] + (((s & 1) == 1) ? jump[s >> 1][k] : 0);
+            for (int k = 0; k < no; ++k) {
+                for (int pi = 0; pi < np; ++pi) {
+                    double e = generalized[pi][k];
+                    int f = 2 * pi, b = f + 1;
+                    up[f] = f; off[f] = 0; size[f] = 2;
+                    up[b] = f; off[b] = jump[pi][k];
+                    bool valid = double.IsNaN(e) == false && Math.Abs(e) < 1e6;
+                    count[f] = valid ? 1 : 0;
+                    weight[f] = valid ? area[pi] : 0;
+                    sum[f] = valid ? area[pi] * e : 0;
+                    plainSum[f] = valid ? e : 0;
+                }
+                // root of x, and the offset of x from it in o (path compression)
+                int o = 0;
+                Func<int, int> root = (x) => {
+                    int r = x, ox = 0;
+                    while (up[r] != r) { ox += off[r]; r = up[r]; }
+                    o = ox;
+                    while (up[x] != x) {
+                        int next = up[x], onext = ox - off[x];
+                        up[x] = r; off[x] = ox;
+                        x = next; ox = onext;
+                    }
+                    return r;
+                };
+                // the estimate of the value at the root of group r (NaN: none); a single patch: its own estimate
+                Func<int, double> mean = (r) => {
+                    if (count[r] == 0) return double.NaN;
+                    if (count[r] == 1) return plainSum[r];
+                    return (weight[r] > 0) ? sum[r] / weight[r] : plainSum[r] / count[r];
+                };
+                for (int c = 0; c < sideA.Count; ++c) {
+                    order[c] = c;
+                    double d = Math.Abs(estimate(sideA[c], k) - estimate(sideB[c], k));
+                    key[c] = double.IsNaN(d) ? double.PositiveInfinity : d;
+                }
+                Array.Sort(order, (x, y) => {
+                    int cmp = key[x].CompareTo(key[y]);
+                    if (cmp == 0) cmp = sideA[x].CompareTo(sideA[y]);
+                    if (cmp == 0) cmp = sideB[x].CompareTo(sideB[y]);
+                    return cmp;
+                });
+                bool dbg = Environment.GetEnvironmentVariable("G3_DBG") == "1";
+                if (dbg) for (int pi = 0; pi < np; ++pi) Console.WriteLine($"patch {pi} first {patchFirst[pi]} mesh {output[patchFirst[pi]].Mesh} est {generalized[pi][k]:F3} jump {jump[pi][k]} area {area[pi]:G3}");
+                foreach (int c in order) {
+                    int ra = root(sideA[c]), oa = o;
+                    int rb = root(sideB[c]), ob = o;
+                    if (dbg) Console.WriteLine($"rel {sideA[c]} {sideB[c]} key {key[c]:F3} same {ra == rb} {(ra == rb ? (oa == ob ? "consistent" : "CONTRA") : "")} ma {mean(ra) + oa:F3} mb {mean(rb) + ob:F3}");
+                    if (ra == rb)
+                        continue;
+                    double ma = mean(ra) + oa, mb = mean(rb) + ob;
+                    if (Math.Abs(ma - mb) >= PropagationTolerance)
+                        continue;       // (false for NaN: a group without estimates joins any)
+                    // value(ra) = value(rb) + ob - oa: the smaller group below the larger one
+                    if (size[ra] > size[rb]) {
+                        int t = ra; ra = rb; rb = t;
+                        t = oa; oa = ob; ob = t;
+                    }
+                    int d = ob - oa;
+                    up[ra] = rb; off[ra] = d;
+                    size[rb] += size[ra];
+                    plainSum[rb] += plainSum[ra] - count[ra] * (double)d;
+                    sum[rb] += sum[ra] - weight[ra] * d;
+                    weight[rb] += weight[ra];
+                    count[rb] += count[ra];
+                }
+                for (int pi = 0; pi < np; ++pi) {
+                    int r = root(2 * pi);
+                    double g = Math.Ceiling(mean(r) + o - 0.5);
+                    // (clamped, so that adding the changes across the patch cannot overflow; NaN gives 0)
+                    result[pi][k] = (g > 1e6) ? 1000000 : (g < -1e6) ? -1000000 : double.IsNaN(g) ? 0 : (int)g;
+                }
+            }
+            return result;
         }
 
         // the undirected edges of n triangles, sorted: edgeKeys[k] is the edge, edgeTri[k] the triangle; equal
@@ -1095,8 +1306,13 @@ namespace g3
                 while (g1 < edgeKeys.Length && edgeKeys[g1] == edgeKeys[g0]) g1++;
                 int u = (int)(edgeKeys[g0] >> 32), v = (int)(edgeKeys[g0] & 0xFFFFFFFF);
                 if (g1 - g0 == 2) {
-                    join(slot(edgeTri[g0], u), slot(edgeTri[g0 + 1], u));
-                    join(slot(edgeTri[g0], v), slot(edgeTri[g0 + 1], v));
+                    // (two pieces running the same way are not neighbours: see ConflictEdges)
+                    if (runs(tris[edgeTri[g0]], u, v) != runs(tris[edgeTri[g0 + 1]], u, v)) {
+                        join(slot(edgeTri[g0], u), slot(edgeTri[g0 + 1], u));
+                        join(slot(edgeTri[g0], v), slot(edgeTri[g0 + 1], v));
+                    } else {
+                        ConflictEdges++;
+                    }
                     continue;
                 }
                 list.Clear();
@@ -1245,7 +1461,10 @@ namespace g3
 
         void append_triangle(DMesh3 result, int a, int b, int c, List<int> vertexPoint)
         {
-            if (result.AppendTriangle(a, b, c) >= 0)
+            // (a triangle that would run an edge the same way as the triangle already there is not added there either:
+            // the vertices can be shared around the ends although the edge is not)
+            if (runs_existing(result, a, b) == false && runs_existing(result, b, c) == false && runs_existing(result, c, a) == false
+                && result.AppendTriangle(a, b, c) >= 0)
                 return;
             // (an edge with more than two triangles that could not be split: kept, with its own vertices)
             NonManifoldTriangles++;
@@ -1253,6 +1472,16 @@ namespace g3
             int b2 = result.AppendVertex(result.GetVertex(b)); vertexPoint.Add(vertexPoint[b]);
             int c2 = result.AppendVertex(result.GetVertex(c)); vertexPoint.Add(vertexPoint[c]);
             result.AppendTriangle(a2, b2, c2);
+        }
+
+        // the edge (a, b) of the mesh exists and a triangle at it runs a -> b
+        static bool runs_existing(DMesh3 mesh, int a, int b)
+        {
+            int eid = mesh.FindEdge(a, b);
+            if (eid == DMesh3.InvalidID)
+                return false;
+            Index2i et = mesh.GetEdgeT(eid);
+            return runs(mesh.GetTriangle(et.a), a, b) || (et.b != DMesh3.InvalidID && runs(mesh.GetTriangle(et.b), a, b));
         }
 
         // pairs of triangles that are neighbours across edge (u, v): for two triangles the pair, for more each
@@ -1266,10 +1495,32 @@ namespace g3
                 pairs.Add(new KeyValuePair<int, int>(list[0], list[1]));
                 return pairs;
             }
-            // the triangles' half-planes in the order of increasing angle around the axis u -> v (exact: half-planes
-            // can differ by less than the rounding of the points), from the half-plane of the first triangle
-            // the axis from the smaller point to the larger one by ComparePoints, not by id (ids depend on the thread
-            // schedule; the order of equal half-planes, by triangle, would not reverse with the axis)
+            List<int> sorted = sort_around_edge((t) => tris[t], list, ref u, ref v);
+            // a triangle running u -> v has its normal towards increasing angle: its solid is at decreasing angle
+            var used = new HashSet<int>();
+            int n = sorted.Count;
+            for (int k = 0; k < n; ++k) {
+                int t = sorted[k];
+                if (runs(tris[t], u, v) == false || used.Contains(t))
+                    continue;
+                int next = sorted[(k - 1 + n) % n];
+                if (runs(tris[next], v, u) && used.Contains(next) == false) {
+                    pairs.Add(new KeyValuePair<int, int>(t, next));
+                    used.Add(t); used.Add(next);
+                }
+            }
+            return pairs;
+        }
+
+        /// <summary>
+        /// The triangles of list, which all have the edge (u, v), sorted by the angle of their half-planes around the
+        /// axis u -> v (exact: half-planes can differ by less than the rounding of the points), from the half-plane of
+        /// the first triangle. The axis is from the smaller point to the larger one by ComparePoints, not by id (ids
+        /// depend on the thread schedule; the order of equal half-planes, by triangle, would not reverse with the
+        /// axis): u and v are swapped to it. A triangle running u -> v has its normal towards increasing angle.
+        /// </summary>
+        List<int> sort_around_edge(Func<int, Index3i> tri, List<int> list, ref int u, ref int v)
+        {
             if (arr.ComparePoints(u, v) > 0) { int tmp = u; u = v; v = tmp; }
             ExactPoint3 U = arr.Exact(u), V = arr.Exact(v);
             BigInteger[] axis = scaled_difference(V, U);
@@ -1277,7 +1528,7 @@ namespace g3
             var half = new Dictionary<int, int>();
             BigInteger[] r = null, y = null;
             foreach (int t in list) {
-                Index3i f = tris[t];
+                Index3i f = tri(t);
                 BigInteger[] d = scaled_difference(arr.Exact(f.a + f.b + f.c - u - v), U);
                 if (r == null) {
                     r = d;
@@ -1295,20 +1546,7 @@ namespace g3
                     c = -dot(cross(axis, dir[a]), dir[b]).Sign;      // b at a larger angle than a: positive
                 return (c != 0) ? c : a.CompareTo(b);
             });
-            // a triangle running u -> v has its normal towards increasing angle: its solid is at decreasing angle
-            var used = new HashSet<int>();
-            int n = sorted.Count;
-            for (int k = 0; k < n; ++k) {
-                int t = sorted[k];
-                if (runs(tris[t], u, v) == false || used.Contains(t))
-                    continue;
-                int next = sorted[(k - 1 + n) % n];
-                if (runs(tris[next], v, u) && used.Contains(next) == false) {
-                    pairs.Add(new KeyValuePair<int, int>(t, next));
-                    used.Add(t); used.Add(next);
-                }
-            }
-            return pairs;
+            return sorted;
         }
 
         // p - q times the positive factor p.W q.W
