@@ -29,11 +29,22 @@ namespace g3
 
 
         /// <summary>
+        /// for tests: ForRange runs its items one after the other on the calling thread (parallel == serial checks)
+        /// </summary>
+        [ThreadStatic] internal static bool SerialOnThisThread;
+
+        /// <summary>
         /// body(i, local) for every i in [0, count), in parallel over index ranges; local comes from localInit, once
         /// per worker task, and is never used by two threads at the same time (buffers that a body reuses)
         /// </summary>
         internal static void ForRange<TLocal>(int count, Func<TLocal> localInit, Action<int, TLocal> body)
         {
+            if (SerialOnThisThread) {
+                TLocal local = localInit();
+                for (int i = 0; i < count; ++i)
+                    body(i, local);
+                return;
+            }
 #if G3_USING_UNITY && (NET_2_0 || NET_2_0_SUBSET)
             for_each<int>(Interval1i.Range(count), (i) => body(i, localInit()));
 #else
@@ -44,6 +55,11 @@ namespace g3
         /// <summary> body(i) for every i in [0, count), in parallel over index ranges </summary>
         internal static void ForRange(int count, Action<int> body)
         {
+            if (SerialOnThisThread) {
+                for (int i = 0; i < count; ++i)
+                    body(i);
+                return;
+            }
 #if G3_USING_UNITY && (NET_2_0 || NET_2_0_SUBSET)
             for_each<int>(Interval1i.Range(count), body);
 #else

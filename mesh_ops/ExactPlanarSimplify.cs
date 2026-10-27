@@ -72,6 +72,7 @@ namespace g3
         }
 
         // the group of triangle i (computed when first needed: most triangles are far from removable points)
+        [MethodImpl(JitHints.Optimize)]
         int group_of(int i)
         {
             int g = group[i];
@@ -108,6 +109,7 @@ namespace g3
         }
 
         // the triangles at p, as a list that can be changed
+        [MethodImpl(JitHints.Optimize)]
         List<int> incident(int p)
         {
             List<int> l = vtList[p];
@@ -209,6 +211,7 @@ namespace g3
         }
 
         // the triangle rotated to start at v: (v, p, q)
+        [MethodImpl(JitHints.Optimize)]
         Index3i at(int t, int v)
         {
             Index3i f = Tris[t];

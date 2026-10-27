@@ -1,6 +1,7 @@
 // Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
 using System;
 using System.Numerics;
+using System.Runtime.CompilerServices;
 
 namespace g3
 {
@@ -25,6 +26,7 @@ namespace g3
         }
 
         /// <summary> canonical point (x/w, y/w, z/w); w must not be 0 </summary>
+        [MethodImpl(JitHints.Optimize)]
         public static ExactPoint3 Create(BigInteger x, BigInteger y, BigInteger z, BigInteger w)
         {
             if (w.IsZero)
@@ -42,6 +44,7 @@ namespace g3
         }
 
         /// <summary> the point (x/w, y/w, z/w) with W > 0 but without reducing by the gcd (not canonical: not for comparisons by value) </summary>
+        [MethodImpl(JitHints.Optimize)]
         public static ExactPoint3 CreateUnreduced(BigInteger x, BigInteger y, BigInteger z, BigInteger w)
         {
             if (w.IsZero)
@@ -69,6 +72,7 @@ namespace g3
         {
             return obj is ExactPoint3 && Equals((ExactPoint3)obj);
         }
+        [MethodImpl(JitHints.Optimize)]
         public override int GetHashCode()
         {
             unchecked {
@@ -95,6 +99,7 @@ namespace g3
         /// Fast approximation of the coordinates (relative error below 4 * 2^-52, plus an absolute 2^-1074 where a
         /// coordinate is subnormal or below the double range): for floating-point filters
         /// </summary>
+        [MethodImpl(JitHints.Optimize)]
         public Vector3d ApproxVector3d()
         {
             double w = (double)W;
@@ -107,6 +112,7 @@ namespace g3
         static bool is_safe_or_zero(double v) { return v == 0 || is_safe(v); }
 
         /// <summary> num / den * 2^scaleExp as double, den > 0 </summary>
+        [MethodImpl(JitHints.Optimize)]
         public static double ToDouble(BigInteger num, BigInteger den, int scaleExp)
         {
             if (num.IsZero)
@@ -119,6 +125,7 @@ namespace g3
         }
 
         /// <summary> x * 2^n, correctly rounded (one rounding, only for a subnormal result) </summary>
+        [MethodImpl(JitHints.Optimize)]
         public static double ScaleB(double x, int n)
         {
             if (x == 0 || double.IsNaN(x) || double.IsInfinity(x))
@@ -143,6 +150,7 @@ namespace g3
             return m * BitConverter.Int64BitsToDouble((e + 2045) << 52);
         }
 
+        [MethodImpl(JitHints.Optimize)]
         public static long BitLength(BigInteger v)
         {
             if (v.Sign < 0)
@@ -160,6 +168,7 @@ namespace g3
         /// <summary>
         /// Decompose finite v into m * 2^e with m odd (or m = 0, e = 0). Exact.
         /// </summary>
+        [MethodImpl(JitHints.Optimize)]
         public static void Decompose(double v, out BigInteger m, out int e)
         {
             if (double.IsNaN(v) || double.IsInfinity(v))

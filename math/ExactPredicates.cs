@@ -1,6 +1,7 @@
 // Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
 using System;
 using System.Numerics;
+using System.Runtime.CompilerServices;
 
 namespace g3
 {
@@ -28,6 +29,7 @@ namespace g3
         const double UnderflowUnit = double.Epsilon * 256;     // 2^-1066
 
         /// <summary> sign of (b - a) x (c - a): +1 if a, b, c are counter-clockwise, -1 clockwise, 0 collinear </summary>
+        [MethodImpl(JitHints.Optimize)]
         public static int Orient2d(Vector2d a, Vector2d b, Vector2d c)
         {
             PredicateStats.Call(PredicateStats.Kind.Orient2d);
@@ -47,6 +49,7 @@ namespace g3
         /// sign of ((b - a) x (c - a)) . (d - a): +1 if d is on the side the normal of the counter-clockwise
         /// triangle (a, b, c) points to, -1 on the other side, 0 if the four points are coplanar
         /// </summary>
+        [MethodImpl(JitHints.Optimize)]
         public static int Orient3d(Vector3d a, Vector3d b, Vector3d c, Vector3d d)
         {
             PredicateStats.Call(PredicateStats.Kind.Orient3d);
@@ -71,6 +74,7 @@ namespace g3
         /// +1 if d lies inside the circle through a, b, c (given counter-clockwise; the sign is reversed for
         /// clockwise input), -1 outside, 0 if the four points are cocircular
         /// </summary>
+        [MethodImpl(JitHints.Optimize)]
         public static int InCircle(Vector2d a, Vector2d b, Vector2d c, Vector2d d)
         {
             PredicateStats.Call(PredicateStats.Kind.InCircle);
@@ -98,6 +102,7 @@ namespace g3
         /// the sign is reversed for negative orientation), -1 outside, 0 if the five points are cospherical.
         /// Exact (floating-point filter, integer arithmetic for the uncertain cases).
         /// </summary>
+        [MethodImpl(JitHints.Optimize)]
         public static int InSphere(Vector3d a, Vector3d b, Vector3d c, Vector3d d, Vector3d e)
         {
             double aex = a.x - e.x, bex = b.x - e.x, cex = c.x - e.x, dex = d.x - e.x;
@@ -133,6 +138,7 @@ namespace g3
             return insphere_exact(a, b, c, d, e);
         }
 
+        [MethodImpl(JitHints.Optimize)]
         static int insphere_exact(Vector3d a, Vector3d b, Vector3d c, Vector3d d, Vector3d e)
         {
             if (a == e || b == e || c == e || d == e)
@@ -140,6 +146,7 @@ namespace g3
             return insphere_bigint(a, b, c, d, e);
         }
 
+        [MethodImpl(JitHints.Optimize)]
         internal static int insphere_bigint(Vector3d a, Vector3d b, Vector3d c, Vector3d d, Vector3d e)
         {
             BigInteger[] v = to_integers(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z, d.x, d.y, d.z, e.x, e.y, e.z);
@@ -162,6 +169,7 @@ namespace g3
         // exact versions: when no product can overflow or underflow, Shewchuk's adaptive stages B to D;
         // otherwise all coordinates as integers with a common power-of-two scale
 
+        [MethodImpl(JitHints.Optimize)]
         static int incircle_exact(Vector2d a, Vector2d b, Vector2d c, Vector2d d)
         {
             if (a == d || b == d || c == d || a == b || b == c || a == c)
@@ -171,6 +179,7 @@ namespace g3
             return AdaptivePredicates.InCircle(a.x, a.y, b.x, b.y, c.x, c.y, d.x, d.y);
         }
 
+        [MethodImpl(JitHints.Optimize)]
         static int orient2d_exact(Vector2d a, Vector2d b, Vector2d c)
         {
             if (a == b || b == c || a == c)
@@ -180,6 +189,7 @@ namespace g3
             return AdaptivePredicates.Orient2d(a.x, a.y, b.x, b.y, c.x, c.y);
         }
 
+        [MethodImpl(JitHints.Optimize)]
         static int orient3d_exact(Vector3d a, Vector3d b, Vector3d c, Vector3d d)
         {
             if (a == b || a == c || a == d || b == c || b == d || c == d)
@@ -190,6 +200,7 @@ namespace g3
             return -AdaptivePredicates.Orient3d(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z, d.x, d.y, d.z);
         }
 
+        [MethodImpl(JitHints.Optimize)]
         internal static int incircle_bigint(Vector2d a, Vector2d b, Vector2d c, Vector2d d)
         {
             BigInteger[] v = to_integers(a.x, a.y, b.x, b.y, c.x, c.y, d.x, d.y);
@@ -200,6 +211,7 @@ namespace g3
             return det.Sign;
         }
 
+        [MethodImpl(JitHints.Optimize)]
         internal static int orient2d_bigint(Vector2d a, Vector2d b, Vector2d c)
         {
             BigInteger[] v = to_integers(a.x, a.y, b.x, b.y, c.x, c.y);
@@ -207,6 +219,7 @@ namespace g3
             return (ux * vy - uy * vx).Sign;
         }
 
+        [MethodImpl(JitHints.Optimize)]
         internal static int orient3d_bigint(Vector3d a, Vector3d b, Vector3d c, Vector3d d)
         {
             BigInteger[] p = to_integers(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z, d.x, d.y, d.z);
@@ -222,6 +235,7 @@ namespace g3
         internal static int InCircleExact(Vector2d a, Vector2d b, Vector2d c, Vector2d d) { return incircle_exact(a, b, c, d); }
         internal static int InSphereExact(Vector3d a, Vector3d b, Vector3d c, Vector3d d, Vector3d e) { return insphere_exact(a, b, c, d, e); }
 
+        [MethodImpl(JitHints.Optimize)]
         static BigInteger[] to_integers(params double[] values)
         {
             int n = values.Length;
@@ -245,6 +259,7 @@ namespace g3
         }
 
         // v = mantissa * 2^exponent exactly
+        [MethodImpl(JitHints.Optimize)]
         static void decompose(double v, out long mantissa, out int exponent)
         {
             long bits = BitConverter.DoubleToInt64Bits(v);
@@ -276,6 +291,7 @@ namespace g3
         /// All nonzero values have magnitudes in [2^-100, 2^100]: then the degree-4 products of the
         /// predicates (and their error terms) stay far from overflow and from subnormal numbers.
         /// </summary>
+        [MethodImpl(JitHints.Optimize)]
         static bool in_range(double x)
         {
             double ax = Math.Abs(x);
@@ -296,6 +312,7 @@ namespace g3
             return InRange(a, b, c, d, e, f) && InRange(g, h, i, j, k, l);
         }
 
+        [MethodImpl(JitHints.Optimize)]
         internal static void TwoProduct(double a, double b, out double x, out double y)
         {
             x = a * b;

@@ -151,6 +151,23 @@ namespace geometry3Sharp.Tests
                 });
                 Assert.Equal(Enumerable.Range(0, n).ToArray(), local);
             }
+            // serial on this thread: in order, on the calling thread, one local
+            gParallel.SerialOnThisThread = true;
+            try {
+                var order = new List<int>();
+                int thread = Environment.CurrentManagedThreadId;
+                var locals = new HashSet<List<int>>();
+                gParallel.ForRange(100, () => new List<int>(), (i, buffer) => {
+                    Assert.Equal(thread, Environment.CurrentManagedThreadId);
+                    locals.Add(buffer);
+                    order.Add(i);
+                });
+                gParallel.ForRange(100, (i) => order.Add(100 + i));
+                Assert.Equal(Enumerable.Range(0, 200).ToList(), order);
+                Assert.Single(locals);
+            } finally {
+                gParallel.SerialOnThisThread = false;
+            }
         }
     }
 }

@@ -207,6 +207,7 @@ namespace g3
         /// set up an operation on any number of meshes in one arrangement: union (inside any), intersection
         /// (inside all) or difference (inside the first and none of the others); call Compute() to run it
         /// </summary>
+        [MethodImpl(JitHints.Optimize)]
         public ExactMeshBoolean(IEnumerable<DMesh3> meshes, Operations op)
         {
             Meshes = new List<DMesh3>(meshes ?? new DMesh3[0]);
@@ -464,6 +465,7 @@ namespace g3
             return double.IsNaN(x) == false && double.IsInfinity(x) == false;
         }
 
+        [MethodImpl(JitHints.Optimize)]
         bool fail(BooleanStatus status, string error)
         {
             Status = status;
@@ -482,6 +484,7 @@ namespace g3
         }
 
         /// <summary> as Resolve(mesh), with SafeRounding of the result if safeRounding </summary>
+        [MethodImpl(JitHints.Optimize)]
         public static DMesh3 Resolve(DMesh3 mesh, bool safeRounding)
         {
             var op = new ExactMeshBoolean(mesh, new DMesh3(), Operations.Union) { SafeRounding = safeRounding };
@@ -719,6 +722,7 @@ namespace g3
         static readonly int[] noWinding = new int[0];
 
         // the root of x in the union-find forest parent, without changing it (thread-safe for reading)
+        [MethodImpl(JitHints.Optimize)]
         static int find_const(int[] parent, int x)
         {
             while (parent[x] != x)
@@ -796,6 +800,7 @@ namespace g3
         }
 
 
+        [MethodImpl(JitHints.Optimize)]
         int centroid(ExactMeshArrangement.OutputTriangle ot)
         {
             ExactPoint3 a = arr.Exact(ot.A), b = arr.Exact(ot.B), c = arr.Exact(ot.C);
@@ -922,6 +927,7 @@ namespace g3
         /// most 2^-52 each); 2 if the error bound does not decide (also for overflow or tiny values, and for
         /// coordinates below TinyCoordinate, where the relative error of the rounding is not bounded)
         /// </summary>
+        [MethodImpl(JitHints.Optimize)]
         internal static int plane_side_filtered(double[] pa, double x, double y, double z)
         {
             if (tiny(x) || tiny(y) || tiny(z))
@@ -942,6 +948,7 @@ namespace g3
         readonly Dictionary<int, DMeshAABBTree3> windingTrees = new Dictionary<int, DMeshAABBTree3>();
 
         // the tree of an open mesh for its fast winding numbers (built when first needed: not thread-safe)
+        [MethodImpl(JitHints.Optimize)]
         DMeshAABBTree3 winding_tree(int mesh)
         {
             DMeshAABBTree3 tree;
@@ -1020,6 +1027,7 @@ namespace g3
         }
 
         // the grid coordinates of the point as doubles (each with relative error at most 2^-52, or NaN, see grid_coord)
+        [MethodImpl(JitHints.Optimize)]
         static Vector3d grid_double(ExactPoint3 p)
         {
             if (p.W.IsOne)
@@ -1035,6 +1043,7 @@ namespace g3
         internal const double TinyCoordinate = 4.909093465297727e-91;     // 2^-300
 
         // num / den (den > 0) as double, NaN if it is nonzero but below TinyCoordinate (the filters then decline)
+        [MethodImpl(JitHints.Optimize)]
         internal static double grid_coord(BigInteger num, BigInteger den)
         {
             double r = ExactPoint3.ToDouble(num, den, 0);
@@ -1047,6 +1056,7 @@ namespace g3
         /// orient3d(a, b, c, d) with a floating-point filter: the doubles da..dd approximate the points (relative
         /// error at most 2^-52 per coordinate); exact if the error bound does not decide (or DisableFilters)
         /// </summary>
+        [MethodImpl(JitHints.Optimize)]
         int orient3d(ExactPoint3 a, ExactPoint3 b, ExactPoint3 c, ExactPoint3 d, ref Vector3d da, ref Vector3d db, ref Vector3d dc, ref Vector3d dd)
         {
             PredicateStats.Call(PredicateStats.Kind.WindingOrient3d);
@@ -1068,6 +1078,7 @@ namespace g3
         /// most (|u|+eu)(|v|+ev)(|w|+ew) - |u||v||w| (expanding it multilinearly, Hadamard's inequality for
         /// each term); the evaluation adds at most 1e-15 times the permanent (Shewchuk's orient3d bound).
         /// </summary>
+        [MethodImpl(JitHints.Optimize)]
         internal static int orient3d_filtered(ref Vector3d a, ref Vector3d b, ref Vector3d c, ref Vector3d d)
         {
             if (tiny(a.x) || tiny(a.y) || tiny(a.z) || tiny(b.x) || tiny(b.y) || tiny(b.z)
@@ -1381,6 +1392,7 @@ namespace g3
         }
 
         // a triangle can run a -> b: no edge (a, b) yet, or one with one triangle that runs it b -> a
+        [MethodImpl(JitHints.Optimize)]
         static bool can_add_edge(DMesh3 mesh, int a, int b)
         {
             int eid = mesh.FindEdge(a, b);
@@ -1388,6 +1400,7 @@ namespace g3
         }
 
         // the edge (a, b) of the mesh exists and a triangle at it runs a -> b
+        [MethodImpl(JitHints.Optimize)]
         static bool runs_existing(DMesh3 mesh, int a, int b)
         {
             int eid = mesh.FindEdge(a, b);

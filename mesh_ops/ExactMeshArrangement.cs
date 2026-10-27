@@ -128,6 +128,7 @@ namespace g3
             }
 
             // plane through the integer points p, q, perpendicular to the triangle plane
+            [MethodImpl(JitHints.Optimize)]
             static Plane edge_plane(BigInteger NX, BigInteger NY, BigInteger NZ, ExactPoint3 p, ExactPoint3 q)
             {
                 BigInteger dx = q.X - p.X, dy = q.Y - p.Y, dz = q.Z - p.Z;
@@ -169,6 +170,7 @@ namespace g3
         }
 
         /// <summary> plane key: 4 * triangle for the triangle's plane, 4 * triangle + 1 + k for its edge plane k </summary>
+        [MethodImpl(JitHints.Optimize)]
         public Plane PlaneOf(int key)
         {
             InputTriangle t = Triangles[key >> 2];
@@ -196,6 +198,7 @@ namespace g3
 
             public bool Equals(PointKey o) { return Kind == o.Kind && A == o.A && B == o.B && C == o.C; }
             public override bool Equals(object obj) { return obj is PointKey && Equals((PointKey)obj); }
+            [MethodImpl(JitHints.Optimize)]
             public override int GetHashCode()
             {
                 ulong h = (ulong)Kind;
@@ -204,6 +207,7 @@ namespace g3
                 h = mix(h ^ (ulong)C);
                 return (int)h ^ (int)(h >> 32);
             }
+            [MethodImpl(JitHints.Optimize)]
             static ulong mix(ulong z)
             {
                 // SplitMix64 finalizer
@@ -212,6 +216,7 @@ namespace g3
                 z = (z ^ (z >> 27)) * 0x94D049BB133111EBUL;
                 return z ^ (z >> 31);
             }
+            [MethodImpl(JitHints.Optimize)]
             public int CompareTo(PointKey o)
             {
                 if (Kind != o.Kind) return Kind.CompareTo(o.Kind);
@@ -227,6 +232,7 @@ namespace g3
             /// <summary> the point is an integer point whose coordinates are doubles (D, exactly) </summary>
             public readonly bool IsDouble;
             public readonly Vector3d D;
+            [MethodImpl(JitHints.Optimize)]
             public ExactBox(ExactPoint3 p)
             {
                 P = p;
@@ -272,6 +278,7 @@ namespace g3
         public int PointCount { get { return System.Threading.Volatile.Read(ref nextPoint); } }
 
         /// <summary> the id that stands for all points equal to this one (after Compute: every id in Output is canonical) </summary>
+        [MethodImpl(JitHints.Optimize)]
         public int Canonical(int id)
         {
             int[] c = canonical;
@@ -289,6 +296,7 @@ namespace g3
             return System.Threading.Interlocked.Increment(ref nextPoint) - 1;
         }
 
+        [MethodImpl(JitHints.Optimize)]
         void store(int id, Vector3d a, double e, PointKey key, ExactBox exact)
         {
             approx.Set(id, a);
@@ -298,6 +306,7 @@ namespace g3
         }
 
         /// <summary> id of an exactly given point, a new one if it is not known yet (thread-safe) </summary>
+        [MethodImpl(JitHints.Optimize)]
         public int AddPoint(ExactPoint3 p)
         {
             Vector3d a = p.ApproxVector3d();
@@ -315,6 +324,7 @@ namespace g3
         }
 
         // id of an implicit point (thread-safe); a, e: its approximation and error bound
+        [MethodImpl(JitHints.Optimize)]
         int add_implicit(PointKey key, Vector3d a, double e)
         {
             ExactBox exact = null;
@@ -344,6 +354,7 @@ namespace g3
             return exact_box(id).P;
         }
 
+        [MethodImpl(JitHints.Optimize)]
         ExactBox exact_box(int id)
         {
             ExactBox b = exactPoints[id];
@@ -364,6 +375,7 @@ namespace g3
         }
 
         /// <summary> the grid coordinate (relative to Center) of the input coordinate v on axis k, exactly </summary>
+        [MethodImpl(JitHints.Optimize)]
         public BigInteger GridValue(double v, int k)
         {
             BigInteger m; int e;
@@ -372,6 +384,7 @@ namespace g3
         }
 
         // the point of a construction, canonical if reduce (else W > 0 but not reduced, cheaper)
+        [MethodImpl(JitHints.Optimize)]
         ExactPoint3 compute_exact(PointKey key, bool reduce)
         {
             BigInteger x, y, z, w;
@@ -394,6 +407,7 @@ namespace g3
 
         // where the segment P-Q crosses the plane (the endpoints are on opposite sides): (s_p Q - s_q P) / (s_p - s_q)
         // with s the plane values (homogeneous)
+        [MethodImpl(JitHints.Optimize)]
         static void edge_plane_exact(ExactPoint3 P, ExactPoint3 Q, Plane plane, out BigInteger x, out BigInteger y, out BigInteger z, out BigInteger w)
         {
             BigInteger sp = plane.A * P.X + plane.B * P.Y + plane.C * P.Z - plane.D * P.W;
@@ -402,6 +416,7 @@ namespace g3
         }
 
         // where the segment P-Q crosses the line R-S (in the same plane), in the projection that drops axis
+        [MethodImpl(JitHints.Optimize)]
         static void segments_exact(ExactPoint3 P, ExactPoint3 Q, ExactPoint3 R, ExactPoint3 S, int axis, out BigInteger x, out BigInteger y, out BigInteger z, out BigInteger w)
         {
             int i = (axis + 1) % 3, j = (axis + 2) % 3;
@@ -411,6 +426,7 @@ namespace g3
         }
 
         // the point common to three planes (they must be independent)
+        [MethodImpl(JitHints.Optimize)]
         static void planes_exact(Plane p1, Plane p2, Plane p3, out BigInteger x, out BigInteger y, out BigInteger z, out BigInteger w)
         {
             // Cramer: x = (d1 (n2 x n3) + d2 (n3 x n1) + d3 (n1 x n2)) / det(n1, n2, n3)
@@ -426,6 +442,7 @@ namespace g3
         }
 
         /// <summary> the point where the segment between the rational points p, q crosses the plane, as a rational point </summary>
+        [MethodImpl(JitHints.Optimize)]
         public int EdgePlanePoint(int p, int q, Plane plane)
         {
             BigInteger x, y, z, w;
@@ -434,6 +451,7 @@ namespace g3
         }
 
         /// <summary> the point common to three planes (they must be independent), as a rational point </summary>
+        [MethodImpl(JitHints.Optimize)]
         public int PlanesPoint(Plane p1, Plane p2, Plane p3)
         {
             BigInteger x, y, z, w;
@@ -446,6 +464,7 @@ namespace g3
         // ---- implicit points: constructions with their approximations ----
 
         /// <summary> where edge p-q of rational points crosses the plane (key); the ends are on opposite sides </summary>
+        [MethodImpl(JitHints.Optimize)]
         internal int EdgePlanePointImplicit(int p, int q, int plane)
         {
             if (p > q) { int tmp = p; p = q; q = tmp; }
@@ -461,6 +480,7 @@ namespace g3
         }
 
         /// <summary> where the edges p-q and r-s of rational points cross (in one plane, projected by dropping axis) </summary>
+        [MethodImpl(JitHints.Optimize)]
         internal int SegmentsPointImplicit(int p, int q, int r, int s, int axis)
         {
             long e1 = EdgeKey(p, q), e2 = EdgeKey(r, s);
@@ -479,6 +499,7 @@ namespace g3
         }
 
         /// <summary> the point common to three planes (keys) of different triangles </summary>
+        [MethodImpl(JitHints.Optimize)]
         internal int PlanesPointImplicit(int k1, int k2, int k3)
         {
             if (k1 > k2) { int tmp = k1; k1 = k2; k2 = tmp; }
@@ -503,6 +524,7 @@ namespace g3
             return Math.Max(Math.Abs(a.x), Math.Max(Math.Abs(a.y), Math.Abs(a.z)));
         }
 
+        [MethodImpl(JitHints.Optimize)]
         static bool finite(Vector3d a)
         {
             double s = a.x + a.y + a.z;
@@ -510,6 +532,7 @@ namespace g3
         }
 
         // A x + B y + C z - D for the plane at pa[o..o+3] (relative errors 2^-52) and a point with coordinate errors e
+        [MethodImpl(JitHints.Optimize)]
         internal static double plane_value(double[] pa, int o, Vector3d x, double e, out double err)
         {
             double A = pa[o], B = pa[o + 1], C = pa[o + 2], D = pa[o + 3];
@@ -524,6 +547,7 @@ namespace g3
         /// set of a function (exactly of opposite signs at the ends) with approximate values sp, sq (errors esp, esq).
         /// The error of t is below (esp + esq) / (|sp| + |sq| - esp - esq), and the point stays on the segment.
         /// </summary>
+        [MethodImpl(JitHints.Optimize)]
         internal static Vector3d segment_point(Vector3d P, double ep, Vector3d Q, double eq, double sp, double esp, double sq, double esq, out double err)
         {
             double a = Math.Abs(sp), b = Math.Abs(sq), den = a + b, ee = 1.01 * (esp + esq);
@@ -540,6 +564,7 @@ namespace g3
         // orient2d of the approximations in coordinates (i, j), with coordinate errors at most e: the determinant and
         // a bound on its error. With errors eps = 2 e + U M of the differences (all at most M): products 2 eps (2 M + eps),
         // rounding 2 U M^2 (Shewchuk: 3 u + 16 u^2 of the terms)
+        [MethodImpl(JitHints.Optimize)]
         internal static double orient2d_approx(Vector3d a, Vector3d b, Vector3d c, int i, int j, double e, out double err)
         {
             double bx = b[i] - a[i], by = b[j] - a[j], cx = c[i] - a[i], cy = c[j] - a[j];
@@ -549,6 +574,7 @@ namespace g3
             return bx * cy - by * cx;
         }
 
+        [MethodImpl(JitHints.Optimize)]
         Vector3d planes_approx(int k1, int k2, int k3, out double err)
         {
             return planes_approx(Triangles[k1 >> 2].PlaneApprox, 4 * (k1 & 3), Triangles[k2 >> 2].PlaneApprox, 4 * (k2 & 3),
@@ -556,6 +582,7 @@ namespace g3
         }
 
         // the point common to the planes at q1[o1..o1+3], q2[o2..], q3[o3..] (coefficients with relative errors 2^-52)
+        [MethodImpl(JitHints.Optimize)]
         internal static Vector3d planes_approx(double[] q1, int o1, double[] q2, int o2, double[] q3, int o3, out double err)
         {
             double a1 = q1[o1], b1 = q1[o1 + 1], c1 = q1[o1 + 2], d1 = q1[o1 + 3];
@@ -593,6 +620,7 @@ namespace g3
 
 
         /// <summary> input coordinates of a point, rounded to double (correctly: from the exact point) </summary>
+        [MethodImpl(JitHints.Optimize)]
         public Vector3d PointToVector(int id)
         {
             PointKey key = keys[id];
@@ -603,6 +631,7 @@ namespace g3
         }
 
         /// <summary> PointToVector of many points, in parallel </summary>
+        [MethodImpl(JitHints.Optimize)]
         public Vector3d[] PointsToVectors(IList<int> ids)
         {
             var v = new Vector3d[ids.Count];
@@ -611,6 +640,7 @@ namespace g3
         }
 
         /// <summary> the exact point p (grid coordinates) in input coordinates </summary>
+        [MethodImpl(JitHints.Optimize)]
         public ExactPoint3 ToInputExact(ExactPoint3 p)
         {
             BigInteger x = p.X + Center[0] * p.W, y = p.Y + Center[1] * p.W, z = p.Z + Center[2] * p.W, w = p.W;
@@ -623,6 +653,7 @@ namespace g3
         }
 
         /// <summary> input coordinates of a grid point (rounded to double) </summary>
+        [MethodImpl(JitHints.Optimize)]
         public Vector3d ToInputVector(ExactPoint3 p)
         {
             return new Vector3d(ExactPoint3.ToDouble(p.X + Center[0] * p.W, p.W, ScaleExp),
@@ -635,6 +666,7 @@ namespace g3
         // values, unlike for a single coordinate, so the exact points are rarely needed), then lexicographic
         internal static readonly double[] Alpha = { 1.0, 0.7548776662466927, 0.5698402909980532 };
         static readonly BigInteger[] AlphaInt = { alpha_int(Alpha[0]), alpha_int(Alpha[1]), alpha_int(Alpha[2]) };
+        [MethodImpl(JitHints.Optimize)]
         static BigInteger alpha_int(double a)
         {
             // a * 2^53, an integer for a in [0.5, 1]
@@ -644,6 +676,7 @@ namespace g3
         }
 
         // a . p of the approximation, with a bound on its error
+        [MethodImpl(JitHints.Optimize)]
         internal static double order_key(Vector3d a, double e, out double err)
         {
             double x = Alpha[0] * a.x, y = Alpha[1] * a.y, z = Alpha[2] * a.z;
@@ -928,6 +961,7 @@ namespace g3
             }
         }
 
+        [MethodImpl(JitHints.Optimize)]
         InputTriangle input_triangle(int mi, DMesh3 mesh, int tid)
         {
             Index3i t = mesh.GetTriangle(tid);
@@ -956,6 +990,7 @@ namespace g3
 
 
         /// <summary> orientation of three points in the projection of triangle t, +1 if counter-clockwise like t </summary>
+        [MethodImpl(JitHints.Optimize)]
         public int Orient(InputTriangle t, int p, int q, int r)
         {
             if (p == q || q == r || r == p)
@@ -981,6 +1016,7 @@ namespace g3
         }
 
         /// <summary> InCircle decided from the approximations only (also with DisableFilters): 0 if they do not decide it </summary>
+        [MethodImpl(JitHints.Optimize)]
         internal int InCircleFiltered(InputTriangle t, int p, int q, int r, int s)
         {
             int i = (t.Axis + 1) % 3, j = (t.Axis + 2) % 3;
@@ -994,6 +1030,7 @@ namespace g3
 
         // incircle determinant of the approximations in coordinates (i, j), with coordinate errors at most e, and a
         // bound on its error
+        [MethodImpl(JitHints.Optimize)]
         internal static double incircle_approx(Vector3d fa, Vector3d fb, Vector3d fc, Vector3d fd, int i, int j, double e, out double bound)
         {
             // differences at most M with errors eps = 2 e + U M; lifts and 2x2 minors at most 2 M^2 with errors
@@ -1042,6 +1079,7 @@ namespace g3
             return det.Sign * t.Sign;
         }
 
+        [MethodImpl(JitHints.Optimize)]
         static void incircle_row(ExactPoint3 v, ExactPoint3 d, int i, int j, out BigInteger x, out BigInteger y, out BigInteger l)
         {
             BigInteger A, B, s;
@@ -1071,6 +1109,7 @@ namespace g3
         }
 
         // closed triangle contains point (which lies in its plane)
+        [MethodImpl(JitHints.Optimize)]
         bool inside(InputTriangle t, int r)
         {
             return Orient(t, t.Corners[0], t.Corners[1], r) >= 0
@@ -1078,28 +1117,47 @@ namespace g3
                 && Orient(t, t.Corners[2], t.Corners[0], r) >= 0;
         }
 
+        /// <summary> a direction (integer), with its coordinates rounded to double for the filter of compare_along </summary>
+        internal struct Direction
+        {
+            public readonly BigInteger X, Y, Z;
+            public readonly double FX, FY, FZ;
+            public Direction(BigInteger x, BigInteger y, BigInteger z)
+            {
+                X = x; Y = y; Z = z;
+                FX = (double)x; FY = (double)y; FZ = (double)z;
+            }
+        }
+
         // position of point along a direction: compare (d . p1) / w1 with (d . p2) / w2
         internal int compare_along(BigInteger dx, BigInteger dy, BigInteger dz, int p1, int p2)
+        {
+            return compare_along(new Direction(dx, dy, dz), p1, p2);
+        }
+
+        [MethodImpl(JitHints.Optimize)]
+        internal int compare_along(in Direction d, int p1, int p2)
         {
             if (p1 == p2)
                 return 0;
             PredicateStats.Call(PredicateStats.Kind.ArrAlong);
             if (DisableFilters == false) {
                 double bound;
-                double diff = along_approx((double)dx, (double)dy, (double)dz, approx[p1], approx[p2], Math.Max(approxErr[p1], approxErr[p2]), out bound);
+                double diff = along_approx(d.FX, d.FY, d.FZ, approx[p1], approx[p2], Math.Max(approxErr[p1], approxErr[p2]), out bound);
                 if (diff > bound) return 1;
                 if (-diff > bound) return -1;
             }
             PredicateStats.ExactStage(PredicateStats.Kind.ArrAlong);
             ExactPoint3 a = Exact(p1), b = Exact(p2);
-            BigInteger ka = (dx * a.X + dy * a.Y + dz * a.Z) * b.W;
-            BigInteger kb = (dx * b.X + dy * b.Y + dz * b.Z) * a.W;
+            BigInteger ka = (d.X * a.X + d.Y * a.Y + d.Z * a.Z) * b.W;
+            BigInteger kb = (d.X * b.X + d.Y * b.Y + d.Z * b.Z) * a.W;
             return ka.CompareTo(kb);
         }
 
         // d . (a - b) for the direction d rounded to double (fdx, fdy, fdz: relative errors U) and approximations a, b
         // with coordinate errors at most e, and a bound on its error: differences with errors 2 e + U |.|, rounding
         // of the dot product
+        [MethodImpl(JitHints.Optimize)]
         internal static double along_approx(double fdx, double fdy, double fdz, Vector3d fa, Vector3d fb, double e, out double bound)
         {
             double ux = fa.x - fb.x, uy = fa.y - fb.y, uz = fa.z - fb.z;
@@ -1109,11 +1167,10 @@ namespace g3
         }
 
         // direction of the line where the plane line meets the triangle plane
-        static void line_direction(InputTriangle t, Plane line, out BigInteger dx, out BigInteger dy, out BigInteger dz)
+        [MethodImpl(JitHints.Optimize)]
+        static Direction line_direction(InputTriangle t, Plane line)
         {
-            dx = t.NY * line.C - t.NZ * line.B;
-            dy = t.NZ * line.A - t.NX * line.C;
-            dz = t.NX * line.B - t.NY * line.A;
+            return new Direction(t.NY * line.C - t.NZ * line.B, t.NZ * line.A - t.NX * line.C, t.NX * line.B - t.NY * line.A);
         }
 
 
@@ -1227,6 +1284,7 @@ namespace g3
         public int CandidatePairs;
 
         // all corners of one triangle strictly on one side of the other's plane (exact double predicates)
+        [MethodImpl(JitHints.Optimize)]
         bool separated(InputTriangle T, InputTriangle U)
         {
             Vector3d t0 = input_vertex(T, 0), t1 = input_vertex(T, 1), t2 = input_vertex(T, 2);
@@ -1274,6 +1332,7 @@ namespace g3
             return side != 0;
         }
 
+        [MethodImpl(JitHints.Optimize)]
         static AxisAlignedBox3d triangle_box(InputTriangle t)
         {
             AxisAlignedBox3d box = new AxisAlignedBox3d(t.V0);
@@ -1288,6 +1347,7 @@ namespace g3
         }
 
 
+        [MethodImpl(JitHints.Optimize)]
         void intersect(int ti, int ui)
         {
             InputTriangle T = Triangles[ti], U = Triangles[ui];
@@ -1307,13 +1367,13 @@ namespace g3
             }
 
             List<int> pT = plane_points(T, sT, 4 * ui), pU = plane_points(U, sU, 4 * ti);
-            BigInteger dx = T.NY * U.NZ - T.NZ * U.NY, dy = T.NZ * U.NX - T.NX * U.NZ, dz = T.NX * U.NY - T.NY * U.NX;
+            var d = new Direction(T.NY * U.NZ - T.NZ * U.NY, T.NZ * U.NX - T.NX * U.NZ, T.NX * U.NY - T.NY * U.NX);
             int loT, hiT, loU, hiU;
-            min_max(pT, dx, dy, dz, out loT, out hiT);
-            min_max(pU, dx, dy, dz, out loU, out hiU);
-            int lo = (compare_along(dx, dy, dz, loT, loU) >= 0) ? loT : loU;
-            int hi = (compare_along(dx, dy, dz, hiT, hiU) <= 0) ? hiT : hiU;
-            int c = compare_along(dx, dy, dz, lo, hi);
+            min_max(pT, d, out loT, out hiT);
+            min_max(pU, d, out loU, out hiU);
+            int lo = (compare_along(d, loT, loU) >= 0) ? loT : loU;
+            int hi = (compare_along(d, hiT, hiU) <= 0) ? hiT : hiU;
+            int c = compare_along(d, lo, hi);
             if (c > 0)
                 return;
             System.Threading.Interlocked.Increment(ref IntersectingPairs);
@@ -1342,12 +1402,12 @@ namespace g3
         }
 
         [MethodImpl(JitHints.Optimize)]
-        void min_max(List<int> pts, BigInteger dx, BigInteger dy, BigInteger dz, out int lo, out int hi)
+        void min_max(List<int> pts, in Direction d, out int lo, out int hi)
         {
             lo = hi = pts[0];
             for (int k = 1; k < pts.Count; ++k) {
-                if (compare_along(dx, dy, dz, pts[k], lo) < 0) lo = pts[k];
-                if (compare_along(dx, dy, dz, pts[k], hi) > 0) hi = pts[k];
+                if (compare_along(d, pts[k], lo) < 0) lo = pts[k];
+                if (compare_along(d, pts[k], hi) > 0) hi = pts[k];
             }
         }
 
@@ -1377,12 +1437,11 @@ namespace g3
             var cands = new List<int>();
             if (inside(t, p)) cands.Add(p);
             if (inside(t, q)) cands.Add(q);
-            BigInteger dx, dy, dz;
-            line_direction(t, PlaneOf(line), out dx, out dy, out dz);
+            Direction d = line_direction(t, PlaneOf(line));
             for (int k = 0; k < 3; ++k) {
                 int ci = t.Corners[k], cj = t.Corners[(k + 1) % 3];
                 int o1 = Orient(t, p, q, ci), o2 = Orient(t, p, q, cj);
-                if (o1 == 0 && between(dx, dy, dz, p, q, ci))
+                if (o1 == 0 && between(d, p, q, ci))
                     cands.Add(ci);
                 if (o1 * o2 < 0) {
                     int o3 = Orient(t, ci, cj, p), o4 = Orient(t, ci, cj, q);
@@ -1393,9 +1452,9 @@ namespace g3
             if (cands.Count == 0)
                 return false;
             int lo, hi;
-            min_max(cands, dx, dy, dz, out lo, out hi);
+            min_max(cands, d, out lo, out hi);
             lock (t) {
-                if (compare_along(dx, dy, dz, lo, hi) == 0)
+                if (compare_along(d, lo, hi) == 0)
                     t.AddPoint(lo);
                 else
                     t.AddSegment(new Segment(lo, hi, line));
@@ -1404,9 +1463,10 @@ namespace g3
         }
 
         // r (on the line p-q) is in the closed segment p-q
-        bool between(BigInteger dx, BigInteger dy, BigInteger dz, int p, int q, int r)
+        [MethodImpl(JitHints.Optimize)]
+        bool between(in Direction d, int p, int q, int r)
         {
-            int a = compare_along(dx, dy, dz, p, r), b = compare_along(dx, dy, dz, r, q);
+            int a = compare_along(d, p, r), b = compare_along(d, r, q);
             return (a <= 0 && b <= 0) || (a >= 0 && b >= 0);
         }
 
@@ -1508,8 +1568,7 @@ namespace g3
                 grid.Add(p, p);
             var candidates = new List<int>();
             foreach (Segment s in t.Segments) {
-                BigInteger dx, dy, dz;
-                line_direction(t, PlaneOf(s.Line), out dx, out dy, out dz);
+                Direction d = line_direction(t, PlaneOf(s.Line));
                 int sp = Canonical(s.P), sq = Canonical(s.Q);
                 var on = new List<int>() { sp, sq };
                 candidates.Clear();
@@ -1517,10 +1576,10 @@ namespace g3
                 candidates.AddRange(t.Corners);
                 foreach (int r in candidates) {
                     if (r == sp || r == sq) continue;
-                    if (Orient(t, sp, sq, r) == 0 && between(dx, dy, dz, sp, sq, r))
+                    if (Orient(t, sp, sq, r) == 0 && between(d, sp, sq, r))
                         on.Add(r);
                 }
-                on.Sort((a, b) => compare_along(dx, dy, dz, a, b));
+                on.Sort((a, b) => compare_along(d, a, b));
                 for (int k = 0; k + 1 < on.Count; ++k) {
                     tri.InsertConstraint(on[k], on[k + 1]);
                     constraints.Add(EdgeKey(on[k], on[k + 1]));
@@ -1566,6 +1625,7 @@ namespace g3
                 n0 = (count < 16) ? 1 : Math.Min(1024, (int)Math.Ceiling(Math.Sqrt(count)));
             }
 
+            [MethodImpl(JitHints.Optimize)]
             void set_size(int size)
             {
                 n = size;
@@ -1617,12 +1677,14 @@ namespace g3
                 return r;
             }
 
+            [MethodImpl(JitHints.Optimize)]
             int cell(double v, double v0, double c)
             {
                 double f = Math.Floor((v - v0) / c);
                 return !(f > 0) ? 0 : (f >= n - 1) ? n - 1 : (int)f;
             }
 
+            [MethodImpl(JitHints.Optimize)]
             void range(double[] b, out int ix0, out int iy0, out int ix1, out int iy1)
             {
                 if (n == 1) { ix0 = iy0 = ix1 = iy1 = 0; return; }
@@ -1635,6 +1697,7 @@ namespace g3
             }
 
             /// <summary> add an item (index: the number of items added before), before the first query </summary>
+            [MethodImpl(JitHints.Optimize)]
             public void Add(int p, int q)
             {
                 if (cells != null)
@@ -1738,6 +1801,7 @@ namespace g3
                     break;
         }
 
+        [MethodImpl(JitHints.Optimize)]
         public void Add(T v)
         {
             int c = count, ci = c >> Shift;
@@ -1763,6 +1827,7 @@ namespace g3
     {
         public static readonly EdgeKeyComparer Instance = new EdgeKeyComparer();
         public bool Equals(long a, long b) { return a == b; }
+        [MethodImpl(JitHints.Optimize)]
         public int GetHashCode(long key)
         {
             // SplitMix64 finalizer
@@ -1814,6 +1879,7 @@ namespace g3
                 put(leafBox, i, boxes[order[i]]);
         }
 
+        [MethodImpl(JitHints.Optimize)]
         static void put(double[] a, int i, AxisAlignedBox3d b)
         {
             a[6 * i] = b.Min.x; a[6 * i + 1] = b.Min.y; a[6 * i + 2] = b.Min.z;
@@ -1914,6 +1980,7 @@ namespace g3
         }
 
         // the closed boxes b[6 i ..] and the query (min x, y, z, max x, y, z) overlap
+        [MethodImpl(JitHints.Optimize)]
         static bool overlaps(double[] b, int i, double x0, double y0, double z0, double x1, double y1, double z1)
         {
             int o = 6 * i;
@@ -1923,6 +1990,7 @@ namespace g3
         [ThreadStatic] static int[] queryStack;
 
         /// <summary> call f for every box that overlaps the closed query box </summary>
+        [MethodImpl(JitHints.Optimize)]
         public void Query(AxisAlignedBox3d query, Action<int> f)
         {
             var result = new List<int>();

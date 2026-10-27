@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Runtime.CompilerServices;
 
 namespace g3
 {
@@ -990,6 +991,7 @@ namespace g3
         /// <summary>
         /// Append new vertex at position and other fields, returns new vid
         /// </summary>
+        [MethodImpl(JitHints.Optimize)]
         public int AppendVertex(ref NewVertexInfo info)
         {
             int vid = vertices_refcount.allocate();
@@ -1156,6 +1158,7 @@ namespace g3
         /// throwing: InvalidID if a vertex does not exist or two vertices are equal, NonManifoldID if an edge
         /// of the triangle already has two triangles. Check the result (tid &gt;= 0).
         /// </summary>
+        [MethodImpl(JitHints.Optimize)]
         public int AppendTriangle(Index3i tv, int gid = -1) {
             if (IsVertex(tv[0]) == false || IsVertex(tv[1]) == false || IsVertex(tv[2]) == false) {
                 Util.gDevAssert(false);

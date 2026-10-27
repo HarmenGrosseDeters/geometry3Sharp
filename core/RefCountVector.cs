@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections;
+using System.Runtime.CompilerServices;
 
 namespace g3
 {
@@ -80,6 +81,7 @@ namespace g3
         }
 
 
+        [MethodImpl(JitHints.Optimize)]
         public int allocate() {
             used_count++;
             if (free_indices.empty) {

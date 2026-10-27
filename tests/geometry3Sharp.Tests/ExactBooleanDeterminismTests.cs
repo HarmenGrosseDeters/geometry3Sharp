@@ -67,6 +67,60 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        // the fingerprint of the result (with the exact vertices, if computed) of a boolean computed serially
+        // (gParallel.ForRange runs its items one after the other on this thread)
+        static string SerialFingerprint(Func<ExactMeshBoolean> make)
+        {
+            gParallel.SerialOnThisThread = true;
+            try {
+                ExactMeshBoolean b = make();
+                Assert.True(b.Compute(), b.Error);
+                return Fingerprint(b.Result) + ((b.ResultExactVertices != null) ? "|" + string.Join(";", b.ResultExactVertices.Select(p => $"{p.X},{p.Y},{p.Z},{p.W}")) : "");
+            } finally {
+                gParallel.SerialOnThisThread = false;
+            }
+        }
+
+        static void AssertSerialEqualsParallel(Func<ExactMeshBoolean> make)
+        {
+            string serial = SerialFingerprint(make);
+            for (int run = 0; run < 5; ++run) {
+                ExactMeshBoolean b = make();
+                Assert.True(b.Compute(), b.Error);
+                string print = Fingerprint(b.Result) + ((b.ResultExactVertices != null) ? "|" + string.Join(";", b.ResultExactVertices.Select(p => $"{p.X},{p.Y},{p.Z},{p.W}")) : "");
+                Assert.True(serial == print, $"parallel run {run} differs from the serial run");
+            }
+        }
+
+        [Fact]
+        public void SerialEqualsParallel_BitIdentical()
+        {
+            // the parallel phases (pair search, intersections, merge, triangulation, classification of the patches,
+            // stacks of coplanar pieces) give the same result on one thread: box and sphere with flat regions,
+            // coplanar boxes (n-ary, merged points, stacks), a self-intersecting input, an open input (generalized
+            // winding numbers), touching boxes (split edges)
+            DMesh3 box = Box(new Vector3d(-1.2, -1.1, -0.9), new Vector3d(0.3, 0.6, 1.1));
+            DMesh3 sphere = Sphere(new Vector3d(-0.6, -0.5, 0.2), 0.7, 6);
+            AssertSerialEqualsParallel(() => new ExactMeshBoolean(box, sphere, ExactMeshBoolean.Operations.Difference) { ComputeExactVertices = true });
+            var boxes = new List<DMesh3>();
+            for (int i = 0; i < 2; ++i)
+                for (int j = 0; j < 2; ++j)
+                    for (int k = 0; k < 2; ++k) {
+                        boxes.Add(Box(new Vector3d(0.9 * i, 0.9 * j, 0.9 * k), new Vector3d(0.9 * i + 1, 0.9 * j + 1, 0.9 * k + 1)));
+                        boxes.Add(Box(new Vector3d(0.9 * i + 0.25, 0.9 * j + 0.25, 0.9 * k + 0.25), new Vector3d(0.9 * i + 0.75, 0.9 * j + 0.75, 0.9 * k + 0.75)));
+                    }
+            AssertSerialEqualsParallel(() => new ExactMeshBoolean(boxes, (w) => w.Where((x, m) => m % 2 == 0 && x > 0).Any() && w.Where((x, m) => m % 2 == 1 && x > 0).Any() == false));
+            DMesh3 twisted = Sphere(new Vector3d(0, 0, 0), 1, 8);
+            MeshEditor.Append(twisted, Sphere(new Vector3d(0.6, 0.2, 0.1), 0.8, 7));
+            AssertSerialEqualsParallel(() => new ExactMeshBoolean(twisted, box, ExactMeshBoolean.Operations.Union));
+            DMesh3 open = Sphere(new Vector3d(-0.2, 0.1, 0), 0.9, 7);
+            open.RemoveTriangle(open.TriangleIndices().First());
+            AssertSerialEqualsParallel(() => new ExactMeshBoolean(open, box, ExactMeshBoolean.Operations.Intersection));
+            var touching = new List<DMesh3>() { Box(new Vector3d(0, 0, 0), new Vector3d(1, 1, 1)), Box(new Vector3d(1, 1, -0.2), new Vector3d(2, 2, 1.3)),
+                Sphere(new Vector3d(1.05, 0.93, 0.5), 0.15, 5) };
+            AssertSerialEqualsParallel(() => new ExactMeshBoolean(touching, ExactMeshBoolean.Operations.Union));
+        }
+
         [Theory]
         [InlineData(ExactMeshBoolean.Operations.Intersection)]
         [InlineData(ExactMeshBoolean.Operations.Union)]

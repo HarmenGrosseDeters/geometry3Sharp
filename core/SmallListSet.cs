@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 
 namespace g3
 {
@@ -100,6 +101,7 @@ namespace g3
         /// <summary>
         /// insert val into list at list_index. 
         /// </summary>
+        [MethodImpl(JitHints.Optimize)]
         public void Insert(int list_index, int val)
         {
             int block_ptr = list_heads[list_index];
@@ -424,6 +426,7 @@ namespace g3
 
 
         // grab a block from the free list, or allocate a new one
+        [MethodImpl(JitHints.Optimize)]
         protected int allocate_block()
         {
             int nfree = free_blocks.size;

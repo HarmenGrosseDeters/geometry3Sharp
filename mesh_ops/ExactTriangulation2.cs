@@ -28,6 +28,7 @@ namespace g3
         readonly Dictionary<int, int> vertexTri = new Dictionary<int, int>();       // vertex -> a triangle that had it (check before use)
         readonly int[] outer;
 
+        [MethodImpl(JitHints.Optimize)]
         public ExactTriangulation2(int c0, int c1, int c2, Func<int, int, int, int> orient, Func<int, int, int, int, int> incircle)
         {
             this.orient = orient;
@@ -48,6 +49,7 @@ namespace g3
         static long dkey(int a, int b) { return ((long)a << 32) | (uint)b; }
         static long ukey(int a, int b) { return (a < b) ? dkey(a, b) : dkey(b, a); }
 
+        [MethodImpl(JitHints.Optimize)]
         int add_tri(int a, int b, int c)
         {
             int ti;
@@ -65,6 +67,7 @@ namespace g3
             return ti;
         }
 
+        [MethodImpl(JitHints.Optimize)]
         void remove_tri(int ti)
         {
             int[] t = tris[ti];
@@ -86,6 +89,7 @@ namespace g3
 
 
         /// <summary> insert a point inside or on the boundary of the outer triangle </summary>
+        [MethodImpl(JitHints.Optimize)]
         public void InsertPoint(int p)
         {
             if (vertices.Contains(p))
@@ -191,6 +195,7 @@ namespace g3
             return -1;
         }
 
+        [MethodImpl(JitHints.Optimize)]
         void split_edge(int a, int b, int p)
         {
             bool wasConstrained = constrained.Remove(ukey(a, b));
@@ -216,6 +221,7 @@ namespace g3
         }
 
         // flip edge (a, b) shared by triangles (a, b, c) and (b, a, d) to (c, d); returns false if not possible
+        [MethodImpl(JitHints.Optimize)]
         bool flip(int a, int b, out int c, out int d)
         {
             c = d = -1;
@@ -237,6 +243,7 @@ namespace g3
         }
 
         // does edge (x, y) cross segment (u, v) in its interior?
+        [MethodImpl(JitHints.Optimize)]
         bool crosses(int x, int y, int u, int v)
         {
             if (x == u || x == v || y == u || y == v)
