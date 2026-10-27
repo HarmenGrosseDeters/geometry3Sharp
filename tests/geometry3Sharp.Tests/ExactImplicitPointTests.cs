@@ -354,6 +354,37 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        [Theory]
+        [InlineData(2, 0)]
+        [InlineData(3, 1)]
+        public void CoplanarTriangles_ShareConstructions_SameOutput(int n, int seed)
+        {
+            // a grid of boxes with coplanar faces and a rotated box: the points where an edge crosses one plane are
+            // constructed once for all triangles in that plane (fewer points to merge); the pieces and their exact
+            // points are the same as with a construction per triangle
+            var meshes = new List<DMesh3>();
+            for (int i = 0; i < n; ++i)
+                for (int j = 0; j < n; ++j)
+                    meshes.Add(Box(new Vector3d(0.9 * i, 0.9 * j, 0), 0.5, Quaterniond.Identity));
+            meshes.Add(Box(new Vector3d(0.4, 0.45, 0.2), 0.8, Rotation(new Random(seed), 360)));
+            meshes.Add(Box(new Vector3d(0.45 * n, 0.4, 0.1), 0.6, Quaterniond.Identity));
+            string reference = null;
+            int sharedPoints = 0, separatePoints = 0;
+            foreach (bool share in new[] { false, true }) {
+                var arr = new ExactMeshArrangement(meshes) { SelfIntersections = true, ShareCoplanarConstructions = share };
+                arr.Compute();
+                AssertDistinctPoints(arr);
+                for (int id = 0; id < arr.PointCount; ++id)
+                    AssertWithinBound(arr, id);
+                if (share) sharedPoints = arr.PointCount; else separatePoints = arr.PointCount;
+                string print = string.Join(";", arr.Output.Select(o => o.Mesh + ":" + string.Join(",", new[] { o.A, o.B, o.C }.Select(id => {
+                    var x = arr.Exact(id); return x.X + "," + x.Y + "," + x.Z + "," + x.W; }))));
+                if (reference == null) reference = print;
+                else Assert.Equal(reference, print);
+            }
+            Assert.True(sharedPoints < separatePoints, $"{sharedPoints} {separatePoints}");
+        }
+
         [Fact]
         public void CoincidentConstructions_AreMerged()
         {

@@ -468,6 +468,7 @@ namespace g3
         internal int EdgePlanePointImplicit(int p, int q, int plane)
         {
             if (p > q) { int tmp = p; p = q; q = tmp; }
+            plane = CanonicalPlane(plane);
             double[] pa = Triangles[plane >> 2].PlaneApprox;
             int o = 4 * (plane & 3);
             Vector3d P = approx[p], Q = approx[q];
@@ -502,6 +503,7 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         internal int PlanesPointImplicit(int k1, int k2, int k3)
         {
+            k1 = CanonicalPlane(k1); k2 = CanonicalPlane(k2); k3 = CanonicalPlane(k3);
             if (k1 > k2) { int tmp = k1; k1 = k2; k2 = tmp; }
             if (k2 > k3) { int tmp = k2; k2 = k3; k3 = tmp; }
             if (k1 > k2) { int tmp = k1; k1 = k2; k2 = tmp; }
@@ -1298,12 +1300,81 @@ namespace g3
             gParallel.ForRange(Triangles.Count, (ti) => {
                 if (needed[ti]) { var plane = Triangles[ti].P; }
             });
+            // and the same plane for triangles in one plane: candidates by a key from the plane's double
+            // approximation (normalized by its largest normal component, rounded), then compared exactly (equal planes
+            // whose keys round apart are only constructed separately, as before)
+            var buckets = new Dictionary<(double, double, double, double), List<int>>();
+            var rep = new int[4 * Triangles.Count];
+            for (int key = 0; key < rep.Length; ++key)
+                rep[key] = key;
+            for (int ti = 0; ti < Triangles.Count; ++ti) {
+                if (needed[ti] == false)
+                    continue;
+                var bucketKey = plane_bucket(Triangles[ti].PlaneApprox);
+                List<int> reps;
+                if (buckets.TryGetValue(bucketKey, out reps) == false)
+                    buckets[bucketKey] = reps = new List<int>(1);
+                int same = -1;
+                foreach (int r in reps)
+                    if (same_plane(Triangles[r].P, Triangles[ti].P)) { same = r; break; }
+                if (same >= 0)
+                    rep[4 * ti] = 4 * same;
+                else
+                    reps.Add(ti);
+            }
+            planeRep = rep;
             clock.Lap("intersections.planes");
             gParallel.ForRange(pairs.Count, (k) => intersect((int)(pairs[k] >> 32), (int)(pairs[k] & 0xFFFFFFFF)));
             clock.Lap("intersections.intersect");
             CandidatePairs = pairs.Count;
         }
         public int CandidatePairs;
+
+        // per plane key: the key of an equal plane that stands for it (after find_intersections; null before: each its
+        // own)
+        int[] planeRep;
+
+        /// <summary>
+        /// the key of a plane (PlaneOf) that stands for equal planes: a triangle's plane by the first triangle in the same
+        /// plane (in the order of the triangles), so that the same point is the same construction (a key) when it is
+        /// constructed with different triangles in one plane (grids of coplanar faces); edge planes as they are
+        /// </summary>
+        internal int CanonicalPlane(int key)
+        {
+            int[] r = planeRep;
+            return (r == null || ShareCoplanarConstructions == false) ? key : r[key];
+        }
+
+        // for tests: points constructed with triangles of one plane share their key (CanonicalPlane)
+        internal bool ShareCoplanarConstructions = true;
+
+        // the plane's approximation pa[0..3] divided by its largest normal component (sign included), each rounded to a
+        // multiple of 2^-30 times the power of two at or below the larger of 1 and its magnitude: equal planes give the
+        // same key unless a value is within the approximation's error of a rounding boundary
+        static (double, double, double, double) plane_bucket(double[] pa)
+        {
+            double a = pa[0], b = pa[1], c = pa[2], d = pa[3];
+            double m = (Math.Abs(a) >= Math.Abs(b) && Math.Abs(a) >= Math.Abs(c)) ? a : (Math.Abs(b) >= Math.Abs(c)) ? b : c;
+            return (round_key(a / m), round_key(b / m), round_key(c / m), round_key(d / m));
+        }
+
+        static double round_key(double x)
+        {
+            if (double.IsNaN(x) || double.IsInfinity(x))
+                return x;
+            // 2^(e - 30) for the exponent e of max(1, |x|): a power of two, so that values a few ulps apart round alike
+            long e = (BitConverter.DoubleToInt64Bits(Math.Max(1, Math.Abs(x))) >> 52) & 0x7FF;
+            double scale = BitConverter.Int64BitsToDouble((e - 30) << 52);
+            double r = Math.Round(x / scale) * scale;
+            return (r == 0) ? 0 : r;    // (-0)
+        }
+
+        // the planes are the same point set: (A, B, C, D) proportional (all 2x2 minors zero)
+        static bool same_plane(Plane p, Plane q)
+        {
+            return p.A * q.B == q.A * p.B && p.A * q.C == q.A * p.C && p.B * q.C == q.B * p.C
+                && p.A * q.D == q.A * p.D && p.B * q.D == q.B * p.D && p.C * q.D == q.C * p.D;
+        }
 
         // the candidate pairs of triangle ka of mesh ma with the triangles of mesh mb (tree) whose boxes overlap box,
         // appended to found (created when needed); hits: a buffer. Returns the number of pairs within one mesh.
