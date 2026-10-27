@@ -1,0 +1,29 @@
+{
+  "stryker-config": {
+    "project": "geometry3Sharp_netstandard.csproj",
+    "test-projects": [
+      "../geometry3Sharp.Tests/geometry3Sharp.Tests.csproj"
+    ],
+    "target-framework": "net10.0",
+    "mutate": [
+      "**/mesh_ops/ExactPlanarSimplify.cs",
+      "**/mesh_ops/ExactTriangulation2.cs"
+    ],
+    "test-case-filter": "FullyQualifiedName~ExactPlanarSimplifyTests|FullyQualifiedName~ExactBooleanBuildingBlockTests|FullyQualifiedName~ExactMeshBooleanTests|FullyQualifiedName~ExactTriangulation2Tests",
+    "coverage-analysis": "perTest",
+    "configuration": "Release",
+    "additional-timeout": 30000,
+    "reporters": [
+      "progress",
+      "html",
+      "json",
+      "markdown"
+    ],
+    "thresholds": {
+      "high": 90,
+      "low": 69,
+      "break": 67
+    },
+    "concurrency": 2
+  }
+}

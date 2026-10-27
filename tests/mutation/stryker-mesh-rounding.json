@@ -1,0 +1,28 @@
+{
+  "stryker-config": {
+    "project": "geometry3Sharp_netstandard.csproj",
+    "test-projects": [
+      "../geometry3Sharp.Tests/geometry3Sharp.Tests.csproj"
+    ],
+    "target-framework": "net10.0",
+    "mutate": [
+      "**/mesh_ops/MeshRoundingRepair.cs"
+    ],
+    "test-case-filter": "FullyQualifiedName~MeshRoundingRepairTests|FullyQualifiedName~ExactMeshBooleanTests|FullyQualifiedName~MeshRoundingRepairStrategyTests",
+    "coverage-analysis": "perTest",
+    "configuration": "Release",
+    "additional-timeout": 30000,
+    "reporters": [
+      "progress",
+      "html",
+      "json",
+      "markdown"
+    ],
+    "thresholds": {
+      "high": 90,
+      "low": 59,
+      "break": 57
+    },
+    "concurrency": 2
+  }
+}
