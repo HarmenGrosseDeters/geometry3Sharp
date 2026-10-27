@@ -19,8 +19,10 @@ oracle.
 1. **What "never steeper" means has to be fixed first** ([section 2](#2-what-never-steeper-means)). The slope of a
    triangle is the magnitude of its gradient over XY (the tangent of the angle of its fall line against the
    horizontal, in any direction). What needs deciding is the *allowed* slope at a point of the wall, given only
-   slopes at the toe vertices. There are two natural readings. They agree wherever the slope is constant along
-   the toe, and they differ near changes of slope. **The user has to choose** (question Q1).
+   slopes at the toe. There are two natural readings. They agree wherever the slope is constant along the toe,
+   and they differ near changes of slope. **Decided** (2.5): R1, the cone-envelope model, defined through the
+   active cone source, as the first mode. Geotechnical sectors come later as a separate mode with explicit sector
+   polygons.
 2. **Recommended construction (core hypothesis, confirmed):** one continuous slope surface over XY, the *lower
    envelope of slope cones* with apexes on the toe line ("Böschungskegel", the textbook construction of
    descriptive geometry).
@@ -57,13 +59,17 @@ oracle.
 - **Toe line**: the 3D polyline (open or closed) where the slope starts, normally the boundary of the design TIN
   (pit floor). For cut the slope rises from it outwards; for fill it falls from it outwards (the "toe" is then the
   crest of the dump, the term is kept for both).
-- **Slope** s at a toe vertex: s = tan(angle) = rise / run, dimensionless, s > 0. Mining gives an angle in degrees
-  (bench face angle, inter-ramp angle); civil engineering gives 1:n (s = 1/n). Converting either one to a double
-  can round *up* (steeper). The API therefore converts conservatively: `FromDegrees` takes `Math.Tan` and steps
-  down, because `Math.Tan` is not guaranteed correctly rounded and may differ between net48 and net10. Near 90°
-  the rounding of degrees to radians is amplified by about 2θ/sin(2θ) (8 ulp at 80°, 90 ulp at 89°), so the step
-  is relative 1e-12, tested against a high-precision tan on both targets. `FromRatio(n)` takes 1/n rounded down,
-  checked exactly (s·n ≤ 1). `FromPercent(p)` likewise. The oracle compares with the double s actually used.
+- **Slope** s: s = rise / run, dimensionless, s > 0. Internally the library uses s only. Inputs come as ratio 1:n
+  (n metres horizontal per metre vertical, s = 1/n; the reference input convention, decided in 2.5), as percent
+  (s = p/100) or as an angle (s = tan α). All three converters are offered, and **the origin of the input is kept
+  for the check**: the oracle checks against what the user specified, not only against a rounded double.
+  - Ratio 1:n: exact check (nx² + ny²)·n² ≤ nz² on the stored triangle, no rounding involved.
+  - Percent: exact check (nx² + ny²)·10⁴ ≤ p²·nz².
+  - Angle: tan α is transcendental, so there is no exact rational check. Phase 1 guarantees the slope against the
+    double s that is used and says so (`SlopeSpec.Guarantee = AgainstDouble`). Stepping `Math.Tan` down by "a few
+    ulps" is not a formal guarantee against the angle as entered. A guarantee against the angle needs a proven
+    conservative interval evaluation of tan (a later item, with a derived error bound, tested against a
+    high-precision reference on net48 and net10).
 - **Arc length** along the toe (for interpolation) is measured in XY.
 - **Slope of a triangle**: with n = (b−a)×(c−a), ‖∇z‖ = sqrt(nx² + ny²) / |nz|. It is independent of the
   direction, and the fall line has exactly this slope. The angle is measured against the horizontal plane, so the
@@ -76,24 +82,41 @@ oracle.
 
 ### 2.1 Interpolation along the toe
 
-Slopes are given at toe vertices. Between two vertices the specified slope is **linear in the arc length** of
-the toe, s(t). This is the only interpolation that needs no further input. Linear interpolation has its minimum
-over any stretch of the toe at one of the stretch's endpoints, which makes conservative bounds cheap: the
-smallest allowed slope over a sub-segment is the smaller of its two end values.
+Decided (2.5): the interpolation is part of the API contract, not implicit.
+
+- **Values per segment end**, not one value per shared vertex. A real jump at a sector boundary needs different
+  values on the left and on the right of a vertex. One value per vertex can only express continuous change.
+- **Supported cases:**
+  - constant slope per segment (the simple standard);
+  - piecewise constant with explicit jumps at sector boundaries;
+  - continuous change along a segment (optional).
+- **"Linear" is ambiguous:** linear in s, linear in n of 1:n, and linear in the angle give different surfaces.
+  The library interpolates **linearly in s** by default and documents this. Input given as 1:n with linear
+  interpolation in n must not be silently replaced by interpolation in s, so the interpolation is a parameter
+  (`LinearInSlope`, `LinearInRatio`, `LinearInAngle`).
+- **Conservative bounds stay cheap in all three cases.** n linear means s = 1/n is monotone along the segment, and
+  α linear means tan α is monotone. So the smallest allowed slope over a sub-segment is always the smaller of its
+  two end values.
+- Arc length is measured in XY.
 
 ### 2.2 Two readings of "allowed slope at a point of the wall"
 
 A wall point x is not on the toe, so it needs a rule for *which* toe point's slope applies:
 
-- **R1, fall line (slope cones).** The allowed slope at x is the slope of the toe point where the fall line
-  through x reaches the toe. The surface that is as steep as allowed under R1 is the **lower envelope of the
-  slope cones** (cut; the upper envelope for fill):
+- **R1, active cone source (cone-envelope model).** The allowed slope at x is the slope of the toe point whose
+  slope cone is active (lowest, for cut) at x. It is defined through the active cone source, **not** through a
+  traced fall line: within the region of one active cone the fall line points to its apex, but where the active
+  cone changes or at a valley (Kehle) the fall line can change direction or be ambiguous. The surface that is as
+  steep as allowed under R1 is the **lower envelope of the slope cones** (cut; the upper envelope for fill):
 
       S(x) = min over toe points q of  z(q) + s(q) · |x − q|xy
 
   This is the classical construction of descriptive geometry ("Böschungsfläche als Hüllfläche der Böschungskegel"
-  in the kotierte Projektion). It is the McShane extension (1934) of the toe heights, and its Hopf–Lax form
-  solves ‖∇S‖ = s(q*), with q* the active apex. It uses cones as the precedence constraints of Lerchs–Grossmann
+  in the kotierte Projektion). With a common slope s it is the McShane extension (1934) of the toe heights, the
+  largest extension with Lipschitz constant s. With slopes s(q) varying along the toe it is a related construction:
+  the largest surface below every cone, but the classical maximality and extension statements do not carry over
+  unchanged (eg the result is not s(x)-Lipschitz in any field sense). Its gradient is ‖∇S‖ = s(q*), with q* the
+  active apex. It uses cones as the precedence constraints of Lerchs–Grossmann
   pit optimization do (the variable-slope variants vary the cone by direction instead, see R3 below). The
   closed form needs no PDE solve. Every point's gradient is exactly the slope of the active cone's apex.
 - **R2, nearest toe point (slope field).** The allowed slope at x is σ(x) = s at the toe point nearest to x in
@@ -113,43 +136,55 @@ planes through the toe segments, cones at convex corners, valleys at concave cor
 | 300 m wall at that transition | about 850 m of the steep wall is excavated at 1:3 (more volume, never steeper) | about 210 m of transition at 45° |
 | straight ramp in the toe (grade g), slope varying along it | up to a factor **sqrt(1 + g²/s²)** steeper than the nearest toe point's slope (g = 0.1, s = 0.33: 4.5 %; s = 1: 0.5 %), in a narrow sector in front of the upper end | never steeper than σ by definition |
 | curved or concave toe with a ramp (eg a circular toe, R = 100 m, g = 0.1), a steeper stretch on the far side | the far stretch's cone can win in front of a gentle stretch: **1.67 times** σ in the review's example (s = 0.55 against 0.33, toe not undercut). In general the factor is bounded only by s_max / s_n | never steeper than σ |
-| point in the R2 transition zone | slope = the slope of its fall line's apex | slope s_b, while its fall line ends at a gentle toe point (it violates R1) |
+| point in the R2 transition zone | slope = the slope of its active apex | slope s_b, while the active R1 apex there is a gentle toe point (it violates R1) |
 
 So neither reading's surface satisfies the other reading in all cases. Under R1, R2's transition zones are too
 steep. Under R2, R1 overshoots: by up to sqrt(1 + g²/s²) on straight ramps, and up to s_max / s_n where a
 curved or concave toe lets a steeper stretch "see" a gentler one. And R1 over-excavates massively at sector
 transitions.
 
-**R1 refers to the generated surface's own fall lines.** With varying slopes, a fall line of the min of cones is
-not always straight. A gentle cone that wins at x may be cut, between x and its apex, by a region where a steeper
-cone wins. The fall line then bends towards the steeper apex. It stays R1-safe, because a characteristic can only
-be cut by steeper cones. The checkable form of R1 used by the oracle is per triangle (5.4): each output triangle
-lies below every cone of the toe piece it is attributed to, and is no steeper than that piece's slope.
+**Why R1 is defined through the active cone and not the fall line.** With varying slopes, a fall line of the min
+of cones is not always straight. A gentle cone that wins at x may be cut, between x and its apex, by a region where
+a steeper cone wins, and the fall line then bends towards the steeper apex. At valleys it is not unique at all.
+A promise about globally traced fall lines would be neither true nor checkable. The checkable form of R1 used by
+the oracle is per triangle (5.4): each output triangle lies below every cone of the toe piece it is attributed to,
+and is no steeper than that piece's slope.
 
-**Further readings that mining uses** (not requested, recorded for Q1):
+**The guarantee is always "not steeper than the chosen attribution rule allows".** R1 is the cone-envelope model;
+it is not a general guarantee for geotechnical sectors (decided, 2.5).
+
+**Further readings that mining uses** (not requested, recorded for later modes):
 - **R3, by wall direction:** the slope depends on the dip direction (azimuth) of the wall, as geotechnical domains
   by bearing. The variable-slope Lerchs–Grossmann variants work this way (Mining Technology 2000: four principal
   directions per domain). R1 matches LG only in its use of cones, not in how the slope varies.
 - **R4, by depth or geology:** eg overburden 1:3 above a horizon and rock below, typical for Hambach.
 
 Both are out of scope for phase 1. The API leaves room for them: the slope is looked up through one function
-s(piece, direction, z), which is the toe slope for R1. **Which one is "the specified slope" is the user's decision (Q1).** If the toe slope is constant
-along long stretches (the usual case), both readings give the same result, so the choice only matters at
-changes of slope.
+s(piece, direction, z), which is the toe slope for R1.
 
-### 2.3 Recommendation
+If the toe slope is constant along long stretches (the usual case), both readings give the same result, so the
+choice only matters at changes of slope. The user's decision is in 2.5.
 
-- **Phase 1: R1** (min of cones). It has a closed form, its facets are exact planes and cones, and the KO
-  criterion follows from construction plus a per-triangle check without any PDE discretization. It is also the
-  established textbook and pit-optimization definition.
-- **R2 as an option** (`SlopeReference.NearestToePoint`) if the user needs sector transitions without
-  over-excavation. Construction: an eikonal solve on a refined triangulation (Fast Marching on triangles, Kimmel &
+### 2.3 Modes (decided, 2.5)
+
+- **Phase 1: R1**, explicitly named as the cone-envelope mode (min of cones). It has a closed form, its facets are
+  exact planes and cones, and the KO criterion follows from construction plus a per-triangle check without any
+  PDE discretization. For a connected slope with a uniform slope it is a good starting point. It is **not** a
+  guarantee for geotechnical sectors.
+- **Sectors later, as a separate mode.** Where different slopes describe spatially fixed geotechnical areas, a
+  spatial slope field fits better, which is R2-like. For those areas the plan is **explicit sector polygons**
+  given by the caller. "The nearest point of the toe" is only one possible substitute definition of a sector and
+  can produce unexpected attributions at concave edges, so it is not the target definition.
+- **Modes that are not available are rejected explicitly** (`Statuses.NotImplemented`), never silently replaced
+  by R1.
+- **R2 construction (when it comes):** an eikonal solve on a refined triangulation (Fast Marching on triangles,
+  Kimmel & Sethian 1998; or an ordered upwind method), followed by a conservative correction. Construction: an eikonal solve on a refined triangulation (Fast Marching on triangles, Kimmel &
   Sethian 1998; or an ordered upwind method), followed by a conservative correction. Each triangle is lowered
   (cut) until its gradient is ≤ min σ over the triangle, upwind in order of height. The same exact oracle then
   runs as in R1. More work, and not exact; plan it as a second phase.
 - A strict variant of R1 that is also R2-safe is not cheap. Scaling by 1/sqrt(1 + g²/s²) covers straight ramps
   only, and curved toes need the slope of a piece capped by the slopes of every stretch whose region its cone can
-  enter. If Q1 asks for R2 safety, R2 itself is the cleaner answer.
+  enter. Where sector safety is needed, the sector mode is the cleaner answer.
 - The R2 correction step (lowering triangles upwind) still needs a convergence argument. It is a known issue of
   Fast Marching on obtuse triangles, so R2 would also need an acute or unfolded triangulation.
 
@@ -169,6 +204,29 @@ The construction must avoid three effects that each break the KO criterion, all 
    up to about 4e / h_min (e the vertex error, h_min its smallest altitude; derivation in 5.4): harmless for
    metre-sized triangles, unbounded for slivers. The fix is a margin, removing slivers, and an exact check
    (section 5.4).
+
+### 2.5 Decisions of the user (review of 2026-10-27)
+
+The answers to the open questions of the first version, worked into the sections named.
+
+| # | question | decision | where |
+|---|---|---|---|
+| Q1 | R1 or R2 | R1 as the first implementation, explicitly as the cone-envelope model, not as a general guarantee for geotechnical sectors. Sectors later as a separate mode with explicit sector polygons. Modes that are not available are rejected explicitly. The guarantee always reads "not steeper than the chosen attribution rule allows". R1 is defined through the active cone source, not through a traced fall line | 2.2, 2.3 |
+| Q2 | tolerances | keep three things strictly apart. **Geometric approximation:** an explicit maximum vertical deviation, given by the caller (1 cm is a sensible start for metre data, but it is not a universal library default). **Slope margin:** 1e-6 relative as a start; the check of the finished triangles decides. **Minimum feature size:** only a threshold for an allowed repair attempt, not a permission to delete small details wholesale. Also: no position or angle tolerance may exceed the slope limit. Collapsing slivers must not change the toe or the catch lines inadmissibly. If the margin is not enough at large coordinates or for small triangles, the computation improves or fails. A vertical tolerance does not bound the horizontal deviation of the catch line, so near-tangential sections are reported as ill-conditioned. Defaults must not depend only on the size of the UTM coordinates: professional accuracy and numerical representability are different quantities | 5.1, 5.4, 5.5 |
+| Q3 | influence across the design area | for a closed ring, no influence through the interior of the design area: it is an obstacle / a bounded interior region. Several levels are allowed, but checked for consistency. Phase 1 supports only the Euclidean R1 envelope, so it **rejects** the problematic cases and names the causing edges. Cones are not simply clipped: restricting them to the exterior changes the mathematical problem. The exterior distance and its topology are a development step of their own. A clearly restricted Euclidean mode is better than an exterior mode that only appears to work | 5.2 |
+| Q4 | how slopes change | support both steps and continuous change, with the interpolation fixed explicitly: constant per segment as the simple standard, piecewise constant with explicit jumps at sector boundaries, continuous change optional. Values per segment end (left / right of a vertex), because one value per shared vertex cannot express a real jump. Interpolation linear in s by default, documented as API contract; linear in n of 1:n must not be silently replaced | 2.1, 5.1, 6 |
+| Q5 | open toe lines | by default limited laterally by the XY normals at the start and end segment, no automatic fan around the ends. Optional: explicit lateral limits given by the caller (lines or a computation domain); rounded end caps from the cone envelope. The caller chooses the side (left or right of the line), and this must be kept. Closed lines also need an explicit side (inside or outside); "closed" alone does not say it | 5.6, 6 |
+| Q6 | angle convention | ratio 1:n is the reference input convention; internally s = rise / run. All three converters (1:n, percent, angle), with the origin of the input kept for the check. For angles, phase 1 guarantees against the double s used, a guarantee against the angle needs a proven interval evaluation. For 1:n the exact check s·n ≤ 1 is straightforward | 1 |
+| Q7 | berms and ramps | berms first by absolute target heights (bench / floor levels as the primary input, relative heights as an optional convenience); berm width constant per section first, variable widths later with a clear transition rule; inclined toe sections allowed. Ramps are separate design geometry: a ramp needs width, grade and connection geometry, which do not follow from an inclined toe. The core already offers "build the slope up to a target height and return the line there" | 10, 6 |
+| Q8 | output | all three, separately retrievable: slope surface, catch lines, composite terrain. The catch line alone is an important result, so building the full composite terrain must not be mandatory. Besides the triangle groups, a separate mapping to the original toe edge and its parameter interval, because internal piece ids change with subdivision. The slope guarantee applies to newly generated slope triangles, not to unchanged terrain in the composite | 5.5, 6 |
+
+Two corrections of the first version came with the answers and are worked in:
+- "The fall line runs straight to the governing toe point" is not guaranteed for the lower envelope (2.2).
+- The McShane maximality and extension statements hold for a common Lipschitz constant only; with s(q) varying
+  they do not carry over unchanged (2.2, 4).
+
+Variable geotechnical sectors, the exterior influence and variable berm widths are extensions of their own, not
+hidden defaults.
 
 ## 3. The ray-per-point approach of today
 
@@ -196,7 +254,7 @@ then chains the pieces into lines.
 | Area | What exists | Relevance | Code / license |
 |---|---|---|---|
 | Descriptive geometry, earthworks ("kotierte Projektion", Erdbau) | Slope surfaces as envelopes of slope cones with apexes on the edge; slope planes through inclined edges tangent to the cones; Kehlen (valleys) and Grate (ridges) where faces meet; intersection with terrain contours. Textbooks, eg R. Fucke, K. Kirch, H. Nickel, *Darstellende Geometrie für Ingenieure*, Hanser (chapter on kotierte Projektion) | The R1 definition and the corner rules | none (textbooks) |
-| Lipschitz extension, Hamilton–Jacobi | McShane 1934 and Whitney 1934: the largest / smallest extension with a Lipschitz bound is the min / max of cones. Hopf–Lax formula (L. C. Evans, *Partial Differential Equations*, ch. 3 and 10) | Maximality: no surface that satisfies R1 can be steeper anywhere than the min of cones (cut: least excavation) | none |
+| Lipschitz extension, Hamilton–Jacobi | McShane 1934 and Whitney 1934: with a common Lipschitz constant, the largest / smallest extension is the min / max of cones. Hopf–Lax formula (L. C. Evans, *Partial Differential Equations*, ch. 3 and 10) | For a uniform slope: no admissible surface lies above the min of cones (cut: least excavation). For slopes s(q) varying along the toe only the weaker statement holds: the min of cones is the largest surface below every cone. The classical extension results do not carry over unchanged | none |
 | Weighted Voronoi diagrams, lower envelopes of cones | Additively / multiplicatively weighted Voronoi diagrams are projections of lower envelopes of cones (Aurenhammer & Edelsbrunner 1984; Fortune 1987 sweep with cones; Okabe, Boots, Sugihara, Chiu, *Spatial Tessellations*, 2000). Lower envelopes of triangles / patches in 3D (Edelsbrunner, Guibas, Sharir 1989; Sharir & Agarwal, *Davenport–Schinzel Sequences*, 1995) | The structure of the R1 surface (an additively and multiplicatively weighted, "compoundly weighted" diagram of the toe) and how to compute the envelope | CGAL has Apollonius graphs and envelopes: **GPL, not used** |
 | Weighted straight skeleton | Aichholzer, Aurenhammer, Alberts, Gärtner 1995 (straight skeleton, roof model); Aichholzer & Aurenhammer 1996; Eppstein & Erickson 1999 (*Raising roofs, crashing cycles, and playing pool*, weighted variant); Kelly & Wonka 2011 (procedural extrusions, per-edge angles); Biedl, Held, Huber, Kaaser, Palfrader 2015 (*Weighted straight skeletons in the plane*, CGTA 48: with weights not unique by the procedural definition, can be non-planar and contain cycles) | Gives a roof (slope) surface from a polygon with per-edge slopes | CGAL straight skeleton (also weighted, since 6.0): **GPL**. Kelly's campskeleton (Java): license to be checked, not needed |
 | Fast Marching, eikonal on meshes | Sethian 1996; Kimmel & Sethian 1998 (*Computing geodesic paths on manifolds*, PNAS, triangulated domains, obtuse triangles by unfolding); Sethian & Vladimirsky 2003 (ordered upwind, anisotropic); Bornemann & Rasch 2006 (FMM on triangles, consistency) | Solver for R2; approximate, first order on the mesh | many implementations; implement from the papers if R2 is chosen |
@@ -241,14 +299,23 @@ differ, eg 1:1 and 1:1.5).
   - margin: δ·s·D.
 
   The reach D_max is (max terrain z − min toe z) / s_build,min + `Tolerance` / s for cut, and
-  (max toe z − min terrain z) / s_build,min + `Tolerance` / s for fill. `Tolerance` defaults to a fraction of the
-  height range (eg 1e-4 × (max − min z) over toe and terrain, 3 cm for a 300 m pit wall). That is relative, so
-  2^k scaling stays bit-exact. The user can set it in metres (Q2).
+  (max toe z − min terrain z) / s_build,min + `Tolerance` / s for fill.
+- **`Tolerance` is an explicit input** (decided, 2.5): the maximum vertical deviation of the conservative surface
+  from the exact R1 surface, in the units of the data. 1 cm is a sensible start for data in metres, but there is
+  no library default. `Compute()` rejects a missing value (`InvalidInput`). It bounds heights only, not the
+  horizontal position of the catch line (5.5).
+- **Three quantities are kept apart:**
+  - the geometric approximation (`Tolerance`, a professional accuracy);
+  - the slope margin δ (numerical, 5.4);
+  - the minimum feature size (numerical, only a threshold for a repair attempt, 5.4).
+
+  None of them may loosen the slope limit, and the last two are derived from numerical representability, never
+  from `Tolerance`.
 - **Cost.** With a 0.5 → 1.0 change over one segment, D_max = 500 m and a 0.1 m share, there are 2500
   sub-segments for that segment. At a junction of two collinear sub-segments only the narrow wedge between their
   two strip directions needs cone planes, one or two per junction, so this is about 5000–7500 planes. Neighbouring
   planes differ by Δs = 2e-4, and their creases are ill-conditioned. 5.3 decides them exactly, and 5.4 removes the
-  slivers. If slopes change continuously along long stretches (Q4), the tangent planes of the exact varying-slope
+  slivers. If slopes change continuously along long stretches, the tangent planes of the exact varying-slope
   envelope (a ruled surface) need far fewer planes. That is the follow-up.
 - **Toe steeper than slope** is decided exactly against the slope actually built: Δz² ≥ s_build²·(dx² + dy²)
   → `ToeSteeperThanSlope`.
@@ -294,8 +361,21 @@ of the end cones, spaced by an angle θ within the cone-facet share of the toler
   - **Why the check is enough.** If the toe is not undercut, a far cone that wins at x is gentler than the toe point
     where the segment from x to its apex crosses the toe (appendix A). So R1 holds at the first contact of that
     segment with the toe.
-  - Q3 asks whether cones should be restricted to the outside of the design (an exterior geodesic distance). That
-    would remove the cross-pit influence but needs a visibility structure.
+- **No influence through the design area** (decided, 2.5). For a closed ring the design area is an obstacle: a
+  cone must not reach a wall point through the interior. Phase 1 builds the Euclidean R1 envelope only, so it
+  **detects and rejects** such influence rather than clipping cones. Clipping would change the mathematical problem
+  and could make the surface discontinuous.
+  - **Check.** For every cell of S̃ (5.3) with supporting piece k, the convex hull of the cell and the piece's toe
+    sub-segment contains every segment from a cell point to a point of the piece. If that hull meets the interior
+    of the design area, or crosses another part of the toe, the cell may be supported through the interior. The
+    test uses exact orient2d on the cell's implicit vertices and the toe. It is conservative: it may reject a case
+    that is in fact fine, and it never accepts one that is not.
+  - **Result.** `Statuses.CrossDesignInfluence` with the causing toe edges and the affected toe ranges.
+  - Several levels within one toe are allowed. Their consistency is checked by the toe checks above
+    (`ToeUndercut`, `ToeSteeperThanSlope`) and by this test.
+  - A real exterior distance (shortest paths around the design area, with its topology) is a development step of
+    its own, after phase 1. Until then, a clearly restricted Euclidean mode is preferred to an exterior mode that
+    only appears to work.
 
 ### 5.3 Computing the envelope exactly (plane-based)
 
@@ -350,7 +430,7 @@ cones too (S̃ ≤ S). The tests check it independently (O2), but it is not part
 The approximation can shift creases. A narrow strip (about the tolerance share / Δs wide) can then be supported by
 a steeper neighbouring piece where the exact S has a gentler apex. Under the auditable definition above this is
 fine, because the triangle is below all cones of the piece it is attributed to. Under a pointwise reading against
-the exact S it would not be, which is part of Q1.
+the exact S it would not be. The guarantee is stated for the attribution rule (2.3).
 
 **Realization and margin** (a new error bound, to be checked in the review that CLAUDE.md requires):
 
@@ -365,8 +445,14 @@ the exact S it would not be, which is part of Q1.
   δ = 1e-6: h_min ≥ 3.7 mm (7.5 mm with the factor 2). The e_eval term matters only for very flat slopes, which
   need a larger δ or feature size. Mapping from local to UTM *after* evaluating z would move XY with z fixed and
   add an error to every vertex. Hence the order: XY first, then z.
-- `MinFeatureSize` and δ are derived from the coordinate magnitude and the extent, so 2^k scaling gives the same
-  result bit for bit.
+- δ starts at 1e-6 relative (decided, 2.5). `MinFeatureSize` follows from δ and the coordinate resolution by the
+  bound above. Both are numerical quantities. They are derived from representability (the coordinates' ulp), not
+  from the professional accuracy `Tolerance`, and they never serve as a default for it. The derivation is relative,
+  so 2^k scaling gives the same result bit for bit.
+- **The check of the finished triangles decides, not the bound.** If a triangle fails although the bound says it
+  should pass (large coordinates, small triangles), the computation first improves: it rebuilds the affected
+  pieces with a larger δ (doubling, up to a cap). Only if that does not help does it fail. It never accepts the
+  triangle.
 
 **Exact oracle (i)** (a new predicate): for a triangle (a, b, c) in doubles and a double s, decide
 `nx² + ny² ≤ s²·nz²` with n = (b−a)×(c−a). It ignores the orientation (both sides are squares). s² is formed
@@ -375,7 +461,9 @@ evaluated with a double filter (error bound derived like Shewchuk's), then exact
 `BigInteger` outside [2^-100, 2^100], following `ExactPredicates`. It runs on the **output coordinates as stored**
 (UTM) and rejects triangles that are degenerate in XY (nz = 0).
 
-**Repair** (slivers with h_min < `MinFeatureSize`, including caps without a short edge):
+**Repair** (slivers with h_min < `MinFeatureSize`, including caps without a short edge). `MinFeatureSize` is only
+the threshold for an allowed repair attempt. It is not a permission to delete small details wholesale: a repair is
+accepted only if it keeps the geometry within the cell and passes the check.
 
 - toe, design-boundary and catch-line vertices are never moved;
 - collapse an edge only onto a vertex whose plane set contains the removed vertex's plane set, so the triangles
@@ -430,11 +518,19 @@ option: snap to the grid first, derive δ and `MinFeatureSize` from the grid, th
   identities into polylines. These are simple, closed or ending at the footprint boundary, by construction. **No
   chaining tolerance.** Grazing intersections give correct topology (possibly many small loops where the surfaces
   nearly coincide, which is the real geometry); only the positions are rounded.
+- **Horizontal accuracy of the catch line.** A vertical tolerance does not bound where the catch line lies in plan.
+  Where the slope cuts the terrain nearly tangentially, a height error ε moves the line horizontally by about
+  ε / |∇D| (D = slope minus terrain). Every catch-line segment therefore gets |∇D| and the resulting horizontal
+  uncertainty for `Tolerance`. Segments whose uncertainty exceeds a caller-set limit are **reported as
+  ill-conditioned** (`IllConditionedCatchLine`, with toe ranges). This is part of the result, not an optional
+  extra.
 - **Realizing the clipped slope triangles** (so that the KO check of 5.4 passes):
   - catch-line vertices get their XY rounded to the final coordinates, and z from the plane of the *stored* S̃
     triangle (the plane through its three doubles), evaluated at that XY;
   - a catch-line vertex within `MinFeatureSize` of an S̃ vertex or edge is snapped onto it, and the terrain side
-    absorbs the change, since it is not under the KO;
+    absorbs the change, since it is not under the KO. The move is bounded by `MinFeatureSize`, far below the
+    horizontal uncertainty of the line, and is added to the reported uncertainty, so the catch line is not
+    changed inadmissibly. Toe vertices are never moved;
   - coincident points after realization are merged, which handles SoS-realized degeneracies and clamped t;
   - the clipped part of an S̃ triangle is triangulated as a fan from its S̃ vertex farthest from the catch line, so
     altitudes stay large even where the catch-line vertices are nearly collinear (planar terrain at UTM).
@@ -442,7 +538,7 @@ option: snap to the grid first, derive δ and `MinFeatureSize` from the grid, th
   toe** through face adjacency. Components of {D < 0} not connected to the toe, eg a hill behind a valley that
   the cone passes under, are not excavated. Final surface = design inside the toe, S̃ on the region, terrain
   outside, stitched along the catch line through the shared vertices.
-- **What the KO covers in `Result`:** all slope triangles, including the clipped ones. Terrain triangles clipped at
+- **What the KO covers in `Composite`:** all slope triangles, including the clipped ones. Terrain triangles clipped at
   the catch line are pieces of the terrain's own planes. They can be thin slivers, but their slope is the
   terrain's, not a generated one.
 - **Mixed cut and fill** (the toe crosses the terrain): build S_cut (min of rising cones, cut slopes) and S_fill
@@ -461,13 +557,14 @@ option: snap to the grid first, derive δ and `MinFeatureSize` from the grid, th
 | case | handling |
 |---|---|
 | **No daylight** (cut: the terrain rises faster than s, eg a mountain flank; fill: the terrain falls away faster) | the region reaches the boundary of the terrain footprint: `NoDaylight`, with the boundary parts and the toe ranges that govern them (the pieces of the faces there). The partial result is kept, never presented as complete. In exact arithmetic the region cannot reach the D_max domain boundary; reaching it anyway is reported as an internal error |
-| **Terrain holes, boundary; toe partly outside the terrain** | the overlay covers the common footprint only; catch lines that end at a hole or at the boundary are open and flagged (`CatchLineClosed` = false, with the reason) |
-| **Flat slopes, grazing** | exact signs make the topology correct (5.5); the positions are as good as the rounding allows. Optional output: catch-line segments whose D gradient is below a threshold (ill-conditioned positions), for the user to review |
-| **Open toe line** (design edge, not a loop) | the end cones fan around the ends (R1). The side to build on comes from `OutwardSide`. Whether the slope should instead stop at a lateral boundary is Q5 |
+| **Terrain holes, boundary; toe partly outside the terrain** | the overlay covers the common footprint only; catch lines that end at a hole or at the boundary are open and flagged (`CatchLine.Closed` = false, with the end reason) |
+| **Flat slopes, grazing** | exact signs make the topology correct (5.5); the positions are as good as the rounding and `Tolerance` allow. Segments with a large horizontal uncertainty are reported as ill-conditioned (5.5) |
+| **Open toe line** (design edge, not a loop) | decided (2.5): by default the slope is limited laterally by the XY normals at the start and end segment. There is no automatic fan around the ends. Options: explicit lateral limits from the caller (lines or a computation domain), or rounded end caps from the cone envelope. The lateral limits clip the computation domain (S̃ stays continuous inside it). The catch line ends at a lateral limit with the reason `LateralLimit`, and in the composite terrain the slope meets the terrain there along a side line, which is returned (a vertical step where they differ in height) |
+| **Side** | the caller chooses the side explicitly: left or right of the direction of travel for open toes, inside or outside for closed ones. This choice is kept and never inferred from "closed" alone |
 | **Several toe lines** (pit floor with islands, several pits or dumps) | all pieces of all toe lines enter one envelope, so they interact correctly (two pits whose walls meet get a ridge) |
 | **Terrain steeper than s inside the cut zone** (gullies where T < S̃) | not generated, so not under the KO criterion. Reported as area and as triangles, because the final wall contains it |
 | **s = 0 or very small** (berms, flat fills) | s must be > 0 for the cone model. Horizontal pieces are berms (section 10). Small s gives large D_max and needs a larger δ (5.4) |
-| **Toe validation** | rejected with `InvalidInput` and the location: duplicate consecutive vertices, zero-length or vertical segments (in XY), a toe that self-intersects or pinches in XY (exact), a `Toe` that is not on the `Design` boundary when both are given, NaN or infinite coordinates or slopes. Toe orientation is normalized (outward side from the design or from `OutwardSide`). A toe that does not lie on the terrain is fine: that is the normal cut or fill case |
+| **Toe validation** | rejected with `InvalidInput` and the location: duplicate consecutive vertices, zero-length or vertical segments (in XY), a toe that self-intersects or pinches in XY (exact), a `Toe` that is not on the `Design` boundary when both are given, NaN or infinite coordinates or slopes. Missing `Side` or slopes that do not match the segments are rejected too. A toe that does not lie on the terrain is fine: that is the normal cut or fill case |
 | **Not a height field** (overhangs, overlapping TINs) | rejected with `TerrainVolumeDifference.XYOverlaps` (exact), as `RequireHeightField` does today |
 
 ### 5.7 Volumes
@@ -475,7 +572,7 @@ option: snap to the grid first, derive δ and `MinFeatureSize` from the grid, th
 On the same overlay, the region faces carry D linear on convex polygons, integrated exactly as in
 `TerrainVolumeDifference` (split at D = 0, area times the centroid value), relative to a local origin. Cut and fill
 volumes, areas, and per-toe-piece volumes (each slope triangle knows its piece) come out of one pass. The existing
-`TerrainVolumeDifference(T, Result)` serves as the independent check in the tests.
+`TerrainVolumeDifference(T, Composite)` serves as the independent check in the tests.
 
 ### 5.8 Robustness at UTM magnitudes
 
@@ -487,8 +584,9 @@ volumes, areas, and per-toe-piece volumes (each slope triangle knows its piece) 
   Then x − x0 is exact: both are multiples of ulp(x), and |x − x0| ≤ |x|. So local inputs give bitwise the same
   predicates. A test with z crossing 0 and one far from 0 checks this.
 - Constructed points are rounded once, directly to the final coordinates, XY first and z after (5.4).
-- Tolerances (`Tolerance`, `MinFeatureSize`, δ) are relative to the extent and the coordinate magnitude, with no
-  absolute constants unless the user sets them. `float` appears nowhere in the path.
+- `Tolerance` is a professional accuracy given by the caller. δ and `MinFeatureSize` are derived from the
+  coordinate resolution (5.4). No default depends only on the size of the coordinates, and there are no hidden
+  absolute constants. `float` appears nowhere in the path.
 - Where exact predicates are needed:
   - the overlay (orient2d), the signs of D (orient3d), and SoS;
   - the slope oracle (i) and the support check (ii) (new);
@@ -502,7 +600,7 @@ volumes, areas, and per-toe-piece volumes (each slope triangle knows its piece) 
 | alternative | why not as the core |
 |---|---|
 | **Weighted straight skeleton** | weights per edge, but slopes are per vertex: linearly varying slopes are not planar faces. It mitres convex corners, which gives the max of planes, *below* the cone, so needless over-excavation (the cone is the least-excavation surface under R1). Not unique or planar with weights (Biedl et al. 2015). Event handling is fragile, and the only mature implementation is GPL (CGAL). Its useful idea, faces that meet in valleys, is contained in the min of cones |
-| **Fast Marching / eikonal** | first-order approximation that can err on either side, so not conservative without a correction step. For R1 the closed form is exact. Kept as the solver of the R2 option (2.3) |
+| **Fast Marching / eikonal** | first-order approximation that can err on either side, so not conservative without a correction step. For R1 the closed form is exact. Kept as the solver for a later sector mode (2.3) |
 | **Rays per point** (today) | breaks the KO criterion at convex corners and at changes of slope; needs clipping at concave corners and tolerance-based chaining (section 3) |
 | **Offset strings per height + lofting** (vendor practice) | the offsets are the level sets of S̃ anyway, and lofting between them has no slope guarantee (further item 3) |
 | **Grid / raster methods** | excluded by the requirements (TIN input), and no exact guarantee |
@@ -515,54 +613,76 @@ fields, `CancelF`. A `Status` enum as in `ExactMeshBoolean` and `UVAtlasGenerato
 ```csharp
 namespace gs
 {
-    /// One toe line with its slopes. Arc length (for interpolation) is measured in XY.
-    public class SlopeToe
+    /// A slope as the user specified it. The origin is kept so that the check can run against it (section 1).
+    public struct SlopeSpec
     {
-        public List<Vector3d> Points;
-        public bool Closed;
-        public double[] SlopesCut;             // per vertex, s = rise / run > 0 (see Slope.From*); null = no cut from this toe
-        public double[] SlopesFill;            // per vertex; null = no fill from this toe
-        public int OutwardSide = 0;            // open toes: +1 = left of the direction of travel, -1 = right; 0 = from Design
+        public enum Kinds { Ratio /* 1:n, reference convention */, Percent, Degrees, Rise }
+        public Kinds Kind; public double Value;
+        public double S { get; }               // rise / run, conservative (never steeper than the spec)
+        public bool ExactlyCheckable { get; }  // Ratio, Percent, Rise: exact; Degrees: against the double S only
+        public static SlopeSpec Ratio(double n); public static SlopeSpec Percent(double p);
+        public static SlopeSpec Degrees(double a); public static SlopeSpec Rise(double s);
     }
 
-    /// Slope surface from toe lines with a slope per toe vertex, its catch lines with the terrain, the final
-    /// surface and cut / fill volumes. Never steeper than specified: every slope triangle is checked exactly
-    /// (Slope.IsSupportedBy) before Compute returns true.
+    /// One toe line with its slopes. Values per segment end, so that jumps at sector boundaries are possible.
+    public class SlopeToe
+    {
+        public enum Sides { Left, Right, Inside, Outside }   // Left / Right for open toes, Inside / Outside for closed
+        public enum Interpolations { LinearInSlope /* default */, LinearInRatio, LinearInAngle }
+        public enum EndModes { NormalLimit /* default */, ExplicitLimit, RoundCap }
+
+        public List<Vector3d> Points;
+        public bool Closed;
+        public Sides Side;                     // required, never inferred
+        public SlopeSpec[] CutStart, CutEnd;   // per segment: slope at its start and at its end; null = no cut
+        public SlopeSpec[] FillStart, FillEnd; // likewise for fill
+        public Interpolations Interpolation = Interpolations.LinearInSlope;
+        public EndModes EndMode = EndModes.NormalLimit;          // open toes only
+        public List<Vector2d> StartLimit, EndLimit;               // EndModes.ExplicitLimit: lateral limit lines
+        public static SlopeToe Constant(List<Vector3d> pts, bool closed, Sides side, SlopeSpec cut);   // the simple standard
+    }
+
+    /// Slope surface from toe lines, its catch lines with the terrain and, optionally, the composite terrain and
+    /// cut / fill volumes. Mode: cone envelope (R1). Never steeper than the attribution rule of the mode allows:
+    /// every slope triangle is checked exactly (Slope.IsSupportedBy) before Compute returns true.
     public class TerrainSlopeDesign
     {
         public enum Directions { Auto, Cut, Fill }
-        public enum SlopeReferences { FallLine /* R1, phase 1 */, NearestToePoint /* R2, later */ }
-        public enum Statuses { Success, InvalidInput, NotHeightField, NotImplemented /* eg NearestToePoint */,
-                               ToeSteeperThanSlope, ToeUndercut, ToeOvertopped, NoDaylight, SlopeViolation,
-                               Cancelled }
+        public enum Modes { ConeEnvelope /* R1, phase 1 */, SectorPolygons /* later */, ExteriorDistance /* later */ }
+        public enum Statuses { Success, InvalidInput, NotHeightField, NotImplemented /* modes not yet available */,
+                               ToeSteeperThanSlope, ToeUndercut, ToeOvertopped, CrossDesignInfluence,
+                               NoDaylight, SlopeViolation, Cancelled }
 
         // inputs
         public DMesh3 Terrain;                 // TIN, height field
-        public DMesh3 Design;                  // optional: design TIN; its boundary loops are the toes if Toes is empty,
-                                               // else each toe must lie on its boundary (validated)
+        public DMesh3 Design;                  // optional: design TIN (the obstacle of 5.2); each toe must lie on its boundary
         public List<SlopeToe> Toes = new List<SlopeToe>();   // several: pit floor with islands, several pits / dumps
         public Directions Direction = Directions.Auto;
-        public SlopeReferences SlopeReference = SlopeReferences.FallLine;
-        public double Tolerance = 0;           // max over-excavation of the conservative approximation; 0 = 1e-4 x height range
-        public double MinFeatureSize = 0;      // smallest altitude of slope triangles; 0 = derived from the coordinates (5.4)
+        public Modes Mode = Modes.ConeEnvelope;
+        public double Tolerance = double.NaN;  // required: max vertical deviation from the exact R1 surface (data units)
+        public double CatchLineUncertaintyLimit = double.PositiveInfinity;  // horizontal; above it a segment is ill-conditioned
+        public double SlopeMargin = 1e-6;      // start value of δ; raised automatically if the check needs it (5.4)
         public double OutputGrid = 0;          // > 0: coordinates snapped to this grid before the check (export, 5.4)
-        public double MaxHeight = double.NaN;  // clip the slope at this height and return the level line (berms, section 10)
-        public bool ComputeVolumes = true;
+        public List<double> TargetHeights;     // optional: build up to these heights and return the lines there (berms)
+        public bool BuildComposite = false;    // the composite terrain is optional
+        public bool ComputeVolumes = false;    // from the same overlay
         public Func<bool> CancelF = () => false;
 
-        // outputs
+        // outputs, each retrievable without the others
         public Statuses Status;
-        public DMesh3 SlopeSurface;            // slope triangles only; group id = index into Pieces
-        public List<SlopePiece> Pieces;        // group id -> (toe index, arc length range, s_k, cut / fill)
-        public DMesh3 Result;                  // design + slope + terrain, stitched along the catch lines
-        public List<List<Vector3d>> CatchLines;
-        public List<bool> CatchLineClosed;     // false: ends at the footprint boundary or a hole
-        public List<List<Vector3d>> LevelLines;        // at MaxHeight, if set
-        public List<(int toe, Interval1d arc)> NoDaylightToeRanges;
-        public List<(int toe, Interval1d arc)> ToeProblems;    // where ToeSteeperThanSlope / ToeUndercut / ToeOvertopped apply
-        public double CutVolume, FillVolume, CutArea, FillArea;
+        public DMesh3 SlopeSurface;            // new slope triangles only; group id = index into Pieces
+        public List<SlopePiece> Pieces;        // group id -> (toe index, segment index, parameter interval, s_k, cut / fill)
+        public List<CatchLine> CatchLines;     // 3D polyline, Closed, end reasons (FootprintBoundary, Hole, LateralLimit),
+                                               // per segment |grad D| and the horizontal uncertainty
+        public List<List<Vector3d>> TargetHeightLines;     // per target height, for follow-up slopes and berms
+        public DMesh3 Composite;               // design + slope + terrain, if BuildComposite
+        public List<List<Vector3d>> SideLines; // where the slope ends at a lateral limit
+        public double CutVolume, FillVolume, CutArea, FillArea;   // if ComputeVolumes
+        // diagnostics
+        public List<ToeRange> NoDaylightToeRanges, ToeProblems, IllConditionedCatchLine, CrossDesignToeRanges;
+        public List<int> ProblemTriangles;     // failing triangles if Status == SlopeViolation
         public double MaxSlopeRatio;           // upper bound of |grad| / s_k over the slope triangles, < 1 on Success
-        public List<int> ViolatingTriangles;   // empty unless Status == SlopeViolation
+        public double UsedSlopeMargin;         // the δ in the end
 
         public TerrainSlopeDesign(DMesh3 terrain, DMesh3 design) { ... }
         public bool Compute() { ... }
@@ -570,19 +690,21 @@ namespace gs
 
     public static class Slope
     {
-        public static double FromDegrees(double angle);   // conservative: never rounds steeper
-        public static double FromRatio(double n);          // 1:n, conservative
-        public static double FromPercent(double p);        // conservative
-        /// exact: |grad(a, b, c)| <= s; orientation ignored; false for triangles degenerate in XY
-        public static bool IsNotSteeper(Vector3d a, Vector3d b, Vector3d c, double s);
-        /// exact: IsNotSteeper with s, and the plane of (a, b, c) is <= z at both toe points p0, p1 (5.4 (i) and (ii))
-        public static bool IsSupportedBy(Vector3d a, Vector3d b, Vector3d c, Vector3d p0, Vector3d p1, double s);
+        /// exact: |grad(a, b, c)| <= the spec (exactly for Ratio / Percent / Rise, against S for Degrees);
+        /// orientation ignored; false for triangles degenerate in XY
+        public static bool IsNotSteeper(Vector3d a, Vector3d b, Vector3d c, SlopeSpec spec);
+        /// exact: IsNotSteeper, and the plane of (a, b, c) is <= z at both toe points p0, p1 (5.4 (i) and (ii))
+        public static bool IsSupportedBy(Vector3d a, Vector3d b, Vector3d c, Vector3d p0, Vector3d p1, SlopeSpec spec);
     }
 }
 ```
 
-Both checks are public so that users (and the user's existing pipeline) can verify any TIN. A `g3cli slope`
-command can follow later in the pattern of the other commands.
+- The slope guarantee applies to the triangles of `SlopeSurface` (and their clipped parts in `Composite`), not
+  to unchanged terrain in the composite.
+- Group ids are internal and can change with subdivision. The stable reference is `Pieces`: toe, segment and
+  parameter interval of the original input.
+- Both checks are public so that users and existing pipelines can verify any TIN. A `g3cli slope` command can
+  follow later in the pattern of the other commands.
 
 ## 7. Test plan and acceptance criteria
 
@@ -605,7 +727,7 @@ valleys), grids triangulated in both diagonal directions, and random perturbatio
   - the final surface is a height field (`XYOverlaps` = 0) with no XY-inverted triangles (exact) and no gaps
     (boundary edges only on the outer boundary);
   - all coordinates are finite.
-- **O4, volumes:** against `TerrainVolumeDifference(Terrain, Result)` and against closed forms (a plane slope
+- **O4, volumes:** against `TerrainVolumeDifference(Terrain, Composite)` and against closed forms (a plane slope
   against a tilted plane terrain gives a prism or wedge volume).
 
 **Oracle tests** (the new predicates themselves):
@@ -634,6 +756,15 @@ valleys), grids triangulated in both diagonal directions, and random perturbatio
 | z crossing 0 (floor below sea level) and far from 0 | the origin shift is exact (5.8): same predicates as on the raw coordinates |
 | slivers forced by near-concurrent creases | repair removes them, O1 passes, or `SlopeViolation` (never a silent violation; a mutation that disables the repair must make this test fail) |
 | invalid toes (duplicates, zero-length, self-intersecting, not on the design boundary, NaN) | `InvalidInput` with the location |
+| slope jump at a vertex (different values left and right) against the same jump spread over a short segment | the jump is kept as specified, O1 per side; one value per vertex cannot express it |
+| interpolation modes: the same 1:n input with `LinearInSlope`, `LinearInRatio`, `LinearInAngle` | three different surfaces, each checked against its own interpolated slopes; the mode is never swapped silently |
+| slope input as 1:n and as percent | O1 exact against the spec as entered (no rounded double in between); angles checked against the double s and reported as such |
+| open toe: default lateral limits at the end normals, explicit limit lines, round caps | the slope ends at the limits, catch lines end with `LateralLimit`, side lines returned; the chosen side is kept |
+| closed toe without a side | `InvalidInput` |
+| narrow pit, deep edge opposite a higher edge (influence through the design area) | `CrossDesignInfluence` with the causing edges, no silent wall |
+| no `Tolerance` given | `InvalidInput` (no hidden default) |
+| near-tangential catch line | reported as ill-conditioned with its horizontal uncertainty |
+| catch lines only (`BuildComposite = false`, `ComputeVolumes = false`) | the catch lines are complete without building the composite terrain |
 | export: OBJ round trip at UTM; `OutputGrid` = 1 mm | O1 still passes on the re-read mesh |
 | cancel during each stage | `Cancelled`, no partial result presented as complete |
 
@@ -687,7 +818,8 @@ A new case `slope` in `benchmarks/TerrainBenchmark`, on the real Hambach data (D
   - the O1 / O3 results.
 - **Reference:** a numpy brute-force min of cones on a grid. It checks O2 and the volumes (the tolerance against
   the reference must stay within `Tolerance`·area).
-- **Comparison:** R1 against R2 volumes on the sector case, once R2 exists. This quantifies Q1 on real data.
+- **Comparison:** R1 against the sector mode on the sector case, once that mode exists. This quantifies the
+  difference of 2.2 on real data.
 - **Target** (to be confirmed by the first implementation): a 4 km² window with a 10 km toe in minutes, dominated
   by the overlay. `TerrainVolumeDifference` does 8M + 8M triangles in 69 s today, and the overlay here is needed
   only in the catch-line band.
@@ -746,13 +878,20 @@ Use case: cut / fill per block-model cell or per grid cell, for reserves and sch
 A bench design alternates a face at face slope s_f (bench height H, usually between **absolute** bench elevations
 L_k) with a horizontal berm of width w. The overall (inter-ramp) slope is H / (H/s_f + w).
 
+**Decided** (2.5):
+- Berms first by **absolute target heights** (bench and floor levels as the primary input); heights relative to
+  the toe only as an optional convenience.
+- Berm width constant per section at first. Variable widths come later, with a clear transition rule.
+- Inclined toe sections are allowed.
+- Ramps are separate design geometry (width, grade, connection geometry), not a by-product of an inclined toe.
+
 **How the chosen approach extends:**
 
 - For a flat toe and constant parameters, the stepped surface is z_toe + φ(dist(x, toe)), with φ the monotone
   staircase profile. A monotone profile commutes with the min (min of φ(d) = φ(min d)). The bench crests and toes
   are then exactly offset curves of the toe at cumulative distances (offsetting by a and then b is offsetting by
   a + b for the Euclidean distance), as in the vendor practice, with no self-intersections.
-- **General case** (inclined toe, absolute bench levels, slopes and widths per vertex): **iterate the core**.
+- **General case** (inclined toe, absolute bench levels, slopes and widths per section): **iterate the core**.
   1. Face k is the min of cones from toe line k (with s_f per vertex), clipped at level L_k.
   2. Crest k is the level line {S̃ = L_k}, extracted topologically from the TIN (a simple polyline).
   3. The berm is the horizontal region from crest k out to distance w (per vertex).
@@ -760,8 +899,10 @@ L_k) with a horizontal berm of width w. The overall (inter-ramp) slope is H / (H
      functions, ie an offset of crest k by w, again a min of distances.
   5. Repeat until daylight.
 
-  Every step uses the same machinery (envelope, exact level-line extraction, overlay), so berms are a loop around
-  phase 1, not a new algorithm.
+  Every step uses the same machinery (envelope, exact level-line extraction, overlay). This is weaker than
+  "berms are just a loop around phase 1", though. With variable widths, inclined toes and topology changes (a berm
+  closing off, a level line splitting into several loops), the minimum berm width has to be **proven separately**
+  for each step, by the oracle below, and not assumed from the construction.
 - **New guarantees for berms:**
   - faces never steeper than s_f (O1 per face triangle);
   - berms horizontal (z exactly L_k, an exact check);
@@ -780,59 +921,39 @@ L_k) with a horizontal berm of width w. The overall (inter-ramp) slope is H / (H
   constraints along a path. Leave room: the toe-line input may carry a ramp as an inclined stretch, and the
   status `ToeSteeperThanSlope` already guards against ramps steeper than the face.
 
-So the phase 1 API needs one addition for berms: the ability to clip the slope at a height (`MaxHeight`) and
-return the level line. The loop can then be built on top without changing the core.
+The core of phase 1 already offers what berms need from it: building the slope up to a target height and returning
+the line there (`TargetHeights`, `TargetHeightLines`).
 
 ## 11. Implementation phases (after review)
 
-1. The slope oracle (`Slope.IsNotSteeper`, `IsSupportedBy`, `FromDegrees`, `FromRatio`, `FromPercent`) with its
-   exact predicate, error-bound review, and tests. Round-trip exact writers (OBJ `"R"`), with a test.
-2. S̃ for constant slope: pieces, plane-based exact envelope, realization with the margin, repair, O1 / O2 tests,
-   invariance.
-3. Per-vertex slopes (sub-segments), toe checks (`ToeSteeperThanSlope`, `ToeUndercut`, `ToeOvertopped`).
-4. Topological overlay with exact signs, catch line, connected region, final surface, volumes, special cases.
+1. The slope oracle (`SlopeSpec`, `Slope.IsNotSteeper`, `IsSupportedBy`, exact for 1:n and percent) with its exact
+   predicate, error-bound review, and tests. Round-trip exact writers (OBJ `"R"`), with a test.
+2. S̃ for constant slope per segment (the simple standard): pieces, plane-based exact envelope, realization with
+   the margin, repair, O1 / O2 tests, invariance. Explicit side, lateral limits by the end normals.
+3. Piecewise-constant slopes with jumps (values per segment end), then continuous change with the three
+   interpolations; toe checks (`ToeSteeperThanSlope`, `ToeUndercut`, `ToeOvertopped`, `CrossDesignInfluence`).
+4. Topological overlay with exact signs, catch lines with end reasons and horizontal uncertainty, connected region;
+   optional composite terrain and volumes; special cases.
 5. Mixed cut and fill (clamp).
-6. Benchmark at km scale; docs (OPERATIONS.md, SOURCES.md).
-7. Later: R2 option (if Q1 says so), berms loop, volume per cell, lofting utility.
+6. Target heights and their lines (the hook for berms).
+7. Benchmark at km scale; docs (OPERATIONS.md, SOURCES.md).
+8. Later, each a development step of its own: sector polygons, exterior distance, berms with constant then variable
+   widths, ramps, a proven interval tan for angle input, volume per cell, lofting utility.
 
 ## 12. Open questions for the user
 
-- **Q1 (decisive): R1 or R2?** Under R1 (fall line, slope cones), a point of the wall may be no steeper than the
-  toe point its fall line runs to. Under R2 (nearest toe point, sectors), it may be no steeper than the toe point
-  nearest to it in plan.
-  - With constant slopes both give the same result.
-  - At a 1:3 → 1:1 transition, R1 flattens the steep wall over about 2.8 times the wall height; R2 makes a
-    transition zone of about 0.7 times the height.
-  - On straight ramps, R1 can be up to sqrt(1 + g²/s²) steeper than the nearest toe point allows (4.5 % at
-    g = 0.1, s = 0.33). On curved or concave toes with ramps it can be more, up to s_max / s_n (1.67 in an
-    example).
-  - Mining also uses slopes by wall direction (azimuth) or by depth / geology (R3, R4 in 2.2). Are these needed?
+Q1–Q8 of the first version are answered (2.5). Still open:
 
-  Which reading does the KO criterion mean? Proposal: R1 first, R2 as an option.
-- **Q1b: what is checked.** A per-triangle "never steeper" is stricter than mining practice, which measures the
-  overall or inter-ramp angle from toe to crest (and the face angle per bench). Is per triangle what is meant?
-- **Q2: tolerances.** Are these acceptable?
-  - an approximation tolerance (more excavation than the exact surface), by default relative (1e-4 of the height
-    range, 3 cm for a 300 m wall), or a value in metres set by the user;
-  - a slope margin of about 1e-6 relative;
-  - a minimum feature size of a few mm at UTM.
-
-  The margin is what makes the guarantee hold under rounding.
-- **Q2b: export.** Which formats and how many decimals are the results written to? With 3 decimals, the guarantee
-  needs `OutputGrid` = 1 mm and a larger minimum feature (5.4).
-- **Q3: cross-design influence.** Should a cone act across the design area (Euclidean, simpler; may make walls
-  more conservative or report `ToeUndercut` with multi-level floors)? Or only around it (exterior distance)? Do
-  the real designs have floors at different levels within one toe line?
-- **Q4: how slopes change.** Do slopes change mostly in steps between sectors (few toe vertices) or continuously
-  along the toe? This decides whether the sub-segment approach (5.1) is enough.
-- **Q5: open toe lines.** At the ends of an open design edge, fan around the end (R1 default), or stop at a given
-  lateral boundary?
-- **Q6: angle convention.** Are slopes given as angles (degrees), as ratio 1:n, or as percent? Which one is the
-  reference for the check (degrees need a conservative tan)? Do cut and fill slopes differ per vertex?
-- **Q7: berms and ramps.** Absolute bench elevations or relative to the toe? Berm widths per vertex? Are ramps
-  part of the toe input?
-- **Q8: output.** Does the user need the final merged surface, the slope faces alone, the catch line, or all
-  three, and in which form (DMesh3 with groups, polylines)?
+- **Q9: what is checked in practice.** A per-triangle "never steeper" is stricter than common mining practice,
+  which measures the overall or inter-ramp angle from toe to crest (and the face angle per bench). Is per triangle
+  what is meant, possibly with the inter-ramp angle as an additional check once berms exist?
+- **Q10: export.** Which formats and how many decimals are the results written to? With 3 decimals, the guarantee
+  needs `OutputGrid` = 1 mm and a correspondingly larger minimum feature size (5.4).
+- **Q11: rejections in phase 1.** The check for influence through the design area (5.2) is conservative: it may
+  reject a case that would be fine. Is it acceptable for phase 1 that such cases end in `CrossDesignInfluence`, with
+  the causing edges named, until the exterior distance exists?
+- **Q12: horizontal accuracy.** Which horizontal uncertainty of the catch line should count as ill-conditioned by
+  default? Or should the caller always set it, like `Tolerance`?
 
 ## Appendix A: derivations
 
