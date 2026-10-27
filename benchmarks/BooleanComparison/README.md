@@ -482,10 +482,39 @@ rules for SIMD paths (and a switch to force the scalar path) are not needed.
   measure. Not changed.
 - **ReadyToRun**: see above.
 
+### Round 3: the input triangles and the GC
+
+A heap snapshot (`dotnet-gcdump`) in the middle of bunny 200k + cow 200k: of about 970k live objects, 800k were
+the 400k input triangles (`InputTriangle`, 152 bytes) and their arrays of corners (`int[3]`). They live through the
+whole boolean, so the GC copies each of them twice (into gen1, then gen2); a gen0 collection that promoted 103 MB
+took 110-150 ms. Now the corners are a field (`Index3i`), the input coordinates one array of the arrangement (on
+the large object heap, never copied): 400k objects of 88 bytes, 64 MB promoted. `prepare_triangle` and
+`triangulate` created the closure of their lambdas on entry, for all 400k triangles, also the ones they return from
+at once (29 % of the bytes allocated under `triangulate`): the bodies are methods of their own now. Results
+bit-identical (263 exact hashes).
+
+Warm, two rounds each (the class sets of the tables above, union / intersection / difference):
+
+| class | median / case before | after | total before | after | GC pause | alloc / run |
+|---|---|---|---|---|---|---|
+| cherchi | 716 / 720 ms | 707 / 703 ms | 23.2 / 23.6 s | 21.4 / 21.3 s | 27 % -> 22 % | 329 -> 307 MB |
+| cgal | 58 / 58 ms | 62 / 63 ms | 9.66 / 9.59 s | 9.63 / 9.13 s | 9 % -> 7 % | 39 -> 37 MB |
+| thingi | 96 / 100 ms | 97 / 96 ms | 8.34 / 8.32 s | 8.46 / 7.97 s | 9 % -> 4 % | 56 -> 53 MB |
+
+The large inputs gain 8-10 %; the small ones (with few or no collections in a boolean) are within the noise. n-ary
+(grid 5, grid 10, spheres 20): 7.10 / 6.92 s before, 6.96 / 6.94 s after, unchanged.
+
+Tried in this round, no measurable gain (left out):
+- **`ExactTriangulation2` on flat arrays** (the corners of all triangles in one `int[]` instead of an array per
+  triangle): triangulation 474 / 499 -> 514 / 491 ms on the 17 cases of the SIMD spike, allocations of the phase
+  -2 %. Its allocations are the hash maps of the edges and `BigInteger`s of the exact stages, not the triangles.
+- **Larger chunks of the point lists** (16384 instead of 2048 elements, on the large object heap, so that the GC
+  does not copy them): cherchi 14.8 / 15.1 s -> 15.1 / 15.2 s (more gen2 collections for the large objects).
+
 ### What is left
 
-- **GC pauses** (9-28 %): the input triangles are objects (with an array of corners each), and the exact stages
-  allocate `BigInteger`s.
+- **GC pauses** (4-22 %): the input triangles are still one object each (a struct array would change every user of the
+  `Triangles` list: the boolean, the planar simplification, the tests), and the exact stages allocate `BigInteger`s.
 - **Pair search** (15-26 %): mostly the exact tests of neighbouring triangles of the same mesh (needed to find
   self-intersections), with exact stages where neighbours are coplanar.
 - **The n-ary grid**: still dominated by `BigInteger` arithmetic of the remaining coincident points (other kinds of

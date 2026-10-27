@@ -48,10 +48,10 @@ namespace geometry3Sharp.Tests
                     Assert.True(s[i - 1].b == s[i].a, kv.Key + ": shards do not meet");
                     int off = (int)s[i].a;
                     Assert.True(off < text.Length && text[off - 1] == '\n', kv.Key + ": split " + off + " is not at a line start");
-                    // the method's first line, after its attributes
+                    // the method's first line, after its attributes (and comments between them)
                     var lines = text.Substring(off).Split('\n').Select(x => x.Trim()).ToList();
                     int k = 0;
-                    while (lines[k].StartsWith("["))
+                    while (lines[k].StartsWith("[") || lines[k].StartsWith("//"))
                         ++k;
                     Assert.True(lines[k].StartsWith(SplitMethod[kv.Key]), kv.Key + ": split " + off + " is at \"" + lines[0] + "\", not at " + SplitMethod[kv.Key]);
                 }
