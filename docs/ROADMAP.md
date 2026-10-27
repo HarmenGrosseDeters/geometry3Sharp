@@ -136,6 +136,17 @@ selectively.
 - [x] Analysis building blocks: wall thickness (`MeshWallThickness`: ray, shape diameter function, inscribed ball /
   medial axis), deviation maps (`MeshDeviation`, statistics in `DeviationStatistics`), primitive fitting
   (`PrimitiveFit3`: plane, sphere, cylinder, cone; RANSAC + least squares)
+- [x] Evaluation metrics, so that optimization decisions do not rest on Hausdorff distance and volume IoU alone (they
+  miss lost features, reversed patches and topology changes): `MeshFidelityMetrics` (F-score at relative thresholds,
+  Chamfer distance, normal consistency and the share of reversed normals, Edge Chamfer distance and edge
+  precision / recall on sharp edges), `TriangleQualityStatistics` (Verdict metrics as distributions),
+  `MeshTopologySummary` (components, Euler characteristic, genus, boundary loops, changes).
+  - [x] In the benchmarks: MeshRepairBenchmark (`fm_*` fields, `analyze_fidelity.py` columns and flags, baseline on
+    Thingi10K and Objaverse with the outer surface measures), RemeshBenchmark, UVAtlasBenchmark (UV quality, charts
+    that are not discs)
+  - [ ] Volume IoU restricted to the outer surface (the input's winding number solid is distorted by the same
+    interior faces; on Objaverse the next most common miss)
+  - [ ] Curvature fidelity (discrete mean / Gaussian curvature after Meyer et al. 2003, difference of the distributions)
 - A showcase domain: terrain / GIS (in progress) and biomedical / orthotics
 
 ## Later
