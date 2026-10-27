@@ -73,6 +73,15 @@ selectively.
   taper32_x0.6 (0 -> 8), cone16_x0.45 (0 -> 10), cone16_x0.6 (51 -> 67), cone24_x0.15 (0 -> 6), cone24_x0.3 (0 -> 10),
   cone24_x0.6 (0 -> 31), cone32_x0.6 (0 -> 8). Needs an intersection check per operation (local AABB of the
   one-ring) or a repair pass after remeshing.
+- [ ] Remeshing far above the wall thickness folds walls through each other and can turn a mesh inside out, with
+  and without `MinTriangleQuality`: Thingi10K 135363 (a 0.8 plate with thin-walled tubes, walls 0.75, target = mean
+  edge 11.6) ends inside-out in both variants (signed volume 4448 -> -4706 without, -4021 with the option; the sign
+  changes at pass 10 / 8); the thin-walled tubes of `benchmarks/RemeshQualityBenchmark` (wall 0.05 / 0.1, targets
+  0.5..1.6) end with dozens to hundreds of self-intersecting pairs in every case and 2%..700% of the input volume,
+  some inside-out (`Remesher`: 3 of 24 without the option, none with it; `RemesherPro`: tube16_w0.05_t1.6 only without,
+  tube32_w0.05_t1.6 only with it), the sign of the volume changing back and forth over the passes. Needs thickness-aware sizing (target below the local wall thickness) or
+  the intersection check above; at least a guard that detects it (signed volume of each closed component per pass,
+  roll back or report) and a warning in `g3cli remesh` when the target exceeds the wall thickness.
 - [ ] Feature detection misses vertex features: the apex of a smooth cone (no crease edges) is not pinned and is rounded
   off by the remeshers: cones with 12 or more slices (their side edges are no creases) 1.4..2.8 target edge lengths
   from the input; with `MinTriangleQuality` 1.4..3.2, more in 11 of these 24 cases of `benchmarks/RemeshQualityBenchmark`
@@ -80,7 +89,7 @@ selectively.
   apex as a junction of creases. Detect and pin sharp vertices (eg by the normal cone or the angle deficit of their
   one-ring) in `PreserveBoundaryAndFeatures`.
 - [ ] `MeshRobustRepair.NotCleanReason` reports only the first failed check: "degenerate triangles" hid the
-  self-intersections of most remeshed meshes. Report all reasons (or a separate self-intersection count) in the
+  self-intersections of most remeshed meshes, and the inside-out result of 135363 without `MinTriangleQuality`. Report all reasons (or a separate self-intersection count) in the
   diagnostics and benchmarks.
 
 | Feature | Research / port source | Why |

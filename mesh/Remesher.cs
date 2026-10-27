@@ -71,7 +71,9 @@ namespace g3 {
         /// Not guarded: the projection of a new vertex after a split. Together, on 20 Thingi10K meshes remeshed with
         /// creases kept, 28% of the poor (q &lt; 0.1) and 13% of the flat (q &lt; 1e-3) triangles and 16% of the
         /// self-intersecting pairs remain (benchmarks/RemeshQualityBenchmark). RemesherPro queues the edges of a
-        /// vertex whose move was rejected.
+        /// vertex whose move was rejected. With a target edge length far above the wall thickness the result is
+        /// undefined with and without this option: the walls are folded through each other (self-intersections),
+        /// and closed meshes can end inside out (docs/ROADMAP.md).
         /// </summary>
         public double MinTriangleQuality = 0;
 

@@ -1,8 +1,9 @@
 // Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
 // Remesher.MinTriangleQuality (opt-in quality safeguards) on and off, with the settings of `g3cli remesh` (20 passes,
 // smoothing 0.5, projection onto the input, boundary and 30 degree creases kept): per case the poor and flat
-// triangles, self-intersecting triangle pairs, Hausdorff distance and time, and how many cases get worse.
-// Procedural primitives and gears; optionally the Thingi10K selection of benchmarks/RemeshBenchmark (fetch_data.py).
+// triangles, self-intersecting triangle pairs, inside-out components, Hausdorff distance and time, and how many cases
+// get worse. Procedural primitives, gears and thin-walled tubes (targets far above the wall thickness); optionally the
+// Thingi10K selection of benchmarks/RemeshBenchmark (fetch_data.py).
 //
 //   dotnet run -c Release --project benchmarks/RemeshQualityBenchmark -- [thingi=<dir>] [only=<regex>] [quality=0.2] [runs=1]
 using System;
@@ -19,7 +20,7 @@ static class Program
 {
     class Result
     {
-        public int Tris, Poor, Flat, SelfPairs;
+        public int Tris, Poor, Flat, SelfPairs, Inverted;
         public double Hausdorff, Seconds;
         public string NotClean;
     }
@@ -43,6 +44,11 @@ static class Program
             DMesh3 m = Gear(teeth, h, sub);
             foreach (double f in new[] { 0.5, 1.0, 2.0 }) cases.Add(("gears", $"gear{teeth}_{sub}_x{f}", m, f * MeanEdge(m)));
         }
+        foreach (int s in new[] { 16, 32, 64 })
+            foreach (double w in new[] { 0.05, 0.1 }) {
+                DMesh3 m = Tube(s, 4, 1, w, 3);
+                foreach (double t in new[] { 0.5, 0.8, 1.2, 1.6 }) cases.Add(("tubes", $"tube{s}_w{w}_t{t}", m, t));
+            }
         if (A.ContainsKey("thingi"))
             foreach (string f in System.IO.Directory.GetFiles(A["thingi"]).OrderBy(f => f, StringComparer.Ordinal)) {
                 DMesh3 m = StandardMeshReader.ReadMesh(f);
@@ -91,6 +97,8 @@ static class Program
         hd.Compute();
         r.Hausdorff = hd.UpperBound / target;
         r.NotClean = MeshRobustRepair.NotCleanReason(m, false);
+        // directly: NotCleanReason stops at its first failed check (degenerate triangles come before inside-out)
+        r.Inverted = MeshPostRepairCleanup.FindInvertedComponents(m).Count;
         return r;
     }
 
@@ -109,21 +117,23 @@ static class Program
     static void Summary(List<(string group, string name, Result off, Result on)> rows, double quality)
     {
         Console.WriteLine();
-        Console.WriteLine($"| group | cases | q<0.1 off / on | q<1e-3 off / on | cases with q<1e-3 off / on | self-intersecting pairs off / on | cases with self-int. off / on | mean hausdorff/target off / on | time s off / on | worse: more pairs / more q<1e-3 / hausdorff |");
-        Console.WriteLine("|---|---:|---:|---:|---:|---:|---:|---:|---:|---|");
+        Console.WriteLine($"| group | cases | q<0.1 off / on | q<1e-3 off / on | cases with q<1e-3 off / on | self-intersecting pairs off / on | cases with self-int. off / on | cases inside-out off / on | mean hausdorff/target off / on | time s off / on | worse: more pairs / more q<1e-3 / hausdorff / inside-out |");
+        Console.WriteLine("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|");
         foreach (var g in rows.GroupBy(r => r.group)) {
             var l = g.ToList();
             int morePairs = l.Count(r => r.on.SelfPairs > r.off.SelfPairs), moreFlat = l.Count(r => r.on.Flat > r.off.Flat);
             int worseHd = l.Count(r => r.on.Hausdorff > r.off.Hausdorff + 0.02);       // above the two tolerances of 0.01 target
+            int newInverted = l.Count(r => r.on.Inverted > 0 && r.off.Inverted == 0);
             Console.WriteLine($"| {g.Key} | {l.Count} | {l.Sum(r => r.off.Poor)} / {l.Sum(r => r.on.Poor)} | {l.Sum(r => r.off.Flat)} / {l.Sum(r => r.on.Flat)} | " +
                 $"{l.Count(r => r.off.Flat > 0)} / {l.Count(r => r.on.Flat > 0)} | {l.Sum(r => r.off.SelfPairs)} / {l.Sum(r => r.on.SelfPairs)} | " +
-                $"{l.Count(r => r.off.SelfPairs > 0)} / {l.Count(r => r.on.SelfPairs > 0)} | {l.Average(r => r.off.Hausdorff):F3} / {l.Average(r => r.on.Hausdorff):F3} | " +
-                $"{l.Sum(r => r.off.Seconds):F1} / {l.Sum(r => r.on.Seconds):F1} | {morePairs} / {moreFlat} / {worseHd} |");
+                $"{l.Count(r => r.off.SelfPairs > 0)} / {l.Count(r => r.on.SelfPairs > 0)} | {l.Count(r => r.off.Inverted > 0)} / {l.Count(r => r.on.Inverted > 0)} | " +
+                $"{l.Average(r => r.off.Hausdorff):F3} / {l.Average(r => r.on.Hausdorff):F3} | " +
+                $"{l.Sum(r => r.off.Seconds):F1} / {l.Sum(r => r.on.Seconds):F1} | {morePairs} / {moreFlat} / {worseHd} / {newInverted} |");
         }
         Console.WriteLine();
-        Console.WriteLine("Cases that get worse with the option (more self-intersecting pairs, more q<1e-3, or a Hausdorff distance more than 0.02 target larger):");
-        foreach (var r in rows.Where(r => r.on.SelfPairs > r.off.SelfPairs || r.on.Flat > r.off.Flat || r.on.Hausdorff > r.off.Hausdorff + 0.02))
-            Console.WriteLine($"- {r.name}: pairs {r.off.SelfPairs} -> {r.on.SelfPairs}, q<1e-3 {r.off.Flat} -> {r.on.Flat}, hausdorff/target {r.off.Hausdorff:F3} -> {r.on.Hausdorff:F3}");
+        Console.WriteLine("Cases that get worse with the option (more self-intersecting pairs, more q<1e-3, a Hausdorff distance more than 0.02 target larger, or inside-out only with it):");
+        foreach (var r in rows.Where(r => r.on.SelfPairs > r.off.SelfPairs || r.on.Flat > r.off.Flat || r.on.Hausdorff > r.off.Hausdorff + 0.02 || (r.on.Inverted > 0 && r.off.Inverted == 0)))
+            Console.WriteLine($"- {r.name}: pairs {r.off.SelfPairs} -> {r.on.SelfPairs}, q<1e-3 {r.off.Flat} -> {r.on.Flat}, hausdorff/target {r.off.Hausdorff:F3} -> {r.on.Hausdorff:F3}, inside-out components {r.off.Inverted} -> {r.on.Inverted}");
     }
 
     // ---- inputs ----
@@ -131,6 +141,29 @@ static class Program
     static double MeanEdge(DMesh3 m)
     {
         return m.EdgeIndices().Average(e => { Index2i ev = m.GetEdgeV(e); return m.GetVertex(ev.a).Distance(m.GetVertex(ev.b)); });
+    }
+
+    // closed thin-walled tube (outer radius R, wall w): outer and inner wall joined by annular rims at both ends
+    static DMesh3 Tube(int slices, int rings, double R, double w, double H)
+    {
+        var m = new DMesh3();
+        int[,] o = new int[rings + 1, slices], i = new int[rings + 1, slices];
+        for (int r = 0; r <= rings; ++r)
+            for (int s = 0; s < slices; ++s) {
+                double a = 2 * Math.PI * s / slices, z = H * r / rings;
+                o[r, s] = m.AppendVertex(new Vector3d(R * Math.Cos(a), R * Math.Sin(a), z));
+                i[r, s] = m.AppendVertex(new Vector3d((R - w) * Math.Cos(a), (R - w) * Math.Sin(a), z));
+            }
+        for (int s = 0; s < slices; ++s) {
+            int s1 = (s + 1) % slices;
+            for (int r = 0; r < rings; ++r) {
+                m.AppendTriangle(o[r, s], o[r, s1], o[r + 1, s1]); m.AppendTriangle(o[r, s], o[r + 1, s1], o[r + 1, s]);
+                m.AppendTriangle(i[r, s], i[r + 1, s1], i[r, s1]); m.AppendTriangle(i[r, s], i[r + 1, s], i[r + 1, s1]);
+            }
+            m.AppendTriangle(o[rings, s], o[rings, s1], i[rings, s1]); m.AppendTriangle(o[rings, s], i[rings, s1], i[rings, s]);
+            m.AppendTriangle(o[0, s], i[0, s1], o[0, s1]); m.AppendTriangle(o[0, s], i[0, s], i[0, s1]);
+        }
+        return m;
     }
 
     static DMesh3 Cylinder(int slices, double topRadius, double height) =>

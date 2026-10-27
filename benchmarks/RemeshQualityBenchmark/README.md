@@ -3,8 +3,9 @@
 `Remesher.MinTriangleQuality` (opt-in, default 0 = off) on and off, with the settings of `g3cli remesh` (20 passes,
 smoothing 0.5, projection onto the input, boundary and 30 degree creases kept by `PreserveBoundaryAndFeatures`,
 target = a multiple of the input's mean edge length; on = 0.2). Per case: poor (q < 0.1) and flat (q < 1e-3)
-triangles, self-intersecting triangle pairs (`MeshRepairMetrics.SelfIntersections`), Hausdorff distance to the
-input (`MeshHausdorffDistance`, within 0.01 target) and time, and the cases that get worse with the option.
+triangles, self-intersecting triangle pairs (`MeshRepairMetrics.SelfIntersections`), inside-out components
+(`MeshPostRepairCleanup.FindInvertedComponents`, directly: `NotCleanReason` stops at its first failed check), Hausdorff
+distance to the input (`MeshHausdorffDistance`, within 0.01 target) and time, and the cases that get worse with the option.
 
 ## Usage
 ```
@@ -22,22 +23,39 @@ and the list of cases that get worse. No mesh files are committed.
 - `gears` (18 cases): extruded gears (12, 24, 40 teeth), a CAD-like part with many feature curves and junctions,
   caps as fans around their centres (long thin triangles), and with 3 or 4 collinear points per side (as CAD exports
   often have); targets 0.5, 1, 2 x mean edge.
+- `tubes` (24 cases): closed thin-walled tubes (radius 1, height 3, wall 0.05 or 0.1, 16, 32, 64 slices), targets
+  0.5, 0.8, 1.2, 1.6, ie 5 to 32 times the wall thickness: an ill-posed input (see below), the procedural equivalent
+  of Thingi10K 135363.
 - `thingi` (20 meshes): the closed, manifold Thingi10K selection of `benchmarks/RemeshBenchmark`, target 1 x mean edge.
 
 ## Results
 4 cores, net10.0, Release, `runs=3` (median time; the results are deterministic, two full runs gave the same numbers).
 
-| group | cases | q<0.1 off / on | q<1e-3 off / on | cases with q<1e-3 off / on | self-intersecting pairs off / on | cases with self-int. off / on | mean hausdorff/target off / on | time s off / on | worse: more pairs / more q<1e-3 / hausdorff |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---|
-| primitives | 150 | 50 / 7 | 38 / 0 | 22 / 0 | 461 / 285 | 35 / 16 | 0.333 / 0.344 | 4.0 / 6.1 | 10 / 0 / 14 |
-| gears | 18 | 1229 / 438 | 602 / 0 | 10 / 0 | 7697 / 0 | 17 / 0 | 0.161 / 0.010 | 0.3 / 0.3 | 0 / 0 / 0 |
-| thingi | 20 | 5763 / 1638 | 1541 / 205 | 17 / 11 | 19910 / 3158 | 19 / 17 | 1.115 / 1.017 | 7.1 / 11.3 | 0 / 0 / 5 |
+| group | cases | q<0.1 off / on | q<1e-3 off / on | cases with q<1e-3 off / on | self-intersecting pairs off / on | cases with self-int. off / on | cases inside-out off / on | mean hausdorff/target off / on | time s off / on | worse: more pairs / more q<1e-3 / hausdorff / inside-out |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| primitives | 150 | 50 / 7 | 38 / 0 | 22 / 0 | 461 / 285 | 35 / 16 | 0 / 0 | 0.333 / 0.344 | 4.7 / 6.6 | 10 / 0 / 14 / 0 |
+| gears | 18 | 1229 / 438 | 602 / 0 | 10 / 0 | 7697 / 0 | 17 / 0 | 0 / 0 | 0.161 / 0.010 | 0.3 / 0.4 | 0 / 0 / 0 / 0 |
+| tubes | 24 | 132 / 103 | 1 / 0 | 1 / 0 | 6098 / 5344 | 24 / 24 | 3 / 0 | 0.402 / 0.307 | 0.2 / 0.2 | 4 / 0 / 4 / 0 |
+| thingi | 20 | 5763 / 1638 | 1541 / 205 | 17 / 11 | 19910 / 3158 | 19 / 17 | 1 / 1 | 1.115 / 1.017 | 7.2 / 11.4 | 0 / 0 / 5 / 0 |
 
-"worse" counts the cases with more self-intersecting pairs, with more q < 1e-3 triangles, or with a Hausdorff
-distance more than 0.02 target larger (the two measurement tolerances) than without the option. Without the
+"worse" counts the cases with more self-intersecting pairs, with more q < 1e-3 triangles, with a Hausdorff
+distance more than 0.02 target larger (the two measurement tolerances) than without the option, or inside-out only
+with it. Without the
 self-intersection check, `MeshRobustRepair.NotCleanReason` finds 17 of the 20 Thingi10K results not clean without the
-option (degenerate triangles), 1 with it (135363: an inside-out component, and 132 of its 492 triangles below
-q = 1e-3; the degenerate test of `NotCleanReason`, area below 1e-12 diagonal^2, is far weaker than q < 1e-3).
+option (degenerate triangles), 1 with it (135363: inside-out; the degenerate test of `NotCleanReason`, area below
+1e-12 diagonal^2, is far weaker than q < 1e-3). 135363 is inside-out without the option too, hidden behind
+"degenerate triangles" (next section).
+
+### Target far above the wall thickness: undefined result in both variants
+135363 is a 0.8 plate with thin-walled tubes (walls 0.75); the target (its mean edge) is 11.6. The remeshers fold the
+inner and outer walls through each other (a tube becomes about four chords) and the signed volume drifts through
+zero: 4448 (input) -> -4706 without the option (sign change at pass 10), -4021 with it (pass 8). The `tubes` group
+reproduces this procedurally: every case ends with dozens to hundreds of self-intersecting pairs and 2%..700% of the
+input volume, the sign of the volume changing back and forth over the passes; which cases end inside-out is chance
+(`Remesher`: 3 without the option, none with it; `RemesherPro`: tube16_w0.05_t1.6 only without, tube32_w0.05_t1.6
+only with it). The 4 tubes with more pairs and the 4 with a larger Hausdorff distance are of the same kind.
+Results for such inputs are undefined with and without `MinTriangleQuality`; a guard that reports inside-out
+results and a wall-thickness warning are in `docs/ROADMAP.md`.
 
 ### Cases that get worse
 - **More self-intersecting pairs (10 primitives, none of the gears or Thingi meshes):** taper10_x0.15 (12 -> 16),
