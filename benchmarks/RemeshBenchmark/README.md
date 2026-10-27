@@ -150,3 +150,30 @@ vs 1120 and 905 vs 900, uncovered source points within 1%).
 Open bug (docs/ROADMAP.md, Phase 2): a remesher must not leave degenerate triangles; RemesherPro leaves a zero-area
 triangle in the band of `TerrainSafetyTests.SafetyLine_AlongSurface_BandIsOneCleanPiece`, and both remeshers leave
 degenerate triangles on most Thingi10K meshes.
+
+## Further fidelity measures (`fm_*`, `MeshFidelityMetrics`)
+
+Every row also carries the `fm_*` fields of `benchmarks/Shared/FidelityFields.cs` against the input: F-score,
+normal consistency, reversed share, Edge Chamfer distance and edge precision / recall on sharp edges, Verdict
+triangle quality of the result and topology changes. All relative to the input's size; 20k samples per mesh. A
+second table prints them, and `summarize.py` adds their medians. Procedural cases, `runs=1`, branch of #157:
+
+| case | config | F 0.1 % | Edge Chamfer | edge recall 0.5 % | edge precision 0.5 % | min angle 1 % worst |
+|---|---|---:|---:|---:|---:|---:|
+| terrain_band | remesher | 1.0000 | 0.00000 | 1.000 | 1.000 | 33.6 |
+| terrain_band | pro_fastest | 1.0000 | 0.00072 | 1.000 | 0.971 | 29.6 |
+| terrain_band | pro_iter | 1.0000 | 0.00000 | 1.000 | 1.000 | 33.6 |
+| terrain_band_bumpy | remesher | 0.9550 | 0.00050 | 0.919 | 1.000 | 31.7 |
+| terrain_band_bumpy | pro_fastest | 0.9782 | 0.00040 | 0.957 | 0.993 | 34.3 |
+| terrain_band_bumpy | pro_iter | 0.9549 | 0.00199 | 0.913 | 0.958 | 30.6 |
+| noisy_coarsen | remesher | 0.9999 | 0.08886 | 0.099 | 0.635 | 22.4 |
+| noisy_coarsen | pro_fastest | 1.0000 | 0.06781 | 0.124 | 0.777 | 22.1 |
+
+The spheres and the open heightfield have no sharp edges and an F-score of 1 in all three configurations. What
+Hausdorff (ratio 1.00 between the configurations) and `q < 0.1` do not show:
+- On `terrain_band`, `pro_fastest` adds sharp edges that the input does not have (edge precision 0.97) and has
+  worse small angles (1 % worst 29.6° instead of 33.6°).
+- On `terrain_band_bumpy`, `pro_fastest` keeps the surface and the break lines better (F 0.978 instead of 0.955,
+  edge recall 0.96 instead of 0.92), while `pro_iter` moves the edges it keeps (Edge Chamfer 4x).
+- On `noisy_coarsen` the "sharp edges" are the noise that the coarsening is meant to remove, so a low edge recall
+  is expected there.
