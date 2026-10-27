@@ -91,16 +91,18 @@ namespace g3
                 Normals[i] = Vector3d.Zero;
 
             int NT = Mesh.MaxTriangleID;
-            Vector3d[] triN = new Vector3d[NT];
+            if (triN == null || triN.Length < NT)
+                triN = new Vector3d[NT];
+            Vector3d[] triN_ = triN;
             gParallel.ForEach(Mesh.TriangleIndices(), (ti) => {
                 Index3i tri = Mesh.GetTriangle(ti);
-                triN[ti] = AreaNormal(VertexF(tri.a), VertexF(tri.b), VertexF(tri.c));
+                triN_[ti] = AreaNormal(VertexF(tri.a), VertexF(tri.b), VertexF(tri.c));
             });
             foreach (int ti in Mesh.TriangleIndices()) {
                 Index3i tri = Mesh.GetTriangle(ti);
-                Normals[tri.a] += triN[ti];
-                Normals[tri.b] += triN[ti];
-                Normals[tri.c] += triN[ti];
+                Normals[tri.a] += triN_[ti];
+                Normals[tri.b] += triN_[ti];
+                Normals[tri.c] += triN_[ti];
             }
 
             gParallel.BlockStartEnd(0, NV - 1, (vi_start, vi_end) => {
@@ -109,14 +111,23 @@ namespace g3
             });
         }
 
+        // per-triangle area normals of the last Compute(), kept for reuse
+        Vector3d[] triN;
+
         /// <summary> the normal of triangle (a,b,c) times its area </summary>
         static Vector3d AreaNormal(Vector3d a, Vector3d b, Vector3d c) => 0.5 * (b - a).Cross(c - a);
 
-        /// <summary> v normalized if its length is positive and finite, else Zero (no absolute threshold) </summary>
+        /// <summary>
+        /// v normalized if it is not zero and finite, else Zero (no absolute threshold). Divided by its largest component
+        /// first, so that the squares in the length neither overflow nor underflow (exact under power-of-two scaling).
+        /// </summary>
         static Vector3d UnitOrZero(Vector3d v)
         {
-            double len = v.Length;
-            return (len > 0 && len < double.PositiveInfinity) ? v / len : Vector3d.Zero;
+            double m = v.MaxAbs;
+            if (!(m > 0) || double.IsInfinity(m))
+                return Vector3d.Zero;
+            v /= m;
+            return v / v.Length;
         }
 
 
@@ -137,9 +148,12 @@ namespace g3
         /// </summary>
         public static Vector3d QuickCompute(DMesh3 mesh, int vid, NormalsTypes type = NormalsTypes.Vertex_OneRingFaceAverage_AreaWeighted)
         {
+            // (summed in triangle id order, as Compute() does, so both give the same normal bit for bit)
             Vector3d sum = Vector3d.Zero;
             Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
-            foreach ( int tid in mesh.VtxTrianglesItr(vid)) {
+            List<int> tris = new List<int>(mesh.VtxTrianglesItr(vid));
+            tris.Sort();
+            foreach ( int tid in tris) {
                 mesh.GetTriVertices(tid, ref a, ref b, ref c);
                 sum += AreaNormal(a, b, c);
             }

@@ -44,6 +44,8 @@ namespace geometry3Sharp.Tests
         [InlineData(-30)]
         [InlineData(-60)]
         [InlineData(40)]
+        [InlineData(-500)]
+        [InlineData(500)]
         public void Normals_ExtremeScales_UnitAndBitIdentical(int exponent)
         {
             double scale = Math.Pow(2, exponent);
@@ -71,6 +73,29 @@ namespace geometry3Sharp.Tests
             }
             reused.Compute();
             Assert.True(first.SequenceEqual(m.VertexIndices().Select(v => reused.Normals[v])), "reused instance differs");
+        }
+
+        [Fact]
+        public void Normals_EqualTheSerialSumInTriangleOrder()
+        {
+            // the sum is serial in triangle id order (the SpinLock sum followed the thread schedule), and QuickCompute of
+            // one vertex gives the same bits
+            DMesh3 m = Sphere(30);
+            var sum = new Vector3d[m.MaxVertexID];
+            foreach (int t in m.TriangleIndices()) {
+                Index3i tri = m.GetTriangle(t);
+                Vector3d a = m.GetVertex(tri.a), b = m.GetVertex(tri.b), c = m.GetVertex(tri.c);
+                Vector3d n = 0.5 * (b - a).Cross(c - a);
+                sum[tri.a] += n; sum[tri.b] += n; sum[tri.c] += n;
+            }
+            var normals = new MeshNormals(m);
+            normals.Compute();
+            foreach (int v in m.VertexIndices()) {
+                Vector3d w = sum[v] / sum[v].MaxAbs;
+                Vector3d expected = w / w.Length;
+                Assert.True(normals.Normals[v] == expected, $"vertex {v}: {normals.Normals[v]} vs {expected}");
+                Assert.True(MeshNormals.QuickCompute(m, v) == expected, $"QuickCompute, vertex {v}");
+            }
         }
 
         [Fact]
