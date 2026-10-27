@@ -71,7 +71,7 @@ class Program
             // hybrid = cleanup; if the result is not clean (MeshRobustRepair.NotCleanReason, including exact
             // self-intersections), solidify_dc_adaptive of the repaired mesh; hybrid_topo = the same without
             // the self-intersection check,
-            // robust = MeshRobustRepair (hybrid plus the volume check against the input),
+            // robust = MeshRobustRepair (hybrid plus the volume check against the input; BENCH_REJECT_TOPOLOGY=1: RejectTopologyChange),
             // wrap = MeshAlphaWrap of the input (BENCH_WRAP_ALPHA / BENCH_WRAP_OFFSET: diagonal divided by alpha / offset),
             // cgalwrap = the same with CGAL's alpha wrap (external program, CGAL_WRAP; for comparison only),
             // instr = InstrumentedAutoRepair, records cheap quality metrics after every pipeline step,
@@ -167,6 +167,7 @@ class Program
                 robust.SimplifyAlphaWrap = Environment.GetEnvironmentVariable("BENCH_WRAP_SIMPLIFY") != "0";
                 robust.SafeRounding = Environment.GetEnvironmentVariable("BENCH_SAFE_ROUNDING") != "0";
                 robust.CheckLostComponents = Environment.GetEnvironmentVariable("BENCH_LOST_COMPONENTS") == "1";
+                robust.RejectTopologyChange = Environment.GetEnvironmentVariable("BENCH_REJECT_TOPOLOGY") == "1";
                 ok = robust.Apply();
                 result = robust.Mesh;
                 r["hybrid_fallback"] = robust.FallbackReason != "";
@@ -174,6 +175,9 @@ class Program
                 r["robust_used_solidify"] = robust.UsedSolidify;
                 r["robust_repair_iou"] = robust.RepairVolumeIoU;
                 r["robust_used_exact"] = robust.UsedExactResolve;
+                r["robust_topology_changed"] = robust.TopologyChanged;
+                r["robust_genus_before"] = robust.GenusBefore;
+                r["robust_genus_after"] = robust.GenusAfter;
                 r["robust_exact_reason"] = robust.ExactResolveReason;
                 r["robust_wrap_reason"] = robust.WrapReason;
                 r["robust_exact_rounds"] = robust.ExactResolveRoundsUsed;
