@@ -101,6 +101,27 @@ namespace g3 {
         /// <summary> status: the number of passes rolled back by RejectInvertingPasses so far </summary>
         public int InvertingPassesRejected = 0;
 
+        /// <summary>
+        /// status: the number of vertices with a NaN or infinite coordinate at the start of the last pass
+        /// (BasicRemeshPass, RemesherPro.RemeshIteration, RemesherPro.FastSplitIteration). Such a pass does nothing:
+        /// smoothing, splits and projection would spread the value to the neighbouring vertices.
+        /// </summary>
+        public int NonFiniteVertices = 0;
+
+        /// <summary> sets NonFiniteVertices; true if there are any (the pass is skipped) </summary>
+        protected bool has_non_finite_vertices()
+        {
+            DVector<double> verts = mesh.VerticesBuffer;
+            RefCountVector refs = mesh.VerticesRefCounts;
+            int n = 0, NV = mesh.MaxVertexID;
+            for (int vid = 0; vid < NV; ++vid) {
+                if (refs.isValidUnsafe(vid) && (MathUtil.IsFinite(verts[3 * vid]) && MathUtil.IsFinite(verts[3 * vid + 1]) && MathUtil.IsFinite(verts[3 * vid + 2])) == false)
+                    n++;
+            }
+            NonFiniteVertices = n;
+            return n > 0;
+        }
+
 		/// <summary> smoothing step per pass, in [0,1]: each vertex moves this fraction towards its smoothed position </summary>
 		public double SmoothSpeedT = 0.1f;
 		/// <summary> weights of the smoothing: uniform (one-ring centroid), cotangent or mean-value </summary>
@@ -254,6 +275,8 @@ namespace g3 {
         /// </summary>
 		public virtual void BasicRemeshPass() {
             if (mesh.TriangleCount == 0)    // badness if we don't catch this...
+                return;
+            if (has_non_finite_vertices())
                 return;
 
             begin_pass();

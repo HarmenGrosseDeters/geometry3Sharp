@@ -317,6 +317,8 @@ namespace gs
         {
             if (mesh.TriangleCount == 0)    // badness if we don't catch this...
                 return 0;
+            if (has_non_finite_vertices())
+                return 0;
 
             PushState();
             EnableFlips = EnableCollapses = EnableSmoothing = false;
@@ -404,6 +406,8 @@ namespace gs
         public virtual void RemeshIteration()
         {
             if (mesh.TriangleCount == 0)    // badness if we don't catch this...
+                return;
+            if (has_non_finite_vertices())
                 return;
 
             begin_pass();
