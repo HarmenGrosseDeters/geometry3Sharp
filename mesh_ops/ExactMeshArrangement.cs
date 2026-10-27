@@ -1272,27 +1272,9 @@ namespace g3
                     if (p < 0)      // (the offsets increase strictly: every pair has triangles of its first mesh)
                         p = ~p - 1;
                     int ma = meshPairs[p0 + p].a, mb = meshPairs[p0 + p].b, ka = j - offsets[p];
-                    InputTriangle T = Triangles[MeshTriangles[ma][ka]];
-                    if (T.Degenerate) return;
-                    hits.Clear();
-                    trees[mb].Query(boxes[ma][ka], hits);
-                    foreach (int kb in hits) {
-                        if (ma == mb && kb <= ka)
-                            continue;
-                        InputTriangle U = Triangles[MeshTriangles[mb][kb]];
-                        if (U.Degenerate)
-                            continue;
-                        if (ma == mb) {
-                            if (touch_only(T, U))
-                                continue;
-                        } else if (separated(T, U))
-                            continue;
-                        if (ma == mb)
-                            System.Threading.Interlocked.Increment(ref self);
-                        if (found[j] == null)
-                            found[j] = new List<long>();
-                        found[j].Add(((long)MeshTriangles[ma][ka] << 32) | (uint)MeshTriangles[mb][kb]);
-                    }
+                    int s = candidates(ma, ka, mb, boxes[ma][ka], trees[mb], hits, ref found[j]);
+                    if (s > 0)
+                        System.Threading.Interlocked.Add(ref self, s);
                 });
                 foreach (var list in found)
                     if (list != null)
@@ -1315,6 +1297,37 @@ namespace g3
             CandidatePairs = pairs.Count;
         }
         public int CandidatePairs;
+
+        // the candidate pairs of triangle ka of mesh ma with the triangles of mesh mb (tree) whose boxes overlap box,
+        // appended to found (created when needed); hits: a buffer. Returns the number of pairs within one mesh.
+        [MethodImpl(JitHints.Optimize)]
+        int candidates(int ma, int ka, int mb, AxisAlignedBox3d box, TriangleBoxTree tree, List<int> hits, ref List<long> found)
+        {
+            InputTriangle T = Triangles[MeshTriangles[ma][ka]];
+            if (T.Degenerate)
+                return 0;
+            int self = 0;
+            hits.Clear();
+            tree.Query(box, hits);
+            foreach (int kb in hits) {
+                if (ma == mb && kb <= ka)
+                    continue;
+                InputTriangle U = Triangles[MeshTriangles[mb][kb]];
+                if (U.Degenerate)
+                    continue;
+                if (ma == mb) {
+                    if (touch_only(T, U))
+                        continue;
+                } else if (separated(T, U))
+                    continue;
+                if (ma == mb)
+                    self++;
+                if (found == null)
+                    found = new List<long>();
+                found.Add(((long)MeshTriangles[ma][ka] << 32) | (uint)MeshTriangles[mb][kb]);
+            }
+            return self;
+        }
 
         // all corners of one triangle strictly on one side of the other's plane (exact double predicates)
         [MethodImpl(JitHints.Optimize)]

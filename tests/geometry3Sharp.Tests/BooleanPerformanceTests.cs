@@ -134,6 +134,29 @@ namespace geometry3Sharp.Tests
             Assert.Equal(DMesh3.InvalidID, mesh.FindEdge(ring[0], ring[2]));
         }
 
+        [Theory]
+        [InlineData(0, 0)]
+        [InlineData(1, 0)]
+        [InlineData(1000, 1)]
+        [InlineData(1000, 2)]
+        [InlineData(100000, 3)]
+        public void SortByKey_SortsStably(int n, int kind)
+        {
+            // edge keys (a << 32 | b): small and large ids, many equal keys; items in increasing order, so a stable
+            // sort keeps equal keys' items increasing (with one, two, three and four digit passes)
+            var rand = new Random(n + kind);
+            var keys = new long[n];
+            for (int i = 0; i < n; ++i) {
+                long a = rand.Next(kind == 1 ? 50 : kind == 2 ? 70000 : int.MaxValue), b = rand.Next(kind == 1 ? 200 : 1 << 20);
+                keys[i] = (kind == 3 && i % 3 == 0) ? keys[rand.Next(Math.Max(1, i))] : ((a << 32) | b);
+            }
+            var items = Enumerable.Range(0, n).ToArray();
+            var expected = keys.Select((k, i) => (k, i)).OrderBy(p => p.k).ThenBy(p => p.i).ToArray();
+            ExactMeshBoolean.sort_by_key(keys, items);
+            Assert.Equal(expected.Select(p => p.k).ToArray(), keys);
+            Assert.Equal(expected.Select(p => p.i).ToArray(), items);
+        }
+
         [Fact]
         public void ForRange_ThrowsTheExceptionOfTheBody()
         {

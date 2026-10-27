@@ -577,23 +577,7 @@ namespace g3
             // the piece is output only from the stack's first triangle
             var stack = new List<int>[n];
             bool[] representative = new bool[n];
-            gParallel.ForRange(n, (i) => {
-                var ot = output[i];
-                var src = arr.Triangles[ot.Source];
-                representative[i] = true;
-                if (src.Coplanar.Count == 0)
-                    return;
-                int c = centroid(ot);
-                foreach (int ui in src.Coplanar) {
-                    if (inside_coplanar(src, arr.Triangles[ui], c)) {
-                        if (stack[i] == null)
-                            stack[i] = new List<int>() { ot.Source };
-                        stack[i].Add(ui);
-                        if (ui < ot.Source)
-                            representative[i] = false;
-                    }
-                }
-            });
+            gParallel.ForRange(n, (i) => representative[i] = coplanar_stack(output[i], out stack[i]));
 
             // patches: pieces of one mesh connected across edges that are not on an intersection curve, with
             // exactly two pieces of that mesh (then they are oriented consistently, the meshes are winding
@@ -603,13 +587,7 @@ namespace g3
             int[] parent = new int[n];
             for (int i = 0; i < n; ++i)
                 parent[i] = i;
-            Func<int, int> find = (x) => {
-                while (parent[x] != x) {
-                    parent[x] = parent[parent[x]];
-                    x = parent[x];
-                }
-                return x;
-            };
+            Func<int, int> find = (x) => find_root(parent, x);
             var atEdge = new List<int>();
             for (int g0 = 0, g1 = 0; g0 < edgeKeys.Length; g0 = g1) {
                 g1 = g0 + 1;
@@ -719,6 +697,29 @@ namespace g3
             }
         }
 
+        // the stack of piece ot (null if its source has no coplanar triangles that contain it), and whether the
+        // piece is output from it (its source is the stack's first triangle)
+        [MethodImpl(JitHints.Optimize)]
+        bool coplanar_stack(ExactMeshArrangement.OutputTriangle ot, out List<int> stack)
+        {
+            stack = null;
+            var src = arr.Triangles[ot.Source];
+            if (src.Coplanar.Count == 0)
+                return true;
+            bool representative = true;
+            int c = centroid(ot);
+            foreach (int ui in src.Coplanar) {
+                if (inside_coplanar(src, arr.Triangles[ui], c)) {
+                    if (stack == null)
+                        stack = new List<int>() { ot.Source };
+                    stack.Add(ui);
+                    if (ui < ot.Source)
+                        representative = false;
+                }
+            }
+            return representative;
+        }
+
         static readonly int[] noWinding = new int[0];
 
         // the root of x in the union-find forest parent, without changing it (thread-safe for reading)
@@ -782,7 +783,64 @@ namespace g3
                 edgeKeys[3 * i + 2] = ExactMeshArrangement.EdgeKey(t.c, t.a);
                 edgeTri[3 * i] = edgeTri[3 * i + 1] = edgeTri[3 * i + 2] = i;
             }
-            Array.Sort(edgeKeys, edgeTri);
+            sort_by_key(edgeKeys, edgeTri);
+        }
+
+        // the root of x in the union-find forest parent, halving the path
+        static int find_root(int[] parent, int x)
+        {
+            while (parent[x] != x) {
+                parent[x] = parent[parent[x]];
+                x = parent[x];
+            }
+            return x;
+        }
+
+        // the corner slot 3 t + k of point p in triangle t
+        static int slot_of(List<Index3i> tris, int t, int p)
+        {
+            Index3i f = tris[t];
+            return 3 * t + ((f.a == p) ? 0 : (f.b == p) ? 1 : 2);
+        }
+
+        /// <summary>
+        /// sorts keys (non-negative) and items by the keys, stably (equal keys keep the order of their items): a radix
+        /// sort by 16-bit digits, skipping the digits that are the same in all keys. (Array.Sort of two arrays is
+        /// not stable, and the runtime's generic sort over these types starts as unoptimized code.)
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal static void sort_by_key(long[] keysIn, int[] itemsIn)
+        {
+            long[] keys = keysIn;
+            int[] items = itemsIn;
+            int n = keys.Length;
+            long[] k2 = new long[n];
+            int[] i2 = new int[n];
+            var count = new int[65537];
+            for (int shift = 0; shift < 64; shift += 16) {
+                Array.Clear(count, 0, count.Length);
+                for (int i = 0; i < n; ++i)
+                    count[(int)((keys[i] >> shift) & 0xFFFF) + 1]++;
+                bool constant = false;
+                for (int d = 0; d < 65536 && constant == false; ++d)
+                    constant = count[d + 1] == n;
+                if (constant)
+                    continue;
+                for (int d = 0; d < 65536; ++d)
+                    count[d + 1] += count[d];
+                for (int i = 0; i < n; ++i) {
+                    int at = count[(int)((keys[i] >> shift) & 0xFFFF)]++;
+                    k2[at] = keys[i];
+                    i2[at] = items[i];
+                }
+                long[] tk = keys; keys = k2; k2 = tk;
+                int[] ti = items; items = i2; i2 = ti;
+            }
+            // (after an odd number of passes the sorted data is in the other arrays)
+            if (keys != keysIn) {
+                Array.Copy(keys, keysIn, n);
+                Array.Copy(items, itemsIn, n);
+            }
         }
 
         [MethodImpl(JitHints.Optimize)]
@@ -1166,19 +1224,13 @@ namespace g3
             int[] parent = new int[3 * tris.Count];
             for (int k = 0; k < parent.Length; ++k)
                 parent[k] = k;
-            Func<int, int> find = (x) => {
-                while (parent[x] != x) {
-                    parent[x] = parent[parent[x]];
-                    x = parent[x];
-                }
-                return x;
-            };
+            Func<int, int> find = (x) => find_root(parent, x);
             Action<int, int> join = (x, y) => {
                 int rx = find(x), ry = find(y);
                 if (rx != ry) parent[rx] = ry;
             };
             // slot of point p in triangle t
-            Func<int, int, int> slot = (t, p) => 3 * t + ((tris[t].a == p) ? 0 : (tris[t].b == p) ? 1 : 2);
+            Func<int, int, int> slot = (t, p) => slot_of(tris, t, p);
 
             long[] edgeKeys; int[] edgeTri;
             group_edges(tris.Count, (t) => tris[t], out edgeKeys, out edgeTri);
