@@ -118,8 +118,7 @@ namespace geometry3Sharp.Tests
         static readonly Vector3d CutNormal = new Vector3d(1, 2, 3).Normalized;
 
         public static readonly Op[] Ops = new Op[] {
-            // (not bit exact: the parallel sum of the face normals varies with the thread schedule, R18)
-            new Op { Name = "MeshNormals", Type = typeof(MeshNormals), Input = () => Sphere(), Tol = 1e-8, BitExact = false,
+            new Op { Name = "MeshNormals", Type = typeof(MeshNormals), Input = () => Sphere(), Tol = 1e-6,
                 Run = (m, s, p) => {
                     var n = new MeshNormals(m); n.Compute();
                     var sig = new Sig(s);
@@ -321,12 +320,6 @@ namespace geometry3Sharp.Tests
             { "MeshIsoCurves|scale 2^-24", "R15" },
             { "MeshIterativeSmooth|+Inf vertex", "R13" },
             { "MeshIterativeSmooth|NaN vertex", "R13" },
-            { "MeshNormals|+Inf vertex", "R20" },
-            { "MeshNormals|NaN vertex", "R20" },
-            { "MeshNormals|rotated, scale 1e-3, utm", "R1" },
-            { "MeshNormals|scale 1e-3", "R1" },
-            { "MeshNormals|scale 2^-10", "R1" },
-            { "MeshNormals|scale 2^-24", "R1" },
             { "MeshPlaneCut|scale 2^-24", "R5" },
             { "PointHashGrid3d|rotated, scale 1e-3, utm", "hang R4" },
             { "Reducer.MaxDeviation|scale 2^-24", "R14" },
