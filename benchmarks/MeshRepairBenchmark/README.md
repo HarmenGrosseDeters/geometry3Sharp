@@ -355,6 +355,23 @@ results consist of slivers only:
 - 51352.stl and 51358.stl: the union's volume changes from 2e-5 to 1.2e-3 and from 0 to -4.4e-3. The vertex moves of
   up to 1e-5 of the diagonal sweep that much; it is below 5e-8 of the inputs' signed volumes (-1e5).
 
+**Open inputs: pieces that run an edge the same way are not joined (`ExactMeshBoolean.ConflictEdges`, 2026-10-27).**
+`BENCH_REPAIR=exact` now also records `exact_<op>_inconsistent` (interior edges whose two triangles run the same way)
+and `exact_<op>_boundary` per operation. 400 set, master `1c85feb` (booleans as `f2b72bc`) against the branch:
+
+| | master | branch |
+|---|---|---|
+| inconsistently oriented edges in the results (all from the 195 open inputs) | 3640, in 78 meshes | **0** |
+| boundary edges of the results of open inputs | 274278 | 303564 |
+| ... change in the results that had no inconsistent edge | | −33 |
+| results of open inputs closed (`IsClosed`) | 132 | 128 |
+| results of closed inputs | | identical (102375 timed out under load, identical with a longer timeout) |
+| `robust`: repaired | 274 | **274** (every mesh the same; 229959 timed out under load, identical with a longer timeout) |
+
+Where the kept pieces at an edge did not fit together (an open boundary of the input on an edge that other pieces
+meet), the result had an inconsistently oriented edge; now it is open there. The 4 results that are no longer closed
+were closed only with such edges.
+
 **Repair before the exact resolve: cut orientation seams before eroding.** Measured after every step
 (`BENCH_REPAIR=steps`), several deviations came from the repair, not the resolve: where a non-orientable
 region (a seam of inconsistently oriented edges) ends at a hole, the hole runs against the boundary orientation
