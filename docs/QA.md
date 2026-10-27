@@ -325,7 +325,10 @@ G3_MINIMIZE=1 dotnet test tests/geometry3Sharp.Tests -c Release --filter "FullyQ
 Rounding can turn a case into a degenerate one with the same message (ddmin finds the smallest input with
 that message, not necessarily with the same cause). Check both the rounded and the unrounded case. Example:
 "random edits 6" (301 triangles) became 5 triangles in 10 s
-(`DefectInputTests.MinimizedRandomEdits6`), unrounded 34.
+(`DefectInputTests.MinimizedRandomEdits6`), unrounded 34 (`MinimizedRandomEdits6Unrounded`). Here both had the same
+cause, an open boundary on an edge that other pieces meet, in different shapes: the rounding made three triangles
+coplanar (with the sign of zero as the only difference between coincident vertices), the unrounded case kept the
+stray triangle that the comment of the original test called an interior sheet.
 
 ### 2.10 Robustness sweep (`RobustnessSweepTests`, findings in [ROBUSTNESS_SWEEP.md](ROBUSTNESS_SWEEP.md))
 
@@ -335,8 +338,8 @@ volumes, points, directions). Every operation runs:
 
 - under `Similarity.All()` plus scales of 2^-24 and 2^20. Under power-of-two scales the signature must be bit
   identical, which catches absolute thresholds. Under the other similarities it must agree within the
-  operation's tolerance, which catches float code at UTM coordinates. Operations whose result varies in the
-  last bits from run to run (R19) are compared with the tolerance only.
+  operation's tolerance, which catches float code at UTM coordinates. An operation whose result varies in the
+  last bits from run to run would set `BitExact = false` (none does since R18 and R19 are fixed).
 - with a NaN or +Inf vertex, and a NaN or ±Inf parameter. The operation must finish within 20 s. It must not
   throw, except an `ArgumentException` from its own type. It must not spread non-finite coordinates to
   vertices that were finite. With a non-finite parameter it must report failure or give a finite result.
