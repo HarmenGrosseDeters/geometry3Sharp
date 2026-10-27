@@ -995,4 +995,4 @@ Toe along the x axis at z = 0 unless stated, slope region y > 0, h = y.
 ## References
 
 The sources this design was written from are listed in `docs/SOURCES.md` under "Terrain slope design (planned)".
-The user's company code (Böschung / MsMassenberechnung) was not looked at and is not a source.
+The user's existing in-house code was not looked at and is not a source.
