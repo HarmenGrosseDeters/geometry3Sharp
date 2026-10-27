@@ -127,6 +127,10 @@ namespace gs
             }
 
             Func<Vector3d, bool> isOccludedF = (pt) => {
+                // a test point of a non-finite vertex is not occluded (its rays threw deep inside the tree query,
+                // eg MeshAutoRepair on a mesh with an infinite vertex, docs/ROBUSTNESS_SWEEP.md R11)
+                if (pt.IsFinite == false)
+                    return false;
 
                 if (InsideMode == CalculationMode.RayParity) {
                     return spatial.IsInside(pt);
@@ -200,6 +204,9 @@ namespace gs
             if (Cancelled())
                 return false;
 
+            // (in id order: the parallel loop adds them in thread order, which set the free-list order of the mesh and
+            // so the ids of later insertions)
+            RemovedT.Sort();
             if (RemovedT.Count > 0) {
                 MeshEditor editor = new MeshEditor(Mesh);
                 bool bOK = editor.RemoveTriangles(RemovedT, true);

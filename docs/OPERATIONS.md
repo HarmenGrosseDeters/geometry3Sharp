@@ -64,7 +64,16 @@ Add both: `using g3; using gs;`.
 | Closed meshes that intersect themselves or each other, where the triangles must be kept exactly | `ExactMeshBoolean`, `ExactMeshBoolean.Resolve(mesh)` | exact arrangement, only the output coordinates are rounded; `SafeRounding = true` repairs the slivers and self-intersections the rounding leaves (`MeshRoundingRepair`, checked exactly, `RoundingClean`), `ComputeExactVertices = true` gives the exact rational coordinates (`ResultExactVertices`); flipped input triangles are reoriented per component first (the larger part by area keeps its orientation, `ReorientedTriangles`) |
 | Booleans of broken meshes (open, soups, overlapping shells) | `gs.MeshWindingNumberBoolean` | a new, remeshed closed surface (winding numbers on an adaptive octree) |
 
-`MeshBoolean` is the old, non-robust union of the original library; prefer `ExactMeshBoolean`.
+`MeshBoolean` is the old, non-robust union of the original library; prefer `ExactMeshBoolean`. Its snap
+tolerance (`VertexSnapTol`, 1e-5) is absolute: with the default it throws at millimetre scale and can hang or give
+other results at UTM coordinates.
+
+`ExactMeshBoolean` also takes open meshes (`AllowOpenMeshes`, default true): their solid is where the generalized
+winding number is above 1/2 (`ExactWinding[i]` false), and the result is generally open (`IsClosed()` false,
+`MeshRobustRepair.NotCleanReason` "not closed"). It is consistently oriented, also where an open boundary of an
+input lies on an edge that other pieces meet: there no inside/outside choice fits all the pieces, the pieces that
+run the edge the same way are not joined, and the result is open along the edge; `ConflictEdges` counts these edges
+(0 for closed inputs).
 
 ## The examples
 

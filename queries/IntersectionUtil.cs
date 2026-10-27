@@ -50,10 +50,13 @@ namespace g3
             //   |Dot(D,N)|*b2 = sign(Dot(D,N))*Dot(D,Cross(E1,Q))
             //   |Dot(D,N)|*t = -sign(Dot(D,N))*Dot(Q,N)
             double DdN = rayDirection.Dot(normal);
+            // relative to the ray and triangle size, as in IntrRay3Triangle3 (an absolute 1e-8 made every triangle with
+            // edges below about 1e-4 'parallel')
+            double parallelTol = MathUtil.ZeroTolerance * Math.Sqrt(rayDirection.LengthSquared * normal.LengthSquared);
             double sign;
-            if (DdN > MathUtil.ZeroTolerance) {
+            if (DdN > parallelTol) {
                 sign = 1;
-            } else if (DdN < -MathUtil.ZeroTolerance) {
+            } else if (DdN < -parallelTol) {
                 sign = -1;
                 DdN = -DdN;
             } else {
