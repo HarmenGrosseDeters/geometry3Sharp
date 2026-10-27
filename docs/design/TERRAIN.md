@@ -495,7 +495,18 @@ A new case `slope` in `benchmarks/TerrainBenchmark`, on the real Hambach data (D
 `fetch_data.py`, nothing committed):
 
 - **Toe lines:** level lines of the DGM in the pit (eg the pit bottom at a given elevation), simplified,
-  1–20 km long, with procedural slopes per vertex (constant; sectors 1:3 / 1:1; random within 30–60°).
+  1–20 km long, with procedural slopes per vertex (constant; sectors 1:3 / 1:1; random within 30–60°). Also the
+  real bench toes of the pit, found by `TerrainBreakLines` (toes = concave break lines): real geometry with
+  convex and concave corners, ramps and short segments.
+- **Realistic slopes:** the slopes of the real bench faces, measured on the DGM between the toe and crest lines
+  that `TerrainBreakLines` finds. They give plausible values per vertex, and a design from a real toe can then be
+  compared with the real face behind it.
+- **Real excavation as a plausibility check:** DGM 2022 against bDOM 2025 shows three years of real excavation
+  (about 20 Mio. m³ per km², README of the benchmark). A slope designed from a 2025 toe against the 2022 terrain
+  gives volumes and catch lines of a realistic order of magnitude, without claiming that the mine was designed
+  that way.
+- **Also available** (same source, dl-de/zero): the classified 3D point clouds of the pit edge and the interior,
+  for TINs of different densities (`TerrainGreedyTIN`, dual contouring) under the same design.
 - **Sizes:** 1, 4 and 12 km² terrain windows (2M–24M triangles), `coords=utm` and `coords=local`.
 - **Recorded:**
   - time and peak memory per stage (pieces, S̃, verification, overlay, volumes);
