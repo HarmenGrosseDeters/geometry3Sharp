@@ -52,29 +52,69 @@ namespace geometry3Sharp.Tests
             Assert.Equal(c0.EffectiveDegenerateEdgeTol * s.Scale, c1.EffectiveDegenerateEdgeTol);
         }
 
+        static double ShortestLoopEdge(DMesh3 m, MeshPlaneCut cut) =>
+            cut.CutLoops.SelectMany(l => l.Edges).Min(e => m.GetVertex(m.GetEdgeV(e).a).Distance(m.GetVertex(m.GetEdgeV(e).b)));
+
         [Fact]
         public void Cut_ExplicitAbsoluteTolerance_IsUsedAsGiven()
         {
-            DMesh3 m = Defects.Sphere(Vector3d.Zero, 1, 6);
-            var cut = new MeshPlaneCut(m, Vector3d.Zero, Normal) { DegenerateEdgeTol = 1e-3 };
-            cut.Cut();
-            Assert.Equal(1e-3, cut.EffectiveDegenerateEdgeTol);
+            // a plane 2e-5 from a vertex: the short cut edges near it stay with the relative default (3.5e-6 here) and
+            // are collapsed with an explicit DegenerateEdgeTol of 1e-3
+            DMesh3 probe = Defects.Sphere(Vector3d.Zero, 1, 6);
+            Vector3d v = probe.GetVertex(probe.VertexIndices().First(x => Math.Abs(probe.GetVertex(x).Dot(Normal)) < 0.5));
+            Vector3d origin = v + 2e-5 * Normal;
+            foreach (double tol in new[] { MathUtil.ZeroTolerancef, 1e-3 }) {
+                DMesh3 m = Defects.Sphere(Vector3d.Zero, 1, 6);
+                var cut = new MeshPlaneCut(m, origin, Normal) { DegenerateEdgeTol = tol };
+                cut.Cut();
+                double shortest = ShortestLoopEdge(m, cut);
+                if (tol == MathUtil.ZeroTolerancef) {
+                    Assert.Equal(1e-6 * probe.CachedBounds.DiagonalLength, cut.EffectiveDegenerateEdgeTol, 15);
+                    Assert.True(shortest < 1e-3, $"default: shortest cut edge {shortest:E2}");
+                } else {
+                    Assert.Equal(1e-3, cut.EffectiveDegenerateEdgeTol);
+                    Assert.True(shortest >= 1e-3, $"explicit: shortest cut edge {shortest:E2}");
+                }
+            }
         }
 
         [Fact]
-        public void Cut_PlaneThroughVertices_AtUtm_NoSlivers()
+        public void Cut_UnusedFarVertex_DoesNotWidenTheTolerances()
         {
-            // a plane through vertices of the mesh at UTM coordinates: the signed distances of those vertices are
-            // rounding noise (about 1e-10), larger than MathUtil.Epsilon; they must count as on the plane, not split
-            // edges at t ~ 1e-10 into slivers
+            // a millimetre mesh with an unused vertex a kilometre away: the tolerances come from the vertices with edges
+            Similarity s = Similarity.Millimetre;
+            MeshPlaneCut c0 = Cut(s, out DMesh3 m0);
+            DMesh3 m1 = Invariance.Transformed(Defects.Sphere(Vector3d.Zero, 1, 6), s);
+            m1.AppendVertex(new Vector3d(1e3, 0, 0));
+            var c1 = new MeshPlaneCut(m1, s.Apply(new Vector3d(0.1, 0.05, 0.02)), s.ApplyDirection(Normal));
+            c1.Cut();
+            Assert.Equal(c0.EffectiveDegenerateEdgeTol, c1.EffectiveDegenerateEdgeTol);
+            Assert.Equal(1, c1.CutLoops.Count);
+        }
+
+        [Fact]
+        public void Cut_PlaneThroughVertices_AnySimilarity_SameCut()
+        {
+            // a plane through a column of grid vertices: in UTM or rotated placements their signed distances are rounding
+            // noise (up to about 1e-9), above MathUtil.Epsilon. They must count as on the plane: no slivers at t ~ 1e-10,
+            // and no on-plane vertex with a positive noise sign removed with its whole one-ring
+            DMesh3 box0 = new GridBox3Generator() { Box = new Box3d(Vector3d.Zero, 0.5 * Vector3d.One), EdgeVertices = 5 }.Generate().MakeDMesh();
+            int triangles0 = -1; double area0 = 0;
             foreach (Similarity s in Similarity.All()) {
-                DMesh3 box = new GridBox3Generator() { Box = new Box3d(Vector3d.Zero, 0.5 * Vector3d.One), EdgeVertices = 5 }.Generate().MakeDMesh();
-                DMesh3 m = Invariance.Transformed(box, s);
+                DMesh3 m = Invariance.Transformed(box0, s);
                 var cut = new MeshPlaneCut(m, s.Apply(Vector3d.Zero), s.ApplyDirection(Vector3d.AxisX)) { CollapseDegenerateEdgesOnCut = false };
                 cut.Cut();
+                Assert.Equal(1, cut.CutLoops.Count);
+                Assert.False(cut.FoundOpenSpans, s.Name);
                 MeshQueries.EdgeLengthStats(m, out double min, out double max, out double avg);
                 // (the plane runs along grid lines: no edge crosses it, so no edge gets shorter than the grid's)
                 Assert.True(min > 0.5 * max, $"{s}: shortest edge {min:E2}, longest {max:E2}");
+                Assert.True(cut.FillHoles());
+                ResultChecks.AssertClosed(m, s.Name);
+                double area = Invariance.Area(m) / (s.Scale * s.Scale);
+                if (triangles0 < 0) { triangles0 = m.TriangleCount; area0 = area; }
+                Assert.Equal(triangles0, m.TriangleCount);
+                Assert.True(Math.Abs(area - area0) < 1e-6 * area0, $"{s}: area {area} vs {area0}");
             }
         }
     }

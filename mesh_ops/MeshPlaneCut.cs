@@ -12,7 +12,7 @@ namespace g3
 	/// Also FillHoles() for a topological fill of the closed loops. Or use CutLoops and fill yourself.
 	///
 	/// Cut() returns true (it throws if an edge split fails); check CutLoopsFailed for the loop extraction.
-	/// Vertices within 4 * MathUtil.Epsilon times the largest coordinate (of the mesh bounds and the plane origin)
+	/// Vertices within 16 * MathUtil.Epsilon times the largest coordinate (of the mesh bounds and the plane origin)
 	/// of the plane count as on the plane, ie within the rounding of (p-o).n (use a unit-length normal). Crossing edges are split at the exact plane intersection.
 	/// Use MeshPlaneCut to trim a mesh or open it along a plane; to cut a mesh with another mesh see
 	/// <see cref="MeshMeshCut"/> and <see cref="ExactMeshBoolean"/>.
@@ -47,8 +47,8 @@ namespace g3
         public bool CollapseDegenerateEdgesOnCut = true;
 
         /// <summary>
-        /// the min-edge-length if we are collapsing degenerate edges, in absolute units. Left at its default (1e-6),
-        /// RelativeDegenerateEdgeTol is used instead (upstream used the absolute 1e-6, which collapsed real cut edges
+        /// the min-edge-length if we are collapsing degenerate edges, in absolute units. Left at its default
+        /// (MathUtil.ZeroTolerancef, about 1e-6), RelativeDegenerateEdgeTol is used instead (upstream used the absolute 1e-6, which collapsed real cut edges
         /// of small meshes, docs/ROBUSTNESS_SWEEP.md R5); any other value is used as given.
         /// </summary>
         public double DegenerateEdgeTol = MathUtil.ZeroTolerancef;
@@ -56,8 +56,11 @@ namespace g3
         /// <summary> the min-edge-length of the collapse as a fraction of the diagonal of the mesh bounds (used while DegenerateEdgeTol has its default) </summary>
         public double RelativeDegenerateEdgeTol = 1e-6;
 
-        /// <summary> the min-edge-length the last Cut() used (DegenerateEdgeTol, or RelativeDegenerateEdgeTol times the bounds diagonal) </summary>
-        public double EffectiveDegenerateEdgeTol { get; private set; }
+        /// <summary>
+        /// the min-edge-length the last Cut() used (DegenerateEdgeTol, or RelativeDegenerateEdgeTol times the diagonal of
+        /// the bounds of the vertices that have edges); NaN before the first Cut()
+        /// </summary>
+        public double EffectiveDegenerateEdgeTol { get; private set; } = double.NaN;
 
         /// <summary> if non-null, we will only cut the edges of these triangles and remove their vertices </summary>
         public MeshFaceSelection CutFaceSet = null;
@@ -110,26 +113,34 @@ namespace g3
                 CutVertexSet = new MeshVertexSelection(Mesh, CutEdgeSet);
             }
 
-			// tolerances relative to the mesh: the degenerate-edge length to the bounds diagonal, the on-plane test to
-			// the rounding of the signed distances (a few ulps of the largest coordinate; upstream used MathUtil.Epsilon
-			// absolute, which is below that rounding at UTM coordinates)
-			AxisAlignedBox3d bounds = Mesh.CachedBounds;
+			// tolerances relative to the mesh (the bounds of the vertices that have edges: an unused far vertex must not
+			// widen them): the degenerate-edge length to the bounds diagonal, the on-plane test to the rounding of the
+			// signed distances. fl((v-o).n) with |v|,|o| <= M and a unit n is off by at most about 7 eps M (the subtraction
+			// and the dot product); 16 eps M also covers the rounding of a transformed plane origin and normal. Upstream
+			// used MathUtil.Epsilon absolute, below that rounding at UTM coordinates (slivers at t ~ 1e-10).
+			AxisAlignedBox3d bounds = AxisAlignedBox3d.Empty;
+			foreach (int vid in Mesh.VertexIndices())
+				if (Mesh.GetVtxEdgeCount(vid) > 0)
+					bounds.Contain(Mesh.GetVertex(vid));
 			EffectiveDegenerateEdgeTol = DegenerateEdgeTol;
 			double zeroTol = MathUtil.Epsilon;
-			if (bounds.Volume >= 0 && bounds.Min.IsFinite && bounds.Max.IsFinite && PlaneOrigin.IsFinite) {
+			if (bounds.Max.x >= bounds.Min.x && bounds.Min.IsFinite && bounds.Max.IsFinite && PlaneOrigin.IsFinite) {
 				if (DegenerateEdgeTol == MathUtil.ZeroTolerancef)
 					EffectiveDegenerateEdgeTol = RelativeDegenerateEdgeTol * bounds.DiagonalLength;
 				double maxAbs = Math.Max(bounds.Min.MaxAbs, Math.Max(bounds.Max.MaxAbs, PlaneOrigin.MaxAbs));
-				zeroTol = 4 * MathUtil.Epsilon * maxAbs;
+				zeroTol = 16 * MathUtil.Epsilon * maxAbs;
 			}
 
-			// compute signs
+			// compute signs; a vertex within zeroTol of the plane gets sign 0 exactly, so that the on-plane test below
+			// and the removal of the positive side (sign > 0) agree (a vertex with a positive noise sign was removed with
+			// its whole one-ring, and the cut boundary missed the cut edges)
 			int MaxVID = Mesh.MaxVertexID;
 			double[] signs = new double[MaxVID];
 			gParallel.ForEach(Interval1i.Range(MaxVID), (vid) => {
 				if (Mesh.IsVertex(vid)) {
 					Vector3d v = Mesh.GetVertex(vid);
-					signs[vid] = (v - PlaneOrigin).Dot(PlaneNormal);
+					double f = (v - PlaneOrigin).Dot(PlaneNormal);
+					signs[vid] = (Math.Abs(f) < zeroTol) ? 0 : f;
 				} else
 					signs[vid] = invalidDist;
 			});
@@ -160,8 +171,8 @@ namespace g3
 
 				// If both signs are 0, this edge is on-contour
 				// If one sign is 0, that vertex is on-contour
-				int n0 = (Math.Abs(f0) < zeroTol) ? 1 : 0;
-				int n1 = (Math.Abs(f1) < zeroTol) ? 1 : 0;
+				int n0 = (f0 == 0) ? 1 : 0;
+				int n1 = (f1 == 0) ? 1 : 0;
 				if (n0 + n1 > 0) {
 					if (n0 + n1 == 2)
 						ZeroEdges.Add(eid);
@@ -241,7 +252,9 @@ namespace g3
         {
             HashSet<int>[] sets = new HashSet<int>[2] { OnCutEdges, ZeroEdges };
 
-            double tol2 = EffectiveDegenerateEdgeTol * EffectiveDegenerateEdgeTol;
+            // (a subclass whose own Cut() calls this before the base Cut() ever ran: the upstream absolute tolerance)
+            double tol = double.IsNaN(EffectiveDegenerateEdgeTol) ? DegenerateEdgeTol : EffectiveDegenerateEdgeTol;
+            double tol2 = tol * tol;
             Vector3d a = Vector3d.Zero, b = Vector3d.Zero;
             int collapsed = 0;
             do {
