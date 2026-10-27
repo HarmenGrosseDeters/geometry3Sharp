@@ -145,6 +145,49 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void OpenBodies_OnlyTakeBackAnInverted()
+        {
+            // (review of #170) a correct cavity must stay correct with an extra open body around it or along it:
+            // A: closed sphere r=2 (+) around a nearly closed open r=1 around a closed r=0.5 (-)
+            DMesh3 a = Sphere(2);
+            MeshEditor.Append(a, NearlyClosedSphere(1, 2));
+            DMesh3 cav = Sphere(0.5); cav.ReverseOrientation();
+            MeshEditor.Append(a, cav);
+            Assert.Empty(MeshPostRepairCleanup.FindInvertedComponents(a));
+            // A2: the same with the open shell reversed
+            DMesh3 a2 = Sphere(2);
+            DMesh3 openRev = NearlyClosedSphere(1, 2); openRev.ReverseOrientation();
+            MeshEditor.Append(a2, openRev);
+            MeshEditor.Append(a2, cav);
+            Assert.Empty(MeshPostRepairCleanup.FindInvertedComponents(a2));
+            // B: hollow closed body (r=2 +, cavity r=1 -) plus an open duplicate of the cavity wall
+            DMesh3 b = Sphere(2);
+            DMesh3 c1 = Sphere(1); c1.ReverseOrientation();
+            MeshEditor.Append(b, c1);
+            DMesh3 dup = NearlyClosedSphere(1, 2); dup.ReverseOrientation();
+            MeshEditor.Append(b, dup);
+            Assert.Empty(MeshPostRepairCleanup.FindInvertedComponents(b));
+        }
+
+        [Fact]
+        public void OpenBodies_ManyOpenTriangles_StayCheap()
+        {
+            // one closed outward sphere next to a soup of 20k large open triangles: no closed component is inside-out, so
+            // the open ones are never looked at (before the fix: a sweep over all of them, seconds)
+            DMesh3 m = Sphere(1);
+            var rnd = new Random(1);
+            for (int i = 0; i < 20000; ++i) {
+                // (overlapping in x, so the box sweep would keep them all active)
+                Func<Vector3d> r = () => new Vector3d(3 + rnd.NextDouble(), rnd.NextDouble(), rnd.NextDouble());
+                int x = m.AppendVertex(r()), y = m.AppendVertex(r()), z = m.AppendVertex(r());
+                m.AppendTriangle(x, y, z);
+            }
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            Assert.Empty(MeshPostRepairCleanup.FindInvertedComponents(m));
+            Assert.True(sw.ElapsedMilliseconds < 2000, $"{sw.ElapsedMilliseconds} ms");
+        }
+
+        [Fact]
         public void PartInAnOpenBowl_IsNotACavity()
         {
             // an open hemisphere (winding number about 0.5 at its center) around a small outward sphere: the bowl
