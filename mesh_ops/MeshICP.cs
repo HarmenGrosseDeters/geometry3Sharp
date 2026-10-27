@@ -20,7 +20,16 @@ namespace g3
         public double MaxAllowableDistance = double.MaxValue;
 
 
+        /// <summary>
+        /// change of the mean distance below which an iteration counts as converged, in absolute units. Left at its
+        /// default (1e-5), RelativeConvergeTolerance is used instead (an absolute 1e-5 stopped millimetre models after a
+        /// few iterations and never converged on kilometre ones, docs/ROBUSTNESS_SWEEP.md R8); any other value is used as given.
+        /// </summary>
         public double ConvergeTolerance = 0.00001;
+        /// <summary> the convergence tolerance as a fraction of the diagonal of the target's bounds (while ConvergeTolerance has its default) </summary>
+        public double RelativeConvergeTolerance = 5e-6;
+        /// <summary> the tolerance the last Solve() used </summary>
+        public double EffectiveConvergeTolerance { get; private set; } = double.NaN;
         public bool Converged = false;
 
         bool is_initialized = false;
@@ -60,6 +69,19 @@ namespace g3
 
             LastError = measure_error();
 
+            EffectiveConvergeTolerance = ConvergeTolerance;
+            if (ConvergeTolerance == 0.00001) {
+                // (the bounds of the target's triangles: not those of unused vertices, nor the tree's padded boxes)
+                AxisAlignedBox3d box = AxisAlignedBox3d.Empty;
+                DMesh3 target = TargetSurface.Mesh;
+                foreach (int vid in target.VertexIndices())
+                    if (target.GetVtxEdgeCount(vid) > 0 && target.GetVertex(vid).IsFinite)
+                        box.Contain(target.GetVertex(vid));
+                double diag = box.DiagonalLength;
+                if (diag > 0 && double.IsInfinity(diag) == false)
+                    EffectiveConvergeTolerance = RelativeConvergeTolerance * diag;
+            }
+
             int nTolPasssed = 0;
             int nMaxTolPassed = 5;      // if we get this many iterations without
                                         // making an improvement > SolveTolerance, we have converged
@@ -74,7 +96,7 @@ namespace g3
                 update_to();
 
                 double err = measure_error();
-                if ( Math.Abs(LastError - err) < ConvergeTolerance ) {
+                if ( Math.Abs(LastError - err) < EffectiveConvergeTolerance ) {
                     nTolPasssed++;
                 } else {
                     LastError = err;
@@ -87,7 +109,7 @@ namespace g3
 
 
         /// <summary>
-        /// returns last measured deviation error metric (currently mean distance)
+        /// returns last measured deviation error metric (currently mean distance); NaN if no point pair was usable
         /// </summary>
         public double Error
         {
@@ -159,6 +181,11 @@ namespace g3
 
             Interval1i range = Interval1i.Range(From.Length);
             gParallel.ForEach(range, (vi) => {
+                // (a non-finite source point is ignored: weight 0, skipped in the sums)
+                if (From[vi].IsFinite == false) {
+                    Weights[vi] = 0;
+                    return;
+                }
                 int tid = TargetSurface.FindNearestTriangle(From[vi], max_dist);
                 if (tid == DMesh3.InvalidID) {
                     Weights[vi] = 0;
@@ -178,8 +205,7 @@ namespace g3
                     Vector3d fromN = Rotation * Source.GetVertexNormal(FromV[vi]);
                     Vector3d toN = TargetSurface.Mesh.GetTriNormal(tid);
                     double fDot = fromN.Dot(toN);
-                    Debug.Assert(MathUtil.IsFinite(fDot));
-                    if (fDot < 0)
+                    if (!(fDot >= 0))       // (also a NaN normal)
                         Weights[vi] = 0;
                     else
                         Weights[vi] += Math.Sqrt(fDot);
@@ -196,10 +222,11 @@ namespace g3
             double sum = 0;
             double wsum = 0;
             for ( int i = 0; i < From.Length; ++i ) {
+                if (Weights[i] == 0) continue;
                 sum += Weights[i] * From[i].Distance(To[i]);
                 wsum += Weights[i];
             }
-            return sum / wsum;
+            return (wsum > 0) ? sum / wsum : double.NaN;
         }
 
 
@@ -217,12 +244,15 @@ namespace g3
                 wSum += Weights[i];
             }
 
+            if (!(wSum > 0))
+                return;         // (no usable point pairs: no update)
             double wSumInv = 1.0 / wSum;
 
             // compute means
             Vector3d MeanX = Vector3d.Zero;
             Vector3d MeanY = Vector3d.Zero;
             for ( int i = 0; i < N; ++i ) {
+                if (Weights[i] == 0) continue;
                 MeanX += (Weights[i] * wSumInv) * From[i];
                 MeanY += (Weights[i] * wSumInv) * To[i];
             }
@@ -230,6 +260,7 @@ namespace g3
 
             // subtract means
             for ( int i = 0; i < N; ++i ) {
+                if (Weights[i] == 0) continue;
                 From[i] -= MeanX;
                 To[i] -= MeanY;
             }
@@ -240,6 +271,7 @@ namespace g3
             for (int k = 0; k < 3; ++k) {
                 int r = 3 * k;
                 for (int i = 0; i < N; ++i) {
+                    if (Weights[i] == 0) continue;
                     double lhs = (Weights[i] * wSumInv) * From[i][k];
                     M[r + 0] += lhs * To[i].x;
                     M[r + 1] += lhs * To[i].y;
@@ -275,16 +307,13 @@ namespace g3
             Matrix3d RotUpdateM = new Matrix3d(RotUpdate);
             Quaterniond RotUpdateQ = new Quaterniond(RotUpdateM);
 
-            // [TODO] is this right? We are solving for a translation and
-            //  rotation of the current From points, but when we fold these
-            //  into Translation & Rotation variables, we have essentially
-            //  changed the order of operations...
-
-            // figure out translation update
+            // the update maps the current From = Rotation*v + Translation to RotUpdate*From + TransUpdate, so it composes
+            // as Rotation' = RotUpdate*Rotation, Translation' = RotUpdate*Translation + TransUpdate. Upstream added
+            // TransUpdate alone (its TODO asked whether that was right): the missing (RotUpdate - I)*Translation is small
+            // near the coordinate origin, but at UTM coordinates (Translation ~ 1e6 after the first rotation about the
+            // origin) the iteration diverged (docs/ROBUSTNESS_SWEEP.md R8)
             Vector3d TransUpdate = MeanY - RotUpdateQ * MeanX;
-            Translation += TransUpdate;
-
-            // and rotation
+            Translation = RotUpdateQ * Translation + TransUpdate;
             Rotation = RotUpdateQ * Rotation;
 
 
