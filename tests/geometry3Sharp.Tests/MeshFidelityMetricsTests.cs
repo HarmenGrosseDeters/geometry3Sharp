@@ -112,7 +112,8 @@ namespace geometry3Sharp.Tests
             v.AddRange(f.OuterFScore);
             v.AddRange(f.OuterEdgeRecall);
             v.Add(f.OuterEdgeShare);
-            v.AddRange(new[] { f.VolumeIoU, f.VolumeMissing, f.VolumeExtra, f.OuterVolumeIoU, f.OuterVolumeMissing, f.OuterVolumeExtra, f.OuterFaceShare });
+            v.AddRange(new[] { f.VolumeIoU, f.VolumeMissing, f.VolumeExtra, f.OuterVolumeIoU, f.OuterVolumeMissing, f.OuterVolumeExtra, f.OuterFaceShare,
+                f.OuterFaceRounds, f.OuterFacesConverged ? 1 : 0 });
             foreach (var c in new[] { f.CurvatureMeshToReference, f.CurvatureReferenceToMesh })
                 v.AddRange(new[] { c.Samples, c.MeanError, c.GaussianError, c.MeanAbs, c.GaussianAbs });
             v.AddRange(new[] { f.MeanCurvatureError, f.GaussianCurvatureError, f.MeanCurvatureDistance, f.GaussianCurvatureDistance,
@@ -816,6 +817,84 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void OuterVolumeIoU_ManyStackedLayers_KeepsTheBox()
+        {
+            // a box with N stacked interior layers facing down: in the first round the layers lower the winding numbers
+            // so much that faces of the box look interior; they come back once the layers are gone
+            foreach (int n in new[] { 5, 20, 40 }) {
+                DMesh3 box = Box(Vector3d.Zero, Vector3d.One);
+                DMesh3 reference = new DMesh3(box);
+                for (int l = 0; l < n; ++l)
+                    MeshEditor.Append(reference, Quad(new Vector3d(0.1, 0.1, 0.1 + 0.8 * l / n), new Vector3d(0, 0.8, 0), new Vector3d(0.8, 0, 0), 2, false));
+                var f = Run(reference, box);
+                Assert.True(f.OuterFacesConverged, $"{n}: {f.OuterFaceRounds} rounds");
+                Assert.Equal(6 / (6 + n * 0.64), f.OuterFaceShare, 9);
+                Assert.Equal(1.0, f.OuterVolumeIoU);
+                Assert.True(f.VolumeIoU < 0.99, $"{n}: {f.VolumeIoU}");
+            }
+        }
+
+        [Fact]
+        public void VolumeIoU_InsideOutReference_Oriented()
+        {
+            // an inside-out sphere encloses the sphere (as MeshRepairMetrics.VolumeIoU sees it), not nothing
+            DMesh3 sphere = MeshCurvatureTests.Icosphere(1, 3);
+            DMesh3 inverted = new DMesh3(sphere);
+            foreach (int tid in inverted.TriangleIndices().ToArray()) inverted.ReverseTriOrientation(tid);
+            Vector3d center;
+            MeshFidelityMetrics.SizeOf(inverted, out center);
+            MeshTransforms.Translate(inverted, -center);
+            MeshTransforms.Translate(sphere, -center);
+            var f = Run(inverted, sphere);
+            double missing, extra;
+            Assert.Equal(MeshRepairMetrics.VolumeIoU(inverted, sphere, out missing, out extra), f.VolumeIoU);
+            Assert.Equal(1.0, f.VolumeIoU);
+            Assert.Equal(1.0, f.OuterVolumeIoU);
+            Assert.Equal(1.0, f.OuterFaceShare);
+        }
+
+        [Fact]
+        public void VolumeIoU_SolidTooSmallToHit_Zero()
+        {
+            // a tiny box inside a huge one: no sample hits the tiny solid, but it is there: 0 (as MeshRepairMetrics), not
+            // NaN (which means "encloses nothing")
+            DMesh3 tiny = Box(new Vector3d(-0.005, -0.005, -0.005), new Vector3d(0.005, 0.005, 0.005));
+            DMesh3 huge = Box(new Vector3d(-100, -100, -100), new Vector3d(100, 100, 100));
+            var f = Run(tiny, huge, 0.01);
+            double missing, extra;
+            Assert.Equal(MeshRepairMetrics.VolumeIoU(tiny, huge, out missing, out extra), f.VolumeIoU);
+            Assert.Equal(0.0, f.VolumeIoU);
+            Assert.True(double.IsNaN(f.VolumeMissing) && double.IsNaN(f.VolumeExtra));
+            Assert.Equal(0.0, f.OuterVolumeIoU);
+        }
+
+        [Fact]
+        public void CurvatureInterpolation_CornerFallbackAndOverflow()
+        {
+            var m = new DMesh3();
+            m.AppendVertex(Vector3d.Zero); m.AppendVertex(new Vector3d(1, 0, 0)); m.AppendVertex(new Vector3d(0, 1, 0));
+            m.AppendTriangle(0, 1, 2);
+            var c = new MeshCurvature() { Valid = new[] { false, true, true }, Mean = new[] { 9.0, 1, 3 }, Gaussian = new[] { 9.0, 2, 4 } };
+            double h, k;
+            // at the corner of a vertex without a value: the mean of the others
+            Assert.True(CurvatureAgreement.interpolate(m, c, 0, new Vector3d(1, 0, 0), out h, out k));
+            Assert.Equal(2, h);
+            Assert.Equal(3, k);
+            Assert.True(CurvatureAgreement.interpolate(m, c, 0, new Vector3d(0.5, 0.5, 0), out h, out k));
+            Assert.Equal(1, h);
+            c.Valid = new[] { false, false, false };
+            Assert.False(CurvatureAgreement.interpolate(m, c, 0, new Vector3d(0.2, 0.3, 0.5), out h, out k));
+            // values whose normalization overflows (K 1e300 times Size^2 1e20) are left out, not infinite
+            c = new MeshCurvature() { Valid = new[] { true, true, true }, Mean = new[] { 1.0, 1, 1 }, Gaussian = new[] { 1e300, 1e300, 1e300 } };
+            var samples = new[] { new MeshFidelityMetrics.SurfaceSample() { Tid = 0, Bary = new Vector3d(0.2, 0.3, 0.5), ClosestTid = 0, ClosestBary = new Vector3d(0.2, 0.3, 0.5) } };
+            double[] hs, ks;
+            var r = CurvatureAgreement.Compute(samples, m, c, m, c, 1e10, 1, out hs, out ks);
+            Assert.Equal(0, r.Samples);
+            Assert.Empty(ks);
+            Assert.True(double.IsNaN(r.GaussianError));
+        }
+
+        [Fact]
         public void Wasserstein1_Analytic()
         {
             Assert.Equal(0.0, MeshFidelityMetrics.Wasserstein1(new[] { 1.0, 2, 3 }, new[] { 3.0, 1, 2 }));
@@ -823,6 +902,9 @@ namespace geometry3Sharp.Tests
             // a point mass against a uniform pair: |0 - 1| / 2 + |2 - 1| / 2
             Assert.Equal(1.0, MeshFidelityMetrics.Wasserstein1(new[] { 1.0 }, new[] { 0.0, 2 }), 15);
             Assert.True(double.IsNaN(MeshFidelityMetrics.Wasserstein1(new double[0], new[] { 1.0 })));
+            // gaps beyond double.MaxValue: no NaN from 0 * infinity, no overflow of a finite result
+            Assert.Equal(0.0, MeshFidelityMetrics.Wasserstein1(new[] { -1e308, 1e308 }, new[] { -1e308, 1e308 }));
+            Assert.Equal(4.5e307, MeshFidelityMetrics.Wasserstein1(new[] { -1e308, 1e308 }, new[] { -1e308, 1e307 }), 1e294);
         }
 
         [Fact]

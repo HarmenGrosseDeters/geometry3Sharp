@@ -163,25 +163,40 @@ namespace gs
         public double[] OuterEdgeRecall;
         public double OuterEdgeShare = double.NaN;
         /// <summary>
-        /// output (VolumeSamples): volume IoU of the solid of the reference (generalized winding number &gt; 0.5) and of the
-        /// mesh, and the parts of the reference's solid missing in the mesh and the mesh's solid not in the reference,
-        /// relative to the reference's solid. NaN if no sample lies in the reference's solid (eg an open sheet)
+        /// output (VolumeSamples): volume IoU of the solid of the reference (generalized winding number &gt; 0.5; the reference
+        /// reversed as a whole if its signed volume is negative, but its components are not oriented by their nesting as in
+        /// MeshRepairMetrics.VolumeIoU: a shell nested in another with the same orientation stays a solid part, not a
+        /// cavity; orient the reference first if that is wanted, eg WindingContouring.OrientedCopy) and of the mesh,
+        /// and the parts of the reference's solid missing in the mesh and the mesh's solid not in the reference, relative
+        /// to the reference's solid. NaN (all three) if the reference encloses no volume (eg an open sheet); 0 (missing and
+        /// extra NaN) if its solid is too small to be hit by the samples
         /// </summary>
         public double VolumeIoU = double.NaN, VolumeMissing = double.NaN, VolumeExtra = double.NaN;
         /// <summary>
-        /// output (VolumeSamples and OuterSurface): the same against the solid of the reference's outer faces only: a
-        /// face is outer unless none of its centroid and its three points (4 a + b + c) / 6 (and permutations) is on the
-        /// outer surface by the rule of OuterSurface. The faces that are not outer are removed, and the rest is judged
-        /// again by the winding number of what is left, until no face is removed (at most MaxOuterFaceRounds rounds):
-        /// interior faces lower or raise each other's winding numbers (two layers stacked inside a solid: the lower
-        /// one looks like a boundary in the first round). So faces inside the solid, nested shells, internal double
-        /// walls and double-sided sheets are left out, faces crossing another surface (partly outer) and degenerate ones
-        /// kept. NaN if no face is outer or no sample lies in that solid. Cost: a winding number tree and up to 8
-        /// winding numbers per face per round (usually two rounds)
+        /// output (VolumeSamples and OuterSurface): the same against the solid of the (oriented) reference's outer faces
+        /// only: a face is outer unless none of its centroid and its three points (4 a + b + c) / 6 (and permutations) is
+        /// on the outer surface by the rule of OuterSurface. Interior faces raise or lower each other's winding numbers
+        /// (of two layers stacked inside a solid the lower one looks like a boundary while the upper one is there, and
+        /// with many layers a face of the solid itself looks interior), so the faces are removed in rounds, each judging
+        /// the faces left by the winding number of the faces left and removing only the clearest interior ones: double
+        /// layers (no jump of the winding number at any test point) and faces that are not outer with a mean winding
+        /// number (the lowest of their test points) of at least 0.75 and within 0.25 of the largest such mean. Removed
+        /// faces stay removed; the rounds end when one removes nothing (OuterFacesConverged; at most MaxOuterFaceRounds,
+        /// OuterFaceRounds). Faces that are not outer with a mean below 0.75 (eg lowered by interior faces in front of
+        /// them) are not removed in that round. So faces inside the solid, nested shells, internal double walls and
+        /// double-sided sheets are left out, faces crossing another surface (partly outer) and degenerate ones kept. NaN
+        /// if no face is outer or the faces enclose no volume. Cost: a winding number tree and up to 8 winding numbers per
+        /// face per round; a few rounds, about one per layer of a stack of interior faces
         /// </summary>
         public double OuterVolumeIoU = double.NaN, OuterVolumeMissing = double.NaN, OuterVolumeExtra = double.NaN;
         /// <summary> output (VolumeSamples and OuterSurface): share of the reference's area in the outer faces of OuterVolumeIoU </summary>
         public double OuterFaceShare = double.NaN;
+        /// <summary>
+        /// output (VolumeSamples and OuterSurface): rounds of the outer face classification, and whether the set of faces
+        /// stopped changing within MaxOuterFaceRounds (if not, the faces of the last round are used)
+        /// </summary>
+        public int OuterFaceRounds;
+        public bool OuterFacesConverged;
         /// <summary> output (Curvature): curvature differences at the samples of the mesh against the reference, and of the reference against the mesh </summary>
         public CurvatureAgreement CurvatureMeshToReference, CurvatureReferenceToMesh;
         /// <summary> output (Curvature): mean of both directions of CurvatureAgreement.MeanError and of GaussianError </summary>
@@ -194,7 +209,7 @@ namespace gs
         public double MeanCurvatureDistance = double.NaN, GaussianCurvatureDistance = double.NaN;
         /// <summary>
         /// output (Curvature): total absolute mean curvature, the sum of |H| A_M over the Valid vertices relative to Size
-        /// (pi on a sphere; at a crease of dihedral angle theta and length L about theta L / 2), and total absolute
+        /// (2 pi on a sphere; at a crease of dihedral angle theta and length L about theta L / (2 Size)), and total absolute
         /// Gaussian curvature, the sum of |angle deficit| over the Valid vertices (4 pi on a convex closed surface), of
         /// both meshes: they do not depend on the resolution, also at sharp features
         /// </summary>
@@ -321,7 +336,7 @@ namespace gs
             // volume IoUs, of the whole reference's solid and of its outer faces' (own random sequence, so the other
             // outputs do not depend on VolumeSamples)
             if (VolumeSamples > 0) {
-                volume_ious(reference, mesh, refSurface, meshSurface, size, degenerateArea);
+                volume_ious(reference, mesh, meshSurface, size, degenerateArea);
                 if (CancelF())
                     return fail();
             }
@@ -367,6 +382,8 @@ namespace gs
             OuterEdgeShare = double.NaN;
             VolumeIoU = VolumeMissing = VolumeExtra = double.NaN;
             OuterVolumeIoU = OuterVolumeMissing = OuterVolumeExtra = OuterFaceShare = double.NaN;
+            OuterFaceRounds = 0;
+            OuterFacesConverged = false;
             CurvatureMeshToReference = CurvatureReferenceToMesh = null;
             MeanCurvatureError = GaussianCurvatureError = MeanCurvatureDistance = GaussianCurvatureDistance = double.NaN;
             TotalAbsMeanCurvatureReference = TotalAbsMeanCurvatureMesh = double.NaN;
@@ -392,79 +409,114 @@ namespace gs
             }, 256, Parallel == false);
         }
 
-        // VolumeIoU (solid of the whole reference) and OuterVolumeIoU (solid of its outer faces) against the mesh's solid
-        void volume_ious(DMesh3 reference, DMesh3 mesh, Surface refSurface, Surface meshSurface, double size, double degenerateArea)
+        // VolumeIoU (solid of the whole reference) and OuterVolumeIoU (solid of its outer faces) against the mesh's solid;
+        // the reference reversed as a whole if its signed volume is negative
+        void volume_ious(DMesh3 reference, DMesh3 mesh, Surface meshSurface, double size, double degenerateArea)
         {
-            refSurface.PrepareWinding();
+            DMesh3 oriented = reference;
+            if (MeshMeasurements.VolumeArea(reference, reference.TriangleIndices(), reference.GetVertex).x < 0) {
+                oriented = new DMesh3(reference, false, MeshComponents.None);
+                oriented.ReverseOrientation(false);
+            }
+            var refTree = new DMeshAABBTree3(oriented, true);
+            refTree.FastWindingNumber(Vector3d.Zero);       // cache before parallel use
             meshSurface.PrepareWinding();
             Func<Vector3d, bool> inMesh = (p) => meshSurface.Winding(p) > 0.5;
-            Func<Vector3d, bool> inRef = (p) => refSurface.Winding(p) > 0.5;
+            Func<Vector3d, bool> inRef = (p) => refTree.FastWindingNumber(p) > 0.5;
             bool serial = Parallel == false;
-            VolumeIoU = MeshRepairMetrics.volume_iou(inRef, MeshRepairMetrics.sample_region(reference, mesh), inMesh,
-                out VolumeMissing, out VolumeExtra, VolumeSamples, Seed, serial);
-            if (double.IsNaN(VolumeIoU))
-                VolumeMissing = VolumeExtra = double.NaN;
+            VolumeIoU = iou(oriented, inRef, mesh, inMesh, serial, out VolumeMissing, out VolumeExtra);
             if (OuterSurface == false)
                 return;
             double outerArea;
-            DMesh3 outer = OuterFaces(reference, refSurface, OuterOffset * size, degenerateArea, serial, out outerArea);
+            DMesh3 outer = OuterFaces(oriented, refTree, OuterOffset * size, degenerateArea, serial, out outerArea);
             double area = 0;
-            foreach (int tid in reference.TriangleIndices())
-                area += reference.GetTriArea(tid);
+            foreach (int tid in oriented.TriangleIndices())
+                area += oriented.GetTriArea(tid);
             OuterFaceShare = area > 0 ? outerArea / area : double.NaN;
             if (outer.TriangleCount == 0)
                 return;
             var outerTree = new DMeshAABBTree3(outer, true);
-            outerTree.FastWindingNumber(Vector3d.Zero);     // cache before parallel use
-            OuterVolumeIoU = MeshRepairMetrics.volume_iou((p) => outerTree.FastWindingNumber(p) > 0.5, MeshRepairMetrics.sample_region(outer, mesh),
-                inMesh, out OuterVolumeMissing, out OuterVolumeExtra, VolumeSamples, Seed, serial);
-            if (double.IsNaN(OuterVolumeIoU))
-                OuterVolumeMissing = OuterVolumeExtra = double.NaN;
+            outerTree.FastWindingNumber(Vector3d.Zero);
+            OuterVolumeIoU = iou(outer, (p) => outerTree.FastWindingNumber(p) > 0.5, mesh, inMesh, serial, out OuterVolumeMissing, out OuterVolumeExtra);
         }
 
-        /// <summary> OuterVolumeIoU peels the reference's faces that are not outer in at most this many rounds </summary>
-        public const int MaxOuterFaceRounds = 16;
-
-        // a copy of the reference (same ids) without the faces that are not outer (see OuterVolumeIoU), and the area kept
-        DMesh3 OuterFaces(DMesh3 reference, Surface refSurface, double offset, double degenerateArea, bool serial, out double keptArea)
+        // as MeshRepairMetrics.VolumeIoU: NaN (missing, extra NaN) if the reference encloses nothing, 0 (missing, extra
+        // NaN) if its solid is too small to be hit by the samples
+        double iou(DMesh3 reference, Func<Vector3d, bool> inRef, DMesh3 mesh, Func<Vector3d, bool> inMesh, bool serial, out double missing, out double extra)
         {
-            refSurface.PrepareWinding();
-            var copy = new DMesh3(reference, false, MeshComponents.None);
-            var kept = new List<int>();
+            double v = MeshRepairMetrics.volume_iou(inRef, MeshRepairMetrics.sample_region(reference, mesh), inMesh,
+                out missing, out extra, VolumeSamples, Seed, serial);
+            if (double.IsNaN(v)) {
+                missing = extra = double.NaN;
+                if (MeshRepairMetrics.has_solid(inRef, reference, Seed))
+                    v = 0;
+            }
+            return v;
+        }
+
+        /// <summary> OuterVolumeIoU judges the reference's faces in at most this many rounds (see OuterFacesConverged) </summary>
+        public const int MaxOuterFaceRounds = 64;
+
+        // a copy of the reference without the faces that are not outer (see OuterVolumeIoU), and the area kept. Each round
+        // judges the faces left against the winding number of the faces left, and removes the clearest interior ones
+        // only: double layers, and faces whose mean winding number is at least 0.75 and within 0.25 of the largest one
+        // (the innermost of a stack of interior faces raise the mean of every face around them, a face of the solid's
+        // boundary among them included; removing them first lets the others be judged without them). Removed faces stay
+        // removed; until a round removes nothing
+        DMesh3 OuterFaces(DMesh3 reference, DMeshAABBTree3 referenceTree, double offset, double degenerateArea, bool serial, out double keptArea)
+        {
+            var left = new List<int>();
             foreach (int tid in reference.TriangleIndices()) {
                 double area;
                 MeshAnalysisNormals.TriNormal(reference, tid, out area);
                 if (area > degenerateArea)
-                    kept.Add(tid);      // to be tested; degenerate ones have no normal to test along and stay
+                    left.Add(tid);      // to be judged; degenerate ones have no normal to test along and stay
             }
-            Func<Vector3d, double> winding = refSurface.Winding;
-            for (int round = 0; round < MaxOuterFaceRounds && kept.Count > 0; ++round) {
-                int[] tids = kept.ToArray();
-                bool[] drop = new bool[tids.Length];
+            DMesh3 copy = new DMesh3(reference, false, MeshComponents.None);
+            Func<Vector3d, double> winding = referenceTree.FastWindingNumber;
+            OuterFaceRounds = 0;
+            OuterFacesConverged = left.Count == 0;
+            while (left.Count > 0 && OuterFaceRounds < MaxOuterFaceRounds) {
+                OuterFaceRounds++;
+                int[] cand = left.ToArray();
+                // per face: outer; a double layer (no jump at any test point); the lowest mean winding number of its points
+                bool[] outer = new bool[cand.Length], twin = new bool[cand.Length];
+                double[] mean = new double[cand.Length];
                 Func<Vector3d, double> w = winding;
-                gParallel.BlockStartEnd(0, tids.Length - 1, (start, end) => {
+                gParallel.BlockStartEnd(0, cand.Length - 1, (start, end) => {
                     Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
                     for (int i = start; i <= end; ++i) {
-                        Vector3d d = offset * MeshAnalysisNormals.TriNormal(reference, tids[i]);
-                        reference.GetTriVertices(tids[i], ref a, ref b, ref c);
-                        bool outer = false;
-                        for (int k = 0; k < 4 && outer == false; ++k) {
+                        Vector3d d = offset * MeshAnalysisNormals.TriNormal(reference, cand[i]);
+                        reference.GetTriVertices(cand[i], ref a, ref b, ref c);
+                        bool o = false, flat = true;
+                        double m = double.MaxValue;
+                        for (int k = 0; k < 4 && o == false; ++k) {
                             Vector3d p = (k == 0) ? (a + b + c) / 3 : (k == 1) ? (4 * a + b + c) / 6 : (k == 2) ? (a + 4 * b + c) / 6 : (a + b + 4 * c) / 6;
-                            outer = is_outer(w(p + d), w(p - d));
+                            double wf = w(p + d), wb = w(p - d);
+                            o = is_outer(wf, wb);
+                            flat = flat && Math.Abs(wf - wb) <= 0.5;
+                            m = Math.Min(m, 0.5 * (wf + wb));
                         }
-                        drop[i] = outer == false;
+                        outer[i] = o; twin[i] = flat; mean[i] = m;
                     }
                 }, 256, serial);
-                kept.Clear();
-                int dropped = 0;
-                for (int i = 0; i < tids.Length; ++i) {
-                    if (drop[i]) { copy.RemoveTriangle(tids[i], false, false); dropped++; } else kept.Add(tids[i]);
+                double maxMean = double.NegativeInfinity;
+                for (int i = 0; i < cand.Length; ++i)
+                    if (outer[i] == false && twin[i] == false) maxMean = Math.Max(maxMean, mean[i]);
+                double threshold = Math.Max(0.75, maxMean - 0.25);
+                left.Clear();
+                int removed = 0;
+                for (int i = 0; i < cand.Length; ++i) {
+                    if (outer[i] == false && (twin[i] || mean[i] >= threshold)) {
+                        copy.RemoveTriangle(cand[i], false, false);
+                        removed++;
+                    } else
+                        left.Add(cand[i]);
                 }
-                if (dropped == 0 || copy.TriangleCount == 0)
+                if (removed == 0 || left.Count == 0) {
+                    OuterFacesConverged = true;
                     break;
-                // the faces left, judged again by the winding number of what is left: a face inside the solid whose
-                // mean winding number other interior faces lowered (eg the lower one of two stacked layers) is outer
-                // in the first round only
+                }
                 var tree = new DMeshAABBTree3(copy, true);
                 tree.FastWindingNumber(Vector3d.Zero);      // cache before parallel use
                 winding = tree.FastWindingNumber;
@@ -517,11 +569,12 @@ namespace gs
             while (i < a.Length || j < b.Length) {
                 bool fromA = j >= b.Length || (i < a.Length && a[i] <= b[j]);
                 double next = fromA ? a[i] : b[j];
-                sum += Math.Abs((double)i / a.Length - (double)j / b.Length) * (next - x);
+                // half the gaps: a gap between values of opposite sign can exceed double.MaxValue
+                sum += Math.Abs((double)i / a.Length - (double)j / b.Length) * (0.5 * next - 0.5 * x);
                 x = next;
                 if (fromA) i++; else j++;
             }
-            return sum;
+            return 2 * sum;
         }
 
         /// <summary>
@@ -1000,7 +1053,7 @@ namespace gs
         public double MeanAbs = double.NaN, GaussianAbs = double.NaN;
 
         // values interpolated from the Valid vertices of triangle tid (NaN if it has none)
-        static bool interpolate(DMesh3 mesh, MeshCurvature c, int tid, Vector3d bary, out double h, out double k)
+        internal static bool interpolate(DMesh3 mesh, MeshCurvature c, int tid, Vector3d bary, out double h, out double k)
         {
             h = k = double.NaN;
             if (tid < 0)

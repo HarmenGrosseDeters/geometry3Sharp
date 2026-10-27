@@ -64,7 +64,10 @@ FLAGS = {
 
 
 def outer_iou(r):
-    """the volume IoU against the solid of the input's outer faces; 1 for inputs without a solid (as iou), 0 if missing"""
+    """the volume IoU against the solid of the input's outer faces; 1 for inputs without a solid (as iou), 0 if NaN for an
+    input with a solid; runs from before fm_oviou existed: the winding number IoU"""
+    if 'fm_oviou' not in r:
+        return iou(r)
     v = num(r, 'fm_oviou')
     if v != v:
         return 1.0 if no_solid(r) else 0.0

@@ -346,7 +346,7 @@ namespace gs
 
         // Does the input (with no sample of the IoU in its solid) enclose a volume after all, too small to be hit?
         // Sampled only near the input itself.
-        static bool has_solid(Func<Vector3d, bool> inside, DMesh3 input, int seed)
+        internal static bool has_solid(Func<Vector3d, bool> inside, DMesh3 input, int seed)
         {
             SampleRegion region = sample_region(input, null);
             var rnd = new Random(seed);

@@ -22,12 +22,17 @@ namespace gs
     ///     coincident corners, zero-length edges): it adds no area and no area gradient (its normal is not defined),
     ///     but its angles count in the angle sums, so the total angle deficit stays that of Gauss-Bonnet. The
     ///     angle at a corner with a zero-length edge is not defined: such corners share pi minus the other angles
-    ///     equally (pi / 2 for two coincident corners, pi / 3 for three);
+    ///     equally (pi / 2 for two coincident corners, pi / 3 for three). The vertices of a degenerate triangle get
+    ///     values (finite) but are not Valid: the part of their fan that the triangle stands for is missing from the
+    ///     area gradient (eg the midpoint of a T-junction sliver gets an in-plane gradient and H = 0);
+    ///   - a triangle with a non-finite corner adds nothing (no angles either), counts as degenerate, and its
+    ///     vertices are not Valid;
     ///   - boundary vertices get one-sided values: the deficit against pi (the geodesic curvature of the boundary,
     ///     0 at a straight boundary of a plane) and the normal part of grad A / A_M over their fan; bowtie
     ///     vertices (several fans) the values over all fans. Both are computed, but not Valid;
     ///   - a vertex without area (no triangles, or only degenerate ones) gets 0 and is not Valid; no output is NaN
-    ///     or infinite (a value that would overflow is set to 0 and the vertex is not Valid).
+    ///     or infinite (a value that would overflow is set to 0 and the vertex is not Valid; the Voronoi areas are
+    ///     formed from the cotangents, so they do not overflow before the area does).
     ///
     /// Scale: H scales with 1 / s and K with 1 / s^2 under a scale by s; scaling by a power of two gives the scaled
     /// values bit for bit, and a rotation or translation the same values up to rounding. Deterministic, O(n).
@@ -42,7 +47,7 @@ namespace gs
         public Vector3d[] MeanCurvatureNormal;
         /// <summary> per vertex id: the angle deficit (2 pi, or pi at the boundary, minus the angle sum) </summary>
         public double[] AngleDeficit;
-        /// <summary> per vertex id: interior, manifold (one fan), with area and finite values </summary>
+        /// <summary> per vertex id: interior, manifold (one fan), with area and finite values, not at a degenerate triangle </summary>
         public bool[] Valid;
         /// <summary> number of Valid vertices, of boundary and bowtie vertices, and of degenerate triangles (see the class) </summary>
         public int ValidVertices, BoundaryVertices, BowtieVertices, DegenerateTriangles;
@@ -62,13 +67,22 @@ namespace gs
             var angleSum = new double[nv];
             var gradient = new Vector3d[nv];
             var normal = new Vector3d[nv];
+            var atDegenerate = new bool[nv];
             var p = new Vector3d[3];
             var angle = new double[3];
             var dot = new double[3];
             foreach (int tid in mesh.TriangleIndices()) {
                 Index3i t = mesh.GetTriangle(tid);
-                for (int j = 0; j < 3; ++j)
+                bool finite = true;
+                for (int j = 0; j < 3; ++j) {
                     p[j] = mesh.GetVertex(t[j]);
+                    finite = finite && p[j].IsFinite;
+                }
+                if (finite == false) {
+                    c.DegenerateTriangles++;
+                    for (int j = 0; j < 3; ++j) atDegenerate[t[j]] = true;
+                    continue;
+                }
                 // angles from atan2 of sine and cosine; corners with a zero-length edge share what is left of pi
                 double known = 0;
                 int undefined = 0;
@@ -94,6 +108,7 @@ namespace gs
                 double dblArea = cross.Length;
                 if (!(dblArea > DegenerateRatio * lmax2) || double.IsInfinity(dblArea)) {
                     c.DegenerateTriangles++;
+                    for (int j = 0; j < 3; ++j) atDegenerate[t[j]] = true;
                     continue;
                 }
                 Vector3d n = cross / dblArea;
@@ -105,8 +120,8 @@ namespace gs
                     normal[t[j]] += angle[j] * n;
                     double a;
                     if (obtuse == false) {
-                        // cot(angle at k) = dot_k / (2 area)
-                        a = ((p[j1] - p[j]).LengthSquared * dot[j2] + (p[j2] - p[j]).LengthSquared * dot[j1]) / (8 * dblArea);
+                        // cot(angle at k) = dot_k / (2 area), formed first (the products of lengths and dots overflow far sooner)
+                        a = ((p[j1] - p[j]).LengthSquared * (dot[j2] / dblArea) + (p[j2] - p[j]).LengthSquared * (dot[j1] / dblArea)) / 8;
                     } else
                         a = (dot[j] < 0) ? 0.5 * area : 0.25 * area;
                     c.MixedArea[t[j]] += a;
@@ -131,7 +146,7 @@ namespace gs
                 c.MeanCurvatureNormal[vid] = kn;
                 c.Mean[vid] = h;
                 c.Gaussian[vid] = k;
-                c.Valid[vid] = boundary == false && bowtie == false && nrm != Vector3d.Zero;
+                c.Valid[vid] = boundary == false && bowtie == false && nrm != Vector3d.Zero && atDegenerate[vid] == false;
                 if (c.Valid[vid]) c.ValidVertices++;
             }
             return c;

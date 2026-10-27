@@ -264,6 +264,9 @@ namespace geometry3Sharp.Tests
             Assert.Equal(1, cs.DegenerateTriangles);
             Assert.Equal(4 * Math.PI, sliver.VertexIndices().Sum(v => cs.AngleDeficit[v]), 9);
             Assert.Equal(0, cs.AngleDeficit[mv], 12);
+            // the sliver's vertices: finite, but not Valid (the midpoint's fan lacks the sliver's side: H 0, in-plane gradient)
+            Assert.False(cs.Valid[mv] || cs.Valid[a] || cs.Valid[b]);
+            Assert.Equal(sliver.VertexCount - 3, cs.ValidVertices);
             // vertices away from the change keep their values
             foreach (int v in sphere.VertexIndices()) {
                 if (v == a || v == b || v == cv || v == dv) continue;
@@ -282,8 +285,9 @@ namespace geometry3Sharp.Tests
             AssertFinite(cc);
             Assert.Equal(2, cc.DegenerateTriangles);
             Assert.Equal(4 * Math.PI, coincident.VertexIndices().Sum(v => cc.AngleDeficit[v]), 9);
-            // the two coincident vertices share the deficit of the original vertex
+            // the two coincident vertices share the deficit of the original vertex; neither is Valid
             Assert.Equal(before.AngleDeficit[ev2.a], cc.AngleDeficit[ev2.a] + cc.AngleDeficit[info.vNew], 12);
+            Assert.False(cc.Valid[ev2.a] || cc.Valid[info.vNew]);
 
             // all triangles degenerate (a flat fan), and a single zero-area triangle: no area, nothing Valid, no NaN
             var flat = new DMesh3();
@@ -301,6 +305,58 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0, cp.ValidVertices);
             // pi / 3 per corner
             Assert.Equal(Math.PI - Math.PI / 3, cp.AngleDeficit[0], 12);
+        }
+
+        [Fact]
+        public void NonFiniteAndHugeCoordinates_NoNaN()
+        {
+            // a NaN vertex: its triangles add nothing, it and its neighbours are not Valid, the rest is unchanged
+            DMesh3 m = Icosphere(1, 1);
+            var before = MeshCurvature.Compute(m);
+            int bad = m.VertexIndices().First();
+            var ring = new HashSet<int>(m.VtxVerticesItr(bad)) { bad };
+            DMesh3 nan = new DMesh3(m);
+            nan.SetVertex(bad, new Vector3d(double.NaN, 0, 0));
+            var cn = MeshCurvature.Compute(nan);
+            AssertFinite(cn);
+            Assert.Equal(m.GetVtxTriangleCount(bad), cn.DegenerateTriangles);
+            foreach (int v in m.VertexIndices()) {
+                if (ring.Contains(v)) { Assert.False(cn.Valid[v]); continue; }
+                Assert.True(cn.Valid[v]);
+                Assert.Equal(before.Mean[v], cn.Mean[v], 12);
+            }
+            DMesh3 inf = new DMesh3(m);
+            inf.SetVertex(bad, new Vector3d(double.PositiveInfinity, 0, 0));
+            AssertFinite(MeshCurvature.Compute(inf));
+            // coordinates near the top of the double range: where the triangle areas still fit, the Voronoi areas do too
+            // (they are formed from the cotangents); where they do not, the triangles count as degenerate. No NaN or
+            // infinity either way
+            foreach (double s in new[] { 1e75, 1e78 }) {
+                DMesh3 huge = Icosphere(1, 2);
+                MeshTransforms.Scale(huge, new Vector3d(s, s, s * 1e-3), Vector3d.Zero);
+                var ch = MeshCurvature.Compute(huge);
+                AssertFinite(ch);
+                if (s == 1e75)
+                    Assert.Equal(huge.VertexCount, ch.ValidVertices);
+                else
+                    Assert.True(ch.DegenerateTriangles > 0);
+            }
+        }
+
+        [Fact]
+        public void VanishingNormal_NotValid()
+        {
+            // a closed two-triangle "pillow" (the same triangle twice, opposite orientations): every vertex is interior
+            // and manifold, but its normals cancel, so H has no sign
+            var m = new DMesh3();
+            m.AppendVertex(Vector3d.Zero); m.AppendVertex(new Vector3d(1, 0, 0)); m.AppendVertex(new Vector3d(0, 1, 0));
+            Assert.True(m.AppendTriangle(0, 1, 2) >= 0);
+            Assert.True(m.AppendTriangle(0, 2, 1) >= 0);
+            Assert.True(m.IsClosed());
+            var c = MeshCurvature.Compute(m);
+            AssertFinite(c);
+            Assert.Equal(0, c.ValidVertices);
+            Assert.True(c.MixedArea[0] > 0);
         }
 
         [Fact]

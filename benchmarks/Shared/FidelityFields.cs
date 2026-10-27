@@ -13,7 +13,8 @@ static class FidelityFields
     /// fm_* fields: F-score, precision and recall at 0.1%, 0.5%, 1% of the size, the same against the input's outer
     /// surface (fm_of_*, fm_or_*, fm_outer_*), sampled max distances, Chamfer distance, normal
     /// consistency, reversed shares, sharp edge lengths, Edge Chamfer distance and edge F-scores, volume IoUs against
-    /// the input's winding number solid and against the solid of its outer faces (fm_viou_*, fm_oviou_*), curvature
+    /// the input's winding number solid and against the solid of its outer faces (fm_viou, fm_viou_missing, fm_viou_extra,
+    /// fm_oviou, fm_oviou_missing, fm_oviou_extra, fm_outer_face_share, fm_outer_rounds, fm_outer_converged), curvature
     /// errors and distribution distances (fm_h_*, fm_k_*), topology of both meshes and its changes, triangle quality
     /// of the result (and of the input if withInputQuality).
     /// The reference is used as given (orient it first if only the result's orientation is to be judged).
@@ -55,6 +56,8 @@ static class FidelityFields
         r["fm_oviou_missing"] = f.OuterVolumeMissing;
         r["fm_oviou_extra"] = f.OuterVolumeExtra;
         r["fm_outer_face_share"] = f.OuterFaceShare;
+        r["fm_outer_rounds"] = f.OuterFaceRounds;
+        r["fm_outer_converged"] = f.OuterFacesConverged;
         // curvature (MeshCurvature, Meyer et al. 2003): H * size, K * size^2 at corresponding points (mean of both
         // directions), 1-Wasserstein distances of the distributions, total absolute curvatures
         r["fm_h_err"] = f.MeanCurvatureError;
