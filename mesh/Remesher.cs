@@ -18,8 +18,9 @@ namespace g3 {
 	/// shape-preserving remeshing call SetProjectionTarget(MeshProjectionTarget.Auto(originalMesh)). Boundary
 	/// edges and vertices are split, collapsed and smoothed like interior ones unless constrained, use
 	/// <see cref="MeshConstraintUtil"/> (FixAllBoundaryEdges, PreserveBoundaryLoops, PreserveBoundaryAndFeatures)
-	/// or SetExternalConstraints(). PreventNormalFlips is off by default. With the default parallel smoothing
-	/// the result is not exactly deterministic across runs (EnableParallelSmooth).
+	/// or SetExternalConstraints(). PreventNormalFlips is off by default. The default (buffered) parallel smoothing
+	/// gives the same result as the serial one; only EnableSmoothInPlace with parallel smoothing depends on the
+	/// thread timing.
 	///
 	/// See <see cref="gs.RemesherPro"/> for a faster variant (queue-based passes and a FastestRemesh/SharpEdgeReprojectionRemesh
 	/// driver), <see cref="RegionRemesher"/> to remesh only part of a mesh, and <see cref="Reducer"/> for
