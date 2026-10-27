@@ -181,7 +181,10 @@ namespace gs
                     }
                 if (split.Count == 0 || CancelF())
                     break;
-                foreach (int li in split)
+                // (in index order, independent of the pair order and of the HashSet's enumeration order)
+                var splitSorted = new List<int>(split);
+                splitSorted.Sort();
+                foreach (int li in splitSorted)
                     split_leaf(li);
                 SplitLeaves += split.Count;
                 balance();

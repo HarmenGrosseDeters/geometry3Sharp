@@ -204,6 +204,9 @@ namespace gs
             if (Cancelled())
                 return false;
 
+            // (in id order: the parallel loop adds them in thread order, which set the free-list order of the mesh and
+            // so the ids of later insertions)
+            RemovedT.Sort();
             if (RemovedT.Count > 0) {
                 MeshEditor editor = new MeshEditor(Mesh);
                 bool bOK = editor.RemoveTriangles(RemovedT, true);

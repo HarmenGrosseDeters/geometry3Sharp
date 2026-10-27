@@ -210,8 +210,7 @@ namespace geometry3Sharp.Tests
                     sig.Output = mc.Mesh;
                     return sig.Volume("volume", Invariance.Volume(mc.Mesh));
                 } },
-            // (not bit exact: the removal order of MeshMeshCut.RemoveContained follows the thread schedule, R19)
-            new Op { Name = "MeshBoolean", Type = typeof(MeshBoolean), Input = () => Sphere(), BitExact = false, Tol = 1e-8,
+            new Op { Name = "MeshBoolean", Type = typeof(MeshBoolean), Input = () => Sphere(), Tol = 1e-8,
                 Run = (m, s, p) => {
                     DMesh3 tool = Defects.Sphere(Vector3d.Zero, 0.7, 5);
                     foreach (int v in tool.VertexIndices()) tool.SetVertex(v, s.Apply(tool.GetVertex(v) + new Vector3d(0.6, 0.1, 0.05)));
