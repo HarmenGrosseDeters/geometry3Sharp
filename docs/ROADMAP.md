@@ -61,8 +61,26 @@ selectively.
   degenerate triangles or self-intersections on 18 of 20 clean Thingi10K meshes, 99% of the triangles with q < 0.1 at
   feature constraints (`benchmarks/RemeshBenchmark`). `RemesherPro` (8 x `RemeshIteration` and a full pass without
   smoothing) leaves a zero-area triangle in the band of `TerrainSafetyTests.SafetyLine_AlongSurface_BandIsOneCleanPiece`,
-  where `Remesher` leaves none. An opt-in quality pass at the constraints is in progress (curve vertices smoothed
-  along their curve, guarded vertex moves, flips of poor pairs, no splits or collapses that create flat triangles).
+  where `Remesher` leaves none. Opt-in: `Remesher.MinTriangleQuality` (also `RemesherPro`; curve vertices smoothed
+  along their curve, guarded vertex moves, flips of poor pairs, no splits or collapses that create flat triangles or
+  flip normals; `benchmarks/RemeshQualityBenchmark`). Open: the default (to be decided with the fidelity metrics).
+- [ ] Remeshers produce self-intersections: with the `g3cli remesh` settings 19 of 20 Thingi10K results have
+  self-intersecting triangle pairs (19910 pairs, the inputs 1522), mostly from valence flips and collapses (no
+  geometric check by default). `MinTriangleQuality` reduces them (3077 pairs; far fewer are created during the passes)
+  but does not prevent them, and 9 of 150 procedural primitives end with a few more pairs than without it, all at the
+  bottom rim where the flat cap meets the side (projection moves across the rim, no normal flips): repro cases in
+  `benchmarks/RemeshQualityBenchmark`: taper10_x0.15 (12 -> 16 pairs), taper16_x0.1 (0 -> 10), taper32_x0.1 (0 -> 8),
+  taper32_x0.6 (0 -> 8), cone16_x0.45 (0 -> 28), cone24_x0.15 (0 -> 25), cone24_x0.3 (0 -> 10), cone24_x0.6 (0 -> 31),
+  cone32_x0.6 (0 -> 8). Needs an intersection check per operation (local AABB of the one-ring) or a repair pass after
+  remeshing.
+- [ ] Feature detection misses vertex features: the apex of a smooth cone (no crease edges) is not pinned and is rounded
+  off by the remeshers: cones with 12 or more slices (their side edges are no creases) 1.4..2.8 target edge lengths
+  from the input; with `MinTriangleQuality` 1.3..7.7, worse in 15 of these 24 cases of `benchmarks/RemeshQualityBenchmark`
+  (cones with up to 10 slices keep the apex as a junction of creases). Detect and pin sharp
+  vertices (eg by the normal cone or the angle deficit of their one-ring) in `PreserveBoundaryAndFeatures`.
+- [ ] `MeshRobustRepair.NotCleanReason` reports only the first failed check: "degenerate triangles" hid the
+  self-intersections of most remeshed meshes. Report all reasons (or a separate self-intersection count) in the
+  diagnostics and benchmarks.
 
 | Feature | Research / port source | Why |
 |---|---|---|

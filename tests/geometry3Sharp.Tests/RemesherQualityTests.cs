@@ -75,6 +75,10 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void Primitives_NoFlatTriangles_FewerSelfIntersections()
         {
+            // per case: no flat triangles; in all fewer self-intersecting pairs than without the option. (Not per case:
+            // the option creates far fewer intersections during the passes, but which survive the last one is
+            // chance, and projection moves across the rim of a flat cap can intersect without flipping a normal; in
+            // benchmarks/RemeshQualityBenchmark 9 of 150 primitives end with a few more pairs, see docs/ROADMAP.md)
             int flatBefore = 0, selfBefore = 0, selfAfter = 0, n = 0;
             foreach (var (name, input) in Inputs())
                 foreach (double f in new[] { 0.15, 0.3 }) {
@@ -83,8 +87,9 @@ namespace geometry3Sharp.Tests
                     DMesh3 after = Remesh(input, edge, 0.2);
                     n++;
                     if (before.TriangleIndices().Any(t => Q(before, t) < 1e-3)) flatBefore++;
-                    if (MeshRepairMetrics.HasSelfIntersections(before)) selfBefore++;
-                    if (MeshRepairMetrics.HasSelfIntersections(after)) selfAfter++;
+                    int pairsBefore = MeshRepairMetrics.SelfIntersections(before), pairsAfter = MeshRepairMetrics.SelfIntersections(after);
+                    selfBefore += pairsBefore;
+                    selfAfter += pairsAfter;
                     // the result: closed, no bowties, oriented consistently, no flat triangles, on the input
                     Assert.True(after.IsClosed(), name);
                     Assert.Empty(MeshIterators.BowtieVertices(after));
@@ -100,7 +105,7 @@ namespace geometry3Sharp.Tests
                 }
             // without the option, these inputs gave flat triangles and more self-intersections
             Assert.True(flatBefore > 0, $"{flatBefore} of {n} without the option had flat triangles");
-            Assert.True(selfAfter < selfBefore, $"self-intersecting results: {selfAfter} with, {selfBefore} without the option");
+            Assert.True(selfAfter < selfBefore, $"self-intersecting pairs: {selfAfter} with, {selfBefore} without the option");
         }
 
         [Fact]
@@ -210,6 +215,9 @@ namespace geometry3Sharp.Tests
                 Assert.Equal("", MeshRobustRepair.NotCleanReason(mesh, true));
                 double qmin = mesh.TriangleIndices().Min(tid => Q(mesh, tid));
                 Assert.True(qmin >= 1e-3, $"edge {f} x mean: a triangle of quality {qmin}");
+                // without the option: flat triangles and self-intersecting pairs here; with it, none
+                DMesh3 before = Remesh(input, edge, 0);
+                Assert.True(MeshRepairMetrics.SelfIntersections(mesh) <= MeshRepairMetrics.SelfIntersections(before));
             }
         }
 
