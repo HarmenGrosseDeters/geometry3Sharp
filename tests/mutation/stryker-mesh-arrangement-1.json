@@ -6,9 +6,12 @@
     ],
     "target-framework": "net10.0",
     "mutate": [
-      "**/mesh_ops/ExactMeshArrangement.cs{0..43334}"
+      "**/mesh_ops/ExactMeshArrangement.cs{0..51045}"
     ],
-    "test-case-filter": "FullyQualifiedName~ExactFilterBoundTests|FullyQualifiedName~ExactArrangementScalingTests|FullyQualifiedName~ExactMeshBooleanTests|FullyQualifiedName~ExactBooleanEdgeOrderTests|FullyQualifiedName~ExactBooleanBuildingBlockTests|FullyQualifiedName~MeshRoundingRepairTests.ExactVertices",
+    "test-case-filter": "FullyQualifiedName~ExactFilterBoundTests|FullyQualifiedName~ExactArrangementScalingTests|FullyQualifiedName~ExactMeshBooleanTests|FullyQualifiedName~ExactBooleanEdgeOrderTests|FullyQualifiedName~ExactBooleanBuildingBlockTests|FullyQualifiedName~MeshRoundingRepairTests.ExactVertices|FullyQualifiedName~BooleanPerformanceTests|FullyQualifiedName~ExactImplicitPointTests",
+    "ignore-methods": [
+      "*PredicateStats.*"
+    ],
     "coverage-analysis": "perTest",
     "configuration": "Release",
     "additional-timeout": 10000,
