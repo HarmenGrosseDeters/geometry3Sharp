@@ -183,6 +183,47 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void InputTriangles_CornersAndCoordinatesOfTheirMeshTriangles()
+        {
+            // two meshes with removed triangles (ids with gaps), a degenerate triangle and signed zeros (the input
+            // coordinates, not those of the merged point); a second Compute appends the triangles again (as before
+            // the coordinates moved out of the triangles), the first ones keep their coordinates
+            DMesh3 a = new Sphere3Generator_NormalizedCube() { EdgeVertices = 5 }.Generate().MakeDMesh();
+            foreach (int t in a.TriangleIndices().Where(t => t % 7 == 3).ToList())
+                a.RemoveTriangle(t, false, false);
+            DMesh3 b = new DMesh3();
+            int v0 = b.AppendVertex(new Vector3d(-0.0, 0.25, 3)), v1 = b.AppendVertex(new Vector3d(1, -0.0, 3)), v2 = b.AppendVertex(new Vector3d(2, 0.5, 3));
+            int v3 = b.AppendVertex(new Vector3d(0.1, 0.2, -0.0));
+            b.AppendTriangle(v0, v1, v3);
+            b.AppendTriangle(v0, v1, v2);
+            b.AppendTriangle(v1, v2, v3);
+            // collinear corners
+            Assert.True(b.AppendTriangle(b.AppendVertex(new Vector3d(5, 1, -0.0)), b.AppendVertex(new Vector3d(5.5, 1.5, 0)), b.AppendVertex(new Vector3d(6, 2, 0))) >= 0);
+            var meshes = new List<DMesh3>() { a, b };
+            var arr = new ExactMeshArrangement(meshes);
+            arr.Compute();
+            arr.Compute();
+            int expected = 2 * (a.TriangleCount + b.TriangleCount);
+            Assert.Equal(expected, arr.Triangles.Count);
+            Assert.Contains(arr.Triangles, t => t.Degenerate);
+            for (int i = 0; i < arr.Triangles.Count; ++i) {
+                ExactMeshArrangement.InputTriangle t = arr.Triangles[i];
+                DMesh3 m = meshes[t.Mesh];
+                Index3i tv = m.GetTriangle(t.Tid);
+                if (i >= expected / 2)
+                    Assert.Equal(i, arr.MeshTriangles[t.Mesh][i - expected / 2 - (t.Mesh == 0 ? 0 : a.TriangleCount)]);
+                Vector3d[] got = { t.V0, t.V1, t.V2 };
+                for (int k = 0; k < 3; ++k) {
+                    if (i >= expected / 2)     // (the point ids of the second Compute)
+                        Assert.Equal(arr.VertexPoints[t.Mesh][tv[k]], t.Corners[k]);
+                    Vector3d want = m.GetVertex(tv[k]);
+                    for (int c = 0; c < 3; ++c)
+                        Assert.Equal(BitConverter.DoubleToInt64Bits(want[c]), BitConverter.DoubleToInt64Bits(got[k][c]));
+                }
+            }
+        }
+
+        [Fact]
         public void ForRange_ThrowsTheExceptionOfTheBody()
         {
             // (not an AggregateException: as the serial loops before, eg ExactMeshBoolean's "no non-degenerate ray")

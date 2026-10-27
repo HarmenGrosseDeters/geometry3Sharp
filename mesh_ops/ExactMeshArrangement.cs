@@ -51,8 +51,14 @@ namespace g3
         public class InputTriangle
         {
             public int Mesh, Tid;
-            public int[] Corners = new int[3];      // point ids
-            public Vector3d V0, V1, V2;             // input coordinates of the corners
+            public Index3i Corners;                 // point ids
+            // (a field, not an array of its own, and the input coordinates in an array of the arrangement: the
+            // triangles live through the whole computation, every object and byte of them is copied by the GC)
+            internal int Index;                     // in Triangles
+            /// <summary> input coordinates of the corners </summary>
+            public Vector3d V0 { get { return arr.triangleCoords[3 * Index]; } }
+            public Vector3d V1 { get { return arr.triangleCoords[3 * Index + 1]; } }
+            public Vector3d V2 { get { return arr.triangleCoords[3 * Index + 2]; } }
             public bool Degenerate;
             // (allocated when the triangle is touched: most are not; the shared empty ones must not be changed, not
             // even sorted)
@@ -148,6 +154,7 @@ namespace g3
         public List<DMesh3> Meshes;
         public int ScaleExp;        // input coordinate = integer coordinate * 2^ScaleExp
         public List<InputTriangle> Triangles = new List<InputTriangle>();
+        Vector3d[] triangleCoords;          // per input triangle: the input coordinates of its corners
         public List<OutputTriangle> Output = new List<OutputTriangle>();
         public HashSet<long> ConstraintEdges = new HashSet<long>(EdgeKeyComparer.Instance);     // undirected point id pairs on intersection curves
         public int[][] VertexPoints;        // per mesh: vertex id -> point id
@@ -990,11 +997,19 @@ namespace g3
         void build_triangles()
         {
             MeshTriangles = new List<int>[Meshes.Count];
+            int total = Triangles.Count;
+            foreach (DMesh3 mesh in Meshes)
+                total += mesh.TriangleCount;
+            Vector3d[] earlier = triangleCoords;
+            triangleCoords = new Vector3d[3 * total];
+            if (earlier != null)
+                Array.Copy(earlier, triangleCoords, earlier.Length);
             for (int mi = 0; mi < Meshes.Count; ++mi) {
                 DMesh3 mesh = Meshes[mi];
                 var tids = new List<int>(mesh.TriangleIndices());
                 var built = new InputTriangle[tids.Count];
-                gParallel.ForRange(tids.Count, (k) => built[k] = input_triangle(mi, mesh, tids[k]));
+                int first = Triangles.Count;
+                gParallel.ForRange(tids.Count, (k) => built[k] = input_triangle(mi, mesh, tids[k], first + k));
                 MeshTriangles[mi] = new List<int>(built.Length);
                 foreach (InputTriangle it in built) {
                     MeshTriangles[mi].Add(Triangles.Count);
@@ -1004,16 +1019,14 @@ namespace g3
         }
 
         [MethodImpl(JitHints.Optimize)]
-        InputTriangle input_triangle(int mi, DMesh3 mesh, int tid)
+        InputTriangle input_triangle(int mi, DMesh3 mesh, int tid, int index)
         {
             Index3i t = mesh.GetTriangle(tid);
-            InputTriangle it = new InputTriangle() { Mesh = mi, Tid = tid };
-            it.Corners[0] = VertexPoints[mi][t.a];
-            it.Corners[1] = VertexPoints[mi][t.b];
-            it.Corners[2] = VertexPoints[mi][t.c];
+            InputTriangle it = new InputTriangle() { Mesh = mi, Tid = tid, Index = index };
+            it.Corners = new Index3i(VertexPoints[mi][t.a], VertexPoints[mi][t.b], VertexPoints[mi][t.c]);
             it.arr = this;
             Vector3d a = mesh.GetVertex(t.a), b = mesh.GetVertex(t.b), c = mesh.GetVertex(t.c);
-            it.V0 = a; it.V1 = b; it.V2 = c;
+            triangleCoords[3 * index] = a; triangleCoords[3 * index + 1] = b; triangleCoords[3 * index + 2] = c;
             // degenerate iff the corners are collinear, ie collinear in all three coordinate projections (exact); the
             // projection along the largest component of the normal (in doubles) first: it is not degenerate for a
             // triangle that is not, so its filter decides without the exact stage (a projection along a direction in
@@ -1436,9 +1449,11 @@ namespace g3
         bool touch_only(InputTriangle T, InputTriangle U)
         {
             int shared = 0;
-            foreach (int c in U.Corners)
+            for (int k = 0; k < 3; ++k) {
+                int c = U.Corners[k];
                 if (c == T.Corners[0] || c == T.Corners[1] || c == T.Corners[2])
                     shared++;
+            }
             // quick test: the corners of one triangle that are not shared all strictly on one side of the other's
             // plane: then they meet at most in the shared vertices (for a shared edge: the triangles are not
             // coplanar, so the plane of one meets the other only in the edge)
@@ -1614,6 +1629,14 @@ namespace g3
             InputTriangle t = Triangles[ti];
             if (t.Degenerate || (t.Segments.Count == 0 && t.Points.Count == 0))
                 return;
+            prepare_touched(ti, t);
+        }
+
+        // (a method of its own: the lambdas' closure is created when the method is entered, here only for the
+        // triangles that need it)
+        [MethodImpl(JitHints.Optimize)]
+        void prepare_touched(int ti, InputTriangle t)
+        {
             // coincident points of different constructions are merged
             var points = new HashSet<int>();
             foreach (int p in t.Points)
@@ -1663,8 +1686,8 @@ namespace g3
                 System.Threading.Interlocked.Increment(ref SegmentCrossings);
             });
             System.Threading.Interlocked.Add(ref CandidateTests, grid.Examined);
-            foreach (int c in t.Corners)
-                t.Points.Remove(c);
+            for (int k = 0; k < 3; ++k)
+                t.Points.Remove(t.Corners[k]);
         }
 
 
@@ -1677,11 +1700,19 @@ namespace g3
             // (untouched triangles are output as they are, by the caller)
             if (t.Degenerate || (t.Points.Count == 0 && t.Segments.Count == 0))
                 return;
+            triangulate_touched(ti, t, out output, out constraints);
+        }
+
+        // (a method of its own, as prepare_touched)
+        [MethodImpl(JitHints.Optimize)]
+        void triangulate_touched(int ti, InputTriangle t, out List<OutputTriangle> output, out List<long> constraints)
+        {
+            constraints = null;
             var pts = new HashSet<int>();
             foreach (int p in t.Points)
                 pts.Add(Canonical(p));
-            foreach (int c in t.Corners)
-                pts.Remove(c);
+            for (int k = 0; k < 3; ++k)
+                pts.Remove(t.Corners[k]);
             output = new List<OutputTriangle>();
             if (pts.Count == 0 && t.Segments.Count == 0) {
                 output.Add(new OutputTriangle() { Mesh = t.Mesh, Source = ti, A = t.Corners[0], B = t.Corners[1], C = t.Corners[2] });
@@ -1708,7 +1739,7 @@ namespace g3
                 var on = new List<int>() { sp, sq };
                 candidates.Clear();
                 grid.Query(sp, sq, (k) => candidates.Add(ordered[k]));
-                candidates.AddRange(t.Corners);
+                candidates.Add(t.Corners[0]); candidates.Add(t.Corners[1]); candidates.Add(t.Corners[2]);
                 foreach (int r in candidates) {
                     if (r == sp || r == sq) continue;
                     if (Orient(t, sp, sq, r) == 0 && between(d, sp, sq, r))
@@ -1752,7 +1783,8 @@ namespace g3
                 this.arr = arr;
                 i = (t.Axis + 1) % 3; j = (t.Axis + 2) % 3;
                 double[] b = box(t.Corners[0], t.Corners[0]);
-                foreach (int c in t.Corners) {
+                for (int k = 0; k < 3; ++k) {
+                    int c = t.Corners[k];
                     double[] cb = box(c, c);
                     b[0] = Math.Min(b[0], cb[0]); b[1] = Math.Min(b[1], cb[1]); b[2] = Math.Max(b[2], cb[2]); b[3] = Math.Max(b[3], cb[3]);
                 }

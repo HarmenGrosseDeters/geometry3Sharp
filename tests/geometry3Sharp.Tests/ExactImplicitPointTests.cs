@@ -166,7 +166,7 @@ namespace geometry3Sharp.Tests
             foreach (var t in arr.Triangles) {
                 if (t.Segments.Count == 0)
                     continue;
-                var pts = t.Points.Select(arr.Canonical).Concat(t.Corners).Distinct().ToList();
+                var pts = t.Points.Select(arr.Canonical).Concat(t.Corners.array).Distinct().ToList();
                 Func<Func<int>, int> both = (f) => {
                     arr.DisableFilters = false;
                     int filtered = f();
@@ -238,7 +238,7 @@ namespace geometry3Sharp.Tests
             foreach (var t in arr.Triangles) {
                 if (t.Segments.Count == 0)
                     continue;
-                var pts = t.Points.Select(arr.Canonical).Concat(t.Corners).Distinct().ToList();
+                var pts = t.Points.Select(arr.Canonical).Concat(t.Corners.array).Distinct().ToList();
                 // (and quadruples of integer points with double coordinates, where the triangle has four)
                 var dbl = pts.Where(arr.IsExactDouble).ToList();
                 if (dbl.Count >= 4)
