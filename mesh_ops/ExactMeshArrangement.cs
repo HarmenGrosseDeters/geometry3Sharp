@@ -468,6 +468,7 @@ namespace g3
         internal int EdgePlanePointImplicit(int p, int q, int plane)
         {
             if (p > q) { int tmp = p; p = q; q = tmp; }
+            plane = CanonicalPlane(plane);
             double[] pa = Triangles[plane >> 2].PlaneApprox;
             int o = 4 * (plane & 3);
             Vector3d P = approx[p], Q = approx[q];
@@ -502,6 +503,7 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         internal int PlanesPointImplicit(int k1, int k2, int k3)
         {
+            k1 = CanonicalPlane(k1); k2 = CanonicalPlane(k2); k3 = CanonicalPlane(k3);
             if (k1 > k2) { int tmp = k1; k1 = k2; k2 = tmp; }
             if (k2 > k3) { int tmp = k2; k2 = k3; k3 = tmp; }
             if (k1 > k2) { int tmp = k1; k1 = k2; k2 = tmp; }
@@ -1295,15 +1297,57 @@ namespace g3
                 needed[(int)(pr >> 32)] = true;
                 needed[(int)(pr & 0xFFFFFFFF)] = true;
             }
-            gParallel.ForRange(Triangles.Count, (ti) => {
-                if (needed[ti]) { var plane = Triangles[ti].P; }
-            });
+            // and the same plane for triangles in one plane (normalized: divided by the gcd, first nonzero normal
+            // component positive), the one of the first such triangle
+            var involved = new List<int>();
+            for (int ti = 0; ti < Triangles.Count; ++ti)
+                if (needed[ti])
+                    involved.Add(ti);
+            var normalized = new (BigInteger, BigInteger, BigInteger, BigInteger)[involved.Count];
+            gParallel.ForRange(involved.Count, (k) => normalized[k] = normalized_plane(Triangles[involved[k]].P));
+            var first = new Dictionary<(BigInteger, BigInteger, BigInteger, BigInteger), int>();
+            var rep = new int[Triangles.Count];
+            for (int ti = 0; ti < Triangles.Count; ++ti)
+                rep[ti] = ti;
+            for (int k = 0; k < involved.Count; ++k) {
+                int f;
+                if (first.TryGetValue(normalized[k], out f))
+                    rep[involved[k]] = f;
+                else
+                    first[normalized[k]] = involved[k];
+            }
+            planeRep = rep;
             clock.Lap("intersections.planes");
             gParallel.ForRange(pairs.Count, (k) => intersect((int)(pairs[k] >> 32), (int)(pairs[k] & 0xFFFFFFFF)));
             clock.Lap("intersections.intersect");
             CandidatePairs = pairs.Count;
         }
         public int CandidatePairs;
+
+        // per triangle: the first triangle in the same plane (after find_intersections; null before: each its own)
+        int[] planeRep;
+
+        /// <summary>
+        /// the key of a plane (PlaneOf) that stands for all equal planes: a triangle's plane by the first triangle in
+        /// the same plane, so that the same point is the same construction (a key) when it is constructed with
+        /// different triangles of one plane (grids of coplanar faces); edge planes as they are
+        /// </summary>
+        internal int CanonicalPlane(int key)
+        {
+            int[] r = planeRep;
+            return (r == null || (key & 3) != 0 || ShareCoplanarConstructions == false) ? key : 4 * r[key >> 2];
+        }
+
+        // for tests: points constructed with triangles of one plane share their key (CanonicalPlane)
+        internal bool ShareCoplanarConstructions = true;
+
+        static (BigInteger, BigInteger, BigInteger, BigInteger) normalized_plane(Plane P)
+        {
+            BigInteger d = BigInteger.GreatestCommonDivisor(BigInteger.GreatestCommonDivisor(P.A, P.B), BigInteger.GreatestCommonDivisor(P.C, P.D));
+            BigInteger a = P.A / d, b = P.B / d, c = P.C / d, e = P.D / d;
+            int s = (a.Sign != 0) ? a.Sign : (b.Sign != 0) ? b.Sign : c.Sign;
+            return (s < 0) ? (-a, -b, -c, -e) : (a, b, c, e);
+        }
 
         // the candidate pairs of triangle ka of mesh ma with the triangles of mesh mb (tree) whose boxes overlap box,
         // appended to found (created when needed); hits: a buffer. Returns the number of pairs within one mesh.
