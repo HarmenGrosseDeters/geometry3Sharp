@@ -1140,6 +1140,60 @@ next measure to restrict to the outer surface. Of the 65 repaired objects, 18 ra
 3 the reversed share and 3 the outer edge recall. So on this corpus too the flags list cases to look at, they do
 not change the count.
 
+## Re-evaluation with the fidelity measures (findings of #157)
+
+Targeted subsets only, master after #157. Each item gives what the measures show, the stage where it happens, and
+whether an earlier decision would flip.
+
+**357788: genus 1 → 3 (exact resolve).** The input is closed, genus 1, with 1800 self-intersecting pairs. The
+first stage leaves 83 pairs; `ExactMeshBoolean.Resolve` of that result gives genus 3, with or without safe rounding.
+
+- The whole change (Δχ = −4) comes from one of the 6 intersection clusters: a crumpled region that in the input
+  has 622 intersecting pairs and 30 folded edges within 10 mm. The repair leaves 8 folds and coplanar flaps folded
+  flat onto each other (normal angle 0° / 180°).
+- The exact union keeps the thin pockets (winding number 0) between the fold layers. Each one open at both ends is a
+  tunnel. The resolve of the raw input has genus 25.
+- This is not the assembly at non-manifold edges: no non-manifold triangles, and the 3 split touching points raise χ.
+- `MeshMinimizer` does not apply: the resolve needs a closed input, and every triangle it removes opens the mesh.
+- Options, not done here: a genus check after the exact resolve (as a reason or a fallback), or flattening folds
+  before it.
+
+**814760, 105335: "inside-out" result parts.** The results are right. The input's reference was wrong:
+`FindInvertedComponents` let only closed components enclose, so the cavity of a body with a few boundary edges
+counted as an inverted part. VolumeIoU's reference and the exact resolve or solidify of the input then filled it.
+Fixed in #170 (open bodies can take back an "inverted"). 6 of 400 inputs change, and the IoU of 814760 / 105335 /
+76966 goes from 0.994-0.997 to 1.0.
+
+**498458: slivers from 40 % to 53 % (exact resolve).** The union of 1330 overlapping components retriangulates
+along every intersection curve: right after the resolve, 63 % of 111k triangles have a min angle below 10°. The
+later cleanup collapses part of them (53 % of 91k). The surface stays (F-score 0.1 % 0.93, outer edge recall 1.0).
+This is the cost of the exact path, not a defect. A remesh restricted to the triangles next to the intersection
+curves would be the remedy; no default changes.
+
+**Sharp edge loss of 26-35 % (exact path).** Stage by stage (outer edge recall at 0.5 %):
+
+| mesh | first stage vs input | resolve vs first stage | robust vs input |
+|---|---:|---:|---:|
+| 1458679 | 0.741 | 0.997 | 0.740 |
+| 301927 | 1.000 | 0.738 | 0.719 |
+| 346287 | 1.000 | 0.641 | 0.652 |
+
+- 1458679 loses its edges in `MeshAutoRepair` (with `PostRepairCleanup`), before the resolve; the step is not
+  narrowed down yet.
+- 301927 and 346287 lose them in the union of their 12 and 150 parts. Where parts lie flush against each other, the
+  union is flat and the contact edges go legitimately. The outer edge test cannot tell those from lost features
+  (they lie on the outer surface).
+- Neither the wrap nor its simplification nor a remesher is involved.
+
+**Earlier default decisions:**
+
+| decision | with the new measures | flips? |
+|---|---|---|
+| #149 `SimplifyAlphaWrap` (on) | 17 wrap results with and without it: medians F-score 0.1 % 0.8967 / 0.8972, F 0.5 % equal, normal consistency 0.9588 / 0.9587, outer edge recall 0.954 / 0.956, Edge Chamfer 0.0023 / 0.0024, Hausdorff equal, at a quarter of the triangles (39k / 152k). The price is triangle quality: the 1 %-worst min angle drops from 16.2° to 3.8°, the scaled Jacobian from 0.32 to 0.08 | no: same fidelity at a quarter of the triangles; a wrap result is a fallback, not a quality mesh. A quality-aware simplification (min angle bound) would remove the cost |
+| #147 relative tolerances (on) | in mm (diagonal about 100) the relative tolerances are the old absolute ones, so no measure changes; the gain is for other units (#147: 47 → 6 path changes in metres) | no |
+| #151 deterministic hole fill | changes only the hole triangulation (62 meshes with another triangle count, Hausdorff and IoU medians unchanged); nothing the new measures look at changes beyond noise | no |
+| #158 `Remesher.MinTriangleQuality` (opt-in, off) | `RemeshQualityBenchmark` with the `fm_*` fields (temporary, not committed), off / on: **gears** (18) F 0.1 % 0.981 / 1.000, edge precision 0.844 / 1.000, normal consistency 0.994 / 1.000, no case worse; **primitives** (150) F 0.962 / 0.965, but the 1 %-worst min angle 31.0° / 28.7° and 13 cases with lower edge precision; **tubes** (24, ill-posed: target 5-32 x the wall) worse with it: F 0.053 / 0.038, edge recall 0.37 / 0.29, 12 cases with more reversed normals | not by these numbers alone: on clearly helps CAD-like parts and hurts the ill-posed thin walls. A default for `g3cli remesh` on CAD inputs is worth a decision by the owner |
+
 ## Deterministic hole fill (`RemesherPro` queue order)
 57312.stl gave 35796 or 35850 triangles from run to run (about one process in five). `MeshAutoRepair`'s hole
 filling (`MinimalHoleFill`) remeshes the fill with `RemesherPro`, whose parallel smooth and projection passes

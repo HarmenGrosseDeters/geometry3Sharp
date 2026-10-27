@@ -7,7 +7,7 @@ tools of an MCP server (stdio), for coding agents and scripts.
 | Command | Operation | Library classes |
 |---|---|---|
 | `measure` | counts, components, closedness, volume, area, bounds, genus, bowties, degenerate and inside-out parts, self-intersections (exact), Hausdorff distance to a second mesh | `MeshMeasurements`, `MeshRepairMetrics`, `MeshHausdorffDistance` |
-| `repair` | repair into a closed solid (`--method robust`, default, or `auto`) | `MeshRobustRepair`, `MeshAutoRepair` |
+| `repair` | repair into a closed solid (`--method robust`, default, or `auto`); with the exact resolve, `genus_before` / `genus_after` and a warning when it changed the genus of a component (self-overlapping layers form tunnels) | `MeshRobustRepair`, `MeshAutoRepair` |
 | `boolean` | union, intersection, difference (a minus the others), at least k of n; two or more meshes (`--more`) in one exact operation | `ExactMeshBoolean` |
 | `resolve` | boundary of the solid of one mesh: removes self-intersections, nested shells, duplicate faces | `ExactMeshBoolean.Resolve` |
 | `remesh` | isotropic remeshing to a target edge length, boundary and sharp edges kept; passes that would turn a closed part inside out are rolled back (`rejected_passes`), a warning if the edge length is more than 4 times the estimated wall thickness | `Remesher`, `MeshConstraintUtil` |
@@ -112,6 +112,10 @@ g3cli resolve assembly.off solid.ply
 
 # remesh to edge length 0.5, keep edges sharper than 40 degrees, report the deviation
 g3cli remesh part.stl part_remeshed.obj --edge-length 0.5 --crease-angle 40 --deviation
+# CAD and feature meshes: guard against poor and flat triangles (Remesher.MinTriangleQuality; benchmarks/RemeshQualityBenchmark:
+# on extruded gears no flat triangles and no self-intersections left, edge precision 0.84 -> 1.0). Not for thin walls far
+# below the edge length, where it makes the result worse
+g3cli remesh part.stl part_remeshed.obj --min-quality 0.2
 
 # simplify to 10% of the triangles, or to at most 5000
 g3cli simplify scan.ply scan_small.ply --ratio 0.1 --deviation

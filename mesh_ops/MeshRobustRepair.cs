@@ -1,5 +1,6 @@
 // Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
 using System;
+using System.Globalization;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -105,7 +106,28 @@ namespace gs
         /// </summary>
         public bool SimplifyAlphaWrap = true;
 
+        /// <summary>
+        /// reject an exact resolve result whose genus differs from the mesh it resolved (TopologyChanged): the
+        /// fallbacks (solidify, alpha wrap) run instead. Off by default: a union can change the genus legitimately
+        /// (overlapping parts that form a ring), and in Thingi10K 357788 the extra handles are tunnels the exact
+        /// union of a crumpled, self-overlapping region really has.
+        /// </summary>
+        public bool RejectTopologyChange = false;
+
         // outputs
+        /// <summary>
+        /// exact stage: true if the genus of its result (GenusAfter) differs from the genus of the mesh it resolved
+        /// (GenusBefore, the repair result or the input) while the number of components stays the same: handles a
+        /// component gained or lost by resolving its own self-intersections (eg tunnels between self-overlapping
+        /// layers, Thingi10K 357788). A union of several parts changes the components, and so the genus, by
+        /// construction (on Thingi10K 76 of 175 exact results): not flagged. Only judged when the resolved mesh is
+        /// closed and has no bowtie vertices (genus defined); otherwise false and both genera NaN. Reported, not a
+        /// defect: the result is clean. Valid together with UsedExactResolve: false and NaN when the result is not
+        /// the exact resolve (a resolve rejected by RejectTopologyChange is reported in ExactResolveReason only).
+        /// </summary>
+        public bool TopologyChanged;
+        /// <summary> exact stage: total genus (MeshTopologySummary) of the mesh it resolved and of its result; NaN if not judged </summary>
+        public double GenusBefore = double.NaN, GenusAfter = double.NaN;
         /// <summary> true if the result was produced by the solidify fallback (remeshed), false if it is the repair result </summary>
         public bool UsedSolidify;
         /// <summary>
@@ -210,6 +232,8 @@ namespace gs
             WrapReason = "";
             UsedExactResolve = false;
             ExactResolveReason = "";
+            TopologyChanged = false;
+            GenusBefore = GenusAfter = double.NaN;
             ExactResolveRoundsUsed = 0;
             ExactResolveSelfIntersections.Clear();
             ExactRoundingEdits.Clear();
@@ -293,6 +317,9 @@ namespace gs
                     ResultReason = "";
                     return true;
                 }
+                // the topology outputs describe the returned mesh only (a rejection stays in ExactResolveReason)
+                TopologyChanged = false;
+                GenusBefore = GenusAfter = double.NaN;
             }
             // a self-intersecting contour is discarded for the alpha wrap: stop the solidify before its
             // post-processing (which rarely removes them), finish it only if the wrap fails
@@ -516,6 +543,12 @@ namespace gs
                         ExactResolveReason = differs;
                         return null;
                     }
+                    // (a rejected result must not leave its IoU: checked first)
+                    if (topology_changed(from, res) && RejectTopologyChange) {
+                        ExactResolveReason = "topology changed (genus " + GenusBefore.ToString(CultureInfo.InvariantCulture)
+                            + " -> " + GenusAfter.ToString(CultureInfo.InvariantCulture) + ")";
+                        return null;
+                    }
                     if (MinVolumeIoU > 0)
                         RepairVolumeIoU = iou;
                 }
@@ -523,6 +556,25 @@ namespace gs
                 return res;
             }
             return null;
+        }
+
+        // sets TopologyChanged, GenusBefore and GenusAfter for the exact resolve of from into res (judged only if from
+        // is closed and has no bowtie vertices); returns TopologyChanged
+        bool topology_changed(DMesh3 from, DMesh3 res)
+        {
+            var before = MeshTopologySummary.Compute(from);
+            if (before.BoundaryEdges > 0 || before.BowtieVertices > 0) {
+                TopologyChanged = false;
+                GenusBefore = GenusAfter = double.NaN;
+                return false;
+            }
+            var after = MeshTopologySummary.Compute(res);
+            GenusBefore = before.Genus;
+            GenusAfter = after.Genus;
+            // a union of several parts changes the components and with them the genus by construction (a ring of
+            // overlapping parts, parts merged or split): judged only where the components are kept
+            TopologyChanged = before.Components == after.Components && GenusBefore != GenusAfter;
+            return TopologyChanged;
         }
 
         /// <summary>

@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json.Nodes;
 using Xunit;
+using g3;
 using static g3cli.Tests.TestMeshes;
 
 namespace g3cli.Tests
@@ -273,6 +274,48 @@ namespace g3cli.Tests
         }
 
 
+        [Fact]
+        public void Repair_RobustWarnsOnAGenusChange()
+        {
+            // a bar bent around a square whose end runs back into its start: genus 0, its union a ring (genus 1);
+            // see MeshRobustRepairTests.BentBarOverlappingItself
+            var c = new[] { new Vector2d(0, -2), new Vector2d(2, -2), new Vector2d(2, 2), new Vector2d(-2, 2), new Vector2d(-2, -2), new Vector2d(1, -1.9) };
+            double h = 0.5;
+            var l = new[] { new Vector2d(0, h), new Vector2d(-h, h), new Vector2d(-h, -h), new Vector2d(h, -h), new Vector2d(h, h), new Vector2d(0.0316, h) };
+            var bar = new DMesh3();
+            var ids = new int[c.Length, 4];
+            for (int i = 0; i < c.Length; ++i) {
+                Vector2d a = c[i] - l[i], b = c[i] + l[i];
+                ids[i, 0] = bar.AppendVertex(new Vector3d(a.x, a.y, 0)); ids[i, 1] = bar.AppendVertex(new Vector3d(b.x, b.y, 0));
+                ids[i, 2] = bar.AppendVertex(new Vector3d(b.x, b.y, 1)); ids[i, 3] = bar.AppendVertex(new Vector3d(a.x, a.y, 1));
+            }
+            Action<int, int, int, int> quad = (p0, p1, p2, p3) => { bar.AppendTriangle(p0, p1, p2); bar.AppendTriangle(p0, p2, p3); };
+            for (int i = 0; i + 1 < c.Length; ++i)
+                for (int k = 0; k < 4; ++k)
+                    quad(ids[i, k], ids[i + 1, k], ids[i + 1, (k + 1) % 4], ids[i, (k + 1) % 4]);
+            int e = c.Length - 1;
+            quad(ids[0, 0], ids[0, 3], ids[0, 2], ids[0, 1]);
+            quad(ids[e, 0], ids[e, 1], ids[e, 2], ids[e, 3]);
+            if (MeshMeasurements.VolumeArea(bar, bar.TriangleIndices(), bar.GetVertex).x < 0)
+                bar.ReverseOrientation(false);
+            string input = m.Path_("bent_bar.obj");
+            StandardMeshWriter.WriteMesh(input, bar, WriteOptions.Defaults);
+            var (exit, r) = Run("repair", input, m.Path_("bent_bar_repaired.obj"), "--solidify-resolution", "64");
+            AssertOk(exit, r);
+            Assert.True(B(r["used_exact_resolve"]));
+            Assert.Equal(0, D(r["genus_before"]));
+            Assert.Equal(1, D(r["genus_after"]));
+            Assert.Contains(r["warnings"].AsArray(), w => w.ToString().Contains("genus from 0 to 1"));
+            // no warning where the resolve keeps the genus
+            (exit, r) = Run("repair", m.Overlapping, m.Path_("repaired_overlap3.obj"), "--solidify-resolution", "64");
+            AssertOk(exit, r);
+            Assert.True(r.ContainsKey("genus_before"));
+            Assert.Equal(0, D(r["genus_before"]));      // two overlapping spheres: genus 0, kept
+            Assert.Equal(0, D(r["genus_after"]));
+            Assert.DoesNotContain(r["warnings"].AsArray(), w => w.ToString().Contains("genus"));
+        }
+
+
         // ---- boolean, resolve ----
 
         [Theory]
@@ -388,6 +431,22 @@ namespace g3cli.Tests
             Assert.True(I(mesh["triangles"]) > I(r["input_mesh"]["triangles"]), "edge length 0.1 should refine");
             Assert.InRange(D(mesh["area"]), D(r["input_mesh"]["area"]) * 0.98, D(r["input_mesh"]["area"]) * 1.02);
             Assert.InRange(D(r["hausdorff"]["distance"]), 0, 0.02);
+        }
+
+        [Fact]
+        public void Remesh_MinQuality()
+        {
+            var (exit, r) = Run("remesh", m.Cube, m.Path_("remeshed_cube_q.stl"), "--edge-length", "0.4", "--min-quality", "0.2");
+            AssertOk(exit, r);
+            Assert.Equal(0.2, D(r["min_quality"]));
+            AssertCleanCube(r["mesh"], 8);
+            (exit, r) = Run("remesh", m.Cube, m.Path_("remeshed_cube_q0.stl"), "--edge-length", "0.4");
+            AssertOk(exit, r);
+            Assert.Equal(0, D(r["min_quality"]));
+            (exit, r) = Run("remesh", m.Cube, m.Path_("remeshed_cube_q2.stl"), "--min-quality", "1.5");
+            AssertError(exit, r, "invalid_arguments", 2);
+            (exit, r) = Run("remesh", m.Cube, m.Path_("remeshed_cube_q3.stl"), "--min-quality", "-0.1");
+            AssertError(exit, r, "invalid_arguments", 2);
         }
 
         [Fact]

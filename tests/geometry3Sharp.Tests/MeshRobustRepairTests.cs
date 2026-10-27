@@ -20,6 +20,117 @@ namespace geometry3Sharp.Tests
             return m;
         }
 
+        // A bar of square cross-section (width 2h, height 1) bent around a square of half size 2, whose end runs back
+        // into its start: one closed, genus 0, self-intersecting surface whose solid (the union) is a ring, genus 1.
+        // The procedural form of Thingi10K 357788, where self-overlapping layers make tunnels.
+        internal static DMesh3 BentBarOverlappingItself(double h = 0.5)
+        {
+            // stations: centre, in-plane offset to the left (mitered at the corners)
+            var c = new[] { new Vector2d(0, -2), new Vector2d(2, -2), new Vector2d(2, 2), new Vector2d(-2, 2), new Vector2d(-2, -2), new Vector2d(1, -1.9) };
+            var l = new[] { new Vector2d(0, h), new Vector2d(-h, h), new Vector2d(-h, -h), new Vector2d(h, -h), new Vector2d(h, h), new Vector2d(0.0316, h) };
+            var m = new DMesh3();
+            var ids = new int[c.Length, 4];
+            for (int i = 0; i < c.Length; ++i) {
+                Vector2d a = c[i] - l[i], b = c[i] + l[i];
+                ids[i, 0] = m.AppendVertex(new Vector3d(a.x, a.y, 0));
+                ids[i, 1] = m.AppendVertex(new Vector3d(b.x, b.y, 0));
+                ids[i, 2] = m.AppendVertex(new Vector3d(b.x, b.y, 1));
+                ids[i, 3] = m.AppendVertex(new Vector3d(a.x, a.y, 1));
+            }
+            Action<int, int, int, int> quad = (p0, p1, p2, p3) => { m.AppendTriangle(p0, p1, p2); m.AppendTriangle(p0, p2, p3); };
+            for (int i = 0; i + 1 < c.Length; ++i)
+                for (int k = 0; k < 4; ++k)
+                    quad(ids[i, k], ids[i + 1, k], ids[i + 1, (k + 1) % 4], ids[i, (k + 1) % 4]);
+            int e = c.Length - 1;
+            quad(ids[0, 0], ids[0, 3], ids[0, 2], ids[0, 1]);
+            quad(ids[e, 0], ids[e, 1], ids[e, 2], ids[e, 3]);
+            if (Volume(m) < 0)
+                m.ReverseOrientation(false);
+            return m;
+        }
+
+        [Fact]
+        public void ExactResolve_ReportsAGenusChange_AndRejectsItIfAsked()
+        {
+            DMesh3 bar = BentBarOverlappingItself();
+            Assert.True(bar.IsClosed());
+            Assert.Equal(0, MeshTopologySummary.Compute(bar).Genus);
+            Assert.True(MeshRepairMetrics.SelfIntersections(bar) > 0);
+            var r = new MeshRobustRepair(new DMesh3(bar));
+            Assert.True(r.Apply());
+            Assert.True(r.UsedExactResolve, r.ExactResolveReason);
+            ResultChecks.AssertClean(r.Mesh);
+            Assert.True(r.TopologyChanged);
+            Assert.Equal(0, r.GenusBefore);
+            Assert.Equal(1, r.GenusAfter);
+            Assert.Equal(1, MeshTopologySummary.Compute(r.Mesh).Genus);
+            Assert.Equal("", r.ResultReason);       // reported, not a defect
+            // opt-in: the exact result is rejected, a fallback is used
+            var rej = new MeshRobustRepair(new DMesh3(bar)) { RejectTopologyChange = true };
+            rej.Apply();
+            Assert.False(rej.UsedExactResolve);
+            Assert.StartsWith("topology changed (genus 0 -> 1)", rej.ExactResolveReason);
+            Assert.True(rej.UsedSolidify || rej.UsedAlphaWrap);
+            // the outputs describe the returned mesh: not the rejected resolve, nor its IoU
+            Assert.False(rej.TopologyChanged);
+            Assert.True(double.IsNaN(rej.GenusBefore) && double.IsNaN(rej.GenusAfter));
+            var noExact = new MeshRobustRepair(new DMesh3(bar)) { ExactResolve = false };
+            noExact.Apply();
+            Assert.Equal(noExact.RepairVolumeIoU, rej.RepairVolumeIoU);
+            // reuse: the same instance on a mesh whose resolve keeps the genus clears the outputs
+            DMesh3 two = Sphere(1, Vector3d.Zero);
+            MeshEditor.Append(two, Sphere(1, new Vector3d(1.2, 0, 0)));
+            r.Mesh = two;
+            Assert.True(r.Apply());
+            Assert.True(r.UsedExactResolve);
+            Assert.False(r.TopologyChanged);
+            Assert.Equal(0, r.GenusBefore);
+            Assert.Equal(0, r.GenusAfter);
+            // a ring of four overlapping boxes (4 components, genus 0) whose union has genus 1: a union of parts,
+            // not flagged (the components change)
+            DMesh3 ring = new DMesh3();
+            foreach (var (min, max) in new[] { (new Vector3d(0, 0, 0), new Vector3d(4, 1, 1)), (new Vector3d(3, 0, 0), new Vector3d(4, 4, 1)),
+                                               (new Vector3d(0, 3, 0), new Vector3d(4, 4, 1)), (new Vector3d(0, 0, 0), new Vector3d(1, 4, 1)) })
+                MeshEditor.Append(ring, new TrivialBox3Generator() { Box = new Box3d(0.5 * (min + max), 0.5 * (max - min)) }.Generate().MakeDMesh());
+            r.Mesh = ring;
+            Assert.True(r.Apply());
+            Assert.True(r.UsedExactResolve);
+            Assert.Equal(0, r.GenusBefore);
+            Assert.Equal(1, r.GenusAfter);
+            Assert.False(r.TopologyChanged);
+            // a clean input (no exact stage): nothing judged, also on the reused instance
+            var clean = new MeshRobustRepair(Sphere(1, Vector3d.Zero));
+            Assert.True(clean.Apply());
+            Assert.False(clean.TopologyChanged);
+            Assert.True(double.IsNaN(clean.GenusBefore));
+            r.Mesh = new DMesh3(bar);
+            Assert.True(r.Apply());
+            Assert.True(r.TopologyChanged);
+            r.Mesh = Sphere(1, Vector3d.Zero);
+            Assert.True(r.Apply());
+            Assert.False(r.TopologyChanged);
+            Assert.True(double.IsNaN(r.GenusBefore) && double.IsNaN(r.GenusAfter));
+        }
+
+        [Fact]
+        public void ExactResolve_TopologyReport_InvariantUnderSimilarities()
+        {
+            DMesh3 bar = BentBarOverlappingItself();
+            var baseRepair = new MeshRobustRepair(new DMesh3(bar));
+            Assert.True(baseRepair.Apply());
+            foreach (Similarity sim in Similarity.All()) {
+                var r = new MeshRobustRepair(Invariance.Transformed(bar, sim));
+                Assert.True(r.Apply(), sim.Name);
+                Assert.True(r.UsedExactResolve, sim.Name + ": " + r.ExactResolveReason);
+                Assert.True(r.TopologyChanged, sim.Name);
+                Assert.Equal(0, r.GenusBefore);
+                Assert.Equal(1, r.GenusAfter);
+                // 2^k scales: the same result bit for bit (other transforms give another tessellation of the union)
+                if (sim.IsExact)
+                    Assert.Equal("", Invariance.Difference(baseRepair.Mesh, Invariance.MappedBack(r.Mesh, sim)));
+            }
+        }
+
         [Fact]
         public void CleanInput_KeepsItsTriangles()
         {

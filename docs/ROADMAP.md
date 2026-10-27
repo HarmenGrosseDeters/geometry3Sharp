@@ -16,7 +16,8 @@ rather than an app. That puts some things first:
    (options object, `Compute()`, result with status).
 3. **A headless layer.** A CLI / MCP server that exposes the operations on mesh files
    (repair, boolean, remesh, measure, convert).
-4. **Modern build, wide reach.** net10.0 plus netstandard2.0 (Unity, .NET Framework), NuGet package, CI.
+4. **Modern build, wide reach.** net10.0 plus netstandard2.0 (Unity, .NET Framework), CI. A public package
+   comes last (see Release).
 5. **Licenses.** Keep the Boost license. Port only from MIT / Apache / BSD sources (eg Manifold,
    geometry-central), never from GPL code (CGAL, parts of TetWild). Sources are listed in [SOURCES.md](SOURCES.md).
 
@@ -30,7 +31,7 @@ selectively.
 - [x] CI on GitHub Actions: tests on net10.0 (Linux) and net48 (netstandard2.0 build, Windows), pack, package smoke test
 - [x] Package metadata: SPDX license, README, XML docs, symbols
 - [x] Mesh formats PLY, 3MF, glTF/GLB (read and write)
-- [ ] Package ID and publishing (nuget.org ID `geometry3Sharp` belongs to upstream)
+- Package ID and publishing: moved to Release, after the library "just works"
 - [x] API docs and examples per operation ([OPERATIONS.md](OPERATIONS.md), examples run as tests)
 
 ## Phase 2: robustness
@@ -69,6 +70,10 @@ selectively.
 - [x] Alpha wrapping (`MeshAlphaWrap`, Portaneri et al. 2022): closed, manifold, intersection-free wrap with an offset
   around any input (soups, open meshes, point clouds), on an own exact 3D Delaunay triangulation (`Delaunay3`).
   Benchmark on Thingi10K: `BENCH_REPAIR=wrap`, `analyze_wrap.py` (comparison with the solidify fallback).
+  - [ ] Quality pass after `MeshRobustRepair.SimplifyAlphaWrap`: the simplification keeps the fidelity (F-score, edges,
+    normals equal at a quarter of the triangles) but the 1%-worst min angle drops from 16.2 to 3.8 degrees (17 wrap
+    results of Thingi10K, benchmarks/MeshRepairBenchmark README, re-evaluation); eg a short remesh pass with
+    `Remesher.MinTriangleQuality` on the simplified wrap, or a min angle bound in the simplification
 - [ ] Remeshers must not leave degenerate triangles. `Remesher` and `RemesherPro` (`g3cli remesh` settings) leave
   degenerate triangles or self-intersections on 18 of 20 clean Thingi10K meshes, 99% of the triangles with q < 0.1 at
   feature constraints (`benchmarks/RemeshBenchmark`). `RemesherPro` (8 x `RemeshIteration` and a full pass without
@@ -160,6 +165,18 @@ selectively.
     interior faces; on Objaverse the next most common miss)
   - [ ] Curvature fidelity (discrete mean / Gaussian curvature after Meyer et al. 2003, difference of the distributions)
 - A showcase domain: terrain / GIS (in progress) and biomedical / orthotics
+
+## Release: when it's done
+
+No public package until the library "just works": the operations give correct, documented results on hard inputs
+without tuning, and it compares with the leading geometry processing libraries (eg the top of
+[github.com/topics/geometry-processing](https://github.com/topics/geometry-processing): libigl, geogram, PMP,
+cinolib, geometry-central, Manifold) on the operations it shares with them. Publishing a package makes us a
+maintainer with users to support; that pays off only then.
+
+- [ ] Hard cases from the issue trackers of those libraries reproduced as tests here (docs/QA.md 2.11), and passing
+- [ ] Package ID and publishing (nuget.org ID `geometry3Sharp` belongs to upstream); the pack and package smoke
+  test already run in CI
 
 ## Later
 

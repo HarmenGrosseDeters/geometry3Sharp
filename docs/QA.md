@@ -369,6 +369,26 @@ G3_SWEEP_REPORT=1 dotnet test tests/geometry3Sharp.Tests -c Release --filter "Fu
 To add an operation, add an `Op` to `RobustnessSweepTests.Ops`, run the report, and list its failures as
 findings.
 
+### 2.11 Hard cases from other libraries' issue trackers
+
+Libraries that implement the same algorithms (booleans, repair, remeshing, simplification, parameterization,
+geodesics, hole filling, triangulation) have collected years of failure reports from real inputs. Their issue
+trackers are a list of hard special cases that our own tests may not think of.
+
+How:
+- Per operation, search the issues of the leading libraries (eg libigl, geogram, PMP, cinolib, geometry-central,
+  Manifold, trimesh, MeshLib, CGAL) for reported failures: crashes, wrong results, hangs, non-manifold output.
+- Take only the failure mode (the geometric situation), never code. Rebuild the input procedurally in a test; do not
+  download or commit the meshes attached to issues (their licenses are unknown, see CLAUDE.md).
+- From GPL projects (CGAL, Easy3D) and source-available ones (MeshLib), read only the description of the
+  situation; do not copy code, patches or test code from them. Fixes here come from papers or from MIT / Apache /
+  BSD sources, as always.
+- A case we fail becomes a finding with a test (strict known-failure list as in 2.10, or fixed right away); record
+  the issue URL in the test's comment so the case can be traced.
+
+This is a release criterion (ROADMAP, Release): the library should pass the cases that its peers fixed or
+documented.
+
 ## 3. Performance
 
 ### 3.1 Micro benchmarks with regression detection
