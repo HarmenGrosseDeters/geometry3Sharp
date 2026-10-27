@@ -306,6 +306,31 @@ that message, not necessarily with the same cause). Check both the rounded and t
 "random edits 6" (301 triangles) became 5 triangles in 10 s
 (`DefectInputTests.MinimizedRandomEdits6`), unrounded 34.
 
+### 2.10 Robustness sweep (`RobustnessSweepTests`, findings in [ROBUSTNESS_SWEEP.md](ROBUSTNESS_SWEEP.md))
+
+A table of public operations (mostly upstream code), each with a procedural input of size 1, its scalar
+parameter (a length, if any) and a signature of its result in the input's units (counts, lengths, areas,
+volumes, points, directions). Every operation runs:
+
+- under `Similarity.All()` plus scales of 2^-24 and 2^20. Under power-of-two scales the signature must be bit
+  identical, which catches absolute thresholds. Under the other similarities it must agree within the
+  operation's tolerance, which catches float code at UTM coordinates. Operations whose result varies in the
+  last bits from run to run (R18, R19) are compared with the tolerance only.
+- with a NaN or +Inf vertex, and a NaN or ±Inf parameter. The operation must finish within 20 s. It must not
+  throw, except an `ArgumentException` from its own type. It must not spread non-finite coordinates to
+  vertices that were finite. With a non-finite parameter it must report failure or give a finite result.
+
+Known failures are listed in `RobustnessSweepTests.KnownFailures` with their finding id. The list is strict: a
+listed case that passes fails the test, so a fix removes the entry. Known hangs are not run in the normal
+suite. `G3_SWEEP_REPORT=1` prints the outcome of every case (hangs included) instead of asserting:
+
+```
+G3_SWEEP_REPORT=1 dotnet test tests/geometry3Sharp.Tests -c Release --filter "FullyQualifiedName~RobustnessSweepTests" --logger "console;verbosity=detailed" | grep SWEEP
+```
+
+To add an operation, add an `Op` to `RobustnessSweepTests.Ops`, run the report, and list its failures as
+findings.
+
 ## 3. Performance
 
 ### 3.1 Micro benchmarks with regression detection
