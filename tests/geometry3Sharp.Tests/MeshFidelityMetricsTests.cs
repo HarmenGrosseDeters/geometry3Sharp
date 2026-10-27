@@ -835,6 +835,22 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void OuterVolumeIoU_NotConverged_NaN()
+        {
+            // 70 stacked layers need more than MaxOuterFaceRounds rounds (about 1.5 per layer): the faces of an unfinished
+            // classification are not reported as a solid
+            DMesh3 box = Box(Vector3d.Zero, Vector3d.One);
+            DMesh3 reference = new DMesh3(box);
+            for (int l = 0; l < 70; ++l)
+                MeshEditor.Append(reference, Quad(new Vector3d(0.1, 0.1, 0.1 + 0.8 * l / 70), new Vector3d(0, 0.8, 0), new Vector3d(0.8, 0, 0), 2, false));
+            var f = Run(reference, box);
+            Assert.False(f.OuterFacesConverged);
+            Assert.Equal(MeshFidelityMetrics.MaxOuterFaceRounds, f.OuterFaceRounds);
+            Assert.True(double.IsNaN(f.OuterVolumeIoU) && double.IsNaN(f.OuterVolumeMissing) && double.IsNaN(f.OuterVolumeExtra));
+            Assert.True(f.VolumeIoU < 0.99);
+        }
+
+        [Fact]
         public void VolumeIoU_InsideOutReference_Oriented()
         {
             // an inside-out sphere encloses the sphere (as MeshRepairMetrics.VolumeIoU sees it), not nothing
@@ -1116,6 +1132,17 @@ namespace geometry3Sharp.Tests
             var fresh = new MeshFidelityMetrics(reference, other);
             Assert.True(fresh.Compute());
             AssertBitEqual(Values(fresh), Values(f));
+            // without the volume IoUs, their outputs (also the rounds) are reset
+            var noVolume = new MeshFidelityMetrics(reference, other) { VolumeSamples = 0 };
+            Assert.True(f.Compute());
+            Assert.True(f.OuterFaceRounds > 0 && f.OuterFacesConverged);
+            f.VolumeSamples = 0;
+            Assert.True(f.Compute());
+            Assert.True(noVolume.Compute());
+            AssertBitEqual(Values(noVolume), Values(f));
+            Assert.Equal(0, f.OuterFaceRounds);
+            Assert.False(f.OuterFacesConverged);
+            Assert.True(double.IsNaN(f.OuterVolumeIoU) && double.IsNaN(f.VolumeIoU));
             // a failing compute clears the outputs of the previous one
             f.Mesh = new DMesh3();
             Assert.False(f.Compute());

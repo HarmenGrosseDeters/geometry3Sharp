@@ -25,8 +25,9 @@ namespace gs
     ///     equally (pi / 2 for two coincident corners, pi / 3 for three). The vertices of a degenerate triangle get
     ///     values (finite) but are not Valid: the part of their fan that the triangle stands for is missing from the
     ///     area gradient (eg the midpoint of a T-junction sliver gets an in-plane gradient and H = 0);
-    ///   - a triangle with a non-finite corner adds nothing (no angles either), counts as degenerate, and its
-    ///     vertices are not Valid;
+    ///   - a triangle with a non-finite corner, or whose edge products (squared lengths, dot and cross products)
+    ///     leave the double range, adds nothing (no angles either), counts as degenerate, and its vertices are not
+    ///     Valid;
     ///   - boundary vertices get one-sided values: the deficit against pi (the geodesic curvature of the boundary,
     ///     0 at a straight boundary of a plane) and the normal part of grad A / A_M over their fan; bowtie
     ///     vertices (several fans) the values over all fans. Both are computed, but not Valid;
@@ -99,14 +100,22 @@ namespace gs
                         known += angle[j];
                     }
                 }
+                Vector3d cross = (p[1] - p[0]).Cross(p[2] - p[0]);
+                double dblArea = cross.Length;
+                if (!MathUtil.IsFinite(lmax2) || !MathUtil.IsFinite(known) || !MathUtil.IsFinite(dblArea)
+                    || !MathUtil.IsFinite(dot[0]) || !MathUtil.IsFinite(dot[1]) || !MathUtil.IsFinite(dot[2])) {
+                    // finite corners, but products beyond the double range (coordinates near 1e154 and above): as a
+                    // non-finite triangle
+                    c.DegenerateTriangles++;
+                    for (int j = 0; j < 3; ++j) atDegenerate[t[j]] = true;
+                    continue;
+                }
                 for (int j = 0; j < 3; ++j) {
                     if (double.IsNaN(angle[j]))
                         angle[j] = Math.Max(0, Math.PI - known) / undefined;
                     angleSum[t[j]] += angle[j];
                 }
-                Vector3d cross = (p[1] - p[0]).Cross(p[2] - p[0]);
-                double dblArea = cross.Length;
-                if (!(dblArea > DegenerateRatio * lmax2) || double.IsInfinity(dblArea)) {
+                if (!(dblArea > DegenerateRatio * lmax2)) {
                     c.DegenerateTriangles++;
                     for (int j = 0; j < 3; ++j) atDegenerate[t[j]] = true;
                     continue;
@@ -132,7 +141,7 @@ namespace gs
                 if (boundary) c.BoundaryVertices++;
                 if (bowtie) c.BowtieVertices++;
                 double deficit = (boundary ? Math.PI : 2 * Math.PI) - angleSum[vid];
-                if (mesh.GetVtxEdgeCount(vid) == 0)
+                if (mesh.GetVtxEdgeCount(vid) == 0 || !MathUtil.IsFinite(deficit))
                     deficit = 0;
                 c.AngleDeficit[vid] = deficit;
                 double am = c.MixedArea[vid];

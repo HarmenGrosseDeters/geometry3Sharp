@@ -328,6 +328,14 @@ namespace geometry3Sharp.Tests
             DMesh3 inf = new DMesh3(m);
             inf.SetVertex(bad, new Vector3d(double.PositiveInfinity, 0, 0));
             AssertFinite(MeshCurvature.Compute(inf));
+            // finite corners whose edge products leave the double range: degenerate, no NaN (the deficit of the corners is 0)
+            var far = new DMesh3();
+            far.AppendVertex(Vector3d.Zero); far.AppendVertex(new Vector3d(1e200, 1e200, 0)); far.AppendVertex(new Vector3d(1e200, 1e200, 1));
+            far.AppendTriangle(0, 1, 2);
+            var cfar = MeshCurvature.Compute(far);
+            AssertFinite(cfar);
+            Assert.Equal(1, cfar.DegenerateTriangles);
+            Assert.Equal(0, cfar.ValidVertices);
             // coordinates near the top of the double range: where the triangle areas still fit, the Voronoi areas do too
             // (they are formed from the cotangents); where they do not, the triangles count as degenerate. No NaN or
             // infinity either way

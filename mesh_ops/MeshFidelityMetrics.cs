@@ -185,16 +185,21 @@ namespace gs
         /// faces stay removed; the rounds end when one removes nothing (OuterFacesConverged; at most MaxOuterFaceRounds,
         /// OuterFaceRounds). Faces that are not outer with a mean below 0.75 (eg lowered by interior faces in front of
         /// them) are not removed in that round. So faces inside the solid, nested shells, internal double walls and
-        /// double-sided sheets are left out, faces crossing another surface (partly outer) and degenerate ones kept. NaN
-        /// if no face is outer or the faces enclose no volume. Cost: a winding number tree and up to 8 winding numbers per
-        /// face per round; a few rounds, about one per layer of a stack of interior faces
+        /// double-sided sheets are left out, faces crossing another surface (partly outer) and degenerate ones kept. Not told apart: a face of
+        /// the boundary next to a one-sided interior sheet facing away from it (both have the winding numbers of an interior
+        /// face, eg 0.5 and 1.5, and go in the same round); the winding number solid of the rest closes that gap, so the IoU
+        /// changes little, OuterFaceShare more. NaN if no face is outer (eg every face a double layer: walls thinner than
+        /// OuterOffset), if the faces enclose no volume, or if the rounds did not converge (OuterFacesConverged). Cost: a
+        /// winding number tree and up to 8 winding numbers per face per round, O(R n log n) for R rounds; R is small for
+        /// most inputs and about 1.5 per layer for a stack of interior faces (Objaverse: 3 or fewer for half the objects,
+        /// more than 16 for one in nine)
         /// </summary>
         public double OuterVolumeIoU = double.NaN, OuterVolumeMissing = double.NaN, OuterVolumeExtra = double.NaN;
         /// <summary> output (VolumeSamples and OuterSurface): share of the reference's area in the outer faces of OuterVolumeIoU </summary>
         public double OuterFaceShare = double.NaN;
         /// <summary>
         /// output (VolumeSamples and OuterSurface): rounds of the outer face classification, and whether the set of faces
-        /// stopped changing within MaxOuterFaceRounds (if not, the faces of the last round are used). The number of rounds
+        /// stopped changing within MaxOuterFaceRounds (if not, OuterVolumeIoU is NaN). The number of rounds
         /// can change with rounding (eg a rotated copy): faces whose mean is near a round's threshold go in this round or
         /// the next
         /// </summary>
@@ -414,7 +419,8 @@ namespace gs
 
         // VolumeIoU (solid of the whole reference) and OuterVolumeIoU (solid of its outer faces) against the mesh's solid;
         // the reference reversed as a whole if its signed volume is negative (relative to the center of its triangles' bounds,
-        // as WindingContouring.OrientedCopy decides it: for an open reference the sign depends on that point)
+        // as WindingContouring.OrientedCopy decides it for a mesh without unused vertices: for an open reference the sign
+        // depends on that point, and near zero it can change with rounding)
         void volume_ious(DMesh3 reference, DMesh3 mesh, Surface meshSurface, double size, double degenerateArea)
         {
             DMesh3 oriented = reference;
@@ -442,6 +448,8 @@ namespace gs
                 return;
             var outerTree = new DMeshAABBTree3(outer, true);
             outerTree.FastWindingNumber(Vector3d.Zero);
+            if (OuterFacesConverged == false)
+                return;     // the faces of an unfinished classification: not stable (eg under rotation)
             OuterVolumeIoU = iou(outer, (p) => outerTree.FastWindingNumber(p) > 0.5, mesh, inMesh, serial, out OuterVolumeMissing, out OuterVolumeExtra);
         }
 
