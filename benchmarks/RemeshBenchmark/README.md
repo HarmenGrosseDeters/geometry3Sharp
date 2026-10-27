@@ -61,8 +61,8 @@ The target edge length is a multiple of the input's mean edge length (`g3cli`'s 
 - `not_clean` (JSON only): `MeshRobustRepair.NotCleanReason` for closed inputs.
 
 ## Results
-Measured on 4 cores (net10.0, Release) on top of PR #151 at c0a333e (RemesherPro determinism and scale
-invariance; Remesher is unchanged by it); `runs=5` procedural, `runs=3` Thingi10K. All Hausdorff computations
+Measured on 4 cores (net10.0, Release) with PR #151 (head c0a333e, merged as master 3f18aa3: RemesherPro
+determinism and scale invariance; Remesher is unchanged by it); `runs=5` procedural, `runs=3` Thingi10K. All Hausdorff computations
 converged.
 
 ### Procedural inputs and the TerrainSafety band
@@ -138,3 +138,7 @@ vs 1120 and 905 vs 900, uncovered source points within 1%).
 - `g3cli remesh` keeps Remesher: RemesherPro is not faster at equal quality on real meshes.
 - `TerrainSafetyLines` keeps Remesher: with the final #151 RemesherPro is not faster on the band and leaves a
   degenerate triangle in an existing test. To be measured again with the quality pass.
+
+Open bug (docs/ROADMAP.md, Phase 2): a remesher must not leave degenerate triangles; RemesherPro leaves a zero-area
+triangle in the band of `TerrainSafetyTests.SafetyLine_AlongSurface_BandIsOneCleanPiece`, and both remeshers leave
+degenerate triangles on most Thingi10K meshes.
