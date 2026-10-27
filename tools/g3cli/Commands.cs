@@ -384,6 +384,8 @@ namespace g3cli
             c.Params.Add(new Param("crease_angle", ParamType.Number, "with preserve_boundary: also keep edges whose dihedral angle exceeds this (degrees, 0 = off)") { Default = 30.0 });
             c.Params.Add(new Param("smooth", ParamType.Number, "smoothing speed per pass, 0..1") { Default = 0.5 });
             c.Params.Add(new Param("project", ParamType.Boolean, "project the vertices onto the input surface") { Default = true });
+            c.Params.Add(new Param("min_quality", ParamType.Number, "guard against poor and flat triangles (Remesher.MinTriangleQuality, " +
+                "0..1, 0 = off; 0.2 recommended for CAD and feature meshes; not for thin walls far below the edge length)") { Default = 0.0 });
             c.Params.Add(Deviation());
             c.Params.Add(SelfIntersections());
             c.Params.Add(Binary());
@@ -403,9 +405,12 @@ namespace g3cli
                 double smooth = args.Number("smooth");
                 if (smooth < 0 || smooth > 1)
                     throw new CommandException(ResultCodes.InvalidArguments, "'smooth' must be in 0..1");
+                double minQuality = args.Number("min_quality");
+                if (!(minQuality >= 0 && minQuality < 1))
+                    throw new CommandException(ResultCodes.InvalidArguments, "'min_quality' must be in 0..1 (below 1)");
 
                 DMesh3 mesh = new DMesh3(input);
-                var r = new Remesher(mesh) { SmoothSpeedT = smooth, EnableSmoothing = smooth > 0 };
+                var r = new Remesher(mesh) { SmoothSpeedT = smooth, EnableSmoothing = smooth > 0, MinTriangleQuality = minQuality };
                 if (args.Bool("project"))
                     r.SetProjectionTarget(MeshProjectionTarget.Auto(input));
                 if (args.Bool("preserve_boundary")) {
@@ -432,6 +437,7 @@ namespace g3cli
                 var o = new JsonObject() { ["input"] = args.String("input"), ["output"] = args.String("output") };
                 o["edge_length"] = len;
                 o["iterations"] = iterations;
+                o["min_quality"] = minQuality;
                 o["rejected_passes"] = r.InvertingPassesRejected;
                 o["input_mesh"] = MeshReport.Metrics(input, false);
                 o["mesh"] = MeshReport.Metrics(mesh, args.Bool("self_intersections"));

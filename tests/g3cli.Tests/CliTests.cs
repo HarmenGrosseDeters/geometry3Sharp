@@ -391,6 +391,22 @@ namespace g3cli.Tests
         }
 
         [Fact]
+        public void Remesh_MinQuality()
+        {
+            var (exit, r) = Run("remesh", m.Cube, m.Path_("remeshed_cube_q.stl"), "--edge-length", "0.4", "--min-quality", "0.2");
+            AssertOk(exit, r);
+            Assert.Equal(0.2, D(r["min_quality"]));
+            AssertCleanCube(r["mesh"], 8);
+            (exit, r) = Run("remesh", m.Cube, m.Path_("remeshed_cube_q0.stl"), "--edge-length", "0.4");
+            AssertOk(exit, r);
+            Assert.Equal(0, D(r["min_quality"]));
+            (exit, r) = Run("remesh", m.Cube, m.Path_("remeshed_cube_q2.stl"), "--min-quality", "1.5");
+            AssertError(exit, r, "invalid_arguments", 2);
+            (exit, r) = Run("remesh", m.Cube, m.Path_("remeshed_cube_q3.stl"), "--min-quality", "-0.1");
+            AssertError(exit, r, "invalid_arguments", 2);
+        }
+
+        [Fact]
         public void Remesh_BoxKeepsCorners()
         {
             var (exit, r) = Run("remesh", m.Cube, m.Path_("remeshed_cube.stl"), "--edge-length", "0.4", "--deviation");
