@@ -115,10 +115,21 @@ dotnet bin/Release/net10.0/BooleanComparison.dll export mesh.stl dir      # writ
 dotnet bin/Release/net10.0/BooleanComparison.dll run dir/A.off dir/B.off union out.off
 ```
 
+A profile of our method over many cases (phase times and allocations, GC, counts, a hash of each result for
+before/after comparisons; see [Profile and performance work](#profile-and-performance-work-october-2026)):
+
+```sh
+dotnet bin/Release/net10.0/BooleanComparison.dll profile --repeat 5 cases.txt grid:10   # cases.txt: one case directory per line
+dotnet build -c Release -p:G3PredicateStats=true     # a build that also counts the filter failures of the predicates
+```
+
 ## Results per data class
 
 Run on 4 cores, `-j 1`, timeout 300 s per boolean (900 s per sequence); ExactMeshBoolean as of this branch
-(master with the faster exact booleans). Outcomes per case and method over all its operations, as defined at
+(master with the faster exact booleans). The times of ExactMeshBoolean below are from before the performance work
+of October 2026 (see [Profile and performance work](#profile-and-performance-work-october-2026)), which made a
+boolean measured the same way (one process per boolean, as `compare.py` runs it) about 2.3 times faster on the
+`cgal` and Thingi10K inputs and 1.3-1.9 times faster on the `cherchi` inputs; the other methods were not rerun. Outcomes per case and method over all its operations, as defined at
 the top of `analyze.py`: **clean** (correct, closed manifold, no self-intersections), **self-int.** (correct,
 but self-intersections after rounding to double or where solids touch), **volume** (closed, but a volume
 identity or a known volume off by more than 1e-6), **not closed**, **failed** (the tool reports a failure on an
@@ -292,3 +303,161 @@ double and from solids that touch (the touching sheets are kept apart only by du
 Time (union + intersection + difference, boolean only, median on the 38 common inputs): ExactMeshBoolean 994 ms,
 Cherchi et al. 264 ms, CGAL EPICK 110 ms, EPECK 110 ms, Manifold 57 ms. ExactMeshBoolean, Cherchi and Manifold
 use all cores, CGAL one.
+
+## Profile and performance work (October 2026)
+
+`BooleanComparison profile` (`Profile.cs`) runs ExactMeshBoolean on a list of cases and writes one JSON line per
+case and operation: the time of each run, the phase times and the bytes allocated per phase (`PhaseClock`), GC
+collections and pause time, the counts of the boolean, and a hash of the result mesh (with `--exact` also of the
+exact result vertices). A library built with `-p:G3PredicateStats=true` also counts, per predicate, the calls and
+how often its floating-point filter does not decide (`PredicateStats`; in a normal build the counting calls are
+removed by the compiler). Inputs:
+
+- `cherchi`: the 13 cases of the class;
+- `cgal`: the 50 cases with closed inputs without self-intersections;
+- Thingi10K: the 32 of the 40 clean controls of `MeshRepairBenchmark`'s selection (`fetch_data.py`) whose
+  exported pair is closed and free of self-intersections (each with a rotated, shifted copy, as `export` writes it);
+- n-ary: `grid:5`, `grid:10` (one pass) and `spheres:20` of `nary`.
+
+All on 4 cores, union, intersection and difference. **Warm**: 5 runs in one process after a warm-up, the fastest.
+**Cold**: one process per boolean, as `compare.py` runs it (`run`: a short warm-up on two small spheres, then the
+boolean). Times per case are the sums of the three operations.
+
+### Where the time went (master, warm)
+
+| class | runs | median / case | setup | trees | pair search | planes | tri-tri | merge | triangulation | classification | assembly | (simplify) | GC pause | alloc / run |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| cherchi | 39 | 1208 ms | 8 % | 7 % | 21 % | 6 % | 3 % | 4 % | 14 % | 10 % | 26 % | 7 % | 34 % | 467 MB |
+| cgal | 150 | 67 ms | 4 % | 6 % | 22 % | 3 % | 5 % | 12 % | 11 % | 9 % | 22 % | 5 % | 15 % | 61 MB |
+| thingi | 96 | 120 ms | 3 % | 4 % | 21 % | 6 % | 10 % | 16 % | 13 % | 8 % | 15 % | 4 % | 23 % | 91 MB |
+| n-ary | 3 | | 0 % | 0 % | 1 % | 0 % | 12 % | 41 % | 20 % | 25 % | 1 % | 0 % | 25 % | 5.3 GB |
+
+Phases as shares of the total time (they include the GC pauses that fall into them; simplify is part of assembly).
+Pair search: the box tree queries and the exact tests that discard pairs of triangles that cannot intersect (most
+of them neighbours in the same mesh: self-intersections are computed too); tri-tri: the intersection of the
+remaining pairs; merge: the merge of coincident points and the crossings of segments in a triangle.
+
+- **No phase dominates on the real-world inputs.** The pair search is the largest single phase (21-22 %), then the
+  assembly of the result mesh (15-26 %). The exact arithmetic is not the bottleneck there: most predicates are
+  decided by their filters (below).
+- **GC pauses take 15-34 % of the time**, most on the large inputs (467 MB allocated per boolean of `cherchi`).
+- **The n-ary grid is dominated by exact arithmetic**: coincident points from different constructions (merge 41 %),
+  exactly cocircular points in the triangulation (74 % of its incircle tests need the exact stage), and the ray
+  tests of the 42048 patches. Grid 10: 13.7 s, of which merge 5.8 s, classification 3.3 s, triangulation 2.6 s.
+- **JIT.** A cold boolean took 3-9 times as long as a warm one (`cgal` median 602 ms cold, 67 ms warm). With tiered
+  compilation, methods with loops start as unoptimized code and are replaced only after many iterations (on-stack
+  replacement), and the optimized versions arrive after a call-counting delay that keeps being extended while new
+  methods are compiled. `DOTNET_TieredCompilation=0` made a cold boolean of `cgal/elephant` 3.3 times faster
+  (367 -> 114 ms), `DOTNET_TC_QuickJitForLoops=0` almost as much.
+
+Filter failures per predicate (master; calls over all runs of the class, and the share that needed the exact stage):
+
+| predicate | cherchi | cgal | thingi | n-ary |
+|---|---|---|---|---|
+| `ExactPredicates.Orient3d` (double input: pair search, tri-tri) | 120 M, 0.0 % | 67 M, 11.6 % | 85 M, 8.2 % | 8.4 M, 31 % |
+| `ExactPredicates.Orient2d` (degenerate triangles, coplanar tests) | 11 M, 0.3 % | 39 M, 10.6 % | 34 M, 7.2 % | 0.2 M, 27 % |
+| arrangement `Orient` (implicit points) | 3.9 M, 11.8 % | 2.1 M, 11.1 % | 2.4 M, 10.0 % | 18.5 M, 20.8 % |
+| arrangement `InCircle` | 5.0 M, 0.0 % | 2.6 M, 0.2 % | 2.8 M, 0.0 % | 1.9 M, 74.1 % |
+| arrangement `compare_along` | 3.7 M, 0.0 % | 2.5 M, 0.0 % | 4.7 M, 0.0 % | 5.7 M, 13.6 % |
+| arrangement `ComparePoints` (order of points, merge) | 1.6 M, 0.4 % | 1.6 M, 29.6 % | 3.0 M, 43.9 % | 25 M, 21.9 % |
+| winding ray: plane side | 0.18 M, 0.0 % | 0.04 M, 1.5 % | 0.08 M, 3.2 % | 0.73 M, 22.2 % |
+| winding ray: `orient3d` | 0.24 M, 0.0 % | 0.04 M, 0.0 % | 0.09 M, 0.0 % | 0.67 M, 1.5 % |
+
+The exact stages are frequent where the input has exact coplanarity (CAD models in `cgal`, many Thingi10K models:
+flat regions, axis-aligned faces, the copies' faces) and where coincident points are compared (`ComparePoints` in
+the merge). The 11-12 % of the arrangement's `Orient` are mostly exactly collinear points (points on the edges of
+the triangle they split).
+
+Parallel scaling (master, warm, sums over the cases; `taskset` and `DOTNET_PROCESSOR_COUNT`):
+
+| cases | 1 core | 2 cores | 4 cores | 4 / 1 |
+|---|---|---|---|---|
+| 5 smaller `cherchi` cases | 8.2 s | 5.5 s | 4.7 s | 1.75 |
+| 12 Thingi10K cases | 8.9 s | 6.3 s | 4.9 s | 1.82 |
+| grid 5 | 2.3 s | 1.7 s | 1.3 s | 1.74 |
+| bunny 200k + cow 200k | 7.0 s | 5.3 s | 4.5 s | 1.55 |
+
+The serial parts (classification, assembly, building the points) and the GC pauses limit the scaling.
+
+### What changed
+
+All changes keep the results bit-identical: the same triangles, vertex coordinates and ids, the same exact vertices,
+the same status, on every case above (hashes of the result mesh, and with `--exact` of the exact vertices, compared
+with master: 0 differences over all warm runs and 263 exact runs), on 1, 2 and 4 cores, and in repeated runs.
+
+- **JIT** (`core/JitHints.cs`): the methods of the boolean pipeline (and the append path of `DMesh3`) are marked
+  `AggressiveOptimization`, so they are compiled optimized at their first call. This is the largest gain for single
+  booleans; it does not change the generated arithmetic (no contraction to FMA).
+- **Merge of coincident points**: the points of a cluster are grouped by their exact (canonical) point instead of
+  sorted with `ComparePoints`, so each exact point is computed once, not in every comparison.
+- **Exact stages of the arrangement's `Orient` and `InCircle`**: integer points whose coordinates are doubles go
+  through the adaptive double predicates (`ExactPredicates`); `InCircle` is a 3x3 integer determinant of differences
+  instead of a 4x4 one in a `BigInteger[,]` (the derivation is in the code).
+- **Pair search**: the box tree on arrays, queries into a reused list (no closure, stack or delegate per query), the
+  trees of the meshes built in parallel, `Parallel.For` over index ranges instead of `Parallel.ForEach` over an
+  enumerable (`gParallel.ForRange`).
+- **Setup**: input triangles built in parallel; the degenerate test starts with the projection along the largest
+  normal component (the others are degenerate for triangles in coordinate planes and needed the exact stage).
+- **Classification**: the winding numbers of the patches are computed in parallel, each patch with a random number
+  generator of its own (the winding numbers are exact; the rays only change the diagnostic counts
+  `winding_plane_sides`); the stacks of coplanar pieces in parallel.
+- **Assembly**: arrays per point id instead of dictionaries and hash sets; the incidence lists of
+  `ExactPlanarSimplify` as arrays, lists only for the points that change; no checks before `AppendTriangle` that
+  cannot fail (no edge with more than two pieces and no conflicting pieces); `DMesh3.FindEdge` without an iterator.
+- **Allocations**: planes of the input triangles in an object created only for the triangles that need them,
+  directions of segment lines rounded to double once, smaller point index shards.
+
+### After (warm)
+
+| class | median / case before | after | speedup (median of cases) | total before | after | GC pause | alloc / run |
+|---|---|---|---|---|---|---|---|
+| cherchi | 1208 ms | 752 ms | 1.35 | 32.1 s | 23.9 s | 34 % -> 29 % | 467 -> 352 MB |
+| cgal | 67 ms | 60 ms | 1.15 | 12.5 s | 10.1 s | 15 % -> 10 % | 61 -> 44 MB |
+| thingi | 120 ms | 102 ms | 1.17 | 12.4 s | 9.2 s | 23 % -> 14 % | 91 -> 66 MB |
+
+| n-ary case | before | after | merge | triangulation | classification |
+|---|---|---|---|---|---|
+| grid 5 | 1278 ms | 781 ms | 365 -> 158 ms | 464 -> 306 ms | 305 -> 194 ms |
+| grid 10 | 13.7 s | 8.2 s | 5.8 -> 2.7 s | 2.6 -> 1.6 s | 3.3 -> 2.0 s |
+| spheres 20 | 531 ms | 385 ms | 140 -> 28 ms | 57 -> 164 ms | 167 -> 40 ms |
+
+(spheres 20: the phases moved, the GC pauses fall into different phases; the total went down.)
+
+### After (cold, one process per boolean)
+
+| class | median / case before | after | speedup (median of cases) | total before | after |
+|---|---|---|---|---|---|
+| cgal (50 cases) | 602 ms | 230 ms | 2.46 | 56.1 s | 27.4 s |
+| Thingi10K (32 cases) | 917 ms | 399 ms | 2.29 | 49.7 s | 23.6 s |
+| cherchi, 5 smaller cases | 2166 ms | 1032 ms | 1.86 | 14.4 s | 7.8 s |
+| bunny 200k + cow 200k | 7.9 s | 5.6 s | 1.41 | | |
+| stencil (fertility minus 703 spheres) | 16.7 s | 13.2 s | 1.26 | | |
+
+Parallel scaling after (warm, the cases of the table above): 5 `cherchi` cases 6.6 / 4.2 / 3.2 s on 1 / 2 / 4
+cores (2.05), 12 Thingi10K cases 7.3 / 4.9 / 3.6 s (2.05), grid 5 1.56 / 1.05 / 0.76 s (2.05), bunny 200k +
+cow 200k 5.5 / 4.1 / 3.3 s (1.65).
+
+### SIMD spike (not merged)
+
+The floating-point filters are a small part of the time: in a sampling profile of the warm `cgal` and Thingi10K runs,
+`ExactPredicates.Orient3d` (whose body is its filter) takes about 10 % of the samples, almost all of it in the
+pair search; the box tests and the arrangement's filters are below 1 % each. The spike (branch
+`claude/boolean-simd-spike`) filters the three corners of a triangle against the plane of another one in the lanes
+of a `Vector256<double>` (`ExactPredicates.Orient3d3`): the same IEEE operations in the same order per lane as
+`Orient3d`, no FMA (checked in the disassembly: separate `vmulpd` / `vaddpd`), no reductions across lanes, the exact
+stage per point as before. On 17 cases (8 Thingi10K, 8 `cgal`, bunny 50k + cow 50k; union and difference, warm,
+two rounds): pair search 842 / 885 ms -> 744 / 782 ms, total 4117 / 4176 ms -> 3979 / 4136 ms, about 2 %, within the
+noise of the runs; results bit-identical. The same batching without SIMD (scalar, the plane terms computed once) was
+slower than the original (pair search 977 / 1009 ms). Not worth a second code path per platform, so the determinism
+rules for SIMD paths (and a switch to force the scalar path) are not needed.
+
+### What is left
+
+- **GC pauses** (10-29 %): the input triangles are objects (with an array of corners each), the triangulations
+  allocate an array per triangle, and the exact stages allocate `BigInteger`s.
+- **Pair search** (15-26 %): mostly the exact tests of neighbouring triangles of the same mesh (needed to find
+  self-intersections), with exact stages where neighbours are coplanar.
+- **The n-ary grid**: still dominated by `BigInteger` arithmetic of coincident and cocircular implicit points.
+- **Cold runs** still take about 3 times as long as warm ones: generic collections of the runtime over the library's
+  value types (dictionaries of point keys, lists of segments) and the parallel loop bodies (lambdas) still start
+  unoptimized.

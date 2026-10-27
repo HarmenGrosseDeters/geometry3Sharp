@@ -110,6 +110,9 @@ first read as test gaps. Differential tests aimed at them changed the picture:
      would show it.
    - Open.
 
+The calls of `PredicateStats` (profiling counters, removed by the compiler unless the library is built with
+`-p:G3PredicateStats=true`) are excluded with `ignore-methods`: removing them changes nothing.
+
 Mark equivalent mutants in the code with `// Stryker disable once <mutator>: <reason>` instead of writing a test
 for them. This happens when the files in `math/Exact*` are next changed anyway; they are being worked on in
 other PRs.
