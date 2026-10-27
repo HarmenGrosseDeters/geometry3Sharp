@@ -304,7 +304,10 @@ G3_MINIMIZE=1 dotnet test tests/geometry3Sharp.Tests -c Release --filter "FullyQ
 Rounding can turn a case into a degenerate one with the same message (ddmin finds the smallest input with
 that message, not necessarily with the same cause). Check both the rounded and the unrounded case. Example:
 "random edits 6" (301 triangles) became 5 triangles in 10 s
-(`DefectInputTests.MinimizedRandomEdits6`), unrounded 34.
+(`DefectInputTests.MinimizedRandomEdits6`), unrounded 34 (`MinimizedRandomEdits6Unrounded`). Here both had the same
+cause, an open boundary on an edge that other pieces meet, in different shapes: the rounding made three triangles
+coplanar (with the sign of zero as the only difference between coincident vertices), the unrounded case kept the
+stray triangle that the comment of the original test called an interior sheet.
 
 ## 3. Performance
 

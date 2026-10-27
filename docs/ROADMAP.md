@@ -41,6 +41,9 @@ selectively.
 - [x] Self-intersecting, nested and duplicated inputs: exact winding numbers per patch (signed ray crossings,
   stacks of coincident triangles); generalized winding number for open inputs; touching solids split into
   manifold sheets; `Resolve(mesh)` for one mesh. Benchmark on Thingi10K: `BENCH_REPAIR=exact`, `analyze_exact.py`.
+  Open inputs give consistently oriented results also where an open boundary lies on an edge that other pieces
+  meet (no inside/outside choice fits all pieces there): pieces that run such an edge the same way are not joined,
+  the result is open along it (`ConflictEdges`).
 - [x] Iterated booleans with coplanar faces: new vertices inside flat regions and on straight edges between them
   are removed exactly and the regions retriangulated (`ExactPlanarSimplify`); the 10x10x10 cube grid (1999
   booleans) no longer grows exponentially.
