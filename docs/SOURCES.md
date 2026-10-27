@@ -203,6 +203,24 @@ Implemented from the papers and definitions (no code ported):
 | Geodesic safety lines (`AlongSurface`) | the heat method, K. Crane, C. Weischedel, M. Wardetzky, *Geodesics in Heat*, ACM TOG 2013 (via `MeshGeodesicDistance`) |
 | Offset surface, horizontal safety lines, break lines, cut and fill volumes | own methods (no external source) |
 
+## Terrain slope design (planned, `docs/design/TERRAIN.md`)
+
+Design only, nothing implemented yet. Sources the design was written from; implementation will be from these papers,
+no code taken over. Proprietary tools (Civil 3D, Datamine Studio OP, Maptek Vulcan) were consulted through their
+public documentation only. The user's company code was not looked at.
+
+| Part | Source |
+|---|---|
+| Slope surface as the envelope of slope cones with apexes on the edge (kotierte Projektion, earthworks) | descriptive geometry textbooks, eg R. Fucke, K. Kirch, H. Nickel, *Darstellende Geometrie für Ingenieure*, Hanser |
+| Largest Lipschitz extension as min of cones; Hopf–Lax formula | E. J. McShane, *Extension of range of functions*, Bull. AMS 1934; H. Whitney, *Analytic extensions of differentiable functions defined in closed sets*, Trans. AMS 1934; L. C. Evans, *Partial Differential Equations*, AMS |
+| Weighted Voronoi diagrams as lower envelopes of cones | F. Aurenhammer, H. Edelsbrunner, *An optimal algorithm for constructing the weighted Voronoi diagram in the plane*, Pattern Recognition 1984; S. Fortune, *A sweepline algorithm for Voronoi diagrams*, Algorithmica 1987; A. Okabe, B. Boots, K. Sugihara, S. N. Chiu, *Spatial Tessellations*, Wiley 2000 |
+| Weighted straight skeletons (compared, not chosen) | O. Aichholzer, F. Aurenhammer, D. Alberts, B. Gärtner, *A novel type of skeleton for polygons*, J. UCS 1995; D. Eppstein, J. Erickson, *Raising roofs, crashing cycles, and playing pool*, DCG 1999; T. Kelly, P. Wonka, *Interactive architectural modeling with procedural extrusions*, ACM TOG 2011; T. Biedl, M. Held, S. Huber, D. Kaaser, P. Palfrader, *Weighted straight skeletons in the plane*, CGTA 48, 2015 |
+| Eikonal / Fast Marching on triangle meshes (option R2) | R. Kimmel, J. A. Sethian, *Computing geodesic paths on manifolds*, PNAS 1998; J. A. Sethian, A. Vladimirsky, *Ordered upwind methods for static Hamilton–Jacobi equations*, SIAM J. Numer. Anal. 2003; J. S. B. Mitchell, C. H. Papadimitriou, *The weighted region problem*, J. ACM 1991 |
+| Open-pit slope constraints | H. Lerchs, I. F. Grossmann, *Optimum design of open-pit mines*, CIM Bulletin 1965; R. Khalokakaie, *Computer-aided optimal open pit design with variable slope angles*, PhD thesis, University of Leeds 1999 (and Mining Technology 109, 2000, DOI 10.1179/mnt.2000.109.2.77; author list to be confirmed); W. Hustrulid, M. Kuchta, R. Martin, *Open Pit Mine Planning and Design*, CRC 2013 |
+| Topological overlay with exact predicates, degeneracies | M. de Berg et al., *Computational Geometry*, ch. 2 (map overlay); J. O'Rourke, C.-B. Chien, T. Olson, D. Naddor, *A new linear algorithm for intersecting convex polygons*, CGIP 1982; H. Edelsbrunner, E. P. Mücke, *Simulation of Simplicity*, ACM TOG 1990 |
+| Contour lofting (compared) | H. Fuchs, Z. M. Kedem, S. P. Uselton, *Optimal surface reconstruction from planar contours*, CACM 1977; E. Keppel 1975; H. N. Christiansen, T. W. Sederberg 1978; D. Meyers, S. Skinner, K. Sloan, *Surfaces from contours*, ACM TOG 1992; G. Barequet, M. Sharir 1996 |
+| Volume per cell (compared) | D. Powell, T. Abel, *An exact general remeshing scheme applied to physically conservative voxelization*, J. Comput. Phys. 297, 2015. Code r3d: current files under a LANL / DOE notice (copy and use only), the 2015 code BSD-3 with an enhancements clause; not ported |
+
 ## Test harness (`tests/geometry3Sharp.Tests/Harness/`)
 
 Implemented from the paper, no code taken over.

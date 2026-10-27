@@ -16,7 +16,8 @@ rather than an app. That puts some things first:
    (options object, `Compute()`, result with status).
 3. **A headless layer.** A CLI / MCP server that exposes the operations on mesh files
    (repair, boolean, remesh, measure, convert).
-4. **Modern build, wide reach.** net10.0 plus netstandard2.0 (Unity, .NET Framework), NuGet package, CI.
+4. **Modern build, wide reach.** net10.0 plus netstandard2.0 (Unity, .NET Framework), CI. A public package
+   comes last (see Release).
 5. **Licenses.** Keep the Boost license. Port only from MIT / Apache / BSD sources (eg Manifold,
    geometry-central), never from GPL code (CGAL, parts of TetWild). Sources are listed in [SOURCES.md](SOURCES.md).
 
@@ -30,7 +31,7 @@ selectively.
 - [x] CI on GitHub Actions: tests on net10.0 (Linux) and net48 (netstandard2.0 build, Windows), pack, package smoke test
 - [x] Package metadata: SPDX license, README, XML docs, symbols
 - [x] Mesh formats PLY, 3MF, glTF/GLB (read and write)
-- [ ] Package ID and publishing (nuget.org ID `geometry3Sharp` belongs to upstream)
+- Package ID and publishing: moved to Release, after the library "just works"
 - [x] API docs and examples per operation ([OPERATIONS.md](OPERATIONS.md), examples run as tests)
 
 ## Phase 2: robustness
@@ -172,6 +173,25 @@ selectively.
     MeshRepairBenchmark, RemeshBenchmark and TerrainBenchmark (Hambach DGM1: the F-score is 1 for every TerrainGreedyTIN
     result, the curvature measures order them by MaxError)
 - A showcase domain: terrain / GIS (in progress) and biomedical / orthotics
+  - [ ] Slope construction and daylighting on TINs (open-pit mining; design in
+    [design/TERRAIN.md](design/TERRAIN.md)): per-segment slopes, never steeper than specified (verified per
+    triangle), catch line with the terrain, cut / fill volumes. Phase 1 in three PRs, each usable and tested on its
+    own: **1a** the slope surface from the cone envelope plus the "never steeper" verification oracle (usable on its
+    own to check existing results); **1b** the overlay with the terrain and the connected catch line; **1c**
+    volumes, failure kinds, accuracy reporting, km-scale benchmarks. Berms after phase 1. Priority: before the
+    planned remesher work; starts after the `ExactMeshBoolean` work that is being scoped now.
+
+## Release: when it's done
+
+No public package until the library "just works": the operations give correct, documented results on hard inputs
+without tuning, and it compares with the leading geometry processing libraries (eg the top of
+[github.com/topics/geometry-processing](https://github.com/topics/geometry-processing): libigl, geogram, PMP,
+cinolib, geometry-central, Manifold) on the operations it shares with them. Publishing a package makes us a
+maintainer with users to support; that pays off only then.
+
+- [ ] Hard cases from the issue trackers of those libraries reproduced as tests here (docs/QA.md 2.11), and passing
+- [ ] Package ID and publishing (nuget.org ID `geometry3Sharp` belongs to upstream); the pack and package smoke
+  test already run in CI
 
 ## Later
 
