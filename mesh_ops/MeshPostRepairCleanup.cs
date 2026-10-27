@@ -271,8 +271,11 @@ namespace gs
         /// <summary>
         /// Closed components whose orientation contradicts their nesting: an outer shell (inside an even
         /// number of other components) must have positive volume, a cavity (odd) negative volume. So
-        /// inverted solids, and the cavities of a hollow solid that was inverted as a whole, are found.
-        /// Returns their triangle sets (empty if there are none or no closed components). Does not modify the mesh.
+        /// inverted solids, and the cavities of a hollow solid that was inverted as a whole, are found. An
+        /// inside-out component found so is not returned if an odd number of nearly closed open components
+        /// (|winding number| above 0.75 inside it) enclose it: the cavity of an open shell. Open components can
+        /// only take back a result, never add one. Returns their triangle sets (empty if
+        /// there are none or no closed components). Does not modify the mesh.
         /// Cost: the nesting is tested only for components whose box lies inside another one's (found by a sweep,
         /// so many components side by side are cheap), with a winding number tree per enclosing component.
         /// </summary>
@@ -281,18 +284,24 @@ namespace gs
             var result = new List<int[]>();
             var comps = new MeshConnectedComponents(mesh);
             comps.FindConnectedT();
-            var closed = comps.Components.Where(c => c.Indices.All(t => {
+            Func<int[], bool> isClosed = c => c.All(t => {
                 Index3i te = mesh.GetTriEdges(t);
                 return !mesh.IsBoundaryEdge(te.a) && !mesh.IsBoundaryEdge(te.b) && !mesh.IsBoundaryEdge(te.c);
-            })).Select(c => c.Indices).ToList();
+            });
+            var closed = new List<int[]>();
+            var open = new List<int[]>();
+            foreach (var c in comps.Components)
+                (isClosed(c.Indices) ? closed : open).Add(c.Indices);
             if (closed.Count == 0)
                 return result;
+            var openBodies = new OpenBodies(mesh, open);
 
             Vector3d center = mesh.CachedBounds.Center;
             var volAreas = closed.Select(c => MeshMeasurements.VolumeArea(mesh, c, (vid) => mesh.GetVertex(vid) - center)).ToList();
             var vols = volAreas.Select(va => va.x).ToList();
             if (closed.Count == 1) {
-                if (vols[0] < 0) result.Add(closed[0]);
+                if (vols[0] < 0 && openBodies.Encloses(closed[0], vols[0], volAreas[0].y) == false)
+                    result.Add(closed[0]);
                 return result;
             }
             var boxes = closed.Select(c => {
@@ -322,10 +331,56 @@ namespace gs
                     if (2 * votes > samples.Count) nInside++;
                 }
                 bool cavity = (nInside % 2) == 1;
-                if ((vols[i] < 0) != cavity)
+                // an inside-out shell that the closed components leave flagged may be the cavity of a nearly
+                // closed open body: only that can take the flag back (never set one)
+                if ((vols[i] < 0) != cavity && (vols[i] >= 0 || openBodies.Encloses(closed[i], vols[i], volAreas[i].y) == false))
                     result.Add(closed[i]);
             }
             return result;
+        }
+
+        // The open components of a mesh as possible enclosing bodies of inside-out closed components (boxes and
+        // winding number trees built when first needed, once)
+        class OpenBodies
+        {
+            readonly DMesh3 mesh;
+            readonly List<int[]> open;
+            AxisAlignedBox3d[] boxes;
+            DMeshAABBTree3[] trees;
+
+            public OpenBodies(DMesh3 mesh, List<int[]> open) { this.mesh = mesh; this.open = open; }
+
+            // true if an odd number of them enclose the closed inside-out component comp: nearly closed ones (eg a
+            // few boundary edges left), |winding number| above 0.75 at most of its interior samples; an open sheet
+            // or bowl around it (about 0.5 and below) does not. Only those whose box contains comp's are tested.
+            public bool Encloses(int[] comp, double vol, double area)
+            {
+                if (open.Count == 0)
+                    return false;
+                if (boxes == null) {
+                    boxes = new AxisAlignedBox3d[open.Count];
+                    trees = new DMeshAABBTree3[open.Count];
+                    for (int j = 0; j < open.Count; ++j) {
+                        boxes[j] = AxisAlignedBox3d.Empty;
+                        foreach (int t in open[j]) boxes[j].Contain(mesh.GetTriBounds(t));
+                    }
+                }
+                var box = AxisAlignedBox3d.Empty;
+                foreach (int t in comp) box.Contain(mesh.GetTriBounds(t));
+                List<Vector3d> samples = null;
+                int n = 0;
+                for (int j = 0; j < open.Count; ++j) {
+                    if (boxes[j].Contains(box) == false)
+                        continue;
+                    if (samples == null)
+                        samples = interior_samples(mesh, comp, true, Math.Min(1e-4 * box.DiagonalLength, 0.25 * Math.Abs(vol) / area));
+                    if (trees[j] == null)
+                        trees[j] = new DMeshAABBTree3(new DSubmesh3(mesh, open[j]).SubMesh, true);
+                    int votes = samples.Count(p => Math.Abs(trees[j].FastWindingNumber(p)) > 0.75);
+                    if (2 * votes > samples.Count) n++;
+                }
+                return (n % 2) == 1;
+            }
         }
 
         /// <summary>
