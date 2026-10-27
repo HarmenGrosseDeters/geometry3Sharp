@@ -40,7 +40,11 @@ namespace geometry3Sharp.Tests
             DMesh3 r = op.Result;
             Assert.True(r.TriangleCount > 0, what + ": empty");
             Assert.Equal(0, InconsistentEdges(r));
-            Assert.True(r.CheckValidity(true, FailMode.ReturnOnly), what + ": invalid DMesh3");
+            // (no bowties either, and every vertex has triangles)
+            Assert.True(r.CheckValidity(false, FailMode.ReturnOnly), what + ": invalid DMesh3");
+            Assert.True(r.VertexIndices().All(v => r.GetVtxEdgeCount(v) > 0), what + ": vertex without triangles");
+            // the edges left open where the pieces do not fit together are counted
+            Assert.True(op.ConflictEdges > 0, what + ": no conflict edges");
             Assert.True(r.Vertices().All(v => v.IsFinite), what + ": non-finite coordinates");
         }
 
@@ -95,19 +99,27 @@ namespace geometry3Sharp.Tests
                 var b = new ExactMeshBoolean(a, s, op);
                 Assert.True(b.Compute(), b.Error);
                 Assert.Equal(0, b.ConflictEdges);
+                Assert.Equal(0, b.NonManifoldTriangles);
                 ResultChecks.AssertClosed(b.Result);
             }
         }
 
+        public static IEnumerable<object[]> SimilarityCases()
+        {
+            foreach (object[] c in Cases())
+                foreach (object[] s in Similarity.Names())
+                    yield return new object[] { c[0], c[1], s[0] };
+        }
+
         [Theory]
-        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
-        public void Minimized_Union_SameResultUnderSimilarity(string name)
+        [MemberData(nameof(SimilarityCases))]
+        public void OpenBoundaryOnEdge_SameResultUnderSimilarity(string input, ExactMeshBoolean.Operations operation, string name)
         {
             Similarity s = Similarity.ByName(name);
-            DMesh3 a = DefectInputTests.MinimizedRandomEdits6(), b = TestBox();
-            var op0 = new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Union);
+            DMesh3 a = Input(input), b = TestBox();
+            var op0 = new ExactMeshBoolean(a, b, operation);
             Assert.True(op0.Compute(), op0.Error);
-            var op = new ExactMeshBoolean(Invariance.Transformed(a, s), Invariance.Transformed(b, s), ExactMeshBoolean.Operations.Union);
+            var op = new ExactMeshBoolean(Invariance.Transformed(a, s), Invariance.Transformed(b, s), operation);
             Assert.True(op.Compute(), op.Error);
             // a consistent result under every transform; the same one under the exact ones (the others round the
             // coordinates, and the case depends on exact coplanarity and coincidence: another arrangement)
@@ -140,16 +152,15 @@ namespace geometry3Sharp.Tests
         }
 
         [Theory]
-        [InlineData("minimized")]
-        [InlineData("minimized, unrounded")]
-        public void OpenBoundaryOnEdge_RepeatedRuns_SameResult(string name)
+        [MemberData(nameof(Cases))]
+        public void OpenBoundaryOnEdge_RepeatedRuns_SameResult(string name, ExactMeshBoolean.Operations operation)
         {
             // the arrangement runs in parallel (point ids depend on the thread schedule); the classification and the
             // pairing at the edges must not
             DMesh3 first = null;
             int conflicts = -1;
             for (int run = 0; run < 20; ++run) {
-                var op = new ExactMeshBoolean(Input(name), TestBox(), ExactMeshBoolean.Operations.Union);
+                var op = new ExactMeshBoolean(Input(name), TestBox(), operation);
                 Assert.True(op.Compute(), op.Error);
                 if (first == null) {
                     first = op.Result;

@@ -111,11 +111,16 @@ namespace g3
         public int SelfIntersectingPairs;
         /// <summary> edges of the result where solids touch (more than two pieces); split into manifold pairs </summary>
         public int NonManifoldEdges;
-        /// <summary> triangles that could not be added to the result mesh and got their own vertices (should be 0) </summary>
+        /// <summary>
+        /// triangles that could not be added to the result mesh and got copies of some of their vertices: at an edge with
+        /// more than two triangles that could not be split, or at an edge they would run the same way as the triangle
+        /// there (see ConflictEdges); 0 for closed inputs
+        /// </summary>
         public int NonManifoldTriangles;
         /// <summary>
-        /// edges where two kept pieces run the edge the same way, so that they are not joined there and the result is open
-        /// along the edge (consistently oriented). Only with open inputs: where an open boundary of an input lies on an
+        /// edges where the kept pieces cannot all be joined as neighbours that run the edge in opposite directions (two
+        /// that run it the same way, or pieces left without such a neighbour around the edge), so that the result is open
+        /// along the edge (and consistently oriented). Only with open inputs: where an open boundary of an input lies on an
         /// edge that other pieces meet, the jumps of the winding numbers across the pieces around the edge do not add up
         /// to zero, and no inside/outside choice for the regions around the edge fits all the pieces. 0 for closed inputs.
         /// </summary>
@@ -1121,6 +1126,9 @@ namespace g3
                     join(slot(pair.Key, u), slot(pair.Value, u));
                     join(slot(pair.Key, v), slot(pair.Value, v));
                 }
+                // (pieces left without a neighbour: an odd number, or more running one way than the other)
+                if (g1 - g0 > 2 && 2 * pairs.Count < g1 - g0)
+                    ConflictEdges++;
                 if (g1 - g0 > 2) {
                     NonManifoldEdges++;
                     nonManifold.Add(new KeyValuePair<long, List<KeyValuePair<int, int>>>(edgeKeys[g0], pairs));
@@ -1264,12 +1272,37 @@ namespace g3
                 && result.AppendTriangle(a, b, c) >= 0)
                 return;
             // (an edge with more than two triangles that could not be split, or one that the triangle would run the
-            // same way as the triangle there: kept, with its own vertices)
+            // same way as the triangle there: kept, with copies of as few of its vertices as possible, so that it keeps
+            // the neighbours it can have and no vertex is left without triangles)
             NonManifoldTriangles++;
-            int a2 = result.AppendVertex(result.GetVertex(a)); vertexPoint.Add(vertexPoint[a]);
-            int b2 = result.AppendVertex(result.GetVertex(b)); vertexPoint.Add(vertexPoint[b]);
-            int c2 = result.AppendVertex(result.GetVertex(c)); vertexPoint.Add(vertexPoint[c]);
-            result.AppendTriangle(a2, b2, c2);
+            int[] f = { a, b, c };
+            foreach (int mask in new[] { 1, 2, 4, 3, 5, 6, 7 }) {
+                bool ok = true;
+                for (int k = 0; k < 3 && ok; ++k) {
+                    int k1 = (k + 1) % 3;
+                    if ((mask & (1 << k)) == 0 && (mask & (1 << k1)) == 0)
+                        ok = can_add_edge(result, f[k], f[k1]);
+                }
+                if (ok == false)
+                    continue;
+                int[] g = new int[3];
+                for (int k = 0; k < 3; ++k) {
+                    g[k] = f[k];
+                    if ((mask & (1 << k)) != 0) {
+                        g[k] = result.AppendVertex(result.GetVertex(f[k]));
+                        vertexPoint.Add(vertexPoint[f[k]]);
+                    }
+                }
+                result.AppendTriangle(g[0], g[1], g[2]);
+                return;
+            }
+        }
+
+        // a triangle can run a -> b: no edge (a, b) yet, or one with one triangle that runs it b -> a
+        static bool can_add_edge(DMesh3 mesh, int a, int b)
+        {
+            int eid = mesh.FindEdge(a, b);
+            return eid == DMesh3.InvalidID || (mesh.IsBoundaryEdge(eid) && runs_existing(mesh, a, b) == false);
         }
 
         // the edge (a, b) of the mesh exists and a triangle at it runs a -> b
