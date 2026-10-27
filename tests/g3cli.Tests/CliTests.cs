@@ -309,7 +309,9 @@ namespace g3cli.Tests
             // no warning where the resolve keeps the genus
             (exit, r) = Run("repair", m.Overlapping, m.Path_("repaired_overlap3.obj"), "--solidify-resolution", "64");
             AssertOk(exit, r);
-            Assert.Null(r["genus_before"]);
+            Assert.True(r.ContainsKey("genus_before"));
+            Assert.Equal(0, D(r["genus_before"]));      // two overlapping spheres: genus 0, kept
+            Assert.Equal(0, D(r["genus_after"]));
             Assert.DoesNotContain(r["warnings"].AsArray(), w => w.ToString().Contains("genus"));
         }
 

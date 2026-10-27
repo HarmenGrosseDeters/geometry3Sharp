@@ -71,6 +71,12 @@ namespace geometry3Sharp.Tests
             Assert.False(rej.UsedExactResolve);
             Assert.StartsWith("topology changed (genus 0 -> 1)", rej.ExactResolveReason);
             Assert.True(rej.UsedSolidify || rej.UsedAlphaWrap);
+            // the outputs describe the returned mesh: not the rejected resolve, nor its IoU
+            Assert.False(rej.TopologyChanged);
+            Assert.True(double.IsNaN(rej.GenusBefore) && double.IsNaN(rej.GenusAfter));
+            var noExact = new MeshRobustRepair(new DMesh3(bar)) { ExactResolve = false };
+            noExact.Apply();
+            Assert.Equal(noExact.RepairVolumeIoU, rej.RepairVolumeIoU);
             // reuse: the same instance on a mesh whose resolve keeps the genus clears the outputs
             DMesh3 two = Sphere(1, Vector3d.Zero);
             MeshEditor.Append(two, Sphere(1, new Vector3d(1.2, 0, 0)));
@@ -110,12 +116,18 @@ namespace geometry3Sharp.Tests
         public void ExactResolve_TopologyReport_InvariantUnderSimilarities()
         {
             DMesh3 bar = BentBarOverlappingItself();
+            var baseRepair = new MeshRobustRepair(new DMesh3(bar));
+            Assert.True(baseRepair.Apply());
             foreach (Similarity sim in Similarity.All()) {
                 var r = new MeshRobustRepair(Invariance.Transformed(bar, sim));
                 Assert.True(r.Apply(), sim.Name);
                 Assert.True(r.UsedExactResolve, sim.Name + ": " + r.ExactResolveReason);
                 Assert.True(r.TopologyChanged, sim.Name);
+                Assert.Equal(0, r.GenusBefore);
                 Assert.Equal(1, r.GenusAfter);
+                // 2^k scales: the same result bit for bit (other transforms give another tessellation of the union)
+                if (sim.IsExact)
+                    Assert.Equal("", Invariance.Difference(baseRepair.Mesh, Invariance.MappedBack(r.Mesh, sim)));
             }
         }
 

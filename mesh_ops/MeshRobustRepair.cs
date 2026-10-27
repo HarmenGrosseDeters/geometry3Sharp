@@ -122,8 +122,8 @@ namespace gs
         /// layers, Thingi10K 357788). A union of several parts changes the components, and so the genus, by
         /// construction (on Thingi10K 76 of 175 exact results): not flagged. Only judged when the resolved mesh is
         /// closed and has no bowtie vertices (genus defined); otherwise false and both genera NaN. Reported, not a
-        /// defect: the result is clean. Set by the last resolve that succeeded (also a rejected one, see
-        /// RejectTopologyChange).
+        /// defect: the result is clean. Valid together with UsedExactResolve: false and NaN when the result is not
+        /// the exact resolve (a resolve rejected by RejectTopologyChange is reported in ExactResolveReason only).
         /// </summary>
         public bool TopologyChanged;
         /// <summary> exact stage: total genus (MeshTopologySummary) of the mesh it resolved and of its result; NaN if not judged </summary>
@@ -317,6 +317,9 @@ namespace gs
                     ResultReason = "";
                     return true;
                 }
+                // the topology outputs describe the returned mesh only (a rejection stays in ExactResolveReason)
+                TopologyChanged = false;
+                GenusBefore = GenusAfter = double.NaN;
             }
             // a self-intersecting contour is discarded for the alpha wrap: stop the solidify before its
             // post-processing (which rarely removes them), finish it only if the wrap fails
@@ -540,13 +543,14 @@ namespace gs
                         ExactResolveReason = differs;
                         return null;
                     }
+                    // (a rejected result must not leave its IoU: checked first)
+                    if (topology_changed(from, res) && RejectTopologyChange) {
+                        ExactResolveReason = "topology changed (genus " + GenusBefore.ToString(CultureInfo.InvariantCulture)
+                            + " -> " + GenusAfter.ToString(CultureInfo.InvariantCulture) + ")";
+                        return null;
+                    }
                     if (MinVolumeIoU > 0)
                         RepairVolumeIoU = iou;
-                }
-                if (topology_changed(from, res) && RejectTopologyChange) {
-                    ExactResolveReason = "topology changed (genus " + GenusBefore.ToString(CultureInfo.InvariantCulture)
-                        + " -> " + GenusAfter.ToString(CultureInfo.InvariantCulture) + ")";
-                    return null;
                 }
                 ExactResolveReason = "";
                 return res;
