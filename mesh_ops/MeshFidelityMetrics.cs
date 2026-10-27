@@ -22,6 +22,12 @@ namespace gs
     ///     precision / recall at the thresholds: feature preservation;
     ///   - the same against the outer surface of the reference only (OuterSurface), so interior faces that a
     ///     repair to a solid drops on purpose do not count as lost;
+    ///   - volume IoU of the solids (generalized winding number &gt; 0.5, Jacobson et al. 2013), against the whole
+    ///     reference and against the solid of its outer faces only (OuterVolumeIoU): interior faces, nested shells
+    ///     and double-sided sheets distort the winding number solid of an open reference, not the solid a repair
+    ///     encloses (VolumeSamples);
+    ///   - curvature fidelity (Curvature): discrete mean and Gaussian curvature after Meyer et al. 2003
+    ///     (MeshCurvature) at corresponding points of both surfaces, and the distance of their distributions;
     ///   - triangle quality (TriangleQualityStatistics, Verdict definitions) and topology (MeshTopologySummary)
     ///     of both meshes, and the topology changes.
     ///
@@ -85,6 +91,24 @@ namespace gs
         /// this, and faces across a gap narrower than this, are not outer
         /// </summary>
         public double OuterOffset = 1e-5;
+        /// <summary>
+        /// random points for the volume IoUs (VolumeIoU, OuterVolumeIoU; sampled as MeshRepairMetrics.VolumeIoU does, near
+        /// the components of both meshes); 0 skips them (NaN). Sampling noise of the IoU about sqrt((1 - IoU) / n).
+        /// </summary>
+        public int VolumeSamples = 100000;
+        /// <summary>
+        /// compare the curvatures (MeshCurvature) of both meshes: at each surface sample within the largest threshold of
+        /// the other surface, the mean curvature H and the Gaussian curvature K interpolated linearly from the Valid
+        /// vertices of its triangle, against the same at its closest point on the other mesh (CurvatureMeshToReference,
+        /// CurvatureReferenceToMesh); the 1-Wasserstein distance of the area weighted distributions of H and K of both
+        /// meshes (MeanCurvatureDistance, GaussianCurvatureDistance); the total absolute curvatures. H is relative to
+        /// 1 / Size (H * Size: 2 on a sphere), K to 1 / Size^2. Boundary, bowtie and area-less vertices are not Valid
+        /// and left out of the interpolation; a sample whose triangle has no Valid vertex is left out. At sharp edges
+        /// and corners the vertex values grow with the resolution (the curvature is concentrated there) while the area
+        /// they spread over shrinks, so the means (area integrals) stay comparable, but two meshes with the same crease
+        /// at different resolutions differ there. H is signed by the orientation, as the reversed share.
+        /// </summary>
+        public bool Curvature = true;
         /// <summary> seed of the sampling </summary>
         public int Seed = 1;
         /// <summary> run the queries in parallel (the results are the same) </summary>
@@ -138,6 +162,44 @@ namespace gs
         /// </summary>
         public double[] OuterEdgeRecall;
         public double OuterEdgeShare = double.NaN;
+        /// <summary>
+        /// output (VolumeSamples): volume IoU of the solid of the reference (generalized winding number &gt; 0.5) and of the
+        /// mesh, and the parts of the reference's solid missing in the mesh and the mesh's solid not in the reference,
+        /// relative to the reference's solid. NaN if no sample lies in the reference's solid (eg an open sheet)
+        /// </summary>
+        public double VolumeIoU = double.NaN, VolumeMissing = double.NaN, VolumeExtra = double.NaN;
+        /// <summary>
+        /// output (VolumeSamples and OuterSurface): the same against the solid of the reference's outer faces only: a
+        /// face is outer unless none of its centroid and its three points (4 a + b + c) / 6 (and permutations) is on the
+        /// outer surface by the rule of OuterSurface. The faces that are not outer are removed, and the rest is judged
+        /// again by the winding number of what is left, until no face is removed (at most MaxOuterFaceRounds rounds):
+        /// interior faces lower or raise each other's winding numbers (two layers stacked inside a solid: the lower
+        /// one looks like a boundary in the first round). So faces inside the solid, nested shells, internal double
+        /// walls and double-sided sheets are left out, faces crossing another surface (partly outer) and degenerate ones
+        /// kept. NaN if no face is outer or no sample lies in that solid. Cost: a winding number tree and up to 8
+        /// winding numbers per face per round (usually two rounds)
+        /// </summary>
+        public double OuterVolumeIoU = double.NaN, OuterVolumeMissing = double.NaN, OuterVolumeExtra = double.NaN;
+        /// <summary> output (VolumeSamples and OuterSurface): share of the reference's area in the outer faces of OuterVolumeIoU </summary>
+        public double OuterFaceShare = double.NaN;
+        /// <summary> output (Curvature): curvature differences at the samples of the mesh against the reference, and of the reference against the mesh </summary>
+        public CurvatureAgreement CurvatureMeshToReference, CurvatureReferenceToMesh;
+        /// <summary> output (Curvature): mean of both directions of CurvatureAgreement.MeanError and of GaussianError </summary>
+        public double MeanCurvatureError = double.NaN, GaussianCurvatureError = double.NaN;
+        /// <summary>
+        /// output (Curvature): 1-Wasserstein distance (mean absolute difference of the quantile functions) of the area
+        /// weighted distributions of H * Size, and of K * Size^2, of both meshes (from the values at all their surface
+        /// samples): independent of where the curvature is, NaN if either mesh has no sample with a value
+        /// </summary>
+        public double MeanCurvatureDistance = double.NaN, GaussianCurvatureDistance = double.NaN;
+        /// <summary>
+        /// output (Curvature): total absolute mean curvature, the sum of |H| A_M over the Valid vertices relative to Size
+        /// (pi on a sphere; at a crease of dihedral angle theta and length L about theta L / 2), and total absolute
+        /// Gaussian curvature, the sum of |angle deficit| over the Valid vertices (4 pi on a convex closed surface), of
+        /// both meshes: they do not depend on the resolution, also at sharp features
+        /// </summary>
+        public double TotalAbsMeanCurvatureReference = double.NaN, TotalAbsMeanCurvatureMesh = double.NaN;
+        public double TotalAbsGaussianCurvatureReference = double.NaN, TotalAbsGaussianCurvatureMesh = double.NaN;
         /// <summary> output: triangle quality of both meshes </summary>
         public TriangleQualityStatistics ReferenceQuality, MeshQuality;
         /// <summary> output: topology of both meshes, and what changed from the reference to the mesh </summary>
@@ -256,6 +318,21 @@ namespace gs
             else
                 EdgeChamfer = 0.5 * (EdgeDistanceMeshToReference + EdgeDistanceReferenceToMesh);
 
+            // volume IoUs, of the whole reference's solid and of its outer faces' (own random sequence, so the other
+            // outputs do not depend on VolumeSamples)
+            if (VolumeSamples > 0) {
+                volume_ious(reference, mesh, refSurface, meshSurface, size, degenerateArea);
+                if (CancelF())
+                    return fail();
+            }
+
+            // curvatures
+            if (Curvature) {
+                curvature(reference, mesh, onRef, onMesh, size, maxTau);
+                if (CancelF())
+                    return fail();
+            }
+
             // topology and triangle quality
             ReferenceTopology = MeshTopologySummary.Compute(reference);
             MeshTopology = MeshTopologySummary.Compute(mesh);
@@ -288,6 +365,12 @@ namespace gs
             EdgeDistanceMeshToReference = EdgeDistanceReferenceToMesh = EdgeChamfer = double.NaN;
             EdgePrecision = EdgeRecall = EdgeFScore = OuterEdgeRecall = null;
             OuterEdgeShare = double.NaN;
+            VolumeIoU = VolumeMissing = VolumeExtra = double.NaN;
+            OuterVolumeIoU = OuterVolumeMissing = OuterVolumeExtra = OuterFaceShare = double.NaN;
+            CurvatureMeshToReference = CurvatureReferenceToMesh = null;
+            MeanCurvatureError = GaussianCurvatureError = MeanCurvatureDistance = GaussianCurvatureDistance = double.NaN;
+            TotalAbsMeanCurvatureReference = TotalAbsMeanCurvatureMesh = double.NaN;
+            TotalAbsGaussianCurvatureReference = TotalAbsGaussianCurvatureMesh = double.NaN;
             ReferenceQuality = MeshQuality = null;
             ReferenceTopology = MeshTopology = null;
             TopologyChanges = MeshTopologySummary.Changes.None;
@@ -307,6 +390,138 @@ namespace gs
                     samples[i].Outer = is_outer(front, back);
                 }
             }, 256, Parallel == false);
+        }
+
+        // VolumeIoU (solid of the whole reference) and OuterVolumeIoU (solid of its outer faces) against the mesh's solid
+        void volume_ious(DMesh3 reference, DMesh3 mesh, Surface refSurface, Surface meshSurface, double size, double degenerateArea)
+        {
+            refSurface.PrepareWinding();
+            meshSurface.PrepareWinding();
+            Func<Vector3d, bool> inMesh = (p) => meshSurface.Winding(p) > 0.5;
+            Func<Vector3d, bool> inRef = (p) => refSurface.Winding(p) > 0.5;
+            bool serial = Parallel == false;
+            VolumeIoU = MeshRepairMetrics.volume_iou(inRef, MeshRepairMetrics.sample_region(reference, mesh), inMesh,
+                out VolumeMissing, out VolumeExtra, VolumeSamples, Seed, serial);
+            if (double.IsNaN(VolumeIoU))
+                VolumeMissing = VolumeExtra = double.NaN;
+            if (OuterSurface == false)
+                return;
+            double outerArea;
+            DMesh3 outer = OuterFaces(reference, refSurface, OuterOffset * size, degenerateArea, serial, out outerArea);
+            double area = 0;
+            foreach (int tid in reference.TriangleIndices())
+                area += reference.GetTriArea(tid);
+            OuterFaceShare = area > 0 ? outerArea / area : double.NaN;
+            if (outer.TriangleCount == 0)
+                return;
+            var outerTree = new DMeshAABBTree3(outer, true);
+            outerTree.FastWindingNumber(Vector3d.Zero);     // cache before parallel use
+            OuterVolumeIoU = MeshRepairMetrics.volume_iou((p) => outerTree.FastWindingNumber(p) > 0.5, MeshRepairMetrics.sample_region(outer, mesh),
+                inMesh, out OuterVolumeMissing, out OuterVolumeExtra, VolumeSamples, Seed, serial);
+            if (double.IsNaN(OuterVolumeIoU))
+                OuterVolumeMissing = OuterVolumeExtra = double.NaN;
+        }
+
+        /// <summary> OuterVolumeIoU peels the reference's faces that are not outer in at most this many rounds </summary>
+        public const int MaxOuterFaceRounds = 16;
+
+        // a copy of the reference (same ids) without the faces that are not outer (see OuterVolumeIoU), and the area kept
+        DMesh3 OuterFaces(DMesh3 reference, Surface refSurface, double offset, double degenerateArea, bool serial, out double keptArea)
+        {
+            refSurface.PrepareWinding();
+            var copy = new DMesh3(reference, false, MeshComponents.None);
+            var kept = new List<int>();
+            foreach (int tid in reference.TriangleIndices()) {
+                double area;
+                MeshAnalysisNormals.TriNormal(reference, tid, out area);
+                if (area > degenerateArea)
+                    kept.Add(tid);      // to be tested; degenerate ones have no normal to test along and stay
+            }
+            Func<Vector3d, double> winding = refSurface.Winding;
+            for (int round = 0; round < MaxOuterFaceRounds && kept.Count > 0; ++round) {
+                int[] tids = kept.ToArray();
+                bool[] drop = new bool[tids.Length];
+                Func<Vector3d, double> w = winding;
+                gParallel.BlockStartEnd(0, tids.Length - 1, (start, end) => {
+                    Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+                    for (int i = start; i <= end; ++i) {
+                        Vector3d d = offset * MeshAnalysisNormals.TriNormal(reference, tids[i]);
+                        reference.GetTriVertices(tids[i], ref a, ref b, ref c);
+                        bool outer = false;
+                        for (int k = 0; k < 4 && outer == false; ++k) {
+                            Vector3d p = (k == 0) ? (a + b + c) / 3 : (k == 1) ? (4 * a + b + c) / 6 : (k == 2) ? (a + 4 * b + c) / 6 : (a + b + 4 * c) / 6;
+                            outer = is_outer(w(p + d), w(p - d));
+                        }
+                        drop[i] = outer == false;
+                    }
+                }, 256, serial);
+                kept.Clear();
+                int dropped = 0;
+                for (int i = 0; i < tids.Length; ++i) {
+                    if (drop[i]) { copy.RemoveTriangle(tids[i], false, false); dropped++; } else kept.Add(tids[i]);
+                }
+                if (dropped == 0 || copy.TriangleCount == 0)
+                    break;
+                // the faces left, judged again by the winding number of what is left: a face inside the solid whose
+                // mean winding number other interior faces lowered (eg the lower one of two stacked layers) is outer
+                // in the first round only
+                var tree = new DMeshAABBTree3(copy, true);
+                tree.FastWindingNumber(Vector3d.Zero);      // cache before parallel use
+                winding = tree.FastWindingNumber;
+            }
+            keptArea = 0;
+            foreach (int tid in copy.TriangleIndices())
+                keptArea += copy.GetTriArea(tid);
+            return copy;
+        }
+
+        // the curvature outputs (see Curvature)
+        void curvature(DMesh3 reference, DMesh3 mesh, SurfaceSample[] onRef, SurfaceSample[] onMesh, double size, double matchDistance)
+        {
+            MeshCurvature cr = MeshCurvature.Compute(reference), cm = MeshCurvature.Compute(mesh);
+            double[] hm, km, hr, kr;
+            CurvatureMeshToReference = CurvatureAgreement.Compute(onMesh, mesh, cm, reference, cr, size, matchDistance, out hm, out km);
+            CurvatureReferenceToMesh = CurvatureAgreement.Compute(onRef, reference, cr, mesh, cm, size, matchDistance, out hr, out kr);
+            MeanCurvatureError = 0.5 * (CurvatureMeshToReference.MeanError + CurvatureReferenceToMesh.MeanError);
+            GaussianCurvatureError = 0.5 * (CurvatureMeshToReference.GaussianError + CurvatureReferenceToMesh.GaussianError);
+            MeanCurvatureDistance = Wasserstein1(hm, hr);
+            GaussianCurvatureDistance = Wasserstein1(km, kr);
+            total_curvature(reference, cr, size, out TotalAbsMeanCurvatureReference, out TotalAbsGaussianCurvatureReference);
+            total_curvature(mesh, cm, size, out TotalAbsMeanCurvatureMesh, out TotalAbsGaussianCurvatureMesh);
+        }
+
+        static void total_curvature(DMesh3 mesh, MeshCurvature c, double size, out double mean, out double gaussian)
+        {
+            mean = gaussian = 0;
+            foreach (int vid in mesh.VertexIndices()) {
+                if (c.Valid[vid] == false)
+                    continue;
+                mean += Math.Abs(c.Mean[vid]) * c.MixedArea[vid];
+                gaussian += Math.Abs(c.AngleDeficit[vid]);
+            }
+            mean /= size;
+        }
+
+        /// <summary>
+        /// 1-Wasserstein distance of the empirical distributions of a and b (each value of a weighing 1 / a.Length, of b
+        /// 1 / b.Length): the integral of |F_a - F_b|. NaN if either is empty. Sorts both arrays.
+        /// </summary>
+        internal static double Wasserstein1(double[] a, double[] b)
+        {
+            if (a.Length == 0 || b.Length == 0)
+                return double.NaN;
+            Array.Sort(a);
+            Array.Sort(b);
+            int i = 0, j = 0;
+            double x = Math.Min(a[0], b[0]), sum = 0;
+            while (i < a.Length || j < b.Length) {
+                bool fromA = j >= b.Length || (i < a.Length && a[i] <= b[j]);
+                double next = fromA ? a[i] : b[j];
+                sum += Math.Abs((double)i / a.Length - (double)j / b.Length) * (next - x);
+                x = next;
+                if (fromA) i++; else j++;
+            }
+            return sum;
         }
 
         /// <summary>
@@ -376,6 +591,12 @@ namespace gs
             public double Distance, Cos;
             /// <summary> on the boundary of the solid of its mesh (reference samples, if OuterSurface) </summary>
             public bool Outer;
+            /// <summary> the triangle the sample lies in and its barycentric coordinates there </summary>
+            public int Tid;
+            public Vector3d Bary;
+            /// <summary> the triangle of the closest point on the other surface and its barycentric coordinates (Tid -1 if none) </summary>
+            public int ClosestTid;
+            public Vector3d ClosestBary;
         }
 
         // n samples, area weighted and stratified: sample i in the slice [i, i + 1) / n of the cumulative area
@@ -407,6 +628,8 @@ namespace gs
                 double s = Math.Sqrt(rnd.NextDouble()), t = rnd.NextDouble();
                 samples[i].Point = (1 - s) * a + (s * (1 - t)) * b + (s * t) * c;
                 samples[i].Normal = MeshAnalysisNormals.TriNormal(mesh, tids[k]);
+                samples[i].Tid = tids[k];
+                samples[i].Bary = new Vector3d(1 - s, s * (1 - t), s * t);
             }
             return samples;
         }
@@ -416,7 +639,7 @@ namespace gs
             gParallel.BlockStartEnd(0, samples.Length - 1, (start, end) => {
                 for (int i = start; i <= end; ++i) {
                     Vector3d closestNormal;
-                    samples[i].Distance = target.Distance(samples[i].Point, out closestNormal);
+                    samples[i].Distance = target.Distance(samples[i].Point, out closestNormal, out samples[i].ClosestTid, out samples[i].ClosestBary);
                     samples[i].Cos = (closestNormal == Vector3d.Zero) ? double.NaN : samples[i].Normal.Dot(closestNormal);
                 }
             }, 256, Parallel == false);
@@ -661,16 +884,17 @@ namespace gs
             public void PrepareWinding() { tree.FastWindingNumber(Vector3d.Zero); }
             public double Winding(Vector3d p) { return tree.FastWindingNumber(p); }
 
-            // distance of p to the mesh, and the unit pseudo-normal at the closest point (zero if none)
-            public double Distance(Vector3d p, out Vector3d normal)
+            // distance of p to the mesh, the unit pseudo-normal at the closest point (zero if none), and the closest
+            // point's triangle (-1 if none) and barycentric coordinates
+            public double Distance(Vector3d p, out Vector3d normal, out int tid, out Vector3d bary)
             {
-                normal = Vector3d.Zero;
-                int tid = tree.FindNearestTriangle(p);
+                normal = bary = Vector3d.Zero;
+                tid = tree.FindNearestTriangle(p);
                 if (tid == DMesh3.InvalidID)
                     return double.PositiveInfinity;
                 Index3i tv = mesh.GetTriangle(tid);
                 Triangle3d tri = new Triangle3d(mesh.GetVertex(tv.a), mesh.GetVertex(tv.b), mesh.GetVertex(tv.c));
-                Vector3d closest, bary;
+                Vector3d closest;
                 double d = Math.Sqrt(DistPoint3Triangle3.DistanceSqr(ref p, ref tri, out closest, out bary));
                 normal = MeshAnalysisNormals.Unit(feature_normal(tid, tv, bary));
                 return d;
@@ -754,6 +978,78 @@ namespace gs
             }
             if (r.MatchedSamples > 0)
                 r.ReversedFraction = (double)reversed / r.MatchedSamples;
+            return r;
+        }
+    }
+
+
+    /// <summary>
+    /// Agreement of the curvatures (MeshCurvature) at samples of one surface with those at their closest points on another
+    /// (MeshFidelityMetrics.Curvature). Only samples within the largest threshold of the other surface count (farther
+    /// ones need not correspond, eg on a lost part, which the F-score shows), and only where both values exist.
+    /// </summary>
+    public class CurvatureAgreement
+    {
+        /// <summary> samples compared </summary>
+        public int Samples;
+        /// <summary> mean |H - H'| * Size over the samples (H at the sample, H' at its closest point); NaN if none </summary>
+        public double MeanError = double.NaN;
+        /// <summary> mean |K - K'| * Size^2 over the samples; NaN if none </summary>
+        public double GaussianError = double.NaN;
+        /// <summary> mean |H| * Size and |K| * Size^2 at the compared samples (the scale of the errors) </summary>
+        public double MeanAbs = double.NaN, GaussianAbs = double.NaN;
+
+        // values interpolated from the Valid vertices of triangle tid (NaN if it has none)
+        static bool interpolate(DMesh3 mesh, MeshCurvature c, int tid, Vector3d bary, out double h, out double k)
+        {
+            h = k = double.NaN;
+            if (tid < 0)
+                return false;
+            Index3i t = mesh.GetTriangle(tid);
+            double w = 0, sh = 0, sk = 0;
+            for (int j = 0; j < 3; ++j) {
+                if (c.Valid[t[j]] == false)
+                    continue;
+                double bj = Math.Max(0, bary[j]);
+                w += bj; sh += bj * c.Mean[t[j]]; sk += bj * c.Gaussian[t[j]];
+            }
+            if (!(w > 0)) {
+                // the sample at a corner whose vertex is not Valid: the mean of the Valid others
+                for (int j = 0; j < 3; ++j)
+                    if (c.Valid[t[j]]) { w += 1; sh += c.Mean[t[j]]; sk += c.Gaussian[t[j]]; }
+                if (!(w > 0))
+                    return false;
+            }
+            h = sh / w; k = sk / w;
+            return true;
+        }
+
+        // also the normalized values at all samples that have one (own triangle), for the distributions
+        internal static CurvatureAgreement Compute(MeshFidelityMetrics.SurfaceSample[] samples, DMesh3 mesh, MeshCurvature c,
+            DMesh3 other, MeshCurvature co, double size, double matchDistance, out double[] h, out double[] k)
+        {
+            var r = new CurvatureAgreement();
+            var hl = new List<double>();
+            var kl = new List<double>();
+            double s2 = size * size, eh = 0, ek = 0, ah = 0, ak = 0;
+            foreach (var s in samples) {
+                double h0, k0, h1, k1;
+                if (interpolate(mesh, c, s.Tid, s.Bary, out h0, out k0) == false)
+                    continue;
+                h0 *= size; k0 *= s2;
+                hl.Add(h0); kl.Add(k0);
+                if (!(s.Distance < matchDistance) || interpolate(other, co, s.ClosestTid, s.ClosestBary, out h1, out k1) == false)
+                    continue;
+                h1 *= size; k1 *= s2;
+                r.Samples++;
+                eh += Math.Abs(h0 - h1); ek += Math.Abs(k0 - k1);
+                ah += Math.Abs(h0); ak += Math.Abs(k0);
+            }
+            if (r.Samples > 0) {
+                r.MeanError = eh / r.Samples; r.GaussianError = ek / r.Samples;
+                r.MeanAbs = ah / r.Samples; r.GaussianAbs = ak / r.Samples;
+            }
+            h = hl.ToArray(); k = kl.ToArray();
             return r;
         }
     }

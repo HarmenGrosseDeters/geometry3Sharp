@@ -302,18 +302,26 @@ namespace gs
 
         static double volume_iou(Func<Vector3d, bool> referenceInside, SampleRegion region, DMesh3 result, out double missing, out double extra, int samples, int seed)
         {
+            return volume_iou(referenceInside, region, SolidInside(result), out missing, out extra, samples, seed, false);
+        }
+
+        // the IoU of the solids given by both inside tests, from samples points of region (Random(seed)); serial: no
+        // parallel loop (the same result)
+        internal static double volume_iou(Func<Vector3d, bool> referenceInside, SampleRegion region, Func<Vector3d, bool> resultInside,
+            out double missing, out double extra, int samples, int seed, bool serial)
+        {
             missing = extra = 0;
-            var tr = new DMeshAABBTree3(result, true);
-            tr.FastWindingNumber(Vector3d.Zero);
             var rnd = new Random(seed);
             Vector3d[] pts = new Vector3d[samples];
             for (int k = 0; k < samples; ++k)
                 pts[k] = region.Next(rnd);
             int[] cls = new int[samples];
-            gParallel.ForEach(Interval1i.Range(samples), (k) => {
-                bool a = referenceInside(pts[k]), b = result.TriangleCount > 0 && tr.FastWindingNumber(pts[k]) > 0.5;
-                cls[k] = (a ? 1 : 0) | (b ? 2 : 0);
-            });
+            gParallel.BlockStartEnd(0, samples - 1, (start, end) => {
+                for (int k = start; k <= end; ++k) {
+                    bool a = referenceInside(pts[k]), b = resultInside(pts[k]);
+                    cls[k] = (a ? 1 : 0) | (b ? 2 : 0);
+                }
+            }, 256, serial);
             int both = 0, onlyIn = 0, onlyOut = 0;
             foreach (int c in cls) {
                 if (c == 3) both++; else if (c == 1) onlyIn++; else if (c == 2) onlyOut++;
