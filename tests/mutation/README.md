@@ -136,7 +136,7 @@ test class for these files goes into the filter of its shard, the workflow's `pa
 
 Things to know:
 - **Stryker instruments the whole library**, not only the mutated files (about 97 000 mutants are created and all
-  but the shard's are then ignored). The tests run on instrumented code, so a shard takes 1 to 3 hours on a
+  but the shard's are then ignored). The tests run on instrumented code, so a shard takes 1 to 5 hours on a
   GitHub runner, most of it in the boolean tests. Locally, `dotnet stryker --config-file stryker-mesh-<shard>.json`
   in this directory.
 - **The splits are character offsets**, not lines: Stryker.NET reads `File.cs{a..b}` as a text span. The offsets
@@ -148,9 +148,12 @@ Things to know:
   the first run lost its runner.
 - **Timeouts** count as killed, and their number varies between runs: the first run of `ExactMeshBoolean.cs`
   (one shard, on a busier runner) had 215 timeouts and 85.5 %, the second (two shards) 63 timeouts and 71 %
-  together. The thresholds below are set from the second kind of run: the score rounded down, less two points,
-  and less half the share of timeouts in shards with many of them (`boolean-1` 13 %, `arrangement-1` 20 %, `arrangement-2` 33 %), so
-  that a quieter runner that turns timeouts into survivors does not fail the job.
+  together; `arrangement-1` had 164 and then 263. A mutant that makes the boolean loop times out, and each
+  timeout costs the test time plus `additional-timeout` (10 s in the mesh configs, 30 s in the arithmetic one),
+  which is most of the run time of the arrangement shards (`arrangement-2` took 5 h 14 min with 30 s, close to the job's
+  350 minutes; split it further if it grows). The thresholds are the score rounded down, less two
+  points, and less half the share of timeouts in shards with many of them (`arrangement-1` 32 %,
+  `arrangement-2` 43 %), so that a quieter runner that turns timeouts into survivors does not fail the job.
 
 ### Scores (October 2026)
 
@@ -158,15 +161,18 @@ Mutation score per shard (killed and timeouts over all tested and uncovered muta
 
 | Shard | Before | After | Break |
 |---|---|---|---|
-| `rounding` | 54.1 % (370 killed, 17 timeouts, 264 survived, 64 no coverage) | 59.9 % (416 killed, 12 timeouts, 231 survived, 56 no coverage) | 57 |
-| `boolean-1` | 86.5 % (317 killed, 55 timeouts, 45 survived, 13 no coverage) | (final run pending) | 80 |
-| `boolean-2` | 60.8 % (382 killed, 8 timeouts, 199 survived, 53 no coverage) | (final run pending) | 58 |
-| `arrangement-1` | 83.0 % (516 killed, 164 timeouts, 113 survived, 26 no coverage) | (final run pending) | 75 |
-| `arrangement-2` | 94.7 % (668 killed, 354 timeouts, 29 survived, 28 no coverage) | (final run pending) | 75 |
-| `planar` | 60.0 % (348 killed, 12 timeouts, 189 survived, 51 no coverage) | 68.2 % (397 killed, 12 timeouts, 162 survived, 29 no coverage) | 66 |
+| `rounding` | 54.1 % (370 killed, 17 timeouts, 264 survived, 64 no coverage) | 59.9 % (418 killed, 10 timeouts, 231 survived, 56 no coverage) | 57 |
+| `boolean-1` | 86.5 % (317 killed, 55 timeouts, 45 survived, 13 no coverage) | 80.0 % (334 killed, 10 timeouts, 73 survived, 13 no coverage) | 77 |
+| `boolean-2` | 60.8 % (382 killed, 8 timeouts, 199 survived, 53 no coverage) | 65.6 % (454 killed, 7 timeouts, 161 survived, 81 no coverage) | 63 |
+| `arrangement-1` | 83.0 % (516 killed, 164 timeouts, 113 survived, 26 no coverage) | 85.8 % (440 killed, 263 timeouts, 103 survived, 13 no coverage) | 67 |
+| `arrangement-2` | 94.7 % (668 killed, 354 timeouts, 29 survived, 28 no coverage) | 95.2 % (566 killed, 461 timeouts, 24 survived, 28 no coverage) | 72 |
+| `planar` | 60.0 % (348 killed, 12 timeouts, 189 survived, 51 no coverage) | 69.0 % (402 killed, 12 timeouts, 157 survived, 29 no coverage) | 67 |
 
 "Before" is the first run with the existing tests (for the two boolean shards the run with the split; for the
-arrangement the first run whose span matched), "after" the run with the tests below.
+arrangement the first run whose span matched), "after" the run with the tests below, on the merged master of
+27 October. `boolean-1` went down: `ExactMeshBoolean.cs` changed in between (the classification of open input
+was reworked), and its timeouts dropped from 55 to 10 (mutants that timed out before now finish and survive);
+`boolean-2` has more uncovered mutants for the same reason (new code that no test of the shard reaches yet).
 
 ### What the survivors showed
 
@@ -222,6 +228,6 @@ Open (real gaps, not yet tested):
 - `ExactMeshArrangement` (`arrangement-2`): the clipping of coplanar triangles into each other (`clip_into`, `|=`
   against `&=`, the corner index), the strict and non-strict orientation tests of the segment crossings, and the
   padding and slack of the candidate boxes (larger boxes only cost time). A third of its mutants time out: a
-  broken arrangement makes the boolean loop, which counts as killed but makes the shard slow (3 h 40 min).
+  broken arrangement makes the boolean loop, which counts as killed but makes the shard slow.
 
 Set `break` from a measured score as above and only raise it.

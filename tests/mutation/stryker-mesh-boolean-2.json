@@ -11,7 +11,7 @@
     "test-case-filter": "FullyQualifiedName~ExactMeshBooleanTests|FullyQualifiedName~ExactMeshBooleanNaryTests|FullyQualifiedName~ExactBooleanOrientationTests|FullyQualifiedName~ExactBooleanReuseTests|FullyQualifiedName~ExactBooleanEdgeOrderTests|FullyQualifiedName~MeshRoundingRepairTests.ExactVertices|FullyQualifiedName~ExactBooleanFilterTests",
     "coverage-analysis": "perTest",
     "configuration": "Release",
-    "additional-timeout": 30000,
+    "additional-timeout": 10000,
     "reporters": [
       "progress",
       "html",
@@ -20,8 +20,8 @@
     ],
     "thresholds": {
       "high": 90,
-      "low": 60,
-      "break": 58
+      "low": 65,
+      "break": 63
     },
     "concurrency": 2
   }

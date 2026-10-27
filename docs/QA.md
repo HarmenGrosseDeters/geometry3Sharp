@@ -176,7 +176,7 @@ inputs. Stryker.NET (Apache-2.0) mutates `math/ExactPredicates.cs`, `math/ExactP
   [tests/mutation/README.md](../tests/mutation/README.md).
 - **The exact mesh pipeline** (October 2026): a second job, `exact-mesh`, mutates `mesh_ops/ExactMeshBoolean.cs`,
   `ExactMeshArrangement.cs`, `ExactPlanarSimplify.cs`, `ExactTriangulation2.cs` and `MeshRoundingRepair.cs` in six
-  shards that run in parallel (1 to 3 hours each). The survivors led to three new test classes
+  shards that run in parallel (1 to 5 hours each). The survivors led to three new test classes
   (`MeshRoundingRepairStrategyTests`, `ExactTriangulation2Tests`, `ExactBooleanFilterTests`) and cases in
   `ExactPlanarSimplifyTests`: each edit of the rounding repair on its own, the triangulation against the definition
   of a constrained Delaunay triangulation, the boolean's own filters against exact signs. Scores per shard, break

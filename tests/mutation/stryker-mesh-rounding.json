@@ -11,7 +11,7 @@
     "test-case-filter": "FullyQualifiedName~MeshRoundingRepairTests|FullyQualifiedName~ExactMeshBooleanTests|FullyQualifiedName~MeshRoundingRepairStrategyTests",
     "coverage-analysis": "perTest",
     "configuration": "Release",
-    "additional-timeout": 30000,
+    "additional-timeout": 10000,
     "reporters": [
       "progress",
       "html",
