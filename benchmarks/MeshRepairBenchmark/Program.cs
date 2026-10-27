@@ -221,9 +221,19 @@ class Program
             }
             r["repair_ms"] = (repairMode == "cgalwrap" && r.ContainsKey("wrap_ms")) ? r["wrap_ms"] : sw.ElapsedMilliseconds;
             r["apply_returned"] = ok;
-            // every failed check of the unclean hybrid repair result (hybrid_reason is the first, which decides)
-            if (repairMode == "hybrid" || repairMode == "hybrid_topo")
-                r["hybrid_defects"] = hybridUnclean == null ? "" : MeshRobustRepair.NotCleanReasons(hybridUnclean, repairMode == "hybrid");
+            // every failed check of the unclean hybrid repair result (hybrid_reason is the first, which decides); a
+            // diagnostic, so its failure does not fail the run. "self-intersections" first means every other check
+            // passed: not checked again
+            if (repairMode == "hybrid" || repairMode == "hybrid_topo") {
+                stage = "hybrid_defects";
+                string first = (string)r["hybrid_reason"];
+                try {
+                    r["hybrid_defects"] = hybridUnclean == null || first == "self-intersections" ? first
+                        : MeshRobustRepair.NotCleanReasons(hybridUnclean, repairMode == "hybrid");
+                } catch (Exception e) {
+                    r["hybrid_defects"] = "error: " + e.GetType().Name + ": " + e.Message;
+                }
+            }
 
             stage = "stats_after";
             swStats.Restart();

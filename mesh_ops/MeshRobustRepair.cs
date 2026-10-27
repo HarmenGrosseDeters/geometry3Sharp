@@ -752,10 +752,12 @@ namespace gs
         }
 
         /// <summary>
-        /// every failed check of NotCleanReason (None if the mesh is clean). An empty mesh is Empty only. The other
-        /// checks do not depend on each other: inside-out components are searched among the closed components,
-        /// self-intersections ignore exactly degenerate triangles. Costs as much as NotCleanReason on a clean mesh;
-        /// on an unclean one all checks run (with checkSelfIntersections also the expensive one).
+        /// every failed check of NotCleanReason (None if the mesh is clean). An empty mesh is Empty only. Every other
+        /// check runs whatever the earlier ones found: inside-out components are searched among the closed
+        /// components, self-intersections ignore exactly degenerate triangles. A defect can follow from another one
+        /// (the volume of a component with inconsistent orientation, and so inside-out, is not meaningful). Costs
+        /// as much as NotCleanReason on a clean mesh; on an unclean one all checks run (with
+        /// checkSelfIntersections also the expensive one).
         /// </summary>
         public static Defects FindDefects(DMesh3 mesh, bool checkSelfIntersections = true)
         {
@@ -771,8 +773,8 @@ namespace gs
         }
 
         /// <summary>
-        /// the reasons of NotCleanReason for the defects, in its order, separated by ", " ("" for None): the first
-        /// one is what NotCleanReason returns
+        /// the reasons of NotCleanReason for the defects, in its order, separated by ", " ("" for None; bits that are
+        /// no Defects value are ignored): the first one is what NotCleanReason returns
         /// </summary>
         public static string DescribeDefects(Defects defects)
         {
@@ -786,6 +788,8 @@ namespace gs
         /// <summary>
         /// all reasons why the mesh is not clean, eg "degenerate triangles, inside-out components" ("" if it is clean):
         /// DescribeDefects(FindDefects(mesh, checkSelfIntersections)). Starts with NotCleanReason(mesh, checkSelfIntersections).
+        /// For a report: to decide on a single reason, compare NotCleanReason (or test the flags of FindDefects),
+        /// not this string, which names more than one reason when there are several defects.
         /// </summary>
         public static string NotCleanReasons(DMesh3 mesh, bool checkSelfIntersections = true)
         {

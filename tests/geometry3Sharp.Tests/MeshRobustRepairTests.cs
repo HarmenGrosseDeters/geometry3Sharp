@@ -226,7 +226,14 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(reasons, MeshRobustRepair.DescribeDefects(defects));
                 string first = MeshRobustRepair.NotCleanReason(mesh);
                 Assert.Equal(first, reasons.Split(new[] { ", " }, StringSplitOptions.None)[0]);
+                // without the self-intersection check: the same, less that flag
+                var withoutSI = defects & ~MeshRobustRepair.Defects.SelfIntersections;
+                Assert.Equal(withoutSI, MeshRobustRepair.FindDefects(mesh, false));
+                string reasonsWithoutSI = MeshRobustRepair.NotCleanReasons(mesh, false);
+                Assert.Equal(MeshRobustRepair.DescribeDefects(withoutSI), reasonsWithoutSI);
+                Assert.Equal(MeshRobustRepair.NotCleanReason(mesh, false), reasonsWithoutSI.Split(new[] { ", " }, StringSplitOptions.None)[0]);
             }
+            Assert.Equal("bowties", MeshRobustRepair.DescribeDefects(MeshRobustRepair.Defects.Bowties | (MeshRobustRepair.Defects)128));
         }
 
         [Fact]
