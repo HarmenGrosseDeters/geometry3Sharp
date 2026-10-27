@@ -41,6 +41,18 @@ selectively.
 - [x] Self-intersecting, nested and duplicated inputs: exact winding numbers per patch (signed ray crossings,
   stacks of coincident triangles); generalized winding number for open inputs; touching solids split into
   manifold sheets; `Resolve(mesh)` for one mesh. Benchmark on Thingi10K: `BENCH_REPAIR=exact`, `analyze_exact.py`.
+  Open inputs give consistently oriented results also where an open boundary lies on an edge that other pieces
+  meet (no inside/outside choice fits all pieces there): pieces that run such an edge the same way are not joined,
+  the result is open along it (`ConflictEdges`).
+- [ ] Open inputs: generalized winding numbers propagated across patches (integer jumps across patches, "same value"
+  for the sides that face each other around an edge, merged in order of increasing difference of the estimates
+  while they agree within a tolerance) instead of one independent estimate per patch. It only moves the cracks
+  where patches cross the missing surface of an open input; the orientation is consistent without it. Synthetic
+  sweep (open box / box without two faces / holed sphere against 1200 random boxes, 3 operations): tolerance 0.5
+  4 cases with fewer crack edges and 2 with more, tolerance 0.3 6 and 0. Heuristic, not merged; experiment on branch
+  `claude/exact-boolean-gwn-propagation`. Thingi10K, `BENCH_REPAIR=exact` on the 195 open meshes of the 400 set
+  (tolerance 0.5, against the assembly fix alone): boundary edges 303564 → 272575 in all, but 128 of the 585 results
+  have fewer and 136 more, closed results 128 → 127, and one more timeout. No clear gain.
 - [x] Iterated booleans with coplanar faces: new vertices inside flat regions and on straight edges between them
   are removed exactly and the regions retriangulated (`ExactPlanarSimplify`); the 10x10x10 cube grid (1999
   booleans) no longer grows exponentially.

@@ -57,7 +57,12 @@ namespace g3
             // Test if line intersects triangle.  If so, the squared distance is zero.
             Vector3d edge0 = triangle.V1 - triangle.V0;
             Vector3d edge1 = triangle.V2 - triangle.V0;
-            Vector3d normal = edge0.UnitCross(edge1);
+            // (normalized without UnitCross, whose absolute threshold (length 2.2e-16) on the cross product made triangles
+            // with edges below about 1e-8 'parallel' to every line; a needle whose cross product is rounding noise gets an
+            // arbitrary normal, and its barycentric test falls through to the edges, as before for larger slivers)
+            Vector3d normal = edge0.Cross(edge1);
+            double normalLength = normal.Length;
+            normal = (normalLength > 0) ? normal / normalLength : Vector3d.Zero;
             double NdD = normal.Dot(line.Direction);
             if (Math.Abs(NdD) > MathUtil.ZeroTolerance) {
                 // The line and triangle are not parallel, so the line intersects

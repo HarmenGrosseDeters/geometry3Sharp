@@ -63,6 +63,13 @@ code can notice. New classes are not listed (see the README and [OPERATIONS.md](
 | `Remesher.vModifiedV` (protected) | `BitArray` | `bool[]` |
 | `DMeshAABBTree3.box_centers`, `box_extents` (protected) | `DVector<Vector3f>` | `DVector<Vector3d>` (no misses far from the origin, eg UTM) |
 | `DVector.Clear()` | | `[Obsolete]` (warning) |
+| `DistTriangle3Triangle3` (and `MeshQueries.TrianglesDistance`, `DMeshAABBTree3.FindNearestTriangles`) | a squared distance up to an absolute 1e-8 (distances up to 1e-4) was reported as 0 | 0 only within 16 ulps of the triangles' size and coordinates (rounding); `DistLine3Triangle3` no longer treats triangles with edges below about 1e-8 as parallel to every line |
+| `IntersectionUtil.Intersects` (ray-triangle) | triangles with edges below about 1e-4 counted as parallel to every ray (no hit) | the parallel test is relative to the ray and triangle size, as in `IntrRay3Triangle3` |
+| `MeshUtil.ScaleMesh`, `MeshLoopClosure`, `MeshInsertProjectedPolygon` | vertex positions cast to float before the `Frame3f` mapping (up to 0.25 off at UTM coordinates, also for a scale of 1) | mapped in double (the frame itself stays a `Frame3f`) |
+| `TerrainVolumeDifference.XYOverlapPairs`, `TerrainDualContouring` (`RemoveOverlaps`) | pairs in thread order: which triangle of an overlapping pair was dropped, and which leaves were split first, followed the thread schedule | pairs sorted by (a, b) and leaves split in index order: the same result in every run |
+| `RemoveOccludedTriangles.RemovedT`, `MeshMeshCut.RemoveContained` (`MeshBoolean`) | triangles collected and removed in thread order (the free-list order, and so the ids of later insertions, varied) | removed in id order; `RemovedT` is sorted |
+| `MeshICP.Solve` | the translation update was added without the rotation update applied to the current translation (the code had a TODO on it): near the coordinate origin a slightly wrong path, at UTM coordinates the iteration diverged (mean distance up to 1e8); `ConvergeTolerance` an absolute 1e-5 (millimetre models stopped early, kilometre ones never converged); a NaN or infinite source vertex made the SVD loop forever | `Translation = RotUpdate * Translation + TransUpdate`; while `ConvergeTolerance` has its default, `RelativeConvergeTolerance` (5e-6) times the target's bounds diagonal (`EffectiveConvergeTolerance`); non-finite source points are ignored |
+| `MeshRepairOrientation` (and `MeshAutoRepair`), `RemoveOccludedTriangles` | a triangle with an infinite vertex threw from inside the ray query ("ray direction is not normalized") | such triangles give no orientation evidence and count as not occluded |
 
 ## Performance
 

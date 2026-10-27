@@ -42,10 +42,11 @@ namespace g3 {
 
 
 		public static void ScaleMesh(DMesh3 mesh, Frame3f f, Vector3f vScale) {
+			// (in double: upstream cast the vertex to float, which moved every vertex by up to 0.25 at UTM coordinates
+			// even for a scale of 1, docs/ROBUSTNESS_SWEEP.md S5)
 			foreach ( int vid in mesh.VertexIndices() ) {
-				Vector3f v = (Vector3f)mesh.GetVertex(vid);
-				Vector3f vScaledInF = f.ToFrameP(ref v) * vScale;
-				Vector3d vNew = f.FromFrameP(ref vScaledInF);
+				Vector3d local = f.ToFrameP(mesh.GetVertex(vid));
+				Vector3d vNew = f.FromFrameP(new Vector3d(local.x * vScale.x, local.y * vScale.y, local.z * vScale.z));
 				mesh.SetVertex(vid, vNew);
 
 				// TODO: normals
