@@ -991,7 +991,23 @@ L_k) with a horizontal berm of width w. The overall (inter-ramp) slope is H / (H
 The core of phase 1 already offers what berms need from it: building the slope up to a target height and returning
 the line there (`TargetHeights`, `TargetHeightLines`).
 
-## 11. Implementation phases (after review)
+## 11. Implementation plan
+
+Approved with this document. Phase 1 comes in three PRs, each usable and tested on its own:
+
+| PR | content | usable on its own for |
+|---|---|---|
+| **1a** | the slope surface from the cone envelope (5.1–5.4): pieces, plane-based exact envelope, realization with the margin, repair; plus the "never steeper" verification oracle (`SlopeSpec`, `Slope.IsNotSteeper`, `IsSupportedBy`) and round-trip / quantized output | building slope surfaces; checking existing results (also from other tools) with the oracle |
+| **1b** | the topological overlay with the terrain and the connected catch line (5.5): exact signs, SoS, connected region, optional composite terrain | catch lines without chaining tolerances |
+| **1c** | volumes (5.7), failure kinds (5.6), catch-line accuracy reporting (5.5), km-scale benchmarks (section 8) | complete results with diagnostics, measured at km scale |
+
+- Berms (section 10) come after phase 1.
+- **Priority:** terrain comes before the planned remesher work. It starts only after the `ExactMeshBoolean` work
+  that is being scoped now is finished.
+- Each PR follows CLAUDE.md: tests that fail on the old code, mutation checks, invariance over `Similarity.All()`
+  (rotations about z), reuse and determinism tests, and the review of every new error bound.
+
+### Order of work within phase 1
 
 1. The slope oracle (`SlopeSpec`, `Slope.IsNotSteeper`, `IsSupportedBy`, exact for 1:n and percent) with its exact
    predicate, error-bound review, and tests. Round-trip exact writers (OBJ `"R"`) and the quantized output
