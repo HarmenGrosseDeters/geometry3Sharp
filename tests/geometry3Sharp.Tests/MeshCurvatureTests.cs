@@ -124,8 +124,8 @@ namespace geometry3Sharp.Tests
         static void AssertFinite(MeshCurvature c)
         {
             for (int v = 0; v < c.Mean.Length; ++v) {
-                Assert.True(double.IsFinite(c.Mean[v]) && double.IsFinite(c.Gaussian[v]) && double.IsFinite(c.MixedArea[v])
-                    && double.IsFinite(c.AngleDeficit[v]) && c.MeanCurvatureNormal[v].IsFinite, $"vertex {v}");
+                Assert.True(MathUtil.IsFinite(c.Mean[v]) && MathUtil.IsFinite(c.Gaussian[v]) && MathUtil.IsFinite(c.MixedArea[v])
+                    && MathUtil.IsFinite(c.AngleDeficit[v]) && c.MeanCurvatureNormal[v].IsFinite, $"vertex {v}");
             }
         }
 

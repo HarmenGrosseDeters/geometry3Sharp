@@ -790,8 +790,8 @@ namespace geometry3Sharp.Tests
             Assert.Equal(MeshResult.Ok, withSliver.SplitEdge(eid, out info));
             withSliver.SetVertex(info.vNew, withSliver.GetVertex(ev.a));
             var fd = Run(c1, withSliver);
-            Assert.True(double.IsFinite(fd.MeanCurvatureError) && double.IsFinite(fd.GaussianCurvatureError)
-                && double.IsFinite(fd.MeanCurvatureDistance) && double.IsFinite(fd.GaussianCurvatureDistance));
+            Assert.True(MathUtil.IsFinite(fd.MeanCurvatureError) && MathUtil.IsFinite(fd.GaussianCurvatureError)
+                && MathUtil.IsFinite(fd.MeanCurvatureDistance) && MathUtil.IsFinite(fd.GaussianCurvatureDistance));
             // off: NaN
             var off = new MeshFidelityMetrics(c1, c2) { Curvature = false };
             Assert.True(off.Compute());
