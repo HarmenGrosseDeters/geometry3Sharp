@@ -319,7 +319,6 @@ namespace geometry3Sharp.Tests
             { "MeshIsoCurves|scale 2^-24", "R15" },
             { "MeshIterativeSmooth|+Inf vertex", "R13" },
             { "MeshIterativeSmooth|NaN vertex", "R13" },
-            { "PointHashGrid3d|rotated, scale 1e-3, utm", "hang R4" },
             { "Reducer.MaxDeviation|scale 2^-24", "R14" },
             { "Reducer.TriangleCount|+Inf vertex", "R13" },
             { "Reducer.TriangleCount|NaN vertex", "R13" },
