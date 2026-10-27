@@ -122,22 +122,28 @@ vs 1120 and 905 vs 900, uncovered source points within 1%).
   1.5x, `open_stretched` 1.3x), but slower when coarsening (`noisy_coarsen` 0.79x) and on the Thingi10K meshes,
   which are what the command sees: median 0.67x (`FastestRemesh`) / 0.81x (`RemeshIteration`), 0.44x / 0.80x in
   total, with single meshes clearly worse in the Hausdorff distance (above).
-- TerrainSafety band: on the earlier state of #151, 8 x `RemeshIteration` was faster on real terrain (above) and on
-  the procedural band. With the final #151 (fixed edge order, prime-step walk) it is slower on the procedural band
-  (0.159 vs 0.139 s, 0.167 vs 0.157 s), and switching TerrainSafetyLines to it fails an existing test: the band
-  of `TerrainSafetyTests.SafetyLine_AlongSurface_BandIsOneCleanPiece` keeps a zero-area triangle (Remesher: none).
+- TerrainSafety band: `FastestRemesh` is faster on the procedural band (0.095 vs 0.139 s, 0.144 vs 0.157 s, fewer
+  poor triangles), but slower on the simplified real terrain (`tdc`: 0.84x, 0.90x on the earlier state of #151),
+  so it is not a candidate. 8 x `RemeshIteration` was faster on real terrain (1.05..2.09x) and on the procedural
+  band on the earlier state of #151; with the final #151 (fixed edge order, prime-step walk) it is slower on the
+  procedural band (0.159 vs 0.139 s, 0.167 vs 0.157 s), and switching TerrainSafetyLines to it fails an existing
+  test: the band of `TerrainSafetyTests.SafetyLine_AlongSurface_BandIsOneCleanPiece` keeps a zero-area triangle
+  (Remesher: none).
 - Determinism: with #151 every configuration is bit-identical run to run, and parallel equals serial.
-- Scale invariance: without projection (terrain band) all configurations are 2^k scale invariant; with projection
-  RemesherPro mostly is now (#151), Remesher is not at 2^-10 on some inputs (`bumpy_uniform`, `noisy_coarsen`,
-  2 Thingi meshes; probably ties in `MeshProjectionTarget.Project`, not verified).
+- Scale invariance: without projection (terrain band) all configurations are 2^k scale invariant. With projection
+  neither is on every input: Remesher fails at 2^-10 on `bumpy_uniform` and `noisy_coarsen` (and 2 Thingi
+  meshes), RemesherPro on `bumpy_uniform` (`pro_iter`), `noisy_coarsen` (both) and `open_stretched`
+  (`pro_fastest`, both scales). Probably ties in `MeshProjectionTarget.Project` (the nearest of equally near
+  triangles depends on the AABB traversal), not verified.
 - Poor triangles: both remeshers leave degenerate triangles or self-intersections on 18 of the 20 Thingi10K meshes
   (`MeshRobustRepair.NotCleanReason`); 99% of the triangles with q < 0.1 touch a feature constraint. A separate
   opt-in quality pass follows in its own PR.
 
 ### Decision
 - `g3cli remesh` keeps Remesher: RemesherPro is not faster at equal quality on real meshes.
-- `TerrainSafetyLines` keeps Remesher: with the final #151 RemesherPro is not faster on the band and leaves a
-  degenerate triangle in an existing test. To be measured again with the quality pass.
+- `TerrainSafetyLines` keeps Remesher: `FastestRemesh` is slower on simplified real terrain, and 8 x
+  `RemeshIteration` is with the final #151 slower on the band and leaves a degenerate triangle in an existing
+  test. To be measured again with the quality pass.
 
 Open bug (docs/ROADMAP.md, Phase 2): a remesher must not leave degenerate triangles; RemesherPro leaves a zero-area
 triangle in the band of `TerrainSafetyTests.SafetyLine_AlongSurface_BandIsOneCleanPiece`, and both remeshers leave

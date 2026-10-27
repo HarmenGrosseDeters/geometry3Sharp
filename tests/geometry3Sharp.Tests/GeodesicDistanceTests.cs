@@ -568,17 +568,9 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0, geo.LogSolveCount);
         }
 
-        [Theory]
-        [InlineData(0.01)]
-        [InlineData(1.0)]
-        [InlineData(100.0)]
-        public void OpenStrip_NeumannHeatLinear_DirichletHeatLog_ConsistentAtAnyScale(double edge)
+        // nx x ny squares of the given edge length, split along a diagonal
+        static DMesh3 Strip(int nx, int ny, double edge)
         {
-            // 700 edges long: the Neumann heat still fits doubles, the Dirichlet heat (0 on the boundary)
-            // underflows and is solved in the log domain. Both are averaged, so their sources must have the same
-            // value in both domains (t, the diffusion time: it scales with the mesh); with 1 in the linear and
-            // log(1) in the log domain they differed by the factor t (at edge 0.01: errors of 38%)
-            int nx = 700, ny = 4;
             var m = new DMesh3();
             int[,] v = new int[nx + 1, ny + 1];
             for (int j = 0; j <= ny; ++j)
@@ -588,7 +580,21 @@ namespace geometry3Sharp.Tests
                     m.AppendTriangle(v[i, j], v[i + 1, j], v[i + 1, j + 1]);
                     m.AppendTriangle(v[i, j], v[i + 1, j + 1], v[i, j + 1]);
                 }
-            int src = v[0, 2];
+            return m;
+        }
+
+        [Theory]
+        [InlineData(0.01)]
+        [InlineData(1.0)]
+        [InlineData(100.0)]
+        public void OpenStrip_NeumannHeatLinear_DirichletHeatLog_ConsistentAtAnyScale(double edge)
+        {
+            // 700 edges long: the Neumann heat still fits doubles, the Dirichlet heat (0 on the boundary)
+            // underflows and is solved in the log domain. Both are averaged, so both domains must solve the same
+            // system with the same source (a source of t in one and log(1) in the other gave errors of 38%)
+            int nx = 700, ny = 4;
+            DMesh3 m = Strip(nx, ny, edge);
+            int src = (ny / 2) * (nx + 1);
             var geo = new MeshGeodesicDistance(m);
             Assert.True(geo.Compute(new[] { src }));
             Assert.Equal(1, geo.LogSolveCount);
@@ -598,6 +604,45 @@ namespace geometry3Sharp.Tests
                 if (d > 10 * edge) maxRel = Math.Max(maxRel, Math.Abs(geo.Distance[vid] - d) / d);
             }
             Assert.True(maxRel < 0.03, $"edge {edge}: max relative error {maxRel}");
+        }
+
+        [Theory]
+        [InlineData(700, 1)]
+        [InlineData(1000, 2)]
+        public void OpenStrip_LogDomain_SameBitsUnderPowerOfTwoScales(int nx, int logSolves)
+        {
+            // the heat is solved as (M / t + L) u = delta: mass / t and the cotan weights have no units, so the
+            // factorizations, the heat and its log (one or both heat solves in the log domain) are the same bits
+            DMesh3 m0 = Strip(nx, 4, 1.0);
+            int src = 2 * (nx + 1);
+            var g0 = new MeshGeodesicDistance(m0);
+            Assert.True(g0.Compute(new[] { src }));
+            Assert.Equal(logSolves, g0.LogSolveCount);
+            foreach (double s in new[] { 1.0 / 1024, 1024.0 }) {
+                DMesh3 m = new DMesh3(m0);
+                MeshTransforms.Scale(m, s);
+                var g = new MeshGeodesicDistance(m);
+                Assert.True(g.Compute(new[] { src }));
+                Assert.Equal(logSolves, g.LogSolveCount);
+                foreach (int vid in m0.VertexIndices())
+                    Assert.True(g0.Distance[vid] == g.Distance[vid] / s, $"scale {s} vertex {vid}: {g0.Distance[vid]} vs {g.Distance[vid] / s}");
+            }
+        }
+
+        [Theory]
+        [InlineData(0.0)]
+        [InlineData(-1.0)]
+        [InlineData(double.NaN)]
+        [InlineData(double.PositiveInfinity)]
+        public void InvalidTimeFactor_ComputeFails(double timeFactor)
+        {
+            // (TimeFactor 0 gave a heat of 0 everywhere, and distances of 0 everywhere with Compute returning true)
+            DMesh3 m = Strip(20, 20, 1.0);
+            var geo = new MeshGeodesicDistance(m) { TimeFactor = timeFactor };
+            Assert.False(geo.Compute(new[] { 0 }));
+            Assert.Null(geo.Distance);
+            geo.TimeFactor = 1;
+            Assert.True(geo.Compute(new[] { 0 }));
         }
 
         [Fact]

@@ -73,6 +73,21 @@ namespace geometry3Sharp.Tests
             return "";
         }
 
+        // the largest distance from a point of a to the polylines b
+        static double MaxDistance(List<List<Vector3d>> a, List<List<Vector3d>> b)
+        {
+            double max = 0;
+            foreach (var line in a)
+                foreach (Vector3d p in line) {
+                    double best = double.MaxValue;
+                    foreach (var other in b)
+                        for (int k = 0; k + 1 < other.Count; ++k)
+                            best = Math.Min(best, Math.Sqrt(new Segment3d(other[k], other[k + 1]).DistanceSquared(p)));
+                    max = Math.Max(max, best);
+                }
+            return max;
+        }
+
         static double Length(List<Vector3d> l) { double s = 0; for (int i = 1; i < l.Count; ++i) s += l[i].Distance(l[i - 1]); return s; }
 
         // the remeshed band is one clean piece and the line (in the original frame) is safe and close to the distance
@@ -118,9 +133,14 @@ namespace geometry3Sharp.Tests
                 Assert.Equal("", Invariance.Difference(reference.RemeshedTerrain, Invariance.MappedBack(sl.RemeshedTerrain, s)));
                 Assert.Equal("", LinesDifference(LinesBack(reference, Similarity.Identity), LinesBack(sl, s)));
             } else {
-                // rounding differs: the same lines up to small changes of the remeshed band
-                double l0 = reference.Lines.Sum(Length), l1 = LinesBack(sl, s).Sum(Length);
+                // rounding differs: the same band up to rounding, but a crest point equally far from two band
+                // vertices may be mapped to the other one (eg at scale 1e3: 141 instead of 140 source vertices),
+                // which moves the line there by up to about 0.3 h
+                var back = LinesBack(sl, s);
+                double l0 = reference.Lines.Sum(Length), l1 = back.Sum(Length);
                 Assert.True(Math.Abs(l1 - l0) < 0.01 * l0, $"{s.Name}: line length {l1} vs {l0}");
+                double dev = Math.Max(MaxDistance(back, reference.Lines), MaxDistance(reference.Lines, back));
+                Assert.True(dev < 0.5 * H, $"{s.Name}: lines {dev} m apart");
             }
         }
 
