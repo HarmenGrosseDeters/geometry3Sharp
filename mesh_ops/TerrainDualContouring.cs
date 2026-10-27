@@ -181,7 +181,7 @@ namespace gs
                     }
                 if (split.Count == 0 || CancelF())
                     break;
-                // (in leaf order: the leaf and vertex ids of the rebuilt mesh must not depend on the thread schedule)
+                // (in index order, independent of the pair order and of the HashSet's enumeration order)
                 var splitSorted = new List<int>(split);
                 splitSorted.Sort();
                 foreach (int li in splitSorted)

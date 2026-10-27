@@ -37,8 +37,11 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void XYOverlapPairs_Sorted()
         {
-            List<Index2i> pairs = TerrainVolumeDifference.XYOverlapPairs(OverlappingGrids());
+            DMesh3 mesh = OverlappingGrids();
+            List<Index2i> pairs = TerrainVolumeDifference.XYOverlapPairs(mesh);
             Assert.True(pairs.Count > 1000);
+            Assert.Equal(pairs.Count, new HashSet<Index2i>(pairs).Count);
+            Assert.True(pairs.All(p => p.a < p.b));
             for (int k = 1; k < pairs.Count; ++k) {
                 Index2i p = pairs[k - 1], q = pairs[k];
                 Assert.True(p.a < q.a || p.a == q.a && p.b < q.b, $"pair {k}: {p} before {q}");
@@ -73,6 +76,8 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void TerrainDualContouring_RepeatedRuns_BitIdentical()
         {
+            // a regression guard: the root cause (pairs in thread order) is tested by XYOverlapPairs_Sorted, and the
+            // schedule rarely varies enough in a few runs to show it here
             DMesh3 input = RoughTerrain();
             DMesh3 first = null;
             for (int run = 0; run < 4; ++run) {
