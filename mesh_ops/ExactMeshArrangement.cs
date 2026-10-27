@@ -713,8 +713,10 @@ namespace g3
             return 0;
         }
 
-        // clusters larger than this are sorted (ComparePoints separates most of their points by the filter, without
-        // the exact points): a point whose approximation is beyond the double range overlaps all others
+        // clusters larger than this with a point whose approximation is beyond the double range (its interval overlaps
+        // all others, so its cluster can hold any number of distinct points) are sorted: ComparePoints separates most of
+        // their points by the filter, without the exact points. (Large clusters of finite intervals are coincident
+        // points, as in grids of coplanar boxes: hashed.) For tests: below 0 sorts all clusters of more than two points.
         internal int MaxHashedCluster = 64;
 
         // merge_cluster by sorting with ComparePoints: equal points are adjacent
@@ -741,12 +743,12 @@ namespace g3
             return merged;
         }
 
-        // the points ids[order[k0..k1-1]] (a cluster of overlapping order key intervals): equal points get the id
-        // with the smallest key (next); returns the number of points merged. The points are grouped by their exact
-        // (canonical) points, so that each is computed once instead of in every comparison of a sort; two points
-        // are compared (the filter may separate them without the exact points)
+        // the points ids[order[k0..k1-1]] (a cluster of overlapping order key intervals with lower ends lo, in their
+        // order): equal points get the id with the smallest key (next); returns the number of points merged. The points
+        // are grouped by their exact (canonical) points, so that each is computed once instead of in every comparison
+        // of a sort; two points are compared (the filter may separate them without the exact points)
         [MethodImpl(JitHints.Optimize)]
-        int merge_cluster(List<int> ids, int[] order, int k0, int k1, int[] next)
+        int merge_cluster(List<int> ids, int[] order, double[] lo, int k0, int k1, int[] next)
         {
             if (k1 - k0 == 2) {
                 int a = ids[order[k0]], b = ids[order[k0 + 1]];
@@ -756,7 +758,7 @@ namespace g3
                 next[a] = next[b] = best;
                 return 1;
             }
-            if (k1 - k0 > MaxHashedCluster)
+            if (MaxHashedCluster < 0 || (k1 - k0 > MaxHashedCluster && double.IsNegativeInfinity(lo[order[k0]])))
                 return merge_sorted(ids, order, k0, k1, next);
             var groups = new Dictionary<ExactPoint3, List<int>>();
             for (int k = k0; k < k1; ++k) {
@@ -832,7 +834,7 @@ namespace g3
             }
             int merged = 0;
             gParallel.ForRange(clusters.Count, (ci) => {
-                int c = merge_cluster(ids, order, clusters[ci].Key, clusters[ci].Value, next);
+                int c = merge_cluster(ids, order, lo, clusters[ci].Key, clusters[ci].Value, next);
                 if (c > 0)
                     System.Threading.Interlocked.Add(ref merged, c);
             });

@@ -331,8 +331,9 @@ namespace geometry3Sharp.Tests
         [InlineData(7)]
         public void MergedPoints_SameWithHashedAndSortedClusters(int seed)
         {
-            // merge_points groups the points of a cluster by their exact points, or sorts larger clusters: the
-            // same merges and the same canonical ids either way (coplanar boxes: many coincident constructions)
+            // merge_points groups the points of a cluster by their exact points, or sorts large clusters with a point
+            // beyond the double range: the same merges and the same canonical ids either way (coplanar boxes: many
+            // coincident constructions; MaxHashedCluster below 0 sorts all clusters)
             var meshes = new List<DMesh3>();
             for (int i = 0; i < 2; ++i)
                 for (int j = 0; j < 2; ++j)
@@ -340,7 +341,7 @@ namespace geometry3Sharp.Tests
             var rand = new Random(seed);
             meshes.Add(Box(new Vector3d(0.4, 0.5, 0.3), 1.1, Rotation(rand, 360)));
             string reference = null;
-            foreach (int limit in new[] { 64, 2, 0 }) {
+            foreach (int limit in new[] { 64, -1 }) {
                 var arr = new ExactMeshArrangement(meshes) { SelfIntersections = true, MaxHashedCluster = limit };
                 arr.Compute();
                 Assert.True(arr.MergedPoints > 3);
