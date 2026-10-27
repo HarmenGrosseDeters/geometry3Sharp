@@ -318,7 +318,10 @@ namespace gs
 		public void ComputeStatistics()
 		{
 			var s = this.Spatial;  // make sure this exists
-            areaDiag = Mesh.TriangleCount > 0 ? MeshRepairMetrics.TriangleBounds(Mesh).DiagonalLength : 0;
+            // (bounds of the finite triangles: one non-finite vertex made them infinite or NaN, so every triangle was
+            // skipped as degenerate and the far ray origins were not finite, ie no evidence at all)
+            finiteBounds = finite_triangle_bounds();
+            areaDiag = Mesh.TriangleCount > 0 ? finiteBounds.DiagonalLength : 0;
             // Cannot do in parallel because we set a filter on spatial DS. 
             // Also we are doing rays in parallel anyway...
             foreach ( var c in Components ) {
@@ -326,11 +329,26 @@ namespace gs
             }
 		}
 		double areaDiag;
+		AxisAlignedBox3d finiteBounds;
+
+		AxisAlignedBox3d finite_triangle_bounds()
+		{
+			AxisAlignedBox3d box = AxisAlignedBox3d.Empty;
+			Vector3d a = Vector3d.Zero, b = Vector3d.Zero, cc = Vector3d.Zero;
+			foreach (int t in Mesh.TriangleIndices()) {
+				Mesh.GetTriVertices(t, ref a, ref b, ref cc);
+				if (a.IsFinite && b.IsFinite && cc.IsFinite) {
+					box.Contain(a); box.Contain(b); box.Contain(cc);
+				}
+			}
+			return box;
+		}
+
 		void compute_statistics(Component c)
 		{
 			int NC = c.triangles.Count;
 			c.inFacing = c.outFacing = 0;
-            double dist = 2 * Mesh.CachedBounds.DiagonalLength;
+            double dist = 2 * finiteBounds.DiagonalLength;
 
             // only want to raycast triangles in this 
             HashSet<int> tris = new HashSet<int>(c.triangles);

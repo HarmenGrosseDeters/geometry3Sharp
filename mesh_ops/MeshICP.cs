@@ -71,7 +71,13 @@ namespace g3
 
             EffectiveConvergeTolerance = ConvergeTolerance;
             if (ConvergeTolerance == 0.00001) {
-                double diag = TargetSurface.Mesh.CachedBounds.DiagonalLength;
+                // (the bounds of the target's triangles: not those of unused vertices, nor the tree's padded boxes)
+                AxisAlignedBox3d box = AxisAlignedBox3d.Empty;
+                DMesh3 target = TargetSurface.Mesh;
+                foreach (int vid in target.VertexIndices())
+                    if (target.GetVtxEdgeCount(vid) > 0 && target.GetVertex(vid).IsFinite)
+                        box.Contain(target.GetVertex(vid));
+                double diag = box.DiagonalLength;
                 if (diag > 0 && double.IsInfinity(diag) == false)
                     EffectiveConvergeTolerance = RelativeConvergeTolerance * diag;
             }
@@ -103,7 +109,7 @@ namespace g3
 
 
         /// <summary>
-        /// returns last measured deviation error metric (currently mean distance)
+        /// returns last measured deviation error metric (currently mean distance); NaN if no point pair was usable
         /// </summary>
         public double Error
         {
@@ -199,8 +205,7 @@ namespace g3
                     Vector3d fromN = Rotation * Source.GetVertexNormal(FromV[vi]);
                     Vector3d toN = TargetSurface.Mesh.GetTriNormal(tid);
                     double fDot = fromN.Dot(toN);
-                    Debug.Assert(MathUtil.IsFinite(fDot));
-                    if (fDot < 0)
+                    if (!(fDot >= 0))       // (also a NaN normal)
                         Weights[vi] = 0;
                     else
                         Weights[vi] += Math.Sqrt(fDot);
@@ -255,6 +260,7 @@ namespace g3
 
             // subtract means
             for ( int i = 0; i < N; ++i ) {
+                if (Weights[i] == 0) continue;
                 From[i] -= MeanX;
                 To[i] -= MeanY;
             }

@@ -9,7 +9,7 @@ namespace geometry3Sharp.Tests
     /// <summary>
     /// MeshICP (docs/ROBUSTNESS_SWEEP.md R8, R12): the transformation update was composed wrongly (the translation missed
     /// the rotation update), which diverged at UTM coordinates; the convergence tolerance was an absolute 1e-5; a NaN or
-    /// infinite source vertex made the SVD loop forever. MeshAutoRepair (R11) threw from deep inside for an infinite vertex.
+    /// infinite source vertex gave NaN sums, and the SVD of the NaN matrix looped forever. MeshAutoRepair (R11) threw from deep inside for an infinite vertex.
     /// </summary>
     public class IcpAndRepairGuardTests
     {
@@ -44,7 +44,8 @@ namespace geometry3Sharp.Tests
             icp.UpdateVertices(aligned);
             double worst = Invariance.VertexDistance(aligned, target) / s.Scale;
             Assert.True(worst < 5e-3, $"{name}: aligned source off the target by {worst}");
-            Assert.Equal(icp.RelativeConvergeTolerance * target.CachedBounds.DiagonalLength, icp.EffectiveConvergeTolerance, 12);
+            double expected = icp.RelativeConvergeTolerance * target.CachedBounds.DiagonalLength;
+            Assert.True(Math.Abs(icp.EffectiveConvergeTolerance - expected) < 1e-3 * expected, $"{name}: tolerance {icp.EffectiveConvergeTolerance} vs {expected}");
         }
 
         [Fact]
@@ -89,18 +90,28 @@ namespace geometry3Sharp.Tests
         [Theory]
         [InlineData(double.NaN)]
         [InlineData(double.PositiveInfinity)]
-        public void AutoRepair_NonFiniteVertex_NoException(double bad)
+        public void AutoRepair_NonFiniteVertex_StillOrientsTheMesh(double bad)
         {
-            // (the sweep's case: a sphere with a hole, so the orientation repair casts rays)
+            // an inside-out sphere with a hole and one non-finite vertex: no exception from inside the orientation
+            // repair, the bad vertex does not spread, and the mesh is still turned outward (the bounds of the finite
+            // triangles decide; with the bad vertex in them every triangle was skipped and nothing was decided)
             DMesh3 m = Defects.Sphere(Vector3d.Zero, 1, 6);
             int top = m.VertexIndices().OrderByDescending(x => m.GetVertex(x).z).ThenBy(x => x).First();
             foreach (int t in m.VtxTrianglesItr(top).ToList()) m.RemoveTriangle(t, true, false);
+            foreach (int t in m.TriangleIndices().ToList()) m.ReverseTriOrientation(t);
             int v = m.VertexIndices().Skip(m.VertexCount / 3).First();
             m.SetVertex(v, new Vector3d(bad, 0.5, 0.5));
             var repair = new MeshAutoRepair(m);
-            // (true or false; no exception from inside the orientation repair, and the bad vertex does not spread)
             repair.Apply();
             Assert.True(m.Vertices().Count(p => p.IsFinite == false) <= 1);
+            // signed volume of the finite triangles (about the origin): positive once oriented outward
+            double vol = 0;
+            Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+            foreach (int t in m.TriangleIndices()) {
+                m.GetTriVertices(t, ref a, ref b, ref c);
+                if (a.IsFinite && b.IsFinite && c.IsFinite) vol += a.Dot(b.Cross(c)) / 6;
+            }
+            Assert.True(vol > 3, $"signed volume {vol}: not oriented outward");
         }
     }
 }
