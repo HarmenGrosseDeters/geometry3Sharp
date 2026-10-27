@@ -181,7 +181,10 @@ namespace gs
                     }
                 if (split.Count == 0 || CancelF())
                     break;
-                foreach (int li in split)
+                // (in leaf order: the leaf and vertex ids of the rebuilt mesh must not depend on the thread schedule)
+                var splitSorted = new List<int>(split);
+                splitSorted.Sort();
+                foreach (int li in splitSorted)
                     split_leaf(li);
                 SplitLeaves += split.Count;
                 balance();

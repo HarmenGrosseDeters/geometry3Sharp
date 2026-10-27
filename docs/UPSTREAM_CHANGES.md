@@ -62,6 +62,8 @@ code can notice. New classes are not listed (see the README and [OPERATIONS.md](
 | `Remesher.vModifiedV` (protected) | `BitArray` | `bool[]` |
 | `DMeshAABBTree3.box_centers`, `box_extents` (protected) | `DVector<Vector3f>` | `DVector<Vector3d>` (no misses far from the origin, eg UTM) |
 | `DVector.Clear()` | | `[Obsolete]` (warning) |
+| `TerrainVolumeDifference.XYOverlapPairs`, `TerrainDualContouring` (`RemoveOverlaps`) | pairs in thread order: which triangle of an overlapping pair was dropped, and which leaves were split first, followed the thread schedule | pairs sorted by (a, b) and leaves split in index order: the same result in every run |
+| `RemoveOccludedTriangles.RemovedT`, `MeshMeshCut.RemoveContained` (`MeshBoolean`) | triangles collected and removed in thread order (the free-list order, and so the ids of later insertions, varied) | removed in id order; `RemovedT` is sorted |
 
 ## Performance
 
