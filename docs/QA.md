@@ -275,6 +275,37 @@ Not used: ShapeNet and ModelNet (non-commercial research licenses).
 This is in place since #92: pack validates the public API against 1.0.324. Accepted breaks are listed in
 `CompatibilitySuppressions.xml`, and changed results in [UPSTREAM_CHANGES.md](UPSTREAM_CHANGES.md).
 
+### 2.9 Minimizing a failure
+
+A failing defect or fuzz case (hundreds of triangles, kilobytes of a file) is reduced automatically to a small one
+that shows the same error, by delta debugging (Zeller and Hildebrandt 2002, ddmin; `Harness/DeltaDebug.cs`,
+`Harness/MeshMinimizer.cs`).
+
+- `MeshMinimizer.Minimize(mesh, fails, options)` takes a mesh and a predicate "the error is still present". The
+  steps, coarse to fine, repeat until nothing changes: drop the attributes, the connected components, ddmin
+  over the triangles down to single ones (the result is 1-minimal), the unused vertices, then round the
+  coordinates of the triangles' vertices to power-of-two grids relative to the extent (all together, then vertex by vertex), so the case
+  becomes readable.
+- `MinimizeOptions`: a time budget (the best case so far is returned, status `Stopped`), a timeout per call, a
+  seed for the order of the subsets. A predicate that throws or does not finish is a different error, not the
+  one being minimized, unless `ExceptionMeansFailure` / `TimeoutMeansFailure` say so.
+- The result is a C# method (`MeshMinimizer.ToCSharp`) to paste into a test as a procedural fixture (mesh files
+  are not committed), and an OBJ in `.g3-minimized/` (git-ignored) to look at.
+- `DefectInputTests` and `ReaderFuzzTests` minimize their failures with `G3_MINIMIZE=1`
+  (`Harness/FailureMinimizer.cs`): the message of the failing test gets the minimized case. "The same error"
+  is the exception type and the first line of its message with the numbers masked. Reader inputs are
+  minimized by lines (text formats), then by bytes. `G3_MINIMIZE_SECONDS` sets the budget (default 120),
+  `G3_MINIMIZE_ROUND=0` keeps the coordinates.
+
+```
+G3_MINIMIZE=1 dotnet test tests/geometry3Sharp.Tests -c Release --filter "FullyQualifiedName~DefectInputTests"
+```
+
+Rounding can turn a case into a degenerate one with the same message (ddmin finds the smallest input with
+that message, not necessarily with the same cause). Check both the rounded and the unrounded case. Example:
+"random edits 6" (301 triangles) became 5 triangles in 10 s
+(`DefectInputTests.MinimizedRandomEdits6`), unrounded 34.
+
 ## 3. Performance
 
 ### 3.1 Micro benchmarks with regression detection
