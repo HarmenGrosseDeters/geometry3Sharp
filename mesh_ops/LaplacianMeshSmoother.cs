@@ -43,6 +43,11 @@ namespace g3
         bool HavePostFixedConstraints = false;
 
 
+        // positions are solved relative to this point (the bounds center at Initialize): the CG tolerance is relative to
+        // the right-hand side, which grew with the distance from the coordinate origin (upstream lost about 1e-8 of the
+        // UTM coordinates, ie centimetres, docs/ROBUSTNESS_SWEEP.md R2)
+        Vector3d origin = Vector3d.Zero;
+
         // needs to be updated after constraints
         bool need_solve_update;
         DiagonalMatrix WeightsM;
@@ -116,9 +121,12 @@ namespace g3
             nbr_counts = new int[N];
             SymmetricSparseMatrix M = new SymmetricSparseMatrix();
 
+            origin = Mesh.CachedBounds.Center;
+            if (origin.IsFinite == false)
+                origin = Vector3d.Zero;
             for (int i = 0; i < N; ++i) {
                 int vid = ToMeshV[i];
-                Vector3d v = Mesh.GetVertex(vid);
+                Vector3d v = Mesh.GetVertex(vid) - origin;
                 Px[i] = v.x; Py[i] = v.y; Pz[i] = v.z;
                 nbr_counts[i] = Mesh.GetVtxEdgeCount(vid);
             }
@@ -202,7 +210,7 @@ namespace g3
                     w = w * w;
 
                 WeightsM.Set(i, i, w);
-                Vector3d pos = constraint.Value.Position;
+                Vector3d pos = constraint.Value.Position - origin;
                 Cx[i] = w * pos.x;
                 Cy[i] = w * pos.y;
                 Cz[i] = w * pos.z;
@@ -276,7 +284,7 @@ namespace g3
 
             for ( int i = 0; i < N; ++i ) {
                 int vid = ToMeshV[i];
-                Result[vid] = new Vector3d(Sx[i], Sy[i], Sz[i]);
+                Result[vid] = new Vector3d(Sx[i], Sy[i], Sz[i]) + origin;
             }
 
             // apply post-fixed constraints
@@ -337,7 +345,7 @@ namespace g3
 
             for (int i = 0; i < N; ++i) {
                 int vid = ToMeshV[i];
-                Result[vid] = new Vector3d(X[0][i], X[1][i], X[2][i]);
+                Result[vid] = new Vector3d(X[0][i], X[1][i], X[2][i]) + origin;
             }
 
             // apply post-fixed constraints
