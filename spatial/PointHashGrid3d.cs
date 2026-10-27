@@ -131,8 +131,7 @@ namespace g3
         /// </summary>
         public KeyValuePair<T, double> FindNearestInRadius(Vector3d query_pt, double radius, Func<T, double> distF, Func<T, bool> ignoreF = null)
         {
-            Vector3i min_idx = Indexer.ToGrid(query_pt - radius * Vector3d.One);
-            Vector3i max_idx = Indexer.ToGrid(query_pt + radius * Vector3d.One);
+            bool all = HashGridCells.Range(query_pt - radius * Vector3d.One, query_pt + radius * Vector3d.One, Indexer.CellSize, out Vector3i min_idx, out Vector3i max_idx) == false;
 
             double min_dist = double.MaxValue;
             T nearest = invalidValue;
@@ -152,10 +151,9 @@ namespace g3
                     }
                 }
             }
-            if (HashGridCells.ScanOccupied(min_idx, max_idx, Hash.Count)) {
-                foreach (var cell in Hash)
-                    if (HashGridCells.Contains(min_idx, max_idx, cell.Key))
-                        visit(cell.Value);
+            if (all || HashGridCells.ScanOccupied(min_idx, max_idx, Hash.Count)) {
+                foreach (Vector3i cell in HashGridCells.Occupied(Hash.Keys, all, min_idx, max_idx))
+                    visit(Hash[cell]);
             } else {
                 for (int zi = min_idx.z; zi <= max_idx.z; zi++) {
                     for (int yi = min_idx.y; yi <= max_idx.y; yi++) {

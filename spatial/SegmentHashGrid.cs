@@ -131,8 +131,7 @@ namespace g3
         public KeyValuePair<T, double> FindNearestInRadius(Vector2d query_pt, double radius, Func<T, double> distF, Func<T, bool> ignoreF = null)
         {
             double search_dist = radius + MaxExtent;
-            Vector2i min_idx = Indexer.ToGrid(query_pt - search_dist * Vector2d.One);
-            Vector2i max_idx = Indexer.ToGrid(query_pt + search_dist * Vector2d.One);
+            bool all = HashGridCells.Range(query_pt - search_dist * Vector2d.One, query_pt + search_dist * Vector2d.One, Indexer.CellSize, out Vector2i min_idx, out Vector2i max_idx) == false;
 
             double min_dist = double.MaxValue;
             T nearest = invalidValue;
@@ -152,10 +151,9 @@ namespace g3
                     }
                 }
             }
-            if (HashGridCells.ScanOccupied(min_idx, max_idx, Hash.Count)) {
-                foreach (var cell in Hash)
-                    if (HashGridCells.Contains(min_idx, max_idx, cell.Key))
-                        visit(cell.Value);
+            if (all || HashGridCells.ScanOccupied(min_idx, max_idx, Hash.Count)) {
+                foreach (Vector2i cell in HashGridCells.Occupied(Hash.Keys, all, min_idx, max_idx))
+                    visit(Hash[cell]);
             } else {
                 for (int yi = min_idx.y; yi <= max_idx.y; yi++) {
                     for (int xi = min_idx.x; xi <= max_idx.x; xi++) {
@@ -182,8 +180,7 @@ namespace g3
         public KeyValuePair<T, double> FindNearestInSquaredRadius(Vector2d query_pt, double radiusSqr, Func<T, double> distSqrF, Func<T, bool> ignoreF = null)
         {
             double search_dist = Math.Sqrt(radiusSqr) + MaxExtent;
-            Vector2i min_idx = Indexer.ToGrid(query_pt - search_dist * Vector2d.One);
-            Vector2i max_idx = Indexer.ToGrid(query_pt + search_dist * Vector2d.One);
+            bool all = HashGridCells.Range(query_pt - search_dist * Vector2d.One, query_pt + search_dist * Vector2d.One, Indexer.CellSize, out Vector2i min_idx, out Vector2i max_idx) == false;
 
             double min_dist_sqr = double.MaxValue;
             T nearest = invalidValue;
@@ -203,10 +200,9 @@ namespace g3
                     }
                 }
             }
-            if (HashGridCells.ScanOccupied(min_idx, max_idx, Hash.Count)) {
-                foreach (var cell in Hash)
-                    if (HashGridCells.Contains(min_idx, max_idx, cell.Key))
-                        visit(cell.Value);
+            if (all || HashGridCells.ScanOccupied(min_idx, max_idx, Hash.Count)) {
+                foreach (Vector2i cell in HashGridCells.Occupied(Hash.Keys, all, min_idx, max_idx))
+                    visit(Hash[cell]);
             } else {
                 for (int yi = min_idx.y; yi <= max_idx.y; yi++) {
                     for (int xi = min_idx.x; xi <= max_idx.x; xi++) {

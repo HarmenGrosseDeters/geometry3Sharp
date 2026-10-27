@@ -82,6 +82,50 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        [Fact]
+        public void PointHashGrid3d_ScanAndLoop_BreakTiesTheSameWay()
+        {
+            // points on a lattice, queries equidistant from several of them: a grid with few occupied cells scans them, one
+            // with many far dummy cells loops over the range; both must return the same point
+            var p = new List<Vector3d>();
+            for (int i = 0; i < 4; ++i) for (int j = 0; j < 4; ++j) for (int k = 0; k < 4; ++k)
+                p.Add(new Vector3d(i, j, k) * 0.25);
+            var few = new PointHashGrid3d<int>(0.1, -1);
+            var many = new PointHashGrid3d<int>(0.1, -1);
+            for (int i = 0; i < p.Count; ++i) { few.InsertPoint(i, p[i]); many.InsertPoint(i, p[i]); }
+            for (int d = 0; d < 2000; ++d) many.InsertPoint(-2, new Vector3d(100 + d, 0, 0));
+            foreach (Vector3d q in new[] { new Vector3d(0.125, 0.125, 0.125), new Vector3d(0.375, 0.25, 0.125), new Vector3d(0.25, 0.25, 0.25) }) {
+                var a = few.FindNearestInRadius(q, 0.5, i => i < 0 ? double.MaxValue : p[i].Distance(q));
+                var b = many.FindNearestInRadius(q, 0.5, i => i < 0 ? double.MaxValue : p[i].Distance(q));
+                Assert.Equal(b.Key, a.Key);
+                Assert.Equal(b.Value, a.Value);
+            }
+        }
+
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void PointHashGrid3d_SameNearestUnderSimilarity(string name)
+        {
+            Similarity s = Similarity.ByName(name);
+            List<Vector3d> p = Points(Vector3d.Zero, 1);
+            List<Vector3d> q = p.Select(v => s.Apply(v)).ToList();
+            var g0 = new PointHashGrid3d<int>(0.1, -1);
+            var g1 = new PointHashGrid3d<int>(s.ApplyLength(0.1), -1);
+            for (int i = 0; i < p.Count; ++i) { g0.InsertPoint(i, p[i]); g1.InsertPoint(i, q[i]); }
+            var r = new Random(11);
+            for (int k = 0; k < 30; ++k) {
+                Vector3d x = new Vector3d(r.NextDouble(), r.NextDouble(), r.NextDouble()), y = s.Apply(x);
+                var a = g0.FindNearestInRadius(x, 0.2, i => p[i].Distance(x));
+                var b = g1.FindNearestInRadius(y, s.ApplyLength(0.2), i => q[i].Distance(y));
+                Assert.Equal(a.Key, b.Key);
+                if (a.Key < 0) continue;
+                if (s.IsExact)
+                    Assert.Equal(a.Value * s.Scale, b.Value);
+                else
+                    Assert.True(Math.Abs(a.Value - b.Value / s.Scale) < 1e-6, $"{name}: {a.Value} vs {b.Value / s.Scale}");
+            }
+        }
+
         [Theory]
         [InlineData(double.NaN)]
         [InlineData(double.PositiveInfinity)]
