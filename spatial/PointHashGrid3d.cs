@@ -131,8 +131,7 @@ namespace g3
         /// </summary>
         public KeyValuePair<T, double> FindNearestInRadius(Vector3d query_pt, double radius, Func<T, double> distF, Func<T, bool> ignoreF = null)
         {
-            Vector3i min_idx = Indexer.ToGrid(query_pt - radius * Vector3d.One);
-            Vector3i max_idx = Indexer.ToGrid(query_pt + radius * Vector3d.One);
+            bool all = HashGridCells.Range(query_pt - radius * Vector3d.One, query_pt + radius * Vector3d.One, Indexer.CellSize, out Vector3i min_idx, out Vector3i max_idx) == false;
 
             double min_dist = double.MaxValue;
             T nearest = invalidValue;
@@ -140,21 +139,30 @@ namespace g3
             if (ignoreF == null)
                 ignoreF = (pt) => { return false; };
 
-            for (int zi = min_idx.z; zi <= max_idx.z; zi++) {
-                for (int yi = min_idx.y; yi <= max_idx.y; yi++) {
-                    for (int xi = min_idx.x; xi <= max_idx.x; xi++) {
-                        Vector3i idx = new Vector3i(xi, yi ,zi);
-                        List<T> values;
-                        if (Hash.TryGetValue(idx, out values) == false)
-                            continue;
-                        foreach (T value in values) {
-                            if (ignoreF(value))
+            void visit(List<T> values)
+            {
+                foreach (T value in values) {
+                    if (ignoreF(value))
+                        continue;
+                    double dist = distF(value);
+                    if (dist < radius && dist < min_dist) {
+                        nearest = value;
+                        min_dist = dist;
+                    }
+                }
+            }
+            if (all || HashGridCells.ScanOccupied(min_idx, max_idx, Hash.Count)) {
+                foreach (Vector3i cell in HashGridCells.Occupied(Hash.Keys, all, min_idx, max_idx))
+                    visit(Hash[cell]);
+            } else {
+                for (int zi = min_idx.z; zi <= max_idx.z; zi++) {
+                    for (int yi = min_idx.y; yi <= max_idx.y; yi++) {
+                        for (int xi = min_idx.x; xi <= max_idx.x; xi++) {
+                            Vector3i idx = new Vector3i(xi, yi ,zi);
+                            List<T> values;
+                            if (Hash.TryGetValue(idx, out values) == false)
                                 continue;
-                            double dist = distF(value);
-                            if (dist < radius && dist < min_dist) {
-                                nearest = value;
-                                min_dist = dist;
-                            }
+                            visit(values);
                         }
                     }
                 }
