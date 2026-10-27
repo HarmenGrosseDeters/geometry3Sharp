@@ -34,6 +34,9 @@ namespace g3
             UpdateLoop(loop);
 
             EnableFlips = false;
+            // the pass only changes the loop; a rollback would cost a copy of the whole mesh per pass and leave
+            // CurrentLoopV / CurrentLoopE describing the discarded pass
+            RejectInvertingPasses = false;
 
             CustomSmoothF = loop_smooth_vertex;
         }
