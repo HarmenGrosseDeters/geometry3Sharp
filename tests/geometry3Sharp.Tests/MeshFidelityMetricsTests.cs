@@ -110,6 +110,8 @@ namespace geometry3Sharp.Tests
             v.AddRange(new[] { f.MaxDistanceMeshToReference, f.MaxDistanceReferenceToMesh, f.OuterShare, f.OuterDistanceReferenceToMesh, f.OuterMaxDistanceReferenceToMesh });
             v.AddRange(f.OuterRecall);
             v.AddRange(f.OuterFScore);
+            v.AddRange(f.OuterEdgeRecall);
+            v.Add(f.OuterEdgeShare);
             return v;
         }
 
@@ -566,6 +568,27 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void OuterEdges_LeaveOutEdgesInsideTheSolid()
+        {
+            // two overlapping boxes against their union: the edges of the second box inside the first are gone, but
+            // not lost (inside the solid); 4 of the 20 units of edge length are inside
+            DMesh3 a = Box(Vector3d.Zero, Vector3d.One), b = Box(new Vector3d(0.5, 0.25, 0.25), new Vector3d(1.5, 0.75, 0.75));
+            var union = new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Union);
+            Assert.True(union.Compute());
+            DMesh3 reference = new DMesh3(a);
+            MeshEditor.Append(reference, b);
+            var f = new MeshFidelityMetrics(reference, union.Result) { EdgeSamples = 20000 };
+            Assert.True(f.Compute());
+            Assert.InRange(f.OuterEdgeShare, 0.8 - 0.01, 0.8 + 0.01);
+            Assert.True(f.EdgeRecall[2] < 0.9);
+            for (int k = 0; k < f.OuterEdgeRecall.Length; ++k)
+                Assert.Equal(1.0, f.OuterEdgeRecall[k]);
+            var off = new MeshFidelityMetrics(reference, union.Result) { OuterSurface = false };
+            Assert.True(off.Compute());
+            Assert.True(double.IsNaN(off.OuterEdgeShare) && double.IsNaN(off.OuterEdgeRecall[0]));
+        }
+
+        [Fact]
         public void NothingToSample_ReturnsFalse()
         {
             Assert.False(new MeshFidelityMetrics(Cube(), Cube()) { SurfaceSamples = 0 }.Compute());
@@ -593,7 +616,8 @@ namespace geometry3Sharp.Tests
                 var f = new MeshFidelityMetrics(reference, mesh) { CancelF = () => ++calls >= stop };
                 Assert.False(f.Compute());
                 Assert.True(double.IsNaN(f.Size) && double.IsNaN(f.Chamfer) && double.IsNaN(f.EdgeChamfer) && double.IsNaN(f.OuterShare));
-                Assert.True(f.FScore == null && f.OuterRecall == null && f.EdgeRecall == null && f.NormalsMeshToReference == null);
+                Assert.True(f.FScore == null && f.OuterRecall == null && f.EdgeRecall == null && f.OuterEdgeRecall == null && f.NormalsMeshToReference == null);
+                Assert.True(double.IsNaN(f.OuterEdgeShare));
                 Assert.True(f.MeshQuality == null && f.ReferenceQuality == null && f.MeshTopology == null && f.ReferenceTopology == null);
                 Assert.Equal(MeshTopologySummary.Changes.None, f.TopologyChanges);
             }

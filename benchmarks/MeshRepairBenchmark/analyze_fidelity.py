@@ -46,15 +46,17 @@ if ms: print(f"  repair time: median {ms[len(ms)//2]/1000:.2f} s, max {ms[-1]/10
 # Further measures (MeshFidelityMetrics, fm_* fields; not part of the "repaired" criterion): what Hausdorff and IoU
 # miss. Flags per mesh, thresholds relative to the input's size (FLAGS below):
 #   surface: F-score at 0.5% below 0.95 (parts of either surface farther than 0.5% from the other)
-#   reversed: more than 1% of the result's surface near the input has normals against the input's
-#   edges: the input has sharp edges and fewer than 90% of them are within 0.5% of the result's sharp edges
+#   reversed: more than 1% of the result's surface near the input has normals against the input's (inputs with a
+#   solid; an open sheet has no outside to point to)
+#   edges: the input has sharp edges and fewer than 90% of its outer ones (not inside the solid, eg of overlapping
+#   parts) are within 0.5% of the result's sharp edges
 #   handles / parts: genus changed, or fewer components, for inputs whose topology is defined (every component
 #   closed, no bowtie vertices); on open or non-manifold inputs the genus changes by any hole fill
 #   triangles: the share of triangles with a min angle below 10 degrees grows by more than 1% (of all triangles)
 FLAGS = {
     'surface': lambda r: num(r, 'fm_f_0005', 1) < 0.95,
-    'reversed': lambda r: num(r, 'fm_reversed_fwd', 0) > 0.01,
-    'edges': lambda r: num(r, 'fm_sharp_in', 0) > 0 and num(r, 'fm_er_0005', 1) < 0.9,
+    'reversed': lambda r: not no_solid(r) and num(r, 'fm_reversed_fwd', 0) > 0.01,
+    'edges': lambda r: num(r, 'fm_sharp_in', 0) > 0 and num(r, 'fm_oer_0005', num(r, 'fm_er_0005', 1)) < 0.9,
     'handles': lambda r: clean_topology(r) and any(c in str(r.get('fm_topo_changes', '')) for c in ('HandlesClosed', 'HandlesCreated')),
     'parts': lambda r: clean_topology(r) and 'ComponentsLost' in str(r.get('fm_topo_changes', '')),
     'triangles': lambda r: num_q(r, 'minangle_lt10') > num_q(r, 'minangle_lt10', 'fm_q_in') + 0.01,
@@ -91,7 +93,8 @@ if fm:
             ('max dist. input to result (sampled)', 'fm_max_back', .9), ('... from its outer surface', 'fm_outer_max', .9),
             ('Chamfer distance', 'fm_chamfer', .9), ('normal consistency |cos|', 'fm_nc', .1),
             ('reversed share (result to input)', 'fm_reversed_fwd', .9), ('Edge Chamfer distance', 'fm_ecd', .9),
-            ('edge recall 0.5%', 'fm_er_0005', .1), ('edge precision 0.5%', 'fm_ep_0005', .1)]
+            ('edge recall 0.5%', 'fm_er_0005', .1), ('... of the outer sharp edges', 'fm_oer_0005', .1),
+            ('edge precision 0.5%', 'fm_ep_0005', .1)]
     for name, k, p in cols:
         a = sorted(x for x in (num(r, k) for r in fm) if x == x)
         b = sorted(x for x in (num(r, k) for r in rep) if x == x)

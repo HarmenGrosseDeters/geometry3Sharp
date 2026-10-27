@@ -126,6 +126,14 @@ namespace gs
         /// none), and their harmonic mean (NaN if either is NaN)
         /// </summary>
         public double[] EdgePrecision, EdgeRecall, EdgeFScore;
+        /// <summary>
+        /// output (OuterSurface): per threshold, share of the reference's outer sharp edges within tau of the mesh's
+        /// sharp edges (NaN if the reference has none), and the share of the reference's sharp edges that are outer:
+        /// edges inside the solid (eg of overlapping parts that a union removes) left out, by the same winding
+        /// number rule as OuterSurface, tested along the edge's mean normal
+        /// </summary>
+        public double[] OuterEdgeRecall;
+        public double OuterEdgeShare = double.NaN;
         /// <summary> output: triangle quality of both meshes </summary>
         public TriangleQualityStatistics ReferenceQuality, MeshQuality;
         /// <summary> output: topology of both meshes, and what changed from the reference to the mesh </summary>
@@ -212,20 +220,27 @@ namespace gs
             NormalConsistency = 0.5 * (NormalsMeshToReference.MeanAbsCos + NormalsReferenceToMesh.MeanAbsCos);
 
             // sharp edges
-            List<Vector3d> refEdges = SharpEdges(reference, SharpEdgeAngle, SharpEdgeMinHeight * size);
+            var refEdgeNormals = new List<Vector3d>();
+            List<Vector3d> refEdges = SharpEdges(reference, SharpEdgeAngle, SharpEdgeMinHeight * size, refEdgeNormals);
             List<Vector3d> meshEdges = SharpEdges(mesh, SharpEdgeAngle, SharpEdgeMinHeight * size);
             SharpEdgeLengthReference = total_length(refEdges) / size;
             SharpEdgeLengthMesh = total_length(meshEdges) / size;
             double[] fromMesh = edge_distances(meshEdges, refEdges, rnd);
             if (CancelF())
                 return fail();
-            double[] fromRef = edge_distances(refEdges, meshEdges, rnd);
+            Vector3d[] refEdgePoints; int[] refEdgeSegments;
+            double[] fromRef = edge_distances(refEdges, meshEdges, rnd, out refEdgePoints, out refEdgeSegments);
+            double[] fromOuterRef = OuterSurface ? outer_edge_distances(fromRef, refEdgePoints, refEdgeSegments, refEdgeNormals, refSurface, OuterOffset * size)
+                : new double[0];
             if (CancelF())
                 return fail();
-            EdgePrecision = new double[nt]; EdgeRecall = new double[nt]; EdgeFScore = new double[nt];
+            EdgePrecision = new double[nt]; EdgeRecall = new double[nt]; EdgeFScore = new double[nt]; OuterEdgeRecall = new double[nt];
+            if (OuterSurface)
+                OuterEdgeShare = fromRef.Length > 0 ? (double)fromOuterRef.Length / fromRef.Length : double.NaN;
             for (int k = 0; k < nt; ++k) {
                 EdgePrecision[k] = share_within(fromMesh, tau[k]);
                 EdgeRecall[k] = share_within(fromRef, tau[k]);
+                OuterEdgeRecall[k] = OuterSurface ? share_within(fromOuterRef, tau[k]) : double.NaN;
                 EdgeFScore[k] = fscore(EdgePrecision[k], EdgeRecall[k]);
             }
             EdgeDistanceMeshToReference = mean(fromMesh) / size;
@@ -267,7 +282,8 @@ namespace gs
             NormalConsistency = double.NaN;
             SharpEdgeLengthReference = SharpEdgeLengthMesh = double.NaN;
             EdgeDistanceMeshToReference = EdgeDistanceReferenceToMesh = EdgeChamfer = double.NaN;
-            EdgePrecision = EdgeRecall = EdgeFScore = null;
+            EdgePrecision = EdgeRecall = EdgeFScore = OuterEdgeRecall = null;
+            OuterEdgeShare = double.NaN;
             ReferenceQuality = MeshQuality = null;
             ReferenceTopology = MeshTopology = null;
             TopologyChanges = MeshTopologySummary.Changes.None;
@@ -451,7 +467,15 @@ namespace gs
         // empty if edges is empty, infinity if other is
         double[] edge_distances(List<Vector3d> edges, List<Vector3d> other, Random rnd)
         {
+            Vector3d[] points; int[] segments;
+            return edge_distances(edges, other, rnd, out points, out segments);
+        }
+
+        // also the sample points and the index of the segment each lies on
+        double[] edge_distances(List<Vector3d> edges, List<Vector3d> other, Random rnd, out Vector3d[] points, out int[] segments)
+        {
             int m = edges.Count / 2;
+            points = new Vector3d[0]; segments = new int[0];
             if (m == 0 || EdgeSamples <= 0)
                 return new double[0];
             double[] cumulative = new double[m];
@@ -461,7 +485,8 @@ namespace gs
                 cumulative[j] = total;
             }
             int n = EdgeSamples;
-            var points = new Vector3d[n];
+            points = new Vector3d[n];
+            segments = new int[n];
             for (int i = 0; i < n; ++i) {
                 double u = (i + rnd.NextDouble()) / n * total;
                 int k = Array.BinarySearch(cumulative, u);
@@ -469,6 +494,7 @@ namespace gs
                 if (k >= m) k = m - 1;
                 double t = rnd.NextDouble();
                 points[i] = (1 - t) * edges[2 * k] + t * edges[2 * k + 1];
+                segments[i] = k;
             }
             var distances = new double[n];
             if (other.Count == 0) {
@@ -476,11 +502,33 @@ namespace gs
                 return distances;
             }
             var tree = new SegmentTree3(other);
+            Vector3d[] pts = points;
             gParallel.BlockStartEnd(0, n - 1, (start, end) => {
                 for (int i = start; i <= end; ++i)
-                    distances[i] = Math.Sqrt(tree.NearestDistanceSqr(points[i]));
+                    distances[i] = Math.Sqrt(tree.NearestDistanceSqr(pts[i]));
             }, 256, Parallel == false);
             return distances;
+        }
+
+        // the distances of the edge samples on the reference's outer surface (see OuterSurface), tested at
+        // p +- offset n along the edge's mean normal
+        double[] outer_edge_distances(double[] distances, Vector3d[] points, int[] segments, List<Vector3d> normals,
+            Surface reference, double offset)
+        {
+            reference.PrepareWinding();
+            bool[] outer = new bool[distances.Length];
+            gParallel.BlockStartEnd(0, distances.Length - 1, (start, end) => {
+                for (int i = start; i <= end; ++i) {
+                    Vector3d d = offset * normals[segments[i]];
+                    if (d == Vector3d.Zero) continue;
+                    double front = reference.Winding(points[i] + d), back = reference.Winding(points[i] - d);
+                    outer[i] = Math.Abs(front - back) > 0.5 && Math.Abs(front + back) < 1.5;
+                }
+            }, 256, Parallel == false);
+            var result = new List<double>();
+            for (int i = 0; i < distances.Length; ++i)
+                if (outer[i]) result.Add(distances[i]);
+            return result.ToArray();
         }
 
         static double total_length(List<Vector3d> edges)
@@ -499,9 +547,10 @@ namespace gs
         /// consistently across the edge (an orientation flip at the edge is not a crease), or if more than two
         /// triangles share it (non-manifold). Boundary edges and edges at triangles of height at most minHeight
         /// (twice the area over the longest edge; no reliable normal) are not sharp. In the order of first
-        /// appearance (triangle order).
+        /// appearance (triangle order). normals (if given) gets the unit sum of the two oriented face normals of each
+        /// sharp edge (the first face's normal at a non-manifold edge, zero if that is degenerate).
         /// </summary>
-        internal static List<Vector3d> SharpEdges(DMesh3 mesh, double angleDeg, double minHeight)
+        internal static List<Vector3d> SharpEdges(DMesh3 mesh, double angleDeg, double minHeight, List<Vector3d> normals = null)
         {
             double cosMax = Math.Cos(angleDeg * MathUtil.Deg2Rad);
             var index = new Dictionary<(Vector3d, Vector3d), int>();
@@ -538,6 +587,7 @@ namespace gs
                             // consistently oriented neighbours traverse the edge in opposite directions
                             Vector3d n2 = (forward == entry.Forward) ? -n : n;
                             entry.Sharp = entry.Normal.Dot(n2) < cosMax;
+                            entry.Normal2 = n2;
                         }
                     }
                     entries[e] = entry;
@@ -549,6 +599,8 @@ namespace gs
                 if (sharp) {
                     result.Add(entry.A);
                     result.Add(entry.B);
+                    if (normals != null)
+                        normals.Add(MeshAnalysisNormals.Unit(entry.Normal + entry.Normal2));
                 }
             }
             return result;
@@ -556,7 +608,7 @@ namespace gs
 
         struct EdgeEntry
         {
-            public Vector3d A, B, Normal;
+            public Vector3d A, B, Normal, Normal2;
             public bool Forward, Sharp, Degenerate;
             public int Count;
         }

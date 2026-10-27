@@ -36,10 +36,12 @@ static class FidelityFields
             r["fm_er_" + tags[k]] = f.EdgeRecall[k];
             r["fm_of_" + tags[k]] = f.OuterFScore[k];
             r["fm_or_" + tags[k]] = f.OuterRecall[k];
+            r["fm_oer_" + tags[k]] = f.OuterEdgeRecall[k];
         }
         r["fm_max_fwd"] = f.MaxDistanceMeshToReference;
         r["fm_max_back"] = f.MaxDistanceReferenceToMesh;
         r["fm_outer_share"] = f.OuterShare;
+        r["fm_outer_edge_share"] = f.OuterEdgeShare;
         r["fm_outer_mean"] = f.OuterDistanceReferenceToMesh;
         r["fm_outer_max"] = f.OuterMaxDistanceReferenceToMesh;
         r["fm_chamfer"] = f.Chamfer;
