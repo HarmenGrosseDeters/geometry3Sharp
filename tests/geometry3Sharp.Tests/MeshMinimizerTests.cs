@@ -306,16 +306,7 @@ namespace geometry3Sharp.Tests
         /// <summary> the arrays of a ToCSharp method, parsed back into a mesh (the same construction as the code) </summary>
         static DMesh3 ParseCSharp(string code)
         {
-            double[] Doubles(string name) => Array(code, name).Select(s => {
-                switch (s) {
-                    case "double.NaN": return double.NaN;
-                    case "double.PositiveInfinity": return double.PositiveInfinity;
-                    case "double.NegativeInfinity": return double.NegativeInfinity;
-                    // (in C# source -0.0 is the negation of 0.0; double.Parse("-0.0") is +0 on .NET Framework)
-                    case "-0.0": return -0.0;
-                    default: return double.Parse(s, CultureInfo.InvariantCulture);
-                }
-            }).ToArray();
+            double[] Doubles(string name) => Array(code, name).Select(ParseLiteral).ToArray();
             double[] v = Doubles("double[] v");
             int[] t = Array(code, "int[] t").Select(int.Parse).ToArray();
             Assert.Matches(@"var m = new DMesh3\(false, false, false, (true|false)\);", code);
@@ -323,6 +314,22 @@ namespace geometry3Sharp.Tests
             for (int i = 0; i < v.Length; i += 3) m.AppendVertex(new Vector3d(v[i], v[i + 1], v[i + 2]));
             for (int i = 0; i < t.Length; i += 3) Assert.True(m.AppendTriangle(t[i], t[i + 1], t[i + 2]) >= 0);
             return m;
+        }
+
+        /// <summary> a MeshMinimizer.Literal, read without double.Parse where .NET Framework is not exact </summary>
+        static double ParseLiteral(string s)
+        {
+            const string bits = "System.BitConverter.Int64BitsToDouble(";
+            switch (s) {
+                case "double.NaN": return double.NaN;
+                case "double.PositiveInfinity": return double.PositiveInfinity;
+                case "double.NegativeInfinity": return double.NegativeInfinity;
+                // (in C# source -0.0 is the negation of 0.0; double.Parse("-0.0") is +0 on .NET Framework)
+                case "-0.0": return -0.0;
+            }
+            if (s.StartsWith(bits))
+                return BitConverter.Int64BitsToDouble(long.Parse(s.Substring(bits.Length, s.Length - bits.Length - 2), CultureInfo.InvariantCulture));
+            return double.Parse(s, CultureInfo.InvariantCulture);
         }
 
         static string[] Array(string code, string name)
@@ -345,7 +352,7 @@ namespace geometry3Sharp.Tests
             Assert.Equal(m.TriangleCount, back.TriangleCount);
             Assert.Equal("", Invariance.GeometricDifference(m, back));
             // (the same text on .NET Framework and .NET Core)
-            Assert.Contains("-0.0, 1E-310, double.NaN", code);
+            Assert.Contains($"-0.0, System.BitConverter.Int64BitsToDouble({BitConverter.DoubleToInt64Bits(1e-310)}L), double.NaN", code);
             Assert.Contains("double.PositiveInfinity, double.NegativeInfinity, 0.1,", code);
             Assert.Equal(1 / -0.0, 1 / back.GetVertex(0).x);
             // the special values by name, independent of the runtime's number formatting
@@ -355,7 +362,12 @@ namespace geometry3Sharp.Tests
             Assert.Equal("double.PositiveInfinity", MeshMinimizer.Literal(double.PositiveInfinity));
             Assert.Equal("double.NegativeInfinity", MeshMinimizer.Literal(double.NegativeInfinity));
             foreach (double x in new[] { 0.1, 1.0 / 3, 632117.25, 5712043.123456789, double.Epsilon, double.MaxValue, -1e-300 })
-                Assert.Equal(x, double.Parse(MeshMinimizer.Literal(x), CultureInfo.InvariantCulture));
+                Assert.Equal(BitConverter.DoubleToInt64Bits(x), BitConverter.DoubleToInt64Bits(ParseLiteral(MeshMinimizer.Literal(x))));
+            // exact texts, without a runtime parse
+            Assert.Equal("0.1", MeshMinimizer.Literal(0.1));
+            Assert.Equal("632117.25", MeshMinimizer.Literal(632117.25));
+            Assert.Equal("System.BitConverter.Int64BitsToDouble(1L)", MeshMinimizer.Literal(double.Epsilon));
+            Assert.Equal($"System.BitConverter.Int64BitsToDouble({BitConverter.DoubleToInt64Bits(-double.MaxValue)}L)", MeshMinimizer.Literal(-double.MaxValue));
             // obj: one line per vertex and triangle
             string obj = MeshMinimizer.ToObj(m);
             Assert.Equal(m.VertexCount, obj.Split('\n').Count(l => l.StartsWith("v ")));

@@ -287,14 +287,22 @@ namespace geometry3Sharp.Tests
             if (double.IsPositiveInfinity(x)) return "double.PositiveInfinity";
             if (double.IsNegativeInfinity(x)) return "double.NegativeInfinity";
             if (x == 0) return (1 / x < 0) ? "-0.0" : "0";
-            // the fewest significant digits that round-trip: the same text on .NET Framework and .NET Core ("R" differs
-            // between them, and does not round-trip every value on .NET Framework)
-            for (int digits = 1; digits < 17; ++digits) {
+            // subnormal and near-overflow values as their bits: double.Parse on .NET Framework is not exact there (and
+            // throws near MaxValue); the C# compiler would read the decimal text right, but it cannot be checked here
+            double ax = Math.Abs(x);
+            if (ax < 2.2250738585072014E-308 || ax > 1e308) return Bits(x);
+            // else the fewest significant digits that round-trip: the same text on .NET Framework and .NET Core ("R"
+            // differs between them, and does not round-trip every value on .NET Framework)
+            for (int digits = 1; digits <= 17; ++digits) {
                 string r = x.ToString("G" + digits, CultureInfo.InvariantCulture);
-                if (double.Parse(r, CultureInfo.InvariantCulture) == x) return r;
+                double back;
+                if (double.TryParse(r, NumberStyles.Float, CultureInfo.InvariantCulture, out back) && back == x) return r;
             }
-            return x.ToString("G17", CultureInfo.InvariantCulture);
+            return Bits(x);
         }
+
+        /// <summary> the exact bits as a C# expression </summary>
+        static string Bits(double x) => "System.BitConverter.Int64BitsToDouble(" + BitConverter.DoubleToInt64Bits(x).ToString(CultureInfo.InvariantCulture) + "L)";
 
         /// <summary>
         /// The mesh as a C# method that builds it (vertex positions, triangles and groups; ids are compacted): a test
@@ -336,7 +344,12 @@ namespace geometry3Sharp.Tests
             return sb.ToString();
         }
 
-        static string Number(double x) => (double.IsNaN(x) || double.IsInfinity(x) || x == 0) ? x.ToString(CultureInfo.InvariantCulture) : Literal(x);
+        static string Number(double x)
+        {
+            if (double.IsNaN(x) || double.IsInfinity(x) || x == 0) return x.ToString(CultureInfo.InvariantCulture);
+            string r = Literal(x);
+            return r.StartsWith("System.") ? x.ToString("G17", CultureInfo.InvariantCulture) : r;
+        }
 
         /// <summary> the mesh as OBJ text with exact (round-trip) coordinates </summary>
         public static string ToObj(DMesh3 mesh)
