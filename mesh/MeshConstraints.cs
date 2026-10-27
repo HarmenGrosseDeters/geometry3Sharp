@@ -212,6 +212,22 @@ namespace g3
         }
 
 
+        /// <summary> a copy of these constraints (Remesher.RejectInvertingPasses) </summary>
+        internal MeshConstraints Copy()
+        {
+            var copy = new MeshConstraints();
+            copy.CopyFrom(this);
+            return copy;
+        }
+
+        /// <summary> replace these constraints with a copy of other's (Remesher.RejectInvertingPasses) </summary>
+        internal void CopyFrom(MeshConstraints other)
+        {
+            Edges = new Dictionary<int, EdgeConstraint>(other.Edges);
+            Vertices = new Dictionary<int, VertexConstraint>(other.Vertices);
+            set_id_counter = other.set_id_counter;
+        }
+
 		public bool HasConstraints {
 			get { return Edges.Count > 0 || Vertices.Count > 0; }
 		}

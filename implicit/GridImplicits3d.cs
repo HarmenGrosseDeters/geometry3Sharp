@@ -30,7 +30,7 @@ namespace g3
         public DenseGridTrilinearImplicit(MeshSignedDistanceGrid sdf_grid)
         {
             Grid = sdf_grid.Grid;
-            GridOrigin = sdf_grid.GridOrigin;
+            GridOrigin = sdf_grid.GridOriginD;
             CellSize = sdf_grid.CellSize;
         }
 
