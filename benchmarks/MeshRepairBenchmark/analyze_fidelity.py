@@ -42,3 +42,91 @@ if hd:
     print("  lowest IoU:", [(r['file'], round(iou(r), 3), round(get(r, 'iou_missing', 0), 3), round(get(r, 'iou_extra', 0), 3)) for r in worst])
 ms = sorted(get(r, 'repair_ms', 0) for r in rs if 'repair_ms' in r)
 if ms: print(f"  repair time: median {ms[len(ms)//2]/1000:.2f} s, max {ms[-1]/1000:.1f} s")
+
+# Further measures (MeshFidelityMetrics, fm_* fields; not part of the "repaired" criterion): what Hausdorff and IoU
+# miss. Flags per mesh, thresholds relative to the input's size (FLAGS below):
+#   surface: F-score at 0.5% below 0.95 (parts of either surface farther than 0.5% from the other)
+#   reversed: more than 1% of the result's surface near the input has normals against the input's (inputs with a
+#   solid; an open sheet has no outside to point to)
+#   edges: the input has sharp edges and fewer than 90% of its outer ones (not inside the solid, eg of overlapping
+#   parts) are within 0.5% of the result's sharp edges
+#   handles / parts: genus changed, or fewer components, for inputs whose topology is defined (every component
+#   closed, no bowtie vertices); on open or non-manifold inputs the genus changes by any hole fill
+#   triangles: the share of triangles with a min angle below 10 degrees grows by more than 1% (of all triangles)
+FLAGS = {
+    'surface': lambda r: num(r, 'fm_f_0005', 1) < 0.95,
+    'reversed': lambda r: not no_solid(r) and num(r, 'fm_reversed_fwd', 0) > 0.01,
+    'edges': lambda r: num(r, 'fm_sharp_in', 0) > 0 and edge_recall(r) < 0.9,
+    'handles': lambda r: clean_topology(r) and any(c in str(r.get('fm_topo_changes', '')) for c in ('HandlesClosed', 'HandlesCreated')),
+    'parts': lambda r: clean_topology(r) and 'ComponentsLost' in str(r.get('fm_topo_changes', '')),
+    'triangles': lambda r: num_q(r, 'minangle_lt10') > num_q(r, 'minangle_lt10', 'fm_q_in') + 0.01,
+}
+
+
+def edge_recall(r):
+    # of the outer sharp edges; of all if none is outer (eg walls thinner than the offset) or not recorded
+    v = num(r, 'fm_oer_0005')
+    return v if v == v else num(r, 'fm_er_0005', 1)
+
+
+def clean_topology(r):
+    t = r.get('fm_topo_in') or {}
+    return t.get('components', 0) > 0 and t.get('closed') == t.get('components') and t.get('bowties', 1) == 0
+
+
+def num(r, k, d=float('nan')):
+    v = r.get(k, d)
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return d
+
+
+def num_q(r, k, which='fm_q_out'):
+    q = r.get(which) or {}
+    return q.get(k, 0) / max(1, q.get('tris', 1))
+
+
+fm = [r for r in rs if r.get('fm_ok')]
+if fm:
+    from criteria import repaired
+    rep = [r for r in fm if repaired(r, HD, IOU)]
+    q = lambda a, p: a[min(len(a) - 1, int(p * (len(a) - 1)))] if a else float('nan')
+    print(f"\nFurther measures (fm_*, relative to the input size; {len(fm)} meshes with them, {len(rep)} of them repaired)")
+    print(f"  {'measure':38s} {'all: median':>12s} {'p10/p90':>9s} {'repaired: median':>17s} {'p10/p90':>9s}")
+    cols = [('F-score 0.1%', 'fm_f_0001', .1), ('F-score 0.5%', 'fm_f_0005', .1), ('F-score 1%', 'fm_f_001', .1),
+            ('F-score 1%, outer surface of the input', 'fm_of_001', .1), ('outer share of the input', 'fm_outer_share', .1),
+            ('max dist. input to result (sampled)', 'fm_max_back', .9), ('... from its outer surface', 'fm_outer_max', .9),
+            ('Chamfer distance', 'fm_chamfer', .9), ('normal consistency |cos|', 'fm_nc', .1),
+            ('reversed share (result to input)', 'fm_reversed_fwd', .9), ('Edge Chamfer distance', 'fm_ecd', .9),
+            ('edge recall 0.5%', 'fm_er_0005', .1), ('... of the outer sharp edges', 'fm_oer_0005', .1),
+            ('edge precision 0.5%', 'fm_ep_0005', .1)]
+    for name, k, p in cols:
+        a = sorted(x for x in (num(r, k) for r in fm) if x == x)
+        b = sorted(x for x in (num(r, k) for r in rep) if x == x)
+        print(f"  {name:38s} {q(a, .5):12.4f} {q(a, p):9.4f} {q(b, .5):17.4f} {q(b, p):9.4f}")
+    a = sorted(r['fm_q_out']['minangle'][1] for r in fm if 'fm_q_out' in r)
+    b = sorted(r['fm_q_out']['minangle'][1] for r in rep if 'fm_q_out' in r)
+    print(f"  {'min angle, 1% worst (degrees)':38s} {q(a, .5):12.2f} {q(a, .1):9.2f} {q(b, .5):17.2f} {q(b, .1):9.2f}")
+    changes = {}
+    for r in fm:
+        for c in str(r.get('fm_topo_changes', 'None')).split(', '):
+            changes[c] = changes.get(c, 0) + 1
+    print(f"  topology changes (all): {changes}")
+    print(f"  flags (all / repaired):")
+    for name, flag in FLAGS.items():
+        hit = [r for r in rep if flag(r)]
+        print(f"    {name:10s} {sum(1 for r in fm if flag(r)):4d} / {len(hit):4d}   repaired examples: {[r['file'] for r in hit[:6]]}")
+    print(f"  repaired with any flag: {sum(1 for r in rep if any(f(r) for f in FLAGS.values()))} of {len(rep)}")
+    # the "repaired" criterion with the certified input-to-result Hausdorff distance replaced by the sampled one
+    # (max over the samples, a lower bound), from the whole input and from its outer surface only (interior and
+    # double-sided faces that the repair drops do not count); the difference of the two is the outer surface's effect
+    def sampled_faithful(r, key):
+        return (clean(r) and get(r, 'after_selfint_exact', 1) == 0 and float(get(r, 'hd_fwd_hi_rel', 1)) < HD
+                and num(r, key, 1) * num(r, 'fm_size', 0) / max(num(r, 'fm_bbox_diag', 0), 1e-300) < HD
+                and iou(r) > IOU)
+    whole = [r for r in fm if sampled_faithful(r, 'fm_max_back')]
+    outer = [r for r in fm if sampled_faithful(r, 'fm_outer_max')]
+    gained = [r for r in outer if not sampled_faithful(r, 'fm_max_back')]
+    print(f"  repaired with Hausdorff input->result sampled (max of the samples) from the whole input: {len(whole)}, "
+          f"from its outer surface: {len(outer)} (+{len(gained)} {[r['file'] for r in gained[:8]]})")

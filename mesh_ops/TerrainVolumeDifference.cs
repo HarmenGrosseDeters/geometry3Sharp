@@ -162,7 +162,7 @@ namespace gs
             return XYOverlapPairs(mesh).Count;
         }
 
-        /// <summary> the triangle pairs counted by XYOverlaps (a &lt; b) </summary>
+        /// <summary> the triangle pairs counted by XYOverlaps (a &lt; b), sorted by a, then b </summary>
         public static List<Index2i> XYOverlapPairs(DMesh3 mesh)
         {
             var spatial = new DMeshAABBTree3(mesh, true);
@@ -189,6 +189,9 @@ namespace gs
                 if (local != null)
                     lock (lockObj) pairs.AddRange(local);
             });
+            // (sorted: the parallel traversal adds them in thread order, and callers that act on the pairs in turn,
+            // eg TerrainDualContouring.RemoveOverlaps, must not depend on the schedule)
+            pairs.Sort((x, y) => x.a != y.a ? x.a.CompareTo(y.a) : x.b.CompareTo(y.b));
             return pairs;
         }
 

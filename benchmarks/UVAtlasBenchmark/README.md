@@ -34,6 +34,12 @@ Each mesh runs in its own process with a timeout (300 s, large meshes 1200 s). C
   distortion measure; medians are true medians, p90 is nearest rank
 - `error` in the JSON lines is only written when the status is not `Success`
 
+Since the evaluation metrics (#157) the JSON lines also carry `q3d` and `quv`: Verdict triangle quality
+(`TriangleQualityStatistics`: min / max angle, aspect ratio, scaled Jacobian, condition number) of the mesh and of
+its UV triangles. They also carry `atlas_topo`, the topology of the atlas mesh (`MeshTopologySummary`), where every
+chart should be a disc (genus 0, one boundary loop). `analyze.py` shows the 1 %-worst min angle in 3D and in UV and
+counts meshes with charts that are not discs. The tables below are from before these columns.
+
 ## Results
 
 Main set: master fcf8da7 plus the exact check of the packed charts (`UVPacker`, commit 5fe85a5, see below); large set: master

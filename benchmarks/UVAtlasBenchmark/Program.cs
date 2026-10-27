@@ -78,6 +78,16 @@ static class Program
                 r["max_area"] = d.MaxAreaDistortion;
                 r["mean_angle_deg"] = d.MeanAngleError * 180 / Math.PI;
             }
+            if (gen.AtlasMesh != null && gen.UV != null) {
+                // triangle quality (Verdict metrics) in 3D and of the UV triangles, and the topology of the atlas
+                // mesh: every chart should be a disc (genus 0, one boundary loop)
+                gen.AtlasMesh.Let(m => r["q3d"] = FidelityFields.Quality(gs.TriangleQualityStatistics.Compute(m)));
+                var flat = new DMesh3(gen.AtlasMesh, false, MeshComponents.None);
+                foreach (int vid in flat.VertexIndices())
+                    flat.SetVertex(vid, new Vector3d(gen.UV[vid].x, gen.UV[vid].y, 0));
+                r["quv"] = FidelityFields.Quality(gs.TriangleQualityStatistics.Compute(flat));
+                r["atlas_topo"] = FidelityFields.Topology(gs.MeshTopologySummary.Compute(gen.AtlasMesh));
+            }
         } catch (Exception e) {
             r["status"] = "exception";
             r["error"] = e.GetType().Name + ": " + e.Message;
@@ -85,6 +95,8 @@ static class Program
         Emit(r);
         return 0;
     }
+
+    static void Let<T>(this T t, Action<T> f) => f(t);
 
     static void Emit(object o) => Console.WriteLine(JsonSerializer.Serialize(o, new JsonSerializerOptions {
         NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowNamedFloatingPointLiterals }));
