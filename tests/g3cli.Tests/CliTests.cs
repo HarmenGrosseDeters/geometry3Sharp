@@ -55,6 +55,7 @@ namespace g3cli.Tests
             Assert.Equal(2, D(mesh["bounds"]["size"][2]), 9);
             AssertCleanCube(mesh, 8);
             Assert.Null(mesh["not_clean_reason"]);
+            Assert.Null(mesh["not_clean_reasons"]);
         }
 
         [Fact]
@@ -72,6 +73,14 @@ namespace g3cli.Tests
             Assert.Equal(2, I(r["mesh"]["components"]));
             Assert.True(I(r["mesh"]["self_intersections"]) > 0);
             Assert.Equal("self-intersections", S(r["mesh"]["not_clean_reason"]));
+            Assert.Equal("self-intersections", S(r["mesh"]["not_clean_reasons"]));
+
+            // two defects: not_clean_reason names the first, not_clean_reasons both
+            (exit, r) = Run("measure", m.InvertedOverlapping);
+            AssertOk(exit, r);
+            Assert.Equal(2, I(r["mesh"]["inverted_components"]));
+            Assert.Equal("inside-out components", S(r["mesh"]["not_clean_reason"]));
+            Assert.Equal("inside-out components, self-intersections", S(r["mesh"]["not_clean_reasons"]));
 
             (exit, r) = Run("measure", m.Flipped);
             AssertOk(exit, r);

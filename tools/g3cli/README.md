@@ -74,7 +74,7 @@ g3cli measure bunny.obj
     "bounds": { "min": [-25.9368, -0.0312, -19.8223], "max": [25.9271, 49.9688, 19.8408],
                 "size": [51.8639, 50.0, 39.6631], "diagonal": 82.2376 },
     "genus": null, "inconsistent_orientation_edges": 0, "inverted_components": 0, "self_intersections": 0,
-    "clean": false, "not_clean_reason": "not closed"
+    "clean": false, "not_clean_reason": "not closed", "not_clean_reasons": "not closed, bowties"
   },
   "warnings": [],
   "elapsed_ms": 300
@@ -84,7 +84,8 @@ g3cli measure bunny.obj
 `volume` is `null` unless the mesh is closed, `genus` unless it is a closed, connected manifold. `clean` and
 `not_clean_reason` are the checks of `MeshRobustRepair` (closed, no bowties, no degenerate triangles, consistently
 oriented, no inside-out components, no self-intersections; `inconsistent_orientation_edges`: interior edges whose two
-triangles run the same way). `winding_closed`: every edge used equally often in both directions, then the
+triangles run the same way). `not_clean_reason` is the first failed check, `not_clean_reasons` all of them, separated by
+", " (`null` if none failed; self-intersections only if checked). `winding_closed`: every edge used equally often in both directions, then the
 winding numbers of `boolean` are exact. The self-intersection count is exact and the expensive part on big
 meshes; `--no-self-intersections` skips it (`null`).
 
