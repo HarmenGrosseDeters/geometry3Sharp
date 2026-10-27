@@ -12,7 +12,7 @@
     "test-case-filter": "FullyQualifiedName~ExactPlanarSimplifyTests|FullyQualifiedName~ExactBooleanBuildingBlockTests|FullyQualifiedName~ExactMeshBooleanTests|FullyQualifiedName~ExactTriangulation2Tests",
     "coverage-analysis": "perTest",
     "configuration": "Release",
-    "additional-timeout": 10000,
+    "additional-timeout": 30000,
     "reporters": [
       "progress",
       "html",

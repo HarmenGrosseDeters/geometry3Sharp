@@ -11,7 +11,7 @@
     "test-case-filter": "FullyQualifiedName~ExactMeshBooleanTests|FullyQualifiedName~ExactMeshBooleanNaryTests|FullyQualifiedName~ExactBooleanOrientationTests|FullyQualifiedName~ExactBooleanReuseTests|FullyQualifiedName~ExactBooleanEdgeOrderTests|FullyQualifiedName~MeshRoundingRepairTests.ExactVertices|FullyQualifiedName~ExactBooleanFilterTests",
     "coverage-analysis": "perTest",
     "configuration": "Release",
-    "additional-timeout": 10000,
+    "additional-timeout": 30000,
     "reporters": [
       "progress",
       "html",

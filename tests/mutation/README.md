@@ -149,9 +149,11 @@ Things to know:
 - **Timeouts** count as killed, and their number varies between runs: the first run of `ExactMeshBoolean.cs`
   (one shard, on a busier runner) had 215 timeouts and 85.5 %, the second (two shards) 63 timeouts and 71 %
   together; `arrangement-1` had 164 and then 263. A mutant that makes the boolean loop times out, and each
-  timeout costs the test time plus `additional-timeout` (10 s in the mesh configs, 30 s in the arithmetic one),
-  which is most of the run time of the arrangement shards (`arrangement-2` took 5 h 14 min with 30 s, close to the job's
-  350 minutes; split it further if it grows). The thresholds are the score rounded down, less two
+  timeout costs the test time plus `additional-timeout`, which is most of the run time of the arrangement
+  shards. They use 10 s (`arrangement-2` took 5 h 14 min with 30 s, close to the job's 350 minutes, and 1 h 50
+  min with 10 s, with fewer timeouts, 356 against 461: those mutants really loop). The other shards keep 30 s: with
+  10 s, slow but finishing tests timed out, and timeouts that are not loops hide survivors (`rounding` went from
+  10 to 108 timeouts and from 59.9 % to 72.6 %, `boolean-2` from 7 to 119 and from 65.6 % to 80.8 %). The thresholds are the score rounded down, less two
   points, and less half the share of timeouts in shards with many of them (`arrangement-1` 32 %,
   `arrangement-2` 43 %), so that a quieter runner that turns timeouts into survivors does not fail the job.
 
@@ -173,6 +175,8 @@ arrangement the first run whose span matched), "after" the run with the tests be
 27 October. `boolean-1` went down: `ExactMeshBoolean.cs` changed in between (the classification of open input
 was reworked), and its timeouts dropped from 55 to 10 (mutants that timed out before now finish and survive);
 `boolean-2` has more uncovered mutants for the same reason (new code that no test of the shard reaches yet).
+The scores vary between runs on the same code: a run of the arrangement shards with a 10 s timeout gave
+`arrangement-1` 94.7 % (529 killed, 247 timeouts, 30 survived) and `arrangement-2` 95.2 %.
 
 ### What the survivors showed
 
