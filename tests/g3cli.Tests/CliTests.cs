@@ -55,6 +55,7 @@ namespace g3cli.Tests
             Assert.Equal(2, D(mesh["bounds"]["size"][2]), 9);
             AssertCleanCube(mesh, 8);
             Assert.Null(mesh["not_clean_reason"]);
+            Assert.Null(mesh["not_clean_reasons"]);
         }
 
         [Fact]
@@ -72,6 +73,14 @@ namespace g3cli.Tests
             Assert.Equal(2, I(r["mesh"]["components"]));
             Assert.True(I(r["mesh"]["self_intersections"]) > 0);
             Assert.Equal("self-intersections", S(r["mesh"]["not_clean_reason"]));
+            Assert.Equal("self-intersections", S(r["mesh"]["not_clean_reasons"]));
+
+            // two defects: not_clean_reason names the first, not_clean_reasons both
+            (exit, r) = Run("measure", m.InvertedOverlapping);
+            AssertOk(exit, r);
+            Assert.Equal(2, I(r["mesh"]["inverted_components"]));
+            Assert.Equal("inside-out components", S(r["mesh"]["not_clean_reason"]));
+            Assert.Equal("inside-out components, self-intersections", S(r["mesh"]["not_clean_reasons"]));
 
             (exit, r) = Run("measure", m.Flipped);
             AssertOk(exit, r);
@@ -390,6 +399,57 @@ namespace g3cli.Tests
             // "distance" is the certified upper bound, within the default tolerance (1e-4 of the diagonal)
             Assert.InRange(D(r["hausdorff"]["lower_bound"]), 0, 1e-6);
             Assert.InRange(D(r["hausdorff"]["distance"]), 0, 1e-3);
+        }
+
+        // the tube of Thingi10K 135363 (radius 6.9, walls 0.75, height 33): at its mean edge length 11.6 the walls fold
+        // through each other and the remesher turns it inside out unless the passes that do so are rolled back
+        static string WriteThinTube(TestMeshes m)
+        {
+            var tube = new g3.DMesh3();
+            int n = 48;
+            for (int s = 0; s < n; ++s)
+                foreach (double z in new[] { 0.0, 33.0 })
+                    foreach (double r in new[] { 6.9, 6.15 }) {
+                        double a = 2 * Math.PI * s / n;
+                        tube.AppendVertex(new g3.Vector3d(r * Math.Cos(a), r * Math.Sin(a), z));
+                    }
+            // vertex 4 s + 2 z + wall (wall 0 outer, 1 inner)
+            for (int s = 0; s < n; ++s) {
+                int o0 = 4 * s, o1 = 4 * ((s + 1) % n);
+                tube.AppendTriangle(o0, o1, o1 + 2); tube.AppendTriangle(o0, o1 + 2, o0 + 2);                 // outer wall
+                tube.AppendTriangle(o0 + 1, o1 + 3, o1 + 1); tube.AppendTriangle(o0 + 1, o0 + 3, o1 + 3);     // inner wall
+                tube.AppendTriangle(o0 + 2, o1 + 2, o1 + 3); tube.AppendTriangle(o0 + 2, o1 + 3, o0 + 3);     // top rim
+                tube.AppendTriangle(o0, o1 + 1, o1); tube.AppendTriangle(o0, o0 + 1, o1 + 1);                 // bottom rim
+            }
+            string path = m.Path_("thin_tube.stl");
+            g3.StandardMeshWriter.WriteMesh(path, tube, g3.WriteOptions.Defaults);
+            return path;
+        }
+
+        [Fact]
+        public void Remesh_ThinWalls_WarnsAndKeepsTheOrientation()
+        {
+            string input = WriteThinTube(m);
+            var (exit, r) = Run("measure", input);
+            AssertOk(exit, r);
+            Assert.True(B(r["mesh"]["closed"]));
+            Assert.Equal(0, I(r["mesh"]["inverted_components"]));
+            Assert.True(D(r["mesh"]["volume"]) > 0);
+
+            (exit, r) = Run("remesh", input, m.Path_("thin_tube_remeshed.stl"), "--edge-length", "11.6");
+            AssertOk(exit, r);
+            Assert.True(I(r["rejected_passes"]) > 0, r.ToJsonString());
+            Assert.Equal(0, I(r["mesh"]["inverted_components"]));
+            Assert.True(D(r["mesh"]["volume"]) > 0);
+            var warnings = r["warnings"].AsArray().Select(w => S(w)).ToList();
+            Assert.Contains(warnings, w => w.Contains("wall thickness"));
+            Assert.Contains(warnings, w => w.Contains("rolled back"));
+
+            // an edge length below the wall thickness: no warning
+            (exit, r) = Run("remesh", input, m.Path_("thin_tube_fine.stl"), "--edge-length", "0.5", "--iterations", "2");
+            AssertOk(exit, r);
+            Assert.Equal(0, I(r["rejected_passes"]));
+            Assert.Empty(r["warnings"].AsArray());
         }
 
         [Fact]

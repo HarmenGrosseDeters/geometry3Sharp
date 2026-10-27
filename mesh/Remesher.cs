@@ -11,8 +11,10 @@ namespace g3 {
 	/// MaxEdgeLength, collapses edges shorter than MinEdgeLength, flips edges to improve vertex valence, then
 	/// applies tangential-ish Laplacian smoothing and (optionally) projects the vertices onto a target surface.
 	/// Call SetTargetEdgeLength() and then BasicRemeshPass() several times (typically 5-20 passes;
-	/// ModifiedEdgesLastPass gives a convergence hint). There is no return value or failure state; the mesh
-	/// (passed to the constructor) is modified directly, vertex and triangle ids are not preserved.
+	/// ModifiedEdgesLastPass gives a convergence hint). There is no return value; the mesh (passed to the
+	/// constructor) is modified directly, vertex and triangle ids are not preserved. A pass that would turn a closed
+	/// component inside out (a target edge length far above the wall thickness) is rolled back and counted in
+	/// InvertingPassesRejected (RejectInvertingPasses).
 	///
 	/// Important behaviour: without a projection target the smoothing shrinks and rounds the surface, so for
 	/// shape-preserving remeshing call SetProjectionTarget(MeshProjectionTarget.Auto(originalMesh)). Boundary
@@ -46,6 +48,79 @@ namespace g3 {
 		public double MinEdgeLength = 0.001f;
 		/// <summary> edges longer than this are split. Usually set with SetTargetEdgeLength() </summary>
 		public double MaxEdgeLength = 0.1f;
+
+        /// <summary>
+        /// Opt-in quality safeguards, 0 = off (default, the original behaviour). If &gt; 0 (eg 0.2), with quality
+        /// 4*sqrt(3)*area / sum of squared edge lengths (1 equilateral, 0 degenerate):
+        ///  - vertices on constraint curves are smoothed along their curve (towards their two neighbours across edges
+        ///    constrained to the same target; junctions and curve ends stay) instead of with the surface smoothing,
+        ///    so the projection onto the curve keeps them in place along it (otherwise they could land on another part
+        ///    of the curve, on a corner or on an edge);
+        ///  - a smoothing move is rejected if it flips an incident (not flat) triangle, or leaves one below this
+        ///    quality and worse than before; a projection move that would flip one is shortened to a half, quarter or
+        ///    eighth step, or rejected (the next pass gets closer);
+        ///  - the buffered smoothing and projection passes revert the moves of every triangle the moves together
+        ///    would still flip; the projection pass is then buffered too, so the result does not depend on the order
+        ///    or thread timing (not with EnableSmoothInPlace, whose parallel pass reads positions being written);
+        ///  - an edge whose triangle pair contains a triangle below this quality is flipped if that at least doubles
+        ///    the pair's minimum quality and keeps the orientation;
+        ///  - an edge with a flat neighbouring triangle (its opposite vertex on the edge) is not split, which would
+        ///    put the new vertex onto that vertex;
+        ///  - collapses and flips that would flip a triangle normal are rejected (as with PreventNormalFlips);
+        ///  - a collapse that would create a flat triangle (eg two vertices of a straight feature curve joined over
+        ///    a third one on it) is rejected. Other collapses are not restricted: blocking poor but not flat results
+        ///    (eg with MinCollapseTriangleQuality) keeps short edges that the splits around them multiply.
+        /// Not guarded: the projection of a new vertex after a split. Together, on 20 Thingi10K meshes remeshed with
+        /// creases kept, 28% of the poor (q &lt; 0.1) and 13% of the flat (q &lt; 1e-3) triangles and 16% of the
+        /// self-intersecting pairs remain (benchmarks/RemeshQualityBenchmark). RemesherPro queues the edges of a
+        /// vertex whose move was rejected. With a target edge length far above the wall thickness the result is
+        /// undefined with and without this option: the walls are folded through each other (self-intersections);
+        /// passes that turn a closed component inside out are rolled back (RejectInvertingPasses).
+        /// </summary>
+        public double MinTriangleQuality = 0;
+
+        /// <summary>
+        /// Roll back a pass (BasicRemeshPass, RemesherPro.RemeshIteration) that turns a closed component of the mesh
+        /// inside out (an outer surface or a cavity): after it, the number of closed components with a positive or
+        /// with a negative signed volume differs from before, or a component has another sign than most of its
+        /// vertices had before (a volume within 1e-9 area^1.5 of zero counts as neither, so a component flattened to
+        /// zero volume is rolled back too). This happens when the target edge length
+        /// is far above the wall thickness (the walls are folded through each other), with or without
+        /// MinTriangleQuality. The mesh and the constraints are restored to their state before the pass and
+        /// InvertingPassesRejected is incremented; the next pass starts from there again (and is usually rolled back
+        /// too, so the result stays at the last pass that kept the orientation). Costs a copy of the mesh and the
+        /// constraints per pass if the mesh has a closed component. The rollback is for the whole mesh: one small part
+        /// that keeps inverting (eg a coarse cone among finer parts) stops the remeshing of all other parts too. In
+        /// RemesherPro.FastestRemesh a rolled-back last iteration leaves the state after an iteration without
+        /// projection. Not guarded: the other passes (FullSmoothPass, FullProjectionPass,
+        /// RemesherPro.FastSplitIteration, TrackedFaceProjectionPass) and a cancelled pass. Default true (false in
+        /// EdgeLoopRemesher).
+        /// </summary>
+        public bool RejectInvertingPasses = true;
+
+        /// <summary> status: the number of passes rolled back by RejectInvertingPasses so far </summary>
+        public int InvertingPassesRejected = 0;
+
+        /// <summary>
+        /// status: the number of vertices with a NaN or infinite coordinate at the start of the last pass
+        /// (BasicRemeshPass, RemesherPro.RemeshIteration, RemesherPro.FastSplitIteration). Such a pass does nothing:
+        /// smoothing, splits and projection would spread the value to the neighbouring vertices.
+        /// </summary>
+        public int NonFiniteVertices = 0;
+
+        /// <summary> sets NonFiniteVertices; true if there are any (the pass is skipped) </summary>
+        protected bool has_non_finite_vertices()
+        {
+            DVector<double> verts = mesh.VerticesBuffer;
+            RefCountVector refs = mesh.VerticesRefCounts;
+            int n = 0, NV = mesh.MaxVertexID;
+            for (int vid = 0; vid < NV; ++vid) {
+                if (refs.isValidUnsafe(vid) && (MathUtil.IsFinite(verts[3 * vid]) && MathUtil.IsFinite(verts[3 * vid + 1]) && MathUtil.IsFinite(verts[3 * vid + 2])) == false)
+                    n++;
+            }
+            NonFiniteVertices = n;
+            return n > 0;
+        }
 
 		/// <summary> smoothing step per pass, in [0,1]: each vertex moves this fraction towards its smoothed position </summary>
 		public double SmoothSpeedT = 0.1f;
@@ -201,8 +276,11 @@ namespace g3 {
 		public virtual void BasicRemeshPass() {
             if (mesh.TriangleCount == 0)    // badness if we don't catch this...
                 return;
+            if (has_non_finite_vertices())
+                return;
 
             begin_pass();
+            object inversionGuard = begin_inversion_guard();
 
             // Iterate over all edges in the mesh at start of pass.
             // Some may be removed, so we skip those.
@@ -252,9 +330,174 @@ namespace g3 {
             if (Cancelled())
                 return;
 
+            end_inversion_guard(inversionGuard);
             end_pass();
 		}
 
+
+
+        // RejectInvertingPasses: the closed components of a mesh by the sign of their signed volume
+        sealed class ComponentSigns
+        {
+            public Index2i Counts;          // components with a positive (a) and a negative (b) volume
+            public sbyte[] VertexSign;      // per vertex id: the sign of its closed component (0: open, no volume, no vertex)
+        }
+
+        // the state before the pass
+        sealed class InversionSnapshot
+        {
+            public DMesh3 Mesh;
+            public MeshConstraints Constraints;
+            public ComponentSigns Signs;
+        }
+
+        // the signs after the last guarded pass, valid while mesh.Timestamp is unchanged (saves one count per pass)
+        ComponentSigns signsCached;
+        int signsTimestamp = -1;
+
+        /// <summary> RejectInvertingPasses: snapshot of the mesh before a pass, or null (off, or no closed component with a volume) </summary>
+        protected object begin_inversion_guard()
+        {
+            if (RejectInvertingPasses == false)
+                return null;
+            if (signsCached == null || mesh.Timestamp != signsTimestamp) {
+                signsCached = compute_component_signs(mesh, null, out _);
+                signsTimestamp = mesh.Timestamp;
+            }
+            if (signsCached.Counts.a == 0 && signsCached.Counts.b == 0)
+                return null;
+            return new InversionSnapshot() {
+                Mesh = new DMesh3(mesh), Constraints = constraints?.Copy(), Signs = signsCached
+            };
+        }
+
+        /// <summary> RejectInvertingPasses: restore the snapshot if the pass turned a closed component inside out. Returns true if it did </summary>
+        protected bool end_inversion_guard(object guard)
+        {
+            var snapshot = guard as InversionSnapshot;
+            if (snapshot == null)
+                return false;
+            ComponentSigns signs = compute_component_signs(mesh, snapshot.Signs.VertexSign, out bool componentChanged);
+            if (componentChanged == false && signs.Counts.a == snapshot.Signs.Counts.a && signs.Counts.b == snapshot.Signs.Counts.b) {
+                signsCached = signs;
+                signsTimestamp = mesh.Timestamp;
+                return false;
+            }
+            mesh.Copy(snapshot.Mesh);
+            signsCached = snapshot.Signs;
+            signsTimestamp = mesh.Timestamp;
+            if (constraints != null)
+                constraints.CopyFrom(snapshot.Constraints);
+            ModifiedEdgesLastPass = 0;
+            InvertingPassesRejected++;
+            OnPassRolledBack();
+            return true;
+        }
+
+        /// <summary> called after RejectInvertingPasses restored the mesh (subclasses reset their state that refers to ids) </summary>
+        protected virtual void OnPassRolledBack()
+        {
+        }
+
+        /// <summary>
+        /// The number of closed components (connected through edges, without a boundary edge) of mesh with a positive
+        /// (a) and a negative (b) signed volume; a volume within 1e-9 area^1.5 of zero counts as neither.
+        /// </summary>
+        internal static Index2i ClosedComponentSigns(DMesh3 mesh)
+        {
+            return compute_component_signs(mesh, null, out _).Counts;
+        }
+
+        // The signs of the closed components. With before (VertexSign of an earlier state), componentChanged is true
+        // if a closed component has another sign than most of its vertices had before (by id; ids reused within the
+        // pass are outvoted): catches two components that change sign in opposite directions in the same pass, which
+        // leaves the counts unchanged.
+        static ComponentSigns compute_component_signs(DMesh3 mesh, sbyte[] before, out bool componentChanged)
+        {
+            // the buffers directly: this runs twice per pass
+            DVector<int> edges = mesh.EdgesBuffer, tris = mesh.TrianglesBuffer;
+            DVector<double> verts = mesh.VerticesBuffer;
+            RefCountVector edgesRef = mesh.EdgesRefCounts, trisRef = mesh.TrianglesRefCounts;
+            int NT = mesh.MaxTriangleID, NE = mesh.MaxEdgeID;
+            int[] parent = new int[NT];
+            for (int t = 0; t < NT; ++t)
+                parent[t] = t;
+            int find(int t) {
+                while (parent[t] != t) {
+                    parent[t] = parent[parent[t]];
+                    t = parent[t];
+                }
+                return t;
+            }
+            var open = new List<int>();
+            for (int eid = 0; eid < NE; ++eid) {
+                if (edgesRef.isValidUnsafe(eid) == false)
+                    continue;
+                int ta = edges[4 * eid + 2], tb = edges[4 * eid + 3];
+                if (tb == DMesh3.InvalidID) {
+                    open.Add(ta);
+                } else {
+                    int ra = find(ta), rb = find(tb);
+                    if (ra != rb)
+                        parent[Math.Max(ra, rb)] = Math.Min(ra, rb);
+                }
+            }
+            bool[] isOpen = new bool[NT];
+            foreach (int t in open)
+                isOpen[find(t)] = true;
+
+            // relative to a vertex of the component (the lowest triangle's first one), so a translation of the
+            // mesh changes the volume only by rounding
+            int[] origin = new int[NT];
+            double[] volume = new double[NT], area = new double[NT];
+            long[] votes = (before != null) ? new long[NT] : null;
+            for (int t = 0; t < NT; ++t)
+                origin[t] = -1;
+            for (int t = 0; t < NT; ++t) {
+                if (trisRef.isValidUnsafe(t) == false)
+                    continue;
+                int r = find(t);
+                if (isOpen[r])
+                    continue;
+                int va = tris[3 * t], vb = tris[3 * t + 1], vc = tris[3 * t + 2];
+                if (origin[r] < 0)
+                    origin[r] = va;
+                int o = 3 * origin[r];
+                double ox = verts[o], oy = verts[o + 1], oz = verts[o + 2];
+                Vector3d a = new Vector3d(verts[3 * va] - ox, verts[3 * va + 1] - oy, verts[3 * va + 2] - oz);
+                Vector3d b = new Vector3d(verts[3 * vb] - ox, verts[3 * vb + 1] - oy, verts[3 * vb + 2] - oz);
+                Vector3d c = new Vector3d(verts[3 * vc] - ox, verts[3 * vc + 1] - oy, verts[3 * vc + 2] - oz);
+                volume[r] += a.Dot(b.Cross(c));
+                area[r] += (b - a).Cross(c - a).Length;
+                if (votes != null) {
+                    if (va < before.Length) votes[r] += before[va];
+                    if (vb < before.Length) votes[r] += before[vb];
+                    if (vc < before.Length) votes[r] += before[vc];
+                }
+            }
+            int nPositive = 0, nNegative = 0;
+            sbyte[] sign = new sbyte[NT];
+            componentChanged = false;
+            for (int r = 0; r < NT; ++r) {
+                if (origin[r] < 0)
+                    continue;
+                double V = volume[r] / 6, A = area[r] / 2, tol = 1e-9 * A * Math.Sqrt(A);
+                if (V > tol) { nPositive++; sign[r] = 1; }
+                else if (V < -tol) { nNegative++; sign[r] = -1; }
+                if (votes != null && votes[r] != 0 && Math.Sign(votes[r]) != sign[r])
+                    componentChanged = true;
+            }
+            var result = new ComponentSigns() { Counts = new Index2i(nPositive, nNegative), VertexSign = new sbyte[mesh.MaxVertexID] };
+            for (int t = 0; t < NT; ++t) {
+                if (trisRef.isValidUnsafe(t) == false)
+                    continue;
+                int r = find(t);
+                if (isOpen[r])
+                    continue;
+                result.VertexSign[tris[3 * t]] = result.VertexSign[tris[3 * t + 1]] = result.VertexSign[tris[3 * t + 2]] = sign[r];
+            }
+            return result;
+        }
 
 
         // subclasses can override these to implement custom behavior...
@@ -374,9 +617,14 @@ namespace g3 {
                 } else
                     vNewPos = get_projected_collapse_position(iKeep, vNewPos);
 
+                // a collapse must not create a flat triangle (eg two vertices of a straight feature curve joined
+                // over a third one on it)
+                if (MinTriangleQuality > 0 && collapse_creates_flat(a, b, ref vNewPos, t0, t1))
+                    goto abort_collapse;
+
                 // if new position would flip normal of one of the existing triangles
                 // either one-ring, don't allow it
-                if (PreventNormalFlips) {
+                if (PreventNormalFlips || MinTriangleQuality > 0) {
                     if (collapse_creates_flip_or_invalid(a, b, ref vNewPos, t0, t1) || collapse_creates_flip_or_invalid(b, a, ref vNewPos, t0, t1)) {
                         goto abort_collapse;
                     }
@@ -434,7 +682,7 @@ namespace g3 {
 				                   + Math.Abs((valence_c+1)-valence_c_target) + Math.Abs((valence_d+1)-valence_d_target);
 
                 bool bTryFlip = flip_err < curr_err;
-                if (bTryFlip && PreventNormalFlips && flip_inverts_normals(a, b, c, d, t0))
+                if (bTryFlip && (PreventNormalFlips || MinTriangleQuality > 0) && flip_inverts_normals(a, b, c, d, t0))
                     bTryFlip = false;
                 // not for the valence if it creates a degenerate triangle (it would undo the flip below)
                 if (bTryFlip && flip_creates_degenerate(ref vA, ref vB, c, d))
@@ -442,6 +690,9 @@ namespace g3 {
                 // a degenerate triangle on this edge (eg c or d slid onto it along a constrained curve, where
                 // no edge is short enough to collapse): flip it away if that gives two proper triangles
                 if (bTryFlip == false && flip_removes_degenerate(ref vA, ref vB, c, d))
+                    bTryFlip = true;
+                // a poor triangle on this edge (eg a cap with its obtuse corner opposite it)
+                if (bTryFlip == false && MinTriangleQuality > 0 && flip_improves_poor(ref vA, ref vB, c, d))
                     bTryFlip = true;
 
                 if (bTryFlip) {
@@ -462,7 +713,8 @@ namespace g3 {
 
 			// if edge length is too long, we want to split it
 			bool bTriedSplit = false;
-			if ( EnableSplits && constraint.CanSplit && edge_len_sqr > MaxEdgeLength*MaxEdgeLength ) {
+			if ( EnableSplits && constraint.CanSplit && edge_len_sqr > MaxEdgeLength*MaxEdgeLength
+                    && (!(MinTriangleQuality > 0) || has_flat_neighbour(ref vA, ref vB, c, d) == false) ) {
 
 				DMesh3.EdgeSplitInfo splitInfo;
                 COUNT_SPLITS++;
@@ -581,6 +833,134 @@ namespace g3 {
         }
 
 
+        // edge [a,b] with opposite vertices c and d: one of its triangles is below MinTriangleQuality, the flip at
+        // least doubles the minimum quality of the pair, and the new triangles face within 60 degrees of the better
+        // old one (no flips across a ridge). Cosines from the unnormalized cross products: no absolute thresholds.
+        bool flip_improves_poor(ref Vector3d vA, ref Vector3d vB, int c, int d)
+        {
+            Vector3d vC = mesh.GetVertex(c), vD = mesh.GetVertex(d);
+            double q0 = TriangleQuality(ref vA, ref vB, ref vC), q1 = TriangleQuality(ref vB, ref vA, ref vD);
+            double qmin = Math.Min(q0, q1);
+            if (qmin >= MinTriangleQuality)
+                return false;
+            double n0 = TriangleQuality(ref vC, ref vD, ref vB), n1 = TriangleQuality(ref vD, ref vC, ref vA);
+            if (!(Math.Min(n0, n1) > 2 * qmin))
+                return false;
+            Vector3d nOld = (q0 >= q1) ? (vB - vA).Cross(vC - vA) : (vA - vB).Cross(vD - vB);
+            Vector3d nn0 = (vD - vC).Cross(vB - vC), nn1 = (vC - vD).Cross(vA - vD);
+            return cos_above(ref nOld, ref nn0, 0.5) && cos_above(ref nOld, ref nn1, 0.5);
+        }
+
+        // collapsing edge [a,b] (triangles t0, t1) to newPos leaves a triangle of either one-ring flat that was not
+        bool collapse_creates_flat(int a, int b, ref Vector3d newPos, int t0, int t1)
+        {
+            for (int k = 0; k < 2; ++k)
+                foreach (int tid in mesh.VtxTrianglesItr(k == 0 ? a : b)) {
+                    if (tid == t0 || tid == t1)
+                        continue;
+                    Index3i t = mesh.GetTriangle(tid);
+                    Vector3d pa = mesh.GetVertex(t.a), pb = mesh.GetVertex(t.b), pc = mesh.GetVertex(t.c);
+                    if (TriangleQuality(ref pa, ref pb, ref pc) < DegenerateFlipQuality)
+                        continue;       // already flat
+                    if (t.a == a || t.a == b) pa = newPos;
+                    if (t.b == a || t.b == b) pb = newPos;
+                    if (t.c == a || t.c == b) pc = newPos;
+                    if (TriangleQuality(ref pa, ref pb, ref pc) < DegenerateFlipQuality)
+                        return true;
+                }
+            return false;
+        }
+
+        // the cosine of the angle between the (unnormalized) vectors is above c
+        static bool cos_above(ref Vector3d u, ref Vector3d v, double c)
+        {
+            double dot = u.Dot(v);
+            return dot > 0 && dot * dot > c * c * u.LengthSquared * v.LengthSquared;
+        }
+
+        // edge [a,b] with opposite vertices c and d (d may be invalid): a neighbouring triangle is flat
+        bool has_flat_neighbour(ref Vector3d vA, ref Vector3d vB, int c, int d)
+        {
+            Vector3d vC = mesh.GetVertex(c);
+            if (TriangleQuality(ref vA, ref vB, ref vC) < DegenerateFlipQuality)
+                return true;
+            if (d == DMesh3.InvalidID)
+                return false;
+            Vector3d vD = mesh.GetVertex(d);
+            return TriangleQuality(ref vB, ref vA, ref vD) < DegenerateFlipQuality;
+        }
+
+        /// <summary>
+        /// True if moving vertex vID to newPos flips one of its (not flat) triangles, or leaves one below
+        /// MinTriangleQuality and below the worst quality around vID before the move.
+        /// </summary>
+        protected bool move_degrades(int vID, Vector3d newPos, bool flipsOnly = false)
+        {
+            double qOld = double.MaxValue, qNew = double.MaxValue;
+            Vector3d ring = Vector3d.Zero;      // the summed normals of the triangles that are not flat
+            bool anyFlat = false;
+            foreach (int tid in mesh.VtxTrianglesItr(vID)) {
+                Index3i t = mesh.GetTriangle(tid);
+                Vector3d a = mesh.GetVertex(t.a), b = mesh.GetVertex(t.b), c = mesh.GetVertex(t.c);
+                Vector3d n0 = (b - a).Cross(c - a);
+                double q0 = TriangleQuality(ref a, ref b, ref c);
+                qOld = Math.Min(qOld, q0);
+                if (t.a == vID) a = newPos; else if (t.b == vID) b = newPos; else c = newPos;
+                Vector3d n1 = (b - a).Cross(c - a);
+                if (q0 >= DegenerateFlipQuality) {
+                    if (!(n0.Dot(n1) > 0))
+                        return true;
+                    ring += n0;
+                } else
+                    anyFlat = true;
+                qNew = Math.Min(qNew, TriangleQuality(ref a, ref b, ref c));
+            }
+            // a flat triangle has no orientation to keep (the move may be the one that repairs it), but if it does not
+            // stay flat it must face the way its neighbours around vID did, not fold over
+            if (anyFlat && folds_flat_triangle(vID, newPos, ref ring))
+                return true;
+            return flipsOnly == false && qNew < MinTriangleQuality && qNew < qOld;
+        }
+
+        // moving vID to newPos turns one of its flat triangles into one facing against ring
+        bool folds_flat_triangle(int vID, Vector3d newPos, ref Vector3d ring)
+        {
+            foreach (int tid in mesh.VtxTrianglesItr(vID)) {
+                Index3i t = mesh.GetTriangle(tid);
+                Vector3d a = mesh.GetVertex(t.a), b = mesh.GetVertex(t.b), c = mesh.GetVertex(t.c);
+                if (TriangleQuality(ref a, ref b, ref c) >= DegenerateFlipQuality)
+                    continue;
+                if (t.a == vID) a = newPos; else if (t.b == vID) b = newPos; else c = newPos;
+                if (TriangleQuality(ref a, ref b, ref c) < DegenerateFlipQuality)
+                    continue;       // still flat: not worse
+                if (!((b - a).Cross(c - a).Dot(ring) > 0))
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// MinTriangleQuality: the projection of vertex vID from cur towards projected, or the largest of the half,
+        /// quarter and eighth of that step that flips none of its triangles (the next pass gets closer); cur if none
+        /// does (then OnVertexMoveRejected).
+        /// </summary>
+        protected Vector3d guarded_projection(int vID, Vector3d cur, Vector3d projected)
+        {
+            double t = 1;
+            for (int k = 0; k < 4; ++k, t *= 0.5) {
+                Vector3d p = (k == 0) ? projected : Vector3d.Lerp(cur, projected, t);
+                if (move_degrades(vID, p, true) == false)
+                    return p;
+            }
+            OnVertexMoveRejected(vID);
+            return cur;
+        }
+
+        /// <summary> called (possibly in parallel) when MinTriangleQuality rejects a smoothing or projection move of vID </summary>
+        protected virtual void OnVertexMoveRejected(int vID)
+        {
+        }
+
         // used by collapse-edge to get projected position for new vertex
         protected virtual Vector3d get_projected_collapse_position(int vid, Vector3d vNewPos)
         {
@@ -674,6 +1054,47 @@ namespace g3 {
         // BitArray packs 32 flags into one int, so those writes race (read-modify-write) and lose flags
         protected bool[] vModifiedV = new bool[4096];
 
+        // MinTriangleQuality: each buffered move was checked against the old positions of its neighbours, but neighbours
+        // move together: revert the moves of every (not flat) triangle that the buffered positions flip, until none
+        // does. In triangle id order, so the result does not depend on the thread timing.
+        void revert_flipping_moves()
+        {
+            bool changed = true;
+            while (changed) {
+                changed = false;
+                foreach (int tid in mesh.TriangleIndices()) {
+                    Index3i t = mesh.GetTriangle(tid);
+                    if (!(vModifiedV[t.a] || vModifiedV[t.b] || vModifiedV[t.c]))
+                        continue;
+                    Vector3d a = mesh.GetVertex(t.a), b = mesh.GetVertex(t.b), c = mesh.GetVertex(t.c);
+                    Vector3d na = vModifiedV[t.a] ? vBufferV[t.a] : a, nb = vModifiedV[t.b] ? vBufferV[t.b] : b, nc = vModifiedV[t.c] ? vBufferV[t.c] : c;
+                    Vector3d n0 = (b - a).Cross(c - a);
+                    if (TriangleQuality(ref a, ref b, ref c) < DegenerateFlipQuality) {
+                        // flat before: if it does not stay flat, it must face the way its (not flat) neighbours did
+                        if (TriangleQuality(ref na, ref nb, ref nc) < DegenerateFlipQuality)
+                            continue;
+                        n0 = Vector3d.Zero;
+                        Index3i nbrs = mesh.GetTriNeighbourTris(tid);
+                        for (int k = 0; k < 3; ++k) {
+                            if (nbrs[k] == DMesh3.InvalidID) continue;
+                            Vector3d p = Vector3d.Zero, q = Vector3d.Zero, r = Vector3d.Zero;
+                            mesh.GetTriVertices(nbrs[k], ref p, ref q, ref r);
+                            if (TriangleQuality(ref p, ref q, ref r) >= DegenerateFlipQuality)
+                                n0 += (q - p).Cross(r - p);
+                        }
+                    }
+                    if ((nb - na).Cross(nc - na).Dot(n0) > 0)
+                        continue;
+                    foreach (int v in new[] { t.a, t.b, t.c })
+                        if (vModifiedV[v]) {
+                            vModifiedV[v] = false;
+                            OnVertexMoveRejected(v);
+                        }
+                    changed = true;
+                }
+            }
+        }
+
         protected virtual void InitializeVertexBufferForPass()
         {
             if (vBufferV.size < mesh.MaxVertexID)
@@ -687,6 +1108,8 @@ namespace g3 {
 
         protected virtual void ApplyVertexBuffer(bool bParallel)
         {
+            if (MinTriangleQuality > 0)
+                revert_flipping_moves();
             // [TODO] can probably use block-parallel here...
             if (bParallel) {
                 gParallel.BlockStartEnd(0, mesh.MaxVertexID-1, (a,b) => {
@@ -721,7 +1144,25 @@ namespace g3 {
             if ( (vControl & VertexControl.NoSmooth) != 0 )
                 return Mesh.GetVertex(vID);
 
-            Vector3d vSmoothed = smoothFunc(mesh, vID, SmoothSpeedT);
+            Vector3d vSmoothed;
+            int nCurve = 0;
+            Vector3d curveSum = Vector3d.Zero;
+            if (MinTriangleQuality > 0 && vConstraint.Target != null && constraints != null) {
+                // along the curve: towards the neighbours across the edges constrained to the same target
+                foreach (int eid in mesh.VtxEdgesItr(vID)) {
+                    if (constraints.GetEdgeConstraint(eid).Target != vConstraint.Target)
+                        continue;
+                    Index2i ev = mesh.GetEdgeV(eid);
+                    curveSum += mesh.GetVertex(ev.a == vID ? ev.b : ev.a);
+                    nCurve++;
+                }
+            }
+            if (nCurve == 2)
+                vSmoothed = Vector3d.Lerp(Mesh.GetVertex(vID), 0.5 * curveSum, SmoothSpeedT);
+            else if (nCurve > 2 || (nCurve == 1 && MinTriangleQuality > 0))
+                return Mesh.GetVertex(vID);         // a junction or the end of a curve
+            else
+                vSmoothed = smoothFunc(mesh, vID, SmoothSpeedT);
             Debug.Assert(vSmoothed.IsFinite);     // this will really catch a lot of bugs...
 
             // project onto either vtx constraint target, or surface target
@@ -732,6 +1173,10 @@ namespace g3 {
                     vSmoothed = target.Project(vSmoothed, vID);
             }
 
+            if (MinTriangleQuality > 0 && move_degrades(vID, vSmoothed)) {
+                OnVertexMoveRejected(vID);
+                return Mesh.GetVertex(vID);
+            }
             bModified = true;
             return vSmoothed;
         }
@@ -744,6 +1189,30 @@ namespace g3 {
         // We can do projection in parallel if we have .net 
         protected virtual void FullProjectionPass()
         {
+            if (MinTriangleQuality > 0) {
+                // each move is checked against the positions before the pass: buffered, so the result does not
+                // depend on the order (or thread timing) in which the vertices are projected
+                InitializeVertexBufferForPass();
+                Action<int> projectBuffered = (vID) => {
+                    if (vertex_is_constrained(vID))
+                        return;
+                    if (VertexControlF != null && (VertexControlF(vID) & VertexControl.NoProject) != 0)
+                        return;
+                    Vector3d cur = mesh.GetVertex(vID);
+                    Vector3d projected = guarded_projection(vID, cur, target.Project(cur, vID));
+                    if (projected == cur)
+                        return;
+                    vModifiedV[vID] = true;
+                    vBufferV[vID] = projected;
+                };
+                if (EnableParallelProjection)
+                    gParallel.ForEach<int>(project_vertices(), projectBuffered);
+                else
+                    foreach (int vid in project_vertices())
+                        projectBuffered(vid);
+                ApplyVertexBuffer(EnableParallelProjection);
+                return;
+            }
             Action<int> project = (vID) => {
                 if (vertex_is_constrained(vID))
                     return;

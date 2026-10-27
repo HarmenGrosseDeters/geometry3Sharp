@@ -10,7 +10,7 @@ tools of an MCP server (stdio), for coding agents and scripts.
 | `repair` | repair into a closed solid (`--method robust`, default, or `auto`) | `MeshRobustRepair`, `MeshAutoRepair` |
 | `boolean` | union, intersection, difference (a minus the others), at least k of n; two or more meshes (`--more`) in one exact operation | `ExactMeshBoolean` |
 | `resolve` | boundary of the solid of one mesh: removes self-intersections, nested shells, duplicate faces | `ExactMeshBoolean.Resolve` |
-| `remesh` | isotropic remeshing to a target edge length, boundary and sharp edges kept | `Remesher`, `MeshConstraintUtil` |
+| `remesh` | isotropic remeshing to a target edge length, boundary and sharp edges kept; passes that would turn a closed part inside out are rolled back (`rejected_passes`), a warning if the edge length is more than 4 times the estimated wall thickness | `Remesher`, `MeshConstraintUtil` |
 | `simplify` | quadric edge collapse to a triangle count, ratio, error or edge length | `Reducer` |
 | `uv` | UV atlas: seams / cones / charts, BFF, packing, exact overlap test, distortion limits | `UVAtlasGenerator`, `MeshDiscCut`, `ConeFlattening` |
 | `convert` | STL, OBJ, OFF, PLY, 3MF, glTF/GLB, g3mesh (by file extension) | `StandardMeshReader`, `StandardMeshWriter` |
@@ -74,7 +74,7 @@ g3cli measure bunny.obj
     "bounds": { "min": [-25.9368, -0.0312, -19.8223], "max": [25.9271, 49.9688, 19.8408],
                 "size": [51.8639, 50.0, 39.6631], "diagonal": 82.2376 },
     "genus": null, "inconsistent_orientation_edges": 0, "inverted_components": 0, "self_intersections": 0,
-    "clean": false, "not_clean_reason": "not closed"
+    "clean": false, "not_clean_reason": "not closed", "not_clean_reasons": "not closed, bowties"
   },
   "warnings": [],
   "elapsed_ms": 300
@@ -84,7 +84,8 @@ g3cli measure bunny.obj
 `volume` is `null` unless the mesh is closed, `genus` unless it is a closed, connected manifold. `clean` and
 `not_clean_reason` are the checks of `MeshRobustRepair` (closed, no bowties, no degenerate triangles, consistently
 oriented, no inside-out components, no self-intersections; `inconsistent_orientation_edges`: interior edges whose two
-triangles run the same way). `winding_closed`: every edge used equally often in both directions, then the
+triangles run the same way). `not_clean_reason` is the first failed check, `not_clean_reasons` all of them, separated by
+", " (`null` if none failed; self-intersections only if checked). `winding_closed`: every edge used equally often in both directions, then the
 winding numbers of `boolean` are exact. The self-intersection count is exact and the expensive part on big
 meshes; `--no-self-intersections` skips it (`null`).
 

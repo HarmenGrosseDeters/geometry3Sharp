@@ -217,3 +217,16 @@ the request/result protocol that `BooleanComparison obb` implements; `obb-runner
 No code of the runners repository was taken over. Its benchmark cases (Nefertiti, dental scans, iterated cube
 grid) are not published; `cube_grid_*` of the `sequence` class is a case of our own modelled after the
 description of the iterated cube grid.
+
+## Remesher quality safeguards (`Remesher.MinTriangleQuality`, also in `RemesherPro`)
+
+Own design from the textbook procedures, no code taken over.
+
+| Part | Source |
+|---|---|
+| Vertices on feature curves relocated only along the curve; tangential, quality-preserving relocation in isotropic remeshing | M. Botsch, L. Kobbelt, *A Remeshing Approach to Multiresolution Modeling*, SGP 2004; M. Botsch, L. Kobbelt, M. Pauly, P. Alliez, B. Lévy, *Polygon Mesh Processing*, AK Peters 2010, ch. 6 |
+| Caps removed by flipping their long edge; needles by collapsing | M. Botsch, L. Kobbelt, *A Robust Procedure to Eliminate Degenerate Faces from Triangle Meshes*, VMV 2001 |
+
+The rest (moves, collapses and flips rejected if they flip a normal or create a flat triangle, no splits of an edge
+with a vertex on it, buffered projection for a deterministic result) follows from the failure analysis on Thingi10K
+in `docs/ROADMAP.md`.

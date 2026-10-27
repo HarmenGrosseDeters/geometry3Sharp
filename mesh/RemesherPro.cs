@@ -59,6 +59,22 @@ namespace gs
         }
 
 
+        /// <summary> the number of edges queued for the next RemeshIteration (for tests) </summary>
+        internal int QueuedEdgeCount { get { return modified_edges == null ? 0 : modified_edges.Count; } }
+
+        /// <summary> MinTriangleQuality rejected a move of vID: its edges are processed again (eg flipped) </summary>
+        // the queued edge ids belong to the rolled-back mesh: process all edges in the next iteration
+        protected override void OnPassRolledBack()
+        {
+            ResetQueue();
+        }
+
+        protected override void OnVertexMoveRejected(int vID)
+        {
+            if (modified_edges != null)
+                queue_one_ring_safe(vID);
+        }
+
         void queue_one_ring_safe(int vid) {
             if ( mesh.IsVertex(vid) ) {
                 bool taken = false;
@@ -301,6 +317,8 @@ namespace gs
         {
             if (mesh.TriangleCount == 0)    // badness if we don't catch this...
                 return 0;
+            if (has_non_finite_vertices())
+                return 0;
 
             PushState();
             EnableFlips = EnableCollapses = EnableSmoothing = false;
@@ -389,8 +407,11 @@ namespace gs
         {
             if (mesh.TriangleCount == 0)    // badness if we don't catch this...
                 return;
+            if (has_non_finite_vertices())
+                return;
 
             begin_pass();
+            object inversionGuard = begin_inversion_guard();
 
             // Iterate over all edges in the mesh at start of pass.
             // Some may be removed, so we skip those.
@@ -477,6 +498,7 @@ namespace gs
             }
             end_project();
 
+            end_inversion_guard(inversionGuard);
             end_pass();
         }
 
@@ -546,6 +568,12 @@ namespace gs
                 Vector3d vProjected = ComputeProjectedVertexPos(vID, out bModified);
                 if (vCur.EpsilonEqual(vProjected, moved_tolerance(vCur)))
                     bModified = false;
+                // MinTriangleQuality: no moves that flip an incident triangle (against the positions before the pass,
+                // which is buffered); a shorter step if the full one would
+                if (bModified && MinTriangleQuality > 0) {
+                    vProjected = guarded_projection(vID, vCur, vProjected);
+                    bModified = vProjected != vCur;
+                }
                 if (bModified) {
                     vModifiedV[vID] = true;
                     vBufferV[vID] = vProjected;

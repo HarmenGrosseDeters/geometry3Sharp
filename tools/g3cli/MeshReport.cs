@@ -83,6 +83,18 @@ namespace g3cli
                 : (selfInt ?? 0) > 0 ? "self-intersections" : "";
             o["clean"] = reason == "" && selfInt.HasValue;
             o["not_clean_reason"] = reason == "" ? (selfInt.HasValue ? null : "self-intersections not checked") : reason;
+            // all of them (MeshRobustRepair.DescribeDefects), not only the first: eg degenerate triangles hide
+            // self-intersections in not_clean_reason
+            var defects = mesh.TriangleCount == 0 ? MeshRobustRepair.Defects.Empty : MeshRobustRepair.Defects.None;
+            if (mesh.TriangleCount > 0) {
+                if (closed == false) defects |= MeshRobustRepair.Defects.NotClosed;
+                if (bowties > 0) defects |= MeshRobustRepair.Defects.Bowties;
+                if (degenerate > 0) defects |= MeshRobustRepair.Defects.DegenerateTriangles;
+                if (inconsistent > 0) defects |= MeshRobustRepair.Defects.InconsistentOrientation;
+                if (inverted > 0) defects |= MeshRobustRepair.Defects.InsideOutComponents;
+                if ((selfInt ?? 0) > 0) defects |= MeshRobustRepair.Defects.SelfIntersections;
+            }
+            o["not_clean_reasons"] = defects == MeshRobustRepair.Defects.None ? null : MeshRobustRepair.DescribeDefects(defects);
             return o;
         }
     }
