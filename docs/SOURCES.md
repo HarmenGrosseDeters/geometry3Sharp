@@ -154,7 +154,7 @@ Implemented from the papers, no code taken over.
 | Normal estimation by PCA of the nearest neighbors | H. Hoppe, T. DeRose, T. Duchamp, J. McDonald, W. Stuetzle, *Surface reconstruction from unorganized points*, SIGGRAPH 1992 |
 | Iteratively reweighted least squares with Cauchy weights (robust local planes) | P. W. Holland, R. E. Welsch, *Robust regression using iteratively reweighted least-squares*, Communications in Statistics 1977 |
 
-## Distances and simplification (`MeshHausdorffDistance`, `TriangleDeviationBounds`, `Reducer`)
+## Distances and simplification (`MeshHausdorffDistance`, `TriangleDeviationBounds`, `Reducer`, `MeshEnvelope`)
 
 The sources named in the code:
 
@@ -163,6 +163,7 @@ The sources named in the code:
 | Hausdorff distance with guaranteed bounds (branch and bound over triangles, cascading upper bounds; `TriangleDeviationBounds`, also used by `Reducer.MaxDeviation` and, per triangle, by `MeshDeviation.ComputeTriangleBounds`) | L. Sacht, A. Jacobson, *Cascading upper bounds for triangle soup Pompeiu-Hausdorff distance*, SGP 2024 |
 | Regularized optimal collapse point (`Reducer.QuadricRegularization`) | P. Trettner, L. Kobbelt, *Fast and Robust QEF Minimization using Probabilistic Quadrics*, Computer Graphics Forum (Eurographics) 2020 |
 | Triangle-triangle intersection test (`ExactTriangleIntersection`) | O. Devillers, P. Guigue, *Faster triangle-triangle intersection tests*, INRIA RR-4488, 2002 |
+| Exact containment in a polyhedral envelope (`MeshEnvelope`): a convex prism per triangle inside triangle + epsilon ball, queries decided exactly against the union. Own construction of the prisms (slab along the normal, side half-spaces in uniform and edge normal directions with offsets that bound them by 0.6 epsilon, rounding margins) and own exact test (clipping the query triangle in its parameter plane with integer half-planes, floating-point filters first) | B. Wang, T. Schneider, Y. Hu, M. Attene, D. Panozzo, *Exact and Efficient Polyhedral Envelope Containment Check*, ACM TOG (SIGGRAPH) 2020 (idea of the envelope as a union of prisms and the exact containment check; `fast-envelope`, MIT, has an implementation, not used as a source) |
 
 ## Evaluation metrics (`MeshFidelityMetrics`, `TriangleQualityStatistics`, `MeshTopologySummary`)
 
@@ -196,6 +197,14 @@ Implemented from the papers and definitions (no code ported):
 | Geodesic safety lines (`AlongSurface`) | the heat method, K. Crane, C. Weischedel, M. Wardetzky, *Geodesics in Heat*, ACM TOG 2013 (via `MeshGeodesicDistance`) |
 | Offset surface, horizontal safety lines, break lines, cut and fill volumes | own methods (no external source) |
 
+## Test harness (`tests/geometry3Sharp.Tests/Harness/`)
+
+Implemented from the paper, no code taken over.
+
+| Part | Source |
+|---|---|
+| Test-case minimization (`DeltaDebug.Minimize`, `MeshMinimizer`): ddmin over components, triangles, unused vertices and the bytes or lines of reader inputs | A. Zeller, R. Hildebrandt, *Simplifying and Isolating Failure-Inducing Input*, IEEE Transactions on Software Engineering 28(2), 2002 |
+
 ## Benchmarks
 
 `benchmarks/BooleanComparison` runs CGAL (GPL), Cherchi et al. (MIT) and Manifold (Apache-2.0) as separate
@@ -221,3 +230,16 @@ the request/result protocol that `BooleanComparison obb` implements; `obb-runner
 No code of the runners repository was taken over. Its benchmark cases (Nefertiti, dental scans, iterated cube
 grid) are not published; `cube_grid_*` of the `sequence` class is a case of our own modelled after the
 description of the iterated cube grid.
+
+## Remesher quality safeguards (`Remesher.MinTriangleQuality`, also in `RemesherPro`)
+
+Own design from the textbook procedures, no code taken over.
+
+| Part | Source |
+|---|---|
+| Vertices on feature curves relocated only along the curve; tangential, quality-preserving relocation in isotropic remeshing | M. Botsch, L. Kobbelt, *A Remeshing Approach to Multiresolution Modeling*, SGP 2004; M. Botsch, L. Kobbelt, M. Pauly, P. Alliez, B. Lévy, *Polygon Mesh Processing*, AK Peters 2010, ch. 6 |
+| Caps removed by flipping their long edge; needles by collapsing | M. Botsch, L. Kobbelt, *A Robust Procedure to Eliminate Degenerate Faces from Triangle Meshes*, VMV 2001 |
+
+The rest (moves, collapses and flips rejected if they flip a normal or create a flat triangle, no splits of an edge
+with a vertex on it, buffered projection for a deterministic result) follows from the failure analysis on Thingi10K
+in `docs/ROADMAP.md`.

@@ -24,6 +24,8 @@ namespace g3cli.Tests
         public string Open => Path.Combine(Dir, "open.obj");
         /// <summary> cube and shifted cube in one file (self-intersecting, winding number 2 in the overlap) </summary>
         public string Overlapping => Path.Combine(Dir, "overlapping.off");
+        /// <summary> Overlapping, inside out </summary>
+        public string InvertedOverlapping => Path.Combine(Dir, "inverted_overlapping.off");
         /// <summary> unit sphere, 6 * 2 * 8^2 triangles </summary>
         public string Sphere => Path.Combine(Dir, "sphere.ply");
         /// <summary> the sphere with every 20th triangle reversed (closed, orientation not consistent) </summary>
@@ -51,6 +53,9 @@ namespace g3cli.Tests
             DMesh3 both = new DMesh3(cube);
             new MeshEditor(both).AppendMesh(shifted);
             Write(Overlapping, both);
+            DMesh3 inverted = new DMesh3(both);
+            inverted.ReverseOrientation();
+            Write(InvertedOverlapping, inverted);
 
             DMesh3 sphere = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 9 }.Generate().MakeDMesh();
             Write(Sphere, sphere);

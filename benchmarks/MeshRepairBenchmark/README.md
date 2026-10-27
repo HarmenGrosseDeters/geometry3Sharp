@@ -180,7 +180,9 @@ Known remaining issues:
 Modes (`BENCH_REPAIR`):
 - `hybrid_topo`: cleanup; if the result is not topologically clean, solidify the repaired mesh
   (`MeshWindingNumberSolidify`, adaptive dual contouring, resolution 128).
-- `hybrid`: as `hybrid_topo`, and exact self-intersections also trigger the solidify.
+- `hybrid`: as `hybrid_topo`, and exact self-intersections also trigger the solidify. `hybrid_reason` is the first
+  failed check of the repair result (`MeshRobustRepair.NotCleanReason`, which decides), `hybrid_defects` all of them
+  (`NotCleanReasons`, computed after the timing).
 - `solidify_dc_adaptive`: solidify the input directly.
 - `robust`: `MeshRobustRepair`, the library version of `hybrid`. In addition, a clean result whose
   solid differs from the input's (volume IoU < 0.99) is replaced by the solidified input.
@@ -1115,3 +1117,30 @@ The IoU uses the input's winding number solid, which the same interior faces als
 next measure to restrict to the outer surface. Of the 64 repaired objects, 17 raise a flag: 14 the sliver share,
 3 the reversed share and 3 the outer edge recall. So on this corpus too the flags list cases to look at, they do
 not change the count.
+
+## Deterministic hole fill (`RemesherPro` queue order)
+57312.stl gave 35796 or 35850 triangles from run to run (about one process in five). `MeshAutoRepair`'s hole
+filling (`MinimalHoleFill`) remeshes the fill with `RemesherPro`, whose parallel smooth and projection passes
+queued the edges for the next pass in thread order; the queue is now processed in a fixed order. The same PR makes
+`RemesherPro`'s projection passes scale invariant (relative tolerances, the face-aligned rotation in double); the
+repair benchmark does not use them.
+
+`robust` on both selections, `BENCH_P=2 TIMEOUT=300`, master `6ec47ed` before, the change after (the times of the
+before run are not comparable: other tests ran on the machine during it):
+
+| | first selection, before | after | holdout, before | after |
+|---|---|---|---|---|
+| repaired | 272 | 273 | 270 | 270 |
+| clean + no exact self-intersections | 397 | 398 | 395 | 395 |
+| meshes with another triangle count | | 62 | | 53 |
+| ... of them exact resolve / solidify / wrap | | 58 / 1 / 2 | | 51 / 2 / 0 |
+| ... Hausdorff (max), median | 1.28 % | 1.28 % | 0.88 % | 0.88 % |
+| ... IoU, median | 0.9997 | 0.9997 | 0.9998 | 0.9997 |
+| path changes | | 6 | | 3 |
+
+The hole fills are triangulated differently (the queue order changed for serial runs too), which changes the
+triangle count of about one mesh in seven and, through the later stages, the path of 9 meshes in both directions:
+1102667.stl is now repaired (exact resolve instead of the wrap), 42637.stl now just misses the Hausdorff bound
+(1.00 % instead of 0.99 %), 1505037.stl and 94484.stl are wrapped instead of resolved exactly (IoU 0.993 → 0.926 and
+0.991 → 0.973, neither repaired before), 1368057.stl no longer times out. 57312.stl now gives 36154 triangles every
+run (10 of 10 processes with the final build).
