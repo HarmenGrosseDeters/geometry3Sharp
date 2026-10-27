@@ -306,12 +306,12 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void Bowtie_NotValid_Finite()
         {
-            // two tetrahedra sharing a vertex, mirrored in x only (so the normal there does not vanish: the vertex is not
-            // Valid because it is a bowtie, not for want of a normal)
+            // two tetrahedra sharing a vertex; the second one's far face is tilted, so the normals at the shared vertex do
+            // not cancel: the vertex is not Valid because it is a bowtie, not for want of a normal
             var m = new DMesh3();
             m.AppendVertex(Vector3d.Zero);
             foreach (double s in new[] { 1.0, -1.0 }) {
-                int a = m.AppendVertex(new Vector3d(s, 0, 0)), b = m.AppendVertex(new Vector3d(s, 1, 0)), c = m.AppendVertex(new Vector3d(s, 0, 1));
+                int a = m.AppendVertex(new Vector3d(s, 0, 0)), b = m.AppendVertex(new Vector3d(s, 1, 0)), c = m.AppendVertex(new Vector3d(s > 0 ? s : -0.5, 0, 1));
                 int[][] faces = { new[] { 0, b, a }, new[] { 0, a, c }, new[] { 0, c, b }, new[] { a, b, c } };
                 foreach (var f in faces) {
                     if (s < 0) Array.Reverse(f);
@@ -319,7 +319,7 @@ namespace geometry3Sharp.Tests
                 }
             }
             Assert.True(m.IsBowtieVertex(0));
-            Assert.True(MeshAnalysisNormals.VertexNormal(m, 0).Length > 0.5);
+            Assert.True(MeshAnalysisNormals.VertexNormal(m, 0).Length > 0.1);
             var c0 = MeshCurvature.Compute(m);
             AssertFinite(c0);
             Assert.False(c0.Valid[0]);

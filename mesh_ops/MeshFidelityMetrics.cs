@@ -1037,10 +1037,14 @@ namespace gs
                 if (interpolate(mesh, c, s.Tid, s.Bary, out h0, out k0) == false)
                     continue;
                 h0 *= size; k0 *= s2;
+                if (double.IsInfinity(h0) || double.IsInfinity(k0))
+                    continue;       // overflow of the normalization (a vertex area below 1e-308 of Size^2): no value
                 hl.Add(h0); kl.Add(k0);
                 if (!(s.Distance < matchDistance) || interpolate(other, co, s.ClosestTid, s.ClosestBary, out h1, out k1) == false)
                     continue;
                 h1 *= size; k1 *= s2;
+                if (double.IsInfinity(h1) || double.IsInfinity(k1))
+                    continue;
                 r.Samples++;
                 eh += Math.Abs(h0 - h1); ek += Math.Abs(k0 - k1);
                 ah += Math.Abs(h0); ak += Math.Abs(k0);
