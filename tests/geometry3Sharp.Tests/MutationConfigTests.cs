@@ -39,8 +39,9 @@ namespace geometry3Sharp.Tests
                         .Add((long.Parse(m.Groups[2].Value), long.Parse(m.Groups[3].Value)));
             Assert.Equal(SplitMethod.Keys.OrderBy(k => k), spans.Keys.OrderBy(k => k));
             foreach (var kv in spans) {
-                // (as Stryker reads it: the text without a byte order mark, line endings as they are)
-                string text = File.ReadAllText(Path.Combine(root, kv.Key));
+                // (as Stryker reads it in the mutation workflow, on Linux: the text without a byte order mark, with the
+                // line endings of the repository, LF; a checkout on Windows may have converted them to CRLF)
+                string text = File.ReadAllText(Path.Combine(root, kv.Key)).Replace("\r\n", "\n");
                 var s = kv.Value.OrderBy(x => x.a).ToList();
                 Assert.Equal(0, s[0].a);
                 Assert.True(s[s.Count - 1].b >= text.Length, kv.Key + ": the last shard does not reach the end");
