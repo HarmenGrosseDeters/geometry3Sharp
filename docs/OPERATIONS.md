@@ -76,6 +76,18 @@ input lies on an edge that other pieces meet: there no inside/outside choice fit
 run the edge the same way are not joined, and the result is open along the edge; `ConflictEdges` counts these edges
 (0 for closed inputs).
 
+**By design** (not defects; tested in `ExactBooleanByDesignTests`):
+- **Open inputs give open results.** An open mesh has no inside in the exact sense; its solid is where the
+  generalized winding number is above 1/2, and that solid is not bounded by a closed surface in general. Where the
+  result keeps pieces of the open input, it ends at the input's open boundary (boundary edges,
+  `IsWindingClosed(result)` false). Set `AllowOpenMeshes = false` to refuse open inputs (`Status` `OpenInput`), or
+  close them first (`MeshRobustRepair`, `MeshAlphaWrap`).
+- **Solids that touch along an edge give a result that is non-manifold there**, as in Manifold. The union of two
+  boxes that share only an edge is two solids meeting in a line: the four triangles at the edge are split into two
+  manifold pairs, with copies of the edge's vertices (`NonManifoldEdges` counts these edges), so the `DMesh3` is
+  closed and manifold, but welded by position the edge has four triangles.
+  `MeshRobustRepair.SeparateTouchingVertices` moves such contacts apart if a strictly manifold mesh is needed.
+
 ## The examples
 
 ### Booleans
