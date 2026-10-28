@@ -8,7 +8,7 @@
     "mutate": [
       "**/mesh_ops/ExactMeshBoolean.cs{47051..1000000}"
     ],
-    "test-case-filter": "FullyQualifiedName~ExactMeshBooleanTests|FullyQualifiedName~ExactMeshBooleanNaryTests|FullyQualifiedName~ExactBooleanOrientationTests|FullyQualifiedName~ExactBooleanReuseTests|FullyQualifiedName~ExactBooleanEdgeOrderTests|FullyQualifiedName~MeshRoundingRepairTests.ExactVertices|FullyQualifiedName~ExactBooleanFilterTests|FullyQualifiedName~BooleanPerformanceTests",
+    "test-case-filter": "FullyQualifiedName~ExactMeshBooleanTests|FullyQualifiedName~ExactMeshBooleanNaryTests|FullyQualifiedName~ExactBooleanOrientationTests|FullyQualifiedName~ExactBooleanReuseTests|FullyQualifiedName~ExactBooleanEdgeOrderTests|FullyQualifiedName~MeshRoundingRepairTests.ExactVertices|FullyQualifiedName~ExactBooleanFilterTests|FullyQualifiedName~BooleanPerformanceTests|FullyQualifiedName~ExactBooleanSurvivorTests|FullyQualifiedName~ExactBooleanOpenInputTests|FullyQualifiedName~ExactBooleanIssueCasesTests|FullyQualifiedName~ExactBooleanByDesignTests",
     "ignore-methods": [
       "*PredicateStats.*"
     ],
@@ -23,8 +23,8 @@
     ],
     "thresholds": {
       "high": 90,
-      "low": 65,
-      "break": 63
+      "low": 81,
+      "break": 79
     },
     "concurrency": 2
   }

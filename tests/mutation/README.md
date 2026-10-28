@@ -128,8 +128,8 @@ each). Each shard runs the unit tests of its file (the `test-case-filter` of its
 
 | Shard | Mutated | Tests |
 |---|---|---|
-| `rounding` | `mesh_ops/MeshRoundingRepair.cs` | `MeshRoundingRepairTests`, `MeshRoundingRepairStrategyTests`, `ExactMeshBooleanTests` |
-| `boolean-1`, `boolean-2` | `mesh_ops/ExactMeshBoolean.cs`, split at `front_winding` | `ExactMeshBooleanTests`, `ExactMeshBooleanNaryTests`, `ExactBooleanOrientationTests`, `ExactBooleanReuseTests`, `ExactBooleanEdgeOrderTests`, the `ExactVertices` tests of `MeshRoundingRepairTests`, `BooleanPerformanceTests`; `boolean-2` also `ExactBooleanFilterTests` |
+| `rounding` | `mesh_ops/MeshRoundingRepair.cs` | `MeshRoundingRepairTests`, `MeshRoundingRepairStrategyTests`, `ExactMeshBooleanTests`, `ExactBooleanSurvivorTests`, `ExactBooleanIssueCasesTests`, `ExactBooleanByDesignTests` |
+| `boolean-1`, `boolean-2` | `mesh_ops/ExactMeshBoolean.cs`, split at `front_winding` | `ExactMeshBooleanTests`, `ExactMeshBooleanNaryTests`, `ExactBooleanOrientationTests`, `ExactBooleanReuseTests`, `ExactBooleanEdgeOrderTests`, the `ExactVertices` tests of `MeshRoundingRepairTests`, `BooleanPerformanceTests`, `ExactBooleanOpenInputTests`, `ExactBooleanSurvivorTests`, `ExactBooleanIssueCasesTests`, `ExactBooleanByDesignTests`; `boolean-2` also `ExactBooleanFilterTests` |
 | `arrangement-1`, `arrangement-2` | `mesh_ops/ExactMeshArrangement.cs`, split at `build_triangles` | `ExactFilterBoundTests`, `ExactArrangementScalingTests`, `ExactMeshBooleanTests`, `ExactBooleanEdgeOrderTests`, `ExactBooleanBuildingBlockTests`, the `ExactVertices` tests, `BooleanPerformanceTests`, `ExactImplicitPointTests` |
 | `planar` | `mesh_ops/ExactPlanarSimplify.cs`, `mesh_ops/ExactTriangulation2.cs` | `ExactPlanarSimplifyTests`, `ExactTriangulation2Tests`, `ExactBooleanBuildingBlockTests`, `ExactMeshBooleanTests` |
 
@@ -168,9 +168,9 @@ Mutation score per shard (killed and timeouts over all tested and uncovered muta
 
 | Shard | Before | After | Break |
 |---|---|---|---|
-| `rounding` | 54.1 % (370 killed, 17 timeouts, 264 survived, 64 no coverage) | 59.9 % (418 killed, 10 timeouts, 231 survived, 56 no coverage) | 57 |
-| `boolean-1` | 86.5 % (317 killed, 55 timeouts, 45 survived, 13 no coverage) | 80.0 % (334 killed, 10 timeouts, 73 survived, 13 no coverage) | 77 |
-| `boolean-2` | 60.8 % (382 killed, 8 timeouts, 199 survived, 53 no coverage) | 65.6 % (454 killed, 7 timeouts, 161 survived, 81 no coverage) | 63 |
+| `rounding` | 54.1 % (370 killed, 17 timeouts, 264 survived, 64 no coverage) | 59.9 % (418 killed, 10 timeouts, 231 survived, 56 no coverage); 28 October, second pass: **62.8 %** (416 killed, 14 timeouts, 230 survived, 25 no coverage) | 59 (was 57) |
+| `boolean-1` | 86.5 % (317 killed, 55 timeouts, 45 survived, 13 no coverage) | 80.0 % (334 killed, 10 timeouts, 73 survived, 13 no coverage); second pass: **87.7 %** (385 killed, 58 timeouts, 47 survived, 13 no coverage) | 79 (was 77) |
+| `boolean-2` | 60.8 % (382 killed, 8 timeouts, 199 survived, 53 no coverage) | 65.6 % (454 killed, 7 timeouts, 161 survived, 81 no coverage); second pass: **89.3 %** (534 killed, 105 timeouts, 50 survived, 27 no coverage) | 79 (was 63) |
 | `arrangement-1` | 83.0 % (516 killed, 164 timeouts, 113 survived, 26 no coverage) | 85.8 % (440 killed, 263 timeouts, 103 survived, 13 no coverage) | 67 |
 | `arrangement-2` | 94.7 % (668 killed, 354 timeouts, 29 survived, 28 no coverage) | 95.2 % (566 killed, 461 timeouts, 24 survived, 28 no coverage) | 72 |
 | `planar` | 60.0 % (348 killed, 12 timeouts, 189 survived, 51 no coverage) | 69.0 % (402 killed, 12 timeouts, 157 survived, 29 no coverage) | 67 |
@@ -238,5 +238,34 @@ Open (real gaps, not yet tested):
   against `&=`, the corner index), the strict and non-strict orientation tests of the segment crossings, and the
   padding and slack of the candidate boxes (larger boxes only cost time). A third of its mutants time out: a
   broken arrangement makes the boolean loop, which counts as killed but makes the shard slow.
+
+**Second pass (28 October 2026, run 40623882573 on the master state).** Read from the job logs (step "Surviving
+mutants"; the artifacts are not reachable from the cloud sessions):
+- `rounding` 59.9 % (406 killed, 22 timeouts, 231 survived, 56 no coverage). 30 of the 56 uncovered mutants were the
+  unused `overlaps` (removed in #185). New tests (`ExactBooleanSurvivorTests`): `Apply` on an empty mesh (the early
+  return was uncovered), and an instance reused on another mesh: without `touched.Clear()` a thin closed component
+  without defects was removed because the vertices with the same ids had been edited in the first run. Equivalent or
+  practically equivalent, no test: `changed.Clear()` at the start (reassigned before its first read), `>=` against
+  `>` on the sums of the edit counts (they only decide whether to recount the pairs, see above), `area(t) <= areaEps`
+  (equal only when the area is exactly the bound), the dirty-triangle tree and `version` (performance only, see
+  above). Not equivalent, but untested by design: the comparer of the sort of the defects (an order of equally
+  plausible edits, a heuristic without a specified result). Open: `--pass` (the loop ignores `MaxPasses` and retries
+  every defect in every pass; a test with `MaxPasses = 1` on a mesh that needs two passes would kill it), the stale
+  boundary state on reuse with another mesh (`inputBoundary`, `inputBoundaryEdges`, `slidTowards`), the `-0.0`
+  normalization of the position keys (`p.x + 0.0`), the bowtie and boundary guards of the contraction, the guards of
+  `try_zip` and the moves (`fix_cap`, lines 839-915 of that run), whose effects need hand-built meshes per guard.
+- `boolean-2` 65.6 %: the paths of open input that cannot be paired around an edge (`ConflictEdges`, the
+  `append_triangle` fallback with copies of vertices, `can_add_edge`) had no coverage because `ExactBooleanOpenInputTests`
+  was in no filter; it is now in both boolean shards. The exact midpoints of split edges (`ComputeExactVertices` where
+  the surface is connected around both ends of a touching edge) had no coverage: `ExactBooleanSurvivorTests` checks
+  them, also with two ends of different denominators. Equivalent: the filter bounds (see above), the `>>` against `>>>`
+  of non-negative edge keys. Diagnostics only (public, unchecked): the `Counts` keys, `exactSides--`.
+- The new boolean test classes (`ExactBooleanIssueCasesTests`, `ExactBooleanByDesignTests`) are in the filters of
+  `rounding`, `boolean-1` and `boolean-2`.
+- Scores of this pass (run 40682791644, master `88b9bc7` with these tests; table above): `rounding` 59.9 -> 62.8 %,
+  `boolean-1` 80.0 -> 87.7 %, `boolean-2` 65.6 -> 89.3 %. Without the timeouts (killed over all): `boolean-1` 76 % and
+  `boolean-2` 75 % (before 78 % and 65 %): the uncovered paths of open input are now killed, and the slower open-input
+  tests turn more mutants into timeouts, whose number varies between runs. The thresholds follow the rule above (the
+  score rounded down, less two points, less half the share of timeouts): `rounding` 59, `boolean-1` 79, `boolean-2` 79.
 
 Set `break` from a measured score as above and only raise it.
