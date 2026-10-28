@@ -274,9 +274,10 @@ namespace geometry3Sharp.Tests
             MeshTransforms.Translate(b, new Vector3d(0.31, 0.27, 0.05) * (1 + rand.NextDouble()));
             var spheres = new ExactMeshArrangement(new List<DMesh3>() { a, b });
             spheres.Compute();
-            int shortcut = 0, total = 0, zeros = 0;
+            int shortcut = 0, total = 0, zeros = 0, segmentsShortcut = 0;
             foreach (var arr in new[] { Build(seed), spheres }) {
-                var tris = arr.Triangles.Where(t => t.Segments.Count > 0).Take(6).ToList();
+                // (triangles with coplanar ones first: they have crossings of segments)
+                var tris = arr.Triangles.Where(t => t.Segments.Count > 0).OrderByDescending(t => t.Coplanar.Count > 0).Take(6).ToList();
                 var results = new List<(ExactMeshArrangement.InputTriangle, int, int, int, int)>();
                 foreach (bool disable in new[] { false, true }) {
                     arr.DisableFilters = disable;
@@ -291,8 +292,11 @@ namespace geometry3Sharp.Tests
                                     var open = new[] { p, q, r }.Where(x => arr.KindOf(x) == ExactMeshArrangement.PointKind.EdgePlane
                                         || arr.KindOf(x) == ExactMeshArrangement.PointKind.Segments).Where(x => arr.HasExactPoint(x) == false).ToList();
                                     int o = arr.Orient(t, p, q, r);
-                                    if (o == 0 && open.Count > 0 && open.All(x => arr.HasExactPoint(x) == false))
+                                    if (o == 0 && open.Count > 0 && open.All(x => arr.HasExactPoint(x) == false)) {
                                         shortcut++;
+                                        if (open.Any(x => arr.KindOf(x) == ExactMeshArrangement.PointKind.Segments))
+                                            segmentsShortcut++;
+                                    }
                                     results.Add((t, p, q, r, o));
                                 }
                     }
@@ -304,6 +308,23 @@ namespace geometry3Sharp.Tests
                 zeros += results.Count(x => x.Item5 == 0);
             }
             Assert.True(total > 1000 && zeros > shortcut && shortcut > 0, $"{total} {zeros} {shortcut}");
+            // (the coplanar boxes of Build have crossings of segments)
+            if (seed % 4 == 3)
+                Assert.True(segmentsShortcut > 0, $"{segmentsShortcut}");
+
+            // collinear points without a construction that says so go to the exact stage, which gives 0: three integer
+            // points (the double path) and three rational points (W = 2, the integer determinant) on one line
+            var arr2 = Build(seed);
+            var t2 = arr2.Triangles.First(t => t.Degenerate == false);
+            ExactPoint3 c0 = arr2.Exact(t2.Corners[0]), c1 = arr2.Exact(t2.Corners[1]);
+            ExactPoint3 far = ExactPoint3.Create(3 * c1.X - 2 * c0.X, 3 * c1.Y - 2 * c0.Y, 3 * c1.Z - 2 * c0.Z, 1);
+            ExactPoint3 half = ExactPoint3.Create(c0.X + c1.X, c0.Y + c1.Y, c0.Z + c1.Z, 2);
+            ExactPoint3 third = ExactPoint3.Create(c0.X + 2 * c1.X, c0.Y + 2 * c1.Y, c0.Z + 2 * c1.Z, 3);
+            int ifar = arr2.AddPoint(far), ihalf = arr2.AddPoint(half), ithird = arr2.AddPoint(third);
+            Assert.Equal(0, arr2.Orient(t2, t2.Corners[0], t2.Corners[1], ifar));
+            Assert.Equal(0, arr2.Orient(t2, ihalf, ithird, ifar));
+            Assert.Equal(0, arr2.Orient(t2, t2.Corners[0], ihalf, ithird));
+            Assert.NotEqual(0, arr2.Orient(t2, t2.Corners[0], ihalf, t2.Corners[2]));
         }
 
         [Fact]

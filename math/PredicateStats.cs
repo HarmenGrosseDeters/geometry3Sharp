@@ -21,6 +21,7 @@ namespace g3
             ArrExactPoint,                                  // exact point constructions (BigInteger)
             ArrImplicitOverflow,                            // implicit points without a usable approximation
             WindingPlaneSide, WindingOrient3d,              // ExactMeshBoolean ray tests
+            ArrOrientCollinear,                             // Orient decided by construction (a point on the line of the others)
             Count
         }
 
@@ -28,7 +29,7 @@ namespace g3
             "orient2d", "orient3d", "incircle",
             "arr.orient", "arr.incircle", "arr.along", "arr.compare",
             "arr.exact_point", "arr.implicit_overflow",
-            "winding.plane_side", "winding.orient3d" };
+            "winding.plane_side", "winding.orient3d", "arr.orient_collinear" };
 
         // (padded: one cache line per counter pair)
         static readonly long[] counters = new long[16 * (int)Kind.Count];

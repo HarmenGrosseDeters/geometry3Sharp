@@ -1067,7 +1067,6 @@ namespace g3
         }
 
 
-        /// <summary> orientation of three points in the projection of triangle t, +1 if counter-clockwise like t </summary>
         // x is constructed on the line through a and b, exactly: an edge-plane point on its edge, a crossing of two
         // segments on either (by the canonical ids of the edge's ends: other ids of the same points also count)
         bool on_line_by_construction(int x, int a, int b)
@@ -1089,6 +1088,7 @@ namespace g3
         /// <summary> for tests: the exact point of id has been computed </summary>
         internal bool HasExactPoint(int id) { return exactPoints[id] != null; }
 
+        /// <summary> orientation of three points in the projection of triangle t, +1 if counter-clockwise like t </summary>
         [MethodImpl(JitHints.Optimize)]
         public int Orient(InputTriangle t, int p, int q, int r)
         {
@@ -1103,11 +1103,13 @@ namespace g3
                 if (fdet > err) return t.Sign;
                 if (-fdet > err) return -t.Sign;
             }
-            PredicateStats.ExactStage(PredicateStats.Kind.ArrOrient);
             // a point constructed on the line through the other two: 0 without the exact points (on real inputs almost
-            // all exact stages are such, the points on an edge of the triangle that it was cut by)
-            if (on_line_by_construction(r, p, q) || on_line_by_construction(p, q, r) || on_line_by_construction(q, r, p))
+            // all exact stages were such, the points on an edge of the triangle that it was cut by)
+            if (on_line_by_construction(r, p, q) || on_line_by_construction(p, q, r) || on_line_by_construction(q, r, p)) {
+                PredicateStats.Call(PredicateStats.Kind.ArrOrientCollinear);
                 return 0;
+            }
+            PredicateStats.ExactStage(PredicateStats.Kind.ArrOrient);
             ExactBox ba = exact_box(p), bb = exact_box(q), bc = exact_box(r);
             if (ba.IsDouble && bb.IsDouble && bc.IsDouble) {
                 // integer points with double coordinates: the same determinant (W = 1), by the adaptive predicate
