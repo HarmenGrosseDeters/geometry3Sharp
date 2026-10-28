@@ -180,6 +180,17 @@ selectively.
     own to check existing results); **1b** the overlay with the terrain and the connected catch line; **1c**
     volumes, failure kinds, accuracy reporting, km-scale benchmarks. Berms after phase 1. Priority: before the
     planned remesher work; starts after the `ExactMeshBoolean` work that is being scoped now.
+  - [ ] 2D spatial index: a loose quadtree over AABBs (TIN triangles, edges, points) with insert / remove, height
+    queries and nearest-neighbour queries, complementing the existing hash grids. Clean-room from the behavioural
+    spec [design/QUADTREE2D_SPEC.md](design/QUADTREE2D_SPEC.md) (owner decisions in its §7) and the literature only;
+    targets 1M triangles built in about 100-260 ms, height query about 2.5 µs, on net48 and net8. Comes after the
+    `ExactMeshBoolean` work and before terrain phase 1; may speed up the height-field check of
+    `TerrainVolumeDifference`.
+  - [ ] Public exact 2D meshing (constrained / conforming Delaunay, quality refinement with a size function, holes
+    and regions by ring, snap rounding to an output grid), a clean-room replacement for Triangle.NET: from the
+    behavioural spec [design/MESHING2D_SPEC.md](design/MESHING2D_SPEC.md) (owner decisions in its §5) and the
+    papers only (Ruppert, Chew, Shewchuk 2002, Üngör, Miller-Pav-Walkington, Cheng-Dey-Shewchuk 2012); never
+    from Triangle / Triangle.NET code. Builds on `ExactTriangulation2` and the adaptive predicates.
 
 ## Release: when it's done
 
