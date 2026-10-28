@@ -420,6 +420,38 @@ Each operation with a nested loop over the input gets a scaling test, which coun
 (candidate pairs, visited cells, or time with a wide margin). It is cheaper and less noisy than timing.
 Past cases: #63, #72, #105.
 
+## 4a. Making agent work verifiable
+
+Most rules in CLAUDE.md are enforced by review only. These items make them machine-checked, or add oracles that do
+not depend on the implementer's own tests. Order of priority:
+
+1. **New tests fail on the old code**: a CI job runs the tests a PR adds against the base branch; for a bug fix they
+   must fail there. Catches vacuous tests (one was found in review in #186).
+2. **API compatibility with upstream 1.0.324**: .NET package validation (`EnablePackageValidation` with baseline
+   1.0.324) in the pack step.
+3. **Banned APIs and analyzers in exact code**: a banned-API analyzer forbids `Math.FusedMultiplyAdd`, `float` and
+   parallel floating-point reductions in `math/Exact*`, `math/AdaptivePredicates.cs` and `mesh_ops/ExactMesh*`;
+   warnings as errors there.
+4. **Hidden acceptance tests (clean room for tests)**: for spec-driven work (QUADTREE2D_SPEC, MESHING2D_SPEC) a
+   separate agent writes acceptance tests from the spec (worked examples, failure catalogues F-*/D-*); the
+   implementing session may not change them.
+5. **Quality ratchet in CI**: a small fixed benchmark subset with stored metrics (JSON: clean results, max
+   deviation, self-intersections); a worse number fails the build.
+6. **Same-runner performance A/B**: base and head alternate on one runner, with spread; a regression above a
+   threshold is reported. Cross-session numbers drift 20-30 %.
+7. **Reproducible claims**: every number in a PR cites the command and attaches the raw output; the reviewer re-runs
+   a sample (as `benchmarks/BooleanComparison/perf/` already allows).
+8. **Changed-line coverage gate**: new or changed lines must be executed by tests.
+9. **Property-based tests with shrinking** (CsCheck, MIT, or FsCheck, BSD), generalizing `MeshMinimizer`.
+10. **Metamorphic relations beyond similarity**: vol(A∪B) = vol A + vol B - vol(A∩B); (A-B) ∪ (A∩B) = A;
+    commutativity; subdividing input triangles or permuting triangle / vertex order leaves the result geometry
+    unchanged; terrain: never steeper, cut + fill consistent; 2D meshing: input segments are unions of output edges.
+11. **Cross-platform determinism**: the bit-identity hashes weekly on Windows and arm64, and the net48 tests (not only
+    the build) on a Windows runner.
+12. **Tool-checked error bounds**: new floating-point filter bounds also derived with FPTaylor (MIT) and compared in
+    the bounds review.
+13. **Compiled doc examples**: code in README and docs/OPERATIONS.md compiles and runs in CI.
+
 ## 4. Assessment of the candidates
 
 | Candidate | Value for robustness | Cost | Decision |
