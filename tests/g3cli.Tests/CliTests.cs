@@ -329,6 +329,9 @@ namespace g3cli.Tests
             AssertOk(exit, r);
             Assert.True(B(r["exact_winding_a"]));
             Assert.True(I(r["boolean"]["intersecting_pairs"]) > 0);
+            // the result is repaired after the rounding (ExactMeshBoolean.SafeRounding, the default) and verified clean
+            Assert.True(B(r["boolean"]["safe_rounding"]));
+            Assert.True(B(r["boolean"]["rounding_clean"]));
             AssertCleanCube(r["mesh"], volume);
 
             (exit, r) = Run("measure", output);
