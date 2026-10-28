@@ -82,6 +82,9 @@ namespace g3
             sealed class PlaneData
             {
                 public Plane P;
+                // (the exact edge planes only when they are used, in the exact stages of some coincident constructions:
+                // they live as long as the triangle and are larger than the plane, so the GC would copy them for every
+                // triangle near an intersection; their approximations are kept)
                 public Plane[] EdgePlanes;
                 public double[] PlaneApprox;
                 public int Axis, Sign;
@@ -90,7 +93,13 @@ namespace g3
 
             public Plane P { get { return ensure().P; } }
             /// <summary> edge k: Corners[k] -> Corners[k+1], plane through the edge perpendicular to the triangle </summary>
-            public Plane[] EdgePlanes { get { return ensure().EdgePlanes; } }
+            public Plane[] EdgePlanes
+            {
+                get {
+                    PlaneData d = ensure();
+                    return System.Threading.Volatile.Read(ref d.EdgePlanes) ?? compute_edge_planes(d);
+                }
+            }
             /// <summary> the planes P, EdgePlanes[0..2] as doubles (A, B, C, D each, relative error at most 2^-52) </summary>
             internal double[] PlaneApprox { get { return ensure().PlaneApprox; } }
             /// <summary> unnormalized normal (b-a)x(c-a) </summary>
@@ -119,18 +128,32 @@ namespace g3
                 BigInteger ax = BigInteger.Abs(nx), ay = BigInteger.Abs(ny), az = BigInteger.Abs(nz);
                 int ta = (ax >= ay && ax >= az) ? 0 : (ay >= az) ? 1 : 2;
                 int ts = ((ta == 0) ? nx : (ta == 1) ? ny : nz).Sign;
-                var ep = new Plane[3];
-                for (int k = 0; k < 3; ++k)
-                    ep[k] = edge_plane(nx, ny, nz, arr.Exact(Corners[k]), arr.Exact(Corners[(k + 1) % 3]));
+                Plane[] ep = edge_planes(nx, ny, nz);
                 var pa = new double[16];
                 for (int k = 0; k < 4; ++k) {
                     Plane q = (k == 0) ? tp : ep[k - 1];
                     pa[4 * k] = (double)q.A; pa[4 * k + 1] = (double)q.B; pa[4 * k + 2] = (double)q.C; pa[4 * k + 3] = (double)q.D;
                 }
                 // (another thread may store the same values)
-                var d = new PlaneData() { P = tp, Axis = ta, Sign = ts, EdgePlanes = ep, PlaneApprox = pa };
+                var d = new PlaneData() { P = tp, Axis = ta, Sign = ts, PlaneApprox = pa };
                 System.Threading.Volatile.Write(ref planes, d);
                 return d;
+            }
+
+            Plane[] edge_planes(BigInteger nx, BigInteger ny, BigInteger nz)
+            {
+                var ep = new Plane[3];
+                for (int k = 0; k < 3; ++k)
+                    ep[k] = edge_plane(nx, ny, nz, arr.Exact(Corners[k]), arr.Exact(Corners[(k + 1) % 3]));
+                return ep;
+            }
+
+            Plane[] compute_edge_planes(PlaneData d)
+            {
+                // (another thread may store the same values)
+                Plane[] ep = edge_planes(d.P.A, d.P.B, d.P.C);
+                System.Threading.Volatile.Write(ref d.EdgePlanes, ep);
+                return ep;
             }
 
             // plane through the integer points p, q, perpendicular to the triangle plane
