@@ -9,6 +9,7 @@
       "**/math/AdaptivePredicates.cs"
     ],
     "test-case-filter": "FullyQualifiedName~ExactPredicatesTests|FullyQualifiedName~ExactImplicitPointTests|FullyQualifiedName~ExactBooleanBuildingBlockTests|FullyQualifiedName~PredicateDifferentialTests|FullyQualifiedName~ExactPoint3ConversionTests",
+    "ignore-methods": [ "*PredicateStats.*" ],
     "coverage-analysis": "perTest",
     "configuration": "Release",
     "additional-timeout": 30000,

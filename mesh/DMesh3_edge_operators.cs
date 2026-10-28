@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 
 namespace g3
 {
@@ -1093,6 +1094,7 @@ namespace g3
             triangle_edges[i + 2] = e2;
         }
 
+        [MethodImpl(JitHints.Optimize)]
         int add_edge(int vA, int vB, int tA, int tB = InvalidID)
         {
             if (vB < vA) {

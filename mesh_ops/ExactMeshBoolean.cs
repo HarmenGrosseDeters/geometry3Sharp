@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Numerics;
+using System.Runtime.CompilerServices;
 
 namespace g3
 {
@@ -192,6 +193,8 @@ namespace g3
         public Dictionary<string, long> PhaseMilliseconds = new Dictionary<string, long>();
         /// <summary> sizes of the intermediate results, for diagnostics </summary>
         public Dictionary<string, long> Counts = new Dictionary<string, long>();
+        /// <summary> bytes allocated per phase (by all threads; 0 on netstandard2.0), for profiling </summary>
+        internal Dictionary<string, long> PhaseAllocatedBytes = new Dictionary<string, long>();
 
 
         /// <summary> set up the boolean of meshes a and b; call Compute() to run it </summary>
@@ -204,6 +207,7 @@ namespace g3
         /// set up an operation on any number of meshes in one arrangement: union (inside any), intersection
         /// (inside all) or difference (inside the first and none of the others); call Compute() to run it
         /// </summary>
+        [MethodImpl(JitHints.Optimize)]
         public ExactMeshBoolean(IEnumerable<DMesh3> meshes, Operations op)
         {
             Meshes = new List<DMesh3>(meshes ?? new DMesh3[0]);
@@ -259,6 +263,7 @@ namespace g3
         /// (Status Success). An empty result (for example the intersection of disjoint meshes) is a success with
         /// an empty Result mesh.
         /// </summary>
+        [MethodImpl(JitHints.Optimize)]
         public bool Compute()
         {
             Result = null;
@@ -272,7 +277,9 @@ namespace g3
             ExactWindingA = ExactWindingB = false;
             ExactWinding = null;
             PhaseMilliseconds = new Dictionary<string, long>();
+            PhaseAllocatedBytes = new Dictionary<string, long>();
             Counts = new Dictionary<string, long>();
+            var inputClock = new PhaseClock(PhaseMilliseconds, PhaseAllocatedBytes);
             arr = null;
             bounds.Clear();
             windingTrees.Clear();
@@ -311,33 +318,36 @@ namespace g3
             if (AllowOpenMeshes == false && Array.IndexOf(ExactWinding, false) >= 0)
                 return fail(BooleanStatus.OpenInput, "input meshes must be closed (every edge used equally often in both directions)");
 
+            inputClock.Lap("input");
             arr = new ExactMeshArrangement(inputs) { SelfIntersections = true, DisableFilters = DisableFilters, CandidateBatchSize = CandidateBatchSize };
             arr.Compute();
             IntersectingPairs = arr.IntersectingPairs - arr.SelfIntersectingPairs;
             SelfIntersectingPairs = arr.SelfIntersectingPairs;
-            PhaseMilliseconds = new Dictionary<string, long>(arr.PhaseMilliseconds);
+            foreach (var kv in arr.PhaseMilliseconds)
+                PhaseMilliseconds[kv.Key] = kv.Value;
+            foreach (var kv in arr.PhaseAllocatedBytes)
+                PhaseAllocatedBytes[kv.Key] = kv.Value;
             Counts["candidate_pairs"] = arr.CandidatePairs;
             Counts["intersecting_pairs"] = arr.IntersectingPairs;
             Counts["points"] = arr.PointCount;
             Counts["merged_points"] = arr.MergedPoints;
             Counts["pieces"] = arr.Output.Count;
 
-            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var clock = new PhaseClock(PhaseMilliseconds, PhaseAllocatedBytes);
             bool[] keep, flip;
             windingSides = windingExactSides = 0;
             classify(out keep, out flip);
-            PhaseMilliseconds["classification"] = sw.ElapsedMilliseconds; sw.Restart();
+            clock.Lap("classification");
             Counts["winding_plane_sides"] = windingSides;
             Counts["winding_plane_sides_exact"] = windingExactSides;
             Result = assemble(keep, flip);
-            PhaseMilliseconds["assembly"] = sw.ElapsedMilliseconds;
+            clock.Lap("assembly");
             Counts["removed_vertices"] = RemovedVertices;
             if (SafeRounding) {
-                sw.Restart();
                 bool[] fixedV = resultFixed;
                 Rounding = new MeshRoundingRepair(Result) { SharedPositionsTouch = true, FixedVertexF = (v) => v < fixedV.Length && fixedV[v] };
                 Rounding.Apply();
-                PhaseMilliseconds["rounding"] = sw.ElapsedMilliseconds;
+                clock.Lap("rounding");
                 Counts["rounding_intersections"] = Rounding.InitialIntersections;
                 Counts["rounding_degenerate"] = Rounding.InitialDegenerate;
                 Counts["rounding_edits"] = Rounding.Collapses + Rounding.Flips + Rounding.Moves + Rounding.Zips;
@@ -355,6 +365,7 @@ namespace g3
         /// nothing changes.
         /// Components that cannot be oriented (Moebius strips) are left as they are.
         /// </summary>
+        [MethodImpl(JitHints.Optimize)]
         DMesh3 oriented(DMesh3 mesh)
         {
             // vertices welded by position
@@ -454,6 +465,7 @@ namespace g3
             return double.IsNaN(x) == false && double.IsInfinity(x) == false;
         }
 
+        [MethodImpl(JitHints.Optimize)]
         bool fail(BooleanStatus status, string error)
         {
             Status = status;
@@ -472,6 +484,7 @@ namespace g3
         }
 
         /// <summary> as Resolve(mesh), with SafeRounding of the result if safeRounding </summary>
+        [MethodImpl(JitHints.Optimize)]
         public static DMesh3 Resolve(DMesh3 mesh, bool safeRounding)
         {
             var op = new ExactMeshBoolean(mesh, new DMesh3(), Operations.Union) { SafeRounding = safeRounding };
@@ -483,6 +496,7 @@ namespace g3
         /// Every edge is used equally often in both directions (by vertex position, so unwelded copies of a
         /// vertex count as the same). Then the winding number is an integer, the same along every ray.
         /// </summary>
+        [MethodImpl(JitHints.Optimize)]
         public static bool IsWindingClosed(DMesh3 mesh)
         {
             // fast path: every edge of the mesh has two triangles that run through it in opposite directions
@@ -534,6 +548,7 @@ namespace g3
 
         // the winding numbers at a point: winding[m] for every mesh m, of which only the meshes in touched can
         // be nonzero (the others are 0)
+        [MethodImpl(JitHints.Optimize)]
         bool inside(int[] winding, List<int> touched)
         {
             if (WindingPredicate != null)
@@ -550,6 +565,7 @@ namespace g3
         }
 
 
+        [MethodImpl(JitHints.Optimize)]
         void classify(out bool[] keep, out bool[] flip)
         {
             List<ExactMeshArrangement.OutputTriangle> output = arr.Output;
@@ -561,23 +577,7 @@ namespace g3
             // the piece is output only from the stack's first triangle
             var stack = new List<int>[n];
             bool[] representative = new bool[n];
-            for (int i = 0; i < n; ++i) {
-                var ot = output[i];
-                var src = arr.Triangles[ot.Source];
-                representative[i] = true;
-                if (src.Coplanar.Count == 0)
-                    continue;
-                int c = centroid(ot);
-                foreach (int ui in src.Coplanar) {
-                    if (inside_coplanar(src, arr.Triangles[ui], c)) {
-                        if (stack[i] == null)
-                            stack[i] = new List<int>() { ot.Source };
-                        stack[i].Add(ui);
-                        if (ui < ot.Source)
-                            representative[i] = false;
-                    }
-                }
-            }
+            gParallel.ForRange(n, (i) => representative[i] = coplanar_stack(output[i], out stack[i]));
 
             // patches: pieces of one mesh connected across edges that are not on an intersection curve, with
             // exactly two pieces of that mesh (then they are oriented consistently, the meshes are winding
@@ -587,13 +587,7 @@ namespace g3
             int[] parent = new int[n];
             for (int i = 0; i < n; ++i)
                 parent[i] = i;
-            Func<int, int> find = (x) => {
-                while (parent[x] != x) {
-                    parent[x] = parent[parent[x]];
-                    x = parent[x];
-                }
-                return x;
-            };
+            Func<int, int> find = (x) => find_root(parent, x);
             var atEdge = new List<int>();
             for (int g0 = 0, g1 = 0; g0 < edgeKeys.Length; g0 = g1) {
                 g1 = g0 + 1;
@@ -627,20 +621,41 @@ namespace g3
 
             // winding numbers in front of each patch, sparse (the nonzero ones, as pairs mesh, winding number):
             // a closed mesh has winding number 0 outside its box, so only the meshes whose box contains the
-            // piece are evaluated
+            // piece are evaluated. Computed in parallel from the first representative piece of each patch (in the
+            // order of the pieces), each with a random number generator of its own (the winding numbers are exact,
+            // the random rays do not change them).
             int nm = arr.Meshes.Count;
-            var patchWinding = new Dictionary<int, int[]>();
-            var rng = new Random(Seed);
             var closedBoxes = new List<AxisAlignedBox3d>();
             var openMeshes = new List<int>();
             for (int m = 0; m < nm; ++m) {
                 closedBoxes.Add(ExactWinding[m] ? input_bounds(m) : AxisAlignedBox3d.Empty);
                 if (ExactWinding[m] == false)
                     openMeshes.Add(m);
+                // (the caches that the parallel evaluation reads)
+                BigInteger[] bmin, bmax;
+                if (ExactWinding[m])
+                    mesh_bounds(m, out bmin, out bmax);
+                else
+                    winding_tree(m);
             }
             var closedTree = new TriangleBoxTree(closedBoxes);
-            var candidates = new List<int>();
-            var sparse = new List<int>();
+            var patchWinding = new int[n][];
+            var firsts = new List<int>();
+            for (int i = 0; i < n; ++i) {
+                if (representative[i] == false)
+                    continue;
+                int root = find(i);
+                if (patchWinding[root] == null) {
+                    patchWinding[root] = noWinding;
+                    firsts.Add(i);
+                }
+            }
+            Patches = firsts.Count;
+            gParallel.ForRange(firsts.Count, () => new List<int>(), (k, candidates) => {
+                int i = firsts[k];
+                patchWinding[find_const(parent, i)] = patch_winding(i, stack[i], closedTree, openMeshes, candidates);
+            });
+
             int[] winding = new int[nm];
             bool[] isTouched = new bool[nm];
             var touched = new List<int>();
@@ -655,40 +670,7 @@ namespace g3
                 if (representative[i] == false)
                     continue;
                 var ot = output[i];
-                int root = find(i);
-                int[] w;
-                if (patchWinding.TryGetValue(root, out w) == false) {
-                    int p = centroid(ot);
-                    // (no error bound needed: the box corners are input doubles, the map from grid to input
-                    // coordinates is exact and its rounding to double monotone, so a point in the exact box rounds
-                    // into the double box; the pad only widens the query, front_winding tests the box exactly)
-                    Vector3d pv = arr.ToInputVector(arr.Exact(p));
-                    double pad = 1e-9 * (Math.Abs(pv.x) + Math.Abs(pv.y) + Math.Abs(pv.z)) + 1e-300;
-                    candidates.Clear();
-                    closedTree.Query(new AxisAlignedBox3d(pv - pad * Vector3d.One, pv + pad * Vector3d.One), (m) => candidates.Add(m));
-                    candidates.AddRange(openMeshes);
-                    candidates.Sort();
-                    sparse.Clear();
-                    foreach (int m in candidates) {
-                        int wm;
-                        if (ExactWinding[m]) {
-                            wm = front_winding(i, m, arr.Trees[m], rng, stack[i], p);
-                        } else {
-                            // generalized winding numbers are thresholded at 1/2: ceil(w - 1/2) > 0 iff w > 1/2,
-                            // and it commutes with adding the integer changes across the patch
-                            // (clamped, so that adding the changes across the patch cannot overflow; NaN gives 0)
-                            double g = Math.Ceiling(front_generalized_winding(i, m, stack[i]) - 0.5);
-                            wm = (g > 1e6) ? 1000000 : (g < -1e6) ? -1000000 : double.IsNaN(g) ? 0 : (int)g;
-                        }
-                        if (wm != 0) {
-                            sparse.Add(m);
-                            sparse.Add(wm);
-                        }
-                    }
-                    w = sparse.ToArray();
-                    patchWinding[root] = w;
-                    Patches++;
-                }
+                int[] w = patchWinding[find(i)];
                 for (int k = 0; k < w.Length; k += 2)
                     add(w[k], w[k + 1]);
                 bool inFront = inside(winding, touched);
@@ -715,8 +697,81 @@ namespace g3
             }
         }
 
+        // the stack of piece ot (null if its source has no coplanar triangles that contain it), and whether the
+        // piece is output from it (its source is the stack's first triangle)
+        [MethodImpl(JitHints.Optimize)]
+        bool coplanar_stack(ExactMeshArrangement.OutputTriangle ot, out List<int> stack)
+        {
+            stack = null;
+            var src = arr.Triangles[ot.Source];
+            if (src.Coplanar.Count == 0)
+                return true;
+            bool representative = true;
+            int c = centroid(ot);
+            foreach (int ui in src.Coplanar) {
+                if (inside_coplanar(src, arr.Triangles[ui], c)) {
+                    if (stack == null)
+                        stack = new List<int>() { ot.Source };
+                    stack.Add(ui);
+                    if (ui < ot.Source)
+                        representative = false;
+                }
+            }
+            return representative;
+        }
+
+        static readonly int[] noWinding = new int[0];
+
+        // the root of x in the union-find forest parent, without changing it (thread-safe for reading)
+        [MethodImpl(JitHints.Optimize)]
+        static int find_const(int[] parent, int x)
+        {
+            while (parent[x] != x)
+                x = parent[x];
+            return x;
+        }
+
+        // the nonzero winding numbers (pairs mesh, winding number) in front of piece i (a patch's first
+        // representative piece) with its stack; candidates: a buffer
+        [MethodImpl(JitHints.Optimize)]
+        int[] patch_winding(int i, List<int> stack, TriangleBoxTree closedTree, List<int> openMeshes, List<int> candidates)
+        {
+            var ot = arr.Output[i];
+            int p = centroid(ot);
+            // (no error bound needed: the box corners are input doubles, the map from grid to input
+            // coordinates is exact and its rounding to double monotone, so a point in the exact box rounds
+            // into the double box; the pad only widens the query, front_winding tests the box exactly)
+            Vector3d pv = arr.ToInputVector(arr.Exact(p));
+            double pad = 1e-9 * (Math.Abs(pv.x) + Math.Abs(pv.y) + Math.Abs(pv.z)) + 1e-300;
+            candidates.Clear();
+            closedTree.Query(new AxisAlignedBox3d(pv - pad * Vector3d.One, pv + pad * Vector3d.One), candidates);
+            candidates.AddRange(openMeshes);
+            candidates.Sort();
+            // (a generator per patch: the patches are evaluated in parallel)
+            var rng = new Random(unchecked(Seed + 1000003 * i));
+            var sparse = new List<int>();
+            foreach (int m in candidates) {
+                int wm;
+                if (ExactWinding[m]) {
+                    wm = front_winding(i, m, arr.Trees[m], rng, stack, p);
+                } else {
+                    // generalized winding numbers are thresholded at 1/2: ceil(w - 1/2) > 0 iff w > 1/2,
+                    // and it commutes with adding the integer changes across the patch
+                    // (clamped, so that adding the changes across the patch cannot overflow; NaN gives 0)
+                    double g = Math.Ceiling(front_generalized_winding(i, m, stack) - 0.5);
+                    wm = (g > 1e6) ? 1000000 : (g < -1e6) ? -1000000 : double.IsNaN(g) ? 0 : (int)g;
+                }
+                if (wm != 0) {
+                    sparse.Add(m);
+                    sparse.Add(wm);
+                }
+            }
+            return sparse.ToArray();
+        }
+
         // the undirected edges of n triangles, sorted: edgeKeys[k] is the edge, edgeTri[k] the triangle; equal
         // edges are adjacent
+        [MethodImpl(JitHints.Optimize)]
         static void group_edges(int n, Func<int, Index3i> tri, out long[] edgeKeys, out int[] edgeTri)
         {
             edgeKeys = new long[3 * n];
@@ -728,9 +783,68 @@ namespace g3
                 edgeKeys[3 * i + 2] = ExactMeshArrangement.EdgeKey(t.c, t.a);
                 edgeTri[3 * i] = edgeTri[3 * i + 1] = edgeTri[3 * i + 2] = i;
             }
-            Array.Sort(edgeKeys, edgeTri);
+            sort_by_key(edgeKeys, edgeTri);
         }
 
+        // the root of x in the union-find forest parent, halving the path
+        static int find_root(int[] parent, int x)
+        {
+            while (parent[x] != x) {
+                parent[x] = parent[parent[x]];
+                x = parent[x];
+            }
+            return x;
+        }
+
+        // the corner slot 3 t + k of point p in triangle t
+        static int slot_of(List<Index3i> tris, int t, int p)
+        {
+            Index3i f = tris[t];
+            return 3 * t + ((f.a == p) ? 0 : (f.b == p) ? 1 : 2);
+        }
+
+        /// <summary>
+        /// sorts keys (non-negative) and items by the keys, stably (equal keys keep the order of their items): a radix
+        /// sort by 11-bit digits (a small count array), skipping the digits that are the same in all keys. (Array.Sort of two arrays is
+        /// not stable, and the runtime's generic sort over these types starts as unoptimized code.)
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal static void sort_by_key(long[] keysIn, int[] itemsIn)
+        {
+            long[] keys = keysIn;
+            int[] items = itemsIn;
+            int n = keys.Length;
+            long[] k2 = new long[n];
+            int[] i2 = new int[n];
+            const int Bits = 11, Digits = 1 << Bits, Mask = Digits - 1;
+            var count = new int[Digits + 1];
+            for (int shift = 0; shift < 64; shift += Bits) {
+                Array.Clear(count, 0, count.Length);
+                for (int i = 0; i < n; ++i)
+                    count[(int)((keys[i] >> shift) & Mask) + 1]++;
+                bool constant = false;
+                for (int d = 0; d < Digits && constant == false; ++d)
+                    constant = count[d + 1] == n;
+                if (constant)
+                    continue;
+                for (int d = 0; d < Digits; ++d)
+                    count[d + 1] += count[d];
+                for (int i = 0; i < n; ++i) {
+                    int at = count[(int)((keys[i] >> shift) & Mask)]++;
+                    k2[at] = keys[i];
+                    i2[at] = items[i];
+                }
+                long[] tk = keys; keys = k2; k2 = tk;
+                int[] ti = items; items = i2; i2 = ti;
+            }
+            // (after an odd number of passes the sorted data is in the other arrays)
+            if (keys != keysIn) {
+                Array.Copy(keys, keysIn, n);
+                Array.Copy(items, itemsIn, n);
+            }
+        }
+
+        [MethodImpl(JitHints.Optimize)]
         static bool same_stack(List<int> a, List<int> b)
         {
             if (a == null || b == null)
@@ -745,6 +859,7 @@ namespace g3
         }
 
 
+        [MethodImpl(JitHints.Optimize)]
         int centroid(ExactMeshArrangement.OutputTriangle ot)
         {
             ExactPoint3 a = arr.Exact(ot.A), b = arr.Exact(ot.B), c = arr.Exact(ot.C);
@@ -757,6 +872,7 @@ namespace g3
         }
 
         // point p (in the common plane of t and u) is in the closed triangle u
+        [MethodImpl(JitHints.Optimize)]
         bool inside_coplanar(ExactMeshArrangement.InputTriangle t, ExactMeshArrangement.InputTriangle u, int p)
         {
             int s = arr.Orient(t, u.Corners[0], u.Corners[1], u.Corners[2]);
@@ -773,6 +889,7 @@ namespace g3
         /// the triangles of the piece's stack. Exact; a new random direction is used if the segment passes
         /// through an edge or vertex.
         /// </summary>
+        [MethodImpl(JitHints.Optimize)]
         int front_winding(int i, int mesh, TriangleBoxTree tree, Random rng, List<int> stack, int p)
         {
             var ot = arr.Output[i];
@@ -815,24 +932,25 @@ namespace g3
 
                 int winding = 0;
                 bool degenerate = false;
+                long sides = 0, exactSides = 0;
                 tree.QuerySegment(pv, rv, pad, (k) => {
                     if (degenerate) return;
                     int ti = tris[k];
                     var U = arr.Triangles[ti];
                     if (U.Degenerate || ti == ot.Source || (stack != null && stack.Contains(ti))) return;
                     // sides of the plane: in doubles where the error bound decides, else exact
-                    windingSides++;
+                    sides++;
                     int sr = DisableFilters ? 2 : plane_side_filtered(U.PlaneApprox, rx, ry, rz);
                     if (sr == 2) {
                         sr = (U.P.A * Rp.X + U.P.B * Rp.Y + U.P.C * Rp.Z - U.P.D).Sign;
-                        windingExactSides++;
+                        exactSides++;
                     }
                     if (sr == 0) { degenerate = true; return; }
-                    windingSides++;
+                    sides++;
                     int sp = DisableFilters ? 2 : plane_side_filtered(U.PlaneApprox, gx, gy, gz);
                     if (sp == 2) {
                         sp = (U.P.A * P.X + U.P.B * P.Y + U.P.C * P.Z - U.P.D * P.W).Sign;
-                        windingExactSides++;
+                        exactSides++;
                     }
                     // sp == 0: the point is in the plane but not in the triangle (it would be in the stack)
                     if (sp == 0 || sp == sr) return;
@@ -851,6 +969,8 @@ namespace g3
                     if (o0 == o1 && o1 == o2)
                         winding += sr;
                 });
+                System.Threading.Interlocked.Add(ref windingSides, sides);
+                System.Threading.Interlocked.Add(ref windingExactSides, exactSides);
                 if (degenerate == false)
                     return winding;
             }
@@ -866,6 +986,7 @@ namespace g3
         /// most 2^-52 each); 2 if the error bound does not decide (also for overflow or tiny values, and for
         /// coordinates below TinyCoordinate, where the relative error of the rounding is not bounded)
         /// </summary>
+        [MethodImpl(JitHints.Optimize)]
         internal static int plane_side_filtered(double[] pa, double x, double y, double z)
         {
             if (tiny(x) || tiny(y) || tiny(z))
@@ -885,22 +1006,31 @@ namespace g3
 
         readonly Dictionary<int, DMeshAABBTree3> windingTrees = new Dictionary<int, DMeshAABBTree3>();
 
+        // the tree of an open mesh for its fast winding numbers (built when first needed: not thread-safe)
+        [MethodImpl(JitHints.Optimize)]
+        DMeshAABBTree3 winding_tree(int mesh)
+        {
+            DMeshAABBTree3 tree;
+            if (windingTrees.TryGetValue(mesh, out tree) == false) {
+                windingTrees[mesh] = tree = new DMeshAABBTree3(arr.Meshes[mesh], true);
+                tree.FastWindingNumber(Vector3d.Zero);
+            }
+            return tree;
+        }
+
         /// <summary>
         /// Generalized winding number of an open mesh just in front of output piece i: the fast winding number at
         /// the piece's centroid without the triangles the centroid lies on (they are evaluated directly by the
         /// tree, so subtracting the same terms removes them), each of which adds -1/2 in front (+1/2 behind)
         /// if oriented like the piece, the opposite otherwise.
         /// </summary>
+        [MethodImpl(JitHints.Optimize)]
         double front_generalized_winding(int i, int mesh, List<int> stack)
         {
             var ot = arr.Output[i];
             var src = arr.Triangles[ot.Source];
             DMesh3 m = arr.Meshes[mesh];
-            DMeshAABBTree3 tree;
-            if (windingTrees.TryGetValue(mesh, out tree) == false) {
-                windingTrees[mesh] = tree = new DMeshAABBTree3(m, true);
-                tree.FastWindingNumber(Vector3d.Zero);
-            }
+            DMeshAABBTree3 tree = winding_tree(mesh);
             // (the generalized winding number is approximate: the centroid of the corners in doubles is enough)
             Vector3d pv = (arr.PointToVector(ot.A) + arr.PointToVector(ot.B) + arr.PointToVector(ot.C)) / 3;
             double w = tree.FastWindingNumber(pv);
@@ -920,6 +1050,7 @@ namespace g3
         readonly Dictionary<int, BigInteger[][]> bounds = new Dictionary<int, BigInteger[][]>();
 
         // box of the input coordinates of a mesh (Empty for a mesh without vertices)
+        [MethodImpl(JitHints.Optimize)]
         AxisAlignedBox3d input_bounds(int mesh)
         {
             AxisAlignedBox3d box = AxisAlignedBox3d.Empty;
@@ -928,6 +1059,7 @@ namespace g3
             return box;
         }
 
+        [MethodImpl(JitHints.Optimize)]
         void mesh_bounds(int mesh, out BigInteger[] min, out BigInteger[] max)
         {
             BigInteger[][] b;
@@ -954,6 +1086,7 @@ namespace g3
         }
 
         // the grid coordinates of the point as doubles (each with relative error at most 2^-52, or NaN, see grid_coord)
+        [MethodImpl(JitHints.Optimize)]
         static Vector3d grid_double(ExactPoint3 p)
         {
             if (p.W.IsOne)
@@ -969,6 +1102,7 @@ namespace g3
         internal const double TinyCoordinate = 4.909093465297727e-91;     // 2^-300
 
         // num / den (den > 0) as double, NaN if it is nonzero but below TinyCoordinate (the filters then decline)
+        [MethodImpl(JitHints.Optimize)]
         internal static double grid_coord(BigInteger num, BigInteger den)
         {
             double r = ExactPoint3.ToDouble(num, den, 0);
@@ -981,13 +1115,16 @@ namespace g3
         /// orient3d(a, b, c, d) with a floating-point filter: the doubles da..dd approximate the points (relative
         /// error at most 2^-52 per coordinate); exact if the error bound does not decide (or DisableFilters)
         /// </summary>
+        [MethodImpl(JitHints.Optimize)]
         int orient3d(ExactPoint3 a, ExactPoint3 b, ExactPoint3 c, ExactPoint3 d, ref Vector3d da, ref Vector3d db, ref Vector3d dc, ref Vector3d dd)
         {
+            PredicateStats.Call(PredicateStats.Kind.WindingOrient3d);
             if (DisableFilters == false) {
                 int s = orient3d_filtered(ref da, ref db, ref dc, ref dd);
                 if (s != 2)
                     return s;
             }
+            PredicateStats.ExactStage(PredicateStats.Kind.WindingOrient3d);
             return orient3d(a, b, c, d);
         }
 
@@ -1000,6 +1137,7 @@ namespace g3
         /// most (|u|+eu)(|v|+ev)(|w|+ew) - |u||v||w| (expanding it multilinearly, Hadamard's inequality for
         /// each term); the evaluation adds at most 1e-15 times the permanent (Shewchuk's orient3d bound).
         /// </summary>
+        [MethodImpl(JitHints.Optimize)]
         internal static int orient3d_filtered(ref Vector3d a, ref Vector3d b, ref Vector3d c, ref Vector3d d)
         {
             if (tiny(a.x) || tiny(a.y) || tiny(a.z) || tiny(b.x) || tiny(b.y) || tiny(b.z)
@@ -1037,6 +1175,7 @@ namespace g3
         }
 
         // sign of the 4x4 determinant of homogeneous points (consistent orientation, used for crossing tests)
+        [MethodImpl(JitHints.Optimize)]
         static int orient3d(ExactPoint3 a, ExactPoint3 b, ExactPoint3 c, ExactPoint3 d)
         {
             BigInteger[,] m = new BigInteger[4, 4];
@@ -1053,11 +1192,12 @@ namespace g3
         /// each piece is paired with its neighbour around the edge on its solid side, and the edge vertices are
         /// duplicated per pair, so that the result is closed and manifold. Likewise vertices where solids touch.
         /// </summary>
+        [MethodImpl(JitHints.Optimize)]
         DMesh3 assemble(bool[] keep, bool[] flip)
         {
-            var tris = new List<Index3i>();
-            var source = new List<int>();
-            var flipped = new List<bool>();
+            var tris = new List<Index3i>(arr.Output.Count);
+            var source = new List<int>(arr.Output.Count);
+            var flipped = new List<bool>(arr.Output.Count);
             for (int i = 0; i < arr.Output.Count; ++i) {
                 if (keep[i] == false)
                     continue;
@@ -1066,37 +1206,32 @@ namespace g3
                 source.Add(ot.Source);
                 flipped.Add(flip[i]);
             }
-            var inputPoints = new HashSet<int>();
+            // (per point id; the points of the pieces are below PointCount)
+            var inputPoints = new bool[arr.PointCount];
             for (int m = 0; m < arr.VertexPoints.Length; ++m)
                 foreach (int vid in arr.Meshes[m].VertexIndices())
-                    inputPoints.Add(arr.Canonical(arr.VertexPoints[m][vid]));
+                    inputPoints[arr.Canonical(arr.VertexPoints[m][vid])] = true;
             if (SimplifyFlatRegions) {
                 // new points inside flat regions and on straight edges between them are not needed
-                var sw = System.Diagnostics.Stopwatch.StartNew();
+                var clock = new PhaseClock(PhaseMilliseconds, PhaseAllocatedBytes);
                 var simplify = new ExactPlanarSimplify(arr, tris, source, flipped);
                 simplify.Run(inputPoints);
                 tris = simplify.Result();
                 RemovedVertices = simplify.Removed;
-                PhaseMilliseconds["simplify"] = sw.ElapsedMilliseconds;
+                clock.Lap("simplify");
             }
 
             // corner slots (3 per triangle) joined across the edges where the triangles are neighbours
             int[] parent = new int[3 * tris.Count];
             for (int k = 0; k < parent.Length; ++k)
                 parent[k] = k;
-            Func<int, int> find = (x) => {
-                while (parent[x] != x) {
-                    parent[x] = parent[parent[x]];
-                    x = parent[x];
-                }
-                return x;
-            };
+            Func<int, int> find = (x) => find_root(parent, x);
             Action<int, int> join = (x, y) => {
                 int rx = find(x), ry = find(y);
                 if (rx != ry) parent[rx] = ry;
             };
             // slot of point p in triangle t
-            Func<int, int, int> slot = (t, p) => 3 * t + ((tris[t].a == p) ? 0 : (tris[t].b == p) ? 1 : 2);
+            Func<int, int, int> slot = (t, p) => slot_of(tris, t, p);
 
             long[] edgeKeys; int[] edgeTri;
             group_edges(tris.Count, (t) => tris[t], out edgeKeys, out edgeTri);
@@ -1120,7 +1255,7 @@ namespace g3
                 list.Clear();
                 for (int g = g0; g < g1; ++g)
                     list.Add(edgeTri[g]);
-                list.Sort();        // (Array.Sort above is not stable: the first triangle is the reference half-plane)
+                list.Sort();        // (the first triangle is the reference half-plane; sort_by_key keeps them in order already)
                 var pairs = pair_around_edge(tris, list, u, v);
                 foreach (var pair in pairs) {
                     join(slot(pair.Key, u), slot(pair.Value, u));
@@ -1137,10 +1272,12 @@ namespace g3
 
             // coordinates of the points used (rounded from the exact points, in parallel)
             var used = new List<int>();
-            var usedIndex = new Dictionary<int, int>();
+            var usedIndex = new int[inputPoints.Length];
+            for (int k = 0; k < usedIndex.Length; ++k)
+                usedIndex[k] = -1;
             foreach (Index3i t in tris)
                 for (int k = 0; k < 3; ++k)
-                    if (usedIndex.ContainsKey(t[k]) == false) {
+                    if (usedIndex[t[k]] < 0) {
                         usedIndex[t[k]] = used.Count;
                         used.Add(t[k]);
                     }
@@ -1151,12 +1288,15 @@ namespace g3
             // per vertex: its point, or for the split vertices -2 - their index into splitPoints (the edge's ends)
             var vertexPoint = new List<int>();
             var splitPoints = new List<Index2i>();
-            var vmap = new Dictionary<int, int>();
+            // (vertex of each class of corner slots, by its root slot; -1 before it has one)
+            int[] vmap = new int[3 * tris.Count];
+            for (int k = 0; k < vmap.Length; ++k)
+                vmap[k] = -1;
             int[] vids = new int[3 * tris.Count];
             for (int t = 0; t < tris.Count; ++t) {
                 for (int k = 0; k < 3; ++k) {
-                    int root = find(3 * t + k), vid;
-                    if (vmap.TryGetValue(root, out vid) == false) {
+                    int root = find(3 * t + k), vid = vmap[root];
+                    if (vid < 0) {
                         vid = result.AppendVertex(coords[usedIndex[tris[t][k]]]);
                         vertexPoint.Add(tris[t][k]);
                         vmap[root] = vid;
@@ -1218,6 +1358,10 @@ namespace g3
                 }
             }
 
+            // Without edges of more than two pieces and without two pieces running an edge the same way, no triangle runs
+            // an edge of the mesh the same way as the triangle already there (the vertices of an edge are those of
+            // one pair of pieces), so append_triangle's checks before AppendTriangle cannot fail: skipped
+            bool simple = NonManifoldEdges == 0 && ConflictEdges == 0;
             var poly = new List<int>();
             for (int t = 0; t < tris.Count; ++t) {
                 poly.Clear();
@@ -1231,7 +1375,8 @@ namespace g3
                     }
                 }
                 if (first < 0) {
-                    append_triangle(result, poly[0], poly[1], poly[2], vertexPoint);
+                    if (simple == false || result.AppendTriangle(poly[0], poly[1], poly[2]) < 0)
+                        append_triangle(result, poly[0], poly[1], poly[2], vertexPoint);
                     continue;
                 }
                 // fan from a split vertex: it is on one edge, so no fan triangle is degenerate
@@ -1243,7 +1388,7 @@ namespace g3
             // input vertices (kept by SafeRounding where possible) and exact coordinates
             resultFixed = new bool[vertexPoint.Count];
             for (int vid = 0; vid < vertexPoint.Count; ++vid)
-                resultFixed[vid] = vertexPoint[vid] >= 0 && inputPoints.Contains(vertexPoint[vid]);
+                resultFixed[vid] = vertexPoint[vid] >= 0 && inputPoints[vertexPoint[vid]];
             ResultExactVertices = null;
             if (ComputeExactVertices) {
                 var exact = new ExactPoint3[vertexPoint.Count];
@@ -1264,6 +1409,7 @@ namespace g3
         // per vertex of the last assembled result: is it an input vertex
         bool[] resultFixed;
 
+        [MethodImpl(JitHints.Optimize)]
         void append_triangle(DMesh3 result, int a, int b, int c, List<int> vertexPoint)
         {
             // (a triangle that would run an edge of the mesh the same way as the triangle there is not added there
@@ -1299,6 +1445,7 @@ namespace g3
         }
 
         // a triangle can run a -> b: no edge (a, b) yet, or one with one triangle that runs it b -> a
+        [MethodImpl(JitHints.Optimize)]
         static bool can_add_edge(DMesh3 mesh, int a, int b)
         {
             int eid = mesh.FindEdge(a, b);
@@ -1306,6 +1453,7 @@ namespace g3
         }
 
         // the edge (a, b) of the mesh exists and a triangle at it runs a -> b
+        [MethodImpl(JitHints.Optimize)]
         static bool runs_existing(DMesh3 mesh, int a, int b)
         {
             int eid = mesh.FindEdge(a, b);
@@ -1317,6 +1465,7 @@ namespace g3
 
         // pairs of triangles that are neighbours across edge (u, v): for two triangles the pair, for more each
         // triangle with the next one around the edge on its back (solid) side, which runs the other way
+        [MethodImpl(JitHints.Optimize)]
         List<KeyValuePair<int, int>> pair_around_edge(List<Index3i> tris, List<int> list, int u, int v)
         {
             var pairs = new List<KeyValuePair<int, int>>();

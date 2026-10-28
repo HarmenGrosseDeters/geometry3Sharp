@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 
 namespace g3
 {
@@ -138,6 +139,7 @@ namespace g3
         public void insert(T value, int index) {
             insertAt(value, index);
         }
+        [MethodImpl(JitHints.Optimize)]
         public void insertAt(T value, int index) {
             int s = size;
             if (index == s) {
@@ -151,6 +153,7 @@ namespace g3
         }
 
 
+        [MethodImpl(JitHints.Optimize)]
         public void resize(int count) {
             if (Length == count)
                 return;

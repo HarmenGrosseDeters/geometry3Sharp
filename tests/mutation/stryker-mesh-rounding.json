@@ -9,6 +9,9 @@
       "**/mesh_ops/MeshRoundingRepair.cs"
     ],
     "test-case-filter": "FullyQualifiedName~MeshRoundingRepairTests|FullyQualifiedName~ExactMeshBooleanTests|FullyQualifiedName~MeshRoundingRepairStrategyTests",
+    "ignore-methods": [
+      "*PredicateStats.*"
+    ],
     "coverage-analysis": "perTest",
     "configuration": "Release",
     "additional-timeout": 30000,

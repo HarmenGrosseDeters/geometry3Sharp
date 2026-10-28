@@ -1,5 +1,6 @@
 // Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
 using System;
+using System.Runtime.CompilerServices;
 
 namespace g3
 {
@@ -44,6 +45,7 @@ namespace g3
             return orient2d(ax, ay, bx, by, cx, cy, true);
         }
 
+        [MethodImpl(JitHints.Optimize)]
         static int orient2d(double ax, double ay, double bx, double by, double cx, double cy, bool onlyD)
         {
             double acx = ax - cx, bcx = bx - cx, acy = ay - cy, bcy = by - cy;
@@ -139,6 +141,7 @@ namespace g3
         }
 
         // adds z T + ztail (M + T) to D (T in w.T)
+        [MethodImpl(JitHints.Optimize)]
         static void orient3d_term(double z, double ztail, double[] m, int mlen, Workspace w)
         {
             if (w.T.N > 0)
@@ -162,6 +165,7 @@ namespace g3
             return incircle(ax, ay, bx, by, cx, cy, dx, dy, true);
         }
 
+        [MethodImpl(JitHints.Optimize)]
         static int incircle(double ax, double ay, double bx, double by, double cx, double cy, double dx, double dy, bool onlyD)
         {
             double adx = ax - dx, bdx = bx - dx, cdx = cx - dx;
@@ -215,6 +219,7 @@ namespace g3
         }
 
         // adds (x^2 + y^2) T + Lt (M + T) to D (T in w.T)
+        [MethodImpl(JitHints.Optimize)]
         static void incircle_term(double x, double xtail, double y, double ytail, double[] m, int mlen, Workspace w)
         {
             if (w.T.N > 0) {
@@ -236,6 +241,7 @@ namespace g3
         }
 
         // (x^2 + y^2) * e, exactly
+        [MethodImpl(JitHints.Optimize)]
         static int lifted(double[] e, int n, double x, double y, Workspace w, double[] h)
         {
             int n1 = scale(e, n, x, w.T8a);
@@ -249,6 +255,7 @@ namespace g3
         // --- expansions: arrays of doubles, non-overlapping, in order of increasing magnitude, no zeros
         // (except a single 0 for the value 0); h must not alias the inputs
 
+        [MethodImpl(JitHints.Optimize)]
         static void two_sum(double a, double b, out double x, out double y)
         {
             x = a + b;
@@ -257,6 +264,7 @@ namespace g3
         }
 
         // the rounding error of x = a - b
+        [MethodImpl(JitHints.Optimize)]
         static double diff_tail(double a, double b, double x)
         {
             double bv = a - x, av = x + bv;
@@ -264,6 +272,7 @@ namespace g3
         }
 
         // a * b - c * d as an expansion of up to 4 components
+        [MethodImpl(JitHints.Optimize)]
         static int two_products_diff(double a, double b, double c, double d, double[] h, Workspace w)
         {
             double x1, x0, y1, y0;
@@ -277,6 +286,7 @@ namespace g3
 
         // e + f: merge by magnitude, then accumulate with error-free sums (Shewchuk's fast-expansion-sum,
         // with Two-Sum in place of Fast-Two-Sum, which gives the same components)
+        [MethodImpl(JitHints.Optimize)]
         static int sum(double[] e, int elen, double[] f, int flen, double[] h)
         {
             int i = 0, j = 0, k = 0;
@@ -295,6 +305,7 @@ namespace g3
         }
 
         // e * b
+        [MethodImpl(JitHints.Optimize)]
         static int scale(double[] e, int elen, double b, double[] h)
         {
             int k = 0;
@@ -317,6 +328,7 @@ namespace g3
 
         // x + xtail as an expansion, for a rounding error |xtail| below half an ulp of x (or a value 2 x
         // with such an error: the two do not overlap)
+        [MethodImpl(JitHints.Optimize)]
         static int two(double x, double xtail, double[] h)
         {
             int k = 0;
@@ -326,6 +338,7 @@ namespace g3
         }
 
         // a * b as an expansion
+        [MethodImpl(JitHints.Optimize)]
         static int product(double a, double b, double[] h)
         {
             double x, y;
@@ -364,6 +377,7 @@ namespace g3
 
             public void Clear() { N = 0; }
 
+            [MethodImpl(JitHints.Optimize)]
             public void Add(double[] e, int n)
             {
                 if (n == 0)
@@ -378,6 +392,7 @@ namespace g3
             }
         }
 
+        [MethodImpl(JitHints.Optimize)]
         static double estimate(double[] e, int n)
         {
             double s = e[0];

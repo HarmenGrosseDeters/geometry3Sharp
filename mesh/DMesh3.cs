@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Runtime.CompilerServices;
 
 namespace g3
 {
@@ -552,7 +553,7 @@ namespace g3
 
         public int GetMaxVtxEdgeCount() {
             int max = 0;
-            foreach (int vid in vertices_refcount)
+            foreach (int vid in vertices_refcount.Indices())
                 max = Math.Max(max, vertex_edges.Count(vid));
             return max;
         }
@@ -990,6 +991,7 @@ namespace g3
         /// <summary>
         /// Append new vertex at position and other fields, returns new vid
         /// </summary>
+        [MethodImpl(JitHints.Optimize)]
         public int AppendVertex(ref NewVertexInfo info)
         {
             int vid = vertices_refcount.allocate();
@@ -1156,6 +1158,7 @@ namespace g3
         /// throwing: InvalidID if a vertex does not exist or two vertices are equal, NonManifoldID if an edge
         /// of the triangle already has two triangles. Check the result (tid &gt;= 0).
         /// </summary>
+        [MethodImpl(JitHints.Optimize)]
         public int AppendTriangle(Index3i tv, int gid = -1) {
             if (IsVertex(tv[0]) == false || IsVertex(tv[1]) == false || IsVertex(tv[2]) == false) {
                 Util.gDevAssert(false);
@@ -1365,16 +1368,16 @@ namespace g3
 
         /// <summary> Enumerate the IDs of all live vertices (including isolated ones), in increasing order </summary>
         public IEnumerable<int> VertexIndices() {
-            foreach (int vid in vertices_refcount)
+            foreach (int vid in vertices_refcount.Indices())
                 yield return vid;
         }
         /// <summary> Enumerate the IDs of all live triangles, in increasing order </summary>
         public IEnumerable<int> TriangleIndices() {
-            foreach (int tid in triangles_refcount)
+            foreach (int tid in triangles_refcount.Indices())
                 yield return tid;
         }
         public IEnumerable<int> EdgeIndices() {
-            foreach (int eid in edges_refcount)
+            foreach (int eid in edges_refcount.Indices())
                 yield return eid;
         }
 
@@ -1394,7 +1397,7 @@ namespace g3
         /// Enumerate positions of all live vertices, in the order of VertexIndices() (IDs are not returned)
         /// </summary>
         public IEnumerable<Vector3d> Vertices() {
-            foreach (int vid in vertices_refcount) {
+            foreach (int vid in vertices_refcount.Indices()) {
                 int i = 3 * vid;
                 yield return new Vector3d(vertices[i], vertices[i + 1], vertices[i + 2]);
             }
@@ -1404,7 +1407,7 @@ namespace g3
         /// Enumerate vertex-index triples of all live triangles, in the order of TriangleIndices() (IDs are not returned)
         /// </summary>
         public IEnumerable<Index3i> Triangles() {
-            foreach (int tid in triangles_refcount) {
+            foreach (int tid in triangles_refcount.Indices()) {
                 int i = 3 * tid;
                 yield return new Index3i(triangles[i], triangles[i + 1], triangles[i + 2]);
             }
@@ -1414,7 +1417,7 @@ namespace g3
         /// Enumerage edges. return value is [v0,v1,t0,t1], where t1 will be InvalidID if this is a boundary edge
         /// </summary>
         public IEnumerable<Index4i> Edges() {
-            foreach (int eid in edges_refcount) {
+            foreach (int eid in edges_refcount.Indices()) {
                 int i = 4 * eid;
                 yield return new Index4i(edges[i], edges[i + 1], edges[i + 2], edges[i + 3]);
             }
@@ -1798,12 +1801,8 @@ namespace g3
             //   commented out code is robust to incorrect ordering, but slower.
             int vO = Math.Max(vA, vB);
             int vI = Math.Min(vA, vB);
-            foreach (int eid in vertex_edges.ValueItr(vI)) {
-                if (edges[4 * eid + 1] == vO)
-                    //if (edge_has_v(eid, vO))
-                    return eid;
-            }
-            return InvalidID;
+            // (the first edge of vI with edges[4 eid + 1] == vO, as foreach over ValueItr(vI), without its iterator)
+            return vertex_edges.FindByKey(vI, edges, vO, InvalidID);
 
             // this is slower, likely because it creates new func<> every time. can we do w/o that?
             //return vertex_edges.Find(vI, (eid) => { return edges[4 * eid + 1] == vO; }, InvalidID);
@@ -2090,7 +2089,7 @@ namespace g3
                 return false;
             // [RMS] under possibly-mistaken belief that foreach() has some overhead...
             if (MaxEdgeID / EdgeCount > 5) {
-                foreach (int eid in edges_refcount)
+                foreach (int eid in edges_refcount.Indices())
                     if (IsBoundaryEdge(eid))
                         return false;
             } else {

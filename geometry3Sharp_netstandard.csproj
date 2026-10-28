@@ -41,6 +41,8 @@
     <AssemblyName>geometry3Sharp</AssemblyName>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Product>geometry3Sharp</Product>
+    <!-- -p:G3PredicateStats=true: count the filter failures of the exact predicates (PredicateStats; profiling only) -->
+    <DefineConstants Condition="'$(G3PredicateStats)' == 'true'">$(DefineConstants);G3_PREDICATE_STATS</DefineConstants>
     <PackageId>geometry3Sharp</PackageId>
   </PropertyGroup>
 
@@ -54,6 +56,8 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="geometry3Sharp.Tests" />
+    <!-- profiling of the exact booleans (benchmarks/BooleanComparison profile) -->
+    <InternalsVisibleTo Include="BooleanComparison" />
   </ItemGroup>
 
   <ItemGroup>

@@ -29,6 +29,56 @@ namespace g3
 
 
         /// <summary>
+        /// for tests: ForRange runs its items one after the other on the calling thread (parallel == serial checks)
+        /// </summary>
+        [ThreadStatic] internal static bool SerialOnThisThread;
+
+        /// <summary>
+        /// body(i, local) for every i in [0, count), in parallel over index ranges; local comes from localInit, once
+        /// per worker task, and is never used by two threads at the same time (buffers that a body reuses). An
+        /// exception of a single body is rethrown as it is, not wrapped
+        /// </summary>
+        internal static void ForRange<TLocal>(int count, Func<TLocal> localInit, Action<int, TLocal> body)
+        {
+            if (SerialOnThisThread) {
+                TLocal local = localInit();
+                for (int i = 0; i < count; ++i)
+                    body(i, local);
+                return;
+            }
+#if G3_USING_UNITY && (NET_2_0 || NET_2_0_SUBSET)
+            for_each<int>(Interval1i.Range(count), (i) => body(i, localInit()));
+#else
+            try {
+                Parallel.For(0, count, localInit, (i, loop, local) => { body(i, local); return local; }, (local) => { });
+            } catch (AggregateException e) when (e.InnerExceptions.Count == 1) {
+                // (the exception of the body, as a serial loop would throw it)
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(e.InnerExceptions[0]).Throw();
+            }
+#endif
+        }
+
+        /// <summary> body(i) for every i in [0, count), in parallel over index ranges (an exception of a single body is rethrown as it is) </summary>
+        internal static void ForRange(int count, Action<int> body)
+        {
+            if (SerialOnThisThread) {
+                for (int i = 0; i < count; ++i)
+                    body(i);
+                return;
+            }
+#if G3_USING_UNITY && (NET_2_0 || NET_2_0_SUBSET)
+            for_each<int>(Interval1i.Range(count), body);
+#else
+            try {
+                Parallel.For(0, count, body);
+            } catch (AggregateException e) when (e.InnerExceptions.Count == 1) {
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(e.InnerExceptions[0]).Throw();
+            }
+#endif
+        }
+
+
+        /// <summary>
         /// Evaluate input actions in parallel
         /// </summary>
         public static void Evaluate(params Action[] funcs)

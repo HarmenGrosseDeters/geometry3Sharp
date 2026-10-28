@@ -205,7 +205,7 @@ namespace g3
 
 
 		public IEnumerable<Vector2d> Vertices() {
-			foreach (int vid in vertices_refcount) {
+			foreach (int vid in vertices_refcount.Indices()) {
 				int i = 2 * vid;
 				yield return new Vector2d(vertices[i], vertices[i + 1]);
 			}
@@ -251,12 +251,12 @@ namespace g3
 			if (VertexCount == 0)
 				return AxisAlignedBox2d.Empty;
 			double x = 0, y = 0;
-			foreach (int vi in vertices_refcount) {
+			foreach (int vi in vertices_refcount.Indices()) {
 				x = vertices[2 * vi]; y = vertices[2 * vi + 1];;
 				break;
 			}
 			double minx = x, maxx = x, miny = y, maxy = y;
-			foreach (int vi in vertices_refcount) {
+			foreach (int vi in vertices_refcount.Indices()) {
 				x = vertices[2 * vi]; y = vertices[2 * vi + 1];;
 				if (x < minx) minx = x; else if (x > maxx) maxx = x;
 				if (y < miny) miny = y; else if (y > maxy) maxy = y;

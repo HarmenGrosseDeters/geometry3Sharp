@@ -286,7 +286,7 @@ namespace g3
 
         public int GetMaxVtxEdgeCount() {
             int max = 0;
-            foreach (int vid in vertices_refcount)
+            foreach (int vid in vertices_refcount.Indices())
                 max = Math.Max(max, vertex_edges.Count(vid));
             return max;
         }
@@ -645,15 +645,15 @@ namespace g3
         // iterators
 
         public IEnumerable<int> VertexIndices() {
-            foreach (int vid in vertices_refcount)
+            foreach (int vid in vertices_refcount.Indices())
                 yield return vid;
         }
         public IEnumerable<int> TriangleIndices() {
-            foreach (int tid in triangles_refcount)
+            foreach (int tid in triangles_refcount.Indices())
                 yield return tid;
         }
         public IEnumerable<int> EdgeIndices() {
-            foreach (int eid in edges_refcount)
+            foreach (int eid in edges_refcount.Indices())
                 yield return eid;
         }
 
@@ -667,13 +667,13 @@ namespace g3
 
 
         public IEnumerable<Vector3d> Vertices() {
-            foreach (int vid in vertices_refcount) {
+            foreach (int vid in vertices_refcount.Indices()) {
                 int i = 3 * vid;
                 yield return new Vector3d(vertices[i], vertices[i + 1], vertices[i + 2]);
             }
         }
         public IEnumerable<Index3i> Triangles() {
-            foreach (int tid in triangles_refcount) {
+            foreach (int tid in triangles_refcount.Indices()) {
                 int i = 3 * tid;
                 yield return new Index3i(triangles[i], triangles[i + 1], triangles[i + 2]);
             }
@@ -1008,7 +1008,7 @@ namespace g3
                 return false;
             // [RMS] under possibly-mistaken belief that foreach() has some overhead...
             if (MaxEdgeID / EdgeCount > 5) {
-                foreach (int eid in edges_refcount)
+                foreach (int eid in edges_refcount.Indices())
                     if (edge_is_boundary(eid))
                         return false;
             } else {

@@ -104,6 +104,40 @@ namespace geometry3Sharp.Tests
         }
 
         [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void ExactBoolean_CoplanarGrid_SameVolumeUnderSimilarity(string name)
+        {
+            // boxes with coplanar faces (the points on their common planes are shared constructions) minus a void in
+            // each: the volume is known exactly, in any placement
+            Similarity s = Similarity.ByName(name);
+            var meshes = new List<DMesh3>();
+            for (int i = 0; i < 2; ++i)
+                for (int j = 0; j < 2; ++j) {
+                    meshes.Add(Box(new Vector3d(0.75 * i, 0.75 * j, 0), new Vector3d(0.75 * i + 1, 0.75 * j + 1, 1)));
+                    meshes.Add(Box(new Vector3d(0.75 * i + 0.25, 0.75 * j + 0.25, 0.25), new Vector3d(0.75 * i + 0.75, 0.75 * j + 0.75, 0.75)));
+                }
+            Func<int[], bool> inside = (w) => (w[0] > 0 || w[2] > 0 || w[4] > 0 || w[6] > 0) && w[1] <= 0 && w[3] <= 0 && w[5] <= 0 && w[7] <= 0;
+            var eb0 = new ExactMeshBoolean(meshes, inside);
+            Assert.True(eb0.Compute(), eb0.Error);
+            DMesh3 r0 = eb0.Result;
+            // [0, 1.75]^2 x [0, 1] minus the four voids (0.5^3 each, inside the union, disjoint)
+            AssertRelative(1.75 * 1.75 - 4 * 0.125, Invariance.Volume(r0), 1e-12, "volume");
+            var eb = new ExactMeshBoolean(meshes.Select(m => Invariance.Transformed(m, s)), inside);
+            Assert.True(eb.Compute(), eb.Error);
+            // (rotated: the new vertices rounded to double can leave degenerate slivers without SafeRounding; closed is
+            // what is documented)
+            if (s.IsExact)
+                Assert.Equal("", MeshRobustRepair.NotCleanReason(eb.Result));
+            else
+                ResultChecks.AssertClosed(eb.Result);
+            DMesh3 back = Invariance.MappedBack(eb.Result, s);
+            AssertRelative(Invariance.Volume(r0), Invariance.Volume(back), 1e-12 + 100 * s.Resolution(2), s.Name);
+            Assert.True(Invariance.VertexDistance(r0, back) <= s.DistanceResolution(2), s.Name);
+            if (s.IsExact)
+                Assert.Equal("", Invariance.GeometricDifference(r0, back));
+        }
+
+        [Theory]
         [InlineData(1)]
         [InlineData(2)]
         [InlineData(3)]

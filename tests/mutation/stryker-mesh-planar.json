@@ -10,6 +10,9 @@
       "**/mesh_ops/ExactTriangulation2.cs"
     ],
     "test-case-filter": "FullyQualifiedName~ExactPlanarSimplifyTests|FullyQualifiedName~ExactBooleanBuildingBlockTests|FullyQualifiedName~ExactMeshBooleanTests|FullyQualifiedName~ExactTriangulation2Tests",
+    "ignore-methods": [
+      "*PredicateStats.*"
+    ],
     "coverage-analysis": "perTest",
     "configuration": "Release",
     "additional-timeout": 30000,

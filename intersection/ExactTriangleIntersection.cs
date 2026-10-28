@@ -1,5 +1,6 @@
 // Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
 using System;
+using System.Runtime.CompilerServices;
 
 namespace g3
 {
@@ -13,6 +14,7 @@ namespace g3
     public static class ExactTriangleIntersection
     {
         /// <summary> do the closed triangles a and b share at least one point? </summary>
+        [MethodImpl(JitHints.Optimize)]
         public static bool Intersects(ref Triangle3d a, ref Triangle3d b)
         {
             Vector3d p1 = a.V0, q1 = a.V1, r1 = a.V2, p2 = b.V0, q2 = b.V1, r2 = b.V2;
@@ -55,6 +57,7 @@ namespace g3
             }
         }
 
+        [MethodImpl(JitHints.Optimize)]
         static bool tri_tri(Vector3d p1, Vector3d q1, Vector3d r1, Vector3d p2, Vector3d q2, Vector3d r2, int dp2, int dq2, int dr2)
         {
             if (dp2 > 0) {
@@ -81,6 +84,7 @@ namespace g3
         }
 
         // the two intervals on the intersection line of the planes overlap
+        [MethodImpl(JitHints.Optimize)]
         static bool check_min_max(Vector3d p1, Vector3d q1, Vector3d r1, Vector3d p2, Vector3d q2, Vector3d r2)
         {
             if (ExactPredicates.Orient3d(q1, p2, p1, q2) > 0)
@@ -94,6 +98,7 @@ namespace g3
         /// <summary>
         /// reference test (slower): closed triangles intersect iff an edge of one intersects the other triangle
         /// </summary>
+        [MethodImpl(JitHints.Optimize)]
         public static bool IntersectsByEdges(ref Triangle3d a, ref Triangle3d b)
         {
             for (int k = 0; k < 3; ++k) {
@@ -104,6 +109,7 @@ namespace g3
         }
 
         /// <summary> does the closed segment s-t intersect the closed triangle? </summary>
+        [MethodImpl(JitHints.Optimize)]
         public static bool SegmentIntersectsTriangle(Vector3d s, Vector3d t, ref Triangle3d tri)
         {
             Vector3d a = tri.V0, b = tri.V1, c = tri.V2;
@@ -133,6 +139,7 @@ namespace g3
         }
 
         /// <summary> do the closed segments p-q and r-s intersect? </summary>
+        [MethodImpl(JitHints.Optimize)]
         public static bool SegmentsIntersect(Vector3d p, Vector3d q, Vector3d r, Vector3d s)
         {
             if (ExactPredicates.Orient3d(p, q, r, s) != 0)
@@ -146,6 +153,7 @@ namespace g3
         }
 
 
+        [MethodImpl(JitHints.Optimize)]
         static bool coplanar(Vector3d p1, Vector3d q1, Vector3d r1, Vector3d p2, Vector3d q2, Vector3d r2)
         {
             int axis = projection_axis(p1, q1, r1);
@@ -158,6 +166,7 @@ namespace g3
             return point_in_triangle_2d(a0, b0, b1, b2) || point_in_triangle_2d(b0, a0, a1, a2);
         }
 
+        [MethodImpl(JitHints.Optimize)]
         static bool degenerate_case(ref Triangle3d a, ref Triangle3d b, bool degA, bool degB)
         {
             if (degA && degB) {
@@ -177,6 +186,7 @@ namespace g3
         }
 
         // collinear (or coincident) points: degenerate in every axis projection
+        [MethodImpl(JitHints.Optimize)]
         static bool is_degenerate(Vector3d a, Vector3d b, Vector3d c)
         {
             for (int axis = 0; axis < 3; ++axis)
@@ -186,6 +196,7 @@ namespace g3
         }
 
         // an axis along which the (non-degenerate) triangle does not project to a segment
+        [MethodImpl(JitHints.Optimize)]
         static int projection_axis(Vector3d a, Vector3d b, Vector3d c)
         {
             Vector3d n = (b - a).Cross(c - a);
@@ -203,6 +214,7 @@ namespace g3
             return (axis == 0) ? new Vector2d(v.y, v.z) : (axis == 1) ? new Vector2d(v.z, v.x) : new Vector2d(v.x, v.y);
         }
 
+        [MethodImpl(JitHints.Optimize)]
         static bool point_in_triangle_2d(Vector2d p, Vector2d a, Vector2d b, Vector2d c)
         {
             int o1 = ExactPredicates.Orient2d(a, b, p), o2 = ExactPredicates.Orient2d(b, c, p), o3 = ExactPredicates.Orient2d(c, a, p);
@@ -215,6 +227,7 @@ namespace g3
             return on_segment(a, b, p) || on_segment(b, c, p) || on_segment(c, a, p);
         }
 
+        [MethodImpl(JitHints.Optimize)]
         static bool segments_intersect_2d(Vector2d p, Vector2d q, Vector2d r, Vector2d s)
         {
             int o1 = ExactPredicates.Orient2d(p, q, r), o2 = ExactPredicates.Orient2d(p, q, s);
@@ -229,6 +242,7 @@ namespace g3
         }
 
         // x collinear with p-q: is it within the segment's bounding box (then on the segment)
+        [MethodImpl(JitHints.Optimize)]
         static bool on_segment(Vector2d p, Vector2d q, Vector2d x)
         {
             if (ExactPredicates.Orient2d(p, q, x) != 0)
@@ -237,6 +251,7 @@ namespace g3
         }
 
         /// <summary> zero area: the three points are collinear (exact) </summary>
+        [MethodImpl(JitHints.Optimize)]
         public static bool IsDegenerate(ref Triangle3d t)
         {
             Vector3d n = (t.V1 - t.V0).Cross(t.V2 - t.V0);
@@ -249,6 +264,7 @@ namespace g3
             return true;
         }
 
+        [MethodImpl(JitHints.Optimize)]
         static int dominant_axis(Vector3d n)
         {
             double x = Math.Abs(n.x), y = Math.Abs(n.y), z = Math.Abs(n.z);
@@ -267,6 +283,7 @@ namespace g3
         /// meets the other triangle, or (coplanar) their corners overlap. A shared edge: coplanar with the far
         /// corners on the same side (a fold lying flat). Exact.
         /// </summary>
+        [MethodImpl(JitHints.Optimize)]
         public static bool IntersectsBeyondShared(Index3i ia, ref Triangle3d A, Index3i ib, ref Triangle3d B)
         {
             // shared vertices: corner indices in A and B

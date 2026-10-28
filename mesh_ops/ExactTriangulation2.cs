@@ -1,6 +1,7 @@
 // Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
 using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 
 namespace g3
 {
@@ -21,12 +22,14 @@ namespace g3
 
         readonly List<int[]> tris = new List<int[]>();
         readonly List<int> free = new List<int>();
+        readonly List<int[]> spare = new List<int[]>();
         readonly Dictionary<long, int> edgeTri = new Dictionary<long, int>(EdgeKeyComparer.Instance);     // directed edge -> triangle
         readonly HashSet<long> constrained = new HashSet<long>(EdgeKeyComparer.Instance);                 // undirected
         readonly HashSet<int> vertices = new HashSet<int>();
         readonly Dictionary<int, int> vertexTri = new Dictionary<int, int>();       // vertex -> a triangle that had it (check before use)
         readonly int[] outer;
 
+        [MethodImpl(JitHints.Optimize)]
         public ExactTriangulation2(int c0, int c1, int c2, Func<int, int, int, int> orient, Func<int, int, int, int, int> incircle)
         {
             this.orient = orient;
@@ -47,10 +50,19 @@ namespace g3
         static long dkey(int a, int b) { return ((long)a << 32) | (uint)b; }
         static long ukey(int a, int b) { return (a < b) ? dkey(a, b) : dkey(b, a); }
 
+        [MethodImpl(JitHints.Optimize)]
         int add_tri(int a, int b, int c)
         {
             int ti;
-            int[] t = new[] { a, b, c };
+            // (the arrays of removed triangles are reused: nothing keeps them after remove_tri)
+            int[] t;
+            if (spare.Count > 0) {
+                t = spare[spare.Count - 1];
+                spare.RemoveAt(spare.Count - 1);
+                t[0] = a; t[1] = b; t[2] = c;
+            } else {
+                t = new[] { a, b, c };
+            }
             if (free.Count > 0) {
                 ti = free[free.Count - 1];
                 free.RemoveAt(free.Count - 1);
@@ -64,15 +76,18 @@ namespace g3
             return ti;
         }
 
+        [MethodImpl(JitHints.Optimize)]
         void remove_tri(int ti)
         {
             int[] t = tris[ti];
             edgeTri.Remove(dkey(t[0], t[1])); edgeTri.Remove(dkey(t[1], t[2])); edgeTri.Remove(dkey(t[2], t[0]));
             tris[ti] = null;
             free.Add(ti);
+            spare.Add(t);
         }
 
         // vertex of triangle ti opposite to directed edge (a, b)
+        [MethodImpl(JitHints.Optimize)]
         int opposite(int ti, int a, int b)
         {
             int[] t = tris[ti];
@@ -84,6 +99,7 @@ namespace g3
 
 
         /// <summary> insert a point inside or on the boundary of the outer triangle </summary>
+        [MethodImpl(JitHints.Optimize)]
         public void InsertPoint(int p)
         {
             if (vertices.Contains(p))
@@ -114,6 +130,7 @@ namespace g3
         // incremental Delaunay: flip the edges around a new point while they are not locally Delaunay (constrained
         // edges stay), so that the triangulation stays well shaped for walking; MakeDelaunay finishes
         readonly Stack<long> legalStack = new Stack<long>();
+        [MethodImpl(JitHints.Optimize)]
         void legalize(int a0, int b0)
         {
             legalStack.Push(dkey(a0, b0));
@@ -144,6 +161,7 @@ namespace g3
         // a triangle that contains p (closed), with the orientations of p to its edges: walk from the last inserted
         // triangle across edges that p is behind (the first one from a pseudo-random edge, so that the walk does not
         // cycle), with a linear search if the walk is long
+        [MethodImpl(JitHints.Optimize)]
         int locate(int p, out int o0, out int o1, out int o2)
         {
             int ti = (last < tris.Count && tris[last] != null) ? last : -1;
@@ -187,6 +205,7 @@ namespace g3
             return -1;
         }
 
+        [MethodImpl(JitHints.Optimize)]
         void split_edge(int a, int b, int p)
         {
             bool wasConstrained = constrained.Remove(ukey(a, b));
@@ -212,6 +231,7 @@ namespace g3
         }
 
         // flip edge (a, b) shared by triangles (a, b, c) and (b, a, d) to (c, d); returns false if not possible
+        [MethodImpl(JitHints.Optimize)]
         bool flip(int a, int b, out int c, out int d)
         {
             c = d = -1;
@@ -233,6 +253,7 @@ namespace g3
         }
 
         // does edge (x, y) cross segment (u, v) in its interior?
+        [MethodImpl(JitHints.Optimize)]
         bool crosses(int x, int y, int u, int v)
         {
             if (x == u || x == v || y == u || y == v)
@@ -246,6 +267,7 @@ namespace g3
 
 
         /// <summary> make the segment (u, v) between two inserted points an edge of the triangulation </summary>
+        [MethodImpl(JitHints.Optimize)]
         public void InsertConstraint(int u, int v)
         {
             if (u == v)
@@ -316,6 +338,7 @@ namespace g3
         // the edges crossed by the segment u-v, in order: rotate around u to the triangle that the segment leaves
         // through its opposite edge, then march across the crossed edges to v. False if that is not possible (the
         // segment passes through a vertex or leaves the triangulation)
+        [MethodImpl(JitHints.Optimize)]
         bool walk_crossings(int u, int v, Queue<long> queue)
         {
             int ti;
@@ -369,6 +392,7 @@ namespace g3
         }
 
         /// <summary> flip non-constrained edges until the triangulation is constrained Delaunay </summary>
+        [MethodImpl(JitHints.Optimize)]
         public void MakeDelaunay()
         {
             var stack = new Stack<long>();

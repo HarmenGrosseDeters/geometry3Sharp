@@ -113,6 +113,10 @@ first read as test gaps. Differential tests aimed at them changed the picture:
      would show it.
    - Open.
 
+The calls of `PredicateStats` (profiling counters, removed by the compiler unless the library is built with
+`-p:G3PredicateStats=true`) are excluded with `ignore-methods` (in all configs, also the `stryker-mesh-*.json`
+ones below): removing them changes nothing.
+
 Mark equivalent mutants in the code with `// Stryker disable once <mutator>: <reason>` instead of writing a test
 for them. This happens when the files in `math/Exact*` are next changed anyway; they are being worked on in
 other PRs.
@@ -125,8 +129,8 @@ each). Each shard runs the unit tests of its file (the `test-case-filter` of its
 | Shard | Mutated | Tests |
 |---|---|---|
 | `rounding` | `mesh_ops/MeshRoundingRepair.cs` | `MeshRoundingRepairTests`, `MeshRoundingRepairStrategyTests`, `ExactMeshBooleanTests` |
-| `boolean-1`, `boolean-2` | `mesh_ops/ExactMeshBoolean.cs`, split at `front_winding` | `ExactMeshBooleanTests`, `ExactMeshBooleanNaryTests`, `ExactBooleanOrientationTests`, `ExactBooleanReuseTests`, `ExactBooleanEdgeOrderTests`, the `ExactVertices` tests of `MeshRoundingRepairTests`; `boolean-2` also `ExactBooleanFilterTests` |
-| `arrangement-1`, `arrangement-2` | `mesh_ops/ExactMeshArrangement.cs`, split at `build_triangles` | `ExactFilterBoundTests`, `ExactArrangementScalingTests`, `ExactMeshBooleanTests`, `ExactBooleanEdgeOrderTests`, `ExactBooleanBuildingBlockTests`, the `ExactVertices` tests |
+| `boolean-1`, `boolean-2` | `mesh_ops/ExactMeshBoolean.cs`, split at `front_winding` | `ExactMeshBooleanTests`, `ExactMeshBooleanNaryTests`, `ExactBooleanOrientationTests`, `ExactBooleanReuseTests`, `ExactBooleanEdgeOrderTests`, the `ExactVertices` tests of `MeshRoundingRepairTests`, `BooleanPerformanceTests`; `boolean-2` also `ExactBooleanFilterTests` |
+| `arrangement-1`, `arrangement-2` | `mesh_ops/ExactMeshArrangement.cs`, split at `build_triangles` | `ExactFilterBoundTests`, `ExactArrangementScalingTests`, `ExactMeshBooleanTests`, `ExactBooleanEdgeOrderTests`, `ExactBooleanBuildingBlockTests`, the `ExactVertices` tests, `BooleanPerformanceTests`, `ExactImplicitPointTests` |
 | `planar` | `mesh_ops/ExactPlanarSimplify.cs`, `mesh_ops/ExactTriangulation2.cs` | `ExactPlanarSimplifyTests`, `ExactTriangulation2Tests`, `ExactBooleanBuildingBlockTests`, `ExactMeshBooleanTests` |
 
 On a pull request, the workflow's `changes` job starts `exact-mesh` only if one of these files, their tests or
@@ -143,6 +147,7 @@ Things to know:
   are at the start of a method (`build_triangles`, `front_winding`); the second shard runs to the end of the file.
   After larger changes to the file, move the offset back to the start of that method (both shards of the file
   must be updated together), else mutants near the boundary are tested twice or not at all.
+  `MutationConfigTests` fails when an offset is not at the start of its method (its attribute line, if any).
 - **Memory:** a mutant can make a loop allocate without end. `DOTNET_GCHeapHardLimit` (6 GB per process) and
   `concurrency: 2` turn that into an OutOfMemoryException in the test host (the mutant is killed); without them
   the first run lost its runner.

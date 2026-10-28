@@ -166,7 +166,7 @@ namespace geometry3Sharp.Tests
             foreach (var t in arr.Triangles) {
                 if (t.Segments.Count == 0)
                     continue;
-                var pts = t.Points.Select(arr.Canonical).Concat(t.Corners).Distinct().ToList();
+                var pts = t.Points.Select(arr.Canonical).Concat(t.Corners.array).Distinct().ToList();
                 Func<Func<int>, int> both = (f) => {
                     arr.DisableFilters = false;
                     int filtered = f();
@@ -197,6 +197,114 @@ namespace geometry3Sharp.Tests
             Assert.True(collinear > 0);
         }
 
+        // reference: the sign of the 4x4 incircle determinant with rows (x w, y w, x^2 + y^2, w^2) of the exact points,
+        // times the sign of the projection (the formula before the 3x3 form and the double path)
+        static int ReferenceInCircle(ExactMeshArrangement arr, ExactMeshArrangement.InputTriangle t, int[] ids)
+        {
+            int i = (t.Axis + 1) % 3, j = (t.Axis + 2) % 3;
+            var m = new BigInteger[4, 4];
+            for (int k = 0; k < 4; ++k) {
+                ExactPoint3 v = arr.Exact(ids[k]);
+                m[k, 0] = v[i] * v.W; m[k, 1] = v[j] * v.W; m[k, 2] = v[i] * v[i] + v[j] * v[j]; m[k, 3] = v.W * v.W;
+            }
+            BigInteger det = BigInteger.Zero;
+            for (int c = 0; c < 4; ++c) {
+                int c0 = (c == 0) ? 1 : 0, c1 = (c <= 1) ? 2 : 1, c2 = (c <= 2) ? 3 : 2;
+                BigInteger minor = ExactPoint3.Det3(m[1, c0], m[1, c1], m[1, c2], m[2, c0], m[2, c1], m[2, c2], m[3, c0], m[3, c1], m[3, c2]);
+                det += ((c % 2 == 0) ? m[0, c] : -m[0, c]) * minor;
+            }
+            return det.Sign * t.Sign;
+        }
+
+        static int ReferenceOrient(ExactMeshArrangement arr, ExactMeshArrangement.InputTriangle t, int p, int q, int r)
+        {
+            int i = (t.Axis + 1) % 3, j = (t.Axis + 2) % 3;
+            ExactPoint3 a = arr.Exact(p), b = arr.Exact(q), c = arr.Exact(r);
+            return ExactPoint3.Det3(a[i], a[j], a.W, b[i], b[j], b.W, c[i], c[j], c.W).Sign * t.Sign;
+        }
+
+        [Theory]
+        [MemberData(nameof(Cases))]
+        public void ExactStages_MatchReferenceDeterminants(int seed)
+        {
+            // the exact stages of Orient and InCircle (DisableFilters): the adaptive double predicates for integer
+            // points with double coordinates, the 3x3 integer determinant for the others, against the 4x4 / 3x3
+            // homogeneous determinants; also nearly and exactly cocircular quadruples (four points of one
+            // triangle's segments and corners)
+            var arr = Build(seed);
+            var rand = new Random(seed);
+            int doubles = 0, rationals = 0, zeros = 0, candidates = 0;
+            arr.DisableFilters = true;
+            foreach (var t in arr.Triangles) {
+                if (t.Segments.Count == 0)
+                    continue;
+                var pts = t.Points.Select(arr.Canonical).Concat(t.Corners.array).Distinct().ToList();
+                // (and quadruples of integer points with double coordinates, where the triangle has four)
+                var dbl = pts.Where(arr.IsExactDouble).ToList();
+                if (dbl.Count >= 4)
+                    candidates++;
+                for (int k = 0; k < 80; ++k) {
+                    var from = (k >= 60 && dbl.Count >= 4) ? dbl : pts;
+                    int[] ids = { from[rand.Next(from.Count)], from[rand.Next(from.Count)], from[rand.Next(from.Count)], from[rand.Next(from.Count)] };
+                    int expected = ReferenceInCircle(arr, t, ids);
+                    Assert.Equal(expected, arr.InCircle(t, ids[0], ids[1], ids[2], ids[3]));
+                    Assert.Equal(ReferenceOrient(arr, t, ids[0], ids[1], ids[2]), arr.Orient(t, ids[0], ids[1], ids[2]));
+                    if (ids.All(arr.IsExactDouble)) doubles++; else rationals++;
+                    if (expected == 0) zeros++;
+                }
+            }
+            arr.DisableFilters = false;
+            Assert.True((doubles > 0 || candidates == 0) && rationals > 0 && zeros > 0, $"{doubles} {rationals} {zeros}");
+        }
+
+        [Fact]
+        public void InCircle_CocircularPoints_BothExactStages()
+        {
+            // points on a circle of the plane z = 0: integer points (corners of the input, double path) and
+            // intersection points with W != 1 on the circle x^2 + y^2 = 25 (3x3 integer path), exactly cocircular
+            DMesh3 a = new DMesh3();
+            foreach (var v in new[] { new Vector3d(-5, 0, 0), new Vector3d(5, 0, 0), new Vector3d(0, 5, 0), new Vector3d(3, -4, 0) })
+                a.AppendVertex(v);
+            a.AppendTriangle(0, 1, 2);
+            a.AppendTriangle(0, 3, 1);
+            var arr = new ExactMeshArrangement(new List<DMesh3>() { a });
+            arr.Compute();
+            var tri = arr.Triangles[0];
+            Func<int, int> pt = (v) => arr.VertexPoints[0][v];
+            Assert.True(arr.ScaleExp == 0 && arr.Center.All(c => c.IsZero));
+            // rational points on the circle (grid coordinates are the input coordinates here): (5 (q^2 - p^2), 10 p q, 0)
+            // / (q^2 + p^2) for p / q = 2 / 3 and 1 / 7, and one just off it
+            int r1 = arr.AddPoint(ExactPoint3.Create(5 * (9 - 4), 10 * 6, 0, 9 + 4));
+            int r2 = arr.AddPoint(ExactPoint3.Create(5 * (49 - 1), 10 * 7, 0, 49 + 1));
+            int off = arr.AddPoint(ExactPoint3.Create(5 * (49 - 1) - 1, 10 * 7, 0, 49 + 1));
+            Assert.True(arr.IsExactDouble(pt(0)) && arr.IsExactDouble(pt(3)));
+            Assert.False(arr.IsExactDouble(r1));
+            foreach (bool disable in new[] { false, true }) {
+                arr.DisableFilters = disable;
+                Assert.Equal(0, arr.InCircle(tri, pt(0), pt(1), pt(2), pt(3)));
+                Assert.Equal(0, arr.InCircle(tri, pt(0), pt(1), pt(2), r1));
+                Assert.Equal(0, arr.InCircle(tri, r1, pt(1), r2, pt(0)));
+                foreach (int[] ids in new[] { new[] { pt(0), pt(1), pt(2), pt(3) }, new[] { pt(0), pt(1), pt(2), off }, new[] { r1, pt(1), off, pt(0) },
+                    new[] { pt(0), pt(1), pt(2), arr.AddPoint(ExactPoint3.FromInteger(0, 0, 0)) }, new[] { pt(0), pt(1), pt(2), arr.AddPoint(ExactPoint3.FromInteger(9, 0, 0)) } })
+                    Assert.Equal(ReferenceInCircle(arr, tri, ids), arr.InCircle(tri, ids[0], ids[1], ids[2], ids[3]));
+            }
+            arr.DisableFilters = false;
+            Assert.Equal(1, Math.Abs(arr.InCircle(tri, pt(0), pt(1), pt(2), off)));
+
+            // integer points whose coordinates are not doubles take the integer path: p, 3 p and 0 are collinear,
+            // their coordinates rounded to double are not (2^53 + 1 rounds to 2^53, 3 2^53 + 3 to 3 2^53 + 4)
+            BigInteger big = (BigInteger.One << 53) + 1;
+            int o = arr.AddPoint(ExactPoint3.FromInteger(0, 0, 0)), p1 = arr.AddPoint(ExactPoint3.FromInteger(big, 3, 0)),
+                p3 = arr.AddPoint(ExactPoint3.FromInteger(3 * big, 9, 0)), p5 = arr.AddPoint(ExactPoint3.FromInteger(5 * big, 15, 0));
+            Assert.True(arr.IsExactDouble(o) && arr.IsExactDouble(p1) == false && arr.IsExactDouble(p3) == false);
+            foreach (bool disable in new[] { false, true }) {
+                arr.DisableFilters = disable;
+                Assert.Equal(0, arr.Orient(tri, o, p1, p3));
+                Assert.Equal(0, arr.Orient(tri, p1, p3, p5));
+            }
+            arr.DisableFilters = false;
+        }
+
         [Theory]
         [MemberData(nameof(Cases))]
         public void OutputPoints_AreCanonicalAndDistinct(int seed)
@@ -215,6 +323,145 @@ namespace geometry3Sharp.Tests
             var seen = new HashSet<ExactPoint3>();
             foreach (int id in ids)
                 Assert.True(seen.Add(arr.Exact(id)), "two point ids for one point");
+        }
+
+        [Theory]
+        [InlineData(0)]
+        [InlineData(3)]
+        [InlineData(7)]
+        public void MergedPoints_SameWithHashedAndSortedClusters(int seed)
+        {
+            // merge_points groups the points of a cluster by their exact points, or sorts large clusters with a point
+            // beyond the double range: the same merges and the same canonical ids either way (coplanar boxes: many
+            // coincident constructions; MaxHashedCluster below 0 sorts all clusters)
+            var meshes = new List<DMesh3>();
+            for (int i = 0; i < 2; ++i)
+                for (int j = 0; j < 2; ++j)
+                    meshes.Add(Box(new Vector3d(0.9 * i, 0.9 * j, 0.45 * (i + j)), 1, Quaterniond.Identity));
+            var rand = new Random(seed);
+            meshes.Add(Box(new Vector3d(0.4, 0.5, 0.3), 1.1, Rotation(rand, 360)));
+            string reference = null;
+            foreach (int limit in new[] { 64, -1 }) {
+                var arr = new ExactMeshArrangement(meshes) { SelfIntersections = true, MaxHashedCluster = limit };
+                arr.Compute();
+                Assert.True(arr.MergedPoints > 3);
+                AssertDistinctPoints(arr);
+                // the pieces with their points (ids are assigned in parallel: by exact point and construction kind)
+                string print = string.Join(";", arr.Output.Select(o => string.Join(",", new[] { o.A, o.B, o.C }.Select(id => { var x = arr.Exact(id); return arr.KindOf(id) + "@" + x.X + "," + x.Y + "," + x.Z + "," + x.W; }))))
+                    + "|" + arr.MergedPoints;
+                if (reference == null) reference = print;
+                else Assert.Equal(reference, print);
+            }
+        }
+
+        static ExactMeshArrangement.Plane P(long a, long b, long c, BigInteger d) { return new ExactMeshArrangement.Plane(a, b, c, d); }
+
+        [Fact]
+        public void SamePlane_IsExactProportionality()
+        {
+            BigInteger h = BigInteger.One << 40;
+            // parallel planes one grid unit apart at a large offset (their approximations share a rounding bucket)
+            Assert.False(ExactMeshArrangement.same_plane(P(0, 0, 3, 3 * h), P(0, 0, 3, 3 * (h + 1))));
+            Assert.False(ExactMeshArrangement.same_plane(P(0, 0, 1, h), P(0, 0, 1, h + 1)));
+            // the same plane scaled, also by a negative factor (opposite normals), and through the origin (D = 0)
+            Assert.True(ExactMeshArrangement.same_plane(P(1, 2, 3, h), P(-2, -4, -6, -2 * h)));
+            Assert.True(ExactMeshArrangement.same_plane(P(0, 0, 5, 0), P(0, 0, -1, 0)));
+            Assert.False(ExactMeshArrangement.same_plane(P(0, 0, 1, 0), P(0, 1, 0, 0)));
+            Assert.False(ExactMeshArrangement.same_plane(P(1, 1, 0, 0), P(1, -1, 0, 0)));
+            Assert.False(ExactMeshArrangement.same_plane(P(0, 1, 1, 0), P(0, 1, 2, 0)));
+        }
+
+        [Fact]
+        public void ParallelPlanesOneUnitApart_AreNotShared()
+        {
+            // two flat squares at z = 2^40 and z = 2^40 + 1 (grid units: integer input), each split by a slanted box
+            // edge: their points are on different planes; with and without shared constructions the same output
+            double h = Math.Pow(2, 40);
+            Func<double, DMesh3> square = (z) => {
+                var m = new DMesh3();
+                m.AppendVertex(new Vector3d(-8, -8, z)); m.AppendVertex(new Vector3d(8, -8, z));
+                m.AppendVertex(new Vector3d(8, 8, z)); m.AppendVertex(new Vector3d(-8, 8, z));
+                m.AppendTriangle(0, 1, 2); m.AppendTriangle(0, 2, 3);
+                return m;
+            };
+            var slanted = new DMesh3();
+            slanted.AppendVertex(new Vector3d(-3, -1, h - 4)); slanted.AppendVertex(new Vector3d(5, 2, h + 6)); slanted.AppendVertex(new Vector3d(1, 6, h + 5));
+            slanted.AppendTriangle(0, 1, 2);
+            // (and a triangle far below, so that the grid center is far from the squares: their planes' offsets are
+            // large, 2^41, and round to the same bucket key)
+            var far = new DMesh3();
+            far.AppendVertex(new Vector3d(0, 0, -3 * h)); far.AppendVertex(new Vector3d(1, 0, -3 * h)); far.AppendVertex(new Vector3d(0, 1, -3 * h));
+            far.AppendTriangle(0, 1, 2);
+            var meshes = new List<DMesh3>() { square(h), square(h + 1), slanted, far };
+            string reference = null;
+            foreach (bool share in new[] { false, true }) {
+                var arr = new ExactMeshArrangement(meshes) { ShareCoplanarConstructions = share };
+                arr.Compute();
+                AssertDistinctPoints(arr);
+                // every piece of a square lies in its plane
+                foreach (var o in arr.Output.Where(o => o.Mesh < 2))
+                    foreach (int id in new[] { o.A, o.B, o.C }) {
+                        ExactPoint3 x = arr.ToInputExact(arr.Exact(id));
+                        Assert.Equal(new BigInteger(h + o.Mesh) * x.W, x.Z);
+                    }
+                string print = string.Join(";", arr.Output.Select(o => o.Mesh + ":" + string.Join(",", new[] { o.A, o.B, o.C }.Select(id => {
+                    var x = arr.Exact(id); return x.X + "," + x.Y + "," + x.Z + "," + x.W; }))));
+                if (reference == null) reference = print;
+                else Assert.Equal(reference, print);
+            }
+        }
+
+        [Fact]
+        public void TouchingBoxes_OppositeNormals_ShareConstructions()
+        {
+            // boxes stacked face to face (the top of one and the bottom of the other: one plane, opposite normals) and
+            // a rotated box through both: the same output with and without shared constructions
+            var meshes = new List<DMesh3>() { Box(new Vector3d(0, 0, 0), 0.5, Quaterniond.Identity), Box(new Vector3d(0, 0, 1), 0.5, Quaterniond.Identity),
+                Box(new Vector3d(0.1, 0.2, 0.5), 0.6, new Quaterniond(new Vector3d(1, 2, 3).Normalized, 30)) };
+            string reference = null;
+            int shared = 0, separate = 0;
+            foreach (bool share in new[] { false, true }) {
+                var arr = new ExactMeshArrangement(meshes) { SelfIntersections = true, ShareCoplanarConstructions = share };
+                arr.Compute();
+                AssertDistinctPoints(arr);
+                if (share) shared = arr.PointCount; else separate = arr.PointCount;
+                string print = string.Join(";", arr.Output.Select(o => o.Mesh + ":" + string.Join(",", new[] { o.A, o.B, o.C }.Select(id => {
+                    var x = arr.Exact(id); return x.X + "," + x.Y + "," + x.Z + "," + x.W; }))));
+                if (reference == null) reference = print;
+                else Assert.Equal(reference, print);
+            }
+            Assert.True(shared < separate, $"{shared} {separate}");
+        }
+
+        [Theory]
+        [InlineData(2, 0)]
+        [InlineData(3, 1)]
+        public void CoplanarTriangles_ShareConstructions_SameOutput(int n, int seed)
+        {
+            // a grid of boxes with coplanar faces and a rotated box: the points where an edge crosses one plane are
+            // constructed once for all triangles in that plane (fewer points to merge); the pieces and their exact
+            // points are the same as with a construction per triangle
+            var meshes = new List<DMesh3>();
+            for (int i = 0; i < n; ++i)
+                for (int j = 0; j < n; ++j)
+                    meshes.Add(Box(new Vector3d(0.9 * i, 0.9 * j, 0), 0.5, Quaterniond.Identity));
+            meshes.Add(Box(new Vector3d(0.4, 0.45, 0.2), 0.8, Rotation(new Random(seed), 360)));
+            meshes.Add(Box(new Vector3d(0.45 * n, 0.4, 0.1), 0.6, Quaterniond.Identity));
+            string reference = null;
+            int sharedPoints = 0, separatePoints = 0;
+            foreach (bool share in new[] { false, true }) {
+                var arr = new ExactMeshArrangement(meshes) { SelfIntersections = true, ShareCoplanarConstructions = share };
+                arr.Compute();
+                AssertDistinctPoints(arr);
+                for (int id = 0; id < arr.PointCount; ++id)
+                    AssertWithinBound(arr, id);
+                if (share) sharedPoints = arr.PointCount; else separatePoints = arr.PointCount;
+                string print = string.Join(";", arr.Output.Select(o => o.Mesh + ":" + string.Join(",", new[] { o.A, o.B, o.C }.Select(id => {
+                    var x = arr.Exact(id); return x.X + "," + x.Y + "," + x.Z + "," + x.W; }))));
+                if (reference == null) reference = print;
+                else Assert.Equal(reference, print);
+            }
+            Assert.True(sharedPoints < separatePoints, $"{sharedPoints} {separatePoints}");
         }
 
         [Fact]

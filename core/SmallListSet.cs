@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 
 namespace g3
 {
@@ -100,6 +101,7 @@ namespace g3
         /// <summary>
         /// insert val into list at list_index. 
         /// </summary>
+        [MethodImpl(JitHints.Optimize)]
         public void Insert(int list_index, int val)
         {
             int block_ptr = list_heads[list_index];
@@ -311,6 +313,36 @@ namespace g3
 
 
         /// <summary>
+        /// the first value v of the list at list_index (in the order of ValueItr) with values[4 * v + 1] == key, or
+        /// invalidValue; without allocating an iterator (DMesh3.FindEdge: the edge to a vertex)
+        /// </summary>
+        internal int FindByKey(int list_index, DVector<int> values, int key, int invalidValue)
+        {
+            int block_ptr = list_heads[list_index];
+            if (block_ptr != Null) {
+                int N = block_store[block_ptr];
+                int iEnd = block_ptr + Math.Min(N, BLOCKSIZE);
+                for (int i = block_ptr + 1; i <= iEnd; ++i) {
+                    int val = block_store[i];
+                    if (values[4 * val + 1] == key)
+                        return val;
+                }
+                if (N >= BLOCKSIZE) {
+                    // spilled to the linked list
+                    int cur_ptr = block_store[block_ptr + BLOCK_LIST_OFFSET];
+                    while (cur_ptr != Null) {
+                        int val = linked_store[cur_ptr];
+                        if (values[4 * val + 1] == key)
+                            return val;
+                        cur_ptr = linked_store[cur_ptr + 1];
+                    }
+                }
+            }
+            return invalidValue;
+        }
+
+
+        /// <summary>
         /// search for findF(list_value) == true, of list at list_index, and return list_value
         /// </summary>
         public int Find(int list_index, Func<int,bool> findF, int invalidValue = -1 )
@@ -394,6 +426,7 @@ namespace g3
 
 
         // grab a block from the free list, or allocate a new one
+        [MethodImpl(JitHints.Optimize)]
         protected int allocate_block()
         {
             int nfree = free_blocks.size;
