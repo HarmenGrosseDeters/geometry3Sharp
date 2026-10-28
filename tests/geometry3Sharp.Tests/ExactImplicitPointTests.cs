@@ -257,6 +257,55 @@ namespace geometry3Sharp.Tests
             Assert.True((doubles > 0 || candidates == 0) && rationals > 0 && zeros > 0, $"{doubles} {rationals} {zeros}");
         }
 
+        [Theory]
+        [MemberData(nameof(Cases))]
+        public void Orient_CollinearByConstruction_WithoutExactPoints(int seed)
+        {
+            // points on an edge (edge-plane points) and crossings of segments are on their lines by construction: Orient
+            // gives 0 for them without computing the exact points. Every triple of a few triangles' points, with the
+            // filters and without (only the exact stages); then all against the homogeneous determinant (which computes
+            // the exact points): also no 0 for a triple that is not collinear (one end of the edge, a point of another).
+            // On the boxes of Build (whose points mostly have their exact points after Compute) and on two spheres in
+            // general position (whose points mostly do not)
+            DMesh3 a = new Sphere3Generator_NormalizedCube() { EdgeVertices = 4 }.Generate().MakeDMesh();
+            DMesh3 b = new DMesh3(a);
+            var rand = new Random(seed);
+            MeshTransforms.Rotate(b, Vector3d.Zero, Rotation(rand, 360));
+            MeshTransforms.Translate(b, new Vector3d(0.31, 0.27, 0.05) * (1 + rand.NextDouble()));
+            var spheres = new ExactMeshArrangement(new List<DMesh3>() { a, b });
+            spheres.Compute();
+            int shortcut = 0, total = 0, zeros = 0;
+            foreach (var arr in new[] { Build(seed), spheres }) {
+                var tris = arr.Triangles.Where(t => t.Segments.Count > 0).Take(6).ToList();
+                var results = new List<(ExactMeshArrangement.InputTriangle, int, int, int, int)>();
+                foreach (bool disable in new[] { false, true }) {
+                    arr.DisableFilters = disable;
+                    foreach (var t in tris) {
+                        var pts = t.Points.Select(arr.Canonical).Concat(t.Corners.array).Distinct().Take(14).ToList();
+                        foreach (int p in pts)
+                            foreach (int q in pts)
+                                foreach (int r in pts) {
+                                    if (p == q || q == r || r == p)
+                                        continue;
+                                    // (the constructed points of the triple without their exact points, before and after)
+                                    var open = new[] { p, q, r }.Where(x => arr.KindOf(x) == ExactMeshArrangement.PointKind.EdgePlane
+                                        || arr.KindOf(x) == ExactMeshArrangement.PointKind.Segments).Where(x => arr.HasExactPoint(x) == false).ToList();
+                                    int o = arr.Orient(t, p, q, r);
+                                    if (o == 0 && open.Count > 0 && open.All(x => arr.HasExactPoint(x) == false))
+                                        shortcut++;
+                                    results.Add((t, p, q, r, o));
+                                }
+                    }
+                }
+                arr.DisableFilters = false;
+                foreach (var (t, p, q, r, o) in results)
+                    Assert.Equal(ReferenceOrient(arr, t, p, q, r), o);
+                total += results.Count;
+                zeros += results.Count(x => x.Item5 == 0);
+            }
+            Assert.True(total > 1000 && zeros > shortcut && shortcut > 0, $"{total} {zeros} {shortcut}");
+        }
+
         [Fact]
         public void InCircle_CocircularPoints_BothExactStages()
         {
