@@ -511,8 +511,47 @@ Tried in this round, no measurable gain (left out):
 - **Larger chunks of the point lists** (16384 instead of 2048 elements, on the large object heap, so that the GC
   does not copy them): cherchi 14.8 / 15.1 s -> 15.1 / 15.2 s (more gen2 collections for the large objects).
 
+### Round 4: exact edge planes, plane normalization
+
+A heap snapshot of fertility + spheres (2.4 s, 40 % GC pause): 1.3-1.65M live `BigInteger` digit arrays, most of
+them in the exact planes of the triangles near the intersection (the plane and three edge planes, four
+`BigInteger`s each). Counted on fertility + spheres, bunny 200k + cow 200k, Thingi10K 61583, `cgal/fandisk` and
+grid 5: no real input uses the exact edge planes, only their approximations; grid 5 uses them for 1500 of 1750
+triangles (exact stages of coincident constructions). They are now computed with the plane for the approximations,
+as before, and kept only when used: 0.6M live digit arrays. In `ExactPlanarSimplify`, the gcd that normalizes a
+plane goes over one component after the other (the gcd of the first two is mostly small, the others are then
+cheap) and the division by 1 is skipped: same groups; simplify on fertility + spheres 195-220 -> 162-170 ms.
+Results bit-identical (263 exact hashes).
+
+Warm, two rounds each (same sets as above; this machine was faster than during round 3, so compare within the
+table only):
+
+| class | median / case before | after | total before | after | GC pause |
+|---|---|---|---|---|---|
+| cherchi | 579 / 585 ms | 576 / 589 ms | 15.5 / 16.7 s | 15.0 / 15.6 s | 19-21 % -> 18 % |
+| cgal | 46 / 50 ms | 46 / 47 ms | 7.29 / 7.44 s | 7.20 / 7.44 s | 5-6 % -> 5 % |
+| thingi | 80 / 78 ms | 76 / 79 ms | 6.50 / 6.58 s | 6.51 / 6.52 s | 0 % |
+| n-ary (grid 5 + grid 10 + spheres 20) | | | 6.07 / 6.14 s | 5.92 / 6.28 s | 33 % |
+
+cherchi -3 to -7 %, the others within the noise.
+
+Looked at in this round, not changed:
+- **Pair search within one mesh** (the test for self-intersections): on bunny 200k + cow 200k about 65 ms of the
+  170 ms are the box queries of each triangle in its own mesh, about 90 ms the exact tests of the 2.4M pairs that
+  overlap (1.84M share a vertex, 0.6M an edge; 120k reach `ExactTriangleIntersection.IntersectsBeyondShared`, which
+  is 17 % of a `cgal/fandisk` boolean). A self-join of the box tree and a test that reuses the orientations already
+  computed would save perhaps 5 %, in the exact code that other operations share.
+- **Assembly**: no single cost (bunny 200k + cow 200k: grouping the edges 25-36 ms, `DMesh3.AppendTriangle`
+  35-47 ms); building the mesh from the grouped edges would need a bulk constructor of `DMesh3`, for 2-4 %.
+- **`ExactTriangulation2` on flat arrays** again, on the inputs with the most triangulation (fertility + spheres,
+  the two spheres, cube + armadillo): 4.66 / 4.94 s -> 4.78 / 4.72 s, no gain.
+
 ### What is left
 
+- **`BigInteger`**: 32 % of the bytes allocated by fertility + spheres are its digit arrays (planes, exact points,
+  exact stages), and the exact planes and points that live through the boolean are most of what the GC copies.
+  The planes have bounded sizes (normal 109 bits, offset 164, edge planes 218 for 53-bit coordinates), so a
+  fixed-width integer without allocation would do for them.
 - **GC pauses** (4-22 %): the input triangles are still one object each (a struct array would change every user of the
   `Triangles` list: the boolean, the planar simplification, the tests), and the exact stages allocate `BigInteger`s.
 - **Pair search** (15-26 %): mostly the exact tests of neighbouring triangles of the same mesh (needed to find
