@@ -83,8 +83,12 @@ namespace g3
                 var t = arr.Triangles[source[i]];
                 var P = t.P;
                 // normalized: divided by the gcd, first non-zero normal component positive (unoriented plane)
-                BigInteger d = BigInteger.GreatestCommonDivisor(BigInteger.GreatestCommonDivisor(P.A, P.B), BigInteger.GreatestCommonDivisor(P.C, P.D));
-                BigInteger a = P.A / d, b = P.B / d, c = P.C / d, e = P.D / d;
+                // (one component after the other: the gcd of the first two is mostly small, then the others are cheap)
+                BigInteger d = BigInteger.GreatestCommonDivisor(BigInteger.GreatestCommonDivisor(BigInteger.GreatestCommonDivisor(P.A, P.B), P.C), P.D);
+                BigInteger a = P.A, b = P.B, c = P.C, e = P.D;
+                if (d.IsOne == false) {
+                    a /= d; b /= d; c /= d; e /= d;
+                }
                 int s = (a.Sign != 0) ? a.Sign : (b.Sign != 0) ? b.Sign : c.Sign;
                 if (s < 0) { a = -a; b = -b; c = -c; e = -e; }
                 var plane = (a, b, c, e);
