@@ -306,6 +306,10 @@ use all cores, CGAL one.
 
 ## Profile and performance work (October 2026)
 
+The state, everything tried and the open candidates, for continuing this work:
+[docs/perf/EXACT_BOOLEAN_PERFORMANCE.md](../../docs/perf/EXACT_BOOLEAN_PERFORMANCE.md); the scripts to measure:
+[perf/](perf/).
+
 `BooleanComparison profile` (`Profile.cs`) runs ExactMeshBoolean on a list of cases and writes one JSON line per
 case and operation: the time of each run, the phase times and the bytes allocated per phase (`PhaseClock`), GC
 collections and pause time, the counts of the boolean, and a hash of the result mesh (with `--exact` also of the
@@ -545,6 +549,20 @@ Looked at in this round, not changed:
   35-47 ms); building the mesh from the grouped edges would need a bulk constructor of `DMesh3`, for 2-4 %.
 - **`ExactTriangulation2` on flat arrays** again, on the inputs with the most triangulation (fertility + spheres,
   the two spheres, cube + armadillo): 4.66 / 4.94 s -> 4.78 / 4.72 s, no gain.
+- **`Orient` = 0 by construction** (branch `claude/collinear-shortcut`): 99 % of the exact stages of the
+  arrangement's `Orient` on real inputs are triples with a point constructed on the line through the other two
+  (fertility + spheres 111054 of 111976, `cgal/fandisk` 1502 of 1533); answering them without the exact points cut
+  the GC pause on fertility + spheres by 18 %, but not the time, and the classes moved within the noise (cherchi
+  15.0 / 15.0 -> 15.0 / 15.5 s, cgal 7.27 / 7.18 -> 7.18 / 7.10 s, thingi 6.51 / 6.37 -> 6.31 / 6.28 s). Not merged.
+- **Planes in a fixed-width `Int384`** (branch `claude/int256-spike`, .NET 8+): planes phase on fertility + spheres
+  285 -> 53 ms, allocations -14 %, total unchanged alone; together with the `Orient` shortcut -5..-7 % on that case
+  (both reduce the `BigInteger` objects that live through the boolean; either alone leaves enough of them). Not
+  merged; the next step is in [docs/perf/EXACT_BOOLEAN_PERFORMANCE.md](../../docs/perf/EXACT_BOOLEAN_PERFORMANCE.md).
+- **GC settings of an application** (not the library's choice): server GC (`DOTNET_gcServer=1`) made fertility +
+  spheres 2.19 / 2.06 -> 1.69 / 1.56 s (GC pause 955 -> 225 ms), but small inputs 5-25 % slower;
+  `DOTNET_GCgen0size=0x40000000` 1.99 / 1.91 s, neutral on small inputs.
+- **`Span` / `stackalloc` / `ArrayPool`**: nothing to use them on. The GC cost is the objects that live through
+  the boolean, not temporaries, and `BigInteger` allocates its digits itself; reused buffers (round 1) gave nothing.
 
 ### What is left
 

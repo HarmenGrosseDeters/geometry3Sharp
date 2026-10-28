@@ -1,0 +1,5 @@
+cherchi/bunny.obj+cow.obj
+cherchi/bunny100k.obj+cow100K.obj
+cherchi/bunny25k.obj+cow25k.obj
+cherchi/bunny50k.obj+cow50k.obj
+cherchi/cactus.off
