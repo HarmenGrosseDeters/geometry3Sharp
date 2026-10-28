@@ -168,9 +168,9 @@ Mutation score per shard (killed and timeouts over all tested and uncovered muta
 
 | Shard | Before | After | Break |
 |---|---|---|---|
-| `rounding` | 54.1 % (370 killed, 17 timeouts, 264 survived, 64 no coverage) | 59.9 % (418 killed, 10 timeouts, 231 survived, 56 no coverage) | 57 |
-| `boolean-1` | 86.5 % (317 killed, 55 timeouts, 45 survived, 13 no coverage) | 80.0 % (334 killed, 10 timeouts, 73 survived, 13 no coverage) | 77 |
-| `boolean-2` | 60.8 % (382 killed, 8 timeouts, 199 survived, 53 no coverage) | 65.6 % (454 killed, 7 timeouts, 161 survived, 81 no coverage) | 63 |
+| `rounding` | 54.1 % (370 killed, 17 timeouts, 264 survived, 64 no coverage) | 59.9 % (418 killed, 10 timeouts, 231 survived, 56 no coverage); 28 October, second pass: **62.8 %** (416 killed, 14 timeouts, 230 survived, 25 no coverage) | 59 (was 57) |
+| `boolean-1` | 86.5 % (317 killed, 55 timeouts, 45 survived, 13 no coverage) | 80.0 % (334 killed, 10 timeouts, 73 survived, 13 no coverage); second pass: **87.7 %** (385 killed, 58 timeouts, 47 survived, 13 no coverage) | 79 (was 77) |
+| `boolean-2` | 60.8 % (382 killed, 8 timeouts, 199 survived, 53 no coverage) | 65.6 % (454 killed, 7 timeouts, 161 survived, 81 no coverage); second pass: **89.3 %** (534 killed, 105 timeouts, 50 survived, 27 no coverage) | 79 (was 63) |
 | `arrangement-1` | 83.0 % (516 killed, 164 timeouts, 113 survived, 26 no coverage) | 85.8 % (440 killed, 263 timeouts, 103 survived, 13 no coverage) | 67 |
 | `arrangement-2` | 94.7 % (668 killed, 354 timeouts, 29 survived, 28 no coverage) | 95.2 % (566 killed, 461 timeouts, 24 survived, 28 no coverage) | 72 |
 | `planar` | 60.0 % (348 killed, 12 timeouts, 189 survived, 51 no coverage) | 69.0 % (402 killed, 12 timeouts, 157 survived, 29 no coverage) | 67 |
@@ -262,5 +262,10 @@ mutants"; the artifacts are not reachable from the cloud sessions):
   of non-negative edge keys. Diagnostics only (public, unchecked): the `Counts` keys, `exactSides--`.
 - The new boolean test classes (`ExactBooleanIssueCasesTests`, `ExactBooleanByDesignTests`) are in the filters of
   `rounding`, `boolean-1` and `boolean-2`.
+- Scores of this pass (run 40682791644, master `88b9bc7` with these tests; table above): `rounding` 59.9 -> 62.8 %,
+  `boolean-1` 80.0 -> 87.7 %, `boolean-2` 65.6 -> 89.3 %. Without the timeouts (killed over all): `boolean-1` 76 % and
+  `boolean-2` 75 % (before 78 % and 65 %): the uncovered paths of open input are now killed, and the slower open-input
+  tests turn more mutants into timeouts, whose number varies between runs. The thresholds follow the rule above (the
+  score rounded down, less two points, less half the share of timeouts): `rounding` 59, `boolean-1` 79, `boolean-2` 79.
 
 Set `break` from a measured score as above and only raise it.
