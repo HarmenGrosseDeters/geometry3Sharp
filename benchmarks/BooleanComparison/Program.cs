@@ -5,6 +5,7 @@
 //   synth <dir>                          synthetic hard cases (touching, coplanar, thin, large coordinates,
 //                                        scale differences) and iterated sequences; writes <dir>/cases.jsonl
 //   run <A.off> <B.off> <op> <out.off>   ExactMeshBoolean; prints {"ms":..} (boolean only, without I/O)
+//                                        (run and obb: BOOLCMP_SAFE_ROUNDING=0|1 sets ExactMeshBoolean.SafeRounding)
 //   obb --request <r.json> --result <r.json> [--write-last-only]
 //                                        runner for the Open Boolean Benchmark protocol (obb-runner/README.md)
 //   eval <dir>                           metrics of all results <method>_<op>.(off|obj) in dir, one JSON line per method
@@ -25,6 +26,15 @@ using gs;
 static class Program
 {
     static readonly CultureInfo ci = CultureInfo.InvariantCulture;
+
+    // BOOLCMP_SAFE_ROUNDING=0|1: SafeRounding off or on; unset: the library's default
+    internal static ExactMeshBoolean Configure(ExactMeshBoolean boolean)
+    {
+        string s = Environment.GetEnvironmentVariable("BOOLCMP_SAFE_ROUNDING");
+        if (s == "0" || s == "1")
+            boolean.SafeRounding = s == "1";
+        return boolean;
+    }
 
     static int Main(string[] args)
     {
@@ -125,11 +135,11 @@ static class Program
         DMesh3 w2 = new DMesh3(w1);
         MeshTransforms.Translate(w2, new Vector3d(0.3, 0.2, 0.1));
         foreach (var o in ops.Values)
-            new ExactMeshBoolean(w1, w2, o).Compute();
+            Configure(new ExactMeshBoolean(w1, w2, o)).Compute();
         int gc0 = GC.CollectionCount(0), gc2 = GC.CollectionCount(2);
         TimeSpan pause0 = GC.GetTotalPauseDuration();
         var sw = Stopwatch.StartNew();
-        var boolean = new ExactMeshBoolean(a, b, ops[op]);
+        var boolean = Configure(new ExactMeshBoolean(a, b, ops[op]));
         bool ok = boolean.Compute();
         long ms = sw.ElapsedMilliseconds;
         var gc = new Dictionary<string, object> { ["gen0"] = GC.CollectionCount(0) - gc0, ["gen2"] = GC.CollectionCount(2) - gc2,
@@ -138,6 +148,7 @@ static class Program
             WriteOFF(boolean.Result, fout);
         var r = new Dictionary<string, object> { ["ms"] = ms, ["ok"] = ok, ["phases"] = boolean.PhaseMilliseconds, ["counts"] = boolean.Counts, ["gc"] = gc };
         if (!ok) r["error"] = boolean.Error;
+        if (boolean.Rounding != null) r["rounding_clean"] = boolean.RoundingClean;
         Console.WriteLine(JsonSerializer.Serialize(r));
         return 0;
     }

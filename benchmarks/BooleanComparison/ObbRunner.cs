@@ -93,7 +93,7 @@ static class ObbRunner
                         // one argument: the self-operation (regularization), with an empty second mesh
                         DMesh3 second = a.Length == 2 ? slots[a[1]] : (kind == ExactMeshBoolean.Operations.Difference ? slots[a[0]] : new DMesh3());
                         var t = Stopwatch.StartNew();
-                        var b = new ExactMeshBoolean(slots[a[0]], second, kind);
+                        var b = Program.Configure(new ExactMeshBoolean(slots[a[0]], second, kind));
                         bool ok = b.Compute();
                         o["operation_ms"] = t.Elapsed.TotalMilliseconds;
                         o["export_ms"] = 0.0;
@@ -130,7 +130,7 @@ static class ObbRunner
         DMesh3 w2 = new DMesh3(w1);
         MeshTransforms.Translate(w2, new Vector3d(0.3, 0.2, 0.1));
         foreach (ExactMeshBoolean.Operations o in Enum.GetValues(typeof(ExactMeshBoolean.Operations)))
-            new ExactMeshBoolean(w1, w2, o).Compute();
+            Program.Configure(new ExactMeshBoolean(w1, w2, o)).Compute();
     }
 
     static void Flush(Dictionary<string, object> output, string path)
