@@ -121,6 +121,10 @@ namespace g3
                 if (Degenerate)
                     throw new InvalidOperationException("ExactMeshArrangement: degenerate triangle has no plane");
                 ExactPoint3 a = arr.Exact(Corners[0]), b = arr.Exact(Corners[1]), c = arr.Exact(Corners[2]);
+#if NET8_0_OR_GREATER
+                if (UseInt384 && small(a) && small(b) && small(c))
+                    return compute_planes_384(a, b, c);
+#endif
                 BigInteger ux = b.X - a.X, uy = b.Y - a.Y, uz = b.Z - a.Z;
                 BigInteger vx = c.X - a.X, vy = c.Y - a.Y, vz = c.Z - a.Z;
                 BigInteger nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
@@ -139,6 +143,52 @@ namespace g3
                 System.Threading.Volatile.Write(ref planes, d);
                 return d;
             }
+
+            internal static bool UseInt384 = Environment.GetEnvironmentVariable("G3_NO_INT384") != "1";
+
+            // integer point with coordinates below 2^88: then the planes fit in Int384 (normal below 2^179, offset below
+            // 2^269, edge planes' normals below 2^269, offsets below 2^359)
+            static bool small(ExactPoint3 p)
+            {
+                return p.W.IsOne && fits(p.X) && fits(p.Y) && fits(p.Z);
+            }
+            static readonly BigInteger Limit = BigInteger.One << 88;
+            static bool fits(BigInteger v) { return v < Limit && v > -Limit; }
+
+#if NET8_0_OR_GREATER
+            // the same planes and approximations as compute_planes, in Int384 (no BigInteger but the plane's)
+            [MethodImpl(JitHints.Optimize)]
+            PlaneData compute_planes_384(ExactPoint3 pa_, ExactPoint3 pb_, ExactPoint3 pc_)
+            {
+                Span<Int384> X = stackalloc Int384[3], Y = stackalloc Int384[3], Z = stackalloc Int384[3];
+                X[0] = Int384.FromBigInteger(pa_.X); Y[0] = Int384.FromBigInteger(pa_.Y); Z[0] = Int384.FromBigInteger(pa_.Z);
+                X[1] = Int384.FromBigInteger(pb_.X); Y[1] = Int384.FromBigInteger(pb_.Y); Z[1] = Int384.FromBigInteger(pb_.Z);
+                X[2] = Int384.FromBigInteger(pc_.X); Y[2] = Int384.FromBigInteger(pc_.Y); Z[2] = Int384.FromBigInteger(pc_.Z);
+                Int384 ux = X[1] - X[0], uy = Y[1] - Y[0], uz = Z[1] - Z[0];
+                Int384 vx = X[2] - X[0], vy = Y[2] - Y[0], vz = Z[2] - Z[0];
+                Int384 nx = uy * vz - uz * vy;
+                Int384 ny = uz * vx - ux * vz;
+                Int384 nz = ux * vy - uy * vx;
+                Int384 d = nx * X[0] + ny * Y[0] + nz * Z[0];
+                int ta = (Int384.CompareAbs(nx, ny) >= 0 && Int384.CompareAbs(nx, nz) >= 0) ? 0 : (Int384.CompareAbs(ny, nz) >= 0) ? 1 : 2;
+                int ts = ((ta == 0) ? nx : (ta == 1) ? ny : nz).Sign;
+                var pa = new double[16];
+                pa[0] = nx.ToDouble(); pa[1] = ny.ToDouble(); pa[2] = nz.ToDouble(); pa[3] = d.ToDouble();
+                for (int k = 0; k < 3; ++k) {
+                    int k1 = (k + 1) % 3;
+                    Int384 dx = X[k1] - X[k], dy = Y[k1] - Y[k], dz = Z[k1] - Z[k];
+                    Int384 ex = dy * nz - dz * ny;
+                    Int384 ey = dz * nx - dx * nz;
+                    Int384 ez = dx * ny - dy * nx;
+                    Int384 ed = ex * X[k] + ey * Y[k] + ez * Z[k];
+                    pa[4 * k + 4] = ex.ToDouble(); pa[4 * k + 5] = ey.ToDouble(); pa[4 * k + 6] = ez.ToDouble(); pa[4 * k + 7] = ed.ToDouble();
+                }
+                Plane tp = new Plane(nx.ToBigInteger(), ny.ToBigInteger(), nz.ToBigInteger(), d.ToBigInteger());
+                var data = new PlaneData() { P = tp, Axis = ta, Sign = ts, PlaneApprox = pa };
+                System.Threading.Volatile.Write(ref planes, data);
+                return data;
+            }
+#endif
 
             Plane[] edge_planes(BigInteger nx, BigInteger ny, BigInteger nz)
             {
@@ -1068,6 +1118,24 @@ namespace g3
 
 
         /// <summary> orientation of three points in the projection of triangle t, +1 if counter-clockwise like t </summary>
+        // x is constructed on the line through a and b, exactly: an edge-plane point on its edge, a crossing of two
+        // segments on either (by the canonical ids of the edge's ends: other ids of the same points also count)
+        bool on_line_by_construction(int x, int a, int b)
+        {
+            PointKey k = keys[x];
+            if (k.Kind == PointKind.EdgePlane)
+                return same_edge(k.A, a, b);
+            if (k.Kind == PointKind.Segments)
+                return same_edge(k.A, a, b) || same_edge(k.B, a, b);
+            return false;
+        }
+
+        bool same_edge(long e, int a, int b)
+        {
+            int u = Canonical((int)(e >> 32)), v = Canonical((int)(e & 0xFFFFFFFF));
+            return (u == a && v == b) || (u == b && v == a);
+        }
+
         [MethodImpl(JitHints.Optimize)]
         public int Orient(InputTriangle t, int p, int q, int r)
         {
@@ -1083,6 +1151,10 @@ namespace g3
                 if (-fdet > err) return -t.Sign;
             }
             PredicateStats.ExactStage(PredicateStats.Kind.ArrOrient);
+            // a point constructed on the line through the other two: 0 without the exact points (on real inputs almost
+            // all exact stages are such, the points on an edge of the triangle that it was cut by)
+            if (on_line_by_construction(r, p, q) || on_line_by_construction(p, q, r) || on_line_by_construction(q, r, p))
+                return 0;
             ExactBox ba = exact_box(p), bb = exact_box(q), bc = exact_box(r);
             if (ba.IsDouble && bb.IsDouble && bc.IsDouble) {
                 // integer points with double coordinates: the same determinant (W = 1), by the adaptive predicate
