@@ -1,5 +1,6 @@
 # Working on geometry3Sharp
 
+How we work with agents (tiers, task brief, review): [docs/AGENT_WORKFLOW.md](docs/AGENT_WORKFLOW.md).
 Direction, phases and open items: [docs/ROADMAP.md](docs/ROADMAP.md). Sources of ported or implemented
 methods: [docs/SOURCES.md](docs/SOURCES.md). Test strategy: [docs/QA.md](docs/QA.md), local
 setup (SDK install): [docs/QA.md#5-local-setup](docs/QA.md#5-local-setup).

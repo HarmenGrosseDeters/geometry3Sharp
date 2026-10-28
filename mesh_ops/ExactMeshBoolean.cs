@@ -29,7 +29,9 @@ namespace g3
     /// number -1) has an empty solid. A mesh with inconsistently oriented triangles (flipped faces) is first
     /// oriented consistently per component (triangles connected across edges with two triangles, by vertex
     /// position), keeping the orientation of the larger part by area (ReorientedTriangles); components that
-    /// cannot be oriented are left as they are. Degenerate (zero-area) input
+    /// cannot be oriented are left as they are. Where solids touch along an edge, the result is
+    /// non-manifold there when welded by position, by design (as in Manifold): the triangles at such an edge are split
+    /// into manifold pairs with copies of its vertices (NonManifoldEdges). Degenerate (zero-area) input
     /// triangles are dropped. The rounding of new vertices can create tiny self-intersections, and intersection
     /// points that nearly coincide give degenerate slivers: SafeRounding repairs both after the rounding
     /// (MeshRoundingRepair, verified with exact predicates on the doubles), ComputeExactVertices gives the

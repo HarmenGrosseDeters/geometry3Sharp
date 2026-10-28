@@ -17,7 +17,9 @@ operations to their classes, with a tested example for each. It adds:
 - `ExactMeshBoolean`: union, intersection and difference with exact arithmetic (exact arrangement of
   all intersecting triangles, exact winding numbers). Coplanar, touching and nearly coincident inputs give
   closed results; self-intersecting meshes, nested shells and duplicated faces are resolved
-  (`ExactMeshBoolean.Resolve(mesh)` does that for one mesh); open meshes use the generalized winding number.
+  (`ExactMeshBoolean.Resolve(mesh)` does that for one mesh); open meshes use the generalized winding number
+  (by design, their results are open), and solids touching along an edge give a result that is non-manifold there
+  when welded by position, as in Manifold ([OPERATIONS.md](docs/OPERATIONS.md)).
   Only the output coordinates are rounded to double. New vertices inside flat regions and on straight edges
   (from overlapping coplanar faces) are removed exactly, so repeated booleans do not fragment the result.
 - Intrinsic geodesics (Phase 3 of the roadmap): `IntrinsicTriangulation` (intrinsic Delaunay flips with
