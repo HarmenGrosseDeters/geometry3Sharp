@@ -206,8 +206,10 @@ namespace geometry3Sharp.Tests
             var ab = NearlyCoincident(Cube(), new Vector3d(0.3, 0.5, 0.8), 1e-11, 1e-11 * new Vector3d(0.7, 0.2, 0.4));
             DMesh3 both = new DMesh3(ab[0]);
             new MeshEditor(both).AppendMesh(ab[1]);
-            DMesh3 plain = ExactMeshBoolean.Resolve(both);
+            DMesh3 plain = ExactMeshBoolean.Resolve(both, false);
             Assert.Equal("degenerate triangles", MeshRobustRepair.NotCleanReason(plain, false));
+            // the default is SafeRounding
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(ExactMeshBoolean.Resolve(both), true));
             DMesh3 safe = ExactMeshBoolean.Resolve(both, true);
             Assert.Equal("", MeshRobustRepair.NotCleanReason(safe, true));
             Assert.Equal(8.0, Volume(safe), 6);
@@ -221,7 +223,7 @@ namespace geometry3Sharp.Tests
             var ab = NearlyCoincident(Sphere(6), new Vector3d(0.6, 0.3, 0.1), 1e-10, 1e-10 * new Vector3d(0.2, 0.9, 0.5));
             DMesh3 both = new DMesh3(ab[0]);
             new MeshEditor(both).AppendMesh(ab[1]);
-            Assert.Equal("degenerate triangles", MeshRobustRepair.NotCleanReason(ExactMeshBoolean.Resolve(both), false));
+            Assert.Equal("degenerate triangles", MeshRobustRepair.NotCleanReason(ExactMeshBoolean.Resolve(both, false), false));
             var robust = new MeshRobustRepair(new DMesh3(both)) { AlphaWrapFallback = false };
             Assert.True(robust.Apply());
             Assert.True(robust.UsedExactResolve, $"exact: {robust.ExactResolveReason}");
@@ -406,7 +408,7 @@ namespace geometry3Sharp.Tests
         public void ExactVertices_RoundToTheResult()
         {
             var ab = NearlyCoincident(Cube(), new Vector3d(0.3, 0.5, 0.8), 1e-3, new Vector3d(0.1, 0.2, 0.05));
-            var b = new ExactMeshBoolean(ab[0], ab[1], Ops.Intersection) { ComputeExactVertices = true };
+            var b = new ExactMeshBoolean(ab[0], ab[1], Ops.Intersection) { ComputeExactVertices = true, SafeRounding = false };
             Assert.True(b.Compute());
             DMesh3 r = b.Result;
             ResultChecks.AssertClosed(r);
@@ -466,7 +468,7 @@ namespace geometry3Sharp.Tests
             MeshTransforms.Scale(c, 0.001);
             MeshTransforms.Translate(a, new Vector3d(500000.25, -3.5, 7));
             MeshTransforms.Translate(c, new Vector3d(500000.2505, -3.4996, 7.0003));
-            var b = new ExactMeshBoolean(a, c, Ops.Union) { ComputeExactVertices = true };
+            var b = new ExactMeshBoolean(a, c, Ops.Union) { ComputeExactVertices = true, SafeRounding = false };
             Assert.True(b.Compute());
             // far from the origin: a closed result, larger than one sphere and smaller than both
             ResultChecks.AssertClosed(b.Result);

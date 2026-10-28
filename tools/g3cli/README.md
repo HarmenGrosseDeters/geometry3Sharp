@@ -8,7 +8,7 @@ tools of an MCP server (stdio), for coding agents and scripts.
 |---|---|---|
 | `measure` | counts, components, closedness, volume, area, bounds, genus, bowties, degenerate and inside-out parts, self-intersections (exact), Hausdorff distance to a second mesh | `MeshMeasurements`, `MeshRepairMetrics`, `MeshHausdorffDistance` |
 | `repair` | repair into a closed solid (`--method robust`, default, or `auto`); with the exact resolve, `genus_before` / `genus_after` and a warning when it changed the genus of a component (self-overlapping layers form tunnels) | `MeshRobustRepair`, `MeshAutoRepair` |
-| `boolean` | union, intersection, difference (a minus the others), at least k of n; two or more meshes (`--more`) in one exact operation | `ExactMeshBoolean` |
+| `boolean` | union, intersection, difference (a minus the others), at least k of n; two or more meshes (`--more`) in one exact operation; the result is repaired after the rounding (`SafeRounding`, the library default), `boolean.rounding_clean` tells whether it is verified free of self-intersections and slivers | `ExactMeshBoolean` |
 | `resolve` | boundary of the solid of one mesh: removes self-intersections, nested shells, duplicate faces | `ExactMeshBoolean.Resolve` |
 | `remesh` | isotropic remeshing to a target edge length, boundary and sharp edges kept; passes that would turn a closed part inside out are rolled back (`rejected_passes`), a warning if the edge length is more than 4 times the estimated wall thickness | `Remesher`, `MeshConstraintUtil` |
 | `simplify` | quadric edge collapse to a triangle count, ratio, error or edge length | `Reducer` |

@@ -331,7 +331,8 @@ class Program
         MeshTransforms.Translate(b, 0.25 * new Vector3d(bounds.Width, bounds.Height, bounds.Depth));
         // the solids of A and B (self-intersections resolved), for the volume identities
         var swr = Stopwatch.StartNew();
-        DMesh3 ra = ExactMeshBoolean.Resolve(a), rb = ExactMeshBoolean.Resolve(b);
+        bool safe = Environment.GetEnvironmentVariable("BENCH_SAFE_ROUNDING") != "0";
+        DMesh3 ra = ExactMeshBoolean.Resolve(a, safe), rb = ExactMeshBoolean.Resolve(b, safe);
         r["exact_resolve_ms"] = swr.ElapsedMilliseconds;
         double vA = ra != null ? Vol(ra) : Vol(a), vB = rb != null ? Vol(rb) : Vol(b);
         r["exact_vA"] = vA; r["exact_vB"] = vB;

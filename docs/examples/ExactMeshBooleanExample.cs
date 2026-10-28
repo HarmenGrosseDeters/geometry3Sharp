@@ -37,7 +37,7 @@ namespace g3.Examples
             DMesh3 turned = new DMesh3(cube);
             MeshTransforms.Rotate(turned, new Vector3d(0.5, 0.5, 0.5), new Quaterniond(new Vector3d(0.3, 0.5, 0.8).Normalized, 1e-11 * MathUtil.Rad2Deg));
 
-            var boolean = new ExactMeshBoolean(cube, turned, ExactMeshBoolean.Operations.Union) { SafeRounding = true };
+            var boolean = new ExactMeshBoolean(cube, turned, ExactMeshBoolean.Operations.Union) { SafeRounding = true };   // (the default, set here to show it)
             boolean.Compute();
             clean = boolean.RoundingClean;
             return boolean.Result;
