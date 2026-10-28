@@ -343,11 +343,6 @@ namespace g3
                 rebuild_tree();
         }
 
-        static bool overlaps(AxisAlignedBox3d a, AxisAlignedBox3d b)
-        {
-            return !(a.Max.x < b.Min.x || a.Min.x > b.Max.x || a.Max.y < b.Min.y || a.Min.y > b.Max.y || a.Max.z < b.Min.z || a.Min.z > b.Max.z);
-        }
-
         // the current triangles whose box overlaps query (each once)
         [MethodImpl(JitHints.Optimize)]
         void near(AxisAlignedBox3d query, List<int> result)

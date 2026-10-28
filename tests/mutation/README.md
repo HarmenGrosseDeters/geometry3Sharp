@@ -227,8 +227,8 @@ Groups of survivors that are equivalent or practically equivalent (no test for t
   for other edits, ends with the same mesh, because a pass without edits changes nothing.
 
 Open (real gaps, not yet tested):
-- `MeshRoundingRepair`: the contraction to the midpoint of an edge (both ends fail, the midpoint not), and
-  `overlaps`, which is never called (dead code, reported).
+- `MeshRoundingRepair`: the contraction to the midpoint of an edge (both ends fail, the midpoint not). (`overlaps`,
+  never called, was dead code and is removed: 30 of the shard's 56 uncovered mutants.)
 - `ExactPlanarSimplify`: the convexity check before a Delaunay flip (`&&` for `||` survives: no test has a
   non-convex quad whose diagonal fails the incircle test).
 - `ExactMeshBoolean`: the generalized winding numbers of open input (`front_generalized_winding`, the 1/2
