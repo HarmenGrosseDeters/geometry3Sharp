@@ -228,10 +228,11 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void EdgePlanes_ComputedWhenUsed_MatchTheirApproximations()
         {
-            // two overlapping spheres (triangles near the intersection have planes); the exact edge planes are not
-            // kept with the plane, they are computed on first use (also by several threads at once): the same planes
-            // as a direct construction from the exact corners, the same object on later uses, and the approximations
-            // (computed with the plane) are their values rounded
+            // two overlapping spheres (triangles near the intersection have planes; Compute does not use their exact
+            // edge planes, so they are computed here, on first use): the same planes as a direct construction from the
+            // exact corners, the same object on later uses, and the approximations (computed with the plane) are their
+            // values rounded; on a second arrangement, many threads ask for the planes of the same triangles at once
+            // (they may get different arrays, with the same values)
             DMesh3 a = new Sphere3Generator_NormalizedCube() { EdgeVertices = 6 }.Generate().MakeDMesh();
             DMesh3 b = new DMesh3(a);
             MeshTransforms.Translate(b, new Vector3d(0.31, 0.27, 0.05));
@@ -241,6 +242,17 @@ namespace geometry3Sharp.Tests
             Assert.True(tris.Count > 20);
             var first = new ExactMeshArrangement.Plane[tris.Count][];
             gParallel.ForRange(tris.Count, (i) => first[i] = tris[i].EdgePlanes);
+            var arr2 = new ExactMeshArrangement(new List<DMesh3>() { a, b });
+            arr2.Compute();
+            var tris2 = arr2.Triangles.Where(t => t.Segments.Count > 0).ToList();
+            Assert.Equal(tris.Select(t => t.Tid), tris2.Select(t => t.Tid));
+            var raced = new ExactMeshArrangement.Plane[8 * tris2.Count][];
+            gParallel.ForRange(raced.Length, (i) => raced[i] = tris2[i % tris2.Count].EdgePlanes);
+            for (int i = 0; i < raced.Length; ++i)
+                for (int k = 0; k < 3; ++k) {
+                    var x = raced[i][k]; var y = first[i % tris2.Count][k];
+                    Assert.True(x.A == y.A && x.B == y.B && x.C == y.C && x.D == y.D);
+                }
             for (int i = 0; i < tris.Count; ++i) {
                 ExactMeshArrangement.InputTriangle t = tris[i];
                 Assert.Same(first[i], t.EdgePlanes);
