@@ -389,6 +389,16 @@ How:
 This is a release criterion (ROADMAP, Release): the library should pass the cases that its peers fixed or
 documented.
 
+**Booleans (October 2026):** `ExactBooleanIssueCasesTests` rebuilds 13 failure modes from the trackers of Manifold,
+CGAL and libigl: shared faces in random orientations, two prisms that form a box, flush cuts, skewed prisms on a
+shared face, a sphere minus its lens with a shifted copy, batch unions at 3.6e8 against sequential and reversed order,
+one box triangulated two ways, a 130-level rotate-and-union spiral, tiny rotations, mirrored inputs, cavities, a
+stepped cylinder tool with rounding between the steps, inside-out operands. `ExactMeshBoolean` gives clean, correct
+results on all of them. Known failure (pinned in `KnownLimitation_TwoTriangularPrisms_RotatedInexactly_KeepATinyVoid`):
+when the shared face of two inputs is not exactly planar after an inexact rotation, its two triangulations enclose a
+tetrahedron of about 3e-15 volume, which the exact union keeps as a void touching the outer surface along edges
+(volume right, non-manifold when welded by position).
+
 ## 3. Performance
 
 ### 3.1 Micro benchmarks with regression detection
