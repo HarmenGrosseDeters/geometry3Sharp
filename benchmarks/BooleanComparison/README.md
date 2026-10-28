@@ -92,6 +92,7 @@ export BOOLCMP_TOOL=/some/where/frozen/BooleanComparison.dll
 export CGAL_BOOL=/path/to/cgal_bool
 export CHERCHI_BOOL=/path/to/InteractiveAndRobustMeshBooleans/build/mesh_booleans
 export MANIFOLD_PYTHON=/path/to/env/bin/python
+export BOOLCMP_SAFE_ROUNDING=1       # optional: ExactMeshBoolean.SafeRounding on (1) or off (0); unset: the library's default
 
 python3 compare.py meshes.txt results.jsonl --timeout 300 -j 1        # a list of mesh files or a directory (class thingi10k)
 python3 data/fetch.py cgal data_cgal && python3 compare.py data_cgal/cases.jsonl results.jsonl
@@ -136,6 +137,24 @@ identity or a known volume off by more than 1e-6), **not closed**, **failed** (t
 input it accepts), **timeout**, **crash**, **rejected** (the tool refuses the input). Times are the sum of the
 three operations (boolean only, without I/O), on the cases that every method solves correctly.
 
+### Re-run (28 October 2026)
+
+Our method only (the external tools were not rebuilt), master `e90a034`, `compare.py --methods ours -j 1`, with
+`SafeRounding` off (the library default at `e90a034`) and on (`BOOLCMP_SAFE_ROUNDING=0|1`), both runs at the same time on 4
+cores (times under load; the sequences alone, see ⁵). Outcomes per case as defined above:
+
+| class | SafeRounding off | on | time (sum of the booleans) off → on |
+|---|---|---|---|
+| `cgal` (90) | 63 clean, 3 self-int., 24 not closed¹ | 65 clean, 1 self-int., 24 not closed¹ | 107 → 148 s (+39 %) |
+| `cherchi` (13) | 13 clean | 13 clean | 67 → 95 s (+42 %) |
+| `synthetic` (24) | 23 clean, 1 self-int.³ | 23 clean, 1 self-int.³ | 5.4 → 8.6 s (+59 %) |
+| `sequence` (2) | 2 clean | 2 clean | grid 5 / grid 10: 3.4 / 106 s → 4.9 / 168 s (both measured alone, ⁵) |
+
+Against the table below (before the performance work and `SimplifyFlatRegions`): `cgal` one more case clean (62 → 63)
+and one fewer not closed; the 1999-boolean sequence finishes. Of the time with SafeRounding, the repair after the rounding
+is 29 % on `cgal` and 30 % on `cherchi` (on a result without defects it is the exact check of the rounded result for
+self-intersections and degenerate triangles).
+
 ### Summary
 
 | class | cases | where ExactMeshBoolean stands |
@@ -143,7 +162,7 @@ three operations (boolean only, without I/O), on the cases that every method sol
 | `cgal` | 90 | as good as CGAL and Manifold on the 50 inputs all accept; the only method without rejections (CGAL refuses 40, Manifold 33); 9× slower than CGAL, 11× slower than Manifold (median per case) |
 | `cherchi` | 13 | all methods clean; 5× slower than CGAL, 10× slower than Manifold, 3× slower than Cherchi et al. (median per case; on the largest cases 2–3× slower than CGAL and Cherchi et al.) |
 | `synthetic` | 24 | clean everywhere except where the correct result touches itself (as Manifold); CGAL refuses the union of boxes touching at an edge; Cherchi et al. leaves coplanar and touching cases open |
-| `sequence` | 2 | 249 booleans clean (6.3 s, Manifold 0.2 s); 1999 booleans **time out**: the result fragments (see below) |
+| `sequence` | 2 | 249 and 1999 booleans clean (3.4 s and 106 s, re-run 28 October; Manifold 0.2 s and 7.5 s); before `SimplifyFlatRegions` the 1999 booleans timed out (see below) |
 
 ### `cgal` (90 cases, 50 with closed inputs without self-intersections)
 
@@ -204,19 +223,24 @@ stencil (fertility minus 703 spheres) 15 s (CGAL EPECK 6.3 s, Cherchi et al. 6.4
 
 | case | ExactMeshBoolean | CGAL EPECK | CGAL EPICK | Manifold | Cherchi et al. |
 |---|---|---|---|---|---|
-| 5×5×5, 249 booleans | clean, 6.3 s | self-int.⁴, 2.1 s | failed after 5 | clean, 0.2 s | crash after 7 |
-| 10×10×10, 1999 booleans | **timeout** after 47 | self-int.⁴, 64 s | failed after 10 | clean, 7.5 s | crash after 12 |
+| 5×5×5, 249 booleans | clean, 3.4 s⁵ | self-int.⁴, 2.1 s | failed after 5 | clean, 0.2 s | crash after 7 |
+| 10×10×10, 1999 booleans | clean, 106 s⁵ (before: **timeout** after 47) | self-int.⁴, 64 s | failed after 10 | clean, 7.5 s | crash after 12 |
 
 EPICK throws "Unauthorized intersections of constraints" on the coplanar faces; Cherchi et al. crash (SIGSEGV)
 on intermediate results passed as files. ⁴ EPECK stays exact in memory, but its final result, rounded to double,
 has duplicated points, triangles of zero area (432 for n = 10) and self-intersections.
 
-ExactMeshBoolean fragments coplanar regions: where faces of the two inputs overlap in a plane, the result keeps
-the subdivision of both (eg points where the diagonals of the overlapping side faces cross), and after rounding
-to double these points lie slightly off the lines they were on. The next boolean intersects them again, so the
+⁵ Re-run of 28 October 2026 (master `e90a034`, our method only, alone on the machine): both sequences clean, 2472
+and 16332 triangles (the same as the n-ary one pass below), exact volume. With `SafeRounding` (`BOOLCMP_SAFE_ROUNDING=1`)
+the same results in 4.9 s and 168 s.
+
+Before `SimplifyFlatRegions` (now on by default), ExactMeshBoolean fragmented coplanar regions: where faces of the
+two inputs overlap in a plane, the result kept the subdivision of both (eg points where the diagonals of the
+overlapping side faces cross), and after rounding to double these points lay slightly off the lines they were on. The next boolean intersects them again, so the
 results grow geometrically (after 29, 33, 37, 41 unions of the 10×10×10 grid: 1364, 2342, 6002, 21936
-triangles; 28 s for the 46th boolean). The results stay correct (closed, exact volume). A fix (simplifying flat
-regions of the result, or snap rounding) belongs in `ExactMeshBoolean` itself.
+triangles; 28 s for the 46th boolean). The results stayed correct (closed, exact volume). `ExactPlanarSimplify`
+(`SimplifyFlatRegions`) now removes such vertices exactly and retriangulates the regions, so the triangle count stays
+bounded and the 1999 booleans finish.
 
 ### Many meshes in one operation
 
