@@ -8,7 +8,7 @@
     "mutate": [
       "**/mesh_ops/MeshRoundingRepair.cs"
     ],
-    "test-case-filter": "FullyQualifiedName~MeshRoundingRepairTests|FullyQualifiedName~ExactMeshBooleanTests|FullyQualifiedName~MeshRoundingRepairStrategyTests",
+    "test-case-filter": "FullyQualifiedName~MeshRoundingRepairTests|FullyQualifiedName~ExactMeshBooleanTests|FullyQualifiedName~MeshRoundingRepairStrategyTests|FullyQualifiedName~ExactBooleanSurvivorTests|FullyQualifiedName~ExactBooleanIssueCasesTests|FullyQualifiedName~ExactBooleanByDesignTests",
     "ignore-methods": [
       "*PredicateStats.*"
     ],

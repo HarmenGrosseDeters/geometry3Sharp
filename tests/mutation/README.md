@@ -128,8 +128,8 @@ each). Each shard runs the unit tests of its file (the `test-case-filter` of its
 
 | Shard | Mutated | Tests |
 |---|---|---|
-| `rounding` | `mesh_ops/MeshRoundingRepair.cs` | `MeshRoundingRepairTests`, `MeshRoundingRepairStrategyTests`, `ExactMeshBooleanTests` |
-| `boolean-1`, `boolean-2` | `mesh_ops/ExactMeshBoolean.cs`, split at `front_winding` | `ExactMeshBooleanTests`, `ExactMeshBooleanNaryTests`, `ExactBooleanOrientationTests`, `ExactBooleanReuseTests`, `ExactBooleanEdgeOrderTests`, the `ExactVertices` tests of `MeshRoundingRepairTests`, `BooleanPerformanceTests`; `boolean-2` also `ExactBooleanFilterTests` |
+| `rounding` | `mesh_ops/MeshRoundingRepair.cs` | `MeshRoundingRepairTests`, `MeshRoundingRepairStrategyTests`, `ExactMeshBooleanTests`, `ExactBooleanSurvivorTests`, `ExactBooleanIssueCasesTests`, `ExactBooleanByDesignTests` |
+| `boolean-1`, `boolean-2` | `mesh_ops/ExactMeshBoolean.cs`, split at `front_winding` | `ExactMeshBooleanTests`, `ExactMeshBooleanNaryTests`, `ExactBooleanOrientationTests`, `ExactBooleanReuseTests`, `ExactBooleanEdgeOrderTests`, the `ExactVertices` tests of `MeshRoundingRepairTests`, `BooleanPerformanceTests`, `ExactBooleanOpenInputTests`, `ExactBooleanSurvivorTests`, `ExactBooleanIssueCasesTests`, `ExactBooleanByDesignTests`; `boolean-2` also `ExactBooleanFilterTests` |
 | `arrangement-1`, `arrangement-2` | `mesh_ops/ExactMeshArrangement.cs`, split at `build_triangles` | `ExactFilterBoundTests`, `ExactArrangementScalingTests`, `ExactMeshBooleanTests`, `ExactBooleanEdgeOrderTests`, `ExactBooleanBuildingBlockTests`, the `ExactVertices` tests, `BooleanPerformanceTests`, `ExactImplicitPointTests` |
 | `planar` | `mesh_ops/ExactPlanarSimplify.cs`, `mesh_ops/ExactTriangulation2.cs` | `ExactPlanarSimplifyTests`, `ExactTriangulation2Tests`, `ExactBooleanBuildingBlockTests`, `ExactMeshBooleanTests` |
 
@@ -238,5 +238,27 @@ Open (real gaps, not yet tested):
   against `&=`, the corner index), the strict and non-strict orientation tests of the segment crossings, and the
   padding and slack of the candidate boxes (larger boxes only cost time). A third of its mutants time out: a
   broken arrangement makes the boolean loop, which counts as killed but makes the shard slow.
+
+**Second pass (28 October 2026, run 40623882573 on the master state).** Read from the job logs (step "Surviving
+mutants"; the artifacts are not reachable from the cloud sessions):
+- `rounding` 59.9 % (406 killed, 22 timeouts, 231 survived, 56 no coverage). 30 of the 56 uncovered mutants were the
+  unused `overlaps` (removed in #185). New tests (`ExactBooleanSurvivorTests`): `Apply` on an empty mesh (the early
+  return was uncovered), and an instance reused on another mesh: without `touched.Clear()` a thin closed component
+  without defects was removed because the vertices with the same ids had been edited in the first run. Equivalent or
+  practically equivalent, no test: `changed.Clear()` at the start (reassigned before its first read), the pass loop
+  (`--pass`, `>=` against `>` on the counts, the sums of the edit counts, which only decide whether to recount, see
+  above), `area(t) <= areaEps` (equal only on a set of measure zero), the dirty-triangle tree and `version` (performance
+  only, see above), the comparer of the sort of the defects (an order of equally good edits). Open: the stale
+  boundary state on reuse with another mesh (`inputBoundary`, `inputBoundaryEdges`, `slidTowards`), the `-0.0`
+  normalization of the position keys (`p.x + 0.0`), the bowtie and boundary guards of the contraction, the guards of
+  `try_zip` and the moves (`fix_cap`, lines 839-915 of that run), whose effects need hand-built meshes per guard.
+- `boolean-2` 65.6 %: the paths of open input that cannot be paired around an edge (`ConflictEdges`, the
+  `append_triangle` fallback with copies of vertices, `can_add_edge`) had no coverage because `ExactBooleanOpenInputTests`
+  was in no filter; it is now in both boolean shards. The exact midpoints of split edges (`ComputeExactVertices` where
+  the surface is connected around both ends of a touching edge) had no coverage: `ExactBooleanSurvivorTests` checks
+  them, also with coordinates whose denominators differ. Equivalent: the filter bounds (see above), the `Counts`
+  keys, `exactSides--`, the `>>` against `>>>` of non-negative edge keys.
+- The new boolean test classes (`ExactBooleanIssueCasesTests`, `ExactBooleanByDesignTests`) are in the filters of
+  `rounding`, `boolean-1` and `boolean-2`.
 
 Set `break` from a measured score as above and only raise it.
