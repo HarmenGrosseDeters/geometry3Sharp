@@ -306,7 +306,7 @@ namespace geometry3Sharp.Tests
             DMesh3 a = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 12 }.Generate().MakeDMesh();
             DMesh3 b = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 12 }.Generate().MakeDMesh();
             MeshTransforms.Translate(b, new Vector3d(0.7, 0.3, 0.1));
-            var op = new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Union);
+            var op = new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Union) { SafeRounding = false };
             Assert.True(op.Compute());
             // (without SafeRounding the rounding can leave degenerate slivers: only closed is documented)
             ResultChecks.AssertClosed(op.Result);

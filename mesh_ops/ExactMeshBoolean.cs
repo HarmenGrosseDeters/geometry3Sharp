@@ -153,9 +153,12 @@ namespace g3
         /// keep a sliver and are tiny or thinner than 1e-5 of the diagonal, counted in Rounding.RemovedComponents). Input vertices are kept
         /// where possible, and sheets that touch at duplicated vertices still touch, at the same points. Not every case
         /// can be repaired: Compute() still succeeds (Status Success) if defects remain; RoundingClean tells whether the
-        /// result is verified free of both, Rounding has the counts.
+        /// result is verified free of both, Rounding has the counts. On by default (since October 2026; before, off):
+        /// on the Thingi10K benchmark it makes about 1.6 times as many results clean, for about 1.2 to 1.9 times the time
+        /// of the boolean (benchmarks/MeshRepairBenchmark README). Off, the new vertices are only rounded to the nearest
+        /// double.
         /// </summary>
-        public bool SafeRounding = false;
+        public bool SafeRounding = true;
         /// <summary> the repair run by SafeRounding (its counts), or null </summary>
         public MeshRoundingRepair Rounding;
         /// <summary>
@@ -172,8 +175,10 @@ namespace g3
         /// if ComputeExactVertices: per vertex id of Result, its exact (rational) coordinates in the input's
         /// coordinate system; Result's coordinates are these rounded to the nearest double, except the vertices that split
         /// edges where solids touch: their entries are the exact midpoints of the edges, their coordinates the midpoints
-        /// of the rounded ends (which can differ from the rounded exact midpoint by an ulp). With SafeRounding the entries are those before the
-        /// repair, for the vertex ids that remain (the repair moves some vertices by tiny amounts).
+        /// of the rounded ends (which can differ from the rounded exact midpoint by an ulp). With SafeRounding (the default)
+        /// the entries are those before the repair, for the vertex ids that remain: the repair moves some vertices by tiny
+        /// amounts, so that their entries no longer round to Result's coordinates. Set SafeRounding = false where the
+        /// rounded exact coordinates are needed.
         /// </summary>
         public ExactPoint3[] ResultExactVertices;
         /// <summary>
@@ -476,11 +481,12 @@ namespace g3
 
         /// <summary>
         /// The boundary of the solid of a mesh (where its winding number is positive): self-intersections,
-        /// nested shells and duplicated faces are resolved exactly. Returns null if Compute() fails.
+        /// nested shells and duplicated faces are resolved exactly, the result with SafeRounding (the default).
+        /// Returns null if Compute() fails.
         /// </summary>
         public static DMesh3 Resolve(DMesh3 mesh)
         {
-            return Resolve(mesh, false);
+            return Resolve(mesh, true);
         }
 
         /// <summary> as Resolve(mesh), with SafeRounding of the result if safeRounding </summary>

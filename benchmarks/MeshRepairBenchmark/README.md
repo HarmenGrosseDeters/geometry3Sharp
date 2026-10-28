@@ -328,8 +328,41 @@ rounding, which takes 29 s in all), the same edits elsewhere. It is the slowest 
 the 120 s timeout in both columns.
 
 ### Exact booleans with safe rounding (`BENCH_REPAIR=exact`, `analyze_exact.py`)
+**SafeRounding on by default (2026-10-28).** The measurement behind the change of the default
+(`ExactMeshBoolean.SafeRounding`, before off). 400 set, master `e90a034`, the same build twice, `BENCH_SAFE_ROUNDING=0`
+and `=1` run at the same time (`BENCH_P=2` each, 4 cores, so the times are under load; timeout 120 s). Counted on the
+385 meshes that finished in both runs (1155 results); "clean" = closed manifold, no exact self-intersections (as
+`MeshRepairMetrics` counts them, contacts at duplicated vertices included) and no triangle below 1e-12 diagonal²:
+
+| 400 set | without safe rounding | with |
+|---|---|---|
+| clean results (of 1155) | 369 | **595** |
+| results with degenerate triangles | 697 | **243** |
+| results with self-intersections | 616 | **501** |
+| results verified clean by the repair (`RoundingClean`)¹ | – | 908 |
+| closed inputs without self-intersections (98): all 3 results clean | 66 | **92** |
+| closed self-intersecting inputs (103): all 3 results clean | 8 | **51** |
+| ... all 3 without self-intersections | 27 | **55** |
+| open inputs (184): all 3 results clean | 3 | 7 |
+| time, sum of the booleans | 2008 s | 3202 s (**+59 %**) |
+| ... closed without / closed with self-intersections / open | 324 / 410 / 1274 s | 400 / 773 / 2029 s (+23 / +89 / +59 %) |
+| median per mesh (3 booleans) | 2.9 s | 4.3 s |
+| timeouts (120 s) | 8 | 15 |
+
+¹ More than the clean results: `RoundingClean` does not count contacts at duplicated vertices (where solids touch) as
+intersections, and it holds for open results (of open inputs) too, which are not closed.
+
+No mesh loses its freedom from self-intersections with the repair (none is free of them only without
+it). The volumes change by 3e-17 relative in the median; the largest changes are results that are slivers only
+(volume below 1e-8 of the input, eg 83719, 51352, 100040), which the repair removes. The 7 meshes that time out only with
+it (1038446, 1681239, 204243, 255241, 277709, 41085, 67709) take 10 to 49 s without it and have 8k to 128k triangles
+per result. `benchmarks/BooleanComparison` (cgal, cherchi, synthetic, sequence classes) gives the same picture on
+clean inputs: cgal 63 -> 65 clean of 90 (self-intersections 3 -> 1), time +39 %; cherchi all 13 clean in both, +42 %;
+synthetic 23 of 24 clean in both (touching at an edge: by design), +59 %; the 1999-boolean cube grid clean in both,
+106 -> 168 s.
+
 `BENCH_REPAIR=exact` computes union, intersection and difference of each mesh with a rotated, shifted copy of
-itself (`ExactMeshBoolean`), here with `SafeRounding` (the default of the mode, `BENCH_SAFE_ROUNDING=0` switches it
+itself (`ExactMeshBoolean`), here with `SafeRounding` (the default of the mode and, since 2026-10-28, of the library; `BENCH_SAFE_ROUNDING=0` switches it
 off). 400 set; without: build cd15490, `BENCH_P=2`; with: 3d08569, `BENCH_P=3`, the meshes where components were
 removed rerun with 9b06745 (only closed components are removed: before, removing tiny open ones left 4 results with
 holes). The booleans do not depend on the changes between these builds, but the runs had different loads: the times

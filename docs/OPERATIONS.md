@@ -62,7 +62,7 @@ Add both: `using g3; using gs;`.
 | A mostly good mesh with small holes, duplicate vertices, degenerate triangles | `MeshAutoRepair` (with `PostRepairCleanup = true`) | the input triangles, welded and closed where possible; not guaranteed closed |
 | Any mesh, and you need a closed, manifold, self-intersection-free result | `MeshRobustRepair` | the repaired mesh if it is clean, otherwise its self-intersections resolved exactly (`UsedExactResolve`), otherwise the winding number solid (`UsedSolidify`), otherwise the alpha wrap (`UsedAlphaWrap`); see `FallbackReason`. If the clean result lost volume (`MinVolumeIoU`) the input itself is resolved or solidified instead. `Apply()` returns false (`Mesh` unchanged) if cancelled or if neither the solidify nor the alpha wrap gave a mesh; a solidified result that is not clean either is kept when the wrap fails or is off (`UsedSolidify` and `SolidifyReason`) |
 | A triangle soup, overlapping parts, large holes | `MeshWindingNumberSolidify` | a new, remeshed closed surface; features below the cell size are lost |
-| Closed meshes that intersect themselves or each other, where the triangles must be kept exactly | `ExactMeshBoolean`, `ExactMeshBoolean.Resolve(mesh)` | exact arrangement, only the output coordinates are rounded; `SafeRounding = true` repairs the slivers and self-intersections the rounding leaves (`MeshRoundingRepair`, checked exactly, `RoundingClean`), `ComputeExactVertices = true` gives the exact rational coordinates (`ResultExactVertices`); flipped input triangles are reoriented per component first (the larger part by area keeps its orientation, `ReorientedTriangles`) |
+| Closed meshes that intersect themselves or each other, where the triangles must be kept exactly | `ExactMeshBoolean`, `ExactMeshBoolean.Resolve(mesh)` | exact arrangement, only the output coordinates are rounded; `SafeRounding` (on by default) repairs the slivers and self-intersections the rounding leaves (`MeshRoundingRepair`, checked exactly, `RoundingClean`; `false` for speed), `ComputeExactVertices = true` gives the exact rational coordinates (`ResultExactVertices`); flipped input triangles are reoriented per component first (the larger part by area keeps its orientation, `ReorientedTriangles`) |
 | Booleans of broken meshes (open, soups, overlapping shells) | `gs.MeshWindingNumberBoolean` | a new, remeshed closed surface (winding numbers on an adaptive octree) |
 
 `MeshBoolean` is the old, non-robust union of the original library; prefer `ExactMeshBoolean`. Its snap
@@ -91,13 +91,19 @@ The test checks the exact volumes of union, intersection and difference of a cub
 coplanar faces ([ExactMeshBooleanExample](examples/ExactMeshBooleanExample.cs)).
 
 Nearly coincident inputs give intersection points that nearly coincide: rounded to double, they leave slivers
-(degenerate triangles) and sometimes self-intersections. `SafeRounding` repairs them after the rounding:
+(degenerate triangles) and sometimes self-intersections. `SafeRounding` (on by default) repairs them after the
+rounding; `RoundingClean` tells whether the result is verified free of both:
 
 ```csharp
-var boolean = new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Union) { SafeRounding = true };
+var boolean = new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Union);   // SafeRounding = true is the default
 boolean.Compute();
 bool clean = boolean.RoundingClean;   // no self-intersections, no triangles below 1e-12 diagonal^2 (exact check)
 ```
+
+It costs 1.2 to 1.9 times the time of the boolean (the exact check of the rounded result for self-intersections
+is most of it); `SafeRounding = false` gives the plainly rounded result, for speed or with `ComputeExactVertices`
+when the exact coordinates are used anyway. Not every case is repaired: `RoundingClean` false with `Status`
+`Success` means that defects remain (`Rounding.RemainingIntersections`, `RemainingDegenerate`).
 
 More than two meshes go into one arrangement, with an operation or a predicate on the winding numbers of all
 inputs (Zhou et al. 2016). Status is the result code (`Success`, `InvalidInput`, `OpenInput`):

@@ -233,6 +233,9 @@ namespace g3cli
                 ["patches"] = op.Patches,
                 ["non_manifold_edges"] = op.NonManifoldEdges,
                 ["non_manifold_triangles"] = op.NonManifoldTriangles,
+                // (SafeRounding is on by default: rounding_clean = verified free of self-intersections and slivers)
+                ["safe_rounding"] = op.SafeRounding,
+                ["rounding_clean"] = op.RoundingClean,
             };
         }
 
