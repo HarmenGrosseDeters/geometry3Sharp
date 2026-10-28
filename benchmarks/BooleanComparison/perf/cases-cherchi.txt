@@ -1,0 +1,13 @@
+cherchi/armadillo.obj
+cherchi/bunny.obj+cow.obj
+cherchi/bunny100k.obj+cow100K.obj
+cherchi/bunny200k.obj
+cherchi/bunny200k.obj+cow200K.obj
+cherchi/bunny25k.obj+cow25k.obj
+cherchi/bunny50k.obj+cow50k.obj
+cherchi/cactus.off
+cherchi/cactus200k.obj
+cherchi/cube.obj+armadillo.obj
+cherchi/fertility.obj
+cherchi/fertility.obj+spheres.obj
+cherchi/sphere1.obj+sphere2.obj

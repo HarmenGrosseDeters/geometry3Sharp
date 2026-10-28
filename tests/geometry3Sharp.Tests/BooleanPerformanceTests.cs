@@ -226,6 +226,55 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void EdgePlanes_ComputedWhenUsed_MatchTheirApproximations()
+        {
+            // two overlapping spheres (triangles near the intersection have planes; Compute does not use their exact
+            // edge planes, so they are computed here, on first use): the same planes as a direct construction from the
+            // exact corners, the same object on later uses, and the approximations (computed with the plane) are their
+            // values rounded; on a second arrangement, many threads ask for the planes of the same triangles at once
+            // (they may get different arrays, with the same values)
+            DMesh3 a = new Sphere3Generator_NormalizedCube() { EdgeVertices = 6 }.Generate().MakeDMesh();
+            DMesh3 b = new DMesh3(a);
+            MeshTransforms.Translate(b, new Vector3d(0.31, 0.27, 0.05));
+            var arr = new ExactMeshArrangement(new List<DMesh3>() { a, b });
+            arr.Compute();
+            var tris = arr.Triangles.Where(t => t.Segments.Count > 0).ToList();
+            Assert.True(tris.Count > 20);
+            var first = new ExactMeshArrangement.Plane[tris.Count][];
+            gParallel.ForRange(tris.Count, (i) => first[i] = tris[i].EdgePlanes);
+            var arr2 = new ExactMeshArrangement(new List<DMesh3>() { a, b });
+            arr2.Compute();
+            var tris2 = arr2.Triangles.Where(t => t.Segments.Count > 0).ToList();
+            Assert.Equal(tris.Select(t => t.Tid), tris2.Select(t => t.Tid));
+            var raced = new ExactMeshArrangement.Plane[8 * tris2.Count][];
+            gParallel.ForRange(raced.Length, (i) => raced[i] = tris2[i % tris2.Count].EdgePlanes);
+            for (int i = 0; i < raced.Length; ++i)
+                for (int k = 0; k < 3; ++k) {
+                    var x = raced[i][k]; var y = first[i % tris2.Count][k];
+                    Assert.True(x.A == y.A && x.B == y.B && x.C == y.C && x.D == y.D);
+                }
+            for (int i = 0; i < tris.Count; ++i) {
+                ExactMeshArrangement.InputTriangle t = tris[i];
+                Assert.Same(first[i], t.EdgePlanes);
+                ExactPoint3[] c = { arr.Exact(t.Corners[0]), arr.Exact(t.Corners[1]), arr.Exact(t.Corners[2]) };
+                ExactMeshArrangement.Plane P = t.P;
+                for (int k = 0; k < 3; ++k) {
+                    ExactPoint3 p = c[k], q = c[(k + 1) % 3];
+                    // normal of the edge plane: (q - p) x n, with n the triangle's normal (perpendicular to both)
+                    System.Numerics.BigInteger dx = q.X - p.X, dy = q.Y - p.Y, dz = q.Z - p.Z;
+                    var e = t.EdgePlanes[k];
+                    Assert.Equal(dy * P.C - dz * P.B, e.A);
+                    Assert.Equal(dz * P.A - dx * P.C, e.B);
+                    Assert.Equal(dx * P.B - dy * P.A, e.C);
+                    Assert.Equal(e.A * p.X + e.B * p.Y + e.C * p.Z, e.D);
+                    Assert.Equal(e.A * q.X + e.B * q.Y + e.C * q.Z, e.D);
+                    double[] pa = t.PlaneApprox;
+                    Assert.Equal(new[] { (double)e.A, (double)e.B, (double)e.C, (double)e.D }, pa.Skip(4 * (k + 1)).Take(4).ToArray());
+                }
+            }
+        }
+
+        [Fact]
         public void ForRange_ThrowsTheExceptionOfTheBody()
         {
             // (not an AggregateException: as the serial loops before, eg ExactMeshBoolean's "no non-degenerate ray")
