@@ -42,7 +42,12 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void RoundingRepair_EmptyMesh_CleanWithoutCounts()
         {
-            var r = new MeshRoundingRepair(new DMesh3());
+            // after a run with defects and edits, Apply on an empty mesh resets every count
+            var r = new MeshRoundingRepair(TwoCaps());
+            Assert.True(r.Apply());
+            Assert.Equal(2, r.InitialDegenerate);
+            Assert.Equal(1, r.Zips);
+            r.Mesh = new DMesh3();
             Assert.True(r.Apply());
             Assert.True(r.IsClean);
             Assert.Equal(0, r.InitialIntersections + r.InitialDegenerate + r.RemainingIntersections + r.RemainingDegenerate);
@@ -79,10 +84,11 @@ namespace geometry3Sharp.Tests
             // boxes A and B touching only along a vertical edge, between two slabs that join them above and below:
             // the surface is connected around both ends of the edge, so its four triangles cannot be separated by
             // duplicating the ends, and ExactMeshBoolean splits the edge at its midpoint, once per manifold pair. With
-            // ComputeExactVertices the split vertices get the exact midpoint. The fractional case has coordinates whose
-            // denominators (powers of two) differ, so that the rational sum is tested
-            double s = fractional ? 0.375 : 0, z0 = fractional ? 0.5 : 0, z1 = fractional ? 2.25 : 3;
-            double x = 1 + s, y = 1.25 + s;
+            // ComputeExactVertices the split vertices get the exact midpoint. In the fractional case the two ends of the
+            // edge have different denominators (exact points are reduced: (1, 1.5, 0.5) has W = 2, (1, 1.5, 2.25) W = 4),
+            // so that the rational sum of two points with different W is tested
+            double s = 0, z0 = fractional ? 0.5 : 0, z1 = fractional ? 2.25 : 3;
+            double x = 1 + s, y = fractional ? 1.5 : 1.25;
             var meshes = new[] {
                 Box(s, s, z0, x, y, z1), Box(x, y, z0, 2.5 + s, 2 + s, z1),
                 Box(s, s, z1, 2.5 + s, 2 + s, z1 + 1), Box(s, s, z0 - 0.75, 2.5 + s, 2 + s, z0) };
@@ -103,8 +109,8 @@ namespace geometry3Sharp.Tests
             }
             // one copy of the midpoint per manifold pair
             Assert.Equal(2, splits);
-            // the two slabs (2.5 x 2, heights 1 and 0.75) and A (1 x 1.25) and B (1.5 x 0.75) between them
-            double vol = 2.5 * 2 * 1.75 + (1 * 1.25 + 1.5 * 0.75) * (z1 - z0);
+            // the two slabs (2.5 x 2, heights 1 and 0.75) and A and B between them
+            double vol = 2.5 * 2 * 1.75 + ((x - s) * (y - s) + (2.5 - (x - s)) * (2 - (y - s))) * (z1 - z0);
             Assert.Equal(vol, ResultChecks.Volume(r), 9);
         }
     }

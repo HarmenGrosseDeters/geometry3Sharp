@@ -245,10 +245,12 @@ mutants"; the artifacts are not reachable from the cloud sessions):
   unused `overlaps` (removed in #185). New tests (`ExactBooleanSurvivorTests`): `Apply` on an empty mesh (the early
   return was uncovered), and an instance reused on another mesh: without `touched.Clear()` a thin closed component
   without defects was removed because the vertices with the same ids had been edited in the first run. Equivalent or
-  practically equivalent, no test: `changed.Clear()` at the start (reassigned before its first read), the pass loop
-  (`--pass`, `>=` against `>` on the counts, the sums of the edit counts, which only decide whether to recount, see
-  above), `area(t) <= areaEps` (equal only on a set of measure zero), the dirty-triangle tree and `version` (performance
-  only, see above), the comparer of the sort of the defects (an order of equally good edits). Open: the stale
+  practically equivalent, no test: `changed.Clear()` at the start (reassigned before its first read), `>=` against
+  `>` on the sums of the edit counts (they only decide whether to recount the pairs, see above), `area(t) <= areaEps`
+  (equal only when the area is exactly the bound), the dirty-triangle tree and `version` (performance only, see
+  above). Not equivalent, but untested by design: the comparer of the sort of the defects (an order of equally
+  plausible edits, a heuristic without a specified result). Open: `--pass` (the loop ignores `MaxPasses` and retries
+  every defect in every pass; a test with `MaxPasses = 1` on a mesh that needs two passes would kill it), the stale
   boundary state on reuse with another mesh (`inputBoundary`, `inputBoundaryEdges`, `slidTowards`), the `-0.0`
   normalization of the position keys (`p.x + 0.0`), the bowtie and boundary guards of the contraction, the guards of
   `try_zip` and the moves (`fix_cap`, lines 839-915 of that run), whose effects need hand-built meshes per guard.
@@ -256,8 +258,8 @@ mutants"; the artifacts are not reachable from the cloud sessions):
   `append_triangle` fallback with copies of vertices, `can_add_edge`) had no coverage because `ExactBooleanOpenInputTests`
   was in no filter; it is now in both boolean shards. The exact midpoints of split edges (`ComputeExactVertices` where
   the surface is connected around both ends of a touching edge) had no coverage: `ExactBooleanSurvivorTests` checks
-  them, also with coordinates whose denominators differ. Equivalent: the filter bounds (see above), the `Counts`
-  keys, `exactSides--`, the `>>` against `>>>` of non-negative edge keys.
+  them, also with two ends of different denominators. Equivalent: the filter bounds (see above), the `>>` against `>>>`
+  of non-negative edge keys. Diagnostics only (public, unchecked): the `Counts` keys, `exactSides--`.
 - The new boolean test classes (`ExactBooleanIssueCasesTests`, `ExactBooleanByDesignTests`) are in the filters of
   `rounding`, `boolean-1` and `boolean-2`.
 
