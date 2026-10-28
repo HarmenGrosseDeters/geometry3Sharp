@@ -72,7 +72,35 @@ self-intersections, its Hausdorff upper bound is below 1 % of the diagonal in bo
 is above 0.99. Thingi10K has no reference repairs, so the input itself (its winding number solid) is the
 reference.
 
-## Current state (`robust`, 2026-10-26)
+## Re-measured after the boolean performance work (`robust`, 2026-10-28)
+Master `e90a034` (after #181 and #183), default options, `BENCH_P=2` on 4 cores and nothing else running, `TIMEOUT=300`
+(large set 900), `analyze_fidelity.py` and the `robust_phases` of each run:
+
+| | 400 set | large set (30) |
+|---|---|---|
+| **repaired** | **274** (before: 270) | 13 (before: 13) |
+| path: repair kept / exact resolve / solidify / alpha wrap | 173 / 176 / 34 / 17 | 6 / 18 / 3 / 3 |
+| time per path, sum (share) | 248 s / 974 s / 327 s / 1221 s (9 / 35 / 12 / 44 %) | 64 s / 581 s / 360 s / 171 s |
+| median / max repair time | 2.8 s / 208 s | 27 s / 147 s |
+| timeouts | 0 at 300 s; at the earlier 120 s: 3 (1505037 208 s, 229959 152 s, 96373 130 s; none of them repaired, so still 274) | 0 at 900 s |
+
+- **The exact stage no longer times out on the large meshes of the 400 set:** 42327 and 42329 are repaired by it in
+  26 s and 25 s. The slowest exact stage is 498458 with 44 s.
+- **The alpha wrap path is still the largest cost**: 17 meshes, 44 % of the total. Within it, the simplification of
+  the wrap (`SimplifyAlphaWrap`) takes 680 s, the wrap itself 148 s, the failed solidify 227 s and the failed exact
+  stage 111 s.
+- **Solidify** takes at most 65 s (1505037, which then goes to the wrap), not 188 s as before.
+- **Deciding earlier that the solidify will fail** saves at most the 227 s of failed solidifies, 8 % of the total, and
+  only if the decision is never wrong. 16 of the 17 failures are self-intersections of the contoured surface, which are
+  known only after contouring. Neither the defect category nor the reason the earlier stages failed separates these
+  17 meshes from the 34 that the solidify repairs. The wrap cases are larger in the median (13k against 1.6k triangles),
+  but they include meshes of 344 and 448 triangles, so a size rule would also skip solidifies that work. So this is
+  not implemented.
+- **The larger levers for later performance work** are the wrap simplification (25 % of the 400-set total) and, on the
+  large set, the exact stages that fail and then fall back to the solidify: 60458 spends 134 s, 64445 85 s and 64446
+  66 s in them.
+
+## Earlier state (`robust`, 2026-10-26)
 Build `5130ff3`: master after the review fixes #106, #111 and #112, plus #110. The result is the same as master `3219260`. Run with `BENCH_P=3`, default options, `analyze_fidelity.py` / `criteria.py`. The numbers in the sections further down come from older builds and different machine loads; they are a history, not the current state.
 
 | | 400 set | large set (30) |
