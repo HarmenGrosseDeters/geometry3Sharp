@@ -269,3 +269,22 @@ limits.)
 * **Q-8** Nearest-neighbour or k-nearest queries: not provided today; wanted?
 * **Q-9** Should tolerance/proximity queries be complete for every item satisfying the geometric
   rule, instead of only within the windows stated in 2.1 and 2.3?
+
+---
+
+## 7. Owner decisions (October 2026)
+
+These answer the open questions of section 6. Where a decision conflicts with an earlier section, the
+decision wins.
+
+| Q | Decision |
+|---|----------|
+| Q-1 | **One structure: a loose quadtree** (the owner measured it as the faster variant). No further tuning options. |
+| Q-2 | The extent **grows** on insert; inserting into an empty index works. The error case of 1.4 drops out; D-2 still applies in the sense that a failed operation leaves the index unchanged. |
+| Q-3 | Tolerances are **absolute distances** in coordinate units (distance from p to the triangle in x/y). "Inside the triangle" (exact hit) is decided with **exact orientation predicates**, not a 1e-9 barycentric threshold. This also applies to the height query of 2.1; the side-by-side comparison checks tolerance cases against this definition instead of the old implementation. |
+| Q-4 | Point coincidence is **Euclidean** distance ≤ eps, inclusive (rotation invariant). |
+| Q-5 | Identical edges: both endpoints coincide per Q-4, in either direction; the tolerance is a parameter. |
+| Q-6 | In geometry3Sharp: the core index (section 1), the height query, and **general** edge and point queries (segment intersections, point on segment, nearby points). Domain-specific variants (eg "relevant edges" with touching hits and z source options) stay with the caller, built on the traversal of 1.6; the worked example of 2.3 becomes a test of that helper layer. |
+| Q-7 | The index **complements** the existing structures (`PointHashGrid2d`, `SegmentHashGrid2d`, `TriangleBinsGrid2d`, `Polygon2dBoxTree`); nothing is replaced. It stores AABBs with integer ids; triangles, edges and points are thin adapters (eg over `DMesh3`, `DGraph2`, point lists). |
+| Q-8 | Nearest-neighbour and k-nearest queries are **in the first version**. |
+| Q-9 | Tolerance and proximity queries are **complete** for every item satisfying the geometric rule; the windows stated in 2.1 and 2.3 drop out. |

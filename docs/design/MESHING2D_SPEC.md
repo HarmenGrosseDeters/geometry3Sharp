@@ -753,3 +753,29 @@ Severity: *C* = critical, *H* = high, *M* = medium, *L* = low.
 * **Q16** The issue tracker of the public fork could not be read in this session (access
   restricted); upstream issues are covered via the fork's own documentation. Are there further bug
   reports that should be added?
+
+---
+
+## 5. Owner decisions (October 2026)
+
+These answer the open questions of section 4. Where a decision conflicts with an earlier section, the
+decision wins.
+
+| Q | Decision |
+|---|----------|
+| Q1 | Voronoi output (O25) is out of scope for the first version. A bounded Voronoi diagram may be derived from the finished mesh later. |
+| Q2 | Regional attributes and per-region maximum area (I6) are **in scope** (also needed for geology layer labels). |
+| Q3 | No arbitrary user predicate and no maximum-angle bound. Instead, a **size function** (target triangle size at a location) is in scope. A minimum angle θ already bounds the largest angle by 180° − 2θ. |
+| Q4 | Smoothing of a finished mesh (O16) is out of scope for the first version; Steiner-point smoothing (O15) stays. |
+| Q5 | Terrain simplification (O24) is **separate** from this work; it belongs to `TerrainGreedyTIN` (roadmap C2(D)), and F-63 becomes a test case there. |
+| Q6 | **One** robust triangulation algorithm, no algorithm choice option (O19 drops out). |
+| Q7 | **Ring-based hole semantics**: a hole removes everything inside its ring, including segments inside it (fixes F-46). Holes and regions are identified by their ring; seed points remain available as an additional option. |
+| Q8 | Input point i stays vertex i; new vertices get ids ≥ the number of input points. Vertices merged by snapping are reported in a mapping from input index to output vertex. |
+| Q9 | The mesher **optionally carries z**: Steiner points get z by linear interpolation on the constrained triangulation of the **input** (the reference mesh of O1), never on the evolving mesh, so the result does not depend on insertion order. |
+| Q10 | Errors are reported as a **status enum plus a result object** carrying the failure kind and the problem coordinate, like the library's other operations (`BooleanStatus`, `WrapStatus`, …). Exceptions only for invalid arguments and cancellation. Where earlier sections say "exception" or "fail loudly", read "a failure status, never an invalid mesh". |
+| Q11 | **Yes**: the result explicitly lists the triangles below the minimum angle and flags "Steiner limit reached". |
+| Q12 | File formats (O27) and bandwidth renumbering (O26) are out of scope. |
+| Q13 | Default Steiner limit = 10 × (points + segments) + 100 000, overridable. |
+| Q14 | Default snap tolerance = **automatic, relative** (µm range at UTM scale), only to absorb numerical noise. Snapping to the data precision (eg 1 cm) is opt-in via O11. |
+| Q15 | .NET Framework 4.8 is a **hard requirement** (it may be slower there). |
+| Q16 | No further bug reports for now; later ones are added as failure descriptions only. |
