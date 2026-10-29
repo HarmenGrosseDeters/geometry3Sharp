@@ -346,6 +346,30 @@ namespace geometry3Sharp.Tests
         }
 
         [Theory]
+        [InlineData(false, false)]
+        [InlineData(false, true)]
+        [InlineData(true, false)]
+        [InlineData(true, true)]
+        public void Reuse_AllDiagnosticStateIsResetBeforeEitherComputePath(bool closed, bool filtered)
+        {
+            DMesh3 mesh = closed ? new TrivialBox3Generator().Generate().MakeDMesh() : OpenBox();
+            var reused = new MeshBoundaryLoops(mesh, false) {
+                SawOpenSpans = true,
+                FellBackToSpansOnFailure = true,
+                SawInconsistentOrientation = true,
+                FailureBowties = new List<int> { 0 },
+                EdgeFilterF = filtered ? (Func<int, bool>)(e => true) : null
+            };
+            Assert.True(reused.Compute());
+            AssertSuccessfulCycles(mesh, reused);
+            Assert.Null(reused.FailureBowties);
+            var fresh = new MeshBoundaryLoops(mesh, false) { EdgeFilterF = reused.EdgeFilterF };
+            Assert.True(fresh.Compute());
+            Assert.Equal(PartitionKeys(mesh, fresh), PartitionKeys(mesh, reused));
+            Assert.Equal(fresh.SawInconsistentOrientation, reused.SawInconsistentOrientation);
+        }
+
+        [Theory]
         [InlineData(false)]
         [InlineData(true)]
         public void WholeOrientationReversal_PreservesPartitionsAndDirectedEdges(bool reverse)

@@ -1,9 +1,12 @@
 # Differential and core data-structure tests: implementation plan
 
 Status: tests and D1 implemented on `qa/differential-core-tests`, based on `origin/master` at
-`93880ed`, in the separate `D:\work\geometry3Sharp-QA` worktree. Focused net10/net48 validation and
-fault-sensitivity checks have completed; acceptance is blocked by reproducible production defects.
-No production code was changed, and no commit, push or PR was created. See the execution report below.
+`93880ed`, in the separate `D:\work\geometry3Sharp-QA` worktree. Commit `7246cfe` preserves the QA
+baseline. The boundary-loop diagnostic reset is implemented; the remaining production fixes are open.
+The delegated AABB, compaction/restore and coplanar workers failed before execution with provider
+HTTP 502 errors and made no changes. No workers are running. Acceptance remains blocked by the
+remaining reproducible defects. The owner requested a safeguard push and draft PR of this incomplete
+state after local CI execution; this is not a green-QA or merge-ready delivery. See the reports below.
 This document is the task brief for the requested roadmap items
 D(e), D(f), E.1 and E.3. The current [roadmap](ROADMAP.md) uses named phases rather than these labels;
 the labels below preserve the request's traceability, not an assertion about the current headings.
@@ -590,3 +593,85 @@ The full library suite, CLI suite, pack/API compatibility validation, package sm
 builds were not completed for this delivery: the library diagnostic tests already failed, so the gate
 stops under the brief's failure rule. No coverage, benchmark or green-CI claim is made. Do not push,
 mark ready or merge this branch until the defects and the complete local CI gate are addressed.
+
+## Follow-up: production regression fixes
+
+The owner approved a separate tier-M correction phase on the same `qa/differential-core-tests`
+branch. Commit `7246cfe` preserves the test-only baseline and its red results before any production
+fixes. The preceding execution report describes that historical baseline, not the follow-up state.
+
+### Scope and gates
+
+Correct only the production defects exposed by T1-T5: empty/stale AABB-tree queries, isolated live
+vertices during compaction, reused serialization destinations, closed coplanar contacts, and reused
+boundary-loop diagnostics. Preserve upstream 1.0.324 API compatibility and existing successful-query
+contracts. Do not weaken diagnostic assertions or change the exact oracle, exact arithmetic, mutation
+tooling, dependencies, or unrelated operations. An exact-arithmetic change would require a new tier-L
+brief and bounds review.
+
+Acceptance requires passing regression and neighboring tests on net10.0 and net48, old-code or
+isolated-fault sensitivity checks, and the complete local CI gate from `CLAUDE.md`. Record each result
+with its command. Independent production-diff review remains a PR-ready/merge gate; the earlier QA
+review did not cover these production fixes. The owner subsequently authorized a safeguard push of
+this incomplete state and a draft PR after local CI execution. No ready-for-review or merge action is
+authorized; known red regression tests must remain visible.
+
+### Boundary-loop diagnostics
+
+`MeshBoundaryLoops.Compute()` now clears all diagnostic flags and `FailureBowties` before selecting
+either computation path, including the closed-mesh early exit. Regression coverage includes fresh
+versus reused results, filter removal, both computation paths, and stale exception diagnostics.
+
+```powershell
+dotnet test tests\geometry3Sharp.Tests -c Release -f net10.0 --filter 'FullyQualifiedName~MeshBoundaryLoopsTests' --logger 'trx;LogFileName=fix-boundary-net10.trx' --results-directory $out
+dotnet test tests\geometry3Sharp.Tests -c Release -f net48 -p:TestNet48=true --filter 'FullyQualifiedName~MeshBoundaryLoopsTests' --logger 'trx;LogFileName=fix-boundary-net48.trx' --results-directory $out
+```
+
+Each command produced 92 passed/0 failed. With the new tests over production from `7246cfe` in an
+isolated checkout, the following selection produced 1 passed/6 failed (expected exit 1):
+
+```powershell
+dotnet test tests\geometry3Sharp.Tests -c Release -f net10.0 --filter 'FullyQualifiedName~FilterPolicies_OneMissingEdgeAndReset|FullyQualifiedName~Reuse_AllDiagnosticStateIsReset' --logger 'trx;LogFileName=fix-boundary-old.trx' --results-directory $out
+```
+
+The isolated checkout was removed after preserving the logs and TRX; no deliberate fault remains.
+### Safeguard checkpoint and remaining work
+
+The owner requested discarding all uncommitted work in the separate
+`fix/alpha-wrap-simplification-quality` worktree, leaving its existing commits intact, and publishing
+this QA branch as a safeguard. The Alpha worktree was verified clean afterwards. The QA branch keeps
+both the committed QA baseline and the tested boundary-loop correction; no QA tests were discarded.
+
+The remaining production tasks have not started: AABB empty/stale queries, isolated-vertex compaction,
+serialization restore reuse, and closed coplanar contacts. All delegated workers failed before any
+execution with provider HTTP 502 errors. Continue these tasks directly and sequentially; do not report
+workers as running without a current status check.
+
+Pre-push local commands (same `$out` and `$filter` as the focused validation above; `$pkg` is a temporary
+package directory under `$out`):
+
+```powershell
+dotnet test tests\geometry3Sharp.Tests -c Release --logger 'trx;LogFileName=qa-safeguard-library.trx' --results-directory $out
+dotnet test tests\geometry3Sharp.Tests -c Release --filter 'FullyQualifiedName~MeshBoundaryLoopsTests' --logger 'trx;LogFileName=qa-safeguard-boundary.trx' --results-directory $out
+dotnet test tests\geometry3Sharp.Tests -c Release -f net10.0 --filter $filter --logger 'trx;LogFileName=qa-safeguard-matrix-net10.0.trx' --results-directory $out
+dotnet test tests\geometry3Sharp.Tests -c Release -f net48 --filter $filter --logger 'trx;LogFileName=qa-safeguard-matrix-net48.trx' --results-directory $out
+dotnet test tests\g3cli.Tests -c Release --logger 'trx;LogFileName=qa-safeguard-cli.trx' --results-directory $out
+dotnet pack geometry3Sharp_netstandard.csproj -c Release -o $pkg -p:Version=1.0.0-ci.1
+dotnet run --project tests\PackageSmokeTest -c Release -p:G3PackageVersion=1.0.0-ci.1 "-p:G3PackageSource=$pkg" -- (Join-Path $pkg 'geometry3Sharp.1.0.0-ci.1.nupkg')
+dotnet build tests\geometry3Sharp.Tests -c Release -f net48 -p:TestNet48=true
+Get-ChildItem benchmarks -Filter *.csproj -Recurse | Sort-Object FullName | ForEach-Object { dotnet build $_.FullName -c Release }
+```
+
+| Check | Result |
+|---|---|
+| Full library suite | Started, reproduced known production failures, then deliberately stopped before completion for this safeguard checkpoint; no full-suite totals or pass claim |
+| Boundary-loop selection | 92 passed/0 failed on each framework, exit 0; both summaries in `qa-safeguard-boundary.log` (the shared TRX filename is overwritten by the second framework) |
+| Focused QA matrix | Each framework: 607 total, 501 passed, 106 failed, 0 skipped, exit 1; `qa-safeguard-matrix-net10.0` and `qa-safeguard-matrix-net48` logs/TRX |
+| CLI tests | 43 passed/0 failed, exit 0; `qa-safeguard-cli.log`/TRX |
+| Pack and package smoke test | Exit 0 each; `qa-safeguard-pack.log`, `qa-safeguard-smoke.log` |
+| net48 build | Exit 0; `qa-safeguard-net48.log` |
+| Benchmark builds | Every project returned exit 0; `qa-safeguard-benchmark-<project>.log` and `qa-safeguard-ci.csv` |
+
+The remaining known failures are not hidden or skipped. The safeguard PR must stay draft: finish the
+production corrections, rerun the complete local gate to completion, and obtain independent diff
+review before marking it ready. Temporary package outputs were removed; logs remain outside the repo.
