@@ -818,7 +818,8 @@ behavior rather than adding a new degenerate-intersection API. Its XML documenta
 `NoIntersection` is not a geometric disjointness guarantee for this unsupported input. A degenerate
 `Triangle1` is still clipped against a valid `Triangle0`. Regression cases cover a segment in both
 orders and a point, exact power-of-two scales, and repeated valid-hit/unsupported-input reuse including
-empty result state. No tolerance, exact predicate or error bound has been introduced.
+empty result state. This initial guard introduced no tolerance or predicate; the follow-up below
+replaces its rounded-zero assumption with an existing exact predicate call.
 
 ```powershell
 dotnet test tests\geometry3Sharp.Tests -c Release -f net10.0 --filter 'FullyQualifiedName~DegenerateClippingTriangle_' --logger 'trx;LogFileName=review-coplanar-before-final.trx' --results-directory $out
@@ -835,3 +836,51 @@ With only the review correction temporarily removed, all three new cases failed 
 The earlier full-CI attempt was stopped before completion to rebuild and verify this review correction;
 its log already contained `RobustnessSweepTests` nonfinite smoother timeouts. Attribution and the full
 CI gate remain open; no further push has been made.
+
+### Follow-up review: cancellation is not degeneration
+
+A second review found that a rounded cross product can vanish for a triangle whose determinant is
+exactly one. The guard now classifies finite triangles with the existing public `ExactPredicates.Orient2d`
+API. Its implementation, range handling and error bounds are unchanged; this is a tier-M caller change,
+not a change to exact arithmetic. The nondegenerate clipping path is unchanged. Nonfinite coordinates
+bypass the new predicate, preserving the previous unsupported-input path.
+The new self-intersection regression uses explicit double coordinates `(0,0)`,
+`(134217728,134217727)`, `(134217729,134217728)`; integer-to-decimal arithmetic independently proves
+its positive area. Exact power-of-two scales and reuse check all three distinct, finite output vertices.
+Rounded transforms are not asserted to preserve this sliver because they can collapse its area.
+
+```powershell
+dotnet test tests\geometry3Sharp.Tests -c Release -f net10.0 --filter 'FullyQualifiedName~OrientationCancellation_' --logger 'trx;LogFileName=review-cancellation-before-final.trx' --results-directory $out
+$filter = 'FullyQualifiedName~AABBTreeDifferentialTests|FullyQualifiedName~CoplanarTriangleDifferentialTests|FullyQualifiedName~DMesh3PropertyTests|FullyQualifiedName~SerializationRoundTripTests|FullyQualifiedName~MeshBoundaryLoopsTests|FullyQualifiedName~SolverIntersectionFixesTests.IntrTriangle'
+dotnet test tests\geometry3Sharp.Tests -c Release -f net10.0 --filter $filter --logger 'trx;LogFileName=qa-final-confirmed-net10.0.trx' --results-directory $out
+dotnet test tests\geometry3Sharp.Tests -c Release -f net48 --filter $filter --logger 'trx;LogFileName=qa-final-confirmed-net48.trx' --results-directory $out
+```
+
+Removing only the follow-up correction makes the new regression fail (1 failed, exit 1;
+`review-cancellation-before-final.log`/TRX). Restoring it gives 658 passed, 0 failed, 0 skipped on each
+framework, exit 0 (`qa-final-confirmed-net10.0.log` and `qa-final-confirmed-net48.log`/TRX).
+
+### Full-CI blocker and baseline attribution
+
+The subsequent full-library run, executed separately per framework to avoid simultaneous test hosts,
+was stopped after the follow-up review finding. It had already failed
+`KnownLimitation_TwoTriangularPrisms_RotatedInexactly_KeepATinyVoid`: its pinned expected component
+count differs on net10. This failure also occurs with **all four changed production files restored to
+master baseline `93880ed`**, while the existing test and exact production remain unchanged:
+
+```powershell
+dotnet test tests\geometry3Sharp.Tests -c Release -f net10.0 --filter 'FullyQualifiedName~KnownLimitation_TwoTriangularPrisms_RotatedInexactly' --logger 'trx;LogFileName=ci-known-limitation-baseline-net10.0.trx' --results-directory $out
+dotnet test tests\geometry3Sharp.Tests -c Release -f net48 --filter 'FullyQualifiedName~KnownLimitation_TwoTriangularPrisms_RotatedInexactly' --logger 'trx;LogFileName=ci-known-limitation-baseline-net48.trx' --results-directory $out
+```
+
+Baseline net10: 1 failed, exit 1, expected two components but actual one. Baseline net48: 1 passed,
+exit 0 (`ci-known-limitation-baseline-net10.0.log` and `ci-known-limitation-baseline-net48.log`/TRX).
+Production files were restored after the diagnostic run. The smoother nonfinite-input selector also
+passes in isolation on net10 (2 passed, exit 0; `ci-smoother-isolated.log`/TRX), using:
+
+```powershell
+dotnet test tests\geometry3Sharp.Tests -c Release -f net10.0 --no-build --filter 'FullyQualifiedName~RobustnessSweepTests.Sweep_NonFiniteInput&DisplayName~LaplacianMeshSmoother' --logger 'trx;LogFileName=ci-smoother-isolated.trx' --results-directory $out
+```
+
+No full-suite total or green full-CI result is claimed. The unrelated baseline/platform discrepancy is
+not fixed or masked in this change. Full CI, push and ready-for-merge remain blocked.

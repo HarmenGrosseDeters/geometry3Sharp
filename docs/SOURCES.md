@@ -8,8 +8,10 @@ Code under the GPL or LGPL (eg CGAL) is never used as a source.
 
 Boundary-contact retention is an own correction of the existing WildMagic port, not a new external
 port: clipping uses closed half-planes, retains zero-side vertices and removes exactly repeated
-consecutive/closing endpoints. No tolerance, exact predicate or error bound is introduced. No external
-code was read or imported for this correction.
+consecutive/closing endpoints. The degeneration guard classifies finite triangles with the
+existing public `ExactPredicates.Orient2d` API; the predicate implementation and its error bounds are
+unchanged. No new tolerance or arithmetic implementation is introduced. No external code was read
+or imported for this correction.
 
 ## Exact mesh booleans (`ExactMeshBoolean`, `ExactMeshArrangement`, `ExactPlanarSimplify`, `ExactTriangulation2`, `ExactPoint3`, `ExactPredicates`)
 

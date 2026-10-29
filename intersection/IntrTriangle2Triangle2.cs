@@ -97,9 +97,10 @@ namespace g3
 			if (Result != IntersectionResult.NotComputed)
 				return (Result == IntersectionResult.Intersects);
 
-            // A degenerate clipping triangle has no bounded half-plane interior.
-            // Preserve Find's rejection of this input instead of treating its line as unbounded.
-            if ((triangle0.V1 - triangle0.V0).DotPerp(triangle0.V2 - triangle0.V0) == 0) {
+            // A rounded determinant cannot reliably establish or exclude collinearity.
+            // Preserve the existing clipping path for unsupported nonfinite coordinates.
+            if (triangle0.V0.IsFinite && triangle0.V1.IsFinite && triangle0.V2.IsFinite &&
+                ExactPredicates.Orient2d(triangle0.V0, triangle0.V1, triangle0.V2) == 0) {
                 Quantity = 0;
                 Points = new Vector2d[6];
                 Type = IntersectionType.Empty;

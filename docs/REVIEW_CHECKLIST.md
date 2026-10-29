@@ -31,6 +31,8 @@ and for each yes, check that a test covers it. A test must fail on the old code 
 
 - Zero-area, collinear and coincident-vertex triangles; slivers; T-junctions; charts or components made only
   of such triangles; empty meshes; a single triangle.
+- Does a degeneration guard distinguish a rounded zero determinant from true collinearity? A positive-area
+  triangle can have a zero floating-point cross product; do not reject it without a reliable predicate.
 - Divisions by areas, lengths or determinants: what happens at 0 and at 1e-300? Are weights bounded?
 - No NaN or infinity in the output; no inverted output triangles.
 

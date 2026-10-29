@@ -262,6 +262,35 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        [Fact]
+        public void OrientationCancellation_SelfIntersectionRetainsTheNondegenerateTriangle()
+        {
+            decimal area = (134217728m * 134217728m - 134217727m * 134217729m) / 2;
+            Assert.Equal(0.5m, area);
+            foreach (Similarity similarity in Similarity.All().Where(s => s.IsExact)) {
+                var vertices = new[] {
+                    Vector2d.Zero,
+                    new Vector2d(134217728.0, 134217727.0) * similarity.Scale,
+                    new Vector2d(134217729.0, 134217728.0) * similarity.Scale
+                };
+                var triangle = new Triangle2d(vertices[0], vertices[1], vertices[2]);
+                var query = new IntrTriangle2Triangle2(triangle, triangle);
+                for (int repeat = 0; repeat < 2; ++repeat) {
+                    query.Triangle0 = triangle;
+                    query.Triangle1 = triangle;
+                    Assert.True(query.Find());
+                    Assert.Equal(IntersectionResult.Intersects, query.Result);
+                    Assert.Equal(IntersectionType.Polygon, query.Type);
+                    Assert.Equal(3, query.Quantity);
+                    Assert.Equal(3, query.Points.Take(query.Quantity).Distinct().Count());
+                    foreach (Vector2d p in query.Points.Take(query.Quantity)) {
+                        Assert.True(p.IsFinite);
+                        Assert.Contains(p, vertices);
+                    }
+                }
+            }
+        }
+
         [Theory]
         [MemberData(nameof(NamedCases))]
         public void ProjectedContacts_FindAndReusePreserveBoundaryGeometry(string name)
