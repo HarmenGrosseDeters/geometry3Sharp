@@ -1,8 +1,8 @@
 # 2D meshing M1: exact point-set foundation
 
-Status: **proposal for owner approval; no implementation authorized by this document yet**.
+Status: **test-first M1 correctness baseline implemented at the owner's request**; independent code/bounds review found no blocking defect. Procedural A/B benchmarks and local CI were run. The inherited Boolean fixture correction has been applied, but the net10 suite remains red due to a Laplacian sweep timeout; owner/PR review remains open.
 Tier: **L** (new, specification-driven module). Branch: `feature/meshing2d`, based on
-`origin/master` at `93880ed`; independent of QA PR #193.
+`origin/master` at `93880ed`; only the separately authorized fixture correction was taken from QA PR #193.
 
 ## 1. Specification reconciliation
 
@@ -200,6 +200,30 @@ A finite artificial enclosing triangle is not assumed safe. No discarded artific
 missing hull triangles. Any modification of the existing kernel also requires its direct tests and
 Boolean caller regression tests; modifications outside the approved scope need a brief revision.
 
+### Bootstrap candidate after the spike
+
+A prototype uses only original input coordinates and exact orientation/incircle signs: start with any
+non-collinear input triple; insert each remaining distinct point by splitting its containing face or edge,
+or by adding a fan over the strictly visible convex-hull edges. Collinear points on a hull edge are split
+into that edge. The hull and all faces remain a planar triangulation after each insertion. This avoids a
+finite supertriangle and any new rounded coordinate construction. It is a separate topology candidate;
+the existing enclosing-triangle kernel cannot directly supply the general-hull bootstrap.
+
+For a convex flippable quadrilateral, flip a strictly illegal edge. On an exact cocircular tie, replace the
+edge only if the sorted pair of representative input IDs is lexicographically smaller. Strict flips lower
+the usual lifted-paraboloid triangulation functional; zero flips leave it unchanged and strictly decrease
+the lexicographically sorted set of edges. Both measures range over a finite set of triangulations, so the
+combined ordering precludes cycles. Fixed insertion and edge order plus canonical result ordering give
+repeatability. An independent read-only code/bounds review on 2026-10-29 found no blocking defect and
+checked the bounds below. A prototype guard is not an acceptable reason to reject valid input.
+
+For `|x|, |y| <= M = 1e70`, coordinate differences are at most `2M`; an orientation determinant is
+bounded by `8M^2` and an incircle determinant/permanent by `192M^4` before rounding. These are well below
+the finite double limit, even allowing rounding headroom. Underflow and cancellation still require the
+existing exact fallbacks; these bounds do not prove their correctness. No arbitrary coordinate scaling or
+new predicate tolerance is needed. Count/index overflow, work limits, cancellation within long loops,
+ownership and complete topology validation remain implementation and bounds-review obligations.
+
 The independent bounds review must examine the complete coordinate flow: predicate domain, comparisons,
 intermediate constructions, integer/count overflow, termination, ordering, and ownership after failure.
 Existing exact predicates are a dependency, not evidence that new constructions are automatically exact.
@@ -241,6 +265,80 @@ with restricted implementations. Establish results before negotiating a hard thr
 Before push: run all local CI in CLAUDE.md, including package API validation and every benchmark build.
 Before ready/merge: independent code/bounds review, hidden acceptance, targeted mutation checks and
 recorded A/B evidence. A green build alone does not complete M1.
+
+### M1 verification checkpoint (2026-10-29)
+
+The implementation uses a separate original-coordinate hull builder; `ExactTriangulation2` and the
+existing exact predicates are unchanged. Public XML documentation and the compiled
+[DelaunayMesh2Example](../examples/DelaunayMesh2Example.cs) describe the supported subset and limits.
+
+Command (run sequentially for `net10.0` and `net48`):
+
+```powershell
+dotnet test tests\geometry3Sharp.Tests -c Release -f <tfm> --no-restore --filter 'FullyQualifiedName~DelaunayMesh2ContractTests|FullyQualifiedName~Meshing2IndependentAcceptanceTests|FullyQualifiedName~DocExamplesTests.DelaunayMesh2Example|FullyQualifiedName~DocExamplesTests.EveryExample_IsTestedAndLinked' --blame-hang-timeout 2m
+```
+
+Result: 21 passed, 0 failed on each framework. Includes separately authored exact-oracle acceptance,
+planar reflections, transformed-plane similarities, reuse, ownership, mapping, topology and closed queries.
+Raw outputs: `meshing-m1-docs-net10.0.log` and `meshing-m1-docs-net48.log` in the working session's files.
+
+Targeted reversible mutations were run with this command on `net10.0`, restoring original file bytes
+in `finally` after each mutation:
+
+```powershell
+dotnet test tests\geometry3Sharp.Tests -c Release -f net10.0 --no-restore --filter 'FullyQualifiedName~DelaunayMesh2ContractTests|FullyQualifiedName~Meshing2IndependentAcceptanceTests' --blame-hang-timeout 2m
+```
+
+| Deliberate defect | Failed tests / total | Result |
+|---|---|---|
+| Reverse face orientation | 16 / 18 | Detected |
+| Negate incircle legality | 7 / 18 | Detected |
+| Map duplicate to itself | 5 / 18 | Detected |
+| Remove reciprocal neighbour | 11 / 18 | Detected |
+| Exclude a boundary orientation from location | 3 / 18 | Detected |
+| Reuse caller coordinate array | 2 / 18 | Detected |
+
+All mutation runs exited with test failures, not compiler errors or hangs. Raw outputs are
+`meshing-mutation-{orientation,legality,mapping,neighbours,location,ownership}.log`. The unmodified
+combined contract/acceptance suite was rebuilt and rerun on both frameworks after restoration:
+18 passed, 0 failed on each (`meshing-m1-restored-net10.0.log`, `meshing-m1-restored-net48.log`).
+These are targeted regression checks, not a whole-module mutation score.
+
+An independent review read the M1 diff/spec/checklist, without the author's reasoning or hidden test
+source. It reported no blocking defect and independently checked `2M`, `8M^2` and `192M^4`.
+It did not run tests or benchmarks. A follow-up review of the benchmark and cancellation test failed
+because the model provider returned HTTP 502; it has not been completed.
+
+A timed cancellation test arms cancellation on the last snapshot read for a procedural 64-by-64 grid,
+then checks cancellation, unchanged caller and previous result, and instance reuse. The focused command
+`dotnet test tests\geometry3Sharp.Tests -c Release -f net10.0 --no-restore --filter 'FullyQualifiedName~CancellationAfterSnapshotInterruptsLargeComputationAndAllowsReuse' --blame-hang-timeout 2m`
+passed; the net48 full suite below also includes this test. It is not a cancellation-latency guarantee.
+
+The [bootstrap/public API A/B baseline](../../benchmarks/Meshing2Benchmark/README.md) records bounded
+runs on both frameworks, procedural grid, uniform and near-collinear inputs, an independent integer
+oracle, hashes and raw measurements. The prototype and public API perform different amounts of work;
+the measurements are not an isolated speed comparison.
+
+Local CI was run sequentially with the commands and logs recorded in the working session's
+`meshing-ci-results.csv`. `dotnet test tests\geometry3Sharp.Tests -c Release -f net48 --no-restore --blame-hang-timeout 3m`
+passed 2842 tests; the corresponding net10 command passed 2839 and failed 3. Two Laplacian nonfinite-input
+cases passed on a focused rerun; the existing quaternion-rounded prism fixture still failed on net10
+(expected two components, actual one). That fixture issue was also reproduced on the master baseline and
+is separately addressed in draft PR #193. CLI tests, package creation and smoke test, the net48 build and
+all benchmark builds exited successfully. This is not a green CI result.
+
+The owner authorized taking only the fixture correction from `e559f68`: fixed coordinates preserve both
+previously observed rounded solids without changing production Boolean code. The patch exactly matches that
+commit's test-file diff. With the focused M1, example and two prism tests selected by
+`dotnet test tests\geometry3Sharp.Tests -c Release -f <tfm> --no-restore --filter 'FullyQualifiedName~DelaunayMesh2ContractTests|FullyQualifiedName~Meshing2IndependentAcceptanceTests|FullyQualifiedName~DocExamplesTests.DelaunayMesh2Example|FullyQualifiedName~DocExamplesTests.EveryExample_IsTestedAndLinked|FullyQualifiedName~KnownLimitation_TwoTriangularPrisms_RotatedInexactly_KeepATinyVoid|FullyQualifiedName~TwoTriangularPrisms_RoundedRotationWithoutVoid_FormOneClosedSolid' --blame-hang-timeout 2m`,
+24 tests passed on each framework. The full net10 command above was rerun after the correction: 2842
+passed and one failed, `LaplacianMeshSmoother|+Inf vertex`, which exceeded its 20-second test timeout.
+The earlier focused rerun of this case passed; the repeated full-suite failure is not resolved or attributed
+to the meshing changes. Output: `meshing-ci-library-net10-fixture-fixed.log` in the working session's files.
+
+The owner chose not to investigate the timeout because other work runs on this machine. CI is still red;
+remaining gates include CI revalidation, the failed follow-up review, and owner/PR acceptance.
+This checkpoint does not declare M1 complete or authorize M2–M4.
 
 ## 7. Approval requested
 
