@@ -830,10 +830,12 @@ namespace geometry3Sharp.Tests
         [InlineData("isolated", false)]
         [InlineData("triangle", true)]
         [InlineData("triangle", false)]
+        [InlineData("detached", true)]
+        [InlineData("detached", false)]
         public void Compact_LiveIsolatedVertexAboveDeletionHole_PreservesMappedPayload(string fixture, bool attributes)
         {
             foreach (Similarity similarity in Similarity.All()) {
-                DMesh3 mesh = Fixture(fixture, attributes);
+                DMesh3 mesh = Fixture(fixture == "detached" ? "triangle" : fixture, attributes);
                 foreach (int v in mesh.VertexIndices()) mesh.SetVertex(v, similarity.Apply(mesh.GetVertex(v)));
                 var state = new State(mesh, "minimal isolated compaction fixture=" + fixture + " attributes=" + attributes +
                     " similarity=" + similarity.Name);
@@ -843,6 +845,11 @@ namespace geometry3Sharp.Tests
                     Execute(state, Cmd(Op.AppendVertex, position: similarity.Apply(new Vector3d(8, 2, 3)), group: 47));
                     survivor = mesh.MaxVertexID - 1;
                     Execute(state, Cmd(Op.RemoveTriangle, 0, isolated: true));
+                } else if (fixture == "detached") {
+                    survivor = 2;
+                    Execute(state, Cmd(Op.RemoveTriangle, 0, isolated: false));
+                    Execute(state, Cmd(Op.RemoveIsolated, 0));
+                    Execute(state, Cmd(Op.RemoveIsolated, 1));
                 } else {
                     survivor = 1;
                     Execute(state, Cmd(Op.RemoveIsolated, 0));
@@ -862,6 +869,28 @@ namespace geometry3Sharp.Tests
                 Equal(beforeCompact.UVs, compacted.UVs, "isolated compaction UV channel", state);
                 Equal(beforeCompact.Groups, compacted.Groups, "isolated compaction group channel", state);
                 SameVertex(beforeCompact.Vertices[survivor], compacted.Vertices[0], beforeCompact, state, "isolated compacted payload");
+                Execute(state, Cmd(Op.Compact));
+                SameSnapshot(compacted, mesh, state);
+                Execute(state, Transform(Cmd(Op.Disconnected, position: new Vector3d(8, 2, 3)), similarity));
+                Validate(state);
+            }
+        }
+
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void RebuildFromEdgeRefcounts_RepeatedRebuildPreservesTopologyAndPayload(bool attributes)
+        {
+            foreach (Similarity similarity in Similarity.All()) {
+                DMesh3 mesh = Fixture("triangle", attributes);
+                foreach (int v in mesh.VertexIndices()) mesh.SetVertex(v, similarity.Apply(mesh.GetVertex(v)));
+                var state = new State(mesh, "repeated topology rebuild similarity=" + similarity.Name);
+                var expected = new Snapshot(mesh);
+                for (int repeat = 0; repeat < 2; ++repeat) {
+                    mesh.RebuildFromEdgeRefcounts();
+                    Validate(state);
+                    SameSnapshot(expected, mesh, state);
+                }
             }
         }
 

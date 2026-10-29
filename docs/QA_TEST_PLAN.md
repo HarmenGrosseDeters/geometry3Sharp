@@ -2,8 +2,8 @@
 
 Status: tests and D1 implemented on `qa/differential-core-tests`, based on `origin/master` at
 `93880ed`, in the separate `D:\work\geometry3Sharp-QA` worktree. Commit `7246cfe` preserves the QA
-baseline. The boundary-loop diagnostic reset and AABB empty/stale-tree corrections are implemented;
-compaction, restore reuse and coplanar-contact corrections remain open.
+baseline. Boundary-loop diagnostics, AABB empty/stale queries, isolated-vertex compaction and
+restore reuse are corrected. Coplanar-contact corrections remain open.
 The delegated AABB, compaction/restore and coplanar workers failed before execution with provider
 HTTP 502 errors and made no changes. No workers are running. Acceptance remains blocked by the
 remaining reproducible defects. The owner requested a safeguard push and draft PR of this incomplete
@@ -726,3 +726,48 @@ are compaction, restore reuse and coplanar contacts, not AABB regressions.
 The AABB correction is a local checkpoint, not another push. Draft PR #193 still contains the
 safeguard state: its Linux checks failed and its netstandard checks were still running at the last
 status query. Full local CI and independent production-diff review remain required before ready/merge.
+
+### Isolated-vertex compaction and restore reuse
+
+Tier-M scope: `DMesh3.CompactInPlace()`, `RebuildFromEdgeRefcounts()`, their property/regression tests
+and directly related documentation. No serialized format, public signatures, reader-validation rules,
+exact arithmetic or dependencies change. Compaction skips moving nonexistent adjacency lists and
+clears empty retained blocks; rebuilding discards old derived refcounts and adjacency before using
+the supplied edge buffers. The existing restore path consequently rebuilds reused destinations like
+fresh ones. No external source was ported.
+
+Compaction regressions now distinguish never-connected and previously connected isolated vertices,
+verify mapped attributes over `Similarity.All()`, compact twice and append new connected geometry
+with reused IDs afterwards. A direct repeated-rebuild regression verifies topology and payload over
+all similarities, with and without attribute channels. Existing restore-reuse and reader-fuzz tests
+remain unchanged and passing. These methods have no parallel execution path.
+
+Before the production correction:
+
+```powershell
+dotnet test tests\geometry3Sharp.Tests -c Release -f net10.0 --filter 'FullyQualifiedName~Compact_LiveIsolatedVertex|FullyQualifiedName~RebuildFromEdgeRefcounts_Repeated|FullyQualifiedName~MeshRestore_ReusedDestination' --logger 'trx;LogFileName=fix-mesh-state-old.trx' --results-directory $out
+```
+
+Result: 10 total, 2 passed, 8 failed, 0 skipped, exit 1 (`fix-mesh-state-old.log`/TRX).
+The previously connected isolated-vertex cases passed already; no assertion was weakened.
+
+After the production correction:
+
+```powershell
+$filter = 'FullyQualifiedName~DMesh3PropertyTests|FullyQualifiedName~MeshFixesTests|FullyQualifiedName~SerializationRoundTripTests|FullyQualifiedName~CoreIOFixesTests.gSerialization|FullyQualifiedName~G3MeshReaderTests|FullyQualifiedName~ReaderFuzzTests'
+dotnet test tests\geometry3Sharp.Tests -c Release -f net10.0 --filter $filter --logger 'trx;LogFileName=fix-mesh-state-net10.0.trx' --results-directory $out
+dotnet test tests\geometry3Sharp.Tests -c Release -f net48 --filter $filter --logger 'trx;LogFileName=fix-mesh-state-net48.trx' --results-directory $out
+```
+
+Each framework: 180 passed, 0 failed, 0 skipped, exit 0 (`fix-mesh-state-net10.0.log` and
+`fix-mesh-state-net48.log`/TRX). The complete focused QA matrix was rerun:
+
+```powershell
+$filter = 'FullyQualifiedName~AABBTreeDifferentialTests|FullyQualifiedName~CoplanarTriangleDifferentialTests|FullyQualifiedName~DMesh3PropertyTests|FullyQualifiedName~SerializationRoundTripTests|FullyQualifiedName~MeshBoundaryLoopsTests|FullyQualifiedName~SolverIntersectionFixesTests.IntrTriangle'
+dotnet test tests\geometry3Sharp.Tests -c Release -f net10.0 --filter $filter --logger 'trx;LogFileName=qa-after-mesh-state-net10.0.trx' --results-directory $out
+dotnet test tests\geometry3Sharp.Tests -c Release -f net48 --filter $filter --logger 'trx;LogFileName=qa-after-mesh-state-net48.trx' --results-directory $out
+```
+
+Each framework: 643 total, 632 passed, 11 failed, 0 skipped, exit 1
+(`qa-after-mesh-state-net10.0.log` and `qa-after-mesh-state-net48.log`/TRX). The remaining failures
+are coplanar-contact regressions. This is another local checkpoint, not a push or a green-CI claim.
