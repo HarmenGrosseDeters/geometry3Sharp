@@ -906,3 +906,52 @@ Before the componentwise correction, both regressions failed at the false-inters
 660 tests, 0 failed, 0 skipped, exit 0 (`qa-final-componentwise-net10.0.log` and
 `qa-final-componentwise-net48.log`/TRX). These remain focused results; the independently reproduced
 net10 baseline CI blocker is unchanged and no further push has been made.
+
+### Authorized CI-fixture correction
+
+The owner authorized correcting the net10 baseline blocker. Tier-M scope is limited to the rounded
+prism test fixtures and their documentation; exact production, arithmetic, bounds and mutation tooling
+are unchanged. Capturing the actual input vertices on both frameworks showed that quaternion `Sin`/`Cos`
+produces different rounded coordinates, hence different exact solids. The old test incorrectly required
+the same tiny-void outcome for these different inputs.
+
+The known-limitation test now procedurally constructs the explicitly pinned net48 rounded coordinates.
+Its closed/finite/volume, component, triangle and non-manifold assertions remain unchanged. A separate
+fixture pins the observed net10 rounding and requires the actual clean, closed, single-component result.
+Neither test branches on target framework, accepts alternate outcomes, skips a case nor changes production.
+The observed input coordinates are recorded in `prism-fixture-net10.0.log` and `prism-fixture-net48.log`.
+
+```powershell
+dotnet test tests\geometry3Sharp.Tests -c Release -f net10.0 --filter 'FullyQualifiedName~KnownLimitation_TwoTriangularPrisms_RotatedInexactly' --logger 'trx;LogFileName=prism-original-net10.0.trx' --results-directory $out
+dotnet test tests\geometry3Sharp.Tests -c Release -f net10.0 --filter 'FullyQualifiedName~ExactBooleanIssueCasesTests' --logger 'trx;LogFileName=prism-neighbors-net10.0.trx' --results-directory $out
+dotnet test tests\geometry3Sharp.Tests -c Release -f net48 --filter 'FullyQualifiedName~ExactBooleanIssueCasesTests' --logger 'trx;LogFileName=prism-neighbors-net48.trx' --results-directory $out
+```
+
+Temporarily restoring the original test reproduces its net10 failure (1 failed, exit 1;
+`prism-original-net10.0.log`/TRX). Restoring the correction passes all neighboring issue cases on each
+framework (15 passed, 0 failed, 0 skipped, exit 0; `prism-neighbors-net10.0.log` and
+`prism-neighbors-net48.log`/TRX).
+
+Full local CI subsequently passed sequentially, without concurrent library test hosts:
+
+```powershell
+foreach ($tfm in @('net10.0', 'net48')) {
+    dotnet test tests\geometry3Sharp.Tests -c Release -f $tfm --logger "trx;LogFileName=ci-pinned-library-$tfm.trx" --results-directory $out
+}
+dotnet build geometry3Sharp_netstandard.csproj -c Release
+dotnet test tests\g3cli.Tests -c Release --logger 'trx;LogFileName=ci-pinned-cli.trx' --results-directory $out
+dotnet pack geometry3Sharp_netstandard.csproj -c Release -o $pkg -p:Version=1.0.0-ci.1
+dotnet run --project tests\PackageSmokeTest -c Release -p:G3PackageVersion=1.0.0-ci.1 "-p:G3PackageSource=$pkg" -- "$pkg\geometry3Sharp.1.0.0-ci.1.nupkg"
+dotnet build tests\geometry3Sharp.Tests -c Release -f net48 -p:TestNet48=true
+Get-ChildItem benchmarks -Recurse -Filter *.csproj | Sort-Object FullName | ForEach-Object {
+    dotnet build $_.FullName -c Release
+}
+```
+
+Each library framework passed 3,470 tests, with no failures or skips (`ci-pinned-library-*.log`/TRX).
+CLI passed 43 tests, with no failures or skips (`ci-pinned-cli.log`/TRX). Library build, package,
+package smoke, net48 build and every benchmark build exited 0 (`ci-pinned-build-library.log`,
+`ci-pinned-pack.log`, `ci-pinned-smoke.log`, `ci-pinned-net48-build.log`,
+`ci-pinned-benchmark-*.log`). The package output directory was removed after the successful gates.
+Existing compiler/analyzer warnings remain outside this scope. Independent review of the final fixture
+diff and hosted PR CI remain separate requirements before marking the PR ready or merging.

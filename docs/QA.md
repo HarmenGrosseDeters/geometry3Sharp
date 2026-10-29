@@ -397,7 +397,11 @@ stepped cylinder tool with rounding between the steps, inside-out operands. `Exa
 results on all of them. Known failure (pinned in `KnownLimitation_TwoTriangularPrisms_RotatedInexactly_KeepATinyVoid`):
 when the shared face of two inputs is not exactly planar after an inexact rotation, its two triangulations enclose a
 tetrahedron of about 3e-15 volume, which the exact union keeps as a void touching the outer surface along edges
-(volume right, non-manifold when welded by position).
+(volume right, non-manifold when welded by position). This regression pins the rounded coordinates rather
+than generating them with runtime-dependent `Sin`/`Cos`: net48 and net10 quaternion rotation produce
+different exact input solids. `TwoTriangularPrisms_RoundedRotationWithoutVoid_FormOneClosedSolid`
+pins the other observed rounding and requires a clean, closed single-component result. The limitation
+assertions are unchanged; there is no runtime-conditional expected outcome.
 
 ## 3. Performance
 
