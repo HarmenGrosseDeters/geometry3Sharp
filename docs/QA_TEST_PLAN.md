@@ -2,7 +2,8 @@
 
 Status: tests and D1 implemented on `qa/differential-core-tests`, based on `origin/master` at
 `93880ed`, in the separate `D:\work\geometry3Sharp-QA` worktree. Commit `7246cfe` preserves the QA
-baseline. The boundary-loop diagnostic reset is implemented; the remaining production fixes are open.
+baseline. The boundary-loop diagnostic reset and AABB empty/stale-tree corrections are implemented;
+compaction, restore reuse and coplanar-contact corrections remain open.
 The delegated AABB, compaction/restore and coplanar workers failed before execution with provider
 HTTP 502 errors and made no changes. No workers are running. Acceptance remains blocked by the
 remaining reproducible defects. The owner requested a safeguard push and draft PR of this incomplete
@@ -642,8 +643,8 @@ The owner requested discarding all uncommitted work in the separate
 this QA branch as a safeguard. The Alpha worktree was verified clean afterwards. The QA branch keeps
 both the committed QA baseline and the tested boundary-loop correction; no QA tests were discarded.
 
-The remaining production tasks have not started: AABB empty/stale queries, isolated-vertex compaction,
-serialization restore reuse, and closed coplanar contacts. All delegated workers failed before any
+At this safeguard checkpoint, the remaining production tasks had not started: AABB empty/stale
+queries, isolated-vertex compaction, serialization restore reuse, and closed coplanar contacts. All delegated workers failed before any
 execution with provider HTTP 502 errors. Continue these tasks directly and sequentially; do not report
 workers as running without a current status check.
 
@@ -675,3 +676,53 @@ Get-ChildItem benchmarks -Filter *.csproj -Recurse | Sort-Object FullName | ForE
 The remaining known failures are not hidden or skipped. The safeguard PR must stay draft: finish the
 production corrections, rerun the complete local gate to completion, and obtain independent diff
 review before marking it ready. Temporary package outputs were removed; logs remain outside the repo.
+
+### AABB empty builds and stale tree-pair arguments
+
+Tier-M scope: `DMeshAABBTree3.Build()` and the three tree-pair queries, their differential tests,
+and directly related documentation. No signatures, nonempty build strategies, exact arithmetic,
+finite-cutoff contracts, or unrelated operations change. The implementation reuses the existing
+empty top-down leaf representation for all empty builds and validates both mesh timestamps before
+traversal. No external source was ported.
+
+The added regressions independently cover all three stale-argument guards, both receiver/argument
+orders, rebuild recovery, empty tree-pair queries (including both empty), and nonempty/empty/nonempty
+build reuse for every build configuration. Empty nearest/ray queries also run over `Similarity.All()`
+with exact sentinel assertions. Existing nonempty differential, invariance and parallel query tests
+remain in the validation selection. This operation has no new parallel path.
+
+The tests were run against unchanged production before applying the correction:
+
+```powershell
+dotnet test tests\geometry3Sharp.Tests -c Release -f net10.0 --filter 'FullyQualifiedName~EmptyMesh_Queries|FullyQualifiedName~StaleOtherTree_|FullyQualifiedName~TreePairQueries_Reject|FullyQualifiedName~EmptyTreePairQueries_|FullyQualifiedName~EmptyBuildReuse_' --logger 'trx;LogFileName=fix-aabb-old-final.trx' --results-directory $out
+```
+
+Result: 180 total, 84 passed, 96 failed, 0 skipped, exit 1 (`fix-aabb-old-final.log`/TRX).
+Each stale-argument operation failed independently, including the transform callback guard.
+The old-code run provides the sensitivity check; no deliberate fault remains in production.
+
+After applying the fix:
+
+```powershell
+$filter = 'FullyQualifiedName~AABBTreeDifferentialTests|FullyQualifiedName~SpatialFixesTests|FullyQualifiedName~QueryThresholdScaleTests|FullyQualifiedName~BoundsAndMirrorFixesTests|FullyQualifiedName~ReviewFixesTests.DMeshAABBTree'
+dotnet test tests\geometry3Sharp.Tests -c Release -f net10.0 --filter $filter --logger 'trx;LogFileName=fix-aabb-net10.0.trx' --results-directory $out
+dotnet test tests\geometry3Sharp.Tests -c Release -f net48 --filter $filter --logger 'trx;LogFileName=fix-aabb-net48.trx' --results-directory $out
+```
+
+Each framework: 489 passed, 0 failed, 0 skipped, exit 0 (`fix-aabb-net10.0.log` and
+`fix-aabb-net48.log`/TRX). The complete focused QA matrix was then rerun:
+
+```powershell
+$filter = 'FullyQualifiedName~AABBTreeDifferentialTests|FullyQualifiedName~CoplanarTriangleDifferentialTests|FullyQualifiedName~DMesh3PropertyTests|FullyQualifiedName~SerializationRoundTripTests|FullyQualifiedName~MeshBoundaryLoopsTests|FullyQualifiedName~SolverIntersectionFixesTests.IntrTriangle'
+dotnet test tests\geometry3Sharp.Tests -c Release -f net10.0 --filter $filter --logger 'trx;LogFileName=qa-after-aabb-net10.0.trx' --results-directory $out
+dotnet test tests\geometry3Sharp.Tests -c Release -f net48 --filter $filter --logger 'trx;LogFileName=qa-after-aabb-net48.trx' --results-directory $out
+```
+
+Each framework: 639 total, 618 passed, 21 failed, 0 skipped, exit 1
+(`qa-after-aabb-net10.0.log` and `qa-after-aabb-net48.log`/TRX). The safeguard matrix above had
+106 failures per framework; those commands selected the earlier test set. The remaining failures
+are compaction, restore reuse and coplanar contacts, not AABB regressions.
+
+The AABB correction is a local checkpoint, not another push. Draft PR #193 still contains the
+safeguard state: its Linux checks failed and its netstandard checks were still running at the last
+status query. Full local CI and independent production-diff review remain required before ready/merge.

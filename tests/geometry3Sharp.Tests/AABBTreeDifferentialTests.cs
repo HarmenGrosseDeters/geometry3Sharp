@@ -38,7 +38,6 @@ namespace geometry3Sharp.Tests
         }
 
         // An empty linear scan has no admissible IDs, independently of the leaf predicates.
-        // Keep this regression when the bottom-up empty-root defect receives its own fix brief.
         [Theory]
         [MemberData(nameof(EmptyCases))]
         public void EmptyMesh_QueriesAgreeWithEmptyScan(
@@ -714,7 +713,6 @@ namespace geometry3Sharp.Tests
             Assert.True(rebuiltBefore == MeshText(mesh), context + "; rebuilt queries mutated mesh");
         }
 
-        // Independent blocker: TestIntersection checks the receiver timestamp, but not the argument tree's timestamp.
         [Fact]
         public void StaleOtherTree_IntersectionMustRejectInvalidArgument()
         {
@@ -728,6 +726,99 @@ namespace geometry3Sharp.Tests
             Assert.True(receiver.IsValid);
             Assert.False(other.IsValid);
             Assert.Throws<Exception>(() => receiver.TestIntersection(other));
+        }
+
+        [Theory]
+        [InlineData(false, "any")]
+        [InlineData(true, "any")]
+        [InlineData(false, "all")]
+        [InlineData(true, "all")]
+        [InlineData(false, "nearest")]
+        [InlineData(true, "nearest")]
+        public void TreePairQueries_RejectEitherStaleTreeBeforeTraversal(bool editReceiver, string operation)
+        {
+            var receiver = new DMeshAABBTree3(Fixture("one"), true);
+            var other = new DMeshAABBTree3(Fixture("one"), true);
+            DMeshAABBTree3 edited = editReceiver ? receiver : other;
+            edited.Mesh.SetVertex(0, new Vector3d(0, 0, 0.5));
+            string receiverBefore = MeshText(receiver.Mesh), otherBefore = MeshText(other.Mesh);
+            Func<Vector3d, Vector3d> transform = p => {
+                Assert.Fail("A stale tree must be rejected before invoking the transform.");
+                return p;
+            };
+            Assert.False(edited.IsValid);
+            switch (operation) {
+                case "any":
+                    Assert.Throws<Exception>(() => receiver.TestIntersection(other, transform));
+                    break;
+                case "all":
+                    Assert.Throws<Exception>(() => receiver.FindAllIntersections(other, transform));
+                    break;
+                case "nearest":
+                    Assert.Throws<Exception>(() => receiver.FindNearestTriangles(other, transform, out double ignored));
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(operation));
+            }
+            Assert.Equal(receiverBefore, MeshText(receiver.Mesh));
+            Assert.Equal(otherBefore, MeshText(other.Mesh));
+            edited.Build();
+            Assert.True(receiver.IsValid && other.IsValid);
+            Assert.Equal(receiver.TestIntersection(new DMeshAABBTree3(other.Mesh, true)),
+                receiver.TestIntersection(other));
+            Index2i pair = receiver.FindNearestTriangles(other, null, out double distance);
+            Assert.True(receiver.Mesh.IsTriangle(pair.a) && other.Mesh.IsTriangle(pair.b));
+            Assert.Equal(0, distance);
+        }
+
+        [Theory]
+        [MemberData(nameof(BuildCases))]
+        public void EmptyTreePairQueries_HaveNoResultsInEitherOrder(DMeshAABBTree3.BuildStrategy strategy,
+            DMeshAABBTree3.ClusterPolicy policy, int leafSize)
+        {
+            var empty = Build(new DMesh3(), strategy, policy, leafSize);
+            var nonempty = Build(Fixture("one"), strategy, policy, leafSize);
+            foreach (var pair in new[] { Tuple.Create(empty, nonempty), Tuple.Create(nonempty, empty),
+                Tuple.Create(empty, empty) }) {
+                Assert.False(pair.Item1.TestIntersection(pair.Item2));
+                var result = pair.Item1.FindAllIntersections(pair.Item2);
+                Assert.Empty(result.Points);
+                Assert.Empty(result.Segments);
+                Assert.Equal(Index2i.Max, pair.Item1.FindNearestTriangles(pair.Item2, null, out double distance));
+                Assert.Equal(double.MaxValue, distance);
+            }
+        }
+
+        [Theory]
+        [MemberData(nameof(BuildCases))]
+        public void EmptyBuildReuse_NonemptyEmptyNonemptyMatchesFresh(DMeshAABBTree3.BuildStrategy strategy,
+            DMeshAABBTree3.ClusterPolicy policy, int leafSize)
+        {
+            var mesh = new DMesh3();
+            int tid = AddTriangle(mesh, UnitTriangle());
+            var tree = Build(mesh, strategy, policy, leafSize);
+            string initial = QuerySignature(tree);
+            Assert.NotEqual(DMesh3.InvalidID, tree.FindNearestTriangle(Vector3d.Zero));
+            Assert.Equal(MeshResult.Ok, mesh.RemoveTriangle(tid));
+            tree.Build(strategy, policy);
+            Assert.True(tree.IsValid);
+            Assert.Equal(QuerySignature(Build(mesh, strategy, policy, leafSize)), QuerySignature(tree));
+            Assert.Equal(DMesh3.InvalidID, tree.FindNearestTriangle(Vector3d.Zero));
+            foreach (Similarity similarity in Similarity.All()) {
+                Vector3d point = similarity.Apply(new Vector3d(0, 0, 1));
+                double cutoff = similarity.ApplyLength(1);
+                Assert.Equal(DMesh3.InvalidID, tree.FindNearestTriangle(point, out double squared, cutoff));
+                Assert.Equal(cutoff * cutoff, squared);
+                var ray = new Ray3d(point, similarity.ApplyDirection(-Vector3d.AxisZ));
+                Assert.Equal(DMesh3.InvalidID, tree.FindNearestHitTriangle(ray, cutoff));
+                Assert.Equal(0, tree.FindAllHitTriangles(ray, null, cutoff));
+            }
+            tree.Build(strategy, policy);
+            Assert.Equal(DMesh3.InvalidID, tree.FindNearestTriangle(Vector3d.Zero));
+            AddTriangle(mesh, UnitTriangle());
+            tree.Build(strategy, policy);
+            Assert.Equal(initial, QuerySignature(tree));
+            Assert.Equal(QuerySignature(Build(mesh, strategy, policy, leafSize)), QuerySignature(tree));
         }
 
         [Theory]
