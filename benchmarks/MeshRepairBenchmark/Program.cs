@@ -92,6 +92,8 @@ class Program
             DMesh3 result;
             bool ok;
             DMesh3 hybridUnclean = null;     // the hybrid repair result that was not clean (its defects: after the timing)
+            DMesh3 originalWrap = null, wrapCandidate = null;
+            double wrapOffset = 0;
             if (repairMode == "exact") {
                 result = RunExactBooleans(original, r);
                 ok = true;
@@ -165,6 +167,17 @@ class Program
                 robust.ExactResolveRounds = int.Parse(Environment.GetEnvironmentVariable("BENCH_EXACT_ROUNDS") ?? "4");
                 robust.AlphaWrapFallback = Environment.GetEnvironmentVariable("BENCH_WRAP_FALLBACK") != "0";
                 robust.SimplifyAlphaWrap = Environment.GetEnvironmentVariable("BENCH_WRAP_SIMPLIFY") != "0";
+                string wrapPolicy = Environment.GetEnvironmentVariable("BENCH_WRAP_POLICY") ?? "default";
+                switch (wrapPolicy) {
+                    case "default": robust.WrapPolicy = MeshRobustRepair.WrapSimplificationPolicy.Default; break;
+                    case "features": robust.WrapPolicy = MeshRobustRepair.WrapSimplificationPolicy.FeatureConstrained; break;
+                    case "flips": robust.WrapPolicy = MeshRobustRepair.WrapSimplificationPolicy.QualityFlips; break;
+                    case "local": robust.WrapPolicy = MeshRobustRepair.WrapSimplificationPolicy.LocalQualityRollback; break;
+                    case "tangential": robust.WrapPolicy = MeshRobustRepair.WrapSimplificationPolicy.TangentialQuality; break;
+                    default: throw new ArgumentException("Unknown BENCH_WRAP_POLICY: " + wrapPolicy);
+                }
+                robust.DiagnoseWrapSimplification = Environment.GetEnvironmentVariable("BENCH_WRAP_DIAGNOSTICS") == "1";
+                r["robust_wrap_policy"] = wrapPolicy;
                 robust.SafeRounding = Environment.GetEnvironmentVariable("BENCH_SAFE_ROUNDING") != "0";
                 robust.CheckLostComponents = Environment.GetEnvironmentVariable("BENCH_LOST_COMPONENTS") == "1";
                 robust.RejectTopologyChange = Environment.GetEnvironmentVariable("BENCH_REJECT_TOPOLOGY") == "1";
@@ -186,7 +199,14 @@ class Program
                 r["robust_solidify_reason"] = robust.SolidifyReason;
                 r["robust_used_wrap"] = robust.UsedAlphaWrap;
                 r["robust_wrap_tris"] = robust.AlphaWrapTriangles;
+                r["robust_wrap_simplified"] = robust.AlphaWrapSimplified;
+                if (robust.DiagnoseWrapSimplification)
+                    r["robust_wrap_simplification"] = robust.WrapSimplificationDiagnostics;
                 r["robust_phases"] = robust.PhaseMilliseconds;
+                if (robust.UsedAlphaWrap) {
+                    originalWrap = robust.AlphaWrap.Result;
+                    wrapOffset = robust.AlphaWrap.UsedOffset;
+                }
             } else if (repairMode == "cgalwrap") {
                 result = CgalWrap(args[0], r);
                 ok = result.TriangleCount > 0;
@@ -225,6 +245,20 @@ class Program
             }
             r["repair_ms"] = (repairMode == "cgalwrap" && r.ContainsKey("wrap_ms")) ? r["wrap_ms"] : sw.ElapsedMilliseconds;
             r["apply_returned"] = ok;
+            // Recheck the wrap certificate outside repair_ms, using the simplifier's existing tolerances.
+            if (originalWrap != null && wrapOffset > 0) {
+                stage = "wrap_certificate";
+                double upper = double.PositiveInfinity;
+                foreach (double tolerance in new[] { 0.1, 0.01 }) {
+                    var hd = new MeshHausdorffDistance(result, originalWrap) {
+                        Symmetric = false, Tolerance = tolerance * 0.5 * wrapOffset
+                    };
+                    if (!hd.Compute()) break;
+                    upper = hd.UpperBound;
+                    if (upper <= 0.5 * wrapOffset) break;
+                }
+                r["wrap_certificate_hi_over_offset"] = upper / wrapOffset;
+            }
             // every failed check of the unclean hybrid repair result (hybrid_reason is the first, which decides); a
             // diagnostic, so its failure does not fail the run. "self-intersections" first means every other check
             // passed: not checked again

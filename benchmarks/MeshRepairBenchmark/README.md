@@ -3,6 +3,322 @@
 Measures how well `gs.MeshAutoRepair` repairs real-world broken meshes, and what it breaks on the way.
 The data comes from [Thingi10K](https://huggingface.co/datasets/Thingi10K/Thingi10K).
 
+## Alpha-wrap collapse-quality experiment (2026-10-29)
+
+**Decision:** none of the fixed thresholds 0.15 / 0.20 / 0.30 passes every acceptance gate. The production
+wrap policy remains 0.05; no roadmap item is completed. `SimplifyWithin` has an internal optional quality
+parameter (default 0.05) for these tests; the shared reducer guard and public API are unchanged. Its guard is
+soft: it rejects a triangle only if its new quality is below the threshold **and** below its previous quality.
+A quality threshold is not an angle threshold.
+
+Environment and raw evidence: base SHA `93880ed97a282f356ae96aea465e539130bea69b`, .NET SDK 10.0.402,
+Intel Core i7-13850HX, Windows, Release, separate mesh processes with P=2 and a 300 s timeout. The fixed first
+selection contains 400 meshes; the measured wrap union contains 17. The ignored directory
+`results/alpha-quality-20261029/` contains `metadata-before.json`, `before.jsonl`, `unsimplified.jsonl`,
+`q015.jsonl`, `q020.jsonl`, `q030.jsonl`, `after-q030.jsonl`, per-mesh stdout/stderr, frozen candidate bins,
+`validated-paired-*.json`, `reviewed-paired-*.json`, and `original-experiment-summary.json`. The reviewed
+reports supersede the earlier paired reports after the independent analyzer review. No mesh assets are committed.
+
+Measurement commands (execute from the repository root; each selected mesh is supplied as `<mesh>`):
+
+```powershell
+$env:BENCH_REPAIR='robust'; $env:BENCH_FIDELITY='1'
+$env:BENCH_WRAP_SIMPLIFY='1' # before; use '0' for the unsimplified control
+ dotnet benchmarks\MeshRepairBenchmark\bin\Release\net10.0\MeshRepairBenchmark.dll <mesh> std none rel
+# Trials use the respective frozen bin-q015 / bin-q020 / bin-q030 DLL instead.
+# Full after-q030 uses bin-after-q030, including post-timing certificate instrumentation.
+```
+
+The orchestration used `run_wrap_benchmarks.py baseline`, `trials`, and `after 030` in the session's `files/`
+directory; it refuses to overwrite raw runs. The 0.30 caller was restored to 0.05 immediately after freezing
+its bin. The full after run is diagnostic, not an accepted default. For robust wrap cases the benchmark now
+reports `wrap_certificate_hi_over_offset`, rechecking the existing one-sided upper bound to the original wrap
+outside `repair_ms`.
+
+Analysis and test commands (from this benchmark directory):
+
+```powershell
+python analyze_fidelity.py --paired results\alpha-quality-20261029\before.jsonl results\alpha-quality-20261029\q015.jsonl results\alpha-quality-20261029\unsimplified.jsonl --subset
+# Repeat with q020.jsonl and q030.jsonl.
+python analyze_fidelity.py --paired results\alpha-quality-20261029\before.jsonl results\alpha-quality-20261029\after-q030.jsonl results\alpha-quality-20261029\unsimplified.jsonl --require-certificate
+python test_analysis.py
+```
+
+Python was `C:\Users\re29670\AppData\Local\Programs\Python\Python315\python.exe`. Each paired command returns
+exit 1 for a failed experiment and emits every failed per-mesh metric, not just aggregate medians. Full pairing
+requires all 400 IDs; `--subset` is diagnostic only. Missing/nonfinite applicable metrics fail, a zero baseline
+error permits no positive error, and all four quality-distribution entries and adverse bin **shares** are judged.
+Inapplicable edge/outer/solid measurements and reference metadata are listed separately. Each volume-IoU
+family uses its own explicit NaN triplet for an unavailable reference solid; legacy IoU cannot hide finite
+fidelity IoUs. Outer-volume applicability requires a boolean convergence flag and a finite face share in
+[0,1]; missing metadata fails. Timing sums all checked pairs (400 for a full run, the wrap union for a subset),
+while angle and triangle medians use only the wrap union. The original analysis CLI remains supported. Synthetic tests cover these contracts; disabling the relative comparison makes the
+zero-error and per-metric regression tests fail, and restoration passes `python test_analysis.py`.
+
+| policy/run | median 1%-worst angle (degrees) | median tris / unsimplified wrap | paired wrap repair ms | time / baseline | simplify median / max ms | failed per-mesh metrics / meshes |
+|---|---:|---:|---:|---:|---:|---:|
+| baseline 0.05 | 3.7745 | 0.31457 | 619703 | 1.0000 | 13766 / 77975 | reference |
+| trial 0.15 | 6.8917 | 0.31784 | 444707 | 0.7176 | 8322 / 40909 | 21 / 9; also angle gate fails |
+| trial 0.20 | 7.9337 | 0.32116 | 355977 | 0.5744 | 7415 / 30918 | 22 / 8; also angle gate fails |
+| trial 0.30 | 10.4913 | 0.33144 | 364575 | 0.5883 | 7306 / 27119 | 24 / 9 |
+| full after 0.30 | 10.4913 | 0.33144 | 587828 | 0.9486 | 10998 / 50397 | 24 / 9 |
+
+Targets were angle median >=10 degrees, triangle ratio <=0.40, paired repair time <=1.25 baseline, and each
+applicable fidelity/quality metric within relative 5% per mesh. The full after run has all 400 rows closed, no
+new missing IDs/timeouts/exceptions, all 17 wrap certificates <=0.5 offset, and no geometric/fidelity changes
+in the 383 non-wrap controls. Nevertheless, the following meshes fail fidelity or worst-triangle quality:
+`106620`, `163738`, `170991`, `37415`, `46244`, `46542`, `51474`, `87345`, `96373`. Failures include curvature
+errors/distribution distances, sampled forward distance, sharp-edge distance, a newly nonzero reversed-normal
+fraction, and worst minimum angle / scaled Jacobian / aspect / condition. Certified input Hausdorff bounds
+passing does **not** imply curvature or feature fidelity. Exact values are in `reviewed-paired-after-q030.json`.
+The wrap-only times in the table are diagnostic. The corrected full-run timing gate uses all 400 pairs:
+1279789 ms before versus 1346652 ms after, ratio 1.0522453; it passes the 1.25 limit. This was produced by the
+full paired analysis command above. Reanalyzing all original runs after review leaves their failure decisions
+and per-mesh failure counts unchanged.
+
+The summary command was `python <session-files>\analyze_wrap_experiment.py`; it pairs every full-run ID and
+RemeshQuality case and writes `original-experiment-summary.json`. Timing variation between the subset trial
+and full after run is substantial; these observations are not a general performance claim.
+
+After completing this analysis, the owner authorized exactly two follow-up experiments with unchanged gates:
+(A) feature-constrained 0.30 reduction using existing constraints, (B) baseline 0.05 reduction with two
+flip-only quality-improvement passes. No additional collapse thresholds, combined variants or default change
+are authorized. Both follow-up experiments are now complete and fail; no further tuning or full acceptance
+rerun is performed because each already fails on the fixed wrap subset.
+
+The follow-up implementations are internal opt-ins only (`preserveFeatures` / `flipOnlyQualityPasses`, both
+false by default). A uses `MeshConstraintUtil.PreserveBoundaryAndFeatures` with a fixed 30-degree crease and
+corner threshold. B runs exactly two serial passes of a private remesher specialization: flips are eligible
+only when pair minimum quality is below 0.30 and the proposed pair minimum more than doubles. The existing
+remesher then applies its normal/topology guards; valence-only flips are not eligible. Splits, collapses,
+smoothing and projection are disabled, so B preserves all reduced vertex coordinates and triangle counts.
+The remesher does not guard self-intersections per flip: final cleanliness and the unchanged one-sided
+Hausdorff certificate are checked after both passes, and a failed check rejects the whole simplification.
+Neither variant changes shared reducer/remesher behavior or adds a public option.
+
+Procedural feature-box and wavy-sphere tests exercise both opt-ins, pinned feature junctions, unchanged input,
+repeatability, cancellation, certificates and `Similarity.All()` (including exact power-of-two topology and
+coordinates). Disabling both opt-in branches makes both effect tests fail:
+
+```powershell
+dotnet test tests\geometry3Sharp.Tests -c Release -f net10.0 --filter 'FullyQualifiedName~SimplifyWithin_ExperimentPreservesCertificateAndInput' --no-restore
+# After restoring both branches, run the related regression classes:
+dotnet test tests\geometry3Sharp.Tests -c Release -f net10.0 --filter 'FullyQualifiedName~MeshRobustRepairTests|FullyQualifiedName~ReducerQualityTests' --no-restore
+```
+
+### Fixed follow-up results and stop decision
+
+Commands from the repository root (the runner executes A then B using separate frozen bins):
+
+```powershell
+& 'C:\Users\re29670\AppData\Local\Programs\Python\Python315\python.exe' -u '<session-files>\run_wrap_benchmarks.py' experiments
+python benchmarks\MeshRepairBenchmark\analyze_fidelity.py --paired benchmarks\MeshRepairBenchmark\results\alpha-quality-20261029\before.jsonl benchmarks\MeshRepairBenchmark\results\alpha-quality-20261029\experiment-a.jsonl benchmarks\MeshRepairBenchmark\results\alpha-quality-20261029\unsimplified.jsonl --subset --require-certificate
+# Repeat the paired command with experiment-b.jsonl.
+python benchmarks\MeshRepairBenchmark\test_analysis.py
+```
+
+Raw files are `experiment-a.jsonl`, `experiment-b.jsonl`, per-mesh logs, `bin-experiment-a/`,
+`bin-experiment-b/`, and `metadata-experiments.json` in the same ignored results directory. Metadata records
+all frozen file hashes, policies, selection and commands. Final UTF-8 reports are
+`reviewed-paired-experiment-a.json` and `reviewed-paired-experiment-b.json`.
+
+| run | median 1%-worst angle (degrees) | median tris / unsimplified wrap | paired wrap repair ms | time / baseline | failed per-mesh metrics / meshes |
+|---|---:|---:|---:|---:|---:|
+| baseline 0.05 | 3.7745 | 0.31457 | 619703 | 1.0000 | reference |
+| A: feature-constrained 0.30 | 12.2303 | 1.00000 | 376266 | 0.6072 | 50 / 15 |
+| B: 0.05 plus two quality-flip passes | 16.2311 | 1.00000 | 404074 | 0.6520 | 66 / 17 |
+
+Both exceed the triangle-ratio limit 0.40 despite passing the aggregate angle and diagnostic subset-time
+gates. Both produce all 17 rows with status `closed` and pass all wrap certificates (maximum certificate /
+offset: A 0.4968014, B 0.0500003). These facts are not acceptance: triangle counts match the unsimplified
+control on 13/17 A cases and 17/17 B cases, and numerous per-mesh quality/fidelity gates fail. Count equality
+alone is not proof of geometric identity or of the precise fallback cause. Failures include curvature,
+forward sampled distance, sharp-edge distance and worst-triangle quality; B also loses a zero reversed-normal
+baseline. On `96373`, both change `after_selfint_exact` from 0 to -1 (not checked), not a measured positive
+intersection count. The missing clean-result verification is itself a failure.
+
+Counts and certificate maxima were obtained by reading each JSONL and the matching reviewed report, pairing
+IDs to `unsimplified.jsonl`; the full per-mesh failures are retained in those reports. No failed mesh is
+removed from the denominator. These are subset diagnostics, not full 400-mesh acceptance or a general
+speedup claim. The completed original 400-mesh and RemeshQuality control reruns remain the full-run evidence;
+no follow-up passes the subset prerequisite for another full run.
+
+The independent review found three analyzer defects: wrap-only full-run timing, legacy-IoU suppression of
+independent fidelity IoUs, and missing outer applicability metadata treated as inapplicable. Regression tests
+for the findings failed on the old analyzer, then all 23 tests passed with the command above after correction.
+The independent reviewer confirmed those findings resolved. No production algorithm or frozen bin changed
+for these analyzer fixes. **Stop:** all three threshold trials and both authorized follow-ups fail. Default
+remains 0.05; no combination, third policy, relaxed gate, commit or push is performed.
+
+### Authorized rejection diagnosis and local rollback follow-up
+
+After the stop decision above, the owner separately authorized diagnosis of the fixed original A/B policies
+and exactly one new local-rollback policy. No further thresholds, vertex movement, splitting, smoothing or
+combined feature/local variant are included. The original raw runs and bins remain unchanged.
+
+The benchmark now emits `robust_wrap_simplified` and, with `BENCH_WRAP_DIAGNOSTICS=1`,
+`robust_wrap_simplification`: reduction and per-pass triangle counts, cleanliness reasons, certificate states
+(`passed`, `exceeded`, `incomplete`, `cancelled`, `not-checked`), bounds, final accepted source/rejection reason,
+and accepted/rejected local flip counts. Additional diagnostic checks are timed as `diagnostic_ms`, which
+remains included in `repair_ms`; it is not subtracted to claim a faster policy. Certificate failure is not
+silently equated with a proven distance violation.
+
+`BENCH_WRAP_POLICY` selects only the fixed internal policies `default`, `features`, `flips`, or `local`;
+unknown values fail. The production default remains unchanged. Original A/B geometry behavior is retained.
+The local policy first checks the 0.05 reduced intermediate for cleanliness and certifies it against the
+immutable original wrap. It then attempts exactly two serial quality-only passes. Prospective changed
+triangles are vetoed using existing certified deviation and exact intersection checks, with no vertex moves
+or other remeshing operations. Final failure retains the already-certified reduced intermediate instead of
+restoring the original dense wrap; cancellation still aborts. These local geometric guards are not a claim
+that all fidelity metrics pass: the unchanged paired acceptance analysis decides that separately.
+
+The new tests include genuine procedurally generated alpha-wrap results, local unsafe/safe flip cases,
+reduced fallback, unchanged vertices/input, repeatability and `Similarity.All()`. Disabling the local path,
+envelope veto, exact intersection veto, or reduced fallback each makes its regression test fail. After
+restoration, the filtered regression command passed:
+
+```powershell
+dotnet test tests\geometry3Sharp.Tests\geometry3Sharp.Tests.csproj -c Release -f net10.0 --no-restore --filter "FullyQualifiedName~MeshRobustRepairTests|FullyQualifiedName~MeshAlphaWrapTests|FullyQualifiedName~MeshHausdorffDistanceTests|FullyQualifiedName~RemesherTests|FullyQualifiedName~ReducerTests" -v minimal
+dotnet build benchmarks\MeshRepairBenchmark\MeshRepairBenchmark.csproj -c Release --no-restore
+python <session-files>\run_wrap_benchmarks.py diagnose-local
+```
+
+The last command measures `diag-default`, `diag-a`, `diag-b`, then `local-rollback` on the fixed wrap union,
+using one frozen `bin-local-diagnostics/`. `metadata-local-diagnostics.json` records hashes, fixed policies,
+commands, P=2 and timeout 300 s. The diagnostic default rerun is a control, not a new candidate. Acceptance
+still uses the original baseline and unsimplified denominator; diagnostic overhead remains in the measured
+candidate time. These measurements are complete. The fixed local candidate fails the subset prerequisite;
+no additional tuning or full fixed-set/RemeshQuality rerun is performed. Default remains 0.05; no commit or
+push is performed.
+
+Analysis command, using existing raw JSONL only:
+
+```powershell
+python <session-files>\analyze_local_diagnostics.py
+```
+
+It writes `local-diagnostic-summary.json` and `reviewed-paired-diag-default.json`, `reviewed-paired-diag-a.json`,
+`reviewed-paired-diag-b.json`, `reviewed-paired-local-rollback.json` in the same ignored results directory.
+It checks the exact fixed wrap-union IDs, records missing diagnoses/results as unavailable, aggregates stage
+outcomes, and runs the unchanged paired acceptance gates against `before.jsonl` and `unsimplified.jsonl`.
+
+The diagnostic control reproduces every original baseline geometric/fidelity output field (excluding timing),
+and the diagnostic A/B runs reproduce the original experimental output fields. Diagnosis confirms the
+previous fallback hypothesis rather than changing those results:
+
+| policy | accepted output | final rejection reason |
+|---|---|---|
+| diagnostic default | reduced on all 17 cases | none |
+| original A, with diagnosis | reduced on 4, original dense wrap on 13 | certified distance exceeded on 13 |
+| original B, with diagnosis | original dense wrap on all 17 | certified distance exceeded on 15; self-intersections on 2 |
+| local rollback | flipped reduction on all 17 | none |
+
+For original B, the reduced intermediate is clean and certified on every case. After the first pass, 16
+exceed the distance budget and one has self-intersections; after the second pass, 15 exceed it and two have
+self-intersections. For A, the rejected reduced results are clean but genuinely exceed the distance budget,
+not merely inconclusive certificates. These are distinct from the final dense-output benchmark's -1
+self-intersection-count sentinel discussed above.
+
+The local policy accepts 22712 flips and vetoes 35099 attempts across the two passes. All 17 reductions and
+both resulting passes remain clean and certified against the original wrap. Thus the local checks prevent
+the former global fallback, but this does not satisfy the full quality/fidelity objectives:
+
+| run | median 1%-worst angle (degrees) | median tris / unsimplified wrap | paired wrap repair ms | time / original baseline | failed per-mesh metrics / meshes |
+|---|---:|---:|---:|---:|---:|
+| original baseline 0.05 | 3.7745 | 0.31457 | 619703 | 1.0000 | reference |
+| diagnostic default control | 3.7745 | 0.31457 | 670635 | 1.0822 | 0 / 0; angle target not met |
+| local rollback | 5.9795 | 0.31457 | 654259 | 1.0558 | 9 / 7; also angle target fails |
+
+The local candidate passes triangle and measured subset-time gates, including all extra diagnostic time.
+It fails the >=10-degree angle gate and per-mesh sampled distance, Gaussian curvature/distribution,
+reversed-normal share and normal-angle limits. Failed meshes are `163738`, `229959`, `47878`, `55928`,
+`87345`, `91138`, `96373`. There are no new missing results or lost cleanliness/certificate verifications.
+This is a working safety/rollback improvement, not an accepted production quality policy or proof that
+further flips/remeshing could meet the targets. **Stop:** the single newly authorized local candidate fails;
+no parameters or acceptance criteria are changed.
+
+### Authorized fixed tangential-redistribution trial
+
+After planning the next bounded approach, the owner authorized exactly one further candidate: retain the
+certified 0.05 reduction and perform two serial sweeps, each consisting of tangential vertex redistribution
+followed by the existing locally guarded quality-flip pass. `BENCH_WRAP_POLICY=tangential` selects the new
+internal opt-in; prior policies and production defaults remain unchanged.
+
+Movement fractions are fixed at 0.1, 0.05 and 0.025 (the existing smoothing default and two halvings), with
+no additional line search or tuning. Displacements toward the current one-ring centroid are projected into
+tangent planes whose normals are fixed from the certified reduced intermediate. Vertices on existing
+30-degree feature/boundary curves and corners are not moved, and feature edges are not flipped. A prospective
+move must strictly improve its one-ring minimum quality while preserving normals, avoiding self-intersections,
+and certifying all changed triangles within the original fixed wrap envelope. No splits, additional collapses,
+normal-direction smoothing, changes to alpha wrapping, or new error bounds are included. Final full
+cleanliness/certificate rejection retains the certified reduced intermediate; cancellation aborts.
+
+Validation must cover genuine procedural alpha wraps, movement/feature/safety guards, unchanged input and
+counts, reuse/determinism, `Similarity.All()` and focused mutations, followed by an independent review.
+Measurement uses the original acceptance baseline, unsimplified denominator and fixed wrap union. All extra
+diagnostic time remains in `repair_ms`. Only a passing subset proceeds to the full fixed-set and RemeshQuality
+rerun; a failed candidate ends this trial without new fractions, pass counts or relaxed gates.
+
+```powershell
+python <session-files>\run_wrap_benchmarks.py tangential
+```
+
+The run will use a frozen `bin-tangential/`, write `tangential.jsonl` and per-mesh logs, and record provenance
+in `metadata-tangential.json` under the existing ignored results directory. The implementation uses an existing
+mutable `TriangleHashGrid` for the tangential policy, updating every changed one-ring triangle and both flipped
+triangles; prior flip-only policies retain their original spatial-query path. Rejected movement attempts leave
+the mesh unchanged. Diagnostics distinguish accepted moves from rejected step attempts and preserve the fixed
+stage order.
+
+The focused tests passed on genuine procedural alpha wraps and a planar fan. A piercing-triangle fixture
+explicitly verifies that the unguarded proposed move creates intersections before testing its rejection.
+Four focused mutations (disable movement, remove envelope check, remove external intersection check, remove
+feature pinning) each make the corresponding tests fail; all are restored. The restored related regression
+passed 107 tests with the command below:
+
+```powershell
+dotnet test tests\geometry3Sharp.Tests\geometry3Sharp.Tests.csproj -c Release -f net10.0 --no-restore --filter 'FullyQualifiedName~MeshRobustRepairTests|FullyQualifiedName~ReducerQualityTests|FullyQualifiedName~RemesherQualityTests' -v minimal
+dotnet build benchmarks\MeshRepairBenchmark\MeshRepairBenchmark.csproj -c Release --no-restore
+```
+
+The initial independent reviewer failed before returning findings because of a provider error. A subsequent
+independent review explicitly requested by the owner completed with no high-confidence actionable correctness
+findings in the tangential policy, local guard infrastructure, tests and benchmark selection plumbing. Focused
+tangential/local/diagnostic regression tests passed; the review did not run full CI, benchmarks or additional
+extreme-geometry tests. This resolves the missing-review blocker, not the failed benchmark acceptance gates.
+The diagnostic measurement is complete and the candidate fails; no default switch, commit or push is authorized.
+
+```powershell
+python <session-files>\analyze_tangential_trial.py
+```
+
+This command writes `reviewed-paired-tangential.json` and `tangential-trial-summary.json` using the unchanged
+original acceptance gates. The `reviewed-paired` filename denotes the established analyzer, not an independent
+review of this tangential implementation. All 17 selected IDs are present: 16 closed results and a 300-second
+timeout on `96373`. Missing timeout metrics are failures, not dropped acceptance cases. Aggregate numbers
+below describe only the 16 completed pairs, so none is a complete 17-case acceptance statistic:
+
+| metric | completed-pair observation | gate |
+|---|---:|---:|
+| median 1%-worst angle | 3.9308 degrees | >=10 degrees: fails |
+| median tris / unsimplified wrap | 0.33181 | <=0.40 on completed pairs only |
+| summed paired repair time | 515779 ms baseline; 1503212 ms candidate; ratio 2.91445 | <=1.25: fails even before timeout |
+
+On 15 completed cases the final global certificate remains `incomplete`, and the verified reduced baseline
+is returned. The subsequent completion audit found `converged=true` on every one of these final stages:
+interval-width convergence was achieved, but the interval still straddled the acceptance threshold. This is
+neither a proven distance-budget exceedance nor evidence of an exhausted subdivision budget. The estimator's
+stopping tolerance and the caller's threshold decision are different contracts. Local prospective triangle
+certification does not ensure that this separate final estimator will establish an upper bound below the limit. All completed intermediate
+cleanliness checks pass. Only `55928` retains the tangential output; its Gaussian curvature error increases
+from 7658.7371 to 8222.2825, exceeding the relative 5% fidelity limit. The per-stage diagnoses, accepted move
+and flip counts and exact failed gates remain in the raw JSONL and reports.
+
+**Stop:** the single fixed tangential candidate fails quality, runtime, completeness and per-mesh fidelity.
+No new movement fractions, passes, certificate budgets or optimizations are tried, and no full 400-mesh or
+RemeshQuality rerun is warranted. Default remains 0.05. Independent code review is now complete without
+findings, but the experimental policy remains unaccepted because its benchmark gates fail.
+
 ## Usage
 ```
 python3 fetch_data.py            # ~1.5 GB: 400 meshes <= 100k faces + 30 meshes 100k..1M faces (--no-large skips those)
