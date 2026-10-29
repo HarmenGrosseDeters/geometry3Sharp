@@ -192,6 +192,9 @@ selectively.
     papers only (Ruppert, Chew, Shewchuk 2002, Üngör, Miller-Pav-Walkington, Cheng-Dey-Shewchuk 2012); never
     from Triangle / Triangle.NET code. Builds on `ExactTriangulation2` and the adaptive predicates.
 
+- [x] Fork feature overview: [Additions in this fork](../README.md#additions-in-this-fork), grouped by capability
+  with links to implemented operations and integration guides (D1 of [QA_TEST_PLAN.md](QA_TEST_PLAN.md)).
+
 - [ ] Verifiable agent work ([QA.md 4a](QA.md#4a-making-agent-work-verifiable)): first the machine checks (new tests fail
   on old code, package validation against 1.0.324, banned APIs in exact code), together with the incremental
   mutation runs (`--since` with a baseline; weekly full runs; a shard per new robustness-critical module). Hidden
