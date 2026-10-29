@@ -99,7 +99,9 @@ namespace g3
 
             // A rounded determinant cannot reliably establish or exclude collinearity.
             // Preserve the existing clipping path for unsupported nonfinite coordinates.
-            if (triangle0.V0.IsFinite && triangle0.V1.IsFinite && triangle0.V2.IsFinite &&
+            if (MathUtil.IsFinite(triangle0.V0.x) && MathUtil.IsFinite(triangle0.V0.y) &&
+                MathUtil.IsFinite(triangle0.V1.x) && MathUtil.IsFinite(triangle0.V1.y) &&
+                MathUtil.IsFinite(triangle0.V2.x) && MathUtil.IsFinite(triangle0.V2.y) &&
                 ExactPredicates.Orient2d(triangle0.V0, triangle0.V1, triangle0.V2) == 0) {
                 Quantity = 0;
                 Points = new Vector2d[6];

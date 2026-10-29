@@ -884,3 +884,25 @@ dotnet test tests\geometry3Sharp.Tests -c Release -f net10.0 --no-build --filter
 
 No full-suite total or green full-CI result is claimed. The unrelated baseline/platform discrepancy is
 not fixed or masked in this change. Full CI, push and ready-for-merge remain blocked.
+
+### Follow-up review: componentwise finiteness
+
+The reviewer reproduced another guard bypass: `Vector2d.IsFinite` checks `x+y`, so two finite,
+same-sign large coordinates can overflow that sum. The guard now checks each coordinate with the
+existing scalar `MathUtil.IsFinite` helper before calling the existing exact orientation predicate.
+Neither vector/scalar utilities nor exact arithmetic are modified. Nonfinite coordinates continue to
+bypass the predicate as before. The new regressions use positive and negative finite extreme points,
+all finite exact power-of-two transforms, and valid-hit/rejection reuse with empty state checks.
+
+```powershell
+dotnet test tests\geometry3Sharp.Tests -c Release -f net10.0 --filter 'FullyQualifiedName~FiniteCoordinateSumOverflow_' --logger 'trx;LogFileName=review-finiteness-before.trx' --results-directory $out
+$filter = 'FullyQualifiedName~AABBTreeDifferentialTests|FullyQualifiedName~CoplanarTriangleDifferentialTests|FullyQualifiedName~DMesh3PropertyTests|FullyQualifiedName~SerializationRoundTripTests|FullyQualifiedName~MeshBoundaryLoopsTests|FullyQualifiedName~SolverIntersectionFixesTests.IntrTriangle'
+dotnet test tests\geometry3Sharp.Tests -c Release -f net10.0 --filter $filter --logger 'trx;LogFileName=qa-final-componentwise-net10.0.trx' --results-directory $out
+dotnet test tests\geometry3Sharp.Tests -c Release -f net48 --filter $filter --logger 'trx;LogFileName=qa-final-componentwise-net48.trx' --results-directory $out
+```
+
+Before the componentwise correction, both regressions failed at the false-intersection assertion
+(2 failed, exit 1; `review-finiteness-before.log`/TRX). With the correction, each framework passed
+660 tests, 0 failed, 0 skipped, exit 0 (`qa-final-componentwise-net10.0.log` and
+`qa-final-componentwise-net48.log`/TRX). These remain focused results; the independently reproduced
+net10 baseline CI blocker is unchanged and no further push has been made.

@@ -262,6 +262,36 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        [Theory]
+        [InlineData(1e308)]
+        [InlineData(-1e308)]
+        public void FiniteCoordinateSumOverflow_DoesNotBypassDegenerateClippingRejection(double coordinate)
+        {
+            foreach (Similarity similarity in Similarity.All().Where(s => s.IsExact)) {
+                double scaled = coordinate * similarity.Scale;
+                if (!MathUtil.IsFinite(scaled))
+                    continue;
+                var p = new Vector2d(scaled, scaled);
+                var pointTriangle = new Triangle2d(p, p, p);
+                var origin = new Triangle2d(Vector2d.Zero, Vector2d.Zero, Vector2d.Zero);
+                var valid = new Triangle2d(new Vector2d(-1.0, -1.0),
+                    new Vector2d(1.0, -1.0), new Vector2d(0.0, 1.0));
+                var query = new IntrTriangle2Triangle2(valid, origin);
+                for (int repeat = 0; repeat < 2; ++repeat) {
+                    query.Triangle0 = valid;
+                    Assert.True(query.Find());
+                    Assert.Equal(IntersectionType.Point, query.Type);
+                    Assert.Equal(1, query.Quantity);
+                    Assert.Equal(Vector2d.Zero, query.Points[0]);
+                    query.Triangle0 = pointTriangle;
+                    Assert.False(query.Find());
+                    Assert.Equal(IntersectionResult.NoIntersection, query.Result);
+                    Assert.Equal(IntersectionType.Empty, query.Type);
+                    Assert.Equal(0, query.Quantity);
+                }
+            }
+        }
+
         [Fact]
         public void OrientationCancellation_SelfIntersectionRetainsTheNondegenerateTriangle()
         {
