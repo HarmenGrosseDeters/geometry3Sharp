@@ -808,3 +808,30 @@ dotnet test tests\geometry3Sharp.Tests -c Release -f net48 --filter $filter --lo
 
 Each framework: 524 passed, 0 failed, 0 skipped, exit 0 (`fix-coplanar-net10.0.log` and
 `fix-coplanar-net48.log`/TRX). Full local CI and independent production review are separate gates.
+
+### Independent-review correction and final focused matrix
+
+The production review found that closed-half-plane clipping treated a zero-area `Triangle0` as an
+unbounded line: disjoint collinear triangles could report the second triangle as their intersection.
+`Find()` now explicitly rejects a zero-area clipping triangle, preserving the previous unsupported-input
+behavior rather than adding a new degenerate-intersection API. Its XML documentation makes clear that
+`NoIntersection` is not a geometric disjointness guarantee for this unsupported input. A degenerate
+`Triangle1` is still clipped against a valid `Triangle0`. Regression cases cover a segment in both
+orders and a point, exact power-of-two scales, and repeated valid-hit/unsupported-input reuse including
+empty result state. No tolerance, exact predicate or error bound has been introduced.
+
+```powershell
+dotnet test tests\geometry3Sharp.Tests -c Release -f net10.0 --filter 'FullyQualifiedName~DegenerateClippingTriangle_' --logger 'trx;LogFileName=review-coplanar-before-final.trx' --results-directory $out
+$filter = 'FullyQualifiedName~AABBTreeDifferentialTests|FullyQualifiedName~CoplanarTriangleDifferentialTests|FullyQualifiedName~DMesh3PropertyTests|FullyQualifiedName~SerializationRoundTripTests|FullyQualifiedName~MeshBoundaryLoopsTests|FullyQualifiedName~SolverIntersectionFixesTests.IntrTriangle'
+dotnet test tests\geometry3Sharp.Tests -c Release -f net10.0 --filter $filter --logger 'trx;LogFileName=qa-final-reviewed-net10.0.trx' --results-directory $out
+dotnet test tests\geometry3Sharp.Tests -c Release -f net48 --filter $filter --logger 'trx;LogFileName=qa-final-reviewed-net48.trx' --results-directory $out
+```
+
+With only the review correction temporarily removed, all three new cases failed (exit 1;
+`review-coplanar-before-final.log`/TRX). After restoring it, the focused matrix passed on both frameworks:
+657 passed, 0 failed, 0 skipped per framework, exit 0 (`qa-final-reviewed-net10.0.log` and
+`qa-final-reviewed-net48.log`/TRX). These are focused results, not full-CI results.
+
+The earlier full-CI attempt was stopped before completion to rebuild and verify this review correction;
+its log already contained `RobustnessSweepTests` nonfinite smoother timeouts. Attribution and the full
+CI gate remain open; no further push has been made.

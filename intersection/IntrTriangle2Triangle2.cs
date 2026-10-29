@@ -87,10 +87,25 @@ namespace g3
 		}
 
 
+        /// <summary>
+        /// Finds the intersection by clipping Triangle1 against Triangle0.
+        /// A zero-area Triangle0 is unsupported and produces NoIntersection;
+        /// this is not a geometric disjointness guarantee for degenerate inputs.
+        /// </summary>
 		public bool Find()
 		{
 			if (Result != IntersectionResult.NotComputed)
 				return (Result == IntersectionResult.Intersects);
+
+            // A degenerate clipping triangle has no bounded half-plane interior.
+            // Preserve Find's rejection of this input instead of treating its line as unbounded.
+            if ((triangle0.V1 - triangle0.V0).DotPerp(triangle0.V2 - triangle0.V0) == 0) {
+                Quantity = 0;
+                Points = new Vector2d[6];
+                Type = IntersectionType.Empty;
+                Result = IntersectionResult.NoIntersection;
+                return false;
+            }
 
 			// The potential intersection is initialized to triangle1.  The set of
 			// vertices is refined based on clipping against each edge of triangle0.

@@ -233,6 +233,36 @@ namespace geometry3Sharp.Tests
         }
 
         [Theory]
+        [InlineData(false, false)]
+        [InlineData(true, false)]
+        [InlineData(false, true)]
+        public void DegenerateClippingTriangle_DoesNotReportAnUnboundedCollinearContact(bool reverse, bool point)
+        {
+            foreach (Similarity similarity in Similarity.All().Where(s => s.IsExact)) {
+                Func<double, Vector2d> vertex = x => new Vector2d(x * similarity.Scale, 0);
+                var a = point ? new Triangle2d(vertex(0), vertex(0), vertex(0))
+                    : reverse ? new Triangle2d(vertex(2), vertex(1), vertex(0))
+                    : new Triangle2d(vertex(0), vertex(1), vertex(2));
+                var b = new Triangle2d(vertex(3), vertex(4), vertex(5));
+                var query = new IntrTriangle2Triangle2(a, b);
+                for (int repeat = 0; repeat < 2; ++repeat) {
+                    query.Triangle0 = new Triangle2d(
+                        new Vector2d(-similarity.Scale, -similarity.Scale),
+                        new Vector2d(6 * similarity.Scale, -similarity.Scale),
+                        new Vector2d(-similarity.Scale, 6 * similarity.Scale));
+                    Assert.True(query.Find());
+                    Assert.True(query.Quantity > 0);
+                    query.Triangle0 = a;
+                    query.Triangle1 = b;
+                    Assert.False(query.Find());
+                    Assert.Equal(IntersectionResult.NoIntersection, query.Result);
+                    Assert.Equal(IntersectionType.Empty, query.Type);
+                    Assert.Equal(0, query.Quantity);
+                }
+            }
+        }
+
+        [Theory]
         [MemberData(nameof(NamedCases))]
         public void ProjectedContacts_FindAndReusePreserveBoundaryGeometry(string name)
         {
