@@ -2,8 +2,9 @@
 
 Status: tests and D1 implemented on `qa/differential-core-tests`, based on `origin/master` at
 `93880ed`, in the separate `D:\work\geometry3Sharp-QA` worktree. Commit `7246cfe` preserves the QA
-baseline. Boundary-loop diagnostics, AABB empty/stale queries, isolated-vertex compaction and
-restore reuse are corrected. Coplanar-contact corrections remain open.
+baseline. Boundary-loop diagnostics, AABB empty/stale queries, isolated-vertex compaction, restore
+reuse and coplanar-contact corrections are implemented. Final local CI and production review remain
+required before this QA branch is ready.
 The delegated AABB, compaction/restore and coplanar workers failed before execution with provider
 HTTP 502 errors and made no changes. No workers are running. Acceptance remains blocked by the
 remaining reproducible defects. The owner requested a safeguard push and draft PR of this incomplete
@@ -771,3 +772,39 @@ dotnet test tests\geometry3Sharp.Tests -c Release -f net48 --filter $filter --lo
 Each framework: 643 total, 632 passed, 11 failed, 0 skipped, exit 1
 (`qa-after-mesh-state-net10.0.log` and `qa-after-mesh-state-net48.log`/TRX). The remaining failures
 are coplanar-contact regressions. This is another local checkpoint, not a push or a green-CI claim.
+
+### Closed-half-plane coplanar contact correction
+
+Tier-M scope: `IntrTriangle2Triangle2` clipping and directly coupled coplanar/projection regressions.
+The 3D coplanar path already delegates to this 2D operation and needs no production change.
+Boundary vertices had been discarded when there was no strictly positive vertex; a mixed-sign clip
+also skipped zero-side vertices. Closed-half-plane clipping now retains those vertices without
+re-interpolating endpoints. `Find()` removes exact consecutive and closing duplicates caused by
+traversing both sides of a collapsed segment. Strict nonzero clipping retains its existing path.
+Public signatures, result types, default coplanar-reporting behavior, tolerances, exact arithmetic,
+error bounds and the existing exact test oracle are unchanged. Sources are documented in `SOURCES.md`.
+
+Existing named outlines and seeded classifications remain unchanged. New projected regressions
+cover point, segment and positive-area outlines and hit/miss/hit reuse. Positive-area geometry is
+checked over `Similarity.All()`; boundary-only contacts use exact power-of-two transforms because
+rounded transforms can separate an exact contact. Exact scales additionally compare output bits
+against the identity result. Both paths check finite coordinates and the actual outline, not just
+status. The operation has no parallel path.
+
+Final-test mutation check, with the production change temporarily removed and then restored:
+
+```powershell
+dotnet test tests\geometry3Sharp.Tests -c Release -f net10.0 --filter 'FullyQualifiedName~CoplanarTriangleDifferentialTests' --logger 'trx;LogFileName=fix-coplanar-old-final.trx' --results-directory $out
+```
+
+Old production: 48 total, 32 passed, 16 failed, 0 skipped, exit 1
+(`fix-coplanar-old-final.log`/TRX). The fixed implementation and neighboring queries were checked with:
+
+```powershell
+$filter = 'FullyQualifiedName~CoplanarTriangleDifferentialTests|FullyQualifiedName~SolverIntersectionFixesTests|FullyQualifiedName~AABBTreeDifferentialTests|FullyQualifiedName~QueryThresholdScaleTests'
+dotnet test tests\geometry3Sharp.Tests -c Release -f net10.0 --filter $filter --logger 'trx;LogFileName=fix-coplanar-net10.0.trx' --results-directory $out
+dotnet test tests\geometry3Sharp.Tests -c Release -f net48 --filter $filter --logger 'trx;LogFileName=fix-coplanar-net48.trx' --results-directory $out
+```
+
+Each framework: 524 passed, 0 failed, 0 skipped, exit 0 (`fix-coplanar-net10.0.log` and
+`fix-coplanar-net48.log`/TRX). Full local CI and independent production review are separate gates.

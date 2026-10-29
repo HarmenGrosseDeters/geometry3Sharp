@@ -111,6 +111,14 @@ namespace g3
 					triangle0[i0].x - triangle0[i1].x);
 				double c = N.Dot(triangle0[i1]);
 				ClipConvexPolygonAgainstLine(N, c, ref Quantity, ref Points);
+                // Clipping a closed segment visits its crossing twice; keep each endpoint once.
+                int count = 0;
+                for (int i = 0; i < Quantity; ++i)
+                    if (count == 0 || Points[i] != Points[count - 1])
+                        Points[count++] = Points[i];
+                if (count > 1 && Points[0] == Points[count - 1])
+                    --count;
+                Quantity = count;
 				if (Quantity == 0) {
 					// Triangle completely clipped, no intersection occurs.
 					Type = IntersectionType.Empty;
@@ -201,6 +209,24 @@ namespace g3
 				}
 			}
 
+            // A closed half-plane retains boundary vertices, even when the intersection
+            // collapses to a segment or point. Preserve them without interpolating endpoints.
+            if (negative > 0 && positive + negative < quantity) {
+                Vector2d[] clipped = new Vector2d[6];
+                int count = 0;
+                for (int cur = 0, prv = quantity - 1; cur < quantity; prv = cur++) {
+                    if ((test[prv] < 0 && test[cur] > 0) || (test[prv] > 0 && test[cur] < 0)) {
+                        double t = test[cur] / (test[cur] - test[prv]);
+                        clipped[count++] = V[cur] + t * (V[prv] - V[cur]);
+                    }
+                    if (test[cur] >= 0)
+                        clipped[count++] = V[cur];
+                }
+                quantity = count;
+                Array.Copy(clipped, V, count);
+                return;
+            }
+
 			if (positive > 0)
 			{
 				if (negative > 0)
@@ -278,10 +304,10 @@ namespace g3
 					Array.Copy(CV, V, cQuantity);
 				}
 				// else polygon fully on positive side of line, nothing to do.
-			} else {
-				// Polygon does not intersect positive side of line, clip all.
+			} else if (negative > 0) {
 				quantity = 0;
 			}
+            // If all vertices are on the line, the entire point or segment is retained.
 		}
 
 

@@ -4,6 +4,13 @@ geometry3Sharp is under the Boost Software License. New code in this fork is wri
 no code is taken over from other libraries unless it is under a compatible permissive license and named here.
 Code under the GPL or LGPL (eg CGAL) is never used as a source.
 
+## Floating-point triangle clipping (`IntrTriangle2Triangle2`)
+
+Boundary-contact retention is an own correction of the existing WildMagic port, not a new external
+port: clipping uses closed half-planes, retains zero-side vertices and removes exactly repeated
+consecutive/closing endpoints. No tolerance, exact predicate or error bound is introduced. No external
+code was read or imported for this correction.
+
 ## Exact mesh booleans (`ExactMeshBoolean`, `ExactMeshArrangement`, `ExactPlanarSimplify`, `ExactTriangulation2`, `ExactPoint3`, `ExactPredicates`)
 
 Implemented from the papers, no code taken over.

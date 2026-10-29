@@ -233,6 +233,53 @@ namespace geometry3Sharp.Tests
         }
 
         [Theory]
+        [MemberData(nameof(NamedCases))]
+        public void ProjectedContacts_FindAndReusePreserveBoundaryGeometry(string name)
+        {
+            Case fixture = Cases().Single(c => c.Name == name);
+            var baseline = new IntrTriangle2Triangle2(
+                new Triangle2d(fixture.A.V0.xy, fixture.A.V1.xy, fixture.A.V2.xy),
+                new Triangle2d(fixture.B.V0.xy, fixture.B.V1.xy, fixture.B.V2.xy));
+            Assert.Equal(fixture.Outline.Length > 0, baseline.Find());
+            foreach (Similarity similarity in Similarity.All()) {
+                // Rounded transforms may separate a boundary-only contact; its contract is exact scaling.
+                if (!similarity.IsExact && fixture.Outline.Length > 0 && fixture.Outline.Length < 3)
+                    continue;
+                Triangle3d a = Map(fixture.A, similarity.Apply), b = Map(fixture.B, similarity.Apply);
+                int axis = DropAxis(a);
+                var x = new Triangle2d(Drop(a.V0, axis), Drop(a.V1, axis), Drop(a.V2, axis));
+                var y = new Triangle2d(Drop(b.V0, axis), Drop(b.V1, axis), Drop(b.V2, axis));
+                Vector2d[] expected = fixture.Outline.Select(p => Drop(similarity.Apply(p), axis)).ToArray();
+                var query = new IntrTriangle2Triangle2(x, y);
+                for (int repeat = 0; repeat < 2; ++repeat) {
+                    query.Triangle0 = x;
+                    query.Triangle1 = y;
+                    Assert.Equal(expected.Length > 0, query.Find());
+                    Vector2d[] actual = query.Points.Take(query.Quantity).ToArray();
+                    double tolerance = Resolution(a, b) + similarity.Scale * similarity.Resolution(32) * 128;
+                    SameSet(expected.Select(p => new Vector3d(p.x, p.y, 0)).ToArray(),
+                        actual.Select(p => new Vector3d(p.x, p.y, 0)).ToArray(), tolerance,
+                        name + " " + similarity.Name);
+                    if (similarity.IsExact) {
+                        Assert.Equal(expected.Length, query.Quantity);
+                        for (int i = 0; i < query.Quantity; ++i)
+                            for (int k = 0; k < 2; ++k)
+                                Assert.Equal(BitConverter.DoubleToInt64Bits(baseline.Points[i][k]),
+                                    BitConverter.DoubleToInt64Bits(actual[i][k] / similarity.Scale));
+                    }
+                    foreach (Vector2d p in actual)
+                        Assert.True(p.IsFinite);
+                    query.Triangle1 = new Triangle2d(x.V0 + new Vector2d(1000, 1000) * similarity.Scale,
+                        x.V1 + new Vector2d(1000, 1000) * similarity.Scale,
+                        x.V2 + new Vector2d(1000, 1000) * similarity.Scale);
+                    Assert.False(query.Find());
+                    Assert.Equal(0, query.Quantity);
+                    Assert.Equal(IntersectionType.Empty, query.Type);
+                }
+            }
+        }
+
+        [Theory]
         [MemberData(nameof(Seeds))]
         public void SeededExactlyCoplanarPairs_AgreeWithExactClassificationAndSwap(int seed)
         {
