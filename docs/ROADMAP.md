@@ -63,6 +63,17 @@ Limits on parallel work:
   load, and measurements taken next to other work are not comparable.
 - Hidden test authors work in separate spec-only workspaces, never in a worktree of this repository.
 
+Open task from the takeover:
+
+- [ ] **Exact coplanar triangle clipping: investigate as its own topic.** `IntrTriangle2Triangle2` clips in floating point, and
+  coplanar `IntrTriangle3Triangle3` builds on it: it loses point and segment contacts. The fix in #193 was discarded after review: it
+  added a regression (disjoint triangles reported as intersecting through overflow), and contacts were still lost (15641 false
+  negatives, 7951 false positives in 3.86M lattice pairs, against an exact oracle). Rounded clipping cannot keep such a promise. To
+  investigate: an exact approach with `ExactPredicates` (and exact output, as far as callers need it), whether `Test()` and `Find()` can
+  then agree, the behaviour for degenerate and non-finite inputs, and the cost. Only tests call the coplanar path today, so first
+  check who needs it. The tests of #193 (`CoplanarTriangleDifferentialTests`, on branch `qa/differential-core-tests`) are a starting
+  point; their seeded inputs use half-integers only, so they cannot see these failures.
+
 ## Phase 1: foundation
 
 - [x] Targets net10.0 and netstandard2.0
