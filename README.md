@@ -37,6 +37,7 @@ and [upstream changes](docs/UPSTREAM_CHANGES.md) for bug-fix history.
   bool ok = wrap.Compute();          // false: see wrap.Status and wrap.Error
   DMesh3 result = wrap.Result;
   ```
+
 ### Surface processing
 
 See the tested [intrinsic geodesic](docs/OPERATIONS.md#intrinsic-triangulations) and
@@ -54,6 +55,7 @@ See the tested [intrinsic geodesic](docs/OPERATIONS.md#intrinsic-triangulations)
   with prescribed boundary lengths or angles, eg minimal area distortion, disk or rectangle), `TutteEmbedding`,
   distortion measures (`ParameterizationDistortion`) and `UVPacker` for packing charts into the unit square.
   All return a `ParameterizationResult` with status, UVs and distortion. They use the new `SparseCholesky`.
+
 ### Analysis and application building blocks
 
 - `Reducer.MaxDeviation` bounds the result's deviation from the input, not the reverse direction;
