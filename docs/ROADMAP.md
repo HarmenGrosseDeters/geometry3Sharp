@@ -206,8 +206,17 @@ selectively.
 
 The owner refers to these as tasks 4-6 / E.2, C2(A) and E.5 in a newer roadmap outline. The plans below use
 those task descriptions without renumbering this checkout's existing phases. Planning is complete;
-implementation/audit work remains open. The three tasks can start independently.
+implementation/audit work remains open. Tasks 4-6 can start independently; hidden acceptance has highest priority.
 
+- [ ] **Priority: hidden acceptance for quadtree and triangulation:** [separation and execution plan](design/HIDDEN_ACCEPTANCE_TESTS.md).
+  Prepare two fresh spec-only Copilot author sessions, isolated from implementation source, existing tests and
+  implementation reports. Quadtree: §2.3 caller-helper example, D-1 through D-7 under the approved §7/§8 decisions,
+  and the §4.2 procedural benchmark. Meshing: explicit disposition for F-1 through F-66 against first-version
+  owner decisions, with independent procedural oracles and visible blockers for under-specified/external fixtures.
+  Freeze tests before separate black-box execution; the implementer receives results but cannot alter assertions.
+  Exclude quadtree §9 implementation records from the author package. **Author sessions started** from pinned
+  master normative specs in separate source-free workspaces. Master has no quadtree §8 API contract; both authors
+  use test-owned contracts, with real API binding and product execution still pending. No acceptance claim yet.
 - [ ] **4. DAP bug fixes (E.2):** [audit and adoption plan](design/DAP_BUGFIX_AUDIT.md). Review the pinned
   `Digital-Production-Aachen/DAPComputationalGeometry` delta from `8f185f1` to DAP HEAD, ignoring formatting;
   each adopted fix needs a regression that fails on our pre-fix code, the minimal fix and an attribution in
