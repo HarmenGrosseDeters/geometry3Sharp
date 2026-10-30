@@ -154,8 +154,12 @@ namespace geometry3Sharp.Tests
             // duplicated vertices are not intersections) and keeps the void, because it removes thin closed components
             // only where the rounding left a defect. Welded by position, the result is non-manifold at the edges.
             // A fix would remove such thin closed components that touch the rest only at duplicated vertices.
-            var rot = Quaterniond.AxisAngleD(Vector3d.AxisX, 90);
-            var (p1, p2) = TrianglePrisms(p => rot * p);
+            // Pin the rounded input, not runtime-dependent Sin/Cos results: net48 and net10
+            // produce different coordinates for the same quaternion and therefore different exact solids.
+            var (p1, p2) = TrianglePrisms(p => new Vector3d(p.x,
+                p.z == 0 ? (p.y == 0 ? 0 : 2.2204460492503131e-15)
+                    : (p.y == 0 ? -3.0 : -2.9999999999999978),
+                p.y == 0 ? (p.z == 0 ? 0 : 6.6613381477509392e-16) : 10.0));
             var u = Run(p1, p2, Ops.Union);
             ResultChecks.AssertClosed(u.Result);
             Assert.True(u.RoundingClean);
@@ -163,6 +167,19 @@ namespace geometry3Sharp.Tests
             Assert.Equal(2, Components(u.Result));
             Assert.Equal(16, u.Result.TriangleCount);
             Assert.True(u.NonManifoldEdges > 0);
+        }
+
+        [Fact]
+        public void TwoTriangularPrisms_RoundedRotationWithoutVoid_FormOneClosedSolid()
+        {
+            // The other observed runtime rounding lies on the opposite side of the shared face.
+            var (p1, p2) = TrianglePrisms(p => new Vector3d(p.x,
+                p.z == 0 ? (p.y == 0 ? 0 : -2.220446049250313e-15)
+                    : (p.y == 0 ? -3.000000000000001 : -3.000000000000003),
+                p.y == 0 ? (p.z == 0 ? 0 : -6.661338147750939e-16) : 10.000000000000002));
+            var u = Run(p1, p2, Ops.Union);
+            AssertCleanResult(u, 300, 1e-12, "pinned rounded rotation without a void");
+            Assert.Equal(1, Components(u.Result));
         }
 
         [Fact]
