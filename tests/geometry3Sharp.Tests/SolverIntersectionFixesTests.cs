@@ -297,6 +297,10 @@ namespace geometry3Sharp.Tests
                 Assert.True(deformer[0].ConvergeFailed);
                 Assert.Equal(before, string.Join(";", curve.Vertices.Select(v => v.ToString())));
             }
+            // the path for long curves
+            deformer[0].ConvergeFailed = false;
+            Assert.False(deformer[0].SolveMultipleRHS(new Vector3d[curve.VertexCount]));
+            Assert.True(deformer[0].ConvergeFailed);
         }
 
         [Fact]

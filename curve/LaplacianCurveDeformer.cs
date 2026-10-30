@@ -321,6 +321,7 @@ namespace g3
 
             bool ok = Solver.Solve();
 
+            ConvergeFailed = !ok;
             if (ok == false)
                 return false;
 
