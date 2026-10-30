@@ -19,9 +19,9 @@ Status: planned, not implemented. Implements the Boolean part of [QA §4a, items
 - **Operation under test:** `ExactMeshBoolean`, not `MeshBoolean` or `MeshWindingNumberBoolean`. Inputs outside its contract
   are in `docs/OPERATIONS.md` and `ExactBooleanByDesignTests`.
 - **Stop rule:** if a property exposes a production defect, preserve the smallest reproduced procedural case and
-  report it as separate work. Do not repair exact code, discard the case, relax the property or silently skip it.
-  CI must stay green, so the case is pinned as a `KnownLimitation_` test by the repository's idiom. Until the owner
-  decides otherwise, that is the recording.
+  report it as separate work. Do not repair exact code in this test work, discard the case, relax the property or silently
+  skip it. The case blocks its test PR until the defect is fixed in its own PR (tier L). Owner decision (2026-10-30): a
+  `KnownLimitation_` test only where the defect absolutely cannot be solved, with the reason, and agreed with the owner.
 - **Report:** test-only PRs, one per step: analytic oracle and first properties; CsCheck with shrinking and replay (pin a
   version: 5.0.0 is current, Apache-2.0); conforming subdivision and non-axis cases. Each with commands and raw test output, shrink/replay evidence, and an independent review
   against `docs/REVIEW_CHECKLIST.md`. Do not merge automatically.

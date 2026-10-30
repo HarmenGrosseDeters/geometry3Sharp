@@ -42,7 +42,8 @@ A symmetric coverage metric is separate work, not implied by these new fields.
 
 0. Check what exists first: `MeshHausdorffDistance`, `MeshDeviation`, `MeshFidelityMetrics` (seeded, area-weighted samples), and
    `gtin fidelity=1`, which already emits sampled maximum distances (`FidelityFields.cs`). New here are only the
-   closest-point components and `tdc`. Owner decision: extend `fm_*`, or a new helper.
+   closest-point components and `tdc`. Decision (2026-10-30, proposed to the owner): `fm_*` stays as it is, as those fields are shared with benchmarks
+   that have no up axis. The new `closest_*` fields live in `TerrainBenchmark`, next to `fm_*`, and follow the same sampling (area weighted, fixed seed).
 1. Add a benchmark-local helper that returns one closest reference point, distance and validity per sample.
    Reuse the existing AABB tree and point-triangle query API; no new library API. Compare the fast query against
    an independent brute-force point-to-triangle reference on small analytic fixtures. Test the closest point,
