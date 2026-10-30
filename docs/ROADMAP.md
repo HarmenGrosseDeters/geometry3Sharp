@@ -196,6 +196,11 @@ selectively.
   on old code, package validation against 1.0.324, banned APIs in exact code), together with the incremental
   mutation runs (`--since` with a baseline; weekly full runs; a shard per new robustness-critical module). Hidden
   acceptance tests for the spec-driven work (2D index, 2D meshing). The other items go with the modules they touch.
+  - [ ] Boolean metamorphic and property tests ([implementation plan](design/BOOLEAN_PROPERTY_TESTS.md), QA §4a
+    items 9 and 10): volume identities, partition reconstruction, commutativity, vertex/triangle permutation and
+    conforming subdivision; CsCheck parameter shrinking and replay. Test-only, no `ExactMesh*` changes. Proposed:
+    generated campaigns on net10.0, deterministic regressions also on net48; independent analytic box oracles and
+    result validity checks. CsCheck is Apache-2.0, not MIT. Planning complete; implementation remains open.
 
 ## Release: when it's done
 
