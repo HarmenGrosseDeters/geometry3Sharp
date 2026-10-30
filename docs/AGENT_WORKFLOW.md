@@ -80,7 +80,8 @@ change them. This prevents tests that are tailored to the code.
 
 ## 8. Cost controls
 
-- Mutation runs are incremental on PRs, with full runs weekly. Thresholds only go up (a ratchet).
+- Mutation runs on ready PRs cover only the shards the PR touches, with full runs weekly; drafts run none. Thresholds
+  only go up (a ratchet).
 - The coordinator's check-in interval follows the CI time (hours for mutation runs, not minutes). Workers report in
   one line, and sessions are archived when their PRs are merged.
 - Near the usage limit, finish running work only and start nothing new.

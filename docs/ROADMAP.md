@@ -34,6 +34,9 @@ selectively.
 - Package ID and publishing: moved to Release, after the library "just works"
 - [x] API docs and examples per operation ([OPERATIONS.md](OPERATIONS.md), examples run as tests)
 
+- [x] Fork feature overview: [Additions in this fork](../README.md#additions-in-this-fork), grouped by capability
+  with links to implemented operations and integration guides.
+
 ## Phase 2: robustness
 
 - [x] `ExactMeshBoolean` / `ExactMeshArrangement`: exact arrangement of two meshes (integer grid, intersection points
@@ -193,8 +196,8 @@ selectively.
     from Triangle / Triangle.NET code. Builds on `ExactTriangulation2` and the adaptive predicates.
 
 - [ ] Verifiable agent work ([QA.md 4a](QA.md#4a-making-agent-work-verifiable)): first the machine checks (new tests fail
-  on old code, package validation against 1.0.324, banned APIs in exact code), together with the incremental
-  mutation runs (`--since` with a baseline; weekly full runs; a shard per new robustness-critical module). Hidden
+  on old code, package validation against 1.0.324, banned APIs in exact code), together with a mutation shard per new
+  robustness-critical module (the runs on PRs are incremental: tests/mutation/README.md). Hidden
   acceptance tests for the spec-driven work (2D index, 2D meshing). The other items go with the modules they touch.
 
 ## Release: when it's done

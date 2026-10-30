@@ -167,9 +167,9 @@ The exact arithmetic is the base of everything else, and a wrong error bound in 
 inputs. Stryker.NET (Apache-2.0) mutates `math/ExactPredicates.cs`, `math/ExactPoint3.cs` and
 `math/AdaptivePredicates.cs`, and runs the predicate tests against each mutant.
 
-- A workflow reports the mutation score and the surviving mutants. It runs weekly, on demand, and on PRs that
-  change the mutated files or their tests ([tests/mutation/README.md](../tests/mutation/README.md)).
-- A score below the break threshold fails the run. It starts at the measured score (rounded down, less one
+- A workflow reports the mutation score and the surviving mutants. It runs in full weekly and on demand, and on ready
+  PRs only for the configs they touch ([tests/mutation/README.md](../tests/mutation/README.md)).
+- A score below the break threshold fails a full run (a run for changed tests only reports). It starts at the measured score (rounded down, less one
   point for timeouts that vary between runners) and only goes up.
 - Surviving mutants are either killed with a new test or recorded as equivalent, with a reason.
 - The score is 87.05 % (October 2026, from 83.4 % at the start); the break threshold is 86. Details are in
@@ -397,7 +397,11 @@ stepped cylinder tool with rounding between the steps, inside-out operands. `Exa
 results on all of them. Known failure (pinned in `KnownLimitation_TwoTriangularPrisms_RotatedInexactly_KeepATinyVoid`):
 when the shared face of two inputs is not exactly planar after an inexact rotation, its two triangulations enclose a
 tetrahedron of about 3e-15 volume, which the exact union keeps as a void touching the outer surface along edges
-(volume right, non-manifold when welded by position).
+(volume right, non-manifold when welded by position). This regression pins the rounded coordinates rather
+than generating them with runtime-dependent `Sin`/`Cos`: net48 and net10 quaternion rotation produce
+different exact input solids. `TwoTriangularPrisms_RoundedRotationWithoutVoid_FormOneClosedSolid`
+pins the other observed rounding and requires a clean, closed single-component result. The limitation
+assertions are unchanged; there is no runtime-conditional expected outcome.
 
 **`DMesh3.RemoveVertex` (October 2026):** known failure, pinned in `KnownLimitation_RemoveVertex_SafeRemovalFailsAfterDeletingTriangles`:
 with `bPreserveManifold`, a removal that is safe can return `Failed_WouldCreateBowtie` after it deleted triangles.

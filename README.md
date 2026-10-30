@@ -3,17 +3,23 @@
 This fork tracks gradientspace/geometry3Sharp `master`, whose code is the same as NuGet package 1.0.324.
 Its direction is described in [docs/ROADMAP.md](docs/ROADMAP.md). Changes that users of upstream 1.0.324 can notice are listed in
 [docs/UPSTREAM_CHANGES.md](docs/UPSTREAM_CHANGES.md). [docs/OPERATIONS.md](docs/OPERATIONS.md) maps the main
-operations to their classes, with a tested example for each. It adds:
+operations to their classes, with a tested example for each.
 
-- Mesh repair fixes:
+## Additions in this fork
+
+### Robust geometry
+
+See the [operation guide](docs/OPERATIONS.md#which-repair-or-boolean-class) for repair and boolean contracts,
+and [upstream changes](docs/UPSTREAM_CHANGES.md) for bug-fix history.
+
+- Mesh repair:
   - `MeshEditor.DisconnectBowtie` no longer cuts cracks into the mesh. The old version was order-dependent.
   - New `gs.MeshPostRepairCleanup`, and `MeshAutoRepair.PostRepairCleanup = true` to run it after `Apply()`.
     It removes duplicate triangles and bowties and fixes most degenerate triangles, folds and
     inside-out components left by AutoRepair.
   - Benchmark on Thingi10K in `benchmarks/MeshRepairBenchmark`, with results and findings in its README.
-- Exact predicates (`ExactPredicates`), winding-number booleans and solidify, geodesic distances with the
-  heat method (`MeshGeodesicDistance`), `Reducer` with a guaranteed maximum deviation, Hausdorff distance,
-  and terrain / LiDAR tools (ground filter, terrain dual contouring, offsets, cut/fill volumes, safety lines).
+- Exact predicates (`ExactPredicates`), winding-number booleans and solidify
+  ([operations](docs/OPERATIONS.md)).
 - `ExactMeshBoolean`: union, intersection and difference with exact arithmetic (exact arrangement of
   all intersecting triangles, exact winding numbers). Coplanar, touching and nearly coincident inputs give
   closed results; self-intersecting meshes, nested shells and duplicated faces are resolved
@@ -22,11 +28,6 @@ operations to their classes, with a tested example for each. It adds:
   when welded by position, as in Manifold ([OPERATIONS.md](docs/OPERATIONS.md)).
   Only the output coordinates are rounded to double. New vertices inside flat regions and on straight edges
   (from overlapping coplanar faces) are removed exactly, so repeated booleans do not fragment the result.
-- Intrinsic geodesics (Phase 3 of the roadmap): `IntrinsicTriangulation` (intrinsic Delaunay flips with
-  signposts, edge tracing over the input mesh, mollification of degenerate triangles), the heat method on it
-  (`MeshGeodesicDistance.IntrinsicDelaunay`, on by default, accurate on sliver and obtuse meshes) and
-  `VectorHeatMethod` (parallel transport, scalar extension, log map). `SparseCholesky` is a direct sparse
-  solver for the heat and Poisson systems.
 - `MeshAlphaWrap`: alpha wrapping with an offset (Portaneri et al. 2022). Gives a closed, 2-manifold surface
   without self-intersections around any input: triangle soups, open or non-manifold meshes, degenerate
   triangles, point clouds. `Alpha` sets the detail, `Offset` the distance to the input. Built on `Delaunay3`, an
@@ -36,20 +37,45 @@ operations to their classes, with a tested example for each. It adds:
   bool ok = wrap.Compute();          // false: see wrap.Status and wrap.Error
   DMesh3 result = wrap.Result;
   ```
+
+### Surface processing
+
+See the tested [intrinsic geodesic](docs/OPERATIONS.md#intrinsic-triangulations) and
+[UV atlas](docs/OPERATIONS.md#uv-atlas-and-seams) examples.
+
+- Intrinsic geodesics: `IntrinsicTriangulation` (intrinsic Delaunay flips with signposts, edge tracing over
+  the input mesh, mollification of degenerate triangles), the heat method on it
+  (`MeshGeodesicDistance.IntrinsicDelaunay`, on by default) and `VectorHeatMethod` (parallel transport,
+  scalar extension, log map). `SparseCholesky` is a direct sparse solver for the heat and Poisson systems.
+- UV atlases: `UVAtlasGenerator` combines chart segmentation, seams, cone flattening, packing and exact
+  overlap checks ([example](docs/examples/UVAtlasExample.cs)).
 - Mesh parameterization (UV unwrapping) of meshes with boundary: `LSCMParameterization` (least squares
   conformal maps), `ARAPParameterization` (as-rigid-as-possible, local/global), `SLIMParameterization`
   (symmetric Dirichlet energy, guaranteed without flipped triangles), `BoundaryFirstFlattening` (conformal,
   with prescribed boundary lengths or angles, eg minimal area distortion, disk or rectangle), `TutteEmbedding`,
   distortion measures (`ParameterizationDistortion`) and `UVPacker` for packing charts into the unit square.
   All return a `ParameterizationResult` with status, UVs and distortion. They use the new `SparseCholesky`.
-- Mesh file formats PLY, 3MF and glTF 2.0 (see below).
+
+### Analysis and application building blocks
+
+- `Reducer.MaxDeviation` bounds the result's deviation from the input, not the reverse direction;
+  `MeshEnvelope` supports exact envelope containment
+  ([simplification contracts](docs/OPERATIONS.md#remeshing-simplification-smoothing)).
+- Hausdorff distance and terrain / LiDAR tools (ground filter, terrain dual contouring, offsets,
+  cut/fill volumes, safety lines); see [measurements and queries](docs/OPERATIONS.md#measurements-and-queries).
 - Analysis building blocks: `MeshWallThickness` (wall thickness per vertex / triangle: inward ray, shape
   diameter function, largest inscribed ball / medial axis), `MeshDeviation` (signed deviation map of a mesh
   against a reference, with statistics and the certified Hausdorff bound) and `PrimitiveFit3` (plane, sphere,
   cylinder and cone, RANSAC plus least squares).
+  See the [operation guide](docs/OPERATIONS.md#measurements-and-queries) for the supported measurements.
+
+### Integration
+
+- Mesh file formats PLY, 3MF and glTF 2.0 ([formats and limitations](#mesh-file-formats)).
+- Targets **net10.0** and **netstandard2.0**, XML documentation, symbol packages and procedural tests
+  ([build, targets, tests](#build-targets-tests)).
 - `tools/g3cli`: the mesh operations (measure, repair, boolean, resolve, remesh, simplify, convert) as a CLI with
   JSON output and result codes, and as an MCP server (`g3cli mcp`). See [tools/g3cli/README.md](tools/g3cli/README.md).
-- `BufferUtil.DecompressZLib` fix: on .NET Core it returned partly empty buffers for large data.
 
 ## Build, targets, tests
 
