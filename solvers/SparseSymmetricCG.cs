@@ -51,13 +51,12 @@ namespace g3
             // [RMS] these were inside loop but they are constant!
             double norm = BufferUtil.Dot(B, B);
             double root1 = Math.Sqrt(norm);
+            // (an overflowing norm would make every residual pass the convergence test)
+            if (MathUtil.IsFinite(norm) == false)
+                return false;
 
             // The first iteration. 
             double rho0 = BufferUtil.Dot(R, R);
-
-            // (an infinite residual would also pass the test below: infinity <= tolerance * infinity)
-            if (MathUtil.IsFinite(rho0) == false)
-                return false;
 
             // [RMS] If we were initialized w/ constraints already satisfied, 
             //   then we are done! (happens for example in mesh deformations)
@@ -155,6 +154,9 @@ namespace g3
             // [RMS] for convergence test?
             double norm = BufferUtil.Dot(B, B);
             double root1 = Math.Sqrt(norm);
+            // (an overflowing norm would make every residual pass the convergence test)
+            if (MathUtil.IsFinite(norm) == false)
+                return false;
 
             // r_0 = b - A*x_0
             MultiplyF(X, R);
@@ -300,16 +302,15 @@ namespace g3
             double[] root1 = new double[NRHS];
             for (int j = 0; j < NRHS; ++j)
                 root1[j] = Math.Sqrt(norm[j]);
+            // (an overflowing norm would make every residual pass the convergence test)
+            for (int j = 0; j < NRHS; ++j)
+                if (MathUtil.IsFinite(norm[j]) == false)
+                    return false;
 
             // The first iteration. 
             double[] rho0 = new double[NRHS];
             for (int j = 0; j < NRHS; ++j)
                 rho0[j] = BufferUtil.Dot(R[j], R[j]);
-
-            // (an infinite residual would also pass the test below: infinity <= tolerance * infinity)
-            for (int j = 0; j < NRHS; ++j)
-                if (MathUtil.IsFinite(rho0[j]) == false)
-                    return false;
 
             // [RMS] If we were initialized w/ constraints already satisfied, 
             //   then we are done! (happens for example in mesh deformations)
@@ -442,6 +443,10 @@ namespace g3
             double[] root1 = new double[NRHS];
             for (int j = 0; j < NRHS; ++j)
                 root1[j] = Math.Sqrt(norm[j]);
+            // (an overflowing norm would make every residual pass the convergence test)
+            for (int j = 0; j < NRHS; ++j)
+                if (MathUtil.IsFinite(norm[j]) == false)
+                    return false;
 
 
             // r_0 = b - A*x_0

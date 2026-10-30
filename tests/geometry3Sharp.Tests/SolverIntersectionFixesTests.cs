@@ -206,25 +206,54 @@ namespace geometry3Sharp.Tests
         {
             // the right-hand sides are finite: the residual turns non-finite only inside the iteration
             double[] diag = { 1, double.NaN, 3 };
-            int multiplies = 0;
-            var multiply = DiagonalMultiply(diag);
-            var cg = new SparseSymmetricCG() {
-                B = new double[] { 1, 2, 3 },
-                MultiplyF = (x, r) => { multiplies++; multiply(x, r); },
-                UseXAsInitialGuess = false
-            };
-            Assert.False(cg.Solve());
-            Assert.True(multiplies <= 2, $"{multiplies} multiplies");
+            foreach (bool preconditioned in new[] { false, true }) {
+                int multiplies = 0;
+                var multiply = DiagonalMultiply(diag);
+                var cg = new SparseSymmetricCG() {
+                    B = new double[] { 1, 2, 3 },
+                    MultiplyF = (x, r) => { multiplies++; multiply(x, r); },
+                    PreconditionMultiplyF = (x, r) => Array.Copy(x, r, x.Length),
+                    UseXAsInitialGuess = false
+                };
+                Assert.False(preconditioned ? cg.SolvePreconditioned() : cg.Solve());
+                Assert.True(multiplies <= 2, $"preconditioned {preconditioned}: {multiplies} multiplies");
 
-            multiplies = 0;
-            var multiplyN = DiagonalMultiplyN(diag);
-            var cgN = new SparseSymmetricCGMultipleRHS() {
-                B = new double[][] { new double[] { 1, 2, 3 } },
-                MultiplyF = (x, r) => { multiplies++; multiplyN(x, r); },
-                UseXAsInitialGuess = false
-            };
-            Assert.False(cgN.Solve());
-            Assert.True(multiplies <= 2, $"{multiplies} multiplies");
+                multiplies = 0;
+                var multiplyN = DiagonalMultiplyN(diag);
+                var cgN = new SparseSymmetricCGMultipleRHS() {
+                    B = new double[][] { new double[] { 1, 2, 3 } },
+                    MultiplyF = (x, r) => { multiplies++; multiplyN(x, r); },
+                    PreconditionMultiplyF = (x, r) => { for (int j = 0; j < x.Length; ++j) Array.Copy(x[j], r[j], x[j].Length); },
+                    UseXAsInitialGuess = false
+                };
+                Assert.False(preconditioned ? cgN.SolvePreconditioned() : cgN.Solve());
+                Assert.True(multiplies <= 2, $"multiple RHS, preconditioned {preconditioned}: {multiplies} multiplies");
+            }
+        }
+
+        [Theory]
+        [InlineData(1e200, 1e200, 0, 1)]                       // finite, but B dot B overflows: the old test passed anything
+        [InlineData(1, 1, double.PositiveInfinity, 0)]         // finite B, infinite first guess
+        public void SparseSymmetricCG_OverflowOrInfiniteGuess_DoesNotReportSuccess(double b0, double x0, double guess0, double guess1)
+        {
+            double[] diag = { 1, 1 };
+            double first = guess0 == 0 ? x0 : guess0;
+            foreach (bool preconditioned in new[] { false, true }) {
+                var cg = new SparseSymmetricCG() {
+                    B = new double[] { b0, 0 }, X = new double[] { first, guess1 },
+                    MultiplyF = DiagonalMultiply(diag),
+                    PreconditionMultiplyF = (x, r) => Array.Copy(x, r, x.Length),
+                    UseXAsInitialGuess = true
+                };
+                Assert.False(preconditioned ? cg.SolvePreconditioned() : cg.Solve());
+                var cgN = new SparseSymmetricCGMultipleRHS() {
+                    B = new double[][] { new double[] { b0, 0 } }, X = new double[][] { new double[] { first, guess1 } },
+                    MultiplyF = DiagonalMultiplyN(diag),
+                    PreconditionMultiplyF = (x, r) => { for (int j = 0; j < x.Length; ++j) Array.Copy(x[j], r[j], x[j].Length); },
+                    UseXAsInitialGuess = true
+                };
+                Assert.False(preconditioned ? cgN.SolvePreconditioned() : cgN.Solve());
+            }
         }
 
         [Fact]
