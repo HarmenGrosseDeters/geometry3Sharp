@@ -148,7 +148,7 @@ namespace g3
 
 
         /// <summary>
-        /// Find the triangle closest to p, within distance fMaxDist, or return DMesh3.InvalidID.
+        /// Find the triangle closest to p, strictly closer than fMaxDist, or return DMesh3.InvalidID.
         /// Use MeshQueries.TriangleDistance() to get the closest point and distance.
         /// Throws if the tree is not built or the mesh was modified since Build().
         /// </summary>
@@ -163,7 +163,7 @@ namespace g3
             return tNearID;
         }
         /// <summary>
-        /// Find the triangle closest to p, within distance fMaxDist, or return DMesh3.InvalidID.
+        /// Find the triangle closest to p, strictly closer than fMaxDist, or return DMesh3.InvalidID.
         /// fNearestDistSqr is the SQUARED distance to that triangle (fMaxDist^2, or double.MaxValue, if none was found).
         /// Use MeshQueries.TriangleDistance() to get more information
         /// </summary>
@@ -228,7 +228,7 @@ namespace g3
 
 
         /// <summary>
-        /// Find the vertex closest to p, within distance fMaxDist, or return DMesh3.InvalidID.
+        /// Find the vertex closest to p, strictly closer than fMaxDist, or return DMesh3.InvalidID.
         /// Only vertices of triangles in the tree are considered (isolated vertices are never found).
         /// </summary>
         public virtual int FindNearestVertex(Vector3d p, double fMaxDist = double.MaxValue)
@@ -302,7 +302,7 @@ namespace g3
         public bool SupportsTriangleRayIntersection { get { return true; } }
 
         /// <summary>
-        /// Find id of first triangle that ray hits (smallest ray parameter), within distance fMaxDist
+        /// Find id of first triangle that ray hits (smallest ray parameter), strictly closer than fMaxDist
         /// along the ray, or return DMesh3.InvalidID. Hits behind the ray origin are ignored; both
         /// front and back faces are hit. The ray direction must be normalized, otherwise this throws.
         /// Use MeshQueries.TriangleIntersection() to get the hit point / ray parameter.
@@ -396,7 +396,7 @@ namespace g3
 
 
         /// <summary>
-        /// Find the ids of all the triangles that the ray intersects, within distance fMaxDist from ray origin,
+        /// Find the ids of all the triangles that the ray intersects, strictly closer than fMaxDist to the ray origin,
         /// and append them to hitTriangles if it is not null (in no particular order).
         /// Returns count of triangles. The ray direction must be normalized, otherwise this throws.
         /// </summary>
@@ -577,13 +577,21 @@ namespace g3
             if (mesh_timestamp != mesh.ShapeTimestamp)
                 throw new Exception("DMeshAABBTree3.TestIntersection: mesh has been modified since tree construction");
 
-            if (otherTree.mesh_timestamp != otherTree.mesh.ShapeTimestamp)
-                throw new Exception("DMeshAABBTree3.TestIntersection: other mesh has been modified since tree construction");
+            check_other_tree(otherTree, "TestIntersection");
 
             if (find_any_intersection(root_index, otherTree, TransformF, otherTree.root_index, 0))
                 return true;
 
             return false;
+        }
+
+        // A never-built tree must be told apart first: on a new empty mesh its timestamp still matches.
+        void check_other_tree(DMeshAABBTree3 otherTree, string sQuery)
+        {
+            if (otherTree.box_to_index == null)
+                throw new Exception("DMeshAABBTree3." + sQuery + ": other tree has not been built");
+            if (otherTree.mesh_timestamp != otherTree.mesh.ShapeTimestamp)
+                throw new Exception("DMeshAABBTree3." + sQuery + ": other mesh has been modified since tree construction");
         }
 
         protected bool find_any_intersection(int iBox, DMeshAABBTree3 otherTree, Func<Vector3d, Vector3d> TransformF, int oBox, int depth)
@@ -736,8 +744,7 @@ namespace g3
             if (mesh_timestamp != mesh.ShapeTimestamp)
                 throw new Exception("DMeshAABBTree3.FindIntersections: mesh has been modified since tree construction");
 
-            if (otherTree.mesh_timestamp != otherTree.mesh.ShapeTimestamp)
-                throw new Exception("DMeshAABBTree3.FindAllIntersections: other mesh has been modified since tree construction");
+            check_other_tree(otherTree, "FindAllIntersections");
 
             IntersectionsQueryResult result = new IntersectionsQueryResult();
             result.Points = new List<PointIntersection>();
@@ -870,11 +877,11 @@ namespace g3
 
 
         /// <summary>
-        /// Find nearest pair of triangles on this tree with otherTree, within max_dist.
+        /// Find nearest pair of triangles on this tree with otherTree, strictly closer than max_dist.
         /// Both trees must be built and current with their meshes.
         /// TransformF transforms vertices of otherTree into our coordinates. can be null.
-        /// Returns triangle-id pair (my_tri,other_tri), or Index2i.Max if not found within max_dist.
-        /// distance is the (unsquared) distance between the pair, or double.MaxValue if none was found.
+        /// Returns triangle-id pair (my_tri,other_tri), or Index2i.Max if there is none.
+        /// distance is the (unsquared) distance between the pair, or max_dist (double.MaxValue by default) if none was found.
         /// Use MeshQueries.TrianglesDistance() to get more information
         /// </summary>
         public virtual Index2i FindNearestTriangles(DMeshAABBTree3 otherTree, Func<Vector3d, Vector3d> TransformF, out double distance, double max_dist = double.MaxValue)
@@ -882,8 +889,7 @@ namespace g3
             if (mesh_timestamp != mesh.ShapeTimestamp)
                 throw new Exception("DMeshAABBTree3.TestIntersection: mesh has been modified since tree construction");
 
-            if (otherTree.mesh_timestamp != otherTree.mesh.ShapeTimestamp)
-                throw new Exception("DMeshAABBTree3.FindNearestTriangles: other mesh has been modified since tree construction");
+            check_other_tree(otherTree, "FindNearestTriangles");
 
             double nearest_sqr = double.MaxValue;
             if (max_dist < double.MaxValue)
@@ -1721,9 +1727,10 @@ namespace g3
             boxes_set tris = new boxes_set();
             boxes_set nodes = new boxes_set();
             AxisAlignedBox3d rootBox;
+            int leafLimit = Math.Max(TopDownLeafMaxTriCount, 2);    // a set is a leaf if its count is below this; below 2 the split never ends
             int rootnode = (bSorted) ?
-                split_tri_set_sorted(triangles, centers, 0, mesh.TriangleCount, 0, TopDownLeafMaxTriCount, tris, nodes, out rootBox)
-                : split_tri_set_midpoint(triangles, centers, 0, mesh.TriangleCount, 0, TopDownLeafMaxTriCount, tris, nodes, out rootBox);
+                split_tri_set_sorted(triangles, centers, 0, mesh.TriangleCount, 0, leafLimit, tris, nodes, out rootBox)
+                : split_tri_set_midpoint(triangles, centers, 0, mesh.TriangleCount, 0, leafLimit, tris, nodes, out rootBox);
 
             box_to_index = tris.box_to_index;
             box_centers = tris.box_centers;
