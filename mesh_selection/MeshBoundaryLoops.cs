@@ -156,10 +156,14 @@ namespace g3
 		/// Find the set of boundary EdgeLoops (and Spans). If we encounter topological issues and
 		/// FailureBehavior or SpanBehavior is ThrowException, we throw MeshBoundaryLoopsException w/ more
 		/// info (if possible); with the default behaviors the problem chains become Spans instead.
-		/// Always returns true.
+		/// Diagnostic flags and FailureBowties are reset before each computation. Always returns true.
 		/// </summary>
 		public bool Compute()
         {
+            SawOpenSpans = false;
+            FellBackToSpansOnFailure = false;
+            FailureBowties = null;
+            SawInconsistentOrientation = false;
             if (EdgeFilterF == null)
                 return compute_closed_walks();
             return compute_filtered();
@@ -194,7 +198,6 @@ namespace g3
         // loops at repeated vertices.
         bool compute_closed_walks()
         {
-            SawInconsistentOrientation = false;
             Loops = new List<EdgeLoop>();
             Spans = new List<EdgeSpan>();
             if (Mesh.CachedIsClosed)
