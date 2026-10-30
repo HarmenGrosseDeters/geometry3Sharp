@@ -22,6 +22,14 @@ Implemented from the papers, no code taken over.
 The error bounds of the implicit points' approximations (`segment_point`, `plane_value`, `planes_approx`) and of
 the filters on them are derived in the code comments.
 
+## Point-set triangulation (`DelaunayMesh2`)
+
+The point-set bootstrap inserts original coordinates into a planar triangulation, splitting a face or edge
+or extending the visible convex hull; no external implementation was used. Delaunay legalization uses
+Lawson's edge-flip method (C. L. Lawson, *Software for C1 surface interpolation*, 1977), with the
+representative-index tie rule described in [MESHING2D_M1.md](design/MESHING2D_M1.md).
+The orientation and incircle signs use the existing `ExactPredicates` implementation listed above.
+
 ## Rounding the exact output (`MeshRoundingRepair`, `ExactMeshBoolean.SafeRounding`, `ExactMeshBoolean.ComputeExactVertices`)
 
 Implemented from the papers, no code taken over. Read for the design (what the exact methods do with their output):

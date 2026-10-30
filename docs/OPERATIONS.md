@@ -33,6 +33,7 @@ Add both: `using g3; using gs;`.
 | Task | Classes | Example |
 |---|---|---|
 | Build meshes, generators | `DMesh3`, `TrivialBox3Generator`, `GridBox3Generator`, `Sphere3Generator_NormalizedCube`, `CappedCylinderGenerator` | [MeshConstructionExample](examples/MeshConstructionExample.cs) |
+| Point-set Delaunay triangulation over the convex hull | `DelaunayMesh2`, `Triangulation2Result`, `TriangulationMesh2` | [DelaunayMesh2Example](examples/DelaunayMesh2Example.cs) |
 | Read / write OBJ, STL, OFF, PLY, 3MF, glTF/GLB | `StandardMeshReader`, `StandardMeshWriter`, `ReadOptions`, `WriteOptions`, `PLYReader`/`PLYWriter`, `ThreeMFReader`/`ThreeMFWriter`, `GLTFReader`/`GLTFWriter` | [MeshIOExample](examples/MeshIOExample.cs) |
 | Repair (keep the triangles) | `gs.MeshAutoRepair`, `gs.MeshPostRepairCleanup` | [MeshRepairExample](examples/MeshRepairExample.cs) |
 | Repair with a clean result guaranteed | `gs.MeshRobustRepair` | [MeshRepairExample](examples/MeshRepairExample.cs) |
@@ -54,6 +55,28 @@ Add both: `using g3; using gs;`.
 | Intrinsic Delaunay triangulation and refinement: cotan Laplacian without negative weights, geodesics and vector heat on poor meshes, overlay with the input; geodesic paths and loops (FlipOut) | `gs.IntrinsicTriangulation`, `gs.MeshGeodesicDistance.IntrinsicRefine`, `gs.VectorHeatMethod.IntrinsicRefine`, `gs.IntrinsicCommonSubdivision`, `gs.MeshGeodesicPath` | [IntrinsicTriangulationExample](examples/IntrinsicTriangulationExample.cs) |
 | UV atlas of any mesh: seams, charts, BFF with cones, packing, exact overlap test | `UVAtlasGenerator`, `MeshDiscCut`, `MeshChartSegmentation`, `ConeFlattening`, `UVOverlap`, `UVPacker` | [UVAtlasExample](examples/UVAtlasExample.cs) |
 | Parameterize a disc | `BoundaryFirstFlattening`, `LSCMParameterization`, `ARAPParameterization`, `SLIMParameterization`, `ParameterizationDistortion` | [UVAtlasExample](examples/UVAtlasExample.cs) |
+
+## Point-set triangulation (M1)
+
+`DelaunayMesh2.Compute(points, cancellationToken)` triangulates distinct points over their convex hull.
+It does not insert Steiner vertices, snap coordinates, accept constraints or refine triangle quality.
+Both coordinate components must be finite with absolute value at most `1e70`; there is no minimum scale.
+Invalid arguments throw, and cancellation throws `OperationCanceledException`.
+
+`Success` and `Empty` own a read-only mesh. Empty or collinear inputs retain their vertex slots and mapping
+but have no faces or edges. `Failed` has no mesh; inspect `FailureKind` rather than treating failure as empty.
+Exact duplicates map to their first input index via `InputToVertex`; alias slots are retained but unused.
+Triangle IDs are dense and local to the result, faces are CCW, and `Neighbours[t][k]` is opposite face vertex
+`k` (`-1` on the hull). `Edges()` enumerates each undirected edge once, lower endpoint first.
+
+`TryLocate` includes edges and vertices and returns the lowest triangle ID on multiple hits; outside gives
+`false` and `-1`. It validates the same coordinate range as `Compute`. `IncidentTriangles` rejects invalid
+indices immediately and returns no faces for alias slots. Results remain unchanged by caller mutation,
+mesher reuse or cancellation. Do not mutate the input during a call. Independent instances can run in parallel.
+
+M1 uses full topology scans and exhaustive result validation (including all edge pairs); it is a correctness
+baseline, not a throughput guarantee for large point sets. See the [M1 contract](design/MESHING2D_M1.md)
+for tie ordering, acceptance evidence and remaining release gates.
 
 ## Which repair or boolean class?
 

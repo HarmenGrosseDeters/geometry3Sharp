@@ -83,6 +83,27 @@ namespace geometry3Sharp.Tests
 
 
         [Fact]
+        public void DelaunayMesh2Example_CoversHullAndLocatesBoundary()
+        {
+            var mesh = DelaunayMesh2Example.Triangulate(new[] {
+                new Vector2d(0, 0), new Vector2d(4, 0), new Vector2d(4, 4), new Vector2d(0, 4)
+            });
+            Assert.True(mesh.IsValid(out string reason), reason);
+            Assert.Equal(2, mesh.Triangles.Count);
+            Assert.Equal(5, mesh.Edges().Count());
+            double twiceArea = mesh.Triangles.Sum(t => {
+                var a = mesh.Vertices[t.a]; var b = mesh.Vertices[t.b]; var c = mesh.Vertices[t.c];
+                return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+            });
+            Assert.Equal(32, twiceArea);
+            Assert.True(mesh.TryLocate(new Vector2d(2, 0), out _));
+            Assert.False(mesh.TryLocate(new Vector2d(5, 2), out int outside));
+            Assert.Equal(-1, outside);
+            Assert.Empty(DelaunayMesh2Example.Triangulate(new Vector2d[0]).Triangles);
+            Assert.Throws<ArgumentException>(() => DelaunayMesh2Example.Triangulate(new[] { new Vector2d(double.NaN, 0) }));
+        }
+
+        [Fact]
         public void MeshConstructionExample_BuildsClosedMeshes()
         {
             DMesh3 tet = MeshConstructionExample.Tetrahedron();
