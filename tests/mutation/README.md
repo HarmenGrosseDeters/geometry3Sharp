@@ -23,9 +23,23 @@ too slow to run against every mutant.
 
 ## Running
 
-The [mutation workflow](../../.github/workflows/mutation.yml) runs on pull requests that change the mutated
-files or their tests, every Monday, and on demand through "Run workflow". It fails when the score drops below
-the `break` threshold. The HTML report is uploaded as an artifact, and a summary appears in the job summary.
+The [mutation workflow](../../.github/workflows/mutation.yml) runs in full every Monday and on demand through "Run
+workflow". On a pull request, it waits until the PR is ready for review (drafts run nothing), then
+[select_shards.py](select_shards.py) picks the configs from the changed files, using the `mutate` and
+`test-case-filter` of each config:
+
+| The PR changes | Runs | Fails below `break`? |
+|---|---|---|
+| a mutated file or the config | the whole shard | yes |
+| only tests of the `test-case-filter` | `--since`: the mutants those tests cover | no: a score over a part of the mutants is not comparable with the threshold, so it only reports |
+| `.config/dotnet-tools.json`, the workflow | every config in full | yes |
+| anything else, including `geometry3Sharp.Tests.csproj` | nothing (the weekly run covers it) | |
+
+The source case stays a full shard because `--since` selects whole files, and `--with-baseline` is experimental in
+Stryker 5.0 and needs external storage. The weekly run is what catches a test change that lowers a score.
+
+The HTML report is uploaded as an artifact, and a summary appears in the job summary. Tests of the selection:
+`python3 tests/mutation/test_select_shards.py`.
 
 To run it locally, from the repository root:
 
