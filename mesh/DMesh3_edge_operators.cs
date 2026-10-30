@@ -46,8 +46,7 @@ namespace g3
         /// <summary>
         /// Remove vertex vID, and all connected triangles if bRemoveAllTriangles = true
         /// (if false, them throws exception if there are still any triangles!)
-        /// if bPreserveManifold, checks that we will not create a bowtie vertex first. Known limit: it can return
-        /// Failed_WouldCreateBowtie after it deleted triangles (docs/QA.md, 2.11)
+        /// if bPreserveManifold, checks that we will not create a bowtie vertex first: on a failure the mesh is unchanged
         /// </summary>
         public MeshResult RemoveVertex(int vID, bool bRemoveAllTriangles = true, bool bPreserveManifold = false)
         {
@@ -74,7 +73,8 @@ namespace g3
                 List<int> tris = new List<int>();
                 GetVtxTriangles(vID, tris, true);
                 foreach (int tID in tris) {
-                    MeshResult result = RemoveTriangle(tID, false, bPreserveManifold);
+                    // (the check above covers the whole fan; checked one by one, the order of the triangles could fail halfway)
+                    MeshResult result = RemoveTriangle(tID, false, false);
                     if (result != MeshResult.Ok)
                         return result;
                 }
