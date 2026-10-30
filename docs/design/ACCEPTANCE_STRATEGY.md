@@ -32,10 +32,13 @@ Inputs are procedural, with integer or dyadic coordinates. No mesh files in the 
 | M3 refinement | `Triangle.NET`, owner only | Not unique, so only metrics: triangle count within a stated factor, minimum angle, protected segments, area |
 | Quadtree | Brute force (exists), NetTopologySuite (exists), the owner's old quadtree per `QUADTREE2D_SPEC.md` section 5 | The same result sets by identity; timing and memory on the owner's machine |
 
+**License.** `Triangle.NET` is publicly reachable (fork `HarmenGrosseDeters/Triangle.NET` of `wo80/Triangle.NET`), but that does not make it free to use: GitHub detects no license,
+and its README states an unclear licensing situation, with Shewchuk's original under a proprietary license, and for that reason no NuGet package. So it is no dependency of this repository,
+no build step in its CI, and nothing is copied from it. Should the owner's review find that black-box use is not acceptable, M2 and M3 rely on sections 2 and 4 alone, and the metrics of section 3 are dropped.
+
 **Clean room.** Agents never read `Triangle.NET` or its source. Only the owner runs it, with a small tool outside this repository. The tool reads the
 procedural case descriptions and writes one JSON row per case: triangle count, order-independent fingerprint of triangles and subsegments,
-minimum angle, area, status. Only those rows enter the repository. Fingerprints reveal no algorithm. Whether its license permits publishing such
-results is for the owner to confirm before the first rows are committed.
+minimum angle, area, status. Only those rows enter the repository. Fingerprints reveal no algorithm. Whether publishing such results is acceptable is for the owner to confirm before the first rows are committed.
 
 ## 4. Golden master
 
