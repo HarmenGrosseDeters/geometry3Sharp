@@ -35,17 +35,17 @@ hold up is discarded with the owner, not patched until it passes. The stages run
 
 | Stage | Work | Tier | Parallel |
 |---|---|---|---|
-| 0. Green master | Pinned prism fixtures (`test/pin-rounded-prism-fixtures`). Then the `LaplacianMeshSmoother` non-finite sweep case, which earlier sessions saw exceed its 20 s limit in full net10 runs | S, M | 1 session |
+| 0. Green local CI | The GitHub CI of master is green; the failures are in local Windows runs. Pinned prism fixtures (`test/pin-rounded-prism-fixtures`). Then the `LaplacianMeshSmoother` non-finite sweep case, which exceeds its 20 s limit in some full net10 runs | S, M | 1 session |
 | 1. Small fixes | Reducer quadric budget (`fix/reducer-quadric-budget`); benchmark validity reporting (`fix/benchmark-validity-reporting`) | M, S | 2 sessions |
 | 2. Differential QA | `qa/differential-core-tests` (#193). It mixes production fixes with about 3700 lines of tests: check the fixes one by one and split the PR | M | 1 session, next to stage 1 |
-| 3. Plans | Plans (`docs/boolean-property-test-plan`, #194), then the hidden acceptance plan stacked on it (`docs/hidden-acceptance-tests`). Resolve the open questions of the plans here. The plan says author sessions already started; find their output, or start again | S | 1 session |
+| 3. Plans | Plans (`docs/boolean-property-test-plan`, #194), then the hidden acceptance plan stacked on it (`docs/hidden-acceptance-tests`). Resolve the open questions of the plans here. The plan's statement that author sessions already started is probably wrong (owner): treat them as not started | S | 1 session |
 | 4. Hidden acceptance | Tests for quadtree and for meshing M1, written from the specs alone; freeze them before the first run | L (tests) | 2 isolated author sessions |
 | 5. Quadtree | `quadtree` (#195): black-box run of the frozen tests, independent review, owner-machine performance and memory | L | 1 large session |
-| 6. Meshing M1 | `feature/meshing2d`: the same gates. Only then the M2 design (`docs/meshing2d-m2-design`) and an M2 implementation | L | 1 large session, after stage 5 |
+| 6. Meshing M1 | `feature/meshing2d`: the same gates. Only then the M2 design (`docs/meshing2d-m2-design`): its recorded approvals are disputed, so question its domain decisions first. An M2 implementation comes after that | L | 1 large session, after stage 5 |
 | 7. Alpha wrap quality | Owner decision on `fix/alpha-wrap-simplification-quality`. No recorded policy passes every gate, so its production code is not for merging as it is; keep what the next step needs. Next step: a bounded look at the failing local patches of the hard-feature policy, no threshold tuning. Needs stage 1 | L | 1 large session, after stage 6 |
 | 8. Planned follow-ups | Boolean property tests, DAP audit and honest terrain metrics, next to any stage from 4 on; the upstream ledger last, because it records what is merged. Terrain phase 1 after stage 5 | S, M | up to 2 sessions |
 
-Why this order: master must be green, or no later PR can show a clean result (stage 0). Small fixes shrink the later
+Why this order: the local CI must be green, or no later PR can show a clean result before its push (stage 0). Small fixes shrink the later
 diffs, and the wrap retest depends on the reducer fix. Hidden tests must be frozen before the implementations are
 accepted, or they are not independent. The quadtree comes before meshing because terrain phase 1 waits for it and its
 PR is further along.
