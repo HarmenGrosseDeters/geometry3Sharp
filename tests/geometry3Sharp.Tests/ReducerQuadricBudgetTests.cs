@@ -139,17 +139,29 @@ namespace geometry3Sharp.Tests
             DMesh3 source = Sphere();
             var inspect = new RecordingReducer(new DMesh3(source)) { AreaWeightedQuadrics = false };
             inspect.ReduceToTriangleCount(source.TriangleCount);
-            double budget = inspect.MinimumInitialError * 0.5;
+            // between the cheapest queued optimum and the cheapest endpoint: passes the queue, fails the check of the kept position
+            double fixedBudget = (inspect.MinimumInitialError + inspect.MinimumEndpointError) * 0.5;
+            DMesh3 reduced = new DMesh3(source);
+            new Reducer(reduced) { AreaWeightedQuadrics = false }.ReduceToMaxQuadricError(0.05);
+            Assert.True(reduced.TriangleCount < source.TriangleCount);
             foreach (Similarity s in Similarity.All()) {
                 DMesh3 mesh = Invariance.Transformed(source, s);
-                DMesh3 before = new DMesh3(mesh);
                 var reducer = new RecordingReducer(mesh) { AreaWeightedQuadrics = false };
-                reducer.ReduceToMaxQuadricError(budget * s.Scale * s.Scale);
+                reducer.ReduceToMaxQuadricError(0.05 * s.Scale * s.Scale);
+                Assert.NotEmpty(reducer.AcceptedErrors);
+                if (s.IsExact)
+                    Assert.Equal("", Invariance.Difference(reduced, Invariance.MappedBack(mesh, s)));
+                AssertClean(mesh);
+
+                mesh = Invariance.Transformed(source, s);
+                DMesh3 before = new DMesh3(mesh);
+                var constraints = new MeshConstraints();
+                constraints.SetOrUpdateVertexConstraint(0, new VertexConstraint(true, 0));
+                reducer = new RecordingReducer(mesh) { AreaWeightedQuadrics = false, RestrictToVertex = 0 };
+                reducer.SetExternalConstraints(constraints);
+                reducer.ReduceToMaxQuadricError(fixedBudget * s.Scale * s.Scale);
                 Assert.Empty(reducer.AcceptedErrors);
                 Assert.Equal("", Invariance.Difference(before, mesh));
-                if (s.IsExact)
-                    Assert.Equal("", Invariance.Difference(source, Invariance.MappedBack(mesh, s)));
-                AssertClean(mesh);
             }
         }
 
@@ -160,7 +172,8 @@ namespace geometry3Sharp.Tests
         {
             DMesh3 mesh = Sphere(), fresh = new DMesh3(mesh);
             var reused = new Reducer(mesh);
-            reused.ReduceToMaxQuadricError(0);
+            // (NaN: every collapse reaches the budget check and is rejected; 0 would stop before it)
+            reused.ReduceToMaxQuadricError(double.NaN);
             Assert.Equal("", Invariance.Difference(fresh, mesh));
             if (fast) {
                 reused.FastCollapsePass(1);
