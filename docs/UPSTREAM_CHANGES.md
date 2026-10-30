@@ -8,6 +8,8 @@ code can notice. New classes are not listed (see the README and [OPERATIONS.md](
 
 | Class / member | 1.0.324 | Now |
 |---|---|---|
+| `DMesh3.CompactInPlace()` with isolated live vertices above deletion holes | could throw while moving a nonexistent adjacency list | preserves the isolated vertices and their attributes, with the requested vertex mapping |
+| `DMesh3.RebuildFromEdgeRefcounts()` and `gSerialization.Restore(DMesh3, ...)` with a reused destination | old vertex/triangle refcounts and adjacency could survive or make rebuilding throw | derived topology is reset before rebuilding from the supplied buffers; restored live IDs and attributes match a fresh destination |
 | `OpenCylinderGenerator`, `CappedCylinderGenerator`, `ConeGenerator`, `VerticalGeneralizedCylinderGenerator` (and `Radial3DArrowGenerator`) | triangles faced inward with the default `Clockwise = false` (negative volume) | they face outward like the other generators. Drop any `ReverseOrientation()` or `Clockwise = true` that compensated for it |
 | `Reducer` | boundary edges collapsed to their midpoint; plain `OptimalPoint` solve | with `PreserveBoundaryShape` (default) boundary planes are added to the quadrics (`BoundaryQuadricWeight = 100`) and boundary edges keep an endpoint; `QuadricRegularization = 1e-6`. Results differ slightly on closed meshes and noticeably along boundaries (kept exactly, coarser) |
 | `Reducer` subclasses | quadrics in absolute coordinates | `vertQuadrics` and the quadrics passed to `OnEdgeCollapse` are relative to `quadricOrigin` (the mesh bounds center); use `plane_quadric` / `evaluate` |
