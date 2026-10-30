@@ -894,6 +894,32 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        [Fact]
+        public void RebuildFromEdgeRefcounts_KeepsLiveVerticesWithoutEdges()
+        {
+            var mesh = new DMesh3();
+            for (int i = 0; i < 4; ++i) mesh.AppendVertex(new Vector3d(i, i * i, 0));
+            Assert.Equal(0, mesh.AppendTriangle(0, 1, 2));
+            for (int repeat = 0; repeat < 2; ++repeat) {
+                mesh.RebuildFromEdgeRefcounts();
+                Assert.Equal(4, mesh.VertexCount);
+                Assert.True(mesh.IsVertex(3));
+                Assert.Equal(0, mesh.GetVtxEdgeCount(3));
+                Assert.Equal(new Vector3d(3, 9, 0), mesh.GetVertex(3));
+                Assert.True(mesh.CheckValidity(true, FailMode.ReturnOnly));
+            }
+            // the isolated vertex still takes an edge
+            Assert.Equal(1, mesh.AppendTriangle(2, 1, 3));
+            Assert.True(mesh.CheckValidity(true, FailMode.ReturnOnly));
+
+            var isolated = new DMesh3();
+            isolated.AppendVertex(Vector3d.Zero);
+            isolated.AppendVertex(Vector3d.One);
+            isolated.RebuildFromEdgeRefcounts();
+            Assert.Equal(2, isolated.VertexCount);
+            Assert.True(isolated.CheckValidity(true, FailMode.ReturnOnly));
+        }
+
         static DMesh3 NoncyclicFan()
         {
             var mesh = new DMesh3(true, true, true, true);

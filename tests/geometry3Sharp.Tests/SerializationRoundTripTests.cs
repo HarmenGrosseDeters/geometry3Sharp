@@ -325,6 +325,27 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void MeshRestore_ReusedDestination_DropsOldVertices_AndCompacts()
+        {
+            // the first mesh has more vertices than the second, and vertex 0 is deleted in the second
+            DMesh3 first = new Sphere3Generator_NormalizedCube { EdgeVertices = 4 }.Generate().MakeDMesh();
+            DMesh3 second = new Sphere3Generator_NormalizedCube { EdgeVertices = 2 }.Generate().MakeDMesh();
+            foreach (int t in second.VtxTrianglesItr(0).ToArray())
+                Equal(MeshResult.Ok, second.RemoveTriangle(t, true, false), "remove the triangles of vertex 0");
+            Equal(false, second.IsVertex(0), "vertex 0 is deleted");
+
+            var reused = new DMesh3();
+            Read(Bytes(w => gSerialization.Store(first, w)), r => { gSerialization.Restore(reused, r); return reused; });
+            Read(Bytes(w => gSerialization.Store(second, w)), r => { gSerialization.Restore(reused, r); return reused; });
+            SameMesh(second, reused, "reused destination holds only the second mesh");
+
+            reused.CompactInPlace();
+            Validate(reused, "compacted after reuse");
+            Equal(second.VertexCount, reused.VertexCount, "vertices after compaction");
+            Equal(second.TriangleCount, reused.TriangleCount, "triangles after compaction");
+        }
+
+        [Fact]
         public void MeshRestore_ReusedDestination_SingleTriangleThenDeletedMatchesFresh()
         {
             DMesh3 source = Fixture("open", 0);

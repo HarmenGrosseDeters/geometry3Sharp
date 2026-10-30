@@ -462,6 +462,11 @@ namespace g3
 
             // the stored buffers are taken over as they are: check them before the rebuild trusts them
             check_buffers(mesh, vertexRefCounts);
+            // the vertices of a reused destination are not part of the stream
+            DVector<short> oldVertexRefCounts = mesh.VerticesRefCounts.RawRefCounts;
+            oldVertexRefCounts.resize(mesh.VerticesBuffer.Length / 3);
+            for (int vid = 0; vid < oldVertexRefCounts.size; ++vid)
+                oldVertexRefCounts[vid] = RefCountVector.invalid;
             mesh.RebuildFromEdgeRefcounts();
             check_rebuilt(mesh);
 

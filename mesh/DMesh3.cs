@@ -2248,7 +2248,7 @@ namespace g3
         /// Rebuild mesh topology.
         /// assumes that we have initialized vertices, triangles, and edges buffers,
         /// and edges refcounts. Discards old derived topology and rebuilds vertex and tri refcounts,
-        /// triangle edges and vertex edges. Vertices without live edges are not reconstructed.
+        /// triangle edges and vertex edges. Vertices that were live stay live, also without edges.
         /// </summary>
         public void RebuildFromEdgeRefcounts()
         {
@@ -2263,8 +2263,13 @@ namespace g3
             vertex_edges = new SmallListSet();
             vertex_edges.Resize(MaxVID);
             vertices_refcount.RawRefCounts.resize(MaxVID);
-            for (int vid = 0; vid < MaxVID; ++vid)
-                vertices_refcount.set_Unsafe(vid, RefCountVector.invalid);
+            for (int vid = 0; vid < MaxVID; ++vid) {
+                if (vertices_refcount.isValidUnsafe(vid)) {
+                    allocate_edges_list(vid);
+                    vertices_refcount.set_Unsafe(vid, 1);
+                } else
+                    vertices_refcount.set_Unsafe(vid, RefCountVector.invalid);
+            }
 
             int MaxEID = edges.Length / 4;
             for ( int eid = 0; eid < MaxEID; ++eid ) {
