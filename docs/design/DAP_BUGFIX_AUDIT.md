@@ -1,8 +1,8 @@
 # DAP fork: bug-fix audit and selective adoption
 
 Status: planned, not audited or implemented. Checked on 2026-10-30: `8f185f1` and `158507b` exist, and the root license is BSL-1.0.
-**Blocked on owner decisions:** whether DAP counts as company code here, as this plan's sources rule forbids company code; whether
-Boost-licensed sources may be ported, as `CLAUDE.md` lists MIT, Apache and BSD only; and whether reading DAP source is approved.
+Owner decision (2026-10-30): DAP is a fork of `gradientspace/geometry3Sharp`, not company code, and the audit may read its source. The
+root license is BSL-1.0, the same as this repository and upstream. Files the fork added can have another origin, so provenance per file still applies.
 The delta is 215 files (+18371/-694), so this is more than one PR.
 
 ## Task brief

@@ -205,7 +205,7 @@ selectively.
 ## Focused follow-up work
 
 Plans, fact-checked on 2026-10-30; each states the owner decisions it still needs. The implementation or audit work remains open.
-Tasks 5 and 6 can start independently once those are made; task 4 is blocked on them.
+Tasks 4 to 6 can start independently once those are made; for task 4 they are made.
 
 - [ ] **4. DAP bug fixes (E.2):** [audit and adoption plan](design/DAP_BUGFIX_AUDIT.md). Review the pinned
   `Digital-Production-Aachen/DAPComputationalGeometry` delta from `8f185f1` to DAP HEAD, ignoring formatting;
