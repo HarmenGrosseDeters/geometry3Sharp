@@ -120,7 +120,9 @@ namespace g3
         public void Build(BuildStrategy eStrategy = BuildStrategy.TopDownMidpoint, 
                           ClusterPolicy ePolicy = ClusterPolicy.Default)
         {
-            if (eStrategy == BuildStrategy.BottomUpFromOneRings)
+            if (mesh.TriangleCount == 0)
+                build_top_down(false);
+            else if (eStrategy == BuildStrategy.BottomUpFromOneRings)
                 build_by_one_rings(ePolicy);
             else if (eStrategy == BuildStrategy.TopDownMedian)
                 build_top_down(true);
@@ -567,13 +569,16 @@ namespace g3
         /// <summary>
         /// Returns true if there is *any* intersection between our mesh and 'other' mesh.
         /// TransformF takes vertices of otherTree into our tree - can be null if in same coord space.
-        /// otherTree must also be built. Returns false if one mesh is entirely inside the other
+        /// Both trees must be built and current with their meshes. Returns false if one mesh is entirely inside the other
         /// without the surfaces crossing.
         /// </summary>
         public virtual bool TestIntersection(DMeshAABBTree3 otherTree, Func<Vector3d, Vector3d> TransformF = null)
         {
             if (mesh_timestamp != mesh.ShapeTimestamp)
                 throw new Exception("DMeshAABBTree3.TestIntersection: mesh has been modified since tree construction");
+
+            if (otherTree.mesh_timestamp != otherTree.mesh.ShapeTimestamp)
+                throw new Exception("DMeshAABBTree3.TestIntersection: other mesh has been modified since tree construction");
 
             if (find_any_intersection(root_index, otherTree, TransformF, otherTree.root_index, 0))
                 return true;
@@ -724,12 +729,15 @@ namespace g3
         /// TransformF argument transforms vertices of otherTree to our tree (can be null if in same coord space)
         /// Returns pairs of intersecting triangles, which could intersect in either point or segment,
         /// in result.Points and result.Segments (points are in the coordinates of this tree).
-        /// Currently *does not* return coplanar intersections. otherTree must also be built.
+        /// Currently *does not* return coplanar intersections. Both trees must be built and current with their meshes.
         /// </summary>
         public virtual IntersectionsQueryResult FindAllIntersections(DMeshAABBTree3 otherTree, Func<Vector3d, Vector3d> TransformF = null)
         {
             if (mesh_timestamp != mesh.ShapeTimestamp)
                 throw new Exception("DMeshAABBTree3.FindIntersections: mesh has been modified since tree construction");
+
+            if (otherTree.mesh_timestamp != otherTree.mesh.ShapeTimestamp)
+                throw new Exception("DMeshAABBTree3.FindAllIntersections: other mesh has been modified since tree construction");
 
             IntersectionsQueryResult result = new IntersectionsQueryResult();
             result.Points = new List<PointIntersection>();
@@ -863,6 +871,7 @@ namespace g3
 
         /// <summary>
         /// Find nearest pair of triangles on this tree with otherTree, within max_dist.
+        /// Both trees must be built and current with their meshes.
         /// TransformF transforms vertices of otherTree into our coordinates. can be null.
         /// Returns triangle-id pair (my_tri,other_tri), or Index2i.Max if not found within max_dist.
         /// distance is the (unsquared) distance between the pair, or double.MaxValue if none was found.
@@ -872,6 +881,9 @@ namespace g3
         {
             if (mesh_timestamp != mesh.ShapeTimestamp)
                 throw new Exception("DMeshAABBTree3.TestIntersection: mesh has been modified since tree construction");
+
+            if (otherTree.mesh_timestamp != otherTree.mesh.ShapeTimestamp)
+                throw new Exception("DMeshAABBTree3.FindNearestTriangles: other mesh has been modified since tree construction");
 
             double nearest_sqr = double.MaxValue;
             if (max_dist < double.MaxValue)
