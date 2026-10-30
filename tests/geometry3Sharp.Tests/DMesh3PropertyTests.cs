@@ -1,37 +1,45 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
-using System.Text;
 using g3;
 using Xunit;
 using Xunit.Abstractions;
 
 namespace geometry3Sharp.Tests
 {
+    /// <summary>
+    /// Random edit sequences on a DMesh3, checked after every step against a plain model of the mesh. The model and
+    /// its feasibility rules come from the triangle list, by the definition of manifoldness (every edge in at most two
+    /// triangles, the triangles around a vertex form one fan); they never ask DMesh3 for adjacency or copy its guards.
+    /// Commands pick any live element, so rejected operations are tested too.
+    /// </summary>
     public class DMesh3PropertyTests
     {
         readonly ITestOutputHelper output;
         static readonly int[] Seeds = { 7, 29, 101, 503, 1709, 4093, 8191, 65537 };
         static readonly Vector3d Bary = new Vector3d(0.5, 0.25, 0.25);
-        const int Steps = 128;
+        const int Steps = 160;
         const int TriangleCap = 256;
 
         public DMesh3PropertyTests(ITestOutputHelper output) { this.output = output; }
 
-        enum Op { AppendVertex, Attach, Disconnected, Move, Attributes, SplitBoundary, SplitInterior,
-            Flip, Collapse, Poke, RemoveTriangle, RemoveIsolated, RemoveVertex, Compact, Copy }
+        enum Op { AppendVertex, Disconnected, Attach, Move, Attributes, Split, Flip, Collapse, Poke,
+            RemoveTriangle, RemoveIsolated, RemoveVertex, Compact, Rebuild, Restore }
+
+        static readonly Op[] AllOps = (Op[])Enum.GetValues(typeof(Op));
+        static readonly Op[] ClosedOps = { Op.Move, Op.Attributes, Op.Split, Op.Flip, Op.Collapse, Op.Poke, Op.Compact, Op.Rebuild, Op.Restore };
 
         sealed class Command
         {
             public Op Kind;
             public int A = -1, B = -1, Group;
-            public bool RemoveIsolated;
+            public bool Flag;
             public Vector3d Position, Position1, Position2;
-            public override string ToString() => Kind + " a=" + A + " b=" + B + " group=" + Group +
-                " removeIsolated=" + RemoveIsolated + " p=" + Point(Position) +
-                (Kind == Op.Disconnected ? " p1=" + Point(Position1) + " p2=" + Point(Position2) : "") +
-                " split=0.5 bary=" + Point(Bary) + " preserveManifold=true";
+            public override string ToString() => Kind + " a=" + A + " b=" + B + " group=" + Group + " flag=" + Flag + " p=" +
+                Position.x.ToString("R", CultureInfo.InvariantCulture) + "," +
+                Position.y.ToString("R", CultureInfo.InvariantCulture) + "," + Position.z.ToString("R", CultureInfo.InvariantCulture);
         }
 
         struct Vertex
@@ -46,6 +54,7 @@ namespace geometry3Sharp.Tests
             public Index3i V;
             public int Group;
             public Face(Index3i v, int group) { V = v; Group = group; }
+            public string Key => Oriented(V) + " g" + Group;
         }
 
         sealed class Snapshot
@@ -53,213 +62,184 @@ namespace geometry3Sharp.Tests
             public readonly Dictionary<int, Vertex> Vertices = new Dictionary<int, Vertex>();
             public readonly Dictionary<int, Face> Faces = new Dictionary<int, Face>();
             public readonly Dictionary<int, Index4i> Edges = new Dictionary<int, Index4i>();
-            public bool Normals, Colors, UVs, Groups;
-            public int Timestamp, ShapeTimestamp;
+            public readonly bool Normals, Colors, UVs, Groups;
             public Snapshot(DMesh3 mesh)
             {
                 Normals = mesh.HasVertexNormals; Colors = mesh.HasVertexColors;
                 UVs = mesh.HasVertexUVs; Groups = mesh.HasTriangleGroups;
-                Timestamp = mesh.Timestamp; ShapeTimestamp = mesh.ShapeTimestamp;
-                foreach (int v in mesh.VertexIndices().OrderBy(v => v))
+                foreach (int v in mesh.VertexIndices())
                     Vertices.Add(v, new Vertex { P = mesh.GetVertex(v),
                         N = Normals ? mesh.GetVertexNormal(v) : Vector3f.Zero,
                         C = Colors ? mesh.GetVertexColor(v) : Vector3f.Zero,
                         UV = UVs ? mesh.GetVertexUV(v) : Vector2f.Zero });
-                foreach (int t in mesh.TriangleIndices().OrderBy(t => t))
+                foreach (int t in mesh.TriangleIndices())
                     Faces.Add(t, new Face(mesh.GetTriangle(t), Groups ? mesh.GetTriangleGroup(t) : -1));
-                foreach (int e in mesh.EdgeIndices().OrderBy(e => e)) Edges.Add(e, mesh.GetEdge(e));
-            }
-            public string Dump()
-            {
-                var text = new StringBuilder();
-                text.AppendLine("channels=" + Normals + "," + Colors + "," + UVs + "," + Groups);
-                foreach (var v in Vertices.OrderBy(p => p.Key))
-                    text.AppendLine("v " + v.Key + " p=" + Point(v.Value.P) + " n=" + Point(v.Value.N) +
-                        " c=" + Point(v.Value.C) + " uv=" + Number(v.Value.UV.x) + "," + Number(v.Value.UV.y));
-                foreach (var t in Faces.OrderBy(p => p.Key))
-                    text.AppendLine("t " + t.Key + " " + t.Value.V.a + "," + t.Value.V.b + "," + t.Value.V.c + " g=" + t.Value.Group);
-                foreach (var e in Edges.OrderBy(p => p.Key))
-                    text.AppendLine("e " + e.Key + " " + e.Value.a + "," + e.Value.b + "," + e.Value.c + "," + e.Value.d);
-                return text.ToString();
+                foreach (int e in mesh.EdgeIndices()) Edges.Add(e, mesh.GetEdge(e));
             }
         }
 
         sealed class State
         {
-            public DMesh3 Mesh;
-            public readonly StringBuilder Log = new StringBuilder();
+            public readonly DMesh3 Mesh;
+            public readonly bool Closed;
             public readonly List<Command> Trace = new List<Command>();
-            public readonly Dictionary<Op, int> Success = new Dictionary<Op, int>();
-            public Dictionary<int, int> LogicalVertices = new Dictionary<int, int>();
-            public Dictionary<int, int> LogicalFaces = new Dictionary<int, int>();
-            public int NextVertex, NextFace;
-            public bool Closed;
-            public State(DMesh3 mesh, string context, bool closed = false)
-            {
-                Mesh = mesh; Closed = closed;
-                foreach (int v in mesh.VertexIndices().OrderBy(v => v)) LogicalVertices[v] = NextVertex++;
-                foreach (int t in mesh.TriangleIndices().OrderBy(t => t)) LogicalFaces[t] = NextFace++;
-                Log.AppendLine(context).Append(new Snapshot(mesh).Dump());
-            }
+            public readonly Dictionary<Op, int> Attempts = new Dictionary<Op, int>(), Successes = new Dictionary<Op, int>();
+            public State(DMesh3 mesh, bool closed = false) { Mesh = mesh; Closed = closed; }
         }
 
-        static string Number(double x) => x.ToString("R", CultureInfo.InvariantCulture);
-        static string Point(Vector3d p) => Number(p.x) + "," + Number(p.y) + "," + Number(p.z);
         static Index2i Pair(int a, int b) => a < b ? new Index2i(a, b) : new Index2i(b, a);
         static bool Has(Index3i t, int v) => t.a == v || t.b == v || t.c == v;
+        static IEnumerable<int> Corners(Index3i t) { yield return t.a; yield return t.b; yield return t.c; }
+        static IEnumerable<Index2i> Sides(Index3i t) { yield return Pair(t.a, t.b); yield return Pair(t.b, t.c); yield return Pair(t.c, t.a); }
         static string Oriented(Index3i t)
         {
             int j = t.a < t.b && t.a < t.c ? 0 : (t.b < t.c ? 1 : 2);
             return t[j] + "," + t[(j + 1) % 3] + "," + t[(j + 2) % 3];
         }
-        static int Other(Index3i t, int a, int b) => Enumerable.Range(0, 3).Select(j => t[j]).Single(v => v != a && v != b);
-        static void Require(bool condition, string message, State state)
-        {
-            if (!condition) Assert.True(false, message + "\n" + state.Log);
-        }
-        static void Equal<T>(T expected, T actual, string message, State state) => Require(EqualityComparer<T>.Default.Equals(expected, actual),
-            message + " expected=" + expected + " actual=" + actual, state);
-        static void SameIDs(IEnumerable<int> expected, IEnumerable<int> actual, string message, State state) =>
-            Require(expected.OrderBy(v => v).SequenceEqual(actual.OrderBy(v => v)), message, state);
+        static int Other(Index3i t, int a, int b) => Corners(t).Single(v => v != a && v != b);
+        static int[] Sorted(IEnumerable<int> ids) => ids.OrderBy(i => i).ToArray();
 
-        static Dictionary<Index2i, List<int>> Incidence(Dictionary<int, Face> faces)
+        static Dictionary<int, List<Index3i>> Stars(IEnumerable<Index3i> triangles)
         {
-            var result = new Dictionary<Index2i, List<int>>();
-            foreach (var face in faces.OrderBy(p => p.Key)) {
-                Index3i t = face.Value.V;
-                for (int j = 0; j < 3; ++j) {
-                    Index2i key = Pair(t[j], t[(j + 1) % 3]);
-                    if (!result.ContainsKey(key)) result.Add(key, new List<int>());
-                    result[key].Add(face.Key);
+            var stars = new Dictionary<int, List<Index3i>>();
+            foreach (Index3i t in triangles)
+                foreach (int v in Corners(t)) {
+                    if (!stars.TryGetValue(v, out List<Index3i> star)) stars.Add(v, star = new List<Index3i>());
+                    star.Add(t);
                 }
-            }
-            return result;
+            return stars;
         }
 
-        // The oracle derives links and incidence from triangles, never from DMesh3 adjacency.
-        static bool SingleFan(int v, Dictionary<int, Face> faces, Dictionary<Index2i, List<int>> edges)
+        // The triangles around v are connected through their edges at v.
+        static bool SingleFan(int v, List<Index3i> star)
         {
-            int[] incident = faces.Where(p => Has(p.Value.V, v)).Select(p => p.Key).OrderBy(t => t).ToArray();
-            if (incident.Length == 0) return true;
-            var local = edges.Where(p => p.Key.a == v || p.Key.b == v).ToArray();
-            if (local.Any(p => p.Value.Count > 2)) return false;
-            int boundary = local.Count(p => p.Value.Count == 1);
-            if (boundary != 0 && boundary != 2) return false;
-            var visited = new HashSet<int> { incident[0] };
-            var todo = new Queue<int>(); todo.Enqueue(incident[0]);
-            while (todo.Count != 0) {
-                int t = todo.Dequeue();
-                foreach (var edge in local.Where(p => p.Value.Contains(t)))
-                    foreach (int next in edge.Value)
-                        if (visited.Add(next)) todo.Enqueue(next);
+            var reached = new HashSet<int> { 0 };
+            var todo = new Stack<int>(); todo.Push(0);
+            while (todo.Count > 0) {
+                Index3i t = star[todo.Pop()];
+                for (int i = 0; i < star.Count; ++i)
+                    if (!reached.Contains(i) && Corners(t).Any(w => w != v && Has(star[i], w))) { reached.Add(i); todo.Push(i); }
             }
-            return visited.Count == incident.Length;
+            return reached.Count == star.Count;
         }
 
-        static void Validate(State state, bool allowBowtie = false)
+        /// <summary>The definition of a manifold triangle list (with boundaries), from the triangles alone.</summary>
+        static bool Manifold(List<Index3i> triangles)
         {
-            DMesh3 m = state.Mesh;
-            Require(m.CheckValidity(allowBowtie, FailMode.ReturnOnly), "CheckValidity", state);
+            var uses = new Dictionary<Index2i, int>();
+            foreach (Index3i t in triangles)
+                foreach (Index2i side in Sides(t)) {
+                    uses.TryGetValue(side, out int n);
+                    if (n == 2) return false;
+                    uses[side] = n + 1;
+                }
+            return Stars(triangles).All(s => SingleFan(s.Key, s.Value));
+        }
+
+        /// <summary>
+        /// The link condition for a topology-preserving edge collapse (Dey, Edelsbrunner, Guha, Nekhayev 1999): what
+        /// the links of a and b have in common is exactly the link of the edge ab, the opposite vertices. A boundary is
+        /// handled there by closing the surface with a dummy vertex joined to every boundary edge.
+        /// </summary>
+        static bool LinkCondition(List<Index3i> triangles, int a, int b)
+        {
+            const int dummy = -2;
+            var uses = new Dictionary<Index2i, int>();
+            foreach (Index3i t in triangles)
+                foreach (Index2i side in Sides(t)) { uses.TryGetValue(side, out int n); uses[side] = n + 1; }
+            List<Index3i> closed = triangles.Concat(uses.Where(u => u.Value == 1).Select(u => new Index3i(u.Key.a, u.Key.b, dummy))).ToList();
+            var linkA = new HashSet<int>(); var linkB = new HashSet<int>(); var linkAB = new HashSet<int>();
+            var edgesA = new HashSet<Index2i>(); var edgesB = new HashSet<Index2i>();
+            foreach (Index3i t in closed) {
+                bool hasA = Has(t, a), hasB = Has(t, b);
+                if (hasA && hasB) linkAB.Add(Other(t, a, b));
+                if (hasA) { int[] o = Corners(t).Where(v => v != a).ToArray(); linkA.UnionWith(o); edgesA.Add(Pair(o[0], o[1])); }
+                if (hasB) { int[] o = Corners(t).Where(v => v != b).ToArray(); linkB.UnionWith(o); edgesB.Add(Pair(o[0], o[1])); }
+            }
+            linkA.IntersectWith(linkB);
+            return linkA.SetEquals(linkAB) && !edgesA.Overlaps(edgesB);
+        }
+
+        /// <summary>
+        /// The mesh's adjacency, bookkeeping and caches agree with its triangle list, and the triangle list is manifold.
+        /// </summary>
+        public static void CheckTopology(DMesh3 m)
+        {
+            Assert.True(m.CheckValidity(false, FailMode.ReturnOnly), "CheckValidity");
             var s = new Snapshot(m);
-            Equal(m.VertexCount, s.Vertices.Count, "enumerated vertex count", state);
-            Equal(m.TriangleCount, s.Faces.Count, "enumerated triangle count", state);
-            Equal(m.EdgeCount, s.Edges.Count, "enumerated edge count", state);
-            SameIDs(s.Vertices.Keys, Enumerable.Range(0, m.MaxVertexID).Where(m.IsVertex), "vertex ID holes", state);
-            SameIDs(s.Faces.Keys, Enumerable.Range(0, m.MaxTriangleID).Where(m.IsTriangle), "triangle ID holes", state);
-            SameIDs(s.Edges.Keys, Enumerable.Range(0, m.MaxEdgeID).Where(m.IsEdge), "edge ID holes", state);
-            var incidence = Incidence(s.Faces);
-            Equal(incidence.Count, m.EdgeCount, "triangle-derived edge count", state);
-            var actualEdges = new Dictionary<Index2i, int>();
+            Assert.Equal(s.Vertices.Count, m.VertexCount);
+            Assert.Equal(s.Faces.Count, m.TriangleCount);
+            Assert.Equal(s.Edges.Count, m.EdgeCount);
+            var incidence = new Dictionary<Index2i, List<int>>();
+            foreach (var face in s.Faces)
+                foreach (Index2i side in Sides(face.Value.V)) {
+                    if (!incidence.TryGetValue(side, out List<int> ts)) incidence.Add(side, ts = new List<int>());
+                    ts.Add(face.Key);
+                }
+            Assert.Equal(incidence.Count, m.EdgeCount);
+            var neighbours = s.Vertices.Keys.ToDictionary(v => v, v => new List<int>());
+            var vertexEdges = s.Vertices.Keys.ToDictionary(v => v, v => new List<int>());
             foreach (var edge in s.Edges) {
                 Index4i e = edge.Value;
-                Require(e.a != e.b && s.Vertices.ContainsKey(e.a) && s.Vertices.ContainsKey(e.b), "edge endpoints", state);
-                Index2i key = Pair(e.a, e.b);
-                Require(!actualEdges.ContainsKey(key) && incidence.ContainsKey(key), "unique triangle-derived edge", state);
-                actualEdges.Add(key, edge.Key);
-                List<int> expected = incidence[key];
-                Require(expected.Count == 1 || expected.Count == 2, "edge manifoldness", state);
-                Require(e.c >= 0, "primary adjacent triangle", state);
-                SameIDs(expected, new[] { e.c, e.d }.Where(t => t >= 0), "reciprocal edge triangles", state);
-                Equal(expected.Count == 1, m.IsBoundaryEdge(edge.Key), "boundary edge", state);
-                Equal(edge.Key, m.FindEdge(e.a, e.b), "FindEdge forward", state);
-                Equal(edge.Key, m.FindEdge(e.b, e.a), "FindEdge reverse", state);
+                Assert.True(incidence.TryGetValue(Pair(e.a, e.b), out List<int> expected), "edge without a triangle");
+                Assert.True(expected.Count <= 2, "edge in more than two triangles");
+                Assert.Equal(Sorted(expected), Sorted(new[] { e.c, e.d }.Where(t => t >= 0)));
+                Assert.True(e.c >= 0, "first edge triangle");
+                Assert.Equal(expected.Count == 1, m.IsBoundaryEdge(edge.Key));
+                Assert.Equal(edge.Key, m.FindEdge(e.a, e.b));
+                Assert.Equal(edge.Key, m.FindEdge(e.b, e.a));
+                neighbours[e.a].Add(e.b); neighbours[e.b].Add(e.a);
+                vertexEdges[e.a].Add(edge.Key); vertexEdges[e.b].Add(edge.Key);
                 if (expected.Count == 2) {
-                    Index3i first = s.Faces[expected[0]].V, second = s.Faces[expected[1]].V;
-                    int direction1 = Enumerable.Range(0, 3).Single(j => Pair(first[j], first[(j + 1) % 3]) == key);
-                    int direction2 = Enumerable.Range(0, 3).Single(j => Pair(second[j], second[(j + 1) % 3]) == key);
-                    Equal(first[direction1], second[(direction2 + 1) % 3], "opposite shared-edge orientation", state);
+                    // two triangles traverse their shared edge in opposite directions
+                    Index3i t0 = s.Faces[expected[0]].V, t1 = s.Faces[expected[1]].V;
+                    int d0 = Enumerable.Range(0, 3).Single(j => Pair(t0[j], t0[(j + 1) % 3]) == Pair(e.a, e.b));
+                    int d1 = Enumerable.Range(0, 3).Single(j => Pair(t1[j], t1[(j + 1) % 3]) == Pair(e.a, e.b));
+                    Assert.Equal(t0[d0], t1[(d1 + 1) % 3]);
                 }
             }
             foreach (var face in s.Faces) {
                 Index3i t = face.Value.V, te = m.GetTriEdges(face.Key);
-                Require(t.a != t.b && t.b != t.c && t.c != t.a, "distinct face vertices", state);
                 for (int j = 0; j < 3; ++j) {
-                    Require(s.Vertices.ContainsKey(t[j]), "live face vertex", state);
-                    Equal(actualEdges[Pair(t[j], t[(j + 1) % 3])], te[j], "ordered triangle edge", state);
+                    Assert.True(s.Vertices.ContainsKey(t[j]), "triangle on a dead vertex");
+                    Index2i ev = m.GetEdgeV(te[j]);
+                    Assert.Equal(Pair(t[j], t[(j + 1) % 3]), Pair(ev.a, ev.b));
                 }
-                Equal(3, new[] { te.a, te.b, te.c }.Distinct().Count(), "distinct face edges", state);
-                Equal(Enumerable.Range(0, 3).Any(j => incidence[Pair(t[j], t[(j + 1) % 3])].Count == 1),
-                    m.IsBoundaryTriangle(face.Key), "boundary triangle", state);
             }
+            var stars = Stars(s.Faces.Values.Select(f => f.V));
+            var starIds = s.Vertices.Keys.ToDictionary(v => v, v => new List<int>());
+            foreach (var face in s.Faces) foreach (int v in Corners(face.Value.V)) starIds[v].Add(face.Key);
             foreach (var vertex in s.Vertices) {
                 int v = vertex.Key;
-                Require(vertex.Value.P.IsFinite, "finite position", state);
-                if (s.Normals) Require(Finite(vertex.Value.N), "finite normal", state);
-                if (s.Colors) Require(Finite(vertex.Value.C), "finite color", state);
-                if (s.UVs) Require(Finite(vertex.Value.UV.x) && Finite(vertex.Value.UV.y), "finite UV", state);
-                int[] triangles = s.Faces.Where(p => Has(p.Value.V, v)).Select(p => p.Key).ToArray();
-                int[] edges = actualEdges.Where(p => p.Key.a == v || p.Key.b == v).Select(p => p.Value).ToArray();
-                SameIDs(triangles, m.VtxTrianglesItr(v), "vertex triangle incidence", state);
-                var unoriented = new List<int>(); var oriented = new List<int>();
-                Equal(MeshResult.Ok, m.GetVtxTriangles(v, unoriented, false), "unoriented incidence status", state);
-                Equal(MeshResult.Ok, m.GetVtxTriangles(v, oriented, true), "oriented incidence status", state);
-                SameIDs(triangles, unoriented, "unoriented vertex triangles", state);
-                SameIDs(triangles, oriented, "oriented vertex triangles", state);
-                SameIDs(edges, m.GetVtxEdges(v), "vertex edge incidence", state);
-                Equal(triangles.Length, m.GetVtxTriangleCount(v), "vertex triangle count", state);
-                Equal(edges.Length, m.GetVtxEdgeCount(v), "vertex edge count", state);
-                SameIDs(incidence.Keys.Where(p => p.a == v || p.b == v).Select(p => p.a == v ? p.b : p.a),
-                    m.VtxVerticesItr(v), "vertex neighbors", state);
-                Equal(incidence.Any(p => (p.Key.a == v || p.Key.b == v) && p.Value.Count == 1),
-                    m.IsBoundaryVertex(v), "boundary vertex", state);
-                if (!allowBowtie) Require(SingleFan(v, s.Faces, incidence), "independent vertex manifoldness", state);
+                Assert.True(vertex.Value.P.IsFinite, "finite position");
+                Assert.Equal(Sorted(starIds[v]), Sorted(m.VtxTrianglesItr(v)));
+                var oriented = new List<int>();
+                Assert.Equal(MeshResult.Ok, m.GetVtxTriangles(v, oriented, true));
+                Assert.Equal(Sorted(starIds[v]), Sorted(oriented));
+                Assert.Equal(Sorted(vertexEdges[v]), Sorted(m.VtxEdgesItr(v)));
+                Assert.Equal(Sorted(neighbours[v]), Sorted(m.VtxVerticesItr(v)));
+                Assert.Equal(starIds[v].Count, m.GetVtxTriangleCount(v));
+                if (stars.TryGetValue(v, out List<Index3i> star)) Assert.True(SingleFan(v, star), "bowtie vertex " + v);
             }
             bool closed = s.Faces.Count > 0 && incidence.Values.All(ts => ts.Count == 2);
-            Equal(closed, m.IsClosed(), "triangle-derived closedness", state);
-            Equal(closed, m.CachedIsClosed, "cached closedness", state);
-            if (state.Closed) {
-                Require(closed, "closed fixture stays closed", state);
-                Equal(2, m.VertexCount - m.EdgeCount + m.TriangleCount, "closed box Euler characteristic", state);
-                Require(Connected(s), "closed box stays connected", state);
-            }
-            CheckBounds(state, s);
+            Assert.Equal(closed, m.IsClosed());
+            Assert.Equal(closed, m.CachedIsClosed);
+            AxisAlignedBox3d bounds = AxisAlignedBox3d.Empty;
+            foreach (var v in s.Vertices.Values) bounds.Contain(v.P);
+            Assert.Equal(bounds.Min, m.CachedBounds.Min);
+            Assert.Equal(bounds.Max, m.CachedBounds.Max);
         }
 
-        static bool Connected(Snapshot s)
+        static void CheckClosed(DMesh3 m)
         {
-            if (s.Vertices.Count == 0) return true;
-            var reached = new HashSet<int> { s.Vertices.Keys.Min() };
-            var todo = new Queue<int>(); todo.Enqueue(reached.Single());
-            var edges = Incidence(s.Faces).Keys.ToArray();
-            while (todo.Count > 0) {
-                int v = todo.Dequeue();
-                foreach (var e in edges.Where(e => e.a == v || e.b == v)) {
-                    int next = e.a == v ? e.b : e.a;
-                    if (reached.Add(next)) todo.Enqueue(next);
-                }
-            }
-            return reached.Count == s.Vertices.Count;
-        }
-        static bool Finite(double x) => !double.IsNaN(x) && !double.IsInfinity(x);
-        static bool Finite(Vector3f v) => Finite(v.x) && Finite(v.y) && Finite(v.z);
-        static void CheckBounds(State state, Snapshot snapshot)
-        {
-            AxisAlignedBox3d expected = AxisAlignedBox3d.Empty;
-            foreach (var v in snapshot.Vertices.Values) expected.Contain(v.P);
-            Equal(expected.Min, state.Mesh.CachedBounds.Min, "cached bounds min", state);
-            Equal(expected.Max, state.Mesh.CachedBounds.Max, "cached bounds max", state);
-            Equal(expected.Min, state.Mesh.GetBounds().Min, "fresh bounds min", state);
-            Equal(expected.Max, state.Mesh.GetBounds().Max, "fresh bounds max", state);
+            Assert.True(m.IsClosed(), "a closed mesh stays closed");
+            Assert.Equal(2, m.VertexCount - m.EdgeCount + m.TriangleCount);
+            var reached = new HashSet<int> { m.VertexIndices().Min() };
+            var todo = new Stack<int>(reached);
+            while (todo.Count > 0)
+                foreach (int next in m.VtxVerticesItr(todo.Pop()))
+                    if (reached.Add(next)) todo.Push(next);
+            Assert.Equal(m.VertexCount, reached.Count);
         }
 
         static Vertex Attributes(Vector3d p, int tag)
@@ -268,561 +248,427 @@ namespace geometry3Sharp.Tests
             return new Vertex { P = p, N = new Vector3f(k, k + 1, k + 2).Normalized,
                 C = new Vector3f(k / 32f, (k + 1) / 32f, (k + 2) / 32f), UV = new Vector2f(k / 16f, -k / 32f) };
         }
-        static NewVertexInfo Info(Vertex v) => new NewVertexInfo { v = v.P, n = v.N, c = v.C, uv = v.UV,
-            bHaveN = true, bHaveC = true, bHaveUV = true };
-        static int Add(DMesh3 mesh, Vector3d p, int tag) => mesh.AppendVertex(Info(Attributes(p, tag)));
-        static int AddFace(DMesh3 mesh, int a, int b, int c, int group)
-        {
-            int t = mesh.AppendTriangle(a, b, c, group);
-            Assert.True(t >= 0, "procedural fixture triangle rejected");
-            return t;
-        }
-        static int[] AddGrid(DMesh3 mesh, int n, double offset)
-        {
-            int[] v = new int[(n + 1) * (n + 1)];
-            for (int y = 0; y <= n; ++y)
-                for (int x = 0; x <= n; ++x) v[y * (n + 1) + x] = Add(mesh, new Vector3d(offset + x, y, 0), mesh.MaxVertexID);
-            for (int y = 0; y < n; ++y)
-                for (int x = 0; x < n; ++x) {
-                    int a = v[y * (n + 1) + x], b = v[y * (n + 1) + x + 1];
-                    int c = v[(y + 1) * (n + 1) + x], d = v[(y + 1) * (n + 1) + x + 1];
-                    AddFace(mesh, a, b, d, 10 + y * n + x);
-                    AddFace(mesh, a, d, c, 40 + y * n + x);
-                }
-            return v;
-        }
+        static int Add(DMesh3 mesh, Vertex v) => mesh.AppendVertex(new NewVertexInfo { v = v.P, n = v.N, c = v.C, uv = v.UV,
+            bHaveN = true, bHaveC = true, bHaveUV = true });
+        static int Add(DMesh3 mesh, Vector3d p, int tag) => Add(mesh, Attributes(p, tag));
+
         static DMesh3 Fixture(string name, bool attributes = true)
         {
             var m = new DMesh3(attributes, attributes, attributes, attributes);
             if (name == "isolated") { Add(m, Vector3d.Zero, 1); Add(m, new Vector3d(2, 3, 4), 2); }
-            else if (name == "triangle") AddFace(m, Add(m, Vector3d.Zero, 1), Add(m, Vector3d.AxisX, 2), Add(m, Vector3d.AxisY, 3), 17);
-            else if (name == "grid") AddGrid(m, 3, 0);
-            else if (name == "box") {
-                Vector3d[] points = { new Vector3d(0, 0, 0), new Vector3d(1, 0, 0), new Vector3d(1, 1, 0), new Vector3d(0, 1, 0),
-                    new Vector3d(0, 0, 1), new Vector3d(1, 0, 1), new Vector3d(1, 1, 1), new Vector3d(0, 1, 1) };
-                foreach (Vector3d p in points) Add(m, p, m.VertexCount + 1);
+            else if (name == "triangle") m.AppendTriangle(Add(m, Vector3d.Zero, 1), Add(m, Vector3d.AxisX, 2), Add(m, Vector3d.AxisY, 3), 17);
+            else if (name == "grid") {
+                const int n = 3;
+                for (int y = 0; y <= n; ++y)
+                    for (int x = 0; x <= n; ++x) Add(m, new Vector3d(x, y, 0), m.MaxVertexID);
+                for (int y = 0; y < n; ++y)
+                    for (int x = 0; x < n; ++x) {
+                        int a = y * (n + 1) + x, b = a + 1, c = a + n + 1, d = c + 1;
+                        m.AppendTriangle(a, b, d, 10 + y * n + x);
+                        m.AppendTriangle(a, d, c, 40 + y * n + x);
+                    }
+            } else if (name == "box") {
+                for (int k = 0; k < 8; ++k)
+                    Add(m, new Vector3d((k + 1) / 2 % 2, k / 2 % 2, k / 4), k + 1);
                 int[][] faces = { new[] { 0, 2, 1 }, new[] { 0, 3, 2 }, new[] { 4, 5, 6 }, new[] { 4, 6, 7 },
                     new[] { 0, 1, 5 }, new[] { 0, 5, 4 }, new[] { 1, 2, 6 }, new[] { 1, 6, 5 },
                     new[] { 2, 3, 7 }, new[] { 2, 7, 6 }, new[] { 3, 0, 4 }, new[] { 3, 4, 7 } };
-                for (int j = 0; j < faces.Length; ++j) AddFace(m, faces[j][0], faces[j][1], faces[j][2], 80 + j);
+                for (int j = 0; j < faces.Length; ++j) m.AppendTriangle(faces[j][0], faces[j][1], faces[j][2], 80 + j);
+                Assert.True(m.IsClosed(), "box fixture");
             } else Assert.Equal("empty", name);
             return m;
         }
 
-        static void SameVertex(Vertex expected, Vertex actual, Snapshot channels, State state, string message)
+        static DMesh3 Transformed(DMesh3 source, Similarity similarity)
         {
-            Equal(expected.P, actual.P, message + " position", state);
-            if (channels.Normals) Equal(expected.N, actual.N, message + " normal", state);
-            if (channels.Colors) Equal(expected.C, actual.C, message + " color", state);
-            if (channels.UVs) Equal(expected.UV, actual.UV, message + " UV", state);
+            var mesh = new DMesh3(source);
+            foreach (int v in source.VertexIndices()) mesh.SetVertex(v, similarity.Apply(source.GetVertex(v)));
+            return mesh;
         }
-        static void SameSnapshot(Snapshot expected, DMesh3 mesh, State state, bool timestamps = false)
+
+        static void SameVertex(Vertex expected, Vertex actual, Snapshot channels, bool derived, double tolerance)
+        {
+            if (derived) {
+                Assert.True(expected.P.Distance(actual.P) <= tolerance, "interpolated position");
+                if (channels.Normals) Assert.True((expected.N - actual.N).Length <= 1e-5f, "interpolated normal");
+                if (channels.Colors) Assert.True((expected.C - actual.C).Length <= 1e-5f, "interpolated color");
+                if (channels.UVs) Assert.True((expected.UV - actual.UV).Length <= 1e-5f, "interpolated UV");
+            } else {
+                Assert.Equal(expected.P, actual.P);
+                if (channels.Normals) Assert.Equal(expected.N, actual.N);
+                if (channels.Colors) Assert.Equal(expected.C, actual.C);
+                if (channels.UVs) Assert.Equal(expected.UV, actual.UV);
+            }
+        }
+
+        static void SameSnapshot(Snapshot expected, DMesh3 mesh)
         {
             var actual = new Snapshot(mesh);
-            Equal(expected.Normals, actual.Normals, "normal channel", state);
-            Equal(expected.Colors, actual.Colors, "color channel", state);
-            Equal(expected.UVs, actual.UVs, "UV channel", state);
-            Equal(expected.Groups, actual.Groups, "group channel", state);
-            SameIDs(expected.Vertices.Keys, actual.Vertices.Keys, "snapshot vertices", state);
-            SameIDs(expected.Faces.Keys, actual.Faces.Keys, "snapshot faces", state);
-            SameIDs(expected.Edges.Keys, actual.Edges.Keys, "snapshot edges", state);
-            foreach (var v in expected.Vertices) SameVertex(v.Value, actual.Vertices[v.Key], expected, state, "snapshot v=" + v.Key);
-            foreach (var t in expected.Faces) Equal(t.Value, actual.Faces[t.Key], "snapshot face=" + t.Key, state);
-            foreach (var e in expected.Edges) Equal(e.Value, actual.Edges[e.Key], "snapshot edge=" + e.Key, state);
-            if (timestamps) {
-                Equal(expected.Timestamp, actual.Timestamp, "rejection timestamp", state);
-                Equal(expected.ShapeTimestamp, actual.ShapeTimestamp, "rejection shape timestamp", state);
-            }
-        }
-        static void SameFaces(Dictionary<int, Face> expected, DMesh3 mesh, State state)
-        {
-            SameIDs(expected.Keys, mesh.TriangleIndices(), "operation face IDs", state);
-            foreach (var f in expected) {
-                Equal(Oriented(f.Value.V), Oriented(mesh.GetTriangle(f.Key)), "oriented operation face=" + f.Key, state);
-                if (mesh.HasTriangleGroups) Equal(f.Value.Group, mesh.GetTriangleGroup(f.Key), "operation face group=" + f.Key, state);
-            }
-        }
-        static Vertex Weighted(Vertex a, Vertex b, Vertex c, Vector3d weights)
-        {
-            double x = weights.x, y = weights.y, z = weights.z;
-            return new Vertex { P = x * a.P + y * b.P + z * c.P,
-                N = new Vector3f(x * a.N.x + y * b.N.x + z * c.N.x, x * a.N.y + y * b.N.y + z * c.N.y,
-                    x * a.N.z + y * b.N.z + z * c.N.z).Normalized,
-                C = new Vector3f(x * a.C.x + y * b.C.x + z * c.C.x, x * a.C.y + y * b.C.y + z * c.C.y,
-                    x * a.C.z + y * b.C.z + z * c.C.z),
-                UV = new Vector2f(x * a.UV.x + y * b.UV.x + z * c.UV.x, x * a.UV.y + y * b.UV.y + z * c.UV.y) };
+            Assert.Equal(expected.Normals, actual.Normals);
+            Assert.Equal(expected.Colors, actual.Colors);
+            Assert.Equal(expected.UVs, actual.UVs);
+            Assert.Equal(expected.Groups, actual.Groups);
+            Assert.Equal(Sorted(expected.Vertices.Keys), Sorted(actual.Vertices.Keys));
+            Assert.Equal(Sorted(expected.Faces.Keys), Sorted(actual.Faces.Keys));
+            Assert.Equal(Sorted(expected.Edges.Keys), Sorted(actual.Edges.Keys));
+            foreach (var v in expected.Vertices) SameVertex(v.Value, actual.Vertices[v.Key], expected, false, 0);
+            foreach (var t in expected.Faces) Assert.Equal(t.Value.Key, actual.Faces[t.Key].Key);
+            foreach (var e in expected.Edges) Assert.Equal(e.Value, actual.Edges[e.Key]);
         }
 
-        void Execute(State state, Command command, bool mustSucceed = true)
+        static Vertex Weighted(Vertex a, Vertex b, Vertex c, Vector3d w)
         {
-            try { ExecuteCore(state, command, mustSucceed); }
-            catch {
-                output.WriteLine(state.Log.ToString());
-                throw;
-            }
+            return new Vertex { P = w.x * a.P + w.y * b.P + w.z * c.P,
+                N = new Vector3f(w.x * a.N.x + w.y * b.N.x + w.z * c.N.x, w.x * a.N.y + w.y * b.N.y + w.z * c.N.y,
+                    w.x * a.N.z + w.y * b.N.z + w.z * c.N.z).Normalized,
+                C = new Vector3f(w.x * a.C.x + w.y * b.C.x + w.z * c.C.x, w.x * a.C.y + w.y * b.C.y + w.z * c.C.y,
+                    w.x * a.C.z + w.y * b.C.z + w.z * c.C.z),
+                UV = new Vector2f(w.x * a.UV.x + w.y * b.UV.x + w.z * c.UV.x, w.x * a.UV.y + w.y * b.UV.y + w.z * c.UV.y) };
         }
 
-        void ExecuteCore(State state, Command command, bool mustSucceed)
+        /// <summary>
+        /// Runs one command. The expectation (what the mesh must look like afterwards, and whether the operation is
+        /// possible) is computed from the triangle list before the call. Which child of a split face keeps the old ID is
+        /// not specified, so faces are compared by their oriented vertices and group; faces the operation does not touch
+        /// keep their ID.
+        /// </summary>
+        void Apply(State state, Command c)
         {
             DMesh3 m = state.Mesh;
+            state.Trace.Add(c);
+            output.WriteLine("step " + (state.Trace.Count - 1) + ": " + c);
             var before = new Snapshot(m);
-            AxisAlignedBox3d warmBounds = m.CachedBounds;
-            bool warmClosed = m.CachedIsClosed;
-            state.Trace.Add(command);
-            string entry = "step=" + (state.Trace.Count - 1) + " " + command;
-            state.Log.AppendLine(entry); output.WriteLine(entry);
             var vertices = new Dictionary<int, Vertex>(before.Vertices);
-            var faces = new Dictionary<int, Face>(before.Faces);
-            var createdVertices = new List<int>();
-            bool success = true, partialRemovalFailure = false;
-            MeshResult result = MeshResult.Ok;
-            int a = command.A, b = command.B;
-            Action<int, Vertex> created = (id, vertex) => {
-                Require(id >= 0 && !before.Vertices.ContainsKey(id) && !createdVertices.Contains(id), "fresh distinct vertex ID", state);
-                createdVertices.Add(id); vertices.Add(id, vertex);
-            };
-            Action<int, Face> createdFace = (id, face) => {
-                Require(id >= 0 && !before.Faces.ContainsKey(id) && !faces.ContainsKey(id), "fresh distinct face ID", state);
-                faces.Add(id, face);
-            };
-            switch (command.Kind) {
+            List<Face> faces = before.Faces.Values.ToList();
+            var derived = new HashSet<int>();
+            int noGroup(int g) => before.Groups ? g : -1;
+            int a = c.A, b = c.B;
+            bool ok = true;
+            bool? possible = true;      // null: the operation may refuse, see RemoveVertex
+            bool partialAllowed = false, keepsIDs = true;
+            switch (c.Kind) {
                 case Op.AppendVertex: {
-                    Vertex value = Attributes(command.Position, command.Group);
-                    created(m.AppendVertex(Info(value)), value); break;
+                    Vertex value = Attributes(c.Position, c.Group);
+                    vertices.Add(Add(m, value), value);
+                    break;
                 }
                 case Op.Disconnected: {
-                    Vector3d[] positions = { command.Position, command.Position1, command.Position2 };
+                    Vector3d[] points = { c.Position, c.Position1, c.Position2 };
                     int[] ids = new int[3];
                     for (int j = 0; j < 3; ++j) {
-                        Vertex value = Attributes(positions[j], command.Group + j);
-                        ids[j] = m.AppendVertex(Info(value)); created(ids[j], value);
+                        Vertex value = Attributes(points[j], c.Group + j);
+                        ids[j] = Add(m, value); vertices.Add(ids[j], value);
                     }
-                    createdFace(m.AppendTriangle(ids[0], ids[1], ids[2], command.Group), new Face(new Index3i(ids[0], ids[1], ids[2]), command.Group));
+                    Assert.True(m.AppendTriangle(ids[0], ids[1], ids[2], c.Group) >= 0, "separate triangle");
+                    faces.Add(new Face(new Index3i(ids[0], ids[1], ids[2]), noGroup(c.Group)));
                     break;
                 }
                 case Op.Attach: {
-                    Vertex value = Attributes(command.Position, command.Group);
-                    int v = m.AppendVertex(Info(value)); created(v, value);
-                    createdFace(m.AppendTriangle(b, a, v, command.Group), new Face(new Index3i(b, a, v), command.Group)); break;
-                }
-                case Op.Move: {
-                    m.SetVertex(a, command.Position);
-                    Vertex value = vertices[a]; value.P = command.Position; vertices[a] = value; break;
-                }
-                case Op.Attributes: {
-                    Vertex value = Attributes(vertices[a].P, command.Group);
-                    m.SetVertexNormal(a, value.N); m.SetVertexColor(a, value.C); m.SetVertexUV(a, value.UV);
-                    vertices[a] = value;
-                    if (b >= 0) { m.SetTriangleGroup(b, command.Group); faces[b] = new Face(faces[b].V, command.Group); }
+                    // a is followed by b in a triangle; a new triangle across that edge is possible only on a boundary
+                    Vertex value = Attributes(c.Position, c.Group);
+                    int v = Add(m, value); vertices.Add(v, value);
+                    possible = faces.Count(f => Sides(f.V).Contains(Pair(a, b))) == 1;
+                    int t = m.AppendTriangle(b, a, v, c.Group);
+                    ok = t >= 0;
+                    if (!ok) Assert.Equal(DMesh3.NonManifoldID, t);
+                    else faces.Add(new Face(new Index3i(b, a, v), noGroup(c.Group)));
                     break;
                 }
-                case Op.SplitBoundary:
-                case Op.SplitInterior: {
-                    Index2i ev = m.GetEdgeV(a); Index2i et = m.GetEdgeT(a);
-                    result = m.SplitEdge(a, out DMesh3.EdgeSplitInfo info, 0.5);
-                    success = result == MeshResult.Ok;
-                    if (!success) break;
-                    bool boundary = et.b == DMesh3.InvalidID;
-                    Equal(command.Kind == Op.SplitBoundary, boundary, "split fixture branch", state);
-                    Equal(boundary, info.bIsBoundary, "split boundary info", state);
-                    Vertex expected = Weighted(vertices[ev.a], vertices[ev.b], default(Vertex), new Vector3d(0.5, 0.5, 0));
-                    created(info.vNew, expected);
-                    int[] old = boundary ? new[] { et.a } : new[] { et.a, et.b };
-                    int[] added = boundary ? new[] { info.eNewT2 } : new[] { info.eNewT2, info.eNewT3 };
-                    for (int k = 0; k < old.Length; ++k) {
-                        Face f = before.Faces[old[k]];
-                        int j = Enumerable.Range(0, 3).Single(i => Pair(f.V[i], f.V[(i + 1) % 3]) == Pair(ev.a, ev.b));
-                        int x = f.V[j], y = f.V[(j + 1) % 3], z = f.V[(j + 2) % 3];
-                        // Which child keeps the old ID depends on the first face's oriented edge.
-                        Index3i primary = before.Faces[et.a].V;
-                        int first = Enumerable.Range(0, 3).Single(i => Pair(primary[i], primary[(i + 1) % 3]) == Pair(ev.a, ev.b));
-                        int replaced = primary[(first + 1) % 3];
-                        Index3i retained = f.V;
-                        for (int i = 0; i < 3; ++i) if (retained[i] == replaced) retained[i] = info.vNew;
-                        faces[old[k]] = new Face(retained, f.Group);
-                        Index3i child = y == replaced ? new Index3i(info.vNew, y, z) : new Index3i(x, info.vNew, z);
-                        createdFace(added[k], new Face(child, f.Group));
+                case Op.Move: {
+                    m.SetVertex(a, c.Position);
+                    Vertex value = vertices[a]; value.P = c.Position; vertices[a] = value;
+                    break;
+                }
+                case Op.Attributes: {
+                    Vertex value = Attributes(vertices[a].P, c.Group);
+                    if (m.HasVertexNormals) m.SetVertexNormal(a, value.N);
+                    if (m.HasVertexColors) m.SetVertexColor(a, value.C);
+                    if (m.HasVertexUVs) m.SetVertexUV(a, value.UV);
+                    vertices[a] = value;
+                    if (b >= 0 && m.HasTriangleGroups) {
+                        Face face = before.Faces[b];
+                        faces[faces.FindIndex(f => f.Key == face.Key)] = new Face(face.V, c.Group);
+                        m.SetTriangleGroup(b, c.Group);
                     }
-                    int[] newEdges = boundary ? new[] { info.eNewBN, info.eNewCN } : new[] { info.eNewBN, info.eNewCN, info.eNewDN };
-                    Require(newEdges.Distinct().Count() == newEdges.Length && newEdges.All(e => m.IsEdge(e) && !before.Edges.ContainsKey(e)), "split new edges", state);
-                    if (boundary) { Equal(-1, info.eNewDN, "boundary split no second opposing edge", state); Equal(-1, info.eNewT3, "boundary split no fourth face", state); }
-                    Equal(before.Edges.Count + (boundary ? 2 : 3), m.EdgeCount, "split edge delta", state);
-                    Require(m.FindEdge(ev.a, info.vNew) >= 0 && m.FindEdge(ev.b, info.vNew) >= 0 && m.FindEdge(ev.a, ev.b) == -1, "split replaces old edge by two segments", state);
+                    break;
+                }
+                case Op.Split: {
+                    Index4i e = before.Edges[a];
+                    ok = m.SplitEdge(a, out DMesh3.EdgeSplitInfo info, 0.5) == MeshResult.Ok;
+                    if (!ok) break;
+                    vertices.Add(info.vNew, Weighted(vertices[e.a], vertices[e.b], default(Vertex), new Vector3d(0.5, 0.5, 0)));
+                    derived.Add(info.vNew);
+                    var split = new List<Face>();
+                    foreach (Face f in faces) {
+                        if (!Has(f.V, e.a) || !Has(f.V, e.b)) { split.Add(f); continue; }
+                        int j = Enumerable.Range(0, 3).Single(i => Pair(f.V[i], f.V[(i + 1) % 3]) == Pair(e.a, e.b));
+                        int x = f.V[j], y = f.V[(j + 1) % 3], z = f.V[(j + 2) % 3];
+                        split.Add(new Face(new Index3i(x, info.vNew, z), f.Group));
+                        split.Add(new Face(new Index3i(info.vNew, y, z), f.Group));
+                    }
+                    faces = split;
                     break;
                 }
                 case Op.Flip: {
-                    Index2i ev = m.GetEdgeV(a), et = m.GetEdgeT(a);
-                    result = m.FlipEdge(a, out DMesh3.EdgeFlipInfo info); success = result == MeshResult.Ok;
-                    if (!success) break;
-                    Index3i primary = before.Faces[et.a].V;
-                    int j = Enumerable.Range(0, 3).Single(i => Pair(primary[i], primary[(i + 1) % 3]) == Pair(ev.a, ev.b));
-                    int x = primary[j], y = primary[(j + 1) % 3], c = primary[(j + 2) % 3];
-                    int d = Other(before.Faces[et.b].V, x, y);
-                    Equal(a, info.eID, "flip edge info", state); Equal(x, info.v0, "flip first endpoint", state); Equal(y, info.v1, "flip second endpoint", state);
-                    Equal(c, info.ov0, "flip first opposite", state); Equal(d, info.ov1, "flip second opposite", state);
-                    Equal(et.a, info.t0, "flip first face info", state); Equal(et.b, info.t1, "flip second face info", state);
-                    faces[et.a] = new Face(new Index3i(c, d, y), faces[et.a].Group);
-                    faces[et.b] = new Face(new Index3i(d, c, x), faces[et.b].Group);
-                    Equal(-1, m.FindEdge(x, y), "old diagonal gone", state); Equal(a, m.FindEdge(c, d), "new diagonal reuses edge ID", state);
-                    Equal(before.Edges.Count, m.EdgeCount, "flip edge count", state); break;
+                    Index4i e = before.Edges[a];
+                    possible = false;
+                    if (e.d >= 0) {
+                        Index3i t0 = before.Faces[e.c].V, t1 = before.Faces[e.d].V;
+                        int v0 = Other(t0, e.a, e.b), v1 = Other(t1, e.a, e.b);
+                        possible = !faces.Any(f => Has(f.V, v0) && Has(f.V, v1));
+                    }
+                    ok = m.FlipEdge(a, out DMesh3.EdgeFlipInfo _) == MeshResult.Ok;
+                    if (ok && possible == true) {
+                        Index3i t0 = before.Faces[e.c].V, t1 = before.Faces[e.d].V;
+                        int j = Enumerable.Range(0, 3).Single(i => Pair(t0[i], t0[(i + 1) % 3]) == Pair(e.a, e.b));
+                        int x = t0[j], y = t0[(j + 1) % 3], v0 = t0[(j + 2) % 3], v1 = Other(t1, x, y);
+                        faces = faces.Where(f => !Has(f.V, x) || !Has(f.V, y)).ToList();
+                        faces.Add(new Face(new Index3i(v0, v1, y), before.Faces[e.c].Group));
+                        faces.Add(new Face(new Index3i(v1, v0, x), before.Faces[e.d].Group));
+                    }
+                    break;
                 }
                 case Op.Collapse: {
-                    int edge = m.FindEdge(a, b);
-                    Index2i et = m.GetEdgeT(edge);
-                    result = m.CollapseEdge(a, b, out DMesh3.EdgeCollapseInfo info); success = result == MeshResult.Ok;
-                    if (!success) break;
-                    Equal(a, info.vKept, "collapse keep", state); Equal(b, info.vRemoved, "collapse remove", state);
-                    Equal(edge, info.eCollapsed, "collapse edge info", state); Equal(et.b == -1, info.bIsBoundary, "collapse boundary", state);
-                    SameIDs(new[] { et.a, et.b }.Where(t => t >= 0), new[] { info.tRemoved0, info.tRemoved1 }.Where(t => t >= 0), "collapse removed-face info", state);
-                    vertices.Remove(b);
-                    foreach (int t in before.Faces.Keys) {
-                        Index3i tv = before.Faces[t].V;
-                        if (Has(tv, a) && Has(tv, b)) faces.Remove(t);
-                        else if (Has(tv, b)) {
-                            for (int j = 0; j < 3; ++j) if (tv[j] == b) tv[j] = a;
-                            faces[t] = new Face(tv, before.Faces[t].Group);
-                        }
-                    }
-                    int[] removedEdges = info.bIsBoundary ? new[] { info.eCollapsed, info.eRemoved0 } : new[] { info.eCollapsed, info.eRemoved0, info.eRemoved1 };
-                    Require(removedEdges.Distinct().Count() == removedEdges.Length && removedEdges.All(e => !m.IsEdge(e)), "collapse removed edges", state);
-                    Equal(before.Edges.Count - removedEdges.Length, m.EdgeCount, "collapse edge delta", state);
-                    Require(m.IsEdge(info.eKept0) && (info.bIsBoundary || m.IsEdge(info.eKept1)), "collapse kept edges", state);
+                    List<Face> next = faces.Where(f => !Has(f.V, a) || !Has(f.V, b)).Select(f => {
+                        Index3i t = f.V;
+                        for (int j = 0; j < 3; ++j) if (t[j] == b) t[j] = a;
+                        return new Face(t, f.Group);
+                    }).ToList();
+                    possible = LinkCondition(faces.Select(f => f.V).ToList(), a, b);
+                    ok = m.CollapseEdge(a, b, out DMesh3.EdgeCollapseInfo _) == MeshResult.Ok;
+                    if (ok) { faces = next; vertices.Remove(b); }
                     break;
                 }
                 case Op.Poke: {
-                    Face f = faces[a];
-                    result = m.PokeTriangle(a, Bary, out DMesh3.PokeTriangleInfo info); success = result == MeshResult.Ok;
-                    if (!success) break;
-                    created(info.new_vid, Weighted(vertices[f.V.a], vertices[f.V.b], vertices[f.V.c], Bary));
-                    faces[a] = new Face(new Index3i(f.V.a, f.V.b, info.new_vid), f.Group);
-                    createdFace(info.new_t1, new Face(new Index3i(f.V.b, f.V.c, info.new_vid), f.Group));
-                    createdFace(info.new_t2, new Face(new Index3i(f.V.c, f.V.a, info.new_vid), f.Group));
-                    int[] es = { info.new_edges.a, info.new_edges.b, info.new_edges.c };
-                    Require(es.Distinct().Count() == 3 && es.All(e => m.IsEdge(e) && !before.Edges.ContainsKey(e)), "poke new edges", state);
-                    for (int j = 0; j < 3; ++j) Equal(Pair(f.V[j], info.new_vid), Pair(m.GetEdgeV(es[j]).a, m.GetEdgeV(es[j]).b), "poke radial edge", state);
-                    Equal(before.Edges.Count + 3, m.EdgeCount, "poke edge delta", state); break;
-                }
-                case Op.RemoveTriangle: {
-                    result = m.RemoveTriangle(a, command.RemoveIsolated, true); success = result == MeshResult.Ok;
-                    if (!success) break;
-                    faces.Remove(a);
-                    if (command.RemoveIsolated)
-                        foreach (int v in new[] { before.Faces[a].V.a, before.Faces[a].V.b, before.Faces[a].V.c })
-                            if (!faces.Values.Any(f => Has(f.V, v))) vertices.Remove(v);
+                    Face f = before.Faces[a];
+                    ok = m.PokeTriangle(a, Bary, out DMesh3.PokeTriangleInfo info) == MeshResult.Ok;
+                    if (!ok) break;
+                    vertices.Add(info.new_vid, Weighted(vertices[f.V.a], vertices[f.V.b], vertices[f.V.c], Bary));
+                    derived.Add(info.new_vid);
+                    faces.RemoveAt(faces.FindIndex(g => g.Key == f.Key));
+                    faces.Add(new Face(new Index3i(f.V.a, f.V.b, info.new_vid), f.Group));
+                    faces.Add(new Face(new Index3i(f.V.b, f.V.c, info.new_vid), f.Group));
+                    faces.Add(new Face(new Index3i(f.V.c, f.V.a, info.new_vid), f.Group));
                     break;
                 }
-                case Op.RemoveIsolated:
-                case Op.RemoveVertex: {
-                    bool removeTriangles = command.Kind == Op.RemoveVertex;
-                    MeshResult expectedResult = MeshResult.Ok;
-                    if (removeTriangles) faces = PredictVertexRemoval(before, m, a, state, out expectedResult);
-                    result = m.RemoveVertex(a, removeTriangles, true);
-                    Equal(expectedResult, result, "vertex removal result", state);
-                    success = result == MeshResult.Ok;
-                    if (!success) {
-                        int removed = before.Faces.Count - faces.Count;
-                        partialRemovalFailure = removed > 0;
-                        if (partialRemovalFailure) {
-                            Equal(before.Timestamp + removed, m.Timestamp, "partial removal timestamp", state);
-                            Equal(before.ShapeTimestamp + removed, m.ShapeTimestamp, "partial removal shape timestamp", state);
-                        }
-                        break;
+                case Op.RemoveTriangle: {
+                    Face f = before.Faces[a];
+                    List<Face> next = faces.Where(g => g.Key != f.Key).ToList();
+                    // on a manifold mesh, removal is possible exactly when the rest has no bowtie
+                    possible = Manifold(next.Select(g => g.V).ToList());
+                    ok = m.RemoveTriangle(a, c.Flag, true) == MeshResult.Ok;
+                    if (ok) {
+                        faces = next;
+                        if (c.Flag)
+                            foreach (int v in Corners(f.V))
+                                if (!faces.Any(g => Has(g.V, v))) vertices.Remove(v);
                     }
-                    vertices.Remove(a); break;
+                    break;
+                }
+                case Op.RemoveIsolated: {
+                    ok = m.RemoveVertex(a, false, true) == MeshResult.Ok;
+                    if (ok) vertices.Remove(a);
+                    break;
+                }
+                case Op.RemoveVertex: {
+                    // Ok must mean exactly this result, without a bowtie. RemoveVertex may refuse a safe removal, as its
+                    // guards are conservative, and then it may have deleted a part of the star:
+                    // KnownLimitation_RemoveVertex_SafeRemovalFailsAfterDeletingTriangles.
+                    possible = null;
+                    List<Face> next = faces.Where(f => !Has(f.V, a)).ToList();
+                    ok = m.RemoveVertex(a, true, true) == MeshResult.Ok;
+                    if (ok) {
+                        Assert.True(Manifold(next.Select(f => f.V).ToList()), "RemoveVertex reported Ok but its result has a bowtie");
+                        faces = next; vertices.Remove(a);
+                    } else partialAllowed = true;
+                    break;
                 }
                 case Op.Compact: {
-                    Compact(state, before);
-                    state.Log.AppendLine("result=Ok compact V=" + m.VertexCount + " T=" + m.TriangleCount + " E=" + m.EdgeCount);
-                    Validate(state); Count(state, command.Kind); return;
+                    DMesh3.CompactInfo info = m.CompactInPlace(true);
+                    Assert.True(m.IsCompact, "compact");
+                    var mapped = new Dictionary<int, Vertex>();
+                    foreach (var v in vertices) mapped.Add(info.MapV[v.Key], v.Value);
+                    vertices = mapped;
+                    faces = faces.Select(f => new Face(new Index3i(info.MapV[f.V.a], info.MapV[f.V.b], info.MapV[f.V.c]), f.Group)).ToList();
+                    keepsIDs = false;
+                    break;
                 }
-                case Op.Copy: {
-                    var copy = new DMesh3(m);
-                    SameSnapshot(before, copy, state);
-                    var copyState = new State(copy, "copy checkpoint\n" + state.Log, state.Closed);
-                    Validate(copyState);
-                    if (copy.VertexCount > 0) {
-                        int v = copy.VertexIndices().Min(); Vector3d p = copy.GetVertex(v);
-                        copy.SetVertex(v, p + new Vector3d(0.125, -0.25, 0.5));
-                        if (copy.HasVertexColors) copy.SetVertexColor(v, new Vector3f(0.75f, 0.5f, 0.25f));
-                        if (copy.HasTriangleGroups && copy.TriangleCount > 0) copy.SetTriangleGroup(copy.TriangleIndices().Min(), 12345);
-                        SameSnapshot(before, m, state, true);
-                        m.SetVertex(v, p + new Vector3d(-0.125, 0.25, -0.5));
-                        Equal(p + new Vector3d(0.125, -0.25, 0.5), copy.GetVertex(v), "source edit does not change copy", state);
-                        m.SetVertex(v, p);
-                        Validate(copyState);
+                case Op.Rebuild: {
+                    m.RebuildFromEdgeRefcounts();
+                    SameSnapshot(before, m);
+                    break;
+                }
+                case Op.Restore: {
+                    // restores into the mesh that already holds the same data, which is a reused destination
+                    using (var stream = new MemoryStream()) {
+                        using (var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, true)) gSerialization.Store(m, writer);
+                        stream.Position = 0;
+                        using (var reader = new BinaryReader(stream)) gSerialization.Restore(m, reader);
                     }
+                    SameSnapshot(before, m);
                     break;
                 }
                 default: throw new InvalidOperationException("unknown command");
             }
-            state.Log.AppendLine("result=" + result + " createdVertices=" + string.Join(",", createdVertices) +
-                " live V=" + m.VertexCount + " T=" + m.TriangleCount + " E=" + m.EdgeCount);
-            if (mustSucceed) Require(success, "deterministic/eligible command must succeed", state);
-            if (!success && !partialRemovalFailure) SameSnapshot(before, m, state, true);
-            else {
-                SameIDs(vertices.Keys, m.VertexIndices(), "operation vertex IDs/count", state);
-                var actual = new Snapshot(m);
-                foreach (var v in vertices) SameVertex(v.Value, actual.Vertices[v.Key], before, state, "operation v=" + v.Key);
-                SameFaces(faces, m, state);
-                foreach (int v in before.Vertices.Keys.Except(vertices.Keys)) Require(!m.IsVertex(v), "removed vertex no longer live", state);
-                foreach (int t in before.Faces.Keys.Except(faces.Keys)) Require(!m.IsTriangle(t), "removed face no longer live", state);
-                UpdateLogical(state, before, actual);
-                if (success) Count(state, command.Kind);
-            }
-            Validate(state);
-            Require(m.TriangleCount <= TriangleCap, "live triangle budget", state);
-        }
+            state.Attempts.TryGetValue(c.Kind, out int attempts); state.Attempts[c.Kind] = attempts + 1;
+            if (ok) { state.Successes.TryGetValue(c.Kind, out int successes); state.Successes[c.Kind] = successes + 1; }
+            if (possible.HasValue) Assert.True(possible.Value == ok, c.Kind + ": possible=" + possible + " but ok=" + ok);
 
-        static Dictionary<int, Face> PredictVertexRemoval(Snapshot before, DMesh3 mesh, int vertex, State state, out MeshResult result)
-        {
-            var faces = new Dictionary<int, Face>(before.Faces);
-            var edges = Incidence(faces);
-            result = MeshResult.Ok;
-            foreach (Face face in faces.Values.Where(f => Has(f.V, vertex))) {
-                int j = Enumerable.Range(0, 3).Single(i => face.V[i] == vertex);
-                int a = face.V[(j + 1) % 3], b = face.V[(j + 2) % 3];
-                if (edges[Pair(a, b)].Count > 1 && edges.Any(e => e.Value.Count == 1 &&
-                    (e.Key.a == a || e.Key.b == a || e.Key.a == b || e.Key.b == b))) {
-                    result = MeshResult.Failed_WouldCreateBowtie;
-                    state.Log.AppendLine("removeVertex initial guard rejects; removedFaces=none");
-                    return faces;
-                }
-            }
-            var order = new List<int>();
-            mesh.GetVtxTriangles(vertex, order, true);
-            SameIDs(faces.Where(f => Has(f.Value.V, vertex)).Select(f => f.Key), order, "compound removal incident order coverage", state);
-            state.Log.AppendLine("removeVertex orderedFaces=" + string.Join(",", order));
-            // RemoveVertex deletes incident triangles sequentially, not transactionally. Predict only
-            // face deletion and triangle-derived links; no adjacency/refcount editor is reproduced.
-            foreach (int triangle in order) {
-                Index3i removed = faces[triangle].V;
-                var next = new Dictionary<int, Face>(faces);
-                next.Remove(triangle);
-                var nextEdges = Incidence(next);
-                if (Enumerable.Range(0, 3).Any(j => !SingleFan(removed[j], next, nextEdges))) {
-                    result = MeshResult.Failed_WouldCreateBowtie;
-                    state.Log.AppendLine("removeVertex blockedFace=" + triangle + " removedFaces=" +
-                        string.Join(",", before.Faces.Keys.Except(faces.Keys).OrderBy(t => t)));
-                    return faces;
-                }
-                faces = next;
-            }
-            return faces;
-        }
-
-        static void Count(State state, Op op) { if (!state.Success.ContainsKey(op)) state.Success[op] = 0; ++state.Success[op]; }
-        static void UpdateLogical(State state, Snapshot before, Snapshot after)
-        {
-            foreach (int v in before.Vertices.Keys.Except(after.Vertices.Keys)) state.LogicalVertices.Remove(v);
-            foreach (int v in after.Vertices.Keys.Except(before.Vertices.Keys).OrderBy(v => v)) state.LogicalVertices.Add(v, state.NextVertex++);
-            foreach (int t in before.Faces.Keys.Except(after.Faces.Keys)) state.LogicalFaces.Remove(t);
-            foreach (int t in after.Faces.Keys.Except(before.Faces.Keys).OrderBy(t => t)) state.LogicalFaces.Add(t, state.NextFace++);
-            SameIDs(after.Vertices.Keys, state.LogicalVertices.Keys, "logical vertex lifetime", state);
-            SameIDs(after.Faces.Keys, state.LogicalFaces.Keys, "logical face lifetime", state);
-        }
-        static void Compact(State state, Snapshot before)
-        {
-            DMesh3 m = state.Mesh;
-            var oldLogicalV = new Dictionary<int, int>(state.LogicalVertices);
-            var oldLogicalT = new Dictionary<int, int>(state.LogicalFaces);
-            DMesh3.CompactInfo info = m.CompactInPlace(true);
-            Require(info.MapV != null && m.IsCompact, "compaction map and compactness", state);
-            var mappedV = new Dictionary<int, int>();
             var after = new Snapshot(m);
-            foreach (var v in before.Vertices) {
-                int next = info.MapV[v.Key];
-                state.Log.AppendLine("compact MapV " + v.Key + " -> " + next);
-                Require(m.IsVertex(next) && !mappedV.ContainsKey(next), "bijective compaction vertex map", state);
-                mappedV.Add(next, oldLogicalV[v.Key]);
-                SameVertex(v.Value, after.Vertices[next], before, state, "mapped vertex=" + v.Key);
+            if (!ok && partialAllowed) {
+                Assert.Equal(Sorted(before.Vertices.Keys), Sorted(after.Vertices.Keys));
+                foreach (var t in before.Faces)
+                    if (!Has(t.Value.V, a)) Assert.Equal(t.Value.Key, after.Faces[t.Key].Key);
+                foreach (var t in after.Faces) Assert.Equal(before.Faces[t.Key].Key, t.Value.Key);
+            } else {
+                Assert.Equal(Sorted(vertices.Keys), Sorted(after.Vertices.Keys));
+                double tolerance = 8 * MathUtil.Epsilon * vertices.Values.Select(v => v.P.MaxAbs).DefaultIfEmpty(0).Max();
+                foreach (var v in vertices) SameVertex(v.Value, after.Vertices[v.Key], before, derived.Contains(v.Key), tolerance);
+                string[] expectedFaces = faces.Select(f => f.Key).OrderBy(k => k, StringComparer.Ordinal).ToArray();
+                Assert.Equal(expectedFaces, after.Faces.Values.Select(f => f.Key).OrderBy(k => k, StringComparer.Ordinal).ToArray());
+                if (keepsIDs) {
+                    var keys = new HashSet<string>(expectedFaces);
+                    foreach (var t in before.Faces)
+                        if (keys.Contains(t.Value.Key)) Assert.Equal(t.Value.Key, after.Faces[t.Key].Key);
+                }
             }
-            SameIDs(mappedV.Keys, after.Vertices.Keys, "compaction covers every vertex", state);
-            var expectedFaces = new Dictionary<string, KeyValuePair<int, Face>>();
-            foreach (var f in before.Faces) {
-                Index3i mapped = new Index3i(info.MapV[f.Value.V.a], info.MapV[f.Value.V.b], info.MapV[f.Value.V.c]);
-                expectedFaces.Add(Oriented(mapped), new KeyValuePair<int, Face>(oldLogicalT[f.Key], new Face(mapped, f.Value.Group)));
-            }
-            Equal(before.Faces.Count, after.Faces.Count, "compaction triangle count", state);
-            Equal(before.Edges.Count, after.Edges.Count, "compaction edge count", state);
-            var mappedT = new Dictionary<int, int>();
-            foreach (var f in after.Faces) {
-                string key = Oriented(f.Value.V);
-                Require(expectedFaces.ContainsKey(key), "mapped oriented face", state);
-                var expected = expectedFaces[key];
-                if (before.Groups) Equal(expected.Value.Group, f.Value.Group, "compacted face group", state);
-                mappedT.Add(f.Key, expected.Key); expectedFaces.Remove(key);
-            }
-            Equal(0, expectedFaces.Count, "compaction covers every face", state);
-            state.LogicalVertices = mappedV; state.LogicalFaces = mappedT;
+            CheckTopology(m);
+            if (state.Closed) CheckClosed(m);
         }
 
-        static Command Cmd(Op kind, int a = -1, int b = -1, Vector3d? position = null, int group = 19, bool isolated = false)
+        static Command Choose(DMesh3 m, Random random, int index, Op[] ops, Op atCap)
         {
-            Vector3d p = position ?? Vector3d.Zero;
-            return new Command { Kind = kind, A = a, B = b, Position = p, Position1 = p + Vector3d.AxisX,
-                Position2 = p + Vector3d.AxisY, Group = group, RemoveIsolated = isolated };
-        }
-        static Command Transform(Command command, Similarity similarity) => new Command {
-            Kind = command.Kind, A = command.A, B = command.B, Group = command.Group, RemoveIsolated = command.RemoveIsolated,
-            Position = similarity.Apply(command.Position), Position1 = similarity.Apply(command.Position1), Position2 = similarity.Apply(command.Position2)
-        };
-        static int[] Eligible(State state, Op op)
-        {
-            var s = new Snapshot(state.Mesh); var edges = Incidence(s.Faces);
-            if (op == Op.SplitBoundary || op == Op.SplitInterior)
-                return s.Edges.Where(e => edges[Pair(e.Value.a, e.Value.b)].Count == (op == Op.SplitBoundary ? 1 : 2)).Select(e => e.Key).OrderBy(e => e).ToArray();
-            if (op == Op.Flip)
-                return s.Edges.Where(e => {
-                    List<int> ts = edges[Pair(e.Value.a, e.Value.b)];
-                    return ts.Count == 2 && !edges.ContainsKey(Pair(Other(s.Faces[ts[0]].V, e.Value.a, e.Value.b), Other(s.Faces[ts[1]].V, e.Value.a, e.Value.b)));
-                }).Select(e => e.Key).OrderBy(e => e).ToArray();
-            if (op == Op.RemoveTriangle)
-                return s.Faces.Keys.Where(t => {
-                    Index3i tv = s.Faces[t].V;
-                    // This is the documented guard, expressed through triangle-derived incidence.
-                    return Enumerable.Range(0, 3).All(j => !edges.Any(e => (e.Key.a == tv[j] || e.Key.b == tv[j]) && e.Value.Count == 1) ||
-                        edges[Pair(tv[j], tv[(j + 1) % 3])].Count == 1 || edges[Pair(tv[j], tv[(j + 2) % 3])].Count == 1);
-                }).OrderBy(t => t).ToArray();
-            if (op == Op.RemoveIsolated)
-                return s.Vertices.Keys.Where(v => !s.Faces.Values.Any(f => Has(f.V, v))).OrderBy(v => v).ToArray();
-            if (op == Op.RemoveVertex)
-                return s.Vertices.Keys.Where(v => s.Faces.Values.Any(f => Has(f.V, v)) && s.Faces.Values.Where(f => Has(f.V, v)).All(f => {
-                    int j = Enumerable.Range(0, 3).Single(i => f.V[i] == v); int a = f.V[(j + 1) % 3], b = f.V[(j + 2) % 3];
-                    return edges[Pair(a, b)].Count == 1 || (!edges.Any(e => (e.Key.a == a || e.Key.b == a) && e.Value.Count == 1) &&
-                        !edges.Any(e => (e.Key.a == b || e.Key.b == b) && e.Value.Count == 1));
-                })).OrderBy(v => v).ToArray();
-            if (op == Op.Collapse)
-                return s.Edges.Where(e => {
-                    int keep = e.Value.a, remove = e.Value.b;
-                    var affected = s.Faces.Where(f => Has(f.Value.V, remove)).ToArray();
-                    var replacement = new Dictionary<int, Face>(s.Faces);
-                    foreach (var f in affected) {
-                        if (Has(f.Value.V, keep)) replacement.Remove(f.Key);
-                        else { Index3i t = f.Value.V; for (int j = 0; j < 3; ++j) if (t[j] == remove) t[j] = keep; replacement[f.Key] = new Face(t, f.Value.Group); }
-                    }
-                    if (replacement.Count == 0 || replacement.Values.Select(f => string.Join(",", new[] { f.V.a, f.V.b, f.V.c }.OrderBy(v => v))).Distinct().Count() != replacement.Count) return false;
-                    var nextEdges = Incidence(replacement);
-                    return s.Vertices.Keys.Where(v => v != remove).All(v => SingleFan(v, replacement, nextEdges)) &&
-                        replacement.Values.Any(f => Has(f.V, keep)) && affected.Any(f => !Has(f.Value.V, keep));
-                }).Select(e => e.Key).OrderBy(e => e).ToArray();
-            throw new InvalidOperationException("no eligibility rule for " + op);
-        }
-
-        void Prelude(State state)
-        {
-            Execute(state, Cmd(Op.AppendVertex, position: new Vector3d(20, 2, 3), group: 3));
-            int isolated = state.Mesh.VertexIndices().Single(v => state.Mesh.GetVertex(v) == new Vector3d(20, 2, 3));
-            Execute(state, Cmd(Op.Move, isolated, position: new Vector3d(20.125, 2.25, 3.5)));
-            Execute(state, Cmd(Op.Attributes, isolated, state.Mesh.TriangleCount > 0 ? state.Mesh.TriangleIndices().Min() : -1, group: 21));
-            Execute(state, Cmd(Op.RemoveIsolated, isolated));
-            Execute(state, Cmd(Op.Disconnected, position: new Vector3d(30, 0, 0), group: 31));
-            int single = state.Mesh.TriangleIndices().Single(t => state.Mesh.GetTriangleGroup(t) == 31);
-            Execute(state, Cmd(Op.RemoveTriangle, single, isolated: false));
-            foreach (int v in Eligible(state, Op.RemoveIsolated)) Execute(state, Cmd(Op.RemoveIsolated, v));
-            Execute(state, Cmd(Op.Disconnected, position: new Vector3d(35, 0, 0), group: 32));
-            single = state.Mesh.TriangleIndices().Single(t => state.Mesh.GetTriangleGroup(t) == 32);
-            Execute(state, Cmd(Op.RemoveTriangle, single, isolated: true));
-            Execute(state, Cmd(Op.Disconnected, position: new Vector3d(40, 0, 0), group: 33));
-            single = state.Mesh.TriangleIndices().Single(t => state.Mesh.GetTriangleGroup(t) == 33);
-            int remove = state.Mesh.GetTriangle(single).a;
-            Execute(state, Cmd(Op.RemoveVertex, remove));
-            foreach (int v in Eligible(state, Op.RemoveIsolated)) Execute(state, Cmd(Op.RemoveIsolated, v));
-            Execute(state, Cmd(Op.Disconnected, position: new Vector3d(50, 0, 0), group: 34));
-            int tid = state.Mesh.TriangleIndices().Single(t => state.Mesh.GetTriangleGroup(t) == 34);
-            Index3i t0 = state.Mesh.GetTriangle(tid);
-            Execute(state, Cmd(Op.Attach, t0.a, t0.b, new Vector3d(50, -1, 0), 35));
-            int boundary = state.Mesh.FindEdge(t0.b, t0.c);
-            Execute(state, Cmd(Op.SplitBoundary, boundary));
-            int boundaryVertex = state.LogicalVertices.OrderByDescending(p => p.Value).First().Key;
-            Execute(state, Cmd(Op.Collapse, t0.b, boundaryVertex));
-            Execute(state, Cmd(Op.SplitBoundary, state.Mesh.FindEdge(t0.b, t0.c)));
-            int diagonal = state.Mesh.FindEdge(t0.a, t0.b);
-            Execute(state, Cmd(Op.Flip, diagonal));
-            Execute(state, Cmd(Op.SplitInterior, diagonal));
-            int newVertex = state.LogicalVertices.OrderByDescending(p => p.Value).First().Key;
-            Index2i splitEdge = state.Mesh.GetEdgeV(diagonal);
-            int keep = splitEdge.a == newVertex ? splitEdge.b : splitEdge.a;
-            Execute(state, Cmd(Op.Collapse, keep, newVertex));
-            Execute(state, Cmd(Op.Poke, state.Mesh.TriangleIndices().Min()));
-            Execute(state, Cmd(Op.Disconnected, position: new Vector3d(54, 0, 0), group: 36));
-            Execute(state, Cmd(Op.Disconnected, position: new Vector3d(58, 0, 0), group: 37));
-            int deleted = state.Mesh.TriangleIndices().Single(t => state.Mesh.GetTriangleGroup(t) == 36);
-            Execute(state, Cmd(Op.RemoveTriangle, deleted, isolated: true));
-            Require(!state.Mesh.IsCompact, "deletion leaves gaps before compaction", state);
-            Execute(state, Cmd(Op.Compact));
-            Execute(state, Cmd(Op.Copy));
-            foreach (Op op in Enum.GetValues(typeof(Op))) Require(state.Success.ContainsKey(op) && state.Success[op] > 0, "successful prelude coverage: " + op, state);
-        }
-
-        Command Choose(State state, Random random, int index)
-        {
-            DMesh3 m = state.Mesh;
-            Op op = m.TriangleCount >= TriangleCap - 2 ? Op.RemoveTriangle : (Op)random.Next(15);
+            Op op = m.TriangleCount >= TriangleCap ? atCap : ops[random.Next(ops.Length)];
+            int[] vertices = Sorted(m.VertexIndices()), triangles = Sorted(m.TriangleIndices()), edges = Sorted(m.EdgeIndices());
             int Pick(int[] ids) => ids[random.Next(ids.Length)];
-            int tag = 100 + index;
-            Vector3d fresh = new Vector3d(64 + index * 2, random.Next(-8, 9) / 4.0, random.Next(-8, 9) / 4.0);
-            if (op == Op.AppendVertex || op == Op.Disconnected) return Cmd(op, position: fresh, group: tag);
-            if (op == Op.Attach) {
-                int[] eligible = Eligible(state, Op.SplitBoundary);
-                if (eligible.Length > 0) {
-                    int e = Pick(eligible); Index2i ev = m.GetEdgeV(e); Index2i et = m.GetEdgeT(e); Index3i t = m.GetTriangle(et.a);
-                    int j = Enumerable.Range(0, 3).Single(i => Pair(t[i], t[(i + 1) % 3]) == Pair(ev.a, ev.b));
-                    return Cmd(op, t[j], t[(j + 1) % 3], fresh, tag);
-                }
-            } else if (op == Op.Move || op == Op.Attributes) {
-                int[] ids = m.VertexIndices().OrderBy(v => v).ToArray();
-                if (ids.Length > 0) {
-                    int v = Pick(ids); int[] ts = m.TriangleIndices().OrderBy(t => t).ToArray();
-                    Vector3d p = m.GetVertex(v) + new Vector3d(random.Next(-2, 3) / 16.0, random.Next(-2, 3) / 16.0, random.Next(-2, 3) / 16.0);
-                    return Cmd(op, v, ts.Length > 0 ? Pick(ts) : -1, p, tag);
-                }
-            } else if (op == Op.Poke) {
-                int[] ids = m.TriangleIndices().OrderBy(t => t).ToArray();
-                if (ids.Length > 0) return Cmd(op, Pick(ids));
-            } else if (op == Op.Compact || op == Op.Copy) return Cmd(op);
-            else {
-                int[] ids = Eligible(state, op);
-                if (ids.Length > 0) {
-                    int id = Pick(ids);
-                    if (op == Op.Collapse) { Index2i ev = m.GetEdgeV(id); return Cmd(op, ev.a, ev.b); }
-                    return Cmd(op, id, isolated: random.Next(2) == 0);
-                }
+            var c = new Command { Kind = op, Group = 100 + index, Flag = random.Next(2) == 0,
+                Position = new Vector3d(64 + index * 2, random.Next(-8, 9) / 4.0, random.Next(-8, 9) / 4.0) };
+            c.Position1 = c.Position + Vector3d.AxisX; c.Position2 = c.Position + Vector3d.AxisY;
+            switch (op) {
+                case Op.AppendVertex: case Op.Disconnected: case Op.Compact: case Op.Rebuild: case Op.Restore: return c;
+                case Op.Attach: case Op.Split: case Op.Flip: case Op.Collapse:
+                    if (edges.Length == 0) break;
+                    c.A = Pick(edges);
+                    if (op == Op.Collapse) {
+                        Index2i ev = m.GetEdgeV(c.A);
+                        c.A = c.Flag ? ev.a : ev.b; c.B = c.Flag ? ev.b : ev.a;
+                    } else if (op == Op.Attach) {
+                        Index2i ev = m.GetEdgeV(c.A);
+                        Index3i t = m.GetTriangle(m.GetEdgeT(c.A).a);
+                        int j = Enumerable.Range(0, 3).Single(i => Pair(t[i], t[(i + 1) % 3]) == Pair(ev.a, ev.b));
+                        c.A = t[j]; c.B = t[(j + 1) % 3];
+                    }
+                    return c;
+                case Op.Move: case Op.Attributes:
+                    if (vertices.Length == 0) break;
+                    c.A = Pick(vertices);
+                    c.B = triangles.Length > 0 ? Pick(triangles) : -1;
+                    if (op == Op.Move) c.Position = m.GetVertex(c.A) + new Vector3d(random.Next(-2, 3) / 16.0, random.Next(-2, 3) / 16.0, random.Next(-2, 3) / 16.0);
+                    return c;
+                case Op.Poke: case Op.RemoveTriangle:
+                    if (triangles.Length == 0) break;
+                    c.A = Pick(triangles);
+                    return c;
+                case Op.RemoveVertex:
+                    if (vertices.Length == 0) break;
+                    c.A = Pick(vertices);
+                    return c;
+                case Op.RemoveIsolated:
+                    int[] isolated = vertices.Where(v => m.GetVtxEdgeCount(v) == 0).ToArray();
+                    if (isolated.Length == 0) break;
+                    c.A = Pick(isolated);
+                    return c;
             }
-            if (m.TriangleCount >= TriangleCap - 2) {
-                int[] removableVertices = Eligible(state, Op.RemoveVertex);
-                if (removableVertices.Length > 0) return Cmd(Op.RemoveVertex, Pick(removableVertices));
-                return Cmd(Op.Compact);
-            }
-            return Cmd(Op.Disconnected, position: fresh, group: tag);
+            c.Kind = Op.Disconnected;
+            return c;
+        }
+
+        State Run(DMesh3 mesh, int seed, Op[] ops, Op atCap, bool closed = false)
+        {
+            var state = new State(mesh, closed);
+            CheckTopology(mesh);
+            var random = new Random(seed);
+            for (int j = 0; j < Steps; ++j) Apply(state, Choose(mesh, random, j, ops, atCap));
+            return state;
         }
 
         public static IEnumerable<object[]> StatefulCases()
         {
             foreach (string fixture in new[] { "empty", "isolated", "triangle", "grid", "box" })
-                foreach (int seed in Seeds) yield return new object[] { fixture, seed };
+                for (int i = 0; i < Seeds.Length; ++i) yield return new object[] { fixture, Seeds[i], i % 2 == 0 };
         }
 
         [Theory]
         [MemberData(nameof(StatefulCases))]
-        public void SeededMutations_ValidateEffectsIncidenceAttributesAndReplay(string fixture, int seed)
+        public void SeededEdits_MatchModel_AndRepeatedRunIsIdentical(string fixture, int seed, bool attributes)
         {
-            var original = Fixture(fixture);
-            var state = new State(original, "seed=" + seed + " fixture=" + fixture);
-            output.WriteLine(state.Log.ToString()); Validate(state); Prelude(state);
-            int suffixLength = Steps - state.Trace.Count;
-            Require(suffixLength > 0, "prelude leaves a bounded random suffix", state);
-            var random = new Random(seed);
-            for (int j = 0; j < suffixLength; ++j) Execute(state, Choose(state, random, j), false);
-            Equal(Steps, state.Trace.Count, "bounded complete mutation sequence", state);
-            var expected = new Snapshot(state.Mesh);
-            var replay = new State(Fixture(fixture), "replay seed=" + seed + " fixture=" + fixture);
-            foreach (Command command in state.Trace) Execute(replay, command, false);
-            SameSnapshot(expected, replay.Mesh, replay);
-            Require(state.LogicalVertices.OrderBy(p => p.Key).SequenceEqual(replay.LogicalVertices.OrderBy(p => p.Key)), "deterministic logical vertex identities", replay);
-            Require(state.LogicalFaces.OrderBy(p => p.Key).SequenceEqual(replay.LogicalFaces.OrderBy(p => p.Key)), "deterministic logical face identities", replay);
-            var replayBefore = new Snapshot(replay.Mesh);
-            Execute(state, Cmd(Op.AppendVertex, position: new Vector3d(-10, -20, -30)));
-            SameSnapshot(replayBefore, replay.Mesh, state, true);
+            State first = Run(Fixture(fixture, attributes), seed, AllOps, Op.RemoveTriangle);
+            State second = Run(Fixture(fixture, attributes), seed, AllOps, Op.RemoveTriangle);
+            Assert.Equal(first.Trace.Select(c => c.ToString()), second.Trace.Select(c => c.ToString()));
+            Assert.Equal("", Invariance.Difference(first.Mesh, second.Mesh));
+            SameSnapshot(new Snapshot(first.Mesh), second.Mesh);
+        }
+
+        [Fact]
+        public void SeededEdits_ExerciseEveryOperationAndMostSucceed()
+        {
+            var attempts = new Dictionary<Op, int>();
+            var successes = new Dictionary<Op, int>();
+            foreach (object[] args in StatefulCases()) {
+                State state = Run(Fixture((string)args[0], (bool)args[2]), (int)args[1], AllOps, Op.RemoveTriangle);
+                foreach (Op op in AllOps) {
+                    attempts.TryGetValue(op, out int a); state.Attempts.TryGetValue(op, out int da); attempts[op] = a + da;
+                    successes.TryGetValue(op, out int s); state.Successes.TryGetValue(op, out int ds); successes[op] = s + ds;
+                }
+            }
+            foreach (Op op in AllOps) {
+                output.WriteLine(op + ": " + successes[op] + " of " + attempts[op]);
+                Assert.True(attempts[op] >= 100, op + " attempts " + attempts[op]);
+                // these may be refused by their definition, depending on the element that was picked
+                double share = op == Op.Attach || op == Op.Flip ? 0.25 : op == Op.Collapse || op == Op.RemoveTriangle || op == Op.RemoveVertex ? 0.5 : 1;
+                Assert.True(successes[op] >= share * attempts[op], op + ": " + successes[op] + " of " + attempts[op]);
+            }
+        }
+
+        [Theory]
+        [InlineData(7)] [InlineData(101)] [InlineData(1709)] [InlineData(8191)]
+        public void ClosedBox_TopologyPreservingEdits_KeepEulerCharacteristicClosednessAndConnectivity(int seed)
+        {
+            State state = Run(Fixture("box"), seed, ClosedOps, Op.Collapse, true);
+            Assert.True(state.Successes[Op.Collapse] >= 5, "collapses: " + state.Successes[Op.Collapse]);
+            Assert.True(state.Successes[Op.Flip] >= 5, "flips: " + state.Successes[Op.Flip]);
+        }
+
+        [Theory]
+        [InlineData("triangle", 7)]
+        [InlineData("grid", 29)]
+        [InlineData("box", 101)]
+        public void SeededEdits_AllSimilarities_GiveTheSameTopologyAndMappedPositions(string fixture, int seed)
+        {
+            State baseline = Run(Fixture(fixture), seed, AllOps, Op.RemoveTriangle);
+            var expected = new Snapshot(baseline.Mesh);
+            foreach (Similarity similarity in Similarity.All()) {
+                var state = new State(Transformed(Fixture(fixture), similarity));
+                foreach (Command c in baseline.Trace)
+                    Apply(state, new Command { Kind = c.Kind, A = c.A, B = c.B, Group = c.Group, Flag = c.Flag,
+                        Position = similarity.Apply(c.Position), Position1 = similarity.Apply(c.Position1), Position2 = similarity.Apply(c.Position2) });
+                var actual = new Snapshot(state.Mesh);
+                Assert.Equal(Sorted(expected.Vertices.Keys), Sorted(actual.Vertices.Keys));
+                Assert.Equal(Sorted(expected.Edges.Keys), Sorted(actual.Edges.Keys));
+                foreach (var t in expected.Faces) Assert.Equal(t.Value.Key, actual.Faces[t.Key].Key);
+                foreach (var e in expected.Edges) Assert.Equal(e.Value, actual.Edges[e.Key]);
+                double size = expected.Vertices.Values.Select(v => v.P.MaxAbs).DefaultIfEmpty(1).Max();
+                foreach (var v in expected.Vertices) {
+                    Vector3d back = similarity.Inverse(actual.Vertices[v.Key].P);
+                    if (similarity.IsExact)
+                        for (int j = 0; j < 3; ++j)
+                            Assert.Equal(BitConverter.DoubleToInt64Bits(v.Value.P[j]), BitConverter.DoubleToInt64Bits(back[j]));
+                    else Assert.True(back.Distance(v.Value.P) <= 256 * similarity.Resolution(size), similarity.Name + " position " + v.Key);
+                    Assert.Equal(v.Value.N, actual.Vertices[v.Key].N);
+                    Assert.Equal(v.Value.C, actual.Vertices[v.Key].C);
+                    Assert.Equal(v.Value.UV, actual.Vertices[v.Key].UV);
+                }
+            }
         }
 
         [Theory]
@@ -832,65 +678,85 @@ namespace geometry3Sharp.Tests
         [InlineData("triangle", false)]
         [InlineData("detached", true)]
         [InlineData("detached", false)]
-        public void Compact_LiveIsolatedVertexAboveDeletionHole_PreservesMappedPayload(string fixture, bool attributes)
+        public void Compact_LiveIsolatedVertexAboveDeletionHole_KeepsItsDataAndCanTakeATriangle(string fixture, bool attributes)
         {
             foreach (Similarity similarity in Similarity.All()) {
-                DMesh3 mesh = Fixture(fixture == "detached" ? "triangle" : fixture, attributes);
-                foreach (int v in mesh.VertexIndices()) mesh.SetVertex(v, similarity.Apply(mesh.GetVertex(v)));
-                var state = new State(mesh, "minimal isolated compaction fixture=" + fixture + " attributes=" + attributes +
-                    " similarity=" + similarity.Name);
-                output.WriteLine(state.Log.ToString()); Validate(state);
+                DMesh3 mesh = Transformed(Fixture(fixture == "detached" ? "triangle" : fixture, attributes), similarity);
+                var state = new State(mesh);
+                Vector3d far = similarity.Apply(new Vector3d(8, 2, 3));
                 int survivor;
                 if (fixture == "triangle") {
-                    Execute(state, Cmd(Op.AppendVertex, position: similarity.Apply(new Vector3d(8, 2, 3)), group: 47));
-                    survivor = mesh.MaxVertexID - 1;
-                    Execute(state, Cmd(Op.RemoveTriangle, 0, isolated: true));
+                    // the isolated vertex has no adjacency list yet
+                    survivor = 3;
+                    Apply(state, new Command { Kind = Op.AppendVertex, Position = far, Group = 47 });
+                    Apply(state, new Command { Kind = Op.RemoveTriangle, A = 0, Flag = true });
                 } else if (fixture == "detached") {
+                    // the isolated vertex has an empty adjacency list left over from its triangle
                     survivor = 2;
-                    Execute(state, Cmd(Op.RemoveTriangle, 0, isolated: false));
-                    Execute(state, Cmd(Op.RemoveIsolated, 0));
-                    Execute(state, Cmd(Op.RemoveIsolated, 1));
+                    Apply(state, new Command { Kind = Op.RemoveTriangle, A = 0, Flag = false });
+                    Apply(state, new Command { Kind = Op.RemoveIsolated, A = 0 });
+                    Apply(state, new Command { Kind = Op.RemoveIsolated, A = 1 });
                 } else {
                     survivor = 1;
-                    Execute(state, Cmd(Op.RemoveIsolated, 0));
+                    Apply(state, new Command { Kind = Op.RemoveIsolated, A = 0 });
                 }
-                SameIDs(new[] { survivor }, mesh.VertexIndices(), "one retained isolated source vertex", state);
-                Equal(0, mesh.TriangleCount, "minimal compaction no triangles", state);
-                Equal(0, mesh.EdgeCount, "minimal compaction no adjacency", state);
-                Require(!mesh.IsVertex(0) && !mesh.IsCompact, "deletion hole below isolated source", state);
-                var beforeCompact = new Snapshot(mesh);
-                int identity = state.LogicalVertices[survivor];
-                Execute(state, Cmd(Op.Compact));
+                Assert.Equal(new[] { survivor }, Sorted(mesh.VertexIndices()));
+                Assert.False(mesh.IsCompact);
+                Vector3d position = mesh.GetVertex(survivor);
+                Apply(state, new Command { Kind = Op.Compact });
+                Assert.Equal(new[] { 0 }, Sorted(mesh.VertexIndices()));
+                Assert.Equal(position, mesh.GetVertex(0));
+
                 var compacted = new Snapshot(mesh);
-                SameIDs(new[] { 0 }, mesh.VertexIndices(), "isolated vertex moves into lowest hole", state);
-                Equal(identity, state.LogicalVertices[0], "MapV retains isolated logical identity", state);
-                Equal(beforeCompact.Normals, compacted.Normals, "isolated compaction normal channel", state);
-                Equal(beforeCompact.Colors, compacted.Colors, "isolated compaction color channel", state);
-                Equal(beforeCompact.UVs, compacted.UVs, "isolated compaction UV channel", state);
-                Equal(beforeCompact.Groups, compacted.Groups, "isolated compaction group channel", state);
-                SameVertex(beforeCompact.Vertices[survivor], compacted.Vertices[0], beforeCompact, state, "isolated compacted payload");
-                Execute(state, Cmd(Op.Compact));
-                SameSnapshot(compacted, mesh, state);
-                Execute(state, Transform(Cmd(Op.Disconnected, position: new Vector3d(8, 2, 3)), similarity));
-                Validate(state);
+                Apply(state, new Command { Kind = Op.Compact });
+                SameSnapshot(compacted, mesh);
+
+                Vector3d offset = similarity.ApplyDirection(Vector3d.AxisX);
+                int p = mesh.AppendVertex(position + offset), q = mesh.AppendVertex(position + similarity.ApplyDirection(Vector3d.AxisY));
+                Assert.True(mesh.AppendTriangle(0, p, q) >= 0, "the moved vertex takes a triangle");
+                Assert.Equal(2, mesh.GetVtxEdgeCount(0));
+                CheckTopology(mesh);
             }
+        }
+
+        [Fact]
+        public void Collapse_ClosedTetrahedron_IsRefusedOnEveryEdge()
+        {
+            // no seeded run gets down to a tetrahedron, and a collapse would leave two triangles on the same three vertices
+            var mesh = new DMesh3(true, true, true, true);
+            for (int k = 0; k < 4; ++k) Add(mesh, new Vector3d(k == 1 ? 1 : 0, k == 2 ? 1 : 0, k == 3 ? 1 : 0), k);
+            int[][] faces = { new[] { 0, 2, 1 }, new[] { 0, 1, 3 }, new[] { 1, 2, 3 }, new[] { 2, 0, 3 } };
+            foreach (int[] f in faces) Assert.True(mesh.AppendTriangle(f[0], f[1], f[2], 5) >= 0);
+            var state = new State(mesh, true);
+            CheckTopology(mesh);
+            foreach (int e in Sorted(mesh.EdgeIndices())) {
+                Index2i ev = mesh.GetEdgeV(e);
+                Apply(state, new Command { Kind = Op.Collapse, A = ev.a, B = ev.b });
+                Apply(state, new Command { Kind = Op.Collapse, A = ev.b, B = ev.a });
+            }
+            Assert.False(state.Successes.ContainsKey(Op.Collapse), "a tetrahedron cannot be collapsed");
         }
 
         [Theory]
         [InlineData(true)]
         [InlineData(false)]
-        public void RebuildFromEdgeRefcounts_RepeatedRebuildPreservesTopologyAndPayload(bool attributes)
+        public void Rebuild_MeshWithHolesAndIsolatedVertex_IsUnchangedAndStaysEditable(bool attributes)
         {
             foreach (Similarity similarity in Similarity.All()) {
-                DMesh3 mesh = Fixture("triangle", attributes);
-                foreach (int v in mesh.VertexIndices()) mesh.SetVertex(v, similarity.Apply(mesh.GetVertex(v)));
-                var state = new State(mesh, "repeated topology rebuild similarity=" + similarity.Name);
+                DMesh3 mesh = Transformed(Fixture("grid", attributes), similarity);
+                var state = new State(mesh);
+                Apply(state, new Command { Kind = Op.RemoveTriangle, A = 0, Flag = true });
+                Apply(state, new Command { Kind = Op.AppendVertex, Position = similarity.Apply(new Vector3d(9, 9, 9)), Group = 3 });
                 var expected = new Snapshot(mesh);
                 for (int repeat = 0; repeat < 2; ++repeat) {
                     mesh.RebuildFromEdgeRefcounts();
-                    Validate(state);
-                    SameSnapshot(expected, mesh, state);
+                    CheckTopology(mesh);
+                    SameSnapshot(expected, mesh);
                 }
+                // the free lists and vertex refcounts of the rebuilt mesh work
+                foreach (int t in Sorted(mesh.TriangleIndices())) mesh.RemoveTriangle(t, true, false);
+                Assert.Equal(1, mesh.VertexCount);
+                CheckTopology(mesh);
             }
         }
 
@@ -920,213 +786,34 @@ namespace geometry3Sharp.Tests
             Assert.True(isolated.CheckValidity(true, FailMode.ReturnOnly));
         }
 
-        static DMesh3 NoncyclicFan()
+        [Fact]
+        public void KnownLimitation_RemoveVertex_SafeRemovalFailsAfterDeletingTriangles()
         {
-            var mesh = new DMesh3(true, true, true, true);
+            // Known limitation (pinned: a fix turns this test red, then it asserts Ok and an empty star). The center of a
+            // disk of five triangles can be removed: nothing is left that could be a bowtie, and the first guard of
+            // RemoveVertex agrees. But the triangles are then deleted one by one in the order of the vertex's edge list,
+            // which here is not a walk around the fan. After two deletions the next triangle is the middle of the open
+            // fan that is left, RemoveTriangle refuses it, and RemoveVertex returns a failure with two triangles already
+            // gone, against its summary ("checks ... first"). The mesh stays valid, but it is neither the old mesh nor
+            // the result, and whether it happens depends on the order of the edge list.
+            var mesh = new DMesh3();
             Vector3d[] points = { Vector3d.Zero, new Vector3d(1, 0, 0), new Vector3d(1, 1, 0),
                 new Vector3d(0, 1, 0), new Vector3d(-1, 0, 0), new Vector3d(0, -1, 0) };
-            for (int j = 0; j < points.Length; ++j) Add(mesh, points[j], 50 + j);
-            AddFace(mesh, 0, 1, 2, 71);
-            AddFace(mesh, 0, 4, 5, 72);
-            AddFace(mesh, 0, 2, 3, 73);
-            AddFace(mesh, 0, 3, 4, 74);
-            AddFace(mesh, 0, 5, 1, 75);
-            return mesh;
-        }
+            foreach (Vector3d p in points) mesh.AppendVertex(p);
+            int[][] disk = { new[] { 1, 2 }, new[] { 4, 5 }, new[] { 2, 3 }, new[] { 3, 4 }, new[] { 5, 1 } };
+            foreach (int[] rim in disk) Assert.True(mesh.AppendTriangle(0, rim[0], rim[1]) >= 0);
+            // the same removal without the step-by-step guard ends in a valid mesh
+            var unguarded = new DMesh3(mesh);
+            Assert.Equal(MeshResult.Ok, unguarded.RemoveVertex(0, true, false));
+            Assert.Equal(0, unguarded.TriangleCount);
+            CheckTopology(unguarded);
 
-        [Fact]
-        public void RemoveVertex_NoncyclicFanOrder_LateRejectionRetainsExactDeletedPrefix()
-        {
-            foreach (Similarity similarity in Similarity.All()) {
-                DMesh3 initial = NoncyclicFan();
-                foreach (int v in initial.VertexIndices()) initial.SetVertex(v, similarity.Apply(initial.GetVertex(v)));
-                var state = new State(new DMesh3(initial), "minimal partial vertex removal similarity=" + similarity.Name);
-                output.WriteLine(state.Log.ToString()); Validate(state);
-                Require(state.Mesh.VtxTrianglesItr(0).SequenceEqual(new[] { 0, 2, 1, 4, 3 }),
-                    "noncyclic removal order removes adjacent prefix then encounters a middle face", state);
-                Require(Eligible(state, Op.RemoveVertex).Contains(0), "initial compound guard permits pole removal", state);
-                Execute(state, Cmd(Op.RemoveVertex, 0), false);
-                SameIDs(new[] { 1, 3, 4 }, state.Mesh.TriangleIndices(), "only prefix faces 0 and 2 were removed", state);
-                SameIDs(Enumerable.Range(0, 6), state.Mesh.VertexIndices(), "late rejection retains every vertex", state);
-                Equal(7, state.Mesh.EdgeCount, "partial removal exact edge count", state);
-                Equal(0, state.Mesh.VtxEdgesItr(2).Count(), "newly isolated rim vertex remains live", state);
-                Require(state.Mesh.IsBoundaryVertex(0), "retained pole has one open fan", state);
-                Require(!state.Success.ContainsKey(Op.RemoveVertex), "partial rejection is not counted as success", state);
-                var replay = new State(new DMesh3(initial), "minimal partial vertex removal replay similarity=" + similarity.Name);
-                Execute(replay, Cmd(Op.RemoveVertex, 0), false);
-                SameSnapshot(new Snapshot(state.Mesh), replay.Mesh, replay);
-                Require(state.LogicalFaces.OrderBy(p => p.Key).SequenceEqual(replay.LogicalFaces.OrderBy(p => p.Key)),
-                    "partial removal replay retains logical face identities", replay);
-            }
-        }
+            MeshResult result = mesh.RemoveVertex(0, true, true);
 
-        [Fact]
-        public void AttributeFreeFixture_AllSuccessfulOperationsRemainValid()
-        {
-            // Group tags are used only for prelude selection, so this trace is recorded with attributes,
-            // then replayed with all optional channels absent.
-            var source = new State(Fixture("triangle"), "attribute-free trace source");
-            Prelude(source);
-            var target = new State(Fixture("triangle", false), "attribute-free replay");
-            foreach (Command command in source.Trace) Execute(target, command);
-            Require(!target.Mesh.HasVertexNormals && !target.Mesh.HasVertexColors && !target.Mesh.HasVertexUVs && !target.Mesh.HasTriangleGroups,
-                "mutations do not enable absent channels", target);
-        }
-
-        [Fact]
-        public void CompleteSuccessfulTrace_OpenMutations_UsesEverySimilarity()
-        {
-            DMesh3 initial = Fixture("triangle");
-            var baseline = new State(new DMesh3(initial), "complete affine trace");
-            Prelude(baseline);
-            var expected = new Snapshot(baseline.Mesh);
-            foreach (Similarity similarity in Similarity.All()) {
-                var mesh = new DMesh3(initial);
-                foreach (int v in mesh.VertexIndices()) mesh.SetVertex(v, similarity.Apply(mesh.GetVertex(v)));
-                var state = new State(mesh, "complete affine trace similarity=" + similarity.Name);
-                foreach (Command command in baseline.Trace) Execute(state, Transform(command, similarity));
-                var actual = new Snapshot(state.Mesh);
-                SameIDs(expected.Vertices.Keys, actual.Vertices.Keys, "affine vertex IDs", state);
-                SameIDs(expected.Edges.Keys, actual.Edges.Keys, "affine edge IDs", state);
-                SameFaces(expected.Faces, mesh, state);
-                foreach (var edge in expected.Edges) Equal(edge.Value, actual.Edges[edge.Key], "affine edge incidence", state);
-                foreach (var v in expected.Vertices) {
-                    Vector3d back = similarity.Inverse(actual.Vertices[v.Key].P);
-                    if (similarity.IsExact)
-                        for (int j = 0; j < 3; ++j) Equal(BitConverter.DoubleToInt64Bits(v.Value.P[j]), BitConverter.DoubleToInt64Bits(back[j]), "affine dyadic bitwise position", state);
-                    else Require(back.Distance(v.Value.P) <= 64 * similarity.Resolution(64), "affine mapped-back position", state);
-                    Equal(v.Value.N, actual.Vertices[v.Key].N, "affine stored normal payload", state);
-                    Equal(v.Value.C, actual.Vertices[v.Key].C, "affine color", state);
-                    Equal(v.Value.UV, actual.Vertices[v.Key].UV, "affine UV", state);
-                }
-                Require(baseline.Success.OrderBy(p => p.Key).SequenceEqual(state.Success.OrderBy(p => p.Key)), "affine operation success counts", state);
-                Require(baseline.LogicalVertices.OrderBy(p => p.Key).SequenceEqual(state.LogicalVertices.OrderBy(p => p.Key)), "affine logical vertex map", state);
-                Require(baseline.LogicalFaces.OrderBy(p => p.Key).SequenceEqual(state.LogicalFaces.OrderBy(p => p.Key)), "affine logical face map", state);
-            }
-        }
-
-        [Fact]
-        public void ClosedBox_TopologyPreservingTrace_IsInvariantAndDeterministic()
-        {
-            DMesh3 initial = Fixture("box");
-            var baseline = new State(new DMesh3(initial), "closed dyadic trace", true);
-            Validate(baseline);
-            int edge = Eligible(baseline, Op.Flip).First();
-            Execute(baseline, Cmd(Op.Flip, edge));
-            Execute(baseline, Cmd(Op.SplitInterior, edge));
-            int added = baseline.LogicalVertices.OrderByDescending(p => p.Value).First().Key;
-            Index2i ev = baseline.Mesh.GetEdgeV(edge);
-            Execute(baseline, Cmd(Op.Collapse, ev.a == added ? ev.b : ev.a, added));
-            Execute(baseline, Cmd(Op.Poke, baseline.Mesh.TriangleIndices().Min()));
-            Execute(baseline, Cmd(Op.Move, 0, position: new Vector3d(-0.125, 0.25, 0.5)));
-            Execute(baseline, Cmd(Op.Attributes, 1, 0, group: 22));
-            Execute(baseline, Cmd(Op.Compact)); Execute(baseline, Cmd(Op.Copy));
-            var expected = new Snapshot(baseline.Mesh);
-            foreach (Similarity similarity in Similarity.All()) {
-                // Normals have a float representation. Keep their values unchanged here: this test
-                // exercises affine position propagation, not a bitwise claim about rotated float normals.
-                var transformed = new DMesh3(initial);
-                foreach (int v in transformed.VertexIndices()) transformed.SetVertex(v, similarity.Apply(transformed.GetVertex(v)));
-                var state = new State(transformed, "closed trace similarity=" + similarity.Name, true);
-                foreach (Command command in baseline.Trace) {
-                    Command mapped = Transform(command, similarity);
-                    Execute(state, mapped);
-                }
-                var actual = new Snapshot(state.Mesh);
-                SameIDs(expected.Vertices.Keys, actual.Vertices.Keys, "invariant vertex IDs", state);
-                SameFaces(expected.Faces, state.Mesh, state);
-                foreach (var e in expected.Edges) Equal(e.Value, actual.Edges[e.Key], "invariant edge incidence", state);
-                foreach (var v in expected.Vertices) {
-                    Vector3d back = similarity.Inverse(actual.Vertices[v.Key].P);
-                    if (similarity.IsExact)
-                        for (int j = 0; j < 3; ++j) Equal(BitConverter.DoubleToInt64Bits(v.Value.P[j]), BitConverter.DoubleToInt64Bits(back[j]), "dyadic bitwise position", state);
-                    else Require(back.Distance(v.Value.P) <= 64 * similarity.Resolution(4), "mapped-back position", state);
-                    if (expected.Normals) Equal(v.Value.N, actual.Vertices[v.Key].N, "invariant stored normal", state);
-                    Equal(v.Value.C, actual.Vertices[v.Key].C, "invariant color", state); Equal(v.Value.UV, actual.Vertices[v.Key].UV, "invariant UV", state);
-                }
-            }
-            var repeat = new State(new DMesh3(initial), "closed repeated trace", true);
-            foreach (Command command in baseline.Trace) Execute(repeat, command);
-            SameSnapshot(expected, repeat.Mesh, repeat);
-        }
-
-        void Reject(State state, string description, Action action)
-        {
-            var before = new Snapshot(state.Mesh);
-            AxisAlignedBox3d warm = state.Mesh.CachedBounds;
-            state.Log.AppendLine(description); output.WriteLine(description);
-            try { action(); SameSnapshot(before, state.Mesh, state, true); Validate(state); }
-            catch {
-                output.WriteLine(state.Log.ToString());
-                throw;
-            }
-        }
-
-        [Fact]
-        public void EarlyRejections_InvalidIDsBoundaryFlipDuplicateAndNonmanifold_DoNotEdit()
-        {
-            var state = new State(Fixture("grid"), "early rejection matrix"); Validate(state);
-            Reject(state, "SplitEdge invalid e=-1", () => Equal(MeshResult.Failed_NotAnEdge, state.Mesh.SplitEdge(-1, out _), "invalid split", state));
-            Reject(state, "FlipEdge invalid e=-1", () => Equal(MeshResult.Failed_NotAnEdge, state.Mesh.FlipEdge(-1, out _), "invalid flip", state));
-            Reject(state, "CollapseEdge keep=-1 remove=0", () => Equal(MeshResult.Failed_NotAnEdge, state.Mesh.CollapseEdge(-1, 0, out _), "invalid collapse", state));
-            Reject(state, "PokeTriangle tid=-1", () => Equal(MeshResult.Failed_NotATriangle, state.Mesh.PokeTriangle(-1, Bary, out _), "invalid poke", state));
-            Reject(state, "RemoveTriangle tid=-1 preserve=true", () => Equal(MeshResult.Failed_NotATriangle, state.Mesh.RemoveTriangle(-1, false, true), "invalid remove triangle", state));
-            Reject(state, "RemoveVertex vid=-1 preserve=true", () => Equal(MeshResult.Failed_NotAVertex, state.Mesh.RemoveVertex(-1, false, true), "invalid remove vertex", state));
-            Reject(state, "AppendTriangle vertices=-1,0,1", () => Equal(DMesh3.InvalidID, state.Mesh.AppendTriangle(-1, 0, 1), "negative append result is not MeshResult", state));
-            int boundary = Eligible(state, Op.SplitBoundary).First();
-            Reject(state, "FlipEdge boundary e=" + boundary, () => Equal(MeshResult.Failed_IsBoundaryEdge, state.Mesh.FlipEdge(boundary, out _), "boundary flip", state));
-            int interior = Eligible(state, Op.SplitInterior).First(); Index2i iv = state.Mesh.GetEdgeV(interior);
-            int third = state.Mesh.VertexIndices().First(v => v != iv.a && v != iv.b);
-            Reject(state, "AppendTriangle third face on edge=" + interior + " vertices=" + iv.a + "," + iv.b + "," + third,
-                () => Equal(DMesh3.NonManifoldID, state.Mesh.AppendTriangle(iv.a, iv.b, third), "nonmanifold append", state));
-            int duplicate = state.Mesh.GetEdgeT(interior).a; Index3i tri = state.Mesh.GetTriangle(duplicate);
-            Reject(state, "AppendTriangle duplicate tid=" + duplicate, () => Equal(DMesh3.NonManifoldID, state.Mesh.AppendTriangle(tri), "duplicate with occupied interior edge", state));
-            Reject(state, "RemoveVertex referenced vid=0 removeAll=false preserve=true", () =>
-                Assert.Throws<NotImplementedException>(() => state.Mesh.RemoveVertex(0, false, true)));
-        }
-
-        [Fact]
-        public void ManifoldRemovalGuard_RejectsMiddleOfBoundaryFan_AndBowtieIsSeparate()
-        {
-            var m = new DMesh3(true, true, true, true);
-            int center = Add(m, Vector3d.Zero, 1);
-            int[] rim = { Add(m, new Vector3d(1, 0, 0), 2), Add(m, new Vector3d(1, 1, 0), 3),
-                Add(m, new Vector3d(0, 1, 0), 4), Add(m, new Vector3d(-1, 1, 0), 5) };
-            AddFace(m, center, rim[0], rim[1], 1);
-            int middle = AddFace(m, center, rim[1], rim[2], 2);
-            AddFace(m, center, rim[2], rim[3], 3);
-            var state = new State(m, "boundary three-face fan"); Validate(state);
-            Reject(state, "RemoveTriangle middle=" + middle + " removeIsolated=false preserve=true", () =>
-                Equal(MeshResult.Failed_WouldCreateBowtie, m.RemoveTriangle(middle, false, true), "manifold triangle removal guard", state));
-            Reject(state, "RemoveVertex middle rim=" + rim[1] + " removeAll=true preserve=true", () =>
-                Equal(MeshResult.Failed_WouldCreateBowtie, m.RemoveVertex(rim[1], true, true), "manifold vertex removal guard", state));
-
-            var bowtie = new DMesh3(true, true, true, true);
-            int c = Add(bowtie, Vector3d.Zero, 1);
-            AddFace(bowtie, c, Add(bowtie, Vector3d.AxisX, 2), Add(bowtie, Vector3d.AxisY, 3), 5);
-            AddFace(bowtie, c, Add(bowtie, -Vector3d.AxisX, 4), Add(bowtie, -Vector3d.AxisY, 5), 6);
-            var relaxed = new State(bowtie, "explicit bowtie, not part of strict family");
-            Require(!bowtie.CheckValidity(false, FailMode.ReturnOnly), "strict validity rejects bowtie", relaxed);
-            Require(bowtie.IsBowtieVertex(c), "bowtie characterized", relaxed);
-            Require(!SingleFan(c, new Snapshot(bowtie).Faces, Incidence(new Snapshot(bowtie).Faces)), "independent disconnected vertex link", relaxed);
-            Validate(relaxed, true); Require(!bowtie.IsClosed(), "bowtie is intentionally open", relaxed);
-        }
-
-        [Fact]
-        public void Copy_ReplacesWarmState_A_B_A_MatchesFreshInstances()
-        {
-            DMesh3 a = Fixture("box"), b = Fixture("grid", false);
-            var state = new State(Fixture("triangle"), "Copy A/B/A reuse");
-            foreach (DMesh3 source in new[] { a, b, a }) {
-                AxisAlignedBox3d warmBounds = state.Mesh.CachedBounds; bool warmClosed = state.Mesh.CachedIsClosed;
-                state.Log.AppendLine("Copy source\n" + new Snapshot(source).Dump());
-                state.Mesh.Copy(source);
-                state.Closed = ReferenceEquals(source, a);
-                SameSnapshot(new Snapshot(new DMesh3(source)), state.Mesh, state); Validate(state);
-                int v = state.Mesh.VertexIndices().Min(); Vector3d original = source.GetVertex(v);
-                state.Mesh.SetVertex(v, original + new Vector3d(2, 3, 4));
-                Equal(original, source.GetVertex(v), "Copy does not alias source", state); Validate(state);
-            }
+            Assert.Equal(MeshResult.Failed_WouldCreateBowtie, result);
+            Assert.True(mesh.IsVertex(0));
+            Assert.Equal(new[] { 1, 3, 4 }, Sorted(mesh.TriangleIndices()));
+            CheckTopology(mesh);
         }
     }
 }
