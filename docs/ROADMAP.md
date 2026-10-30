@@ -202,6 +202,25 @@ selectively.
     generated campaigns on net10.0, deterministic regressions also on net48; independent analytic box oracles and
     result validity checks. CsCheck is Apache-2.0, not MIT. Planning complete; implementation remains open.
 
+## Focused follow-up work
+
+The owner refers to these as tasks 4-6 / E.2, C2(A) and E.5 in a newer roadmap outline. The plans below use
+those task descriptions without renumbering this checkout's existing phases. Planning is complete;
+implementation/audit work remains open. The three tasks can start independently.
+
+- [ ] **4. DAP bug fixes (E.2):** [audit and adoption plan](design/DAP_BUGFIX_AUDIT.md). Review the pinned
+  `Digital-Production-Aachen/DAPComputationalGeometry` delta from `8f185f1` to DAP HEAD, ignoring formatting;
+  each adopted fix needs a regression that fails on our pre-fix code, the minimal fix and an attribution in
+  [SOURCES.md](SOURCES.md). Root Boost license verified; new features remain blocked on individual provenance.
+- [ ] **5. Honest terrain metrics (C2(A)):** [benchmark-only plan](design/TERRAIN_DISTANCE_METRICS.md). Add shortest
+  3D distance to the reference TIN and the horizontal/vertical components of the same closest-point displacement
+  for `tdc` and `gtin`; retain vertical-ray metrics, report invalid/missing samples and measure overhead. Do not
+  change terrain algorithms or the "never steeper" rule.
+- [ ] **6. Upstream deviation ledger (E.5):** [documentation plan](design/UPSTREAM_LEDGER_PLAN.md). Create
+  `docs/UPSTREAM.md` with pinned baselines, implemented additions, behavior/API differences and source/test/commit
+  evidence. Complement the existing [migration notes](UPSTREAM_CHANGES.md); do not include uncommitted work as
+  shipped. Prepare, but do not initiate, later contact with rms80.
+
 ## Release: when it's done
 
 No public package until the library "just works": the operations give correct, documented results on hard inputs
