@@ -34,6 +34,9 @@ selectively.
 - Package ID and publishing: moved to Release, after the library "just works"
 - [x] API docs and examples per operation ([OPERATIONS.md](OPERATIONS.md), examples run as tests)
 
+- [x] Fork feature overview: [Additions in this fork](../README.md#additions-in-this-fork), grouped by capability
+  with links to implemented operations and integration guides.
+
 ## Phase 2: robustness
 
 - [x] `ExactMeshBoolean` / `ExactMeshArrangement`: exact arrangement of two meshes (integer grid, intersection points
