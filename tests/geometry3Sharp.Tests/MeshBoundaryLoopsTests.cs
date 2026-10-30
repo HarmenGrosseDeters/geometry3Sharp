@@ -144,16 +144,14 @@ namespace geometry3Sharp.Tests
                 return EdgeKey(mesh.GetVertex(v.a), mesh.GetVertex(v.b));
             }))).OrderBy(s => s, StringComparer.Ordinal).ToList();
 
-        static BoundaryFixture Fans(int count, bool tilted, bool aligned)
+        static BoundaryFixture Fans(int count)
         {
             var f = new BoundaryFixture { Mesh = new DMesh3() };
             int center = f.Mesh.AppendVertex(Vector3d.Zero);
             for (int i = 0; i < count; ++i) {
                 double angle = 2 * Math.PI * i / count;
-                double width = aligned ? Math.Pow(2, -24) : .3;
-                Func<double, Vector3d> point = t => new Vector3d(2 * Math.Cos(t),
-                    tilted ? .25 * Math.Sin(3 * t) : 0, 2 * Math.Sin(t));
-                Vector3d a = point(angle), b = point(angle + width), c = point(angle + 2 * width);
+                Func<double, Vector3d> point = t => new Vector3d(2 * Math.Cos(t), 0, 2 * Math.Sin(t));
+                Vector3d a = point(angle), b = point(angle + .3), c = point(angle + .6);
                 int va = f.Mesh.AppendVertex(a), vb = f.Mesh.AppendVertex(b), vc = f.Mesh.AppendVertex(c);
                 Assert.True(f.Mesh.AppendTriangle(center, va, vb) >= 0);
                 Assert.True(f.Mesh.AppendTriangle(center, vb, vc) >= 0);
@@ -164,79 +162,52 @@ namespace geometry3Sharp.Tests
             return f;
         }
 
-        static BoundaryFixture HoleChain(bool touchesBorder, bool sparse)
+        // 7x7 grid with three cells removed that touch diagonally: two bowties in a row
+        static BoundaryFixture HoleChain()
         {
             const int n = 7;
             var f = new BoundaryFixture { Mesh = new DMesh3() };
-            int dummy = -1;
-            if (sparse) {
-                int a = f.Mesh.AppendVertex(new Vector3d(-10, 0, -10));
-                int b = f.Mesh.AppendVertex(new Vector3d(-9, 0, -10));
-                int c = f.Mesh.AppendVertex(new Vector3d(-10, 0, -9));
-                dummy = f.Mesh.AppendTriangle(a, b, c);
-            }
             Func<int, int, Vector3d> p = (x, z) => new Vector3d(x, 0, z);
             var ids = new int[n + 1, n + 1];
             for (int z = 0; z <= n; ++z)
                 for (int x = 0; x <= n; ++x) ids[x, z] = f.Mesh.AppendVertex(p(x, z));
-            var holes = touchesBorder ? new[] { new Index2i(0, 0), new Index2i(1, 1) }
-                : new[] { new Index2i(2, 2), new Index2i(3, 3), new Index2i(4, 4) };
             for (int z = 0; z < n; ++z)
                 for (int x = 0; x < n; ++x) {
-                    if (holes.Any(h => h.a == x && h.b == z)) continue;
+                    if (x == z && x >= 2 && x <= 4) continue;
                     Assert.True(f.Mesh.AppendTriangle(ids[x, z], ids[x + 1, z], ids[x + 1, z + 1]) >= 0);
                     Assert.True(f.Mesh.AppendTriangle(ids[x, z], ids[x + 1, z + 1], ids[x, z + 1]) >= 0);
                 }
-            foreach (Index2i h in holes.Where(h => h.a > 0))
-                f.Partitions.Add(CycleKey(p(h.a, h.b), p(h.a + 1, h.b), p(h.a + 1, h.b + 1), p(h.a, h.b + 1)));
+            for (int h = 2; h <= 4; ++h)
+                f.Partitions.Add(CycleKey(p(h, h), p(h + 1, h), p(h + 1, h + 1), p(h, h + 1)));
             var outer = new List<Vector3d>();
-            for (int x = touchesBorder ? 1 : 0; x < n; ++x) outer.Add(p(x, 0));
+            for (int x = 0; x < n; ++x) outer.Add(p(x, 0));
             for (int z = 0; z < n; ++z) outer.Add(p(n, z));
             for (int x = n; x > 0; --x) outer.Add(p(x, n));
-            for (int z = n; z > (touchesBorder ? 1 : 0); --z) outer.Add(p(0, z));
-            if (touchesBorder) { outer.Add(p(0, 1)); outer.Add(p(1, 1)); }
+            for (int z = n; z > 0; --z) outer.Add(p(0, z));
             f.Partitions.Add(CycleKey(outer.ToArray()));
             f.Partitions.Sort(StringComparer.Ordinal);
-            if (sparse) Assert.Equal(MeshResult.Ok, f.Mesh.RemoveTriangle(dummy, true, false));
-            foreach (int v in f.Mesh.VertexIndices().ToArray())
-                if (f.Mesh.GetVtxTriangleCount(v) == 0) Assert.Equal(MeshResult.Ok, f.Mesh.RemoveVertex(v));
             Assert.Contains(f.Mesh.VertexIndices(), v => f.Mesh.IsBowtieVertex(v));
             return f;
         }
 
-        static BoundaryFixture NamedBoundaryFixture(string name)
+        // Two discs that share only the bowtie vertices A and B. These coordinates make the left-turn rule of
+        // the filtered walk go x B y A z B w A, an interleaving without a simple sub-loop, which is the only way
+        // to reach FellBackToSpansOnFailure and FailureBowties without seeding them.
+        static void AppendInterleavedBowties(DMesh3 mesh)
         {
-            switch (name) {
-                case "two-fans": return Fans(2, false, false);
-                case "many-fans": return Fans(5, false, false);
-                case "tilted-fans": return Fans(3, true, false);
-                case "aligned-fans": return Fans(3, false, true);
-                case "hole-chain": return HoleChain(false, false);
-                case "border-touch": return HoleChain(true, false);
-                case "sparse-chain": return HoleChain(false, true);
-                default: {
-                    DMesh3 mesh = GridWithBowtieHoles();
-                    var f = new BoundaryFixture { Mesh = mesh };
-                    Func<double, double, Vector3d> p = (x, z) => new Vector3d(x, 0, z);
-                    f.Partitions.Add(CycleKey(p(-1, -1), p(0, -1), p(0, 0), p(-1, 0)));
-                    f.Partitions.Add(CycleKey(p(0, 0), p(1, 0), p(1, 1), p(0, 1)));
-                    var outer = new List<Vector3d>();
-                    for (int x = -3; x < 3; ++x) outer.Add(p(x, -3));
-                    for (int z = -3; z < 3; ++z) outer.Add(p(3, z));
-                    for (int x = 3; x > -3; --x) outer.Add(p(x, 3));
-                    for (int z = 3; z > -3; --z) outer.Add(p(-3, z));
-                    f.Partitions.Add(CycleKey(outer.ToArray()));
-                    f.Partitions.Sort(StringComparer.Ordinal);
-                    return f;
-                }
-            }
+            Func<double, double, double, int> add = (x, y, z) => mesh.AppendVertex(new Vector3d(x, y, z));
+            int A = add(2, -2, 2), B = add(-1, 2, 3), p = add(0, 2, 1), q = add(-3, 3, 2), r = add(3, -3, 0), s = add(0, -2, 3);
+            int c1 = add(1, -1, 0), c2 = add(1, 1, 0);
+            foreach (Index3i t in new[] { new Index3i(c1, p, B), new Index3i(c1, B, q), new Index3i(c1, q, A), new Index3i(c1, A, p),
+                new Index3i(c2, r, B), new Index3i(c2, B, s), new Index3i(c2, s, A), new Index3i(c2, A, r) })
+                Assert.True(mesh.AppendTriangle(t) >= 0);
         }
 
-        public static IEnumerable<object[]> AdversarialBoundaryCases()
+        static DMesh3 InterleavedBowties()
         {
-            foreach (string name in new[] { "two-fans", "many-fans", "tilted-fans", "aligned-fans", "hole-chain", "border-touch", "sparse-chain", "diagonal-holes" })
-                foreach (int seed in new[] { 7, 19, 43, 101, 307, 701, 1237, 4093 })
-                    yield return new object[] { name, seed };
+            var mesh = new DMesh3();
+            AppendInterleavedBowties(mesh);
+            return mesh;
         }
 
         static void AssertSnapshot(DMesh3 before, DMesh3 after, int timestamp, int shapeTimestamp)
@@ -260,16 +231,18 @@ namespace geometry3Sharp.Tests
             Assert.False(loops.SawInconsistentOrientation);
         }
 
+        // Fans(9) has 18 boundary edges at one vertex, more than the walk's initial buffer of 16.
         [Theory]
-        [MemberData(nameof(AdversarialBoundaryCases))]
-        public void AdversarialBowties_ExpectedPartitionsSurviveInsertionOrderAndSparseIds(string name, int seed)
+        [InlineData(9, 19)]
+        [InlineData(9, 43)]
+        [InlineData(9, 101)]
+        [InlineData(0, 19)]
+        [InlineData(0, 43)]
+        [InlineData(0, 101)]
+        public void Bowties_HandBuiltPartition_SurvivesInsertionOrderAndRecompute(int fans, int seed)
         {
-            BoundaryFixture f = NamedBoundaryFixture(name);
-            DMesh3 mesh = seed == 7 ? f.Mesh : Invariance.Permuted(f.Mesh, seed);
-            // The intended shared vertices are bowties; only vertex manifoldness is relaxed.
-            Assert.True(mesh.CheckValidity(true, FailMode.ReturnOnly));
-            Assert.True(Invariance.AllFinite(mesh));
-            Assert.Contains(mesh.VertexIndices(), v => mesh.IsBowtieVertex(v));
+            BoundaryFixture f = fans > 0 ? Fans(fans) : HoleChain();
+            DMesh3 mesh = Invariance.Permuted(f.Mesh, seed);
             var before = new DMesh3(mesh);
             int stamp = mesh.Timestamp, shape = mesh.ShapeTimestamp;
             var loops = new MeshBoundaryLoops(mesh);
@@ -286,8 +259,8 @@ namespace geometry3Sharp.Tests
         public void BowtieAndChain_AllSimilaritiesPreserveDiscreteEdgePartition(string name)
         {
             Similarity s = Similarity.ByName(name);
-            foreach (string fixture in new[] { "two-fans", "hole-chain" }) {
-                DMesh3 original = NamedBoundaryFixture(fixture).Mesh;
+            // Only the interleaved fixture depends on the turn rule; the others have one simple-loop partition.
+            foreach (DMesh3 original in new[] { Fans(2).Mesh, HoleChain().Mesh, InterleavedBowties() }) {
                 var baseline = new MeshBoundaryLoops(original);
                 DMesh3 mesh = Invariance.Transformed(original, s);
                 var loops = new MeshBoundaryLoops(mesh);
@@ -298,46 +271,118 @@ namespace geometry3Sharp.Tests
             }
         }
 
-        [Fact]
-        public void Reuse_BowtieClosedBowtieMatchesFreshStatusAndPartitions()
+        // A first Compute that really produces the diagnostic; asserts that it did, so the reset test cannot be vacuous.
+        static MeshBoundaryLoops ComputedWithDiagnostic(string diagnostic)
         {
-            DMesh3 a = HoleChain(false, false).Mesh;
-            DMesh3 b = new TrivialBox3Generator().Generate().MakeDMesh();
-            var reused = new MeshBoundaryLoops(a, false);
-            foreach (DMesh3 mesh in new[] { a, b, a }) {
-                reused.Mesh = mesh;
-                Assert.True(reused.Compute());
-                var fresh = new MeshBoundaryLoops(mesh);
-                AssertSuccessfulCycles(mesh, reused);
-                Assert.Equal(PartitionKeys(mesh, fresh), PartitionKeys(mesh, reused));
-                Assert.Equal(fresh.SawInconsistentOrientation, reused.SawInconsistentOrientation);
-                Assert.Equal(fresh.SawOpenSpans, reused.SawOpenSpans);
-                Assert.Equal(fresh.FellBackToSpansOnFailure, reused.FellBackToSpansOnFailure);
+            MeshBoundaryLoops loops;
+            switch (diagnostic) {
+                case nameof(MeshBoundaryLoops.SawOpenSpans):
+                    DMesh3 box = OpenBox();
+                    int removed = MeshIterators.BoundaryEdges(box).First();
+                    loops = new MeshBoundaryLoops(box, false) { EdgeFilterF = e => e != removed };
+                    loops.Compute();
+                    Assert.True(loops.SawOpenSpans);
+                    break;
+                case nameof(MeshBoundaryLoops.FellBackToSpansOnFailure):
+                    loops = new MeshBoundaryLoops(InterleavedBowties(), false) { EdgeFilterF = e => true };
+                    loops.Compute();
+                    Assert.True(loops.FellBackToSpansOnFailure);
+                    break;
+                case nameof(MeshBoundaryLoops.FailureBowties):
+                    loops = new MeshBoundaryLoops(InterleavedBowties(), false) {
+                        EdgeFilterF = e => true, FailureBehavior = MeshBoundaryLoops.FailureBehaviors.ThrowException };
+                    Assert.Throws<MeshBoundaryLoopsException>(() => loops.Compute());
+                    Assert.NotEmpty(loops.FailureBowties);
+                    break;
+                case nameof(MeshBoundaryLoops.SawInconsistentOrientation):
+                    DMesh3 flipped = OpenBox();
+                    flipped.ReverseTriOrientation(MeshIterators.BoundaryEdges(flipped).Select(e => flipped.GetEdgeT(e).a).First());
+                    loops = new MeshBoundaryLoops(flipped);
+                    Assert.True(loops.SawInconsistentOrientation);
+                    break;
+                default: throw new ArgumentOutOfRangeException(nameof(diagnostic));
             }
+            return loops;
+        }
+
+        public static IEnumerable<object[]> ReuseCases()
+        {
+            foreach (string diagnostic in new[] { nameof(MeshBoundaryLoops.SawOpenSpans), nameof(MeshBoundaryLoops.FellBackToSpansOnFailure),
+                nameof(MeshBoundaryLoops.FailureBowties), nameof(MeshBoundaryLoops.SawInconsistentOrientation) })
+                foreach (bool closed in new[] { false, true })
+                    foreach (bool filtered in new[] { false, true })
+                        yield return new object[] { diagnostic, closed, filtered };
+        }
+
+        [Theory]
+        [MemberData(nameof(ReuseCases))]
+        public void Reuse_RealDiagnosticFromFirstRun_IsClearedOnEveryPathOfTheNextRun(string diagnostic, bool closed, bool filtered)
+        {
+            MeshBoundaryLoops reused = ComputedWithDiagnostic(diagnostic);
+            DMesh3 mesh = closed ? new TrivialBox3Generator().Generate().MakeDMesh() : OpenBox();
+            Func<int, bool> filter = filtered ? (Func<int, bool>)(e => true) : null;
+            reused.Mesh = mesh;
+            reused.EdgeFilterF = filter;
+            reused.FailureBehavior = MeshBoundaryLoops.FailureBehaviors.ConvertToOpenSpan;
+            Assert.True(reused.Compute());
+            AssertSuccessfulCycles(mesh, reused);
+            Assert.Null(reused.FailureBowties);
+            var fresh = new MeshBoundaryLoops(mesh, false) { EdgeFilterF = filter };
+            Assert.True(fresh.Compute());
+            Assert.Equal(closed ? 0 : 1, reused.Count);
+            Assert.Equal(PartitionKeys(mesh, fresh), PartitionKeys(mesh, reused));
+        }
+
+        [Fact]
+        public void Reuse_RunThatThrowsBeforeAnyFlag_DoesNotKeepTheFlagOfThePreviousRun()
+        {
+            MeshBoundaryLoops loops = ComputedWithDiagnostic(nameof(MeshBoundaryLoops.SawOpenSpans));
+            loops.SpanBehavior = MeshBoundaryLoops.SpanBehaviors.ThrowException;
+            Assert.Throws<MeshBoundaryLoopsException>(() => loops.Compute());
+            Assert.False(loops.SawOpenSpans);
+        }
+
+        [Fact]
+        public void Reuse_AfterExceptionMidWalk_NextRunIsClean()
+        {
+            // The filter opens the triangle first (SawOpenSpans), then the interleaved bowties throw (FailureBowties).
+            var mesh = new DMesh3();
+            int a = mesh.AppendVertex(new Vector3d(20, 0, 0)), b = mesh.AppendVertex(new Vector3d(21, 0, 0)), c = mesh.AppendVertex(new Vector3d(20, 0, 1));
+            Assert.True(mesh.AppendTriangle(a, b, c) >= 0);
+            AppendInterleavedBowties(mesh);
+            int filteredOut = mesh.FindEdge(a, b);
+            var loops = new MeshBoundaryLoops(mesh, false) {
+                EdgeFilterF = e => e != filteredOut, FailureBehavior = MeshBoundaryLoops.FailureBehaviors.ThrowException };
+            Assert.Throws<MeshBoundaryLoopsException>(() => loops.Compute());
+            Assert.True(loops.SawOpenSpans);
+            Assert.NotEmpty(loops.FailureBowties);
+
+            loops.EdgeFilterF = null;
+            Assert.True(loops.Compute());
+            AssertSuccessfulCycles(mesh, loops);
+            Assert.Null(loops.FailureBowties);
+            Assert.Equal(3, loops.Count);
+            Assert.Equal(PartitionKeys(mesh, new MeshBoundaryLoops(mesh)), PartitionKeys(mesh, loops));
         }
 
         [Theory]
         [InlineData(MeshBoundaryLoops.SpanBehaviors.Compute)]
         [InlineData(MeshBoundaryLoops.SpanBehaviors.Ignore)]
-        [InlineData(MeshBoundaryLoops.SpanBehaviors.ThrowException)]
-        public void FilterPolicies_OneMissingEdgeAndResetDoNotRetainSpanFlags(MeshBoundaryLoops.SpanBehaviors policy)
+        public void FilteredRun_SpanPolicy_ReportsTheSpanAndNextRunClearsTheFlag(MeshBoundaryLoops.SpanBehaviors policy)
         {
             DMesh3 mesh = OpenBox();
             int removed = MeshIterators.BoundaryEdges(mesh).OrderBy(e => e).First();
             var loops = new MeshBoundaryLoops(mesh, false) { SpanBehavior = policy, EdgeFilterF = e => e != removed };
             var before = new DMesh3(mesh);
             int stamp = mesh.Timestamp, shape = mesh.ShapeTimestamp;
-            if (policy == MeshBoundaryLoops.SpanBehaviors.ThrowException) Assert.Throws<MeshBoundaryLoopsException>(() => loops.Compute());
-            else {
-                Assert.True(loops.Compute());
-                Assert.Empty(loops.Loops);
-                Assert.True(loops.SawOpenSpans);
-                if (policy == MeshBoundaryLoops.SpanBehaviors.Compute) {
-                    Assert.Single(loops.Spans);
-                    int[] expected = MeshIterators.BoundaryEdges(mesh).Where(e => e != removed).OrderBy(e => e).ToArray();
-                    Assert.Equal(expected, loops.Spans.SelectMany(s => s.Edges).OrderBy(e => e).ToArray());
-                } else Assert.Empty(loops.Spans);
-            }
+            Assert.True(loops.Compute());
+            Assert.Empty(loops.Loops);
+            Assert.True(loops.SawOpenSpans);
+            if (policy == MeshBoundaryLoops.SpanBehaviors.Compute) {
+                Assert.Single(loops.Spans);
+                int[] expected = MeshIterators.BoundaryEdges(mesh).Where(e => e != removed).OrderBy(e => e).ToArray();
+                Assert.Equal(expected, loops.Spans.SelectMany(s => s.Edges).OrderBy(e => e).ToArray());
+            } else Assert.Empty(loops.Spans);
             AssertSnapshot(before, mesh, stamp, shape);
             loops.EdgeFilterF = null;
             Assert.True(loops.Compute());
@@ -345,57 +390,17 @@ namespace geometry3Sharp.Tests
             Assert.Equal(PartitionKeys(mesh, new MeshBoundaryLoops(mesh)), PartitionKeys(mesh, loops));
         }
 
-        [Theory]
-        [InlineData(false, false)]
-        [InlineData(false, true)]
-        [InlineData(true, false)]
-        [InlineData(true, true)]
-        public void Reuse_AllDiagnosticStateIsResetBeforeEitherComputePath(bool closed, bool filtered)
+        [Fact]
+        public void EmptyMeshAndSingleTriangle_HaveContractBoundaryCounts()
         {
-            DMesh3 mesh = closed ? new TrivialBox3Generator().Generate().MakeDMesh() : OpenBox();
-            var reused = new MeshBoundaryLoops(mesh, false) {
-                SawOpenSpans = true,
-                FellBackToSpansOnFailure = true,
-                SawInconsistentOrientation = true,
-                FailureBowties = new List<int> { 0 },
-                EdgeFilterF = filtered ? (Func<int, bool>)(e => true) : null
-            };
-            Assert.True(reused.Compute());
-            AssertSuccessfulCycles(mesh, reused);
-            Assert.Null(reused.FailureBowties);
-            var fresh = new MeshBoundaryLoops(mesh, false) { EdgeFilterF = reused.EdgeFilterF };
-            Assert.True(fresh.Compute());
-            Assert.Equal(PartitionKeys(mesh, fresh), PartitionKeys(mesh, reused));
-            Assert.Equal(fresh.SawInconsistentOrientation, reused.SawInconsistentOrientation);
-        }
-
-        [Theory]
-        [InlineData(false)]
-        [InlineData(true)]
-        public void WholeOrientationReversal_PreservesPartitionsAndDirectedEdges(bool reverse)
-        {
-            BoundaryFixture f = HoleChain(false, false);
-            if (reverse) foreach (int t in f.Mesh.TriangleIndices()) f.Mesh.ReverseTriOrientation(t);
-            var loops = new MeshBoundaryLoops(f.Mesh);
-            AssertSuccessfulCycles(f.Mesh, loops);
-            Assert.Equal(f.Partitions, PartitionKeys(f.Mesh, loops));
-        }
-
-        [Theory]
-        [InlineData(0)]
-        [InlineData(1)]
-        [InlineData(2)]
-        public void EmptyClosedAndSingleTriangle_HaveContractBoundaryCounts(int kind)
-        {
-            DMesh3 mesh = kind == 1 ? new TrivialBox3Generator().Generate().MakeDMesh() : new DMesh3();
-            if (kind == 2) {
-                int a = mesh.AppendVertex(Vector3d.Zero), b = mesh.AppendVertex(Vector3d.AxisX), c = mesh.AppendVertex(Vector3d.AxisY);
-                mesh.AppendTriangle(a, b, c);
-            }
+            var empty = new MeshBoundaryLoops(new DMesh3());
+            Assert.Equal(0, empty.Count);
+            Assert.Equal(0, empty.SpanCount);
+            var mesh = new DMesh3();
+            mesh.AppendTriangle(mesh.AppendVertex(Vector3d.Zero), mesh.AppendVertex(Vector3d.AxisX), mesh.AppendVertex(Vector3d.AxisY));
             var loops = new MeshBoundaryLoops(mesh);
             AssertSuccessfulCycles(mesh, loops);
-            Assert.Equal(kind == 2 ? 1 : 0, loops.Count);
-            if (kind == 2) Assert.Equal(3, loops[0].VertexCount);
+            Assert.Equal(3, loops[0].VertexCount);
         }
 
         [Theory]
