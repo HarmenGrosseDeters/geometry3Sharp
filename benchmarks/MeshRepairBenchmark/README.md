@@ -3,7 +3,271 @@
 Measures how well `gs.MeshAutoRepair` repairs real-world broken meshes, and what it breaks on the way.
 The data comes from [Thingi10K](https://huggingface.co/datasets/Thingi10K/Thingi10K).
 
+## Corrected-library retest campaign: CI gate (2026-10-29)
+
+The owner authorized rebuilding and reevaluating the previous fixed policies with the reducer-budget and
+validity-reporting fixes. No new algorithms, parameter tuning, changed defaults or relaxed acceptance gates.
+The original input selection hash is still `FFF448D80624680ACB16863EE2D965AE10AEADDF1169B3A730F98CA5B6F97621`;
+all inputs in the prior fixed wrap union are available. Fresh source snapshots were retained without mesh assets.
+The old session orchestration scripts are unavailable; the policy implementations and historical metadata remain.
+The corrected-library wrap-subset results are recorded below; full-population acceptance has not been run.
+
+Local CI commands (repository root, SDK 10.0.401):
+
+```powershell
+dotnet test tests\geometry3Sharp.Tests -c Release
+dotnet test tests\g3cli.Tests -c Release
+dotnet pack geometry3Sharp_netstandard.csproj -c Release -o $packages -p:Version=1.0.0-ci.1
+# Smoke restore used an isolated NUGET_PACKAGES directory to avoid a stale same-version package.
+dotnet run --project tests\PackageSmokeTest -c Release -p:G3PackageVersion=1.0.0-ci.1 -p:G3PackageSource=$packages -- "$packages\geometry3Sharp.1.0.0-ci.1.nupkg"
+dotnet build tests\geometry3Sharp.Tests -c Release -f net48 -p:TestNet48=true
+Get-ChildItem benchmarks -Filter *.csproj -Recurse | Sort-Object FullName | ForEach-Object { dotnet build $_.FullName -c Release }
+```
+
+`$packages` was the `packages` child of persistent session evidence directory `ci-retest-20261029-2250`.
+The exact expanded commands and separate stdout/stderr paths are in its `gates.jsonl`; `assessment.json`
+corrects the wrapper's status capture. The first wrapper failed to retain process handles: exit codes are null,
+so its blanket `failed` states are **not** real gate results. Logs were preserved, not overwritten. Future
+capture retains the process handle (verified with `dotnet --version`, captured exit 0).
+
+Actual output summaries:
+
+| Gate | Observed result |
+|---|---|
+| Library net10.0 | 2873 passed, 3 failed, 2876 total |
+| Library net48 | 2876 passed, 0 failed |
+| CLI tests | 43 passed, 0 failed |
+| Pack / package validation | Package produced; no reported errors |
+| Package smoke | Checks print `ok`, including all format round trips; no reported errors |
+| net48 build and each benchmark build | Successful build summaries |
+
+The failing net10 cases are the NaN and +Inf input cases for `LaplacianMeshSmoother` (each exceeded the sweep's
+20-second limit) and `KnownLimitation_TwoTriangularPrisms_RotatedInexactly_KeepATinyVoid` (expected 2 components,
+actual 1). These failures have not been suppressed or fixed as part of the wrap work.
+
+Focused comparison, run both in the current fixed checkout (`--no-build --no-restore`) and in an isolated
+otherwise-identical source snapshot whose `mesh/Reducer.cs` is restored from `dc25adf` (normal build/restore):
+
+```powershell
+$filter = '(FullyQualifiedName~RobustnessSweepTests.Sweep_NonFiniteInput&DisplayName~LaplacianMeshSmoother)|FullyQualifiedName~ExactBooleanIssueCasesTests.KnownLimitation_TwoTriangularPrisms_RotatedInexactly_KeepATinyVoid'
+dotnet test tests\geometry3Sharp.Tests\geometry3Sharp.Tests.csproj -c Release -f net10.0 --filter $filter -v minimal
+```
+
+Both focused runs: 2 passed (the smoother cases), 1 failed (the same component-count assertion), exit 1.
+Logs: `ci-original-budget-failures.log` and `ci-fixed-focused-failures.log`. This proves that the component-count
+failure does not require the reducer fix. The smoother timeouts did not reproduce under focused execution;
+a load/scheduling effect is possible, not established. Full CI is still **not green**. No push or merge.
+Diagnostic benchmark continuation must retain this qualification; it cannot establish release readiness.
+The owner explicitly authorized that diagnostic continuation after seeing the CI results.
+
+### Rebuilt variants and first control comparison
+
+New outputs are kept separately under ignored `results/alpha-fixed-retest-20261029/`. The corrected source
+snapshot is shared across builds; the original-budget control changes only `mesh/Reducer.cs` back to `dc25adf`
+and retains the corrected reporting. The threshold variants change only the existing `simplify_wrap` caller
+threshold in separate snapshots, never in the working checkout. No old binary is used as a corrected retest.
+
+```powershell
+powershell -NoProfile -File <session-files>\prepare-fixed-retests.ps1
+powershell -NoProfile -File <session-files>\run-fixed-retests.ps1 -Stage pilot -ValidateOnly
+powershell -NoProfile -File <session-files>\run-fixed-retests.ps1 -Stage wrap -ValidateOnly
+```
+
+All five builds (`fixed`, `original-budget`, `q015`, `q020`, `q030`) exited 0. Expanded build commands, source
+and binary hashes are recorded in `builds.jsonl` and `build-*-manifest.json`; `campaign.json` records the SDK,
+CPU and non-green CI qualification. Preflight reports 3 files / 2 variants / 6 pilot jobs and 17 files /
+11 variants / 187 wrap-cohort jobs. Inputs match the original selection hash. Planned variants:
+
+| Variant | Policy |
+|---|---|
+| Original-budget control | Current default with only the reducer budget fix removed |
+| Fixed control | Corrected default, quality 0.05 |
+| Unsimplified control | Corrected build, simplification disabled; fresh triangle-count denominator |
+| q015 / q020 / q030 | Existing collapse-quality thresholds 0.15 / 0.20 / 0.30 |
+| Features | Existing hard feature constraints, quality 0.30 |
+| Flips | Existing default reduction plus two quality-flip passes |
+| Local | Existing local flip rollback policy |
+| Tangential | Existing guarded tangential redistribution policy |
+| Guarded features | Existing fixed feature-quadrics/deviation policy |
+
+The first pilot used an unsupported `BENCH_WRAP_PROGRESS=1` without candidate-probe mode. All jobs returned
+`status=exception` before repair, despite exit code 0. Those outputs remain in `pilot/` as a failed harness
+attempt, **not** geometric evidence. The runner was corrected to omit that setting and stores process status,
+exit codes, timeout state and parsing/record counts independently. A new non-overwriting pilot was run:
+
+```powershell
+powershell -NoProfile -File <session-files>\run-fixed-retests.ps1 -Stage pilot -RunLabel corrected
+```
+
+`pilot-corrected/` contains the exact frozen `runner.ps1`, metadata, stdout/stderr and completion records.
+Both variants complete all three cases with exit 0, no timeout, valid closed output. The paired result rows
+have no differing non-timing fields (excluding `ms`, `*_ms`, `robust_phases` and the variant label):
+
+| Case | Triangles before / after budget fix | Repair ms before / after |
+|---|---|---|
+| 106620 | 170062 / 170062 | 83297 / 84873 |
+| 55928 | 54154 / 54154 | 15289 / 15729 |
+| 96373 | 39326 / 39326 | 88328 / 89397 |
+
+These are results of the pilot command above, extracted in `pilot-corrected/control-diff-final.json`.
+The earlier `control-diff-summary.json` mistakenly queried `after_triangles` rather than `after_tris` and
+included the phase timing map; it is superseded by the final derived summary, not by changed raw records.
+The observed timing differences are not a speedup claim, and matching reported metrics do not establish
+bit-identical mesh coordinates. The pilot supplies no evidence of improved default wrap quality from the fix.
+
+The complete fixed wrap-cohort rerun finished on 2026-10-30:
+
+```powershell
+powershell -NoProfile -File <session-files>\run-fixed-retests.ps1 -Stage wrap
+```
+
+Each job retains the original whole-process 300-second limit and concurrency 2. No candidate probes or extra
+stage diagnostics are enabled. Timeouts and failed rows remain in the cohort. All 187 jobs have completion
+records in `wrap/completion.jsonl`: 180 closed outputs and 7 timeouts. There are no other process-output failures.
+Each variant retains all 17 IDs, including synthetic failure rows for jobs with no final output.
+
+### Corrected-library wrap-subset results (2026-10-30)
+
+The existing paired analyzer was used unchanged, comparing each candidate with the **fresh fixed control**
+and the **fresh unsimplified control**, not with historical timings or mixed old/new geometry:
+
+```powershell
+$d = 'benchmarks\MeshRepairBenchmark\results\alpha-fixed-retest-20261029\wrap'
+$variants = 'control-original-budget','control-fixed','q015-fixed','q020-fixed','q030-fixed','features-fixed','flips-fixed','local-fixed','tangential-fixed','guarded-features-fixed'
+foreach ($variant in $variants) {
+    C:\Python314\python.exe benchmarks\MeshRepairBenchmark\analyze_fidelity.py --paired "$d\control-fixed.jsonl" "$d\$variant.jsonl" "$d\unsimplified-fixed.jsonl" --expected 17 --subset --require-certificate
+}
+```
+
+Every invocation exits 1 (failed gates). Reports and analyzer hashes are retained in the campaign's `analysis/`
+directory; `summary.json` additionally requires a successful process, no timeout, exactly one valid output row
+and no parse errors. The table is from those commands/reports. Runtime ratios are **subset diagnostics**, not
+the full 400-case timing gate. Medians/ratios marked with * use only completed pairs and cannot count as passes
+when cases timed out; those missing cases remain failures in the reports.
+
+| Variant | Completed / 17 | Median minimum angle (degrees) | Median triangle ratio to unsimplified | Paired repair-time ratio (subset) | Meshes with failed per-mesh gates, including timeouts |
+|---|---|---|---|---|---|
+| Original-budget default | 17 | 3.775 | 0.31457 | 0.995 | 0 |
+| Fixed default | 17 | 3.775 | 0.31457 | 1.000 | 0 |
+| q015 | 17 | 6.892 | 0.31784 | 1.210 | 9 |
+| q020 | 16 | 7.902* | 0.30914* | 1.112* | 9 |
+| q030 | 16 | 10.446* | 0.31821* | 0.993* | 10 |
+| Hard features | 17 | 10.473 | 0.33134 | 0.928 | 10 |
+| Quality flips | 17 | 16.231 | 1.00000 | 0.900 | 17 |
+| Local rollback | 16 | 5.943* | 0.30364* | 1.586* | 7 |
+| Tangential | 14 | 3.931* | 0.33181* | 2.876* | 3 |
+| Guarded feature quadrics | 16 | 10.486* | 0.36215* | 1.828* | 10 |
+
+The default controls fail only the aggregate angle target, as expected. Comparing all their reported fields
+except `ms`, `*_ms`, `robust_phases` and `rerun_variant` finds no differences on any case; this comparison is
+preserved in `analysis/default-budget-delta.json`. Thus the fixed default shows **no measured quality change**
+in this cohort. Reported-metric equality is not proof of bit-identical output meshes.
+
+Hard features are now the most promising complete candidate: they meet the aggregate angle and reduction
+objectives, but still fail per-mesh fidelity/worst-element gates on `106620`, `1505037`, `163738`, `229959`,
+`37415`, `46244`, `47878`, `55928`, `87345` and `96373`. For example, `106620` has worst minimum angle
+1.663886816335017 degrees in the fixed default versus 1.013724875610338 in the feature candidate; other failures
+include curvature, sampled forward distance, reversed normals and sharp-edge distance. Details are in
+`analysis/features-fixed-paired.json`. Closing/manifold checks alone do not erase these failures.
+
+Compared with the historical hard-feature report `alpha-quality-20261029/reviewed-paired-experiment-a.json`,
+the triangle-ratio median is now 0.33134 rather than 1.0 (the old angle median was 12.230 degrees). That is an
+encouraging **historical comparison**, not yet an isolated causal A/B of the feature policy: this campaign's
+original-budget build has so far run only the default policy. To attribute the feature change specifically to
+the budget fix, run that same feature policy with both frozen builds before proposing another algorithm change.
+
+Timeouts, from `wrap/completion.jsonl`:
+
+- `229959`: tangential and guarded feature quadrics.
+- `55928`: q020, q030, local rollback and tangential.
+- `96373`: tangential.
+
+**Decision:** no previous candidate now passes every gate. No production default is changed. The broader
+400-case timing/non-wrap regression run has not been performed; it cannot rescue these already demonstrated
+per-mesh or completeness failures. The existing CI qualification still applies. Next useful work is a controlled
+feature-policy A/B and investigation of its failing local patches, not more threshold tuning or relaxed gates.
+The controlled feature A/B is now complete, as recorded next.
+
+### Controlled hard-feature A/B (2026-10-30)
+
+To isolate the reducer change, both sides run the same `features` policy, same inputs and corrected reporting;
+only the frozen reducer implementation differs. Existing build manifests verify identical policy/reporting
+source hashes. The current checkout and frozen binaries were not modified for this run.
+
+```powershell
+powershell -NoProfile -File <session-files>\run-fixed-retests.ps1 -Stage feature-ab -ValidateOnly
+powershell -NoProfile -File <session-files>\run-fixed-retests.ps1 -Stage feature-ab
+```
+
+Preflight: 17 inputs, 2 variants, 34 jobs. All jobs complete with exit 0, no timeout or malformed record, and
+closed valid results. Raw rows, completion records, metadata and the frozen runner are in the campaign's
+`feature-ab/` directory. Non-timing fields in the fixed results match the preceding fixed-feature run on all
+17 cases. The comparison excludes only `ms`, `*_ms`, `robust_phases` and the run label; it does not prove
+bit-identical mesh coordinates.
+
+Commands producing the comparison reports:
+
+```powershell
+$r = 'benchmarks\MeshRepairBenchmark\results\alpha-fixed-retest-20261029'
+foreach ($variant in 'features-original-budget','features-fixed') {
+    C:\Python314\python.exe benchmarks\MeshRepairBenchmark\analyze_fidelity.py --paired "$r\wrap\control-fixed.jsonl" "$r\feature-ab\$variant.jsonl" "$r\wrap\unsimplified-fixed.jsonl" --expected 17 --subset --require-certificate
+}
+C:\Python314\python.exe benchmarks\MeshRepairBenchmark\analyze_fidelity.py --paired "$r\feature-ab\features-original-budget.jsonl" "$r\feature-ab\features-fixed.jsonl" "$r\wrap\unsimplified-fixed.jsonl" --expected 17 --subset --require-certificate
+```
+
+Reports are in `feature-ab-analysis/`. All three analyzer commands exit 1: this is not a passing candidate.
+The first two reports compare geometry/fidelity with the same fixed-default reference; their time ratios to
+that earlier run are not a controlled timing comparison. Only the last command uses the interleaved,
+same-policy A/B repair times.
+
+| Measure | Hard features without budget fix | Hard features with budget fix |
+|---|---|---|
+| Median triangle ratio to unsimplified | 1.00000 | 0.33134 |
+| Median minimum angle (degrees) | 12.230 | 10.473 |
+| Meshes failing per-mesh gates against the same fixed default | 15 / 17 | 10 / 17 |
+| Summed paired repair time | 604720 ms | 610299 ms |
+| Cases retaining the unsimplified triangle count | 13 / 17 | 0 / 17 |
+
+The last row and repeated-run field comparison are derived directly from the paired rows and fresh
+unsimplified rows in `feature-ab-analysis/causal-summary.json`. Retaining the triangle count alone is not
+an instrumented proof of which fallback branch ran. The same-policy repair-time ratio is 1.00923: observed
+run variation, not a demonstrated speedup or full-population performance result.
+
+**Conclusion:** unlike the unchanged default policy, the hard-feature policy benefits materially from the
+reducer-budget correction in this controlled comparison: it now reduces every case's triangle count and
+meets both aggregate angle/reduction goals. This is not a universal quality improvement (the angle median
+falls), and the same remaining 10 cases still violate fidelity or worst-element gates. The fix bundle's effect
+is isolated here; this run does not separately attribute it to float rounding versus final constrained-position
+checking. No production default is changed and no overall alpha-wrap acceptance is claimed.
+
+Next local witnesses to capture are the worst-angle regression on `106620`/`37415`, and the sharp-edge/distance
+and curvature regressions on `96373`. Current aggregate reports identify the failed metrics but not the exact
+triangles, correspondences or collapses that caused them. Those require a separate diagnostic capture; do not
+infer a local cause from the aggregate report.
+
+## Validity reporting correction (2026-10-29)
+
+The actual-result `after_valid` field now uses the boolean returned by `CheckValidity(false, ReturnOnly)`;
+previously only exceptions made it false. A procedural bowtie reproduces the former false-positive report.
+The adapter regression also checks a valid mesh and the exception path:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File benchmarks\MeshRepairBenchmark\test_validity_reporting.ps1
+```
+
+Run from the repository root after building the Release netstandard2.0 library. This compiles the actual source
+adapter, not the full repair pipeline. Before the fix it exits 1 (`actual validity=False; after_valid=True`);
+after it exits 0 (`actual validity=False; after_valid=False`, valid mesh true, exception false).
+Historical trial records below are unchanged and are not retroactively certified by this fix.
+The accompanying reducer budget fix and test commands are recorded in
+[Wrap library hypotheses](../../docs/WRAP_LIBRARY_HYPOTHESES.md#fix-validation-2026-10-29).
+
 ## Alpha-wrap collapse-quality experiment (2026-10-29)
+
+Library-level confounders and proposed discriminating tests are tracked in
+[Wrap library hypotheses](../../docs/WRAP_LIBRARY_HYPOTHESES.md). It separates unproven metric/spatial/reducer
+risks from observed conservative certification behavior and a validity-reporting defect; none changes the
+acceptance decisions below without a reproduced bug and a new measured comparison.
 
 **Decision:** none of the fixed thresholds 0.15 / 0.20 / 0.30 passes every acceptance gate. The production
 wrap policy remains 0.05; no roadmap item is completed. `SimplifyWithin` has an internal optional quality
@@ -318,6 +582,252 @@ and flip counts and exact failed gates remain in the raw JSONL and reports.
 No new movement fractions, passes, certificate budgets or optimizations are tried, and no full 400-mesh or
 RemeshQuality rerun is warranted. Default remains 0.05. Independent code review is now complete without
 findings, but the experimental policy remains unaccepted because its benchmark gates fail.
+
+### Diagnostic-only inspection of the pre-fallback candidate
+
+The owner authorized a bounded probe of the same 17-case wrap union, not another policy or parameter trial.
+`BENCH_WRAP_CANDIDATE_PROBE=1` requires `BENCH_REPAIR=robust`, `BENCH_WRAP_POLICY=tangential` and
+`BENCH_WRAP_DIAGNOSTICS=1`. It captures an isolated copy before the final global check. The actual policy
+result is emitted first and remains unchanged. Candidate records have `record_type=wrap_candidate_probe`
+and `diagnostic_only=true`; they do not inherit actual-result acceptance fields or `repair_ms`.
+`actual_repair_ms` includes capture overhead and the actual fallback, not hypothetical candidate acceptance.
+A `probe_stage=metrics` checkpoint precedes the finer envelope calculation; only `probe_stage=complete`
+contains its result. Keep these records out of ordinary acceptance inputs.
+
+For the existing envelope budget (half the wrap offset), the probe checks every candidate triangle with
+`TriangleDeviationBounds` and independently runs directed `MeshHausdorffDistance` with the single fixed
+absolute tolerance `0.001 * budget`. It does not change the simplifier's production certificate, tune a
+threshold or substitute the diagnostic candidate for the returned mesh.
+
+Commands from the repository root:
+
+```powershell
+dotnet build benchmarks\MeshRepairBenchmark\MeshRepairBenchmark.csproj -c Release --no-restore
+powershell -NoProfile -File benchmarks\MeshRepairBenchmark\run_candidate_probe.ps1
+powershell -NoProfile -File benchmarks\MeshRepairBenchmark\summarize_candidate_probe.ps1
+```
+
+The runner freezes the executable, records source/binary/input hashes and environment, and uses two processes
+with a 300-second **whole-process** limit including repair, normal metrics and probe. It refuses to overwrite
+an existing output directory; use `-OutputDirectory` (and matching `-ResultDirectory` for the summarizer) for
+an explicitly authorized rerun. Raw stdout/stderr, separate `actual.jsonl` and `probes.jsonl`, metadata and
+`summary.json` are in the ignored `results/alpha-quality-20261029/candidate-probe-20261029/` directory.
+This run used SDK 10.0.401 on an Intel Core i7-8700, unlike the original baseline machine; its timings cannot
+be used for paired performance acceptance.
+
+The summary command above reports:
+
+- All 17 IDs retained; 15 actual closed-result records. `229959` and `96373` time out before an actual result;
+  `55928` emits its actual result but times out before a candidate metrics record. Missing probes stay missing.
+- 14 complete candidate payloads, all valid/clean and with every triangle certified inside the unchanged budget.
+  The finer global estimator proves the upper bound below budget on 10; it remains `incomplete` on `37415`,
+  `46542`, `51474` and `91138`, despite convergence. No completed probe proves an exceedance.
+- On those **14 completed pairs only**, median 1%-worst angle changes from 3.9308036624 degrees (original
+  baseline and same-run actual fallback) to 7.5697549278 degrees (captured candidate), still below the 10-degree
+  gate. The median triangle/unsimplified ratio is 0.3318059280. These are not full 17-case acceptance statistics.
+- Gaussian-curvature error still violates the original relative 5% fidelity limit on `47878`
+  (2630.5000275 -> 2819.2680353) and `87345` (17288.4141049 -> 20832.6676779). This focused summary is not a
+  replacement for the complete fidelity gate audit.
+
+The original runner did not retain Windows process handles, so recorded exit codes are null; these are
+complete diagnostic payloads, not independently verified successful exit codes. The runner now retains the
+handle (verified with a subprocess), without rewriting old evidence or repeating the bounded run. After the
+run, tolerance reporting was changed from the identical configured expression to `hd.Tolerance` so the test
+also detects divergence between configuration and reporting; frozen binaries and hashes preserve the measured
+version. Neither correction changes measured geometry or certificate rules.
+
+Validation commands:
+
+```powershell
+dotnet test tests\geometry3Sharp.Tests\geometry3Sharp.Tests.csproj -c Release -f net10.0 --no-restore --filter 'FullyQualifiedName~MeshRobustRepairTests|FullyQualifiedName~WrapCandidateProbeTests|FullyQualifiedName~ReducerQualityTests|FullyQualifiedName~RemesherQualityTests' -v minimal
+powershell -NoProfile -File benchmarks\MeshRepairBenchmark\test_candidate_probe.ps1
+dotnet test tests\geometry3Sharp.Tests\geometry3Sharp.Tests.csproj -c Release -f net48 --no-restore --filter 'FullyQualifiedName~WrapCandidateProbeTests|FullyQualifiedName~TangentialCandidateCapture|FullyQualifiedName~TangentialInvariant|FullyQualifiedName~WrapSimplificationPolicy_Default' -v minimal
+```
+
+The restored regression command passed 116 tests; the focused net48 command passed 11 tests. The PowerShell checks use a temporary procedural tetrahedron
+and copied result records to verify unchanged actual output, opt-in configuration, missing candidates, timeout
+exclusion and duplicate rejection; temporary files are removed. Focused mutation commands (same project,
+configuration and framework, selecting `FullyQualifiedName~TangentialCandidateCapture`,
+`FullyQualifiedName~WrapCandidateProbeTests.Record`, and `FullyQualifiedName~WrapCandidateProbeTests.Envelope_Uses`)
+fail respectively when the captured mesh aliases the live candidate, when diagnostic records inherit actual
+acceptance fields, and when the finer tolerance changes to `0.01 * budget`. All mutations were restored.
+The capture tests include repetition, reset, cancellation and `Similarity.All()` checks. Independent review of
+the diagnostic implementation, runner, summarizer, tests and evidence documentation found no significant
+issues. Full pre-push CI was not run; no push or merge is part of this diagnostic task.
+
+**Decision:** the fallback hides a real quality improvement, but the captured result still fails the quality
+and per-mesh fidelity gates. This is not just a global-certificate stopping-tolerance issue. No policy change,
+finer tolerance trial, full-set rerun, commit or push follows from this diagnosis; the production default stays
+unchanged.
+
+### Bounded follow-up of the three incomplete probes
+
+The owner subsequently authorized one diagnostic-only rerun of `229959`, `55928` and `96373`, with a
+900-second whole-process limit, to identify the previously unobserved timeout phases. This does **not** relax
+the original 300-second acceptance limit or replace any original records. `-TimeoutFollowUp` selects exactly
+those three IDs from the verified fixed wrap union, enables `BENCH_WRAP_PROGRESS=1`, preserves concurrency two,
+and defaults to a separate non-overwriting `results/alpha-quality-20261029/candidate-timeout-followup-20261029/`
+directory. Ordinary runner invocations still select the full fixed union and use the original limit.
+
+Progress is a separate stderr JSONL stream (`record_type=wrap_probe_progress`) with monotonic elapsed times.
+It covers input loading/statistics, major repair-phase completions, actual and candidate statistics/fidelity,
+and the candidate's per-triangle and finer global certificate. An internal optional repair-phase observer
+reports only completed phases; it does not change cancellation, geometry or any certificate decision. Nested
+exact timings are completion markers, not a disjoint breakdown of the outer repair time. No logging occurs
+without explicit progress opt-in, which itself requires candidate-probe mode.
+
+```powershell
+dotnet build benchmarks\MeshRepairBenchmark\MeshRepairBenchmark.csproj -c Release --no-restore
+powershell -NoProfile -File benchmarks\MeshRepairBenchmark\run_candidate_probe.ps1 -TimeoutFollowUp
+powershell -NoProfile -File benchmarks\MeshRepairBenchmark\summarize_candidate_probe.ps1 -ResultDirectory benchmarks\MeshRepairBenchmark\results\alpha-quality-20261029\candidate-timeout-followup-20261029
+```
+
+Validation of the observation-only hooks (both target frameworks on Windows), including reuse, exact similarity
+invariance, unchanged envelope results and phase order:
+
+```powershell
+dotnet test tests\geometry3Sharp.Tests\geometry3Sharp.Tests.csproj -c Release --no-restore --filter 'FullyQualifiedName~PhaseProgress|FullyQualifiedName~WrapCandidateProbeTests|FullyQualifiedName~TangentialCandidateCapture|FullyQualifiedName~TangentialInvariant|FullyQualifiedName~WrapSimplificationPolicy_Default' -v minimal
+powershell -NoProfile -File benchmarks\MeshRepairBenchmark\test_candidate_probe.ps1
+```
+
+The restored test command passes 12 tests per framework. Disabling the repair observer and the finer-certificate
+completion event makes the focused `PhaseProgress|WrapCandidateProbeTests.Envelope_Uses` mutation run fail;
+both mutations were restored. The CLI smoke test verifies monotonic progress on stderr, required phase markers,
+and unchanged result records on stdout. Independent review of the progress hooks, fixed follow-up mode and
+associated tests found no significant issues. No full pre-push CI or push is part of this investigation.
+
+The bounded rerun completed all three actual results and candidate payloads with exit code zero and clean
+candidates. The original 300-second outcomes remain recorded unchanged. Per-process times are diagnostic
+wall times, not a performance improvement claim:
+
+| case | original 300-second observation | follow-up total | dominant measured work |
+|---|---|---:|---|
+| 229959 | no actual result before timeout | 367.416 s | wrap simplification 280.310 s; complete repair 306.445 s |
+| 55928 | actual result retained, candidate probe missing | 293.555 s | actual fidelity metrics 114.736 s, then candidate fidelity metrics 107.769 s |
+| 96373 | no actual result before timeout | 474.052 s | wrap simplification 379.425 s; complete repair 409.690 s |
+
+The first and third cases are dominated by the tangential-policy simplification stage, not the post-repair
+candidate probe. The second repeats the expensive fidelity calculation after the actual tangential result is
+already accepted. Its diagnostic rerun happens to finish just below the original limit; that variability does
+not invalidate the recorded timeout or establish a reliable sub-300-second runtime. No phase skipped work,
+reused cached metrics, or used a changed geometry algorithm in this rerun.
+
+The phase table can be reproduced from the runner's recorded elapsed times and actual repair timings:
+
+```powershell
+$d = 'benchmarks\MeshRepairBenchmark\results\alpha-quality-20261029\candidate-timeout-followup-20261029'
+$actual = @{}
+Get-Content "$d\actual.jsonl" | ForEach-Object { $a = $_ | ConvertFrom-Json; $actual[$a.file] = $a }
+function PhaseMs($events, $phase) {
+    $start = $events | Where-Object { $_.stage -eq "$phase.begin" }
+    $end = $events | Where-Object { $_.stage -eq "$phase.end" }
+    if (@($start).Count -ne 1 -or @($end).Count -ne 1) { throw "Incomplete or duplicate phase: $phase" }
+    $end.elapsed_ms - $start.elapsed_ms
+}
+Get-Content "$d\probes.jsonl" | ForEach-Object {
+    $p = $_ | ConvertFrom-Json
+    $events = @(Get-Content "$d\$($p.file).stderr.txt" | ForEach-Object { $_ | ConvertFrom-Json })
+    [pscustomobject]@{
+        file = $p.file; total_ms = $p.process_ms; repair_ms = $actual[$p.file].repair_ms
+        simplify_ms = $actual[$p.file].robust_phases.'wrap.simplify'
+        actual_fidelity_ms = PhaseMs $events 'actual.fidelity.metrics'
+        candidate_fidelity_ms = PhaseMs $events 'candidate.fidelity.metrics'
+    }
+} | Format-Table -AutoSize
+```
+
+The `summarize_candidate_probe.ps1 -ResultDirectory ...` command above also establishes that the finer global
+certificate passes for `229959` and `55928`, but remains incomplete for `96373`. All triangles are certified by
+the per-triangle checker for `55928` and `96373`; five are unproven for `229959` even though the separate global
+estimator proves the budget. An unproven sufficient check is not a demonstrated geometric violation.
+Candidate 1%-worst angles are 4.8713267384, 17.6847572191 and 4.4513971299 degrees for `229959`, `55928` and
+`96373`, respectively. Only the middle case meets the angle threshold, and its Gaussian-curvature error still
+violates the original fidelity gate. Thus recovering the missing observations does not change the failed
+acceptance decision.
+
+**Stop:** all three previously missing diagnostic payloads are now available. The next separate decision would
+be whether to investigate the cost of wrap simplification or to avoid redundant diagnostic fidelity work;
+neither optimization nor another measurement/tolerance trial is authorized by this completed investigation.
+
+### Fixed guarded-feature reduction trial
+
+The next owner-approved candidate changes the reduction itself, not post-reduction smoothing. The internal
+`GuardedFeatureQuadrics` policy (`BENCH_WRAP_POLICY=guarded-features`) fixes collapse quality at 0.30, soft
+feature quadrics at 30 degrees/weight 100, and `Reducer.MaxDeviation` at the unchanged half-offset budget
+against the original wrap. The existing subdivision depth remains unchanged. It uses neither hard feature
+constraints nor post-reduction flips/movement, and retains all existing normal, intersection, cleanliness and
+final global certificate checks. The public API and default 0.05 policy remain unchanged. This is one fixed
+hypothesis, not a threshold/weight search.
+
+The approved measurement uses the fixed 17-case union, two concurrent processes and a 300-second whole-process
+cap. `-GuardedFeatureTrial` interleaves each mesh's unchanged default control and guarded-feature candidate,
+using one frozen build, without candidate capture, progress tracing or extra simplification diagnoses. Timings
+are compared only to this fresh same-machine control. The original geometric/fidelity baseline and unsimplified
+triangle denominators remain immutable. Output goes to a new, non-overwriting ignored directory:
+`results/alpha-quality-20261029/guarded-feature-trial-20261029/`.
+
+```powershell
+dotnet test tests\geometry3Sharp.Tests\geometry3Sharp.Tests.csproj -c Release --no-restore --filter 'FullyQualifiedName~GuardedFeatureQuadrics|FullyQualifiedName~ReducerQualityTests|FullyQualifiedName~WrapSimplificationPolicy_Default' -v minimal
+dotnet build benchmarks\MeshRepairBenchmark\MeshRepairBenchmark.csproj -c Release --no-restore
+powershell -NoProfile -File benchmarks\MeshRepairBenchmark\test_candidate_probe.ps1
+C:\Python314\python.exe benchmarks\MeshRepairBenchmark\test_analysis.py
+powershell -NoProfile -File benchmarks\MeshRepairBenchmark\test_guarded_feature_evaluation.ps1 -PythonExecutable C:\Python314\python.exe
+powershell -NoProfile -File benchmarks\MeshRepairBenchmark\run_candidate_probe.ps1 -GuardedFeatureTrial
+powershell -NoProfile -File benchmarks\MeshRepairBenchmark\evaluate_guarded_feature_trial.ps1 -PythonExecutable C:\Python314\python.exe
+```
+
+The evaluation wrapper calls the existing `analyze_fidelity.py --paired ... --subset --require-certificate` for control and
+candidate. It writes a clearly named derived baseline containing original geometry/fidelity fields and only
+replaces selected `repair_ms` values with the fresh control. A failed control process makes its timing unavailable.
+The control may miss the target angle, as expected; any other paired control failure invalidates the trial.
+Timeouts, nonzero exits, malformed output and missing metrics cannot become passing cases. A subset pass is
+not full acceptance, and a failure stops the trial without changing thresholds or scheduling the full corpus.
+
+The procedural tests cover a genuine alpha wrap and a deformed feature box, fixed reducer equivalence, unchanged
+input/default, repeated calls, cancellation and `Similarity.All()` (exact power-of-two meshes). The restored
+command above passes 11 tests per target framework. Independently disabling the soft feature quadrics or the
+prospective collapse envelope makes `FullyQualifiedName~GuardedFeatureQuadrics_Matches` fail; both mutations
+were restored. The existing analysis command passes 23 tests. CLI checks exercise the policy name and reject
+combining the timeout-follow-up and fixed-trial modes. Independent review of the new reduction policy, tests,
+runner mode and evaluation wrapper completed without significant findings before measurement. The wrapper's
+synthetic test verifies that only baseline timing changes, that timing uses the fresh control, and that the
+original angle failure and missing-control failures remain failures.
+
+**Measured result: rejected.** The runner and evaluation commands above completed; the evaluation returns exit
+1. Both runs retain all 17 IDs, with 16 closed successful processes each and a 300-second timeout for `96373`
+in **both** control and candidate. That control timeout prevents a complete 17-case performance comparison;
+it is not dropped or replaced with historical timing. All other control cases pass the original per-mesh
+baseline gates (the unchanged default still misses the target angle). The completed candidate cases all retain
+a simplified wrap and pass the unchanged final wrap-distance certificate.
+
+The evaluator reports the following **16 completed-pair observations only**, not a passing full-subset result:
+
+| metric | observation | unchanged gate |
+|---|---:|---:|
+| median 1%-worst angle | 10.4859424076 degrees | >=10 degrees |
+| median triangles / original unsimplified wrap | 0.3621545047 | <=0.40 |
+| summed paired repair time, fresh control | 586237 ms | reference |
+| summed paired repair time, candidate | 1539586 ms | <=1.25 times control |
+| paired time ratio | 2.6262177242 | <=1.25: fails |
+
+In addition to runtime and completeness, completed candidates fail original per-mesh fidelity or worst-triangle
+quality gates on `106620`, `163738`, `229959`, `37415`, `45561`, `46244`, `46542`, `47878` and `87345`.
+For example, `106620`'s worst minimum angle changes from 1.6638868163 to 1.0141805846 degrees and its worst
+aspect ratio from 25.9088247444 to 43.2955101426. On `163738`, the reversed-normal fraction changes from zero
+to 0.00008; on `229959`, Gaussian-curvature error changes from 3154.6918284592 to 3319.8593653079 and sampled
+forward distance from 0.0025101764 to 0.0028521800. The fixed soft quality guard and distance certificate do not
+guarantee these separate fidelity/quality metrics.
+
+Exact before/after values and all failures are in `guarded-features-paired.json`; `control-paired.json` records
+the control check. `trial-summary.json` reports `subset_pass=false` and preserves both process failures.
+The runner saved binary/source/input hashes, independent per-mesh logs and separate control/candidate JSONL.
+The evaluation's 108 reported failures include missing metrics for the timeout; they are not 108 independent
+geometric defects. No result from this run establishes a general speedup or a complete acceptance statistic.
+
+**Stop:** the single approved guarded-feature candidate fails. No weight/angle/depth retuning, full-corpus run,
+production-default change, commit or push follows. Improving the median angle alone is insufficient: the next
+separately scoped approach would need to address per-mesh shape fidelity and worst-triangle quality without
+this reduction-time penalty.
 
 ## Usage
 ```

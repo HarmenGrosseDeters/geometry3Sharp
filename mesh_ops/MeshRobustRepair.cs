@@ -169,7 +169,7 @@ namespace gs
         public int AlphaWrapTriangles;
         /// <summary> alpha wrap fallback: true if the result is the simplified wrap (SimplifyAlphaWrap) </summary>
         public bool AlphaWrapSimplified;
-        internal enum WrapSimplificationPolicy { Default, FeatureConstrained, QualityFlips, LocalQualityRollback, TangentialQuality }
+        internal enum WrapSimplificationPolicy { Default, FeatureConstrained, QualityFlips, LocalQualityRollback, TangentialQuality, GuardedFeatureQuadrics }
         internal WrapSimplificationPolicy WrapPolicy = WrapSimplificationPolicy.Default;
         internal bool DiagnoseWrapSimplification = false;
         internal Dictionary<string, object> WrapSimplificationDiagnostics = new Dictionary<string, object>();
@@ -196,6 +196,7 @@ namespace gs
         /// stopped on self-intersections, if the wrap failed)
         /// </summary>
         public Dictionary<string, long> PhaseMilliseconds = new Dictionary<string, long>();
+        internal Action<string, long> PhaseCompletedF;
 
         Stopwatch phase_timer = new Stopwatch();
         void end_phase(string name)
@@ -208,6 +209,7 @@ namespace gs
             long cur;
             PhaseMilliseconds.TryGetValue(name, out cur);
             PhaseMilliseconds[name] = cur + ms;
+            if (PhaseCompletedF != null) PhaseCompletedF(name, ms);
         }
 
         /// <summary> the mesh is modified by the repair stage (see class comment) </summary>
@@ -422,7 +424,8 @@ namespace gs
                 WrapPolicy == WrapSimplificationPolicy.LocalQualityRollback,
                 DiagnoseWrapSimplification ? WrapSimplificationDiagnostics : null,
                 WrapPolicy == WrapSimplificationPolicy.TangentialQuality,
-                CaptureWrapCandidate ? (Action<DMesh3>)(snapshot => WrapCandidateBeforeCheck = snapshot) : null);
+                CaptureWrapCandidate ? (Action<DMesh3>)(snapshot => WrapCandidateBeforeCheck = snapshot) : null,
+                WrapPolicy == WrapSimplificationPolicy.GuardedFeatureQuadrics);
         }
 
         // Restrict the existing remesher to its poor-triangle quality criterion, not valence-only flips.
@@ -659,14 +662,23 @@ namespace gs
         /// flip against the immutable reference envelope and exact intersections. A rejected final improvement
         /// retains that baseline; cancellation returns null. TangentialQuality adds two fixed serial vertex/flip
         /// sweeps with reference tangent planes, pinned feature curves and the same prospective safety checks.
+        /// GuardedFeatureQuadrics instead fixes q=.30, uses soft feature quadrics (30 degrees, weight 100),
+        /// and certifies prospective collapses against the original wrap without any post-reduction passes.
         /// diagnostic_ms measures only extra diagnostic checks,
         /// not required local safety checks, and is included in (not subtracted from) the simplification wall time.
         /// </summary>
         internal static DMesh3 SimplifyWithin(DMesh3 mesh, double quadricDistance, double maxDistance, bool checkSelfIntersections, Func<bool> cancelF,
             double minCollapseTriangleQuality = 0.05, bool preserveFeatures = false, bool flipOnlyQualityPasses = false,
             bool localQualityRollback = false, Dictionary<string, object> diagnostics = null, bool tangentialQuality = false,
-            Action<DMesh3> captureCandidate = null)
+            Action<DMesh3> captureCandidate = null, bool guardedFeatureQuadrics = false)
         {
+            if (guardedFeatureQuadrics) {
+                if (preserveFeatures || flipOnlyQualityPasses || localQualityRollback || tangentialQuality)
+                    throw new ArgumentException("Guarded feature quadrics are a separate fixed reduction policy.");
+                if (!(maxDistance > 0) || double.IsInfinity(maxDistance))
+                    throw new ArgumentOutOfRangeException(nameof(maxDistance));
+                minCollapseTriangleQuality = 0.30;
+            }
             if (tangentialQuality && (preserveFeatures || flipOnlyQualityPasses || localQualityRollback))
                 throw new ArgumentException("Tangential quality is a separate fixed policy.");
             localQualityRollback |= tangentialQuality;
@@ -689,6 +701,12 @@ namespace gs
                 PreventSelfIntersections = true, Progress = new ProgressCancel(cancelF),
                 AreaWeightedQuadrics = false, MinCollapseTriangleQuality = minCollapseTriangleQuality, EdgeFlipTolerance = Math.Cos(60 * MathUtil.Deg2Rad)
             };
+            if (guardedFeatureQuadrics) {
+                reducer.FeatureAngle = 30;
+                reducer.FeatureQuadricWeight = 100;
+                reducer.MaxDeviation = maxDistance;
+                reducer.SetDeviationReference(mesh);
+            }
             if (preserveFeatures) {
                 var constraints = new MeshConstraints();
                 MeshConstraintUtil.PreserveBoundaryAndFeatures(constraints, m, 30);
