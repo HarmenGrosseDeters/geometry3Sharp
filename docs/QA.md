@@ -399,6 +399,9 @@ when the shared face of two inputs is not exactly planar after an inexact rotati
 tetrahedron of about 3e-15 volume, which the exact union keeps as a void touching the outer surface along edges
 (volume right, non-manifold when welded by position).
 
+**`DMesh3.RemoveVertex` (October 2026):** known failure, pinned in `KnownLimitation_RemoveVertex_SafeRemovalFailsAfterDeletingTriangles`:
+with `bPreserveManifold`, a removal that is safe can return `Failed_WouldCreateBowtie` after it deleted triangles.
+
 ## 3. Performance
 
 ### 3.1 Micro benchmarks with regression detection

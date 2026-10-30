@@ -46,7 +46,8 @@ namespace g3
         /// <summary>
         /// Remove vertex vID, and all connected triangles if bRemoveAllTriangles = true
         /// (if false, them throws exception if there are still any triangles!)
-        /// if bPreserveManifold, checks that we will not create a bowtie vertex first
+        /// if bPreserveManifold, checks that we will not create a bowtie vertex first. Known limit: it can return
+        /// Failed_WouldCreateBowtie after it deleted triangles (docs/QA.md, 2.11)
         /// </summary>
         public MeshResult RemoveVertex(int vID, bool bRemoveAllTriangles = true, bool bPreserveManifold = false)
         {
