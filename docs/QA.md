@@ -437,9 +437,9 @@ not depend on the implementer's own tests. Order of priority:
    implementing session may not change them.
    [Execution plan](design/HIDDEN_ACCEPTANCE_TESTS.md): fresh spec-only author workspaces, normative snapshots
    without implementation records, frozen test artifacts and separate black-box execution. Covers the quadtree
-   worked example/D catalogue/benchmark and a first-version disposition for every meshing F case. No author session
-   is known to have run; real API binding and product execution remain
-   pending. Authorship/self-tests are not implementation acceptance.
+   worked example/D catalogue/benchmark and a first-version disposition for every meshing F case. Not usable as written:
+   its isolation does not hold on a public repository, and it needs owner decisions. No author session is known to have
+   run. Authorship/self-tests are not implementation acceptance.
 5. **Quality ratchet in CI**: a small fixed benchmark subset with stored metrics (JSON: clean results, max
    deviation, self-intersections); a worse number fails the build.
 6. **Same-runner performance A/B**: base and head alternate on one runner, with spread; a regression above a

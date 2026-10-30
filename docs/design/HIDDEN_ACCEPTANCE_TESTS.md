@@ -1,11 +1,26 @@
 # Independent, hidden acceptance tests for quadtree and meshing
 
-**Owner note (2026-10-30): the statements below that author sessions started, and that the owner approved this, are probably wrong.** No output of such sessions was found. Treat the sessions as not started.
+Status: **not usable as written; blocked on owner decisions. No author session is known to have run.**
+A fact check on 2026-10-30 found:
 
-Status: **plan; no author session is known to have run; real-API binding and product execution pending**.
-The owner approved starting from pinned master specifications with test-owned contracts on 2026-10-30.
-Highest-priority follow-up while implementation is already in progress. This implements [AGENT_WORKFLOW §5](../AGENT_WORKFLOW.md#5-hidden-acceptance-tests-tier-l)
-and the hidden-test item in [QA §4a](../QA.md#4a-making-agent-work-verifiable).
+- **The isolation does not work.** This repository is public, and `origin/quadtree` publishes the implementation together with
+  `Quadtree2dAcceptanceTests.cs`. Authors have network access for package metadata, so nothing stops them reading it, and a violation
+  could not even be detected. The D and F catalogues and this plan are public too, so implementers can read them. For the quadtree,
+  independence from the implementer is already compromised.
+- **Sections 8 and 9 of the quadtree spec exist only on `origin/quadtree`, not on master** (which ends at section 7). This plan relies on
+  them in several places below, including "first live snapshot" and height extrapolation; using them would leak the implementation brief.
+- **The mechanical adapter can mask defects**, and nobody reviews it.
+- **No budget or round limit** for the 66 F cases, and meshing has no API, so execution of those tests is blocked for now.
+
+Statements below that the owner approved something are records of the session and are unverified. The kickoff section was deleted.
+
+Owner decisions needed before this can start:
+
+1. A real sandbox (container without mounts, egress only to a NuGet proxy, logged tool calls) and a private test repository, or accepting
+   weaker independence and saying so.
+2. Who writes the tests and who executes them.
+3. Whether `origin/quadtree` stays public.
+4. Which section 8, if any, enters the contract.
 
 ## 1. Separation and delivery contract
 
@@ -209,33 +224,3 @@ freeze before integration. No production fixes, silent skips or test relaxation 
    review remains a separate implementation gate; passing black-box tests cannot prove every pruning/error bound.
 7. Owner controls eventual publication of the test sources and integration into regular CI. Before any authorized
    push, run the applicable local CI steps from `CLAUDE.md`; never auto-merge or publish hidden artifacts early.
-
-## 5. Authoring kickoff (2026-10-30)
-
-The owner explicitly approved starting now from current master, with test-owned contracts and real API binding
-later. Source baseline: `origin/master` at `93880ed97a282f356ae96aea465e539130bea69b`.
-The original checkout and its pending changes were left untouched by workspace preparation.
-
-| Author package | Delivered normative content | SHA-256 of SPEC.md |
-|---|---|---|
-| Quadtree | Master preamble and sections 1-7 | `bb1b9d0c5768a526e1c3fb19d6921dbed9cbf422d71e009bf1aecf35f24f058e` |
-| Meshing | Master preamble and sections 1-5 | `34489c1a4d2fc6f58b36d19a33661a36a425eeab982bcad328fd0355e4963f6f` |
-
-**Contract update:** the normative quadtree section 8 seen during planning was not present on the fetched master.
-It was not reconstructed from memory or supplied from another implementation workspace. Consequently both
-authors now work against the master behavioral decisions and test-owned adapter contracts. Earlier references
-in this plan to section 8 describe intended future binding, not content delivered or approved for this kickoff.
-Missing public signatures and any unspecified behavior remain visible blockers until separately approved.
-The quadtree master snapshot contains no section 9 or implementation record.
-
-Each author has a separate newly initialized, source-free Git workspace containing only SPEC.md, SNAPSHOT.json
-and TASK_BRIEF.md at launch. There is no implementation history or remote. The input hashes above and the
-approved read boundaries were verified before the author sessions started. Authors must not read the parent
-repository, existing tests, other sessions or implementation reports. Only their own workspace/session artifacts
-and required SDK/tool/package metadata are allowed. No product source or binary has been delivered.
-
-Both Copilot author sessions were confirmed in progress. They are to generate fixtures/oracles and prove their
-test machinery using controlled test-only faults, then freeze the artifacts before black-box integration.
-No implementation test or benchmark has run as part of this kickoff; no product-acceptance claim is made.
-Next gate: collect authored artifacts and contract questions, approve the interface-only binding, then run the
-frozen tests in a separate executor.
