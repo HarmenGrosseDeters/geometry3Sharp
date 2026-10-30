@@ -1,0 +1,49 @@
+diff --git a/spatial/TriangleQuadtree2d.cs b/spatial/TriangleQuadtree2d.cs
+index e2a8972..1ddcf2e 100644
+--- a/spatial/TriangleQuadtree2d.cs
++++ b/spatial/TriangleQuadtree2d.cs
+@@ -74,7 +74,7 @@ namespace g3
+         {
+             QuadtreeGeometry2d.ValidateQuery(point, tolerance, results);
+             results.Clear();
+-            var visitor = new HeightVisitor { Items = items, Point = point, Results = results, Stop = stopAfterFirst };
++            var visitor = new HeightVisitor { Items = items, Tree = tree, Point = point, Results = results, Stop = stopAfterFirst };
+             tree.Traverse(ref visitor);
+             if (visitor.Found || tolerance == 0) return;
+             visitor.Tolerance = tolerance;
+@@ -89,7 +89,7 @@ namespace g3
+         {
+             QuadtreeGeometry2d.Validate(point);
+             QuadtreeGeometry2d.ValidateTolerance(tolerance);
+-            var visitor = new HeightVisitor { Items = items, Point = point, Stop = true };
++            var visitor = new HeightVisitor { Items = items, Tree = tree, Point = point, Stop = true };
+             tree.Traverse(ref visitor);
+             if (!visitor.Found && tolerance > 0) {
+                 visitor.Tolerance = tolerance;
+@@ -112,6 +112,7 @@ namespace g3
+         struct HeightVisitor : IQuadtreeVisitor2d
+         {
+             internal List<Triangle3d> Items;
++            internal LooseQuadtree2d Tree;
+             internal Vector2d Point;
+             internal double Tolerance, Height;
+             internal List<QuadtreeHeightHit2d> Results;
+@@ -119,12 +120,15 @@ namespace g3
+             public bool TestRegion(AxisAlignedBox2d region) { return QuadtreeGeometry2d.NearRegion(region, Point, Tolerance); }
+             public bool Visit(int id)
+             {
++                if (Tolerance == 0 && !QuadtreeGeometry2d.NearRegion(Tree.GetBounds(id), Point, 0)) return false;
+                 Triangle3d triangle = Items[id];
+-                Vector2d a = QuadtreeGeometry2d.XY(triangle.V0), b = QuadtreeGeometry2d.XY(triangle.V1), c = QuadtreeGeometry2d.XY(triangle.V2);
+-                if (ExactPredicates.Orient2d(a, b, c) == 0) return false;
+                 if (Tolerance == 0) {
+                     if (!QuadtreeGeometry2d.Contains(triangle, Point)) return false;
+-                } else if (QuadtreeGeometry2d.TriangleDistance(triangle, Point) > Tolerance) return false;
++                } else {
++                    Vector2d a = QuadtreeGeometry2d.XY(triangle.V0), b = QuadtreeGeometry2d.XY(triangle.V1), c = QuadtreeGeometry2d.XY(triangle.V2);
++                    if (ExactPredicates.Orient2d(a, b, c) == 0 ||
++                        QuadtreeGeometry2d.TriangleDistance(triangle, Point) > Tolerance) return false;
++                }
+                 Height = QuadtreeGeometry2d.Height(triangle, Point);
+                 if (!QuadtreeGeometry2d.Finite(Height))
+                     throw new ArithmeticException("The interpolated height is outside the finite double range.");

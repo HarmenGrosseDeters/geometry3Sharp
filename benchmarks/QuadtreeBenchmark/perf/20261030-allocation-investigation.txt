@@ -1,0 +1,292 @@
+Allocation investigation, 2026-10-30. Production quadtree source unchanged.
+The historical 8160-byte failure was not reproduced. No CLR or runner root cause is established.
+Full-suite result below precedes the diagnostic-only test additions.
+Source SHA256: 6D8A0511CDB03A9619F50C67A924F3B413BE322AE02DECCAF25783CF22168A2A
+
+COMMAND: dotnet test tests\geometry3Sharp.Tests -c Release -f net10.0 --no-build --filter FullyQualifiedName~WarmHotQueriesAllocateNoManagedMemory --logger console;verbosity=normal
+Testlauf für "D:\work\geometry3sharp-Qudtree\geometry3Sharp\tests\geometry3Sharp.Tests\bin\Release\net10.0\geometry3Sharp.Tests.dll" (.NETCoreApp,Version=v10.0)
+Insgesamt 1 Testdateien stimmten mit dem angegebenen Muster überein.
+[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v2.5.4.1+b9eacec401 (64-bit .NET 10.0.12)
+[xUnit.net 00:00:00.23]   Discovering: geometry3Sharp.Tests
+[xUnit.net 00:00:01.20]   Discovered:  geometry3Sharp.Tests
+[xUnit.net 00:00:01.21]   Starting:    geometry3Sharp.Tests
+[xUnit.net 00:00:01.49]   Finished:    geometry3Sharp.Tests
+  Bestanden geometry3Sharp.Tests.Spatial.LooseQuadtree2dTests.WarmHotQueriesAllocateNoManagedMemory [97 ms]
+
+Der Testlauf war erfolgreich.
+Gesamtzahl Tests: 1
+     Bestanden: 1
+ Gesamtzeit: 2,7164 Sekunden
+
+
+COMMAND: dotnet test tests\geometry3Sharp.Tests -c Release -f net10.0 --no-build --logger console;verbosity=minimal
+Testlauf für "D:\work\geometry3sharp-Qudtree\geometry3Sharp\tests\geometry3Sharp.Tests\bin\Release\net10.0\geometry3Sharp.Tests.dll" (.NETCoreApp,Version=v10.0)
+Insgesamt 1 Testdateien stimmten mit dem angegebenen Muster überein.
+dotnet : [xUnit.net 00:03:52.59]
+geometry3Sharp.Tests.ExactBooleanIssueCasesTests.KnownLimitation_TwoTriangularPrisms_RotatedInexactly_KeepATinyVoid
+[FAIL]
+In Zeile:2 Zeichen:123
++ ... -20261030'; dotnet test tests\geometry3Sharp.Tests -c Release -f net1 ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([xUnit.net 00:0...TinyVoid [FAIL]:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+
+  Fehler geometry3Sharp.Tests.ExactBooleanIssueCasesTests.KnownLimitation_TwoTriangularPrisms_RotatedInexactly_KeepATinyVoid [143 ms]
+  Fehlermeldung:
+   Assert.Equal() Failure: Values differ
+Expected: 2
+Actual:   1
+  Stapelverfolgung:
+     at geometry3Sharp.Tests.ExactBooleanIssueCasesTests.KnownLimitation_TwoTriangularPrisms_RotatedInexactly_KeepATinyVoid() in D:\work\geometry3sharp-Qudtree\geometry3Sharp\tests\geometry3Sharp.Tests\ExactBooleanIssueCasesTests.cs:line 163
+   at System.RuntimeMethodHandle.InvokeMethod(ObjectHandleOnStack target, Void** arguments, ObjectHandleOnStack sig, BOOL isConstructor, ObjectHandleOnStack result)
+   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+
+Fehler!      : Fehler:     1, erfolgreich:  2919, übersprungen:     0, gesamt:  2920, Dauer: 10 m 26 s - geometry3Sharp.Tests.dll (net10.0)
+
+
+COMMAND: dotnet test tests\geometry3Sharp.Tests -c Release -f net10.0 --filter FullyQualifiedName~WarmHotQueriesAllocateNoManagedMemory|FullyQualifiedName~IndividualWarmQueriesAllocateNoManagedMemory|FullyQualifiedName~DedicatedAllocationMeasurement
+  Wiederherzustellende Projekte werden ermittelt...
+  Alle Projekte sind für die Wiederherstellung auf dem neuesten Stand.
+  geometry3Sharp_netstandard -> D:\work\geometry3sharp-Qudtree\geometry3Sharp\bin\Release\net10.0\geometry3Sharp.dll
+  QuadtreeBenchmark -> D:\work\geometry3sharp-Qudtree\geometry3Sharp\benchmarks\QuadtreeBenchmark\bin\Release\net10.0\QuadtreeBenchmark.dll
+D:\work\geometry3sharp-Qudtree\geometry3Sharp\tests\geometry3Sharp.Tests\IntrinsicRefinementTests.cs(224,13): warning xUnit2012: Do not use Assert.True() to check if a value exists in a collection. Use Assert.Contains instead. (https://xunit.net/xunit.analyzers/rules/xUnit2012) [D:\work\geometry3sharp-Qudtree\geometry3Sharp\tests\geometry3Sharp.Tests\geometry3Sharp.Tests.csproj::TargetFramework=net10.0]
+D:\work\geometry3sharp-Qudtree\geometry3Sharp\tests\geometry3Sharp.Tests\IntrinsicRefinementTests.cs(229,13): warning xUnit2012: Do not use Assert.False() to check if a value exists in a collection. Use Assert.DoesNotContain instead. (https://xunit.net/xunit.analyzers/rules/xUnit2012) [D:\work\geometry3sharp-Qudtree\geometry3Sharp\tests\geometry3Sharp.Tests\geometry3Sharp.Tests.csproj::TargetFramework=net10.0]
+D:\work\geometry3sharp-Qudtree\geometry3Sharp\tests\geometry3Sharp.Tests\PlaneCutScaleTests.cs(49,13): warning xUnit2013: Do not use Assert.Equal() to check for collection size. Use Assert.Single instead. (https://xunit.net/xunit.analyzers/rules/xUnit2013) [D:\work\geometry3sharp-Qudtree\geometry3Sharp\tests\geometry3Sharp.Tests\geometry3Sharp.Tests.csproj::TargetFramework=net10.0]
+D:\work\geometry3sharp-Qudtree\geometry3Sharp\tests\geometry3Sharp.Tests\PlaneCutScaleTests.cs(92,13): warning xUnit2013: Do not use Assert.Equal() to check for collection size. Use Assert.Single instead. (https://xunit.net/xunit.analyzers/rules/xUnit2013) [D:\work\geometry3sharp-Qudtree\geometry3Sharp\tests\geometry3Sharp.Tests\geometry3Sharp.Tests.csproj::TargetFramework=net10.0]
+D:\work\geometry3sharp-Qudtree\geometry3Sharp\tests\geometry3Sharp.Tests\PlaneCutScaleTests.cs(107,17): warning xUnit2013: Do not use Assert.Equal() to check for collection size. Use Assert.Single instead. (https://xunit.net/xunit.analyzers/rules/xUnit2013) [D:\work\geometry3sharp-Qudtree\geometry3Sharp\tests\geometry3Sharp.Tests\geometry3Sharp.Tests.csproj::TargetFramework=net10.0]
+  geometry3Sharp.Tests -> D:\work\geometry3sharp-Qudtree\geometry3Sharp\tests\geometry3Sharp.Tests\bin\Release\net10.0\geometry3Sharp.Tests.dll
+Testlauf für "D:\work\geometry3sharp-Qudtree\geometry3Sharp\tests\geometry3Sharp.Tests\bin\Release\net10.0\geometry3Sharp.Tests.dll" (.NETCoreApp,Version=v10.0)
+Insgesamt 1 Testdateien stimmten mit dem angegebenen Muster überein.
+
+Bestanden!   : Fehler:     0, erfolgreich:     9, übersprungen:     0, gesamt:     9, Dauer: 1 s - geometry3Sharp.Tests.dll (net10.0)
+
+
+COMMAND: Mutation: add results.Capacity = results.Capacity + 1 in QueryRectangle; dotnet test tests\geometry3Sharp.Tests -c Release -f net10.0 --filter FullyQualifiedName~IndividualWarmQueriesAllocateNoManagedMemory
+  Wiederherzustellende Projekte werden ermittelt...
+  Alle Projekte sind für die Wiederherstellung auf dem neuesten Stand.
+D:\work\geometry3sharp-Qudtree\geometry3Sharp\mesh_ops\MeshStitchLoops.cs(37,16): warning CS8981: Der Typname „span“ enthält nur ASCII-Zeichen in Kleinbuchstaben. Solche Namen können möglicherweise für die Sprache reserviert werden. [D:\work\geometry3sharp-Qudtree\geometry3Sharp\geometry3Sharp_netstandard.csproj::TargetFramework=net10.0]
+D:\work\geometry3sharp-Qudtree\geometry3Sharp\solvers\PackedSparseMatrix.cs(23,23): warning CS8981: Der Typname „nonzero“ enthält nur ASCII-Zeichen in Kleinbuchstaben. Solche Namen können möglicherweise für die Sprache reserviert werden. [D:\work\geometry3sharp-Qudtree\geometry3Sharp\geometry3Sharp_netstandard.csproj::TargetFramework=net10.0]
+D:\work\geometry3sharp-Qudtree\geometry3Sharp\solvers\SparseMatrix.cs(304,16): warning CS8981: Der Typname „mval“ enthält nur ASCII-Zeichen in Kleinbuchstaben. Solche Namen können möglicherweise für die Sprache reserviert werden. [D:\work\geometry3sharp-Qudtree\geometry3Sharp\geometry3Sharp_netstandard.csproj::TargetFramework=net10.0]
+D:\work\geometry3sharp-Qudtree\geometry3Sharp\mesh_ops\MeshMeshCut.cs(606,13): warning CS0162: Unerreichbarer Code wurde entdeckt. [D:\work\geometry3sharp-Qudtree\geometry3Sharp\geometry3Sharp_netstandard.csproj::TargetFramework=net10.0]
+  geometry3Sharp_netstandard -> D:\work\geometry3sharp-Qudtree\geometry3Sharp\bin\Release\net10.0\geometry3Sharp.dll
+  QuadtreeBenchmark -> D:\work\geometry3sharp-Qudtree\geometry3Sharp\benchmarks\QuadtreeBenchmark\bin\Release\net10.0\QuadtreeBenchmark.dll
+  geometry3Sharp.Tests -> D:\work\geometry3sharp-Qudtree\geometry3Sharp\tests\geometry3Sharp.Tests\bin\Release\net10.0\geometry3Sharp.Tests.dll
+Testlauf für "D:\work\geometry3sharp-Qudtree\geometry3Sharp\tests\geometry3Sharp.Tests\bin\Release\net10.0\geometry3Sharp.Tests.dll" (.NETCoreApp,Version=v10.0)
+Insgesamt 1 Testdateien stimmten mit dem angegebenen Muster überein.
+dotnet : [xUnit.net 00:00:01.69]
+geometry3Sharp.Tests.Spatial.LooseQuadtree2dTests.IndividualWarmQueriesAllocateNoManagedMemory(operation: "rectangle")
+[FAIL]
+In Zeile:2 Zeichen:123
++ ... -20261030'; dotnet test tests\geometry3Sharp.Tests -c Release -f net1 ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([xUnit.net 00:0...tangle") [FAIL]:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+
+  Fehler geometry3Sharp.Tests.Spatial.LooseQuadtree2dTests.IndividualWarmQueriesAllocateNoManagedMemory(operation: "rectangle") [3 ms]
+  Fehlermeldung:
+   Assert.Equal() Failure: Values differ
+Expected: 0
+Actual:   165200
+  Stapelverfolgung:
+     at geometry3Sharp.Tests.Spatial.LooseQuadtree2dTests.IndividualWarmQueriesAllocateNoManagedMemory(String operation) in D:\work\geometry3sharp-Qudtree\geometry3Sharp\tests\geometry3Sharp.Tests\Spatial\LooseQuadtree2dTests.cs:line 526
+   at InvokeStub_LooseQuadtree2dTests.IndividualWarmQueriesAllocateNoManagedMemory(Object, Span`1)
+   at System.Reflection.MethodBaseInvoker.InvokeWithOneArg(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+
+Fehler!      : Fehler:     1, erfolgreich:     6, übersprungen:     0, gesamt:     7, Dauer: 1 s - geometry3Sharp.Tests.dll (net10.0)
+
+
+COMMAND: After restoring source and dotnet build tests\geometry3Sharp.Tests -c Release -f net10.0 -t:Rebuild: dotnet test tests\geometry3Sharp.Tests -c Release -f net10.0 --no-build --filter FullyQualifiedName~Quadtree|FullyQualifiedName~StrtreeComparison|FullyQualifiedName~DocExamplesTests.Quadtree
+Testlauf für "D:\work\geometry3sharp-Qudtree\geometry3Sharp\tests\geometry3Sharp.Tests\bin\Release\net10.0\geometry3Sharp.Tests.dll" (.NETCoreApp,Version=v10.0)
+Insgesamt 1 Testdateien stimmten mit dem angegebenen Muster überein.
+
+Bestanden!   : Fehler:     0, erfolgreich:   107, übersprungen:     0, gesamt:   107, Dauer: 1 s - geometry3Sharp.Tests.dll (net10.0)
+
+
+COMMAND: dotnet test tests\geometry3Sharp.Tests -c Release -f net48 --filter FullyQualifiedName~Quadtree|FullyQualifiedName~StrtreeComparison|FullyQualifiedName~DocExamplesTests.Quadtree
+  Wiederherzustellende Projekte werden ermittelt...
+  "D:\work\geometry3sharp-Qudtree\geometry3Sharp\benchmarks\QuadtreeBenchmark\QuadtreeBenchmark.csproj" wiederhergestellt (in 399 ms.).
+  "D:\work\geometry3sharp-Qudtree\geometry3Sharp\tests\geometry3Sharp.Tests\geometry3Sharp.Tests.csproj" wiederhergestellt (in 422 ms.).
+  1 von 3 Projekten sind für die Wiederherstellung auf dem neuesten Stand.
+D:\work\geometry3sharp-Qudtree\geometry3Sharp\mesh_ops\MeshMeshCut.cs(606,13): warning CS0162: Unerreichbarer Code wurde entdeckt. [D:\work\geometry3sharp-Qudtree\geometry3Sharp\geometry3Sharp_netstandard.csproj::TargetFramework=netstandard2.0]
+  geometry3Sharp_netstandard -> D:\work\geometry3sharp-Qudtree\geometry3Sharp\bin\Release\netstandard2.0\geometry3Sharp.dll
+  QuadtreeBenchmark -> D:\work\geometry3sharp-Qudtree\geometry3Sharp\benchmarks\QuadtreeBenchmark\bin\Release\net48\QuadtreeBenchmark.exe
+D:\work\geometry3sharp-Qudtree\geometry3Sharp\tests\geometry3Sharp.Tests\RobustnessSweepTests.cs(433,17): warning CS0162: Unerreichbarer Code wurde entdeckt. [D:\work\geometry3sharp-Qudtree\geometry3Sharp\tests\geometry3Sharp.Tests\geometry3Sharp.Tests.csproj::TargetFramework=net48]
+D:\work\geometry3sharp-Qudtree\geometry3Sharp\tests\geometry3Sharp.Tests\IntrinsicRefinementTests.cs(224,13): warning xUnit2012: Do not use Assert.True() to check if a value exists in a collection. Use Assert.Contains instead. (https://xunit.net/xunit.analyzers/rules/xUnit2012) [D:\work\geometry3sharp-Qudtree\geometry3Sharp\tests\geometry3Sharp.Tests\geometry3Sharp.Tests.csproj::TargetFramework=net48]
+D:\work\geometry3sharp-Qudtree\geometry3Sharp\tests\geometry3Sharp.Tests\IntrinsicRefinementTests.cs(229,13): warning xUnit2012: Do not use Assert.False() to check if a value exists in a collection. Use Assert.DoesNotContain instead. (https://xunit.net/xunit.analyzers/rules/xUnit2012) [D:\work\geometry3sharp-Qudtree\geometry3Sharp\tests\geometry3Sharp.Tests\geometry3Sharp.Tests.csproj::TargetFramework=net48]
+D:\work\geometry3sharp-Qudtree\geometry3Sharp\tests\geometry3Sharp.Tests\PlaneCutScaleTests.cs(49,13): warning xUnit2013: Do not use Assert.Equal() to check for collection size. Use Assert.Single instead. (https://xunit.net/xunit.analyzers/rules/xUnit2013) [D:\work\geometry3sharp-Qudtree\geometry3Sharp\tests\geometry3Sharp.Tests\geometry3Sharp.Tests.csproj::TargetFramework=net48]
+D:\work\geometry3sharp-Qudtree\geometry3Sharp\tests\geometry3Sharp.Tests\PlaneCutScaleTests.cs(92,13): warning xUnit2013: Do not use Assert.Equal() to check for collection size. Use Assert.Single instead. (https://xunit.net/xunit.analyzers/rules/xUnit2013) [D:\work\geometry3sharp-Qudtree\geometry3Sharp\tests\geometry3Sharp.Tests\geometry3Sharp.Tests.csproj::TargetFramework=net48]
+D:\work\geometry3sharp-Qudtree\geometry3Sharp\tests\geometry3Sharp.Tests\PlaneCutScaleTests.cs(107,17): warning xUnit2013: Do not use Assert.Equal() to check for collection size. Use Assert.Single instead. (https://xunit.net/xunit.analyzers/rules/xUnit2013) [D:\work\geometry3sharp-Qudtree\geometry3Sharp\tests\geometry3Sharp.Tests\geometry3Sharp.Tests.csproj::TargetFramework=net48]
+  geometry3Sharp.Tests -> D:\work\geometry3sharp-Qudtree\geometry3Sharp\tests\geometry3Sharp.Tests\bin\Release\net48\geometry3Sharp.Tests.dll
+Testlauf für "D:\work\geometry3sharp-Qudtree\geometry3Sharp\tests\geometry3Sharp.Tests\bin\Release\net48\geometry3Sharp.Tests.dll" (.NETFramework,Version=v4.8)
+Insgesamt 1 Testdateien stimmten mit dem angegebenen Muster überein.
+
+Bestanden!   : Fehler:     0, erfolgreich:    96, übersprungen:     0, gesamt:    96, Dauer: 1 s - geometry3Sharp.Tests.dll (net48)
+
+
+BASELINE REPEAT 1, same spatial filter with --no-build:
+Testlauf für "D:\work\geometry3sharp-Qudtree\geometry3Sharp\tests\geometry3Sharp.Tests\bin\Release\net10.0\geometry3Sharp.Tests.dll" (.NETCoreApp,Version=v10.0)
+Insgesamt 1 Testdateien stimmten mit dem angegebenen Muster überein.
+
+Bestanden!   : Fehler:     0, erfolgreich:    99, übersprungen:     0, gesamt:    99, Dauer: 698 ms - geometry3Sharp.Tests.dll (net10.0)
+
+
+BASELINE REPEAT 2, same spatial filter with --no-build:
+Testlauf für "D:\work\geometry3sharp-Qudtree\geometry3Sharp\tests\geometry3Sharp.Tests\bin\Release\net10.0\geometry3Sharp.Tests.dll" (.NETCoreApp,Version=v10.0)
+Insgesamt 1 Testdateien stimmten mit dem angegebenen Muster überein.
+
+Bestanden!   : Fehler:     0, erfolgreich:    99, übersprungen:     0, gesamt:    99, Dauer: 781 ms - geometry3Sharp.Tests.dll (net10.0)
+
+
+BASELINE REPEAT 3, same spatial filter with --no-build:
+Testlauf für "D:\work\geometry3sharp-Qudtree\geometry3Sharp\tests\geometry3Sharp.Tests\bin\Release\net10.0\geometry3Sharp.Tests.dll" (.NETCoreApp,Version=v10.0)
+Insgesamt 1 Testdateien stimmten mit dem angegebenen Muster überein.
+
+Bestanden!   : Fehler:     0, erfolgreich:    99, übersprungen:     0, gesamt:    99, Dauer: 1 s - geometry3Sharp.Tests.dll (net10.0)
+
+
+BASELINE REPEAT 4, same spatial filter with --no-build:
+Testlauf für "D:\work\geometry3sharp-Qudtree\geometry3Sharp\tests\geometry3Sharp.Tests\bin\Release\net10.0\geometry3Sharp.Tests.dll" (.NETCoreApp,Version=v10.0)
+Insgesamt 1 Testdateien stimmten mit dem angegebenen Muster überein.
+
+Bestanden!   : Fehler:     0, erfolgreich:    99, übersprungen:     0, gesamt:    99, Dauer: 906 ms - geometry3Sharp.Tests.dll (net10.0)
+
+
+BASELINE REPEAT 5, same spatial filter with --no-build:
+Testlauf für "D:\work\geometry3sharp-Qudtree\geometry3Sharp\tests\geometry3Sharp.Tests\bin\Release\net10.0\geometry3Sharp.Tests.dll" (.NETCoreApp,Version=v10.0)
+Insgesamt 1 Testdateien stimmten mit dem angegebenen Muster überein.
+
+Bestanden!   : Fehler:     0, erfolgreich:    99, übersprungen:     0, gesamt:    99, Dauer: 1 s - geometry3Sharp.Tests.dll (net10.0)
+
+
+BASELINE REPEAT 6, same spatial filter with --no-build:
+Testlauf für "D:\work\geometry3sharp-Qudtree\geometry3Sharp\tests\geometry3Sharp.Tests\bin\Release\net10.0\geometry3Sharp.Tests.dll" (.NETCoreApp,Version=v10.0)
+Insgesamt 1 Testdateien stimmten mit dem angegebenen Muster überein.
+
+Bestanden!   : Fehler:     0, erfolgreich:    99, übersprungen:     0, gesamt:    99, Dauer: 1 s - geometry3Sharp.Tests.dll (net10.0)
+
+
+BASELINE REPEAT 7, same spatial filter with --no-build:
+Testlauf für "D:\work\geometry3sharp-Qudtree\geometry3Sharp\tests\geometry3Sharp.Tests\bin\Release\net10.0\geometry3Sharp.Tests.dll" (.NETCoreApp,Version=v10.0)
+Insgesamt 1 Testdateien stimmten mit dem angegebenen Muster überein.
+
+Bestanden!   : Fehler:     0, erfolgreich:    99, übersprungen:     0, gesamt:    99, Dauer: 1 s - geometry3Sharp.Tests.dll (net10.0)
+
+
+BASELINE REPEAT 8, same spatial filter with --no-build:
+Testlauf für "D:\work\geometry3sharp-Qudtree\geometry3Sharp\tests\geometry3Sharp.Tests\bin\Release\net10.0\geometry3Sharp.Tests.dll" (.NETCoreApp,Version=v10.0)
+Insgesamt 1 Testdateien stimmten mit dem angegebenen Muster überein.
+
+Bestanden!   : Fehler:     0, erfolgreich:    99, übersprungen:     0, gesamt:    99, Dauer: 946 ms - geometry3Sharp.Tests.dll (net10.0)
+
+
+STANDALONE PROBE: op=0 rectangle; 1 segment; 2 nearest; 3 nearest-k; 4 generic-nearest; 5 generic-nearest-k; 6 traverse; 7 SpinWait-only control.
+Each operation: 2000 measurement intervals, 100 calls per interval after warmup. Background gen2 GC pressure; escaping anchors outside measurements. Not a timing benchmark or a proof of a runtime bug.
+
+COMMAND: dotnet run --project probe\probe.csproj -c Release -f net10.0 -- gc
+op=0 total=0 nonzero=0 max=0 max_pass=0
+op=1 total=0 nonzero=0 max=0 max_pass=0
+op=2 total=0 nonzero=0 max=0 max_pass=0
+op=3 total=0 nonzero=0 max=0 max_pass=0
+op=4 total=0 nonzero=0 max=0 max_pass=0
+op=5 total=0 nonzero=0 max=0 max_pass=0
+op=6 total=0 nonzero=0 max=0 max_pass=0
+op=7 total=0 nonzero=0 max=0 max_pass=0
+
+
+COMMAND: dotnet run --project probe\probe.csproj -c Release -f net8.0 -- gc
+op=0 total=0 nonzero=0 max=0 max_pass=0
+op=1 total=0 nonzero=0 max=0 max_pass=0
+op=2 total=0 nonzero=0 max=0 max_pass=0
+op=3 total=0 nonzero=0 max=0 max_pass=0
+op=4 total=0 nonzero=0 max=0 max_pass=0
+op=5 total=0 nonzero=0 max=0 max_pass=0
+op=6 total=0 nonzero=0 max=0 max_pass=0
+op=7 total=0 nonzero=0 max=0 max_pass=0
+
+
+REPRODUCER PROJECT (replace library HintPath with your local Release netstandard2.0 binary):
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType><TargetFrameworks>net10.0;net8.0</TargetFrameworks><Optimize>true</Optimize></PropertyGroup>
+  <ItemGroup><Reference Include="geometry3Sharp"><HintPath>D:\work\geometry3sharp-Qudtree\geometry3Sharp\bin\Release\netstandard2.0\geometry3Sharp.dll</HintPath></Reference></ItemGroup>
+</Project>
+
+
+REPRODUCER PROGRAM:
+using System;
+using System.Collections.Generic;
+using System.Threading;
+using g3;
+
+class Program
+{
+    struct Metric : IQuadtreeDistance2d
+    {
+        public double[] Values;
+        public int Calls;
+        public double Distance(int id) { ++Calls; return Values[id]; }
+    }
+    struct Visitor : IQuadtreeVisitor2d
+    {
+        public AxisAlignedBox2d Query;
+        public int Regions, Visits;
+        public bool TestRegion(AxisAlignedBox2d region) { ++Regions; return region.Intersects(Query); }
+        public bool Visit(int id) { ++Visits; return false; }
+    }
+    static volatile bool stop;
+    static object anchor;
+    static void Main(string[] args)
+    {
+        var boxes = new AxisAlignedBox2d[22500];
+        for (int i = 0; i < boxes.Length; i++) boxes[i] = new AxisAlignedBox2d(i % 150, i / 150, i % 150 + .5, i / 150 + .5);
+        var tree = new LooseQuadtree2d(boxes);
+        var results = new List<int>(tree.Count);
+        var query = new AxisAlignedBox2d(10, 10, 13, 13);
+        var metric = new Metric { Values = new double[tree.Count] };
+        Array.Fill(metric.Values, 100.0);
+        var visitor = new Visitor { Query = query };
+        for (int i = 0; i < 100; i++) Batch(tree, results, query, ref metric, ref visitor, -1);
+        Thread gc = null;
+        if (args.Length > 0 && args[0] == "gc") {
+            gc = new Thread(() => {
+                var roots = new byte[10000][];
+                for (int i = 0; i < roots.Length; i++) roots[i] = new byte[64];
+                GC.Collect(2, GCCollectionMode.Forced, true, false);
+                while (!stop) {
+                    for (int i = 0; i < roots.Length; i++) roots[i] = new byte[64];
+                    GC.Collect(2, GCCollectionMode.Forced, false, false);
+                    Thread.Sleep(4);
+                }
+                GC.KeepAlive(roots);
+            });
+            gc.Start();
+        }
+        var deltas = new long[8];
+        var counts = new int[8];
+        var max = new long[8];
+        var iterations = new int[8];
+        for (int pass = 0; pass < 2000; pass++) {
+            for (int op = 0; op < 8; op++) {
+                anchor = new byte[32];
+                long before = GC.GetAllocatedBytesForCurrentThread();
+                for (int i = 0; i < 100; i++) Batch(tree, results, query, ref metric, ref visitor, op);
+                long delta = GC.GetAllocatedBytesForCurrentThread() - before;
+                GC.KeepAlive(anchor);
+                if (delta != 0) { deltas[op] += delta; counts[op]++; if (delta > max[op]) { max[op] = delta; iterations[op] = pass; } }
+            }
+        }
+        stop = true;
+        if (gc != null) gc.Join();
+        for (int op = 0; op < 8; op++) Console.WriteLine("op={0} total={1} nonzero={2} max={3} max_pass={4}", op, deltas[op], counts[op], max[op], iterations[op]);
+    }
+    static void Batch(LooseQuadtree2d tree, List<int> results, AxisAlignedBox2d query, ref Metric metric, ref Visitor visitor, int op)
+    {
+        if (op == -1 || op == 0) tree.QueryRectangle(query, results);
+        if (op == -1 || op == 1) tree.QuerySegment(query.Min, query.Max, results);
+        if (op == -1 || op == 2) tree.FindNearest(query.Min);
+        if (op == -1 || op == 3) tree.FindNearestK(query.Min, 4, results);
+        if (op == -1 || op == 4) tree.FindNearest(query.Min, ref metric, 1);
+        if (op == -1 || op == 5) tree.FindNearestK(query.Min, 4, results, ref metric, 1);
+        if (op == -1 || op == 6) tree.Traverse(ref visitor);
+        if (op == 7) Thread.SpinWait(500);
+    }
+}

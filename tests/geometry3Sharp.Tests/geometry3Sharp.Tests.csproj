@@ -30,9 +30,12 @@
 
   <ItemGroup Condition="'$(UseNuGetG3)' != 'true'">
     <ProjectReference Include="..\..\geometry3Sharp_netstandard.csproj" />
+    <ProjectReference Include="..\..\benchmarks\QuadtreeBenchmark\QuadtreeBenchmark.csproj" />
   </ItemGroup>
   <!-- dotnet test -p:UseNuGetG3=true runs the tests against the old NuGet package (1.0.324) -->
   <ItemGroup Condition="'$(UseNuGetG3)' == 'true'">
+    <Compile Remove="Spatial\StrtreeComparisonTests.cs" />
+    <Compile Remove="Spatial\NtsQuadtreeComparisonTests.cs" />
     <PackageReference Include="geometry3Sharp" Version="1.0.324" />
   </ItemGroup>
 

@@ -1,0 +1,17 @@
+{
+    "before_net10_sha256":  "8DFC111AED5BAE8E6B4BC423705A215D16486EBF1C127A60B00E1A70399CF36E",
+    "height_only_net10_sha256":  "6020D174A4C11C4DE7F77BC6DB98E163ACA333368C57B4B6A0F6FE518D3DFA53",
+    "before_net48_sha256":  "7B48ACE1E24A88A6D5BD4353DEA4E59A872F9211451BC196B19D525899B11D93",
+    "height_only_net48_sha256":  "0DF78DE81F3F1EA053EE80901CFB051E533BDEC33DA367C18BE47E7F0123A670",
+    "tested_net48_sha256":  "3882091BC94AAB6B6CF6734EC4563366430F5D387866C1AC82FD0B3B6D04F75A",
+    "net48_tested_measured_quadtree_method_il_and_declared_fields_match":  true,
+    "core_source_sha256":  "6D8A0511CDB03A9619F50C67A924F3B413BE322AE02DECCAF25783CF22168A2A",
+    "before_core_source_sha256":  "6D8A0511CDB03A9619F50C67A924F3B413BE322AE02DECCAF25783CF22168A2A",
+    "height_source_sha256":  "7E7596EED287C326ADBBD4AD272F08C0159EF9642C4BE692876C8D867D7F6DF3",
+    "rejected_cached_net10_sha256":  "F8CC933257BFDC4B7D04F6C9CEADFCB9F4D3B2904133545D7F2C54CA14297541",
+    "rebuild_command":  "dotnet build benchmarks\\QuadtreeBenchmark -c Release --no-restore -t:Rebuild --verbosity minimal",
+    "net10_command":  "dotnet \u003csnapshot\u003e\\QuadtreeBenchmark.dll 708 10000 32",
+    "net48_command":  "\u003csnapshot\u003e\\QuadtreeBenchmark.exe 708 10000 32",
+    "samples":  "Three fresh processes per contender/runtime; three query samples per process",
+    "stale_record_note":  "20261029-stale-binary-* records are excluded: net10 after/final used the rejected cache binary. Only affected net10 measurements were repeated after a forced rebuild. Final net48 records were retained unchanged."
+}
