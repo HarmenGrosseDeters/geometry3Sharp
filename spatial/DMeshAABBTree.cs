@@ -66,7 +66,7 @@ namespace g3
 
 
         /// <summary>
-        /// Top-down build strategies will put at most this many triangles into a box.
+        /// Top-down build strategies will put at most this many triangles into a box (values below 2 count as 2).
         /// Larger value == shallower trees, but leaves cost more to test
         /// </summary>
         public int TopDownLeafMaxTriCount = 4;
@@ -881,7 +881,7 @@ namespace g3
         /// Both trees must be built and current with their meshes.
         /// TransformF transforms vertices of otherTree into our coordinates. can be null.
         /// Returns triangle-id pair (my_tri,other_tri), or Index2i.Max if there is none.
-        /// distance is the (unsquared) distance between the pair, or max_dist (double.MaxValue by default) if none was found.
+        /// distance is the (unsquared) distance between the pair. If there is none: max_dist, up to the rounding of its square, and double.MaxValue if that square overflows.
         /// Use MeshQueries.TrianglesDistance() to get more information
         /// </summary>
         public virtual Index2i FindNearestTriangles(DMeshAABBTree3 otherTree, Func<Vector3d, Vector3d> TransformF, out double distance, double max_dist = double.MaxValue)
