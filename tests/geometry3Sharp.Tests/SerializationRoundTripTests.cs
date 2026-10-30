@@ -199,6 +199,43 @@ namespace geometry3Sharp.Tests
             Assert.Equal(second.TriangleCount, reused.TriangleCount);
         }
 
+        [Theory]
+        [InlineData(-1)]
+        [InlineData(int.MinValue)]
+        public void Strings_NegativeCount_AreRejected(int count)
+        {
+            byte[] data = Bytes(w => w.Write(count));
+            Assert.Contains("negative element count", Assert.Throws<Exception>(() => Read(data, r => { string s = null; gSerialization.Restore(ref s, r); return s; })).Message);
+            Assert.Contains("negative element count", Assert.Throws<Exception>(() => Read(data, r => { string[] s = null; gSerialization.Restore(ref s, r); return s; })).Message);
+        }
+
+        [Fact]
+        public void Strings_CountBeyondTheStream_AreRejected()
+        {
+            byte[] data = Bytes(w => w.Write(int.MaxValue));
+            Assert.Throws<EndOfStreamException>(() => Read(data, r => { string s = null; gSerialization.Restore(ref s, r); return s; }));
+            Assert.Throws<Exception>(() => Read(data, r => { string[] s = null; gSerialization.Restore(ref s, r); return s; }));
+        }
+
+        [Fact]
+        public void Strings_Truncated_AreRejected_AndWholeOnesRoundTrip()
+        {
+            byte[] text = Bytes(w => gSerialization.Store("Gr\u00fc\u00dfe", w));
+            byte[] texts = Bytes(w => gSerialization.Store(new[] { "prefix", "\u6771\u4eac" }, w));
+            Assert.Equal("Gr\u00fc\u00dfe", Read(text, r => { string s = null; gSerialization.Restore(ref s, r); return s; }));
+            Assert.Equal(new[] { "prefix", "\u6771\u4eac" }, Read(texts, r => { string[] s = null; gSerialization.Restore(ref s, r); return s; }));
+            Assert.Throws<EndOfStreamException>(() => Read(text.Take(text.Length - 1).ToArray(), r => { string s = null; gSerialization.Restore(ref s, r); return s; }));
+            Assert.Throws<EndOfStreamException>(() => Read(texts.Take(texts.Length - 1).ToArray(), r => { string[] s = null; gSerialization.Restore(ref s, r); return s; }));
+        }
+
+        [Fact]
+        public void Curve_UnknownTag_IsRejected()
+        {
+            byte[] data = Bytes(w => w.Write(99));
+            Exception error = Assert.Throws<Exception>(() => Read(data, r => { gSerialization.Restore(out IParametricCurve2d c, r); return c; }));
+            Assert.Contains("unknown curve type 99", error.Message);
+        }
+
         [Fact]
         public void MeshRestore_ReusedDestination_SingleTriangleThenDeletedIsEmpty()
         {
