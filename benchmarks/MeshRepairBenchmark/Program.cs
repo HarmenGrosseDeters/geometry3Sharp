@@ -281,7 +281,7 @@ class Program
             if (repairMode != "boolean" && repairMode != "exact")
                 Fidelity(original, result, r);
             bool valid = true;
-            try { result.CheckValidity(false, FailMode.ReturnOnly); } catch { valid = false; }
+            try { valid = result.CheckValidity(false, FailMode.ReturnOnly); } catch { valid = false; }
             r["after_valid"] = valid;
             r["status"] = result.TriangleCount == 0 ? "emptied"
                         : result.IsClosed() ? "closed" : "not_closed";
