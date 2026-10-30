@@ -25,6 +25,44 @@ Relation to upstream: stay API compatible with 1.0.324, which existing users dep
 `dotnet8` branch has breaking changes (it removes the float types); useful parts (eg USD) can be taken over
 selectively.
 
+## Next: taking over the abandoned work
+
+Status on 2026-10-30. Several sessions stopped mid-way; their work is parked in draft PRs titled
+`[WIP, quality unverified]`. **Its quality is questionable.** After takeover, question and check everything in it,
+including its tests, numbers and recorded conclusions: re-run the numbers, run the mutation checks, and get the
+independent review of [REVIEW_CHECKLIST.md](REVIEW_CHECKLIST.md). A green CI is not acceptance. A PR that does not
+hold up is discarded with the owner, not patched until it passes. The stages run in this order:
+
+| Stage | Work | Tier | Parallel |
+|---|---|---|---|
+| 0. Green master | Pinned prism fixtures (`test/pin-rounded-prism-fixtures`). Then the `LaplacianMeshSmoother` non-finite sweep case, which earlier sessions saw exceed its 20 s limit in full net10 runs | S, M | 1 session |
+| 1. Small fixes | Reducer quadric budget (`fix/reducer-quadric-budget`); benchmark validity reporting (`fix/benchmark-validity-reporting`) | M, S | 2 sessions |
+| 2. Differential QA | `qa/differential-core-tests` (#193). It mixes production fixes with about 3700 lines of tests: check the fixes one by one and split the PR | M | 1 session, next to stage 1 |
+| 3. Plans | Plans (`docs/boolean-property-test-plan`, #194), then the hidden acceptance plan stacked on it (`docs/hidden-acceptance-tests`). Resolve the open questions of the plans here. The plan says author sessions already started; find their output, or start again | S | 1 session |
+| 4. Hidden acceptance | Tests for quadtree and for meshing M1, written from the specs alone; freeze them before the first run | L (tests) | 2 isolated author sessions |
+| 5. Quadtree | `quadtree` (#195): black-box run of the frozen tests, independent review, owner-machine performance and memory | L | 1 large session |
+| 6. Meshing M1 | `feature/meshing2d`: the same gates. Only then the M2 design (`docs/meshing2d-m2-design`) and an M2 implementation | L | 1 large session, after stage 5 |
+| 7. Alpha wrap quality | Owner decision on `fix/alpha-wrap-simplification-quality`. No recorded policy passes every gate, so its production code is not for merging as it is; keep what the next step needs. Next step: a bounded look at the failing local patches of the hard-feature policy, no threshold tuning. Needs stage 1 | L | 1 large session, after stage 6 |
+| 8. Planned follow-ups | Boolean property tests, DAP audit and honest terrain metrics, next to any stage from 4 on; the upstream ledger last, because it records what is merged. Terrain phase 1 after stage 5 | S, M | up to 2 sessions |
+
+Why this order: master must be green, or no later PR can show a clean result (stage 0). Small fixes shrink the later
+diffs, and the wrap retest depends on the reducer fix. Hidden tests must be frozen before the implementations are
+accepted, or they are not independent. The quadtree comes before meshing because terrain phase 1 waits for it and its
+PR is further along.
+
+Limits on parallel work:
+
+- At most 3 sessions at once, of which at most 1 large (tier L implementation; [AGENT_WORKFLOW.md](AGENT_WORKFLOW.md)
+  section 6). Each session has its own worktree and one PR-sized topic.
+- Parallel sessions must not change the same production files. Quadtree (`spatial/`) and meshing (`comp_geom/`) are
+  disjoint in code, but each needs the full attention of its reviewer, so they stay serial.
+- Merges are serial, because many PRs touch `docs/ROADMAP.md`, `docs/QA.md`, `docs/SOURCES.md`, `docs/OPERATIONS.md`
+  and `ExactBooleanIssueCasesTests.cs`. Rebase the next PR and re-run CI after each merge. Keep status text in the
+  PR, not in the roadmap.
+- Full local CI and every timing or memory measurement run alone on the machine: the sweep's time limits react to
+  load, and measurements taken next to other work are not comparable.
+- Hidden test authors work in separate spec-only workspaces, never in a worktree of this repository.
+
 ## Phase 1: foundation
 
 - [x] Targets net10.0 and netstandard2.0
@@ -73,7 +111,7 @@ selectively.
   - [ ] Quality pass after `MeshRobustRepair.SimplifyAlphaWrap`: the simplification keeps the fidelity (F-score, edges,
     normals equal at a quarter of the triangles) but the 1%-worst min angle drops from 16.2 to 3.8 degrees (17 wrap
     results of Thingi10K, benchmarks/MeshRepairBenchmark README, re-evaluation); eg a short remesh pass with
-    `Remesher.MinTriangleQuality` on the simplified wrap, or a min angle bound in the simplification
+    `Remesher.MinTriangleQuality` on the simplified wrap, or a min angle bound in the simplification. Trials so far: `fix/alpha-wrap-simplification-quality`, none passes every gate (unverified, see Next, stage 7)
 - [ ] Remeshers must not leave degenerate triangles. `Remesher` and `RemesherPro` (`g3cli remesh` settings) leave
   degenerate triangles or self-intersections on 18 of 20 clean Thingi10K meshes, 99% of the triangles with q < 0.1 at
   feature constraints (`benchmarks/RemeshBenchmark`). `RemesherPro` (8 x `RemeshIteration` and a full pass without
