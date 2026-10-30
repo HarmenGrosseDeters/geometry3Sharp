@@ -272,6 +272,49 @@ namespace geometry3Sharp.Tests
             Assert.Equal(before, mesh.VertexIndices().Select(v => mesh.GetVertex(v)).ToArray());
         }
 
+        static DCurve3 CurveWithConstraints(LaplacianCurveDeformer[] deformer, double bad = 0)
+        {
+            var curve = new DCurve3();
+            for (int i = 0; i < 6; ++i) curve.AppendVertex(new Vector3d(i, i % 2, 0));
+            if (bad != 0) curve[2] = new Vector3d(bad, 0, 0);
+            deformer[0] = new LaplacianCurveDeformer(curve);
+            for (int i = 0; i < curve.VertexCount; ++i)
+                deformer[0].SetConstraint(i, curve[i], i == 0 || i == 5 ? 100 : 0.5);
+            return curve;
+        }
+
+        [Theory]
+        [InlineData(double.PositiveInfinity)]
+        [InlineData(double.NaN)]
+        public void LaplacianCurveDeformer_FailedSolve_ReportsItAndKeepsTheCurve(double bad)
+        {
+            var deformer = new LaplacianCurveDeformer[1];
+            DCurve3 curve = CurveWithConstraints(deformer, bad);
+            // (as text: NaN does not equal itself)
+            string before = string.Join(";", curve.Vertices.Select(v => v.ToString()));
+            for (int repeat = 0; repeat < 2; ++repeat) {
+                Assert.False(deformer[0].SolveAndUpdateCurve());
+                Assert.True(deformer[0].ConvergeFailed);
+                Assert.Equal(before, string.Join(";", curve.Vertices.Select(v => v.ToString())));
+            }
+        }
+
+        [Fact]
+        public void LaplacianCurveDeformer_FiniteCurve_FollowsAMovedEnd()
+        {
+            var deformer = new LaplacianCurveDeformer[1];
+            DCurve3 curve = CurveWithConstraints(deformer);
+            Vector3d start = curve[0], middle = curve[3], target = curve[5] + new Vector3d(0, 0, 2);
+            deformer[0].SetConstraint(5, target, 100, true);
+            Assert.True(deformer[0].SolveAndUpdateCurve());
+            Assert.False(deformer[0].ConvergeFailed);
+            Assert.True(curve.Vertices.All(v => v.IsFinite));
+            Assert.Equal(target, curve[5]);
+            // the deformer keeps the shape: the far end stays, the middle follows part of the way
+            Assert.True(curve[0].Distance(start) < 0.1, $"start moved {curve[0].Distance(start)}");
+            Assert.InRange(curve[3].z - middle.z, 0.1, 1.9);
+        }
+
         static Action<double[][], double[][]> DiagonalMultiplyN(double[] diag)
         {
             return (X, B) => {

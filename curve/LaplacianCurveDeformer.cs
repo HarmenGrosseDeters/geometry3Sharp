@@ -269,6 +269,9 @@ namespace g3
                 if (b == false)
                     ConvergeFailed = true;
             }
+            // (as LaplacianMeshSmoother: a failed solve writes no result)
+            if (ConvergeFailed)
+                return false;
 
             for ( int i = 0; i < N; ++i ) {
                 int vid = ToCurveV[i];
