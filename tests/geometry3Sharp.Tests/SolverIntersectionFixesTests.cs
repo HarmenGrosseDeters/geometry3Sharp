@@ -161,6 +161,88 @@ namespace geometry3Sharp.Tests
             Assert.True(resid <= 1e-8 * Math.Sqrt(2) * 1e6, $"residual {resid}");
         }
 
+        [Theory]
+        [InlineData(double.NaN)]
+        [InlineData(double.PositiveInfinity)]
+        public void SparseSymmetricCG_NonFiniteRHS_FailsWithoutRunningAllIterations(double bad)
+        {
+            double[] diag = { 1, 2, 3 };
+            foreach (bool preconditioned in new[] { false, true }) {
+                int multiplies = 0;
+                var multiply = DiagonalMultiply(diag);
+                var cg = new SparseSymmetricCG() {
+                    B = new double[] { 1, bad, 3 },
+                    MultiplyF = (x, r) => { multiplies++; multiply(x, r); },
+                    PreconditionMultiplyF = (x, r) => Array.Copy(x, r, x.Length),
+                    UseXAsInitialGuess = false
+                };
+                Assert.False(preconditioned ? cg.SolvePreconditioned() : cg.Solve());
+                Assert.True(multiplies <= 2, $"preconditioned {preconditioned}: {multiplies} multiplies");
+            }
+        }
+
+        [Theory]
+        [InlineData(double.NaN)]
+        [InlineData(double.PositiveInfinity)]
+        public void SparseSymmetricCGMultipleRHS_OneNonFiniteRHS_FailsWithoutRunningAllIterations(double bad)
+        {
+            double[] diag = { 1, 2, 3 };
+            foreach (bool preconditioned in new[] { false, true }) {
+                int multiplies = 0;
+                var multiply = DiagonalMultiplyN(diag);
+                var cg = new SparseSymmetricCGMultipleRHS() {
+                    B = new double[][] { new double[] { 1, 2, 3 }, new double[] { 1, bad, 3 } },
+                    MultiplyF = (x, r) => { multiplies++; multiply(x, r); },
+                    PreconditionMultiplyF = (x, r) => { for (int j = 0; j < x.Length; ++j) Array.Copy(x[j], r[j], x[j].Length); },
+                    UseXAsInitialGuess = false
+                };
+                Assert.False(preconditioned ? cg.SolvePreconditioned() : cg.Solve());
+                Assert.True(multiplies <= 2, $"preconditioned {preconditioned}: {multiplies} multiplies");
+            }
+        }
+
+        [Fact]
+        public void SparseSymmetricCG_NonFiniteMatrix_FailsWithoutRunningAllIterations()
+        {
+            // the right-hand sides are finite: the residual turns non-finite only inside the iteration
+            double[] diag = { 1, double.NaN, 3 };
+            int multiplies = 0;
+            var multiply = DiagonalMultiply(diag);
+            var cg = new SparseSymmetricCG() {
+                B = new double[] { 1, 2, 3 },
+                MultiplyF = (x, r) => { multiplies++; multiply(x, r); },
+                UseXAsInitialGuess = false
+            };
+            Assert.False(cg.Solve());
+            Assert.True(multiplies <= 2, $"{multiplies} multiplies");
+
+            multiplies = 0;
+            var multiplyN = DiagonalMultiplyN(diag);
+            var cgN = new SparseSymmetricCGMultipleRHS() {
+                B = new double[][] { new double[] { 1, 2, 3 } },
+                MultiplyF = (x, r) => { multiplies++; multiplyN(x, r); },
+                UseXAsInitialGuess = false
+            };
+            Assert.False(cgN.Solve());
+            Assert.True(multiplies <= 2, $"{multiplies} multiplies");
+        }
+
+        [Fact]
+        public void LaplacianMeshSmoother_InfiniteVertex_FailsAndKeepsTheMesh()
+        {
+            DMesh3 mesh = Defects.Sphere(Vector3d.Zero, 1, 6);
+            int bad = mesh.VertexIndices().Skip(mesh.VertexCount / 3).First();
+            mesh.SetVertex(bad, new Vector3d(double.PositiveInfinity, 0.5, 0.5));
+            Vector3d[] before = mesh.VertexIndices().Select(v => mesh.GetVertex(v)).ToArray();
+            var smoother = new LaplacianMeshSmoother(mesh);
+            foreach (int v in mesh.VertexIndices())
+                smoother.SetConstraint(v, mesh.GetVertex(v), 0.5);
+            // twice: the same answer on a second solve of the instance
+            Assert.False(smoother.SolveAndUpdateMesh());
+            Assert.False(smoother.SolveAndUpdateMesh());
+            Assert.Equal(before, mesh.VertexIndices().Select(v => mesh.GetVertex(v)).ToArray());
+        }
+
         static Action<double[][], double[][]> DiagonalMultiplyN(double[] diag)
         {
             return (X, B) => {
