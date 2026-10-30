@@ -142,6 +142,7 @@ namespace g3
         protected double MinEdgeLength = double.MaxValue;
         protected int TargetCount = int.MaxValue;
         protected double MaxQuadricError = double.MaxValue;
+        bool enforceQuadricBudget;
         protected enum TargetModes
         {
             TriangleCount, VertexCount, MinEdgeLength, MaxQuadricError
@@ -185,7 +186,8 @@ namespace g3
                     if (mesh.VertexCount <= TargetCount)
                         break;
                 } else if ( ReduceMode == TargetModes.MaxQuadricError ) {
-                    if (EdgeQueue.FirstPriority > MaxQuadricError)
+                    // Inspect the whole rounded bucket; the final position is checked in double below.
+                    if (EdgeQueue.FirstPriority > (float)MaxQuadricError)
                         break;
                 } else {
                     if (mesh.TriangleCount <= TargetCount)
@@ -200,7 +202,13 @@ namespace g3
                     return;
 
                 int vKept;
-                ProcessResult result = CollapseEdge(eid, EdgeQuadrics[eid].collapse_pt, out vKept);
+                ProcessResult result;
+                enforceQuadricBudget = ReduceMode == TargetModes.MaxQuadricError;
+                try {
+                    result = CollapseEdge(eid, EdgeQuadrics[eid].collapse_pt, out vKept);
+                } finally {
+                    enforceQuadricBudget = false;
+                }
                 if (result == ProcessResult.Ok_Collapsed) {
                     vertQuadrics[vKept] = EdgeQuadrics[eid].q;
                     UpdateNeighbours(vKept);
@@ -244,9 +252,11 @@ namespace g3
         }
 
         /// <summary>
-        /// Collapse edges in order of increasing quadric error until the cheapest remaining collapse
-        /// has an error above maxError. Errors are area-weighted squared distances (units length^4), or
-        /// plain sums of squared distances to the original triangle planes if AreaWeightedQuadrics is false.
+        /// Collapse edges in float-priority order, accepting only final collapse positions whose double
+        /// quadric error is at most maxError (including constraint and inline projection adjustments).
+        /// Errors are area-weighted squared distances (units length^4), or plain sums of squared distances
+        /// to the original triangle planes if AreaWeightedQuadrics is false. AfterRefinement projection
+        /// is a separate post-process and is not covered by this budget.
         /// </summary>
         public virtual void ReduceToMaxQuadricError(double maxError)
         {
@@ -823,7 +833,8 @@ namespace g3
 			Failed_OpNotSuccessful = 6,
 			Failed_NotAnEdge = 7,
 			Ignored_ExceedsDeviation = 8,
-			Ignored_CreatesIntersection = 9
+			Ignored_CreatesIntersection = 9,
+            Ignored_ExceedsQuadricError = 10
 		};
 
 		protected virtual ProcessResult CollapseEdge(int edgeID, Vector3d vNewPos, out int collapseToV) 
@@ -897,6 +908,12 @@ namespace g3
                 vNewPos = vA;
             } else
                 vNewPos = get_projected_collapse_position(iKeep, vNewPos);
+
+            // Constraints can change the queued optimum, so certify the point that will actually be kept.
+            if (enforceQuadricBudget && !(evaluate(ref EdgeQuadrics[edgeID].q, vNewPos) <= MaxQuadricError)) {
+                retVal = ProcessResult.Ignored_ExceedsQuadricError;
+                goto skip_to_end;
+            }
 
             // check if this collapse will create a normal flip. Also checks
             // for invalid collapse nbrhood, since we are doing one-ring iter anyway.
