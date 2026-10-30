@@ -51,6 +51,9 @@ namespace g3
             // [RMS] these were inside loop but they are constant!
             double norm = BufferUtil.Dot(B, B);
             double root1 = Math.Sqrt(norm);
+            // (an overflowing norm would make every residual pass the convergence test)
+            if (MathUtil.IsFinite(norm) == false)
+                return false;
 
             // The first iteration. 
             double rho0 = BufferUtil.Dot(R, R);
@@ -73,6 +76,11 @@ namespace g3
             // The remaining iterations.
             int iter;
             for (iter = 1; iter < MaxIterations; ++iter) {
+                // a non-finite value never recovers and never passes the test below (eg non-finite input)
+                if (MathUtil.IsFinite(rho1) == false) {
+                    Iterations = iter;
+                    return false;
+                }
                 double root0 = Math.Sqrt(rho1);
                 if (root0 <= MathUtil.ZeroTolerance * root1) {
                     break;
@@ -146,6 +154,9 @@ namespace g3
             // [RMS] for convergence test?
             double norm = BufferUtil.Dot(B, B);
             double root1 = Math.Sqrt(norm);
+            // (an overflowing norm would make every residual pass the convergence test)
+            if (MathUtil.IsFinite(norm) == false)
+                return false;
 
             // r_0 = b - A*x_0
             MultiplyF(X, R);
@@ -162,6 +173,12 @@ namespace g3
 
             int iter = 0;
             while (iter++ < MaxIterations) {
+
+                // a non-finite value never recovers and never passes the test below (eg non-finite input)
+                if (MathUtil.IsFinite(RdotZ_k) == false) {
+                    Iterations = iter;
+                    return false;
+                }
 
                 // convergence test
                 double root0 = Math.Sqrt(RdotZ_k);
@@ -285,6 +302,10 @@ namespace g3
             double[] root1 = new double[NRHS];
             for (int j = 0; j < NRHS; ++j)
                 root1[j] = Math.Sqrt(norm[j]);
+            // (an overflowing norm would make every residual pass the convergence test)
+            for (int j = 0; j < NRHS; ++j)
+                if (MathUtil.IsFinite(norm[j]) == false)
+                    return false;
 
             // The first iteration. 
             double[] rho0 = new double[NRHS];
@@ -335,6 +356,11 @@ namespace g3
                 bool done = true;
                 for (int j = 0; j < NRHS; ++j) {
                     if (converged[j] == false) {
+                        // a non-finite value never recovers: the whole solve fails, stop here
+                        if (MathUtil.IsFinite(rho1[j]) == false) {
+                            Iterations = iter;
+                            return false;
+                        }
                         double root0 = Math.Sqrt(rho1[j]);
                         if (root0 <= ConvergeTolerance * root1[j])
                             converged[j] = true;
@@ -417,6 +443,10 @@ namespace g3
             double[] root1 = new double[NRHS];
             for (int j = 0; j < NRHS; ++j)
                 root1[j] = Math.Sqrt(norm[j]);
+            // (an overflowing norm would make every residual pass the convergence test)
+            for (int j = 0; j < NRHS; ++j)
+                if (MathUtil.IsFinite(norm[j]) == false)
+                    return false;
 
 
             // r_0 = b - A*x_0
@@ -450,6 +480,11 @@ namespace g3
                 bool done = true;
                 for (int j = 0; j < NRHS; ++j) {
                     if (converged[j] == false) {
+                        // a non-finite value never recovers: the whole solve fails, stop here
+                        if (MathUtil.IsFinite(RdotZ_k[j]) == false) {
+                            Iterations = iter;
+                            return false;
+                        }
                         double root0 = Math.Sqrt(RdotZ_k[j]);
                         if (root0 <= ConvergeTolerance * root1[j])
                             converged[j] = true;
