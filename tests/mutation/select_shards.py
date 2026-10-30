@@ -9,7 +9,8 @@ Modes (tests/mutation/README.md):
   full   a mutated file, the config or the tools changed: the whole shard, with its break threshold
   tests  only tests that run against the shard changed: mutants those tests cover, report only
 
-The files of a shard come from its config (mutate, test-case-filter), so there is no second list to keep in step.
+The files of a shard come from its config (mutate, test-case-filter). The paths of the workflow are a second list, but
+only a coarse one: test_select_shards.py checks that it covers every config.
 With --all every config runs in full (schedule, workflow_dispatch).
 """
 import glob

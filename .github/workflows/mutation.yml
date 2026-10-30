@@ -10,7 +10,8 @@ name: Mutation tests
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    # (converted_to_draft: the concurrency group below cancels a run that is under way)
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
     paths:
       - 'math/ExactPredicates.cs'
       - 'math/ExactPoint3.cs'
@@ -71,6 +72,8 @@ jobs:
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
+          # a failed git diff must fail this step: empty input would select nothing and skip the runs in green
+          set -o pipefail
           if [ "$EVENT" != "pull_request" ]; then
             python3 tests/mutation/select_shards.py --all | tee -a "$GITHUB_OUTPUT"
           else
@@ -79,7 +82,7 @@ jobs:
 
   exact-arithmetic:
     needs: changes
-    if: needs.changes.outputs.arithmetic != 'none' && github.event.pull_request.draft != true
+    if: (needs.changes.outputs.arithmetic == 'full' || needs.changes.outputs.arithmetic == 'tests') && github.event.pull_request.draft != true
     runs-on: ubuntu-latest
     timeout-minutes: 150
     steps:
@@ -108,7 +111,7 @@ jobs:
 
   exact-mesh:
     needs: changes
-    if: needs.changes.outputs.mesh != '[]' && github.event.pull_request.draft != true
+    if: startsWith(needs.changes.outputs.mesh, '[{') && github.event.pull_request.draft != true
     runs-on: ubuntu-latest
     timeout-minutes: 350
     strategy:

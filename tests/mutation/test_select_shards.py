@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Tests of select_shards.py, on the real configs. Run by the changes job of the mutation workflow."""
+import fnmatch
 import os
+import re
 import unittest
 
 from select_shards import TESTS, load_configs, select
@@ -21,6 +23,16 @@ class SelectShards(unittest.TestCase):
         for name, (config, sources, tests) in CONFIGS.items():
             for path in {config} | sources | tests:
                 self.assertTrue(os.path.isfile(os.path.join(ROOT, path)), f"{name}: {path}")
+
+    def test_workflow_paths_cover_every_config(self):
+        # GitHub starts the workflow only for these paths: one missing would skip its shard without a word
+        with open(os.path.join(ROOT, ".github/workflows/mutation.yml"), encoding="utf-8") as f:
+            workflow = f.read()
+        block = workflow[workflow.index("paths:"):workflow.index("schedule:")]
+        patterns = re.findall(r"- '([^']+)'", block)
+        for name, (config, sources, tests) in CONFIGS.items():
+            for path in {config} | sources | tests:
+                self.assertTrue(any(fnmatch.fnmatch(path, p) for p in patterns), f"{name}: {path} is not in the paths")
 
     def test_all_configs_are_known(self):
         self.assertEqual(ALL_MESH | {"config"}, {n.replace("mesh-", "") for n in CONFIGS})

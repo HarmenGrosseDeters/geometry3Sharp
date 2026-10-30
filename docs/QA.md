@@ -169,7 +169,7 @@ inputs. Stryker.NET (Apache-2.0) mutates `math/ExactPredicates.cs`, `math/ExactP
 
 - A workflow reports the mutation score and the surviving mutants. It runs in full weekly and on demand, and on ready
   PRs only for the configs they touch ([tests/mutation/README.md](../tests/mutation/README.md)).
-- A score below the break threshold fails the run. It starts at the measured score (rounded down, less one
+- A score below the break threshold fails a full run (a run for changed tests only reports). It starts at the measured score (rounded down, less one
   point for timeouts that vary between runners) and only goes up.
 - Surviving mutants are either killed with a new test or recorded as equivalent, with a reason.
 - The score is 87.05 % (October 2026, from 83.4 % at the start); the break threshold is 86. Details are in
