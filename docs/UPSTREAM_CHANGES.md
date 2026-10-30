@@ -8,6 +8,9 @@ code can notice. New classes are not listed (see the README and [OPERATIONS.md](
 
 | Class / member | 1.0.324 | Now |
 |---|---|---|
+| `DMeshAABBTree3.Build()` on an empty mesh | bottom-up strategies produced an invalid root and queries threw | all strategies build a valid empty leaf; queries return their existing no-hit sentinels |
+| `DMeshAABBTree3.Build()` with `TopDownLeafMaxTriCount` below 2 | stack overflow | treated as 2 |
+| `DMeshAABBTree3.TestIntersection`, `FindAllIntersections`, `FindNearestTriangles` with another tree | only checked whether the receiver mesh had changed | also reject a modified argument mesh or a never-built argument tree before traversal or the transform callback; rebuild both trees after editing their meshes |
 | `OpenCylinderGenerator`, `CappedCylinderGenerator`, `ConeGenerator`, `VerticalGeneralizedCylinderGenerator` (and `Radial3DArrowGenerator`) | triangles faced inward with the default `Clockwise = false` (negative volume) | they face outward like the other generators. Drop any `ReverseOrientation()` or `Clockwise = true` that compensated for it |
 | `Reducer` | boundary edges collapsed to their midpoint; plain `OptimalPoint` solve | with `PreserveBoundaryShape` (default) boundary planes are added to the quadrics (`BoundaryQuadricWeight = 100`) and boundary edges keep an endpoint; `QuadricRegularization = 1e-6`. Results differ slightly on closed meshes and noticeably along boundaries (kept exactly, coarser) |
 | `Reducer.ReduceToMaxQuadricError` | the stop used float queue priorities against the double budget; constraints could change the accepted position without a budget recheck | accepts a collapse only when its final position's double quadric error is within the budget; checks the whole rounded priority bucket so upward rounding does not reject an equal-cost candidate. NaN budgets accept no collapses. Float ordering remains; post-pass `AfterRefinement` projection is outside this contract |
