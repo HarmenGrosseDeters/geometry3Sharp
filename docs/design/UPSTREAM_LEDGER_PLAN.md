@@ -1,6 +1,7 @@
 # Ledger of deviations from upstream
 
-Status: planned, not a completed ledger. Corresponds to the owner's **E.5 / task 6**. The deliverable will be
+Status: planned, not a completed ledger. 573 paths and 947 commits are too much for one pass: deliver in phases, per subsystem, tier
+M rather than S, with the granularity the owner decides. The deliverable will be
 `docs/UPSTREAM.md`; it does not exist in this checkout yet. The existing `docs/UPSTREAM_CHANGES.md` is a migration
 note for users of 1.0.324, not an exhaustive inventory of additions and provenance.
 
@@ -25,9 +26,9 @@ note for users of 1.0.324, not an exhaustive inventory of additions and provenan
 
 ## Baselines and scope of truth
 
-1. Verify the upstream repository identity and the full SHA behind the 1.0.324 baseline (`ece3364` is documented
-   in `UPSTREAM_CHANGES.md`; resolve and verify it before using it as a comparison anchor).
-2. Record a second baseline for the latest upstream revision actually inspected, if different. Distinguish
+1. Baseline, checked on 2026-10-30: there is no `nuget-1.0.324` tag, and NuGet shows 1.0.324 at 2019-03-07. `ece3364` is a 2026 README
+   commit; `7982934`..`ece3364` differs only in README, so the anchor is sound for code but is not the release commit. Say so in the ledger.
+2. Current upstream HEAD equals `ece3364` today. Record a second baseline for the latest upstream revision actually inspected, if different. Distinguish
    "different from 1.0.324" from "still different from current upstream"; the ledger must not conflate them.
    If current upstream is not inspected, say so rather than claiming its fixes are missing.
 3. Pin this fork's committed implementation snapshot. Exclude local uncommitted changes and planned work. Keep
