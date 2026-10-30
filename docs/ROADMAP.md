@@ -214,9 +214,8 @@ implementation/audit work remains open. Tasks 4-6 can start independently; hidde
   and the §4.2 procedural benchmark. Meshing: explicit disposition for F-1 through F-66 against first-version
   owner decisions, with independent procedural oracles and visible blockers for under-specified/external fixtures.
   Freeze tests before separate black-box execution; the implementer receives results but cannot alter assertions.
-  Exclude quadtree §9 implementation records from the author package. **Author sessions started** from pinned
-  master normative specs in separate source-free workspaces. Master has no quadtree §8 API contract; both authors
-  use test-owned contracts, with real API binding and product execution still pending. No acceptance claim yet.
+  Exclude quadtree §9 implementation records from the author package. **No author session is known to have run.**
+  Master has no quadtree §8 API contract; real API binding and product execution are pending. No acceptance claim yet.
 - [ ] **4. DAP bug fixes (E.2):** [audit and adoption plan](design/DAP_BUGFIX_AUDIT.md). Review the pinned
   `Digital-Production-Aachen/DAPComputationalGeometry` delta from `8f185f1` to DAP HEAD, ignoring formatting;
   each adopted fix needs a regression that fails on our pre-fix code, the minimal fix and an attribution in

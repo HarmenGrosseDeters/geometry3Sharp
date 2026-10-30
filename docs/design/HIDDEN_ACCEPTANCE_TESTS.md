@@ -1,6 +1,8 @@
 # Independent, hidden acceptance tests for quadtree and meshing
 
-Status: **independent author sessions started; real-API binding and product execution pending**.
+**Owner note (2026-10-30): the statements below that author sessions started, and that the owner approved this, are probably wrong.** No output of such sessions was found. Treat the sessions as not started.
+
+Status: **plan; no author session is known to have run; real-API binding and product execution pending**.
 The owner approved starting from pinned master specifications with test-owned contracts on 2026-10-30.
 Highest-priority follow-up while implementation is already in progress. This implements [AGENT_WORKFLOW §5](../AGENT_WORKFLOW.md#5-hidden-acceptance-tests-tier-l)
 and the hidden-test item in [QA §4a](../QA.md#4a-making-agent-work-verifiable).
