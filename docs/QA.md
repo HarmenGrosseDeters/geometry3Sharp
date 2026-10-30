@@ -167,8 +167,8 @@ The exact arithmetic is the base of everything else, and a wrong error bound in 
 inputs. Stryker.NET (Apache-2.0) mutates `math/ExactPredicates.cs`, `math/ExactPoint3.cs` and
 `math/AdaptivePredicates.cs`, and runs the predicate tests against each mutant.
 
-- A workflow reports the mutation score and the surviving mutants. It runs weekly, on demand, and on PRs that
-  change the mutated files or their tests ([tests/mutation/README.md](../tests/mutation/README.md)).
+- A workflow reports the mutation score and the surviving mutants. It runs in full weekly and on demand, and on ready
+  PRs only for the configs they touch ([tests/mutation/README.md](../tests/mutation/README.md)).
 - A score below the break threshold fails the run. It starts at the measured score (rounded down, less one
   point for timeouts that vary between runners) and only goes up.
 - Surviving mutants are either killed with a new test or recorded as equivalent, with a reason.

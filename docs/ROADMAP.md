@@ -193,8 +193,8 @@ selectively.
     from Triangle / Triangle.NET code. Builds on `ExactTriangulation2` and the adaptive predicates.
 
 - [ ] Verifiable agent work ([QA.md 4a](QA.md#4a-making-agent-work-verifiable)): first the machine checks (new tests fail
-  on old code, package validation against 1.0.324, banned APIs in exact code), together with the incremental
-  mutation runs (`--since` with a baseline; weekly full runs; a shard per new robustness-critical module). Hidden
+  on old code, package validation against 1.0.324, banned APIs in exact code), together with a mutation shard per new
+  robustness-critical module (the runs on PRs are incremental: tests/mutation/README.md). Hidden
   acceptance tests for the spec-driven work (2D index, 2D meshing). The other items go with the modules they touch.
 
 ## Release: when it's done

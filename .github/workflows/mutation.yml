@@ -1,15 +1,16 @@
 name: Mutation tests
 
-# Stryker.NET (Apache-2.0), tests/mutation, docs/QA.md 2.2: too slow for every PR, so on PRs that change the
-# mutated files or their tests, weekly, and on demand. Two jobs:
+# Stryker.NET (Apache-2.0), tests/mutation, docs/QA.md 2.2: too slow for every PR, so in full weekly and on demand, and
+# on ready PRs (not drafts) only for the configs that the PR touches (tests/mutation/select_shards.py). Two jobs:
 # - exact-arithmetic: math/ExactPredicates.cs, ExactPoint3.cs, AdaptivePredicates.cs (about 50 minutes);
 # - exact-mesh: the exact mesh pipeline (mesh_ops/ExactMesh*.cs, ExactPlanarSimplify.cs, ExactTriangulation2.cs,
 #   MeshRoundingRepair.cs), in shards that run in parallel (tests/mutation/stryker-mesh-*.json).
-# On a PR, the "changes" job starts only the job whose files changed. A run fails when a mutation score drops
-# below the break threshold of its config; the reports list the surviving mutants.
+# A shard whose mutated file changed runs in full and fails when its mutation score drops below the break threshold of
+# its config. A shard of which only tests changed runs with --since and only reports. The reports list the surviving mutants.
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - 'math/ExactPredicates.cs'
       - 'math/ExactPoint3.cs'
@@ -30,8 +31,7 @@ on:
       - 'tests/geometry3Sharp.Tests/MeshRoundingRepair*Tests.cs'
       - 'tests/geometry3Sharp.Tests/ExactTriangulation2Tests.cs'
       - 'tests/geometry3Sharp.Tests/BooleanPerformanceTests.cs'
-      - 'tests/geometry3Sharp.Tests/geometry3Sharp.Tests.csproj'
-      - 'tests/mutation/*.json'
+      - 'tests/mutation/*'
       - '.config/dotnet-tools.json'
       - '.github/workflows/mutation.yml'
   schedule:
@@ -51,43 +51,41 @@ env:
   DOTNET_CLI_TELEMETRY_OPTOUT: true
 
 jobs:
-  # which jobs a PR needs (schedule and workflow_dispatch run both)
+  # which configs a PR needs, and how (schedule and workflow_dispatch run all of them in full). Runs on drafts too, so
+  # that the selection can be seen there; the jobs below wait for "ready for review".
   changes:
     runs-on: ubuntu-latest
     outputs:
-      arithmetic: ${{ steps.diff.outputs.arithmetic }}
-      mesh: ${{ steps.diff.outputs.mesh }}
+      arithmetic: ${{ steps.select.outputs.arithmetic }}
+      mesh: ${{ steps.select.outputs.mesh }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - id: diff
+      - name: Test the selection
+        working-directory: tests/mutation
+        run: python3 test_select_shards.py
+      - id: select
         env:
           EVENT: ${{ github.event_name }}
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
           if [ "$EVENT" != "pull_request" ]; then
-            echo "arithmetic=true" >> "$GITHUB_OUTPUT"; echo "mesh=true" >> "$GITHUB_OUTPUT"; exit 0
+            python3 tests/mutation/select_shards.py --all | tee -a "$GITHUB_OUTPUT"
+          else
+            git diff --name-only "$BASE...$HEAD" | python3 tests/mutation/select_shards.py | tee -a "$GITHUB_OUTPUT"
           fi
-          files=$(git diff --name-only "$BASE...$HEAD")
-          echo "$files"
-          # the test project, the tools, the workflow and the building-block tests (they test both) start both jobs
-          common='^(tests/geometry3Sharp\.Tests/geometry3Sharp\.Tests\.csproj|tests/geometry3Sharp\.Tests/ExactBooleanBuildingBlockTests\.cs|\.config/dotnet-tools\.json|\.github/workflows/mutation\.yml)$'
-          arithmetic='^(math/(ExactPredicates|ExactPoint3|AdaptivePredicates)\.cs|tests/mutation/stryker-config\.json|tests/geometry3Sharp\.Tests/(ExactPredicates|ExactImplicitPoint|PredicateDifferential|ExactPoint3Conversion)Tests\.cs)$'
-          mesh='^(mesh_ops/(ExactMesh[^/]*|ExactPlanarSimplify|ExactTriangulation2|MeshRoundingRepair)\.cs|tests/mutation/stryker-mesh-[^/]*\.json|tests/geometry3Sharp\.Tests/(ExactMeshBoolean[^/]*|ExactBoolean[^/]*|ExactFilterBound|ExactArrangementScaling|ExactPlanarSimplify|ExactTriangulation2|MeshRoundingRepair[^/]*|BooleanPerformance|ExactImplicitPoint)Tests\.cs)$'
-          a=false; m=false
-          if echo "$files" | grep -Eq "$common|$arithmetic"; then a=true; fi
-          if echo "$files" | grep -Eq "$common|$mesh"; then m=true; fi
-          echo "arithmetic=$a" >> "$GITHUB_OUTPUT"; echo "mesh=$m" >> "$GITHUB_OUTPUT"
 
   exact-arithmetic:
     needs: changes
-    if: needs.changes.outputs.arithmetic == 'true'
+    if: needs.changes.outputs.arithmetic != 'none' && github.event.pull_request.draft != true
     runs-on: ubuntu-latest
     timeout-minutes: 150
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0        # --since needs the history
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
@@ -95,7 +93,9 @@ jobs:
         run: dotnet tool restore
       - name: Stryker
         working-directory: tests/mutation
-        run: dotnet stryker --config-file stryker-config.json
+        env:
+          SINCE: ${{ needs.changes.outputs.arithmetic == 'tests' && format('--since:{0} --break-at 0', github.event.pull_request.base.sha) || '' }}
+        run: dotnet stryker --config-file stryker-config.json $SINCE
       - name: Summary
         if: always()
         run: cat tests/mutation/StrykerOutput/*/reports/mutation-report.md >> "$GITHUB_STEP_SUMMARY" || true
@@ -104,19 +104,21 @@ jobs:
         with:
           name: mutation-report
           path: tests/mutation/StrykerOutput/*/reports/
-          if-no-files-found: error
+          if-no-files-found: ${{ needs.changes.outputs.arithmetic == 'tests' && 'warn' || 'error' }}
 
   exact-mesh:
     needs: changes
-    if: needs.changes.outputs.mesh == 'true'
+    if: needs.changes.outputs.mesh != '[]' && github.event.pull_request.draft != true
     runs-on: ubuntu-latest
     timeout-minutes: 350
     strategy:
       fail-fast: false
       matrix:
-        shard: [rounding, boolean-1, boolean-2, arrangement-1, arrangement-2, planar]
+        include: ${{ fromJSON(needs.changes.outputs.mesh) }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0        # --since needs the history
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
@@ -128,7 +130,8 @@ jobs:
         # OutOfMemoryException in the test host (the mutant is killed) instead of a runner that runs out of memory
         env:
           DOTNET_GCHeapHardLimit: '0x180000000'   # 6 GB
-        run: dotnet stryker --config-file stryker-mesh-${{ matrix.shard }}.json
+          SINCE: ${{ matrix.mode == 'tests' && format('--since:{0} --break-at 0', github.event.pull_request.base.sha) || '' }}
+        run: dotnet stryker --config-file stryker-mesh-${{ matrix.shard }}.json $SINCE
       - name: Summary
         if: always()
         run: cat tests/mutation/StrykerOutput/*/reports/mutation-report.md >> "$GITHUB_STEP_SUMMARY" || true
@@ -144,4 +147,4 @@ jobs:
         with:
           name: mutation-report-mesh-${{ matrix.shard }}
           path: tests/mutation/StrykerOutput/*/reports/
-          if-no-files-found: error
+          if-no-files-found: ${{ matrix.mode == 'tests' && 'warn' || 'error' }}
