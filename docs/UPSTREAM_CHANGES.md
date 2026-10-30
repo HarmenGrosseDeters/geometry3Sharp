@@ -8,6 +8,8 @@ code can notice. New classes are not listed (see the README and [OPERATIONS.md](
 
 | Class / member | 1.0.324 | Now |
 |---|---|---|
+| `DMesh3.CompactInPlace()` with isolated live vertices above deletion holes | could throw while moving a nonexistent adjacency list | preserves the isolated vertices and their attributes, with the requested vertex mapping |
+| `DMesh3.RebuildFromEdgeRefcounts()` and `gSerialization.Restore(DMesh3, ...)` with a reused destination | old vertex/triangle refcounts and adjacency could survive or make rebuilding throw | derived topology is reset before rebuilding from the supplied buffers; restored live IDs and attributes match a fresh destination |
 | `DMeshAABBTree3.Build()` on an empty mesh | bottom-up strategies produced an invalid root and queries threw | all strategies build a valid empty leaf; queries return their existing no-hit sentinels |
 | `DMeshAABBTree3.Build()` with `TopDownLeafMaxTriCount` below 2 | stack overflow | treated as 2 |
 | `DMeshAABBTree3.TestIntersection`, `FindAllIntersections`, `FindNearestTriangles` with another tree | only checked whether the receiver mesh had changed | also reject a modified argument mesh or a never-built argument tree before traversal or the transform callback; rebuild both trees after editing their meshes |

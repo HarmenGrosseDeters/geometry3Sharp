@@ -403,6 +403,9 @@ different exact input solids. `TwoTriangularPrisms_RoundedRotationWithoutVoid_Fo
 pins the other observed rounding and requires a clean, closed single-component result. The limitation
 assertions are unchanged; there is no runtime-conditional expected outcome.
 
+**`DMesh3.RemoveVertex` (October 2026):** known failure, pinned in `KnownLimitation_RemoveVertex_SafeRemovalFailsAfterDeletingTriangles`:
+with `bPreserveManifold`, a removal that is safe can return `Failed_WouldCreateBowtie` after it deleted triangles.
+
 ## 3. Performance
 
 ### 3.1 Micro benchmarks with regression detection
