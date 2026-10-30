@@ -20,7 +20,22 @@ class Program
         r["file"] = System.IO.Path.GetFileName(args[0]);
         string stage = "load";
         var sw = Stopwatch.StartNew();
+        var elapsed = Stopwatch.StartNew();
+        Action<string> progress = null;
         try {
+            string repairMode = Environment.GetEnvironmentVariable("BENCH_REPAIR") ?? "default";
+            bool candidateProbe = Environment.GetEnvironmentVariable("BENCH_WRAP_CANDIDATE_PROBE") == "1";
+            if (candidateProbe && (repairMode != "robust"
+                || Environment.GetEnvironmentVariable("BENCH_WRAP_POLICY") != "tangential"
+                || Environment.GetEnvironmentVariable("BENCH_WRAP_DIAGNOSTICS") != "1"))
+                throw new ArgumentException("Candidate probe requires robust repair, tangential policy and diagnostics.");
+            if (Environment.GetEnvironmentVariable("BENCH_WRAP_PROGRESS") == "1") {
+                if (!candidateProbe) throw new ArgumentException("Wrap progress requires candidate probe mode.");
+                progress = name => Console.Error.WriteLine(JsonSerializer.Serialize(new {
+                    record_type = "wrap_probe_progress", file = r["file"], stage = name, elapsed_ms = elapsed.ElapsedMilliseconds
+                }));
+            }
+            progress?.Invoke("load.begin");
             string mode = args.Length > 1 ? args[1] : "std";
             r["mode"] = mode;
             ReadOptions opts = new ReadOptions();
@@ -45,9 +60,12 @@ class Program
             else if (xform == "geo")
                 MeshTransforms.Translate(mesh, new Vector3d(500000, 5000000, 0));
             r["load_ms"] = sw.ElapsedMilliseconds;
+            progress?.Invoke("load.end");
             var swStats = Stopwatch.StartNew();
+            progress?.Invoke("stats_before.begin");
             Stats(mesh, r, "before");
             r["stats_before_ms"] = swStats.ElapsedMilliseconds;
+            progress?.Invoke("stats_before.end");
             if (Environment.GetEnvironmentVariable("BENCH_REPAIR") == "analysis") {
                 // analysis building blocks on the input instead of a repair (AnalysisBench.cs)
                 stage = "analysis";
@@ -77,7 +95,6 @@ class Program
             // instr = InstrumentedAutoRepair, records cheap quality metrics after every pipeline step,
             // steps = MeshAutoRepair (cleanup) with OnStage: quality, fidelity and winding closedness after every step,
             // analysis = no repair: MeshWallThickness, MeshDeviation and PrimitiveFit3 on the input (see above)
-            string repairMode = Environment.GetEnvironmentVariable("BENCH_REPAIR") ?? "default";
             r["repair_mode"] = repairMode;
             // optional 4th arg: absolute tolerances, the 1.0.324 defaults (RepairTolerance 1e-6, MinEdgeLengthTol 1e-4)
             // times this factor (e.g. 0.001 when the data is in meters); "rel" or missing: the library default,
@@ -92,6 +109,8 @@ class Program
             DMesh3 result;
             bool ok;
             DMesh3 hybridUnclean = null;     // the hybrid repair result that was not clean (its defects: after the timing)
+            DMesh3 originalWrap = null, wrapCandidate = null;
+            double wrapOffset = 0;
             if (repairMode == "exact") {
                 result = RunExactBooleans(original, r);
                 ok = true;
@@ -165,11 +184,28 @@ class Program
                 robust.ExactResolveRounds = int.Parse(Environment.GetEnvironmentVariable("BENCH_EXACT_ROUNDS") ?? "4");
                 robust.AlphaWrapFallback = Environment.GetEnvironmentVariable("BENCH_WRAP_FALLBACK") != "0";
                 robust.SimplifyAlphaWrap = Environment.GetEnvironmentVariable("BENCH_WRAP_SIMPLIFY") != "0";
+                string wrapPolicy = Environment.GetEnvironmentVariable("BENCH_WRAP_POLICY") ?? "default";
+                switch (wrapPolicy) {
+                    case "default": robust.WrapPolicy = MeshRobustRepair.WrapSimplificationPolicy.Default; break;
+                    case "features": robust.WrapPolicy = MeshRobustRepair.WrapSimplificationPolicy.FeatureConstrained; break;
+                    case "flips": robust.WrapPolicy = MeshRobustRepair.WrapSimplificationPolicy.QualityFlips; break;
+                    case "local": robust.WrapPolicy = MeshRobustRepair.WrapSimplificationPolicy.LocalQualityRollback; break;
+                    case "tangential": robust.WrapPolicy = MeshRobustRepair.WrapSimplificationPolicy.TangentialQuality; break;
+                    case "guarded-features": robust.WrapPolicy = MeshRobustRepair.WrapSimplificationPolicy.GuardedFeatureQuadrics; break;
+                    default: throw new ArgumentException("Unknown BENCH_WRAP_POLICY: " + wrapPolicy);
+                }
+                robust.DiagnoseWrapSimplification = Environment.GetEnvironmentVariable("BENCH_WRAP_DIAGNOSTICS") == "1";
+                robust.CaptureWrapCandidate = candidateProbe;
+                if (progress != null) robust.PhaseCompletedF = (name, ms) => progress("repair." + name + ".complete");
+                r["robust_wrap_policy"] = wrapPolicy;
                 robust.SafeRounding = Environment.GetEnvironmentVariable("BENCH_SAFE_ROUNDING") != "0";
                 robust.CheckLostComponents = Environment.GetEnvironmentVariable("BENCH_LOST_COMPONENTS") == "1";
                 robust.RejectTopologyChange = Environment.GetEnvironmentVariable("BENCH_REJECT_TOPOLOGY") == "1";
+                progress?.Invoke("repair.begin");
                 ok = robust.Apply();
+                progress?.Invoke("repair.end");
                 result = robust.Mesh;
+                wrapCandidate = robust.WrapCandidateBeforeCheck;
                 r["hybrid_fallback"] = robust.FallbackReason != "";
                 r["hybrid_reason"] = robust.FallbackReason;
                 r["robust_used_solidify"] = robust.UsedSolidify;
@@ -186,7 +222,14 @@ class Program
                 r["robust_solidify_reason"] = robust.SolidifyReason;
                 r["robust_used_wrap"] = robust.UsedAlphaWrap;
                 r["robust_wrap_tris"] = robust.AlphaWrapTriangles;
+                r["robust_wrap_simplified"] = robust.AlphaWrapSimplified;
+                if (robust.DiagnoseWrapSimplification)
+                    r["robust_wrap_simplification"] = robust.WrapSimplificationDiagnostics;
                 r["robust_phases"] = robust.PhaseMilliseconds;
+                if (robust.UsedAlphaWrap) {
+                    originalWrap = robust.AlphaWrap.Result;
+                    wrapOffset = robust.AlphaWrap.UsedOffset;
+                }
             } else if (repairMode == "cgalwrap") {
                 result = CgalWrap(args[0], r);
                 ok = result.TriangleCount > 0;
@@ -225,6 +268,22 @@ class Program
             }
             r["repair_ms"] = (repairMode == "cgalwrap" && r.ContainsKey("wrap_ms")) ? r["wrap_ms"] : sw.ElapsedMilliseconds;
             r["apply_returned"] = ok;
+            // Recheck the wrap certificate outside repair_ms, using the simplifier's existing tolerances.
+            if (originalWrap != null && wrapOffset > 0) {
+                stage = "wrap_certificate";
+                progress?.Invoke("actual.wrap_certificate.begin");
+                double upper = double.PositiveInfinity;
+                foreach (double tolerance in new[] { 0.1, 0.01 }) {
+                    var hd = new MeshHausdorffDistance(result, originalWrap) {
+                        Symmetric = false, Tolerance = tolerance * 0.5 * wrapOffset
+                    };
+                    if (!hd.Compute()) break;
+                    upper = hd.UpperBound;
+                    if (upper <= 0.5 * wrapOffset) break;
+                }
+                r["wrap_certificate_hi_over_offset"] = upper / wrapOffset;
+                progress?.Invoke("actual.wrap_certificate.end");
+            }
             // every failed check of the unclean hybrid repair result (hybrid_reason is the first, which decides); a
             // diagnostic, so its failure does not fail the run. "self-intersections" first means every other check
             // passed: not checked again
@@ -241,16 +300,29 @@ class Program
 
             stage = "stats_after";
             swStats.Restart();
+            progress?.Invoke("actual.stats.begin");
             Stats(result, r, "after");
             r["stats_after_ms"] = swStats.ElapsedMilliseconds;
+            progress?.Invoke("actual.stats.end");
+            progress?.Invoke("actual.deviation.begin");
             Deviation(original, result, r);
+            progress?.Invoke("actual.deviation.end");
             if (repairMode != "boolean" && repairMode != "exact")
-                Fidelity(original, result, r);
+                Fidelity(original, result, r, progress == null ? null : (Action<string>)(name => progress("actual." + name)));
             bool valid = true;
-            try { result.CheckValidity(false, FailMode.ReturnOnly); } catch { valid = false; }
+            try { valid = result.CheckValidity(false, FailMode.ReturnOnly); } catch { valid = false; }
             r["after_valid"] = valid;
             r["status"] = result.TriangleCount == 0 ? "emptied"
                         : result.IsClosed() ? "closed" : "not_closed";
+            if (candidateProbe) {
+                // Persist the actual policy result before the optional, potentially expensive probe.
+                Emit(r);
+                if (wrapCandidate != null && originalWrap != null)
+                    Emit(ProbeWrapCandidate(original, originalWrap, wrapCandidate, wrapOffset, r, progress));
+                else
+                    Emit(new { record_type = "wrap_candidate_probe", diagnostic_only = true, file = r["file"], status = "candidate_unavailable" });
+                return 0;
+            }
         } catch (Exception e) {
             r["status"] = "exception";
             r["stage"] = stage;
@@ -459,6 +531,34 @@ class Program
         return solid.Result ?? new DMesh3();
     }
 
+    static System.Collections.Generic.Dictionary<string, object> ProbeWrapCandidate(DMesh3 input, DMesh3 originalWrap,
+        DMesh3 candidate, double offset, System.Collections.Generic.Dictionary<string, object> actual, Action<string> progress)
+    {
+        var result = WrapCandidateProbe.CreateRecord(actual);
+        var timer = Stopwatch.StartNew();
+        try {
+            progress?.Invoke("candidate.stats.begin");
+            Stats(candidate, result, "after");
+            progress?.Invoke("candidate.stats.end");
+            progress?.Invoke("candidate.clean.begin");
+            result["after_valid"] = candidate.CheckValidity(false, FailMode.ReturnOnly);
+            result["status"] = candidate.TriangleCount == 0 ? "emptied" : candidate.IsClosed() ? "closed" : "not_closed";
+            result["candidate_clean_reason"] = MeshRobustRepair.NotCleanReason(candidate, true);
+            progress?.Invoke("candidate.clean.end");
+            Fidelity(input, candidate, result, progress == null ? null : (Action<string>)(name => progress("candidate." + name)));
+            result["probe_stage"] = "metrics";
+            result["probe_ms"] = timer.ElapsedMilliseconds;
+            Emit(result);
+            WrapCandidateProbe.MeasureEnvelope(originalWrap, candidate, offset, result, progress);
+            result["probe_stage"] = "complete";
+        } catch (Exception error) {
+            result["status"] = "probe_exception";
+            result["probe_error"] = error.GetType().Name + ": " + error.Message;
+        }
+        result["probe_ms"] = timer.ElapsedMilliseconds;
+        return result;
+    }
+
     // distance between input and result surfaces (vertex samples, both directions), relative to the bbox diagonal:
     // dev_* = result vertices to input (added geometry), back_* = input vertices to result (lost geometry)
     static void Deviation(DMesh3 input, DMesh3 result, System.Collections.Generic.Dictionary<string, object> r)
@@ -490,13 +590,15 @@ class Program
     // (relative to the bbox diagonal; hd_fwd = result to input, hd_back = input to result, lower and upper
     // bound), agreement with the input's winding number solid (IoU, missing and extra volume), and the
     // MeshFidelityMetrics fields (fm_*, FidelityFields.cs)
-    static void Fidelity(DMesh3 input, DMesh3 result, System.Collections.Generic.Dictionary<string, object> r)
+    static void Fidelity(DMesh3 input, DMesh3 result, System.Collections.Generic.Dictionary<string, object> r, Action<string> progress = null)
     {
         if (input.TriangleCount == 0 || result.TriangleCount == 0)
             return;
         double diag = input.CachedBounds.DiagonalLength;
         var sw = Stopwatch.StartNew();
         foreach (bool fwd in new[] { true, false }) {
+            string phase = fwd ? "fidelity.hausdorff_fwd" : "fidelity.hausdorff_back";
+            progress?.Invoke(phase + ".begin");
             var h = new MeshHausdorffDistance(fwd ? result : input, fwd ? input : result) {
                 Symmetric = false, RelativeTolerance = 1e-3, MaxSubdivisions = 2000000
             };
@@ -506,9 +608,12 @@ class Program
                 r[k + "_hi_rel"] = h.UpperBound / diag;
                 r[k + "_converged"] = h.Converged;
             }
+            progress?.Invoke(phase + ".end");
         }
         double missing, extra;
+        progress?.Invoke("fidelity.volume_iou.begin");
         r["iou"] = MeshRepairMetrics.VolumeIoU(input, result, out missing, out extra);
+        progress?.Invoke("fidelity.volume_iou.end");
         r["iou_missing"] = missing;
         r["iou_extra"] = extra;
         r["fidelity_ms"] = sw.ElapsedMilliseconds;
@@ -516,6 +621,7 @@ class Program
         // input with inside-out closed components reversed (as VolumeIoU sees it), and reversed as a whole if its
         // signed volume is negative; BENCH_FIDELITY=0 skips them
         if (Environment.GetEnvironmentVariable("BENCH_FIDELITY") != "0") {
+            progress?.Invoke("fidelity.orient.begin");
             DMesh3 oriented = new DMesh3(input);
             foreach (int[] comp in MeshPostRepairCleanup.FindInvertedComponents(oriented))
                 foreach (int tid in comp) oriented.ReverseTriOrientation(tid);
@@ -523,7 +629,10 @@ class Program
             // closed components only): the reversed share would only report that the result is outward
             if (Vol(oriented) < 0)
                 foreach (int tid in oriented.TriangleIndices().ToArray()) oriented.ReverseTriOrientation(tid);
+            progress?.Invoke("fidelity.orient.end");
+            progress?.Invoke("fidelity.metrics.begin");
             FidelityFields.Add(oriented, result, r);
+            progress?.Invoke("fidelity.metrics.end");
         }
     }
 

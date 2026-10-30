@@ -4,9 +4,15 @@ winding-number IoU). A mesh counts as repaired if it is closed, valid, topologic
 consistent orientation, no duplicate/degenerate triangles, no inside-out components), has no exact
 self-intersections and stays close to the input: Hausdorff upper bound < HD (relative to the diagonal) in
 both directions and IoU > IOU.
-Usage: analyze_fidelity.py results/<run>.jsonl [HD=0.01] [IOU=0.99]"""
+Usage: analyze_fidelity.py results/<run>.jsonl [HD=0.01] [IOU=0.99]
+Paired experiment: analyze_fidelity.py --paired before.jsonl after.jsonl unsimplified.jsonl
+                   [--expected 400] [--subset] [--require-certificate]"""
 import json, sys
 from criteria import get, clean, no_solid, iou, hd as hd_of, selfint, faithful as faithful_hd_iou
+
+if len(sys.argv) > 1 and sys.argv[1] == '--paired':
+    from paired_fidelity import main
+    sys.exit(main(sys.argv[2:]))
 
 f = sys.argv[1]
 HD = float(sys.argv[2]) if len(sys.argv) > 2 else 0.01

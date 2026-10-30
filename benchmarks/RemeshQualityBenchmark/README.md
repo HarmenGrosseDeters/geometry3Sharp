@@ -17,6 +17,37 @@ dotnet run -c Release --project benchmarks/RemeshQualityBenchmark -- runs=3 thin
 `only=<regex>` selects cases, `quality=<q>` the threshold. One JSON line per case (off and on), then the summary
 and the list of cases that get worse. No mesh files are committed.
 
+## Alpha-wrap experiment control rerun (2026-10-29)
+
+This is a **before/after code comparison**, not off versus on. Pair `off` before with `off` after, and `on`
+before with `on` after. The alpha-wrap experiment changes neither remesher configuration nor defaults.
+
+Command from the repository root, run before and after in Release:
+
+```powershell
+dotnet benchmarks\RemeshQualityBenchmark\bin\Release\net10.0\RemeshQualityBenchmark.dll runs=3 quality=0.2 thingi=C:\work\geometry3Sharp\benchmarks\RemeshBenchmark\data\meshes
+```
+
+Base SHA `93880ed97a282f356ae96aea465e539130bea69b`, .NET SDK 10.0.402, Intel Core i7-13850HX, Windows.
+Raw mixed text/JSON outputs are preserved in the ignored sibling directory
+`../MeshRepairBenchmark/results/alpha-quality-20261029/remesh-before.txt` and `remesh-after.txt`.
+The session command `python <session-files>\analyze_wrap_experiment.py` extracts JSON lines, pairs `(group, case)`,
+checks input fields and every output field except `Seconds`, and writes `original-experiment-summary.json`
+in the same results directory.
+
+All 212 cases are paired: 150 primitives, 18 gears, 24 tubes and 20 Thingi meshes. Input triangle/self-pair
+counts and `Tris`, `Poor`, `Flat`, `SelfPairs`, `Inverted`, `RejectedPasses`, `Hausdorff`, `NotClean` are exactly
+unchanged for **both** modes. No missing cases or geometric regressions were found.
+
+| paired mode | sum of case median seconds before | after | after / before |
+|---|---:|---:|---:|
+| off -> off | 9.6221516 | 8.8796966 | 0.922839 |
+| on -> on | 14.1857607 | 13.2186067 | 0.931822 |
+
+These times are observed rerun variation, not an attributed speedup: remesher behavior is unchanged.
+The failed alpha-wrap quality experiment and its separate fidelity gates are documented in
+[MeshRepairBenchmark](../MeshRepairBenchmark/README.md#alpha-wrap-collapse-quality-experiment-2026-10-29).
+
 ## Inputs
 - `primitives` (150 cases): capped cylinders, cones and tapers (top radius 0.3) with 6, 8, 10, 12, 16, 24, 32
   slices, boxes with 2, 3, 4, 6 vertices per edge; targets 0.1, 0.15, 0.2, 0.3, 0.45, 0.6 x mean edge (refinement:

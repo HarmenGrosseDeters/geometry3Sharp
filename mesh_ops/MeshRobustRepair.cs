@@ -169,6 +169,12 @@ namespace gs
         public int AlphaWrapTriangles;
         /// <summary> alpha wrap fallback: true if the result is the simplified wrap (SimplifyAlphaWrap) </summary>
         public bool AlphaWrapSimplified;
+        internal enum WrapSimplificationPolicy { Default, FeatureConstrained, QualityFlips, LocalQualityRollback, TangentialQuality, GuardedFeatureQuadrics }
+        internal WrapSimplificationPolicy WrapPolicy = WrapSimplificationPolicy.Default;
+        internal bool DiagnoseWrapSimplification = false;
+        internal Dictionary<string, object> WrapSimplificationDiagnostics = new Dictionary<string, object>();
+        internal bool CaptureWrapCandidate;
+        internal DMesh3 WrapCandidateBeforeCheck;
         public bool UsedExactResolve;
         /// <summary> why the exact resolve was not used ("" if it was or was not tried) </summary>
         public string ExactResolveReason = "";
@@ -190,6 +196,7 @@ namespace gs
         /// stopped on self-intersections, if the wrap failed)
         /// </summary>
         public Dictionary<string, long> PhaseMilliseconds = new Dictionary<string, long>();
+        internal Action<string, long> PhaseCompletedF;
 
         Stopwatch phase_timer = new Stopwatch();
         void end_phase(string name)
@@ -202,6 +209,7 @@ namespace gs
             long cur;
             PhaseMilliseconds.TryGetValue(name, out cur);
             PhaseMilliseconds[name] = cur + ms;
+            if (PhaseCompletedF != null) PhaseCompletedF(name, ms);
         }
 
         /// <summary> the mesh is modified by the repair stage (see class comment) </summary>
@@ -226,6 +234,8 @@ namespace gs
             UsedAlphaWrap = false;
             AlphaWrapTriangles = 0;
             AlphaWrapSimplified = false;
+            WrapSimplificationDiagnostics.Clear();
+            WrapCandidateBeforeCheck = null;
             SolidifyReason = "";
             Solidify = null;
             AlphaWrap = null;
@@ -407,7 +417,237 @@ namespace gs
         {
             if (CancelF())
                 return null;
-            return SimplifyWithin(wrap, 0.5 * offset, 0.5 * offset, CheckSelfIntersections, CancelF);
+            return SimplifyWithin(wrap, 0.5 * offset, 0.5 * offset, CheckSelfIntersections, CancelF,
+                WrapPolicy == WrapSimplificationPolicy.FeatureConstrained ? 0.30 : 0.05,
+                WrapPolicy == WrapSimplificationPolicy.FeatureConstrained,
+                WrapPolicy == WrapSimplificationPolicy.QualityFlips,
+                WrapPolicy == WrapSimplificationPolicy.LocalQualityRollback,
+                DiagnoseWrapSimplification ? WrapSimplificationDiagnostics : null,
+                WrapPolicy == WrapSimplificationPolicy.TangentialQuality,
+                CaptureWrapCandidate ? (Action<DMesh3>)(snapshot => WrapCandidateBeforeCheck = snapshot) : null,
+                WrapPolicy == WrapSimplificationPolicy.GuardedFeatureQuadrics);
+        }
+
+        // Restrict the existing remesher to its poor-triangle quality criterion, not valence-only flips.
+        sealed class WrapQualityFlipper : Remesher
+        {
+            internal WrapQualityFlipper(DMesh3 mesh) : base(mesh) { }
+
+            protected override ProcessResult ProcessEdge(int edgeID)
+            {
+                if (!mesh.IsEdge(edgeID) || mesh.IsBoundaryEdge(edgeID))
+                    return ProcessResult.Ignored_EdgeIsFine;
+                Index2i edge = mesh.GetEdgeV(edgeID), opposite = mesh.GetEdgeOpposingV(edgeID);
+                Vector3d a = mesh.GetVertex(edge.a), b = mesh.GetVertex(edge.b);
+                Vector3d c = mesh.GetVertex(opposite.a), d = mesh.GetVertex(opposite.b);
+                double before = Math.Min(TriangleQuality(ref a, ref b, ref c), TriangleQuality(ref b, ref a, ref d));
+                double after = Math.Min(TriangleQuality(ref c, ref d, ref b), TriangleQuality(ref d, ref c, ref a));
+                if (!(before < MinTriangleQuality && after > 2 * before))
+                    return ProcessResult.Ignored_EdgeIsFine;
+                return base.ProcessEdge(edgeID);
+            }
+        }
+
+        // The immutable tree covers unchanged triangles; edited triangles are tested separately. This avoids
+        // rebuilding a whole-mesh tree (or copying a mesh) per edge without using stale bounds for edited faces.
+        internal sealed class LocalWrapQualityFlipper : Remesher
+        {
+            readonly DMeshAABBTree3 reference, unchanged;
+            readonly TriangleDeviationBounds deviation;
+            readonly SortedSet<int> edited = new SortedSet<int>();
+            readonly double maxDistance;
+            readonly Func<bool> cancelF;
+            internal int Accepted, Rejected, AcceptedMoves, RejectedMoves;
+            readonly TriangleHashGrid movingGrid;
+            readonly Vector3d[] tangentNormals;
+            readonly bool[] fixedVertices;
+
+            internal LocalWrapQualityFlipper(DMesh3 mesh, DMeshAABBTree3 reference, double maxDistance, Func<bool> cancelF,
+                bool tangential = false) : base(mesh)
+            {
+                this.reference = reference;
+                this.maxDistance = maxDistance;
+                this.cancelF = cancelF;
+                deviation = new TriangleDeviationBounds(reference.Mesh);
+                unchanged = new DMeshAABBTree3(new DMesh3(mesh), true);
+                EnableFlips = true;
+                EnableCollapses = EnableSplits = EnableSmoothing = EnableParallelSmooth = false;
+                MinTriangleQuality = 0.30;
+                PreventNormalFlips = true;
+                Progress = new ProgressCancel(cancelF);
+                if (tangential) {
+                    var featureConstraints = new MeshConstraints();
+                    MeshConstraintUtil.PreserveBoundaryAndFeatures(featureConstraints, mesh, 30);
+                    SetExternalConstraints(featureConstraints);
+                    tangentNormals = new Vector3d[mesh.MaxVertexID];
+                    fixedVertices = new bool[mesh.MaxVertexID];
+                    foreach (int vid in mesh.VertexIndices()) {
+                        VertexConstraint constraint = featureConstraints.GetVertexConstraint(vid);
+                        fixedVertices[vid] = constraint.Fixed || constraint.Target != null;
+                        Vector3d normal = Vector3d.Zero;
+                        foreach (int tid in mesh.VtxTrianglesItr(vid).OrderBy(t => t)) {
+                            Triangle3d tri = triangle(mesh.GetTriangle(tid));
+                            normal += (tri.V1 - tri.V0).Cross(tri.V2 - tri.V0);
+                        }
+                        tangentNormals[vid] = normal.Normalized;
+                    }
+                    double sum = 0; int edges = 0;
+                    foreach (int eid in mesh.EdgeIndices()) {
+                        Index2i ev = mesh.GetEdgeV(eid);
+                        sum += mesh.GetVertex(ev.a).Distance(mesh.GetVertex(ev.b)); edges++;
+                    }
+                    movingGrid = new TriangleHashGrid(mesh.CachedBounds.Min, 1.5 * sum / Math.Max(1, edges));
+                    foreach (int tid in mesh.TriangleIndices()) movingGrid.Insert(tid, mesh.GetTriBounds(tid));
+                }
+            }
+
+            protected override ProcessResult ProcessEdge(int edgeID)
+            {
+                return TryFlip(edgeID) ? ProcessResult.Ok_Flipped : ProcessResult.Ignored_EdgeIsFine;
+            }
+
+            internal bool IsFixedVertex(int vid) { return fixedVertices != null && fixedVertices[vid]; }
+            internal Vector3d TangentNormal(int vid) { return tangentNormals[vid]; }
+
+            internal void TangentialPass()
+            {
+                foreach (int vid in mesh.VertexIndices()) {
+                    if (cancelF()) return;
+                    if (IsFixedVertex(vid)) continue;
+                    Vector3d current = mesh.GetVertex(vid), normal = tangentNormals[vid], displacement = Vector3d.Zero;
+                    int count = 0;
+                    foreach (int neighbor in mesh.VtxVerticesItr(vid).OrderBy(v => v)) {
+                        displacement += mesh.GetVertex(neighbor) - current; count++;
+                    }
+                    if (count == 0 || !normal.IsFinite || normal.LengthSquared == 0) continue;
+                    displacement /= count;
+                    displacement -= normal.Dot(displacement) * normal;
+                    foreach (double fraction in new[] { 0.1, 0.05, 0.025 }) {
+                        if (TryMove(vid, current + fraction * displacement)) break;
+                    }
+                }
+            }
+
+            internal bool TryMove(int vid, Vector3d position)
+            {
+                if (cancelF() || tangentNormals == null || !mesh.IsVertex(vid) || IsFixedVertex(vid)) return false;
+                if (!position.IsFinite) { RejectedMoves++; return false; }
+                int[] ring = mesh.VtxTrianglesItr(vid).OrderBy(t => t).ToArray();
+                var replaced = new HashSet<int>(ring);
+                var proposed = new Triangle3d[ring.Length];
+                double before = double.PositiveInfinity, after = double.PositiveInfinity;
+                for (int i = 0; i < ring.Length; ++i) {
+                    Index3i ids = mesh.GetTriangle(ring[i]);
+                    Triangle3d old = triangle(ids);
+                    Triangle3d candidate = new Triangle3d(ids.a == vid ? position : old.V0,
+                        ids.b == vid ? position : old.V1, ids.c == vid ? position : old.V2);
+                    proposed[i] = candidate;
+                    Vector3d oldNormal = (old.V1 - old.V0).Cross(old.V2 - old.V0);
+                    Vector3d newNormal = (candidate.V1 - candidate.V0).Cross(candidate.V2 - candidate.V0);
+                    if (!oldNormal.IsFinite || !newNormal.IsFinite || !(oldNormal.Dot(newNormal) > 0)
+                        || ExactTriangleIntersection.IsDegenerate(ref candidate)
+                        || !deviation.IsWithin(reference, candidate.V0, candidate.V1, candidate.V2, maxDistance)) {
+                        RejectedMoves++; return false;
+                    }
+                    before = Math.Min(before, TriangleQuality(ref old.V0, ref old.V1, ref old.V2));
+                    after = Math.Min(after, TriangleQuality(ref candidate.V0, ref candidate.V1, ref candidate.V2));
+                }
+                if (!(after > before) || double.IsInfinity(after) || double.IsNaN(after)) { RejectedMoves++; return false; }
+                for (int i = 0; i < ring.Length; ++i) {
+                    Triangle3d a = proposed[i];
+                    for (int j = i + 1; j < ring.Length; ++j) {
+                        Triangle3d b = proposed[j];
+                        if (ExactTriangleIntersection.IntersectsBeyondShared(mesh.GetTriangle(ring[i]), ref a, mesh.GetTriangle(ring[j]), ref b)) {
+                            RejectedMoves++; return false;
+                        }
+                    }
+                    if (intersects(mesh.GetTriangle(ring[i]), a, replaced.Contains) || cancelF()) {
+                        RejectedMoves++; return false;
+                    }
+                }
+                mesh.SetVertex(vid, position);
+                foreach (int tid in ring) movingGrid.Insert(tid, mesh.GetTriBounds(tid));
+                AcceptedMoves++;
+                return true;
+            }
+
+            internal bool TryFlip(int edgeID)
+            {
+                if (cancelF() || !mesh.IsEdge(edgeID) || mesh.IsBoundaryEdge(edgeID)
+                    || (constraints != null && !constraints.GetEdgeConstraint(edgeID).CanFlip)) return false;
+                Index2i edge = mesh.GetEdgeV(edgeID), opposite = mesh.GetEdgeOpposingV(edgeID), tris = mesh.GetEdgeT(edgeID);
+                int a = edge.a, b = edge.b;
+                Index3i old = mesh.GetTriangle(tris.a);
+                IndexUtil.orient_tri_edge(ref a, ref b, ref old);
+                int c = opposite.a, d = opposite.b;
+                Vector3d pa = mesh.GetVertex(a), pb = mesh.GetVertex(b), pc = mesh.GetVertex(c), pd = mesh.GetVertex(d);
+                double before = Math.Min(TriangleQuality(ref pa, ref pb, ref pc), TriangleQuality(ref pb, ref pa, ref pd));
+                double after = Math.Min(TriangleQuality(ref pc, ref pd, ref pb), TriangleQuality(ref pd, ref pc, ref pa));
+                if (!(before < 0.30 && after > 2 * before)) return false;
+                Index3i i0 = new Index3i(c, d, b), i1 = new Index3i(d, c, a);
+                Triangle3d t0 = new Triangle3d(pc, pd, pb), t1 = new Triangle3d(pd, pc, pa);
+                if (mesh.FindEdge(c, d) != DMesh3.InvalidID || flip_inverts_normals(a, b, c, d, tris.a)
+                    || ExactTriangleIntersection.IsDegenerate(ref t0) || ExactTriangleIntersection.IsDegenerate(ref t1)
+                    || !deviation.IsWithin(reference, pc, pd, pb, maxDistance)
+                    || !deviation.IsWithin(reference, pd, pc, pa, maxDistance)
+                    || ExactTriangleIntersection.IntersectsBeyondShared(i0, ref t0, i1, ref t1)
+                    || intersects(i0, t0, tris) || intersects(i1, t1, tris) || cancelF()) {
+                    Rejected++;
+                    return false;
+                }
+                DMesh3.EdgeFlipInfo info;
+                if (mesh.FlipEdge(edgeID, out info) != MeshResult.Ok) {
+                    Rejected++;
+                    return false;
+                }
+                if (movingGrid != null) {
+                    movingGrid.Insert(tris.a, mesh.GetTriBounds(tris.a));
+                    movingGrid.Insert(tris.b, mesh.GetTriBounds(tris.b));
+                } else {
+                    edited.Add(tris.a);
+                    edited.Add(tris.b);
+                }
+                Accepted++;
+                return true;
+            }
+
+            bool intersects(Index3i indices, Triangle3d proposed, Index2i replaced)
+            {
+                return intersects(indices, proposed, tid => tid == replaced.a || tid == replaced.b);
+            }
+
+            bool intersects(Index3i indices, Triangle3d proposed, Func<int, bool> excluded)
+            {
+                AxisAlignedBox3d box = new AxisAlignedBox3d(proposed.V0);
+                box.Contain(proposed.V1); box.Contain(proposed.V2);
+                bool hit = false;
+                Action<int> check = tid => {
+                    if (hit || excluded(tid)) return;
+                    Triangle3d other = triangle(mesh.GetTriangle(tid));
+                    if (ExactTriangleIntersection.IntersectsBeyondShared(indices, ref proposed, mesh.GetTriangle(tid), ref other)) hit = true;
+                };
+                if (movingGrid != null) {
+                    movingGrid.Query(box, tid => {
+                        AxisAlignedBox3d otherBox;
+                        if (movingGrid.TryGetBox(tid, out otherBox) && otherBox.Intersects(box)) check(tid);
+                    });
+                    return hit;
+                }
+                unchanged.DoTraversal(new DMeshAABBTree3.TreeTraversal {
+                    NextBoxDF = (bounds, depth) => !hit && bounds.Intersects(box),
+                    NextTriangleF = tid => { if (!edited.Contains(tid)) check(tid); }
+                });
+                foreach (int tid in edited) {
+                    if (hit || cancelF()) break;
+                    if (mesh.GetTriBounds(tid).Intersects(box)) check(tid);
+                }
+                return hit;
+            }
+
+            Triangle3d triangle(Index3i t)
+            {
+                return new Triangle3d(mesh.GetVertex(t.a), mesh.GetVertex(t.b), mesh.GetVertex(t.c));
+            }
         }
 
         /// <summary>
@@ -415,29 +655,282 @@ namespace gs
         /// if the result is not clean or not certified within maxDistance of the mesh (one-sided Hausdorff upper
         /// bound, from the result to the mesh). The distance is checked afterwards rather than per collapse
         /// (Reducer.MaxDeviation): on alpha wraps that check took 10 to 30 times longer and changed nothing.
+        /// Internal experiments may preserve 30-degree feature curves, or run two poor-triangle flip-only
+        /// passes after reduction. Flips use the remesher's normal guards; cleanliness (including requested
+        /// self-intersection checks) and the distance certificate are checked after all passes. LocalQualityRollback
+        /// instead fixes q=.05, independently certifies the reduced baseline, and prevalidates every prospective
+        /// flip against the immutable reference envelope and exact intersections. A rejected final improvement
+        /// retains that baseline; cancellation returns null. TangentialQuality adds two fixed serial vertex/flip
+        /// sweeps with reference tangent planes, pinned feature curves and the same prospective safety checks.
+        /// GuardedFeatureQuadrics instead fixes q=.30, uses soft feature quadrics (30 degrees, weight 100),
+        /// and certifies prospective collapses against the original wrap without any post-reduction passes.
+        /// diagnostic_ms measures only extra diagnostic checks,
+        /// not required local safety checks, and is included in (not subtracted from) the simplification wall time.
         /// </summary>
-        internal static DMesh3 SimplifyWithin(DMesh3 mesh, double quadricDistance, double maxDistance, bool checkSelfIntersections, Func<bool> cancelF)
+        internal static DMesh3 SimplifyWithin(DMesh3 mesh, double quadricDistance, double maxDistance, bool checkSelfIntersections, Func<bool> cancelF,
+            double minCollapseTriangleQuality = 0.05, bool preserveFeatures = false, bool flipOnlyQualityPasses = false,
+            bool localQualityRollback = false, Dictionary<string, object> diagnostics = null, bool tangentialQuality = false,
+            Action<DMesh3> captureCandidate = null, bool guardedFeatureQuadrics = false)
         {
+            if (guardedFeatureQuadrics) {
+                if (preserveFeatures || flipOnlyQualityPasses || localQualityRollback || tangentialQuality)
+                    throw new ArgumentException("Guarded feature quadrics are a separate fixed reduction policy.");
+                if (!(maxDistance > 0) || double.IsInfinity(maxDistance))
+                    throw new ArgumentOutOfRangeException(nameof(maxDistance));
+                minCollapseTriangleQuality = 0.30;
+            }
+            if (tangentialQuality && (preserveFeatures || flipOnlyQualityPasses || localQualityRollback))
+                throw new ArgumentException("Tangential quality is a separate fixed policy.");
+            localQualityRollback |= tangentialQuality;
+            if (localQualityRollback && preserveFeatures)
+                throw new ArgumentException("Local quality rollback cannot be combined with feature constraints.");
+            if (localQualityRollback) minCollapseTriangleQuality = 0.05;
+            var stages = diagnostics == null ? null : new List<Dictionary<string, object>>();
+            if (diagnostics != null) {
+                diagnostics.Clear();
+                diagnostics["stages"] = stages;
+                diagnostics["reductionInputTriangles"] = mesh.TriangleCount;
+                diagnostics["acceptedSource"] = "original";
+                diagnostics["rejectionReason"] = "";
+                diagnostics["localAcceptedFlips"] = 0;
+                diagnostics["localRejectedFlips"] = 0;
+                diagnostics["diagnostic_ms"] = 0L;
+            }
             DMesh3 m = new DMesh3(mesh);
             Reducer reducer = new Reducer(m) {
                 PreventSelfIntersections = true, Progress = new ProgressCancel(cancelF),
-                AreaWeightedQuadrics = false, MinCollapseTriangleQuality = 0.05, EdgeFlipTolerance = Math.Cos(60 * MathUtil.Deg2Rad)
+                AreaWeightedQuadrics = false, MinCollapseTriangleQuality = minCollapseTriangleQuality, EdgeFlipTolerance = Math.Cos(60 * MathUtil.Deg2Rad)
             };
+            if (guardedFeatureQuadrics) {
+                reducer.FeatureAngle = 30;
+                reducer.FeatureQuadricWeight = 100;
+                reducer.MaxDeviation = maxDistance;
+                reducer.SetDeviationReference(mesh);
+            }
+            if (preserveFeatures) {
+                var constraints = new MeshConstraints();
+                MeshConstraintUtil.PreserveBoundaryAndFeatures(constraints, m, 30);
+                reducer.SetExternalConstraints(constraints);
+            }
             reducer.ReduceToMaxQuadricError(quadricDistance * quadricDistance);
             m = new DMesh3(m, true);
-            if (cancelF() || NotCleanReason(m, checkSelfIntersections) != "")
+            if (!localQualityRollback && diagnostics == null)
+                return original_wrap_finish(m, mesh, maxDistance, checkSelfIntersections, cancelF, flipOnlyQualityPasses);
+            Dictionary<string, object> reducedStage = wrap_stage("reduction", m, maxDistance, stages);
+            Dictionary<string, object>[] flipStages = null;
+            if (!tangentialQuality && (flipOnlyQualityPasses || localQualityRollback))
+                flipStages = new[] { wrap_stage("flip-pass-1", m, maxDistance, stages), wrap_stage("flip-pass-2", m, maxDistance, stages) };
+            if (diagnostics != null) diagnostics["reductionOutputTriangles"] = m.TriangleCount;
+            DMeshAABBTree3 spatial = null;
+            DMesh3 reduced = null;
+            if (localQualityRollback || diagnostics != null) {
+                var timer = Stopwatch.StartNew();
+                bool passed = check_wrap_stage(m, mesh, ref spatial, maxDistance, checkSelfIntersections, cancelF, reducedStage);
+                if (localQualityRollback) {
+                    if (!passed) {
+                        wrap_decision(diagnostics, "original", wrap_rejection(reducedStage, cancelF));
+                        return null;
+                    }
+                    reduced = m;
+                    m = new DMesh3(reduced);
+                } else if (diagnostics != null) {
+                    diagnostics["diagnostic_ms"] = timer.ElapsedMilliseconds;
+                }
+            }
+            if (tangentialQuality)
+                return tangential_wrap_finish(reduced, m, mesh, spatial, maxDistance, checkSelfIntersections, cancelF, diagnostics, stages, captureCandidate);
+            LocalWrapQualityFlipper local = localQualityRollback ? new LocalWrapQualityFlipper(m, spatial, maxDistance, cancelF) : null;
+            Dictionary<string, object> lastStage = reducedStage;
+            if (flipOnlyQualityPasses || localQualityRollback) {
+                Remesher remesher = local;
+                if (remesher == null) remesher = new WrapQualityFlipper(m) {
+                    EnableFlips = true, EnableCollapses = false, EnableSplits = false, EnableSmoothing = false,
+                    EnableParallelSmooth = false, MinTriangleQuality = 0.30, PreventNormalFlips = true,
+                    Progress = new ProgressCancel(cancelF)
+                };
+                for (int pass = 0; pass < 2; ++pass) {
+                    lastStage = flipStages[pass];
+                    int acceptedBefore = local == null ? 0 : local.Accepted, rejectedBefore = local == null ? 0 : local.Rejected;
+                    if (cancelF()) {
+                        lastStage["certificateStatus"] = "cancelled";
+                        wrap_decision(diagnostics, "original", "cancelled");
+                        return null;
+                    }
+                    remesher.BasicRemeshPass();
+                    lastStage["triangles"] = m.TriangleCount;
+                    if (local != null) {
+                        lastStage["localAcceptedFlips"] = local.Accepted - acceptedBefore;
+                        lastStage["localRejectedFlips"] = local.Rejected - rejectedBefore;
+                        if (diagnostics != null) {
+                            diagnostics["localAcceptedFlips"] = local.Accepted;
+                            diagnostics["localRejectedFlips"] = local.Rejected;
+                        }
+                    }
+                    if (diagnostics != null && pass == 0) {
+                        var timer = Stopwatch.StartNew();
+                        check_wrap_stage(m, mesh, ref spatial, maxDistance, checkSelfIntersections, cancelF, lastStage);
+                        diagnostics["diagnostic_ms"] = (long)diagnostics["diagnostic_ms"] + timer.ElapsedMilliseconds;
+                    }
+                }
+            }
+            if (localQualityRollback)
+                return FinishLocalWrap(reduced, m, spatial, maxDistance, checkSelfIntersections, cancelF, diagnostics, lastStage, local.Accepted);
+            bool accepted = check_wrap_stage(m, mesh, ref spatial, maxDistance, checkSelfIntersections, cancelF, lastStage);
+            if (cancelF()) {
+                wrap_decision(diagnostics, "original", "cancelled");
                 return null;
-            // only the upper bound has to stay below maxDistance: a coarse tolerance first, a finer one if the
-            // distance is close to maxDistance
+            }
+            if (accepted) {
+                wrap_decision(diagnostics, flipOnlyQualityPasses ? "flipped" : "reduced", "");
+                return m;
+            }
+            wrap_decision(diagnostics, "original", wrap_rejection(lastStage, cancelF));
+            return null;
+        }
+
+        static DMesh3 tangential_wrap_finish(DMesh3 reduced, DMesh3 m, DMesh3 original, DMeshAABBTree3 reference,
+            double maxDistance, bool checkSelfIntersections, Func<bool> cancelF, Dictionary<string, object> diagnostics,
+            List<Dictionary<string, object>> stages, Action<DMesh3> captureCandidate)
+        {
+            var local = new LocalWrapQualityFlipper(m, reference, maxDistance, cancelF, true);
+            if (diagnostics != null) {
+                diagnostics["movementFractions"] = new[] { 0.1, 0.05, 0.025 };
+                diagnostics["tangentAcceptedMoves"] = 0;
+                diagnostics["tangentRejectedMoves"] = 0;
+            }
+            Dictionary<string, object> last = null;
+            for (int pass = 0; pass < 2; ++pass) {
+                last = wrap_stage("tangent-pass-" + (pass + 1), m, maxDistance, stages);
+                if (cancelF()) { wrap_decision(diagnostics, "original", "cancelled"); return null; }
+                int acceptedMoves = local.AcceptedMoves, rejectedMoves = local.RejectedMoves;
+                local.TangentialPass();
+                last["acceptedMoves"] = local.AcceptedMoves - acceptedMoves;
+                last["rejectedMoveAttempts"] = local.RejectedMoves - rejectedMoves;
+                if (diagnostics != null) {
+                    diagnostics["tangentAcceptedMoves"] = local.AcceptedMoves;
+                    diagnostics["tangentRejectedMoves"] = local.RejectedMoves;
+                    var timer = Stopwatch.StartNew();
+                    check_wrap_stage(m, original, ref reference, maxDistance, checkSelfIntersections, cancelF, last);
+                    diagnostics["diagnostic_ms"] = (long)diagnostics["diagnostic_ms"] + timer.ElapsedMilliseconds;
+                }
+                last = wrap_stage("flip-pass-" + (pass + 1), m, maxDistance, stages);
+                if (cancelF()) { wrap_decision(diagnostics, "original", "cancelled"); return null; }
+                int acceptedFlips = local.Accepted, rejectedFlips = local.Rejected;
+                local.BasicRemeshPass();
+                last["localAcceptedFlips"] = local.Accepted - acceptedFlips;
+                last["localRejectedFlips"] = local.Rejected - rejectedFlips;
+                if (diagnostics != null) {
+                    diagnostics["localAcceptedFlips"] = local.Accepted;
+                    diagnostics["localRejectedFlips"] = local.Rejected;
+                    if (pass == 0) {
+                        var timer = Stopwatch.StartNew();
+                        check_wrap_stage(m, original, ref reference, maxDistance, checkSelfIntersections, cancelF, last);
+                        diagnostics["diagnostic_ms"] = (long)diagnostics["diagnostic_ms"] + timer.ElapsedMilliseconds;
+                    }
+                }
+            }
+            if (captureCandidate != null && !cancelF()) captureCandidate(new DMesh3(m));
+            DMesh3 result = FinishLocalWrap(reduced, m, reference, maxDistance, checkSelfIntersections, cancelF,
+                diagnostics, last, local.Accepted);
+            if (diagnostics != null && ReferenceEquals(result, m) && (local.Accepted > 0 || local.AcceptedMoves > 0))
+                diagnostics["acceptedSource"] = "tangential";
+            return result;
+        }
+
+        // reduced is independently clean and certified before the caller creates or edits flipped.
+        internal static DMesh3 FinishLocalWrap(DMesh3 reduced, DMesh3 flipped, DMeshAABBTree3 reference, double maxDistance,
+            bool checkSelfIntersections, Func<bool> cancelF, Dictionary<string, object> diagnostics = null,
+            Dictionary<string, object> stage = null, int acceptedFlips = 0)
+        {
+            if (stage == null) stage = wrap_stage("flip-pass-2", flipped, maxDistance, null);
+            bool accepted = check_wrap_stage(flipped, reference.Mesh, ref reference, maxDistance, checkSelfIntersections, cancelF, stage);
+            if (cancelF()) {
+                wrap_decision(diagnostics, "original", "cancelled");
+                return null;
+            }
+            wrap_decision(diagnostics, accepted && acceptedFlips > 0 ? "flipped" : "reduced",
+                accepted ? "" : wrap_rejection(stage, cancelF));
+            return accepted ? flipped : reduced;
+        }
+
+        static DMesh3 original_wrap_finish(DMesh3 m, DMesh3 mesh, double maxDistance, bool checkSelfIntersections,
+            Func<bool> cancelF, bool flipOnlyQualityPasses)
+        {
+            if (flipOnlyQualityPasses) {
+                var remesher = new WrapQualityFlipper(m) {
+                    EnableFlips = true, EnableCollapses = false, EnableSplits = false, EnableSmoothing = false,
+                    EnableParallelSmooth = false, MinTriangleQuality = 0.30, PreventNormalFlips = true,
+                    Progress = new ProgressCancel(cancelF)
+                };
+                for (int pass = 0; pass < 2; ++pass) {
+                    if (cancelF()) return null;
+                    remesher.BasicRemeshPass();
+                }
+            }
+            if (cancelF() || NotCleanReason(m, checkSelfIntersections) != "") return null;
             var spatial = new DMeshAABBTree3(mesh, true);
             foreach (double tol in new double[] { 0.1, 0.01 }) {
                 var hd = new MeshHausdorffDistance(m, mesh) { Symmetric = false, SpatialB = spatial, Tolerance = tol * maxDistance, CancelF = cancelF };
-                if (hd.Compute() == false || !(hd.LowerBound <= maxDistance))
-                    return null;
-                if (hd.UpperBound <= maxDistance)
-                    return m;
+                if (hd.Compute() == false || !(hd.LowerBound <= maxDistance)) return null;
+                if (hd.UpperBound <= maxDistance) return m;
             }
             return null;
+        }
+
+        static Dictionary<string, object> wrap_stage(string name, DMesh3 mesh, double maxDistance, List<Dictionary<string, object>> stages)
+        {
+            var stage = new Dictionary<string, object> {
+                { "stage", name }, { "triangles", mesh.TriangleCount }, { "cleanReason", "not-checked" },
+                { "certificateStatus", "not-checked" }, { "maxDistance", maxDistance }
+            };
+            if (stages != null) stages.Add(stage);
+            return stage;
+        }
+
+        static object json_distance(double value)
+        {
+            return double.IsNaN(value) || double.IsInfinity(value) ? null : (object)value;
+        }
+
+        static bool check_wrap_stage(DMesh3 candidate, DMesh3 original, ref DMeshAABBTree3 spatial,
+            double maxDistance, bool checkSelfIntersections, Func<bool> cancelF, Dictionary<string, object> stage)
+        {
+            if (cancelF()) { stage["certificateStatus"] = "cancelled"; return false; }
+            string reason = NotCleanReason(candidate, checkSelfIntersections);
+            stage["cleanReason"] = reason;
+            if (reason != "") return false;
+            if (spatial == null) spatial = new DMeshAABBTree3(original, true);
+            // Keep the original two tolerances and acceptance rule. A straddling interval is incomplete,
+            // not proof of excess; a lower bound above the budget is proof even without convergence.
+            foreach (double tol in new double[] { 0.1, 0.01 }) {
+                var hd = new MeshHausdorffDistance(candidate, original) {
+                    Symmetric = false, SpatialB = spatial, Tolerance = tol * maxDistance, CancelF = cancelF
+                };
+                bool computed = hd.Compute();
+                stage["lowerBound"] = json_distance(hd.LowerBound);
+                stage["upperBound"] = json_distance(hd.UpperBound);
+                stage["converged"] = hd.Converged;
+                if (cancelF()) { stage["certificateStatus"] = "cancelled"; return false; }
+                if (hd.LowerBound > maxDistance) { stage["certificateStatus"] = "exceeded"; return false; }
+                stage["certificateStatus"] = "incomplete";
+                if (!computed || !(hd.LowerBound <= maxDistance)) return false;
+                if (hd.UpperBound <= maxDistance) { stage["certificateStatus"] = "passed"; return true; }
+            }
+            return false;
+        }
+
+        static string wrap_rejection(Dictionary<string, object> stage, Func<bool> cancelF)
+        {
+            if (cancelF() || (string)stage["certificateStatus"] == "cancelled") return "cancelled";
+            string clean = (string)stage["cleanReason"];
+            return clean != "" && clean != "not-checked" ? "cleanliness: " + clean : "certificate: " + stage["certificateStatus"];
+        }
+
+        static void wrap_decision(Dictionary<string, object> diagnostics, string source, string reason)
+        {
+            if (diagnostics == null) return;
+            diagnostics["acceptedSource"] = source;
+            diagnostics["rejectionReason"] = reason;
         }
 
         // the solid of the mesh with its self-intersections resolved exactly, or null (ExactResolveReason says why)

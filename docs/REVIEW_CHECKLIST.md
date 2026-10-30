@@ -13,6 +13,9 @@ and for each yes, check that a test covers it. A test must fail on the old code 
 - Does a stage that cannot verify its result say so (status, reason), instead of passing the input on?
 - Does a hard limit (component count, iterations, steps) end in a failure status, never in "clean"?
 - Can an assertion in the new tests never fail (eg a float check on values that are already float)?
+- Paired benchmark acceptance: does each gate use its specified population (full pairs versus an explicit
+  diagnostic subset)? Can one metric's unavailable reference suppress a different, available metric? Missing
+  applicability metadata must fail, not count as documented inapplicability; test these paths with synthetic rows.
 
 ## 2. Scale, units, far from the origin (#61, #64, #80, #81, #95, #97, #102, #106)
 

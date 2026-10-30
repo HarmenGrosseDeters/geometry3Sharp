@@ -914,6 +914,34 @@ namespace geometry3Sharp.Tests
             Assert.False(cancelled.AlphaWrapSimplified);
         }
 
+        [Theory]
+        [InlineData(0.15)]
+        [InlineData(0.20)]
+        [InlineData(0.30)]
+        public void SimplifyWithin_QualitySettingPreservesCertificateAndInput(double quality)
+        {
+            DMesh3 input = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 24 }.Generate().MakeDMesh();
+            foreach (int vid in input.VertexIndices()) {
+                Vector3d p = input.GetVertex(vid);
+                input.SetVertex(vid, p * (1 + 0.1 * Math.Sin(5 * p.x + 1) * Math.Cos(4 * p.y - 0.5)));
+            }
+            DMesh3 copy = new DMesh3(input);
+            DMesh3 baseline = MeshRobustRepair.SimplifyWithin(input, 0.01, 0.01, true, () => false);
+            DMesh3 result = MeshRobustRepair.SimplifyWithin(input, 0.01, 0.01, true, () => false, quality);
+            Assert.NotNull(baseline);
+            Assert.NotNull(result);
+            ResultChecks.AssertClean(result);
+            Assert.True(result.TriangleCount < input.TriangleCount);
+            Assert.False(SameMesh(baseline, result));
+            var hd = new MeshHausdorffDistance(result, input) { Symmetric = false, Tolerance = 1e-4 };
+            Assert.True(hd.Compute());
+            Assert.True(hd.UpperBound <= 0.01);
+            Assert.True(SameMesh(copy, input));
+            Assert.True(SameMesh(result, MeshRobustRepair.SimplifyWithin(input, 0.01, 0.01, true, () => false, quality)));
+            Assert.Null(MeshRobustRepair.SimplifyWithin(input, 0.01, 1e-3, true, () => false, quality));
+            Assert.Null(MeshRobustRepair.SimplifyWithin(input, 0.01, 0.01, true, () => true, quality));
+        }
+
         [Fact]
         public void SimplifyWithin_KeptOnlyIfCertifiedWithinTheDistance()
         {
@@ -936,20 +964,24 @@ namespace geometry3Sharp.Tests
             Assert.Null(MeshRobustRepair.SimplifyWithin(sphere, 0.01, 0.01, true, () => true));     // cancelled
         }
 
-        [Fact]
-        public void SimplifyWithin_InvariantUnderSimilarities()
+        [Theory]
+        [InlineData(0.05)]
+        [InlineData(0.15)]
+        [InlineData(0.20)]
+        [InlineData(0.30)]
+        public void SimplifyWithin_InvariantUnderSimilarities(double quality)
         {
             DMesh3 sphere = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 24 }.Generate().MakeDMesh();
             foreach (int vid in sphere.VertexIndices()) {
                 Vector3d p = sphere.GetVertex(vid);
                 sphere.SetVertex(vid, p * (1 + 0.1 * Math.Sin(5 * p.x + 1) * Math.Cos(4 * p.y - 0.5)));
             }
-            DMesh3 s0 = MeshRobustRepair.SimplifyWithin(sphere, 0.01, 0.01, true, () => false);
+            DMesh3 s0 = MeshRobustRepair.SimplifyWithin(sphere, 0.01, 0.01, true, () => false, quality);
             Assert.NotNull(s0);
             foreach (Similarity s in Similarity.All()) {
                 DMesh3 t = new DMesh3(sphere);
                 MeshTransforms.PerVertexTransform(t, s.Apply);
-                DMesh3 st = MeshRobustRepair.SimplifyWithin(t, s.ApplyLength(0.01), s.ApplyLength(0.01), true, () => false);
+                DMesh3 st = MeshRobustRepair.SimplifyWithin(t, s.ApplyLength(0.01), s.ApplyLength(0.01), true, () => false, quality);
                 Assert.True(st != null, s.Name);
                 Assert.Equal("", MeshRobustRepair.NotCleanReason(st));
                 if (s.IsExact) {
@@ -958,6 +990,529 @@ namespace geometry3Sharp.Tests
                     Assert.True(s0.VertexIndices().All(v => st.GetVertex(v) == s.Apply(s0.GetVertex(v))), s.Name);
                 } else {
                     Assert.True(Math.Abs(st.TriangleCount - s0.TriangleCount) < 0.1 * s0.TriangleCount, $"{s.Name}: {st.TriangleCount} vs {s0.TriangleCount}");
+                }
+            }
+        }
+
+        [Theory]
+        [InlineData(false, 0.04, 0.04)]
+        [InlineData(true, 0.01, 0.001)]
+        public void GuardedFeatureQuadrics_MatchesFixedReducerAndPreservesEnvelope(bool features, double quadricDistance, double maxDistance)
+        {
+            DMesh3 input = features ? WrapExperimentInput(true) : GenuineWrap(), copy = new DMesh3(input);
+            var expected = new DMesh3(input);
+            var reducer = new Reducer(expected) {
+                PreventSelfIntersections = true, AreaWeightedQuadrics = false, MinCollapseTriangleQuality = 0.30,
+                EdgeFlipTolerance = Math.Cos(60 * MathUtil.Deg2Rad), FeatureAngle = 30, FeatureQuadricWeight = 100,
+                MaxDeviation = maxDistance
+            };
+            reducer.SetDeviationReference(input);
+            reducer.ReduceToMaxQuadricError(quadricDistance * quadricDistance);
+            expected = new DMesh3(expected, true);
+            Assert.True(expected.TriangleCount < input.TriangleCount);
+            DMesh3 result = MeshRobustRepair.SimplifyWithin(input, quadricDistance, maxDistance, true, () => false,
+                guardedFeatureQuadrics: true);
+            Assert.NotNull(result);
+            Assert.True(SameMesh(expected, result));
+            Assert.True(SameMesh(copy, input));
+            ResultChecks.AssertClean(result);
+            var bound = new MeshHausdorffDistance(result, input) { Symmetric = false, Tolerance = 0.001 * maxDistance };
+            Assert.True(bound.Compute());
+            Assert.True(bound.UpperBound <= maxDistance);
+            Assert.True(SameMesh(result, MeshRobustRepair.SimplifyWithin(input, quadricDistance, maxDistance, true,
+                () => false, guardedFeatureQuadrics: true)));
+            Assert.Null(MeshRobustRepair.SimplifyWithin(input, quadricDistance, maxDistance, true, () => true,
+                guardedFeatureQuadrics: true));
+        }
+
+        [Fact]
+        public void GuardedFeatureQuadrics_IsInvariantAndDoesNotChangeDefault()
+        {
+            DMesh3 input = GenuineWrap(), copy = new DMesh3(input);
+            DMesh3 originalDefault = MeshRobustRepair.SimplifyWithin(input, 0.04, 0.04, true, () => false);
+            DMesh3 baseline = MeshRobustRepair.SimplifyWithin(input, 0.04, 0.04, true, () => false, guardedFeatureQuadrics: true);
+            Assert.NotNull(baseline);
+            Assert.False(SameMesh(originalDefault, baseline));
+            foreach (Similarity sim in Similarity.All()) {
+                DMesh3 transformed = Invariance.Transformed(input, sim), untouched = new DMesh3(transformed);
+                DMesh3 result = MeshRobustRepair.SimplifyWithin(transformed, sim.ApplyLength(0.04), sim.ApplyLength(0.04), true,
+                    () => false, guardedFeatureQuadrics: true);
+                Assert.NotNull(result);
+                ResultChecks.AssertClean(result);
+                Assert.True(SameMesh(untouched, transformed));
+                if (sim.IsExact) Assert.Equal("", Invariance.Difference(baseline, Invariance.MappedBack(result, sim)));
+                var hd = new MeshHausdorffDistance(result, transformed) { Symmetric = false, Tolerance = sim.ApplyLength(0.00004) };
+                Assert.True(hd.Compute());
+                Assert.True(hd.UpperBound <= sim.ApplyLength(0.04));
+            }
+            Assert.True(SameMesh(copy, input));
+            Assert.True(SameMesh(originalDefault, MeshRobustRepair.SimplifyWithin(input, 0.04, 0.04, true, () => false)));
+        }
+
+        [Fact]
+        public void GuardedFeatureQuadrics_RejectsMixedPoliciesAndDisabledEnvelope()
+        {
+            DMesh3 input = GenuineWrap();
+            foreach (double distance in new[] { 0.0, -1.0, double.NaN, double.PositiveInfinity })
+                Assert.Throws<ArgumentOutOfRangeException>(() => MeshRobustRepair.SimplifyWithin(input, 0.04, distance,
+                    true, () => false, guardedFeatureQuadrics: true));
+            for (int flag = 0; flag < 4; ++flag)
+                Assert.Throws<ArgumentException>(() => MeshRobustRepair.SimplifyWithin(input, 0.04, 0.04, true, () => false,
+                    preserveFeatures: flag == 0, flipOnlyQualityPasses: flag == 1, localQualityRollback: flag == 2,
+                    tangentialQuality: flag == 3, guardedFeatureQuadrics: true));
+        }
+
+        static DMesh3 GenuineWrap()
+        {
+            DMesh3 source = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 4 }.Generate().MakeDMesh();
+            var wrap = new MeshAlphaWrap(source) { Alpha = 0.15, Offset = 0.08 };
+            Assert.True(wrap.Compute(), wrap.Error);
+            ResultChecks.AssertClean(wrap.Result);
+            return wrap.Result;
+        }
+
+        static List<Dictionary<string, object>> WrapStages(Dictionary<string, object> diagnostics)
+        {
+            return (List<Dictionary<string, object>>)diagnostics["stages"];
+        }
+
+        [Fact]
+        public void SimplifyWithin_TangentialPreservesFeaturesInputAndCertificate()
+        {
+            DMesh3 input = GenuineWrap(), copy = new DMesh3(input);
+            DMesh3 reduced = MeshRobustRepair.SimplifyWithin(input, 0.04, 0.04, true, () => false);
+            var diagnostics = new Dictionary<string, object>();
+            DMesh3 result = MeshRobustRepair.SimplifyWithin(input, 0.04, 0.04, true, () => false,
+                diagnostics: diagnostics, tangentialQuality: true);
+            Assert.NotNull(result);
+            ResultChecks.AssertClean(result);
+            Assert.Equal(reduced.TriangleCount, result.TriangleCount);
+            Assert.Equal(reduced.VertexCount, result.VertexCount);
+            Assert.True(SameMesh(copy, input));
+            Assert.True((int)diagnostics["tangentAcceptedMoves"] > 0);
+            Assert.False(reduced.Vertices().SequenceEqual(result.Vertices()));
+            Assert.Equal("tangential", diagnostics["acceptedSource"]);
+            Assert.Equal(new[] { "reduction", "tangent-pass-1", "flip-pass-1", "tangent-pass-2", "flip-pass-2" },
+                WrapStages(diagnostics).Select(s => (string)s["stage"]));
+            Assert.All(WrapStages(diagnostics), s => {
+                Assert.Equal("", s["cleanReason"]);
+                Assert.Equal("passed", s["certificateStatus"]);
+            });
+            var constraints = new MeshConstraints();
+            MeshConstraintUtil.PreserveBoundaryAndFeatures(constraints, reduced, 30);
+            foreach (int vid in reduced.VertexIndices()) {
+                VertexConstraint c = constraints.GetVertexConstraint(vid);
+                if (c.Fixed || c.Target != null) Assert.Equal(reduced.GetVertex(vid), result.GetVertex(vid));
+            }
+            foreach (int eid in reduced.EdgeIndices()) {
+                if (!constraints.GetEdgeConstraint(eid).CanFlip) {
+                    Index2i edge = reduced.GetEdgeV(eid);
+                    Assert.NotEqual(DMesh3.InvalidID, result.FindEdge(edge.a, edge.b));
+                }
+            }
+            Assert.True(SameMesh(result, MeshRobustRepair.SimplifyWithin(input, 0.04, 0.04, true, () => false, tangentialQuality: true)));
+            var hd = new MeshHausdorffDistance(result, input) { Symmetric = false, Tolerance = 0.0004 };
+            Assert.True(hd.Compute());
+            Assert.True(hd.UpperBound <= 0.04);
+            Assert.Null(MeshRobustRepair.SimplifyWithin(input, 0.04, 0.04, true, () => true, tangentialQuality: true));
+            Assert.Throws<ArgumentException>(() => MeshRobustRepair.SimplifyWithin(input, 0.04, 0.04, true, () => false,
+                localQualityRollback: true, tangentialQuality: true));
+        }
+
+        [Fact]
+        public void TangentialCandidateCapture_IsIsolatedAndDoesNotChangeDecision()
+        {
+            DMesh3 input = GenuineWrap(), copy = new DMesh3(input), captured = null;
+            DMesh3 expected = MeshRobustRepair.SimplifyWithin(input, 0.04, 0.04, true, () => false, tangentialQuality: true);
+            int calls = 0;
+            DMesh3 actual = MeshRobustRepair.SimplifyWithin(input, 0.04, 0.04, true, () => false,
+                tangentialQuality: true, captureCandidate: snapshot => {
+                    calls++;
+                    captured = new DMesh3(snapshot);
+                    snapshot.RemoveTriangle(snapshot.TriangleIndices().First(), false, false);
+                });
+            Assert.Equal(1, calls);
+            Assert.NotNull(captured);
+            Assert.True(SameMesh(expected, actual));
+            Assert.True(SameMesh(copy, input));
+            Assert.NotSame(actual, captured);
+            ResultChecks.AssertClean(actual);
+            ResultChecks.AssertClean(captured);
+            DMesh3 repeated = null;
+            MeshRobustRepair.SimplifyWithin(input, 0.04, 0.04, true, () => false,
+                tangentialQuality: true, captureCandidate: snapshot => repeated = snapshot);
+            Assert.True(SameMesh(captured, repeated));
+            Assert.Null(MeshRobustRepair.SimplifyWithin(input, 0.04, 0.04, true, () => true,
+                tangentialQuality: true, captureCandidate: snapshot => throw new Exception("Must not capture cancellation")));
+        }
+
+        [Fact]
+        public void SimplifyWithin_TangentialInvariantUnderSimilarities()
+        {
+            DMesh3 input = GenuineWrap();
+            DMesh3 baselineCandidate = null;
+            DMesh3 baseline = MeshRobustRepair.SimplifyWithin(input, 0.04, 0.04, true, () => false, tangentialQuality: true,
+                captureCandidate: snapshot => baselineCandidate = snapshot);
+            Assert.NotNull(baseline);
+            Assert.NotNull(baselineCandidate);
+            foreach (Similarity sim in Similarity.All()) {
+                DMesh3 transformed = Invariance.Transformed(input, sim), copy = new DMesh3(transformed), candidate = null;
+                DMesh3 result = MeshRobustRepair.SimplifyWithin(transformed, sim.ApplyLength(0.04), sim.ApplyLength(0.04), true,
+                    () => false, tangentialQuality: true, captureCandidate: snapshot => candidate = snapshot);
+                Assert.NotNull(result);
+                Assert.NotNull(candidate);
+                ResultChecks.AssertClean(candidate);
+                if (sim.IsExact) Assert.Equal("", Invariance.Difference(baselineCandidate, Invariance.MappedBack(candidate, sim)));
+                ResultChecks.AssertClean(result);
+                Assert.True(SameMesh(copy, transformed));
+                if (sim.IsExact) Assert.Equal("", Invariance.Difference(baseline, Invariance.MappedBack(result, sim)));
+                var hd = new MeshHausdorffDistance(result, transformed) { Symmetric = false, Tolerance = sim.ApplyLength(0.0004) };
+                Assert.True(hd.Compute());
+                Assert.True(hd.UpperBound <= sim.ApplyLength(0.04));
+            }
+        }
+
+        static DMesh3 TangentialFan()
+        {
+            var mesh = new DMesh3();
+            foreach (Vector3d p in new[] { new Vector3d(0.6, 0.1, 0), new Vector3d(-1, -1, 0),
+                new Vector3d(1, -1, 0), new Vector3d(1, 1, 0), new Vector3d(-1, 1, 0) }) mesh.AppendVertex(p);
+            for (int i = 1; i <= 4; ++i) mesh.AppendTriangle(0, i, i == 4 ? 1 : i + 1);
+            return mesh;
+        }
+
+        [Fact]
+        public void TangentialMove_AcceptsSafePinsBoundaryAndVetoesUnsafeSteps()
+        {
+            DMesh3 mesh = TangentialFan(), original = new DMesh3(mesh);
+            var local = new MeshRobustRepair.LocalWrapQualityFlipper(mesh, new DMeshAABBTree3(original, true), 0.001, () => false, true);
+            Assert.False(local.IsFixedVertex(0));
+            for (int vid = 1; vid <= 4; ++vid) Assert.True(local.IsFixedVertex(vid));
+            local.TangentialPass();
+            Assert.True(local.AcceptedMoves > 0);
+            Assert.NotEqual(original.GetVertex(0), mesh.GetVertex(0));
+            Assert.Equal(0, (mesh.GetVertex(0) - original.GetVertex(0)).Dot(local.TangentNormal(0)));
+            for (int vid = 1; vid <= 4; ++vid) Assert.Equal(original.GetVertex(vid), mesh.GetVertex(vid));
+            DMesh3 accepted = new DMesh3(mesh);
+            Assert.False(local.TryMove(0, mesh.GetVertex(0)));
+            Assert.False(local.TryMove(0, new Vector3d(0, 0, 0.02)));
+            Assert.False(local.TryMove(0, new Vector3d(2, 2, 0)));
+            Assert.False(local.TryMove(0, new Vector3d(double.NaN, 0, 0)));
+            Assert.False(local.TryMove(1, Vector3d.Zero));
+            Assert.True(SameMesh(accepted, mesh));
+            Assert.Equal(0, MeshRepairMetrics.SelfIntersections(mesh));
+            Assert.True(mesh.CheckValidity());
+        }
+
+        [Fact]
+        public void TangentialMove_VetoesExactIntersectionWithoutMutatingMesh()
+        {
+            DMesh3 mesh = TangentialFan();
+            int start = mesh.AppendVertex(new Vector3d(0.29, -0.05, 0.015));
+            mesh.AppendVertex(new Vector3d(0.31, -0.05, 0.015));
+            mesh.AppendVertex(new Vector3d(0.3, -0.05, 0.025));
+            mesh.AppendTriangle(start, start + 1, start + 2);
+            Assert.Equal(0, MeshRepairMetrics.SelfIntersections(mesh));
+            DMesh3 copy = new DMesh3(mesh), unsafeMove = new DMesh3(mesh);
+            unsafeMove.SetVertex(0, new Vector3d(0.3, 0.05, 0.02));
+            Assert.True(MeshRepairMetrics.SelfIntersections(unsafeMove) > 0);
+            var local = new MeshRobustRepair.LocalWrapQualityFlipper(mesh, new DMeshAABBTree3(copy, true), 0.1, () => false, true);
+            Assert.False(local.TryMove(0, new Vector3d(0.3, 0.05, 0.02)));
+            Assert.True(SameMesh(copy, mesh));
+            Assert.True(local.RejectedMoves > 0);
+        }
+
+        [Fact]
+        public void SimplifyWithin_LocalWrapPreservesReducedVerticesAndReportsStages()
+        {
+            DMesh3 input = GenuineWrap(), copy = new DMesh3(input);
+            var diagnostics = new Dictionary<string, object>();
+            DMesh3 reduced = MeshRobustRepair.SimplifyWithin(input, 0.04, 0.04, true, () => false);
+            DMesh3 local = MeshRobustRepair.SimplifyWithin(input, 0.04, 0.04, true, () => false,
+                localQualityRollback: true, diagnostics: diagnostics);
+            Assert.NotNull(reduced);
+            Assert.NotNull(local);
+            ResultChecks.AssertClean(reduced);
+            ResultChecks.AssertClean(local);
+            Assert.True(reduced.TriangleCount < input.TriangleCount);
+            Assert.True(SameMesh(copy, input));
+            Assert.Equal(reduced.TriangleCount, local.TriangleCount);
+            Assert.Equal(reduced.VertexCount, local.VertexCount);
+            Assert.Equal(reduced.Vertices().ToArray(), local.Vertices().ToArray());
+            Assert.True(SameMesh(local, MeshRobustRepair.SimplifyWithin(input, 0.04, 0.04, true, () => false, localQualityRollback: true)));
+            Assert.Equal(new[] { "reduction", "flip-pass-1", "flip-pass-2" }, WrapStages(diagnostics).Select(s => (string)s["stage"]));
+            Assert.All(WrapStages(diagnostics), s => {
+                Assert.Equal("", s["cleanReason"]);
+                Assert.Equal("passed", s["certificateStatus"]);
+                Assert.True((double)s["upperBound"] <= (double)s["maxDistance"]);
+            });
+            Assert.Equal(input.TriangleCount, diagnostics["reductionInputTriangles"]);
+            Assert.Equal(reduced.TriangleCount, diagnostics["reductionOutputTriangles"]);
+            Assert.True((int)diagnostics["localAcceptedFlips"] > 0, "accepted=" + diagnostics["localAcceptedFlips"] + ", rejected=" + diagnostics["localRejectedFlips"]);
+            Assert.Equal("flipped", diagnostics["acceptedSource"]);
+#if NET10_0
+            Assert.NotEmpty(System.Text.Json.JsonSerializer.Serialize(diagnostics));
+#endif
+            Assert.Throws<ArgumentException>(() => MeshRobustRepair.SimplifyWithin(input, 0.04, 0.04, true, () => false,
+                preserveFeatures: true, localQualityRollback: true));
+            Assert.Null(MeshRobustRepair.SimplifyWithin(input, 0.04, 0.04, true, () => true, localQualityRollback: true));
+            Assert.True(SameMesh(local, MeshRobustRepair.SimplifyWithin(input, 0.04, 0.04, true, () => false,
+                minCollapseTriangleQuality: 0.30, localQualityRollback: true)));
+            Assert.Null(MeshRobustRepair.SimplifyWithin(input, 0.04, 1e-4, true, () => false,
+                localQualityRollback: true, diagnostics: diagnostics));
+            Assert.Equal("exceeded", WrapStages(diagnostics)[0]["certificateStatus"]);
+            Assert.Equal("not-checked", WrapStages(diagnostics)[1]["certificateStatus"]);
+            Assert.Equal("not-checked", WrapStages(diagnostics)[2]["certificateStatus"]);
+            Assert.Equal("original", diagnostics["acceptedSource"]);
+            diagnostics.Clear();
+            Assert.Null(MeshRobustRepair.SimplifyWithin(input, 0.04, 0.04, true,
+                () => diagnostics.ContainsKey("stages") && WrapStages(diagnostics).Count > 0 &&
+                    (string)WrapStages(diagnostics)[0]["certificateStatus"] == "passed",
+                localQualityRollback: true, diagnostics: diagnostics));
+            Assert.Equal("cancelled", WrapStages(diagnostics)[1]["certificateStatus"]);
+            Assert.Equal("cancelled", diagnostics["rejectionReason"]);
+            Assert.True(SameMesh(copy, input));
+        }
+
+        [Fact]
+        public void SimplifyWithin_LocalWrapInvariantUnderSimilarities()
+        {
+            DMesh3 wrap = GenuineWrap();
+            DMesh3 baseline = MeshRobustRepair.SimplifyWithin(wrap, 0.04, 0.04, true, () => false, localQualityRollback: true);
+            Assert.NotNull(baseline);
+            foreach (Similarity sim in Similarity.All()) {
+                DMesh3 transformed = Invariance.Transformed(wrap, sim), copy = new DMesh3(transformed);
+                DMesh3 result = MeshRobustRepair.SimplifyWithin(transformed, sim.ApplyLength(0.04), sim.ApplyLength(0.04), true,
+                    () => false, localQualityRollback: true);
+                Assert.NotNull(result);
+                ResultChecks.AssertClean(result);
+                Assert.True(SameMesh(copy, transformed), sim.Name);
+                if (sim.IsExact)
+                    Assert.Equal("", Invariance.Difference(baseline, Invariance.MappedBack(result, sim)));
+                var hd = new MeshHausdorffDistance(result, transformed) { Symmetric = false, Tolerance = sim.ApplyLength(0.0004) };
+                Assert.True(hd.Compute());
+                Assert.True(hd.UpperBound <= sim.ApplyLength(0.04), sim.Name);
+            }
+        }
+
+        [Fact]
+        public void LocalWrapFinalRejectionRetainsCertifiedReductionAndCancellationDoesNot()
+        {
+            DMesh3 original = GenuineWrap(), copy = new DMesh3(original);
+            DMesh3 reduced = MeshRobustRepair.SimplifyWithin(original, 0.04, 0.04, true, () => false);
+            Assert.NotNull(reduced);
+            Assert.False(SameMesh(original, reduced));
+            var spatial = new DMeshAABBTree3(original, true);
+            foreach (bool distanceFailure in new[] { false, true }) {
+                DMesh3 rejected = new DMesh3(reduced);
+                if (distanceFailure) MeshTransforms.Translate(rejected, new Vector3d(1, 0, 0));
+                else rejected.RemoveTriangle(rejected.TriangleIndices().First(), false, false);
+                var diagnostics = new Dictionary<string, object>();
+                var stage = new Dictionary<string, object> { { "certificateStatus", "not-checked" }, { "cleanReason", "not-checked" } };
+                DMesh3 result = MeshRobustRepair.FinishLocalWrap(reduced, rejected, spatial, 0.04, true, () => false, diagnostics, stage);
+                Assert.Same(reduced, result);
+                ResultChecks.AssertClean(result);
+                Assert.True(SameMesh(copy, original));
+                Assert.Equal("reduced", diagnostics["acceptedSource"]);
+                Assert.StartsWith(distanceFailure ? "certificate: exceeded" : "cleanliness:", (string)diagnostics["rejectionReason"]);
+                Assert.Equal(distanceFailure ? "exceeded" : "not-checked", stage["certificateStatus"]);
+                if (distanceFailure) Assert.True((double)stage["lowerBound"] > 0.04);
+            }
+            Assert.Null(MeshRobustRepair.FinishLocalWrap(reduced, new DMesh3(reduced), spatial, 0.04, true, () => true));
+        }
+
+        [Theory]
+        [InlineData(false, false)]
+        [InlineData(true, false)]
+        [InlineData(false, true)]
+        public void SimplifyWithin_DiagnosticsDoNotChangeOriginalExperiments(bool features, bool flips)
+        {
+            DMesh3 input = WrapExperimentInput(features), copy = new DMesh3(input);
+            var diagnostics = new Dictionary<string, object>();
+            double quality = features ? 0.30 : 0.05;
+            DMesh3 unchanged = MeshRobustRepair.SimplifyWithin(input, 0.01, 0.01, true, () => false, quality, features, flips);
+            DMesh3 diagnosed = MeshRobustRepair.SimplifyWithin(input, 0.01, 0.01, true, () => false, quality, features, flips, diagnostics: diagnostics);
+            Assert.NotNull(unchanged);
+            Assert.True(SameMesh(unchanged, diagnosed));
+            ResultChecks.AssertClean(diagnosed);
+            Assert.True(SameMesh(copy, input));
+            Assert.Equal(flips ? 3 : 1, WrapStages(diagnostics).Count);
+            Assert.All(WrapStages(diagnostics), stage => Assert.Equal("passed", stage["certificateStatus"]));
+            Assert.True((long)diagnostics["diagnostic_ms"] >= 0);
+            DMesh3 rejected = MeshRobustRepair.SimplifyWithin(input, 0.01, 1e-3, true, () => false, quality, features, flips, diagnostics: diagnostics);
+            DMesh3 rejectedWithoutDiagnosis = MeshRobustRepair.SimplifyWithin(input, 0.01, 1e-3, true, () => false, quality, features, flips);
+            Assert.Equal(rejectedWithoutDiagnosis == null, rejected == null);
+            Assert.Equal("original", diagnostics["acceptedSource"]);
+            Assert.Equal("exceeded", WrapStages(diagnostics).Last()["certificateStatus"]);
+        }
+
+        [Fact]
+        public void PhaseProgress_IsObservationalAndReusableUnderSimilarities()
+        {
+            DMesh3 input = Sphere(1, Vector3d.Zero);
+            var baseline = new MeshRobustRepair(new DMesh3(input));
+            Assert.Null(baseline.PhaseCompletedF);
+            Assert.True(baseline.Apply());
+            foreach (Similarity sim in Similarity.All()) {
+                var repair = new MeshRobustRepair(Invariance.Transformed(input, sim));
+                var totals = new Dictionary<string, long>();
+                repair.PhaseCompletedF = (name, ms) => {
+                    Assert.True(ms >= 0);
+                    totals.TryGetValue(name, out long previous);
+                    totals[name] = previous + ms;
+                };
+                for (int run = 0; run < 2; ++run) {
+                    totals.Clear();
+                    Assert.True(repair.Apply());
+                    Assert.NotEmpty(totals);
+                    Assert.Equal(repair.PhaseMilliseconds.Keys.OrderBy(k => k), totals.Keys.OrderBy(k => k));
+                    foreach (var entry in totals) Assert.Equal(repair.PhaseMilliseconds[entry.Key], entry.Value);
+                    ResultChecks.AssertClean(repair.Mesh);
+                    if (sim.IsExact) Assert.Equal("", Invariance.Difference(baseline.Mesh, Invariance.MappedBack(repair.Mesh, sim)));
+                }
+            }
+        }
+
+        [Fact]
+        public void WrapSimplificationPolicy_DefaultAndApplyResetDiagnostics()
+        {
+            var repair = new MeshRobustRepair(Sphere(1, Vector3d.Zero));
+            Assert.Equal(MeshRobustRepair.WrapSimplificationPolicy.Default, repair.WrapPolicy);
+            Assert.False(repair.DiagnoseWrapSimplification);
+            repair.WrapSimplificationDiagnostics["stale"] = true;
+            repair.CaptureWrapCandidate = true;
+            repair.WrapCandidateBeforeCheck = GenuineWrap();
+            Assert.True(repair.Apply());
+            Assert.Empty(repair.WrapSimplificationDiagnostics);
+            Assert.Null(repair.WrapCandidateBeforeCheck);
+            repair.Mesh = Sphere(1, Vector3d.Zero);
+            repair.WrapPolicy = MeshRobustRepair.WrapSimplificationPolicy.LocalQualityRollback;
+            repair.DiagnoseWrapSimplification = true;
+            repair.WrapSimplificationDiagnostics["stale"] = true;
+            Assert.True(repair.Apply());
+            Assert.Empty(repair.WrapSimplificationDiagnostics);
+            ResultChecks.AssertClean(repair.Mesh);
+        }
+
+        static DMesh3 FlipQuad(double height)
+        {
+            var mesh = new DMesh3();
+            foreach (Vector3d p in new[] { new Vector3d(-1, 0, 0), new Vector3d(1, 0, 0),
+                new Vector3d(0, 0.01, height), new Vector3d(0, -1, 0) }) mesh.AppendVertex(p);
+            mesh.AppendTriangle(0, 1, 2);
+            mesh.AppendTriangle(1, 0, 3);
+            return mesh;
+        }
+
+        [Fact]
+        public void LocalWrapFlip_AcceptsSafeAndVetoesEnvelopeAndExactIntersections()
+        {
+            DMesh3 planar = FlipQuad(0), planarCopy = new DMesh3(planar);
+            var safe = new MeshRobustRepair.LocalWrapQualityFlipper(planar, new DMeshAABBTree3(planarCopy, true), 0.001, () => false);
+            Assert.True(safe.TryFlip(planar.FindEdge(0, 1)));
+            DMesh3 once = new DMesh3(planar);
+            Assert.False(safe.TryFlip(planar.FindEdge(2, 3)));
+            Assert.True(SameMesh(once, planar));
+            Assert.Equal(1, safe.Accepted);
+            Assert.Equal(planarCopy.Vertices().ToArray(), planar.Vertices().ToArray());
+            Assert.Equal(2, planar.TriangleCount);
+            Assert.Equal(0, MeshRepairMetrics.SelfIntersections(planar));
+            Assert.True(planar.CheckValidity());
+            DMesh3 bent = FlipQuad(0.02), bentCopy = new DMesh3(bent);
+            var unsafeEnvelope = new MeshRobustRepair.LocalWrapQualityFlipper(bent, new DMeshAABBTree3(bentCopy, true), 0.001, () => false);
+            Assert.False(unsafeEnvelope.TryFlip(bent.FindEdge(0, 1)));
+            Assert.Equal(1, unsafeEnvelope.Rejected);
+            Assert.True(SameMesh(bentCopy, bent));
+            // A separate triangle pierces the new diagonal above the old lower triangle, not either old face.
+            DMesh3 crossing = FlipQuad(0.02);
+            int v = crossing.AppendVertex(new Vector3d(-0.01, -0.495, 0.008));
+            crossing.AppendVertex(new Vector3d(0.01, -0.495, 0.008));
+            crossing.AppendVertex(new Vector3d(0, -0.495, 0.012));
+            crossing.AppendTriangle(v, v + 1, v + 2);
+            Assert.Equal(0, MeshRepairMetrics.SelfIntersections(crossing));
+            DMesh3 crossingCopy = new DMesh3(crossing);
+            var unsafeIntersection = new MeshRobustRepair.LocalWrapQualityFlipper(crossing,
+                new DMeshAABBTree3(crossingCopy, true), 0.1, () => false);
+            Assert.False(unsafeIntersection.TryFlip(crossing.FindEdge(0, 1)));
+            Assert.Equal(1, unsafeIntersection.Rejected);
+            Assert.True(SameMesh(crossingCopy, crossing));
+        }
+
+        static DMesh3 WrapExperimentInput(bool features)
+        {
+            DMesh3 mesh = features
+                ? new GridBox3Generator() { EdgeVertices = 12 }.Generate().MakeDMesh()
+                : new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 24 }.Generate().MakeDMesh();
+            foreach (int vid in mesh.VertexIndices()) {
+                Vector3d p = mesh.GetVertex(vid);
+                mesh.SetVertex(vid, p * (1 + 0.1 * Math.Sin(5 * p.x + 1) * Math.Cos(4 * p.y - 0.5)));
+            }
+            return mesh;
+        }
+
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void SimplifyWithin_ExperimentPreservesCertificateAndInput(bool features)
+        {
+            DMesh3 input = WrapExperimentInput(features), copy = new DMesh3(input);
+            double quality = features ? 0.30 : 0.05;
+            DMesh3 baseline = MeshRobustRepair.SimplifyWithin(input, 0.01, 0.01, true, () => false, quality);
+            DMesh3 result = MeshRobustRepair.SimplifyWithin(input, 0.01, 0.01, true, () => false, quality, features, !features);
+            Assert.NotNull(baseline);
+            Assert.NotNull(result);
+            ResultChecks.AssertClean(result);
+            Assert.False(SameMesh(baseline, result));
+            Assert.True(SameMesh(copy, input));
+            Assert.True(SameMesh(result, MeshRobustRepair.SimplifyWithin(input, 0.01, 0.01, true, () => false, quality, features, !features)));
+            if (features) {
+                var constraints = new MeshConstraints();
+                MeshConstraintUtil.PreserveBoundaryAndFeatures(constraints, input, 30);
+                int[] pinned = input.VertexIndices().Where(v => constraints.GetVertexConstraint(v).Fixed).ToArray();
+                Assert.NotEmpty(pinned);
+                foreach (int v in pinned)
+                    Assert.Contains(input.GetVertex(v), result.Vertices());
+            } else {
+                Assert.Equal(baseline.VertexCount, result.VertexCount);
+                Assert.Equal(baseline.TriangleCount, result.TriangleCount);
+                Assert.True(baseline.Vertices().Zip(result.Vertices(), (p, q) => p == q).All(x => x));
+                Func<DMesh3, double> worstQuality = m => m.TriangleIndices().Min(t => {
+                    Index3i tri = m.GetTriangle(t);
+                    Vector3d a = m.GetVertex(tri.a), b = m.GetVertex(tri.b), c = m.GetVertex(tri.c);
+                    return MeshRefinerBase.TriangleQuality(ref a, ref b, ref c);
+                });
+                Assert.True(worstQuality(result) >= worstQuality(baseline));
+            }
+            var hd = new MeshHausdorffDistance(result, input) { Symmetric = false, Tolerance = 1e-4 };
+            Assert.True(hd.Compute());
+            Assert.True(hd.UpperBound <= 0.01);
+            Assert.Null(MeshRobustRepair.SimplifyWithin(input, 0.01, 0.01, true, () => true, quality, features, !features));
+            if (!features)
+                Assert.Null(MeshRobustRepair.SimplifyWithin(input, 0.01, 1e-3, true, () => false, quality, features, !features));
+        }
+
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void SimplifyWithin_ExperimentInvariantUnderSimilarities(bool features)
+        {
+            DMesh3 input = WrapExperimentInput(features);
+            double quality = features ? 0.30 : 0.05;
+            DMesh3 baseline = MeshRobustRepair.SimplifyWithin(input, 0.01, 0.01, true, () => false, quality, features, !features);
+            Assert.NotNull(baseline);
+            foreach (Similarity s in Similarity.All()) {
+                DMesh3 transformed = new DMesh3(input);
+                MeshTransforms.PerVertexTransform(transformed, s.Apply);
+                DMesh3 result = MeshRobustRepair.SimplifyWithin(transformed, s.ApplyLength(0.01), s.ApplyLength(0.01), true, () => false, quality, features, !features);
+                Assert.True(result != null, s.Name);
+                ResultChecks.AssertClean(result);
+                if (s.IsExact) {
+                    Assert.Equal(baseline.TriangleCount, result.TriangleCount);
+                    Assert.True(baseline.VertexIndices().All(v => result.GetVertex(v) == s.Apply(baseline.GetVertex(v))), s.Name);
+                    Assert.True(baseline.TriangleIndices().All(t => result.GetTriangle(t) == baseline.GetTriangle(t)), s.Name);
+                } else {
+                    Assert.True(Math.Abs(result.TriangleCount - baseline.TriangleCount) < 0.1 * baseline.TriangleCount,
+                        $"{s.Name}: {result.TriangleCount} vs {baseline.TriangleCount}");
                 }
             }
         }
