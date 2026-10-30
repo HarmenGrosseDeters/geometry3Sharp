@@ -16,9 +16,14 @@ Status: planned, not implemented. Implements the Boolean part of [QA §4a, items
   execution, derived from immutable, printable case descriptions.
 - **Sources:** CsCheck's published documentation and package metadata; existing repository test helpers. No GPL,
   Triangle / Triangle.NET, company code or owner's quadtree sources.
+- **Operation under test:** `ExactMeshBoolean`, not `MeshBoolean` or `MeshWindingNumberBoolean`. Inputs outside its contract
+  are in `docs/OPERATIONS.md` and `ExactBooleanByDesignTests`.
 - **Stop rule:** if a property exposes a production defect, preserve the smallest reproduced procedural case and
   report it as separate work. Do not repair exact code, discard the case, relax the property or silently skip it.
-- **Report:** one test-only PR, commands and raw test output, shrink/replay evidence, and an independent review
+  CI must stay green, so the case is pinned as a `KnownLimitation_` test by the repository's idiom. Until the owner
+  decides otherwise, that is the recording.
+- **Report:** test-only PRs, one per step: analytic oracle and first properties; CsCheck with shrinking and replay (pin a
+  version: 5.0.0 is current, Apache-2.0); conforming subdivision and non-axis cases. Each with commands and raw test output, shrink/replay evidence, and an independent review
   against `docs/REVIEW_CHECKLIST.md`. Do not merge automatically.
 
 ## Dependency and framework decision
@@ -98,8 +103,7 @@ the general oracle when triangulations differ; `Invariance.VertexDistance` alone
 - Run the fixed corpus over `Similarity.All()`. For exactly scaled dyadic cases, mapped-back results must satisfy
   the existing bit-exact power-of-two invariant; other similarities use resolution-aware comparisons.
 - Keep existing reuse/determinism tests. Add a small generated-case replay through reuse and serial/parallel
-  execution rather than multiplying the whole property campaign by every mode. Restore thread-local switches
-  in `finally` and keep CsCheck sampling single-worker for deterministic shrinking/replay.
+  execution rather than multiplying the whole property campaign by every mode. Keep CsCheck sampling single-worker for deterministic shrinking/replay.
 
 ## 4. Shrinking, replay and runtime budget
 
@@ -110,6 +114,7 @@ stable across generator/package changes, so preserve the parameter description t
 
 Use an explicit finite sample count and seed for the normal test suite; do not use a wall-clock campaign as the
 CI pass criterion. Choose the count after measuring the targeted suite and record the command/output in the PR.
+The targeted suite should add no more than about one minute to a full run on a normal machine.
 Document a larger opt-in local campaign and a single-property/single-case replay command using the pinned
 version's supported API. Bound mesh size and shrinking work; report an exhausted budget, not a globally minimal
 counterexample. CsCheck shrinking does not guarantee a global minimum within a finite run.

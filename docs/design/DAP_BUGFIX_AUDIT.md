@@ -1,7 +1,9 @@
 # DAP fork: bug-fix audit and selective adoption
 
-Status: planned, not audited or implemented. Corresponds to the owner's roadmap item **E.2 / task 4**;
-those labels are not present in this checkout's older roadmap. The owner's task description is authoritative.
+Status: planned, not audited or implemented. Checked on 2026-10-30: `8f185f1` and `158507b` exist, and the root license is BSL-1.0.
+**Blocked on owner decisions:** whether DAP counts as company code here, as this plan's sources rule forbids company code; whether
+Boost-licensed sources may be ported, as `CLAUDE.md` lists MIT, Apache and BSD only; and whether reading DAP source is approved.
+The delta is 215 files (+18371/-694), so this is more than one PR.
 
 ## Task brief
 
@@ -54,8 +56,8 @@ quadtree or company code; never use GPL/LGPL sources. Audit path names and prove
    git --no-pager diff -w 8f185f1 HEAD -- <approved-path>
    ```
 
-3. For each candidate, trace its introducing commit (`git log`/`blame` scoped to the approved file) and locate our
-   corresponding method. Classify it as reproducible here, already fixed/equivalent, intentional behavior/API
+3. The delta has only 4 commits, and `a2a4b9f` is the initial commit of the DAP internal fork, so history gives no origin per fix:
+   record the file-level commit, and mark the origin of a change as unknown where it is. Locate our corresponding method. Classify it as reproducible here, already fixed/equivalent, intentional behavior/API
    change, feature, not applicable, or blocked. Do not assume that every DAP change corrects a defect.
 4. Write the smallest procedural test against the intended contract, not against DAP's output. Demonstrate an
    assertion failure on our pinned pre-fix code; build/tool failures do not count. Already-fixed candidates get
@@ -76,7 +78,7 @@ Create the implementation audit ledger as part of the audit, not as a list of sp
 
 | Field | Required evidence |
 |---|---|
-| Candidate ID / source | Source path, hunk or symbol, introducing full SHA and immutable URL |
+| Candidate ID / source | Source path, hunk or symbol, the full SHA of the commit in the delta and immutable URL |
 | Provenance | File-level license / origin evidence; restrictions or unresolved questions |
 | Our counterpart | File/symbol and pinned pre-fix SHA, or explanation that it does not exist |
 | Disposition | Reproduced, already fixed, intentional behavior, feature, not applicable or blocked, with reason |

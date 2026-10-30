@@ -200,13 +200,12 @@ selectively.
     items 9 and 10): volume identities, partition reconstruction, commutativity, vertex/triangle permutation and
     conforming subdivision; CsCheck parameter shrinking and replay. Test-only, no `ExactMesh*` changes. Proposed:
     generated campaigns on net10.0, deterministic regressions also on net48; independent analytic box oracles and
-    result validity checks. CsCheck is Apache-2.0, not MIT. Planning complete; implementation remains open.
+    result validity checks. CsCheck is Apache-2.0, not MIT. Planned and fact-checked; implementation remains open.
 
 ## Focused follow-up work
 
-The owner refers to these as tasks 4-6 / E.2, C2(A) and E.5 in a newer roadmap outline. The plans below use
-those task descriptions without renumbering this checkout's existing phases. Planning is complete;
-implementation/audit work remains open. The three tasks can start independently.
+Plans, fact-checked on 2026-10-30; each states the owner decisions it still needs. The implementation or audit work remains open.
+Tasks 5 and 6 can start independently once those are made; task 4 is blocked on them.
 
 - [ ] **4. DAP bug fixes (E.2):** [audit and adoption plan](design/DAP_BUGFIX_AUDIT.md). Review the pinned
   `Digital-Production-Aachen/DAPComputationalGeometry` delta from `8f185f1` to DAP HEAD, ignoring formatting;

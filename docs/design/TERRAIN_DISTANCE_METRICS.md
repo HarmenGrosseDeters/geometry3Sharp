@@ -40,6 +40,9 @@ A symmetric coverage metric is separate work, not implied by these new fields.
 
 ## Implementation
 
+0. Check what exists first: `MeshHausdorffDistance`, `MeshDeviation`, `MeshFidelityMetrics` (seeded, area-weighted samples), and
+   `gtin fidelity=1`, which already emits sampled maximum distances (`FidelityFields.cs`). New here are only the
+   closest-point components and `tdc`. Owner decision: extend `fm_*`, or a new helper.
 1. Add a benchmark-local helper that returns one closest reference point, distance and validity per sample.
    Reuse the existing AABB tree and point-triangle query API; no new library API. Compare the fast query against
    an independent brute-force point-to-triangle reference on small analytic fixtures. Test the closest point,
@@ -59,7 +62,8 @@ A symmetric coverage metric is separate work, not implied by these new fields.
    unavailable, not perfect agreement. Require finite JSON statistics; omit unavailable values or use JSON null.
    Do not quietly drop failed samples and describe the remaining statistics as a complete measurement.
 6. Document tie handling: equal-distance but distinct closest points have the same d3 but potentially different
-   components. For the pinned reference mesh use a deterministic triangle-ID tie rule. Do not promise that dh/dv
+   components. `DMeshAABBTree3.FindNearestTriangle` uses a strict `<` in traversal order, so it offers no triangle-ID tie rule; the
+   result is deterministic for a fixed tree, and that is all this plan may claim. Do not promise that dh/dv
    are unchanged by arbitrary retriangulation in these ambiguous cases; analytic tests use unique closest points
    or explicitly assert the documented tie outcome.
 7. Update `analyze.py` additively. Older JSON rows lacking the fields render as unavailable, not zero or failure.
@@ -82,7 +86,8 @@ Use procedural meshes and samples, no committed geodata or mesh files:
   displacement in the fixed Z-up frame; dh and dv are not individually rotation invariant. Power-of-two scaling
   of controlled dyadic fixtures is bit-exact where the underlying operations allow it; other cases use a
   coordinate-resolution-derived tolerance. Repeated serial runs must agree; no parallel measurement path is needed.
-- End-to-end `tdc`/`gtin` JSON and analyzer tests on a small procedural grid: same sample counts across the three
+- End-to-end `tdc`/`gtin` JSON and analyzer tests on a small procedural grid (analyzers have no test runner in CI today: add
+  one, or say so in the PR): same sample counts across the three
   metrics, expected units, old fields retained, old JSON still readable, and algorithm output unchanged.
 - Fault sensitivity: replace d3 with vertical-ray error, zero dh, mix correspondences, or cap the nearest search;
   each controlled test-local fault must be detected. Link the actual helper into tests (or reference the net10
@@ -91,7 +96,8 @@ Use procedural meshes and samples, no committed geodata or mesh files:
 
 ## Measurement and acceptance
 
-First run a synthetic flat/slope/ridge grid through the benchmark; then, if the existing local geodata is
+`Program.cs` loads grids only from `dataDir`, so synthetic grids need a test-local writer, or tests on the helper directly. Run a
+synthetic flat/slope/ridge grid that way; then, if the existing local geodata is
 available, use the same fixed Hambach window, algorithms, tolerances and local/UTM placements before and after.
 No automatic large geodata download is required. Record raw JSON, input identity/checksum, sample policy and
 command. Compare mesh outputs and pre-existing metrics before/after; new fields were **absent** before, not zero.
@@ -108,6 +114,7 @@ dotnet run --project benchmarks\TerrainBenchmark -c Release -- tdc grid=dgm2022 
 dotnet run --project benchmarks\TerrainBenchmark -c Release -- gtin grid=dgm2022 win=326000,5641000,327000,5642000 coords=local maxerr=0.05
 ```
 
-Acceptance: analytic and integration tests pass; each displacement satisfies the component identity; missing
+Acceptance: analytic and integration tests pass, checking d3, dh and dv against independently known values (the identity
+d3^2 = dh^2 + dv^2 holds by construction and proves nothing); missing
 coverage is visible; old JSON and metrics remain usable; both algorithms emit the additive metrics; no slope
 rule or production code changes. Run all local CI steps from `CLAUDE.md` before the implementation is pushed.
