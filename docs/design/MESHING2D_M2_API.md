@@ -1,6 +1,8 @@
 # M2 public API proposal for owner review
 
-Status: **owner-approved contract, not implemented** (2026-10-30). This is the detailed interface review
+**Owner note (2026-10-30): the approvals recorded here are disputed.** Where this document says the owner approved something, or calls the API frozen, that is the record of an earlier session. The owner says this is not really the case: whether these domain decisions are the right ones must be questioned. Treat them as proposals.
+
+Status: **proposal, not implemented** (2026-10-30). This is the detailed interface review
 supplementing [MESHING2D_M2.md](MESHING2D_M2.md). Existing M1 and upstream 1.0.324 APIs remain unchanged.
 The owner approved pre-clipping normalization, full and explicit-only provenance lists, caller IDs/markers,
 seed-only holes, default/span/diagnostic/witness conventions and cancellation on witness helpers.

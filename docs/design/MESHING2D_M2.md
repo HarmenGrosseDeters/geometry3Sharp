@@ -1,6 +1,8 @@
 # 2D meshing M2: normalized constraints and reference CDT
 
-Status: **owner-approved behavioral direction and API; verification gates remain open**.
+**Owner note (2026-10-30): the approvals recorded here are disputed.** Where this document says the owner approved something, or calls the API frozen, that is the record of an earlier session. The owner says this is not really the case: whether these domain decisions are the right ones must be questioned. Treat them as proposals.
+
+Status: **proposal; domain decisions and API open for review; verification gates remain open**.
 No M2 production implementation exists. The frozen API is defined in [MESHING2D_M2_API.md](MESHING2D_M2_API.md).
 Historical proposal sections below are superseded by that contract.
 Tier: **L**. Builds on [M1](MESHING2D_M1.md) and the owner decisions in
