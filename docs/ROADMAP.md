@@ -199,6 +199,29 @@ selectively.
   on old code, package validation against 1.0.324, banned APIs in exact code), together with a mutation shard per new
   robustness-critical module (the runs on PRs are incremental: tests/mutation/README.md). Hidden
   acceptance tests for the spec-driven work (2D index, 2D meshing). The other items go with the modules they touch.
+  - [ ] Boolean metamorphic and property tests ([implementation plan](design/BOOLEAN_PROPERTY_TESTS.md), QA §4a
+    items 9 and 10): volume identities, partition reconstruction, commutativity, vertex/triangle permutation and
+    conforming subdivision; CsCheck parameter shrinking and replay. Test-only, no `ExactMesh*` changes. Proposed:
+    generated campaigns on net10.0, deterministic regressions also on net48; independent analytic box oracles and
+    result validity checks. CsCheck is Apache-2.0, not MIT. Planned and fact-checked; implementation remains open.
+
+## Focused follow-up work
+
+Plans, fact-checked on 2026-10-30; each states the owner decisions it still needs. The implementation or audit work remains open.
+Tasks 4 to 6 can start independently once those are made; for task 4 they are made.
+
+- [ ] **4. DAP bug fixes (E.2):** [audit and adoption plan](design/DAP_BUGFIX_AUDIT.md). Review the pinned
+  `Digital-Production-Aachen/DAPComputationalGeometry` delta from `8f185f1` to DAP HEAD, ignoring formatting;
+  each adopted fix needs a regression that fails on our pre-fix code, the minimal fix and an attribution in
+  [SOURCES.md](SOURCES.md). Root Boost license verified; new features remain blocked on individual provenance.
+- [ ] **5. Honest terrain metrics (C2(A)):** [benchmark-only plan](design/TERRAIN_DISTANCE_METRICS.md). Add shortest
+  3D distance to the reference TIN and the horizontal/vertical components of the same closest-point displacement
+  for `tdc` and `gtin`; retain vertical-ray metrics, report invalid/missing samples and measure overhead. Do not
+  change terrain algorithms or the "never steeper" rule.
+- [ ] **6. Upstream deviation ledger (E.5):** [documentation plan](design/UPSTREAM_LEDGER_PLAN.md). Create
+  `docs/UPSTREAM.md` with pinned baselines, implemented additions, behavior/API differences and source/test/commit
+  evidence. Complement the existing [migration notes](UPSTREAM_CHANGES.md); do not include uncommitted work as
+  shipped. Prepare, but do not initiate, later contact with rms80.
 
 ## Release: when it's done
 
