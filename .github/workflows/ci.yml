@@ -32,6 +32,10 @@ jobs:
           dotnet run --project tests/PackageSmokeTest -c Release
           -p:G3PackageVersion=1.0.0-ci.${{ github.run_number }} -p:G3PackageSource=${{ github.workspace }}/artifacts
           -- artifacts/geometry3Sharp.1.0.0-ci.${{ github.run_number }}.nupkg
+      - name: Build the benchmarks
+        run: for p in benchmarks/*/*.csproj; do dotnet build "$p" -c Release -f net10.0 || exit 1; done
+      - name: Test the benchmark analysis
+        run: python3 benchmarks/MeshRepairBenchmark/test_analysis.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
