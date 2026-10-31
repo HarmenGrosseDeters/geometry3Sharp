@@ -2247,7 +2247,8 @@ namespace g3
         /// <summary>
         /// Rebuild mesh topology.
         /// assumes that we have initialized vertices, triangles, and edges buffers,
-        /// and edges refcounts. Rebuilds vertex and tri refcounts, triangle edges, vertex edges.
+        /// and edges refcounts. Discards old derived topology and rebuilds vertex and tri refcounts,
+        /// triangle edges and vertex edges. Vertices that were live stay live, also without edges.
         /// </summary>
         public void RebuildFromEdgeRefcounts()
         {
@@ -2256,9 +2257,19 @@ namespace g3
 
             triangle_edges.resize(triangles.Length);
             triangles_refcount.RawRefCounts.resize(MaxTID);
+            for (int tid = 0; tid < MaxTID; ++tid)
+                triangles_refcount.set_Unsafe(tid, RefCountVector.invalid);
 
+            vertex_edges = new SmallListSet();
             vertex_edges.Resize(MaxVID);
             vertices_refcount.RawRefCounts.resize(MaxVID);
+            for (int vid = 0; vid < MaxVID; ++vid) {
+                if (vertices_refcount.isValidUnsafe(vid)) {
+                    allocate_edges_list(vid);
+                    vertices_refcount.set_Unsafe(vid, 1);
+                } else
+                    vertices_refcount.set_Unsafe(vid, RefCountVector.invalid);
+            }
 
             int MaxEID = edges.Length / 4;
             for ( int eid = 0; eid < MaxEID; ++eid ) {
@@ -2380,8 +2391,11 @@ namespace g3
                 vref[iCurV] = vref[iLastV];
                 vref[iLastV] = RefCountVector.invalid;
 
-                // move edge list
-                vertex_edges.Move(iLastV, iCurV);
+                // Isolated vertices may have no allocated adjacency list, or an empty retained block.
+                if (vertex_edges.Count(iLastV) > 0)
+                    vertex_edges.Move(iLastV, iCurV);
+                else
+                    vertex_edges.Clear(iLastV);
 
                 if (mapV != null)
                     mapV[iLastV] = iCurV;

@@ -25,6 +25,48 @@ Relation to upstream: stay API compatible with 1.0.324, which existing users dep
 `dotnet8` branch has breaking changes (it removes the float types); useful parts (eg USD) can be taken over
 selectively.
 
+## Next: taking over the abandoned work
+
+Status on 2026-10-30. Several sessions stopped mid-way; their work is parked in draft PRs titled
+`[WIP, quality unverified]`. **Its quality is questionable.** After takeover, question and check everything in it,
+including its tests, numbers and recorded conclusions: re-run the numbers, run the mutation checks, and get the
+independent review of [REVIEW_CHECKLIST.md](REVIEW_CHECKLIST.md). A green CI is not acceptance. A PR that does not
+hold up is discarded with the owner, not patched until it passes. The stages run in this order:
+
+| Stage | Work | Tier | Parallel |
+|---|---|---|---|
+| 0 to 3 | Done on 2026-10-31: local CI green, the small fixes and the parts of #193 merged, the plans checked. Hidden tests replaced by [references](design/ACCEPTANCE_STRATEGY.md) | | |
+| 4. References | Pilot: M1 against NetTopologySuite. Then the golden subset. The session that produces `Triangle.NET` results is planned, not started (strategy, section 3) | M | 1 session |
+| 5. Quadtree | `quadtree` (#195): independent review, owner-machine performance and memory, side-by-side with the old quadtree | L | 1 large session |
+| 6. Meshing M1 | `feature/meshing2d` (#200): oracle and differential as gates. Only then the M2 design (#201): its recorded approvals are disputed, so question its domain decisions first. An M2 implementation comes after that | L | 1 large session, after stage 5 |
+| 7. Alpha wrap quality | Owner decision on #199. No recorded policy passes every gate, so its production code is not for merging as it is, and it does not compile as it is. Next step: a bounded look at the failing local patches of the hard-feature policy, no threshold tuning | L | 1 large session, after stage 6 |
+| 8. Planned follow-ups | Boolean property tests, DAP audit and honest terrain metrics, next to any stage from 4 on; the upstream ledger last, because it records what is merged. Terrain phase 1 after stage 5 | S, M | up to 2 sessions |
+
+Why this order: a reference must exist before an implementation is accepted against it. The quadtree comes before meshing because terrain phase 1 waits for it and its PR is further along.
+
+Limits on parallel work:
+
+- At most 3 sessions at once, of which at most 1 large (tier L implementation; [AGENT_WORKFLOW.md](AGENT_WORKFLOW.md)
+  section 6). Each session has its own worktree and one PR-sized topic.
+- Parallel sessions must not change the same production files. Quadtree (`spatial/`) and meshing (`comp_geom/`) are
+  disjoint in code, but each needs the full attention of its reviewer, so they stay serial.
+- Merges are serial, because many PRs touch `docs/ROADMAP.md`, `docs/QA.md`, `docs/SOURCES.md`, `docs/OPERATIONS.md`
+  and `ExactBooleanIssueCasesTests.cs`. Rebase the next PR and re-run CI after each merge. Keep status text in the
+  PR, not in the roadmap.
+- Full local CI and every timing or memory measurement run alone on the machine: the sweep's time limits react to
+  load, and measurements taken next to other work are not comparable.
+
+Open task from the takeover:
+
+- [ ] **Exact coplanar triangle clipping: investigate as its own topic.** `IntrTriangle2Triangle2` clips in floating point, and
+  coplanar `IntrTriangle3Triangle3` builds on it: it loses point and segment contacts. The fix in #193 was discarded after review: it
+  added a regression (disjoint triangles reported as intersecting through overflow), and contacts were still lost (15641 false
+  negatives, 7951 false positives in 3.86M lattice pairs, against an exact oracle). Rounded clipping cannot keep such a promise. To
+  investigate: an exact approach with `ExactPredicates` (and exact output, as far as callers need it), whether `Test()` and `Find()` can
+  then agree, the behaviour for degenerate and non-finite inputs, and the cost. Only tests call the coplanar path today, so first
+  check who needs it. The tests of #193 (`CoplanarTriangleDifferentialTests`, on branch `qa/differential-core-tests`) are a starting
+  point; their seeded inputs use half-integers only, so they cannot see these failures.
+
 ## Phase 1: foundation
 
 - [x] Targets net10.0 and netstandard2.0
@@ -33,6 +75,9 @@ selectively.
 - [x] Mesh formats PLY, 3MF, glTF/GLB (read and write)
 - Package ID and publishing: moved to Release, after the library "just works"
 - [x] API docs and examples per operation ([OPERATIONS.md](OPERATIONS.md), examples run as tests)
+
+- [x] Fork feature overview: [Additions in this fork](../README.md#additions-in-this-fork), grouped by capability
+  with links to implemented operations and integration guides.
 
 ## Phase 2: robustness
 
@@ -73,7 +118,7 @@ selectively.
   - [ ] Quality pass after `MeshRobustRepair.SimplifyAlphaWrap`: the simplification keeps the fidelity (F-score, edges,
     normals equal at a quarter of the triangles) but the 1%-worst min angle drops from 16.2 to 3.8 degrees (17 wrap
     results of Thingi10K, benchmarks/MeshRepairBenchmark README, re-evaluation); eg a short remesh pass with
-    `Remesher.MinTriangleQuality` on the simplified wrap, or a min angle bound in the simplification
+    `Remesher.MinTriangleQuality` on the simplified wrap, or a min angle bound in the simplification. Trials so far: `fix/alpha-wrap-simplification-quality`, none passes every gate (unverified, see Next, stage 7)
 - [ ] Remeshers must not leave degenerate triangles. `Remesher` and `RemesherPro` (`g3cli remesh` settings) leave
   degenerate triangles or self-intersections on 18 of 20 clean Thingi10K meshes, 99% of the triangles with q < 0.1 at
   feature constraints (`benchmarks/RemeshBenchmark`). `RemesherPro` (8 x `RemeshIteration` and a full pass without
@@ -207,9 +252,32 @@ selectively.
     from Triangle / Triangle.NET code. Builds on `ExactTriangulation2` and the adaptive predicates.
 
 - [ ] Verifiable agent work ([QA.md 4a](QA.md#4a-making-agent-work-verifiable)): first the machine checks (new tests fail
-  on old code, package validation against 1.0.324, banned APIs in exact code), together with the incremental
-  mutation runs (`--since` with a baseline; weekly full runs; a shard per new robustness-critical module). Hidden
-  acceptance tests for the spec-driven work (2D index, 2D meshing). The other items go with the modules they touch.
+  on old code, package validation against 1.0.324, banned APIs in exact code), together with a mutation shard per new
+  robustness-critical module (the runs on PRs are incremental: tests/mutation/README.md). Acceptance
+  against references for the 2D meshing ([strategy](design/ACCEPTANCE_STRATEGY.md)). The other items go with the modules they touch.
+  - [ ] Boolean metamorphic and property tests ([implementation plan](design/BOOLEAN_PROPERTY_TESTS.md), QA §4a
+    items 9 and 10): volume identities, partition reconstruction, commutativity, vertex/triangle permutation and
+    conforming subdivision; CsCheck parameter shrinking and replay. Test-only, no `ExactMesh*` changes. Proposed:
+    generated campaigns on net10.0, deterministic regressions also on net48; independent analytic box oracles and
+    result validity checks. CsCheck is Apache-2.0, not MIT. Planned and fact-checked; implementation remains open.
+
+## Focused follow-up work
+
+Plans, fact-checked on 2026-10-30; each states the owner decisions it still needs. The implementation or audit work remains open.
+Tasks 4 to 6 can start independently once those are made; for task 4 they are made.
+
+- [ ] **4. DAP bug fixes (E.2):** [audit and adoption plan](design/DAP_BUGFIX_AUDIT.md). Review the pinned
+  `Digital-Production-Aachen/DAPComputationalGeometry` delta from `8f185f1` to DAP HEAD, ignoring formatting;
+  each adopted fix needs a regression that fails on our pre-fix code, the minimal fix and an attribution in
+  [SOURCES.md](SOURCES.md). Root Boost license verified; new features remain blocked on individual provenance.
+- [ ] **5. Honest terrain metrics (C2(A)):** [benchmark-only plan](design/TERRAIN_DISTANCE_METRICS.md). Add shortest
+  3D distance to the reference TIN and the horizontal/vertical components of the same closest-point displacement
+  for `tdc` and `gtin`; retain vertical-ray metrics, report invalid/missing samples and measure overhead. Do not
+  change terrain algorithms or the "never steeper" rule.
+- [ ] **6. Upstream deviation ledger (E.5):** [documentation plan](design/UPSTREAM_LEDGER_PLAN.md). Create
+  `docs/UPSTREAM.md` with pinned baselines, implemented additions, behavior/API differences and source/test/commit
+  evidence. Complement the existing [migration notes](UPSTREAM_CHANGES.md); do not include uncommitted work as
+  shipped. Prepare, but do not initiate, later contact with rms80.
 
 ## Release: when it's done
 

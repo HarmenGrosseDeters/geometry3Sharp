@@ -167,6 +167,11 @@ bool inside = envelope.ContainsTriangle(a, b, c);         // exact; also Contain
 `Reducer.MaxDeviation` guarantees that every point of the result lies within the tolerance of the input,
 checked with certified distance bounds (`TriangleDeviationBounds`).
 
+`Reducer.ReduceToMaxQuadricError(maxError)` keeps float queue ordering, but checks the actual collapse position's
+quadric error in double precision after constraint/inline projection adjustments. Errors equal to the budget
+are allowed even if their queue priority rounds up. A NaN budget accepts no collapses. This budget is not a
+Hausdorff bound and does not cover the separate `AfterRefinement` projection pass.
+
 `MeshEnvelope` (after Wang et al. 2020) decides exactly whether a point, segment or triangle lies in the union
 of convex prisms around the mesh triangles. The prisms lie inside the epsilon envelope: 0.8 epsilon along the
 normal, 0.55 epsilon sideways. A result of true guarantees the distance bound whatever the rounding. A result

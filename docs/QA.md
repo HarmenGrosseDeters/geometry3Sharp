@@ -167,9 +167,9 @@ The exact arithmetic is the base of everything else, and a wrong error bound in 
 inputs. Stryker.NET (Apache-2.0) mutates `math/ExactPredicates.cs`, `math/ExactPoint3.cs` and
 `math/AdaptivePredicates.cs`, and runs the predicate tests against each mutant.
 
-- A workflow reports the mutation score and the surviving mutants. It runs weekly, on demand, and on PRs that
-  change the mutated files or their tests ([tests/mutation/README.md](../tests/mutation/README.md)).
-- A score below the break threshold fails the run. It starts at the measured score (rounded down, less one
+- A workflow reports the mutation score and the surviving mutants. It runs in full weekly and on demand, and on ready
+  PRs only for the configs they touch ([tests/mutation/README.md](../tests/mutation/README.md)).
+- A score below the break threshold fails a full run (a run for changed tests only reports). It starts at the measured score (rounded down, less one
   point for timeouts that vary between runners) and only goes up.
 - Surviving mutants are either killed with a new test or recorded as equivalent, with a reason.
 - The score is 87.05 % (October 2026, from 83.4 % at the start); the break threshold is 86. Details are in
@@ -436,9 +436,8 @@ not depend on the implementer's own tests. Order of priority:
 3. **Banned APIs and analyzers in exact code**: a banned-API analyzer forbids `Math.FusedMultiplyAdd`, `float` and
    parallel floating-point reductions in `math/Exact*`, `math/AdaptivePredicates.cs` and `mesh_ops/ExactMesh*`;
    warnings as errors there.
-4. **Hidden acceptance tests (clean room for tests)**: for spec-driven work (QUADTREE2D_SPEC, MESHING2D_SPEC) a
-   separate agent writes acceptance tests from the spec (worked examples, failure catalogues F-*/D-*); the
-   implementing session may not change them.
+4. **Acceptance against references**: for spec-driven work, an oracle by definition, a differential against other libraries, and a golden
+   master of accepted results ([strategy](design/ACCEPTANCE_STRATEGY.md)).
 5. **Quality ratchet in CI**: a small fixed benchmark subset with stored metrics (JSON: clean results, max
    deviation, self-intersections); a worse number fails the build.
 6. **Same-runner performance A/B**: base and head alternate on one runner, with spread; a regression above a
@@ -446,10 +445,15 @@ not depend on the implementer's own tests. Order of priority:
 7. **Reproducible claims**: every number in a PR cites the command and attaches the raw output; the reviewer re-runs
    a sample (as `benchmarks/BooleanComparison/perf/` already allows).
 8. **Changed-line coverage gate**: new or changed lines must be executed by tests.
-9. **Property-based tests with shrinking** (CsCheck, MIT, or FsCheck, BSD), generalizing `MeshMinimizer`.
+9. **Property-based tests with shrinking** (CsCheck, Apache-2.0, or FsCheck, BSD), generalizing `MeshMinimizer`.
+   Boolean test-only implementation: [plan](design/BOOLEAN_PROPERTY_TESTS.md), with parameter-level shrinking and
+   replay; proposed CsCheck campaigns on net10.0, deterministic regressions also on net48. Not implemented yet.
 10. **Metamorphic relations beyond similarity**: vol(A∪B) = vol A + vol B - vol(A∩B); (A-B) ∪ (A∩B) = A;
     commutativity; subdividing input triangles or permuting triangle / vertex order leaves the result geometry
-    unchanged; terrain: never steeper, cut + fill consistent; 2D meshing: input segments are unions of output edges.
+    unchanged. The [Boolean plan](design/BOOLEAN_PROPERTY_TESTS.md) includes independent analytic box oracles,
+    triangulation-independent comparisons and orientation-preserving transformations, without changes to
+    `ExactMesh*`. Other modules: terrain: never steeper, cut + fill consistent; 2D meshing: input segments are
+    unions of output edges.
 11. **Cross-platform determinism**: the bit-identity hashes weekly on Windows and arm64, and the net48 tests (not only
     the build) on a Windows runner.
 12. **Tool-checked error bounds**: new floating-point filter bounds also derived with FPTaylor (MIT) and compared in

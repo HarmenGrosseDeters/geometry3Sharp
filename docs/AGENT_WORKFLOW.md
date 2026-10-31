@@ -17,7 +17,7 @@ help: specification vs implementation, and implementation vs review and acceptan
 |---|---|---|
 | **S** | docs, comments, a one-line fix, benchmark README | One session. Local CI steps. The author re-reads the diff. No extra review. |
 | **M** | a bug fix or small feature outside exact code | All of S, plus: tests that fail on the old code (mutation check), the CLAUDE.md tests (invariance / reuse / determinism) and **one** independent review agent. |
-| **L** | exact arithmetic, error bounds, `ExactMesh*`, a new module, spec-driven work | All of M, plus: a design doc or spec first, reviewed by the owner; **hidden acceptance tests** written by a separate agent from the spec; a bounds review; mutation runs; benchmark A/B numbers. |
+| **L** | exact arithmetic, error bounds, `ExactMesh*`, a new module, spec-driven work | All of M, plus: a design doc or spec first, reviewed by the owner; **acceptance against references** ([strategy](design/ACCEPTANCE_STRATEGY.md): oracle, differential, golden master); a bounds review; mutation runs; benchmark A/B numbers. |
 
 When in doubt, choose the higher tier for exact code and the lower tier for everything else.
 
@@ -57,11 +57,11 @@ Every worker session gets a brief with these fields, and nothing open-ended:
 - **Learning loop**: every fault class found in review that is not yet on the checklist is added to it in the same
   PR.
 
-## 5. Hidden acceptance tests (tier L)
+## 5. Acceptance against references (tier L)
 
-For spec-driven work, a separate agent writes acceptance tests from the spec alone: worked examples and failure
-catalogues (MESHING2D_SPEC F-*, QUADTREE2D_SPEC D-*). The implementing session sees their results but may not
-change them. This prevents tests that are tailored to the code.
+[Strategy](design/ACCEPTANCE_STRATEGY.md): an oracle by definition that shares no code with the
+implementation, a differential against other libraries, then a golden master of accepted results. Independence comes from those references, not
+from secret tests, which a public repository cannot keep.
 
 ## 6. Context and sessions
 
@@ -80,7 +80,8 @@ change them. This prevents tests that are tailored to the code.
 
 ## 8. Cost controls
 
-- Mutation runs are incremental on PRs, with full runs weekly. Thresholds only go up (a ratchet).
+- Mutation runs on ready PRs cover only the shards the PR touches, with full runs weekly; drafts run none. Thresholds
+  only go up (a ratchet).
 - The coordinator's check-in interval follows the CI time (hours for mutation runs, not minutes). Workers report in
   one line, and sessions are archived when their PRs are merged.
 - Near the usage limit, finish running work only and start nothing new.
