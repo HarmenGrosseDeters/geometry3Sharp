@@ -67,6 +67,21 @@ Open task from the takeover:
   check who needs it. The tests of #193 (`CoplanarTriangleDifferentialTests`, on branch `qa/differential-core-tests`) are a starting
   point; their seeded inputs use half-integers only, so they cannot see these failures.
 
+## Open tasks and where their answer may already be
+
+Open tasks further up, and work further down, in the code or in the research lists, that may solve them. Read the right-hand side before starting the task on the left. Each row is a lead to check, not a result: none of these was tried here.
+
+| Open task | Look at first | What it may give, and what it does not |
+|---|---|---|
+| Exact coplanar triangle clipping (above) | `ExactTriangleIntersection` (exists; closed triangles, built only on `ExactPredicates`) | The yes/no question may be answered already, so `Test()` could use it. Exact output for `Find()` stays open |
+| Open inputs: winding numbers across patches (Phase 2), heuristic without clear gain | Phase 5 #5: Feng & Crane 2024, signed distance from geometry with holes and self-intersections, no repair first | Another way to decide inside and outside for open inputs, in place of tuning the propagation. Feng, Gillespie, Crane 2023 has the integer jumps, but for curves on a surface, so it is a model and not a direct fit for patches in 3D. geometry-central documents a signed heat solver: check its license before reading it |
+| Remeshers leave the input surface, and the quality pass after `SimplifyAlphaWrap` (Phase 2) | Phase 5 #2: envelope containment, which its authors built into two surface remeshers. `MeshEnvelope` is the prototype | A guarantee to stay near the input in every local operation, so quality passes cannot trade away fidelity. It does not by itself prevent self-intersections: the per-operation intersection check stays a separate task |
+| `Reducer`: `MaxDeviation` takes 92-97 % of the time (Phase 5 #2) | The same item | With the two rows above, and the envelope pipeline under Open research questions, one piece of work serves four tasks. So it comes first in Phase 5 once it is scheduled |
+| Remeshing folds walls through each other (Phase 2) | `MeshWallThickness` (exists) for the thickness-aware sizing. Phase 5 #8, continuous collision detection, only if a check of the end state proves not to be enough | Sizing below the local wall thickness uses what we have. Whether a move that passes through a wall can end in a state a static check accepts is to be measured first |
+| Sharp vertices are not pinned (Phase 2) | `MeshCurvature` (exists): angle deficit, handles boundary and bowtie vertices | The measure this task asks for is already there |
+| Golden masters across runtimes ([strategy](design/ACCEPTANCE_STRATEGY.md), section 4) | Open research questions: bit-for-bit determinism | The same problem, seen first in the prism fixtures. What the golden subset finds is material for the question |
+| Boolean property tests (below) | Open research questions: metamorphic testing | Same method. Write them so that the generators can serve both |
+
 ## Phase 1: foundation
 
 - [x] Targets net10.0 and netstandard2.0
