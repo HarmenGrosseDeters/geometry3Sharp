@@ -174,7 +174,7 @@ Open tasks further up, and work further down, in the code or in the research lis
   and the benchmarks write them (eg RemeshBenchmark `not_clean`).
 - [ ] Exact boolean performance, ranked ideas in [EXACT_BOOLEAN_PERFORMANCE.md](perf/EXACT_BOOLEAN_PERFORMANCE.md), section 3. The first idea, exact
   arithmetic without `BigInteger`, starts from two unmerged branches: `claude/int256-spike` (`Int384` planes, not for merging as it is) and
-  `claude/collinear-shortcut` (reviewed, with tests, but no gain measured on the input classes). Exact code, so it goes to the owner. Keep both branches.
+  `claude/collinear-shortcut` (reviewed, with tests, at most 2 % on the input classes, below the 10 % bar). Exact code, so it goes to the owner. Keep both branches.
 
 | Feature | Research / port source | Why |
 |---|---|---|
