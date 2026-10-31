@@ -3,36 +3,77 @@ using System.Collections.Generic;
 
 namespace g3
 {
-    /// <summary>Snapshot index of closed XY segments. Z does not affect intersections or distances.</summary>
+    /// <summary>
+    /// Snapshot index of closed XY segments, by their endpoints. A Segment3d keeps a center, a normalized direction and
+    /// an extent, so its P0 and P1 are rounded, depending on z too: build from endpoints when queries have to hit them exactly.
+    /// </summary>
     public sealed class SegmentQuadtree2d
     {
-        readonly List<Segment3d> items;
+        struct Endpoints
+        {
+            internal Vector3d A, B;
+            internal Endpoints(Vector3d a, Vector3d b) { A = a; B = b; }
+            internal Endpoints(Segment3d segment) { A = segment.P0; B = segment.P1; }
+            internal Vector2d XYA { get { return QuadtreeGeometry2d.XY(A); } }
+            internal Vector2d XYB { get { return QuadtreeGeometry2d.XY(B); } }
+        }
+
+        readonly List<Endpoints> items;
         readonly LooseQuadtree2d tree;
 
         public SegmentQuadtree2d() : this(new Segment3d[0]) { }
         public SegmentQuadtree2d(IReadOnlyList<Segment3d> segments, bool parallelBuild = true)
         {
             if (segments == null) throw new ArgumentNullException(nameof(segments));
-            items = new List<Segment3d>(segments.Count);
+            items = new List<Endpoints>(segments.Count);
             var bounds = new AxisAlignedBox2d[segments.Count];
             for (int i = 0; i < segments.Count; ++i) {
                 Segment3d item = segments[i];
                 bounds[i] = QuadtreeGeometry2d.Bounds(item);
-                items.Add(item);
+                items.Add(new Endpoints(item));
+            }
+            tree = new LooseQuadtree2d(bounds, parallelBuild);
+        }
+        /// <summary>One segment per edge, between two of the given vertices. IDs are positions in the edge list.</summary>
+        public SegmentQuadtree2d(IReadOnlyList<Vector3d> vertices, IReadOnlyList<Index2i> edges, bool parallelBuild = true)
+        {
+            if (vertices == null) throw new ArgumentNullException(nameof(vertices));
+            if (edges == null) throw new ArgumentNullException(nameof(edges));
+            items = new List<Endpoints>(edges.Count);
+            var bounds = new AxisAlignedBox2d[edges.Count];
+            for (int i = 0; i < edges.Count; ++i) {
+                Vector3d a = vertices[edges[i].a], b = vertices[edges[i].b];
+                bounds[i] = QuadtreeGeometry2d.Bounds(a, b);
+                items.Add(new Endpoints(a, b));
             }
             tree = new LooseQuadtree2d(bounds, parallelBuild);
         }
         public int Count { get { return tree.Count; } }
         public AxisAlignedBox2d Extent { get { return tree.Extent; } }
         public bool ContainsId(int id) { return tree.ContainsId(id); }
+        /// <summary>A segment rebuilt from the stored endpoints, so rounded. GetEndpoints returns them as they are.</summary>
         public Segment3d GetItem(int id)
         {
             if (!ContainsId(id)) throw new ArgumentOutOfRangeException(nameof(id));
-            return items[id];
+            return new Segment3d(items[id].A, items[id].B);
         }
+        public void GetEndpoints(int id, out Vector3d a, out Vector3d b)
+        {
+            if (!ContainsId(id)) throw new ArgumentOutOfRangeException(nameof(id));
+            a = items[id].A;
+            b = items[id].B;
+        }
+        public AxisAlignedBox2d GetBounds(int id) { return tree.GetBounds(id); }
         public int Insert(Segment3d item)
         {
-            AxisAlignedBox2d bounds = QuadtreeGeometry2d.Bounds(item);
+            return Add(QuadtreeGeometry2d.Bounds(item), new Endpoints(item));
+        }
+        public int Insert(Vector3d a, Vector3d b)
+        {
+            return Add(QuadtreeGeometry2d.Bounds(a, b), new Endpoints(a, b));
+        }
+        int Add(AxisAlignedBox2d bounds, Endpoints item)
+        {
             if (items.Count == items.Capacity) items.Capacity = checked(items.Count + Math.Max(4, items.Count));
             int id = tree.Insert(bounds);
             items.Add(item);
@@ -41,11 +82,19 @@ namespace g3
         public bool Remove(int id) { return tree.Remove(id); }
         public bool Remove(Segment3d item)
         {
+            return RemoveFirst(QuadtreeGeometry2d.Bounds(item), new Endpoints(item));
+        }
+        public bool Remove(Vector3d a, Vector3d b)
+        {
+            return RemoveFirst(QuadtreeGeometry2d.Bounds(a, b), new Endpoints(a, b));
+        }
+        bool RemoveFirst(AxisAlignedBox2d bounds, Endpoints item)
+        {
             var candidates = new List<int>();
-            tree.QueryRectangle(QuadtreeGeometry2d.Bounds(item), candidates);
+            tree.QueryRectangle(bounds, candidates);
             int first = -1;
             foreach (int id in candidates)
-                if (QuadtreeGeometry2d.Same(items[id], item) && (first < 0 || id < first)) first = id;
+                if (items[id].A == item.A && items[id].B == item.B && (first < 0 || id < first)) first = id;
             return first >= 0 && tree.Remove(first);
         }
         public void QueryRectangle(AxisAlignedBox2d rectangle, List<int> results) { tree.QueryRectangle(rectangle, results); }
@@ -87,23 +136,22 @@ namespace g3
         }
         struct DistanceMetric : IQuadtreeDistance2d, IQuadtreeOverflowDistance2d
         {
-            internal List<Segment3d> Items;
+            internal List<Endpoints> Items;
             internal Vector2d Point;
             public double Distance(int id)
             {
-                Segment3d segment = Items[id];
-                return QuadtreeGeometry2d.SegmentDistance(Point, QuadtreeGeometry2d.XY(segment.P0), QuadtreeGeometry2d.XY(segment.P1));
+                Endpoints segment = Items[id];
+                return QuadtreeGeometry2d.SegmentDistance(Point, segment.XYA, segment.XYB);
             }
             public int CompareOverflow(int a, int b)
             {
-                return QuadtreeExactQuery2d.SegmentSquared(Point, QuadtreeGeometry2d.XY(Items[a].P0),
-                    QuadtreeGeometry2d.XY(Items[a].P1)).CompareTo(QuadtreeExactQuery2d.SegmentSquared(Point,
-                    QuadtreeGeometry2d.XY(Items[b].P0), QuadtreeGeometry2d.XY(Items[b].P1)));
+                return QuadtreeExactQuery2d.SegmentSquared(Point, Items[a].XYA, Items[a].XYB).CompareTo(
+                    QuadtreeExactQuery2d.SegmentSquared(Point, Items[b].XYA, Items[b].XYB));
             }
         }
         struct PointVisitor : IQuadtreeVisitor2d
         {
-            internal List<Segment3d> Items;
+            internal List<Endpoints> Items;
             internal Vector2d Point;
             internal double Tolerance;
             internal List<int> Results;
@@ -111,12 +159,11 @@ namespace g3
             public bool TestRegion(AxisAlignedBox2d region) { return QuadtreeGeometry2d.NearRegion(region, Point, Tolerance); }
             public bool Visit(int id)
             {
-                Segment3d segment = Items[id];
-                Vector2d a = QuadtreeGeometry2d.XY(segment.P0), b = QuadtreeGeometry2d.XY(segment.P1);
-                if (ExcludeEndpoints && (QuadtreeGeometry2d.PointDistance(Point, a) <= Tolerance ||
-                    QuadtreeGeometry2d.PointDistance(Point, b) <= Tolerance)) return false;
+                Vector2d a = Items[id].XYA, b = Items[id].XYB;
+                if (ExcludeEndpoints && (QuadtreeGeometry2d.WithinPoint(Point, a, Tolerance) ||
+                    QuadtreeGeometry2d.WithinPoint(Point, b, Tolerance))) return false;
                 bool hit = Tolerance == 0 ? QuadtreeGeometry2d.OnSegment(Point, a, b) :
-                    QuadtreeGeometry2d.SegmentDistance(Point, a, b) <= Tolerance;
+                    QuadtreeGeometry2d.WithinSegment(Point, a, b, Tolerance);
                 if (!hit) return false;
                 Results.Add(id);
                 return Stop;
@@ -124,7 +171,7 @@ namespace g3
         }
         struct IntersectionVisitor : IQuadtreeVisitor2d
         {
-            internal List<Segment3d> Items;
+            internal List<Endpoints> Items;
             internal Vector2d A, B;
             internal AxisAlignedBox2d Bounds;
             internal List<int> Results;
@@ -135,8 +182,7 @@ namespace g3
             }
             public bool Visit(int id)
             {
-                Segment3d segment = Items[id];
-                if (QuadtreeGeometry2d.Intersects(A, B, QuadtreeGeometry2d.XY(segment.P0), QuadtreeGeometry2d.XY(segment.P1)))
+                if (QuadtreeGeometry2d.Intersects(A, B, Items[id].XYA, Items[id].XYB))
                     Results.Add(id);
                 return false;
             }

@@ -81,7 +81,7 @@ namespace geometry3Sharp.Tests.Spatial
             Assert.Equal(AxisAlignedBox2d.Empty, tree.Extent);
             Assert.Equal(2, tree.Looseness);
             Assert.Equal(16, tree.BucketCapacity);
-            Assert.Equal(32, tree.MaxDepth);
+            Assert.Equal(64, tree.MaxDepth);
             var box = Box(4, 5);
             Assert.Equal(0, tree.Insert(box));
             box.Min.x = 100;

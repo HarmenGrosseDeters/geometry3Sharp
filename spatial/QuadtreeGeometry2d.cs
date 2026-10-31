@@ -42,6 +42,12 @@ namespace g3
             Validate(segment.P1);
             return new AxisAlignedBox2d(XY(segment.P0), XY(segment.P1));
         }
+        internal static AxisAlignedBox2d Bounds(Vector3d a, Vector3d b)
+        {
+            Validate(a);
+            Validate(b);
+            return new AxisAlignedBox2d(Math.Min(a.x, b.x), Math.Min(a.y, b.y), Math.Max(a.x, b.x), Math.Max(a.y, b.y));
+        }
         internal static AxisAlignedBox2d Bounds(Triangle3d triangle)
         {
             Validate(triangle.V0);
@@ -52,10 +58,6 @@ namespace g3
                 Math.Min(triangle.V0.y, Math.Min(triangle.V1.y, triangle.V2.y)),
                 Math.Max(triangle.V0.x, Math.Max(triangle.V1.x, triangle.V2.x)),
                 Math.Max(triangle.V0.y, Math.Max(triangle.V1.y, triangle.V2.y)));
-        }
-        internal static bool Same(Segment3d a, Segment3d b)
-        {
-            return a.Center == b.Center && a.Direction == b.Direction && a.Extent == b.Extent;
         }
         internal static bool Same(Triangle3d a, Triangle3d b)
         {
@@ -74,6 +76,34 @@ namespace g3
         internal static double PointDistance(Vector2d a, Vector2d b)
         {
             return Hypot(a.x - b.x, a.y - b.y);
+        }
+        // Inclusive tolerance tests. A rounded distance within a few ulps of the tolerance decides nothing: exact squares do.
+        static bool Undecided(double distance, double tolerance)
+        {
+            return Math.Abs(distance - tolerance) <= 1e-14 * tolerance;
+        }
+        static QuadtreeExactQuery2d.Fraction Squared(double tolerance)
+        {
+            BigInteger value = Integer(tolerance);
+            return new QuadtreeExactQuery2d.Fraction(value * value, BigInteger.One);
+        }
+        internal static bool WithinPoint(Vector2d p, Vector2d a, double tolerance)
+        {
+            double distance = PointDistance(p, a);
+            if (!Undecided(distance, tolerance)) return distance <= tolerance;
+            return QuadtreeExactQuery2d.PointSquared(p, a).CompareTo(Squared(tolerance)) <= 0;
+        }
+        internal static bool WithinSegment(Vector2d p, Vector2d a, Vector2d b, double tolerance)
+        {
+            double distance = SegmentDistance(p, a, b);
+            if (!Undecided(distance, tolerance)) return distance <= tolerance;
+            return QuadtreeExactQuery2d.SegmentSquared(p, a, b).CompareTo(Squared(tolerance)) <= 0;
+        }
+        internal static bool WithinTriangle(Triangle3d triangle, Vector2d p, double tolerance)
+        {
+            Vector2d a = XY(triangle.V0), b = XY(triangle.V1), c = XY(triangle.V2);
+            return Contains(triangle, p) || WithinSegment(p, a, b, tolerance) ||
+                WithinSegment(p, b, c, tolerance) || WithinSegment(p, c, a, tolerance);
         }
         internal static bool NearRegion(AxisAlignedBox2d box, Vector2d p, double tolerance)
         {

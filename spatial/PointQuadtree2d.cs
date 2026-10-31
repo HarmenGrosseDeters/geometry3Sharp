@@ -91,7 +91,7 @@ namespace g3
             public bool TestRegion(AxisAlignedBox2d region) { return QuadtreeGeometry2d.NearRegion(region, Point, Tolerance); }
             public bool Visit(int id)
             {
-                if (QuadtreeGeometry2d.PointDistance(Point, QuadtreeGeometry2d.XY(Items[id])) <= Tolerance) Results.Add(id);
+                if (QuadtreeGeometry2d.WithinPoint(Point, QuadtreeGeometry2d.XY(Items[id]), Tolerance)) Results.Add(id);
                 return false;
             }
         }

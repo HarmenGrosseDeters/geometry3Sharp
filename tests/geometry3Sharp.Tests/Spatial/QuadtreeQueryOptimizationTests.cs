@@ -56,7 +56,7 @@ namespace geometry3Sharp.Tests.Spatial
             Assert.True(tree.Remove(0));
             var before = VisitRegions(tree);
             tree.Insert(new AxisAlignedBox2d(new Vector2d(1, 1)));
-            Assert.Equal(before, VisitRegions(tree));
+            Assert.Empty(before.Except(VisitRegions(tree))); // an insert inside may split a full cell, but moves none
             tree.Insert(new AxisAlignedBox2d(new Vector2d(-1000, 2000)));
             AssertRootCoversExtent(tree);
             tree.Insert(new AxisAlignedBox2d(new Vector2d(-double.MaxValue, -double.MaxValue)));

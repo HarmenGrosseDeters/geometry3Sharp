@@ -24,7 +24,7 @@ namespace g3
     public sealed class LooseQuadtree2d
     {
         const int BucketSize = 16;
-        const int DepthLimit = 32;
+        const int DepthLimit = 64;
         const int ParallelThreshold = 32768;
         const double SegmentMargin = 0.0002;
 
@@ -32,6 +32,7 @@ namespace g3
         {
             public AxisAlignedBox2d Box;
             public int Next;
+            public int Previous;
             public int Owner;
         }
 
@@ -74,7 +75,7 @@ namespace g3
             for (int i = 0; i < entries.Length; ++i) {
                 AxisAlignedBox2d box = boxes[i];
                 ValidateBox(box, nameof(boxes));
-                entries[i] = new Entry { Box = box, Owner = 0, Next = -1 };
+                entries[i] = new Entry { Box = box, Owner = 0, Next = -1, Previous = -1 };
                 extent = i == 0 ? box : Union(extent, box);
             }
             Count = nextId = entries.Length;
@@ -102,7 +103,7 @@ namespace g3
                 Array.Resize(ref entries, capacity);
             }
             int id = nextId++;
-            entries[id] = new Entry { Box = box, Owner = 0, Next = -1 };
+            entries[id] = new Entry { Box = box, Owner = 0, Next = -1, Previous = -1 };
             ++Count;
             if (nodes.Count == 0) {
                 extent = rootRegion = box;
@@ -122,23 +123,16 @@ namespace g3
         public bool Remove(int id)
         {
             if (!ContainsId(id)) return false;
-            int owner = entries[id].Owner;
-            Node node = nodes[owner];
-            int previous = -1;
-            for (int current = node.Head; current >= 0; current = entries[current].Next) {
-                if (current == id) {
-                    if (previous < 0) node.Head = entries[current].Next;
-                    else entries[previous].Next = entries[current].Next;
-                    --node.Count;
-                    nodes[owner] = node;
-                    entries[id].Owner = -1;
-                    entries[id].Next = -1;
-                    --Count;
-                    return true;
-                }
-                previous = current;
-            }
-            return false;
+            Entry entry = entries[id];
+            Node node = nodes[entry.Owner];
+            if (entry.Previous >= 0) entries[entry.Previous].Next = entry.Next;
+            else node.Head = entry.Next;
+            if (entry.Next >= 0) entries[entry.Next].Previous = entry.Previous;
+            --node.Count;
+            nodes[entry.Owner] = node;
+            entries[id].Owner = -1;
+            --Count;
+            return true;
         }
 
         public bool Remove(AxisAlignedBox2d box)
@@ -228,9 +222,9 @@ namespace g3
             ref int best, ref double limit) where TDistance : struct, IQuadtreeDistance2d
         {
             Node node = nodes[index];
-            if (BoxDistanceTo(point, Loose(node.Tight)) > limit) return;
+            if (Beyond(BoxDistanceTo(point, Loose(node.Tight)), limit)) return;
             for (int id = node.Head; id >= 0; id = entries[id].Next) {
-                if (BoxDistanceTo(point, entries[id].Box) > limit) continue;
+                if (Beyond(BoxDistanceTo(point, entries[id].Box), limit)) continue;
                 double d = CheckedDistance(id, ref distance);
                 if (d <= limit && (best < 0 || d < limit ||
                     (double.IsPositiveInfinity(d) ? Worse(best, id, ref distance) : id < best))) {
@@ -250,9 +244,9 @@ namespace g3
         {
             double limit = results.Count == k ? CheckedDistance(results[0], ref distance) : maximum;
             Node node = nodes[index];
-            if (BoxDistanceTo(point, Loose(node.Tight)) > limit) return;
+            if (Beyond(BoxDistanceTo(point, Loose(node.Tight)), limit)) return;
             for (int id = node.Head; id >= 0; id = entries[id].Next) {
-                if (BoxDistanceTo(point, entries[id].Box) > limit) continue;
+                if (Beyond(BoxDistanceTo(point, entries[id].Box), limit)) continue;
                 double d = CheckedDistance(id, ref distance);
                 if (d > limit) continue;
                 if (results.Count < k) {
@@ -277,6 +271,13 @@ namespace g3
             NearestKNode(node.Child + first, point, k, results, ref distance, maximum);
             for (int i = 0; i < 4; ++i)
                 if (i != first) NearestKNode(node.Child + i, point, k, results, ref distance, maximum);
+        }
+
+        // A rounded item distance can fall a few ulps below the rounded distance to its box. Pruning exactly at the
+        // limit would then skip an item that ties with the best one, and the tie would go by visiting order.
+        static bool Beyond(double boxDistance, double limit)
+        {
+            return boxDistance * (1 - 1e-15) > limit;
         }
 
         static void SiftDown<TDistance>(List<int> heap, int count, ref TDistance distance)
@@ -322,8 +323,7 @@ namespace g3
                 }
             }
             entries[id].Owner = index;
-            entries[id].Next = node.Head;
-            node.Head = id;
+            Link(id, ref node.Head);
             ++node.Count;
             nodes[index] = node;
             if (node.Child < 0 && node.Count > BucketSize) BuildNode(nodes, index, depth);
@@ -336,8 +336,7 @@ namespace g3
             int head = -1;
             for (int id = nextId - 1; id >= 0; --id) {
                 if (entries[id].Owner < 0) continue;
-                entries[id].Next = head;
-                head = id;
+                Link(id, ref head);
                 entries[id].Owner = 0;
             }
             nodes.Add(new Node(rootRegion, head, Count));
@@ -381,12 +380,11 @@ namespace g3
             Node node = target[index];
             if (node.Child >= 0 || node.Count <= BucketSize || depth >= DepthLimit) return false;
             Vector2d center = Center(node.Tight);
-            bool splitX = center.x > node.Tight.Min.x && center.x < node.Tight.Max.x;
-            bool splitY = center.y > node.Tight.Min.y && center.y < node.Tight.Max.y;
-            if (!splitX && !splitY) return false;
+            int axes = SplitAxes(node.Tight, center);
+            if (axes == 0) return false;
             int child = target.Count;
             for (int q = 0; q < 4; ++q) {
-                AxisAlignedBox2d tight = ChildBox(node.Tight, center, q);
+                AxisAlignedBox2d tight = ChildBox(node.Tight, center, q, axes);
                 target.Add(new Node(tight, -1, 0));
             }
             int retained = -1, retainedCount = 0;
@@ -395,15 +393,13 @@ namespace g3
                 int q = Quadrant(node.Tight, Center(entries[id].Box));
                 Node destination = target[child + q];
                 if (Contains(Loose(destination.Tight), entries[id].Box)) {
-                    entries[id].Next = destination.Head;
                     entries[id].Owner = child + q;
-                    destination.Head = id;
+                    Link(id, ref destination.Head);
                     ++destination.Count;
                     target[child + q] = destination;
                 } else {
-                    entries[id].Next = retained;
                     entries[id].Owner = index;
-                    retained = id;
+                    Link(id, ref retained);
                     ++retainedCount;
                 }
                 id = next;
@@ -413,6 +409,14 @@ namespace g3
             node.Count = retainedCount;
             target[index] = node;
             return true;
+        }
+
+        void Link(int id, ref int head)
+        {
+            entries[id].Next = head;
+            entries[id].Previous = -1;
+            if (head >= 0) entries[head].Previous = id;
+            head = id;
         }
 
         void SetOwners(List<Node> target, int index)
@@ -486,17 +490,28 @@ namespace g3
                 Saturate(box.Max.x + x), Saturate(box.Max.y + y));
         }
 
-        static AxisAlignedBox2d ChildBox(AxisAlignedBox2d box, Vector2d center, int q)
+        // Bit 1: the cell is cut in x, bit 2: in y. A cell more than twice as long as wide is cut across its length only.
+        // Halving both would keep its shape, and items as wide as a long thin extent could then never leave the root.
+        static int SplitAxes(AxisAlignedBox2d box, Vector2d center)
         {
-            return new AxisAlignedBox2d((q & 1) == 0 ? box.Min.x : center.x,
-                (q & 2) == 0 ? box.Min.y : center.y,
-                (q & 1) == 0 ? center.x : box.Max.x, (q & 2) == 0 ? center.y : box.Max.y);
+            double width = box.Max.x * 0.5 - box.Min.x * 0.5, height = box.Max.y * 0.5 - box.Min.y * 0.5;
+            return (width >= height * 0.5 && center.x > box.Min.x && center.x < box.Max.x ? 1 : 0) |
+                (height >= width * 0.5 && center.y > box.Min.y && center.y < box.Max.y ? 2 : 0);
+        }
+
+        // The children an uncut axis does not select stay empty.
+        static AxisAlignedBox2d ChildBox(AxisAlignedBox2d box, Vector2d center, int q, int axes)
+        {
+            return new AxisAlignedBox2d((q & 1) == 0 || (axes & 1) == 0 ? box.Min.x : center.x,
+                (q & 2) == 0 || (axes & 2) == 0 ? box.Min.y : center.y,
+                (q & 1) == 0 && (axes & 1) != 0 ? center.x : box.Max.x,
+                (q & 2) == 0 && (axes & 2) != 0 ? center.y : box.Max.y);
         }
 
         static int Quadrant(AxisAlignedBox2d box, Vector2d point)
         {
             Vector2d center = Center(box);
-            return (point.x >= center.x ? 1 : 0) | (point.y >= center.y ? 2 : 0);
+            return SplitAxes(box, center) & ((point.x >= center.x ? 1 : 0) | (point.y >= center.y ? 2 : 0));
         }
 
         // Leaves room on the sides that have to move, at least doubling them. Items arriving in sorted order
