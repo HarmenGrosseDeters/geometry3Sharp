@@ -345,7 +345,7 @@ namespace geometry3Sharp.Tests
             int a = c.A, b = c.B;
             bool ok = true;
             bool? possible = true;      // null: the operation may refuse, see RemoveVertex
-            bool partialAllowed = false, keepsIDs = true;
+            bool keepsIDs = true;
             switch (c.Kind) {
                 case Op.AppendVertex: {
                     Vertex value = Attributes(c.Position, c.Group);
@@ -472,15 +472,14 @@ namespace geometry3Sharp.Tests
                 }
                 case Op.RemoveVertex: {
                     // Ok must mean exactly this result, without a bowtie. RemoveVertex may refuse a safe removal, as its
-                    // guards are conservative, and then it may have deleted a part of the star:
-                    // KnownLimitation_RemoveVertex_SafeRemovalFailsAfterDeletingTriangles.
+                    // guard is conservative, but then the mesh must be unchanged.
                     possible = null;
                     List<Face> next = faces.Where(f => !Has(f.V, a)).ToList();
                     ok = m.RemoveVertex(a, true, true) == MeshResult.Ok;
                     if (ok) {
                         Assert.True(Manifold(next.Select(f => f.V).ToList()), "RemoveVertex reported Ok but its result has a bowtie");
                         faces = next; vertices.Remove(a);
-                    } else partialAllowed = true;
+                    }
                     break;
                 }
                 case Op.Compact: {
@@ -515,22 +514,15 @@ namespace geometry3Sharp.Tests
             if (possible.HasValue) Assert.True(possible.Value == ok, c.Kind + ": possible=" + possible + " but ok=" + ok);
 
             var after = new Snapshot(m);
-            if (!ok && partialAllowed) {
-                Assert.Equal(Sorted(before.Vertices.Keys), Sorted(after.Vertices.Keys));
+            Assert.Equal(Sorted(vertices.Keys), Sorted(after.Vertices.Keys));
+            double tolerance = 8 * MathUtil.Epsilon * vertices.Values.Select(v => v.P.MaxAbs).DefaultIfEmpty(0).Max();
+            foreach (var v in vertices) SameVertex(v.Value, after.Vertices[v.Key], before, derived.Contains(v.Key), tolerance);
+            string[] expectedFaces = faces.Select(f => f.Key).OrderBy(k => k, StringComparer.Ordinal).ToArray();
+            Assert.Equal(expectedFaces, after.Faces.Values.Select(f => f.Key).OrderBy(k => k, StringComparer.Ordinal).ToArray());
+            if (keepsIDs) {
+                var keys = new HashSet<string>(expectedFaces);
                 foreach (var t in before.Faces)
-                    if (!Has(t.Value.V, a)) Assert.Equal(t.Value.Key, after.Faces[t.Key].Key);
-                foreach (var t in after.Faces) Assert.Equal(before.Faces[t.Key].Key, t.Value.Key);
-            } else {
-                Assert.Equal(Sorted(vertices.Keys), Sorted(after.Vertices.Keys));
-                double tolerance = 8 * MathUtil.Epsilon * vertices.Values.Select(v => v.P.MaxAbs).DefaultIfEmpty(0).Max();
-                foreach (var v in vertices) SameVertex(v.Value, after.Vertices[v.Key], before, derived.Contains(v.Key), tolerance);
-                string[] expectedFaces = faces.Select(f => f.Key).OrderBy(k => k, StringComparer.Ordinal).ToArray();
-                Assert.Equal(expectedFaces, after.Faces.Values.Select(f => f.Key).OrderBy(k => k, StringComparer.Ordinal).ToArray());
-                if (keepsIDs) {
-                    var keys = new HashSet<string>(expectedFaces);
-                    foreach (var t in before.Faces)
-                        if (keys.Contains(t.Value.Key)) Assert.Equal(t.Value.Key, after.Faces[t.Key].Key);
-                }
+                    if (keys.Contains(t.Value.Key)) Assert.Equal(t.Value.Key, after.Faces[t.Key].Key);
             }
             CheckTopology(m);
             if (state.Closed) CheckClosed(m);
@@ -787,32 +779,19 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void KnownLimitation_RemoveVertex_SafeRemovalFailsAfterDeletingTriangles()
+        public void RemoveVertex_SafeRemoval_DoesNotDependOnTheOrderOfTheFan()
         {
-            // Known limitation (pinned: a fix turns this test red, then it asserts Ok and an empty star). The center of a
-            // disk of five triangles can be removed: nothing is left that could be a bowtie, and the first guard of
-            // RemoveVertex agrees. But the triangles are then deleted one by one in the order of the vertex's edge list,
-            // which here is not a walk around the fan. After two deletions the next triangle is the middle of the open
-            // fan that is left, RemoveTriangle refuses it, and RemoveVertex returns a failure with two triangles already
-            // gone, against its summary ("checks ... first"). The mesh stays valid, but it is neither the old mesh nor
-            // the result, and whether it happens depends on the order of the edge list.
+            // The center of an open disk of five triangles can be removed. The edge list of the vertex is not a walk around
+            // the fan: checked triangle by triangle, the removal failed halfway with two triangles gone.
             var mesh = new DMesh3();
             Vector3d[] points = { Vector3d.Zero, new Vector3d(1, 0, 0), new Vector3d(1, 1, 0),
                 new Vector3d(0, 1, 0), new Vector3d(-1, 0, 0), new Vector3d(0, -1, 0) };
             foreach (Vector3d p in points) mesh.AppendVertex(p);
             int[][] disk = { new[] { 1, 2 }, new[] { 4, 5 }, new[] { 2, 3 }, new[] { 3, 4 }, new[] { 5, 1 } };
             foreach (int[] rim in disk) Assert.True(mesh.AppendTriangle(0, rim[0], rim[1]) >= 0);
-            // the same removal without the step-by-step guard ends in a valid mesh
-            var unguarded = new DMesh3(mesh);
-            Assert.Equal(MeshResult.Ok, unguarded.RemoveVertex(0, true, false));
-            Assert.Equal(0, unguarded.TriangleCount);
-            CheckTopology(unguarded);
-
-            MeshResult result = mesh.RemoveVertex(0, true, true);
-
-            Assert.Equal(MeshResult.Failed_WouldCreateBowtie, result);
-            Assert.True(mesh.IsVertex(0));
-            Assert.Equal(new[] { 1, 3, 4 }, Sorted(mesh.TriangleIndices()));
+            Assert.Equal(MeshResult.Ok, mesh.RemoveVertex(0, true, true));
+            Assert.False(mesh.IsVertex(0));
+            Assert.Equal(0, mesh.TriangleCount);
             CheckTopology(mesh);
         }
     }

@@ -403,9 +403,6 @@ different exact input solids. `TwoTriangularPrisms_RoundedRotationWithoutVoid_Fo
 pins the other observed rounding and requires a clean, closed single-component result. The limitation
 assertions are unchanged; there is no runtime-conditional expected outcome.
 
-**`DMesh3.RemoveVertex` (October 2026):** known failure, pinned in `KnownLimitation_RemoveVertex_SafeRemovalFailsAfterDeletingTriangles`:
-with `bPreserveManifold`, a removal that is safe can return `Failed_WouldCreateBowtie` after it deleted triangles.
-
 ## 3. Performance
 
 ### 3.1 Micro benchmarks with regression detection
@@ -448,10 +445,15 @@ not depend on the implementer's own tests. Order of priority:
 7. **Reproducible claims**: every number in a PR cites the command and attaches the raw output; the reviewer re-runs
    a sample (as `benchmarks/BooleanComparison/perf/` already allows).
 8. **Changed-line coverage gate**: new or changed lines must be executed by tests.
-9. **Property-based tests with shrinking** (CsCheck, MIT, or FsCheck, BSD), generalizing `MeshMinimizer`.
+9. **Property-based tests with shrinking** (CsCheck, Apache-2.0, or FsCheck, BSD), generalizing `MeshMinimizer`.
+   Boolean test-only implementation: [plan](design/BOOLEAN_PROPERTY_TESTS.md), with parameter-level shrinking and
+   replay; proposed CsCheck campaigns on net10.0, deterministic regressions also on net48. Not implemented yet.
 10. **Metamorphic relations beyond similarity**: vol(A∪B) = vol A + vol B - vol(A∩B); (A-B) ∪ (A∩B) = A;
     commutativity; subdividing input triangles or permuting triangle / vertex order leaves the result geometry
-    unchanged; terrain: never steeper, cut + fill consistent; 2D meshing: input segments are unions of output edges.
+    unchanged. The [Boolean plan](design/BOOLEAN_PROPERTY_TESTS.md) includes independent analytic box oracles,
+    triangulation-independent comparisons and orientation-preserving transformations, without changes to
+    `ExactMesh*`. Other modules: terrain: never steeper, cut + fill consistent; 2D meshing: input segments are
+    unions of output edges.
 11. **Cross-platform determinism**: the bit-identity hashes weekly on Windows and arm64, and the net48 tests (not only
     the build) on a Windows runner.
 12. **Tool-checked error bounds**: new floating-point filter bounds also derived with FPTaylor (MIT) and compared in
