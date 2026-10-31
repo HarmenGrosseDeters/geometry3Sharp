@@ -198,7 +198,7 @@ selectively.
 - [ ] Verifiable agent work ([QA.md 4a](QA.md#4a-making-agent-work-verifiable)): first the machine checks (new tests fail
   on old code, package validation against 1.0.324, banned APIs in exact code), together with a mutation shard per new
   robustness-critical module (the runs on PRs are incremental: tests/mutation/README.md). Acceptance
-  against references for the 2D meshing ([strategy](design/ACCEPTANCE_STRATEGY.md), proposal). The other items go with the modules they touch.
+  against references for the 2D meshing ([strategy](design/ACCEPTANCE_STRATEGY.md)). The other items go with the modules they touch.
 
 ## Release: when it's done
 

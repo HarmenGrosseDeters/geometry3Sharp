@@ -59,7 +59,7 @@ Every worker session gets a brief with these fields, and nothing open-ended:
 
 ## 5. Acceptance against references (tier L)
 
-[Strategy](design/ACCEPTANCE_STRATEGY.md), a proposal for the owner to decide on: an oracle by definition that shares no code with the
+[Strategy](design/ACCEPTANCE_STRATEGY.md): an oracle by definition that shares no code with the
 implementation, a differential against other libraries, then a golden master of accepted results. Independence comes from those references, not
 from secret tests, which a public repository cannot keep.
 

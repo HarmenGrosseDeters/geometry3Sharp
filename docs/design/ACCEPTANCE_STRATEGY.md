@@ -1,6 +1,6 @@
 # Acceptance of spec-driven work: references and golden masters
 
-Status: proposal, for the owner to decide on. It replaces the plan for hidden acceptance tests by separate authors (#202). That plan needs
+Status: accepted by the owner on 2026-10-31, nothing of it is implemented yet. It replaces the plan for hidden acceptance tests by separate authors (#202). That plan needs
 isolated authors, and this repository is public, with the quadtree implementation and its tests on `origin/quadtree`: the authors
 could read them, and nobody could tell. Independence now comes from references the implementer cannot bend: mathematics and other libraries.
 
@@ -28,17 +28,20 @@ Inputs are procedural, with integer or dyadic coordinates. No mesh files in the 
 | Milestone | Reference | What must agree |
 |---|---|---|
 | M1 Delaunay of points | NetTopologySuite (BSD), in the benchmark project | General position: the triangulation is unique, so **the same triangle set**. Cocircular ties: only that both are valid |
-| M2 constrained Delaunay | `Triangle.NET`, owner only (below) | The same, in general position with a unique result |
-| M3 refinement | `Triangle.NET`, owner only | Not unique, so only metrics: triangle count within a stated factor, minimum angle, protected segments, area |
+| M2 constrained Delaunay | `Triangle.NET`, through a separate session (below) | The same, in general position with a unique result |
+| M3 refinement | `Triangle.NET`, through a separate session | Not unique, so only metrics: triangle count within a stated factor, minimum angle, protected segments, area |
 | Quadtree | Brute force (exists), NetTopologySuite (exists), the owner's old quadtree per `QUADTREE2D_SPEC.md` section 5 | The same result sets by identity; timing and memory on the owner's machine |
 
 **License.** `Triangle.NET` is publicly reachable (fork `HarmenGrosseDeters/Triangle.NET` of `wo80/Triangle.NET`), but that does not make it free to use: GitHub detects no license,
 and its README states an unclear licensing situation, with Shewchuk's original under a proprietary license, and for that reason no NuGet package. So it is no dependency of this repository,
 no build step in its CI, and nothing is copied from it. Should the owner's review find that black-box use is not acceptable, M2 and M3 rely on sections 2 and 4 alone, and the metrics of section 3 are dropped.
 
-**Clean room.** Agents never read `Triangle.NET` or its source. Only the owner runs it, with a small tool outside this repository. The tool reads the
-procedural case descriptions and writes one JSON row per case: triangle count, order-independent fingerprint of triangles and subsegments,
-minimum angle, area, status. Only those rows enter the repository. Fingerprints reveal no algorithm. Whether publishing such results is acceptable is for the owner to confirm before the first rows are committed.
+**Reference session (owner decision 2026-10-31; planned, not started).** A separate session, which implements nothing here, runs `Triangle.NET` as a black box on procedural cases
+and on public data, pinned by URL and hash. It writes one JSON row per case: triangle count, order-independent fingerprint of triangles and subsegments, minimum angle, area, status.
+
+- Only the rows and the input descriptions leave that session; no code, no mesh files, and no notes about how `Triangle.NET` works.
+- Sessions that implement the mesher never read `Triangle.NET`, its source, or that session's transcript. The clean-room rule stands.
+- The rows go into the repository only after the owner has confirmed that publishing them is acceptable, given the license situation above.
 
 ## 4. Golden master
 
@@ -58,7 +61,7 @@ owner's scope, or blocked with a reason. The D cases of the quadtree are simple 
 ## 6. Where to spend it
 
 - **Quadtree: nothing new.** It is easy to test, and brute force is a complete oracle. What stays open is the side-by-side on the owner's machine.
-- **Triangulation: this is where it pays off.** Order: M1 differential against NetTopologySuite as the pilot, then the golden subset for M1. `Triangle.NET` rows follow with M2.
+- **Triangulation: this is where it pays off.** Order: M1 differential against NetTopologySuite as the pilot, then the golden subset for M1. The reference session follows with M2.
 
 **Stop rule for the pilot:** it is one small PR. If it costs more than the benchmark work it replaces, or NetTopologySuite turns out to be unusable as a reference, stop and report that,
 rather than building the rest. A pilot that finds no difference is still a result: the oracle and the differential then run on every later change.

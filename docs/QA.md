@@ -440,7 +440,7 @@ not depend on the implementer's own tests. Order of priority:
    parallel floating-point reductions in `math/Exact*`, `math/AdaptivePredicates.cs` and `mesh_ops/ExactMesh*`;
    warnings as errors there.
 4. **Acceptance against references**: for spec-driven work, an oracle by definition, a differential against other libraries, and a golden
-   master of accepted results ([strategy](design/ACCEPTANCE_STRATEGY.md), proposal).
+   master of accepted results ([strategy](design/ACCEPTANCE_STRATEGY.md)).
 5. **Quality ratchet in CI**: a small fixed benchmark subset with stored metrics (JSON: clean results, max
    deviation, self-intersections); a worse number fails the build.
 6. **Same-runner performance A/B**: base and head alternate on one runner, with spread; a regression above a
