@@ -168,6 +168,21 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void MinCircle_Needle_InEveryOrder_IsItsCircumcircle()
+        {
+            // An acute needle: only its smallest angle is tiny, and the circle through all three points is the minimal
+            // one. Center (c, 0) with c^2 = (1 - c)^2 + (d/2)^2, so radius c = 1/2 + d^2/8. The two-point circles leave
+            // a point outside by about d^2/2, far above this tolerance, whichever order the points come in.
+            const double d = 1e-6;
+            Vector2d a = new Vector2d(0, 0), b = new Vector2d(1, d / 2), c = new Vector2d(1, -d / 2);
+            foreach (Vector2d[] points in new[] {
+                new[] { a, b, c }, new[] { a, c, b }, new[] { b, a, c }, new[] { b, c, a }, new[] { c, a, b }, new[] { c, b, a } }) {
+                Circle2d result = new ContMinCircle2(points).Result;
+                Assert.True(Math.Abs(result.Radius - (0.5 + d * d / 8)) <= 16 * MathUtil.Epsilon, $"radius {result.Radius}");
+            }
+        }
+
+        [Fact]
         public void MinCircle_RepeatedRuns_BitIdentical()
         {
             Vector2d[] points = RandomPoints(5, 200);
