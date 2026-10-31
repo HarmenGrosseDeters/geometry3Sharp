@@ -69,7 +69,9 @@ namespace geometry3Sharp.Tests.Spatial
         {
             // An axis that is not cut must not divide the items between two children that cover the same region.
             var visitor = new OccupiedRegions { Regions = new List<AxisAlignedBox2d>() };
-            new LooseQuadtree2d(Row(100000), false).Traverse(ref visitor);
+            // Centres on both sides of the middle of the uncut axis, so that the items would divide.
+            AxisAlignedBox2d[] row = Enumerable.Range(0, 100000).Select(i => new AxisAlignedBox2d(i, i % 2 == 0 ? 0 : 0.5, i + 1, i % 2 == 0 ? 0.5 : 1)).ToArray();
+            new LooseQuadtree2d(row, false).Traverse(ref visitor);
             Assert.True(visitor.Regions.Count > 100);
             Assert.Equal(visitor.Regions.Count, visitor.Regions.Distinct().Count());
         }
@@ -297,6 +299,36 @@ namespace geometry3Sharp.Tests.Spatial
             System.Numerics.BigInteger a = Scaled(x), b = Scaled(y), t = Scaled(tolerance);
             return (a * a + b * b).CompareTo(t * t);
         }
+
+        // ---- heights on the diagonal of a grid TIN
+
+        [Theory]
+        [InlineData(0.5, 0.5, 3.0)]
+        [InlineData(0.25, 0.25, 2.0)]
+        [InlineData(0.75, 0.75, 4.0)]
+        public void HeightOnADiagonal_IsRight_AtEveryPosition(double x, double y, double expected)
+        {
+            foreach (double offset in new[] { 0.0, 2539000.0, -700.0 }) {
+                var tree = new TriangleQuadtree2d(new[] { new Triangle3d(new Vector3d(offset, offset, 1), new Vector3d(offset + 1, offset, 2), new Vector3d(offset + 1, offset + 1, 5)) });
+                Assert.True(tree.TryGetHeight(new Vector2d(offset + x, offset + y), out double height, 0));
+                Assert.Equal(expected, height, 9);
+            }
+        }
+
+#if NET10_0_OR_GREATER
+        [Fact]
+        public void HeightOnADiagonal_DoesNotAllocate()
+        {
+            var tree = new TriangleQuadtree2d(new[] { new Triangle3d(new Vector3d(0, 0, 1), new Vector3d(1, 0, 2), new Vector3d(1, 1, 5)) });
+            var point = new Vector2d(0.5, 0.5);
+            double height = 0;
+            for (int i = 0; i < 2000; ++i) tree.TryGetHeight(point, out height, 0);
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            for (int i = 0; i < 2000; ++i) tree.TryGetHeight(point, out height, 0);
+            Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
+            Assert.Equal(3, height);
+        }
+#endif
 
         // ---- nearest: ties and the tolerance height
 

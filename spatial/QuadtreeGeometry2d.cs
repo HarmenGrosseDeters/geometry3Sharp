@@ -126,6 +126,12 @@ namespace g3
             return (left != 0 || right != 0) &&
                 Math.Abs(left - right) <= 1e-12 * (Math.Abs(left) + Math.Abs(right));
         }
+        // A barycentric numerator near zero, as for a point on a diagonal of a grid TIN. Its rounding error matters only
+        // if the terms are large against the determinant: otherwise it moves the height by a few ulps of the largest z.
+        static bool UncertainCoordinate(double left, double right, double determinant)
+        {
+            return UncertainDifference(left, right) && Math.Abs(left) + Math.Abs(right) > 4 * Math.Abs(determinant);
+        }
         internal static double SegmentDistance(Vector2d p, Vector2d a, Vector2d b)
         {
             double dx = b.x - a.x, dy = b.y - a.y;
@@ -204,7 +210,7 @@ namespace g3
                 LostProduct(ay, bx, right) || UncertainDifference(left, right) ||
                 LostProduct(px, by, uLeft) || LostProduct(py, bx, uRight) ||
                 LostProduct(ax, py, vLeft) || LostProduct(ay, px, vRight) ||
-                UncertainDifference(uLeft, uRight) || UncertainDifference(vLeft, vRight)) return ExactHeight(t, p);
+                UncertainCoordinate(uLeft, uRight, determinant) || UncertainCoordinate(vLeft, vRight, determinant)) return ExactHeight(t, p);
             double u = (uLeft - uRight) / determinant;
             double v = (vLeft - vRight) / determinant;
             if (LostRange(uLeft - uRight, u) || LostRange(vLeft - vRight, v)) return ExactHeight(t, p);
