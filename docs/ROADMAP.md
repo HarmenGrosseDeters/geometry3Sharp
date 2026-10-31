@@ -248,7 +248,7 @@ Open tasks further up, and work further down, in the code or in the research lis
     spec [design/QUADTREE2D_SPEC.md](design/QUADTREE2D_SPEC.md) (owner decisions in its §7) and the literature only;
     targets 1M triangles built in about 100-260 ms, height query about 2.5 µs, on net48 and net8. Comes after the
     `ExactMeshBoolean` work and before terrain phase 1; may speed up the height-field check of
-    `TerrainVolumeDifference`.
+    `TerrainVolumeDifference`. Implemented, on `quadtree-takeover` (#195): see the record in the spec. Open: the timing, memory and side-by-side comparison on the owner's machine.
   - [ ] Public exact 2D meshing (constrained / conforming Delaunay, quality refinement with a size function, holes
     and regions by ring, snap rounding to an output grid), a clean-room replacement for Triangle.NET: from the
     behavioural spec [design/MESHING2D_SPEC.md](design/MESHING2D_SPEC.md) (owner decisions in its §5) and the

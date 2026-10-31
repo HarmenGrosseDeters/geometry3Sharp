@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFrameworks>net10.0</TargetFrameworks>
+    <TargetFrameworks Condition="'$(OS)' == 'Windows_NT' Or '$(TestNet48)' == 'true'">net10.0;net48</TargetFrameworks>
+    <LangVersion>latest</LangVersion>
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\geometry3Sharp_netstandard.csproj" />
+    <PackageReference Include="NetTopologySuite" Version="2.6.0" />
+    <Compile Remove="Tests\**\*.cs" />
+    <InternalsVisibleTo Include="geometry3Sharp.Tests" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net48'">
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+</Project>

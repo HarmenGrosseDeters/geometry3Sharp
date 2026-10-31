@@ -1,6 +1,6 @@
 # 2D Spatial Index (Quadtree) — Behavioural Specification
 
-Status: draft for review by the repository owner. Written as the *specification side* of a
+Status: owner decisions and first-version implementation brief approved (October 2026). Written as the *specification side* of a
 clean-room process. The owner has an existing 2D quadtree whose origin is under a licence that is
 not compatible with this library (CPOL), and which lives in an employer code base. This document
 describes **observable behaviour, test situations and performance targets only**. It says nothing
@@ -288,3 +288,100 @@ decision wins.
 | Q-7 | The index **complements** the existing structures (`PointHashGrid2d`, `SegmentHashGrid2d`, `TriangleBinsGrid2d`, `Polygon2dBoxTree`); nothing is replaced. It stores AABBs with integer ids; triangles, edges and points are thin adapters (eg over `DMesh3`, `DGraph2`, point lists). |
 | Q-8 | Nearest-neighbour and k-nearest queries are **in the first version**. |
 | Q-9 | Tolerance and proximity queries are **complete** for every item satisfying the geometric rule; the windows stated in 2.1 and 2.3 drop out. |
+
+## 8. Approved first-version implementation brief
+
+Tier L. Implement the core and point, segment and triangle adapters in this topic; do not replace
+existing indexes, modify exact arithmetic, use the old implementation, or implement domain-specific
+edge helpers. Sources are this specification and published loose-quadtree / spatial-search literature.
+
+* `LooseQuadtree2d` owns AABB snapshots with stable, monotonically increasing insertion IDs.
+  Construction accepts `IReadOnlyList<AxisAlignedBox2d>` and `bool parallelBuild = true` (execution
+  policy, not a structure tuning option). The empty constructor is supported. Fixed internal
+  looseness, bucket capacity and depth limit are exposed as read-only construction properties.
+* `Count`, `Extent`, `Insert(box) -> int`, `Remove(int) -> bool`, `Remove(box) -> bool`,
+  `GetBounds(int) -> AxisAlignedBox2d`, `ContainsId(int) -> bool`. Extent grows on insertion;
+  removal does not shrink it. Value removal removes the first matching live snapshot.
+* `QueryRectangle(box, List<int>)` and `QuerySegment(a, b, List<int>)` clear the supplied result
+  list and fill it with IDs. Segment broad-phase uses the closed AABB enlarged by 0.0002.
+* `Traverse<TVisitor>(ref TVisitor)` where `TVisitor : struct, IQuadtreeVisitor2d` uses
+  `bool TestRegion(AxisAlignedBox2d)` and `bool Visit(int)`; `Visit` returning true stops traversal.
+  Traversal returns true iff stopped. No shared query scratch state; nested queries are supported.
+* `FindNearest(point, double maxDistance = double.PositiveInfinity) -> int` returns -1 if empty
+  or no hit; `FindNearestK(point, int k, List<int>, double maxDistance = double.PositiveInfinity)`
+  returns distance-ordered IDs, ties by ID. Core distance is Euclidean distance to the closed AABB.
+  Generic overloads accept `ref TDistance` before the optional maximum distance, constrained to
+  `struct, IQuadtreeDistance2d` with `double Distance(int id)` for adapter geometry distances;
+  this distance must be at least the point-to-AABB distance. k = 0 clears results; negative k errors.
+* `PointQuadtree2d`, `SegmentQuadtree2d`, `TriangleQuadtree2d` own snapshots supplied respectively
+  as `IReadOnlyList<Vector3d>`, `IReadOnlyList<Segment3d>`, `IReadOnlyList<Triangle3d>` (optional
+  parallel-build flag). They expose Count, Extent, GetItem(id), Insert(item), Remove(id), Remove(item),
+  ContainsId(id), core rectangle/segment queries and traversal, and geometry-distance nearest queries.
+  They do not automatically follow edits to source meshes or lists.
+* Point adapter: `QueryNearby(Vector2d point, double tolerance, List<int> results)`.
+  Segment adapter: `QueryPoint(Vector2d point, double tolerance, List<int> results,
+  bool excludeEndpoints = false, bool stopAfterFirst = false)` and
+  `QueryIntersections(Vector2d a, Vector2d b, List<int> results)`; intersections include touching,
+  collinear overlap, duplicate and zero-length segments. Endpoint exclusion uses the same tolerance.
+  Callers obtain geometry via GetItem; domain-specific z/snapping policies remain outside this API.
+* Triangle adapter: `QueryHeights(Vector2d point, List<QuadtreeHeightHit2d> results,
+  double tolerance = 0.01, bool stopAfterFirst = false)` and
+  `TryGetHeight(Vector2d point, out double height, double tolerance = 0.01)`.
+  Hits have `int Id`, `double Height`. Exact containment uses existing exact orientation predicates;
+  exact hits take precedence over all tolerance hits. Tolerance is absolute XY distance to the
+  triangle and is complete. Degenerate triangles never yield heights. Tolerance hits extrapolate
+  the affine height plane (not a clamped boundary height).
+* Reject non-finite input coordinates/bounds, inverted boxes, negative/NaN tolerances and invalid
+  query arguments before modifying index state. Positive infinity is allowed only as nearest-query
+  maximum distance. Failed insertion does not consume an ID. Invalid GetItem/GetBounds IDs throw.
+* Query lists belong to the caller and must not be shared between concurrent queries. With sufficient
+  list capacity, hot rectangle, segment, nearby-point and ordinary height queries allocate no managed memory.
+  Owner clarification: robust numeric fallbacks for extreme or nearly degenerate geometry may allocate;
+  preserving correctness takes precedence over zero-allocation in these cases. A height outside the finite
+  double range throws `ArithmeticException`, never returns a successful non-finite height. On a query
+  exception a caller-owned result buffer may contain partial results; the index is unchanged.
+  Geometry-distance interpolation must not claim exact construction; orientation classification is exact.
+
+Acceptance: independent spec-derived tests for D-1, D-2, D-4 through D-7; D-3 via segment point
+queries; brute-force query-set and nearest oracles; growth/removal, degenerate and duplicate data;
+parallel/serial and nested queries; all applicable Similarity.All() transformations (XY projection
+for the 2D domain, distances scaled); mutation checks. Benchmark procedural data from section 4.2
+against a brute-force baseline, recording commands and observed outputs, without claiming the owner's
+hardware targets or side-by-side compatibility have been verified. Review spatial pruning and numeric
+bounds independently. Stop after the complete first version, tests, benchmark and independent review;
+no push or merge is part of this task.
+
+## 9. Implementation record
+
+`spatial/LooseQuadtree2d.cs`, `PointQuadtree2d.cs`, `SegmentQuadtree2d.cs`, `TriangleQuadtree2d.cs`, and the internal `QuadtreeGeometry2d.cs` and `QuadtreeExactQuery2d.cs`. Sources: [SOURCES.md](../SOURCES.md). Usage: [OPERATIONS.md](../OPERATIONS.md). Numbers: [benchmark README](../../benchmarks/QuadtreeBenchmark/README.md).
+
+### Where the code differs from section 8, and why
+
+Independent reviews on 2026-10-31 found these. The ones of the first review were reproduced in C# before the change, and for the second review a test now holds each one.
+
+| Section 8 | Now | Why |
+|---|---|---|
+| `SegmentQuadtree2d` owns `Segment3d` snapshots | It owns endpoints. Also built from vertices and edges; `Insert(a, b)`, `Remove(a, b)`, `GetEndpoints`. `Segment3d` stays accepted | `Segment3d` keeps a center, a normalized direction and an extent, so `P0` and `P1` are rounded, depending on z too. On a jittered UTM grid, 43 % of the segments missed a point query at their own start vertex. `GetItem` now rebuilds a `Segment3d` from the endpoints, so it can differ in the last bits, and `Remove` accepts it. It throws `ArithmeticException` for endpoints a `Segment3d` cannot hold: a difference above about 1e154, or a length too small to normalize. A `Segment3d` input keeps its rounded endpoints: only building from endpoints gives exact ones |
+| Fixed internal depth limit | 64, was 32 | One far outlier flattened the tree: 100000 items visited instead of 15. Above an extent ratio of about 2^64 this still happens, with right results |
+| Regions recursively quartered | A cell more than twice as long as wide is cut across its length only | One row of a TIN stayed at the root, as cells kept the shape of the extent |
+| Extent grows on insertion | `Extent` still reports the items' bounds, but the root region grows geometrically | Every insert beyond the extent rebuilt the tree: 40000 sorted points took 90 s. A tree grown this way has a root larger than `Extent` |
+| Tolerance is absolute and complete | Exact at the tolerance: exact squares decide where the rounded distance is within its error of it. That error follows the size of the cancelled terms, not only the tolerance | A point at distance exactly 3 was refused at tolerance 3, and points near long segments were misjudged both ways. The nearest order of nearly collinear segments stays rounded |
+| Ties by ID | Nearest pruning leaves 1e-15 of room | A rounded item distance can fall below the rounded distance to its box, and the tie then went by visiting order. Ties are between computed distances, so geometric ties can still differ in rounding |
+| Tolerance hits extrapolate the plane, not a clamped boundary height | The height at the nearest point of the boundary (owner decision, 2026-10-31) | Beside a sliver the plane leaves the z range by any factor: `(0,0,0), (10,0,0), (5,1e-6,100)` at `(5, 0.01)` gave about 1e6, and now gives 100 |
+| "a triangle within tolerance" (2.1) | `TryGetHeight` and `stopAfterFirst` take the nearest triangle within tolerance, the lowest ID on a tie | The result depended on the traversal, so on how the tree was built |
+| "all equal for a consistent TIN" (2.1) | Equal at shared vertices. On a shared edge, heights agree up to rounding | This cannot hold for rounded interpolation |
+
+The core rejects nothing new. Removal by value and by ID no longer scans. A cell of equal items is not split, as cutting cannot separate them. Points on a diagonal of a grid TIN no longer take the exact path (17 us and 8 KB per call before), unless the z difference dwarfs the height, as next to a spike.
+
+### Limits that stay
+
+- An exact hit is the first found in the traversal. For overlapping surfaces, ask `QueryHeights`.
+- IDs are never reused and removal does not compact. A long insert and remove loop grows memory, and `Extent` never shrinks, even after removing an outlier.
+- Mutating the tree during a traversal is not supported and not detected.
+- The margin of 2e-4 and the default tolerance of 0.01 are absolute (owner decision, Q-3): results at these thresholds change with scale, unlike the rest of the library. Tests compare them against the definition instead of bit for bit.
+- Triangles thinner than a relative determinant of 1e-9 take the exact path. Above that, a rounded height keeps an error that grows towards the threshold.
+- Only the four quadrants of the root build in parallel, so data in one quadrant builds serially.
+
+### Verification
+
+The tests cover the D cases, brute-force oracles for all queries, random operation sequences against a scan (`QuadtreeStateStressTests`), and `Similarity.All()`. Records of the abandoned sessions were dropped, as they described older code. The state of the gates is in the PR. Open for the owner: the timing, memory and side-by-side comparison of section 5.

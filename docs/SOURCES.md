@@ -4,6 +4,27 @@ geometry3Sharp is under the Boost Software License. New code in this fork is wri
 no code is taken over from other libraries unless it is under a compatible permissive license and named here.
 Code under the GPL or LGPL (eg CGAL) is never used as a source.
 
+## 2D loose quadtree (`LooseQuadtree2d`, point / segment / triangle adapters)
+
+Clean-room implementation from [QUADTREE2D_SPEC.md](design/QUADTREE2D_SPEC.md) and published
+spatial-indexing concepts; no code copied or inspected from the owner's index, Triangle or Triangle.NET.
+
+| Part | Source |
+|---|---|
+| Loose cells for extended objects; hierarchical spatial indexing | H. Samet, J. Sankaranarayanan, M. Auerbach, *Indexing methods for moving object databases*, SIGMOD 2013, [doi:10.1145/2463676.2465332](https://doi.org/10.1145/2463676.2465332); H. Samet, *Foundations of Multidimensional and Metric Data Structures*, 2006 |
+| Closed segment–box interval clipping | Y.-D. Liang, B. A. Barsky, *A New Concept and Method for Line Clipping*, ACM TOG 1984 |
+| Distance lower-bound pruning for nearest-neighbour search | N. Roussopoulos, S. Kelley, F. Vincent, *Nearest Neighbor Queries*, SIGMOD 1995 |
+| Exact XY containment / segment intersection signs | Existing `ExactPredicates.Orient2d` (Shewchuk 1997; see below); no new orientation arithmetic filter or error bound |
+| Ambiguous clipping; overflow-distance ordering; range-loss construction fallbacks | Own rational arithmetic on binary64 coordinates represented as integers in units of 2^-1074; interval comparison by cross multiplication, squared point/segment distances, affine determinants and exact squared-midpoint rounding for subnormal distances. No external implementation inspected |
+
+The procedural benchmark compares against independent brute-force scans and the public STRtree and Quadtree APIs of
+[NetTopologySuite 2.6.0](https://www.nuget.org/packages/NetTopologySuite/2.6.0). It is a pinned benchmark/test-only
+NuGet dependency, not a geometry3Sharp library dependency or a source for the clean-room index.
+The [release license](https://github.com/NetTopologySuite/NetTopologySuite/blob/v2.6.0/License.md) is BSD-3-Clause;
+its JTS-derived content is available under the permissive BSD-style Eclipse Distribution License option.
+Only public API documentation and licensing were consulted; no implementation was ported. Ordinary-coordinate
+benchmark predicates and comparison limits are documented in the [benchmark README](../benchmarks/QuadtreeBenchmark/README.md).
+
 ## Exact mesh booleans (`ExactMeshBoolean`, `ExactMeshArrangement`, `ExactPlanarSimplify`, `ExactTriangulation2`, `ExactPoint3`, `ExactPredicates`)
 
 Implemented from the papers, no code taken over.

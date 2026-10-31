@@ -198,6 +198,58 @@ See [MeasurementsExample](examples/MeasurementsExample.cs), [SpatialQueriesExamp
 [PointQueriesExample](examples/PointQueriesExample.cs), [OffsetSurfaceExample](examples/OffsetSurfaceExample.cs)
 and [DistancesExample](examples/DistancesExample.cs).
 
+### 2D loose quadtree
+
+`LooseQuadtree2d` stores AABB snapshots with stable integer IDs. `PointQuadtree2d`,
+`SegmentQuadtree2d` and `TriangleQuadtree2d` store points, segment endpoints and triangles
+as snapshots and query their XY geometry; z is used only for triangle-height interpolation.
+They complement the existing grids and do not follow changes to source meshes or lists.
+
+```csharp
+var tree = new TriangleQuadtree2d(triangles);
+var ids = new List<int>(128);
+tree.QueryRectangle(new AxisAlignedBox2d(0, 0, 20, 20), ids);
+tree.FindNearestK(new Vector2d(10, 10), 4, ids);
+bool found = tree.TryGetHeight(new Vector2d(10, 10), out double height, tolerance: 0.01);
+```
+
+* Bulk IDs are input positions; insertion returns a new ID and grows the extent, even for an
+  initially empty tree. Removal never renumbers IDs or shrinks the extent. Removing a value removes
+  its first live equal snapshot. Missing removals are no-ops. Failed input validation consumes no ID.
+* Rectangle queries return exact inclusive AABB intersections. Core segment queries clip against
+  AABBs enlarged by 0.0002 coordinate units; they are candidates, not exact geometry intersections.
+  `SegmentQuadtree2d.QueryIntersections` tests actual closed segments, including collinear overlap
+  and touching. `QueryPoint` supports absolute tolerance and optional endpoint exclusion / early stop.
+  Build it from vertices and edges, or `Insert(a, b)`, when queries must hit the endpoints exactly: a `Segment3d`
+  rounds them, depending on z too. `GetEndpoints` returns them as stored. `GetItem` rebuilds a `Segment3d`, which
+  `Remove` accepts, and throws `ArithmeticException` for endpoints a `Segment3d` cannot hold.
+* `PointQuadtree2d.QueryNearby` uses inclusive Euclidean XY distance, not a per-axis tolerance.
+* Height hits use exact orientation signs for containment and absolute XY distance for tolerance.
+  All exact hits take precedence over tolerance hits, including when stopping after the first result.
+  One result from tolerance comes from the nearest triangle, the lowest ID on a tie.
+  Zero-area triangles produce no height. A point beside a triangle gets the height at the nearest point of its
+  boundary, so it stays in the triangle's z range. Height construction is floating point, not an exact predicate. Robust fallbacks
+  for extreme or nearly degenerate inputs, and for a distance within rounding of the tolerance, may allocate; ordinary
+  hot queries with reserved buffers do not. An unrepresentable height throws `ArithmeticException`, not a successful infinity result. A
+  query exception can leave partial buffer results; the index itself remains unchanged.
+* Nearest queries measure distance to AABBs in the core, actual XY geometry in the adapters.
+  No hit returns -1; k-nearest results are sorted by distance, ties by insertion ID. An inclusive
+  maximum distance may restrict either query. Removed items never participate.
+* Every result-buffer query clears its output first. Reserve enough capacity to avoid list growth.
+  Concurrent and nested read-only queries use independent caller-owned buffers; inserts/removals
+  must not overlap queries. Struct visitors (`IQuadtreeVisitor2d`) allow allocation-free traversal:
+  `TestRegion` prunes a region and `Visit` returning true stops at a real caller-defined hit.
+  Built-in nearest metrics compare exact squared distances when floating-point distances overflow;
+  ID ordering then breaks only actual ties. Custom nearest metrics (`IQuadtreeDistance2d`) must never
+  be smaller than point-to-item-AABB distance; their returned double values define ties, including infinity.
+* Coordinates must be finite, boxes ordered and tolerances nonnegative and finite. Only a nearest
+  maximum distance may be positive infinity. Construction has fixed internal settings; the optional
+  `parallelBuild` flag changes execution policy, not query semantics.
+
+Runnable example: [QuadtreeQueriesExample](examples/QuadtreeQueriesExample.cs).
+See the [behavioural specification](design/QUADTREE2D_SPEC.md) and the
+[procedural benchmark](../benchmarks/QuadtreeBenchmark/README.md).
+
 ### Intrinsic triangulations
 
 ```csharp

@@ -45,6 +45,12 @@ and for each yes, check that a test covers it. A test must fail on the old code 
 - Products and sums of large values (`1e200 * 1e200`), finiteness checks by summing values (the sum can
   overflow), `ToDouble` of exact values beyond the double range.
 - Error bounds of filters when partial products are subnormal; `ScaleB` and intermediate values.
+- Scaling a finite component or product down to zero: can a lost projection coefficient become significant
+  again when multiplied by a large segment length or height? Exercise mixed exponents, not only uniform scales.
+- Rounded clipping intervals: closed crossings must survive opposite-direction rounding of the two bounds;
+  ambiguous comparisons need a conservative bound and a verified fallback.
+- Distances overflowing to infinity: preserve actual nearest ordering before the stable-id tie break; an
+  infinite approximation is not proof that two finite-input geometries are equally far away.
 - Casts of NaN or infinity to `int` / `long` (undefined result).
 - Every new error bound in `math/Exact*`, `AdaptivePredicates.cs`, implicit points: derived and checked in
   the review.
@@ -85,6 +91,14 @@ and for each yes, check that a test covers it. A test must fail on the old code 
 - Nested loops over all elements of the input (pairs of segments, components, charts): what is the size in
   a realistic large input? Use a grid or tree.
 - Tests: time or candidate counts at n and 4n.
+- Benchmark allocation columns identify the measured scope: current-thread counters do not include parallel
+  workers, and retained heap deltas are neither total allocations nor peak memory. Compare equivalent preprocessing.
+- A type that stores a derived form rounds its input: `Segment3d` keeps a center, a direction and an extent, so `P0` is not
+  what went in. An index built on it missed its own vertices. Test with non-dyadic inputs through the public constructor.
+- Correct results can hide linear cost: a spatial index that keeps all items at its root answers every query right. Count
+  the visited items on thin strips, far outliers and sorted inserts, rather than timing them.
+- Source rollback can leave incremental-build binaries stale. Force a rebuild and verify binary identities before
+  freezing an A/B candidate; do not label measurements by source changes alone.
 
 ## 11. Compatibility and documentation (#92, #94)
 
