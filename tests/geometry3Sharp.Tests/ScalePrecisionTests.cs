@@ -199,7 +199,8 @@ namespace geometry3Sharp.Tests
         public void MinCircle_ManyRandomSets_EqualBruteForce()
         {
             double tol = 64 * Similarity.Identity.Resolution(2);
-            for (int seed = 100; seed < 1100; ++seed) {
+            // (the old algorithm passed some of these seeds, and failed at 1194 and on 9 of 5000 lattice sets)
+            for (int seed = 100; seed < 3100; ++seed) {
                 Vector2d[] points = RandomPoints(seed, 3 + seed % 12);
                 if (seed % 2 == 0)      // on a lattice: many ties, cocircular and collinear points
                     points = points.Select(p => new Vector2d(Math.Round(p.x * 6) / 6, Math.Round(p.y * 6) / 6)).ToArray();
@@ -210,6 +211,67 @@ namespace geometry3Sharp.Tests
                 foreach (Vector2d p in points)
                     Assert.True(p.Distance(result.Center) <= result.Radius + tol, $"seed {seed}: {p} is outside");
             }
+        }
+
+        [Fact]
+        public void MinCircle_LatticeSetThatTheOldAlgorithmGotWrong()
+        {
+            // the old result had radius 0.2635, with a point 0.16 outside
+            Vector2d[] points = { new Vector2d(1, 2.0 / 3), new Vector2d(2.0 / 3, 5.0 / 6), new Vector2d(1.0 / 3, 0.5),
+                new Vector2d(0.5, 0.5), new Vector2d(2.0 / 3, 1.0 / 3) };
+            Circle2d expected = BruteForceCircle(points, 2);
+            Circle2d result = new ContMinCircle2(points).Result;
+            Assert.True(Math.Abs(result.Radius - expected.Radius) <= 1e-14, $"radius {result.Radius} expected {expected.Radius}");
+            Assert.True(result.Radius > 0.34, $"radius {result.Radius}");
+        }
+
+        [Theory]
+        [InlineData(1e60)]
+        [InlineData(1e-60)]
+        [InlineData(1e80)]
+        [InlineData(1e-80)]
+        public void MinCircle_ExtremeScale_IsStillTheCircumcircle(double scale)
+        {
+            // a product of three squared edges would overflow or underflow here
+            Vector2d[] points = { scale * new Vector2d(0, 0), scale * new Vector2d(1, 0), scale * new Vector2d(0.5, 1) };
+            Circle2d result = new ContMinCircle2(points).Result;
+            Assert.True(Math.Abs(result.Radius / scale - 0.625) <= 8 * MathUtil.Epsilon, $"radius {result.Radius / scale}");
+        }
+
+        [Fact]
+        public void MinCircle_EveryPointIsInside_WithoutAnyTolerance()
+        {
+            foreach (KeyValuePair<string, Vector2d[]> set in PointSets()) {
+                foreach (Similarity s in Similarity.All()) {
+                    var s2 = new Similarity2(s);
+                    Vector2d[] points = set.Value.Select(s2.Apply).ToArray();
+                    Circle2d result = new ContMinCircle2(points).Result;
+                    foreach (Vector2d p in points)
+                        Assert.True(p.Distance(result.Center) <= result.Radius, $"{set.Key}, {s.Name}: {p} is outside");
+                }
+            }
+        }
+
+        [Fact]
+        public void MinCircle_LargeEpsilon_TreatsTrianglesAsCollinear_InEveryOrder()
+        {
+            // An acute triangle with a unique longest edge. With epsilon above any sine, its three points "define no circle":
+            // the circle over the longest edge is used, and the radius grows to reach the apex.
+            Vector2d a = new Vector2d(0, 0), b = new Vector2d(2, 0), c = new Vector2d(1, 1.5);
+            foreach (Vector2d[] points in new[] {
+                new[] { a, b, c }, new[] { a, c, b }, new[] { b, a, c }, new[] { b, c, a }, new[] { c, a, b }, new[] { c, b, a } }) {
+                Circle2d result = new ContMinCircle2(points, 2).Result;
+                Assert.Equal(new Vector2d(1, 0), result.Center);
+                Assert.Equal(1.5, result.Radius);
+            }
+        }
+
+        [Theory]
+        [InlineData(double.NaN, 0.0)]
+        [InlineData(0.0, double.PositiveInfinity)]
+        public void MinCircle_NonFinitePoint_IsRejected(double x, double y)
+        {
+            Assert.Throws<ArgumentException>(() => new ContMinCircle2(new[] { new Vector2d(0, 0), new Vector2d(x, y), new Vector2d(1, 1) }));
         }
 
         [Theory]
@@ -293,6 +355,20 @@ namespace geometry3Sharp.Tests
             Vector3d result = Vector3d.Zero;
             Assert.True(PlaneQuadrics(s, QuadricPoint, Normals(1e-3)).OptimalPoint(ref result), name);
             Assert.False(PlaneQuadrics(s, QuadricPoint, Normals(1e-9)).OptimalPoint(ref result), name);
+        }
+
+        [Fact]
+        public void QuadricOptimalPoint_DifferentPlaneWeights_AreSolvedUpToAFactorOfAbout1e7()
+        {
+            // orthogonal planes with weights w, 1, 1 through (1, 2, 3): det / (trace/3)^3 is about 27 / w^2. The price of a
+            // threshold that also refuses nearly coplanar normals, whose diagonal can look just as uneven.
+            Func<double, QuadricError> planes = w => new QuadricError { Axx = w, Ayy = 1, Azz = 1, bx = -w, by = -2, bz = -3 };
+            Vector3d result = Vector3d.Zero;
+            QuadricError accepted = planes(1e6);
+            Assert.True(accepted.OptimalPoint(ref result));
+            Assert.Equal(new Vector3d(1, 2, 3), result);
+            QuadricError refused = planes(1e8);
+            Assert.False(refused.OptimalPoint(ref result));
         }
 
         [Fact]
@@ -403,6 +479,7 @@ namespace geometry3Sharp.Tests
             Vector3d hit, normal;
             Assert.False(target.RayIntersect(new Ray3d(new Vector3d(1, 2, 10), Vector3d.AxisX), out hit, out normal));
             Assert.Equal(Vector3d.AxisZ, normal);
+            Assert.Equal((Vector3d)Vector3f.Invalid, hit);
         }
 
         [Theory]
@@ -415,6 +492,7 @@ namespace geometry3Sharp.Tests
             Vector3d hit, normal;
             var ray = new Ray3d(new Vector3d(ox, oy, oz), new Vector3d(dx, dy, dz), true);
             Assert.False(target.RayIntersect(ray, out hit, out normal));
+            Assert.Equal((Vector3d)Vector3f.Invalid, hit);
         }
     }
 }

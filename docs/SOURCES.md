@@ -102,6 +102,10 @@ Implemented from the papers, no code taken over.
 | BFF disk mode: exterior angles of the boundary polygon inscribed in a circle (inscribed angle theorem, the longest edge on the major arc if the center lies outside) | elementary geometry; own derivation |
 | ARAP and SLIM with degenerate triangles: mollified cotangents and a flat layout along the longest edge (ARAP), unit springs on the current UV edges in the SLIM proxy | own adaptation of the intrinsic mollification of Sharp & Crane 2020 (see Intrinsic triangulations); the rotations as Procrustes over the edges, O. Sorkine, M. Alexa, *As-Rigid-As-Possible Surface Modeling*, SGP 2007 |
 
+## Minimal enclosing circle (`ContMinCircle2`)
+
+Replaces the WildMagic port. Implemented from the papers, no code taken over: E. Welzl, *Smallest enclosing disks (balls and ellipsoids)*, 1991; R. Seidel's iterative form of the randomized incremental construction.
+
 ## Seams, charts, cones, UV atlas (`MeshDiscCut`, `MeshChartSegmentation`, `ConeFlattening`, `UVOverlap`, `UVAtlasGenerator`)
 
 Implemented from the papers, no code taken over. geometry-central (MIT) and the BFF reference implementation
