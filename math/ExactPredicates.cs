@@ -236,7 +236,7 @@ namespace g3
         internal static int InSphereExact(Vector3d a, Vector3d b, Vector3d c, Vector3d d, Vector3d e) { return insphere_exact(a, b, c, d, e); }
 
         [MethodImpl(JitHints.Optimize)]
-        static BigInteger[] to_integers(params double[] values)
+        internal static BigInteger[] to_integers(params double[] values)
         {
             int n = values.Length;
             long[] mant = new long[n];

@@ -14,7 +14,9 @@ Scenarios (20 000 cases each, fixed seeds):
   (0.5 + i ulp, 0.5 + j ulp) against a line, a circle and a plane through it
 - all of them multiplied by 1, 1e6, 1e-10, 1e-160, 1e-300, 1e150, 1e200
 
-Then the time for 200 000 calls in general position and nearly degenerate.
+Then the time for 200 000 calls in general position and nearly degenerate, and the direct-call timing (ns per call)
+of the hand-written `ExactPredicates` against the generated predicates of the predicate compiler experiment
+(`GeneratedPredicates`, `docs/design/PREDICATE_COMPILER.md`).
 
     dotnet run -c Release                      # g3 and naive double
     dotnet run -c Release -- 5000              # fewer cases

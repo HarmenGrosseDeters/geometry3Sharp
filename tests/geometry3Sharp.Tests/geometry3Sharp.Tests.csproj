@@ -28,6 +28,14 @@
     <Compile Include="..\..\docs\examples\*.cs" Link="DocExamples\%(Filename)%(Extension)" />
   </ItemGroup>
 
+  <!-- the predicate compiler (tools/PredicateCompiler), for the check that math/Generated/GeneratedPredicates.cs is
+       up to date (GeneratedPredicatesTests; .NET only: the compiler uses Math.BitIncrement) -->
+  <ItemGroup Condition="'$(UseNuGetG3)' != 'true' And '$(TargetFramework)' != 'net48'">
+    <Compile Include="..\..\tools\PredicateCompiler\Compiler.cs" Link="PredicateCompiler\Compiler.cs" />
+    <None Include="..\..\tools\PredicateCompiler\predicates.spec" Link="PredicateCompiler\predicates.spec" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\math\Generated\GeneratedPredicates.cs" Link="PredicateCompiler\GeneratedPredicates.cs.txt" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <ItemGroup Condition="'$(UseNuGetG3)' != 'true'">
     <ProjectReference Include="..\..\geometry3Sharp_netstandard.csproj" />
   </ItemGroup>
