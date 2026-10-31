@@ -436,9 +436,8 @@ not depend on the implementer's own tests. Order of priority:
 3. **Banned APIs and analyzers in exact code**: a banned-API analyzer forbids `Math.FusedMultiplyAdd`, `float` and
    parallel floating-point reductions in `math/Exact*`, `math/AdaptivePredicates.cs` and `mesh_ops/ExactMesh*`;
    warnings as errors there.
-4. **Hidden acceptance tests (clean room for tests)**: for spec-driven work (QUADTREE2D_SPEC, MESHING2D_SPEC) a
-   separate agent writes acceptance tests from the spec (worked examples, failure catalogues F-*/D-*); the
-   implementing session may not change them.
+4. **Acceptance against references**: for spec-driven work, an oracle by definition, a differential against other libraries, and a golden
+   master of accepted results ([strategy](design/ACCEPTANCE_STRATEGY.md)).
 5. **Quality ratchet in CI**: a small fixed benchmark subset with stored metrics (JSON: clean results, max
    deviation, self-intersections); a worse number fails the build.
 6. **Same-runner performance A/B**: base and head alternate on one runner, with spread; a regression above a
