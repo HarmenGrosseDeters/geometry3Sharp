@@ -31,10 +31,12 @@
   <ItemGroup Condition="'$(UseNuGetG3)' != 'true'">
     <ProjectReference Include="..\..\geometry3Sharp_netstandard.csproj" />
   </ItemGroup>
-  <!-- the acceptance gates of the 2D mesher: the oracle and what it judges -->
+  <!-- the acceptance gates of the 2D mesher: the oracle, what it judges, and the stored golden rows -->
   <ItemGroup Condition="'$(UseNuGetG3)' != 'true'">
     <ProjectReference Include="..\..\benchmarks\Meshing2Benchmark\Oracle\Meshing2Oracle.csproj" />
     <Compile Include="..\..\benchmarks\Meshing2Benchmark\Candidates\*.cs" Link="Meshing2\Candidates\%(Filename)%(Extension)" />
+    <None Include="..\..\benchmarks\Meshing2Benchmark\golden\*.json" Link="Meshing2\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\docs\design\MESHING2D_GOLDEN_FORMAT.md" Link="Meshing2\MESHING2D_GOLDEN_FORMAT.md" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\docs\design\MESHING2D_CATALOGUE.md" Link="Meshing2\MESHING2D_CATALOGUE.md" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup Condition="'$(UseNuGetG3)' == 'true'">
