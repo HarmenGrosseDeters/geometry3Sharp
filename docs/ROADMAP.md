@@ -241,8 +241,6 @@ Open task from the takeover:
   on old code, package validation against 1.0.324, banned APIs in exact code), together with a mutation shard per new
   robustness-critical module (the runs on PRs are incremental: tests/mutation/README.md). Acceptance
   against references for the 2D meshing ([strategy](design/ACCEPTANCE_STRATEGY.md)). The other items go with the modules they touch.
-  robustness-critical module (the runs on PRs are incremental: tests/mutation/README.md). Hidden
-  acceptance tests for the spec-driven work (2D index, 2D meshing). The other items go with the modules they touch.
   - [ ] Boolean metamorphic and property tests ([implementation plan](design/BOOLEAN_PROPERTY_TESTS.md), QA §4a
     items 9 and 10): volume identities, partition reconstruction, commutativity, vertex/triangle permutation and
     conforming subdivision; CsCheck parameter shrinking and replay. Test-only, no `ExactMesh*` changes. Proposed:
