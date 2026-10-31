@@ -31,6 +31,15 @@
   <ItemGroup Condition="'$(UseNuGetG3)' != 'true'">
     <ProjectReference Include="..\..\geometry3Sharp_netstandard.csproj" />
   </ItemGroup>
+  <!-- the acceptance gates of the 2D mesher: the oracle and what it judges -->
+  <ItemGroup Condition="'$(UseNuGetG3)' != 'true'">
+    <ProjectReference Include="..\..\benchmarks\Meshing2Benchmark\Oracle\Meshing2Oracle.csproj" />
+    <Compile Include="..\..\benchmarks\Meshing2Benchmark\Candidates\*.cs" Link="Meshing2\Candidates\%(Filename)%(Extension)" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UseNuGetG3)' == 'true'">
+    <!-- new in this fork: not testable against the old package -->
+    <Compile Remove="Meshing2\**" />
+  </ItemGroup>
   <!-- dotnet test -p:UseNuGetG3=true runs the tests against the old NuGet package (1.0.324) -->
   <ItemGroup Condition="'$(UseNuGetG3)' == 'true'">
     <PackageReference Include="geometry3Sharp" Version="1.0.324" />
