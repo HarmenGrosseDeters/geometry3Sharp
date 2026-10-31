@@ -38,7 +38,7 @@ hold up is discarded with the owner, not patched until it passes. The stages run
 | 0 to 3 | Done on 2026-10-31: local CI green, the small fixes and the parts of #193 merged, the plans checked. Hidden tests replaced by [references](design/ACCEPTANCE_STRATEGY.md) | | |
 | 4. References | Pilot: M1 against NetTopologySuite. Then the golden subset. The session that produces `Triangle.NET` results is planned, not started (strategy, section 3) | M | 1 session |
 | 5. Quadtree | `quadtree` (#195): independent review, owner-machine performance and memory, side-by-side with the old quadtree | L | 1 large session |
-| 6. Meshing M1 | `feature/meshing2d` (#200): oracle and differential as gates. Only then the M2 design (#201): its recorded approvals are disputed, so question its domain decisions first. An M2 implementation comes after that | L | 1 large session, after stage 5 |
+| 6. Meshing M1 | `feature/meshing2d` (#200): oracle and differential as gates. Only then the M2 design (#201, `docs/meshing2d-m2-design`): its recorded approvals are disputed, so question its domain decisions first. An M2 implementation comes after that | L | 1 large session, after stage 5 |
 | 7. Alpha wrap quality | Owner decision on #199. No recorded policy passes every gate, so its production code is not for merging as it is, and it does not compile as it is. Next step: a bounded look at the failing local patches of the hard-feature policy, no threshold tuning | L | 1 large session, after stage 6 |
 | 8. Planned follow-ups | Boolean property tests, DAP audit and honest terrain metrics, next to any stage from 4 on; the upstream ledger last, because it records what is merged. Terrain phase 1 after stage 5 | S, M | up to 2 sessions |
 
@@ -66,6 +66,21 @@ Open task from the takeover:
   then agree, the behaviour for degenerate and non-finite inputs, and the cost. Only tests call the coplanar path today, so first
   check who needs it. The tests of #193 (`CoplanarTriangleDifferentialTests`, on branch `qa/differential-core-tests`) are a starting
   point; their seeded inputs use half-integers only, so they cannot see these failures.
+
+## Open tasks and where their answer may already be
+
+Open tasks further up, and work further down, in the code or in the research lists, that may solve them. Read the right-hand side before starting the task on the left. Each row is a lead to check, not a result: none of these was tried here.
+
+| Open task | Look at first | What it may give, and what it does not |
+|---|---|---|
+| Exact coplanar triangle clipping (above) | `ExactTriangleIntersection` (exists; closed triangles, built only on `ExactPredicates`) | The yes/no question may be answered already, so `Test()` could use it. Exact output for `Find()` stays open |
+| Open inputs: winding numbers across patches (Phase 2), heuristic without clear gain | Phase 5 #5: Feng & Crane 2024, signed distance from geometry with holes and self-intersections, no repair first | Another way to decide inside and outside for open inputs, in place of tuning the propagation. Feng, Gillespie, Crane 2023 has the integer jumps, but for curves on a surface, so it is a model and not a direct fit for patches in 3D. geometry-central documents a signed heat solver: check its license before reading it |
+| Remeshers leave the input surface, and the quality pass after `SimplifyAlphaWrap` (Phase 2) | Phase 5 #2: envelope containment, which its authors built into two surface remeshers. `MeshEnvelope` is the prototype | A guarantee to stay near the input in every local operation, so quality passes cannot trade away fidelity. It does not by itself prevent self-intersections: the per-operation intersection check stays a separate task |
+| `Reducer`: `MaxDeviation` takes 92-97 % of the time (Phase 5 #2) | The same item | With the two rows above, and the envelope pipeline under Open research questions, one piece of work serves four tasks. So it comes first in Phase 5 once it is scheduled |
+| Remeshing folds walls through each other (Phase 2) | `MeshWallThickness` (exists) for the thickness-aware sizing. Phase 5 #8, continuous collision detection, only if a check of the end state proves not to be enough | Sizing below the local wall thickness uses what we have. Whether a move that passes through a wall can end in a state a static check accepts is to be measured first |
+| Sharp vertices are not pinned (Phase 2) | `MeshCurvature` (exists): angle deficit, handles boundary and bowtie vertices | The measure this task asks for is already there |
+| Golden masters across runtimes ([strategy](design/ACCEPTANCE_STRATEGY.md), section 4) | Open research questions: bit-for-bit determinism | The same problem, seen first in the prism fixtures. What the golden subset finds is material for the question |
+| Boolean property tests (below) | Open research questions: metamorphic testing | Same method. Write them so that the generators can serve both |
 
 ## Phase 1: foundation
 
@@ -157,6 +172,9 @@ Open task from the takeover:
   self-intersections of most remeshed meshes, and the inside-out result of 135363 without `MinTriangleQuality`. Done in
   #159: `MeshRobustRepair.FindDefects` / `NotCleanReasons` report every failed check (`NotCleanReason` keeps the first),
   and the benchmarks write them (eg RemeshBenchmark `not_clean`).
+- [ ] Exact boolean performance, ranked ideas in [EXACT_BOOLEAN_PERFORMANCE.md](perf/EXACT_BOOLEAN_PERFORMANCE.md), section 3. The first idea, exact
+  arithmetic without `BigInteger`, starts from two unmerged branches: `claude/int256-spike` (`Int384` planes, not for merging as it is) and
+  `claude/collinear-shortcut` (reviewed, with tests, at most 2 % on the input classes, below the 10 % bar). Exact code, so it goes to the owner. Keep both branches.
 
 | Feature | Research / port source | Why |
 |---|---|---|
@@ -300,7 +318,7 @@ maintainer with users to support; that pays off only then.
 - Tetrahedral meshing: see Phase 5 (constrained Delaunay tetrahedrization). fTetWild is MPL-2.0 (file-level
   copyleft), not MIT: implement from the paper (Hu et al. 2020) rather than port
 - TPMS / lattice structures from the implicit functions
-- Sparse SDF grids (OpenVDB-like), SIMD via `System.Numerics`
+- Sparse SDF grids (OpenVDB-like), SIMD via `System.Numerics`. For the `Orient3d` filter this was tried: about 2 % in total, not worth a second code path (branch `claude/boolean-simd-spike`, kept as a record)
 - AI bridges as a separate package (ONNX Runtime): project 2D segmentation masks (SAM, DINO) from several views onto face selections, texture reprojection via ExpMap
 
 ## Phase 5: candidates from recent research
