@@ -392,6 +392,8 @@ namespace geometry3Sharp.Tests
             p[axis] = bad;
             var line = new List<Vector3d> { new Vector3d(4, 10, 0.4), p };
             AssertFailedWithNoResult(Safety(mode, line));
+            // a polyline of one point has no segment length that would give it away
+            AssertFailedWithNoResult(Safety(mode, new List<Vector3d> { p }));
             // as a single point too
             var sl = new TerrainSafetyLines(HillTerrain(), new int[0], 2) { Mode = mode };
             sl.SourcePoints.Add(p);
