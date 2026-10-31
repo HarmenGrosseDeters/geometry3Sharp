@@ -35,20 +35,14 @@ hold up is discarded with the owner, not patched until it passes. The stages run
 
 | Stage | Work | Tier | Parallel |
 |---|---|---|---|
-| 0. Green local CI | The GitHub CI of master is green; the failures are in local Windows runs. Pinned prism fixtures (`test/pin-rounded-prism-fixtures`). Then the `LaplacianMeshSmoother` non-finite sweep case, which exceeds its 20 s limit in some full net10 runs | S, M | 1 session |
-| 1. Small fixes | Reducer quadric budget (`fix/reducer-quadric-budget`); benchmark validity reporting (`fix/benchmark-validity-reporting`) | M, S | 2 sessions |
-| 2. Differential QA | `qa/differential-core-tests` (#193). It mixes production fixes with about 3700 lines of tests: check the fixes one by one and split the PR | M | 1 session, next to stage 1 |
-| 3. Plans | Plans (`docs/boolean-property-test-plan`, #194), then the hidden acceptance plan stacked on it (`docs/hidden-acceptance-tests`). Resolve the open questions of the plans here. The plan's statement that author sessions already started is probably wrong (owner): treat them as not started | S | 1 session |
-| 4. Hidden acceptance | Tests for quadtree and for meshing M1, written from the specs alone; freeze them before the first run | L (tests) | 2 isolated author sessions |
-| 5. Quadtree | `quadtree` (#195): black-box run of the frozen tests, independent review, owner-machine performance and memory | L | 1 large session |
-| 6. Meshing M1 | `feature/meshing2d`: the same gates. Only then the M2 design (`docs/meshing2d-m2-design`): its recorded approvals are disputed, so question its domain decisions first. An M2 implementation comes after that | L | 1 large session, after stage 5 |
-| 7. Alpha wrap quality | Owner decision on `fix/alpha-wrap-simplification-quality`. No recorded policy passes every gate, so its production code is not for merging as it is; keep what the next step needs. Next step: a bounded look at the failing local patches of the hard-feature policy, no threshold tuning. Needs stage 1 | L | 1 large session, after stage 6 |
+| 0 to 3 | Done on 2026-10-31: local CI green, the small fixes and the parts of #193 merged, the plans checked. Hidden tests replaced by [references](design/ACCEPTANCE_STRATEGY.md) | | |
+| 4. References | Pilot: M1 against NetTopologySuite. Then the golden subset. The session that produces `Triangle.NET` results is planned, not started (strategy, section 3) | M | 1 session |
+| 5. Quadtree | `quadtree` (#195): independent review, owner-machine performance and memory, side-by-side with the old quadtree | L | 1 large session |
+| 6. Meshing M1 | `feature/meshing2d` (#200): oracle and differential as gates. Only then the M2 design (#201): its recorded approvals are disputed, so question its domain decisions first. An M2 implementation comes after that | L | 1 large session, after stage 5 |
+| 7. Alpha wrap quality | Owner decision on #199. No recorded policy passes every gate, so its production code is not for merging as it is, and it does not compile as it is. Next step: a bounded look at the failing local patches of the hard-feature policy, no threshold tuning | L | 1 large session, after stage 6 |
 | 8. Planned follow-ups | Boolean property tests, DAP audit and honest terrain metrics, next to any stage from 4 on; the upstream ledger last, because it records what is merged. Terrain phase 1 after stage 5 | S, M | up to 2 sessions |
 
-Why this order: the local CI must be green, or no later PR can show a clean result before its push (stage 0). Small fixes shrink the later
-diffs, and the wrap retest depends on the reducer fix. Hidden tests must be frozen before the implementations are
-accepted, or they are not independent. The quadtree comes before meshing because terrain phase 1 waits for it and its
-PR is further along.
+Why this order: a reference must exist before an implementation is accepted against it. The quadtree comes before meshing because terrain phase 1 waits for it and its PR is further along.
 
 Limits on parallel work:
 
@@ -61,7 +55,6 @@ Limits on parallel work:
   PR, not in the roadmap.
 - Full local CI and every timing or memory measurement run alone on the machine: the sweep's time limits react to
   load, and measurements taken next to other work are not comparable.
-- Hidden test authors work in separate spec-only workspaces, never in a worktree of this repository.
 
 Open task from the takeover:
 
