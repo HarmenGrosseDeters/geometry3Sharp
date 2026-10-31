@@ -227,8 +227,8 @@ bool found = tree.TryGetHeight(new Vector2d(10, 10), out double height, toleranc
 * Height hits use exact orientation signs for containment and absolute XY distance for tolerance.
   All exact hits take precedence over tolerance hits, including when stopping after the first result.
   One result from tolerance comes from the nearest triangle, the lowest ID on a tie.
-  Zero-area triangles produce no height. Tolerance hits extrapolate the affine plane, rather than
-  clamping to an edge. Height construction is floating point, not an exact predicate. Robust fallbacks
+  Zero-area triangles produce no height. A point beside a triangle gets the height at the nearest point of its
+  boundary, so it stays in the triangle's z range. Height construction is floating point, not an exact predicate. Robust fallbacks
   for extreme or nearly degenerate inputs, and for a distance within rounding of the tolerance, may allocate; ordinary
   hot queries with reserved buffers do not. An unrepresentable height throws `ArithmeticException`, not a successful infinity result. A
   query exception can leave partial buffer results; the index itself remains unchanged.

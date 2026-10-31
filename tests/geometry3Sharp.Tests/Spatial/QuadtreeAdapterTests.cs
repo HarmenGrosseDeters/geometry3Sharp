@@ -173,7 +173,7 @@ namespace geometry3Sharp.Tests.Spatial
         }
 
         [Fact]
-        public void HeightUsesExactPrecedenceAndAffineToleranceExtrapolation()
+        public void HeightUsesExactPrecedence_AndBesideATriangleItsBoundary()
         {
             var near = Triangle(0, .25, 100);
             var exact = Triangle();
@@ -189,7 +189,7 @@ namespace geometry3Sharp.Tests.Spatial
             Assert.Contains(z, new[] { 3.0, 12.0 });
             var single = new TriangleQuadtree2d(new[] { exact });
             Assert.True(single.TryGetHeight(new Vector2d(1, -2), out z, 2));
-            Assert.Equal(-3, z, 12);
+            Assert.Equal(3, z, 12); // at (1, 0)
             Assert.False(single.TryGetHeight(new Vector2d(1, -2), out z, 1.999));
             Assert.True(single.TryGetHeight(new Vector2d(2, 2), out z, 0));
             Assert.Equal(11, z, 12);
@@ -249,10 +249,12 @@ namespace geometry3Sharp.Tests.Spatial
             Assert.Equal(5e307, height);
             var overflow = new Triangle3d(Vector3d.Zero, new Vector3d(1, 0, 1e308), new Vector3d(0, 1, 0));
             var overflowTree = new TriangleQuadtree2d(new[] { overflow });
-            Assert.Throws<ArithmeticException>(() => overflowTree.TryGetHeight(new Vector2d(4, 0), out height, 3));
+            // The plane would overflow beside it. The boundary stays in the range of the triangle.
+            Assert.True(overflowTree.TryGetHeight(new Vector2d(4, 0), out height, 3));
+            Assert.Equal(1e308, height);
             var hits = new List<QuadtreeHeightHit2d>();
-            Assert.Throws<ArithmeticException>(() => overflowTree.QueryHeights(new Vector2d(4, 0), hits, 3));
-            Assert.Empty(hits);
+            overflowTree.QueryHeights(new Vector2d(4, 0), hits, 3);
+            Assert.Equal(1e308, Assert.Single(hits).Height);
             Assert.True(overflowTree.TryGetHeight(Vector2d.Zero, out height, 0));
             Assert.Equal(0, height);
         }

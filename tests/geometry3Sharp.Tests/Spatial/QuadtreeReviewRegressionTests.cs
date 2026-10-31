@@ -265,7 +265,7 @@ namespace geometry3Sharp.Tests.Spatial
 
             var triangles = new TriangleQuadtree2d(new[] { new Triangle3d(new Vector3d(0, 3, 1), new Vector3d(1000, 3, 1), new Vector3d(500, 100, 2)) });
             Assert.True(triangles.TryGetHeight(new Vector2d(x, 0), out double height, 3));
-            Assert.Equal(1.0 - 3.0 / 97.0, height, 12);
+            Assert.Equal(1, height); // on the edge from (0, 3) to (1000, 3), both at z 1
             Assert.False(triangles.TryGetHeight(new Vector2d(x, 0), out height, Below(3)));
         }
 
@@ -480,6 +480,67 @@ namespace geometry3Sharp.Tests.Spatial
             var found = new List<int>();
             tree.QueryRectangle(query, found);
             Assert.Equal(new[] { 2000 }, found);
+        }
+
+        // ---- heights beside a triangle
+
+        [Fact]
+        public void HeightBesideASliver_StaysInTheRangeOfTheTriangle()
+        {
+            // The plane of this one gives about 1e6 at (5, 0.01). The nearest point of the triangle is its apex.
+            var sliver = new TriangleQuadtree2d(new[] { new Triangle3d(new Vector3d(0, 0, 0), new Vector3d(10, 0, 0), new Vector3d(5, 1e-6, 100)) });
+            Assert.True(sliver.TryGetHeight(new Vector2d(5, 0.01), out double height));
+            Assert.Equal(100, height);
+            var hits = new List<QuadtreeHeightHit2d>();
+            sliver.QueryHeights(new Vector2d(5, 0.01), hits);
+            Assert.Equal(100, Assert.Single(hits).Height);
+            sliver.QueryHeights(new Vector2d(5, 0.01), hits, stopAfterFirst: true);
+            Assert.Equal(100, Assert.Single(hits).Height);
+
+            var random = new Random(17);
+            for (int i = 0; i < 3000; ++i) {
+                double y = Math.Pow(10, -random.NextDouble() * 9);
+                Vector3d a = new Vector3d(0, 0, random.NextDouble() * 100), b = new Vector3d(10, 0, random.NextDouble() * 100), c = new Vector3d(random.NextDouble() * 10, y, random.NextDouble() * 100);
+                var tree = new TriangleQuadtree2d(new[] { new Triangle3d(a, b, c) });
+                var p = new Vector2d(random.NextDouble() * 14 - 2, random.NextDouble() * 0.04 - 0.02);
+                if (!tree.TryGetHeight(p, out double z)) continue;
+                Assert.InRange(z, Math.Min(a.z, Math.Min(b.z, c.z)) - 1e-9, Math.Max(a.z, Math.Max(b.z, c.z)) + 1e-9);
+            }
+        }
+
+        [Fact]
+        public void HeightBesideATriangle_IsOnTheRightEdge_InEveryVertexOrder()
+        {
+            // Each edge with its own heights: below, right and on the hypotenuse.
+            Vector3d a = new Vector3d(0, 0, 0), b = new Vector3d(8, 0, 8), c = new Vector3d(0, 8, 16);
+            foreach (Vector3d[] v in new[] { new[] { a, b, c }, new[] { b, c, a }, new[] { c, a, b } }) {
+                var tree = new TriangleQuadtree2d(new[] { new Triangle3d(v[0], v[1], v[2]) });
+                Assert.True(tree.TryGetHeight(new Vector2d(2, -0.005), out double z));
+                Assert.Equal(2, z, 12);
+                Assert.True(tree.TryGetHeight(new Vector2d(-0.005, 2), out z));
+                Assert.Equal(4, z, 12);
+                Assert.True(tree.TryGetHeight(new Vector2d(4.005, 4.005), out z));
+                Assert.Equal(12, z, 12);
+                Assert.True(tree.TryGetHeight(new Vector2d(8.005, 0), out z));
+                Assert.Equal(8, z);
+                Assert.True(tree.TryGetHeight(new Vector2d(-0.005, -0.005), out z));
+                Assert.Equal(0, z);
+            }
+        }
+
+        [Fact]
+        public void HeightBesideATriangle_AtExtremeCoordinates()
+        {
+            // The difference of the x coordinates overflows, and so does the z difference.
+            var wide = new TriangleQuadtree2d(new[] { new Triangle3d(new Vector3d(-1e308, 0, -1e308), new Vector3d(1e308, 0, 1e308), new Vector3d(0, 1e308, 0)) });
+            Assert.True(wide.TryGetHeight(new Vector2d(0, -1), out double z, 2));
+            Assert.Equal(0, z);
+            // Scaled by a power of two, the height stays bit for bit.
+            foreach (double scale in new[] { 1.0, 1024.0, 1.0 / 1024.0, Math.Pow(2, 200), Math.Pow(2, -200) }) {
+                var tree = new TriangleQuadtree2d(new[] { new Triangle3d(new Vector3d(0, 0, 1), new Vector3d(3 * scale, 0, 2), new Vector3d(0, 7 * scale, 5)) });
+                Assert.True(tree.TryGetHeight(new Vector2d(scale, -0.005 * scale), out z, 0.01 * scale));
+                Assert.Equal(1 + 1.0 / 3.0, z);
+            }
         }
 
         // ---- heights next to a spike

@@ -9,7 +9,10 @@ namespace g3
         public double Height;
     }
 
-    /// <summary>Snapshot index of XY triangles with affine Z interpolation. Concurrent queries own their output buffers.</summary>
+    /// <summary>
+    /// Snapshot index of XY triangles with affine Z interpolation inside them; a point beside a triangle, within tolerance, gets the height
+    /// of the nearest point of its boundary. Concurrent queries own their output buffers.
+    /// </summary>
     public sealed class TriangleQuadtree2d
     {
         readonly List<Triangle3d> items;
@@ -89,7 +92,7 @@ namespace g3
             tree.Traverse(ref visitor);
         }
         /// <summary>
-        /// Returns an affine height without a result-list allocation. Robust numeric fallbacks may allocate.
+        /// Returns a height without a result-list allocation. Robust numeric fallbacks may allocate.
         /// Without an exact hit the nearest triangle within tolerance gives the height, the lowest ID on a tie.
         /// A height outside the finite double range throws ArithmeticException. Classification is exact;
         /// interpolated heights are rounded constructions.
@@ -110,7 +113,7 @@ namespace g3
             tree.Traverse(ref visitor);
             height = 0;
             if (visitor.Id < 0) return -1;
-            height = QuadtreeGeometry2d.Height(items[visitor.Id], point);
+            height = QuadtreeGeometry2d.BoundaryHeight(items[visitor.Id], point);
             if (!QuadtreeGeometry2d.Finite(height))
                 throw new ArithmeticException("The interpolated height is outside the finite double range.");
             return visitor.Id;
@@ -166,7 +169,7 @@ namespace g3
                     if (ExactPredicates.Orient2d(a, b, c) == 0 ||
                         !QuadtreeGeometry2d.WithinTriangle(triangle, Point, Tolerance)) return false;
                 }
-                Height = QuadtreeGeometry2d.Height(triangle, Point);
+                Height = Tolerance == 0 ? QuadtreeGeometry2d.Height(triangle, Point) : QuadtreeGeometry2d.BoundaryHeight(triangle, Point);
                 if (!QuadtreeGeometry2d.Finite(Height))
                     throw new ArithmeticException("The interpolated height is outside the finite double range.");
                 Found = true;

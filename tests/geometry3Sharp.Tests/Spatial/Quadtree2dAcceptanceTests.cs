@@ -498,8 +498,25 @@ namespace geometry3Sharp.Tests
                     Cross(XY(triangles[j].V0), XY(triangles[j].V1), XY(triangles[j].V2)) != 0).ToArray();
                 int[] exact = valid.Where(j => Inside(p, triangles[j])).ToArray();
                 int[] expected = exact.Length > 0 ? exact : valid.Where(j => TriangleDistance(p, triangles[j]) <= tolerance).ToArray();
-                CheckHeights(tree, p, tolerance, expected, j => p.x + 2 * p.y + j * 100);
+                CheckHeights(tree, p, tolerance, expected, j => {
+                    // Inside on the plane, beside it at the nearest point of the boundary, where the plane holds too.
+                    Vector2d q = exact.Length > 0 ? p : NearestOnBoundary(p, triangles[j]);
+                    return q.x + 2 * q.y + j * 100;
+                });
             }
+        }
+
+        static Vector2d NearestOnBoundary(Vector2d p, Triangle3d t)
+        {
+            Vector2d[] corners = { XY(t.V0), XY(t.V1), XY(t.V2) };
+            Vector2d best = corners[0];
+            for (int i = 0; i < 3; ++i) {
+                Vector2d a = corners[i], d = corners[(i + 1) % 3] - a;
+                double s = d.LengthSquared == 0 ? 0 : Math.Max(0, Math.Min(1, (p - a).Dot(d) / d.LengthSquared));
+                Vector2d q = a + d * s;
+                if (Distance(p, q) < Distance(p, best)) best = q;
+            }
+            return best;
         }
 
         sealed class Adapter<T>
@@ -764,16 +781,16 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void HeightsAreToleranceCompleteAndExtrapolateRatherThanClamp()
+        public void HeightsAreToleranceComplete_AndBesideATriangleTakenAtItsBoundary()
         {
             var triangle = new Triangle3d(P(0, 0, 0), P(100, 0, 100), P(0, 100, 200));
             var tree = new TriangleQuadtree2d(new[] { triangle });
-            CheckHeights(tree, new Vector2d(-2, 10), 2, new[] { 0 }, id => 18);
+            CheckHeights(tree, new Vector2d(-2, 10), 2, new[] { 0 }, id => 20);
             CheckHeights(tree, new Vector2d(-2, 10), 1.99, new int[0], id => 0);
-            CheckHeights(tree, new Vector2d(-3, -4), 5, new[] { 0 }, id => -11);
+            CheckHeights(tree, new Vector2d(-3, -4), 5, new[] { 0 }, id => 0);
             CheckHeights(tree, new Vector2d(-4, -4), 5, new int[0], id => 0);
             CheckHeights(tree, new Vector2d(25, 25), 0, new[] { 0 }, id => 75);
-            CheckHeights(tree, new Vector2d(-0.005, 10), 0.01, new[] { 0 }, id => 19.995);
+            CheckHeights(tree, new Vector2d(-0.005, 10), 0.01, new[] { 0 }, id => 20);
         }
 
         [Fact]

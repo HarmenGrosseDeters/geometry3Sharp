@@ -54,15 +54,32 @@ namespace geometry3Sharp.Tests.Spatial
         [InlineData(-10)]
         [InlineData(0)]
         [InlineData(10)]
+        public void HeightInsideATriangle_SurvivesProductsThatUnderflow(int exponent)
+        {
+            // Near a tiny corner: both terms of a barycentric numerator underflow, though the weight q itself is fine.
+            double q = Math.Pow(2, -600), z = Math.Pow(2, 1000), scale = Math.Pow(2, exponent);
+            var tree = new TriangleQuadtree2d(new[] { new Triangle3d(new Vector3d(0, 0, 0), scale * new Vector3d(1, 0, z), scale * new Vector3d(q, q, 0)) });
+            Assert.True(tree.TryGetHeight(new Vector2d(1.5 * q * scale, 0.5 * q * scale), out double height, 0));
+            Assert.Equal(Math.Pow(2, 400 + exponent), height);
+        }
+
+        [Theory]
+        [InlineData(-10)]
+        [InlineData(0)]
+        [InlineData(10)]
         public void HeightDoesNotLoseProductsOfRepresentableScaledComponents(int exponent)
         {
-            double q = Math.Pow(2, -600), z = Math.Pow(2, 1000), scale = Math.Pow(2, exponent);
+            // A weight of q^2, inside the triangle, times a huge z difference: neither may be lost in the products.
+            double q = Math.Pow(2, -400), z = Math.Pow(2, 1000), scale = Math.Pow(2, exponent);
             var triangle = new Triangle3d(scale * new Vector3d(0, 0, q / 2),
                 scale * new Vector3d(1, 0, z), scale * new Vector3d(q, 1, q / 2));
             var tree = new TriangleQuadtree2d(new[] { triangle });
             for (int repeat = 0; repeat < 3; ++repeat) {
-                Assert.True(tree.TryGetHeight(new Vector2d(0, q * scale), out double height, q * scale));
-                Assert.Equal(-Math.Pow(2, -200 + exponent), height);
+                Assert.True(tree.TryGetHeight(new Vector2d(2 * q * q * scale, q * scale), out double height, 0));
+                Assert.Equal(Math.Pow(2, 200 + exponent), height);
+                // Beside it, by a tiny distance: the height on the edge from V0 to V2, not the plane.
+                Assert.True(tree.TryGetHeight(new Vector2d(0, q * scale), out height, q * scale));
+                Assert.Equal(q / 2 * scale, height);
             }
         }
 

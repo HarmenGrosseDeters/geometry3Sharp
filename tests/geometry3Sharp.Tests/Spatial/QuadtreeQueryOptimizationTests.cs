@@ -148,12 +148,12 @@ namespace geometry3Sharp.Tests.Spatial
             var hits = new List<QuadtreeHeightHit2d>();
             var near = new Vector2d(-0.01, 1);
             Assert.False(tree.TryGetHeight(near, out _, 0));
-            Assert.True(tree.TryGetHeight(near, out double extrapolated, 0.02));
+            Assert.True(tree.TryGetHeight(near, out double atBoundary, 0.02));
             tree.QueryHeights(near, hits, 0.02);
             Assert.Single(hits);
             Assert.Equal(0, hits[0].Id);
-            Assert.Equal(extrapolated, hits[0].Height);
-            Assert.Equal(3.98, extrapolated, 12);
+            Assert.Equal(atBoundary, hits[0].Height);
+            Assert.Equal(4, atBoundary, 12); // at (0, 1)
         }
     }
 }

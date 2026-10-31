@@ -200,6 +200,30 @@ namespace g3
             Vector2d a = XY(triangle.V0), b = XY(triangle.V1), c = XY(triangle.V2);
             return Math.Min(SegmentDistance(p, a, b), Math.Min(SegmentDistance(p, b, c), SegmentDistance(p, c, a)));
         }
+        // The height of a point beside a triangle: at the nearest point of its boundary. The plane, extrapolated
+        // beside a sliver, can leave the z range of the triangle by any factor.
+        internal static double BoundaryHeight(Triangle3d t, Vector2d p)
+        {
+            if (Contains(t, p)) return Height(t, p);
+            double ab = SegmentDistance(p, XY(t.V0), XY(t.V1)), bc = SegmentDistance(p, XY(t.V1), XY(t.V2)), ca = SegmentDistance(p, XY(t.V2), XY(t.V0));
+            if (ab <= bc && ab <= ca) return EdgeHeight(t.V0, t.V1, p);
+            return bc <= ca ? EdgeHeight(t.V1, t.V2, p) : EdgeHeight(t.V2, t.V0, p);
+        }
+        static double EdgeHeight(Vector3d a, Vector3d b, Vector2d p)
+        {
+            double dx = b.x - a.x, dy = b.y - a.y, scale = Math.Max(Math.Abs(dx), Math.Abs(dy));
+            double ux = dx / scale, uy = dy / scale, qx = (p.x - a.x) / scale, qy = (p.y - a.y) / scale;
+            double t = (qx * ux + qy * uy) / (ux * ux + uy * uy);
+            if (double.IsNaN(t) || !Finite(scale)) {
+                BigInteger ex = Integer(b.x) - Integer(a.x), ey = Integer(b.y) - Integer(a.y);
+                BigInteger dot = (Integer(p.x) - Integer(a.x)) * ex + (Integer(p.y) - Integer(a.y)) * ey, length = ex * ex + ey * ey;
+                t = dot.Sign <= 0 ? 0 : dot >= length ? 1 : Ratio(dot, length);
+            }
+            if (t <= 0) return a.z;
+            if (t >= 1) return b.z;
+            double z = a.z + t * (b.z - a.z);
+            return Finite(z) ? z : a.z * (1 - t) + b.z * t;
+        }
         internal static double Height(Triangle3d t, Vector2d p)
         {
             if (p == XY(t.V0)) return t.V0.z;

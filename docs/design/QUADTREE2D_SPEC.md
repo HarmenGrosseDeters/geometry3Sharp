@@ -367,6 +367,7 @@ Independent reviews on 2026-10-31 found these. The ones of the first review were
 | Extent grows on insertion | `Extent` still reports the items' bounds, but the root region grows geometrically | Every insert beyond the extent rebuilt the tree: 40000 sorted points took 90 s. A tree grown this way has a root larger than `Extent` |
 | Tolerance is absolute and complete | Exact at the tolerance: exact squares decide where the rounded distance is within its error of it. That error follows the size of the cancelled terms, not only the tolerance | A point at distance exactly 3 was refused at tolerance 3, and points near long segments were misjudged both ways. The nearest order of nearly collinear segments stays rounded |
 | Ties by ID | Nearest pruning leaves 1e-15 of room | A rounded item distance can fall below the rounded distance to its box, and the tie then went by visiting order. Ties are between computed distances, so geometric ties can still differ in rounding |
+| Tolerance hits extrapolate the plane, not a clamped boundary height | The height at the nearest point of the boundary (owner decision, 2026-10-31) | Beside a sliver the plane leaves the z range by any factor: `(0,0,0), (10,0,0), (5,1e-6,100)` at `(5, 0.01)` gave about 1e6, and now gives 100 |
 | "a triangle within tolerance" (2.1) | `TryGetHeight` and `stopAfterFirst` take the nearest triangle within tolerance, the lowest ID on a tie | The result depended on the traversal, so on how the tree was built |
 | "all equal for a consistent TIN" (2.1) | Equal at shared vertices. On a shared edge, heights agree up to rounding | This cannot hold for rounded interpolation |
 
@@ -378,7 +379,6 @@ The core rejects nothing new. Removal by value and by ID no longer scans. A cell
 - IDs are never reused and removal does not compact. A long insert and remove loop grows memory, and `Extent` never shrinks, even after removing an outlier.
 - Mutating the tree during a traversal is not supported and not detected.
 - The margin of 2e-4 and the default tolerance of 0.01 are absolute (owner decision, Q-3): results at these thresholds change with scale, unlike the rest of the library. Tests compare them against the definition instead of bit for bit.
-- Tolerance hits extrapolate the plane of the triangle (section 8), so a point next to a sliver can get a height far outside its range: `(0,0,0), (10,0,0), (5,1e-6,100)` at `(5, 0.01)` gives about 1e6. Open for the owner: clamping, or a slope guard.
 - Triangles thinner than a relative determinant of 1e-9 take the exact path. Above that, a rounded height keeps an error that grows towards the threshold.
 - Only the four quadrants of the root build in parallel, so data in one quadrant builds serially.
 
