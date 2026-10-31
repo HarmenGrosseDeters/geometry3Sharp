@@ -24,7 +24,6 @@ The [release license](https://github.com/NetTopologySuite/NetTopologySuite/blob/
 its JTS-derived content is available under the permissive BSD-style Eclipse Distribution License option.
 Only public API documentation and licensing were consulted; no implementation was ported. Ordinary-coordinate
 benchmark predicates and comparison limits are documented in the [benchmark README](../benchmarks/QuadtreeBenchmark/README.md).
-The incompatible old index was not inspected; owner-only side-by-side acceptance remains a separate step.
 
 ## Exact mesh booleans (`ExactMeshBoolean`, `ExactMeshArrangement`, `ExactPlanarSimplify`, `ExactTriangulation2`, `ExactPoint3`, `ExactPredicates`)
 

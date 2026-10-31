@@ -248,21 +248,7 @@ Open tasks further up, and work further down, in the code or in the research lis
     spec [design/QUADTREE2D_SPEC.md](design/QUADTREE2D_SPEC.md) (owner decisions in its §7) and the literature only;
     targets 1M triangles built in about 100-260 ms, height query about 2.5 µs, on net48 and net8. Comes after the
     `ExactMeshBoolean` work and before terrain phase 1; may speed up the height-field check of
-    `TerrainVolumeDifference`. First-version core, geometry adapters, independent acceptance tests and
-    [procedural benchmark](../benchmarks/QuadtreeBenchmark/README.md) are implemented. A first exact-height
-    query optimization and a public NetTopologySuite STRtree comparison have been measured and independently
-    reviewed; a higher-memory cached-node candidate was rejected. Still open: further tuning and
-    owner-machine performance validation. Independent code/numerical-bounds review
-    found clipping, distance-ordering and underflow defects; regression fixes passed the numerical follow-up.
-    The public BSD MX-CIF Quadtree comparison and allocation investigation are documented in the
-    benchmark README; the historical allocation failure was not reproduced, and stricter per-operation
-    tests retain the original zero-byte assertion. The net10 ExactBoolean fixture blocker was corrected
-    with pinned cross-runtime inputs, without changing exact production. Final full net48, CLI, package
-    smoke and build gates passed; full net10 still failed a nonfinite-smoother time budget whose isolated
-    rerun passed. The final independent review attempt failed at the model provider without a result.
-    The owner authorized a draft PR with these unresolved gates documented. A green complete local CI
-    run and final review remain required before readiness/merge; owner-machine timing/side-by-side and
-    full-adapter memory acceptance are also open. See the latest implementation record in the spec.
+    `TerrainVolumeDifference`. Implemented, on `quadtree-takeover` (#195): see the record in the spec. Open: the timing, memory and side-by-side comparison on the owner's machine.
   - [ ] Public exact 2D meshing (constrained / conforming Delaunay, quality refinement with a size function, holes
     and regions by ring, snap rounding to an output grid), a clean-room replacement for Triangle.NET: from the
     behavioural spec [design/MESHING2D_SPEC.md](design/MESHING2D_SPEC.md) (owner decisions in its §5) and the

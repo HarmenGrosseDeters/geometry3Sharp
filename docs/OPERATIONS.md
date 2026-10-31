@@ -220,9 +220,12 @@ bool found = tree.TryGetHeight(new Vector2d(10, 10), out double height, toleranc
   AABBs enlarged by 0.0002 coordinate units; they are candidates, not exact geometry intersections.
   `SegmentQuadtree2d.QueryIntersections` tests actual closed segments, including collinear overlap
   and touching. `QueryPoint` supports absolute tolerance and optional endpoint exclusion / early stop.
+  Build it from vertices and edges, or `Insert(a, b)`, when queries must hit the endpoints exactly: a `Segment3d`
+  rounds them, depending on z too. `GetEndpoints` returns them as stored.
 * `PointQuadtree2d.QueryNearby` uses inclusive Euclidean XY distance, not a per-axis tolerance.
 * Height hits use exact orientation signs for containment and absolute XY distance for tolerance.
   All exact hits take precedence over tolerance hits, including when stopping after the first result.
+  One result from tolerance comes from the nearest triangle, the lowest ID on a tie.
   Zero-area triangles produce no height. Tolerance hits extrapolate the affine plane, rather than
   clamping to an edge. Height construction is floating point, not an exact predicate. Robust fallbacks
   for extreme or nearly degenerate inputs may allocate; ordinary hot queries with reserved buffers do
@@ -246,8 +249,7 @@ bool found = tree.TryGetHeight(new Vector2d(10, 10), out double height, toleranc
 
 Runnable example: [QuadtreeQueriesExample](examples/QuadtreeQueriesExample.cs).
 See the [behavioural specification](design/QUADTREE2D_SPEC.md) and the
-[procedural A/B benchmark](../benchmarks/QuadtreeBenchmark/README.md). Owner-machine performance
-and comparison with the old index are not implied by local correctness tests.
+[procedural benchmark](../benchmarks/QuadtreeBenchmark/README.md).
 
 ### Intrinsic triangulations
 

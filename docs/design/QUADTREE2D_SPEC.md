@@ -351,249 +351,37 @@ hardware targets or side-by-side compatibility have been verified. Review spatia
 bounds independently. Stop after the complete first version, tests, benchmark and independent review;
 no push or merge is part of this task.
 
-## 9. First-version implementation and verification record
+## 9. Implementation record
 
-Implemented in `spatial/LooseQuadtree2d.cs`, `PointQuadtree2d.cs`, `SegmentQuadtree2d.cs`,
-`TriangleQuadtree2d.cs` and the internal `QuadtreeGeometry2d.cs` / `QuadtreeExactQuery2d.cs`. Bounds are loose rectangular cells
-with fixed bucket/depth limits and one owner node per item. Large builds distribute the first-level
-subtrees across workers; queries carry caller-local struct state. An insertion beyond the extent
-rebuilds the hierarchy, so repeated outward growth is not an amortized constant-time operation.
-Removal retains ID slots and does not compact historical storage.
+`spatial/LooseQuadtree2d.cs`, `PointQuadtree2d.cs`, `SegmentQuadtree2d.cs`, `TriangleQuadtree2d.cs`, and the internal `QuadtreeGeometry2d.cs` and `QuadtreeExactQuery2d.cs`. Sources: [SOURCES.md](../SOURCES.md). Usage: [OPERATIONS.md](../OPERATIONS.md). Numbers: [benchmark README](../../benchmarks/QuadtreeBenchmark/README.md).
 
-Geometry uses the existing exact orientation predicates. Floating-point distance/interpolation paths
-rescale to avoid intermediate overflow, with an allocating integer fallback for ill-conditioned
-constructions. Those conditioning thresholds are fallback heuristics, not new certified predicate
-error bounds. Heights must be finite or throw. See [OPERATIONS.md](../OPERATIONS.md) for usage and
-[QuadtreeBenchmark](../../benchmarks/QuadtreeBenchmark/README.md) for observed A/B output.
+### Where the code differs from section 8, and why
 
-Executed validation (October 2026):
+An independent review on 2026-10-31 found these, and each was reproduced in C# before the change.
 
-```powershell
-dotnet test tests\geometry3Sharp.Tests -c Release --filter 'FullyQualifiedName~Quadtree' --no-restore --verbosity minimal
-```
+| Section 8 | Now | Why |
+|---|---|---|
+| `SegmentQuadtree2d` owns `Segment3d` snapshots | It owns endpoints. Also built from vertices and edges; `Insert(a, b)`, `Remove(a, b)`, `GetEndpoints`. `Segment3d` stays accepted | `Segment3d` keeps a center, a normalized direction and an extent, so `P0` and `P1` are rounded, depending on z too. On a jittered UTM grid, 43 % of the segments missed a point query at their own start vertex. `GetItem` now rebuilds a `Segment3d` from the endpoints, so it can differ from the input in the last bits. A `Segment3d` input keeps its rounded endpoints: only building from endpoints gives exact ones |
+| Fixed internal depth limit | 64, was 32 | One far outlier flattened the tree: 100000 items visited instead of 15 |
+| Regions recursively quartered | A cell more than twice as long as wide is cut across its length only | One row of a TIN stayed at the root, as cells kept the shape of the extent |
+| Extent grows on insertion | `Extent` still reports the items' bounds, but the root region grows geometrically | Every insert beyond the extent rebuilt the tree: 40000 sorted points took 90 s. A tree grown this way has a root larger than `Extent` |
+| Tolerance is absolute and complete | Inclusive also where the rounded distance lands just above the tolerance: exact squares decide within a few ulps | A point at distance exactly 3 was refused at tolerance 3 |
+| Ties by ID | Nearest pruning leaves 1e-15 of room | A rounded item distance can fall below the rounded distance to its box, and the tie then went by visiting order. Ties are between computed distances, so geometric ties can still differ in rounding |
+| "a triangle within tolerance" (2.1) | `TryGetHeight` and `stopAfterFirst` take the nearest triangle within tolerance, the lowest ID on a tie | The result depended on the traversal, so on how the tree was built |
+| "all equal for a consistent TIN" (2.1) | Equal at shared vertices. On a shared edge, heights agree up to rounding | This cannot hold for rounded interpolation |
 
-Result: net10.0 passed 56 tests; net48 passed 53 tests. This includes separately authored spec-only
-acceptance tests (not edited by the implementing session), own core/adapter tests and the compiled
-usage example. The runtime-only allocation checks account for the target-framework count difference.
-The initial run exposed height bit-invariance and nearest-distance tie-order failures; both were
-fixed and the same tests passed unchanged.
+The core rejects nothing new. Removal by value and by ID no longer scans. Points on a diagonal of a grid TIN no longer take the exact path (17 us and 8 KB per call before).
 
-Mutation evidence (mutations restored):
+### Limits that stay
 
-```powershell
-dotnet test tests\geometry3Sharp.Tests -c Release -f net10.0 --filter 'FullyQualifiedName~RectangleClosedGridLinesAndThinCrossingBoxes' --no-restore --verbosity minimal
-dotnet test tests\geometry3Sharp.Tests -c Release -f net10.0 --filter 'FullyQualifiedName~HeightUsesExactPrecedenceAndAffineToleranceExtrapolation|FullyQualifiedName~SegmentPointExcludesEndpointsAndStopsOnlyOnHit' --no-restore --verbosity minimal
-dotnet test tests\geometry3Sharp.Tests -c Release -f net10.0 --filter 'FullyQualifiedName~NumericScalingPreservesDistancesAndRepresentableHeights' --no-restore --verbosity minimal
-```
+- An exact hit is the first found in the traversal. For overlapping surfaces, ask `QueryHeights`.
+- IDs are never reused and removal does not compact. A long insert and remove loop grows memory, and `Extent` never shrinks, even after removing an outlier.
+- Mutating the tree during a traversal is not supported and not detected.
+- The margin of 2e-4 and the default tolerance of 0.01 are absolute (owner decision, Q-3): results at these thresholds change with scale, unlike the rest of the library. Tests compare them against the definition instead of bit for bit.
+- Tolerance hits extrapolate the plane of the triangle (section 8), so a point next to a sliver can get a height far outside its range: `(0,0,0), (10,0,0), (5,1e-6,100)` at `(5, 0.01)` gives about 1e6. Open for the owner: clamping, or a slope guard.
+- Ill-conditioned triangles below the 1e-12 threshold take the exact path, and near that threshold the rounded height keeps an error: about 8e-4 for a z range of 100 at an aspect of 1e-11 (estimated by simulation, not measured in C#).
+- Only the four quadrants of the root build in parallel, so data in one quadrant builds serially.
 
-Exclusive rectangle boundaries failed all 3 selected grid cases. Starting height search with the
-tolerance and stopping segment search at a non-hit failed both selected adapter tests. The new
-height-overflow exception test failed on the previous infinity-returning implementation, then passed
-with the guard. The combined final run above passed after all mutations were restored.
+### Verification
 
-Package compatibility and smoke commands (successful):
-
-```powershell
-dotnet pack geometry3Sharp_netstandard.csproj -c Release -o "$env:TEMP\g3-quadtree-package-0f2d4ba7" -p:Version=1.0.0-ci.1 --no-restore --verbosity quiet
-dotnet run --project tests\PackageSmokeTest -c Release -p:G3PackageVersion=1.0.0-ci.1 "-p:G3PackageSource=$env:TEMP\g3-quadtree-package-0f2d4ba7" -- "$env:TEMP\g3-quadtree-package-0f2d4ba7\geometry3Sharp.1.0.0-ci.1.nupkg"
-```
-
-Package validation against upstream and package smoke checks passed. Only targeted tests, the new
-benchmark builds/runs and package checks were run; the full pre-push CI sequence has not been run.
-No push or merge was made.
-
-### Follow-up: independent review and range regressions
-
-The later independent review succeeded. Its findings were repaired with closed-clipping, overflow-ordering,
-projection-underflow, height-underflow and subnormal-distance regression tests. The separately authored
-acceptance tests were not changed. The final static numerical follow-up found no remaining concrete issues
-in the reviewed repairs; this is not a certification of correctly rounded ordinary floating-point constructions.
-
-Closed clipping uses an exact rational fallback when the rounded entry/exit interval is ambiguous.
-The reviewed absolute ambiguity threshold is `3.552713678800501e-15` (32 times binary64 unit roundoff):
-scaled interval endpoints have at most 6 unit-roundoff absolute error each, so the threshold conservatively
-covers both bounds. The review applies to the already rounded, saturated 0.0002-expanded box.
-Range/product loss and cancellation trigger the integer geometry fallback before tiny coefficients can
-be amplified by large coordinates/heights. Subnormal square-root distances round via exact squared
-midpoints and nearest-even. When built-in distances overflow, exact squared distances determine nearest
-order; stable IDs break only actual ties. Custom double-only metrics retain their own distance/ID ordering.
-
-Commands establishing red/green evidence:
-
-```powershell
-dotnet test tests\geometry3Sharp.Tests -c Release --filter 'FullyQualifiedName~QuadtreeBoundsRegressionTests' --no-restore --verbosity quiet
-dotnet test tests\geometry3Sharp.Tests -c Release --filter 'FullyQualifiedName~QuadtreeNumericRegressionTests' --no-restore --verbosity quiet
-dotnet test tests\geometry3Sharp.Tests -c Release --filter 'FullyQualifiedName~PositiveSubnormalSegmentDistanceDoesNotRoundToZero' --no-restore --verbosity quiet
-dotnet test tests\geometry3Sharp.Tests -c Release --filter 'FullyQualifiedName~Quadtree|FullyQualifiedName~EveryExample_IsTestedAndLinked' --no-restore --verbosity quiet
-```
-
-Before the respective fixes, bounds regressions failed 4 cases per framework, range regressions failed
-16 cases per framework, and the initial subnormal regression failed 1 case per framework. That last
-regression was subsequently generalized as `SubnormalSegmentDistanceRoundsToNearestUnit`.
-The combined final command passed 83 tests on net10.0 and 80 on net48 after the generalized regression run.
-The example is now registered directly in `DocExamplesTests`, satisfying its documentation registry.
-
-Package validation and smoke checks passed again with output directory
-`$env:TEMP\g3-quadtree-reviewed-0f2d4ba7` using the same pack/run commands above with that directory.
-Paired-prefix benchmarks ran on both frameworks; commands and before/after observations are in the
-[benchmark README](../../benchmarks/QuadtreeBenchmark/README.md). The final subnormal-only repair does not
-occur in that ordinary-coordinate benchmark workload.
-
-A broader run was also attempted:
-
-```powershell
-dotnet test tests\geometry3Sharp.Tests -c Release --no-restore --verbosity minimal
-```
-
-It was stopped before completion after observing a missing documentation example registration (fixed above)
-and a failure in `ExactBooleanIssueCasesTests.KnownLimitation_TwoTriangularPrisms_RotatedInexactly_KeepATinyVoid`
-(expected 2, actual 1). The latter is outside this task and has not been baseline-confirmed or repaired.
-The full suite is **not** recorded as passed.
-
-### Complete local CI and performance precheck (2026-10-29)
-
-The requested scope was local CI and local performance prechecking, not owner-machine acceptance or
-unrelated implementation fixes. All CI stages completed normally; the full geometry suite is **not green**.
-Commands (with caller-selected log/package directories):
-
-```powershell
-dotnet build geometry3Sharp_netstandard.csproj -c Release --verbosity minimal
-dotnet test tests\geometry3Sharp.Tests -c Release --logger trx --results-directory $logs\geometry-results --verbosity minimal
-dotnet test tests\g3cli.Tests -c Release --logger trx --results-directory $logs\cli-results --verbosity minimal
-dotnet pack geometry3Sharp_netstandard.csproj -c Release -o $packageDir -p:Version=1.0.0-ci.1 --verbosity minimal
-dotnet run --project tests\PackageSmokeTest -c Release -p:G3PackageVersion=1.0.0-ci.1 -p:G3PackageSource=$packageDir -- $packageDir\geometry3Sharp.1.0.0-ci.1.nupkg
-dotnet build tests\geometry3Sharp.Tests -c Release -f net48 -p:TestNet48=true --verbosity minimal
-Get-ChildItem benchmarks -Recurse -Filter *.csproj | ForEach-Object { dotnet build $_.FullName -c Release --verbosity minimal }
-```
-
-| Stage | Observed result |
-|---|---|
-| Library build | Successful |
-| Full geometry suite, net10.0 | 2901 passed, 2 failed, 2903 total |
-| Full geometry suite, net48 | 2899 passed, 1 failed, 2900 total |
-| CLI tests | 43 passed, 0 failed |
-| Package creation and API/reader-writer smoke | Successful |
-| net48 test-project build | Successful |
-| Benchmark project builds | All 11 successful; additional Quadtree net48 build successful |
-
-Every Quadtree-named case in the full-suite TRX passed (82 net10.0, 79 net48).
-Full-suite failures, without an established baseline or causal attribution to this change:
-
-- net10.0: `ExactBooleanIssueCasesTests.KnownLimitation_TwoTriangularPrisms_RotatedInexactly_KeepATinyVoid`
-  expected 2, got 1 ([test](../../tests/geometry3Sharp.Tests/ExactBooleanIssueCasesTests.cs)).
-- net10.0: `RobustnessSweepTests.Sweep_NonFiniteInput`, LaplacianMeshSmoother / NaN vertex,
-  exceeded its 20-second limit ([test](../../tests/geometry3Sharp.Tests/RobustnessSweepTests.cs)).
-- net48: `G3MeshReaderTests.HighValenceVertex_ReadsInLinearTime` failed its timing assertion,
-  reporting 2292 ms ([test](../../tests/geometry3Sharp.Tests/G3MeshReaderTests.cs)).
-
-After the timing runs, the following isolated diagnostic was executed without rebuilding:
-
-```powershell
-dotnet test tests\geometry3Sharp.Tests -c Release --no-build --no-restore --filter 'FullyQualifiedName~KnownLimitation_TwoTriangularPrisms_RotatedInexactly_KeepATinyVoid|FullyQualifiedName~HighValenceVertex_ReadsInLinearTime|FullyQualifiedName~Sweep_NonFiniteInput' --logger trx --results-directory $logs\isolated-failures --verbosity minimal
-```
-
-It passed 73/74 cases on net10.0 and 74/74 on net48. The ExactBoolean assertion reproduced on net10.0;
-both timing-related failures passed in isolation. This does not establish that they are pre-existing or
-harmless flakes, and does not replace a successful full CI run. No tests were weakened.
-
-Three fresh benchmark processes per runtime, with three warmed query samples each, completed after CI.
-All six checked the same baseline prefix/checksum. Hardware, commands, raw outputs and median/range
-comparisons are recorded in the [benchmark README](../../benchmarks/QuadtreeBenchmark/README.md#local-performance-precheck-2026-10-29).
-The local scan/index comparison is favorable, but query and triangle-adapter build medians exceed the
-owner reference values on this host. Core-only memory measurements cannot certify full-adapter memory.
-Owner-machine acceptance remains open.
-
-### First query optimization and public comparison (2026-10-29)
-
-Tier M follow-up, scoped to query performance and a public permissively licensed benchmark reference.
-The retained library change rejects exact height candidates by their closed item AABB before orientation
-classification and removes a duplicate degeneracy check already performed by containment. Tolerance
-fallback, robust arithmetic, traversal ordering, public API and core layout remain unchanged.
-A cached loose-region candidate was rejected because it increased retained core memory without a
-consistent benefit for the other queries. The core source was restored byte-for-byte.
-
-The benchmark now compares public NetTopologySuite 2.6.0 STRtree APIs with the quadtree and scan on the
-same procedural inputs. Its tests are integrated into the existing geometry test project; the dependency
-is benchmark/test-only. No owner implementation, Triangle/Triangle.NET or GPL sources were read.
-The independent scoped review found an ambiguous thread-allocation label; the label, CLI assertion and
-comparison limitations were corrected. The reviewer confirmed no remaining concrete findings after
-removal of the cached-node candidate. No new arithmetic bounds were introduced.
-
-Final source-accurate targeted tests passed: 94 on net10.0 and 91 on net48. Commands:
-
-```powershell
-foreach ($framework in @('net10.0', 'net48')) {
-    dotnet test tests\geometry3Sharp.Tests -c Release -f $framework --no-restore --filter 'FullyQualifiedName~Quadtree|FullyQualifiedName~StrtreeComparison|FullyQualifiedName~EveryExample_IsTestedAndLinked' --verbosity minimal
-}
-```
-
-The four new query-preservation tests also passed on each pre-optimization library using
-`dotnet vstest` with `--TestCaseFilter:FullyQualifiedName~QuadtreeQueryOptimizationTests`, temporarily
-substituting the original library and restoring the test DLL byte-for-byte in `finally`. Passing on the
-old implementation is intentional for a behavior-preserving optimization; these are not timing tests.
-Inverting the height AABB guard and injecting a spurious STRtree result each caused the selected net10
-regression test to fail. Original sources were restored before the successful targeted runs.
-Net10 tested/measured DLL hashes matched. Net48 assembly-file hashes differed, but reflection checks
-matched all quadtree method IL bytes and declared field signatures; the tested core layout has no cache.
-
-Package creation, enabled API validation against 1.0.324 and the existing API/reader-writer smoke passed:
-
-```powershell
-dotnet pack geometry3Sharp_netstandard.csproj -c Release --no-restore -o $packageDir -p:Version=1.0.0-ci.2 --verbosity minimal
-dotnet run --project tests\PackageSmokeTest -c Release -p:G3PackageVersion=1.0.0-ci.2 -p:G3PackageSource=$packageDir -- $packageDir\geometry3Sharp.1.0.0-ci.2.nupkg
-```
-
-The generated nuspec was separately checked to contain no NetTopologySuite dependency.
-No unrelated full-suite failures were repaired, weakened or baseline-attributed, and the entire CI was
-not rerun in this optimization round. Its known failures listed above remain outstanding.
-
-Final paired height-only measurements and public STRtree measurements, including their commands,
-ranges, binary identities, rejected candidate and comparison limits, are recorded in the
-[benchmark README](../../benchmarks/QuadtreeBenchmark/README.md#query-optimization-and-public-comparison-2026-10-29).
-An incremental net10 build initially retained the rejected cache binary after source rollback. Its
-mislabeled measurements were excluded, a forced rebuild was verified by SHA256, and only the affected
-net10 measurements were repeated. This is not an owner-machine acceptance or a green full-CI claim.
-
-Outstanding before readiness at the end of this 2026-10-29 round (updated by the following record):
-
-1. Performance tuning and the owner-only BenchmarkDotNet comparison on both frameworks. Local
-   Stopwatch observations do not establish the spec's owner-machine performance targets.
-2. Diagnose/fix the reproducible net10.0 ExactBoolean failure, investigate the full-suite timing failures,
-   obtain a successful complete local CI run before any push, and obtain the required PR review before
-   marking a PR ready. Follow-up implementation fixes need separate scope; no baseline attribution
-   has been established.
-
-Preserve clean-room restrictions, upstream compatibility, separately authored acceptance tests and the
-owner-approved robust-fallback/height-overflow policy when continuing.
-
-### Allocation investigation and first-version scope audit (2026-10-30)
-
-The historical zero-allocation test failure could not be reproduced. The original test and its exact
-zero-byte assertion remain; additional per-operation dedicated-thread measurements and positive controls
-were added, and a temporary buffer-growth mutation was detected. No production allocation workaround
-or unproven CLR/test-runner attribution was introduced. The
-[benchmark follow-up](../../benchmarks/QuadtreeBenchmark/README.md#allocation-investigation-and-fixture-follow-up-2026-10-30)
-links the commands, output and standalone reproducer.
-
-The net10 prism-test blocker was addressed with the pinned rounded fixtures from commit
-`e559f6870d9cf5202f7f7da85ac48b4179b50ed7`, preserving the limitation assertions and adding the alternate
-clean-solid fixture. Only the test and its QA description were imported; exact production is unchanged.
-The full net48 suite and CLI/package/smoke/build gates passed. Full net10 passed the quadtree and prism
-cases but failed the existing nonfinite-smoother time budget; the isolated rerun passed. This remains
-an unresolved full-CI blocker, not a proven baseline issue. The final independent review attempt failed
-at the model provider before producing a review. Commands and results are in the
-[final CI record](../../benchmarks/QuadtreeBenchmark/perf/20261030-final-ci.txt). After this validation,
-the owner authorized a draft PR documenting the unresolved CI timing failure and unavailable final
-review. These gates remain open before marking the PR ready or merging.
-
-The first-version scope is section 8, as resolved by the decisions in section 7, not every historical
-helper in section 2.3. The core/adapters and independently authored acceptance suite cover growth and
-stable IDs, D-1 through D-7, rectangle/segment oracles, nearest and k-nearest, complete Euclidean proximity,
-exact-first height queries, snapshots, nested/concurrent queries and similarity transformations.
-Domain-specific edge snapping, z-source and neighbour/split helper policies remain caller work under Q-6;
-they are approved non-goals, not missing first-version APIs. No unanswered Q-1 through Q-9 decision remains.
-
-Owner-machine BenchmarkDotNet timing and side-by-side acceptance remain open, as does memory acceptance:
-existing retained core-heap observations exclude full triangle-adapter storage and are not peak-memory
-measurements. Public NTS comparisons are additional evidence, not substitutes for these owner gates.
-The performance targets in section 4.2 have not been certified by local Stopwatch measurements.
+The tests cover the D cases, brute-force oracles for all queries, random operation sequences against a scan (`QuadtreeStateStressTests`), and `Similarity.All()`. Records of the abandoned sessions were dropped, as they described older code. The state of the gates is in the PR. Open for the owner: the timing, memory and side-by-side comparison of section 5.

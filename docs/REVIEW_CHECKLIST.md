@@ -93,6 +93,10 @@ and for each yes, check that a test covers it. A test must fail on the old code 
 - Tests: time or candidate counts at n and 4n.
 - Benchmark allocation columns identify the measured scope: current-thread counters do not include parallel
   workers, and retained heap deltas are neither total allocations nor peak memory. Compare equivalent preprocessing.
+- A type that stores a derived form rounds its input: `Segment3d` keeps a center, a direction and an extent, so `P0` is not
+  what went in. An index built on it missed its own vertices. Test with non-dyadic inputs through the public constructor.
+- Correct results can hide linear cost: a spatial index that keeps all items at its root answers every query right. Count
+  the visited items on thin strips, far outliers and sorted inserts, rather than timing them.
 - Source rollback can leave incremental-build binaries stale. Force a rebuild and verify binary identities before
   freezing an A/B candidate; do not label measurements by source changes alone.
 
