@@ -20,6 +20,7 @@ Run it without a command for the list. Every command first runs the oracle's sel
 | `Oracle/Oracle.cs` | The verdict: validity, identity, coverage, chains of segments, constrained or plain Delaunay, bounds |
 | `Oracle/SelfCheck.cs` | Hand values, correct results accepted, every kind of broken result rejected as that kind, and regressions of what the oracle's independent review found |
 | `Oracle/Cases.cs` | The M1 cases: procedural, integer or dyadic, without trigonometry |
+| `Oracle/Catalogue.cs` | The F cases of the specification as procedural fixtures, one state per row ([table](../../docs/design/MESHING2D_CATALOGUE.md)) |
 | `Candidates/` | What is judged. Also compiled into the test project |
 | `NtsReference.cs` | NetTopologySuite 2.6.0 (BSD-3-Clause) as a black box. This project only, never a dependency of the library |
 

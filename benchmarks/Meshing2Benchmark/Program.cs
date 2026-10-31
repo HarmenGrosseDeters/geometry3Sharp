@@ -20,6 +20,7 @@ namespace Meshing2Acceptance
                                     judge any triangulation in the plain text format; a standalone check
   case --case <id> --output <file>  write one case in the plain text input format
   cases                             list the cases with their generators and input hashes
+  catalogue                         print the failure catalogue table
 ";
 
         static int Main(string[] args)
@@ -40,6 +41,7 @@ namespace Meshing2Acceptance
                     case "oracle": return OracleCommand(args);
                     case "case": return WriteCase(args);
                     case "cases": return ListCases();
+                    case "catalogue": Console.Write(Catalogue.Markdown()); return 0;
                     default: Console.Error.WriteLine(Usage); return 2;
                 }
             } catch (FormatException e) {
@@ -95,7 +97,7 @@ namespace Meshing2Acceptance
             return report.Ok ? 0 : 1;
         }
 
-        static IEnumerable<Mesh2Case> AllCases() => M1Cases.Ci().Concat(M1Cases.Larger());
+        static IEnumerable<Mesh2Case> AllCases() => M1Cases.Ci().Concat(M1Cases.Larger()).Concat(Catalogue.Rows().Where(r => r.Case != null).Select(r => r.Case)).GroupBy(c => c.Id).Select(g => g.First());
 
         static int WriteCase(string[] args)
         {
