@@ -379,7 +379,7 @@ The core rejects nothing new. Removal by value and by ID no longer scans. A cell
 - Mutating the tree during a traversal is not supported and not detected.
 - The margin of 2e-4 and the default tolerance of 0.01 are absolute (owner decision, Q-3): results at these thresholds change with scale, unlike the rest of the library. Tests compare them against the definition instead of bit for bit.
 - Tolerance hits extrapolate the plane of the triangle (section 8), so a point next to a sliver can get a height far outside its range: `(0,0,0), (10,0,0), (5,1e-6,100)` at `(5, 0.01)` gives about 1e6. Open for the owner: clamping, or a slope guard.
-- Ill-conditioned triangles below the 1e-12 threshold take the exact path, and near that threshold the rounded height keeps an error: about 8e-4 for a z range of 100 at an aspect of 1e-11 (estimated by simulation, not measured in C#).
+- Triangles thinner than a relative determinant of 1e-9 take the exact path. Above that, a rounded height keeps an error that grows towards the threshold.
 - Only the four quadrants of the root build in parallel, so data in one quadrant builds serially.
 
 ### Verification

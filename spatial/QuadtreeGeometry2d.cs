@@ -218,7 +218,7 @@ namespace g3
             double left = ax * by, right = ay * bx, determinant = left - right;
             double uLeft = px * by, uRight = py * bx, vLeft = ax * py, vRight = ay * px;
             if (!Finite(determinant) || determinant == 0 || LostProduct(ax, by, left) ||
-                LostProduct(ay, bx, right) || UncertainDifference(left, right) ||
+                LostProduct(ay, bx, right) || Math.Abs(determinant) <= 1e-9 * (Math.Abs(left) + Math.Abs(right)) ||
                 LostProduct(px, by, uLeft) || LostProduct(py, bx, uRight) ||
                 LostProduct(ax, py, vLeft) || LostProduct(ay, px, vRight) ||
                 UncertainCoordinate(uLeft, uRight, determinant) || UncertainCoordinate(vLeft, vRight, determinant)) return ExactHeight(t, p);
