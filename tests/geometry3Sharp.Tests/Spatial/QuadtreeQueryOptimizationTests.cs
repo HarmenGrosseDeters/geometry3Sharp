@@ -37,6 +37,13 @@ namespace geometry3Sharp.Tests.Spatial
             return visitor.Bounds;
         }
 
+        // A bulk build roots at the extent. Growing leaves room beyond it, so that sorted inserts do not rebuild each time.
+        static void AssertRootCoversExtent(LooseQuadtree2d tree)
+        {
+            AxisAlignedBox2d root = VisitRegions(tree)[0], extent = Loose(tree.Extent);
+            Assert.True(root.Min.x <= extent.Min.x && root.Min.y <= extent.Min.y && root.Max.x >= extent.Max.x && root.Max.y >= extent.Max.y);
+        }
+
         [Fact]
         public void LooseRegionsRemainIdenticalAfterSplitRemovalAndExtentRebuild()
         {
@@ -45,16 +52,16 @@ namespace geometry3Sharp.Tests.Spatial
             for (int i = 0; i < 80; ++i)
                 tree.Insert(new AxisAlignedBox2d(i % 8, i / 8, i % 8 + 0.5, i / 8 + 0.5));
             Assert.True(VisitRegions(tree).Count > 1);
-            Assert.Equal(Loose(tree.Extent), VisitRegions(tree)[0]);
+            AssertRootCoversExtent(tree);
             Assert.True(tree.Remove(0));
             var before = VisitRegions(tree);
             tree.Insert(new AxisAlignedBox2d(new Vector2d(1, 1)));
             Assert.Equal(before, VisitRegions(tree));
             tree.Insert(new AxisAlignedBox2d(new Vector2d(-1000, 2000)));
-            Assert.Equal(Loose(tree.Extent), VisitRegions(tree)[0]);
+            AssertRootCoversExtent(tree);
             tree.Insert(new AxisAlignedBox2d(new Vector2d(-double.MaxValue, -double.MaxValue)));
             tree.Insert(new AxisAlignedBox2d(new Vector2d(double.MaxValue, double.MaxValue)));
-            Assert.Equal(Loose(tree.Extent), VisitRegions(tree)[0]);
+            AssertRootCoversExtent(tree);
             var result = new List<int>();
             foreach (var p in new[] { new Vector2d(-1000, 2000), new Vector2d(-double.MaxValue, -double.MaxValue), new Vector2d(double.MaxValue, double.MaxValue) }) {
                 tree.QueryRectangle(new AxisAlignedBox2d(p), result);

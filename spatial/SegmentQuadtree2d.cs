@@ -41,10 +41,12 @@ namespace g3
         public bool Remove(int id) { return tree.Remove(id); }
         public bool Remove(Segment3d item)
         {
-            QuadtreeGeometry2d.Bounds(item);
-            for (int i = 0; i < items.Count; ++i)
-                if (ContainsId(i) && QuadtreeGeometry2d.Same(items[i], item)) return tree.Remove(i);
-            return false;
+            var candidates = new List<int>();
+            tree.QueryRectangle(QuadtreeGeometry2d.Bounds(item), candidates);
+            int first = -1;
+            foreach (int id in candidates)
+                if (QuadtreeGeometry2d.Same(items[id], item) && (first < 0 || id < first)) first = id;
+            return first >= 0 && tree.Remove(first);
         }
         public void QueryRectangle(AxisAlignedBox2d rectangle, List<int> results) { tree.QueryRectangle(rectangle, results); }
         public void QuerySegment(Vector2d a, Vector2d b, List<int> results) { tree.QuerySegment(a, b, results); }

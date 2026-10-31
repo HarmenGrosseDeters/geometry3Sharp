@@ -55,6 +55,7 @@ namespace g3
         int nextId;
         List<Node> nodes;
         AxisAlignedBox2d extent = AxisAlignedBox2d.Empty;
+        AxisAlignedBox2d rootRegion = AxisAlignedBox2d.Empty;
 
         public int Count { get; private set; }
         public AxisAlignedBox2d Extent { get { return extent; } }
@@ -77,6 +78,7 @@ namespace g3
                 extent = i == 0 ? box : Union(extent, box);
             }
             Count = nextId = entries.Length;
+            rootRegion = extent;
             Rebuild(parallelBuild);
         }
 
@@ -102,11 +104,17 @@ namespace g3
             int id = nextId++;
             entries[id] = new Entry { Box = box, Owner = 0, Next = -1 };
             ++Count;
-            if (nodes.Count == 0 || !Contains(extent, box)) {
-                extent = nodes.Count == 0 ? box : Union(extent, box);
+            if (nodes.Count == 0) {
+                extent = rootRegion = box;
                 Rebuild(false);
-            } else {
+                return id;
+            }
+            extent = Union(extent, box);
+            if (Contains(rootRegion, box)) {
                 InsertAt(id, 0, 0);
+            } else {
+                rootRegion = Grown(rootRegion, box);
+                Rebuild(false);
             }
             return id;
         }
@@ -136,10 +144,9 @@ namespace g3
         public bool Remove(AxisAlignedBox2d box)
         {
             ValidateBox(box, nameof(box));
-            for (int i = 0; i < nextId; ++i) {
-                if (ContainsId(i) && Equal(entries[i].Box, box)) return Remove(i);
-            }
-            return false;
+            var visitor = new FirstEqualVisitor { Tree = this, Box = box, First = -1 };
+            Traverse(ref visitor);
+            return visitor.First >= 0 && Remove(visitor.First);
         }
 
         public void QueryRectangle(AxisAlignedBox2d box, List<int> results)
@@ -333,7 +340,7 @@ namespace g3
                 head = id;
                 entries[id].Owner = 0;
             }
-            nodes.Add(new Node(extent, head, Count));
+            nodes.Add(new Node(rootRegion, head, Count));
             if (!parallel || Count < ParallelThreshold || !Split(nodes, 0, 0)) {
                 BuildNode(nodes, 0, 0);
                 return;
@@ -413,6 +420,19 @@ namespace g3
             for (int id = target[index].Head; id >= 0; id = entries[id].Next) entries[id].Owner = index;
         }
 
+        struct FirstEqualVisitor : IQuadtreeVisitor2d
+        {
+            public LooseQuadtree2d Tree;
+            public AxisAlignedBox2d Box;
+            public int First;
+            public bool TestRegion(AxisAlignedBox2d region) { return Intersects(region, Box); }
+            public bool Visit(int id)
+            {
+                if (Equal(Tree.entries[id].Box, Box) && (First < 0 || id < First)) First = id;
+                return false;
+            }
+        }
+
         struct RectangleVisitor : IQuadtreeVisitor2d
         {
             public LooseQuadtree2d Tree;
@@ -477,6 +497,19 @@ namespace g3
         {
             Vector2d center = Center(box);
             return (point.x >= center.x ? 1 : 0) | (point.y >= center.y ? 2 : 0);
+        }
+
+        // Leaves room on the sides that have to move, at least doubling them. Items arriving in sorted order
+        // then rebuild the tree a logarithmic number of times, instead of once per insert.
+        static AxisAlignedBox2d Grown(AxisAlignedBox2d region, AxisAlignedBox2d box)
+        {
+            AxisAlignedBox2d union = Union(region, box);
+            double room = Math.Max(union.Max.x * 0.5 - union.Min.x * 0.5, union.Max.y * 0.5 - union.Min.y * 0.5) * 2;
+            return new AxisAlignedBox2d(
+                union.Min.x < region.Min.x ? Saturate(union.Min.x - room) : region.Min.x,
+                union.Min.y < region.Min.y ? Saturate(union.Min.y - room) : region.Min.y,
+                union.Max.x > region.Max.x ? Saturate(union.Max.x + room) : region.Max.x,
+                union.Max.y > region.Max.y ? Saturate(union.Max.y + room) : region.Max.y);
         }
 
         static AxisAlignedBox2d Union(AxisAlignedBox2d a, AxisAlignedBox2d b)
