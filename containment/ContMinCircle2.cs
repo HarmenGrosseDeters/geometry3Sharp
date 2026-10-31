@@ -16,6 +16,10 @@ namespace g3
     /// </summary>
     public class ContMinCircle2
     {
+        // A point is the same as a support point only up to rounding: anything larger could leave it outside the
+        // result. Relative squared distance: (16 ulps of the larger coordinate)^2.
+        const double SupportCoincidenceTolerance = (16 * MathUtil.Epsilon) * (16 * MathUtil.Epsilon);
+
         double mEpsilon;
         Func<int, int[], Support, Circle>[] mUpdate = new Func<int, int[], Support, Circle>[4];
 
@@ -25,6 +29,9 @@ namespace g3
 
         public Circle2d Result;
 
+        /// <param name="epsilon">Dimensionless (it was an absolute squared length in upstream): three points do not
+        /// define a circle if the sine of their triangle's largest angle is at most this. Such a circle is at least
+        /// 1/(2*epsilon) times the longest edge in radius and, the triangle being obtuse, never the minimal one.</param>
         public ContMinCircle2(IList<Vector2d> pointsIn, double epsilon = 1e-05) {
             mEpsilon = epsilon;
 
@@ -42,7 +49,8 @@ namespace g3
             int numPoints = pointsIn.Count;
 
             int[] permutation = null;
-            Random r = new Random();
+            // fixed seed: the rounding of the result depends on the order, and it must not vary between runs
+            Random r = new Random(31337);
 
             if (numPoints >= 1) {
                 // Create identity permutation (0,1,..,numPoints-1).
@@ -96,7 +104,7 @@ namespace g3
                 // The chances are better that points after the current one will cause
                 // growth of the bounding circle.
                 for (int i = 1 % numPoints, n = 0; i != n; i = (i + 1) % numPoints) {
-                    if (!support.Contains(i, Points, permutation, mEpsilon)) {
+                    if (!support.Contains(i, Points, permutation, SupportCoincidenceTolerance)) {
                         if (!Contains(Points[permutation[i]], ref minimal, ref distDiff)) {
                             var updateF = mUpdate[support.Quantity];
                             Circle circle = updateF(i, permutation, support);
@@ -153,7 +161,12 @@ namespace g3
 
             double det = A.m00 * A.m11 - A.m01 * A.m10;
 
-            if (Math.Abs(det) > mEpsilon) {
+            // |det| = sin(angle) * (product of the two edges at that angle); for the largest angle, those are the
+            // two shorter edges. Relative, so the decision does not depend on the scale of the points.
+            double l10 = E10.LengthSquared, l20 = E20.LengthSquared, l21 = P2.DistanceSquared(P1);
+            double shorterEdges = Math.Sqrt(l10 * l20 * l21 / Math.Max(l10, Math.Max(l20, l21)));
+
+            if (Math.Abs(det) > mEpsilon * shorterEdges) {
                 double invDet = ((double)1) / det;
                 Vector2d Q;
                 Q.x = (A.m11 * B.x - A.m01 * B.y) * invDet;
@@ -383,11 +396,15 @@ namespace g3
         // Indices of points that support current minimum area circle.
         protected class Support
         {
+            /// <summary>True if the point is within sqrt(epsilon) times its largest coordinate of a support point.</summary>
             public bool Contains(int index, IList<Vector2d> Points, int[] permutation, double epsilon)
             {
+                Vector2d p = Points[permutation[index]];
                 for (int i = 0; i < Quantity; ++i) {
-                    Vector2d diff = Points[permutation[index]] - Points[permutation[Index[i]]];
-                    if (diff.LengthSquared < epsilon) {
+                    Vector2d q = Points[permutation[Index[i]]];
+                    Vector2d diff = p - q;
+                    double m = Math.Max(Math.Max(Math.Abs(p.x), Math.Abs(p.y)), Math.Max(Math.Abs(q.x), Math.Abs(q.y)));
+                    if (diff.LengthSquared <= epsilon * m * m) {
                         return true;
                     }
                 }

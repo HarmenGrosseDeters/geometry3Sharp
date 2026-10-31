@@ -77,10 +77,18 @@ namespace g3
         public bool HasNormal { get { return true; } }
         public bool RayIntersect(Ray3d ray, out Vector3d vHit, out Vector3d vHitNormal)
         {
-            Vector3f rayHit = PlaneFrame.RayPlaneIntersection((Vector3f)ray.Origin, (Vector3f)ray.Direction, NormalAxis);
-            vHit = rayHit;
-            vHitNormal = PlaneFrame.GetAxis(NormalAxis);
-            return (rayHit != Vector3f.Invalid);
+            // in double (Frame3f.RayPlaneIntersection casts the ray to float); the frame itself stays float, so its
+            // origin is only as exact as float at these coordinates
+            Vector3d normal = PlaneFrame.GetAxis(NormalAxis);
+            vHitNormal = normal;
+            double div = ray.Direction.Dot(normal);
+            if (Math.Abs(div) > MathUtil.ZeroTolerancef) {
+                vHit = ray.Origin + (((Vector3d)PlaneFrame.Origin - ray.Origin).Dot(normal) / div) * ray.Direction;
+                if (vHit.IsFinite)
+                    return true;
+            }
+            vHit = Vector3f.Invalid;
+            return false;
         }
     }
 

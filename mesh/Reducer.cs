@@ -1242,9 +1242,11 @@ skip_to_end:
 			double a23 = Axy * Axz - Axx * Ayz;
 			double a33 = Axx * Ayy - Axy * Axy;
 			double det = (Axx * a11) + (Axy * a12) + (Axz * a13);
-            // [RMS] not sure what we should be using for this threshold...have seen
-            //  det less than 10^-9 on "normal" meshes.
-			if (Math.Abs(det) > 1000.0*MathUtil.Epsilon) {
+			// relative to the size of A (trace/3 for the positive semidefinite A of plane quadrics): with area
+			// weights A is L^2 and det is L^6, so an absolute threshold refuses every small quadric. This is the
+			// old threshold for planes of total weight 3.
+			double size = (Math.Abs(Axx) + Math.Abs(Ayy) + Math.Abs(Azz)) / 3;
+			if (Math.Abs(det) > 1000.0*MathUtil.Epsilon * size * size * size) {
 				det = 1.0 / det;
 				a11 *= det; a12 *= det; a13 *= det;
 				a22 *= det; a23 *= det; a33 *= det;				
