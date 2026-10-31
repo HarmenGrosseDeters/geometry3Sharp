@@ -22,6 +22,18 @@ Implemented from the papers, no code taken over.
 The error bounds of the implicit points' approximations (`segment_point`, `plane_value`, `planes_approx`) and of
 the filters on them are derived in the code comments.
 
+## Predicate compiler (experiment: `tools/PredicateCompiler`, `GeneratedPredicates`, `PredicateRuntime`)
+
+Own implementation; no code was taken over or read. The error rules of the generator are derived in the header of
+`tools/PredicateCompiler/Compiler.cs`.
+
+| Part | Source |
+|---|---|
+| Idea of a generator for filtered predicates (semi-static filters derived from the formula) | A. Meyer, S. Pion, *FPG: A code generator for fast and certified geometric predicates*, RNC 2008 (idea only) |
+| Floating-point filters and expansion stages generated per predicate | M. Attene, *Indirect Predicates for Geometric Constructions*, Computer-Aided Design 2020 (idea only) |
+| Expansion arithmetic, stages B, C, D | J. R. Shewchuk 1997 (as above) |
+| Error model of floating-point arithmetic with underflow | N. J. Higham, *Accuracy and Stability of Numerical Algorithms*, 2nd ed., SIAM 2002, ch. 2 |
+
 ## Rounding the exact output (`MeshRoundingRepair`, `ExactMeshBoolean.SafeRounding`, `ExactMeshBoolean.ComputeExactVertices`)
 
 Implemented from the papers, no code taken over. Read for the design (what the exact methods do with their output):

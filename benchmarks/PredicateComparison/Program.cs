@@ -30,6 +30,11 @@ static class Program
                                                      new Vector3d(p[6], p[7], p[8]), new Vector3d(p[9], p[10], p[11])),
         });
         list.Add(new Impl {
+            Name = "generated (experiment)",
+            Orient2d = p => GeneratedPredicates.Orient2d(p[0], p[1], p[2], p[3], p[4], p[5]),
+            InCircle = p => GeneratedPredicates.InCircle(p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7]),
+        });
+        list.Add(new Impl {
             Name = "naive double",
             Orient2d = p => Math.Sign((p[2] - p[0]) * (p[5] - p[1]) - (p[3] - p[1]) * (p[4] - p[0])),
             InCircle = p => Math.Sign(incircle_double(p)),
@@ -263,6 +268,51 @@ static class Program
                 + $"incircle general {time(im.InCircle, general)}, nearly cocircular {time(im.InCircle, nearCo)}, degenerate (2^k) {time(im.InCircle, deg[1])}; "
                 + $"orient3d general {time(im.Orient3d, general)}, nearly coplanar {time(im.Orient3d, nearPl)}, degenerate (2^k) {time(im.Orient3d, deg[2])}");
         }
+        direct_timing(general, nearCol, nearCo, deg);
+    }
+
+    // hand-written (ExactPredicates) against generated (GeneratedPredicates), called directly in a loop (no delegate,
+    // no array per call): ns per call, the median of 7 rounds of 1M calls
+    static void direct_timing(List<double[]> general, List<double[]> nearCol, List<double[]> nearCo, List<double[]>[] deg)
+    {
+        Console.WriteLine();
+        Console.WriteLine("## direct calls: ns per call, hand-written ExactPredicates / generated (median of 7 x 1M calls)");
+        string row(string label, double[] p, int stride, int hand, int gen) => $"{label,-34} {ns(p, stride, hand):F1} / {ns(p, stride, gen):F1}";
+        double[] flat(List<double[]> l, int k) => l.SelectMany(p => p.Take(k)).ToArray();
+        double[] g6 = flat(general, 6), g8 = flat(general, 8), c6 = flat(nearCol, 6), c8 = flat(nearCo, 8), d6 = flat(deg[0], 6), d8 = flat(deg[1], 8);
+        Console.WriteLine(row("orient2d general", g6, 6, O2H, O2G));
+        Console.WriteLine(row("orient2d nearly collinear", c6, 6, O2H, O2G));
+        Console.WriteLine(row("orient2d degenerate (2^k)", d6, 6, O2H, O2G));
+        Console.WriteLine(row("incircle general", g8, 8, ICH, ICG));
+        Console.WriteLine(row("incircle nearly cocircular", c8, 8, ICH, ICG));
+        Console.WriteLine(row("incircle degenerate (2^k)", d8, 8, ICH, ICG));
+    }
+
+    const int O2H = 0, O2G = 1, ICH = 2, ICG = 3;
+
+    static double ns(double[] p, int stride, int which)
+    {
+        int n = p.Length / stride;
+        const int calls = 1000000;
+        var times = new List<double>();
+        int sink = 0;
+        for (int round = 0; round < 8; ++round) {
+            var sw = Stopwatch.StartNew();
+            switch (which) {
+                case O2H: for (int i = 0, j = 0; i < calls; ++i, j = j + 1 == n ? 0 : j + 1) { int o = j * 6;
+                    sink += ExactPredicates.Orient2d(new Vector2d(p[o], p[o + 1]), new Vector2d(p[o + 2], p[o + 3]), new Vector2d(p[o + 4], p[o + 5])); } break;
+                case O2G: for (int i = 0, j = 0; i < calls; ++i, j = j + 1 == n ? 0 : j + 1) { int o = j * 6;
+                    sink += GeneratedPredicates.Orient2d(p[o], p[o + 1], p[o + 2], p[o + 3], p[o + 4], p[o + 5]); } break;
+                case ICH: for (int i = 0, j = 0; i < calls; ++i, j = j + 1 == n ? 0 : j + 1) { int o = j * 8;
+                    sink += ExactPredicates.InCircle(new Vector2d(p[o], p[o + 1]), new Vector2d(p[o + 2], p[o + 3]), new Vector2d(p[o + 4], p[o + 5]), new Vector2d(p[o + 6], p[o + 7])); } break;
+                default: for (int i = 0, j = 0; i < calls; ++i, j = j + 1 == n ? 0 : j + 1) { int o = j * 8;
+                    sink += GeneratedPredicates.InCircle(p[o], p[o + 1], p[o + 2], p[o + 3], p[o + 4], p[o + 5], p[o + 6], p[o + 7]); } break;
+            }
+            sw.Stop();
+            if (round > 0) times.Add(sw.Elapsed.TotalMilliseconds * 1e6 / calls);    // (round 0: warm-up)
+        }
+        times.Sort();
+        return times[times.Count / 2] + (sink == int.MinValue ? 1 : 0);
     }
 
     static void report(string label, List<double[]> cases, Func<double[], int> reference, List<Impl> impls, int kind)

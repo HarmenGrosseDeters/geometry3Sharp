@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- generates math/Generated/GeneratedPredicates.cs from predicates.spec (docs/design/PREDICATE_COMPILER.md);
+       command line in tools/PredicateCompiler/README.md -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <Nullable>disable</Nullable>
+  </PropertyGroup>
+
+</Project>

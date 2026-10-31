@@ -58,6 +58,8 @@
     <InternalsVisibleTo Include="geometry3Sharp.Tests" />
     <!-- profiling of the exact booleans (benchmarks/BooleanComparison profile) -->
     <InternalsVisibleTo Include="BooleanComparison" />
+    <!-- the generated predicates of the predicate compiler experiment (docs/design/PREDICATE_COMPILER.md) -->
+    <InternalsVisibleTo Include="PredicateComparison" />
   </ItemGroup>
 
   <ItemGroup>
