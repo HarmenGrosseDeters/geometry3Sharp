@@ -35,6 +35,7 @@
   <ItemGroup Condition="'$(UseNuGetG3)' != 'true'">
     <ProjectReference Include="..\..\benchmarks\Meshing2Benchmark\Oracle\Meshing2Oracle.csproj" />
     <Compile Include="..\..\benchmarks\Meshing2Benchmark\Candidates\*.cs" Link="Meshing2\Candidates\%(Filename)%(Extension)" />
+    <None Include="..\..\docs\design\MESHING2D_CATALOGUE.md" Link="Meshing2\MESHING2D_CATALOGUE.md" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup Condition="'$(UseNuGetG3)' == 'true'">
     <!-- new in this fork: not testable against the old package -->
