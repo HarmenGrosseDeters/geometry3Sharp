@@ -5,6 +5,28 @@ M rather than S, with the granularity the owner decides. The deliverable will be
 `docs/UPSTREAM.md`; it does not exist in this checkout yet. The existing `docs/UPSTREAM_CHANGES.md` is a migration
 note for users of 1.0.324, not an exhaustive inventory of additions and provenance.
 
+## Proposal: goal, granularity, phases (2026-10-31, for the owner)
+
+Measured on `ece3364..820b4b9`: 956 commits, 580 files, of which 284 in the library (about 208 modified, 76 added, 1 deleted).
+A row per commit or per file would be unreadable, and nobody would keep it up to date.
+
+**Goal, in this order:** first, an honest account for users of what differs from upstream and what that means for them. Second, the basis for a later
+conversation with rms80: a short list. It is not a complete audit, and it does not re-review algorithms.
+
+**Granularity by what a reader needs:**
+
+| Kind of change | One row per | Detail lives in |
+|---|---|---|
+| Changed behaviour of inherited classes | class and behaviour | `UPSTREAM_CHANGES.md`, linked and not copied |
+| New modules | capability, not class | `OPERATIONS.md`, `SOURCES.md` |
+| Build, CI, tests, benchmarks, CLI | area | their READMEs |
+| Other modified inherited files (docs, warnings, small guards) | directory: a coverage count and an explicit "unclassified" count | nowhere more detailed |
+
+**Phases, one PR each:** (1) `mesh/`, as the trial; (2) the rest of the modified library files, by directory; (3) the added modules and infrastructure; (4) a shortlist of at most
+10 small separable fixes for upstream. Nothing is sent without a new request.
+
+**Stop rule:** after phase 1, compare its effort with what it gives a reader. If rows mostly repeat `UPSTREAM_CHANGES.md`, keep the directory map and the shortlist and stop there.
+
 ## Task brief
 
 - **Goal:** provide an evidence-linked account of what this fork changes and adds, suitable for preparing a later
