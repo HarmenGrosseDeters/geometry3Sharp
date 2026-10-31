@@ -201,8 +201,8 @@ and [DistancesExample](examples/DistancesExample.cs).
 ### 2D loose quadtree
 
 `LooseQuadtree2d` stores AABB snapshots with stable integer IDs. `PointQuadtree2d`,
-`SegmentQuadtree2d` and `TriangleQuadtree2d` store `Vector3d`, `Segment3d` and `Triangle3d`
-snapshots and query their XY geometry; z is used only for triangle-height interpolation.
+`SegmentQuadtree2d` and `TriangleQuadtree2d` store points, segment endpoints and triangles
+as snapshots and query their XY geometry; z is used only for triangle-height interpolation.
 They complement the existing grids and do not follow changes to source meshes or lists.
 
 ```csharp
@@ -221,15 +221,16 @@ bool found = tree.TryGetHeight(new Vector2d(10, 10), out double height, toleranc
   `SegmentQuadtree2d.QueryIntersections` tests actual closed segments, including collinear overlap
   and touching. `QueryPoint` supports absolute tolerance and optional endpoint exclusion / early stop.
   Build it from vertices and edges, or `Insert(a, b)`, when queries must hit the endpoints exactly: a `Segment3d`
-  rounds them, depending on z too. `GetEndpoints` returns them as stored.
+  rounds them, depending on z too. `GetEndpoints` returns them as stored. `GetItem` rebuilds a `Segment3d`, which
+  `Remove` accepts, and throws `ArithmeticException` for endpoints a `Segment3d` cannot hold.
 * `PointQuadtree2d.QueryNearby` uses inclusive Euclidean XY distance, not a per-axis tolerance.
 * Height hits use exact orientation signs for containment and absolute XY distance for tolerance.
   All exact hits take precedence over tolerance hits, including when stopping after the first result.
   One result from tolerance comes from the nearest triangle, the lowest ID on a tie.
   Zero-area triangles produce no height. Tolerance hits extrapolate the affine plane, rather than
   clamping to an edge. Height construction is floating point, not an exact predicate. Robust fallbacks
-  for extreme or nearly degenerate inputs may allocate; ordinary hot queries with reserved buffers do
-  not. An unrepresentable height throws `ArithmeticException`, not a successful infinity result. A
+  for extreme or nearly degenerate inputs, and for a distance within rounding of the tolerance, may allocate; ordinary
+  hot queries with reserved buffers do not. An unrepresentable height throws `ArithmeticException`, not a successful infinity result. A
   query exception can leave partial buffer results; the index itself remains unchanged.
 * Nearest queries measure distance to AABBs in the core, actual XY geometry in the adapters.
   No hit returns -1; k-nearest results are sorted by distance, ties by insertion ID. An inclusive
@@ -241,8 +242,6 @@ bool found = tree.TryGetHeight(new Vector2d(10, 10), out double height, toleranc
   Built-in nearest metrics compare exact squared distances when floating-point distances overflow;
   ID ordering then breaks only actual ties. Custom nearest metrics (`IQuadtreeDistance2d`) must never
   be smaller than point-to-item-AABB distance; their returned double values define ties, including infinity.
-* Exact height candidates are filtered by their closed tight AABBs before orientation work. The
-  first-hit traversal order, distance-tolerance fallback and robust height construction are unchanged.
 * Coordinates must be finite, boxes ordered and tolerances nonnegative and finite. Only a nearest
   maximum distance may be positive infinity. Construction has fixed internal settings; the optional
   `parallelBuild` flag changes execution policy, not query semantics.

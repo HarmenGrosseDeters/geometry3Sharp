@@ -59,6 +59,10 @@ namespace g3
                 Math.Max(triangle.V0.x, Math.Max(triangle.V1.x, triangle.V2.x)),
                 Math.Max(triangle.V0.y, Math.Max(triangle.V1.y, triangle.V2.y)));
         }
+        internal static bool Same(Segment3d a, Segment3d b)
+        {
+            return a.Center == b.Center && a.Direction == b.Direction && a.Extent == b.Extent;
+        }
         internal static bool Same(Triangle3d a, Triangle3d b)
         {
             return a.V0 == b.V0 && a.V1 == b.V1 && a.V2 == b.V2;
@@ -77,10 +81,11 @@ namespace g3
         {
             return Hypot(a.x - b.x, a.y - b.y);
         }
-        // Inclusive tolerance tests. A rounded distance within a few ulps of the tolerance decides nothing: exact squares do.
-        static bool Undecided(double distance, double tolerance)
+        // Inclusive tolerance tests. A rounded distance within its error of the tolerance decides nothing: exact squares do.
+        // Besides its relative part, the error of a distance to a segment follows the size of the terms it cancels.
+        static bool Undecided(double distance, double tolerance, double terms)
         {
-            return Math.Abs(distance - tolerance) <= 1e-14 * tolerance;
+            return Math.Abs(distance - tolerance) <= 1e-14 * tolerance + 4e-15 * terms;
         }
         static QuadtreeExactQuery2d.Fraction Squared(double tolerance)
         {
@@ -90,13 +95,14 @@ namespace g3
         internal static bool WithinPoint(Vector2d p, Vector2d a, double tolerance)
         {
             double distance = PointDistance(p, a);
-            if (!Undecided(distance, tolerance)) return distance <= tolerance;
+            if (tolerance == 0 || !Undecided(distance, tolerance, 0)) return distance <= tolerance;
             return QuadtreeExactQuery2d.PointSquared(p, a).CompareTo(Squared(tolerance)) <= 0;
         }
         internal static bool WithinSegment(Vector2d p, Vector2d a, Vector2d b, double tolerance)
         {
             double distance = SegmentDistance(p, a, b);
-            if (!Undecided(distance, tolerance)) return distance <= tolerance;
+            double terms = Math.Abs(b.x - a.x) + Math.Abs(b.y - a.y) + Math.Abs(p.x - a.x) + Math.Abs(p.y - a.y);
+            if (!Undecided(distance, tolerance, terms)) return distance <= tolerance;
             return QuadtreeExactQuery2d.SegmentSquared(p, a, b).CompareTo(Squared(tolerance)) <= 0;
         }
         internal static bool WithinTriangle(Triangle3d triangle, Vector2d p, double tolerance)
@@ -131,6 +137,11 @@ namespace g3
         static bool UncertainCoordinate(double left, double right, double determinant)
         {
             return UncertainDifference(left, right) && Math.Abs(left) + Math.Abs(right) > 4 * Math.Abs(determinant);
+        }
+        // ... unless the z difference it multiplies dwarfs the height, as next to a spike: then the error is the whole result.
+        static bool Swamped(double left, double right, double zDifference, double height)
+        {
+            return UncertainDifference(left, right) && Math.Abs(zDifference) > 1e6 * Math.Abs(height);
         }
         internal static double SegmentDistance(Vector2d p, Vector2d a, Vector2d b)
         {
@@ -217,7 +228,9 @@ namespace g3
             double directFirst = u * (t.V1.z - t.V0.z), directSecond = v * (t.V2.z - t.V0.z);
             double directHeight = t.V0.z + directFirst + directSecond;
             if (LostProduct(u, t.V1.z - t.V0.z, directFirst) ||
-                LostProduct(v, t.V2.z - t.V0.z, directSecond)) return ExactHeight(t, p);
+                LostProduct(v, t.V2.z - t.V0.z, directSecond) ||
+                Swamped(uLeft, uRight, t.V1.z - t.V0.z, directHeight) ||
+                Swamped(vLeft, vRight, t.V2.z - t.V0.z, directHeight)) return ExactHeight(t, p);
             if (Finite(directHeight) && Math.Abs(directHeight) >
                 1e-12 * (Math.Abs(t.V0.z) + Math.Abs(directFirst) + Math.Abs(directSecond))) return directHeight;
             double zScale = Math.Max(Math.Abs(t.V0.z), Math.Max(Math.Abs(t.V1.z), Math.Abs(t.V2.z)));

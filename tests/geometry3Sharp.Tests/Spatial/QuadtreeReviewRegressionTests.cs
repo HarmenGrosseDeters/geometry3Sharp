@@ -300,6 +300,204 @@ namespace geometry3Sharp.Tests.Spatial
             return (a * a + b * b).CompareTo(t * t);
         }
 
+        [Fact]
+        public void ToleranceIsExact_OnASlantedSegment_WhereTheRoundedDistanceIsFarOff()
+        {
+            // A 3-4-5 slope, and a point at exactly 0.15625 from it. The rounded distance is above by 1.7e-15.
+            Vector2d p = new Vector2d(43.96875, 33.171875);
+            var segments = new SegmentQuadtree2d();
+            int id = segments.Insert(new Vector3d(0, 0, 0), new Vector3d(80, 60, 0));
+            var found = new List<int>();
+            segments.QueryPoint(p, 0.15625, found);
+            Assert.Equal(new[] { id }, found);
+            segments.QueryPoint(p, Below(0.15625), found);
+            Assert.Empty(found);
+
+            var triangles = new TriangleQuadtree2d(new[] { new Triangle3d(new Vector3d(0, 0, 1), new Vector3d(80, 60, 1), new Vector3d(80, 0, 1)) });
+            Assert.True(triangles.TryGetHeight(p, out double height, 0.15625));
+            Assert.False(triangles.TryGetHeight(p, out height, Below(0.15625)));
+
+            // Every exact tie along this segment, at 1/64 steps: the perpendicular (-3, 4)/5 times the tolerance.
+            for (int i = 1; i < 4096; i += 7) {
+                var point = new Vector2d(i * 0.015625 - 0.09375, i * 0.75 * 0.015625 + 0.125);
+                segments.QueryPoint(point, 0.15625, found);
+                Assert.Equal(new[] { id }, found);
+                segments.QueryPoint(point, Below(0.15625), found);
+                Assert.Empty(found);
+            }
+        }
+
+        [Fact]
+        public void Tolerance_RefusesWhereTheRoundedDistanceIsBelow()
+        {
+            var segments = new SegmentQuadtree2d();
+            segments.Insert(new Vector3d(2318.570703410707, -9542.214930142743, 0), new Vector3d(-9156.81739018991, 7420.300384311129, 0));
+            var found = new List<int>();
+            // The true distance is 0.00999999999988, and it rounds to 0.00999999999714.
+            segments.QueryPoint(new Vector2d(-8883.963460177823, 7016.959449428462), 0.009999999999, found);
+            Assert.Empty(found);
+        }
+
+#if NET10_0_OR_GREATER
+        [Fact]
+        public void ZeroToleranceOnAPoint_DoesNotAllocate()
+        {
+            var points = new PointQuadtree2d(new[] { new Vector3d(1, 1, 0) });
+            var found = new List<int>(4);
+            var query = new Vector2d(1, 1);
+            for (int i = 0; i < 2000; ++i) points.QueryNearby(query, 0, found);
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            for (int i = 0; i < 2000; ++i) points.QueryNearby(query, 0, found);
+            Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
+            Assert.Equal(new[] { 0 }, found);
+        }
+#endif
+
+        // ---- a Segment3d from GetItem, and endpoints it cannot hold
+
+        [Fact]
+        public void RemovingWhatGetItemReturned_RemovesTheItem_ForEveryKindOfBuild()
+        {
+            var random = new Random(4);
+            for (int i = 0; i < 400; ++i) {
+                Vector3d a = new Vector3d(random.NextDouble() * 1000, random.NextDouble() * 1000, random.NextDouble());
+                Vector3d b = new Vector3d(random.NextDouble() * 1000, random.NextDouble() * 1000, random.NextDouble());
+                var fromEndpoints = new SegmentQuadtree2d();
+                int id = fromEndpoints.Insert(a, b);
+                Assert.True(fromEndpoints.Remove(fromEndpoints.GetItem(id)), $"case {i}");
+                Assert.False(fromEndpoints.ContainsId(id));
+
+                var fromSegment = new SegmentQuadtree2d();
+                id = fromSegment.Insert(new Segment3d(a, b));
+                Assert.True(fromSegment.Remove(fromSegment.GetItem(id)), $"case {i}");
+
+                var fromInput = new SegmentQuadtree2d();
+                id = fromInput.Insert(new Segment3d(a, b));
+                Assert.True(fromInput.Remove(new Segment3d(a, b)), $"case {i}");
+            }
+            // Nearly vertical in z, with an XY box a few ulps wide: the rounded endpoints of GetItem can lie beside that box.
+            for (int i = 0; i < 2000; ++i) {
+                double x = 0.1 + random.NextDouble(), y = 0.2 + random.NextDouble();
+                double ulp = BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(x) + 1) - x;
+                var tall = new SegmentQuadtree2d();
+                int id = tall.Insert(new Vector3d(x, y, 0), new Vector3d(x + ulp * random.Next(0, 3), y + ulp * random.Next(0, 3), 1000 * random.NextDouble() + 1));
+                Assert.True(tall.Remove(tall.GetItem(id)), $"tall case {i}");
+            }
+            // Among several equal ones the first, and nothing near it.
+            var tree = new SegmentQuadtree2d();
+            Vector3d p = new Vector3d(0.1, 0.2, 0.3), q = new Vector3d(0.7, 1.1, -0.4);
+            int other = tree.Insert(p, new Vector3d(0.7, 1.1000001, -0.4));
+            int one = tree.Insert(p, q), two = tree.Insert(p, q);
+            Assert.True(tree.Remove(tree.GetItem(two)));
+            Assert.False(tree.ContainsId(one));
+            Assert.True(tree.ContainsId(two));
+            Assert.True(tree.ContainsId(other));
+        }
+
+        [Theory]
+        [InlineData(1e200, 3e200)]
+        [InlineData(-1e308, 1e308)]
+        [InlineData(0.0, 1e-17)]
+        public void GetItem_Refuses_WhereASegmentCannotHoldTheEndpoints(double from, double to)
+        {
+            var tree = new SegmentQuadtree2d();
+            int id = tree.Insert(new Vector3d(from, 0, 0), new Vector3d(to, 0, 0));
+            Assert.Throws<ArithmeticException>(() => tree.GetItem(id));
+            tree.GetEndpoints(id, out Vector3d a, out Vector3d b);
+            Assert.Equal(from, a.x);
+            Assert.Equal(to, b.x);
+        }
+
+        [Fact]
+        public void GetItem_StillGivesAPoint_ForEqualEndpoints()
+        {
+            var tree = new SegmentQuadtree2d();
+            int id = tree.Insert(new Vector3d(1, 2, 3), new Vector3d(1, 2, 3));
+            Assert.Equal(new Vector3d(1, 2, 3), tree.GetItem(id).P0);
+        }
+
+        // ---- cost of equal items, and of cells one ulp wide
+
+        struct RegionCounter : IQuadtreeVisitor2d
+        {
+            public int Regions;
+            public bool TestRegion(AxisAlignedBox2d region) { ++Regions; return true; }
+            public bool Visit(int id) { return false; }
+        }
+
+        [Fact]
+        public void SmallClustersOfEqualItems_BuildNoChainOfNodes()
+        {
+            // 500 clusters of 17 equal points: cutting cannot separate them, and went down to the depth limit in each.
+            var boxes = new List<AxisAlignedBox2d>();
+            for (int c = 0; c < 500; ++c)
+                for (int i = 0; i < 17; ++i)
+                    boxes.Add(new AxisAlignedBox2d(new Vector2d(c * 7.0, c * 13.0 % 1000)));
+            foreach (var tree in new[] { new LooseQuadtree2d(boxes, false), InsertedOneByOne(boxes) }) {
+                var visitor = new RegionCounter();
+                tree.Traverse(ref visitor);
+                Assert.True(visitor.Regions < 2 * boxes.Count, $"{visitor.Regions} regions for {boxes.Count} items");
+                var found = new List<int>();
+                tree.QueryRectangle(boxes[17 * 200], found);
+                Assert.Equal(Enumerable.Range(17 * 200, 17), found.OrderBy(i => i));
+            }
+        }
+
+        static LooseQuadtree2d InsertedOneByOne(IEnumerable<AxisAlignedBox2d> boxes)
+        {
+            var tree = new LooseQuadtree2d();
+            foreach (AxisAlignedBox2d box in boxes) tree.Insert(box);
+            return tree;
+        }
+
+        [Fact]
+        public void ManyEqualItemsInsertedOneByOne_StayLinear_AndCanStillSplitLater()
+        {
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            AxisAlignedBox2d same = new AxisAlignedBox2d(new Vector2d(5, 5));
+            var tree = new LooseQuadtree2d(new[] { new AxisAlignedBox2d(0, 0, 10, 10) }, false);
+            for (int i = 0; i < 300000; ++i) tree.Insert(same);
+            Assert.True(watch.Elapsed.TotalSeconds < 5, $"took {watch.Elapsed.TotalSeconds} s");
+
+            // Different items arrive in the same cell: it splits at the next attempt, and every query stays right.
+            var found = new List<int>();
+            for (int i = 0; i < 300000; ++i) tree.Insert(new AxisAlignedBox2d(new Vector2d(5 + (i % 1000) * 1e-3, 5)));
+            tree.QueryRectangle(same, found);
+            Assert.Equal(300000 + 300 + 1, found.Count); // the big one, the equal ones, and those of i % 1000 == 0
+            int visited = Visited(tree, new AxisAlignedBox2d(5.5, 5, 5.5005, 5));
+            Assert.True(visited < 400000, $"visited {visited}");
+        }
+
+        [Fact]
+        public void ACellWhoseLongAxisIsOneUlpWide_IsCutAcrossTheShortOne()
+        {
+            double next = BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(1.0) + 1);
+            AxisAlignedBox2d[] boxes = Enumerable.Range(0, 5000).Select(i => new AxisAlignedBox2d(new Vector2d(i % 2 == 0 ? 1 : next, i * 1e-19))).ToArray();
+            var tree = new LooseQuadtree2d(boxes, false);
+            AxisAlignedBox2d query = new AxisAlignedBox2d(boxes[2000].Min, boxes[2000].Max);
+            int visited = Visited(tree, query);
+            Assert.True(visited < 200, $"visited {visited}");
+            var found = new List<int>();
+            tree.QueryRectangle(query, found);
+            Assert.Equal(new[] { 2000 }, found);
+        }
+
+        // ---- heights next to a spike
+
+        [Fact]
+        public void HeightOnAnEdgeOppositeASpike_IsNotSwampedByIt()
+        {
+            // On the edge from V0 to V2, so the spike at V1 has weight 0, which rounds to about 1e-16.
+            var tree = new TriangleQuadtree2d(new[] { new Triangle3d(new Vector3d(0, 0, 1), new Vector3d(21, 0, 1e20), new Vector3d(11, 6, 1)) });
+            Assert.True(tree.TryGetHeight(new Vector2d(8.25, 4.5), out double height, 0));
+            Assert.Equal(1, height);
+
+            // The other way round: the spike at V2, on the edge from V0 to V1.
+            tree = new TriangleQuadtree2d(new[] { new Triangle3d(new Vector3d(0, 0, 1), new Vector3d(11, 6, 1), new Vector3d(21, 0, 1e20)) });
+            Assert.True(tree.TryGetHeight(new Vector2d(8.25, 4.5), out height, 0));
+            Assert.Equal(1, height);
+        }
+
         // ---- heights on the diagonal of a grid TIN
 
         [Theory]

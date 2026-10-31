@@ -51,11 +51,17 @@ namespace g3
         public int Count { get { return tree.Count; } }
         public AxisAlignedBox2d Extent { get { return tree.Extent; } }
         public bool ContainsId(int id) { return tree.ContainsId(id); }
-        /// <summary>A segment rebuilt from the stored endpoints, so rounded. GetEndpoints returns them as they are.</summary>
+        /// <summary>
+        /// A segment rebuilt from the stored endpoints, so rounded; Remove accepts it. GetEndpoints returns them as they are.
+        /// Throws ArithmeticException for endpoints a Segment3d cannot hold: a length that overflows, or one too small to normalize.
+        /// </summary>
         public Segment3d GetItem(int id)
         {
             if (!ContainsId(id)) throw new ArgumentOutOfRangeException(nameof(id));
-            return new Segment3d(items[id].A, items[id].B);
+            var segment = new Segment3d(items[id].A, items[id].B);
+            if (!QuadtreeGeometry2d.Finite(segment.Extent) || (segment.Direction == Vector3d.Zero && items[id].A != items[id].B))
+                throw new ArithmeticException("A Segment3d cannot represent these endpoints: use GetEndpoints.");
+            return segment;
         }
         public void GetEndpoints(int id, out Vector3d a, out Vector3d b)
         {
@@ -80,21 +86,27 @@ namespace g3
             return id;
         }
         public bool Remove(int id) { return tree.Remove(id); }
+        /// <summary>Removes the first item with the endpoints of this segment, or that GetItem returns as this segment.</summary>
         public bool Remove(Segment3d item)
         {
-            return RemoveFirst(QuadtreeGeometry2d.Bounds(item), new Endpoints(item));
+            // The rounded endpoints of a segment from GetItem still span its center, which lies in the stored bounds: the boxes overlap.
+            var candidates = new List<int>();
+            tree.QueryRectangle(QuadtreeGeometry2d.Bounds(item), candidates);
+            Vector3d a = item.P0, b = item.P1;
+            int first = -1;
+            foreach (int id in candidates) {
+                if (first >= 0 && id > first) continue;
+                if ((items[id].A == a && items[id].B == b) || QuadtreeGeometry2d.Same(new Segment3d(items[id].A, items[id].B), item)) first = id;
+            }
+            return first >= 0 && tree.Remove(first);
         }
         public bool Remove(Vector3d a, Vector3d b)
         {
-            return RemoveFirst(QuadtreeGeometry2d.Bounds(a, b), new Endpoints(a, b));
-        }
-        bool RemoveFirst(AxisAlignedBox2d bounds, Endpoints item)
-        {
             var candidates = new List<int>();
-            tree.QueryRectangle(bounds, candidates);
+            tree.QueryRectangle(QuadtreeGeometry2d.Bounds(a, b), candidates);
             int first = -1;
             foreach (int id in candidates)
-                if (items[id].A == item.A && items[id].B == item.B && (first < 0 || id < first)) first = id;
+                if (items[id].A == a && items[id].B == b && (first < 0 || id < first)) first = id;
             return first >= 0 && tree.Remove(first);
         }
         public void QueryRectangle(AxisAlignedBox2d rectangle, List<int> results) { tree.QueryRectangle(rectangle, results); }

@@ -273,7 +273,7 @@ namespace g3
                 if (i != first) NearestKNode(node.Child + i, point, k, results, ref distance, maximum);
         }
 
-        // A rounded item distance can fall a few ulps below the rounded distance to its box. Pruning exactly at the
+        // A rounded item distance can fall a little below the rounded distance to its box. Pruning exactly at the
         // limit would then skip an item that ties with the best one, and the tie would go by visiting order.
         static bool Beyond(double boxDistance, double limit)
         {
@@ -326,7 +326,9 @@ namespace g3
             Link(id, ref node.Head);
             ++node.Count;
             nodes[index] = node;
-            if (node.Child < 0 && node.Count > BucketSize) BuildNode(nodes, index, depth);
+            // A cell of equal items refuses to split, at a cost per attempt: at powers of two, so that filling it stays linear.
+            if (node.Child < 0 && node.Count > BucketSize && (node.Count == BucketSize + 1 || (node.Count & (node.Count - 1)) == 0))
+                BuildNode(nodes, index, depth);
         }
 
         void Rebuild(bool parallel)
@@ -381,7 +383,7 @@ namespace g3
             if (node.Child >= 0 || node.Count <= BucketSize || depth >= DepthLimit) return false;
             Vector2d center = Center(node.Tight);
             int axes = SplitAxes(node.Tight, center);
-            if (axes == 0) return false;
+            if (axes == 0 || AllEqual(node.Head)) return false;
             int child = target.Count;
             for (int q = 0; q < 4; ++q) {
                 AxisAlignedBox2d tight = ChildBox(node.Tight, center, q, axes);
@@ -408,6 +410,14 @@ namespace g3
             node.Head = retained;
             node.Count = retainedCount;
             target[index] = node;
+            return true;
+        }
+
+        // Cutting cannot separate equal items: it would only build a chain of nodes down to the depth limit.
+        bool AllEqual(int head)
+        {
+            for (int id = entries[head].Next; id >= 0; id = entries[id].Next)
+                if (!Equal(entries[id].Box, entries[head].Box)) return false;
             return true;
         }
 
@@ -495,8 +505,9 @@ namespace g3
         static int SplitAxes(AxisAlignedBox2d box, Vector2d center)
         {
             double width = box.Max.x * 0.5 - box.Min.x * 0.5, height = box.Max.y * 0.5 - box.Min.y * 0.5;
-            return (width >= height * 0.5 && center.x > box.Min.x && center.x < box.Max.x ? 1 : 0) |
-                (height >= width * 0.5 && center.y > box.Min.y && center.y < box.Max.y ? 2 : 0);
+            bool cutX = center.x > box.Min.x && center.x < box.Max.x, cutY = center.y > box.Min.y && center.y < box.Max.y;
+            int axes = (cutX && width >= height * 0.5 ? 1 : 0) | (cutY && height >= width * 0.5 ? 2 : 0);
+            return axes != 0 ? axes : (cutX ? 1 : 0) | (cutY ? 2 : 0); // a long axis one ulp wide cannot be cut, the short one can
         }
 
         // The children an uncut axis does not select stay empty.

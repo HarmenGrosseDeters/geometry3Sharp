@@ -357,20 +357,20 @@ no push or merge is part of this task.
 
 ### Where the code differs from section 8, and why
 
-An independent review on 2026-10-31 found these, and each was reproduced in C# before the change.
+Independent reviews on 2026-10-31 found these. The ones of the first review were reproduced in C# before the change, and for the second review a test now holds each one.
 
 | Section 8 | Now | Why |
 |---|---|---|
-| `SegmentQuadtree2d` owns `Segment3d` snapshots | It owns endpoints. Also built from vertices and edges; `Insert(a, b)`, `Remove(a, b)`, `GetEndpoints`. `Segment3d` stays accepted | `Segment3d` keeps a center, a normalized direction and an extent, so `P0` and `P1` are rounded, depending on z too. On a jittered UTM grid, 43 % of the segments missed a point query at their own start vertex. `GetItem` now rebuilds a `Segment3d` from the endpoints, so it can differ from the input in the last bits. A `Segment3d` input keeps its rounded endpoints: only building from endpoints gives exact ones |
-| Fixed internal depth limit | 64, was 32 | One far outlier flattened the tree: 100000 items visited instead of 15 |
+| `SegmentQuadtree2d` owns `Segment3d` snapshots | It owns endpoints. Also built from vertices and edges; `Insert(a, b)`, `Remove(a, b)`, `GetEndpoints`. `Segment3d` stays accepted | `Segment3d` keeps a center, a normalized direction and an extent, so `P0` and `P1` are rounded, depending on z too. On a jittered UTM grid, 43 % of the segments missed a point query at their own start vertex. `GetItem` now rebuilds a `Segment3d` from the endpoints, so it can differ in the last bits, and `Remove` accepts it. It throws `ArithmeticException` for endpoints a `Segment3d` cannot hold: a difference above about 1e154, or a length too small to normalize. A `Segment3d` input keeps its rounded endpoints: only building from endpoints gives exact ones |
+| Fixed internal depth limit | 64, was 32 | One far outlier flattened the tree: 100000 items visited instead of 15. Above an extent ratio of about 2^64 this still happens, with right results |
 | Regions recursively quartered | A cell more than twice as long as wide is cut across its length only | One row of a TIN stayed at the root, as cells kept the shape of the extent |
 | Extent grows on insertion | `Extent` still reports the items' bounds, but the root region grows geometrically | Every insert beyond the extent rebuilt the tree: 40000 sorted points took 90 s. A tree grown this way has a root larger than `Extent` |
-| Tolerance is absolute and complete | Inclusive also where the rounded distance lands just above the tolerance: exact squares decide within a few ulps | A point at distance exactly 3 was refused at tolerance 3 |
+| Tolerance is absolute and complete | Exact at the tolerance: exact squares decide where the rounded distance is within its error of it. That error follows the size of the cancelled terms, not only the tolerance | A point at distance exactly 3 was refused at tolerance 3, and points near long segments were misjudged both ways. The nearest order of nearly collinear segments stays rounded |
 | Ties by ID | Nearest pruning leaves 1e-15 of room | A rounded item distance can fall below the rounded distance to its box, and the tie then went by visiting order. Ties are between computed distances, so geometric ties can still differ in rounding |
 | "a triangle within tolerance" (2.1) | `TryGetHeight` and `stopAfterFirst` take the nearest triangle within tolerance, the lowest ID on a tie | The result depended on the traversal, so on how the tree was built |
 | "all equal for a consistent TIN" (2.1) | Equal at shared vertices. On a shared edge, heights agree up to rounding | This cannot hold for rounded interpolation |
 
-The core rejects nothing new. Removal by value and by ID no longer scans. Points on a diagonal of a grid TIN no longer take the exact path (17 us and 8 KB per call before).
+The core rejects nothing new. Removal by value and by ID no longer scans. A cell of equal items is not split, as cutting cannot separate them. Points on a diagonal of a grid TIN no longer take the exact path (17 us and 8 KB per call before), unless the z difference dwarfs the height, as next to a spike.
 
 ### Limits that stay
 
