@@ -304,7 +304,6 @@ namespace geometry3Sharp.Tests
             { "MeshBoolean|scale 2^-24", "R6" },
             { "MeshGeodesicDistance|rotated, scale 1e-3, utm", "R16" },
             { "MeshICP|scale 2^-24", "R8" },
-            { "MeshIsoCurves|NaN param", "R15" },
             { "MeshIsoCurves|scale 2^-24", "R15" },
             { "MeshIterativeSmooth|+Inf vertex", "R13" },
             { "MeshIterativeSmooth|NaN vertex", "R13" },

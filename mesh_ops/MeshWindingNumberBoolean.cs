@@ -30,7 +30,7 @@ namespace gs
         /// <summary> the operation to compute </summary>
         public Operations Operation;
 
-        /// <summary> grid cell size. If zero, uses bounding box diagonal of both inputs / GridResolution </summary>
+        /// <summary> grid cell size. If zero, uses bounding box diagonal of both inputs / GridResolution; NaN or infinite: Compute fails </summary>
         public double CellSize = 0;
         /// <summary> number of cells along the bounding box diagonal (of both inputs), used if CellSize is zero </summary>
         public int GridResolution = 128;
@@ -96,12 +96,17 @@ namespace gs
         /// Compute the boolean into Result.
         /// </summary>
         /// <returns>
-        /// false if both inputs are empty, the cell size is not positive or too small for the octree, or the
-        /// computation was cancelled; true otherwise (Result may be an empty mesh, eg an intersection with an
-        /// empty input).
+        /// false if both inputs are empty, CellSize is NaN or infinite (Result is then null), the cell size is
+        /// not positive or too small for the octree, or the computation was cancelled; true otherwise (Result
+        /// may be an empty mesh, eg an intersection with an empty input).
         /// </returns>
         public bool Compute()
         {
+            // (checked here: a NaN would pass as "automatic" below, +infinity as a valid size)
+            if (MathUtil.IsFinite(CellSize) == false) {
+                Result = null;
+                return false;
+            }
             if (MeshA.TriangleCount == 0 && MeshB.TriangleCount == 0)
                 return false;
             // empty inputs do not count (their bounds would drag in the origin)

@@ -272,9 +272,20 @@ namespace g3
 
 
         public IEnumerable<Vector2i> IndicesInclusive() {
+            // the int counters would wrap around and never end at int.MaxValue, but long counters are slower
+            // (about 15% with a trivial loop body), so they are only used there
+            return (Max.x == int.MaxValue || Max.y == int.MaxValue) ? indices_inclusive_long() : indices_inclusive_int();
+        }
+        IEnumerable<Vector2i> indices_inclusive_int() {
             for (int yi = Min.y; yi <= Max.y; ++yi) {
                 for (int xi = Min.x; xi <= Max.x; ++xi)
                     yield return new Vector2i(xi, yi);
+            }
+        }
+        IEnumerable<Vector2i> indices_inclusive_long() {
+            for (long yi = Min.y; yi <= Max.y; ++yi) {
+                for (long xi = Min.x; xi <= Max.x; ++xi)
+                    yield return new Vector2i((int)xi, (int)yi);
             }
         }
         public IEnumerable<Vector2i> IndicesExclusive() {

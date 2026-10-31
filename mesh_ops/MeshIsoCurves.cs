@@ -125,6 +125,12 @@ namespace g3
 
                 // round f to 0 within epsilon?
 
+                // No crossing is defined where a value is NaN, or between +infinity and -infinity (the sum is NaN
+                // exactly then; finite values that overflow it give an infinity, not NaN). Compute() has no status:
+                // such triangles add nothing to the Graph, so a field that is NaN everywhere gives an empty Graph.
+                if (double.IsNaN(f.x + f.y + f.z))
+                    continue;
+
                 if (f.x < 0 && f.y < 0 && f.z < 0)
                     continue;
                 if (f.x > 0 && f.y > 0 && f.z > 0)

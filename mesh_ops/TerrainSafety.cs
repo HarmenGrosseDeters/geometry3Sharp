@@ -364,14 +364,42 @@ namespace gs
         }
         List<List<Vector3d>> polyLines;
 
+        /// <summary>
+        /// false (with no lines, no certificate) if SafetyDistance is not positive and finite, the terrain is
+        /// empty, a source point is not finite or a source segment is too long for its length to be finite, or
+        /// the parameters of the mode are invalid: Tolerance (Horizontal, Guaranteed) and ExcessTolerance
+        /// (Guaranteed) must be positive and finite, EdgeLength (AlongSurface) must not be NaN or infinite.
+        /// </summary>
         public bool Compute()
         {
-            Lines.Clear();
-            if (!(SafetyDistance > 0) || double.IsInfinity(SafetyDistance) || Terrain.TriangleCount == 0)
+            Lines.Clear(); Excess.Clear();
+            MaxExcess = 0; UncertifiedSegments = 0; MinLineDistance = 0; Certified = false;
+            if (positive_finite(SafetyDistance) == false || Terrain.TriangleCount == 0 || sources_finite() == false)
                 return false;
             if (Mode == Modes.Guaranteed)
                 return compute_guaranteed();
             return (Mode == Modes.Horizontal) ? compute_horizontal() : compute_along_surface();
+        }
+
+        static bool positive_finite(double x)
+        {
+            return x > 0 && double.IsInfinity(x) == false;
+        }
+
+        // per coordinate (Vector3d.IsFinite tests their sum, which overflows). Segments: an infinite length
+        // would need about 2^31 densification steps, and their positions would be NaN.
+        bool sources_finite()
+        {
+            Func<Vector3d, bool> finite = (p) => MathUtil.IsFinite(p.x) && MathUtil.IsFinite(p.y) && MathUtil.IsFinite(p.z);
+            foreach (Vector3d p in SourcePoints)
+                if (finite(p) == false) return false;
+            if (polyLines != null)
+                foreach (var line in polyLines)
+                    for (int i = 0; i < line.Count; ++i) {
+                        if (finite(line[i]) == false) return false;
+                        if (i > 0 && MathUtil.IsFinite(line[i - 1].Distance(line[i])) == false) return false;
+                    }
+            return true;
         }
 
 
@@ -448,7 +476,7 @@ namespace gs
         {
             Lines.Clear();
             build_segments();
-            if (segments.Count == 0 || Tolerance <= 0)
+            if (segments.Count == 0 || positive_finite(Tolerance) == false)
                 return false;
             // the line points are exact on the edges; between them a chord of an arc of radius
             // SafetyDistance (around convex corners and line ends) lies at most len^2 / (8 SafetyDistance)
@@ -466,10 +494,9 @@ namespace gs
 
         bool compute_guaranteed()
         {
-            Lines.Clear(); Excess.Clear();
-            MaxExcess = 0; UncertifiedSegments = 0; Certified = false; MinLineDistance = double.MaxValue;
+            MinLineDistance = double.MaxValue;
             build_segments();
-            if (segments.Count == 0 || Tolerance <= 0)
+            if (segments.Count == 0 || positive_finite(Tolerance) == false || positive_finite(ExcessTolerance) == false)
                 return false;
             // as Horizontal, with the 3D distance (a lower bound of the distance along the terrain); the
             // chords between the line points lie at most Tolerance inside the level, so outside SafetyDistance
@@ -695,6 +722,9 @@ namespace gs
         bool compute_along_surface()
         {
             Lines.Clear();
+            // (0 and negative mean the default; a NaN would pass as the default too)
+            if (MathUtil.IsFinite(EdgeLength) == false)
+                return false;
             double h = (EdgeLength > 0) ? EdgeLength : SafetyDistance / 8;
             if (h <= 0)
                 return false;

@@ -40,7 +40,7 @@ namespace gs
         /// <summary> iso-surface extraction method; default DualContouring </summary>
         public Methods Method = Methods.DualContouring;
 
-        /// <summary> grid cell size. If zero, uses bounding box diagonal / GridResolution </summary>
+        /// <summary> grid cell size. If zero, uses bounding box diagonal / GridResolution; NaN or infinite: Compute fails </summary>
         public double CellSize = 0;
         /// <summary> number of cells along the bounding box diagonal, used if CellSize is zero </summary>
         public int GridResolution = 128;
@@ -149,12 +149,18 @@ namespace gs
         /// Compute the solid surface into Result.
         /// </summary>
         /// <returns>
-        /// false if the input is empty, the cell size is not positive, the grid (or octree depth) would be too
-        /// large for the cell size, or the computation was cancelled; true otherwise.
+        /// false if the input is empty, CellSize is NaN or infinite (Result is then null), the cell size is not
+        /// positive, the grid (or octree depth) would be too large for the cell size, or the computation was
+        /// cancelled; true otherwise.
         /// </returns>
         public bool Compute()
         {
             StoppedOnSelfIntersections = false;
+            // (checked here: a NaN would pass as "automatic" below, +infinity as a valid size)
+            if (MathUtil.IsFinite(CellSize) == false) {
+                Result = null;
+                return false;
+            }
             // bounds of the triangles: CachedBounds includes unused vertices, which can lie far away
             AxisAlignedBox3d bounds = MeshRepairMetrics.TriangleBounds(Mesh);
             double cellSize = (CellSize > 0) ? CellSize : bounds.DiagonalLength / GridResolution;

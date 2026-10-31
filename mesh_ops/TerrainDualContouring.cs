@@ -54,7 +54,7 @@ namespace gs
         /// </summary>
         public DMesh3 FootprintMesh;
 
-        /// <summary> finest cell size in XY. If zero, uses the larger XY extent / GridResolution </summary>
+        /// <summary> finest cell size in XY. If zero, uses the larger XY extent / GridResolution; NaN or infinite: Compute fails </summary>
         public double CellSize = 0;
         public int GridResolution = 256;
         /// <summary> vertical rays per cell along each axis (finest cells) </summary>
@@ -110,6 +110,11 @@ namespace gs
 
         public bool Compute()
         {
+            // (checked here: a NaN would pass as "automatic" below, +infinity as a valid size)
+            if (MathUtil.IsFinite(CellSize) == false) {
+                Result = null;
+                return false;
+            }
             AxisAlignedBox3d bounds;
             if (SampleF != null) {
                 bounds = SampleBounds;
