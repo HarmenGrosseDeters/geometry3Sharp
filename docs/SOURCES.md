@@ -228,6 +228,13 @@ Implemented from the paper, no code taken over.
 | Part | Source |
 |---|---|
 | Test-case minimization (`DeltaDebug.Minimize`, `MeshMinimizer`): ddmin over components, triangles, unused vertices and the bytes or lines of reader inputs | A. Zeller, R. Hildebrandt, *Simplifying and Isolating Failure-Inducing Input*, IEEE Transactions on Software Engineering 28(2), 2002 |
+| Boolean oracles (`BooleanOracle`): solid angle of a triangle for the winding number probes | A. Van Oosterom, J. Strackee, *The Solid Angle of a Plane Triangle*, IEEE Transactions on Biomedical Engineering 30(2), 1983 |
+| Analytic box reference, exact dyadic volumes and areas, representation changes (`BooleanOracle`) | own construction (docs/design/BOOLEAN_PROPERTY_TESTS.md) |
+
+Test-only package: **CsCheck 4.9.1** (Apache-2.0, https://github.com/AnthonyLloyd/CsCheck, NuGet metadata checked),
+referenced by `tests/geometry3Sharp.Tests` on net10.0 only with `PrivateAssets="all"`, for generation and shrinking
+in `ExactBooleanPropertyTests.CsCheck.cs`. No code is copied from it and it is not a dependency of the library
+package. 4.9.1 (2026-09-17, targets net8.0) rather than 5.0.0, which was a week old when it was added (2026-10-24).
 
 ## Benchmarks
 
