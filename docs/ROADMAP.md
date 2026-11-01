@@ -55,7 +55,14 @@ Limits on parallel work:
 Order when slots free up (owner, 2026-11-01; on that day 4 large and 2 medium sessions ran, above the limit below):
 
 1. Remesher done (medium): not replaced.
-2. Stage R done and the milestone "ExactMeshBoolean 1.0" reached: **Terrain 1a** (large), with the NoData guard of
+2. Stage R done and the milestone "ExactMeshBoolean 1.0" reached: first a **MeshRepair wrap-resolution session**
+   (medium, owner 2026-11-01): in the MeshRepair-400 worst case, `wrap.simplify` takes 24 % of the time on 17 meshes,
+   because tiny inputs (450-650 triangles) are wrapped at 180k-415k triangles (resolution from the bounding box, not
+   the input); couple alpha / offset to the input, start coarser, or speed up the simplifier, under the F-score and
+   fidelity gates (data: `benchmarks/MeshRepairBenchmark/cases/robust_phases_2026-11-01.csv`). It precedes stage 7b
+   (alpha wrap quality). The volume checks (20 % of the time, all 400 meshes) go to the self-intersection session after
+   #261; the slow `exact.resolve` on small inputs (67709, 42327) goes to the boolean-performance session as a diagnosis.
+   Then **Terrain 1a** (large), with the NoData guard of
    `TerrainSafetyLines` (a single vertex such as z = −9999 near a source refines until memory runs out; count the band's
    3D area, not only the horizontal one).
 3. Meshing done (large): the **stage 6b provenance check** (medium, report only), after M3 is merged.
@@ -98,6 +105,8 @@ finding through the coordinator so that one session owns the fix and the others 
 | Exact stage of the adaptive `Orient3d` on nearly coplanar inputs: 88-90 % return 0, 190-250 ns each, coordinate differences within 62 bits in 91-100 % | Boolean performance (#256): 5-7 % of the boolean time | Reducer / Remesher `PreventSelfIntersections` (a tilted plate: 72 % of 99.7M calls exact, about 70 % of the check time, 50.8 s); `IntrTriangle3Triangle3` after #253 (coplanar pairs 4-40x slower) | #256 "kernel B", a 1-limb fast path in `ExactPredicates.orient3d_exact`; the self-intersection session adds a double SAT filter in front, so that fewer calls reach it |
 | Filter bounds derived by hand | Indirect predicates (#244 / #250) | Every new floating-point filter (SAT filter, envelope) | `tools/PredicateCompiler`: derive bounds with it where it fits |
 | Exact checks in BigInteger rationals at scale: the 2D mesher's oracle spends minutes on 25k-50k-point meshes (meshing itself 0.65 s), mostly in the global Delaunay and boundary-chain checks | Meshing (2026-11-01) | Any oracle or exact verifier on large inputs | Meshing session, now: measure, then the local Delaunay criterion (O(n) instead of global), then a double filter whose bound comes from `tools/PredicateCompiler`, BigInteger only as fallback; the oracle stays independent of `ExactPredicates`, which the mesher uses |
+| `ExactMeshBoolean.coplanar_stack`: quadratic, pieces × coplanar triangles (42327: 495M `Orient` calls, 87 % of a 46 s resolve) | Boolean performance diagnosis (2026-11-01) | MeshRepair's exact stage on inputs with heavy coplanar overlap | Open. Idea: pieces of one source triangle are wholly inside or outside a coplanar triangle, whose edges are constraints, so decide membership by a flood fill over the piece adjacency, not per piece |
+| SafeRounding on rotated (general double) inputs: 72-86 % of a resolve (67709 rotated 18.5 of 21.6 s; 42327 rotated 36.8 of 50.8 s), 18-28 % of 110-172M `Orient3d` calls exact | Boolean performance diagnosis (2026-11-01) | MeshRepair (its benchmark resolves a rotated copy too) | Open, after stage R. Measure kernel B's admission there first: a 2-limb kernel B only if that shows a real share |
 | `Reducer` `MaxDeviation`: 92-97 % of its time | Phase 5 #2 | Remeshers that must stay near the input | Stage 7, the envelope |
 
 ## Open tasks and where their answer may already be
