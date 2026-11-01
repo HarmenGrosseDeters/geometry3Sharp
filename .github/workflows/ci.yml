@@ -1,11 +1,12 @@
 name: CI
 
 on:
-  # docs-only changes skip CI (CLAUDE.md, "Before every push")
+  # docs-only changes skip CI (CLAUDE.md, "Before every push"), except the design doc whose bound table a test checks
+  # (GeneratedPredicatesTests)
   push:
-    paths-ignore: ['**/*.md']
+    paths: ['**', '!**/*.md', 'docs/design/FIXED_WIDTH_EXACT_POINTS.md']
   pull_request:
-    paths-ignore: ['**/*.md']
+    paths: ['**', '!**/*.md', 'docs/design/FIXED_WIDTH_EXACT_POINTS.md']
   workflow_dispatch:
 
 env:

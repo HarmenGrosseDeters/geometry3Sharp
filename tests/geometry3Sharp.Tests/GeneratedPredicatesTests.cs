@@ -16,7 +16,7 @@ namespace geometry3Sharp.Tests
     /// design doc's table is the derivation's output, the derived bounds hold on inputs at the admission limit, the
     /// spec is the formula of the FixedArith kernels, and the kernels' scratch constants cover the derived scratch.
     /// </summary>
-    public class GeneratedPredicatesTests
+    public unsafe class GeneratedPredicatesTests
     {
         static readonly BigInteger Limit = (BigInteger.One << 255) - 1;
 
@@ -174,6 +174,53 @@ namespace geometry3Sharp.Tests
                     Assert.True(n.Limbs == (reached[n] + 63) / 64, $"{p.Name}: value {n.Name ?? n.Id.ToString()} reached {reached[n]} of {n.Bits} bits");
         }
 
+        // the limbs a FixedArena has handed out
+        static long Used(FixedArena ar, ulong* start)
+        {
+            var cur = (ulong*)Pointer.Unbox(typeof(FixedArena).GetField("cur", BindingFlags.NonPublic | BindingFlags.Instance).GetValue(ar));
+            return cur - start;
+        }
+
+        /// <summary>
+        /// the length rule against the kernels' real arena use: the FixedArith operations of Orient (Det3Sign) and
+        /// InCircle (incircle_row, Det3Sign) never take more than the derived scratch, and on points at the limit
+        /// they take all of it (the model is an upper bound, and tight)
+        /// </summary>
+        [Fact]
+        public void KernelArenaUse_IsTheDerivedScratch()
+        {
+            Predicate o = Get("Orient"), c = Get("InCircle");
+            var row = typeof(FixedArith).GetMethod("incircle_row", BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(row);
+            var rand = new Random(223);
+            long maxO = 0, maxC = 0;
+            ulong* v = stackalloc ulong[48];
+            ulong* s = stackalloc ulong[2048];
+            for (int k = 0; k < 600; ++k) {
+                var pts = Enumerable.Range(0, 4).Select(_ => RandomPoint(rand, k % 3 == 0 ? 2 : k % 3 == 1 ? 1 : 0)).ToArray();
+                var f = pts.Select(q => { Assert.True(FixedPoint3.TryCreate(q, out var r)); return r; }).ToArray();
+                int i = k % 3, j = (i + 1) % 3;
+                var ar = new FixedArena(s, o.ArenaScratch);
+                FixedArith.Det3Sign(f[0].Get(i, v), f[0].Get(j, v + 4), f[0].Get(3, v + 8), f[1].Get(i, v + 12), f[1].Get(j, v + 16),
+                    f[1].Get(3, v + 20), f[2].Get(i, v + 24), f[2].Get(j, v + 28), f[2].Get(3, v + 32), ref ar);
+                maxO = Math.Max(maxO, Used(ar, s));
+                // InCircle as FixedArith.InCircle does it, on an arena of exactly the derived scratch (Take throws beyond)
+                ar = new FixedArena(s, c.ArenaScratch);
+                FixedInt dx = f[3].Get(i, v), dy = f[3].Get(j, v + 4), dw = f[3].Get(3, v + 8);
+                var e = new FixedInt[9];
+                for (int r = 0; r < 3; ++r) {
+                    object[] args = { f[r], dx, dy, dw, f[3].WIsOne, i, j, Pointer.Box(v + 12 + 12 * r, typeof(ulong*)), ar, null, null, null };
+                    row.Invoke(null, args);
+                    ar = (FixedArena)args[8];
+                    e[3 * r] = (FixedInt)args[9]; e[3 * r + 1] = (FixedInt)args[10]; e[3 * r + 2] = (FixedInt)args[11];
+                }
+                FixedArith.Det3Sign(e[0], e[1], e[2], e[3], e[4], e[5], e[6], e[7], e[8], ref ar);
+                maxC = Math.Max(maxC, Used(ar, s));
+            }
+            Assert.Equal(o.ArenaScratch, maxO);
+            Assert.Equal(c.ArenaScratch, maxC);
+        }
+
         /// <summary> the limbs at their boundaries: 2 m < 2^256 fits 4 limbs, 3 m needs 257 bits, 5 limbs </summary>
         [Fact]
         public void Limbs_AtTheLimbBoundaries()
@@ -214,6 +261,8 @@ namespace geometry3Sharp.Tests
                 "ipredicate P(a, b) bound 255\n    x = a.x * b.x",                    // no sign line
                 "ipredicate P(a, b) bound 255\n    x = a.x * b.x\n    x = a.y\n    sign x",   // repeated name
                 "ipredicate P(a, b) bound 255\n    x = a.x * b.x\n    y = b.x * a.x\n    sign x - y",   // the same value twice
+                "ipredicate P(a, b) bound 255\n    sign a.x * b.x - b.x * a.x",       // the same value twice, unnamed
+                "ipredicate P(a, b) bound 255 x\n    sign a.x * b.x",                 // text after the bound
                 "ipredicate P(a, a) bound 255\n    sign a.x * a.y",                   // duplicate point
                 "ipredicate P(a, b) bound 255\n    sign a.x",                         // the sign of an input
                 "ipredicate P(a, b) bound 255\n    sign (a.x * b.x",                  // missing ')'

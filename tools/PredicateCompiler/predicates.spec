@@ -3,7 +3,8 @@
 # component has |v| <= 2^b - 1; FixedPoint3 admits b = 255), definitions
 # 'x = expression' (+, -, * and parentheses over the inputs and earlier names), then 'sign expression'. The inputs are
 # p.x, p.y and p.w of a point p: its components i and j (the projection axes) and W. Every operation is one FixedArith
-# operation of the kernel, in the kernel's order; a value written twice is computed once, as in the kernel.
+# operation of the kernel (the same operations and sharing; the order of independent values may differ, which
+# changes neither the bounds nor the scratch); a value the kernel uses twice is named and used by its name.
 
 # FixedArith.Orient (ExactMeshArrangement.Orient): Det3 of the rows (x_i, x_j, W) of a, b, c, expanded along the
 # first row as FixedArith.Det3Sign and ExactPoint3.Det3: a (e i - f h) - b (d i - f g) + c (d h - e g).

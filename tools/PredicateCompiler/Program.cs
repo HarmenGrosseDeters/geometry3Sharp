@@ -17,12 +17,13 @@ namespace G3PredicateCompiler
             if (args.Length == 3 && args[0] == "--doc") {
                 string doc = File.ReadAllText(args[2]).Replace("\r\n", "\n");
                 int b = doc.IndexOf(PredicateCompiler.TableBegin, StringComparison.Ordinal);
-                int e = doc.IndexOf(PredicateCompiler.TableEnd, StringComparison.Ordinal);
-                if (b < 0 || e < b) {
+                int e = b < 0 ? -1 : doc.IndexOf(PredicateCompiler.TableEnd, b, StringComparison.Ordinal);
+                if (e < 0) {
                     Console.Error.WriteLine($"{args[2]}: no generated table block");
                     return 1;
                 }
-                e += PredicateCompiler.TableEnd.Length + 1;
+                // the block ends with the end marker and its newline (Table ends with one)
+                e = Math.Min(doc.Length, e + PredicateCompiler.TableEnd.Length + 1);
                 File.WriteAllText(args[2], doc.Substring(0, b) + PredicateCompiler.Table(File.ReadAllText(args[1])) + doc.Substring(e));
                 Console.WriteLine($"updated {args[2]}");
                 return 0;

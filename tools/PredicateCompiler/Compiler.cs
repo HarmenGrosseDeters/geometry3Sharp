@@ -286,12 +286,18 @@ namespace G3PredicateCompiler
             return result;
         }
 
-        // structural sharing (a value written twice is computed once, as the kernels do); products are commutative
+        // the expression graph: inputs are shared, other values only through their names (products commute)
         static Node make(Predicate p, Dictionary<string, Node> cse, Op op, Node a, Node b, string input)
         {
             if (op == Op.Mul && a.Id > b.Id) { var t = a; a = b; b = t; }
             string key = op == Op.Input ? "in:" + input : $"{op}:{a.Id}:{b.Id}";
-            if (cse.TryGetValue(key, out var n)) return n;
+            if (cse.TryGetValue(key, out var n)) {
+                // a value the kernel shares is named once and used by its name; a value written twice is an error (the
+                // kernel would compute it twice, the derivation once: its scratch would be undercounted)
+                if (op != Op.Input)
+                    throw new FormatException($"{p.Name}: a value is written twice; name it and use the name");
+                return n;
+            }
             n = new Node { Id = p.Nodes.Count, Op = op, A = a, B = b };
             if (op == Op.Input) { n.Point = input.Substring(0, input.IndexOf('.')); n.Comp = input[input.Length - 1]; }
             p.Nodes.Add(n);
