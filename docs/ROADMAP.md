@@ -39,17 +39,28 @@ hold up is discarded with the owner, not patched until it passes. The stages run
 | 4. References | Pilot: M1 against NetTopologySuite. Then the golden subset. The session that produces `Triangle.NET` results is planned, not started (strategy, section 3) | M | 1 session |
 | 5. Quadtree | `quadtree` (#195): independent review, owner-machine performance and memory, side-by-side with the old quadtree | L | 1 large session |
 | 6. Meshing M1 | `feature/meshing2d` (#200): oracle and differential as gates. Only then the M2 design (#201, `docs/meshing2d-m2-design`): its recorded approvals are disputed, so question its domain decisions first. An M2 implementation comes after that | L | 1 large session, after stage 5 |
-| 7. Alpha wrap quality | Owner decision on #199. No recorded policy passes every gate, so its production code is not for merging as it is, and it does not compile as it is. Next step: a bounded look at the failing local patches of the hard-feature policy, no threshold tuning | L | 1 large session, after stage 6 |
-| 8. Planned follow-ups | Boolean property tests, DAP audit and honest terrain metrics, next to any stage from 4 on; the upstream ledger last, because it records what is merged. Terrain phase 1 after stage 5 | S, M | up to 2 sessions |
+| 7. Envelope containment | Phase 5 #2 (Wang et al. 2020; `fast-envelope` is MIT; `MeshEnvelope` is the prototype). One piece of work serves four tasks: quality passes that stay near the input, the alpha-wrap simplification, the `Reducer` `MaxDeviation` check (92-97 % of its time) and the envelope-guaranteed pipeline. It comes before the alpha-wrap stage, which keeps failing on the trade-off between quality and fidelity that an envelope settles | L | 1 large session, after stage 5 |
+| 7b. Alpha wrap quality | Owner decision on #199. No recorded policy passes every gate, so its production code is not for merging as it is, and it does not compile as it is. Next step: a bounded look at the failing local patches of the hard-feature policy, no threshold tuning | L | 1 large session, after stage 7 |
+| B. Boolean performance | Continues, at the owner's request. Done: `AddPoint` shards (#222). Next, in order: fixed-width exact points, 4 limbs (#223: cherchi / cgal −8 %, Thingi10K −11 %, n-ary −26 %, all hashes identical); then the **predicate compiler on fixed-width inputs**, stacked on #223 and started without waiting for its mutation runs: regenerate the arrangement's `InCircle` / `Orient` from the generator of #221 with the exact bit bounds of the 4-limb points, so that the `BigInteger` fallback (about half of the calls with the grid-fitted bounds of #221) mostly disappears; the fallback rate is a reported metric. The generator stays an offline tool with a checked-in, reviewable output and an up-to-date test, not a Roslyn source generator, because the bounds review needs the generated code in the diff. The grid-fitted `ArrInCircle` of #221 is not merged. Later: planes / CSR (section 12 of the fixed-width design), and the generator reused for the envelope predicates (stage 7). Hand-over and ranked candidates: [perf/EXACT_BOOLEAN_PERFORMANCE.md](perf/EXACT_BOOLEAN_PERFORMANCE.md). Exact code: bounds review and mutation runs on every PR | L | 1 large session |
+| R. SafeRounding | Its own session, kept apart from the performance work (performance must stay bit-identical; this changes results on purpose). (1) Fix: SafeRounding moves exact vertices of pieces below its degenerate threshold on clean input (union volume 17.999992370605316 instead of 17.99999237060547), pinned as a skipped test in `ExactBooleanPropertyFindings` (#229). (2) A recommendation on design question 1b of [design/BOOLEAN_PROPERTY_TESTS.md](design/BOOLEAN_PROPERTY_TESTS.md): repair input that is already degenerate or not. (3) A bounded evaluation of the research item "Practical 3D snap rounding with guarantees" below, with Thingi10K: a concept, no implementation. (4) Fix `ExactTriangleIntersection.IntersectsBeyondShared`: for coplanar neighbours sharing one vertex where one is a sliver, the projection axis comes from a floating-point cross product that rounds to 0, so a false intersection is reported (and inherited by `MeshRepairMetrics.SelfIntersections`); choose the axis exactly. Repro from the remesher session (both triangles in y = 0, ids (0,1,2) / (3,1,4)); this gives the deferred exact coplanar clipping task a real caller | L | 1 large session, when a large slot is free (after meshing or B) |
+| 8. Planned follow-ups | Boolean property tests, DAP audit and honest terrain metrics, next to any stage from 4 on; the upstream ledger last, because it records what is merged. Terrain phase 1 after stage 5. After this wave: **CLI / MCP and docs for the new operations** (quadtree, mesher, n-ary and SafeRounding booleans in `g3cli`, examples in OPERATIONS.md), so that agents can use what was built (Direction, points 2 and 3). Candidate: a **Clipper2 adapter** as an optional package (`geometry3Sharp.Clipper2`; Clipper2 is Boost-licensed): robust integer 2D polygon booleans and offsets for terrain / GIS footprints and slicing, written against Clipper2's public API, not taken from the DAP fork; the core stays dependency-free and API compatible. Decide after the DAP audit's provenance list | S, M | up to 2 sessions |
+
+Stages 4 and 6 are prepared in [MESHING2D_PLAN.md](design/MESHING2D_PLAN.md): the gates exist as commands; the verdict on #200 and the questions on #201 are there.
 
 Why this order: a reference must exist before an implementation is accepted against it. The quadtree comes before meshing because terrain phase 1 waits for it and its PR is further along.
 
 Limits on parallel work:
 
-- At most 3 sessions at once, of which at most 1 large (tier L implementation; [AGENT_WORKFLOW.md](AGENT_WORKFLOW.md)
-  section 6). Each session has its own worktree and one PR-sized topic.
+- At most 5 implementation sessions at once in the cloud, of which at most 2 large (tier L; [AGENT_WORKFLOW.md](AGENT_WORKFLOW.md)
+  section 6), plus **one review session** that only reviews (independent reviews with REVIEW_CHECKLIST.md, bounds
+  reviews, re-running numbers) and writes no production code. The owner's local work does not count. The limit
+  applies to new starts: when sessions finish, they are not replaced until the count is below it. Each session has
+  its own worktree and one PR-sized topic.
+- The bottleneck is review, serial merges and the mutation runners (a full shard takes hours), not sessions: a
+  session whose PR waits for review does not start the next PR-sized topic in a mutated file.
 - Parallel sessions must not change the same production files. Quadtree (`spatial/`) and meshing (`comp_geom/`) are
-  disjoint in code, but each needs the full attention of its reviewer, so they stay serial.
+  disjoint in code; they run at the same time because the owner works on the quadtree locally and the review session
+  takes the meshing reviews.
 - Merges are serial, because many PRs touch `docs/ROADMAP.md`, `docs/QA.md`, `docs/SOURCES.md`, `docs/OPERATIONS.md`
   and `ExactBooleanIssueCasesTests.cs`. Rebase the next PR and re-run CI after each merge. Keep status text in the
   PR, not in the roadmap.
@@ -58,7 +69,7 @@ Limits on parallel work:
 
 Open task from the takeover:
 
-- [ ] **Exact coplanar triangle clipping: investigate as its own topic.** `IntrTriangle2Triangle2` clips in floating point, and
+- [ ] **Exact coplanar triangle clipping: investigate as its own topic.** Deferred until a caller needs it (only tests call the coplanar path). `IntrTriangle2Triangle2` clips in floating point, and
   coplanar `IntrTriangle3Triangle3` builds on it: it loses point and segment contacts. The fix in #193 was discarded after review: it
   added a regression (disjoint triangles reported as intersecting through overflow), and contacts were still lost (15641 false
   negatives, 7951 false positives in 3.86M lattice pairs, against an exact oracle). Rounded clipping cannot keep such a promise. To
@@ -140,10 +151,14 @@ Open tasks further up, and work further down, in the code or in the research lis
   smoothing) leaves a zero-area triangle in the band of `TerrainSafetyTests.SafetyLine_AlongSurface_BandIsOneCleanPiece`,
   where `Remesher` leaves none. Opt-in: `Remesher.MinTriangleQuality` (also `RemesherPro`; curve vertices smoothed
   along their curve, guarded vertex moves, flips of poor pairs, no splits or collapses that create flat triangles or
-  flip normals; `benchmarks/RemeshQualityBenchmark`). Open: the default (to be decided with the fidelity metrics).
-- [ ] Remeshers produce self-intersections: with the `g3cli remesh` settings 19 of 20 Thingi10K results have
-  self-intersecting triangle pairs (19910 pairs, the inputs 1522), mostly from valence flips and collapses (no
-  geometric check by default). `MinTriangleQuality` reduces them (3158 pairs; far fewer are created during the passes)
+  flip normals; `benchmarks/RemeshQualityBenchmark`). Default decided with the fidelity metrics: `g3cli remesh` uses 0.2 (on
+  Thingi10K all fidelity means equal or better, single meshes and coarse primitives worse in places, zero-area triangles in 0 instead of 17 results, 1.5x the time), the
+  library default stays 0 (upstream behaviour; thin walls far below the edge length get worse with it). Open: the
+  self-intersections (next item).
+- [ ] Remeshers produce self-intersections: with the `g3cli remesh` settings without `--min-quality` 19 of 20 Thingi10K
+  results have self-intersecting triangle pairs (19768 pairs, the inputs 1522), mostly from valence flips and collapses
+  (no geometric check by default). `MinTriangleQuality` (0.2, the `g3cli` default now) reduces them (17 of 20 results,
+  3105 pairs; far fewer are created during the passes)
   but does not prevent them, and 9 of 150 procedural primitives end with a few more pairs than without it, all at the
   bottom rim where the flat cap meets the side (projection moves across the rim, no normal flips): repro cases in
   `benchmarks/RemeshQualityBenchmark`: taper10_x0.15 (12 -> 16 pairs), taper16_x0.1 (0 -> 12), taper32_x0.1 (0 -> 12),
@@ -259,21 +274,21 @@ Open tasks further up, and work further down, in the code or in the research lis
   on old code, package validation against 1.0.324, banned APIs in exact code), together with a mutation shard per new
   robustness-critical module (the runs on PRs are incremental: tests/mutation/README.md). Acceptance
   against references for the 2D meshing ([strategy](design/ACCEPTANCE_STRATEGY.md)). The other items go with the modules they touch.
-  - [ ] Boolean metamorphic and property tests ([implementation plan](design/BOOLEAN_PROPERTY_TESTS.md), QA §4a
+  - [x] Boolean metamorphic and property tests ([implementation plan](design/BOOLEAN_PROPERTY_TESTS.md), QA §4a
     items 9 and 10): volume identities, partition reconstruction, commutativity, vertex/triangle permutation and
-    conforming subdivision; CsCheck parameter shrinking and replay. Test-only, no `ExactMesh*` changes. Proposed:
-    generated campaigns on net10.0, deterministic regressions also on net48; independent analytic box oracles and
-    result validity checks. CsCheck is Apache-2.0, not MIT. Planned and fact-checked; implementation remains open.
+    conforming subdivision; CsCheck campaigns with shrinking and replay on net10.0, the fixed corpus also on net48;
+    analytic box oracle. Finding: `SafeRounding` moves exact vertices of pieces below its degenerate threshold
+    (`ExactBooleanPropertyFindings`, skipped until fixed in its own tier-L PR).
 
 ## Focused follow-up work
 
 Plans, fact-checked on 2026-10-30; each states the owner decisions it still needs. The implementation or audit work remains open.
 Tasks 4 to 6 can start independently once those are made; for task 4 they are made.
 
-- [ ] **4. DAP bug fixes (E.2):** [audit and adoption plan](design/DAP_BUGFIX_AUDIT.md). Review the pinned
-  `Digital-Production-Aachen/DAPComputationalGeometry` delta from `8f185f1` to DAP HEAD, ignoring formatting;
-  each adopted fix needs a regression that fails on our pre-fix code, the minimal fix and an attribution in
-  [SOURCES.md](SOURCES.md). Root Boost license verified; new features remain blocked on individual provenance.
+- [x] **4. DAP bug fixes (E.2):** [audit and adoption plan](design/DAP_BUGFIX_AUDIT.md). Audited 2026-11-01: the
+  delta from `8f185f1` to `a2a4b9f` (and on to `158507b`) has no bug fix that applies here; it has formatting, API
+  breaks, behavior changes and features, plus defects of its own that the [audit result](design/DAP_BUGFIX_AUDIT.md#audit-result-2026-11-01)
+  lists so later feature ports avoid them. New features remain blocked on individual provenance.
 - [ ] **5. Honest terrain metrics (C2(A)):** [benchmark-only plan](design/TERRAIN_DISTANCE_METRICS.md). Add shortest
   3D distance to the reference TIN and the horizontal/vertical components of the same closest-point displacement
   for `tdc` and `gtin`; retain vertical-ray metrics, report invalid/missing samples and measure overhead. Do not

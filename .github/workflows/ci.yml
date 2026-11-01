@@ -1,8 +1,11 @@
 name: CI
 
 on:
+  # docs-only changes skip CI (CLAUDE.md, "Before every push")
   push:
+    paths-ignore: ['**/*.md']
   pull_request:
+    paths-ignore: ['**/*.md']
   workflow_dispatch:
 
 env:
@@ -34,6 +37,19 @@ jobs:
           -- artifacts/geometry3Sharp.1.0.0-ci.${{ github.run_number }}.nupkg
       - name: Build the benchmarks
         run: for p in benchmarks/*/*.csproj; do dotnet build "$p" -c Release -f net10.0 || exit 1; done
+      - name: Acceptance gates of the 2D mesher (oracle self-check, differential against NetTopologySuite, golden rows)
+        run: dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 --no-build -- ci
+      - name: A changed golden row of the 2D mesher states a reason
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --depth=1 origin "${{ github.base_ref }}"
+          # the files of both sides: a deleted file counts as one with all rows removed
+          files=$( (ls benchmarks/Meshing2Benchmark/golden/*.json; git ls-tree --name-only FETCH_HEAD benchmarks/Meshing2Benchmark/golden/) | sort -u)
+          for f in $files; do
+            git show "FETCH_HEAD:$f" > golden-base.json 2>/dev/null || echo '{"format": 1, "rows": [], "removed": []}' > golden-base.json
+            if [ -f "$f" ]; then cp "$f" golden-current.json; else echo '{"format": 1, "rows": [], "removed": []}' > golden-current.json; fi
+            dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 --no-build -- golden verify-changes --base golden-base.json --current golden-current.json || exit 1
+          done
       - name: Test the benchmark analysis
         run: python3 benchmarks/MeshRepairBenchmark/test_analysis.py
       - uses: actions/upload-artifact@v4
