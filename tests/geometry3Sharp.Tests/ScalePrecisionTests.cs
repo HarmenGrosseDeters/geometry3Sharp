@@ -1122,8 +1122,8 @@ namespace geometry3Sharp.Tests
         [Theory]
         [InlineData(5e102, -5e102, -1e103, -1.5e103)]       // the products overflow before the division by det
         [InlineData(1e-103, -1e-103, -2e-103, -3e-103)]     // 1/det is infinite
-        [InlineData(6e102, -6e102, -1.2e103, -1.8e103)]     // 1/det is 0: this gave a solution of (0,0,0)
-        [InlineData(1e103, 0, 0, 0)]
+        [InlineData(6e102, -6e102, -1.2e103, -1.8e103)]
+        [InlineData(1e103, 0, 0, 0)]                        // 1/det is 0: this gave a solution of (0,0,0)
         [InlineData(0.5, 1e308, 1, 1)]
         [InlineData(0.5, 1, 1e308, 1)]
         [InlineData(0.5, 1, 1, 1e308)]
