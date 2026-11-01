@@ -197,7 +197,27 @@ practical cost:
 
 ## 4. Measurements: master against D′
 
-To be filled from the runs below (commands and raw files in the PR):
-- BooleanComparison `compare.py --methods ours -j 1` on `cgal` (90), `cherchi` (13), `synthetic` (24): clean counts and
-  the time of the booleans.
-- MeshRepairBenchmark 400 set `robust`: repaired, exact stage outcome, time.
+Both tools are built from the same master (`6ce2ad3`), so the comparison measures only the bound. Measured on 1 November 2026, on 4 cores.
+
+**Clean counts.** BooleanComparison, `compare.py --methods ours -j 1` and `analyze.py`:
+
+| class | master | D′ |
+|---|---|---|
+| `cgal` (90) | 65 clean, 1 self-int., 24 not closed (open inputs) | the same |
+| `cherchi` (13) | 13 clean | 13 clean |
+| `synthetic` (24) | 23 clean, 1 self-int. | the same |
+| RoundingClean, `cgal` operations | 268 of 270 | 268 of 270 |
+
+**MeshRepairBenchmark, 400 set.**
+- Command: `robust`, `BENCH_P=2 TIMEOUT=300`, then `analyze_fidelity.py` and `analyze_paths.py`.
+- The meshes that timed out under machine load were rerun alone with the same settings: 1037029, 1505037 and 229959 for D′; 498458 and 55928 for master.
+- **Repaired: 274 → 273.** The exact stage gave the result for 176 → 175 meshes.
+- The one difference is 1102667. A degenerate triangle stays (the bound), so the exact stage fails, and the fallback takes 121 s instead of 16 s.
+- Together with R22 (CylinderTool) this is a single case, not a drop.
+
+**Cost.** A warm A B A B profile on a quiet machine:
+- Command: `BooleanComparison profile --repeat 3 --safe-rounding perf/cases-thingi12.txt perf/cases-cherchi_small.txt`, two rounds, master and D′ in turn.
+- The rounding phase (`rounding`) takes 3.83 s → 4.05 s in total (×1.059); the median per case and operation is ×1.057.
+- The unchanged phases of the same runs vary as much: intersections ×1.03, setup ×1.07, assembly ×1.06. So the cost of the drift bookkeeping is within the noise, below about 5 %.
+- On these cases SafeRounding is 31 % of the boolean.
+- 48 of 51 result hashes are identical. The 3 that differ are all thingi/471993, with the same number of edits: there the bound picks other flips.
