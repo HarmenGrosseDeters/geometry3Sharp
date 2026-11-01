@@ -220,8 +220,8 @@ on the reference triangulation (Q9). Decisions and findings:
 
 **What remains (hand-over).**
 
-1. **Over-refinement where many segments cross at small angles.** F-4/a, F-4/b, F-5 (random segments at 25 degrees) end at the default Steiner limit (about
-   100 000 vertices); the oracle accepts them (a valid constrained Delaunay mesh, limit flagged), but Triangle-like meshers need a few thousand. The refinement
+1. **Over-refinement where many segments cross at small angles.** F-4/a (random segments at 25 degrees) ends at the default Steiner limit (101 078
+   vertices; F-4/b needs 8 594, F-4/c 37 567, F-5 6 229, final run of `rows`); the oracle accepts them (a valid constrained Delaunay mesh, limit flagged), but Triangle-like meshers need a few thousand. The refinement
    descends towards apexes such as (3, 4) of F-4/a, where five segments cross at angles from 7 degrees up. Next step: Shewchuk's 2002 rules for small input
    angles beyond the shortest-edge exemption (do not insert a circumcentre that would encroach a segment incident to the small angle; protect the apex by a
    ball), then measure the vertex counts of F-4 and F-5 against the spec's "fewer than 5 000" of F-24.
