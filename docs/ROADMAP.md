@@ -164,8 +164,14 @@ Open tasks further up, and work further down, in the code or in the research lis
   bottom rim where the flat cap meets the side (projection moves across the rim, no normal flips): repro cases in
   `benchmarks/RemeshQualityBenchmark`: taper10_x0.15 (12 -> 16 pairs), taper16_x0.1 (0 -> 12), taper32_x0.1 (0 -> 12),
   taper32_x0.6 (0 -> 8), cone16_x0.45 (0 -> 10), cone24_x0.15 (0 -> 6), cone24_x0.3 (0 -> 10), cone24_x0.6 (0 -> 31),
-  cone32_x0.6 (0 -> 8) (and cone12_x0.6, cone16_x0.6, flattened to zero volume without `RejectInvertingPasses`). Needs an intersection check per operation (local AABB of the
-  one-ring) or a repair pass after remeshing.
+  cone32_x0.6 (0 -> 8) (and cone12_x0.6, cone16_x0.6, flattened to zero volume without `RejectInvertingPasses`).
+  Opt-in: `Remesher.PreventSelfIntersections` (also `RemesherPro`): an exact check of every collapse, flip, split and
+  smoothing / projection move against a triangle grid. Every result whose input is free of self-intersections is
+  free of them (all 192 procedural cases, 15 of 20 Thingi10K meshes; the other 5 inputs intersect themselves), at
+  about 17x the time (`benchmarks/RemeshQualityBenchmark`, PreventSelfIntersections). Open: the cost (a clearance
+  filter; the 2D shortcut for coplanar neighbours, about -30 % on CAD meshes, after the
+  `ExactTriangleIntersection` fix of stage R), and the thin walls, where the check blocks the folds but the result
+  ends far from the input (next item).
 - [ ] Remeshing far above the wall thickness folds walls through each other and can turn a mesh inside out, with
   and without `MinTriangleQuality`: Thingi10K 135363 (a 0.8 plate with thin-walled tubes, walls 0.75, target = mean
   edge 11.6) ends inside-out in both variants (signed volume 4448 -> -4706 without, -4021 with the option; the sign
@@ -178,12 +184,16 @@ Open tasks further up, and work further down, in the code or in the research lis
   warns when the edge length is more than 4 times the estimated wall thickness. Open: the result is still
   self-intersecting and far off the volume (the guard only keeps the orientation); needs thickness-aware sizing
   (target below the local wall thickness) or the intersection check above.
-- [ ] Feature detection misses vertex features: the apex of a smooth cone (no crease edges) is not pinned and is rounded
+- [x] Feature detection misses vertex features: the apex of a smooth cone (no crease edges) is not pinned and is rounded
   off by the remeshers: cones with 12 or more slices (their side edges are no creases) 1.4..2.8 target edge lengths
   from the input; with `MinTriangleQuality` 1.4..3.2, more in 12 of these 24 cases of `benchmarks/RemeshQualityBenchmark`
   (its guards keep a few vertices near the apex up to an edge off the surface). Cones with up to 10 slices keep the
-  apex as a junction of creases. Detect and pin sharp vertices (eg by the normal cone or the angle deficit of their
-  one-ring) in `PreserveBoundaryAndFeatures`.
+  apex as a junction of creases. Done: `MeshConstraintUtil.PinSharpVertices` (opt-in, after
+  `PreserveBoundaryAndFeatures`) pins interior vertices with an absolute angle deficit of at least 75 degrees that
+  have no curve constraint; `g3cli remesh` uses it by default (`--sharp-vertex-angle 75`, 0 = off). The cones end 0.20..0.66 instead of 1.37..3.15
+  target from the input (mean Hausdorff of the 150 primitives 0.341 -> 0.115); on Thingi10K it pins 1 vertex in 20
+  meshes (39460: Hausdorff 0.78 -> 0.33 target), the other 19 are unchanged (`benchmarks/RemeshQualityBenchmark`,
+  PinSharpVertices).
 - [x] `MeshRobustRepair.NotCleanReason` reported only the first failed check: "degenerate triangles" hid the
   self-intersections of most remeshed meshes, and the inside-out result of 135363 without `MinTriangleQuality`. Done in
   #159: `MeshRobustRepair.FindDefects` / `NotCleanReasons` report every failed check (`NotCleanReason` keeps the first),

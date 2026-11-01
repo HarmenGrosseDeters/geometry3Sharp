@@ -74,6 +74,12 @@ See the tested [intrinsic geodesic](docs/OPERATIONS.md#intrinsic-triangulations)
 - Mesh file formats PLY, 3MF and glTF 2.0 ([formats and limitations](#mesh-file-formats)).
 - Targets **net10.0** and **netstandard2.0**, XML documentation, symbol packages and procedural tests
   ([build, targets, tests](#build-targets-tests)).
+- Optional package `geometry3Sharp.Clipper2` (`addons/geometry3Sharp.Clipper2`): robust 2D polygon booleans
+  (union, intersection, difference, xor, with fill rules), clipping of polylines, offsets with join and end types,
+  Minkowski sums and simplification for `Polygon2d`, `GeneralPolygon2d` (holes) and `PolyLine2d`, on top of
+  [Clipper2](https://github.com/AngusJohnson/Clipper2) (Boost-1.0). Results come with a status; the integer grid
+  is fitted to the input, so UTM coordinates and any units work. The core package stays free of dependencies.
+  See [OPERATIONS.md](docs/OPERATIONS.md#2d-polygon-booleans-and-offsets-optional-package).
 - `tools/g3cli`: the mesh operations (measure, repair, boolean, resolve, remesh, simplify, convert) as a CLI with
   JSON output and result codes, and as an MCP server (`g3cli mcp`). See [tools/g3cli/README.md](tools/g3cli/README.md).
 
@@ -87,6 +93,7 @@ mesh_ops classes such as `MeshAutoRepair`.
 dotnet test tests/geometry3Sharp.Tests                      # all tests on net10.0
 dotnet test tests/geometry3Sharp.Tests -f net48             # on Windows: tests against the netstandard2.0 build
 dotnet test tests/g3cli.Tests                               # CLI / MCP server integration tests
+dotnet test tests/geometry3Sharp.Clipper2.Tests             # the optional Clipper2 package
 dotnet pack geometry3Sharp_netstandard.csproj -c Release -o artifacts
 ```
 
