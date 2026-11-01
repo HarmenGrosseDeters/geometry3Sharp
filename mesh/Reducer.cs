@@ -491,18 +491,30 @@ namespace g3
 
         int nearest_within_deviation(Vector3d p, TriangleDeviationBounds.QueryCache cache)
         {
-            return cache != null ? deviationBounds.NearestWithin(deviationTarget, p, cache) : deviationTarget.FindNearestTriangle(p, MaxDeviation);
+            double d;
+            if (cache == null) return deviationTarget.FindNearestTriangle(p, MaxDeviation);
+            System.Threading.Interlocked.Increment(ref DeviationCacheSampleLookups);
+            return deviationBounds.NearestWithin(deviationTarget, p, cache, out d);
         }
+
+        /// <summary> (tests) the shared queries' lookups and hits, summed over the collapses that reached them </summary>
+        internal long DeviationCacheLookups, DeviationCacheHits, DeviationCacheIsWithinHits, DeviationCacheSampleLookups;
 
         // would the triangles around a and b, after collapsing to newPos, stay within MaxDeviation?
         protected bool collapse_within_deviation(int a, int b, Vector3d newPos)
         {
+            // the new vertex first: one query, rejects most collapses that go too far
+            double newPosSqr;
+            int newPosTri = deviationTarget.FindNearestTriangle(newPos, out newPosSqr, MaxDeviation);
+            if (newPosTri < 0)
+                return false;
             // the tree queries of this collapse, shared: the new vertex is a corner of every new triangle, the
             // other corners and the edge midpoints are shared by two (the samples below are the same points)
-            var cache = ShareDeviationQueries ? new TriangleDeviationBounds.QueryCache(MaxDeviation) : null;
-            // the new vertex first: one query, rejects most collapses that go too far
-            if (nearest_within_deviation(newPos, cache) < 0)
-                return false;
+            TriangleDeviationBounds.QueryCache cache = null;
+            if (ShareDeviationQueries) {
+                cache = new TriangleDeviationBounds.QueryCache(deviationTarget, MaxDeviation);
+                cache.Put(newPos, newPosTri, newPosSqr);
+            }
             List<Triangle3d> tris = new List<Triangle3d>();
             foreach (int v in new int[] { a, b }) {
                 int other = (v == a) ? b : a;
@@ -524,10 +536,13 @@ namespace g3
                 }
             }
             bool ok = true;
-            gParallel.ForEach(Interval1i.Range(tris.Count), (k) => {
+            gParallel.ForRange(tris.Count, (k) => {
                 if (ok && deviationBounds.IsWithin(deviationTarget, tris[k].V0, tris[k].V1, tris[k].V2, MaxDeviation, MaxDeviationDepth, cache) == false)
                     ok = false;
             });
+            if (cache != null) {
+                DeviationCacheLookups += cache.Lookups; DeviationCacheHits += cache.Hits; DeviationCacheIsWithinHits += cache.IsWithinHits;
+            }
             return ok;
         }
 

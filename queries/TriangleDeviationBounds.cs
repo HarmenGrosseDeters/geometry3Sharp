@@ -126,36 +126,49 @@ namespace g3
         }
 
         /// <summary>
-        /// Nearest-triangle results within one distance (MaxDist), shared by the queries of several IsWithin calls
-        /// and their callers' samples, eg the triangles of one Reducer collapse: they share corners and edge
-        /// midpoints. Thread-safe; a result is the one the tree search gives for the same point and distance, so the
-        /// answers are the same as without the cache, bit for bit.
+        /// Nearest-triangle results within one distance (MaxDist) in one tree, shared by the queries of several
+        /// IsWithin calls and their callers' samples, eg the triangles of one Reducer collapse: they share corners and
+        /// edge midpoints. Thread-safe; a result is the one the tree search gives for the same point, distance and
+        /// tree, so the answers are the same as without the cache (a cache of another distance or tree is not used).
         /// </summary>
         internal sealed class QueryCache
         {
             internal readonly double MaxDist;
+            internal readonly DMeshAABBTree3 Tree;
             internal readonly System.Collections.Concurrent.ConcurrentDictionary<Vector3d, (double d, int tid)> Results =
-                new System.Collections.Concurrent.ConcurrentDictionary<Vector3d, (double d, int tid)>();
-            internal QueryCache(double maxDist) { MaxDist = maxDist; }
+                new System.Collections.Concurrent.ConcurrentDictionary<Vector3d, (double d, int tid)>(4, 64);
+            /// <summary> (tests) lookups and hits, and the hits of IsWithin calls </summary>
+            internal int Lookups, Hits, IsWithinHits;
+            internal QueryCache(DMeshAABBTree3 tree, double maxDist) { Tree = tree; MaxDist = maxDist; }
+
+            /// <summary> stores the result of a tree search the caller made (FindNearestTriangle(p, out distSqr, MaxDist)) </summary>
+            internal void Put(Vector3d p, int tid, double distSqr)
+            {
+                System.Threading.Interlocked.Increment(ref Lookups);
+                Results.TryAdd(p, (distance(tid, distSqr), tid));
+            }
         }
 
-        /// <summary> the nearest triangle of p within cache.MaxDist (-1 if none), from the cache or the tree </summary>
-        internal int NearestWithin(DMeshAABBTree3 spatial, Vector3d p, QueryCache cache)
+        // the distance as query_tree reports it
+        static double distance(int tid, double distSqr) { return (tid >= 0) ? Math.Sqrt(distSqr) : double.MaxValue; }
+
+        /// <summary> the nearest triangle of p within cache.MaxDist (-1 if none) and its distance (MaxValue if none) </summary>
+        internal int NearestWithin(DMeshAABBTree3 spatial, Vector3d p, QueryCache cache, out double d)
         {
-            double d; int tid;
-            query(spatial, p, cache.MaxDist, out d, out tid, cache);
+            int tid;
+            query(spatial, p, cache.MaxDist, out d, out tid, cache.Tree == spatial ? cache : null);
             return tid;
         }
 
         /// <summary> IsWithin with the tree queries shared through cache (null: none; a cache of another distance is not used) </summary>
         internal bool IsWithin(DMeshAABBTree3 spatial, Vector3d a, Vector3d b, Vector3d c, double eps, int maxDepth, QueryCache cache)
         {
-            if (cache != null && cache.MaxDist != eps) cache = null;
+            if (cache != null && (cache.MaxDist != eps || cache.Tree != spatial)) cache = null;
             Stack<Item> stack = new Stack<Item>();
             Item root = new Item() { P0 = a, P1 = b, P2 = c, Depth = 0, OnEdge = 7 };
-            if (query(spatial, a, eps, out root.D0, out root.N0, cache) > eps) return false;
-            if (query(spatial, b, eps, out root.D1, out root.N1, cache) > eps) return false;
-            if (query(spatial, c, eps, out root.D2, out root.N2, cache) > eps) return false;
+            if (query(spatial, a, eps, out root.D0, out root.N0, cache, true) > eps) return false;
+            if (query(spatial, b, eps, out root.D1, out root.N1, cache, true) > eps) return false;
+            if (query(spatial, c, eps, out root.D2, out root.N2, cache, true) > eps) return false;
             stack.Push(root);
             while (stack.Count > 0) {
                 Item t = stack.Pop();
@@ -166,9 +179,9 @@ namespace g3
                 Vector3d m01 = 0.5 * (t.P0 + t.P1), m12 = 0.5 * (t.P1 + t.P2), m20 = 0.5 * (t.P2 + t.P0);
                 double d01, d12, d20; int n01, n12, n20;
                 int e = t.OnEdge;
-                if (query(spatial, m01, eps, out d01, out n01, (e & 1) != 0 ? cache : null) > eps) return false;
-                if (query(spatial, m12, eps, out d12, out n12, (e & 2) != 0 ? cache : null) > eps) return false;
-                if (query(spatial, m20, eps, out d20, out n20, (e & 4) != 0 ? cache : null) > eps) return false;
+                if (query(spatial, m01, eps, out d01, out n01, (e & 1) != 0 ? cache : null, true) > eps) return false;
+                if (query(spatial, m12, eps, out d12, out n12, (e & 2) != 0 ? cache : null, true) > eps) return false;
+                if (query(spatial, m20, eps, out d20, out n20, (e & 4) != 0 ? cache : null, true) > eps) return false;
                 int depth = t.Depth + 1;
                 stack.Push(new Item() { P0 = t.P0, P1 = m01, P2 = m20, D0 = t.D0, D1 = d01, D2 = d20, N0 = t.N0, N1 = n01, N2 = n20, Depth = depth, OnEdge = e & 5 });
                 stack.Push(new Item() { P0 = m01, P1 = t.P1, P2 = m12, D0 = d01, D1 = t.D1, D2 = d12, N0 = n01, N1 = t.N1, N2 = n12, Depth = depth, OnEdge = e & 3 });
@@ -195,11 +208,16 @@ namespace g3
             return query(spatial, p, maxDist, out d, out tid, null);
         }
 
-        double query(DMeshAABBTree3 spatial, Vector3d p, double maxDist, out double d, out int tid, QueryCache cache)
+        double query(DMeshAABBTree3 spatial, Vector3d p, double maxDist, out double d, out int tid, QueryCache cache, bool fromIsWithin = false)
         {
             if (cache != null) {
                 (double d, int tid) r;
-                if (cache.Results.TryGetValue(p, out r)) { d = r.d; tid = r.tid; return d; }
+                System.Threading.Interlocked.Increment(ref cache.Lookups);
+                if (cache.Results.TryGetValue(p, out r)) {
+                    System.Threading.Interlocked.Increment(ref cache.Hits);
+                    if (fromIsWithin) System.Threading.Interlocked.Increment(ref cache.IsWithinHits);
+                    d = r.d; tid = r.tid; return d;
+                }
                 query_tree(spatial, p, maxDist, out d, out tid);
                 cache.Results.TryAdd(p, (d, tid));
                 return d;
@@ -211,7 +229,7 @@ namespace g3
         {
             double distSqr;
             tid = spatial.FindNearestTriangle(p, out distSqr, maxDist);
-            d = (tid >= 0) ? Math.Sqrt(distSqr) : double.MaxValue;
+            d = distance(tid, distSqr);
             return d;
         }
 

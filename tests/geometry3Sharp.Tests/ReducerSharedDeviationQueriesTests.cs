@@ -53,10 +53,13 @@ namespace geometry3Sharp.Tests
             foreach (int t in a.TriangleIndices()) Assert.Equal(a.GetTriangle(t), b.GetTriangle(t));
         }
 
-        static DMesh3 Reduce(DMesh3 input, double tol, bool share, int target = 4)
+        static DMesh3 Reduce(DMesh3 input, double tol, bool share, int target = 4) { return Reduce(input, tol, share, out Reducer _, target); }
+
+        static DMesh3 Reduce(DMesh3 input, double tol, bool share, out Reducer reducer, int target = 4)
         {
             var m = new DMesh3(input);
-            new Reducer(m) { MaxDeviation = tol, ShareDeviationQueries = share }.ReduceToTriangleCount(target);
+            reducer = new Reducer(m) { MaxDeviation = tol, ShareDeviationQueries = share };
+            reducer.ReduceToTriangleCount(target);
             return m;
         }
 
@@ -67,7 +70,11 @@ namespace geometry3Sharp.Tests
             foreach (DMesh3 input in new[] { Bumpy(20), Terrain(40) }) {
                 double diag = input.CachedBounds.DiagonalLength;
                 foreach (double rel in new[] { 1e-3, 3e-3, 1e-2 }) {
-                    DMesh3 without = Reduce(input, rel * diag, false), with = Reduce(input, rel * diag, true);
+                    DMesh3 without = Reduce(input, rel * diag, false, out Reducer r0), with = Reduce(input, rel * diag, true, out Reducer r1);
+                    // the cache is used: by the samples (lookups), and IsWithin finds shared points in it
+                    Assert.Equal(0, r0.DeviationCacheLookups);
+                    Assert.Equal(0, r0.DeviationCacheSampleLookups);
+                    Assert.True(r1.DeviationCacheSampleLookups > 0 && r1.DeviationCacheIsWithinHits > 0, $"sample lookups {r1.DeviationCacheSampleLookups}, IsWithin hits {r1.DeviationCacheIsWithinHits}");
                     Assert.True(with.TriangleCount < 0.9 * input.TriangleCount && with.TriangleCount > 4, $"{with.TriangleCount} of {input.TriangleCount}: the check both allowed and stopped collapses");
                     AssertSame(without, with);
                     AssertSame(with, Reduce(input, rel * diag, true));     // repeated: deterministic
@@ -76,7 +83,7 @@ namespace geometry3Sharp.Tests
             }
         }
 
-        // every vertex of the reduced mesh, and the centroid of every triangle, within tol of the input
+        // the centroid of every triangle of the reduced mesh within tol of the input
         static bool MeshDeviationCheck(DMesh3 reduced, DMesh3 input, double tol)
         {
             var tree = new DMeshAABBTree3(input, true);
@@ -99,29 +106,68 @@ namespace geometry3Sharp.Tests
             var bounds = new TriangleDeviationBounds(target);
             var rand = new Random(3);
             int yes = 0, no = 0;
-            foreach (double eps in new[] { 0.003, 0.01, 0.03 }) {
+            int tight = 0;
+            foreach (double eps0 in new[] { 0.003, 0.01, 0.03, -1 }) {
                 for (int k = 0; k < 150; ++k) {
+                    double eps = eps0;
                     // a fan of 6 triangles around a centre near the surface
                     Vector3d c = target.GetVertex(rand.Next(target.VertexCount)) * (1 + (rand.NextDouble() - 0.5) * eps);
                     double r = 0.02 + 0.1 * rand.NextDouble();
                     Vector3d n = c.Normalized, u = n.Cross(Vector3d.AxisZ).Normalized, w = n.Cross(u);
                     var ring = Enumerable.Range(0, 6).Select(i => c + r * (Math.Cos(i * Math.PI / 3) * u + Math.Sin(i * Math.PI / 3) * w)).ToArray();
-                    var cache = new TriangleDeviationBounds.QueryCache(eps);
-                    var other = new TriangleDeviationBounds.QueryCache(eps * 2);
+                    if (eps0 < 0) {
+                        // tight: eps just above the largest corner distance, so the answers hinge on the distances
+                        double dmax = ring.Concat(new[] { c }).Max(q => Math.Sqrt(MeshQueries.TriDistanceSqr(target, tree.FindNearestTriangle(q), q)));
+                        eps = dmax * (1 + 1e-9) + 1e-12;
+                        tight++;
+                    }
+                    var cache = new TriangleDeviationBounds.QueryCache(tree, eps);
+                    var other = new TriangleDeviationBounds.QueryCache(tree, eps * 2);
+                    var otherTree = new TriangleDeviationBounds.QueryCache(new DMeshAABBTree3(target, true), eps);
                     for (int i = 0; i < 6; ++i) {
                         Vector3d a = ring[i], b = ring[(i + 1) % 6];
                         bool plain = bounds.IsWithin(tree, c, a, b, eps);
                         Assert.Equal(plain, bounds.IsWithin(tree, c, a, b, eps, 10, cache));
-                        Assert.Equal(plain, bounds.IsWithin(tree, c, a, b, eps, 10, other));
-                        Assert.Equal(tree.FindNearestTriangle(a, eps), bounds.NearestWithin(tree, a, cache));
-                        Assert.Equal(tree.FindNearestTriangle(0.5 * (c + a), eps), bounds.NearestWithin(tree, 0.5 * (c + a), cache));
+                        bounds.IsWithin(tree, c, a, b, eps, 10, other);
+                        bounds.IsWithin(tree, c, a, b, eps, 10, otherTree);
                         if (plain) yes++; else no++;
                     }
-                    Assert.True(cache.Results.Count > 0);
+                    Assert.True(cache.IsWithinHits > 0, "the fan's shared corners are found in the cache");
                     Assert.Empty(other.Results);        // another distance: not used
+                    Assert.Empty(otherTree.Results);    // another tree: not used
+                    // every cached result, read back through the cache (a hit), equals the tree search bit for bit
+                    int hits = cache.Hits;
+                    foreach (Vector3d q in cache.Results.Keys.ToList()) {
+                        int tid = bounds.NearestWithin(tree, q, cache, out double d);
+                        int t2 = tree.FindNearestTriangle(q, out double dsq, eps);
+                        Assert.Equal(t2, tid);
+                        Assert.Equal(t2 >= 0 ? Math.Sqrt(dsq) : double.MaxValue, d);
+                    }
+                    Assert.Equal(hits + cache.Results.Count, cache.Hits);
                 }
             }
-            Assert.True(yes > 100 && no > 100, $"{yes} within, {no} not");
+            Assert.True(yes > 100 && no > 100 && tight == 150, $"{yes} within, {no} not");
+        }
+
+        /// <summary>
+        /// the collapse's IsWithin calls run in parallel and share the cache: parallel equals serial
+        /// (gParallel.SerialOnThisThread), and other entry points (ReduceToEdgeLength) are unchanged by sharing
+        /// </summary>
+        [Fact]
+        public void Reduction_ParallelEqualsSerial_OtherEntryPoints()
+        {
+            DMesh3 input = Bumpy(20);
+            double tol = 3e-3 * input.CachedBounds.DiagonalLength;
+            DMesh3 parallel = Reduce(input, tol, true), serial;
+            gParallel.SerialOnThisThread = true;
+            try { serial = Reduce(input, tol, true); } finally { gParallel.SerialOnThisThread = false; }
+            AssertSame(parallel, serial);
+
+            double len = 0.1 * input.CachedBounds.DiagonalLength;     // longer than the input edges
+            var a = new DMesh3(input); new Reducer(a) { MaxDeviation = tol, ShareDeviationQueries = false }.ReduceToEdgeLength(len);
+            var b = new DMesh3(input); new Reducer(b) { MaxDeviation = tol, ShareDeviationQueries = true }.ReduceToEdgeLength(len);
+            Assert.True(b.TriangleCount < input.TriangleCount);
+            AssertSame(a, b);
         }
 
         /// <summary> invariance: 2^k scales give the same reduction, scaled, with sharing </summary>

@@ -98,12 +98,23 @@ Alternating rounds, 3 each, full reductions to 4 triangles (ms, sorted):
 
 | mesh | tolerance | triangles | without sharing | with sharing | median speedup |
 |---|---|---|---|---|---|
-| bumpy sphere (199692) | 0.001 | 1670 | 26915 / 27441 / 27658 | 25842 / 26216 / 26350 | 1.05× |
-| bumpy sphere | 0.003 | 512 | 13812 / 14295 / 14438 | 12897 / 13080 / 13814 | 1.09× |
-| bumpy sphere | 0.01 | 152 | 8484 / 8488 / 8667 | 8043 / 8087 / 8126 | 1.05× |
-| terrain (180000) | 0.001 | 3123 | 18151 / 18432 / 18485 | 17936 / 17953 / 17987 | 1.03× |
-| terrain | 0.003 | 923 | 9560 / 10284 / 10564 | 8884 / 9173 / 10003 | 1.12× |
-| terrain | 0.01 | 121 | 7972 / 8063 / 8566 | 7204 / 7270 / 7788 | 1.11× |
+| bumpy sphere (199692) | 0.001 | 1670 | 27006 / 27072 / 28219 | 25814 / 25915 / 27008 | 1.04× |
+| bumpy sphere | 0.003 | 512 | 14418 / 14949 / 15299 | 13062 / 13983 / 14004 | 1.07× |
+| bumpy sphere | 0.01 | 152 | 9448 / 9799 / 10486 | 9091 / 9400 / 9741 | 1.04× |
+| terrain (180000) | 0.001 | 3123 | 18507 / 18818 / 19617 | 17956 / 18342 / 18777 | 1.03× |
+| terrain | 0.003 | 923 | 10248 / 10373 / 10697 | 9192 / 9380 / 10286 | 1.11× |
+| terrain | 0.01 | 121 | 7555 / 7811 / 8651 | 6955 / 7074 / 7147 | 1.10× |
+
+(after the review fixes: the cache is made only after the new vertex's own query passes, with that result put in.
+The first run, before them, gave 1.03-1.12×.)
+
+`hashes` gives the SHA-256 (first 16 hex digits) of every reduced mesh, over its vertex ids and coordinates bit for
+bit and its triangles. They are the same before (base 9d0a11e) and after:
+
+| mesh | 0.001 | 0.003 | 0.01 |
+|---|---|---|---|
+| bumpy sphere | 316E9F66F671A50C | 12C9463B79A42156 | FE60CC69142232FC |
+| terrain | 9049F4270ED99B4B | BBF23739034D0171 | B68A5666CD663A57 |
 
 Caching every query point, interior ones included, gave 0.96-1.12×: the cache's cost ate the gain at tight
 tolerances.

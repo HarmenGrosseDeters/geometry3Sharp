@@ -7,6 +7,7 @@
 //   dotnet run -c Release --project benchmarks/ReducerBenchmark
 //   dotnet run -c Release --project benchmarks/ReducerBenchmark -- queries     (envelope vs bounds per query)
 //   dotnet run -c Release --project benchmarks/ReducerBenchmark -- share [rounds]  (shared deviation queries A/B)
+//   dotnet run -c Release --project benchmarks/ReducerBenchmark -- hashes      (SHA-256 of every reduced mesh: unchanged results)
 using System;
 using System.Diagnostics;
 using System.Linq;
@@ -105,6 +106,7 @@ static class Program
                     }
                 bool same = ra.TriangleCount == rb.TriangleCount && ra.MaxVertexID == rb.MaxVertexID;
                 foreach (int v in ra.VertexIndices()) if (!rb.IsVertex(v) || ra.GetVertex(v) != rb.GetVertex(v)) same = false;
+                foreach (int t in ra.TriangleIndices()) if (!rb.IsTriangle(t) || ra.GetTriangle(t) != rb.GetTriangle(t)) same = false;
                 if (!same) throw new Exception($"{name} {rel}: the results differ");
                 ta.Sort(); tb.Sort();
                 Console.WriteLine($"| {name} | {rel} | {ra.TriangleCount} | {string.Join(" / ", ta.Select(x => x.ToString("F0")))} | {string.Join(" / ", tb.Select(x => x.ToString("F0")))} | {ta[ta.Count / 2] / tb[tb.Count / 2]:F2}x |");
