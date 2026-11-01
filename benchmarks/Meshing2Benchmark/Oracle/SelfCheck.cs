@@ -547,6 +547,20 @@ namespace Meshing2Acceptance
                 reject("the same skinny triangle with only a ring", Violation.AngleBelowBound, plain, o2, new OracleExpect { Milestone = Milestone.M3, Tube = Q.Zero });
             }
 
+            // 11. spec 1.4: a needle a few ulps wide stays; one 2^-30 wide does not
+            {
+                foreach (var (width, ok) in new[] { (Math.Pow(2, -50), true), (Math.Pow(2, -30), false) }) {
+                    var input = Points(0, 0, 4, 0, 4, 4, 0, 4, 2, 2, 2 + width, 2, 2, 2 + width);
+                    input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false)); input.MinAngleDeg = 20; input.MaxArea = 100;
+                    var tris = StrictDelaunay(input, Enumerable.Range(0, 7).ToArray());
+                    var o = Out(input, tris, null, (0, 1, 0), (1, 2, 0), (2, 3, 0), (3, 0, 0));
+                    o.BadTriangles = Enumerable.Range(0, tris.Length).Where(i => Exact.MinAngleSin2(Pt.FromDoubles(input.X[tris[i][0]], input.Y[tris[i][0]]), Pt.FromDoubles(input.X[tris[i][1]], input.Y[tris[i][1]]), Pt.FromDoubles(input.X[tris[i][2]], input.Y[tris[i][2]])) < Q.FromDouble(Math.Sin(20 * Math.PI / 180) * Math.Sin(20 * Math.PI / 180))).ToArray();
+                    var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3, Tube = Q.Zero });
+                    bool angleOk = !report.Has(Violation.AngleBelowBound);
+                    must("a triangle " + (ok ? "a few ulps" : "2^-30") + " wide " + (ok ? "is exempt" : "is not exempt") + " from the angle bound", angleOk == ok, report.ToString());
+                }
+            }
+
             // 7. the list of bad triangles is a set, and empty without a minimum angle
             {
                 var input = Points(0, 0, 8, 0, 0, 8);

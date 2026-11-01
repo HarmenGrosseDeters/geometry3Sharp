@@ -488,13 +488,42 @@ namespace g3
                 // assumes a constrained Delaunay triangulation (review of M2: a non-Delaunay edge survived otherwise)
                 k.RestoreDelaunay(new[] { ((long)r << 32) | (uint)l });
                 int before = k.VertexCount;
-                int p = k.InsertPoint(x.x, x.y);
+                // a vertex within the tolerance of the crossing and of every source of both pieces takes its place (O11): three segments
+                // through one point that is not a double would otherwise leave a triangle a few ulps wide (found with M3)
+                int p = NearVertex(x, piece.Sources, other);
+                if (p < 0) p = k.InsertPoint(x.x, x.y);
                 if (k.VertexCount > before) SetCrossingHeight(p, piece.Sources, other);
                 pending.Push(new Piece { U = r, W = p, Sources = other });
                 pending.Push(new Piece { U = p, W = l, Sources = new List<int>(other) });
                 pending.Push(new Piece { U = p, W = w, Sources = piece.Sources });
                 pending.Push(new Piece { U = u, W = p, Sources = new List<int>(piece.Sources) });
                 return null;
+            }
+
+            int NearVertex(Vector2d x, List<int> a, List<int> c)
+            {
+                if (!(scaledTolerance > 0)) return -1;
+                int t = k.LocatePoint(x.x, x.y, out int exact);
+                if (exact >= 0) return exact;
+                double tol2 = scaledTolerance * scaledTolerance;
+                int best = -1; double bestD = double.MaxValue;
+                // the corners of the containing triangle and of its neighbours
+                for (int j = 0; j < 3; ++j) {
+                    foreach (int s0 in new[] { t, k.H[3 * t + j] / 3 })
+                        for (int i = 0; i < 3; ++i) {
+                            int v = k.V[3 * s0 + i];
+                            if (v == k.Infinite) continue;
+                            double dx = Scaled(k.X[v] - x.x), dy = Scaled(k.Y[v] - x.y), d = dx * dx + dy * dy;
+                            if (d > tol2 || d >= bestD) continue;
+                            bool all = true;
+                            foreach (int src in a.Concat(c)) {
+                                var q = sources[src];
+                                if (ScaledDist2(k.X[v], k.Y[v], q.AX, q.AY, q.BX, q.BY, out _) > tol2) { all = false; break; }
+                            }
+                            if (all) { best = v; bestD = d; }
+                        }
+                }
+                return best;
             }
 
             /// <summary>

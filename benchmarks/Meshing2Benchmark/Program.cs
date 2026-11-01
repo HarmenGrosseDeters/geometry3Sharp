@@ -126,7 +126,7 @@ namespace Meshing2Acceptance
             return File.Exists(path) ? GoldenFile.Parse(File.ReadAllText(path)) : new GoldenFile();
         }
 
-        static IEnumerable<Mesh2Case> GoldenCases(Milestone m) => m == Milestone.M1 ? M1Cases.Ci() : Catalogue.Rows().Where(r => r.Case != null && r.Case.Milestone == m && r.State == CaseState.Covered).Select(r => r.Case);
+        static IEnumerable<Mesh2Case> GoldenCases(Milestone m) => m == Milestone.M1 ? M1Cases.Ci() : Catalogue.Rows().Where(r => r.Case != null && r.Case.Milestone == m && r.State == CaseState.Covered && !r.Slow).Select(r => r.Case);
 
         static int RunDifferential(bool larger)
         {

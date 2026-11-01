@@ -808,7 +808,7 @@ namespace Meshing2Acceptance
                         if (!below && sin2 >= high && listed.Contains(i)) r.Add(Violation.BadListWrong, "triangle " + i + " is listed but not below the angle");
                     }
                     if (!below || o.SteinerLimitReached || !e.AngleGuaranteed) continue;
-                    if (ForcedByInputAngle(t, low, around) || TouchesLocked(t) || SpansSmallInputAngle(t, low)) continue;
+                    if (ForcedByInputAngle(t, low, around) || TouchesLocked(t) || SpansSmallInputAngle(t, low) || AtPrecisionLimit(t)) continue;
                     r.Add(Violation.AngleBelowBound, "triangle " + t[0] + " " + t[1] + " " + t[2] + " is below " + degrees + " degrees with no forced small angle");
                 }
             }
@@ -853,6 +853,24 @@ namespace Meshing2Acceptance
                         }
                 }
                 return false;
+            }
+
+            /// <summary>
+            /// Spec 1.4: a triangle that refinement cannot improve because of floating-point precision stays as it is. Its shortest edge is
+            /// at most 64 units in the last place of its largest coordinate (found with M3: three segments through one point that is no
+            /// double give crossings a few ulps apart).
+            /// </summary>
+            bool AtPrecisionLimit(int[] t)
+            {
+                Q big = Q.Zero, shortest = Q.Zero; bool first = true;
+                for (int k = 0; k < 3; ++k) {
+                    Pt p = v[t[k]];
+                    big = Q.Max(big, Q.Max(Q.Abs(p.Qx), Q.Abs(p.Qy)));
+                    Q l = Exact.Len2(v[t[(k + 1) % 3]], v[t[(k + 2) % 3]]);
+                    if (first || l < shortest) { shortest = l; first = false; }
+                }
+                Q ulp64 = big * new Q(BigInteger.One, BigInteger.One << 46);   // 64 ulps = 2^6 * 2^-52
+                return shortest <= ulp64 * ulp64;
             }
 
             /// <summary>

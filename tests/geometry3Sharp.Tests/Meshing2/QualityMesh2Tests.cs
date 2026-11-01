@@ -153,7 +153,14 @@ namespace geometry3Sharp.Tests
             var report = Judge(input, out var o);
             Assert.True(report.Ok, report.ToString());
             var hull = new DelaunayMesh2().Compute(Enumerable.Range(0, 40).Select(i => new Vector2d(input.X[i], input.Y[i])).ToArray()).Mesh;
-            for (int v = 0; v < o.VX.Length; ++v) Assert.True(hull.TryLocate(new Vector2d(o.VX[v], o.VY[v]), out _), "vertex " + v + " outside the hull");
+            // a split of a hull edge may round a unit in the last place outwards (O2), never farther
+            var hullEdges = hull.Edges().Where(e => hull.IncidentTriangles(e.a).Intersect(hull.IncidentTriangles(e.b)).Count() == 1).ToList();
+            for (int v = 0; v < o.VX.Length; ++v) {
+                var q = new Vector2d(o.VX[v], o.VY[v]);
+                if (hull.TryLocate(q, out _)) continue;
+                double d = hullEdges.Min(e => new Segment2d(hull.Vertices[e.a], hull.Vertices[e.b]).DistanceSquared(q));
+                Assert.True(d < 1e-24, "vertex " + v + " is " + Math.Sqrt(d) + " outside the hull");
+            }
         }
 
         [Fact]

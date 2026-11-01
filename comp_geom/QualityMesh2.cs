@@ -283,13 +283,14 @@ namespace g3
                     var ra = b.input.Regions[k.Tag[t] - 1].MaxArea;
                     if (ra != null) maxArea = maxArea == null ? ra : Math.Min(maxArea.Value, ra.Value);
                 }
-                if (maxArea != null && area > maxArea.Value && !areaExempt) return true;
+                // (a margin of 2^-40 below the bound: the area in doubles may round down below it while the exact area is above)
+                if (maxArea != null && area > maxArea.Value * (1 - 1.0 / (1L << 40)) && !areaExempt) return true;
                 if (options.SizeFunction != null) {
                     var a = k.Point(k.V[3 * t]); var c = k.Point(k.V[3 * t + 1]); var d = k.Point(k.V[3 * t + 2]);
                     var g = (a + c + d) / 3;
                     double h = options.SizeFunction(g.x, g.y);
                     double longest = Math.Max((c - a).LengthSquared, Math.Max((d - c).LengthSquared, (a - d).LengthSquared));
-                    if (longest > Math.Max(h * h, locked2)) return true;
+                    if (longest > Math.Max(h * h, locked2) * (1 - 1.0 / (1L << 40))) return true;
                 }
                 if (options.MinAngle <= 0) return false;
                 if (MinSin2(t, out int corner) >= sin2Min) return false;
@@ -316,15 +317,16 @@ namespace g3
                         double cross = d1x * d2y - d1y * d2x, l1 = Math.Sqrt(d1x * d1x + d1y * d1y), l2 = Math.Sqrt(d2x * d2x + d2y * d2y);
                         if (!(Math.Abs(cross) > 0) || !(l1 > 0) || !(l2 > 0)) continue;
                         double sin = Math.Abs(cross) / (l1 * l2);
-                        if (sin * sin >= sin2Min) continue;
+                        if (sin * sin >= sin2Min * (1 - 1e-9)) continue;
                         // where the lines meet
                         double t1 = ((s2.AX - s1.AX) * d2y - (s2.AY - s1.AY) * d2x) / cross;
                         double t2 = ((s2.AX - s1.AX) * d1y - (s2.AY - s1.AY) * d1x) / cross;
                         // the apex is on both segments: an input angle, not two lines that would meet far away
-                        if (t1 < -1e-9 || t1 > 1 + 1e-9 || t2 < -1e-9 || t2 > 1 + 1e-9) continue;
+                        // (slightly stricter than the oracle's exact test, so that rounding never exempts what it would not)
+                        if (t1 < 1e-12 && t1 != 0 || t1 > 1 || t2 < 1e-12 && t2 != 0 || t2 > 1 || t1 < 0 || t2 < 0) continue;
                         var A = new Vector2d(s1.AX + t1 * d1x, s1.AY + t1 * d1y);
                         double rp = (P - A).LengthSquared, rq = (Qv - A).LengthSquared;
-                        if (!(rp > 0) || !(rq > 0) || rp > 4 * rq || rq > 4 * rp) continue;
+                        if (!(rp > 0) || !(rq > 0) || rp > 3.99 * rq || rq > 3.99 * rp) continue;
                         // and p, q lie on the same side of the apex along their lines
                         if ((P - A).Dot(Qv - A) <= 0) continue;
                         return true;
@@ -465,7 +467,9 @@ namespace g3
                 // meet at a small angle, their splits then lie on common circles and do not encroach each other (Shewchuk 2002)
                 bool uInput = u < firstSteiner, wInput = w < firstSteiner;
                 if (uInput != wInput && length > 0) {
-                    double d = Math.Pow(2, Math.Round(Math.Log(length / 2, 2)));
+                    // the power of two nearest to half the length, from the bits (no Log or Pow: their last bit may differ by runtime)
+                    ExactPoint3.Decompose(length / 2, out var mant, out int ex);
+                    double lower = ExactPoint3.ScaleB(1, (int)(ex + ExactPoint3.BitLength(mant) - 1)), d = length / 2 - lower < 2 * lower - length / 2 ? lower : 2 * lower;
                     if (d > length / 3 && d < 2 * length / 3) fraction = uInput ? d / length : 1 - d / length;
                 }
                 Vector2d p;

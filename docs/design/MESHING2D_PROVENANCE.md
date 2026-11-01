@@ -59,3 +59,19 @@ Literature (full references in [SOURCES.md](../SOURCES.md), section 2D meshing):
 | `Builder.Subsegment` | marker: the sole nonzero one, else 0, with the list; locked if any source is | decisions D7, D8 |
 | `Builder.SetCrossingHeight`, `Along`, `SetHeight`, `InitHeights` | heights passed through (lowest index wins), crossings interpolated along the segment given first | spec Q9; decision D11 |
 | `ConstrainedMesh2.TryLocate`, `ContainsSlot` | walk in the hull triangulation behind the mesh, smallest kept id | [DPT]; spec R7 |
+
+## M3: `comp_geom/QualityMesh2.cs` and the refinement hooks of the builder
+
+| Routine | What | Source |
+|---|---|---|
+| `QualityMesh2.Compute` | options, argument checks, the builder with a refinement hook | spec O3, O5, O7, Q3, Q11, Q13; decisions D9, D12 |
+| `Refiner.Run` | queue of encroached subsegments first, then bad triangles, until both are empty or the Steiner limit; a final Delaunay check | [R95] §3; [S02] §3; spec O7 |
+| `ConstrainHull` | without outer rings the hull edges become constraints, each its own source | decision D13; spec O18, F-35 |
+| `Encroached`, `DotSign` | a vertex of a domain triangle at the edge strictly inside its diametral circle; exact sign of a dot product (filter, then integers) | [R95] §2 (encroachment); [S02] §3; [Sh97] (filter idea) |
+| `Bad`, `MinSin2`, `Area`, `LongestLocked2` | below the angle, above the area (global or per region), above the size function at the centroid; a triangle over a locked edge need not shrink below a needle | spec O3, O5, O9, I7; decision D9 |
+| `SpansSmallAngle`, `SourcesAt` | not refining a skinny triangle whose shortest edge spans a small input angle | [S02] §4 (small input angles); [CDS] ch. 7 |
+| `SplitTriangle`, `Circumcentre`, `Walk`, `EncroachedByPoint` | circumcentre insertion; a constrained edge on the way from the triangle, or encroached by the circumcentre, is split instead | [R95] §3; [S02] §3 |
+| `SplitSegment` | split at the midpoint or, next to a vertex that existed before refinement, at the power of two nearest to the middle; computed on the original input segment | [S02] §4.1 (concentric shells); spec O12 (no drift over repeated splits) |
+| `Collect` (tag propagation) | rewritten triangles take their domain and region tag from unchanged neighbours across unconstrained edges; ghosts count as outside | own, from the domain definition (spec) and decisions D5, D16 |
+| `Builder.SnapshotReference`, `SetHeightOnReference` | heights of Steiner points by linear interpolation on the triangulation before refinement | spec Q9 |
+| `Builder.NearVertex` | a crossing snaps to a vertex within the tolerance of it and of all sources involved | spec O11 |

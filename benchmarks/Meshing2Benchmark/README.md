@@ -141,6 +141,20 @@ edge in the way is a crossing, computed exactly and rounded to the nearest doubl
 the piece an edge and Lawson's flips restore the constrained Delaunay property. The domain and the region labels follow from one breadth-first pass from
 the outside that tracks, per triangle, the set of rings it lies inside of (even-odd); hole and region seeds fill the cells of the constraints.
 
+## M3: quality refinement (`g3.QualityMesh2`), 2026-11-01
+
+Registered for M3 with the feature `m3.refine`; its rows and the M3 rows of the M2 features are covered (41 rows), golden M3 recorded for the 28 rows that are
+not slow. `m3.locks`, `m3.refine-again` and `m2.snap` are not built. The slow rows (`Catalogue.SlowRows`: results of 16 000 to 200 000 vertices, mostly at
+a Steiner limit) are judged by
+
+```
+dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 -- rows --milestone M3 --seconds 90
+```
+
+which runs every covered row of the milestone, prints the oracle's verdict, the sizes and the times (about 45 minutes, mostly oracle time on the large
+results); the test suite checks the slow rows only for their status unless `G3_MESH2_SLOW` is set. Known: where many segments cross at small angles
+(F-4, F-5) refinement runs into the default Steiner limit (plan, section 9).
+
 ## The golden master
 
 `golden/m1.json` holds one row per case of the CI subset: fingerprints, counts, status, exact quality values; no times and no mesh data. The format is defined in
