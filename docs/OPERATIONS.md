@@ -170,6 +170,8 @@ bool inside = envelope.ContainsTriangle(a, b, c);         // exact; also Contain
 triangles intersect, so an input without self-intersections stays without them (benchmarks/RemeshQualityBenchmark).
 `MeshConstraintUtil.PinSharpVertices` (after `PreserveBoundaryAndFeatures`) pins points that are no junction of
 creases, eg the apex of a cone with many slices, by their angle deficit.
+`Remesher.TargetEdgeLengthF` (opt-in) sets the target edge length per point; `RemeshSizing.FromWallThickness` sets it
+to (a fraction of) the local wall thickness, so thin walls are refined instead of folded through each other.
 
 `Reducer.MaxDeviation` guarantees that every point of the result lies within the tolerance of the input,
 checked with certified distance bounds (`TriangleDeviationBounds`).

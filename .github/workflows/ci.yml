@@ -1,14 +1,15 @@
 name: CI
 
 on:
-  # docs-only changes skip CI (CLAUDE.md, "Before every push"). Branches other than master run through their pull
-  # request only: a push trigger there too ran every PR push twice. A branch without a PR: workflow_dispatch.
+  # docs-only changes skip CI (CLAUDE.md, "Before every push"), except the design doc whose bound table a test checks
+  # (GeneratedPredicatesTests). Branches other than master run through their pull request only: a push trigger there
+  # too ran every PR push twice. A branch without a PR: workflow_dispatch.
   push:
     branches: [master]
     tags: ['**']
-    paths-ignore: ['**/*.md']
+    paths: ['**', '!**/*.md', 'docs/design/FIXED_WIDTH_EXACT_POINTS.md']
   pull_request:
-    paths-ignore: ['**/*.md']
+    paths: ['**', '!**/*.md', 'docs/design/FIXED_WIDTH_EXACT_POINTS.md']
   workflow_dispatch:
 
 # a new push to the same PR (or branch) cancels the run under way. Each master commit gets its own group, so that
@@ -53,8 +54,8 @@ jobs:
           dotnet run --project tests/Clipper2PackageSmokeTest -c Release
           -p:G3PackageVersion=1.0.0-ci.${{ github.run_number }} -p:G3PackageSource=${{ github.workspace }}/artifacts
           -- artifacts/geometry3Sharp.Clipper2.1.0.0-ci.${{ github.run_number }}.nupkg
-      - name: Build the benchmarks
-        run: for p in benchmarks/*/*.csproj; do dotnet build "$p" -c Release -f net10.0 || exit 1; done
+      - name: Build the benchmarks and the predicate compiler
+        run: for p in benchmarks/*/*.csproj tools/PredicateCompiler/*.csproj; do dotnet build "$p" -c Release -f net10.0 || exit 1; done
       - name: Acceptance gates of the 2D mesher (oracle self-check, differential against NetTopologySuite, golden rows)
         run: dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 --no-build -- ci
       - name: A changed golden row of the 2D mesher states a reason

@@ -155,6 +155,17 @@ namespace g3
         {
             if (v.Sign < 0)
                 v = -v;
+#if NET
+            // (no allocation; the bit length of v >= 0)
+            return v.GetBitLength();
+#else
+            return BitLengthPortable(v);
+#endif
+        }
+
+        /// <summary> BitLength of v >= 0 for netstandard2.0 (one allocation; compiled everywhere, so that the tests on .NET check it) </summary>
+        internal static long BitLengthPortable(BigInteger v)
+        {
             byte[] bytes = v.ToByteArray();
             int top = bytes.Length - 1;
             while (top > 0 && bytes[top] == 0)
