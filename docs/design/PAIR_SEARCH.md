@@ -112,3 +112,40 @@ cores, since the phase scales well.
   the fallback must stay the existing adaptive predicate.
 - If most of the "rest" (3.6 s on `cgal`) is the loop overhead per hit rather than the probe, step A also cuts it,
   since it touches each pair once instead of twice.
+
+## 6. Results
+
+Tools: G = #223 head, H = G + step A, I = H + step B. `perf/run_classes.sh`, two alternating rounds in one session
+(4 cores, warm; totals of the best times per case and operation). `perf/exact_hashes.sh`: 0 differences in 263 runs
+for H and for I.
+
+**Step A (self-join): kept.**
+
+| class | G1 / G2 | H1 / H2 | total | pair phase |
+|---|---|---|---|---|
+| `cgal` | 13.54 / 14.65 s | 12.56 / 13.12 s | −9 % | 3699 / 4002 -> 2908 / 3056 ms (−22 %) |
+| Thingi10K | 12.43 / 13.27 s | 11.89 / 12.05 s | −7 % | 3300 / 3556 -> 3043 / 3174 ms (−9 %) |
+| `cherchi` | 28.31 / 28.90 s | 27.51 / 29.13 s | ±1 % | 4953 / 4984 -> 4163 / 4265 ms (−15 %) |
+
+`cgal` + Thingi10K: 26.95 -> 24.81 s on average (−7.9 %), above the 3 % bar.
+
+**Step B (precomputed plane terms in `Orient3d`): dropped.**
+
+| class | H1 / H2 | I1 / I2 |
+|---|---|---|
+| `cgal` | 13.89 / 13.32 s | 13.90 / 13.31 s |
+| Thingi10K | 12.33 / 12.68 s | 12.81 / 12.12 s |
+| `cherchi` | 29.76 / 31.04 s | 29.29 / 28.34 s |
+
+`cgal` + Thingi10K: 26.11 s against 26.07 s (0 %); the pair phase unchanged (`cgal` 3140 / 3143 against 3157 / 3010
+ms). As built, B needed no new error bound: the precomputed terms are the ones `Orient3d`'s filter rounds itself,
+in the same order, so the decisions are identical. It changed nothing because the arithmetic is not where the time
+goes: serially the quick test costs about 270 ns per call (5.0 s for 18.8M pairs on `cgal`), of which the filter's
+arithmetic is about 20 ns. The rest is memory access: per pair two `InputTriangle` objects scattered on the heap,
+their corners and their coordinates. The code is in the history (commit "Orient3d with the triangle's plane terms
+precomputed") and reverted.
+
+**Consequence for step C** (orientations reused in a variant of `IntersectsBeyondShared`): by the same reasoning a
+gain of at most 1-2 % is expected, below the bar. The lever the measurements point to is the memory layout of the
+triangles (struct arrays instead of objects; item 5 of [FIXED_WIDTH_EXACT_POINTS.md](FIXED_WIDTH_EXACT_POINTS.md),
+section 12).
