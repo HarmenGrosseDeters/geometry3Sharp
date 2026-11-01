@@ -111,7 +111,7 @@ namespace g3
             return Contains(triangle, p) || WithinSegment(p, a, b, tolerance) ||
                 WithinSegment(p, b, c, tolerance) || WithinSegment(p, c, a, tolerance);
         }
-        internal static bool NearRegion(AxisAlignedBox2d box, Vector2d p, double tolerance)
+        internal static bool NearRegion(in AxisAlignedBox2d box, Vector2d p, double tolerance)
         {
             // Axis tests are conservative, avoid squared-distance overflow, and include rounded boundaries.
             return (p.x >= box.Min.x || box.Min.x - p.x <= tolerance) &&
@@ -188,11 +188,13 @@ namespace g3
         internal static bool Contains(Triangle3d triangle, Vector2d p)
         {
             Vector2d a = XY(triangle.V0), b = XY(triangle.V1), c = XY(triangle.V2);
+            // Opposite sides of two edges mean outside, whatever the orientation of the triangle, which most candidates never need.
+            int first = ExactPredicates.Orient2d(a, b, p), second = ExactPredicates.Orient2d(b, c, p);
+            if (first * second < 0) return false;
+            int third = ExactPredicates.Orient2d(c, a, p);
+            if (first * third < 0 || second * third < 0) return false;
             int orientation = ExactPredicates.Orient2d(a, b, c);
-            if (orientation == 0) return false;
-            return ExactPredicates.Orient2d(a, b, p) * orientation >= 0 &&
-                ExactPredicates.Orient2d(b, c, p) * orientation >= 0 &&
-                ExactPredicates.Orient2d(c, a, p) * orientation >= 0;
+            return orientation != 0 && first * orientation >= 0 && second * orientation >= 0 && third * orientation >= 0;
         }
         internal static double TriangleDistance(Triangle3d triangle, Vector2d p)
         {

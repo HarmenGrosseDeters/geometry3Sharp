@@ -131,7 +131,7 @@ namespace g3
         {
             QuadtreeGeometry2d.ValidateQuery(point, tolerance, results);
             results.Clear();
-            var visitor = new PointVisitor { Items = items, Point = point, Tolerance = tolerance,
+            var visitor = new PointVisitor { Items = items, Tree = tree, Point = point, Tolerance = tolerance,
                 Results = results, ExcludeEndpoints = excludeEndpoints, Stop = stopAfterFirst };
             tree.Traverse(ref visitor);
         }
@@ -142,7 +142,7 @@ namespace g3
             QuadtreeGeometry2d.Validate(a);
             QuadtreeGeometry2d.Validate(b);
             results.Clear();
-            var visitor = new IntersectionVisitor { Items = items, A = a, B = b,
+            var visitor = new IntersectionVisitor { Items = items, Tree = tree, A = a, B = b,
                 Bounds = new AxisAlignedBox2d(a, b), Results = results };
             tree.Traverse(ref visitor);
         }
@@ -164,6 +164,7 @@ namespace g3
         struct PointVisitor : IQuadtreeVisitor2d
         {
             internal List<Endpoints> Items;
+            internal LooseQuadtree2d Tree;
             internal Vector2d Point;
             internal double Tolerance;
             internal List<int> Results;
@@ -171,6 +172,7 @@ namespace g3
             public bool TestRegion(AxisAlignedBox2d region) { return QuadtreeGeometry2d.NearRegion(region, Point, Tolerance); }
             public bool Visit(int id)
             {
+                if (!Tree.ItemNear(id, Point, Tolerance)) return false;
                 Vector2d a = Items[id].XYA, b = Items[id].XYB;
                 if (ExcludeEndpoints && (QuadtreeGeometry2d.WithinPoint(Point, a, Tolerance) ||
                     QuadtreeGeometry2d.WithinPoint(Point, b, Tolerance))) return false;
@@ -184,6 +186,7 @@ namespace g3
         struct IntersectionVisitor : IQuadtreeVisitor2d
         {
             internal List<Endpoints> Items;
+            internal LooseQuadtree2d Tree;
             internal Vector2d A, B;
             internal AxisAlignedBox2d Bounds;
             internal List<int> Results;
@@ -194,7 +197,7 @@ namespace g3
             }
             public bool Visit(int id)
             {
-                if (QuadtreeGeometry2d.Intersects(A, B, Items[id].XYA, Items[id].XYB))
+                if (Tree.ItemMeets(id, Bounds) && QuadtreeGeometry2d.Intersects(A, B, Items[id].XYA, Items[id].XYB))
                     Results.Add(id);
                 return false;
             }

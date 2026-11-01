@@ -109,7 +109,7 @@ namespace g3
         }
         int NearestWithinTolerance(Vector2d point, double tolerance, out double height)
         {
-            var visitor = new NearestToleranceVisitor { Items = items, Point = point, Tolerance = tolerance, Id = -1 };
+            var visitor = new NearestToleranceVisitor { Items = items, Tree = tree, Point = point, Tolerance = tolerance, Id = -1 };
             tree.Traverse(ref visitor);
             height = 0;
             if (visitor.Id < 0) return -1;
@@ -132,12 +132,14 @@ namespace g3
         struct NearestToleranceVisitor : IQuadtreeVisitor2d
         {
             internal List<Triangle3d> Items;
+            internal LooseQuadtree2d Tree;
             internal Vector2d Point;
             internal double Tolerance, Distance;
             internal int Id;
             public bool TestRegion(AxisAlignedBox2d region) { return QuadtreeGeometry2d.NearRegion(region, Point, Tolerance); }
             public bool Visit(int id)
             {
+                if (!Tree.ItemNear(id, Point, Tolerance)) return false;
                 Triangle3d triangle = Items[id];
                 if (ExactPredicates.Orient2d(QuadtreeGeometry2d.XY(triangle.V0), QuadtreeGeometry2d.XY(triangle.V1), QuadtreeGeometry2d.XY(triangle.V2)) == 0 ||
                     !QuadtreeGeometry2d.WithinTriangle(triangle, Point, Tolerance)) return false;
@@ -160,7 +162,7 @@ namespace g3
             public bool TestRegion(AxisAlignedBox2d region) { return QuadtreeGeometry2d.NearRegion(region, Point, Tolerance); }
             public bool Visit(int id)
             {
-                if (Tolerance == 0 && !QuadtreeGeometry2d.NearRegion(Tree.GetBounds(id), Point, 0)) return false;
+                if (!Tree.ItemNear(id, Point, Tolerance)) return false;
                 Triangle3d triangle = Items[id];
                 if (Tolerance == 0) {
                     if (!QuadtreeGeometry2d.Contains(triangle, Point)) return false;

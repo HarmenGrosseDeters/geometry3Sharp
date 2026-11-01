@@ -16,15 +16,6 @@ namespace geometry3Sharp.Tests.Spatial
             public bool Visit(int id) { return false; }
         }
 
-        static AxisAlignedBox2d Loose(AxisAlignedBox2d box)
-        {
-            double x = box.Max.x * 0.5 - box.Min.x * 0.5;
-            double y = box.Max.y * 0.5 - box.Min.y * 0.5;
-            return new AxisAlignedBox2d(
-                Math.Max(-double.MaxValue, box.Min.x - x), Math.Max(-double.MaxValue, box.Min.y - y),
-                Math.Min(double.MaxValue, box.Max.x + x), Math.Min(double.MaxValue, box.Max.y + y));
-        }
-
         static bool Overlap(AxisAlignedBox2d a, AxisAlignedBox2d b)
         {
             return a.Min.x <= b.Max.x && a.Max.x >= b.Min.x && a.Min.y <= b.Max.y && a.Max.y >= b.Min.y;
@@ -37,31 +28,34 @@ namespace geometry3Sharp.Tests.Spatial
             return visitor.Bounds;
         }
 
-        // A bulk build roots at the extent. Growing leaves room beyond it, so that sorted inserts do not rebuild each time.
-        static void AssertRootCoversExtent(LooseQuadtree2d tree)
+        // Regions are the bounds of what a part of the tree holds. The extent keeps removed items as well, so it can be larger.
+        static void AssertRootHoldsTheItems(LooseQuadtree2d tree)
         {
-            AxisAlignedBox2d root = VisitRegions(tree)[0], extent = Loose(tree.Extent);
-            Assert.True(root.Min.x <= extent.Min.x && root.Min.y <= extent.Min.y && root.Max.x >= extent.Max.x && root.Max.y >= extent.Max.y);
+            AxisAlignedBox2d root = VisitRegions(tree)[0], extent = tree.Extent;
+            Assert.True(extent.Min.x <= root.Min.x && extent.Min.y <= root.Min.y && extent.Max.x >= root.Max.x && extent.Max.y >= root.Max.y);
+            var all = new List<int>();
+            tree.QueryRectangle(root, all);
+            Assert.Equal(tree.Count, all.Count);
         }
 
         [Fact]
-        public void LooseRegionsRemainIdenticalAfterSplitRemovalAndExtentRebuild()
+        public void RegionsHoldTheirContentAfterSplitRemovalAndExtentRebuild()
         {
             var tree = new LooseQuadtree2d(new[] { new AxisAlignedBox2d(0, 0, 8, 8) }, false);
-            Assert.Equal(Loose(tree.Extent), VisitRegions(tree)[0]);
+            AssertRootHoldsTheItems(tree);
             for (int i = 0; i < 80; ++i)
                 tree.Insert(new AxisAlignedBox2d(i % 8, i / 8, i % 8 + 0.5, i / 8 + 0.5));
             Assert.True(VisitRegions(tree).Count > 1);
-            AssertRootCoversExtent(tree);
+            AssertRootHoldsTheItems(tree);
             Assert.True(tree.Remove(0));
             var before = VisitRegions(tree);
             tree.Insert(new AxisAlignedBox2d(new Vector2d(1, 1)));
             Assert.Empty(before.Except(VisitRegions(tree))); // an insert inside may split a full cell, but moves none
             tree.Insert(new AxisAlignedBox2d(new Vector2d(-1000, 2000)));
-            AssertRootCoversExtent(tree);
+            AssertRootHoldsTheItems(tree);
             tree.Insert(new AxisAlignedBox2d(new Vector2d(-double.MaxValue, -double.MaxValue)));
             tree.Insert(new AxisAlignedBox2d(new Vector2d(double.MaxValue, double.MaxValue)));
-            AssertRootCoversExtent(tree);
+            AssertRootHoldsTheItems(tree);
             var result = new List<int>();
             foreach (var p in new[] { new Vector2d(-1000, 2000), new Vector2d(-double.MaxValue, -double.MaxValue), new Vector2d(double.MaxValue, double.MaxValue) }) {
                 tree.QueryRectangle(new AxisAlignedBox2d(p), result);
