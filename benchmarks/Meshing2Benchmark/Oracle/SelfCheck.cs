@@ -479,6 +479,23 @@ namespace Meshing2Acceptance
                 }
             }
 
+            // 7. conforming in the merge zone: a vertex inside the circumcircle of a triangle 1e-7 from a 1 degree apex is excused,
+            //    1e-6 from it not (indexed global pass on water-huge)
+            {
+                double c = Math.Cos(Math.PI / 180), sn = Math.Sin(Math.PI / 180);
+                foreach (var (r, ok) in new[] { (1e-7, true), (1e-6, false) }) {
+                    var input = Points(1000, 0, 1100, 0, 1000 + 100 * c, 100 * sn, 1000 + r, 0, 1000 + 2 * r, 0, 1000 + 1.5 * r, 0.004 * r, 1000 + 1.2 * r, 0.002 * r,
+                        900, -100, 1200, -100, 1200, 100, 900, 100);
+                    input.Segments.Add(new SegmentInput(0, 1)); input.Segments.Add(new SegmentInput(0, 2));
+                    input.Rings.Add(new RingInput(new[] { 7, 8, 9, 10 }, false));
+                    input.Conforming = true;
+                    var o = Out(input, new[] { new[] { 3, 4, 5 }, new[] { 3, 5, 6 } });
+                    var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
+                    bool flagged = report.Has(Violation.NotDelaunayLocal) || report.Has(Violation.NotDelaunayGlobal);
+                    must(ok ? "merge zone: conforming excused 1e-7 from a 1 degree apex" : "merge zone: conforming judged 1e-6 from the apex", flagged != ok, "report: " + report);
+                }
+            }
+
             // 2. a region seed on an input point is ambiguous and ignored (D6); only a vertex the refinement placed does not count
             {
                 var input = Points(0, 0, 4, 0, 4, 4, 0, 4, 1, 1);

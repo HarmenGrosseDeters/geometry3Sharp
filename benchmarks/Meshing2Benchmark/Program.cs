@@ -15,6 +15,7 @@ namespace Meshing2Acceptance
         const string Usage = @"Meshing2Benchmark <command>
   selfcheck                         the oracle rejects broken results (runs before every command)
   ci                                selfcheck, differential of the CI subset, golden check: what CI runs
+  (any command) --oracle reference  every oracle check exact, without the floating-point filters and indexes (audits; slow)
   differential [--larger]           M1 against NetTopologySuite; --larger adds the bigger cases
   golden check [--milestone M1]     recompute the golden rows and compare
   golden update --milestone M1 --reasons <file>
@@ -42,6 +43,10 @@ namespace Meshing2Acceptance
         static int Main(string[] args)
         {
             if (args.Length == 0) { Console.Error.WriteLine(Usage); return 2; }
+            // --oracle reference: every check (the self-check too) on the exact reference path, for audits
+            string oracleMode = Arg(args, "--oracle");
+            if (oracleMode != null && oracleMode != "reference" && oracleMode != "fast") { Console.Error.WriteLine("--oracle takes reference or fast"); return 2; }
+            Oracle.ForceReference = oracleMode == "reference";
             var items = SelfCheck.Run();
             var failed = items.Where(i => !i.Passed).ToList();
             foreach (var item in failed) Console.Error.WriteLine("SELF-CHECK FAILED: " + item.Name + ": " + item.Detail);

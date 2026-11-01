@@ -33,7 +33,11 @@ namespace Meshing2Acceptance
             string filter = arg(args, "--filter");
             int seconds = int.Parse(arg(args, "--seconds") ?? "120", CultureInfo.InvariantCulture);
             int judgeLimit = int.Parse(arg(args, "--judge-limit") ?? "60000", CultureInfo.InvariantCulture);
-            var items = Load(dir).Where(i => filter == null || i.Name.IndexOf(filter, StringComparison.OrdinalIgnoreCase) >= 0).ToList();
+            // a filter is a part of the name, or with a trailing $ the end of it (earcut/water-huge$ is not water-huge2)
+            bool Matches(string name) => filter == null || (filter.EndsWith("$")
+                ? name.EndsWith(filter.Substring(0, filter.Length - 1), StringComparison.OrdinalIgnoreCase)
+                : name.IndexOf(filter, StringComparison.OrdinalIgnoreCase) >= 0);
+            var items = Load(dir).Where(i => Matches(i.Name)).ToList();
             var tally = new SortedDictionary<string, int>(StringComparer.Ordinal);
             void Count(string key) { tally.TryGetValue(key, out int n); tally[key] = n + 1; }
             int bad = 0;

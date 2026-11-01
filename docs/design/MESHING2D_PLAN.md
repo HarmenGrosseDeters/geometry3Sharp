@@ -246,14 +246,17 @@ ALKIS and DGM tiles (local only).
 
 **What remains (hand-over).**
 
-1. **Over-refinement where many segments cross at small angles.** F-4/a (random segments at 25 degrees) ends at the default Steiner limit (101 078
+1. **Over-refinement where many segments cross at small angles**, much reduced by the corpus fix that keeps split points out of the tolerance of
+   other constraints: F-4/a 3 073 vertices (was 101 078 at the Steiner limit), F-5 5 116 (was 8 547), F-26 and F-27 909 (913). Earlier state:
+   F-4/a (random segments at 25 degrees) ended at the default Steiner limit (101 078
    vertices; F-4/b needs 8 594, F-4/c 37 567, F-5 6 229, final run of `rows`); the oracle accepts them (a valid constrained Delaunay mesh, limit flagged), but Triangle-like meshers need a few thousand. The refinement
    descends towards apexes such as (3, 4) of F-4/a, where five segments cross at angles from 7 degrees up. Next step: Shewchuk's 2002 rules for small input
    angles beyond the shortest-edge exemption (do not insert a circumcentre that would encroach a segment incident to the small angle; protect the apex by a
    ball), then measure the vertex counts of F-4 and F-5 against the spec's "fewer than 5 000" of F-24.
-2. **Slow oracle on large results.** The corpus run's hour is the oracle (poly2tri's debug2 in M2: over 30 minutes for 10 000 vertices and segments);
-   the global empty-circumcircle pass and the remaining per-source loops need the floating-point filters the segment check got. poly2tri's debug2 in M3
-   (a star of 10 000 sharp spikes) runs into the Steiner limit at every angle, item 1.
+2. **Slow oracle on large results: done** (owner's priority, branch `meshing2d/oracle-speed`): a fast path with floating-point filters and spatial
+   indexes, the reference path kept (`--oracle reference`), verdicts compared in `Meshing2OracleModesTests`; `rows` 705 s of oracle time to 48 s,
+   water-huge at 30 degrees about 170 s to 10 s (benchmark README). poly2tri's debug2 in M3 (a star of 10 000 sharp spikes) still runs into the
+   Steiner limit at every angle, item 1.
 3. **Slow rows.** `Catalogue.SlowRows` (13 rows with 16 000 to 200 000 vertices) are judged by `rows --milestone M3` (about 25 minutes in total, mostly oracle
    time); the test suite only checks their status unless `G3_MESH2_SLOW` is set. Speeding up the oracle on large results (orientation and edge maps take
    seconds at 100 000 vertices) would let them back into CI.
