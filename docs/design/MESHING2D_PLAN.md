@@ -244,21 +244,24 @@ handling (stale tags after a split onto another constraint; chains merged at the
 oracle gaps (empty on a sub-tolerance sliver, the merge zone at a small apex, its speed). Not yet run: Natural Earth, GEOS and CGAL data, the NRW
 ALKIS and DGM tiles (local only).
 
-**What remains (hand-over).**
+**What remains (hand-over, state of 2026-11-01 for the owner's review of #233, #252 and #265).**
 
-1. **Over-refinement where many segments cross at small angles.** F-4/a (random segments at 25 degrees) ends at the default Steiner limit (101 078
-   vertices; F-4/b needs 8 594, F-4/c 37 567, F-5 6 229, final run of `rows`); the oracle accepts them (a valid constrained Delaunay mesh, limit flagged), but Triangle-like meshers need a few thousand. The refinement
-   descends towards apexes such as (3, 4) of F-4/a, where five segments cross at angles from 7 degrees up. Next step: Shewchuk's 2002 rules for small input
-   angles beyond the shortest-edge exemption (do not insert a circumcentre that would encroach a segment incident to the small angle; protect the apex by a
-   ball), then measure the vertex counts of F-4 and F-5 against the spec's "fewer than 5 000" of F-24.
-2. **Slow oracle on large results.** The corpus run's hour is the oracle (poly2tri's debug2 in M2: over 30 minutes for 10 000 vertices and segments);
-   the global empty-circumcircle pass and the remaining per-source loops need the floating-point filters the segment check got. poly2tri's debug2 in M3
-   (a star of 10 000 sharp spikes) runs into the Steiner limit at every angle, item 1.
-3. **Slow rows.** `Catalogue.SlowRows` (13 rows with 16 000 to 200 000 vertices) are judged by `rows --milestone M3` (about 25 minutes in total, mostly oracle
-   time); the test suite only checks their status unless `G3_MESH2_SLOW` is set. Speeding up the oracle on large results (orientation and edge maps take
-   seconds at 100 000 vertices) would let them back into CI.
-4. **Not built:** `m3.locks` (4 rows; locked segments are never split, but the bounds are not met near them: see the review of M3 above; a bounded
-   off-centre point in front of the segment, with a minimum distance from it, is the next thing to try),
-   `m3.refine-again` (I8, F-33, O17: refining an existing mesh needs an API), `m2.snap` (22 rows: explicit snap tolerance, D14), F-31/a's ring lock (O8).
-5. Performance of M3 is not yet measured against spec 3.1 (F-27: more than 50 000 vertices in about 2 s; we do 60 000 in 0.4 s but at the limit), and net48 timing
+1. **`m2.snap`: iterated snap rounding** (owner decision D14 of 2026-11-01): build it as iterated snap rounding (Halperin and Packer 2002) at the
+   explicit tolerance, as its own PR after M2 and M3 are merged; gates F-10 to F-22 (22 rows), with F-16's shared piece and F-20's vertex count.
+2. **Over-refinement where many segments cross at small angles**, much reduced since the corpus fix that keeps split points out of the tolerance of
+   other constraints: F-4/a 3 073 vertices (was 101 078 at the Steiner limit), F-5 5 116 (was 8 547), F-26/F-27 909. Still open: poly2tri's debug2 (a
+   star of 10 000 sharp spikes) reaches the Steiner limit at every angle. Next step: Shewchuk's 2002 rules for small input angles beyond the
+   shortest-edge exemption (no circumcentre that encroaches a segment of the small angle; a protecting ball around the apex).
+3. **Oracle speed: done in #265** (`rows` 705 s of oracle time to 48 s, water-huge at 30 degrees about 170 s to 10 s; reference path kept). With it
+   the 13 slow rows could come back into CI (`G3_MESH2_SLOW`, about one minute in total), and the 4 corpus results above the judge limit can be
+   judged: next.
+4. **Merge-zone exemptions** (#252 for the angle bound, #265 for conforming): in the zone of 8 tube / sin(angle) around the apex of two input
+   segments at a small angle the mesher places no point (it would merge the chains, O11), and the oracle excuses the angle bound and conforming
+   Delaunay there. They are counted in every report (`MergeZoneExcused`) and listed in #265 for the owner to accept or turn into findings.
+5. **Not built:** `m3.locks` (4 rows; locked segments are never split, but the bounds are not met near them: see the review of M3 above; a bounded
+   off-centre point in front of the segment, with a minimum distance from it, is the next thing to try), `m3.refine-again` (I8, F-33, O17: refining an
+   existing mesh needs an API), F-31/a's ring lock (O8).
+6. **Corpus beyond the public fixtures:** Natural Earth, GEOS and CGAL data, the NRW ALKIS and DGM tiles (local only, fetched at run time, never
+   committed).
+7. **Performance and platforms:** M3 against spec 3.1 (F-27: more than 50 000 vertices in about 2 s) is not measured as a benchmark yet; net48 timing
    is open for all milestones.
