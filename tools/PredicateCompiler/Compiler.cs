@@ -173,10 +173,10 @@ namespace G3PredicateCompiler
         public string Comps => Xyz ? "xyz" : "xyw";
         /// <summary> the limbs one call takes from its FixedArena (the length rule) </summary>
         public int ArenaScratch;
-        /// <summary> the expansion stage is generated only for a predicate whose every sign factor has at most this
-        /// many components in the worst case (owner decision, docs/design/INDIRECT_PREDICATES.md section 5) </summary>
+        /// <summary> the expansion stage is generated only for a predicate whose every sign factor has fewer than this
+        /// many components in the worst case (owner decision: below 1024, docs/design/INDIRECT_PREDICATES.md section 5) </summary>
         public const int MaxExpansionLength = 1024;
-        public bool HasExpansionStage => Signs.All(n => n.ExpansionLength <= MaxExpansionLength);
+        public bool HasExpansionStage => Signs.All(n => n.ExpansionLength < MaxExpansionLength);
         /// <summary> the filter's test constant per sign factor: the factor's sign is decided if |e~| > fl(K m~) </summary>
         public List<double> FilterK = new List<double>();
         /// <summary> ArenaScratch without the value bounds (the operands' lengths only) </summary>
@@ -205,6 +205,7 @@ namespace G3PredicateCompiler
                 fixedarith_lengths(p);
                 if (p.Xyz)
                     filter_bounds(p);       // only the inputs xyz predicates get a filter (the double entry)
+                expansion_lengths(p);
             }
             return preds;
         }
@@ -253,13 +254,20 @@ namespace G3PredicateCompiler
                 }
             }
             p.FilterK = p.Signs.Select(n => (n.C / (one - u)).CeilDouble()).ToList();
-            foreach (var n in p.Nodes)
-                n.ExpansionLength = n.Op == Op.Input ? 1 : n.Op == Op.Mul ? 2 * n.A.ExpansionLength * n.B.ExpansionLength
-                    : n.A.ExpansionLength + n.B.ExpansionLength;
+
             // degree check: every value below 2^1000 at |x| <= 2^53 (bound polynomial at 2^53)
             foreach (var n in p.Nodes)
                 if (n.Bound.At(BigInteger.Pow(2, 53)).GetBitLength() > 1000)
                     throw new NotSupportedException($"{p.Name}: the filter could overflow");
+        }
+
+        // the static worst-case length of each value as an expansion (Shewchuk) from exact double inputs: an input 1, a
+        // sum or difference la + lb (expansion sum), a product 2 la lb (each component of one scaled by the other)
+        static void expansion_lengths(Predicate p)
+        {
+            foreach (var n in p.Nodes)
+                n.ExpansionLength = n.Op == Op.Input ? 1 : n.Op == Op.Mul ? 2 * n.A.ExpansionLength * n.B.ExpansionLength
+                    : n.A.ExpansionLength + n.B.ExpansionLength;
         }
 
         // the length rule: a model of FixedArith (Mul / Add / Sub on a FixedArena), after value_bounds

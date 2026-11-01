@@ -374,7 +374,12 @@ namespace geometry3Sharp.Tests
             Assert.All(a.Values, p => Assert.False(p.HasExpansionStage));
             Assert.Equal(1024, Predicate.MaxExpansionLength);
             // a small predicate within the limit would need the stage, which the generator refuses to skip silently
-            Assert.Throws<NotSupportedException>(() => PredicateCompiler.Code("ipredicate P(a, b) bound 64 inputs xyz\n    sign a.x * b.y - a.y * b.x", "s", "o", "C"));
+            var e = Assert.Throws<NotSupportedException>(() => PredicateCompiler.Code("ipredicate P(a, b) bound 64 inputs xyz\n    sign a.x * b.y - a.y * b.x", "s", "o", "C"));
+            Assert.Contains("expansion stage", e.Message);
+            // the lengths are derived for every predicate, also those of predicates.spec (projected inputs, no filter)
+            var small = PredicateCompiler.Analyze("ipredicate P(a, b) bound 255\n    sign a.x * b.y - a.y * b.x").Single();
+            Assert.Equal(4, small.Root.ExpansionLength);        // 2 1 1 + 2 1 1
+            Assert.True(small.HasExpansionStage);
         }
 #endif
 
