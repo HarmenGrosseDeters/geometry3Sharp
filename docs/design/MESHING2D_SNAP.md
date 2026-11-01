@@ -196,7 +196,12 @@ catalogue note of the row it shaped.
 - **Gates now (#274):** F-17/b, a hole marker inside a contour that collapses below the tolerance. It must not empty the domain;
   the fork lost the whole domain this way (answer 6). The oracle learned D14 for it: input points move by at most tol/2 per axis,
   merged slots do not count against vertex bounds, and a marker in a collapsed pixel is dropped (accept and reject self-checks).
-  Without these rules the oracle would have rejected a correct `m2.snap` result (found by the review of #274).
+  Without these rules the oracle would have rejected a correct `m2.snap` result (found by the review of #274). The second review
+  tightened them to D14 exactly: every input point must land on the centre of its pixel (half-open pixels, grid at the origin, up to
+  the rounding of the centre to doubles), and only a contour of at least three merged points exempts a marker in its pixel. Known
+  side effect: snapping moves almost every off-grid input, so the area check's slack (perimeter times the largest move) applies on
+  every snap row; a gap bounded by constraints smaller than that slack would pass there. SR changes the area by that much, so the
+  slack stays.
 - **Gates with the prototype, since they need M3 with snapping:**
   - snap cycles at a large tolerance (answer 7b; F-15 is one, a band case);
   - refinement cascading to the grid at small input angles (answer 7d; the fork's floor is two cells). This is the open design

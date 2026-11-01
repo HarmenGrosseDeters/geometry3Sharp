@@ -184,10 +184,11 @@ namespace Meshing2Acceptance
                     if (o.InputToVertex == null || o.InputToVertex.Length != input.Count) { r.Add(Violation.MappingWrong, "no mapping per input point"); return false; }
                     if (v.Length < input.Count) { r.Add(Violation.MappingWrong, "fewer vertices than input slots"); return false; }
                     var byCoordinate = new Dictionary<Pt, int>();
-                    // D14 (owner, 2026-11-01): with an explicit tolerance the input is snap-rounded to a grid of pixel width tol, so an input
-                    // point may move, by at most tol/2 per axis, onto its pixel centre or the vertex it merges into
+                    // D14 (owner, 2026-11-01): with an explicit tolerance the input is snap-rounded to a grid of pixel width tol anchored at
+                    // the origin, so every input point lands on the centre of its pixel (input on the grid stays put); the restore step adds
+                    // vertices but moves none
                     bool snapped = input.SnapTolerance > 0;
-                    Q halfPixel = snapped ? Q.FromDouble(input.SnapTolerance) / 2 : Q.Zero;
+                    Q pixel = snapped ? Q.FromDouble(input.SnapTolerance) : Q.Zero;
                     for (int i = 0; i < input.Count; ++i) {
                         int m = o.InputToVertex[i];
                         if (m < 0 || m >= input.Count || o.InputToVertex[m] != m) { r.Add(Violation.MappingWrong, "input " + i + " maps to " + m + ", which is no surviving input slot"); return false; }
@@ -199,8 +200,8 @@ namespace Meshing2Acceptance
                         Q off = Exact.Len2(inPts[i], v[m]);
                         moved2 = Q.Max(moved2, off);
                         if (off > e_Tube2()) r.Add(Violation.SnapTooFar, "input " + i + " merged too far, into " + m);
-                        else if (snapped && (Q.Abs(inPts[i].Qx - v[m].Qx) > halfPixel || Q.Abs(inPts[i].Qy - v[m].Qy) > halfPixel))
-                            r.Add(Violation.SnapTooFar, "input " + i + " moved more than half the tolerance per axis (D14), to " + v[m]);
+                        else if (snapped && !AtPixelCentre(inPts[i], v[m], pixel))
+                            r.Add(Violation.SnapTooFar, "input " + i + " is at " + v[m] + ", not at the centre of its pixel (D14)");
                     }
                     r.ConstructedVertices = v.Length - input.Count;
                     var isAlias = new bool[input.Count];
@@ -229,16 +230,31 @@ namespace Meshing2Acceptance
             Q e_Tube2() => tube2;
 
             /// <summary>
-            /// D14 with the clean-room answer 6 (MESHING2D_SNAP_QA.md): with an explicit tolerance a contour below the tolerance collapses,
-            /// and a hole marker within one pixel (tol per axis) of an input point that merged into another is dropped instead of removing
-            /// the cell around the collapsed contour (the fork lost the whole domain that way)
+            /// D14: the centre of the pixel containing p, pixels half-open (closed on the left and bottom, Hobby 1999) on a grid of the given
+            /// width anchored at the origin; w must equal it up to the rounding of the centre to doubles (2^-52 of its magnitude per axis)
+            /// </summary>
+            static bool AtPixelCentre(Pt p, Pt w, Q pixel)
+            {
+                Q Centre(Q x) { Q t = x / pixel + new Q(1, 2); var f = BigInteger.Divide(t.N, t.D); if (t.N.Sign < 0 && f * t.D != t.N) f -= 1; return new Q(f, 1) * pixel; }
+                Q cx = Centre(p.Qx), cy = Centre(p.Qy);
+                Q slack = Q.Max(pixel, Q.Max(Q.Abs(cx), Q.Abs(cy))) * new Q(BigInteger.One, BigInteger.One << 52);
+                return Q.Abs(w.Qx - cx) <= slack && Q.Abs(w.Qy - cy) <= slack;
+            }
+
+            /// <summary>
+            /// D14 with the clean-room answer 6 (MESHING2D_SNAP_QA.md): with an explicit tolerance a contour below the tolerance collapses
+            /// into one vertex, and a hole marker in that vertex's pixel (tol/2 per axis) is dropped instead of removing the cell around the
+            /// collapsed contour (the fork lost the whole domain that way). A contour means at least three input points merged into it; a
+            /// single near-duplicate merged into a corner exempts nothing.
             /// </summary>
             bool InCollapsedPixel(Pt seed)
             {
-                if (!(input.SnapTolerance > 0) || !o.IdentityRules || map == null) return false;
-                Q tol = Q.FromDouble(input.SnapTolerance);
-                for (int i = 0; i < input.Count; ++i)
-                    if (map[i] != i && Q.Abs(inPts[i].Qx - seed.Qx) <= tol && Q.Abs(inPts[i].Qy - seed.Qy) <= tol) return true;
+                if (!(input.SnapTolerance > 0) || !o.IdentityRules) return false;
+                Q half = Q.FromDouble(input.SnapTolerance) / 2;
+                var merged = new Dictionary<int, int>();
+                for (int i = 0; i < input.Count; ++i) if (map[i] != i) { merged.TryGetValue(map[i], out int n); merged[map[i]] = n + 1; }
+                foreach (var pair in merged)
+                    if (pair.Value >= 2 && Q.Abs(v[pair.Key].Qx - seed.Qx) <= half && Q.Abs(v[pair.Key].Qy - seed.Qy) <= half) return true;
                 return false;
             }
 
@@ -618,7 +634,7 @@ namespace Meshing2Acceptance
                 foreach (int id in o.Triangles.SelectMany(t => t).Distinct()) {
                     if (inputs.Contains(v[id])) continue;
                     // a surviving input slot is an input point even where snapping moved it (D14); Identity judges how far it moved
-                    if (o.IdentityRules && id < input.Count && map[id] == id) continue;
+                    if (input.SnapTolerance > 0 && o.IdentityRules && id < input.Count && map[id] == id) continue;
                     var near = sources.Where(s => WithinTube(s, v[id])).ToList();
                     bool crossing = near.Any(s => near.Any(q => !Collinear(s.a, s.b, q.a, q.b)));
                     if (!crossing) r.Add(Violation.SteinerNotAllowed, "vertex " + id + " " + v[id] + " is no input point and no crossing of constraints");
