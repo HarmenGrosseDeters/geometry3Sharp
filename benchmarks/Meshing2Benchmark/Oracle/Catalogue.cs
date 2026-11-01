@@ -116,7 +116,8 @@ namespace Meshing2Acceptance
                 Mesh("F-14", name, "40 stacked nearly identical squares", Feature.Snap, M2, Stack(d), Hundred, new Q(1, 1000000000));
             Mesh("F-15", null, "Snap cycle, tolerance 11/1024", Feature.Snap, M2, new B().Square(2).Seg(1, 1, 1 + 10.0 / 1024, 1 + 19.0 / 1024).Seg(1, 1, 1, 1 + 20.0 / 1024).Snap(11.0 / 1024), 4, new Q(1, 16), note: "shifted from the origin into a frame of area 4; dyadic analog");
             Mesh("F-16", null, "Near-collinear pair with a third segment close to the shared end", Feature.Snap, M3, F16().Snap(1.0 / 128).Min(20).Limit(100000), tweak: e => e.MaxVertices = 2000, note: "dyadic analog at UTM scale");
-            Mesh("F-17", null, "Snap tolerance larger than a hole", Feature.Snap, M2, S().Hole(5, 5, 5 + E20, 5, 5 + E20, 5 + E20, 5, 5 + E20).Snap(Math.Pow(2, -10)), Hundred, new Q(1, 16));
+            Mesh("F-17", null, "Snap tolerance larger than a hole", Feature.Snap, M2, S().Hole(5, 5, 5 + E20, 5, 5 + E20, 5 + E20, 5, 5 + E20).Snap(Math.Pow(2, -10)), Hundred, new Q(1, 16),
+                tweak: e => e.MaxVertices = 5, note: "the hole's four corners merge into one point: at most 5 vertices (today 8: no explicit tolerance yet)");
             double ox = 370000, oy = 5710000;
             Mesh("F-18", "a", "Building wall 4 mm along a parcel border, tolerance merges it", Feature.Snap, M3, new B().Rect(ox, oy, ox + 32, oy + 20).Hole(ox + 8, oy + 1.0 / 256, ox + 18, oy + 1.0 / 256, ox + 18, oy + 8, ox + 8, oy + 8).Snap(1.0 / 128).Min(20).Limit(50000), note: "dyadic analog: 2^-8 instead of 5 mm");
             Mesh("F-18", "b", "Wall 62 mm away is kept", Feature.Snap, M3, new B().Rect(ox, oy, ox + 32, oy + 20).Hole(ox + 8, oy + 1.0 / 16, ox + 18, oy + 1.0 / 16, ox + 18, oy + 8, ox + 8, oy + 8).Snap(1.0 / 128).Min(20).Limit(50000));
@@ -124,7 +125,8 @@ namespace Meshing2Acceptance
             Mesh("F-20", null, "Long edges cross a dense polyline at tiny angles, procedural analog", Feature.Snap, M2, Zigzag(), tweak: e => e.MaxVertices = 20000, note: "the public input CDT issue-211 is not fetched here; this is an analog built from its description");
             Mesh("F-21", null, "Long parallel stripes: scaling check", Feature.Noding, M2, Stripes(64), note: "the time target needs 20 000 stripes, run by the benchmark, not in the oracle's quadratic segment check");
             Mesh("F-22", "a", "Back-and-forth border, no snapping: limit stops it", Feature.Refine, M3, Backforth().Min(20).Limit(20000));
-            Mesh("F-22", "b", "The same with tolerance 2^-29: sliver gone", Feature.Snap, M3, Backforth().Snap(Math.Pow(2, -29)).Min(20).Limit(20000));
+            Mesh("F-22", "b", "The same with tolerance 2^-29: sliver gone", Feature.Snap, M3, Backforth().Snap(Math.Pow(2, -29)).Min(20).Limit(20000),
+                tweak: e => e.MaxVertices = 1000, note: "the sliver merged leaves about 216 vertices; at most 1000 (today 20 007 at the Steiner limit, as F-22/a)");
 
             // 2.3 quality refinement
             foreach (var deg in new[] { 0.0, 20, 30 })

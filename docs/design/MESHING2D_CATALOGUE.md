@@ -56,14 +56,14 @@ as beyond this brief (`m4.*`) wait for grid, wedge and Steiner post-processing, 
 | F-14/e | 40 stacked nearly identical squares | pending | m2.snap |  |
 | F-15 | Snap cycle, tolerance 11/1024 | pending | m2.snap | shifted from the origin into a frame of area 4; dyadic analog |
 | F-16 | Near-collinear pair with a third segment close to the shared end | pending | m2.snap | dyadic analog at UTM scale |
-| F-17 | Snap tolerance larger than a hole | pending | m2.snap |  |
+| F-17 | Snap tolerance larger than a hole | pending | m2.snap | the hole's four corners merge into one point: at most 5 vertices (today 8: no explicit tolerance yet) |
 | F-18/a | Building wall 4 mm along a parcel border, tolerance merges it | pending | m2.snap | dyadic analog: 2^-8 instead of 5 mm |
 | F-18/b | Wall 62 mm away is kept | pending | m2.snap |  |
 | F-19 | Thin wedges, wedge tolerance | pending | m4.wedge | O13: beyond this brief; the fixture is the first of the spec's five |
 | F-20 | Long edges cross a dense polyline at tiny angles, procedural analog | pending | m2.snap | the public input CDT issue-211 is not fetched here; this is an analog built from its description |
 | F-21 | Long parallel stripes: scaling check | covered | f-21 | the time target needs 20 000 stripes, run by the benchmark, not in the oracle's quadratic segment check |
 | F-22/a | Back-and-forth border, no snapping: limit stops it | covered | f-22/a |  |
-| F-22/b | The same with tolerance 2^-29: sliver gone | pending | m2.snap |  |
+| F-22/b | The same with tolerance 2^-29: sliver gone | pending | m2.snap | the sliver merged leaves about 216 vertices; at most 1000 (today 20 007 at the Steiner limit, as F-22/a) |
 | F-23/angle-0 | Max area 1/2, min angle 0 | covered | f-23/angle-0 |  |
 | F-23/angle-20 | Max area 1/2, min angle 20 | covered | f-23/angle-20 |  |
 | F-23/angle-30 | Max area 1/2, min angle 30 | covered | f-23/angle-30 |  |

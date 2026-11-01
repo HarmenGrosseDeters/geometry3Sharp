@@ -155,6 +155,11 @@ which runs every covered row of the milestone, prints the oracle's verdict, the 
 results); the test suite checks the slow rows only for their status unless `G3_MESH2_SLOW` is set. Known: where many segments cross at small angles
 (F-4, F-5) refinement runs into the default Steiner limit (plan, section 9).
 
+`--pending` also runs the pending rows. On master of 2026-11-01 the `m2.snap` rows show that the mesher has no explicit tolerance yet:
+the candidate does not pass `SnapTolerance` on (the library has only the automatic one). F-16 (100 009 vertices, at most 2 000), F-17 (8, at most
+5) and F-22/b (20 007, at most 1 000) fail; the other snap rows pass, F-15 and F-18 only because the oracle allows a merge within the tolerance
+without demanding it (`Meshing2SnapGateTests`, `docs/design/MESHING2D_SNAP.md` section 3c).
+
 ## Corpus: public test fixtures (2026-11-01)
 
 The fixtures of earcut (61 polygons), delaunator (7 point sets) and poly2tri (16 polygons) are fetched at run time and never committed (sources and
