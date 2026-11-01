@@ -42,6 +42,8 @@ hold up is discarded with the owner, not patched until it passes. The stages run
 | 7. Alpha wrap quality | Owner decision on #199. No recorded policy passes every gate, so its production code is not for merging as it is, and it does not compile as it is. Next step: a bounded look at the failing local patches of the hard-feature policy, no threshold tuning | L | 1 large session, after stage 6 |
 | 8. Planned follow-ups | Boolean property tests, DAP audit and honest terrain metrics, next to any stage from 4 on; the upstream ledger last, because it records what is merged. Terrain phase 1 after stage 5 | S, M | up to 2 sessions |
 
+Stages 4 and 6 are prepared in [MESHING2D_PLAN.md](design/MESHING2D_PLAN.md): the gates exist as commands; the verdict on #200 and the questions on #201 are there.
+
 Why this order: a reference must exist before an implementation is accepted against it. The quadtree comes before meshing because terrain phase 1 waits for it and its PR is further along.
 
 Limits on parallel work:
