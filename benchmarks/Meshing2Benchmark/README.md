@@ -155,6 +155,32 @@ which runs every covered row of the milestone, prints the oracle's verdict, the 
 results); the test suite checks the slow rows only for their status unless `G3_MESH2_SLOW` is set. Known: where many segments cross at small angles
 (F-4, F-5) refinement runs into the default Steiner limit (plan, section 9).
 
+## Corpus: public test fixtures (2026-11-01)
+
+The fixtures of earcut (61 polygons), delaunator (7 point sets) and poly2tri (16 polygons) are fetched at run time and never committed (sources and
+licenses in `docs/design/MESHING2D_PROVENANCE.md`); polygons run through M2 and M3, point sets through M1 and M3, M3 at 0, 20 and 30 degrees:
+
+```
+python3 benchmarks/Meshing2Benchmark/corpus/fetch.py
+dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 -- corpus --seconds 120
+```
+
+Result on the head of PR #252 after the fixes below: 84 inputs, 336 runs, **332 pass the oracle, none fails or violates it**; 4 results above
+`--judge-limit` (60 000 vertices) are not judged: earcut's water-huge3 at 30 degrees (114 263 vertices) and poly2tri's debug2 in M3 (a star of 10 000
+points with very sharp spikes: 310 000 vertices, the Steiner limit, at every angle). Meshing time of all 336 runs: about 6 s; the oracle takes most of
+the hour the run needs (poly2tri's debug2 in M2, 10 000 vertices and segments: over 30 minutes).
+
+Found and fixed by the run (each with a regression test or self-check):
+
+| Input | Symptom | Cause, fix |
+|---|---|---|
+| earcut water-huge, -huge2, -huge3 (M3) | triangles outside the domain, missing segments | a split point rounded onto another constraint through the same end at 0.84 degrees; the sides of the split piece gave stale tags. Tags from a piece only for edges with exactly its sources; no split point within the tolerance of another constraint |
+| earcut water (M3) | an input vertex in no triangle | refinement split the sides of a 3.4 degree spike down to where they are within the tolerance of each other; the chains merged and cut off the tip. Same fix (`SpikeAtASmallAngle_KeepsItsApex`) |
+| delaunator issue43, robustness1, robustness4 (M3) | angles below the bound, boundary edges off the hull; 100 000 vertices from 36 | points 5e-15 inside a hull edge encroached it for ever. Hull edges inserted as pieces, a vertex within the tolerance of an existing edge becomes a vertex of it (`PointsUlpsInsideAHullEdge_BecomeBoundaryVertices`) |
+| earcut infinite-loop-jhl | oracle: empty mesh on a domain with area | a sliver 1e-28 wide, below the tolerance; the oracle now allows empty for a domain whose twice area is at most 2 tube perimeter (self-check 5) |
+| earcut water-huge (M3 at 20, 30 degrees) | oracle: two angles below the bound at an apex of 0.84 degrees | inside the zone where the two segments are within the tube of each other no point can be placed; the oracle exempts triangles within 8 tube / sin(angle) of such an apex (self-check 6) |
+| earcut eberly-6 | oracle: 10 minutes for 6 339 vertices | floating-point filters in front of the exact segment, ring and marker tests (now 5 s) |
+
 ## The golden master
 
 `golden/m1.json` holds one row per case of the CI subset: fingerprints, counts, status, exact quality values; no times and no mesh data. The format is defined in
