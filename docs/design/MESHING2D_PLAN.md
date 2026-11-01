@@ -14,6 +14,7 @@ The goal is a clean-room 2D mesher in this library: Delaunay of points (M1), con
 | [MESHING2D_DECISIONS.md](MESHING2D_DECISIONS.md) | The domain decisions of parked PR #201, questioned, with the defaults to build. **D1, D5, D9 need the owner** |
 | [MESHING2D_CATALOGUE.md](MESHING2D_CATALOGUE.md) | The F cases, one state per row |
 | [MESHING2D_GOLDEN_FORMAT.md](MESHING2D_GOLDEN_FORMAT.md) | Rows, fingerprints, text formats, standalone oracle: self-contained, for other producers too |
+| [MESHING2D_PROVENANCE.md](MESHING2D_PROVENANCE.md) | The source (paper and section, or spec item) of every non-trivial routine; owner decision of 2026-11-01 |
 | [benchmarks/Meshing2Benchmark/README.md](../../benchmarks/Meshing2Benchmark/README.md) | The gates as commands, and the pilot's result |
 
 **Clean room, always:** never open, clone, search or read Triangle, Triangle.NET or a fork of them (including `HarmenGrosseDeters/Triangle.Net-Old-Custom`, and `D:\work\Triangle.NET` on the owner's machine), never GPL
@@ -175,3 +176,25 @@ item ("the same small angle, not forced") was itself wrong and is replaced. Left
 - `IsValid` is linear and exact: orientation, adjacency, local Delaunay, a convex hull winding once, Euler. `Compute` runs the same checks on the kernel
   and returns `Failed` with `ProblemCoordinate` on a defect. `NumericalFailure` and `IterationLimit` are gone (D15).
 - `Prototype200Candidate.cs` is deleted, as planned. #200 is still open; closing it needs the owner.
+
+**M2 (a, b): built** (PR on branch `meshing2d/m2`, stacked on M1). `ConstrainedDelaunayMesh2` with `ConstrainedMesh2Input` (points, segments with marker and
+lock, rings, hole seeds, regions by ring or seed, optional heights) and `ConstrainedMesh2` (vertices, input map, triangles, neighbours, labels, subsegments with
+marker, marker list and lock, heights, `TryLocate` in non-convex domains), `Triangulation2Status` and two new failure kinds. All 26 catalogue rows of
+`m2.cdt`, `m2.domain`, `m2.regions`, `m2.noding` with milestone M2 pass the oracle; golden M2 recorded. Decisions taken:
+
+- D1 as decided: crossings exact, rounded to nearest double (own integer rounding, no BigInteger-to-double conversion that may differ by runtime).
+- Automatic tolerance for routing: 2^-41 of max(largest coordinate, extent), half the oracle's 2^-40, so routing decisions in doubles stay inside the tube.
+  A vertex within it of a piece and of all the piece's input segments becomes a vertex of it. No vertex is merged with another (only exact duplicates).
+- Markers (D7): a subsegment carries the markers of all input segments within 2^-40 of both its ends, so nearly coincident lines share their pieces' markers.
+- Heights (D11): input heights pass through (lowest index wins, with a diagnostic); a crossing gets the height interpolated along the later piece. Q9's
+  interpolation of Steiner points on the reference mesh is M3.
+- Oracle change: a chain may end at a vertex in the tubes of its segment and of the cutting ring edge (a crossing at a tiny angle is ill-conditioned along
+  the lines: found by fuzzing, 7.5e-6 along at an angle of 1e-10); the movement it measures counts only the distance off the two lines; a ring edge
+  along the source itself never counts as cutting (the independent review found that hole; negative self-check "two parcels without their shared border").
+- Independent review of M2: six defects fixed with regressions (a non-Delaunay edge after a crossing: restore before inserting, and a final linear
+  check; tolerance tests underflowing at 2^-560: scaled differences, exact collinear direction; markers missing sources hidden behind a free point: a
+  grid of sources; crossing heights depending on the order: the segment given first wins, with a diagnostic; rounding in the subnormal range documented
+  as within one ulp). Crossings in the subnormal range can lie farther from their segments than the tolerance, because the double grid there is coarser.
+
+Not yet: `m2.snap` (explicit tolerance, vertex clustering, wedges; D14: choose against F-10 to F-22), and the M3-milestone rows of the M2 features.
+Performance after the review fixes: 400 000 coastline points in 3.1 s (spec: below 5 s), 400 000 parcel points in 3.7 s; the crossing-heavy case allocates too much (2 GB for 490 000 crossings).

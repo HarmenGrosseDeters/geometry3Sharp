@@ -1,6 +1,6 @@
 # 2D meshing: the failure catalogue
 
-The F cases of [MESHING2D_SPEC.md](MESHING2D_SPEC.md), section 2, as procedural fixtures, one state per row. Rows now: 17 covered, 98 pending, 8 deferred by the owner's scope, 3 blocked.
+The F cases of [MESHING2D_SPEC.md](MESHING2D_SPEC.md), section 2, as procedural fixtures, one state per row. Rows now: 43 covered, 72 pending, 8 deferred by the owner's scope, 3 blocked.
 The table is generated from `benchmarks/Meshing2Benchmark/Oracle/Catalogue.cs` by `dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 -- catalogue`; a test keeps it in sync.
 
 - **covered**: runs now through the oracle (or the named test), on the registered production mesher.
@@ -15,30 +15,30 @@ as beyond this brief (`m4.*`) wait for grid, wedge and Steiner post-processing, 
 
 | Case | Title | State | Waits for or run by | Note |
 |---|---|---|---|---|
-| F-1/a | Three crossing segments | pending | m2.noding |  |
-| F-1/b | Three crossing segments | pending | m2.noding |  |
-| F-1/c | Three crossing segments | pending | m2.noding |  |
-| F-1/random | Random crossing segments, one seed of many | pending | m2.noding |  |
-| F-2 | Five crossing segments, formerly a stack overflow | pending | m2.noding |  |
-| F-3/a | Crossing segments, exception | pending | m2.noding |  |
-| F-3/b | Near-duplicate point (14th digit) on a segment, hull domain | pending | m2.noding | dyadic analog of the spec's coordinates |
+| F-1/a | Three crossing segments | covered | f-1/a |  |
+| F-1/b | Three crossing segments | covered | f-1/b |  |
+| F-1/c | Three crossing segments | covered | f-1/c |  |
+| F-1/random | Random crossing segments, one seed of many | covered | f-1/random |  |
+| F-2 | Five crossing segments, formerly a stack overflow | covered | f-2 |  |
+| F-3/a | Crossing segments, exception | covered | f-3/a |  |
+| F-3/b | Near-duplicate point (14th digit) on a segment, hull domain | covered | f-3/b | dyadic analog of the spec's coordinates |
 | F-3/c | The same at 20 degrees | pending | m3.refine |  |
 | F-4/a | 40 random segments at 25 degrees | pending | m3.refine | the spec runs 20 seeds; the benchmark sweeps them |
 | F-4/b | 100 segments in a 20 x 20 square at 20 degrees | pending | m3.refine |  |
 | F-4/c | 200 segments on a 50-grid at 20 degrees | pending | m3.refine |  |
 | F-5 | 40 random segments at 30 degrees | pending | m3.refine | the spec's seeds belong to another generator: this seed does not reproduce them |
-| F-6/a | Segment through input points | pending | m2.cdt |  |
+| F-6/a | Segment through input points | covered | f-6/a |  |
 | F-6/b | Two diagonals and a point just off them, 20 degrees | pending | m3.refine | epsilon is a power of two here |
 | F-6/c | Two diagonals and a point just off them, 20 degrees | pending | m3.refine | epsilon is a power of two here |
 | F-6/d | Two diagonals and a point just off them, 20 degrees | pending | m3.refine | epsilon is a power of two here |
-| F-7/a | Overlapping collinear segments | pending | m2.noding |  |
-| F-7/b | A contour running back along itself | pending | m2.noding |  |
-| F-7/c | A spike | pending | m2.noding |  |
-| F-7/d | Duplicate and reversed duplicate segments | pending | m2.cdt |  |
-| F-7/e | Bowtie contour | pending | m2.noding |  |
+| F-7/a | Overlapping collinear segments | covered | f-7/a |  |
+| F-7/b | A contour running back along itself | covered | f-7/b |  |
+| F-7/c | A spike | covered | f-7/c |  |
+| F-7/d | Duplicate and reversed duplicate segments | covered | f-7/d |  |
+| F-7/e | Bowtie contour | covered | f-7/e |  |
 | F-7/f | All of F-7 at 20 degrees | pending | m3.refine |  |
-| F-8 | Zero-length segments mixed with crossings | pending | m2.noding |  |
-| F-9 | Noding off must fail with a status | pending | m2.noding |  |
+| F-8 | Zero-length segments mixed with crossings | covered | f-8 |  |
+| F-9 | Noding off must fail with a status | covered | f-9 |  |
 | F-10/a | Vertex nearly on a segment, 20 degrees | pending | m2.snap |  |
 | F-10/b | Vertex nearly on a segment, 20 degrees | pending | m2.snap |  |
 | F-10/c | Vertex nearly on a segment, 20 degrees | pending | m2.snap |  |
@@ -61,7 +61,7 @@ as beyond this brief (`m4.*`) wait for grid, wedge and Steiner post-processing, 
 | F-18/b | Wall 62 mm away is kept | pending | m2.snap |  |
 | F-19 | Thin wedges, wedge tolerance | pending | m4.wedge | O13: beyond this brief; the fixture is the first of the spec's five |
 | F-20 | Long edges cross a dense polyline at tiny angles, procedural analog | pending | m2.snap | the public input CDT issue-211 is not fetched here; this is an analog built from its description |
-| F-21 | Long parallel stripes: scaling check | pending | m2.noding | the time target needs 20 000 stripes, run by the benchmark, not in the oracle's quadratic segment check |
+| F-21 | Long parallel stripes: scaling check | covered | f-21 | the time target needs 20 000 stripes, run by the benchmark, not in the oracle's quadratic segment check |
 | F-22/a | Back-and-forth border, no snapping: limit stops it | pending | m3.refine |  |
 | F-22/b | The same with tolerance 2^-29: sliver gone | pending | m2.snap |  |
 | F-23/angle-0 | Max area 1/2, min angle 0 | pending | m3.refine |  |
@@ -98,19 +98,19 @@ as beyond this brief (`m4.*`) wait for grid, wedge and Steiner post-processing, 
 | F-41/b | The same with a max angle | deferred |  | Q3: no maximum angle bound in scope |
 | F-42 | Bounded memory in refinement | pending | m3.refine | bounded by the limit; memory is measured by the benchmark |
 | F-43/a | Touching holes, 25 degrees | pending | m2.domain |  |
-| F-43/b | A hole on the outer boundary with a seed | pending | m2.domain |  |
-| F-43/c | A hole with its seed on its own boundary | pending | m2.domain | ring semantics (Q7): the ring removes it, the seed changes nothing |
-| F-43/d | A thin hole | pending | m2.domain |  |
+| F-43/b | A hole on the outer boundary with a seed | covered | f-43/b |  |
+| F-43/c | A hole with its seed on its own boundary | covered | f-43/c | ring semantics (Q7): the ring removes it, the seed changes nothing |
+| F-43/d | A thin hole | covered | f-43/d |  |
 | F-44 | Hole in a hole, seeds outside and inside holes | pending | m2.regions |  |
-| F-45 | Two seeds in one region: the last wins | pending | m2.regions |  |
-| F-46/a | A segment inside a hole does not stop the removal (Q7) | pending | m2.domain |  |
-| F-46/b | A crossing breakline opens no leak | pending | m2.domain |  |
-| F-47/a | Concentric circles, inner a hole | pending | m2.domain |  |
-| F-47/b | Concentric circles, inner a constraint | pending | m2.cdt |  |
+| F-45 | Two seeds in one region: the last wins | covered | f-45 |  |
+| F-46/a | A segment inside a hole does not stop the removal (Q7) | covered | f-46/a |  |
+| F-46/b | A crossing breakline opens no leak | covered | f-46/b |  |
+| F-47/a | Concentric circles, inner a hole | covered | f-47/a |  |
+| F-47/b | Concentric circles, inner a constraint | covered | f-47/b |  |
 | F-48/a | Degenerate hole ring, three collinear points | pending | m2.domain |  |
 | F-48/b | Degenerate hole ring, back and forth | pending | m2.domain |  |
 | F-48/c | Degenerate hole ring, folded | pending | m2.domain |  |
-| F-49 | Triangular hole at UTM scale | pending | m2.domain | with ring semantics there is no seed to misplace; the helper of I4 is F-50 |
+| F-49 | Triangular hole at UTM scale | covered | f-49 | with ring semantics there is no seed to misplace; the helper of I4 is F-50 |
 | F-50 | Interior point of thin or small contours | blocked |  | needs the API of the helper of I4 (decision D10); session 2 writes the fixture with it. Feature m2.ring-interior |
 | F-51/a | Tiny coordinates | covered | m1/tiny-64 |  |
 | F-51/b | Huge coordinates | covered | m1/huge-64 |  |
@@ -130,7 +130,7 @@ as beyond this brief (`m4.*`) wait for grid, wedge and Steiner post-processing, 
 | F-58/a | Parallel runs equal sequential runs (point sets) | covered | Meshing2CandidateTests.ParallelRuns_EqualSerial |  |
 | F-58/b | 4 threads of near-cocircular predicates | covered | Meshing2PredicateTests.Predicates_InParallel_MatchTheOracle |  |
 | F-58/c | 200 parallel quality runs | pending | m3.refine | the test harness runs it in parallel when the feature exists |
-| F-59/a | Crossings create vertices, input ids stay | pending | m2.noding | Q8: input i stays vertex i, new vertices at n or above. Caller ids: decision D2 |
+| F-59/a | Crossings create vertices, input ids stay | covered | f-59/a | Q8: input i stays vertex i, new vertices at n or above. Caller ids: decision D2 |
 | F-59/b | Duplicate inputs map to one vertex | covered | m1/duplicates-signed-zero |  |
 | F-60 | Results are independent of each other and of the input array | covered | Meshing2CandidateTests.Results_AreIndependentOfTheInput | the API has no vertex objects to share, so only this remains of the case |
 | F-61 | +0 and -0 are one point | covered | m1/duplicates-signed-zero |  |

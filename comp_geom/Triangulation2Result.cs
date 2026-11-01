@@ -18,7 +18,11 @@ namespace g3
         /// <summary> No failure. </summary>
         None,
         /// <summary> The verification of the finished mesh found a defect (an internal error; never expected). </summary>
-        InvalidTopology
+        InvalidTopology,
+        /// <summary> Constraints cross and resolving crossings is switched off (spec O10). </summary>
+        CrossingConstraints,
+        /// <summary> Splitting constraints at their crossings did not settle within its step limit. </summary>
+        NodingLimit
     }
 
     /// <summary> Immutable outcome of a triangulation. Successful and empty results own their mesh. </summary>

@@ -36,7 +36,10 @@ namespace Meshing2Acceptance
         /// Features whose mesher exists: their rows are covered, all others stay pending. A feature moves here only when
         /// every one of its rows passes (MESHING2D_PLAN.md, section 4).
         /// </summary>
-        public static readonly HashSet<string> CoveredFeatures = new HashSet<string> { Feature.Kernel, Feature.Api };
+        public static readonly HashSet<string> CoveredFeatures = new HashSet<string> { Feature.Kernel, Feature.Api, Feature.Cdt, Feature.Domain, Feature.Regions, Feature.Noding };
+
+        /// <summary> Milestones whose mesher exists: a row of a covered feature that needs a later milestone (refinement) waits for it. </summary>
+        public static readonly HashSet<Milestone> CoveredMilestones = new HashSet<Milestone> { Milestone.M1, Milestone.M2 };
 
         public static List<CatalogueRow> Rows()
         {
@@ -47,7 +50,7 @@ namespace Meshing2Acceptance
                 var e = new OracleExpect { Milestone = m, StatedArea = area, StatedAreaTolerance = tolerance ?? Q.Zero };
                 tweak?.Invoke(e);
                 var c = new Mesh2Case { Id = f.ToLowerInvariant() + (part == null ? "" : "/" + part), Generator = input.Text, Milestone = m, Input = input.Build(), Expect = e, Ties = ties };
-                rows.Add(new CatalogueRow { F = f, Part = part, Title = title, Feature = feature, State = CoveredFeatures.Contains(feature) ? CaseState.Covered : CaseState.Pending, Case = c, Note = note });
+                rows.Add(new CatalogueRow { F = f, Part = part, Title = title, Feature = feature, State = CoveredFeatures.Contains(feature) && CoveredMilestones.Contains(m) ? CaseState.Covered : CaseState.Pending, Case = c, Note = note });
             }
             void Test(string f, string part, string title, string test, string note = null) =>
                 rows.Add(new CatalogueRow { F = f, Part = part, Title = title, State = CaseState.Covered, Feature = Feature.Kernel, Test = test, Note = note });

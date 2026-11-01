@@ -492,6 +492,17 @@ namespace Meshing2Acceptance
                 must("a repeated removal with a new reason is accepted", GoldenProcess.VerifyChanges(before, after).Count == 0, "refused");
             }
 
+            // 8. the chain end of a crossing at a tiny angle (a vertex in the tubes of the source and the cutting ring edge) must not let a
+            //    ring edge along the source cut it: two parcels without their shared border (review of M2)
+            {
+                var input = Points(0, 0, 5, 0, 10, 0, 10, 10, 5, 10, 0, 10, 4, 5, 6, 5.1);
+                input.Rings.Add(new RingInput(new[] { 0, 1, 4, 5 }, false, 1)); input.Rings.Add(new RingInput(new[] { 1, 2, 3, 4 }, false, 1));
+                var tris = StrictDelaunay(input, Enumerable.Range(0, 8).ToArray());
+                must("the strict Delaunay triangulation of the parcels has no edge 1-4", !tris.Any(t => t.Contains(1) && t.Contains(4)), "it has");
+                var o = Out(input, tris, null, (0, 1, 1), (1, 2, 1), (2, 3, 1), (3, 4, 1), (4, 5, 1), (5, 0, 1));
+                reject("two parcels without their shared border, automatic tube", Violation.SegmentMissing, input, o, new OracleExpect { Milestone = Milestone.M2 });
+            }
+
             // 7. the list of bad triangles is a set, and empty without a minimum angle
             {
                 var input = Points(0, 0, 8, 0, 0, 8);

@@ -110,6 +110,37 @@ exact predicates for every decision. Afterwards one linear pass verifies orienta
 re-triangulates each cocircular Delaunay cell as a fan from its smallest input index (decision D18): the output does not depend on the insertion order.
 That pass costs about 20 % of the time.
 
+## M2: constrained Delaunay (`g3.ConstrainedDelaunayMesh2`), 2026-11-01
+
+Registered for M2 with the features `m2.cdt`, `m2.domain`, `m2.regions`, `m2.noding`: their 26 catalogue rows of milestone M2 are covered and their golden rows
+recorded (`golden/m2.json`); rows of these features that need refinement (milestone M3) wait for M3, and `m2.snap` (explicit tolerance) is not built yet.
+
+```
+$ dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 -- perf --m2 --repeats 3 --sizes 1000,4000,100000,400000
+runtime .NET 10.0.14, 4 cores
+producer,kind,n,vertices,triangles,subsegments,median_ms,min_ms,allocated_mb,status
+g3-constrained,coastline,1000,1000,998,1000,9.4,7.5,1.6,Success
+g3-constrained,coastline,4000,4000,3998,4000,39.7,21.2,6.4,Success
+g3-constrained,coastline,100000,100000,99998,100000,650.2,631.5,186.6,Success
+g3-constrained,coastline,400000,400000,399998,400000,3171.1,3113.8,795.2,Success
+g3-constrained,parcels,1013,1013,1936,1012,5.7,5.3,2.8,Success
+g3-constrained,parcels,3961,3961,7744,3960,23.1,22.9,11.2,Success
+g3-constrained,parcels,99905,99905,198916,99904,1008.4,988.2,297.2,Success
+g3-constrained,parcels,400513,400513,799236,400512,4100.0,4075.5,1203.2,Success
+g3-constrained,crossings,1000,29486,58952,57472,402.0,398.0,126.9,Success
+g3-constrained,crossings,4000,490339,980650,974678,8522.0,8093.6,2116.1,Success
+```
+
+`coastline` is one ring of n points at UTM coordinates (spec 3.1: 400 000 coastline points in less than 5 s; 3.2 s here), `parcels` a grid of square rings
+sharing their borders with a point in each, `crossings` n/2 random segments in a unit square (490 000 crossings at n = 4000). Linux, 4 cores, net10, idle;
+net48 not measured here. The fixes of the independent review (a final Delaunay check, scaled tolerance tests, a grid of sources for the markers) cost about 0.9 s at 400 000 coastline points and 1.5 s at 400 000 parcel points (2.26 s and 2.64 s before). The crossing case allocates a lot (2 GB for 490 000 crossings): the work list copies the source lists of every piece. Not tuned yet.
+
+How it works ([SOURCES.md](../../docs/SOURCES.md)): the M1 triangulation of all points, then each constraint piece by a walk from its first end point through the
+triangulation. A vertex exactly on the piece, or within the automatic tolerance of it and of every input segment it comes from, splits it; a constrained
+edge in the way is a crossing, computed exactly and rounded to the nearest double, and both pieces are re-queued through it; otherwise Sloan's flips make
+the piece an edge and Lawson's flips restore the constrained Delaunay property. The domain and the region labels follow from one breadth-first pass from
+the outside that tracks, per triangle, the set of rings it lies inside of (even-odd); hole and region seeds fill the cells of the constraints.
+
 ## The golden master
 
 `golden/m1.json` holds one row per case of the CI subset: fingerprints, counts, status, exact quality values; no times and no mesh data. The format is defined in

@@ -20,10 +20,10 @@ namespace g3
     /// triangles, ghosts included, is 2 (vertices) - 2 at all times, so a cavity of k triangles is replaced by k + 2 and
     /// no slot is ever freed.
     /// </remarks>
-    internal sealed class DelaunayKernel2
+    internal sealed partial class DelaunayKernel2
     {
         /// <summary> coordinates per vertex; vertices are numbered in insertion order </summary>
-        internal readonly double[] X, Y;
+        internal double[] X, Y;
         /// <summary> per vertex: its input index </summary>
         internal readonly int[] Input;
         internal readonly int N;
@@ -35,8 +35,6 @@ namespace g3
         internal readonly int[] Vertex;
         /// <summary> per vertex: the smallest input index with its coordinates (the identity reported to the caller) </summary>
         internal readonly int[] Representative;
-        /// <summary> per vertex: one half-edge leaving it, or -1 </summary>
-        int[] vertexEdge;
 
         int[] mark, reject, startAt, stack, cavity, boundary;
         int stamp, hint = -1;

@@ -278,7 +278,7 @@ referenced by `tests/geometry3Sharp.Tests` on net10.0 only with `PrivateAssets="
 in `ExactBooleanPropertyTests.CsCheck.cs`. No code is copied from it and it is not a dependency of the library
 package. 4.9.1 (2026-09-17, targets net8.0) rather than 5.0.0, which was a week old when it was added (2026-10-24).
 
-## 2D meshing (`DelaunayMesh2`, `TriangulationMesh2`)
+## 2D meshing (`DelaunayMesh2`, `TriangulationMesh2`, `ConstrainedDelaunayMesh2`)
 
 Clean room ([MESHING2D_SPEC.md](design/MESHING2D_SPEC.md)): implemented from the papers below. Triangle and Triangle.NET were not looked at.
 
@@ -289,6 +289,11 @@ Clean room ([MESHING2D_SPEC.md](design/MESHING2D_SPEC.md)): implemented from the
 | Insertion order: biased randomized insertion rounds, each along a space-filling curve | N. Amenta, S. Choi, G. Rote, *Incremental constructions con BRIO*, SoCG 2003; D. Hilbert, *Über die stetige Abbildung einer Linie auf ein Flächenstück*, Math. Annalen 1891; A. R. Butz, *Alternative algorithm for Hilbert's space-filling curve*, IEEE Trans. Computers 1971 |
 | Point location by a visibility walk with a randomized edge order; jump-and-walk for queries | O. Devillers, S. Pion, M. Teillaud, *Walking in a triangulation*, IJFCS 2002; E. P. Mücke, I. Saias, B. Zhu, *Fast randomized point location without preprocessing in two- and three-dimensional Delaunay triangulations*, SoCG 1996 |
 | Local Delaunay criterion (verification); the Delaunay subdivision and its cells with cocircular points (tie rule) | C. L. Lawson, *Software for C1 surface interpolation*, 1977; B. Delaunay, *Sur la sphère vide*, 1934 |
+| Constrained Delaunay triangulation: definition and local criterion | D. T. Lee, A. K. Lin, *Generalized Delaunay triangulations for planar graphs*, DCG 1986; L. P. Chew, *Constrained Delaunay triangulations*, Algorithmica 1989 |
+| Point insertion by splitting and flips that do not cross constraints; restoring the property after a segment | C. L. Lawson 1977 (see above) |
+| Segment recovery: walk along the segment, flip the crossed edges until it is an edge | S. W. Sloan, *A fast algorithm for generating constrained Delaunay triangulations*, Computers & Structures 1993 |
+| Noding: crossings computed exactly with integers (every double is an integer times a power of two), rounded to nearest | Shewchuk 1997 (see above) for the integer view of doubles; the rounding of the output to doubles is decision D1 of MESHING2D_DECISIONS.md |
+| Domain by the even-odd rule over rings; cells of the constraints for seeds | the domain definition of MESHING2D_SPEC.md and decisions D5, D6, D16 |
 | Exact predicates | `ExactPredicates.Orient2d`, `InCircle` (see above) |
 | Pseudorandom numbers (insertion rounds, walk) | SplitMix64 (Steele, Lea, Flood, OOPSLA 2014); xorshift (G. Marsaglia, *Xorshift RNGs*, J. Stat. Software 2003) |
 
