@@ -12,7 +12,7 @@
     "ignore-methods": [
       "*PredicateStats.*"
     ],
-    "coverage-analysis": "perTest",
+    "coverage-analysis": "all",
     "configuration": "Release",
     "additional-timeout": 30000,
     "reporters": [

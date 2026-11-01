@@ -692,6 +692,48 @@ namespace geometry3Sharp.Tests
 #endif
 
         /// <summary>
+        /// a single point out of the filter's range sends the call to the exact stage: with r, s, t tiny (2^-400) the
+        /// filter's products would underflow to 0 and m~ = 0 would claim an exact zero; also mixed subnormal and normal
+        /// coordinates (the exponents of subnormals in the alignment), and zero coordinates on the two-limb path
+        /// </summary>
+        [Fact]
+        public void GeneralDoubles_OnePointOutOfRange_Subnormals_Zeros()
+        {
+            var rand = new Random(37);
+            for (int k = 0; k < 300; ++k) {
+                var P = Enumerable.Range(0, 12).Select(_ => new Vector3d(D(rand, rand.Next(3)), D(rand, rand.Next(3)), D(rand, rand.Next(3)))).ToArray();
+                // one point (or the plane of LPI) far below the range: its position changes with k
+                int j = k % 12;
+                P[j] = new Vector3d(D(rand, -400), D(rand, -400), D(rand, -401));
+                if (k % 3 == 0) { P[2] = P[2] * Math.ScaleB(1, -400); P[3] = P[3] * Math.ScaleB(1, -400); P[4] = P[4] * Math.ScaleB(1, -400); }
+                var I = Integers(P);
+                int f;
+                Assert.Equal(OracleLPI(I.Take(8).ToArray()), LPIG(P.Take(8).ToArray(), out f));
+                Assert.Equal(OracleTPI(I), TPIG(P, out f));
+            }
+            // subnormal and normal coordinates in one call: normal ones at about 2^-1000, subnormals k 2^-1074
+            for (int k = 0; k < 300; ++k) {
+                var P = Enumerable.Range(0, 12).Select(_ => new Vector3d(D(rand, -1000 + rand.Next(3)), D(rand, -1000), D(rand, -999))).ToArray();
+                P[k % 12] = new Vector3d(double.Epsilon * rand.Next(1, 1 << 20) * (rand.Next(2) == 0 ? 1 : -1), P[k % 12].y, P[k % 12].z);
+                if (k % 2 == 0) { P[5] = P[2]; P[6] = P[3]; P[7] = P[4]; }
+                var I = Integers(P);
+                Assert.Equal(OracleLPI(I.Take(8).ToArray()), IndirectPredicates.Orient3dLPIExact(P[0], P[1], P[2], P[3], P[4], P[5], P[6], P[7]));
+                Assert.Equal(OracleTPI(I), IndirectPredicates.Orient3dTPIExact(P[0], P[1], P[2], P[3], P[4], P[5], P[6], P[7], P[8], P[9], P[10], P[11]));
+            }
+#if NET
+            // zero coordinates stay on the two-limb path (no allocation)
+            var Z = Enumerable.Range(0, 8).Select(i => new Vector3d(i + 1.5, 0.0, 2 * i + 0.25)).ToArray();
+            Z[5] = Z[2]; Z[6] = Z[3]; Z[7] = Z[4];
+            for (int w = 0; w < 5; ++w) IndirectPredicates.Orient3dLPIExact(Z[0], Z[1], Z[2], Z[3], Z[4], Z[5], Z[6], Z[7]);
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            int r = IndirectPredicates.Orient3dLPIExact(Z[0], Z[1], Z[2], Z[3], Z[4], Z[5], Z[6], Z[7]);
+            long bytes = GC.GetAllocatedBytesForCurrentThread() - before;
+            Assert.Equal(0, r);
+            Assert.Equal(0, bytes);
+#endif
+        }
+
+        /// <summary>
         /// the two-limb boundary of the exact stage: aligned coordinates of exactly 128 bits stay on FixedArith (no
         /// allocation), 129 bits go to BigInteger; both exact
         /// </summary>
