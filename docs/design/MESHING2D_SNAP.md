@@ -261,13 +261,15 @@ vertices refinement adds.
 
 1. **Rounding at insertion, never afterwards, never relocation.** Every vertex is created at a pixel centre. The mesh stays exactly the
    constrained Delaunay triangulation of its vertices and the snapped chains (exact predicates, as now), so nothing is repaired at the
-   end and no triangle can flip. **Termination:** every insertion uses a grid point not yet used inside the bounded domain, so the
-   number of insertions is finite; the Steiner limit stays as the practical bound. Nothing is ever moved, so nothing can cycle.
+   end and no triangle can flip. **Termination:** nothing is ever moved, so nothing can cycle. The practical guard is the existing
+   Steiner limit; that every insertion uses a grid point not yet used inside the bounded domain is a theoretical bound only.
 2. **Interior Steiner points.** The circumcentre (or off-centre) is computed exactly as now, then rounded to the centre of its pixel.
    The insertion is refused if that pixel is hot (an existing vertex) or if its interior is crossed by a constraint edge. The latter
    would put a vertex within half a pixel of a constraint, breaking D14's separation. Ruppert's rule stays: if the rounded point
    encroaches a subsegment, that subsegment is split instead. A triangle whose point is refused for these reasons is **grid-blocked**:
-   it stays and is reported.
+   it stays and is reported. If the prototype shows grid-blocked counts that matter, a second candidate is tried before that: an
+   off-centre point along the direction to the circumcentre (A. Üngör, *Off-centers: a new type of Steiner points for computing
+   size-optimal quality-guaranteed Delaunay triangulations*, LATIN 2004).
 3. **Subsegment splits (O12).** The target is the midpoint of the subsegment, taken on the original input segment, or the concentric
    shell point. Its pixel is used if:
    - the pixel is in the envelope of the input segment;
@@ -290,6 +292,8 @@ vertices refinement adds.
    bound, which the oracle does not see.
 5. **Sizes.** MaxArea, the size function and region areas cannot ask for triangles smaller than the grid allows. Triangles below the
    floor are exempt from size bounds as well.
+6. **The cost of refusals, measured before the PR is ready:** the prototype reports, on the corpus at 20° and 30°, the counts of
+   grid-blocked triangles and unsplittable subsegments, with and without the floor.
 
 ### Guarantees and oracle checks (each with an accept and a reject self-check, checked by mutation)
 
