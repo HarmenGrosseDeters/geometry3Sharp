@@ -1,0 +1,579 @@
+// Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using g3;
+
+namespace gs
+{
+    /// <summary>
+    /// One toe line with its slopes (docs/design/TERRAIN.md 6). Values per segment end, so that a jump at a vertex is
+    /// possible; in phase 1a the start and end value of a segment must be equal (one slope per segment).
+    /// </summary>
+    public class SlopeToe
+    {
+        /// <summary> Left / Right of the direction of travel for open toes, Inside / Outside for closed ones </summary>
+        public enum Sides { Left, Right, Inside, Outside }
+
+        /// <summary> the toe points; a closed toe does not repeat its first point </summary>
+        public List<Vector3d> Points = new List<Vector3d>();
+        public bool Closed;
+        /// <summary> the side the slope is built on (required, never inferred) </summary>
+        public Sides Side;
+        /// <summary> per segment (segment i from point i to i + 1): the cut slope at its start and at its end; null = no cut </summary>
+        public SlopeSpec[] CutStart, CutEnd;
+        /// <summary> likewise for fill </summary>
+        public SlopeSpec[] FillStart, FillEnd;
+
+        public int SegmentCount { get { return Points == null ? 0 : (Closed ? Points.Count : Math.Max(0, Points.Count - 1)); } }
+
+        /// <summary> one slope along the whole toe, for cut and fill (the simple standard) </summary>
+        public static SlopeToe Constant(List<Vector3d> points, bool closed, Sides side, SlopeSpec slope)
+        {
+            var t = new SlopeToe() { Points = points, Closed = closed, Side = side };
+            int n = t.SegmentCount;
+            t.CutStart = Enumerable.Repeat(slope, n).ToArray();
+            t.CutEnd = (SlopeSpec[])t.CutStart.Clone();
+            t.FillStart = (SlopeSpec[])t.CutStart.Clone();
+            t.FillEnd = (SlopeSpec[])t.CutStart.Clone();
+            return t;
+        }
+    }
+
+    /// <summary>
+    /// A toe piece: the stable reference of the slope triangles that it supports (the group id of a triangle in
+    /// TerrainSlopeDesign.SlopeSurface is the index of its piece).
+    /// </summary>
+    public class SlopePiece
+    {
+        public int Toe, Segment;
+        /// <summary> the toe points at the ends of the piece, as specified </summary>
+        public Vector3d P0, P1;
+        public SlopeSpec Spec;
+    }
+
+    /// <summary>
+    /// Slope surface (Böschung) from toe lines, as the lower envelope of the slope cones with apexes on the toe (cut;
+    /// the upper envelope of the falling cones for fill): docs/design/TERRAIN.md, phase 1a
+    /// (docs/design/TERRAIN_1A_PLAN.md). Mode: cone envelope (R1). In phase 1a there is no terrain: the surface is
+    /// built up to HeightLimit (cut) or down to it (fill).
+    ///
+    /// Never steeper than specified: every triangle of SlopeSurface is checked exactly, on its stored doubles, before
+    /// Compute returns true: it is not steeper than the spec of the toe piece it is attributed to (its group id), and its
+    /// plane lies on or below both end points of that piece (cut; on or above for fill), so it lies below every slope cone
+    /// of the piece (Slope.IsSupportedBy; for fill on the triangle and the toe points mirrored by z -> -z). Compute never
+    /// returns a violating triangle: it fails with SlopeViolation and ProblemTriangles. The guarantee holds for the doubles
+    /// in memory; an export must write them with round-trip formatting.
+    ///
+    /// Conservative: the surface lies at most Tolerance below the exact cone envelope (cut). The toe vertices of the
+    /// output lie UsedToeLowering below the specified toe (cut; above for fill), a margin of the exact check (about
+    /// SlopeMargin x slope x reach / 2).
+    /// </summary>
+    public class TerrainSlopeDesign
+    {
+        public enum Directions { Auto, Cut, Fill }
+        public enum Statuses
+        {
+            Success,
+            /// <summary> a toe, a slope or a parameter is invalid: Message, ToeProblems </summary>
+            InvalidInput,
+            /// <summary> not in phase 1a: Direction Auto, a slope that changes along a segment </summary>
+            NotImplemented,
+            /// <summary> a toe segment rises (or falls) at least as steeply as its slope: ToeProblems </summary>
+            ToeSteeperThanSlope,
+            /// <summary> the cone of another part of the toe passes below a toe segment by more than Tolerance: ToeProblems </summary>
+            ToeUndercut,
+            /// <summary> the exact check failed on ProblemTriangles (never a violating result) </summary>
+            SlopeViolation,
+            Cancelled
+        }
+
+        // inputs
+        public List<SlopeToe> Toes = new List<SlopeToe>();
+        public Directions Direction = Directions.Cut;
+        /// <summary> required: cut builds the slope up to this height, fill down to it </summary>
+        public double HeightLimit = double.NaN;
+        /// <summary> required: the largest vertical deviation below the exact cone envelope (data units) </summary>
+        public double Tolerance = double.NaN;
+        /// <summary> the relative slope margin δ: the planes are built with slope s (1 - δ); raised if the check needs it </summary>
+        public double SlopeMargin = 1e-6;
+        public Func<bool> CancelF = () => false;
+
+        // outputs
+        public Statuses Status;
+        public string Message = "";
+        /// <summary> the slope triangles; group id = index into Pieces. Null if Compute failed </summary>
+        public DMesh3 SlopeSurface;
+        public List<SlopePiece> Pieces = new List<SlopePiece>();
+        /// <summary> (toe, segment) of the problems of InvalidInput, ToeSteeperThanSlope, ToeUndercut </summary>
+        public List<Index2i> ToeProblems = new List<Index2i>();
+        /// <summary> SlopeViolation: the failing triangles of the last attempt (ids of that mesh, which is not returned) </summary>
+        public List<int> ProblemTriangles = new List<int>();
+        /// <summary> an upper bound (rounded up) of slope / spec slope over the triangles, &lt; 1 on success </summary>
+        public double MaxSlopeRatio;
+        public double UsedSlopeMargin, UsedToeLowering, UsedMinFeatureSize;
+        /// <summary> the angle between neighbouring cone tangent planes (radians) </summary>
+        public double FacetAngle;
+
+        public bool Compute()
+        {
+            Status = Statuses.InvalidInput; Message = "";
+            SlopeSurface = null; Pieces = new List<SlopePiece>(); ToeProblems = new List<Index2i>(); ProblemTriangles = new List<int>();
+            MaxSlopeRatio = 0; UsedSlopeMargin = UsedToeLowering = UsedMinFeatureSize = FacetAngle = 0;
+            try {
+                Status = compute();
+            } catch (OperationCanceledException) {
+                Status = Statuses.Cancelled;
+            }
+            if (Status != Statuses.Success)
+                SlopeSurface = null;
+            return Status == Statuses.Success;
+        }
+
+        Statuses fail(Statuses s, string message)
+        {
+            Message = message;
+            return s;
+        }
+
+        // ---------------------------------------------------------------- inputs
+
+        sealed class InPiece
+        {
+            public int Toe, Segment;
+            public Vector3d A, B;          // specified toe points (mirrored for fill)
+            public Vector3d A1, B1;        // lowered by λ
+            public SlopeSpec Spec;
+            public double S, Sb;           // S of the spec, the built slope
+            public List<int> Strip = new List<int>();
+            public List<int> FanA = new List<int>(), FanB = new List<int>();
+            public List<double> AngA = new List<double>(), AngB = new List<double>();
+            public double Slb;             // lower bound of the gradient along any direction away from the piece
+            public AxisAlignedBox2d Reach;
+        }
+
+        Statuses compute()
+        {
+            if (Direction == Directions.Auto)
+                return fail(Statuses.NotImplemented, "Direction Auto (mixed cut and fill) comes in phase 1b");
+            bool fill = Direction == Directions.Fill;
+            if (Toes == null || Toes.Count == 0)
+                return fail(Statuses.InvalidInput, "no toes");
+            if (!(Tolerance > 0) || double.IsInfinity(Tolerance))
+                return fail(Statuses.InvalidInput, "Tolerance must be positive and finite (no default)");
+            if (!(SlopeMargin > 0) || !(SlopeMargin <= 0.01))
+                return fail(Statuses.InvalidInput, "SlopeMargin must be in (0, 0.01]");
+            if (MathUtil.IsFinite(HeightLimit) == false)
+                return fail(Statuses.InvalidInput, "HeightLimit must be finite (no terrain in phase 1a)");
+
+            // pieces and their points, mirrored for fill (z -> -z, exact)
+            var pieces = new List<InPiece>();
+            var toePts = new List<List<Vector3d>>();
+            for (int t = 0; t < Toes.Count; ++t) {
+                SlopeToe toe = Toes[t];
+                if (toe == null || toe.Points == null)
+                    return problem(t, -1, "toe without points");
+                int n = toe.Points.Count;
+                if (toe.Closed ? n < 3 : n < 2)
+                    return problem(t, -1, "too few toe points");
+                bool sideOk = toe.Closed ? (toe.Side == SlopeToe.Sides.Inside || toe.Side == SlopeToe.Sides.Outside)
+                                         : (toe.Side == SlopeToe.Sides.Left || toe.Side == SlopeToe.Sides.Right);
+                if (sideOk == false)
+                    return problem(t, -1, toe.Closed ? "a closed toe needs Side Inside or Outside" : "an open toe needs Side Left or Right");
+                var pts = new List<Vector3d>();
+                for (int i = 0; i < n; ++i) {
+                    Vector3d p = toe.Points[i];
+                    if (MathUtil.IsFinite(p.x) == false || MathUtil.IsFinite(p.y) == false || MathUtil.IsFinite(p.z) == false)
+                        return problem(t, i, "toe point not finite");
+                    pts.Add(fill ? new Vector3d(p.x, p.y, -p.z) : p);
+                }
+                toePts.Add(pts);
+                SlopeSpec[] start = fill ? toe.FillStart : toe.CutStart, end = fill ? toe.FillEnd : toe.CutEnd;
+                int segs = toe.SegmentCount;
+                if (start == null || start.Length != segs || (end != null && end.Length != segs))
+                    return problem(t, -1, "one slope per segment start and end is needed for the direction");
+                for (int i = 0; i < segs; ++i) {
+                    Vector3d a = pts[i], b = pts[(i + 1) % n];
+                    if (a.x == b.x && a.y == b.y)
+                        return problem(t, i, "zero-length or vertical toe segment (in XY)");
+                    if (start[i].IsValid == false)
+                        return problem(t, i, "invalid slope");
+                    if (end != null && (end[i].Kind != start[i].Kind || end[i].Value != start[i].Value))
+                        return fail(Statuses.NotImplemented, $"toe {t} segment {i}: a slope that changes along a segment is not in phase 1a");
+                    pieces.Add(new InPiece() { Toe = t, Segment = i, A = a, B = b, Spec = start[i], S = start[i].S });
+                }
+            }
+            double H = fill ? -HeightLimit : HeightLimit;
+            foreach (var pc in pieces)
+                if (!(pc.A.z < H && pc.B.z < H))
+                    return problem(pc.Toe, pc.Segment, fill ? "HeightLimit must be below the toe" : "HeightLimit must be above the toe");
+
+            string why;
+            Index2i where;
+            if (ToeGeometry.Validate(toePts, Toes.Select(x => x.Closed).ToList(), out why, out where) == false)
+                return problem(where.a, where.b, why);
+
+            // margins (TERRAIN.md 5.4, plan "Departures" 1)
+            double delta = SlopeMargin;
+            for (int attempt = 0; ; ++attempt) {
+                checkCancel();
+                List<int> bad;
+                DMesh3 mesh;
+                Statuses st = build(pieces, toePts, H, delta, fill, out mesh, out bad);
+                if (attempt > 0 && st == Statuses.InvalidInput)
+                    return fail(Statuses.SlopeViolation, $"{ProblemTriangles.Count} triangles failed the exact check; a larger margin does not fit into Tolerance");
+                if (st != Statuses.SlopeViolation) {
+                    if (st == Statuses.Success) {
+                        SlopeSurface = mesh;
+                        Pieces = pieces.Select(p => new SlopePiece() {
+                            Toe = p.Toe, Segment = p.Segment, Spec = p.Spec,
+                            P0 = fill ? new Vector3d(p.A.x, p.A.y, -p.A.z) : p.A, P1 = fill ? new Vector3d(p.B.x, p.B.y, -p.B.z) : p.B
+                        }).ToList();
+                    }
+                    return st;
+                }
+                // the check decides: a larger margin, up to 1e-3 relative
+                ProblemTriangles = bad;
+                if (attempt >= 3 || delta * 8 > 1e-3)
+                    return fail(Statuses.SlopeViolation, $"{bad.Count} triangles failed the exact check");
+                delta *= 8;
+            }
+        }
+
+        Statuses problem(int toe, int segment, string message)
+        {
+            ToeProblems.Add(new Index2i(toe, segment));
+            return fail(Statuses.InvalidInput, $"toe {toe}" + (segment >= 0 ? $" at {segment}" : "") + ": " + message);
+        }
+
+        void checkCancel()
+        {
+            if (CancelF != null && CancelF())
+                throw new OperationCanceledException();
+        }
+
+        static double ulp(double x)
+        {
+            x = Math.Abs(x);
+            return ExactInterval.Up(x) - x;
+        }
+
+        // ---------------------------------------------------------------- one build
+
+        Statuses build(List<InPiece> pieces, List<List<Vector3d>> toePts, double H, double delta, bool fill,
+                       out DMesh3 mesh, out List<int> bad)
+        {
+            mesh = null;
+            bad = new List<int>();
+            ToeProblems.Clear();
+            var kernel = new ExactSlopeKernel();
+
+            // extent and numerical resolution of the output
+            double sMin = pieces.Min(p => p.S), sMax = pieces.Max(p => p.S);
+            double zMin = pieces.Min(p => Math.Min(p.A.z, p.B.z));
+            var toeBox = AxisAlignedBox2d.Empty;
+            foreach (var pts in toePts) foreach (var p in pts) toeBox.Contain(p.xy);
+            double D0 = (H - zMin) / (sMin * (1 - delta));
+            double maxXY = Math.Max(Math.Max(Math.Abs(toeBox.Min.x), Math.Abs(toeBox.Max.x)), Math.Max(Math.Abs(toeBox.Min.y), Math.Abs(toeBox.Max.y))) + 2 * D0;
+            double maxZ = Math.Max(Math.Abs(H), pieces.Max(p => Math.Max(Math.Abs(p.A.z), Math.Abs(p.B.z))));
+            double exy = ulp(maxXY), eeval = ulp(maxZ);
+            double minFeature = 2 * (8 * exy + 4 * eeval / sMin) / delta;
+            double ez = 2 * sMax * exy + eeval;
+            double lambda = 2 * ez * (1 + 4 * 1.1 * D0 / minFeature);
+            UsedSlopeMargin = delta; UsedMinFeatureSize = minFeature; UsedToeLowering = lambda;
+
+            // tolerance budget: lowering, slope margin, cone facets (TERRAIN.md 5.1)
+            double facetShare = Tolerance - lambda - delta * sMax * 1.1 * D0;
+            if (!(facetShare > 0))
+                return fail(Statuses.InvalidInput, $"Tolerance {Tolerance} is below the numerical margins ({lambda + delta * sMax * 1.1 * D0:G3})");
+            // a direction is at most 3/4 theta from its nearest tangent plane (the grid is theta, and a grid direction
+            // within theta / 2 of a strip direction is dropped), so the facet error is s D (1 - cos(3/4 theta))
+            double c = 1 - facetShare / (sMax * 1.1 * D0);
+            double theta = (c > Math.Cos(3 * Math.PI / 32)) ? Math.Acos(c) / 0.75 : Math.PI / 8;
+            int nTheta = (int)Math.Ceiling(2 * Math.PI / theta);
+            theta = 2 * Math.PI / nTheta;
+            FacetAngle = theta;
+            double dMax = (H - zMin + lambda) / (sMin * (1 - delta) * Math.Cos(theta)) * 1.01;
+
+            // lowered toe points (exactly at most z - λ)
+            var lowered = new Dictionary<Vector3d, Vector3d>();
+            Func<Vector3d, Vector3d> lower = (p) => {
+                Vector3d r;
+                if (lowered.TryGetValue(p, out r)) return r;
+                double z = p.z - lambda;
+                while (exceeds(z, p.z, lambda)) z = ExactInterval.Down(z);
+                r = new Vector3d(p.x, p.y, z);
+                lowered[p] = r;
+                return r;
+            };
+
+            // planes of the pieces: the strips first, then the cone tangents, which know the strips at their apex
+            double rFan = 1;
+            while (rFan < dMax) rFan *= 2;
+            while (rFan > 2 * dMax) rFan *= 0.5;
+            var stripsAt = new Dictionary<Vector3d, List<StripRef>>();
+            foreach (var pc in pieces) {
+                checkCancel();
+                pc.A1 = lower(pc.A); pc.B1 = lower(pc.B);
+                pc.Sb = pc.S * (1 - delta);
+                Statuses ps = make_strips(kernel, pc, stripsAt);
+                if (ps != Statuses.Success)
+                    return ps;
+            }
+            foreach (var pc in pieces) {
+                make_fans(kernel, pc, theta, nTheta, rFan, stripsAt);
+                double r = (H - Math.Min(pc.A1.z, pc.B1.z)) / pc.Slb * 1.01 + 1e-9 * dMax;
+                var box = new AxisAlignedBox2d(pc.A.xy, pc.A.xy);
+                box.Contain(pc.B.xy);
+                box.Expand(r);
+                pc.Reach = box;
+            }
+
+            // the domain, a planar map of convex faces
+            var box2 = toeBox;
+            box2.Expand(1.05 * dMax + 1e-6 * toeBox.MaxDim);
+            var map = new SlopeMap(kernel);
+            string why;
+            Index2i where;
+            if (map.BuildDomain(toePts, Toes.Select(t => t.Closed).ToList(), Toes.Select(t => t.Side).ToList(), box2, out why, out where) == false) {
+                ToeProblems.Add(where);
+                return fail(Statuses.InvalidInput, why);
+            }
+            int cap = kernel.AddHorizontalPlane(H);
+            map.LabelDomain(cap);
+
+            // insert the pieces
+            for (int k = 0; k < pieces.Count; ++k) {
+                checkCancel();
+                map.InsertPiece(k, pieces[k].Strip, pieces[k].FanA, pieces[k].AngA, pieces[k].FanB, pieces[k].AngB,
+                    pieces[k].A1, pieces[k].B1, Math.Min(pieces[k].A1.z, pieces[k].B1.z), pieces[k].Slb, pieces[k].Reach, theta);
+            }
+
+            map.Simplify();
+
+            // toe undercut: a face on a toe segment labelled by another piece, lower than the toe by more than Tolerance
+            var undercut = map.Undercuts(pieces.Select(p => new Vector3d[] { p.A1, p.B1 }).ToList(), Tolerance);
+            if (undercut.Count > 0) {
+                foreach (int k in undercut) ToeProblems.Add(new Index2i(pieces[k].Toe, pieces[k].Segment));
+                return fail(Statuses.ToeUndercut, $"{undercut.Count} toe segments are undercut by the cones of other parts of the toe");
+            }
+
+            // realization and the exact check
+            checkCancel();
+            mesh = map.Realize(cap, fill);
+            SlopeMap.CollapseShortEdges(mesh, map.OutLabels, map.OnBarrier, minFeature);
+            double maxRatio = 0;
+            foreach (int tid in mesh.TriangleIndices()) {
+                Vector3d a = Vector3d.Zero, b = Vector3d.Zero, cc = Vector3d.Zero;
+                mesh.GetTriVertices(tid, ref a, ref b, ref cc);
+                InPiece pc = pieces[mesh.GetTriangleGroup(tid)];
+                if (fill) { a.z = -a.z; b.z = -b.z; cc.z = -cc.z; }
+                bool ok = ExactPredicates.Orient2d(a.xy, b.xy, cc.xy) > 0 && Slope.IsSupportedBy(a, b, cc, pc.A, pc.B, pc.Spec);
+                if (ok == false)
+                    bad.Add(tid);
+                Vector3d n = (b - a).Cross(cc - a);
+                double ratio = Math.Sqrt(n.x * n.x + n.y * n.y) / Math.Abs(n.z) / pc.S;
+                maxRatio = Math.Max(maxRatio, ratio);
+            }
+            if (bad.Count > 0)
+                return Statuses.SlopeViolation;
+            // (a bound: the rounding of the ratio is far below its distance to 1, which the exact check has proven)
+            MaxSlopeRatio = Math.Min(maxRatio * (1 + 1e-12), maxRatio < 1 ? ExactInterval.Down(1.0) : maxRatio);
+            return Statuses.Success;
+        }
+
+        // z exceeds p - λ (exact): z > pz - λ  <=>  z - pz + λ > 0
+        static bool exceeds(double z, double pz, double lambda)
+        {
+            ExactDyadic d = ExactDyadic.Of(z) - ExactDyadic.Of(pz) + ExactDyadic.Of(lambda);
+            return d.Sign > 0;
+        }
+
+        sealed class StripRef
+        {
+            public InPiece Piece;
+            public Vector3d P, Q, R;      // the plane's points
+            public double Angle;          // direction of its gradient
+        }
+
+        // The strip planes through both lowered end points, both sides, checked exactly: not steeper than the built
+        // slope (they pass through both end points). Also ToeSteeperThanSlope.
+        Statuses make_strips(ExactSlopeKernel kernel, InPiece pc, Dictionary<Vector3d, List<StripRef>> stripsAt)
+        {
+            Vector3d A = pc.A1, B = pc.B1;
+            double dx = B.x - A.x, dy = B.y - A.y, L = Math.Sqrt(dx * dx + dy * dy);
+            var sb = SlopeSpec.Rise(pc.Sb);
+            // toe steeper than the built slope: dz^2 >= sb^2 (dx^2 + dy^2), exactly on the lowered points
+            ExactDyadic edx = ExactDyadic.Of(B.x) - ExactDyadic.Of(A.x), edy = ExactDyadic.Of(B.y) - ExactDyadic.Of(A.y),
+                edz = ExactDyadic.Of(B.z) - ExactDyadic.Of(A.z), es = ExactDyadic.Of(pc.Sb);
+            if ((edz * edz - es * es * (edx * edx + edy * edy)).Sign >= 0) {
+                ToeProblems.Add(new Index2i(pc.Toe, pc.Segment));
+                return fail(Statuses.ToeSteeperThanSlope, $"toe {pc.Toe} segment {pc.Segment} is at least as steep as its slope");
+            }
+            Vector2d u = new Vector2d(dx / L, dy / L), n = new Vector2d(-u.y, u.x);
+            double g = (B.z - A.z) / L;
+            double gn = Math.Sqrt(Math.Max(0, pc.Sb * pc.Sb - g * g));
+            foreach (double sign in new[] { 1.0, -1.0 }) {
+                double rise = gn * L;
+                for (int tries = 0; ; ++tries) {
+                    Vector3d Q = new Vector3d(B.x + sign * n.x * L, B.y + sign * n.y * L, B.z + rise);
+                    if (Slope.IsNotSteeper(A, B, Q, sb)) {
+                        pc.Strip.Add(kernel.AddPlane(A, B, Q));
+                        Vector2d G = g * u + sign * gn * n;
+                        var sr = new StripRef() { Piece = pc, P = A, Q = B, R = Q, Angle = Math.Atan2(G.y, G.x) };
+                        foreach (Vector3d apex in new[] { A, B }) {
+                            List<StripRef> l;
+                            if (stripsAt.TryGetValue(apex, out l) == false) { l = new List<StripRef>(); stripsAt[apex] = l; }
+                            l.Add(sr);
+                        }
+                        break;
+                    }
+                    rise *= 1 - 1e-12 * Math.Pow(2, tries);     // (doubling steps: any rounding of Q is covered)
+                    if (tries > 60) throw new InvalidOperationException("TerrainSlopeDesign: strip plane");
+                }
+            }
+            // lower bound of the gradient away from the piece (prefilter of the insertion): at least
+            // s (1 - g^2 / s^2) cos(2 theta) along any direction (the strip plane's component, or a cone tangent)
+            pc.Slb = pc.Sb * (1 - g * g / (pc.Sb * pc.Sb));
+            return Statuses.Success;
+        }
+
+        // The cone tangent planes: at B the directions d with d.u >= g / sb, at A those with d.u <= g / sb, on the global
+        // angle grid, through the apex and two points at the distance rFan (the same points for the same apex,
+        // direction and slope, whatever the piece). Each checked exactly: not steeper than the built slope, on or below
+        // the other end point. A direction within theta / 2 of a strip plane at the same apex is replaced by a copy of
+        // that strip plane if it passes the checks for this piece (else dropped): nearly coplanar planes through one
+        // point would cross along arbitrary lines.
+        void make_fans(ExactSlopeKernel kernel, InPiece pc, double theta, int nTheta, double rFan, Dictionary<Vector3d, List<StripRef>> stripsAt)
+        {
+            Vector3d A = pc.A1, B = pc.B1;
+            double dx = B.x - A.x, dy = B.y - A.y, L = Math.Sqrt(dx * dx + dy * dy);
+            double g = (B.z - A.z) / L;
+            double phiU = Math.Atan2(dy, dx);
+            double betaB = Math.Acos(Math.Max(-1, Math.Min(1, g / pc.Sb)));
+            var sb = SlopeSpec.Rise(pc.Sb);
+            fans(kernel, pc, B, A, phiU, betaB, theta, nTheta, rFan, sb, stripsAt[B], pc.FanB, pc.AngB);
+            fans(kernel, pc, A, B, phiU + Math.PI, Math.PI - betaB, theta, nTheta, rFan, sb, stripsAt[A], pc.FanA, pc.AngA);
+            pc.Slb *= Math.Cos(2 * theta) * (1 - 1e-6);
+        }
+
+        static void fans(ExactSlopeKernel kernel, InPiece pc, Vector3d apex, Vector3d other, double center, double half,
+                         double theta, int nTheta, double R, SlopeSpec sb, List<StripRef> strips, List<int> planes, List<double> angles)
+        {
+            int m0 = (int)Math.Ceiling((center - half) / theta), m1 = (int)Math.Floor((center + half) / theta);
+            var used = new HashSet<StripRef>();
+            for (int m = m0; m <= m1; ++m) {
+                // (the angle of grid step m, the same double for every piece)
+                int mm = ((m % nTheta) + nTheta) % nTheta;
+                double a = mm * (2 * Math.PI / nTheta);
+                StripRef near = null;
+                foreach (var sr in strips)
+                    if (Math.Abs(wrap(sr.Angle - a)) < 0.5 * theta) near = sr;
+                if (near != null) {
+                    if (near.Piece == pc || used.Contains(near)) continue;
+                    used.Add(near);
+                    if (Slope.IsNotSteeper(near.P, near.Q, near.R, sb) && Slope.IsPlaneOnOrBelow(near.P, near.Q, near.R, other)
+                        && Slope.IsPlaneOnOrBelow(near.P, near.Q, near.R, apex)) {
+                        planes.Add(kernel.AddPlane(near.P, near.Q, near.R));
+                        angles.Add(near.Angle);
+                    }
+                    continue;
+                }
+                Vector2d d = new Vector2d(Math.Cos(a), Math.Sin(a));
+                double rise = pc.Sb * R;
+                Vector3d p1 = new Vector3d(apex.x - d.y * R, apex.y + d.x * R, apex.z);
+                for (int tries = 0; tries < 60; ++tries) {
+                    Vector3d p2 = new Vector3d(apex.x + d.x * R, apex.y + d.y * R, apex.z + rise);
+                    if (Slope.IsNotSteeper(apex, p1, p2, sb)) {
+                        if (Slope.IsPlaneOnOrBelow(apex, p1, p2, other)) {
+                            planes.Add(kernel.AddPlane(apex, p1, p2));
+                            angles.Add(a);
+                        }
+                        break;
+                    }
+                    rise *= 1 - 1e-12 * Math.Pow(2, tries);     // (doubling steps: any rounding of Q is covered)
+                }
+            }
+        }
+
+        static double wrap(double a)
+        {
+            while (a > Math.PI) a -= 2 * Math.PI;
+            while (a <= -Math.PI) a += 2 * Math.PI;
+            return a;
+        }
+    }
+
+
+    /// <summary> exact validation of the toe polylines (TERRAIN.md 5.6): no crossings or touching, no overlaps </summary>
+    internal static class ToeGeometry
+    {
+        public static bool Validate(List<List<Vector3d>> toes, List<bool> closed, out string why, out Index2i where)
+        {
+            why = ""; where = new Index2i(-1, -1);
+            var segs = new List<(int toe, int i, Vector2d a, Vector2d b, int ia, int ib)>();
+            for (int t = 0; t < toes.Count; ++t) {
+                int n = toes[t].Count, m = closed[t] ? n : n - 1;
+                for (int i = 0; i < m; ++i)
+                    segs.Add((t, i, toes[t][i].xy, toes[t][(i + 1) % n].xy, i, (i + 1) % n));
+            }
+            // sweep in x
+            var order = Enumerable.Range(0, segs.Count).OrderBy(k => Math.Min(segs[k].a.x, segs[k].b.x)).ThenBy(k => k).ToList();
+            var active = new List<int>();
+            foreach (int k in order) {
+                var s = segs[k];
+                double xmin = Math.Min(s.a.x, s.b.x);
+                active.RemoveAll(j => Math.Max(segs[j].a.x, segs[j].b.x) < xmin);
+                foreach (int j in active) {
+                    var r = segs[j];
+                    if (Math.Max(Math.Min(s.a.y, s.b.y), Math.Min(r.a.y, r.b.y)) > Math.Min(Math.Max(s.a.y, s.b.y), Math.Max(r.a.y, r.b.y)))
+                        continue;
+                    bool adjacent = s.toe == r.toe && (s.ia == r.ib || s.ib == r.ia);
+                    if (adjacent) {
+                        if (s.ia == r.ib && s.ib == r.ia) { why = "toe with two points"; where = new Index2i(s.toe, s.i); return false; }
+                        // shared point p, other ends x (of s) and y (of r): overlap if y is on the ray from p towards x
+                        Vector2d p = s.ia == r.ib ? s.a : s.b, x = s.ia == r.ib ? s.b : s.a, y = s.ia == r.ib ? r.a : r.b;
+                        if (ExactPredicates.Orient2d(p, x, y) == 0 && dot_sign(x - p, y - p, p, x, y) > 0) {
+                            why = "toe segments overlap (fold back)"; where = new Index2i(s.toe, Math.Max(s.i, r.i)); return false;
+                        }
+                        continue;
+                    }
+                    if (touch(s.a, s.b, r.a, r.b)) {
+                        why = (s.toe == r.toe) ? "toe self-intersects or touches itself in XY" : $"toes {r.toe} and {s.toe} cross or touch";
+                        where = new Index2i(s.toe, s.i);
+                        return false;
+                    }
+                }
+                active.Add(k);
+            }
+            return true;
+        }
+
+        // sign of (x - p) . (y - p), exactly
+        static int dot_sign(Vector2d u, Vector2d v, Vector2d p, Vector2d x, Vector2d y)
+        {
+            ExactDyadic ux = ExactDyadic.Of(x.x) - ExactDyadic.Of(p.x), uy = ExactDyadic.Of(x.y) - ExactDyadic.Of(p.y);
+            ExactDyadic vx = ExactDyadic.Of(y.x) - ExactDyadic.Of(p.x), vy = ExactDyadic.Of(y.y) - ExactDyadic.Of(p.y);
+            return (ux * vx + uy * vy).Sign;
+        }
+
+        // closed segments intersect (touching counts)
+        static bool touch(Vector2d a, Vector2d b, Vector2d c, Vector2d d)
+        {
+            int o1 = ExactPredicates.Orient2d(a, b, c), o2 = ExactPredicates.Orient2d(a, b, d);
+            int o3 = ExactPredicates.Orient2d(c, d, a), o4 = ExactPredicates.Orient2d(c, d, b);
+            if (o1 * o2 < 0 && o3 * o4 < 0) return true;
+            if (o1 == 0 && on_segment(a, b, c)) return true;
+            if (o2 == 0 && on_segment(a, b, d)) return true;
+            if (o3 == 0 && on_segment(c, d, a)) return true;
+            if (o4 == 0 && on_segment(c, d, b)) return true;
+            return false;
+        }
+
+        // p collinear with a, b: within the closed segment (coordinates compare exactly)
+        static bool on_segment(Vector2d a, Vector2d b, Vector2d p)
+        {
+            return Math.Min(a.x, b.x) <= p.x && p.x <= Math.Max(a.x, b.x) && Math.Min(a.y, b.y) <= p.y && p.y <= Math.Max(a.y, b.y);
+        }
+    }
+}

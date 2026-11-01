@@ -55,9 +55,23 @@ design area); continuous change of the slope along a segment and the three inter
   maximum). Splits go through a half-edge structure, so neighbouring faces share their vertices (no T-junctions). Ties
   keep the earlier label, so the result does not depend on the thread schedule. A loose quadtree (public API) finds the
   faces near a piece.
+- **Cone tangents on a global angle grid.** The tangent planes of all apexes use the same directions (step θ, from the
+  facet share of `Tolerance`) and the same distance (a power of two near the reach) for their points, so equal apexes,
+  directions and slopes give identical planes. A grid direction within θ/2 of a strip direction at the same apex
+  (its own piece's or a neighbour's) would make two nearly coplanar planes through one point, whose crease runs in an
+  arbitrary direction: it is dropped, or replaced by an exact copy of the neighbour's strip plane if that passes the
+  piece's checks. A direction is then at most 3θ/4 from a tangent plane, and θ is chosen for that.
+- **Simplification.** Splits along lines of planes that are not the minimum in the end are removed: neighbouring faces
+  with the same label are merged where the union is convex (exact), and vertices left in the middle of a straight edge
+  are removed. Such lines cross the true creases at arbitrary, sometimes nearly coincident points.
 - **Realization.** Vertex XY is rounded correctly to the final double coordinates (from the exact rational point), then
   z is the minimum of the incident face planes at that XY, rounded correctly. Each face is triangulated by ears at its
-  exact corners (no triangles across collinear points); every triangle is checked exactly (XY orientation, (i), (ii)).
+  exact corners (no triangles across collinear points).
+- **Repair** (5.4). Nearly coincident lines remain possible (a triangulation edge of the domain along a crease, in
+  symmetric designs). Edges shorter than `MinFeatureSize` are collapsed, shortest first, onto the end whose planes
+  contain the other end's planes, so the triangles stay in their cells; toe and lateral-limit vertices are only removed
+  onto another such vertex. Then every triangle is checked exactly (XY orientation, (i), (ii)); if one fails, the build is
+  repeated with 8 times the margin (up to 1e-3), and then `SlopeViolation`.
 - **Margin.** `s_build = s·(1 − δ)`, δ = `SlopeMargin` (default 1e-6), as 5.4. In addition, see below, all planes are
   lowered by λ.
 
@@ -73,7 +87,8 @@ design area); continuous change of the slope along a segment and the three inter
    margin term δ·s·D that the tolerance budget of 5.1 already contains. So every triangle with an altitude of at least
    `MinFeatureSize` passes (i) by δ and (ii) by λ; smaller ones are slivers for the repair. The toe vertices of the output
    lie λ below the specified toe (0.25 mm at δ = 1e-6, s = 1, D_max = 500 m). 1b will have to join the design at these
-   heights, or decide differently: a question for the owner.
+   heights, or decide differently: a question for the owner. Measured: with λ = 0 (the design as written), 23 of the 27
+   slope surface tests fail the exact check, also at local coordinates (`SlopeViolation`, 150 to 350 triangles each).
 2. **No design TIN in 1a** (see Scope): `CrossDesignInfluence` comes with the design area.
 3. **`HeightLimit`** replaces `TargetHeights` and the terrain extent until 1b; it is one height, not a list.
 

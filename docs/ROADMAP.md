@@ -303,7 +303,8 @@ Open tasks further up, and work further down, in the code or in the research lis
     [design/TERRAIN.md](design/TERRAIN.md)): per-segment slopes, never steeper than specified (verified per
     triangle), catch line with the terrain, cut / fill volumes. Phase 1 in three PRs, each usable and tested on its
     own: **1a** the slope surface from the cone envelope plus the "never steeper" verification oracle (usable on its
-    own to check existing results); **1b** the overlay with the terrain and the connected catch line; **1c**
+    own to check existing results; in review, PR #267, plan in [design/TERRAIN_1A_PLAN.md](design/TERRAIN_1A_PLAN.md),
+    with the NoData guard of `TerrainSafetyLines`); **1b** the overlay with the terrain and the connected catch line; **1c**
     volumes, failure kinds, accuracy reporting, km-scale benchmarks. Berms after phase 1. Priority: before the
     planned remesher work; starts after the `ExactMeshBoolean` work that is being scoped now.
   - [ ] 2D spatial index: a loose quadtree over AABBs (TIN triangles, edges, points) with insert / remove, height
