@@ -102,6 +102,48 @@ namespace geometry3Sharp.Tests
             return arr;
         }
 
+        /// <summary>
+        /// AddPoint from many threads at once (the classification adds the pieces' centroids in parallel, into sharded
+        /// indices): one id per distinct point, the same id for every call with that point, and its exact value stored
+        /// </summary>
+        [Fact]
+        public void AddPoint_InParallel_OneIdPerPoint()
+        {
+            ExactMeshArrangement.InputTriangle tri;
+            var arr = Arrangement(new List<Vector3d>() { new Vector3d(0, 0, 0), new Vector3d(1, 0, 0), new Vector3d(0, 1, 0) }, out tri);
+            var rand = new Random(3);
+            var points = Enumerable.Range(0, 3000).Select(_ => ExactPoint3.Create(rand.Next(-1000, 1000), rand.Next(-1000, 1000),
+                rand.Next(-1000, 1000), rand.Next(1, 50))).ToList();
+            // and pairs with equal hashes (y + 1, z - 31 gives the same ExactPoint3 hash for small values): equal
+            // hashes must not merge different points
+            for (int k = 0; k < 200; ++k) {
+                int x = rand.Next(-1000, 1000), y = rand.Next(-1000, 1000), z = rand.Next(-1000, 1000);
+                var p = ExactPoint3.FromInteger(x, y, z);
+                var q = ExactPoint3.FromInteger(x, y + 1, z - 31);
+                Assert.Equal(p.GetHashCode(), q.GetHashCode());
+                points.Add(p); points.Add(q);
+            }
+            points = points.Distinct().ToList();
+            int before = arr.PointCount;
+            // every point added by 8 calls, in a shuffled order, in parallel
+            var calls = Enumerable.Range(0, 8 * points.Count).Select(i => i % points.Count).OrderBy(_ => rand.Next()).ToArray();
+            var ids = new int[calls.Length];
+            System.Threading.Tasks.Parallel.For(0, calls.Length, i => ids[i] = arr.AddPoint(points[calls[i]]));
+            var idOf = new Dictionary<int, int>();
+            for (int i = 0; i < calls.Length; ++i) {
+                if (idOf.TryGetValue(calls[i], out int id))
+                    Assert.Equal(id, ids[i]);
+                else
+                    idOf[calls[i]] = ids[i];
+            }
+            Assert.Equal(points.Count, idOf.Values.Distinct().Count());
+            Assert.Equal(before + points.Count, arr.PointCount);
+            foreach (var kv in idOf)
+                Assert.Equal(points[kv.Key], arr.Exact(kv.Value));
+            // a point added again later gets its id back
+            Assert.Equal(idOf[0], arr.AddPoint(points[0]));
+        }
+
         [Fact]
         public void Orient_And_InCircle_MatchExactPredicates()
         {
