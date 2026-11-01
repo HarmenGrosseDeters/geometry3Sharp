@@ -622,6 +622,37 @@ The sampling error is about ±10 meshes (±3 %) per 400. `hybrid` was stopped af
   volume IoU checks. Outliers that the size does not explain: 78968.stl (5k triangles, 150 s),
   49998.stl (12k triangles, 118 s).
 
+### Time per stage (`robust`, 400 set, 1 November 2026)
+`analyze_phases.py results/robust.jsonl data/selection.csv [--csv out.csv]` gives per stage of `MeshRobustRepair`
+(its `robust_phases`) the number of meshes, the median, the sum and the three slowest meshes. `--csv` writes one row
+per mesh with the time of each stage. Two runs, both `BENCH_P=2 TIMEOUT=300 robust`; a timeout under machine load was
+rerun alone with the same settings:
+- master `6ce2ad3`: [`cases/robust_phases_2026-11-01.csv`](cases/robust_phases_2026-11-01.csv);
+- the same with the displacement bound of SafeRounding (#251):
+  [`cases/robust_phases_2026-11-01_bound.csv`](cases/robust_phases_2026-11-01_bound.csv).
+
+Master, 3885 s in total:
+
+| stage | meshes | median | sum | slowest (input triangles → wrap triangles) |
+|---|---|---|---|---|
+| wrap.simplify | 17 | 45 s | 920 s | 96373 147 s (656 → 415k), 229959 126 s (13.9k → 274k), 46542 85 s (574 → 179k) |
+| solidify | 51 | 7 s | 577 s | 1505037 100 s, 61134 49 s (2.3k), 106620 30 s |
+| volume + exact.volume | 400 + 208 | 1.0 s + 0.6 s | 550 + 213 s | 61765 19 s + 9 s, 1501550 14 s + 12 s, 1505037 17 s + 11 s |
+| repair | 400 | 0.7 s | 526 s | 61765 11 s, 1505037 10 s, 113417 9 s |
+| exact.resolve | 212 | 1.2 s | 520 s | 1368057 34 s (97k), 67709 26 s (12k), 42327 25 s (4.6k) |
+| wrap | 17 | 9 s | 226 s | 96373 67 s, 106620 22 s, 229959 20 s |
+| exact.check | 212 | 0.13 s | 188 s | 1368057 22 s, 48954 15 s, 1505037 12 s |
+
+The slowest repairs run through the whole cascade, and every stage fails only after its full work:
+1. the repair;
+2. the exact stage, which fails on open input ("volume differs", "not closed"), not on the rounding;
+3. the solidify;
+4. the alpha wrap and its simplification.
+
+The input size does not explain the time: inputs of 448 to 656 triangles give wraps of 180k to 415k triangles. The
+single slowest meshes vary with the machine load between the two runs (1505037 solidify 100 s and 35 s, 61765 volume
+19 s and 6 s), so remeasure an outlier on a quiet machine before working on it.
+
 ### Which stage repaired which mesh (`robust`, 400 set)
 `analyze_paths.py results/robust.jsonl data/selection.csv [--csv out.csv] [--markdown]` sorts the meshes by the
 stage of `MeshRobustRepair` that produced the result: the repair itself (clean and the same volume as the
