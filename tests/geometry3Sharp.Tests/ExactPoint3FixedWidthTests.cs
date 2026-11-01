@@ -321,6 +321,58 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void LoadN_EveryWidth_AndItsLimit()
+        {
+            var rand = new Random(10);
+            for (int limbs = 1; limbs <= 8; ++limbs) {
+                BigInteger limit = (BigInteger.One << (64 * limbs - 1)) - 1;
+                var values = new List<BigInteger> { 0, 1, limit, limit + 1, BigInteger.One << (64 * limbs), (BigInteger.One << (64 * limbs + 8)) + 5 };
+                for (int bits = 1; bits <= 64 * limbs + 70; bits += 3) values.Add(RandomBits(rand, bits));
+                foreach (BigInteger u in values)
+                    foreach (BigInteger v in new[] { u, -u }) {
+                        ulong* l = stackalloc ulong[8];
+                        int len; bool neg;
+                        bool fits = BigInteger.Abs(v) <= limit;
+                        Assert.Equal(fits, FixedPoint3.LoadN(v, l, limbs, out len, out neg));
+                        if (fits) {
+                            Assert.True(len <= limbs);
+                            // (ToBig packs the length into 3 bits, for the 4-limb components)
+                            BigInteger mag = (len == 0) ? BigInteger.Zero : FixedPoint3.ToBigPortable(l, len);
+                            Assert.Equal(v, (neg && len > 0) ? -mag : mag);
+                            if (len > 0) Assert.NotEqual(0UL, l[len - 1]);
+                        }
+                    }
+            }
+        }
+
+        [Fact]
+        public void CompareAlong_MatchesBigInteger()
+        {
+            var rand = new Random(11);
+            for (int k = 0; k < 3000; ++k) {
+                int maxBits = new[] { 30, 120, 255 }[k % 3];
+                ExactPoint3 a = RandomPoint(rand, maxBits, k % 4 == 0), b = (k % 7 == 0) ? a : RandomPoint(rand, maxBits, k % 4 == 0);
+                int dBits = new[] { 1, 64, 200, 450, 511 }[k % 5];
+                BigInteger dx = RandomValue(rand, dBits, false), dy = RandomValue(rand, dBits, false), dz = RandomValue(rand, dBits, false);
+                if (k % 11 == 0) {
+                    // d . (a - b) = 0 for integer points: d = (a - b) x e
+                    dx = (a.Y - b.Y) * 3 - (a.Z - b.Z) * 5; dy = (a.Z - b.Z) * 2 - (a.X - b.X) * 3; dz = (a.X - b.X) * 5 - (a.Y - b.Y) * 2;
+                }
+                if (k % 13 == 0) { dx = (BigInteger.One << 511) - 1; dy = -dx; }      // at the 8-limb limit
+                if (BigInteger.Abs(dx) >= (BigInteger.One << 511) || BigInteger.Abs(dy) >= (BigInteger.One << 511) || BigInteger.Abs(dz) >= (BigInteger.One << 511))
+                    continue;
+                BigInteger ka = (dx * a.X + dy * a.Y + dz * a.Z) * b.W, kb = (dx * b.X + dy * b.Y + dz * b.Z) * a.W;
+                FixedPoint3 fa = Fixed(a), fb = Fixed(b);
+                ulong* l = stackalloc ulong[24];
+                int nx, ny, nz; bool sx, sy, sz;
+                Assert.True(FixedPoint3.LoadN(dx, l, 8, out nx, out sx));
+                Assert.True(FixedPoint3.LoadN(dy, l + 8, 8, out ny, out sy));
+                Assert.True(FixedPoint3.LoadN(dz, l + 16, 8, out nz, out sz));
+                Assert.Equal(ka.CompareTo(kb), FixedArith.CompareAlong(ref fa, ref fb, new FixedInt(l, nx, sx), new FixedInt(l + 8, ny, sy), new FixedInt(l + 16, nz, sz)));
+            }
+        }
+
+        [Fact]
         public void ExactEquals_FixedAndBigInteger_NeverEqual()
         {
             var mesh = new DMesh3();

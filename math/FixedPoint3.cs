@@ -69,24 +69,39 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         internal static bool Load(BigInteger v, ulong* dst, out byte m)
         {
+            int len;
+            bool neg;
             m = 0;
+            if (LoadN(v, dst, 4, out len, out neg) == false)
+                return false;
+            m = (byte)(len | (neg ? 0x80 : 0));
+            return true;
+        }
+
+        /// <summary> the magnitude of v into `limbs` limbs at dst (1..8; unused limbs are not written); false if |v| &gt; 2^(64 limbs - 1) - 1 </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal static bool LoadN(BigInteger v, ulong* dst, int limbs, out int len, out bool neg)
+        {
+            len = 0;
+            neg = false;
             if (v.IsZero)
                 return true;
-            // little-endian two's complement into 5 limbs (40 bytes)
-            ulong* t = stackalloc ulong[5];
+            // little-endian two's complement into limbs + 1 limbs
+            ulong* t = stackalloc ulong[9];
             byte* b = (byte*)t;
+            int size = 8 * (limbs + 1);
 #if NET
             int n;
-            if (v.TryWriteBytes(new Span<byte>(b, 40), out n, false, false) == false)
+            if (v.TryWriteBytes(new Span<byte>(b, size), out n, false, false) == false)
                 return false;
 #else
             byte[] bytes = v.ToByteArray();
             int n = bytes.Length;
-            if (n > 40)
+            if (n > size)
                 return false;
             for (int k = 0; k < n; ++k) b[k] = bytes[k];
 #endif
-            return FromTwos(b, n, v.Sign < 0, dst, out m);
+            return FromTwos(b, n, size, v.Sign < 0, dst, limbs, out len, out neg);
         }
 
         /// <summary> Load without the .NET API (netstandard2.0; compiled everywhere, so that the tests on .NET check it) </summary>
@@ -102,33 +117,38 @@ namespace g3
             ulong* t = stackalloc ulong[5];
             byte* b = (byte*)t;
             for (int k = 0; k < n; ++k) b[k] = bytes[k];
-            return FromTwos(b, n, v.Sign < 0, dst, out m);
+            int len;
+            bool neg;
+            if (FromTwos(b, n, 40, v.Sign < 0, dst, 4, out len, out neg) == false)
+                return false;
+            m = (byte)(len | (neg ? 0x80 : 0));
+            return true;
         }
 
-        // the n bytes at b (little-endian two's complement of a nonzero value, n <= 40, in a 40-byte buffer) as
-        // magnitude limbs
-        static bool FromTwos(byte* b, int n, bool neg, ulong* dst, out byte m)
+        // the n bytes at b (little-endian two's complement of a nonzero value, n <= size = 8 (limbs + 1), in a buffer of
+        // size bytes) as magnitude limbs
+        static bool FromTwos(byte* b, int n, int size, bool neg, ulong* dst, int limbs, out int len, out bool isNeg)
         {
-            m = 0;
+            len = 0;
+            isNeg = neg;
             byte fill = neg ? (byte)0xFF : (byte)0;
-            for (int k = n; k < 40; ++k) b[k] = fill;
+            for (int k = n; k < size; ++k) b[k] = fill;
             ulong* t = (ulong*)b;
             if (neg) {
                 // magnitude = ~t + 1 (t != 0)
                 ulong carry = 1;
-                for (int k = 0; k < 5; ++k) {
+                for (int k = 0; k <= limbs; ++k) {
                     ulong s = ~t[k] + carry;
                     carry = (carry != 0 && s == 0) ? 1UL : 0UL;
                     t[k] = s;
                 }
             }
-            // |v| <= 2^255 - 1: limb 4 and the top bit of limb 3 are 0
-            if (t[4] != 0 || (t[3] >> 63) != 0)
+            // |v| <= 2^(64 limbs - 1) - 1: the top limb and the top bit of the one below are 0
+            if (t[limbs] != 0 || (t[limbs - 1] >> 63) != 0)
                 return false;
-            int len = 4;
+            len = limbs;
             while (len > 0 && t[len - 1] == 0) len--;
             for (int k = 0; k < len; ++k) dst[k] = t[k];
-            m = (byte)(len | (neg ? 0x80 : 0));
             return true;
         }
 
@@ -389,6 +409,9 @@ namespace g3
         const int OrientScratch = 144;
         const int InCircleScratch = 1080;
         const int CompareScratch = 128;
+        // CompareAlong (direction components of at most 8 limbs): per side 3 products of 12, sums of 13 and 14, times W
+        // 18: 81; together 162.
+        const int AlongScratch = 168;
 
         /// <summary> sign of Det3 of the rows (x_i, x_j, W) of a, b, c (ExactMeshArrangement.Orient) </summary>
 #if NET
@@ -443,6 +466,26 @@ namespace g3
                 x = Mul(A, s, ref ar); y = Mul(B, s, ref ar);
             }
             l = Add(Mul(A, A, ref ar), Mul(B, B, ref ar), ref ar);
+        }
+
+        /// <summary>
+        /// ExactMeshArrangement.compare_along: (d . a) W_b against (d . b) W_a, for a direction d with components of at
+        /// most 8 limbs
+        /// </summary>
+#if NET
+        [SkipLocalsInit]
+#endif
+        [MethodImpl(JitHints.Optimize)]
+        public static int CompareAlong(ref FixedPoint3 a, ref FixedPoint3 b, FixedInt dx, FixedInt dy, FixedInt dz)
+        {
+            ulong* v = stackalloc ulong[32];
+            ulong* s = stackalloc ulong[AlongScratch];
+            var ar = new FixedArena(s, AlongScratch);
+            FixedInt ax = a.Get(0, v), ay = a.Get(1, v + 4), az = a.Get(2, v + 8), aw = a.Get(3, v + 12);
+            FixedInt bx = b.Get(0, v + 16), by = b.Get(1, v + 20), bz = b.Get(2, v + 24), bw = b.Get(3, v + 28);
+            FixedInt ka = Add(Add(Mul(dx, ax, ref ar), Mul(dy, ay, ref ar), ref ar), Mul(dz, az, ref ar), ref ar);
+            FixedInt kb = Add(Add(Mul(dx, bx, ref ar), Mul(dy, by, ref ar), ref ar), Mul(dz, bz, ref ar), ref ar);
+            return Compare(Mul(ka, bw, ref ar), Mul(kb, aw, ref ar));
         }
 
         /// <summary>

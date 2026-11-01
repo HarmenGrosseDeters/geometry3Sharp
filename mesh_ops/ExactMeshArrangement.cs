@@ -1361,10 +1361,31 @@ namespace g3
                 if (-diff > bound) return -1;
             }
             PredicateStats.ExactStage(PredicateStats.Kind.ArrAlong);
+            int r1 = exact_ref(p1), r2 = exact_ref(p2);
+            if (r1 > 0 && r2 > 0) {
+                int c;
+                if (compare_along_fixed(d, ref fixedPoints[r1 - 1], ref fixedPoints[r2 - 1], out c))
+                    return c;
+            }
             ExactPoint3 a = Exact(p1), b = Exact(p2);
             BigInteger ka = (d.X * a.X + d.Y * a.Y + d.Z * a.Z) * b.W;
             BigInteger kb = (d.X * b.X + d.Y * b.Y + d.Z * b.Z) * a.W;
             return ka.CompareTo(kb);
+        }
+
+        // compare_along on fixed-width points, false if a component of the direction has more than 8 limbs
+        [MethodImpl(JitHints.Optimize)]
+        static unsafe bool compare_along_fixed(in Direction d, ref FixedPoint3 a, ref FixedPoint3 b, out int c)
+        {
+            c = 0;
+            ulong* l = stackalloc ulong[24];
+            int nx, ny, nz;
+            bool sx, sy, sz;
+            if (FixedPoint3.LoadN(d.X, l, 8, out nx, out sx) == false || FixedPoint3.LoadN(d.Y, l + 8, 8, out ny, out sy) == false
+                || FixedPoint3.LoadN(d.Z, l + 16, 8, out nz, out sz) == false)
+                return false;
+            c = FixedArith.CompareAlong(ref a, ref b, new FixedInt(l, nx, sx), new FixedInt(l + 8, ny, sy), new FixedInt(l + 16, nz, sz));
+            return true;
         }
 
         // d . (a - b) for the direction d rounded to double (fdx, fdy, fdz: relative errors U) and approximations a, b
