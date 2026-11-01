@@ -336,3 +336,53 @@ the tests are exact zeros and one-grid-step perturbations of them (section 9).
 Considered and dropped: a stage for LPI's denominator alone (384 components, below the limit). The rule applies to
 the predicate, and `sign(d)` alone rarely fails the filter (a line nearly parallel to the plane), while the
 determinant would still need `FixedArith`.
+
+## 11. Double inputs (envelope PR 1, docs/design/ENVELOPE.md section 4.1)
+
+The polyhedra of the envelope have arbitrary double points, so the double entry now takes every finite double (it
+throws for NaN and infinities).
+
+**Specs in differences.** `N − d c` is written in coordinate differences only: `(p − c) lq − (q − c) lp` for LPI,
+`Σ_k (n_k · (a_k − c)) e_k` for TPI (Cramer's identity: the rows `n_k` have the inverse `[e23 e31 e12] / d`). Same values
+and degree; the filter's magnitudes and the bounds no longer grow with the distance from the origin. The filter
+constants are unchanged (18 u / 9 u, 28 u / 17 u); the scratch shrank (LPI 269, TPI 677 limbs at the 64-bit bound).
+
+**The filter's range instead of an underflow term.** The filter runs when every coordinate is 0 or of magnitude in
+`[2^-a, 2^b]`, else the call goes to the exact stage. A nonzero input is a multiple of its ulp, at least
+`2^-(a + 52)`, so every computed value of degree `k` is a multiple of `2^-(k (a + 52))`; with `k (a + 52) ≤ 960`
+every nonzero value and magnitude is at least `2^-960`, every result (also the decision product `K m̃`, `K > 2^-60`)
+is normal, and the rules of section 9 hold unchanged: no absolute term is needed. `b` is the largest exponent with
+every value's bound below `2^1000`. The generator derives both from the formula and checks that it is homogeneous:
+
+| predicate | degree | range |
+|---|---|---|
+| `Orient3dLPI` | 6 | `[2^-108, 2^164]` |
+| `Orient3dTPI` | 9 | `[2^-54, 2^109]` |
+
+**The exact stage by exponent alignment.** Every coordinate is `±m 2^e` with `m` odd; with `emin` the smallest `e`
+of the call, every coordinate times `2^-emin` is an integer, and the sign is unchanged (homogeneous formulas, a
+positive common factor). If every such integer has at most 128 bits (an exponent spread within the call of up to
+75 bits for full mantissas), the graph runs on `FixedArith` with two limbs per coordinate (scratch LPI 428, TPI 1115
+limbs; no allocation); otherwise in `BigInteger`.
+
+**Tests:** general doubles (full mantissas around `2^-50` to `2^100`, spreads 0 to 70 bits and 100 to 400 bits)
+against the oracle (the doubles made integers by `ExactPoint3.Decompose`); exact zeros of general doubles and the same
+one ulp off; the range edges (`2^-108`, `2^-54`, `2^164`), inputs outside it (tiny, subnormal, huge); the paths (no
+allocation for a spread of 70 bits, `BigInteger` for 100); invariance over `Similarity.All()` on general doubles (the
+oracle on every transformed configuration; the 2^k scales with the same signs and filter decisions bit for bit); the
+range derivation and the rejection of a non-homogeneous formula.
+
+**Timings** (`BooleanComparison indirect 7`, two alternating rounds in one session, ns per call; step (b) took only
+integers):
+
+| | step (b) | PR 1 |
+|---|---|---|
+| LPI, filter decides (30-bit integers) | 54 / 51 | 65 / 63 |
+| TPI, filter decides | 84 / 85 | 114 / 113 |
+| LPI, exact stage | 1209 / 1144 | 1515 / 1570 |
+| TPI, exact stage | 2171 / 2261 | 2878 / 2842 |
+| LPI / TPI, general doubles in [-1, 1], filter decides | (not supported) | 80 / 117 |
+
+The range checks cost 12 to 28 ns on the filter path; the exact path is about 30 % slower (the alignment and two-limb
+inputs). (The benchmark's construct-then-evaluate column now converts the doubles exactly by `Decompose` and is not
+comparable between the two versions.)

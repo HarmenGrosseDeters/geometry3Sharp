@@ -20,10 +20,52 @@ namespace g3
     internal static unsafe class IndirectPredicates
     {
         static int __len(ref FixedPoint3 p, int k) { return p.M[k] & 7; }
-        // the integers |x| <= 2^53: exact as doubles, one limb each
-        static bool __int(double x) { return Math.Abs(x) <= 9007199254740992.0 && Math.Floor(x) == x; }
-        static bool __grid(Vector3d p) { return __int(p.x) && __int(p.y) && __int(p.z); }
-        static FixedInt __load(double x, ulong* dst) { dst[0] = (ulong)Math.Abs(x); return new FixedInt(dst, x != 0 ? 1 : 0, x < 0); }
+        static bool __finite(Vector3d p) { return !double.IsNaN(p.x + p.y + p.z) && !double.IsInfinity(p.x + p.y + p.z) && !double.IsInfinity(p.x) && !double.IsInfinity(p.y) && !double.IsInfinity(p.z); }
+        static bool __in(double x, double lo, double hi) { double a = Math.Abs(x); return x == 0 || (a >= lo && a <= hi); }
+        // the filter's range: every coordinate 0 or of magnitude in [lo, hi]
+        static bool __gate(Vector3d p, double lo, double hi) { return __in(p.x, lo, hi) && __in(p.y, lo, hi) && __in(p.z, lo, hi); }
+        // x = +-m 2^e with m odd (x != 0)
+        static void __dec(double x, out ulong m, out int e)
+        {
+            long bits = BitConverter.DoubleToInt64Bits(x);
+            int be = (int)((bits >> 52) & 0x7FF);
+            m = (ulong)bits & 0xFFFFFFFFFFFFFUL;
+            if (be == 0) e = -1074; else { m |= 1UL << 52; e = be - 1075; }
+#if NET
+            int tz = System.Numerics.BitOperations.TrailingZeroCount(m);
+            m >>= tz; e += tz;
+#else
+            while ((m & 1) == 0) { m >>= 1; e++; }
+#endif
+        }
+        static int __bits(ulong m)
+        {
+#if NET
+            return 64 - System.Numerics.BitOperations.LeadingZeroCount(m);
+#else
+            int n = 0; while (m != 0) { n++; m >>= 1; } return n;
+#endif
+        }
+        // the smallest exponent of the nonzero coordinates
+        static void __emin(Vector3d p, ref int emin) { __emin1(p.x, ref emin); __emin1(p.y, ref emin); __emin1(p.z, ref emin); }
+        static void __emin1(double x, ref int emin) { if (x == 0) return; ulong m; int e; __dec(x, out m, out e); if (e < emin) emin = e; }
+        // x 2^-emin, an integer, fits two limbs
+        static bool __fits(Vector3d p, int emin) { return __fits1(p.x, emin) && __fits1(p.y, emin) && __fits1(p.z, emin); }
+        static bool __fits1(double x, int emin) { if (x == 0) return true; ulong m; int e; __dec(x, out m, out e); return e - emin + __bits(m) <= 128; }
+        // x 2^-emin in two limbs (after __fits)
+        static FixedInt __align(double x, int emin, ulong* dst)
+        {
+            if (x == 0) return new FixedInt(dst, 0, false);
+            ulong m; int e; __dec(x, out m, out e);
+            int s = e - emin;
+            if (s >= 64) { dst[0] = 0; dst[1] = m << (s - 64); }
+            else if (s == 0) { dst[0] = m; dst[1] = 0; }
+            else { dst[0] = m << s; dst[1] = m >> (64 - s); }
+            return new FixedInt(dst, dst[1] != 0 ? 2 : 1, x < 0);
+        }
+        // the point times 2^-emin as an integer point (the BigInteger path)
+        static ExactPoint3 __big(Vector3d p, int emin) { return ExactPoint3.FromInteger(__big1(p.x, emin), __big1(p.y, emin), __big1(p.z, emin)); }
+        static BigInteger __big1(double x, int emin) { if (x == 0) return BigInteger.Zero; ulong m; int e; __dec(x, out m, out e); BigInteger v = new BigInteger(m) << (e - emin); return x < 0 ? -v : v; }
 
         // Orient3dLPI: the sign of ((t1 - t2) + t3) times d; every input component |v| <= m = 2^64 - 1
         // ((t1 - t2) + t3): |.| <= 4608 m^6 < 2^397 (7 limbs)
@@ -161,20 +203,24 @@ namespace g3
         }
 
         /// <summary>
-        /// Orient3dLPI of points with integer coordinates |x| &lt;= 2^53, given as doubles: the filter, then the exact
-        /// stage on FixedArith (no allocation); throws for other coordinates
+        /// Orient3dLPI of points given as doubles: the filter if every coordinate is 0 or of magnitude in
+        /// [2^-108, 2^164], then the exact stage (FixedArith after aligning the exponents; BigInteger
+        /// beyond two limbs); throws for coordinates that are not finite
         /// </summary>
         [MethodImpl(JitHints.Optimize)]
         internal static int Orient3dLPI(Vector3d p, Vector3d q, Vector3d r, Vector3d s, Vector3d t, Vector3d a, Vector3d b, Vector3d c)
         {
-            if (!(__grid(p) && __grid(q) && __grid(r) && __grid(s) && __grid(t) && __grid(a) && __grid(b) && __grid(c)))
-                throw new ArgumentException("Orient3dLPI: the coordinates must be integers |x| <= 2^53");
+            if (!(__finite(p) && __finite(q) && __finite(r) && __finite(s) && __finite(t) && __finite(a) && __finite(b) && __finite(c)))
+                throw new ArgumentException("Orient3dLPI: the coordinates must be finite");
             // no expansion stage: as expansions the sign factors have up to 147456 / 384 components (limit 1024)
-            int __r = Orient3dLPIFilter(p, q, r, s, t, a, b, c);
-            return (__r != 2) ? __r : Orient3dLPIExact(p, q, r, s, t, a, b, c);
+            if (__gate(p, 3.0814879110195774e-33, 2.3384026197294447e+49) && __gate(q, 3.0814879110195774e-33, 2.3384026197294447e+49) && __gate(r, 3.0814879110195774e-33, 2.3384026197294447e+49) && __gate(s, 3.0814879110195774e-33, 2.3384026197294447e+49) && __gate(t, 3.0814879110195774e-33, 2.3384026197294447e+49) && __gate(a, 3.0814879110195774e-33, 2.3384026197294447e+49) && __gate(b, 3.0814879110195774e-33, 2.3384026197294447e+49) && __gate(c, 3.0814879110195774e-33, 2.3384026197294447e+49)) {
+                int __r = Orient3dLPIFilter(p, q, r, s, t, a, b, c);
+                if (__r != 2) return __r;
+            }
+            return Orient3dLPIExact(p, q, r, s, t, a, b, c);
         }
 
-        /// <summary> the filter of Orient3dLPI: the sign, or 2 if it does not decide (inputs as for Orient3dLPI) </summary>
+        /// <summary> the filter of Orient3dLPI: the sign, or 2 if it does not decide; every coordinate 0 or of magnitude in [2^-108, 2^164] </summary>
         [MethodImpl(JitHints.Optimize)]
         internal static int Orient3dLPIFilter(Vector3d p, Vector3d q, Vector3d r, Vector3d s, Vector3d t, Vector3d a, Vector3d b, Vector3d c)
         {
@@ -281,54 +327,67 @@ namespace g3
             return __r;
         }
 
-        /// <summary> the exact stage of Orient3dLPI on FixedArith, from integer doubles |x| &lt;= 2^53 </summary>
+        /// <summary> the exact stage of Orient3dLPI from doubles: every coordinate times 2^-emin (emin the smallest
+        /// exponent) is an integer; within two limbs on FixedArith (scratch 428 limbs), else in BigInteger </summary>
 #if NET
         [SkipLocalsInit]
 #endif
         [MethodImpl(JitHints.Optimize)]
         internal static int Orient3dLPIExact(Vector3d p, Vector3d q, Vector3d r, Vector3d s, Vector3d t, Vector3d a, Vector3d b, Vector3d c)
         {
-            ulong* __i0 = stackalloc ulong[1];
-            ulong* __i1 = stackalloc ulong[1];
-            ulong* __i2 = stackalloc ulong[1];
-            ulong* __i3 = stackalloc ulong[1];
-            ulong* __i4 = stackalloc ulong[1];
-            ulong* __i5 = stackalloc ulong[1];
-            ulong* __i6 = stackalloc ulong[1];
-            ulong* __i7 = stackalloc ulong[1];
-            ulong* __i8 = stackalloc ulong[1];
-            ulong* __i9 = stackalloc ulong[1];
-            ulong* __i10 = stackalloc ulong[1];
-            ulong* __i11 = stackalloc ulong[1];
-            ulong* __i12 = stackalloc ulong[1];
-            ulong* __i13 = stackalloc ulong[1];
-            ulong* __i14 = stackalloc ulong[1];
-            ulong* __i15 = stackalloc ulong[1];
-            ulong* __i16 = stackalloc ulong[1];
-            ulong* __i17 = stackalloc ulong[1];
-            ulong* __i18 = stackalloc ulong[1];
-            ulong* __i19 = stackalloc ulong[1];
-            ulong* __i20 = stackalloc ulong[1];
-            ulong* __i21 = stackalloc ulong[1];
-            ulong* __i22 = stackalloc ulong[1];
-            ulong* __i23 = stackalloc ulong[1];
-            const int __n = 269;
+            int __e = int.MaxValue;
+            __emin(p, ref __e);
+            __emin(q, ref __e);
+            __emin(r, ref __e);
+            __emin(s, ref __e);
+            __emin(t, ref __e);
+            __emin(a, ref __e);
+            __emin(b, ref __e);
+            __emin(c, ref __e);
+            if (__e == int.MaxValue) return 0;     // every coordinate 0
+            if (!(__fits(p, __e) && __fits(q, __e) && __fits(r, __e) && __fits(s, __e) && __fits(t, __e) && __fits(a, __e) && __fits(b, __e) && __fits(c, __e)))
+                return Orient3dLPIBig(__big(p, __e), __big(q, __e), __big(r, __e), __big(s, __e), __big(t, __e), __big(a, __e), __big(b, __e), __big(c, __e));
+            ulong* __i0 = stackalloc ulong[2];
+            ulong* __i1 = stackalloc ulong[2];
+            ulong* __i2 = stackalloc ulong[2];
+            ulong* __i3 = stackalloc ulong[2];
+            ulong* __i4 = stackalloc ulong[2];
+            ulong* __i5 = stackalloc ulong[2];
+            ulong* __i6 = stackalloc ulong[2];
+            ulong* __i7 = stackalloc ulong[2];
+            ulong* __i8 = stackalloc ulong[2];
+            ulong* __i9 = stackalloc ulong[2];
+            ulong* __i10 = stackalloc ulong[2];
+            ulong* __i11 = stackalloc ulong[2];
+            ulong* __i12 = stackalloc ulong[2];
+            ulong* __i13 = stackalloc ulong[2];
+            ulong* __i14 = stackalloc ulong[2];
+            ulong* __i15 = stackalloc ulong[2];
+            ulong* __i16 = stackalloc ulong[2];
+            ulong* __i17 = stackalloc ulong[2];
+            ulong* __i18 = stackalloc ulong[2];
+            ulong* __i19 = stackalloc ulong[2];
+            ulong* __i20 = stackalloc ulong[2];
+            ulong* __i21 = stackalloc ulong[2];
+            ulong* __i22 = stackalloc ulong[2];
+            ulong* __i23 = stackalloc ulong[2];
+            const int __n = 428;
             ulong* __s = stackalloc ulong[__n];
             var __ar = new FixedArena(__s, __n);
-            FixedInt s_x = __load(s.x, __i0);                                        // s.x: <= m
-            FixedInt r_x = __load(r.x, __i1);                                        // r.x: <= m
+            FixedInt s_x = __align(s.x, __e, __i0);                                  // s.x: <= m
+            FixedInt r_x = __align(r.x, __e, __i1);                                  // r.x: <= m
             FixedInt _v2 = FixedArith.Sub(s_x, r_x, ref __ar);                       // ux = s.x - r.x: <= 2 m
-            FixedInt s_y = __load(s.y, __i2);                                        // s.y: <= m
-            FixedInt r_y = __load(r.y, __i3);                                        // r.y: <= m
+            FixedInt s_y = __align(s.y, __e, __i2);                                  // s.y: <= m
+            FixedInt r_y = __align(r.y, __e, __i3);                                  // r.y: <= m
             FixedInt _v5 = FixedArith.Sub(s_y, r_y, ref __ar);                       // uy = s.y - r.y: <= 2 m
-            FixedInt s_z = __load(s.z, __i4);                                        // s.z: <= m
-            FixedInt r_z = __load(r.z, __i5);                                        // r.z: <= m
+            FixedInt s_z = __align(s.z, __e, __i4);                                  // s.z: <= m
+            FixedInt r_z = __align(r.z, __e, __i5);                                  // r.z: <= m
             FixedInt _v8 = FixedArith.Sub(s_z, r_z, ref __ar);                       // uz = s.z - r.z: <= 2 m
-            FixedInt t_x = __load(t.x, __i6);                                        // t.x: <= m
+            FixedInt t_x = __align(t.x, __e, __i6);                                  // t.x: <= m
             FixedInt _v10 = FixedArith.Sub(t_x, r_x, ref __ar);                      // wx = t.x - r.x: <= 2 m
-            FixedInt t_y = __load(t.y, __i7);                                        // t.y: <= m
+            FixedInt t_y = __align(t.y, __e, __i7);                                  // t.y: <= m
             FixedInt _v12 = FixedArith.Sub(t_y, r_y, ref __ar);                      // wy = t.y - r.y: <= 2 m
-            FixedInt t_z = __load(t.z, __i8);                                        // t.z: <= m
+            FixedInt t_z = __align(t.z, __e, __i8);                                  // t.z: <= m
             FixedInt _v14 = FixedArith.Sub(t_z, r_z, ref __ar);                      // wz = t.z - r.z: <= 2 m
             FixedInt _v15 = FixedArith.Mul(_v5, _v14, ref __ar);                     // uy * wz: <= 4 m^2
             FixedInt _v16 = FixedArith.Mul(_v8, _v12, ref __ar);                     // uz * wy: <= 4 m^2
@@ -339,17 +398,17 @@ namespace g3
             FixedInt _v21 = FixedArith.Mul(_v2, _v12, ref __ar);                     // ux * wy: <= 4 m^2
             FixedInt _v22 = FixedArith.Mul(_v5, _v10, ref __ar);                     // uy * wx: <= 4 m^2
             FixedInt _v23 = FixedArith.Sub(_v21, _v22, ref __ar);                    // nz = (ux * wy) - (uy * wx): <= 8 m^2
-            FixedInt p_x = __load(p.x, __i9);                                        // p.x: <= m
+            FixedInt p_x = __align(p.x, __e, __i9);                                  // p.x: <= m
             FixedInt _v25 = FixedArith.Sub(p_x, r_x, ref __ar);                      // prx = p.x - r.x: <= 2 m
-            FixedInt p_y = __load(p.y, __i10);                                       // p.y: <= m
+            FixedInt p_y = __align(p.y, __e, __i10);                                 // p.y: <= m
             FixedInt _v27 = FixedArith.Sub(p_y, r_y, ref __ar);                      // pry = p.y - r.y: <= 2 m
-            FixedInt p_z = __load(p.z, __i11);                                       // p.z: <= m
+            FixedInt p_z = __align(p.z, __e, __i11);                                 // p.z: <= m
             FixedInt _v29 = FixedArith.Sub(p_z, r_z, ref __ar);                      // prz = p.z - r.z: <= 2 m
-            FixedInt q_x = __load(q.x, __i12);                                       // q.x: <= m
+            FixedInt q_x = __align(q.x, __e, __i12);                                 // q.x: <= m
             FixedInt _v31 = FixedArith.Sub(q_x, r_x, ref __ar);                      // qrx = q.x - r.x: <= 2 m
-            FixedInt q_y = __load(q.y, __i13);                                       // q.y: <= m
+            FixedInt q_y = __align(q.y, __e, __i13);                                 // q.y: <= m
             FixedInt _v33 = FixedArith.Sub(q_y, r_y, ref __ar);                      // qry = q.y - r.y: <= 2 m
-            FixedInt q_z = __load(q.z, __i14);                                       // q.z: <= m
+            FixedInt q_z = __align(q.z, __e, __i14);                                 // q.z: <= m
             FixedInt _v35 = FixedArith.Sub(q_z, r_z, ref __ar);                      // qrz = q.z - r.z: <= 2 m
             FixedInt _v36 = FixedArith.Mul(_v17, _v25, ref __ar);                    // nx * prx: <= 16 m^3
             FixedInt _v37 = FixedArith.Mul(_v20, _v27, ref __ar);                    // ny * pry: <= 16 m^3
@@ -362,11 +421,11 @@ namespace g3
             FixedInt _v44 = FixedArith.Mul(_v23, _v35, ref __ar);                    // nz * qrz: <= 16 m^3
             FixedInt _v45 = FixedArith.Add(_v43, _v44, ref __ar);                    // lq = ((nx * qrx) + (ny * qry)) + (nz * qrz): <= 48 m^3
             FixedInt _v46 = FixedArith.Sub(_v45, _v40, ref __ar);                    // d = lq - lp: <= 96 m^3
-            FixedInt c_x = __load(c.x, __i15);                                       // c.x: <= m
+            FixedInt c_x = __align(c.x, __e, __i15);                                 // c.x: <= m
             FixedInt _v48 = FixedArith.Sub(p_x, c_x, ref __ar);                      // pcx = p.x - c.x: <= 2 m
-            FixedInt c_y = __load(c.y, __i16);                                       // c.y: <= m
+            FixedInt c_y = __align(c.y, __e, __i16);                                 // c.y: <= m
             FixedInt _v50 = FixedArith.Sub(p_y, c_y, ref __ar);                      // pcy = p.y - c.y: <= 2 m
-            FixedInt c_z = __load(c.z, __i17);                                       // c.z: <= m
+            FixedInt c_z = __align(c.z, __e, __i17);                                 // c.z: <= m
             FixedInt _v52 = FixedArith.Sub(p_z, c_z, ref __ar);                      // pcz = p.z - c.z: <= 2 m
             FixedInt _v53 = FixedArith.Sub(q_x, c_x, ref __ar);                      // qcx = q.x - c.x: <= 2 m
             FixedInt _v54 = FixedArith.Sub(q_y, c_y, ref __ar);                      // qcy = q.y - c.y: <= 2 m
@@ -380,17 +439,17 @@ namespace g3
             FixedInt _v62 = FixedArith.Mul(_v45, _v52, ref __ar);                    // lq * pcz: <= 96 m^4
             FixedInt _v63 = FixedArith.Mul(_v40, _v55, ref __ar);                    // lp * qcz: <= 96 m^4
             FixedInt _v64 = FixedArith.Sub(_v62, _v63, ref __ar);                    // Nz = (lq * pcz) - (lp * qcz): <= 192 m^4
-            FixedInt a_x = __load(a.x, __i18);                                       // a.x: <= m
+            FixedInt a_x = __align(a.x, __e, __i18);                                 // a.x: <= m
             FixedInt _v66 = FixedArith.Sub(a_x, c_x, ref __ar);                      // acx = a.x - c.x: <= 2 m
-            FixedInt a_y = __load(a.y, __i19);                                       // a.y: <= m
+            FixedInt a_y = __align(a.y, __e, __i19);                                 // a.y: <= m
             FixedInt _v68 = FixedArith.Sub(a_y, c_y, ref __ar);                      // acy = a.y - c.y: <= 2 m
-            FixedInt a_z = __load(a.z, __i20);                                       // a.z: <= m
+            FixedInt a_z = __align(a.z, __e, __i20);                                 // a.z: <= m
             FixedInt _v70 = FixedArith.Sub(a_z, c_z, ref __ar);                      // acz = a.z - c.z: <= 2 m
-            FixedInt b_x = __load(b.x, __i21);                                       // b.x: <= m
+            FixedInt b_x = __align(b.x, __e, __i21);                                 // b.x: <= m
             FixedInt _v72 = FixedArith.Sub(b_x, c_x, ref __ar);                      // bcx = b.x - c.x: <= 2 m
-            FixedInt b_y = __load(b.y, __i22);                                       // b.y: <= m
+            FixedInt b_y = __align(b.y, __e, __i22);                                 // b.y: <= m
             FixedInt _v74 = FixedArith.Sub(b_y, c_y, ref __ar);                      // bcy = b.y - c.y: <= 2 m
-            FixedInt b_z = __load(b.z, __i23);                                       // b.z: <= m
+            FixedInt b_z = __align(b.z, __e, __i23);                                 // b.z: <= m
             FixedInt _v76 = FixedArith.Sub(b_z, c_z, ref __ar);                      // bcz = b.z - c.z: <= 2 m
             FixedInt _v77 = FixedArith.Mul(_v68, _v76, ref __ar);                    // acy * bcz: <= 4 m^2
             FixedInt _v78 = FixedArith.Mul(_v70, _v74, ref __ar);                    // acz * bcy: <= 4 m^2
@@ -737,20 +796,24 @@ namespace g3
         }
 
         /// <summary>
-        /// Orient3dTPI of points with integer coordinates |x| &lt;= 2^53, given as doubles: the filter, then the exact
-        /// stage on FixedArith (no allocation); throws for other coordinates
+        /// Orient3dTPI of points given as doubles: the filter if every coordinate is 0 or of magnitude in
+        /// [2^-54, 2^109], then the exact stage (FixedArith after aligning the exponents; BigInteger
+        /// beyond two limbs); throws for coordinates that are not finite
         /// </summary>
         [MethodImpl(JitHints.Optimize)]
         internal static int Orient3dTPI(Vector3d a1, Vector3d b1, Vector3d c1, Vector3d a2, Vector3d b2, Vector3d c2, Vector3d a3, Vector3d b3, Vector3d c3, Vector3d a, Vector3d b, Vector3d c)
         {
-            if (!(__grid(a1) && __grid(b1) && __grid(c1) && __grid(a2) && __grid(b2) && __grid(c2) && __grid(a3) && __grid(b3) && __grid(c3) && __grid(a) && __grid(b) && __grid(c)))
-                throw new ArgumentException("Orient3dTPI: the coordinates must be integers |x| <= 2^53");
+            if (!(__finite(a1) && __finite(b1) && __finite(c1) && __finite(a2) && __finite(b2) && __finite(c2) && __finite(a3) && __finite(b3) && __finite(c3) && __finite(a) && __finite(b) && __finite(c)))
+                throw new ArgumentException("Orient3dTPI: the coordinates must be finite");
             // no expansion stage: as expansions the sign factors have up to 113246208 / 98304 components (limit 1024)
-            int __r = Orient3dTPIFilter(a1, b1, c1, a2, b2, c2, a3, b3, c3, a, b, c);
-            return (__r != 2) ? __r : Orient3dTPIExact(a1, b1, c1, a2, b2, c2, a3, b3, c3, a, b, c);
+            if (__gate(a1, 5.551115123125783e-17, 6.490371073168535e+32) && __gate(b1, 5.551115123125783e-17, 6.490371073168535e+32) && __gate(c1, 5.551115123125783e-17, 6.490371073168535e+32) && __gate(a2, 5.551115123125783e-17, 6.490371073168535e+32) && __gate(b2, 5.551115123125783e-17, 6.490371073168535e+32) && __gate(c2, 5.551115123125783e-17, 6.490371073168535e+32) && __gate(a3, 5.551115123125783e-17, 6.490371073168535e+32) && __gate(b3, 5.551115123125783e-17, 6.490371073168535e+32) && __gate(c3, 5.551115123125783e-17, 6.490371073168535e+32) && __gate(a, 5.551115123125783e-17, 6.490371073168535e+32) && __gate(b, 5.551115123125783e-17, 6.490371073168535e+32) && __gate(c, 5.551115123125783e-17, 6.490371073168535e+32)) {
+                int __r = Orient3dTPIFilter(a1, b1, c1, a2, b2, c2, a3, b3, c3, a, b, c);
+                if (__r != 2) return __r;
+            }
+            return Orient3dTPIExact(a1, b1, c1, a2, b2, c2, a3, b3, c3, a, b, c);
         }
 
-        /// <summary> the filter of Orient3dTPI: the sign, or 2 if it does not decide (inputs as for Orient3dTPI) </summary>
+        /// <summary> the filter of Orient3dTPI: the sign, or 2 if it does not decide; every coordinate 0 or of magnitude in [2^-54, 2^109] </summary>
         [MethodImpl(JitHints.Optimize)]
         internal static int Orient3dTPIFilter(Vector3d a1, Vector3d b1, Vector3d c1, Vector3d a2, Vector3d b2, Vector3d c2, Vector3d a3, Vector3d b3, Vector3d c3, Vector3d a, Vector3d b, Vector3d c)
         {
@@ -938,66 +1001,83 @@ namespace g3
             return __r;
         }
 
-        /// <summary> the exact stage of Orient3dTPI on FixedArith, from integer doubles |x| &lt;= 2^53 </summary>
+        /// <summary> the exact stage of Orient3dTPI from doubles: every coordinate times 2^-emin (emin the smallest
+        /// exponent) is an integer; within two limbs on FixedArith (scratch 1115 limbs), else in BigInteger </summary>
 #if NET
         [SkipLocalsInit]
 #endif
         [MethodImpl(JitHints.Optimize)]
         internal static int Orient3dTPIExact(Vector3d a1, Vector3d b1, Vector3d c1, Vector3d a2, Vector3d b2, Vector3d c2, Vector3d a3, Vector3d b3, Vector3d c3, Vector3d a, Vector3d b, Vector3d c)
         {
-            ulong* __i0 = stackalloc ulong[1];
-            ulong* __i1 = stackalloc ulong[1];
-            ulong* __i2 = stackalloc ulong[1];
-            ulong* __i3 = stackalloc ulong[1];
-            ulong* __i4 = stackalloc ulong[1];
-            ulong* __i5 = stackalloc ulong[1];
-            ulong* __i6 = stackalloc ulong[1];
-            ulong* __i7 = stackalloc ulong[1];
-            ulong* __i8 = stackalloc ulong[1];
-            ulong* __i9 = stackalloc ulong[1];
-            ulong* __i10 = stackalloc ulong[1];
-            ulong* __i11 = stackalloc ulong[1];
-            ulong* __i12 = stackalloc ulong[1];
-            ulong* __i13 = stackalloc ulong[1];
-            ulong* __i14 = stackalloc ulong[1];
-            ulong* __i15 = stackalloc ulong[1];
-            ulong* __i16 = stackalloc ulong[1];
-            ulong* __i17 = stackalloc ulong[1];
-            ulong* __i18 = stackalloc ulong[1];
-            ulong* __i19 = stackalloc ulong[1];
-            ulong* __i20 = stackalloc ulong[1];
-            ulong* __i21 = stackalloc ulong[1];
-            ulong* __i22 = stackalloc ulong[1];
-            ulong* __i23 = stackalloc ulong[1];
-            ulong* __i24 = stackalloc ulong[1];
-            ulong* __i25 = stackalloc ulong[1];
-            ulong* __i26 = stackalloc ulong[1];
-            ulong* __i27 = stackalloc ulong[1];
-            ulong* __i28 = stackalloc ulong[1];
-            ulong* __i29 = stackalloc ulong[1];
-            ulong* __i30 = stackalloc ulong[1];
-            ulong* __i31 = stackalloc ulong[1];
-            ulong* __i32 = stackalloc ulong[1];
-            ulong* __i33 = stackalloc ulong[1];
-            ulong* __i34 = stackalloc ulong[1];
-            ulong* __i35 = stackalloc ulong[1];
-            const int __n = 677;
+            int __e = int.MaxValue;
+            __emin(a1, ref __e);
+            __emin(b1, ref __e);
+            __emin(c1, ref __e);
+            __emin(a2, ref __e);
+            __emin(b2, ref __e);
+            __emin(c2, ref __e);
+            __emin(a3, ref __e);
+            __emin(b3, ref __e);
+            __emin(c3, ref __e);
+            __emin(a, ref __e);
+            __emin(b, ref __e);
+            __emin(c, ref __e);
+            if (__e == int.MaxValue) return 0;     // every coordinate 0
+            if (!(__fits(a1, __e) && __fits(b1, __e) && __fits(c1, __e) && __fits(a2, __e) && __fits(b2, __e) && __fits(c2, __e) && __fits(a3, __e) && __fits(b3, __e) && __fits(c3, __e) && __fits(a, __e) && __fits(b, __e) && __fits(c, __e)))
+                return Orient3dTPIBig(__big(a1, __e), __big(b1, __e), __big(c1, __e), __big(a2, __e), __big(b2, __e), __big(c2, __e), __big(a3, __e), __big(b3, __e), __big(c3, __e), __big(a, __e), __big(b, __e), __big(c, __e));
+            ulong* __i0 = stackalloc ulong[2];
+            ulong* __i1 = stackalloc ulong[2];
+            ulong* __i2 = stackalloc ulong[2];
+            ulong* __i3 = stackalloc ulong[2];
+            ulong* __i4 = stackalloc ulong[2];
+            ulong* __i5 = stackalloc ulong[2];
+            ulong* __i6 = stackalloc ulong[2];
+            ulong* __i7 = stackalloc ulong[2];
+            ulong* __i8 = stackalloc ulong[2];
+            ulong* __i9 = stackalloc ulong[2];
+            ulong* __i10 = stackalloc ulong[2];
+            ulong* __i11 = stackalloc ulong[2];
+            ulong* __i12 = stackalloc ulong[2];
+            ulong* __i13 = stackalloc ulong[2];
+            ulong* __i14 = stackalloc ulong[2];
+            ulong* __i15 = stackalloc ulong[2];
+            ulong* __i16 = stackalloc ulong[2];
+            ulong* __i17 = stackalloc ulong[2];
+            ulong* __i18 = stackalloc ulong[2];
+            ulong* __i19 = stackalloc ulong[2];
+            ulong* __i20 = stackalloc ulong[2];
+            ulong* __i21 = stackalloc ulong[2];
+            ulong* __i22 = stackalloc ulong[2];
+            ulong* __i23 = stackalloc ulong[2];
+            ulong* __i24 = stackalloc ulong[2];
+            ulong* __i25 = stackalloc ulong[2];
+            ulong* __i26 = stackalloc ulong[2];
+            ulong* __i27 = stackalloc ulong[2];
+            ulong* __i28 = stackalloc ulong[2];
+            ulong* __i29 = stackalloc ulong[2];
+            ulong* __i30 = stackalloc ulong[2];
+            ulong* __i31 = stackalloc ulong[2];
+            ulong* __i32 = stackalloc ulong[2];
+            ulong* __i33 = stackalloc ulong[2];
+            ulong* __i34 = stackalloc ulong[2];
+            ulong* __i35 = stackalloc ulong[2];
+            const int __n = 1115;
             ulong* __s = stackalloc ulong[__n];
             var __ar = new FixedArena(__s, __n);
-            FixedInt b1_x = __load(b1.x, __i0);                                      // b1.x: <= m
-            FixedInt a1_x = __load(a1.x, __i1);                                      // a1.x: <= m
+            FixedInt b1_x = __align(b1.x, __e, __i0);                                // b1.x: <= m
+            FixedInt a1_x = __align(a1.x, __e, __i1);                                // a1.x: <= m
             FixedInt _v2 = FixedArith.Sub(b1_x, a1_x, ref __ar);                     // u1_x = b1.x - a1.x: <= 2 m
-            FixedInt b1_y = __load(b1.y, __i2);                                      // b1.y: <= m
-            FixedInt a1_y = __load(a1.y, __i3);                                      // a1.y: <= m
+            FixedInt b1_y = __align(b1.y, __e, __i2);                                // b1.y: <= m
+            FixedInt a1_y = __align(a1.y, __e, __i3);                                // a1.y: <= m
             FixedInt _v5 = FixedArith.Sub(b1_y, a1_y, ref __ar);                     // u1_y = b1.y - a1.y: <= 2 m
-            FixedInt b1_z = __load(b1.z, __i4);                                      // b1.z: <= m
-            FixedInt a1_z = __load(a1.z, __i5);                                      // a1.z: <= m
+            FixedInt b1_z = __align(b1.z, __e, __i4);                                // b1.z: <= m
+            FixedInt a1_z = __align(a1.z, __e, __i5);                                // a1.z: <= m
             FixedInt _v8 = FixedArith.Sub(b1_z, a1_z, ref __ar);                     // u1_z = b1.z - a1.z: <= 2 m
-            FixedInt c1_x = __load(c1.x, __i6);                                      // c1.x: <= m
+            FixedInt c1_x = __align(c1.x, __e, __i6);                                // c1.x: <= m
             FixedInt _v10 = FixedArith.Sub(c1_x, a1_x, ref __ar);                    // w1_x = c1.x - a1.x: <= 2 m
-            FixedInt c1_y = __load(c1.y, __i7);                                      // c1.y: <= m
+            FixedInt c1_y = __align(c1.y, __e, __i7);                                // c1.y: <= m
             FixedInt _v12 = FixedArith.Sub(c1_y, a1_y, ref __ar);                    // w1_y = c1.y - a1.y: <= 2 m
-            FixedInt c1_z = __load(c1.z, __i8);                                      // c1.z: <= m
+            FixedInt c1_z = __align(c1.z, __e, __i8);                                // c1.z: <= m
             FixedInt _v14 = FixedArith.Sub(c1_z, a1_z, ref __ar);                    // w1_z = c1.z - a1.z: <= 2 m
             FixedInt _v15 = FixedArith.Mul(_v5, _v14, ref __ar);                     // u1_y * w1_z: <= 4 m^2
             FixedInt _v16 = FixedArith.Mul(_v8, _v12, ref __ar);                     // u1_z * w1_y: <= 4 m^2
@@ -1008,31 +1088,31 @@ namespace g3
             FixedInt _v21 = FixedArith.Mul(_v2, _v12, ref __ar);                     // u1_x * w1_y: <= 4 m^2
             FixedInt _v22 = FixedArith.Mul(_v5, _v10, ref __ar);                     // u1_y * w1_x: <= 4 m^2
             FixedInt _v23 = FixedArith.Sub(_v21, _v22, ref __ar);                    // n1z = (u1_x * w1_y) - (u1_y * w1_x): <= 8 m^2
-            FixedInt c_x = __load(c.x, __i9);                                        // c.x: <= m
+            FixedInt c_x = __align(c.x, __e, __i9);                                  // c.x: <= m
             FixedInt _v25 = FixedArith.Sub(a1_x, c_x, ref __ar);                     // a1cx = a1.x - c.x: <= 2 m
-            FixedInt c_y = __load(c.y, __i10);                                       // c.y: <= m
+            FixedInt c_y = __align(c.y, __e, __i10);                                 // c.y: <= m
             FixedInt _v27 = FixedArith.Sub(a1_y, c_y, ref __ar);                     // a1cy = a1.y - c.y: <= 2 m
-            FixedInt c_z = __load(c.z, __i11);                                       // c.z: <= m
+            FixedInt c_z = __align(c.z, __e, __i11);                                 // c.z: <= m
             FixedInt _v29 = FixedArith.Sub(a1_z, c_z, ref __ar);                     // a1cz = a1.z - c.z: <= 2 m
             FixedInt _v30 = FixedArith.Mul(_v17, _v25, ref __ar);                    // n1x * a1cx: <= 16 m^3
             FixedInt _v31 = FixedArith.Mul(_v20, _v27, ref __ar);                    // n1y * a1cy: <= 16 m^3
             FixedInt _v32 = FixedArith.Add(_v30, _v31, ref __ar);                    // (n1x * a1cx) + (n1y * a1cy): <= 32 m^3
             FixedInt _v33 = FixedArith.Mul(_v23, _v29, ref __ar);                    // n1z * a1cz: <= 16 m^3
             FixedInt _v34 = FixedArith.Add(_v32, _v33, ref __ar);                    // D1 = ((n1x * a1cx) + (n1y * a1cy)) + (n1z * a1cz): <= 48 m^3
-            FixedInt b2_x = __load(b2.x, __i12);                                     // b2.x: <= m
-            FixedInt a2_x = __load(a2.x, __i13);                                     // a2.x: <= m
+            FixedInt b2_x = __align(b2.x, __e, __i12);                               // b2.x: <= m
+            FixedInt a2_x = __align(a2.x, __e, __i13);                               // a2.x: <= m
             FixedInt _v37 = FixedArith.Sub(b2_x, a2_x, ref __ar);                    // u2_x = b2.x - a2.x: <= 2 m
-            FixedInt b2_y = __load(b2.y, __i14);                                     // b2.y: <= m
-            FixedInt a2_y = __load(a2.y, __i15);                                     // a2.y: <= m
+            FixedInt b2_y = __align(b2.y, __e, __i14);                               // b2.y: <= m
+            FixedInt a2_y = __align(a2.y, __e, __i15);                               // a2.y: <= m
             FixedInt _v40 = FixedArith.Sub(b2_y, a2_y, ref __ar);                    // u2_y = b2.y - a2.y: <= 2 m
-            FixedInt b2_z = __load(b2.z, __i16);                                     // b2.z: <= m
-            FixedInt a2_z = __load(a2.z, __i17);                                     // a2.z: <= m
+            FixedInt b2_z = __align(b2.z, __e, __i16);                               // b2.z: <= m
+            FixedInt a2_z = __align(a2.z, __e, __i17);                               // a2.z: <= m
             FixedInt _v43 = FixedArith.Sub(b2_z, a2_z, ref __ar);                    // u2_z = b2.z - a2.z: <= 2 m
-            FixedInt c2_x = __load(c2.x, __i18);                                     // c2.x: <= m
+            FixedInt c2_x = __align(c2.x, __e, __i18);                               // c2.x: <= m
             FixedInt _v45 = FixedArith.Sub(c2_x, a2_x, ref __ar);                    // w2_x = c2.x - a2.x: <= 2 m
-            FixedInt c2_y = __load(c2.y, __i19);                                     // c2.y: <= m
+            FixedInt c2_y = __align(c2.y, __e, __i19);                               // c2.y: <= m
             FixedInt _v47 = FixedArith.Sub(c2_y, a2_y, ref __ar);                    // w2_y = c2.y - a2.y: <= 2 m
-            FixedInt c2_z = __load(c2.z, __i20);                                     // c2.z: <= m
+            FixedInt c2_z = __align(c2.z, __e, __i20);                               // c2.z: <= m
             FixedInt _v49 = FixedArith.Sub(c2_z, a2_z, ref __ar);                    // w2_z = c2.z - a2.z: <= 2 m
             FixedInt _v50 = FixedArith.Mul(_v40, _v49, ref __ar);                    // u2_y * w2_z: <= 4 m^2
             FixedInt _v51 = FixedArith.Mul(_v43, _v47, ref __ar);                    // u2_z * w2_y: <= 4 m^2
@@ -1051,20 +1131,20 @@ namespace g3
             FixedInt _v64 = FixedArith.Add(_v62, _v63, ref __ar);                    // (n2x * a2cx) + (n2y * a2cy): <= 32 m^3
             FixedInt _v65 = FixedArith.Mul(_v58, _v61, ref __ar);                    // n2z * a2cz: <= 16 m^3
             FixedInt _v66 = FixedArith.Add(_v64, _v65, ref __ar);                    // D2 = ((n2x * a2cx) + (n2y * a2cy)) + (n2z * a2cz): <= 48 m^3
-            FixedInt b3_x = __load(b3.x, __i21);                                     // b3.x: <= m
-            FixedInt a3_x = __load(a3.x, __i22);                                     // a3.x: <= m
+            FixedInt b3_x = __align(b3.x, __e, __i21);                               // b3.x: <= m
+            FixedInt a3_x = __align(a3.x, __e, __i22);                               // a3.x: <= m
             FixedInt _v69 = FixedArith.Sub(b3_x, a3_x, ref __ar);                    // u3_x = b3.x - a3.x: <= 2 m
-            FixedInt b3_y = __load(b3.y, __i23);                                     // b3.y: <= m
-            FixedInt a3_y = __load(a3.y, __i24);                                     // a3.y: <= m
+            FixedInt b3_y = __align(b3.y, __e, __i23);                               // b3.y: <= m
+            FixedInt a3_y = __align(a3.y, __e, __i24);                               // a3.y: <= m
             FixedInt _v72 = FixedArith.Sub(b3_y, a3_y, ref __ar);                    // u3_y = b3.y - a3.y: <= 2 m
-            FixedInt b3_z = __load(b3.z, __i25);                                     // b3.z: <= m
-            FixedInt a3_z = __load(a3.z, __i26);                                     // a3.z: <= m
+            FixedInt b3_z = __align(b3.z, __e, __i25);                               // b3.z: <= m
+            FixedInt a3_z = __align(a3.z, __e, __i26);                               // a3.z: <= m
             FixedInt _v75 = FixedArith.Sub(b3_z, a3_z, ref __ar);                    // u3_z = b3.z - a3.z: <= 2 m
-            FixedInt c3_x = __load(c3.x, __i27);                                     // c3.x: <= m
+            FixedInt c3_x = __align(c3.x, __e, __i27);                               // c3.x: <= m
             FixedInt _v77 = FixedArith.Sub(c3_x, a3_x, ref __ar);                    // w3_x = c3.x - a3.x: <= 2 m
-            FixedInt c3_y = __load(c3.y, __i28);                                     // c3.y: <= m
+            FixedInt c3_y = __align(c3.y, __e, __i28);                               // c3.y: <= m
             FixedInt _v79 = FixedArith.Sub(c3_y, a3_y, ref __ar);                    // w3_y = c3.y - a3.y: <= 2 m
-            FixedInt c3_z = __load(c3.z, __i29);                                     // c3.z: <= m
+            FixedInt c3_z = __align(c3.z, __e, __i29);                               // c3.z: <= m
             FixedInt _v81 = FixedArith.Sub(c3_z, a3_z, ref __ar);                    // w3_z = c3.z - a3.z: <= 2 m
             FixedInt _v82 = FixedArith.Mul(_v72, _v81, ref __ar);                    // u3_y * w3_z: <= 4 m^2
             FixedInt _v83 = FixedArith.Mul(_v75, _v79, ref __ar);                    // u3_z * w3_y: <= 4 m^2
@@ -1130,17 +1210,17 @@ namespace g3
             FixedInt _v143 = FixedArith.Add(_v141, _v142, ref __ar);                 // (D1 * e23z) + (D2 * e31z): <= 12288 m^7
             FixedInt _v144 = FixedArith.Mul(_v98, _v125, ref __ar);                  // D3 * e12z: <= 6144 m^7
             FixedInt _v145 = FixedArith.Add(_v143, _v144, ref __ar);                 // Nz = ((D1 * e23z) + (D2 * e31z)) + (D3 * e12z): <= 18432 m^7
-            FixedInt a_x = __load(a.x, __i30);                                       // a.x: <= m
+            FixedInt a_x = __align(a.x, __e, __i30);                                 // a.x: <= m
             FixedInt _v147 = FixedArith.Sub(a_x, c_x, ref __ar);                     // acx = a.x - c.x: <= 2 m
-            FixedInt a_y = __load(a.y, __i31);                                       // a.y: <= m
+            FixedInt a_y = __align(a.y, __e, __i31);                                 // a.y: <= m
             FixedInt _v149 = FixedArith.Sub(a_y, c_y, ref __ar);                     // acy = a.y - c.y: <= 2 m
-            FixedInt a_z = __load(a.z, __i32);                                       // a.z: <= m
+            FixedInt a_z = __align(a.z, __e, __i32);                                 // a.z: <= m
             FixedInt _v151 = FixedArith.Sub(a_z, c_z, ref __ar);                     // acz = a.z - c.z: <= 2 m
-            FixedInt b_x = __load(b.x, __i33);                                       // b.x: <= m
+            FixedInt b_x = __align(b.x, __e, __i33);                                 // b.x: <= m
             FixedInt _v153 = FixedArith.Sub(b_x, c_x, ref __ar);                     // bcx = b.x - c.x: <= 2 m
-            FixedInt b_y = __load(b.y, __i34);                                       // b.y: <= m
+            FixedInt b_y = __align(b.y, __e, __i34);                                 // b.y: <= m
             FixedInt _v155 = FixedArith.Sub(b_y, c_y, ref __ar);                     // bcy = b.y - c.y: <= 2 m
-            FixedInt b_z = __load(b.z, __i35);                                       // b.z: <= m
+            FixedInt b_z = __align(b.z, __e, __i35);                                 // b.z: <= m
             FixedInt _v157 = FixedArith.Sub(b_z, c_z, ref __ar);                     // bcz = b.z - c.z: <= 2 m
             FixedInt _v158 = FixedArith.Mul(_v149, _v157, ref __ar);                 // acy * bcz: <= 4 m^2
             FixedInt _v159 = FixedArith.Mul(_v151, _v155, ref __ar);                 // acz * bcy: <= 4 m^2
