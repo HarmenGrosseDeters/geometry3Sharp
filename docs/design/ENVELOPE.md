@@ -262,6 +262,41 @@ random, right-angled, sliver and degenerate triangles at scales 1, 2^-10, 1e±15
 They also check that every vertex of the polyhedron is within ε of the triangle and that some vertex is beyond 0.85 ε,
 so the polyhedron is not much smaller than the paper's.
 
+### 4.5 The triangle query and its accelerations (PR 3)
+
+`ContainsTriangle(a, b, c)` for a non-degenerate T (a degenerate one is decided by its three edges):
+- **C1:** the vertices. If one polyhedron holds all three, T is inside it (convex).
+- **C2:** `ContainsSegment`'s crossing test on each edge.
+- **C3:** the points x = T's plane ∩ F_l ∩ F_m, where F_l and F_m are facets of two different polyhedra P_i and P_j.
+  Only points that meet all of the following matter:
+  - both planes cross the open triangle (a vertex strictly on each side);
+  - the closed search boxes of P_i and P_j meet;
+  - x lies strictly inside T, tested against the planes through each edge and a point off T's plane;
+  - x is in the closure of both polyhedra (no facet strictly below it).
+
+  Each such x must lie in some polyhedron. The search tries the polyhedra that covered earlier points first (the
+  paper's cover set). Dependent planes need no test of their own: `Orient3dTPI` is 0 for them, and the strict inside
+  test drops the pair.
+
+**Why these points suffice.** Assume C1 and C2 hold.
+1. The uncovered part X of T is compact, because the polyhedra are open. It lies in the open triangle, because C1 and
+   C2 cover T's boundary.
+2. If X is not empty, take its lowest point x along a generic linear direction ℓ of T's plane. Every point near x and
+   below it (in ℓ) is covered.
+3. Let J be the polyhedra whose closure holds x. Near x, each P in J meets T's plane in an open convex cone at x, of
+   angle at most π. Together these cones cover the open lower half-disc at x.
+4. One cone cannot cover it. A cone of angle less than π cannot, and a half-plane covers it only if its boundary line
+   is orthogonal to ℓ, which a generic ℓ excludes.
+5. So two polyhedra P_i ≠ P_j in J have boundary traces through x on two distinct lines. Their facets cross the open
+   triangle, x lies in both closures and so in both boxes, and the pair is not dependent. That is a pair C3 tests,
+   and its point x is uncovered.
+6. Points from facets of a single polyhedron, or outside either closure, are never needed.
+
+Facets coplanar with T, or only touching it, have an empty or constant trace and do not matter. Several lines through
+one point are handled because any two distinct ones suffice. The test oracle (area clipping plus 1D covering of
+every facet trace and edge, exact) does not use this argument, and it agrees on every test case. These include four
+cubes meeting at a point inside T, with every combination of touching, a gap of one ulp, and an overlap of one ulp.
+
 ## 5. Acceptance
 
 - **Exactness against an oracle:** the same polyhedra, the query decided by an independent method: clipping the
@@ -299,21 +334,25 @@ Stop rule: if after PR 3 the triangle query is not within a factor of 5 of the d
 `ReducerBenchmark` cases, stop and write the finding here.
 
 **Stopped (PR 3, #268; owner decision).** The owner set the criterion: stop if the best variant stays above 5×
-`IsWithin`, or accepts clearly fewer queries than `MeshEnvelope`. Both happen, and the owner made the stop final. The
+`IsWithin`, or accepts clearly fewer queries than `MeshEnvelope`. The second clause holds for every variant (the time
+of the best one came down to about 5× with the review's speed-ups, see below), and the owner made the stop final. The
 code is kept and merges as an internal tool.
 
 Measured with `benchmarks/ReducerBenchmark queries` at a tolerance of 0.003 of the diagonal, on the triangles a
 reduction with the distance bounds produces. Each entry is triangles accepted, µs per triangle, and the factor to
 `IsWithin`:
 
-| case | `IsWithin` | `MeshEnvelope` | ε/√3 (Prop. 3.1), naive | ε/√3, accelerated | 0.8 / 0.6 prism, accelerated |
-|---|---|---|---|---|---|
-| terrain 40 × 40, 951 triangles | 951, 48 | 625, 6425 | 164, 351 | 164, 359 (7.5×) | 625, 6206 (130×) |
-| bumpy sphere, 536 triangles | 536, 229 | 258, 32826 | 41, 17175 | 41, 1708 (7.5×) | 258, 33375 (146×) |
+| case | `IsWithin` | `MeshEnvelope` | ε/√3 (Prop. 3.1), naive | ε/√3, accelerated | ε/√3, + review (2 runs) | 0.8 / 0.6 prism, accelerated |
+|---|---|---|---|---|---|---|
+| terrain 40 × 40, 951 triangles | 951, 48-53 | 625, 6425 | 164, 351 | 164, 359 (7.5×) | 164, 231 / 301 (4.4× / 5.9×) | 625, 6206 (130×) |
+| bumpy sphere, 536 triangles | 536, 229-303 | 258, 32826 | 41, 17175 | 41, 1708 (7.5×) | 41, 1263 / 1388 (5.2× / 4.6×) | 258, 33375 (146×) |
 
 - **Accelerations.** Two of the paper's: a cover set tried first, and C3 only on points in the closure of both
   polyhedra (the vertices of the boundary arrangement). A third is a box test on facet pairs. Together they make the
   query 10× faster on the bumpy sphere. The independent oracle agrees on every test case.
+- **The review's speed-ups (4.5).** No pairs within one polyhedron, and no separate `TPIDenominator` call (the strict
+  inside test already drops dependent pairs). They brought the time to 4.4-5.9× `IsWithin`, which is about the 5×
+  bound and noisy between runs. What the envelope accepts does not change: 164 of 951 and 41 of 536.
 - **What remains.** Per query on the terrain there are about 360 facet pairs whose polyhedra's boxes meet, at about
   1 µs each, and the exact stage is rare (about 1 call per query). The pair loop is the cost.
 - **Acceptance.** It is the shape's, not the algorithm's. ε/√3 reaches about 0.58 ε along the normal, and the
@@ -329,7 +368,7 @@ reduction with the distance bounds produces. Each entry is triangles accepted, �
 **Look before you build (the owner's rule, AGENT_WORKFLOW §3), recorded for PR 2 / 3 and the accelerations.**
 - **Library:**
   - Predicates: `ExactPredicates.Orient3d` for C1 and the side tests. `tools/PredicateCompiler` generates the
-    indirect predicates (LPI / TPI with filters, the prepared form, `TPIDenominator`) instead of hand-derived bounds
+    indirect predicates (LPI / TPI with filters, the prepared form) instead of hand-derived bounds
     (ROADMAP "Shared hotspots": filter bounds by hand).
   - Candidates: segments use the arrangement's `TriangleBoxTree.QuerySegment` (closed, conservative boxes).
     Triangles use a linear scan over the boxes. At 3200-10092 polyhedra it costs a few µs of the 359-1708 µs.
@@ -386,7 +425,7 @@ merging. The instrumentation sits in `TriangleDeviationBounds`; `ReducerBenchmar
     copyleft and not in the allowed licenses: not ported. The library's version was implemented from the paper.
 
 Kept on #263 / #268, internal, as a tested exact tool: `PolyhedralEnvelope` (points, segments, triangles), the
-generated indirect predicates on doubles with the prepared form, `TPIDenominator`, and the triangle oracle.
+generated indirect predicates on doubles with the prepared form, and the triangle oracle.
 `MeshEnvelope` stays as it is. For the `Reducer`, the open direction is faster distance bounds
 (`TriangleDeviationBounds`; see the BVH Hausdorff upper bounds in the literature, ROADMAP Phase 5 #2), not an
 envelope.

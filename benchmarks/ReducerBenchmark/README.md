@@ -124,10 +124,10 @@ tolerances.
 `queries` also runs `PolyhedralEnvelope.ContainsTriangle` (internal; paper polyhedra with δ = ε / √3). It now also
 reports the bumpy sphere case. Each entry is triangles accepted, then µs per triangle:
 
-| case | `IsWithin` | `MeshEnvelope` | ε/√3 naive (#268, first commit) | ε/√3 accelerated | 0.8 / 0.6 prism (measured once, 9472f19) |
-|---|---|---|---|---|---|
-| terrain 40 × 40 | 951, 48 | 625, 6425 | 164, 351 | 164, 359 | 625, 6206 |
-| bumpy sphere | 536, 229 | 258, 32826 | 41, 17175 | 41, 1708 | 258, 33375 |
+| case | `IsWithin` | `MeshEnvelope` | ε/√3 naive (#268, first commit) | ε/√3 accelerated | ε/√3 + review speed-ups (2 runs) | 0.8 / 0.6 prism (measured once, 9472f19) |
+|---|---|---|---|---|---|---|
+| terrain 40 × 40 | 951, 48-53 | 625, 6425 | 164, 351 | 164, 359 | 164, 231 / 301 | 625, 6206 |
+| bumpy sphere | 536, 229-303 | 258, 32826 | 41, 17175 | 41, 1708 | 41, 1263 / 1388 | 258, 33375 |
 
 The stop rule was not met (within 5× of `IsWithin` and no fewer accepted than `MeshEnvelope`), so the work stopped (owner decision,
 ENVELOPE.md §6).

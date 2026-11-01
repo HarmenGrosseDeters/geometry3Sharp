@@ -1,7 +1,6 @@
 // Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using g3;
@@ -202,11 +201,9 @@ namespace gs
             }
 
             // the facet {x : m . x < s} through three double points, s reduced by the margins of section 4.4
-            void add(Vector3d m, double theta) { add(m, theta, delta); }
-
-            // the facet at the offset off (at most its exact value) beyond the support
-            void add(Vector3d m, double theta, double off)
+            void add(Vector3d m, double theta)
             {
+                double off = delta;
                 if (status != EnvelopeStatus.Ready) return;
                 double h = double.NegativeInfinity, mag = 0;
                 foreach (Vector3d q in new[] { v0, v1, v2 }) {
@@ -442,11 +439,11 @@ namespace gs
                 int o1 = rel[i] * 3, p1 = rel[i] / MaxFacets;
                 for (int j = i + 1; j < rel.Count; ++j) {
                     int o2 = rel[j] * 3, p2 = rel[j] / MaxFacets;
-                    // the point is in the closure of both polyhedra (below), so in both search boxes (closed)
-                    if (p2 != p1 && boxes_meet(boxes[p1], boxes[p2]) == false) continue;
-                    // dependent planes: the two traces in the triangle's plane are parallel or equal, no single point
-                    if (IndirectPredicates.TPIDenominator(a, b, c, facets[o1], facets[o1 + 1], facets[o1 + 2],
-                            facets[o2], facets[o2 + 1], facets[o2 + 2]) == 0) continue;
+                    // only pairs of two polyhedra (ENVELOPE.md 4.5: an uncovered region's extreme point lies on traces of
+                    // two different ones), whose closures, so whose closed search boxes, both hold the point.
+                    // (Dependent planes, no single point, need no test of their own: Orient3dTPI is 0 then, and the
+                    // strict inside test below drops the pair.)
+                    if (p2 == p1 || boxes_meet(boxes[p1], boxes[p2]) == false) continue;
                     IndirectPredicates.Orient3dTPIPrepared tpi;
                     IndirectPredicates.Orient3dTPIPrepare(a, b, c, facets[o1], facets[o1 + 1], facets[o1 + 2],
                         facets[o2], facets[o2 + 1], facets[o2 + 2], out tpi);
@@ -455,7 +452,7 @@ namespace gs
                         || IndirectPredicates.Orient3dTPI(ref tpi, a, b, top) != ec) continue;
                     // only a vertex of the arrangement of the polyhedra's boundaries in the triangle matters: the point
                     // on the closure of both polyhedra (ENVELOPE.md 4.5). An uncovered region's extreme point is one.
-                    if (in_closure_tpi(p1, ref tpi) == false || (p2 != p1 && in_closure_tpi(p2, ref tpi) == false)) continue;
+                    if (in_closure_tpi(p1, ref tpi) == false || in_closure_tpi(p2, ref tpi) == false) continue;
                     // (the point is on a facet plane of p1 and of p2, so in neither); the cover set first
                     bool covered = false;
                     foreach (int p in cover)
@@ -475,7 +472,8 @@ namespace gs
                 && x.Min.z <= y.Max.z && y.Min.z <= x.Max.z;
         }
 
-        // a point strictly off the plane of the (non-degenerate) triangle
+        // a point strictly off the plane of the (non-degenerate) triangle. (a + k L n stays finite: C1 passed, so the
+        // vertices lie in polyhedra, which the construction keeps well inside the double range)
         static Vector3d apex(Vector3d a, Vector3d b, Vector3d c, Vector3d N)
         {
             Vector3d n;

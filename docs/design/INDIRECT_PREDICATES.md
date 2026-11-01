@@ -200,18 +200,8 @@ exact code (`.editorconfig`: G3E0001-3, RS0030; `ExactCodeAnalyzerTests`).
 | `Orient3dTPI` | `t1`, `t2`, `t3` | `147456 m^9` | 594 | 10 | 11 |
 | `Orient3dTPI` | `t1 - t2` | `294912 m^9` | 595 | 10 | 11 |
 | `Orient3dTPI` | the determinant (sign factor 1) | `442368 m^9` | 595 | 10 | 11 |
-| `TPIDenominator` | every input component | `m = 2^64 - 1` | 64 | 1 | |
-| `TPIDenominator` | `u1_x`, `u1_y`, `u1_z`, `w1_x`, `w1_y`, `w1_z`, `u2_x`, `u2_y`, `u2_z`, `w2_x`, `w2_y`, `w2_z`, `u3_x`, `u3_y`, `u3_z`, `w3_x`, `w3_y`, `w3_z` | `2 m` | 65 | 2 | 2 |
-| `TPIDenominator` | `u1_y * w1_z` and 17 more of its shape | `4 m^2` | 130 | 3 | 4 |
-| `TPIDenominator` | `n1x`, `n1y`, `n1z`, `n2x`, `n2y`, `n2z`, `n3x`, `n3y`, `n3z` | `8 m^2` | 131 | 3 | 4 |
-| `TPIDenominator` | `n2y * n3z` and 5 more of its shape | `64 m^4` | 262 | 5 | 6 |
-| `TPIDenominator` | `e23x`, `e23y`, `e23z` | `128 m^4` | 263 | 5 | 6 |
-| `TPIDenominator` | `n1x * e23x` and 2 more of its shape | `1024 m^6` | 394 | 7 | 8 |
-| `TPIDenominator` | `(n1x * e23x) + (n1y * e23y)` | `2048 m^6` | 395 | 7 | 8 |
-| `TPIDenominator` | the determinant | `3072 m^6` | 396 | 7 | 8 |
 | `Orient3dLPI` | scratch of one call (sum over the values; lengths only: 402) | | | 226 | 269 |
 | `Orient3dTPI` | scratch of one call (sum over the values; lengths only: 1145) | | | 574 | 677 |
-| `TPIDenominator` | scratch of one call (sum over the values; lengths only: 329) | | | 197 | 238 |
 <!-- end of the generated table -->
 
 **Tests** (`GeneratedPredicatesIndirectTests`, also on net48 except the generator checks):
