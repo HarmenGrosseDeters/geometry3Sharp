@@ -424,6 +424,8 @@ namespace g3
             foreach (int tid in mesh.VtxTrianglesItr(b)) gridRingTris.Add(tid);
             var newIds = new List<Index3i>();
             var newTris = new List<Triangle3d>();
+            var newSrc = new List<int>();
+            bool allNew = true;     // every triangle that stays is in newTris (none skipped as degenerate or not finite)
             foreach (int tid in gridRingTris) {
                 Index3i t = mesh.GetTriangle(tid);
                 bool hasA = t.a == a || t.b == a || t.c == a, hasB = t.a == b || t.b == b || t.c == b;
@@ -433,34 +435,144 @@ namespace g3
                     if (nt[k] == a || nt[k] == b) nt[k] = vKeep;
                 Triangle3d tri = new Triangle3d(
                     nt.a == vKeep ? newPos : mesh.GetVertex(nt.a), nt.b == vKeep ? newPos : mesh.GetVertex(nt.b), nt.c == vKeep ? newPos : mesh.GetVertex(nt.c));
-                if (is_finite(ref tri) == false || ExactTriangleIntersection.IsDegenerate(ref tri)) continue;
-                newIds.Add(nt); newTris.Add(tri);
+                if (is_finite(ref tri) == false || ExactTriangleIntersection.IsDegenerate(ref tri)) { allNew = false; continue; }
+                newIds.Add(nt); newTris.Add(tri); newSrc.Add(tid);
             }
+            // the candidates of the new triangles in the grid (closed boxes, outside the old one-rings)
+            candNew.Clear(); candTri.Clear();
             for (int i = 0; i < newTris.Count; ++i) {
                 Triangle3d A = newTris[i];
-                Index3i ia = newIds[i];
-                for (int j = i + 1; j < newTris.Count; ++j) {
-                    Triangle3d B = newTris[j];
-                    if (TriangleTriangleFilter.IntersectsBeyondShared(ia, ref A, newIds[j], ref B))
-                        return true;
-                }
                 AxisAlignedBox3d box = new AxisAlignedBox3d(A.V0); box.Contain(A.V1); box.Contain(A.V2);
-                bool hit = false;
+                int inew = i;
                 triangleGrid.Query(box, (tc) => {
                     // (the query has tested the closed boxes. AxisAlignedBox3d.Intersects, which is open, must not
                     // be used here: flat boxes of triangles in one axis plane never overlap by it)
-                    if (hit || gridRingTris.Contains(tc) || mesh.IsTriangle(tc) == false) return;
-                    Index3i ic = mesh.GetTriangle(tc);
-                    Triangle3d C = new Triangle3d(mesh.GetVertex(ic.a), mesh.GetVertex(ic.b), mesh.GetVertex(ic.c));
-                    // (triangles with a coordinate that is not finite are not checked: the exact tests need finite input)
-                    if (is_finite(ref C) == false || ExactTriangleIntersection.IsDegenerate(ref C)) return;
-                    if (TriangleTriangleFilter.IntersectsBeyondShared(ia, ref A, ic, ref C))
-                        hit = true;
+                    if (gridRingTris.Contains(tc) || mesh.IsTriangle(tc) == false) return;
+                    candNew.Add(inew); candTri.Add(tc);
                 });
-                if (hit)
+            }
+            // the patch certificate (SelfIntersectionPatch): the new triangles and the candidates connected to them form
+            // a disk that cannot intersect itself; the pairs within it need no test. The others are tested as before
+            bool certified = allNew && newTris.Count > 0 && candTri.Count >= PatchCertificateMinPairs
+                && certify_patch(vKeep, newPos, newIds, newTris, newSrc);
+            if (certified == false) {
+                for (int i = 0; i < newTris.Count; ++i) {
+                    Triangle3d A = newTris[i];
+                    for (int j = i + 1; j < newTris.Count; ++j) {
+                        Triangle3d B = newTris[j];
+                        if (TriangleTriangleFilter.IntersectsBeyondShared(newIds[i], ref A, newIds[j], ref B))
+                            return true;
+                    }
+                }
+            }
+            for (int k = 0; k < candTri.Count; ++k) {
+                int tc = candTri[k];
+                SelfIntersectionPatch.DBG[12]++;
+                if (certified && patchTris.Contains(tc))
+                    { SelfIntersectionPatch.DBG[13]++; continue; }
+                Index3i ic = mesh.GetTriangle(tc);
+                Triangle3d C = new Triangle3d(mesh.GetVertex(ic.a), mesh.GetVertex(ic.b), mesh.GetVertex(ic.c));
+                // (triangles with a coordinate that is not finite are not checked: the exact tests need finite input)
+                if (is_finite(ref C) == false || ExactTriangleIntersection.IsDegenerate(ref C))
+                    continue;
+                Triangle3d A = newTris[candNew[k]];
+                if (TriangleTriangleFilter.IntersectsBeyondShared(newIds[candNew[k]], ref A, ic, ref C))
                     return true;
             }
             return false;
+        }
+
+        // the patch certificate is tried from this many candidate pairs on (below, the pair tests are cheap anyway)
+        internal static int PatchCertificateMinPairs = 64;
+        readonly List<int> candNew = new List<int>(), candTri = new List<int>();
+        readonly HashSet<int> patchTris = new HashSet<int>(), candSet = new HashSet<int>();
+        readonly List<Index3i> patchIds = new List<Index3i>();
+        readonly Queue<int> patchQueue = new Queue<int>();
+        readonly HashSet<long> patchBoundary = new HashSet<long>();
+        static long ekey(int u, int w) { return ((long)u << 32) | (uint)w; }
+
+        // the patch of a collapse: the new triangles (around vKeep at newPos, wound as in the mesh), and the candidates
+        // reached from them across edges of the mesh after the collapse, through candidates that project with the same
+        // orientation. Certified by SelfIntersectionPatch with the center vKeep; on success patchTris holds its
+        // candidates
+        bool certify_patch(int vKeep, Vector3d newPos, List<Index3i> newIds, List<Triangle3d> newTris, List<int> newSrc)
+        {
+            patchTris.Clear(); patchIds.Clear(); patchQueue.Clear(); candSet.Clear();
+            foreach (int tc in candTri) candSet.Add(tc);
+            // the projection axis: the dominant axis of the new triangles' area-weighted normal (only a choice; the
+            // decisions are exact)
+            Vector3d n = Vector3d.Zero;
+            foreach (Triangle3d t in newTris)
+                n += (t.V1 - t.V0).Cross(t.V2 - t.V0);
+            double ax = Math.Abs(n.x), ay = Math.Abs(n.y), az = Math.Abs(n.z);
+            int axis = (ax >= ay && ax >= az) ? 0 : (ay >= az ? 1 : 2);
+            Func<Vector3d, Vector2d> drop = (v) => (axis == 0) ? new Vector2d(v.y, v.z) : (axis == 1) ? new Vector2d(v.z, v.x) : new Vector2d(v.x, v.y);
+            int sign = ExactPredicates.Orient2d(drop(newTris[0].V0), drop(newTris[0].V1), drop(newTris[0].V2));
+            if (sign == 0)
+                { SelfIntersectionPatch.DBG[8]++; return false; }
+            // the patch grows only by triangles that keep every boundary edge strictly counter-clockwise about the
+            // projected newPos (relative to sign), so that the star test can succeed; the others stay outside and are
+            // pair-tested
+            Vector2d z = drop(newPos);
+            // (the edges at vKeep itself, when it is on the patch's boundary, are left to the final test)
+            Func<int, int, bool> ccw = (u, w) => u == vKeep || w == vKeep || ExactPredicates.Orient2d(z, drop(u == vKeep ? newPos : mesh.GetVertex(u)), drop(w == vKeep ? newPos : mesh.GetVertex(w))) * sign > 0;
+            patchBoundary.Clear();
+            foreach (Index3i nt in newIds)
+                for (int k = 0; k < 3; ++k) {
+                    long e = ekey(nt[k], nt[(k + 1) % 3]);
+                    if (patchBoundary.Remove(ekey(nt[(k + 1) % 3], nt[k])) == false) patchBoundary.Add(e);
+                }
+            foreach (long e in patchBoundary)
+                if (ccw((int)(e >> 32), (int)(e & 0xffffffff)) == false)
+                    { SelfIntersectionPatch.DBG[9]++; return false; }
+            Func<int, bool> try_add = (tid) => {
+                if (tid == DMesh3.InvalidID) { SelfIntersectionPatch.DBG[1]++; return false; }
+                if (candSet.Contains(tid) == false) { SelfIntersectionPatch.DBG[2]++; return false; }
+                if (patchTris.Contains(tid)) return false;
+                Index3i t = mesh.GetTriangle(tid);
+                if (ExactPredicates.Orient2d(drop(mesh.GetVertex(t.a)), drop(mesh.GetVertex(t.b)), drop(mesh.GetVertex(t.c))) != sign)
+                    { SelfIntersectionPatch.DBG[3]++; return false; }
+                int shared = 0;
+                for (int k = 0; k < 3; ++k) {
+                    int u = t[k], w = t[(k + 1) % 3];
+                    if (patchBoundary.Contains(ekey(w, u))) { shared++; continue; }
+                    if (ccw(u, w) == false) { SelfIntersectionPatch.DBG[4]++; return false; }
+                }
+                if (shared == 0) { SelfIntersectionPatch.DBG[5]++; return false; }
+                for (int k = 0; k < 3; ++k) {
+                    int u = t[k], w = t[(k + 1) % 3];
+                    if (patchBoundary.Remove(ekey(w, u)) == false) patchBoundary.Add(ekey(u, w));
+                }
+                patchTris.Add(tid); patchQueue.Enqueue(tid);
+                return true;
+            };
+            Action<int> reach = (tid) => { try_add(tid); };
+            // seeds: across the edges of the new triangles not at vKeep, the neighbours of their old triangles
+            for (int i = 0; i < newIds.Count; ++i) {
+                Index3i nt = newIds[i];
+                for (int k = 0; k < 3; ++k) {
+                    int u = nt[k], w = nt[(k + 1) % 3];
+                    if (u == vKeep || w == vKeep) continue;
+                    int eid = mesh.FindEdge(u, w);
+                    if (eid == DMesh3.InvalidID) return false;
+                    Index2i et = mesh.GetEdgeT(eid);
+                    int other = (et.a == newSrc[i]) ? et.b : et.a;
+                    if (other != DMesh3.InvalidID && gridRingTris.Contains(other))
+                        return false;       // two old triangles become the two sides of one edge at vKeep: not handled
+                    reach(other);
+                }
+            }
+            // grow: a triangle refused now may fit after its neighbours joined, so the neighbours of every new member
+            // are tried again
+            while (patchQueue.Count > 0) {
+                Index3i nb = mesh.GetTriNeighbourTris(patchQueue.Dequeue());
+                reach(nb.a); reach(nb.b); reach(nb.c);
+            }
+            patchIds.AddRange(newIds);
+            SelfIntersectionPatch.DBG[14] += patchTris.Count; SelfIntersectionPatch.DBG[11] += candSet.Count;
+            foreach (int tid in patchTris) patchIds.Add(mesh.GetTriangle(tid));
+            Func<int, Vector3d> position = (v) => v == vKeep ? newPos : mesh.GetVertex(v);
+            return SelfIntersectionPatch.Certify(patchIds, position, axis, vKeep);
         }
 
         static bool is_finite(ref Triangle3d t)

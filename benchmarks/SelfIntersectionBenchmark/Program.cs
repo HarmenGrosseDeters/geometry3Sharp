@@ -94,7 +94,9 @@ static class Program
             DMesh3 mesh = new DMesh3(input);
             ResetStats();
             var sw = Stopwatch.StartNew();
+            System.Array.Clear(SelfIntersectionPatch.DBG, 0, 16);
             rejected = op(mesh);
+            Console.WriteLine("DBG " + name + ": " + string.Join(" ", SelfIntersectionPatch.DBG));
             times.Add(sw.Elapsed.TotalMilliseconds);
             string p = Fingerprint(mesh);
             if (print != null && p != print)
