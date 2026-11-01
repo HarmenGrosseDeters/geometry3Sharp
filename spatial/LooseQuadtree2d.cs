@@ -17,6 +17,11 @@ namespace g3
         double Distance(int id);
     }
 
+    internal interface IBoxSource
+    {
+        AxisAlignedBox2d Box(int index);
+    }
+
     /// <summary>
     /// An AABB snapshot index with stable insertion IDs. Queries may run concurrently, including nested
     /// queries; mutations require exclusive access. Caller-owned result lists are cleared by queries.
@@ -107,24 +112,51 @@ namespace g3
         public LooseQuadtree2d(IReadOnlyList<AxisAlignedBox2d> boxes, bool parallelBuild = true)
         {
             if (boxes == null) throw new ArgumentNullException(nameof(boxes));
-            ParallelBuild = parallelBuild;
-            entries = new Entry[boxes.Count];
             // In parallel only from what is known to allow it: another list may hold a lock, cache what it reads, or need its thread.
-            if (entries.Length > 0) extent = parallelBuild && entries.Length >= ParallelThreshold && (boxes is AxisAlignedBox2d[] || boxes.GetType() == typeof(List<AxisAlignedBox2d>)) ?
-                FillInBlocks(boxes) : Fill(boxes, 0, entries.Length);
+            var array = boxes as AxisAlignedBox2d[];
+            if (array != null) Build(new ArrayOfBoxes { Boxes = array }, array.Length, parallelBuild, parallelBuild);
+            else Build(new ListOfBoxes { Boxes = boxes }, boxes.Count, parallelBuild, parallelBuild && boxes.GetType() == typeof(List<AxisAlignedBox2d>));
+        }
+
+        LooseQuadtree2d(bool parallelBuild) { ParallelBuild = parallelBuild; }
+
+        /// <summary>A tree over the boxes of a source that can be read from several threads, without an array of them first.</summary>
+        internal static LooseQuadtree2d FromSource<T>(T source, int count, bool parallelBuild) where T : struct, IBoxSource
+        {
+            var tree = new LooseQuadtree2d(parallelBuild);
+            tree.Build(source, count, parallelBuild, parallelBuild);
+            return tree;
+        }
+
+        struct ArrayOfBoxes : IBoxSource
+        {
+            internal AxisAlignedBox2d[] Boxes;
+            public AxisAlignedBox2d Box(int index) { return Boxes[index]; }
+        }
+
+        struct ListOfBoxes : IBoxSource
+        {
+            internal IReadOnlyList<AxisAlignedBox2d> Boxes;
+            public AxisAlignedBox2d Box(int index) { return Boxes[index]; }
+        }
+
+        void Build<T>(T source, int count, bool parallelBuild, bool parallelFill) where T : struct, IBoxSource
+        {
+            ParallelBuild = parallelBuild;
+            entries = new Entry[count];
+            if (entries.Length > 0) extent = parallelFill && entries.Length >= ParallelThreshold ? FillInBlocks(source) : Fill(source, 0, entries.Length);
             Count = nextId = entries.Length;
             rootRegion = extent;
             Rebuild(parallelBuild);
         }
 
         // The entries of a range, and the bounds of their boxes. The build links them afterwards.
-        AxisAlignedBox2d Fill(IReadOnlyList<AxisAlignedBox2d> boxes, int start, int end)
+        AxisAlignedBox2d Fill<T>(T source, int start, int end) where T : struct, IBoxSource
         {
-            var array = boxes as AxisAlignedBox2d[];
             double minX = double.MaxValue, minY = double.MaxValue, maxX = -double.MaxValue, maxY = -double.MaxValue;
             for (int i = start; i < end; ++i) {
-                AxisAlignedBox2d box = array != null ? array[i] : boxes[i];
-                ValidateBox(box, nameof(boxes));
+                AxisAlignedBox2d box = source.Box(i);
+                ValidateBox(box, "boxes");
                 ref Entry entry = ref entries[i];
                 entry.Box = box;
                 if (box.Min.x < minX) minX = box.Min.x;
@@ -136,15 +168,15 @@ namespace g3
         }
 
         // Blocks are joined in order, so a tie between zeros of either sign goes as in a sequential fill.
-        AxisAlignedBox2d FillInBlocks(IReadOnlyList<AxisAlignedBox2d> boxes)
+        AxisAlignedBox2d FillInBlocks<T>(T source) where T : struct, IBoxSource
         {
             int blocks = (entries.Length + ParallelThreshold - 1) / ParallelThreshold;
             var parts = new AxisAlignedBox2d[blocks];
             try {
-                Parallel.For(0, blocks, b => parts[b] = Fill(boxes, b * ParallelThreshold, Math.Min(entries.Length, (b + 1) * ParallelThreshold)));
+                Parallel.For(0, blocks, b => parts[b] = Fill(source, b * ParallelThreshold, Math.Min(entries.Length, (b + 1) * ParallelThreshold)));
             } catch (AggregateException) {
                 // This reports the first bad box, as a sequential fill does.
-                return Fill(boxes, 0, entries.Length);
+                return Fill(source, 0, entries.Length);
             }
             AxisAlignedBox2d all = parts[0];
             for (int b = 1; b < blocks; ++b) {

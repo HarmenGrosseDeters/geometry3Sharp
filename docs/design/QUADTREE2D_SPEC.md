@@ -372,7 +372,7 @@ Independent reviews on 2026-10-31 found these. The ones of the first review were
 | "a triangle within tolerance" (2.1) | `TryGetHeight` and `stopAfterFirst` take the nearest triangle within tolerance, the lowest ID on a tie | The result depended on the traversal, so on how the tree was built |
 | "all equal for a consistent TIN" (2.1) | Equal at shared vertices. On a shared edge, heights agree up to rounding | This cannot hold for rounded interpolation |
 
-A bulk build works on one flat array of boxes and ids. It sorts that array in place into the items a node keeps and those of its four children, and links the cell lists at the end. With the top levels cut side by side as well, a parallel build took 92 ms for 1M items, was 241 ms, on .NET 10 (see the benchmark README). A parallel and a sequential build give the same tree and the same order of items. An insert that splits a cell uses the same code.
+A bulk build works on one flat array of boxes and ids. It sorts that array in place into the items a node keeps and those of its four children, and links the cell lists at the end. With the top levels cut side by side as well, a parallel build took 91 ms for 1M items, was 241 ms, on .NET 10, and an index over triangles fills its entries directly from them (see the benchmark README). A parallel and a sequential build give the same tree and the same order of items. An insert that splits a cell uses the same code.
 
 `TriangleQuadtree2d.Over(array)` builds over the caller's array instead of a copy, for callers that hold their triangles anyway. It reads that array from then on, so the caller must not change it. The first insert moves the triangles to a copy.
 
@@ -388,7 +388,7 @@ The core rejects nothing new. Removal by value and by ID no longer scans. A cell
 - A parallel build cuts the items down until a part that can still be cut holds at most an eighth of them, or 32768, and builds the parts side by side. Data gathered far inside its extent needs more of these cuts, so it takes longer: rows `parallel` and `parallel_far_point` of the benchmark. Fine data with one point at 1e18 took about 5 times as long as uniform data, in a review's run.
 - Clusters of more than 16 nearly equal items cost a chain of nodes each, down to where they separate: 1M points in clusters of 20, with noise 1e-9 in an extent of 1e5, retain 419 MB and take 328 ms in a parallel build, against 62 MB and 65 ms for clusters of 10. Exactly equal items cost nothing, as a cell of them is not split.
 - A list other than an array or a `List<T>` is read sequentially on the calling thread. Arrays and `List<T>` are read in parallel, so they must not change during the constructor.
-- The flat array costs 40 bytes per item during a build: a parallel build of 1M boxes allocates about 155 MB, was 98 MB. `Over` still needs bounds, entries and this array while it builds, about 187 bytes per triangle with its nodes, and saves 72 bytes per triangle afterwards.
+- The flat array costs 40 bytes per item during a build: a parallel build of 1M boxes allocates about 155 MB, was 98 MB. `Over` needs no more than that for its entries, this array and its nodes while it builds, and saves 72 bytes per triangle afterwards.
 
 ### Verification
 

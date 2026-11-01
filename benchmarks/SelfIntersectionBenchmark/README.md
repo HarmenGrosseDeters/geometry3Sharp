@@ -120,8 +120,57 @@ runs; the fingerprints are identical.
 On 135363 (G3PredicateStats, one run) the exact Orient3d stages go from 77673035 of 109066355 calls (71 %) to 964465 of
 6002259, the Orient2d calls from 598665409 to 138371532. What is left is mostly the grid query: the cells are sized from
 the edges of the coarse input (`Math.Max(MaxEdgeLength, mean edge)` when the grid is built), so after the refinement a
-cell holds many small triangles. Not addressed here.
+cell holds many small triangles. (Measured later and wrong as a cause, see "Where the time goes with the filter".)
 
 An earlier interleaved check (one run each, a busier machine) put the filter after the shared-vertex shortcut of
 `pair_intersects` instead: 135363 17.4 to 18.6 s, between master (48.5 to 53.2 s) and the filter first (14.9 to 16.2 s),
 so the filter goes first.
+
+## Where the time goes with the filter (1 November 2026)
+
+After #261 the exact stages are almost gone, and the remaining time is the number of candidate pairs times the cost
+per pair. Measured on master f46ce55 (the filter in the Reducer, the Remesher and `IntrTriangle3Triangle3`).
+
+**Breakdown.** `dotnet-trace` (cpu sampling) with `DOTNET_JitNoInline=1`, so that the samples are attributed to the
+right methods (the absolute times are higher without inlining; the shares are of the wall time):
+
+| | Reducer, `HarnessPlate(50, 0.5)` (7.5 s) | Remesher, 135363, 0.05 x mean edge, 5 passes (14 s) |
+|---|---:|---:|
+| the self-intersection checks | 95 % | 65 % (per edge operation) + 14 % (`first_round_reverts`, box tree, after the smoothing) |
+| grid traversal (cells, box comparisons) | 15 % | ~30 % |
+| `TriangleTriangleFilter` | 33 % | 14 % |
+| exact test of the undecided pairs | under 1 % | 4 % |
+| `ExactTriangleIntersection.IsDegenerate(C)` per candidate | 12 % | 6 % |
+| callback bookkeeping (ring exclusion `HashSet.Contains`, `GetTriangle`, `GetVertex`) | ~23 % | ~10 % |
+| GC pauses | under 1 % | ~4 % (708 MB allocated) |
+| the operation itself (reduction / remeshing) | 5 % | ~9 % (1.3 s without the check) |
+
+**Candidate counts** (instrumented, not committed):
+- Reducer, `HarnessPlate(50, 0.5)`: 123k queries, 32 M unique candidates (about 260 per query); 96 % of the scanned grid
+  entries really overlap the query box. The reduction makes long thin triangles whose boxes cover many neighbours.
+- Remesher, 135363: 431k queries, 15 M unique candidates (about 36 per query): the neighbours in the fine mesh.
+
+**Grid prototypes** (all with the same fingerprints; 135363 with the filter is 13.8 to 14.5 s, one run each):
+
+| prototype | 135363 | note |
+|---|---:|---|
+| rebuild the grid when the triangle count grows 4 times | no change | the grid is already rebuilt every pass (the mesh timestamp changes); the cell follows the mean edge 11.6 -> 1.14 over the passes |
+| cell = target edge (`MaxEdgeLength`, 0.77) | 16.7 s | scanned entries 195 M -> 134 M |
+| cell = 0.5 / 1 / 3 x median edge | 15.7 / 14.6 / 14.9 s | scanned entries 112 M / 142 M / 385 M, unique candidates 14.9 / 15.2 / 15.5 M: the time does not follow the scan |
+| boxes stored inline in the cell lists (sequential scan, same results in the same order) | 13.2 to 13.4 s | about 5 %; Reducer within noise |
+| query only the cells the triangle touches (conservative SAT in cell units) | 14.0 s | 66k of 1.4 M cells skipped |
+
+So no grid change clears the noise: the grid returns exactly the pairs with overlapping boxes, and there are many.
+
+**`IsDegenerate` prefilter.** `Math.Pow(s, 2)` in its floating-point prefilter costs about 4 times `s * s`
+(15 M calls: 475 to 651 ms against 104 to 155 ms, a microbenchmark with warm caches). With `s * s` (the same
+decisions: near the threshold the exact path also says not degenerate), alternating A/B rounds, minimum of 3: Reducer
+`HarnessPlate(50, 0.5)` 6924 -> 6325 ms (-9 %), 135363 14273 -> 13674 ms (-4 %), the tilted plate within noise. Not
+changed yet (`intersection/ExactTriangleIntersection.cs` has another owner).
+
+**Open ideas** (no upper bound measured yet):
+- (b) Reducer: a cheap conservative pre-test of a candidate against the query triangle (not only its box) before the
+  filter, to drop the sliver candidates early. A new floating-point bound, so it needs its own review.
+- (c) Remesher: do not test again the pairs whose triangles have not changed since they were last checked (an
+  incremental check). An algorithm change; the only item here with the potential of a factor.
+- Caching `IsDegenerate` per grid triangle (instead of computing it per candidate): at most the 6 to 12 % above.
