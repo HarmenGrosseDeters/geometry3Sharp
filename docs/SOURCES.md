@@ -104,7 +104,7 @@ Implemented from the papers, no code taken over.
 
 ## Minimal enclosing circle (`ContMinCircle2`)
 
-Replaces the WildMagic port. Implemented from the papers, no code taken over: E. Welzl, *Smallest enclosing disks (balls and ellipsoids)*, 1991; R. Seidel's iterative form of the randomized incremental construction.
+Replaces the WildMagic port. Implemented from the papers, no code taken over: E. Welzl, *Smallest enclosing disks (balls and ellipsoids)*, 1991. The three nested loops were derived from Welzl's recursion; no paper by Seidel was consulted for them.
 
 ## Seams, charts, cones, UV atlas (`MeshDiscCut`, `MeshChartSegmentation`, `ConeFlattening`, `UVOverlap`, `UVAtlasGenerator`)
 

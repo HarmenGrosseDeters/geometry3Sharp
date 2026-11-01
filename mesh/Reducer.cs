@@ -1245,7 +1245,8 @@ skip_to_end:
 			// relative to the size of A (trace/3 for the positive semidefinite A of plane quadrics): with area
 			// weights A is L^2 and det is L^6, so an absolute threshold refuses every small quadric. A factor on A
 			// does not change the decision while det and 1/det are in the double range; beyond that (size above about
-			// 6e102 or below about 2e-103) it refuses, as the inverse would be 0 or infinity, which is no solution.
+			// 6e102 or below about 2e-103) it refuses, as the inverse would be 0 or infinity, which is no solution. It also
+			// refuses if the solution itself is not finite, with b out of range or too large for this A.
 			// Against the old absolute threshold: the same for trace 3, otherwise (trace/3)^3 times it, so 1000 unit
 			// planes of tilt 1e-7 are refused now, which the old code solved.
 			double size = (Math.Abs(Axx) + Math.Abs(Ayy) + Math.Abs(Azz)) / 3;
@@ -1256,6 +1257,8 @@ skip_to_end:
 				double x = a11 * bx + a12 * by + a13 * bz;
 				double y = a12 * bx + a22 * by + a23 * bz;
 				double z = a13 * bx + a23 * by + a33 * bz;
+                if (MathUtil.IsFinite(x) == false || MathUtil.IsFinite(y) == false || MathUtil.IsFinite(z) == false)
+                    return false;
                 result = new Vector3d(-x, -y, -z);
                 return true;
 			} else {

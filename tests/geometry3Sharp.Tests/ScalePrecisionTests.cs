@@ -798,6 +798,87 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0.25, (double)args[4]);
         }
 
+        // a point is doubled, and the copy is falsely "outside" the circle through the original
+        public static IEnumerable<object[]> DuplicateSets()
+        {
+            yield return new object[] { new[] {
+                new Vector2d(0.5011188758076722, 0.6514758242533896), new Vector2d(0.7880659125689724, 0.9612834299734251),
+                new Vector2d(0.016571717810151966, 0.6469553055460356), new Vector2d(0.40097002098381984, 0.28854680959533285),
+                new Vector2d(0.7880659125689724, 0.9612834299734251) } };
+            yield return new object[] { new[] {
+                new Vector2d(0.5714285714285705, 0.8571428571428562), new Vector2d(0.5714285714285705, 0.8571428571428562),
+                new Vector2d(0.5714285714285714, 1.1428571428571428), new Vector2d(0.2857142857142857, 0.7142857142857143),
+                new Vector2d(1, 0.8571428571428571), new Vector2d(0.42857142857142855, 0.42857142857142855),
+                new Vector2d(1, 0.8571428571428571), new Vector2d(0.2857142857142857, 1), new Vector2d(0.2857142857142857, 1),
+                new Vector2d(0.5714285714285714, 1), new Vector2d(0.5714285714285714, 0.8571428571428571) } };
+            // not doubled exactly: two points 2 ulps apart
+            yield return new object[] { new[] {
+                new Vector2d(0.7142857142857143, 0.7142857142857143), new Vector2d(0.5714285714285714, 1.1428571428571428),
+                new Vector2d(0.7142857142857145, 0.2857142857142857), new Vector2d(1, 0.5714285714285714),
+                new Vector2d(0.7142857142857143, 0.2857142857142857), new Vector2d(1.1428571428571428, 1),
+                new Vector2d(1, 0.8571428571428571) } };
+        }
+
+        [Theory]
+        [MemberData(nameof(DuplicateSets))]
+        public void MinCircle_CopyOfASupportPoint_KeepsTheThirdPoint(Vector2d[] input)
+        {
+            // Without the skip of copies, with a slack of 4 eps: the first set had radius 0.51557, exact 0.42763. The copy was
+            // falsely outside by 1e-15, its triple has det = 0, and the circle over the edge dropped the third point.
+            foreach (Similarity s in Similarity.All()) {
+                var s2 = new Similarity2(s);
+                Vector2d[] points = input.Select(s2.Apply).ToArray();
+                double tol = 32 * s.Scale * s.Resolution(2);
+                AssertMinimal(points, new ContMinCircle2(points).Result, tol, 1e5 * tol, s.Name);
+            }
+        }
+
+        [Theory]
+        [InlineData(48, 8)]     // outside the slack: the circle through the apex, radius 1 + delta^2
+        [InlineData(16, 40)]    // inside the slack of 16 eps of the extent (2), so 32 eps: the radius grows to reach the apex
+        public void MinCircle_ThePointOutsideTheSlack_IsNotIgnored(int deltaEps, int excessEps)
+        {
+            // (-1, 0), (1, 0) and an apex at 1 + delta: the circle through all three has radius about 1, whereas leaving the
+            // center on the edge has 1 + delta.
+            Vector2d a = new Vector2d(-1, 0), b = new Vector2d(1, 0), c = new Vector2d(0, 1 + deltaEps * MathUtil.Epsilon);
+            foreach (Vector2d[] points in new[] {
+                new[] { a, b, c }, new[] { a, c, b }, new[] { b, a, c }, new[] { b, c, a }, new[] { c, a, b }, new[] { c, b, a } }) {
+                Circle2d result = new ContMinCircle2(points).Result;
+                double excess = result.Radius - new ExactCircle(points).Radius;
+                Assert.True(excess <= excessEps * MathUtil.Epsilon, $"excess {excess / MathUtil.Epsilon} eps");
+                Assert.True(result.Contains(a) && result.Contains(b) && result.Contains(c));
+            }
+        }
+
+        public static IEnumerable<object[]> SortedSetNames()
+        {
+            foreach (string name in new[] { "line", "half circle", "parabola" })
+                yield return new object[] { name };
+        }
+
+        static Vector2d[] SortedSet(string name, int n)
+        {
+            return Enumerable.Range(0, n).Select(i => {
+                double t = (double)i / n;
+                return name == "line" ? new Vector2d(t, 0.5 * t)
+                    : name == "half circle" ? new Vector2d(Math.Cos(Math.PI * t), Math.Sin(Math.PI * t))
+                    : new Vector2d(t, t * t);
+            }).ToArray();
+        }
+
+        [Theory]
+        [MemberData(nameof(SortedSetNames))]
+        public void MinCircle_SortedInput_TestsPerPointStayBounded(string name)
+        {
+            // Sorted input is the worst order for the incremental loops: without the shuffle every point is outside, so it is
+            // quadratic or worse. Counted, not timed, as other jobs may share the machine.
+            // (per point at n and 4n, not their ratio: a single shuffle at 1000 can be lucky, 1.6 tests per point on these sets)
+            foreach (int n in new[] { 1000, 4000 }) {
+                long tests = new ContMinCircle2(SortedSet(name, n)).ContainsTests;
+                Assert.True(tests <= 40 * n, $"{tests} tests for {n} points");
+            }
+        }
+
         [Fact]
         public void MinCircle_ReusesNoState_ComputedTwiceFromTheSameInput()
         {
@@ -886,13 +967,18 @@ namespace geometry3Sharp.Tests
         {
             // orthogonal planes with weights w, 1, 1 through (1, 2, 3): det / (trace/3)^3 is about 27 / w^2. The price of a
             // threshold that also refuses nearly coplanar normals, whose diagonal can look just as uneven.
+            // The boundary is at 1.1e7.
             Func<double, QuadricError> planes = w => new QuadricError { Axx = w, Ayy = 1, Azz = 1, bx = -w, by = -2, bz = -3 };
             Vector3d result = Vector3d.Zero;
-            QuadricError accepted = planes(1e6);
-            Assert.True(accepted.OptimalPoint(ref result));
-            Assert.Equal(new Vector3d(1, 2, 3), result);
-            QuadricError refused = planes(1e8);
-            Assert.False(refused.OptimalPoint(ref result));
+            foreach (double weight in new[] { 1e6, 1e7 }) {
+                QuadricError accepted = planes(weight);
+                Assert.True(accepted.OptimalPoint(ref result), $"{weight}");
+                Assert.True(result.Distance(new Vector3d(1, 2, 3)) <= 8 * MathUtil.Epsilon, $"{weight}: {result}");
+            }
+            foreach (double weight in new[] { 2e7, 1e8 }) {
+                QuadricError refused = planes(weight);
+                Assert.False(refused.OptimalPoint(ref result), $"{weight}");
+            }
         }
 
         // Normals within angle a of the xy plane: A is (N/3) times that of the first three, whose det/(trace/3)^3 is about 5 a^2.
@@ -964,6 +1050,52 @@ namespace geometry3Sharp.Tests
         public void QuadricOptimalPoint_SizesWithoutAUsableInverse_AreRefused(double weight)
         {
             QuadricError q = ScaledIdentityQuadric(weight);
+            Vector3d result = new Vector3d(9, 9, 9);
+            Assert.False(q.OptimalPoint(ref result), $"{result}");
+            Assert.Equal(new Vector3d(9, 9, 9), result);
+        }
+
+        [Fact]
+        public void QuadricOptimalPoint_OneSmallEigenvalue_IsAcceptedAtACondition1e13()
+        {
+            // The documented asymmetry: a condition of 2e7 from one large eigenvalue is refused (the test above).
+            QuadricError q = new QuadricError { Axx = 1, Ayy = 1, Azz = 1e-13, bx = -1, by = -2, bz = -3e-13 };
+            Vector3d result = Vector3d.Zero;
+            Assert.True(q.OptimalPoint(ref result));
+            Assert.True(result.Distance(new Vector3d(1, 2, 3)) <= 1e-12, $"{result}");
+        }
+
+        [Fact]
+        public void QuadricOptimalPoint_NegativeDeterminant_IsSolved()
+        {
+            QuadricError q = new QuadricError { Axx = -1, Ayy = -1, Azz = -1, bx = 1, by = 2, bz = 3 };
+            Vector3d result = Vector3d.Zero;
+            Assert.True(q.OptimalPoint(ref result));
+            Assert.Equal(new Vector3d(1, 2, 3), result);
+        }
+
+        [Fact]
+        public void QuadricOptimalPoint_NegativeDiagonal_SizeIsNotTheSignedTrace()
+        {
+            // det = -1e-14 against the absolute diagonal (size 2/3): nearly singular. The signed trace would be 1e-14, and accept it.
+            QuadricError q = new QuadricError { Axx = 1, Ayy = -1, Azz = 1e-14, bx = 1, by = 2, bz = 3 };
+            Vector3d result = new Vector3d(9, 9, 9);
+            Assert.False(q.OptimalPoint(ref result), $"{result}");
+            Assert.Equal(new Vector3d(9, 9, 9), result);
+        }
+
+        [Theory]
+        [InlineData(0.5, 1e308, 1, 1)]
+        [InlineData(0.5, 1, 1e308, 1)]
+        [InlineData(0.5, 1, 1, 1e308)]
+        [InlineData(0.5, 1e308, 1e308, 1e308)]
+        [InlineData(1, double.PositiveInfinity, 0, 0)]
+        [InlineData(1, double.NaN, 0, 0)]
+        [InlineData(1, 0, double.NegativeInfinity, 0)]
+        [InlineData(1, 0, 0, double.NaN)]
+        public void QuadricOptimalPoint_NonFiniteSolution_IsRefused(double weight, double bx, double by, double bz)
+        {
+            QuadricError q = new QuadricError { Axx = weight, Ayy = weight, Azz = weight, bx = bx, by = by, bz = bz };
             Vector3d result = new Vector3d(9, 9, 9);
             Assert.False(q.OptimalPoint(ref result), $"{result}");
             Assert.Equal(new Vector3d(9, 9, 9), result);
@@ -1071,6 +1203,41 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void PlaneTarget_FiniteHitWhoseCoordinatesSumToInfinity_IsAHit()
+        {
+            var target = new PlaneIntersectionTarget() { PlaneFrame = new Frame3f(new Vector3f(0, 0, 0)) };
+            Vector3d hit, normal;
+            Assert.True(target.RayIntersect(new Ray3d(new Vector3d(1e308, 1e308, 1), new Vector3d(0, 0, -1), true), out hit, out normal));
+            Assert.Equal(new Vector3d(1e308, 1e308, 0), hit);
+        }
+
+        [Theory]
+        [InlineData(2, 1.7e308, 0, 1e308, 0.6, 0, -0.8)]    // only x overflows
+        [InlineData(2, 0, 1.7e308, 1e308, 0, 0.6, -0.8)]    // only y
+        [InlineData(0, 1e308, 0, 1.7e308, -0.8, 0, 0.6)]    // only z
+        public void PlaneTarget_HitBeyondTheDoubleRange_NoHit(int axis, double ox, double oy, double oz, double dx, double dy, double dz)
+        {
+            var target = new PlaneIntersectionTarget() { PlaneFrame = new Frame3f(new Vector3f(0, 0, 0)), NormalAxis = axis };
+            Vector3d hit, normal;
+            Assert.False(target.RayIntersect(new Ray3d(new Vector3d(ox, oy, oz), new Vector3d(dx, dy, dz), true), out hit, out normal));
+            Assert.Equal((Vector3d)Vector3f.Invalid, hit);
+        }
+
+        [Fact]
+        public void PlaneTarget_NearlyParallelRay_ThresholdOnBothSides()
+        {
+            // the threshold on the direction's part along the normal is 1e-6
+            var target = new PlaneIntersectionTarget() { PlaneFrame = new Frame3f(new Vector3f(0, 0, 0)) };
+            Vector3d hit, normal;
+            double d = 1e-4;
+            Assert.True(target.RayIntersect(new Ray3d(new Vector3d(0, 0, 1), new Vector3d(Math.Sqrt(1 - d * d), 0, -d), true), out hit, out normal));
+            Assert.True(Math.Abs(hit.z) <= 1e-11 && Math.Abs(hit.x - 1e4) <= 1, $"hit {hit}");
+            d = 1e-7;
+            Assert.False(target.RayIntersect(new Ray3d(new Vector3d(0, 0, 1), new Vector3d(Math.Sqrt(1 - d * d), 0, -d), true), out hit, out normal));
+            Assert.Equal((Vector3d)Vector3f.Invalid, hit);
+        }
+
+        [Fact]
         public void PlaneTarget_ParallelRay_NoHit()
         {
             var target = new PlaneIntersectionTarget() { PlaneFrame = new Frame3f(new Vector3f(0, 0, 3)) };
@@ -1084,6 +1251,7 @@ namespace geometry3Sharp.Tests
         [InlineData(double.NaN, 0, 10, 0, 0, -1)]
         [InlineData(0, 0, double.PositiveInfinity, 0, 0, -1)]
         [InlineData(0, 0, 10, double.NaN, 0, -1)]
+        [InlineData(0, double.NaN, 10, 0, 0, -1)]
         public void PlaneTarget_NonFiniteRay_NoHit(double ox, double oy, double oz, double dx, double dy, double dz)
         {
             var target = new PlaneIntersectionTarget() { PlaneFrame = new Frame3f(new Vector3f(0, 0, 3)) };

@@ -7,10 +7,11 @@ namespace g3
 {
     /// <summary>
     /// Fit minimal bounding-circle to a set of 2D points.
-    /// Incremental construction in random order (Welzl 1991, in the iterative form of Seidel), expected O(N), on the points
+    /// Incremental construction in random order (Welzl 1991, written as three nested loops), expected O(N), on the points
     /// translated to the first one and scaled by a power of two of their extent. So the decisions depend on neither the
-    /// position nor the size of the set, and any finite coordinates work.
-    /// The radius is within a few rounding errors of the minimal one, plus the rounding of the center to a coordinate.
+    /// position nor the size of the set, and any finite coordinates work. One limit: with a coordinate at or above 2^1021,
+    /// all coordinates are first divided by 4, which rounds away the last two units of a subnormal coordinate in that set.
+    /// The radius is up to about 16 eps of the extent above the minimal one, plus the rounding of the center to a coordinate.
     /// Circle2d.Contains is true for every input point, as long as the radius is above about 1e-150: below that, squared
     /// distances lose bits as subnormal numbers (and from about 1e-162 they are 0, so Contains is simply true).
     /// A radius above the double range is +Infinity.
@@ -26,12 +27,16 @@ namespace g3
         const double LargeCoordinate = 2.2471164185778949e307;
 
         double mEpsilon;
+        internal long ContainsTests;    // for the complexity test
 
         public Circle2d Result;
 
         /// <param name="epsilon">Dimensionless (it was an absolute squared length in upstream): three points are treated as
         /// collinear if the sine of their triangle's largest angle is at most this, and the circle over their longest edge
-        /// is used, which is the minimal one for such an obtuse triangle. Negative or NaN mean the default.</param>
+        /// is used. Below about 0.866 this takes only obtuse triangles, for which that circle is the minimal one. From about
+        /// 0.866 (the sine of 60 degrees, the least that the largest angle of an acute triangle can have) it also takes acute
+        /// triangles: the result still contains every point but is not minimal, with no error or status, which is what an
+        /// upstream caller gets who passes a large absolute epsilon. Negative or NaN mean the default.</param>
         public ContMinCircle2(IList<Vector2d> pointsIn, double epsilon = 1e-05) {
             mEpsilon = (epsilon >= 0) ? epsilon : DefaultEpsilon;
             int numPoints = pointsIn.Count;
@@ -82,12 +87,14 @@ namespace g3
                 center = p[i];
                 radiusSqr = 0;
                 for (int j = 0; j < i; ++j) {
-                    if (Contains(p[j], center, radiusSqr))
+                    if (Contains(p[j], center, radiusSqr) || p[j] == p[i])
                         continue;
                     // p[i] and p[j] are on the boundary of the minimal circle of p[0..j] and p[i]
                     CircleOverEdge(p[i], p[j], out center, out radiusSqr);
                     for (int k = 0; k < j; ++k) {
-                        if (Contains(p[k], center, radiusSqr) == false)
+                        // A copy of p[i] or p[j] is on this circle, so "outside" is only rounding. With it the three points
+                        // are collinear (det = 0), and the circle over their edge would drop the third point of the circle.
+                        if (Contains(p[k], center, radiusSqr) == false && p[k] != p[i] && p[k] != p[j])
                             CircleThrough(p[i], p[j], p[k], out center, out radiusSqr);
                     }
                 }
@@ -124,8 +131,9 @@ namespace g3
             return (int)((BitConverter.DoubleToInt64Bits(x * 18446744073709551616.0) >> 52) & 0x7FF) - 1023 - 64;    // subnormal: times 2^64
         }
 
-        static bool Contains(Vector2d point, Vector2d center, double radiusSqr)
+        bool Contains(Vector2d point, Vector2d center, double radiusSqr)
         {
+            ++ContainsTests;
             double allowed = Math.Sqrt(radiusSqr) + RoundingSlack;
             return point.DistanceSquared(center) <= allowed * allowed;
         }

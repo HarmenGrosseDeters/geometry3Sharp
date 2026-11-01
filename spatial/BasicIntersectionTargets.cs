@@ -78,13 +78,15 @@ namespace g3
         public bool RayIntersect(Ray3d ray, out Vector3d vHit, out Vector3d vHitNormal)
         {
             // in double (Frame3f.RayPlaneIntersection casts the ray to float); the frame itself stays float, so its
-            // origin is only as exact as float at these coordinates
+            // origin is only as exact as float at these coordinates. The hit is a Vector3d: one beyond the double range
+            // returns false with vHit = Vector3f.Invalid, and a caller that casts a hit to float rounds or overflows it there.
             Vector3d normal = PlaneFrame.GetAxis(NormalAxis);
             vHitNormal = normal;
             double div = ray.Direction.Dot(normal);
             if (Math.Abs(div) > MathUtil.ZeroTolerancef) {
                 vHit = ray.Origin + (((Vector3d)PlaneFrame.Origin - ray.Origin).Dot(normal) / div) * ray.Direction;
-                if (vHit.IsFinite)
+                // per component: Vector3d.IsFinite sums them, and the sum can overflow for a finite hit
+                if (MathUtil.IsFinite(vHit.x) && MathUtil.IsFinite(vHit.y) && MathUtil.IsFinite(vHit.z))
                     return true;
             }
             vHit = Vector3f.Invalid;
