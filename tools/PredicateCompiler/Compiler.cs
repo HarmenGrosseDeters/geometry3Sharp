@@ -599,6 +599,7 @@ namespace G3PredicateCompiler
             sb.Append($"{I1}/// values that depend on them only, with m~ </summary>\n");
             sb.Append($"{I1}internal struct {st}\n{I1}{{\n");
             sb.Append($"{I2}internal Vector3d {string.Join(", ", p.Prepare)};\n");
+            sb.Append($"{I2}internal bool Ready;    // set by {p.Name}Prepare: a default struct is rejected by the call\n");
             sb.Append($"{I2}internal bool Gate;     // the prepared points within the filter's range\n");
             if (keep.Count > 0)
                 sb.Append($"{I2}internal double {string.Join(", ", keep.Select(n => $"{val(n)}, m{val(n)}"))};\n");
@@ -610,6 +611,7 @@ namespace G3PredicateCompiler
             sb.Append($"{I2}if (!({string.Join(" && ", p.Prepare.Select(x => $"__finite({x})"))}))\n");
             sb.Append($"{I2}    throw new ArgumentException(\"{p.Name}: the coordinates must be finite\");\n");
             sb.Append($"{I2}__s = default({st});\n");
+            sb.Append($"{I2}__s.Ready = true;\n");
             foreach (var x in p.Prepare) sb.Append($"{I2}__s.{x} = {x};\n");
             sb.Append($"{I2}__s.Gate = {string.Join(" && ", p.Prepare.Select(x => $"__gate({x}, {lo}, {hi})"))};\n");
             sb.Append($"{I2}if (!__s.Gate) return;\n");
@@ -620,6 +622,8 @@ namespace G3PredicateCompiler
             sb.Append($"{I1}/// <summary> {p.Name}(prepared, {string.Join(", ", others)}): the same sign as the unsplit predicate </summary>\n");
             sb.Append($"{I1}[MethodImpl(JitHints.Optimize)]\n");
             sb.Append($"{I1}internal static int {p.Name}(ref {st} __s, {string.Join(", ", others.Select(x => "Vector3d " + x))})\n{I1}{{\n");
+            sb.Append($"{I2}if (!__s.Ready)\n");
+            sb.Append($"{I2}    throw new InvalidOperationException(\"{p.Name}: the struct was not prepared ({p.Name}Prepare)\");\n");
             sb.Append($"{I2}if (!({string.Join(" && ", others.Select(x => $"__finite({x})"))}))\n");
             sb.Append($"{I2}    throw new ArgumentException(\"{p.Name}: the coordinates must be finite\");\n");
             sb.Append($"{I2}if (__s.Gate && {string.Join(" && ", others.Select(x => $"__gate({x}, {lo}, {hi})"))}) {{\n");
@@ -628,7 +632,8 @@ namespace G3PredicateCompiler
             sb.Append($"{I2}}}\n");
             sb.Append($"{I2}return {p.Name}Exact({string.Join(", ", p.Points.Select(x => p.Prepare.Contains(x) ? "__s." + x : x))});\n{I1}}}\n\n");
             // the filter part of the call
-            sb.Append($"{I1}/// <summary> the filter of {p.Name} on prepared values: as {p.Name}Filter, bit for bit </summary>\n");
+            sb.Append($"{I1}/// <summary> the filter of {p.Name} on prepared values: as {p.Name}Filter, bit for bit; requires a prepared struct\n");
+            sb.Append($"{I1}/// with Gate and every point within the gate (the call checks both) </summary>\n");
             sb.Append($"{I1}[MethodImpl(JitHints.Optimize)]\n");
             sb.Append($"{I1}internal static int {p.Name}FilterPrepared(ref {st} __s, {string.Join(", ", others.Select(x => "Vector3d " + x))})\n{I1}{{\n");
             foreach (var n in keep) sb.Append($"{I2}double {val(n)} = __s.{val(n)}, m{val(n)} = __s.m{val(n)};\n");

@@ -473,6 +473,7 @@ namespace g3
         internal struct Orient3dLPIPrepared
         {
             internal Vector3d p, q, r, s, t;
+            internal bool Ready;    // set by Orient3dLPIPrepare: a default struct is rejected by the call
             internal bool Gate;     // the prepared points within the filter's range
             internal double _v40, m_v40, _v45, m_v45, _v46, m_v46;
         }
@@ -484,6 +485,7 @@ namespace g3
             if (!(__finite(p) && __finite(q) && __finite(r) && __finite(s) && __finite(t)))
                 throw new ArgumentException("Orient3dLPI: the coordinates must be finite");
             __s = default(Orient3dLPIPrepared);
+            __s.Ready = true;
             __s.p = p;
             __s.q = q;
             __s.r = r;
@@ -547,6 +549,8 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         internal static int Orient3dLPI(ref Orient3dLPIPrepared __s, Vector3d a, Vector3d b, Vector3d c)
         {
+            if (!__s.Ready)
+                throw new InvalidOperationException("Orient3dLPI: the struct was not prepared (Orient3dLPIPrepare)");
             if (!(__finite(a) && __finite(b) && __finite(c)))
                 throw new ArgumentException("Orient3dLPI: the coordinates must be finite");
             if (__s.Gate && __gate(a, 3.0814879110195774e-33, 2.3384026197294447e+49) && __gate(b, 3.0814879110195774e-33, 2.3384026197294447e+49) && __gate(c, 3.0814879110195774e-33, 2.3384026197294447e+49)) {
@@ -556,7 +560,8 @@ namespace g3
             return Orient3dLPIExact(__s.p, __s.q, __s.r, __s.s, __s.t, a, b, c);
         }
 
-        /// <summary> the filter of Orient3dLPI on prepared values: as Orient3dLPIFilter, bit for bit </summary>
+        /// <summary> the filter of Orient3dLPI on prepared values: as Orient3dLPIFilter, bit for bit; requires a prepared struct
+        /// with Gate and every point within the gate (the call checks both) </summary>
         [MethodImpl(JitHints.Optimize)]
         internal static int Orient3dLPIFilterPrepared(ref Orient3dLPIPrepared __s, Vector3d a, Vector3d b, Vector3d c)
         {
@@ -1401,6 +1406,7 @@ namespace g3
         internal struct Orient3dTPIPrepared
         {
             internal Vector3d a1, b1, c1, a2, b2, c2, a3, b3, c3;
+            internal bool Ready;    // set by Orient3dTPIPrepare: a default struct is rejected by the call
             internal bool Gate;     // the prepared points within the filter's range
             internal double _v17, m_v17, _v20, m_v20, _v23, m_v23, _v52, m_v52, _v55, m_v55, _v58, m_v58, _v84, m_v84, _v87, m_v87, _v90, m_v90, _v101, m_v101, _v104, m_v104, _v107, m_v107, _v110, m_v110, _v113, m_v113, _v116, m_v116, _v119, m_v119, _v122, m_v122, _v125, m_v125, _v130, m_v130;
         }
@@ -1412,6 +1418,7 @@ namespace g3
             if (!(__finite(a1) && __finite(b1) && __finite(c1) && __finite(a2) && __finite(b2) && __finite(c2) && __finite(a3) && __finite(b3) && __finite(c3)))
                 throw new ArgumentException("Orient3dTPI: the coordinates must be finite");
             __s = default(Orient3dTPIPrepared);
+            __s.Ready = true;
             __s.a1 = a1;
             __s.b1 = b1;
             __s.c1 = c1;
@@ -1552,6 +1559,8 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         internal static int Orient3dTPI(ref Orient3dTPIPrepared __s, Vector3d a, Vector3d b, Vector3d c)
         {
+            if (!__s.Ready)
+                throw new InvalidOperationException("Orient3dTPI: the struct was not prepared (Orient3dTPIPrepare)");
             if (!(__finite(a) && __finite(b) && __finite(c)))
                 throw new ArgumentException("Orient3dTPI: the coordinates must be finite");
             if (__s.Gate && __gate(a, 5.551115123125783e-17, 6.490371073168535e+32) && __gate(b, 5.551115123125783e-17, 6.490371073168535e+32) && __gate(c, 5.551115123125783e-17, 6.490371073168535e+32)) {
@@ -1561,7 +1570,8 @@ namespace g3
             return Orient3dTPIExact(__s.a1, __s.b1, __s.c1, __s.a2, __s.b2, __s.c2, __s.a3, __s.b3, __s.c3, a, b, c);
         }
 
-        /// <summary> the filter of Orient3dTPI on prepared values: as Orient3dTPIFilter, bit for bit </summary>
+        /// <summary> the filter of Orient3dTPI on prepared values: as Orient3dTPIFilter, bit for bit; requires a prepared struct
+        /// with Gate and every point within the gate (the call checks both) </summary>
         [MethodImpl(JitHints.Optimize)]
         internal static int Orient3dTPIFilterPrepared(ref Orient3dTPIPrepared __s, Vector3d a, Vector3d b, Vector3d c)
         {
