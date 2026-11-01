@@ -1,0 +1,231 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using g3;
+using gs;
+using Xunit;
+
+namespace geometry3Sharp.Tests
+{
+    /// <summary>
+    /// Remesher.PreventSelfIntersections (opt-in): collapses, flips, the curve projection of split vertices and the
+    /// buffered smoothing and projection moves are rejected if they make triangles intersect (exactly, as
+    /// MeshRepairMetrics.SelfIntersections counts). With the g3cli remesh settings the remesher otherwise leaves
+    /// self-intersecting pairs on primitives (at the rim where a flat cap meets the side), gears and Thingi10K meshes
+    /// (benchmarks/RemeshQualityBenchmark).
+    /// </summary>
+    public class RemesherSelfIntersectionTests
+    {
+        static double MeanEdge(DMesh3 m)
+        {
+            return m.EdgeIndices().Average(e => { Index2i ev = m.GetEdgeV(e); return m.GetVertex(ev.a).Distance(m.GetVertex(ev.b)); });
+        }
+
+        static DMesh3 Cone(int slices) =>
+            new ConeGenerator() { BaseRadius = 1f, Height = 2f, Slices = slices, NoSharedVertices = false }.Generate().MakeDMesh();
+        static DMesh3 Taper(int slices) =>
+            new CappedCylinderGenerator() { BaseRadius = 1f, TopRadius = 0.3f, Height = 1f, Slices = slices, NoSharedVertices = false }.Generate().MakeDMesh();
+
+        // an extruded gear with fan caps and collinear points on the flanks (as in RemesherQualityTests)
+        static DMesh3 Gear(int teeth, double height, int pointsPerSide)
+        {
+            var poly = new List<Vector2d>();
+            for (int k = 0; k < teeth; ++k) {
+                double a0 = 2 * Math.PI * k / teeth, da = 2 * Math.PI / teeth;
+                foreach (var (f, r) in new[] { (0.0, 0.8), (0.2, 1.0), (0.5, 1.0), (0.7, 0.8) })
+                    poly.Add(r * new Vector2d(Math.Cos(a0 + f * da), Math.Sin(a0 + f * da)));
+            }
+            var outline = new List<Vector2d>();
+            for (int i = 0; i < poly.Count; ++i)
+                for (int k = 0; k < pointsPerSide; ++k)
+                    outline.Add(Vector2d.Lerp(poly[i], poly[(i + 1) % poly.Count], (double)k / pointsPerSide));
+            var m = new DMesh3();
+            int n = outline.Count;
+            int cb = m.AppendVertex(new Vector3d(0, 0, 0)), ct = m.AppendVertex(new Vector3d(0, 0, height));
+            int[] b = outline.Select(p => m.AppendVertex(new Vector3d(p.x, p.y, 0))).ToArray();
+            int[] t = outline.Select(p => m.AppendVertex(new Vector3d(p.x, p.y, height))).ToArray();
+            for (int i = 0; i < n; ++i) {
+                int j = (i + 1) % n;
+                m.AppendTriangle(cb, b[j], b[i]); m.AppendTriangle(ct, t[i], t[j]);
+                m.AppendTriangle(b[i], b[j], t[j]); m.AppendTriangle(b[i], t[j], t[i]);
+            }
+            return m;
+        }
+
+        // as g3cli remesh (20 passes, smoothing 0.5, projection onto the input, 30 degree creases)
+        static DMesh3 Remesh(DMesh3 input, double edge, double minQuality, bool prevent, bool parallel = true, bool pro = false, Remesher[] used = null)
+        {
+            DMesh3 mesh = new DMesh3(input);
+            Remesher r = pro ? new RemesherPro(mesh) : new Remesher(mesh);
+            r.SmoothSpeedT = 0.5;
+            r.MinTriangleQuality = minQuality;
+            r.PreventSelfIntersections = prevent;
+            r.EnableParallelSmooth = r.EnableParallelProjection = parallel;
+            r.SetProjectionTarget(MeshProjectionTarget.Auto(input));
+            MeshConstraintUtil.PreserveBoundaryAndFeatures(r, 30);
+            r.SetTargetEdgeLength(edge);
+            for (int k = 0; k < 20; ++k) {
+                if (pro) ((RemesherPro)r).RemeshIteration();
+                else r.BasicRemeshPass();
+            }
+            if (used != null) used[0] = r;
+            return mesh;
+        }
+
+        [Fact]
+        public void Default_IsOff()
+        {
+            Assert.False(new Remesher(new DMesh3()).PreventSelfIntersections);
+        }
+
+        // cases of benchmarks/RemeshQualityBenchmark with self-intersecting pairs in the result: name, input, target / mean edge, quality
+        static IEnumerable<(string, DMesh3, double, double)> Cases()
+        {
+            yield return ("taper16_x0.1 q0.2", Taper(16), 0.1, 0.2);
+            yield return ("taper10_x0.15 q0", Taper(10), 0.15, 0);
+            yield return ("cone24_x0.6 q0.2", Cone(24), 0.6, 0.2);
+            yield return ("cone12_x0.15 q0", Cone(12), 0.15, 0);
+            yield return ("gear24_3_x1 q0", Gear(24, 0.2, 3), 1.0, 0);
+            yield return ("gear40_1_x1 q0", Gear(40, 0.25, 1), 1.0, 0);
+        }
+
+        [Fact]
+        public void Primitives_NoSelfIntersections()
+        {
+            int pairsWithout = 0;
+            foreach (var (name, input, f, q) in Cases()) {
+                Assert.Equal(0, MeshRepairMetrics.SelfIntersections(input));
+                double edge = f * MeanEdge(input);
+                var used = new Remesher[1];
+                DMesh3 mesh = Remesh(input, edge, q, true, used: used);
+                Assert.Equal(0, MeshRepairMetrics.SelfIntersections(mesh));
+                Assert.True(mesh.IsClosed(), name);
+                Assert.Empty(MeshIterators.BowtieVertices(mesh));
+                Assert.Equal(0, MeshRepairMetrics.InconsistentlyOrientedEdges(mesh));
+                Assert.Empty(MeshPostRepairCleanup.FindInvertedComponents(mesh));
+                Assert.True(mesh.Vertices().All(v => v.IsFinite), name);
+                if (q > 0)      // with the quality guard no degenerate triangles either: clean
+                    Assert.Equal("", MeshRobustRepair.NotCleanReasons(mesh, true));
+                Assert.True(used[0].SelfIntersectionsRejected > 0, name);
+                // still a remesh of the input: refined or coarsened towards the target, near the input
+                Assert.True(mesh.TriangleCount != input.TriangleCount, name);
+                var hd = new MeshHausdorffDistance(input, mesh) { Tolerance = 0.01 * edge };
+                Assert.True(hd.Compute());
+                Assert.True(hd.UpperBound < (name.StartsWith("cone") ? 3.5 : 0.5) * edge, $"{name}: {hd.UpperBound / edge} target from the input");
+                pairsWithout += MeshRepairMetrics.SelfIntersections(Remesh(input, edge, q, false));
+            }
+            // without the option these results had self-intersecting pairs
+            Assert.True(pairsWithout > 0, $"{pairsWithout} pairs without the option");
+        }
+
+        [Fact]
+        public void RemesherPro_NoSelfIntersections()
+        {
+            foreach (var (name, input, f, q) in Cases().Take(4)) {
+                DMesh3 mesh = Remesh(input, f * MeanEdge(input), q, true, pro: true);
+                Assert.Equal(0, MeshRepairMetrics.SelfIntersections(mesh));
+                Assert.True(mesh.IsClosed(), name);
+            }
+        }
+
+        [Fact]
+        public void MeshChangedBetweenPasses_GridRebuilt()
+        {
+            // the triangle grid is kept between the operations of a pass; a change of the mesh outside the remesher
+            // (here: the mesh moved far away) must not leave it stale (a stale grid finds no neighbours)
+            DMesh3 input = Gear(24, 0.2, 3);
+            DMesh3 mesh = new DMesh3(input);
+            var r = new Remesher(mesh) { SmoothSpeedT = 0.5, PreventSelfIntersections = true };
+            MeshConstraintUtil.PreserveBoundaryAndFeatures(r, 30);
+            r.SetTargetEdgeLength(MeanEdge(input));
+            r.BasicRemeshPass();
+            Vector3d shift = new Vector3d(1000, 0, 0);
+            foreach (int vid in mesh.VertexIndices())
+                mesh.SetVertex(vid, mesh.GetVertex(vid) + shift);
+            for (int k = 0; k < 19; ++k)
+                r.BasicRemeshPass();
+            Assert.Equal(0, MeshRepairMetrics.SelfIntersections(mesh));
+            Assert.True(mesh.IsClosed());
+        }
+
+        // two triangles [a,b,c], [b,a,d] folded like a tent over the edge ab, and a wall triangle (in the plane x = 0)
+        // standing between c and d: the flipped edge cd cuts through the wall, and so does the third triangle at a
+        // when ab is collapsed to a point above it
+        static DMesh3 TentAndWall(bool wall, out int a, out int b, out int c, out int d)
+        {
+            var m = new DMesh3();
+            a = m.AppendVertex(new Vector3d(0, -1, 0)); b = m.AppendVertex(new Vector3d(0, 1, 0));
+            c = m.AppendVertex(new Vector3d(-1, 0, 0.5)); d = m.AppendVertex(new Vector3d(1, 0, 0.5));
+            m.AppendTriangle(a, b, c); m.AppendTriangle(b, a, d);
+            // a triangle at a, flat on z = 0 (below the wall): after collapsing ab to (0, 0, 1) it rises through the wall
+            int x = m.AppendVertex(new Vector3d(-1, -2, 0)), y = m.AppendVertex(new Vector3d(1, -2, 0));
+            m.AppendTriangle(a, x, y);
+            if (wall) {
+                int w0 = m.AppendVertex(new Vector3d(0, -0.2, 0.2)), w1 = m.AppendVertex(new Vector3d(0, 0.2, 0.2)), w2 = m.AppendVertex(new Vector3d(0, 0, 2));
+                m.AppendTriangle(w0, w1, w2);
+            }
+            return m;
+        }
+
+        class Probe : Remesher
+        {
+            public Probe(DMesh3 m) : base(m) { PreventSelfIntersections = true; }
+            public bool Flip(int a, int b, int c, int d)
+            {
+                ensure_triangle_grid();
+                Index2i et = Mesh.GetEdgeT(Mesh.FindEdge(a, b));
+                return flip_creates_intersection(a, b, c, d, et.a, et.b);
+            }
+            public bool Collapse(int a, int b, Vector3d p)
+            {
+                ensure_triangle_grid();
+                return collapse_creates_intersection(a, b, b, p);
+            }
+        }
+
+        [Fact]
+        public void FlipAndCollapseThroughAWall_Detected()
+        {
+            foreach (bool wall in new[] { false, true }) {
+                DMesh3 m = TentAndWall(wall, out int a, out int b, out int c, out int d);
+                Assert.Equal(0, MeshRepairMetrics.SelfIntersections(m));
+                var probe = new Probe(m);
+                Assert.Equal(wall, probe.Flip(a, b, c, d));
+                // the edge ab collapsed to a point above it: [p,x,y] crosses the wall
+                Assert.Equal(wall, probe.Collapse(a, b, new Vector3d(0, 0, 1)));
+                // collapsed to its midpoint: [p,x,y] stays on z = 0, below the wall
+                Assert.False(probe.Collapse(a, b, new Vector3d(0, 0, 0)));
+            }
+        }
+
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void SameResultUnderSimilarity(string name)
+        {
+            Similarity s = Similarity.ByName(name);
+            DMesh3 input = Taper(16);
+            double edge = 0.1 * MeanEdge(input);
+            DMesh3 m0 = Remesh(input, edge, 0.2, true, false);
+            DMesh3 back = Invariance.MappedBack(Remesh(Invariance.Transformed(input, s), s.ApplyLength(edge), 0.2, true, false), s);
+            if (s.IsExact)
+                Assert.Equal("", Invariance.Difference(m0, back));
+            Assert.True(Math.Abs(back.TriangleCount - m0.TriangleCount) <= 0.03 * m0.TriangleCount, $"{s.Name}: {back.TriangleCount} vs {m0.TriangleCount} triangles");
+            Assert.True(Invariance.VertexDistance(m0, back) < 0.25 * edge, s.Name);
+            Assert.Equal(0, MeshRepairMetrics.SelfIntersections(back));
+        }
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void ParallelEqualsSerial_RepeatedRuns(bool pro)
+        {
+            // the moves are checked after the buffered pass, serially in triangle id order
+            foreach (var (name, input, f, q) in Cases().Take(3)) {
+                double edge = f * MeanEdge(input);
+                DMesh3 serial = Remesh(input, edge, q, true, false, pro);
+                for (int k = 0; k < 2; ++k)
+                    Assert.Equal("", Invariance.Difference(serial, Remesh(input, edge, q, true, true, pro)));
+            }
+        }
+    }
+}

@@ -105,9 +105,10 @@ namespace g3 {
         /// <summary>
         /// Opt-in (default false): reject the edge operations and vertex moves that would make a triangle intersect
         /// another one (exactly, ExactTriangleIntersection.IntersectsBeyondShared, the test of
-        /// MeshRepairMetrics.SelfIntersections): a collapse or flip whose new triangles intersect a triangle outside
-        /// the changed ones (or each other), the projection of a vertex created by a split onto its constraint curve
-        /// (it stays at the edge midpoint), and in the buffered smoothing and projection passes (also
+        /// MeshRepairMetrics.SelfIntersections): a collapse, flip or split whose new triangles intersect a triangle
+        /// outside the changed ones (or each other; a split too, as a triangle that touched the old ones only at a shared
+        /// vertex can meet the new ones elsewhere), the projection of a vertex created by a split onto its constraint
+        /// curve (it stays at the edge midpoint), and in the buffered smoothing and projection passes (also
         /// RemesherPro's tracked passes) the moves of every triangle pair that intersects after the pass (reverted
         /// until no pair with a moved vertex intersects; in triangle id order, so the result does not depend on
         /// the thread timing). Triangles kept in a hash grid that is rebuilt when the mesh was changed outside the
@@ -750,7 +751,8 @@ namespace g3 {
 			// if edge length is too long, we want to split it
 			bool bTriedSplit = false;
 			if ( EnableSplits && constraint.CanSplit && edge_len_sqr > MaxEdgeLength*MaxEdgeLength
-                    && (!(MinTriangleQuality > 0) || has_flat_neighbour(ref vA, ref vB, c, d) == false) ) {
+                    && (!(MinTriangleQuality > 0) || has_flat_neighbour(ref vA, ref vB, c, d) == false)
+                    && (PreventSelfIntersections == false || split_creates_intersection_counted(a, b, c, d, t0, t1) == false) ) {
 
 				DMesh3.EdgeSplitInfo splitInfo;
                 COUNT_SPLITS++;
@@ -1002,10 +1004,9 @@ namespace g3 {
             bool found = false;
             Triangle3d tri = A;
             triangleGrid.Query(box, (tc) => {
+                // (Query compares closed boxes; AxisAlignedBox3d.Intersects is open and misses the flat boxes of
+                // coplanar triangles on an axis plane)
                 if ((found && hit == null) || (exclude != null && exclude.Contains(tc)) || mesh.IsTriangle(tc) == false)
-                    return;
-                AxisAlignedBox3d cbox;
-                if (triangleGrid.TryGetBox(tc, out cbox) && cbox.Intersects(box) == false)
                     return;
                 Index3i ic = mesh.GetTriangle(tc);
                 Triangle3d C = new Triangle3d(mesh.GetVertex(ic.a), mesh.GetVertex(ic.b), mesh.GetVertex(ic.c));
@@ -1077,6 +1078,38 @@ namespace g3 {
             gridChangedTris.Add(t0); gridChangedTris.Add(t1);
             add_new_triangle(new Index3i(c, d, b), mesh.GetVertex(c), mesh.GetVertex(d), mesh.GetVertex(b));
             add_new_triangle(new Index3i(d, c, a), mesh.GetVertex(d), mesh.GetVertex(c), mesh.GetVertex(a));
+            return new_triangles_intersect();
+        }
+
+        bool split_creates_intersection_counted(int a, int b, int c, int d, int t0, int t1)
+        {
+            if (split_creates_intersection(a, b, c, d, t0, t1) == false)
+                return false;
+            SelfIntersectionsRejected++;
+            return true;
+        }
+
+        /// <summary>
+        /// PreventSelfIntersections: the triangles after splitting edge [a,b] (triangles t0, t1, opposite vertices c,
+        /// d; d invalid at the boundary) at its midpoint intersect each other or another triangle. They lie in the
+        /// old ones, but a triangle that touched an old one only at a or b (allowed: a shared vertex) can meet a new
+        /// one elsewhere (eg one folded onto the edge near a), and the rounded midpoint is not exactly on the edge.
+        /// </summary>
+        protected bool split_creates_intersection(int a, int b, int c, int d, int t0, int t1)
+        {
+            gridChangedTris.Clear(); gridNewIds.Clear(); gridNewTris.Clear();
+            gridChangedTris.Add(t0);
+            if (t1 != DMesh3.InvalidID) gridChangedTris.Add(t1);
+            Vector3d vA = mesh.GetVertex(a), vB = mesh.GetVertex(b), vC = mesh.GetVertex(c);
+            Vector3d vM = Vector3d.Lerp(vA, vB, 0.5);      // as DMesh3.SplitEdge
+            const int m = -2;       // the new vertex: an id no triangle has
+            add_new_triangle(new Index3i(a, m, c), vA, vM, vC);
+            add_new_triangle(new Index3i(m, b, c), vM, vB, vC);
+            if (d != DMesh3.InvalidID) {
+                Vector3d vD = mesh.GetVertex(d);
+                add_new_triangle(new Index3i(b, m, d), vB, vM, vD);
+                add_new_triangle(new Index3i(m, a, d), vM, vA, vD);
+            }
             return new_triangles_intersect();
         }
 
