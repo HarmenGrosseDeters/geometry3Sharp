@@ -397,9 +397,9 @@ namespace g3cli
             c.Params.Add(new Param("min_quality", ParamType.Number, "guard against poor and flat triangles (Remesher.MinTriangleQuality, " +
                 "0..1, 0 = off, the library's default; 0.2 here: fewer flat triangles and self-intersections at equal or better " +
                 "mean fidelity on Thingi10K and CAD-like parts, about 1.5x the time, benchmarks/RemeshQualityBenchmark; 0 for thin walls far below the edge length)") { Default = 0.2 });
-            c.Params.Add(new Param("sharp_vertex_angle", ParamType.Number, "with preserve_boundary and crease_angle: also pin vertices " +
-                "where the surface comes to a point (angle deficit at least this, degrees, eg 60; 0 = off), such as the apex of a cone " +
-                "with many slices, which is no crease and is rounded off otherwise (MeshConstraintUtil.PinSharpVertices)") { Default = 0.0 });
+            c.Params.Add(new Param("sharp_vertex_angle", ParamType.Number, "also pin vertices where the surface comes to a point (absolute " +
+                "angle deficit at least this, degrees, eg 75; 0 = off), such as the apex of a cone with many slices, which is no crease and " +
+                "is rounded off otherwise (MeshConstraintUtil.PinSharpVertices); vertices on kept boundaries and creases are left to them") { Default = 0.0 });
             c.Params.Add(Deviation());
             c.Params.Add(SelfIntersections());
             c.Params.Add(Binary());
@@ -408,8 +408,8 @@ namespace g3cli
                 var warnings = new List<string>();
                 DMesh3 input = MeshFiles.Read(args.String("input"), warnings);
                 double sharpAngle = args.Number("sharp_vertex_angle");
-                if (!(sharpAngle >= 0 && sharpAngle <= 360))
-                    throw new CommandException(ResultCodes.InvalidArguments, "'sharp_vertex_angle' must be in 0..360");
+                if (!(sharpAngle >= 0) || double.IsInfinity(sharpAngle))
+                    throw new CommandException(ResultCodes.InvalidArguments, "'sharp_vertex_angle' must be a finite number >= 0");
                 double len = args.Has("edge_length") ? args.Number("edge_length") : MeanEdgeLength(input);
                 if (len <= 0)
                     throw new CommandException(ResultCodes.InvalidArguments, "'edge_length' must be > 0");
@@ -434,11 +434,11 @@ namespace g3cli
                 if (args.Bool("preserve_boundary")) {
                     if (args.Number("crease_angle") > 0) {
                         MeshConstraintUtil.PreserveBoundaryAndFeatures(r, args.Number("crease_angle"));
-                        if (sharpAngle > 0)
-                            pinnedSharp = MeshConstraintUtil.PinSharpVertices(r, sharpAngle);
                     } else
                         MeshConstraintUtil.FixAllBoundaryEdges(r);
                 }
+                if (sharpAngle > 0)
+                    pinnedSharp = MeshConstraintUtil.PinSharpVertices(r, sharpAngle);
                 double thickness = WallThickness(input);
                 if (len > 4 * thickness)
                     warnings.Add($"the edge length {len:G4} is {len / thickness:F1} times the estimated wall thickness {thickness:G4} " +

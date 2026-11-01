@@ -126,7 +126,8 @@ namespace geometry3Sharp.Tests
                         Assert.True(mesh.Vertices().All(v => v.IsFinite), name);
                         var hd = new MeshHausdorffDistance(input, mesh) { Tolerance = 0.01 * edge };
                         Assert.True(hd.Compute());
-                        // 0.20..0.66 target in these 48 cases (without the pin 1.37..3.15)
+                        // 0.20..0.66 target in these 24 cases (without the pin 1.37..3.15; the same ranges over all
+                        // 48 cone cases of benchmarks/RemeshQualityBenchmark with and without MinTriangleQuality)
                         Assert.True(hd.UpperBound < 0.75 * edge, $"{name}: {hd.UpperBound / edge} target from the input");
                         if (f == 0.1 && q == 0) {
                             // the reason: without the pin it is rounded off
@@ -141,9 +142,55 @@ namespace geometry3Sharp.Tests
         public void RemesherPro_ApexKept()
         {
             DMesh3 input = Cone(24);
-            DMesh3 mesh = Remesh(input, 0.15 * MeanEdge(input), 0.2, true, pro: true);
+            double edge = 0.15 * MeanEdge(input);
+            DMesh3 mesh = Remesh(input, edge, 0.2, true, pro: true);
             Assert.Contains(mesh.Vertices(), v => v == Apex(input));
             Assert.True(mesh.IsClosed());
+            Assert.Empty(MeshIterators.BowtieVertices(mesh));
+            Assert.Equal(0, MeshRepairMetrics.InconsistentlyOrientedEdges(mesh));
+            Assert.True(mesh.Vertices().All(v => v.IsFinite));
+            var hd = new MeshHausdorffDistance(input, mesh) { Tolerance = 0.01 * edge };
+            Assert.True(hd.Compute());
+            Assert.True(hd.UpperBound < 0.75 * edge, $"{hd.UpperBound / edge} target from the input");
+        }
+
+        [Fact]
+        public void SliverAtTheApex_StillPinned()
+        {
+            // a degenerate (collinear) triangle at the apex, as CAD exports have: MeshCurvature marks the apex not
+            // Valid (area based values), but its deficit counts the sliver's angles and is still the cone's
+            DMesh3 cone = Cone(24);
+            int apex = cone.VertexIndices().First(v => cone.GetVertex(v) == Apex(cone));
+            int r1 = cone.VtxVerticesItr(apex).First();
+            Assert.Equal(MeshResult.Ok, cone.SplitEdge(cone.FindEdge(apex, r1), out DMesh3.EdgeSplitInfo split));
+            int m = split.vNew;
+            // flip an edge at m that is not on the line apex-m-r1: the quad apex-m-r1-x gets the diagonal apex-r1, and
+            // with it the collinear triangle apex-m-r1
+            int flip = cone.VtxEdgesItr(m).First(e => {
+                Index2i ev = cone.GetEdgeV(e); int o = ev.a == m ? ev.b : ev.a;
+                return o != apex && o != r1 && cone.FindEdge(apex, o) != DMesh3.InvalidID;
+            });
+            Assert.Equal(MeshResult.Ok, cone.FlipEdge(flip, out _));
+            var curvature = gs.MeshCurvature.Compute(cone);
+            Assert.Equal(1, curvature.DegenerateTriangles);
+            Assert.False(curvature.Valid[apex]);
+            var cons = new MeshConstraints();
+            Assert.Equal(1, MeshConstraintUtil.PinSharpVertices(cons, cone));
+            Assert.True(cons.GetVertexConstraint(apex).Fixed);
+        }
+
+        [Fact]
+        public void CoarseTessellation_EveryVertexAboveTheThreshold()
+        {
+            // a coarse tessellation of a smooth surface has large deficits everywhere: the sphere from a cube with 2
+            // vertices per edge is a cube, 90 degrees at each of its 8 corners, so all are pinned above the threshold
+            // (no creases here: a bare remesher, whose constraints are created)
+            DMesh3 cube = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 2 }.Generate().MakeDMesh();
+            var r = new Remesher(new DMesh3(cube));
+            Assert.Null(r.Constraints);
+            Assert.Equal(8, MeshConstraintUtil.PinSharpVertices(r));
+            Assert.NotNull(r.Constraints);
+            Assert.Equal(0, MeshConstraintUtil.PinSharpVertices(new Remesher(new DMesh3(cube)), 91));
         }
 
         [Theory]

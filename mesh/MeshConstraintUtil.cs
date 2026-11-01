@@ -71,22 +71,29 @@ namespace g3
         /// not see it and the remeshers round it off (smoothing, collapses). A vertex is pinned if the absolute value
         /// of its angle deficit (2 pi minus the sum of its triangle angles, gs.MeshCurvature.AngleDeficit; the Gaussian
         /// curvature concentrated at the vertex) is at least minAngleDeficit degrees: 360 (1 - sin a) for the apex of
-        /// a circular cone of half angle a (eg 199 degrees for a = 26.6, 48 for a = 60), and it tends to 0 at the
-        /// vertices of a finely tessellated smooth surface. Only interior, manifold vertices with area
-        /// (MeshCurvature.Valid) without a constraint: the vertices of feature curves are left to the curve constraints
-        /// (they have a deficit from the crease alone, eg 360 / slices degrees at the rim of a capped cylinder; corners
-        /// and junctions are pinned there), so call it after PreserveBoundaryAndFeatures. Pinned in place with
-        /// FixedSetID -1 (two pinned vertices are not collapsed together). Returns the number of vertices pinned. Angles only: invariant under scaling, rotation and translation up to rounding.
+        /// a circular cone of half angle a (eg 199 degrees for a = 26.6, 75 for a = 52, 48 for a = 60); a negative
+        /// deficit (a saddle point) counts by its absolute value. It tends to 0 at the vertices of a finely tessellated
+        /// smooth surface, but a coarse tessellation has large deficits everywhere (60 degrees at every vertex of an
+        /// icosahedron, 90 at a cube corner), so there every vertex above the threshold is pinned. Interior, manifold
+        /// vertices only (no boundary, no bowtie, finite one-ring; degenerate triangles at the vertex are fine, their
+        /// angles count in the deficit), without a constraint: the vertices of feature curves are left to the curve
+        /// constraints (they have a deficit from the crease alone, eg 360 / slices degrees at the rim of a capped
+        /// cylinder; corners and junctions are pinned there), so call it after PreserveBoundaryAndFeatures. Pinned in
+        /// place (VertexConstraint.Pinned: two pinned vertices are not collapsed together). Returns the number of
+        /// vertices pinned. Angles only: invariant under scaling, rotation and translation up to rounding.
         /// </summary>
-        public static int PinSharpVertices(MeshConstraints cons, DMesh3 mesh, double minAngleDeficit = 60)
+        public static int PinSharpVertices(MeshConstraints cons, DMesh3 mesh, double minAngleDeficit = 75)
         {
             gs.MeshCurvature curvature = gs.MeshCurvature.Compute(mesh);
             double threshold = minAngleDeficit * MathUtil.Deg2Rad;
             VertexConstraint pinned = VertexConstraint.Pinned;
-            pinned.FixedSetID = -1;
             int n = 0;
             foreach (int vid in mesh.VertexIndices()) {
-                if (curvature.Valid[vid] == false || !(Math.Abs(curvature.AngleDeficit[vid]) >= threshold))
+                if (!(Math.Abs(curvature.AngleDeficit[vid]) >= threshold))
+                    continue;
+                // (not MeshCurvature.Valid: it is false at a degenerate triangle, eg a sliver at a cone apex, where the
+                // deficit is still right; only the area based values are not)
+                if (mesh.IsBoundaryVertex(vid) || mesh.IsBowtieVertex(vid) || one_ring_finite(mesh, vid) == false)
                     continue;
                 VertexConstraint vc = cons.GetVertexConstraint(vid);
                 if (vc.Fixed || vc.Target != null)
@@ -96,8 +103,18 @@ namespace g3
             }
             return n;
         }
+        static bool one_ring_finite(DMesh3 mesh, int vid)
+        {
+            if (mesh.GetVertex(vid).IsFinite == false)
+                return false;
+            foreach (int nb in mesh.VtxVerticesItr(vid))
+                if (mesh.GetVertex(nb).IsFinite == false)
+                    return false;
+            return mesh.GetVtxEdgeCount(vid) > 0;
+        }
+
         /// <summary> PinSharpVertices on the remesher's mesh and constraints (created if null) </summary>
-        public static int PinSharpVertices(Remesher r, double minAngleDeficit = 60)
+        public static int PinSharpVertices(Remesher r, double minAngleDeficit = 75)
         {
             if (r.Constraints == null)
                 r.SetExternalConstraints(new MeshConstraints());

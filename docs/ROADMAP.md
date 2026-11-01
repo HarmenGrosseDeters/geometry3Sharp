@@ -186,10 +186,11 @@ Open tasks further up, and work further down, in the code or in the research lis
   from the input; with `MinTriangleQuality` 1.4..3.2, more in 12 of these 24 cases of `benchmarks/RemeshQualityBenchmark`
   (its guards keep a few vertices near the apex up to an edge off the surface). Cones with up to 10 slices keep the
   apex as a junction of creases. Done: `MeshConstraintUtil.PinSharpVertices` (opt-in, after
-  `PreserveBoundaryAndFeatures`) pins vertices with an angle deficit of at least 60 degrees that have no curve
-  constraint; `g3cli remesh --sharp-vertex-angle 60`. The cones end 0.20..0.66 instead of 1.37..3.15 target from the
-  input (mean Hausdorff of the 150 primitives 0.341 -> 0.115); on Thingi10K it pins 1 vertex in 20 meshes and changes
-  nothing measurable (`benchmarks/RemeshQualityBenchmark`, PinSharpVertices).
+  `PreserveBoundaryAndFeatures`) pins interior vertices with an absolute angle deficit of at least 75 degrees that
+  have no curve constraint; `g3cli remesh --sharp-vertex-angle 75`. The cones end 0.20..0.66 instead of 1.37..3.15
+  target from the input (mean Hausdorff of the 150 primitives 0.341 -> 0.115); on Thingi10K it pins 1 vertex in 20
+  meshes (39460: Hausdorff 0.78 -> 0.33 target), the other 19 are unchanged (`benchmarks/RemeshQualityBenchmark`,
+  PinSharpVertices).
 - [x] `MeshRobustRepair.NotCleanReason` reported only the first failed check: "degenerate triangles" hid the
   self-intersections of most remeshed meshes, and the inside-out result of 135363 without `MinTriangleQuality`. Done in
   #159: `MeshRobustRepair.FindDefects` / `NotCleanReasons` report every failed check (`NotCleanReason` keeps the first),

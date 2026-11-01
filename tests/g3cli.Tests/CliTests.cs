@@ -509,7 +509,7 @@ namespace g3cli.Tests
             var cone = new g3.ConeGenerator() { BaseRadius = 1f, Height = 2f, Slices = 24, NoSharedVertices = false }.Generate().MakeDMesh();
             string input = m.Path_("cone24.stl");
             g3.StandardMeshWriter.WriteMesh(input, cone, g3.WriteOptions.Defaults);
-            var (exit, r) = Run("remesh", input, m.Path_("cone24_pinned.stl"), "--edge-length", "0.15", "--sharp-vertex-angle", "60", "--deviation");
+            var (exit, r) = Run("remesh", input, m.Path_("cone24_pinned.stl"), "--edge-length", "0.15", "--sharp-vertex-angle", "75", "--deviation");
             AssertOk(exit, r);
             Assert.Equal(1, I(r["sharp_vertices_pinned"]));
             Assert.True(B(r["mesh"]["closed"]), r.ToJsonString());

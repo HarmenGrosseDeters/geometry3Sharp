@@ -172,27 +172,37 @@ review fix (flips re-checked after reverted moves), which changed a few results 
   new one; most triangles are far from everything but their neighbours).
 
 ## PinSharpVertices (opt-in)
-`MeshConstraintUtil.PinSharpVertices(r, 60)` after `PreserveBoundaryAndFeatures`: vertices without a curve constraint
-whose angle deficit is at least 60 degrees are pinned (the apex of the cones here: 199 degrees). 4 cores, net10.0,
-Release, `runs=1`:
+`MeshConstraintUtil.PinSharpVertices(r)` after `PreserveBoundaryAndFeatures`: interior vertices without a curve
+constraint whose absolute angle deficit is at least 75 degrees (the default) are pinned (the apex of the cones here:
+199 degrees). 4 cores, net10.0, Release, `runs=1`:
 ```
-dotnet run -c Release --project benchmarks/RemeshQualityBenchmark -- runs=1 base=0.2 quality=0.2 pin=60 thingi=benchmarks/RemeshBenchmark/data/meshes
+dotnet run -c Release --project benchmarks/RemeshQualityBenchmark -- runs=1 base=0.2 quality=0.2 pin=75 thingi=benchmarks/RemeshBenchmark/data/meshes
+dotnet run -c Release --project benchmarks/RemeshQualityBenchmark -- runs=1 base=0 quality=0 pin=75 thingi=benchmarks/RemeshBenchmark/data/meshes
 ```
 
-| group | mean hausdorff/target without / with | pairs | F 0.1 % | normal consistency | Edge Chamfer | time s |
-|---|---:|---:|---:|---:|---:|---:|
-| primitives (150) | 0.341 / 0.115 | 281 / 168 | 0.8282 / 0.8261 | 0.9895 / 0.9935 | 0.0154 / 0.0197 | 6.7 / 6.3 |
-| gears (18) | 0.010 / 0.010 | 0 / 0 | 1.0000 / 1.0000 | 1.0000 / 1.0000 | 0.0000 / 0.0000 | 0.4 / 0.4 |
-| tubes (24) | 0.311 / 0.311 | 5352 / 5352 | 0.0457 / 0.0457 | 0.9355 / 0.9355 | 0.0630 / 0.0630 | 0.3 / 0.3 |
-| thingi (20) | 1.017 / 0.994 | 3105 / 3104 | 0.7205 / 0.7205 | 0.9430 / 0.9430 | 0.0088 / 0.0088 | 10.9 / 10.6 |
+| group | config | mean hausdorff/target without / with | pairs | cases not clean | F 0.1 % | normal consistency | Edge Chamfer | time s |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| primitives (150) | q 0.2 | 0.341 / 0.115 | 281 / 168 | 16 / 16 | 0.8282 / 0.8261 | 0.9895 / 0.9935 | 0.0154 / 0.0197 | 6.9 / 7.1 |
+| gears (18) | q 0.2 | 0.010 / 0.010 | 0 / 0 | 0 / 0 | 1.0000 / 1.0000 | 1.0000 / 1.0000 | 0.0000 / 0.0000 | 0.4 / 0.4 |
+| tubes (24) | q 0.2 | 0.311 / 0.311 | 5352 / 5352 | 24 / 24 | 0.0457 / 0.0457 | 0.9355 / 0.9355 | 0.0630 / 0.0630 | 0.3 / 0.3 |
+| thingi (20) | q 0.2 | 1.017 / 0.994 | 3105 / 3104 | 17 / 17 | 0.7205 / 0.7205 | 0.9430 / 0.9430 | 0.0088 / 0.0088 | 12.5 / 12.0 |
+| primitives (150) | q 0 | 0.330 / 0.115 | 409 / 387 | 37 / 43 | 0.8221 / 0.8205 | 0.9895 / 0.9928 | 0.0157 / 0.0206 | 5.3 / 5.0 |
+| thingi (20) | q 0 | 1.115 / 1.086 | 19768 / 19796 | 19 / 19 | 0.7154 / 0.7156 | 0.9369 / 0.9370 | 0.0091 / 0.0092 | 8.0 / 7.8 |
 
 - The cones with 12, 16, 24 and 32 slices end 0.20..0.66 target from the input instead of 1.37..3.15 (all 48 cone
-  cases with and without `MinTriangleQuality`, `PinSharpVerticesTests`); no case gets a larger Hausdorff distance.
-- Their F 0.1 % drops slightly in 15 cone cases (by up to 0.07, cone12_x0.6) and the Edge Chamfer distance rises: the
-  pinned, faceted tip has edges sharper than 30 degrees around it that the measures count as extra feature edges,
-  while normal consistency rises (eg cone16_x0.6 0.748 -> 0.908). 3 cones end with a few more pairs (5..10).
-- On the 20 Thingi10K meshes it pins 1 vertex (39460) at any threshold of 30..90 degrees and changes no measure
-  beyond noise. The gears and tubes have no such vertices.
+  cases, 6 targets each with and without `MinTriangleQuality`); no case gets a larger Hausdorff distance.
+- Their F 0.1 % drops slightly in 15 cone cases with q 0.2 (by up to 0.07, cone16_x0.6) and the Edge Chamfer distance
+  rises: the pinned, faceted tip has edges sharper than 30 degrees around it that the measures count as extra feature
+  edges, while normal consistency rises (eg cone16_x0.6 0.748 -> 0.908). Without `MinTriangleQuality` the pinned tip
+  also keeps a few more poor triangles and pairs on the cones (6 more cases not clean); with it 3 cones end with 5..10
+  more pairs.
+- On the 20 Thingi10K meshes it pins 1 vertex, in 39460 (a point with a deficit of more than 90 degrees; the same at
+  any threshold of 30..90): there the Hausdorff distance drops from 0.779 to 0.327 target (q 0, 0.842 -> 0.272), edge
+  recall 0.979 -> 0.986, with 6 more poor triangles (26 -> 32) and a 1 % worst min angle of 2.05 instead of 2.52
+  degrees. That mesh is the whole change of the Thingi10K means; the other 19 are identical. The gears and tubes have
+  no such vertices.
+- The default of 75 degrees is above the 60 degrees at every vertex of an icosahedron (60 would pin all 12, decided
+  by rounding); a coarse tessellation of a smooth surface can still have every vertex above it (a cube: 90).
 
 ## Decision
 - `g3cli remesh` turns the option on: `min_quality` defaults to 0.2 (`--min-quality 0` for the old behaviour). On the
