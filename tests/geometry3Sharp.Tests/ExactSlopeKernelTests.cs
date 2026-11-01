@@ -301,5 +301,80 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0, K.Side(x, l));
             Assert.Equal(4, K.PredicateCalls);
         }
+
+        // the shortcut matches a defining point by both coordinates: a vertex that shares only x or only y with the Q
+        // or R of both planes (with equal z there) is decided by the heights, not taken as on the line
+        [Fact]
+        public void SharedApexShortcut_MatchesBothCoordinates_OfQAndR()
+        {
+            var K = new ExactSlopeKernel();
+            // Q.y = 0 and R.y = 5 in both planes, at equal z (1 and 0), but different x
+            int a = K.AddPlane(new Vector3d(0, 0, 0), new Vector3d(5, 0, 1), new Vector3d(0, 5, 0));
+            int b = K.AddPlane(new Vector3d(1, 1, 7), new Vector3d(6, 0, 1), new Vector3d(2, 5, 0));
+            int l = K.PlaneLine(a, b);
+            foreach (var p in new[] { new Vector2d(9, 0), new Vector2d(11, 5) }) {
+                // the reference: the sign of the height difference in rationals
+                int expect = (Height(new Vector3d(0, 0, 0), new Vector3d(5, 0, 1), new Vector3d(0, 5, 0), Q.Of(p.x), Q.Of(p.y))
+                            - Height(new Vector3d(1, 1, 7), new Vector3d(6, 0, 1), new Vector3d(2, 5, 0), Q.Of(p.x), Q.Of(p.y))).Sign;
+                Assert.NotEqual(0, expect);
+                Assert.Equal(expect, K.Side(K.PointVertex(p), l));
+            }
+            // Q.x = 5 and R.x = 0 in both planes, at equal z, but different y
+            int c = K.AddPlane(new Vector3d(1, 0, 0), new Vector3d(5, 1, 1), new Vector3d(0, 4, 0));
+            int d = K.AddPlane(new Vector3d(2, 6, 7), new Vector3d(5, 9, 1), new Vector3d(0, 8, 0));
+            int l2 = K.PlaneLine(c, d);
+            foreach (var p in new[] { new Vector2d(5, 20), new Vector2d(0, 20) }) {
+                int expect = (Height(new Vector3d(1, 0, 0), new Vector3d(5, 1, 1), new Vector3d(0, 4, 0), Q.Of(p.x), Q.Of(p.y))
+                            - Height(new Vector3d(2, 6, 7), new Vector3d(5, 9, 1), new Vector3d(0, 8, 0), Q.Of(p.x), Q.Of(p.y))).Sign;
+                Assert.NotEqual(0, expect);
+                Assert.Equal(expect, K.Side(K.PointVertex(p), l2));
+            }
+        }
+
+        // a nearly vertical plane given clockwise (its Nz interval contains 0, so it is oriented by the exact stage):
+        // the same lines and sides as the counter-clockwise one, also where the side needs the exact stage
+        [Fact]
+        public void NearlyVerticalClockwisePlane_SameSidesAsCounterClockwise()
+        {
+            var K = new ExactSlopeKernel();
+            Vector3d p = new Vector3d(0, 0, 0), q = new Vector3d(1, 1, 0), r = new Vector3d(1 + Math.Pow(2, -52), 1, 1);
+            int cw = K.AddPlane(p, q, r), ccw = K.AddPlane(p, r, q), h = K.AddHorizontalPlane(0.5);
+            int lcw = K.PlaneLine(cw, h), lccw = K.PlaneLine(ccw, h);
+            var rnd = new Random(41);
+            int nonzero = 0;
+            for (int i = 0; i < 200; ++i) {
+                // near the trace x = y of the nearly vertical plane, where its heights are moderate
+                double x = 4 * rnd.NextDouble() - 2;
+                int v = K.PointVertex(new Vector2d(x, x + (rnd.NextDouble() - 0.5) * 1e-15));
+                int s1 = K.Side(v, lcw), s2 = K.Side(v, lccw);
+                Assert.Equal(s2, s1);
+                // the reference in rationals
+                Vector2d xy = K.Rounded(v);
+                Q d = Height(p, r, q, Q.Of(xy.x), Q.Of(xy.y)) - Q.Of(0.5);
+                Assert.Equal(d.Sign, s1);
+                if (s1 != 0) nonzero++;
+            }
+            Assert.True(nonzero > 100, nonzero.ToString());
+            Assert.True(K.ExactPredicates > 0, K.ExactPredicates.ToString());
+        }
+
+        // lines so nearly parallel that the W interval of their crossing contains 0: the exact stage decides that they
+        // cross (far away), and the position is exact
+        [Fact]
+        public void NearlyParallelLines_CrossExactly()
+        {
+            var K = new ExactSlopeKernel();
+            int l1 = K.PointLine(new Vector2d(0, 0), new Vector2d(1, 1));
+            int l2 = K.PointLine(new Vector2d(0, 1), new Vector2d(1 + Math.Pow(2, -52), 2));
+            int v = K.Crossing(l1, l2);
+            Assert.True(v >= 0);
+            // the crossing: y = x and y = 1 + x / (1 + 2^-52): x = 1 / (1 - 1 / (1 + 2^-52)) = 2^52 + 1
+            double expect = Math.Pow(2, 52) + 1;
+            Vector2d a = K.Approx(v);
+            Assert.True(Math.Abs(a.x - expect) <= 1e-12 * expect, a.ToString());
+            Assert.Equal(new Vector2d(expect, expect), K.Rounded(v));
+            // and truly parallel ones do not cross
+            Assert.Equal(-1, K.Crossing(l1, K.PointLine(new Vector2d(0, 1), new Vector2d(1, 2))));
+        }
     }
 }
