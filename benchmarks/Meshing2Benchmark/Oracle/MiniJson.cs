@@ -22,10 +22,15 @@ namespace Meshing2Acceptance
         public static object Parse(string text)
         {
             int i = 0;
-            var value = ParseValue(text, ref i);
-            Skip(text, ref i);
-            if (i != text.Length) throw new FormatException("trailing text at " + i);
-            return value;
+            try {
+                var value = ParseValue(text, ref i);
+                Skip(text, ref i);
+                if (i != text.Length) throw new FormatException("trailing text at " + i);
+                return value;
+            } catch (Exception e) when (e is IndexOutOfRangeException || e is ArgumentOutOfRangeException || e is OverflowException) {
+                // truncated text or a number out of range: bad input like any other (second review, finding 5)
+                throw new FormatException("malformed JSON near " + i + ": " + e.Message);
+            }
         }
 
         static void Skip(string s, ref int i) { while (i < s.Length && char.IsWhiteSpace(s[i])) ++i; }

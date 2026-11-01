@@ -32,6 +32,12 @@ namespace Meshing2Acceptance
     {
         static readonly double E20 = Math.Pow(2, -20), E27 = Math.Pow(2, -27), E33 = Math.Pow(2, -33), E40 = Math.Pow(2, -40), E43 = Math.Pow(2, -43), E46 = Math.Pow(2, -46), E50 = Math.Pow(2, -50);
 
+        /// <summary>
+        /// Features whose mesher exists: their rows are covered, all others stay pending. A feature moves here only when
+        /// every one of its rows passes (MESHING2D_PLAN.md, section 4).
+        /// </summary>
+        public static readonly HashSet<string> CoveredFeatures = new HashSet<string> { Feature.Kernel, Feature.Api };
+
         public static List<CatalogueRow> Rows()
         {
             var rows = new List<CatalogueRow>();
@@ -41,7 +47,7 @@ namespace Meshing2Acceptance
                 var e = new OracleExpect { Milestone = m, StatedArea = area, StatedAreaTolerance = tolerance ?? Q.Zero };
                 tweak?.Invoke(e);
                 var c = new Mesh2Case { Id = f.ToLowerInvariant() + (part == null ? "" : "/" + part), Generator = input.Text, Milestone = m, Input = input.Build(), Expect = e, Ties = ties };
-                rows.Add(new CatalogueRow { F = f, Part = part, Title = title, Feature = feature, State = CaseState.Pending, Case = c, Note = note });
+                rows.Add(new CatalogueRow { F = f, Part = part, Title = title, Feature = feature, State = CoveredFeatures.Contains(feature) ? CaseState.Covered : CaseState.Pending, Case = c, Note = note });
             }
             void Test(string f, string part, string title, string test, string note = null) =>
                 rows.Add(new CatalogueRow { F = f, Part = part, Title = title, State = CaseState.Covered, Feature = Feature.Kernel, Test = test, Note = note });

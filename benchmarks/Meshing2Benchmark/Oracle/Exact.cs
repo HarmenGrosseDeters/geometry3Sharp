@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Collections.Generic;
 using System.Numerics;
 using System.Text;
@@ -61,7 +62,7 @@ namespace Meshing2Acceptance
         public static Q Max(Q a, Q b) => a >= b ? a : b;
 
         /// <summary>Exact form "n" or "n/d": the canonical text of an area.</summary>
-        public override string ToString() => D.IsOne ? N.ToString() : N + "/" + D;
+        public override string ToString() => D.IsOne ? N.ToString(CultureInfo.InvariantCulture) : N.ToString(CultureInfo.InvariantCulture) + "/" + D.ToString(CultureInfo.InvariantCulture);
 
         /// <summary>Decimal text with the given digits after the point, truncated toward zero. No floating point involved.</summary>
         public string ToDecimal(int digits)
@@ -69,11 +70,11 @@ namespace Meshing2Acceptance
             var sb = new StringBuilder();
             BigInteger whole = BigInteger.DivRem(BigInteger.Abs(N), D, out BigInteger rest);
             if (N.Sign < 0) sb.Append('-');
-            sb.Append(whole.ToString()).Append('.');
+            sb.Append(whole.ToString(CultureInfo.InvariantCulture)).Append('.');
             for (int i = 0; i < digits; ++i) {
                 rest *= 10;
                 var digit = BigInteger.DivRem(rest, D, out rest);
-                sb.Append(digit.ToString());
+                sb.Append(digit.ToString(CultureInfo.InvariantCulture));
             }
             return sb.ToString();
         }

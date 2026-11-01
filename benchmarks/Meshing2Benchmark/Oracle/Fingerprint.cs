@@ -80,7 +80,7 @@ namespace Meshing2Acceptance
                 lines.Add("T " + t[k] + " " + t[(k + 1) % 3] + " " + t[(k + 2) % 3] + label);
             }
             if (o.Subsegments != null)
-                foreach (var s in o.Subsegments) lines.Add("S " + Math.Min(s.A, s.B) + " " + Math.Max(s.A, s.B) + " " + s.Marker);
+                foreach (var s in o.Subsegments) lines.Add("S " + Math.Min(s.A, s.B) + " " + Math.Max(s.A, s.B) + " " + s.Marker.ToString(CultureInfo.InvariantCulture));
             return Sha256(Lines(lines));
         }
     }

@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
@@ -49,7 +50,7 @@ namespace Meshing2Acceptance
         public B Seg(double x0, double y0, double x1, double y1, int marker = 0, bool locked = false)
         {
             input.Segments.Add(new SegmentInput(P(x0, y0), P(x1, y1), marker, locked));
-            text.Add("seg(" + Num(x0) + " " + Num(y0) + " " + Num(x1) + " " + Num(y1) + (marker != 0 || locked ? " " + marker : "") + (locked ? " locked" : "") + ")");
+            text.Add("seg(" + Num(x0) + " " + Num(y0) + " " + Num(x1) + " " + Num(y1) + (marker != 0 || locked ? " " + marker.ToString(CultureInfo.InvariantCulture) : "") + (locked ? " locked" : "") + ")");
             return this;
         }
         public B Segs(params double[] v) { for (int i = 0; i + 3 < v.Length; i += 4) Seg(v[i], v[i + 1], v[i + 2], v[i + 3]); return this; }
@@ -82,13 +83,13 @@ namespace Meshing2Acceptance
         public B RegionSeed(double x, double y, int label, double? maxArea = null)
         {
             input.Regions.Add(new RegionInput { Seed = new[] { x, y }, Label = label, MaxArea = maxArea });
-            text.Add("region_seed(" + Num(x) + " " + Num(y) + " " + label + (maxArea == null ? "" : " " + Num(maxArea.Value)) + ")");
+            text.Add("region_seed(" + Num(x) + " " + Num(y) + " " + label.ToString(CultureInfo.InvariantCulture) + (maxArea == null ? "" : " " + Num(maxArea.Value)) + ")");
             return this;
         }
         public B RegionRing(int label, double? maxArea, params double[] xy)
         {
             input.Regions.Add(new RegionInput { Ring = Ps(xy), Label = label, MaxArea = maxArea });
-            text.Add("region_ring(" + label + " " + (maxArea == null ? "-" : Num(maxArea.Value)) + " " + List(xy) + ")");
+            text.Add("region_ring(" + label.ToString(CultureInfo.InvariantCulture) + " " + (maxArea == null ? "-" : Num(maxArea.Value)) + " " + List(xy) + ")");
             return this;
         }
         public B Min(double degrees) { input.MinAngleDeg = degrees; text.Add("min_angle(" + Num(degrees) + ")"); return this; }

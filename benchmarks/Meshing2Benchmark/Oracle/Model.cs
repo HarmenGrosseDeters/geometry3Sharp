@@ -77,6 +77,8 @@ namespace Meshing2Acceptance
         /// ids at or above the input count) are then not judged and the input mapping is derived from the coordinates.
         /// </summary>
         public bool IdentityRules = true;
+        /// <summary> False if the producer's format carries no neighbours (the text format): R5 is then not judged. </summary>
+        public bool NeighboursReported = true;
 
         public int VertexCount => VX.Length;
     }

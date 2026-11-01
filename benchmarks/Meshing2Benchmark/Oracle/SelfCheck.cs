@@ -373,12 +373,134 @@ namespace Meshing2Acceptance
             needle.Rings.Add(new RingInput(new[] { 0, 1, 2 }, false));
             needle.MinAngleDeg = 20;
             Accept("forced small input angle", needle, needleOut, M3());
-            var needlePoints = Points(0, 0, 64, 0, 64, 1); needlePoints.MinAngleDeg = 20;
-            var free = Clone(needleOut); free.Subsegments = new List<SubsegmentOutput>();
-            Reject("the same small angle, not forced", Violation.AngleBelowBound, needlePoints, free, M3());
+            // not forced: a 64 x 1 rectangle cut by its diagonal; the wedge of the constraints at each corner is 90 degrees. (Until the second
+            // review this item used the needle without a ring, whose 0.9 degree corner is a hull corner and so forced by the input: D13.)
+            var strip = Points(0, 0, 64, 0, 64, 1, 0, 1); strip.MinAngleDeg = 20;
+            strip.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false));
+            var stripTriangles = new[] { new[] { 0, 1, 2 }, new[] { 0, 2, 3 } };
+            var stripOut = new Mesh2Output {
+                Status = Mesh2Status.Success, VX = strip.X, VY = strip.Y, InputToVertex = new[] { 0, 1, 2, 3 }, Triangles = stripTriangles,
+                Neighbours = NeighboursOf(stripTriangles), BadTriangles = new[] { 0, 1 },
+                Subsegments = new List<SubsegmentOutput> { new SubsegmentOutput(0, 1), new SubsegmentOutput(1, 2), new SubsegmentOutput(2, 3), new SubsegmentOutput(3, 0) } };
+            Reject("a small angle, not forced", Violation.AngleBelowBound, strip, stripOut, M3());
 
             ReviewFindings(Must, Accept, Reject);
+            SecondReviewFindings(Must, Accept, Reject);
             return items;
+        }
+
+        static int[][] StrictDelaunay(Mesh2Input input, int[] ids)
+        {
+            var p = ids.Select(i => Pt.FromDoubles(input.X[i], input.Y[i])).ToArray();
+            var list = new List<int[]>();
+            for (int a = 0; a < p.Length; ++a) for (int b = 0; b < p.Length; ++b) for (int c = 0; c < p.Length; ++c) {
+                if (!(a < b && a < c) || b == c || Exact.Orient(p[a], p[b], p[c]) <= 0) continue;
+                bool empty = true;
+                for (int d = 0; d < p.Length && empty; ++d) if (d != a && d != b && d != c && Exact.InCircle(p[a], p[b], p[c], p[d]) >= 0) empty = false;
+                if (empty) list.Add(new[] { ids[a], ids[b], ids[c] });
+            }
+            return list.ToArray();
+        }
+
+        // The wrong verdicts and tool defects the second independent review (2026-11-01) demonstrated. They stay as regressions.
+        static void SecondReviewFindings(Action<string, bool, string> must, Action<string, Mesh2Input, Mesh2Output, OracleExpect> accept, Action<string, Violation, Mesh2Input, Mesh2Output, OracleExpect> reject)
+        {
+            Mesh2Output Out(Mesh2Input input, int[][] tris, int[] map = null, params (int, int, int)[] subs) => new Mesh2Output {
+                Status = Mesh2Status.Success, VX = (double[])input.X.Clone(), VY = (double[])input.Y.Clone(),
+                InputToVertex = map ?? Enumerable.Range(0, input.Count).ToArray(), Triangles = tris, Neighbours = NeighboursOf(tris), BadTriangles = new int[0],
+                Subsegments = subs.Select(s => new SubsegmentOutput(s.Item1, s.Item2, s.Item3)).ToList() };
+
+            // 1. a gap bounded by constraints hidden in the area slack of an unrelated merge
+            {
+                double s = 1.0 / 16;
+                var input = Points(0, 0, 10, 0, 10, 10, 0, 10, 5, 5, 5 + s, 5, 5, 5 + s, 1, 1, 1 + 1.0 / 256, 1);
+                input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false));
+                input.Segments.Add(new SegmentInput(4, 5)); input.Segments.Add(new SegmentInput(5, 6)); input.Segments.Add(new SegmentInput(6, 4));
+                input.SnapTolerance = 1.0 / 64;
+                var tris = StrictDelaunay(input, Enumerable.Range(0, 8).ToArray());
+                var subs = new[] { (0, 1, 0), (1, 2, 0), (2, 3, 0), (3, 0, 0), (4, 5, 0), (5, 6, 0), (6, 4, 0) };
+                var map = new[] { 0, 1, 2, 3, 4, 5, 6, 7, 7 };
+                accept("the full mesh with a merge (control of the next item)", input, Out(input, tris, map, subs), new OracleExpect { Milestone = Milestone.M2 });
+                var gap = tris.Where(t => !(t.Contains(4) && t.Contains(5) && t.Contains(6))).ToArray();
+                reject("a gap bounded by constraints, hidden by an unrelated merge", Violation.AreaMismatch, input, Out(input, gap, map, subs), new OracleExpect { Milestone = Milestone.M2 });
+            }
+
+            // 2. without a ring, a corner of the hull forces its angle like a corner of a ring (D13)
+            {
+                var input = Points(0, 0, 16, 0, 16, 1); input.MinAngleDeg = 20;
+                var o = Out(input, new[] { new[] { 0, 1, 2 } }); o.BadTriangles = new[] { 0 };
+                accept("a small angle at a corner of the hull, no subsegments", input, o, new OracleExpect { Milestone = Milestone.M3 });
+                var foreign = new Mesh2Output { Status = Mesh2Status.Success, VX = input.X, VY = input.Y, Triangles = new[] { new[] { 0, 1, 2 } }, IdentityRules = false, BadTriangles = new[] { 0 } };
+                accept("the same from a foreign producer", input, foreign, new OracleExpect { Milestone = Milestone.M3 });
+            }
+
+            // 3. the standalone oracle reads results without neighbours, which the text format does not carry
+            {
+                var input = Points(0, 0, 4, 0, 4, 4, 0, 4); input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false));
+                var o = Out(input, new[] { new[] { 0, 1, 2 }, new[] { 0, 2, 3 } }, null, (0, 1, 0), (1, 2, 0), (2, 3, 0), (3, 0, 0));
+                var back = TextFormat.ReadOutput(TextFormat.WriteOutput(o, "ours"), out _);
+                accept("an M2 result through the text format", TextFormat.ReadInput(TextFormat.WriteInput(input)), back, new OracleExpect { Milestone = Milestone.M2 });
+            }
+
+            // 4. hashes and texts do not depend on the culture (sv-SE writes U+2212 as the minus sign)
+            {
+                var input = Points(0, 0, 4, 0, 4, 4); input.Segments.Add(new SegmentInput(0, 1, -3)); input.Regions.Add(new RegionInput { Seed = new double[] { 1, 1 }, Label = -2 });
+                var o = Out(input, new[] { new[] { 0, 1, 2 } }, null, (0, 1, -3));
+                var saved = System.Globalization.CultureInfo.CurrentCulture;
+                string h1, i1, h2 = null, i2 = null, q2 = null; bool reread = false;
+                try {
+                    System.Globalization.CultureInfo.CurrentCulture = System.Globalization.CultureInfo.InvariantCulture;
+                    h1 = TextFormat.InputSha256(input); i1 = Fingerprint.Identity(o);
+                    System.Globalization.CultureInfo.CurrentCulture = new System.Globalization.CultureInfo("sv-SE");
+                    h2 = TextFormat.InputSha256(input); i2 = Fingerprint.Identity(o); q2 = new Q(-3, 4).ToString();
+                    try { TextFormat.ReadInput(TextFormat.WriteInput(input)); reread = true; } catch (FormatException) { }
+                } finally { System.Globalization.CultureInfo.CurrentCulture = saved; }
+                must("input hash independent of the culture", h1 == h2, h1 + " / " + h2);
+                must("identity fingerprint independent of the culture", i1 == i2, i1 + " / " + i2);
+                must("exact values written with an ASCII minus in every culture", q2 == "-3/4", q2);
+                must("the canonical text reads back in every culture", reread, "FormatException");
+            }
+
+            // 5. malformed text is a FormatException (exit code 2 on the command line), never accepted, never another exception
+            {
+                string head = "mesh2-input 1\npoints 3\n0 0\n4 0\n0 4\nsegments 0\n";
+                string tail = "holeseeds 0\nregions 0\nmin_angle_deg -\nmax_area -\nsteiner_limit -\nsnap_tolerance 0\nsize_constant -\nresolve_crossings 1\nconforming 0\nend\n";
+                string output = "mesh2-output 1\nproducer x\nstatus Success\nvertices 0\ntriangles 0\nsubsegments -\nmap -\nlabels -\nbad -\nsteiner_limit_reached 0\nend\n";
+                var bad = new Dictionary<string, Action> {
+                    { "a ring whose count does not match", () => TextFormat.ReadInput(head + "rings 1\nouter 0 4 0 1 2\n" + tail) },
+                    { "a short point line", () => TextFormat.ReadInput("mesh2-input 1\npoints 1\n0\nsegments 0\nrings 0\n" + tail) },
+                    { "an integer out of range", () => TextFormat.ReadInput("mesh2-input 1\npoints 0\nsegments 99999999999\n") },
+                    { "a status that is a flag combination", () => TextFormat.ReadOutput(output.Replace("Success", "Success,Empty"), out _) },
+                    { "a status that is a number", () => TextFormat.ReadOutput(output.Replace("Success", "7"), out _) },
+                    { "truncated JSON", () => MiniJson.Parse("{\"a\": \"unterminated") },
+                    { "a JSON integer out of range", () => MiniJson.Parse("{\"a\": 123456789012345678901234567890}") },
+                };
+                foreach (var item in bad) {
+                    string got = "accepted";
+                    try { item.Value(); } catch (FormatException) { got = null; } catch (Exception ex) { got = ex.GetType().Name; }
+                    must("malformed text refused: " + item.Key, got == null, got);
+                }
+            }
+
+            // 6. a row removed before, re-added and removed again needs a new reason
+            {
+                var row = new GoldenRow { Case = "x", Milestone = "M1", Status = "Success", Triangles = 1, Reason = "first" };
+                var before = new GoldenFile(); before.Removed.Add(new RemovedRow { Case = "x", Reason = "removed once" }); before.Rows.Add(row);
+                var after = new GoldenFile(); after.Removed.AddRange(before.Removed);
+                must("a repeated removal without a new reason is refused", GoldenProcess.VerifyChanges(before, after).Count == 1, "accepted");
+                after.Removed.Add(new RemovedRow { Case = "x", Reason = "removed again, because" });
+                must("a repeated removal with a new reason is accepted", GoldenProcess.VerifyChanges(before, after).Count == 0, "refused");
+            }
+
+            // 7. the list of bad triangles is a set, and empty without a minimum angle
+            {
+                var input = Points(0, 0, 8, 0, 0, 8);
+                var o = Out(input, new[] { new[] { 0, 1, 2 } }); o.BadTriangles = new[] { 0, 0, 0 };
+                reject("bad triangles listed without a minimum angle", Violation.BadListWrong, input, o, new OracleExpect { Milestone = Milestone.M1 });
+                var angled = Points(0, 0, 64, 0, 64, 1); angled.MinAngleDeg = 20; angled.Rings.Add(new RingInput(new[] { 0, 1, 2 }, false));
+                var twice = Out(angled, new[] { new[] { 0, 1, 2 } }, null, (0, 1, 0), (1, 2, 0), (2, 0, 0)); twice.BadTriangles = new[] { 0, 0 };
+                reject("a bad triangle listed twice", Violation.BadListWrong, angled, twice, new OracleExpect { Milestone = Milestone.M3 });
+            }
         }
 
         // Each of these is a wrong verdict an independent review of the oracle demonstrated. They stay as regressions.

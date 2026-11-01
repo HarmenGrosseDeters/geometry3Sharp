@@ -181,8 +181,14 @@ namespace Meshing2Acceptance
                     problems.Add(row.Case + ": changed without a new reason: " + string.Join("; ", differences));
             }
             foreach (var old in before.Rows)
-                if (after.Rows.All(r => r.Case != old.Case) && !after.Removed.Any(r => r.Case == old.Case && !string.IsNullOrWhiteSpace(r.Reason)))
-                    problems.Add(old.Case + ": removed without a reason");
+                if (after.Rows.All(r => r.Case != old.Case)) {
+                    // a new entry in the removed list, with a reason not given before: an old removal of a re-added row does not
+                    // excuse removing it again (second review, finding 6)
+                    var earlier = before.Removed.Where(r => r.Case == old.Case).Select(r => r.Reason).ToList();
+                    var now = after.Removed.Where(r => r.Case == old.Case).ToList();
+                    bool fresh = now.Count > earlier.Count && now.Skip(earlier.Count).Any(r => !string.IsNullOrWhiteSpace(r.Reason) && !earlier.Contains(r.Reason));
+                    if (!fresh) problems.Add(old.Case + ": removed without a new reason");
+                }
             return problems;
         }
     }

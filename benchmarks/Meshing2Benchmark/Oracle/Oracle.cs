@@ -22,11 +22,16 @@ namespace Meshing2Acceptance
         public static Q AutoTolerance(Mesh2Input input)
         {
             Q max = Q.Zero;
+            if (input.Count == 0) return max;
+            Q minX = Q.FromDouble(input.X[0]), maxX = minX, minY = Q.FromDouble(input.Y[0]), maxY = minY;
             for (int i = 0; i < input.Count; ++i) {
-                max = Q.Max(max, Q.Abs(Q.FromDouble(input.X[i])));
-                max = Q.Max(max, Q.Abs(Q.FromDouble(input.Y[i])));
+                Q x = Q.FromDouble(input.X[i]), y = Q.FromDouble(input.Y[i]);
+                max = Q.Max(max, Q.Max(Q.Abs(x), Q.Abs(y)));
+                minX = Q.Min(minX, x); maxX = Q.Max(maxX, x); minY = Q.Min(minY, y); maxY = Q.Max(maxY, y);
             }
-            return max * new Q(1, BigInteger.One << 40); // the extent is at most twice the largest coordinate: within a factor 2
+            // the larger of the largest coordinate and the extent, as documented (second review, finding 11)
+            max = Q.Max(max, Q.Max(maxX - minX, maxY - minY));
+            return max * new Q(1, BigInteger.One << 40);
         }
 
         static bool Finite(double v) => !double.IsNaN(v) && !double.IsInfinity(v);
@@ -233,7 +238,7 @@ namespace Meshing2Acceptance
                     else if (uses.Count == 2 && uses[0].a == uses[1].a) r.Add(Violation.EdgeRepeated, "edge " + KeyA(pair.Key) + "-" + KeyB(pair.Key) + " runs the same way in both triangles");
                 }
                 if (o.Neighbours == null) {
-                    if (o.IdentityRules && e.Milestone != Milestone.M1) r.Add(Violation.MissingReport, "no neighbours (spec R5)");
+                    if (o.IdentityRules && o.NeighboursReported && e.Milestone != Milestone.M1) r.Add(Violation.MissingReport, "no neighbours (spec R5)");
                     return;
                 }
                 if (o.Neighbours.Length != o.Triangles.Length) { r.Add(Violation.NeighbourWrong, "one neighbour triple per triangle"); return; }
@@ -371,7 +376,7 @@ namespace Meshing2Acceptance
                     subsegmentSet = new HashSet<long>(o.Subsegments.Select(s => Key(s.A, s.B)));
                     constraintEdges = subsegmentSet;
                 } else {
-                    if (o.IdentityRules && e.Milestone != Milestone.M1) r.Add(Violation.MissingReport, "no subsegments (spec R4)");
+                    if (o.IdentityRules && o.NeighboursReported && e.Milestone != Milestone.M1) r.Add(Violation.MissingReport, "no subsegments (spec R4)");
                     constraintEdges = new HashSet<long>();
                     foreach (var key in edges.Keys)
                         if (sources.Any(s => WithinTube(s, v[KeyA(key)]) && WithinTube(s, v[KeyB(key)]))) constraintEdges.Add(key);
@@ -437,6 +442,24 @@ namespace Meshing2Acceptance
                         if (!hull && !(constrained && SourceCovers(a, b))) r.Add(e.Milestone == Milestone.M1 ? Violation.HullBoundary : Violation.BoundaryNotConstrained,
                             "boundary edge " + a + "-" + b + " neither on the hull nor on a constraint");
                     } else if (!constrained) r.Add(Violation.BoundaryNotConstrained, "boundary edge " + a + "-" + b + " is no constraint");
+                }
+                // The area tolerance is global, so a gap bounded by constraints could hide in the slack of an unrelated move (second review,
+                // finding 1). The domain must therefore not continue beyond a boundary edge: probe outside its midpoint, at 1/16 of its length.
+                if (effectiveSeeds.Count == 0) {
+                    int gaps = 0;
+                    Q half = new Q(1, 2), sixteenth = new Q(1, 16);
+                    foreach (var pair in edges) {
+                        if (pair.Value.Count != 1) continue;
+                        Pt pa = v[pair.Value[0].a], pb = v[pair.Value[0].b];
+                        Q dx = pb.Qx - pa.Qx, dy = pb.Qy - pa.Qy;
+                        // a -> b is counter-clockwise in its triangle: the outside is on the right
+                        var probe = new Pt((pa.Qx + pb.Qx) * half + dy * sixteenth, (pa.Qy + pb.Qy) * half - dx * sixteenth);
+                        // with moved geometry the true boundary may be up to sqrt(moved2) away from the edge, the probe L/16 beyond it:
+                        // (sqrt(m) + L/16)^2 <= 2 m + 2 L^2 / 256
+                        Q near2 = moved2 * 2 + (dx * dx + dy * dy) * new Q(2, 256);
+                        if (domain.Classify(probe) != Where.Inside || (moved2.Sign > 0 && domain.Edges().Any(sg => Exact.Dist2ToSegment(sg.a, sg.b, probe) <= near2)) || LocateExact(probe) >= 0) continue;
+                        if (gaps++ < 8) r.Add(Violation.AreaMismatch, "the domain continues uncovered beyond boundary edge " + pair.Value[0].a + "-" + pair.Value[0].b + ", at " + probe);
+                    }
                 }
                 int reports = 0;
                 foreach (var t in o.Triangles) {
@@ -676,6 +699,11 @@ namespace Meshing2Acceptance
                     if (e.Milestone != Milestone.M3) r.Add(Violation.SteinerFlagWrong, "Steiner limit reported without refinement");
                     else if (r.ConstructedVertices * 2L < limit) r.Add(Violation.SteinerFlagWrong, "Steiner limit reached with " + r.ConstructedVertices + " constructed vertices, limit " + limit);
                 }
+                if (o.BadTriangles != null) {
+                    // a list is a set of existing triangles; without a bound nothing can be below it (second review, finding 7)
+                    if (o.BadTriangles.Distinct().Count() != o.BadTriangles.Length) r.Add(Violation.BadListWrong, "a triangle is listed twice");
+                    if (input.MinAngleDeg == null && o.BadTriangles.Length > 0) r.Add(Violation.BadListWrong, o.BadTriangles.Length + " triangles listed below no minimum angle");
+                }
                 if (input.MinAngleDeg != null && !e.InvalidAngle) AngleBound(input.MinAngleDeg.Value);
                 if (e.MinTriangles != null && o.Triangles.Length < e.MinTriangles.Value) r.Add(Violation.CountOutOfRange, o.Triangles.Length + " triangles, at least " + e.MinTriangles.Value + " required");
                 if (e.MaxVertices != null && v.Length > e.MaxVertices.Value) r.Add(Violation.CountOutOfRange, v.Length + " vertices, at most " + e.MaxVertices.Value + " allowed");
@@ -758,6 +786,14 @@ namespace Meshing2Acceptance
                     AddAdjacent(around, KeyA(key), KeyB(key));
                     AddAdjacent(around, KeyB(key), KeyA(key));
                 }
+                // without an outer ring the hull is the boundary (D13), constrained or not: its corners force their angles too
+                // (second review, finding 2)
+                if (domain.IsHull)
+                    foreach (var pair in edges)
+                        if (pair.Value.Count == 1 && !constraintEdges.Contains(pair.Key)) {
+                            AddAdjacent(around, KeyA(pair.Key), KeyB(pair.Key));
+                            AddAdjacent(around, KeyB(pair.Key), KeyA(pair.Key));
+                        }
                 return around;
             }
 
