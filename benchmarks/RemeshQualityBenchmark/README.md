@@ -21,7 +21,9 @@ dotnet run -c Release --project benchmarks/RemeshQualityBenchmark -- runs=3 qual
 0.2), `fidelity=0` skips the fidelity measures. The JSON line of a case has the keys `off` and `on`, or `off` and
 `on_<q>` per threshold with `qualities=`. `base=<q>` sets the quality of the off run (default 0), `si=1` turns on
 `Remesher.PreventSelfIntersections` in the on runs, `si_from=<k>` only from pass k on (0-based), `pin=<deg>`
-`MeshConstraintUtil.PinSharpVertices` with that angle deficit in the on runs. One JSON line per case (off and on), then the summary
+`MeshConstraintUtil.PinSharpVertices` with that angle deficit in the on runs, `sizing=<f>`
+`Remesher.TargetEdgeLengthF = RemeshSizing.FromWallThickness(input, f)` in the on runs. The JSON has the volume of the
+result over the input's (`VolumeRatio`). One JSON line per case (off and on), then the summary
 and the list of cases that get worse. No mesh files are committed.
 
 ## Inputs
@@ -203,6 +205,42 @@ dotnet run -c Release --project benchmarks/RemeshQualityBenchmark -- runs=1 base
   no such vertices.
 - The default of 75 degrees is above the 60 degrees at every vertex of an icosahedron (60 would pin all 12, decided
   by rounding); a coarse tessellation of a smooth surface can still have every vertex above it (a cube: 90).
+
+## Thin walls: thickness-aware sizing (opt-in)
+`Remesher.TargetEdgeLengthF` sets a target edge length per point (capped by the global one);
+`RemeshSizing.FromWallThickness(input, f)` makes it f times the local wall thickness (`MeshWallThickness`,
+InscribedSphere, the smallest of the triangles at an input vertex, interpolated over the nearest input triangle, at
+least 1e-3 of the diagonal). The `tubes` (walls 0.05 / 0.1, targets 5..32 times the wall) and Thingi10K 135363 (walls
+0.75, target 11.6), with the g3cli settings (q 0.2), 4 cores, net10.0, Release, `runs=1`:
+```
+dotnet run -c Release --project benchmarks/RemeshQualityBenchmark -- runs=1 base=0.2 quality=0.2 si=1 only='tube|^135363$' thingi=benchmarks/RemeshBenchmark/data/meshes
+dotnet run -c Release --project benchmarks/RemeshQualityBenchmark -- runs=1 base=0.2 quality=0.2 sizing=1 only='tube|^135363$' thingi=benchmarks/RemeshBenchmark/data/meshes
+dotnet run -c Release --project benchmarks/RemeshQualityBenchmark -- runs=1 base=0.2 quality=0.2 sizing=1 si=1 only='tube'
+```
+
+| tubes (24) | pairs | clean | volume / input | F 0.1 % | mean hausdorff/target | triangles | time s (sum) |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| q 0.2 (g3cli default) | 5352 | 0 | 0.16..7.04 | 0.015..0.125 | 0.311 | 54..434 | 0.3 |
+| + PreventSelfIntersections | 0 | 24 | 0.54..4.77 | 0.005..0.043 | 0.996 | 54..346 | 3.3 |
+| + sizing 1 | 1524 | 8 | 0.992..1.000 | 0.942..1.000 | 0.025 | 12192..50390 | 57.9 |
+| + sizing 1 + PreventSelfIntersections | 0 | 24 | 1.000 | 0.944..1.000 | 0.020 | 12238..50198 | 2114 |
+
+- `PreventSelfIntersections` alone blocks the folds but does not avoid them: no pairs, no inside-out result, but the
+  volume and the surface stay far off (the coarse result cannot represent a wall thinner than its edges).
+- The sizing keeps the walls: volume and surface as the input, the pairs that remain are folds of the inner wall
+  onto itself (no shared vertex, measured on tube16_w0.05), which the check removes. The result does not depend on
+  the global target any more (the field decides everywhere on these inputs), and it costs the triangles the walls
+  need: 12k (wall 0.1) to 50k (wall 0.05) instead of about 100.
+- The check costs most where the global target is far above the wall (tube64_w0.05: 57 s at target 0.5, 551 s at
+  1.6): the passes start from the coarse input and many operations are rejected on the way.
+- 135363 (sizing 1, without the check): volume 0.21 -> 1.00, F 0.1 % 0.18 -> 0.98, Hausdorff 0.62 -> 0.04 target,
+  but 1113702 triangles (514 before), 494 s and 22613 pairs (243 before) with degenerate triangles: about 98 % of
+  the pairs are flat slivers in planes x, y or z = const (some of them `ExactTriangleIntersection` false positives,
+  ROADMAP stage R). With the check as well it ran for more than 90 minutes (with the earlier, not interpolated field,
+  210k triangles) and was stopped. Repro for the faster self-intersection check:
+  `dotnet run -c Release --project benchmarks/RemeshQualityBenchmark -- runs=1 base=0.2 quality=0.2 sizing=1 si=1 only='^135363$' thingi=benchmarks/RemeshBenchmark/data/meshes`
+- `g3cli remesh --thickness-sizing 1` uses it (off by default: it multiplies the triangle count at thin walls); the
+  warning about an edge length far above the wall thickness names it.
 
 ## Decision
 - `g3cli remesh` turns the option on: `min_quality` defaults to 0.2 (`--min-quality 0` for the old behaviour). On the
