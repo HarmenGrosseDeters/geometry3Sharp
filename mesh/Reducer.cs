@@ -433,7 +433,7 @@ namespace g3
                     if (nt[k] == a || nt[k] == b) nt[k] = vKeep;
                 Triangle3d tri = new Triangle3d(
                     nt.a == vKeep ? newPos : mesh.GetVertex(nt.a), nt.b == vKeep ? newPos : mesh.GetVertex(nt.b), nt.c == vKeep ? newPos : mesh.GetVertex(nt.c));
-                if (ExactTriangleIntersection.IsDegenerate(ref tri)) continue;
+                if (is_finite(ref tri) == false || ExactTriangleIntersection.IsDegenerate(ref tri)) continue;
                 newIds.Add(nt); newTris.Add(tri);
             }
             for (int i = 0; i < newTris.Count; ++i) {
@@ -441,25 +441,31 @@ namespace g3
                 Index3i ia = newIds[i];
                 for (int j = i + 1; j < newTris.Count; ++j) {
                     Triangle3d B = newTris[j];
-                    if (ExactTriangleIntersection.IntersectsBeyondShared(ia, ref A, newIds[j], ref B))
+                    if (TriangleTriangleFilter.IntersectsBeyondShared(ia, ref A, newIds[j], ref B))
                         return true;
                 }
                 AxisAlignedBox3d box = new AxisAlignedBox3d(A.V0); box.Contain(A.V1); box.Contain(A.V2);
                 bool hit = false;
                 triangleGrid.Query(box, (tc) => {
+                    // (the query has tested the closed boxes. AxisAlignedBox3d.Intersects, which is open, must not
+                    // be used here: flat boxes of triangles in one axis plane never overlap by it)
                     if (hit || gridRingTris.Contains(tc) || mesh.IsTriangle(tc) == false) return;
-                    AxisAlignedBox3d cbox;
-                    if (triangleGrid.TryGetBox(tc, out cbox) && cbox.Intersects(box) == false) return;
                     Index3i ic = mesh.GetTriangle(tc);
                     Triangle3d C = new Triangle3d(mesh.GetVertex(ic.a), mesh.GetVertex(ic.b), mesh.GetVertex(ic.c));
-                    if (ExactTriangleIntersection.IsDegenerate(ref C)) return;
-                    if (ExactTriangleIntersection.IntersectsBeyondShared(ia, ref A, ic, ref C))
+                    // (triangles with a coordinate that is not finite are not checked: the exact tests need finite input)
+                    if (is_finite(ref C) == false || ExactTriangleIntersection.IsDegenerate(ref C)) return;
+                    if (TriangleTriangleFilter.IntersectsBeyondShared(ia, ref A, ic, ref C))
                         hit = true;
                 });
                 if (hit)
                     return true;
             }
             return false;
+        }
+
+        static bool is_finite(ref Triangle3d t)
+        {
+            return t.V0.IsFinite && t.V1.IsFinite && t.V2.IsFinite;
         }
 
         // after a collapse: the triangles of the old one-rings (in gridRingTris) are gone or changed

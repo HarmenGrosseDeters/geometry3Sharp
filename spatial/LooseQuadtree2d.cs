@@ -25,7 +25,9 @@ namespace g3
     /// </summary>
     public sealed class LooseQuadtree2d
     {
-        const int BucketSize = 16;
+        const int BucketSize = 8;
+        // Items gathered far inside their cell may stay together up to this count: cutting would add a chain of nodes before it separates them.
+        const int GatheredBucketSize = 16;
         const int DepthLimit = 64;
         internal const int ParallelThreshold = 32768;
         const double SegmentMargin = 0.0002;
@@ -79,6 +81,11 @@ namespace g3
                 if (Count == Items.Length) Array.Resize(ref Items, Count * 2);
                 Items[Count++] = node;
             }
+            // To the given size, as doubling leaves up to half of a large array unused.
+            public void Resize(int capacity)
+            {
+                if (capacity != Items.Length) Array.Resize(ref Items, capacity);
+            }
         }
 
         Entry[] entries;
@@ -102,20 +109,51 @@ namespace g3
             if (boxes == null) throw new ArgumentNullException(nameof(boxes));
             ParallelBuild = parallelBuild;
             entries = new Entry[boxes.Count];
+            // In parallel only from what is known to allow it: another list may hold a lock, cache what it reads, or need its thread.
+            if (entries.Length > 0) extent = parallelBuild && entries.Length >= ParallelThreshold && (boxes is AxisAlignedBox2d[] || boxes.GetType() == typeof(List<AxisAlignedBox2d>)) ?
+                FillInBlocks(boxes) : Fill(boxes, 0, entries.Length);
+            Count = nextId = entries.Length;
+            rootRegion = extent;
+            Rebuild(parallelBuild);
+        }
+
+        // The entries of a range, and the bounds of their boxes. The build links them afterwards.
+        AxisAlignedBox2d Fill(IReadOnlyList<AxisAlignedBox2d> boxes, int start, int end)
+        {
+            var array = boxes as AxisAlignedBox2d[];
             double minX = double.MaxValue, minY = double.MaxValue, maxX = -double.MaxValue, maxY = -double.MaxValue;
-            for (int i = 0; i < entries.Length; ++i) {
-                AxisAlignedBox2d box = boxes[i];
+            for (int i = start; i < end; ++i) {
+                AxisAlignedBox2d box = array != null ? array[i] : boxes[i];
                 ValidateBox(box, nameof(boxes));
-                entries[i] = new Entry { Box = box, Owner = 0, Next = -1, Previous = -1 };
+                ref Entry entry = ref entries[i];
+                entry.Box = box;
                 if (box.Min.x < minX) minX = box.Min.x;
                 if (box.Min.y < minY) minY = box.Min.y;
                 if (box.Max.x > maxX) maxX = box.Max.x;
                 if (box.Max.y > maxY) maxY = box.Max.y;
             }
-            if (entries.Length > 0) extent = new AxisAlignedBox2d(minX, minY, maxX, maxY);
-            Count = nextId = entries.Length;
-            rootRegion = extent;
-            Rebuild(parallelBuild);
+            return new AxisAlignedBox2d(minX, minY, maxX, maxY);
+        }
+
+        // Blocks are joined in order, so a tie between zeros of either sign goes as in a sequential fill.
+        AxisAlignedBox2d FillInBlocks(IReadOnlyList<AxisAlignedBox2d> boxes)
+        {
+            int blocks = (entries.Length + ParallelThreshold - 1) / ParallelThreshold;
+            var parts = new AxisAlignedBox2d[blocks];
+            try {
+                Parallel.For(0, blocks, b => parts[b] = Fill(boxes, b * ParallelThreshold, Math.Min(entries.Length, (b + 1) * ParallelThreshold)));
+            } catch (AggregateException) {
+                // This reports the first bad box, as a sequential fill does.
+                return Fill(boxes, 0, entries.Length);
+            }
+            AxisAlignedBox2d all = parts[0];
+            for (int b = 1; b < blocks; ++b) {
+                if (parts[b].Min.x < all.Min.x) all.Min.x = parts[b].Min.x;
+                if (parts[b].Min.y < all.Min.y) all.Min.y = parts[b].Min.y;
+                if (parts[b].Max.x > all.Max.x) all.Max.x = parts[b].Max.x;
+                if (parts[b].Max.y > all.Max.y) all.Max.y = parts[b].Max.y;
+            }
+            return all;
         }
 
         public bool ContainsId(int id)
@@ -389,7 +427,7 @@ namespace g3
             int count = ++node.Count;
             // A cell of equal items refuses to split, at a cost per attempt: at powers of two, so that filling it stays linear.
             // The union above left the bounds valid, so a node that cannot split costs nothing more.
-            if (node.Child < 0 && count > BucketSize && (count == BucketSize + 1 || (count & (count - 1)) == 0) &&
+            if (node.Child < 0 && count > BucketSize && (count == BucketSize + 1 || count == GatheredBucketSize + 1 || (count & (count - 1)) == 0) &&
                 depth < DepthLimit && SplitAxes(cell, Center(cell)) != 0 && !AllEqual(node.Head))
                 BuildCell(index, cell, depth);
         }
@@ -415,16 +453,28 @@ namespace g3
             nodes = new NodeList();
             if (nextId == 0) return;
             var items = new BuildItem[Count];
-            int live = 0;
-            for (int id = 0; id < nextId; ++id) {
-                if (entries[id].Owner < 0) continue;
-                items[live].Box = entries[id].Box;
-                items[live++].Id = id;
+            // Only the first build runs in parallel, and it has no removed items yet.
+            if (parallel && Count >= ParallelThreshold) {
+                int blocks = (Count + ParallelThreshold - 1) / ParallelThreshold;
+                Parallel.For(0, blocks, b => {
+                    for (int id = b * ParallelThreshold, end = Math.Min(Count, (b + 1) * ParallelThreshold); id < end; ++id) {
+                        items[id].Box = entries[id].Box;
+                        items[id].Id = id;
+                    }
+                });
+            } else {
+                int live = 0;
+                for (int id = 0; id < nextId; ++id) {
+                    if (entries[id].Owner < 0) continue;
+                    items[live].Box = entries[id].Box;
+                    items[live++].Id = id;
+                }
             }
             nodes.Add(new Node(0, Count));
             if (!parallel || Count < ParallelThreshold) {
                 BuildRange(nodes, 0, items, rootRegion, 0, new int[10]);
                 for (int i = 0; i < nodes.Count; ++i) LinkRange(i, items);
+                nodes.Resize(nodes.Count);
                 return;
             }
             // Cut down side by side until a part that can still be cut holds at most an eighth of the items, or the threshold,
@@ -468,6 +518,9 @@ namespace g3
                 BuildRange(branch, 0, items, parts[p].Cell, parts[p].Depth, new int[10]);
                 branches[p] = branch;
             });
+            int total = nodes.Count;
+            foreach (NodeList branch in branches) total += branch.Count - 1;
+            nodes.Resize(total);
             for (int p = 0; p < parts.Count; ++p) {
                 NodeList branch = branches[p];
                 int offset = nodes.Count - 1;
@@ -519,6 +572,21 @@ namespace g3
             }
         }
 
+        static bool Gathered(BuildItem[] items, int start, int count, AxisAlignedBox2d cell)
+        {
+            if (count > GatheredBucketSize) return false;
+            double minX = double.MaxValue, minY = double.MaxValue, maxX = -double.MaxValue, maxY = -double.MaxValue;
+            for (int i = start; i < start + count; ++i) {
+                ref AxisAlignedBox2d box = ref items[i].Box;
+                if (box.Min.x < minX) minX = box.Min.x;
+                if (box.Min.y < minY) minY = box.Min.y;
+                if (box.Max.x > maxX) maxX = box.Max.x;
+                if (box.Max.y > maxY) maxY = box.Max.y;
+            }
+            // In halves, as a difference can overflow.
+            return maxX * 0.5 - minX * 0.5 <= (cell.Max.x * 0.5 - cell.Min.x * 0.5) * 0.25 && maxY * 0.5 - minY * 0.5 <= (cell.Max.y * 0.5 - cell.Min.y * 0.5) * 0.25;
+        }
+
         static void ClassifyInBlocks(BuildItem[] items, int start, int end, AxisAlignedBox2d cell, Vector2d center, int axes, int[] scratch)
         {
             int blocks = (end - start + ParallelThreshold - 1) / ParallelThreshold;
@@ -537,7 +605,7 @@ namespace g3
             if (count <= BucketSize || depth >= DepthLimit) return false;
             Vector2d center = Center(cell);
             int axes = SplitAxes(cell, center);
-            if (axes == 0 || AllEqual(items, start, count)) return false;
+            if (axes == 0 || AllEqual(items, start, count) || Gathered(items, start, count, cell)) return false;
             int end = start + count;
             for (int c = 0; c < 5; ++c) scratch[c] = 0;
             if (parallel) ClassifyInBlocks(items, start, end, cell, center, axes, scratch);

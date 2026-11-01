@@ -472,10 +472,11 @@ namespace g3
             return t.V0.IsFinite && t.V1.IsFinite && t.V2.IsFinite;
         }
 
-        // ExactTriangleIntersection.Intersects; false for non-finite input (no contact is defined there)
+        // ExactTriangleIntersection.Intersects (with TriangleTriangleFilter first, the same answer); false for non-finite
+        // input (no contact is defined there)
         static bool exact_intersects(ref Triangle3d a, ref Triangle3d b)
         {
-            return finite(ref a) && finite(ref b) && ExactTriangleIntersection.Intersects(ref a, ref b);
+            return finite(ref a) && finite(ref b) && TriangleTriangleFilter.Intersects(ref a, ref b);
         }
 
         // finite triangles, neither exactly degenerate (collinear corners), but one with a rounded normal of zero

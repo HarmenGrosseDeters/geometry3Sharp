@@ -62,7 +62,7 @@ Order when slots free up (owner, 2026-11-01; on that day 4 large and 2 medium se
    fidelity gates (data: `benchmarks/MeshRepairBenchmark/cases/robust_phases_2026-11-01.csv`). It precedes stage 7b
    (alpha wrap quality). The volume checks (20 % of the time, all 400 meshes) go to the self-intersection session after
    #261; the slow `exact.resolve` on small inputs (67709, 42327) goes to the boolean-performance session as a diagnosis.
-   Then **Terrain 1a** (large), with the NoData guard of
+   **Terrain 1a** (large) was started on 2026-11-01 in the cloud, ahead of this slot, at the owner's request, with the NoData guard of
    `TerrainSafetyLines` (a single vertex such as z = −9999 near a source refines until memory runs out; count the band's
    3D area, not only the horizontal one).
 3. Meshing done (large): the **stage 6b provenance check** (medium, report only), after M3 is merged.

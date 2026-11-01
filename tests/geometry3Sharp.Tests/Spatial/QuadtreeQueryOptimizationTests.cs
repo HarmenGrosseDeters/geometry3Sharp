@@ -64,6 +64,19 @@ namespace geometry3Sharp.Tests.Spatial
             }
         }
 
+#if NET8_0_OR_GREATER
+        [Fact]
+        public void TheAllocationHelper_SeesWhatAllocates_AndTheRest()
+        {
+            object kept = null;
+            Assert.True(Allocations.Least(10, () => kept = new byte[64]) > 0);
+            int calls = 0;
+            Assert.True(Allocations.Least(10, () => { if (++calls % 150 == 0) kept = new byte[64]; }) > 0);
+            Assert.Equal(0, Allocations.Least(10, () => { }));
+            GC.KeepAlive(kept);
+        }
+#endif
+
         struct RootItems : IQuadtreeVisitor2d
         {
             public List<int> Ids;
@@ -149,6 +162,186 @@ namespace geometry3Sharp.Tests.Spatial
             Assert.Equal(serial.Ids, parallel.Ids);
             Assert.Equal(Enumerable.Range(0, boxes.Length), parallel.Ids.OrderBy(id => id));
             Assert.Equal(serial.Ids, Walk(new LooseQuadtree2d(boxes, true)).Ids);
+            Assert.Equal(new LooseQuadtree2d(boxes, false).Extent, new LooseQuadtree2d(boxes, true).Extent);
+        }
+
+        static long Bits(double value) { return BitConverter.DoubleToInt64Bits(value); }
+
+        [Fact]
+        public void ALargeBuild_HasTheExtentOfASequentialOne_DownToTheSignOfAZero()
+        {
+            // Items in different blocks, the extreme ones in the last block and at the edges of a block.
+            int block = LooseQuadtree2d.ParallelThreshold, count = 3 * block + 5;
+            foreach (bool negativeFirst in new[] { true, false }) {
+                double first = negativeFirst ? -0.0 : 0.0, second = negativeFirst ? 0.0 : -0.0;
+                var boxes = Enumerable.Range(0, count).Select(i => new AxisAlignedBox2d(1 + i % 7, 1 + i % 5, 2 + i % 7, 2 + i % 5)).ToArray();
+                boxes[block - 1] = new AxisAlignedBox2d(first, first, 3, 3);
+                boxes[2 * block] = new AxisAlignedBox2d(second, second, 3, 3);
+                boxes[block] = new AxisAlignedBox2d(1, 1, 90, 3);
+                boxes[count - 1] = new AxisAlignedBox2d(4, 4, 5, 80);
+                AxisAlignedBox2d serial = new LooseQuadtree2d(boxes, false).Extent, parallel = new LooseQuadtree2d(boxes, true).Extent;
+                Assert.Equal(Bits(first), Bits(parallel.Min.x));
+                Assert.Equal(Bits(serial.Min.x), Bits(parallel.Min.x));
+                Assert.Equal(Bits(serial.Min.y), Bits(parallel.Min.y));
+                Assert.Equal(90, parallel.Max.x);
+                Assert.Equal(80, parallel.Max.y);
+            }
+        }
+
+        // A list that cannot be read from other threads: it caches what it reads.
+        sealed class LazyBoxes : IReadOnlyList<AxisAlignedBox2d>
+        {
+            readonly List<AxisAlignedBox2d> cache = new List<AxisAlignedBox2d>();
+            readonly int count;
+            public LazyBoxes(int count) { this.count = count; }
+            public int Count { get { return count; } }
+            public AxisAlignedBox2d this[int index] {
+                get {
+                    while (cache.Count <= index) cache.Add(new AxisAlignedBox2d(new Vector2d(cache.Count % 300, cache.Count / 300)));
+                    return cache[index];
+                }
+            }
+            public IEnumerator<AxisAlignedBox2d> GetEnumerator() { for (int i = 0; i < count; ++i) yield return this[i]; }
+            System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() { return GetEnumerator(); }
+        }
+
+        // ... and one that takes a lock its caller holds, which would stop every other thread.
+        sealed class LockedBoxes : IReadOnlyList<AxisAlignedBox2d>
+        {
+            readonly AxisAlignedBox2d[] boxes;
+            public readonly object Gate = new object();
+            public LockedBoxes(AxisAlignedBox2d[] boxes) { this.boxes = boxes; }
+            public int Count { get { return boxes.Length; } }
+            public AxisAlignedBox2d this[int index] { get { lock (Gate) return boxes[index]; } }
+            public IEnumerator<AxisAlignedBox2d> GetEnumerator() { foreach (AxisAlignedBox2d box in boxes) yield return box; }
+            System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() { return GetEnumerator(); }
+        }
+
+        [Fact]
+        public void AListOfUnknownKind_IsReadOnTheCallingThreadOnly()
+        {
+            const int n = 200000;
+            var fromLazy = new LooseQuadtree2d(new LazyBoxes(n));
+            AxisAlignedBox2d[] boxes = Enumerable.Range(0, n).Select(i => new AxisAlignedBox2d(new Vector2d(i % 300, i / 300))).ToArray();
+            Assert.Equal(Walk(new LooseQuadtree2d(boxes, false)).Ids, Walk(fromLazy).Ids);
+
+            var locked = new LockedBoxes(boxes);
+            lock (locked.Gate) Assert.Equal(n, new LooseQuadtree2d(locked).Count);
+        }
+
+        [Theory]
+        [InlineData(1e-3)]
+        [InlineData(1e-9)]
+        public void ClustersThatFitABucket_AddNoChainsOfNodes(double noise)
+        {
+            var random = new Random(3);
+            var boxes = new List<AxisAlignedBox2d>();
+            for (int c = 0; c < 2000; ++c) {
+                double x = random.NextDouble() * 1e5, y = random.NextDouble() * 1e5;
+                for (int k = 0; k < 10; ++k)
+                    boxes.Add(new AxisAlignedBox2d(new Vector2d(x + noise * random.NextDouble(), y + noise * random.NextDouble())));
+            }
+            // A chain would add regions on every level for each cluster, and the levels go by the noise.
+            Assert.True(VisitRegions(new LooseQuadtree2d(boxes)).Count < 6 * 2000);
+            var inserted = new LooseQuadtree2d(boxes.GetRange(0, 2));
+            foreach (AxisAlignedBox2d box in boxes.Skip(2)) inserted.Insert(box);
+            Assert.True(VisitRegions(inserted).Count < 12 * 2000);
+            var found = new List<int>();
+            inserted.QueryRectangle(boxes[15], found);
+            Assert.Contains(15, found);
+        }
+
+        // Corners make the root square: the root, three corners and the quadrant with the given points.
+        static List<AxisAlignedBox2d> InOneQuadrant(int count, double span)
+        {
+            var boxes = new List<AxisAlignedBox2d> { new AxisAlignedBox2d(new Vector2d(0, 100)), new AxisAlignedBox2d(new Vector2d(100, 0)), new AxisAlignedBox2d(new Vector2d(100, 100)) };
+            for (int i = 0; i < count; ++i) {
+                double along = 20 + span * i / (count - 1);
+                boxes.Add(new AxisAlignedBox2d(new Vector2d(along, along)));
+            }
+            return boxes;
+        }
+
+        const int OneRegionPerQuadrant = 5;
+
+        [Theory]
+        [InlineData(16, 1e-3, true)]
+        [InlineData(17, 1e-3, false)]
+        [InlineData(10, 12, true)]      // the quadrant is 50 wide, so a quarter is 12.5
+        [InlineData(10, 13, false)]
+        public void AClusterStaysTogether_UpToItsCountAndSize(int count, double span, bool together)
+        {
+            List<AxisAlignedBox2d> boxes = InOneQuadrant(count, span);
+            Assert.Equal(together, VisitRegions(new LooseQuadtree2d(boxes, false)).Count == OneRegionPerQuadrant);
+        }
+
+        [Fact]
+        public void AnInsertedCluster_SplitsAboveTheSameCount()
+        {
+            List<AxisAlignedBox2d> boxes = InOneQuadrant(17, 1e-3);
+            var tree = new LooseQuadtree2d(boxes.GetRange(0, 4), false);
+            for (int i = 4; i < boxes.Count - 1; ++i) tree.Insert(boxes[i]);
+            Assert.Equal(OneRegionPerQuadrant, VisitRegions(tree).Count);
+            tree.Insert(boxes[boxes.Count - 1]);
+            Assert.True(VisitRegions(tree).Count > OneRegionPerQuadrant);
+        }
+
+        sealed class OwnIndexerList : List<AxisAlignedBox2d>, IReadOnlyList<AxisAlignedBox2d>
+        {
+            public readonly object Gate = new object();
+            AxisAlignedBox2d IReadOnlyList<AxisAlignedBox2d>.this[int index] { get { lock (Gate) return this[index]; } }
+        }
+
+        [Fact]
+        public void ASubclassOfAList_IsReadOnTheCallingThreadOnly()
+        {
+            var list = new OwnIndexerList();
+            for (int i = 0; i < 200000; ++i) list.Add(new AxisAlignedBox2d(new Vector2d(i % 300, i / 300)));
+            lock (list.Gate) Assert.Equal(list.Count, new LooseQuadtree2d(list).Count);
+        }
+
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void ALineAcrossItsCell_IsNotAGatheredCluster(bool alongY)
+        {
+            // Corners make the root square, and 14 points in one quadrant span it in one direction only.
+            var boxes = new List<AxisAlignedBox2d> { new AxisAlignedBox2d(new Vector2d(0, 100)), new AxisAlignedBox2d(new Vector2d(100, 0)), new AxisAlignedBox2d(new Vector2d(100, 100)) };
+            for (int i = 0; i < 14; ++i) {
+                double along = 1 + i * 3.5;
+                boxes.Add(new AxisAlignedBox2d(alongY ? new Vector2d(25, along) : new Vector2d(along, 25)));
+            }
+            Assert.True(VisitRegions(new LooseQuadtree2d(boxes, false)).Count > 6, "the line stayed in one cell");
+        }
+
+        [Fact]
+        public void ALargeBuild_ReportsABadBoxLikeASmallOne()
+        {
+            int block = LooseQuadtree2d.ParallelThreshold;
+            AxisAlignedBox2d[] boxes = Enumerable.Repeat(new AxisAlignedBox2d(0, 0, 1, 1), 2 * block + 3).ToArray();
+            foreach (int at in new[] { 0, block - 1, block, boxes.Length - 1 }) {
+                boxes[at] = new AxisAlignedBox2d(double.NaN, 0, 1, 1);
+                ArgumentException parallel = Assert.ThrowsAny<ArgumentException>(() => new LooseQuadtree2d(boxes, true));
+                ArgumentException serial = Assert.ThrowsAny<ArgumentException>(() => new LooseQuadtree2d(boxes, false));
+                Assert.Equal(serial.GetType(), parallel.GetType());
+                Assert.Equal(serial.Message, parallel.Message);
+                boxes[at] = new AxisAlignedBox2d(0, 0, 1, 1);
+            }
+            Assert.Equal(boxes.Length, new LooseQuadtree2d(new List<AxisAlignedBox2d>(boxes), true).Count);
+        }
+
+        [Fact]
+        public void TheAdapter_CopiesAnArray_AndAnyOtherList()
+        {
+            Triangle3d[] triangles = TriangleGrid(4, v => v);
+            var fromArray = new TriangleQuadtree2d(triangles);
+            var fromList = new TriangleQuadtree2d(new List<Triangle3d>(triangles));
+            Vector3d first = triangles[0].V0;
+            triangles[0] = new Triangle3d(new Vector3d(9, 9, 9), new Vector3d(10, 9, 9), new Vector3d(9, 10, 9));
+            Assert.Equal(first, fromArray.GetItem(0).V0);
+            Assert.Equal(first, fromList.GetItem(0).V0);
+            Assert.Equal(triangles[triangles.Length - 1].V2, fromArray.GetItem(triangles.Length - 1).V2);
+            Assert.Equal(triangles[triangles.Length - 1].V2, fromList.GetItem(triangles.Length - 1).V2);
         }
 
         static Triangle3d[] TriangleGrid(int cells, Func<Vector3d, Vector3d> place)
