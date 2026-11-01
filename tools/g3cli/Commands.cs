@@ -398,8 +398,9 @@ namespace g3cli
                 "0..1, 0 = off, the library's default; 0.2 here: fewer flat triangles and self-intersections at equal or better " +
                 "mean fidelity on Thingi10K and CAD-like parts, about 1.5x the time, benchmarks/RemeshQualityBenchmark; 0 for thin walls far below the edge length)") { Default = 0.2 });
             c.Params.Add(new Param("sharp_vertex_angle", ParamType.Number, "also pin vertices where the surface comes to a point (absolute " +
-                "angle deficit at least this, degrees, eg 75; 0 = off), such as the apex of a cone with many slices, which is no crease and " +
-                "is rounded off otherwise (MeshConstraintUtil.PinSharpVertices); vertices on kept boundaries and creases are left to them") { Default = 0.0 });
+                "angle deficit at least this, degrees; 0 = off), such as the apex of a cone with many slices, which is no crease and " +
+                "is rounded off otherwise (MeshConstraintUtil.PinSharpVertices, off in the library); vertices on kept boundaries and creases " +
+                "are left to them") { Default = 75.0 });
             c.Params.Add(Deviation());
             c.Params.Add(SelfIntersections());
             c.Params.Add(Binary());
