@@ -205,6 +205,39 @@ namespace geometry3Sharp.Tests
             return input;
         }
 
+        /// <summary>
+        /// The tag check (tags against domain membership from scratch, after every operation) on the catalogue rows. On a hull domain a
+        /// hull edge whose split point rounds inwards leaves a sliver between its pieces and the old, now unconstrained hull edge: the
+        /// tags put it outside the constrained hull, and so must the check (F-35 and F-3/c failed it; the check reached them only when another test had switched it on in parallel).
+        /// </summary>
+        [Fact]
+        public void TagCheck_HoldsOnTheCoveredCatalogueRows()
+        {
+            QualityMesh2.Refiner.CheckTagsForTests = true;
+            try {
+                foreach (var row in Catalogue.Rows().Where(r => r.Case != null && r.State == CaseState.Covered && !r.Slow))
+                    CandidateRegistry.For(row.Case.Milestone).Run(row.Case.Input);   // throws InvalidOperationException on a wrong tag
+            } finally { QualityMesh2.Refiner.CheckTagsForTests = false; }
+        }
+
+        /// <summary>
+        /// The switch of the slow tag check is per thread: a test that turns it on must not reach meshers other tests run in parallel
+        /// (master CI failed F-35 in Meshing2OracleModesTests intermittently while Fuzz_NarrowWedges had it on).
+        /// </summary>
+        [Fact]
+        public void TagCheckSwitch_DoesNotReachOtherThreads()
+        {
+            QualityMesh2.Refiner.CheckTagsForTests = true;
+            try {
+                bool seen = true;
+                var thread = new Thread(() => seen = QualityMesh2.Refiner.CheckTagsForTests);
+                thread.Start();
+                thread.Join();
+                Assert.False(seen);
+                Assert.True(QualityMesh2.Refiner.CheckTagsForTests);
+            } finally { QualityMesh2.Refiner.CheckTagsForTests = false; }
+        }
+
         [Fact]
         public void Fuzz_NarrowWedges_KeepTagsAndPassTheOracle()
         {
