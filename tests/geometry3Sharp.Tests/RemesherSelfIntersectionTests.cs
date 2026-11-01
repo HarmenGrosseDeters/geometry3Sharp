@@ -188,6 +188,23 @@ namespace geometry3Sharp.Tests
                 ensure_triangle_grid();
                 return collapse_creates_intersection(a, b, b, p);
             }
+            public bool Split(int a, int b, int c, int d)
+            {
+                ensure_triangle_grid();
+                Index2i et = Mesh.GetEdgeT(Mesh.FindEdge(a, b));
+                return split_creates_intersection(a, b, c, d, et.a, et.b);
+            }
+            // one buffered move of vertex vid (as a smoothing pass would make it); true if it was applied
+            public bool Move(int vid, Vector3d p, bool parallel)
+            {
+                Vector3d before = Mesh.GetVertex(vid);
+                InitializeVertexBufferForPass();
+                vModifiedV[vid] = true;
+                vBufferV[vid] = p;
+                ApplyVertexBuffer(parallel);
+                return Mesh.GetVertex(vid) != before;
+            }
+            public string Process(int eid) => ProcessEdge(eid).ToString();
         }
 
         [Fact]
@@ -234,6 +251,109 @@ namespace geometry3Sharp.Tests
                 if (expected) hits++;
             }
             Assert.True(coplanar > 10000 && hits > 1000, $"{coplanar} coplanar pairs, {hits} intersecting");
+        }
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void MoveThroughAWall_Reverted(bool parallel)
+        {
+            // c moved into the plane of the wall (x = 0), onto it: [a,b,c] then overlaps the wall, which shares no
+            // vertex with it (a moved triangle against one that did not move)
+            foreach (bool wall in new[] { false, true }) {
+                DMesh3 m = TentAndWall(wall, out int a, out int b, out int c, out int d);
+                var probe = new Probe(m);
+                bool moved = probe.Move(c, new Vector3d(0, 0, 1), parallel);
+                Assert.Equal(!wall, moved);
+                Assert.Equal(wall ? 1 : 0, probe.SelfIntersectionsRejected);
+                Assert.Equal(0, MeshRepairMetrics.SelfIntersections(m));
+            }
+        }
+
+        [Fact]
+        public void SplitOfAnEdgeThroughAWall_Detected()
+        {
+            // a wall that pierces [a,b,c] (an intersection the mesh already has): the halves after a split of ab
+            // intersect it too, so the split is not made
+            foreach (bool wall in new[] { false, true }) {
+                DMesh3 m = TentAndWall(false, out int a, out int b, out int c, out int d);
+                if (wall) {
+                    int w0 = m.AppendVertex(new Vector3d(-0.4, -0.1, -1)), w1 = m.AppendVertex(new Vector3d(-0.4, 0.1, -1)), w2 = m.AppendVertex(new Vector3d(-0.4, 0, 2));
+                    m.AppendTriangle(w0, w1, w2);
+                }
+                Assert.Equal(wall, MeshRepairMetrics.SelfIntersections(m) > 0);
+                Assert.Equal(wall, new Probe(m).Split(a, b, c, d));
+            }
+        }
+
+        // projects every point to the same one: a "curve" that pulls the vertex of a split onto it
+        class PointTarget : IProjectionTarget
+        {
+            public Vector3d P;
+            public Vector3d Project(Vector3d v, int id = -1) => P;
+        }
+
+        [Fact]
+        public void SplitVertexProjectedThroughAWall_StaysAtTheMidpoint()
+        {
+            // edge ab constrained to a target that pulls the new vertex of a split to (0, 0, 1): in the plane of the
+            // wall and on it, so with the wall it stays at the midpoint of ab
+            foreach (bool wall in new[] { false, true }) {
+                DMesh3 m = TentAndWall(wall, out int a, out int b, out int c, out int d);
+                var target = new PointTarget() { P = new Vector3d(0, 0, 1) };
+                var probe = new Probe(m) { EnableFlips = false, EnableCollapses = false };
+                var cons = new MeshConstraints();
+                int eid = m.FindEdge(a, b);
+                cons.SetOrUpdateEdgeConstraint(eid, new EdgeConstraint(EdgeRefineFlags.NoFlip, target));
+                cons.SetOrUpdateVertexConstraint(a, new VertexConstraint(target));
+                cons.SetOrUpdateVertexConstraint(b, new VertexConstraint(target));
+                probe.SetExternalConstraints(cons);
+                probe.SetTargetEdgeLength(0.5);
+                int vNew = m.MaxVertexID;
+                Assert.Equal("Ok_Split", probe.Process(eid));
+                Assert.Equal(wall ? Vector3d.Zero : target.P, m.GetVertex(vNew));
+                Assert.Equal(0, MeshRepairMetrics.SelfIntersections(m));
+            }
+        }
+
+        // counts the triangles that a buffered pass flips (not flat before, normal turned by 90 degrees or more)
+        class FlipCounting : Remesher
+        {
+            public FlipCounting(DMesh3 m) : base(m) { }
+            public int Flipped;
+            protected override void ApplyVertexBuffer(bool bParallel)
+            {
+                var before = new DMesh3(Mesh);
+                base.ApplyVertexBuffer(bParallel);
+                foreach (int tid in Mesh.TriangleIndices()) {
+                    Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+                    before.GetTriVertices(tid, ref a, ref b, ref c);
+                    if (MeshRefinerBase.TriangleQuality(ref a, ref b, ref c) < 1e-6) continue;
+                    Vector3d n0 = (b - a).Cross(c - a);
+                    Mesh.GetTriVertices(tid, ref a, ref b, ref c);
+                    if (!((b - a).Cross(c - a).Dot(n0) > 0)) Flipped++;
+                }
+            }
+        }
+
+        [Fact]
+        public void WithMinTriangleQuality_RevertedMovesFlipNoTriangle()
+        {
+            // MinTriangleQuality checks the buffered moves together; the moves the intersection check reverts change
+            // that set, so the mix is checked again (review of #240: cone16_x0.1 and cone32_x0.1 had a flipped triangle)
+            int flipped = 0;
+            foreach (int slices in new[] { 16, 32 }) {
+                DMesh3 input = Cone(slices);
+                DMesh3 mesh = new DMesh3(input);
+                var r = new FlipCounting(mesh) { SmoothSpeedT = 0.5, MinTriangleQuality = 0.2, PreventSelfIntersections = true };
+                r.SetProjectionTarget(MeshProjectionTarget.Auto(input));
+                MeshConstraintUtil.PreserveBoundaryAndFeatures(r, 30);
+                r.SetTargetEdgeLength(0.1 * MeanEdge(input));
+                for (int k = 0; k < 20; ++k) r.BasicRemeshPass();
+                flipped += r.Flipped;
+                Assert.Equal(0, MeshRepairMetrics.SelfIntersections(mesh));
+            }
+            Assert.Equal(0, flipped);
         }
 
         [Fact]

@@ -168,9 +168,6 @@ quarter lower now: q 0.2 thingi 262.2 -> 193.5 s, primitives 154.7 -> 113.3 s).
     earlier passes and survive them), so not a substitute.
   Open: a clearance filter (a triangle whose nearest non-neighbour is farther than its corners move cannot meet a
   new one; most triangles are far from everything but their neighbours).
-- `Reducer.collapse_creates_intersection` used the open `AxisAlignedBox3d.Intersects` on the grid boxes, which misses
-  the flat boxes of coplanar triangles on an axis plane (found here, where the same test let pairs through): fixed by
-  the owner locally.
 
 ## Decision
 - `g3cli remesh` turns the option on: `min_quality` defaults to 0.2 (`--min-quality 0` for the old behaviour). On the

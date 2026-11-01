@@ -106,17 +106,20 @@ namespace g3 {
         /// Opt-in (default false): reject the edge operations and vertex moves that would make a triangle intersect
         /// another one (exactly, ExactTriangleIntersection.IntersectsBeyondShared, the test of
         /// MeshRepairMetrics.SelfIntersections): a collapse, flip or split whose new triangles intersect a triangle
-        /// outside the changed ones (or each other; a split too, as a triangle that touched the old ones only at a shared
-        /// vertex can meet the new ones elsewhere), the projection of a vertex created by a split onto its constraint
-        /// curve (it stays at the edge midpoint), and in the buffered smoothing and projection passes (also
-        /// RemesherPro's tracked passes) the moves of every triangle pair that intersects after the pass (reverted
-        /// until no pair with a moved vertex intersects; the first round in parallel when the pass is, each round as
-        /// a set, so the result does not depend on the thread timing). Triangles kept in a hash grid that is rebuilt
+        /// outside the changed ones (or each other; a split too: its rounded midpoint is not exactly on the edge, and
+        /// a pair that shared a vertex before need not share one after), the projection of a vertex created by a split
+        /// onto its constraint curve (it stays at the edge midpoint), and in the buffered smoothing and projection
+        /// passes (also RemesherPro's tracked and face-aligned passes) the moves of every triangle pair that
+        /// intersects after the pass (reverted until no pair with a moved vertex intersects, and with
+        /// MinTriangleQuality until no triangle at a reverted vertex flips; the first round in parallel when the pass
+        /// is, each round as a set, so the result does not depend on the thread timing). The inline projection of a
+        /// collapse or smoothing move is part of the checked position. Triangles kept in a hash grid that is rebuilt
         /// when the mesh was changed outside the remesher. A mesh without self-intersections stays without them;
         /// intersections the mesh already has are not removed, and the operations and moves near them are blocked.
-        /// Not guarded: EnableSmoothInPlace, RemesherPro.TrackedFaceProjectionPass and the inline projection of a
-        /// collapse or smoothing move (ProjectionMode Inline is checked after the pass). Rejections are counted in
-        /// SelfIntersectionsRejected. Expensive: with the g3cli remesh settings about 18x the time on Thingi10K
+        /// Not guarded: EnableSmoothInPlace, and in RegionRemesher the rest of the base mesh (only the region is
+        /// checked). The first round of the move check finds candidates with DMeshAABBTree3, whose boxes are padded
+        /// by an absolute 6e-6: for coordinates beyond about 1e10 a touching pair can be missed there (the later
+        /// rounds use the exact grid boxes). Rejections are counted in SelfIntersectionsRejected. Expensive: with the g3cli remesh settings about 18x the time on Thingi10K
         /// (10.7 -> 193.5 s for 20 meshes; mostly the exact tests of neighbouring triangles), see
         /// benchmarks/RemeshQualityBenchmark. Thin walls far below the edge length stay intersection-free but end
         /// far from the input (the folds are blocked, not avoided).
@@ -1219,6 +1222,12 @@ namespace g3 {
                         continue;
                     bool aMoved = is_moved(t.a) || is_moved(t.b) || is_moved(t.c);
                     int self = tid;
+                    // MinTriangleQuality: revert_flipping_moves checked all moves together; with some of them reverted
+                    // the mix around a reverted vertex was not checked (a triangle with one move kept and one reverted)
+                    if (aMoved && MinTriangleQuality > 0 && flipped_against_before(tid, oldPos)) {
+                        revert_moved_of(self);
+                        continue;
+                    }
                     // a pair of two dirty triangles is tested once, from the lower id (the positions do not change
                     // within the round)
                     intersects_grid(t, ref A, null, (tc) => {
@@ -1246,6 +1255,33 @@ namespace g3 {
                 }
             }
             gridTimestamp = mesh.Timestamp;
+        }
+
+        // apply_moves_without_intersections with MinTriangleQuality: triangle tid (some vertex still moved) faces against
+        // its orientation before the pass (positions in before for the moved vertices), as revert_flipping_moves
+        // decides it: a triangle that was not flat must not flip, a flat one that is no longer flat must face the way its
+        // (not flat) neighbours did
+        bool flipped_against_before(int tid, Dictionary<int, Vector3d> before)
+        {
+            Vector3d pos_before(int v) { Vector3d p; return before.TryGetValue(v, out p) ? p : mesh.GetVertex(v); }
+            Index3i t = mesh.GetTriangle(tid);
+            Vector3d a = pos_before(t.a), b = pos_before(t.b), c = pos_before(t.c);
+            Vector3d na = mesh.GetVertex(t.a), nb = mesh.GetVertex(t.b), nc = mesh.GetVertex(t.c);
+            Vector3d n0 = (b - a).Cross(c - a);
+            if (TriangleQuality(ref a, ref b, ref c) < DegenerateFlipQuality) {
+                if (TriangleQuality(ref na, ref nb, ref nc) < DegenerateFlipQuality)
+                    return false;
+                n0 = Vector3d.Zero;
+                Index3i nbrs = mesh.GetTriNeighbourTris(tid);
+                for (int k = 0; k < 3; ++k) {
+                    if (nbrs[k] == DMesh3.InvalidID) continue;
+                    Index3i u = mesh.GetTriangle(nbrs[k]);
+                    Vector3d p = pos_before(u.a), q = pos_before(u.b), r = pos_before(u.c);
+                    if (TriangleQuality(ref p, ref q, ref r) >= DegenerateFlipQuality)
+                        n0 += (q - p).Cross(r - p);
+                }
+            }
+            return !((nb - na).Cross(nc - na).Dot(n0) > 0);
         }
 
         // the first round of apply_moves_without_intersections: the moved vertices of both triangles of every
