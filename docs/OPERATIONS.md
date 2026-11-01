@@ -167,6 +167,8 @@ bool inside = envelope.ContainsTriangle(a, b, c);         // exact; also Contain
 `Remesher.MinTriangleQuality` (opt-in, `g3cli remesh` uses 0.2) guards against poor and flat triangles;
 `Remesher.PreventSelfIntersections` (opt-in, about 17x the time) rejects every operation and move that would make
 triangles intersect, so an input without self-intersections stays without them (benchmarks/RemeshQualityBenchmark).
+`MeshConstraintUtil.PinSharpVertices` (after `PreserveBoundaryAndFeatures`) pins points that are no junction of
+creases, eg the apex of a cone with many slices, by their angle deficit.
 
 `Reducer.MaxDeviation` guarantees that every point of the result lies within the tolerance of the input,
 checked with certified distance bounds (`TriangleDeviationBounds`).

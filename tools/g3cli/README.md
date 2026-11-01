@@ -117,6 +117,9 @@ g3cli remesh part.stl part_remeshed.obj --edge-length 0.5 --crease-angle 40 --de
 # pairs, F-score and edge recall slightly better, about 1.5x the time). 0 restores the unguarded remesher, eg for
 # thin walls far below the edge length, where the guard makes the result worse
 g3cli remesh part.stl part_remeshed.obj --min-quality 0
+# keep points that are no junction of creases, eg the apex of a cone with many slices (MeshConstraintUtil.PinSharpVertices:
+# vertices with an angle deficit of at least 60 degrees are pinned; off by default)
+g3cli remesh part.stl part_remeshed.obj --sharp-vertex-angle 60
 
 # simplify to 10% of the triangles, or to at most 5000
 g3cli simplify scan.ply scan_small.ply --ratio 0.1 --deviation

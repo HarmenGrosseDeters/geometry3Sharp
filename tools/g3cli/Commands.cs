@@ -397,6 +397,9 @@ namespace g3cli
             c.Params.Add(new Param("min_quality", ParamType.Number, "guard against poor and flat triangles (Remesher.MinTriangleQuality, " +
                 "0..1, 0 = off, the library's default; 0.2 here: fewer flat triangles and self-intersections at equal or better " +
                 "mean fidelity on Thingi10K and CAD-like parts, about 1.5x the time, benchmarks/RemeshQualityBenchmark; 0 for thin walls far below the edge length)") { Default = 0.2 });
+            c.Params.Add(new Param("sharp_vertex_angle", ParamType.Number, "with preserve_boundary and crease_angle: also pin vertices " +
+                "where the surface comes to a point (angle deficit at least this, degrees, eg 60; 0 = off), such as the apex of a cone " +
+                "with many slices, which is no crease and is rounded off otherwise (MeshConstraintUtil.PinSharpVertices)") { Default = 0.0 });
             c.Params.Add(Deviation());
             c.Params.Add(SelfIntersections());
             c.Params.Add(Binary());
@@ -404,6 +407,9 @@ namespace g3cli
                 MeshFiles.CheckWritable(args.String("output"));
                 var warnings = new List<string>();
                 DMesh3 input = MeshFiles.Read(args.String("input"), warnings);
+                double sharpAngle = args.Number("sharp_vertex_angle");
+                if (!(sharpAngle >= 0 && sharpAngle <= 360))
+                    throw new CommandException(ResultCodes.InvalidArguments, "'sharp_vertex_angle' must be in 0..360");
                 double len = args.Has("edge_length") ? args.Number("edge_length") : MeanEdgeLength(input);
                 if (len <= 0)
                     throw new CommandException(ResultCodes.InvalidArguments, "'edge_length' must be > 0");
@@ -421,13 +427,16 @@ namespace g3cli
                     throw new CommandException(ResultCodes.InvalidArguments, "'min_quality' must be in 0..1 (below 1)");
 
                 DMesh3 mesh = new DMesh3(input);
+                int pinnedSharp = 0;
                 var r = new Remesher(mesh) { SmoothSpeedT = smooth, EnableSmoothing = smooth > 0, MinTriangleQuality = minQuality };
                 if (args.Bool("project"))
                     r.SetProjectionTarget(MeshProjectionTarget.Auto(input));
                 if (args.Bool("preserve_boundary")) {
-                    if (args.Number("crease_angle") > 0)
+                    if (args.Number("crease_angle") > 0) {
                         MeshConstraintUtil.PreserveBoundaryAndFeatures(r, args.Number("crease_angle"));
-                    else
+                        if (sharpAngle > 0)
+                            pinnedSharp = MeshConstraintUtil.PinSharpVertices(r, sharpAngle);
+                    } else
                         MeshConstraintUtil.FixAllBoundaryEdges(r);
                 }
                 double thickness = WallThickness(input);
@@ -449,6 +458,7 @@ namespace g3cli
                 o["edge_length"] = len;
                 o["iterations"] = iterations;
                 o["min_quality"] = minQuality;
+                o["sharp_vertices_pinned"] = pinnedSharp;
                 o["rejected_passes"] = r.InvertingPassesRejected;
                 o["input_mesh"] = MeshReport.Metrics(input, false);
                 o["mesh"] = MeshReport.Metrics(mesh, args.Bool("self_intersections"));

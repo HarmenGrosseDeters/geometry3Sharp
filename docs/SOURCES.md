@@ -285,6 +285,9 @@ in `docs/ROADMAP.md`.
 (triangle hash grid, the exact `ExactTriangleIntersection.IntersectsBeyondShared`) extended to flips, splits and the
 buffered vertex moves; no external source.
 
+`MeshConstraintUtil.PinSharpVertices`: the angle deficit of `MeshCurvature` (Meyer, Desbrun, Schröder, Barr 2003, eq. 9)
+as the measure of a vertex feature; the threshold is own design.
+
 ## Forks of geometry3Sharp
 
 | Fork | Taken over |

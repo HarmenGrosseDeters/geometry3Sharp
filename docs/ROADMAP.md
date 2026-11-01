@@ -181,12 +181,15 @@ Open tasks further up, and work further down, in the code or in the research lis
   warns when the edge length is more than 4 times the estimated wall thickness. Open: the result is still
   self-intersecting and far off the volume (the guard only keeps the orientation); needs thickness-aware sizing
   (target below the local wall thickness) or the intersection check above.
-- [ ] Feature detection misses vertex features: the apex of a smooth cone (no crease edges) is not pinned and is rounded
+- [x] Feature detection misses vertex features: the apex of a smooth cone (no crease edges) is not pinned and is rounded
   off by the remeshers: cones with 12 or more slices (their side edges are no creases) 1.4..2.8 target edge lengths
   from the input; with `MinTriangleQuality` 1.4..3.2, more in 12 of these 24 cases of `benchmarks/RemeshQualityBenchmark`
   (its guards keep a few vertices near the apex up to an edge off the surface). Cones with up to 10 slices keep the
-  apex as a junction of creases. Detect and pin sharp vertices (eg by the normal cone or the angle deficit of their
-  one-ring) in `PreserveBoundaryAndFeatures`.
+  apex as a junction of creases. Done: `MeshConstraintUtil.PinSharpVertices` (opt-in, after
+  `PreserveBoundaryAndFeatures`) pins vertices with an angle deficit of at least 60 degrees that have no curve
+  constraint; `g3cli remesh --sharp-vertex-angle 60`. The cones end 0.20..0.66 instead of 1.37..3.15 target from the
+  input (mean Hausdorff of the 150 primitives 0.341 -> 0.115); on Thingi10K it pins 1 vertex in 20 meshes and changes
+  nothing measurable (`benchmarks/RemeshQualityBenchmark`, PinSharpVertices).
 - [x] `MeshRobustRepair.NotCleanReason` reported only the first failed check: "degenerate triangles" hid the
   self-intersections of most remeshed meshes, and the inside-out result of 135363 without `MinTriangleQuality`. Done in
   #159: `MeshRobustRepair.FindDefects` / `NotCleanReasons` report every failed check (`NotCleanReason` keeps the first),

@@ -84,6 +84,29 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void Saddle_NegativeDeficit_Pinned()
+        {
+            // a vertex whose fan rises and falls four times around it (a monkey-saddle-like point): angle sum above
+            // 2 pi, so a negative deficit; pinned by its absolute value. The rim vertices are boundary, not Valid
+            var m = new DMesh3();
+            int c = m.AppendVertex(Vector3d.Zero);
+            int n = 8;
+            int[] ring = new int[n];
+            for (int k = 0; k < n; ++k) {
+                double a = 2 * Math.PI * k / n;
+                ring[k] = m.AppendVertex(new Vector3d(Math.Cos(a), Math.Sin(a), k % 2 == 0 ? 1.5 : -1.5));
+            }
+            for (int k = 0; k < n; ++k)
+                m.AppendTriangle(c, ring[k], ring[(k + 1) % n]);
+            double deficit = gs.MeshCurvature.Compute(m).AngleDeficit[c] * MathUtil.Rad2Deg;
+            Assert.True(deficit < -60, $"deficit {deficit}");
+            var cons = new MeshConstraints();
+            Assert.Equal(1, MeshConstraintUtil.PinSharpVertices(cons, m));
+            Assert.True(cons.GetVertexConstraint(c).Fixed);
+            Assert.Equal(0, MeshConstraintUtil.PinSharpVertices(new MeshConstraints(), m, -deficit + 1));
+        }
+
+        [Fact]
         public void Remeshed_ApexKept()
         {
             // without pinning the apex is rounded off by 1.4..2.8 target edges (benchmarks/RemeshQualityBenchmark)
