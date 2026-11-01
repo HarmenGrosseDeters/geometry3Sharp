@@ -754,7 +754,10 @@ namespace g3
             // (no error bound needed: the box corners are input doubles, the map from grid to input
             // coordinates is exact and its rounding to double monotone, so a point in the exact box rounds
             // into the double box; the pad only widens the query, front_winding tests the box exactly)
-            Vector3d pv = arr.ToInputVector(arr.Exact(p));
+            // (the exact point and its doubles once per patch, not per candidate mesh)
+            var center = new Center(arr.Exact(p));
+            center.Input = arr.ToInputVector(center.P);
+            Vector3d pv = center.Input;
             double pad = 1e-9 * (Math.Abs(pv.x) + Math.Abs(pv.y) + Math.Abs(pv.z)) + 1e-300;
             candidates.Clear();
             closedTree.Query(new AxisAlignedBox3d(pv - pad * Vector3d.One, pv + pad * Vector3d.One), candidates);
@@ -766,7 +769,7 @@ namespace g3
             foreach (int m in candidates) {
                 int wm;
                 if (ExactWinding[m]) {
-                    wm = front_winding(i, m, arr.Trees[m], rng, stack, p);
+                    wm = front_winding(i, m, arr.Trees[m], rng, stack, center);
                 } else {
                     // generalized winding numbers are thresholded at 1/2: ceil(w - 1/2) > 0 iff w > 1/2,
                     // and it commutes with adding the integer changes across the patch
@@ -903,7 +906,7 @@ namespace g3
         /// through an edge or vertex.
         /// </summary>
         [MethodImpl(JitHints.Optimize)]
-        int front_winding(int i, int mesh, TriangleBoxTree tree, Random rng, List<int> stack, int p)
+        int front_winding(int i, int mesh, TriangleBoxTree tree, Random rng, List<int> stack, Center center)
         {
             var ot = arr.Output[i];
             var src = arr.Triangles[ot.Source];
@@ -911,7 +914,7 @@ namespace g3
 
             BigInteger[] min, max;
             mesh_bounds(mesh, out min, out max);
-            ExactPoint3 P = arr.Exact(p);
+            ExactPoint3 P = center.P;
             // outside the box of the mesh: winding number 0
             for (int k = 0; k < 3; ++k)
                 if (P[k] < min[k] * P.W || P[k] > max[k] * P.W)
@@ -920,11 +923,12 @@ namespace g3
             for (int k = 0; k < 3; ++k)
                 ext = BigInteger.Max(ext, max[k] - min[k] + 1);
 
-            Vector3d pv = arr.ToInputVector(P);
+            Vector3d pv = center.Input;
             // pad: the rounding of the point to double (relative 1e-16), with a wide margin
             double pad = 1e-9 * (Math.Abs(pv.x) + Math.Abs(pv.y) + Math.Abs(pv.z)) + 1e-300;
             // grid coordinates of the point as doubles, for the filtered plane sides
-            double gx = grid_coord(P.X, P.W), gy = grid_coord(P.Y, P.W), gz = grid_coord(P.Z, P.W);
+            Vector3d g = center.Grid();
+            double gx = g.x, gy = g.y, gz = g.z;
             for (int attempt = 0; attempt < 200; ++attempt) {
                 int axis = rng.Next(3);
                 long[] dir = new long[3];
@@ -990,6 +994,25 @@ namespace g3
                     return winding;
             }
             throw new InvalidOperationException("ExactMeshBoolean: no non-degenerate ray found");
+        }
+
+        // the point a patch's winding numbers are evaluated at, with its doubles (computed once per patch)
+        sealed class Center
+        {
+            public readonly ExactPoint3 P;
+            public Vector3d Input;      // ToInputVector(P)
+            Vector3d grid;
+            bool hasGrid;
+            public Center(ExactPoint3 p) { P = p; }
+            // the grid coordinates as doubles (grid_coord), when first needed
+            public Vector3d Grid()
+            {
+                if (hasGrid == false) {
+                    grid = new Vector3d(grid_coord(P.X, P.W), grid_coord(P.Y, P.W), grid_coord(P.Z, P.W));
+                    hasGrid = true;
+                }
+                return grid;
+            }
         }
 
         // plane sides evaluated by front_winding, and how many of them exactly (the filter could not decide)
