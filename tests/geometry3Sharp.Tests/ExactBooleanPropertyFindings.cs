@@ -6,17 +6,18 @@ using Ops = g3.ExactMeshBoolean.Operations;
 namespace geometry3Sharp.Tests
 {
     /// <summary>
-    /// Defects the Boolean property tests found (ExactBooleanMetamorphicTests, ExactBooleanPropertyTests), pinned
-    /// with minimal procedural reproductions and skipped until fixed in their own PR (tier L). The active tests
-    /// check that each reproduction still holds without the defective step, so a fix can be verified by unskipping.
+    /// Defects and questions the Boolean property tests found (ExactBooleanMetamorphicTests, ExactBooleanPropertyTests),
+    /// pinned with minimal procedural reproductions. The active tests check that each reproduction still holds
+    /// without the step in question.
     ///
-    /// Finding 1: SafeRounding (on by default) treats every triangle with an area below 1e-12 diagonal^2 as a
-    /// rounding sliver and repairs it by moving vertices, also where the triangle and its vertices are exact (dyadic
-    /// input, nothing was rounded). docs/OPERATIONS.md says it repairs "the slivers and self-intersections the
-    /// rounding leaves". The surface moves by up to the sliver's width (about 2^-20 here, 1e-6 of the size), so a
-    /// result that is exactly representable comes out inexact. Found as volume differences of 1e-8 (relative) in
-    /// the representation campaign (sliver splits); SafeRounding = false gives the exact results. Expected: a
-    /// triangle whose vertices are exact (no implicit point was rounded) is kept as the arrangement gives it.
+    /// Finding 1, resolved by the owner's decision (November 2026): SafeRounding (on by default) treats every
+    /// triangle with an area below 1e-12 diagonal^2 as degenerate and contracts it, also where the triangle and its
+    /// vertices are exact (dyadic input, nothing was rounded; here a well-shaped triangle of size 2^-20). That is the
+    /// intended behaviour: such tiny triangles trouble downstream programs (slicers, FEM, remeshers), and SafeRounding
+    /// is there to make the result safe for them. Its guarantee is exactness above the threshold and, below it, a
+    /// bounded displacement: the surface moves by at most MeshRoundingRepair.MaxDrift (at most 1e-5 of the diagonal,
+    /// in Hausdorff distance, without removed components), and closed solids change in volume by at most about 2
+    /// MaxDrift times the area. The test asserts that guarantee and a clean result, not bit identity.
     ///
     /// Design question 1b (not a defect by the documentation): an input that is already not clean (a triangle
     /// below the threshold, MeshRobustRepair "degenerate triangles") is repaired too, which moves its surface.
@@ -24,7 +25,6 @@ namespace geometry3Sharp.Tests
     /// </summary>
     public class ExactBooleanPropertyFindings
     {
-        const string Finding1 = "Finding 1 of the Boolean property tests: SafeRounding moves exact vertices of pieces below its degenerate threshold";
         const string Question1b = "Design question 1b of the Boolean property tests: should SafeRounding repair degenerate triangles of the input?";
 
         static readonly double T = Math.Pow(2, -20);
@@ -61,17 +61,29 @@ namespace geometry3Sharp.Tests
             var boolean = new ExactMeshBoolean(a, Slab(), Ops.Union) { SafeRounding = false };
             Assert.True(boolean.Compute(), boolean.Error);
             Assert.Equal(ExpectedSixVolume, SixVolume(boolean.Result));
-            // the arrangement gives a piece below the degenerate threshold, which SafeRounding then repairs
+            // the arrangement gives a piece below the degenerate threshold, which SafeRounding then contracts
             Assert.Contains("degenerate", gs.MeshRobustRepair.NotCleanReasons(boolean.Result));
         }
 
-        [Fact(Skip = Finding1)]
-        public void SafeRounding_KeepsExactVertices()
+        [Fact]
+        public void SafeRounding_ContractsTheSmallPieces_WithinItsDisplacementBound()
         {
+            var raw = new ExactMeshBoolean(CubeWithSplitEdge(), Slab(), Ops.Union) { SafeRounding = false };
+            Assert.True(raw.Compute(), raw.Error);
             var boolean = new ExactMeshBoolean(CubeWithSplitEdge(), Slab(), Ops.Union);
             Assert.True(boolean.Compute(), boolean.Error);
-            // now 17.999992370605316 instead of 17.99999237060547
-            Assert.Equal(ExpectedSixVolume, SixVolume(boolean.Result));
+            // clean
+            ResultChecks.AssertClean(boolean.Result);
+            Assert.True(boolean.RoundingClean);
+            // within the bound: the drift of the edits is at most MaxDisplacement times the diagonal, and the solid
+            // is the exact one up to it (volume 17.999992370605316 instead of 17.99999237060547: T^2 / 6 less)
+            MeshRoundingRepair r = boolean.Rounding;
+            double diag = gs.MeshRepairMetrics.TriangleBounds(raw.Result).DiagonalLength;
+            Assert.True(r.MaxDrift > 0 && r.MaxDrift <= r.MaxDisplacement * diag, $"drift {r.MaxDrift:G3}");
+            double dv = Math.Abs((SixVolume(boolean.Result) - SixVolume(raw.Result)).ToDouble()) / 6;
+            Assert.True(dv <= 2 * r.MaxDrift * Invariance.Area(raw.Result), $"volume change {dv:G3}");
+            Assert.Equal("", BooleanOracle.SameSolid(boolean.Result, raw.Result, 3, r.MaxDrift));
+            Assert.NotEqual(ExpectedSixVolume, SixVolume(boolean.Result));
         }
 
         // the unit cube with three splits at 2^-20 in its bottom face, one of them of a new edge: the triangle

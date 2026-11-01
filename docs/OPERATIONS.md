@@ -117,6 +117,13 @@ is most of it); `SafeRounding = false` gives the plainly rounded result, for spe
 when the exact coordinates are used anyway. Not every case is repaired: `RoundingClean` false with `Status`
 `Success` means that defects remain (`Rounding.RemainingIntersections`, `RemainingDegenerate`).
 
+What it guarantees: above the degenerate threshold the result is the exact one, rounded. Below it, triangles are
+contracted (also exact ones, eg a well-shaped triangle of size 2^-20 where an exact cut leaves it: such tiny
+triangles trouble slicers, FEM and remeshers), within a bound: the surface moves by at most `Rounding.MaxDrift`, at
+most `MaxDisplacement` = 1e-5 times the diagonal, in Hausdorff distance (without the components it removes as tiny
+or thin, counted in `Rounding.RemovedComponents`). Edits beyond the bound are not applied. Closed solids change in
+volume by at most about 2 `MaxDrift` times their area, plus the volume of removed components.
+
 More than two meshes go into one arrangement, with an operation or a predicate on the winding numbers of all
 inputs (Zhou et al. 2016). Status is the result code (`Success`, `InvalidInput`, `OpenInput`):
 

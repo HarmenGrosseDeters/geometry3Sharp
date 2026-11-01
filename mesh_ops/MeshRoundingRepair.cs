@@ -54,7 +54,23 @@ namespace g3
     /// edit adds one: each is checked exactly against all triangles near it), so a clean result is free of
     /// self-intersections and degenerate triangles (Milenkovic and Sacks get the same guarantee by separating
     /// the features before rounding; this works on the rounded mesh and has no guarantee that every case can
-    /// be repaired). The vertex positions move by at most about MaxDisplacement times the diagonal per edit.
+    /// be repaired).
+    ///
+    /// Bounded displacement: every vertex has a drift, 0 at the start. An edit gives all vertices of the triangles it
+    /// removes and adds the largest drift among them plus a bound on how far it moves the surface: the distance a
+    /// vertex moves (moves, slides, contractions: the kept vertex's new position from both ends), for a flip the
+    /// smallest of twice the distance between the flipped edge and the new one, a bound from the distances of the
+    /// corners to the other side's triangles (each bounded by the distance to the nearest edge), and 0 for a convex
+    /// quad in one plane (exact), for a
+    /// zip twice the distance of the apexes to the edge. An edit after which a drift would exceed MaxDisplacement times
+    /// the diagonal (maxLength) is not applied. By induction over the edits, every point of a triangle lies within the
+    /// largest drift of its vertices of the surface at the start, and every point of that surface within it of the
+    /// repaired one (each edit moves the points of the triangles it changes by at most its bound, both ways). So the
+    /// Hausdorff distance between the repaired surface and the surface at the start, both without the removed
+    /// components, is at most MaxDrift &lt;= maxLength (up to the rounding of the distances, relative 1e-15). Closed
+    /// solids then differ only within that distance of the edited triangles: the volume changes by at most about
+    /// 2 MaxDrift times their area, plus the volume of the removed components (thin ones: below maxLength times
+    /// half their area; tiny ones: area below 1e4 times the degenerate area).
     /// Cost: one global exact self-intersection check (two or more if there are intersections), plus local
     /// work per defect.
     /// Implemented from the paper, no code taken over (docs/SOURCES.md).
@@ -65,7 +81,10 @@ namespace g3
         public DMesh3 Mesh;
         /// <summary> a triangle is degenerate below this area, relative to the squared bounding box diagonal (as MeshRobustRepair.NotCleanReason) </summary>
         public double DegenerateArea = 1e-12;
-        /// <summary> longest edge contracted and farthest vertex move, relative to the bounding box diagonal </summary>
+        /// <summary>
+        /// longest edge contracted and farthest vertex move, relative to the bounding box diagonal; also the bound on how
+        /// far the surface moves in all edits together (see the class comment, MaxDrift)
+        /// </summary>
         public double MaxDisplacement = 1e-5;
         /// <summary> vertices at the same position count as shared vertices (touching sheets, see class comment) </summary>
         public bool SharedPositionsTouch = false;
@@ -94,6 +113,12 @@ namespace g3
         public int Collapses, Flips, Moves, Zips;
         /// <summary> components, and their triangles, removed as tiny or thin (RemoveTinyComponents) </summary>
         public int RemovedComponents, RemovedTriangles;
+        /// <summary>
+        /// the largest drift of a vertex after the repair, absolute: a bound on the Hausdorff distance between the
+        /// repaired surface and the surface at the start, without the removed components (see the class comment); at
+        /// most MaxDisplacement times the diagonal
+        /// </summary>
+        public double MaxDrift;
         /// <summary> no self-intersections and no degenerate triangles remain </summary>
         public bool IsClean { get { return RemainingIntersections == 0 && RemainingDegenerate == 0; } }
 
@@ -103,6 +128,11 @@ namespace g3
         }
 
         double areaEps, maxLength;
+        // per vertex: its drift (see the class comment); for the proposed edit: its vertices, and their drift if it is
+        // applied
+        double[] drift;
+        readonly List<int> editVerts = new List<int>();
+        double editDrift;
         // triangles above this many times the degenerate area must not turn over in an edit
         const double OrientedArea = 100;
         // vertices per position (SharedPositionsTouch)
@@ -129,6 +159,8 @@ namespace g3
         public bool Apply()
         {
             Collapses = Flips = Moves = Zips = RemovedComponents = RemovedTriangles = 0;
+            MaxDrift = 0;
+            drift = new double[Mesh.MaxVertexID];
             touched.Clear();
             inputBoundary.Clear();
             inputBoundaryEdges.Clear();
@@ -438,13 +470,27 @@ namespace g3
 
         long evaluations, maxEvaluations, pairTests;
 
+        // (displacement: how far a vertex moves; surface: a bound on how far the surface moves, if not that, for flips
+        // and zips)
         [MethodImpl(JitHints.Optimize)]
-        bool improves(double displacement = 0)
+        bool improves(double displacement = 0, double surface = -1)
         {
             if (++evaluations > maxEvaluations || pairTests > MaxPairTests) {
                 EvaluationLimitReached = true;
                 return false;
             }
+            // the drift bound first: the vertices of the edit get the largest drift among them plus this edit's
+            editVerts.Clear();
+            double most = 0;
+            foreach (int t in removed) {
+                Index3i tv = Mesh.GetTriangle(t);
+                for (int k = 0; k < 3; ++k) { editVerts.Add(tv[k]); most = Math.Max(most, drift[tv[k]]); }
+            }
+            foreach (Index3i tv in added)
+                for (int k = 0; k < 3; ++k) { editVerts.Add(tv[k]); most = Math.Max(most, drift[tv[k]]); }
+            editDrift = most + ((surface >= 0) ? surface : displacement);
+            if (!(editDrift <= maxLength))
+                return false;
             int saveV = movedV;
             Vector3d savePos = movedPos;
             // (SharedPositionsTouch: a vertex moved onto other vertices would touch them uncounted)
@@ -544,6 +590,85 @@ namespace g3
             return newI + newB < oldI + oldB;
         }
 
+        // the proposed edit (improves) was applied: its vertices get its drift
+        void commit_drift()
+        {
+            foreach (int v in editVerts)
+                drift[v] = editDrift;
+            MaxDrift = Math.Max(MaxDrift, editDrift);
+        }
+
+        // are a, b, c, d in one plane with the segments a-b and c-d crossing properly (exact): then (a, b, c), (b, a, d)
+        // and (c, d, b), (d, c, a) cover the same convex quad
+        static bool flat_convex(Vector3d a, Vector3d b, Vector3d c, Vector3d d)
+        {
+            if (ExactPredicates.Orient3d(a, b, c, d) != 0)
+                return false;
+            for (int k = 0; k < 3; ++k) {
+                Vector2d a2 = drop(a, k), b2 = drop(b, k), c2 = drop(c, k), d2 = drop(d, k);
+                int o1 = ExactPredicates.Orient2d(a2, b2, c2), o2 = ExactPredicates.Orient2d(a2, b2, d2);
+                int o3 = ExactPredicates.Orient2d(c2, d2, a2), o4 = ExactPredicates.Orient2d(c2, d2, b2);
+                if (o1 == 0 && o2 == 0 && o3 == 0 && o4 == 0)
+                    continue;       // (this projection maps the plane to a line)
+                return o1 * o2 < 0 && o3 * o4 < 0;
+            }
+            return false;
+        }
+
+        static Vector2d drop(Vector3d v, int axis)
+        {
+            return (axis == 0) ? new Vector2d(v.y, v.z) : (axis == 1) ? new Vector2d(v.z, v.x) : new Vector2d(v.x, v.y);
+        }
+
+        // distance of the segments p0-p1 and q0-q1 (Ericson, Real-Time Collision Detection, 5.1.9; either may have zero
+        // length)
+        static double segments_distance(Vector3d p0, Vector3d p1, Vector3d q0, Vector3d q1)
+        {
+            Vector3d d1 = p1 - p0, d2 = q1 - q0, r = p0 - q0;
+            double a = d1.LengthSquared, e = d2.LengthSquared, f = d2.Dot(r);
+            double s, t;
+            if (a <= 0 && e <= 0) {
+                s = t = 0;
+            } else if (a <= 0) {
+                s = 0;
+                t = MathUtil.Clamp(f / e, 0, 1);
+            } else {
+                double c = d1.Dot(r);
+                if (e <= 0) {
+                    t = 0;
+                    s = MathUtil.Clamp(-c / a, 0, 1);
+                } else {
+                    double b = d1.Dot(d2), denom = a * e - b * b;
+                    s = (denom > 0) ? MathUtil.Clamp((b * f - c * e) / denom, 0, 1) : 0;
+                    t = (b * s + f) / e;
+                    if (t < 0) {
+                        t = 0;
+                        s = MathUtil.Clamp(-c / a, 0, 1);
+                    } else if (t > 1) {
+                        t = 1;
+                        s = MathUtil.Clamp((b - c) / a, 0, 1);
+                    }
+                }
+            }
+            // (any pair of points on the segments bounds the distance from above; these are the nearest up to rounding)
+            return (p0 + s * d1).Distance(q0 + t * d2);
+        }
+
+        // distance of p to the segment a-b
+        static double segment_distance(Vector3d p, Vector3d a, Vector3d b)
+        {
+            Vector3d ab = b - a;
+            double l2 = ab.LengthSquared;
+            double t = (l2 > 0) ? MathUtil.Clamp((p - a).Dot(ab) / l2, 0, 1) : 0;
+            return p.Distance(a + t * ab);
+        }
+
+        // an upper bound of the distance of p to the triangle (a, b, c): to its nearest edge
+        static double triangle_distance_bound(Vector3d p, Vector3d a, Vector3d b, Vector3d c)
+        {
+            return Math.Min(segment_distance(p, a, b), Math.Min(segment_distance(p, b, c), segment_distance(p, c, a)));
+        }
+
         bool is_fixed(int v)
         {
             return FixedVertexF != null && FixedVertexF(v);
@@ -602,6 +727,7 @@ namespace g3
             foreach (int t in Mesh.VtxTrianglesItr(b))
                 mark_dirty(t);
             touched.Add(b);
+            commit_drift();
             Collapses++;
             return true;
         }
@@ -622,13 +748,28 @@ namespace g3
             removed.Add(et.a); removed.Add(et.b);
             added.Add(new Index3i(c, d, b)); addedFrom.Add(-1);
             added.Add(new Index3i(d, c, a)); addedFrom.Add(-1);
-            if (improves() == false)
+            // how far the surface moves, the smallest of three bounds. (1) Let p on a-b and q on c-d be their nearest
+            // points; with c and d moved by p - q, the segment c-d meets a-b at p (on both closed segments), so the
+            // four points lie in one plane and both pairs of triangles cover the same convex quad (or triangle): twice
+            // the distance of the segments. (2) A point of (c, d, b) or (d, c, a) with c replaced by its nearest point
+            // in (a, b, d) lies in it: the new triangles are within the distance of c to (a, b, d) of the old ones; the
+            // old ones within the distance of a to (c, d, b) or of b to (d, c, a) of the new ones, by the same
+            // argument. (3) A convex quad in one plane (exact: coplanar, the diagonals cross properly): the same set, 0
+            Vector3d pa = pos(a), pb = pos(b), pc = pos(c), pd = pos(d);
+            double crossing = 2 * segments_distance(pa, pb, pc, pd);
+            double general = Math.Max(Math.Min(triangle_distance_bound(pc, pa, pb, pd), triangle_distance_bound(pd, pa, pb, pc)),
+                Math.Min(triangle_distance_bound(pa, pc, pd, pb), triangle_distance_bound(pb, pd, pc, pa)));
+            double surface = Math.Min(crossing, general);
+            if (surface > 0 && flat_convex(pa, pb, pc, pd))
+                surface = 0;
+            if (improves(0, surface) == false)
                 return false;
             DMesh3.EdgeFlipInfo info;
             if (Mesh.FlipEdge(eid, out info) != MeshResult.Ok)
                 return false;
             mark_dirty(et.a); mark_dirty(et.b);
             touched.Add(a); touched.Add(b);
+            commit_drift();
             Flips++;
             return true;
         }
@@ -691,7 +832,10 @@ namespace g3
             // (the new edges must not exist yet: (d, x), (c, y))
             if (Mesh.FindEdge(d, x) >= 0 || Mesh.FindEdge(c, y) >= 0)
                 return false;
-            if (improves() == false)
+            // how far the surface moves: with c and d moved onto the segment a-b, the old and the new triangles cover
+            // the same set, so at most twice the larger distance of c, d to the segment
+            double surface = 2 * Math.Max(segment_distance(pos(c), pa, pos(b)), segment_distance(pos(d), pa, pos(b)));
+            if (improves(0, surface) == false)
                 return false;
             var old = new List<Index3i>();
             foreach (int t in removed) {
@@ -713,6 +857,7 @@ namespace g3
                 mark_dirty(tid);
             }
             touched.Add(c); touched.Add(d);
+            commit_drift();
             Zips++;
             return true;
         }
@@ -768,6 +913,7 @@ namespace g3
             foreach (int t in Mesh.VtxTrianglesItr(v))
                 mark_dirty(t);
             touched.Add(v);
+            commit_drift();
             Moves++;
             return true;
         }
