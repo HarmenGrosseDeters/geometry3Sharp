@@ -2,7 +2,7 @@
 
 This is the working form of [docs/design/ACCEPTANCE_STRATEGY.md](../../docs/design/ACCEPTANCE_STRATEGY.md) for the 2D mesher: an oracle by definition, a differential against
 NetTopologySuite, and a golden master. Where to start: [docs/design/MESHING2D_PLAN.md](../../docs/design/MESHING2D_PLAN.md). It holds no mesher: what it judges is registered in
-`Candidates/CandidateRegistry.cs`, for now the kernel of the abandoned PR #200, copied in for that purpose.
+`Candidates/CandidateRegistry.cs`: for M1 the production `g3.DelaunayMesh2`.
 
 ```
 dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 -- <command>
@@ -43,6 +43,69 @@ differential pr200-prototype against nts-2.0.0.0: SameTriangles 24, BothValid 7,
 - **The stop rule of the strategy did not trigger.** The reference is 50 lines and adds about a second to a run, far less than the benchmark work it replaces, and it is usable: it agrees wherever its arithmetic suffices. What it does not catch is anything
   the kernel and NetTopologySuite share; the kernel's speed is measured elsewhere (plan, section 2).
 - What it replaced: the oracle of #200's benchmark, which truncated coordinates to a 2^-40 grid (`new BigInteger(p.x * 2^40)`), so it could not judge anything finer, and which had a self-test of five broken results.
+
+## M1: the production kernel (`g3.DelaunayMesh2`), 2026-11-01
+
+The kernel of PR #200 is replaced. The gates on the new one: oracle self-check, differential, golden check, catalogue and operation tests all pass
+(`ci`, `dotnet test ... --filter "FullyQualifiedName~Meshing2|FullyQualifiedName~DelaunayMesh2"`). The golden rows were re-recorded with the new producer;
+their fingerprints did not change, the six tied rows included.
+
+```
+$ dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 -- differential --larger
+differential g3-delaunay against nts-2.0.0.0: SameTriangles 24, BothValid 7, ReferenceInvalid 2, ReferenceThrew 2
+```
+
+**Performance** (spec 3.1: 100 000 points in about 0.1 s, 1 000 000 in about 1.3 to 2.4 s). The kernel alone, median of 5 runs after a warm-up, allocated bytes
+of one run; one result per size checked by `TriangulationMesh2.IsValid` (exact, linear). Linux container, 4 cores, nothing else running, net10:
+
+```
+$ dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 -- perf --repeats 5
+runtime .NET 10.0.14, 4 cores, x64
+producer,kind,n,triangles,median_ms,min_ms,allocated_mb,valid
+g3-delaunay,uniform,1000,1982,2.0,2.0,0.3,yes
+g3-delaunay,uniform,4096,8169,8.0,7.8,1.1,yes
+g3-delaunay,uniform,65536,131047,102.9,99.5,17.6,yes
+g3-delaunay,uniform,1000000,1999963,1755.2,1710.7,282.7,yes
+g3-delaunay,grid,1000,1898,2.4,2.4,0.3,yes
+g3-delaunay,grid,4096,7938,9.5,9.4,1.2,yes
+g3-delaunay,grid,65536,130050,139.6,137.7,20.1,yes
+g3-delaunay,grid,1000000,1996002,2508.6,2405.7,320.7,yes
+g3-delaunay,utm,1000,1982,1.4,1.4,0.3,yes
+g3-delaunay,utm,4096,8169,6.0,5.9,1.1,yes
+g3-delaunay,utm,65536,131047,117.1,102.0,17.6,yes
+g3-delaunay,utm,1000000,1999844,1846.7,1817.1,320.8,yes
+g3-delaunay,clustered,1000,1982,1.5,1.4,0.3,yes
+g3-delaunay,clustered,4096,8168,6.1,5.9,1.1,yes
+g3-delaunay,clustered,65536,131044,109.2,107.5,17.6,yes
+g3-delaunay,clustered,1000000,1999954,2328.1,2256.4,282.7,yes
+```
+
+`uniform` is [0,1)², `utm` a 1 km tile at UTM northing on a 1 cm grid, `grid` an integer lattice (every cell cocircular, so the tie rule runs everywhere),
+`clustered` half the points in tight clusters. Memory: about 280 to 320 MB allocated for a million points (2 million triangles), against the spec's
+"about 100 MB per 100 000 triangles today".
+
+**Against PR #200**, same harness, same machine, measured with a `perf --prototype` option that timed `Prototype200Candidate.Run` and was removed with
+that file (to reproduce: take `Candidates/Prototype200Candidate.cs` from commit 5c0a946 and time it on the same points). One run each, with other work
+on the machine, so only the order of magnitude counts:
+
+```
+producer,kind,n,triangles,median_ms,min_ms,allocated_mb,valid
+pr200-prototype,uniform,1000,1982,3746.1,3746.1,1381.3,-
+pr200-prototype,uniform,4096,8169,86257.6,86257.6,23648.8,-
+pr200-prototype,grid,1000,1898,11093.5,11093.5,4967.1,-
+pr200-prototype,grid,4096,7938,456248.1,456248.1,162636.8,-
+```
+
+At 4096 uniform points: 86 s and 23.6 GB before, 8 ms and 1.1 MB now. At 1000: 3.7 s and 1.4 GB before, 2 ms and 0.3 MB now.
+
+**net48** could not be measured here (Linux container, no .NET Framework runtime): the library and the tests build for it; the timing on
+Windows is open.
+
+How it works ([SOURCES.md](../../docs/SOURCES.md), 2D meshing): Bowyer-Watson cavities on a triangulation closed by ghost triangles (no supertriangle,
+no invented coordinates); BRIO rounds along a Hilbert curve, renumbered in that order for cache locality; a visibility walk from the last insertion;
+exact predicates for every decision. Afterwards one linear pass verifies orientation, adjacency, the local Delaunay property and the convex hull and
+re-triangulates each cocircular Delaunay cell as a fan from its smallest input index (decision D18): the output does not depend on the insertion order.
+That pass costs about 20 % of the time.
 
 ## The golden master
 

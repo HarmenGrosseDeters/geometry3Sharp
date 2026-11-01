@@ -10,7 +10,7 @@ namespace geometry3Sharp.Tests
 {
     /// <summary>
     /// What CLAUDE.md asks of an operation, for whatever is registered as the M1 candidate: results checked by the oracle,
-    /// invariance over Similarity.All(), reuse, and determinism. These tests stay when session 2 replaces the prototype.
+    /// invariance over Similarity.All(), reuse, and determinism. They follow the registered candidate.
     /// </summary>
     public class Meshing2CandidateTests
     {

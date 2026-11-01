@@ -13,12 +13,12 @@ namespace Meshing2Acceptance
         public static IMeshing2Candidate For(Milestone milestone)
         {
             switch (milestone) {
-                case Milestone.M1: return new Prototype200Candidate();
+                case Milestone.M1: return new DelaunayMesh2Candidate();
                 default: return null;
             }
         }
 
-        public static readonly HashSet<string> Features = new HashSet<string> { Feature.Kernel };
+        public static readonly HashSet<string> Features = new HashSet<string> { Feature.Kernel, Feature.Api };
 
         /// <summary>
         /// Public library types that mean a milestone has arrived. If one appears while its feature is not registered, a test fails:

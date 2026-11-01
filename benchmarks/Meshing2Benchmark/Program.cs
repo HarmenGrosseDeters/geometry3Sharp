@@ -29,6 +29,8 @@ namespace Meshing2Acceptance
                                     skipped with a message if there are none; not part of CI
   catalogue                         print the failure catalogue table
   format-tables                     print the generated parts of docs/design/MESHING2D_GOLDEN_FORMAT.md
+  perf [--sizes 1000,4096,...] [--kinds uniform,grid,utm,clustered] [--repeats 5]
+                                    time and allocation of the M1 kernel alone (spec 3.1)
 ";
 
         static int Main(string[] args)
@@ -43,8 +45,9 @@ namespace Meshing2Acceptance
                 switch (args[0]) {
                     case "selfcheck": return 0;
                     case "ci": {
-                        int a = RunDifferential(false), b = GoldenCheck(Milestone.M1);
-                        return a != 0 || b != 0 ? 1 : 0;
+                        // every milestone with a candidate: M2 and M3 rows are checked as soon as they exist (second review, finding 11)
+                        int a = RunDifferential(false), b = GoldenCheck(Milestone.M1), c = GoldenCheck(Milestone.M2), d = GoldenCheck(Milestone.M3);
+                        return a != 0 || b != 0 || c != 0 || d != 0 ? 1 : 0;
                     }
                     case "differential": return RunDifferential(Has(args, "--larger"));
                     case "golden": return Golden(args);
@@ -54,6 +57,7 @@ namespace Meshing2Acceptance
                     case "compare": return Compare(args);
                     case "catalogue": Console.Write(Catalogue.Markdown()); return 0;
                     case "format-tables": PrintFormatTables(); return 0;
+                    case "perf": return Perf.Run(args, Arg);
                     default: Console.Error.WriteLine(Usage); return 2;
                 }
             } catch (FormatException e) {

@@ -1,9 +1,9 @@
 # 2D meshing: the failure catalogue
 
-The F cases of [MESHING2D_SPEC.md](MESHING2D_SPEC.md), section 2, as procedural fixtures, one state per row. Rows now: 16 covered, 99 pending, 8 deferred by the owner's scope, 3 blocked.
+The F cases of [MESHING2D_SPEC.md](MESHING2D_SPEC.md), section 2, as procedural fixtures, one state per row. Rows now: 17 covered, 98 pending, 8 deferred by the owner's scope, 3 blocked.
 The table is generated from `benchmarks/Meshing2Benchmark/Oracle/Catalogue.cs` by `dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 -- catalogue`; a test keeps it in sync.
 
-- **covered**: runs now through the oracle (or the named test), on the M1 kernel of PR #200 until the production mesher replaces it.
+- **covered**: runs now through the oracle (or the named test), on the registered production mesher.
 - **pending**: the fixture exists and its input is checked now, including its area against the specification's value. `Meshing2CatalogueTests.Row_IsInItsState`
   fails as soon as the row's feature is registered in `Candidates/CandidateRegistry.cs` while the row still says pending, and another test fails when the production type
   appears without its feature. So nothing stays silently skipped.
@@ -134,7 +134,7 @@ as beyond this brief (`m4.*`) wait for grid, wedge and Steiner post-processing, 
 | F-59/b | Duplicate inputs map to one vertex | covered | m1/duplicates-signed-zero |  |
 | F-60 | Results are independent of each other and of the input array | covered | Meshing2CandidateTests.Results_AreIndependentOfTheInput | the API has no vertex objects to share, so only this remains of the case |
 | F-61 | +0 and -0 are one point | covered | m1/duplicates-signed-zero |  |
-| F-62 | Point location on interior edges | pending | m1.api | the oracle probes vertices, edge midpoints and centroids through the location of the result |
+| F-62 | Point location on interior edges | covered | f-62 | the oracle probes vertices, edge midpoints and centroids through the location of the result |
 | F-63 | Terrain simplification bound | deferred |  | Q5: it belongs to TerrainGreedyTIN (roadmap C2(D)) |
 | F-64/a | Smoothing a finished mesh | deferred |  | Q4: O16 is out of the first version |
 | F-64/b | Bounded Voronoi after smoothing | deferred |  | Q1: Voronoi output is out of the first version |

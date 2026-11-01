@@ -229,6 +229,20 @@ Implemented from the paper, no code taken over.
 |---|---|
 | Test-case minimization (`DeltaDebug.Minimize`, `MeshMinimizer`): ddmin over components, triangles, unused vertices and the bytes or lines of reader inputs | A. Zeller, R. Hildebrandt, *Simplifying and Isolating Failure-Inducing Input*, IEEE Transactions on Software Engineering 28(2), 2002 |
 
+## 2D meshing (`DelaunayMesh2`, `TriangulationMesh2`)
+
+Clean room ([MESHING2D_SPEC.md](design/MESHING2D_SPEC.md)): implemented from the papers below. Triangle and Triangle.NET were not looked at.
+
+| Part | Source |
+|---|---|
+| Incremental Delaunay triangulation by cavities | A. Bowyer, *Computing Dirichlet tessellations*, The Computer Journal 1981; D. F. Watson, *Computing the n-dimensional Delaunay tessellation with application to Voronoi polytopes*, The Computer Journal 1981 |
+| Ghost triangles at a vertex at infinity instead of a supertriangle; their conflict rule | S.-W. Cheng, T. K. Dey, J. R. Shewchuk, *Delaunay Mesh Generation*, CRC Press 2012, chapter 3 |
+| Insertion order: biased randomized insertion rounds, each along a space-filling curve | N. Amenta, S. Choi, G. Rote, *Incremental constructions con BRIO*, SoCG 2003; D. Hilbert, *Über die stetige Abbildung einer Linie auf ein Flächenstück*, Math. Annalen 1891; A. R. Butz, *Alternative algorithm for Hilbert's space-filling curve*, IEEE Trans. Computers 1971 |
+| Point location by a visibility walk with a randomized edge order; jump-and-walk for queries | O. Devillers, S. Pion, M. Teillaud, *Walking in a triangulation*, IJFCS 2002; E. P. Mücke, I. Saias, B. Zhu, *Fast randomized point location without preprocessing in two- and three-dimensional Delaunay triangulations*, SoCG 1996 |
+| Local Delaunay criterion (verification); the Delaunay subdivision and its cells with cocircular points (tie rule) | C. L. Lawson, *Software for C1 surface interpolation*, 1977; B. Delaunay, *Sur la sphère vide*, 1934 |
+| Exact predicates | `ExactPredicates.Orient2d`, `InCircle` (see above) |
+| Pseudorandom numbers (insertion rounds, walk) | SplitMix64 (Steele, Lea, Flood, OOPSLA 2014); xorshift (G. Marsaglia, *Xorshift RNGs*, J. Stat. Software 2003) |
+
 ## Benchmarks
 
 `benchmarks/Meshing2Benchmark` is the acceptance harness of the 2D mesher (`docs/design/MESHING2D_PLAN.md`). NetTopologySuite 2.6.0

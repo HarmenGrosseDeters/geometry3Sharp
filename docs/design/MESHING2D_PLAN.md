@@ -145,3 +145,33 @@ Also checked by mutation: registering `m2.noding` fails its 15 pending rows, and
 - `mesh_ops/ExactTriangulation2.cs`: internal; useful for reading how constraints are recovered, unusable as it stands (distinct points in one enclosing triangle, already split constraints).
 - `SelfCheck.DelaunayByDefinition`, an O(n^4) answer for small inputs in general position.
 - #201's M2 document for ideas, under `git show origin/docs/meshing2d-m2-design:docs/design/MESHING2D_M2.md`, with the warnings of the decisions document. Do not start from its API.
+
+## 9. Progress of the implementing session (from 2026-11-01)
+
+Kept up to date by the session that implements M1 to M3; it overrides the "now" column of section 5 where they differ.
+
+**Oracle review.** A second independent review (code and spec only) of the oracle and the golden tool demonstrated seven defects, all fixed, each a
+regression in `SelfCheck.SecondReviewFindings` that fails on the old code (checked): a gap bounded by constraints hidden in the area slack of an
+unrelated merge; hull corners not forcing their angle; the standalone oracle rejecting every M2/M3 text result (no neighbours in the format); culture-dependent
+hashes and texts (sv-SE minus sign); lenient text and JSON readers; a re-removed golden row without a new reason; an unchecked bad list. One old self-check
+item ("the same small angle, not forced") was itself wrong and is replaced. Left for M2/M3, where the rows are built (review findings 8 to 10):
+
+- F-16's third segment passes S at about 0.7, not 1 mm: correct the fixture before building `m2.snap`;
+- F-31/a says "locked outer boundary", but rings cannot be locked: add a lock to `RingInput` (O8 policy 1) with M3;
+- F-13's micro rings are open polylines and their noise exceeds 1e-13: close them, scale the noise;
+- F-30/a must expect an argument error (D12): the oracle needs that expectation;
+- `TouchesLocked` exempts every triangle at a locked edge from the angle bound; the area check has a narrower rule. Narrow it with M3.
+
+**M1: done** (gate I, except net48 timing). `comp_geom/DelaunayKernel2.cs` (internal kernel), `DelaunayMesh2`, `TriangulationMesh2`,
+`Triangulation2Result`. Numbers in the [benchmark README](../../benchmarks/Meshing2Benchmark/README.md#m1-the-production-kernel-g3delaunaymesh2-2026-11-01):
+1 000 000 points in 1.7 to 2.5 s, 65 536 in 0.10 to 0.14 s, 4096 in 6 to 10 ms and about 1 MB (PR #200: 86 s and 23.6 GB). Decisions taken:
+
+- No supertriangle: ghost triangles at a vertex at infinity, Bowyer-Watson cavities. This is the structure M2 (cavities that stop at constrained edges) and
+  M3 (Steiner insertion) build on.
+- D18: each cocircular Delaunay cell is a fan from its smallest input index, applied in one pass after the insertion; the output is independent of the
+  insertion order (test `TieRule_ResultDoesNotDependOnTheInsertionOrder`). The golden fingerprints of #200 did not change.
+- Triangles are not sorted globally (that cost a second at 1M points through cache misses); their order is deterministic, each triangle starts at its
+  smallest id. `TryLocate` keeps "the smallest id among the containing triangles".
+- `IsValid` is linear and exact: orientation, adjacency, local Delaunay, a convex hull winding once, Euler. `Compute` runs the same checks on the kernel
+  and returns `Failed` with `ProblemCoordinate` on a defect. `NumericalFailure` and `IterationLimit` are gone (D15).
+- `Prototype200Candidate.cs` is deleted, as planned. #200 is still open; closing it needs the owner.
