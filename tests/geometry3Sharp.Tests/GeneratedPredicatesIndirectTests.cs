@@ -457,6 +457,37 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0, fz);
         }
 
+        /// <summary>
+        /// the denominators nearly 0 (a line nearly parallel to the plane, nearly dependent planes: one step off, at 20 to
+        /// 51 bits; at the top the rounding errors of lp, lq and of the cross products are as large as d): the filter fails or
+        /// is right, and cases of both kinds occur
+        /// </summary>
+        [Fact]
+        public void Filter_NearlyZeroDenominator_NeverWrong()
+        {
+            var rand = new Random(8);
+            int undecided = 0, decided = 0;
+            for (int k = 0; k < 4000; ++k) {
+                int bits = new[] { 20, 30, 40, 49, 51 }[k % 5];     // q = p + s - r stays below 3 2^51 < 2^53
+                var P = Enumerable.Range(0, 12).Select(_ => GridPoint(rand, bits)).ToArray();
+                int dd = rand.Next(2) == 0 ? 1 : -1, ax = rand.Next(3);
+                // q = p + (s - r) + one step: the line p-q nearly parallel to the plane r, s, t
+                var q = ExactPoint3.FromInteger(P[0].X + P[3].X - P[2].X + (ax == 0 ? dd : 0), P[0].Y + P[3].Y - P[2].Y + (ax == 1 ? dd : 0),
+                    P[0].Z + P[3].Z - P[2].Z + (ax == 2 ? dd : 0));
+                int f;
+                var Q = new[] { P[0], q, P[2], P[3], P[4], P[5], P[6], P[7] };
+                Assert.Equal(OracleLPI(Q), LPID(Q, out f));
+                if (f == 2) undecided++; else decided++;
+                // plane 3 = plane 1 with one corner one step off: nearly dependent planes
+                var c = P[2];
+                var T = new[] { P[0], P[1], P[2], P[3], P[4], P[5], P[0], P[1],
+                    ExactPoint3.FromInteger(c.X + (ax == 0 ? dd : 0), c.Y + (ax == 1 ? dd : 0), c.Z + (ax == 2 ? dd : 0)), P[9], P[10], P[11] };
+                Assert.Equal(OracleTPI(T), TPID(T, out f));
+                if (f == 2) undecided++; else decided++;
+            }
+            Assert.True(undecided > 500 && decided > 500, $"{undecided} undecided, {decided} decided");
+        }
+
         /// <summary> the double entry accepts exactly the integers |x| &lt;= 2^53 </summary>
         [Fact]
         public void DoubleEntry_Gate()
