@@ -45,6 +45,7 @@ namespace gs
 
         public bool Compute()
         {
+            Result = null;      // a failing Compute leaves no result of an earlier one
             if (Terrain.TriangleCount == 0 || Distance == 0 || double.IsNaN(Distance) || double.IsInfinity(Distance))
                 return false;
             spatial = new DMeshAABBTree3(Terrain, true);

@@ -266,17 +266,7 @@ namespace g3
             public ExactBox(ExactPoint3 p)
             {
                 P = p;
-                if (p.W.IsOne) {
-                    // (exact iff the conversion goes back to the same integer, whatever its rounding)
-                    double x = (double)p.X, y = (double)p.Y, z = (double)p.Z;
-                    IsDouble = exact_integer(x, p.X) && exact_integer(y, p.Y) && exact_integer(z, p.Z);
-                    if (IsDouble)
-                        D = new Vector3d(x, y, z);
-                }
-            }
-            static bool exact_integer(double d, BigInteger v)
-            {
-                return double.IsInfinity(d) == false && double.IsNaN(d) == false && new BigInteger(d) == v;
+                IsDouble = FixedPoint3.DoubleOf(p, out D);
             }
         }
 
@@ -288,7 +278,26 @@ namespace g3
         readonly ChunkedList<Vector3d> approx = new ChunkedList<Vector3d>();
         readonly ChunkedList<double> approxErr = new ChunkedList<double>();
         readonly ChunkedList<PointKey> keys = new ChunkedList<PointKey>();
+        // The exact point of each id, once computed: in fixed width if it fits (docs/design/FIXED_WIDTH_EXACT_POINTS.md;
+        // no objects for the GC to trace or copy), else as an ExactBox. exactRef[id]: 0 = not computed yet, r > 0 = slot
+        // r - 1 of fixedPoints, -1 = exactPoints[id]. It is published with Volatile.Write after its data is written.
+        readonly ChunkedList<int> exactRef = new ChunkedList<int>();
+        readonly FixedPointStore fixedPoints = new FixedPointStore();
         readonly ChunkedList<ExactBox> exactPoints = new ChunkedList<ExactBox>();
+        /// <summary>
+        /// for tests: store all exact points as BigInteger (ExactBox), the code before the fixed-width points. Only
+        /// before the first point: equality of exact points relies on the representation being a function of the value.
+        /// </summary>
+        internal bool FixedWidthPoints
+        {
+            get { return fixedWidthPoints; }
+            set {
+                if (PointCount > 0 && value != fixedWidthPoints)
+                    throw new InvalidOperationException("ExactMeshArrangement: FixedWidthPoints changed after points were added");
+                fixedWidthPoints = value;
+            }
+        }
+        bool fixedWidthPoints = true;
         readonly ChunkedList<Vector3d> inputCoords = new ChunkedList<Vector3d>();
         int nextPoint;
         // implicit point ids by construction and rational point ids by value, in shards (by hash) so that threads adding
@@ -296,6 +305,7 @@ namespace g3
         const int Shards = 64;
         readonly Dictionary<PointKey, int>[] keyIndex = make_shards<PointKey>();
         readonly Dictionary<HashedPoint, int>[] rationalIndex = make_shards<HashedPoint>();
+        readonly Dictionary<FixedKey, int>[] fixedIndex = make_shards<FixedKey>();
         static Dictionary<T, int>[] make_shards<T>()
         {
             var d = new Dictionary<T, int>[Shards];
@@ -314,6 +324,20 @@ namespace g3
             public override bool Equals(object o) { return o is HashedPoint h && Equals(h); }
             public override int GetHashCode() { return Hash; }
         }
+        // a point in fixed width with its hash (computed once, outside the lock)
+        // (the limbs only: IsDouble and D are not set in the key)
+        struct FixedKey : IEquatable<FixedKey>
+        {
+            FixedPoint3 P;
+            public readonly int Hash;
+            public FixedKey(ref FixedPoint3 p) { P = p; Hash = p.Hash(); }
+            public bool Equals(FixedKey o)
+            {
+                return Hash == o.Hash && FixedPoint3.SameValue(ref P, ref o.P);
+            }
+            public override bool Equals(object o) { return o is FixedKey k && Equals(k); }
+            public override int GetHashCode() { return Hash; }
+        }
         // canonical id of each point after merge_points (null before), for ids below its length
         int[] canonical;
 
@@ -329,7 +353,15 @@ namespace g3
 
         internal PointKind KindOf(int id) { return keys[id].Kind; }
         /// <summary> for tests: the exact point is an integer point with double coordinates (the predicates' double path) </summary>
-        internal bool IsExactDouble(int id) { return exact_box(id).IsDouble; }
+        internal bool IsExactDouble(int id)
+        {
+            int r = exact_ref(id);
+            return (r > 0) ? fixedPoints[r - 1].IsDouble : exactPoints[id].IsDouble;
+        }
+        /// <summary> the exact point of id as an integer point with double coordinates (d), if it is one </summary>
+        internal bool TryExactDouble(int id, out Vector3d d) { return exact_double(id, exact_ref(id), out d); }
+        /// <summary> for tests: the exact point is stored in fixed width </summary>
+        internal bool IsExactFixed(int id) { return exact_ref(id) > 0; }
         internal double ApproxError(int id) { return approxErr[id]; }
         internal Vector3d Approx(int id) { return approx[id]; }
 
@@ -339,12 +371,36 @@ namespace g3
         }
 
         [MethodImpl(JitHints.Optimize)]
-        void store(int id, Vector3d a, double e, PointKey key, ExactBox exact)
+        void store(int id, Vector3d a, double e, PointKey key)
         {
             approx.Set(id, a);
             approxErr.Set(id, e);
             keys.Set(id, key);
-            exactPoints.Set(id, exact);
+            exactRef.Set(id, 0);
+        }
+
+        // store the exact point x of id and publish it (thread-safe: two threads may store the same value, either
+        // reference is valid); returns its exactRef value
+        [MethodImpl(JitHints.Optimize)]
+        int publish_exact(int id, ExactPoint3 x)
+        {
+            FixedPoint3 f;
+            int r;
+            if (FixedWidthPoints && FixedPoint3.TryCreate(x, out f)) {
+                r = fixedPoints.Add(ref f) + 1;
+            } else {
+                exactPoints.Set(id, new ExactBox(x));
+                r = -1;
+            }
+            System.Threading.Volatile.Write(ref exactRef.Ref(id), r);
+            return r;
+        }
+        [MethodImpl(JitHints.Optimize)]
+        int publish_exact(int id, ref FixedPoint3 f)
+        {
+            int r = fixedPoints.Add(ref f) + 1;
+            System.Threading.Volatile.Write(ref exactRef.Ref(id), r);
+            return r;
         }
 
         /// <summary> id of an exactly given point, a new one if it is not known yet (thread-safe) </summary>
@@ -353,6 +409,23 @@ namespace g3
         {
             Vector3d a = p.ApproxVector3d();
             double e = (p.W.IsOne ? 1 : 4) * U * max_abs(a) + Tiny;
+            FixedPoint3 f;
+            if (FixedWidthPoints && FixedPoint3.TryCreateLimbs(p, out f)) {
+                // (the representation is a function of the value: a point in this index is never in the other)
+                var fk = new FixedKey(ref f);
+                var fshard = fixedIndex[(fk.Hash & 0x7FFFFFFF) % Shards];
+                lock (fshard) {
+                    int id;
+                    if (fshard.TryGetValue(fk, out id))
+                        return id;
+                    id = new_id();
+                    store(id, a, e, new PointKey(PointKind.Rational, id, 0, 0));
+                    f.SetDouble(p);
+                    publish_exact(id, ref f);
+                    fshard[fk] = id;
+                    return id;
+                }
+            }
             var hp = new HashedPoint(p);
             var shard = rationalIndex[(hp.Hash & 0x7FFFFFFF) % Shards];
             lock (shard) {
@@ -360,7 +433,8 @@ namespace g3
                 if (shard.TryGetValue(hp, out id))
                     return id;
                 id = new_id();
-                store(id, a, e, new PointKey(PointKind.Rational, id, 0, 0), new ExactBox(p));
+                store(id, a, e, new PointKey(PointKind.Rational, id, 0, 0));
+                publish_exact(id, p);
                 // published after the point is stored: other threads only see the id once its data is valid
                 shard[hp] = id;
                 return id;
@@ -371,12 +445,13 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         int add_implicit(PointKey key, Vector3d a, double e)
         {
-            ExactBox exact = null;
+            bool hasExact = false;
+            ExactPoint3 x = default(ExactPoint3);
             if (finite(a) == false || double.IsNaN(e) || double.IsInfinity(e)) {
                 // out of the double range (or no usable bound): from the exact point
                 PredicateStats.Call(PredicateStats.Kind.ArrImplicitOverflow);
-                ExactPoint3 x = compute_exact(key, true);
-                exact = new ExactBox(x);
+                x = compute_exact(key, true);
+                hasExact = true;
                 a = x.ApproxVector3d();
                 e = 4 * U * max_abs(a) + Tiny;
             }
@@ -386,30 +461,74 @@ namespace g3
                 if (shard.TryGetValue(key, out id))
                     return id;
                 id = new_id();
-                store(id, a, e, key, exact);
+                store(id, a, e, key);
+                if (hasExact)
+                    publish_exact(id, x);
                 shard[key] = id;
                 return id;
             }
         }
 
         /// <summary> the exact point (computed when first needed; thread-safe) </summary>
+        [MethodImpl(JitHints.Optimize)]
         public ExactPoint3 Exact(int id)
         {
-            return exact_box(id).P;
+            int r = exact_ref(id);
+            return (r > 0) ? fixedPoints[r - 1].ToExact() : exactPoints[id].P;
+        }
+
+        // the exactRef value of id, computing the exact point when first needed (thread-safe)
+        [MethodImpl(JitHints.Optimize)]
+        int exact_ref(int id)
+        {
+            int r = System.Threading.Volatile.Read(ref exactRef.Ref(id));
+            if (r != 0)
+                return r;
+            PredicateStats.Call(PredicateStats.Kind.ArrExactPoint);
+            PointKey key = keys[id];
+            return publish_exact(id, (key.Kind == PointKind.Input) ? input_exact(inputCoords[id]) : compute_exact(key, true));
+        }
+
+        // the exact point of id as an integer point with double coordinates, if it is one
+        [MethodImpl(JitHints.Optimize)]
+        bool exact_double(int id, int r, out Vector3d d)
+        {
+            if (r > 0) {
+                ref FixedPoint3 f = ref fixedPoints[r - 1];
+                d = f.D;
+                return f.IsDouble;
+            }
+            ExactBox b = exactPoints[id];
+            d = b.D;
+            return b.IsDouble;
+        }
+
+        /// <summary> the exact points of a and b are equal (both computed when needed) </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal bool ExactEquals(int a, int b)
+        {
+            int ra = exact_ref(a), rb = exact_ref(b);
+            if (ra > 0 && rb > 0)
+                return FixedPoint3.SameValue(ref fixedPoints[ra - 1], ref fixedPoints[rb - 1]);
+            if (ra > 0 || rb > 0)
+                return false;       // (the representation is a function of the value)
+            return exactPoints[a].P.Equals(exactPoints[b].P);
         }
 
         [MethodImpl(JitHints.Optimize)]
-        ExactBox exact_box(int id)
+        internal int ExactHash(int id)
         {
-            ExactBox b = exactPoints[id];
-            if (b == null) {
-                PredicateStats.Call(PredicateStats.Kind.ArrExactPoint);
-                PointKey key = keys[id];
-                b = new ExactBox((key.Kind == PointKind.Input) ? input_exact(inputCoords[id]) : compute_exact(key, true));
-                // (another thread may store the same value)
-                exactPoints.Set(id, b);
-            }
-            return b;
+            int r = exact_ref(id);
+            return (r > 0) ? fixedPoints[r - 1].Hash() : exactPoints[id].P.GetHashCode();
+        }
+
+        // point ids compared by their exact points
+        sealed class ExactIdComparer : IEqualityComparer<int>
+        {
+            readonly ExactMeshArrangement arr;
+            public ExactIdComparer(ExactMeshArrangement arr) { this.arr = arr; }
+            public bool Equals(int a, int b) { return a == b || arr.ExactEquals(a, b); }
+            public int GetHashCode(int id) { return arr.ExactHash(id); }
         }
 
         // the grid point of input coordinates
@@ -673,8 +792,8 @@ namespace g3
             PointKey key = keys[id];
             if (key.Kind == PointKind.Input)
                 return inputCoords[id];
-            ExactBox b = exactPoints[id];
-            return ToInputVector(b != null ? b.P : compute_exact(key, false));
+            int r = System.Threading.Volatile.Read(ref exactRef.Ref(id));
+            return ToInputVector((r != 0) ? Exact(id) : compute_exact(key, false));
         }
 
         /// <summary> PointToVector of many points, in parallel </summary>
@@ -713,6 +832,8 @@ namespace g3
         // values, unlike for a single coordinate, so the exact points are rarely needed), then lexicographic
         internal static readonly double[] Alpha = { 1.0, 0.7548776662466927, 0.5698402909980532 };
         static readonly BigInteger[] AlphaInt = { alpha_int(Alpha[0]), alpha_int(Alpha[1]), alpha_int(Alpha[2]) };
+        // (each at most 2^53: one limb)
+        static readonly ulong[] AlphaLimb = { (ulong)AlphaInt[0], (ulong)AlphaInt[1], (ulong)AlphaInt[2] };
         [MethodImpl(JitHints.Optimize)]
         static BigInteger alpha_int(double a)
         {
@@ -746,6 +867,9 @@ namespace g3
                 if (kb - ka > bound) return -1;
             }
             PredicateStats.ExactStage(PredicateStats.Kind.ArrCompare);
+            int ra = exact_ref(a), rb = exact_ref(b);
+            if (ra > 0 && rb > 0)
+                return FixedArith.ComparePoints(ref fixedPoints[ra - 1], ref fixedPoints[rb - 1], AlphaLimb[0], AlphaLimb[1], AlphaLimb[2]);
             ExactPoint3 pa = Exact(a), pb = Exact(b);
             BigInteger fa = (AlphaInt[0] * pa.X + AlphaInt[1] * pa.Y + AlphaInt[2] * pa.Z) * pb.W;
             BigInteger fb = (AlphaInt[0] * pb.X + AlphaInt[1] * pb.Y + AlphaInt[2] * pb.Z) * pa.W;
@@ -806,13 +930,12 @@ namespace g3
             }
             if (MaxHashedCluster < 0 || (k1 - k0 > MaxHashedCluster && double.IsNegativeInfinity(lo[order[k0]])))
                 return merge_sorted(ids, order, k0, k1, next);
-            var groups = new Dictionary<ExactPoint3, List<int>>();
+            var groups = new Dictionary<int, List<int>>(new ExactIdComparer(this));
             for (int k = k0; k < k1; ++k) {
                 int id = ids[order[k]];
-                ExactPoint3 x = Exact(id);
                 List<int> g;
-                if (groups.TryGetValue(x, out g) == false)
-                    groups[x] = g = new List<int>(2);
+                if (groups.TryGetValue(id, out g) == false)
+                    groups[id] = g = new List<int>(2);
                 g.Add(id);
             }
             int merged = 0;
@@ -991,7 +1114,8 @@ namespace g3
                         inputCoords.Set(id, v);
                         Vector3d a = Vector3d.Zero;
                         double e = 0;
-                        ExactBox exact = null;
+                        bool hasExact = false;
+                        ExactPoint3 x = default(ExactPoint3);
                         for (int k = 0; k < 3; ++k) {
                             // grid value v 2^-ScaleExp (exact) minus the center: rounded once, error below u |a|
                             a[k] = ExactPoint3.ScaleB(v[k], -ScaleExp) - centerD[k];
@@ -999,12 +1123,14 @@ namespace g3
                         }
                         if (finite(a) == false) {
                             // beyond the double range in grid units
-                            ExactPoint3 x = input_exact(v);
-                            exact = new ExactBox(x);
+                            x = input_exact(v);
+                            hasExact = true;
                             a = x.ApproxVector3d();
                             e = 4 * U * max_abs(a);
                         }
-                        store(id, a, e, new PointKey(PointKind.Input, id, 0, 0), exact);
+                        store(id, a, e, new PointKey(PointKind.Input, id, 0, 0));
+                        if (hasExact)
+                            publish_exact(id, x);
                     }
                     VertexPoints[mi][vid] = id;
                 }
@@ -1097,12 +1223,15 @@ namespace g3
                 if (-fdet > err) return -t.Sign;
             }
             PredicateStats.ExactStage(PredicateStats.Kind.ArrOrient);
-            ExactBox ba = exact_box(p), bb = exact_box(q), bc = exact_box(r);
-            if (ba.IsDouble && bb.IsDouble && bc.IsDouble) {
+            int ra = exact_ref(p), rb = exact_ref(q), rc = exact_ref(r);
+            Vector3d da, db, dc;
+            if (exact_double(p, ra, out da) && exact_double(q, rb, out db) && exact_double(r, rc, out dc)) {
                 // integer points with double coordinates: the same determinant (W = 1), by the adaptive predicate
-                return ExactPredicates.Orient2d(new Vector2d(ba.D[i], ba.D[j]), new Vector2d(bb.D[i], bb.D[j]), new Vector2d(bc.D[i], bc.D[j])) * t.Sign;
+                return ExactPredicates.Orient2d(new Vector2d(da[i], da[j]), new Vector2d(db[i], db[j]), new Vector2d(dc[i], dc[j])) * t.Sign;
             }
-            ExactPoint3 a = ba.P, b = bb.P, c = bc.P;
+            if (ra > 0 && rb > 0 && rc > 0)
+                return FixedArith.Orient(ref fixedPoints[ra - 1], ref fixedPoints[rb - 1], ref fixedPoints[rc - 1], i, j) * t.Sign;
+            ExactPoint3 a = Exact(p), b = Exact(q), c = Exact(r);
             BigInteger det = ExactPoint3.Det3(a[i], a[j], a.W, b[i], b[j], b.W, c[i], c[j], c.W);
             return det.Sign * t.Sign;
         }
@@ -1150,21 +1279,25 @@ namespace g3
             }
             PredicateStats.ExactStage(PredicateStats.Kind.ArrInCircle);
             int i = (t.Axis + 1) % 3, j = (t.Axis + 2) % 3;
-            ExactBox ba = exact_box(p), bb = exact_box(q), bc = exact_box(r), bd = exact_box(s);
-            if (ba.IsDouble && bb.IsDouble && bc.IsDouble && bd.IsDouble) {
+            int ra = exact_ref(p), rb = exact_ref(q), rc = exact_ref(r), rd = exact_ref(s);
+            Vector3d da, db, dc, dd;
+            if (exact_double(p, ra, out da) && exact_double(q, rb, out db) && exact_double(r, rc, out dc) && exact_double(s, rd, out dd)) {
                 // integer points with double coordinates: the same determinant (W = 1, see below), by the adaptive
                 // predicate
-                return ExactPredicates.InCircle(new Vector2d(ba.D[i], ba.D[j]), new Vector2d(bb.D[i], bb.D[j]),
-                    new Vector2d(bc.D[i], bc.D[j]), new Vector2d(bd.D[i], bd.D[j])) * t.Sign;
+                return ExactPredicates.InCircle(new Vector2d(da[i], da[j]), new Vector2d(db[i], db[j]),
+                    new Vector2d(dc[i], dc[j]), new Vector2d(dd[i], dd[j])) * t.Sign;
             }
             // The 4x4 determinant with rows (x w, y w, x^2 + y^2, w^2) = w^2 (x/w, y/w, |.|^2, 1) has the sign of the
             // one with rows (x/w, y/w, |.|^2, 1) (w^2 > 0), which equals the 3x3 determinant with rows (dx, dy,
             // dx^2 + dy^2) of the differences to d (column operations, then subtracting row d). Each row is multiplied
             // by (w w_d)^2 > 0 to make it integer: (A s, B s, A^2 + B^2) with A = x w_d - x_d w, B likewise, s = w w_d.
+            if (ra > 0 && rb > 0 && rc > 0 && rd > 0)
+                return FixedArith.InCircle(ref fixedPoints[ra - 1], ref fixedPoints[rb - 1], ref fixedPoints[rc - 1], ref fixedPoints[rd - 1], i, j) * t.Sign;
+            ExactPoint3 pd = Exact(s);
             BigInteger ax, ay, al, bx, by, bl, cx, cy, cl;
-            incircle_row(ba.P, bd.P, i, j, out ax, out ay, out al);
-            incircle_row(bb.P, bd.P, i, j, out bx, out by, out bl);
-            incircle_row(bc.P, bd.P, i, j, out cx, out cy, out cl);
+            incircle_row(Exact(p), pd, i, j, out ax, out ay, out al);
+            incircle_row(Exact(q), pd, i, j, out bx, out by, out bl);
+            incircle_row(Exact(r), pd, i, j, out cx, out cy, out cl);
             BigInteger det = ExactPoint3.Det3(ax, ay, al, bx, by, bl, cx, cy, cl);
             // for counter-clockwise a, b, c this determinant is positive iff d is inside; the projection
             // may mirror the triangle, which flips the orientation of a, b, c and the sign
@@ -1240,10 +1373,31 @@ namespace g3
                 if (-diff > bound) return -1;
             }
             PredicateStats.ExactStage(PredicateStats.Kind.ArrAlong);
+            int r1 = exact_ref(p1), r2 = exact_ref(p2);
+            if (r1 > 0 && r2 > 0) {
+                int c;
+                if (compare_along_fixed(d, ref fixedPoints[r1 - 1], ref fixedPoints[r2 - 1], out c))
+                    return c;
+            }
             ExactPoint3 a = Exact(p1), b = Exact(p2);
             BigInteger ka = (d.X * a.X + d.Y * a.Y + d.Z * a.Z) * b.W;
             BigInteger kb = (d.X * b.X + d.Y * b.Y + d.Z * b.Z) * a.W;
             return ka.CompareTo(kb);
+        }
+
+        // compare_along on fixed-width points, false if a component of the direction has more than 8 limbs
+        [MethodImpl(JitHints.Optimize)]
+        static unsafe bool compare_along_fixed(in Direction d, ref FixedPoint3 a, ref FixedPoint3 b, out int c)
+        {
+            c = 0;
+            ulong* l = stackalloc ulong[24];
+            int nx, ny, nz;
+            bool sx, sy, sz;
+            if (FixedPoint3.LoadN(d.X, l, 8, out nx, out sx) == false || FixedPoint3.LoadN(d.Y, l + 8, 8, out ny, out sy) == false
+                || FixedPoint3.LoadN(d.Z, l + 16, 8, out nz, out sz) == false)
+                return false;
+            c = FixedArith.CompareAlong(ref a, ref b, new FixedInt(l, nx, sx), new FixedInt(l + 8, ny, sy), new FixedInt(l + 16, nz, sz));
+            return true;
         }
 
         // d . (a - b) for the direction d rounded to double (fdx, fdy, fdz: relative errors U) and approximations a, b
@@ -1975,6 +2129,9 @@ namespace g3
         public int Count { get { return System.Threading.Volatile.Read(ref count); } }
 
         public T this[int i] { get { return chunks[i >> Shift][i & Mask]; } }
+
+        /// <summary> element i by reference (it must have been Set), for Volatile reads and writes </summary>
+        internal ref T Ref(int i) { return ref chunks[i >> Shift][i & Mask]; }
 
         readonly object growLock = new object();
 

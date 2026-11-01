@@ -44,6 +44,10 @@ internal static class Program
             Console.WriteLine("index_retained_bytes=" + Math.Max(0, afterMemory - beforeMemory));
             TriangleQuadtree2d heightIndex = null;
             Measure("build", "triangle_adapter", 1, i => heightIndex = new TriangleQuadtree2d(triangles));
+            Measure("build", "triangle_over", 1, i => GC.KeepAlive(TriangleQuadtree2d.Over(triangles)));
+            // The same data gathered in a corner of its extent, by one box far away.
+            var gathered = new List<AxisAlignedBox2d>(boxes) { new AxisAlignedBox2d(boxes[0].Center + new Vector2d(1e6, 1e6)) };
+            Measure("build", "parallel_far_point", 1, i => GC.KeepAlive(new LooseQuadtree2d(gathered, true)));
             GC.KeepAlive(new StrtreeComparison(new[] { boxes[0] }));
             StrtreeComparison strtree = null;
             Measure("build", "strtree", 1, i => strtree = new StrtreeComparison(boxes, triangles));

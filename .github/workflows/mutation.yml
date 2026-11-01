@@ -4,7 +4,8 @@ name: Mutation tests
 # on ready PRs (not drafts) only for the configs that the PR touches (tests/mutation/select_shards.py). Two jobs:
 # - exact-arithmetic: math/ExactPredicates.cs, ExactPoint3.cs, AdaptivePredicates.cs (about 50 minutes);
 # - exact-mesh: the exact mesh pipeline (mesh_ops/ExactMesh*.cs, ExactPlanarSimplify.cs, ExactTriangulation2.cs,
-#   MeshRoundingRepair.cs), in shards that run in parallel (tests/mutation/stryker-mesh-*.json).
+#   MeshRoundingRepair.cs, and math/FixedPoint3.cs, the arrangement's fixed-width points), in shards that run in
+#   parallel (tests/mutation/stryker-mesh-*.json).
 # A shard whose mutated file changed runs in full and fails when its mutation score drops below the break threshold of
 # its config. A shard of which only tests changed runs with --since and only reports. The reports list the surviving mutants.
 
@@ -16,6 +17,7 @@ on:
       - 'math/ExactPredicates.cs'
       - 'math/ExactPoint3.cs'
       - 'math/AdaptivePredicates.cs'
+      - 'math/FixedPoint3.cs'
       - 'mesh_ops/ExactMesh*.cs'
       - 'mesh_ops/ExactPlanarSimplify.cs'
       - 'mesh_ops/ExactTriangulation2.cs'
@@ -24,6 +26,7 @@ on:
       - 'tests/geometry3Sharp.Tests/ExactImplicitPointTests.cs'
       - 'tests/geometry3Sharp.Tests/PredicateDifferentialTests.cs'
       - 'tests/geometry3Sharp.Tests/ExactPoint3ConversionTests.cs'
+      - 'tests/geometry3Sharp.Tests/ExactPoint3FixedWidthTests.cs'
       - 'tests/geometry3Sharp.Tests/ExactMeshBoolean*Tests.cs'
       - 'tests/geometry3Sharp.Tests/ExactBoolean*Tests.cs'
       - 'tests/geometry3Sharp.Tests/ExactFilterBoundTests.cs'
@@ -116,6 +119,8 @@ jobs:
     timeout-minutes: 350
     strategy:
       fail-fast: false
+      # at most 4 shards at a time: a full run leaves runners free for CI (the account runs about 20 jobs at once)
+      max-parallel: 4
       matrix:
         include: ${{ fromJSON(needs.changes.outputs.mesh) }}
     steps:

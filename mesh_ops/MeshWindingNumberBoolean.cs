@@ -30,7 +30,7 @@ namespace gs
         /// <summary> the operation to compute </summary>
         public Operations Operation;
 
-        /// <summary> grid cell size. If zero, uses bounding box diagonal of both inputs / GridResolution </summary>
+        /// <summary> grid cell size. If zero, uses bounding box diagonal of both inputs / GridResolution; NaN or infinite: Compute fails </summary>
         public double CellSize = 0;
         /// <summary> number of cells along the bounding box diagonal (of both inputs), used if CellSize is zero </summary>
         public int GridResolution = 128;
@@ -96,12 +96,26 @@ namespace gs
         /// Compute the boolean into Result.
         /// </summary>
         /// <returns>
-        /// false if both inputs are empty, the cell size is not positive or too small for the octree, or the
-        /// computation was cancelled; true otherwise (Result may be an empty mesh, eg an intersection with an
-        /// empty input).
+        /// false if both inputs are empty, CellSize is NaN or infinite, the cell size is not positive or too small
+        /// for the octree, or the computation was cancelled, with Result null (also after an earlier success);
+        /// true otherwise (Result may be an empty mesh, eg an intersection with an empty input).
         /// </returns>
         public bool Compute()
         {
+            Result = null;      // set only on success, below
+            UsedCellSize = 0;
+            NonManifoldTriangles = 0;
+            WindingEvaluations = 0;
+            HiddenGapEdges = 0;
+            HiddenWallEdges = 0;
+            HiddenSamples = new List<KeyValuePair<Vector3d, double>>();
+            GapEdgesPerLevel = new List<int>();
+            RefinedCells = 0;
+            RefineFactor = 1;
+            PhaseMilliseconds.Clear();
+            // (checked here: a NaN would pass as "automatic" below, +infinity as a valid size)
+            if (MathUtil.IsFinite(CellSize) == false)
+                return false;
             if (MeshA.TriangleCount == 0 && MeshB.TriangleCount == 0)
                 return false;
             // empty inputs do not count (their bounds would drag in the origin)
@@ -110,7 +124,6 @@ namespace gs
             if (!(cellSize > 0) || WindingNumberOctree.RequiredDepth(bounds, cellSize) > WindingNumberOctree.MaxSupportedDepth)
                 return false;
 
-            PhaseMilliseconds.Clear();
             timer.Restart();
             // an empty input has winding number 0 everywhere: A u 0 = A - 0 = A, 0 u B = B, the rest is empty
             DMesh3[] inputs = new DMesh3[] { MeshA, MeshB };

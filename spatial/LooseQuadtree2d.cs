@@ -27,8 +27,7 @@ namespace g3
     {
         const int BucketSize = 16;
         const int DepthLimit = 64;
-        const int ParallelThreshold = 32768;
-        const int ParallelLevels = 2;
+        internal const int ParallelThreshold = 32768;
         const double SegmentMargin = 0.0002;
 
         struct Entry
@@ -428,28 +427,39 @@ namespace g3
                 for (int i = 0; i < nodes.Count; ++i) LinkRange(i, items);
                 return;
             }
-            // The top levels in sequence, then the parts below them in parallel: 16 at most, so that data gathered
-            // in one quadrant is shared out as well. Each worker owns a range of the items and a private node array.
-            var parts = new List<Part> { new Part { Index = 0, Start = 0, Count = Count, Cell = rootRegion, Depth = 0 } };
+            // Cut down side by side until a part that can still be cut holds at most an eighth of the items, or the threshold,
+            // wherever they are gathered. Each worker then owns a range of the items and a private node array. A range is sorted
+            // as in a sequential build, so both give the same tree and the same order of items.
+            int largePart = Math.Max(ParallelThreshold, Count / 8);
+            var parts = new List<Part>();
+            var large = new List<Part> { new Part { Index = 0, Start = 0, Count = Count, Cell = rootRegion, Depth = 0 } };
             var cut = new List<int>();
-            int[] scratch = new int[10];
-            for (int level = 0; level < ParallelLevels; ++level) {
+            while (large.Count > 0) {
+                var counts = new int[large.Count][];
+                List<Part> current = large;
+                Parallel.For(0, current.Count, p => {
+                    Part part = current[p];
+                    var scratch = new int[10];
+                    if (SortRange(items, part.Start, part.Count, part.Cell, part.Depth, scratch, part.Count >= ParallelThreshold)) counts[p] = scratch;
+                });
                 var next = new List<Part>();
-                foreach (Part part in parts) {
-                    if (!CutRange(nodes, part.Index, items, part.Cell, part.Depth, scratch)) {
-                        next.Add(part);
+                for (int p = 0; p < current.Count; ++p) {
+                    Part part = current[p];
+                    if (counts[p] == null) {
+                        parts.Add(part);
                         continue;
                     }
+                    AddChildren(nodes, part.Index, counts[p]);
                     cut.Add(part.Index);
                     int child = nodes.Items[part.Index].Child;
                     Vector2d center = Center(part.Cell);
                     int axes = SplitAxes(part.Cell, center);
                     for (int q = 0; q < 4; ++q) {
                         Node node = nodes.Items[child + q];
-                        next.Add(new Part { Index = child + q, Start = node.Head, Count = node.Count, Cell = ChildBox(part.Cell, center, q, axes), Depth = part.Depth + 1 });
+                        (node.Count > largePart ? next : parts).Add(new Part { Index = child + q, Start = node.Head, Count = node.Count, Cell = ChildBox(part.Cell, center, q, axes), Depth = part.Depth + 1 });
                     }
                 }
-                parts = next;
+                large = next;
             }
             var branches = new NodeList[parts.Count];
             Parallel.For(0, parts.Count, p => {
@@ -487,26 +497,51 @@ namespace g3
             Fit(target, index, items);
         }
 
-        // Sorts the items of a node into those it keeps and those of its four children, in place, and adds the children.
         bool CutRange(NodeList target, int index, BuildItem[] items, AxisAlignedBox2d cell, int depth, int[] scratch)
         {
-            int start = target.Items[index].Head, count = target.Items[index].Count;
-            if (count <= BucketSize || depth >= DepthLimit) return false;
-            Vector2d center = Center(cell);
-            int axes = SplitAxes(cell, center);
-            if (axes == 0 || AllEqual(items, start, count)) return false;
+            if (!SortRange(items, target.Items[index].Head, target.Items[index].Count, cell, depth, scratch, false)) return false;
+            AddChildren(target, index, scratch);
+            return true;
+        }
+
+        // Sets the class of each item in a part of a range, and counts them in the first five places of counts.
+        static void Classify(BuildItem[] items, int start, int end, AxisAlignedBox2d cell, Vector2d center, int axes, int[] counts)
+        {
             AxisAlignedBox2d loose0 = Loose(ChildBox(cell, center, 0, axes)), loose1 = Loose(ChildBox(cell, center, 1, axes));
             AxisAlignedBox2d loose2 = Loose(ChildBox(cell, center, 2, axes)), loose3 = Loose(ChildBox(cell, center, 3, axes));
-            for (int c = 0; c < 5; ++c) scratch[c] = 0;
-            int end = start + count;
             for (int i = start; i < end; ++i) {
                 ref BuildItem item = ref items[i];
                 Vector2d c = Center(item.Box);
                 int q = axes & ((c.x >= center.x ? 1 : 0) | (c.y >= center.y ? 2 : 0));
                 bool fits = q == 0 ? Contains(loose0, item.Box) : q == 1 ? Contains(loose1, item.Box) : q == 2 ? Contains(loose2, item.Box) : Contains(loose3, item.Box);
                 item.Class = fits ? q + 1 : 0;
-                ++scratch[item.Class];
+                ++counts[item.Class];
             }
+        }
+
+        static void ClassifyInBlocks(BuildItem[] items, int start, int end, AxisAlignedBox2d cell, Vector2d center, int axes, int[] scratch)
+        {
+            int blocks = (end - start + ParallelThreshold - 1) / ParallelThreshold;
+            Parallel.For(0, blocks, b => {
+                var counts = new int[5];
+                Classify(items, start + b * ParallelThreshold, Math.Min(end, start + (b + 1) * ParallelThreshold), cell, center, axes, counts);
+                lock (scratch) {
+                    for (int c = 0; c < 5; ++c) scratch[c] += counts[c];
+                }
+            });
+        }
+
+        // Sorts the items of a node into those it keeps and those of its four children, in place. Their counts end up in scratch[0..4].
+        bool SortRange(BuildItem[] items, int start, int count, AxisAlignedBox2d cell, int depth, int[] scratch, bool parallel)
+        {
+            if (count <= BucketSize || depth >= DepthLimit) return false;
+            Vector2d center = Center(cell);
+            int axes = SplitAxes(cell, center);
+            if (axes == 0 || AllEqual(items, start, count)) return false;
+            int end = start + count;
+            for (int c = 0; c < 5; ++c) scratch[c] = 0;
+            if (parallel) ClassifyInBlocks(items, start, end, cell, center, axes, scratch);
+            else Classify(items, start, end, cell, center, axes, scratch);
             // Next free place per class in scratch[5..9], keeping the counts in scratch[0..4].
             int place = start;
             for (int c = 0; c < 5; ++c) {
@@ -529,7 +564,13 @@ namespace g3
                     }
                 }
             }
-            int child = target.Count, offset = start + scratch[0];
+            return true;
+        }
+
+        // Adds the four children of a sorted node.
+        static void AddChildren(NodeList target, int index, int[] scratch)
+        {
+            int child = target.Count, offset = target.Items[index].Head + scratch[0];
             for (int q = 0; q < 4; ++q) {
                 target.Add(new Node(offset, scratch[q + 1]));
                 offset += scratch[q + 1];
@@ -537,7 +578,6 @@ namespace g3
             ref Node node = ref target.Items[index];
             node.Child = child;
             node.Count = scratch[0];
-            return true;
         }
 
         // The bounds of a node, from its items and the bounds of its children. Those of an empty child add nothing.
