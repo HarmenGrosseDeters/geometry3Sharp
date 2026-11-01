@@ -296,10 +296,19 @@ namespace gs
     ///     true, also with RequireCertified, with Certified true, no lines and MinLineDistance double.MaxValue. It
     ///     means that no line exists and nothing was certified: check Lines.
     ///
-    /// Limits: Compute fails above MaxCertifySteps, MaxSourcePoints and MaxRefinedTriangles. The last one is
-    /// an estimate that counts the band horizontally, and it is no bound. On flat terrain the real count was 3 to 6 times
-    /// of it. On steep terrain it was 7 times at a slope of 1 and 181 times at 20, and a spike near a source (a vertex
-    /// at z = -9999, as a nodata value) ran out of memory with an estimate of 917. Remove such vertices before.
+    /// NoData and outliers: an edge near the sources (within the reach of the mode) with an end at NoDataValue, or
+    /// steeper than MaxTerrainSlope, makes Compute fail with Status NoDataVertex or OutlierVertex and the vertices in
+    /// OutlierVertices; the refinement does not start. A single vertex at z = -9999 (a nodata value) next to a source
+    /// refined until memory ran out (1.8 million triangles for a spike of 1000 m on a 1 m grid, 34 times that at
+    /// 10 km); remove or fix such vertices, or raise MaxTerrainSlope for real walls.
+    ///
+    /// Limits: Compute fails (Status TooLarge) above MaxCertifySteps, MaxSourcePoints and MaxRefinedTriangles. The last
+    /// one is an estimate: the horizontal area of the band times the ratio of 3D to horizontal area of the terrain
+    /// triangles near the sources, and it is no bound. On a 1 m grid the real count was 4.8 times of it on flat terrain,
+    /// 4.6 times on a plane of slope 1 and 9.3 times at slope 20 (before the 3D ratio: 6.6 and 187 times; the splits at
+    /// midpoints refine edges to the next power of two). Spikes make needles and far more (95 times for 1000 m): there the
+    /// outlier check is the guard.
+    /// It also does not know where the sources leave the terrain, and counts sources on top of each other twice.
     /// The limits do not cover slivers narrower than an edge.
     /// An exception (eg out of memory, or SteinerPoints too large for an array) leaves Certified false, but Lines,
     /// RefinedTerrain, MinLineDistance and UsedSteinerPoints may stay as they were at that point.
@@ -308,6 +317,35 @@ namespace gs
     {
         public enum Modes { Horizontal, AlongSurface, Guaranteed }
         public Modes Mode = Modes.Horizontal;
+
+        /// <summary> why Compute returned false (Success if it returned true) </summary>
+        public enum Statuses
+        {
+            Success,
+            /// <summary> a parameter, the terrain or a source is invalid (see Compute) </summary>
+            InvalidInput,
+            /// <summary> a vertex of an edge near the sources has z = NoDataValue (OutlierVertices) </summary>
+            NoDataVertex,
+            /// <summary> an edge near the sources is steeper than MaxTerrainSlope (OutlierVertices) </summary>
+            OutlierVertex,
+            /// <summary> more steps or triangles than MaxCertifySteps, MaxSourcePoints or MaxRefinedTriangles </summary>
+            TooLarge,
+            /// <summary> Guaranteed with RequireCertified: a line point is not certified </summary>
+            NotCertified,
+            /// <summary> AlongSurface: the geodesic distance failed </summary>
+            Failed
+        }
+        public Statuses Status;
+        /// <summary> NoDataVertex, OutlierVertex: the vertices found (ids of Terrain), sorted </summary>
+        public List<int> OutlierVertices = new List<int>();
+
+        /// <summary> a vertex with exactly this z is a nodata value (eg -9999); NaN (default): none </summary>
+        public double NoDataValue = double.NaN;
+        /// <summary>
+        /// an edge near the sources steeper than this (rise / run; default 100, 89.4 degrees) marks an outlier; its end
+        /// with the larger height difference to its other neighbours is reported. +infinity: no check
+        /// </summary>
+        public double MaxTerrainSlope = 100;
 
         public DMesh3 Terrain;
         /// <summary> source points (on the terrain); polylines are densified </summary>
@@ -415,7 +453,17 @@ namespace gs
         public bool Compute()
         {
             clear_outputs();
-            if (positive_finite(SafetyDistance) == false || Terrain.TriangleCount == 0 || terrain_finite() == false || sources_finite() == false)
+            failStatus = Statuses.InvalidInput;
+            bool ok = compute();
+            Status = ok ? Statuses.Success : failStatus;
+            return ok;
+        }
+        Statuses failStatus;
+
+        bool compute()
+        {
+            if (positive_finite(SafetyDistance) == false || Terrain.TriangleCount == 0 || terrain_finite() == false || sources_finite() == false
+                || !(MaxTerrainSlope > 0))
                 return false;
             if (Mode == Modes.Guaranteed)
                 return compute_guaranteed();
@@ -424,7 +472,8 @@ namespace gs
 
         void clear_outputs()
         {
-            Lines.Clear(); Excess.Clear();
+            Lines.Clear(); Excess.Clear(); OutlierVertices.Clear();
+            segments = null;
             MaxExcess = 0; UncertifiedSegments = 0; MinLineDistance = 0; Certified = false; UsedSteinerPoints = 0;
             RefinedTerrain = null; RemeshedTerrain = null; Geodesic = null;
         }
@@ -470,12 +519,83 @@ namespace gs
                     }
             double r = reach / edge;
             double band = 2 * r * (length / edge) + Math.PI * r * r * cells.Count;
-            return 2 * Math.Min(perEdge2, band);
+            return 2 * Math.Min(perEdge2, band * area_ratio_near_sources(reach));
+        }
+
+        // 3D area / horizontal area of the terrain triangles that come within reach of the sources (horizontally),
+        // at least 1: the refinement splits by 3D edge length, so steep terrain needs that many more triangles
+        double area_ratio_near_sources(double reach)
+        {
+            if (segments == null)
+                build_segments();
+            if (segments.Count == 0)
+                return 1;
+            double area3 = 0, areaXY = 0;
+            foreach (int tid in Terrain.TriangleIndices()) {
+                Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+                Terrain.GetTriVertices(tid, ref a, ref b, ref c);
+                Vector2d m = (a.xy + b.xy + c.xy) / 3;
+                double rad = Math.Max(m.Distance(a.xy), Math.Max(m.Distance(b.xy), m.Distance(c.xy)));
+                if (horizontal_distance(m, reach + rad) > reach + rad) continue;
+                double axy = 0.5 * Math.Abs((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x));
+                area3 += Terrain.GetTriArea(tid);
+                areaXY += axy;
+            }
+            double ratio = area3 / areaXY;
+            // (no triangle near: 0 / 0; vertical triangles only: infinity, refused)
+            return double.IsNaN(ratio) ? 1 : Math.Max(1, ratio);
         }
 
         bool refinement_too_large(double reach, double edge)
         {
-            return !(expected_refined_triangles(reach, edge) <= MaxRefinedTriangles);
+            if (expected_refined_triangles(reach, edge) <= MaxRefinedTriangles)
+                return false;
+            failStatus = Statuses.TooLarge;
+            return true;
+        }
+
+        // NoData and outlier vertices on the edges within reach of the sources (horizontally); fails with their status
+        bool has_outliers(double reach)
+        {
+            if (segments == null)
+                build_segments();
+            var noData = new SortedSet<int>();
+            var outliers = new SortedSet<int>();
+            foreach (int eid in Terrain.EdgeIndices()) {
+                Index2i ev = Terrain.GetEdgeV(eid);
+                Vector3d a = Terrain.GetVertex(ev.a), b = Terrain.GetVertex(ev.b);
+                double r = reach + 0.5 * a.xy.Distance(b.xy);
+                if (horizontal_distance(0.5 * (a.xy + b.xy), r) > r) continue;
+                if (a.z == NoDataValue) noData.Add(ev.a);
+                if (b.z == NoDataValue) noData.Add(ev.b);
+                if (Math.Abs(a.z - b.z) > MaxTerrainSlope * a.xy.Distance(b.xy))
+                    outliers.Add(spikier(ev.a, ev.b));
+            }
+            if (noData.Count > 0) {
+                OutlierVertices.AddRange(noData);
+                failStatus = Statuses.NoDataVertex;
+                return true;
+            }
+            if (outliers.Count > 0) {
+                OutlierVertices.AddRange(outliers);
+                failStatus = Statuses.OutlierVertex;
+                return true;
+            }
+            return false;
+        }
+
+        // of the two ends of a steep edge, the one farther in height from the median of its neighbours
+        int spikier(int va, int vb)
+        {
+            Func<int, double> dev = (v) => {
+                var zs = new List<double>();
+                foreach (int nb in Terrain.VtxVerticesItr(v)) zs.Add(Terrain.GetVertex(nb).z);
+                zs.Sort();
+                double med = zs.Count == 0 ? 0 : zs[zs.Count / 2];
+                return Math.Abs(Terrain.GetVertex(v).z - med);
+            };
+            double da = dev(va), db = dev(vb);
+            return (da > db || (da == db && va < vb)) ? va : vb;
         }
 
         static bool positive_finite(double x)
@@ -593,7 +713,7 @@ namespace gs
             // SafetyDistance (around convex corners and line ends) lies at most len^2 / (8 SafetyDistance)
             // inside it: edges near the sources are split down to the length that keeps this below Tolerance
             double maxLength = Math.Min(Math.Sqrt(8 * SafetyDistance * Tolerance), SafetyDistance);
-            if (refinement_too_large(SafetyDistance, maxLength))
+            if (has_outliers(SafetyDistance) || refinement_too_large(SafetyDistance, maxLength))
                 return false;
             RefinedTerrain = refine_near_sources(maxLength, SafetyDistance);
             double D = SafetyDistance;
@@ -614,8 +734,12 @@ namespace gs
             // chords between the line points lie at most Tolerance inside the level, so outside SafetyDistance
             double level = SafetyDistance + Tolerance;
             double maxLength = Math.Min(Math.Sqrt(8 * level * Tolerance), level);
-            if (refinement_too_large(level, maxLength) || !(source_steps(0.25 * maxLength) <= MaxCertifySteps))
+            if (has_outliers(level))
                 return false;
+            if (refinement_too_large(level, maxLength) || !(source_steps(0.25 * maxLength) <= MaxCertifySteps)) {
+                failStatus = Statuses.TooLarge;
+                return false;
+            }
             MinLineDistance = double.MaxValue;
             RefinedTerrain = refine_near_sources(maxLength, level);
             var iso = new MeshIsoCurves(RefinedTerrain, (p) => Math.Min(distance_3d(p, 2 * level), 2 * level) - level) {
@@ -626,6 +750,7 @@ namespace gs
             // (only now are the lines known)
             if (!(certify_samples() <= MaxCertifySteps)) {
                 clear_outputs();
+                failStatus = Statuses.TooLarge;
                 return false;
             }
             // safe side, for the whole line: the smallest 3D distance of its segments to the sources (exact)
@@ -640,6 +765,8 @@ namespace gs
                 if (Certified || 2 * S > MaxSteinerPoints) break;
             }
             Certified = Certified && MinLineDistance >= SafetyDistance;
+            if (Certified == false && RequireCertified)
+                failStatus = Statuses.NotCertified;
             return Certified || RequireCertified == false;
         }
 
@@ -857,8 +984,12 @@ namespace gs
             double h = (EdgeLength > 0) ? EdgeLength : SafetyDistance / 8;
             if (h <= 0)
                 return false;
-            if (!(source_steps(0.5 * h) <= MaxSourcePoints) || refinement_too_large(3 * SafetyDistance + 2 * h, h))
+            if (has_outliers(3 * SafetyDistance + 2 * h))
                 return false;
+            if (!(source_steps(0.5 * h) <= MaxSourcePoints) || refinement_too_large(3 * SafetyDistance + 2 * h, h)) {
+                failStatus = Statuses.TooLarge;
+                return false;
+            }
 
             // source points: densified polylines and the given points
             var pts = new List<Vector3d>(SourcePoints);
@@ -936,8 +1067,10 @@ namespace gs
             if (sources.Count == 0)
                 return true;        // all sources off the terrain
             Geodesic = new MeshGeodesicDistance(mesh) { TimeFactor = 0.25 };
-            if (Geodesic.Compute(sources) == false)
+            if (Geodesic.Compute(sources) == false) {
+                failStatus = Statuses.Failed;
                 return false;
+            }
             double[] dist = Geodesic.Distance;
             double level = SafetyDistance + ((SafetyMargin >= 0) ? SafetyMargin : 0.35 * h);
             var iso = new MeshIsoCurves(mesh, (v) => 0) {
