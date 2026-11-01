@@ -82,3 +82,28 @@ The check is not slow because of deep subdivision or repeated searches, but beca
 certifies all its new triangles. A large speedup would need a different certification. The exact envelope is
 not that either: even with floating-point filters in its clipping, about 20-50 µs per triangle can be expected
 (estimate, not measured). Its gain would be exactness and platform independence, not speed.
+
+## Shared deviation queries (`share [rounds]`)
+
+`Reducer.ShareDeviationQueries` (on by default, internal) shares the BVH queries of one collapse's `MaxDeviation`
+check through a `TriangleDeviationBounds.QueryCache`. The new vertex is a corner of all of the collapse's about 7 new
+triangles, and the other corners and edge points are shared by two of them. The Reducer's own samples (the new
+vertex, centroids, edge midpoints) are the same points. Only points on a triangle's original edges go through the cache;
+interior subdivision points never repeat, so they skip it.
+
+The results are the same, bit for bit; `share` throws if not. Before the change a spike measured 37-61 % of
+`IsWithin`'s queries in a collapse as duplicates, with queries about a third of a call.
+
+Alternating rounds, 3 each, full reductions to 4 triangles (ms, sorted):
+
+| mesh | tolerance | triangles | without sharing | with sharing | median speedup |
+|---|---|---|---|---|---|
+| bumpy sphere (199692) | 0.001 | 1670 | 26915 / 27441 / 27658 | 25842 / 26216 / 26350 | 1.05× |
+| bumpy sphere | 0.003 | 512 | 13812 / 14295 / 14438 | 12897 / 13080 / 13814 | 1.09× |
+| bumpy sphere | 0.01 | 152 | 8484 / 8488 / 8667 | 8043 / 8087 / 8126 | 1.05× |
+| terrain (180000) | 0.001 | 3123 | 18151 / 18432 / 18485 | 17936 / 17953 / 17987 | 1.03× |
+| terrain | 0.003 | 923 | 9560 / 10284 / 10564 | 8884 / 9173 / 10003 | 1.12× |
+| terrain | 0.01 | 121 | 7972 / 8063 / 8566 | 7204 / 7270 / 7788 | 1.11× |
+
+Caching every query point, interior ones included, gave 0.96-1.12×: the cache's cost ate the gain at tight
+tolerances.

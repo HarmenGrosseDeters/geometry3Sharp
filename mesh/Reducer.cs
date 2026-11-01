@@ -94,6 +94,12 @@ namespace g3
         public int MaxDeviationDepth = 10;
 
         /// <summary>
+        /// (tests, benchmarks) share the tree queries of one collapse's MaxDeviation check between its samples and
+        /// its triangles' IsWithin calls (they share corners and edge midpoints); the answers are the same either way
+        /// </summary>
+        internal bool ShareDeviationQueries = true;
+
+        /// <summary>
         /// if true (default), boundary vertices are not moved: a collapse involving a boundary vertex keeps
         /// it at its position (if both ends are boundary vertices, one of them is kept), and
         /// boundary planes are added to the quadrics (BoundaryQuadricWeight). You probably want this.
@@ -483,11 +489,19 @@ namespace g3
                 SetDeviationReference(mesh);
         }
 
+        int nearest_within_deviation(Vector3d p, TriangleDeviationBounds.QueryCache cache)
+        {
+            return cache != null ? deviationBounds.NearestWithin(deviationTarget, p, cache) : deviationTarget.FindNearestTriangle(p, MaxDeviation);
+        }
+
         // would the triangles around a and b, after collapsing to newPos, stay within MaxDeviation?
         protected bool collapse_within_deviation(int a, int b, Vector3d newPos)
         {
+            // the tree queries of this collapse, shared: the new vertex is a corner of every new triangle, the
+            // other corners and the edge midpoints are shared by two (the samples below are the same points)
+            var cache = ShareDeviationQueries ? new TriangleDeviationBounds.QueryCache(MaxDeviation) : null;
             // the new vertex first: one query, rejects most collapses that go too far
-            if (deviationTarget.FindNearestTriangle(newPos, MaxDeviation) < 0)
+            if (nearest_within_deviation(newPos, cache) < 0)
                 return false;
             List<Triangle3d> tris = new List<Triangle3d>();
             foreach (int v in new int[] { a, b }) {
@@ -505,13 +519,13 @@ namespace g3
             foreach (Triangle3d t in tris) {
                 Vector3d[] samples = { (t.V0 + t.V1 + t.V2) / 3, 0.5 * (t.V0 + t.V1), 0.5 * (t.V1 + t.V2), 0.5 * (t.V2 + t.V0) };
                 foreach (Vector3d p in samples) {
-                    if (deviationTarget.FindNearestTriangle(p, MaxDeviation) < 0)
+                    if (nearest_within_deviation(p, cache) < 0)
                         return false;
                 }
             }
             bool ok = true;
             gParallel.ForEach(Interval1i.Range(tris.Count), (k) => {
-                if (ok && deviationBounds.IsWithin(deviationTarget, tris[k].V0, tris[k].V1, tris[k].V2, MaxDeviation, MaxDeviationDepth) == false)
+                if (ok && deviationBounds.IsWithin(deviationTarget, tris[k].V0, tris[k].V1, tris[k].V2, MaxDeviation, MaxDeviationDepth, cache) == false)
                     ok = false;
             });
             return ok;
