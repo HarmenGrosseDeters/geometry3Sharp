@@ -164,6 +164,10 @@ var envelope = new MeshEnvelope(reference, 0.01);         // Status: Ready, Inva
 bool inside = envelope.ContainsTriangle(a, b, c);         // exact; also Contains(p), ContainsSegment(a, b)
 ```
 
+`Remesher.MinTriangleQuality` (opt-in, `g3cli remesh` uses 0.2) guards against poor and flat triangles;
+`Remesher.PreventSelfIntersections` (opt-in, about 17x the time) rejects every operation and move that would make
+triangles intersect, so an input without self-intersections stays without them (benchmarks/RemeshQualityBenchmark).
+
 `Reducer.MaxDeviation` guarantees that every point of the result lies within the tolerance of the input,
 checked with certified distance bounds (`TriangleDeviationBounds`).
 
