@@ -112,6 +112,45 @@ come from Packer 2007 and Belussi et al., who cite it).
 
 The owner's decision of section 3 (ISRBD, vertex-centred hot regions) stays recorded until the owner decides on this revision.
 
+## 3c. The gates, measured on master (2026-11-01)
+
+The rows marked `m2.snap` were never run, because `rows` skips pending rows. Run with the current mesher (the automatic or explicit
+tolerance merge of `ConstrainedDelaunayMesh2`, no snap rounding; a local, uncommitted switch let `rows` take pending rows):
+
+| Row | Tolerance | Oracle | Size | Reading |
+|---|---|---|---|---|
+| F-10/a-c, F-11/a-d, F-12/a, F-13 | automatic | ok | 4 to 512 triangles | already met by the automatic merge |
+| F-12/b | automatic | ok | 5 035 vertices | the Steiner limit stops it, as the row expects |
+| F-14/a-e | automatic | ok | 173 to 3 284 vertices | met |
+| F-15 (snap cycle) | 11/1024 | ok | 7 vertices | met |
+| F-17 (tolerance larger than a hole) | 2^-10 | ok | 8 vertices | met |
+| F-20 | automatic | ok | 520 vertices | met |
+| F-18/b (wall 2^-4 away, kept) | 2^-7 | ok | 221 vertices | met |
+| **F-18/a** (wall 2^-8 away, merged) | 2^-7 | ok | **2 885 vertices** | **passes only because the oracle allows a merge but does not demand it**: 13x F-18/b's size, so the wall is not merged and the gap is refined |
+| **F-22/b** (sliver gone at 2^-29) | 2^-29 | ok | **20 007 vertices** | **the same as F-22/a without tolerance**: the sliver is not gone, the Steiner limit stops it; the oracle does not check it |
+| **F-16** (shared piece S-B) | 2^-7 | **fails** | 100 009 vertices (at most 2 000) | the one real failure: refinement runs to the limit |
+
+**What this means:**
+
+- **The gates do not test what `m2.snap` is for.** Two rows (F-18/a, F-22/b) pass while missing their stated intent, because the
+  oracle treats a merge within the tolerance as allowed, not required. Before building, the gates need sharpening: a vertex bound
+  for F-18/a and F-22/b, and a check that the merged feature is gone (no triangle in the gap). Each needs a self-check that rejects
+  today's output.
+- **Topology up to collapse, per row** (the coordinator's question; expected under SR + restore with pixel w):
+  - **Collapse intended:** F-11 and F-15 (points merge), F-17 (the hole vanishes; strict mode: an error naming the hole), F-18/a and
+    F-22/b (wall and sliver merge onto the border), F-12 (the doubled border becomes one), F-14 (the stacked squares become one).
+  - **Kept:** F-18/b, F-10 at distances above the band, F-20 (the polyline keeps its order along the long edges).
+  - **Strict mode** reports each collapse with its location and the drift it needed, instead of performing it (aligned with
+    SafeRounding's strict mode).
+- **Pixel width and O11.** On-grid input merges with a segment only if the segment enters its pixel: guaranteed below w/2, never
+  above about 2w. F-18/a's wall lies at exactly tol/2. With w = tol it sits on a pixel boundary, and the half-open pixel rule decides
+  (here: not merged). With w = 2 tol it merges, and the movement bound becomes tol per axis, O11's wording. But then data on the
+  tolerance grid no longer sits at pixel centres. O11's "merge within tol" and "tol = output grid" cannot both hold under SR. **The
+  owner must choose w = tol (the output on the data grid; merge guaranteed below tol/2) or w = 2 tol (merge guaranteed below tol;
+  movement up to tol).**
+- **F-16 may not need snap rounding at all.** Its failure is over-refinement (the hand-over's item 2), and the current merge may
+  already give the shared piece. To be checked before building.
+
 ## 4. Plan once the owner has answered
 
 - Read ISRBD, stable SR, SRR and the cautionary tale in full, then fix the variant and record it in `MESHING2D_PROVENANCE.md` and `docs/SOURCES.md`.
