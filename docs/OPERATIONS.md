@@ -54,6 +54,7 @@ Add both: `using g3; using gs;`.
 | Intrinsic Delaunay triangulation and refinement: cotan Laplacian without negative weights, geodesics and vector heat on poor meshes, overlay with the input; geodesic paths and loops (FlipOut) | `gs.IntrinsicTriangulation`, `gs.MeshGeodesicDistance.IntrinsicRefine`, `gs.VectorHeatMethod.IntrinsicRefine`, `gs.IntrinsicCommonSubdivision`, `gs.MeshGeodesicPath` | [IntrinsicTriangulationExample](examples/IntrinsicTriangulationExample.cs) |
 | UV atlas of any mesh: seams, charts, BFF with cones, packing, exact overlap test | `UVAtlasGenerator`, `MeshDiscCut`, `MeshChartSegmentation`, `ConeFlattening`, `UVOverlap`, `UVPacker` | [UVAtlasExample](examples/UVAtlasExample.cs) |
 | Parameterize a disc | `BoundaryFirstFlattening`, `LSCMParameterization`, `ARAPParameterization`, `SLIMParameterization`, `ParameterizationDistortion` | [UVAtlasExample](examples/UVAtlasExample.cs) |
+| 2D polygon booleans, polyline clipping, offsets, Minkowski sums, simplification (optional package `geometry3Sharp.Clipper2`) | `g3.Clipper2.Clipper2Polygons`, `ClipperFrame`, `Clipper2Options`, `Clipper2Result` | [Clipper2Example](examples/Clipper2/Clipper2Example.cs) |
 
 ## Which repair or boolean class?
 
@@ -377,6 +378,49 @@ enough (the layout is still overlap-free). From the command line: `g3cli uv mesh
 | `SingleChart` | one chart (cut to a disc), plain BFF | when one chart is required; distorts closed surfaces |
 
 See [UVAtlasExample](examples/UVAtlasExample.cs).
+
+### 2D polygon booleans and offsets (optional package)
+
+The package `geometry3Sharp.Clipper2` (project `addons/geometry3Sharp.Clipper2`) wraps
+[Clipper2](https://github.com/AngusJohnson/Clipper2) (Angus Johnson, Boost-1.0) for the polygon types of the
+library. The core package does not depend on it.
+
+```csharp
+using g3; using g3.Clipper2; using Clipper2Lib;
+
+Clipper2Result merged = Clipper2Polygons.Union(footprints);                  // also Intersection, Difference, Xor
+Clipper2Result zone = Clipper2Polygons.Offset(merged.Polygons, 3.0,
+    new Clipper2Options { JoinType = JoinType.Miter, MiterLimit = 2 });     // > 0 inflates, < 0 deflates
+Clipper2Result free = Clipper2Polygons.Difference(new[] { parcel }, zone.Polygons);
+if (!free.Ok)
+    Console.WriteLine(free.Status + ": " + free.Error);
+List<GeneralPolygon2d> result = free.Polygons;                               // outer CCW, holes CW, islands separate
+```
+
+| Method | Input | Result |
+|---|---|---|
+| `Union`, `Intersection`, `Difference`, `Xor`, `Boolean(op, ...)` | sets of `GeneralPolygon2d`; each one is its region first (inside the outer ring, nonzero, minus its holes, also where holes overlap or reach outside), then the regions of one operand combine by `FillRule` (NonZero default: union; EvenOdd: overlaps cancel) | `Polygons` |
+| `BooleanPaths(op, ...)` | raw `Polygon2d` rings, orientation as given (self-intersecting rings, fill rules) | `Polygons` |
+| `ClipPolyLines(op, lines, clip)` | open `PolyLine2d`s and polygons; Intersection keeps the inside pieces, Difference the outside | `PolyLines` |
+| `Offset(polygons, delta)` | `JoinType` (Round default, Miter with `MiterLimit`, Square, Bevel), `ArcTolerance` (default \|delta\| / 1000, at most \|delta\| / 4); `MiterLimit` up to 1000 | `Polygons` |
+| `OffsetPolyLines(lines, delta)` | delta &gt;= 0; `EndType` Round (default), Butt, Square, or Joined (closed polyline); a single point gives a disc (Round), a square (Square) or nothing | `Polygons` |
+| `MinkowskiSum`, `MinkowskiDifference` | a pattern around (0,0) and a closed (interior included) or open path | `Polygons` |
+| `Simplify`, `SimplifyPolyLines` | vertices within epsilon of the line through their neighbours removed; polygons are re-unioned | `Polygons` / `PolyLines` |
+
+Status is `Success` (also for an empty result), `InvalidInput` (NaN or infinite coordinates, a coordinate plus the
+extent and offset beyond the double range, or extents below about 1e-290), `InvalidParameter` (see `Error`) or `Failed` (Clipper2 reported an
+error); nothing throws on bad input. Clipper2 computes on integers: each call maps its inputs to a grid
+(`ClipperFrame`: origin at the bounds center, a power-of-two scale with the half extent plus the offset margin at
+2^`PrecisionBits`, default 40). Input vertices are snapped to that grid and new vertices rounded to it, so result
+vertices are off by about a grid spacing from their exact position: about 1e-12 times the input extent, under 10 nm
+for a 10 km footprint at UTM coordinates. Scaling the input by a
+power of two gives the same result, scaled, bit for bit; other similarities give it up to the grid spacing (tested
+over `Similarity.All()`). Features below the grid spacing vanish. `Clipper2Options.Frame` sets a fixed grid instead
+(eg Scale = 1000 for millimetres on metre coordinates), and `ClipperFrame` converts between the polygon types and
+Clipper2's `Path64` / `PolyTree64` for direct use of Clipper2. Single-threaded and deterministic.
+
+The example is in [examples/Clipper2/](examples/Clipper2/Clipper2Example.cs) and runs in
+`tests/geometry3Sharp.Clipper2.Tests` (`Clipper2ExampleTests`), not in `DocExamplesTests`, because it needs the package.
 
 ## Adding an example
 
