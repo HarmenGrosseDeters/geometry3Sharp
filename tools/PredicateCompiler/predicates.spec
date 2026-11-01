@@ -1,12 +1,13 @@
 # The integer sign predicates of ExactMeshArrangement on fixed-width points, for tools/PredicateCompiler (bounds of
-# docs/design/FIXED_WIDTH_EXACT_POINTS.md section 5). Each one: 'ipredicate Name(points)', definitions
+# docs/design/FIXED_WIDTH_EXACT_POINTS.md section 5). Each one: 'ipredicate Name(points) bound b' (every input
+# component has |v| <= 2^b - 1; FixedPoint3 admits b = 255), definitions
 # 'x = expression' (+, -, * and parentheses over the inputs and earlier names), then 'sign expression'. The inputs are
 # p.x, p.y and p.w of a point p: its components i and j (the projection axes) and W. Every operation is one FixedArith
 # operation of the kernel, in the kernel's order; a value written twice is computed once, as in the kernel.
 
 # FixedArith.Orient (ExactMeshArrangement.Orient): Det3 of the rows (x_i, x_j, W) of a, b, c, expanded along the
 # first row as FixedArith.Det3Sign and ExactPoint3.Det3: a (e i - f h) - b (d i - f g) + c (d h - e g).
-ipredicate Orient(a, b, c)
+ipredicate Orient(a, b, c) bound 255
     m1 = b.y * c.w - b.w * c.y
     m2 = b.x * c.w - b.w * c.x
     m3 = b.x * c.y - b.y * c.x
@@ -18,7 +19,7 @@ ipredicate Orient(a, b, c)
 # FixedArith.InCircle (ExactMeshArrangement.InCircle), the general row: Det3 of the rows (A s, B s, A^2 + B^2) of
 # each of a, b, c against d, with A = x w_d - x_d w, B = y w_d - y_d w, s = w w_d, expanded along the first row
 # (Det3Sign). The W = 1 row (A = x - x_d, s = 1) has the same values and fewer operations, so these bounds cover it.
-ipredicate InCircle(a, b, c, d)
+ipredicate InCircle(a, b, c, d) bound 255
     aA = a.x * d.w - d.x * a.w
     aB = a.y * d.w - d.y * a.w
     as = a.w * d.w

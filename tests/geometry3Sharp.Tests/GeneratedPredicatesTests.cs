@@ -35,8 +35,11 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void Bound_IsTheBoundOfFixedPoint3()
         {
-            Assert.Equal(FixedPoint3.Limbs, PredicateCompiler.ComponentLimbs);
-            Assert.Equal(Limit, PredicateCompiler.M);
+            foreach (var p in PredicateCompiler.Analyze(Spec)) {
+                Assert.Equal(Limit, p.InputBound);
+                Assert.Equal(64 * FixedPoint3.Limbs - 1, p.InputBits);
+                Assert.All(p.Nodes.Where(n => n.Op == Op.Input), n => Assert.Equal(FixedPoint3.Limbs, n.ArenaLimbs));
+            }
             // admitted at m, rejected beyond it
             Assert.True(FixedPoint3.TryCreate(ExactPoint3.CreateUnreduced(Limit, -Limit, Limit, Limit), out _));
             Assert.False(FixedPoint3.TryCreate(ExactPoint3.CreateUnreduced(Limit + 1, 0, 0, 1), out _));
@@ -175,7 +178,7 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void Limbs_AtTheLimbBoundaries()
         {
-            var p = PredicateCompiler.Analyze("ipredicate P(a, b)\n    s2 = a.x + a.y\n    s3 = s2 + b.x\n    sign s3 * b.w").Single();
+            var p = PredicateCompiler.Analyze("ipredicate P(a, b) bound 255\n    s2 = a.x + a.y\n    s3 = s2 + b.x\n    sign s3 * b.w").Single();
             var n = p.Nodes.Where(x => x.Name != null).ToDictionary(x => x.Name);
             Assert.Equal(256, n["s2"].Bits);
             Assert.Equal(4, n["s2"].Limbs);
@@ -187,19 +190,37 @@ namespace geometry3Sharp.Tests
             Assert.Equal(5 + 5 + 9, p.ArenaScratch);
         }
 
+        /// <summary> the input bound is the spec's, not tied to FixedPoint3: 2^63 - 1 gives one-limb inputs </summary>
+        [Fact]
+        public void Bound_IsPerPredicate()
+        {
+            var p = PredicateCompiler.Analyze("ipredicate P(a, b) bound 63\n    sign a.x * b.y - a.y * b.x").Single();
+            BigInteger m = (BigInteger.One << 63) - 1;
+            Assert.Equal(m, p.InputBound);
+            Assert.Equal("2 m^2", p.Root.Bound.ToString());
+            Assert.Equal(2 * m * m, p.Root.Max);
+            Assert.Equal(127, p.Root.Bits);
+            Assert.Equal(2, p.Root.Limbs);
+            Assert.All(p.Nodes.Where(n => n.Op == Op.Input), n => Assert.Equal(1, n.ArenaLimbs));
+            Assert.Equal(2 + 2 + 3, p.ArenaScratch);
+        }
+
         [Fact]
         public void Compiler_RejectsBadSpecs()
         {
             foreach (var bad in new[] {
-                "ipredicate P(a, b)\n    x = a.x * c.y\n    sign x",          // unknown point
-                "ipredicate P(a, b)\n    sign a.z * b.x",                   // unknown component
-                "ipredicate P(a, b)\n    x = a.x * b.x",                    // no sign line
-                "ipredicate P(a, b)\n    x = a.x * b.x\n    x = a.y\n    sign x",   // repeated name
-                "ipredicate P(a, b)\n    x = a.x * b.x\n    y = b.x * a.x\n    sign x - y",   // the same value twice
-                "ipredicate P(a, a)\n    sign a.x * a.y",                   // duplicate point
-                "ipredicate P(a, b)\n    sign a.x",                         // the sign of an input
-                "ipredicate P(a, b)\n    sign (a.x * b.x",                  // missing ')'
+                "ipredicate P(a, b) bound 255\n    x = a.x * c.y\n    sign x",          // unknown point
+                "ipredicate P(a, b) bound 255\n    sign a.z * b.x",                   // unknown component
+                "ipredicate P(a, b) bound 255\n    x = a.x * b.x",                    // no sign line
+                "ipredicate P(a, b) bound 255\n    x = a.x * b.x\n    x = a.y\n    sign x",   // repeated name
+                "ipredicate P(a, b) bound 255\n    x = a.x * b.x\n    y = b.x * a.x\n    sign x - y",   // the same value twice
+                "ipredicate P(a, a) bound 255\n    sign a.x * a.y",                   // duplicate point
+                "ipredicate P(a, b) bound 255\n    sign a.x",                         // the sign of an input
+                "ipredicate P(a, b) bound 255\n    sign (a.x * b.x",                  // missing ')'
                 "x = a.x\n",                                                // no predicate
+                "ipredicate P(a, b)\n    sign a.x * b.x",                   // no bound
+                "ipredicate P(a, b) bound 0\n    sign a.x * b.x",           // bound out of range
+                "ipredicate P(a, b) bound -3\n    sign a.x * b.x",
             })
                 Assert.Throws<FormatException>(() => PredicateCompiler.Analyze(bad));
         }
