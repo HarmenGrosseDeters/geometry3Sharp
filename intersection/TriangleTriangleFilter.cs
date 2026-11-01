@@ -22,9 +22,8 @@ namespace g3
     ///   in its slow stage, are decided here.
     /// </para>
     /// Anything else is left to the exact test (Undecided). The filter only answers where the exact answer is known,
-    /// so it never changes a decision of a correct exact test. (ExactTriangleIntersection before the fix of its
-    /// coplanar projection axis could report a false intersection for coplanar slivers whose floating-point normal is
-    /// 0, or miss a fold lying flat; the filter gives the correct answer there.)
+    /// so it never changes a decision of the exact test (checked against it, also on coplanar slivers whose
+    /// floating-point normal is 0, in TriangleTriangleFilterTests).
     /// </summary>
     internal static class TriangleTriangleFilter
     {

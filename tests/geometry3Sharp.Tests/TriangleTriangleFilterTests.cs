@@ -162,6 +162,50 @@ namespace geometry3Sharp.Tests
             Assert.True(pairs.Count > 4000 && und < 0.01 * pairs.Count, $"{pairs.Count} pairs: {sep} separate, {und} undecided");
         }
 
+        // coplanar pairs at a shared vertex and at a shared edge where A is a sliver (its third corner within 2^-20..2^-57 of
+        // the segment of the other two, so its floating-point normal is often 0): the class ExactTriangleIntersection got
+        // wrong before #249, in the axis planes and in the plane y = 2 z
+        static List<Pair> SliverPairs(int count, int seed, out int zeroNormal)
+        {
+            var rnd = new Random(seed);
+            var pairs = new List<Pair>();
+            zeroNormal = 0;
+            for (int i = 0; pairs.Count < count; ++i) {
+                int plane = i % 4;
+                double c = (i % 2 == 0) ? 0 : 4 * rnd.NextDouble() - 2;
+                Func<double, double, Vector3d> lift = (u, v) => plane == 0 ? new Vector3d(c, u, v) : plane == 1 ? new Vector3d(v, c, u)
+                    : plane == 2 ? new Vector3d(u, v, c) : new Vector3d(u, 2 * v, v);
+                double su = 2 * rnd.NextDouble() - 1, sv = 2 * rnd.NextDouble() - 1, angle = 2 * Math.PI * rnd.NextDouble();
+                double len = 0.05 + 0.3 * rnd.NextDouble(), t = 0.2 + 0.6 * rnd.NextDouble();
+                double h = Math.Pow(2, -rnd.Next(20, 58)) * (rnd.Next(2) == 0 ? 1 : -1);
+                double du = Math.Cos(angle), dv = Math.Sin(angle);
+                Vector3d s = lift(su, sv), p = lift(su + len * du, sv + len * dv), q = lift(su + t * len * du - h * dv, sv + t * len * dv + h * du);
+                double off = (rnd.Next(3) == 0 ? Math.Pow(2, -rnd.Next(10, 50)) : 0.5 * rnd.NextDouble()) * (rnd.Next(2) == 0 ? 1 : -1);
+                double open = (rnd.Next(3) == 0 ? Math.Pow(2, -rnd.Next(20, 50)) : 0.05 + rnd.NextDouble()) * (rnd.Next(2) == 0 ? 1 : -1);
+                double a1 = angle + off, a2 = a1 + open, l1 = 0.05 + 0.3 * rnd.NextDouble(), l2 = 0.05 + 0.3 * rnd.NextDouble();
+                Vector3d u3 = lift(su + l1 * Math.Cos(a1), sv + l1 * Math.Sin(a1)), w3 = lift(su + l2 * Math.Cos(a2), sv + l2 * Math.Sin(a2));
+                var pair = new Pair { Ia = new Index3i(0, 1, 2), A = new Triangle3d(s, p, q) };
+                if (i % 2 == 0) { pair.Ib = new Index3i(3, 0, 4); pair.B = new Triangle3d(u3, s, w3); }     // shared vertex s
+                else { pair.Ib = new Index3i(1, 0, 3); pair.B = new Triangle3d(p, s, u3); }                // shared edge s-p
+                if (ExactTriangleIntersection.IsDegenerate(ref pair.A) || ExactTriangleIntersection.IsDegenerate(ref pair.B))
+                    continue;
+                if ((p - s).Cross(q - s) == Vector3d.Zero) zeroNormal++;
+                pairs.Add(pair);
+            }
+            return pairs;
+        }
+
+        [Fact]
+        public void Slivers_AgreeWithTheExactTest()
+        {
+            // since #249 the exact test is right on these too: the filter and it agree everywhere
+            int zeroNormal;
+            List<Pair> pairs = SliverPairs(40000, 31, out zeroNormal);
+            var (sep, hit, und) = CheckAgainstExact(pairs, "slivers");
+            Assert.True(zeroNormal > 150, $"zero floating-point normal {zeroNormal}");
+            Assert.True(sep > 2000 && hit > 2000, $"{sep} separate, {hit} intersecting, {und} undecided");
+        }
+
         [Fact]
         public void General3D_DecidedPairsAgree()
         {
