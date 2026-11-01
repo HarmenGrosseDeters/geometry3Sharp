@@ -4,7 +4,8 @@
 // positives of Test(), Intersects() and Find() (ReportCoplanarIntersection) against ExactTriangleIntersection, Find()
 // results without a contact point, and the time per pair (best of 5). Families as in the tests
 // (IntrTriangle3Triangle3CoplanarTests): coplanar slivers at a shared vertex and at a shared edge in three axis planes
-// and the plane y = 2 z; the half-integer lattice of #193 in five planes; random triangles in general position.
+// and the plane y = 2 z; the half-integer lattice of #193 in five planes; exactly coplanar pairs in
+// oblique planes with full-mantissa coordinates; triangles tilted within 1e-8 of another's plane, touching its edge; random triangles in general position.
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -65,6 +66,49 @@ static class CoplanarTriangles
         return list;
     }
 
+    // the generators of IntrTriangle3Triangle3CoplanarTests.Oblique and TiltedWithinTheEpsilon_TouchingAnEdge
+    static List<(Triangle3d, Triangle3d)> Oblique(int count, int seed)
+    {
+        var rnd = new Random(seed);
+        var list = new List<(Triangle3d, Triangle3d)>();
+        Func<double> g = () => Math.Round((rnd.NextDouble() * 2 - 1) * (1 << 30)) / (1 << 30);
+        for (int i = 0; i < count; ++i) {
+            bool first = i % 2 == 0;
+            Func<Vector3d> P = () => { double x = g(), y = g(); return first ? new Vector3d(x, y, x + y) : new Vector3d(x, 3 * x - y, y); };
+            var A = new Triangle3d(P(), P(), P());
+            Vector3d c = A[rnd.Next(3)];
+            Func<Vector3d> Q = () => {
+                double dx = g() * 0.5, dy = g() * 0.5;
+                double x = c.x + dx, y = first ? c.y + dy : c.z + dy;
+                return first ? new Vector3d(x, y, x + y) : new Vector3d(x, 3 * x - y, y);
+            };
+            var B = new Triangle3d(Q(), Q(), Q());
+            if (ExactTriangleIntersection.IsDegenerate(ref A) || ExactTriangleIntersection.IsDegenerate(ref B))
+                continue;
+            if (Enumerable.Range(0, 3).Any(k => ExactPredicates.Orient3d(A.V0, A.V1, A.V2, B[k]) != 0))
+                continue;
+            list.Add((A, B));
+        }
+        return list;
+    }
+
+    static List<(Triangle3d, Triangle3d)> Tilted(int count, int seed)
+    {
+        var rnd = new Random(seed);
+        var list = new List<(Triangle3d, Triangle3d)>();
+        for (int i = 0; i < count; ++i) {
+            double h = Math.Pow(2, -rnd.Next(28, 60));
+            Func<double> g = () => rnd.Next(-16, 17) / 8.0;
+            double x0 = g(), x1 = g();
+            if (x0 == x1) continue;
+            var A = new Triangle3d(new Vector3d(x0, 0, 0), new Vector3d(x1, 0, 0), new Vector3d(g(), rnd.Next(1, 9) / 8.0 * (rnd.Next(2) == 0 ? 1 : -1), 0));
+            var B = new Triangle3d(new Vector3d(g(), -0.25, -h), new Vector3d(g(), -0.25, -h), new Vector3d(g(), 0.25, h));
+            if (ExactTriangleIntersection.IsDegenerate(ref A) || ExactTriangleIntersection.IsDegenerate(ref B)) continue;
+            list.Add((A, B));
+        }
+        return list;
+    }
+
     static List<(Triangle3d, Triangle3d)> General(int count, int seed)
     {
         var rnd = new Random(seed);
@@ -120,6 +164,8 @@ static class CoplanarTriangles
         Report("slivers, shared vertex", Slivers(20000, 21, false), true);
         Report("slivers, shared edge", Slivers(20000, 22, true), true);
         Report("half-integer lattice", Lattice(20000, 7), true);
+        Report("oblique planes", Oblique(40000, 25), true);
+        Report("tilted within 1e-8", Tilted(20000, 26), true);
         Report("general position", General(20000, 3), false);
     }
 }
