@@ -65,7 +65,8 @@ Order when slots free up (owner, 2026-11-01; on that day 4 large and 2 medium se
    **Terrain 1a** (large) was started on 2026-11-01 in the cloud, ahead of this slot, at the owner's request, with the NoData guard of
    `TerrainSafetyLines` (a single vertex such as z = −9999 near a source refines until memory runs out; count the band's
    3D area, not only the horizontal one).
-3. Meshing done (large): the **stage 6b provenance check** (medium, report only), after M3 is merged.
+3. Meshing done (large): M2 (#233), M3 (#252) and the oracle speedup (#265) merged on 2026-11-01; #272 follows. Next
+   the **stage 6b provenance check** (medium, report only), when a medium slot is free.
 4. Then the CLI / MCP docs (stage 8, medium), and a review-only session when the stacks and the meshing PRs wait for
    review at the same time.
 5. Owner decisions still open: whether a large performance session pauses for Terrain, stage 7b (alpha wrap) after
@@ -104,10 +105,10 @@ finding through the coordinator so that one session owns the fix and the others 
 |---|---|---|---|
 | Exact stage of the adaptive `Orient3d` on nearly coplanar inputs: 88-90 % return 0, 190-250 ns each, coordinate differences within 62 bits in 91-100 % | Boolean performance (#256): 5-7 % of the boolean time | Reducer / Remesher `PreventSelfIntersections` (a tilted plate: 72 % of 99.7M calls exact, about 70 % of the check time, 50.8 s); `IntrTriangle3Triangle3` after #253 (coplanar pairs 4-40x slower) | #256 "kernel B", a 1-limb fast path in `ExactPredicates.orient3d_exact`; the self-intersection session adds a double SAT filter in front, so that fewer calls reach it |
 | Filter bounds derived by hand | Indirect predicates (#244 / #250) | Every new floating-point filter (SAT filter, envelope) | `tools/PredicateCompiler`: derive bounds with it where it fits |
-| Exact checks in BigInteger rationals at scale: the 2D mesher's oracle spends minutes on 25k-50k-point meshes (meshing itself 0.65 s), mostly in the global Delaunay and boundary-chain checks | Meshing (2026-11-01) | Any oracle or exact verifier on large inputs | Meshing session, now: measure, then the local Delaunay criterion (O(n) instead of global), then a double filter whose bound comes from `tools/PredicateCompiler`, BigInteger only as fallback; the oracle stays independent of `ExactPredicates`, which the mesher uses |
+| Exact checks in BigInteger rationals at scale: the 2D mesher's oracle spends minutes on 25k-50k-point meshes (meshing itself 0.65 s), mostly in the global Delaunay and boundary-chain checks | Meshing (2026-11-01) | Any oracle or exact verifier on large inputs | Done in #265 (merged 2026-11-01): Shewchuk static filters and a 2-d tree in the oracle; the oracle may use `ExactPredicates`, independence comes from the reference path |
 | `ExactMeshBoolean.coplanar_stack`: quadratic, pieces × coplanar triangles (42327: 495M `Orient` calls, 87 % of a 46 s resolve) | Boolean performance diagnosis (2026-11-01) | MeshRepair's exact stage on inputs with heavy coplanar overlap | Open. Idea: pieces of one source triangle are wholly inside or outside a coplanar triangle, whose edges are constraints, so decide membership by a flood fill over the piece adjacency, not per piece |
 | SafeRounding on rotated (general double) inputs: 72-86 % of a resolve (67709 rotated 18.5 of 21.6 s; 42327 rotated 36.8 of 50.8 s), 18-28 % of 110-172M `Orient3d` calls exact | Boolean performance diagnosis (2026-11-01) | MeshRepair (its benchmark resolves a rotated copy too) | Open, after stage R. Measure kernel B's admission there first: a 2-limb kernel B only if that shows a real share |
-| `Reducer` `MaxDeviation`: 92-97 % of its time | Phase 5 #2 | Remeshers that must stay near the input | Stage 7, the envelope |
+| `Reducer` `MaxDeviation`: 92-97 % of its time | Phase 5 #2 | Remeshers that must stay near the input | Open. The envelope met its stop criterion on these queries (#268, design/ENVELOPE.md §6; the code is kept internal, the owner is still discussing it). Spikes on `IsWithin` itself (ENVELOPE §6): the check is 90-98 % of a reduction (about 700k calls, 7-73 µs each); caching, one-ring-first search and a hash grid do not help, and exactness changes no decision. The lever is fewer checks per collapse in the Reducer: an owner decision |
 
 ## Open tasks and where their answer may already be
 
@@ -316,7 +317,8 @@ Open tasks further up, and work further down, in the code or in the research lis
     and regions by ring, snap rounding to an output grid), a clean-room replacement for Triangle.NET: from the
     behavioural spec [design/MESHING2D_SPEC.md](design/MESHING2D_SPEC.md) (owner decisions in its §5) and the
     papers only (Ruppert, Chew, Shewchuk 2002, Üngör, Miller-Pav-Walkington, Cheng-Dey-Shewchuk 2012); never
-    from Triangle / Triangle.NET code. Builds on `ExactTriangulation2` and the adaptive predicates.
+    from Triangle / Triangle.NET code. Builds on `ExactTriangulation2` and the adaptive predicates. M2 (#233), M3
+    (#252) and the oracle speedup (#265) merged 2026-11-01; open: #272 and the stage 6b provenance check.
 
 - [ ] Verifiable agent work ([QA.md 4a](QA.md#4a-making-agent-work-verifiable)): first the machine checks (new tests fail
   on old code, package validation against 1.0.324, banned APIs in exact code), together with a mutation shard per new
