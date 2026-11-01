@@ -39,17 +39,25 @@ hold up is discarded with the owner, not patched until it passes. The stages run
 | 4. References | Pilot: M1 against NetTopologySuite. Then the golden subset. The session that produces `Triangle.NET` results is planned, not started (strategy, section 3) | M | 1 session |
 | 5. Quadtree | `quadtree` (#195): independent review, owner-machine performance and memory, side-by-side with the old quadtree | L | 1 large session |
 | 6. Meshing M1 | `feature/meshing2d` (#200): oracle and differential as gates. Only then the M2 design (#201, `docs/meshing2d-m2-design`): its recorded approvals are disputed, so question its domain decisions first. An M2 implementation comes after that | L | 1 large session, after stage 5 |
-| 7. Alpha wrap quality | Owner decision on #199. No recorded policy passes every gate, so its production code is not for merging as it is, and it does not compile as it is. Next step: a bounded look at the failing local patches of the hard-feature policy, no threshold tuning | L | 1 large session, after stage 6 |
-| 8. Planned follow-ups | Boolean property tests, DAP audit and honest terrain metrics, next to any stage from 4 on; the upstream ledger last, because it records what is merged. Terrain phase 1 after stage 5 | S, M | up to 2 sessions |
+| 7. Envelope containment | Phase 5 #2 (Wang et al. 2020; `fast-envelope` is MIT; `MeshEnvelope` is the prototype). One piece of work serves four tasks: quality passes that stay near the input, the alpha-wrap simplification, the `Reducer` `MaxDeviation` check (92-97 % of its time) and the envelope-guaranteed pipeline. It comes before the alpha-wrap stage, which keeps failing on the trade-off between quality and fidelity that an envelope settles | L | 1 large session, after stage 5 |
+| 7b. Alpha wrap quality | Owner decision on #199. No recorded policy passes every gate, so its production code is not for merging as it is, and it does not compile as it is. Next step: a bounded look at the failing local patches of the hard-feature policy, no threshold tuning | L | 1 large session, after stage 7 |
+| B. Boolean performance | Continues, at the owner's request: `AddPoint` shards (#222), then fixed-width exact points (#223, design waits for the owner's decisions) and the predicate compiler (#221, the owner's). Hand-over and ranked candidates: [perf/EXACT_BOOLEAN_PERFORMANCE.md](perf/EXACT_BOOLEAN_PERFORMANCE.md). Exact code: bounds review and mutation runs on every PR | L | 1 large session |
+| 8. Planned follow-ups | Boolean property tests, DAP audit and honest terrain metrics, next to any stage from 4 on; the upstream ledger last, because it records what is merged. Terrain phase 1 after stage 5. After this wave: **CLI / MCP and docs for the new operations** (quadtree, mesher, n-ary and SafeRounding booleans in `g3cli`, examples in OPERATIONS.md), so that agents can use what was built (Direction, points 2 and 3) | S, M | up to 2 sessions |
 
 Why this order: a reference must exist before an implementation is accepted against it. The quadtree comes before meshing because terrain phase 1 waits for it and its PR is further along.
 
 Limits on parallel work:
 
-- At most 3 sessions at once, of which at most 1 large (tier L implementation; [AGENT_WORKFLOW.md](AGENT_WORKFLOW.md)
-  section 6). Each session has its own worktree and one PR-sized topic.
+- At most 5 implementation sessions at once in the cloud, of which at most 2 large (tier L; [AGENT_WORKFLOW.md](AGENT_WORKFLOW.md)
+  section 6), plus **one review session** that only reviews (independent reviews with REVIEW_CHECKLIST.md, bounds
+  reviews, re-running numbers) and writes no production code. The owner's local work does not count. The limit
+  applies to new starts: when sessions finish, they are not replaced until the count is below it. Each session has
+  its own worktree and one PR-sized topic.
+- The bottleneck is review, serial merges and the mutation runners (a full shard takes hours), not sessions: a
+  session whose PR waits for review does not start the next PR-sized topic in a mutated file.
 - Parallel sessions must not change the same production files. Quadtree (`spatial/`) and meshing (`comp_geom/`) are
-  disjoint in code, but each needs the full attention of its reviewer, so they stay serial.
+  disjoint in code; they run at the same time because the owner works on the quadtree locally and the review session
+  takes the meshing reviews.
 - Merges are serial, because many PRs touch `docs/ROADMAP.md`, `docs/QA.md`, `docs/SOURCES.md`, `docs/OPERATIONS.md`
   and `ExactBooleanIssueCasesTests.cs`. Rebase the next PR and re-run CI after each merge. Keep status text in the
   PR, not in the roadmap.
@@ -58,7 +66,7 @@ Limits on parallel work:
 
 Open task from the takeover:
 
-- [ ] **Exact coplanar triangle clipping: investigate as its own topic.** `IntrTriangle2Triangle2` clips in floating point, and
+- [ ] **Exact coplanar triangle clipping: investigate as its own topic.** Deferred until a caller needs it (only tests call the coplanar path). `IntrTriangle2Triangle2` clips in floating point, and
   coplanar `IntrTriangle3Triangle3` builds on it: it loses point and segment contacts. The fix in #193 was discarded after review: it
   added a regression (disjoint triangles reported as intersecting through overflow), and contacts were still lost (15641 false
   negatives, 7951 false positives in 3.86M lattice pairs, against an exact oracle). Rounded clipping cannot keep such a promise. To
