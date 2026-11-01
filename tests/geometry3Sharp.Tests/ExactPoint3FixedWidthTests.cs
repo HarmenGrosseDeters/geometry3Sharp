@@ -433,6 +433,32 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void Hash_SpreadsOverTheIndexShards()
+        {
+            // AddPoint picks one of 64 shards by the low bits of the hash: points whose coordinates are all multiples of
+            // a large power of two (integer vertices on a fine grid) must not all land in one shard
+            var shards = new HashSet<int>();
+            for (int k = 1; k <= 400; ++k) {
+                BigInteger s = BigInteger.One << 40;
+                FixedPoint3 f = Fixed(ExactPoint3.FromInteger(k * s, (k % 7) * s, (k % 11) * s));
+                shards.Add((f.Hash() & 0x7FFFFFFF) % 64);
+            }
+            Assert.True(shards.Count >= 48, $"only {shards.Count} of 64 shards used");
+        }
+
+        [Fact]
+        public void FixedWidthPoints_CannotChangeAfterPoints()
+        {
+            var mesh = new DMesh3();
+            mesh.AppendVertex(new Vector3d(0, 0, 0)); mesh.AppendVertex(new Vector3d(1, 0, 0)); mesh.AppendVertex(new Vector3d(0, 1, 0));
+            mesh.AppendTriangle(0, 1, 2);
+            var arr = new ExactMeshArrangement(new List<DMesh3>() { mesh });
+            arr.Compute();
+            Assert.Throws<InvalidOperationException>(() => arr.FixedWidthPoints = false);
+            arr.FixedWidthPoints = true;        // (unchanged: allowed)
+        }
+
+        [Fact]
         public void FixedPointStore_GrowsBeyondItsFirstChunks_InParallel()
         {
             // 64 chunks of 256 at first: 100k points need the chunk array to grow, while other threads add and read

@@ -1,7 +1,8 @@
-# Fixed-width exact points in the arrangement (design, for approval)
+# Fixed-width exact points in the arrangement
 
-Status: **design, not yet implemented.** Tier L ([AGENT_WORKFLOW.md](../AGENT_WORKFLOW.md)): the owner approves this
-document before any code is written; every bit bound in section 5 gets an independent review.
+Status: **implemented** (design approved by the owner, 4 limbs per component). Tier L
+([AGENT_WORKFLOW.md](../AGENT_WORKFLOW.md)). Results in section 11: `nary grid 10 onepass` **−25 %** (7291 -> 5481 ms),
+GC pauses −48 %, allocations −66 %, bit-identical.
 
 ## 1. Goal and hypothesis
 
@@ -320,3 +321,67 @@ builds of all targets run; pushes in larger stages.
 - **Publication bugs** (torn reads) would be nondeterministic: the protocol is part of the review, and the
   concurrency test runs repeatedly.
 - **Bounds:** every bound above is checked at run time as well (throwing), and reviewed independently.
+
+## 11. Results
+
+All on 4 cores, in one session, the tools alternating (A, B, G per round), no other load. A = head of #222
+(`18138e0`), B = fixed-width storage and kernels (`b8f28b7`), G = B plus the follow-ups below. Command:
+`BooleanComparison profile --repeat <r> <case>` (per round: grid 10 the second of 2 runs, the others the best of 3).
+Same hash and triangle count for every run of every tool.
+
+| case | A | B | G | G vs A |
+|---|---|---|---|---|
+| grid 10, total (median of 5 rounds) | 7291 ms | 5682 ms | **5481 ms** | **−24.8 %** |
+| grid 10, rounds | 6946 7343 7291 8097 7171 | 5395 5858 5682 6091 5240 | 5481 5383 5134 5597 5572 | |
+| grid 10, GC pause (median) | 1908 ms | 1025 ms | 996 ms | −48 % |
+| grid 10, allocated | 7092 MB | 3246 MB | 2428 MB | −66 % |
+| grid 10, gen0 / gen1 collections | 426 / 86 | 191 / 52 | 141 / 39 | |
+| grid 5, total (median of 5) | 789 ms | 688 ms | 700 ms | −11 % |
+| grid 5, GC pause | 175 ms | 106 ms | 107 ms | |
+| spheres 20, total (median of 5) | 758 ms | 643 ms | 671 ms | −11 % |
+| spheres 20, GC pause | 245 ms | 178 ms | 173 ms | |
+
+Live objects on the heap (`dotnet-gcdump`, grid 10, in the triangulation / in the classification): A 650k / 1.07M,
+B 259k / 419k.
+
+**Follow-ups in G** (each measured by allocation on grid 10, same hash):
+
+| change | allocated |
+|---|---|
+| B | 3246 MB |
+| `front_winding` takes the corners' doubles from the arrangement (`TryExactDouble`); `BitLength` by `GetBitLength` | 3072 MB |
+| `compare_along` on limbs (direction loaded in the exact stage, at most 8 limbs) | 2586 MB |
+| the patch's center point and its doubles once per patch, not per candidate mesh | 2428 MB |
+
+They cut allocations by a quarter, but the time only by about 3.5 % and the GC pause hardly: the remaining pauses
+come from surviving objects, not from the allocation rate.
+
+**Tried and dropped:** the chunks of `FixedPointStore` and of the reference-free `ChunkedList`s on the pinned object
+heap (`GC.AllocateArray(pinned: true)`, so that they are never copied): no gain (measured under load, no trend).
+
+**Checks.**
+- 26 new tests (`ExactPoint3FixedWidthTests`); hand mutants: 19 of 20 killed (the survivor, a hash without the
+  signs, is equivalent: it changes only the hash quality; the shard-spread test now covers it).
+- Stryker on `math/FixedPoint3.cs` (shard `mesh-fixed`, its own threshold): 77.75 % at first, **83.91 %** after the
+  tests for `DoubleOf`, the hash and the store growth. Survivors are equivalent: `>>>` on unsigned values, `>=` where
+  equality was excluded before, trimming loops on values that are never zero, alpha values that are never zero,
+  over-reads one element past a loop of equal values, and pointer offsets into unused stack. Threshold: `break` 81.
+- Independent review of the code (diff, this document and the checklist only): no wrong result found; every kernel
+  computes the same integer as the BigInteger code, the scratch and buffer sizes hold (InCircle's determinant needs
+  at most 594 limbs, the comment's 637 is an upper bound). Its suggestions are done: a final mix in `Hash` (the
+  low bits pick the index shard), `DoubleOf` only for new points in `AddPoint`, no copies in `FixedKey.Equals`, the
+  corners materialized once when the orient3d filter fails, and `FixedWidthPoints` locked after the first point.
+  Not done: caching the direction's limbs (no allocation on .NET; one per exact stage on netstandard2.0).
+
+## 12. What is left, ranked
+
+1. **Triangle planes in fixed width** (idea 1 step 2 of the performance hand-over): 12k `PlaneData` with four
+   BigIntegers and a `double[]` each are the largest long-lived rest on grid 10; `line_direction` (4 % of the bytes)
+   would follow. Needs its own bounds (normals up to 2 × 255 + 1 bits, `D` up to about 767) and review.
+2. **The per-triangle collections as CSR arrays** (idea 5): about 90k long-lived objects on grid 10.
+3. **`centroid`** (7 % of the bytes): needs the gcd reduction on limbs.
+4. **The predicate compiler of #221** as the tool that derives the bounds of 1 and 3 (instead of hand tables like
+   section 5), generating against `FixedArith` (one runtime instead of `IntegerRuntime` beside it); unrolled kernels
+   of fixed shape only where a measurement shows the exact stages matter.
+5. Real-world classes (`cgal`, Thingi10K, `cherchi`) and `perf/exact_hashes.sh` were not run here (the data was not
+   fetched in this session); their exact stages are rare, so little gain is expected there, but it is not measured.

@@ -975,9 +975,16 @@ namespace g3
                     // coordinates, whose doubles the arrangement keeps)
                     int c0 = U.Corners[0], c1 = U.Corners[1], c2 = U.Corners[2];
                     Vector3d d0 = corner_double(c0), d1 = corner_double(c1), d2 = corner_double(c2);
-                    int o0 = orient3d(P, Rp, c0, c1, ref gp, ref gr, ref d0, ref d1);
-                    int o1 = orient3d(P, Rp, c1, c2, ref gp, ref gr, ref d1, ref d2);
-                    int o2 = orient3d(P, Rp, c2, c0, ref gp, ref gr, ref d2, ref d0);
+                    int o0 = orient3d_filter(ref gp, ref gr, ref d0, ref d1);
+                    int o1 = orient3d_filter(ref gp, ref gr, ref d1, ref d2);
+                    int o2 = orient3d_filter(ref gp, ref gr, ref d2, ref d0);
+                    if (o0 == 2 || o1 == 2 || o2 == 2) {
+                        // (the corners' exact points once, for the orientations the filter did not decide)
+                        ExactPoint3 e0 = arr.Exact(c0), e1 = arr.Exact(c1), e2 = arr.Exact(c2);
+                        if (o0 == 2) o0 = orient3d_exact(P, Rp, e0, e1);
+                        if (o1 == 2) o1 = orient3d_exact(P, Rp, e1, e2);
+                        if (o2 == 2) o2 = orient3d_exact(P, Rp, e2, e0);
+                    }
                     if (o0 == 0 || o1 == 0 || o2 == 0) {
                         // the line passes through an edge or vertex: only a problem if it is the triangle's
                         if ((o0 >= 0 && o1 >= 0 && o2 >= 0) || (o0 <= 0 && o1 <= 0 && o2 <= 0))
@@ -1159,20 +1166,23 @@ namespace g3
         static bool tiny(double v) { return v != 0 && !(Math.Abs(v) >= TinyCoordinate); }
 
         /// <summary>
-        /// orient3d(a, b, c, d) with a floating-point filter: the doubles da..dd approximate the points (relative
-        /// error at most 2^-52 per coordinate); exact if the error bound does not decide (or DisableFilters)
+        /// the floating-point filter of orient3d(a, b, c, d): the doubles da..dd approximate the points (relative
+        /// error at most 2^-52 per coordinate); 2 if the error bound does not decide (or DisableFilters), then
+        /// orient3d_exact decides
         /// </summary>
         [MethodImpl(JitHints.Optimize)]
-        int orient3d(ExactPoint3 a, ExactPoint3 b, int c, int d, ref Vector3d da, ref Vector3d db, ref Vector3d dc, ref Vector3d dd)
+        int orient3d_filter(ref Vector3d da, ref Vector3d db, ref Vector3d dc, ref Vector3d dd)
         {
             PredicateStats.Call(PredicateStats.Kind.WindingOrient3d);
-            if (DisableFilters == false) {
-                int s = orient3d_filtered(ref da, ref db, ref dc, ref dd);
-                if (s != 2)
-                    return s;
-            }
+            return DisableFilters ? 2 : orient3d_filtered(ref da, ref db, ref dc, ref dd);
+        }
+
+        // the exact stage of orient3d_filter (when it gave 2)
+        [MethodImpl(JitHints.Optimize)]
+        static int orient3d_exact(ExactPoint3 a, ExactPoint3 b, ExactPoint3 c, ExactPoint3 d)
+        {
             PredicateStats.ExactStage(PredicateStats.Kind.WindingOrient3d);
-            return orient3d(a, b, arr.Exact(c), arr.Exact(d));
+            return orient3d(a, b, c, d);
         }
 
         /// <summary>

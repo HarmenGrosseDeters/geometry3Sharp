@@ -284,8 +284,20 @@ namespace g3
         readonly ChunkedList<int> exactRef = new ChunkedList<int>();
         readonly FixedPointStore fixedPoints = new FixedPointStore();
         readonly ChunkedList<ExactBox> exactPoints = new ChunkedList<ExactBox>();
-        /// <summary> for tests: store all exact points as BigInteger (ExactBox), the code before the fixed-width points </summary>
-        internal bool FixedWidthPoints = true;
+        /// <summary>
+        /// for tests: store all exact points as BigInteger (ExactBox), the code before the fixed-width points. Only
+        /// before the first point: equality of exact points relies on the representation being a function of the value.
+        /// </summary>
+        internal bool FixedWidthPoints
+        {
+            get { return fixedWidthPoints; }
+            set {
+                if (PointCount > 0 && value != fixedWidthPoints)
+                    throw new InvalidOperationException("ExactMeshArrangement: FixedWidthPoints changed after points were added");
+                fixedWidthPoints = value;
+            }
+        }
+        bool fixedWidthPoints = true;
         readonly ChunkedList<Vector3d> inputCoords = new ChunkedList<Vector3d>();
         int nextPoint;
         // implicit point ids by construction and rational point ids by value, in shards (by hash) so that threads adding
@@ -313,16 +325,15 @@ namespace g3
             public override int GetHashCode() { return Hash; }
         }
         // a point in fixed width with its hash (computed once, outside the lock)
-        readonly struct FixedKey : IEquatable<FixedKey>
+        // (the limbs only: IsDouble and D are not set in the key)
+        struct FixedKey : IEquatable<FixedKey>
         {
-            public readonly FixedPoint3 P;
+            FixedPoint3 P;
             public readonly int Hash;
             public FixedKey(ref FixedPoint3 p) { P = p; Hash = p.Hash(); }
             public bool Equals(FixedKey o)
             {
-                if (Hash != o.Hash) return false;
-                FixedPoint3 a = P, b = o.P;
-                return FixedPoint3.SameValue(ref a, ref b);
+                return Hash == o.Hash && FixedPoint3.SameValue(ref P, ref o.P);
             }
             public override bool Equals(object o) { return o is FixedKey k && Equals(k); }
             public override int GetHashCode() { return Hash; }
@@ -399,7 +410,7 @@ namespace g3
             Vector3d a = p.ApproxVector3d();
             double e = (p.W.IsOne ? 1 : 4) * U * max_abs(a) + Tiny;
             FixedPoint3 f;
-            if (FixedWidthPoints && FixedPoint3.TryCreate(p, out f)) {
+            if (FixedWidthPoints && FixedPoint3.TryCreateLimbs(p, out f)) {
                 // (the representation is a function of the value: a point in this index is never in the other)
                 var fk = new FixedKey(ref f);
                 var fshard = fixedIndex[(fk.Hash & 0x7FFFFFFF) % Shards];
@@ -409,6 +420,7 @@ namespace g3
                         return id;
                     id = new_id();
                     store(id, a, e, new PointKey(PointKind.Rational, id, 0, 0));
+                    f.SetDouble(p);
                     publish_exact(id, ref f);
                     fshard[fk] = id;
                     return id;

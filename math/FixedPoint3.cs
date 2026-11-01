@@ -30,6 +30,16 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         public static bool TryCreate(ExactPoint3 p, out FixedPoint3 f)
         {
+            if (TryCreateLimbs(p, out f) == false)
+                return false;
+            f.SetDouble(p);
+            return true;
+        }
+
+        /// <summary> TryCreate without IsDouble and D (for lookups: SameValue and Hash read only the limbs); SetDouble adds them </summary>
+        [MethodImpl(JitHints.Optimize)]
+        public static bool TryCreateLimbs(ExactPoint3 p, out FixedPoint3 f)
+        {
             f = default(FixedPoint3);
             fixed (ulong* l = f.L)
             fixed (byte* m = f.M) {
@@ -37,12 +47,17 @@ namespace g3
                     || Load(p.Z, l + 8, out m[2]) == false || Load(p.W, l + 12, out m[3]) == false)
                     return false;
             }
+            return true;
+        }
+
+        /// <summary> IsDouble and D of the point p that these limbs hold </summary>
+        public void SetDouble(ExactPoint3 p)
+        {
             Vector3d d;
             if (DoubleOf(p, out d)) {
-                f.Flags = 1;
-                f.D = d;
+                Flags = 1;
+                D = d;
             }
-            return true;
         }
 
         /// <summary> the point is an integer point whose coordinates are doubles (d, exactly) </summary>
@@ -209,6 +224,10 @@ namespace g3
                     h = (h ^ L[k]) * 0x100000001B3UL;
                 for (int k = 0; k < 4; ++k)
                     h = (h ^ M[k]) * 0x100000001B3UL;
+                // (a final mix, so that the low bits, which pick the index shard, depend on all bits of all limbs)
+                h ^= h >> 33;
+                h *= 0xFF51AFD7ED558CCDUL;
+                h ^= h >> 33;
                 return (int)(h ^ (h >> 32));
             }
         }
