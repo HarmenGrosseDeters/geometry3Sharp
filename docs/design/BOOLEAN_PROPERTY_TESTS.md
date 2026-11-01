@@ -1,6 +1,6 @@
 # Boolean metamorphic and property tests
 
-Status: planned, not implemented. Implements the Boolean part of [QA §4a, items 9 and 10](../QA.md#4a-making-agent-work-verifiable).
+Status: implemented (sections 1 to 4) in `ExactBooleanMetamorphicTests`, `ExactBooleanPropertyTests.CsCheck.cs`, `Harness/BooleanOracle.cs`, with the findings pinned in `ExactBooleanPropertyFindings`; CsCheck 4.9.1 instead of 5.0.0 (docs/SOURCES.md). Implements the Boolean part of [QA §4a, items 9 and 10](../QA.md#4a-making-agent-work-verifiable).
 
 ## Task brief
 

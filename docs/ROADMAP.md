@@ -271,11 +271,11 @@ Open tasks further up, and work further down, in the code or in the research lis
   on old code, package validation against 1.0.324, banned APIs in exact code), together with a mutation shard per new
   robustness-critical module (the runs on PRs are incremental: tests/mutation/README.md). Acceptance
   against references for the 2D meshing ([strategy](design/ACCEPTANCE_STRATEGY.md)). The other items go with the modules they touch.
-  - [ ] Boolean metamorphic and property tests ([implementation plan](design/BOOLEAN_PROPERTY_TESTS.md), QA §4a
+  - [x] Boolean metamorphic and property tests ([implementation plan](design/BOOLEAN_PROPERTY_TESTS.md), QA §4a
     items 9 and 10): volume identities, partition reconstruction, commutativity, vertex/triangle permutation and
-    conforming subdivision; CsCheck parameter shrinking and replay. Test-only, no `ExactMesh*` changes. Proposed:
-    generated campaigns on net10.0, deterministic regressions also on net48; independent analytic box oracles and
-    result validity checks. CsCheck is Apache-2.0, not MIT. Planned and fact-checked; implementation remains open.
+    conforming subdivision; CsCheck campaigns with shrinking and replay on net10.0, the fixed corpus also on net48;
+    analytic box oracle. Finding: `SafeRounding` moves exact vertices of pieces below its degenerate threshold
+    (`ExactBooleanPropertyFindings`, skipped until fixed in its own tier-L PR).
 
 ## Focused follow-up work
 
