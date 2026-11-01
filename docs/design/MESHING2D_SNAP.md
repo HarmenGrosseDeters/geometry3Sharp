@@ -38,8 +38,8 @@ Nothing in the library does snap rounding. `docs/SOURCES.md` already cites Hobby
 
 ## 3. What the checks change: four conflicts between ISR and O11
 
-**Owner decision, 2026-11-01: all four proposals below are accepted** (recorded in `MESHING2D_DECISIONS.md`, D14): ISRBD, hot regions of
-radius tol centred at the vertices, untouched vertices keep their input coordinates, the gap band documented.
+**Owner decision, 2026-11-01: all four proposals below were accepted first; proposals 1 and 2 are superseded the same day by the
+owner's final decision (section 3b): SR on a grid plus SRR's restore, pixel width w = tol** (`MESHING2D_DECISIONS.md`, D14).
 
 D14 approved ISR at the explicit tolerance. The checks show four places where plain ISR and O11 disagree. These are for the owner to settle before building:
 
@@ -110,7 +110,8 @@ come from Packer 2007 and Belussi et al., who cite it).
 - **Semantics as in section 3a:** drift reported (bounded by w/2 per axis by construction), a strict mode, merge below the
   tolerance.
 
-The owner's decision of section 3 (ISRBD, vertex-centred hot regions) stays recorded until the owner decides on this revision.
+**Owner decision, 2026-11-01: the revised recommendation is approved, with pixel width w = tol** (relayed by the coordinator;
+`MESHING2D_DECISIONS.md`, D14).
 
 ## 3c. The gates, measured on master (2026-11-01)
 
@@ -147,13 +148,38 @@ tolerance merge of `ConstrainedDelaunayMesh2`, no snap rounding; a local, uncomm
   (here: not merged). With w = 2 tol it merges, and the movement bound becomes tol per axis, O11's wording. But then data on the
   tolerance grid no longer sits at pixel centres. O11's "merge within tol" and "tol = output grid" cannot both hold under SR. **The
   owner chooses:**
-  - **w = tol** (the coordinator's recommendation): on-grid data stays put, the property valued in D14. O11's guarantee becomes "merge
+  - **w = tol** (the coordinator's recommendation; **chosen by the owner on 2026-11-01**): on-grid data stays put, the property valued in D14. O11's guarantee becomes "merge
     below tol/2, never above 2 tol (L∞), the grid decides in between". F-18/a's wall at exactly tol/2 then lies in the band, so its gate
     must not demand the merge.
   - **w = 2 tol:** merge guaranteed below tol, movement up to tol per axis. On-grid data moves by up to tol. F-18/a's gate then demands
     the merge.
 - **F-16 may not need snap rounding at all.** Its failure is over-refinement (the hand-over's item 2), and the current merge may
   already give the shared piece. To be checked before building.
+
+## 3d. Questions for the clean-room comparison session
+
+The owner implemented snap rounding in his own fork of Triangle.NET. This session never reads that fork. A separate comparison session
+may answer the questions below **in specification terms only**: behaviour, cases, results, parameter values, test inputs described in
+words. No code, no data structures, no file or class names.
+
+1. **Variant and grid:** which snap-rounding variant does it implement (plain SR, ISR, a restore or spread step, something else)?
+   Is the grid tied to the tolerance (pixel = tol, 2 tol, something else), and where is it anchored (the origin, the data's bounding
+   box, the first point)?
+2. **Contact rule:** which pixel sides and corners count as touched (half-open as in Hobby, closed, or something else)? Was a
+   symmetric rule tried, and what happened?
+3. **Input on the grid:** do input points that already lie on the grid stay exactly where they are? What happens to input off the
+   grid?
+4. **Separation:** does the output guarantee a minimum distance between a vertex and a non-incident edge? If yes, how large, and how
+   is it reached (iteration, spreading, snapping)?
+5. **Drift:** what is the largest movement seen in practice, in units of the tolerance? Is it bounded or reported?
+6. **Collapse:** what happens to a hole smaller than the tolerance, to two nearly coincident borders, and to a narrow wedge at a small
+   angle? Are polygons that collapse to lines or points reported, removed or kept?
+7. **Failures:** which inputs failed or gave surprising results (no termination, too many iterations, topology changes, invalid
+   polygons, a result that changes when snapped again)? How were they resolved?
+8. **Cost:** run times or iteration counts on the largest inputs (number of points, time), and where the time went.
+9. **Test inputs:** which test inputs, described in words (kind of geometry, sizes, tolerance), showed the important cases?
+10. **Interaction with the mesher:** does snapping run before the triangulation, or inside it? Does quality refinement afterwards
+    ever undo a merge or meet a slim triangle created by snapping?
 
 ## 4. Plan once the owner has answered
 
