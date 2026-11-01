@@ -292,6 +292,15 @@ namespace gs
     ///     certified, the bound is computed again with twice the points per edge (up to MaxSteinerPoints). Certified if the lines lie at least SafetyDistance (MinLineDistance, exact)
     ///     and at most ExcessTolerance (default 0.2 m) beyond it; RequireCertified makes Compute fail otherwise.
     ///     On the open pit test data: median excess 5-18 cm, 3% (5 m) to 44% (20 m) of the points above 20 cm.
+    ///     An empty certificate: with sources off the terrain, or a distance beyond the terrain, Compute returns
+    ///     true, also with RequireCertified, with Certified true, no lines and MinLineDistance double.MaxValue. It
+    ///     means that no line exists and nothing was certified: check Lines.
+    ///
+    /// Limits: Compute fails above MaxCertifySteps, MaxSourcePoints and MaxRefinedTriangles. The last one is
+    /// an estimate (a 20 km road gave 3.6 times of it, so at the limit about 3.6e8 triangles and about 47 GB), and
+    /// the limits do not cover slivers narrower than an edge.
+    /// An exception (eg out of memory, or SteinerPoints too large for an array) leaves Certified false, but Lines,
+    /// RefinedTerrain, MinLineDistance and UsedSteinerPoints may stay as they were at that point.
     /// </summary>
     public class TerrainSafetyLines
     {
@@ -342,9 +351,9 @@ namespace gs
         public const double MaxSourcePoints = 1e7;
         /// <summary>
         /// Most triangles expected of refining the terrain near the sources (2 x area of the band, within the area of
-        /// the terrain, / edge length^2; AlongSurface: also of the remeshing), which take in the order of 100 bytes
+        /// the terrain, / edge length^2; AlongSurface: also of the remeshing), which take in the order of 130 bytes
         /// each. 1e8 are 120 km of sources at the default EdgeLength for a distance of 1 m, or 2000 km at the default
-        /// Tolerance. An estimate: it does not know where the sources leave the terrain.
+        /// Tolerance, by the estimate: see the class comment and expected_refined_triangles.
         /// </summary>
         public const double MaxRefinedTriangles = 1e8;
 
@@ -394,7 +403,7 @@ namespace gs
 
         /// <summary>
         /// false (with no lines, no certificate, no outputs of an earlier Compute) if SafetyDistance is not
-        /// positive and finite, the terrain is empty, a source point is not finite or a source segment is too
+        /// positive and finite, the terrain is empty or has a vertex that is not finite, a source point is not finite or a source segment is too
         /// long for its length to be finite, or the parameters of the mode are invalid: Tolerance must be positive
         /// (Horizontal; may be +infinity) or positive and finite (Guaranteed), ExcessTolerance (Guaranteed) must
         /// be positive (may be +infinity), EdgeLength and SafetyMargin (AlongSurface) must be finite. Also false if
@@ -403,7 +412,7 @@ namespace gs
         public bool Compute()
         {
             clear_outputs();
-            if (positive_finite(SafetyDistance) == false || Terrain.TriangleCount == 0 || sources_finite() == false)
+            if (positive_finite(SafetyDistance) == false || Terrain.TriangleCount == 0 || terrain_finite() == false || sources_finite() == false)
                 return false;
             if (Mode == Modes.Guaranteed)
                 return compute_guaranteed();
@@ -429,30 +438,56 @@ namespace gs
             return steps;
         }
 
-        // triangles expected of refining the band within reach of the sources down to this edge length (per
-        // edge^2 first: the squares can leave the range of double where the ratios do not)
-        bool refinement_too_large(double reach, double edge)
+        // Triangles expected of refining the band within reach of the sources down to this edge length, in one pass
+        // over the sources: a strip along the source segments, and discs around their ends and the points, one per
+        // occupied cell of size reach, as points that lie together share their disc. In units of edge^2: the
+        // squares can leave the range of double where the ratios do not. It still misses: the band counted twice
+        // where source segments run together or across each other (too high, so a refusal of many segments on top
+        // of each other is possible); the parts of the band off the terrain (too high, but never above the
+        // terrain); the terrain being steeper than the horizontal band, and the grading of the splits around
+        // it (too low: see the class comment); a little dependence of the cells on the frame.
+        internal double expected_refined_triangles(double reach, double edge)
         {
             double perEdge2 = 0;
             foreach (int tid in Terrain.TriangleIndices()) {
                 double area = Terrain.GetTriArea(tid);
-                if (area > 0) perEdge2 += area / edge / edge;   // (a NaN vertex is no reason to refuse)
+                if (area > 0) perEdge2 += area / edge / edge;   // (no NaN from coordinates that overflow it)
             }
-            double length = 0, count = SourcePoints.Count;
+            var cells = new HashSet<Vector2d>();
+            Action<Vector3d> occupy = (p) => cells.Add(new Vector2d(Math.Floor(p.x / reach), Math.Floor(p.y / reach)));
+            foreach (Vector3d p in SourcePoints)
+                occupy(p);
+            double length = 0;
             if (polyLines != null)
-                foreach (var line in polyLines) {
-                    count++;
-                    for (int i = 0; i + 1 < line.Count; ++i)
-                        length += line[i].Distance(line[i + 1]);
-                }
+                foreach (var line in polyLines)
+                    for (int i = 0; i < line.Count; ++i) {
+                        occupy(line[i]);
+                        if (i + 1 < line.Count)
+                            length += line[i].Distance(line[i + 1]);
+                    }
             double r = reach / edge;
-            double band = 2 * r * (length / edge) + Math.PI * r * r * count;
-            return !(2 * Math.Min(perEdge2, band) <= MaxRefinedTriangles);
+            double band = 2 * r * (length / edge) + Math.PI * r * r * cells.Count;
+            return 2 * Math.Min(perEdge2, band);
+        }
+
+        bool refinement_too_large(double reach, double edge)
+        {
+            return !(expected_refined_triangles(reach, edge) <= MaxRefinedTriangles);
         }
 
         static bool positive_finite(double x)
         {
             return x > 0 && double.IsInfinity(x) == false;
+        }
+
+        // (the splits near a vertex that is not finite would never end: an edge to it never gets short)
+        bool terrain_finite()
+        {
+            foreach (int vid in Terrain.VertexIndices()) {
+                Vector3d p = Terrain.GetVertex(vid);
+                if (MathUtil.IsFinite(p.x) == false || MathUtil.IsFinite(p.y) == false || MathUtil.IsFinite(p.z) == false) return false;
+            }
+            return true;
         }
 
         // per coordinate (Vector3d.IsFinite tests their sum, which overflows). Segments: an infinite length

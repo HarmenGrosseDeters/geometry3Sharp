@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Threading;
 using g3;
 using gs;
@@ -569,6 +570,129 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        // what a run reports. Set to something else, as many are 0 in a small test anyway.
+        static readonly string[] SolidifyOutputs = { "NonManifoldTriangles", "NonManifoldRefinements", "WindingEvaluations", "HiddenGapEdges", "HiddenWallEdges",
+            "GapEdgesPerLevel", "UsedCellSize", "RefinedCells", "RefineFactor", "PhaseMilliseconds" };
+        static readonly string[] BooleanOutputs = { "NonManifoldTriangles", "WindingEvaluations", "HiddenGapEdges", "HiddenWallEdges", "HiddenSamples",
+            "GapEdgesPerLevel", "UsedCellSize", "RefinedCells", "RefineFactor", "PhaseMilliseconds" };
+        static readonly string[] ContouringOutputs = { "FinestCells", "LeafCells", "BoundaryCells", "SkippedTriangles", "BoundaryFallbacks", "SplitLeaves", "RemovedTriangles" };
+
+        static void MakeStale(object op, string[] outputs)
+        {
+            foreach (string name in outputs) {
+                FieldInfo f = op.GetType().GetField(name);
+                Assert.NotNull(f);
+                object value = f.GetValue(op);
+                if (value is int) f.SetValue(op, 7);
+                else if (value is double) f.SetValue(op, 7.5);
+                else if (value is List<int>) f.SetValue(op, new List<int> { 7 });
+                else if (value is Dictionary<string, long>) ((Dictionary<string, long>)value)["stale"] = 7;
+                else if (value is List<KeyValuePair<Vector3d, double>>) f.SetValue(op, new List<KeyValuePair<Vector3d, double>> { new KeyValuePair<Vector3d, double>(Vector3d.One, 7) });
+                else Assert.Fail("no stale value for " + name);
+            }
+        }
+
+        // every public field and property, except the inputs that are references and the timings (only which phases ran)
+        static void AssertSameState(object fresh, object reused, params string[] except)
+        {
+            Type type = fresh.GetType();
+            var members = new List<KeyValuePair<string, Func<object, object>>>();
+            foreach (FieldInfo f in type.GetFields(BindingFlags.Public | BindingFlags.Instance))
+                members.Add(new KeyValuePair<string, Func<object, object>>(f.Name, f.GetValue));
+            foreach (PropertyInfo q in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+                if (q.CanRead && q.GetIndexParameters().Length == 0)
+                    members.Add(new KeyValuePair<string, Func<object, object>>(q.Name, o => q.GetValue(o, null)));
+            Assert.NotEmpty(members);
+            foreach (var m in members) {
+                object a = m.Value(fresh), b = m.Value(reused);
+                if (except.Contains(m.Key) || a is Delegate || a is DMesh3 || b is DMesh3 || a is IList<Vector3d>)
+                    continue;
+                if (a is Dictionary<string, long>)
+                    Assert.True(((Dictionary<string, long>)a).Keys.OrderBy(k => k, StringComparer.Ordinal).SequenceEqual(((Dictionary<string, long>)b).Keys.OrderBy(k => k, StringComparer.Ordinal)), m.Key);
+                else if (a is System.Collections.IEnumerable)
+                    Assert.True(((System.Collections.IEnumerable)a).Cast<object>().SequenceEqual(((System.Collections.IEnumerable)b).Cast<object>()), m.Key);
+                else
+                    Assert.True(Equals(a, b), $"{m.Key}: fresh {a}, reused {b}");
+            }
+        }
+
+        [Theory]
+        [MemberData(nameof(SolidifyConfigs))]
+        public void Solidify_AfterAFailure_StateEqualsAFreshFailure(MeshWindingNumberSolidify.Methods method, bool adaptive)
+        {
+            DMesh3 input = Sphere();
+            Func<MeshWindingNumberSolidify> make = () => new MeshWindingNumberSolidify(input) { GridResolution = 32, Method = method, Adaptive = adaptive };
+            foreach (Action<MeshWindingNumberSolidify> fail in new Action<MeshWindingNumberSolidify>[] {
+                x => x.CellSize = double.NaN, x => x.Mesh = new DMesh3(), x => x.CellSize = 1e-30 }) {
+                var sol = make();
+                Assert.True(sol.Compute());
+                MakeStale(sol, SolidifyOutputs);
+                fail(sol);
+                Assert.False(sol.Compute());
+                var fresh = make();
+                fail(fresh);
+                Assert.False(fresh.Compute());
+                Assert.Null(sol.Result);
+                AssertSameState(fresh, sol);
+            }
+        }
+
+        [Fact]
+        public void WindingBoolean_AfterAFailure_StateEqualsAFreshFailure()
+        {
+            Func<MeshWindingNumberBoolean> make = () => new MeshWindingNumberBoolean(SphereAt(0), SphereAt(1), MeshWindingNumberBoolean.Operations.Union) { GridResolution = 32 };
+            foreach (Action<MeshWindingNumberBoolean> fail in new Action<MeshWindingNumberBoolean>[] {
+                x => x.CellSize = double.NaN, x => { x.MeshA = new DMesh3(); x.MeshB = new DMesh3(); }, x => x.CellSize = 1e-30 }) {
+                var op = make();
+                Assert.True(op.Compute());
+                MakeStale(op, BooleanOutputs);
+                fail(op);
+                Assert.False(op.Compute());
+                var fresh = make();
+                fail(fresh);
+                Assert.False(fresh.Compute());
+                Assert.Null(op.Result);
+                AssertSameState(fresh, op);
+            }
+        }
+
+        [Fact]
+        public void WindingBoolean_EmptyInputSuccess_StateEqualsAFreshOne()
+        {
+            // the path that returns early with an empty mesh: nothing of the run before it may stay
+            Func<MeshWindingNumberBoolean> make = () => new MeshWindingNumberBoolean(SphereAt(0), SphereAt(1), MeshWindingNumberBoolean.Operations.Intersection) { GridResolution = 32 };
+            var op = make();
+            Assert.True(op.Compute());
+            MakeStale(op, BooleanOutputs);
+            op.MeshB = new DMesh3();
+            Assert.True(op.Compute());
+            Assert.Equal(0, op.Result.TriangleCount);
+            var fresh = make();
+            fresh.MeshB = new DMesh3();
+            Assert.True(fresh.Compute());
+            AssertSameState(fresh, op);
+        }
+
+        [Fact]
+        public void TerrainDualContouring_AfterAFailure_StateEqualsAFreshFailure()
+        {
+            DMesh3 input = HillTerrain();
+            Func<TerrainDualContouring> make = () => new TerrainDualContouring(input) { GridResolution = 16 };
+            foreach (Action<TerrainDualContouring> fail in new Action<TerrainDualContouring>[] {
+                x => x.CellSize = double.NaN, x => x.Mesh = new DMesh3(), x => x.SamplesPerCell = 0, x => x.CellSize = 1e-6, x => x.CellSize = 100 }) {
+                var tdc = make();
+                Assert.True(tdc.Compute());
+                MakeStale(tdc, ContouringOutputs);
+                fail(tdc);
+                Assert.False(tdc.Compute());
+                var fresh = make();
+                fail(fresh);
+                Assert.False(fresh.Compute());
+                Assert.Null(tdc.Result);
+                AssertSameState(fresh, tdc);
+            }
+        }
+
         // A failure at each point of the run where it can stop (at most about 8 of them, and always the last),
         // each after a success on the same instance. A cancel can come too late to count: then there is a result.
         static void AssertCancelLeavesNoResult(CancelAfter cancel, Func<bool> compute, Func<DMesh3> result)
@@ -658,8 +782,8 @@ namespace geometry3Sharp.Tests
             var fresh = new MeshWindingNumberSolidify(input) { GridResolution = 32, Method = method, Adaptive = adaptive };
             Assert.True(fresh.Compute());
             Assert.Equal("", Invariance.Difference(fresh.Result, sol.Result));
-            Assert.Equal(fresh.UsedCellSize, sol.UsedCellSize);
-            Assert.Equal(fresh.NonManifoldTriangles, sol.NonManifoldTriangles);
+            // (the number of evaluations varies between runs on one input: parallel, with a cache)
+            AssertSameState(fresh, sol, "WindingEvaluations");
         }
 
         [Fact]
@@ -690,6 +814,8 @@ namespace geometry3Sharp.Tests
             var fresh = new MeshWindingNumberBoolean(a, b, MeshWindingNumberBoolean.Operations.Union) { GridResolution = 32 };
             Assert.True(fresh.Compute());
             Assert.Equal("", Invariance.Difference(fresh.Result, op.Result));
+            // (the number of evaluations varies between runs on one input: parallel, with a cache)
+            AssertSameState(fresh, op, "WindingEvaluations");
         }
 
         [Fact]
@@ -733,9 +859,7 @@ namespace geometry3Sharp.Tests
             var fresh = new TerrainDualContouring(input) { GridResolution = 16 };
             Assert.True(fresh.Compute());
             Assert.Equal("", Invariance.Difference(fresh.Result, tdc.Result));
-            Assert.Equal(fresh.FinestCells, tdc.FinestCells);
-            Assert.Equal(fresh.SplitLeaves, tdc.SplitLeaves);
-            Assert.Equal(fresh.RemovedTriangles, tdc.RemovedTriangles);
+            AssertSameState(fresh, tdc);
         }
 
         [Fact]
@@ -1097,6 +1221,130 @@ namespace geometry3Sharp.Tests
             Assert.NotEmpty(guaranteed.Lines);
         }
 
+        // ---- a terrain with a vertex that is not finite: the splits near it would never end ----
+
+        public static IEnumerable<object[]> BadTerrainVertices()
+        {
+            const int middle = 220, corner = 0;     // of the 21 x 21 vertices of HillTerrain
+            foreach (TerrainSafetyLines.Modes mode in new[] { Horizontal, AlongSurface, Guaranteed }) {
+                yield return new object[] { mode, middle, double.NaN };
+                yield return new object[] { mode, corner, double.NaN };
+                yield return new object[] { mode, middle, double.PositiveInfinity };
+                yield return new object[] { mode, corner, double.NegativeInfinity };
+            }
+        }
+
+        [Theory]
+        [MemberData(nameof(BadTerrainVertices))]
+        public void Safety_NonFiniteTerrainVertex_Fails_InEveryFrame(TerrainSafetyLines.Modes mode, int vertex, double bad)
+        {
+            foreach (int axis in new[] { 0, 1, 2 }) {
+                DMesh3 terrain = HillTerrain();
+                Vector3d p = terrain.GetVertex(vertex);
+                p[axis] = bad;
+                terrain.SetVertex(vertex, p);
+                // (untransformed first: the rotation matrix, even the identity, spreads a NaN to all three coordinates)
+                AssertFailedWithNoResult(new TerrainSafetyLines(terrain, new[] { Crest() }, 2) { Mode = mode });
+                foreach (Similarity s in Similarity.All()) {
+                    var sl = new TerrainSafetyLines(Invariance.Transformed(terrain, s), new[] { Crest().Select(s.Apply).ToList() }, s.ApplyLength(2)) { Mode = mode };
+                    AssertFailedWithNoResult(sl);
+                }
+            }
+        }
+
+        [Theory]
+        [InlineData(Horizontal)]
+        [InlineData(AlongSurface)]
+        [InlineData(Guaranteed)]
+        public void Safety_NonFiniteVertexWithoutTriangle_Fails_ThenRecovers(TerrainSafetyLines.Modes mode)
+        {
+            // every live vertex counts; removing it makes the terrain good again
+            DMesh3 terrain = HillTerrain();
+            int v = terrain.AppendVertex(new Vector3d(double.NaN, 0, 0));
+            var sl = new TerrainSafetyLines(terrain, new[] { Crest() }, 2) { Mode = mode };
+            AssertFailedWithNoResult(sl);
+            Assert.Equal(MeshResult.Ok, terrain.RemoveVertex(v));
+            Assert.True(Compute(sl));
+            Assert.NotEmpty(sl.Lines);
+        }
+
+        // ---- the expected size of the refinement does not count sources that lie together twice ----
+
+        // a plate of few triangles, large: nothing but the band near the sources is split
+        static DMesh3 CoarsePlate(double side, int n = 2)
+        {
+            var mesh = Plate(n);
+            MeshTransforms.Scale(mesh, side / n);
+            return mesh;
+        }
+
+        // close together, beside a large plate: one disc, however many they are. Beside it, so that the whole run is short
+        static List<Vector3d> ClusterOfPoints(int n)
+        {
+            var points = new List<Vector3d>(n);
+            var random = new Random(31);
+            for (int i = 0; i < n; ++i)
+                points.Add(new Vector3d(-50 + 0.1 * random.NextDouble(), -50 + 0.1 * random.NextDouble(), 0));
+            return points;
+        }
+
+        // the sources of a road or a line of survey points: rows of a serpentine, 1 m apart along it
+        static List<Vector3d> Serpentine(int n, double distance)
+        {
+            var points = new List<Vector3d>(n);
+            double width = 5000;
+            for (int i = 0; i < n; ++i) {
+                int row = (int)(i / width);
+                double u = i - row * width;
+                points.Add(new Vector3d(5000 + ((row % 2 == 0) ? u : width - u), 5000 + row * 3 * distance, 0));
+            }
+            return points;
+        }
+
+        [Fact]
+        public void Safety_ExpectedTriangles_DoNotCountWhatLiesTogether()
+        {
+            // the example of the review of #239: D = 100, default tolerance, a terrain of 20 km, 13000 sources. The
+            // whole run takes a minute and 2.2 million triangles: only the estimate here
+            const double D = 100;
+            double edge = Math.Sqrt(8 * D * 0.01);
+            DMesh3 terrain = CoarsePlate(20100);
+            List<Vector3d> points = Serpentine(13000, D);
+            var asPoints = new TerrainSafetyLines(terrain, new int[0], D);
+            asPoints.SourcePoints.AddRange(points);
+            var asPolyline = new TerrainSafetyLines(terrain, new[] { points }, D);
+            var shortLines = new List<List<Vector3d>>();
+            for (int i = 0; i + 1 < points.Count; ++i)
+                shortLines.Add(new List<Vector3d> { points[i], points[i + 1] });
+            var asShortLines = new TerrainSafetyLines(terrain, shortLines, D);
+            double byPoints = asPoints.expected_refined_triangles(D, edge), byPolyline = asPolyline.expected_refined_triangles(D, edge),
+                byShortLines = asShortLines.expected_refined_triangles(D, edge);
+            foreach (double expected in new[] { byPoints, byPolyline, byShortLines }) {
+                Assert.True(expected <= TerrainSafetyLines.MaxRefinedTriangles, expected.ToString());
+                // the order of the 2.2 million triangles of the whole run
+                Assert.InRange(expected, 2e5, 2e7);
+            }
+            // the same polyline in pieces: the same strip, the same discs
+            Assert.Equal(byPolyline, byShortLines, 6);
+            // and it still counts: sources that do not lie together have a disc each
+            var apart = new TerrainSafetyLines(terrain, new int[0], D);
+            for (int i = 0; i < 40; ++i)
+                apart.SourcePoints.Add(new Vector3d(1000 + 400 * i, 1000 + 400 * i, 0));
+            var one = new TerrainSafetyLines(terrain, new int[0], D);
+            one.SourcePoints.Add(new Vector3d(1000.5, 1000.5, 0));
+            Assert.Equal(40 * one.expected_refined_triangles(D, edge), apart.expected_refined_triangles(D, edge), 3);
+            // the strip along a segment, with the discs of its two ends
+            var segment = new TerrainSafetyLines(terrain, new[] { new List<Vector3d> { new Vector3d(1000.5, 1000.5, 0), new Vector3d(2000.5, 1000.5, 0) } }, D);
+            double r = D / edge;
+            Assert.Equal(2 * (2 * r * (1000 / edge) + Math.PI * r * r * 2), segment.expected_refined_triangles(D, edge), 6);
+            // also the single point of a polyline
+            var onePointLine = new TerrainSafetyLines(terrain, new[] { new List<Vector3d> { new Vector3d(1000.5, 1000.5, 0) } }, D);
+            Assert.Equal(one.expected_refined_triangles(D, edge), onePointLine.expected_refined_triangles(D, edge), 6);
+            // and the terrain limits it
+            var small = new TerrainSafetyLines(CoarsePlate(10), new[] { points }, D);
+            Assert.Equal(2 * 100 / (edge * edge), small.expected_refined_triangles(D, edge), 6);
+        }
+
         [Fact]
         public void Safety_ValuesOfSensibleUse_AreNotRefused()
         {
@@ -1114,6 +1362,17 @@ namespace geometry3Sharp.Tests
             surface.EdgeLength = 0.2;
             Assert.True(Compute(surface));
             Assert.NotEmpty(surface.Lines);
+
+            // many points, many short polylines, a large terrain: at most one disc each would be 1.6e8 triangles
+            List<Vector3d> cluster = ClusterOfPoints(20000);
+            var manyPoints = new TerrainSafetyLines(CoarsePlate(400), new int[0], 1) { Tolerance = 1e-4 };
+            manyPoints.SourcePoints.AddRange(cluster);
+            Assert.True(Compute(manyPoints));
+            var lines = new List<List<Vector3d>>();
+            for (int i = 0; i + 1 < cluster.Count; ++i)
+                lines.Add(new List<Vector3d> { cluster[i], cluster[i + 1] });
+            var manyLines = new TerrainSafetyLines(CoarsePlate(400), lines, 1) { Tolerance = 1e-4 };
+            Assert.True(Compute(manyLines));
         }
 
         [Fact]

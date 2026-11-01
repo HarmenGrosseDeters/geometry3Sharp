@@ -103,6 +103,16 @@ namespace gs
         public bool Compute()
         {
             Result = null;      // set only on success, below
+            UsedCellSize = 0;
+            NonManifoldTriangles = 0;
+            WindingEvaluations = 0;
+            HiddenGapEdges = 0;
+            HiddenWallEdges = 0;
+            HiddenSamples = new List<KeyValuePair<Vector3d, double>>();
+            GapEdgesPerLevel = new List<int>();
+            RefinedCells = 0;
+            RefineFactor = 1;
+            PhaseMilliseconds.Clear();
             // (checked here: a NaN would pass as "automatic" below, +infinity as a valid size)
             if (MathUtil.IsFinite(CellSize) == false)
                 return false;
@@ -114,7 +124,6 @@ namespace gs
             if (!(cellSize > 0) || WindingNumberOctree.RequiredDepth(bounds, cellSize) > WindingNumberOctree.MaxSupportedDepth)
                 return false;
 
-            PhaseMilliseconds.Clear();
             timer.Restart();
             // an empty input has winding number 0 everywhere: A u 0 = A - 0 = A, 0 u B = B, the rest is empty
             DMesh3[] inputs = new DMesh3[] { MeshA, MeshB };

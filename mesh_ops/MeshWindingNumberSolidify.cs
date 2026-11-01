@@ -157,7 +157,16 @@ namespace gs
         {
             StoppedOnSelfIntersections = false;
             Result = null;      // set only on success, below
-            UsedCellSize = 0; NonManifoldTriangles = 0;
+            UsedCellSize = 0;
+            NonManifoldTriangles = 0;
+            NonManifoldRefinements = 0;
+            WindingEvaluations = 0;
+            HiddenGapEdges = 0;
+            HiddenWallEdges = 0;
+            GapEdgesPerLevel = new List<int>();
+            RefinedCells = 0;
+            RefineFactor = 1;
+            PhaseMilliseconds.Clear();
             // (checked here: a NaN would pass as "automatic" below, +infinity as a valid size)
             if (MathUtil.IsFinite(CellSize) == false)
                 return false;
@@ -175,11 +184,9 @@ namespace gs
                     return false;
             }
 
-            PhaseMilliseconds.Clear();
             phase_timer.Restart();
             bool knownFree = false;
             DMesh3 contour;
-            HiddenGapEdges = HiddenWallEdges = 0;
             if (Adaptive && Method == Methods.DualContouring) {
                 WindingContouring wc = new WindingContouring(new DMesh3[] { Mesh }, null, FastWindingBeta) {
                     Iso = WindingIso, MaxEdgeHits = MaxEdgeHits, CancelF = CancelF, LocalRefinement = LocalRefinement
