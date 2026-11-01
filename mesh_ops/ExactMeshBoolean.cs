@@ -196,6 +196,10 @@ namespace g3
         internal long CandidateBatchSize = 1 << 24;
         // for tests: no floating-point filters in the arrangement
         internal bool DisableFilters = false;
+        // for tests: all exact points of the arrangement as BigInteger (ExactMeshArrangement.FixedWidthPoints)
+        internal bool FixedWidthPoints = true;
+        // for tests: the arrangement of the last Compute
+        internal ExactMeshArrangement Arrangement { get { return arr; } }
         /// <summary> time per phase, for diagnostics </summary>
         public Dictionary<string, long> PhaseMilliseconds = new Dictionary<string, long>();
         /// <summary> sizes of the intermediate results, for diagnostics </summary>
@@ -326,7 +330,8 @@ namespace g3
                 return fail(BooleanStatus.OpenInput, "input meshes must be closed (every edge used equally often in both directions)");
 
             inputClock.Lap("input");
-            arr = new ExactMeshArrangement(inputs) { SelfIntersections = true, DisableFilters = DisableFilters, CandidateBatchSize = CandidateBatchSize };
+            arr = new ExactMeshArrangement(inputs) { SelfIntersections = true, DisableFilters = DisableFilters, CandidateBatchSize = CandidateBatchSize,
+                FixedWidthPoints = FixedWidthPoints };
             arr.Compute();
             IntersectingPairs = arr.IntersectingPairs - arr.SelfIntersectingPairs;
             SelfIntersectingPairs = arr.SelfIntersectingPairs;

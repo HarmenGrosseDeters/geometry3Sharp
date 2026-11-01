@@ -117,14 +117,17 @@ not arithmetic on small values. The bounds of section 5 are redone for it.
 A new internal struct (working name `FixedPoint3`, file `math/FixedPoint3.cs`):
 
 ```csharp
-internal struct FixedPoint3      // no reference fields: arrays of it are not traced by the GC
+internal unsafe struct FixedPoint3   // no reference fields: arrays of it are not traced by the GC
 {
-    // X, Y, Z, W as 256-bit two's complement, four 64-bit limbs each, little-endian
-    public ulong X0, X1, X2, X3, Y0, Y1, Y2, Y3, Z0, Z1, Z2, Z3, W0, W1, W2, W3;
-    public Vector3d D;            // the coordinates as doubles iff Flags has IsDouble (as ExactBox.D)
-    public byte Flags;            // IsDouble, WIsOne
+    public fixed ulong L[16];        // magnitudes of X, Y, Z, W, four 64-bit limbs each, little-endian; unused limbs 0
+    public fixed byte M[4];          // per component: used limbs (0..4) in bits 0-2, 0x80 if negative
+    public byte Flags;               // IsDouble
+    public Vector3d D;               // the coordinates as doubles iff IsDouble (as ExactBox.D)
 }
 ```
+
+(As built: sign and magnitude instead of the two's complement of the first draft. The used lengths come for free,
+the kernels work on trimmed magnitudes, and negation cannot overflow.)
 
 - **Admission rule.** A canonical `ExactPoint3` is stored in fixed width iff every component `v` satisfies
   `|v| ≤ 2^255 − 1` (so `−2^255` is excluded and negation never overflows). Otherwise the point keeps today's
@@ -180,10 +183,14 @@ When all points of a call are fixed (the common case), the exact stage runs on l
 the call materializes all of them and runs today's `BigInteger` code (identical sign, so identical results). The
 `IsDouble` path (adaptive double predicates) stays first, as today.
 
-- **Kernels:** small hand-written two's complement routines on `stackalloc`ed `ulong*` buffers (unsafe is already
-  enabled): add / sub / multiply (schoolbook, with lengths trimmed to the used limbs at run time) and sign. Buffers
-  are sized by the static bounds of section 5; every operation also checks at run time that its result fits its
-  buffer and throws otherwise (as #221's `IntegerRuntime`), so a wrong bound fails loudly, never silently.
+- **Kernels (as built, `FixedArith`):** sign-magnitude numbers (`FixedInt`: pointer, used limbs, sign) with
+  schoolbook multiplication and add / subtract / compare of trimmed magnitudes. Every result takes the limbs its
+  operands' lengths allow (a product `la + lb`, a sum `max(la, lb) + 1`), from a scratch area on the caller's stack
+  (`FixedArena`), so **no operation can overflow by construction**, independent of the value bounds; the area is
+  sized by the worst case of those lengths (`Orient` 144, `InCircle` 1080, `ComparePoints` 128 limbs, comment in
+  `FixedArith`) and `Take` throws if it were exceeded. The bounds of section 5 are then the proof that the values
+  are what the lengths say, not a precondition of the arithmetic. `[SkipLocalsInit]` on .NET (the scratch is not
+  zeroed; the multiplication clears its result).
 - `Orient`: `Det3` of `(x_i, x_j, W)`, expanded along the first row as `ExactPoint3.Det3` does. The order does not
   matter for the bounds: all nine entries, `W` included, are below 2^255.
 - `InCircle`: the rows `(A s, B s, A² + B²)` of today's code (`A = x w_d − x_d w`, `s = w w_d`; the `W = 1` shortcut
@@ -230,9 +237,9 @@ Notes for the review:
 - `AlphaInt[0] = 1.0 · 2^53 = 2^53` exactly, so `α_k ≤ 2^53`, not `< 2^53`; `|α·p| ≤ 3 · 2^53 · (2^255 − 1) < 2^310`.
 - The `W = 1` shortcut of `incircle_row` is decided per row, so one determinant can mix shortcut and general rows.
   A shortcut row is the general row with `s = 1`, so the general bounds cover the mix.
-- The largest buffer is 48 limbs (384 bytes). One `InCircle` call holds several at once (nine 16-limb row
-  entries, products, a minor, a term, the accumulator): about 300-350 limbs, 2.5-3 KB of `stackalloc` per call,
-  allocated once per call and never inside a loop. Grid-sized inputs use far fewer limbs: the run-time
+- The largest value is 48 limbs (384 bytes). One `InCircle` call holds all its intermediates at once in its
+  scratch area: 1080 limbs (8.6 KB) for the length-derived worst case of the code, more than the 300-350 limbs
+  the value bounds need, since the code sizes by lengths (above); allocated once per call, never inside a loop. Grid-sized inputs use far fewer limbs: the run-time
   trimming makes the cost follow the actual sizes. For `InCircle` with `|x| < 2^109`, `W < 2^54` the bound is
   `< 3 · 2^874 < 2^876` (14 limbs); the measured maximum of its inputs' determinant on grid 10 was 833 bits.
 - History: the first version of this table was for 2 limbs per component (`Orient` 7, `InCircle` 24,
@@ -293,9 +300,11 @@ builds of all targets run; pushes in larger stages.
 - **Portable paths** (`BigMul` replacement, byte-array conversions) against the .NET operations.
 - **Whole booleans with fixed width forced off** (an internal switch, tests only): bit-identical results to the
   default on the exact boolean meshes and on n-ary grids.
-- **Invariance** over `Similarity.All()`: the 2^k scales move coordinates across the 2^255 admission limit, so
-  some scales run on fixed points and others on the fallback; the results must stay identical bit for bit. A case
-  is chosen (or added) that actually crosses the limit.
+- **Invariance** over `Similarity.All()`: the existing invariance tests stay green. (Correction of the first
+  draft: the 2^k scales do *not* move coordinates across the admission limit; the grid integers are the same at
+  every 2^k scale, since only `ScaleExp` changes. Mixing is tested directly instead:
+  `MixedRepresentations_SameWithoutFixedWidth` builds inputs whose constructed points exceed 2^255 next to fixed
+  ones, and asserts that both representations occur.)
 - **Concurrency:** many threads computing the exact points of the same ids at once; every reader sees a complete
   value (repeated runs). The existing determinism tests (serial equals parallel, repeated runs) stay green.
 - **Mutation:** the carries, sign extension, trimming, the fit checks, the admission boundary and the publication
