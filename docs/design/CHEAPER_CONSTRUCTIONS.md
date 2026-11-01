@@ -511,6 +511,30 @@ Its findings, all fixed in this version:
 - scratch-only differences between the spec and a literal transcription of the code (`W = 1` products, recomputed
   differences in `edge_plane`) and the public `EdgePlanePoint` / `PlanesPoint` (stay on `BigInteger`), section 4.3.
 
+## 10a. Diagnosis: slow `exact.resolve` on Thingi10K 67709 and 42327 (MeshRepair-400)
+
+Asked by the coordinator; not part of this PR's code. Raw output:
+[perf/resolve_diagnosis_2026-11-01.jsonl](../../benchmarks/BooleanComparison/perf/resolve_diagnosis_2026-11-01.jsonl).
+Build of d6143f7 with `-p:G3PredicateStats=true`; `profile --repeat 1 --ops union --safe-rounding <case>`, 4 cores
+(with a Stryker run in parallel, so the times are rough). A case is `A.off` (the mesh as `pair` writes it from the
+STL) and an empty `B.off`, which is `ExactMeshBoolean.Resolve(mesh, true)`. MeshRepairBenchmark's `exact_resolve_ms`
+covers two resolves (the mesh and its rotated, shifted copy, as `export` writes it), so both are measured.
+
+| input | time | largest phases | counts |
+|---|---|---|---|
+| 67709 | 3.7 s | classification 44 %, triangulation 19 %, rounding 8 % | 24k pairs, 97k pieces |
+| 67709 rotated | 21.6 s | **rounding 86 %** (110M orient3d, 18 % exact stages) | 11k pairs, 59k pieces |
+| 42327 | 46 s | **classification 87 %** (495M `arr.orient`) | 81k pairs, 776k pieces |
+| 42327 rotated | 51 s | **rounding 72 %** (172M orient3d, 28 % exact), triangulation 17 % | 31k pairs, 192k pieces |
+
+- On the inputs as given, 42327's classification is quadratic in `ExactMeshBoolean.coplanar_stack`: for every output
+  piece the centroid is constructed and tested (`inside_coplanar`, 4 `Orient`) against every triangle of the source's
+  `Coplanar` list, pieces × |Coplanar| (about 124M tests, about 160 per piece; heavy coplanar overlap). The owner
+  approved the fix as the next PR: membership per region of a source triangle's pieces (a flood fill over the piece
+  adjacency that crosses only the coplanar triangles' edges, which are constraints), bit-identical.
+- On the rotated copies the cost is SafeRounding (stage R's area): to the ROADMAP shared-hotspots table, with kernel B's
+  admission rate on such inputs.
+
 ## 11. Later queue
 
 - **GC trace on `cherchi` (4 cores, GC 23 % of the wall time) after the constructions:** `dotnet-trace collect
