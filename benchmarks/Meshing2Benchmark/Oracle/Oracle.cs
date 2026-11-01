@@ -204,6 +204,10 @@ namespace Meshing2Acceptance
                             r.Add(Violation.SnapTooFar, "input " + i + " is at " + v[m] + ", not at the centre of its pixel (D14)");
                     }
                     r.ConstructedVertices = v.Length - input.Count;
+                    // the owner's decision of 2026-11-01: with an explicit tolerance every output vertex is on the grid, refinement's included
+                    if (snapped)
+                        for (int i = input.Count; i < v.Length; ++i)
+                            if (!AtPixelCentre(v[i], v[i], pixel)) r.Add(Violation.OffGrid, "vertex " + i + " " + v[i] + " is not on the grid of the tolerance");
                     var isAlias = new bool[input.Count];
                     for (int i = 0; i < input.Count; ++i) isAlias[i] = map[i] != i;
                     aliases = isAlias.Count(x => x);
@@ -241,23 +245,233 @@ namespace Meshing2Acceptance
                 return Q.Abs(w.Qx - cx) <= slack && Q.Abs(w.Qy - cy) <= slack;
             }
 
-            /// <summary> D14: p is the centre of a pixel of the given width (a grid point k * width), up to the rounding of the centre to doubles </summary>
-            static bool OnGrid(Pt p, Q pixel) => AtPixelCentre(p, p, pixel);
+            /// <summary>
+            /// Refinement on the grid (owner decision 2026-11-01, MESHING2D_SNAP.md section 3g): with an explicit tolerance no vertex can be
+            /// placed closer than the grid allows, so a triangle whose shortest edge is at most two pixels is exempt from the angle and size
+            /// bounds (the measured floor of section 3g).
+            /// </summary>
+            bool BelowGridFloor(int[] t)
+            {
+                if (!(input.SnapTolerance > 0)) return false;
+                Q floor = Q.FromDouble(input.SnapTolerance) * 2, floor2 = floor * floor;
+                for (int k = 0; k < 3; ++k) if (Exact.Len2(v[t[k]], v[t[(k + 1) % 3]]) <= floor2) return true;
+                return false;
+            }
 
             /// <summary>
-            /// D14 with the clean-room answer 6 (MESHING2D_SNAP_QA.md): with an explicit tolerance a contour below the tolerance collapses
-            /// into one vertex, and a hole marker in that vertex's pixel (tol/2 per axis) is dropped instead of removing the cell around the
-            /// collapsed contour (the fork lost the whole domain that way). A contour means at least three input points merged into it; a
-            /// single near-duplicate merged into a corner exempts nothing.
+            /// Refinement on the grid: the point that would improve t is the centre of its circumcentre's pixel; it cannot be placed if a
+            /// vertex is there already or a constraint crosses that pixel (a vertex within half a pixel of a constraint breaks D14). The
+            /// circumcentre is computed exactly.
+            /// </summary>
+            bool GridBlocked(int[] t)
+            {
+                if (!(input.SnapTolerance > 0)) return false;
+                Pt a = v[t[0]], b = v[t[1]], c = v[t[2]];
+                Q bx = b.Qx - a.Qx, by = b.Qy - a.Qy, cx = c.Qx - a.Qx, cy = c.Qy - a.Qy, d = (bx * cy - by * cx) * 2;
+                if (d.Sign == 0) return false;
+                Q b2 = bx * bx + by * by, c2 = cx * cx + cy * cy;
+                var centre = new Pt(a.Qx + (cy * b2 - by * c2) / d, a.Qy + (bx * c2 - cx * b2) / d);
+                Q pixel = Q.FromDouble(input.SnapTolerance), half = pixel / 2;
+                Q Index(Q x) { Q q = x / pixel + new Q(1, 2); var f = BigInteger.Divide(q.N, q.D); if (q.N.Sign < 0 && f * q.D != q.N) f -= 1; return new Q(f, 1); }
+                Q kx = Index(centre.Qx), ky = Index(centre.Qy);
+                for (int i = 0; i < v.Length; ++i) if (Index(v[i].Qx) == kx && Index(v[i].Qy) == ky && AtPixelCentre(v[i], v[i], pixel)) return true;
+                Q x0 = kx * pixel - half, x1 = kx * pixel + half, y0 = ky * pixel - half, y1 = ky * pixel + half;
+                foreach (var s in o.Subsegments) {
+                    Pt p = v[s.A], q = v[s.B];
+                    if (Q.Max(p.Qx, q.Qx) <= x0 || Q.Min(p.Qx, q.Qx) >= x1 || Q.Max(p.Qy, q.Qy) <= y0 || Q.Min(p.Qy, q.Qy) >= y1) continue;
+                    int pos = 0, neg = 0;
+                    foreach (var corner in new[] { new Pt(x0, y0), new Pt(x1, y0), new Pt(x1, y1), new Pt(x0, y1) }) {
+                        int or = Exact.Orient(p, q, corner);
+                        if (or > 0) ++pos; else if (or < 0) ++neg;
+                    }
+                    if (pos > 0 && neg > 0) return true;
+                }
+                return false;
+            }
+
+            Dictionary<long, bool> unsplittableMemo;
+
+            /// <summary> an edge of t is a subsegment that has no split point on the grid (refinement on the grid, MESHING2D_SNAP.md 3g) </summary>
+            bool GridUnsplittableEdge(int[] t)
+            {
+                if (!(input.SnapTolerance > 0) || e.Milestone != Milestone.M3) return false;
+                for (int k = 0; k < 3; ++k) {
+                    int a = t[k], b = t[(k + 1) % 3];
+                    long key = a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a;
+                    if (!constraintEdges.Contains(key)) continue;
+                    unsplittableMemo = unsplittableMemo ?? new Dictionary<long, bool>();
+                    if (!unsplittableMemo.TryGetValue(key, out bool u)) unsplittableMemo[key] = u = GridUnsplittable(a, b);
+                    if (u) return true;
+                }
+                return false;
+            }
+
+            /// <summary>
+            /// Refinement on the grid: t's rounded circumcentre lies behind a subsegment that cannot be split on the grid (the segment from
+            /// t's centroid to the centre of the circumcentre's pixel crosses it). Ruppert's rule splits the subsegment instead of inserting
+            /// across it; when no split point exists, t stays (found by the grid fuzz test: a circumcentre outside the domain).
+            /// </summary>
+            bool CircumcentreBehindGridUnsplittable(int[] t)
+            {
+                if (!(input.SnapTolerance > 0) || e.Milestone != Milestone.M3 || o.Subsegments == null) return false;
+                Pt a = v[t[0]], b = v[t[1]], c = v[t[2]];
+                Q bx = b.Qx - a.Qx, by = b.Qy - a.Qy, cx = c.Qx - a.Qx, cy = c.Qy - a.Qy, d = (bx * cy - by * cx) * 2;
+                if (d.Sign == 0) return false;
+                Q b2 = bx * bx + by * by, c2 = cx * cx + cy * cy;
+                Q pixel = Q.FromDouble(input.SnapTolerance);
+                Q Centre(Q x) { Q q = x / pixel + new Q(1, 2); var f = BigInteger.Divide(q.N, q.D); if (q.N.Sign < 0 && f * q.D != q.N) f -= 1; return new Q(f, 1) * pixel; }
+                var p = new Pt(Centre(a.Qx + (cy * b2 - by * c2) / d), Centre(a.Qy + (bx * c2 - cx * b2) / d));
+                return Behind(t, p, -1);
+            }
+
+            /// <summary> the segment from t's centroid to p crosses a subsegment (not one ending at vertex skip) that cannot be split on the grid </summary>
+            bool Behind(int[] t, Pt p, int skip)
+            {
+                Pt a = v[t[0]], b = v[t[1]], c = v[t[2]];
+                var g = new Pt((a.Qx + b.Qx + c.Qx) / 3, (a.Qy + b.Qy + c.Qy) / 3);
+                foreach (var s in o.Subsegments) {
+                    if (s.A == skip || s.B == skip) continue;
+                    Pt sa = v[s.A], sb = v[s.B];
+                    int o1 = Exact.Orient(sa, sb, g), o2 = Exact.Orient(sa, sb, p);
+                    if (o1 * o2 >= 0 || Exact.Orient(g, p, sa) * Exact.Orient(g, p, sb) > 0) continue;
+                    long key = s.A < s.B ? ((long)s.A << 32) | (uint)s.B : ((long)s.B << 32) | (uint)s.A;
+                    unsplittableMemo = unsplittableMemo ?? new Dictionary<long, bool>();
+                    if (!unsplittableMemo.TryGetValue(key, out bool u)) unsplittableMemo[key] = u = GridUnsplittable(s.A, s.B);
+                    if (u) return true;
+                }
+                return false;
+            }
+
+            /// <summary>
+            /// Vertex id is hidden from t by a subsegment that cannot be split on the grid: the segment from t's centroid to id crosses it.
+            /// Conforming Delaunay cannot be reached across such a piece, and constrained Delaunay is what remains; the local test still
+            /// demands it of every unconstrained edge (found by the grid fuzz test: a vertex behind an unsplittable piece next to t).
+            /// </summary>
+            bool HiddenByGridUnsplittable(int[] t, int id)
+                => input.SnapTolerance > 0 && e.Milestone == Milestone.M3 && o.Subsegments != null && Behind(t, v[id], id);
+
+            /// <summary>
+            /// Refinement on the grid (MESHING2D_SNAP.md section 3g), recomputed from the specification: subsegment a-b can be split on the
+            /// grid if some pixel centre q, other than its ends, lies in the envelope of every input constraint the subsegment belongs to
+            /// (the constraint crosses q's open pixel or passes through q), projects strictly between a and b, no other constraint crosses
+            /// q's pixel (one ending at q may), and the new edges a-q and q-b cross no vertex's open pixel and no other constraint. If none
+            /// can, conforming Delaunay is not demanded at it.
+            /// </summary>
+            bool GridUnsplittable(int ia, int ib)
+            {
+                Q pixel = Q.FromDouble(input.SnapTolerance), half = pixel / 2;
+                Pt pa = v[ia], pb = v[ib];
+                // its input constraints: those whose envelope holds both ends
+                var own = sources.Where(s => InEnvelopeOf(s.a, s.b, pa, half) && InEnvelopeOf(s.a, s.b, pb, half)).ToList();
+                if (own.Count == 0) return false;
+                Q Index(Q x) { Q q = x / pixel + new Q(1, 2); var f = BigInteger.Divide(q.N, q.D); if (q.N.Sign < 0 && f * q.D != q.N) f -= 1; return new Q(f, 1); }
+                Q kx0 = Index(Q.Min(pa.Qx, pb.Qx)) - 1, kx1 = Index(Q.Max(pa.Qx, pb.Qx)) + 1, ky0 = Index(Q.Min(pa.Qy, pb.Qy)) - 1, ky1 = Index(Q.Max(pa.Qy, pb.Qy)) + 1;
+                if ((kx1 - kx0) * (ky1 - ky0) > new Q(1 << 16, 1)) return false;   // (too long to enumerate: judged as splittable)
+                var subs = (o.Subsegments ?? new List<SubsegmentOutput>()).Where(g => !((g.A == ia && g.B == ib) || (g.A == ib && g.B == ia))).ToList();
+                // A decimal pixel width is not exact in doubles: a vertex's doubles are k w rounded, so vertices are taken at the centre of
+                // their pixel and matched by it, and a pixel corner that an edge touches on the exact lattice may be crossed or missed by a
+                // hair in the mesher's doubles: such ties are decided generously, with blocking pixels a hair larger and the own envelope a
+                // hair smaller (found by the grid fuzz test, w = 0.3 and 1/3)
+                Q hair = half * new Q(BigInteger.One, BigInteger.One << 40), wide = half + hair, narrow = half - hair;
+                Q Snap(Q x) => Index(x) * pixel;
+                bool Same(Pt a, Pt b) => Index(a.Qx) == Index(b.Qx) && Index(a.Qy) == Index(b.Qy);
+                bool CrossesOpen(Pt a, Pt b, Pt c, Q h)
+                {
+                    Q x0 = c.Qx - h, x1 = c.Qx + h, y0 = c.Qy - h, y1 = c.Qy + h;
+                    if (Q.Max(a.Qx, b.Qx) <= x0 || Q.Min(a.Qx, b.Qx) >= x1 || Q.Max(a.Qy, b.Qy) <= y0 || Q.Min(a.Qy, b.Qy) >= y1) return false;
+                    int pos = 0, neg = 0;
+                    foreach (var corner in new[] { new Pt(x0, y0), new Pt(x1, y0), new Pt(x1, y1), new Pt(x0, y1) }) {
+                        int or = Exact.Orient(a, b, corner);
+                        if (or > 0) ++pos; else if (or < 0) ++neg;
+                    }
+                    return pos > 0 && neg > 0;
+                }
+                bool OnSegment(Pt a, Pt b, Pt c) => Exact.Orient(a, b, c) == 0 && c.Qx >= Q.Min(a.Qx, b.Qx) && c.Qx <= Q.Max(a.Qx, b.Qx) && c.Qy >= Q.Min(a.Qy, b.Qy) && c.Qy <= Q.Max(a.Qy, b.Qy);
+                var s0 = own[0];
+                Q dx = s0.b.Qx - s0.a.Qx, dy = s0.b.Qy - s0.a.Qy;
+                Q Along(Pt p) => (p.Qx - s0.a.Qx) * dx + (p.Qy - s0.a.Qy) * dy;
+                Q ta = Along(pa), tb = Along(pb), lo = Q.Min(ta, tb), hi = Q.Max(ta, tb);
+                for (Q kx = kx0; kx <= kx1; kx = kx + 1)
+                    for (Q ky = ky0; ky <= ky1; ky = ky + 1) {
+                        var q = new Pt(kx * pixel, ky * pixel);
+                        if (Same(q, pa) || Same(q, pb)) continue;
+                        Q tq = Along(q);
+                        if (!(tq > lo && tq < hi)) continue;
+                        if (!own.All(s => CrossesOpen(s.a, s.b, q, narrow) || OnSegment(s.a, s.b, q))) continue;
+                        bool ok = true;
+                        foreach (var g in subs) {
+                            Pt c = v[g.A], d = v[g.B];
+                            if (!Same(c, q) && !Same(d, q) && CrossesOpen(c, d, q, wide)) { ok = false; break; }
+                            if (Exact.ProperCross(pa, q, c, d) || Exact.ProperCross(q, pb, c, d)) { ok = false; break; }
+                        }
+                        if (!ok) continue;
+                        for (int i = 0; i < v.Length && ok; ++i) {
+                            if (Same(v[i], pa) || Same(v[i], pb) || Same(v[i], q)) continue;
+                            var pv = new Pt(Snap(v[i].Qx), Snap(v[i].Qy));
+                            if (CrossesOpen(pa, q, pv, wide) || CrossesOpen(q, pb, pv, wide)) ok = false;
+                        }
+                        if (ok) return false;
+                    }
+                return true;
+            }
+
+            static bool InEnvelopeOf(Pt a, Pt b, Pt p, Q h)
+            {
+                Q x0 = p.Qx - h, x1 = p.Qx + h, y0 = p.Qy - h, y1 = p.Qy + h;
+                if (Q.Max(a.Qx, b.Qx) < x0 || Q.Min(a.Qx, b.Qx) > x1 || Q.Max(a.Qy, b.Qy) < y0 || Q.Min(a.Qy, b.Qy) > y1) return false;
+                int pos = 0, neg = 0;
+                foreach (var corner in new[] { new Pt(x0, y0), new Pt(x1, y0), new Pt(x1, y1), new Pt(x0, y1) }) {
+                    int or = Exact.Orient(a, b, corner);
+                    if (or > 0) ++pos; else if (or < 0) ++neg;
+                }
+                return pos < 4 && neg < 4;
+            }
+
+            /// <summary> D14: some input constraint meets the closed square of half-width h around p (p lies in its envelope) </summary>
+            bool InEnvelope(Pt p, Q h)
+            {
+                Q x0 = p.Qx - h, x1 = p.Qx + h, y0 = p.Qy - h, y1 = p.Qy + h;
+                foreach (var s in sources) {
+                    if (Q.Max(s.a.Qx, s.b.Qx) < x0 || Q.Min(s.a.Qx, s.b.Qx) > x1 || Q.Max(s.a.Qy, s.b.Qy) < y0 || Q.Min(s.a.Qy, s.b.Qy) > y1) continue;
+                    int pos = 0, neg = 0;
+                    foreach (var corner in new[] { new Pt(x0, y0), new Pt(x1, y0), new Pt(x1, y1), new Pt(x0, y1) }) {
+                        int or = Exact.Orient(s.a, s.b, corner);
+                        if (or > 0) ++pos; else if (or < 0) ++neg;
+                    }
+                    if (pos < 4 && neg < 4) return true;
+                }
+                return false;
+            }
+
+            /// <summary>
+            /// D14 with the clean-room answer 6 (MESHING2D_SNAP_QA.md): snapping moves constraints by up to half a pixel, so a hole marker
+            /// within one pixel (per axis) of constraint geometry that moved is dropped: its side of that geometry is not reliable, and a
+            /// marker inside a contour that collapsed would remove the cell around it (the fork lost the whole domain that way). Moved: a
+            /// subsegment that lies on no input constraint, or the vertex an input point of a constraint moved to. Next to geometry that did
+            /// not move the marker is obeyed.
             /// </summary>
             bool InCollapsedPixel(Pt seed)
             {
                 if (!(input.SnapTolerance > 0) || !o.IdentityRules) return false;
-                Q half = Q.FromDouble(input.SnapTolerance) / 2;
-                var merged = new Dictionary<int, int>();
-                for (int i = 0; i < input.Count; ++i) if (map[i] != i) { merged.TryGetValue(map[i], out int n); merged[map[i]] = n + 1; }
-                foreach (var pair in merged)
-                    if (pair.Value >= 2 && Q.Abs(v[pair.Key].Qx - seed.Qx) <= half && Q.Abs(v[pair.Key].Qy - seed.Qy) <= half) return true;
+                Q r = Q.FromDouble(input.SnapTolerance), x0 = seed.Qx - r, x1 = seed.Qx + r, y0 = seed.Qy - r, y1 = seed.Qy + r;
+                bool InSquare(Pt p) => p.Qx >= x0 && p.Qx <= x1 && p.Qy >= y0 && p.Qy <= y1;
+                bool OnSource(Pt p, (Pt a, Pt b, int marker, int sourceId, bool locked) s) => Exact.Orient(s.a, s.b, p) == 0
+                    && p.Qx >= Q.Min(s.a.Qx, s.b.Qx) && p.Qx <= Q.Max(s.a.Qx, s.b.Qx) && p.Qy >= Q.Min(s.a.Qy, s.b.Qy) && p.Qy <= Q.Max(s.a.Qy, s.b.Qy);
+                var constraintPoints = new HashSet<int>();
+                foreach (var g in input.Segments) { constraintPoints.Add(g.A); constraintPoints.Add(g.B); }
+                foreach (var g in input.Rings) foreach (int i in g.Vertices) constraintPoints.Add(i);
+                foreach (int i in constraintPoints) if (!v[map[i]].Equals(inPts[i]) && InSquare(v[map[i]])) return true;
+                foreach (var g in o.Subsegments) {
+                    Pt a = v[g.A], b = v[g.B];
+                    if (sources.Any(s => OnSource(a, s) && OnSource(b, s))) continue;
+                    if (Q.Max(a.Qx, b.Qx) < x0 || Q.Min(a.Qx, b.Qx) > x1 || Q.Max(a.Qy, b.Qy) < y0 || Q.Min(a.Qy, b.Qy) > y1) continue;
+                    int pos = 0, neg = 0;
+                    foreach (var c in new[] { new Pt(x0, y0), new Pt(x1, y0), new Pt(x1, y1), new Pt(x0, y1) }) {
+                        int or = Exact.Orient(a, b, c);
+                        if (or > 0) ++pos; else if (or < 0) ++neg;
+                    }
+                    if (pos < 4 && neg < 4) return true;
+                }
                 return false;
             }
 
@@ -633,6 +847,7 @@ namespace Meshing2Acceptance
             void InventedVertices()
             {
                 if (e.Milestone != Milestone.M2) return;
+                var chainEnds = new HashSet<int>((o.Subsegments ?? new List<SubsegmentOutput>()).SelectMany(q => new[] { q.A, q.B }));
                 var inputs = new HashSet<Pt>(inPts);
                 foreach (int id in o.Triangles.SelectMany(t => t).Distinct()) {
                     if (inputs.Contains(v[id])) continue;
@@ -640,8 +855,9 @@ namespace Meshing2Acceptance
                     if (input.SnapTolerance > 0 && o.IdentityRules && id < input.Count && map[id] == id) continue;
                     var near = sources.Where(s => WithinTube(s, v[id])).ToList();
                     // D14: snap rounding adds the centres of hot pixels (crossings, and the restore step's pixels) as vertices of the chains;
-                    // such a vertex lies on the grid, in the envelope of a constraint (within half a pixel per axis of it, so in its tube)
-                    if (input.SnapTolerance > 0 && near.Count > 0 && OnGrid(v[id], Q.FromDouble(input.SnapTolerance))) continue;
+                    // such a vertex is on a chain (an end of a subsegment) and in the envelope of an input constraint, within half a pixel
+                    // per axis of it (that it lies on the grid is checked for every vertex, OffGrid)
+                    if (input.SnapTolerance > 0 && chainEnds.Contains(id) && InEnvelope(v[id], Q.FromDouble(input.SnapTolerance) / 2)) continue;
                     bool crossing = near.Any(s => near.Any(q => !Collinear(s.a, s.b, q.a, q.b)));
                     if (!crossing) r.Add(Violation.SteinerNotAllowed, "vertex " + id + " " + v[id] + " is no input point and no crossing of constraints");
                 }
@@ -938,7 +1154,7 @@ namespace Meshing2Acceptance
                     int a = uses[0].a, b = uses[0].b;
                     int c = o.Triangles[uses[0].tri][uses[0].opposite], d = o.Triangles[uses[1].tri][uses[1].opposite];
                     int sign = InCircle(a, b, c, d);
-                    if (sign > 0 && !(conforming && (ExcusedOffSegment(a, b, c, d) || Zone(new[] { a, b, c }, Q.One)))) r.Add(Violation.NotDelaunayLocal, "edge " + a + "-" + b + " is not locally Delaunay against " + d);
+                    if (sign > 0 && !(conforming && (ExcusedOffSegment(a, b, c, d) || Zone(new[] { a, b, c }, Q.One) || GridUnsplittableEdge(new[] { a, b, c }) || GridUnsplittableEdge(new[] { a, b, d })))) r.Add(Violation.NotDelaunayLocal, "edge " + a + "-" + b + " is not locally Delaunay against " + d);
                     if (sign == 0 && !constrained) { r.TieEdges++; r.Unique = false; }
                 }
                 long work = (long)o.Triangles.Length * v.Length;
@@ -957,7 +1173,7 @@ namespace Meshing2Acceptance
                         foreach (var t in o.Triangles)
                             foreach (int id in used) {
                                 if (id == t[0] || id == t[1] || id == t[2]) continue;
-                                if (InCircle(t[0], t[1], t[2], id) > 0 && !(conforming && (ExcusedOffSegment(t[0], t[1], t[2], id) || Zone(t, Q.One)))) {
+                                if (InCircle(t[0], t[1], t[2], id) > 0 && !(conforming && (ExcusedOffSegment(t[0], t[1], t[2], id) || Zone(t, Q.One) || GridUnsplittableEdge(t) || HiddenByGridUnsplittable(t, id)))) {
                                     r.Add(Violation.NotDelaunayGlobal, "vertex " + id + " inside the circumcircle of " + t[0] + " " + t[1] + " " + t[2]);
                                     break;
                                 }
@@ -1008,7 +1224,7 @@ namespace Meshing2Acceptance
                     bool Check(int id)
                     {
                         if (id == t[0] || id == t[1] || id == t[2]) return false;
-                        if (InCircle(t[0], t[1], t[2], id) > 0 && !(conforming && (ExcusedOffSegment(t[0], t[1], t[2], id) || Zone(t, Q.One)))) {
+                        if (InCircle(t[0], t[1], t[2], id) > 0 && !(conforming && (ExcusedOffSegment(t[0], t[1], t[2], id) || Zone(t, Q.One) || GridUnsplittableEdge(t) || HiddenByGridUnsplittable(t, id)))) {
                             r.Add(Violation.NotDelaunayGlobal, "vertex " + id + " inside the circumcircle of " + t[0] + " " + t[1] + " " + t[2]);
                             return true;
                         }
@@ -1200,6 +1416,7 @@ namespace Meshing2Acceptance
                     }
                     if (!below || o.SteinerLimitReached || !e.AngleGuaranteed) continue;
                     if (ForcedByInputAngle(t, low, around) || TouchesLocked(t) || SpansSmallInputAngle(t, low) || AtPrecisionLimit(t) || Zone(t, low)) continue;
+                    if (BelowGridFloor(t) || GridBlocked(t) || CircumcentreBehindGridUnsplittable(t)) continue;
                     r.Add(Violation.AngleBelowBound, "triangle " + t[0] + " " + t[1] + " " + t[2] + " is below " + degrees + " degrees with no forced small angle");
                 }
             }
@@ -1337,13 +1554,17 @@ namespace Meshing2Acceptance
             /// </summary>
             bool SpansSmallInputAngle(int[] t, Q sin2Low)
             {
-                int k0 = 0;
-                Q best = Q.Zero; bool first = true;
-                for (int k = 0; k < 3; ++k) {
-                    Q l = Exact.Len2(v[t[(k + 1) % 3]], v[t[(k + 2) % 3]]);
-                    if (first || l < best) { best = l; k0 = k; first = false; }
-                }
-                int ip = t[(k0 + 1) % 3], iq = t[(k0 + 2) % 3];
+                // the shortest edge; on a tie every shortest edge is tried, since both opposite corners are the smallest angle and a
+                // mesher may look at either (found with the grid fuzz of m2.snap: lattice triangles with two equal short edges)
+                var lengths = Enumerable.Range(0, 3).Select(k => Exact.Len2(v[t[(k + 1) % 3]], v[t[(k + 2) % 3]])).ToArray();
+                Q best = lengths.Aggregate(Q.Min);
+                for (int k0 = 0; k0 < 3; ++k0)
+                    if (!(lengths[k0] > best) && SpansSmallInputAngle(t[(k0 + 1) % 3], t[(k0 + 2) % 3], sin2Low)) return true;
+                return false;
+            }
+
+            bool SpansSmallInputAngle(int ip, int iq, Q sin2Low)
+            {
                 Pt p = v[ip], q = v[iq];
                 var sp = Enumerable.Range(0, sources.Count).Where(k => MayBeNear(k, ip) && WithinTube(sources[k], p)).Select(k => sources[k]).ToList();
                 var sq = Enumerable.Range(0, sources.Count).Where(k => MayBeNear(k, iq) && WithinTube(sources[k], q)).Select(k => sources[k]).ToList();

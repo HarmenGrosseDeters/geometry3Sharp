@@ -94,11 +94,19 @@ Implemented from the papers, after decision D14 (owner, 2026-11-01; `MESHING2D_S
   on a side two pixels share runs through them in the right order.
 - **Arithmetic**: all coordinates and the pixel width on one common power of two, twice each as an integer, so pixel corners and
   centres are integers and every decision exact; the same construction as the mesher's exact crossings (`ConstrainedDelaunayMesh2`).
-- **Collapses**: rings that collapse to a line or a point become segments or vanish, hole seeds in the pixel of a vertex into which
-  at least three input points merged are dropped (behaviour as in the clean-room answer 6, `MESHING2D_SNAP_QA.md`; no code from it),
-  each reported in the diagnostics.
+- **Collapses**: rings that collapse to a line or a point become segments or vanish (a ring whose edges cancel in pairs; a bowtie is
+  kept), hole and region seeds within a pixel of constraint geometry that snapping moved are dropped (behaviour as in the clean-room
+  answer 6, `MESHING2D_SNAP_QA.md`; no code from it), each reported in the diagnostics.
 - The snapped input is meshed by the unchanged mesher; the points added for crossing and restore pixels become vertices made by the
   mesher (`ConstrainedMesh2.WithInputCount`).
+- **Refinement on the grid** (`QualityMesh2.Refiner` with a `SnapGrid`; owner decision 2026-11-01, `MESHING2D_SNAP.md` section 3g):
+  Ruppert's refinement (J. Ruppert, *A Delaunay refinement algorithm for quality 2-dimensional mesh generation*, J. Algorithms 1995;
+  J. R. Shewchuk, *Delaunay refinement algorithms for triangular mesh generation*, CGTA 2002) with every new vertex at a pixel centre:
+  the exact circumcentre rounded to its pixel, refused when the pixel holds a vertex or a constraint crosses it; subsegments split at a
+  pixel centre in the envelopes of their input segments; a floor of two pixels for angle and size, as in the behaviour reported for the
+  owner's fork (clean-room answer 7, behaviour only) and measured in section 3g; the refusals looked at again after each sweep with
+  insertions. Grid vertices with bounded angles down to the grid's resolution: M. Bern, D. Eppstein, J. Gilbert, *Provably good mesh
+  generation*, JCSS 1994 (abstract).
 
 ## Corpus: public test inputs (data only)
 

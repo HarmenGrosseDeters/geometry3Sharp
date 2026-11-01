@@ -41,8 +41,11 @@ namespace g3
         /// Snap tolerance in coordinate units (spec O11); 0 (default): only the automatic tolerance. With a tolerance the input is snap
         /// rounded first (decision D14): every input point moves to the centre of its pixel on a grid of this width anchored at the origin
         /// (so input on that grid stays put), constraints are routed through the hot pixels, and every vertex ends at least half a pixel
-        /// from every edge not incident to it. Merged below tol / 2, never merged above 2 tol (per axis), the grid decides in between.
-        /// Collapsed rings, segments and dropped hole seeds are reported in the diagnostics.
+        /// from every constraint edge not incident to it. With quality refinement every vertex it adds is on the grid as well. A point on
+        /// the grid and a segment closer than half the tolerance (per axis) merge, features more than twice the tolerance apart never do,
+        /// and in between the grid decides; two points off the grid merge if they fall into one pixel, so close points on either side of a
+        /// pixel boundary stay apart. Collapsed rings and segments and dropped seeds are reported in the diagnostics. At least 2^-40 of the
+        /// largest coordinate.
         /// </summary>
         public double SnapTolerance;
 
@@ -50,23 +53,29 @@ namespace g3
         public ConstrainedTriangulation2Result Compute(ConstrainedMesh2Input input, CancellationToken cancellationToken = default(CancellationToken))
         {
             if (input == null) throw new ArgumentNullException(nameof(input));
-            return Snapped(input, SnapTolerance, cancellationToken, snapped => new Builder(snapped, ResolveCrossings, cancellationToken).Run());
+            return Snapped(input, SnapTolerance, cancellationToken, (snapped, snap) => new Builder(snapped, ResolveCrossings, cancellationToken).Run());
         }
 
         /// <summary> runs the mesher on the snap-rounded input (D14) if a snap tolerance is set, and maps the result back to the input points </summary>
         internal static ConstrainedTriangulation2Result Snapped(ConstrainedMesh2Input input, double tolerance, CancellationToken cancel,
-            Func<ConstrainedMesh2Input, ConstrainedTriangulation2Result> run)
+            Func<ConstrainedMesh2Input, SnapRounding2, ConstrainedTriangulation2Result> run)
         {
-            if (tolerance == 0) return run(input);
+            if (tolerance == 0) return run(input, null);
             if (!(tolerance > 0) || double.IsInfinity(tolerance)) throw new ArgumentException("SnapTolerance must be zero or positive and finite (spec O11)");
             new Builder(input, true, cancel).Validate();
-            var snap = SnapRounding2.Apply(input, tolerance);
+            SnapRounding2 snap;
+            try {
+                snap = SnapRounding2.Apply(input, tolerance, cancel);
+            } catch (InvalidOperationException e) {
+                // a round limit or no pixel to restore: never seen in the fuzz tests; a failure status, not an exception
+                return new ConstrainedTriangulation2Result(Triangulation2Status.Failed, Triangulation2FailureKind.InvalidTopology, null, new string[0], null, e.Message);
+            }
             cancel.ThrowIfCancellationRequested();
-            var result = run(snap.Result);
+            var result = run(snap.Result, snap);
             var diagnostics = snap.Diagnostics.Concat(result.Diagnostics ?? new string[0]).ToList();
             diagnostics.Add("snap: tolerance " + tolerance.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + ", input moved by at most "
                 + snap.MaxDisplacement.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + " per axis, " + snap.Crossings + " crossings, "
-                + snap.Rounds + " rounds, restore " + snap.Spread + " spread, " + snap.Snapped + " snapped, " + snap.ForcedSpread + " forced");
+                + snap.Rounds + " rounds, restore " + snap.Spread + " spread, " + snap.ForcedSpread + " forced, " + snap.Widened + " widened");
             return new ConstrainedTriangulation2Result(result.Status, result.FailureKind, result.Mesh?.WithInputCount(input.Points.Count), diagnostics,
                 result.ProblemCoordinate, result.FailureDetail);
         }

@@ -236,8 +236,8 @@ to R3. It is for timing only: a power-of-two pixel, closed-square contact, and c
 
 ## 3g. Refinement on the grid: design proposal (owner decision 2026-11-01: all output vertices on the grid)
 
-Status: a proposal for the coordinator, before any code. The SR + SRR routine of #277 snaps the input; this section is about the
-vertices refinement adds.
+Status: approved by the owner as written (2026-11-01, `MESHING2D_DECISIONS.md`) and built in #277; what the build changed or added is
+in "As built" at the end of this section. The SR + SRR routine of #277 snaps the input; this section is about the vertices refinement adds.
 
 ### Literature ([V] read in full, [S] from abstracts or secondary sources)
 
@@ -307,6 +307,33 @@ vertices refinement adds.
     constraint;
   - the existing exemptions (small input angles, the merge zone).
 - **D14 on the input side, unchanged:** input at pixel centres, separation of half a pixel, drift of half a pixel per axis.
+
+### As built (#277)
+
+`QualityMesh2` with `SnapTolerance` refines on the grid of the snapped input (`SnapRounding2.Grid`); the rules above hold, with these
+details, each found by a fuzz test (random segments in a square ring at pixels 1/8 to 1, including 0.3 and 1/3, which doubles do not hold
+exactly; 12000 meshes at 20° and 30° pass the oracle):
+
+- **Circumcentre pixel** decided exactly (`SnapGrid.CircumcentrePixelCentre`); refused if a vertex is there or a constraint crosses the
+  pixel's interior (grid-blocked, counted in the diagnostics). The off-centre second candidate was not needed: no fuzz or catalogue case
+  failed for lack of it; the corpus counts decide (item 6).
+- **Split points**: the pixel centres of the 3 × 3 block around the target, then a scan of the envelope between the ends (up to 256 samples
+  along the segment); a candidate must lie in the envelope of every input segment whose chain contains the piece (chains of several
+  segments can share a piece), its new edges must cross no vertex's pixel and no other constraint, and no other constraint may cross its
+  pixel. A vertex already at the candidate may be the split point (the chains then share it, as at a hot pixel).
+- **Floor**: shortest edge at most two pixels (≤, not <: lattice triangles have edges of exactly two pixels).
+- **Small input angles** are judged on the input segments the chains come from, not on the bent chains.
+- **Refusals are not final.** A split point or circumcentre refused because a constraint crossed its pixel becomes valid when that
+  constraint is split and its pieces bend away. When the queues drain after a sweep that inserted vertices, the refusals are dropped and
+  everything is looked at again; a sweep without insertions ends refinement. An encroached subsegment that cannot be split no longer
+  stops a circumcentre on the grid.
+- **Oracle** (`Oracle.cs`): `OffGrid`, `BelowGridFloor`, `GridBlocked` and `GridUnsplittable` recompute the rules from the output, exactly;
+  conforming Delaunay is not demanded of an unsplittable subsegment nor across one (a vertex behind it, seen from the triangle's
+  centroid), and a triangle whose rounded circumcentre lies behind one is exempt from the angle bound (Ruppert's rule splits the
+  subsegment instead, and there is no split point). Ties of shortest edges are tried both ways for a small input angle. On a grid that
+  doubles do not hold exactly (k w rounds), vertices are taken at the centre of their pixel and matched by it, and pixel corners touched
+  by an edge are decided generously (blocking pixels 2^-40 of a half pixel larger, the own envelope as much smaller). The local Delaunay test stays strict for unconstrained edges,
+  so the mesh is still checked to be constrained Delaunay.
 
 ## 4. Plan once the owner has answered
 

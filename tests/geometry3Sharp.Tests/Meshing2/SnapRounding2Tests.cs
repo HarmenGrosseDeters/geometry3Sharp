@@ -47,6 +47,30 @@ namespace geometry3Sharp.Tests
             return pos > 0 && neg > 0;
         }
 
+        /// <summary>
+        /// where segment ab meets Hobby's half-open pixel around centre c (half-width h): the parameters of the piece of ab in the closed
+        /// square, by clipping (Liang and Barsky), or null if there is none or it lies only on the open top or right side. An independent
+        /// formulation of the routine's contact test (which uses separating axes).
+        /// </summary>
+        static (Q t0, Q t1)? HalfOpenContact(Pt a, Pt b, Pt c, Q h)
+        {
+            Q t0 = Q.Zero, t1 = Q.One;
+            Q x0 = c.Qx - h, x1 = c.Qx + h, y0 = c.Qy - h, y1 = c.Qy + h;
+            foreach (var (p, d, lo, hi) in new[] { (a.Qx, b.Qx - a.Qx, x0, x1), (a.Qy, b.Qy - a.Qy, y0, y1) }) {
+                if (d.Sign == 0) { if (p < lo || p > hi) return null; continue; }
+                Q u = (lo - p) / d, v = (hi - p) / d;
+                if (u > v) (u, v) = (v, u);
+                if (u > t0) t0 = u;
+                if (v < t1) t1 = v;
+            }
+            if (t0 > t1) return null;
+            Pt P(Q t) => new Pt(a.Qx + (b.Qx - a.Qx) * t, a.Qy + (b.Qy - a.Qy) * t);
+            Pt p0 = P(t0), p1 = P(t1);
+            if (p0.Qx == x1 && p1.Qx == x1) return null;
+            if (p0.Qy == y1 && p1.Qy == y1) return null;
+            return (t0, t1);
+        }
+
         /// <summary> the four properties of the class summary; returns the restore counts for the callers' statistics </summary>
         static SnapRounding2 Check(ConstrainedMesh2Input input, double w)
         {
@@ -75,6 +99,23 @@ namespace geometry3Sharp.Tests
             for (int i = 0; i < edges.Count; ++i)
                 for (int j = i + 1; j < edges.Count; ++j)
                     Assert.False(Exact.ProperCross(pts[edges[i].Item1], pts[edges[i].Item2], pts[edges[j].Item1], pts[edges[j].Item2]), "two output edges cross");
+            // every chain is snap rounding on the final hot pixels (SRR's Proposition 4.14): the centres of exactly the hot pixels its
+            // input segment touches, in order along it (entry, then exit); every output point is a hot pixel centre
+            Q hw = Q.FromDouble(w) / 2;
+            foreach (var g in input.Segments) {
+                if (g.A == g.B) continue;
+                Pt a = Pt.FromDoubles(input.Points[g.A].x, input.Points[g.A].y), b = Pt.FromDoubles(input.Points[g.B].x, input.Points[g.B].y);
+                var touched = new List<(Q t0, Q t1, Pt c)>();
+                foreach (var c in distinct) {
+                    var exactCentre = new Pt(PixelCentre(r.Points[Array.IndexOf(pts, c)].x, w), PixelCentre(r.Points[Array.IndexOf(pts, c)].y, w));
+                    var hit = HalfOpenContact(a, b, exactCentre, hw);
+                    if (hit != null) touched.Add((hit.Value.t0, hit.Value.t1, c));
+                }
+                touched.Sort((u, v) => u.t0 != v.t0 ? u.t0.CompareTo(v.t0) : u.t1 != v.t1 ? u.t1.CompareTo(v.t1) : 0);
+                var expected = touched.Select(x => x.c).ToList();
+                var chain = snap.ChainPoints(g.A, g.B).Select(p => Pt.FromDoubles(p.x, p.y)).ToList();
+                Assert.True(expected.SequenceEqual(chain), "the chain of " + a + " - " + b + " is " + string.Join(" ", chain) + ", the touched hot pixels " + string.Join(" ", expected));
+            }
             return snap;
         }
 
@@ -122,10 +163,11 @@ namespace geometry3Sharp.Tests
                 var xy = new List<double>();
                 int m = 6 + random.Next(20);
                 for (int i = 0; i < 4 * m; ++i) xy.Add(Math.Round(random.NextDouble() * 16 * 64) / 64);
-                if (iter % 5 == 0) { xy.AddRange(xy.Take(4)); xy.Add(xy[0]); xy.Add(xy[1]); xy.Add((xy[0] + xy[2]) / 2); xy.Add((xy[1] + xy[3]) / 2); }
-                var snap = Check(Segments(xy.ToArray()), new[] { 1.0, 2, 4 }[iter % 3]);
-                restored += snap.Spread + snap.Snapped + snap.ForcedSpread;
-                if (snap.Spread + snap.Snapped + snap.ForcedSpread > 0) ++runs;
+                if (iter % 5 == 0) { xy.AddRange(xy.Take(4).ToList()); xy.Add(xy[0]); xy.Add(xy[1]); xy.Add((xy[0] + xy[2]) / 2); xy.Add((xy[1] + xy[3]) / 2); }   // (Take copied first: net48 enumerates the list while it grows)
+                // pixels that are powers of two, and some that are not (their centres and corners are no exact doubles)
+                var snap = Check(Segments(xy.ToArray()), new[] { 1.0, 2, 4, 0.3, 1.0 / 3, 2.3 }[iter % 6]);
+                restored += snap.Spread + snap.Widened + snap.ForcedSpread;
+                if (snap.Spread + snap.Widened + snap.ForcedSpread > 0) ++runs;
             }
             Assert.True(runs >= 20, "the restore step ran on only " + runs + " inputs");
         }
@@ -176,6 +218,103 @@ namespace geometry3Sharp.Tests
             var input = Segments(0, 0, 1e6, 1, 0, 1, 1, 0);
             Assert.Throws<ArgumentException>(() => new ConstrainedDelaunayMesh2 { SnapTolerance = tolerance }.Compute(input));
             Assert.Throws<ArgumentException>(() => new QualityMesh2 { SnapTolerance = tolerance }.Compute(input));
+        }
+
+        [Fact]
+        public void EndpointOnTheTopOrRightSide_DoesNotTouch_TheBottomLeftCornerDoes()
+        {
+            // review of #277: the contact rules for a segment that only touches the pixel at an end point, or passes through a corner
+            var cases = new[] {
+                (-3.0, 3.0, 0.0, 0.5, false),   // ends on the top side
+                (3.0, 3.0, 0.5, 0.0, false),    // ends on the right side
+                (-3.0, -3.0, 0.0, -0.5, true),  // ends on the bottom side
+                (-3.0, 3.0, -0.5, 0.0, true),   // ends on the left side
+            };
+            foreach (var (ax, ay, bx, by, through) in cases) {
+                var input = Segments(ax, ay, bx, by);
+                input.Points.Add(new Vector2d(0, 0));
+                var snap = SnapRounding2.Apply(input, 1);
+                bool routed = snap.ChainPoints(0, 1).Contains(new Vector2d(0, 0));
+                Assert.True(routed == through, "(" + ax + ", " + ay + ") - (" + bx + ", " + by + ")");
+            }
+            // a line through a pixel's corners only: x + y = -1 touches the bottom-left corner (-0.5, -0.5) of pixel (0, 0); x + y = 1 its
+            // top-right corner (0.5, 0.5)
+            foreach (var (c, through) in new[] { (-1.0, true), (1.0, false) }) {
+                var input = Segments(-4, c + 4, 4, c - 4);
+                input.Points.Add(new Vector2d(0, 0));
+                var snap = SnapRounding2.Apply(input, 1);
+                Assert.True(snap.ChainPoints(0, 1).Contains(new Vector2d(0, 0)) == through, "x + y = " + c);
+            }
+        }
+
+        [Fact]
+        public void HoleCollapsingToALine_DoesNotEmptyTheDomain()
+        {
+            // review of #277: a narrow hole of four segments with its seed; snapped at 0.5 its long sides merge onto one line
+            var input = new ConstrainedMesh2Input();
+            foreach (var (x, y) in new[] { (0.0, 0.0), (10, 0), (10, 10), (0, 10), (2, 5), (8, 5), (8, 5.1), (2, 5.1) }) input.Points.Add(new Vector2d(x, y));
+            input.Rings.Add(new Mesh2Ring(new[] { 0, 1, 2, 3 }));
+            for (int i = 0; i < 4; ++i) input.Segments.Add(new Mesh2Segment(4 + i, 4 + (i + 1) % 4));
+            input.HoleSeeds.Add(new Vector2d(5, 5.05));
+            var result = new ConstrainedDelaunayMesh2 { SnapTolerance = 0.5 }.Compute(input);
+            Assert.Equal(Triangulation2Status.Success, result.Status);
+            double area = result.Mesh.Triangles.Sum(t => { var a = result.Mesh.Vertices[t.a]; var b = result.Mesh.Vertices[t.b]; var c = result.Mesh.Vertices[t.c]; return 0.5 * ((b - a).x * (c - a).y - (b - a).y * (c - a).x); });
+            Assert.Equal(100, area, 9);
+            Assert.Contains(result.Diagnostics, d => d.Contains("hole seed") && d.Contains("dropped"));
+        }
+
+        [Fact]
+        public void SeedNextToMovedGeometry_IsDropped_NextToFixedGeometryKept()
+        {
+            // review of #277: the hole's left side moves from x = 2.26 to 2.5, past the seed at 2.3; a seed in a hole on the grid stays
+            foreach (var (left, seedX, dropped) in new[] { (2.26, 2.3, true), (2.0, 2.3, false) }) {
+                var input = new ConstrainedMesh2Input();
+                foreach (var (x, y) in new[] { (0.0, 0.0), (10, 0), (10, 10), (0, 10), (left, 2), (4, 2), (4, 4), (left, 4) }) input.Points.Add(new Vector2d(x, y));
+                input.Rings.Add(new Mesh2Ring(new[] { 0, 1, 2, 3 }));
+                for (int i = 0; i < 4; ++i) input.Segments.Add(new Mesh2Segment(4 + i, 4 + (i + 1) % 4));
+                input.HoleSeeds.Add(new Vector2d(seedX, 3));
+                var snap = SnapRounding2.Apply(input, 0.5);
+                Assert.Equal(dropped ? 1 : 0, snap.DroppedSeeds);
+                var result = new ConstrainedDelaunayMesh2 { SnapTolerance = 0.5 }.Compute(input);
+                double area = result.Mesh.Triangles.Sum(t => { var a = result.Mesh.Vertices[t.a]; var b = result.Mesh.Vertices[t.b]; var c = result.Mesh.Vertices[t.c]; return 0.5 * ((b - a).x * (c - a).y - (b - a).y * (c - a).x); });
+                Assert.Equal(dropped ? 100 : 96, area, 9);
+            }
+        }
+
+        [Fact]
+        public void BowtieRing_IsNotCollapsed()
+        {
+            // review of #277: a self-intersecting ring with zero signed area still encloses its two triangles (even-odd)
+            var input = new ConstrainedMesh2Input();
+            foreach (var (x, y) in new[] { (-10.0, -10.0), (10, -10), (10, 10), (-10, 10), (0, 0), (4, 4), (4, 0), (0, 4) }) input.Points.Add(new Vector2d(x, y));
+            input.Rings.Add(new Mesh2Ring(new[] { 0, 1, 2, 3 }));
+            input.Rings.Add(new Mesh2Ring(new[] { 4, 5, 6, 7 }, true));
+            var snap = SnapRounding2.Apply(input, 1);
+            Assert.Equal(0, snap.CollapsedRings);
+            Assert.Equal(2, snap.Result.Rings.Count);
+        }
+
+        [Fact]
+        public void Heights_Regions_AndPointSegments_Survive()
+        {
+            var input = Segments(0.3, 0.3, 4.3, 4.3, 0.3, 4.3, 4.3, 0.3, 2, 1, 2, 1);
+            input.Heights = new List<double> { 0, 4, 10, 30, 7, 7 };
+            input.Points.Add(new Vector2d(-1, -1)); input.Points.Add(new Vector2d(6, -1)); input.Points.Add(new Vector2d(6, 6)); input.Points.Add(new Vector2d(-1, 6));
+            input.Heights.AddRange(new[] { 0.0, 0, 0, 0 });
+            input.Regions.Add(Mesh2Region.ByRing(new[] { 6, 7, 8, 9 }, 3));
+            var snap = SnapRounding2.Apply(input, 1);
+            Assert.Equal(snap.Result.Points.Count, snap.Result.Heights.Count);
+            // the crossing at (2, 2): heights interpolated along its first segment, from 0 at (0.3, 0.3) to 4 at (4.3, 4.3)
+            int crossing = snap.Result.Points.IndexOf(new Vector2d(2, 2));
+            Assert.True(crossing >= 10);
+            Assert.Equal(1.7 / 4 * 4, snap.Result.Heights[crossing], 9);
+            Assert.Single(snap.Result.Regions);
+            // the segment between two copies of (2, 1) has length zero: it collapses and is reported, its points stay
+            Assert.Equal(1, snap.CollapsedSegments);
+            Assert.Equal(new Vector2d(2, 1), snap.Result.Points[4]);
+            var result = new ConstrainedDelaunayMesh2 { SnapTolerance = 1 }.Compute(input);
+            Assert.Equal(Triangulation2Status.Success, result.Status);
+            Assert.Contains(result.Mesh.TriangleLabels, l => l == 3);
         }
 
         [Fact]
