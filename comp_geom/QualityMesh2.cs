@@ -1,6 +1,7 @@
 // Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Numerics;
 using System.Threading;
 
@@ -71,7 +72,6 @@ namespace g3
             readonly Queue<int> triangles = new Queue<int>();
             readonly HashSet<long> unsplittable = new HashSet<long>();
             readonly HashSet<long> exempt = new HashSet<long>();
-            int hullSource = -1;
             long limit, inserted, splits;
             /// <summary> vertices below this id existed before refinement: input points and crossings, the apexes of input angles </summary>
             int firstSteiner;
@@ -96,7 +96,8 @@ namespace g3
                 limit = options.SteinerLimit ?? 10L * (b.n + segmentCount) + 100000;
                 bool any = options.MinAngle > 0 || options.MaxArea != null || options.SizeFunction != null || HasRegionArea() || options.Conforming;
                 if (!any) return null;
-                ConstrainHull();
+                var hullFailure = ConstrainHull();
+                if (hullFailure != null) return hullFailure;
                 firstSteiner = k.VertexCount;
                 k.Dirty = new List<int>();
                 for (int t = 0; t < k.TriangleSlots; ++t)
@@ -139,9 +140,10 @@ namespace g3
             }
 
             /// <summary> without outer rings the hull is the boundary (D13): its edges become constraints, so it does not grow </summary>
-            void ConstrainHull()
+            ConstrainedTriangulation2Result ConstrainHull()
             {
-                if (b.outerRings > 0) return;
+                if (b.outerRings > 0) return null;
+                var pieces = new List<ConstrainedDelaunayMesh2.Builder.Piece>();
                 for (int t = 0; t < k.TriangleSlots; ++t) {
                     if (!k.IsGhost(t)) continue;
                     for (int j = 0; j < 3; ++j) {
@@ -151,9 +153,36 @@ namespace g3
                         // e runs along the ghost, the domain on its right: stored reversed, the domain is on the left of A -> B
                         int a0 = k.V[Next(e)], b0 = k.V[e];
                         b.sources.Add(new ConstrainedDelaunayMesh2.Source { Ring = -1, Hull = true, AX = k.X[a0], AY = k.Y[a0], BX = k.X[b0], BY = k.Y[b0], VA = a0, VB = b0 });
-                        k.SetConstraint(e, k.NewConstraint(new List<int> { b.sources.Count - 1 }));
+                        pieces.Add(new ConstrainedDelaunayMesh2.Builder.Piece { U = a0, W = b0, Sources = new List<int> { b.sources.Count - 1 } });
                     }
                 }
+                // through the builder's piece insertion: a vertex within the tolerance of a hull edge becomes a vertex of the boundary
+                // (O11; a point a few ulps inside a hull edge would otherwise encroach it for ever)
+                var pending = new Stack<ConstrainedDelaunayMesh2.Builder.Piece>();
+                long guard = 0;
+                foreach (var piece in pieces) {
+                    pending.Push(piece);
+                    while (pending.Count > 0) {
+                        if (++guard > 100000 + 16L * pieces.Count) return b.Fail(Triangulation2FailureKind.NodingLimit, null, "the hull edges did not settle");
+                        var failure = b.InsertPiece(pending.Pop(), pending);
+                        if (failure != null) return failure;
+                    }
+                }
+                // what lies between such a boundary chain and the old hull edge is outside: reachable from a ghost without crossing a constraint
+                var queue = new Queue<int>();
+                for (int t = 0; t < k.TriangleSlots; ++t) if (k.IsGhost(t)) queue.Enqueue(t);
+                while (queue.Count > 0) {
+                    int t = queue.Dequeue();
+                    for (int j = 0; j < 3; ++j) {
+                        int e = 3 * t + j;
+                        if (k.Seg[e] >= 0) continue;
+                        int t2 = k.H[e] / 3;
+                        if (k.IsGhost(t2) || k.Tag[t2] < 0) continue;
+                        k.Tag[t2] = -1;
+                        queue.Enqueue(t2);
+                    }
+                }
+                return null;
             }
 
             void QueueEdges(int t)
@@ -179,9 +208,12 @@ namespace g3
             {
                 if (lifted == null || k.Seg[h] < 0) return int.MinValue;
                 var piece = lifted.Value;
-                bool shared = false;
-                foreach (int s in k.Sources[k.Seg[h]]) if (piece.Sources.Contains(s)) { shared = true; break; }
-                if (!shared) return int.MinValue;
+                // only an edge with exactly the piece's sources: one that also carries another constraint (a split point that rounded
+                // onto a constraint through the same end, at a tiny angle) closed the wedge between them, and its sides need not have
+                // the tags the piece's sides had (found with the corpus run, earcut's water-huge)
+                var own = k.Sources[k.Seg[h]];
+                if (own.Count != piece.Sources.Count) return int.MinValue;
+                foreach (int s in own) if (!piece.Sources.Contains(s)) return int.MinValue;
                 // on the lifted piece: both ends between its ends (the pieces of a split lie on it, the other pieces of its source do not)
                 // (in a scale by a power of two: the squares do not underflow at small magnitudes)
                 var d0 = piece.W - piece.U;
@@ -192,6 +224,24 @@ namespace g3
                 double slack = l2 * 1e-9;
                 if (ta < -slack || tc < -slack || ta > l2 + slack || tc > l2 + slack) return int.MinValue;
                 return (c - a).Dot(d) > 0 ? piece.Left : piece.Right;
+            }
+
+            /// <summary> tests only: after every operation compare the tags with domain membership computed from scratch (slow) </summary>
+            internal static bool CheckTagsForTests;
+            string lastOperation;
+            long operations;
+
+            void CheckTags()
+            {
+                ++operations;
+                if (!CheckTagsForTests || (b.input.HoleSeeds?.Count ?? 0) > 0) return;
+                var inside = b.InsideFromScratch();
+                for (int t = 0; t < inside.Length; ++t)
+                    if (!k.IsGhost(t) && (k.Tag[t] >= 0) != inside[t])
+                        throw new InvalidOperationException("tag of triangle " + t + " (" + string.Join(" ", new[] { k.V[3 * t], k.V[3 * t + 1], k.V[3 * t + 2] }.Select(q => q + "=(" + k.X[q].ToString("R") + ", " + k.Y[q].ToString("R") + ")")) + ") is " + k.Tag[t]
+                            + ", inside " + inside[t] + ", edges constrained " + k.Seg[3 * t] + " " + k.Seg[3 * t + 1] + " " + k.Seg[3 * t + 2]
+                            + ", neighbour tags " + TagOf(k.H[3 * t] / 3) + " " + TagOf(k.H[3 * t + 1] / 3) + " " + TagOf(k.H[3 * t + 2] / 3)
+                            + ", after operation " + operations + ": " + lastOperation);
             }
 
             /// <summary> after an insertion: the rewritten triangles may be bad, their constrained edges encroached </summary>
@@ -233,6 +283,7 @@ namespace g3
                     }
                 }
                 foreach (var pair in previous) if (k.Tag[pair.Key] == int.MinValue) k.Tag[pair.Key] = pair.Value;
+                CheckTags();
                 foreach (int t in k.Dirty) {
                     if (k.IsGhost(t)) continue;
                     triangles.Enqueue(t);
@@ -487,6 +538,7 @@ namespace g3
                     return null;
                 }
                 int before = k.VertexCount;
+                if (CheckTagsForTests) lastOperation = "circumcentre of triangle " + t + " at (" + c.x.ToString("R") + ", " + c.y.ToString("R") + ")";
                 k.InsertPoint(c.x, c.y);
                 if (k.VertexCount == before) { exempt.Add(TriangleKey(t)); k.Dirty.Clear(); return null; }
                 ++inserted;
@@ -582,8 +634,13 @@ namespace g3
                     unsplittable.Add(Key(u, w));
                     return null;
                 }
+                // a split point within the tolerance of another constraint would merge the two chains there (O11: nearly coincident
+                // lines count as one), cutting off the region between them, eg the tip of a narrow wedge at a small input angle with its
+                // input vertex (found with the corpus run, earcut's water): the piece stays as it is
+                if (b.NearOtherSource(p.x, p.y, src)) { unsplittable.Add(Key(u, w)); return null; }
                 if (inserted >= limit) { b.SteinerLimitReached = true; return null; }
                 ++splits;
+                if (CheckTagsForTests) lastOperation = "split of " + u + "=(" + pu.x.ToString("R") + ", " + pu.y.ToString("R") + ")-" + w + "=(" + pw.x.ToString("R") + ", " + pw.y.ToString("R") + ") (sources " + string.Join(",", src.Select(z => z + ":(" + b.sources[z].AX + "," + b.sources[z].AY + ")-(" + b.sources[z].BX + "," + b.sources[z].BY + ") ring " + b.sources[z].Ring)) + ") at (" + p.x.ToString("R") + ", " + p.y.ToString("R") + ") left " + TagOf(e / 3) + " right " + TagOf(k.H[e] / 3);
                 var lifted = new LiftedPiece { Sources = new List<int>(src), U = pu, W = pw, Left = TagOf(e / 3), Right = TagOf(k.H[e] / 3) };
                 var sources = k.Unconstrain(e);
                 // without its constraint the edge may not be Delaunay: restore that first, Lawson's insertion assumes it (as at crossings)

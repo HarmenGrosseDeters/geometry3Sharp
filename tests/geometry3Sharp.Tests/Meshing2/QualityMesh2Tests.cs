@@ -178,6 +178,80 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        /// <summary>
+        /// A polygon with a narrow wedge at a small angle (0.5 to 5 degrees) between two ring edges from one vertex, at coordinates in
+        /// the thousands, the wedge inside or outside the domain (corpus run: earcut's water and water-huge)
+        /// </summary>
+        static Mesh2Input Wedge(int seed)
+        {
+            var r = new Random(2000 + seed);
+            double ax = 4000 + r.Next(200), ay = 3000 + r.Next(200), len = 20 + r.Next(80), angle = (0.5 + 4.5 * r.NextDouble()) * Math.PI / 180;
+            double dir = r.NextDouble() * 2 * Math.PI;
+            // A, then B along dir, C at the small angle from it; the rest of the ring closes around them
+            var pts = new List<double[]> { new[] { ax, ay } };
+            pts.Add(new[] { Math.Round(ax + len * Math.Cos(dir)), Math.Round(ay + len * Math.Sin(dir)) });
+            pts.Add(new[] { Math.Round(ax + 1.3 * len * Math.Cos(dir + angle)), Math.Round(ay + 1.3 * len * Math.Sin(dir + angle)) });
+            double far = 3 * len;
+            pts.Add(new[] { Math.Round(ax + far * Math.Cos(dir + angle + 1.2)), Math.Round(ay + far * Math.Sin(dir + angle + 1.2)) });
+            pts.Add(new[] { Math.Round(ax + far * Math.Cos(dir + Math.PI)), Math.Round(ay + far * Math.Sin(dir + Math.PI)) });
+            pts.Add(new[] { Math.Round(ax + far * Math.Cos(dir - 1.2)), Math.Round(ay + far * Math.Sin(dir - 1.2)) });
+            var input = new Mesh2Input { X = pts.Select(p => p[0]).ToArray(), Y = pts.Select(p => p[1]).ToArray() };
+            // the wedge between A-B and A-C is outside (ring A, C, ..., B) or the domain is the wedge side (ring reversed)
+            var ring = seed % 2 == 0 ? new[] { 0, 2, 3, 4, 5, 1 } : new[] { 0, 1, 5, 4, 3, 2 };
+            input.Rings.Add(new RingInput(ring, false, 1));
+            if (seed % 3 == 0) input.Segments.Add(new SegmentInput(0, 3, 2));
+            input.MinAngleDeg = new[] { 0, 20, 30 }[seed % 3];
+            input.SteinerLimit = 30000;
+            return input;
+        }
+
+        [Fact]
+        public void Fuzz_NarrowWedges_KeepTagsAndPassTheOracle()
+        {
+            QualityMesh2.Refiner.CheckTagsForTests = true;
+            try {
+                for (int seed = 0; seed < 40; ++seed) {
+                    var input = Wedge(seed);
+                    var report = Judge(input, out var output);
+                    Assert.True(output.Status == Mesh2Status.Success, "seed " + seed + ": " + output.FailureKind);
+                    Assert.True(report.Ok, "seed " + seed + ": " + report);
+                }
+            } finally { QualityMesh2.Refiner.CheckTagsForTests = false; }
+        }
+
+        [Theory]
+        [InlineData(0.0)]
+        [InlineData(20.0)]
+        [InlineData(30.0)]
+        public void SpikeAtASmallAngle_KeepsItsApex(double angle)
+        {
+            // corpus run (earcut's water): a spike of 3.4 degrees; refinement split its sides down to where they are within the
+            // tolerance of each other, the chains merged there (O11), and the input vertex at the tip was left in no triangle
+            var input = new Mesh2Input { X = new double[] { 3027, 3044, 3060, 3060, 3051 }, Y = new double[] { 4224, 4223, 4200, 4250, 4224 } };
+            input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3, 4 }, false));
+            input.MinAngleDeg = angle; input.SteinerLimit = 50000;
+            var report = Judge(input, out var o);
+            Assert.True(report.Ok, report.ToString());
+            Assert.Contains(o.Triangles, t => t.Contains(o.InputToVertex[0]));
+        }
+
+        [Theory]
+        [InlineData(20.0)]
+        [InlineData(30.0)]
+        public void PointsUlpsInsideAHullEdge_BecomeBoundaryVertices(double angle)
+        {
+            // corpus run (delaunator's issue43): points a few 1e-15 inside a hull edge were encroaching it for ever, refinement split
+            // it towards them down to the last bit (59 vertices from 5); now they are vertices of the boundary (O11)
+            var input = new Mesh2Input {
+                X = new[] { -537.7739674441619, -495.533967444162, -453.29396744416204, -411.0539674441621, -164 },
+                Y = new[] { -122.26130468750004, -183.39195703125006, -244.5226093750001, -305.6532617187501, -122 } };
+            input.MinAngleDeg = angle;
+            var report = Judge(input, out var o);
+            Assert.True(report.Ok, report.ToString());
+            Assert.True(o.VX.Length < 20, o.VX.Length + " vertices");
+            Assert.False(o.SteinerLimitReached);
+        }
+
         [Theory]
         [InlineData(-1.0)]
         [InlineData(60.0)]

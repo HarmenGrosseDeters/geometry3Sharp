@@ -52,12 +52,32 @@ namespace Meshing2Acceptance
         static bool Combine(bool anyOuter, bool anyHole) => anyOuter && !anyHole;
 
         /// <summary>Even-odd position against one ring, by exact crossing counts.</summary>
+        /// <summary> per ring: the y range of each edge in doubles (an interval around the exact range), NaN where unknown </summary>
+        static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Pt[], double[]> edgeRanges = new System.Runtime.CompilerServices.ConditionalWeakTable<Pt[], double[]>();
+
+        static double[] EdgeRanges(Pt[] ring) => edgeRanges.GetValue(ring, r => {
+            var lo = new double[r.Length]; var hi = new double[r.Length]; var known = new bool[r.Length];
+            for (int i = 0; i < r.Length; ++i) known[i] = r[i].Bounds(true, out lo[i], out hi[i]);
+            var ranges = new double[2 * r.Length];
+            for (int i = 0; i < r.Length; ++i) {
+                int j = (i + 1) % r.Length;
+                bool k = known[i] && known[j];
+                ranges[2 * i] = k ? Math.Min(lo[i], lo[j]) : double.NaN;
+                ranges[2 * i + 1] = k ? Math.Max(hi[i], hi[j]) : double.NaN;
+            }
+            return ranges;
+        });
+
         public static Where InRing(Pt[] ring, Pt p)
         {
             if (ring.Length == 0) return Where.Outside;
             bool inside = false;
             Q py = p.Qy;
+            // a floating-point filter: an edge whose y range certainly excludes p's y neither contains p nor crosses its ray
+            var ranges = EdgeRanges(ring);
+            bool filter = p.Bounds(true, out double pyLo, out double pyHi);
             for (int i = 0; i < ring.Length; ++i) {
+                if (filter && (pyHi < ranges[2 * i] || pyLo > ranges[2 * i + 1])) continue;   // (false for NaN: no filter)
                 Pt a = ring[i], b = ring[(i + 1) % ring.Length];
                 if (Exact.OnClosedSegment(a, b, p)) return Where.Boundary;
                 bool aAbove = a.Qy > py, bAbove = b.Qy > py;

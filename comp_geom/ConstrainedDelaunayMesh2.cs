@@ -413,6 +413,13 @@ namespace g3
                 return true;
             }
 
+            /// <summary> vertices v and u are within the tolerance of each other </summary>
+            bool NearPoint(int v, int u)
+            {
+                double dx = Scaled(k.X[v] - k.X[u]), dy = Scaled(k.Y[v] - k.Y[u]);
+                return dx * dx + dy * dy <= scaledTolerance * scaledTolerance;
+            }
+
             int shift;
             double scaledTolerance;
             double Scaled(double d) => ExactPoint3.ScaleB(d, shift);
@@ -449,7 +456,19 @@ namespace g3
                 if (u == w) return null;
                 int existing = k.FindEdge(u, w);
                 if (existing >= 0) {
-                    if (k.Seg[existing] < 0) k.SetConstraint(existing, k.NewConstraint(piece.Sources));
+                    if (k.Seg[existing] < 0) {
+                        // a vertex within the tolerance of the piece becomes a vertex of it (O11) also when the edge exists already: such
+                        // a vertex is the apex of a triangle at the edge (anything that close to the edge is in that triangle). Found with
+                        // the corpus run (delaunator's issue43: points 5e-15 inside a hull edge, which refinement then split towards
+                        // them down to the last bit)
+                        foreach (int side in new[] { existing, k.H[existing] }) {
+                            int apex = k.V[Next(Next(side))];
+                            // (not one within the tolerance of an end: in a cluster of such points the order along the piece is not
+                            // reliable in doubles, and splits could go back and forth)
+                            if (apex != k.Infinite && Near(apex, u, w, piece.Sources) && !NearPoint(apex, u) && !NearPoint(apex, w)) { Split(apex, piece, pending); return null; }
+                        }
+                        k.SetConstraint(existing, k.NewConstraint(piece.Sources));
+                    }
                     else {
                         // a union: one input segment covers each piece once, so a source already there is the same piece again
                         // (re-inserted by a split), not a second cover; appending it made the lists grow without bound (found with M3)
@@ -599,7 +618,11 @@ namespace g3
 
             // ------------------------------------------------------------ domain, labels, output
 
-            ConstrainedTriangulation2Result Output(Vector2d[] inputVertices, int[] mapping)
+            /// <summary>
+            /// Domain membership from scratch, by ring parity (D5): per triangle slot the interned set of rings it lies inside of,
+            /// and per set whether it is in the domain.
+            /// </summary>
+            internal void RingParity(out int[] state, out List<int[]> sets, out bool[] inside)
             {
                 int slots = k.TriangleSlots;
                 // per constraint: the rings it toggles (odd multiplicity), as a sorted array
@@ -615,16 +638,16 @@ namespace g3
                     }
                     toggles[c] = count.Where(p => (p.Value & 1) == 1).Select(p => p.Key).OrderBy(z => z).ToArray();
                 }
-                // the rings each triangle lies inside of (odd parity), by a breadth-first search from the outside; sets are interned
-                var sets = new List<int[]> { new int[0] };
+                // the rings each triangle lies inside of (odd parity), by a breadth-first search from the outside; setList are interned
+                var setList = new List<int[]> { new int[0] };
                 var index = new Dictionary<string, int> { { "", 0 } };
                 int Intern(int[] set)
                 {
                     string key = string.Join(",", set);
-                    if (!index.TryGetValue(key, out int id)) { id = sets.Count; sets.Add(set); index.Add(key, id); }
+                    if (!index.TryGetValue(key, out int id)) { id = setList.Count; setList.Add(set); index.Add(key, id); }
                     return id;
                 }
-                var state = new int[slots];
+                state = new int[slots];
                 for (int t = 0; t < slots; ++t) state[t] = -1;
                 var queue = new Queue<int>();
                 for (int t = 0; t < slots; ++t) if (k.IsGhost(t)) { state[t] = 0; queue.Enqueue(t); }
@@ -638,23 +661,40 @@ namespace g3
                         if (c < 0 || toggles[c].Length == 0) state[t2] = state[t];
                         else {
                             long key = ((long)state[t] << 32) | (uint)c;
-                            if (!xorCache.TryGetValue(key, out int s2)) xorCache.Add(key, s2 = Intern(Xor(sets[state[t]], toggles[c])));
+                            if (!xorCache.TryGetValue(key, out int s2)) xorCache.Add(key, s2 = Intern(Xor(setList[state[t]], toggles[c])));
                             state[t2] = s2;
                         }
                         queue.Enqueue(t2);
                     }
                 }
-                int ringCount = ringIsHole.Length;
                 int baseRings = (input.Rings ?? new List<Mesh2Ring>()).Count;
-                var inside = new bool[sets.Count];
-                for (int s = 0; s < sets.Count; ++s) {
+                sets = setList;
+                inside = new bool[setList.Count];
+                for (int s = 0; s < setList.Count; ++s) {
                     bool outer = outerRings == 0, hole = false;
-                    foreach (int ring in sets[s]) {
+                    foreach (int ring in setList[s]) {
                         if (ring >= baseRings) continue;
                         if (ringIsHole[ring]) hole = true; else outer = true;
                     }
                     inside[s] = outer && !hole;
                 }
+            }
+
+            /// <summary> per triangle slot: in the domain by ring parity (hole seeds not applied); for the refinement's tag check </summary>
+            internal bool[] InsideFromScratch()
+            {
+                RingParity(out var state, out _, out var inside);
+                var result = new bool[state.Length];
+                for (int t = 0; t < state.Length; ++t) result[t] = !k.IsGhost(t) && inside[state[t]];
+                return result;
+            }
+
+            ConstrainedTriangulation2Result Output(Vector2d[] inputVertices, int[] mapping)
+            {
+                int slots = k.TriangleSlots;
+                RingParity(out var state, out var sets, out var inside);
+                int ringCount = ringIsHole.Length;
+                int baseRings = (input.Rings ?? new List<Mesh2Ring>()).Count;
                 var keep = new bool[slots];
                 for (int t = 0; t < slots; ++t) keep[t] = !k.IsGhost(t) && inside[state[t]];
                 // D5: an outer ring entirely inside holes is removed with them; say so. One pass over the distinct sets.
@@ -870,6 +910,32 @@ namespace g3
                             if (c >= 0) foreach (int s in k.Sources[c]) Consider(s);
                         }
                 return result;
+            }
+
+            /// <summary>
+            /// The point lies within the automatic tolerance of a source other than the given ones (the closed segment). For the
+            /// refinement: a split point there would merge the two constraints' chains (O11), which refinement must not cause.
+            /// </summary>
+            internal bool NearOtherSource(double px, double py, List<int> own)
+            {
+                if (!(scaledTolerance > 0)) return false;
+                if (cellKeys == null) BuildGrid();
+                if (cellKeys.Length == 0) return false;
+                double x = Scaled(px - gridX) / gridCell, y = Scaled(py - gridY) / gridCell, r = scaledTolerance / gridCell;
+                long x0 = (long)Math.Floor(x - r), x1 = (long)Math.Floor(x + r), y0 = (long)Math.Floor(y - r), y1 = (long)Math.Floor(y + r);
+                double tol2 = scaledTolerance * scaledTolerance;
+                for (long cx = x0; cx <= x1; ++cx)
+                    for (long cy = y0; cy <= y1; ++cy) {
+                        int at = Array.BinarySearch(cellKeys, (cx << 32) ^ (cy & 0xffffffff));
+                        if (at < 0) continue;
+                        for (int q = cellStart[at]; q < cellStart[at + 1]; ++q) {
+                            int src = cellSources[q];
+                            if (own.Contains(src)) continue;
+                            var o = sources[src];
+                            if (ScaledDist2(px, py, o.AX, o.AY, o.BX, o.BY, out _) <= tol2) return true;
+                        }
+                    }
+                return false;
             }
 
             /// <summary> squared distance of a point (scaled, relative to the grid origin) to source s </summary>

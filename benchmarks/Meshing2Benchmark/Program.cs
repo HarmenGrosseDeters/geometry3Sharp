@@ -32,6 +32,8 @@ namespace Meshing2Acceptance
   perf [--sizes 1000,4096,...] [--kinds uniform,grid,utm,clustered] [--repeats 5]
                                     time and allocation of the M1 kernel alone (spec 3.1)
   rows [--milestone M3] [--filter F-4] [--seconds 60] [--fast]   (--fast skips the slow rows)
+  corpus [--dir <d>] [--angles 0,20,30] [--filter water] [--seconds 120] [--judge-limit 60000]
+                                    public inputs fetched by corpus/fetch.py, meshed and judged; statistics only
                                     run the covered catalogue rows one at a time: verdict, time; a row past the limit is reported and skipped
   perf --m2 [--sizes ...] [--kinds coastline,parcels,crossings] [--repeats 3]
                                     the same for the constrained mesher
@@ -63,6 +65,7 @@ namespace Meshing2Acceptance
                     case "format-tables": PrintFormatTables(); return 0;
                     case "perf": return Perf.Run(args, Arg);
                     case "rows": return RunRows(args);
+                    case "corpus": return Corpus.Run(args, Arg);
                     default: Console.Error.WriteLine(Usage); return 2;
                 }
             } catch (FormatException e) {

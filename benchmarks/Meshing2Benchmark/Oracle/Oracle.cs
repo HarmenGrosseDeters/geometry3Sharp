@@ -81,7 +81,12 @@ namespace Meshing2Acceptance
                 if (!Identity()) return r;
                 if (o.Triangles.Length == 0) {
                     if (o.Status != Mesh2Status.Empty) r.Add(Violation.StatusInconsistent, o.Status + " with no triangles");
-                    if (!degenerate) r.Add(Violation.EmptyOnArea, "no triangles, the domain has area " + domain.Area);
+                    // as for the area of a mesh (Coverage): geometry may move by the tube (O11 merges points within it), so a domain whose
+                    // twice area is at most 2 * tube * perimeter may vanish (found with the corpus run: earcut's infinite-loop-jhl, a
+                    // sliver 1e-28 wide between an outer ring and a hole)
+                    Q twice = domain.Area * 2, perimeter = domain.Perimeter2Bound * 2;
+                    if (!degenerate && twice * twice > tube2 * perimeter * perimeter)
+                        r.Add(Violation.EmptyOnArea, "no triangles, the domain has area " + domain.Area);
                     return r;
                 }
                 if (o.Status != Mesh2Status.Success) r.Add(Violation.StatusInconsistent, o.Status + " with triangles");
@@ -92,6 +97,7 @@ namespace Meshing2Acceptance
                 if (!r.Ok) return r; // the rest assumes positive triangles
                 EdgesAndNeighbours(); Lap("edges");
                 Sources();
+                Filters();
                 Conformity(); Lap("conformity");
                 Crossings();
                 InventedVertices(); Lap("crossings, invented");
@@ -349,6 +355,43 @@ namespace Meshing2Acceptance
                         r.Add(Violation.TriangleOutsideDomain, "vertex " + id + " " + v[id] + " is outside the domain");
             }
 
+            // A floating-point filter in front of the exact distance tests: each vertex as an interval of doubles around its exact
+            // coordinates, each source as its bounding box widened by the tube. A vertex outside a box is farther than the tube from
+            // that source, so the exact test can be skipped; everything else still goes to the exact test.
+            double[] vxl, vxh, vyl, vyh;
+            bool[] vKnown;
+            double[] sBox;   // per source: x0, x1, y0, y1 (NaN: unknown, no filter)
+
+            void Filters()
+            {
+                int n = v.Length;
+                vxl = new double[n]; vxh = new double[n]; vyl = new double[n]; vyh = new double[n]; vKnown = new bool[n];
+                for (int i = 0; i < n; ++i) vKnown[i] = v[i].Bounds(false, out vxl[i], out vxh[i]) && v[i].Bounds(true, out vyl[i], out vyh[i]);
+                double reach = double.NaN;
+                if (tube2.Bounds(out _, out double t2hi)) reach = Math.Sqrt(t2hi) * (1 + 1e-12) + 1e-300;
+                sBox = new double[4 * sources.Count];
+                for (int k = 0; k < sources.Count; ++k) SegmentBox(sources[k].a, sources[k].b, reach, sBox, 4 * k);
+            }
+
+            /// <summary> the box of segment a-b in doubles, around the exact one, widened by reach; NaN where it is unknown </summary>
+            static void SegmentBox(Pt a, Pt b, double reach, double[] box, int at)
+            {
+                double axl = 0, axh = 0, ayl = 0, ayh = 0, bxl = 0, bxh = 0, byl = 0, byh = 0;
+                bool known = !double.IsNaN(reach) && a.Bounds(false, out axl, out axh) && a.Bounds(true, out ayl, out ayh)
+                    && b.Bounds(false, out bxl, out bxh) && b.Bounds(true, out byl, out byh);
+                box[at] = Math.Min(axl, bxl) - reach; box[at + 1] = Math.Max(axh, bxh) + reach;
+                box[at + 2] = Math.Min(ayl, byl) - reach; box[at + 3] = Math.Max(ayh, byh) + reach;
+                for (int j = 0; j < 4; ++j) if (!known || double.IsInfinity(box[at + j])) known = false;
+                if (!known) for (int j = 0; j < 4; ++j) box[at + j] = double.NaN;
+            }
+
+            /// <summary> false only if vertex i is certainly farther than the tube from source k </summary>
+            bool MayBeNear(int k, int i)
+            {
+                if (!vKnown[i] || double.IsNaN(sBox[4 * k])) return true;
+                return !(vxh[i] < sBox[4 * k] || vxl[i] > sBox[4 * k + 1] || vyh[i] < sBox[4 * k + 2] || vyl[i] > sBox[4 * k + 3]);
+            }
+
             /// <summary>The input constraints: segments and the edges of all rings.</summary>
             void Sources()
             {
@@ -507,13 +550,18 @@ namespace Meshing2Acceptance
             /// A point on a ring edge belongs to the domain only if the domain has interior next to it. Probes both sides at a distance
             /// below that of every ring edge not through the point.
             /// </summary>
-            bool InteriorBeside(Pt m, Q ux, Q uy, List<(Pt a, Pt b)> rings)
+            bool InteriorBeside(Pt m, Q ux, Q uy, List<(Pt a, Pt b)> rings, double farGap = double.PositiveInfinity)
             {
                 Q limit = new Q(-1, 1);
                 foreach (var ring in rings) {
                     if (Exact.OnClosedSegment(ring.a, ring.b, m)) continue;
                     Q d = Exact.Dist2ToSegment(ring.a, ring.b, m);
                     if (limit.Sign < 0 || d < limit) limit = d;
+                }
+                // the ring edges not in the list are farther than farGap (a lower bound, made a little smaller still)
+                if (!double.IsInfinity(farGap)) {
+                    Q far = Q.FromDouble(farGap * (1 - 1e-9));
+                    if (limit.Sign < 0 || far * far < limit) limit = far * far;
                 }
                 Q step = Q.One, nn = ux * ux + uy * uy;
                 while (limit.Sign >= 0 && step * step * nn >= limit) step = step * new Q(1, 2);
@@ -552,11 +600,31 @@ namespace Meshing2Acceptance
                     AddAdjacent(adjacency, KeyA(key), KeyB(key));
                     AddAdjacent(adjacency, KeyB(key), KeyA(key));
                 }
-                var ringEdges = domain.Edges().ToList();
-                foreach (var s in sources) {
-                    foreach (var piece in RetainedPieces(s.a, s.b, ringEdges)) {
-                        var candidates = new HashSet<int>();
-                        for (int i = 0; i < v.Length; ++i) if (Exact.Dist2ToSegment(s.a, s.b, v[i]) <= tube2) candidates.Add(i);
+                var allRingEdges = domain.Edges().ToList();
+                // each ring edge's box in doubles (an interval around the exact one), for the filter below
+                var ringBox = new double[4 * allRingEdges.Count];
+                for (int g = 0; g < allRingEdges.Count; ++g) SegmentBox(allRingEdges[g].a, allRingEdges[g].b, 0, ringBox, 4 * g);
+                for (int k = 0; k < sources.Count; ++k) {
+                    var s = sources[k];
+                    var near = new List<int>();
+                    for (int i = 0; i < v.Length; ++i) if (MayBeNear(k, i) && Exact.Dist2ToSegment(s.a, s.b, v[i]) <= tube2) near.Add(i);
+                    // only ring edges whose box meets the source's box widened by the tube can cut the source or lie within the tube of
+                    // a point on it; the others are certainly farther (the filter skips no exact test that could succeed)
+                    int kk = k;
+                    bool Meets(int g) => double.IsNaN(sBox[4 * kk]) || double.IsNaN(ringBox[4 * g])
+                        || !(ringBox[4 * g + 1] < sBox[4 * kk] || ringBox[4 * g] > sBox[4 * kk + 1] || ringBox[4 * g + 3] < sBox[4 * kk + 2] || ringBox[4 * g + 2] > sBox[4 * kk + 3]);
+                    var ringEdges = Enumerable.Range(0, allRingEdges.Count).Where(Meets).Select(g => allRingEdges[g]).ToList();
+                    // a lower bound of the distance from any point of the source to the ring edges left out: the gap between the boxes
+                    var own = new double[4];
+                    SegmentBox(s.a, s.b, 0, own, 0);
+                    double farGap = double.PositiveInfinity;
+                    for (int g = 0; g < allRingEdges.Count; ++g) {
+                        if (Meets(g)) continue;
+                        double gap = Math.Max(Math.Max(ringBox[4 * g] - own[1], own[0] - ringBox[4 * g + 1]), Math.Max(ringBox[4 * g + 2] - own[3], own[2] - ringBox[4 * g + 3]));
+                        farGap = Math.Min(farGap, gap);
+                    }
+                    foreach (var piece in RetainedPieces(s.a, s.b, ringEdges, double.IsNaN(own[0]) || !(farGap > 0) ? allRingEdges : null, farGap)) {
+                        var candidates = new HashSet<int>(near);
                         // A piece ends where a ring edge cuts it. At a tiny angle that point is ill-conditioned along the lines: a crossing rounded
                         // to doubles (D1) can lie far from the exact one along them while within the tube of both. So a vertex in the tubes of the
                         // source and of a ring edge through the end also ends the chain.
@@ -610,14 +678,20 @@ namespace Meshing2Acceptance
                 var inputs = new HashSet<Pt>(inPts);
                 for (int at = end; at >= 0; at = previous[at]) {
                     if (inputs.Contains(v[at])) continue;
-                    bool onOther = sources.Any(other => !Collinear(s.a, s.b, other.a, other.b) && WithinTube(other, v[at]));
+                    int vertex = at;
+                    bool onOther = Enumerable.Range(0, sources.Count).Any(k => MayBeNear(k, vertex) && !Collinear(s.a, s.b, sources[k].a, sources[k].b) && WithinTube(sources[k], v[vertex]));
                     if (!onOther) r.Add(Violation.LockedSplit, "locked segment " + s.a + " - " + s.b + " is split at " + v[at]);
                 }
             }
 
-            /// <summary>The parts of a-b in the closed domain, cut at all ring edges.</summary>
-            List<(Pt from, Pt to)> RetainedPieces(Pt a, Pt b, List<(Pt a, Pt b)> rings)
+            /// <summary>
+            /// The parts of a-b in the closed domain, cut at all ring edges. With a filtered list of rings, either allRings is the full
+            /// list, or farGap is a positive lower bound of the distance from a-b to every ring edge not in the list.
+            /// </summary>
+            List<(Pt from, Pt to)> RetainedPieces(Pt a, Pt b, List<(Pt a, Pt b)> rings, List<(Pt a, Pt b)> allRings = null, double farGap = double.PositiveInfinity)
             {
+                if (allRings != null) farGap = double.PositiveInfinity;
+                allRings = allRings ?? rings;
                 var pieces = new List<(Pt, Pt)>();
                 Q ax = a.Qx, ay = a.Qy, ux = b.Qx - ax, uy = b.Qy - ay, uu = ux * ux + uy * uy;
                 var ts = new List<Q> { Q.Zero, Q.One };
@@ -642,7 +716,7 @@ namespace Meshing2Acceptance
                     Q m = (ts[i] + ts[i + 1]) * half;
                     var mid = new Pt(ax + ux * m, ay + uy * m);
                     var where = domain.Classify(mid);
-                    bool keep = where == Where.Inside || (where == Where.Boundary && InteriorBeside(mid, ux, uy, rings));
+                    bool keep = where == Where.Inside || (where == Where.Boundary && InteriorBeside(mid, ux, uy, allRings, farGap));
                     if (keep) {
                         if (start == null) start = ts[i];
                         end = ts[i + 1];
@@ -830,7 +904,7 @@ namespace Meshing2Acceptance
                         if (!below && sin2 >= high && listed.Contains(i)) r.Add(Violation.BadListWrong, "triangle " + i + " is listed but not below the angle");
                     }
                     if (!below || o.SteinerLimitReached || !e.AngleGuaranteed) continue;
-                    if (ForcedByInputAngle(t, low, around) || TouchesLocked(t) || SpansSmallInputAngle(t, low) || AtPrecisionLimit(t)) continue;
+                    if (ForcedByInputAngle(t, low, around) || TouchesLocked(t) || SpansSmallInputAngle(t, low) || AtPrecisionLimit(t) || InMergeZone(t, low)) continue;
                     r.Add(Violation.AngleBelowBound, "triangle " + t[0] + " " + t[1] + " " + t[2] + " is below " + degrees + " degrees with no forced small angle");
                 }
             }
@@ -874,6 +948,36 @@ namespace Meshing2Acceptance
                             if (Exact.Orient(p, a, x) >= 0 && Exact.Orient(p, x, b) >= 0 && Exact.Orient(p, a, y) >= 0 && Exact.Orient(p, y, b) >= 0) return true;
                         }
                 }
+                return false;
+            }
+
+            /// <summary>
+            /// O11 and O3: near the apex of two input segments that meet at an angle below the bound, the segments are within the tube of
+            /// each other up to tube / sin(angle) from it; a point placed there merges their chains (they count as one), so refinement
+            /// cannot improve a triangle all of whose vertices lie within 8 tube / sin(angle) of the apex (found with the corpus run,
+            /// earcut's water-huge: segments at 0.84 degrees, triangles of 2e-7 at the apex).
+            /// </summary>
+            bool InMergeZone(int[] t, Q sin2Low)
+            {
+                if (tube2.Sign == 0) return false;
+                var near = new List<(Pt a, Pt b, int marker, int sourceId, bool locked)>();
+                for (int k = 0; k < sources.Count; ++k)
+                    if (t.Any(i => MayBeNear(k, i) && WithinTube(sources[k], v[i]))) near.Add(sources[k]);
+                foreach (var a in near)
+                    foreach (var c in sources) {
+                        if (a.sourceId == c.sourceId) continue;
+                        Q d1x = a.b.Qx - a.a.Qx, d1y = a.b.Qy - a.a.Qy, d2x = c.b.Qx - c.a.Qx, d2y = c.b.Qy - c.a.Qy;
+                        Q cross = d1x * d2y - d1y * d2x;
+                        if (cross.Sign == 0) continue;
+                        Q sin2 = cross * cross / ((d1x * d1x + d1y * d1y) * (d2x * d2x + d2y * d2y));
+                        if (sin2 >= sin2Low) continue;
+                        Q zone2 = tube2 * 64 / sin2;   // (8 tube / sin)^2
+                        if (Exact.Dist2ToSegment(c.a, c.b, v[t[0]]) > zone2) continue;
+                        Q t1 = ((c.a.Qx - a.a.Qx) * d2y - (c.a.Qy - a.a.Qy) * d2x) / cross, t2 = ((c.a.Qx - a.a.Qx) * d1y - (c.a.Qy - a.a.Qy) * d1x) / cross;
+                        if (t1.Sign < 0 || t1 > Q.One || t2.Sign < 0 || t2 > Q.One) continue;
+                        var apex = new Pt(a.a.Qx + t1 * d1x, a.a.Qy + t1 * d1y);
+                        if (t.All(i => Exact.Len2(apex, v[i]) <= zone2)) return true;
+                    }
                 return false;
             }
 
@@ -1014,7 +1118,8 @@ namespace Meshing2Acceptance
             {
                 if (o.Subsegments == null) return;
                 foreach (var s in o.Subsegments) {
-                    var covering = sources.Where(c => WithinTube(c, v[s.A]) && WithinTube(c, v[s.B])).ToList();
+                    var covering = Enumerable.Range(0, sources.Count).Where(k => MayBeNear(k, s.A) && MayBeNear(k, s.B)).Select(k => sources[k])
+                        .Where(c => WithinTube(c, v[s.A]) && WithinTube(c, v[s.B])).ToList();
                     if (covering.Count == 0) {
                         bool onHull = domain.IsHull && domain.Edges().Any(h => Exact.Dist2ToSegment(h.a, h.b, v[s.A]) <= tube2 && Exact.Dist2ToSegment(h.a, h.b, v[s.B]) <= tube2);
                         if (!onHull) r.Add(Violation.SubsegmentUnsourced, "subsegment " + s.A + "-" + s.B + " lies on no input constraint");

@@ -225,9 +225,10 @@ on the reference triangulation (Q9). Decisions and findings:
   New fuzz over holes, regions with and without area bounds (`Fuzz_HolesAndRegions_PassTheOracle`, 80 inputs).
 - Angles, areas and circumcentres underflowed at 2^-500 and refinement silently did nothing; now computed on edges scaled by a power of two
   (`ExtremeScales_RefineTheSameMesh`, 2^-560 to 2^225, bit for bit).
-- The small-input-angle exemption was a factor-2 window in distance; now 1.5, in the library and in the oracle, with a known-wrong self-check at 1.53. None
-  of the 28 fast M3 rows changed its result or vertex count with it (`rows --fast`). F-44's mesh changed through the conforming fix (golden row updated
-  with that reason; the same 28 vertices).
+- The small-input-angle exemption was a factor-2 window in distance; now 1.5, in the library and in the oracle, with a known-wrong self-check at 1.53. All 41
+  covered M3 rows still pass (`rows --milestone M3`, on de7cf59). Vertex counts: unchanged except F-5 8 547 (was 6 229: the narrower window exempts fewer
+  triangles near its small angles) and F-4/c 37 568 (was 37 567). F-44's mesh changed through the conforming fix (golden row updated with that reason;
+  the same 28 vertices).
 - The step cap reported the Steiner limit; it is now a failure `RefinementLimit`, and the limit flag is set only when an insertion was refused (a limit of 0
   on a good mesh gives no flag). The oracle's default limit counts ring edges as segments, like the library.
 - Heights: the walk on the reference triangulation (not Delaunay with breaklines) is a stochastic walk from the last hit, with a scan as fallback.

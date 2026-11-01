@@ -51,7 +51,7 @@ Literature (full references in [SOURCES.md](../SOURCES.md), section 2D meshing):
 | `InsertPoint`, `SplitTriangle`, `SplitEdge`, `Legalize`, `Flip` | insertion by a 1-to-3 or 2-to-4 split and Lawson's flips that never cross a constraint; ghosts take part | [L77]; [CDS] ch. 3 (flip-based insertion with ghosts), [C89] (the constrained Delaunay criterion) |
 | `FindEdge`, `Star`, `Prev` | rotation around a vertex through twins | textbook half-edge navigation |
 | `RecoverEdge`, `RestoreDelaunay`, `NonDelaunayEdges` | Sloan's segment recovery: flip crossed edges whose quadrilateral is convex until the segment is an edge, then Lawson's flips over the new edges; a final linear check | [S93]; [L77]; the final check from the M2 review |
-| `Builder.InsertConstraints`, `InsertPiece`, `Split`, `Ahead` | each constraint piece by a walk from its first end: exact hits and vertices within the tolerance split it; a work list, no recursion | spec O10, O11, F-2 (no recursion); walk along a segment: [S93]; tolerance: decision D3 |
+| `Builder.InsertConstraints`, `InsertPiece`, `Split`, `Ahead` | each constraint piece by a walk from its first end: exact hits and vertices within the tolerance split it, also the apexes at an edge that exists already; a work list, no recursion | spec O10, O11, F-2 (no recursion); walk along a segment: [S93]; tolerance: decision D3 |
 | `Builder.Cross`, `Intersection`, `RatioToDouble` | the crossing of two pieces computed with integers (every double is m 2^e) and rounded to nearest, ties to even; both pieces re-queued through it | decision D1; [Sh97] (the integer view of doubles); round-to-nearest-even is IEEE 754 |
 | `Builder.Near`, `WithinTolerance`, `ScaledDist2`, `Scaled` | tolerance tests on power-of-two-scaled differences | decision D3; spec O11, Q14; scaling from the M2 review |
 | `Builder.Output`, `Xor`, `SeedCell` | the set of rings each triangle lies inside of (even-odd) by a breadth-first search from the ghosts; seeds fill the cells of the constraints | spec definition of the domain; decisions D5, D6, D16; spec I6, Q7 |
@@ -66,12 +66,24 @@ Literature (full references in [SOURCES.md](../SOURCES.md), section 2D meshing):
 |---|---|---|
 | `QualityMesh2.Compute` | options, argument checks, the builder with a refinement hook | spec O3, O5, O7, Q3, Q11, Q13; decisions D9, D12 |
 | `Refiner.Run` | queue of encroached subsegments first, then bad triangles, until both are empty or the Steiner limit; a final Delaunay check | [R95] §3; [S02] §3; spec O7 |
-| `ConstrainHull` | without outer rings the hull edges become constraints, each its own source | decision D13; spec O18, F-35 |
+| `ConstrainHull` | without outer rings the hull edges become constraints, each its own source, inserted as pieces (a vertex within the tolerance of a hull edge becomes a boundary vertex); what lies between such a chain and the old hull edge is outside | decision D13; spec O11, O18, F-35 |
 | `Encroached`, `DotSign` | a vertex of a domain triangle at the edge strictly inside its diametral circle; exact sign of a dot product (filter, then integers) | [R95] §2 (encroachment); [S02] §3; [Sh97] (filter idea) |
 | `Bad`, `MinSin2`, `Area`, `LongestLocked2`, `Local` | below the angle, above the area (global or per region), above the size function at the centroid; a triangle over a locked edge need not shrink below a needle; the edges scaled by a power of two first (no underflow, the same bits at any 2^k) | spec O3, O5, O9, I7; decision D9; REVIEW_CHECKLIST 2, 5 |
 | `SpansSmallAngle`, `SourcesAt` | not refining a skinny triangle whose shortest edge spans a small input angle, its ends at distances from the apex within a factor 1.5 (about one shell) | [S02] §4 (small input angles); [CDS] ch. 7 |
 | `SplitTriangle`, `Circumcentre`, `Walk`, `EncroachedByPoint` | circumcentre insertion; a constrained edge on the way from the triangle, or encroached by the circumcentre, is split instead | [R95] §3; [S02] §3 |
-| `SplitSegment` | split at the midpoint or, next to a vertex that existed before refinement, at the power of two nearest to the middle; computed on the original input segment | [S02] §4.1 (concentric shells); spec O12 (no drift over repeated splits) |
+| `SplitSegment`, `Builder.NearOtherSource` | a split point within the tolerance of another constraint is not inserted (it would merge the chains, O11); otherwise split at the midpoint or, next to a vertex that existed before refinement, at the power of two nearest to the middle; computed on the original input segment | [S02] §4.1 (concentric shells); spec O12 (no drift over repeated splits) |
 | `Collect`, `TagFromPiece` (tag propagation) | rewritten triangles take their domain and region tag from unchanged neighbours across unconstrained edges, and from the sides of the pieces of a split segment, which keep the tags its sides had; ghosts count as outside | own, from the domain definition (spec) and decisions D5, D16 |
 | `Builder.SnapshotReference`, `SetHeightOnReference` | heights of Steiner points by linear interpolation on the triangulation before refinement, located by a stochastic walk from the last hit | spec Q9; [DPT] (stochastic walk) |
 | `Builder.NearVertex` | a crossing snaps to a vertex within the tolerance of it and of all sources involved | spec O11 |
+
+## Corpus: public test inputs (data only)
+
+The corpus run (`Meshing2Benchmark corpus`, fetched by `benchmarks/Meshing2Benchmark/corpus/fetch.py` at run time into the git-ignored
+`corpus/data`) meshes the test fixtures of other projects. They are data: no code of these projects is read or used, their algorithms are no
+source of the mesher, and nothing is committed. Each license is downloaded next to the data.
+
+| Source | What | License | URL |
+|---|---|---|---|
+| mapbox/earcut | 61 polygons with holes from `test/fixtures` (listed in `test/expected.json`): water, buildings, self-touching and degenerate rings | ISC | https://github.com/mapbox/earcut |
+| mapbox/delaunator | 7 point sets from `test/fixtures`: robustness1-4, issue43, issue44, ukraine | ISC | https://github.com/mapbox/delaunator |
+| jhasse/poly2tri | 16 polygons from `testbed/data` (one ring per file), among them sketchup, nazca_monkey, debug2 | BSD-3-Clause | https://github.com/jhasse/poly2tri |
