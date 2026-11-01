@@ -1230,7 +1230,7 @@ namespace g3
                 return ExactPredicates.Orient2d(new Vector2d(da[i], da[j]), new Vector2d(db[i], db[j]), new Vector2d(dc[i], dc[j])) * t.Sign;
             }
             if (ra > 0 && rb > 0 && rc > 0)
-                return FixedArith.Orient(ref fixedPoints[ra - 1], ref fixedPoints[rb - 1], ref fixedPoints[rc - 1], i, j) * t.Sign;
+                return FixedPredicates.Orient(ref fixedPoints[ra - 1], ref fixedPoints[rb - 1], ref fixedPoints[rc - 1], i, j) * t.Sign;
             ExactPoint3 a = Exact(p), b = Exact(q), c = Exact(r);
             BigInteger det = ExactPoint3.Det3(a[i], a[j], a.W, b[i], b[j], b.W, c[i], c[j], c.W);
             return det.Sign * t.Sign;
@@ -1292,7 +1292,7 @@ namespace g3
             // dx^2 + dy^2) of the differences to d (column operations, then subtracting row d). Each row is multiplied
             // by (w w_d)^2 > 0 to make it integer: (A s, B s, A^2 + B^2) with A = x w_d - x_d w, B likewise, s = w w_d.
             if (ra > 0 && rb > 0 && rc > 0 && rd > 0)
-                return FixedArith.InCircle(ref fixedPoints[ra - 1], ref fixedPoints[rb - 1], ref fixedPoints[rc - 1], ref fixedPoints[rd - 1], i, j) * t.Sign;
+                return FixedPredicates.InCircle(ref fixedPoints[ra - 1], ref fixedPoints[rb - 1], ref fixedPoints[rc - 1], ref fixedPoints[rd - 1], i, j) * t.Sign;
             ExactPoint3 pd = Exact(s);
             BigInteger ax, ay, al, bx, by, bl, cx, cy, cl;
             incircle_row(Exact(p), pd, i, j, out ax, out ay, out al);

@@ -307,8 +307,28 @@ namespace g3
             if (a.Len == 0 || b.Len == 0)
                 return new FixedInt(null, 0, false);
             int n = a.Len + b.Len;
-            ulong* r = ar.Take(n);
-            for (int k = 0; k < n; ++k) r[k] = 0;
+            return Mul(a, b, ar.Take(n), n);
+        }
+
+        /// <summary>
+        /// a b into the cap limbs at r (a proven bound of the caller, FixedPredicates); throws if the product does not
+        /// fit. The trimmed operands need la + lb - 1 or la + lb limbs; with cap = la + lb - 1 the top carry must be 0.
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        public static FixedInt Mul(FixedInt a, FixedInt b, ulong* r, int cap)
+        {
+            if (a.Len == 0 || b.Len == 0)
+                return new FixedInt(null, 0, false);
+            // a factor of magnitude 1 (W = 1 is common): the other one, signed, in its own buffer
+            if (a.Len == 1 && a.P[0] == 1)
+                return fits(new FixedInt(b.P, b.Len, a.Neg != b.Neg), cap);
+            if (b.Len == 1 && b.P[0] == 1)
+                return fits(new FixedInt(a.P, a.Len, a.Neg != b.Neg), cap);
+            int n = a.Len + b.Len;
+            if (n - 1 > cap)
+                throw new InvalidOperationException("FixedArith: product beyond its bound");
+            int top = (n < cap) ? n : cap;
+            for (int k = 0; k < top; ++k) r[k] = 0;
             for (int i = 0; i < a.Len; ++i) {
                 ulong ai = a.P[i], carry = 0;
                 for (int j = 0; j < b.Len; ++j) {
@@ -321,10 +341,14 @@ namespace g3
                     r[i + j] = s2;
                     carry = hi;
                 }
-                r[i + b.Len] = carry;
+                // i + j <= n - 2 < cap above; the last carry goes to i + b.Len <= n - 1
+                if (i + b.Len < cap)
+                    r[i + b.Len] = carry;
+                else if (carry != 0)
+                    throw new InvalidOperationException("FixedArith: product beyond its bound");
             }
-            while (n > 0 && r[n - 1] == 0) n--;
-            return new FixedInt(r, n, a.Neg != b.Neg);
+            while (top > 0 && r[top - 1] == 0) top--;
+            return new FixedInt(r, top, a.Neg != b.Neg);
         }
 
         public static FixedInt Sub(FixedInt a, FixedInt b, ref FixedArena ar)
@@ -337,19 +361,46 @@ namespace g3
         {
             if (b.Len == 0) return a;
             if (a.Len == 0) return b;
+            int n = Math.Max(a.Len, b.Len) + 1;
+            return Add(a, b, ar.Take(n), n);
+        }
+
+        /// <summary> a - b into the cap limbs at r (as Add) </summary>
+        public static FixedInt Sub(FixedInt a, FixedInt b, ulong* r, int cap)
+        {
+            return Add(a, b.Negated, r, cap);
+        }
+
+        /// <summary>
+        /// a + b into the cap limbs at r (a proven bound of the caller); throws if the sum does not fit. A result equal
+        /// to an operand (the other one 0) is that operand's buffer, not a copy.
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        public static FixedInt Add(FixedInt a, FixedInt b, ulong* r, int cap)
+        {
+            if (b.Len == 0) return fits(a, cap);
+            if (a.Len == 0) return fits(b, cap);
             if (a.Neg == b.Neg)
-                return add_mag(a, b, a.Neg, ref ar);
+                return add_mag(a, b, a.Neg, r, cap);
             int c = cmp_mag(a, b);
             if (c == 0)
                 return new FixedInt(null, 0, false);
-            return (c > 0) ? sub_mag(a, b, a.Neg, ref ar) : sub_mag(b, a, b.Neg, ref ar);
+            return (c > 0) ? sub_mag(a, b, a.Neg, r, cap) : sub_mag(b, a, b.Neg, r, cap);
+        }
+
+        static FixedInt fits(FixedInt a, int cap)
+        {
+            if (a.Len > cap)
+                throw new InvalidOperationException("FixedArith: result beyond its bound");
+            return a;
         }
 
         // |a| + |b|
-        static FixedInt add_mag(FixedInt a, FixedInt b, bool neg, ref FixedArena ar)
+        static FixedInt add_mag(FixedInt a, FixedInt b, bool neg, ulong* r, int cap)
         {
             if (a.Len < b.Len) { FixedInt t = a; a = b; b = t; }
-            ulong* r = ar.Take(a.Len + 1);
+            if (a.Len > cap)
+                throw new InvalidOperationException("FixedArith: sum beyond its bound");
             ulong carry = 0;
             for (int k = 0; k < a.Len; ++k) {
                 ulong x = a.P[k], y = (k < b.Len) ? b.P[k] : 0;
@@ -359,14 +410,19 @@ namespace g3
                 carry = c1 + ((s2 < carry) ? 1UL : 0UL);
                 r[k] = s2;
             }
+            if (carry == 0)
+                return new FixedInt(r, a.Len, neg);
+            if (a.Len == cap)
+                throw new InvalidOperationException("FixedArith: sum beyond its bound");
             r[a.Len] = carry;
-            return new FixedInt(r, a.Len + (carry != 0 ? 1 : 0), neg);
+            return new FixedInt(r, a.Len + 1, neg);
         }
 
         // |a| - |b| for |a| > |b|
-        static FixedInt sub_mag(FixedInt a, FixedInt b, bool neg, ref FixedArena ar)
+        static FixedInt sub_mag(FixedInt a, FixedInt b, bool neg, ulong* r, int cap)
         {
-            ulong* r = ar.Take(a.Len);
+            if (a.Len > cap)
+                throw new InvalidOperationException("FixedArith: sum beyond its bound");
             ulong borrow = 0;
             for (int k = 0; k < a.Len; ++k) {
                 ulong x = a.P[k], y = (k < b.Len) ? b.P[k] : 0;
