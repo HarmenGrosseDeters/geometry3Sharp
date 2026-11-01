@@ -201,11 +201,59 @@ namespace geometry3Sharp.Tests
                     Assert.Equal("", MeshRobustRepair.NotCleanReason(r.Mesh));
                 }
             }
+            // the 2^k scales give the same result bit for bit
+            DMesh3 reference = null;
+            foreach (Similarity s in Similarity.All()) {
+                if (s.IsExact == false) continue;
+                var r = new MeshRobustRepair(Invariance.Transformed(OverlappingSpheres(), s));
+                Assert.True(r.Apply());
+                DMesh3 back = Invariance.MappedBack(r.Mesh, s);
+                if (reference == null) reference = back;
+                else Assert.Equal("", Invariance.Difference(reference, back));
+            }
             // without the exact stage the unclean result's volume is checked where it was (it decides UsedInput)
             var noExact = new MeshRobustRepair(OverlappingSpheres()) { ExactResolve = false };
             Assert.True(noExact.Apply());
             Assert.Equal(1, noExact.VolumeChecksRun);
             Assert.False(noExact.UsedInput);
+        }
+
+        [Fact]
+        public void UncleanResultNotResolved_VolumeCheckedBeforeTheInputResolve()
+        {
+            // the repair loses a sphere and leaves the other one open: its exact resolve fails (not closed), then the
+            // deferred check of its volume sends the fallbacks to the input, whose resolve is checked as well
+            DMesh3 a = Sphere(1, Vector3d.Zero), b = Sphere(1, new Vector3d(3, 0, 0));
+            DMesh3 input = new DMesh3(a);
+            MeshEditor.Append(input, b);
+            Func<DMesh3, DMesh3> openA = (m) => {
+                DMesh3 c = new DMesh3(a);
+                foreach (int t in c.TriangleIndices().ToArray())
+                    if (c.GetTriCentroid(t).z > 0.95) c.RemoveTriangle(t);
+                return c;
+            };
+            var r = new MeshRobustRepair(new DMesh3(input)) { RepairF = openA };
+            Assert.True(r.Apply());
+            Assert.Equal("not closed", r.FallbackReason);
+            Assert.True(r.UsedInput);
+            Assert.True(r.UsedExactResolve, r.ExactResolveReason);
+            Assert.Equal(2, r.VolumeChecksRun);
+            Assert.True(r.RepairVolumeIoU > 0.99, $"IoU {r.RepairVolumeIoU}");
+        }
+
+        [Fact]
+        public void EmptyInput_UncleanRepairResult_StopsBeforeTheFallbacks()
+        {
+            // an input without triangles and a repair (RepairF) that makes an unclean mesh: the volume check sends the
+            // fallbacks to the empty input, and Apply() stops there, without resolving or solidifying anything
+            var r = new MeshRobustRepair(new DMesh3()) { RepairF = (m) => OverlappingSpheres() };
+            Assert.False(r.Apply());
+            Assert.Equal("self-intersections", r.FallbackReason);
+            Assert.True(r.UsedInput);
+            Assert.Equal(1, r.VolumeChecksRun);
+            Assert.False(r.UsedExactResolve);
+            Assert.Null(r.Solidify);
+            Assert.Null(r.AlphaWrap);
         }
 
         [Fact]

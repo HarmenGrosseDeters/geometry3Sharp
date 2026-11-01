@@ -261,6 +261,7 @@ namespace gs
             FallbackReason = NotCleanReason(result, CheckSelfIntersections);
             end_phase("check");
             DMesh3 solidifyFrom = result;
+            bool uncleanVolumePending = false;
             if (FallbackReason == "") {
                 // (NaN: the input has no solid to compare with, accepted)
                 string differs = volume_check(input, result, out RepairVolumeIoU);
@@ -271,14 +272,15 @@ namespace gs
                 end_phase("volume");
             } else if (result.TriangleCount == 0) {
                 solidifyFrom = input;
-            } else if (ExactResolve == false) {
+            } else if (ExactResolve == false || input.TriangleCount == 0) {
+                // (an empty input: the check sends the fallbacks to it, and Apply() stops below, as before)
                 unclean_result_volume(input, result, ref solidifyFrom);
+            } else {
+                // with ExactResolve, the volume of an unclean result is checked only if its exact resolve fails: a
+                // successful one replaces UsedInput and RepairVolumeIoU, and solidifyFrom is not used. The check, and
+                // so its outputs, are the same as if it had run here
+                uncleanVolumePending = true;
             }
-            // (with ExactResolve, the volume of an unclean result is checked only if its exact resolve fails: a
-            // successful one replaces UsedInput and RepairVolumeIoU, and solidifyFrom is not used. The check, and
-            // so its outputs, are the same as if it had run here)
-            bool uncleanVolumePending = FallbackReason != "" && FallbackReason != VolumeDiffers && FallbackReason != PartsLost
-                && result.TriangleCount > 0 && ExactResolve;
             UsedInput = solidifyFrom == input;
             if (FallbackReason == "") {
                 Mesh = result;
