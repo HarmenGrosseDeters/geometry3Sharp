@@ -2,7 +2,7 @@
 
 Status: **implemented** (design approved by the owner, 4 limbs per component). Tier L
 ([AGENT_WORKFLOW.md](../AGENT_WORKFLOW.md)). Results in section 11: `nary grid 10 onepass` **−25 %** (7291 -> 5481 ms),
-GC pauses −48 %, allocations −66 %, bit-identical.
+GC pauses −48 %, allocations −66 %; real-world classes −8..−11 %; bit-identical (`exact_hashes.sh`: 0 differences).
 
 ## 1. Goal and hypothesis
 
@@ -344,6 +344,24 @@ Same hash and triangle count for every run of every tool.
 Live objects on the heap (`dotnet-gcdump`, grid 10, in the triangulation / in the classification): A 650k / 1.07M,
 B 259k / 419k.
 
+**Real-world classes** (`perf/run_classes.sh`, warm, best of 3 per case and operation; two rounds A1 G1 A2 G2 in one
+session; `python3 perf/summary.py`). Total of the best times, both rounds, and the GC share:
+
+| class | A | G | change | GC share A -> G |
+|---|---|---|---|---|
+| `cherchi` (13 cases, 39 runs) | 30.30 / 30.22 s | 28.68 / 27.05 s | −8 % | 25 % -> 23 % |
+| `cgal` (50, 150 runs) | 13.86 / 14.47 s | 12.71 / 13.21 s | −8 % | 17 % -> 13 % |
+| Thingi10K (32, 96 runs) | 13.26 / 12.96 s | 11.31 / 12.09 s | −11 % | 19 % -> 15 % |
+| n-ary (grid 5, grid 10, spheres 20) | 9.55 / 9.06 s | 6.75 / 7.04 s | −26 % | 25 % -> 17 % |
+
+The allocations per run of the real-world classes are unchanged (307 / 37 / 53 MB), but the GC share drops: their
+exact input points were long-lived `ExactBox` objects with digit arrays too. (The machine was slower than in the
+hand-over's measurements, cherchi 30 s against 15 s there; only the comparison within the session counts.)
+
+**Bit identity:** `perf/exact_hashes.sh` (263 runs: all `cgal` and Thingi10K cases, 5 `cherchi` cases, grid 5,
+spheres 20, each with the hash of the result mesh and of the exact vertices) against
+`perf/exact_hashes_reference.jsonl`: **0 differences** for A and for G.
+
 **Follow-ups in G** (each measured by allocation on grid 10, same hash):
 
 | change | allocated |
@@ -383,5 +401,3 @@ heap (`GC.AllocateArray(pinned: true)`, so that they are never copied): no gain 
 4. **The predicate compiler of #221** as the tool that derives the bounds of 1 and 3 (instead of hand tables like
    section 5), generating against `FixedArith` (one runtime instead of `IntegerRuntime` beside it); unrolled kernels
    of fixed shape only where a measurement shows the exact stages matter.
-5. Real-world classes (`cgal`, Thingi10K, `cherchi`) and `perf/exact_hashes.sh` were not run here (the data was not
-   fetched in this session); their exact stages are rare, so little gain is expected there, but it is not measured.
