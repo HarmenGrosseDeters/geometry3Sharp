@@ -221,6 +221,16 @@ public documentation only. The user's company code was not looked at.
 | Contour lofting (compared) | H. Fuchs, Z. M. Kedem, S. P. Uselton, *Optimal surface reconstruction from planar contours*, CACM 1977; E. Keppel 1975; H. N. Christiansen, T. W. Sederberg 1978; D. Meyers, S. Skinner, K. Sloan, *Surfaces from contours*, ACM TOG 1992; G. Barequet, M. Sharir 1996 |
 | Volume per cell (compared) | D. Powell, T. Abel, *An exact general remeshing scheme applied to physically conservative voxelization*, J. Comput. Phys. 297, 2015. Code r3d: current files under a LANL / DOE notice (copy and use only), the 2015 code BSD-3 with an enhancements clause; not ported |
 
+## 2D polygon booleans and offsets (`addons/geometry3Sharp.Clipper2`: `Clipper2Polygons`, `ClipperFrame`)
+
+An optional package that calls a library; no code taken over.
+
+| Part | Source |
+|---|---|
+| Booleans, fill rules, open-path clipping, offsets (join and end types, miter limit, arc tolerance), Minkowski sums, path simplification | **Clipper2 2.0.0** by Angus Johnson, Boost Software License 1.0 (https://github.com/AngusJohnson/Clipper2; the `License.txt` in the NuGet package `Clipper2` is BSL-1.0, checked 2026-11-01). A package dependency of `geometry3Sharp.Clipper2`, not of `geometry3Sharp`. Only its public API is used. Not taken from the DAP fork's `Clipper2Wrapper.cs` ([audit](design/DAP_BUGFIX_AUDIT.md#features-not-adopted-each-needs-its-own-provenance-decision)), which was not read for this |
+| The integer grid (`ClipperFrame`: origin at the bounds center, power-of-two scale fitted to the extent plus the offset margin) | own construction, after the integer grid of `ExactMeshArrangement` |
+| Filled Minkowski sum from the boundary sweep: A ⊕ B = (∂A ⊕ ∂B) ∪ (a + B) ∪ (A + b) for connected A, B | standard (eg M. de Berg et al., *Computational Geometry*, 3rd ed. 2008, ch. 13); own reasoning for the union with one copy each |
+
 ## Test harness (`tests/geometry3Sharp.Tests/Harness/`)
 
 Implemented from the paper, no code taken over.
