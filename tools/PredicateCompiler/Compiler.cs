@@ -411,7 +411,9 @@ namespace G3PredicateCompiler
         {
             int L = p.InputBits / 64;
             var inputs = p.Nodes.Where(n => n.Op == Op.Input).ToList();
-            sb.Append($"{I2}ulong* __v = stackalloc ulong[{inv(inputs.Count * L)}];\n");
+            // one buffer per input (no pointer arithmetic: nothing to get wrong, and no equivalent mutants)
+            for (int i = 0; i < inputs.Count; ++i)
+                sb.Append($"{I2}ulong* __i{inv(i)} = stackalloc ulong[{inv(L)}];\n");
             // one constant for the buffer and the arena: they cannot disagree (the arena's Take checks against it)
             sb.Append($"{I2}const int __n = {inv(p.ArenaScratch)};\n");
             sb.Append($"{I2}ulong* __s = stackalloc ulong[__n];\n");
@@ -419,7 +421,7 @@ namespace G3PredicateCompiler
             int k = 0;
             foreach (var n in p.Nodes) {
                 string code = n.Op == Op.Input
-                    ? $"FixedInt {val(n)} = {load(n, "__v + " + inv(L * k++))};"
+                    ? $"FixedInt {val(n)} = {load(n, "__i" + inv(k++))};"
                     : $"FixedInt {val(n)} = FixedArith.{(n.Op == Op.Mul ? "Mul" : n.Op == Op.Add ? "Add" : "Sub")}({val(n.A)}, {val(n.B)}, ref __ar);";
                 sb.Append($"{I2}{code}".PadRight(84)).Append($" // {(n.Op == Op.Input ? ref_(n) : describe(n))}: <= {n.Bound}\n");
             }

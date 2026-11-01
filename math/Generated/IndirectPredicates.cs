@@ -39,24 +39,47 @@ namespace g3
                 throw new ArgumentException("Orient3dLPI: the inputs must be integer points (W = 1)");
             if (!(__len(ref s, 0) <= 1 && __len(ref r, 0) <= 1 && __len(ref s, 1) <= 1 && __len(ref r, 1) <= 1 && __len(ref s, 2) <= 1 && __len(ref r, 2) <= 1 && __len(ref t, 0) <= 1 && __len(ref t, 1) <= 1 && __len(ref t, 2) <= 1 && __len(ref p, 0) <= 1 && __len(ref p, 1) <= 1 && __len(ref p, 2) <= 1 && __len(ref q, 0) <= 1 && __len(ref q, 1) <= 1 && __len(ref q, 2) <= 1 && __len(ref c, 0) <= 1 && __len(ref c, 1) <= 1 && __len(ref c, 2) <= 1 && __len(ref a, 0) <= 1 && __len(ref a, 1) <= 1 && __len(ref a, 2) <= 1 && __len(ref b, 0) <= 1 && __len(ref b, 1) <= 1 && __len(ref b, 2) <= 1))
                 return Orient3dLPIBig(p.ToExact(), q.ToExact(), r.ToExact(), s.ToExact(), t.ToExact(), a.ToExact(), b.ToExact(), c.ToExact());
-            ulong* __v = stackalloc ulong[24];
+            ulong* __i0 = stackalloc ulong[1];
+            ulong* __i1 = stackalloc ulong[1];
+            ulong* __i2 = stackalloc ulong[1];
+            ulong* __i3 = stackalloc ulong[1];
+            ulong* __i4 = stackalloc ulong[1];
+            ulong* __i5 = stackalloc ulong[1];
+            ulong* __i6 = stackalloc ulong[1];
+            ulong* __i7 = stackalloc ulong[1];
+            ulong* __i8 = stackalloc ulong[1];
+            ulong* __i9 = stackalloc ulong[1];
+            ulong* __i10 = stackalloc ulong[1];
+            ulong* __i11 = stackalloc ulong[1];
+            ulong* __i12 = stackalloc ulong[1];
+            ulong* __i13 = stackalloc ulong[1];
+            ulong* __i14 = stackalloc ulong[1];
+            ulong* __i15 = stackalloc ulong[1];
+            ulong* __i16 = stackalloc ulong[1];
+            ulong* __i17 = stackalloc ulong[1];
+            ulong* __i18 = stackalloc ulong[1];
+            ulong* __i19 = stackalloc ulong[1];
+            ulong* __i20 = stackalloc ulong[1];
+            ulong* __i21 = stackalloc ulong[1];
+            ulong* __i22 = stackalloc ulong[1];
+            ulong* __i23 = stackalloc ulong[1];
             const int __n = 284;
             ulong* __s = stackalloc ulong[__n];
             var __ar = new FixedArena(__s, __n);
-            FixedInt s_x = s.Get(0, __v + 0);                                        // s.x: <= m
-            FixedInt r_x = r.Get(0, __v + 1);                                        // r.x: <= m
+            FixedInt s_x = s.Get(0, __i0);                                           // s.x: <= m
+            FixedInt r_x = r.Get(0, __i1);                                           // r.x: <= m
             FixedInt _v2 = FixedArith.Sub(s_x, r_x, ref __ar);                       // ux = s.x - r.x: <= 2 m
-            FixedInt s_y = s.Get(1, __v + 2);                                        // s.y: <= m
-            FixedInt r_y = r.Get(1, __v + 3);                                        // r.y: <= m
+            FixedInt s_y = s.Get(1, __i2);                                           // s.y: <= m
+            FixedInt r_y = r.Get(1, __i3);                                           // r.y: <= m
             FixedInt _v5 = FixedArith.Sub(s_y, r_y, ref __ar);                       // uy = s.y - r.y: <= 2 m
-            FixedInt s_z = s.Get(2, __v + 4);                                        // s.z: <= m
-            FixedInt r_z = r.Get(2, __v + 5);                                        // r.z: <= m
+            FixedInt s_z = s.Get(2, __i4);                                           // s.z: <= m
+            FixedInt r_z = r.Get(2, __i5);                                           // r.z: <= m
             FixedInt _v8 = FixedArith.Sub(s_z, r_z, ref __ar);                       // uz = s.z - r.z: <= 2 m
-            FixedInt t_x = t.Get(0, __v + 6);                                        // t.x: <= m
+            FixedInt t_x = t.Get(0, __i6);                                           // t.x: <= m
             FixedInt _v10 = FixedArith.Sub(t_x, r_x, ref __ar);                      // wx = t.x - r.x: <= 2 m
-            FixedInt t_y = t.Get(1, __v + 7);                                        // t.y: <= m
+            FixedInt t_y = t.Get(1, __i7);                                           // t.y: <= m
             FixedInt _v12 = FixedArith.Sub(t_y, r_y, ref __ar);                      // wy = t.y - r.y: <= 2 m
-            FixedInt t_z = t.Get(2, __v + 8);                                        // t.z: <= m
+            FixedInt t_z = t.Get(2, __i8);                                           // t.z: <= m
             FixedInt _v14 = FixedArith.Sub(t_z, r_z, ref __ar);                      // wz = t.z - r.z: <= 2 m
             FixedInt _v15 = FixedArith.Mul(_v5, _v14, ref __ar);                     // uy * wz: <= 4 m^2
             FixedInt _v16 = FixedArith.Mul(_v8, _v12, ref __ar);                     // uz * wy: <= 4 m^2
@@ -67,17 +90,17 @@ namespace g3
             FixedInt _v21 = FixedArith.Mul(_v2, _v12, ref __ar);                     // ux * wy: <= 4 m^2
             FixedInt _v22 = FixedArith.Mul(_v5, _v10, ref __ar);                     // uy * wx: <= 4 m^2
             FixedInt _v23 = FixedArith.Sub(_v21, _v22, ref __ar);                    // nz = (ux * wy) - (uy * wx): <= 8 m^2
-            FixedInt p_x = p.Get(0, __v + 9);                                        // p.x: <= m
+            FixedInt p_x = p.Get(0, __i9);                                           // p.x: <= m
             FixedInt _v25 = FixedArith.Sub(p_x, r_x, ref __ar);                      // prx = p.x - r.x: <= 2 m
-            FixedInt p_y = p.Get(1, __v + 10);                                       // p.y: <= m
+            FixedInt p_y = p.Get(1, __i10);                                          // p.y: <= m
             FixedInt _v27 = FixedArith.Sub(p_y, r_y, ref __ar);                      // pry = p.y - r.y: <= 2 m
-            FixedInt p_z = p.Get(2, __v + 11);                                       // p.z: <= m
+            FixedInt p_z = p.Get(2, __i11);                                          // p.z: <= m
             FixedInt _v29 = FixedArith.Sub(p_z, r_z, ref __ar);                      // prz = p.z - r.z: <= 2 m
-            FixedInt q_x = q.Get(0, __v + 12);                                       // q.x: <= m
+            FixedInt q_x = q.Get(0, __i12);                                          // q.x: <= m
             FixedInt _v31 = FixedArith.Sub(q_x, r_x, ref __ar);                      // qrx = q.x - r.x: <= 2 m
-            FixedInt q_y = q.Get(1, __v + 13);                                       // q.y: <= m
+            FixedInt q_y = q.Get(1, __i13);                                          // q.y: <= m
             FixedInt _v33 = FixedArith.Sub(q_y, r_y, ref __ar);                      // qry = q.y - r.y: <= 2 m
-            FixedInt q_z = q.Get(2, __v + 14);                                       // q.z: <= m
+            FixedInt q_z = q.Get(2, __i14);                                          // q.z: <= m
             FixedInt _v35 = FixedArith.Sub(q_z, r_z, ref __ar);                      // qrz = q.z - r.z: <= 2 m
             FixedInt _v36 = FixedArith.Mul(_v17, _v25, ref __ar);                    // nx * prx: <= 16 m^3
             FixedInt _v37 = FixedArith.Mul(_v20, _v27, ref __ar);                    // ny * pry: <= 16 m^3
@@ -93,32 +116,32 @@ namespace g3
             FixedInt _v47 = FixedArith.Mul(p_x, _v45, ref __ar);                     // p.x * lq: <= 48 m^4
             FixedInt _v48 = FixedArith.Mul(q_x, _v40, ref __ar);                     // q.x * lp: <= 48 m^4
             FixedInt _v49 = FixedArith.Sub(_v47, _v48, ref __ar);                    // (p.x * lq) - (q.x * lp): <= 96 m^4
-            FixedInt c_x = c.Get(0, __v + 15);                                       // c.x: <= m
+            FixedInt c_x = c.Get(0, __i15);                                          // c.x: <= m
             FixedInt _v51 = FixedArith.Mul(_v46, c_x, ref __ar);                     // d * c.x: <= 96 m^4
             FixedInt _v52 = FixedArith.Sub(_v49, _v51, ref __ar);                    // Nx = ((p.x * lq) - (q.x * lp)) - (d * c.x): <= 192 m^4
             FixedInt _v53 = FixedArith.Mul(p_y, _v45, ref __ar);                     // p.y * lq: <= 48 m^4
             FixedInt _v54 = FixedArith.Mul(q_y, _v40, ref __ar);                     // q.y * lp: <= 48 m^4
             FixedInt _v55 = FixedArith.Sub(_v53, _v54, ref __ar);                    // (p.y * lq) - (q.y * lp): <= 96 m^4
-            FixedInt c_y = c.Get(1, __v + 16);                                       // c.y: <= m
+            FixedInt c_y = c.Get(1, __i16);                                          // c.y: <= m
             FixedInt _v57 = FixedArith.Mul(_v46, c_y, ref __ar);                     // d * c.y: <= 96 m^4
             FixedInt _v58 = FixedArith.Sub(_v55, _v57, ref __ar);                    // Ny = ((p.y * lq) - (q.y * lp)) - (d * c.y): <= 192 m^4
             FixedInt _v59 = FixedArith.Mul(p_z, _v45, ref __ar);                     // p.z * lq: <= 48 m^4
             FixedInt _v60 = FixedArith.Mul(q_z, _v40, ref __ar);                     // q.z * lp: <= 48 m^4
             FixedInt _v61 = FixedArith.Sub(_v59, _v60, ref __ar);                    // (p.z * lq) - (q.z * lp): <= 96 m^4
-            FixedInt c_z = c.Get(2, __v + 17);                                       // c.z: <= m
+            FixedInt c_z = c.Get(2, __i17);                                          // c.z: <= m
             FixedInt _v63 = FixedArith.Mul(_v46, c_z, ref __ar);                     // d * c.z: <= 96 m^4
             FixedInt _v64 = FixedArith.Sub(_v61, _v63, ref __ar);                    // Nz = ((p.z * lq) - (q.z * lp)) - (d * c.z): <= 192 m^4
-            FixedInt a_x = a.Get(0, __v + 18);                                       // a.x: <= m
+            FixedInt a_x = a.Get(0, __i18);                                          // a.x: <= m
             FixedInt _v66 = FixedArith.Sub(a_x, c_x, ref __ar);                      // acx = a.x - c.x: <= 2 m
-            FixedInt a_y = a.Get(1, __v + 19);                                       // a.y: <= m
+            FixedInt a_y = a.Get(1, __i19);                                          // a.y: <= m
             FixedInt _v68 = FixedArith.Sub(a_y, c_y, ref __ar);                      // acy = a.y - c.y: <= 2 m
-            FixedInt a_z = a.Get(2, __v + 20);                                       // a.z: <= m
+            FixedInt a_z = a.Get(2, __i20);                                          // a.z: <= m
             FixedInt _v70 = FixedArith.Sub(a_z, c_z, ref __ar);                      // acz = a.z - c.z: <= 2 m
-            FixedInt b_x = b.Get(0, __v + 21);                                       // b.x: <= m
+            FixedInt b_x = b.Get(0, __i21);                                          // b.x: <= m
             FixedInt _v72 = FixedArith.Sub(b_x, c_x, ref __ar);                      // bcx = b.x - c.x: <= 2 m
-            FixedInt b_y = b.Get(1, __v + 22);                                       // b.y: <= m
+            FixedInt b_y = b.Get(1, __i22);                                          // b.y: <= m
             FixedInt _v74 = FixedArith.Sub(b_y, c_y, ref __ar);                      // bcy = b.y - c.y: <= 2 m
-            FixedInt b_z = b.Get(2, __v + 23);                                       // b.z: <= m
+            FixedInt b_z = b.Get(2, __i23);                                          // b.z: <= m
             FixedInt _v76 = FixedArith.Sub(b_z, c_z, ref __ar);                      // bcz = b.z - c.z: <= 2 m
             FixedInt _v77 = FixedArith.Mul(_v68, _v76, ref __ar);                    // acy * bcz: <= 4 m^2
             FixedInt _v78 = FixedArith.Mul(_v70, _v74, ref __ar);                    // acz * bcy: <= 4 m^2
@@ -265,24 +288,47 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         internal static int Orient3dLPIExact(Vector3d p, Vector3d q, Vector3d r, Vector3d s, Vector3d t, Vector3d a, Vector3d b, Vector3d c)
         {
-            ulong* __v = stackalloc ulong[24];
+            ulong* __i0 = stackalloc ulong[1];
+            ulong* __i1 = stackalloc ulong[1];
+            ulong* __i2 = stackalloc ulong[1];
+            ulong* __i3 = stackalloc ulong[1];
+            ulong* __i4 = stackalloc ulong[1];
+            ulong* __i5 = stackalloc ulong[1];
+            ulong* __i6 = stackalloc ulong[1];
+            ulong* __i7 = stackalloc ulong[1];
+            ulong* __i8 = stackalloc ulong[1];
+            ulong* __i9 = stackalloc ulong[1];
+            ulong* __i10 = stackalloc ulong[1];
+            ulong* __i11 = stackalloc ulong[1];
+            ulong* __i12 = stackalloc ulong[1];
+            ulong* __i13 = stackalloc ulong[1];
+            ulong* __i14 = stackalloc ulong[1];
+            ulong* __i15 = stackalloc ulong[1];
+            ulong* __i16 = stackalloc ulong[1];
+            ulong* __i17 = stackalloc ulong[1];
+            ulong* __i18 = stackalloc ulong[1];
+            ulong* __i19 = stackalloc ulong[1];
+            ulong* __i20 = stackalloc ulong[1];
+            ulong* __i21 = stackalloc ulong[1];
+            ulong* __i22 = stackalloc ulong[1];
+            ulong* __i23 = stackalloc ulong[1];
             const int __n = 284;
             ulong* __s = stackalloc ulong[__n];
             var __ar = new FixedArena(__s, __n);
-            FixedInt s_x = __load(s.x, __v + 0);                                     // s.x: <= m
-            FixedInt r_x = __load(r.x, __v + 1);                                     // r.x: <= m
+            FixedInt s_x = __load(s.x, __i0);                                        // s.x: <= m
+            FixedInt r_x = __load(r.x, __i1);                                        // r.x: <= m
             FixedInt _v2 = FixedArith.Sub(s_x, r_x, ref __ar);                       // ux = s.x - r.x: <= 2 m
-            FixedInt s_y = __load(s.y, __v + 2);                                     // s.y: <= m
-            FixedInt r_y = __load(r.y, __v + 3);                                     // r.y: <= m
+            FixedInt s_y = __load(s.y, __i2);                                        // s.y: <= m
+            FixedInt r_y = __load(r.y, __i3);                                        // r.y: <= m
             FixedInt _v5 = FixedArith.Sub(s_y, r_y, ref __ar);                       // uy = s.y - r.y: <= 2 m
-            FixedInt s_z = __load(s.z, __v + 4);                                     // s.z: <= m
-            FixedInt r_z = __load(r.z, __v + 5);                                     // r.z: <= m
+            FixedInt s_z = __load(s.z, __i4);                                        // s.z: <= m
+            FixedInt r_z = __load(r.z, __i5);                                        // r.z: <= m
             FixedInt _v8 = FixedArith.Sub(s_z, r_z, ref __ar);                       // uz = s.z - r.z: <= 2 m
-            FixedInt t_x = __load(t.x, __v + 6);                                     // t.x: <= m
+            FixedInt t_x = __load(t.x, __i6);                                        // t.x: <= m
             FixedInt _v10 = FixedArith.Sub(t_x, r_x, ref __ar);                      // wx = t.x - r.x: <= 2 m
-            FixedInt t_y = __load(t.y, __v + 7);                                     // t.y: <= m
+            FixedInt t_y = __load(t.y, __i7);                                        // t.y: <= m
             FixedInt _v12 = FixedArith.Sub(t_y, r_y, ref __ar);                      // wy = t.y - r.y: <= 2 m
-            FixedInt t_z = __load(t.z, __v + 8);                                     // t.z: <= m
+            FixedInt t_z = __load(t.z, __i8);                                        // t.z: <= m
             FixedInt _v14 = FixedArith.Sub(t_z, r_z, ref __ar);                      // wz = t.z - r.z: <= 2 m
             FixedInt _v15 = FixedArith.Mul(_v5, _v14, ref __ar);                     // uy * wz: <= 4 m^2
             FixedInt _v16 = FixedArith.Mul(_v8, _v12, ref __ar);                     // uz * wy: <= 4 m^2
@@ -293,17 +339,17 @@ namespace g3
             FixedInt _v21 = FixedArith.Mul(_v2, _v12, ref __ar);                     // ux * wy: <= 4 m^2
             FixedInt _v22 = FixedArith.Mul(_v5, _v10, ref __ar);                     // uy * wx: <= 4 m^2
             FixedInt _v23 = FixedArith.Sub(_v21, _v22, ref __ar);                    // nz = (ux * wy) - (uy * wx): <= 8 m^2
-            FixedInt p_x = __load(p.x, __v + 9);                                     // p.x: <= m
+            FixedInt p_x = __load(p.x, __i9);                                        // p.x: <= m
             FixedInt _v25 = FixedArith.Sub(p_x, r_x, ref __ar);                      // prx = p.x - r.x: <= 2 m
-            FixedInt p_y = __load(p.y, __v + 10);                                    // p.y: <= m
+            FixedInt p_y = __load(p.y, __i10);                                       // p.y: <= m
             FixedInt _v27 = FixedArith.Sub(p_y, r_y, ref __ar);                      // pry = p.y - r.y: <= 2 m
-            FixedInt p_z = __load(p.z, __v + 11);                                    // p.z: <= m
+            FixedInt p_z = __load(p.z, __i11);                                       // p.z: <= m
             FixedInt _v29 = FixedArith.Sub(p_z, r_z, ref __ar);                      // prz = p.z - r.z: <= 2 m
-            FixedInt q_x = __load(q.x, __v + 12);                                    // q.x: <= m
+            FixedInt q_x = __load(q.x, __i12);                                       // q.x: <= m
             FixedInt _v31 = FixedArith.Sub(q_x, r_x, ref __ar);                      // qrx = q.x - r.x: <= 2 m
-            FixedInt q_y = __load(q.y, __v + 13);                                    // q.y: <= m
+            FixedInt q_y = __load(q.y, __i13);                                       // q.y: <= m
             FixedInt _v33 = FixedArith.Sub(q_y, r_y, ref __ar);                      // qry = q.y - r.y: <= 2 m
-            FixedInt q_z = __load(q.z, __v + 14);                                    // q.z: <= m
+            FixedInt q_z = __load(q.z, __i14);                                       // q.z: <= m
             FixedInt _v35 = FixedArith.Sub(q_z, r_z, ref __ar);                      // qrz = q.z - r.z: <= 2 m
             FixedInt _v36 = FixedArith.Mul(_v17, _v25, ref __ar);                    // nx * prx: <= 16 m^3
             FixedInt _v37 = FixedArith.Mul(_v20, _v27, ref __ar);                    // ny * pry: <= 16 m^3
@@ -319,32 +365,32 @@ namespace g3
             FixedInt _v47 = FixedArith.Mul(p_x, _v45, ref __ar);                     // p.x * lq: <= 48 m^4
             FixedInt _v48 = FixedArith.Mul(q_x, _v40, ref __ar);                     // q.x * lp: <= 48 m^4
             FixedInt _v49 = FixedArith.Sub(_v47, _v48, ref __ar);                    // (p.x * lq) - (q.x * lp): <= 96 m^4
-            FixedInt c_x = __load(c.x, __v + 15);                                    // c.x: <= m
+            FixedInt c_x = __load(c.x, __i15);                                       // c.x: <= m
             FixedInt _v51 = FixedArith.Mul(_v46, c_x, ref __ar);                     // d * c.x: <= 96 m^4
             FixedInt _v52 = FixedArith.Sub(_v49, _v51, ref __ar);                    // Nx = ((p.x * lq) - (q.x * lp)) - (d * c.x): <= 192 m^4
             FixedInt _v53 = FixedArith.Mul(p_y, _v45, ref __ar);                     // p.y * lq: <= 48 m^4
             FixedInt _v54 = FixedArith.Mul(q_y, _v40, ref __ar);                     // q.y * lp: <= 48 m^4
             FixedInt _v55 = FixedArith.Sub(_v53, _v54, ref __ar);                    // (p.y * lq) - (q.y * lp): <= 96 m^4
-            FixedInt c_y = __load(c.y, __v + 16);                                    // c.y: <= m
+            FixedInt c_y = __load(c.y, __i16);                                       // c.y: <= m
             FixedInt _v57 = FixedArith.Mul(_v46, c_y, ref __ar);                     // d * c.y: <= 96 m^4
             FixedInt _v58 = FixedArith.Sub(_v55, _v57, ref __ar);                    // Ny = ((p.y * lq) - (q.y * lp)) - (d * c.y): <= 192 m^4
             FixedInt _v59 = FixedArith.Mul(p_z, _v45, ref __ar);                     // p.z * lq: <= 48 m^4
             FixedInt _v60 = FixedArith.Mul(q_z, _v40, ref __ar);                     // q.z * lp: <= 48 m^4
             FixedInt _v61 = FixedArith.Sub(_v59, _v60, ref __ar);                    // (p.z * lq) - (q.z * lp): <= 96 m^4
-            FixedInt c_z = __load(c.z, __v + 17);                                    // c.z: <= m
+            FixedInt c_z = __load(c.z, __i17);                                       // c.z: <= m
             FixedInt _v63 = FixedArith.Mul(_v46, c_z, ref __ar);                     // d * c.z: <= 96 m^4
             FixedInt _v64 = FixedArith.Sub(_v61, _v63, ref __ar);                    // Nz = ((p.z * lq) - (q.z * lp)) - (d * c.z): <= 192 m^4
-            FixedInt a_x = __load(a.x, __v + 18);                                    // a.x: <= m
+            FixedInt a_x = __load(a.x, __i18);                                       // a.x: <= m
             FixedInt _v66 = FixedArith.Sub(a_x, c_x, ref __ar);                      // acx = a.x - c.x: <= 2 m
-            FixedInt a_y = __load(a.y, __v + 19);                                    // a.y: <= m
+            FixedInt a_y = __load(a.y, __i19);                                       // a.y: <= m
             FixedInt _v68 = FixedArith.Sub(a_y, c_y, ref __ar);                      // acy = a.y - c.y: <= 2 m
-            FixedInt a_z = __load(a.z, __v + 20);                                    // a.z: <= m
+            FixedInt a_z = __load(a.z, __i20);                                       // a.z: <= m
             FixedInt _v70 = FixedArith.Sub(a_z, c_z, ref __ar);                      // acz = a.z - c.z: <= 2 m
-            FixedInt b_x = __load(b.x, __v + 21);                                    // b.x: <= m
+            FixedInt b_x = __load(b.x, __i21);                                       // b.x: <= m
             FixedInt _v72 = FixedArith.Sub(b_x, c_x, ref __ar);                      // bcx = b.x - c.x: <= 2 m
-            FixedInt b_y = __load(b.y, __v + 22);                                    // b.y: <= m
+            FixedInt b_y = __load(b.y, __i22);                                       // b.y: <= m
             FixedInt _v74 = FixedArith.Sub(b_y, c_y, ref __ar);                      // bcy = b.y - c.y: <= 2 m
-            FixedInt b_z = __load(b.z, __v + 23);                                    // b.z: <= m
+            FixedInt b_z = __load(b.z, __i23);                                       // b.z: <= m
             FixedInt _v76 = FixedArith.Sub(b_z, c_z, ref __ar);                      // bcz = b.z - c.z: <= 2 m
             FixedInt _v77 = FixedArith.Mul(_v68, _v76, ref __ar);                    // acy * bcz: <= 4 m^2
             FixedInt _v78 = FixedArith.Mul(_v70, _v74, ref __ar);                    // acz * bcy: <= 4 m^2
@@ -476,24 +522,59 @@ namespace g3
                 throw new ArgumentException("Orient3dTPI: the inputs must be integer points (W = 1)");
             if (!(__len(ref b1, 0) <= 1 && __len(ref a1, 0) <= 1 && __len(ref b1, 1) <= 1 && __len(ref a1, 1) <= 1 && __len(ref b1, 2) <= 1 && __len(ref a1, 2) <= 1 && __len(ref c1, 0) <= 1 && __len(ref c1, 1) <= 1 && __len(ref c1, 2) <= 1 && __len(ref b2, 0) <= 1 && __len(ref a2, 0) <= 1 && __len(ref b2, 1) <= 1 && __len(ref a2, 1) <= 1 && __len(ref b2, 2) <= 1 && __len(ref a2, 2) <= 1 && __len(ref c2, 0) <= 1 && __len(ref c2, 1) <= 1 && __len(ref c2, 2) <= 1 && __len(ref b3, 0) <= 1 && __len(ref a3, 0) <= 1 && __len(ref b3, 1) <= 1 && __len(ref a3, 1) <= 1 && __len(ref b3, 2) <= 1 && __len(ref a3, 2) <= 1 && __len(ref c3, 0) <= 1 && __len(ref c3, 1) <= 1 && __len(ref c3, 2) <= 1 && __len(ref c, 0) <= 1 && __len(ref c, 1) <= 1 && __len(ref c, 2) <= 1 && __len(ref a, 0) <= 1 && __len(ref a, 1) <= 1 && __len(ref a, 2) <= 1 && __len(ref b, 0) <= 1 && __len(ref b, 1) <= 1 && __len(ref b, 2) <= 1))
                 return Orient3dTPIBig(a1.ToExact(), b1.ToExact(), c1.ToExact(), a2.ToExact(), b2.ToExact(), c2.ToExact(), a3.ToExact(), b3.ToExact(), c3.ToExact(), a.ToExact(), b.ToExact(), c.ToExact());
-            ulong* __v = stackalloc ulong[36];
+            ulong* __i0 = stackalloc ulong[1];
+            ulong* __i1 = stackalloc ulong[1];
+            ulong* __i2 = stackalloc ulong[1];
+            ulong* __i3 = stackalloc ulong[1];
+            ulong* __i4 = stackalloc ulong[1];
+            ulong* __i5 = stackalloc ulong[1];
+            ulong* __i6 = stackalloc ulong[1];
+            ulong* __i7 = stackalloc ulong[1];
+            ulong* __i8 = stackalloc ulong[1];
+            ulong* __i9 = stackalloc ulong[1];
+            ulong* __i10 = stackalloc ulong[1];
+            ulong* __i11 = stackalloc ulong[1];
+            ulong* __i12 = stackalloc ulong[1];
+            ulong* __i13 = stackalloc ulong[1];
+            ulong* __i14 = stackalloc ulong[1];
+            ulong* __i15 = stackalloc ulong[1];
+            ulong* __i16 = stackalloc ulong[1];
+            ulong* __i17 = stackalloc ulong[1];
+            ulong* __i18 = stackalloc ulong[1];
+            ulong* __i19 = stackalloc ulong[1];
+            ulong* __i20 = stackalloc ulong[1];
+            ulong* __i21 = stackalloc ulong[1];
+            ulong* __i22 = stackalloc ulong[1];
+            ulong* __i23 = stackalloc ulong[1];
+            ulong* __i24 = stackalloc ulong[1];
+            ulong* __i25 = stackalloc ulong[1];
+            ulong* __i26 = stackalloc ulong[1];
+            ulong* __i27 = stackalloc ulong[1];
+            ulong* __i28 = stackalloc ulong[1];
+            ulong* __i29 = stackalloc ulong[1];
+            ulong* __i30 = stackalloc ulong[1];
+            ulong* __i31 = stackalloc ulong[1];
+            ulong* __i32 = stackalloc ulong[1];
+            ulong* __i33 = stackalloc ulong[1];
+            ulong* __i34 = stackalloc ulong[1];
+            ulong* __i35 = stackalloc ulong[1];
             const int __n = 701;
             ulong* __s = stackalloc ulong[__n];
             var __ar = new FixedArena(__s, __n);
-            FixedInt b1_x = b1.Get(0, __v + 0);                                      // b1.x: <= m
-            FixedInt a1_x = a1.Get(0, __v + 1);                                      // a1.x: <= m
+            FixedInt b1_x = b1.Get(0, __i0);                                         // b1.x: <= m
+            FixedInt a1_x = a1.Get(0, __i1);                                         // a1.x: <= m
             FixedInt _v2 = FixedArith.Sub(b1_x, a1_x, ref __ar);                     // u1_x = b1.x - a1.x: <= 2 m
-            FixedInt b1_y = b1.Get(1, __v + 2);                                      // b1.y: <= m
-            FixedInt a1_y = a1.Get(1, __v + 3);                                      // a1.y: <= m
+            FixedInt b1_y = b1.Get(1, __i2);                                         // b1.y: <= m
+            FixedInt a1_y = a1.Get(1, __i3);                                         // a1.y: <= m
             FixedInt _v5 = FixedArith.Sub(b1_y, a1_y, ref __ar);                     // u1_y = b1.y - a1.y: <= 2 m
-            FixedInt b1_z = b1.Get(2, __v + 4);                                      // b1.z: <= m
-            FixedInt a1_z = a1.Get(2, __v + 5);                                      // a1.z: <= m
+            FixedInt b1_z = b1.Get(2, __i4);                                         // b1.z: <= m
+            FixedInt a1_z = a1.Get(2, __i5);                                         // a1.z: <= m
             FixedInt _v8 = FixedArith.Sub(b1_z, a1_z, ref __ar);                     // u1_z = b1.z - a1.z: <= 2 m
-            FixedInt c1_x = c1.Get(0, __v + 6);                                      // c1.x: <= m
+            FixedInt c1_x = c1.Get(0, __i6);                                         // c1.x: <= m
             FixedInt _v10 = FixedArith.Sub(c1_x, a1_x, ref __ar);                    // w1_x = c1.x - a1.x: <= 2 m
-            FixedInt c1_y = c1.Get(1, __v + 7);                                      // c1.y: <= m
+            FixedInt c1_y = c1.Get(1, __i7);                                         // c1.y: <= m
             FixedInt _v12 = FixedArith.Sub(c1_y, a1_y, ref __ar);                    // w1_y = c1.y - a1.y: <= 2 m
-            FixedInt c1_z = c1.Get(2, __v + 8);                                      // c1.z: <= m
+            FixedInt c1_z = c1.Get(2, __i8);                                         // c1.z: <= m
             FixedInt _v14 = FixedArith.Sub(c1_z, a1_z, ref __ar);                    // w1_z = c1.z - a1.z: <= 2 m
             FixedInt _v15 = FixedArith.Mul(_v5, _v14, ref __ar);                     // u1_y * w1_z: <= 4 m^2
             FixedInt _v16 = FixedArith.Mul(_v8, _v12, ref __ar);                     // u1_z * w1_y: <= 4 m^2
@@ -509,20 +590,20 @@ namespace g3
             FixedInt _v26 = FixedArith.Add(_v24, _v25, ref __ar);                    // (a1.x * n1x) + (a1.y * n1y): <= 16 m^3
             FixedInt _v27 = FixedArith.Mul(a1_z, _v23, ref __ar);                    // a1.z * n1z: <= 8 m^3
             FixedInt _v28 = FixedArith.Add(_v26, _v27, ref __ar);                    // D1 = ((a1.x * n1x) + (a1.y * n1y)) + (a1.z * n1z): <= 24 m^3
-            FixedInt b2_x = b2.Get(0, __v + 9);                                      // b2.x: <= m
-            FixedInt a2_x = a2.Get(0, __v + 10);                                     // a2.x: <= m
+            FixedInt b2_x = b2.Get(0, __i9);                                         // b2.x: <= m
+            FixedInt a2_x = a2.Get(0, __i10);                                        // a2.x: <= m
             FixedInt _v31 = FixedArith.Sub(b2_x, a2_x, ref __ar);                    // u2_x = b2.x - a2.x: <= 2 m
-            FixedInt b2_y = b2.Get(1, __v + 11);                                     // b2.y: <= m
-            FixedInt a2_y = a2.Get(1, __v + 12);                                     // a2.y: <= m
+            FixedInt b2_y = b2.Get(1, __i11);                                        // b2.y: <= m
+            FixedInt a2_y = a2.Get(1, __i12);                                        // a2.y: <= m
             FixedInt _v34 = FixedArith.Sub(b2_y, a2_y, ref __ar);                    // u2_y = b2.y - a2.y: <= 2 m
-            FixedInt b2_z = b2.Get(2, __v + 13);                                     // b2.z: <= m
-            FixedInt a2_z = a2.Get(2, __v + 14);                                     // a2.z: <= m
+            FixedInt b2_z = b2.Get(2, __i13);                                        // b2.z: <= m
+            FixedInt a2_z = a2.Get(2, __i14);                                        // a2.z: <= m
             FixedInt _v37 = FixedArith.Sub(b2_z, a2_z, ref __ar);                    // u2_z = b2.z - a2.z: <= 2 m
-            FixedInt c2_x = c2.Get(0, __v + 15);                                     // c2.x: <= m
+            FixedInt c2_x = c2.Get(0, __i15);                                        // c2.x: <= m
             FixedInt _v39 = FixedArith.Sub(c2_x, a2_x, ref __ar);                    // w2_x = c2.x - a2.x: <= 2 m
-            FixedInt c2_y = c2.Get(1, __v + 16);                                     // c2.y: <= m
+            FixedInt c2_y = c2.Get(1, __i16);                                        // c2.y: <= m
             FixedInt _v41 = FixedArith.Sub(c2_y, a2_y, ref __ar);                    // w2_y = c2.y - a2.y: <= 2 m
-            FixedInt c2_z = c2.Get(2, __v + 17);                                     // c2.z: <= m
+            FixedInt c2_z = c2.Get(2, __i17);                                        // c2.z: <= m
             FixedInt _v43 = FixedArith.Sub(c2_z, a2_z, ref __ar);                    // w2_z = c2.z - a2.z: <= 2 m
             FixedInt _v44 = FixedArith.Mul(_v34, _v43, ref __ar);                    // u2_y * w2_z: <= 4 m^2
             FixedInt _v45 = FixedArith.Mul(_v37, _v41, ref __ar);                    // u2_z * w2_y: <= 4 m^2
@@ -538,20 +619,20 @@ namespace g3
             FixedInt _v55 = FixedArith.Add(_v53, _v54, ref __ar);                    // (a2.x * n2x) + (a2.y * n2y): <= 16 m^3
             FixedInt _v56 = FixedArith.Mul(a2_z, _v52, ref __ar);                    // a2.z * n2z: <= 8 m^3
             FixedInt _v57 = FixedArith.Add(_v55, _v56, ref __ar);                    // D2 = ((a2.x * n2x) + (a2.y * n2y)) + (a2.z * n2z): <= 24 m^3
-            FixedInt b3_x = b3.Get(0, __v + 18);                                     // b3.x: <= m
-            FixedInt a3_x = a3.Get(0, __v + 19);                                     // a3.x: <= m
+            FixedInt b3_x = b3.Get(0, __i18);                                        // b3.x: <= m
+            FixedInt a3_x = a3.Get(0, __i19);                                        // a3.x: <= m
             FixedInt _v60 = FixedArith.Sub(b3_x, a3_x, ref __ar);                    // u3_x = b3.x - a3.x: <= 2 m
-            FixedInt b3_y = b3.Get(1, __v + 20);                                     // b3.y: <= m
-            FixedInt a3_y = a3.Get(1, __v + 21);                                     // a3.y: <= m
+            FixedInt b3_y = b3.Get(1, __i20);                                        // b3.y: <= m
+            FixedInt a3_y = a3.Get(1, __i21);                                        // a3.y: <= m
             FixedInt _v63 = FixedArith.Sub(b3_y, a3_y, ref __ar);                    // u3_y = b3.y - a3.y: <= 2 m
-            FixedInt b3_z = b3.Get(2, __v + 22);                                     // b3.z: <= m
-            FixedInt a3_z = a3.Get(2, __v + 23);                                     // a3.z: <= m
+            FixedInt b3_z = b3.Get(2, __i22);                                        // b3.z: <= m
+            FixedInt a3_z = a3.Get(2, __i23);                                        // a3.z: <= m
             FixedInt _v66 = FixedArith.Sub(b3_z, a3_z, ref __ar);                    // u3_z = b3.z - a3.z: <= 2 m
-            FixedInt c3_x = c3.Get(0, __v + 24);                                     // c3.x: <= m
+            FixedInt c3_x = c3.Get(0, __i24);                                        // c3.x: <= m
             FixedInt _v68 = FixedArith.Sub(c3_x, a3_x, ref __ar);                    // w3_x = c3.x - a3.x: <= 2 m
-            FixedInt c3_y = c3.Get(1, __v + 25);                                     // c3.y: <= m
+            FixedInt c3_y = c3.Get(1, __i25);                                        // c3.y: <= m
             FixedInt _v70 = FixedArith.Sub(c3_y, a3_y, ref __ar);                    // w3_y = c3.y - a3.y: <= 2 m
-            FixedInt c3_z = c3.Get(2, __v + 26);                                     // c3.z: <= m
+            FixedInt c3_z = c3.Get(2, __i26);                                        // c3.z: <= m
             FixedInt _v72 = FixedArith.Sub(c3_z, a3_z, ref __ar);                    // w3_z = c3.z - a3.z: <= 2 m
             FixedInt _v73 = FixedArith.Mul(_v63, _v72, ref __ar);                    // u3_y * w3_z: <= 4 m^2
             FixedInt _v74 = FixedArith.Mul(_v66, _v70, ref __ar);                    // u3_z * w3_y: <= 4 m^2
@@ -604,7 +685,7 @@ namespace g3
             FixedInt _v121 = FixedArith.Add(_v119, _v120, ref __ar);                 // (D1 * e23x) + (D2 * e31x): <= 6144 m^7
             FixedInt _v122 = FixedArith.Mul(_v86, _v107, ref __ar);                  // D3 * e12x: <= 3072 m^7
             FixedInt _v123 = FixedArith.Add(_v121, _v122, ref __ar);                 // ((D1 * e23x) + (D2 * e31x)) + (D3 * e12x): <= 9216 m^7
-            FixedInt c_x = c.Get(0, __v + 27);                                       // c.x: <= m
+            FixedInt c_x = c.Get(0, __i27);                                          // c.x: <= m
             FixedInt _v125 = FixedArith.Mul(_v118, c_x, ref __ar);                   // d * c.x: <= 3072 m^7
             FixedInt _v126 = FixedArith.Sub(_v123, _v125, ref __ar);                 // Nx = (((D1 * e23x) + (D2 * e31x)) + (D3 * e12x)) - (d * c.x): <= 12288 m^7
             FixedInt _v127 = FixedArith.Mul(_v28, _v92, ref __ar);                   // D1 * e23y: <= 3072 m^7
@@ -612,7 +693,7 @@ namespace g3
             FixedInt _v129 = FixedArith.Add(_v127, _v128, ref __ar);                 // (D1 * e23y) + (D2 * e31y): <= 6144 m^7
             FixedInt _v130 = FixedArith.Mul(_v86, _v110, ref __ar);                  // D3 * e12y: <= 3072 m^7
             FixedInt _v131 = FixedArith.Add(_v129, _v130, ref __ar);                 // ((D1 * e23y) + (D2 * e31y)) + (D3 * e12y): <= 9216 m^7
-            FixedInt c_y = c.Get(1, __v + 28);                                       // c.y: <= m
+            FixedInt c_y = c.Get(1, __i28);                                          // c.y: <= m
             FixedInt _v133 = FixedArith.Mul(_v118, c_y, ref __ar);                   // d * c.y: <= 3072 m^7
             FixedInt _v134 = FixedArith.Sub(_v131, _v133, ref __ar);                 // Ny = (((D1 * e23y) + (D2 * e31y)) + (D3 * e12y)) - (d * c.y): <= 12288 m^7
             FixedInt _v135 = FixedArith.Mul(_v28, _v95, ref __ar);                   // D1 * e23z: <= 3072 m^7
@@ -620,20 +701,20 @@ namespace g3
             FixedInt _v137 = FixedArith.Add(_v135, _v136, ref __ar);                 // (D1 * e23z) + (D2 * e31z): <= 6144 m^7
             FixedInt _v138 = FixedArith.Mul(_v86, _v113, ref __ar);                  // D3 * e12z: <= 3072 m^7
             FixedInt _v139 = FixedArith.Add(_v137, _v138, ref __ar);                 // ((D1 * e23z) + (D2 * e31z)) + (D3 * e12z): <= 9216 m^7
-            FixedInt c_z = c.Get(2, __v + 29);                                       // c.z: <= m
+            FixedInt c_z = c.Get(2, __i29);                                          // c.z: <= m
             FixedInt _v141 = FixedArith.Mul(_v118, c_z, ref __ar);                   // d * c.z: <= 3072 m^7
             FixedInt _v142 = FixedArith.Sub(_v139, _v141, ref __ar);                 // Nz = (((D1 * e23z) + (D2 * e31z)) + (D3 * e12z)) - (d * c.z): <= 12288 m^7
-            FixedInt a_x = a.Get(0, __v + 30);                                       // a.x: <= m
+            FixedInt a_x = a.Get(0, __i30);                                          // a.x: <= m
             FixedInt _v144 = FixedArith.Sub(a_x, c_x, ref __ar);                     // acx = a.x - c.x: <= 2 m
-            FixedInt a_y = a.Get(1, __v + 31);                                       // a.y: <= m
+            FixedInt a_y = a.Get(1, __i31);                                          // a.y: <= m
             FixedInt _v146 = FixedArith.Sub(a_y, c_y, ref __ar);                     // acy = a.y - c.y: <= 2 m
-            FixedInt a_z = a.Get(2, __v + 32);                                       // a.z: <= m
+            FixedInt a_z = a.Get(2, __i32);                                          // a.z: <= m
             FixedInt _v148 = FixedArith.Sub(a_z, c_z, ref __ar);                     // acz = a.z - c.z: <= 2 m
-            FixedInt b_x = b.Get(0, __v + 33);                                       // b.x: <= m
+            FixedInt b_x = b.Get(0, __i33);                                          // b.x: <= m
             FixedInt _v150 = FixedArith.Sub(b_x, c_x, ref __ar);                     // bcx = b.x - c.x: <= 2 m
-            FixedInt b_y = b.Get(1, __v + 34);                                       // b.y: <= m
+            FixedInt b_y = b.Get(1, __i34);                                          // b.y: <= m
             FixedInt _v152 = FixedArith.Sub(b_y, c_y, ref __ar);                     // bcy = b.y - c.y: <= 2 m
-            FixedInt b_z = b.Get(2, __v + 35);                                       // b.z: <= m
+            FixedInt b_z = b.Get(2, __i35);                                          // b.z: <= m
             FixedInt _v154 = FixedArith.Sub(b_z, c_z, ref __ar);                     // bcz = b.z - c.z: <= 2 m
             FixedInt _v155 = FixedArith.Mul(_v146, _v154, ref __ar);                 // acy * bcz: <= 4 m^2
             FixedInt _v156 = FixedArith.Mul(_v148, _v152, ref __ar);                 // acz * bcy: <= 4 m^2
@@ -858,24 +939,59 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         internal static int Orient3dTPIExact(Vector3d a1, Vector3d b1, Vector3d c1, Vector3d a2, Vector3d b2, Vector3d c2, Vector3d a3, Vector3d b3, Vector3d c3, Vector3d a, Vector3d b, Vector3d c)
         {
-            ulong* __v = stackalloc ulong[36];
+            ulong* __i0 = stackalloc ulong[1];
+            ulong* __i1 = stackalloc ulong[1];
+            ulong* __i2 = stackalloc ulong[1];
+            ulong* __i3 = stackalloc ulong[1];
+            ulong* __i4 = stackalloc ulong[1];
+            ulong* __i5 = stackalloc ulong[1];
+            ulong* __i6 = stackalloc ulong[1];
+            ulong* __i7 = stackalloc ulong[1];
+            ulong* __i8 = stackalloc ulong[1];
+            ulong* __i9 = stackalloc ulong[1];
+            ulong* __i10 = stackalloc ulong[1];
+            ulong* __i11 = stackalloc ulong[1];
+            ulong* __i12 = stackalloc ulong[1];
+            ulong* __i13 = stackalloc ulong[1];
+            ulong* __i14 = stackalloc ulong[1];
+            ulong* __i15 = stackalloc ulong[1];
+            ulong* __i16 = stackalloc ulong[1];
+            ulong* __i17 = stackalloc ulong[1];
+            ulong* __i18 = stackalloc ulong[1];
+            ulong* __i19 = stackalloc ulong[1];
+            ulong* __i20 = stackalloc ulong[1];
+            ulong* __i21 = stackalloc ulong[1];
+            ulong* __i22 = stackalloc ulong[1];
+            ulong* __i23 = stackalloc ulong[1];
+            ulong* __i24 = stackalloc ulong[1];
+            ulong* __i25 = stackalloc ulong[1];
+            ulong* __i26 = stackalloc ulong[1];
+            ulong* __i27 = stackalloc ulong[1];
+            ulong* __i28 = stackalloc ulong[1];
+            ulong* __i29 = stackalloc ulong[1];
+            ulong* __i30 = stackalloc ulong[1];
+            ulong* __i31 = stackalloc ulong[1];
+            ulong* __i32 = stackalloc ulong[1];
+            ulong* __i33 = stackalloc ulong[1];
+            ulong* __i34 = stackalloc ulong[1];
+            ulong* __i35 = stackalloc ulong[1];
             const int __n = 701;
             ulong* __s = stackalloc ulong[__n];
             var __ar = new FixedArena(__s, __n);
-            FixedInt b1_x = __load(b1.x, __v + 0);                                   // b1.x: <= m
-            FixedInt a1_x = __load(a1.x, __v + 1);                                   // a1.x: <= m
+            FixedInt b1_x = __load(b1.x, __i0);                                      // b1.x: <= m
+            FixedInt a1_x = __load(a1.x, __i1);                                      // a1.x: <= m
             FixedInt _v2 = FixedArith.Sub(b1_x, a1_x, ref __ar);                     // u1_x = b1.x - a1.x: <= 2 m
-            FixedInt b1_y = __load(b1.y, __v + 2);                                   // b1.y: <= m
-            FixedInt a1_y = __load(a1.y, __v + 3);                                   // a1.y: <= m
+            FixedInt b1_y = __load(b1.y, __i2);                                      // b1.y: <= m
+            FixedInt a1_y = __load(a1.y, __i3);                                      // a1.y: <= m
             FixedInt _v5 = FixedArith.Sub(b1_y, a1_y, ref __ar);                     // u1_y = b1.y - a1.y: <= 2 m
-            FixedInt b1_z = __load(b1.z, __v + 4);                                   // b1.z: <= m
-            FixedInt a1_z = __load(a1.z, __v + 5);                                   // a1.z: <= m
+            FixedInt b1_z = __load(b1.z, __i4);                                      // b1.z: <= m
+            FixedInt a1_z = __load(a1.z, __i5);                                      // a1.z: <= m
             FixedInt _v8 = FixedArith.Sub(b1_z, a1_z, ref __ar);                     // u1_z = b1.z - a1.z: <= 2 m
-            FixedInt c1_x = __load(c1.x, __v + 6);                                   // c1.x: <= m
+            FixedInt c1_x = __load(c1.x, __i6);                                      // c1.x: <= m
             FixedInt _v10 = FixedArith.Sub(c1_x, a1_x, ref __ar);                    // w1_x = c1.x - a1.x: <= 2 m
-            FixedInt c1_y = __load(c1.y, __v + 7);                                   // c1.y: <= m
+            FixedInt c1_y = __load(c1.y, __i7);                                      // c1.y: <= m
             FixedInt _v12 = FixedArith.Sub(c1_y, a1_y, ref __ar);                    // w1_y = c1.y - a1.y: <= 2 m
-            FixedInt c1_z = __load(c1.z, __v + 8);                                   // c1.z: <= m
+            FixedInt c1_z = __load(c1.z, __i8);                                      // c1.z: <= m
             FixedInt _v14 = FixedArith.Sub(c1_z, a1_z, ref __ar);                    // w1_z = c1.z - a1.z: <= 2 m
             FixedInt _v15 = FixedArith.Mul(_v5, _v14, ref __ar);                     // u1_y * w1_z: <= 4 m^2
             FixedInt _v16 = FixedArith.Mul(_v8, _v12, ref __ar);                     // u1_z * w1_y: <= 4 m^2
@@ -891,20 +1007,20 @@ namespace g3
             FixedInt _v26 = FixedArith.Add(_v24, _v25, ref __ar);                    // (a1.x * n1x) + (a1.y * n1y): <= 16 m^3
             FixedInt _v27 = FixedArith.Mul(a1_z, _v23, ref __ar);                    // a1.z * n1z: <= 8 m^3
             FixedInt _v28 = FixedArith.Add(_v26, _v27, ref __ar);                    // D1 = ((a1.x * n1x) + (a1.y * n1y)) + (a1.z * n1z): <= 24 m^3
-            FixedInt b2_x = __load(b2.x, __v + 9);                                   // b2.x: <= m
-            FixedInt a2_x = __load(a2.x, __v + 10);                                  // a2.x: <= m
+            FixedInt b2_x = __load(b2.x, __i9);                                      // b2.x: <= m
+            FixedInt a2_x = __load(a2.x, __i10);                                     // a2.x: <= m
             FixedInt _v31 = FixedArith.Sub(b2_x, a2_x, ref __ar);                    // u2_x = b2.x - a2.x: <= 2 m
-            FixedInt b2_y = __load(b2.y, __v + 11);                                  // b2.y: <= m
-            FixedInt a2_y = __load(a2.y, __v + 12);                                  // a2.y: <= m
+            FixedInt b2_y = __load(b2.y, __i11);                                     // b2.y: <= m
+            FixedInt a2_y = __load(a2.y, __i12);                                     // a2.y: <= m
             FixedInt _v34 = FixedArith.Sub(b2_y, a2_y, ref __ar);                    // u2_y = b2.y - a2.y: <= 2 m
-            FixedInt b2_z = __load(b2.z, __v + 13);                                  // b2.z: <= m
-            FixedInt a2_z = __load(a2.z, __v + 14);                                  // a2.z: <= m
+            FixedInt b2_z = __load(b2.z, __i13);                                     // b2.z: <= m
+            FixedInt a2_z = __load(a2.z, __i14);                                     // a2.z: <= m
             FixedInt _v37 = FixedArith.Sub(b2_z, a2_z, ref __ar);                    // u2_z = b2.z - a2.z: <= 2 m
-            FixedInt c2_x = __load(c2.x, __v + 15);                                  // c2.x: <= m
+            FixedInt c2_x = __load(c2.x, __i15);                                     // c2.x: <= m
             FixedInt _v39 = FixedArith.Sub(c2_x, a2_x, ref __ar);                    // w2_x = c2.x - a2.x: <= 2 m
-            FixedInt c2_y = __load(c2.y, __v + 16);                                  // c2.y: <= m
+            FixedInt c2_y = __load(c2.y, __i16);                                     // c2.y: <= m
             FixedInt _v41 = FixedArith.Sub(c2_y, a2_y, ref __ar);                    // w2_y = c2.y - a2.y: <= 2 m
-            FixedInt c2_z = __load(c2.z, __v + 17);                                  // c2.z: <= m
+            FixedInt c2_z = __load(c2.z, __i17);                                     // c2.z: <= m
             FixedInt _v43 = FixedArith.Sub(c2_z, a2_z, ref __ar);                    // w2_z = c2.z - a2.z: <= 2 m
             FixedInt _v44 = FixedArith.Mul(_v34, _v43, ref __ar);                    // u2_y * w2_z: <= 4 m^2
             FixedInt _v45 = FixedArith.Mul(_v37, _v41, ref __ar);                    // u2_z * w2_y: <= 4 m^2
@@ -920,20 +1036,20 @@ namespace g3
             FixedInt _v55 = FixedArith.Add(_v53, _v54, ref __ar);                    // (a2.x * n2x) + (a2.y * n2y): <= 16 m^3
             FixedInt _v56 = FixedArith.Mul(a2_z, _v52, ref __ar);                    // a2.z * n2z: <= 8 m^3
             FixedInt _v57 = FixedArith.Add(_v55, _v56, ref __ar);                    // D2 = ((a2.x * n2x) + (a2.y * n2y)) + (a2.z * n2z): <= 24 m^3
-            FixedInt b3_x = __load(b3.x, __v + 18);                                  // b3.x: <= m
-            FixedInt a3_x = __load(a3.x, __v + 19);                                  // a3.x: <= m
+            FixedInt b3_x = __load(b3.x, __i18);                                     // b3.x: <= m
+            FixedInt a3_x = __load(a3.x, __i19);                                     // a3.x: <= m
             FixedInt _v60 = FixedArith.Sub(b3_x, a3_x, ref __ar);                    // u3_x = b3.x - a3.x: <= 2 m
-            FixedInt b3_y = __load(b3.y, __v + 20);                                  // b3.y: <= m
-            FixedInt a3_y = __load(a3.y, __v + 21);                                  // a3.y: <= m
+            FixedInt b3_y = __load(b3.y, __i20);                                     // b3.y: <= m
+            FixedInt a3_y = __load(a3.y, __i21);                                     // a3.y: <= m
             FixedInt _v63 = FixedArith.Sub(b3_y, a3_y, ref __ar);                    // u3_y = b3.y - a3.y: <= 2 m
-            FixedInt b3_z = __load(b3.z, __v + 22);                                  // b3.z: <= m
-            FixedInt a3_z = __load(a3.z, __v + 23);                                  // a3.z: <= m
+            FixedInt b3_z = __load(b3.z, __i22);                                     // b3.z: <= m
+            FixedInt a3_z = __load(a3.z, __i23);                                     // a3.z: <= m
             FixedInt _v66 = FixedArith.Sub(b3_z, a3_z, ref __ar);                    // u3_z = b3.z - a3.z: <= 2 m
-            FixedInt c3_x = __load(c3.x, __v + 24);                                  // c3.x: <= m
+            FixedInt c3_x = __load(c3.x, __i24);                                     // c3.x: <= m
             FixedInt _v68 = FixedArith.Sub(c3_x, a3_x, ref __ar);                    // w3_x = c3.x - a3.x: <= 2 m
-            FixedInt c3_y = __load(c3.y, __v + 25);                                  // c3.y: <= m
+            FixedInt c3_y = __load(c3.y, __i25);                                     // c3.y: <= m
             FixedInt _v70 = FixedArith.Sub(c3_y, a3_y, ref __ar);                    // w3_y = c3.y - a3.y: <= 2 m
-            FixedInt c3_z = __load(c3.z, __v + 26);                                  // c3.z: <= m
+            FixedInt c3_z = __load(c3.z, __i26);                                     // c3.z: <= m
             FixedInt _v72 = FixedArith.Sub(c3_z, a3_z, ref __ar);                    // w3_z = c3.z - a3.z: <= 2 m
             FixedInt _v73 = FixedArith.Mul(_v63, _v72, ref __ar);                    // u3_y * w3_z: <= 4 m^2
             FixedInt _v74 = FixedArith.Mul(_v66, _v70, ref __ar);                    // u3_z * w3_y: <= 4 m^2
@@ -986,7 +1102,7 @@ namespace g3
             FixedInt _v121 = FixedArith.Add(_v119, _v120, ref __ar);                 // (D1 * e23x) + (D2 * e31x): <= 6144 m^7
             FixedInt _v122 = FixedArith.Mul(_v86, _v107, ref __ar);                  // D3 * e12x: <= 3072 m^7
             FixedInt _v123 = FixedArith.Add(_v121, _v122, ref __ar);                 // ((D1 * e23x) + (D2 * e31x)) + (D3 * e12x): <= 9216 m^7
-            FixedInt c_x = __load(c.x, __v + 27);                                    // c.x: <= m
+            FixedInt c_x = __load(c.x, __i27);                                       // c.x: <= m
             FixedInt _v125 = FixedArith.Mul(_v118, c_x, ref __ar);                   // d * c.x: <= 3072 m^7
             FixedInt _v126 = FixedArith.Sub(_v123, _v125, ref __ar);                 // Nx = (((D1 * e23x) + (D2 * e31x)) + (D3 * e12x)) - (d * c.x): <= 12288 m^7
             FixedInt _v127 = FixedArith.Mul(_v28, _v92, ref __ar);                   // D1 * e23y: <= 3072 m^7
@@ -994,7 +1110,7 @@ namespace g3
             FixedInt _v129 = FixedArith.Add(_v127, _v128, ref __ar);                 // (D1 * e23y) + (D2 * e31y): <= 6144 m^7
             FixedInt _v130 = FixedArith.Mul(_v86, _v110, ref __ar);                  // D3 * e12y: <= 3072 m^7
             FixedInt _v131 = FixedArith.Add(_v129, _v130, ref __ar);                 // ((D1 * e23y) + (D2 * e31y)) + (D3 * e12y): <= 9216 m^7
-            FixedInt c_y = __load(c.y, __v + 28);                                    // c.y: <= m
+            FixedInt c_y = __load(c.y, __i28);                                       // c.y: <= m
             FixedInt _v133 = FixedArith.Mul(_v118, c_y, ref __ar);                   // d * c.y: <= 3072 m^7
             FixedInt _v134 = FixedArith.Sub(_v131, _v133, ref __ar);                 // Ny = (((D1 * e23y) + (D2 * e31y)) + (D3 * e12y)) - (d * c.y): <= 12288 m^7
             FixedInt _v135 = FixedArith.Mul(_v28, _v95, ref __ar);                   // D1 * e23z: <= 3072 m^7
@@ -1002,20 +1118,20 @@ namespace g3
             FixedInt _v137 = FixedArith.Add(_v135, _v136, ref __ar);                 // (D1 * e23z) + (D2 * e31z): <= 6144 m^7
             FixedInt _v138 = FixedArith.Mul(_v86, _v113, ref __ar);                  // D3 * e12z: <= 3072 m^7
             FixedInt _v139 = FixedArith.Add(_v137, _v138, ref __ar);                 // ((D1 * e23z) + (D2 * e31z)) + (D3 * e12z): <= 9216 m^7
-            FixedInt c_z = __load(c.z, __v + 29);                                    // c.z: <= m
+            FixedInt c_z = __load(c.z, __i29);                                       // c.z: <= m
             FixedInt _v141 = FixedArith.Mul(_v118, c_z, ref __ar);                   // d * c.z: <= 3072 m^7
             FixedInt _v142 = FixedArith.Sub(_v139, _v141, ref __ar);                 // Nz = (((D1 * e23z) + (D2 * e31z)) + (D3 * e12z)) - (d * c.z): <= 12288 m^7
-            FixedInt a_x = __load(a.x, __v + 30);                                    // a.x: <= m
+            FixedInt a_x = __load(a.x, __i30);                                       // a.x: <= m
             FixedInt _v144 = FixedArith.Sub(a_x, c_x, ref __ar);                     // acx = a.x - c.x: <= 2 m
-            FixedInt a_y = __load(a.y, __v + 31);                                    // a.y: <= m
+            FixedInt a_y = __load(a.y, __i31);                                       // a.y: <= m
             FixedInt _v146 = FixedArith.Sub(a_y, c_y, ref __ar);                     // acy = a.y - c.y: <= 2 m
-            FixedInt a_z = __load(a.z, __v + 32);                                    // a.z: <= m
+            FixedInt a_z = __load(a.z, __i32);                                       // a.z: <= m
             FixedInt _v148 = FixedArith.Sub(a_z, c_z, ref __ar);                     // acz = a.z - c.z: <= 2 m
-            FixedInt b_x = __load(b.x, __v + 33);                                    // b.x: <= m
+            FixedInt b_x = __load(b.x, __i33);                                       // b.x: <= m
             FixedInt _v150 = FixedArith.Sub(b_x, c_x, ref __ar);                     // bcx = b.x - c.x: <= 2 m
-            FixedInt b_y = __load(b.y, __v + 34);                                    // b.y: <= m
+            FixedInt b_y = __load(b.y, __i34);                                       // b.y: <= m
             FixedInt _v152 = FixedArith.Sub(b_y, c_y, ref __ar);                     // bcy = b.y - c.y: <= 2 m
-            FixedInt b_z = __load(b.z, __v + 35);                                    // b.z: <= m
+            FixedInt b_z = __load(b.z, __i35);                                       // b.z: <= m
             FixedInt _v154 = FixedArith.Sub(b_z, c_z, ref __ar);                     // bcz = b.z - c.z: <= 2 m
             FixedInt _v155 = FixedArith.Mul(_v146, _v154, ref __ar);                 // acy * bcz: <= 4 m^2
             FixedInt _v156 = FixedArith.Mul(_v148, _v152, ref __ar);                 // acz * bcy: <= 4 m^2
