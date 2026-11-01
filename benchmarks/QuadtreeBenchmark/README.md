@@ -38,8 +38,8 @@ Counted rather than timed, so exact. The two rows on the 1M grid are a one-off c
 
 | Data | Before | Now |
 |---|---:|---:|
-| Point query on the 1M triangle grid, regions and items tested | 110 and 35 | 37 and 11 |
-| Rectangle 20 x 20 on the same grid, regions and items tested (30 hits) | 137 and 96 | 53 and 54 |
+| Point query on the 1M triangle grid, regions and items tested | 110 and 35 | 39 and 6 |
+| Rectangle 20 x 20 on the same grid, regions and items tested (30 hits) | 137 and 96 | 62 and 42 |
 | One row of a TIN, extent 100000 x 1, items of 100000 tested | 100000 | below 64 |
 | 20 km x 20 km, one point at (1e15, 1e15), items of 100000 tested | 100000 | at most 8 times the count without the point |
 
@@ -51,7 +51,7 @@ None of these is measured. Each would have to show its gain here first.
 
 - Storing the items in tree order, so that a query reads neighbouring memory. Queries would touch fewer cache lines, and removal gets harder.
 - A build by Morton order instead of cutting from the top. It may cost less on uniform data, and loose placement of large items does not map onto it directly.
-- Tuning the bucket size and the looseness. The present values were not searched for.
+- Tuning the looseness. The present value was not searched for.
 - `Over` for other forms of input, such as vertices with index triples. Only `Triangle3d[]` exists so far.
 
 ## Results
@@ -62,19 +62,22 @@ Each build runs once per process, so `sequential`, the first, also pays for the 
 
 | Build, ms | .NET 10 | .NET Framework 4.8 |
 |---|---:|---:|
-| `sequential` | 327 | 330 |
-| `parallel` | 91 | 120 |
-| `parallel_far_point` | 132 | 166 |
-| `triangle_adapter` | 109 | 155 |
-| `triangle_over` | 92 | 131 |
-| `strtree` | 1572 | 2334 |
-| `nts_quadtree` | 782 | 768 |
+| `sequential` | 373 | 352 |
+| `parallel` | 90 | 124 |
+| `parallel_far_point` | 149 | 179 |
+| `triangle_adapter` | 114 | 161 |
+| `triangle_over` | 97 | 144 |
+| `strtree` | 1715 | 2280 |
+| `nts_quadtree` | 762 | 813 |
 
 | Query, us per call | Library .NET 10 | `strtree` .NET 10 | Library 4.8 | `strtree` 4.8 |
 |---|---:|---:|---:|---:|
-| Height, zero tolerance | 1.09 | 3.28 | 1.33 | 4.74 |
-| Rectangle 20 x 20 | 4.91 | 6.65 | 5.25 | 10.04 |
-| Segment | 9.56 | 31.22 | 14.10 | 37.92 |
-| Nearest | 1.68 | 12.45 | 1.91 | 17.06 |
+| Height, zero tolerance | 0.81 | 3.00 | 1.03 | 4.65 |
+| Height beside the boundary, default tolerance | 0.83 | | 1.62 | |
+| Rectangle 20 x 20 | 3.81 | 6.63 | 4.32 | 9.99 |
+| Segment | 7.91 | 31.27 | 12.28 | 39.16 |
+| Nearest | 1.19 | 12.24 | 1.48 | 16.99 |
 
-`index_retained_bytes` of the core: 60.7 MB on both runtimes, with no triangles. The triangles add 72 bytes each in `TriangleQuadtree2d`, and nothing in `Over`, which reads the caller's array.
+A cell splits above 8 items. Measured at 4, 6, 8, 12, 16, 24 and 32: 8 is the best for queries, 4 and 6 gain nothing and cost build time and memory, and 16 is about 25 % slower in rectangle queries and 30 % in heights, for about 5 % less build time.
+
+`index_retained_bytes` of the core: 64.7 MB on both runtimes, with no triangles. The triangles add 72 bytes each in `TriangleQuadtree2d`, and nothing in `Over`, which reads the caller's array.

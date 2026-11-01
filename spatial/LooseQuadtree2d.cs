@@ -25,7 +25,7 @@ namespace g3
     /// </summary>
     public sealed class LooseQuadtree2d
     {
-        const int BucketSize = 16;
+        const int BucketSize = 8;
         const int DepthLimit = 64;
         internal const int ParallelThreshold = 32768;
         const double SegmentMargin = 0.0002;
@@ -78,6 +78,11 @@ namespace g3
             {
                 if (Count == Items.Length) Array.Resize(ref Items, Count * 2);
                 Items[Count++] = node;
+            }
+            // To the given size, as doubling leaves up to half of a large array unused.
+            public void Resize(int capacity)
+            {
+                if (capacity != Items.Length) Array.Resize(ref Items, capacity);
             }
         }
 
@@ -425,6 +430,7 @@ namespace g3
             if (!parallel || Count < ParallelThreshold) {
                 BuildRange(nodes, 0, items, rootRegion, 0, new int[10]);
                 for (int i = 0; i < nodes.Count; ++i) LinkRange(i, items);
+                nodes.Resize(nodes.Count);
                 return;
             }
             // Cut down side by side until a part that can still be cut holds at most an eighth of the items, or the threshold,
@@ -468,6 +474,9 @@ namespace g3
                 BuildRange(branch, 0, items, parts[p].Cell, parts[p].Depth, new int[10]);
                 branches[p] = branch;
             });
+            int total = nodes.Count;
+            foreach (NodeList branch in branches) total += branch.Count - 1;
+            nodes.Resize(total);
             for (int p = 0; p < parts.Count; ++p) {
                 NodeList branch = branches[p];
                 int offset = nodes.Count - 1;
