@@ -206,8 +206,8 @@ namespace g3
         // ---- the exact stage of Orient3d in 64-bit integers (docs/design/CHEAPER_CONSTRUCTIONS.md, section 4.2) ----
         // Every finite double is an integer multiple of 2^e, e the exponent of its lowest set bit, so with e the
         // smallest of these over the twelve coordinates every coordinate difference is an integer multiple of 2^e.
-        // TwoDiff gives each difference exactly as hi + lo (both multiples of 2^e), and if |hi 2^-e| < 2^62 the
-        // difference is an integer of magnitude at most 2^62 - 2^8 in units of 2^e. On CAD inputs (float coordinates)
+        // TwoDiff gives each difference exactly as hi + lo (both multiples of 2^e), and if |hi 2^-e| < 2^62 (so at
+        // most 2^62 - 2^9, with |lo 2^-e| <= 2^8) the difference is an integer of magnitude at most 2^62 - 2^8 in units of 2^e. On CAD inputs (float coordinates)
         // the differences have 48-62 bits, and 90 % of the exact stages are exactly coplanar neighbours.
         // The determinant w . (u x v) is then computed exactly: minors |u_y v_z - u_z v_y| < 2 (2^62)^2 = 2^125
         // (two's complement in 128 bits), terms and their sum |.| < 6 (2^62)^3 < 2^189 (two's complement in 192

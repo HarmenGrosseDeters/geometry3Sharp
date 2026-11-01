@@ -47,7 +47,7 @@ namespace geometry3Sharp.Tests
             return m;
         }
 
-        static void CheckAllPairs(DMesh3 mesh, ref int coplanarEdge, ref int coplanarVertex, ref int differ)
+        static string CheckAllPairs(DMesh3 mesh, ref int coplanarEdge, ref int coplanarVertex, ref int differ)
         {
             var arr = new ExactMeshArrangement(new List<DMesh3> { mesh }) { SelfIntersections = true };
             arr.Compute();
@@ -62,6 +62,7 @@ namespace geometry3Sharp.Tests
                 }
             }
             var seen = new HashSet<long>();
+            var answers = new System.Text.StringBuilder();
             foreach (List<int> l in byPoint.Values)
                 for (int x = 0; x < l.Count; ++x)
                     for (int y = x + 1; y < l.Count; ++y) {
@@ -82,9 +83,32 @@ namespace geometry3Sharp.Tests
                         var pb = new Index3i(U.Corners[0], U.Corners[1], U.Corners[2]);
                         var A = new Triangle3d(T.V0, T.V1, T.V2); var B = new Triangle3d(U.V0, U.V1, U.V2);
                         bool expected = ExactTriangleIntersection.IntersectsBeyondShared(pa, ref A, pb, ref B) == false;
-                        if (arr.touch_only(T, U) != expected || arr.touch_only(U, T) != expected)
+                        bool got = arr.touch_only(T, U);
+                        if (got != expected || arr.touch_only(U, T) != expected)
                             differ++;
+                        answers.Append(ti).Append(',').Append(ui).Append(got ? '+' : '-').Append(';');
                     }
+            return answers.ToString();
+        }
+
+        [Fact]
+        public void Invariance_OverSimilarities()
+        {
+            // every similarity: the answers equal IntersectsBeyondShared's (the rotated and translated copies are no
+            // longer exactly coplanar, so they mostly test the dispatch); the 2^k scales give the same answers bit for bit
+            var r = new Random(8);
+            DMesh3 patch = Patch(r, new Vector3d(0.375, -2.5, 7), new Vector3d(0.25, 0, 0.125), new Vector3d(0, 0.5, 0.25), 5, 40);
+            int edge = 0, vertex = 0, differ = 0;
+            string reference = CheckAllPairs(patch, ref edge, ref vertex, ref differ);
+            foreach (Similarity sim in Similarity.All()) {
+                var m = new DMesh3(patch);
+                foreach (int vid in m.VertexIndices())
+                    m.SetVertex(vid, sim.Apply(m.GetVertex(vid)));
+                string answers = CheckAllPairs(m, ref edge, ref vertex, ref differ);
+                if (sim.IsExact)
+                    Assert.Equal(reference, answers);
+            }
+            Assert.Equal(0, differ);
         }
 
         [Fact]

@@ -1712,8 +1712,8 @@ namespace g3
             return ExactTriangleIntersection.IntersectsBeyondShared(pa, ref A, pb, ref B) == false;
         }
 
-        // the corners of U not shared with T against T's plane: 1 all strictly on one side; 0 a corner in the plane
-        // (the test stops there); -1 on both sides (or no corner left)
+        // the corners of U not shared with T against T's plane (T and U share at most two corners): 1 all strictly on
+        // one side; 0 a corner in the plane (the test stops there); -1 on both sides
         [MethodImpl(JitHints.Optimize)]
         int one_side_except_shared(InputTriangle T, InputTriangle U)
         {

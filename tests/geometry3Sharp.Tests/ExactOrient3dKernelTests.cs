@@ -84,7 +84,7 @@ namespace geometry3Sharp.Tests
             // the unit is 1 (a coordinate 1 or 3); differences up to 2^62 - 2^9 + small are admitted, at 2^62 not.
             // The products of the determinant reach about 6 (2^62)^3, the bound of the 192-bit sum.
             double M = Math.Pow(2, 62) - Math.Pow(2, 9);        // a double: 2^9 (2^53 - 1)
-            double[] values = { 0, 1, 3, M, -M, M / 2, -M / 2, Math.Pow(2, 61), -Math.Pow(2, 61) + 1, Math.Pow(2, 62), -Math.Pow(2, 62) };
+            double[] values = { 0, 1, 3, M, -M, M / 2, -M / 2, Math.Pow(2, 61), -Math.Pow(2, 61) + 512, Math.Pow(2, 62), -Math.Pow(2, 62) };
             var r = new Random(3);
             int admitted = 0, rejected = 0;
             for (int k = 0; k < 200000; ++k) {

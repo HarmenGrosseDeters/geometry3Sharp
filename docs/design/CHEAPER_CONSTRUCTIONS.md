@@ -1,6 +1,6 @@
 # Cheaper exact constructions and pair tests in the arrangement
 
-Status: **design, waiting for the owner's approval** (tier L, [AGENT_WORKFLOW.md](../AGENT_WORKFLOW.md)). Nothing
+Status: **approved by the owner (decisions 1-3 as proposed); steps B and A1 built, section 12** (tier L, [AGENT_WORKFLOW.md](../AGENT_WORKFLOW.md)). Nothing
 in the library is changed yet. Base: #248 (`claude/pair-search`, on #223). This document has the step-0
 measurements (section 2), what they change in the plan (section 3), the design (section 4), the bounds derived by
 the generator (section 5), and the plan with its stop rule (section 6).
@@ -518,3 +518,47 @@ Its findings, all fixed in this version:
   proposed only if they are a large share of the promoted bytes (hand-over section 0, item 5).
 - Small items from the reviews, only where free: the direction limbs in `compare_along` (4.5 makes it free), the
   per-item stack in `SelfPairs` (#248).
+
+## 12. Results
+
+**Machine noise.** On this machine the same build varies by up to 2× between processes (microbenchmark of one
+predicate: 65 to 147 ns for the same code in two processes), so the class runs below are reported with the sum over
+cases of each case's minimum over all rounds, next to the round totals. The serial probe and microbenchmarks carry
+more weight.
+
+**Step B (Orient3d kernel), commit 0e13d86: kept.**
+- `perf/exact_hashes.sh`: `263 runs before, 263 after, 0 differ`.
+- 4 cores, `~/ab.sh` = `exact_hashes.sh`, then `run_classes.sh` A B A B (A = head of #248, B = 0e13d86):
+
+  | class | A rounds | B rounds | sum of per-case minima A -> B |
+  |---|---|---|---|
+  | `cgal` | 9.92 / 9.98 s | 9.52 / 9.98 s | 9.54 -> 9.31 s (−2.4 %) |
+  | Thingi10K | 9.09 / 9.06 s | 8.85 / 9.21 s | 8.79 -> 8.67 s (−1.4 %) |
+  | `nreal` | 2.30 / 2.24 s | 2.35 / 2.27 s | 2.15 -> 2.16 s (+0.8 %) |
+  | `cherchi` | 22.35 / 21.22 s | 21.66 / 21.36 s | (no exact Orient3d stages) |
+
+- Serial (one core, one thread), 6 alternating rounds of `cgal` and Thingi10K (`profile --repeat 3`): sum of per-case
+  minima `cgal` 15.57 -> 15.70 s (+0.8 %), Thingi10K 15.31 -> 15.11 s (−1.4 %); round means −0.4 % / −1.4 %.
+- Serial probe on `cgal` (the step-0 probe with B merged): the exact stage costs 260 -> 176 ns per call in place
+  (7.73M calls, 2008 -> 1362 ms, about 2 % of the serial time); the machine was slower than in section 2 at the time
+  (31.5 s against 24.6 s for the same probed build).
+- Microbenchmark (exactly coplanar float inputs, `ExactPredicates.Orient3dExact`): 218 ns -> 65-70 ns at best. In place
+  the kernel takes about 135 ns (cache and branch effects of the real inputs).
+- Tests: `ExactOrient3dKernelTests` (random inputs of every difference length, coplanar float inputs, the 2^62 bound,
+  TwoDiff with a nonzero low part, extreme exponents, invariance over `Similarity.All()`, the portable trailing-zero
+  count); 11 of 11 hand mutants killed (carries, borrows, negations, admission bound and range, the lowest-bit
+  exponent, the zero test of the sign, the portable trailing zeros).
+- Independent code review: no defect; the arithmetic, the admission (NaN, infinity, subnormals, the exponent range)
+  and the sign convention confirmed.
+
+**Step A1 (coplanar shared edge), commit 3e4af50:** built and tested (`ExactTouchOnlyCoplanarTests`: more than 1000
+shared-edge pairs on generated coplanar patches against `IntersectsBeyondShared`, folds, invariance over
+`Similarity.All()`); independent review: same points, corner order, projection and polarity as the original branch.
+Its measured bound is 0.4-0.7 % (section 2.3), below what the class runs can resolve; it is measured together with A2.
+
+**Finding for step C (the gcd on limbs):** the design of 4.4 assumed that a binary gcd is cheap because the odd part of
+the gcd is small. It is not: the cost of a binary gcd follows the operands (150-216 bits after the common power of two
+is shifted out), not the result. A prototype limb binary gcd took about 4 µs for the three gcds of a point, the same as
+`BigInteger` (4-5 µs, where every operation costs about 1 µs of overhead at these sizes). A real gain needs Lehmer's
+algorithm (single-word cofactor steps, with a multi-limb division as fallback), considerably more new exact code
+for an expected 2-4 % serially. This goes back to the owner before step C is built (section 6).
