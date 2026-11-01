@@ -218,10 +218,12 @@ namespace geometry3Sharp.Tests
             AnalyzerConfigSet set = EditorConfig(root);
             var exact = Directory.GetFiles(Path.Combine(root, "math"), "Exact*.cs")
                 .Concat(Directory.GetFiles(Path.Combine(root, "mesh_ops"), "ExactMesh*.cs"))
+                .Concat(Directory.GetFiles(Path.Combine(root, "math", "Generated"), "*.cs"))
                 .Select(f => Path.GetRelativePath(root, f).Replace(Path.DirectorySeparatorChar, '/')).ToList();
             exact.AddRange(new[] { "math/AdaptivePredicates.cs", "math/FixedPoint3.cs", "mesh_ops/ExactTriangulation2.cs",
                 "mesh_ops/ExactPlanarSimplify.cs", "intersection/ExactTriangleIntersection.cs" });
-            Assert.True(exact.Count >= 8);
+            Assert.True(exact.Count >= 9);
+            Assert.Contains("math/Generated/IndirectPredicates.cs", exact);
             foreach (string f in exact) {
                 Assert.True(File.Exists(Path.Combine(root, f)), f);     // a renamed file falls out of the glob
                 foreach (string id in Rules)
