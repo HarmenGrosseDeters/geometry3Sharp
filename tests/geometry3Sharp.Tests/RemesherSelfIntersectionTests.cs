@@ -371,6 +371,51 @@ namespace geometry3Sharp.Tests
             Assert.True(probe.Flip(a, b, c, d));
         }
 
+        [Fact]
+        public void PairTest_NearlyCoplanarNeighbours_SameAsExactTriangleIntersection()
+        {
+            // the pairs TriangleTriangleFilter decides in the pair test: neighbours of a jittered plate, rotated out of the
+            // axis planes (nearly coplanar after rounding) and in the axis plane z = 0, sharing a vertex, an edge or nothing
+            var rnd = new Random(5);
+            var rot = new Quaterniond(new Vector3d(1, 2, 3).Normalized, 37);
+            int n = 12, pairs = 0, hits = 0;
+            foreach (bool tilted in new[] { false, true }) {
+                var mesh = new DMesh3();
+                for (int j = 0; j <= n; ++j)
+                    for (int i = 0; i <= n; ++i) {
+                        var p = new Vector3d(i + 0.6 * (rnd.NextDouble() - 0.5), j + 0.6 * (rnd.NextDouble() - 0.5), 0);
+                        mesh.AppendVertex(tilted ? rot * p : p);
+                    }
+                for (int j = 0; j < n; ++j)
+                    for (int i = 0; i < n; ++i) {
+                        int a = i + j * (n + 1), b = a + 1, c = a + n + 2, d = a + n + 1;
+                        mesh.AppendTriangle(a, b, c);
+                        mesh.AppendTriangle(a, c, d);
+                    }
+                // also folded pairs: a few vertices moved onto their neighbours' triangles
+                for (int k = 0; k < 20; ++k) {
+                    int v = rnd.Next(mesh.MaxVertexID), w = rnd.Next(mesh.MaxVertexID);
+                    mesh.SetVertex(v, Vector3d.Lerp(mesh.GetVertex(v), mesh.GetVertex(w), 0.5 + 0.5 * rnd.NextDouble()));
+                }
+                int[] ids = mesh.TriangleIndices().ToArray();
+                foreach (int ta in ids)
+                    foreach (int tb in ids) {
+                        if (tb <= ta) continue;
+                        Index3i ia = mesh.GetTriangle(ta), ib = mesh.GetTriangle(tb);
+                        var A = new Triangle3d(mesh.GetVertex(ia.a), mesh.GetVertex(ia.b), mesh.GetVertex(ia.c));
+                        var B = new Triangle3d(mesh.GetVertex(ib.a), mesh.GetVertex(ib.b), mesh.GetVertex(ib.c));
+                        if (A.V0.Distance(B.V0) > 3 || ExactTriangleIntersection.IsDegenerate(ref A) || ExactTriangleIntersection.IsDegenerate(ref B))
+                            continue;
+                        bool expected = ExactTriangleIntersection.IntersectsBeyondShared(ia, ref A, ib, ref B);
+                        Assert.True(expected == Remesher.pair_intersects(ia, ref A, ib, ref B), $"{A.V0} {A.V1} {A.V2} / {B.V0} {B.V1} {B.V2}");
+                        Assert.True(expected == Remesher.pair_intersects(ib, ref B, ia, ref A), $"swapped: {A.V0} {A.V1} {A.V2} / {B.V0} {B.V1} {B.V2}");
+                        pairs++;
+                        if (expected) hits++;
+                    }
+            }
+            Assert.True(pairs > 5000 && hits > 50, $"{pairs} pairs, {hits} intersecting");
+        }
+
         [Theory]
         [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
         public void SameResultUnderSimilarity(string name)

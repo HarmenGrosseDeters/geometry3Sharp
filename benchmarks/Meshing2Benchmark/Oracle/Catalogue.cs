@@ -24,6 +24,9 @@ namespace Meshing2Acceptance
         public CaseState State;
         public Mesh2Case Case;
         public string Id => Part == null ? F : F + "/" + Part;
+        /// <summary> Its result has tens of thousands of vertices: the oracle needs from seconds to minutes, so the test suite runs it only
+        /// with G3_MESH2_SLOW set, and `rows` always (MESHING2D_PLAN.md, section 9) </summary>
+        public bool Slow => Catalogue.SlowRows.Contains(Id);
         public override string ToString() => Id;
     }
 
@@ -36,7 +39,15 @@ namespace Meshing2Acceptance
         /// Features whose mesher exists: their rows are covered, all others stay pending. A feature moves here only when
         /// every one of its rows passes (MESHING2D_PLAN.md, section 4).
         /// </summary>
-        public static readonly HashSet<string> CoveredFeatures = new HashSet<string> { Feature.Kernel, Feature.Api };
+        public static readonly HashSet<string> CoveredFeatures = new HashSet<string> { Feature.Kernel, Feature.Api, Feature.Cdt, Feature.Domain, Feature.Regions, Feature.Noding, Feature.Refine };
+
+        /// <summary> Rows whose results are large (Steiner limits of 10 000 to 100 000, or dense refinement): judged by `rows` </summary>
+        public static readonly HashSet<string> SlowRows = new HashSet<string> {
+            "F-4/a", "F-4/b", "F-4/c", "F-5", "F-22/a", "F-26", "F-27", "F-37", "F-38/d", "F-38/e", "F-40/angle-40", "F-41/a", "F-42"
+        };
+
+        /// <summary> Milestones whose mesher exists: a row of a covered feature that needs a later milestone (refinement) waits for it. </summary>
+        public static readonly HashSet<Milestone> CoveredMilestones = new HashSet<Milestone> { Milestone.M1, Milestone.M2, Milestone.M3 };
 
         public static List<CatalogueRow> Rows()
         {
@@ -47,7 +58,7 @@ namespace Meshing2Acceptance
                 var e = new OracleExpect { Milestone = m, StatedArea = area, StatedAreaTolerance = tolerance ?? Q.Zero };
                 tweak?.Invoke(e);
                 var c = new Mesh2Case { Id = f.ToLowerInvariant() + (part == null ? "" : "/" + part), Generator = input.Text, Milestone = m, Input = input.Build(), Expect = e, Ties = ties };
-                rows.Add(new CatalogueRow { F = f, Part = part, Title = title, Feature = feature, State = CoveredFeatures.Contains(feature) ? CaseState.Covered : CaseState.Pending, Case = c, Note = note });
+                rows.Add(new CatalogueRow { F = f, Part = part, Title = title, Feature = feature, State = CoveredFeatures.Contains(feature) && CoveredMilestones.Contains(m) ? CaseState.Covered : CaseState.Pending, Case = c, Note = note });
             }
             void Test(string f, string part, string title, string test, string note = null) =>
                 rows.Add(new CatalogueRow { F = f, Part = part, Title = title, State = CaseState.Covered, Feature = Feature.Kernel, Test = test, Note = note });
@@ -126,7 +137,8 @@ namespace Meshing2Acceptance
             Mesh("F-27", null, "Needle refinement scaling (performance row)", Feature.Refine, M3, Needles().Min(20).Limit(60000), tweak: e => e.AngleGuaranteed = false, note: "time target: over 50 000 vertices in about 2 s; the time is measured by the benchmark");
             Deferred("F-28", null, "A max angle alone is ignored", "Q3: no maximum angle bound in scope");
             Deferred("F-29", null, "Refining again with a max angle crashes", "Q3: no maximum angle bound in scope");
-            Mesh("F-30", "a", "Invalid minimum angle next to a max area", Feature.Refine, M3, S().Area(0.5).Min(70), Hundred, tweak: e => e.InvalidAngle = true, note: "O3: the invalid value must not disable the area limit. Reject or ignore it: decision D12");
+            Test("F-30", "a", "Invalid minimum angle next to a max area", "QualityMesh2Tests.InvalidMinAngle_IsAnArgumentError",
+                note: "D12: an angle below 0 or at 60 and above is an argument error, so it cannot disable the area limit (until M3 this row expected a mesh)");
             Deferred("F-30", "b", "Invalid maximum angle", "Q3: no maximum angle bound in scope");
             Mesh("F-31", "a", "Min angle and area with locked outer boundary", Feature.Locks, M3, new B().Outer(0, 0, 16, 1, 19, 9, 13, 17, 2, 15).RandomPoints(10, 8, 31).Area(4).Min(20));
             Deferred("F-31", "b", "The same with a max angle", "Q3: no maximum angle bound in scope");
@@ -152,6 +164,10 @@ namespace Meshing2Acceptance
             Mesh("F-43", "b", "A hole on the outer boundary with a seed", Feature.Domain, M2, S().Hole(0, 4, 3, 4, 3, 6, 0, 6).HoleSeed(1, 5), 94);
             Mesh("F-43", "c", "A hole with its seed on its own boundary", Feature.Domain, M2, S().Hole(2, 2, 4, 2, 4, 4, 2, 4).HoleSeed(2, 3), 96, note: "ring semantics (Q7): the ring removes it, the seed changes nothing");
             Mesh("F-43", "d", "A thin hole", Feature.Domain, M2, S().Hole(2, 5, 8, 5, 8, 5 + Math.Pow(2, -17), 2, 5 + Math.Pow(2, -17)), 100 - 6 * new Q(1, 1 << 17));
+            Mesh("F-44", "island", "An island in a lake is meshed (D5, owner 2026-11-01)", Feature.Domain, M2, S().Hole(2, 2, 8, 2, 8, 8, 2, 8).Outer(4, 4, 6, 4, 6, 6, 4, 6), 68,
+                tweak: e => { e.Removed.Add(new[] { 3.0, 3.0 }); e.Kept.Add(new[] { 5.0, 5.0 }); });
+            Mesh("F-44", "pond", "A lake in an island in a lake is removed again (D5)", Feature.Domain, M2, S().Hole(2, 2, 8, 2, 8, 8, 2, 8).Outer(4, 4, 6, 4, 6, 6, 4, 6).Hole(4.5, 4.5, 5.5, 4.5, 5.5, 5.5, 4.5, 5.5), 67,
+                tweak: e => { e.Removed.Add(new[] { 3.0, 3.0 }); e.Kept.Add(new[] { 4.2, 4.2 }); e.Removed.Add(new[] { 5.0, 5.0 }); });
             Mesh("F-44", null, "Hole in a hole, seeds outside and inside holes", Feature.Regions, M3, S().Hole(2, 2, 8, 2, 8, 8, 2, 8).HoleSeed(3, 3).Hole(4, 4, 6, 4, 6, 6, 4, 6).HoleSeed(5, 5).HoleSeed(20, 20).RegionSeed(5, 5, 9).RegionSeed(1, 1, 5).Min(20), 64);
             Mesh("F-45", null, "Two seeds in one region: the last wins", Feature.Regions, M2, S().RegionSeed(1, 1, 3).RegionSeed(2, 2, 4), Hundred);
             Mesh("F-46", "a", "A segment inside a hole does not stop the removal (Q7)", Feature.Domain, M2, S().Hole(2, 2, 8, 2, 8, 8, 2, 8).Seg(2, 5, 8, 5).Seg(5, 3, 5, 7), 64, tweak: e => { e.Removed.Add(new[] { 3.0, 3.0 }); e.Removed.Add(new[] { 7.0, 7.0 }); });

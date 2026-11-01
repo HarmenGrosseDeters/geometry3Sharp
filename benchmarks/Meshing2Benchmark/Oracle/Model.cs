@@ -129,6 +129,19 @@ namespace Meshing2Acceptance
         public int? MinTriangles, MaxVertices;
         /// <summary>Which milestone's rules apply: M1 forbids Steiner points and judges the plain Delaunay property.</summary>
         public Milestone Milestone = Milestone.M1;
+        /// <summary>
+        /// The reference path for audits: every test exact, no floating-point filter and no spatial index (and the global
+        /// empty-circumcircle pass only up to <see cref="GlobalDelaunayLimit"/>). The default path must give the same verdicts.
+        /// </summary>
+        public bool Reference;
+
+        /// <summary> the same expectations on the reference path </summary>
+        public OracleExpect WithReference()
+        {
+            var copy = (OracleExpect)MemberwiseClone();
+            copy.Reference = true;
+            return copy;
+        }
     }
 
     public enum Milestone { M1, M2, M3 }
@@ -146,6 +159,11 @@ namespace Meshing2Acceptance
         public int ConstructedVertices;
         public bool GlobalDelaunayChecked;
         public int BelowAngle;
+        /// <summary>
+        /// Excused by the merge zone of a small input angle (O11): triangles below the angle, and in-circle cases of the conforming
+        /// check. Not violations, but findings to look at: they stay visible in every report.
+        /// </summary>
+        public int MergeZoneExcused;
         public bool Has(Violation v) { foreach (var r in Violations) if (r.Kind == v) return true; return false; }
         public void Add(Violation v, string detail) { if (Violations.Count < 200) Violations.Add(new ViolationRecord { Kind = v, Detail = detail }); }
         public override string ToString() => Ok ? "ok" : string.Join("; ", Violations);

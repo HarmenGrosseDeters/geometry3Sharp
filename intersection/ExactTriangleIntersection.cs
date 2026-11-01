@@ -255,7 +255,10 @@ namespace g3
         public static bool IsDegenerate(ref Triangle3d t)
         {
             Vector3d n = (t.V1 - t.V0).Cross(t.V2 - t.V0);
-            if (n.LengthSquared > 1e-24 * Math.Pow((t.V1 - t.V0).LengthSquared + (t.V2 - t.V0).LengthSquared, 2))
+            // (s * s, not Math.Pow(s, 2): this runs for every candidate of the self-intersection checks, and Pow costs about
+            // 4 times as much; the decision is the same, see IsDegenerate_PrefilterThreshold)
+            double s = (t.V1 - t.V0).LengthSquared + (t.V2 - t.V0).LengthSquared;
+            if (n.LengthSquared > 1e-24 * (s * s))
                 return false;
             // collinear in 3D iff collinear in all three axis projections
             for (int k = 0; k < 3; ++k)

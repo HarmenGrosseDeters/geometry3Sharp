@@ -13,6 +13,8 @@ and for each yes, check that a test covers it. A test must fail on the old code 
 - Does a stage that cannot verify its result say so (status, reason), instead of passing the input on?
 - Does a hard limit (component count, iterations, steps) end in a failure status, never in "clean"?
 - Can an assertion in the new tests never fail (eg a float check on values that are already float)?
+- Is a set of skipped items (exempt, unsplittable) visible in the output, as a list or a diagnostic, so that a bound
+  silently left unmet can be detected (meshing M3 review)?
 
 ## 2. Scale, units, far from the origin (#61, #64, #80, #81, #95, #97, #102, #106)
 
@@ -56,8 +58,16 @@ and for each yes, check that a test covers it. A test must fail on the old code 
 - Distances overflowing to infinity: preserve actual nearest ordering before the stable-id tie break; an
   infinite approximation is not proof that two finite-input geometries are equally far away.
 - Casts of NaN or infinity to `int` / `long` (undefined result).
+- A tolerance applied to the result of `UnitCross` / `Normalized` (`Vector3d.Normalize` uses `MathUtil.Epsilon`):
+  every cross product longer than 2.2e-16 becomes a unit vector, so a test like `n.Dot(n) < ZeroTolerance` only
+  means "exactly zero" and the tolerance is dead code (`IntrTriangle3Triangle3` parallel test, #253 review). Compare
+  the unnormalized cross product, or decide exactly.
 - Every new error bound in `math/Exact*`, `AdaptivePredicates.cs`, implicit points: derived and checked in
   the review.
+
+- Plain double helpers (dot products, squared distances, tolerance squared) underflow at small magnitudes even
+  where the predicates are exact: scale differences by a power of two first (meshing M2 review: a walk found no
+  wedge at 2^-560).
 
 ## 6. Integer overflow, sizes and hard limits (#68, #75, #81, #104)
 
@@ -77,6 +87,9 @@ and for each yes, check that a test covers it. A test must fail on the old code 
 - Does an exception leave the instance in a state that a second call would misread?
 - Tests: compute A, then B on the same instance, and compare with a fresh instance (eg
   `InvarianceTests.ExactBoolean_ReusedInstance_EqualsFreshInstance`).
+- Is per-element state (a tag, a label) kept right while an invariant is lifted for a moment, eg a constraint removed
+  and re-inserted around a split? Test with an enclosed hole or region of a single triangle next to the operation
+  (meshing M3 review: the flips around a lifted constraint filled a hole).
 
 ## 8. Untrusted input (#86, #88, #90, #91)
 
@@ -101,6 +114,9 @@ and for each yes, check that a test covers it. A test must fail on the old code 
   predicates stay exact. `Array.Sort` is not stable, and runtimes may break ties differently: break them by
   index (meshing M1 review).
 
+- An incremental step that assumes an invariant (CDT, Delaunay) right after an operation that breaks it, such as
+  removing a constraint before inserting a point: restore the invariant first, and verify it at the end (meshing M2 review).
+
 ## 10. Complexity (#63, #72, #105)
 
 - Nested loops over all elements of the input (pairs of segments, components, charts): what is the size in
@@ -116,6 +132,13 @@ and for each yes, check that a test covers it. A test must fail on the old code 
   the visited items on thin strips, far outliers and sorted inserts, rather than timing them.
 - Source rollback can leave incremental-build binaries stale. Force a rebuild and verify binary identities before
   freezing an A/B candidate; do not label measurements by source changes alone.
+
+## 10a. The oracle itself
+
+- Every relaxation of an oracle check comes with a known-wrong result that must still fail (meshing M2 review: a
+  loosened chain end accepted a mesh without a shared parcel border).
+- An exemption window (a distance ratio, a tolerance) is as narrow as the rule it implements, with a known-wrong result
+  just outside it (meshing M3 review: a factor-2 window accepted improvable triangles).
 
 ## 11. Compatibility and documentation (#92, #94)
 
@@ -133,3 +156,5 @@ and for each yes, check that a test covers it. A test must fail on the old code 
 - Do documented replay or filter commands actually select a test? Run them once.
 - Is an "exact" comparison exact for every generated input (a sum of products in double is not, once coordinates
   have many bits)?
+- Do the fuzzers cover every input class the class doc advertises (meshing M3 review: no holes, no regions with an area
+  bound and no locked segments in the refinement fuzz, so a filled hole and wrong labels went unnoticed)?

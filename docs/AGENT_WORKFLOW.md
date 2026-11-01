@@ -51,6 +51,16 @@ Every worker session gets a brief with these fields, and nothing open-ended:
 - **Upper bound before a performance spike**: measure the share of the targeted work and multiply by the possible
   speedup first (a probe or a micro benchmark, minutes). If that bound is below the measurement noise, the stop rule
   applies without full A/B runs (`run_classes.sh` and the like).
+- **Look before you build** (owner, 2026-11-01): before designing an optimization or a new algorithm, do two short
+  checks and record them in the design note or PR:
+  1. **The library:** search it for existing solutions and building blocks (predicates and filters, `tools/
+     PredicateCompiler`, spatial indexes, the "Shared hotspots across sessions" table in ROADMAP.md, OPERATIONS.md).
+     Today's examples: the boolean's kernel B and the self-intersection filter hit the same exact-`Orient3d` hotspot,
+     and the envelope reused the indirect predicates.
+  2. **The literature:** papers, standards and documentation on the problem (e.g. the normal-cone culling for
+     self-intersection checks, OGC SFA for polygon nesting, snap rounding). The license rules apply: implement from
+     papers, port only MIT / Apache / BSD, never GPL code, never Triangle / Triangle.NET. Cite the sources in
+     docs/SOURCES.md.
 - **No claim without output.** Every number in a PR names the command and its raw output (as
   `benchmarks/BooleanComparison/perf/` does). The reviewer re-runs a sample.
 - Machine checks replace review where possible ([QA.md 4a](QA.md#4a-making-agent-work-verifiable), items 1-3):
@@ -93,9 +103,10 @@ from secret tests, which a public repository cannot keep.
 - Mutation runs on ready PRs cover only the shards the PR touches, with full runs weekly; drafts run none. Thresholds
   only go up (a ratchet).
 - Stryker runs locally once per shard, to set its threshold; after that the CI mutation run on the PR is the gate.
-  Exception until incremental runs (#230) are merged: when exact code changed substantially, run the touched shard
-  locally once more before marking the PR ready, as a CI shard takes hours and blocks runners. Hand mutants of
-  generators and rules stay (fast and targeted).
+  Since #230 a PR's run is incremental (only the mutants of the changed lines, the rest from the baseline of the last
+  full run, [tests/mutation/README.md](../tests/mutation/README.md)); a shard without a cached baseline still runs in
+  full, so merge master into a PR before marking it ready. Hand mutants of generators and rules stay (fast and
+  targeted).
 - The coordinator's check-in interval follows the CI time (hours for mutation runs, not minutes). Workers report in
   one line, and sessions are archived when their PRs are merged.
 - Near the usage limit, finish running work only and start nothing new.
