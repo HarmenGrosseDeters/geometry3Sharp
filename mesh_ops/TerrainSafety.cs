@@ -297,8 +297,10 @@ namespace gs
     ///     means that no line exists and nothing was certified: check Lines.
     ///
     /// Limits: Compute fails above MaxCertifySteps, MaxSourcePoints and MaxRefinedTriangles. The last one is
-    /// an estimate (a 20 km road gave 3.6 times of it, so at the limit about 3.6e8 triangles and about 47 GB), and
-    /// the limits do not cover slivers narrower than an edge.
+    /// an estimate that counts the band horizontally, and it is no bound. On flat terrain the real count was 3 to 6 times
+    /// of it. On steep terrain it was 7 times at a slope of 1 and 181 times at 20, and a spike near a source (a vertex
+    /// at z = -9999, as a nodata value) ran out of memory with an estimate of 917. Remove such vertices before.
+    /// The limits do not cover slivers narrower than an edge.
     /// An exception (eg out of memory, or SteinerPoints too large for an array) leaves Certified false, but Lines,
     /// RefinedTerrain, MinLineDistance and UsedSteinerPoints may stay as they were at that point.
     /// </summary>
@@ -352,8 +354,9 @@ namespace gs
         /// <summary>
         /// Most triangles expected of refining the terrain near the sources (2 x area of the band, within the area of
         /// the terrain, / edge length^2; AlongSurface: also of the remeshing), which take in the order of 130 bytes
-        /// each. 1e8 are 120 km of sources at the default EdgeLength for a distance of 1 m, or 2000 km at the default
-        /// Tolerance, by the estimate: see the class comment and expected_refined_triangles.
+        /// each. 1e8 are 120 km of sparse sources at the default EdgeLength for a distance of 1 m, or 2000 km at the
+        /// default Tolerance, by the estimate, and less with vertices close together (47 km and 778 km at 1 m apart):
+        /// see the class comment and expected_refined_triangles.
         /// </summary>
         public const double MaxRefinedTriangles = 1e8;
 
