@@ -370,7 +370,7 @@ namespace geometry3Sharp.Tests
         {
             var a = PredicateCompiler.Analyze(Spec).ToDictionary(p => p.Name);
             Assert.Equal(new BigInteger[] { 147456, 384 }, a["Orient3dLPI"].Signs.Select(n => n.ExpansionLength).ToArray());
-            Assert.Equal(new BigInteger[] { 75497472, 98304 }, a["Orient3dTPI"].Signs.Select(n => n.ExpansionLength).ToArray());
+            Assert.Equal(new BigInteger[] { 113246208, 98304 }, a["Orient3dTPI"].Signs.Select(n => n.ExpansionLength).ToArray());
             Assert.All(a.Values, p => Assert.False(p.HasExpansionStage));
             Assert.Equal(1024, Predicate.MaxExpansionLength);
             // a small predicate within the limit would need the stage, which the generator refuses to skip silently

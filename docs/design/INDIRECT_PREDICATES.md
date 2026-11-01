@@ -170,42 +170,38 @@ exact code (`.editorconfig`: G3E0001-3, RS0030; `ExactCodeAnalyzerTests`).
 | predicate | values | bound | bits | limbs | limbs taken by FixedArith |
 |---|---|---|---|---|---|
 | `Orient3dLPI` | every input component | `m = 2^64 - 1` | 64 | 1 | |
-| `Orient3dLPI` | `ux`, `uy`, `uz`, `wx`, `wy`, `wz`, `prx`, `pry`, `prz`, `qrx`, `qry`, `qrz`, `acx`, `acy`, `acz`, `bcx`, `bcy`, `bcz` | `2 m` | 65 | 2 | 2 |
+| `Orient3dLPI` | `ux`, `uy`, `uz`, `wx`, `wy`, `wz`, `prx`, `pry`, `prz`, `qrx`, `qry`, `qrz`, `pcx`, `pcy`, `pcz`, `qcx`, `qcy`, `qcz`, `acx`, `acy`, `acz`, `bcx`, `bcy`, `bcz` | `2 m` | 65 | 2 | 2 |
 | `Orient3dLPI` | `uy * wz` and 11 more of its shape | `4 m^2` | 130 | 3 | 4 |
 | `Orient3dLPI` | `nx`, `ny`, `nz`, `m1`, `m2`, `m3` | `8 m^2` | 131 | 3 | 4 |
 | `Orient3dLPI` | `nx * prx` and 5 more of its shape | `16 m^3` | 196 | 4 | 5 |
 | `Orient3dLPI` | `(nx * prx) + (ny * pry)` and 1 more of its shape | `32 m^3` | 197 | 4 | 5 |
 | `Orient3dLPI` | `lp`, `lq` | `48 m^3` | 198 | 4 | 5 |
 | `Orient3dLPI` | `d` (a sign factor) | `96 m^3` | 199 | 4 | 5 |
-| `Orient3dLPI` | `p.x * lq` and 5 more of its shape | `48 m^4` | 262 | 5 | 5 |
-| `Orient3dLPI` | `(p.x * lq) - (q.x * lp)` and 2 more of its shape | `96 m^4` | 263 | 5 | 6 |
-| `Orient3dLPI` | `d * c.x` and 2 more of its shape | `96 m^4` | 263 | 5 | 5 |
+| `Orient3dLPI` | `lq * pcx` and 5 more of its shape | `96 m^4` | 263 | 5 | 6 |
 | `Orient3dLPI` | `Nx`, `Ny`, `Nz` | `192 m^4` | 264 | 5 | 6 |
 | `Orient3dLPI` | `t1`, `t2`, `t3` | `1536 m^6` | 395 | 7 | 8 |
 | `Orient3dLPI` | `t1 - t2` | `3072 m^6` | 396 | 7 | 8 |
 | `Orient3dLPI` | the determinant (sign factor 1) | `4608 m^6` | 397 | 7 | 8 |
 | `Orient3dTPI` | every input component | `m = 2^64 - 1` | 64 | 1 | |
-| `Orient3dTPI` | `u1_x`, `u1_y`, `u1_z`, `w1_x`, `w1_y`, `w1_z`, `u2_x`, `u2_y`, `u2_z`, `w2_x`, `w2_y`, `w2_z`, `u3_x`, `u3_y`, `u3_z`, `w3_x`, `w3_y`, `w3_z`, `acx`, `acy`, `acz`, `bcx`, `bcy`, `bcz` | `2 m` | 65 | 2 | 2 |
+| `Orient3dTPI` | `u1_x`, `u1_y`, `u1_z`, `w1_x`, `w1_y`, `w1_z`, `a1cx`, `a1cy`, `a1cz`, `u2_x`, `u2_y`, `u2_z`, `w2_x`, `w2_y`, `w2_z`, `a2cx`, `a2cy`, `a2cz`, `u3_x`, `u3_y`, `u3_z`, `w3_x`, `w3_y`, `w3_z`, `a3cx`, `a3cy`, `a3cz`, `acx`, `acy`, `acz`, `bcx`, `bcy`, `bcz` | `2 m` | 65 | 2 | 2 |
 | `Orient3dTPI` | `u1_y * w1_z` and 23 more of its shape | `4 m^2` | 130 | 3 | 4 |
 | `Orient3dTPI` | `n1x`, `n1y`, `n1z`, `n2x`, `n2y`, `n2z`, `n3x`, `n3y`, `n3z`, `m1`, `m2`, `m3` | `8 m^2` | 131 | 3 | 4 |
-| `Orient3dTPI` | `a1.x * n1x` and 8 more of its shape | `8 m^3` | 195 | 4 | 4 |
-| `Orient3dTPI` | `(a1.x * n1x) + (a1.y * n1y)` and 2 more of its shape | `16 m^3` | 196 | 4 | 5 |
-| `Orient3dTPI` | `D1`, `D2`, `D3` | `24 m^3` | 197 | 4 | 5 |
+| `Orient3dTPI` | `n1x * a1cx` and 8 more of its shape | `16 m^3` | 196 | 4 | 5 |
+| `Orient3dTPI` | `(n1x * a1cx) + (n1y * a1cy)` and 2 more of its shape | `32 m^3` | 197 | 4 | 5 |
+| `Orient3dTPI` | `D1`, `D2`, `D3` | `48 m^3` | 198 | 4 | 5 |
 | `Orient3dTPI` | `n2y * n3z` and 17 more of its shape | `64 m^4` | 262 | 5 | 6 |
 | `Orient3dTPI` | `e23x`, `e23y`, `e23z`, `e31x`, `e31y`, `e31z`, `e12x`, `e12y`, `e12z` | `128 m^4` | 263 | 5 | 6 |
 | `Orient3dTPI` | `n1x * e23x` and 2 more of its shape | `1024 m^6` | 394 | 7 | 8 |
 | `Orient3dTPI` | `(n1x * e23x) + (n1y * e23y)` | `2048 m^6` | 395 | 7 | 8 |
 | `Orient3dTPI` | `d` (a sign factor) | `3072 m^6` | 396 | 7 | 8 |
-| `Orient3dTPI` | `D1 * e23x` and 8 more of its shape | `3072 m^7` | 460 | 8 | 9 |
-| `Orient3dTPI` | `(D1 * e23x) + (D2 * e31x)` and 2 more of its shape | `6144 m^7` | 461 | 8 | 9 |
-| `Orient3dTPI` | `((D1 * e23x) + (D2 * e31x)) + (D3 * e12x)` and 2 more of its shape | `9216 m^7` | 462 | 8 | 9 |
-| `Orient3dTPI` | `d * c.x` and 2 more of its shape | `3072 m^7` | 460 | 8 | 8 |
-| `Orient3dTPI` | `Nx`, `Ny`, `Nz` | `12288 m^7` | 462 | 8 | 9 |
-| `Orient3dTPI` | `t1`, `t2`, `t3` | `98304 m^9` | 593 | 10 | 11 |
-| `Orient3dTPI` | `t1 - t2` | `196608 m^9` | 594 | 10 | 11 |
-| `Orient3dTPI` | the determinant (sign factor 1) | `294912 m^9` | 595 | 10 | 11 |
-| `Orient3dLPI` | scratch of one call (sum over the values; lengths only: 450) | | | 244 | 284 |
-| `Orient3dTPI` | scratch of one call (sum over the values; lengths only: 1220) | | | 604 | 701 |
+| `Orient3dTPI` | `D1 * e23x` and 8 more of its shape | `6144 m^7` | 461 | 8 | 9 |
+| `Orient3dTPI` | `(D1 * e23x) + (D2 * e31x)` and 2 more of its shape | `12288 m^7` | 462 | 8 | 9 |
+| `Orient3dTPI` | `Nx`, `Ny`, `Nz` | `18432 m^7` | 463 | 8 | 9 |
+| `Orient3dTPI` | `t1`, `t2`, `t3` | `147456 m^9` | 594 | 10 | 11 |
+| `Orient3dTPI` | `t1 - t2` | `294912 m^9` | 595 | 10 | 11 |
+| `Orient3dTPI` | the determinant (sign factor 1) | `442368 m^9` | 595 | 10 | 11 |
+| `Orient3dLPI` | scratch of one call (sum over the values; lengths only: 402) | | | 226 | 269 |
+| `Orient3dTPI` | scratch of one call (sum over the values; lengths only: 1145) | | | 574 | 677 |
 <!-- end of the generated table -->
 
 **Tests** (`GeneratedPredicatesIndirectTests`, also on net48 except the generator checks):
@@ -320,7 +316,7 @@ input 1 component, a sum or difference `la + lb`, a product `2 la lb`):
 | predicate | determinant | denominator `d` |
 |---|---|---|
 | `Orient3dLPI` | 147 456 | 384 |
-| `Orient3dTPI` | 75 497 472 | 98 304 |
+| `Orient3dTPI` | 113 246 208 | 98 304 |
 
 Both determinants are far above the limit, so neither predicate gets an expansion stage: the filter goes straight to
 the `FixedArith` stage, as decided. The generated code says so in a comment, and the generator refuses to emit a
