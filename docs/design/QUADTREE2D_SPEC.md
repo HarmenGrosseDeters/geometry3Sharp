@@ -372,7 +372,7 @@ Independent reviews on 2026-10-31 found these. The ones of the first review were
 | "a triangle within tolerance" (2.1) | `TryGetHeight` and `stopAfterFirst` take the nearest triangle within tolerance, the lowest ID on a tie | The result depended on the traversal, so on how the tree was built |
 | "all equal for a consistent TIN" (2.1) | Equal at shared vertices. On a shared edge, heights agree up to rounding | This cannot hold for rounded interpolation |
 
-A bulk build works on one flat array of boxes and ids. It sorts that array in place into the items a node keeps and those of its four children, and links the cell lists at the end. With the top levels cut side by side as well, a parallel build takes about a third of its earlier time (see the benchmark README). A parallel and a sequential build give the same tree and the same order of items. An insert that splits a cell uses the same code.
+A bulk build works on one flat array of boxes and ids. It sorts that array in place into the items a node keeps and those of its four children, and links the cell lists at the end. With the top levels cut side by side as well, a parallel build took 91 ms for 1M items, was 241 ms, on .NET 10 (see the benchmark README). A parallel and a sequential build give the same tree and the same order of items. An insert that splits a cell uses the same code.
 
 `TriangleQuadtree2d.Over(array)` builds over the caller's array instead of a copy, for callers that hold their triangles anyway. It reads that array from then on, so the caller must not change it. The first insert moves the triangles to a copy.
 

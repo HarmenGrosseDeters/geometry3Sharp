@@ -56,5 +56,25 @@ None of these is measured. Each would have to show its gain here first.
 
 ## Results
 
-<!-- Numbers of the current code go here, measured alone on the machine: see the PR. -->
-Not measured yet for the current code. Earlier records of the abandoned sessions were dropped: they described older code and were never re-measured.
+`708 10000 8` on an i7-8700 with 12 logical processors, alone on the machine: 1,002,528 triangles, medians of 3 processes. Earlier records of the abandoned sessions were dropped: they described older code and were never re-measured.
+
+Each build runs once per process, so `sequential`, the first, also pays for the code not being optimized yet. On .NET 10 it took about 240 ms in a warmed process, and the others changed little.
+
+| Build, ms | .NET 10 | .NET Framework 4.8 |
+|---|---:|---:|
+| `sequential` | 327 | 330 |
+| `parallel` | 91 | 120 |
+| `parallel_far_point` | 132 | 166 |
+| `triangle_adapter` | 109 | 155 |
+| `triangle_over` | 92 | 131 |
+| `strtree` | 1572 | 2334 |
+| `nts_quadtree` | 782 | 768 |
+
+| Query, us per call | Library .NET 10 | `strtree` .NET 10 | Library 4.8 | `strtree` 4.8 |
+|---|---:|---:|---:|---:|
+| Height, zero tolerance | 1.09 | 3.28 | 1.33 | 4.74 |
+| Rectangle 20 x 20 | 4.91 | 6.65 | 5.25 | 10.04 |
+| Segment | 9.56 | 31.22 | 14.10 | 37.92 |
+| Nearest | 1.68 | 12.45 | 1.91 | 17.06 |
+
+`index_retained_bytes` of the core: 60.7 MB on both runtimes, with no triangles. The triangles add 72 bytes each in `TriangleQuadtree2d`, and nothing in `Over`, which reads the caller's array.

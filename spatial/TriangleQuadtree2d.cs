@@ -37,14 +37,20 @@ namespace g3
             var bounds = new AxisAlignedBox2d[triangles.Length];
             if (parallel && bounds.Length >= LooseQuadtree2d.ParallelThreshold) {
                 try {
-                    Parallel.For(0, bounds.Length, i => bounds[i] = QuadtreeGeometry2d.Bounds(triangles[i]));
+                    // In blocks: a loop gets optimized while it runs, and a delegate per item stays slow in the first build of a process.
+                    int size = LooseQuadtree2d.ParallelThreshold, blocks = (bounds.Length + size - 1) / size;
+                    Parallel.For(0, blocks, k => BoundsRange(triangles, bounds, k * size, Math.Min(bounds.Length, (k + 1) * size)));
                     return bounds;
                 } catch (AggregateException) {
                     // The loop below reports the first bad triangle, as a sequential build does.
                 }
             }
-            for (int i = 0; i < bounds.Length; ++i) bounds[i] = QuadtreeGeometry2d.Bounds(triangles[i]);
+            BoundsRange(triangles, bounds, 0, bounds.Length);
             return bounds;
+        }
+        static void BoundsRange(Triangle3d[] triangles, AxisAlignedBox2d[] bounds, int start, int end)
+        {
+            for (int i = start; i < end; ++i) bounds[i] = QuadtreeGeometry2d.Bounds(triangles[i]);
         }
         /// <summary>
         /// An index over the caller's array, without a copy of the triangles. The caller must not change them while the index is in use: it
