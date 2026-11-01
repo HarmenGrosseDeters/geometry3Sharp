@@ -99,7 +99,7 @@ dotnet pack geometry3Sharp_netstandard.csproj -c Release -o artifacts
 
 The package contains the XML documentation and a symbol package. `tests/PackageSmokeTest` consumes the packed
 `.nupkg` and checks it (see the comment in its project file). GitHub Actions (`.github/workflows/ci.yml`) runs
-all of this on every push: tests on net10.0 (Linux) and net48 (Windows), CLI tests, pack, package smoke test.
+all of this on every pull request and every push to master: tests on net10.0 (Linux) and net48 (Windows), CLI tests, pack, package smoke test.
 
 ## Mesh file formats
 
