@@ -1,9 +1,9 @@
 # DAP fork: bug-fix audit and selective adoption
 
-Status: planned, not audited or implemented. Checked on 2026-10-30: `8f185f1` and `158507b` exist, and the root license is BSL-1.0.
+Status: audited on 2026-11-01 ([result](#audit-result-2026-11-01)): no DAP change is a bug fix that applies to this code, so nothing was adopted. Checked on 2026-10-30: `8f185f1` and `158507b` exist, and the root license is BSL-1.0.
 Owner decision (2026-10-30): DAP is a fork of `gradientspace/geometry3Sharp`, not company code, and the audit may read its source. The
 root license is BSL-1.0, the same as this repository and upstream. Files the fork added can have another origin, so provenance per file still applies.
-The delta is 215 files (+18371/-694), so this is more than one PR.
+The delta to `158507b` is 215 paths (+25734/-3174 with `git diff -w`), so this is more than one PR.
 
 ## Task brief
 
@@ -91,3 +91,68 @@ backlog with per-feature provenance decisions; audit completion is not feature a
 correct, do not invent a failing expectation merely to satisfy the red-test rule.
 
 No tests, dependencies or production files are changed by this planning task.
+
+## Audit result (2026-11-01)
+
+Delta: `8f185f19a96966237ef631d97da567f380e10b6b` to `a2a4b9f` (initial commit of the DAP fork), compared with
+`git diff -w`. The three later commits up to `158507b` change only `2dGeometry/Polygon2dExtensions.cs`, the
+`.csproj` and the rename of upstream's `LICENSE.txt` to `LICENSE` (`git diff --name-status 158507b a2a4b9f`). Of the
+214 paths to `a2a4b9f`, 139 are modified upstream files, 68 are added and 7 are deleted (build files, `AssemblyInfo`, and the moves of `comp_geom/ConvexHull2.cs`
+to `2dGeometry/` and `mesh_ops/MeshPlaneCut.cs` to `3dGeometry/`, diffed against their new paths). The rest are new
+files (features, below). Our counterpart: master `b1d9dee`.
+
+**Result: no bug fix to adopt.** The one upstream fix in the delta, `Polygon2d.SetVertices` incrementing `Timestamp`,
+we already have (#148, `MeshCurveLowFixesTests.Polygon2d_SetVertices_UpdatesTimestamp`). Every other hunk in the
+modified upstream files is one of:
+
+| Class | Examples |
+|---|---|
+| Formatting | removed `(double)` / `(float)` casts (checked for int/float promotion changes: none), brace style, `ref` arguments dropped |
+| Refactor, same results | struct enumerators in `RefCountVector` / `SmallListSet`, `Duplicate()` instead of copy constructors, `ParallelStream` on `BlockingCollection`, span helpers |
+| API change (breaks upstream 1.0.324) | `ref` to `in` and merged overloads in `Vector3d`, `MathUtil`, `AxisAlignedBox2d/3d`, `Line2d`, `Box3`; `ConvexHull2` constructor and `Get1DHullInfo`; `DVector.FastGetBuffer` and `SimpleMesh.Get*Buffer` pointer overloads replaced by `Span<T>`; `PolyLine2d.Vertices` / `GeneralPolygon2d.Holes` types; `PolyLine2d.Length` removed; `SVGWriter.Style` struct to class; namespaces `gs` to `g3`; `PackedSparseMatrix.nonzero` renamed |
+| Behavior change, not a fix | `ConvexHull2` rewritten with an absolute epsilon (scale dependent, breaks `Similarity.All()` invariance) and a fake triangle for degenerate input; `ContMinBox2` ignores `queryType`; `Polygon2d.Contains(Vector2d)` returns false on a vertex; `Polygon2d.SegmentItr` and `DistanceSquared` number segment `i` as (i-1, i), no longer consistent with `PointAt`; `DistanceSquared` returns 0 below a tolerance and NaN for an empty polygon; `Polygon2d.Simplify` returns early for 3 vertices or `lineDeviationTol <= 0` (skipping the cluster pass), and when the smaller bounds side is at most a quarter of the tolerance sets the tolerance to a quarter of that side; bounds and signed area cached on `Timestamp`; `MarchingCubes` default sphere radius 1; `MeshTransforms.FromFrame(Frame3f)` computes in double; SVG output wrapped in `<g id="default">` |
+| Feature | see below |
+
+Audited by area, each against our code: `curve/Polygon2d.cs`; `mesh/DMesh3*.cs` and `core/`; the rest of `curve/`, `io/`,
+`implicit/`; `math/`, `distance/`, `intersection/`, `solvers/`, `approximation/`, `color/`, `containment/`, `comp_geom/`;
+the rest of `mesh/`, `mesh_generators/`, `mesh_ops/`, `queries/`, `spatial/`. The owner-reserved files the delta touches
+(`mesh/Reducer.cs`, `containment/ContMinCircle2.cs`, `mesh/RemesherPro.cs`) have only formatting changes, so nothing
+goes to the owner.
+
+### Defects the fork has and we do not
+
+Do not take these over when a DAP feature is ported later:
+
+| DAP file / symbol | Defect | Our code |
+|---|---|---|
+| `math/MathUtil.cs` `AspectRatio(Vector3d, Vector3d, Vector3d)` | calls itself (the by-value overload wins over the new `in` one): stack overflow, also from `Triangle3d.AspectRatio` and `MinimalHoleFill` | calls the `ref` overload |
+| `core/DVector.cs` `FastGetBuffer(DVector<T>, Span<T>)` | `AsSpan(iCurBlockUsed)` copies the unused tail of the last block instead of `AsSpan(0, iCurBlockUsed)`: wrong data or an exception | original pointer version |
+| `curve/PolyLine3d.cs` `Bounds` / `GetBounds()` | cache stamp starts equal to `Timestamp`, so a new polyline returns `default(AxisAlignedBox3d)` (a zero box at the origin) until its first change | computes the box |
+| `curve/Polygon2d.cs` `BoundsGreaterThan` | steps through the vertices by 31337 (the old `ConvexHull2` fault): for N a multiple of 31337 only vertex 0 is visited and cached as `Bounds`, and `Simplify` then uses tolerance 0 | no such method |
+| `curve/Polygon2d.cs` `RoundToFloatPrecision`, writes through `VerticesAsSpan` | do not increment `Timestamp`: stale cached bounds and signed area | no caches |
+| `curve/PolyLine2d.cs` `Bounds` | `VertexOffset`, `Trim*`, `Transform` and span writes do not increment `Timestamp`: stale bounds | computes the box |
+| `core/gParallel.cs` `ParallelStream` | an exception in the producer never calls `CompleteAdding`: the consumer waits forever | flags, `finally`, exception rethrown |
+| `math/Line2.cs` `IntersectionPoint(in Line2d, double)` | ignores its `dotThresh` | no such overload |
+| New `ImplicitSphere3d.Contains`, `ImplicitSphere3d.Intersects(sphere)`, `Circle2d.Contains(Circle2d)`, `AxisAlignedBox2d.ContainsInclusive` | inverted sign; ignores its own radius; bounding-box test only; `<=` and `<` mixed | not present |
+| New `IntrPlane3Plane3.Find` | coincident branch falls through (Type Plane overwritten by Empty); intersecting branch never sets `Result` | not present |
+| New `PolyLine2d.FindIntersections` | the end trim `i == Count - 1` can never be true inside the loop | not present |
+
+Bugs of upstream that the fork still has and we fixed earlier: `ConvexHull2` step `31337` (our `ModuloIterationStep`,
+`ForkFixesTests.ModuloIteration_VisitsEveryIndex`), `GridIndexing` negative exact multiples (our `floor_div`),
+`MeshPlaneCut.FillHoles` inverted `bAllOk`, the rounded-rectangle corner parameter in `PlaneGenerators`.
+
+### Features (not adopted; each needs its own provenance decision)
+
+| DAP path | Provenance |
+|---|---|
+| `2dGeometry/Clipper2Wrapper.cs` (polygon booleans, offsets, aggregation by distance), `mesh_ops/ECCSlicer.cs`, `Protobuf/` | DAP; depend on Clipper2 (Boost-1.0, use the NuGet package, ROADMAP item 3) and OpenVectorFormat. ECCSlicer implements doi:10.1007/s00170-015-7071-9 |
+| `2dGeometry/ApproximateConvexDecomposition/` | header: ported from [jmlien/acd2d](https://github.com/jmlien/acd2d) "with a major rework and bug fixes". acd2d is MIT (`LICENSE`, Jyh-Ming Lien 2018); its repository also ships FIST binaries and gl2ps (LGPL, GUI only), which the port does not need. Compatible, attribution required |
+| `FortuneVoronoi/` | no source note; origin unknown, blocked |
+| `2dGeometry/LargestInscribedCircleFortune.cs` | marked `[Experimental("IS_STILL_BUGGY")]`; builds on FortuneVoronoi; blocked |
+| `2dGeometry/ConvexPolygonOps.cs` | DAP; Minkowski sum "adapted from cp-algorithms.com" (CC BY-SA 4.0 text; check before a port) |
+| `HierarchicalSpatialGrid/`, `Graphs/`, `Collections/`, `2dGeometry/` (others), `3DShadowSlicing/`, `3dGeometry/`, `BoxExtensions/`, `Utils/`, `io/SVGImporter.cs`, `io/SVGExportExtensions.cs` | DAP, no third-party note |
+| `supports/*`, `Quaterniond.InverseMultiply`, `math/Frame3d.cs`, layer support in `io/SVGWriter.cs` | "ported from SutroMachine/geometry3Sharp by @gregmeess". [SutroMachine/geometry3Sharp](https://github.com/SutroMachine/geometry3Sharp) (Sutro Machine, a 3D printing company; checked at `1fe448a`, 2022) is another fork of geometry3Sharp under the Boost Software License 1.0 (`LICENSE.txt`); its history is one squashed commit, and the `supports/` files carry no header, so their origin before that fork is not recorded. Compatible as far as the repository license goes |
+| `DMesh3.RemoveEdge`, `CleanupUnusedVertices`, `IsValidEdge` | `RemoveEdge` "ported from pshtif/geometry3Sharp". [pshtif/geometry3Sharp](https://github.com/pshtif/geometry3Sharp) (Peter Stefcek, the geometry3Sharp fork used by his Machina framework; checked at `c1517ab`, 2022) is under the Boost Software License 1.0 (`LICENSE`), and its `RemoveEdge` is in `mesh/DMesh3_edge_operators.cs`. Compatible. `IsValidEdge` checks only `t0`, not the refcount |
+| `intersection/IntrLine3Plane3.cs`, `IntrPlane3Plane3.cs`, `IntrRay3Plane3.cs` | "ported from Bery0za/geometry3Sharp" and WildMagic5. [Bery0za/geometry3Sharp](https://github.com/Bery0za/geometry3Sharp) (checked at `99f3541`, 2018) is a geometry3Sharp fork under the Boost Software License 1.0; WildMagic5 (Geometric Tools) is Boost as well. Compatible |
+| `math/AngularInterval.cs` | DAP, no third-party note |
+| DAP-specific `DMesh3` members (`MeshType`, `Color`, `PartName`, `ComputeShadow`, `GetOffsetMesh`, ...) | DAP; pull in DAP dependencies, not in upstream's scope |

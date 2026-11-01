@@ -40,6 +40,19 @@
 
   <ItemGroup Condition="'$(UseNuGetG3)' != 'true'">
     <ProjectReference Include="..\..\geometry3Sharp_netstandard.csproj" />
+    <ProjectReference Include="..\..\benchmarks\QuadtreeBenchmark\QuadtreeBenchmark.csproj" />
+  </ItemGroup>
+  <!-- the acceptance gates of the 2D mesher: the oracle, what it judges, and the stored golden rows -->
+  <ItemGroup Condition="'$(UseNuGetG3)' != 'true'">
+    <ProjectReference Include="..\..\benchmarks\Meshing2Benchmark\Oracle\Meshing2Oracle.csproj" />
+    <Compile Include="..\..\benchmarks\Meshing2Benchmark\Candidates\*.cs" Link="Meshing2\Candidates\%(Filename)%(Extension)" />
+    <None Include="..\..\benchmarks\Meshing2Benchmark\golden\*.json" Link="Meshing2\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\docs\design\MESHING2D_GOLDEN_FORMAT.md" Link="Meshing2\MESHING2D_GOLDEN_FORMAT.md" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\docs\design\MESHING2D_CATALOGUE.md" Link="Meshing2\MESHING2D_CATALOGUE.md" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UseNuGetG3)' == 'true'">
+    <!-- new in this fork: not testable against the old package -->
+    <Compile Remove="Meshing2\**" />
   </ItemGroup>
   <!-- the analyzers of the exact code (ExactCodeAnalyzerTests; Roslyn, net10.0 only) -->
   <ItemGroup Condition="'$(TargetFramework)' == 'net10.0' And '$(UseNuGetG3)' != 'true'">
@@ -61,6 +74,8 @@
   </ItemGroup>
   <!-- dotnet test -p:UseNuGetG3=true runs the tests against the old NuGet package (1.0.324) -->
   <ItemGroup Condition="'$(UseNuGetG3)' == 'true'">
+    <Compile Remove="Spatial\StrtreeComparisonTests.cs" />
+    <Compile Remove="Spatial\NtsQuadtreeComparisonTests.cs" />
     <PackageReference Include="geometry3Sharp" Version="1.0.324" />
   </ItemGroup>
 
