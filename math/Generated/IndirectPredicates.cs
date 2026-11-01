@@ -12,7 +12,10 @@ namespace g3
     /// Exact sign predicates generated from their formulas by tools/PredicateCompiler (docs/design/INDIRECT_PREDICATES.md).
     /// Inputs within the bound of a predicate are evaluated on FixedArith, every value with the limbs its derived bound
     /// allows (the comments), on a FixedArena of the derived scratch; inputs beyond it in BigInteger. No allocation on
-    /// the FixedArith path.
+    /// the FixedArith path. A predicate with several sign factors is 0 when any factor is 0: an indirect predicate is
+    /// also 0 when its point does not exist (denominator d = 0: a line parallel to the plane, a degenerate triangle,
+    /// dependent planes); a caller that must tell this apart checks d itself. Orient3d*(..., a, b, c) is the sign of
+    /// det(x - c, a - c, b - c) = ExactPredicates.Orient3d(a, b, c, x) for the implicit point x.
     /// </summary>
     internal static unsafe class IndirectPredicates
     {
