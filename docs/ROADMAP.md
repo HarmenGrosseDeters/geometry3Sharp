@@ -36,7 +36,7 @@ hold up is discarded with the owner, not patched until it passes. The stages run
 | Stage | Work | Tier | Parallel |
 |---|---|---|---|
 | 0 to 3 | Done on 2026-10-31: local CI green, the small fixes and the parts of #193 merged, the plans checked. Hidden tests replaced by [references](design/ACCEPTANCE_STRATEGY.md) | | |
-| 4. References | Pilot: M1 against NetTopologySuite. Then the golden subset. The session that produces `Triangle.NET` results is planned, not started (strategy, section 3) | M | 1 session |
+| 4. References | Pilot: M1 against NetTopologySuite. Then the golden subset. The `Triangle.NET` reference session (strategy, section 3) is preparing since 2026-11-01 in the clean-room comparison session, output in `HarmenGrosseDeters/g3-meshing-references`; its comparison batches start once `m2.snap` is finished (owner) | M | 1 session |
 | 5. Quadtree | `quadtree` (#195): independent review, owner-machine performance and memory, side-by-side with the old quadtree | L | 1 large session |
 | 6. Meshing M1 | `feature/meshing2d` (#200): oracle and differential as gates. Only then the M2 design (#201, `docs/meshing2d-m2-design`): its recorded approvals are disputed, so question its domain decisions first. An M2 implementation comes after that | L | 1 large session, after stage 5 |
 | 6b. Meshing provenance check | After M3, once: a separate comparison session (the dirty side, the only one that may read Shewchuk's `triangle.c` and Triangle.NET) compares the 2D mesher with them for copied expression: data structures and memory layout, function decomposition, control flow of distinctive routines, constants, names and comments, plus a similarity tool where it applies (C against C#). It writes a report only, never code. A clean session rewrites any flagged part from the spec alone. The meshing session keeps a provenance log ([design/MESHING2D_PROVENANCE.md](design/MESHING2D_PROVENANCE.md): paper / section or spec item per non-trivial routine) and avoids Triangle-typical expression. Reason: the BSL-1.0 release, and models may have seen `triangle.c` in training. Algorithms from the papers are free to implement; expression is not | M | 1 session, after M3 |
@@ -78,8 +78,7 @@ Order when slots free up (owner, 2026-11-01; on that day 4 large and 2 medium se
    MESHING2D_SNAP.md.
 4. Then the CLI / MCP docs (stage 8, medium), and a review-only session when the stacks and the meshing PRs wait for
    review at the same time.
-5. Owner decisions still open: whether a large performance session pauses for Terrain, and the `Triangle.NET`
-   reference session of stage 4. Decided 2026-11-01: stage 7b follows the wrap-resolution session (see 7b).
+5. Owner decisions still open: whether a large performance session pauses for Terrain. Decided 2026-11-01: stage 7b follows the wrap-resolution session (see 7b).
 
 - At most 5 implementation sessions at once in the cloud, of which at most 2 large (tier L; [AGENT_WORKFLOW.md](AGENT_WORKFLOW.md)
   section 6), plus **one review session** that only reviews (independent reviews with REVIEW_CHECKLIST.md, bounds
