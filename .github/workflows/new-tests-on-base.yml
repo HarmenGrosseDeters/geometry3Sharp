@@ -36,6 +36,8 @@ jobs:
         run: python3 -m unittest discover -s tools -p 'test_new_tests_on_base.py'
       - name: Run the new tests against the base library
         env:
+          # On the old library a new test may run away with memory. With this limit it fails, instead of the runner being killed.
+          DOTNET_GCHeapHardLimit: "0x100000000"
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           REQUIRE_FAILING: ${{ contains(github.event.pull_request.labels.*.name, 'bugfix') && '--require-failing' || '' }}
         run: python3 tools/new_tests_on_base.py --base "$BASE_SHA" --work "$RUNNER_TEMP/new-tests-on-base" --summary "$GITHUB_STEP_SUMMARY" $REQUIRE_FAILING
