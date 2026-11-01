@@ -35,6 +35,7 @@ namespace geometry3Sharp.Tests
             yield return new object[] { "open" };
             yield return new object[] { "degenerate" };
             yield return new object[] { "tiny" };
+            yield return new object[] { "two" };
         }
 
         static List<DMesh3> Input(string name)
@@ -93,13 +94,22 @@ namespace geometry3Sharp.Tests
                     single.AppendTriangle(0, 1, 2);
                     return new List<DMesh3> { m, single };
                 }
+                case "two": {
+                    // a mesh of exactly two triangles that cross (no shared vertex), and an empty mesh
+                    var m = new DMesh3();
+                    m.AppendVertex(new Vector3d(0, 0, 0)); m.AppendVertex(new Vector3d(1, 0, 0)); m.AppendVertex(new Vector3d(0, 1, 0));
+                    m.AppendVertex(new Vector3d(0.2, 0.2, -0.5)); m.AppendVertex(new Vector3d(0.3, 0.2, 0.5)); m.AppendVertex(new Vector3d(0.2, 0.3, 0.5));
+                    m.AppendTriangle(0, 1, 2); m.AppendTriangle(3, 4, 5);
+                    return new List<DMesh3> { m, new DMesh3(), box };
+                }
             }
             throw new ArgumentException(name);
         }
 
-        static ExactMeshArrangement Run(List<DMesh3> meshes, bool selfJoin, int tasks = 256)
+        static ExactMeshArrangement Run(List<DMesh3> meshes, bool selfJoin, int tasks = 256, long batch = 1 << 24, bool selfIntersections = true)
         {
-            var arr = new ExactMeshArrangement(meshes) { SelfIntersections = true, SelfJoin = selfJoin, SelfJoinTasks = tasks, KeepCandidatePairs = true };
+            var arr = new ExactMeshArrangement(meshes) { SelfIntersections = selfIntersections, SelfJoin = selfJoin, SelfJoinTasks = tasks,
+                KeepCandidatePairs = true, CandidateBatchSize = batch };
             arr.Compute();
             return arr;
         }
@@ -119,12 +129,40 @@ namespace geometry3Sharp.Tests
             ExactMeshArrangement reference = Run(meshes, false);
             var expected = reference.CandidatePairList.OrderBy(x => x).ToList();
             Assert.Equal(expected.Count, expected.Distinct().Count());
-            foreach (int tasks in new[] { 1, 2, 3, 7, 256, 100000 }) {
-                ExactMeshArrangement arr = Run(meshes, true, tasks);
+            foreach (var (tasks, batch) in new[] { (1, 1L << 24), (2, 1L << 24), (3, 1L), (7, 1L << 24), (256, 1L), (256, 1L << 24), (100000, 1L << 24) }) {
+                ExactMeshArrangement arr = Run(meshes, true, tasks, batch);
                 Assert.Equal(expected, arr.CandidatePairList.OrderBy(x => x).ToList());
                 Assert.Equal(reference.SelfIntersectingPairs, arr.SelfIntersectingPairs);
                 Assert.Equal(reference.IntersectingPairs, arr.IntersectingPairs);
                 Assert.Equal(Pieces(reference), Pieces(arr));
+            }
+        }
+
+        [Theory]
+        [MemberData(nameof(Cases))]
+        public void WithoutSelfIntersections_TheSelfJoinIsNotUsed(string name)
+        {
+            // only pairs of different meshes: the same with either setting
+            List<DMesh3> meshes = Input(name);
+            var a = Run(meshes, true, selfIntersections: false).CandidatePairList;
+            var b = Run(meshes, false, selfIntersections: false).CandidatePairList;
+            Assert.Equal(b, a);
+            Assert.Equal(0, Run(meshes, true, selfIntersections: false).SelfIntersectingPairs);
+        }
+
+        [Fact]
+        public void SelfJoin_SerialEqualsParallel()
+        {
+            foreach (string name in new[] { "twisted", "grid", "degenerate" }) {
+                List<DMesh3> meshes = Input(name);
+                List<long> parallel = Run(meshes, true).CandidatePairList, serial;
+                gParallel.SerialOnThisThread = true;
+                try {
+                    serial = Run(meshes, true).CandidatePairList;
+                } finally {
+                    gParallel.SerialOnThisThread = false;
+                }
+                Assert.Equal(serial, parallel);
             }
         }
 
