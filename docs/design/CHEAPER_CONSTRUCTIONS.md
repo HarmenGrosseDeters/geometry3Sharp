@@ -556,6 +556,26 @@ shared-edge pairs on generated coplanar patches against `IntersectsBeyondShared`
 `Similarity.All()`); independent review: same points, corner order, projection and polarity as the original branch.
 Its measured bound is 0.4-0.7 % (section 2.3), below what the class runs can resolve; it is measured together with A2.
 
+**Step D1 (triangle planes and edge-plane approximations in fixed width), commit 1dc39cc: kept.**
+- `perf/exact_hashes.sh`: `263 runs before, 263 after, 0 differ`.
+- 4 cores, `~/ab.sh` (A = 974ced0, i.e. B + A1; B = 1dc39cc):
+
+  | class | A rounds | B rounds | sum of per-case minima A -> B |
+  |---|---|---|---|
+  | `cgal` | 9.63 / 9.53 s | 9.05 / 8.69 s | 9.16 -> 8.48 s (−7.5 %) |
+  | Thingi10K | 8.74 / 8.53 s | 8.81 / 8.54 s | 8.35 -> 8.28 s (−0.8 %) |
+  | `nreal` | 2.33 / 2.18 s | 2.32 / 2.08 s | 2.10 -> 2.05 s (−2.3 %) |
+  | `cherchi` | 22.76 / 23.19 s | 21.33 / 19.61 s | 21.98 -> 19.55 s (−11.1 %) |
+
+  `cgal` + Thingi10K: 17.51 -> 16.76 s (−4.3 %), above the 3 % bar on its own.
+- Serial, 4 alternating rounds (`~/serial_ab2.sh`): sum of per-case minima `cgal` 15.53 -> 15.03 s (−3.2 %), Thingi10K
+  15.48 -> 14.64 s (−5.4 %).
+- Tests: `ExactPlanesFixedWidthTests` (the plane, axis, sign and the 16 approximations against the BigInteger code for
+  corners of every size up to 2^255 - 1, degenerate triples; the limb -> double conversion against `(double)BigInteger`
+  up to 17 limbs and beyond 2^1024; the arrangement's planes with fixed width on and off; invariance over
+  `Similarity.All()`); 9 of 10 hand mutants killed (the survivor, `bits <= 52` for `bits <= 53`, is equivalent: the
+  other branch gives the same exact value at 53 bits).
+
 **Finding for step C (the gcd on limbs):** the design of 4.4 assumed that a binary gcd is cheap because the odd part of
 the gcd is small. It is not: the cost of a binary gcd follows the operands (150-216 bits after the common power of two
 is shifted out), not the result. A prototype limb binary gcd took about 4 µs for the three gcds of a point, the same as
