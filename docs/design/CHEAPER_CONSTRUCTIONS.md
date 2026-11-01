@@ -535,6 +535,26 @@ covers two resolves (the mesh and its rotated, shifted copy, as `export` writes 
 - On the rotated copies the cost is SafeRounding (stage R's area): to the ROADMAP shared-hotspots table, with kernel B's
   admission rate on such inputs.
 
+**The bound on the real repair path** (owner: measure first). MeshRepairBenchmark `BENCH_REPAIR=robust` (std, none,
+rel; defaults; 4 cores, one mesh at a time), with a probe on master (wall time of the `coplanar_stack` loop, summed over
+all booleans of the run), on the top coplanar cases of `robust_phases_2026-11-01.csv`:
+
+| mesh | all phases | exact.resolve | `coplanar_stack` | of resolve | inside tests |
+|---|---|---|---|---|---|
+| 42327 | 25.5 s | 11.5 s | 4.87 s | 42 % | 137M |
+| 42329 | 24.5 s | 11.0 s | 4.84 s | 44 % | 137M |
+| 67709 | 18.1 s | 6.2 s | 2.00 s | 32 % | 45M |
+| 1038446 | 11.8 s | 4.2 s | 1.14 s | 27 % | 15M |
+| 270401 | 19.6 s | 6.2 s | 0.65 s | 10 % | 2.4M |
+| 87345 | 47.8 s | 4.5 s | 0.24 s | 5 % | 1.3M |
+| 1368057 | 57.0 s | 8.7 s | 0.20 s | 2 % | 0.4M |
+| 116060, 61765, 498458, 1505037 | 243 s | 19.5 s | 0.29 s | 1-3 % | |
+| **sum** | 447 s | 71.9 s | **14.2 s** | **19.8 %** | |
+
+- 3.2 % of these cases' repair time; on the whole 400 set about 15-20 s of 3885 s (0.4-0.5 %), and 0 on the boolean
+  classes. Not worth it as a throughput optimization (process rule 4). As a worst-case latency fix it would make
+  exact.resolve 30-45 % faster on 4 meshes (8-20 % of their repair); that is an owner decision, not built.
+
 ## 11. Later queue
 
 - **GC trace on `cherchi` (4 cores, GC 23 % of the wall time) after the constructions:** `dotnet-trace collect
