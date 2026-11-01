@@ -636,15 +636,21 @@ namespace geometry3Sharp.Tests
                 if (k % 3 == 0) P = P.Select(v => new Vector3d(Math.Round(v.x * 1e3), Math.Round(v.y * 1e3), Math.Round(v.z * 1e3))).ToArray();
                 // the line nearly parallel to the plane (d near 0: the filter of the factor d decides close to its bound)
                 if (k % 4 == 1) P[1] = P[0] + (P[3] - P[2]) + rand.NextDouble() * (P[4] - P[2]) * (k % 8 == 1 ? 1e-12 : 0);
+                // TPI planes nearly dependent (plane 3 = plane 1 with one coordinate one ulp or 1e-12 off: d near 0) or
+                // degenerate (plane 1 through a repeated point: n1 = 0, so d = 0 and m~ = 0)
+                if (k % 6 == 2) { P[6] = P[0]; P[7] = P[1]; P[8] = new Vector3d(BitIncrement(P[2].x), P[2].y, P[2].z); }
+                if (k % 6 == 3) { P[6] = P[0]; P[7] = P[1]; P[8] = P[2] * (1 + 1e-12); }
+                if (k % 6 == 4) P[1] = P[0];
                 IndirectPredicates.Orient3dLPIPrepare(P[0], P[1], P[2], P[3], P[4], out var lpi);
                 IndirectPredicates.Orient3dTPIPrepare(P[0], P[1], P[2], P[3], P[4], P[5], P[6], P[7], P[8], out var tpi);
-                for (int j = 0; j < 5; ++j) {
+                for (int j = 0; j < 6; ++j) {
                     Vector3d a = j == 0 ? P[9] : P[5 + j], b = P[10], c = j == 1 ? P[2] : P[11];
                     if (j == 3) {
                         // the evaluating plane through the LPI line's endpoint: one ulp off
                         a = P[0]; b = P[3]; c = new Vector3d(BitIncrement(P[4].x), P[4].y, P[4].z);
                     }
                     if (j == 4) { a = P[2]; b = P[3]; c = P[4]; }     // the LPI point's own plane: 0, the filter fails
+                    if (j == 5) { a = P[3]; b = P[4]; c = P[5]; }     // a TPI plane: the TPI point on it, 0
                     int u = IndirectPredicates.Orient3dLPI(P[0], P[1], P[2], P[3], P[4], a, b, c);
                     Assert.Equal(u, IndirectPredicates.Orient3dLPI(ref lpi, a, b, c));
                     if (lpi.Gate && InRange(new[] { a, b, c })) {
@@ -662,6 +668,26 @@ namespace geometry3Sharp.Tests
                 }
             }
             Assert.True(filterDecided > 3000 && exactPath > 500, $"filter decided {filterDecided}, exact {exactPath}");
+            // only an evaluated point out of the filter's range (1e-200, 1e60): the call goes to the exact stage, with the
+            // unsplit result
+            foreach (double far in new[] { 1e-200, 1e60 }) {
+                Vector3d[] R = { new Vector3d(1, 2, 3), new Vector3d(4, 5, 6.5), new Vector3d(1, 0, 0), new Vector3d(0, 1, 0), new Vector3d(0, 0, 1),
+                                 new Vector3d(2, 1, 0), new Vector3d(1, 3, 1), new Vector3d(0, 1, 4), new Vector3d(3, 0, 1) };
+                IndirectPredicates.Orient3dLPIPrepare(R[0], R[1], R[2], R[3], R[4], out var pl);
+                IndirectPredicates.Orient3dTPIPrepare(R[0], R[1], R[2], R[3], R[4], R[5], R[6], R[7], R[8], out var pt);
+                Assert.True(pl.Gate && pt.Gate);
+                for (int k = 0; k < 20; ++k) {
+                    Vector3d a = new Vector3d(rand.NextDouble(), rand.NextDouble(), rand.NextDouble()), b = new Vector3d(rand.NextDouble(), 2, rand.NextDouble());
+                    Vector3d c = new Vector3d(far * (1 + rand.NextDouble()), rand.NextDouble(), 0.5);
+                    Assert.Equal(IndirectPredicates.Orient3dLPI(R[0], R[1], R[2], R[3], R[4], a, b, c), IndirectPredicates.Orient3dLPI(ref pl, a, b, c));
+                    Assert.Equal(IndirectPredicates.Orient3dTPI(R[0], R[1], R[2], R[3], R[4], R[5], R[6], R[7], R[8], a, b, c), IndirectPredicates.Orient3dTPI(ref pt, a, b, c));
+                }
+            }
+            // a struct that was not prepared is rejected
+            var none = default(IndirectPredicates.Orient3dLPIPrepared);
+            Assert.Throws<InvalidOperationException>(() => IndirectPredicates.Orient3dLPI(ref none, Vector3d.AxisX, Vector3d.AxisY, Vector3d.AxisZ));
+            var noneT = default(IndirectPredicates.Orient3dTPIPrepared);
+            Assert.Throws<InvalidOperationException>(() => IndirectPredicates.Orient3dTPI(ref noneT, Vector3d.AxisX, Vector3d.AxisY, Vector3d.AxisZ));
             // the gate of the prepared points: out of range goes to the exact stage, with the same result
             Vector3d[] Q = { new Vector3d(1e-200, 2, 3), new Vector3d(4, 5, 6.5), new Vector3d(1, 0, 0), new Vector3d(0, 1, 0), new Vector3d(0, 0, 1) };
             IndirectPredicates.Orient3dLPIPrepare(Q[0], Q[1], Q[2], Q[3], Q[4], out var g);
