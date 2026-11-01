@@ -32,7 +32,12 @@ setup (SDK install): [docs/QA.md#5-local-setup](docs/QA.md#5-local-setup).
 ## Before every push
 
 Docs-only changes (only `*.md` files) need no local CI steps, and GitHub CI skips them (`paths-ignore` in
-`ci.yml`): re-read the diff and push. Anything else, including code in `docs/examples`, runs the full list.
+`ci.yml`): re-read the diff and push. A change to existing library code, including code in `docs/examples`, runs
+the full list. A change to tools, tests or new files only runs the filtered tests of the changed areas, the builds of
+all targets (net10.0, netstandard2.0, the net48 test projects) and `dotnet pack` (API validation); GitHub CI runs the
+rest. One PR per feature, as clean commits, not stacked sub-step PRs; Stryker locally once per shard to set its
+threshold, then the CI run is the gate; an upper-bound check before any performance spike
+([AGENT_WORKFLOW.md](docs/AGENT_WORKFLOW.md) sections 2, 3 and 8).
 
 Run the steps of `.github/workflows/ci.yml` locally:
 
