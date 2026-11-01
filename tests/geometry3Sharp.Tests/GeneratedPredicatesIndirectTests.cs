@@ -349,7 +349,7 @@ namespace geometry3Sharp.Tests
                     var need = div1u(c[p.Signs[f]]);
                     double K = p.FilterK[f];
                     Assert.True(ge(exact(K), need), $"{p.Name} factor {f}: K below c / (1 - u)");
-                    Assert.False(ge(exact(Math.BitDecrement(K)), need), $"{p.Name} factor {f}: K not the smallest such double");
+                    Assert.False(ge(exact(BitDecrement(K)), need), $"{p.Name} factor {f}: K not the smallest such double");
                     double first = k[p.Signs[f]] * u;
                     Assert.True(K > first && K <= first * (1 + 1e-9), $"{p.Name} factor {f}: K = {K}, k u = {first}");
                 }
@@ -565,11 +565,28 @@ namespace geometry3Sharp.Tests
             return r;
         }
 
+        // x * 2^n, exact while the result is normal (Math.ScaleB is missing on net48)
+        static double ScaleB(double x, int n)
+        {
+            for (; n > 1000; n -= 1000) x *= 1.0715086071862673e301;    // 2^1000
+            for (; n < -1000; n += 1000) x *= 9.332636185032189e-302;   // 2^-1000
+            return x * BitConverter.Int64BitsToDouble((long)(n + 1023) << 52);
+        }
+
+        // the next double up / down, for finite x (Math.BitIncrement / BitDecrement are missing on net48)
+        static double BitIncrement(double x)
+        {
+            if (x == 0) return double.Epsilon;
+            long b = BitConverter.DoubleToInt64Bits(x);
+            return BitConverter.Int64BitsToDouble(x > 0 ? b + 1 : b - 1);
+        }
+        static double BitDecrement(double x) => -BitIncrement(-x);
+
         // a double of magnitude about 2^e (full mantissa), either sign
-        static double D(Random rand, int e) => (rand.Next(2) == 0 ? 1 : -1) * Math.ScaleB(1 + rand.NextDouble(), e);
+        static double D(Random rand, int e) => (rand.Next(2) == 0 ? 1 : -1) * ScaleB(1 + rand.NextDouble(), e);
 
         // within the filter's range of both predicates: every coordinate 0 or of magnitude in [2^-54, 2^108]
-        static bool InRange(Vector3d[] P) => P.All(p => new[] { p.x, p.y, p.z }.All(v => v == 0 || (Math.Abs(v) >= Math.ScaleB(1, -54) && Math.Abs(v) <= Math.ScaleB(1, 108))));
+        static bool InRange(Vector3d[] P) => P.All(p => new[] { p.x, p.y, p.z }.All(v => v == 0 || (Math.Abs(v) >= ScaleB(1, -54) && Math.Abs(v) <= ScaleB(1, 108))));
 
         /// <summary>
         /// general doubles (full mantissas, around 2^-50 .. 2^100, with an exponent spread within the call of 0 to 70 bits:
@@ -612,14 +629,14 @@ namespace geometry3Sharp.Tests
                 int center = new[] { -40, 0, 30, 90 }[k % 4];
                 var P = Enumerable.Range(0, 12).Select(_ => new Vector3d(D(rand, center + rand.Next(20)), D(rand, center + rand.Next(20)), D(rand, center + rand.Next(20)))).ToArray();
                 var c = P[4];
-                if (k % 2 == 0) c = new Vector3d(Math.BitIncrement(c.x), c.y, c.z);       // one ulp off the plane
+                if (k % 2 == 0) c = new Vector3d(BitIncrement(c.x), c.y, c.z);       // one ulp off the plane
                 var Q = new[] { P[0], P[1], P[2], P[3], P[4], P[2], P[3], c };
                 int f;
                 var IQ = Integers(Q);
                 Assert.Equal(OracleLPI(IQ), LPIG(Q, out f));
                 if (f != 2) Assert.Equal(OracleLPI(IQ), f); else reachedExact++;
                 if (k % 2 == 1) Assert.Equal(0, OracleLPI(IQ));
-                var T = P.Take(9).Concat(new[] { P[0], P[1], k % 2 == 0 ? new Vector3d(P[2].x, Math.BitDecrement(P[2].y), P[2].z) : P[2] }).ToArray();
+                var T = P.Take(9).Concat(new[] { P[0], P[1], k % 2 == 0 ? new Vector3d(P[2].x, BitDecrement(P[2].y), P[2].z) : P[2] }).ToArray();
                 var IT = Integers(T);
                 Assert.Equal(OracleTPI(IT), TPIG(T, out f));
                 if (f != 2) Assert.Equal(OracleTPI(IT), f); else reachedExact++;
@@ -705,7 +722,7 @@ namespace geometry3Sharp.Tests
                 // one point (or the plane of LPI) far below the range: its position changes with k
                 int j = k % 12;
                 P[j] = new Vector3d(D(rand, -400), D(rand, -400), D(rand, -401));
-                if (k % 3 == 0) { P[2] = P[2] * Math.ScaleB(1, -400); P[3] = P[3] * Math.ScaleB(1, -400); P[4] = P[4] * Math.ScaleB(1, -400); }
+                if (k % 3 == 0) { P[2] = P[2] * ScaleB(1, -400); P[3] = P[3] * ScaleB(1, -400); P[4] = P[4] * ScaleB(1, -400); }
                 var I = Integers(P);
                 int f;
                 Assert.Equal(OracleLPI(I.Take(8).ToArray()), LPIG(P.Take(8).ToArray(), out f));
@@ -745,7 +762,7 @@ namespace geometry3Sharp.Tests
                 for (int k = 0; k < 40; ++k) {
                     // degenerate (sign 0) and general, so that the exact stage runs
                     var P = Enumerable.Range(0, 12).Select(_ => new Vector3d(1.0 + rand.Next(1, 1000), rand.Next(1, 1000), rand.Next(1, 1000))).ToArray();
-                    P[k % 12] = new Vector3d(Math.ScaleB(9007199254740991.0, extra) * (rand.Next(2) == 0 ? 1 : -1), P[k % 12].y, P[k % 12].z);
+                    P[k % 12] = new Vector3d(ScaleB(9007199254740991.0, extra) * (rand.Next(2) == 0 ? 1 : -1), P[k % 12].y, P[k % 12].z);
                     P[0] = new Vector3d(1.0, P[0].y, P[0].z);
                     if (k % 2 == 0) { P[5] = P[2]; P[6] = P[3]; P[7] = P[4]; P[9] = P[0]; P[10] = P[1]; P[11] = P[2]; }
                     var I = Integers(P);
@@ -755,7 +772,7 @@ namespace geometry3Sharp.Tests
 #if NET
                 var Q = Enumerable.Range(0, 8).Select(i => new Vector3d(i + 2.0, 2 * i + 3.0, 3 * i + 5.0)).ToArray();
                 Q[0] = new Vector3d(1.0, 2, 3);
-                Q[1] = new Vector3d(Math.ScaleB(9007199254740991.0, extra), 7, 11);
+                Q[1] = new Vector3d(ScaleB(9007199254740991.0, extra), 7, 11);
                 Q[5] = Q[2]; Q[6] = Q[3]; Q[7] = Q[4];
                 for (int w = 0; w < 5; ++w) IndirectPredicates.Orient3dLPIExact(Q[0], Q[1], Q[2], Q[3], Q[4], Q[5], Q[6], Q[7]);
                 long before = GC.GetAllocatedBytesForCurrentThread();
@@ -777,7 +794,7 @@ namespace geometry3Sharp.Tests
         {
             var rand = new Random(36);
             foreach (var (gate, isTpi) in new[] { (-108, false), (-54, true) }) {
-                double b = Math.ScaleB(1.0, gate), ulp = Math.ScaleB(1.0, gate - 52);
+                double b = ScaleB(1.0, gate), ulp = ScaleB(1.0, gate - 52);
                 int decided = 0;
                 for (int k = 0; k < 2000; ++k) {
                     // b (1, 1, 1) plus a few ulps per coordinate: all coordinates in [2^gate, 2^(gate+1))
