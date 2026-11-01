@@ -576,6 +576,25 @@ Its measured bound is 0.4-0.7 % (section 2.3), below what the class runs can res
   `Similarity.All()`); 9 of 10 hand mutants killed (the survivor, `bits <= 52` for `bits <= 53`, is equivalent: the
   other branch gives the same exact value at 53 bits).
 
+**Step A2 (coplanar neighbours with a shared vertex or edge), commits 8a11fa4 + cf775b1 (+ d6143f7 tests): kept.**
+- `ExactTriangleIntersection.IntersectsBeyondSharedCoplanar` (internal, additive, agreed with stage R after #249
+  merged): the coplanar branches of `IntersectsBeyondShared` and `SegmentIntersectsTriangle` without the Orient3d
+  calls that are 0. `touch_only` takes it when all non-shared corners of one triangle lie in the other's plane
+  (`one_side_except_shared` now evaluates all non-shared corners). It replaces A1's copied shared-edge branch, which
+  used the floating-point `dominant_axis` and so predated #249's exact `plane_axis`.
+- `perf/exact_hashes.sh`: `263 runs before, 263 after, 0 differ`.
+- 4 cores, `~/ab.sh` (A = d17ba68, i.e. D1 merged with master; B = cf775b1); sum of per-case minima: `cgal` 8.43 ->
+  8.55 s (+1.4 %), Thingi10K 8.18 -> 7.82 s (−4.5 %), `nreal` 2.05 -> 1.95 s (−4.7 %), `cherchi` 19.51 -> 19.26 s
+  (−1.3 %).
+- Serial, 4 rounds: `cgal` 14.94 -> 14.80 s (−0.9 %), Thingi10K 14.50 -> 14.82 s (+2.2 %), `nreal` 4.20 -> 3.81 s
+  (−9.3 %).
+- Below the step-0 bound (7-8 % serially): step B had already made the skipped exact stages cheaper (190 -> about
+  135 ns each in place), and the coplanar path keeps its 2D tests and projection-axis choices. The gain shows on
+  `nreal` (coplanar CAD neighbours in many self-pairs); on `cgal` / Thingi10K it is within the noise.
+- Independent review: no defect; it added the tests for a shared vertex with one corner in the plane and one off it
+  (both corner orders) and for the #249 sliver through the coplanar entry. Hand mutants of the new zero handling in
+  `one_side_except_shared`: 2 of 2 killed.
+
 **Finding for step C (the gcd on limbs):** the design of 4.4 assumed that a binary gcd is cheap because the odd part of
 the gcd is small. It is not: the cost of a binary gcd follows the operands (150-216 bits after the common power of two
 is shifted out), not the result. A prototype limb binary gcd took about 4 µs for the three gcds of a point, the same as
