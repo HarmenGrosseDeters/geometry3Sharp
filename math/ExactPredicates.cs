@@ -71,46 +71,6 @@ namespace g3
 
 
         /// <summary>
-        /// The terms of Orient3d(a, b, c, d) that depend only on a, b, c: the components of the rounded normal
-        /// (b - a) x (c - a) and the sums of the magnitudes of its products, each rounded exactly as Orient3d rounds
-        /// them. For many points d against one plane.
-        /// </summary>
-        internal struct Orient3dPlane
-        {
-            public double NX, NY, NZ, PX, PY, PZ;
-        }
-
-        [MethodImpl(JitHints.Optimize)]
-        internal static Orient3dPlane MakeOrient3dPlane(Vector3d a, Vector3d b, Vector3d c)
-        {
-            double ux = b.x - a.x, uy = b.y - a.y, uz = b.z - a.z;
-            double vx = c.x - a.x, vy = c.y - a.y, vz = c.z - a.z;
-            double uyvz = uy * vz, uzvy = uz * vy, uzvx = uz * vx, uxvz = ux * vz, uxvy = ux * vy, uyvx = uy * vx;
-            return new Orient3dPlane() {
-                NX = uyvz - uzvy, NY = uzvx - uxvz, NZ = uxvy - uyvx,
-                PX = Math.Abs(uyvz) + Math.Abs(uzvy), PY = Math.Abs(uzvx) + Math.Abs(uxvz), PZ = Math.Abs(uxvy) + Math.Abs(uyvx)
-            };
-        }
-
-        /// <summary>
-        /// Orient3d(a, b, c, d) with the terms of a, b, c precomputed (MakeOrient3dPlane(a, b, c)): the same filter
-        /// value, permanent and bound, operation by operation, so the same decisions; the same exact stage
-        /// </summary>
-        [MethodImpl(JitHints.Optimize)]
-        internal static int Orient3d(Vector3d a, Vector3d b, Vector3d c, in Orient3dPlane p, Vector3d d)
-        {
-            PredicateStats.Call(PredicateStats.Kind.Orient3d);
-            double wx = d.x - a.x, wy = d.y - a.y, wz = d.z - a.z;
-            double det = wx * p.NX + wy * p.NY + wz * p.NZ;
-            double permanent = Math.Abs(wx) * p.PX + Math.Abs(wy) * p.PY + Math.Abs(wz) * p.PZ;
-            double bound = Orient3dBound * permanent + (Math.Abs(wx) + Math.Abs(wy) + Math.Abs(wz) + 1) * UnderflowUnit;
-            if (det > bound && permanent > UnderflowLimit) return 1;
-            if (-det > bound && permanent > UnderflowLimit) return -1;
-            PredicateStats.ExactStage(PredicateStats.Kind.Orient3d);
-            return orient3d_exact(a, b, c, d);
-        }
-
-        /// <summary>
         /// +1 if d lies inside the circle through a, b, c (given counter-clockwise; the sign is reversed for
         /// clockwise input), -1 outside, 0 if the four points are cocircular
         /// </summary>
