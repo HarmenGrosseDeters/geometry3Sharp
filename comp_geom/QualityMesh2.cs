@@ -69,7 +69,8 @@ namespace g3
             readonly HashSet<long> exempt = new HashSet<long>();
             int hullSource = -1;
             long limit, inserted, splits;
-            internal static bool DebugTrace = Environment.GetEnvironmentVariable("G3_REFINE_TRACE") != null;
+            /// <summary> vertices below this id existed before refinement: input points and crossings, the apexes of input angles </summary>
+            int firstSteiner;
 
             internal Refiner(QualityMesh2 options, ConstrainedDelaunayMesh2.Builder builder)
             {
@@ -92,13 +93,13 @@ namespace g3
                 bool any = options.MinAngle > 0 || options.MaxArea != null || options.SizeFunction != null || HasRegionArea() || options.Conforming;
                 if (!any) return null;
                 ConstrainHull();
+                firstSteiner = k.VertexCount;
                 k.Dirty = new List<int>();
                 for (int t = 0; t < k.TriangleSlots; ++t)
                     if (InDomain(t)) { triangles.Enqueue(t); QueueEdges(t); }
                 long steps = 0;
                 while (segments.Count > 0 || triangles.Count > 0) {
                     if ((++steps & 255) == 0) b.cancel.ThrowIfCancellationRequested();
-                    if (DebugTrace && (steps % 200000) == 0) Console.Error.WriteLine("REFINE steps " + steps + " inserted " + inserted + " segQ " + segments.Count + " triQ " + triangles.Count + " splits " + splits + " exempt " + exempt.Count + " unsplittable " + unsplittable.Count + " vertices " + k.VertexCount);
                     // every vertex made since the input counts, crossings included (O7: the limit counts every Steiner point of the run)
                     inserted = k.VertexCount - (k.N + 1);
                     if (inserted >= limit) { b.SteinerLimitReached = true; break; }
@@ -139,11 +140,11 @@ namespace g3
                     for (int j = 0; j < 3; ++j) {
                         int e = 3 * t + j;
                         if (k.V[e] == k.Infinite || k.V[Next(e)] == k.Infinite || k.Seg[e] >= 0) continue;
-                        if (hullSource < 0) {
-                            b.sources.Add(new ConstrainedDelaunayMesh2.Source { Ring = -1, Hull = true });
-                            hullSource = b.sources.Count - 1;
-                        }
-                        k.SetConstraint(e, k.NewConstraint(new List<int> { hullSource }));
+                        // each hull edge its own source with its coordinates, so that splits are computed on the original edge
+                        // e runs along the ghost, the domain on its right: stored reversed, the domain is on the left of A -> B
+                        int a0 = k.V[Next(e)], b0 = k.V[e];
+                        b.sources.Add(new ConstrainedDelaunayMesh2.Source { Ring = -1, Hull = true, AX = k.X[a0], AY = k.Y[a0], BX = k.X[b0], BY = k.Y[b0], VA = a0, VB = b0 });
+                        k.SetConstraint(e, k.NewConstraint(new List<int> { b.sources.Count - 1 }));
                     }
                 }
             }
@@ -159,24 +160,36 @@ namespace g3
             /// <summary> after an insertion: the rewritten triangles may be bad, their constrained edges encroached </summary>
             void Collect()
             {
-                // A split point on a boundary segment can round to just outside the domain: the sliver between the old edge and the
-                // new pieces is then tagged outside, while the domain is bounded by constraints. Tags change only across constraints,
-                // so a triangle joined to the domain by an unconstrained edge takes the domain's tag.
-                var queue = new Queue<int>(k.Dirty);
-                while (queue.Count > 0) {
-                    int t = queue.Dequeue();
-                    if (k.IsGhost(t) || k.Tag[t] >= 0) continue;
+                // Tags change only across constraints. A split briefly lifts the constraint of the piece it splits, and the flips around
+                // it may then cross the boundary, so the rewritten triangles take their tags anew: from the unchanged triangles they are
+                // joined to by unconstrained edges (a breadth-first search into the rewritten region). A rewritten triangle not joined
+                // to any unchanged one keeps its tag.
+                var previous = new Dictionary<int, int>();
+                foreach (int t in k.Dirty) if (!k.IsGhost(t) && !previous.ContainsKey(t)) { previous.Add(t, k.Tag[t]); k.Tag[t] = int.MinValue; }
+                var queue = new Queue<int>();
+                foreach (int t in previous.Keys)
                     for (int j = 0; j < 3; ++j) {
                         int e = 3 * t + j;
                         if (k.Seg[e] >= 0) continue;
                         int t2 = k.H[e] / 3;
-                        if (k.IsGhost(t2) || k.Tag[t2] < 0) continue;
-                        k.Tag[t] = k.Tag[t2];
-                        for (int i = 0; i < 3; ++i) if (k.Seg[3 * t + i] < 0) queue.Enqueue(k.H[3 * t + i] / 3);
-                        k.Dirty.Add(t);
-                        break;
+                        if (k.Tag[t2] == int.MinValue) continue;
+                        // a ghost counts as an unchanged neighbour outside: a sliver left between a rerouted boundary piece and the old,
+                        // now unconstrained hull edge is outside the domain (found with M3, F-39)
+                        int tag = k.IsGhost(t2) ? -1 : k.Tag[t2];
+                        if (k.Tag[t] == int.MinValue) { k.Tag[t] = tag; queue.Enqueue(t); }
+                    }
+                while (queue.Count > 0) {
+                    int t = queue.Dequeue();
+                    for (int j = 0; j < 3; ++j) {
+                        int e = 3 * t + j;
+                        if (k.Seg[e] >= 0) continue;
+                        int t2 = k.H[e] / 3;
+                        if (k.IsGhost(t2) || k.Tag[t2] != int.MinValue) continue;
+                        k.Tag[t2] = k.Tag[t];
+                        queue.Enqueue(t2);
                     }
                 }
+                foreach (var pair in previous) if (k.Tag[pair.Key] == int.MinValue) k.Tag[pair.Key] = pair.Value;
                 foreach (int t in k.Dirty) {
                     if (k.IsGhost(t)) continue;
                     triangles.Enqueue(t);
@@ -283,7 +296,51 @@ namespace g3
                 // the small angle lies between two constrained edges: forced by the input (O3)
                 int ea = 3 * t + corner, eb = 3 * t + (corner + 2) % 3;
                 if (k.Seg[ea] >= 0 && k.Seg[eb] >= 0) return false;
+                // the shortest edge spans a small input angle: its ends lie on two input segments that meet at an angle below the
+                // bound, at about the same distance from where they meet. Such a triangle cannot be improved without refining towards
+                // the apex for ever (Shewchuk 2002, small input angles)
+                if (SpansSmallAngle(k.V[3 * t + (corner + 1) % 3], k.V[3 * t + (corner + 2) % 3])) return false;
                 return true;
+            }
+
+            bool SpansSmallAngle(int p, int q)
+            {
+                var sp = SourcesAt(p); var sq = SourcesAt(q);
+                if (sp.Count == 0 || sq.Count == 0) return false;
+                var P = k.Point(p); var Qv = k.Point(q);
+                foreach (int a in sp)
+                    foreach (int c in sq) {
+                        if (a == c) continue;
+                        var s1 = b.sources[a]; var s2 = b.sources[c];
+                        double d1x = s1.BX - s1.AX, d1y = s1.BY - s1.AY, d2x = s2.BX - s2.AX, d2y = s2.BY - s2.AY;
+                        double cross = d1x * d2y - d1y * d2x, l1 = Math.Sqrt(d1x * d1x + d1y * d1y), l2 = Math.Sqrt(d2x * d2x + d2y * d2y);
+                        if (!(Math.Abs(cross) > 0) || !(l1 > 0) || !(l2 > 0)) continue;
+                        double sin = Math.Abs(cross) / (l1 * l2);
+                        if (sin * sin >= sin2Min) continue;
+                        // where the lines meet
+                        double t1 = ((s2.AX - s1.AX) * d2y - (s2.AY - s1.AY) * d2x) / cross;
+                        double t2 = ((s2.AX - s1.AX) * d1y - (s2.AY - s1.AY) * d1x) / cross;
+                        // the apex is on both segments: an input angle, not two lines that would meet far away
+                        if (t1 < -1e-9 || t1 > 1 + 1e-9 || t2 < -1e-9 || t2 > 1 + 1e-9) continue;
+                        var A = new Vector2d(s1.AX + t1 * d1x, s1.AY + t1 * d1y);
+                        double rp = (P - A).LengthSquared, rq = (Qv - A).LengthSquared;
+                        if (!(rp > 0) || !(rq > 0) || rp > 4 * rq || rq > 4 * rp) continue;
+                        // and p, q lie on the same side of the apex along their lines
+                        if ((P - A).Dot(Qv - A) <= 0) continue;
+                        return true;
+                    }
+                return false;
+            }
+
+            List<int> SourcesAt(int v)
+            {
+                var result = new List<int>();
+                foreach (int e in k.Star(v)) {
+                    int c = k.Seg[e];
+                    if (c < 0) continue;
+                    foreach (int src in k.Sources[c]) if (!b.sources[src].Hull && !result.Contains(src)) result.Add(src);
+                }
+                return result;
             }
 
             long TriangleKey(int t)
@@ -404,28 +461,24 @@ namespace g3
                 var pu = k.Point(u); var pw = k.Point(w);
                 double length = (pw - pu).Length;
                 double fraction = 0.5;
-                bool uInput = u < k.N, wInput = w < k.N;
+                // concentric shells around the vertices that existed before refinement (input points and crossings): where segments
+                // meet at a small angle, their splits then lie on common circles and do not encroach each other (Shewchuk 2002)
+                bool uInput = u < firstSteiner, wInput = w < firstSteiner;
                 if (uInput != wInput && length > 0) {
                     double d = Math.Pow(2, Math.Round(Math.Log(length / 2, 2)));
                     if (d > length / 3 && d < 2 * length / 3) fraction = uInput ? d / length : 1 - d / length;
                 }
                 Vector2d p;
                 var s = b.sources[src[0]];
-                if (s.Hull) {
-                    // on the hull the point must not round to the outside, or the domain grows: move it inwards by units in the last place
-                    p = pu + (pw - pu) * fraction;
-                    for (int i = 0; i < 64 && ExactPredicates.Orient2d(pu, pw, p) < 0; ++i) {
-                        double nx = -(pw.y - pu.y), ny = pw.x - pu.x;   // the inward normal (the domain is on the left of u -> w)
-                        p = new Vector2d(nx > 0 ? NextUp(p.x) : nx < 0 ? NextDown(p.x) : p.x, ny > 0 ? NextUp(p.y) : ny < 0 ? NextDown(p.y) : p.y);
-                    }
-                }
-                else {
+                {
                     var A = new Vector2d(s.AX, s.AY); var B = new Vector2d(s.BX, s.BY);
                     var dir = B - A; double l2 = dir.LengthSquared;
                     double tu = l2 > 0 ? (pu - A).Dot(dir) / l2 : 0, tw = l2 > 0 ? (pw - A).Dot(dir) / l2 : 0;
                     double tt = tu + (tw - tu) * fraction;
                     p = A + dir * tt;
                 }
+                // (On the hull a point that rounds to the outside extends the triangulation's hull by a sliver, and Lawson's flips remove
+                // the old hull edge; a point moved inwards instead would leave a sliver at an unconstrained hull edge.)
                 if ((p.x == pu.x && p.y == pu.y) || (p.x == pw.x && p.y == pw.y) || double.IsNaN(p.x) || double.IsNaN(p.y)) {
                     unsplittable.Add(Key(u, w));
                     return null;

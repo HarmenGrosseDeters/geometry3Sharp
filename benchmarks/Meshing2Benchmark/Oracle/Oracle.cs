@@ -86,20 +86,22 @@ namespace Meshing2Acceptance
                 }
                 if (o.Status != Mesh2Status.Success) r.Add(Violation.StatusInconsistent, o.Status + " with triangles");
                 if (degenerate) r.Add(Violation.TrianglesOnDegenerate, "triangles on an input without area");
-                Orientation();
+                var watch = Environment.GetEnvironmentVariable("G3_ORACLE_TIMING") != null ? System.Diagnostics.Stopwatch.StartNew() : null;
+                void Lap(string name) { if (watch != null) { Console.Error.WriteLine("ORACLE " + name + " " + watch.ElapsedMilliseconds + " ms"); watch.Restart(); } }
+                Orientation(); Lap("orientation");
                 if (!r.Ok) return r; // the rest assumes positive triangles
-                EdgesAndNeighbours();
+                EdgesAndNeighbours(); Lap("edges");
                 Sources();
-                Conformity();
+                Conformity(); Lap("conformity");
                 Crossings();
-                InventedVertices();
-                Segments();   // before Coverage: it measures how far the geometry moved
-                Coverage();
-                Delaunay();
-                Quality();
-                Regions();
-                Marks();
-                Locate();
+                InventedVertices(); Lap("crossings, invented");
+                Segments(); Lap("segments");   // before Coverage: it measures how far the geometry moved
+                Coverage(); Lap("coverage");
+                Delaunay(); Lap("delaunay");
+                Quality(); Lap("quality");
+                Regions(); Lap("regions");
+                Marks(); Lap("marks");
+                Locate(); Lap("locate");
                 return r;
             }
 
@@ -420,6 +422,18 @@ namespace Meshing2Acceptance
                 foreach (var seed in input.HoleSeeds) {
                     var p = Pt.FromDoubles(seed[0], seed[1]);
                     if (domain.Classify(p) == Where.Inside) effectiveSeeds.Add(p);
+                }
+                if (domain.IsHull) {
+                    // D13: the hull is the boundary, and splitting a hull edge in doubles cannot stay exactly on it (O2: a few ulps off a
+                    // segment are fine): a boundary vertex within the tube of a hull edge counts as moved by its distance (found with M3)
+                    var hullEdges = domain.Edges().ToList();
+                    foreach (var pair in edges) {
+                        if (pair.Value.Count != 1) continue;
+                        foreach (int id in new[] { pair.Value[0].a, pair.Value[0].b }) {
+                            Q d = hullEdges.Select(h => Exact.Dist2ToSegment(h.a, h.b, v[id])).Aggregate(Q.Min);
+                            if (d <= tube2) moved2 = Q.Max(moved2, d);
+                        }
+                    }
                 }
                 if (effectiveSeeds.Count == 0) {
                     Q diff = Q.Abs(r.Area2 - domain.Area * 2);
@@ -794,7 +808,7 @@ namespace Meshing2Acceptance
                         if (!below && sin2 >= high && listed.Contains(i)) r.Add(Violation.BadListWrong, "triangle " + i + " is listed but not below the angle");
                     }
                     if (!below || o.SteinerLimitReached || !e.AngleGuaranteed) continue;
-                    if (ForcedByInputAngle(t, low, around) || TouchesLocked(t)) continue;
+                    if (ForcedByInputAngle(t, low, around) || TouchesLocked(t) || SpansSmallInputAngle(t, low)) continue;
                     r.Add(Violation.AngleBelowBound, "triangle " + t[0] + " " + t[1] + " " + t[2] + " is below " + degrees + " degrees with no forced small angle");
                 }
             }
@@ -838,6 +852,42 @@ namespace Meshing2Acceptance
                             if (Exact.Orient(p, a, x) >= 0 && Exact.Orient(p, x, b) >= 0 && Exact.Orient(p, a, y) >= 0 && Exact.Orient(p, y, b) >= 0) return true;
                         }
                 }
+                return false;
+            }
+
+            /// <summary>
+            /// The shortest edge of t spans a small input angle: its ends lie in the tubes of two input constraints that meet on both of
+            /// them at an angle below the bound, at distances from the apex within a factor of two, on the same side of it. Such a triangle
+            /// cannot be improved without refining towards the apex for ever (Shewchuk 2002, small input angles; plan, section 6). Found
+            /// with M3 at inputs where several segments cross at small angles (F-4, F-39).
+            /// </summary>
+            bool SpansSmallInputAngle(int[] t, Q sin2Low)
+            {
+                int k0 = 0;
+                Q best = Q.Zero; bool first = true;
+                for (int k = 0; k < 3; ++k) {
+                    Q l = Exact.Len2(v[t[(k + 1) % 3]], v[t[(k + 2) % 3]]);
+                    if (first || l < best) { best = l; k0 = k; first = false; }
+                }
+                Pt p = v[t[(k0 + 1) % 3]], q = v[t[(k0 + 2) % 3]];
+                var sp = sources.Where(s => WithinTube(s, p)).ToList();
+                var sq = sources.Where(s => WithinTube(s, q)).ToList();
+                foreach (var a in sp)
+                    foreach (var c in sq) {
+                        if (a.sourceId == c.sourceId) continue;
+                        Q d1x = a.b.Qx - a.a.Qx, d1y = a.b.Qy - a.a.Qy, d2x = c.b.Qx - c.a.Qx, d2y = c.b.Qy - c.a.Qy;
+                        Q cross = d1x * d2y - d1y * d2x;
+                        if (cross.Sign == 0) continue;
+                        Q sin2 = cross * cross / ((d1x * d1x + d1y * d1y) * (d2x * d2x + d2y * d2y));
+                        if (sin2 >= sin2Low) continue;
+                        Q t1 = ((c.a.Qx - a.a.Qx) * d2y - (c.a.Qy - a.a.Qy) * d2x) / cross, t2 = ((c.a.Qx - a.a.Qx) * d1y - (c.a.Qy - a.a.Qy) * d1x) / cross;
+                        if (t1.Sign < 0 || t1 > Q.One || t2.Sign < 0 || t2 > Q.One) continue;
+                        var apex = new Pt(a.a.Qx + t1 * d1x, a.a.Qy + t1 * d1y);
+                        Q rp = Exact.Len2(apex, p), rq = Exact.Len2(apex, q);
+                        if (rp.Sign == 0 || rq.Sign == 0 || rp > rq * 4 || rq > rp * 4) continue;
+                        if (Dot(apex, p, q).Sign <= 0) continue;
+                        return true;
+                    }
                 return false;
             }
 

@@ -530,6 +530,23 @@ namespace Meshing2Acceptance
                 reject("a flipped free edge at the Steiner limit", Violation.NotDelaunayLocal, input, o, new OracleExpect { Milestone = Milestone.M3 });
             }
 
+            // 10. a skinny triangle whose shortest edge spans a small input angle (two segments from a common apex at 10 degrees, the
+            //     ends at about the same distance) is exempt from the angle bound; the same triangle without the segments is not
+            {
+                double c = Math.Cos(10 * Math.PI / 180), sn = Math.Sin(10 * Math.PI / 180);
+                var input = Points(0, 0, 16, 0, 16 * c, 16 * sn, 8, 0, 8 * c, 8 * sn);
+                input.Segments.Add(new SegmentInput(0, 1)); input.Segments.Add(new SegmentInput(0, 2)); input.MinAngleDeg = 20;
+                var tris = new[] { new[] { 0, 3, 4 }, new[] { 3, 1, 2 }, new[] { 3, 2, 4 } };
+                var o = Out(input, tris, null, (0, 3, 0), (3, 1, 0), (0, 4, 0), (4, 2, 0), (1, 2, 0));
+                o.BadTriangles = Enumerable.Range(0, 3).ToArray();
+                accept("skinny triangles spanning a small input angle", input, o, new OracleExpect { Milestone = Milestone.M3, Tube = Q.Zero });
+                var plain = Points(0, 0, 16, 0, 16 * c, 16 * sn, 8, 0, 8 * c, 8 * sn); plain.MinAngleDeg = 20;
+                plain.Rings.Add(new RingInput(new[] { 0, 3, 1, 2, 4 }, false));
+                var o2 = Out(plain, tris, null, (0, 3, 0), (3, 1, 0), (1, 2, 0), (2, 4, 0), (4, 0, 0));
+                o2.BadTriangles = Enumerable.Range(0, 3).ToArray();
+                reject("the same skinny triangle with only a ring", Violation.AngleBelowBound, plain, o2, new OracleExpect { Milestone = Milestone.M3, Tube = Q.Zero });
+            }
+
             // 7. the list of bad triangles is a set, and empty without a minimum angle
             {
                 var input = Points(0, 0, 8, 0, 0, 8);

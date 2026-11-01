@@ -197,3 +197,37 @@ marker, marker list and lock, heights, `TryLocate` in non-convex domains), `Tria
 
 Not yet: `m2.snap` (explicit tolerance, vertex clustering, wedges; D14: choose against F-10 to F-22), and the M3-milestone rows of the M2 features.
 Performance after the review fixes: 400 000 coastline points in 3.1 s (spec: below 5 s), 400 000 parcel points in 3.7 s; the crossing-heavy case allocates too much (2 GB for 490 000 crossings).
+
+**M3: built, with known limits** (PR on branch `meshing2d/m3`, stacked on M2). `QualityMesh2` (`MinAngle` default 20, `MaxArea`, `SizeFunction` by D9, `SteinerLimit`
+by Q13, `Conforming`) on the M2 builder: Ruppert's algorithm with Shewchuk's refinements. Encroached subsegments first (exact dot product), circumcentres of bad
+triangles unless they encroach (then the subsegment), concentric shells around input points and crossings, split points computed on the original input
+segment. Triangle tags (domain, region) live in the kernel and follow splits and flips; after every operation the rewritten triangles take their tags anew from
+unchanged neighbours (ghosts count as outside). Without outer rings the hull edges become constraints (D13). Heights of Steiner points by linear interpolation
+on the reference triangulation (Q9). Decisions and findings:
+
+- D12 built: `MinAngle` outside [0, 60) is an `ArgumentException`; catalogue row F-30/a now points to the test `QualityMesh2Tests.InvalidMinAngle_IsAnArgumentError`.
+- Exemptions from the angle bound: the small corner between two constraints (O3), and, new, a skinny triangle whose shortest edge spans a small input angle
+  (Shewchuk 2002). The oracle got the matching exemption `SpansSmallInputAngle` with an accept and a reject self-check. Without it F-39 took 103 000 vertices
+  (the Steiner limit), with it 649.
+- Points within the automatic tolerance of an earlier point are merged into it (O11, Q14), for M2 and M3 (F-3/c needed it: a point 2^-39 from a segment's end).
+- Oracle changes found with M3, each with its reason in the code: at the Steiner limit the mesh is judged as constrained, not conforming Delaunay (O7; a flipped
+  free edge at the limit is still rejected, self-check 9); a region seed on a Steiner vertex is not ambiguous (only on input points or constraints); boundary
+  vertices within the tube of a hull edge count as moved (O2, D13: a split of a hull edge in doubles cannot stay exactly on it).
+- Bugs found and fixed on the way: splitting a segment lifted its constraint before inserting (non-Delaunay edges and mixed tags, as in M2's crossings);
+  the source lists of an edge grew without bound when a piece was re-inserted (now a union; out of memory before); split points on hull edges moved inwards
+  left slivers at unconstrained hull edges (now they may round outwards; Lawson's flips remove the old hull edge).
+
+**What remains (hand-over).**
+
+1. **Over-refinement where many segments cross at small angles.** F-4/a, F-4/b, F-5 (random segments at 25 degrees) end at the default Steiner limit (about
+   100 000 vertices); the oracle accepts them (a valid constrained Delaunay mesh, limit flagged), but Triangle-like meshers need a few thousand. The refinement
+   descends towards apexes such as (3, 4) of F-4/a, where five segments cross at angles from 7 degrees up. Next step: Shewchuk's 2002 rules for small input
+   angles beyond the shortest-edge exemption (do not insert a circumcentre that would encroach a segment incident to the small angle; protect the apex by a
+   ball), then measure the vertex counts of F-4 and F-5 against the spec's "fewer than 5 000" of F-24.
+2. **Slow rows.** `Catalogue.SlowRows` (13 rows with 16 000 to 200 000 vertices) are judged by `rows --milestone M3` (about 25 minutes in total, mostly oracle
+   time); the test suite only checks their status unless `G3_MESH2_SLOW` is set. Speeding up the oracle on large results (orientation and edge maps take
+   seconds at 100 000 vertices) would let them back into CI.
+3. **Not built:** `m3.locks` (4 rows; locked segments are never split, but the oracle's angle exemption at locked edges is still wide, review finding 10),
+   `m3.refine-again` (I8, F-33, O17: refining an existing mesh needs an API), `m2.snap` (22 rows: explicit snap tolerance, D14), F-31/a's ring lock (O8).
+4. Performance of M3 is not yet measured against spec 3.1 (F-27: more than 50 000 vertices in about 2 s; we do 60 000 in 0.4 s but at the limit), and net48 timing
+   is open for all milestones.

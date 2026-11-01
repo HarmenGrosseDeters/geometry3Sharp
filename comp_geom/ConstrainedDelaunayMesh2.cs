@@ -427,7 +427,12 @@ namespace g3
                 int existing = k.FindEdge(u, w);
                 if (existing >= 0) {
                     if (k.Seg[existing] < 0) k.SetConstraint(existing, k.NewConstraint(piece.Sources));
-                    else k.Sources[k.Seg[existing]].AddRange(piece.Sources);
+                    else {
+                        // a union: one input segment covers each piece once, so a source already there is the same piece again
+                        // (re-inserted by a split), not a second cover; appending it made the lists grow without bound (found with M3)
+                        var list = k.Sources[k.Seg[existing]];
+                        foreach (int src in piece.Sources) if (!list.Contains(src)) list.Add(src);
+                    }
                     return null;
                 }
                 // the triangle at u whose wedge holds the direction to w

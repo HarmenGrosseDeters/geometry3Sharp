@@ -24,6 +24,9 @@ namespace Meshing2Acceptance
         public CaseState State;
         public Mesh2Case Case;
         public string Id => Part == null ? F : F + "/" + Part;
+        /// <summary> Its result has tens of thousands of vertices: the oracle needs from seconds to minutes, so the test suite runs it only
+        /// with G3_MESH2_SLOW set, and `rows` always (MESHING2D_PLAN.md, section 9) </summary>
+        public bool Slow => Catalogue.SlowRows.Contains(Id);
         public override string ToString() => Id;
     }
 
@@ -37,6 +40,11 @@ namespace Meshing2Acceptance
         /// every one of its rows passes (MESHING2D_PLAN.md, section 4).
         /// </summary>
         public static readonly HashSet<string> CoveredFeatures = new HashSet<string> { Feature.Kernel, Feature.Api, Feature.Cdt, Feature.Domain, Feature.Regions, Feature.Noding, Feature.Refine };
+
+        /// <summary> Rows whose results are large (Steiner limits of 10 000 to 100 000, or dense refinement): judged by `rows` </summary>
+        public static readonly HashSet<string> SlowRows = new HashSet<string> {
+            "F-4/a", "F-4/b", "F-4/c", "F-5", "F-22/a", "F-26", "F-27", "F-37", "F-38/d", "F-38/e", "F-40/angle-40", "F-41/a", "F-42"
+        };
 
         /// <summary> Milestones whose mesher exists: a row of a covered feature that needs a later milestone (refinement) waits for it. </summary>
         public static readonly HashSet<Milestone> CoveredMilestones = new HashSet<Milestone> { Milestone.M1, Milestone.M2, Milestone.M3 };
