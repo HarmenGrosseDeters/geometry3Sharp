@@ -1722,71 +1722,46 @@ namespace g3
             // quick test: the corners of one triangle that are not shared all strictly on one side of the other's
             // plane: then they meet at most in the shared vertices (for a shared edge: the triangles are not
             // coplanar, so the plane of one meets the other only in the edge)
+            int st = -1;       // (shared = 3: the general code, as before)
             if (shared < 3) {
-                int st = one_side_except_shared(T, U);
-                if (st > 0 || (shared < 2 && one_side_except_shared(U, T) > 0))
+                st = one_side_except_shared(T, U);
+                if (st > 0 || (st < 0 && shared < 2 && one_side_except_shared(U, T) > 0))
                     return true;
-                // a shared edge whose far corner of U lies in T's plane (0: the quick test stopped at that corner)
-                if (shared == 2 && st == 0)
-                    return coplanar_edge_touch_only(T, U);
             }
             // corners by point id, so that coincident (unwelded) vertices count as shared
             Index3i pa = new Index3i(T.Corners[0], T.Corners[1], T.Corners[2]), pb = new Index3i(U.Corners[0], U.Corners[1], U.Corners[2]);
             Triangle3d A = new Triangle3d(T.V0, T.V1, T.V2), B = new Triangle3d(U.V0, U.V1, U.V2);
+            // (all non-shared corners of U in T's plane: the coplanar branches of IntersectsBeyondShared without their
+            // Orient3d, which are 0; docs/design/CHEAPER_CONSTRUCTIONS.md, section 4.1)
+            if (st == 0 && shared > 0)
+                return ExactTriangleIntersection.IntersectsBeyondSharedCoplanar(pa, ref A, pb, ref B) == false;
             return ExactTriangleIntersection.IntersectsBeyondShared(pa, ref A, pb, ref B) == false;
         }
 
         // the corners of U not shared with T against T's plane (T and U share at most two corners): 1 all strictly on
-        // one side; 0 a corner in the plane (the test stops there); -1 on both sides
+        // one side; 0 all in the plane; -1 otherwise (on both sides, or some in the plane and some not)
         [MethodImpl(JitHints.Optimize)]
         int one_side_except_shared(InputTriangle T, InputTriangle U)
         {
             Vector3d t0 = input_vertex(T, 0), t1 = input_vertex(T, 1), t2 = input_vertex(T, 2);
             int side = 0;
+            bool zero = false;
             for (int k = 0; k < 3; ++k) {
                 int c = U.Corners[k];
                 if (c == T.Corners[0] || c == T.Corners[1] || c == T.Corners[2])
                     continue;
                 int o = ExactPredicates.Orient3d(t0, t1, t2, input_vertex(U, k));
-                if (o == 0)
-                    return 0;
-                if (side != 0 && o != side)
-                    return -1;
-                side = o;
+                if (o == 0) {
+                    if (side != 0)
+                        return -1;
+                    zero = true;
+                } else {
+                    if (zero || (side != 0 && o != side))
+                        return -1;
+                    side = o;
+                }
             }
-            return (side != 0) ? 1 : -1;
-        }
-
-        // T and U share exactly two corners (an edge) and U's far corner lies in T's plane. The shared-edge branch of
-        // ExactTriangleIntersection.IntersectsBeyondShared without its Orient3d (0, known from the quick test) and
-        // with the same points, projection and predicates, so the same result: the triangles meet only in the edge
-        // iff the far corners are strictly on opposite sides of it (docs/design/CHEAPER_CONSTRUCTIONS.md, 4.1)
-        [MethodImpl(JitHints.Optimize)]
-        bool coplanar_edge_touch_only(InputTriangle T, InputTriangle U)
-        {
-            int n = 0, sa0 = -1, sb0 = -1, sa1 = -1, sb1 = -1;
-            for (int i = 0; i < 3; ++i)
-                for (int j = 0; j < 3; ++j)
-                    if (T.Corners[i] == U.Corners[j]) {
-                        if (n == 0) { sa0 = i; sb0 = j; } else { sa1 = i; sb1 = j; }
-                        n++;
-                    }
-            Vector3d a = input_vertex(T, sa0), b = input_vertex(T, sa1), c = input_vertex(T, 3 - sa0 - sa1), d = input_vertex(U, 3 - sb0 - sb1);
-            int ax = dominant_axis((b - a).Cross(c - a));
-            Vector2d a2 = project(a, ax), b2 = project(b, ax);
-            return ExactPredicates.Orient2d(a2, b2, project(c, ax)) * ExactPredicates.Orient2d(a2, b2, project(d, ax)) <= 0;
-        }
-
-        // as ExactTriangleIntersection (the same rounding: the projection must be the one IntersectsBeyondShared takes)
-        static int dominant_axis(Vector3d n)
-        {
-            double x = Math.Abs(n.x), y = Math.Abs(n.y), z = Math.Abs(n.z);
-            return (x >= y && x >= z) ? 0 : (y >= z ? 1 : 2);
-        }
-
-        static Vector2d project(Vector3d p, int ax)
-        {
-            return ax == 0 ? new Vector2d(p.y, p.z) : (ax == 1 ? new Vector2d(p.z, p.x) : new Vector2d(p.x, p.y));
+            return zero ? 0 : (side != 0) ? 1 : -1;
         }
 
         [MethodImpl(JitHints.Optimize)]

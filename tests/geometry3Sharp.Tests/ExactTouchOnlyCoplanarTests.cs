@@ -6,8 +6,9 @@ using Xunit;
 namespace geometry3Sharp.Tests
 {
     /// <summary>
-    /// The coplanar shortcuts of ExactMeshArrangement.touch_only (docs/design/CHEAPER_CONSTRUCTIONS.md, 4.1) against
-    /// ExactTriangleIntersection.IntersectsBeyondShared, the code they replace for coplanar neighbours: on generated
+    /// The coplanar shortcuts of ExactMeshArrangement.touch_only and ExactTriangleIntersection.IntersectsBeyondSharedCoplanar
+    /// (docs/design/CHEAPER_CONSTRUCTIONS.md, 4.1) against IntersectsBeyondShared, the code they replace for coplanar
+    /// neighbours (shared edge and shared vertex): on generated
     /// planar patches with folds lying flat, collinear corners, slivers and corners on the other triangle's edges,
     /// every pair of triangles sharing corners gives the same answer.
     /// </summary>
@@ -83,6 +84,9 @@ namespace geometry3Sharp.Tests
                         var pb = new Index3i(U.Corners[0], U.Corners[1], U.Corners[2]);
                         var A = new Triangle3d(T.V0, T.V1, T.V2); var B = new Triangle3d(U.V0, U.V1, U.V2);
                         bool expected = ExactTriangleIntersection.IntersectsBeyondShared(pa, ref A, pb, ref B) == false;
+                        // the entry point itself, on the coplanar pairs (its precondition)
+                        if (coplanar(T, U) && (ExactTriangleIntersection.IntersectsBeyondSharedCoplanar(pa, ref A, pb, ref B) == expected))
+                            differ++;
                         bool got = arr.touch_only(T, U);
                         if (got != expected || arr.touch_only(U, T) != expected)
                             differ++;
@@ -109,6 +113,12 @@ namespace geometry3Sharp.Tests
                     Assert.Equal(reference, answers);
             }
             Assert.Equal(0, differ);
+        }
+
+        static bool coplanar(ExactMeshArrangement.InputTriangle T, ExactMeshArrangement.InputTriangle U)
+        {
+            return ExactPredicates.Orient3d(T.V0, T.V1, T.V2, U.V0) == 0 && ExactPredicates.Orient3d(T.V0, T.V1, T.V2, U.V1) == 0
+                && ExactPredicates.Orient3d(T.V0, T.V1, T.V2, U.V2) == 0;
         }
 
         [Fact]
