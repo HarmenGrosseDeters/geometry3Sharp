@@ -50,7 +50,8 @@ namespace g3 {
 		public double MaxEdgeLength = 0.1f;
 
         /// <summary>
-        /// Opt-in quality safeguards, 0 = off (default, the original behaviour). If &gt; 0 (eg 0.2), with quality
+        /// Opt-in quality safeguards, 0 = off (default, the original behaviour; `g3cli remesh` uses 0.2, chosen with the
+        /// fidelity measures of benchmarks/RemeshQualityBenchmark). If &gt; 0 (eg 0.2), with quality
         /// 4*sqrt(3)*area / sum of squared edge lengths (1 equilateral, 0 degenerate):
         ///  - vertices on constraint curves are smoothed along their curve (towards their two neighbours across edges
         ///    constrained to the same target; junctions and curve ends stay) instead of with the surface smoothing,

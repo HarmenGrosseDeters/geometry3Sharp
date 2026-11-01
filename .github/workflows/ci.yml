@@ -1,8 +1,11 @@
 name: CI
 
 on:
+  # docs-only changes skip CI (CLAUDE.md, "Before every push")
   push:
+    paths-ignore: ['**/*.md']
   pull_request:
+    paths-ignore: ['**/*.md']
   workflow_dispatch:
 
 env:
