@@ -446,9 +446,9 @@ namespace g3
                 AxisAlignedBox3d box = new AxisAlignedBox3d(A.V0); box.Contain(A.V1); box.Contain(A.V2);
                 bool hit = false;
                 triangleGrid.Query(box, (tc) => {
+                    // (the query has tested the closed boxes. AxisAlignedBox3d.Intersects, which is open, must not
+                    // be used here: flat boxes of triangles in one axis plane never overlap by it)
                     if (hit || gridRingTris.Contains(tc) || mesh.IsTriangle(tc) == false) return;
-                    AxisAlignedBox3d cbox;
-                    if (triangleGrid.TryGetBox(tc, out cbox) && cbox.Intersects(box) == false) return;
                     Index3i ic = mesh.GetTriangle(tc);
                     Triangle3d C = new Triangle3d(mesh.GetVertex(ic.a), mesh.GetVertex(ic.b), mesh.GetVertex(ic.c));
                     if (ExactTriangleIntersection.IsDegenerate(ref C)) return;
