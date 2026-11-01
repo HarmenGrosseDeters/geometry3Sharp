@@ -107,5 +107,68 @@ namespace geometry3Sharp.Tests
         }
 
         static ExactDyadic Abs(ExactDyadic x) => x.Sign < 0 ? -x : x;
+
+        // tight, not only enclosing: on exact inputs each operation is at most one ulp wider on each side than the
+        // rounded result (wider intervals would still enclose, but decide fewer signs)
+        [Fact]
+        public void Interval_IsTight()
+        {
+            var rnd = new Random(4);
+            for (int i = 0; i < 20000; ++i) {
+                double a = (rnd.NextDouble() - 0.5) * Math.Exp(rnd.NextDouble() * 40 - 20), b = (rnd.NextDouble() - 0.5) * Math.Exp(rnd.NextDouble() * 40 - 20);
+                ExactInterval ia = ExactInterval.Of(a), ib = ExactInterval.Of(b);
+                Tight(ia * ib, a * b);
+                Tight(ia + ib, a + b);
+                Tight(ia - ib, a - b);
+                Tight(ExactInterval.Square(ia), a * a);
+                // a product of intervals with both signs: [-|a|, |a|] x [b, b]
+                ExactInterval sym = new ExactInterval(-Math.Abs(a), Math.Abs(a));
+                ExactInterval p = sym * ib;
+                Assert.True(p.Lo <= -Math.Abs(a * b) && p.Hi >= Math.Abs(a * b));
+                Assert.True(p.Hi - p.Lo <= 2 * Math.Abs(a * b) * (1 + 1e-15) + 4 * double.Epsilon);
+                // squares of intervals that straddle 0 start at 0
+                ExactInterval sq = ExactInterval.Square(new ExactInterval(-Math.Abs(a), 0.5 * Math.Abs(a)));
+                Assert.Equal(0, sq.Lo);
+                Assert.True(sq.Hi >= a * a && sq.Hi <= ExactInterval.Up(ExactInterval.Up(a * a)));
+                ExactInterval sqn = ExactInterval.Square(new ExactInterval(-Math.Abs(a), -0.5 * Math.Abs(a)));
+                Assert.True(sqn.Lo <= 0.25 * a * a && sqn.Lo >= ExactInterval.Down(ExactInterval.Down(0.25 * a * a)));
+            }
+        }
+
+        static void Tight(ExactInterval iv, double rounded)
+        {
+            Assert.True(iv.Lo >= ExactInterval.Down(rounded) && iv.Hi <= ExactInterval.Up(rounded), $"{iv.Lo} {iv.Hi} {rounded}");
+        }
+
+        [Fact]
+        public void Sign_DecidesOnlyStrictIntervals()
+        {
+            Assert.Equal(2, new ExactInterval(0, 1).Sign());
+            Assert.Equal(2, new ExactInterval(-1, 0).Sign());
+            Assert.Equal(1, new ExactInterval(double.Epsilon, 1).Sign());
+            Assert.Equal(-1, new ExactInterval(-1, -double.Epsilon).Sign());
+            Assert.Equal(0, ExactInterval.Of(0).Sign());
+            // NaN in a product (0 x infinity) or a sum (infinity - infinity) gives the whole line
+            Assert.Equal(2, (ExactInterval.Of(0) * ExactInterval.Of(double.PositiveInfinity)).Sign());
+            Assert.Equal(2, (ExactInterval.Of(double.PositiveInfinity) - ExactInterval.Of(double.PositiveInfinity)).Sign());
+            Assert.Equal(2, (new ExactInterval(1, 2) * new ExactInterval(0, double.PositiveInfinity) * ExactInterval.Of(0)).Sign());
+            ExactInterval neg = -new ExactInterval(1, 2);
+            Assert.Equal(-2, neg.Lo); Assert.Equal(-1, neg.Hi);
+        }
+
+        [Fact]
+        public void Quotient_SignsOfOverflowAndUnderflow()
+        {
+            Assert.Equal(double.NegativeInfinity, ExactDyadic.Quotient(ExactDyadic.Of(-double.MaxValue), ExactDyadic.Of(0.5)));
+            Assert.Equal(double.NegativeInfinity, ExactDyadic.Quotient(ExactDyadic.Of(double.MaxValue), ExactDyadic.Of(-0.5)));
+            double nz = ExactDyadic.Quotient(ExactDyadic.Of(-double.Epsilon), ExactDyadic.Of(1e300));
+            Assert.Equal(0.0, nz);
+            Assert.True(BitConverter.DoubleToInt64Bits(nz) < 0);       // -0.0
+            double pz = ExactDyadic.Quotient(ExactDyadic.Of(double.Epsilon), ExactDyadic.Of(1e300));
+            Assert.Equal(0L, BitConverter.DoubleToInt64Bits(pz));      // +0.0
+            Assert.Equal(-0.5, ExactDyadic.Quotient(ExactDyadic.Of(1), ExactDyadic.Of(-2)));
+            Assert.Equal(0.25, ExactDyadic.Quotient(ExactDyadic.Of(-1), ExactDyadic.Of(-4)));
+            Assert.Throws<DivideByZeroException>(() => ExactDyadic.Quotient(ExactDyadic.Of(1), ExactDyadic.Zero));
+        }
     }
 }

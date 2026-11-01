@@ -278,5 +278,49 @@ namespace geometry3Sharp.Tests
             Assert.False(tin.TriangleIndices().All(t => { Vector3d a, b, c; Tri(tin, t, out a, out b, out c); return Slope.IsNotSteeper(a, b, c, SlopeSpec.Rise(steepest * (1 - 1e-12))); }));
             Assert.True(checks > 1000);
         }
+
+        [Fact]
+        public void SlopeSpec_Edges()
+        {
+            // exact where the value is a double: 1:2, 1:4, 50 %
+            Assert.Equal(0.5, SlopeSpec.Ratio(2).S);
+            Assert.Equal(0.25, SlopeSpec.Ratio(4).S);
+            Assert.Equal(0.5, SlopeSpec.Percent(50).S);
+            Assert.Equal(1.0, SlopeSpec.Degrees(45).S, 15);
+            Assert.Equal(Math.Tan(Math.PI / 6), SlopeSpec.Degrees(30).S);
+            // validity: positive, finite, S at least the smallest normal double
+            Assert.True(SlopeSpec.Rise(2.2250738585072014E-308).IsValid);
+            Assert.False(SlopeSpec.Rise(2.2250738585072009E-308).IsValid);
+            Assert.False(SlopeSpec.Rise(0).IsValid);
+            Assert.False(SlopeSpec.Ratio(double.PositiveInfinity).IsValid);
+            Assert.False(SlopeSpec.Percent(double.PositiveInfinity).IsValid);
+            Assert.False(SlopeSpec.Percent(4.9e-324).IsValid);
+            Assert.False(SlopeSpec.Ratio(0).IsValid);
+            Assert.False(SlopeSpec.Degrees(-1).IsValid);
+            Assert.Equal("1:1.5", SlopeSpec.Ratio(1.5).ToString());
+            Assert.Equal("50 %", SlopeSpec.Percent(50).ToString());
+            Assert.Equal("30 deg", SlopeSpec.Degrees(30).ToString());
+            Assert.Equal("s = 0.25", SlopeSpec.Rise(0.25).ToString());
+        }
+
+        [Fact]
+        public void NonFinite_And_DegenerateSupport_AreRejected()
+        {
+            Vector3d a = new Vector3d(0, 0, 0), b = new Vector3d(1, 0, 0), c = new Vector3d(0, 1, 0);
+            var spec = SlopeSpec.Ratio(1);
+            Assert.True(Slope.IsSupportedBy(a, b, c, new Vector3d(5, 5, 1), new Vector3d(6, 5, 1), spec));
+            foreach (var bad in new[] { new Vector3d(double.NaN, 5, 1), new Vector3d(5, double.NaN, 1), new Vector3d(5, 5, double.NaN), new Vector3d(5, 5, double.PositiveInfinity) }) {
+                Assert.False(Slope.IsSupportedBy(a, b, c, bad, new Vector3d(6, 5, 1), spec));
+                Assert.False(Slope.IsSupportedBy(a, b, c, new Vector3d(6, 5, 1), bad, spec));
+                Assert.False(Slope.IsNotSteeper(bad, b, c, spec));
+                Assert.False(Slope.IsNotSteeper(a, bad, c, spec));
+                Assert.False(Slope.IsNotSteeper(a, b, bad, spec));
+            }
+            // a triangle that is degenerate in XY has no plane over the toe
+            Assert.False(Slope.IsPlaneOnOrBelow(a, new Vector3d(1, 1, 0), new Vector3d(2, 2, 5), new Vector3d(0, 0, 10)));
+            // below / above with a clockwise triangle
+            Assert.True(Slope.IsPlaneOnOrBelow(a, c, b, new Vector3d(3, 3, 0)));
+            Assert.False(Slope.IsPlaneOnOrBelow(a, c, b, new Vector3d(3, 3, -1e-300)));
+        }
     }
 }
