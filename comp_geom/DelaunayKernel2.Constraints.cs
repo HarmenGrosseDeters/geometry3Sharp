@@ -21,6 +21,10 @@ namespace g3
         int[] leaving;
         /// <summary> number of vertex ids in use; ids N + 1 and above are vertices made by the constrained phase </summary>
         internal int VertexCount;
+        /// <summary> per triangle slot: the caller's tag (domain and region), inherited by the triangles a split or flip makes </summary>
+        internal int[] Tag;
+        /// <summary> if not null, every slot that a split or flip rewrites is appended </summary>
+        internal List<int> Dirty;
         /// <summary> per constraint id: its sources (indices into the caller's list, with repetition) </summary>
         internal readonly List<List<int>> Sources = new List<List<int>>();
 
@@ -29,6 +33,7 @@ namespace g3
         {
             Seg = new int[V.Length];
             for (int i = 0; i < Seg.Length; ++i) Seg[i] = -1;
+            Tag = new int[V.Length / 3];
             VertexCount = N + 1;
             leaving = new int[Math.Max(16, X.Length + 1)];
             for (int i = 0; i < leaving.Length; ++i) leaving[i] = -1;
@@ -70,6 +75,7 @@ namespace g3
                 int old = Seg.Length;
                 Array.Resize(ref Seg, V.Length);
                 for (int i = old; i < Seg.Length; ++i) Seg[i] = -1;
+                Array.Resize(ref Tag, V.Length / 3);
             }
             TriangleSlots = s + count;
             return s;
@@ -183,7 +189,9 @@ namespace g3
             Join(3 * t + 1, 3 * t1 + 2, -1);
             Join(3 * t1 + 1, 3 * t2 + 2, -1);
             Join(3 * t2 + 1, 3 * t + 2, -1);
+            Tag[t1] = Tag[t2] = Tag[t];
             Touch(t); Touch(t1); Touch(t2);
+            if (Dirty != null) { Dirty.Add(t); Dirty.Add(t1); Dirty.Add(t2); }
             stack.Add(3 * t); stack.Add(3 * t1); stack.Add(3 * t2);
             hint = IsGhost(t) ? (IsGhost(t1) ? t2 : t1) : t;
         }
@@ -212,7 +220,9 @@ namespace g3
             Join(3 * t1 + 1, hbc, sbc);        // b-c
             Join(3 * t2 + 2, hdb, sdb);        // d-b
             Join(3 * t3 + 1, had, sad);        // a-d
+            Tag[t1] = Tag[t]; Tag[t3] = Tag[t2];
             Touch(t); Touch(t1); Touch(t2); Touch(t3);
+            if (Dirty != null) { Dirty.Add(t); Dirty.Add(t1); Dirty.Add(t2); Dirty.Add(t3); }
             stack.Add(3 * t + 2); stack.Add(3 * t1 + 1); stack.Add(3 * t2 + 2); stack.Add(3 * t3 + 1);
             hint = !IsGhost(t) ? t : t2;
         }
@@ -258,7 +268,9 @@ namespace g3
             Join(3 * t + 2, 3 * t2 + 2, -1);// d-c with c-d
             Join(3 * t2, hdb, sdb);         // d-b
             Join(3 * t2 + 1, hbc, sbc);     // b-c
+            // a flip never crosses a constraint, and tags change only across constraints: both sides carry the same tag
             Touch(t); Touch(t2);
+            if (Dirty != null) { Dirty.Add(t); Dirty.Add(t2); }
             n1 = 3 * t + 1; n2 = 3 * t2;
         }
 

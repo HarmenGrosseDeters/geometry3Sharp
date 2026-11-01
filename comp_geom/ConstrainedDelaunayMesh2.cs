@@ -56,27 +56,33 @@ namespace g3
             internal int VA, VB;
         }
 
-        sealed class Builder
+        /// <summary> The constrained triangulation in the making; the refinement of <see cref="QualityMesh2"/> works on it. </summary>
+        internal sealed class Builder
         {
-            readonly ConstrainedMesh2Input input;
+            internal readonly ConstrainedMesh2Input input;
             readonly bool resolve;
-            readonly CancellationToken cancel;
-            readonly List<string> diagnostics = new List<string>();
-            readonly List<Source> sources = new List<Source>();
-            DelaunayKernel2 k;
-            int n;
+            internal readonly CancellationToken cancel;
+            internal readonly List<string> diagnostics = new List<string>();
+            internal readonly List<Source> sources = new List<Source>();
+            internal DelaunayKernel2 k;
+            internal int n;
             int[] order, rank;
-            double tolerance;
-            double[] heights;     // per kernel vertex (ranks, then new vertices), if any
-            int outerRings, holeRings, regionRings;
+            internal double tolerance;
+            internal double[] heights;     // per kernel vertex (ranks, then new vertices), if any
+            internal int outerRings, holeRings, regionRings;
             bool[] ringIsHole;
+            /// <summary> runs after the domain and the tags are known, before the output; a failure result stops it </summary>
+            internal Func<Builder, ConstrainedTriangulation2Result> refine;
+            /// <summary> filled by the refinement for the output </summary>
+            internal bool SteinerLimitReached;
+            internal Func<int, bool> IsBad;
 
             internal Builder(ConstrainedMesh2Input input, bool resolve, CancellationToken cancel)
             {
                 this.input = input; this.resolve = resolve; this.cancel = cancel;
             }
 
-            ConstrainedTriangulation2Result Fail(Triangulation2FailureKind kind, Vector2d? where, string detail)
+            internal ConstrainedTriangulation2Result Fail(Triangulation2FailureKind kind, Vector2d? where, string detail)
                 => new ConstrainedTriangulation2Result(Triangulation2Status.Failed, kind, null, diagnostics, where, detail);
 
             internal ConstrainedTriangulation2Result Run()
@@ -222,7 +228,52 @@ namespace g3
                 return heights[q.VA] + t * (heights[q.VB] - heights[q.VA]);
             }
 
-            void SetHeight(int v, int u, int w)
+            // the constrained triangulation before refinement, for the heights of Steiner points (Q9)
+            int[] refV, refH;
+            double[] refX, refY, refZ;
+
+            internal void SnapshotReference()
+            {
+                if (heights == null) return;
+                int slots = k.TriangleSlots;
+                refV = new int[3 * slots]; Array.Copy(k.V, refV, refV.Length);
+                refH = new int[3 * slots]; Array.Copy(k.H, refH, refH.Length);
+                refX = new double[k.VertexCount]; refY = new double[k.VertexCount]; refZ = new double[k.VertexCount];
+                for (int v = 0; v < k.VertexCount; ++v) {
+                    if (v == k.Infinite) continue;
+                    refX[v] = k.X[v]; refY[v] = k.Y[v]; refZ[v] = v < heights.Length ? heights[v] : 0;
+                }
+            }
+
+            /// <summary> the height of vertex v by linear interpolation on the reference triangulation (Q9) </summary>
+            internal void SetHeightOnReference(int v)
+            {
+                if (heights == null || refV == null) return;
+                if (v >= heights.Length) Array.Resize(ref heights, Math.Max(v + 1, 2 * heights.Length));
+                var p = k.Point(v);
+                int slots = refV.Length / 3, t = -1;
+                for (int s0 = 0; s0 < slots && t < 0; ++s0) if (refV[3 * s0] != k.Infinite && refV[3 * s0 + 1] != k.Infinite && refV[3 * s0 + 2] != k.Infinite) t = s0;
+                long guard = 4L * slots + 16;
+                for (long step = 0; step < guard && t >= 0; ++step) {
+                    int moved = -1;
+                    for (int j = 0; j < 3; ++j) {
+                        int e = 3 * t + (int)((step + j) % 3), f = 3 * t + (int)((step + j + 1) % 3);
+                        if (refV[e] == k.Infinite || refV[f] == k.Infinite) continue;
+                        if (ExactPredicates.Orient2d(new Vector2d(refX[refV[e]], refY[refV[e]]), new Vector2d(refX[refV[f]], refY[refV[f]]), p) < 0) { moved = 3 * t + (int)((step + j) % 3); break; }
+                    }
+                    if (moved < 0) break;
+                    int next = refH[moved] / 3;
+                    if (refV[3 * next] == k.Infinite || refV[3 * next + 1] == k.Infinite || refV[3 * next + 2] == k.Infinite) break;
+                    t = next;
+                }
+                int a = refV[3 * t], bb = refV[3 * t + 1], c = refV[3 * t + 2];
+                double x0 = refX[a], y0 = refY[a], x1 = refX[bb] - x0, y1 = refY[bb] - y0, x2 = refX[c] - x0, y2 = refY[c] - y0;
+                double det = x1 * y2 - y1 * x2, px = p.x - x0, py = p.y - y0;
+                double l1 = (px * y2 - py * x2) / det, l2 = (x1 * py - y1 * px) / det;
+                heights[v] = refZ[a] + l1 * (refZ[bb] - refZ[a]) + l2 * (refZ[c] - refZ[a]);
+            }
+
+            internal void SetHeight(int v, int u, int w)
             {
                 if (heights == null) return;
                 if (v >= heights.Length) Array.Resize(ref heights, Math.Max(v + 1, 2 * heights.Length));
@@ -233,7 +284,7 @@ namespace g3
                 heights[v] = heights[u] + t * (heights[w] - heights[u]);
             }
 
-            struct Piece
+            internal struct Piece
             {
                 internal int U, W;
                 internal List<int> Sources;
@@ -334,7 +385,7 @@ namespace g3
                 pending.Push(new Piece { U = piece.U, W = v, Sources = new List<int>(piece.Sources) });
             }
 
-            ConstrainedTriangulation2Result InsertPiece(Piece piece, Stack<Piece> pending)
+            internal ConstrainedTriangulation2Result InsertPiece(Piece piece, Stack<Piece> pending)
             {
                 int u = piece.U, w = piece.W;
                 if (u == w) return null;
@@ -536,8 +587,9 @@ namespace g3
                     var cell = SeedCell(holeSeeds[i], keep, "hole seed " + i, requireBounded: true);
                     if (cell != null) foreach (int t in cell) keep[t] = false;
                 }
-                // regions, the last wins
-                var label = new int[slots];
+                // regions, the last wins: per triangle the index of its region, -1 for none
+                var regionOf = new int[slots];
+                for (int t = 0; t < slots; ++t) regionOf[t] = -1;
                 var seedRegionOf = new int[slots];   // per triangle: the index of the last seed region that labelled it, or -1
                 for (int t = 0; t < slots; ++t) seedRegionOf[t] = -1;
                 var regions = input.Regions ?? new List<Mesh2Region>();
@@ -548,7 +600,7 @@ namespace g3
                         continue;
                     } else {
                         var cell = SeedCell(region.Seed, keep, "region seed " + g, requireBounded: false);
-                        if (cell != null) foreach (int t in cell) if (keep[t]) { label[t] = region.Label; seedRegionOf[t] = g; }
+                        if (cell != null) foreach (int t in cell) if (keep[t]) { regionOf[t] = g; seedRegionOf[t] = g; }
                     }
                 }
                 // region rings: per distinct set, the region ring with the highest index wins over seeds of lower index
@@ -562,10 +614,17 @@ namespace g3
                     for (int t = 0; t < slots; ++t) {
                         if (!keep[t]) continue;
                         int g = regionOfSet[state[t]];
-                        if (g >= 0 && g >= seedRegionOf[t]) label[t] = regions[g].Label;
+                        if (g >= 0 && g >= seedRegionOf[t]) regionOf[t] = g;
                     }
                 }
-                return Build(inputVertices, mapping, keep, label);
+                // the tag of a triangle: -1 outside the domain, else 1 + its region (0: none); splits and flips pass it on
+                for (int t = 0; t < slots; ++t) k.Tag[t] = keep[t] ? regionOf[t] + 1 : -1;
+                if (refine != null) {
+                    SnapshotReference();
+                    var failure = refine(this);
+                    if (failure != null) return failure;
+                }
+                return Build(inputVertices, mapping);
             }
 
             static int[] Xor(int[] a, int[] b)
@@ -613,9 +672,12 @@ namespace g3
                 return cell;
             }
 
-            ConstrainedTriangulation2Result Build(Vector2d[] inputVertices, int[] mapping, bool[] keep, int[] label)
+            ConstrainedTriangulation2Result Build(Vector2d[] inputVertices, int[] mapping)
             {
                 int slots = k.TriangleSlots;
+                var regions = input.Regions ?? new List<Mesh2Region>();
+                var keep = new bool[slots];
+                for (int t = 0; t < slots; ++t) keep[t] = k.Tag[t] >= 0 && !k.IsGhost(t);
                 // vertex ids: input vertices by representative; new vertices numbered from n in order of first use
                 var outId = new int[k.VertexCount];
                 for (int v = 0; v < outId.Length; ++v) outId[v] = -1;
@@ -647,7 +709,7 @@ namespace g3
                     int e0 = 3 * t + rot, e1 = 3 * t + (rot + 1) % 3, e2 = 3 * t + (rot + 2) % 3;
                     triangles[i] = new Index3i(outId[k.V[e0]], outId[k.V[e1]], outId[k.V[e2]]);
                     neighbours[i] = new Index3i(id[k.H[e1] / 3], id[k.H[e2] / 3], id[k.H[e0] / 3]);
-                    labels[i] = label[t];
+                    labels[i] = k.Tag[t] > 0 ? regions[k.Tag[t] - 1].Label : 0;
                     for (int j = 0; j < 3; ++j) {
                         int e = 3 * t + j, c2 = k.Seg[e];
                         if (c2 < 0) continue;
@@ -670,6 +732,11 @@ namespace g3
                 var fullV = new int[3 * slots]; Array.Copy(k.V, fullV, fullV.Length);
                 var fullH = new int[3 * slots]; Array.Copy(k.H, fullH, fullH.Length);
                 var mesh = new ConstrainedMesh2(vertices, n, mapping, triangles, neighbours, labels, subsegments.ToArray(), outHeights, fullV, fullH, id, fullP, k.Infinite);
+                var bad = new List<int>();
+                if (IsBad != null)
+                    for (int t = 0; t < slots; ++t) if (id[t] >= 0 && IsBad(t)) bad.Add(id[t]);
+                mesh.BadTriangles = bad.AsReadOnly();
+                mesh.SteinerLimitReached = SteinerLimitReached;
                 var status = count == 0 ? Triangulation2Status.Empty : Triangulation2Status.Success;
                 return new ConstrainedTriangulation2Result(status, Triangulation2FailureKind.None, mesh, diagnostics);
             }

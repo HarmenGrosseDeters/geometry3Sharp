@@ -36,10 +36,10 @@ namespace Meshing2Acceptance
         /// Features whose mesher exists: their rows are covered, all others stay pending. A feature moves here only when
         /// every one of its rows passes (MESHING2D_PLAN.md, section 4).
         /// </summary>
-        public static readonly HashSet<string> CoveredFeatures = new HashSet<string> { Feature.Kernel, Feature.Api, Feature.Cdt, Feature.Domain, Feature.Regions, Feature.Noding };
+        public static readonly HashSet<string> CoveredFeatures = new HashSet<string> { Feature.Kernel, Feature.Api, Feature.Cdt, Feature.Domain, Feature.Regions, Feature.Noding, Feature.Refine };
 
         /// <summary> Milestones whose mesher exists: a row of a covered feature that needs a later milestone (refinement) waits for it. </summary>
-        public static readonly HashSet<Milestone> CoveredMilestones = new HashSet<Milestone> { Milestone.M1, Milestone.M2 };
+        public static readonly HashSet<Milestone> CoveredMilestones = new HashSet<Milestone> { Milestone.M1, Milestone.M2, Milestone.M3 };
 
         public static List<CatalogueRow> Rows()
         {

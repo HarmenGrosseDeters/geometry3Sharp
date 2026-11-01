@@ -31,6 +31,8 @@ namespace Meshing2Acceptance
   format-tables                     print the generated parts of docs/design/MESHING2D_GOLDEN_FORMAT.md
   perf [--sizes 1000,4096,...] [--kinds uniform,grid,utm,clustered] [--repeats 5]
                                     time and allocation of the M1 kernel alone (spec 3.1)
+  rows [--milestone M3] [--filter F-4] [--seconds 60]
+                                    run the covered catalogue rows one at a time: verdict, time; a row past the limit is reported and skipped
   perf --m2 [--sizes ...] [--kinds coastline,parcels,crossings] [--repeats 3]
                                     the same for the constrained mesher
 ";
@@ -60,12 +62,40 @@ namespace Meshing2Acceptance
                     case "catalogue": Console.Write(Catalogue.Markdown()); return 0;
                     case "format-tables": PrintFormatTables(); return 0;
                     case "perf": return Perf.Run(args, Arg);
+                    case "rows": return RunRows(args);
                     default: Console.Error.WriteLine(Usage); return 2;
                 }
             } catch (FormatException e) {
                 Console.Error.WriteLine("bad input: " + e.Message);
                 return 2;
             }
+        }
+
+        static int RunRows(string[] args)
+        {
+            var m = MilestoneArg(args, Milestone.M3);
+            string filter = Arg(args, "--filter");
+            int seconds = int.Parse(Arg(args, "--seconds") ?? "60", System.Globalization.CultureInfo.InvariantCulture);
+            var candidate = CandidateRegistry.For(m);
+            if (candidate == null) { Console.WriteLine("no candidate for " + m); return 1; }
+            int bad = 0;
+            foreach (var row in Catalogue.Rows()) {
+                if (row.Case == null || row.Case.Milestone != m || row.State != CaseState.Covered) continue;
+                if (filter != null && !row.Id.StartsWith(filter, StringComparison.OrdinalIgnoreCase)) continue;
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                Mesh2Output output = null; Exception error = null;
+                var thread = new System.Threading.Thread(() => { try { output = candidate.Run(row.Case.Input); } catch (Exception e) { error = e; } }, 256 << 20);
+                thread.IsBackground = true;
+                thread.Start();
+                if (!thread.Join(seconds * 1000)) { Console.WriteLine(row.Id + ": TIMEOUT after " + seconds + " s"); ++bad; continue; }
+                double meshMs = sw.Elapsed.TotalMilliseconds;
+                if (error != null) { Console.WriteLine(row.Id + ": THREW " + error.GetType().Name + ": " + error.Message); ++bad; continue; }
+                var report = Oracle.Check(row.Case.Input, output, row.Case.Expect);
+                string text = report.ToString();
+                Console.WriteLine(row.Id + ": " + (report.Ok ? "ok" : "FAIL " + (text.Length > 400 ? text.Substring(0, 400) : text)) + " | " + output.Triangles.Length + " triangles, " + output.VX.Length + " vertices, mesh " + meshMs.ToString("F0", System.Globalization.CultureInfo.InvariantCulture) + " ms, total " + sw.Elapsed.TotalMilliseconds.ToString("F0", System.Globalization.CultureInfo.InvariantCulture) + " ms");
+                if (!report.Ok) ++bad;
+            }
+            return bad == 0 ? 0 : 1;
         }
 
         static bool Has(string[] args, string name) => args.Contains(name);
