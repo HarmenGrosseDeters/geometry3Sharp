@@ -8,20 +8,24 @@ test). This script
      are the methods of the head that the base does not have,
   2. builds the head's test project against the base's library: in a worktree of the head, every changed library
      file is reset to the merge base (added ones are deleted). Library files are all paths outside tests/,
-     benchmarks/, docs/, tools/, .github/ and the Markdown files at the root. A test file that does not compile
-     against the base library (it uses new API) is reset to the base too, and its new tests count as "does not
-     compile on the base",
-  3. runs the new tests there and reports for each whether it fails on the base.
+     benchmarks/, docs/, tools/, .github/ and the Markdown files at the root. A changed test file that does not
+     compile against the base library (it uses new API) is reset to the base too; if no changed file can be
+     blamed, the deleted test files are restored, then all changed test files are reset. Their new tests count as
+     "does not compile",
+  3. runs the new tests there and reports for each: fails, passes, skipped, crash or hang (the test run was aborted
+     while it ran), no result (the run failed for another reason) or does not compile.
 
-With --require-failing (CI: PRs with the label `bugfix`) at least one new test must fail (or crash / hang) on the
-base; otherwise the report is informational and the exit code is 0.
+With --require-failing (CI: PRs with the label `bugfix`) at least one new test must fail, crash or hang on the base.
+Without it the report is informational: the exit code is 0, also when the script itself cannot run (the reason goes
+into the report).
 
 Usage (from the repository root, with the .NET 10 SDK):
     python3 tools/new_tests_on_base.py --base origin/master [--head HEAD] [--require-failing]
-        [--work <dir>] [--summary <markdown file>]
+        [--work <dir outside the repository>] [--summary <markdown file>]
 """
 
 import argparse
+import glob
 import os
 import re
 import shutil
@@ -37,6 +41,13 @@ NON_LIBRARY_PREFIXES = ("tests/", "benchmarks/", "docs/", "tools/", ".github/")
 # the test sources a compile error may be blamed on (reset to the base, or deleted if new)
 TEST_SOURCE_PREFIXES = ("tests/", "docs/examples/")
 MAX_BUILD_ATTEMPTS = 6
+# tests run one by one after an aborted run, to find the one that crashed or hung
+MAX_SINGLE_RUNS = 40
+COUNTS_AS_FAILING = ("fails", "crash or hang")
+
+
+class CannotRun(Exception):
+    """the comparison cannot be made (a build of the base or the head fails, ...)"""
 
 
 # ---- pure helpers (unit tested in tools/test_new_tests_on_base.py) ----
@@ -50,24 +61,48 @@ def is_library_path(path):
     return True
 
 
-def library_changes(name_status):
-    """from `git diff --name-status --no-renames base head`: (paths to reset to the base, paths to delete)"""
-    reset, delete = [], []
-    for line in name_status.splitlines():
-        parts = line.split("\t")
-        if len(parts) < 2:
-            continue
-        status, path = parts[0], parts[-1]
-        if not is_library_path(path):
-            continue
-        (delete if status.startswith("A") else reset).append(path)
+def parse_name_status_z(out):
+    """`git diff --name-status --no-renames -z`: path -> status letter (A, M, D, T, ...)"""
+    parts = out.split("\0")
+    changes = {}
+    i = 0
+    while i + 1 < len(parts):
+        status, path = parts[i], parts[i + 1]
+        if not status:
+            break
+        changes[path] = status[0]
+        i += 2
+    return changes
+
+
+def library_changes(changes):
+    """(paths to reset to the base, paths to delete) of the changed library files"""
+    reset = sorted(p for p, s in changes.items() if is_library_path(p) and s != "A")
+    delete = sorted(p for p, s in changes.items() if is_library_path(p) and s == "A")
     return reset, delete
 
 
+def test_side_changes(changes):
+    """the changed (also deleted) test sources: the fallback when a compile error cannot be blamed on a file"""
+    return sorted(p for p in changes if p.startswith(TEST_SOURCE_PREFIXES))
+
+
+_NAME = re.compile(r"^[A-Za-z_]\w*([.+][A-Za-z_]\w*)+$")
+
+
 def method_of(test_name):
-    """the method of a test (display) name: 'Ns.Class.Method(x: 1)' -> 'Ns.Class.Method'"""
+    """the method of a test (display) name: 'Ns.Class.Method(x: 1)' -> 'Ns.Class.Method'; a generic method
+    'Ns.C.M<Double>(x: 1)' -> 'Ns.C.M'"""
     i = test_name.find("(")
-    return (test_name[:i] if i >= 0 else test_name).strip()
+    name = (test_name[:i] if i >= 0 else test_name).strip()
+    if name.endswith(">") and "<" in name:
+        name = name[:name.index("<")]
+    return name
+
+
+def is_method_name(name):
+    """a fully qualified method name (not a DisplayName such as 'clamp works')"""
+    return bool(_NAME.match(name))
 
 
 def parse_list_tests(output):
@@ -80,6 +115,11 @@ def parse_list_tests(output):
         if started and line.startswith("    ") and line.strip():
             methods.add(method_of(line.strip()))
     return methods
+
+
+def test_filter(tests):
+    """a vstest filter that selects exactly these methods"""
+    return "|".join("FullyQualifiedName=" + re.sub(r"([\\()&|=!~])", r"\\\1", t) for t in sorted(tests))
 
 
 _ERROR = re.compile(r"^\s*(.+?)\(\d+,\d+\): error [A-Z]+\d+:", re.M)
@@ -97,48 +137,62 @@ def error_files(build_output, root):
 
 
 def parse_trx(text):
-    """test method -> list of outcomes ('Passed', 'Failed', ...) from a .trx file"""
+    """(test method -> list of outcomes ('Passed', 'Failed', 'NotExecuted', ...), outcome of the run) of a .trx"""
     ns = {"t": "http://microsoft.com/schemas/VisualStudio/TeamTest/2010"}
     root = ET.fromstring(text)
     results = {}
     for r in root.iterfind(".//t:Results/t:UnitTestResult", ns):
         results.setdefault(method_of(r.get("testName", "")), []).append(r.get("outcome", ""))
-    return results
+    summary = root.find(".//t:ResultSummary", ns)
+    run_outcome = summary.get("outcome", "") if summary is not None else ""
+    return results, run_outcome
 
 
-def classify(new_tests, compiled, outcomes):
-    """per new test: 'fails', 'passes', 'no result' (crash or hang on the base) or 'does not compile'"""
+def verdict_of(outcomes, aborted_by_blame):
+    """the verdict of one test from its outcomes; aborted_by_blame: the run was killed by a crash or a hang"""
+    if not outcomes:
+        return "crash or hang" if aborted_by_blame else "no result"
+    if any(x not in ("Passed", "NotExecuted") for x in outcomes):
+        return "fails"
+    if all(x == "NotExecuted" for x in outcomes):
+        return "skipped"
+    return "passes"
+
+
+def classify(new_tests, compiled, outcomes, aborted_by_blame=False):
+    """per new test: fails, passes, skipped, crash or hang, no result, does not compile, or not a method name"""
     verdict = {}
     for t in sorted(new_tests):
-        if t not in compiled:
+        if not is_method_name(t):
+            verdict[t] = "not a method name (DisplayName), not run"
+        elif t not in compiled:
             verdict[t] = "does not compile"
-            continue
-        o = outcomes.get(t, [])
-        if not o:
-            verdict[t] = "no result"
-        elif any(x != "Passed" and x != "NotExecuted" for x in o):
-            verdict[t] = "fails"
-        elif all(x == "NotExecuted" for x in o):
-            verdict[t] = "no result"
         else:
-            verdict[t] = "passes"
+            verdict[t] = verdict_of(outcomes.get(t, []), aborted_by_blame)
     return verdict
 
 
-def report(verdict, dropped, require_failing):
+def report(verdict, dropped, require_failing, problem=None):
     """(markdown report, exit code)"""
-    failing = [t for t, v in verdict.items() if v in ("fails", "no result")]
     lines = ["## New tests against the base library", ""]
+    if problem:
+        lines += ["**The comparison could not be made:** " + problem, ""]
+    failing = [t for t, v in verdict.items() if v in COUNTS_AS_FAILING]
     if not verdict:
-        lines.append("The branch adds no test methods to `%s`." % TEST_PROJECT)
+        if not problem:
+            lines.append("The branch adds no test methods to `%s`." % TEST_PROJECT)
     else:
-        lines.append("%d new test method(s); %d fail on the base, %d pass on the base, %d do not compile on it."
-                     % (len(verdict), len(failing), sum(v == "passes" for v in verdict.values()),
-                        sum(v == "does not compile" for v in verdict.values())))
+        def count(v):
+            return sum(x == v for x in verdict.values())
+        others = len(verdict) - len(failing) - count("passes") - count("skipped") - count("does not compile")
+        lines.append("%d new test method(s): %d fail on the base (or crash / hang), %d pass, %d skipped, "
+                     "%d do not compile on it, %d without a result."
+                     % (len(verdict), len(failing), count("passes"), count("skipped"), count("does not compile"),
+                        others))
         lines += ["", "| Test | On the base |", "|---|---|"]
         for t, v in verdict.items():
             lines.append("| `%s` | %s |" % (t, v))
-        if any(v == "passes" for v in verdict.values()):
+        if count("passes"):
             lines += ["", "A new test that passes on the base does not show the change; check that it is not vacuous "
                           "(a refactoring or a new feature with a passing regression test is fine)."]
     if dropped:
@@ -150,7 +204,8 @@ def report(verdict, dropped, require_failing):
             lines += ["", "Label `bugfix`: at least one new test fails on the base. OK."]
         else:
             lines += ["", "**Label `bugfix`: no new test fails on the base.** A bug fix needs a test that fails "
-                          "without it."]
+                          "without it (skipped tests, tests that do not compile on the base and runs without a "
+                          "result do not count)."]
             code = 1
     return "\n".join(lines) + "\n", code
 
@@ -160,8 +215,8 @@ def report(verdict, dropped, require_failing):
 def run(cmd, cwd=None, check=True):
     p = subprocess.run(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     if check and p.returncode != 0:
-        sys.stdout.write(p.stdout)
-        raise SystemExit("failed (%d): %s" % (p.returncode, " ".join(cmd)))
+        sys.stdout.write(p.stdout[-20000:])
+        raise CannotRun("`%s` failed (exit %d)" % (" ".join(cmd), p.returncode))
     return p
 
 
@@ -180,14 +235,103 @@ def list_tests(tree):
     return parse_list_tests(p.stdout)
 
 
-def reset_to_base(tree, base, paths, added):
+def reset_to_base(tree, base, paths, changes):
+    """reset paths of the tree to the base: added files are deleted, others checked out from the base"""
     for path in paths:
-        if path in added:
+        if changes.get(path) == "A":
             full = os.path.join(tree, path)
-            if os.path.exists(full):
+            if os.path.lexists(full):
                 os.remove(full)
         else:
             git("checkout", base, "--", path, cwd=tree)
+
+
+def run_tests(tree, tests, results):
+    """run the tests; (method -> outcomes, the run was killed by a crash or hang, problem or None)"""
+    shutil.rmtree(results, ignore_errors=True)
+    p = run(["dotnet", "test", os.path.join(tree, TEST_PROJECT), "-c", "Release", "-f", FRAMEWORK, "--no-build",
+             "-nologo", "--filter", test_filter(tests), "--logger", "trx;LogFileName=base.trx",
+             "--results-directory", results, "--blame-hang-timeout", "10m", "--blame-hang-dump-type", "none"],
+            check=False)
+    print(p.stdout[-20000:])
+    blamed = bool(glob.glob(os.path.join(results, "**", "Sequence_*.xml"), recursive=True))
+    trx = os.path.join(results, "base.trx")
+    if not os.path.exists(trx):
+        return {}, blamed, None if blamed else "no test results (exit %d)" % p.returncode
+    with open(trx, encoding="utf-8-sig") as f:
+        outcomes, run_outcome = parse_trx(f.read())
+    problem = None
+    if not outcomes and not blamed:
+        problem = "the test run gave no results (run outcome %s, exit %d)" % (run_outcome or "?", p.returncode)
+    return outcomes, blamed, problem
+
+
+def compare(repo, base, head, work):
+    """(verdict, dropped files)"""
+    base_tree, hybrid = os.path.join(work, "base"), os.path.join(work, "hybrid")
+    git("worktree", "add", "--detach", base_tree, base, cwd=repo)
+    git("worktree", "add", "--detach", hybrid, head, cwd=repo)
+    for tree, what in ((base_tree, "base"), (hybrid, "head")):
+        b = build(tree)
+        if b.returncode != 0:
+            sys.stdout.write(b.stdout[-20000:])
+            raise CannotRun("the tests of the %s do not build" % what)
+    new_tests = list_tests(hybrid) - list_tests(base_tree)
+    print("new test methods: %d" % len(new_tests))
+    if not new_tests:
+        return {}, set()
+    changes = parse_name_status_z(git("diff", "--name-status", "--no-renames", "-z", base, head, cwd=repo))
+    reset, delete = library_changes(changes)
+    print("library files reset to the base: %d changed, %d added" % (len(reset), len(delete)))
+    reset_to_base(hybrid, base, reset + delete, changes)
+    dropped = set()
+    for attempt in range(MAX_BUILD_ATTEMPTS):
+        b = build(hybrid)
+        if b.returncode == 0:
+            break
+        blame = {f for f in error_files(b.stdout, hybrid)
+                 if f.startswith(TEST_SOURCE_PREFIXES) and f in changes and f not in dropped}
+        if not blame:
+            # an unchanged test file broke: first restore the test files the change deleted (a helper moved into the
+            # library), then all changed test files (a restore error, ...)
+            blame = {f for f in test_side_changes(changes) if changes[f] == "D"} - dropped
+            if not blame:
+                blame = set(test_side_changes(changes)) - dropped
+            if not blame:
+                sys.stdout.write(b.stdout[-20000:])
+                raise CannotRun("the head's tests do not build against the base library, also with all changed "
+                                "test files reset to the base")
+            print("errors not in a changed test file")
+        print("not compiling against the base library, reset: " + ", ".join(sorted(blame)))
+        reset_to_base(hybrid, base, sorted(blame), changes)
+        dropped |= blame
+    else:
+        sys.stdout.write(b.stdout[-20000:])
+        raise CannotRun("the head's tests do not build against the base library")
+    compiled = {t for t in list_tests(hybrid) & new_tests if is_method_name(t)}
+    if not compiled:
+        return classify(new_tests, compiled, {}), dropped
+    results = os.path.join(work, "results")
+    outcomes, blamed, problem = run_tests(hybrid, compiled, results)
+    if problem:
+        raise CannotRun(problem)
+    missing = sorted(t for t in compiled if t not in outcomes)
+    if not (blamed and len(missing) > 1):
+        return classify(new_tests, compiled, outcomes, aborted_by_blame=blamed), dropped
+    if len(missing) > MAX_SINGLE_RUNS:
+        raise CannotRun("the test run was aborted (crash or hang) with %d new tests without a result" % len(missing))
+    # one test crashed or hung and took the results of the others with it: run those one by one
+    print("the run was aborted; running the %d tests without a result one by one" % len(missing))
+    crashed = set()
+    for t in missing:
+        o, b, _ = run_tests(hybrid, {t}, results)
+        outcomes.update(o)
+        if t not in o and b:
+            crashed.add(t)
+    verdict = classify(new_tests, compiled, outcomes, aborted_by_blame=False)
+    for t in crashed:
+        verdict[t] = "crash or hang"
+    return verdict, dropped
 
 
 def main(argv=None):
@@ -196,82 +340,43 @@ def main(argv=None):
     ap.add_argument("--head", default="HEAD")
     ap.add_argument("--require-failing", action="store_true",
                     help="fail unless at least one new test fails on the base (bug fixes)")
-    ap.add_argument("--work", help="directory for the worktrees (default: a temporary one)")
+    ap.add_argument("--work", help="directory for the worktrees, outside the repository (default: a temporary one)")
     ap.add_argument("--summary", help="also append the markdown report to this file (GITHUB_STEP_SUMMARY)")
     a = ap.parse_args(argv)
 
-    repo = git("rev-parse", "--show-toplevel").strip()
-    head = git("rev-parse", a.head, cwd=repo).strip()
-    base = git("merge-base", a.base, head, cwd=repo).strip()
-    work = a.work or tempfile.mkdtemp(prefix="new-tests-on-base-")
-    os.makedirs(work, exist_ok=True)
-    base_tree, hybrid = os.path.join(work, "base"), os.path.join(work, "hybrid")
-    for t in (base_tree, hybrid):
-        if os.path.exists(t):
-            git("worktree", "remove", "--force", t, cwd=repo, check=False)
-            shutil.rmtree(t, ignore_errors=True)
-    git("worktree", "add", "--detach", base_tree, base, cwd=repo)
-    git("worktree", "add", "--detach", hybrid, head, cwd=repo)
-    print("head %s, merge base %s" % (head[:12], base[:12]))
+    verdict, dropped, problem = {}, set(), None
+    repo = work = None
     try:
-        for tree, what in ((base_tree, "base"), (hybrid, "head")):
-            b = build(tree)
-            if b.returncode != 0:
-                sys.stdout.write(b.stdout)
-                raise SystemExit("the %s does not build" % what)
-        new_tests = list_tests(hybrid) - list_tests(base_tree)
-        print("new test methods: %d" % len(new_tests))
-        verdict, dropped = {}, set()
-        if new_tests:
-            name_status = git("diff", "--name-status", "--no-renames", base, head, cwd=repo)
-            reset, delete = library_changes(name_status)
-            print("library files reset to the base: %d changed, %d added" % (len(reset), len(delete)))
-            reset_to_base(hybrid, base, reset + delete, set(delete))
-            changed = {}
-            for line in name_status.splitlines():
-                parts = line.split("\t")
-                if len(parts) >= 2:
-                    changed[parts[-1]] = parts[0]
-            for attempt in range(MAX_BUILD_ATTEMPTS):
-                b = build(hybrid)
-                if b.returncode == 0:
-                    break
-                blame = {f for f in error_files(b.stdout, hybrid)
-                         if f.startswith(TEST_SOURCE_PREFIXES) and f in changed and f not in dropped}
-                if not blame:
-                    sys.stdout.write(b.stdout)
-                    raise SystemExit("the head's tests do not build against the base library, and no changed test "
-                                     "file is to blame")
-                print("not compiling against the base library, reset: " + ", ".join(sorted(blame)))
-                reset_to_base(hybrid, base, sorted(blame), {f for f in blame if changed[f].startswith("A")})
-                dropped |= blame
-            else:
-                sys.stdout.write(b.stdout)
-                raise SystemExit("the head's tests do not build against the base library")
-            compiled = list_tests(hybrid) & new_tests
-            outcomes = {}
-            if compiled:
-                results = os.path.join(work, "results")
-                shutil.rmtree(results, ignore_errors=True)
-                flt = "|".join("FullyQualifiedName=" + t for t in sorted(compiled))
-                p = run(["dotnet", "test", os.path.join(hybrid, TEST_PROJECT), "-c", "Release", "-f", FRAMEWORK,
-                         "--no-build", "-nologo", "--filter", flt, "--logger", "trx;LogFileName=base.trx",
-                         "--results-directory", results, "--blame-hang-timeout", "10m"], check=False)
-                print(p.stdout[-20000:])
-                trx = os.path.join(results, "base.trx")
-                if os.path.exists(trx):
-                    with open(trx, encoding="utf-8-sig") as f:
-                        outcomes = parse_trx(f.read())
-            verdict = classify(new_tests, compiled, outcomes)
-        text, code = report(verdict, dropped, a.require_failing)
-        print(text)
-        if a.summary:
-            with open(a.summary, "a", encoding="utf-8") as f:
-                f.write(text)
-        return code
+        repo = git("rev-parse", "--show-toplevel").strip()
+        head = git("rev-parse", a.head, cwd=repo).strip()
+        base = git("merge-base", a.base, head, cwd=repo).strip()
+        work = os.path.realpath(a.work or tempfile.mkdtemp(prefix="new-tests-on-base-"))
+        if (work + os.sep).startswith(os.path.realpath(repo) + os.sep):
+            # (the library project compiles every .cs below the repository root)
+            work = None
+            raise CannotRun("--work must be outside the repository")
+        os.makedirs(work, exist_ok=True)
+        for t in ("base", "hybrid"):
+            git("worktree", "remove", "--force", os.path.join(work, t), cwd=repo, check=False)
+            shutil.rmtree(os.path.join(work, t), ignore_errors=True)
+        git("worktree", "prune", cwd=repo, check=False)
+        print("head %s, merge base %s" % (head[:12], base[:12]))
+        verdict, dropped = compare(repo, base, head, work)
+    except CannotRun as e:
+        problem = str(e)
     finally:
-        for t in (base_tree, hybrid):
-            git("worktree", "remove", "--force", t, cwd=repo, check=False)
+        if repo and work:
+            for t in ("base", "hybrid"):
+                git("worktree", "remove", "--force", os.path.join(work, t), cwd=repo, check=False)
+            git("worktree", "prune", cwd=repo, check=False)
+    text, code = report(verdict, dropped, a.require_failing, problem)
+    print(text)
+    if problem:
+        print("::warning::new tests on base: " + problem)
+    if a.summary:
+        with open(a.summary, "a", encoding="utf-8") as f:
+            f.write(text)
+    return code
 
 
 if __name__ == "__main__":

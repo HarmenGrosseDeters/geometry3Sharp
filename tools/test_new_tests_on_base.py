@@ -1,4 +1,4 @@
-"""Unit tests of tools/new_tests_on_base.py (python3 -m unittest discover -s tools -p 'test_*.py')."""
+"""Unit tests of tools/new_tests_on_base.py (python3 -m unittest discover -s tools -p 'test_new_tests_on_base.py')."""
 
 import os
 import sys
@@ -19,12 +19,25 @@ class LibraryPaths(unittest.TestCase):
                   "CLAUDE.md"):
             self.assertFalse(n.is_library_path(p), p)
 
+    def test_name_status_z_keeps_unusual_paths(self):
+        out = "M\0math/Vector2d.cs\0A\0tests/geometry3Sharp.Tests/Füße \"x\".cs\0D\0mesh/Old.cs\0"
+        self.assertEqual(n.parse_name_status_z(out), {"math/Vector2d.cs": "M", "mesh/Old.cs": "D",
+                                                      "tests/geometry3Sharp.Tests/Füße \"x\".cs": "A"})
+        self.assertEqual(n.parse_name_status_z(""), {})
+
     def test_library_changes(self):
-        ns = "M\tmath/Vector2d.cs\nA\tmesh/NewThing.cs\nD\tmesh/Old.cs\nA\ttests/geometry3Sharp.Tests/NewTests.cs\n" \
-             "M\tdocs/QA.md\nM\tCLAUDE.md\n"
-        reset, delete = n.library_changes(ns)
+        changes = {"math/Vector2d.cs": "M", "mesh/NewThing.cs": "A", "mesh/Old.cs": "D",
+                   "tests/geometry3Sharp.Tests/NewTests.cs": "A", "docs/QA.md": "M", "CLAUDE.md": "M"}
+        reset, delete = n.library_changes(changes)
         self.assertEqual(reset, ["math/Vector2d.cs", "mesh/Old.cs"])
         self.assertEqual(delete, ["mesh/NewThing.cs"])
+
+    def test_test_side_changes_include_deleted_files(self):
+        # the fallback when an unchanged test file breaks (a helper moved from the tests into the library)
+        changes = {"tests/geometry3Sharp.Tests/Helper.cs": "D", "math/Helper.cs": "A",
+                   "tests/geometry3Sharp.Tests/NewTests.cs": "A", "docs/examples/Ex.cs": "M", "docs/QA.md": "M"}
+        self.assertEqual(n.test_side_changes(changes), ["docs/examples/Ex.cs", "tests/geometry3Sharp.Tests/Helper.cs",
+                                                        "tests/geometry3Sharp.Tests/NewTests.cs"])
 
 
 class Parsing(unittest.TestCase):
@@ -32,6 +45,14 @@ class Parsing(unittest.TestCase):
         self.assertEqual(n.method_of("Ns.C.M(x: 1, s: \"a(b)\")"), "Ns.C.M")
         self.assertEqual(n.method_of("Ns.C.M"), "Ns.C.M")
         self.assertEqual(n.method_of("Ns.Outer+Inner.M(a: 2)"), "Ns.Outer+Inner.M")
+        self.assertEqual(n.method_of("Ns.C.Gen<Double>(x: 1.5)"), "Ns.C.Gen")
+        self.assertEqual(n.method_of("Ns.C.Gen<List<Int32>>"), "Ns.C.Gen")
+
+    def test_display_names_are_not_method_names(self):
+        self.assertTrue(n.is_method_name("geometry3Sharp.Tests.A.Fact1"))
+        self.assertTrue(n.is_method_name("Ns.Outer+Inner.M"))
+        for name in ("clamp works", "Fact1", "Ns.C.M x", "a|b.c", "Ns.C.M=1"):
+            self.assertFalse(n.is_method_name(name), name)
 
     def test_parse_list_tests(self):
         out = ("Build started\nTest run for /x/geometry3Sharp.Tests.dll (.NETCoreApp,Version=v10.0)\n"
@@ -39,10 +60,15 @@ class Parsing(unittest.TestCase):
                "    geometry3Sharp.Tests.A.Fact1\n"
                "    geometry3Sharp.Tests.A.Theory1(n: 1)\n"
                "    geometry3Sharp.Tests.A.Theory1(n: 2)\n"
-               "    geometry3Sharp.Tests.B.Fact2\n")
+               "    geometry3Sharp.Tests.B.Gen<Double>(x: 1.5)\n"
+               "    nice name\n")
         self.assertEqual(n.parse_list_tests(out), {"geometry3Sharp.Tests.A.Fact1", "geometry3Sharp.Tests.A.Theory1",
-                                                   "geometry3Sharp.Tests.B.Fact2"})
+                                                   "geometry3Sharp.Tests.B.Gen", "nice name"})
         self.assertEqual(n.parse_list_tests("    not.a.Test\n"), set())
+
+    def test_filter(self):
+        self.assertEqual(n.test_filter({"Ns.B.M", "Ns.A+I.M"}), "FullyQualifiedName=Ns.A+I.M|FullyQualifiedName=Ns.B.M")
+        self.assertEqual(n.test_filter({"a(b)"}), "FullyQualifiedName=a\\(b\\)")
 
     def test_error_files(self):
         with tempfile.TemporaryDirectory() as root:
@@ -50,41 +76,54 @@ class Parsing(unittest.TestCase):
             out = ("%s(12,5): error CS0117: 'Foo' does not contain a definition for 'Bar' [%s/x.csproj]\n"
                    "%s(13,5): error CS0117: again\n"
                    "/elsewhere/Other.cs(1,1): error CS1002: ; expected\n"
-                   "%s(14,5): warning CS0168: unused\n" % (f, root, f, os.path.join(root, "W.cs")))
+                   "%s/x.csproj : error NU1605: package downgrade\n"
+                   "%s(14,5): warning CS0168: unused\n" % (f, root, f, root, os.path.join(root, "W.cs")))
             self.assertEqual(n.error_files(out, root), {"tests/geometry3Sharp.Tests/NewTests.cs"})
 
+    TRX = """<?xml version="1.0" encoding="utf-8"?>
+<TestRun xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010"><Results>%s</Results>
+<ResultSummary outcome="%s"><Counters total="3" /></ResultSummary></TestRun>"""
+
     def test_parse_trx(self):
-        trx = """<?xml version="1.0" encoding="utf-8"?>
-<TestRun xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010"><Results>
-<UnitTestResult testName="Ns.C.A" outcome="Passed" />
-<UnitTestResult testName="Ns.C.T(n: 1)" outcome="Passed" />
-<UnitTestResult testName="Ns.C.T(n: 2)" outcome="Failed" />
-</Results></TestRun>"""
-        self.assertEqual(n.parse_trx(trx), {"Ns.C.A": ["Passed"], "Ns.C.T": ["Passed", "Failed"]})
+        trx = self.TRX % ('<UnitTestResult testName="Ns.C.A" outcome="Passed" />'
+                          '<UnitTestResult testName="Ns.C.T(n: 1)" outcome="Passed" />'
+                          '<UnitTestResult testName="Ns.C.T(n: 2)" outcome="Failed" />', "Failed")
+        self.assertEqual(n.parse_trx(trx), ({"Ns.C.A": ["Passed"], "Ns.C.T": ["Passed", "Failed"]}, "Failed"))
+
+    def test_parse_trx_of_an_aborted_run(self):
+        self.assertEqual(n.parse_trx(self.TRX % ("", "Aborted")), ({}, "Aborted"))
 
 
 class Decision(unittest.TestCase):
     def test_classify(self):
-        new = {"A", "T", "Hang", "NewApi", "Skipped"}
-        v = n.classify(new, {"A", "T", "Hang", "Skipped"},
-                       {"A": ["Passed"], "T": ["Passed", "Failed"], "Skipped": ["NotExecuted"]})
-        self.assertEqual(v, {"A": "passes", "T": "fails", "Hang": "no result", "NewApi": "does not compile",
-                             "Skipped": "no result"})
+        new = {"N.C.A", "N.C.T", "N.C.Lost", "N.C.NewApi", "N.C.Skipped", "nice name"}
+        compiled = {"N.C.A", "N.C.T", "N.C.Lost", "N.C.Skipped"}
+        outcomes = {"N.C.A": ["Passed"], "N.C.T": ["Passed", "Failed"], "N.C.Skipped": ["NotExecuted"]}
+        self.assertEqual(n.classify(new, compiled, outcomes), {
+            "N.C.A": "passes", "N.C.T": "fails", "N.C.Lost": "no result", "N.C.NewApi": "does not compile",
+            "N.C.Skipped": "skipped", "nice name": "not a method name (DisplayName), not run"})
+        # a run killed by the blame collector (crash, hang): the test without a result crashed or hung
+        self.assertEqual(n.classify(new, compiled, outcomes, aborted_by_blame=True)["N.C.Lost"], "crash or hang")
+        # a theory with a skipped and a passing case passes
+        self.assertEqual(n.verdict_of(["NotExecuted", "Passed"], False), "passes")
 
     def test_report_informational_never_fails(self):
-        _, code = n.report({"A": "passes"}, set(), False)
+        self.assertEqual(n.report({"A": "passes"}, set(), False)[1], 0)
+        self.assertEqual(n.report({}, set(), False)[1], 0)
+        text, code = n.report({}, set(), False, problem="the tests of the base do not build")
         self.assertEqual(code, 0)
-        _, code = n.report({}, set(), False)
-        self.assertEqual(code, 0)
+        self.assertIn("could not be made", text)
 
     def test_report_bugfix_needs_a_failing_test(self):
         self.assertEqual(n.report({"A": "passes", "B": "fails"}, set(), True)[1], 0)
-        self.assertEqual(n.report({"A": "passes", "B": "no result"}, set(), True)[1], 0)
-        self.assertEqual(n.report({"A": "passes", "B": "does not compile"}, set(), True)[1], 1)
+        self.assertEqual(n.report({"A": "passes", "B": "crash or hang"}, set(), True)[1], 0)
+        for other in ("does not compile", "skipped", "no result", "not a method name (DisplayName), not run"):
+            self.assertEqual(n.report({"A": "passes", "B": other}, set(), True)[1], 1, other)
         self.assertEqual(n.report({"A": "passes"}, set(), True)[1], 1)
         text, code = n.report({}, set(), True)
         self.assertEqual(code, 1)
         self.assertIn("no new test fails on the base", text)
+        self.assertEqual(n.report({}, set(), True, problem="x")[1], 1)
 
 
 if __name__ == "__main__":
