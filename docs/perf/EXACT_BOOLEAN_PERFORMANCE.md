@@ -104,14 +104,6 @@ with `phases_ms`, `phases_alloc_mb`, `gc`, `counts`, `predicates` (stats build) 
       frame and the GC events (pause, promoted bytes per generation);
     - `dotnet-gcdump` during a run for the live objects (`report`, sorted by count);
     - direct Stopwatch instrumentation of a phase.
-- **Lock contention: use the runtime's contention events, not the sampled stacks.** In the samples,
-  `Monitor.Enter_Slowpath` looked like 16 % of the thread time on the n-ary grid. To check it:
-  - Run `dotnet-trace collect --providers "Microsoft-Windows-DotNETRuntime:0x4001:5"`, which records the contention
-    and GC events.
-  - In the TraceEvent analyzer below, sum `ContentionStopTraceData.DurationNs` by the g3 frames of the stack of the
-    matching `ContentionStartTraceData`.
-  - Waits that average several ms are mostly a lock holder paused by a GC. Only wall-clock A/B runs show what a fix
-    gains.
 - **Temporary instrumentation must not read environment variables in the hot path.** `GetEnvironmentVariable` per
   call doubled the pair search; read it into a `static readonly` field.
 
@@ -208,8 +200,7 @@ was measured as a whole; the effects of its single changes were not separated, e
 | reused buffers in the tri-tri intersection (pooling); `Span` / `stackalloc` / `ArrayPool` | no gain: short-lived garbage is cheap. The GC cost is the long-lived objects, which pooling does not shorten, and `BigInteger` allocates its digits itself | no |
 | `readonly` members on the core structs | nothing to measure: the hot code makes no defensive copies | no |
 | `ExactTriangulation2` on flat arrays (twice, also on the triangulation-heavy inputs) | no gain | no |
-| **sharded `rationalIndex`** (`AddPoint`; November 2026): the exact points by value, in 64 shards with the hash computed outside the lock, like the implicit points' `keyIndex`. Before, one lock was held while four `BigInteger`s were hashed and compared. The classification adds every piece's centroid through `AddPoint`, in parallel | grid 10: 6164 -> 1159 contentions, 26.5 -> 4.3 s waiting thread time. Wall clock, median of 5 alternating rounds: total 7721 -> 7290 ms (-6 %; -4..-16 % in each round), classification 2495 -> 2253 ms; grid 5: 770 -> 661 ms. Same results | yes (small and simple, though below the 10 % bar) |
-| **arrangement `InCircle` in fixed-width integers** (November 2026, the predicate compiler, `docs/design/PREDICATE_COMPILER.md` step 2): the exact stage on rational points as a generated `ipredicate` (limb widths from proven bit bounds, on the stack, no allocation), with a `BigInteger` fallback above coordinates of 2^112 and weights of 2^58. .NET only | grid 10: triangulation 1888 -> 1495 ms (−21 %), total 6573 -> 6071 ms (−8 %); grid 5 −3 %; spheres unchanged. With the `AddPoint` fix, against master: 6652 -> 6006 ms (−9.7 %). Same results | yes (experiment; the bounds fit the grid: about half of the exact calls in the boolean tests fall back) |
+| **arrangement `InCircle` in fixed-width integers** (November 2026, the predicate compiler, `docs/design/PREDICATE_COMPILER.md` step 2): the exact stage on rational points as a generated `ipredicate` (limb widths from proven bit bounds, on the stack, no allocation), with a `BigInteger` fallback above coordinates of 2^112 and weights of 2^58. .NET only | grid 10: triangulation 1888 -> 1495 ms (−21 %), total 6573 -> 6071 ms (−8 %); grid 5 −3 %; spheres unchanged. With the `AddPoint` fix (separate PR), against master: 6652 -> 6006 ms (−9.7 %). Same results | yes (experiment; the bounds fit the grid: about half of the exact calls in the boolean tests fall back) |
 | **arrangement `Orient` in fixed-width integers** (the same way, `ArrOrient`, 5 limbs) | grid 10: 2.9M of 4.3M exact stages took the path, total 6306 -> 6430 ms (noise). Per call 811 ns (`BigInteger`) against 520 ns, of which loading from `BigInteger` was 208 ns and the generic multiplications 401 ns: for values of about 100 bits `BigInteger` is not much slower | no |
 | GC settings of an application | server GC: -23 % on fertility + spheres, +5..25 % on small inputs; `DOTNET_GCgen0size=0x40000000`: -9 % there, neutral elsewhere; `gcConcurrent=0`: nothing | an application's choice |
 

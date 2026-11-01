@@ -291,28 +291,16 @@ namespace g3
         readonly ChunkedList<ExactBox> exactPoints = new ChunkedList<ExactBox>();
         readonly ChunkedList<Vector3d> inputCoords = new ChunkedList<Vector3d>();
         int nextPoint;
-        // implicit point ids by construction and rational point ids by value, in shards (by hash) so that threads adding
-        // points rarely wait for each other (the classification adds the pieces' centroids in parallel)
+        // implicit point ids by construction, in shards (by hash) so that threads adding points rarely wait for each other
         const int Shards = 64;
-        readonly Dictionary<PointKey, int>[] keyIndex = make_shards<PointKey>();
-        readonly Dictionary<HashedPoint, int>[] rationalIndex = make_shards<HashedPoint>();
-        static Dictionary<T, int>[] make_shards<T>()
+        readonly Dictionary<PointKey, int>[] keyIndex = make_shards();
+        readonly Dictionary<ExactPoint3, int> rationalIndex = new Dictionary<ExactPoint3, int>();
+        static Dictionary<PointKey, int>[] make_shards()
         {
-            var d = new Dictionary<T, int>[Shards];
+            var d = new Dictionary<PointKey, int>[Shards];
             for (int i = 0; i < Shards; ++i)
-                d[i] = new Dictionary<T, int>();
+                d[i] = new Dictionary<PointKey, int>();
             return d;
-        }
-
-        // an exact point with its hash computed once, outside the lock (the hash of four BigIntegers is not cheap)
-        readonly struct HashedPoint : IEquatable<HashedPoint>
-        {
-            public readonly ExactPoint3 P;
-            public readonly int Hash;
-            public HashedPoint(ExactPoint3 p) { P = p; Hash = p.GetHashCode(); }
-            public bool Equals(HashedPoint o) { return Hash == o.Hash && P.Equals(o.P); }
-            public override bool Equals(object o) { return o is HashedPoint h && Equals(h); }
-            public override int GetHashCode() { return Hash; }
         }
         // canonical id of each point after merge_points (null before), for ids below its length
         int[] canonical;
@@ -353,16 +341,14 @@ namespace g3
         {
             Vector3d a = p.ApproxVector3d();
             double e = (p.W.IsOne ? 1 : 4) * U * max_abs(a) + Tiny;
-            var hp = new HashedPoint(p);
-            var shard = rationalIndex[(hp.Hash & 0x7FFFFFFF) % Shards];
-            lock (shard) {
+            lock (rationalIndex) {
                 int id;
-                if (shard.TryGetValue(hp, out id))
+                if (rationalIndex.TryGetValue(p, out id))
                     return id;
                 id = new_id();
                 store(id, a, e, new PointKey(PointKind.Rational, id, 0, 0), new ExactBox(p));
                 // published after the point is stored: other threads only see the id once its data is valid
-                shard[hp] = id;
+                rationalIndex[p] = id;
                 return id;
             }
         }
