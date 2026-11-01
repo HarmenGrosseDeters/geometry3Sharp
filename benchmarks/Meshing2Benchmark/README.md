@@ -178,8 +178,38 @@ Found and fixed by the run (each with a regression test or self-check):
 | earcut water (M3) | an input vertex in no triangle | refinement split the sides of a 3.4 degree spike down to where they are within the tolerance of each other; the chains merged and cut off the tip. Same fix (`SpikeAtASmallAngle_KeepsItsApex`) |
 | delaunator issue43, robustness1, robustness4 (M3) | angles below the bound, boundary edges off the hull; 100 000 vertices from 36 | points 5e-15 inside a hull edge encroached it for ever. Hull edges inserted as pieces, a vertex within the tolerance of an existing edge becomes a vertex of it (`PointsUlpsInsideAHullEdge_BecomeBoundaryVertices`) |
 | earcut infinite-loop-jhl | oracle: empty mesh on a domain with area | a sliver 1e-28 wide, below the tolerance; the oracle now allows empty for a domain whose twice area is at most 2 tube perimeter (self-check 5) |
-| earcut water-huge (M3 at 20, 30 degrees) | oracle: two angles below the bound at an apex of 0.84 degrees | inside the zone where the two segments are within the tube of each other no point can be placed; the oracle exempts triangles within 8 tube / sin(angle) of such an apex (self-check 6) |
+| earcut water-huge (M3 at 20, 30 degrees) | oracle: two angles below the bound at an apex of 0.84 degrees | inside the zone where the two segments are within the tube of each other no point can be placed; the oracle exempts triangles within 3 tube / sin(angle) of such an apex (self-checks 6 and 7; 8 before #265) |
 | earcut eberly-6 | oracle: 10 minutes for 6 339 vertices | floating-point filters in front of the exact segment, ring and marker tests (now 5 s) |
+
+## The oracle's fast path (2026-11-01)
+
+The oracle decides with exact rationals. On large results that took minutes, so it now has a fast path: floating-point filters with
+error bounds in front of the exact orientation, in-circle, angle, ring and distance tests (the exact test where the filter cannot decide),
+spatial indexes (a 2-d tree for the global empty-circumcircle pass, which now runs at every size; boxes and y buckets for the ring and
+segment tests), integer sums over a common power-of-two denominator for the area, and edge keys hashed with mixing. The reference path
+(`--oracle reference`, `OracleExpect.Reference`) keeps every test exact; `Meshing2OracleModesTests` compares the verdicts of both on every
+covered catalogue row, on four corruptions of each, and runs the self-checks on the reference path.
+
+Measured on one machine (4 cores), the same build of the mesher:
+
+| Run | before | after |
+|---|---|---|
+| `rows --milestone M3 --seconds 600` (41 rows), oracle time | 705 s | 48 s |
+| F-40 at 40 degrees (200 032 vertices), row total | 304 s | 12 s |
+| F-4/c (37 568 vertices) | 100 s | 17 s |
+| earcut water-huge at 20 degrees (24 220 vertices), oracle | about 105 s | about 8 s |
+| earcut water-huge at 30 degrees (49 489 vertices), oracle | about 170 s | about 10 s |
+
+```
+G3_ORACLE_TIMING=1 dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 -- corpus --filter 'earcut/water-huge$' --angles 30
+dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 -- rows --milestone M3 --seconds 600
+```
+
+The share per check on water-huge at 30 degrees before: conformity 55 % (classifying boundary vertices that round a few ulps outwards, then
+exact distances to every ring edge), quality 32 % (an exact sine per triangle), coverage 6 %; the global pass did not run (above
+`GlobalDelaunayLimit`). After, with the global pass running: conformity 3.2 s, segments 2.2 s, coverage 1.8 s, the rest below 1 s each. The
+indexed global pass found violations the skipped pass had hidden: conforming Delaunay in the merge zone of a small apex, which the oracle now
+excuses like the angle bound there (self-check 7).
 
 ## The golden master
 

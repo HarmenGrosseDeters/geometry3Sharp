@@ -460,11 +460,12 @@ namespace Meshing2Acceptance
             }
 
             // 6. the merge zone at a small input angle: a skinny triangle at the apex of two segments at 1 degree is exempt within
-            //    8 tube / sin(angle) of it (about 4.6e-7 here), not beyond; one vertex on a segment, the others between them, so
+            //    3 tube / sin(angle) of it (1.88e-7 here: tube 1200 / 2^40), not beyond; the farthest vertex at 2.88 resp. 3.36 of
+            //    tube / sin, so that the zone factor 2 and the former 8 both fail; one vertex on a segment, the others between them, so
             //    that no other exemption applies (corpus run, earcut's water-huge)
             {
                 double c = Math.Cos(Math.PI / 180), sn = Math.Sin(Math.PI / 180);
-                foreach (var (r, ok) in new[] { (1e-7, true), (1e-6, false) }) {
+                foreach (var (r, ok) in new[] { (1.2e-7, true), (1.4e-7, false) }) {
                     var input = Points(1000, 0, 1100, 0, 1000 + 100 * c, 100 * sn, 1000 + r, 0, 1000 + 1.5 * r, 0.008 * r, 1000 + 1.25 * r, 0.0095 * r,
                         900, -100, 1200, -100, 1200, 100, 900, 100);
                     input.Segments.Add(new SegmentInput(0, 1)); input.Segments.Add(new SegmentInput(0, 2));
@@ -474,8 +475,25 @@ namespace Meshing2Acceptance
                     var o = Out(input, new[] { new[] { 3, 4, 5 } }); o.BadTriangles = new[] { 0 };
                     var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
                     bool angleFlagged = report.Has(Violation.AngleBelowBound);
-                    must(ok ? "merge zone: a skinny triangle 1e-7 from a 1 degree apex is exempt" : "merge zone: a skinny triangle 1e-6 from the apex is still judged",
+                    must(ok ? "merge zone: a skinny triangle 1.8e-7 from a 1 degree apex is exempt" : "merge zone: a skinny triangle 2.1e-7 from the apex is still judged",
                         angleFlagged != ok, "report: " + report);
+                }
+            }
+
+            // 7. conforming in the merge zone: a vertex inside the circumcircle of a triangle 1.8e-7 from a 1 degree apex is excused,
+            //    2.1e-7 from it not (2.88 resp. 3.36 of tube / sin, as in 6; indexed global pass on water-huge)
+            {
+                double c = Math.Cos(Math.PI / 180), sn = Math.Sin(Math.PI / 180);
+                foreach (var (r, ok) in new[] { (9e-8, true), (1.05e-7, false) }) {
+                    var input = Points(1000, 0, 1100, 0, 1000 + 100 * c, 100 * sn, 1000 + r, 0, 1000 + 2 * r, 0, 1000 + 1.5 * r, 0.004 * r, 1000 + 1.2 * r, 0.002 * r,
+                        900, -100, 1200, -100, 1200, 100, 900, 100);
+                    input.Segments.Add(new SegmentInput(0, 1)); input.Segments.Add(new SegmentInput(0, 2));
+                    input.Rings.Add(new RingInput(new[] { 7, 8, 9, 10 }, false));
+                    input.Conforming = true;
+                    var o = Out(input, new[] { new[] { 3, 4, 5 }, new[] { 3, 5, 6 } });
+                    var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
+                    bool flagged = report.Has(Violation.NotDelaunayLocal) || report.Has(Violation.NotDelaunayGlobal);
+                    must(ok ? "merge zone: conforming excused 1.8e-7 from a 1 degree apex" : "merge zone: conforming judged 2.1e-7 from the apex", flagged != ok, "report: " + report);
                 }
             }
 

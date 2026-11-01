@@ -38,8 +38,12 @@ namespace Meshing2Acceptance
 
         public static OracleReport Check(Mesh2Input input, Mesh2Output o, OracleExpect e)
         {
+            if (ForceReference && !e.Reference) e = e.WithReference();
             return new Run(input, o, e).Execute();
         }
+
+        /// <summary> on this thread, every check takes the reference path (the tests run the self-checks so; --oracle reference) </summary>
+        [ThreadStatic] public static bool ForceReference;
 
         sealed class Run
         {
@@ -73,7 +77,7 @@ namespace Meshing2Acceptance
                     return r;
                 }
                 if (!Vertices()) return r;
-                domain = new Domain(input);
+                domain = new Domain(input, !e.Reference);
                 bool degenerate = domain.Area.Sign == 0;
                 tube = e.Tube ?? (e.Milestone == Milestone.M1 ? Q.Zero : Q.Max(Oracle.AutoTolerance(input), Q.FromDouble(input.SnapTolerance)));
                 tube2 = tube * tube;
@@ -219,6 +223,7 @@ namespace Meshing2Acceptance
             void Orientation()
             {
                 r.Area2 = Q.Zero;
+                if (Fast) { OrientationFast(); return; }
                 foreach (var t in o.Triangles) {
                     if (t[0] == t[1] || t[1] == t[2] || t[0] == t[2]) { r.Add(Violation.NotPositive, "triangle with a repeated vertex"); continue; }
                     if (Exact.Orient(v[t[0]], v[t[1]], v[t[2]]) <= 0) { r.Add(Violation.NotPositive, "triangle " + t[0] + " " + t[1] + " " + t[2] + " is not counter-clockwise"); continue; }
@@ -228,9 +233,116 @@ namespace Meshing2Acceptance
                 }
             }
 
+            /// <summary>
+            /// The same results as the exact loop: the orientation by the filtered predicate; the area as the sum of the cross products
+            /// x_a y_b - x_b y_a over the half-edges of the positive triangles (exactly the sum of their twice areas: each triangle's
+            /// three terms add up to it), with the pairs of opposite half-edges left out, which cancel exactly; the smallest angle by
+            /// the exact value of the triangles whose filtered value can be the smallest.
+            /// </summary>
+            void OrientationFast()
+            {
+                var positive = new List<int>(o.Triangles.Length);
+                for (int i = 0; i < o.Triangles.Length; ++i) {
+                    var t = o.Triangles[i];
+                    if (t[0] == t[1] || t[1] == t[2] || t[0] == t[2]) { r.Add(Violation.NotPositive, "triangle with a repeated vertex"); continue; }
+                    if (OrientV(t[0], t[1], t[2]) <= 0) { r.Add(Violation.NotPositive, "triangle " + t[0] + " " + t[1] + " " + t[2] + " is not counter-clockwise"); continue; }
+                    positive.Add(i);
+                }
+                // the area: half-edges counted with their direction; a and b swapped cancels a and b
+                var net = new Dictionary<long, int>(EdgeKeys.Instance);
+                foreach (int i in positive) {
+                    var t = o.Triangles[i];
+                    for (int k = 0; k < 3; ++k) {
+                        int a = t[k], b = t[(k + 1) % 3];
+                        long key = Key(a, b);
+                        int dir = a < b ? 1 : -1;
+                        net.TryGetValue(key, out int n); net[key] = n + dir;
+                    }
+                }
+                // the vertices are dyadic rationals X / W (W a power of two): over the largest W every coordinate is an integer, and the
+                // sum is one integer over W^2, made a rational once (adding rationals one by one normalized each sum)
+                var terms = net.Where(pair => pair.Value != 0).ToList();
+                if (terms.Count > 0) {
+                    BigInteger w = BigInteger.One;
+                    foreach (var pair in terms) { w = BigInteger.Max(w, v[KeyA(pair.Key)].W); w = BigInteger.Max(w, v[KeyB(pair.Key)].W); }
+                    BigInteger sum = BigInteger.Zero;
+                    foreach (var pair in terms) {
+                        Pt pa = v[KeyA(pair.Key)], pb = v[KeyB(pair.Key)];   // a < b
+                        BigInteger fa = w / pa.W, fb = w / pb.W;             // exact: powers of two
+                        sum += pair.Value * ((pa.X * fa) * (pb.Y * fb) - (pb.X * fb) * (pa.Y * fa));
+                    }
+                    r.Area2 = new Q(sum, w * w);
+                }
+                // the smallest angle: sin^2 in doubles with a relative error bound, then exact for the candidates
+                double upper = double.PositiveInfinity;
+                var lo = new double[positive.Count]; var hi = new double[positive.Count];
+                for (int j = 0; j < positive.Count; ++j) {
+                    var t = o.Triangles[positive[j]];
+                    if (!MinSin2Bounds(t[0], t[1], t[2], out lo[j], out hi[j])) { lo[j] = double.NegativeInfinity; hi[j] = double.PositiveInfinity; }
+                    upper = Math.Min(upper, hi[j]);
+                }
+                for (int j = 0; j < positive.Count; ++j) {
+                    if (lo[j] > upper) continue;
+                    var t = o.Triangles[positive[j]];
+                    var q = Exact.MinAngleSin2(v[t[0]], v[t[1]], v[t[2]]);
+                    if (r.MinSin2 == null || q < r.MinSin2.Value) r.MinSin2 = q;
+                }
+            }
+
+            // ------------------------------------------------------------ filtered predicates on output vertices
+            // On the doubles of the output (when the producer gives no exact vertices, the vertices are those doubles exactly): the
+            // value in doubles and a bound on its rounding error; the exact test when the bound does not decide. Independent of the
+            // mesher's predicates. Bounds (unit roundoff u = 2^-53), each with a margin of about 3:
+            //   orientation (bx-ax)(cy-ay) - (by-ay)(cx-ax): |error| <= (3u + 16u^2) (|l| + |r|)  [Shewchuk 1997, ccwerrboundA];
+            //     used: 1e-15 (|l| + |r|)
+            //   in-circle as in InCircle below: (10u + 96u^2) * permanent  [Shewchuk 1997, iccerrboundA]; used: 1.2e-14 * permanent
+            //   sin^2 of the smallest angle = det^2 / (l1 l2): relative error at most 2 e_det + 2 e_len + 3u, with e_det the orientation
+            //     bound over |det| and e_len <= 3u + u^2 for a squared length of rounded differences; used: 2 e_det + 1e-14
+            // Filters work only where nothing underflows or overflows: magnitudes between 1e-200 and 1e200, else exact.
+
+            bool Fast => !e.Reference && o.ExactVertices == null;
+
+            static double ToD(Q q) => q.Bounds(out double lo, out double hi) ? (lo + hi) / 2 : double.NaN;
+
+            int OrientV(int a, int b, int c)
+            {
+                if (Fast) {
+                    double ax = o.VX[a], ay = o.VY[a];
+                    double l = (o.VX[b] - ax) * (o.VY[c] - ay), rr = (o.VY[b] - ay) * (o.VX[c] - ax);
+                    double det = l - rr, sum = Math.Abs(l) + Math.Abs(rr), bound = 1e-15 * sum;
+                    if (sum > 1e-200 && sum < 1e200 && Math.Abs(det) > bound) return det > 0 ? 1 : -1;
+                }
+                return Exact.Orient(v[a], v[b], v[c]);
+            }
+
+            bool ProperCrossV(int a, int b, int c, int d) =>
+                OrientV(a, b, c) * OrientV(a, b, d) < 0 && OrientV(c, d, a) * OrientV(c, d, b) < 0;
+
+            /// <summary> an interval around sin^2 of the smallest angle of triangle a b c; false if the filter cannot give one </summary>
+            bool MinSin2Bounds(int a, int b, int c, out double lo, out double hi)
+            {
+                lo = hi = 0;
+                if (!Fast) return false;
+                double ax = o.VX[a], ay = o.VY[a], bx = o.VX[b], by = o.VY[b], cx = o.VX[c], cy = o.VY[c];
+                double l = (bx - ax) * (cy - ay), rr = (by - ay) * (cx - ax);
+                double det = l - rr, sum = Math.Abs(l) + Math.Abs(rr);
+                if (!(sum > 1e-200 && sum < 1e200) || !(Math.Abs(det) > 1e-15 * sum)) return false;
+                double ab = (bx - ax) * (bx - ax) + (by - ay) * (by - ay), bc = (cx - bx) * (cx - bx) + (cy - by) * (cy - by), ca = (ax - cx) * (ax - cx) + (ay - cy) * (ay - cy);
+                double cross2 = det * det, abca = ab * ca, abbc = ab * bc, bcca = bc * ca;
+                // every intermediate normal, far from both ends: an overflowing product gave s = 0, a subnormal cross2 a wrong interval
+                // (found by the bounds review)
+                bool Normal(double x) => x > 1e-200 && x < 1e200;
+                if (!(Normal(ab) && Normal(bc) && Normal(ca) && Normal(cross2) && Normal(abca) && Normal(abbc) && Normal(bcca))) return false;
+                double s = Math.Min(cross2 / abca, Math.Min(cross2 / abbc, cross2 / bcca));
+                if (double.IsNaN(s) || double.IsInfinity(s)) return false;
+                double rel = 2 * (1e-15 * sum / Math.Abs(det)) + 1e-14;
+                lo = s * (1 - rel); hi = s * (1 + rel);
+                return true;
+            }
+
             void EdgesAndNeighbours()
             {
-                edges = new Dictionary<long, List<(int, int, int, int)>>();
+                edges = new Dictionary<long, List<(int, int, int, int)>>(2 * o.Triangles.Length + 16, EdgeKeys.Instance);
                 for (int i = 0; i < o.Triangles.Length; ++i) {
                     var t = o.Triangles[i];
                     for (int k = 0; k < 3; ++k) {
@@ -265,6 +377,19 @@ namespace Meshing2Acceptance
             }
 
             /// <summary>Ranks of the coordinates: all box comparisons below are exact and cost one integer comparison.</summary>
+            static int[] Ranks(double[] keys)
+            {
+                var order = Enumerable.Range(0, keys.Length).ToArray();
+                Array.Sort(order, (a, b) => keys[a] != keys[b] ? keys[a].CompareTo(keys[b]) : a.CompareTo(b));
+                var ranks = new int[keys.Length];
+                int rank = 0;
+                for (int i = 0; i < order.Length; ++i) {
+                    if (i > 0 && keys[order[i]] != keys[order[i - 1]]) ++rank;
+                    ranks[order[i]] = rank;
+                }
+                return ranks;
+            }
+
             static int[] Ranks(Pt[] p, Func<Pt, Q> axis)
             {
                 var order = Enumerable.Range(0, p.Length).ToArray();
@@ -307,7 +432,8 @@ namespace Meshing2Acceptance
             /// <summary>No used vertex touches a triangle other than at its own corner; no two edges cross.</summary>
             void Conformity()
             {
-                int[] rx = Ranks(v, p => p.Qx), ry = Ranks(v, p => p.Qy);
+                // (the doubles are the exact vertices on the fast path: the same ranks)
+                int[] rx = Fast ? Ranks(o.VX) : Ranks(v, p => p.Qx), ry = Fast ? Ranks(o.VY) : Ranks(v, p => p.Qy);
                 var triBoxes = o.Triangles.Select(t => new[] {
                     t.Min(i => rx[i]), t.Max(i => rx[i]), t.Min(i => ry[i]), t.Max(i => ry[i]) }).ToArray();
                 var used = new HashSet<int>(o.Triangles.SelectMany(t => t)).OrderBy(i => i).ToArray();
@@ -317,9 +443,8 @@ namespace Meshing2Acceptance
                     var t = o.Triangles[ti];
                     int id = used[vi];
                     if (id == t[0] || id == t[1] || id == t[2]) return;
-                    Pt a = v[t[0]], b = v[t[1]], c = v[t[2]], p = v[id];
-                    if (Exact.Orient(a, b, p) >= 0 && Exact.Orient(b, c, p) >= 0 && Exact.Orient(c, a, p) >= 0 && reports++ < 8)
-                        r.Add(Violation.VertexInTriangle, "vertex " + id + " " + p + " touches triangle " + t[0] + " " + t[1] + " " + t[2]);
+                    if (OrientV(t[0], t[1], id) >= 0 && OrientV(t[1], t[2], id) >= 0 && OrientV(t[2], t[0], id) >= 0 && reports++ < 8)
+                        r.Add(Violation.VertexInTriangle, "vertex " + id + " " + v[id] + " touches triangle " + t[0] + " " + t[1] + " " + t[2]);
                 });
                 var keys = edges.Keys.ToArray();
                 var edgeBoxes = keys.Select(k => new[] {
@@ -329,14 +454,24 @@ namespace Meshing2Acceptance
                 OverlapPairs(edgeBoxes, edgeBoxes, true, (i, j) => {
                     int a = KeyA(keys[i]), b = KeyB(keys[i]), c = KeyA(keys[j]), d = KeyB(keys[j]);
                     if (a == c || a == d || b == c || b == d) return;
-                    if (Exact.ProperCross(v[a], v[b], v[c], v[d]) && reports++ < 8)
+                    if (ProperCrossV(a, b, c, d) && reports++ < 8)
                         r.Add(Violation.EdgesCross, "edges " + a + "-" + b + " and " + c + "-" + d + " cross");
                 });
                 // every used vertex that is a corner of two triangles with the same coordinates would pass the tests above
-                var seen = new Dictionary<Pt, int>();
-                foreach (int id in used) {
-                    if (seen.TryGetValue(v[id], out int other)) r.Add(Violation.VertexInTriangle, "vertices " + other + " and " + id + " coincide");
-                    else seen.Add(v[id], id);
+                if (Fast) {
+                    // the doubles are the exact vertices: equal doubles, equal points (0.0 and -0.0 made one)
+                    var seenD = new Dictionary<(double, double), int>();
+                    foreach (int id in used) {
+                        var key = (o.VX[id] == 0 ? 0.0 : o.VX[id], o.VY[id] == 0 ? 0.0 : o.VY[id]);
+                        if (seenD.TryGetValue(key, out int other)) r.Add(Violation.VertexInTriangle, "vertices " + other + " and " + id + " coincide");
+                        else seenD.Add(key, id);
+                    }
+                } else {
+                    var seen = new Dictionary<Pt, int>();
+                    foreach (int id in used) {
+                        if (seen.TryGetValue(v[id], out int other)) r.Add(Violation.VertexInTriangle, "vertices " + other + " and " + id + " coincide");
+                        else seen.Add(v[id], id);
+                    }
                 }
                 // the unused vertices: an input point that belongs to the domain must be used; a constructed vertex must be used
                 var usedSet = new HashSet<int>(used);
@@ -349,10 +484,23 @@ namespace Meshing2Acceptance
                 if (o.IdentityRules)
                     for (int i = input.Count; i < v.Length; ++i)
                         if (!usedSet.Contains(i)) r.Add(Violation.VertexUnused, "constructed vertex " + i + " is in no triangle");
-                // F-36: no vertex outside the domain, by more than the tube
-                foreach (int id in used)
-                    if (domain.Classify(v[id]) == Where.Outside && !domain.Edges().Any(s => Exact.Dist2ToSegment(s.a, s.b, v[id]) <= tube2))
-                        r.Add(Violation.TriangleOutsideDomain, "vertex " + id + " " + v[id] + " is outside the domain");
+                // F-36: no vertex outside the domain, by more than the tube (on the fast path the ring edges whose box, widened by the
+                // tube, misses the vertex are left out of the exact distance test: they are farther than the tube)
+                var ringEdges = domain.Edges().ToList();
+                var ringBox = new double[4 * ringEdges.Count];
+                double reach = double.NaN;
+                if (tube2.Bounds(out _, out double t2hi)) reach = Math.Sqrt(t2hi) * (1 + 1e-12) + 1e-300;
+                for (int g = 0; g < ringEdges.Count; ++g) SegmentBox(ringEdges[g].a, ringEdges[g].b, reach, ringBox, 4 * g);
+                foreach (int id in used) {
+                    if (domain.Classify(v[id]) != Where.Outside) continue;
+                    bool near = false;
+                    for (int g = 0; g < ringEdges.Count && !near; ++g) {
+                        if (Fast && vKnown[id] && !double.IsNaN(ringBox[4 * g])
+                            && (vxh[id] < ringBox[4 * g] || vxl[id] > ringBox[4 * g + 1] || vyh[id] < ringBox[4 * g + 2] || vyl[id] > ringBox[4 * g + 3])) continue;
+                        near = Exact.Dist2ToSegment(ringEdges[g].a, ringEdges[g].b, v[id]) <= tube2;
+                    }
+                    if (!near) r.Add(Violation.TriangleOutsideDomain, "vertex " + id + " " + v[id] + " is outside the domain");
+                }
             }
 
             // A floating-point filter in front of the exact distance tests: each vertex as an interval of doubles around its exact
@@ -388,7 +536,7 @@ namespace Meshing2Acceptance
             /// <summary> false only if vertex i is certainly farther than the tube from source k </summary>
             bool MayBeNear(int k, int i)
             {
-                if (!vKnown[i] || double.IsNaN(sBox[4 * k])) return true;
+                if (e.Reference || !vKnown[i] || double.IsNaN(sBox[4 * k])) return true;
                 return !(vxh[i] < sBox[4 * k] || vxl[i] > sBox[4 * k + 1] || vyh[i] < sBox[4 * k + 2] || vyl[i] > sBox[4 * k + 3]);
             }
 
@@ -418,11 +566,11 @@ namespace Meshing2Acceptance
                     }
                 }
                 if (o.Subsegments != null) {
-                    subsegmentSet = new HashSet<long>(o.Subsegments.Select(s => Key(s.A, s.B)));
+                    subsegmentSet = new HashSet<long>(o.Subsegments.Select(s => Key(s.A, s.B)), EdgeKeys.Instance);
                     constraintEdges = subsegmentSet;
                 } else {
                     if (o.IdentityRules && o.NeighboursReported && e.Milestone != Milestone.M1) r.Add(Violation.MissingReport, "no subsegments (spec R4)");
-                    constraintEdges = new HashSet<long>();
+                    constraintEdges = new HashSet<long>(EdgeKeys.Instance);
                     foreach (var key in edges.Keys)
                         if (sources.Any(s => WithinTube(s, v[KeyA(key)]) && WithinTube(s, v[KeyB(key)]))) constraintEdges.Add(key);
                 }
@@ -611,7 +759,7 @@ namespace Meshing2Acceptance
                     // only ring edges whose box meets the source's box widened by the tube can cut the source or lie within the tube of
                     // a point on it; the others are certainly farther (the filter skips no exact test that could succeed)
                     int kk = k;
-                    bool Meets(int g) => double.IsNaN(sBox[4 * kk]) || double.IsNaN(ringBox[4 * g])
+                    bool Meets(int g) => e.Reference || double.IsNaN(sBox[4 * kk]) || double.IsNaN(ringBox[4 * g])
                         || !(ringBox[4 * g + 1] < sBox[4 * kk] || ringBox[4 * g] > sBox[4 * kk + 1] || ringBox[4 * g + 3] < sBox[4 * kk + 2] || ringBox[4 * g + 2] > sBox[4 * kk + 3]);
                     var ringEdges = Enumerable.Range(0, allRingEdges.Count).Where(Meets).Select(g => allRingEdges[g]).ToList();
                     // a lower bound of the distance from any point of the source to the ring edges left out: the gap between the boxes
@@ -744,22 +892,30 @@ namespace Meshing2Acceptance
                     int a = uses[0].a, b = uses[0].b;
                     int c = o.Triangles[uses[0].tri][uses[0].opposite], d = o.Triangles[uses[1].tri][uses[1].opposite];
                     int sign = InCircle(a, b, c, d);
-                    if (sign > 0 && !(conforming && ExcusedOffSegment(a, b, c, d))) r.Add(Violation.NotDelaunayLocal, "edge " + a + "-" + b + " is not locally Delaunay against " + d);
+                    if (sign > 0 && !(conforming && (ExcusedOffSegment(a, b, c, d) || Zone(new[] { a, b, c }, Q.One)))) r.Add(Violation.NotDelaunayLocal, "edge " + a + "-" + b + " is not locally Delaunay against " + d);
                     if (sign == 0 && !constrained) { r.TieEdges++; r.Unique = false; }
                 }
                 long work = (long)o.Triangles.Length * v.Length;
                 bool anyLocked = sources.Any(s => s.locked);
-                if ((e.Milestone == Milestone.M1 || (conforming && !anyLocked)) && work <= e.GlobalDelaunayLimit) {
+                // Every triangle against every vertex. On the fast path with a grid over the vertices: only those in the cells the
+                // circumcircle's box meets can be inside it, so the pass runs at every size (the reference path only up to the limit).
+                // The local criterion alone cannot replace it: the Delaunay lemma (every edge locally Delaunay, then the triangulation is
+                // Delaunay) is about a triangulation of the convex hull, and O2 asks for empty circles against all vertices, also across
+                // holes and concave boundaries, where the output has no triangles.
+                bool wanted = e.Milestone == Milestone.M1 || (conforming && !anyLocked);
+                if (wanted && (Fast ? e.GlobalDelaunayLimit > 0 : work <= e.GlobalDelaunayLimit)) {
                     r.GlobalDelaunayChecked = true;
                     var used = new HashSet<int>(o.Triangles.SelectMany(t => t));
-                    foreach (var t in o.Triangles)
-                        foreach (int id in used) {
-                            if (id == t[0] || id == t[1] || id == t[2]) continue;
-                            if (InCircle(t[0], t[1], t[2], id) > 0 && !(conforming && ExcusedOffSegment(t[0], t[1], t[2], id))) {
-                                r.Add(Violation.NotDelaunayGlobal, "vertex " + id + " inside the circumcircle of " + t[0] + " " + t[1] + " " + t[2]);
-                                break;
+                    if (Fast) GlobalDelaunayIndexed(used.ToArray(), conforming);
+                    else
+                        foreach (var t in o.Triangles)
+                            foreach (int id in used) {
+                                if (id == t[0] || id == t[1] || id == t[2]) continue;
+                                if (InCircle(t[0], t[1], t[2], id) > 0 && !(conforming && (ExcusedOffSegment(t[0], t[1], t[2], id) || Zone(t, Q.One)))) {
+                                    r.Add(Violation.NotDelaunayGlobal, "vertex " + id + " inside the circumcircle of " + t[0] + " " + t[1] + " " + t[2]);
+                                    break;
+                                }
                             }
-                        }
                 }
             }
 
@@ -770,7 +926,7 @@ namespace Meshing2Acceptance
             /// </summary>
             int InCircle(int a, int b, int c, int d)
             {
-                if (o.ExactVertices == null) {
+                if (Fast) {
                     double dx = o.VX[d], dy = o.VY[d];
                     double adx = o.VX[a] - dx, ady = o.VY[a] - dy, bdx = o.VX[b] - dx, bdy = o.VY[b] - dy, cdx = o.VX[c] - dx, cdy = o.VY[c] - dy;
                     double al = adx * adx + ady * ady, bl = bdx * bdx + bdy * bdy, cl = cdx * cdx + cdy * cdy;
@@ -779,10 +935,86 @@ namespace Meshing2Acceptance
                     double permanent = (Math.Abs(bdx * cdy) + Math.Abs(cdx * bdy)) * al + (Math.Abs(cdx * ady) + Math.Abs(adx * cdy)) * bl
                         + (Math.Abs(adx * bdy) + Math.Abs(bdx * ady)) * cl;
                     double bound = 1.2e-14 * permanent;
-                    // (only where nothing underflowed or overflowed: normal magnitudes far from both ends)
-                    if (permanent > 1e-200 && permanent < 1e200 && Math.Abs(det) > bound) return det > 0 ? 1 : -1;
+                    // (only where nothing underflowed or overflowed: the lifted terms and the six products zero or of normal magnitude
+                    // far from both ends, so that no rounding is absolute; found by the bounds review)
+                    bool Ok(double x) => x == 0 || (Math.Abs(x) > 1e-150 && Math.Abs(x) < 1e150);
+                    bool terms = Ok(al) && Ok(bl) && Ok(cl) && Ok(bdx * cdy) && Ok(cdx * bdy) && Ok(cdx * ady) && Ok(adx * cdy) && Ok(adx * bdy) && Ok(bdx * ady);
+                    if (terms && permanent > 1e-200 && permanent < 1e200 && Math.Abs(det) > bound) return det > 0 ? 1 : -1;
                 }
                 return Exact.InCircle(v[a], v[b], v[c], v[d]);
+            }
+
+            /// <summary>
+            /// The global pass with a 2-d tree over the used vertices (adaptive: refinement makes the density very uneven). Per triangle
+            /// the circumcircle in doubles, its radius widened by 1e-6 of itself and 1e-12 of the coordinates' magnitude: enough when
+            /// the triangle is not nearly degenerate (its orientation determinant above 1e-6 of the sum of its terms) and not a needle
+            /// (its shortest edge above 1e-8 of its longest): the centre's error is then about u (|b| + |q|) / |b - q| of the radius,
+            /// below 1e-7. A nearly degenerate triangle or a needle is checked against all vertices. Every candidate in the circle's box
+            /// goes to the filtered exact in-circle test; one report per triangle, as on the reference path.
+            /// </summary>
+            void GlobalDelaunayIndexed(int[] used, bool conforming)
+            {
+                double magnitude = 0;
+                foreach (int id in used) magnitude = Math.Max(magnitude, Math.Max(Math.Abs(o.VX[id]), Math.Abs(o.VY[id])));
+                var tree = (int[])used.Clone();
+                BuildTree(tree, 0, tree.Length, 0);
+                foreach (var t in o.Triangles) {
+                    bool Check(int id)
+                    {
+                        if (id == t[0] || id == t[1] || id == t[2]) return false;
+                        if (InCircle(t[0], t[1], t[2], id) > 0 && !(conforming && (ExcusedOffSegment(t[0], t[1], t[2], id) || Zone(t, Q.One)))) {
+                            r.Add(Violation.NotDelaunayGlobal, "vertex " + id + " inside the circumcircle of " + t[0] + " " + t[1] + " " + t[2]);
+                            return true;
+                        }
+                        return false;
+                    }
+                    double ax = o.VX[t[0]], ay = o.VY[t[0]];
+                    double bx = o.VX[t[1]] - ax, by = o.VY[t[1]] - ay, qx = o.VX[t[2]] - ax, qy = o.VY[t[2]] - ay;
+                    double l = bx * qy, rr = by * qx, d = l - rr, sum = Math.Abs(l) + Math.Abs(rr);
+                    bool scan = !(sum > 1e-200 && sum < 1e200) || !(Math.Abs(d) > 1e-6 * sum);
+                    double b2 = bx * bx + by * by, q2 = qx * qx + qy * qy, e2 = (qx - bx) * (qx - bx) + (qy - by) * (qy - by);
+                    // the centre's relative error grows like u (|b| + |q|) / |b - q| and its kin: a needle is scanned
+                    if (!(Math.Min(b2, Math.Min(q2, e2)) > 1e-16 * Math.Max(b2, Math.Max(q2, e2)))) scan = true;
+                    double x0 = 0, x1 = 0, y0 = 0, y1 = 0;
+                    if (!scan) {
+                        double ux = (qy * b2 - by * q2) / (2 * d), uy = (bx * q2 - qx * b2) / (2 * d);
+                        double reach = Math.Sqrt(ux * ux + uy * uy) * (1 + 1e-6) + magnitude * 1e-12;
+                        double cx = ax + ux, cy = ay + uy;
+                        if (double.IsNaN(reach) || double.IsInfinity(reach)) scan = true;
+                        else { x0 = cx - reach; x1 = cx + reach; y0 = cy - reach; y1 = cy + reach; }
+                    }
+                    if (scan) { foreach (int id in used) if (Check(id)) break; continue; }
+                    QueryTree(tree, 0, tree.Length, 0, x0, x1, y0, y1, Check);
+                }
+            }
+
+            /// <summary> a 2-d tree in place: the median of [from, to) by x (depth even) or y at the middle, both halves below it </summary>
+            void BuildTree(int[] ids, int from, int to, int depth)
+            {
+                if (to - from <= 8) return;
+                int mid = (from + to) / 2;
+                var vals = depth % 2 == 0 ? o.VX : o.VY;
+                Array.Sort(ids, from, to - from, Comparer<int>.Create((p, q) => vals[p] != vals[q] ? vals[p].CompareTo(vals[q]) : p.CompareTo(q)));
+                BuildTree(ids, from, mid, depth + 1);
+                BuildTree(ids, mid + 1, to, depth + 1);
+            }
+
+            /// <summary> visits the ids in the box until visit returns true; returns whether it did </summary>
+            bool QueryTree(int[] ids, int from, int to, int depth, double x0, double x1, double y0, double y1, Func<int, bool> visit)
+            {
+                if (to - from <= 8) {
+                    for (int i = from; i < to; ++i) {
+                        int id = ids[i];
+                        if (o.VX[id] >= x0 && o.VX[id] <= x1 && o.VY[id] >= y0 && o.VY[id] <= y1 && visit(id)) return true;
+                    }
+                    return false;
+                }
+                int mid = (from + to) / 2, m = ids[mid];
+                double key = depth % 2 == 0 ? o.VX[m] : o.VY[m], lo = depth % 2 == 0 ? x0 : y0, hi = depth % 2 == 0 ? x1 : y1;
+                if (o.VX[m] >= x0 && o.VX[m] <= x1 && o.VY[m] >= y0 && o.VY[m] <= y1 && visit(m)) return true;
+                if (lo <= key && QueryTree(ids, from, mid, depth + 1, x0, x1, y0, y1, visit)) return true;
+                if (hi >= key && QueryTree(ids, mid + 1, to, depth + 1, x0, x1, y0, y1, visit)) return true;
+                return false;
             }
 
             /// <summary>
@@ -796,9 +1028,13 @@ namespace Meshing2Acceptance
                 bool any = false;
                 for (int k = 0; k < 4; ++k) {
                     int id = new[] { a, b, c, d }[k];
-                    if (o.IdentityRules ? id < input.Count : inPts.Any(p => p.Equals(v[id]))) continue;
+                    if (o.IdentityRules ? id < input.Count : IsInputPoint(v[id])) continue;
                     Q ulp = new Q(BigInteger.One, BigInteger.One << 49) * Q.Max(Q.Abs(v[id].Qx), Q.Abs(v[id].Qy)); // 8 ulps = 2^3 * 2^-52
-                    foreach (var s in sources) {
+                    // (where the tube is at least 8 ulps, a source farther than the tube cannot be within 8 ulps: the box filter applies)
+                    bool boxed = tube2 >= ulp * ulp;
+                    for (int ks = 0; ks < sources.Count; ++ks) {
+                        if (boxed && !MayBeNear(ks, id)) continue;
+                        var s = sources[ks];
                         Q d2 = Exact.Dist2ToSegment(s.a, s.b, v[id]);
                         if (d2.Sign == 0 || d2 > ulp * ulp) continue;
                         Q ax = s.a.Qx, ay = s.a.Qy, ux = s.b.Qx - ax, uy = s.b.Qy - ay;
@@ -811,6 +1047,9 @@ namespace Meshing2Acceptance
                 if (!any) return false;
                 return Exact.InCircle(corrected[0], corrected[1], corrected[2], corrected[3]) * Exact.Orient(corrected[0], corrected[1], corrected[2]) <= 0;
             }
+
+            HashSet<Pt> inputSet;
+            bool IsInputPoint(Pt p) => (inputSet ?? (inputSet = new HashSet<Pt>(inPts))).Contains(p);
 
             bool OnLocked(long key)
             {
@@ -894,17 +1133,26 @@ namespace Meshing2Acceptance
                     foreach (int id in listed)
                         if (id < 0 || id >= o.Triangles.Length) r.Add(Violation.BadListWrong, "listed triangle " + id + " does not exist");
                 var around = ConstraintsAround();
+                bool thresholds = low.Bounds(out double lowLo, out double lowHi) & high.Bounds(out double highLo, out double highHi);
                 for (int i = 0; i < o.Triangles.Length; ++i) {
                     var t = o.Triangles[i];
-                    Q sin2 = Exact.MinAngleSin2(v[t[0]], v[t[1]], v[t[2]]);
-                    bool below = sin2 < low;
+                    // below the bound, and at or above the upper threshold: decided on the filtered interval where it lies clear of both
+                    bool below, atHigh;
+                    if (thresholds && MinSin2Bounds(t[0], t[1], t[2], out double sLo, out double sHi) && (sHi < lowLo || (sLo > lowHi && (sLo > highHi || sHi < highLo)))) {
+                        below = sHi < lowLo;
+                        atHigh = !below && sLo > highHi;
+                    } else {
+                        Q sin2 = Exact.MinAngleSin2(v[t[0]], v[t[1]], v[t[2]]);
+                        below = sin2 < low;
+                        atHigh = sin2 >= high;
+                    }
                     if (below) r.BelowAngle++;
                     if (listed != null) {
                         if (below && !listed.Contains(i)) r.Add(Violation.BadListWrong, "triangle " + i + " is below the angle but not listed");
-                        if (!below && sin2 >= high && listed.Contains(i)) r.Add(Violation.BadListWrong, "triangle " + i + " is listed but not below the angle");
+                        if (!below && atHigh && listed.Contains(i)) r.Add(Violation.BadListWrong, "triangle " + i + " is listed but not below the angle");
                     }
                     if (!below || o.SteinerLimitReached || !e.AngleGuaranteed) continue;
-                    if (ForcedByInputAngle(t, low, around) || TouchesLocked(t) || SpansSmallInputAngle(t, low) || AtPrecisionLimit(t) || InMergeZone(t, low)) continue;
+                    if (ForcedByInputAngle(t, low, around) || TouchesLocked(t) || SpansSmallInputAngle(t, low) || AtPrecisionLimit(t) || Zone(t, low)) continue;
                     r.Add(Violation.AngleBelowBound, "triangle " + t[0] + " " + t[1] + " " + t[2] + " is below " + degrees + " degrees with no forced small angle");
                 }
             }
@@ -952,10 +1200,27 @@ namespace Meshing2Acceptance
             }
 
             /// <summary>
+            /// The merge zone's radius in tube / sin(angle). The mesher refuses split points within 1 of it (O11); concentric shells put
+            /// the first point beyond at less than 2, and an input vertex may lie anywhere. The corpus's 19 excused triangles (5 apexes,
+            /// 0.84 to 20.6 degrees) reach at most 2.14 (an input vertex); 3 keeps a margin and leaves anything farther judged. Was 8.
+            /// </summary>
+            const int ZoneFactor = 3;
+
+            /// <summary> InMergeZone, counted in the report when it excuses </summary>
+            bool Zone(int[] t, Q sin2Low)
+            {
+                if (!InMergeZone(t, sin2Low)) return false;
+                r.MergeZoneExcused++;
+                return true;
+            }
+
+            /// <summary>
             /// O11 and O3: near the apex of two input segments that meet at an angle below the bound, the segments are within the tube of
             /// each other up to tube / sin(angle) from it; a point placed there merges their chains (they count as one), so refinement
-            /// cannot improve a triangle all of whose vertices lie within 8 tube / sin(angle) of the apex (found with the corpus run,
-            /// earcut's water-huge: segments at 0.84 degrees, triangles of 2e-7 at the apex).
+            /// cannot improve a triangle all of whose vertices lie within ZoneFactor tube / sin(angle) of the apex (found with the corpus
+            /// run, earcut's water-huge: segments at 0.84 degrees, triangles of 2e-7 at the apex). The same holds for conforming (O2):
+            /// there the bound is any angle (sin2Low = 1), the zone shrinking to ZoneFactor tube at right angles (found by the indexed
+            /// global pass).
             /// </summary>
             bool InMergeZone(int[] t, Q sin2Low)
             {
@@ -963,15 +1228,33 @@ namespace Meshing2Acceptance
                 var near = new List<(Pt a, Pt b, int marker, int sourceId, bool locked)>();
                 for (int k = 0; k < sources.Count; ++k)
                     if (t.Any(i => MayBeNear(k, i) && WithinTube(sources[k], v[i]))) near.Add(sources[k]);
+                double tube2Hi = double.PositiveInfinity;
+                if (Fast && tube2.Bounds(out _, out double t2h)) tube2Hi = t2h;
                 foreach (var a in near)
-                    foreach (var c in sources) {
+                    for (int kc = 0; kc < sources.Count; ++kc) {
+                        var c = sources[kc];
                         if (a.sourceId == c.sourceId) continue;
+                        // (a filter: the zone is at most ZoneFactor tube / sin away from the apex, and the apex lies on c; a source whose box,
+                        // widened by that for the smallest sine possible here, misses the vertex cannot qualify. The sine is at least
+                        // sin(a, c) and the pairs with a large sine are rejected below anyway, so the widening uses the double sine of the
+                        // pair with a factor 2 of slack.)
+                        if (!double.IsInfinity(tube2Hi) && !double.IsNaN(sBox[4 * kc]) && vKnown[t[0]]) {
+                            double ux = ToD(a.b.Qx - a.a.Qx), uy = ToD(a.b.Qy - a.a.Qy), wx = ToD(c.b.Qx - c.a.Qx), wy = ToD(c.b.Qy - c.a.Qy);
+                            double sinD = Math.Abs(ux * wy - uy * wx) / Math.Sqrt((ux * ux + uy * uy) * (wx * wx + wy * wy));
+                            // (a lower bound of the sine: the double sine has an absolute error far below 1e-13; nearly parallel sources
+                            // are not filtered; found by the bounds review)
+                            double sinLow = sinD - 1e-13;
+                            if (sinLow > 0 && !double.IsNaN(sinD)) {
+                                double reach = 2 * ZoneFactor * Math.Sqrt(tube2Hi) / sinLow;
+                                if (vxh[t[0]] < sBox[4 * kc] - reach || vxl[t[0]] > sBox[4 * kc + 1] + reach || vyh[t[0]] < sBox[4 * kc + 2] - reach || vyl[t[0]] > sBox[4 * kc + 3] + reach) continue;
+                            }
+                        }
                         Q d1x = a.b.Qx - a.a.Qx, d1y = a.b.Qy - a.a.Qy, d2x = c.b.Qx - c.a.Qx, d2y = c.b.Qy - c.a.Qy;
                         Q cross = d1x * d2y - d1y * d2x;
                         if (cross.Sign == 0) continue;
                         Q sin2 = cross * cross / ((d1x * d1x + d1y * d1y) * (d2x * d2x + d2y * d2y));
                         if (sin2 >= sin2Low) continue;
-                        Q zone2 = tube2 * 64 / sin2;   // (8 tube / sin)^2
+                        Q zone2 = tube2 * (ZoneFactor * ZoneFactor) / sin2;   // (ZoneFactor tube / sin)^2
                         if (Exact.Dist2ToSegment(c.a, c.b, v[t[0]]) > zone2) continue;
                         Q t1 = ((c.a.Qx - a.a.Qx) * d2y - (c.a.Qy - a.a.Qy) * d2x) / cross, t2 = ((c.a.Qx - a.a.Qx) * d1y - (c.a.Qy - a.a.Qy) * d1x) / cross;
                         if (t1.Sign < 0 || t1 > Q.One || t2.Sign < 0 || t2 > Q.One) continue;
@@ -1013,9 +1296,10 @@ namespace Meshing2Acceptance
                     Q l = Exact.Len2(v[t[(k + 1) % 3]], v[t[(k + 2) % 3]]);
                     if (first || l < best) { best = l; k0 = k; first = false; }
                 }
-                Pt p = v[t[(k0 + 1) % 3]], q = v[t[(k0 + 2) % 3]];
-                var sp = sources.Where(s => WithinTube(s, p)).ToList();
-                var sq = sources.Where(s => WithinTube(s, q)).ToList();
+                int ip = t[(k0 + 1) % 3], iq = t[(k0 + 2) % 3];
+                Pt p = v[ip], q = v[iq];
+                var sp = Enumerable.Range(0, sources.Count).Where(k => MayBeNear(k, ip) && WithinTube(sources[k], p)).Select(k => sources[k]).ToList();
+                var sq = Enumerable.Range(0, sources.Count).Where(k => MayBeNear(k, iq) && WithinTube(sources[k], q)).Select(k => sources[k]).ToList();
                 foreach (var a in sp)
                     foreach (var c in sq) {
                         if (a.sourceId == c.sourceId) continue;
@@ -1055,7 +1339,7 @@ namespace Meshing2Acceptance
                     if (region.Ring != null) {
                         var ring = region.Ring.Select(i => inPts[i]).ToArray();
                         for (int i = 0; i < labels.Length; ++i)
-                            if (Domain.InRing(ring, centroids[i]) == Where.Inside) { labels[i] = region.Label; areas[i] = bound; }
+                            if (Domain.InRing(ring, centroids[i], !e.Reference) == Where.Inside) { labels[i] = region.Label; areas[i] = bound; }
                     } else {
                         // on a constraint or a vertex the seed is ambiguous and ignored (decision D6)
                         Pt seed = Pt.FromDoubles(region.Seed[0], region.Seed[1]);
@@ -1157,5 +1441,16 @@ namespace Meshing2Acceptance
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Edge keys (a &lt;&lt; 32 | b) hashed with mixing: the default hash of a long is its two halves xor-ed, a ^ b, which puts the
+    /// edges of a large mesh into few buckets.
+    /// </summary>
+    sealed class EdgeKeys : IEqualityComparer<long>
+    {
+        public static readonly EdgeKeys Instance = new EdgeKeys();
+        public bool Equals(long x, long y) => x == y;
+        public int GetHashCode(long x) => (int)((ulong)(x * unchecked((long)0x9E3779B97F4A7C15UL)) >> 32);
     }
 }

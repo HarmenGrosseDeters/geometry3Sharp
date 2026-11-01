@@ -15,6 +15,7 @@ namespace Meshing2Acceptance
         const string Usage = @"Meshing2Benchmark <command>
   selfcheck                         the oracle rejects broken results (runs before every command)
   ci                                selfcheck, differential of the CI subset, golden check: what CI runs
+  (any command) --oracle reference  every oracle check exact, without the floating-point filters and indexes (audits; slow)
   differential [--larger]           M1 against NetTopologySuite; --larger adds the bigger cases
   golden check [--milestone M1]     recompute the golden rows and compare
   golden update --milestone M1 --reasons <file>
@@ -42,6 +43,10 @@ namespace Meshing2Acceptance
         static int Main(string[] args)
         {
             if (args.Length == 0) { Console.Error.WriteLine(Usage); return 2; }
+            // --oracle reference: every check (the self-check too) on the exact reference path, for audits
+            string oracleMode = Arg(args, "--oracle");
+            if (oracleMode != null && oracleMode != "reference" && oracleMode != "fast") { Console.Error.WriteLine("--oracle takes reference or fast"); return 2; }
+            Oracle.ForceReference = oracleMode == "reference";
             var items = SelfCheck.Run();
             var failed = items.Where(i => !i.Passed).ToList();
             foreach (var item in failed) Console.Error.WriteLine("SELF-CHECK FAILED: " + item.Name + ": " + item.Detail);
@@ -96,7 +101,8 @@ namespace Meshing2Acceptance
                 if (error != null) { Console.WriteLine(row.Id + ": THREW " + error.GetType().Name + ": " + error.Message); ++bad; continue; }
                 var report = Oracle.Check(row.Case.Input, output, row.Case.Expect);
                 string text = report.ToString();
-                Console.WriteLine(row.Id + ": " + (report.Ok ? "ok" : "FAIL " + (text.Length > 400 ? text.Substring(0, 400) : text)) + " | " + output.Triangles.Length + " triangles, " + output.VX.Length + " vertices, mesh " + meshMs.ToString("F0", System.Globalization.CultureInfo.InvariantCulture) + " ms, total " + sw.Elapsed.TotalMilliseconds.ToString("F0", System.Globalization.CultureInfo.InvariantCulture) + " ms");
+                Console.WriteLine(row.Id + ": " + (report.Ok ? "ok" : "FAIL " + (text.Length > 400 ? text.Substring(0, 400) : text)) + " | " + output.Triangles.Length + " triangles, " + output.VX.Length + " vertices, "
+                    + (report.MergeZoneExcused > 0 ? report.MergeZoneExcused + " excused in merge zones, " : "") + "mesh " + meshMs.ToString("F0", System.Globalization.CultureInfo.InvariantCulture) + " ms, total " + sw.Elapsed.TotalMilliseconds.ToString("F0", System.Globalization.CultureInfo.InvariantCulture) + " ms");
                 if (!report.Ok) ++bad;
             }
             return bad == 0 ? 0 : 1;

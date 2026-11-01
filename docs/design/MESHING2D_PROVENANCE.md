@@ -87,3 +87,12 @@ source of the mesher, and nothing is committed. Each license is downloaded next 
 | mapbox/earcut | 61 polygons with holes from `test/fixtures` (listed in `test/expected.json`): water, buildings, self-touching and degenerate rings | ISC | https://github.com/mapbox/earcut |
 | mapbox/delaunator | 7 point sets from `test/fixtures`: robustness1-4, issue43, issue44, ukraine | ISC | https://github.com/mapbox/delaunator |
 | jhasse/poly2tri | 16 polygons from `testbed/data` (one ring per file), among them sketchup, nazca_monkey, debug2 | BSD-3-Clause | https://github.com/jhasse/poly2tri |
+
+## The oracle (test tool, `benchmarks/Meshing2Benchmark/Oracle`)
+
+Not part of the library; listed because its bounds decide verdicts. The fast path's filters use the static error bounds of [Sh97] (orientation:
+ccwerrboundA = (3 + 16u)u times the sum of the magnitudes of the two products; in-circle: iccerrboundA = (10 + 96u)u times the permanent),
+each used with a margin of about 3, and fall back to the exact rationals. The oracle does not call the library's predicates (it judges the
+mesher). The global empty-circumcircle pass stays global: the Delaunay lemma (a triangulation whose edges are all locally Delaunay is
+Delaunay; [CDS] ch. 2, [L77]) needs a triangulation of the convex hull of the vertices, while O2 asks for empty circles against all vertices
+across holes and concave boundaries, where the output has no triangles; it is indexed by a 2-d tree instead.

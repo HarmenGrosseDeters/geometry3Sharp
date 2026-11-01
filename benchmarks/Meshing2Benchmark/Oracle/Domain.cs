@@ -21,11 +21,14 @@ namespace Meshing2Acceptance
         /// <summary> Inside[a, b]: ring a lies in the closure of ring b (nested, not crossing) </summary>
         bool[,] inside;
         public readonly bool IsHull;
+        /// <summary> false: no floating-point filter in the ring tests (the oracle's reference path) </summary>
+        public readonly bool Filter = true;
         public readonly Q Area;
         public readonly Q Perimeter2Bound; // an upper bound of the summed ring lengths, for area tolerances
 
-        public Domain(Mesh2Input input)
+        public Domain(Mesh2Input input, bool filter = true)
         {
+            Filter = filter;
             var pts = new Pt[input.Count];
             for (int i = 0; i < pts.Length; ++i) pts[i] = Pt.FromDoubles(input.X[i], input.Y[i]);
             foreach (var r in input.Rings) {
@@ -42,7 +45,7 @@ namespace Meshing2Acceptance
             inside = new bool[Rings.Count, Rings.Count];
             for (int a = 0; a < Rings.Count; ++a)
                 for (int b = 0; b < Rings.Count; ++b)
-                    if (a != b) inside[a, b] = Nested(Rings[a].ring, Rings[b].ring);
+                    if (a != b) inside[a, b] = Nested(Rings[a].ring, Rings[b].ring, Filter);
             Area = ComputeArea();
             Q length = Q.Zero;
             foreach (var ring in Outers.Concat(Holes))
@@ -82,49 +85,145 @@ namespace Meshing2Acceptance
         /// Ring a lies in the closure of ring b: no vertex of a strictly outside b, no edge midpoint of a outside b, and no edge of a
         /// properly crossing an edge of b (exact).
         /// </summary>
-        static bool Nested(Pt[] a, Pt[] b)
+        static bool Nested(Pt[] a, Pt[] b, bool filter)
         {
             if (a.Length < 3 || b.Length < 3) return false;
-            foreach (var p in a) if (InRing(b, p) == Where.Outside) return false;
+            // (filter: a's box certainly not within b's box means a vertex of a lies outside b)
+            double[] va = filter ? VertexBounds(a) : null, vb = filter ? VertexBounds(b) : null;
+            if (filter) {
+                double bx0 = double.PositiveInfinity, bx1 = double.NegativeInfinity, by0 = double.PositiveInfinity, by1 = double.NegativeInfinity;
+                bool known = true;
+                for (int j = 0; j < b.Length && known; ++j) {
+                    if (double.IsNaN(vb[4 * j])) { known = false; break; }
+                    bx0 = Math.Min(bx0, vb[4 * j]); bx1 = Math.Max(bx1, vb[4 * j + 1]); by0 = Math.Min(by0, vb[4 * j + 2]); by1 = Math.Max(by1, vb[4 * j + 3]);
+                }
+                for (int i = 0; i < a.Length && known; ++i)
+                    if (!double.IsNaN(va[4 * i]) && (va[4 * i + 1] < bx0 || va[4 * i] > bx1 || va[4 * i + 3] < by0 || va[4 * i + 2] > by1)) return false;
+            }
+            foreach (var p in a) if (InRing(b, p, filter) == Where.Outside) return false;
             for (int i = 0; i < a.Length; ++i) {
                 Pt p = a[i], q = a[(i + 1) % a.Length];
                 var m = new Pt((p.Qx + q.Qx) * new Q(1, 2), (p.Qy + q.Qy) * new Q(1, 2));
-                if (InRing(b, m) == Where.Outside) return false;
+                if (InRing(b, m, filter) == Where.Outside) return false;
             }
-            for (int i = 0; i < a.Length; ++i)
-                for (int j = 0; j < b.Length; ++j)
-                    if (Exact.ProperCross(a[i], a[(i + 1) % a.Length], b[j], b[(j + 1) % b.Length])) return false;
+            for (int i = 0; i < a.Length; ++i) {
+                int i2 = (i + 1) % a.Length;
+                for (int j = 0; j < b.Length; ++j) {
+                    int j2 = (j + 1) % b.Length;
+                    // (filter: edges whose boxes are certainly apart do not cross)
+                    if (filter && !double.IsNaN(va[4 * i]) && !double.IsNaN(va[4 * i2]) && !double.IsNaN(vb[4 * j]) && !double.IsNaN(vb[4 * j2])
+                        && (Math.Max(va[4 * i + 1], va[4 * i2 + 1]) < Math.Min(vb[4 * j], vb[4 * j2]) || Math.Min(va[4 * i], va[4 * i2]) > Math.Max(vb[4 * j + 1], vb[4 * j2 + 1])
+                         || Math.Max(va[4 * i + 3], va[4 * i2 + 3]) < Math.Min(vb[4 * j + 2], vb[4 * j2 + 2]) || Math.Min(va[4 * i + 2], va[4 * i2 + 2]) > Math.Max(vb[4 * j + 3], vb[4 * j2 + 3])))
+                        continue;
+                    if (Exact.ProperCross(a[i], a[i2], b[j], b[j2])) return false;
+                }
+            }
             return true;
         }
 
         /// <summary>Even-odd position against one ring, by exact crossing counts.</summary>
-        /// <summary> per ring: the y range of each edge in doubles (an interval around the exact range), NaN where unknown </summary>
-        static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Pt[], double[]> edgeRanges = new System.Runtime.CompilerServices.ConditionalWeakTable<Pt[], double[]>();
+        /// <summary> per ring: each vertex as an interval of doubles around its exact coordinates (x lo, x hi, y lo, y hi; NaN: unknown) </summary>
+        static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Pt[], double[]> vertexBounds = new System.Runtime.CompilerServices.ConditionalWeakTable<Pt[], double[]>();
 
-        static double[] EdgeRanges(Pt[] ring) => edgeRanges.GetValue(ring, r => {
-            var lo = new double[r.Length]; var hi = new double[r.Length]; var known = new bool[r.Length];
-            for (int i = 0; i < r.Length; ++i) known[i] = r[i].Bounds(true, out lo[i], out hi[i]);
-            var ranges = new double[2 * r.Length];
-            for (int i = 0; i < r.Length; ++i) {
-                int j = (i + 1) % r.Length;
-                bool k = known[i] && known[j];
-                ranges[2 * i] = k ? Math.Min(lo[i], lo[j]) : double.NaN;
-                ranges[2 * i + 1] = k ? Math.Max(hi[i], hi[j]) : double.NaN;
-            }
-            return ranges;
+        static double[] VertexBounds(Pt[] ring) => vertexBounds.GetValue(ring, r => {
+            var b = new double[4 * r.Length];
+            for (int i = 0; i < r.Length; ++i)
+                if (!r[i].Bounds(false, out b[4 * i], out b[4 * i + 1]) || !r[i].Bounds(true, out b[4 * i + 2], out b[4 * i + 3]))
+                    for (int j = 0; j < 4; ++j) b[4 * i + j] = double.NaN;
+            return b;
         });
 
-        public static Where InRing(Pt[] ring, Pt p)
+        /// <summary>
+        /// Per ring: its edges in buckets of y (an edge in every bucket its y range meets), for the filtered test: a point whose y
+        /// interval lies in one bucket needs only that bucket's edges, the others' y ranges exclude it. Edges without bounds are in
+        /// every bucket.
+        /// </summary>
+        sealed class EdgeBuckets
+        {
+            public double Y0, Y1, Step;
+            public int[][] Buckets;
+        }
+
+        static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Pt[], EdgeBuckets> edgeBuckets = new System.Runtime.CompilerServices.ConditionalWeakTable<Pt[], EdgeBuckets>();
+
+        static EdgeBuckets Buckets(Pt[] ring) => edgeBuckets.GetValue(ring, r => {
+            var vb = VertexBounds(r);
+            int n = r.Length, count = Math.Max(1, n / 4);
+            double y0 = double.PositiveInfinity, y1 = double.NegativeInfinity;
+            for (int i = 0; i < n; ++i) if (!double.IsNaN(vb[4 * i])) { y0 = Math.Min(y0, vb[4 * i + 2]); y1 = Math.Max(y1, vb[4 * i + 3]); }
+            double step = (y1 - y0) / count;
+            if (!(step > 0) || double.IsInfinity(step)) return null;
+            var lists = new List<int>[count];
+            for (int b = 0; b < count; ++b) lists[b] = new List<int>();
+            for (int i = 0; i < n; ++i) {
+                int j = (i + 1) % n;
+                int b0 = 0, b1 = count - 1;
+                if (!double.IsNaN(vb[4 * i]) && !double.IsNaN(vb[4 * j])) {
+                    b0 = Math.Max(0, Math.Min(count - 1, (int)Math.Floor((Math.Min(vb[4 * i + 2], vb[4 * j + 2]) - y0) / step) - 1));
+                    b1 = Math.Max(0, Math.Min(count - 1, (int)Math.Floor((Math.Max(vb[4 * i + 3], vb[4 * j + 3]) - y0) / step) + 1));
+                }
+                for (int b = b0; b <= b1; ++b) lists[b].Add(i);
+            }
+            return new EdgeBuckets { Y0 = y0, Y1 = y1, Step = step, Buckets = lists.Select(l => l.ToArray()).ToArray() };
+        });
+
+        public static Where InRing(Pt[] ring, Pt p) => InRing(ring, p, true);
+
+        /// <summary>
+        /// Even-odd position against one ring, by exact crossing counts, with a floating-point filter in front (useFilter): each
+        /// edge's box in doubles around the exact one, and p's. An edge whose y range excludes p's y neither contains p nor crosses its
+        /// ray; one entirely left of p neither; one entirely right of p that runs from one side of p's y to the other crosses the
+        /// ray (to the right of p) and does not contain p. Only the edges whose box p's box meets, or whose ends cannot be told from
+        /// p's y in doubles, go to the exact tests.
+        /// </summary>
+        public static Where InRing(Pt[] ring, Pt p, bool useFilter)
+        {
+            double pxLo = 0, pxHi = 0, pyLo = 0, pyHi = 0;
+            bool filter = useFilter && p.Bounds(false, out pxLo, out pxHi) && p.Bounds(true, out pyLo, out pyHi);
+            return InRing(ring, p, filter, pxLo, pxHi, pyLo, pyHi);
+        }
+
+        /// <summary> InRing with p's interval given (filter false: no filter) </summary>
+        static Where InRing(Pt[] ring, Pt p, bool filter, double pxLo, double pxHi, double pyLo, double pyHi)
         {
             if (ring.Length == 0) return Where.Outside;
             bool inside = false;
             Q py = p.Qy;
-            // a floating-point filter: an edge whose y range certainly excludes p's y neither contains p nor crosses its ray
-            var ranges = EdgeRanges(ring);
-            bool filter = p.Bounds(true, out double pyLo, out double pyHi);
-            for (int i = 0; i < ring.Length; ++i) {
-                if (filter && (pyHi < ranges[2 * i] || pyLo > ranges[2 * i + 1])) continue;   // (false for NaN: no filter)
-                Pt a = ring[i], b = ring[(i + 1) % ring.Length];
+            var vb = VertexBounds(ring);
+            // the edges to look at: one bucket if p's y interval lies inside it (with a bucket of margin on each side of every edge,
+            // so that rounding in the bucket index cannot drop an edge), else all
+            int[] only = null;
+            if (filter && ring.Length > 16) {
+                var bk = Buckets(ring);
+                if (bk != null) {
+                    // beyond every vertex's y interval: outside, not on it (compared directly: the bucket index is rounded, and a point on
+                    // the top edge could get the index past the last bucket; found by the bounds review)
+                    if (pyHi < bk.Y0 || pyLo > bk.Y1) return Where.Outside;
+                    int last = bk.Buckets.Length - 1;
+                    int b0 = Math.Max(0, Math.Min(last, (int)Math.Floor((pyLo - bk.Y0) / bk.Step)));
+                    int b1 = Math.Max(0, Math.Min(last, (int)Math.Floor((pyHi - bk.Y0) / bk.Step)));
+                    // (clamped: an edge at either end is in the end bucket too, it was added with a bucket of margin, clamped the same way)
+                    if (b0 == b1) only = bk.Buckets[b0];
+                }
+            }
+            int count = only?.Length ?? ring.Length;
+            for (int q = 0; q < count; ++q) {
+                int i = only != null ? only[q] : q;
+                int j = (i + 1) % ring.Length;
+                if (filter && !double.IsNaN(vb[4 * i]) && !double.IsNaN(vb[4 * j])) {
+                    double eyl = Math.Min(vb[4 * i + 2], vb[4 * j + 2]), eyh = Math.Max(vb[4 * i + 3], vb[4 * j + 3]);
+                    if (pyHi < eyl || pyLo > eyh) continue;
+                    double exl = Math.Min(vb[4 * i], vb[4 * j]), exh = Math.Max(vb[4 * i + 1], vb[4 * j + 1]);
+                    if (exh < pxLo) continue;
+                    if (exl > pxHi) {
+                        // entirely right of p: a crossing if the ends lie on both sides of p's y (decided in doubles where possible)
+                        int sa = vb[4 * i + 2] > pyHi ? 1 : vb[4 * i + 3] < pyLo ? -1 : 0, sb = vb[4 * j + 2] > pyHi ? 1 : vb[4 * j + 3] < pyLo ? -1 : 0;
+                        bool aUp = sa != 0 ? sa > 0 : ring[i].Qy > py, bUp = sb != 0 ? sb > 0 : ring[j].Qy > py;
+                        if (aUp != bUp) inside = !inside;
+                        continue;
+                    }
+                }
+                Pt a = ring[i], b = ring[j];
                 if (Exact.OnClosedSegment(a, b, p)) return Where.Boundary;
                 bool aAbove = a.Qy > py, bAbove = b.Qy > py;
                 if (aAbove == bAbove) continue;
@@ -135,12 +234,34 @@ namespace Meshing2Acceptance
             return inside ? Where.Inside : Where.Outside;
         }
 
+        /// <summary> per ring: its box in doubles around the exact one (NaN: unknown) </summary>
+        readonly Dictionary<Pt[], double[]> ringBoxes = new Dictionary<Pt[], double[]>();
+
+        /// <summary> InRing, with the ring's box first: a point certainly outside it is outside the ring and not on it </summary>
+        Where InRingBoxed(Pt[] ring, Pt p, bool known, double pxl, double pxh, double pyl, double pyh)
+        {
+            if (!Filter || !known) return InRing(ring, p, false);
+            if (!ringBoxes.TryGetValue(ring, out var box)) {
+                box = new[] { double.PositiveInfinity, double.NegativeInfinity, double.PositiveInfinity, double.NegativeInfinity };
+                foreach (var q in ring) {
+                    if (!q.Bounds(false, out double xl, out double xh) || !q.Bounds(true, out double yl, out double yh)) { box = null; break; }
+                    box[0] = Math.Min(box[0], xl); box[1] = Math.Max(box[1], xh); box[2] = Math.Min(box[2], yl); box[3] = Math.Max(box[3], yh);
+                }
+                lock (ringBoxes) ringBoxes[ring] = box;
+            }
+            if (box != null && (pxh < box[0] || pxl > box[1] || pyh < box[2] || pyl > box[3])) return Where.Outside;
+            return InRing(ring, p, true, pxl, pxh, pyl, pyh);
+        }
+
         public Where Classify(Pt p)
         {
             // the rings p is strictly inside of, and those it lies on; on a ring's boundary its two sides differ by that ring
+            // (p's interval once for all rings)
+            double pxl = 0, pxh = 0, pyl = 0, pyh = 0;
+            bool known = Filter && p.Bounds(false, out pxl, out pxh) && p.Bounds(true, out pyl, out pyh);
             var strictly = new List<int>(); var on = new List<int>();
             for (int k = 0; k < Rings.Count; ++k) {
-                var w = InRing(Rings[k].ring, p);
+                var w = InRingBoxed(Rings[k].ring, p, known, pxl, pxh, pyl, pyh);
                 if (w == Where.Inside) strictly.Add(k); else if (w == Where.Boundary) on.Add(k);
             }
             bool without = Decide(strictly);
