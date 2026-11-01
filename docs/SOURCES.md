@@ -22,6 +22,11 @@ Implemented from the papers, no code taken over.
 The error bounds of the implicit points' approximations (`segment_point`, `plane_value`, `planes_approx`) and of
 the filters on them are derived in the code comments.
 
+The bit bounds of the fixed-width predicates (`FixedArith.Orient`, `FixedArith.InCircle`) are derived by
+`tools/PredicateCompiler` (build-time tool, not shipped), own code: magnitude bounds over exact
+integers. The idea of deriving the bounds of a predicate from its formula by machine follows A. Meyer, S. Pion,
+*FPG: A code generator for fast and certified geometric predicates*, RNC 2008 (idea only, no code read).
+
 ## Rounding the exact output (`MeshRoundingRepair`, `ExactMeshBoolean.SafeRounding`, `ExactMeshBoolean.ComputeExactVertices`)
 
 Implemented from the papers, no code taken over. Read for the design (what the exact methods do with their output):
