@@ -33,14 +33,14 @@ namespace gs
         public EnvelopeStatus Status { get; private set; }
         public int PolyhedronCount { get { return count; } }
 
-        internal const int MaxFacets = 8;
+        internal const int MaxFacets = 16;
         const double U = 1.1102230246251565e-16;       // unit roundoff 2^-53
         const double Lambda = 2;                        // ENVELOPE.md 4.4, Lemma 2
         const double Tiny = 1e-300;
 
         // direction errors (ENVELOPE.md 4.4), in units of U, each one more than derived for the O(u^2) terms
         internal const double ThetaNormal = 9, ThetaSide = 29, ThetaCap = 11, ThetaAlong = 7, ThetaPerp1 = 20,
-            ThetaPerp2 = 61, ThetaAxis = 0;
+            ThetaPerp2 = 61, ThetaAxis = 0, ThetaUniform = 171;
 
         int count;
         Vector3d[] facets;          // per polyhedron MaxFacets x 3 points: strictly inside means Orient3d < 0
@@ -48,8 +48,18 @@ namespace gs
         TriangleBoxTree tree;
         AxisAlignedBox3d[] boxes;
 
-        public PolyhedralEnvelope(DMesh3 mesh, double epsilon)
+        public PolyhedralEnvelope(DMesh3 mesh, double epsilon) : this(mesh, epsilon, false) { }
+
+        /// <summary>
+        /// (measurement, ENVELOPE.md 4.6) prism: MeshEnvelope's shape instead of the paper's, the slab 0.8 eps along the
+        /// normal and 14 lateral half-spaces 0.6 cos(22.5 deg) eps outside (8 uniform directions, both normals of each
+        /// edge); degenerate triangles keep the box
+        /// </summary>
+        internal readonly bool Prism;
+
+        internal PolyhedralEnvelope(DMesh3 mesh, double epsilon, bool prism)
         {
+            Prism = prism;
             Mesh = mesh;
             Epsilon = epsilon;
             if (!(epsilon > 0) || double.IsInfinity(epsilon)) { Status = EnvelopeStatus.InvalidEpsilon; return; }
@@ -71,7 +81,7 @@ namespace gs
             Vector3d v0 = Vector3d.Zero, v1 = Vector3d.Zero, v2 = Vector3d.Zero;
             foreach (int tid in Mesh.TriangleIndices()) {
                 Mesh.GetTriVertices(tid, ref v0, ref v1, ref v2);
-                var b = new Builder(Epsilon, v0, v1, v2);
+                var b = new Builder(Epsilon, v0, v1, v2) { Prism = Prism };
                 EnvelopeStatus st = b.Build(facets, count * MaxFacets * 3, out facetCount[count]);
                 if (st != EnvelopeStatus.Ready) return st;
                 AxisAlignedBox3d box;
@@ -119,8 +129,11 @@ namespace gs
             internal List<Facet> Log;
             internal struct Facet { public Vector3d M; public double Theta, S, Margin, Mu; }
 
+            internal bool Prism;
+
             public Builder(double epsilon, Vector3d a, Vector3d b, Vector3d c)
             {
+                Prism = false;
                 eps = epsilon; v0 = a; v1 = b; v2 = c;
                 // delta < epsilon / sqrt 3 (three roundings: the constant, the two products; 1 - 4 u covers them)
                 delta = epsilon * 0.57735026918962573 * (1 - 4 * U);
@@ -145,7 +158,29 @@ namespace gs
                     return EnvelopeStatus.OutOfRange;
 
                 Vector3d N;
-                if (exact_normal(v0, v1, v2, out N)) {
+                if (exact_normal(v0, v1, v2, out N) && Prism) {
+                    Vector3d n;
+                    unit(N, out n);
+                    // (each offset below its exact value: three roundings, 1 - 4 u)
+                    double normalOff = eps * 0.8 * (1 - 4 * U), lateralOff = eps * 0.55432771950677 * (1 - 4 * U);
+                    add(n, ThetaNormal * U, normalOff);
+                    add(-n, ThetaNormal * U, normalOff);
+                    var w = new Vector3d[3];
+                    for (int k = 0; k < 3; ++k)
+                        if (unit(scaled(e[k]).Cross(n), out w[k]) == false) return EnvelopeStatus.OutOfRange;
+                    Vector3d u1 = w[0], u2;
+                    unit(n.Cross(u1), out u2);
+                    for (int k = 0; k < 8; ++k) {
+                        double ang = k * Math.PI / 4;
+                        Vector3d m;
+                        unit(Math.Cos(ang) * u1 + Math.Sin(ang) * u2, out m);
+                        add(m, ThetaUniform * U, lateralOff);
+                    }
+                    for (int k = 0; k < 3; ++k) {
+                        add(w[k], ThetaSide * U, lateralOff);
+                        add(-w[k], ThetaSide * U, lateralOff);
+                    }
+                } else if (N != Vector3d.Zero) {
                     Vector3d n;
                     unit(N, out n);
                     add(n, ThetaNormal * U);
@@ -202,7 +237,10 @@ namespace gs
             }
 
             // the facet {x : m . x < s} through three double points, s reduced by the margins of section 4.4
-            void add(Vector3d m, double theta)
+            void add(Vector3d m, double theta) { add(m, theta, delta); }
+
+            // the facet at the offset off (at most its exact value) beyond the support
+            void add(Vector3d m, double theta, double off)
             {
                 if (status != EnvelopeStatus.Ready) return;
                 double h = double.NegativeInfinity, mag = 0;
@@ -214,9 +252,9 @@ namespace gs
                 double eta = 4 * U * mag + Tiny;
                 double muPlan = 32 * U * (cinf + 4 * R);
                 double margin = theta * (R + rho) + Lambda * muPlan + eta;
-                double corr = 4 * U * (Math.Abs(h) + delta);
-                if (!(margin + corr <= delta / 10)) { status = EnvelopeStatus.TooThin; return; }
-                double s = h + (delta - margin - corr);
+                double corr = 4 * U * (Math.Abs(h) + off);
+                if (!(margin + corr <= off / 10)) { status = EnvelopeStatus.TooThin; return; }
+                double s = h + (off - margin - corr);
 
                 // three points: o on the plane, o + S a, o + S b with a, b orthogonal to m
                 Vector3d c = v0;
@@ -433,10 +471,14 @@ namespace gs
             // a point off the triangle's plane: the planes through each edge and it bound the triangle
             Vector3d top = apex(a, b, c, N);
             int ea = ExactPredicates.Orient3d(b, c, top, a), eb = ExactPredicates.Orient3d(c, a, top, b), ec = ExactPredicates.Orient3d(a, b, top, c);
+            // the cover set (the paper's section 3.2.4): polyhedra that covered a point, tried first
+            var cover = new List<int>();
             for (int i = 0; i < rel.Count; ++i) {
                 int o1 = rel[i] * 3, p1 = rel[i] / MaxFacets;
                 for (int j = i + 1; j < rel.Count; ++j) {
                     int o2 = rel[j] * 3, p2 = rel[j] / MaxFacets;
+                    // the point is in the closure of both polyhedra (below), so in both search boxes (closed)
+                    if (p2 != p1 && boxes_meet(boxes[p1], boxes[p2]) == false) continue;
                     // dependent planes: the two traces in the triangle's plane are parallel or equal, no single point
                     if (IndirectPredicates.TPIDenominator(a, b, c, facets[o1], facets[o1 + 1], facets[o1 + 2],
                             facets[o2], facets[o2 + 1], facets[o2 + 2]) == 0) continue;
@@ -446,14 +488,26 @@ namespace gs
                     // strictly inside the triangle?
                     if (IndirectPredicates.Orient3dTPI(ref tpi, b, c, top) != ea || IndirectPredicates.Orient3dTPI(ref tpi, c, a, top) != eb
                         || IndirectPredicates.Orient3dTPI(ref tpi, a, b, top) != ec) continue;
-                    // (the point is on a facet plane of p1 and of p2, so in neither: no need to skip them)
+                    // only a vertex of the arrangement of the polyhedra's boundaries in the triangle matters: the point
+                    // on the closure of both polyhedra (ENVELOPE.md 4.5). An uncovered region's extreme point is one.
+                    if (in_closure_tpi(p1, ref tpi) == false || (p2 != p1 && in_closure_tpi(p2, ref tpi) == false)) continue;
+                    // (the point is on a facet plane of p1 and of p2, so in neither); the cover set first
                     bool covered = false;
-                    foreach (int p in cand)
-                        if (p != p1 && p != p2 && inside_tpi(p, ref tpi)) { covered = true; break; }
+                    foreach (int p in cover)
+                        if (inside_tpi(p, ref tpi)) { covered = true; break; }
+                    if (covered == false)
+                        foreach (int p in cand)
+                            if (p != p1 && p != p2 && inside_tpi(p, ref tpi)) { covered = true; cover.Add(p); break; }
                     if (covered == false) return false;
                 }
             }
             return true;
+        }
+
+        static bool boxes_meet(AxisAlignedBox3d x, AxisAlignedBox3d y)
+        {
+            return x.Min.x <= y.Max.x && y.Min.x <= x.Max.x && x.Min.y <= y.Max.y && y.Min.y <= x.Max.y
+                && x.Min.z <= y.Max.z && y.Min.z <= x.Max.z;
         }
 
         // a point strictly off the plane of the (non-degenerate) triangle
@@ -467,6 +521,15 @@ namespace gs
                 if (ExactPredicates.Orient3d(a, b, c, top) != 0) return top;
                 if (k > 1e300) throw new InvalidOperationException("PolyhedralEnvelope: no point off the triangle's plane");
             }
+        }
+
+        // is the prepared point in the closure of polyhedron p (no facet strictly below it)?
+        bool in_closure_tpi(int p, ref IndirectPredicates.Orient3dTPIPrepared tpi)
+        {
+            int o = p * MaxFacets * 3;
+            for (int f = 0; f < facetCount[p]; ++f, o += 3)
+                if (IndirectPredicates.Orient3dTPI(ref tpi, facets[o], facets[o + 1], facets[o + 2]) > 0) return false;
+            return true;
         }
 
         bool inside_tpi(int p, ref IndirectPredicates.Orient3dTPIPrepared tpi)
