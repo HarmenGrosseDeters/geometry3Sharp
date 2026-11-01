@@ -474,8 +474,13 @@ namespace gs
             if (!(r < 1) || spec.ExactlyCheckable == false)
                 return 1;
             double limit = ExactInterval.Up(r * spec.S);
-            // slope <= limit (exact); limit / S rounded to nearest and one ulp up is at least the exact limit / S
-            return Slope.IsNotSteeper(a, b, c, SlopeSpec.Rise(limit)) ? Math.Min(1, ExactInterval.Up(limit / spec.S)) : 1;
+            return Slope.IsNotSteeper(a, b, c, SlopeSpec.Rise(limit)) ? Math.Min(1, RatioOfLimit(limit, spec.S)) : 1;
+        }
+
+        /// <summary> an upper bound of limit / s: rounded to nearest, one ulp up (s &gt; 0) </summary>
+        internal static double RatioOfLimit(double limit, double s)
+        {
+            return ExactInterval.Up(limit / s);
         }
 
         // z exceeds p - λ (exact): z > pz - λ  <=>  z - pz + λ > 0

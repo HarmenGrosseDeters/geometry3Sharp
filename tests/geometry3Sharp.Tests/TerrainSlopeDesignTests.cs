@@ -473,5 +473,28 @@ namespace geometry3Sharp.Tests
             }
             Assert.True(lows[2] > lows[0], string.Join(", ", lows));
         }
+
+        // bounds review: the ratio bound must be at least limit / S exactly; the former Up(Up(r)) was below it for
+        // r = 0.9962444311474499, S = 4.026449396535283 (limit = Up(r S))
+        [Fact]
+        public void RatioBound_IsAtLeastLimitOverS()
+        {
+            var rnd = new Random(23);
+            var cases = new List<(double, double)> { (0.9962444311474499, 4.026449396535283) };
+            for (int i = 0; i < 20000; ++i) cases.Add((0.5 + 0.5 * rnd.NextDouble(), Math.Exp(rnd.NextDouble() * 20 - 10)));
+            int oldFails = 0;
+            foreach (var (r, S) in cases) {
+                double limit = ExactInterval.Up(r * S);
+                double bound = TerrainSlopeDesign.RatioOfLimit(limit, S);
+                // bound * S >= limit, exactly
+                Assert.True((ExactDyadic.Of(bound) * ExactDyadic.Of(S) - ExactDyadic.Of(limit)).Sign >= 0, $"{r} {S}");
+                double old = ExactInterval.Up(ExactInterval.Up(r));
+                if ((ExactDyadic.Of(old) * ExactDyadic.Of(S) - ExactDyadic.Of(limit)).Sign < 0) oldFails++;
+            }
+            // the old formula fails on the review's case (and others)
+            double r0 = 0.9962444311474499, S0 = 4.026449396535283;
+            Assert.True((ExactDyadic.Of(ExactInterval.Up(ExactInterval.Up(r0))) * ExactDyadic.Of(S0) - ExactDyadic.Of(ExactInterval.Up(r0 * S0))).Sign < 0);
+            Assert.True(oldFails > 0);
+        }
     }
 }

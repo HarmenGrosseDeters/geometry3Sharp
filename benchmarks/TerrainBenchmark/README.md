@@ -204,8 +204,10 @@ fallbacks, the toe lowering, and the oracle (`Slope.IsSupportedBy`) time per out
 
 Constructions (vertex positions, heights) are all exact and correctly rounded: 2k to 290k per run, against millions of
 predicates. The toe lowering is measured: the first build lowers by the rounding of one vertex (4 e_z), and a build whose
-support check fails is repeated with 4 x the largest measured excess, so most cases take 2 builds; estimating the
-excess without the second build is a candidate for 1c.
+support check fails is repeated with 4 x the largest measured excess, so most cases take 2 builds. A derived start (the
+a-priori bound e_z (1 + 4 D / h) per triangle) was considered: it needs the altitudes h of the rounded output triangles,
+which exist only after the build, and the build depends on λ, so it is no proven bound before the first build; the
+second build (about 2x the time, 4.8 s -> 9.0 s in the UTM case) is kept, and avoiding it is a candidate for 1c.
 
 Before / after in this PR, 24-gon r 200 m, h 60 m, UTM, one build each (the toe lowering then fixed at 514 e_z): 9.2 s
 at 7e8d251 (simplify 6.1 s, 1.45M exact of 19.2M predicates); 4.8 s with failed merges not retried and the apex shortcut
