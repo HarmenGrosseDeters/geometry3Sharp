@@ -15,7 +15,7 @@ Arguments: cells per axis, indexed queries, brute-force queries (default: all). 
 
 For that prefix, the rectangle and segment result sets, nearest IDs and zero-tolerance heights of the library index and both NetTopologySuite indexes are compared with the scan, and a mismatch fails the process. Queries beyond the prefix are timed, not checked. Correctness at scale is covered by the tests in `tests/geometry3Sharp.Tests/Spatial`.
 
-It prints CSV: one row per contender and operation. `_prefix` rows measure the same queries as the scan and are the only rows directly comparable with it. Four query samples rotate the contenders through every timing position.
+It prints CSV: one row per contender and operation. `triangle_over` builds without a copy of the triangles, and `parallel_far_point` builds the same boxes plus one box 1e6 away in x and y. `_prefix` rows measure the same queries as the scan and are the only rows directly comparable with it. Four query samples rotate the contenders through every timing position.
 
 ## What is compared
 

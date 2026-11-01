@@ -11,8 +11,8 @@ namespace g3
     }
 
     /// <summary>
-    /// Snapshot index of XY triangles with affine Z interpolation inside them; a point beside a triangle, within tolerance, gets the height
-    /// of the nearest point of its boundary. Concurrent queries own their output buffers.
+    /// Index of XY triangles with affine Z interpolation inside them; a point beside a triangle, within tolerance, gets the height
+    /// of the nearest point of its boundary. It keeps a snapshot of them, unless built by <see cref="Over"/>. Concurrent queries own their output buffers.
     /// </summary>
     public sealed class TriangleQuadtree2d
     {

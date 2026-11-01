@@ -131,6 +131,10 @@ namespace geometry3Sharp.Tests.Spatial
             yield return new object[] { "one child stays below the bucket", Enumerable.Range(0, n).Select(i => i < 5
                 ? new AxisAlignedBox2d(new Vector2d(100 - i, 100 - i)) : Small(r(), r())).ToArray() };
             yield return new object[] { "a line", Enumerable.Range(0, n).Select(i => new AxisAlignedBox2d(new Vector2d(i, 0))).ToArray() };
+            yield return new object[] { "a chain to the depth limit", Enumerable.Range(0, n).Select(i => {
+                double v = Math.Pow(2, -(i % 1000));
+                return new AxisAlignedBox2d(new Vector2d(v, v));
+            }).ToArray() };
         }
 
         [Theory]
@@ -145,6 +149,55 @@ namespace geometry3Sharp.Tests.Spatial
             Assert.Equal(serial.Ids, parallel.Ids);
             Assert.Equal(Enumerable.Range(0, boxes.Length), parallel.Ids.OrderBy(id => id));
             Assert.Equal(serial.Ids, Walk(new LooseQuadtree2d(boxes, true)).Ids);
+        }
+
+        static Triangle3d[] TriangleGrid(int cells, Func<Vector3d, Vector3d> place)
+        {
+            var random = new Random(cells);
+            var triangles = new List<Triangle3d>();
+            for (int y = 0; y < cells; ++y)
+                for (int x = 0; x < cells; ++x) {
+                    Vector3d a = place(new Vector3d(x, y, random.NextDouble())), b = place(new Vector3d(x + 1, y, random.NextDouble()));
+                    Vector3d c = place(new Vector3d(x, y + 1, random.NextDouble())), d = place(new Vector3d(x + 1, y + 1, random.NextDouble()));
+                    triangles.Add(new Triangle3d(a, b, d));
+                    triangles.Add(new Triangle3d(a, d, c));
+                }
+            return triangles.ToArray();
+        }
+
+        static void AssertSameAnswers(TriangleQuadtree2d expected, TriangleQuadtree2d actual, AxisAlignedBox2d area, string name)
+        {
+            var random = new Random(9);
+            var a = new List<QuadtreeHeightHit2d>();
+            var b = new List<QuadtreeHeightHit2d>();
+            Assert.Equal(expected.Extent, actual.Extent);
+            for (int q = 0; q < 200; ++q) {
+                var p = new Vector2d(area.Min.x + random.NextDouble() * area.Width, area.Min.y + random.NextDouble() * area.Height);
+                expected.QueryHeights(p, a);
+                actual.QueryHeights(p, b);
+                Assert.True(a.Select(h => (h.Id, h.Height)).SequenceEqual(b.Select(h => (h.Id, h.Height))), name);
+                Assert.Equal(expected.FindNearest(p), actual.FindNearest(p));
+            }
+        }
+
+        [Fact]
+        public void Over_AnswersLikeACopy_UnderEverySimilarity()
+        {
+            foreach (Similarity sim in Similarity.All()) {
+                Triangle3d[] triangles = TriangleGrid(8, sim.Apply);
+                var copy = new TriangleQuadtree2d(triangles);
+                AssertSameAnswers(copy, TriangleQuadtree2d.Over(triangles), copy.Extent, sim.Name);
+            }
+        }
+
+        [Fact]
+        public void Over_AnswersAlike_BuiltInParallelOrInSequence()
+        {
+            Triangle3d[] triangles = TriangleGrid(200, v => v);
+            Assert.True(triangles.Length >= LooseQuadtree2d.ParallelThreshold);
+            TriangleQuadtree2d serial = TriangleQuadtree2d.Over(triangles, false);
+            AssertSameAnswers(serial, TriangleQuadtree2d.Over(triangles, true), serial.Extent, "over");
+            AssertSameAnswers(serial, new TriangleQuadtree2d(triangles, true), serial.Extent, "copy");
         }
 
         [Fact]

@@ -427,9 +427,9 @@ namespace g3
                 for (int i = 0; i < nodes.Count; ++i) LinkRange(i, items);
                 return;
             }
-            // Cut down side by side until no part holds more than an eighth of the items, wherever they are gathered. Each worker
-            // then owns a range of the items and a private node array. A range is sorted as in a sequential build, so both give
-            // the same tree and the same order of items.
+            // Cut down side by side until a part that can still be cut holds at most an eighth of the items, or the threshold,
+            // wherever they are gathered. Each worker then owns a range of the items and a private node array. A range is sorted
+            // as in a sequential build, so both give the same tree and the same order of items.
             int largePart = Math.Max(ParallelThreshold, Count / 8);
             var parts = new List<Part>();
             var large = new List<Part> { new Part { Index = 0, Start = 0, Count = Count, Cell = rootRegion, Depth = 0 } };
@@ -519,6 +519,18 @@ namespace g3
             }
         }
 
+        static void ClassifyInBlocks(BuildItem[] items, int start, int end, AxisAlignedBox2d cell, Vector2d center, int axes, int[] scratch)
+        {
+            int blocks = (end - start + ParallelThreshold - 1) / ParallelThreshold;
+            Parallel.For(0, blocks, b => {
+                var counts = new int[5];
+                Classify(items, start + b * ParallelThreshold, Math.Min(end, start + (b + 1) * ParallelThreshold), cell, center, axes, counts);
+                lock (scratch) {
+                    for (int c = 0; c < 5; ++c) scratch[c] += counts[c];
+                }
+            });
+        }
+
         // Sorts the items of a node into those it keeps and those of its four children, in place. Their counts end up in scratch[0..4].
         bool SortRange(BuildItem[] items, int start, int count, AxisAlignedBox2d cell, int depth, int[] scratch, bool parallel)
         {
@@ -528,18 +540,8 @@ namespace g3
             if (axes == 0 || AllEqual(items, start, count)) return false;
             int end = start + count;
             for (int c = 0; c < 5; ++c) scratch[c] = 0;
-            if (parallel) {
-                int blocks = (count + ParallelThreshold - 1) / ParallelThreshold;
-                Parallel.For(0, blocks, b => {
-                    var counts = new int[5];
-                    Classify(items, start + b * ParallelThreshold, Math.Min(end, start + (b + 1) * ParallelThreshold), cell, center, axes, counts);
-                    lock (scratch) {
-                        for (int c = 0; c < 5; ++c) scratch[c] += counts[c];
-                    }
-                });
-            } else {
-                Classify(items, start, end, cell, center, axes, scratch);
-            }
+            if (parallel) ClassifyInBlocks(items, start, end, cell, center, axes, scratch);
+            else Classify(items, start, end, cell, center, axes, scratch);
             // Next free place per class in scratch[5..9], keeping the counts in scratch[0..4].
             int place = start;
             for (int c = 0; c < 5; ++c) {
