@@ -437,6 +437,18 @@ namespace geometry3Sharp.Tests
             // (relative size 2^-52 against bounds of 9 to 28 u), the smaller ones are decided by the filter
             Assert.True(undecided > 3000, $"{undecided} cases reached the exact stage");
             Assert.True(movedUndecided > 300, $"{movedUndecided} moved cases reached the exact stage");
+            // zero coordinates on the exact path (loaded as length 0): exact zeros on the coordinate planes, and the
+            // same configurations moved by one step (sign +-1, decided by the exact stage when the filter fails)
+            for (int k = 0; k < 400; ++k) {
+                Func<ExactPoint3> onAxis = () => ExactPoint3.FromInteger(rand.Next(3) == 0 ? 0 : Random(rand, 52), 0, rand.Next(3) == 0 ? 0 : Random(rand, 52));
+                var Z = Enumerable.Range(0, 12).Select(_ => onAxis()).ToArray();          // all in the plane y = 0
+                var Lz = new[] { Z[0], ExactPoint3.FromInteger(Z[1].X, 1, Z[1].Z), Z[2], Z[3], Z[4], Z[5], Z[6], Z[7] };
+                int f;
+                Assert.Equal(OracleLPI(Lz), LPID(Lz, out f));
+                var Tz = new[] { Z[0], Z[1], ExactPoint3.FromInteger(0, k % 2, 1), ExactPoint3.FromInteger(0, 0, 0), ExactPoint3.FromInteger(1, 0, 0), ExactPoint3.FromInteger(0, 1, 0),
+                    ExactPoint3.FromInteger(0, 0, 0), ExactPoint3.FromInteger(0, 1, 0), ExactPoint3.FromInteger(0, 0, 1), Z[9], Z[10], Z[11] };
+                Assert.Equal(OracleTPI(Tz), TPID(Tz, out f));
+            }
             var z = Enumerable.Repeat(ExactPoint3.FromInteger(0, 0, 0), 12).ToArray();
             int fz;
             Assert.Equal(0, LPID(z.Take(8).ToArray(), out fz));
@@ -451,8 +463,16 @@ namespace geometry3Sharp.Tests
         {
             var o = new Vector3d(1, 2, 3);
             double top = 9007199254740992.0;
+            // a bad coordinate at every point position and in every component, for both predicates
             foreach (double bad in new[] { 0.5, -2.25, top * 2, -top * 2, double.NaN, double.PositiveInfinity })
-                Assert.Throws<ArgumentException>(() => IndirectPredicates.Orient3dLPI(o, o, o, o, new Vector3d(1, bad, 3), o, o, o));
+                for (int j = 0; j < 12; ++j)
+                    for (int c = 0; c < 3; ++c) {
+                        var P = Enumerable.Repeat(o, 12).ToArray();
+                        P[j] = new Vector3d(c == 0 ? bad : 1, c == 1 ? bad : 2, c == 2 ? bad : 3);
+                        if (j < 8)
+                            Assert.Throws<ArgumentException>(() => IndirectPredicates.Orient3dLPI(P[0], P[1], P[2], P[3], P[4], P[5], P[6], P[7]));
+                        Assert.Throws<ArgumentException>(() => IndirectPredicates.Orient3dTPI(P[0], P[1], P[2], P[3], P[4], P[5], P[6], P[7], P[8], P[9], P[10], P[11]));
+                    }
             foreach (double ok in new[] { top, -top, 0.0, -0.0, 12345.0 })
                 IndirectPredicates.Orient3dTPI(o, o, o, o, o, o, o, o, o, o, o, new Vector3d(ok, 1, 2));
             // at the gate's edge the exact stage still holds the values (2^53 in one limb) and agrees with the oracle
