@@ -30,13 +30,42 @@ workflow". On a pull request, it waits until the PR is ready for review (drafts 
 
 | The PR changes | Runs | Fails below `break`? |
 |---|---|---|
-| a mutated file or the config | the whole shard | yes |
+| a mutated file (all mutated files, in a shard with several) | `--with-baseline`: the mutants of the changed code; the others keep their result from the baseline (below). Without a baseline in the cache: the whole shard | yes |
+| some, not all, mutated files of a shard with several (`planar`, the arithmetic config) | the whole shard | yes |
+| the config | the whole shard | yes |
 | only tests of the `test-case-filter` | `--since`: the mutants those tests cover | no: a score over a part of the mutants is not comparable with the threshold, so it only reports |
 | `.config/dotnet-tools.json`, the workflow | every config in full | yes |
 | anything else, including `geometry3Sharp.Tests.csproj` | nothing (the weekly run covers it) | |
 
-The source case stays a full shard because `--since` selects whole files, and `--with-baseline` is experimental in
-Stryker 5.0 and needs external storage. The weekly run is what catches a test change that lowers a score.
+"Run workflow" (workflow_dispatch) runs every config in full, or only the ones named in its `shards` input
+(`arithmetic`, `rounding`, `boolean-1`, ...).
+
+### Baseline (incremental runs)
+
+Every full run stores its JSON report as the baseline of its config in the Actions cache
+([baseline.py](baseline.py) `store`, only the files with tested mutants; key
+`mutation-baseline-<config>-<hash of the config and the tools>-<run id>`). A PR that changes a mutated file
+restores the newest baseline of its config ([run_stryker.sh](run_stryker.sh)): its own from an earlier full run of
+the PR, else the one of its base branch (on master the weekly run). Stryker then runs with
+`--with-baseline:<base sha>`:
+
+- the since filter marks every mutant of a changed file for testing;
+- the baseline filter then gives each mutant whose source text and mutator match exactly one mutant of the baseline
+  report its result from there ("Result based on previous run"). Only new or changed mutants, and ambiguous ones
+  (the same text twice in the file), run;
+- the score covers the whole shard (baseline results and new ones), so the break threshold applies as in a full run.
+
+The step "Mutants run and taken from the baseline" ([baseline.py](baseline.py) `count`) shows how many mutants ran.
+A changed config or a new Stryker version changes the cache key, so a stale baseline is never used; without a
+baseline the shard runs in full and stores one.
+
+Limits:
+- A shard with several mutated files runs in full unless all of them changed: Stryker's since filter leaves the
+  mutants of an unchanged file out of the run *and* the score.
+- A baseline result is reused when the mutant's own code is unchanged, even if code around it or the tests changed
+  in the same PR (a test the PR removes keeps its kills until the next full run). The weekly full run is the check
+  of record.
+- Stryker 5.0 calls `--with-baseline` experimental.
 
 The HTML report is uploaded as an artifact, and a summary appears in the job summary. Tests of the selection:
 `python3 tests/mutation/test_select_shards.py`.

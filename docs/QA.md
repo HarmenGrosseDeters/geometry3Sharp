@@ -168,7 +168,10 @@ inputs. Stryker.NET (Apache-2.0) mutates `math/ExactPredicates.cs`, `math/ExactP
 `math/AdaptivePredicates.cs`, and runs the predicate tests against each mutant.
 
 - A workflow reports the mutation score and the surviving mutants. It runs in full weekly and on demand, and on ready
-  PRs only for the configs they touch ([tests/mutation/README.md](../tests/mutation/README.md)).
+  PRs only for the configs they touch ([tests/mutation/README.md](../tests/mutation/README.md)). A PR that changes a
+  mutated file runs incrementally: only the mutants of the changed code run, the others keep their result from the
+  baseline of the last full run (Stryker `--with-baseline`, the report kept in the Actions cache), and the break
+  threshold applies to the whole shard; without a baseline the shard runs in full.
 - A score below the break threshold fails a full run (a run for changed tests only reports). It starts at the measured score (rounded down, less one
   point for timeouts that vary between runners) and only goes up.
 - Surviving mutants are either killed with a new test or recorded as equivalent, with a reason.
