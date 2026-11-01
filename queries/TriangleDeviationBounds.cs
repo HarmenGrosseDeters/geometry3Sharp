@@ -49,7 +49,8 @@ namespace g3
 
             double u = Math.Min(u0, Math.Min(u1, u2));
             if (PatchBound && !(u <= threshold))
-                u = Math.Min(u, patch_bound(p0, p1, p2, n0, n1, n2));
+                // (never below the largest corner distance, a distance of a point of the triangle)
+                u = Math.Min(u, Math.Max(dmax, patch_bound(p0, p1, p2, n0, n1, n2)));
             return u;
         }
 
@@ -62,6 +63,8 @@ namespace g3
         internal int MaxPatchTriangles = 256;
         /// <summary> the patch bound leaves out target triangles steeper than this (height range / projected size) </summary>
         const double MaxPatchSlope = 1000;
+        /// <summary> the patch bound leaves out triangles thinner than this (doubled area / longest edge squared) </summary>
+        const double MinPatchShape = 1e-4;
 
         // Upper bound from the target triangles under the triangle Q = (p0, p1, p2), seen along its normal n.
         // Why it is an upper bound of max over x in Q of d(x, Target):
@@ -84,9 +87,12 @@ namespace g3
         //     Triangles that are not taken into S (box, orientation, slope) only add boundary edges, which are
         //     checked, so leaving one out can make the bound infinite, never wrong.
         //  3. Rounding (an estimate, not a derived error bound; the other bounds of the cascade carry no slack):
-        //     everything is relative to p0; a slack of 16 * MaxPatchSlope ulps of the coordinates for the rounding
+        //     everything is relative to p0; a slack of 16 * MaxPatchSlope ulps of the coordinates, times the shape
+        //     factor of Q (longest edge squared / doubled area, about 1 / sin of its smallest angle), for the rounding
         //     of the projections and of the heights interpolated at the clip points (whose error grows with the
-        //     slope), and margin (1e-9 of Q's size) for the 2D tests.
+        //     slope of t and with 1 / angle at the corners of Q); thin Q (MinPatchShape) and steep t (MaxPatchSlope)
+        //     are left out, so the slack stays below about 1e-7 of the coordinates. margin (1e-9 of Q's size) is
+        //     for the 2D tests. The result is also never below the corners' distances (UpperBound).
         // S grows from the corners' nearest triangles over shared edges, at most MaxPatchTriangles. +Infinity if
         // the coverage cannot be shown.
         internal double patch_bound(Vector3d p0, Vector3d p1, Vector3d p2, int n0, int n1, int n2)
@@ -95,7 +101,10 @@ namespace g3
             Vector3d nrm = e1.Cross(e2);
             double len1 = e1.Length, nlen = nrm.Length;
             double scale = Math.Max(len1, Math.Max(e2.Length, (p2 - p1).Length));
-            if (!(nlen > 1e-12 * scale * scale) || !(len1 > 0))
+            // thin triangles are left out: the clip points at a corner of angle a move by about eps / a, so the
+            // rounding of the heights grows with 1 / a (wrap-resolution bounds review: a = 2e-12 gave a bound
+            // 1.6e-6 too low); the slack below grows with the same factor
+            if (!(nlen > MinPatchShape * scale * scale) || !(len1 > 0))
                 return double.PositiveInfinity;
             nrm /= nlen;
             Vector3d ux = e1 / len1, uy = nrm.Cross(ux);
@@ -170,7 +179,8 @@ namespace g3
             }
             // slack for the rounding of the projections and the clipped heights (relative to the coordinates, which
             // are taken relative to p0, and to the slope)
-            return hmax + 16 * MaxPatchSlope * MathUtil.Epsilon * (scale + rmax + hmax);
+            double shape = scale * scale / nlen;       // about 1 / sin of the smallest angle, at most 1 / MinPatchShape
+            return hmax + 16 * MaxPatchSlope * shape * MathUtil.Epsilon * (scale + rmax + hmax);
         }
 
         // does the triangle t have the edge a -> b in its order?

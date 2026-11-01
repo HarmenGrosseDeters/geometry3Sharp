@@ -236,6 +236,34 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void ThinQueryTriangles_SoundOrNoBound()
+        {
+            // bounds review counterexample: a sliver (angle 2e-12 at p1) over a tilted plane z = 0.001 + 0.01 x made of
+            // two large triangles; the rounding of the clip points at that corner gave a bound 1.6e-6 below the true
+            // maximum (at p1, 0.0109994500). Thin triangles are left out now, and UpperBound never goes below the
+            // corner distances
+            Func<double, double, double> h = (x, y) => 0.001 + 0.01 * x;
+            var m = new DMesh3();
+            int A = m.AppendVertex(new Vector3d(-1.5, -1.5, h(-1.5, -1.5))), B = m.AppendVertex(new Vector3d(3.5, -1.5, h(3.5, -1.5))),
+                C = m.AppendVertex(new Vector3d(3.5, 3.5, h(3.5, 3.5))), D = m.AppendVertex(new Vector3d(-1.5, 3.5, h(-1.5, 3.5)));
+            m.AppendTriangle(A, B, C); m.AppendTriangle(A, C, D);
+            var tree = new DMeshAABBTree3(m, true);
+            var bounds = new TriangleDeviationBounds(m) { PatchBound = true };
+            Func<Vector3d, double> dist = (p) => Math.Sqrt(MeshQueries.TriDistanceSqr(m, tree.FindNearestTriangle(p), p));
+            foreach (double thin in new[] { 2e-12, 1e-9, 1e-6, 1e-4, 1e-3, 1e-2 }) {
+                Vector3d p0 = Vector3d.Zero, p1 = new Vector3d(1, 0, 0), p2 = new Vector3d(-0.095 * thin, thin, 0);
+                double d0 = dist(p0), d1 = dist(p1), d2 = dist(p2);
+                // the distance to the plane is convex: the max over the triangle is at a corner
+                double truth = Math.Max(d0, Math.Max(d1, d2));
+                double u = bounds.UpperBound(p0, p1, p2, d0, d1, d2, tree.FindNearestTriangle(p0), tree.FindNearestTriangle(p1), tree.FindNearestTriangle(p2), 0);
+                Assert.True(u >= truth, $"thin {thin}: bound {u} below {truth}");
+                double pb = Patch(bounds, tree, p0, p1, p2);
+                Assert.True(double.IsPositiveInfinity(pb) || pb >= truth, $"thin {thin}: patch bound {pb} below {truth}");
+                if (thin < 1e-4) Assert.True(double.IsPositiveInfinity(pb), $"thin {thin}: not left out");
+            }
+        }
+
+        [Fact]
         public void Degenerate_And_FarTriangles_GiveNoBound()
         {
             DMesh3 target = Grid(0, 0, 1, 1, 11);
