@@ -31,8 +31,9 @@ setup (SDK install): [docs/QA.md#5-local-setup](docs/QA.md#5-local-setup).
 
 ## Before every push
 
-Docs-only changes (only `*.md` files) need no local CI steps, and GitHub CI skips them (`paths-ignore` in
-`ci.yml`): re-read the diff and push. A change to existing library code, including code in `docs/examples`, runs
+Docs-only changes (only `*.md` files) need no local CI steps, and GitHub CI skips them (the `paths` filter in
+`ci.yml`): re-read the diff and push. Exception: `docs/design/FIXED_WIDTH_EXACT_POINTS.md`, whose bound table
+`GeneratedPredicatesTests` checks against the generator, runs CI and the generator tests. A change to existing library code, including code in `docs/examples`, runs
 the full list. A change to tools, tests or new files only runs the filtered tests of the changed areas, the builds of
 all targets (net10.0, netstandard2.0, the net48 test projects) and `dotnet pack` (API validation); GitHub CI runs the
 rest. One PR per feature, as clean commits, not stacked sub-step PRs; Stryker locally once per shard to set its
@@ -52,6 +53,7 @@ dotnet pack addons/geometry3Sharp.Clipper2/geometry3Sharp.Clipper2.csproj -c Rel
 dotnet run --project tests/Clipper2PackageSmokeTest -c Release -p:G3PackageVersion=1.0.0-ci.1 -p:G3PackageSource=<dir> -- <dir>/geometry3Sharp.Clipper2.1.0.0-ci.1.nupkg
 dotnet build tests/geometry3Sharp.Clipper2.Tests -c Release -f net48 -p:TestNet48=true
 dotnet build benchmarks/<each>/<each>.csproj -c Release
+dotnet build tools/PredicateCompiler -c Release
 ```
 
 Draft PRs and spikes: before a push, build the library for all targets (net10.0, netstandard2.0) and the net48 test
