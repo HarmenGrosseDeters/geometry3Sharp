@@ -396,7 +396,7 @@ namespace g3cli
             c.Params.Add(new Param("project", ParamType.Boolean, "project the vertices onto the input surface") { Default = true });
             c.Params.Add(new Param("min_quality", ParamType.Number, "guard against poor and flat triangles (Remesher.MinTriangleQuality, " +
                 "0..1, 0 = off, the library's default; 0.2 here: fewer flat triangles and self-intersections at equal or better " +
-                "fidelity, about 1.5x the time, benchmarks/RemeshQualityBenchmark; 0 for thin walls far below the edge length)") { Default = 0.2 });
+                "mean fidelity on Thingi10K and CAD-like parts, about 1.5x the time, benchmarks/RemeshQualityBenchmark; 0 for thin walls far below the edge length)") { Default = 0.2 });
             c.Params.Add(Deviation());
             c.Params.Add(SelfIntersections());
             c.Params.Add(Binary());
@@ -434,7 +434,7 @@ namespace g3cli
                 if (len > 4 * thickness)
                     warnings.Add($"the edge length {len:G4} is {len / thickness:F1} times the estimated wall thickness {thickness:G4} " +
                         "(10% of the inward distances are smaller): thinner walls are folded through each other (self-intersections, " +
-                        "inside-out parts); use a smaller edge length");
+                        "inside-out parts); use a smaller edge length" + (minQuality > 0 ? ", or --min-quality 0, which keeps such walls closer to the input" : ""));
                 r.SetTargetEdgeLength(len);
                 for (int k = 0; k < iterations; ++k)
                     r.BasicRemeshPass();

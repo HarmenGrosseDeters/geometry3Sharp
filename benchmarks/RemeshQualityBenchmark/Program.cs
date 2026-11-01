@@ -158,15 +158,17 @@ static class Program
                 $"{l.Sum(r => r.off.Seconds):F1} / {l.Sum(r => r.on.Seconds):F1} | {morePairs} / {moreFlat} / {worseHd} / {newInverted} |");
         }
         if (fidelity) {
-            // means over the cases; edge recall and Edge Chamfer over the cases whose input has sharp edges (finite)
+            // means over the cases where both values are finite (Edge Chamfer is infinite and edge recall NaN when only
+            // one or neither mesh has sharp edges): off and on over the same cases
             Console.WriteLine();
             Console.WriteLine("| group | F 0.1% off / on | F 0.5% off / on | normal consistency off / on | Edge Chamfer off / on | edge recall 0.5% off / on | min angle 1% worst off / on | cases with degenerate tris off / on | cases not clean off / on | worse: F 0.1% by > 0.01 / edge recall by > 0.02 |");
             Console.WriteLine("|---|---:|---:|---:|---:|---:|---:|---:|---:|---|");
             foreach (var g in rows.GroupBy(r => r.group)) {
                 var l = g.ToList();
                 string mean(Func<Result, double> f) {
-                    var off = l.Select(r => f(r.off)).Where(x => double.IsFinite(x)).ToList();
-                    var on = l.Select(r => f(r.on)).Where(x => double.IsFinite(x)).ToList();
+                    var both = l.Where(r => double.IsFinite(f(r.off)) && double.IsFinite(f(r.on))).ToList();
+                    var off = both.Select(r => f(r.off)).ToList();
+                    var on = both.Select(r => f(r.on)).ToList();
                     return (off.Count > 0 ? off.Average().ToString("F4", CultureInfo.InvariantCulture) : "-") + " / " + (on.Count > 0 ? on.Average().ToString("F4", CultureInfo.InvariantCulture) : "-");
                 }
                 Console.WriteLine($"| {g.Key} | {mean(r => r.F0001)} | {mean(r => r.F0005)} | {mean(r => r.NC)} | {mean(r => r.ECD)} | {mean(r => r.ER0005)} | {mean(r => r.MinAngle1)} | " +
