@@ -1,12 +1,14 @@
 using System;
 using System.Collections.Generic;
 using System.Numerics;
+using System.Runtime.CompilerServices;
 
 namespace g3
 {
     // Geometry is evaluated in XY; snapshot Z coordinates are validated but only heights use them.
     internal static class QuadtreeGeometry2d
     {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         internal static bool Finite(double x) { return !double.IsNaN(x) && !double.IsInfinity(x); }
         internal static Vector2d XY(in Vector3d p) { return new Vector2d(p.x, p.y); }
         internal static void Validate(Vector2d p)
@@ -126,14 +128,17 @@ namespace g3
                 (p.y >= box.Min.y || box.Min.y - p.y <= tolerance) &&
                 (p.y <= box.Max.y || p.y - box.Max.y <= tolerance);
         }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         static bool LostRange(double source, double result)
         {
             return source != 0 && (!Finite(result) || Math.Abs(result) < 2.2250738585072014e-308);
         }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         static bool LostProduct(double a, double b, double result)
         {
             return a != 0 && b != 0 && (!Finite(result) || Math.Abs(result) < 2.2250738585072014e-308);
         }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         static bool UncertainDifference(double left, double right)
         {
             return (left != 0 || right != 0) &&
