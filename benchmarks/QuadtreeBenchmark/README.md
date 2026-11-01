@@ -47,9 +47,9 @@ Inserting points in sorted order into an empty tree, on the development machine:
 
 ## Ideas not pursued
 
-None of these is measured. Each would have to show its gain here first.
+None of these is measured, apart from the first. Each would have to show its gain here first.
 
-- Reusing the build arrays between builds. Measured on .NET 10, 30 builds of `Over` one after another: about 80 ms each with a full collection most times, against 75 to 79 ms after a forced one. So at most about 5 ms a build, and a static buffer would hold on to the memory.
+- Reusing the build arrays between builds. Measured on .NET 10, 30 builds of `Over` one after another: about 80 ms each with a full collection most times, against 75 to 79 ms after a forced one. So about 5 ms a build, and a static buffer would hold on to the memory.
 - Storing the items in tree order, so that a query reads neighbouring memory. Queries would touch fewer cache lines, and removal gets harder.
 - A build by Morton order instead of cutting from the top. It may cost less on uniform data, and loose placement of large items does not map onto it directly.
 - Tuning the looseness. The present value was not searched for.

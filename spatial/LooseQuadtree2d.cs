@@ -17,17 +17,17 @@ namespace g3
         double Distance(int id);
     }
 
+    internal interface IBoxSource
+    {
+        AxisAlignedBox2d Box(int index);
+    }
+
     /// <summary>
     /// An AABB snapshot index with stable insertion IDs. Queries may run concurrently, including nested
     /// queries; mutations require exclusive access. Caller-owned result lists are cleared by queries.
     /// Cells are recursively quartered, with twice-sized loose bounds that decide where an item is stored, in one place only.
     /// Queries prune by the bounds of what each part of the tree really holds.
     /// </summary>
-    internal interface IBoxSource
-    {
-        AxisAlignedBox2d Box(int index);
-    }
-
     public sealed class LooseQuadtree2d
     {
         const int BucketSize = 8;
