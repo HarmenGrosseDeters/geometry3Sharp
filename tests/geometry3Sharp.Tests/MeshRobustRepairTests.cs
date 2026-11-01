@@ -182,6 +182,33 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void UncleanResultResolvedExactly_VolumeCheckedOnce()
+        {
+            // the volume of an unclean repair result decides only where the fallbacks start (UsedInput); when its exact
+            // resolve succeeds, only the resolve's volume is checked (it was checked twice). The outputs are those of
+            // the successful resolve, in every frame, and on reuse of the instance
+            foreach (Similarity s in Similarity.All()) {
+                DMesh3 m = Invariance.Transformed(OverlappingSpheres(), s);
+                var r = new MeshRobustRepair(m);
+                for (int k = 0; k < 2; ++k) {
+                    if (k == 1) r.Mesh = Invariance.Transformed(OverlappingSpheres(), s);
+                    Assert.True(r.Apply(), s.Name);
+                    Assert.True(r.UsedExactResolve, r.ExactResolveReason);
+                    Assert.Equal("self-intersections", r.FallbackReason);
+                    Assert.False(r.UsedInput);
+                    Assert.Equal(1, r.VolumeChecksRun);
+                    Assert.True(r.RepairVolumeIoU > 0.99, $"{s.Name}: IoU {r.RepairVolumeIoU}");
+                    Assert.Equal("", MeshRobustRepair.NotCleanReason(r.Mesh));
+                }
+            }
+            // without the exact stage the unclean result's volume is checked where it was (it decides UsedInput)
+            var noExact = new MeshRobustRepair(OverlappingSpheres()) { ExactResolve = false };
+            Assert.True(noExact.Apply());
+            Assert.Equal(1, noExact.VolumeChecksRun);
+            Assert.False(noExact.UsedInput);
+        }
+
+        [Fact]
         public void EmptyRepairResult_InputResolvedOnly()
         {
             // an empty repair result is not resolved: the exact stage starts from the input right away, with as

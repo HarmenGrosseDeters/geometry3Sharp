@@ -239,6 +239,7 @@ namespace gs
             ExactRoundingEdits.Clear();
             FallbackReason = "";
             RepairVolumeIoU = double.NaN;
+            VolumeChecksRun = 0;
             PhaseMilliseconds.Clear();
             phase_timer.Restart();
             // unused vertices are no part of the solid, but far away they would make every threshold relative to the
@@ -268,14 +269,16 @@ namespace gs
                     solidifyFrom = input;
                 }
                 end_phase("volume");
-            } else {
-                // an unclean result can have lost parts of the input as well (eg erosion of an open region, which
-                // the volume check of the exact stage rejects, but the solidify and the wrap do not check): then the
-                // fallbacks start from the input, like for a clean result whose volume differs
-                if (result.TriangleCount == 0 || volume_check(input, result, out RepairVolumeIoU) != "")
-                    solidifyFrom = input;
-                end_phase("volume");
+            } else if (result.TriangleCount == 0) {
+                solidifyFrom = input;
+            } else if (ExactResolve == false) {
+                unclean_result_volume(input, result, ref solidifyFrom);
             }
+            // (with ExactResolve, the volume of an unclean result is checked only if its exact resolve fails: a
+            // successful one replaces UsedInput and RepairVolumeIoU, and solidifyFrom is not used. The check, and
+            // so its outputs, are the same as if it had run here)
+            bool uncleanVolumePending = FallbackReason != "" && FallbackReason != VolumeDiffers && FallbackReason != PartsLost
+                && result.TriangleCount > 0 && ExactResolve;
             UsedInput = solidifyFrom == input;
             if (FallbackReason == "") {
                 Mesh = result;
@@ -300,6 +303,11 @@ namespace gs
                         exact = resolve_exactly(result, input, true);
                 }
                 bool fromResult = exact != null;
+                if (exact == null && uncleanVolumePending) {
+                    end_phase("exact");
+                    unclean_result_volume(input, result, ref solidifyFrom);
+                    UsedInput = solidifyFrom == input;
+                }
                 // then the input itself (a clean result whose volume differs, or an unclean one that lost volume)
                 if (exact == null && solidifyFrom != result && CancelF() == false) {
                     string reason = ExactResolveReason;
@@ -381,10 +389,24 @@ namespace gs
 
         const string VolumeDiffers = "volume differs from the input", PartsLost = "parts of the input lost";
 
+        // an unclean repair result can have lost parts of the input as well (eg erosion of an open region, which the
+        // volume check of the exact stage rejects, but the solidify and the wrap do not check): then the fallbacks start
+        // from the input, like for a clean result whose volume differs
+        void unclean_result_volume(DMesh3 input, DMesh3 result, ref DMesh3 solidifyFrom)
+        {
+            if (volume_check(input, result, out RepairVolumeIoU) != "")
+                solidifyFrom = input;
+            end_phase("volume");
+        }
+
+        /// <summary> for tests: the volume checks (volume_check) the last Apply() ran </summary>
+        internal int VolumeChecksRun;
+
         // "" if the solid of res agrees with the input's (IoU at least MinVolumeIoU, no component lost), otherwise why not
         string volume_check(DMesh3 input, DMesh3 res, out double iou)
         {
             iou = double.NaN;
+            VolumeChecksRun++;
             if (MinVolumeIoU <= 0)
                 return "";      // (no volume checks at all)
             // (the input's solid once per Apply(), the result's once for both checks)
