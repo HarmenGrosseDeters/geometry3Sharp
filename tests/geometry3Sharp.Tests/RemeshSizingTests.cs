@@ -53,16 +53,20 @@ namespace geometry3Sharp.Tests
         }
 
         // as g3cli remesh (20 passes, smoothing 0.5, projection, 30 degree creases, min_quality 0.2)
-        static DMesh3 Remesh(DMesh3 input, double target, Func<Vector3d, double> field, bool parallel = true, bool prevent = false)
+        static DMesh3 Remesh(DMesh3 input, double target, Func<Vector3d, double> field, bool parallel = true, bool prevent = false, bool pro = false)
         {
             DMesh3 mesh = new DMesh3(input);
-            var r = new Remesher(mesh) { SmoothSpeedT = 0.5, MinTriangleQuality = 0.2, PreventSelfIntersections = prevent };
+            Remesher r = pro ? new RemesherPro(mesh) : new Remesher(mesh);
+            r.SmoothSpeedT = 0.5; r.MinTriangleQuality = 0.2; r.PreventSelfIntersections = prevent;
             r.EnableParallelSmooth = r.EnableParallelProjection = parallel;
             r.SetProjectionTarget(MeshProjectionTarget.Auto(input));
             MeshConstraintUtil.PreserveBoundaryAndFeatures(r, 30);
             r.SetTargetEdgeLength(target);
             r.TargetEdgeLengthF = field;
-            for (int k = 0; k < 20; ++k) r.BasicRemeshPass();
+            for (int k = 0; k < 20; ++k) {
+                if (pro) ((RemesherPro)r).RemeshIteration();
+                else r.BasicRemeshPass();
+            }
             return mesh;
         }
 
@@ -167,6 +171,65 @@ namespace geometry3Sharp.Tests
             Assert.True(none == null || double.IsNaN(none(new Vector3d(1, 0.5, 0))));
         }
 
+        [Fact]
+        public void Fraction_Validated()
+        {
+            DMesh3 input = Tube(16, 4, 1, 0.1, 3);
+            foreach (double f in new[] { 0, -1, double.NaN, double.PositiveInfinity })
+                Assert.Throws<ArgumentOutOfRangeException>(() => RemeshSizing.FromWallThickness(input, f));
+        }
+
+        // a closed slab with a step: 0.2 thick for x in [0,1], 0.05 for x in [1,2] (profile in x-z, extruded along y)
+        static DMesh3 SteppedSlab()
+        {
+            var prof = new[] { new Vector2d(0, 0), new Vector2d(1, 0), new Vector2d(2, 0), new Vector2d(2, 0.05), new Vector2d(1, 0.05), new Vector2d(1, 0.2), new Vector2d(0, 0.2) };
+            var m = new DMesh3();
+            int n = prof.Length;
+            int[] f = prof.Select(p => m.AppendVertex(new Vector3d(p.x, 0, p.y))).ToArray();
+            int[] b = prof.Select(p => m.AppendVertex(new Vector3d(p.x, 1, p.y))).ToArray();
+            for (int i = 0; i < n; ++i) {
+                int j = (i + 1) % n;
+                m.AppendTriangle(f[i], f[j], b[j]); m.AppendTriangle(f[i], b[j], b[i]);
+            }
+            foreach (var (p, q, r) in new[] { (0, 1, 4), (0, 4, 5), (0, 5, 6), (1, 2, 3), (1, 3, 4) }) {
+                m.AppendTriangle(f[p], f[r], f[q]);
+                m.AppendTriangle(b[p], b[q], b[r]);
+            }
+            if (Volume(m) < 0)
+                m.ReverseOrientation();
+            return m;
+        }
+
+        [Fact]
+        public void FromWallThickness_ThinnerSideAtTheStep()
+        {
+            // each side gets its own thickness; on the line where the thin top meets the step the thinner one (a vertex
+            // takes the smallest thickness of its triangles), so the edges there are not too long for the thin side
+            DMesh3 slab = SteppedSlab();
+            Assert.True(slab.IsClosed());
+            var field = RemeshSizing.FromWallThickness(slab, 1.0);
+            // thick top at its far end: 0.133 (the values come from the centroids of the coarse input triangles, and a
+            // vertex takes the smallest: an end cap's centroid lies near the top, where the ball is smaller than 0.2)
+            Assert.InRange(field(new Vector3d(0.01, 0.5, 0.2)), 0.1, 0.21);
+            Assert.True(field(new Vector3d(0.3, 0.5, 0.2)) > field(new Vector3d(1.7, 0.5, 0.05)) + 0.03);
+            // thin top (0.033: the same effect), the edge where it meets the step, and its vertex: at most the thin wall
+            Assert.InRange(field(new Vector3d(1.7, 0.5, 0.05)), 0.02, 0.051);
+            Assert.InRange(field(new Vector3d(1.0, 0.5, 0.05)), 0.02, 0.051);
+            Assert.InRange(field(new Vector3d(1.0, 0.0, 0.05)), 0.02, 0.051);
+        }
+
+        [Fact]
+        public void RemesherPro_ThinTube_KeepsTheVolume()
+        {
+            DMesh3 input = Tube(32, 4, 1, 0.1, 3);
+            DMesh3 mesh = Remesh(input, 0.8, RemeshSizing.FromWallThickness(input, 1.0), pro: true);
+            Assert.InRange(Volume(mesh) / Volume(input), 0.98, 1.02);
+            Assert.True(mesh.IsClosed());
+            Assert.Empty(MeshPostRepairCleanup.FindInvertedComponents(mesh));
+            // refined at the walls: edges near the wall thickness, not the global target 0.8
+            Assert.True(MeanEdge(mesh) < 0.2, $"mean edge {MeanEdge(mesh)}");
+        }
+
         [Theory]
         [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
         public void SameResultUnderSimilarity(string name)
@@ -186,10 +249,15 @@ namespace geometry3Sharp.Tests
             }
             DMesh3 m0 = Remesh(input, 0.8, f0, false);
             DMesh3 back = Invariance.MappedBack(Remesh(moved, s.ApplyLength(0.8), f1, false), s);
-            // the remesh: bit for bit at 2^10; at 2^-10 the Remesher with projection differs without the field too
-            // (4673 vs 4659 vertices for this tube at target 0.1; benchmarks/RemeshBenchmark README, scale invariance)
+            // the remesh: bit for bit at 2^10; at 2^-10 the Remesher with projection differs without the field too (the
+            // RemeshBenchmark README notes it for other inputs; asserted here, so this exception stays tied to it)
             if (s.IsExact && s.Scale > 1)
                 Assert.Equal("", Invariance.Difference(m0, back));
+            if (s.IsExact && s.Scale < 1) {
+                DMesh3 n0 = Remesh(input, 0.1, null, false);
+                DMesh3 n1 = Invariance.MappedBack(Remesh(moved, s.ApplyLength(0.1), null, false), s);
+                Assert.NotEqual("", Invariance.Difference(n0, n1));
+            }
             Assert.True(Math.Abs(back.TriangleCount - m0.TriangleCount) <= 0.03 * m0.TriangleCount, $"{s.Name}: {back.TriangleCount} vs {m0.TriangleCount}");
             Assert.InRange(Volume(back) / Volume(input), 0.98, 1.02);
         }

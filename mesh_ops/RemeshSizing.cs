@@ -11,20 +11,24 @@ namespace gs
     {
         /// <summary>
         /// Target edge length from the local wall thickness of input (MeshWallThickness, InscribedSphere: the diameter
-        /// of the largest ball inside the solid at the point): fraction times the thickness, but at least minEdgeLength
+        /// of the largest ball inside the solid at the point): fraction (finite, &gt; 0, else ArgumentOutOfRangeException)
+        /// times the thickness, but at least minEdgeLength
         /// (default: 1e-3 of the bounding box diagonal, so a sliver of zero thickness does not refine without bound).
         /// The thickness of a vertex of input is the smallest of its triangles' (a rim between two walls gets the
         /// thinner one), and the field at a point is interpolated over the input triangle nearest to it, from its
         /// vertices: continuous, so a point on an edge or vertex of input gets the same value whichever of its
         /// triangles is the nearest. Vertices without any thickness (NaN: open parts, degenerate triangles) are left
         /// out of the interpolation; NaN if none has one, which Remesher reads as the global target. Remesher caps the
-        /// field by its global lengths, so with it the edges near walls thinner than the global target over fraction
-        /// are shorter than the wall (the walls are not folded through each other), and elsewhere as before. Input is
+        /// field by its global lengths and splits an edge above 1.33 times the target, so with fraction 1 the edges near
+        /// walls thinner than the global target end at about the wall thickness (0.66..1.33 times it; the walls are not
+        /// folded through each other), and elsewhere as before. Thread-safe (read-only queries). Input is
         /// copied (the remesher may change the mesh it got). Relative values only: scale invariant. Null if the
         /// thickness cannot be computed (empty mesh).
         /// </summary>
         public static Func<Vector3d, double> FromWallThickness(DMesh3 input, double fraction = 1.0, double minEdgeLength = -1)
         {
+            if (!(fraction > 0) || double.IsInfinity(fraction))
+                throw new ArgumentOutOfRangeException(nameof(fraction), "must be finite and > 0");
             DMesh3 copy = new DMesh3(input);
             var wt = new MeshWallThickness(copy) { Method = MeshWallThickness.Methods.InscribedSphere, ComputeVertices = false };
             if (wt.Compute() == false)

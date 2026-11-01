@@ -401,9 +401,10 @@ namespace g3cli
                 "angle deficit at least this, degrees; 0 = off), such as the apex of a cone with many slices, which is no crease and " +
                 "is rounded off otherwise (MeshConstraintUtil.PinSharpVertices, off in the library); vertices on kept boundaries and creases " +
                 "are left to them") { Default = 75.0 });
-            c.Params.Add(new Param("thickness_sizing", ParamType.Number, "keep the edges at most this fraction of the local wall " +
+            c.Params.Add(new Param("thickness_sizing", ParamType.Number, "target edge length at most this fraction of the local wall " +
                 "thickness (Remesher.TargetEdgeLengthF, RemeshSizing.FromWallThickness; eg 1; 0 = off): thin walls are refined instead of " +
-                "folded through each other, the rest is remeshed to edge_length; many more triangles at thin walls") { Default = 0.0 });
+                "folded through each other, the rest is remeshed to edge_length. Costs the triangles the walls need (Thingi10K 135363, " +
+                "walls 0.75 at edge length 11.6: 1.1M triangles instead of 500)") { Default = 0.0 });
             c.Params.Add(Deviation());
             c.Params.Add(SelfIntersections());
             c.Params.Add(Binary());
@@ -449,8 +450,10 @@ namespace g3cli
                 if (thicknessSizing > 0)
                     r.TargetEdgeLengthF = RemeshSizing.FromWallThickness(input, thicknessSizing);
                 double thickness = WallThickness(input);
-                if (len > 4 * thickness && thicknessSizing == 0)
-                    warnings.Add($"the edge length {len:G4} is {len / thickness:F1} times the estimated wall thickness {thickness:G4} " +
+                // the edge length at the thinnest walls: the global one, or with the sizing about fraction times the wall
+                double wallEdge = thicknessSizing > 0 ? Math.Min(len, thicknessSizing * thickness) : len;
+                if (wallEdge > 4 * thickness)
+                    warnings.Add($"the edge length {wallEdge:G4} is {wallEdge / thickness:F1} times the estimated wall thickness {thickness:G4} " +
                         "(10% of the inward distances are smaller): thinner walls are folded through each other (self-intersections, " +
                         "inside-out parts); use a smaller edge length or --thickness-sizing 1" +
                         (minQuality > 0 ? ", or --min-quality 0, which keeps such walls closer to the input" : ""));

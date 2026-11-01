@@ -194,13 +194,14 @@ Open tasks further up, and work further down, in the code or in the research lis
   Done: `Remesher.RejectInvertingPasses` (default on, also `RemesherPro`) rolls back a pass that turns a closed
   component inside out and counts it (`InvertingPassesRejected`); `g3cli remesh` reports the rolled-back passes and
   warns when the edge length is more than 4 times the estimated wall thickness. Done (opt-in):
-  `Remesher.TargetEdgeLengthF` with `RemeshSizing.FromWallThickness` (edges at most the local wall thickness;
+  `Remesher.TargetEdgeLengthF` with `RemeshSizing.FromWallThickness` (target edge length the local wall thickness;
   `g3cli remesh --thickness-sizing 1`): the 24 tubes keep their volume (0.99..1.00 instead of 0.16..7.04) and surface
   (F 0.1 % 0.94..1.00 instead of 0.01..0.13); with `PreventSelfIntersections` as well all 24 are clean, at 12k..50k
   triangles and 6..550 s each. `PreventSelfIntersections` alone gives no pairs but keeps 0.54..4.8 of the volume
   (`benchmarks/RemeshQualityBenchmark`, Thin walls). Open: 135363 with the sizing has volume 1.00 and F 0.98 but 1.1M
-  triangles and 22613 pairs, nearly all flat slivers in axis planes (part of them the `ExactTriangleIntersection`
-  false positives of stage R); with the check as well it ran for more than 90 minutes. Depends on stage R and the
+  triangles, 22613 pairs (in a diagnostic run nearly all flat slivers in axis planes; whether stage R false
+  positives are among them is not checked) and 146k near-degenerate triangles; with the check as well it ran for more
+  than 90 minutes; the check alone is clean but keeps 1.31 of the volume. Depends on stage R and the
   faster self-intersection check (the shared triangle-triangle prefilter session), then possibly envelope
   containment (stage 7).
 - [x] Feature detection misses vertex features: the apex of a smooth cone (no crease edges) is not pinned and is rounded

@@ -603,6 +603,10 @@ namespace g3cli.Tests
             Assert.Equal(0, I(r["mesh"]["inverted_components"]));
             Assert.InRange(D(r["mesh"]["volume"]) / v0, 0.97, 1.03);
             Assert.DoesNotContain(r["warnings"].AsArray().Select(w => S(w)), w => w.Contains("wall thickness"));
+            // a large fraction leaves the edges far above the wall: the warning stays
+            (exit, r) = Run("remesh", input, m.Path_("thin_tube_sized_8.stl"), "--edge-length", "11.6", "--thickness-sizing", "8", "--iterations", "2");
+            AssertOk(exit, r);
+            Assert.Contains(r["warnings"].AsArray().Select(w => S(w)), w => w.Contains("wall thickness"));
             (exit, r) = Run("remesh", input, m.Path_("thin_tube_sized_bad.stl"), "--thickness-sizing", "-1");
             AssertError(exit, r, "invalid_arguments", 2);
         }

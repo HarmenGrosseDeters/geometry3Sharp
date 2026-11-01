@@ -131,8 +131,9 @@ namespace g3 {
         /// is split if it is longer than 1.33 times the target at its midpoint and collapsed if shorter than 0.66 times
         /// it, as SetTargetEdgeLength does globally; the field is capped by MinEdgeLength / MaxEdgeLength, so it can only
         /// make edges shorter than the global target (eg below the local wall thickness: RemeshSizing.FromWallThickness).
-        /// A non-finite or non-positive value means the global target. RemesherPro queues edges by the global lengths
-        /// only (its full first iteration uses the field).
+        /// A non-finite or non-positive value means the global target. RemesherPro queues edges by these local lengths
+        /// too; its tracked passes call the field in parallel, so it must be thread-safe (RemeshSizing's fields are).
+        /// Called once per processed edge (and per queued edge in RemesherPro): its cost adds to every pass.
         /// </summary>
         public Func<Vector3d, double> TargetEdgeLengthF = null;
 
