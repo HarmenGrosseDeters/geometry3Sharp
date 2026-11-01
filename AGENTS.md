@@ -34,6 +34,9 @@ Read both before you change anything. If anything below conflicts with them, the
   - Never read, open or port Triangle / Triangle.NET code or the owner's existing quadtree.
   - An agent that has seen that code must not implement these items.
 - **Company code** (C:\Projekte\Base) is never a source.
-- **Mutation tooling** (`.github/workflows/mutation.yml`, `tests/mutation/`): adding your test classes to a shard's
-  `test-case-filter` (and its workflow `paths`) is fine; other changes to the workflow or the scripts go through the
-  coordinator, as every PR's mutation gate depends on them.
+- **Mutation tooling** (`.github/workflows/mutation.yml`, `tests/mutation/`): name new test classes and files so they
+  match a shard's existing `test-case-filter` and workflow `paths`, and do not touch the tooling. An edit is not free:
+  any change to `mutation.yml` runs every shard in full (it is in `ALWAYS` of `select_shards.py`, 2-3 h of runners),
+  and a change to a shard's `stryker-*.json` gives it a new cache key, so that shard runs in full. If a test cannot
+  match, extending a filter or `paths` is allowed; say so and why in the PR. Other changes to the workflow or the
+  scripts go through the coordinator, as every PR's mutation gate depends on them.

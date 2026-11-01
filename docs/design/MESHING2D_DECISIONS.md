@@ -13,6 +13,23 @@ owner says otherwise.
 **Owner decision, 2026-11-01: D14 as proposed by the literature check: `m2.snap` is built as iterated snap rounding (Halperin and Packer 2002) at
 the explicit tolerance, as its own PR after M2 and M3 are merged.**
 
+**Owner decision, 2026-11-01 (later): D14 made precise after the look-before-you-build check (`MESHING2D_SNAP.md`, #272), as recommended:**
+1. the bounded-drift variant of iterated snap rounding (ISRBD, Packer 2008), so that O11's displacement bound holds;
+2. hot regions of radius tol centred at the vertices (O11's wording), not grid pixels;
+3. vertices that snap to nothing keep their input coordinates (no output grid);
+4. the gap band is documented: merged below tol, kept above 2 tol, either in between (O11's "relative bound").
+
+Semantics aligned with SafeRounding (`SAFE_ROUNDING.md`): drift reported, a strict mode with a failure status, merge below the tolerance.
+
+**Owner decision, 2026-11-01 (final, supersedes points 1 and 2 above):** after the full texts were read (`MESHING2D_SNAP.md`, section
+3b; ISRBD collapses at small angles, vertex-centred hot regions void SR's proofs, Hershberger 2025):
+1. **snap rounding on a grid plus the restore step of SRR** (Belussi, Migliorini, Negri, Pelagatti 2016), with SR's contact rules
+   unchanged;
+2. **pixel width w = tol.** O11's guarantee becomes: merged below tol/2, never merged above 2 tol (L∞), the grid decides in between
+   (the gap band). Data on the tolerance grid stays put; off-grid data moves by at most tol/2 per axis.
+
+Points 3 and 4 stand in this form. Band cases (F-15 at 0.91 tol, F-18/a at tol/2) accept merged or unmerged.
+
 **Owner decisions, 2026-10-31: D1, D5 and D9 as recommended below.** So: output in doubles, with validity decided on those doubles; a hole removes everything inside it, with a diagnostic when an outer ring lies inside a hole, and islands are not part of this; longest edge at most h at the centroid. The others have a default that is fine unless the owner objects. Each default is cheap to change: the "where it
 lives" column names the one place in the oracle, so that a different decision costs an edit there, a changed fixture and golden rows with a stated reason.
 
