@@ -105,10 +105,10 @@ Hausdorff bounds when the envelope is thin.
 The predicates are the ones of #246 / #250. Three extensions are needed:
 
 1. **Double inputs.** The polyhedra's points are arbitrary doubles, not integers of one grid. Two parts:
-   - **filter:** the error rule of #250 extended by the absolute term for underflow of #221 (round to nearest,
-     products that underflow with an error `≤ 2^-1075`), with a range gate (inputs 0 or of magnitude in
-     `[2^-k, 2^k]`, `k` derived so that the degree-9 TPI predicate cannot overflow; the absolute term covers
-     underflow). Beyond the gate: straight to the exact stage.
+   - **filter:** the error rule of #250 with a range gate derived from the formula (inputs 0 or of magnitude in
+     `[2^-a, 2^b]`): within it no value can underflow, so no absolute term is needed (built in PR 1; see
+     INDIRECT_PREDICATES.md section 11: LPI `[2^-108, 2^164]`, TPI `[2^-54, 2^109]`). Beyond the gate: straight to the
+     exact stage.
    - **exact stage:** per call, the inputs are aligned to their smallest exponent (`x = m 2^e`), which makes them
      integers of `53 + spread` bits, `spread` the exponent range within the call (small for local geometry). The
      generated `FixedArith` graph is generated for an input bound of 2 limbs (`b = 128`: spread up to 75 bits), with
@@ -169,9 +169,9 @@ decision after the acceptance.
 
 ## 6. PR plan
 
-1. **Generator for double inputs** (4.1, items 1 and 2): the filter with the absolute term and the range gate, the
-   exact stage by exponent alignment (2 limbs, `BigInteger` beyond), the prepare / evaluate split; tests against
-   the oracle at all scales; bounds review; mutation.
+1. **Generator for double inputs** (4.1, item 1): the filter with the range gate, the exact stage by exponent
+   alignment (2 limbs, `BigInteger` beyond); tests against the oracle at all scales; bounds review; mutation.
+   1b. **Prepare / evaluate split** (4.1, item 2), its own PR to keep the diffs small.
 2. **Polyhedra and point / segment queries:** construction with its proven bound, the box tree, `Contains`,
    `ContainsSegment`; oracle and guarantee tests.
 3. **Triangle query** (TPI critical points), the oracle against `MeshEnvelope`'s clipping on the same polyhedra,
