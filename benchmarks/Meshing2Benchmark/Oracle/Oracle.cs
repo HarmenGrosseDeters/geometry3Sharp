@@ -645,7 +645,9 @@ namespace Meshing2Acceptance
             {
                 // O2: conforming is always on when quality is on. Not across a locked segment, which may not be split to get there (O9).
                 bool quality = e.Milestone == Milestone.M3 && (input.MinAngleDeg != null || input.MaxArea != null || input.SizeFunction != null);
-                bool conforming = input.Conforming || quality;
+                // At the Steiner limit refinement stops with a valid mesh whose quality is not guaranteed (O7); conforming is part of
+                // that quality (O2), so the mesh is judged as a constrained Delaunay triangulation then (found with M3, F-22/a, F-27, F-42).
+                bool conforming = (input.Conforming || quality) && !(e.Milestone == Milestone.M3 && o.SteinerLimitReached);
                 foreach (var pair in edges) {
                     var uses = pair.Value;
                     if (uses.Count != 2) continue;
@@ -884,7 +886,8 @@ namespace Meshing2Acceptance
             {
                 foreach (long key in constraintEdges)
                     if (Exact.OnClosedSegment(v[KeyA(key)], v[KeyB(key)], seed)) return true;
-                return o.Triangles.Any(t => t.Any(id => v[id].Equals(seed)));
+                // an input point, not a vertex the refinement placed: that one cannot make the seed ambiguous (found with M3, F-24/b)
+                return inPts.Any(p => p.Equals(seed));
             }
 
             int[] CellsAcrossFreeEdges()

@@ -503,6 +503,33 @@ namespace Meshing2Acceptance
                 reject("two parcels without their shared border, automatic tube", Violation.SegmentMissing, input, o, new OracleExpect { Milestone = Milestone.M2 });
             }
 
+            // 9. at the Steiner limit the mesh is judged as constrained Delaunay, not conforming: still a constrained Delaunay
+            //    triangulation, so a flipped free edge must fail
+            {
+                var input = Points(0, 0, 8, 0, 8, 8, 0, 8, 3, 2, 5, 3, 4, 6);
+                input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false)); input.MinAngleDeg = 20; input.SteinerLimit = 0;
+                var tris = StrictDelaunay(input, Enumerable.Range(0, 7).ToArray()).ToList();
+                // flip the first interior edge whose quadrilateral is convex
+                bool flipped = false;
+                for (int i = 0; i < tris.Count && !flipped; ++i)
+                    for (int j = i + 1; j < tris.Count && !flipped; ++j) {
+                        var shared = tris[i].Intersect(tris[j]).ToArray();
+                        if (shared.Length != 2) continue;
+                        int c = tris[i].Except(shared).First(), d = tris[j].Except(shared).First();
+                        Pt P(int q) => Pt.FromDoubles(input.X[q], input.Y[q]);
+                        int[] t1 = { c, d, shared[0] }, t2 = { d, c, shared[1] };
+                        if (Exact.Orient(P(t1[0]), P(t1[1]), P(t1[2])) < 0) t1 = new[] { d, c, shared[0] };
+                        if (Exact.Orient(P(t2[0]), P(t2[1]), P(t2[2])) < 0) t2 = new[] { c, d, shared[1] };
+                        if (Exact.Orient(P(t1[0]), P(t1[1]), P(t1[2])) <= 0 || Exact.Orient(P(t2[0]), P(t2[1]), P(t2[2])) <= 0) continue;
+                        tris[i] = t1; tris[j] = t2; flipped = true;
+                    }
+                must("a convex free edge to flip exists", flipped, "none");
+                var o = Out(input, tris.ToArray(), null, (0, 1, 0), (1, 2, 0), (2, 3, 0), (3, 0, 0));
+                o.SteinerLimitReached = true;
+                o.BadTriangles = Enumerable.Range(0, tris.Count).Where(i => Exact.MinAngleSin2(Pt.FromDoubles(input.X[tris[i][0]], input.Y[tris[i][0]]), Pt.FromDoubles(input.X[tris[i][1]], input.Y[tris[i][1]]), Pt.FromDoubles(input.X[tris[i][2]], input.Y[tris[i][2]])) < Q.FromDouble(Math.Sin(20 * Math.PI / 180) * Math.Sin(20 * Math.PI / 180))).ToArray();
+                reject("a flipped free edge at the Steiner limit", Violation.NotDelaunayLocal, input, o, new OracleExpect { Milestone = Milestone.M3 });
+            }
+
             // 7. the list of bad triangles is a set, and empty without a minimum angle
             {
                 var input = Points(0, 0, 8, 0, 0, 8);

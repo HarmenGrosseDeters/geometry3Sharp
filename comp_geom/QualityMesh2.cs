@@ -99,7 +99,11 @@ namespace g3
                 while (segments.Count > 0 || triangles.Count > 0) {
                     if ((++steps & 255) == 0) b.cancel.ThrowIfCancellationRequested();
                     if (DebugTrace && (steps % 200000) == 0) Console.Error.WriteLine("REFINE steps " + steps + " inserted " + inserted + " segQ " + segments.Count + " triQ " + triangles.Count + " splits " + splits + " exempt " + exempt.Count + " unsplittable " + unsplittable.Count + " vertices " + k.VertexCount);
+                    // every vertex made since the input counts, crossings included (O7: the limit counts every Steiner point of the run)
+                    inserted = k.VertexCount - (k.N + 1);
                     if (inserted >= limit) { b.SteinerLimitReached = true; break; }
+                    // every step either inserts, splits or retires an entry; a cap far above that only stops a defect
+                    if (steps > 64 * (limit + k.TriangleSlots) + 100000) { b.SteinerLimitReached = true; break; }
                     if (segments.Count > 0) {
                         long key = segments.Dequeue();
                         int e = k.FindEdge((int)(key >> 32), (int)(key & 0xffffffff));
@@ -114,6 +118,9 @@ namespace g3
                     if (fail != null) return fail;
                 }
                 k.Dirty = null;
+                // the result is a constrained Delaunay triangulation in any case, also when the limit stopped refinement
+                var bad = k.NonDelaunayEdges();
+                if (bad.Count > 0) k.RestoreDelaunay(bad);
                 return null;
             }
 
@@ -287,6 +294,9 @@ namespace g3
                 return (long)h;
             }
 
+            static double NextUp(double x) { long b = BitConverter.DoubleToInt64Bits(x); return x == 0 ? double.Epsilon : BitConverter.Int64BitsToDouble(x > 0 ? b + 1 : b - 1); }
+            static double NextDown(double x) => -NextUp(-x);
+
             // ------------------------------------------------------------ splitting
 
             /// <summary> the circumcentre of t, or false if it cannot be computed in doubles </summary>
@@ -326,6 +336,7 @@ namespace g3
                     if (unsplittable.Contains(key)) exempt.Add(TriangleKey(t));
                     return null;
                 }
+                if (inserted >= limit) return null;
                 int before = k.VertexCount;
                 k.InsertPoint(c.x, c.y);
                 if (k.VertexCount == before) { exempt.Add(TriangleKey(t)); k.Dirty.Clear(); return null; }
@@ -400,7 +411,14 @@ namespace g3
                 }
                 Vector2d p;
                 var s = b.sources[src[0]];
-                if (s.Hull) p = pu + (pw - pu) * fraction;
+                if (s.Hull) {
+                    // on the hull the point must not round to the outside, or the domain grows: move it inwards by units in the last place
+                    p = pu + (pw - pu) * fraction;
+                    for (int i = 0; i < 64 && ExactPredicates.Orient2d(pu, pw, p) < 0; ++i) {
+                        double nx = -(pw.y - pu.y), ny = pw.x - pu.x;   // the inward normal (the domain is on the left of u -> w)
+                        p = new Vector2d(nx > 0 ? NextUp(p.x) : nx < 0 ? NextDown(p.x) : p.x, ny > 0 ? NextUp(p.y) : ny < 0 ? NextDown(p.y) : p.y);
+                    }
+                }
                 else {
                     var A = new Vector2d(s.AX, s.AY); var B = new Vector2d(s.BX, s.BY);
                     var dir = B - A; double l2 = dir.LengthSquared;
@@ -412,14 +430,17 @@ namespace g3
                     unsplittable.Add(Key(u, w));
                     return null;
                 }
+                if (inserted >= limit) return null;
                 ++splits;
                 var sources = k.Unconstrain(e);
+                // without its constraint the edge may not be Delaunay: restore that first, Lawson's insertion assumes it (as at crossings)
+                k.RestoreDelaunay(new[] { ((long)u << 32) | (uint)w });
                 int before = k.VertexCount;
                 int q = k.InsertPoint(p.x, p.y);
                 if (k.VertexCount > before) {
                     ++inserted;
                     if (b.heights != null) b.SetHeight(q, u, w);
-                }
+                } else unsplittable.Add(Key(u, w));   // no new vertex: no progress from splitting this piece
                 var pending = new Stack<ConstrainedDelaunayMesh2.Builder.Piece>();
                 pending.Push(new ConstrainedDelaunayMesh2.Builder.Piece { U = q, W = w, Sources = sources });
                 pending.Push(new ConstrainedDelaunayMesh2.Builder.Piece { U = u, W = q, Sources = new List<int>(sources) });

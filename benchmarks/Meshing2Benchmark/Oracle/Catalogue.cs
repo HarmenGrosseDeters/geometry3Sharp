@@ -129,7 +129,8 @@ namespace Meshing2Acceptance
             Mesh("F-27", null, "Needle refinement scaling (performance row)", Feature.Refine, M3, Needles().Min(20).Limit(60000), tweak: e => e.AngleGuaranteed = false, note: "time target: over 50 000 vertices in about 2 s; the time is measured by the benchmark");
             Deferred("F-28", null, "A max angle alone is ignored", "Q3: no maximum angle bound in scope");
             Deferred("F-29", null, "Refining again with a max angle crashes", "Q3: no maximum angle bound in scope");
-            Mesh("F-30", "a", "Invalid minimum angle next to a max area", Feature.Refine, M3, S().Area(0.5).Min(70), Hundred, tweak: e => e.InvalidAngle = true, note: "O3: the invalid value must not disable the area limit. Reject or ignore it: decision D12");
+            Test("F-30", "a", "Invalid minimum angle next to a max area", "QualityMesh2Tests.InvalidMinAngle_IsAnArgumentError",
+                note: "D12: an angle below 0 or at 60 and above is an argument error, so it cannot disable the area limit (until M3 this row expected a mesh)");
             Deferred("F-30", "b", "Invalid maximum angle", "Q3: no maximum angle bound in scope");
             Mesh("F-31", "a", "Min angle and area with locked outer boundary", Feature.Locks, M3, new B().Outer(0, 0, 16, 1, 19, 9, 13, 17, 2, 15).RandomPoints(10, 8, 31).Area(4).Min(20));
             Deferred("F-31", "b", "The same with a max angle", "Q3: no maximum angle bound in scope");
