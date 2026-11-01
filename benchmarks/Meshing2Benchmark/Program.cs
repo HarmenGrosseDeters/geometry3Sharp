@@ -31,6 +31,8 @@ namespace Meshing2Acceptance
   format-tables                     print the generated parts of docs/design/MESHING2D_GOLDEN_FORMAT.md
   perf [--sizes 1000,4096,...] [--kinds uniform,grid,utm,clustered] [--repeats 5]
                                     time and allocation of the M1 kernel alone (spec 3.1)
+  perf --m2 [--sizes ...] [--kinds coastline,parcels,crossings] [--repeats 3]
+                                    the same for the constrained mesher
 ";
 
         static int Main(string[] args)

@@ -47,8 +47,8 @@ namespace geometry3Sharp.Tests
                     Assert.NotNull(row.Case);
                     Assert.Contains(row.Feature, Feature.All);
                     // the loud part: the feature exists, the case still says pending
-                    Assert.False(CandidateRegistry.Features.Contains(row.Feature),
-                        row.Id + " is still pending although the feature " + row.Feature + " is registered: run it, move it to covered, record its golden row");
+                    Assert.False(CandidateRegistry.Features.Contains(row.Feature) && CandidateRegistry.For(row.Case.Milestone) != null,
+                        row.Id + " is still pending although the feature " + row.Feature + " and a mesher for " + row.Case.Milestone + " are registered: run it, move it to covered, record its golden row");
                     log.WriteLine(row.Id + " pending until " + row.Feature);
                     break;
                 case CaseState.Covered:

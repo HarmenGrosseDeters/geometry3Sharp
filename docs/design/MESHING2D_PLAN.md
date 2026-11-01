@@ -175,3 +175,20 @@ item ("the same small angle, not forced") was itself wrong and is replaced. Left
 - `IsValid` is linear and exact: orientation, adjacency, local Delaunay, a convex hull winding once, Euler. `Compute` runs the same checks on the kernel
   and returns `Failed` with `ProblemCoordinate` on a defect. `NumericalFailure` and `IterationLimit` are gone (D15).
 - `Prototype200Candidate.cs` is deleted, as planned. #200 is still open; closing it needs the owner.
+
+**M2 (a, b): built** (PR on branch `meshing2d/m2`, stacked on M1). `ConstrainedDelaunayMesh2` with `ConstrainedMesh2Input` (points, segments with marker and
+lock, rings, hole seeds, regions by ring or seed, optional heights) and `ConstrainedMesh2` (vertices, input map, triangles, neighbours, labels, subsegments with
+marker, marker list and lock, heights, `TryLocate` in non-convex domains), `Triangulation2Status` and two new failure kinds. All 26 catalogue rows of
+`m2.cdt`, `m2.domain`, `m2.regions`, `m2.noding` with milestone M2 pass the oracle; golden M2 recorded. Decisions taken:
+
+- D1 as decided: crossings exact, rounded to nearest double (own integer rounding, no BigInteger-to-double conversion that may differ by runtime).
+- Automatic tolerance for routing: 2^-41 of max(largest coordinate, extent), half the oracle's 2^-40, so routing decisions in doubles stay inside the tube.
+  A vertex within it of a piece and of all the piece's input segments becomes a vertex of it. No vertex is merged with another (only exact duplicates).
+- Markers (D7): a subsegment carries the markers of all input segments within 2^-40 of both its ends, so nearly coincident lines share their pieces' markers.
+- Heights (D11): input heights pass through (lowest index wins, with a diagnostic); a crossing gets the height interpolated along the later piece. Q9's
+  interpolation of Steiner points on the reference mesh is M3.
+- Oracle change: a chain may end at a vertex in the tubes of its segment and of the cutting ring edge (a crossing at a tiny angle is ill-conditioned along
+  the lines: found by fuzzing, 7.5e-6 along at an angle of 1e-10); the movement it measures counts only the distance off the two lines.
+
+Not yet: `m2.snap` (explicit tolerance, vertex clustering, wedges; D14: choose against F-10 to F-22), and the M3-milestone rows of the M2 features.
+Performance: 400 000 coastline points in 2.3 s (spec: below 5 s), 400 000 parcel points in 2.6 s; the crossing-heavy case allocates too much (2 GB for 490 000 crossings).

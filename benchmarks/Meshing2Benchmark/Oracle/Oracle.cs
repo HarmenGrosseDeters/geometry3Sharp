@@ -543,8 +543,14 @@ namespace Meshing2Acceptance
                     foreach (var piece in RetainedPieces(s.a, s.b, ringEdges)) {
                         var candidates = new HashSet<int>();
                         for (int i = 0; i < v.Length; ++i) if (Exact.Dist2ToSegment(s.a, s.b, v[i]) <= tube2) candidates.Add(i);
-                        var starts = candidates.Where(i => Exact.Len2(v[i], piece.from) <= tube2).ToList();
-                        var goals = new HashSet<int>(candidates.Where(i => Exact.Len2(v[i], piece.to) <= tube2));
+                        // A piece ends where a ring edge cuts it. At a tiny angle that point is ill-conditioned along the lines: a crossing rounded
+                        // to doubles (D1) can lie far from the exact one along them while within the tube of both. So a vertex in the tubes of the
+                        // source and of a ring edge through the end also ends the chain.
+                        var cutFrom = ringEdges.Where(g => Exact.Dist2ToSegment(g.a, g.b, piece.from) <= tube2).ToList();
+                        var cutTo = ringEdges.Where(g => Exact.Dist2ToSegment(g.a, g.b, piece.to) <= tube2).ToList();
+                        bool OnCut(List<(Pt a, Pt b)> cut, int i) => tube2.Sign > 0 && cut.Any(g => Exact.Dist2ToSegment(g.a, g.b, v[i]) <= tube2);
+                        var starts = candidates.Where(i => Exact.Len2(v[i], piece.from) <= tube2 || OnCut(cutFrom, i)).ToList();
+                        var goals = new HashSet<int>(candidates.Where(i => Exact.Len2(v[i], piece.to) <= tube2 || OnCut(cutTo, i)));
                         var previous = new Dictionary<int, int>();
                         var queue = new Queue<int>();
                         foreach (int i in starts) { previous[i] = -1; queue.Enqueue(i); }
@@ -557,10 +563,19 @@ namespace Meshing2Acceptance
                                 if (candidates.Contains(n) && !previous.ContainsKey(n)) { previous[n] = at; queue.Enqueue(n); }
                         }
                         if (reached < 0) { r.Add(Violation.SegmentMissing, "input constraint " + s.a + " - " + s.b + ": no chain from " + piece.from + " to " + piece.to); continue; }
-                        moved2 = Q.Max(moved2, Exact.Len2(v[reached], piece.to));
+                        // how far the end moved: to the exact end, or, if it ended on the cutting ring edge instead, off the two lines only
+                        Q EndMove(int i, Pt end, List<(Pt a, Pt b)> cut)
+                        {
+                            Q d = Exact.Len2(v[i], end);
+                            if (d <= tube2) return d;
+                            Q best = d;
+                            foreach (var g in cut) best = Q.Min(best, Q.Max(Exact.Dist2ToSegment(g.a, g.b, v[i]), Exact.Dist2ToSegment(s.a, s.b, v[i])));
+                            return best;
+                        }
+                        moved2 = Q.Max(moved2, EndMove(reached, piece.to, cutTo));
                         int first = reached;
                         for (int at = reached; at >= 0; at = previous[at]) { moved2 = Q.Max(moved2, Exact.Dist2ToSegment(s.a, s.b, v[at])); first = at; }
-                        moved2 = Q.Max(moved2, Exact.Len2(v[first], piece.from));
+                        moved2 = Q.Max(moved2, EndMove(first, piece.from, cutFrom));
                         if (s.locked) CheckLocked(s, reached, previous);
                     }
                 }

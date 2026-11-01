@@ -29,6 +29,20 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void M2_RecordedRows_AreReproduced()
+        {
+            // the covered catalogue rows of milestone M2, as `golden check --milestone M2` takes them
+            var file = GoldenFile.Parse(File.ReadAllText(Path.Combine(Dir, "m2.json")));
+            var cases = Catalogue.Rows().Where(r => r.Case != null && r.Case.Milestone == Milestone.M2 && r.State == CaseState.Covered).Select(r => r.Case).ToList();
+            Assert.True(file.Rows.Count == cases.Count && cases.Count >= 20, file.Rows.Count + " rows for " + cases.Count + " covered cases");
+            Assert.All(file.Rows, row => Assert.False(string.IsNullOrWhiteSpace(row.Reason), row.Case));
+            var problems = GoldenProcess.Check(file, cases, CandidateRegistry.For(Milestone.M2));
+            Assert.True(problems.Count == 0, string.Join("\n", problems));
+            string text = File.ReadAllText(Path.Combine(Dir, "m2.json")).Replace("\r\n", "\n");
+            Assert.Equal(text, file.Write());
+        }
+
+        [Fact]
         public void M1_GoldenFile_IsFormattedAsTheToolWritesIt()
         {
             string text = File.ReadAllText(Path.Combine(Dir, "m1.json")).Replace("\r\n", "\n");
