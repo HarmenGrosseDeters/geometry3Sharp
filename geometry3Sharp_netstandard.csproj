@@ -60,6 +60,16 @@
     <InternalsVisibleTo Include="BooleanComparison" />
   </ItemGroup>
 
+  <!-- banned APIs and analyzers in the exact-arithmetic code (BannedSymbols.txt, G3E0001; scoped by .editorconfig;
+       build-time only, not a package dependency) -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.BannedApiAnalyzers" Version="4.14.0" PrivateAssets="all" />
+    <AdditionalFiles Include="BannedSymbols.txt" />
+    <!-- G3E0001: no float in the exact code (RS0030 only sees member accesses such as float.Epsilon) -->
+    <ProjectReference Include="tools\analyzers\G3ExactCodeAnalyzers\G3ExactCodeAnalyzers.csproj"
+                      OutputItemType="Analyzer" ReferenceOutputAssembly="false" PrivateAssets="all" />
+  </ItemGroup>
+
   <ItemGroup>
     <Folder Include="Properties\" />
   </ItemGroup>

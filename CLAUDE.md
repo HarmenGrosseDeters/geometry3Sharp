@@ -20,7 +20,11 @@ setup (SDK install): [docs/QA.md#5-local-setup](docs/QA.md#5-local-setup).
   parts of TetWild). List the sources in `docs/SOURCES.md`.
 - Do not commit mesh files (Thingi10K and other test meshes have their own licenses); generate test meshes
   procedurally.
-- Stay API compatible with upstream 1.0.324.
+- Stay API compatible with upstream 1.0.324. Enforced: `dotnet pack` validates the API against the 1.0.324
+  package and fails on a break; an intentional break goes into `CompatibilitySuppressions.xml`, justified in the PR.
+- In the exact code (`math/Exact*`, `math/AdaptivePredicates.cs`, `mesh_ops/ExactMesh*`) FMA, `float` and parallel
+  loops are build errors (`BannedSymbols.txt`, analyzer G3E0001, scoped in `.editorconfig`). A new parallel loop there
+  needs a review (no floating-point reduction across threads) and an entry in `core/ExactCodeAllowList.cs`.
 
 ## Before every push
 

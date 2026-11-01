@@ -1,0 +1,12 @@
+# Analyzer scoping only; no formatting rules here.
+
+# Banned APIs (BannedSymbols.txt, RS0030)
+# and no float (G3E0001, tools/analyzers/G3ExactCodeAnalyzers): off in general ...
+[*.cs]
+dotnet_diagnostic.RS0030.severity = none
+dotnet_diagnostic.G3E0001.severity = none
+
+# ... and an error in the exact-arithmetic code (CLAUDE.md, docs/QA.md 4a item 3)
+[{math/Exact*.cs,math/AdaptivePredicates.cs,mesh_ops/ExactMesh*.cs}]
+dotnet_diagnostic.RS0030.severity = error
+dotnet_diagnostic.G3E0001.severity = error

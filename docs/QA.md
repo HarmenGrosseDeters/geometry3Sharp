@@ -432,10 +432,19 @@ not depend on the implementer's own tests. Order of priority:
 1. **New tests fail on the old code**: a CI job runs the tests a PR adds against the base branch; for a bug fix they
    must fail there. Catches vacuous tests (one was found in review in #186).
 2. **API compatibility with upstream 1.0.324**: .NET package validation (`EnablePackageValidation` with baseline
-   1.0.324) in the pack step.
+   1.0.324) in the pack step. Done (#92, §2.8): `dotnet pack` fails with CP0002 etc. on a break; the accepted breaks
+   are in `CompatibilitySuppressions.xml`.
 3. **Banned APIs and analyzers in exact code**: a banned-API analyzer forbids `Math.FusedMultiplyAdd`, `float` and
    parallel floating-point reductions in `math/Exact*`, `math/AdaptivePredicates.cs` and `mesh_ops/ExactMesh*`;
-   warnings as errors there.
+   warnings as errors there. Done: `Microsoft.CodeAnalysis.BannedApiAnalyzers` (RS0030) with `BannedSymbols.txt`
+   (FMA in `Math`, `Vector*` and the FMA intrinsics, `MathF`, `Parallel`, PLINQ, `gParallel`, `Interlocked` on
+   double / float), and the analyzer G3E0001 (`tools/analyzers/G3ExactCodeAnalyzers`) for every expression,
+   declaration and signature of type `float`, which RS0030 does not see. `.editorconfig` makes both errors in these
+   files and turns them off elsewhere. The analyzer cannot see what a parallel loop aggregates, so parallel loops are
+   banned there as a whole; the reviewed existing ones (integer aggregation only) are allowed per member in
+   `core/ExactCodeAllowList.cs`. `ExactCodeAnalyzerTests` checks the analyzer and that every banned ID and
+   allow-list target names an existing symbol. Not covered: `Task` / `Thread`, and a new loop inside an allowed
+   member.
 4. **Acceptance against references**: for spec-driven work, an oracle by definition, a differential against other libraries, and a golden
    master of accepted results ([strategy](design/ACCEPTANCE_STRATEGY.md)).
 5. **Quality ratchet in CI**: a small fixed benchmark subset with stored metrics (JSON: clean results, max
