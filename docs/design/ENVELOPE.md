@@ -33,7 +33,7 @@ rounding. Consumers, in order of value:
 
 ## 3. The algorithm (the paper, sections 3 and 4)
 
-Sources: the paper (its method sections, summarized for this document from the owner's copy) and, as a reference
+Sources: the paper (read in full from the owner's copy) and, as a reference
 only, `fast-envelope` (github.com/wangbolun300/fast-envelope, MIT license checked: `LICENSE`, copyright 2019 the
 authors; its `src/` read). Its bundled `indirectPredicates/` and `geogram_predicates/` stay unread (their licenses are
 not checked, and nothing of them is needed: our predicates are generated).
@@ -199,9 +199,19 @@ Stop rule: if after PR 3 the triangle query is not within a factor of 5 of the d
 - M. Attene, *Indirect Predicates for Geometric Constructions*, CAD 2020 (the indirect predicates).
 - J. R. Shewchuk 1997 (expansions, not needed per INDIRECT_PREDICATES.md section 10).
 
-## 9. Still to check in the paper
+## 9. Notes from the paper's full text
 
-The method sections are summarized in section 3 (from the owner's copy, via the coordinator). Open: the exact
-statement of Prop. 3.1 for degenerate and very thin triangles, and the proof's treatment of queries that touch a
-facet or a polyhedron's edge (the openness of P makes such points "outside"; the tests of PR 2 and 3 must cover
-them). If needed, the owner can upload the PDF into the session.
+- **Degenerate input triangles** are not treated in the paper: Prop. 3.1 assumes a proper triangle (its proof uses
+  the barycenter and the vertex angles). `fast-envelope` handles them in code. Ours (PR 2) builds a polyhedron
+  around the longest edge or the point, as `MeshEnvelope` does, with its own proof of the ε bound in the code and
+  tests at the degenerate limit.
+- **Queries touching the envelope:** the polyhedra are open and T counts as inside only if every point is in the
+  interior of PS, so a vertex, LPI or TPI point on a facet is "not inside" (orient3d 0 is OUT). The proof of
+  Thm. 3.2 relies on this openness. PR 2 and 3 test touching vertices, edges along facets and coplanar triangles.
+- **Translation invariance.** The paper's semi-static filters use coordinate differences only (relative to a point
+  of each plane triple and to the reference points). Our LPI / TPI specs (#246) still contain raw coordinates
+  (`N − d c` with `p.x lq`); PR 1 rewrites them in differences, `(p − c) lq − (q − c) lp` for LPI and
+  `Σ_k (n_k · (a_k − c)) e_k` for TPI (Cramer's identity), the same values and degree, so that the filter and the
+  bounds do not grow with the distance from the origin (UTM-like coordinates).
+- Appendix B shows why an explicit intersection point must not be rounded (an LPI point at (1/3, 1/3, 1/3) misread
+  as off the plane); the predicates here never construct it.
