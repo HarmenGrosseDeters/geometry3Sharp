@@ -443,12 +443,84 @@ namespace g3cli.Tests
             AssertOk(exit, r);
             Assert.Equal(0.2, D(r["min_quality"]));
             AssertCleanCube(r["mesh"], 8);
-            (exit, r) = Run("remesh", m.Cube, m.Path_("remeshed_cube_q0.stl"), "--edge-length", "0.4");
+            (exit, r) = Run("remesh", m.Cube, m.Path_("remeshed_cube_q0.stl"), "--edge-length", "0.4", "--min-quality", "0");
             AssertOk(exit, r);
             Assert.Equal(0, D(r["min_quality"]));
+            (exit, r) = Run("remesh", m.Cube, m.Path_("remeshed_cube_qd.stl"), "--edge-length", "0.4");
+            AssertOk(exit, r);
+            Assert.Equal(0.2, D(r["min_quality"]));       // the default (benchmarks/RemeshQualityBenchmark)
             (exit, r) = Run("remesh", m.Cube, m.Path_("remeshed_cube_q2.stl"), "--min-quality", "1.5");
             AssertError(exit, r, "invalid_arguments", 2);
             (exit, r) = Run("remesh", m.Cube, m.Path_("remeshed_cube_q3.stl"), "--min-quality", "-0.1");
+            AssertError(exit, r, "invalid_arguments", 2);
+        }
+
+        // an extruded gear with 3 points per flank and fan caps (RemeshQualityBenchmark gear12_3): at its mean edge length
+        // the unguarded remesher leaves flat triangles and self-intersections, the default (min_quality 0.2) a clean mesh
+        static string WriteGear(TestMeshes m)
+        {
+            var poly = new List<g3.Vector2d>();
+            int teeth = 12;
+            for (int k = 0; k < teeth; ++k) {
+                double a0 = 2 * Math.PI * k / teeth, da = 2 * Math.PI / teeth;
+                foreach (var (f, rr) in new[] { (0.0, 0.8), (0.2, 1.0), (0.5, 1.0), (0.7, 0.8) })
+                    poly.Add(rr * new g3.Vector2d(Math.Cos(a0 + f * da), Math.Sin(a0 + f * da)));
+            }
+            var outline = new List<g3.Vector2d>();
+            for (int i = 0; i < poly.Count; ++i)
+                for (int k = 0; k < 3; ++k)
+                    outline.Add(g3.Vector2d.Lerp(poly[i], poly[(i + 1) % poly.Count], k / 3.0));
+            var gear = new g3.DMesh3();
+            int n = outline.Count;
+            int cb = gear.AppendVertex(new g3.Vector3d(0, 0, 0)), ct = gear.AppendVertex(new g3.Vector3d(0, 0, 0.3));
+            int[] b = outline.Select(p => gear.AppendVertex(new g3.Vector3d(p.x, p.y, 0))).ToArray();
+            int[] t = outline.Select(p => gear.AppendVertex(new g3.Vector3d(p.x, p.y, 0.3))).ToArray();
+            for (int i = 0; i < n; ++i) {
+                int j = (i + 1) % n;
+                gear.AppendTriangle(cb, b[j], b[i]); gear.AppendTriangle(ct, t[i], t[j]);
+                gear.AppendTriangle(b[i], b[j], t[j]); gear.AppendTriangle(b[i], t[j], t[i]);
+            }
+            string path = m.Path_("gear.stl");
+            g3.StandardMeshWriter.WriteMesh(path, gear, g3.WriteOptions.Defaults);
+            return path;
+        }
+
+        [Fact]
+        public void Remesh_Gear_DefaultIsClean()
+        {
+            string input = WriteGear(m);
+            var (exit, r) = Run("remesh", input, m.Path_("gear_remeshed.stl"));
+            AssertOk(exit, r);
+            Assert.Equal(0.2, D(r["min_quality"]));
+            Assert.True(B(r["mesh"]["closed"]), r.ToJsonString());
+            Assert.True(B(r["mesh"]["clean"]), r.ToJsonString());
+            Assert.Equal(0, I(r["mesh"]["self_intersections"]));
+            // without the guard: not clean (the reason the default is on)
+            (exit, r) = Run("remesh", input, m.Path_("gear_remeshed_q0.stl"), "--min-quality", "0");
+            AssertOk(exit, r);
+            Assert.False(B(r["mesh"]["clean"]), r.ToJsonString());
+            Assert.True(I(r["mesh"]["self_intersections"]) > 0);
+        }
+
+        [Fact]
+        public void Remesh_SharpVertexAngle_KeepsTheConeApex()
+        {
+            // a cone with 24 slices: its side edges are no creases, so without the option the apex is rounded off
+            var cone = new g3.ConeGenerator() { BaseRadius = 1f, Height = 2f, Slices = 24, NoSharedVertices = false }.Generate().MakeDMesh();
+            string input = m.Path_("cone24.stl");
+            g3.StandardMeshWriter.WriteMesh(input, cone, g3.WriteOptions.Defaults);
+            // the default: on (75 degrees)
+            var (exit, r) = Run("remesh", input, m.Path_("cone24_pinned.stl"), "--edge-length", "0.15", "--deviation");
+            AssertOk(exit, r);
+            Assert.Equal(1, I(r["sharp_vertices_pinned"]));
+            Assert.True(B(r["mesh"]["closed"]), r.ToJsonString());
+            double pinned = D(r["hausdorff"]["distance"]);
+            (exit, r) = Run("remesh", input, m.Path_("cone24_default.stl"), "--edge-length", "0.15", "--sharp-vertex-angle", "0", "--deviation");
+            AssertOk(exit, r);
+            Assert.Equal(0, I(r["sharp_vertices_pinned"]));
+            double rounded = D(r["hausdorff"]["distance"]);
+            Assert.True(pinned < 0.1 && rounded > 0.2, $"hausdorff {pinned} with, {rounded} without the option");
+            (exit, r) = Run("remesh", input, m.Path_("cone24_bad.stl"), "--sharp-vertex-angle", "-1");
             AssertError(exit, r, "invalid_arguments", 2);
         }
 

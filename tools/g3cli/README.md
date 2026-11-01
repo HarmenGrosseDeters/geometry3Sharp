@@ -10,7 +10,7 @@ tools of an MCP server (stdio), for coding agents and scripts.
 | `repair` | repair into a closed solid (`--method robust`, default, or `auto`); with the exact resolve, `genus_before` / `genus_after` and a warning when it changed the genus of a component (self-overlapping layers form tunnels) | `MeshRobustRepair`, `MeshAutoRepair` |
 | `boolean` | union, intersection, difference (a minus the others), at least k of n; two or more meshes (`--more`) in one exact operation; the result is repaired after the rounding (`SafeRounding`, the library default), `boolean.rounding_clean` tells whether it is verified free of self-intersections and slivers | `ExactMeshBoolean` |
 | `resolve` | boundary of the solid of one mesh: removes self-intersections, nested shells, duplicate faces | `ExactMeshBoolean.Resolve` |
-| `remesh` | isotropic remeshing to a target edge length, boundary and sharp edges kept; passes that would turn a closed part inside out are rolled back (`rejected_passes`), a warning if the edge length is more than 4 times the estimated wall thickness | `Remesher`, `MeshConstraintUtil` |
+| `remesh` | isotropic remeshing to a target edge length, boundary and sharp edges kept, sharp points with `--sharp-vertex-angle` (`sharp_vertices_pinned`); passes that would turn a closed part inside out are rolled back (`rejected_passes`), a warning if the edge length is more than 4 times the estimated wall thickness | `Remesher`, `MeshConstraintUtil` |
 | `simplify` | quadric edge collapse to a triangle count, ratio, error or edge length | `Reducer` |
 | `uv` | UV atlas: seams / cones / charts, BFF, packing, exact overlap test, distortion limits | `UVAtlasGenerator`, `MeshDiscCut`, `ConeFlattening` |
 | `convert` | STL, OBJ, OFF, PLY, 3MF, glTF/GLB, g3mesh (by file extension) | `StandardMeshReader`, `StandardMeshWriter` |
@@ -112,10 +112,15 @@ g3cli resolve assembly.off solid.ply
 
 # remesh to edge length 0.5, keep edges sharper than 40 degrees, report the deviation
 g3cli remesh part.stl part_remeshed.obj --edge-length 0.5 --crease-angle 40 --deviation
-# CAD and feature meshes: guard against poor and flat triangles (Remesher.MinTriangleQuality; benchmarks/RemeshQualityBenchmark:
-# on extruded gears no flat triangles and no self-intersections left, edge precision 0.84 -> 1.0). Not for thin walls far
-# below the edge length, where it makes the result worse
-g3cli remesh part.stl part_remeshed.obj --min-quality 0.2
+# the guard against poor and flat triangles is on by default (--min-quality 0.2, Remesher.MinTriangleQuality;
+# benchmarks/RemeshQualityBenchmark: on 20 Thingi10K meshes 87% fewer flat triangles, 84% fewer self-intersecting
+# pairs, F-score and edge recall slightly better, about 1.5x the time). 0 restores the unguarded remesher, eg for
+# thin walls far below the edge length, where the guard makes the result worse
+g3cli remesh part.stl part_remeshed.obj --min-quality 0
+# points that are no junction of creases, eg the apex of a cone with many slices, are kept by default
+# (--sharp-vertex-angle 75, MeshConstraintUtil.PinSharpVertices: vertices with an absolute angle deficit of at least 75
+# degrees are pinned, reported in sharp_vertices_pinned; benchmarks/RemeshQualityBenchmark); 0 turns it off
+g3cli remesh part.stl part_remeshed.obj --sharp-vertex-angle 0
 
 # simplify to 10% of the triangles, or to at most 5000
 g3cli simplify scan.ply scan_small.ply --ratio 0.1 --deviation

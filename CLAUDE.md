@@ -9,7 +9,9 @@ setup (SDK install): [docs/QA.md#5-local-setup](docs/QA.md#5-local-setup).
 
 - Answer the user in German. Code, comments, commit messages, PRs and docs stay in English.
 - Every change comes with tests, if possible ones that fail on the old code. Check them with mutations
-  (break the change, the tests must fail).
+  (break the change, the tests must fail). CI runs the test methods a PR adds against the base branch's library and
+  reports which fail there (`New tests on base`, `tools/new_tests_on_base.py`); with the label `bugfix` at least one
+  must fail.
 - A new or changed operation also gets: an invariance test over `Similarity.All()`
   (`tests/geometry3Sharp.Tests/Harness/Invariance.cs`; the 2^k scales must give the same result bit for bit),
   a reuse test (compute twice on one instance) if it has `Compute()`, and a determinism test (parallel equals
@@ -20,9 +22,17 @@ setup (SDK install): [docs/QA.md#5-local-setup](docs/QA.md#5-local-setup).
   parts of TetWild). List the sources in `docs/SOURCES.md`.
 - Do not commit mesh files (Thingi10K and other test meshes have their own licenses); generate test meshes
   procedurally.
-- Stay API compatible with upstream 1.0.324.
+- Stay API compatible with upstream 1.0.324. Enforced: `dotnet pack` validates the API against the 1.0.324
+  package and fails on a break; an intentional break goes into `CompatibilitySuppressions.xml`, justified in the PR.
+- In the exact code (`math/Exact*`, `math/AdaptivePredicates.cs`, `mesh_ops/ExactMesh*` and the exact files they call,
+  listed in `.editorconfig`) FMA, `float` and parallel loops are build errors (`BannedSymbols.txt`, analyzers
+  G3E0001-3). A new parallel loop there needs a review (no floating-point reduction across threads) and an entry in
+  `core/ExactCodeAllowList.cs`.
 
 ## Before every push
+
+Docs-only changes (only `*.md` files) need no local CI steps, and GitHub CI skips them (`paths-ignore` in
+`ci.yml`): re-read the diff and push. Anything else, including code in `docs/examples`, runs the full list.
 
 Run the steps of `.github/workflows/ci.yml` locally:
 
@@ -32,8 +42,16 @@ dotnet test tests/g3cli.Tests -c Release
 dotnet pack geometry3Sharp_netstandard.csproj -c Release -o <dir> -p:Version=1.0.0-ci.1
 dotnet run --project tests/PackageSmokeTest -c Release -p:G3PackageVersion=1.0.0-ci.1 -p:G3PackageSource=<dir> -- <dir>/geometry3Sharp.1.0.0-ci.1.nupkg
 dotnet build tests/geometry3Sharp.Tests -c Release -f net48 -p:TestNet48=true
+dotnet test tests/geometry3Sharp.Clipper2.Tests -c Release
+dotnet pack addons/geometry3Sharp.Clipper2/geometry3Sharp.Clipper2.csproj -c Release -o <dir> -p:Version=1.0.0-ci.1
+dotnet run --project tests/Clipper2PackageSmokeTest -c Release -p:G3PackageVersion=1.0.0-ci.1 -p:G3PackageSource=<dir> -- <dir>/geometry3Sharp.Clipper2.1.0.0-ci.1.nupkg
+dotnet build tests/geometry3Sharp.Clipper2.Tests -c Release -f net48 -p:TestNet48=true
 dotnet build benchmarks/<each>/<each>.csproj -c Release
 ```
+
+Draft PRs and spikes: before a push, build the library for all targets (net10.0, netstandard2.0) and the net48 test
+project, and run the tests of the changed areas (`dotnet test --filter ...`). The full list above runs before the PR
+is marked ready for review; the CI of every push runs it on GitHub anyway.
 
 Every push gets a PR; watch its CI and fix red CI right away.
 
