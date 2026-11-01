@@ -378,8 +378,11 @@ namespace gs
                     int sa = ExactPredicates.Orient3d(r, s, t, a), sb = ExactPredicates.Orient3d(r, s, t, b);
                     if (sa * sb >= 0) continue;
                     bool covered = false;
+                    // the crossing point's construction once, then against every facet of the others
+                    IndirectPredicates.Orient3dLPIPrepared lpi;
+                    IndirectPredicates.Orient3dLPIPrepare(a, b, r, s, t, out lpi);
                     foreach (int p2 in cand)
-                        if (p2 != p && inside_lpi(p2, a, b, r, s, t)) { covered = true; break; }
+                        if (p2 != p && inside_lpi(p2, ref lpi)) { covered = true; break; }
                     if (covered == false) return false;
                 }
             }
@@ -402,12 +405,12 @@ namespace gs
             return true;
         }
 
-        // is the point of line ab and plane rst strictly inside polyhedron p?
-        bool inside_lpi(int p, Vector3d a, Vector3d b, Vector3d r, Vector3d s, Vector3d t)
+        // is the prepared point (line ab and plane rst) strictly inside polyhedron p?
+        bool inside_lpi(int p, ref IndirectPredicates.Orient3dLPIPrepared lpi)
         {
             int o = p * MaxFacets * 3;
             for (int f = 0; f < facetCount[p]; ++f, o += 3)
-                if (IndirectPredicates.Orient3dLPI(a, b, r, s, t, facets[o], facets[o + 1], facets[o + 2]) >= 0) return false;
+                if (IndirectPredicates.Orient3dLPI(ref lpi, facets[o], facets[o + 1], facets[o + 2]) >= 0) return false;
             return true;
         }
 

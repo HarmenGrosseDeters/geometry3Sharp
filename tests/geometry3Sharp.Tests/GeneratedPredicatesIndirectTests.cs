@@ -617,6 +617,64 @@ namespace geometry3Sharp.Tests
         }
 
         /// <summary>
+        /// The prepared predicates (ENVELOPE.md 4.1, item 2): Prepare once, then the call against many points gives the
+        /// unsplit predicate's sign, and its filter decides exactly as the unsplit filter (bit for bit: 2 where it is 2).
+        /// General doubles in and out of the filter's range, nearly degenerate cases (the point moved by one ulp onto and
+        /// off a plane through it), integers, and non-finite coordinates (rejected by Prepare and by the call).
+        /// </summary>
+        [Fact]
+        public void Prepared_EqualsUnsplit()
+        {
+            var rand = new Random(41);
+            int filterDecided = 0, exactPath = 0;
+            for (int k = 0; k < 1500; ++k) {
+                int center = new[] { -50, 0, 20, 60, 130 }[k % 5];
+                int spread = k % 7 == 0 ? 100 + rand.Next(300) : rand.Next(71);
+                var P = Enumerable.Range(0, 12).Select(_ => new Vector3d(D(rand, center + rand.Next(spread + 1)), D(rand, center + rand.Next(spread + 1)),
+                    k % 5 == 0 ? 0.0 : D(rand, center + rand.Next(spread + 1)))).ToArray();
+                if (k % 3 == 0) P = P.Select(v => new Vector3d(Math.Round(v.x * 1e3), Math.Round(v.y * 1e3), Math.Round(v.z * 1e3))).ToArray();
+                // the line nearly parallel to the plane (d near 0: the filter of the factor d decides close to its bound)
+                if (k % 4 == 1) P[1] = P[0] + (P[3] - P[2]) + rand.NextDouble() * (P[4] - P[2]) * (k % 8 == 1 ? 1e-12 : 0);
+                IndirectPredicates.Orient3dLPIPrepare(P[0], P[1], P[2], P[3], P[4], out var lpi);
+                IndirectPredicates.Orient3dTPIPrepare(P[0], P[1], P[2], P[3], P[4], P[5], P[6], P[7], P[8], out var tpi);
+                for (int j = 0; j < 5; ++j) {
+                    Vector3d a = j == 0 ? P[9] : P[5 + j], b = P[10], c = j == 1 ? P[2] : P[11];
+                    if (j == 3) {
+                        // the evaluating plane through the LPI line's endpoint: one ulp off
+                        a = P[0]; b = P[3]; c = new Vector3d(BitIncrement(P[4].x), P[4].y, P[4].z);
+                    }
+                    if (j == 4) { a = P[2]; b = P[3]; c = P[4]; }     // the LPI point's own plane: 0, the filter fails
+                    int u = IndirectPredicates.Orient3dLPI(P[0], P[1], P[2], P[3], P[4], a, b, c);
+                    Assert.Equal(u, IndirectPredicates.Orient3dLPI(ref lpi, a, b, c));
+                    if (lpi.Gate && InRange(new[] { a, b, c })) {
+                        int f = IndirectPredicates.Orient3dLPIFilter(P[0], P[1], P[2], P[3], P[4], a, b, c);
+                        Assert.Equal(f, IndirectPredicates.Orient3dLPIFilterPrepared(ref lpi, a, b, c));
+                        if (f != 2) filterDecided++; else exactPath++;
+                    }
+                    int ut = IndirectPredicates.Orient3dTPI(P[0], P[1], P[2], P[3], P[4], P[5], P[6], P[7], P[8], a, b, c);
+                    Assert.Equal(ut, IndirectPredicates.Orient3dTPI(ref tpi, a, b, c));
+                    if (tpi.Gate && InRange(new[] { a, b, c })) {
+                        int f = IndirectPredicates.Orient3dTPIFilter(P[0], P[1], P[2], P[3], P[4], P[5], P[6], P[7], P[8], a, b, c);
+                        Assert.Equal(f, IndirectPredicates.Orient3dTPIFilterPrepared(ref tpi, a, b, c));
+                        if (f != 2) filterDecided++; else exactPath++;
+                    }
+                }
+            }
+            Assert.True(filterDecided > 3000 && exactPath > 500, $"filter decided {filterDecided}, exact {exactPath}");
+            // the gate of the prepared points: out of range goes to the exact stage, with the same result
+            Vector3d[] Q = { new Vector3d(1e-200, 2, 3), new Vector3d(4, 5, 6.5), new Vector3d(1, 0, 0), new Vector3d(0, 1, 0), new Vector3d(0, 0, 1) };
+            IndirectPredicates.Orient3dLPIPrepare(Q[0], Q[1], Q[2], Q[3], Q[4], out var g);
+            Assert.False(g.Gate);
+            Assert.Equal(IndirectPredicates.Orient3dLPI(Q[0], Q[1], Q[2], Q[3], Q[4], Q[2], Q[3], new Vector3d(7, 8, 9)),
+                IndirectPredicates.Orient3dLPI(ref g, Q[2], Q[3], new Vector3d(7, 8, 9)));
+            // non-finite coordinates
+            Assert.Throws<ArgumentException>(() => IndirectPredicates.Orient3dLPIPrepare(new Vector3d(double.NaN, 0, 0), Q[1], Q[2], Q[3], Q[4], out var _));
+            Assert.Throws<ArgumentException>(() => IndirectPredicates.Orient3dTPIPrepare(Q[0], Q[1], Q[2], Q[3], Q[4], Q[0], Q[1], Q[2], new Vector3d(0, double.PositiveInfinity, 0), out var _));
+            IndirectPredicates.Orient3dLPIPrepare(Q[0], Q[1], Q[2], Q[3], Q[4], out var h);
+            Assert.Throws<ArgumentException>(() => IndirectPredicates.Orient3dLPI(ref h, Q[2], new Vector3d(0, 0, double.NegativeInfinity), Q[4]));
+        }
+
+        /// <summary>
         /// exact zeros of general doubles (the LPI point on its own plane and line, the TPI point on its planes) and the
         /// same moved by one ulp of one coordinate: the filter fails or is right, the result equals the oracle
         /// </summary>

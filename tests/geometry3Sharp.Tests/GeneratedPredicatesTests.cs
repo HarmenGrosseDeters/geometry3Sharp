@@ -283,6 +283,12 @@ namespace geometry3Sharp.Tests
                 "ipredicate P(a, b)\n    sign a.x * b.x",                   // no bound
                 "ipredicate P(a, b) bound 0\n    sign a.x * b.x",           // bound out of range
                 "ipredicate P(a, b) bound -3\n    sign a.x * b.x",
+                // 'prepare': only for inputs xyz, a proper subset of known distinct points, once
+                "ipredicate P(a, b) bound 64\n    prepare a\n    sign a.x * b.x",
+                "ipredicate P(a, b) bound 64 inputs xyz\n    prepare a, b\n    sign a.x * b.x",
+                "ipredicate P(a, b) bound 64 inputs xyz\n    prepare c\n    sign a.x * b.x",
+                "ipredicate P(a, b, c) bound 64 inputs xyz\n    prepare a, a\n    sign a.x * b.x",
+                "ipredicate P(a, b, c) bound 64 inputs xyz\n    prepare a\n    prepare b\n    sign a.x * b.x",
             })
                 Assert.Throws<FormatException>(() => PredicateCompiler.Analyze(bad));
         }

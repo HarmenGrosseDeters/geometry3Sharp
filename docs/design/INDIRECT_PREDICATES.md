@@ -387,3 +387,19 @@ The filter path is 11 to 30 ns slower: the range and finiteness checks and the s
 subtractions, 3 fewer multiplications) together, not measured apart; the exact path is 25-37 % slower (the alignment
 and two-limb inputs, and the same spec change). (The benchmark's construct-then-evaluate column now converts the doubles exactly by `Decompose` and is not
 comparable between the two versions.)
+
+## 12. Prepared predicates (envelope 1b, docs/design/ENVELOPE.md section 4.1, item 2)
+
+`prepare p, q, ...` in a spec, for inputs xyz, names a proper subset of the points. The generator then also emits a
+struct `<Name>Prepared`, `<Name>Prepare(points, out struct)` and `<Name>(ref struct, other points)`, with
+`<Name>FilterPrepared` as its filter.
+
+The filter values that depend on the prepared points only (with m~) are computed once. The call computes the rest
+with the same operations in the same order, so its decisions equal those of `<Name>Filter`, bit for bit. If the filter
+does not decide, or the points are outside the gate, the call runs `<Name>Exact` on all points.
+
+- `indirect.spec` prepares the line and the plane of `Orient3dLPI` (kept: lp, lq, d) and the three planes of
+  `Orient3dTPI`.
+- `Prepared_EqualsUnsplit` checks that the signs and the filter decisions match on general doubles, integers, nearly
+  parallel lines (d near 0), exact zeros and the gate.
+

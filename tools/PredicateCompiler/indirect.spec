@@ -11,6 +11,8 @@
 # x = (p lq - q lp) / (lq - lp) with lp = n.(p - r), lq = n.(q - r), n = (s - r) x (t - r) (0 sign if the line is
 # parallel to the plane: d = 0); N - d c = (p - c) lq - (q - c) lp.
 ipredicate Orient3dLPI(p, q, r, s, t, a, b, c) bound 64 inputs xyz
+    # the segment and the plane, evaluated against many facets (docs/design/ENVELOPE.md 4.1, item 2)
+    prepare p, q, r, s, t
     ux = s.x - r.x
     uy = s.y - r.y
     uz = s.z - r.z
@@ -57,6 +59,8 @@ ipredicate Orient3dLPI(p, q, r, s, t, a, b, c) bound 64 inputs xyz
 # D_k = n_k . a_k (0 sign if the planes are dependent: d = 0); N - d c = sum of (n_k . (a_k - c)) e_k (Cramer: the
 # rows n_k have the inverse [e23 e31 e12] / d), so D_k is taken relative to c.
 ipredicate Orient3dTPI(a1, b1, c1, a2, b2, c2, a3, b3, c3, a, b, c) bound 64 inputs xyz
+    # the three planes, evaluated against many facets
+    prepare a1, b1, c1, a2, b2, c2, a3, b3, c3
     u1_x = b1.x - a1.x
     u1_y = b1.y - a1.y
     u1_z = b1.z - a1.z

@@ -632,3 +632,16 @@ about 30 of 65 operations of the filter. It is evaluated anew against every face
 evaluate split saves at most that part, about 45 % of the LPI time, so the query could get up to about 1.7× faster.
 That is far above the noise, so 1b goes ahead. The other lever is the number of calls: the paper's covering set
 (section 3.2.4) cuts it. That comes with the triangle query (PR 3).
+
+**Built (1b):** `ContainsSegment` now prepares each crossing once (`Orient3dLPIPrepared`). Alternating rounds A
+(88d50d2, before) and B (1b), µs per segment, best of 5 per run, two runs each:
+
+| mesh | eps | A | B | speedup |
+|---|---|---|---|---|
+| sphere 10 | 0.5 edge | 65.5 / 85.7 | 41.2 / 48.3 | 1.6-1.8× |
+| sphere 20 | 0.5 edge | 106.9 / 137.4 | 57.2 / 70.0 | 1.9-2.0× |
+| sphere 20 | 0.2 edge | 27.7 / 28.0 | 12.8 / 16.5 | 1.7-2.2× |
+| sphere 40 | 0.5 edge | 147.0 / 131.5 | 67.7 / 75.8 | 1.7-2.2× |
+
+The column "LPI µs / segment" of the command still replays the unsplit calls, so after 1b it exceeds the query time.
+

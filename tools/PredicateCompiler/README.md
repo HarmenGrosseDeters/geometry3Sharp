@@ -27,6 +27,6 @@ branch `claude/predicate-compiler-fixed-spike`) was measured without a gain (sec
 Spec format: `ipredicate Name(a, b, ...) bound b [inputs xyz]` (the points; every input component has
 `|v| ≤ m = 2^b - 1`, `b = 255` for `FixedPoint3`; `inputs xyz`: the coordinates of integer points instead of the
 projected `x, y, w`), definitions `x = expression` (`+`, `-`, `*` and parentheses
-over the inputs and earlier names), then `sign e1, e2, ...` (the product of their signs). The inputs are `p.x`, `p.y`, `p.w` of a point `p` (the
+over the inputs and earlier names), then `sign e1, e2, ...` (the product of their signs). With `inputs xyz`, an optional line `prepare a, b` before the sign line (a proper subset of the points) also generates the prepared form (INDIRECT_PREDICATES.md section 12). The inputs are `p.x`, `p.y`, `p.w` of a point `p` (the
 components on the projection axes i and j, and W). Write the operations in the kernel's order: a value written twice
 is computed once, as in the kernel.

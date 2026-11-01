@@ -114,10 +114,18 @@ The predicates are the ones of #246 / #250. Three extensions are needed:
      generated `FixedArith` graph is generated for an input bound of 2 limbs (`b = 128`: spread up to 75 bits), with
      `BigInteger` beyond. The sign is invariant under the common power of two: scaling every coordinate by `2^-e`
      multiplies each sign factor by a positive power of two.
-2. **Prepare / evaluate split.** The spec marks the construction part (`N`, `d` of the implicit point). The
-   generator emits a struct with the construction's values (doubles with their error terms `c`, `m̃`; on the exact
-   path its `FixedArith` limbs) and an evaluation against three points. The error analysis already has every value's
-   `c` and `m̃`; the evaluation part starts from them.
+2. **Prepare / evaluate split** (built, 1b on #263). The spec marks the construction's points
+   (`prepare p, q, r, s, t`). The generator emits:
+   - a struct with those points, their gate, and the filter values that depend on them only, with m~ (for LPI: lp, lq,
+     d);
+   - `Prepare`;
+   - a call against the other points. It computes the rest with the same operations in the same order, so its filter
+     decides as the unsplit filter, bit for bit. Undecided, or outside the gate: the exact stage of the whole predicate.
+
+   `ContainsSegment` prepares each crossing once. Measured in alternating rounds against 88d50d2 (`BooleanComparison
+   envelope`, µs per segment): sphere 10: 66 / 86 → 41 / 48; sphere 20: 107 / 137 → 57 / 70; sphere 20 at 0.2 edge:
+   28 / 28 → 13 / 17; sphere 40: 147 / 132 → 68 / 76. That is 1.6× to 2.2×, more than the operation count's
+   estimate of 1.7×.
 3. **No further predicates:** C1 and the segment-facet side tests are orient3d on explicit doubles
    (`ExactPredicates`); C2 is `Orient3dLPI`, C3 and the inside-T test of a TPI point are `Orient3dTPI` (section 3).
    The containment test needs nothing else.
@@ -280,7 +288,7 @@ so the polyhedron is not much smaller than the paper's.
    only if the share of the construction part in `ContainsSegment` makes it measurable (process rule: an upper-bound
    check before a speed step). Measured (`BooleanComparison envelope`, benchmark README): `Orient3dLPI` is about
    90 % of `ContainsSegment` (270 to 1800 calls per segment on spheres), and its construction part is about 30 of its
-   65 filter operations. So the bound is about 1.7×, and 1b goes ahead.
+   65 filter operations. So the bound is about 1.7×, and 1b goes ahead. Built: 1.6× to 2.2× (section 4.1, item 2).
 2. **Polyhedra and point / segment queries:** construction with its proven bound, the box tree, `Contains`,
    `ContainsSegment`; oracle and guarantee tests.
 3. **Triangle query** (TPI critical points), the oracle against `MeshEnvelope`'s clipping on the same polyhedra,
