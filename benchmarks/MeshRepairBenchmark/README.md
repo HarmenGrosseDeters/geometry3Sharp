@@ -693,8 +693,12 @@ Per mesh (`wrap.simplify` master → branch, s): 106620 19.1 → 6.6, 1505037 56
 46542 27.2 → 8.7, 47878 18.0 → 5.5, 48950 10.4 → 4.6, 51474 28.3 → 7.8, 55928 6.5 → 3.5, 87345 14.5 → 3.8,
 91138 19.8 → 6.2, 96373 83.1 → 32.7. Fidelity of the 17 (unchanged): Hausdorff result → input median 0.37 %,
 input → result 2.2 %, F-score 0.1 % / 0.5 % / 1 % median 0.897 / 0.984 / 0.989, 1 %-worst min angle 2.4° to 13°,
-39k triangles median. The other 383 meshes do not reach the wrap, and the patch bound is off for every other use
-of `MeshHausdorffDistance` and `TriangleDeviationBounds`, so their results cannot change. With the remaining
+39k triangles median. Full 400 set on the branch (`robust`, `BENCH_P=2`, 1833 s in total, `wrap.simplify` 141 s): no timeouts, and 18
+meshes reach the wrap: the 17 above and 1102667, which master also wraps since #251 (`cases/robust_phases_2026-11-01_bound.csv`;
+the paths before the wrap do not depend on this change). After the bounds review (thin triangles left out of the patch
+bound) the 18 were run again against master (1102667 on master separately): **identical results on all 18**
+(every field but the times); `wrap.simplify` of 1102667 30 s → 5 s. The patch bound is off for every other use of
+`MeshHausdorffDistance` and `TriangleDeviationBounds`, so the results of the other 382 meshes cannot change. With the remaining
 `wrap.simplify` time the `Reducer` (mostly its self-intersection check) is now the larger part, next to the wrap.
 
 ### Which stage repaired which mesh (`robust`, 400 set)
