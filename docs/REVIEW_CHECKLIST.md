@@ -34,6 +34,10 @@ and for each yes, check that a test covers it. A test must fail on the old code 
 - Divisions by areas, lengths or determinants: what happens at 0 and at 1e-300? Are weights bounded?
 - No NaN or infinity in the output; no inverted output triangles.
 
+- Zero-area rings, bowtie rings and overlapping or misplaced holes: does a library underneath read them the way the
+  docs promise (a zero-area group made Clipper2 inflate on a negative offset; NonZero filled overlapping holes)?
+  (#243)
+
 ## 4. Open, non-manifold and bowtie input (#60, #64, #99, #100, #110)
 
 - Open meshes, bowtie vertices (interior and boundary), non-manifold edges, touching sheets, inconsistent
@@ -47,7 +51,17 @@ and for each yes, check that a test covers it. A test must fail on the old code 
 - Products and sums of large values (`1e200 * 1e200`), finiteness checks by summing values (the sum can
   overflow), `ToDouble` of exact values beyond the double range.
 - Error bounds of filters when partial products are subnormal; `ScaleB` and intermediate values.
+- Scaling a finite component or product down to zero: can a lost projection coefficient become significant
+  again when multiplied by a large segment length or height? Exercise mixed exponents, not only uniform scales.
+- Rounded clipping intervals: closed crossings must survive opposite-direction rounding of the two bounds;
+  ambiguous comparisons need a conservative bound and a verified fallback.
+- Distances overflowing to infinity: preserve actual nearest ordering before the stable-id tie break; an
+  infinite approximation is not proof that two finite-input geometries are equally far away.
 - Casts of NaN or infinity to `int` / `long` (undefined result).
+- A tolerance applied to the result of `UnitCross` / `Normalized` (`Vector3d.Normalize` uses `MathUtil.Epsilon`):
+  every cross product longer than 2.2e-16 becomes a unit vector, so a test like `n.Dot(n) < ZeroTolerance` only
+  means "exactly zero" and the tolerance is dead code (`IntrTriangle3Triangle3` parallel test, #253 review). Compare
+  the unnormalized cross product, or decide exactly.
 - Every new error bound in `math/Exact*`, `AdaptivePredicates.cs`, implicit points: derived and checked in
   the review.
 
@@ -60,6 +74,11 @@ and for each yes, check that a test covers it. A test must fail on the old code 
 - `int` products of grid dimensions or indices (`nx * ny * nz`, `i * n + j`), cell counts over large
   extents; is there a limit, and is it reported?
 - Fixed caps (eg 500 components, max iterations): what happens beyond them?
+
+- Calls into another library with scaled values (eg Clipper2 on an integer grid): its internal limits (an `int`
+  cast of a distance, a fallback when a parameter is out of its range, such as an arc tolerance above the offset)
+  and the margin our own values need (offset distance times the miter limit) must fit; test with extreme options
+  (#243).
 
 ## 7. Stale state and reuse (#66, #76, #102, #104, #107)
 
@@ -105,6 +124,14 @@ and for each yes, check that a test covers it. A test must fail on the old code 
 - Tests: time or candidate counts at n and 4n, on clustered, outlier and multi-scale inputs too: a fixed-
   resolution grid or space-filling-curve key over the bounding box collapses when one point is far away
   (meshing M1 review: a quadratic build from one outlier).
+- Benchmark allocation columns identify the measured scope: current-thread counters do not include parallel
+  workers, and retained heap deltas are neither total allocations nor peak memory. Compare equivalent preprocessing.
+- A type that stores a derived form rounds its input: `Segment3d` keeps a center, a direction and an extent, so `P0` is not
+  what went in. An index built on it missed its own vertices. Test with non-dyadic inputs through the public constructor.
+- Correct results can hide linear cost: a spatial index that keeps all items at its root answers every query right. Count
+  the visited items on thin strips, far outliers and sorted inserts, rather than timing them.
+- Source rollback can leave incremental-build binaries stale. Force a rebuild and verify binary identities before
+  freezing an A/B candidate; do not label measurements by source changes alone.
 
 ## 10a. The oracle itself
 

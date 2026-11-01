@@ -22,3 +22,26 @@ Then the time for 200 000 calls in general position and nearly degenerate.
 
 The last one also runs Triangle.NET's `RobustPredicates` (not part of this repository; only referenced when
 the property is given).
+
+## Coplanar triangle intersection
+
+    dotnet run -c Release -- triangles
+
+`IntrTriangle3Triangle3` against `ExactTriangleIntersection.Intersects`:
+- families: coplanar slivers (at a shared vertex, at a shared edge), the half-integer lattice of #193, exactly coplanar pairs in oblique planes with full-mantissa coordinates (their rounded normals differ by some ulps), triangles tilted within 1e-8 of another's plane touching its edge, and random triangles in general position;
+- measured: false negatives and false positives of `Test()` / `Intersects()` / `Find()` (`ReportCoplanarIntersection`), `Find()` results without a contact point, and ns per pair (best of 5).
+
+Run on 1 November 2026, 4 cores, with another benchmark running at the same time, so the times are rough; master `6ce2ad3` → the exact coplanar path (#253):
+
+| family | pairs | false neg. master | after | false pos. master | after | Find without contact master | after | ns per pair master | after |
+|---|---|---|---|---|---|---|---|---|---|
+| slivers, shared vertex | 20000 | 265 / 265 / 6400 | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 0 / 0 | 9398 | 0 | 385 / 418 / 909 | 2174 / 1563 / 12404 |
+| slivers, shared edge | 20000 | 0 / 0 / 4230 | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 0 / 0 | 9516 | 0 | 351 / 295 / 356 | 1555 / 1108 / 8370 |
+| half-integer lattice | 20000 | 1317 / 1317 / 178 | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 0 / 0 | 0 | 0 | 300 / 229 / 359 | 2079 / 1608 / 12680 |
+| oblique planes | 40000 | 11079 / 11079 / 0 | 0 / 0 / 0 | 618 / 618 / 0 | 0 / 0 / 0 | 0 | 0 | 254 / 209 / 335 | 2877 / 2149 / 14840 |
+| tilted within 1e-8 | 18814 | 41 / 41 / 236 | 0 / 0 / 0 | 524 / 524 / 2475 | 0 / 0 / 0 | 0 | 0 | 308 / 264 / 357 | 1004 / 892 / 8861 |
+| general position | 20000 | – | – | – | – | – | – | 322 / 270 / 488 | 445 / 346 / 676 |
+
+What the numbers show:
+- On these pairs the exact path is 4-40 times slower, most for `Find()`: its contact points come from BigInteger determinants.
+- In general position the new route test costs about 0.1-0.2 µs per pair: the normals, the distances to the plane, and rarely an `Orient3d`.
