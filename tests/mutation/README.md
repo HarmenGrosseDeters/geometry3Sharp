@@ -16,7 +16,7 @@ the next ones) and `exact-mesh` (the exact mesh pipeline, [below](#exact-mesh-pi
 - `math/AdaptivePredicates.cs`
 
 The tests that run against the mutants are `ExactPredicatesTests`, `ExactImplicitPointTests`,
-`ExactBooleanBuildingBlockTests`, `PredicateDifferentialTests` and `ExactPoint3ConversionTests`. A new test
+`ExactBooleanBuildingBlockTests`, `PredicateDifferentialTests`, `ExactPoint3ConversionTests` and `ExactOrient3dKernelTests`. A new test
 class for these files must be added to the `test-case-filter` and to the paths of the workflow. These are
 the unit tests of these files; the boolean and repair tests are
 too slow to run against every mutant.
@@ -182,11 +182,11 @@ each). Each shard runs the unit tests of its file (the `test-case-filter` of its
 
 | Shard | Mutated | Tests |
 |---|---|---|
-| `rounding` | `mesh_ops/MeshRoundingRepair.cs` | `MeshRoundingRepairTests`, `MeshRoundingRepairStrategyTests`, `ExactMeshBooleanTests`, `ExactBooleanSurvivorTests`, `ExactBooleanIssueCasesTests`, `ExactBooleanByDesignTests` |
+| `rounding` | `mesh_ops/MeshRoundingRepair.cs` | `MeshRoundingRepairTests`, `MeshRoundingRepairStrategyTests`, `ExactMeshBooleanTests`, `ExactBooleanSurvivorTests`, `ExactBooleanIssueCasesTests`, `ExactBooleanByDesignTests`, `SafeRoundingBoundTests`, `ExactBooleanPropertyFindings` (the displacement bound) |
 | `boolean-1`, `boolean-2` | `mesh_ops/ExactMeshBoolean.cs`, split at `front_winding` | `ExactMeshBooleanTests`, `ExactMeshBooleanNaryTests`, `ExactBooleanOrientationTests`, `ExactBooleanReuseTests`, `ExactBooleanEdgeOrderTests`, the `ExactVertices` tests of `MeshRoundingRepairTests`, `BooleanPerformanceTests`, `ExactBooleanOpenInputTests`, `ExactBooleanSurvivorTests`, `ExactBooleanIssueCasesTests`, `ExactBooleanByDesignTests`; `boolean-2` also `ExactBooleanFilterTests` |
-| `arrangement-1`, `arrangement-2` | `mesh_ops/ExactMeshArrangement.cs`, split at `build_triangles` | `ExactFilterBoundTests`, `ExactArrangementScalingTests`, `ExactMeshBooleanTests`, `ExactBooleanEdgeOrderTests`, `ExactBooleanBuildingBlockTests`, the `ExactVertices` tests, `BooleanPerformanceTests`, `ExactImplicitPointTests`, `ExactPoint3FixedWidthTests`, `ExactBooleanPairSearchTests` |
+| `arrangement-1`, `arrangement-2` | `mesh_ops/ExactMeshArrangement.cs`, split at `build_triangles` | `ExactFilterBoundTests`, `ExactArrangementScalingTests`, `ExactMeshBooleanTests`, `ExactBooleanEdgeOrderTests`, `ExactBooleanBuildingBlockTests`, the `ExactVertices` tests, `BooleanPerformanceTests`, `ExactImplicitPointTests`, `ExactPoint3FixedWidthTests`, `ExactBooleanPairSearchTests`, `ExactTouchOnlyCoplanarTests`, `ExactPlanesFixedWidthTests` |
 | `planar` | `mesh_ops/ExactPlanarSimplify.cs`, `mesh_ops/ExactTriangulation2.cs` | `ExactPlanarSimplifyTests`, `ExactTriangulation2Tests`, `ExactBooleanBuildingBlockTests`, `ExactMeshBooleanTests` |
-| `fixed` | `math/FixedPoint3.cs` (the arrangement's fixed-width exact points and their arithmetic; a shard of its own, so that its score does not mix with the threshold of `stryker-config.json`) | `ExactPoint3FixedWidthTests`, `ExactBooleanBuildingBlockTests` |
+| `fixed` | `math/FixedPoint3.cs` (the arrangement's fixed-width exact points and their arithmetic; a shard of its own, so that its score does not mix with the threshold of `stryker-config.json`) | `ExactPoint3FixedWidthTests`, `ExactBooleanBuildingBlockTests`, `ExactPlanesFixedWidthTests` |
 | `generated` | `math/Generated/IndirectPredicates.cs` (the generated indirect predicates, docs/design/INDIRECT_PREDICATES.md; first run 87.02 %, 429 of 493 killed, every survivor equivalent: 60 pointer offsets of the input copies into unused stack, 4 exception texts; break 85) | `GeneratedPredicatesIndirectTests` |
 
 On a pull request, the workflow's `changes` job starts `exact-mesh` only if one of these files, their tests or

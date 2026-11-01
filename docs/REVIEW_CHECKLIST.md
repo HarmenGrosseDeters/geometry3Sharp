@@ -64,6 +64,11 @@ and for each yes, check that a test covers it. A test must fail on the old code 
   the unnormalized cross product, or decide exactly.
 - Every new error bound in `math/Exact*`, `AdaptivePredicates.cs`, implicit points: derived and checked in
   the review.
+- A rounding error stated as relative where it is absolute: a distance computed from coordinates of size M has an
+  error of a few ulps of M, not of the distance (a computed distance 0 for a true 1e-14 at coordinates near 100;
+  SafeRounding bounds review). A proof of a geometric bound also covers the edge cases of the edit (an edit that adds
+  no triangle, eg contracting an ear) and only claims what it derives (a volume bound from a neighbourhood argument
+  misses the Steiner terms at degenerate triangles).
 
 - Plain double helpers (dot products, squared distances, tolerance squared) underflow at small magnitudes even
   where the predicates are exact: scale differences by a power of two first (meshing M2 review: a walk found no
