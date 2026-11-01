@@ -328,9 +328,13 @@ namespace Meshing2Acceptance
                 double det = l - rr, sum = Math.Abs(l) + Math.Abs(rr);
                 if (!(sum > 1e-200 && sum < 1e200) || !(Math.Abs(det) > 1e-15 * sum)) return false;
                 double ab = (bx - ax) * (bx - ax) + (by - ay) * (by - ay), bc = (cx - bx) * (cx - bx) + (cy - by) * (cy - by), ca = (ax - cx) * (ax - cx) + (ay - cy) * (ay - cy);
-                double cross2 = det * det;
-                double s = Math.Min(cross2 / (ab * ca), Math.Min(cross2 / (ab * bc), cross2 / (bc * ca)));
-                if (double.IsNaN(s) || double.IsInfinity(s) || !(ab > 1e-200 && bc > 1e-200 && ca > 1e-200)) return false;
+                double cross2 = det * det, abca = ab * ca, abbc = ab * bc, bcca = bc * ca;
+                // every intermediate normal, far from both ends: an overflowing product gave s = 0, a subnormal cross2 a wrong interval
+                // (found by the bounds review)
+                bool Normal(double x) => x > 1e-200 && x < 1e200;
+                if (!(Normal(ab) && Normal(bc) && Normal(ca) && Normal(cross2) && Normal(abca) && Normal(abbc) && Normal(bcca))) return false;
+                double s = Math.Min(cross2 / abca, Math.Min(cross2 / abbc, cross2 / bcca));
+                if (double.IsNaN(s) || double.IsInfinity(s)) return false;
                 double rel = 2 * (1e-15 * sum / Math.Abs(det)) + 1e-14;
                 lo = s * (1 - rel); hi = s * (1 + rel);
                 return true;
@@ -931,8 +935,11 @@ namespace Meshing2Acceptance
                     double permanent = (Math.Abs(bdx * cdy) + Math.Abs(cdx * bdy)) * al + (Math.Abs(cdx * ady) + Math.Abs(adx * cdy)) * bl
                         + (Math.Abs(adx * bdy) + Math.Abs(bdx * ady)) * cl;
                     double bound = 1.2e-14 * permanent;
-                    // (only where nothing underflowed or overflowed: normal magnitudes far from both ends)
-                    if (permanent > 1e-200 && permanent < 1e200 && Math.Abs(det) > bound) return det > 0 ? 1 : -1;
+                    // (only where nothing underflowed or overflowed: the lifted terms and the six products zero or of normal magnitude
+                    // far from both ends, so that no rounding is absolute; found by the bounds review)
+                    bool Ok(double x) => x == 0 || (Math.Abs(x) > 1e-150 && Math.Abs(x) < 1e150);
+                    bool terms = Ok(al) && Ok(bl) && Ok(cl) && Ok(bdx * cdy) && Ok(cdx * bdy) && Ok(cdx * ady) && Ok(adx * cdy) && Ok(adx * bdy) && Ok(bdx * ady);
+                    if (terms && permanent > 1e-200 && permanent < 1e200 && Math.Abs(det) > bound) return det > 0 ? 1 : -1;
                 }
                 return Exact.InCircle(v[a], v[b], v[c], v[d]);
             }
@@ -1218,8 +1225,11 @@ namespace Meshing2Acceptance
                         if (!double.IsInfinity(tube2Hi) && !double.IsNaN(sBox[4 * kc]) && vKnown[t[0]]) {
                             double ux = ToD(a.b.Qx - a.a.Qx), uy = ToD(a.b.Qy - a.a.Qy), wx = ToD(c.b.Qx - c.a.Qx), wy = ToD(c.b.Qy - c.a.Qy);
                             double sinD = Math.Abs(ux * wy - uy * wx) / Math.Sqrt((ux * ux + uy * uy) * (wx * wx + wy * wy));
-                            if (sinD > 0 && !double.IsNaN(sinD)) {
-                                double reach = 2 * 8 * Math.Sqrt(tube2Hi) / (sinD * 0.5);
+                            // (a lower bound of the sine: the double sine has an absolute error far below 1e-13; nearly parallel sources
+                            // are not filtered; found by the bounds review)
+                            double sinLow = sinD - 1e-13;
+                            if (sinLow > 0 && !double.IsNaN(sinD)) {
+                                double reach = 2 * 8 * Math.Sqrt(tube2Hi) / sinLow;
                                 if (vxh[t[0]] < sBox[4 * kc] - reach || vxl[t[0]] > sBox[4 * kc + 1] + reach || vyh[t[0]] < sBox[4 * kc + 2] - reach || vyl[t[0]] > sBox[4 * kc + 3] + reach) continue;
                             }
                         }

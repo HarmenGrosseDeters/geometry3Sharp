@@ -77,6 +77,36 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void RingBucket_PointOnTheTopEdge_IsOnTheBoundary()
+        {
+            // bounds review: a ring of more than 16 vertices spanning y in [-1, 0]; the rounded bucket index of a point on the top edge
+            // ran past the last bucket and the filter said outside
+            var pts = new List<Pt> { Pt.FromDoubles(0, 0), Pt.FromDoubles(1, 0) };
+            for (int i = 1; i <= 10; ++i) pts.Add(Pt.FromDoubles(1, -0.1 * i));
+            pts.Add(Pt.FromDoubles(0, -1));
+            for (int i = 9; i >= 1; --i) pts.Add(Pt.FromDoubles(0, -0.1 * i));
+            var ring = pts.ToArray();
+            var p = Pt.FromDoubles(0.5, 0);
+            Assert.Equal(Where.Boundary, Domain.InRing(ring, p, false));
+            Assert.Equal(Where.Boundary, Domain.InRing(ring, p, true));
+            var inside = Pt.FromDoubles(0.5, -0.5);
+            Assert.Equal(Where.Inside, Domain.InRing(ring, inside, true));
+        }
+
+        [Theory]
+        [InlineData(0, 0, 1.2750220907015703e77, -3.416411395353274e76, 1.2750220907015703e77, 3.416411395353274e76)]
+        [InlineData(0, 0, 1e-5, 0, 5e-6, 1.2345e-155)]
+        public void SmallestAngle_AtTheEndsOfTheRange_SameVerdict(double ax, double ay, double bx, double by, double cx, double cy)
+        {
+            // bounds review: an overflowing product made the filtered sine 0 (a 30-75-75 triangle judged below 20 degrees); a subnormal
+            // cross product gave an interval that missed the exact value
+            var input = new Mesh2Input { X = new[] { ax, bx, cx }, Y = new[] { ay, by, cy }, MinAngleDeg = 20 };
+            var output = new Mesh2Output { Status = Mesh2Status.Success, VX = input.X, VY = input.Y, InputToVertex = new[] { 0, 1, 2 },
+                Triangles = new[] { new[] { 0, 1, 2 } }, Neighbours = new[] { new[] { -1, -1, -1 } }, Subsegments = new List<SubsegmentOutput>(), BadTriangles = new int[0] };
+            Same(input, output, new OracleExpect { Milestone = Milestone.M3 }, "triangle");
+        }
+
+        [Fact]
         public void SelfChecks_PassOnTheReferencePath()
         {
             Oracle.ForceReference = true;

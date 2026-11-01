@@ -72,7 +72,7 @@ namespace Meshing2Acceptance
         /// </summary>
         sealed class EdgeBuckets
         {
-            public double Y0, Step;
+            public double Y0, Y1, Step;
             public int[][] Buckets;
         }
 
@@ -96,7 +96,7 @@ namespace Meshing2Acceptance
                 }
                 for (int b = b0; b <= b1; ++b) lists[b].Add(i);
             }
-            return new EdgeBuckets { Y0 = y0, Step = step, Buckets = lists.Select(l => l.ToArray()).ToArray() };
+            return new EdgeBuckets { Y0 = y0, Y1 = y1, Step = step, Buckets = lists.Select(l => l.ToArray()).ToArray() };
         });
 
         public static Where InRing(Pt[] ring, Pt p) => InRing(ring, p, true);
@@ -128,11 +128,14 @@ namespace Meshing2Acceptance
             if (filter && ring.Length > 16) {
                 var bk = Buckets(ring);
                 if (bk != null) {
-                    int b0 = (int)Math.Floor((pyLo - bk.Y0) / bk.Step), b1 = (int)Math.Floor((pyHi - bk.Y0) / bk.Step);
-                    if (b0 == b1) {
-                        if (b0 < 0 || b0 >= bk.Buckets.Length) return Where.Outside;   // beyond every edge's y range: outside, not on it
-                        only = bk.Buckets[b0];
-                    }
+                    // beyond every vertex's y interval: outside, not on it (compared directly: the bucket index is rounded, and a point on
+                    // the top edge could get the index past the last bucket; found by the bounds review)
+                    if (pyHi < bk.Y0 || pyLo > bk.Y1) return Where.Outside;
+                    int last = bk.Buckets.Length - 1;
+                    int b0 = Math.Max(0, Math.Min(last, (int)Math.Floor((pyLo - bk.Y0) / bk.Step)));
+                    int b1 = Math.Max(0, Math.Min(last, (int)Math.Floor((pyHi - bk.Y0) / bk.Step)));
+                    // (clamped: an edge at either end is in the end bucket too, it was added with a bucket of margin, clamped the same way)
+                    if (b0 == b1) only = bk.Buckets[b0];
                 }
             }
             int count = only?.Length ?? ring.Length;
