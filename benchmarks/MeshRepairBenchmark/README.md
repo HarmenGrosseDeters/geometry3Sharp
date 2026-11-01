@@ -653,6 +653,50 @@ The input size does not explain the time: inputs of 448 to 656 triangles give wr
 single slowest meshes vary with the machine load between the two runs (1505037 solidify 100 s and 35 s, 61765 volume
 19 s and 6 s), so remeasure an outlier on a quiet machine before working on it.
 
+### Wrap simplification: certification with the patch bound
+The 17 meshes of the 400 set that end in the alpha wrap. `wrap.simplify` (`MeshRobustRepair.SimplifyWithin`) reduces
+the wrap and then certifies the result within half the wrap offset of it (one-sided `MeshHausdorffDistance`). Split
+of the wrap stage, measured on the wrap input of `robust` (serial, one mesh at a time, a scratch harness, not
+committed): wrap 90 s, `Reducer` 87 s (of which its `PreventSelfIntersections` check about 80 %), clean check 4 s,
+**Hausdorff certification 196 s**. The certification needed 0.2 to 5 million triangle subdivisions per mesh: its
+bounds only resolve a piece of a large reduced triangle once the piece spans about one triangle of the wrap, so the
+cost grows with the wrap's triangles (inputs of 344 to 656 triangles give wraps of 99k to 415k triangles), not with
+the input.
+
+Options and their upper bounds (`BENCH_REPAIR=robust`, the 17 meshes, `BENCH_P=2`, this container):
+- **coarser alpha** (`BENCH_ROBUST_WRAP_ALPHA=150` instead of the default 300): total 838 s → 583 s (−30 %), but
+  fidelity drops: Hausdorff result → input median 0.37 % → 0.73 %, F-score 0.1 % median 0.897 → 0.823, F 0.5 %
+  0.984 → 0.955, IoU 0.770 → 0.768. Not taken. A size field that coarsens alpha only where the input is flat (see
+  "Feature-preserving shrink wrapping with adaptive alpha", CAGD 2024, a follow-up of Portaneri et al. 2022) would
+  keep the fidelity, but is a change of the wrap itself, not of its parameters;
+- **faster certification** (taken): the patch bound of `TriangleDeviationBounds` (`docs/SOURCES.md`): the wrap
+  triangles under a reduced triangle, seen along its normal, bound the distance by their largest height over it,
+  once the boundary edges of that patch show that it covers the triangle. Probe on the saved wraps: certification
+  207 s → 13 s, the same accept decision on all 17;
+- **faster self-intersection check of the `Reducer`**: at most about 70 s (reduction with / without the check, eg
+  96373 22.6 s / 3.8 s); 73 % of it is in `TriangleHashGrid.Query`. Not done here: it needs a cheaper certificate per
+  collapse (eg the patch certificate of `docs/design/SELF_INTERSECTION_PATCH_CERTIFICATE.md`), not a tuning.
+
+Result, master `7910e06` against the branch, `BENCH_REPAIR=robust BENCH_P=2 TIMEOUT=600`, the 17 meshes
+(`run.sh` per mesh as in `run_all.sh`):
+
+| | master | patch bound |
+|---|---|---|
+| results (triangles, Hausdorff, IoU, every `fm_*` field) | | identical on all 17 |
+| `wrap.simplify`, sum | 439 s | **137 s (−69 %)** |
+| `wrap`, sum | 112 s | 115 s |
+| total of the 17 meshes | 838 s | **558 s (−33 %)** |
+| slowest `wrap.simplify` | 96373 83 s, 229959 66 s, 1505037 56 s | 96373 33 s, 229959 15 s, 46244 14 s |
+
+Per mesh (`wrap.simplify` master → branch, s): 106620 19.1 → 6.6, 1505037 56.1 → 10.4, 163738 11.0 → 3.1,
+170991 6.4 → 1.9, 229959 65.8 → 15.2, 37010 14.2 → 5.3, 37415 11.0 → 3.6, 45561 13.2 → 4.2, 46244 33.9 → 13.6,
+46542 27.2 → 8.7, 47878 18.0 → 5.5, 48950 10.4 → 4.6, 51474 28.3 → 7.8, 55928 6.5 → 3.5, 87345 14.5 → 3.8,
+91138 19.8 → 6.2, 96373 83.1 → 32.7. Fidelity of the 17 (unchanged): Hausdorff result → input median 0.37 %,
+input → result 2.2 %, F-score 0.1 % / 0.5 % / 1 % median 0.897 / 0.984 / 0.989, 1 %-worst min angle 2.4° to 13°,
+39k triangles median. The other 383 meshes do not reach the wrap, and the patch bound is off for every other use
+of `MeshHausdorffDistance` and `TriangleDeviationBounds`, so their results cannot change. With the remaining
+`wrap.simplify` time the `Reducer` (mostly its self-intersection check) is now the larger part, next to the wrap.
+
 ### Which stage repaired which mesh (`robust`, 400 set)
 `analyze_paths.py results/robust.jsonl data/selection.csv [--csv out.csv] [--markdown]` sorts the meshes by the
 stage of `MeshRobustRepair` that produced the result: the repair itself (clean and the same volume as the

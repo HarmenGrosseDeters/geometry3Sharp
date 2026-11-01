@@ -243,6 +243,38 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(first, r);
         }
 
+        // alpha wrap of a box (large flat faces): many small triangles where the simplification makes a few large ones
+        static void BoxWrap(out DMesh3 wrap, out double offset)
+        {
+            DMesh3 box = new TrivialBox3Generator() { Box = new Box3d(Vector3d.Zero, new Vector3d(1, 0.6, 0.3)), NoSharedVertices = false }.Generate().MakeDMesh();
+            var w = new MeshAlphaWrap(box) { RelativeAlpha = 60, RelativeOffset = 600 };
+            Assert.True(w.Compute());
+            wrap = w.Result; offset = w.UsedOffset;
+        }
+
+        [Fact]
+        public void SimplifyWithin_AlphaWrap_CertifiedWithFewSubdivisions()
+        {
+            DMesh3 wrap; double offset;
+            BoxWrap(out wrap, out offset);
+            int sub;
+            DMesh3 simp = MeshRobustRepair.SimplifyWithin(wrap, 0.5 * offset, 0.5 * offset, true, () => false, out sub);
+            Assert.NotNull(simp);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(simp));
+            Assert.True(simp.TriangleCount < wrap.TriangleCount / 4, $"{simp.TriangleCount} of {wrap.TriangleCount}");
+            // the certification needs few subdivisions (535 of 7424; without the patch bound 129644, 17 per wrap triangle)
+            Assert.True(sub < wrap.TriangleCount / 4, $"{sub} subdivisions, {wrap.TriangleCount} wrap triangles");
+            // and holds: checked with the other bounds alone
+            var hd = new MeshHausdorffDistance(simp, wrap) { Symmetric = false, Tolerance = 0.01 * offset };
+            Assert.True(hd.Compute() && hd.Converged);
+            Assert.True(hd.UpperBound <= 0.5 * offset, $"hausdorff {hd.UpperBound}, offset {offset}");
+            // the same again (no state kept between calls), the wrap not changed
+            int sub2;
+            DMesh3 again = MeshRobustRepair.SimplifyWithin(wrap, 0.5 * offset, 0.5 * offset, true, () => false, out sub2);
+            Assert.Equal(sub, sub2);
+            Assert.Equal("", Invariance.Difference(simp, again));
+        }
+
         [Fact]
         public void PatchBound_InvariantUnderSimilarities()
         {

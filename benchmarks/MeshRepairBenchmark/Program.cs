@@ -165,6 +165,10 @@ class Program
                 robust.ExactResolveRounds = int.Parse(Environment.GetEnvironmentVariable("BENCH_EXACT_ROUNDS") ?? "4");
                 robust.AlphaWrapFallback = Environment.GetEnvironmentVariable("BENCH_WRAP_FALLBACK") != "0";
                 robust.SimplifyAlphaWrap = Environment.GetEnvironmentVariable("BENCH_WRAP_SIMPLIFY") != "0";
+                // BENCH_ROBUST_WRAP_ALPHA / BENCH_ROBUST_WRAP_OFFSET: WrapRelativeAlpha / WrapRelativeOffset (diagonal / value)
+                string wa = Environment.GetEnvironmentVariable("BENCH_ROBUST_WRAP_ALPHA"), wo = Environment.GetEnvironmentVariable("BENCH_ROBUST_WRAP_OFFSET");
+                if (wa != null) robust.WrapRelativeAlpha = double.Parse(wa, System.Globalization.CultureInfo.InvariantCulture);
+                if (wo != null) robust.WrapRelativeOffset = double.Parse(wo, System.Globalization.CultureInfo.InvariantCulture);
                 robust.SafeRounding = Environment.GetEnvironmentVariable("BENCH_SAFE_ROUNDING") != "0";
                 robust.CheckLostComponents = Environment.GetEnvironmentVariable("BENCH_LOST_COMPONENTS") == "1";
                 robust.RejectTopologyChange = Environment.GetEnvironmentVariable("BENCH_REJECT_TOPOLOGY") == "1";

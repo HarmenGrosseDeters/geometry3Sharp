@@ -442,6 +442,15 @@ namespace gs
         /// </summary>
         internal static DMesh3 SimplifyWithin(DMesh3 mesh, double quadricDistance, double maxDistance, bool checkSelfIntersections, Func<bool> cancelF)
         {
+            int subdivisions;
+            return SimplifyWithin(mesh, quadricDistance, maxDistance, checkSelfIntersections, cancelF, out subdivisions);
+        }
+
+        /// <summary> SimplifyWithin; hausdorffSubdivisions: the subdivisions of the distance check (for tests) </summary>
+        internal static DMesh3 SimplifyWithin(DMesh3 mesh, double quadricDistance, double maxDistance, bool checkSelfIntersections, Func<bool> cancelF,
+            out int hausdorffSubdivisions)
+        {
+            hausdorffSubdivisions = 0;
             DMesh3 m = new DMesh3(mesh);
             Reducer reducer = new Reducer(m) {
                 PreventSelfIntersections = true, Progress = new ProgressCancel(cancelF),
@@ -452,11 +461,14 @@ namespace gs
             if (cancelF() || NotCleanReason(m, checkSelfIntersections) != "")
                 return null;
             // only the upper bound has to stay below maxDistance: a coarse tolerance first, a finer one if the
-            // distance is close to maxDistance
+            // distance is close to maxDistance. With the patch bound: the large triangles of the result over the
+            // many small, nearly flat ones of the mesh need few subdivisions (on alpha wraps 16 times less time)
             var spatial = new DMeshAABBTree3(mesh, true);
             foreach (double tol in new double[] { 0.1, 0.01 }) {
-                var hd = new MeshHausdorffDistance(m, mesh) { Symmetric = false, SpatialB = spatial, Tolerance = tol * maxDistance, CancelF = cancelF };
-                if (hd.Compute() == false || !(hd.LowerBound <= maxDistance))
+                var hd = new MeshHausdorffDistance(m, mesh) { Symmetric = false, SpatialB = spatial, Tolerance = tol * maxDistance, CancelF = cancelF, PatchBound = true };
+                bool computed = hd.Compute();
+                hausdorffSubdivisions += hd.Subdivisions;
+                if (computed == false || !(hd.LowerBound <= maxDistance))
                     return null;
                 if (hd.UpperBound <= maxDistance)
                     return m;
