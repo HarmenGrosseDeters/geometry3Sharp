@@ -117,5 +117,19 @@ namespace geometry3Sharp.Tests
             Assert.False(sl.Compute());
             Assert.Equal(TerrainSafetyLines.Statuses.TooLarge, sl.Status);
         }
+
+        // review: an exception in Compute must not leave the status of an earlier success
+        [Fact]
+        public void Status_AfterAnException_IsNotStale()
+        {
+            DMesh3 m = Grid(10, (i, j) => 0);
+            var sl = new TerrainSafetyLines(m, new List<List<Vector3d>> { new List<Vector3d> { new Vector3d(5, 2, 0), new Vector3d(5, 8, 0) } }, 2) { Mode = TerrainSafetyLines.Modes.Guaranteed };
+            Assert.True(sl.Compute());
+            Assert.Equal(TerrainSafetyLines.Statuses.Success, sl.Status);
+            sl.SteinerPoints = int.MaxValue / 2; sl.MaxSteinerPoints = int.MaxValue / 2;
+            Assert.ThrowsAny<Exception>(() => sl.Compute());
+            Assert.NotEqual(TerrainSafetyLines.Statuses.Success, sl.Status);
+            Assert.False(sl.Certified);
+        }
     }
 }

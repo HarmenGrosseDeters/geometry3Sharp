@@ -32,7 +32,6 @@ namespace gs
         readonly Dictionary<int, int> owner = new Dictionary<int, int>();
 
         public SlopeMap(ExactSlopeKernel kernel) { K = kernel; }
-
         public int FaceCount { get { return fEdge.Count; } }
 
         // ---------------------------------------------------------------- structure
@@ -239,8 +238,13 @@ namespace gs
                 int n = p.Count;
                 Vector2d u0 = (p[1].xy - p[0].xy).Normalized, u1 = (p[n - 1].xy - p[n - 2].xy).Normalized;
                 Func<Vector2d, Vector2d> normal = (u) => domainSign[t] > 0 ? new Vector2d(-u.y, u.x) : new Vector2d(u.y, -u.x);
-                add_ray(p[0].xy, normal(u0), u0, 4 * S, t, 0);
-                add_ray(p[n - 1].xy, normal(u1), -u1, 4 * S, t, n - 2);
+                int l0, l1;
+                Vector2d n0 = normal(u0), n1 = normal(u1);
+                int b0 = add_ray(p[0].xy, n0, u0, 4 * S, t, 0, out l0);
+                int b1 = add_ray(p[n - 1].xy, n1, -u1, 4 * S, t, n - 2, out l1);
+                // each ray ends where it first meets a toe or the other ray (normals that converge on the slope side)
+                trim_ray(b0, p[0].xy, n0, first_hit(p[0].xy, n0, p[n - 1].xy, n1, toes, closed));
+                trim_ray(b1, p[n - 1].xy, n1, first_hit(p[n - 1].xy, n1, p[0].xy, n0, toes, closed));
             }
 
             // components of the faces between the barriers; each must lie on the domain side of all its barriers
@@ -281,12 +285,51 @@ namespace gs
             return true;
         }
 
-        void add_ray(Vector2d u0, Vector2d dir, Vector2d domainDir, double R, int toe, int seg)
+        // the distance along the ray from u0 (direction d, unit) to its first crossing with a toe segment that does not
+        // end at u0, or with the other ray (from w, direction e); infinity if none (approximate: it only decides where a
+        // lateral limit ends)
+        static double first_hit(Vector2d u0, Vector2d d, Vector2d w, Vector2d e, List<List<Vector3d>> toes, List<bool> closed)
+        {
+            double best = double.PositiveInfinity;
+            Func<Vector2d, Vector2d, bool, double> hit = (a, b, isRay) => {
+                Vector2d r = b - a;
+                double den = d.x * r.y - d.y * r.x;
+                if (den == 0) return double.PositiveInfinity;
+                Vector2d q = a - u0;
+                double t = (q.x * r.y - q.y * r.x) / den, s = (q.x * d.y - q.y * d.x) / den;
+                if (t <= 0 || s < 0 || (isRay == false && s > 1)) return double.PositiveInfinity;
+                return t;
+            };
+            for (int k = 0; k < toes.Count; ++k) {
+                int n = toes[k].Count, m = closed[k] ? n : n - 1;
+                for (int i = 0; i < m; ++i) {
+                    Vector2d a = toes[k][i].xy, b = toes[k][(i + 1) % n].xy;
+                    if (a == u0 || b == u0) continue;
+                    best = Math.Min(best, hit(a, b, false));
+                }
+            }
+            best = Math.Min(best, hit(w, w + e, true));
+            return best;
+        }
+
+        // the barrier marks of ray 'bar' farther than tStop from u0 are removed
+        void trim_ray(int bar, Vector2d u0, Vector2d d, double tStop)
+        {
+            if (double.IsInfinity(tStop)) return;
+            double eps = 1e-9 * (tStop + u0.Length);
+            for (int h = 0; h < hOrig.Count; ++h) {
+                if (hAlive[h] == false || hBar[h] != bar) continue;
+                double ta = (K.Approx(hOrig[h]) - u0).Dot(d), tb = (K.Approx(hOrig[hTwin[h]]) - u0).Dot(d);
+                if (Math.Max(ta, tb) > tStop + eps) { hBar[h] = -1; hBarSide[h] = 0; }
+            }
+        }
+
+        int add_ray(Vector2d u0, Vector2d dir, Vector2d domainDir, double R, int toe, int seg, out int line)
         {
             int bar = barToe.Count;
             barToe.Add(toe); barSeg.Add(seg);
             Vector2d far = u0 + R * dir;
-            int line = K.PointLine(u0, far);
+            line = K.PointLine(u0, far);
             barDomainSign.Add(ExactPredicates.Orient2d(u0, far, u0 + domainDir));
             // ahead of u0: negative side of the line through u0 and u0 + perp(dir)
             int ahead = K.PointLine(u0, u0 + new Vector2d(-dir.y, dir.x));
@@ -303,6 +346,7 @@ namespace gs
                 hBar[chord] = bar; hBarSide[chord] = -1;
                 hBar[hTwin[chord]] = bar; hBarSide[hTwin[chord]] = 1;
             }
+            return bar;
         }
 
         static bool polygon_ccw(List<Vector3d> p)
@@ -373,11 +417,11 @@ namespace gs
                 lo = Math.Min(lo, r); hi = Math.Max(hi, r);
             }
             if (double.IsNaN(refAngle)) { relevant.AddRange(fan); return; }
-            if (hi - lo > Math.PI - 1e-9) { relevant.AddRange(fan); return; }
-            for (int i = 0; i < fan.Count; ++i) {
-                double r = wrap(ang[i] - refAngle);
-                if (r >= lo - 2 * theta && r <= hi + 2 * theta) relevant.Add(fan[i]);
-            }
+            if (hi - lo > Math.PI - 4 * theta) { relevant.AddRange(fan); return; }
+            // centred on the sector, so that the window never wraps (its half width is below pi / 2 + 2 theta)
+            double mid = refAngle + 0.5 * (lo + hi), half = 0.5 * (hi - lo) + 2 * theta;
+            for (int i = 0; i < fan.Count; ++i)
+                if (Math.Abs(wrap(ang[i] - mid)) <= half) relevant.Add(fan[i]);
         }
 
         static double wrap(double a)
@@ -713,8 +757,62 @@ namespace gs
             return m.GetVertex(ev.a).Distance(m.GetVertex(ev.b));
         }
 
-        // ears at exact corners of a convex polygon with collinear points: no triangle across collinear points
+        // A triangulation of a convex polygon (with collinear points) without triangles across collinear points,
+        // maximizing the smallest quality (altitude / longest edge) by dynamic programming: no needles at nearly flat
+        // corners where another triangulation exists. Collinearity is exact (Orient); quality is approximate.
         List<Index3i> triangulate(List<int> v)
+        {
+            int n = v.Count;
+            var tris = new List<Index3i>();
+            if (n == 3) {
+                if (K.Orient(v[0], v[1], v[2]) != 0) tris.Add(new Index3i(v[0], v[1], v[2]));
+                return tris;
+            }
+            if (n > 64)
+                return triangulate_ears(v);
+            var pos = v.Select(K.Approx).ToList();
+            // best[i, j]: the best smallest quality of the sub-polygon i..j (j > i + 1), -1 if none
+            var best = new double[n, n];
+            var choice = new int[n, n];
+            for (int len = 2; len < n; ++len)
+                for (int i = 0; i + len < n; ++i) {
+                    int j = i + len;
+                    best[i, j] = -1; choice[i, j] = -1;
+                    for (int k = i + 1; k < j; ++k) {
+                        double left = (k - i >= 2) ? best[i, k] : double.MaxValue, right = (j - k >= 2) ? best[k, j] : double.MaxValue;
+                        if (left < 0 || right < 0) continue;
+                        double q = tri_quality(pos[i], pos[k], pos[j]);
+                        if (q <= 0 && K.Orient(v[i], v[k], v[j]) == 0) continue;
+                        if (q <= 0) q = 1e-300;
+                        double m = Math.Min(q, Math.Min(left, right));
+                        if (m > best[i, j]) { best[i, j] = m; choice[i, j] = k; }
+                    }
+                }
+            if (choice[0, n - 1] < 0)
+                return triangulate_ears(v);
+            var stack = new Stack<Index2i>();
+            stack.Push(new Index2i(0, n - 1));
+            while (stack.Count > 0) {
+                Index2i ij = stack.Pop();
+                if (ij.b - ij.a < 2) continue;
+                int k = choice[ij.a, ij.b];
+                tris.Add(new Index3i(v[ij.a], v[k], v[ij.b]));
+                stack.Push(new Index2i(ij.a, k));
+                stack.Push(new Index2i(k, ij.b));
+            }
+            return tris;
+        }
+
+        // altitude / longest edge (0 for collinear points, approximate)
+        static double tri_quality(Vector2d a, Vector2d b, Vector2d c)
+        {
+            double area2 = Math.Abs((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x));
+            double l = Math.Max(a.DistanceSquared(b), Math.Max(b.DistanceSquared(c), c.DistanceSquared(a)));
+            return l > 0 ? area2 / l : 0;
+        }
+
+        // ears at exact corners of a convex polygon with collinear points: no triangle across collinear points
+        List<Index3i> triangulate_ears(List<int> v)
         {
             var tris = new List<Index3i>();
             var poly = new List<int>(v);

@@ -154,7 +154,7 @@ namespace g3
             bool negative = (num.M.Sign < 0) != (den.M.Sign < 0);
             BigInteger n = BigInteger.Abs(num.M), d = BigInteger.Abs(den.M);
             long e = (long)num.E - den.E;
-            // q = floor(n 2^shift / d) with 55 or 56 significant bits, plus a sticky bit for the remainder
+            // q = floor(n 2^shift / d) with 56 or 57 significant bits, plus a sticky bit for the remainder
             long shift = 56 - (ExactPoint3.BitLength(n) - ExactPoint3.BitLength(d));
             BigInteger rem;
             BigInteger q = (shift >= 0) ? BigInteger.DivRem(n << (int)shift, d, out rem)
@@ -170,7 +170,7 @@ namespace g3
                 return negative ? double.NegativeInfinity : double.PositiveInfinity;
             if (keep < 0)
                 return negative ? -0.0 : 0.0;      // below half the smallest subnormal (qb >= 55 bits, so keep < 0 is far below)
-            long drop = qb - keep;                 // >= 2
+            long drop = qb - keep;                 // >= 3
             BigInteger mant = q >> (int)drop;
             BigInteger low = q - (mant << (int)drop);
             BigInteger half = BigInteger.One << (int)(drop - 1);

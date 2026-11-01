@@ -66,8 +66,9 @@ namespace gs
     /// in memory; an export must write them with round-trip formatting.
     ///
     /// Conservative: the surface lies at most Tolerance below the exact cone envelope (cut). The toe vertices of the
-    /// output lie UsedToeLowering below the specified toe (cut; above for fill), a margin of the exact check (about
-    /// SlopeMargin x slope x reach / 2).
+    /// output lie UsedToeLowering below the specified toe (cut; above for fill): the margin the exact check of the
+    /// support needs, measured on the output (1e-6 m at UTM in the tests, 3e-10 m near the origin), at most about
+    /// 1.1 x SlopeMargin x slope x reach.
     /// </summary>
     public class TerrainSlopeDesign
     {
@@ -85,7 +86,9 @@ namespace gs
             ToeUndercut,
             /// <summary> the exact check failed on ProblemTriangles (never a violating result) </summary>
             SlopeViolation,
-            Cancelled
+            Cancelled,
+            /// <summary> an internal error (Message); no result </summary>
+            Failed
         }
 
         // inputs
@@ -109,7 +112,11 @@ namespace gs
         public List<Index2i> ToeProblems = new List<Index2i>();
         /// <summary> SlopeViolation: the failing triangles of the last attempt (ids of that mesh, which is not returned) </summary>
         public List<int> ProblemTriangles = new List<int>();
-        /// <summary> an upper bound (rounded up) of slope / spec slope over the triangles, &lt; 1 on success </summary>
+        /// <summary>
+        /// an upper bound of slope / spec slope over the triangles, at most 1 on success: the double ratio rounded up
+        /// where an exact check confirms it, else 1 (needles, whose double ratio is unreliable, are proven by the
+        /// exact check against the spec only)
+        /// </summary>
         public double MaxSlopeRatio;
         public double UsedSlopeMargin, UsedToeLowering, UsedMinFeatureSize;
         /// <summary> the angle between neighbouring cone tangent planes (radians) </summary>
@@ -124,6 +131,10 @@ namespace gs
                 Status = compute();
             } catch (OperationCanceledException) {
                 Status = Statuses.Cancelled;
+            } catch (Exception e) when (e is InvalidOperationException || e is ArgumentException || e is OverflowException) {
+                // (an internal inconsistency; never a result)
+                Status = Statuses.Failed;
+                Message = e.Message;
             }
             if (Status != Statuses.Success)
                 SlopeSurface = null;
@@ -214,17 +225,18 @@ namespace gs
                 return problem(where.a, where.b, why);
 
             // margins (TERRAIN.md 5.4, plan "Departures" 1)
-            double delta = SlopeMargin;
+            // the check decides (5.4): a support failure (ii) raises the toe lowering λ to what the realized output
+            // needs, measured; a slope or orientation failure raises the margin δ
+            double delta = SlopeMargin, lambdaReq = -1;
             for (int attempt = 0; ; ++attempt) {
                 checkCancel();
-                List<int> bad;
-                DMesh3 mesh;
-                Statuses st = build(pieces, toePts, H, delta, fill, out mesh, out bad);
+                BuildResult br;
+                Statuses st = build(pieces, toePts, H, delta, lambdaReq, fill, out br);
                 if (attempt > 0 && st == Statuses.InvalidInput)
                     return fail(Statuses.SlopeViolation, $"{ProblemTriangles.Count} triangles failed the exact check; a larger margin does not fit into Tolerance");
                 if (st != Statuses.SlopeViolation) {
                     if (st == Statuses.Success) {
-                        SlopeSurface = mesh;
+                        SlopeSurface = br.Mesh;
                         Pieces = pieces.Select(p => new SlopePiece() {
                             Toe = p.Toe, Segment = p.Segment, Spec = p.Spec,
                             P0 = fill ? new Vector3d(p.A.x, p.A.y, -p.A.z) : p.A, P1 = fill ? new Vector3d(p.B.x, p.B.y, -p.B.z) : p.B
@@ -232,12 +244,27 @@ namespace gs
                     }
                     return st;
                 }
-                // the check decides: a larger margin, up to 1e-3 relative
-                ProblemTriangles = bad;
-                if (attempt >= 3 || delta * 8 > 1e-3)
-                    return fail(Statuses.SlopeViolation, $"{bad.Count} triangles failed the exact check");
+                ProblemTriangles = br.Bad;
+                if (attempt >= 7)
+                    return fail(Statuses.SlopeViolation, $"{br.Bad.Count} triangles failed the exact check");
+                if (br.SlopeFailures == 0 && 4 * br.MaxExcess <= br.LambdaBound && br.MaxExcess > 0) {
+                    lambdaReq = Math.Max(2 * br.Lambda, 4 * br.MaxExcess);
+                    continue;
+                }
+                if (delta * 8 > 1e-3)
+                    return fail(Statuses.SlopeViolation, $"{br.Bad.Count} triangles failed the exact check");
                 delta *= 8;
+                lambdaReq = -1;
             }
+        }
+
+        sealed class BuildResult
+        {
+            public DMesh3 Mesh;
+            public List<int> Bad = new List<int>();
+            public int SlopeFailures;          // slope (i) or XY orientation
+            public double MaxExcess;           // largest height of a failing triangle's plane above its toe ends (ii)
+            public double Lambda, LambdaBound;
         }
 
         Statuses problem(int toe, int segment, string message)
@@ -260,11 +287,12 @@ namespace gs
 
         // ---------------------------------------------------------------- one build
 
-        Statuses build(List<InPiece> pieces, List<List<Vector3d>> toePts, double H, double delta, bool fill,
-                       out DMesh3 mesh, out List<int> bad)
+        Statuses build(List<InPiece> pieces, List<List<Vector3d>> toePts, double H, double delta, double lambdaReq, bool fill,
+                       out BuildResult br)
         {
-            mesh = null;
-            bad = new List<int>();
+            br = new BuildResult();
+            DMesh3 mesh = null;
+            List<int> bad = br.Bad;
             ToeProblems.Clear();
             var kernel = new ExactSlopeKernel();
 
@@ -279,13 +307,27 @@ namespace gs
             double exy = ulp(maxXY), eeval = ulp(maxZ);
             double minFeature = 2 * (8 * exy + 4 * eeval / sMin) / delta;
             double ez = 2 * sMax * exy + eeval;
-            double lambda = 2 * ez * (1 + 4 * 1.1 * D0 / minFeature);
+            if (MathUtil.IsFinite(D0) == false || MathUtil.IsFinite(maxXY + 4 * D0) == false)
+                return fail(Statuses.InvalidInput, "the slopes are too gentle for the height: the reach is not finite");
+            // the bound of the toe lowering for triangles with altitudes of at least MinFeatureSize (plan, departure 1);
+            // it is reserved in the tolerance budget, but the toe is lowered only by what the output needs (measured)
+            double lambdaBound = 2 * ez * (1 + 4 * 1.1 * D0 / minFeature);
+            double lambda = (lambdaReq >= 0) ? lambdaReq : 2 * ez * (1 + 4 * 64);
+            if (lambda > lambdaBound) lambda = lambdaBound;
+            br.Lambda = lambda; br.LambdaBound = lambdaBound;
             UsedSlopeMargin = delta; UsedMinFeatureSize = minFeature; UsedToeLowering = lambda;
 
             // tolerance budget: lowering, slope margin, cone facets (TERRAIN.md 5.1)
-            double facetShare = Tolerance - lambda - delta * sMax * 1.1 * D0;
+            double facetShare = Tolerance - lambdaBound - delta * sMax * 1.1 * D0;
             if (!(facetShare > 0))
-                return fail(Statuses.InvalidInput, $"Tolerance {Tolerance} is below the numerical margins ({lambda + delta * sMax * 1.1 * D0:G3})");
+                return fail(Statuses.InvalidInput, $"Tolerance {Tolerance} is below the numerical margins ({lambdaBound + delta * sMax * 1.1 * D0:G3})");
+            // toe segments below the feature size at the largest margin (1e-3) cannot be realized
+            double minFeatureMax = 2 * (8 * exy + 4 * eeval / sMin) / 1e-3;
+            foreach (var pc in pieces)
+                if (pc.A.xy.Distance(pc.B.xy) < minFeatureMax) {
+                    ToeProblems.Add(new Index2i(pc.Toe, pc.Segment));
+                    return fail(Statuses.InvalidInput, $"toe {pc.Toe} segment {pc.Segment} is shorter than the smallest feature that can be realized ({minFeatureMax:G3})");
+                }
             // a direction is at most 3/4 theta from its nearest tangent plane (the grid is theta, and a grid direction
             // within theta / 2 of a strip direction is dropped), so the facet error is s D (1 - cos(3/4 theta))
             double c = 1 - facetShare / (sMax * 1.1 * D0);
@@ -314,6 +356,8 @@ namespace gs
             var stripsAt = new Dictionary<Vector3d, List<StripRef>>();
             foreach (var pc in pieces) {
                 checkCancel();
+                // (a new build: no planes of an earlier attempt, whose kernel is gone)
+                pc.Strip.Clear(); pc.FanA.Clear(); pc.FanB.Clear(); pc.AngA.Clear(); pc.AngB.Clear();
                 pc.A1 = lower(pc.A); pc.B1 = lower(pc.B);
                 pc.Sb = pc.S * (1 - delta);
                 Statuses ps = make_strips(kernel, pc, stripsAt);
@@ -368,18 +412,44 @@ namespace gs
                 mesh.GetTriVertices(tid, ref a, ref b, ref cc);
                 InPiece pc = pieces[mesh.GetTriangleGroup(tid)];
                 if (fill) { a.z = -a.z; b.z = -b.z; cc.z = -cc.z; }
-                bool ok = ExactPredicates.Orient2d(a.xy, b.xy, cc.xy) > 0 && Slope.IsSupportedBy(a, b, cc, pc.A, pc.B, pc.Spec);
-                if (ok == false)
+                bool slopeOk = ExactPredicates.Orient2d(a.xy, b.xy, cc.xy) > 0 && Slope.IsNotSteeper(a, b, cc, pc.Spec);
+                bool supportOk = Slope.IsPlaneOnOrBelow(a, b, cc, pc.A) && Slope.IsPlaneOnOrBelow(a, b, cc, pc.B);
+                if (slopeOk == false) br.SlopeFailures++;
+                if (supportOk == false)
+                    br.MaxExcess = Math.Max(br.MaxExcess, Math.Max(plane_excess(a, b, cc, pc.A), plane_excess(a, b, cc, pc.B)));
+                if (slopeOk == false || supportOk == false) {
                     bad.Add(tid);
-                Vector3d n = (b - a).Cross(cc - a);
-                double ratio = Math.Sqrt(n.x * n.x + n.y * n.y) / Math.Abs(n.z) / pc.S;
-                maxRatio = Math.Max(maxRatio, ratio);
+                    continue;
+                }
+                maxRatio = Math.Max(maxRatio, ratio_bound(a, b, cc, pc.Spec));
             }
+            br.Mesh = mesh;
             if (bad.Count > 0)
                 return Statuses.SlopeViolation;
-            // (a bound: the rounding of the ratio is far below its distance to 1, which the exact check has proven)
-            MaxSlopeRatio = Math.Min(maxRatio * (1 + 1e-12), maxRatio < 1 ? ExactInterval.Down(1.0) : maxRatio);
+            MaxSlopeRatio = maxRatio;
             return Statuses.Success;
+        }
+
+        // the plane of (a, b, c) at p's XY minus p.z (approximate; for the measured toe lowering)
+        static double plane_excess(Vector3d a, Vector3d b, Vector3d c, Vector3d p)
+        {
+            Vector3d n = (b - a).Cross(c - a);
+            double z = a.z - (n.x * (p.x - a.x) + n.y * (p.y - a.y)) / n.z;
+            double e = z - p.z;
+            return (MathUtil.IsFinite(e) && e > 0) ? e : 0;
+        }
+
+        // an upper bound of slope / spec slope (the triangle passed the exact check, so at most 1): the double ratio,
+        // increased, if the exact check proves it, else 1
+        static double ratio_bound(Vector3d a, Vector3d b, Vector3d c, SlopeSpec spec)
+        {
+            Vector3d n = (b - a).Cross(c - a);
+            double r = Math.Sqrt(n.x * n.x + n.y * n.y) / Math.Abs(n.z) / spec.S * (1 + 1e-9);
+            if (!(r < 1) || spec.ExactlyCheckable == false)
+                return 1;
+            double limit = ExactInterval.Up(r * spec.S);
+            // slope <= limit (exact) and limit <= r S (1 + 2^-52 relative) <= spec
+            return Slope.IsNotSteeper(a, b, c, SlopeSpec.Rise(limit)) ? ExactInterval.Up(ExactInterval.Up(r)) : 1;
         }
 
         // z exceeds p - λ (exact): z > pz - λ  <=>  z - pz + λ > 0

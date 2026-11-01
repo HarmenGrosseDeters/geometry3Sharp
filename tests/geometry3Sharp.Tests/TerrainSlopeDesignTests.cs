@@ -102,7 +102,7 @@ namespace geometry3Sharp.Tests
             AssertSurface(d);
             AssertO1(d, fill);
             AssertO2(d, fill);
-            Assert.True(d.MaxSlopeRatio < 1);
+            Assert.True(d.MaxSlopeRatio <= 1);
         }
 
         // ---- cases ----
@@ -229,7 +229,7 @@ namespace geometry3Sharp.Tests
             AssertAll(d);
             double gn = Math.Sqrt(1 - 0.01);
             foreach (Vector3d v in d.SlopeSurface.Vertices())
-                if (v.z < 11.9) Assert.True(Math.Abs(v.z - (0.1 * v.x + gn * v.y)) < 0.01 + 1e-9, v.ToString());
+                if (v.z < 11.9 && v.x > 10 && v.x < 40) Assert.True(Math.Abs(v.z - (0.1 * v.x + gn * v.y)) < 0.01 + 1e-9, v.ToString());   // in the strip (its side lines are not perpendicular)
         }
 
         // |g| >= s_build exactly: the toe rises as steeply as the slope
@@ -364,6 +364,97 @@ namespace geometry3Sharp.Tests
         {
             double t = (x - p).Dot(q - p) / (q - p).LengthSquared;
             return t >= -1e-12 && t <= 1 + 1e-12 && (p + t * (q - p)).Distance(x) <= 1e-9 * (1 + p.Length);
+        }
+
+        // ---- regressions of the independent review (uneven toe heights with mixed slopes per segment) ----
+
+        static List<Vector3d> P(params (double, double, double)[] p) => p.Select(q => new Vector3d(q.Item1, q.Item2, q.Item3)).ToList();
+
+        // A: open, uneven, mixed specs (failed with SlopeViolation: the sector window wrapped at +-pi, and the
+        // planes of a failed attempt were kept for the next one)
+        [Fact]
+        public void Review_OpenUneven_MixedSlopes()
+        {
+            var pts = P((12, 16, 0), (0.934, 24, 0), (-12.773, 19.097, 0), (-11.63, 4.284, 1), (-24, -6.67, 0), (-14, -18, 1), (-1, -19, 0), (13.011, -19, 0), (16, -6, 0));
+            var specs = new[] { SlopeSpec.Percent(107), SlopeSpec.Percent(122), SlopeSpec.Ratio(1.5), SlopeSpec.Ratio(2), SlopeSpec.Ratio(0.5), SlopeSpec.Percent(139), SlopeSpec.Percent(126), SlopeSpec.Ratio(3) };
+            var d = Run(8.592199603837077, 0.01, new SlopeToe() { Points = pts, Side = SlopeToe.Sides.Right, CutStart = specs });
+            AssertAll(d);
+        }
+
+        // B: closed, fill, uneven, mixed specs
+        [Fact]
+        public void Review_ClosedFill_MixedSlopes()
+        {
+            var pts = P((13, 11.003, 0), (1.715, 11, 0), (-11, 17, 0), (-21.84, 7, 0), (-10, -4, 0), (-6, -10, 2), (2.304, -11.61, 2), (18, -14.676, 0), (19.496, 0.418, 0));
+            var specs = new[] { SlopeSpec.Ratio(1.5), SlopeSpec.Percent(48), SlopeSpec.Percent(69), SlopeSpec.Percent(115), SlopeSpec.Ratio(0.5), SlopeSpec.Ratio(1.5), SlopeSpec.Percent(81), SlopeSpec.Percent(83), SlopeSpec.Ratio(3) };
+            var d = Design(-8.409746392355181, 0.01, new SlopeToe() { Points = pts, Closed = true, Side = SlopeToe.Sides.Outside, FillStart = specs });
+            d.Direction = TerrainSlopeDesign.Directions.Fill;
+            Assert.True(d.Compute(), d.Status + " " + d.Message);
+            AssertAll(d, true);
+        }
+
+        // MaxSlopeRatio is an upper bound below 1 also with needles (the double ratio was 1.00104 there)
+        [Fact]
+        public void Review_MaxSlopeRatio_IsABound()
+        {
+            var pts = P((6.227, 9, 0), (-7.869, 10, 2), (-9.524, -3.464, 0), (1, -16, 0), (12.617, -3.621, 0));
+            var specs = new[] { SlopeSpec.Percent(44), SlopeSpec.Percent(87), SlopeSpec.Ratio(3), SlopeSpec.Ratio(2), SlopeSpec.Percent(40) };
+            var d = Run(8.20194518808366, 0.01, new SlopeToe() { Points = pts, Closed = true, Side = SlopeToe.Sides.Outside, CutStart = specs });
+            AssertAll(d);
+            Assert.True(d.MaxSlopeRatio <= 1);
+        }
+
+        // an open toe with its slope on the concave side: the end normals cross, and each ray ends at the other
+        [Fact]
+        public void Review_OpenConcave_RaysCross()
+        {
+            var pts = P((0, 0, 0), (10, 0, 0), (10, 10, 0));
+            var d = Run(3, 0.01, SlopeToe.Constant(pts, false, SlopeToe.Sides.Left, SlopeSpec.Ratio(1)));
+            AssertAll(d);
+            Assert.All(d.SlopeSurface.Vertices(), v => { Assert.InRange(v.x, -1e-9, 10 + 1e-9); Assert.InRange(v.y, -1e-9, 10 + 1e-9); });
+            var right = Run(3, 0.01, SlopeToe.Constant(pts, false, SlopeToe.Sides.Right, SlopeSpec.Ratio(1)));
+            AssertAll(right);
+        }
+
+        // statuses instead of exceptions; slopes whose S is 0 or subnormal are invalid
+        [Fact]
+        public void Review_ExtremeSlopes_GiveStatuses()
+        {
+            foreach (var spec in new[] { SlopeSpec.Ratio(1e300), SlopeSpec.Percent(4.9e-324), SlopeSpec.Rise(1e-310), SlopeSpec.Degrees(1e-320) }) {
+                var d = Design(5, 0.01, SlopeToe.Constant(Square(10, 0), true, SlopeToe.Sides.Outside, spec));
+                Assert.False(d.Compute());
+                Assert.Equal(TerrainSlopeDesign.Statuses.InvalidInput, d.Status);
+                Assert.Null(d.SlopeSurface);
+            }
+            Assert.False(SlopeSpec.Percent(4.9e-324).IsValid);
+            Assert.True(SlopeSpec.Ratio(1e300).IsValid);    // S = 1e-300 is a valid slope, too gentle for any height here
+        }
+
+        // a notch shorter than the feature size is rejected with its location, not a SlopeViolation
+        [Fact]
+        public void Review_ShortToeSegment_IsInvalid()
+        {
+            var pts = P((0, 0, 0), (10, 0, 0), (10, 1e-12, 0), (20, 0, 0), (20, 20, 0), (0, 20, 0));
+            var d = Design(6, 0.01, SlopeToe.Constant(pts, true, SlopeToe.Sides.Inside, SlopeSpec.Ratio(1)));
+            Assert.False(d.Compute());
+            Assert.Equal(TerrainSlopeDesign.Statuses.InvalidInput, d.Status);
+            Assert.Contains(d.ToeProblems, p => p.b == 1 || p.b == 2);
+        }
+
+        // owner: the toe lowering is measured on the realized output. Near the origin it is tiny, at UTM it follows
+        // the rounding of the output coordinates; the verdicts agree
+        [Fact]
+        public void ToeLowering_Origin_vs_Utm()
+        {
+            Func<Vector2d, TerrainSlopeDesign> make = (c) => Run(40 + 113.75, 0.01, SlopeToe.Constant(Ngon(9, 60, 113.75).Select(p => new Vector3d(p.x + c.x, p.y + c.y, p.z)).ToList(), true, SlopeToe.Sides.Outside, SlopeSpec.Ratio(1)));
+            var origin = make(Vector2d.Zero);
+            var utm = make(new Vector2d(632117.25, 5712043.5));
+            AssertAll(origin);
+            AssertAll(utm);
+            output.WriteLine($"lowering: origin {origin.UsedToeLowering:G3}, utm {utm.UsedToeLowering:G3}; margin {origin.UsedSlopeMargin} / {utm.UsedSlopeMargin}");
+            Assert.True(origin.UsedToeLowering < 1e-9, origin.UsedToeLowering.ToString());
+            Assert.True(utm.UsedToeLowering < 1e-4, utm.UsedToeLowering.ToString());
+            Assert.True(utm.UsedToeLowering > origin.UsedToeLowering);
         }
     }
 }

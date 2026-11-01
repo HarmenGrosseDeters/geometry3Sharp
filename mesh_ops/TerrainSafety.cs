@@ -332,7 +332,7 @@ namespace gs
             TooLarge,
             /// <summary> Guaranteed with RequireCertified: a line point is not certified </summary>
             NotCertified,
-            /// <summary> AlongSurface: the geodesic distance failed </summary>
+            /// <summary> AlongSurface: the geodesic distance failed; also after an exception in Compute </summary>
             Failed
         }
         public Statuses Status;
@@ -454,6 +454,8 @@ namespace gs
         {
             clear_outputs();
             failStatus = Statuses.InvalidInput;
+            // (an exception leaves Failed, not the status of an earlier Compute)
+            Status = Statuses.Failed;
             bool ok = compute();
             Status = ok ? Statuses.Success : failStatus;
             return ok;

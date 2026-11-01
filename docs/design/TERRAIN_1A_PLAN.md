@@ -82,15 +82,52 @@ design area); continuous change of the slope along a segment and the three inter
    vertices, e ≈ 2s·e_xy) and the smallest altitude h, the plane at distance D is off by up to e·(1 + 4D / h). At UTM
    (e ≈ 1e-9 m), D = 500 m and h = 1 m that is about 2e-6 m above the toe, so (ii) fails although the triangle is below
    every cone in fact. Giving the toe triangles the real toe heights while the planes are lowered would break (i) for
-   them instead. 1a therefore lowers all toe points (and so all planes) by λ = 2·e_z·(1 + 4·D_max / MinFeatureSize).
-   With `MinFeatureSize` derived from δ and e as in 5.4, λ ≈ δ·s·D_max / 2 whatever the size of the coordinates: the
-   margin term δ·s·D that the tolerance budget of 5.1 already contains. So every triangle with an altitude of at least
-   `MinFeatureSize` passes (i) by δ and (ii) by λ; smaller ones are slivers for the repair. The toe vertices of the output
-   lie λ below the specified toe (0.25 mm at δ = 1e-6, s = 1, D_max = 500 m). 1b will have to join the design at these
-   heights, or decide differently: a question for the owner. Measured: with λ = 0 (the design as written), 23 of the 27
-   slope surface tests fail the exact check, also at local coordinates (`SlopeViolation`, 150 to 350 triangles each).
+   them instead. So all toe points (and with them all planes) are lowered by λ.
+   - **Measured, not the worst case** (owner, 2026-11-01). The construction is exact (rational planes and vertices),
+     so the only rounding is the final one into the output coordinates; a local frame would change nothing there. The
+     first build lowers by a small λ0 = 2·e_z·257; if a triangle fails (ii) only, the next build lowers by
+     max(2λ, 4 × the largest excess measured on the output). The worst-case bound λ_bound = 2·e_z·(1 + 4·D_max /
+     MinFeatureSize) ≈ 1.1·δ·s·D_max (the review measured 0.55 mm for δ = 1e-6, s = 1, D_max = 500 m) is reserved in the
+     tolerance budget and caps λ; above it the margin δ is raised instead. `UsedToeLowering` reports the λ used.
+   - Measured (`TerrainSlopeDesignTests.ToeLowering_Origin_vs_Utm`, a 9-gon of radius 60 m, slope 1:1, 40 m high):
+     λ = 3.0e-10 m at the origin and 9.6e-7 m at UTM (632117, 5712043); both succeed with δ = 1e-6. At UTM λ is driven by
+     the output grid: e_xy is the ulp of the northing (9.3e-10 m).
+   - Without any lowering (λ = 0, the design as written), 23 of the 27 slope surface tests failed the exact check, also
+     at local coordinates (`SlopeViolation`, 150 to 350 triangles each).
+   - 1b will have to join the design at these heights, or decide differently: a question for the owner.
 2. **No design TIN in 1a** (see Scope): `CrossDesignInfluence` comes with the design area.
 3. **`HeightLimit`** replaces `TargetHeights` and the terrain extent until 1b; it is one height, not a list.
+
+## Look before you build (owner rule, AGENT_WORKFLOW 3)
+
+- **Library building blocks used:** `ExactTriangulation2` (the domain), `LooseQuadtree2d` (faces near a piece, public
+  API only), `ExactPredicates.Orient2d` / `Orient3d` (the oracle's support check, the toe validation), `DMesh3`
+  edge collapse (the repair); in the tests `TerrainVolumeDifference.XYOverlaps` (height field), `TerrainGreedyTIN`
+  (existing results for the oracle), `Invariance` / `Similarity`. Looked at and not used: `ExactPoint3` /
+  `ExactMeshArrangement` (three-plane points in 3D on an integer grid, a different setting from lines of plane pairs in
+  XY), the fixed-width `FixedPoint3` (needs integer-grid input), the generated filters of `tools/PredicateCompiler`
+  (static bounds per predicate; the degree-14 side test of two plane-pair lines would be a new spec entry: a candidate
+  for the performance pass, measured against the interval filter first).
+- **Literature:** the review of TERRAIN.md section 4 (descriptive geometry of slope cones, Lipschitz extensions,
+  weighted Voronoi diagrams as cone envelopes, straight skeletons, Fast Marching, open-pit design, road daylighting,
+  map overlay); for the implementation interval arithmetic (Moore 1966), the half-edge structure (Muller & Preparata
+  1978; de Berg et al.) and Shewchuk 1997. Listed in docs/SOURCES.md.
+
+## Review (independent, 2026-11-01) and fixes
+
+No violation of the guarantee was found. Fixed in this PR, each with a regression test (`Review_*`):
+- valid inputs with uneven toe heights and mixed slopes failed with `SlopeViolation`: the planes of a failed attempt
+  were kept for the next one (fixed), and the fan sector window wrapped at ±π (now centred on the sector);
+- `MaxSlopeRatio` was a double estimate (1.00104 on a needle): now a bound, rounded up and confirmed exactly, else 1;
+  faces are triangulated by dynamic programming over their corners (largest smallest quality), which avoids needles
+  at nearly flat corners;
+- an open toe with its slope on the concave side was rejected: each lateral ray now ends at its first toe or at the
+  other ray;
+- exceptions are mapped to `Statuses.Failed`; slopes with S = 0 or subnormal are invalid; a reach that is not finite
+  is `InvalidInput`; toe segments below the smallest realizable feature are `InvalidInput` with their location;
+- `TerrainSafetyLines.Status` is `Failed` after an exception, not the status of an earlier run.
+Open (not blocking, recorded): flips of needles without a short edge inside a cell (5.4 "caps"); the O2 oracle samples
+vertices and centroids only; `Simplify` repeats whole passes; the toe validation is a sweep in x only.
 
 ## Tests (per CLAUDE.md and TERRAIN.md 7)
 

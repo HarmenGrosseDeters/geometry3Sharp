@@ -34,11 +34,13 @@ namespace gs
         public static SlopeSpec Degrees(double a) { return new SlopeSpec(Kinds.Degrees, a); }
         public static SlopeSpec Rise(double s) { return new SlopeSpec(Kinds.Rise, s); }
 
-        /// <summary> positive and finite (an angle below 90 degrees) </summary>
+        /// <summary> positive and finite (an angle below 90 degrees), with S finite and not below the normal doubles </summary>
         public bool IsValid {
             get {
                 if (!(Value > 0) || double.IsInfinity(Value)) return false;
-                return Kind != Kinds.Degrees || Value < 90;
+                if (Kind == Kinds.Degrees && !(Value < 90)) return false;
+                double s = raw_s();
+                return s >= 2.2250738585072014E-308 && double.IsInfinity(s) == false;
             }
         }
 
@@ -50,25 +52,27 @@ namespace gs
         /// is not above it; checked exactly); tan of the angle for Degrees; NaN if not IsValid
         /// </summary>
         public double S {
-            get {
-                if (IsValid == false) return double.NaN;
-                switch (Kind) {
-                    case Kinds.Ratio: {
-                        // largest s with s * n <= 1
-                        double s = 1.0 / Value;
-                        while (ExactSlopePredicates.ProductMinus(s, Value, 1) > 0) s = ExactInterval.Down(s);
-                        return s;
-                    }
-                    case Kinds.Percent: {
-                        double s = Value / 100;
-                        while (ExactSlopePredicates.ProductMinus(s, 100, Value) > 0) s = ExactInterval.Down(s);
-                        return s;
-                    }
-                    case Kinds.Degrees:
-                        return Math.Tan(Value * Math.PI / 180);
-                    default:
-                        return Value;
+            get { return IsValid ? raw_s() : double.NaN; }
+        }
+
+        double raw_s()
+        {
+            switch (Kind) {
+                case Kinds.Ratio: {
+                    // largest s with s * n <= 1
+                    double s = 1.0 / Value;
+                    while (s > 0 && ExactSlopePredicates.ProductMinus(s, Value, 1) > 0) s = ExactInterval.Down(s);
+                    return s;
                 }
+                case Kinds.Percent: {
+                    double s = Value / 100;
+                    while (s > 0 && ExactSlopePredicates.ProductMinus(s, 100, Value) > 0) s = ExactInterval.Down(s);
+                    return s;
+                }
+                case Kinds.Degrees:
+                    return Math.Tan(Value * Math.PI / 180);
+                default:
+                    return Value;
             }
         }
 

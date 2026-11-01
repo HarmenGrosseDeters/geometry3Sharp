@@ -103,12 +103,6 @@ namespace g3
             pl.exact = true;
         }
 
-        public Vector3d PlanePoint(int plane, int k)
-        {
-            Plane pl = planes[plane];
-            return k == 0 ? pl.P : (k == 1 ? pl.Q : pl.R);
-        }
-
         /// <summary> the line where planes a and b have the same height; side &gt; 0 where a is higher (cached) </summary>
         public int PlaneLine(int a, int b)
         {
@@ -238,27 +232,6 @@ namespace g3
             return e.Sign * (p.eW * q.eW * r.eW).Sign;
         }
 
-        /// <summary>
-        /// for a vertex on the point line (u, w): sign of t(v) - t0 with t the parameter along u -> w (t0 = 0 at u, 1
-        /// at w); 'atEnd' false compares with u, true with w
-        /// </summary>
-        public int CompareAlong(int vertex, Vector2d u, Vector2d w, bool atEnd)
-        {
-            Vertex v = vertices[vertex];
-            ExactInterval dx = I(w.x) - I(u.x), dy = I(w.y) - I(u.y);
-            ExactInterval t = (v.X - I(u.x) * v.W) * dx + (v.Y - I(u.y) * v.W) * dy;
-            if (atEnd) t = t - (dx * dx + dy * dy) * v.W;
-            int st = t.Sign(), sw = v.W.Sign();
-            if (st != 2 && sw != 2)
-                return st * sw;
-            ExactEvaluations++;
-            exact_vertex(v);
-            ExactDyadic edx = E(w.x) - E(u.x), edy = E(w.y) - E(u.y);
-            ExactDyadic et = (v.eX - E(u.x) * v.eW) * edx + (v.eY - E(u.y) * v.eW) * edy;
-            if (atEnd) et = et - (edx * edx + edy * edy) * v.eW;
-            return et.Sign * v.eW.Sign;
-        }
-
         /// <summary> the vertex rounded to the nearest doubles (each coordinate) </summary>
         public Vector2d Rounded(int vertex)
         {
@@ -279,7 +252,9 @@ namespace g3
             if (v.rounded) return new Vector2d(v.rx, v.ry);
             double w = 0.5 * (v.W.Lo + v.W.Hi);
             double x = 0.5 * (v.X.Lo + v.X.Hi) / w, y = 0.5 * (v.Y.Lo + v.Y.Hi) / w;
-            if (MathUtil.IsFinite(x) && MathUtil.IsFinite(y))
+            // tight intervals only (nearly parallel lines have a wide W): else the rounded exact position
+            double err = ((v.X.Hi - v.X.Lo) + (v.Y.Hi - v.Y.Lo)) / Math.Abs(w) + (Math.Abs(x) + Math.Abs(y)) * (v.W.Hi - v.W.Lo) / Math.Abs(w);
+            if (MathUtil.IsFinite(x) && MathUtil.IsFinite(y) && err <= 1e-12 * (Math.Abs(x) + Math.Abs(y)))
                 return new Vector2d(x, y);
             return Rounded(vertex);
         }
