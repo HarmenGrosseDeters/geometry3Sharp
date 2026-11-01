@@ -416,6 +416,121 @@ namespace geometry3Sharp.Tests.Spatial
             Assert.Equal(new Vector3d(1, 2, 3), tree.GetItem(id).P0);
         }
 
+        // ---- what a query looks at
+
+        [Fact]
+        public void PointQueryOnATin_TestsFewItems()
+        {
+            // Loose cells overlap: this took about 35 items for 2 hits, when queries pruned by the cells instead of the content.
+            var boxes = new List<AxisAlignedBox2d>();
+            for (int j = 0; j < 200; ++j)
+                for (int i = 0; i < 200; ++i) {
+                    boxes.Add(new AxisAlignedBox2d(i * 7.0, j * 7.0, i * 7.0 + 7, j * 7.0 + 7));
+                    boxes.Add(new AxisAlignedBox2d(i * 7.0, j * 7.0, i * 7.0 + 7, j * 7.0 + 7));
+                }
+            var random = new Random(3);
+            for (int i = boxes.Count - 1; i > 0; --i) {
+                int k = random.Next(i + 1);
+                AxisAlignedBox2d s = boxes[i]; boxes[i] = boxes[k]; boxes[k] = s;
+            }
+            foreach (var tree in new[] { new LooseQuadtree2d(boxes, false), new LooseQuadtree2d(boxes, true), InsertedOneByOne(boxes) }) {
+                long visited = 0;
+                for (int q = 0; q < 500; ++q) {
+                    double x = 0.5 + random.NextDouble() * 1390, y = 0.5 + random.NextDouble() * 1390;
+                    visited += Visited(tree, new AxisAlignedBox2d(x, y, x, y));
+                }
+                Assert.True(visited / 500 < 16, $"{visited / 500} items per query");
+            }
+        }
+
+        [Fact]
+        public void ParallelBuild_HoldsEveryItem_EvenAllInOneCorner()
+        {
+            // Above the size where the parallel build starts, gathered in one quadrant of the extent, plus one far corner.
+            var random = new Random(6);
+            var boxes = new List<AxisAlignedBox2d> { new AxisAlignedBox2d(new Vector2d(1000, 1000)) };
+            for (int i = 0; i < 70000; ++i) {
+                double x = random.NextDouble(), y = random.NextDouble();
+                boxes.Add(new AxisAlignedBox2d(x, y, x + 0.001, y + 0.001));
+            }
+            var serial = new LooseQuadtree2d(boxes, false);
+            var parallel = new LooseQuadtree2d(boxes, true);
+            var a = new List<int>();
+            var b = new List<int>();
+            for (int q = 0; q < 300; ++q) {
+                double x = random.NextDouble(), y = random.NextDouble();
+                var query = new AxisAlignedBox2d(x, y, x + 0.01, y + 0.01);
+                serial.QueryRectangle(query, a);
+                parallel.QueryRectangle(query, b);
+                Assert.Equal(a.OrderBy(i => i), b.OrderBy(i => i));
+                Assert.Equal(serial.FindNearest(new Vector2d(x, y)), parallel.FindNearest(new Vector2d(x, y)));
+            }
+            // Removal and insertion go through the owners and links that the merge has set.
+            for (int i = 0; i < 70001; i += 3) Assert.True(parallel.Remove(i));
+            int added = parallel.Insert(new AxisAlignedBox2d(new Vector2d(0.5, 0.5)));
+            parallel.QueryRectangle(new AxisAlignedBox2d(-1, -1, 2000, 2000), a);
+            Assert.Equal(70001 - 23334 + 1, a.Count);
+            Assert.Contains(added, a);
+        }
+
+        struct CountingDistance : IQuadtreeDistance2d
+        {
+            public LooseQuadtree2d Tree;
+            public Vector2d Point;
+            public int Calls;
+            public double Distance(int id)
+            {
+                ++Calls;
+                AxisAlignedBox2d box = Tree.GetBounds(id);
+                double dx = Math.Max(0, Math.Max(box.Min.x - Point.x, Point.x - box.Max.x)), dy = Math.Max(0, Math.Max(box.Min.y - Point.y, Point.y - box.Max.y));
+                return Math.Sqrt(dx * dx + dy * dy);
+            }
+        }
+
+        [Fact]
+        public void NearestSearch_LooksAtFewItems_AsItsLimitTightens()
+        {
+            var random = new Random(12);
+            AxisAlignedBox2d[] boxes = Enumerable.Range(0, 100000).Select(i => {
+                double x = random.NextDouble() * 1000, y = random.NextDouble() * 1000;
+                return new AxisAlignedBox2d(x, y, x + 1, y + 1);
+            }).ToArray();
+            var tree = new LooseQuadtree2d(boxes, false);
+            var found = new List<int>();
+            long nearestCalls = 0, knnCalls = 0;
+            for (int q = 0; q < 200; ++q) {
+                var point = new Vector2d(random.NextDouble() * 1000, random.NextDouble() * 1000);
+                var one = new CountingDistance { Tree = tree, Point = point };
+                tree.FindNearest(point, ref one);
+                nearestCalls += one.Calls;
+                var many = new CountingDistance { Tree = tree, Point = point };
+                tree.FindNearestK(point, 8, found, ref many);
+                knnCalls += many.Calls;
+            }
+            // The k search asks its metric again per comparison in the heap, and a query walking all items would be 100000.
+            Assert.True(nearestCalls / 200 < 200, $"{nearestCalls / 200} distance calls for nearest");
+            Assert.True(knnCalls / 200 < 2500, $"{knnCalls / 200} distance calls for 8 nearest");
+        }
+
+        struct AllRegions : IQuadtreeVisitor2d
+        {
+            public List<AxisAlignedBox2d> Regions;
+            public bool TestRegion(AxisAlignedBox2d region) { Regions.Add(region); return true; }
+            public bool Visit(int id) { return false; }
+        }
+
+        [Fact]
+        public void Traversal_ShowsNoRegionOfAnEmptyPart()
+        {
+            // A row leaves children empty, as its uncut axis selects only some. Removal empties others.
+            var tree = new LooseQuadtree2d(Row(5000), false);
+            for (int i = 0; i < 5000; i += 2) tree.Remove(i);
+            var visitor = new AllRegions { Regions = new List<AxisAlignedBox2d>() };
+            tree.Traverse(ref visitor);
+            Assert.NotEmpty(visitor.Regions);
+            Assert.All(visitor.Regions, region => Assert.True(region.Min.x <= region.Max.x && region.Min.y <= region.Max.y, region.ToString()));
+        }
+
         // ---- cost of equal items, and of cells one ulp wide
 
         struct RegionCounter : IQuadtreeVisitor2d

@@ -28,6 +28,7 @@ namespace g3
         const int BucketSize = 16;
         const int DepthLimit = 64;
         const int ParallelThreshold = 32768;
+        const int ParallelLevels = 2;
         const double SegmentMargin = 0.0002;
 
         struct Entry
@@ -53,6 +54,13 @@ namespace g3
                 Head = head;
                 Count = count;
             }
+        }
+
+        struct Part
+        {
+            public int Index;
+            public AxisAlignedBox2d Cell;
+            public int Depth;
         }
 
         // An array behind it, for references to nodes instead of copies of them.
@@ -289,14 +297,13 @@ namespace g3
             }
         }
 
-        // The distance to a child's content, negative for an empty child or one already taken.
+        // The distance to a child's content. An empty child is far away, and has nothing to visit anyway.
         double ChildDistance(int index, Vector2d point)
         {
-            ref Node node = ref nodes.Items[index];
-            return node.Head < 0 && node.Child < 0 ? -1 : BoxDistanceTo(point, node.Bounds);
+            return BoxDistanceTo(point, nodes.Items[index].Bounds);
         }
 
-        // The nearest child left, if it is not beyond the limit. Nearest first tightens the limit soonest.
+        // The nearest child left, if it is not beyond the limit, and marks it as taken by a negative distance. Nearest first tightens the limit soonest.
         static int NextChild(ref double d0, ref double d1, ref double d2, ref double d3, double limit)
         {
             int q = -1;
@@ -383,28 +390,45 @@ namespace g3
                 entries[id].Owner = 0;
             }
             nodes.Add(new Node(head, Count));
-            if (!parallel || Count < ParallelThreshold || !Split(nodes, 0, rootRegion, 0)) {
+            if (!parallel || Count < ParallelThreshold) {
                 BuildNode(nodes, 0, rootRegion, 0);
                 return;
             }
-            // Each worker owns disjoint item chains and a private node array. No query scratch is retained.
-            Vector2d center = Center(rootRegion);
-            int axes = SplitAxes(rootRegion, center);
-            var branches = new NodeList[4];
-            Parallel.For(0, 4, q => {
+            // The top levels in sequence, then the parts below them in parallel: 16 at most, so that data
+            // gathered in one quadrant is shared out as well. Each worker owns disjoint item chains and a private node array.
+            var parts = new List<Part> { new Part { Index = 0, Cell = rootRegion, Depth = 0 } };
+            var cut = new List<int>();
+            for (int level = 0; level < ParallelLevels; ++level) {
+                var next = new List<Part>();
+                foreach (Part part in parts) {
+                    if (!Split(nodes, part.Index, part.Cell, part.Depth)) {
+                        next.Add(part);
+                        continue;
+                    }
+                    cut.Add(part.Index);
+                    int child = nodes.Items[part.Index].Child;
+                    Vector2d center = Center(part.Cell);
+                    int axes = SplitAxes(part.Cell, center);
+                    for (int q = 0; q < 4; ++q)
+                        next.Add(new Part { Index = child + q, Cell = ChildBox(part.Cell, center, q, axes), Depth = part.Depth + 1 });
+                }
+                parts = next;
+            }
+            var branches = new NodeList[parts.Count];
+            Parallel.For(0, parts.Count, p => {
                 var branch = new NodeList();
-                branch.Add(nodes.Items[1 + q]);
+                branch.Add(nodes.Items[parts[p].Index]);
                 SetOwners(branch, 0);
-                BuildNode(branch, 0, ChildBox(rootRegion, center, q, axes), 1);
-                branches[q] = branch;
+                BuildNode(branch, 0, parts[p].Cell, parts[p].Depth);
+                branches[p] = branch;
             });
-            for (int q = 0; q < 4; ++q) {
-                NodeList branch = branches[q];
+            for (int p = 0; p < parts.Count; ++p) {
+                NodeList branch = branches[p];
                 int offset = nodes.Count - 1;
                 Node root = branch.Items[0];
                 if (root.Child >= 0) root.Child += offset;
-                nodes.Items[1 + q] = root;
-                SetOwners(nodes, 1 + q);
+                nodes.Items[parts[p].Index] = root;
+                SetOwners(nodes, parts[p].Index);
                 for (int i = 1; i < branch.Count; ++i) {
                     Node node = branch.Items[i];
                     if (node.Child >= 0) node.Child += offset;
@@ -412,7 +436,8 @@ namespace g3
                     SetOwners(nodes, nodes.Count - 1);
                 }
             }
-            Refit(nodes, 0);
+            // Children have higher indices than their parents, so this runs from the bottom up.
+            for (int c = cut.Count - 1; c >= 0; --c) Refit(nodes, cut[c]);
         }
 
         void BuildNode(NodeList target, int index, AxisAlignedBox2d cell, int depth)

@@ -38,6 +38,8 @@ Counted rather than timed, so exact: `QuadtreeReviewRegressionTests`. Items visi
 
 | Data | Before | Now |
 |---|---:|---:|
+| Point query on the 1M triangle grid, regions and items tested | 110 and 35 | 37 and 11 |
+| Rectangle 20 x 20 on the same grid, regions and items tested (30 hits) | 137 and 96 | 53 and 54 |
 | One row of a TIN, extent 100000 x 1 | 100000 | below 64 |
 | 20 km x 20 km, one point at (1e15, 1e15) | 100000 | at most 8 times the count without the point |
 
