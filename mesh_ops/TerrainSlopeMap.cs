@@ -557,6 +557,10 @@ namespace gs
         /// </summary>
         public void Simplify()
         {
+            // greedy in face order, rounds until nothing changes; a pair that failed is tried again only after one of
+            // its faces changed (the convexity of the union depends on the two faces only)
+            var version = new int[fEdge.Count];
+            var failed = new HashSet<(int, int, int, int)>();
             bool changed = true;
             while (changed) {
                 changed = false;
@@ -567,14 +571,24 @@ namespace gs
                         foreach (int h in cycle(f)) {
                             int g = hFace[hTwin[h]];
                             if (g < 0 || g == f || fAlive[g] == false || fDomain[g] == false || fLabel[g] != fLabel[f] || hBar[h] >= 0) continue;
-                            if (try_merge(f, g)) { again = true; changed = true; break; }
+                            var key = (f, g, version[f], version[g]);
+                            if (failed.Contains(key)) continue;
+                            if (try_merge(f, g)) { version[f]++; again = true; changed = true; break; }
+                            failed.Add(key);
                         }
                     }
                 }
                 for (int f = 0; f < fEdge.Count; ++f) {
                     if (fAlive[f] == false) continue;
-                    foreach (int h in cycle(f))
-                        if (try_remove_vertex(h)) { changed = true; break; }
+                    foreach (int h in cycle(f)) {
+                        int g = hFace[hTwin[h]];
+                        if (try_remove_vertex(h)) {
+                            version[f]++;
+                            if (g >= 0) version[g]++;
+                            changed = true;
+                            break;
+                        }
+                    }
                 }
             }
         }

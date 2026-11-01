@@ -185,3 +185,25 @@ bound: use Guaranteed for safety lines.
    height field, so the volume of a simplified survey failed: overlapping merged cells are split.
 4. New: `TerrainSafetyLines.Modes.Guaranteed` with a certified excess (the heat method has no direction of
    its error).
+
+### TerrainSlopeDesign (`slope`, terrain phase 1a)
+
+Procedural toes, no data needed: `dotnet bin/Release/net10.0/TerrainBenchmark.dll slope [toe=ngon|lshape|wavy] [n=24]
+[r=200] [h=60] [ratio=1] [tol=0.01] [coords=utm|local]` (closed toe, slope outside, up to h above the toe). Printed: the
+time per phase (`phase_*_s`, summed over the builds), the builds (`attempts`), the kernel's predicate calls and exact
+fallbacks, the toe lowering, and the oracle (`Slope.IsSupportedBy`) time per output triangle. 4 cores, 2026-11-01,
+`Tolerance` 0.01, slope 1:1:
+
+| case | triangles | builds | time | insert / simplify | predicates (exact) | oracle |
+|---|---|---|---|---|---|---|
+| 24-gon r 20 m, h 6 m, local | 461 | 1 | 0.93 s | 0.51 / 0.24 s | 1.09M (3.7 %) | 1.0 µs |
+| 24-gon r 200 m, h 60 m, local | 1230 | 1 | 5.3 s | 2.8 / 2.2 s | 18.1M (1.6 %) | 1.1 µs |
+| 24-gon r 200 m, h 60 m, UTM | 1203 | 1 | 4.8 s | 2.6 / 2.1 s | 18.1M (2.7 %) | 0.6 µs |
+| L shape 200 m, h 30 m, UTM | 540 | 1 | 0.73 s | 0.27 / 0.24 s | 0.39M (3.9 %) | 2.2 µs |
+| wavy 64-gon r 100 m (toe ±4 m), h 30 m, UTM | 22840 | 3 | 59 s | 24 / 34 s | 104M (7.3 %) | 1.1 µs |
+
+Before / after in this PR (24-gon r 200 m, h 60 m, UTM): with every vertex position and height rounded exactly
+(BigInteger), the case did not finish in 30 min; with the filter first 9.4 s (simplify 6.1 s, exact predicates 1.45M of
+19.2M); with failed merges not retried and the apex shortcut 4.8 s (simplify 2.1 s, 0.49M of 18.1M), the same 1203
+triangles. Open for 1c: the uneven toe (3 builds, each raising a margin), the predicate count per output triangle
+(about 15000), the km-scale cases of TERRAIN.md section 8.
