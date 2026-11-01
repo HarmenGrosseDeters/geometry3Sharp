@@ -18,8 +18,9 @@ of `docs/design/PREDICATE_COMPILER.md` in #221), `BooleanComparison nary grid 10
 - The multiplications themselves are under 1 % of the time. At about 100 bits, `BigInteger` per predicate is only
   about 1.5× slower than generated fixed-width code, and loading `BigInteger` into limbs (`TryWriteBytes`, about
   23 ns per value) eats much of the difference. Points stored as limbs need no loading at all.
-- Measured sizes on grid 10: coordinates ≤ 109 bits, weights `W` ≤ 54 bits. In the exact boolean tests: up to 211 /
-  155 bits. So a `BigInteger` fallback is required.
+- Sizes measured in #221 on grid 10, for the inputs of `InCircle` only: coordinates ≤ 109 bits, weights `W` ≤ 54
+  bits; in the exact boolean tests up to 211 / 155 bits. Over *all* exact points they are larger (section 3a). A
+  `BigInteger` fallback is required in any case.
 
 **Hypothesis.** With the exact points as reference-free structs in chunked arrays, the live object graph of the
 arrangement shrinks by up to five objects per exact point, the GC pause drops substantially, and the predicates
@@ -76,6 +77,37 @@ Readers of the exact points, with what they need:
 | `front_winding`, `orient3d` (boolean) | doubles of the points; exact `Det4` when the filter fails | per ray-triangle candidate |
 | `ToInputExact`, `PointToVector`, `ResultExactVertices` | `BigInteger` | output only |
 
+## 3a. Step 0: measured (baseline = head of #222, `18138e0`)
+
+A temporary probe (not committed) counted every exact point the arrangement computes (`new ExactBox`), with the
+larger bit length of its coordinates and of `W`. "Fits L limbs" means every component is at most `64 L − 1` bits.
+
+| case | point ids | exact points | `W = 1` | fit 1 limb | ≤ 2 limbs | ≤ 3 limbs | ≤ 4 limbs | max bits (coord / `W`) |
+|---|---|---|---|---|---|---|---|---|
+| grid 5 | 113k | 111k | 37 % | 42 % | 83 % | 99.0 % | 100 % | 214 / 160 |
+| grid 10 | 332k | 331k | 41 % | 47 % | 85 % | 98.7 % | 100 % | 215 / 160 |
+| spheres 20 | 252k | 55k | 51 % | 51 % | 51 % | 58 % | 98.9 % | 759 / 702 |
+
+- **The earlier "≤ 109 / 54 bits" were the inputs of `InCircle` only.** Over all exact points, grid 10 needs up to
+  215 bits; the medians are 102 / 48 bits. With 2 limbs 15 % of the grid-10 points (50k, the largest ones, each with
+  four digit arrays) would stay in the fallback; on spheres 20 half of them.
+- **On the grid, almost every point id gets its exact point** (331k of 332k), so the lazy indirection saves no
+  memory there; on spheres 20 only 22 % do.
+- **Live objects** (`dotnet-gcdump` of `nary grid 10 onepass`, at about 4.5 s and 6 s, i.e. in the triangulation and
+  in the classification): 650k / 1.07M objects on the heap, of which `uint[]` (`BigInteger` digits) 291k / 579k and
+  `ExactBox` 56k / 143k, together 53 % / 68 %. Most of the rest are `Double[]` (18k), `Plane[]` (12k), `InputTriangle`
+  (24k) and the benchmark's input meshes. So the exact points are the bulk of the live objects: the stop condition of
+  step 0 is not met.
+- **GC:** `profile --repeat 2 grid:10`: 7.6 s (second run), 1.95 s pause, 426 gen0 and 85 gen1 collections, **no
+  gen2**. The pauses are ephemeral collections, whose cost is the surviving objects they copy (every exact point is
+  promoted twice) and the references from older chunks into young boxes they scan. A reference-free store removes
+  both for the points that fit.
+
+**Decision: 4 limbs per component** (256-bit two's complement, every component `|v| ≤ 2^255 − 1`). It covers 100 %
+of the grid points and 98.9 % of spheres 20. The kernels trim their operands to the used limbs at run time, so the
+wider slot costs memory (160 bytes per exact point, 53 MB on grid 10; today about 290 bytes per point in objects: a 112-byte `ExactBox` and about four 44-byte digit arrays) but
+not arithmetic on small values. The bounds of section 5 are redone for it.
+
 ## 4. Design
 
 ### 4.1 The fixed-width point
@@ -85,32 +117,29 @@ A new internal struct (working name `FixedPoint3`, file `math/FixedPoint3.cs`):
 ```csharp
 internal struct FixedPoint3      // no reference fields: arrays of it are not traced by the GC
 {
-    // X, Y, Z, W as 128-bit two's complement, two 64-bit limbs each, little-endian (lo, hi)
-    public ulong X0, X1, Y0, Y1, Z0, Z1, W0, W1;
+    // X, Y, Z, W as 256-bit two's complement, four 64-bit limbs each, little-endian
+    public ulong X0, X1, X2, X3, Y0, Y1, Y2, Y3, Z0, Z1, Z2, Z3, W0, W1, W2, W3;
     public Vector3d D;            // the coordinates as doubles iff Flags has IsDouble (as ExactBox.D)
     public byte Flags;            // IsDouble, WIsOne
 }
 ```
 
 - **Admission rule.** A canonical `ExactPoint3` is stored in fixed width iff every component `v` satisfies
-  `|v| ≤ 2^127 − 1` (so `−2^127` is excluded and negation never overflows). Otherwise the point keeps today's
+  `|v| ≤ 2^255 − 1` (so `−2^255` is excluded and negation never overflows). Otherwise the point keeps today's
   `ExactBox` (the fallback). The rule depends only on the value, so **equal points always get the same
   representation**: equality and hashing never have to compare a fixed point with a fallback one.
-- **Why two limbs.** It covers the grid (109 / 54 bits) and the input points of real inputs (62-70 bits) with a
-  margin, and keeps the predicate kernels short. Step 0 measures the share of exact points that fit 2, 3 and 4
-  limbs on grid 5 / 10, spheres 20 and the exact boolean tests; if 2 limbs leave a significant share of the n-ary
-  points in the fallback, the width becomes 3 limbs and section 5 is redone for it before any code.
-- **Size.** 64 bytes of limbs + 24 bytes `D` + flags = 96 bytes (padded) per *computed* exact point.
+- **Why four limbs:** section 3a (two limbs, the first proposal, leave 15 % of the grid points in the fallback).
+- **Size.** 128 bytes of limbs + 24 bytes `D` + flags = 160 bytes (padded) per *computed* exact point.
 
 ### 4.2 Storage and publication (thread safety)
 
 Points are computed lazily and concurrently (`exact_box` today publishes a reference; two threads may compute the
-same point, and both store equal values). A 96-byte struct cannot be published atomically, so:
+same point, and both store equal values). A 160-byte struct cannot be published atomically, so:
 
 ```
 exactRef   : ChunkedList<int>          // per point id: 0 = not computed, k > 0 = fixed slot k - 1, k < 0 = fallback -k - 1
 fixedStore : ChunkedList<FixedPoint3>  // dense; slots taken with Interlocked.Increment
-fallback   : ChunkedList<ExactBox>     // dense; the points beyond 2^127
+fallback   : ChunkedList<ExactBox>     // dense; the points beyond 2^255
 ```
 
 - A writer takes a fresh slot, writes the whole payload, then publishes the slot with `Volatile.Write` on
@@ -118,8 +147,8 @@ fallback   : ChunkedList<ExactBox>     // dense; the points beyond 2^127
   value. Two racing writers each take their own slot; one slot is wasted, both hold the same value, and either
   published index is valid. No payload is ever written after it was published.
 - `ChunkedList` needs an index-level `Volatile` read/write (a small internal addition) and, for the store, a
-  smaller chunk: 2048 × 96 bytes would put every chunk on the large object heap (round 3: larger chunks on the LOH
-  were slower). A `ChunkedList` with a type-specific shift (512 × 96 = 48 KB) keeps them below the threshold.
+  smaller chunk: 2048 × 160 bytes would put every chunk on the large object heap (round 3: larger chunks on the LOH
+  were slower). A `ChunkedList` with a type-specific shift (256 × 160 = 40 KB) keeps them below the threshold.
 - The store's chunks hold no references, so gen0/gen1 collections neither trace nor copy their contents once they
   are promoted; the per-point objects disappear for every point that fits.
 
@@ -136,7 +165,7 @@ fallback   : ChunkedList<ExactBox>     // dense; the points beyond 2^127
 
 ### 4.4 Index and grouping
 
-- `AddPoint(ExactPoint3 p)`: if `p` fits, the key is a reference-free `FixedKey` (the 8 limbs) with a hash over
+- `AddPoint(ExactPoint3 p)`: if `p` fits, the key is a reference-free `FixedKey` (the 16 limbs) with a hash over
   the limbs, in its own 64 shards; otherwise the #222 path (`HashedPoint`) unchanged. Since the representation is
   a function of the value, the two indexes never hold the same point.
 - `merge_cluster`: groups by a comparer on point ids (`Equals` / `GetHashCode` read the stored representation)
@@ -154,7 +183,7 @@ the call materializes all of them and runs today's `BigInteger` code (identical 
   are sized by the static bounds of section 5; every operation also checks at run time that its result fits its
   buffer and throws otherwise (as #221's `IntegerRuntime`), so a wrong bound fails loudly, never silently.
 - `Orient`: `Det3` of `(x_i, x_j, W)`, expanded along the first row as `ExactPoint3.Det3` does. The order does not
-  matter for the bounds: all nine entries, `W` included, are below 2^127.
+  matter for the bounds: all nine entries, `W` included, are below 2^255.
 - `InCircle`: the rows `(A s, B s, A² + B²)` of today's code (`A = x w_d − x_d w`, `s = w w_d`; the `W = 1` shortcut
   of `incircle_row` kept, decided per row), then `Det3` along the first row, as today. Section 5 bounds both the
   mixed minors of that order and the pure ones.
@@ -166,47 +195,46 @@ the call materializes all of them and runs today's `BigInteger` code (identical 
 
 ## 5. Bit bounds (each to be reviewed independently)
 
-Inputs of a fixed point: every component, `W` included, `|v| ≤ 2^127 − 1 < 2^127`. (`W ≥ 1` is needed for the
+Inputs of a fixed point: every component, `W` included, `|v| ≤ 2^255 − 1 < 2^255`. (`W ≥ 1` is needed for the
 sign arguments, `s > 0`, not for the bounds.) A result of magnitude `< 2^b` needs `b + 1` bits in two's complement,
 i.e. `⌈(b + 1) / 64⌉` limbs. Every bound below is `< 2^b` with `b + 1 ≤ 64 · limbs`, so no buffer ever holds
 `−2^(64 limbs − 1)`, and negation or absolute values never overflow.
 
 | value | bound | limbs |
 |---|---|---|
-| product of two components | `< 2^254` | 4 |
-| `Orient`: 2×2 minor `x_b y_c − x_c y_b` | `< 2^255` | 4 |
-| `Orient`: term `W_a · minor` | `< 2^382` | 6 |
-| `Orient`: partial sum of two terms | `< 2^383` | 6 |
-| `Orient`: `Det3` = sum of three terms | `< 3 · 2^382 < 2^384` | **7** |
-| `InCircle`: `A = x w_d − x_d w` (and `B`) | `< 2^255` | 4 |
-| `InCircle`: `s = w w_d` | `< 2^254` | 4 |
-| `InCircle`: `A s`, `B s` | `< 2^509` | 8 |
-| `InCircle`: `A²`, `B²` | `< 2^510` | 8 |
-| `InCircle`: `l = A² + B²` (≥ 0) | `< 2^511` | 8 |
-| `InCircle`: product `(A s)·(B s)'` (pure) | `< 2^1018` | 16 |
-| `InCircle`: product `(A s)·l'`, `(B s)·l'` (mixed, first-row order) | `< 2^1020` | 16 |
-| `InCircle`: pure 2×2 minor | `< 2^1019` | 16 |
-| `InCircle`: mixed 2×2 minor | `< 2^1021` | 16 |
-| `InCircle`: term (`A s` or `B s` times a mixed minor, or `l` times a pure one) | `< 2^1530` | 24 |
-| `InCircle`: partial sum of two terms | `< 2^1531` | 24 |
-| `InCircle`: `Det3` = sum of three terms | `< 3 · 2^1530 < 2^1532` | **24** |
-| `ComparePoints`: `α_k x_k` | `< 2^180` | 3 |
-| `ComparePoints`: `α·p` and its partial sums (`α_k ≤ 2^53`) | `< 3 · 2^180 < 2^182` | 3 |
-| `ComparePoints`: `(α·p) W'` | `< 2^309` | **5** |
-| `ComparePoints`: `x W'` | `< 2^254` | **4** |
+| product of two components | `< 2^510` | 8 |
+| `Orient`: 2×2 minor (any expansion order) | `< 2^511` | 8 |
+| `Orient`: term (entry · minor) | `< 2^766` | 12 |
+| `Orient`: partial sum of two terms | `< 2^767` | 12 |
+| `Orient`: `Det3` = sum of three terms | `< 3 · 2^766 < 2^768` | **13** |
+| `InCircle`: `A = x w_d − x_d w` (and `B`) | `< 2^511` | 8 |
+| `InCircle`: `s = w w_d` | `< 2^510` | 8 |
+| `InCircle`: `A s`, `B s` | `< 2^1021` | 16 |
+| `InCircle`: `A²`, `B²` | `< 2^1022` | 16 |
+| `InCircle`: `l = A² + B²` (≥ 0) | `< 2^1023` | 16 |
+| `InCircle`: product `(A s)·(B s)'` (pure) | `< 2^2042` | 32 |
+| `InCircle`: product `(A s)·l'`, `(B s)·l'` (mixed, first-row order) | `< 2^2044` | 32 |
+| `InCircle`: pure 2×2 minor | `< 2^2043` | 32 |
+| `InCircle`: mixed 2×2 minor | `< 2^2045` | 32 |
+| `InCircle`: term (`A s` or `B s` times a mixed minor, or `l` times a pure one) | `< 2^3066` | 48 |
+| `InCircle`: partial sum of two terms | `< 2^3067` | 48 |
+| `InCircle`: `Det3` = sum of three terms | `< 3 · 2^3066 < 2^3068` | **48** |
+| `ComparePoints`: `α_k x_k` | `< 2^308` | 5 |
+| `ComparePoints`: `α·p` and its partial sums (`α_k ≤ 2^53`) | `< 3 · 2^308 < 2^310` | 5 |
+| `ComparePoints`: `(α·p) W'` | `< 2^565` | **9** |
+| `ComparePoints`: `x W'` | `< 2^510` | **8** |
 
 Notes for the review:
-- `AlphaInt[0] = 1.0 · 2^53 = 2^53` exactly, so `α_k ≤ 2^53`, not `< 2^53`; `|α·p| ≤ 3 · 2^53 · (2^127 − 1) < 2^182`.
+- `AlphaInt[0] = 1.0 · 2^53 = 2^53` exactly, so `α_k ≤ 2^53`, not `< 2^53`; `|α·p| ≤ 3 · 2^53 · (2^255 − 1) < 2^310`.
 - The `W = 1` shortcut of `incircle_row` is decided per row, so one determinant can mix shortcut and general rows.
-  A shortcut row is the general row with `s = 1`, so the general bounds cover the mix. With all four `W = 1`:
-  `A < 2^128`, `l < 2^257`, determinant `< 2^516`.
-- Grid-sized inputs (109 / 54 bits) use far fewer limbs than the buffers; the run-time trimming makes the cost
-  follow the actual sizes. For `InCircle` with `|x| < 2^109`, `W < 2^54` the bound is `< 3 · 2^874 < 2^876`
-  (14 limbs); the measured maximum on grid 10 was 833 bits.
-- If step 0 chooses 3 limbs per component, every row of this table is recomputed (components `< 2^191`: `Orient`
-  10 limbs, `InCircle` `< 2^2300`, 36 limbs).
-- Reviewed independently once (all buffer sizes confirmed; the mixed minors, partial sums and the grid bound were
-  added from that review). The code gets the same review again.
+  A shortcut row is the general row with `s = 1`, so the general bounds cover the mix.
+- The largest buffer is 48 limbs (384 bytes on the stack). Grid-sized inputs use far fewer limbs: the run-time
+  trimming makes the cost follow the actual sizes. For `InCircle` with `|x| < 2^109`, `W < 2^54` the bound is
+  `< 3 · 2^874 < 2^876` (14 limbs); the measured maximum of its inputs' determinant on grid 10 was 833 bits.
+- History: the first version of this table was for 2 limbs per component (`Orient` 7, `InCircle` 24,
+  `ComparePoints` 5 limbs) and was reviewed independently once (all buffer sizes confirmed; the mixed minors,
+  partial sums and the grid bound were added from that review). This 4-limb version is reviewed again, and so is
+  the code.
 
 ## 6. netstandard2.0
 
@@ -234,8 +262,8 @@ Notes for the review:
 
 ## 8. Plan
 
-0. **Measure first (no library change committed).** On the baseline, with a temporary probe: the number of point
-   ids, of computed exact points, the share fitting 2 / 3 / 4 limbs (n-ary cases and the exact boolean tests), and
+0. **Done, section 3a.** **Measure first (no library change committed).** On the baseline, with a temporary probe: the number of point
+   ids, of computed exact points, the share fitting 2 / 3 / 4 limbs (the n-ary cases), and
    a gcdump of the live objects at the end of the triangulation. Decides the width (4.1) and gives an upper bound on
    the possible GC gain. If the exact points are not the bulk of the live objects, stop here.
 1. **Storage** (`FixedPoint3`, `exactRef`, store, fallback, conversion, materialization, index, `merge_cluster`).
@@ -253,15 +281,15 @@ builds of all targets run; pushes in larger stages.
 ## 9. Tests
 
 - **Representation:** round trip `BigInteger` -> limbs -> `BigInteger` for random values of every bit length up to
-  127, for `0`, `±1`, `±(2^127 − 1)`; `±2^127` and beyond go to the fallback. Equality and hash consistent with
+  255, for `0`, `±1`, `±(2^255 − 1)`; `±2^255` and beyond go to the fallback. Equality and hash consistent with
   `ExactPoint3.Equals`.
 - **Kernels against `BigInteger`:** `Orient`, `InCircle`, `ComparePoints` on 100k+ random inputs of all sizes up to
-  the admission limit (including all components at `±(2^127 − 1)`, which reaches the bounds of section 5), exactly
+  the admission limit (including all components at `±(2^255 − 1)`, which reaches the bounds of section 5), exactly
   collinear / cocircular / equal-key inputs, and mixed fixed / fallback calls.
 - **Portable paths** (`BigMul` replacement, byte-array conversions) against the .NET operations.
 - **Whole booleans with fixed width forced off** (an internal switch, tests only): bit-identical results to the
   default on the exact boolean meshes and on n-ary grids.
-- **Invariance** over `Similarity.All()`: the 2^k scales move coordinates across the 2^127 admission limit, so
+- **Invariance** over `Similarity.All()`: the 2^k scales move coordinates across the 2^255 admission limit, so
   some scales run on fixed points and others on the fallback; the results must stay identical bit for bit. A case
   is chosen (or added) that actually crosses the limit.
 - **Concurrency:** many threads computing the exact points of the same ids at once; every reader sees a complete
@@ -274,7 +302,7 @@ builds of all targets run; pushes in larger stages.
 - **The gain may be smaller than hoped.** Other long-lived `BigInteger`s remain (triangle planes, `Center`), and
   the materialization adds short-lived garbage in the constructions and in `compare_along`. Step 0 bounds this
   before the main work.
-- **Memory:** 96 bytes per computed exact point plus 4 bytes per point id, against 8 bytes per id plus the objects
+- **Memory:** 160 bytes per computed exact point plus 4 bytes per point id, against 8 bytes per id plus the objects
   today; expected lower in total for points above 31 bits, measured in step 0.
 - **Publication bugs** (torn reads) would be nondeterministic: the protocol is part of the review, and the
   concurrency test runs repeatedly.
