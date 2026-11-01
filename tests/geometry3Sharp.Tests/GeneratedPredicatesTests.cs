@@ -125,6 +125,16 @@ namespace geometry3Sharp.Tests
             Func<BigInteger> c = () => (rand.Next(2) == 0) ? Limit : -Limit;
             if (kind == 0)      // every component at the limit: the largest values the bounds allow
                 return ExactPoint3.CreateUnreduced(c(), c(), c(), Limit);
+            if (kind == 3) {    // full 255-bit components of random signs (no cancellation as between +-m)
+                Func<BigInteger> full = () => {
+                    var bytes = new byte[33];
+                    rand.NextBytes(bytes);
+                    bytes[32] = 0;
+                    return (new BigInteger(bytes) & Limit) | (BigInteger.One << 254);
+                };
+                Func<BigInteger> sf = () => rand.Next(2) == 0 ? full() : -full();
+                return ExactPoint3.CreateUnreduced(sf(), sf(), sf(), full());
+            }
             if (kind == 1)      // an integer point (the W = 1 rows of InCircle)
                 return ExactPoint3.CreateUnreduced(Component(rand, false), Component(rand, false), Component(rand, false), BigInteger.One);
             return ExactPoint3.CreateUnreduced(Component(rand, false), Component(rand, false), Component(rand, false), Component(rand, true));
@@ -183,8 +193,8 @@ namespace geometry3Sharp.Tests
 
         /// <summary>
         /// the length rule against the kernels' real arena use: the FixedArith operations of Orient (Det3Sign) and
-        /// InCircle (incircle_row, Det3Sign) never take more than the derived scratch, and on points at the limit
-        /// they take all of it (the model is an upper bound, and tight)
+        /// InCircle (incircle_row, Det3Sign) never take more than the derived scratch, and on points with full
+        /// 255-bit components they take all of it but 1 / 3 limbs (the model is an upper bound, and close); FixedArena.Take throws beyond it
         /// </summary>
         [Fact]
         public void KernelArenaUse_IsTheDerivedScratch()
@@ -196,8 +206,8 @@ namespace geometry3Sharp.Tests
             long maxO = 0, maxC = 0;
             ulong* v = stackalloc ulong[48];
             ulong* s = stackalloc ulong[2048];
-            for (int k = 0; k < 600; ++k) {
-                var pts = Enumerable.Range(0, 4).Select(_ => RandomPoint(rand, k % 3 == 0 ? 2 : k % 3 == 1 ? 1 : 0)).ToArray();
+            for (int k = 0; k < 2000; ++k) {
+                var pts = Enumerable.Range(0, 4).Select(_ => RandomPoint(rand, k % 2 == 0 ? 3 : k % 3)).ToArray();
                 var f = pts.Select(q => { Assert.True(FixedPoint3.TryCreate(q, out var r)); return r; }).ToArray();
                 int i = k % 3, j = (i + 1) % 3;
                 var ar = new FixedArena(s, o.ArenaScratch);
@@ -217,8 +227,11 @@ namespace geometry3Sharp.Tests
                 FixedArith.Det3Sign(e[0], e[1], e[2], e[3], e[4], e[5], e[6], e[7], e[8], ref ar);
                 maxC = Math.Max(maxC, Used(ar, s));
             }
-            Assert.Equal(o.ArenaScratch, maxO);
-            Assert.Equal(c.ArenaScratch, maxC);
+            // within a few limbs of the model: it lets every subtraction take a carry limb, which the signs do not allow
+            // all at once (Orient: the three minors cannot all be additions of magnitudes; measured 136 / 947)
+            string msg = $"arena use {maxO} / {maxC}, derived {o.ArenaScratch} / {c.ArenaScratch}";
+            Assert.True(maxO <= o.ArenaScratch && maxO >= o.ArenaScratch - 1, msg);
+            Assert.True(maxC <= c.ArenaScratch && maxC >= c.ArenaScratch - 3, msg);
         }
 
         /// <summary> the limbs at their boundaries: 2 m < 2^256 fits 4 limbs, 3 m needs 257 bits, 5 limbs </summary>
