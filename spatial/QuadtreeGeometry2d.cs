@@ -8,7 +8,7 @@ namespace g3
     internal static class QuadtreeGeometry2d
     {
         internal static bool Finite(double x) { return !double.IsNaN(x) && !double.IsInfinity(x); }
-        internal static Vector2d XY(Vector3d p) { return new Vector2d(p.x, p.y); }
+        internal static Vector2d XY(in Vector3d p) { return new Vector2d(p.x, p.y); }
         internal static void Validate(Vector2d p)
         {
             if (!Finite(p.x) || !Finite(p.y)) throw new ArgumentException("Coordinates must be finite.");
@@ -100,16 +100,23 @@ namespace g3
         }
         internal static bool WithinSegment(Vector2d p, Vector2d a, Vector2d b, double tolerance)
         {
-            double distance = SegmentDistance(p, a, b);
+            return WithinSegment(p, a, b, tolerance, SegmentDistance(p, a, b));
+        }
+        static bool WithinSegment(Vector2d p, Vector2d a, Vector2d b, double tolerance, double distance)
+        {
             double terms = Math.Abs(b.x - a.x) + Math.Abs(b.y - a.y) + Math.Abs(p.x - a.x) + Math.Abs(p.y - a.y);
             if (!Undecided(distance, tolerance, terms)) return distance <= tolerance;
             return QuadtreeExactQuery2d.SegmentSquared(p, a, b).CompareTo(Squared(tolerance)) <= 0;
         }
-        internal static bool WithinTriangle(Triangle3d triangle, Vector2d p, double tolerance)
+        // With the distance to the triangle, as a search for the nearest one needs both.
+        internal static bool WithinTriangle(in Triangle3d triangle, Vector2d p, double tolerance, out double distance)
         {
+            distance = 0;
+            if (Contains(triangle, p)) return true;
             Vector2d a = XY(triangle.V0), b = XY(triangle.V1), c = XY(triangle.V2);
-            return Contains(triangle, p) || WithinSegment(p, a, b, tolerance) ||
-                WithinSegment(p, b, c, tolerance) || WithinSegment(p, c, a, tolerance);
+            double ab = SegmentDistance(p, a, b), bc = SegmentDistance(p, b, c), ca = SegmentDistance(p, c, a);
+            distance = Math.Min(ab, Math.Min(bc, ca));
+            return WithinSegment(p, a, b, tolerance, ab) || WithinSegment(p, b, c, tolerance, bc) || WithinSegment(p, c, a, tolerance, ca);
         }
         internal static bool NearRegion(in AxisAlignedBox2d box, Vector2d p, double tolerance)
         {
@@ -185,7 +192,7 @@ namespace g3
                 cdA == 0 && OnSegment(a, c, d) || cdB == 0 && OnSegment(b, c, d)) return true;
             return abC * abD < 0 && cdA * cdB < 0;
         }
-        internal static bool Contains(Triangle3d triangle, Vector2d p)
+        internal static bool Contains(in Triangle3d triangle, Vector2d p)
         {
             Vector2d a = XY(triangle.V0), b = XY(triangle.V1), c = XY(triangle.V2);
             // Opposite sides of two edges mean outside, whatever the orientation of the triangle, which most candidates never need.
@@ -196,7 +203,7 @@ namespace g3
             int orientation = ExactPredicates.Orient2d(a, b, c);
             return orientation != 0 && first * orientation >= 0 && second * orientation >= 0 && third * orientation >= 0;
         }
-        internal static double TriangleDistance(Triangle3d triangle, Vector2d p)
+        internal static double TriangleDistance(in Triangle3d triangle, Vector2d p)
         {
             if (Contains(triangle, p)) return 0;
             Vector2d a = XY(triangle.V0), b = XY(triangle.V1), c = XY(triangle.V2);
@@ -204,14 +211,14 @@ namespace g3
         }
         // The height of a point beside a triangle: at the nearest point of its boundary. The plane, extrapolated
         // beside a sliver, can leave the z range of the triangle by any factor.
-        internal static double BoundaryHeight(Triangle3d t, Vector2d p)
+        internal static double BoundaryHeight(in Triangle3d t, Vector2d p)
         {
             if (Contains(t, p)) return Height(t, p);
             double ab = SegmentDistance(p, XY(t.V0), XY(t.V1)), bc = SegmentDistance(p, XY(t.V1), XY(t.V2)), ca = SegmentDistance(p, XY(t.V2), XY(t.V0));
             if (ab <= bc && ab <= ca) return EdgeHeight(t.V0, t.V1, p);
             return bc <= ca ? EdgeHeight(t.V1, t.V2, p) : EdgeHeight(t.V2, t.V0, p);
         }
-        static double EdgeHeight(Vector3d a, Vector3d b, Vector2d p)
+        static double EdgeHeight(in Vector3d a, in Vector3d b, Vector2d p)
         {
             double dx = b.x - a.x, dy = b.y - a.y, scale = Math.Max(Math.Abs(dx), Math.Abs(dy));
             double ux = dx / scale, uy = dy / scale, qx = (p.x - a.x) / scale, qy = (p.y - a.y) / scale;
@@ -226,7 +233,7 @@ namespace g3
             double z = a.z + t * (b.z - a.z);
             return Finite(z) ? z : a.z * (1 - t) + b.z * t;
         }
-        internal static double Height(Triangle3d t, Vector2d p)
+        internal static double Height(in Triangle3d t, Vector2d p)
         {
             if (p == XY(t.V0)) return t.V0.z;
             if (p == XY(t.V1)) return t.V1.z;
@@ -286,7 +293,7 @@ namespace g3
         {
             return ax * by - ay * bx;
         }
-        static double ExactHeight(Triangle3d t, Vector2d p)
+        static double ExactHeight(in Triangle3d t, Vector2d p)
         {
             BigInteger x = Integer(t.V0.x), y = Integer(t.V0.y);
             BigInteger ax = Integer(t.V1.x) - x, ay = Integer(t.V1.y) - y;

@@ -171,10 +171,10 @@ namespace g3
             public bool Visit(int id)
             {
                 if (!Tree.ItemNear(id, Point, Tolerance)) return false;
-                Triangle3d triangle = Items[id];
-                if (ExactPredicates.Orient2d(QuadtreeGeometry2d.XY(triangle.V0), QuadtreeGeometry2d.XY(triangle.V1), QuadtreeGeometry2d.XY(triangle.V2)) == 0 ||
-                    !QuadtreeGeometry2d.WithinTriangle(triangle, Point, Tolerance)) return false;
-                double distance = QuadtreeGeometry2d.TriangleDistance(triangle, Point);
+                ref Triangle3d triangle = ref Items[id];
+                double distance;
+                if (!QuadtreeGeometry2d.WithinTriangle(triangle, Point, Tolerance, out distance) ||
+                    ExactPredicates.Orient2d(QuadtreeGeometry2d.XY(triangle.V0), QuadtreeGeometry2d.XY(triangle.V1), QuadtreeGeometry2d.XY(triangle.V2)) == 0) return false;
                 if (Id < 0 || distance < Distance || (distance == Distance && id < Id)) {
                     Id = id;
                     Distance = distance;
@@ -194,13 +194,13 @@ namespace g3
             public bool Visit(int id)
             {
                 if (!Tree.ItemNear(id, Point, Tolerance)) return false;
-                Triangle3d triangle = Items[id];
+                ref Triangle3d triangle = ref Items[id];
                 if (Tolerance == 0) {
                     if (!QuadtreeGeometry2d.Contains(triangle, Point)) return false;
                 } else {
-                    Vector2d a = QuadtreeGeometry2d.XY(triangle.V0), b = QuadtreeGeometry2d.XY(triangle.V1), c = QuadtreeGeometry2d.XY(triangle.V2);
-                    if (ExactPredicates.Orient2d(a, b, c) == 0 ||
-                        !QuadtreeGeometry2d.WithinTriangle(triangle, Point, Tolerance)) return false;
+                    double distance;
+                    if (!QuadtreeGeometry2d.WithinTriangle(triangle, Point, Tolerance, out distance) ||
+                        ExactPredicates.Orient2d(QuadtreeGeometry2d.XY(triangle.V0), QuadtreeGeometry2d.XY(triangle.V1), QuadtreeGeometry2d.XY(triangle.V2)) == 0) return false;
                 }
                 Height = Tolerance == 0 ? QuadtreeGeometry2d.Height(triangle, Point) : QuadtreeGeometry2d.BoundaryHeight(triangle, Point);
                 if (!QuadtreeGeometry2d.Finite(Height))
