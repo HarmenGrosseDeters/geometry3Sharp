@@ -373,6 +373,88 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void DoubleOf_OnlyExactlyRepresentableIntegerPoints()
+        {
+            BigInteger two60 = BigInteger.One << 60;
+            var cases = new List<(ExactPoint3 p, bool isDouble)> {
+                (ExactPoint3.FromInteger(1, -2, 3), true),
+                (ExactPoint3.FromInteger(0, 0, 0), true),
+                (ExactPoint3.FromInteger(two60, -two60, (BigInteger.One << 200)), true),      // large, but doubles
+                (ExactPoint3.FromInteger(two60 + 1, 0, 0), false),                           // 61 significant bits
+                (ExactPoint3.FromInteger(0, -(two60 + 1), 0), false),
+                (ExactPoint3.FromInteger(0, 0, two60 + 1), false),
+                (ExactPoint3.FromInteger(5, two60 + 1, two60 + 1), false),
+                (ExactPoint3.FromInteger(BigInteger.One << 1100, 0, 0), false),              // beyond the double range
+                (ExactPoint3.FromInteger(0, -(BigInteger.One << 1100), 0), false),
+                (ExactPoint3.FromInteger(0, 0, BigInteger.One << 1100), false),
+                (ExactPoint3.Create(1, 2, 3, 2), false),                                     // W != 1
+            };
+            foreach (var (p, isDouble) in cases) {
+                Vector3d d;
+                Assert.Equal(isDouble, FixedPoint3.DoubleOf(p, out d));
+                if (isDouble) {
+                    Assert.Equal(p.X, new BigInteger(d.x)); Assert.Equal(p.Y, new BigInteger(d.y)); Assert.Equal(p.Z, new BigInteger(d.z));
+                }
+                FixedPoint3 f;
+                if (FixedPoint3.TryCreate(p, out f)) {
+                    Assert.Equal(isDouble, f.IsDouble);
+                    if (isDouble) Assert.Equal(d, f.D);
+                }
+            }
+        }
+
+        [Fact]
+        public void Hash_SpreadsDistinctPoints()
+        {
+            // (a weak hash only costs time, so the other tests cannot see it): distinct points of every size, and points
+            // differing in one limb, one sign or one component, rarely share a hash
+            var rand = new Random(12);
+            var hashes = new HashSet<int>();
+            int n = 0;
+            for (int k = 0; k < 3000; ++k) {
+                ExactPoint3 p = ExactPoint3.CreateUnreduced(RandomValue(rand, 254, false), RandomValue(rand, 254, false), RandomValue(rand, 254, false), RandomPositive(rand, 254, false));
+                var variants = new[] { p, ExactPoint3.CreateUnreduced(-p.X, p.Y, p.Z, p.W), ExactPoint3.CreateUnreduced(p.X, p.Y, p.Z + (BigInteger.One << 128), p.W),
+                    ExactPoint3.CreateUnreduced(p.Y, p.X, p.Z, p.W) };
+                foreach (ExactPoint3 v in variants) {
+                    FixedPoint3 f;
+                    if (FixedPoint3.TryCreate(v, out f) == false) continue;
+                    hashes.Add(f.Hash());
+                    n++;
+                }
+            }
+            // small integer points too (one limb, the common case)
+            for (int x = -20; x <= 20; ++x)
+                for (int y = -20; y <= 20; ++y) {
+                    FixedPoint3 f = Fixed(ExactPoint3.FromInteger(x, y, 7));
+                    hashes.Add(f.Hash());
+                    n++;
+                }
+            Assert.True(hashes.Count >= n - n / 100, $"{n - hashes.Count} collisions in {n} points");
+        }
+
+        [Fact]
+        public void FixedPointStore_GrowsBeyondItsFirstChunks_InParallel()
+        {
+            // 64 chunks of 256 at first: 100k points need the chunk array to grow, while other threads add and read
+            var store = new FixedPointStore();
+            const int N = 100000;
+            var slots = new int[N];
+            System.Threading.Tasks.Parallel.For(0, N, k => {
+                FixedPoint3 f = Fixed(ExactPoint3.FromInteger(k, -k, 3 * (BigInteger)k + (BigInteger.One << 100)));
+                slots[k] = store.Add(ref f);
+            });
+            Assert.Equal(N, store.Count);
+            Assert.Equal(N, slots.Distinct().Count());
+            Assert.True(slots.All(sl => sl >= 0 && sl < N));
+            for (int k = 0; k < N; k += 7) {
+                ExactPoint3 p = store[slots[k]].ToExact();
+                Assert.Equal(new BigInteger(k), p.X);
+                Assert.Equal(new BigInteger(-k), p.Y);
+                Assert.Equal(3 * (BigInteger)k + (BigInteger.One << 100), p.Z);
+            }
+        }
+
+        [Fact]
         public void ExactEquals_FixedAndBigInteger_NeverEqual()
         {
             var mesh = new DMesh3();

@@ -6,10 +6,9 @@
     "mutate": [
       "**/math/ExactPredicates.cs",
       "**/math/ExactPoint3.cs",
-      "**/math/AdaptivePredicates.cs",
-      "**/math/FixedPoint3.cs"
+      "**/math/AdaptivePredicates.cs"
     ],
-    "test-case-filter": "FullyQualifiedName~ExactPredicatesTests|FullyQualifiedName~ExactImplicitPointTests|FullyQualifiedName~ExactBooleanBuildingBlockTests|FullyQualifiedName~PredicateDifferentialTests|FullyQualifiedName~ExactPoint3ConversionTests|FullyQualifiedName~ExactPoint3FixedWidthTests",
+    "test-case-filter": "FullyQualifiedName~ExactPredicatesTests|FullyQualifiedName~ExactImplicitPointTests|FullyQualifiedName~ExactBooleanBuildingBlockTests|FullyQualifiedName~PredicateDifferentialTests|FullyQualifiedName~ExactPoint3ConversionTests",
     "ignore-methods": [ "*PredicateStats.*" ],
     "coverage-analysis": "perTest",
     "configuration": "Release",

@@ -2,9 +2,10 @@ name: Mutation tests
 
 # Stryker.NET (Apache-2.0), tests/mutation, docs/QA.md 2.2: too slow for every PR, so in full weekly and on demand, and
 # on ready PRs (not drafts) only for the configs that the PR touches (tests/mutation/select_shards.py). Two jobs:
-# - exact-arithmetic: math/ExactPredicates.cs, ExactPoint3.cs, AdaptivePredicates.cs, FixedPoint3.cs (about 50 minutes);
+# - exact-arithmetic: math/ExactPredicates.cs, ExactPoint3.cs, AdaptivePredicates.cs (about 50 minutes);
 # - exact-mesh: the exact mesh pipeline (mesh_ops/ExactMesh*.cs, ExactPlanarSimplify.cs, ExactTriangulation2.cs,
-#   MeshRoundingRepair.cs), in shards that run in parallel (tests/mutation/stryker-mesh-*.json).
+#   MeshRoundingRepair.cs, and math/FixedPoint3.cs, the arrangement's fixed-width points), in shards that run in
+#   parallel (tests/mutation/stryker-mesh-*.json).
 # A shard whose mutated file changed runs in full and fails when its mutation score drops below the break threshold of
 # its config. A shard of which only tests changed runs with --since and only reports. The reports list the surviving mutants.
 
