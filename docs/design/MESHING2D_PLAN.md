@@ -164,7 +164,7 @@ item ("the same small angle, not forced") was itself wrong and is replaced. Left
 
 **M1: done** (gate I, except net48 timing). `comp_geom/DelaunayKernel2.cs` (internal kernel), `DelaunayMesh2`, `TriangulationMesh2`,
 `Triangulation2Result`. Numbers in the [benchmark README](../../benchmarks/Meshing2Benchmark/README.md#m1-the-production-kernel-g3delaunaymesh2-2026-11-01):
-1 000 000 points in 1.7 to 2.5 s, 65 536 in 0.10 to 0.14 s, 4096 in 6 to 10 ms and about 1 MB (PR #200: 86 s and 23.6 GB). Decisions taken:
+1 000 000 points in 1.9 to 2.7 s, 65 536 in 0.11 to 0.15 s, 4096 in 6 to 10 ms and about 1 MB (PR #200: 86 s and 23.6 GB); net48 timing open. Decisions taken:
 
 - No supertriangle: ghost triangles at a vertex at infinity, Bowyer-Watson cavities. This is the structure M2 (cavities that stop at constrained edges) and
   M3 (Steiner insertion) build on.

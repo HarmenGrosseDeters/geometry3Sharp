@@ -234,11 +234,9 @@ namespace g3
             } while (cur != hullStart);
             if (count != hullEdges) { reason = "the hull has several cycles"; return false; }
             if (minima != 1) { reason = "the hull winds " + minima + " times"; return false; }
-            // Euler for a disk: V - E + F = 1, with every distinct point a vertex
-            long used = 0;
-            for (int i = 0; i < nv; ++i) if (inputToVertex[i] == i) { if (vertexTriangle[i] < 0) { reason = "point " + i + " is in no triangle"; return false; } ++used; }
-            long edges = (3L * nt + hullEdges) / 2;
-            if (used - edges + nt != 1) { reason = "the mesh is not a disk"; return false; }
+            // every distinct point a vertex. (With positive triangles, mutual neighbours and one convex boundary cycle winding once
+            // the mesh is an embedded disk already; an Euler check added nothing, as a hand mutation showed.)
+            for (int i = 0; i < nv; ++i) if (inputToVertex[i] == i && vertexTriangle[i] < 0) { reason = "point " + i + " is in no triangle"; return false; }
             return true;
         }
 

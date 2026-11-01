@@ -62,26 +62,29 @@ of one run; one result per size checked by `TriangulationMesh2.IsValid` (exact, 
 $ dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 -- perf --repeats 5
 runtime .NET 10.0.14, 4 cores, x64
 producer,kind,n,triangles,median_ms,min_ms,allocated_mb,valid
-g3-delaunay,uniform,1000,1982,2.0,2.0,0.3,yes
-g3-delaunay,uniform,4096,8169,8.0,7.8,1.1,yes
-g3-delaunay,uniform,65536,131047,102.9,99.5,17.6,yes
-g3-delaunay,uniform,1000000,1999963,1755.2,1710.7,282.7,yes
-g3-delaunay,grid,1000,1898,2.4,2.4,0.3,yes
-g3-delaunay,grid,4096,7938,9.5,9.4,1.2,yes
-g3-delaunay,grid,65536,130050,139.6,137.7,20.1,yes
-g3-delaunay,grid,1000000,1996002,2508.6,2405.7,320.7,yes
-g3-delaunay,utm,1000,1982,1.4,1.4,0.3,yes
-g3-delaunay,utm,4096,8169,6.0,5.9,1.1,yes
-g3-delaunay,utm,65536,131047,117.1,102.0,17.6,yes
-g3-delaunay,utm,1000000,1999844,1846.7,1817.1,320.8,yes
-g3-delaunay,clustered,1000,1982,1.5,1.4,0.3,yes
-g3-delaunay,clustered,4096,8168,6.1,5.9,1.1,yes
-g3-delaunay,clustered,65536,131044,109.2,107.5,17.6,yes
-g3-delaunay,clustered,1000000,1999954,2328.1,2256.4,282.7,yes
+g3-delaunay,uniform,1000,1982,2.7,2.6,0.3,yes
+g3-delaunay,uniform,4096,8169,10.0,9.8,1.2,yes
+g3-delaunay,uniform,65536,131047,133.4,120.9,19.6,yes
+g3-delaunay,uniform,1000000,1999963,2047.3,1904.8,313.2,yes
+g3-delaunay,grid,1000,1898,2.6,2.5,0.3,yes
+g3-delaunay,grid,4096,7938,9.9,9.7,1.4,yes
+g3-delaunay,grid,65536,130050,152.0,145.4,22.1,yes
+g3-delaunay,grid,1000000,1996002,2704.1,2647.6,351.2,yes
+g3-delaunay,utm,1000,1982,2.1,1.7,0.3,yes
+g3-delaunay,utm,4096,8169,6.7,6.2,1.2,yes
+g3-delaunay,utm,65536,131047,125.2,112.5,19.6,yes
+g3-delaunay,utm,1000000,1999844,2043.9,1926.9,351.3,yes
+g3-delaunay,clustered,1000,1982,1.5,1.5,0.3,yes
+g3-delaunay,clustered,4096,8168,6.5,6.3,1.2,yes
+g3-delaunay,clustered,65536,131044,115.4,114.1,19.6,yes
+g3-delaunay,clustered,1000000,1999954,2060.2,1940.3,313.2,yes
 ```
 
 `uniform` is [0,1)², `utm` a 1 km tile at UTM northing on a 1 cm grid, `grid` an integer lattice (every cell cocircular, so the tie rule runs everywhere),
-`clustered` half the points in tight clusters. Memory: about 280 to 320 MB allocated for a million points (2 million triangles), against the spec's
+`clustered` half the points in tight clusters. The insertion order over coordinate ranks (after the M1 review) costs about 0.2 to 0.3 s at a million points against a
+Hilbert grid over the bounding box (1.76 s uniform, 2.51 s grid before), and removes the quadratic build of an input with one far outlier (200 000
+points: 72 million walk steps before, about 12 per point now, test `InsertionOrder_KeepsTheWalksShort_OnEveryDistribution`). Coordinates spread
+over hundreds of decades on both axes still walk about sqrt(n) per point. Memory: about 310 to 350 MB allocated for a million points (2 million triangles), against the spec's
 "about 100 MB per 100 000 triangles today".
 
 **Against PR #200**, same harness, same machine, measured with a `perf --prototype` option that timed `Prototype200Candidate.Run` and was removed with
