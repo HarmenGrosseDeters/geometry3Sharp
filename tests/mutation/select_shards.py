@@ -6,10 +6,9 @@ Reads the changed paths from stdin and writes GITHUB_OUTPUT lines to stdout:
   mesh=[{"shard": "rounding", "mode": "full"}, ...]
 
 Modes (tests/mutation/README.md):
-  full   the config or the tools changed, or only some of the mutated files of a shard with several: the whole shard,
-         with its break threshold
-  source a mutated file changed (all of them, in a shard with several): only the changed mutants run, the others keep
-         their results from the baseline of the last full run (--with-baseline), with the break threshold; without a
+  full   the config or the tools changed: the whole shard, with its break threshold
+  source a mutated file changed: only the mutants of the changed lines run, the others keep their results from the
+         baseline of the last full run (incremental.py), with the break threshold on the combined score; without a
          baseline the workflow runs the shard in full
   tests  only tests that run against the shard changed: mutants those tests cover, report only
 
@@ -49,9 +48,8 @@ def mode_of(config, changed):
     if changed & (ALWAYS | {config_path}):
         return "full"
     if changed & sources:
-        # --since ignores the mutants of an unchanged file of the shard, so its score would cover only a part of the
-        # shard: a shard with several files runs incrementally only when all of them changed
-        return "source" if sources <= changed else "full"
+        # (an unchanged file of a shard with several keeps all its baseline results: incremental.py)
+        return "source"
     return "tests" if changed & tests else "none"
 
 

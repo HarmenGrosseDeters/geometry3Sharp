@@ -50,11 +50,11 @@ class SelectShards(unittest.TestCase):
                          run("mesh_ops/ExactMeshArrangement.cs"))
         self.assertEqual(("source", {}), run("math/ExactPoint3.cs", "math/ExactPredicates.cs", "math/AdaptivePredicates.cs"))
 
-    def test_shard_with_several_files_runs_in_full_unless_all_changed(self):
-        # (--since would leave the unchanged file out of the score)
-        self.assertEqual(("none", {"planar": "full"}), run("mesh_ops/ExactTriangulation2.cs"))
-        self.assertEqual(("full", {}), run("math/ExactPoint3.cs"))
-        self.assertEqual(("full", {}), run("math/ExactPoint3.cs", "math/ExactPredicates.cs"))
+    def test_shard_with_several_files_runs_incrementally_when_one_changed(self):
+        # (the unchanged files keep their baseline results)
+        self.assertEqual(("none", {"planar": "source"}), run("mesh_ops/ExactTriangulation2.cs"))
+        self.assertEqual(("source", {}), run("math/ExactPoint3.cs"))
+        self.assertEqual(("source", {}), run("math/ExactPoint3.cs", "math/ExactPredicates.cs"))
         self.assertEqual(("none", {"planar": "source"}),
                          run("mesh_ops/ExactTriangulation2.cs", "mesh_ops/ExactPlanarSimplify.cs"))
 

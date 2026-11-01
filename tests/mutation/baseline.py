@@ -62,11 +62,6 @@ def main(argv):
         print("stored %d files of %s" % (len(report["files"]), report_path))
         output("stored", "true")
         return 0
-        with open(report_path, encoding="utf-8-sig") as f:
-            c = counts(json.load(f))
-        for k in ("tested in this run", "from baseline", "ignored"):
-            print("%s: %d" % (k, c[k]))
-        return 0
     print(__doc__)
     return 2
 

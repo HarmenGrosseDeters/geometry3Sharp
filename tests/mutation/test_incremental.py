@@ -11,9 +11,11 @@ import incremental as inc
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-OLD = "class A {\n    int f(int a) { return a + 1; }\n    int g(int a) { return a - 1; }\n    int h(int a) { return a * 2; }\n}\n"
-# g changed, a line inserted after h
-NEW = "class A {\n    int f(int a) { return a + 1; }\n    int g(int a) { return a - 2; }\n    int h(int a) { return a * 2; }\n    int k() { return 0; }\n}\n"
+OLD = ("class A {\n    int f(int a) { return a + 1; }\n    int g(int a) { return a - 1; }\n    int h(int a) { return a * 2; }\n"
+       "    int i(int a) { return a / 2; }\n    int j(int a) { return a % 2; }\n}\n")
+# g changed, a line (k) inserted after j; h, i, j unchanged in between
+NEW = ("class A {\n    int f(int a) { return a + 1; }\n    int g(int a) { return a - 2; }\n    int h(int a) { return a * 2; }\n"
+       "    int i(int a) { return a / 2; }\n    int j(int a) { return a % 2; }\n    int k() { return 0; }\n}\n")
 
 
 def mutant(line, status, end_line=None):
@@ -33,8 +35,8 @@ class Pure(unittest.TestCase):
 
     def test_changes(self):
         new_ranges, old_ranges = inc.changes(OLD, NEW)
-        self.assertEqual([(2, 3), (4, 5)], new_ranges)       # g; the inserted k
-        self.assertEqual([(2, 3), (4, 4)], old_ranges)       # g; an insertion before old line 4 ("}")
+        self.assertEqual([(2, 3), (6, 7)], new_ranges)       # g; the inserted k
+        self.assertEqual([(2, 3), (6, 6)], old_ranges)       # g; an insertion before old line 6 ("}")
         self.assertEqual(([], []), inc.changes(OLD, OLD))
 
     def test_spans_are_the_changed_lines(self):
@@ -65,13 +67,46 @@ class Pure(unittest.TestCase):
         self.assertEqual("    int f(int a) { return a + 1; }\n    int h(int a) { return a * 2; }\n",
                          new[spans[0][0]:spans[0][1]])
 
+    def test_short_unchanged_runs_inside_a_change_count_as_changed(self):
+        # a rewritten method keeps a "}" and a "return false;" that the line diff pairs with the old ones
+        old = "class A {\n  bool f() {\n    int a = 1;\n    return false;\n  }\n  int x;\n  int y;\n  int z;\n}\n"
+        new = "class A {\n  bool f() {\n    int b = 2;\n    return false;\n    int c = 3;\n  }\n  int x;\n  int y;\n  int z;\n}\n"
+        new_ranges, old_ranges = inc.changes(old, new)
+        self.assertEqual([(2, 5)], new_ranges)               # (the "return false;" between the two changes is in)
+        self.assertEqual([(2, 4)], old_ranges)
+        self.assertTrue(inc.touches(mutant(4, "Killed"), old_ranges))   # the old "return false;"
+
+    def test_deletion_takes_its_neighbours_out_of_the_baseline(self):
+        # (the run tests the lines before and after a deletion; their baseline results must not count as well)
+        new = OLD.replace("    int g(int a) { return a - 1; }\n", "")
+        new_ranges, old_ranges = inc.changes(OLD, new)
+        self.assertEqual([(1, 4)], old_ranges)               # f, g, h of the old text
+        self.assertTrue(inc.touches(mutant(2, "Survived"), old_ranges))  # f
+        self.assertTrue(inc.touches(mutant(4, "Survived"), old_ranges))  # h
+        self.assertFalse(inc.touches(mutant(5, "Survived"), old_ranges)) # i
+
     def test_touches(self):
         _, old_ranges = inc.changes(OLD, NEW)
         self.assertFalse(inc.touches(mutant(2, "Killed"), old_ranges))     # f
         self.assertTrue(inc.touches(mutant(3, "Killed"), old_ranges))      # g, changed
-        self.assertFalse(inc.touches(mutant(4, "Killed"), old_ranges))     # h, before the insertion
-        self.assertTrue(inc.touches(mutant(1, "Killed", 5), old_ranges))   # the class, around both
-        self.assertTrue(inc.touches(mutant(4, "Killed", 5), old_ranges))   # spans the insertion point
+        self.assertFalse(inc.touches(mutant(4, "Killed"), old_ranges))     # h
+        self.assertFalse(inc.touches(mutant(6, "Killed"), old_ranges))     # j, before the insertion
+        self.assertTrue(inc.touches(mutant(1, "Killed", 7), old_ranges))   # the class, around both
+        self.assertTrue(inc.touches(mutant(6, "Killed", 7), old_ranges))   # spans the insertion point
+
+    def test_touching_changes_give_one_span(self):
+        text = "a\nb\nc\nd\n"
+        self.assertEqual([(0, 4)], inc.spans_of(text, [(0, 1), (1, 2)]))
+        self.assertEqual([(0, 2), (4, 6)], inc.spans_of(text, [(0, 1), (2, 3)]))
+
+    def test_changed_lines_across_a_split_are_cut_at_it(self):
+        new = OLD.replace("a - 1", "a - 3").replace("a * 2", "a * 3")     # g and h
+        new_ranges, _ = inc.changes(OLD, new)
+        split = new.index("    int h")
+        first = inc.spans_of(new, new_ranges, (0, split))
+        second = inc.spans_of(new, new_ranges, (split, len(new)))
+        self.assertEqual("    int g(int a) { return a - 3; }\n", new[first[0][0]:first[0][1]])
+        self.assertEqual("    int h(int a) { return a * 3; }\n", new[second[0][0]:second[0][1]])
 
     def test_score_is_strykers(self):
         # (the full rounding run of 1 November: 431 killed, 45 timeouts, 184 survived, 25 no coverage -> 69.49 %)
@@ -94,9 +129,10 @@ class PlanAndMerge(unittest.TestCase):
         self.root = self.dir.name
         with open(os.path.join(self.root, "A.cs"), "w") as f:
             f.write(NEW)
-        self.config = {"mutate": ["**/A.cs"], "thresholds": {"break": 50}, "since": {"target": "x"}}
+        self.config = {"mutate": ["**/A.cs"], "thresholds": {"break": 50}, "since": {"target": "x"},
+                       "baseline": {"provider": "disk"}}
         self.baseline = report(OLD, [mutant(2, "Killed"), mutant(3, "Killed"), mutant(3, "Survived"),
-                                     mutant(4, "Survived"), mutant(1, "Killed", 6), mutant(2, "Ignored")])
+                                     mutant(4, "Survived"), mutant(1, "Killed", 8), mutant(2, "Ignored")])
 
     def tearDown(self):
         self.dir.cleanup()
@@ -107,8 +143,35 @@ class PlanAndMerge(unittest.TestCase):
         a, b = inc.parse_mutate(mutate[0])[1]
         self.assertEqual("    int g(int a) { return a - 2; }\n", NEW[a:b])
 
+    def test_plan_with_crlf_runs_in_full(self):
+        # (the spans are character offsets of the text as Stryker reads it, with the \r)
+        with open(os.path.join(self.root, "A.cs"), "w", newline="") as f:
+            f.write(NEW.replace("\n", "\r\n"))
+        self.assertIsNone(inc.plan(self.config, self.baseline, self.root))
+        with open(os.path.join(self.root, "A.cs"), "w") as f:
+            f.write(NEW)
+        self.assertIsNone(inc.plan(self.config, report(OLD.replace("\n", "\r\n"), []), self.root))
+
+    def test_plan_ignores_a_byte_order_mark(self):
+        # (Stryker reads the file without it: the offsets must not count it)
+        with open(os.path.join(self.root, "A.cs"), "w", encoding="utf-8-sig") as f:
+            f.write(NEW)
+        mutate, _ = inc.plan(self.config, self.baseline, self.root)
+        a, b = inc.parse_mutate(mutate[0])[1]
+        self.assertEqual("    int g(int a) { return a - 2; }\n", NEW[a:b])
+
     def test_plan_without_the_file_in_the_baseline_runs_in_full(self):
         self.assertIsNone(inc.plan(self.config, report(OLD, [], key="/w/repo/Other.cs"), self.root))
+
+    def test_merge_counts_a_deletion_once(self):
+        with open(os.path.join(self.root, "A.cs"), "w") as f:
+            f.write(OLD.replace("    int g(int a) { return a - 1; }\n", ""))
+        bl = report(OLD, [mutant(2, "Survived"), mutant(3, "Killed"), mutant(4, "Survived"), mutant(5, "Killed")])
+        run = report(NEW, [mutant(2, "Survived"), mutant(3, "Survived")])     # f and h, rerun
+        c = inc.merge(self.config, bl, run, self.root)
+        self.assertEqual((0, 2), c["run"])
+        self.assertEqual((1, 0), c["baseline"])          # only i: f and h are not counted twice
+        self.assertEqual(3, c["replaced"])
 
     def test_merge(self):
         run = report(NEW, [mutant(3, "Killed"), mutant(3, "Killed"), mutant(5, "Survived")])
@@ -140,6 +203,7 @@ class PlanAndMerge(unittest.TestCase):
             run = json.load(f)["stryker-config"]
         self.assertEqual(2, len(run["mutate"]))
         self.assertNotIn("since", run)
+        self.assertNotIn("baseline", run)
         self.assertEqual({"break": 50}, run["thresholds"])
 
     def test_cli_plan_none_and_full(self):
@@ -160,6 +224,11 @@ class PlanAndMerge(unittest.TestCase):
         code, out = self.cli("merge", cfg, bl, bad)
         self.assertEqual(1, code, out)                   # 1 of 5 = 20 % < 50
         self.assertIn("below the break threshold", out)
+        # at the threshold it passes (Stryker fails only below it)
+        edge = self.write("run-edge.json", report(NEW, [mutant(3, "Killed"), mutant(5, "Survived")]))
+        code, out = self.cli("merge", cfg, bl, edge)
+        self.assertEqual(0, code, out)                   # 2 of 4 = 50 %
+        self.assertIn("50.00 %", out)
 
 
 class RunStryker(unittest.TestCase):

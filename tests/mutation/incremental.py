@@ -56,16 +56,34 @@ def line_starts(text):
     return starts
 
 
+# an unchanged run of fewer lines than this between two changes counts as changed: the line diff pairs short common
+# lines (`return false;`, `}`) inside rewritten code, whose mutants then sit in a different context
+MIN_UNCHANGED = 3
+
+
 def changes(old_text, new_text):
-    """(changed line ranges of the new text, changed line ranges of the old text), 0-based half-open [a, b). A pure
-    insertion is an empty range in the old text, a pure deletion an empty range in the new text."""
+    """(changed line ranges of the new text, changed line ranges of the old text), 0-based half-open [a, b), in the
+    same order. A pure insertion is an empty range in the old text. A pure deletion is an empty range in the new text
+    (spans_of runs the lines before and after it) and covers those two lines in the old text, so their baseline
+    results are not kept as well."""
     old, new = old_text.split("\n"), new_text.split("\n")
-    sm = difflib.SequenceMatcher(None, old, new, autojunk=False)
+    ops = difflib.SequenceMatcher(None, old, new, autojunk=False).get_opcodes()
+    regions = []
+    for k, (tag, i1, i2, j1, j2) in enumerate(ops):
+        island = tag == "equal" and 0 < k < len(ops) - 1 and i2 - i1 < MIN_UNCHANGED
+        if tag == "equal" and not island:
+            continue
+        if regions and regions[-1][1] == i1 and regions[-1][3] == j1:
+            regions[-1] = (regions[-1][0], i2, regions[-1][2], j2)
+        else:
+            regions.append((i1, i2, j1, j2))
     new_ranges, old_ranges = [], []
-    for tag, i1, i2, j1, j2 in sm.get_opcodes():
-        if tag != "equal":
+    for i1, i2, j1, j2 in regions:
+        if j1 == j2:                    # deletion: the old lines before and after it are rerun too
+            old_ranges.append((max(0, i1 - 1), min(len(old), i2 + 1)))
+        else:
             old_ranges.append((i1, i2))
-            new_ranges.append((j1, j2))
+        new_ranges.append((j1, j2))
     return new_ranges, old_ranges
 
 
@@ -131,7 +149,9 @@ def score(detected, undetected):
 # ---- plan and merge ----
 
 def read_text(path):
-    with open(path, encoding="utf-8-sig") as f:
+    """the text as Stryker reads it: without a byte order mark, with the line breaks as they are (newline="": Python
+    would turn \r\n into \n)"""
+    with open(path, encoding="utf-8-sig", newline="") as f:
         return f.read()
 
 
@@ -149,8 +169,12 @@ def plan(config, baseline, repo_root):
         full = os.path.join(repo_root, path)
         if bf is None or "source" not in bf or not os.path.isfile(full):
             return None
-        new_text = read_text(full).replace("\r\n", "\n")
-        new_ranges, old_ranges = changes(bf["source"].replace("\r\n", "\n"), new_text)
+        # (Stryker reads the file like File.ReadAllText: without a byte order mark, as read_text, but with every
+        # character of the line breaks; the spans are character offsets, so a file with \r runs in full)
+        new_text = read_text(full)
+        if "\r" in new_text or "\r" in bf["source"]:
+            return None
+        new_ranges, old_ranges = changes(bf["source"], new_text)
         files.append((path, new_ranges, old_ranges))
         for s, e in spans_of(new_text, new_ranges, span):
             mutate.append("**/%s{%d..%d}" % (path, s, e))
@@ -163,8 +187,9 @@ def merge(config, baseline, run_report, repo_root):
     run_mutants, kept, left_out = [], [], 0
     for path, span in entries:
         bf = baseline_file(baseline, path)
-        new_text = read_text(os.path.join(repo_root, path)).replace("\r\n", "\n")
-        new_ranges, old_ranges = changes(bf["source"].replace("\r\n", "\n"), new_text)
+        # (as in plan, which ran in full for a file with \r)
+        new_text = read_text(os.path.join(repo_root, path))
+        new_ranges, old_ranges = changes(bf["source"], new_text)
         for m in bf.get("mutants", []):
             if m.get("status") not in COUNTED:
                 continue
