@@ -14,6 +14,8 @@ Modes (tests/mutation/README.md):
 
 The files of a shard come from its config (mutate, test-case-filter). The paths of the workflow are a second list, but
 only a coarse one: test_select_shards.py checks that it covers every config.
+An edit of the workflow runs every config in full, unless it only adds or removes trigger paths or comments (checked
+on the diff between $BASE and $HEAD, which the workflow sets): adding a test file to the paths changes no shard.
 With --all every config runs in full (schedule, workflow_dispatch); --all --only arithmetic,rounding runs only those
 (workflow_dispatch input "shards"; "arithmetic" is stryker-config.json, the others are the mesh shards).
 """
@@ -21,11 +23,17 @@ import glob
 import json
 import os
 import re
+import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TESTS = "tests/geometry3Sharp.Tests/"
-ALWAYS = {".config/dotnet-tools.json", ".github/workflows/mutation.yml"}
+WORKFLOW = ".github/workflows/mutation.yml"
+ALWAYS = {".config/dotnet-tools.json", WORKFLOW}
+
+# a changed line of the workflow that only adds or removes a trigger path (`      - 'mesh_ops/X.cs'`), a comment or a
+# blank line: such an edit changes which PRs start the workflow, not how a shard runs
+_TRIGGER_ONLY_LINE = re.compile(r"^\s*(-\s*'[^']*'\s*(#.*)?|#.*)?$")
 
 
 def load_configs(directory=HERE):
@@ -41,6 +49,15 @@ def load_configs(directory=HERE):
         classes = {t.split("~")[1].split(".")[0] for t in config["test-case-filter"].split("|")}
         configs[name] = ("tests/mutation/" + os.path.basename(path), sources, {TESTS + c + ".cs" for c in classes})
     return configs
+
+
+def workflow_edit_is_trigger_only(diff):
+    """True if a unified diff of the workflow only adds or removes quoted list items (the `paths` of the trigger),
+    comments or blank lines. Then the workflow edit alone runs no shard in full: a full run of all 8 shards takes hours
+    of runners, and adding a test file to the trigger paths (AGENTS.md) changes no shard's mutants or tests."""
+    changed = [line[1:] for line in diff.splitlines()
+               if line[:1] in "+-" and not line.startswith("+++") and not line.startswith("---")]
+    return bool(changed) and all(_TRIGGER_ONLY_LINE.match(line) for line in changed)
 
 
 def mode_of(config, changed):
@@ -80,6 +97,14 @@ if __name__ == "__main__":
         value = args[args.index("--only") + 1].strip()
         only = None if value in ("", "all") else {x.strip() for x in value.split(",") if x.strip()}
     paths = [] if run_all else [line.strip() for line in sys.stdin if line.strip()]
+    base, head = os.environ.get("BASE"), os.environ.get("HEAD")
+    if WORKFLOW in paths and base and head:
+        # (a failed git diff raises: an empty diff must not count as trigger-only)
+        diff = subprocess.run(["git", "diff", f"{base}...{head}", "--", WORKFLOW],
+                              check=True, capture_output=True, text=True).stdout
+        if workflow_edit_is_trigger_only(diff):
+            paths.remove(WORKFLOW)
+            print("workflow: only trigger paths or comments changed, not a reason for full runs", file=sys.stderr)
     arithmetic, mesh = select(paths, load_configs(), run_all, only)
     print("arithmetic=" + arithmetic)
     print("mesh=" + json.dumps(mesh))

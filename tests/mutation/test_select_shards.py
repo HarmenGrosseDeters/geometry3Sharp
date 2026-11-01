@@ -7,7 +7,7 @@ import subprocess
 import sys
 import unittest
 
-from select_shards import TESTS, load_configs, select
+from select_shards import TESTS, load_configs, select, workflow_edit_is_trigger_only
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -86,6 +86,57 @@ class SelectShards(unittest.TestCase):
             arithmetic, mesh = run(path)
             self.assertEqual("full", arithmetic)
             self.assertEqual({s: "full" for s in ALL_MESH}, mesh)
+
+    def test_workflow_edit_of_trigger_paths_only(self):
+        paths_only = """diff --git a/.github/workflows/mutation.yml b/.github/workflows/mutation.yml
+--- a/.github/workflows/mutation.yml
++++ b/.github/workflows/mutation.yml
+@@ -40,2 +40,4 @@
+       - 'tests/geometry3Sharp.Tests/ExactTriangulation2Tests.cs'
++      - 'tests/geometry3Sharp.Tests/SafeRoundingBoundTests.cs'
++      - 'tests/geometry3Sharp.Tests/Other*Tests.cs'   # a comment
+-      - 'tests/geometry3Sharp.Tests/Old.cs'
++
++# a comment
+"""
+        self.assertTrue(workflow_edit_is_trigger_only(paths_only))
+        for job_line in ("+      max-parallel: 6", "+      - uses: actions/checkout@v5", "-    timeout-minutes: 350",
+                         "+    - cron: '23 3 * * 2'", "+          key: mutation-baseline-x"):
+            self.assertFalse(workflow_edit_is_trigger_only(paths_only + job_line + "\n"), job_line)
+        self.assertFalse(workflow_edit_is_trigger_only(""))
+
+    def test_command_line_drops_a_trigger_only_workflow_edit(self):
+        # on a temporary repository: the edit adds a trigger path, so the workflow alone runs nothing
+        import shutil, tempfile
+        tmp = tempfile.mkdtemp()
+        try:
+            def git(*a):
+                return subprocess.run(["git", "-C", tmp, "-c", "user.name=t", "-c", "user.email=t@t"] + list(a),
+                                      check=True, capture_output=True, text=True).stdout.strip()
+            git("init", "-q")
+            wf = os.path.join(tmp, ".github", "workflows")
+            os.makedirs(wf)
+            with open(os.path.join(wf, "mutation.yml"), "w") as f:
+                f.write("on:\n  pull_request:\n    paths:\n      - 'a.cs'\n")
+            git("add", "-A"); git("commit", "-q", "-m", "a")
+            base = git("rev-parse", "HEAD")
+            def commit(text):
+                with open(os.path.join(wf, "mutation.yml"), "a") as f:
+                    f.write(text)
+                git("commit", "-q", "-am", "b")
+                return git("rev-parse", "HEAD")
+            paths_head = commit("      - 'b.cs'\n")
+            job_head = commit("    timeout-minutes: 9\n")
+            def cli(head):
+                p = subprocess.run([sys.executable, os.path.join(HERE, "select_shards.py")],
+                                   input=".github/workflows/mutation.yml\n", capture_output=True, text=True, cwd=tmp,
+                                   env=dict(os.environ, BASE=base, HEAD=head))
+                self.assertEqual(0, p.returncode, p.stderr)
+                return p.stdout
+            self.assertEqual("arithmetic=none\nmesh=[]\n", cli(paths_head))
+            self.assertIn("arithmetic=full", cli(job_head))
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
 
     def test_all_flag_runs_everything_in_full(self):
         arithmetic, mesh = select([], CONFIGS, run_all=True)
