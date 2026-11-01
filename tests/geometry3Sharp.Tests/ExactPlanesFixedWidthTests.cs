@@ -127,7 +127,8 @@ namespace geometry3Sharp.Tests
                     if (k % 97 == 0)
                         pts[i] = ExactPoint3.FromInteger(r.Next(2) == 0 ? max : -max, r.Next(2) == 0 ? max : -max, r.Next(2) == 0 ? max : -max);
                     else
-                        pts[i] = ExactPoint3.FromInteger(RandomValue(r, bits), RandomValue(r, r.Next(0, bits + 1)), RandomValue(r, bits));
+                        // (the corners of one triangle with different lengths too: 1-limb next to 4-limb ones)
+                        pts[i] = ExactPoint3.FromInteger(RandomValue(r, bits), RandomValue(r, r.Next(0, bits + 1)), RandomValue(r, (k % 3 == 0) ? r.Next(0, 256) : bits));
                 }
                 if (k % 11 == 0) pts[2] = pts[0];      // a degenerate triple: N = 0
                 FixedPoint3 fa, fb, fc;
@@ -175,6 +176,27 @@ namespace geometry3Sharp.Tests
                 sb.Append('\n');
             }
             return sb.ToString();
+        }
+
+        [Fact]
+        public void Arrangement_TakesTheFixedWidthPath()
+        {
+            // every non-degenerate input triangle (integer corners, all fixed width) gets its plane by FixedArith
+            var arr = new ExactMeshArrangement(new List<DMesh3> { Sphere(new Vector3d(0.1, 0.2, 0.3), 1, 5), Sphere(new Vector3d(0.7, 0.4, 0.1), 0.8, 4) });
+            arr.Compute();
+            int n = 0;
+            foreach (var t in arr.Triangles)
+                if (t.Degenerate == false) {
+                    Assert.NotNull(t.compute_planes_fixed());
+                    n++;
+                }
+            Assert.True(n > 100);
+            // and with fixed width off, never
+            var off = new ExactMeshArrangement(new List<DMesh3> { Sphere(new Vector3d(0.1, 0.2, 0.3), 1, 5) }) { FixedWidthPoints = false };
+            off.Compute();
+            foreach (var t in off.Triangles)
+                if (t.Degenerate == false)
+                    Assert.Null(t.compute_planes_fixed());
         }
 
         [Fact]

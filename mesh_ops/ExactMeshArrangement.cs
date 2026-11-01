@@ -79,7 +79,7 @@ namespace g3
             // planes are computed when first needed (most triangles are far from all intersections), in an object of
             // their own (published at once: other threads may compute and read them at the same time)
             internal ExactMeshArrangement arr;
-            sealed class PlaneData
+            internal sealed class PlaneData
             {
                 public Plane P;
                 // (the exact edge planes only when they are used, in the exact stages of some coincident constructions:
@@ -148,7 +148,8 @@ namespace g3
 
             // compute_planes on the fixed-width corners (integer points, so W = 1), the same values (FixedArith.
             // TrianglePlanes); null if a corner is a fallback point
-            PlaneData compute_planes_fixed()
+            // (internal: the tests check that this path is taken)
+            internal PlaneData compute_planes_fixed()
             {
                 int ra = arr.exact_ref(Corners[0]), rb = arr.exact_ref(Corners[1]), rc = arr.exact_ref(Corners[2]);
                 if (ra <= 0 || rb <= 0 || rc <= 0)

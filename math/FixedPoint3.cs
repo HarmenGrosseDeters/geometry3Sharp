@@ -538,10 +538,11 @@ namespace g3
 
         // ---- the triangle plane and its edge planes (ExactMeshArrangement.InputTriangle.compute_planes; docs/design/
         // CHEAPER_CONSTRUCTIONS.md, section 4.5) ----
-        // Scratch by the length rule for inputs of 4 limbs, in this order of operations: 996 limbs (the generator's
-        // "lengths only" of the triangle plane with its three edge planes, each edge with its own difference q - p);
-        // 1-limb grid inputs take about 120.
-        const int PlanesScratch = 1024;
+        // Scratch by the length rule for inputs of 4 limbs, in this order of operations (every edge with its own
+        // difference q - p, edge 0 included): 1011 limbs (counted by the independent review; the generator's 996 of
+        // docs/design/CHEAPER_CONSTRUCTIONS.md section 5 omit the difference of edge 0); 1-limb grid inputs take about
+        // 120. A margin for added operations: exceeding the arena throws (FixedArena.Take).
+        const int PlanesScratch = 1152;
 
         /// <summary>
         /// The plane N . x = D of the triangle (a, b, c) of integer points (W = 1), N = (b - a) x (c - a), D = N . a, as
