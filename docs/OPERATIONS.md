@@ -115,11 +115,7 @@ bool clean = boolean.RoundingClean;   // no self-intersections, no triangles bel
 It costs 1.2 to 1.9 times the time of the boolean (the exact check of the rounded result for self-intersections
 is most of it); `SafeRounding = false` gives the plainly rounded result, for speed or with `ComputeExactVertices`
 when the exact coordinates are used anyway. Not every case is repaired: `RoundingClean` false with `Status`
-`Success` means that defects remain (`Rounding.RemainingIntersections`, `RemainingDegenerate`). A small feature of the
-exact result is kept, not repaired: a triangle below the threshold whose vertices are exact (input vertices, or
-intersection points whose exact coordinates are doubles), at least one of them new, and that is well-shaped (small,
-not a needle or a cap). It is still counted as degenerate (`Rounding.ExactDegenerate`, `RoundingClean` false), but
-the result is exact there. Needles and caps of nearly coincident inputs are repaired as before.
+`Success` means that defects remain (`Rounding.RemainingIntersections`, `RemainingDegenerate`).
 
 More than two meshes go into one arrangement, with an operation or a predicate on the winding numbers of all
 inputs (Zhou et al. 2016). Status is the result code (`Success`, `InvalidInput`, `OpenInput`):
