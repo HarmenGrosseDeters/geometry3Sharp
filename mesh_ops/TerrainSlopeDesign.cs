@@ -124,7 +124,7 @@ namespace gs
         /// <summary>
         /// diagnostics: seconds per phase (planes, domain, insert, simplify, realize, check; summed over the builds),
         /// the builds (more than 1 if the check raised a margin), the predicate calls of the kernel, those that needed
-        /// its exact stage, and the vertex positions and heights computed exactly (the rest come from the filter)
+        /// its exact stage, and the constructions (vertex positions and heights, all exact)
         /// </summary>
         public Dictionary<string, double> PhaseSeconds = new Dictionary<string, double>();
         public int Attempts;
@@ -320,8 +320,9 @@ namespace gs
             double D0 = (H - zMin) / (sMin * (1 - delta));
             double maxXY = Math.Max(Math.Max(Math.Abs(toeBox.Min.x), Math.Abs(toeBox.Max.x)), Math.Max(Math.Abs(toeBox.Min.y), Math.Abs(toeBox.Max.y))) + 2 * D0;
             double maxZ = Math.Max(Math.Abs(H), pieces.Max(p => Math.Max(Math.Abs(p.A.z), Math.Abs(p.B.z))));
-            // (the output coordinates and heights are within 3 ulp of the exact values, ExactSlopeKernel.Rounded)
-            double exy = 3 * ulp(maxXY), eeval = 3 * ulp(maxZ);
+            // (the output coordinates and heights are rounded to nearest from the exact values, ExactSlopeKernel.Rounded /
+            // Height: half an ulp; one ulp is counted. Heights near the lowered toe can exceed maxZ a little: ulp(2 maxZ))
+            double exy = ulp(maxXY), eeval = ulp(2 * maxZ);
             double minFeature = 2 * (8 * exy + 4 * eeval / sMin) / delta;
             double ez = 2 * sMax * exy + eeval;
             if (MathUtil.IsFinite(D0) == false || MathUtil.IsFinite(maxXY + 4 * D0) == false)
@@ -329,7 +330,7 @@ namespace gs
             // the bound of the toe lowering for triangles with altitudes of at least MinFeatureSize (plan, departure 1);
             // it is reserved in the tolerance budget, but the toe is lowered only by what the output needs (measured)
             double lambdaBound = 2 * ez * (1 + 4 * 1.1 * D0 / minFeature);
-            double lambda = (lambdaReq >= 0) ? lambdaReq : 2 * ez * (1 + 4 * 64);
+            double lambda = (lambdaReq >= 0) ? lambdaReq : 4 * ez;     // (the rounding of one vertex; raised by measurement)
             if (lambda > lambdaBound) lambda = lambdaBound;
             br.Lambda = lambda; br.LambdaBound = lambdaBound;
             UsedSlopeMargin = delta; UsedMinFeatureSize = minFeature; UsedToeLowering = lambda;
@@ -473,8 +474,8 @@ namespace gs
             if (!(r < 1) || spec.ExactlyCheckable == false)
                 return 1;
             double limit = ExactInterval.Up(r * spec.S);
-            // slope <= limit (exact) and limit <= r S (1 + 2^-52 relative) <= spec
-            return Slope.IsNotSteeper(a, b, c, SlopeSpec.Rise(limit)) ? ExactInterval.Up(ExactInterval.Up(r)) : 1;
+            // slope <= limit (exact); limit / S rounded to nearest and one ulp up is at least the exact limit / S
+            return Slope.IsNotSteeper(a, b, c, SlopeSpec.Rise(limit)) ? Math.Min(1, ExactInterval.Up(limit / spec.S)) : 1;
         }
 
         // z exceeds p - λ (exact): z > pz - λ  <=>  z - pz + λ > 0

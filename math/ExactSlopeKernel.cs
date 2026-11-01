@@ -257,45 +257,21 @@ namespace g3
         }
 
         /// <summary>
-        /// the vertex as doubles, each coordinate within 3 units in the last place of the exact value: from the
-        /// intervals when they are tight enough to prove that, else rounded to nearest from the exact value. A
-        /// function of the input doubles only (deterministic, and exact under scaling by powers of two).
+        /// the vertex rounded to the nearest doubles (each coordinate, from the exact rational value): a function of the
+        /// input doubles only (deterministic, and exact under scaling by powers of two). Constructions are few against the
+        /// predicates (about 20000 against 18 million in TerrainBenchmark slope), so they need no filter.
         /// </summary>
         public Vector2d Rounded(int vertex)
         {
             Vertex v = vertices[vertex];
             if (v.rounded == false) {
-                double x, y;
-                if (fast_quotient(v.X, v.W, out x) && fast_quotient(v.Y, v.W, out y)) {
-                    v.rx = x; v.ry = y;
-                } else {
-                    ExactConstructions++;
-                    exact_vertex(v);
-                    v.rx = ExactDyadic.Quotient(v.eX, v.eW);
-                    v.ry = ExactDyadic.Quotient(v.eY, v.eW);
-                }
+                ExactConstructions++;
+                exact_vertex(v);
+                v.rx = ExactDyadic.Quotient(v.eX, v.eW);
+                v.ry = ExactDyadic.Quotient(v.eY, v.eW);
                 v.rounded = true;
             }
             return new Vector2d(v.rx, v.ry);
-        }
-
-        // q = mid(num) / mid(den), if it is provably within 3 ulp(q) of every quotient of values in the intervals:
-        // |n/d - q| <= (|n - n0| + |q| |d - d0|) / |d| + |n0/d0 - q|, with |n - n0| <= width(num), |d - d0| <= width(den),
-        // |d| >= min |den|, and the division rounded to nearest (half an ulp; one ulp is counted)
-        static bool fast_quotient(ExactInterval num, ExactInterval den, out double q)
-        {
-            q = 0;
-            double dmin = den.Lo > 0 ? den.Lo : (den.Hi < 0 ? -den.Hi : 0);
-            if (!(dmin > 1e-290) || double.IsInfinity(den.Lo) || double.IsInfinity(den.Hi) || double.IsInfinity(num.Lo) || double.IsInfinity(num.Hi))
-                return false;
-            double n0 = 0.5 * num.Lo + 0.5 * num.Hi, d0 = 0.5 * den.Lo + 0.5 * den.Hi;
-            q = n0 / d0;
-            if (q == 0 || MathUtil.IsFinite(q) == false || Math.Abs(q) < 1e-280)
-                return false;
-            double ulpq = ExactInterval.Up(Math.Abs(q)) - Math.Abs(q);
-            double err = ((num.Hi - num.Lo) + Math.Abs(q) * (den.Hi - den.Lo)) / dmin;
-            // (err is computed in doubles; the factor 1.01 covers its own rounding)
-            return 1.01 * err + ulpq <= 3 * ulpq;
         }
 
         /// <summary> an approximation of the vertex position (for bounding boxes and heuristics only) </summary>
@@ -312,13 +288,10 @@ namespace g3
             return Rounded(vertex);
         }
 
-        /// <summary> the plane's height at the double point (x, y), within 3 ulp (as Rounded) </summary>
+        /// <summary> the plane's height at the double point (x, y), rounded to nearest from the exact value </summary>
         public double Height(int plane, double x, double y)
         {
             Plane pl = planes[plane];
-            double z;
-            if (fast_quotient(pl.D - pl.Nx * I(x) - pl.Ny * I(y), pl.Nz, out z))
-                return z;
             ExactConstructions++;
             exact_plane(pl);
             ExactDyadic num = pl.eD - pl.eNx * E(x) - pl.eNy * E(y);

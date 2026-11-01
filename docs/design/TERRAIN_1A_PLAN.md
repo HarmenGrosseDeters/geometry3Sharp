@@ -85,13 +85,15 @@ design area); continuous change of the slope along a segment and the three inter
    them instead. So all toe points (and with them all planes) are lowered by λ.
    - **Measured, not the worst case** (owner, 2026-11-01). The construction is exact (rational planes and vertices),
      so the only rounding is the final one into the output coordinates; a local frame would change nothing there. The
-     first build lowers by a small λ0 = 2·e_z·257; if a triangle fails (ii) only, the next build lowers by
-     max(2λ, 4 × the largest excess measured on the output). The worst-case bound λ_bound = 2·e_z·(1 + 4·D_max /
+     first build lowers by λ0 = 4·e_z, the rounding of one vertex; if a triangle fails (ii) only, the next build lowers
+     by max(2λ, 4 × the largest excess measured on the output). The worst-case bound λ_bound = 2·e_z·(1 + 4·D_max /
      MinFeatureSize) ≈ 1.1·δ·s·D_max (the review measured 0.55 mm for δ = 1e-6, s = 1, D_max = 500 m) is reserved in the
-     tolerance budget and caps λ; above it the margin δ is raised instead. `UsedToeLowering` reports the λ used.
-   - Measured (`TerrainSlopeDesignTests.ToeLowering_Origin_vs_Utm`, a 9-gon of radius 60 m, slope 1:1, 40 m high):
-     λ = 3.0e-10 m at the origin and 9.6e-7 m at UTM (632117, 5712043); both succeed with δ = 1e-6. At UTM λ is driven by
-     the output grid: e_xy is the ulp of the northing (9.3e-10 m).
+     tolerance budget and caps λ; above it the margin δ is raised instead. `UsedToeLowering` reports the λ of the run.
+   - Measured (`ToeLowering_Origin_vs_Utm`, a 9-gon of radius 60 m, 1:1, 40 m high): λ = 1.8e-10 m at the origin, 1.5e-8 m
+     at UTM. `ToeLowering_IsMeasuredPerRun` (UTM, heights 5 / 20 / 80 m): 7.5e-9, 1.5e-8, 2.2e-7 m with 1, 2, 3 builds.
+     The remainder is the output rounding (e_xy = ulp of the northing, 9.3e-10 m) amplified by the extrapolation of a
+     triangle's plane to its toe ends (about 4D/h), so it grows with the reach; only storing in local coordinates would
+     reduce it.
    - Without any lowering (λ = 0, the design as written), 23 of the 27 slope surface tests failed the exact check, also
      at local coordinates (`SlopeViolation`, 150 to 350 triangles each).
    - 1b will have to join the design at these heights, or decide differently: a question for the owner.
@@ -118,7 +120,7 @@ design area); continuous change of the slope along a segment and the three inter
 No violation of the guarantee was found. Fixed in this PR, each with a regression test (`Review_*`):
 - valid inputs with uneven toe heights and mixed slopes failed with `SlopeViolation`: the planes of a failed attempt
   were kept for the next one (fixed), and the fan sector window wrapped at ±π (now centred on the sector);
-- `MaxSlopeRatio` was a double estimate (1.00104 on a needle): now a bound, rounded up and confirmed exactly, else 1;
+- `MaxSlopeRatio` was a double estimate (1.00104 on a needle): now a bound, confirmed exactly (Up(limit / S)), else 1;
   faces are triangulated by dynamic programming over their corners (largest smallest quality), which avoids needles
   at nearly flat corners;
 - an open toe with its slope on the concave side was rejected: each lateral ray now ends at its first toe or at the
@@ -126,6 +128,8 @@ No violation of the guarantee was found. Fixed in this PR, each with a regressio
 - exceptions are mapped to `Statuses.Failed`; slopes with S = 0 or subnormal are invalid; a reach that is not finite
   is `InvalidInput`; toe segments below the smallest realizable feature are `InvalidInput` with their location;
 - `TerrainSafetyLines.Status` is `Failed` after an exception, not the status of an earlier run.
+A bounds-only review then found the filtered construction path (`fast_quotient`) never fired (its bound was twice too
+loose) and had a hole at |q| = MaxValue: it is removed, constructions are exact; and `eeval` now uses ulp(2 maxZ).
 Open (not blocking, recorded): flips of needles without a short edge inside a cell (5.4 "caps"); the O2 oracle samples
 vertices and centroids only; `Simplify` repeats whole passes; the toe validation is a sweep in x only.
 

@@ -456,5 +456,22 @@ namespace geometry3Sharp.Tests
             Assert.True(utm.UsedToeLowering < 1e-4, utm.UsedToeLowering.ToString());
             Assert.True(utm.UsedToeLowering > origin.UsedToeLowering);
         }
+
+        // the toe lowering is measured per run (not a constant): it grows with the reach D (the extrapolation distance of
+        // check (ii)), stays below its reserved bound, and every run passes the exact check
+        [Fact]
+        public void ToeLowering_IsMeasuredPerRun()
+        {
+            var c = new Vector2d(632117.25, 5712043.5);
+            var lows = new List<double>();
+            foreach (double h in new[] { 5.0, 20.0, 80.0 }) {
+                var d = Run(113.75 + h, 0.05, SlopeToe.Constant(Ngon(9, 60, 113.75).Select(p => new Vector3d(p.x + c.x, p.y + c.y, p.z)).ToList(), true, SlopeToe.Sides.Outside, SlopeSpec.Ratio(1)));
+                AssertAll(d);
+                output.WriteLine($"h {h}: lowering {d.UsedToeLowering:G3}, builds {d.Attempts}");
+                Assert.True(d.UsedToeLowering > 0 && d.UsedToeLowering < 1.1 * d.UsedSlopeMargin * 1.0 * (h / (1 - d.UsedSlopeMargin)) * 1.1 + 1e-12);
+                lows.Add(d.UsedToeLowering);
+            }
+            Assert.True(lows[2] > lows[0], string.Join(", ", lows));
+        }
     }
 }

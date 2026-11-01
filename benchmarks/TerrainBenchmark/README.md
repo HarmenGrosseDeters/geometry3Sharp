@@ -194,16 +194,21 @@ time per phase (`phase_*_s`, summed over the builds), the builds (`attempts`), t
 fallbacks, the toe lowering, and the oracle (`Slope.IsSupportedBy`) time per output triangle. 4 cores, 2026-11-01,
 `Tolerance` 0.01, slope 1:1:
 
-| case | triangles | builds | time | insert / simplify | predicates (exact) | oracle |
-|---|---|---|---|---|---|---|
-| 24-gon r 20 m, h 6 m, local | 461 | 1 | 0.93 s | 0.51 / 0.24 s | 1.09M (3.7 %) | 1.0 µs |
-| 24-gon r 200 m, h 60 m, local | 1230 | 1 | 5.3 s | 2.8 / 2.2 s | 18.1M (1.6 %) | 1.1 µs |
-| 24-gon r 200 m, h 60 m, UTM | 1203 | 1 | 4.8 s | 2.6 / 2.1 s | 18.1M (2.7 %) | 0.6 µs |
-| L shape 200 m, h 30 m, UTM | 540 | 1 | 0.73 s | 0.27 / 0.24 s | 0.39M (3.9 %) | 2.2 µs |
-| wavy 64-gon r 100 m (toe ±4 m), h 30 m, UTM | 22840 | 3 | 59 s | 24 / 34 s | 104M (7.3 %) | 1.1 µs |
+| case | triangles | builds | time | insert / simplify | predicates (exact) | toe lowering | oracle |
+|---|---|---|---|---|---|---|---|
+| 24-gon r 20 m, h 6 m, local | 461 | 2 | 1.36 s | 0.62 / 0.52 s | 2.19M (3.7 %) | 1.3e-10 m | 0.95 µs |
+| 24-gon r 200 m, h 60 m, local | 1230 | 2 | 8.6 s | 4.9 / 3.5 s | 36.2M (1.6 %) | 5.7e-10 m | 0.92 µs |
+| 24-gon r 200 m, h 60 m, UTM | 1222 | 2 | 9.0 s | 5.0 / 3.8 s | 36.2M (2.7 %) | 4.7e-8 m | 1.2 µs |
+| L shape 200 m, h 30 m, UTM | 548 | 1 | 0.62 s | 0.25 / 0.19 s | 0.39M (3.9 %) | 7.5e-9 m | 1.6 µs |
+| wavy 64-gon r 100 m (toe ±4 m), h 30 m, UTM | 14577 | 3 | 43 s | 17 / 26 s | 79.5M (7.5 %) | 5.9e-6 m | 1.6 µs |
 
-Before / after in this PR (24-gon r 200 m, h 60 m, UTM): with every vertex position and height rounded exactly
-(BigInteger), the case did not finish in 30 min; with the filter first 9.4 s (simplify 6.1 s, exact predicates 1.45M of
-19.2M); with failed merges not retried and the apex shortcut 4.8 s (simplify 2.1 s, 0.49M of 18.1M), the same 1203
-triangles. Open for 1c: the uneven toe (3 builds, each raising a margin), the predicate count per output triangle
-(about 15000), the km-scale cases of TERRAIN.md section 8.
+Constructions (vertex positions, heights) are all exact and correctly rounded: 2k to 290k per run, against millions of
+predicates. The toe lowering is measured: the first build lowers by the rounding of one vertex (4 e_z), and a build whose
+support check fails is repeated with 4 x the largest measured excess, so most cases take 2 builds; estimating the
+excess without the second build is a candidate for 1c.
+
+Before / after in this PR, 24-gon r 200 m, h 60 m, UTM, one build each (the toe lowering then fixed at 514 e_z): 9.2 s
+at 7e8d251 (simplify 6.1 s, 1.45M exact of 19.2M predicates); 4.8 s with failed merges not retried and the apex shortcut
+(simplify 2.1 s, 0.49M of 18.1M). An earlier note of "> 30 min" here was wrong: that run was one command with four
+cases in a row, stopped as a whole after 30 min. Open for 1c: the uneven toe (3 builds), the predicate count per
+output triangle (15000 to 30000), the km-scale cases of TERRAIN.md section 8.
