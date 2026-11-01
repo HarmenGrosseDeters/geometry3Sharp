@@ -7,39 +7,64 @@ namespace g3
 {
     /// <summary>
     /// Fit minimal bounding-circle to a set of 2D points.
-    /// Incremental construction in random order (Welzl 1991, in the iterative form of Seidel), expected O(N). Every point
-    /// lies inside the result: the radius is the distance to the farthest point from the center.
-    /// The same input gives the same bits (fixed seed), and a scale by a power of two scales the result exactly.
+    /// Incremental construction in random order (Welzl 1991, in the iterative form of Seidel), expected O(N), on the points
+    /// translated to the first one and scaled by a power of two of their extent. So the decisions depend on neither the
+    /// position nor the size of the set, and any finite coordinates work.
+    /// The radius is within a few rounding errors of the minimal one, plus the rounding of the center to a coordinate.
+    /// Circle2d.Contains is true for every input point, as long as the radius is above about 1e-150: below that, squared
+    /// distances lose bits as subnormal numbers (and from about 1e-162 they are 0, so Contains is simply true).
+    /// A radius above the double range is +Infinity.
+    /// The same input gives the same bits (fixed seed). Scaling the input by a power of two scales the result by it, bit
+    /// for bit, unless a subnormal coordinate rounds in that scaling.
     /// </summary>
     public class ContMinCircle2
     {
-        // how far outside a point counts as inside, in units of the largest coordinate: only the rounding of a circle
+        // how far outside a point counts as inside, in the scaled coordinates (the largest is in [1, 2)): only the rounding of a circle
         const double RoundingSlack = 16 * MathUtil.Epsilon;
+        const double DefaultEpsilon = 1e-05;
+        // 2^1021: below this, the difference of two coordinates does not overflow
+        const double LargeCoordinate = 2.2471164185778949e307;
 
         double mEpsilon;
-        double slack;
 
         public Circle2d Result;
 
         /// <param name="epsilon">Dimensionless (it was an absolute squared length in upstream): three points are treated as
         /// collinear if the sine of their triangle's largest angle is at most this, and the circle over their longest edge
-        /// is used, which is the minimal one for such an obtuse triangle.</param>
+        /// is used, which is the minimal one for such an obtuse triangle. Negative or NaN mean the default.</param>
         public ContMinCircle2(IList<Vector2d> pointsIn, double epsilon = 1e-05) {
-            mEpsilon = epsilon;
+            mEpsilon = (epsilon >= 0) ? epsilon : DefaultEpsilon;
             int numPoints = pointsIn.Count;
             if (numPoints < 1)
                 throw new Exception("ContMinCircle2: Input must contain points\n");
 
-            // in random order (fixed seed: the rounding of the result depends on the order, and it must not vary between runs)
-            Vector2d[] p = new Vector2d[numPoints];
             double maxCoord = 0;
             for (int i = 0; i < numPoints; ++i) {
-                p[i] = pointsIn[i];
-                if (MathUtil.IsFinite(p[i].x) == false || MathUtil.IsFinite(p[i].y) == false)
+                Vector2d point = pointsIn[i];
+                if (MathUtil.IsFinite(point.x) == false || MathUtil.IsFinite(point.y) == false)
                     throw new ArgumentException("ContMinCircle2: non-finite point " + i);
-                maxCoord = Math.Max(maxCoord, Math.Max(Math.Abs(p[i].x), Math.Abs(p[i].y)));
+                maxCoord = Math.Max(maxCoord, Math.Max(Math.Abs(point.x), Math.Abs(point.y)));
             }
-            slack = RoundingSlack * maxCoord;
+
+            // Relative to the first point (the difference of the largest coordinates would overflow, so those go down by
+            // 4 first), and scaled by a power of two of the extent. A difference rounds by at most eps of itself.
+            int preShift = (maxCoord >= LargeCoordinate) ? -2 : 0;
+            Vector2d origin = pointsIn[0];
+            Vector2d[] p = new Vector2d[numPoints];
+            double extent = 0;
+            for (int i = 0; i < numPoints; ++i) {
+                p[i] = Difference(pointsIn[i], origin, preShift, 0);
+                extent = Math.Max(extent, Math.Max(Math.Abs(p[i].x), Math.Abs(p[i].y)));
+            }
+            if (extent == 0) {
+                Result = new Circle2d(origin, 0);
+                return;
+            }
+            int shift = Exponent(extent);
+            for (int i = 0; i < numPoints; ++i)
+                p[i] = new Vector2d(ExactPoint3.ScaleB(p[i].x, -shift), ExactPoint3.ScaleB(p[i].y, -shift));
+
+            // in random order (fixed seed: the rounding of the result depends on the order, and it must not vary between runs)
             Random r = new Random(31337);
             for (int i = numPoints - 1; i > 0; --i) {
                 int j = r.Next() % (i + 1);
@@ -68,16 +93,40 @@ namespace g3
                 }
             }
 
-            // no point stays outside by the rounding of the circle
+            Vector2d resultCenter = new Vector2d(
+                ExactPoint3.ScaleB(ExactPoint3.ScaleB(origin.x, preShift) + ExactPoint3.ScaleB(center.x, shift), -preShift),
+                ExactPoint3.ScaleB(ExactPoint3.ScaleB(origin.y, preShift) + ExactPoint3.ScaleB(center.y, shift), -preShift));
+
+            // No point stays outside by the rounding of the circle, or of its center to a coordinate. The root of d^2 can
+            // square to below d^2, and Circle2d.Contains compares the squares. Those are the same bits as in the input's
+            // coordinates, scaled, as long as they neither overflow nor are subnormal there.
             double farthest = 0;
             for (int i = 0; i < numPoints; ++i)
-                farthest = Math.Max(farthest, p[i].DistanceSquared(center));
-            Result = new Circle2d(center, Math.Sqrt(farthest));
+                farthest = Math.Max(farthest, Difference(pointsIn[i], resultCenter, preShift, shift).LengthSquared);
+            double radius = Math.Sqrt(farthest);
+            while (radius * radius < farthest)
+                radius = BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(radius) + 1);
+            Result = new Circle2d(resultCenter, ExactPoint3.ScaleB(radius, shift - preShift));
         }
 
-        bool Contains(Vector2d point, Vector2d center, double radiusSqr)
+        static Vector2d Difference(Vector2d a, Vector2d b, int preShift, int shift)
         {
-            double allowed = Math.Sqrt(radiusSqr) + slack;
+            return new Vector2d(
+                ExactPoint3.ScaleB(ExactPoint3.ScaleB(a.x, preShift) - ExactPoint3.ScaleB(b.x, preShift), -shift),
+                ExactPoint3.ScaleB(ExactPoint3.ScaleB(a.y, preShift) - ExactPoint3.ScaleB(b.y, preShift), -shift));
+        }
+
+        /// <summary> e with x in [2^e, 2^(e+1)), for finite x greater than 0 </summary>
+        static int Exponent(double x)
+        {
+            if (x >= 2.2250738585072014e-308)
+                return (int)((BitConverter.DoubleToInt64Bits(x) >> 52) & 0x7FF) - 1023;
+            return (int)((BitConverter.DoubleToInt64Bits(x * 18446744073709551616.0) >> 52) & 0x7FF) - 1023 - 64;    // subnormal: times 2^64
+        }
+
+        static bool Contains(Vector2d point, Vector2d center, double radiusSqr)
+        {
+            double allowed = Math.Sqrt(radiusSqr) + RoundingSlack;
             return point.DistanceSquared(center) <= allowed * allowed;
         }
 
@@ -89,26 +138,30 @@ namespace g3
 
         void CircleThrough(Vector2d a, Vector2d b, Vector2d c, out Vector2d center, out double radiusSqr)
         {
-            Vector2d ab = b - a, ac = c - a;
-            double lab = ab.LengthSquared, lac = ac.LengthSquared, lbc = b.DistanceSquared(c);
-            double det = ab.x * ac.y - ab.y * ac.x;
-            // |det| = sin(angle) * (the two edges at that angle), for the largest angle those are the two shorter edges.
-            // (one root per edge: their product would overflow far before the circle does)
+            double lab = a.DistanceSquared(b), lac = a.DistanceSquared(c), lbc = b.DistanceSquared(c);
+            // Based at the vertex opposite the longest edge: at the far end of a needle, the two edges are nearly parallel,
+            // and the center's error is eps * L / angle. That made the next point falsely "outside", which moved the circle
+            // to the wrong side (a radius 5% too large on tight clusters at the support points).
             double longest = Math.Max(lab, Math.Max(lac, lbc));
-            double shorterEdges = (lab == longest) ? Math.Sqrt(lac) * Math.Sqrt(lbc)
-                : (lac == longest) ? Math.Sqrt(lab) * Math.Sqrt(lbc) : Math.Sqrt(lab) * Math.Sqrt(lac);
-            if (Math.Abs(det) <= mEpsilon * shorterEdges) {
-                if (lab == longest)
-                    CircleOverEdge(a, b, out center, out radiusSqr);
-                else if (lac == longest)
-                    CircleOverEdge(a, c, out center, out radiusSqr);
-                else
-                    CircleOverEdge(b, c, out center, out radiusSqr);
+            Vector2d origin, u, v, edgeA, edgeB;
+            double lu, lv;
+            if (longest == lab) {
+                origin = c; u = a - c; v = b - c; lu = lac; lv = lbc; edgeA = a; edgeB = b;
+            } else if (longest == lac) {
+                origin = b; u = a - b; v = c - b; lu = lab; lv = lbc; edgeA = a; edgeB = c;
+            } else {
+                origin = a; u = b - a; v = c - a; lu = lab; lv = lac; edgeA = b; edgeB = c;
+            }
+            double det = u.x * v.y - u.y * v.x;
+            // |det| = sin(angle) * (the two edges at that angle), and the angle at this vertex is the largest.
+            // (mEpsilon >= 0, so det = 0 ends here and never in the division)
+            if (Math.Abs(det) <= mEpsilon * (Math.Sqrt(lu) * Math.Sqrt(lv))) {
+                CircleOverEdge(edgeA, edgeB, out center, out radiusSqr);
                 return;
             }
             double invDet = 0.5 / det;
-            Vector2d q = new Vector2d((ac.y * lab - ab.y * lac) * invDet, (ab.x * lac - ac.x * lab) * invDet);
-            center = a + q;
+            Vector2d q = new Vector2d((v.y * lu - u.y * lv) * invDet, (u.x * lv - v.x * lu) * invDet);
+            center = origin + q;
             radiusSqr = q.LengthSquared;
         }
 

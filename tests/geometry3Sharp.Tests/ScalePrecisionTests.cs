@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Numerics;
 using g3;
 using Xunit;
 
@@ -129,10 +130,12 @@ namespace geometry3Sharp.Tests
             double tol = 64 * s.Resolution(2);
             Assert.True(Math.Abs(result.Radius / s.Scale - expected.Radius) <= tol,
                 $"radius {result.Radius / s.Scale} expected {expected.Radius}, tol {tol}");
-            // the center of a needle is the end of a lever: rounding of its short edge (1e-6) moves it by 1/1e-6 of that
-            double centerTol = set == "needle" ? 1e6 * tol : tol;
-            Assert.True(s2.Inverse(result.Center).Distance(expected.Center) <= centerTol,
-                $"center {s2.Inverse(result.Center)} expected {expected.Center}, tol {centerTol}");
+            // (the brute force's center of a needle is not the reference: it is based at the far end, see AssertMinimal for the exact one)
+            if (set != "needle")
+                Assert.True(s2.Inverse(result.Center).Distance(expected.Center) <= tol,
+                    $"center {s2.Inverse(result.Center)} expected {expected.Center}, tol {tol}");
+            else
+                AssertMinimal(points, result, tol * s.Scale, tol * s.Scale, "needle");
             foreach (Vector2d p in points)
                 Assert.True(p.Distance(result.Center) / s.Scale <= result.Radius / s.Scale + tol, $"{p} is outside");
         }
@@ -287,6 +290,527 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        /// <summary>
+        /// The minimal circle in exact arithmetic: every double as an integer times a common power of two, the circle
+        /// as center (Ux, Uy) / D and squared radius R2 / D^2. It proves its own result (<see cref="Check"/>), so it does
+        /// not rest on the incremental loop it shares with the code under test, or on any of that code's rounding.
+        /// </summary>
+        sealed class ExactCircle
+        {
+            BigInteger[] xs, ys;
+            int exponent;
+            BigInteger ux, uy, d = BigInteger.One, r2;
+            int[] support;
+
+            public ExactCircle(IList<Vector2d> points)
+            {
+                int n = points.Count, min = int.MaxValue;
+                var parts = new (BigInteger m, int e)[2 * n];
+                for (int i = 0; i < n; ++i) {
+                    parts[2 * i] = Split(points[i].x);
+                    parts[2 * i + 1] = Split(points[i].y);
+                }
+                foreach (var part in parts)
+                    if (part.m.IsZero == false) min = Math.Min(min, part.e);
+                exponent = min;
+                xs = new BigInteger[n];
+                ys = new BigInteger[n];
+                for (int i = 0; i < n; ++i) {
+                    xs[i] = parts[2 * i].m << Math.Max(parts[2 * i].e - min, 0);
+                    ys[i] = parts[2 * i + 1].m << Math.Max(parts[2 * i + 1].e - min, 0);
+                }
+
+                int[] order = Enumerable.Range(0, n).ToArray();
+                var rand = new Random(4711);
+                for (int i = n - 1; i > 0; --i) {
+                    int j = rand.Next(i + 1), t = order[i];
+                    order[i] = order[j];
+                    order[j] = t;
+                }
+                SetPoint(order[0]);
+                for (int i = 1; i < n; ++i) {
+                    if (Inside(order[i])) continue;
+                    SetPoint(order[i]);
+                    for (int j = 0; j < i; ++j) {
+                        if (Inside(order[j])) continue;
+                        SetEdge(order[i], order[j]);
+                        for (int k = 0; k < j; ++k)
+                            if (Inside(order[k]) == false) SetTriangle(order[i], order[j], order[k]);
+                    }
+                }
+                Check();
+            }
+
+            static (BigInteger m, int e) Split(double v)
+            {
+                long bits = BitConverter.DoubleToInt64Bits(v);
+                int e = (int)((bits >> 52) & 0x7FF);
+                long m = bits & 0xFFFFFFFFFFFFFL;
+                if (e == 0) e = 1; else m |= 1L << 52;
+                return (bits < 0 ? -new BigInteger(m) : new BigInteger(m), e - 1075);
+            }
+
+            BigInteger DistSqr(int i)
+            {
+                BigInteger dx = xs[i] * d - ux, dy = ys[i] * d - uy;
+                return dx * dx + dy * dy;
+            }
+
+            bool Inside(int i) => DistSqr(i) <= r2;
+
+            void SetPoint(int a)
+            {
+                ux = xs[a]; uy = ys[a]; d = BigInteger.One; r2 = BigInteger.Zero;
+                support = new[] { a };
+            }
+
+            void SetEdge(int a, int b)
+            {
+                ux = xs[a] + xs[b]; uy = ys[a] + ys[b]; d = 2;
+                r2 = BigInteger.Zero;
+                r2 = DistSqr(a);
+                support = new[] { a, b };
+            }
+
+            void SetTriangle(int a, int b, int c)
+            {
+                BigInteger bx = xs[b] - xs[a], by = ys[b] - ys[a], cx = xs[c] - xs[a], cy = ys[c] - ys[a];
+                BigInteger det = 2 * (bx * cy - by * cx), lb = bx * bx + by * by, lc = cx * cx + cy * cy;
+                Assert.False(det.IsZero, "exact solver: collinear support");
+                BigInteger qx = cy * lb - by * lc, qy = bx * lc - cx * lb;
+                if (det.Sign < 0) { det = -det; qx = -qx; qy = -qy; }
+                d = det;
+                ux = xs[a] * d + qx;
+                uy = ys[a] * d + qy;
+                r2 = DistSqr(a);
+                support = new[] { a, b, c };
+            }
+
+            // all points are inside and the center is in the convex hull of the support: only then the circle is minimal
+            void Check()
+            {
+                for (int i = 0; i < xs.Length; ++i)
+                    Assert.True(Inside(i), "exact solver: a point is outside");
+                foreach (int i in support)
+                    Assert.Equal(r2, DistSqr(i));
+                if (support.Length == 3) {
+                    for (int i = 0; i < 3; ++i) {
+                        int a = support[i], b = support[(i + 1) % 3], c = support[(i + 2) % 3];
+                        Assert.True((xs[b] - xs[a]) * (xs[c] - xs[a]) + (ys[b] - ys[a]) * (ys[c] - ys[a]) >= 0,
+                            "exact solver: an obtuse support");
+                    }
+                }
+            }
+
+            static int BitLength(BigInteger v) => v.IsZero ? 0 : 8 * BigInteger.Abs(v).ToByteArray().Length;
+
+            /// <summary>num / den * 2^shift, within about one rounding (den > 0).</summary>
+            static double Ratio(BigInteger num, BigInteger den, int shift)
+            {
+                if (num.IsZero) return 0;
+                int s = 128 - (BitLength(num) - BitLength(den));
+                BigInteger q = (s >= 0) ? (num << s) / den : num / (den << -s);
+                return ExactPoint3.ScaleB((double)q, shift - s);
+            }
+
+            public double Radius
+            {
+                get {
+                    if (r2.IsZero) return 0;
+                    // an even shift, so the root of the power of two is exact
+                    int s = 256 - (BitLength(r2) - 2 * BitLength(d));
+                    s += s & 1;
+                    BigInteger den = d * d;
+                    BigInteger q = (s >= 0) ? (r2 << s) / den : r2 / (den << -s);
+                    return ExactPoint3.ScaleB(Math.Sqrt((double)q), exponent - s / 2);
+                }
+            }
+
+            public Vector2d Center => new Vector2d(Ratio(ux, d, exponent), Ratio(uy, d, exponent));
+        }
+
+        // The sets of the review: a0 + 0, 2.1, 4.2 on the unit circle, 2 to 6 points in each arc, Gaussian noise.
+        static Vector2d[] ClusterSet(Random rand, double width, double noise)
+        {
+            double a0 = rand.NextDouble() * 6.28;
+            var points = new List<Vector2d>();
+            foreach (double arc in new[] { 0, 2.1, 4.2 }) {
+                int count = rand.Next(2, 7);
+                for (int i = 0; i < count; ++i) {
+                    double a = a0 + arc + (2 * rand.NextDouble() - 1) * width;
+                    points.Add(new Vector2d(Math.Cos(a) + Gauss(rand) * noise, Math.Sin(a) + Gauss(rand) * noise));
+                }
+            }
+            for (int i = points.Count - 1; i > 0; --i) {
+                int j = rand.Next(i + 1);
+                Vector2d t = points[i];
+                points[i] = points[j];
+                points[j] = t;
+            }
+            return points.ToArray();
+        }
+
+        static double Gauss(Random rand) => Math.Sqrt(-2 * Math.Log(1 - rand.NextDouble())) * Math.Cos(2 * Math.PI * rand.NextDouble());
+
+        static double MaxCoord(IEnumerable<Vector2d> points) => points.Max(p => Math.Max(Math.Abs(p.x), Math.Abs(p.y)));
+
+        /// <summary>The result against the exact circle: radius and center within tol, no point outside through Contains.</summary>
+        static void AssertMinimal(IList<Vector2d> points, Circle2d result, double tol, double centerTol, string what)
+        {
+            var exact = new ExactCircle(points);
+            double expected = exact.Radius;
+            Assert.True(Math.Abs(result.Radius - expected) <= tol, $"{what}: radius {result.Radius:R} expected {expected:R}, tol {tol}");
+            Assert.True(result.Center.Distance(exact.Center) <= centerTol, $"{what}: center {result.Center} expected {exact.Center}");
+            foreach (Vector2d p in points)
+                Assert.True(result.Contains(p), $"{what}: {p} is outside");
+        }
+
+        static readonly Vector2d[] ReviewCluster = {
+            new Vector2d(-0.29263477811403177, 0.9562242867481332),
+            new Vector2d(0.9731573095962865, -0.23014093769501476),
+            new Vector2d(-0.6776862793410731, -0.7353511470568985),
+            new Vector2d(0.9731573169016159, -0.23014090613838026),
+            new Vector2d(0.9731573125062671, -0.23014092747955794) };
+
+        [Fact]
+        public void MinCircle_TightClusterAtASupportPoint_IsMinimal()
+        {
+            // The radius used to be 1.02828: a circumcenter based at the far end of a needle has an error of eps * L / angle,
+            // so the next point was falsely outside, and the circle moved to the wrong side.
+            Circle2d result = new ContMinCircle2(ReviewCluster).Result;
+            Assert.True(Math.Abs(result.Radius - 1.00000000066) <= 1e-10, $"radius {result.Radius}");
+            Assert.True(result.Center.Length <= 1e-8, $"center {result.Center}");
+            AssertMinimal(ReviewCluster, result, 8 * MathUtil.Epsilon, 1e-13, "review input");
+        }
+
+        [Theory]
+        [InlineData(1e-3, 1e-9)]
+        [InlineData(1e-4, 1e-12)]
+        [InlineData(1e-5, 1e-12)]
+        [InlineData(1e-6, 0.0)]
+        [InlineData(1e-7, 1e-9)]
+        [InlineData(1e-7, 1e-12)]
+        public void MinCircle_ThreeTightClusters_EqualExactSolver(double width, double noise)
+        {
+            var rand = new Random(1000 + (int)(-Math.Log10(width)) * 10 + (noise == 0 ? 0 : (int)(-Math.Log10(noise))));
+            for (int n = 0; n < 3000; ++n) {
+                Vector2d[] points = ClusterSet(rand, width, noise);
+                Circle2d result = new ContMinCircle2(points).Result;
+                AssertMinimal(points, result, 32 * MathUtil.Epsilon, 1e-13, $"set {n}");
+            }
+        }
+
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void MinCircle_ThreeTightClusters_UnderSimilarity(string name)
+        {
+            Similarity s = Similarity.ByName(name);
+            var s2 = new Similarity2(s);
+            var rand = new Random(77);
+            foreach (double width in new[] { 1e-4, 1e-5, 1e-7 }) {
+                for (int n = 0; n < 200; ++n) {
+                    Vector2d[] points = ClusterSet(rand, width, 1e-12).Select(s2.Apply).ToArray();
+                    Circle2d result = new ContMinCircle2(points).Result;
+                    // (exact on the mapped points: their rounding is the input here; the center cannot be better than a coordinate)
+                    double tol = 32 * s.Scale * s.Resolution(2);
+                    AssertMinimal(points, result, tol, tol + 1e-13 * s.Scale, $"{name}, width {width}, set {n}");
+                }
+            }
+        }
+
+        [Fact]
+        public void MinCircle_ThreeTightClusters_PowerOfTwoScales_BitIdentical()
+        {
+            var rand = new Random(78);
+            for (int n = 0; n < 200; ++n) {
+                Vector2d[] points = ClusterSet(rand, 1e-7, 1e-9);
+                Circle2d reference = new ContMinCircle2(points).Result;
+                foreach (int exponent in FarExponents) {
+                    double scale = Math.Pow(2, exponent);
+                    Circle2d result = new ContMinCircle2(points.Select(p => scale * p).ToArray()).Result;
+                    Assert.Equal(reference.Center.x * scale, result.Center.x);
+                    Assert.Equal(reference.Center.y * scale, result.Center.y);
+                    Assert.Equal(reference.Radius * scale, result.Radius);
+                }
+            }
+        }
+
+        static readonly int[] FarExponents = { -900, -600, -345, -10, 10, 345, 900 };
+
+        [Theory]
+        [MemberData(nameof(PointSetNames))]
+        public void MinCircle_FarPowerOfTwoScales_BitIdentical(string set)
+        {
+            Vector2d[] input = PointSets()[set];
+            Circle2d reference = new ContMinCircle2(input).Result;
+            foreach (int exponent in FarExponents) {
+                double scale = Math.Pow(2, exponent);
+                Circle2d result = new ContMinCircle2(input.Select(p => scale * p).ToArray()).Result;
+                Assert.Equal(reference.Center.x * scale, result.Center.x);
+                Assert.Equal(reference.Center.y * scale, result.Center.y);
+                Assert.Equal(reference.Radius * scale, result.Radius);
+            }
+        }
+
+        [Theory]
+        [InlineData(1e103)]
+        [InlineData(1e-103)]
+        [InlineData(1e-108)]
+        [InlineData(1e-155)]
+        [InlineData(1e-162)]
+        [InlineData(1e155)]
+        [InlineData(1e200)]
+        [InlineData(1e-200)]
+        [InlineData(1e300)]
+        [InlineData(1e-300)]
+        public void MinCircle_FarRanges_AreStillTheCircumcircle(double scale)
+        {
+            // silent garbage in the old code outside about 1e+-103: L^3 and L^2 overflowed or underflowed
+            Vector2d[] points = { scale * new Vector2d(0, 0), scale * new Vector2d(1, 0), scale * new Vector2d(0.5, 1) };
+            Circle2d result = new ContMinCircle2(points).Result;
+            double tol = 8 * MathUtil.Epsilon;
+            Assert.True(Math.Abs(result.Radius / scale - 0.625) <= tol, $"radius {result.Radius / scale}");
+            Assert.True(Math.Abs(result.Center.x / scale - 0.5) <= tol && Math.Abs(result.Center.y / scale - 0.375) <= tol,
+                $"center {result.Center.x / scale}, {result.Center.y / scale}");
+        }
+
+        [Theory]
+        [InlineData(1e155, 0, -1e155, 0, 0, 0, 1e155)]
+        [InlineData(1e-170, 0, 2e-170, 0, 1.5e-170, 0, 0.5e-170)]
+        [InlineData(1.2e308, 0, 1.5e308, 0, 1.35e308, 0, 0.15e308)]
+        [InlineData(1.2e308, 1e308, 1.5e308, 1e308, 1.35e308, 1e308, 0.15e308)]
+        [InlineData(1e308, 1e308, -1e308, -1e308, 0, 0, 1.4142135623730951e308)]
+        [InlineData(1e300, 0, 1e300, 1e-20, 1e300, 0.5e-20, 0.5e-20)]
+        public void MinCircle_TwoFarPoints(double ax, double ay, double bx, double by, double cx, double cy, double radius)
+        {
+            foreach (Vector2d[] points in new[] {
+                new[] { new Vector2d(ax, ay), new Vector2d(bx, by) }, new[] { new Vector2d(bx, by), new Vector2d(ax, ay) } }) {
+                Circle2d result = new ContMinCircle2(points).Result;
+                double tol = 4 * MathUtil.Epsilon;
+                Assert.True(Math.Abs(result.Radius / radius - 1) <= tol, $"radius {result.Radius}");
+                Assert.True(cx == 0 ? result.Center.x == 0 : Math.Abs(result.Center.x / cx - 1) <= tol, $"center {result.Center}");
+                Assert.True(cy == 0 ? result.Center.y == 0 : Math.Abs(result.Center.y / cy - 1) <= tol, $"center {result.Center}");
+            }
+        }
+
+        [Fact]
+        public void MinCircle_MixedMagnitudes()
+        {
+            Vector2d[] points = { new Vector2d(1e300, 0), new Vector2d(-1e300, 0), new Vector2d(0, 1e-300), new Vector2d(1e-300, -1e-300) };
+            Circle2d result = new ContMinCircle2(points).Result;
+            Assert.Equal(1e300, result.Radius);
+            Assert.Equal(new Vector2d(0, 0), result.Center);
+        }
+
+        [Fact]
+        public void MinCircle_RadiusBeyondTheDoubleRange_IsInfinityAndNotNaN()
+        {
+            Vector2d[] points = { new Vector2d(1.7e308, 1.7e308), new Vector2d(-1.7e308, -1.7e308) };
+            Circle2d result = new ContMinCircle2(points).Result;
+            Assert.Equal(new Vector2d(0, 0), result.Center);
+            Assert.True(double.IsPositiveInfinity(result.Radius), $"radius {result.Radius}");
+        }
+
+        [Fact]
+        public void MinCircle_SubnormalPoints_FiniteAndInRange()
+        {
+            Vector2d[] points = { new Vector2d(1e-320, 0), new Vector2d(3e-320, 0), new Vector2d(2e-320, 1e-320) };
+            Circle2d result = new ContMinCircle2(points).Result;
+            Assert.True(Math.Abs(result.Radius / 1e-320 - 1) <= 1e-2, $"radius {result.Radius}");
+            Assert.True(Math.Abs(result.Center.x / 2e-320 - 1) <= 1e-2, $"center {result.Center}");
+        }
+
+        [Fact]
+        public void MinCircle_ExtentOfAFewSmallestSubnormals_IsResolved()
+        {
+            // 2^-1074 is 1 here, after the scaling by the exponent of the extent: nothing falls inside the slack
+            double e = double.Epsilon;
+            Circle2d result = new ContMinCircle2(new[] { new Vector2d(0, 0), new Vector2d(4 * e, 0) }).Result;
+            Assert.Equal(2 * e, result.Center.x);
+            Assert.Equal(2 * e, result.Radius);
+        }
+
+        [Fact]
+        public void MinCircle_ContainsEveryInputPoint_Example()
+        {
+            // d^2 = 0.18676334276479373 of the farthest point, and sqrt of that, squared, was 0.1867633427647937
+            Vector2d[] points = { new Vector2d(0.13436424411240122, 0.8474337369372327),
+                new Vector2d(0.763774618976614, 0.2550690257394217), new Vector2d(0.49543508709194095, 0.4494910647887381) };
+            Circle2d result = new ContMinCircle2(points).Result;
+            foreach (Vector2d p in points)
+                Assert.True(result.Contains(p), $"{p} is outside");
+        }
+
+        [Fact]
+        public void MinCircle_ContainsEveryInputPoint_RandomSetsAndAtMostAFewUlpsMore()
+        {
+            var rand = new Random(79);
+            for (int n = 0; n < 20000; ++n) {
+                Vector2d[] points = Enumerable.Range(0, rand.Next(3, 13)).Select(i => new Vector2d(rand.NextDouble(), rand.NextDouble())).ToArray();
+                Circle2d result = new ContMinCircle2(points).Result;
+                double farthest = points.Max(p => p.Distance(result.Center));
+                foreach (Vector2d p in points)
+                    Assert.True(result.Contains(p), $"set {n}: {p} is outside");
+                Assert.True(result.Radius <= farthest * (1 + 4 * MathUtil.Epsilon), $"set {n}: radius {result.Radius:R}, farthest {farthest:R}");
+            }
+        }
+
+        [Theory]
+        [MemberData(nameof(SimilarityAndPointSet))]
+        public void MinCircle_ContainsEveryInputPoint_UnderSimilarity(string name, string set)
+        {
+            var s2 = new Similarity2(Similarity.ByName(name));
+            Vector2d[] points = PointSets()[set].Select(s2.Apply).ToArray();
+            Circle2d result = new ContMinCircle2(points).Result;
+            foreach (Vector2d p in points)
+                Assert.True(result.Contains(p), $"{p} is outside");
+        }
+
+        [Theory]
+        [InlineData(1e-140)]
+        [InlineData(1e-100)]
+        [InlineData(1e100)]
+        [InlineData(1e154)]
+        [InlineData(1e200)]
+        public void MinCircle_ContainsEveryInputPoint_FarRanges(double scale)
+        {
+            var rand = new Random(80);
+            for (int n = 0; n < 500; ++n) {
+                Vector2d[] points = Enumerable.Range(0, rand.Next(3, 13)).Select(i => new Vector2d(scale * rand.NextDouble(), scale * rand.NextDouble())).ToArray();
+                Circle2d result = new ContMinCircle2(points).Result;
+                foreach (Vector2d p in points)
+                    Assert.True(result.Contains(p), $"set {n}: {p} is outside");
+            }
+        }
+
+        [Theory]
+        [InlineData(16)]    // 16 ulps at this coordinate: the review's input, 1.5e-8 written out
+        [InlineData(5)]
+        [InlineData(2)]
+        public void MinCircle_ExtentOfAFewUlps_IsNotSwallowedByTheCoordinates(int ulps)
+        {
+            // The slack was relative to the coordinates: below about 22 ulps the second point was "inside" a circle of
+            // radius 0, and the center stayed on whichever endpoint came first.
+            double ulp = Math.Pow(2, -30);
+            Vector2d a = new Vector2d(5712000, 0), b = new Vector2d(5712000 + ulps * ulp, 0);
+            Assert.Equal(ulps * ulp, b.x - a.x);
+            foreach (Vector2d[] points in new[] { new[] { a, b }, new[] { b, a } }) {
+                Circle2d result = new ContMinCircle2(points).Result;
+                // the center is a coordinate too: half an ulp more if the midpoint falls between two of them
+                double expected = (ulps % 2 == 0) ? 0.5 * ulps * ulp : 0.5 * ulps * ulp + 0.5 * ulp;
+                Assert.Equal(expected, result.Radius);
+                Assert.True(result.Contains(a) && result.Contains(b));
+            }
+        }
+
+        [Fact]
+        public void MinCircle_SmallTriangleFarFromTheOrigin_EqualExactSolver()
+        {
+            // an extent of 2^-24 at UTM, 64 ulps: all of its points were inside the slack of the coordinates
+            double ulp = Math.Pow(2, -30);
+            var rand = new Random(81);
+            for (int n = 0; n < 500; ++n) {
+                Vector2d[] points = Enumerable.Range(0, rand.Next(3, 8)).Select(i => new Vector2d(
+                    632117.25 + rand.Next(0, 65) * ulp, 5712043.5 + rand.Next(0, 65) * ulp)).ToArray();
+                Circle2d result = new ContMinCircle2(points).Result;
+                AssertMinimal(points, result, 2 * ulp, 2 * ulp, $"set {n}");
+            }
+        }
+
+        public static IEnumerable<object[]> BadEpsilons()
+        {
+            foreach (double e in new[] { -1, -1e-5, double.NaN, double.NegativeInfinity, double.PositiveInfinity, 0 })
+                yield return new object[] { e };
+        }
+
+        static IEnumerable<Vector2d[]> NearlyCollinearSets()
+        {
+            var rand = new Random(82);
+            for (int n = 0; n < 2000; ++n) {
+                double angle = rand.NextDouble() * 6.28, height = Math.Pow(10, -rand.Next(0, 17));
+                yield return Enumerable.Range(0, rand.Next(3, 16)).Select(i => {
+                    double t = rand.Next(0, 9) / 8.0, h = height * (2 * rand.NextDouble() - 1);
+                    return new Vector2d(t * Math.Cos(angle) - h * Math.Sin(angle), t * Math.Sin(angle) + h * Math.Cos(angle));
+                }).ToArray();
+            }
+        }
+
+        [Theory]
+        [MemberData(nameof(BadEpsilons))]
+        public void MinCircle_NoEpsilonGivesNaN_NegativeOrNaNGiveTheDefault(double epsilon)
+        {
+            foreach (Vector2d[] points in NearlyCollinearSets()) {
+                Circle2d result = new ContMinCircle2(points, epsilon).Result;
+                Assert.True(MathUtil.IsFinite(result.Center.x) && MathUtil.IsFinite(result.Center.y) && MathUtil.IsFinite(result.Radius),
+                    $"epsilon {epsilon}: center {result.Center}, radius {result.Radius}");
+                foreach (Vector2d p in points)
+                    Assert.True(result.Contains(p), $"epsilon {epsilon}: {p} is outside");
+                if (epsilon < 0 || double.IsNaN(epsilon)) {
+                    Circle2d standard = new ContMinCircle2(points).Result;
+                    Assert.Equal(standard.Radius, result.Radius);
+                    Assert.Equal(standard.Center, result.Center);
+                }
+            }
+        }
+
+        [Fact]
+        public void MinCircle_NearlyCollinearSets_EqualExactSolver()
+        {
+            // A point within the slack of 16 eps of the extent counts as inside. (The center of a set this thin is not sharply
+            // defined by its radius, so AssertMinimal gets no bound on it here.)
+            int n = 0;
+            foreach (Vector2d[] points in NearlyCollinearSets()) {
+                Circle2d result = new ContMinCircle2(points).Result;
+                AssertMinimal(points, result, 32 * MathUtil.Epsilon * MaxCoord(points), 1, $"set {n++}");
+            }
+        }
+
+        [Theory]
+        [InlineData(double.NaN)]
+        [InlineData(-1e-5)]
+        [InlineData(-1.0)]
+        public void MinCircle_NegativeOrNaNEpsilon_ExactlyCollinearTriple_IsNotNaN(double epsilon)
+        {
+            // Found by fuzzing: near-collinear triples give huge circles, whose rounding then lets an exactly collinear
+            // triple through to 0.5 / det, as |det| <= epsilon * x is false at det = 0. The center was NaN.
+            Vector2d[] points = {
+                new Vector2d(1.6370932387488324E-11, -4.9112769406889356E-11), new Vector2d(1.4551970739518083E-11, -4.3655690173949324E-11),
+                new Vector2d(3.638034318242944E-12, -1.0913880910123908E-11), new Vector2d(3.6379510515160973E-12, -1.0913908665699523E-11),
+                new Vector2d(1.6370904631912708E-11, -4.9112658384586894E-11), new Vector2d(5.456995966213185E-12, -1.6370932387488324E-11),
+                new Vector2d(3.6379510515160973E-12, -1.0913908665699523E-11), new Vector2d(7.275985369759042E-12, -2.182792835370151E-11) };
+            Circle2d result = new ContMinCircle2(points, epsilon).Result;
+            AssertMinimal(points, result, 16 * MathUtil.Epsilon * 2e-11, 1e-13 * 1e-11, $"epsilon {epsilon}");
+        }
+
+        [Theory]
+        [InlineData(double.NaN)]
+        [InlineData(-1e-5)]
+        [InlineData(0.0)]
+        public void MinCircle_CircleThrough_CollinearTriple_IsTheCircleOverTheLongestEdge(double epsilon)
+        {
+            // By reflection: the scaled points no longer reach this path with det = 0 (no NaN in 278 million near-collinear
+            // sets without the guard on epsilon), so no public input exercises that guard.
+            var method = typeof(ContMinCircle2).GetMethod("CircleThrough",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            object[] args = { new Vector2d(0, 0), new Vector2d(1, 0), new Vector2d(0.25, 0), null, null };
+            method.Invoke(new ContMinCircle2(new[] { new Vector2d(0, 0) }, epsilon), args);
+            Assert.Equal(new Vector2d(0.5, 0), (Vector2d)args[3]);
+            Assert.Equal(0.25, (double)args[4]);
+        }
+
+        [Fact]
+        public void MinCircle_ReusesNoState_ComputedTwiceFromTheSameInput()
+        {
+            // no Compute(): the constructor is the only entry; the input must stay as it was
+            Vector2d[] points = ClusterSet(new Random(83), 1e-7, 1e-9);
+            Vector2d[] copy = points.ToArray();
+            Circle2d first = new ContMinCircle2(points).Result;
+            Assert.Equal(copy, points);
+            Circle2d second = new ContMinCircle2(points).Result;
+            Assert.Equal(first.Center, second.Center);
+            Assert.Equal(first.Radius, second.Radius);
+        }
+
 
         // ---- S19: QuadricError.OptimalPoint ----
 
@@ -369,6 +893,69 @@ namespace geometry3Sharp.Tests
             Assert.Equal(new Vector3d(1, 2, 3), result);
             QuadricError refused = planes(1e8);
             Assert.False(refused.OptimalPoint(ref result));
+        }
+
+        // Normals within angle a of the xy plane: A is (N/3) times that of the first three, whose det/(trace/3)^3 is about 5 a^2.
+        static QuadricError FlatUnitPlanes(int triples, double a)
+        {
+            QuadricError q = QuadricError.Zero;
+            for (int i = 0; i < triples; ++i) {
+                foreach (Vector3d normal in new[] { new Vector3d(1, 0, a), new Vector3d(0, 1, a), new Vector3d(-1, -1, a) }) {
+                    Vector3d n = normal.Normalized, p = QuadricPoint;
+                    var plane = new QuadricError(ref n, ref p);
+                    q.Add(1, ref plane);
+                }
+            }
+            return q;
+        }
+
+        [Fact]
+        public void QuadricOptimalPoint_DecidesOnTheShapeOfA_NotItsTotalWeight()
+        {
+            // The documented limit against upstream, which compared det with 1000 * Epsilon absolutely: at total weight
+            // N the threshold is (N/3)^3 times the old one, so 1000 planes of tilt 1e-7 are refused, and were solved.
+            Vector3d result = Vector3d.Zero;
+            foreach (int triples in new[] { 1, 333 }) {
+                QuadricError q = FlatUnitPlanes(triples, 1e-7);
+                Assert.False(q.OptimalPoint(ref result), $"{triples}");
+                q = FlatUnitPlanes(triples, 1e-5);
+                Assert.True(q.OptimalPoint(ref result), $"{triples}");
+            }
+            QuadricError heavy = FlatUnitPlanes(333, 1e-7);
+            double det = heavy.Axx * (heavy.Ayy * heavy.Azz - heavy.Ayz * heavy.Ayz)
+                - heavy.Axy * (heavy.Axy * heavy.Azz - heavy.Axz * heavy.Ayz)
+                + heavy.Axz * (heavy.Axy * heavy.Ayz - heavy.Axz * heavy.Ayy);
+            Assert.True(det > 1000 * MathUtil.Epsilon, $"det {det}");
+        }
+
+        [Theory]
+        [InlineData(1e-100, true)]
+        [InlineData(1e100, true)]
+        [InlineData(1e-110, false)]
+        [InlineData(1e108, false)]
+        public void QuadricOptimalPoint_FarSizes_SolvedOrRefused(double weight, bool solved)
+        {
+            QuadricError q = new QuadricError { Axx = weight, Ayy = weight, Azz = weight, bx = -weight, by = -2 * weight, bz = -3 * weight };
+            Vector3d result = new Vector3d(9, 9, 9);
+            Assert.Equal(solved, q.OptimalPoint(ref result));
+            Assert.True(result.Distance(solved ? new Vector3d(1, 2, 3) : new Vector3d(9, 9, 9)) <= 8 * MathUtil.Epsilon, $"{result}");
+        }
+
+        [Theory]
+        [InlineData(1e103, false)]
+        [InlineData(1e106, false)]
+        [InlineData(1e-103, true)]
+        [InlineData(1e-107, true)]
+        public void QuadricOptimalPoint_KnownLimit_DeterminantOutOfRange_ReturnsTrueWithAWrongPoint(double weight, bool nan)
+        {
+            // Documented at the method and in docs/UPSTREAM_CHANGES.md, this test pins that limit and is not a promise: where
+            // det overflows or is subnormal and the threshold is not yet out of range too, 1 / det is 0 or infinity.
+            QuadricError q = new QuadricError { Axx = weight, Ayy = weight, Azz = weight, bx = -weight, by = -2 * weight, bz = -3 * weight };
+            Vector3d result = new Vector3d(9, 9, 9);
+            Assert.True(q.OptimalPoint(ref result));
+            Assert.Equal(nan, double.IsNaN(result.x));
+            if (nan == false)
+                Assert.Equal(0, result.x);
         }
 
         [Fact]

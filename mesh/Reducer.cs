@@ -1243,8 +1243,11 @@ skip_to_end:
 			double a33 = Axx * Ayy - Axy * Axy;
 			double det = (Axx * a11) + (Axy * a12) + (Axz * a13);
 			// relative to the size of A (trace/3 for the positive semidefinite A of plane quadrics): with area
-			// weights A is L^2 and det is L^6, so an absolute threshold refuses every small quadric. This is the
-			// old threshold for planes of total weight 3.
+			// weights A is L^2 and det is L^6, so an absolute threshold refuses every small quadric. A factor on A
+			// does not change the decision, within these limits. det out of range: from size about 6e102 to 9e106 this
+			// returns true with the point (0,0,0), from about 2e-103 to 1e-108 true with NaN; beyond those it refuses.
+			// Against the old absolute threshold: the same for trace 3, otherwise (trace/3)^3 times it, so 1000 unit
+			// planes of tilt 1e-7 are refused now, which the old code solved.
 			double size = (Math.Abs(Axx) + Math.Abs(Ayy) + Math.Abs(Azz)) / 3;
 			if (Math.Abs(det) > 1000.0*MathUtil.Epsilon * size * size * size) {
 				det = 1.0 / det;
