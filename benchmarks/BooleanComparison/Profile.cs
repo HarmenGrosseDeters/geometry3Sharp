@@ -3,7 +3,8 @@
 // hashes must stay the same (bit-identical results).
 //   profile [options] <case>...
 //     <case>: a directory with A.off and B.off (export / pair), a text file listing such directories (one per
-//             line), or grid:<n> / spheres:<k> (the one-pass n-ary boolean of `nary`)
+//             line), grid:<n> / spheres:<k> (the one-pass n-ary boolean of `nary`), or a directory with N000.off,
+//             N001.off, ... (components / array: the one-pass union of all of them)
 //     --ops union,intersection,difference   operations of the pair cases (default all three)
 //     --repeat <r>                           timed runs per case and operation (default 3); reports all times,
 //                                            the phases of the fastest run
@@ -60,6 +61,19 @@ static class Profile
                 Nary.Inputs(kind, n, out cubes, out voids, out predicate, out expected);
                 var all = cubes.Concat(voids).ToList();
                 runs.Add(new KeyValuePair<string, Func<ExactMeshBoolean>>("onepass", () => new ExactMeshBoolean(all, predicate)));
+            } else if (File.Exists(Path.Combine(c, "N000.off"))) {
+                var inputs = Directory.GetFiles(c, "N*.off").OrderBy(f => f, StringComparer.Ordinal).Select(f => StandardMeshReader.ReadMesh(f)).ToList();
+                if (inputs.Any(m => m == null)) {
+                    Console.WriteLine(JsonSerializer.Serialize(new Dictionary<string, object> { ["case"] = c, ["error"] = "load failed" }));
+                    continue;
+                }
+                Func<int[], bool> union = (w) => {
+                    for (int m = 0; m < w.Length; ++m)
+                        if (w[m] > 0)
+                            return true;
+                    return false;
+                };
+                runs.Add(new KeyValuePair<string, Func<ExactMeshBoolean>>("onepass", () => new ExactMeshBoolean(inputs, union)));
             } else {
                 DMesh3 a = StandardMeshReader.ReadMesh(Path.Combine(c, "A.off")), b = StandardMeshReader.ReadMesh(Path.Combine(c, "B.off"));
                 if (a == null || b == null) {

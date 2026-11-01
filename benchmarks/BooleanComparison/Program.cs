@@ -10,6 +10,9 @@
 //                                        runner for the Open Boolean Benchmark protocol (obb-runner/README.md)
 //   eval <dir>                           metrics of all results <method>_<op>.(off|obj) in dir, one JSON line per method
 //   nary grid|spheres <n> [variant]...   many meshes in one ExactMeshBoolean against chained pairwise booleans (Nary.cs)
+//   components <mesh> <dir>              the connected components of the mesh, one input each (N000.off, ...): the
+//                                        n-ary union of overlapping shells (an STL merged before printing)
+//   array <mesh> <dir> <n>               n rotated, shifted copies of the mesh that overlap their neighbours (N000.off, ...)
 //   profile [options] <case>...          phase times, allocations, GC, predicate filter failures and result hashes
 //                                        of ExactMeshBoolean (Profile.cs)
 using System;
@@ -41,6 +44,8 @@ static class Program
         switch (args[0]) {
             case "export": return Export(args[1], args[2]);
             case "pair": return Pair(args[1], args[2], args[3]);
+            case "components": return Components(args[1], args[2]);
+            case "array": return ArrayCase(args[1], args[2], int.Parse(args[3]));
             case "synth": return Synthetic.Write(args[1]);
             case "run": return Run(args[1], args[2], args[3], args[4]);
             case "obb": return ObbRunner.Run(args.Skip(1).ToArray());
@@ -77,6 +82,54 @@ static class Program
         MeshTransforms.Translate(b, 0.25 * new Vector3d(bounds.Width, bounds.Height, bounds.Depth));
         WriteCase(a, b, dir, Path.GetFileName(meshFile));
         return 0;
+    }
+
+    // the n-ary cases (profile runs the one-pass union of all N*.off of a case directory)
+    static int Components(string meshFile, string dir)
+    {
+        DMesh3 a = Load(meshFile);
+        if (a == null) {
+            Console.WriteLine(JsonSerializer.Serialize(new Dictionary<string, object> { ["error"] = "load failed" }));
+            return 0;
+        }
+        DMesh3[] parts = MeshConnectedComponents.Separate(a);
+        WriteInputs(parts.ToList(), dir, Path.GetFileName(meshFile));
+        return 0;
+    }
+
+    static int ArrayCase(string meshFile, string dir, int n)
+    {
+        DMesh3 a = Load(meshFile);
+        if (a == null || n < 1) {
+            Console.WriteLine(JsonSerializer.Serialize(new Dictionary<string, object> { ["error"] = "load failed" }));
+            return 0;
+        }
+        // copies on a ring, each about 0.6 of the mesh size from its neighbours and rotated about a random axis:
+        // every copy overlaps the next ones (deterministic: fixed seed)
+        AxisAlignedBox3d bounds = a.CachedBounds;
+        double size = bounds.MaxDim, radius = 0.6 * size * n / (2 * Math.PI);
+        var rand = new Random(n);
+        var parts = new List<DMesh3>();
+        for (int k = 0; k < n; ++k) {
+            DMesh3 m = new DMesh3(a);
+            Vector3d axis = new Vector3d(rand.NextDouble() - 0.5, rand.NextDouble() - 0.5, rand.NextDouble() - 0.5).Normalized;
+            MeshTransforms.Rotate(m, bounds.Center, Quaterniond.AxisAngleD(axis, 360 * rand.NextDouble()));
+            double t = 2 * Math.PI * k / n;
+            MeshTransforms.Translate(m, new Vector3d(radius * Math.Cos(t), radius * Math.Sin(t), 0.1 * size * rand.NextDouble()));
+            parts.Add(m);
+        }
+        WriteInputs(parts, dir, Path.GetFileName(meshFile));
+        return 0;
+    }
+
+    static void WriteInputs(List<DMesh3> parts, string dir, string name)
+    {
+        Directory.CreateDirectory(dir);
+        for (int k = 0; k < parts.Count; ++k)
+            WriteOFF(parts[k], Path.Combine(dir, $"N{k:D3}.off"));
+        var info = new Dictionary<string, object> { ["file"] = name, ["inputs"] = parts.Count, ["tris"] = parts.Sum(m => m.TriangleCount) };
+        File.WriteAllText(Path.Combine(dir, "info.json"), JsonSerializer.Serialize(info));
+        Console.WriteLine(JsonSerializer.Serialize(info));
     }
 
     static int Pair(string fa, string fb, string dir)
