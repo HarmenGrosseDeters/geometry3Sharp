@@ -210,6 +210,30 @@ catalogue note of the row it shaped.
   - collapsed pieces reported in strict mode, never removed silently (answer 6);
   - the vertex count of F-20 proportional to the input once snapping runs (answer 7a).
 
+## 3f. Cost measurement of SR + restore (2026-11-01, the coordinator's ask before building)
+
+`dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 -- snapcost --grid 8,12,16,20` runs a prototype (`SnapCost.cs`)
+on the 77 polygon inputs of the corpus, at pixel widths of the extent / 2^k. It relies on SRR's Proposition 4.14: the result equals SR on
+SR's hot pixels plus the pixels that ChoosePixel adds, so each round routes every segment, finds the critical pixels and adds pixels by R1
+to R3. It is for timing only: a power-of-two pixel, closed-square contact, and crossing pixels taken from doubles.
+
+| Pixel | Runs with a critical pixel | Most rounds | Restore, all 77 inputs | Routing + critical search | R1 / R2 / R3 |
+|---|---|---|---|---|---|
+| extent / 2^8 (coarse, much collapse) | 19 | 9 | 480 ms | 3 546 ms | 1 845 / 0 / 2 053 |
+| extent / 2^12 | 4 | 3 | 67 ms | 1 066 ms | 33 / 0 / 10 |
+| extent / 2^16 | 1 | 2 | 7 ms | 632 ms | 1 / 0 / 0 |
+| extent / 2^20 | 0 | 1 | 0 ms | 631 ms | 0 / 0 / 0 |
+
+- **The largest inputs:**
+  - **water-huge3** (12 864 segments): 0.17 to 0.65 s in total, 3 rounds at 2^8.
+  - **water-huge and water-huge2:** 0.1 to 0.16 s.
+  - **poly2tri debug2** (10 000 spikes meeting in a small centre): 5.9 s at 2^8, with 9 rounds, 3 626 critical pixels and 2 020 R3 spreads. The restore itself took 0.34 s; 2.6 s went to the prototype's crossing search (pairs from shared buckets, quadratic in the dense centre). The library reuses the mesher's exact noding there.
+- **Verdict:** the O(n² log n) risk does not appear on this data. At most 9 rounds, and the restore is at most 6 % of the run. The cost
+  that matters is routing (segment against hot pixels), linear in the incidences. For comparison, meshing water-huge takes about 0.65 s
+  at 20°. Snapping at a data-sized pixel (2^12 to 2^16 of the extent) adds about 0.1 s to it.
+- **R2 (snap) never happened:** SRR's restore always found a pixel to spread to, or a forced spread (R3) next to it. As the paper
+  claims, topology changes beyond SR's own collapse are rare.
+
 ## 4. Plan once the owner has answered
 
 - Read ISRBD, stable SR, SRR and the cautionary tale in full, then fix the variant and record it in `MESHING2D_PROVENANCE.md` and `docs/SOURCES.md`.
