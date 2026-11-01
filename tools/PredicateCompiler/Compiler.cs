@@ -148,6 +148,9 @@ namespace G3PredicateCompiler
         // computed magnitude; Leaf: a sum or difference of two inputs (m~ = |e~|)
         public Rational C;
         public bool Leaf => (Op == Op.Add || Op == Op.Sub) && A.Op == Op.Input && B.Op == Op.Input;
+        // the expansion stage (Shewchuk): the static worst-case number of components of the value as an expansion from
+        // exact double inputs: input 1, a sum or difference la + lb, a product 2 la lb (a difference of two inputs: 2)
+        public BigInteger ExpansionLength;
         // the most limbs the value has (trimmed): its bound's, never more than the operation took (a product of
         // values below 2^(64 la), 2^(64 lb) is below 2^(64 (la + lb)), a sum below 2^(64 max + 1))
         public int Length => Limbs;
@@ -170,6 +173,10 @@ namespace G3PredicateCompiler
         public string Comps => Xyz ? "xyz" : "xyw";
         /// <summary> the limbs one call takes from its FixedArena (the length rule) </summary>
         public int ArenaScratch;
+        /// <summary> the expansion stage is generated only for a predicate whose every sign factor has at most this
+        /// many components in the worst case (owner decision, docs/design/INDIRECT_PREDICATES.md section 5) </summary>
+        public const int MaxExpansionLength = 1024;
+        public bool HasExpansionStage => Signs.All(n => n.ExpansionLength <= MaxExpansionLength);
         /// <summary> the filter's test constant per sign factor: the factor's sign is decided if |e~| > fl(K m~) </summary>
         public List<double> FilterK = new List<double>();
         /// <summary> ArenaScratch without the value bounds (the operands' lengths only) </summary>
@@ -246,6 +253,9 @@ namespace G3PredicateCompiler
                 }
             }
             p.FilterK = p.Signs.Select(n => (n.C / (one - u)).CeilDouble()).ToList();
+            foreach (var n in p.Nodes)
+                n.ExpansionLength = n.Op == Op.Input ? 1 : n.Op == Op.Mul ? 2 * n.A.ExpansionLength * n.B.ExpansionLength
+                    : n.A.ExpansionLength + n.B.ExpansionLength;
             // degree check: every value below 2^1000 at |x| <= 2^53 (bound polynomial at 2^53)
             foreach (var n in p.Nodes)
                 if (n.Bound.At(BigInteger.Pow(2, 53)).GetBitLength() > 1000)
@@ -432,6 +442,10 @@ namespace G3PredicateCompiler
             sb.Append($"{I1}internal static int {p.Name}({pars})\n{I1}{{\n");
             sb.Append($"{I2}if (!({string.Join(" && ", p.Points.Select(x => $"__grid({x})"))}))\n");
             sb.Append($"{I2}    throw new ArgumentException(\"{p.Name}: the coordinates must be integers |x| <= 2^53\");\n");
+            if (!p.HasExpansionStage)
+                sb.Append($"{I2}// no expansion stage: as expansions the sign factors have up to {string.Join(" / ", p.Signs.Select(n => n.ExpansionLength.ToString(CultureInfo.InvariantCulture)))} components (limit {inv(Predicate.MaxExpansionLength)})\n");
+            else
+                throw new NotSupportedException($"{p.Name}: the expansion stage is not generated yet (its static length is within the limit)");
             sb.Append($"{I2}int __r = {p.Name}Filter({args});\n");
             sb.Append($"{I2}return (__r != 2) ? __r : {p.Name}Exact({args});\n{I1}}}\n\n");
             // the filter

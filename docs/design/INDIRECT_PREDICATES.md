@@ -312,3 +312,27 @@ plane is decided by the filter at 30 bits: its relative size, about 2^-30, is fa
 is shorter than the `FixedArith` evaluation. With integer inputs every failing case so far is a true zero or within
 a few ulps of one, where an expansion stage does the full work too; whether it is worth building is decided on the
 envelope's inputs.
+
+## 10. Step (c): the expansion stage (decided: not generated)
+
+The owner's rule (section 5): an expansion stage only where its static worst case stays below 1024 components. The
+generator now derives that length per sign factor (Shewchuk's expansion arithmetic from exact double inputs: an
+input 1 component, a sum or difference `la + lb`, a product `2 la lb`):
+
+| predicate | determinant | denominator `d` |
+|---|---|---|
+| `Orient3dLPI` | 147 456 | 384 |
+| `Orient3dTPI` | 75 497 472 | 98 304 |
+
+Both determinants are far above the limit, so neither predicate gets an expansion stage: the filter goes straight to
+the `FixedArith` stage, as decided. The generated code says so in a comment, and the generator refuses to emit a
+predicate whose length is within the limit until the stage exists (`ExpansionStage_NotGenerated_StaticLengthsAboveTheLimit`).
+
+Why that is no loss here. The static lengths ignore compression; with a compression after each operation an
+expansion of an integer value of `B` bits keeps about `B / 53` components, so a compressed expansion stage would do
+roughly the work of the `FixedArith` stage (about `B / 64` limbs), which is what already runs when the filter
+fails: about 1 µs for LPI and 2 µs for TPI (section 9), 3 times faster than constructing the point. A stage
+between the two pays where the filter fails but a cheaper exact test exists, as with Shewchuk's stage B for double
+inputs whose differences are inexact; with integer inputs every filter failure measured so far is an exact zero or
+within a few ulps of one. If the envelope's inputs show otherwise (section 4.3), the stage can be added for the
+predicates within the limit; the generator already derives the lengths.
