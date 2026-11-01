@@ -87,6 +87,7 @@ namespace g3
                 center = p[i];
                 radiusSqr = 0;
                 for (int j = 0; j < i; ++j) {
+                    // (the copy check is a defence, as below)
                     if (Contains(p[j], center, radiusSqr) || p[j] == p[i])
                         continue;
                     // p[i] and p[j] are on the boundary of the minimal circle of p[0..j] and p[i]
@@ -94,6 +95,7 @@ namespace g3
                     for (int k = 0; k < j; ++k) {
                         // A copy of p[i] or p[j] is on this circle, so "outside" is only rounding. With it the three points
                         // are collinear (det = 0), and the circle over their edge would drop the third point of the circle.
+                        // This is a defence: no input was found that reaches it at this slack, only at a slack of 4 eps.
                         if (Contains(p[k], center, radiusSqr) == false && p[k] != p[i] && p[k] != p[j])
                             CircleThrough(p[i], p[j], p[k], out center, out radiusSqr);
                     }

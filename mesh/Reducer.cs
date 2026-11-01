@@ -1200,7 +1200,9 @@ skip_to_end:
 		/// <summary>
 		/// minimizer of the quadric + lambda * |x - center|^2, with lambda = lambdaRel * trace(A)/3:
 		/// always well-conditioned and scale independent; directions the quadric does not constrain stay
-		/// at center. Returns false only for an empty quadric.
+		/// at center. Returns false, with result untouched, for an empty quadric, a nearly singular one, and where the
+		/// solution leaves the double range: 1/det is 0 or infinity, or the products below overflow (from about L = 1e45 for
+		/// area-weighted planes). The Reducer then takes an endpoint or the midpoint of the edge.
 		/// </summary>
 		public bool OptimalPoint(ref Vector3d result, Vector3d center, double lambdaRel) {
 			double scale = (Axx + Ayy + Azz) / 3;
@@ -1219,6 +1221,9 @@ skip_to_end:
 			if (!(Math.Abs(det) > 1e-18 * scale * scale * scale))
 				return false;
 			det = 1.0 / det;
+			// 0 would give a point of zeros; an infinite 1/det ends in the check of the solution below
+			if (det == 0)
+				return false;
 			// x = -(A + lambda I)^-1 (b - lambda c); then proximal steps with c = x, which converge to the
 			// exact minimizer in the directions the quadric constrains (factor lambda/eigenvalue per step)
 			// and keep the others at center
@@ -1230,6 +1235,8 @@ skip_to_end:
 					-(a12 * rx + a22 * ry + a23 * rz) * det,
 					-(a13 * rx + a23 * ry + a33 * rz) * det);
 			}
+			if (MathUtil.IsFinite(cur.x) == false || MathUtil.IsFinite(cur.y) == false || MathUtil.IsFinite(cur.z) == false)
+				return false;
 			result = cur;
 			return true;
 		}

@@ -255,6 +255,23 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        [Theory]
+        [InlineData(0.8660, true)]      // just below the sine of 60 degrees, 0.86602...
+        [InlineData(0.8661, false)]     // just above: even the equilateral triangle counts as collinear
+        public void MinCircle_EquilateralTriangle_MinimalUpToTheSineOf60Degrees(double epsilon, bool minimal)
+        {
+            double h = Math.Sqrt(3) / 2;
+            Vector2d a = new Vector2d(0, 0), b = new Vector2d(1, 0), c = new Vector2d(0.5, h);
+            foreach (Vector2d[] points in new[] {
+                new[] { a, b, c }, new[] { a, c, b }, new[] { b, a, c }, new[] { b, c, a }, new[] { c, a, b }, new[] { c, b, a } }) {
+                Circle2d result = new ContMinCircle2(points, epsilon).Result;
+                // the circumradius 1/sqrt(3), or the center on an edge and the radius grown to reach the opposite vertex
+                Assert.True(Math.Abs(result.Radius - (minimal ? 1 / Math.Sqrt(3) : h)) <= 8 * MathUtil.Epsilon, $"radius {result.Radius}");
+                foreach (Vector2d p in points)
+                    Assert.True(result.Contains(p), $"{p} is outside");
+            }
+        }
+
         [Fact]
         public void MinCircle_LargeEpsilon_TreatsTrianglesAsCollinear_InEveryOrder()
         {
@@ -798,7 +815,8 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0.25, (double)args[4]);
         }
 
-        // a point is doubled, and the copy is falsely "outside" the circle through the original
+        // A point is doubled. At the shipped slack of 16 eps no input was found where the copy counts as outside; at 4 eps,
+        // without the copy check in ContMinCircle2, the first two sets failed through that.
         public static IEnumerable<object[]> DuplicateSets()
         {
             yield return new object[] { new[] {
@@ -1099,6 +1117,91 @@ namespace geometry3Sharp.Tests
             Vector3d result = new Vector3d(9, 9, 9);
             Assert.False(q.OptimalPoint(ref result), $"{result}");
             Assert.Equal(new Vector3d(9, 9, 9), result);
+        }
+
+        [Theory]
+        [InlineData(5e102, -5e102, -1e103, -1.5e103)]       // the products overflow before the division by det
+        [InlineData(1e-103, -1e-103, -2e-103, -3e-103)]     // 1/det is infinite
+        [InlineData(6e102, -6e102, -1.2e103, -1.8e103)]     // 1/det is 0: this gave a solution of (0,0,0)
+        [InlineData(1e103, 0, 0, 0)]
+        [InlineData(0.5, 1e308, 1, 1)]
+        [InlineData(0.5, 1, 1e308, 1)]
+        [InlineData(0.5, 1, 1, 1e308)]
+        [InlineData(1e-3, 1e308, 1e308, 1e308)]
+        [InlineData(1, double.NaN, 0, 0)]
+        [InlineData(1, 0, double.NaN, 0)]
+        [InlineData(1, 0, 0, double.NaN)]
+        [InlineData(1, double.PositiveInfinity, 0, 0)]
+        public void QuadricRegularizedPoint_NoFiniteSolution_IsRefused(double weight, double bx, double by, double bz)
+        {
+            QuadricError q = new QuadricError { Axx = weight, Ayy = weight, Azz = weight, bx = bx, by = by, bz = bz };
+            Vector3d result = new Vector3d(9, 9, 9);
+            Assert.False(q.OptimalPoint(ref result, new Vector3d(1, 1, 1), 1e-6), $"{result}");
+            Assert.Equal(new Vector3d(9, 9, 9), result);
+        }
+
+        [Theory]
+        [InlineData(0)]
+        [InlineData(1)]
+        [InlineData(2)]
+        public void QuadricRegularizedPoint_OverflowOfOneAxisInTheLastStep_IsRefused(int axis)
+        {
+            // Earlier overflows spread to all axes by 0 * infinity in the next step. A b for which only the third step's
+            // product overflows: its residual is b (1 + q + q^2), the second's b (1 + q), with q = lambda / (1 + lambda).
+            double lambda = 1e-3, q = lambda / (1 + lambda);
+            double b = double.MaxValue / ((1 + lambda) * (1 + lambda) * (1 + q + 0.5 * q * q));
+            QuadricError error = new QuadricError { Axx = 1, Ayy = 1, Azz = 1, bx = axis == 0 ? b : 1, by = axis == 1 ? b : 1, bz = axis == 2 ? b : 1 };
+            Vector3d result = new Vector3d(9, 9, 9);
+            Assert.False(error.OptimalPoint(ref result, Vector3d.Zero, lambda), $"{result}");
+            Assert.Equal(new Vector3d(9, 9, 9), result);
+        }
+
+        [Theory]
+        [InlineData(1e-90)]
+        [InlineData(1e-3)]
+        [InlineData(1)]
+        [InlineData(1e3)]
+        [InlineData(1e50)]
+        public void QuadricRegularizedPoint_OrdinarySizes_AreSolved(double weight)
+        {
+            QuadricError q = new QuadricError { Axx = weight, Ayy = weight, Azz = weight, bx = -weight, by = -2 * weight, bz = -3 * weight };
+            Vector3d result = Vector3d.Zero;
+            Assert.True(q.OptimalPoint(ref result, new Vector3d(1, 1, 1), 1e-6));
+            Assert.True(result.Distance(new Vector3d(1, 2, 3)) <= 1e-9, $"{result}");
+        }
+
+        public static IEnumerable<object[]> ReducerScales()
+        {
+            foreach (double s in new[] { 1e-150, 1e-100, 1e-90, 1e-80, 1e-70, 1e-60, 1e-50, 1e-30, 1e-10, 1, 1e10, 1e30, 1e35, 1e40, 1e43, 1e45, 1e50, 1e51, 1e52, 3e52, 1e53, 1e55, 1e60, 1e70, 1e100 })
+                yield return new object[] { s };
+        }
+
+        [Theory]
+        [MemberData(nameof(ReducerScales))]
+        public void Reducer_SphereAtFarScales_KeepsFiniteVerticesAndAManifold(double scale)
+        {
+            // The overload of OptimalPoint that the Reducer calls gave NaN where the products overflow: this result was not
+            // valid from 1e45 to 3e52. It now refuses, so the collapse takes an endpoint or the midpoint of the edge.
+            // Below about 1e-80 nothing is collapsed, as on master: the documented limit, a valid mesh left as it is.
+            DMesh3 mesh = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 10 }.Generate().MakeDMesh();
+            foreach (int vid in mesh.VertexIndices())
+                mesh.SetVertex(vid, scale * mesh.GetVertex(vid));
+            Assert.Equal(972, mesh.TriangleCount);
+
+            new Reducer(mesh).ReduceToTriangleCount(486);
+
+            if (scale >= 1e-80)
+                Assert.True(mesh.TriangleCount <= 486, $"{mesh.TriangleCount} triangles");
+            else
+                Assert.Equal(972, mesh.TriangleCount);
+            Assert.True(mesh.CheckValidity(false, FailMode.ReturnOnly), "not valid");
+            Assert.True(mesh.IsClosed(), "not closed");
+            foreach (int vid in mesh.VertexIndices()) {
+                Vector3d v = mesh.GetVertex(vid);
+                Assert.True(MathUtil.IsFinite(v.x) && MathUtil.IsFinite(v.y) && MathUtil.IsFinite(v.z), $"vertex {vid} is {v}");
+                double r = (v / scale).Length;
+                Assert.True(r >= 0.5 && r <= 1.5, $"vertex {vid} at radius {r} of the sphere");
+            }
         }
 
         [Fact]
