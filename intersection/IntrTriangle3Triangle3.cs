@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Diagnostics;
+using System.Numerics;
 
 namespace g3
 {
@@ -10,6 +11,14 @@ namespace g3
     // set ReportCoplanarIntersection=true to handle this case (more expensive)
     // A degenerate triangle (collinear or coincident vertices) is tested as a segment or point. For such
     // input Find() only reports whether the triangles touch, with Type Unknown and no intersection points.
+    // Exactly coplanar, nearly parallel (the sine of the angle of the normals below 1e-4) and sliver triangles (a
+    // rounded normal of zero), and triangle1 within the epsilon (1e-8) of triangle0's plane, are decided exactly
+    // (ExactTriangleIntersection, closed triangles): Test(), Intersects() and Find() (with ReportCoplanarIntersection,
+    // for exactly coplanar ones) agree there. Other pairs keep the floating-point tests. Non-finite coordinates give
+    // no intersection. Find() then gives the contact from exactly decided pieces (corners inside the other triangle, proper
+    // crossings of edges, edges through the other triangle's plane), with only the crossing points rounded: at least
+    // one point whenever the triangles intersect, the polygon A n B for coplanar ones (Type Polygon, PolygonPoints,
+    // in order), else the segment or point (Type Segment or Point, Points).
     public class IntrTriangle3Triangle3
     {
         Triangle3d triangle0;
@@ -70,10 +79,21 @@ namespace g3
             Type = IntersectionType.Empty;
             Quantity = 0;
 
+            // non-finite coordinates: no contact is defined
+            if (finite(ref triangle0) == false || finite(ref triangle1) == false)
+                return false;
+
             // a degenerate triangle has no plane, and the code below fails for it as triangle0 (all of
             // triangle1 lies 'in' the plane) and as triangle1 (its intersection with plane0 is a segment of
             // zero length). Only report whether the triangles touch: Type Unknown, no points.
             if (is_degenerate(ref triangle0) || is_degenerate(ref triangle1)) {
+                // (a sliver whose rounded normal is zero is not degenerate: decided exactly as nearly parallel)
+                if (sliver_pair(ref triangle0, ref triangle1)) {
+                    bool coplanar = exactly_coplanar(ref triangle0, ref triangle1);
+                    if (coplanar && ReportCoplanarIntersection == false)
+                        return false;
+                    return find_exact(coplanar);
+                }
                 bool bIntersects = degenerate_intersects(ref triangle0, ref triangle1);
                 Quantity = 0;
                 Type = bIntersects ? IntersectionType.Unknown : IntersectionType.Empty;
@@ -83,6 +103,15 @@ namespace g3
 
 
             int i, iM, iP;
+
+            // coplanar, nearly parallel or within the epsilon of triangle0's plane (exact_route, as in Test()):
+            // decided exactly
+            if (exact_route(ref triangle0, ref triangle1)) {
+                bool coplanar = exactly_coplanar(ref triangle0, ref triangle1);
+                if (coplanar && ReportCoplanarIntersection == false)
+                    return false;
+                return find_exact(coplanar);
+            }
 
             // Get the plane of triangle0.
             Plane3d plane0 = new Plane3d(triangle0.V0, triangle0.V1, triangle0.V2);
@@ -100,11 +129,12 @@ namespace g3
             }
 
             if (zero1 == 3) {
-                // Triangle1 is contained by plane0.
-                if (ReportCoplanarIntersection) {
-                    return GetCoplanarIntersection(ref plane0, ref triangle0, ref triangle1);
-                }
-                return false;
+                // Triangle1 is contained by plane0 (within the epsilon): decided exactly; exactly coplanar ones
+                // only with ReportCoplanarIntersection
+                bool coplanar = exactly_coplanar(ref triangle0, ref triangle1);
+                if (coplanar && ReportCoplanarIntersection == false)
+                    return false;
+                return find_exact(coplanar);
             }
 
             // Check for grazing contact between triangle1 and plane0.
@@ -175,6 +205,12 @@ namespace g3
 
         public bool Test()
         {
+            // non-finite coordinates: no contact is defined
+            if (finite(ref triangle0) == false || finite(ref triangle1) == false) {
+                Type = IntersectionType.Empty;
+                return false;
+            }
+
             // Get edge vectors for triangle0.
             Vector3dTuple3 E0;
             E0.V0 = triangle0.V1 - triangle0.V0;
@@ -184,15 +220,7 @@ namespace g3
             // Get normal vector of triangle0.
             Vector3d N0 = E0[0].UnitCross(E0[1]);
             if (N0 == Vector3d.Zero)
-                return test_degenerate();
-
-            // Project triangle1 onto normal line of triangle0, test for separation.
-            double N0dT0V0 = N0.Dot(triangle0.V0);
-            double min1, max1;
-            ProjectOntoAxis(ref triangle1, ref N0, out min1, out max1);
-            if (N0dT0V0 < min1 || N0dT0V0 > max1) {
-                return false;
-            }
+                return sliver_pair(ref triangle0, ref triangle1) ? test_exact() : test_degenerate();
 
             // Get edge vectors for triangle1.
             Vector3dTuple3 E1;
@@ -203,7 +231,11 @@ namespace g3
             // Get normal vector of triangle1.
             Vector3d N1 = E1[0].UnitCross(E1[1]);
             if (N1 == Vector3d.Zero)
-                return test_degenerate();
+                return sliver_pair(ref triangle0, ref triangle1) ? test_exact() : test_degenerate();
+
+            // coplanar, nearly parallel or within the epsilon of triangle0's plane: decided exactly, as in Find()
+            if (exact_route(ref triangle0, ref triangle1, N0, N1))
+                return test_exact();
 
             Vector3d dir;
             double min0, max0;
@@ -212,6 +244,14 @@ namespace g3
             Vector3d N0xN1 = N0.UnitCross(N1);
             if (N0xN1.Dot(N0xN1) >= MathUtil.ZeroTolerance) {
                 // Triangles are not parallel.
+                // Project triangle1 onto normal line of triangle0, test for separation (after the parallel
+                // test: for coplanar triangles the rounded projections can separate touching ones)
+                double N0dT0V0 = N0.Dot(triangle0.V0);
+                double min1, max1;
+                ProjectOntoAxis(ref triangle1, ref N0, out min1, out max1);
+                if (N0dT0V0 < min1 || N0dT0V0 > max1) {
+                    return false;
+                }
 
                 // Project triangle0 onto normal line of triangle1, test for
                 // separation.
@@ -235,29 +275,8 @@ namespace g3
 
                 // The test query does not know the intersection set.
                 Type = IntersectionType.Unknown;
-            } else { // Triangles are parallel (and, in fact, coplanar).
-                // Directions N0xE0[i0].
-                for (i0 = 0; i0 < 3; ++i0) {
-                    dir = N0.UnitCross(E0[i0]);
-                    ProjectOntoAxis(ref triangle0, ref dir, out min0, out max0);
-                    ProjectOntoAxis(ref triangle1, ref dir, out min1, out max1);
-                    if (max0 < min1 || max1 < min0) {
-                        return false;
-                    }
-                }
-
-                // Directions N1xE1[i1].
-                for (i1 = 0; i1 < 3; ++i1) {
-                    dir = N1.UnitCross(E1[i1]);
-                    ProjectOntoAxis(ref triangle0, ref dir, out min0, out max0);
-                    ProjectOntoAxis(ref triangle1, ref dir, out min1, out max1);
-                    if (max0 < min1 || max1 < min0) {
-                        return false;
-                    }
-                }
-
-                // The test query does not know the intersection set.
-                Type = IntersectionType.Plane;
+            } else { // Triangles are parallel (or nearly): decided exactly
+                return test_exact();
             }
 
             return true;
@@ -351,6 +370,10 @@ namespace g3
 
         public static bool Intersects(ref Triangle3d triangle0, ref Triangle3d triangle1)
         {
+            // non-finite coordinates: no contact is defined
+            if (finite(ref triangle0) == false || finite(ref triangle1) == false)
+                return false;
+
             // Get edge vectors for triangle0.
             Vector3dTuple3 E0;
             E0.V0 = triangle0.V1 - triangle0.V0;
@@ -360,15 +383,7 @@ namespace g3
             // Get normal vector of triangle0.
             Vector3d N0 = E0.V0.UnitCross(ref E0.V1);
             if (N0 == Vector3d.Zero)
-                return degenerate_intersects(ref triangle0, ref triangle1);
-
-            // Project triangle1 onto normal line of triangle0, test for separation.
-            double N0dT0V0 = N0.Dot(ref triangle0.V0);
-            double min1, max1;
-            ProjectOntoAxis(ref triangle1, ref N0, out min1, out max1);
-            if (N0dT0V0 < min1 || N0dT0V0 > max1) {
-                return false;
-            }
+                return sliver_pair(ref triangle0, ref triangle1) ? exact_intersects(ref triangle0, ref triangle1) : degenerate_intersects(ref triangle0, ref triangle1);
 
             // Get edge vectors for triangle1.
             Vector3dTuple3 E1;
@@ -379,7 +394,11 @@ namespace g3
             // Get normal vector of triangle1.
             Vector3d N1 = E1.V0.UnitCross(ref E1.V1);
             if (N1 == Vector3d.Zero)
-                return degenerate_intersects(ref triangle0, ref triangle1);
+                return sliver_pair(ref triangle0, ref triangle1) ? exact_intersects(ref triangle0, ref triangle1) : degenerate_intersects(ref triangle0, ref triangle1);
+
+            // coplanar, nearly parallel or within the epsilon of triangle0's plane: decided exactly, as in Find()
+            if (exact_route(ref triangle0, ref triangle1, N0, N1))
+                return exact_intersects(ref triangle0, ref triangle1);
 
             Vector3d dir;
             double min0, max0;
@@ -388,6 +407,14 @@ namespace g3
             Vector3d N0xN1 = N0.UnitCross(ref N1);
             if (N0xN1.Dot(ref N0xN1) >= MathUtil.ZeroTolerance) {
                 // Triangles are not parallel.
+                // Project triangle1 onto normal line of triangle0, test for separation (after the parallel
+                // test: for coplanar triangles the rounded projections can separate touching ones)
+                double N0dT0V0 = N0.Dot(ref triangle0.V0);
+                double min1, max1;
+                ProjectOntoAxis(ref triangle1, ref N0, out min1, out max1);
+                if (N0dT0V0 < min1 || N0dT0V0 > max1) {
+                    return false;
+                }
 
                 // Project triangle0 onto normal line of triangle1, test for
                 // separation.
@@ -409,26 +436,8 @@ namespace g3
                     }
                 }
 
-            } else { // Triangles are parallel (and, in fact, coplanar).
-                // Directions N0xE0[i0].
-                for (i0 = 0; i0 < 3; ++i0) {
-                    dir = N0.UnitCross(E0[i0]);
-                    ProjectOntoAxis(ref triangle0, ref dir, out min0, out max0);
-                    ProjectOntoAxis(ref triangle1, ref dir, out min1, out max1);
-                    if (max0 < min1 || max1 < min0) {
-                        return false;
-                    }
-                }
-
-                // Directions N1xE1[i1].
-                for (i1 = 0; i1 < 3; ++i1) {
-                    dir = N1.UnitCross(E1[i1]);
-                    ProjectOntoAxis(ref triangle0, ref dir, out min0, out max0);
-                    ProjectOntoAxis(ref triangle1, ref dir, out min1, out max1);
-                    if (max0 < min1 || max1 < min0) {
-                        return false;
-                    }
-                }
+            } else { // Triangles are parallel (or nearly): decided exactly
+                return exact_intersects(ref triangle0, ref triangle1);
             }
 
             return true;
@@ -445,6 +454,243 @@ namespace g3
 
 
 
+
+        // Test() decided exactly (coplanar, nearly parallel, slivers)
+        bool test_exact()
+        {
+            if (exact_intersects(ref triangle0, ref triangle1) == false) {
+                Type = IntersectionType.Empty;
+                return false;
+            }
+            // The test query does not know the intersection set.
+            Type = exactly_coplanar(ref triangle0, ref triangle1) ? IntersectionType.Plane : IntersectionType.Unknown;
+            return true;
+        }
+
+        static bool finite(ref Triangle3d t)
+        {
+            return t.V0.IsFinite && t.V1.IsFinite && t.V2.IsFinite;
+        }
+
+        // ExactTriangleIntersection.Intersects; false for non-finite input (no contact is defined there)
+        static bool exact_intersects(ref Triangle3d a, ref Triangle3d b)
+        {
+            return finite(ref a) && finite(ref b) && ExactTriangleIntersection.Intersects(ref a, ref b);
+        }
+
+        // finite triangles, neither exactly degenerate (collinear corners), but one with a rounded normal of zero
+        static bool sliver_pair(ref Triangle3d a, ref Triangle3d b)
+        {
+            return finite(ref a) && finite(ref b) && ExactTriangleIntersection.IsDegenerate(ref a) == false
+                && ExactTriangleIntersection.IsDegenerate(ref b) == false;
+        }
+
+        // the pairs of finite triangles (with nonzero rounded normals) that Test(), Intersects() and Find() decide
+        // exactly: exactly coplanar (the rounded normals may still differ by some ulps), nearly parallel (the sine of
+        // the angle of the normals below 1e-4: the separating axes from crossed edges are unreliable there), or
+        // triangle1 within the epsilon (MathUtil.ZeroTolerance) of triangle0's plane, the coplanar case of Find()
+        static bool exact_route(ref Triangle3d t0, ref Triangle3d t1)
+        {
+            if (finite(ref t0) == false || finite(ref t1) == false)
+                return false;
+            Vector3d e0 = t0.V1 - t0.V0, e1 = t0.V2 - t0.V1, f0 = t1.V1 - t1.V0, f1 = t1.V2 - t1.V1;
+            return exact_route(ref t0, ref t1, e0.UnitCross(ref e1), f0.UnitCross(ref f1));
+        }
+
+        // the same with the unit normals n0, n1 (UnitCross of the first two edges), for finite triangles
+        static bool exact_route(ref Triangle3d t0, ref Triangle3d t1, Vector3d n0, Vector3d n1)
+        {
+            if (n0.Cross(n1).LengthSquared < MathUtil.ZeroTolerance)
+                return true;
+            double d = n0.Dot(t0.V0);
+            double h0 = Math.Abs(n0.Dot(t1.V0) - d), h1 = Math.Abs(n0.Dot(t1.V1) - d), h2 = Math.Abs(n0.Dot(t1.V2) - d);
+            double h = Math.Max(h0, Math.Max(h1, h2));
+            if (h <= MathUtil.ZeroTolerance)
+                return true;
+            // exactly coplanar beyond the epsilon (large coordinates): the rounded distances are then within a few ulps
+            // of the coordinates (|n0| = 1), far below 2^-40 of them, so the exact test is needed only below that
+            double m = 0;
+            for (int k = 0; k < 3; ++k)
+                m = Math.Max(m, Math.Max(Math.Abs(t0[k].x) + Math.Abs(t0[k].y) + Math.Abs(t0[k].z), Math.Abs(t1[k].x) + Math.Abs(t1[k].y) + Math.Abs(t1[k].z)));
+            return h <= 9.094947017729282e-13 * m && exactly_coplanar(ref t0, ref t1);
+        }
+
+        static bool exactly_coplanar(ref Triangle3d a, ref Triangle3d b)
+        {
+            if (finite(ref a) == false || finite(ref b) == false)
+                return false;
+            for (int i = 0; i < 3; ++i)
+                if (ExactPredicates.Orient3d(a.V0, a.V1, a.V2, b[i]) != 0)
+                    return false;
+            return true;
+        }
+
+        static Vector2d drop(Vector3d v, int axis)
+        {
+            return (axis == 0) ? new Vector2d(v.y, v.z) : (axis == 1) ? new Vector2d(v.z, v.x) : new Vector2d(v.x, v.y);
+        }
+
+        // Find() for coplanar or nearly parallel triangles: the exact yes/no of ExactTriangleIntersection, and the
+        // contact from exactly decided candidates (see the class comment)
+        bool find_exact(bool coplanar)
+        {
+            Result = IntersectionResult.NoIntersection;
+            Type = IntersectionType.Empty;
+            Quantity = 0;
+            if (exact_intersects(ref triangle0, ref triangle1) == false)
+                return false;
+            var pts = new System.Collections.Generic.List<Vector3d>();
+            contact_candidates(ref triangle0, ref triangle1, pts);
+            contact_candidates(ref triangle1, ref triangle0, pts);
+            // (pairs of edges are tried from both sides: the same crossing twice, maybe rounded differently)
+            for (int i = 0; i < 3; ++i)
+                for (int j = 0; j < 3; ++j)
+                    add_crossing(triangle0[i], triangle0[(i + 1) % 3], triangle1[j], triangle1[(j + 1) % 3], pts);
+            if (pts.Count == 0) {
+                // (not expected: an intersection has a vertex among the candidates) the nearest point of triangle0
+                Vector3d c = triangle1.V0;
+                DistPoint3Triangle3.DistanceSqr(ref c, ref triangle0, out Vector3d q, out Vector3d bary);
+                pts.Add(q);
+            }
+            Result = IntersectionResult.Intersects;
+            if (coplanar) {
+                // A n B is convex and every candidate is one of its vertices: in order around their centroid
+                // (in a projection that is injective on the plane; rounded angles only order the output)
+                int axis = 2;
+                for (int k = 0; k < 3; ++k)
+                    if (ExactPredicates.Orient2d(drop(triangle0.V0, k), drop(triangle0.V1, k), drop(triangle0.V2, k)) != 0) { axis = k; break; }
+                Vector2d ctr = Vector2d.Zero;
+                foreach (Vector3d p in pts) ctr += drop(p, axis);
+                ctr /= pts.Count;
+                var angles = new double[pts.Count];
+                for (int k = 0; k < pts.Count; ++k) {
+                    Vector2d d = drop(pts[k], axis) - ctr;
+                    angles[k] = Math.Atan2(d.y, d.x);
+                }
+                Vector3d[] ordered = pts.ToArray();
+                Array.Sort(angles, ordered);
+                PolygonPoints = ordered;
+                Quantity = ordered.Length;
+                Type = IntersectionType.Polygon;
+                return true;
+            }
+            // not coplanar: the candidates lie on the line of the two planes; its extreme two
+            int a = 0, b = 0;
+            double best = -1;
+            for (int i = 0; i < pts.Count; ++i)
+                for (int j = i + 1; j < pts.Count; ++j) {
+                    double d = pts[i].DistanceSquared(pts[j]);
+                    if (d > best) { best = d; a = i; b = j; }
+                }
+            Points[0] = pts[a];
+            if (best > 0) {
+                Points[1] = pts[b];
+                Quantity = 2;
+                Type = IntersectionType.Segment;
+            } else {
+                Quantity = 1;
+                Type = IntersectionType.Point;
+            }
+            return true;
+        }
+
+        static void add_unique(Vector3d p, System.Collections.Generic.List<Vector3d> pts)
+        {
+            foreach (Vector3d q in pts)
+                if (q == p)
+                    return;
+            pts.Add(p);
+        }
+
+        // candidates of tri n other: corners of tri in other (closed, exact), and where an edge of tri crosses the
+        // plane of other strictly between its ends inside other (exact; the point rounded)
+        static void contact_candidates(ref Triangle3d tri, ref Triangle3d other, System.Collections.Generic.List<Vector3d> pts)
+        {
+            Vector3d o0 = other.V0, o1 = other.V1, o2 = other.V2;
+            for (int i = 0; i < 3; ++i)
+                if (ExactTriangleIntersection.SegmentIntersectsTriangle(tri[i], tri[i], ref other))
+                    add_unique(tri[i], pts);
+            for (int i = 0; i < 3; ++i) {
+                Vector3d s = tri[i], t = tri[(i + 1) % 3];
+                int ds = ExactPredicates.Orient3d(o0, o1, o2, s), dt = ExactPredicates.Orient3d(o0, o1, o2, t);
+                if (ds * dt >= 0 || ExactTriangleIntersection.SegmentIntersectsTriangle(s, t, ref other) == false)
+                    continue;
+                // the point s + Ds / (Ds - Dt) (t - s) where the line meets the plane, with the exact determinants
+                // Ds, Dt (nearly parallel edges make a rounded parameter useless), rounded at the end
+                BigInteger[] g = grid(out int e0, o0, o1, o2, s, t);
+                BigInteger dS = det(g, 0, 3, 6, 9), dT = det(g, 0, 3, 6, 12);
+                add_unique(lerp(g, 9, 12, dS, dT, e0), pts);
+            }
+        }
+
+        // the coordinates of the points as integers X with value X 2^e0 (exact; e0 the smallest exponent)
+        static BigInteger[] grid(out int e0, params Vector3d[] pts)
+        {
+            int n = 3 * pts.Length;
+            var m = new BigInteger[n];
+            var e = new int[n];
+            e0 = int.MaxValue;
+            for (int i = 0; i < n; ++i) {
+                ExactPoint3.Decompose(pts[i / 3][i % 3], out m[i], out e[i]);
+                if (m[i].IsZero == false)
+                    e0 = Math.Min(e0, e[i]);
+            }
+            if (e0 == int.MaxValue)
+                e0 = 0;
+            for (int i = 0; i < n; ++i)
+                if (m[i].IsZero == false)
+                    m[i] <<= e[i] - e0;
+            return m;
+        }
+
+        // the orientation determinant of the points at offsets a, b, c, d of g (3 coordinates each), exact
+        static BigInteger det(BigInteger[] g, int a, int b, int c, int d)
+        {
+            return ExactPoint3.Det3(g[b] - g[a], g[b + 1] - g[a + 1], g[b + 2] - g[a + 2],
+                                    g[c] - g[a], g[c + 1] - g[a + 1], g[c + 2] - g[a + 2],
+                                    g[d] - g[a], g[d + 1] - g[a + 1], g[d + 2] - g[a + 2]);
+        }
+
+        // the 2D orientation of r, s, x (offsets into g) in the coordinates a0, a1, exact
+        static BigInteger det2(BigInteger[] g, int r, int s, int x, int a0, int a1)
+        {
+            return (g[s + a0] - g[r + a0]) * (g[x + a1] - g[r + a1]) - (g[s + a1] - g[r + a1]) * (g[x + a0] - g[r + a0]);
+        }
+
+        // (dp Q - dq P) / (dp - dq) for the points P, Q at offsets p, q of g (the point where a quantity linear along
+        // P-Q with values dp, dq of opposite signs is 0), rounded
+        static Vector3d lerp(BigInteger[] g, int p, int q, BigInteger dp, BigInteger dq, int e0)
+        {
+            BigInteger den = dp - dq;
+            if (den.Sign < 0) { dp = -dp; dq = -dq; den = -den; }
+            var r = new Vector3d();
+            for (int k = 0; k < 3; ++k)
+                r[k] = ExactPoint3.ToDouble(dp * g[q + k] - dq * g[p + k], den, e0);
+            return r;
+        }
+
+        // a proper crossing of the coplanar edges p-q and r-s (their ends strictly on both sides of the other edge,
+        // exact): the crossing point, rounded
+        static void add_crossing(Vector3d p, Vector3d q, Vector3d r, Vector3d s, System.Collections.Generic.List<Vector3d> pts)
+        {
+            if (ExactPredicates.Orient3d(p, q, r, s) != 0)
+                return;
+            for (int k = 0; k < 3; ++k) {
+                Vector2d p2 = drop(p, k), q2 = drop(q, k), r2 = drop(r, k), s2 = drop(s, k);
+                int o1 = ExactPredicates.Orient2d(p2, q2, r2), o2 = ExactPredicates.Orient2d(p2, q2, s2);
+                int o3 = ExactPredicates.Orient2d(r2, s2, p2), o4 = ExactPredicates.Orient2d(r2, s2, q2);
+                if (o1 == 0 && o2 == 0 && o3 == 0 && o4 == 0)
+                    continue;       // (this projection maps their plane to a line; or all four are collinear)
+                if (o1 * o2 < 0 && o3 * o4 < 0) {
+                    // p + Dp / (Dp - Dq) (q - p) with the exact 2D determinants of p, q against r-s
+                    BigInteger[] g = grid(out int e0, p, q, r, s);
+                    int a0 = (k + 1) % 3, a1 = (k + 2) % 3;
+                    BigInteger dP = det2(g, 6, 9, 0, a0, a1), dQ = det2(g, 6, 9, 3, a0, a1);
+                    add_unique(lerp(g, 0, 3, dP, dQ, e0), pts);
+                }
+                return;
+            }
+        }
 
         static public void ProjectOntoAxis ( ref Triangle3d triangle, ref Vector3d axis, out double fmin, out double fmax)
         {

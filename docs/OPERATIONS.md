@@ -55,6 +55,7 @@ Add both: `using g3; using gs;`.
 | 2D Delaunay of points; constrained Delaunay of points, segments, rings, holes and regions with crossings split (noding). Exact predicates, output in doubles valid on those doubles. Limits: coordinates up to 1e70; a crossing is rounded to nearest, so a piece may lie a few ulps off its segment (in the subnormal range, farther); vertices within 2^-41 of max(coordinate, extent) of a segment become its vertices; exact duplicates only are merged | `DelaunayMesh2`, `ConstrainedDelaunayMesh2`, `TriangulationMesh2`, `ConstrainedMesh2` | tests: `DelaunayMesh2Tests`, `ConstrainedDelaunayMesh2Tests`; design: [MESHING2D_PLAN](design/MESHING2D_PLAN.md) |
 | UV atlas of any mesh: seams, charts, BFF with cones, packing, exact overlap test | `UVAtlasGenerator`, `MeshDiscCut`, `MeshChartSegmentation`, `ConeFlattening`, `UVOverlap`, `UVPacker` | [UVAtlasExample](examples/UVAtlasExample.cs) |
 | Parameterize a disc | `BoundaryFirstFlattening`, `LSCMParameterization`, `ARAPParameterization`, `SLIMParameterization`, `ParameterizationDistortion` | [UVAtlasExample](examples/UVAtlasExample.cs) |
+| 2D polygon booleans, polyline clipping, offsets, Minkowski sums, simplification (optional package `geometry3Sharp.Clipper2`) | `g3.Clipper2.Clipper2Polygons`, `ClipperFrame`, `Clipper2Options`, `Clipper2Result` | [Clipper2Example](examples/Clipper2/Clipper2Example.cs) |
 
 ## Which repair or boolean class?
 
@@ -165,6 +166,14 @@ var envelope = new MeshEnvelope(reference, 0.01);         // Status: Ready, Inva
 bool inside = envelope.ContainsTriangle(a, b, c);         // exact; also Contains(p), ContainsSegment(a, b)
 ```
 
+`Remesher.MinTriangleQuality` (opt-in, `g3cli remesh` uses 0.2) guards against poor and flat triangles;
+`Remesher.PreventSelfIntersections` (opt-in, about 17x the time) rejects every operation and move that would make
+triangles intersect, so an input without self-intersections stays without them (benchmarks/RemeshQualityBenchmark).
+`MeshConstraintUtil.PinSharpVertices` (after `PreserveBoundaryAndFeatures`) pins points that are no junction of
+creases, eg the apex of a cone with many slices, by their angle deficit.
+`Remesher.TargetEdgeLengthF` (opt-in) sets the target edge length per point; `RemeshSizing.FromWallThickness` sets it
+to (a fraction of) the local wall thickness, so thin walls are refined instead of folded through each other.
+
 `Reducer.MaxDeviation` guarantees that every point of the result lies within the tolerance of the input,
 checked with certified distance bounds (`TriangleDeviationBounds`).
 
@@ -198,6 +207,60 @@ double winding = tree.WindingNumber(point);     // ~1 inside, ~0 outside, also f
 See [MeasurementsExample](examples/MeasurementsExample.cs), [SpatialQueriesExample](examples/SpatialQueriesExample.cs),
 [PointQueriesExample](examples/PointQueriesExample.cs), [OffsetSurfaceExample](examples/OffsetSurfaceExample.cs)
 and [DistancesExample](examples/DistancesExample.cs).
+
+### 2D loose quadtree
+
+`LooseQuadtree2d` stores AABB snapshots with stable integer IDs. `PointQuadtree2d`,
+`SegmentQuadtree2d` and `TriangleQuadtree2d` store points, segment endpoints and triangles
+as snapshots and query their XY geometry; z is used only for triangle-height interpolation.
+They complement the existing grids and do not follow changes to source meshes or lists.
+`TriangleQuadtree2d.Over(array)` skips the copy of the triangles: it reads the caller's array, which then must not change.
+
+```csharp
+var tree = new TriangleQuadtree2d(triangles);
+var ids = new List<int>(128);
+tree.QueryRectangle(new AxisAlignedBox2d(0, 0, 20, 20), ids);
+tree.FindNearestK(new Vector2d(10, 10), 4, ids);
+bool found = tree.TryGetHeight(new Vector2d(10, 10), out double height, tolerance: 0.01);
+```
+
+* Bulk IDs are input positions; insertion returns a new ID and grows the extent, even for an
+  initially empty tree. Removal never renumbers IDs or shrinks the extent. Removing a value removes
+  its first live equal snapshot. Missing removals are no-ops. Failed input validation consumes no ID.
+* Rectangle queries return exact inclusive AABB intersections. Core segment queries clip against
+  AABBs enlarged by 0.0002 coordinate units; they are candidates, not exact geometry intersections.
+  `SegmentQuadtree2d.QueryIntersections` tests actual closed segments, including collinear overlap
+  and touching. `QueryPoint` supports absolute tolerance and optional endpoint exclusion / early stop.
+  Build it from vertices and edges, or `Insert(a, b)`, when queries must hit the endpoints exactly: a `Segment3d`
+  rounds them, depending on z too. `GetEndpoints` returns them as stored. `GetItem` rebuilds a `Segment3d`, which
+  `Remove` accepts, and throws `ArithmeticException` for endpoints a `Segment3d` cannot hold.
+* `PointQuadtree2d.QueryNearby` uses inclusive Euclidean XY distance, not a per-axis tolerance.
+* Height hits use exact orientation signs for containment and absolute XY distance for tolerance.
+  All exact hits take precedence over tolerance hits, including when stopping after the first result.
+  One result from tolerance comes from the nearest triangle, the lowest ID on a tie.
+  Zero-area triangles produce no height. A point beside a triangle gets the height at the nearest point of its
+  boundary, so it stays in the triangle's z range. Height construction is floating point, not an exact predicate. Robust fallbacks
+  for extreme or nearly degenerate inputs, and for a distance within rounding of the tolerance, may allocate; ordinary
+  hot queries with reserved buffers do not. An unrepresentable height throws `ArithmeticException`, not a successful infinity result. A
+  query exception can leave partial buffer results; the index itself remains unchanged.
+* Nearest queries measure distance to AABBs in the core, actual XY geometry in the adapters.
+  No hit returns -1; k-nearest results are sorted by distance, ties by insertion ID. An inclusive
+  maximum distance may restrict either query. Removed items never participate.
+* Every result-buffer query clears its output first. Reserve enough capacity to avoid list growth.
+  Concurrent and nested read-only queries use independent caller-owned buffers; inserts/removals
+  must not overlap queries. Struct visitors (`IQuadtreeVisitor2d`) allow allocation-free traversal:
+  `TestRegion` prunes a region and `Visit` returning true stops at a real caller-defined hit. A region is the bounds of what
+  that part of the tree holds, with no slack and possibly of zero area: a test with a margin has to add it. Empty parts are not shown.
+  Built-in nearest metrics compare exact squared distances when floating-point distances overflow;
+  ID ordering then breaks only actual ties. Custom nearest metrics (`IQuadtreeDistance2d`) must never
+  be smaller than point-to-item-AABB distance; their returned double values define ties, including infinity.
+* Coordinates must be finite, boxes ordered and tolerances nonnegative and finite. Only a nearest
+  maximum distance may be positive infinity. Construction has fixed internal settings; the optional
+  `parallelBuild` flag changes execution policy, not query semantics.
+
+Runnable example: [QuadtreeQueriesExample](examples/QuadtreeQueriesExample.cs).
+See the [behavioural specification](design/QUADTREE2D_SPEC.md) and the
+[procedural benchmark](../benchmarks/QuadtreeBenchmark/README.md).
 
 ### Intrinsic triangulations
 
@@ -320,6 +383,49 @@ enough (the layout is still overlap-free). From the command line: `g3cli uv mesh
 | `SingleChart` | one chart (cut to a disc), plain BFF | when one chart is required; distorts closed surfaces |
 
 See [UVAtlasExample](examples/UVAtlasExample.cs).
+
+### 2D polygon booleans and offsets (optional package)
+
+The package `geometry3Sharp.Clipper2` (project `addons/geometry3Sharp.Clipper2`) wraps
+[Clipper2](https://github.com/AngusJohnson/Clipper2) (Angus Johnson, Boost-1.0) for the polygon types of the
+library. The core package does not depend on it.
+
+```csharp
+using g3; using g3.Clipper2; using Clipper2Lib;
+
+Clipper2Result merged = Clipper2Polygons.Union(footprints);                  // also Intersection, Difference, Xor
+Clipper2Result zone = Clipper2Polygons.Offset(merged.Polygons, 3.0,
+    new Clipper2Options { JoinType = JoinType.Miter, MiterLimit = 2 });     // > 0 inflates, < 0 deflates
+Clipper2Result free = Clipper2Polygons.Difference(new[] { parcel }, zone.Polygons);
+if (!free.Ok)
+    Console.WriteLine(free.Status + ": " + free.Error);
+List<GeneralPolygon2d> result = free.Polygons;                               // outer CCW, holes CW, islands separate
+```
+
+| Method | Input | Result |
+|---|---|---|
+| `Union`, `Intersection`, `Difference`, `Xor`, `Boolean(op, ...)` | sets of `GeneralPolygon2d`; each one is its region first (inside the outer ring, nonzero, minus its holes, also where holes overlap or reach outside), then the regions of one operand combine by `FillRule` (NonZero default: union; EvenOdd: overlaps cancel) | `Polygons` |
+| `BooleanPaths(op, ...)` | raw `Polygon2d` rings, orientation as given (self-intersecting rings, fill rules) | `Polygons` |
+| `ClipPolyLines(op, lines, clip)` | open `PolyLine2d`s and polygons; Intersection keeps the inside pieces, Difference the outside | `PolyLines` |
+| `Offset(polygons, delta)` | `JoinType` (Round default, Miter with `MiterLimit`, Square, Bevel), `ArcTolerance` (default \|delta\| / 1000, at most \|delta\| / 4); `MiterLimit` up to 1000 | `Polygons` |
+| `OffsetPolyLines(lines, delta)` | delta &gt;= 0; `EndType` Round (default), Butt, Square, or Joined (closed polyline); a single point gives a disc (Round), a square (Square) or nothing | `Polygons` |
+| `MinkowskiSum`, `MinkowskiDifference` | a pattern around (0,0) and a closed (interior included) or open path | `Polygons` |
+| `Simplify`, `SimplifyPolyLines` | vertices within epsilon of the line through their neighbours removed; polygons are re-unioned | `Polygons` / `PolyLines` |
+
+Status is `Success` (also for an empty result), `InvalidInput` (NaN or infinite coordinates, a coordinate plus the
+extent and offset beyond the double range, or extents below about 1e-290), `InvalidParameter` (see `Error`) or `Failed` (Clipper2 reported an
+error); nothing throws on bad input. Clipper2 computes on integers: each call maps its inputs to a grid
+(`ClipperFrame`: origin at the bounds center, a power-of-two scale with the half extent plus the offset margin at
+2^`PrecisionBits`, default 40). Input vertices are snapped to that grid and new vertices rounded to it, so result
+vertices are off by about a grid spacing from their exact position: about 1e-12 times the input extent, under 10 nm
+for a 10 km footprint at UTM coordinates. Scaling the input by a
+power of two gives the same result, scaled, bit for bit; other similarities give it up to the grid spacing (tested
+over `Similarity.All()`). Features below the grid spacing vanish. `Clipper2Options.Frame` sets a fixed grid instead
+(eg Scale = 1000 for millimetres on metre coordinates), and `ClipperFrame` converts between the polygon types and
+Clipper2's `Path64` / `PolyTree64` for direct use of Clipper2. Single-threaded and deterministic.
+
+The example is in [examples/Clipper2/](examples/Clipper2/Clipper2Example.cs) and runs in
+`tests/geometry3Sharp.Clipper2.Tests` (`Clipper2ExampleTests`), not in `DocExamplesTests`, because it needs the package.
 
 ## Adding an example
 
