@@ -308,7 +308,35 @@ generated predicate is 65-85 times faster than constructing the point; where the
 still about 3 times faster than the construction and the filter costs about 50 ns more. (One grid step off the
 plane is decided by the filter at 30 bits: its relative size, about 2^-30, is far above the bound.)
 
-**Step (c), the expansion stage,** sits between the two: it would pay where the filter fails but the expansion
-is shorter than the `FixedArith` evaluation. With integer inputs every failing case so far is a true zero or within
-a few ulps of one, where an expansion stage does the full work too; whether it is worth building is decided on the
-envelope's inputs.
+**Step (c), the expansion stage,** would sit between the two; section 10 decides it by the owner's length rule.
+
+## 10. Step (c): the expansion stage (decided: not generated)
+
+The owner's rule (section 5): an expansion stage only where the static worst case of every sign factor stays below
+1024 components. The
+generator now derives that length per sign factor (Shewchuk's expansion arithmetic from exact double inputs: an
+input 1 component, a sum or difference `la + lb`, a product `2 la lb`):
+
+| predicate | determinant | denominator `d` |
+|---|---|---|
+| `Orient3dLPI` | 147 456 | 384 |
+| `Orient3dTPI` | 75 497 472 | 98 304 |
+
+Both determinants are far above the limit, so neither predicate gets an expansion stage: the filter goes straight to
+the `FixedArith` stage, as decided. The generated code says so in a comment, and the generator refuses to emit a
+predicate whose length is within the limit until the stage exists (`ExpansionStage_NotGenerated_StaticLengthsAboveTheLimit`).
+
+Why that is likely no loss here (an estimate, not measured). Even compressed after each operation, an expansion
+keeps at best about `B / 53` components for a value of `B` bits (more in the worst case: nonoverlapping components
+can carry few significant bits), and every product first forms its `2 la lb` terms; each term of a product is a
+`two_product`, a Dekker split of about 17 floating-point operations without FMA (banned in the exact code), against
+one 64 × 64-bit multiplication per limb pair in `FixedArith`. So an expansion stage would do at least the work of the
+`FixedArith` stage, which already runs when the filter fails: about 1 µs for LPI and 2 µs for TPI (section 9),
+3 times faster than constructing the point. Shewchuk's stage B saves work for double inputs because it evaluates
+from the rounded differences and drops their tails, then tests against a second error bound; with integer inputs the
+differences are exact (two components, no tail to drop), so it is the full exact computation. The failing cases in
+the tests are exact zeros and one-grid-step perturbations of them (section 9).
+
+Considered and dropped: a stage for LPI's denominator alone (384 components, below the limit). The rule applies to
+the predicate, and `sign(d)` alone rarely fails the filter (a line nearly parallel to the plane), while the
+determinant would still need `FixedArith`.

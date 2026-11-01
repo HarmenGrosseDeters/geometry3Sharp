@@ -169,6 +169,7 @@ namespace g3
         {
             if (!(__grid(p) && __grid(q) && __grid(r) && __grid(s) && __grid(t) && __grid(a) && __grid(b) && __grid(c)))
                 throw new ArgumentException("Orient3dLPI: the coordinates must be integers |x| <= 2^53");
+            // no expansion stage: as expansions the sign factors have up to 147456 / 384 components (limit 1024)
             int __r = Orient3dLPIFilter(p, q, r, s, t, a, b, c);
             return (__r != 2) ? __r : Orient3dLPIExact(p, q, r, s, t, a, b, c);
         }
@@ -741,6 +742,7 @@ namespace g3
         {
             if (!(__grid(a1) && __grid(b1) && __grid(c1) && __grid(a2) && __grid(b2) && __grid(c2) && __grid(a3) && __grid(b3) && __grid(c3) && __grid(a) && __grid(b) && __grid(c)))
                 throw new ArgumentException("Orient3dTPI: the coordinates must be integers |x| <= 2^53");
+            // no expansion stage: as expansions the sign factors have up to 75497472 / 98304 components (limit 1024)
             int __r = Orient3dTPIFilter(a1, b1, c1, a2, b2, c2, a3, b3, c3, a, b, c);
             return (__r != 2) ? __r : Orient3dTPIExact(a1, b1, c1, a2, b2, c2, a3, b3, c3, a, b, c);
         }

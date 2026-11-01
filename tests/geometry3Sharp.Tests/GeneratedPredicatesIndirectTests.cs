@@ -360,6 +360,29 @@ namespace geometry3Sharp.Tests
         }
 #endif
 
+#if NET
+        /// <summary>
+        /// step (c): the static expansion lengths (input 1, sum la + lb, product 2 la lb) are far above the limit of 1024
+        /// for both predicates, so neither gets an expansion stage (the filter goes straight to FixedArith)
+        /// </summary>
+        [Fact]
+        public void ExpansionStage_NotGenerated_StaticLengthsAboveTheLimit()
+        {
+            var a = PredicateCompiler.Analyze(Spec).ToDictionary(p => p.Name);
+            Assert.Equal(new BigInteger[] { 147456, 384 }, a["Orient3dLPI"].Signs.Select(n => n.ExpansionLength).ToArray());
+            Assert.Equal(new BigInteger[] { 75497472, 98304 }, a["Orient3dTPI"].Signs.Select(n => n.ExpansionLength).ToArray());
+            Assert.All(a.Values, p => Assert.False(p.HasExpansionStage));
+            Assert.Equal(1024, Predicate.MaxExpansionLength);
+            // a small predicate within the limit would need the stage, which the generator refuses to skip silently
+            var e = Assert.Throws<NotSupportedException>(() => PredicateCompiler.Code("ipredicate P(a, b) bound 64 inputs xyz\n    sign a.x * b.y - a.y * b.x", "s", "o", "C"));
+            Assert.Contains("expansion stage", e.Message);
+            // the lengths are derived for every predicate, also those of predicates.spec (projected inputs, no filter)
+            var small = PredicateCompiler.Analyze("ipredicate P(a, b) bound 255\n    sign a.x * b.y - a.y * b.x").Single();
+            Assert.Equal(4, small.Root.ExpansionLength);        // 2 1 1 + 2 1 1
+            Assert.True(small.HasExpansionStage);
+        }
+#endif
+
         // ---- step (b): the entry on doubles (filter, then FixedArith from the doubles) ----
 
         static Vector3d D(ExactPoint3 p) => new Vector3d((double)p.X, (double)p.Y, (double)p.Z);
