@@ -100,4 +100,27 @@ grid (dotnet-trace on `HarnessPlate(50, 0.5)`: the filter about half of the chec
 pair with touching or overlapping closed boxes to the tests, and the reductions make long thin triangles. Not
 addressed here.
 
-The Remesher follows.
+### Remesher
+
+`remesher runs=3` and `thingi=<dir>/135363.stl thingi_passes=5 thingi_factor=0.05 thingi_runs=3 only=thingi` (target
+edge 0.05 x the mean edge of 135363, so the coarse OpenSCAD input of 2612 triangles is refined to about 90k: the
+regime where the check was slowest), "master" = this branch (master e93258b merged in) with `Remesher.pair_intersects` as on master,
+against `TriangleTriangleFilter` first in `pair_intersects`. Run one after the other, alone on the machine, minimum of 3
+runs; the fingerprints are identical.
+
+| case | triangles out | without check | check, master | check, filter | filter / master |
+|---|---:|---:|---:|---:|---:|
+| bumpy sphere | 18190 | 502 ms | 2547 ms | 2038 ms | 0.80 |
+| jitter plate z = 0 (40 x 40) | 3035 | 68 ms | 1443 ms | 356 ms | 0.25 |
+| jitter plate tilted | 3016 | 65 ms | 808 ms | 348 ms | 0.43 |
+| box grid | 10100 | 143 ms | 2336 ms | 737 ms | 0.32 |
+| Thingi10K 135363, target 0.05 x mean edge, 5 passes | 93632 | 659 ms | 47896 ms | 14613 ms | 0.31 |
+
+On 135363 (G3PredicateStats, one run) the exact Orient3d stages go from 77673035 of 109066355 calls (71 %) to 964465 of
+6002259, the Orient2d calls from 598665409 to 138371532. What is left is mostly the grid query: the cells are sized from
+the edges of the coarse input (`Math.Max(MaxEdgeLength, mean edge)` when the grid is built), so after the refinement a
+cell holds many small triangles. Not addressed here.
+
+An earlier interleaved check (one run each, a busier machine) put the filter after the shared-vertex shortcut of
+`pair_intersects` instead: 135363 17.4 to 18.6 s, between master (48.5 to 53.2 s) and the filter first (14.9 to 16.2 s),
+so the filter goes first.
