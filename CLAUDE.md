@@ -9,7 +9,9 @@ setup (SDK install): [docs/QA.md#5-local-setup](docs/QA.md#5-local-setup).
 
 - Answer the user in German. Code, comments, commit messages, PRs and docs stay in English.
 - Every change comes with tests, if possible ones that fail on the old code. Check them with mutations
-  (break the change, the tests must fail).
+  (break the change, the tests must fail). CI runs the test methods a PR adds against the base branch's library and
+  reports which fail there (`New tests on base`, `tools/new_tests_on_base.py`); with the label `bugfix` at least one
+  must fail.
 - A new or changed operation also gets: an invariance test over `Similarity.All()`
   (`tests/geometry3Sharp.Tests/Harness/Invariance.cs`; the 2^k scales must give the same result bit for bit),
   a reuse test (compute twice on one instance) if it has `Compute()`, and a determinism test (parallel equals
@@ -29,6 +31,9 @@ setup (SDK install): [docs/QA.md#5-local-setup](docs/QA.md#5-local-setup).
 
 ## Before every push
 
+Docs-only changes (only `*.md` files) need no local CI steps, and GitHub CI skips them (`paths-ignore` in
+`ci.yml`): re-read the diff and push. Anything else, including code in `docs/examples`, runs the full list.
+
 Run the steps of `.github/workflows/ci.yml` locally:
 
 ```
@@ -39,6 +44,10 @@ dotnet run --project tests/PackageSmokeTest -c Release -p:G3PackageVersion=1.0.0
 dotnet build tests/geometry3Sharp.Tests -c Release -f net48 -p:TestNet48=true
 dotnet build benchmarks/<each>/<each>.csproj -c Release
 ```
+
+Draft PRs and spikes: before a push, build the library for all targets (net10.0, netstandard2.0) and the net48 test
+project, and run the tests of the changed areas (`dotnet test --filter ...`). The full list above runs before the PR
+is marked ready for review; the CI of every push runs it on GitHub anyway.
 
 Every push gets a PR; watch its CI and fix red CI right away.
 

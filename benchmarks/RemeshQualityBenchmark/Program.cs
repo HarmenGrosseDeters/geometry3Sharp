@@ -20,8 +20,12 @@ static class Program
 {
     class Result
     {
-        public int Tris, Poor, Flat, SelfPairs, Inverted, RejectedPasses;
+        public int Tris, Poor, Flat, SelfPairs, Inverted, RejectedPasses, Degenerate;
         public double Hausdorff, Seconds;
+        // MeshFidelityMetrics against the input (relative thresholds of its size): F-score at 0.1 % and 0.5 %, normal
+        // consistency, Edge Chamfer distance / size and edge recall at 0.5 % (30 degree sharp edges), min angle of
+        // the 1 % worst triangles (degrees, TriangleQualityStatistics)
+        public double F0001 = double.NaN, F0005 = double.NaN, NC = double.NaN, ECD = double.NaN, ER0005 = double.NaN, MinAngle1 = double.NaN;
         public string NotClean;
     }
 
@@ -29,7 +33,10 @@ static class Program
     {
         var A = args.Select(a => a.Split('=', 2)).ToDictionary(a => a[0], a => a.Length > 1 ? a[1] : "");
         var only = A.ContainsKey("only") ? new Regex(A["only"]) : null;
-        double quality = A.ContainsKey("quality") ? double.Parse(A["quality"], CultureInfo.InvariantCulture) : 0.2;
+        // quality=<q> or qualities=<q1>,<q2>,..: the values compared with 0 (off)
+        double[] qualities = (A.ContainsKey("qualities") ? A["qualities"] : A.ContainsKey("quality") ? A["quality"] : "0.2")
+            .Split(',').Select(x => double.Parse(x, CultureInfo.InvariantCulture)).ToArray();
+        fidelity = A.ContainsKey("fidelity") == false || A["fidelity"] != "0";
         int runs = A.ContainsKey("runs") ? int.Parse(A["runs"]) : 1;
 
         var cases = new List<(string group, string name, DMesh3 input, double target)>();
@@ -56,20 +63,30 @@ static class Program
                     cases.Add(("thingi", System.IO.Path.GetFileNameWithoutExtension(f), m, MeanEdge(m)));
             }
 
-        Remesh(cases[0].input, cases[0].target, quality, out _);      // warm-up (JIT)
+        Remesh(cases[0].input, cases[0].target, qualities[0], out _);      // warm-up (JIT)
         var json = new JsonSerializerOptions() { IncludeFields = true, NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowNamedFloatingPointLiterals };
-        var rows = new List<(string group, string name, Result off, Result on)>();
+        var rows = new List<(string group, string name, Result off, Result[] on)>();
         foreach (var c in cases) {
             if (only != null && !only.IsMatch(c.name)) continue;
-            Result off = Measure(c.input, c.target, 0, runs), on = Measure(c.input, c.target, quality, runs);
+            Result off = Measure(c.input, c.target, 0, runs);
+            Result[] on = qualities.Select(q => Measure(c.input, c.target, q, runs)).ToArray();
             rows.Add((c.group, c.name, off, on));
-            Console.WriteLine(JsonSerializer.Serialize(new Dictionary<string, object>() {
+            var line = new Dictionary<string, object>() {
                 ["group"] = c.group, ["case"] = c.name, ["input_tris"] = c.input.TriangleCount, ["input_self_pairs"] = MeshRepairMetrics.SelfIntersections(c.input),
-                ["off"] = off, ["on"] = on }, json));
+                ["off"] = off };
+            for (int k = 0; k < qualities.Length; ++k)
+                line[qualities.Length == 1 ? "on" : "on_" + qualities[k].ToString(CultureInfo.InvariantCulture)] = on[k];
+            Console.WriteLine(JsonSerializer.Serialize(line, json));
         }
-        Summary(rows, quality);
+        for (int k = 0; k < qualities.Length; ++k) {
+            Console.WriteLine();
+            Console.WriteLine($"## MinTriangleQuality = {qualities[k].ToString(CultureInfo.InvariantCulture)} (on) vs 0 (off)");
+            Summary(rows.Select(r => (r.group, r.name, r.off, r.on[k])).ToList());
+        }
         return 0;
     }
+
+    static bool fidelity = true;
 
     static readonly double[] Targets = { 0.1, 0.15, 0.2, 0.3, 0.45, 0.6 };
 
@@ -97,9 +114,16 @@ static class Program
         var hd = new MeshHausdorffDistance(input, m) { Tolerance = 0.01 * target };
         hd.Compute();
         r.Hausdorff = hd.UpperBound / target;
-        r.NotClean = MeshRobustRepair.NotCleanReason(m, false);
         // directly: NotCleanReason stops at its first failed check (degenerate triangles come before inside-out)
         r.Inverted = MeshPostRepairCleanup.FindInvertedComponents(m).Count;
+        r.NotClean = MeshRobustRepair.NotCleanReasons(m, true);
+        if (fidelity) {
+            var f = new MeshFidelityMetrics(input, m) { SurfaceSamples = 20000, VolumeSamples = 0, Curvature = false, RelativeThresholds = new[] { 0.001, 0.005 } };
+            if (f.Compute()) {
+                r.F0001 = f.FScore[0]; r.F0005 = f.FScore[1]; r.NC = f.NormalConsistency; r.ECD = f.EdgeChamfer;
+                r.ER0005 = f.EdgeRecall[1]; r.MinAngle1 = f.MeshQuality.MinAngle.Worst1Percent; r.Degenerate = f.MeshQuality.Degenerate;
+            }
+        }
         return r;
     }
 
@@ -116,7 +140,7 @@ static class Program
         return mesh;
     }
 
-    static void Summary(List<(string group, string name, Result off, Result on)> rows, double quality)
+    static void Summary(List<(string group, string name, Result off, Result on)> rows)
     {
         Console.WriteLine();
         Console.WriteLine($"| group | cases | q<0.1 off / on | q<1e-3 off / on | cases with q<1e-3 off / on | self-intersecting pairs off / on | cases with self-int. off / on | cases inside-out off / on | cases with rejected passes off / on | mean hausdorff/target off / on | time s off / on | worse: more pairs / more q<1e-3 / hausdorff / inside-out |");
@@ -132,6 +156,25 @@ static class Program
                 $"{l.Count(r => r.off.RejectedPasses > 0)} / {l.Count(r => r.on.RejectedPasses > 0)} | " +
                 $"{l.Average(r => r.off.Hausdorff):F3} / {l.Average(r => r.on.Hausdorff):F3} | " +
                 $"{l.Sum(r => r.off.Seconds):F1} / {l.Sum(r => r.on.Seconds):F1} | {morePairs} / {moreFlat} / {worseHd} / {newInverted} |");
+        }
+        if (fidelity) {
+            // means over the cases where both values are finite (Edge Chamfer is infinite and edge recall NaN when only
+            // one or neither mesh has sharp edges): off and on over the same cases
+            Console.WriteLine();
+            Console.WriteLine("| group | F 0.1% off / on | F 0.5% off / on | normal consistency off / on | Edge Chamfer off / on | edge recall 0.5% off / on | min angle 1% worst off / on | cases with degenerate tris off / on | cases not clean off / on | worse: F 0.1% by > 0.01 / edge recall by > 0.02 |");
+            Console.WriteLine("|---|---:|---:|---:|---:|---:|---:|---:|---:|---|");
+            foreach (var g in rows.GroupBy(r => r.group)) {
+                var l = g.ToList();
+                string mean(Func<Result, double> f) {
+                    var both = l.Where(r => double.IsFinite(f(r.off)) && double.IsFinite(f(r.on))).ToList();
+                    var off = both.Select(r => f(r.off)).ToList();
+                    var on = both.Select(r => f(r.on)).ToList();
+                    return (off.Count > 0 ? off.Average().ToString("F4", CultureInfo.InvariantCulture) : "-") + " / " + (on.Count > 0 ? on.Average().ToString("F4", CultureInfo.InvariantCulture) : "-");
+                }
+                Console.WriteLine($"| {g.Key} | {mean(r => r.F0001)} | {mean(r => r.F0005)} | {mean(r => r.NC)} | {mean(r => r.ECD)} | {mean(r => r.ER0005)} | {mean(r => r.MinAngle1)} | " +
+                    $"{l.Count(r => r.off.Degenerate > 0)} / {l.Count(r => r.on.Degenerate > 0)} | {l.Count(r => r.off.NotClean != "")} / {l.Count(r => r.on.NotClean != "")} | " +
+                    $"{l.Count(r => r.on.F0001 < r.off.F0001 - 0.01)} / {l.Count(r => r.on.ER0005 < r.off.ER0005 - 0.02)} |");
+            }
         }
         Console.WriteLine();
         Console.WriteLine("Cases that get worse with the option (more self-intersecting pairs, more q<1e-3, a Hausdorff distance more than 0.02 target larger, or inside-out only with it):");

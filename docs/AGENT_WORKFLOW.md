@@ -15,7 +15,7 @@ help: specification vs implementation, and implementation vs review and acceptan
 
 | Tier | Examples | Process |
 |---|---|---|
-| **S** | docs, comments, a one-line fix, benchmark README | One session. Local CI steps. The author re-reads the diff. No extra review. |
+| **S** | docs, comments, a one-line fix, benchmark README | One session. The author re-reads the diff. No extra review. Code changes run the local CI steps; docs-only changes (only `*.md`) run no CI, locally or on GitHub. |
 | **M** | a bug fix or small feature outside exact code | All of S, plus: tests that fail on the old code (mutation check), the CLAUDE.md tests (invariance / reuse / determinism) and **one** independent review agent. |
 | **L** | exact arithmetic, error bounds, `ExactMesh*`, a new module, spec-driven work | All of M, plus: a design doc or spec first, reviewed by the owner; **acceptance against references** ([strategy](design/ACCEPTANCE_STRATEGY.md): oracle, differential, golden master); a bounds review; mutation runs; benchmark A/B numbers. |
 
@@ -40,11 +40,11 @@ Every worker session gets a brief with these fields, and nothing open-ended:
 ## 3. Execution-grounded loop
 
 - The inner loop is fast: filtered `dotnet test` runs and a small benchmark subset. Run the full local CI steps
-  before every push.
+  before every push of code (docs-only pushes skip them).
 - **No claim without output.** Every number in a PR names the command and its raw output (as
   `benchmarks/BooleanComparison/perf/` does). The reviewer re-runs a sample.
 - Machine checks replace review where possible ([QA.md 4a](QA.md#4a-making-agent-work-verifiable), items 1-3):
-  - new tests must fail on the old code;
+  - new tests must fail on the old code (CI job `New tests on base`; required for PRs labelled `bugfix`);
   - package validation against 1.0.324 (enforced in `dotnet pack`);
   - banned APIs in exact code (enforced at build time: FMA, `float`, parallel loops outside the allow-list).
 

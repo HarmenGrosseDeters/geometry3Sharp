@@ -430,7 +430,19 @@ Most rules in CLAUDE.md are enforced by review only. These items make them machi
 not depend on the implementer's own tests. Order of priority:
 
 1. **New tests fail on the old code**: a CI job runs the tests a PR adds against the base branch; for a bug fix they
-   must fail there. Catches vacuous tests (one was found in review in #186).
+   must fail there. Catches vacuous tests (one was found in review in #186). Done: workflow `New tests on base`
+   (`.github/workflows/new-tests-on-base.yml`, `tools/new_tests_on_base.py`, locally
+   `python3 tools/new_tests_on_base.py --base origin/master`). New tests are the methods of
+   `tests/geometry3Sharp.Tests` that the merge base does not have (from `dotnet test --list-tests`). They run in a
+   worktree of the head whose library files (all paths outside `tests/`, `benchmarks/`, `docs/`, `tools/`,
+   `.github/` and the root `*.md`) are reset to the merge base; a changed test file that does not compile against
+   the old library (new API) is reset as well and its tests are reported as "does not compile" (if the errors are in
+   an unchanged file, the deleted test files are restored first, then all changed ones). The report (job log and
+   step summary) lists per test: fails, passes, skipped, crash or hang (one by one after an aborted run), no
+   result, does not compile. Informational (exit 0, also when the comparison cannot be made: the reason is in the
+   report), except with the PR label `bugfix`: then at least one new test must fail, crash or hang on the base.
+   Not covered: `tests/g3cli.Tests`, changed (not added) test methods, tests with a `DisplayName` (reported, not
+   run).
 2. **API compatibility with upstream 1.0.324**: .NET package validation (`EnablePackageValidation` with baseline
    1.0.324) in the pack step. Done (#92, §2.8): `dotnet pack` fails with CP0002 etc. on a break; the accepted breaks
    are in `CompatibilitySuppressions.xml`.
@@ -467,7 +479,8 @@ not depend on the implementer's own tests. Order of priority:
 8. **Changed-line coverage gate**: new or changed lines must be executed by tests.
 9. **Property-based tests with shrinking** (CsCheck, Apache-2.0, or FsCheck, BSD), generalizing `MeshMinimizer`.
    Boolean test-only implementation: [plan](design/BOOLEAN_PROPERTY_TESTS.md), with parameter-level shrinking and
-   replay; proposed CsCheck campaigns on net10.0, deterministic regressions also on net48. Not implemented yet.
+   replay; CsCheck campaigns on net10.0, deterministic regressions also on net48. Done for `ExactMeshBoolean`
+   (`ExactBooleanPropertyTests`, `ExactBooleanMetamorphicTests`).
 10. **Metamorphic relations beyond similarity**: vol(A∪B) = vol A + vol B - vol(A∩B); (A-B) ∪ (A∩B) = A;
     commutativity; subdividing input triangles or permuting triangle / vertex order leaves the result geometry
     unchanged. The [Boolean plan](design/BOOLEAN_PROPERTY_TESTS.md) includes independent analytic box oracles,
