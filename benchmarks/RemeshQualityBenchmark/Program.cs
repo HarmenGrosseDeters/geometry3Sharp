@@ -8,7 +8,8 @@
 //   dotnet run -c Release --project benchmarks/RemeshQualityBenchmark -- [thingi=<dir>] [only=<regex>] [quality=0.2] [runs=1]
 //       [base=0] [si=1]
 // base=<q>: the quality of the "off" run (default 0); si=1: Remesher.PreventSelfIntersections in the "on" runs,
-// si_from=<k>: only from pass k on (0-based; an alternative that skips the check in the first passes)
+// si_from=<k>: only from pass k on (0-based; an alternative that skips the check in the first passes);
+// pin=<deg>: MeshConstraintUtil.PinSharpVertices with this angle deficit in the "on" runs
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -43,6 +44,7 @@ static class Program
         double baseQuality = A.ContainsKey("base") ? double.Parse(A["base"], CultureInfo.InvariantCulture) : 0;
         preventOn = A.ContainsKey("si") && A["si"] == "1";
         preventFrom = A.ContainsKey("si_from") ? int.Parse(A["si_from"]) : 0;
+        double pinAngle = A.ContainsKey("pin") ? double.Parse(A["pin"], CultureInfo.InvariantCulture) : 0;
         int runs = A.ContainsKey("runs") ? int.Parse(A["runs"]) : 1;
 
         var cases = new List<(string group, string name, DMesh3 input, double target)>();
@@ -69,13 +71,13 @@ static class Program
                     cases.Add(("thingi", System.IO.Path.GetFileNameWithoutExtension(f), m, MeanEdge(m)));
             }
 
-        Remesh(cases[0].input, cases[0].target, qualities[0], preventOn, out _, out _);      // warm-up (JIT)
+        Remesh(cases[0].input, cases[0].target, qualities[0], preventOn, pinAngle, out _, out _);      // warm-up (JIT)
         var json = new JsonSerializerOptions() { IncludeFields = true, NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowNamedFloatingPointLiterals };
         var rows = new List<(string group, string name, Result off, Result[] on)>();
         foreach (var c in cases) {
             if (only != null && !only.IsMatch(c.name)) continue;
-            Result off = Measure(c.input, c.target, baseQuality, false, runs);
-            Result[] on = qualities.Select(q => Measure(c.input, c.target, q, preventOn, runs)).ToArray();
+            Result off = Measure(c.input, c.target, baseQuality, false, 0, runs);
+            Result[] on = qualities.Select(q => Measure(c.input, c.target, q, preventOn, pinAngle, runs)).ToArray();
             rows.Add((c.group, c.name, off, on));
             var line = new Dictionary<string, object>() {
                 ["group"] = c.group, ["case"] = c.name, ["input_tris"] = c.input.TriangleCount, ["input_self_pairs"] = MeshRepairMetrics.SelfIntersections(c.input),
@@ -86,7 +88,7 @@ static class Program
         }
         for (int k = 0; k < qualities.Length; ++k) {
             Console.WriteLine();
-            Console.WriteLine($"## MinTriangleQuality = {qualities[k].ToString(CultureInfo.InvariantCulture)}{(preventOn ? " with PreventSelfIntersections" + (preventFrom > 0 ? $" from pass {preventFrom}" : "") : "")} (on) " +
+            Console.WriteLine($"## MinTriangleQuality = {qualities[k].ToString(CultureInfo.InvariantCulture)}{(preventOn ? " with PreventSelfIntersections" + (preventFrom > 0 ? $" from pass {preventFrom}" : "") : "")}{(pinAngle > 0 ? $" with PinSharpVertices({pinAngle})" : "")} (on) " +
                 $"vs {baseQuality.ToString(CultureInfo.InvariantCulture)} (off)");
             Summary(rows.Select(r => (r.group, r.name, r.off, r.on[k])).ToList());
         }
@@ -98,7 +100,7 @@ static class Program
 
     static readonly double[] Targets = { 0.1, 0.15, 0.2, 0.3, 0.45, 0.6 };
 
-    static Result Measure(DMesh3 input, double target, double quality, bool prevent, int runs)
+    static Result Measure(DMesh3 input, double target, double quality, bool prevent, double pinAngle, int runs)
     {
         var times = new List<double>();
         DMesh3 m = null;
@@ -106,7 +108,7 @@ static class Program
         for (int k = 0; k < runs; ++k) {
             GC.Collect(); GC.WaitForPendingFinalizers();
             var sw = Stopwatch.StartNew();
-            m = Remesh(input, target, quality, prevent, out rejected, out siRejected);
+            m = Remesh(input, target, quality, prevent, pinAngle, out rejected, out siRejected);
             times.Add(sw.Elapsed.TotalSeconds);
         }
         times.Sort();
@@ -136,12 +138,14 @@ static class Program
     }
 
     // tools/g3cli/Commands.cs, remesh with its defaults
-    static DMesh3 Remesh(DMesh3 input, double target, double quality, bool prevent, out int rejectedPasses, out int siRejected)
+    static DMesh3 Remesh(DMesh3 input, double target, double quality, bool prevent, double pinAngle, out int rejectedPasses, out int siRejected)
     {
         DMesh3 mesh = new DMesh3(input);
         var r = new Remesher(mesh) { SmoothSpeedT = 0.5, MinTriangleQuality = quality };
         r.SetProjectionTarget(MeshProjectionTarget.Auto(input));
         MeshConstraintUtil.PreserveBoundaryAndFeatures(r, 30);
+        if (pinAngle > 0)
+            MeshConstraintUtil.PinSharpVertices(r, pinAngle);
         r.SetTargetEdgeLength(target);
         for (int k = 0; k < 20; ++k) {
             r.PreventSelfIntersections = prevent && k >= preventFrom;
