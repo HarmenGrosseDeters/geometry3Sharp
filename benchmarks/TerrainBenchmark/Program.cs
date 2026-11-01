@@ -10,6 +10,8 @@
 //   safety   grid=<grid> d=<m> mode=horizontal|surface|guaranteed|guaranteed [terrain=grid|tdc] [tol=0.05] [angle=20]
 //   geodesic grid=<grid> [src=center|crest] [tf=1]
 //   csf      points=<cloud> grid=<dgm grid> [res=1] [threshold=0.5] [rigidness=2]
+//   slope    [toe=ngon|lshape|wavy] [n=24] [r=200] [h=60] [ratio=1] [tol=0.01] [coords=utm|local]   (TerrainSlopeDesign,
+//            procedural toes, no data needed; timings per phase, kernel counters, the oracle time per triangle)
 // Grids and clouds are names in data/ (see fetch_data.py).
 using System;
 using System.Collections.Generic;
@@ -57,6 +59,7 @@ class Program
                 case "safety": stage = kase; Safety(w); break;
                 case "geodesic": stage = kase; Geodesic(w); break;
                 case "csf": stage = kase; Csf(w); break;
+                case "slope": stage = kase; SlopeCase(); break;
                 default: throw new Exception("unknown case " + kase);
             }
         } catch (Exception e) {
@@ -361,6 +364,50 @@ class Program
 
 
     // ---------------------------------------------------------------- safety lines
+    // ---------------------------------------------------------------- slope
+    static void SlopeCase()
+    {
+        string kind = Arg("toe", "ngon");
+        int n = (int)ArgD("n", 24);
+        double r = ArgD("r", 200), h = ArgD("h", 60), tol = ArgD("tol", 0.01), ratio = ArgD("ratio", 1);
+        Vector3d c = Arg("coords", "utm") == "utm" ? new Vector3d(327000.25, 5642000.5, 80) : new Vector3d(0, 0, 80);
+        var pts = new List<Vector3d>();
+        if (kind == "lshape") {
+            foreach (var p in new[] { (0.0, 0.0), (2.0, 0.0), (2.0, 0.6), (0.6, 0.6), (0.6, 2.0), (0.0, 2.0) }) pts.Add(c + new Vector3d(r * p.Item1, r * p.Item2, 0));
+        } else {
+            for (int i = 0; i < n; ++i) {
+                double a = 2 * Math.PI * i / n, rr = (kind == "wavy") ? r * (1 + 0.15 * Math.Sin(5 * a)) : r;
+                double z = (kind == "wavy") ? 4 * Math.Sin(3 * a) : 0;
+                pts.Add(c + new Vector3d(rr * Math.Cos(a), rr * Math.Sin(a), z));
+            }
+        }
+        var toe = SlopeToe.Constant(pts, true, SlopeToe.Sides.Outside, SlopeSpec.Ratio(ratio));
+        var d = new TerrainSlopeDesign() { Toes = new List<SlopeToe> { toe }, HeightLimit = c.z + h, Tolerance = tol };
+        var sw = Stopwatch.StartNew();
+        bool ok = d.Compute();
+        R["slope_s"] = Secs(sw);
+        R["ok"] = ok; R["slope_status"] = d.Status.ToString(); R["message"] = d.Message;
+        R["toe_points"] = pts.Count; R["attempts"] = d.Attempts;
+        foreach (var kv in d.PhaseSeconds) R["phase_" + kv.Key + "_s"] = kv.Value;
+        R["predicates"] = d.PredicateCalls; R["exact_predicates"] = d.ExactFallbacks; R["exact_constructions"] = d.ExactConstructions;
+        R["toe_lowering"] = d.UsedToeLowering; R["slope_margin"] = d.UsedSlopeMargin; R["facet_angle"] = d.FacetAngle; R["max_slope_ratio"] = d.MaxSlopeRatio;
+        if (!ok) return;
+        DMesh3 m = d.SlopeSurface;
+        R["triangles"] = m.TriangleCount; R["vertices"] = m.VertexCount;
+        // the oracle on every triangle, timed separately (O1 of TERRAIN.md 7)
+        sw.Restart();
+        int pass = 0;
+        foreach (int t in m.TriangleIndices()) {
+            Vector3d a = Vector3d.Zero, b = Vector3d.Zero, q = Vector3d.Zero;
+            m.GetTriVertices(t, ref a, ref b, ref q);
+            SlopePiece p = d.Pieces[m.GetTriangleGroup(t)];
+            if (Slope.IsSupportedBy(a, b, q, p.P0, p.P1, p.Spec)) pass++;
+        }
+        double os = Secs(sw);
+        R["oracle_s"] = os; R["oracle_us_per_triangle"] = 1e6 * os / Math.Max(1, m.TriangleCount); R["oracle_pass"] = pass;
+        R["height_field_overlaps"] = TerrainVolumeDifference.XYOverlaps(m);
+    }
+
     static void Safety(double[] w)
     {
         var sw = Stopwatch.StartNew();

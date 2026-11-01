@@ -14,8 +14,9 @@ dotnet_diagnostic.G3E0003.severity = none
 
 # ... and errors in the exact-arithmetic code: the predicates (also the generated ones), the exact points (also in fixed width), the exact
 # mesh pipeline and the exact parts it calls (ExactTriangulation2, ExactPlanarSimplify, ExactTriangleIntersection,
-# TriangleTriangleFilter)
-[{math/Exact*.cs,math/AdaptivePredicates.cs,math/FixedPoint3.cs,math/Generated/*.cs,mesh_ops/ExactMesh*.cs,mesh_ops/ExactTriangulation2.cs,mesh_ops/ExactPlanarSimplify.cs,intersection/ExactTriangleIntersection.cs,intersection/TriangleTriangleFilter.cs}]
+# TriangleTriangleFilter), and the terrain slope design (TerrainSlope*: the oracle and the envelope,
+# docs/design/TERRAIN_1A_PLAN.md)
+[{math/Exact*.cs,math/AdaptivePredicates.cs,math/FixedPoint3.cs,math/Generated/*.cs,mesh_ops/ExactMesh*.cs,mesh_ops/ExactTriangulation2.cs,mesh_ops/ExactPlanarSimplify.cs,intersection/ExactTriangleIntersection.cs,intersection/TriangleTriangleFilter.cs,mesh_ops/TerrainSlope*.cs}]
 dotnet_diagnostic.RS0030.severity = error
 dotnet_diagnostic.G3E0001.severity = error
 dotnet_diagnostic.G3E0002.severity = error
