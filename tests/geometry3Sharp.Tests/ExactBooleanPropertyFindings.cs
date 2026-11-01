@@ -16,8 +16,9 @@ namespace geometry3Sharp.Tests
     /// intended behaviour: such tiny triangles trouble downstream programs (slicers, FEM, remeshers), and SafeRounding
     /// is there to make the result safe for them. Its guarantee is exactness above the threshold and, below it, a
     /// bounded displacement: the surface moves by at most MeshRoundingRepair.MaxDrift (at most 1e-5 of the diagonal,
-    /// in Hausdorff distance, without removed components), and closed solids change in volume by at most about 2
-    /// MaxDrift times the area. The test asserts that guarantee and a clean result, not bit identity.
+    /// in Hausdorff distance, without removed components), and closed solids change in volume by about the edits'
+    /// displacements times the areas they replace. The test asserts a clean result, the drift bound, the same solid
+    /// within MaxDrift, and a volume sanity check, not bit identity.
     ///
     /// Design question 1b (not a defect by the documentation): an input that is already not clean (a triangle
     /// below the threshold, MeshRobustRepair "degenerate triangles") is repaired too, which moves its surface.
@@ -80,6 +81,7 @@ namespace geometry3Sharp.Tests
             MeshRoundingRepair r = boolean.Rounding;
             double diag = gs.MeshRepairMetrics.TriangleBounds(raw.Result).DiagonalLength;
             Assert.True(r.MaxDrift > 0 && r.MaxDrift <= r.MaxDisplacement * diag, $"drift {r.MaxDrift:G3}");
+            // (a sanity check of the volume, not the proven per-edit form: see MeshRoundingRepair)
             double dv = Math.Abs((SixVolume(boolean.Result) - SixVolume(raw.Result)).ToDouble()) / 6;
             Assert.True(dv <= 2 * r.MaxDrift * Invariance.Area(raw.Result), $"volume change {dv:G3}");
             Assert.Equal("", BooleanOracle.SameSolid(boolean.Result, raw.Result, 3, r.MaxDrift));

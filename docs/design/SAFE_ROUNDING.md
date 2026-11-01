@@ -30,23 +30,42 @@ and A of d(u), plus δ, for every vertex v of R and A. An edit is not applied if
 |---|---|---|
 | move, slide | the distance the vertex moves | a point of an incident triangle moves by its barycentric weight times that |
 | contraction (b kept at p, a vanishes) | max(\|p − a\|, \|p − b\|) | the triangles of a and b map to the new ones with the corners moved by at most that; the two triangles at the edge collapse onto edges |
-| flip of a-b to c-d | the smallest of: (1) 2 dist(segment ab, segment cd); (2) max(min(dist(c, abd), dist(d, abc)), min(dist(a, cdb), dist(b, dca))), each point-triangle distance bounded by the distance to the nearest edge; (3) 0 for an exactly flat convex quad | (1) moving c and d by the vector between the nearest points makes the diagonals meet: the quad becomes flat and convex, and both pairs of triangles cover it; (2) replace one corner by its nearest point in the other side's triangle, and the point lands inside that triangle |
+| flip of a-b to c-d | the smallest of: (1) 2 dist(segment ab, segment cd); (2) max(min(dist(c, abd), dist(d, abc)), min(dist(a, cdb), dist(b, dca))), each point-triangle distance bounded by the distance to the nearest edge; (3) 0 for an exactly flat convex quad | (1) for any p on ab and q on cd, moving c and d by p − q makes the diagonals meet at p. Both pairs of triangles then cover the same flat convex quad, or the same triangle if p or q is an endpoint (rounded nearest points are fine). (2) Replace one corner by any point of the other side's triangle, and the point lands inside that triangle by convexity. |
 | zip of two caps at a-b | 2 max(dist(c, ab), dist(d, ab)) | with the apexes moved onto a-b, the old and the new triangles cover the same set |
 
-**Theorem.** Let S0 be the mesh at the start and S the repaired mesh, both without the closed components removed as
-tiny or thin. Then the Hausdorff distance satisfies H(S, S0) ≤ `MaxDrift` ≤ `maxLength`, up to the rounding of the
-distance computations (relative 1e-15).
+**Theorem.** Let S0 be the mesh at the start (the rounded mesh) and S the repaired mesh, both without the closed
+components removed as tiny or thin. Then the Hausdorff distance satisfies H(S, S0) ≤ `MaxDrift` ≤ `maxLength`, up
+to the rounding of the distance computations. That rounding error is absolute: a few ulps of the largest coordinate
+M per edit, not relative to the distance (the bounds review found a computed segment distance 0 for a true 1.15e-14
+at coordinates near 100). It is negligible against `maxLength` = 1e-5 · diag unless M/diag is large. Relative to the
+exact boolean result, the rounding of the vertices adds at most √3/2 ulp.
 
-*Proof by induction over the edits.* Invariant: every point of a current triangle T lies within max over v in T of d(v)
-of S0, and every point of S0 lies within the drift of the vertices of some current triangle. An edit moves the points of
-the triangles it changes by at most δ in both directions; the bounds in the table are two-sided. The vertices of those
-triangles get at least the old maximum plus δ.
+*Proof by induction over the edits.* Invariant:
+- every point of a current triangle T lies within max over v in T of d(v) of S0;
+- every point of S0 lies within the drift of the vertices of some current triangle.
 
-**Volume.** Closed solids differ only within distance `MaxDrift` of the edited triangles. The volume therefore changes
-by at most about 2 `MaxDrift` times the area of the edited triangles. On top of that comes the volume of the removed
-components, which their definition bounds:
-- a thin component is thinner than `maxLength` (volume below `maxLength` times half its area);
-- a tiny component has an area below 1e4 times the degenerate area.
+Each edit moves every point of the triangles it removes to within δ of the triangles it adds, or of a simplex spanned by
+the edit's vertices, and back; the bounds in the table are two-sided. The vertices of those triangles get at least the
+old maximum plus δ, so drifts never decrease, and untouched triangles that share those vertices stay valid.
+
+Special case, the ear: a contraction of a vertex with a single triangle adds no triangle. That triangle goes to the edge
+across, which lies in an untouched triangle with both ends among the edit's vertices. Edits never create, merge or split
+components, so the theorem holds per component. "Removed components" are the components of S0 whose descendants were
+removed.
+
+**Volume.**
+- *Moves and contractions:* the change is a third of the move times the area vector of the link. Proven: |ΔV| ≤ δ ·
+  area of the replaced triangles.
+- *Flips and zips:* the change is the volume between the old and the new triangles (for a flip, the tetrahedron
+  abcd). The bounds review measured at most 0.33 (flip) and 0.28 (zip) of δ times the replaced area. That is a
+  measurement, not a proof.
+- *In total:* about the sum over the edits of δ_e · area(R_e), plus the volume of the removed components, which
+  their definition bounds:
+  - a thin component is thinner than `maxLength` (volume below `maxLength` times half its area);
+  - a tiny component has an area below 1e4 times the degenerate area.
+
+"2 `MaxDrift` times the area" is not proven: the band around degenerate triangles has Steiner terms, edge length times
+`MaxDrift`². The tests use it only as a sanity check.
 
 **Not guaranteed.** That every case is repaired. `RoundingClean` false (`RemainingDegenerate` > 0) is still a
 possible outcome, and the bound makes it more likely: edits that would move the surface further are not applied.

@@ -65,12 +65,19 @@ namespace g3
     /// zip twice the distance of the apexes to the edge. An edit after which a drift would exceed MaxDisplacement times
     /// the diagonal (maxLength) is not applied. By induction over the edits, every point of a triangle lies within the
     /// largest drift of its vertices of the surface at the start, and every point of that surface within it of the
-    /// repaired one (each edit moves the points of the triangles it changes by at most its bound, both ways). So the
-    /// Hausdorff distance between the repaired surface and the surface at the start, both without the removed
-    /// components, is at most MaxDrift &lt;= maxLength (up to the rounding of the distances, relative 1e-15). Closed
-    /// solids then differ only within that distance of the edited triangles: the volume changes by at most about
-    /// 2 MaxDrift times their area, plus the volume of the removed components (thin ones: below maxLength times
-    /// half their area; tiny ones: area below 1e4 times the degenerate area).
+    /// repaired one: each edit moves every point of the triangles it removes to within its bound of the triangles it
+    /// adds or of a simplex spanned by their vertices, and back (a contraction of an ear, whose vertex has a single
+    /// triangle, adds none: that triangle goes to the edge across, which is in an untouched triangle with both ends
+    /// among the edit's vertices). Edits stay within one connected component. So the Hausdorff distance between the
+    /// repaired surface and the surface at the start (the rounded mesh), both without the components removed as tiny
+    /// or thin, is at most MaxDrift &lt;= maxLength, up to the rounding of the distance computations: an absolute
+    /// error of a few units in the last place of the largest coordinate per edit, negligible against maxLength unless
+    /// the mesh lies far from the origin compared to its size. The volume of a closed solid changes in a move or a
+    /// contraction by at most the edit's bound times the area of the triangles it removes (the change is a third of
+    /// the move times the area vector of the link); flips and zips change it by the volume between the old and the
+    /// new triangles (a tetrahedron for a flip), measured at most a third of the same product. Removed components
+    /// add their volume (thin ones: below maxLength times half their area; tiny ones: area below 1e4 times the
+    /// degenerate area).
     /// Cost: one global exact self-intersection check (two or more if there are intersections), plus local
     /// work per defect.
     /// Implemented from the paper, no code taken over (docs/SOURCES.md).
@@ -115,8 +122,9 @@ namespace g3
         public int RemovedComponents, RemovedTriangles;
         /// <summary>
         /// the largest drift of a vertex after the repair, absolute: a bound on the Hausdorff distance between the
-        /// repaired surface and the surface at the start, without the removed components (see the class comment); at
-        /// most MaxDisplacement times the diagonal
+        /// repaired surface and the surface at the start, without the removed components (see the class comment; up to an
+        /// absolute rounding error of a few ulps of the largest coordinate per edit); at most MaxDisplacement times the
+        /// diagonal
         /// </summary>
         public double MaxDrift;
         /// <summary> no self-intersections and no degenerate triangles remain </summary>
