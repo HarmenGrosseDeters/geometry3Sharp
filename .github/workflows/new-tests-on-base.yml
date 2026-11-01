@@ -1,0 +1,33 @@
+name: New tests on base
+
+# Runs the test methods a PR adds against the library of its base branch (docs/QA.md 4a item 1,
+# tools/new_tests_on_base.py). Informational (a summary in the job log and the step summary), except for PRs with
+# the label `bugfix`: then at least one new test must fail on the base.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  new-tests-on-base:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # the PR head itself (not the merge commit) and the history back to the merge base
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Unit tests of the script
+        run: python3 -m unittest discover -s tools -p 'test_new_tests_on_base.py'
+      - name: Run the new tests against the base library
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          REQUIRE_FAILING: ${{ contains(github.event.pull_request.labels.*.name, 'bugfix') && '--require-failing' || '' }}
+        run: python3 tools/new_tests_on_base.py --base "$BASE_SHA" --work "$RUNNER_TEMP/new-tests-on-base" --summary "$GITHUB_STEP_SUMMARY" $REQUIRE_FAILING

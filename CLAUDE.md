@@ -9,7 +9,9 @@ setup (SDK install): [docs/QA.md#5-local-setup](docs/QA.md#5-local-setup).
 
 - Answer the user in German. Code, comments, commit messages, PRs and docs stay in English.
 - Every change comes with tests, if possible ones that fail on the old code. Check them with mutations
-  (break the change, the tests must fail).
+  (break the change, the tests must fail). CI runs the test methods a PR adds against the base branch's library and
+  reports which fail there (`New tests on base`, `tools/new_tests_on_base.py`); with the label `bugfix` at least one
+  must fail.
 - A new or changed operation also gets: an invariance test over `Similarity.All()`
   (`tests/geometry3Sharp.Tests/Harness/Invariance.cs`; the 2^k scales must give the same result bit for bit),
   a reuse test (compute twice on one instance) if it has `Compute()`, and a determinism test (parallel equals
