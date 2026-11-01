@@ -349,6 +349,31 @@ reduction with the distance bounds produces. Each entry is triangles accepted, �
     Pompeiu-Hausdorff distance", CGF 2024, not read).
   - Sources are in docs/SOURCES.md. No GPL code was read or used.
 
+**Follow-up spikes on the alternative, `IsWithin` (2026-11-01).** Branch `claude/deviation-bounds-spike`, local and not for
+merging. The instrumentation sits in `TriangleDeviationBounds`; `ReducerBenchmark spike` reduces the bumpy sphere
+(199692 triangles) and the terrain (180000) at tolerances 0.001, 0.003 and 0.01 of the diagonal.
+- **Share:** the check is 90-98 % of the reduction's wall time. That is about 700k `IsWithin` calls per reduction, 7 per
+  collapse, at 7-73 µs per call. About half of a call is `UpperBound`, about a third the BVH nearest queries
+  (3-22 per call), with 1.4-27 pieces per call.
+- **Exactness (idea A, an exact `IsWithin`):** no accepted triangle comes closer to the tolerance than 1e-8 ε
+  (relative margin of its largest upper bound). Rounding is about 1e-13 ε, so an exact check would change no
+  decision on these inputs. It would be a guarantee only, not worth building now.
+- **Reuse:** 0-0.3 % of the calls repeat a triangle already checked, so a cache gains nothing.
+- **Local nearest queries** (the parents' nearest triangles and their one-rings, the tree only if none is within ε):
+  the midpoint's nearest triangle is local in 44-92 % of the queries at tight tolerances. Even so the reduction gets
+  slower (bumpy 0.001: 31-32 → 40 s; terrain 0.001: 22 → 27 s), because a triangle that is not the nearest loosens the
+  bounds. The results are the same.
+- **Hash grid of cell ε instead of the BVH:** slower everywhere, 1.3-2.6× (bumpy 0.01: 9.2 → 20.3 s), because the
+  input triangles are small against ε: the 27 cells hold many candidates, while the BVH prunes by the best distance
+  found. A quadtree is 2D, and an octree would be a worse BVH (duplicated triangles, loose cells).
+- **Splitting large query triangles:** `IsWithin` already subdivides adaptively, which is the core of Sacht & Jacobson.
+  In the envelope it would speed up the query but not change what it accepts. That is the shape's, and it is the
+  blocker.
+- **Conclusion:** `IsWithin` is close to the state of the art and exact enough in practice. A larger speedup must cut
+  the number of checks per collapse in the `Reducer` (`Reducer.cs`, the owner's file: their decision), not the check.
+  - Sacht & Jacobson's own code (github.com/leokollersacht/pompeiu_hausdorff) is MPL-2.0, which is file-level
+    copyleft and not in the allowed licenses: not ported. The library's version was implemented from the paper.
+
 Kept on #263 / #268, internal, as a tested exact tool: `PolyhedralEnvelope` (points, segments, triangles), the
 generated indirect predicates on doubles with the prepared form, `TPIDenominator`, and the triangle oracle.
 `MeshEnvelope` stays as it is. For the `Reducer`, the open direction is faster distance bounds
