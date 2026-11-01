@@ -118,9 +118,9 @@ The predicates are the ones of #246 / #250. Three extensions are needed:
    generator emits a struct with the construction's values (doubles with their error terms `c`, `m̃`; on the exact
    path its `FixedArith` limbs) and an evaluation against three points. The error analysis already has every value's
    `c` and `m̃`; the evaluation part starts from them.
-3. **More predicates:** `Orient3d` on explicit doubles exists (`ExactPredicates`); the segment-face and triangle-face
-   cut tests are orient3d on explicit points; nothing else is needed for the containment test (to be confirmed
-   against the paper, section 9).
+3. **No further predicates:** C1 and the segment-facet side tests are orient3d on explicit doubles
+   (`ExactPredicates`); C2 is `Orient3dLPI`, C3 and the inside-T test of a TPI point are `Orient3dTPI` (section 3).
+   The containment test needs nothing else.
 
 ### 4.2 The envelope
 
