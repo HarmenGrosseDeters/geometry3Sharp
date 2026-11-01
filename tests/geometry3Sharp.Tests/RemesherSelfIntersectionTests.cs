@@ -198,6 +198,37 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        [Fact]
+        public void PairTest_SameAsExactTriangleIntersection()
+        {
+            // the shortcut of the pair test (neighbours sharing a vertex, the other corners of one on one side of the
+            // other's plane) against ExactTriangleIntersection.IntersectsBeyondShared on lattice pairs that share a
+            // vertex or an edge: many collinear and coplanar configurations, in the axis plane z = 0 and tilted
+            var rnd = new Random(7);
+            int coplanar = 0, hits = 0;
+            for (int n = 0; n < 200000; ++n) {
+                bool flat = n % 2 == 0;
+                Vector3d P() => new Vector3d(rnd.Next(-3, 4), rnd.Next(-3, 4), flat ? 0 : rnd.Next(-1, 2));
+                Vector3d s = P(), p = P(), q = P(), u = P(), w = P();
+                bool edge = n % 3 == 0;
+                var A = new Triangle3d(s, p, q);
+                var B = edge ? new Triangle3d(p, s, u) : new Triangle3d(s, u, w);
+                if (ExactTriangleIntersection.IsDegenerate(ref A) || ExactTriangleIntersection.IsDegenerate(ref B))
+                    continue;
+                // distinct points get distinct ids, so the ids say which corners are shared
+                var ids = new Dictionary<Vector3d, int>();
+                int id(Vector3d x) { if (!ids.TryGetValue(x, out int i)) { i = ids.Count; ids[x] = i; } return i; }
+                var ia = new Index3i(id(A.V0), id(A.V1), id(A.V2));
+                var ib = new Index3i(id(B.V0), id(B.V1), id(B.V2));
+                bool expected = ExactTriangleIntersection.IntersectsBeyondShared(ia, ref A, ib, ref B);
+                Assert.True(expected == Remesher.pair_intersects(ia, ref A, ib, ref B), $"{A.V0} {A.V1} {A.V2} / {B.V0} {B.V1} {B.V2}");
+                Assert.True(expected == Remesher.pair_intersects(ib, ref B, ia, ref A), $"swapped: {A.V0} {A.V1} {A.V2} / {B.V0} {B.V1} {B.V2}");
+                if (flat) coplanar++;
+                if (expected) hits++;
+            }
+            Assert.True(coplanar > 10000 && hits > 1000, $"{coplanar} coplanar pairs, {hits} intersecting");
+        }
+
         [Theory]
         [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
         public void SameResultUnderSimilarity(string name)

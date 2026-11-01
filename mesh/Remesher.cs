@@ -1025,7 +1025,7 @@ namespace g3 {
         // ExactTriangleIntersection.IntersectsBeyondShared with an exact shortcut for the common case of neighbours that
         // share one vertex s: if the other two corners of one triangle lie strictly on the same side of the other's
         // plane, it meets that plane only at s, so the pair meets only at s
-        static bool pair_intersects(Index3i ia, ref Triangle3d A, Index3i ib, ref Triangle3d B)
+        internal static bool pair_intersects(Index3i ia, ref Triangle3d A, Index3i ib, ref Triangle3d B)
         {
             int nShared = 0, sa = -1, sb = -1;
             for (int i = 0; i < 3; ++i)
@@ -1163,9 +1163,11 @@ namespace g3 {
         }
 
         // PreventSelfIntersections, buffered passes: apply the moves (vModifiedV, vBufferV), then revert the moves of
-        // both triangles of every intersecting pair with a moved vertex until there is none. Serial, in triangle id
-        // order: the result does not depend on the thread timing. The grid is up to date afterwards.
-        void apply_moves_without_intersections()
+        // both triangles of every intersecting pair with a moved vertex until there is none. The first round (all
+        // triangles at a moved vertex) runs in parallel over an AABB tree, the later ones (around the reverted
+        // vertices) over the grid; each round collects a set of vertices to revert, so the result does not depend on
+        // the order or the thread timing. The grid is up to date afterwards.
+        void apply_moves_without_intersections(bool bParallel)
         {
             int NV = mesh.MaxVertexID;
             var oldPos = new Dictionary<int, Vector3d>();
@@ -1178,7 +1180,6 @@ namespace g3 {
             if (oldPos.Count == 0)
                 return;
             triangleGrid = null;
-            ensure_triangle_grid();
             var dirty = new SortedSet<int>();
             foreach (int vid in oldPos.Keys)
                 foreach (int tid in mesh.VtxTrianglesItr(vid))
@@ -1191,6 +1192,18 @@ namespace g3 {
                 if (is_moved(t.b)) revert.Add(t.b);
                 if (is_moved(t.c)) revert.Add(t.c);
             }
+            first_round_reverts(dirty, revert, bParallel);
+            dirty.Clear();
+            foreach (int vid in revert) {
+                vModifiedV[vid] = false;
+                mesh.SetVertex(vid, oldPos[vid]);
+                SelfIntersectionsRejected++;
+                OnVertexMoveRejected(vid);
+            }
+            ensure_triangle_grid();     // after the first reverts: the later rounds use it
+            foreach (int vid in revert)
+                foreach (int tid in mesh.VtxTrianglesItr(vid))
+                    dirty.Add(tid);
             while (dirty.Count > 0) {
                 revert.Clear();
                 foreach (int tid in dirty) {
@@ -1229,6 +1242,69 @@ namespace g3 {
                 }
             }
             gridTimestamp = mesh.Timestamp;
+        }
+
+        // the first round of apply_moves_without_intersections: the moved vertices of both triangles of every
+        // intersecting pair of a triangle in dirty with any other one, where one of the two has a moved vertex
+        void first_round_reverts(SortedSet<int> dirty, SortedSet<int> revert, bool bParallel)
+        {
+            var tree = new DMeshAABBTree3(mesh, true);
+            int[] tris = new int[dirty.Count];
+            dirty.CopyTo(tris);
+            bool[] isDirty = new bool[mesh.MaxTriangleID];
+            foreach (int tid in tris)
+                isDirty[tid] = true;
+            bool moved(Index3i t) { return vModifiedV[t.a] || vModifiedV[t.b] || vModifiedV[t.c]; }
+            var hits = new List<int>[tris.Length];
+            Action<int> test = (k) => {
+                int ta = tris[k];
+                if (mesh.IsTriangle(ta) == false)
+                    return;
+                Index3i ia = mesh.GetTriangle(ta);
+                Triangle3d A = new Triangle3d(mesh.GetVertex(ia.a), mesh.GetVertex(ia.b), mesh.GetVertex(ia.c));
+                if (ExactTriangleIntersection.IsDegenerate(ref A))
+                    return;
+                bool aMoved = moved(ia);
+                AxisAlignedBox3d box = new AxisAlignedBox3d(A.V0); box.Contain(A.V1); box.Contain(A.V2);
+                List<int> local = null;
+                tree.DoTraversal(new DMeshAABBTree3.TreeTraversal() {
+                    // closed boxes (AxisAlignedBox3d.Intersects is open: flat boxes of axis-plane triangles)
+                    NextBoxDF = (b, depth) => !(b.Max.x < box.Min.x || b.Min.x > box.Max.x || b.Max.y < box.Min.y || b.Min.y > box.Max.y
+                        || b.Max.z < box.Min.z || b.Min.z > box.Max.z),
+                    NextTriangleF = (tb) => {
+                        if (tb == ta || (tb < ta && isDirty[tb]))
+                            return;         // a pair of two dirty triangles once, from the lower id
+                        Index3i ib = mesh.GetTriangle(tb);
+                        if (aMoved == false && moved(ib) == false)
+                            return;         // both as before the pass
+                        Triangle3d B = new Triangle3d(mesh.GetVertex(ib.a), mesh.GetVertex(ib.b), mesh.GetVertex(ib.c));
+                        if (ExactTriangleIntersection.IsDegenerate(ref B))
+                            return;
+                        if (pair_intersects(ia, ref A, ib, ref B)) {
+                            if (local == null) local = new List<int>();
+                            local.Add(tb);
+                        }
+                    }
+                });
+                hits[k] = local;
+            };
+            if (bParallel)
+                gParallel.ForEach(Interval1i.Range(tris.Length), test);
+            else
+                for (int k = 0; k < tris.Length; ++k) test(k);
+            void revert_moved(int tid) {
+                Index3i t = mesh.GetTriangle(tid);
+                if (vModifiedV[t.a]) revert.Add(t.a);
+                if (vModifiedV[t.b]) revert.Add(t.b);
+                if (vModifiedV[t.c]) revert.Add(t.c);
+            }
+            for (int k = 0; k < tris.Length; ++k) {
+                if (hits[k] == null)
+                    continue;
+                revert_moved(tris[k]);
+                foreach (int tb in hits[k])
+                    revert_moved(tb);
+            }
         }
 
         /// <summary>
@@ -1452,7 +1528,7 @@ namespace g3 {
             if (MinTriangleQuality > 0)
                 revert_flipping_moves();
             if (PreventSelfIntersections) {
-                apply_moves_without_intersections();
+                apply_moves_without_intersections(bParallel);
                 return;
             }
             // [TODO] can probably use block-parallel here...

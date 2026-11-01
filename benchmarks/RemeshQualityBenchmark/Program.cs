@@ -7,7 +7,8 @@
 //
 //   dotnet run -c Release --project benchmarks/RemeshQualityBenchmark -- [thingi=<dir>] [only=<regex>] [quality=0.2] [runs=1]
 //       [base=0] [si=1]
-// base=<q>: the quality of the "off" run (default 0); si=1: Remesher.PreventSelfIntersections in the "on" runs
+// base=<q>: the quality of the "off" run (default 0); si=1: Remesher.PreventSelfIntersections in the "on" runs,
+// si_from=<k>: only from pass k on (0-based; an alternative that skips the check in the first passes)
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -41,6 +42,7 @@ static class Program
         fidelity = A.ContainsKey("fidelity") == false || A["fidelity"] != "0";
         double baseQuality = A.ContainsKey("base") ? double.Parse(A["base"], CultureInfo.InvariantCulture) : 0;
         preventOn = A.ContainsKey("si") && A["si"] == "1";
+        preventFrom = A.ContainsKey("si_from") ? int.Parse(A["si_from"]) : 0;
         int runs = A.ContainsKey("runs") ? int.Parse(A["runs"]) : 1;
 
         var cases = new List<(string group, string name, DMesh3 input, double target)>();
@@ -84,7 +86,7 @@ static class Program
         }
         for (int k = 0; k < qualities.Length; ++k) {
             Console.WriteLine();
-            Console.WriteLine($"## MinTriangleQuality = {qualities[k].ToString(CultureInfo.InvariantCulture)}{(preventOn ? " with PreventSelfIntersections" : "")} (on) " +
+            Console.WriteLine($"## MinTriangleQuality = {qualities[k].ToString(CultureInfo.InvariantCulture)}{(preventOn ? " with PreventSelfIntersections" + (preventFrom > 0 ? $" from pass {preventFrom}" : "") : "")} (on) " +
                 $"vs {baseQuality.ToString(CultureInfo.InvariantCulture)} (off)");
             Summary(rows.Select(r => (r.group, r.name, r.off, r.on[k])).ToList());
         }
@@ -92,6 +94,7 @@ static class Program
     }
 
     static bool fidelity = true, preventOn = false;
+    static int preventFrom = 0;
 
     static readonly double[] Targets = { 0.1, 0.15, 0.2, 0.3, 0.45, 0.6 };
 
@@ -136,11 +139,14 @@ static class Program
     static DMesh3 Remesh(DMesh3 input, double target, double quality, bool prevent, out int rejectedPasses, out int siRejected)
     {
         DMesh3 mesh = new DMesh3(input);
-        var r = new Remesher(mesh) { SmoothSpeedT = 0.5, MinTriangleQuality = quality, PreventSelfIntersections = prevent };
+        var r = new Remesher(mesh) { SmoothSpeedT = 0.5, MinTriangleQuality = quality };
         r.SetProjectionTarget(MeshProjectionTarget.Auto(input));
         MeshConstraintUtil.PreserveBoundaryAndFeatures(r, 30);
         r.SetTargetEdgeLength(target);
-        for (int k = 0; k < 20; ++k) r.BasicRemeshPass();
+        for (int k = 0; k < 20; ++k) {
+            r.PreventSelfIntersections = prevent && k >= preventFrom;
+            r.BasicRemeshPass();
+        }
         rejectedPasses = r.InvertingPassesRejected;      // RejectInvertingPasses (default on)
         siRejected = r.SelfIntersectionsRejected;
         return mesh;
