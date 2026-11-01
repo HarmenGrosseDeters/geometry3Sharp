@@ -31,32 +31,72 @@ rounding. Consumers, in order of value:
   points), generated with a filter and an exact `FixedArith` stage; 47-84 ns per call when the filter decides,
   about 1-2 µs when it does not; for integer inputs `|x| ≤ 2^53`.
 
-## 3. The algorithm (paper and `fast-envelope`, MIT)
+## 3. The algorithm (the paper, sections 3 and 4)
 
-Sources read: the paper's abstract and the reference implementation `fast-envelope`
-(github.com/wangbolun300/fast-envelope, MIT license, checked: `LICENSE`, copyright 2019 the authors), its `src/`
-only. Its bundled `indirectPredicates/` and `geogram_predicates/` were not read (their licenses are not checked, and
-nothing of them is needed: our predicates are generated). The paper's full text could not be
-fetched from this session (its hosts are outside the network policy); section 9 lists what to confirm in it.
+Sources: the paper (its method sections, summarized for this document from the owner's copy) and, as a reference
+only, `fast-envelope` (github.com/wangbolun300/fast-envelope, MIT license checked: `LICENSE`, copyright 2019 the
+authors; its `src/` read). Its bundled `indirectPredicates/` and `geogram_predicates/` stay unread (their licenses are
+not checked, and nothing of them is needed: our predicates are generated).
 
-- **Polyhedra.** Per input triangle a convex polyhedron that contains the triangle and lies within its ε
-  neighbourhood: two caps parallel to the triangle at ±δ along the normal, one face per edge at δ outside it, and
-  extra faces that cut the corners (at obtuse angles more). `fast-envelope` uses δ = ε / √3 (a cube-like bound:
-  every point of the polyhedron is within √3 δ = ε of the triangle). **Each face is the plane through three points
-  given as doubles**, not a plane equation: the faces are then exact, and every predicate is an orient3d on
-  doubles or on implicit points built from doubles.
-- **Point query:** inside some candidate polyhedron (orient3d against its faces).
-- **Segment query:** both ends inside; for every polyhedron the segment crosses, the points where the segment
-  crosses that polyhedron's faces (LPI points) must lie in some other polyhedron (`Orient3dLPI` against the other
-  polyhedra's faces). If every such point is covered, the segment is.
-- **Triangle query:** the three vertices; the three edges as segments; and the points where the triangle's plane
-  meets a line of two faces of a crossed polyhedron (TPI points: the triangle's plane and two face planes), inside
-  the triangle, must lie in some other polyhedron (`Orient3dTPI`). If all these critical points are covered, the
-  triangle is (the paper's argument: the uncovered part of the triangle would have a vertex at one of them).
-- **Search:** an AABB tree over the polyhedra's boxes gives the candidates of a query; the implementation keeps a
-  queue of covering polyhedra and checks the most recent cover first.
-- **Amortization:** an implicit point is set up once (`orient3D_LPI_prefilter` / `pre_exact`: its numerator and
-  denominator with their error bounds) and then tested against many faces (`postfilter` / `post_exact`).
+**Setup.** Input: a triangle soup M (it may self-intersect or share vertices) and ε. Stage 1 builds one open convex
+polyhedron P per input triangle; their union PS is the envelope. Stage 2 decides whether a query triangle T lies
+strictly inside PS: a point on the boundary of PS counts as outside. The union is never built (an explicit Boolean
+union took the authors 3 h for 312 faces).
+
+**Stage 1: the polyhedron per triangle (Prop. 3.1).** With δ = ε / √3, P is bounded by: a floor and a ceiling plane
+parallel to T at distance δ; three side planes orthogonal to T, each parallel to one edge at distance δ; and for every
+acute or right vertex a cap plane at distance δ from the vertex, orthogonal to the line from the vertex to the
+barycenter (obtuse vertices need none). Every point of P is within ε of T: the in-plane overshoot is at most √2 δ, so
+the distance is at most √(2 δ² + δ²) = ε. The envelope is conservative (only δ thick on flat regions; about √3 times
+the volume of the L2 envelope). **Each facet is an oriented plane given by three points**, not by coefficients and
+not as a polygon: polygon corners in doubles are not exactly coplanar and could make P non-convex. Containment means
+strictly below every plane. Other shapes (closer to L2, adaptive sizes) are allowed: only convexity and the
+half-space representation matter.
+
+**Stage 2: the containment theorem (Thm. 3.2).** T is inside PS if and only if:
+- **C1:** each vertex of T is inside some P;
+- **C2:** every point where an edge of T meets a facet of some P lies in a polyhedron P* ≠ P;
+- **C3:** for every pair of facets F_l (of P_i) and F_m (of P_j), P_i = P_j allowed, the point T ∩ F_l ∩ F_m, if
+  inside T, lies in a polyhedron P* other than P_i and P_j.
+
+The proof uses that the P are open and PS is finite: the edges are covered by walking from polyhedron to
+polyhedron, then the interior through the vertices of the covering's boundary polygon.
+
+**Predicates: no constructions, no divisions.**
+- C1: orient3d of a vertex against each facet's three points.
+- C2: `orient3d_LPI(r, s; t, u, v; a, b, c)`, the sign of orient3d(p, a, b, c) for the point p of line rs and plane
+  tuv. The paper writes p = r + (α / β)(s − r) and multiplies all three rows by β, so its determinant is β³ times the
+  orientation. Ours (`Orient3dLPI`, #246) multiplies only the row of p: `det(N − d c, a − c, b − c)` with `d` its
+  denominator, so the sign is that of the determinant times `sign(d)`, two degrees lower (6 instead of 8 in the
+  coordinates). That p lies on the segment is checked separately: r and s strictly on opposite sides of plane tuv
+  (plain orient3d), which also guarantees `d ≠ 0`.
+- C3: `orient3d_TPI(three planes; q1, q2, q3)`: normals from each plane's points, offsets, β the determinant of the
+  normals, the numerator by Cramer's rule; ours is `Orient3dTPI` (#246), again with the point's row alone multiplied.
+  Whether p lies inside T: three `orient3d_TPI` calls against the planes through each edge of T and a point off T's
+  plane.
+- Evaluation chain in the paper: a semi-static filter (Meyer & Pion style: a constant times the product of the
+  per-axis maxima of the coordinate differences), then interval arithmetic, then expansions. Its constants (LPI: β
+  about 5.11e-15 · δ1 δ2 δ3, the orientation about 1.39e-13 · six δs; TPI β about 8.89e-14 · six δs) are for its own
+  formulas; ours are derived by our generator (#250) and are not copied.
+
+**Algorithm (Listing 1, naive):** C1 for the three vertices; for every polyhedron, facet and edge whose endpoints are
+strictly on opposite sides of the facet's plane, search a P' ≠ P containing the LPI point (strictly below all facets
+of P'); none: OUT. For every pair of facets whose TPI point is inside T, search a P' outside {P_i, P_j} containing it;
+none: OUT. Otherwise IN.
+
+**Acceleration (section 3.2.4, about 100× together):**
+- an AABB tree selects the candidate polyhedra;
+- a float-only prefilter after C1: a vertex outside gives OUT; one P containing all three vertices gives IN;
+  otherwise only the polyhedra whose facets may intersect T are kept (a polyhedron is dropped only when the filters
+  are certain: about 30 % go); the prefilter also lists per polyhedron the facets that may intersect T, C2 and C3
+  iterate over those only, and the inner orientation loop tests them first;
+- covering: start from a polyhedron P_C containing a vertex, keep a cover set C; each new intersection point is
+  searched in C first, then in PS; a point already covered by C creates no new points, else its polyhedron joins C
+  and its intersection points are processed; edges first, then the interior.
+
+**Results (paper):** a naive rational implementation is 100× slower than with their predicates and 10 000× slower
+than the accelerated version; on Thingi10K, in QSlim and remeshing, the method is exact and faster than sampling or
+Hausdorff bounds when the envelope is thin.
 
 ## 4. Design
 
@@ -89,11 +129,15 @@ A new internal class `PolyhedralEnvelope` (`mesh_ops/`), with the query API of `
 snapshot of the mesh. Not public until the acceptance (section 5) and the owner decide: then either a public
 class, or `MeshEnvelope`'s implementation replaced behind its unchanged API (compatible with upstream 1.0.324).
 
-- **Polyhedra:** the faces as three double points each. The construction follows the guarantee, not
-  `fast-envelope`'s constants: every point of the polyhedron within ε of its triangle, proven with the rounding of
-  the construction (as `MeshEnvelope` does for its offsets), and the triangle inside. Proposal: δ along the normal
-  and laterally chosen to maximize the volume under that bound (the slab and lateral fractions of `MeshEnvelope`,
-  0.8 and 0.6, rather than 1/√3 each: the envelope then accepts more), with the corner faces as in the paper.
+- **Polyhedra:** each facet as three points computed in double (the cap and side planes are constructed points).
+  The polyhedron is then exactly the region strictly below those three-point planes; its distance to the triangle is
+  ε only up to the rounding of the constructed points. The design takes that rounding off the offsets, as
+  `MeshEnvelope` does: the computed points are within a proven bound of the ideal ones (a few ulps of the
+  coordinates, derived in the code), the offsets are reduced by it, and the doc states the resulting guarantee:
+  every point of every polyhedron within ε of its triangle, and the triangle strictly inside. Proposal for the
+  shape (question 2): the paper allows any convex half-space shape; the slab and lateral fractions of `MeshEnvelope`
+  (0.8 ε along the normal, 0.6 ε sideways: 0.8² + 0.6² = 1) give about 1.4 times δ = ε / √3 in each direction, so
+  the envelope accepts more, with the caps of Prop. 3.1 at acute vertices.
 - **Degenerate triangles:** a polyhedron around the longest edge or the point (as `MeshEnvelope`).
 - **Search:** the existing box tree of the arrangement (`ExactMeshArrangement`'s array box tree) or
   `DMeshAABBTree3` over the polyhedra's boxes; candidate lists per query without allocation.
@@ -154,9 +198,9 @@ Stop rule: if after PR 3 the triangle query is not within a factor of 5 of the d
 - M. Attene, *Indirect Predicates for Geometric Constructions*, CAD 2020 (the indirect predicates).
 - J. R. Shewchuk 1997 (expansions, not needed per INDIRECT_PREDICATES.md section 10).
 
-## 9. To confirm in the paper's full text
+## 9. Still to check in the paper
 
-Not reachable from this session (network policy: par.nsf.gov and wangbolun300.github.io are not allowed). To check before PR 2: the polyhedron construction and its
-proof of the ε bound; the argument that the critical points (LPI on edges, TPI on face lines) suffice for
-triangle containment, including touching and coplanar cases; how degenerate triangles are handled; the reported
-timings against sampling methods.
+The method sections are summarized in section 3 (from the owner's copy, via the coordinator). Open: the exact
+statement of Prop. 3.1 for degenerate and very thin triangles, and the proof's treatment of queries that touch a
+facet or a polyhedron's edge (the openness of P makes such points "outside"; the tests of PR 2 and 3 must cover
+them). If needed, the owner can upload the PDF into the session.
