@@ -51,6 +51,16 @@ Every worker session gets a brief with these fields, and nothing open-ended:
 - **Upper bound before a performance spike**: measure the share of the targeted work and multiply by the possible
   speedup first (a probe or a micro benchmark, minutes). If that bound is below the measurement noise, the stop rule
   applies without full A/B runs (`run_classes.sh` and the like).
+- **Look before you build** (owner, 2026-11-01): before designing an optimization or a new algorithm, do two short
+  checks and record them in the design note or PR:
+  1. **The library:** search it for existing solutions and building blocks (predicates and filters, `tools/
+     PredicateCompiler`, spatial indexes, the "Shared hotspots across sessions" table in ROADMAP.md, OPERATIONS.md).
+     Today's examples: the boolean's kernel B and the self-intersection filter hit the same exact-`Orient3d` hotspot,
+     and the envelope reused the indirect predicates.
+  2. **The literature:** papers, standards and documentation on the problem (e.g. the normal-cone culling for
+     self-intersection checks, OGC SFA for polygon nesting, snap rounding). The license rules apply: implement from
+     papers, port only MIT / Apache / BSD, never GPL code, never Triangle / Triangle.NET. Cite the sources in
+     docs/SOURCES.md.
 - **No claim without output.** Every number in a PR names the command and its raw output (as
   `benchmarks/BooleanComparison/perf/` does). The reviewer re-runs a sample.
 - Machine checks replace review where possible ([QA.md 4a](QA.md#4a-making-agent-work-verifiable), items 1-3):
