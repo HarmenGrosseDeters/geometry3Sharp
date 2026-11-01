@@ -38,6 +38,9 @@ Nothing in the library does snap rounding. `docs/SOURCES.md` already cites Hobby
 
 ## 3. What the checks change: four conflicts between ISR and O11
 
+**Owner decision, 2026-11-01: all four proposals below are accepted** (recorded in `MESHING2D_DECISIONS.md`, D14): ISRBD, hot regions of
+radius tol centred at the vertices, untouched vertices keep their input coordinates, the gap band documented.
+
 D14 approved ISR at the explicit tolerance. The checks show four places where plain ISR and O11 disagree. These are for the owner to settle before building:
 
 1. **Drift (O11: moves at most the tolerance).** ISR's drift is unbounded in the worst case; SR's is half a pixel. *Proposal:* the
