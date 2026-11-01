@@ -8,10 +8,16 @@ namespace G3PredicateCompiler
     {
         // PredicateCompiler --table <spec>: print the bound table
         // PredicateCompiler --doc <spec> <doc.md>: replace the generated table block of the design doc
+        // PredicateCompiler --code <spec> <out.cs>: the generated predicates (class IndirectPredicates)
         static int Main(string[] args)
         {
             if (args.Length == 2 && args[0] == "--table") {
                 Console.Write(PredicateCompiler.Table(File.ReadAllText(args[1])));
+                return 0;
+            }
+            if (args.Length == 3 && args[0] == "--code") {
+                File.WriteAllText(args[2], PredicateCompiler.Code(File.ReadAllText(args[1]), args[1], args[2], "IndirectPredicates"));
+                Console.WriteLine($"wrote {args[2]}");
                 return 0;
             }
             if (args.Length == 3 && args[0] == "--doc") {
@@ -28,7 +34,7 @@ namespace G3PredicateCompiler
                 Console.WriteLine($"updated {args[2]}");
                 return 0;
             }
-            Console.Error.WriteLine("usage: PredicateCompiler --table <spec> | PredicateCompiler --doc <spec> <doc.md>");
+            Console.Error.WriteLine("usage: PredicateCompiler --table <spec> | --doc <spec> <doc.md> | --code <spec> <out.cs>");
             return 2;
         }
     }

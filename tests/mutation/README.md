@@ -33,7 +33,7 @@ workflow". On a pull request, it waits until the PR is ready for review (drafts 
 | a mutated file | incremental: the mutants of the changed lines; the others keep their result from the baseline (below). Without a baseline in the cache: the whole shard | yes, on the combined score |
 | the config | the whole shard | yes |
 | only tests of the `test-case-filter` | `--since`: the mutants those tests cover | no: a score over a part of the mutants is not comparable with the threshold, so it only reports |
-| `.config/dotnet-tools.json`, the workflow | every config in full | yes |
+| `.config/dotnet-tools.json`, the workflow | every config in full; an edit of the workflow that only adds or removes single-quoted items of the trigger `paths` (or comments and blank lines there or in the header before `on:`) runs nothing by itself (`select_shards.py` checks the diff by line position) | yes |
 | anything else, including `geometry3Sharp.Tests.csproj` | nothing (the weekly run covers it) | |
 
 "Run workflow" (workflow_dispatch) runs every config in full, or only the ones named in its `shards` input
@@ -187,6 +187,7 @@ each). Each shard runs the unit tests of its file (the `test-case-filter` of its
 | `arrangement-1`, `arrangement-2` | `mesh_ops/ExactMeshArrangement.cs`, split at `build_triangles` | `ExactFilterBoundTests`, `ExactArrangementScalingTests`, `ExactMeshBooleanTests`, `ExactBooleanEdgeOrderTests`, `ExactBooleanBuildingBlockTests`, the `ExactVertices` tests, `BooleanPerformanceTests`, `ExactImplicitPointTests`, `ExactPoint3FixedWidthTests`, `ExactBooleanPairSearchTests`, `ExactTouchOnlyCoplanarTests`, `ExactPlanesFixedWidthTests` |
 | `planar` | `mesh_ops/ExactPlanarSimplify.cs`, `mesh_ops/ExactTriangulation2.cs` | `ExactPlanarSimplifyTests`, `ExactTriangulation2Tests`, `ExactBooleanBuildingBlockTests`, `ExactMeshBooleanTests` |
 | `fixed` | `math/FixedPoint3.cs` (the arrangement's fixed-width exact points and their arithmetic; a shard of its own, so that its score does not mix with the threshold of `stryker-config.json`) | `ExactPoint3FixedWidthTests`, `ExactBooleanBuildingBlockTests`, `ExactPlanesFixedWidthTests` |
+| `generated` | `math/Generated/IndirectPredicates.cs` (the generated indirect predicates, docs/design/INDIRECT_PREDICATES.md; with the filter (#250) 94.94 %, 826 of 870 killed; the survivors: 26 that only shrink the filter's bound (its magnitude path; no input reaches the slack, the derivation and the constant tests guard it), exception texts, comparisons at equality that cannot occur, the always-exact path; break 92) | `GeneratedPredicatesIndirectTests` |
 
 On a pull request, the workflow's `changes` job starts `exact-mesh` only if one of these files, their tests or
 the configs changed (not this README) (and `exact-arithmetic` only for its own files); schedule and "Run workflow" start both. A new

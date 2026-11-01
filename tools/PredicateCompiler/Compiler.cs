@@ -43,6 +43,59 @@ namespace G3PredicateCompiler
 {
     public enum Op { Input, Add, Sub, Mul }
 
+    /// <summary> an exact rational (the filter's error coefficients) </summary>
+    public readonly struct Rational
+    {
+        public readonly BigInteger Num, Den;    // Den > 0, reduced
+        public Rational(BigInteger num, BigInteger den)
+        {
+            if (den.Sign < 0) { num = -num; den = -den; }
+            var g = BigInteger.GreatestCommonDivisor(num, den);
+            if (!g.IsZero && !g.IsOne) { num /= g; den /= g; }
+            Num = num; Den = den;
+        }
+        public static Rational Int(long v) => new Rational(v, 1);
+        public static readonly Rational Zero = Int(0), One = Int(1);
+        /// <summary> u = 2^-53, the unit roundoff of round to nearest </summary>
+        public static readonly Rational U = new Rational(1, BigInteger.Pow(2, 53));
+        public static Rational operator +(Rational a, Rational b) => new Rational(a.Num * b.Den + b.Num * a.Den, a.Den * b.Den);
+        public static Rational operator -(Rational a, Rational b) => new Rational(a.Num * b.Den - b.Num * a.Den, a.Den * b.Den);
+        public static Rational operator *(Rational a, Rational b) => new Rational(a.Num * b.Num, a.Den * b.Den);
+        public static Rational operator /(Rational a, Rational b) => new Rational(a.Num * b.Den, a.Den * b.Num);
+        public static bool operator <=(Rational a, Rational b) => (b - a).Num.Sign >= 0;
+        public static bool operator >=(Rational a, Rational b) => (a - b).Num.Sign >= 0;
+        public static Rational Max(Rational a, Rational b) => a >= b ? a : b;
+        /// <summary> the exact value of a finite double </summary>
+        public static Rational FromDouble(double d)
+        {
+            long bits = BitConverter.DoubleToInt64Bits(d);
+            int e = (int)((bits >> 52) & 0x7FF);
+            long m = bits & 0xFFFFFFFFFFFFFL;
+            if (e == 0) e = 1; else m |= 1L << 52;
+            e -= 1075;
+            BigInteger M = (bits < 0) ? -m : m;
+            return e >= 0 ? new Rational(M * BigInteger.Pow(2, e), 1) : new Rational(M, BigInteger.Pow(2, -e));
+        }
+        /// <summary> the smallest double >= this (positive, normal range) </summary>
+        public double CeilDouble()
+        {
+            // an approximation from the top 60 bits of both (numerator and denominator can exceed the double range)
+            int k = Math.Max(0, (int)Num.GetBitLength() - 60), j = Math.Max(0, (int)Den.GetBitLength() - 60);
+            double d = Math.ScaleB((double)(Num >> k) / (double)(Den >> j), k - j);
+            if (!(d > 0) || double.IsInfinity(d))
+                throw new NotSupportedException("CeilDouble: not a positive value in the double range");
+            while (!(FromDouble(d) >= this)) d = Math.BitIncrement(d);
+            while (FromDouble(Math.BitDecrement(d)) >= this) d = Math.BitDecrement(d);
+            return d;
+        }
+        /// <summary> as a multiple of u, for comments </summary>
+        public string InUnitsOfU()
+        {
+            var q = this / U;
+            return ((double)q.Num / (double)q.Den).ToString("0.######", CultureInfo.InvariantCulture) + " u";
+        }
+    }
+
     /// <summary> a polynomial in m with nonnegative integer coefficients: degree -> coefficient </summary>
     public sealed class Bound
     {
@@ -91,6 +144,13 @@ namespace G3PredicateCompiler
         public int Limbs => (Bits + 63) / 64;
         public int ArenaLimbs;  // the length rule: the limbs the operation takes (inputs: their length)
         public int LengthOnly;  // the same without the value bounds
+        // the filter (double inputs that are integers, |x| <= 2^53): |e~ - e| <= C m~, e~ the computed value, m~ the
+        // computed magnitude; Leaf: a sum or difference of two inputs (m~ = |e~|)
+        public Rational C;
+        public bool Leaf => (Op == Op.Add || Op == Op.Sub) && A.Op == Op.Input && B.Op == Op.Input;
+        // the expansion stage (Shewchuk): the static worst-case number of components of the value as an expansion from
+        // exact double inputs: input 1, a sum or difference la + lb, a product 2 la lb (a difference of two inputs: 2)
+        public BigInteger ExpansionLength;
         // the most limbs the value has (trimmed): its bound's, never more than the operation took (a product of
         // values below 2^(64 la), 2^(64 lb) is below 2^(64 (la + lb)), a sum below 2^(64 max + 1))
         public int Length => Limbs;
@@ -104,9 +164,21 @@ namespace G3PredicateCompiler
         public int InputBits;
         public BigInteger InputBound => BigInteger.Pow(2, InputBits) - 1;
         public List<Node> Nodes = new List<Node>();     // topological order
-        public Node Root;
+        /// <summary> the first sign factor (the predicate's sign is the product of the signs of Signs) </summary>
+        public Node Root => Signs[0];
+        public List<Node> Signs = new List<Node>();
+        /// <summary> the inputs: p.x, p.y, p.w (components i, j of the projection, and W) or, with 'inputs xyz', the
+        /// coordinates p.x, p.y, p.z of integer points (W = 1) </summary>
+        public bool Xyz;
+        public string Comps => Xyz ? "xyz" : "xyw";
         /// <summary> the limbs one call takes from its FixedArena (the length rule) </summary>
         public int ArenaScratch;
+        /// <summary> the expansion stage is generated only for a predicate whose every sign factor has fewer than this
+        /// many components in the worst case (owner decision: below 1024, docs/design/INDIRECT_PREDICATES.md section 5) </summary>
+        public const int MaxExpansionLength = 1024;
+        public bool HasExpansionStage => Signs.All(n => n.ExpansionLength < MaxExpansionLength);
+        /// <summary> the filter's test constant per sign factor: the factor's sign is decided if |e~| > fl(K m~) </summary>
+        public List<double> FilterK = new List<double>();
         /// <summary> ArenaScratch without the value bounds (the operands' lengths only) </summary>
         public int LengthScratch;
         /// <summary> the limbs one call needs if every value had a buffer of its bound (the value rule) </summary>
@@ -115,6 +187,12 @@ namespace G3PredicateCompiler
 
     public static class PredicateCompiler
     {
+        // point names that would clash with the generated code: the axes, and C# keywords
+        static readonly HashSet<string> Reserved = new HashSet<string>(("i j abstract as base bool break byte case catch char checked class const continue " +
+            "decimal default delegate do double else enum event explicit extern false finally fixed float for foreach goto if implicit in int " +
+            "interface internal is lock long namespace new null object operator out override params private protected public readonly ref " +
+            "return sbyte sealed short sizeof stackalloc static string struct switch this throw true try typeof uint ulong unchecked unsafe " +
+            "ushort using virtual void volatile while").Split(' '));
         public const string TableBegin = "<!-- generated by tools/PredicateCompiler --table; do not edit -->";
         public const string TableEnd = "<!-- end of the generated table -->";
 
@@ -125,6 +203,9 @@ namespace G3PredicateCompiler
             foreach (var p in preds) {
                 value_bounds(p);
                 fixedarith_lengths(p);
+                if (p.Xyz)
+                    filter_bounds(p);       // only the inputs xyz predicates get a filter (the double entry)
+                expansion_lengths(p);
             }
             return preds;
         }
@@ -141,6 +222,52 @@ namespace G3PredicateCompiler
                 n.Max = n.Bound.At(p.InputBound);
             }
             p.ValueScratch = p.Nodes.Where(n => n.Op != Op.Input).Sum(n => n.Limbs);
+        }
+
+        // the filter rule, for inputs that are integers given as doubles, |x| <= 2^53 (exact), evaluated in double with
+        // round to nearest (u = 2^-53). The values are integers, so no product underflows: fl(x op y) = (x op y)(1 + d),
+        // |d| <= u. Invariant |e~ - e| <= c m~ with |e~| <= m~ (rounding is monotone):
+        //   input:           e~ = x, m~ = |x|, c = 0
+        //   input +- input:  m~ = |e~|, c = u           (|fl(s) - s| <= u |fl(s)|)
+        //   x +- y:          m~ = fl(m~x + m~y), c = (u + max(cx, cy)) / (1 - u)
+        //                    (|e~ - e| <= u |s| + cx m~x + cy m~y <= (u + max) (m~x + m~y), m~x + m~y <= m~ / (1 - u))
+        //   x y:             m~ = fl(m~x m~y), c = (u + cx + cy + cx cy) / (1 - u)
+        //                    (|e~ - e| <= u |x~ y~| + |x~ - x| |y~| + |x| |y~ - y|, |x| <= (1 + cx) m~x)
+        // A sign factor e is decided if m~ = 0 (then e = 0: every product is an exact 0) or |e~| > fl(K m~) with
+        // K >= c / (1 - u) a double (fl(K m~) >= K m~ (1 - u) >= c m~, so |e| >= |e~| - c m~ > 0 and the signs agree).
+        // No overflow: |x| <= 2^53 and the degree and coefficients of the formulas here keep every value below 2^1000.
+        // The model is strict IEEE double rounding at every operation (RyuJIT / SSE2; x87 only with 53-bit precision
+        // control), the same assumption as AdaptivePredicates.
+        static void filter_bounds(Predicate p)
+        {
+            var u = Rational.U;
+            var one = Rational.One;
+            foreach (var n in p.Nodes) {
+                switch (n.Op) {
+                    case Op.Input: n.C = Rational.Zero; break;
+                    case Op.Add: case Op.Sub:
+                        n.C = n.Leaf ? u : (u + Rational.Max(n.A.C, n.B.C)) / (one - u);
+                        break;
+                    case Op.Mul:
+                        n.C = (u + n.A.C + n.B.C + n.A.C * n.B.C) / (one - u);
+                        break;
+                }
+            }
+            p.FilterK = p.Signs.Select(n => (n.C / (one - u)).CeilDouble()).ToList();
+
+            // degree check: every value below 2^1000 at |x| <= 2^53 (bound polynomial at 2^53)
+            foreach (var n in p.Nodes)
+                if (n.Bound.At(BigInteger.Pow(2, 53)).GetBitLength() > 1000)
+                    throw new NotSupportedException($"{p.Name}: the filter could overflow");
+        }
+
+        // the static worst-case length of each value as an expansion (Shewchuk) from exact double inputs: an input 1, a
+        // sum or difference la + lb (expansion sum), a product 2 la lb (each component of one scaled by the other)
+        static void expansion_lengths(Predicate p)
+        {
+            foreach (var n in p.Nodes)
+                n.ExpansionLength = n.Op == Op.Input ? 1 : n.Op == Op.Mul ? 2 * n.A.ExpansionLength * n.B.ExpansionLength
+                    : n.A.ExpansionLength + n.B.ExpansionLength;
         }
 
         // the length rule: a model of FixedArith (Mul / Add / Sub on a FixedArena), after value_bounds
@@ -183,7 +310,8 @@ namespace G3PredicateCompiler
                 foreach (var n in p.Nodes) shapes[n] = shape(n, shapes);
                 foreach (var g in p.Nodes.Where(n => n.Op != Op.Input).GroupBy(n => shapes[n])) {
                     var nodes = g.ToList();
-                    string label = nodes.Contains(p.Root) ? "the determinant" : label_of(nodes);
+                    string label = nodes.Contains(p.Root) ? (p.Signs.Count == 1 ? "the determinant" : "the determinant (sign factor 1)")
+                        : nodes.Any(n => p.Signs.Contains(n)) ? label_of(nodes) + " (a sign factor)" : label_of(nodes);
                     var n0 = nodes[0];
                     sb.Append($"| `{p.Name}` | {label} | `{n0.Bound}` | {inv(n0.Bits)} | {inv(n0.Limbs)} | {inv(n0.ArenaLimbs)} |\n");
                 }
@@ -193,6 +321,179 @@ namespace G3PredicateCompiler
             sb.Append(TableEnd).Append('\n');
             return sb.ToString();
         }
+
+        /// <summary>
+        /// the generated C# of a spec (math/Generated/IndirectPredicates.cs): per predicate, the exact stage on
+        /// FixedArith for inputs within the bound (a FixedArena of the derived scratch), and a BigInteger evaluation of
+        /// the same graph for inputs beyond it
+        /// </summary>
+        public static string Code(string spec, string specPath, string outPath, string className)
+        {
+            var preds = Analyze(spec);
+            var sb = new StringBuilder();
+            // (no <auto-generated> marker: Roslyn skips such files in analyzers, and the exact-code analyzers must see it)
+            sb.Append($"// Generated by tools/PredicateCompiler from {specPath}. Do not edit; regenerate with:\n");
+            sb.Append($"//   dotnet run --project tools/PredicateCompiler -- --code {specPath} {outPath}\n");
+            sb.Append("// (GeneratedPredicatesTests fails when this file differs from the generator's output.)\n");
+            sb.Append("// Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt\n");
+            sb.Append("using System;\nusing System.Numerics;\nusing System.Runtime.CompilerServices;\n\nnamespace g3\n{\n");
+            sb.Append("    /// <summary>\n");
+            sb.Append("    /// Exact sign predicates generated from their formulas by tools/PredicateCompiler (docs/design/INDIRECT_PREDICATES.md).\n");
+            sb.Append("    /// Inputs within the bound of a predicate are evaluated on FixedArith, every value with the limbs its derived bound\n");
+            sb.Append("    /// allows (the comments), on a FixedArena of the derived scratch; inputs beyond it in BigInteger. No allocation on\n");
+            sb.Append("    /// the FixedArith path. A predicate with several sign factors is 0 when any factor is 0: an indirect predicate is\n");
+            sb.Append("    /// also 0 when its point does not exist (denominator d = 0: a line parallel to the plane, a degenerate triangle,\n");
+            sb.Append("    /// dependent planes); a caller that must tell this apart checks d itself. Orient3d*(..., a, b, c) is the sign of\n");
+            sb.Append("    /// det(x - c, a - c, b - c) = ExactPredicates.Orient3d(a, b, c, x) for the implicit point x.\n");
+            sb.Append("    /// </summary>\n");
+            sb.Append($"    internal static unsafe class {className}\n    {{\n");
+            sb.Append("        static int __len(ref FixedPoint3 p, int k) { return p.M[k] & 7; }\n");
+            sb.Append("        // the integers |x| <= 2^53: exact as doubles, one limb each\n");
+            sb.Append("        static bool __int(double x) { return Math.Abs(x) <= 9007199254740992.0 && Math.Floor(x) == x; }\n");
+            sb.Append("        static bool __grid(Vector3d p) { return __int(p.x) && __int(p.y) && __int(p.z); }\n");
+            sb.Append("        static FixedInt __load(double x, ulong* dst) { dst[0] = (ulong)Math.Abs(x); return new FixedInt(dst, x != 0 ? 1 : 0, x < 0); }\n");
+            foreach (var p in preds) {
+                if (p.InputBits % 64 != 0)
+                    throw new NotSupportedException($"{p.Name}: generated code needs a bound of whole limbs (b a multiple of 64)");
+                sb.Append('\n');
+                emit(p, sb);
+            }
+            sb.Append("    }\n}\n");
+            return sb.ToString();
+        }
+
+        // generated names: points match ^[a-z][a-z0-9]*$, so p_x and the names with a leading _ cannot clash with them
+        static string val(Node n) => n.Op == Op.Input ? n.Point + "_" + n.Comp : "_v" + inv(n.Id);
+
+        static void emit(Predicate p, StringBuilder sb)
+        {
+            string I1 = "        ", I2 = I1 + "    ";
+            int L = p.InputBits / 64;
+            var inputs = p.Nodes.Where(n => n.Op == Op.Input).ToList();
+            string axes = p.Xyz ? "" : ", int i, int j";
+            string comp(Node n) => n.Comp == 'x' ? (p.Xyz ? "0" : "i") : n.Comp == 'y' ? (p.Xyz ? "1" : "j") : p.Xyz ? "2" : "3";
+            string sign(Func<Node, string> f) => string.Join(" * ", p.Signs.Select(n => f(n) + ".Sign"));
+            sb.Append($"{I1}// {p.Name}: the sign of {string.Join(" times ", p.Signs.Select(ref_))}; every input component |v| <= m = 2^{inv(p.InputBits)} - 1\n");
+            foreach (var n in p.Signs)
+                sb.Append($"{I1}// {ref_(n)}: |.| <= {n.Bound} < 2^{inv(n.Bits)} ({inv(n.Limbs)} limbs)\n");
+            sb.Append($"{I1}// scratch: {inv(p.ArenaScratch)} limbs (FixedArith, derived)\n");
+            sb.Append("#if NET\n");
+            sb.Append($"{I1}[SkipLocalsInit]\n");
+            sb.Append("#endif\n");
+            sb.Append($"{I1}[MethodImpl(JitHints.Optimize)]\n");
+            sb.Append($"{I1}internal static int {p.Name}({string.Join(", ", p.Points.Select(x => "ref FixedPoint3 " + x))}{axes})\n{I1}{{\n");
+            if (p.Xyz) {
+                sb.Append($"{I2}if (!({string.Join(" && ", p.Points.Select(x => x + ".WIsOne"))}))\n");
+                sb.Append($"{I2}    throw new ArgumentException(\"{p.Name}: the inputs must be integer points (W = 1)\");\n");
+            }
+            var fits = inputs.Select(n => $"__len(ref {n.Point}, {comp(n)}) <= {inv(L)}");
+            sb.Append($"{I2}if (!({string.Join(" && ", fits)}))\n");
+            sb.Append($"{I2}    return {p.Name}Big({string.Join(", ", p.Points.Select(x => x + ".ToExact()"))}{(p.Xyz ? "" : ", i, j")});\n");
+            arena_body(p, sb, I2, (n, dst) => $"{n.Point}.Get({comp(n)}, {dst})");
+            sb.Append($"{I1}}}\n\n");
+            if (p.Xyz) {
+                if (p.InputBits < 54)
+                    throw new NotSupportedException($"{p.Name}: the double entry needs a bound of at least 2^53 (the exact stage takes the doubles)");
+                emit_double(p, sb);
+            }
+            // BigInteger
+            sb.Append($"{I1}/// <summary> {p.Name} in BigInteger (inputs beyond the bound) </summary>\n");
+            sb.Append($"{I1}[MethodImpl(JitHints.Optimize)]\n");
+            sb.Append($"{I1}internal static int {p.Name}Big({string.Join(", ", p.Points.Select(x => "ExactPoint3 " + x))}{axes})\n{I1}{{\n");
+            if (p.Xyz) {
+                sb.Append($"{I2}if (!({string.Join(" && ", p.Points.Select(x => x + ".W.IsOne"))}))\n");
+                sb.Append($"{I2}    throw new ArgumentException(\"{p.Name}: the inputs must be integer points (W = 1)\");\n");
+            }
+            foreach (var n in p.Nodes) {
+                string e = n.Op == Op.Input
+                    ? (p.Xyz ? $"{n.Point}.{char.ToUpperInvariant(n.Comp)}" : n.Comp == 'w' ? $"{n.Point}.W" : $"{n.Point}[{comp(n)}]")
+                    : $"{val(n.A)} {opc(n.Op)} {val(n.B)}";
+                sb.Append($"{I2}BigInteger {val(n)} = {e};\n");
+            }
+            sb.Append($"{I2}return {sign(val)};\n{I1}}}\n");
+        }
+
+
+        // the graph on FixedArith (inputs loaded by load(input, buffer)), returning the product of the signs
+        static void arena_body(Predicate p, StringBuilder sb, string I2, Func<Node, string, string> load)
+        {
+            int L = p.InputBits / 64;
+            var inputs = p.Nodes.Where(n => n.Op == Op.Input).ToList();
+            // one buffer per input (no pointer arithmetic: nothing to get wrong, and no equivalent mutants)
+            for (int i = 0; i < inputs.Count; ++i)
+                sb.Append($"{I2}ulong* __i{inv(i)} = stackalloc ulong[{inv(L)}];\n");
+            // one constant for the buffer and the arena: they cannot disagree (the arena's Take checks against it)
+            sb.Append($"{I2}const int __n = {inv(p.ArenaScratch)};\n");
+            sb.Append($"{I2}ulong* __s = stackalloc ulong[__n];\n");
+            sb.Append($"{I2}var __ar = new FixedArena(__s, __n);\n");
+            int k = 0;
+            foreach (var n in p.Nodes) {
+                string code = n.Op == Op.Input
+                    ? $"FixedInt {val(n)} = {load(n, "__i" + inv(k++))};"
+                    : $"FixedInt {val(n)} = FixedArith.{(n.Op == Op.Mul ? "Mul" : n.Op == Op.Add ? "Add" : "Sub")}({val(n.A)}, {val(n.B)}, ref __ar);";
+                sb.Append($"{I2}{code}".PadRight(84)).Append($" // {(n.Op == Op.Input ? ref_(n) : describe(n))}: <= {n.Bound}\n");
+            }
+            sb.Append($"{I2}return {string.Join(" * ", p.Signs.Select(n => val(n) + ".Sign"))};\n");
+        }
+
+        static string lit(double d) => d.ToString("R", CultureInfo.InvariantCulture).Replace("E", "e");
+
+        // the entry on doubles: the filter, then the FixedArith graph from the doubles (no allocation)
+        static void emit_double(Predicate p, StringBuilder sb)
+        {
+            string I1 = "        ", I2 = I1 + "    ";
+            string pars = string.Join(", ", p.Points.Select(x => "Vector3d " + x));
+            string args = string.Join(", ", p.Points);
+            sb.Append($"{I1}/// <summary>\n");
+            sb.Append($"{I1}/// {p.Name} of points with integer coordinates |x| &lt;= 2^53, given as doubles: the filter, then the exact\n");
+            sb.Append($"{I1}/// stage on FixedArith (no allocation); throws for other coordinates\n");
+            sb.Append($"{I1}/// </summary>\n");
+            sb.Append($"{I1}[MethodImpl(JitHints.Optimize)]\n");
+            sb.Append($"{I1}internal static int {p.Name}({pars})\n{I1}{{\n");
+            sb.Append($"{I2}if (!({string.Join(" && ", p.Points.Select(x => $"__grid({x})"))}))\n");
+            sb.Append($"{I2}    throw new ArgumentException(\"{p.Name}: the coordinates must be integers |x| <= 2^53\");\n");
+            if (!p.HasExpansionStage)
+                sb.Append($"{I2}// no expansion stage: as expansions the sign factors have up to {string.Join(" / ", p.Signs.Select(n => n.ExpansionLength.ToString(CultureInfo.InvariantCulture)))} components (limit {inv(Predicate.MaxExpansionLength)})\n");
+            else
+                throw new NotSupportedException($"{p.Name}: the expansion stage is not generated yet (its static length is within the limit)");
+            sb.Append($"{I2}int __r = {p.Name}Filter({args});\n");
+            sb.Append($"{I2}return (__r != 2) ? __r : {p.Name}Exact({args});\n{I1}}}\n\n");
+            // the filter
+            sb.Append($"{I1}/// <summary> the filter of {p.Name}: the sign, or 2 if it does not decide (inputs as for {p.Name}) </summary>\n");
+            sb.Append($"{I1}[MethodImpl(JitHints.Optimize)]\n");
+            sb.Append($"{I1}internal static int {p.Name}Filter({pars})\n{I1}{{\n");
+            foreach (var n in p.Nodes) {
+                string e, m;
+                if (n.Op == Op.Input) {
+                    e = $"{n.Point}.{n.Comp}";
+                    m = $"Math.Abs({val(n)})";
+                } else {
+                    e = $"{val(n.A)} {opc(n.Op)} {val(n.B)}";
+                    m = n.Leaf ? $"Math.Abs({val(n)})" : n.Op == Op.Mul ? $"m{val(n.A)} * m{val(n.B)}" : $"m{val(n.A)} + m{val(n.B)}";
+                }
+                sb.Append($"{I2}double {val(n)} = {e}, m{val(n)} = {m};".PadRight(96)).Append($" // c = {n.C.InUnitsOfU()}\n");
+            }
+            sb.Append($"{I2}int __r = 1;\n");
+            for (int f = 0; f < p.Signs.Count; ++f) {
+                var n = p.Signs[f];
+                sb.Append($"{I2}// {ref_(n)}: |e~ - e| <= {n.C.InUnitsOfU()} m~ (K = c / (1 - u), rounded up)\n");
+                sb.Append($"{I2}if (m{val(n)} == 0) return 0;\n");
+                sb.Append($"{I2}if (!(Math.Abs({val(n)}) > {lit(p.FilterK[f])} * m{val(n)})) return 2;\n");
+                sb.Append($"{I2}if ({val(n)} < 0) __r = -__r;\n");
+            }
+            sb.Append($"{I2}return __r;\n{I1}}}\n\n");
+            // exact from doubles
+            sb.Append($"{I1}/// <summary> the exact stage of {p.Name} on FixedArith, from integer doubles |x| &lt;= 2^53 </summary>\n");
+            sb.Append("#if NET\n");
+            sb.Append($"{I1}[SkipLocalsInit]\n");
+            sb.Append("#endif\n");
+            sb.Append($"{I1}[MethodImpl(JitHints.Optimize)]\n");
+            sb.Append($"{I1}internal static int {p.Name}Exact({pars})\n{I1}{{\n");
+            arena_body(p, sb, I2, (n, dst) => $"__load({n.Point}.{n.Comp}, {dst})");
+            sb.Append($"{I1}}}\n");
+        }
+
+        static string describe(Node n) => (n.Name != null ? n.Name + " = " : "") + $"{ref_(n.A)} {opc(n.Op)} {ref_(n.B)}";
 
         static string inv(int v) => v.ToString(CultureInfo.InvariantCulture);
         static string opc(Op op) => op == Op.Add ? "+" : op == Op.Sub ? "-" : "*";
@@ -243,12 +544,16 @@ namespace G3PredicateCompiler
                     if (open < 0 || close < open) throw new FormatException($"line {lineNo}: expected 'ipredicate Name(points) bound b'");
                     cur.Name = head.Substring(0, open).Trim();
                     cur.Points = head.Substring(open + 1, close - open - 1).Split(',').Select(s => s.Trim()).ToList();
-                    var tail = head.Substring(close + 1).Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-                    if (tail.Length != 2 || tail[0] != "bound" || !int.TryParse(tail[1], NumberStyles.None, CultureInfo.InvariantCulture, out cur.InputBits)
+                    var tail = head.Substring(close + 1).Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries).ToList();
+                    if (tail.Count == 4 && tail[2] == "inputs" && (tail[3] == "xyz" || tail[3] == "xyw")) {
+                        cur.Xyz = tail[3] == "xyz";
+                        tail.RemoveRange(2, 2);
+                    }
+                    if (tail.Count != 2 || tail[0] != "bound" || !int.TryParse(tail[1], NumberStyles.None, CultureInfo.InvariantCulture, out cur.InputBits)
                         || cur.InputBits < 1 || cur.InputBits > 4096)
-                        throw new FormatException($"line {lineNo}: expected 'ipredicate Name(points) bound b' (|v| <= 2^b - 1, b in 1..4096)");
+                        throw new FormatException($"line {lineNo}: expected 'ipredicate Name(points) bound b [inputs xyz|xyw]' (|v| <= 2^b - 1, b in 1..4096)");
                     foreach (var pt in cur.Points)
-                        if (!System.Text.RegularExpressions.Regex.IsMatch(pt, "^[a-z][a-z0-9]*$"))
+                        if (!System.Text.RegularExpressions.Regex.IsMatch(pt, "^[a-z][a-z0-9]*$") || Reserved.Contains(pt))
                             throw new FormatException($"line {lineNo}: bad point name '{pt}'");
                     if (cur.Points.Distinct().Count() != cur.Points.Count) throw new FormatException($"line {lineNo}: duplicate point");
                     vars = new Dictionary<string, Node>();
@@ -259,14 +564,17 @@ namespace G3PredicateCompiler
                 var pc = cur; var pcse = cse;
                 Func<string, Node> input = id => {
                     int dot = id.IndexOf('.');
-                    if (dot < 0 || !pc.Points.Contains(id.Substring(0, dot)) || id.Length != dot + 2 || "xyw".IndexOf(id[dot + 1]) < 0)
+                    if (dot < 0 || !pc.Points.Contains(id.Substring(0, dot)) || id.Length != dot + 2 || pc.Comps.IndexOf(id[dot + 1]) < 0)
                         return null;
                     return make(pc, pcse, Op.Input, null, null, id);
                 };
                 Func<Op, Node, Node, Node> mk = (op, a, b) => make(pc, pcse, op, a, b, null);
                 if (line.StartsWith("sign ")) {
-                    cur.Root = new ExprParser(line.Substring(5), vars, input, mk).Parse();
-                    if (cur.Root.Op == Op.Input) throw new FormatException($"line {lineNo}: the sign of an input needs no predicate");
+                    // 'sign e1, e2, ...': the product of their signs (e.g. a determinant and a denominator)
+                    foreach (var part in line.Substring(5).Split(','))
+                        cur.Signs.Add(new ExprParser(part, vars, input, mk).Parse());
+                    if (cur.Signs.Any(n => n.Op == Op.Input)) throw new FormatException($"line {lineNo}: the sign of an input needs no predicate");
+                    if (cur.Signs.Distinct().Count() != cur.Signs.Count) throw new FormatException($"line {lineNo}: a repeated sign factor");
                     result.Add(cur);
                     cur = null;
                     continue;
@@ -348,8 +656,8 @@ namespace G3PredicateCompiler
         }
 
         /// <summary>
-        /// every value of p for the given components (point -> (x, y, w)), exactly; for the tests (the bounds hold, the
-        /// formula is the kernel's)
+        /// every value of p for the given components (point -> (x, y, w), or (x, y, z) with 'inputs xyz'), exactly; for
+        /// the tests (the bounds hold, the formula is the kernel's)
         /// </summary>
         public static Dictionary<Node, BigInteger> Evaluate(Predicate p, Dictionary<string, (BigInteger x, BigInteger y, BigInteger w)> points)
         {
@@ -358,7 +666,7 @@ namespace G3PredicateCompiler
                 switch (n.Op) {
                     case Op.Input:
                         var c = points[n.Point];
-                        v[n] = n.Comp == 'x' ? c.x : n.Comp == 'y' ? c.y : c.w;
+                        v[n] = n.Comp == 'x' ? c.x : n.Comp == 'y' ? c.y : c.w;    // w or z
                         break;
                     case Op.Add: v[n] = v[n.A] + v[n.B]; break;
                     case Op.Sub: v[n] = v[n.A] - v[n.B]; break;
