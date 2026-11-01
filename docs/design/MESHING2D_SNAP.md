@@ -67,14 +67,50 @@ The coordinator recommends to the owner, for the four questions of section 3: IS
 keep their input coordinates, the gap band documented. Stage R's experience feeds the guarantees and the reporting, not the
 algorithm.
 
-## 3b. Reading status (2026-11-01)
+## 3b. The full texts change the recommendation (2026-11-01, after the owner's decision)
 
-What ISRBD does is known so far only from secondary sources: it finds the segments that would drift too far under ISR and adds a few
-extra hot pixels, joined by zero-length edges, to hold them; its output can be non-canonical. The bound itself and the separation it
-keeps are not yet read. Not reachable from this session's network: the ISRBD paper (ACM DL, Elsevier), Packer's *Extending the power
-of snap rounding variants* (CCCG 2007, cccg.ca), the TU Delft MSc thesis *Snap rounding polygons with a triangulation* (2023,
-3d.bk.tudelft.nl), the cautionary tale (drops.dagstuhl.de) and SRR (iris.univr.it). **No code before these are read**: the variant
-is implemented from the paper, not from summaries.
+Read in full after the owner allowed the hosts: Packer, *Extending the power of snap rounding variants*, CCCG 2007; Hershberger,
+*Snap rounding: a cautionary tale*, SoCG 2025; Belussi, Migliorini, Negri, Pelagatti, *Snap rounding with restore*, ACM TSAS 2016.
+Not read: the TU Delft thesis (the server resets the connection) and the ISRBD journal paper itself (paywalled; its statements below
+come from Packer 2007 and Belussi et al., who cite it).
+
+**What they say:**
+
+1. **ISRBD's bound is coarse.** The drift bound δ must be at least about 3 times SR's largest deviation (Packer 2007, footnote 3;
+   Belussi et al., Observation 1, citing Packer 2008). Plain ISR can drift Θ(n²) pixels (Packer 2007, footnote 2).
+2. **ISRBD collapses at small angles.** Its drift bound holds for each segment, but the topological node at a small angle (a segment
+   tangent to a polyline, two polygon boundaries close together) can drift far. Polygon faces then split or merge, and a polygon
+   with holes can become invalid (Belussi et al., section 5.2, Figures 1 and 2). Our inputs have exactly these configurations: the
+   small-angle apexes of the corpus, F-12, F-14, F-18.
+3. **SRR keeps SR's bound.** It snap-rounds, then removes every critical pixel (a hot pixel crossed by an edge whose ends lie outside
+   it) by *spreading*: the edge is rerouted through a pixel of its original segment's envelope next to the critical pixel, so that it
+   no longer crosses it. It snaps only if no free pixel exists. Its guarantees: fixed precision, the output within SR's bound (the
+   Minkowski sum of the segment with one pixel), topology kept up to collapse, and no critical pixel left. That is the same
+   separation as ISR (every vertex at least half a pixel from every non-incident edge). Its complexity is O(n⁴ log n) in the worst
+   case and O(n² log n) on geographic data. In their experiments it snaps less, collapses less and stays closer to the input than
+   ISRBD (sections 5 and 6).
+4. **Do not change the contact rules.** Hershberger's "relaxed snap rounding" changed only which pixel contacts count. It kept the
+   deviation and topology proofs, yet broke the property "a segment snaps to a hot pixel iff it contacts it" (his Lemma 3). The
+   Boolean built on it produced weakly simple polygons a year later, and the repair is a costly post-pass. SR's proofs (Guibas and
+   Marimont) rest on disjoint axis-aligned pixels that contract uniformly. Hot regions of radius tol centred at the vertices
+   (proposal 2 of section 3) overlap and are not pixels, so none of these proofs carry over. That would be an unproven variant of
+   exactly the kind the cautionary tale warns about.
+
+**Revised recommendation (for the owner; it supersedes proposals 1 and 2 of section 3):**
+
+- **SR on a grid of pixel width w = tol, followed by SRR's restore.** Every SR proof stays valid. Movement is at most w/2 per axis
+  (0.71 tol). In the output, every vertex is at least w/2 from every non-incident edge and at least w from every other vertex.
+- **Input coordinates (proposal 3):** with the production default (tolerance = the data's grid, O11) the input vertices already sit
+  at pixel centres and do not move. Off-grid input moves by at most w/2 per axis; that is inherent to any grid rounding. An
+  alternative is Hershberger's stable SR, where pins do not attract segments, but Belussi et al. note that it does not remove
+  critical pixels.
+- **Gap band (proposal 4), in pixel terms:** features that share a pixel merge; vertex-edge distances below w/2 do not survive
+  (the edge then passes through the vertex); features more than 2w apart (L∞) never interact; in between, the grid decides. To be
+  documented as O11's relative bound.
+- **Semantics as in section 3a:** drift reported (bounded by w/2 per axis by construction), a strict mode, merge below the
+  tolerance.
+
+The owner's decision of section 3 (ISRBD, vertex-centred hot regions) stays recorded until the owner decides on this revision.
 
 ## 4. Plan once the owner has answered
 

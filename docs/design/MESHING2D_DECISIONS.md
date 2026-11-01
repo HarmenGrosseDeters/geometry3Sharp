@@ -21,6 +21,10 @@ the explicit tolerance, as its own PR after M2 and M3 are merged.**
 
 Semantics aligned with SafeRounding (`SAFE_ROUNDING.md`): drift reported, a strict mode with a failure status, merge below the tolerance.
 
+*Under review (same day):* the full texts read afterwards (`MESHING2D_SNAP.md`, section 3b) argue against points 1 and 2: ISRBD collapses
+at small angles, and vertex-centred hot regions void SR's proofs (Hershberger 2025). The revised recommendation is SR on a grid of
+pixel tol plus SRR's restore (Belussi et al. 2016). It awaits the owner's decision.
+
 **Owner decisions, 2026-10-31: D1, D5 and D9 as recommended below.** So: output in doubles, with validity decided on those doubles; a hole removes everything inside it, with a diagnostic when an outer ring lies inside a hole, and islands are not part of this; longest edge at most h at the centroid. The others have a default that is fine unless the owner objects. Each default is cheap to change: the "where it
 lives" column names the one place in the oracle, so that a different decision costs an edit there, a changed fixture and golden rows with a stated reason.
 
