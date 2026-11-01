@@ -347,13 +347,15 @@ namespace gs
             
             // When we split an edge, we need to check it and the adjacent ones we added.
             // Because of overhead in ProcessEdge, it is worth it to do a distance-check here
-            double max_edge_len_sqr = MaxEdgeLength * MaxEdgeLength;
             SplitF = (edgeID, a, b, vNew) => {
                 Vector3d v = Mesh.GetVertex(vNew);
                 foreach (int eid in Mesh.VtxEdgesItr(vNew)) {
                     Index2i ev = Mesh.GetEdgeV(eid);
                     int othervid = (ev.a == vNew) ? ev.b : ev.a;
-                    if (mesh.GetVertex(othervid).DistanceSquared(ref v) > max_edge_len_sqr)
+                    Vector3d other = mesh.GetVertex(othervid);
+                    double minLen, maxLen;
+                    local_edge_lengths(ref v, ref other, out minLen, out maxLen);       // (TargetEdgeLengthF)
+                    if (other.DistanceSquared(ref v) > maxLen * maxLen)
                         queue_edge(eid);
                 }
                 //queue_one_ring(vNew);
@@ -533,7 +535,9 @@ namespace gs
                         Vector3d otherv = mesh.GetVertex(othervid);
                         double old_len = vCur.Distance(otherv);
                         double new_len = vSmoothed.Distance(otherv);
-                        if (new_len < MinEdgeLength || new_len > MaxEdgeLength)
+                        double minLen, maxLen;
+                        local_edge_lengths(ref vSmoothed, ref otherv, out minLen, out maxLen);
+                        if (new_len < minLen || new_len > maxLen)
                             queue_edge_safe(eid);
                     }
                 }
@@ -584,7 +588,9 @@ namespace gs
                         Vector3d otherv = mesh.GetVertex(othervid);
                         double old_len = vCur.Distance(otherv);
                         double new_len = vProjected.Distance(otherv);
-                        if (new_len < MinEdgeLength || new_len > MaxEdgeLength)
+                        double minLen, maxLen;
+                        local_edge_lengths(ref vProjected, ref otherv, out minLen, out maxLen);
+                        if (new_len < minLen || new_len > maxLen)
                             queue_edge_safe(eid);
                     }
                 }
@@ -747,7 +753,9 @@ namespace gs
                     Vector3d otherv = mesh.GetVertex(othervid);
                     double old_len = curpos.Distance(otherv);
                     double new_len = projPos.Distance(otherv);
-                    if (new_len < MinEdgeLength || new_len > MaxEdgeLength)
+                    double minLen, maxLen;
+                    local_edge_lengths(ref projPos, ref otherv, out minLen, out maxLen);
+                    if (new_len < minLen || new_len > maxLen)
                         queue_edge_safe(eid);
                 }
 

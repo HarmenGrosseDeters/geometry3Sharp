@@ -125,6 +125,16 @@ namespace g3
 
                 // round f to 0 within epsilon?
 
+                // No crossing is defined where a value is NaN (Min keeps a NaN). Between +infinity and -infinity in
+                // one triangle nothing can be interpolated, but Bisection only needs the signs: it finds the jump.
+                // Compute() has no status: such triangles add nothing to the Graph, so a field that is NaN
+                // everywhere gives an empty Graph.
+                double fMin = Math.Min(f.x, Math.Min(f.y, f.z)), fMax = Math.Max(f.x, Math.Max(f.y, f.z));
+                if (double.IsNaN(fMin))
+                    continue;
+                if (RootMode != RootfindingModes.Bisection && double.IsNegativeInfinity(fMin) && double.IsPositiveInfinity(fMax))
+                    continue;
+
                 if (f.x < 0 && f.y < 0 && f.z < 0)
                     continue;
                 if (f.x > 0 && f.y > 0 && f.z > 0)
@@ -132,7 +142,8 @@ namespace g3
 
                 Index3i triEdges = Mesh.GetTriEdges(tid);
 
-                if (f.x * f.y * f.z == 0) {
+                // (the product of a 0 and an infinity is NaN)
+                if (f.x * f.y * f.z == 0 || f.x == 0 || f.y == 0 || f.z == 0) {
                     int z0 = (f.x == 0) ? 0 : ((f.y == 0) ? 1 : 2);
                     int i1 = (z0+1) % 3, i2 = (z0+2) % 3;
                     if (f[i1] * f[i2] > 0)  
@@ -293,9 +304,11 @@ namespace g3
                 double t = 0;
                 if (RootMode == RootfindingModes.LerpSteps) {
                     for (int k = 0; k < RootModeSteps; ++k) {
-                        t = MathUtil.Clamp((0 - fA) / (fB - fA), 0, 1);
+                        t = lerp_crossing(fA, fB);
                         Vector3d c = (1 - t)*a + (t)*b;
                         double f = ValueF(c);
+                        if (double.IsNaN(f))
+                            break;      // no sign here: stay with the bracket so far
                         if (f < 0) {
                             fA = f; a = c;
                         } else {
@@ -304,9 +317,18 @@ namespace g3
                     }
                 }
 
-                t = MathUtil.Clamp((0 - fA) / (fB - fA), 0, 1);
+                t = lerp_crossing(fA, fB);
                 return (1 - t) * a + (t) * b;
             }
+        }
+
+        // where the line through (0, fA) and (1, fB), fA <= fB, reaches 0. An infinite value has no line: the crossing
+        // is at the other, finite end (for +infinity the formula gives that, for -infinity it gives NaN).
+        static double lerp_crossing(double fA, double fB)
+        {
+            if (double.IsNegativeInfinity(fA))
+                return 1;
+            return MathUtil.Clamp((0 - fA) / (fB - fA), 0, 1);
         }
 
 
@@ -324,7 +346,7 @@ namespace g3
 
         /// <summary>
         /// Split the mesh edges at the iso-crossings, unless edge is
-        /// shorter than min_len, or inserted point would be within min_len or vertex
+        /// shorter than min_len, or inserted point would be within min_len or vertex, or on it
         /// [TODO] do we want to return any info here??
         /// </summary>
         public void SplitAtIsoCrossings(double min_len = 0)
@@ -341,6 +363,10 @@ namespace g3
                 if (a.Distance(b) < min_len)
                     continue;
                 if (a.Distance(pos) < min_len || b.Distance(pos) < min_len)
+                    continue;
+                // (a crossing at an end of the edge, eg next to an infinite value: its vertex is already there, and a
+                // split would add an edge of length 0)
+                if (pos == a || pos == b)
                     continue;
 
                 DMesh3.EdgeSplitInfo splitInfo;

@@ -52,6 +52,8 @@
     <Compile Remove="benchmarks\**" />
     <Compile Remove="docs\**" />
     <Compile Remove="tools\**" />
+    <!-- optional packages with their own dependencies (addons/*/*.csproj) -->
+    <Compile Remove="addons\**" />
   </ItemGroup>
 
   <ItemGroup>
