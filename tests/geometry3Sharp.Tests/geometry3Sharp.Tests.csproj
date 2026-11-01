@@ -6,6 +6,8 @@
     <TargetFrameworks Condition="'$(OS)' == 'Windows_NT' Or '$(TestNet48)' == 'true'">net10.0;net48</TargetFrameworks>
     <LangVersion>latest</LangVersion>
     <IsPackable>false</IsPackable>
+    <!-- ExactPoint3FixedWidthTests reads the limbs of FixedPoint3 through pointers -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>
@@ -59,6 +61,16 @@
   </ItemGroup>
   <ItemGroup Condition="'$(TargetFramework)' != 'net10.0' Or '$(UseNuGetG3)' == 'true'">
     <Compile Remove="ExactCodeAnalyzerTests.cs" />
+  </ItemGroup>
+  <!-- the predicate compiler (tools/PredicateCompiler): GeneratedPredicatesTests checks its bounds, the kernels against
+       them and the design doc's table (.NET only: the compiler uses BigInteger.GetBitLength) -->
+  <ItemGroup Condition="'$(UseNuGetG3)' != 'true' And '$(TargetFramework)' == 'net10.0'">
+    <Compile Include="..\..\tools\PredicateCompiler\Compiler.cs" Link="PredicateCompiler\Compiler.cs" />
+    <None Include="..\..\tools\PredicateCompiler\predicates.spec" Link="PredicateCompiler\predicates.spec" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\docs\design\FIXED_WIDTH_EXACT_POINTS.md" Link="PredicateCompiler\FIXED_WIDTH_EXACT_POINTS.md" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' != 'net10.0' Or '$(UseNuGetG3)' == 'true'">
+    <Compile Remove="GeneratedPredicatesTests.cs" />
   </ItemGroup>
   <!-- dotnet test -p:UseNuGetG3=true runs the tests against the old NuGet package (1.0.324) -->
   <ItemGroup Condition="'$(UseNuGetG3)' == 'true'">

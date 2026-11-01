@@ -219,7 +219,7 @@ namespace geometry3Sharp.Tests
             var exact = Directory.GetFiles(Path.Combine(root, "math"), "Exact*.cs")
                 .Concat(Directory.GetFiles(Path.Combine(root, "mesh_ops"), "ExactMesh*.cs"))
                 .Select(f => Path.GetRelativePath(root, f).Replace(Path.DirectorySeparatorChar, '/')).ToList();
-            exact.AddRange(new[] { "math/AdaptivePredicates.cs", "mesh_ops/ExactTriangulation2.cs",
+            exact.AddRange(new[] { "math/AdaptivePredicates.cs", "math/FixedPoint3.cs", "mesh_ops/ExactTriangulation2.cs",
                 "mesh_ops/ExactPlanarSimplify.cs", "intersection/ExactTriangleIntersection.cs" });
             Assert.True(exact.Count >= 8);
             foreach (string f in exact) {

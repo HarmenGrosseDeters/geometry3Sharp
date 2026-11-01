@@ -40,17 +40,29 @@ hold up is discarded with the owner, not patched until it passes. The stages run
 | 5. Quadtree | `quadtree` (#195): independent review, owner-machine performance and memory, side-by-side with the old quadtree | L | 1 large session |
 | 6. Meshing M1 | `feature/meshing2d` (#200): oracle and differential as gates. Only then the M2 design (#201, `docs/meshing2d-m2-design`): its recorded approvals are disputed, so question its domain decisions first. An M2 implementation comes after that | L | 1 large session, after stage 5 |
 | 6b. Meshing provenance check | After M3, once: a separate comparison session (the dirty side, the only one that may read Shewchuk's `triangle.c` and Triangle.NET) compares the 2D mesher with them for copied expression: data structures and memory layout, function decomposition, control flow of distinctive routines, constants, names and comments, plus a similarity tool where it applies (C against C#). It writes a report only, never code. A clean session rewrites any flagged part from the spec alone. The meshing session keeps a provenance log ([design/MESHING2D_PROVENANCE.md](design/MESHING2D_PROVENANCE.md): paper / section or spec item per non-trivial routine) and avoids Triangle-typical expression. Reason: the BSL-1.0 release, and models may have seen `triangle.c` in training. Algorithms from the papers are free to implement; expression is not | M | 1 session, after M3 |
-| 7. Envelope containment | Phase 5 #2 (Wang et al. 2020; `fast-envelope` is MIT; `MeshEnvelope` is the prototype). One piece of work serves four tasks: quality passes that stay near the input, the alpha-wrap simplification, the `Reducer` `MaxDeviation` check (92-97 % of its time) and the envelope-guaranteed pipeline. It comes before the alpha-wrap stage, which keeps failing on the trade-off between quality and fidelity that an envelope settles | L | 1 large session, after stage 5 |
+| 7. Envelope containment | Phase 5 #2 (Wang et al. 2020; `fast-envelope` is MIT; `MeshEnvelope` is the prototype). One piece of work serves four tasks: quality passes that stay near the input, the alpha-wrap simplification, the `Reducer` `MaxDeviation` check (92-97 % of its time) and the envelope-guaranteed pipeline. It comes before the alpha-wrap stage, which keeps failing on the trade-off between quality and fidelity that an envelope settles. **Started 2026-11-01** in the indirect-predicates session: design [design/ENVELOPE.md](design/ENVELOPE.md) (#258), approved by the owner: double inputs by a filter plus exponent alignment, polyhedra after the paper's Prop. 3.1 (eps/sqrt(3); `MeshEnvelope`'s 0.8/0.6 shape only as a proven option), an internal class first (`MeshEnvelope` replaced in its own PR once the BigInteger-clipping oracle agrees and it is within 5x of `IsWithin`), one PR per step. The envelope does not replace the per-operation self-intersection checks | L | 1 large session, after stage 5 |
 | 7b. Alpha wrap quality | Owner decision on #199. No recorded policy passes every gate, so its production code is not for merging as it is, and it does not compile as it is. Next step: a bounded look at the failing local patches of the hard-feature policy, no threshold tuning | L | 1 large session, after stage 7 |
-| B. Boolean performance | Continues, at the owner's request. Done: `AddPoint` shards (#222). Next, in order: fixed-width exact points, 4 limbs (#223: cherchi / cgal −8 %, Thingi10K −11 %, n-ary −26 %, all hashes identical); then the **predicate compiler on fixed-width inputs**, stacked on #223 and started without waiting for its mutation runs: regenerate the arrangement's `InCircle` / `Orient` from the generator of #221 with the exact bit bounds of the 4-limb points, so that the `BigInteger` fallback (about half of the calls with the grid-fitted bounds of #221) mostly disappears; the fallback rate is a reported metric. The generator stays an offline tool with a checked-in, reviewable output and an up-to-date test, not a Roslyn source generator, because the bounds review needs the generated code in the diff. The grid-fitted `ArrInCircle` of #221 is not merged. Later: planes / CSR (section 12 of the fixed-width design), and the generator reused for the envelope predicates (stage 7). Hand-over and ranked candidates: [perf/EXACT_BOOLEAN_PERFORMANCE.md](perf/EXACT_BOOLEAN_PERFORMANCE.md). Exact code: bounds review and mutation runs on every PR | L | 1 large session |
-| R. SafeRounding | Its own session, kept apart from the performance work (performance must stay bit-identical; this changes results on purpose). (1) Fix: SafeRounding moves exact vertices of pieces below its degenerate threshold on clean input (union volume 17.999992370605316 instead of 17.99999237060547), pinned as a skipped test in `ExactBooleanPropertyFindings` (#229). (2) A recommendation on design question 1b of [design/BOOLEAN_PROPERTY_TESTS.md](design/BOOLEAN_PROPERTY_TESTS.md): repair input that is already degenerate or not. (3) A bounded evaluation of the research item "Practical 3D snap rounding with guarantees" below, with Thingi10K: a concept, no implementation. (4) Fix `ExactTriangleIntersection.IntersectsBeyondShared`: for coplanar neighbours sharing one vertex where one is a sliver, the projection axis comes from a floating-point cross product that rounds to 0, so a false intersection is reported (and inherited by `MeshRepairMetrics.SelfIntersections`); choose the axis exactly. Repro from the remesher session (both triangles in y = 0, ids (0,1,2) / (3,1,4)); this gives the deferred exact coplanar clipping task a real caller | L | 1 large session, when a large slot is free (after meshing or B) |
-| 8. Planned follow-ups | Boolean property tests, DAP audit and honest terrain metrics, next to any stage from 4 on; the upstream ledger last, because it records what is merged. Terrain phase 1 after stage 5. After this wave: **CLI / MCP and docs for the new operations** (quadtree, mesher, n-ary and SafeRounding booleans in `g3cli`, examples in OPERATIONS.md), so that agents can use what was built (Direction, points 2 and 3). Candidate: a **Clipper2 adapter** as an optional package (`geometry3Sharp.Clipper2`; Clipper2 is Boost-licensed): robust integer 2D polygon booleans and offsets for terrain / GIS footprints and slicing, written against Clipper2's public API, not taken from the DAP fork; the core stays dependency-free and API compatible. Decide after the DAP audit's provenance list | S, M | up to 2 sessions |
+| B. Boolean performance | Continues, at the owner's request. Done: `AddPoint` shards (#222). Next, in order: fixed-width exact points, 4 limbs (#223: cherchi / cgal −8 %, Thingi10K −11 %, n-ary −26 %, all hashes identical); then the **predicate compiler on fixed-width inputs**, stacked on #223 and started without waiting for its mutation runs: regenerate the arrangement's `InCircle` / `Orient` from the generator of #221 with the exact bit bounds of the 4-limb points, so that the `BigInteger` fallback (about half of the calls with the grid-fitted bounds of #221) mostly disappears; the fallback rate is a reported metric. The generator stays an offline tool with a checked-in, reviewable output and an up-to-date test, not a Roslyn source generator, because the bounds review needs the generated code in the diff. The grid-fitted `ArrInCircle` of #221 is not merged. Later: planes / CSR (section 12 of the fixed-width design), and the generator reused for the envelope predicates (stage 7). Hand-over and ranked candidates: [perf/EXACT_BOOLEAN_PERFORMANCE.md](perf/EXACT_BOOLEAN_PERFORMANCE.md). Exact code: bounds review and mutation runs on every PR. **Status 2026-11-01:** #223 (fixed-width points) and #248 (pair search by a self-join of the box tree, cgal + Thingi10K −7.9 %) wait for their mutation runs; the compiler (#244) and the indirect predicates (#246 / #250 / #257, LPI / TPI filter 47-86 ns against 3-7 µs to construct, no expansion stage) are stacked on them. CSR is dropped as a step of its own (1-2 %); a GC trace on cherchi decides later. Next: cheaper exact constructions (#256): measured first, then the coplanar shared-vertex shortcut (7-8 %), a 1-limb `orient3d` kernel, then the constructions; real-data n-ary class `nreal` (multi-component Thingi10K meshes, arrays) | L | 1 large session |
+| R. SafeRounding | Its own session, kept apart from the performance work (performance must stay bit-identical; this changes results on purpose). (1) Fix: SafeRounding moves exact vertices of pieces below its degenerate threshold on clean input (union volume 17.999992370605316 instead of 17.99999237060547), pinned as a skipped test in `ExactBooleanPropertyFindings` (#229). (2) A recommendation on design question 1b of [design/BOOLEAN_PROPERTY_TESTS.md](design/BOOLEAN_PROPERTY_TESTS.md): repair input that is already degenerate or not. (3) A bounded evaluation of the research item "Practical 3D snap rounding with guarantees" below, with Thingi10K: a concept, no implementation. (4) Fix `ExactTriangleIntersection.IntersectsBeyondShared`: for coplanar neighbours sharing one vertex where one is a sliver, the projection axis comes from a floating-point cross product that rounds to 0, so a false intersection is reported (and inherited by `MeshRepairMetrics.SelfIntersections`); choose the axis exactly. Repro from the remesher session (both triangles in y = 0, ids (0,1,2) / (3,1,4)); this gives the deferred exact coplanar clipping task a real caller. **Status 2026-11-01:** (4) merged in #249 (bit-identical on the boolean hashes); `IntrTriangle3Triangle3` exact for coplanar and nearly parallel pairs, merged in #253; (1) as the displacement bound D′ (edits refused beyond 1e-5·diag) in #251, its clean counts pending; (3) concept in [design/SAFE_ROUNDING.md](design/SAFE_ROUNDING.md) | L | 1 large session, when a large slot is free (after meshing or B) |
+| 8. Planned follow-ups | Boolean property tests, DAP audit and honest terrain metrics, next to any stage from 4 on; the upstream ledger last, because it records what is merged. Terrain phase 1 after stage 5. After this wave: **CLI / MCP and docs for the new operations** (quadtree, mesher, n-ary and SafeRounding booleans in `g3cli`, examples in OPERATIONS.md), so that agents can use what was built (Direction, points 2 and 3). Candidate: a **Clipper2 adapter** as an optional package (`geometry3Sharp.Clipper2`; Clipper2 is Boost-licensed): robust integer 2D polygon booleans and offsets for terrain / GIS footprints and slicing, written against Clipper2's public API, not taken from the DAP fork; the core stays dependency-free and API compatible. Decide after the DAP audit's provenance list. Done: property tests, DAP audit (nothing to adopt), Clipper2 adapter (#243). The CLI / MCP docs session waits until quadtree, mesher M2 / M3, n-ary and SafeRounding are merged, so that it documents the finished state in one pass | S, M | up to 2 sessions |
 
 Stages 4 and 6 are prepared in [MESHING2D_PLAN.md](design/MESHING2D_PLAN.md): the gates exist as commands; the verdict on #200 and the questions on #201 are there.
 
 Why this order: a reference must exist before an implementation is accepted against it. The quadtree comes before meshing because terrain phase 1 waits for it and its PR is further along.
 
 Limits on parallel work:
+
+Order when slots free up (owner, 2026-11-01; on that day 4 large and 2 medium sessions ran, above the limit below):
+
+1. Remesher done (medium): not replaced.
+2. Stage R done and the milestone "ExactMeshBoolean 1.0" reached: **Terrain 1a** (large), with the NoData guard of
+   `TerrainSafetyLines` (a single vertex such as z = −9999 near a source refines until memory runs out; count the band's
+   3D area, not only the horizontal one).
+3. Meshing done (large): the **stage 6b provenance check** (medium, report only), after M3 is merged.
+4. Then the CLI / MCP docs (stage 8, medium), and a review-only session when the stacks and the meshing PRs wait for
+   review at the same time.
+5. Owner decisions still open: whether a large performance session pauses for Terrain, stage 7b (alpha wrap) after
+   stage 7, and the `Triangle.NET` reference session of stage 4.
 
 - At most 5 implementation sessions at once in the cloud, of which at most 2 large (tier L; [AGENT_WORKFLOW.md](AGENT_WORKFLOW.md)
   section 6), plus **one review session** that only reviews (independent reviews with REVIEW_CHECKLIST.md, bounds
@@ -70,14 +82,23 @@ Limits on parallel work:
 
 Open task from the takeover:
 
-- [ ] **Exact coplanar triangle clipping: investigate as its own topic.** Deferred until a caller needs it (only tests call the coplanar path). `IntrTriangle2Triangle2` clips in floating point, and
-  coplanar `IntrTriangle3Triangle3` builds on it: it loses point and segment contacts. The fix in #193 was discarded after review: it
-  added a regression (disjoint triangles reported as intersecting through overflow), and contacts were still lost (15641 false
-  negatives, 7951 false positives in 3.86M lattice pairs, against an exact oracle). Rounded clipping cannot keep such a promise. To
-  investigate: an exact approach with `ExactPredicates` (and exact output, as far as callers need it), whether `Test()` and `Find()` can
-  then agree, the behaviour for degenerate and non-finite inputs, and the cost. Only tests call the coplanar path today, so first
-  check who needs it. The tests of #193 (`CoplanarTriangleDifferentialTests`, on branch `qa/differential-core-tests`) are a starting
-  point; their seeded inputs use half-integers only, so they cannot see these failures.
+- [x] **Exact coplanar triangle intersection** (no longer deferred: `DMeshAABBTree3.TestIntersection` / `FindAllIntersections`
+  and `MeshQueries.TrianglesIntersection` call it). `IntrTriangle3Triangle3` decides coplanar, nearly parallel and sliver pairs with
+  `ExactTriangleIntersection`, and `Find()` builds the contact from exactly decided pieces, rounding only the crossing points, so
+  `Test()` and `Find()` agree (row R, item 2b, #253). The 2D clipping of `IntrTriangle2Triangle2` is unchanged; exact output
+  coordinates stay open.
+
+## Shared hotspots across sessions
+
+Findings that one session measured and others hit too. Before profiling a slow exact path, check here; route a new
+finding through the coordinator so that one session owns the fix and the others measure against it.
+
+| Hotspot | Measured by | Also hit by | Owner of the fix |
+|---|---|---|---|
+| Exact stage of the adaptive `Orient3d` on nearly coplanar inputs: 88-90 % return 0, 190-250 ns each, coordinate differences within 62 bits in 91-100 % | Boolean performance (#256): 5-7 % of the boolean time | Reducer / Remesher `PreventSelfIntersections` (a tilted plate: 72 % of 99.7M calls exact, about 70 % of the check time, 50.8 s); `IntrTriangle3Triangle3` after #253 (coplanar pairs 4-40x slower) | #256 "kernel B", a 1-limb fast path in `ExactPredicates.orient3d_exact`; the self-intersection session adds a double SAT filter in front, so that fewer calls reach it |
+| Filter bounds derived by hand | Indirect predicates (#244 / #250) | Every new floating-point filter (SAT filter, envelope) | `tools/PredicateCompiler`: derive bounds with it where it fits |
+| Exact checks in BigInteger rationals at scale: the 2D mesher's oracle spends minutes on 25k-50k-point meshes (meshing itself 0.65 s), mostly in the global Delaunay and boundary-chain checks | Meshing (2026-11-01) | Any oracle or exact verifier on large inputs | Meshing session, now: measure, then the local Delaunay criterion (O(n) instead of global), then a double filter whose bound comes from `tools/PredicateCompiler`, BigInteger only as fallback; the oracle stays independent of `ExactPredicates`, which the mesher uses |
+| `Reducer` `MaxDeviation`: 92-97 % of its time | Phase 5 #2 | Remeshers that must stay near the input | Stage 7, the envelope |
 
 ## Open tasks and where their answer may already be
 
@@ -85,7 +106,6 @@ Open tasks further up, and work further down, in the code or in the research lis
 
 | Open task | Look at first | What it may give, and what it does not |
 |---|---|---|
-| Exact coplanar triangle clipping (above) | `ExactTriangleIntersection` (exists; closed triangles, built only on `ExactPredicates`) | The yes/no question may be answered already, so `Test()` could use it. Exact output for `Find()` stays open |
 | Open inputs: winding numbers across patches (Phase 2), heuristic without clear gain | Phase 5 #5: Feng & Crane 2024, signed distance from geometry with holes and self-intersections, no repair first | Another way to decide inside and outside for open inputs, in place of tuning the propagation. Feng, Gillespie, Crane 2023 has the integer jumps, but for curves on a surface, so it is a model and not a direct fit for patches in 3D. geometry-central documents a signed heat solver: check its license before reading it |
 | Remeshers leave the input surface, and the quality pass after `SimplifyAlphaWrap` (Phase 2) | Phase 5 #2: envelope containment, which its authors built into two surface remeshers. `MeshEnvelope` is the prototype | A guarantee to stay near the input in every local operation, so quality passes cannot trade away fidelity. It does not by itself prevent self-intersections: the per-operation intersection check stays a separate task |
 | `Reducer`: `MaxDeviation` takes 92-97 % of the time (Phase 5 #2) | The same item | With the two rows above, and the envelope pipeline under Open research questions, one piece of work serves four tasks. So it comes first in Phase 5 once it is scheduled |
@@ -164,8 +184,14 @@ Open tasks further up, and work further down, in the code or in the research lis
   bottom rim where the flat cap meets the side (projection moves across the rim, no normal flips): repro cases in
   `benchmarks/RemeshQualityBenchmark`: taper10_x0.15 (12 -> 16 pairs), taper16_x0.1 (0 -> 12), taper32_x0.1 (0 -> 12),
   taper32_x0.6 (0 -> 8), cone16_x0.45 (0 -> 10), cone24_x0.15 (0 -> 6), cone24_x0.3 (0 -> 10), cone24_x0.6 (0 -> 31),
-  cone32_x0.6 (0 -> 8) (and cone12_x0.6, cone16_x0.6, flattened to zero volume without `RejectInvertingPasses`). Needs an intersection check per operation (local AABB of the
-  one-ring) or a repair pass after remeshing.
+  cone32_x0.6 (0 -> 8) (and cone12_x0.6, cone16_x0.6, flattened to zero volume without `RejectInvertingPasses`).
+  Opt-in: `Remesher.PreventSelfIntersections` (also `RemesherPro`): an exact check of every collapse, flip, split and
+  smoothing / projection move against a triangle grid. Every result whose input is free of self-intersections is
+  free of them (all 192 procedural cases, 15 of 20 Thingi10K meshes; the other 5 inputs intersect themselves), at
+  about 17x the time (`benchmarks/RemeshQualityBenchmark`, PreventSelfIntersections). Open: the cost (a clearance
+  filter; the 2D shortcut for coplanar neighbours, about -30 % on CAD meshes, after the
+  `ExactTriangleIntersection` fix of stage R), and the thin walls, where the check blocks the folds but the result
+  ends far from the input (next item).
 - [ ] Remeshing far above the wall thickness folds walls through each other and can turn a mesh inside out, with
   and without `MinTriangleQuality`: Thingi10K 135363 (a 0.8 plate with thin-walled tubes, walls 0.75, target = mean
   edge 11.6) ends inside-out in both variants (signed volume 4448 -> -4706 without, -4021 with the option; the sign
@@ -175,15 +201,27 @@ Open tasks further up, and work further down, in the code or in the research lis
   without, tube32_w0.05_t1.6 only with it), the sign of the volume changing back and forth over the passes.
   Done: `Remesher.RejectInvertingPasses` (default on, also `RemesherPro`) rolls back a pass that turns a closed
   component inside out and counts it (`InvertingPassesRejected`); `g3cli remesh` reports the rolled-back passes and
-  warns when the edge length is more than 4 times the estimated wall thickness. Open: the result is still
-  self-intersecting and far off the volume (the guard only keeps the orientation); needs thickness-aware sizing
-  (target below the local wall thickness) or the intersection check above.
-- [ ] Feature detection misses vertex features: the apex of a smooth cone (no crease edges) is not pinned and is rounded
+  warns when the edge length is more than 4 times the estimated wall thickness. Done (opt-in):
+  `Remesher.TargetEdgeLengthF` with `RemeshSizing.FromWallThickness` (target edge length the local wall thickness;
+  `g3cli remesh --thickness-sizing 1`): the 24 tubes keep their volume (0.99..1.00 instead of 0.16..7.04) and surface
+  (F 0.1 % 0.94..1.00 instead of 0.01..0.13); with `PreventSelfIntersections` as well all 24 are clean, at 12k..50k
+  triangles and 6..550 s each. `PreventSelfIntersections` alone gives no pairs but keeps 0.54..4.8 of the volume
+  (`benchmarks/RemeshQualityBenchmark`, Thin walls). Open: 135363 with the sizing has volume 1.00 and F 0.98 but 1.1M
+  triangles, 22613 pairs (in a diagnostic run nearly all flat slivers in axis planes; whether stage R false
+  positives are among them is not checked) and 146k near-degenerate triangles; with the check as well it ran for more
+  than 90 minutes; the check alone is clean but keeps 1.31 of the volume. Depends on stage R and the
+  faster self-intersection check (the shared triangle-triangle prefilter session), then possibly envelope
+  containment (stage 7).
+- [x] Feature detection misses vertex features: the apex of a smooth cone (no crease edges) is not pinned and is rounded
   off by the remeshers: cones with 12 or more slices (their side edges are no creases) 1.4..2.8 target edge lengths
   from the input; with `MinTriangleQuality` 1.4..3.2, more in 12 of these 24 cases of `benchmarks/RemeshQualityBenchmark`
   (its guards keep a few vertices near the apex up to an edge off the surface). Cones with up to 10 slices keep the
-  apex as a junction of creases. Detect and pin sharp vertices (eg by the normal cone or the angle deficit of their
-  one-ring) in `PreserveBoundaryAndFeatures`.
+  apex as a junction of creases. Done: `MeshConstraintUtil.PinSharpVertices` (opt-in, after
+  `PreserveBoundaryAndFeatures`) pins interior vertices with an absolute angle deficit of at least 75 degrees that
+  have no curve constraint; `g3cli remesh` uses it by default (`--sharp-vertex-angle 75`, 0 = off). The cones end 0.20..0.66 instead of 1.37..3.15
+  target from the input (mean Hausdorff of the 150 primitives 0.341 -> 0.115); on Thingi10K it pins 1 vertex in 20
+  meshes (39460: Hausdorff 0.78 -> 0.33 target), the other 19 are unchanged (`benchmarks/RemeshQualityBenchmark`,
+  PinSharpVertices).
 - [x] `MeshRobustRepair.NotCleanReason` reported only the first failed check: "degenerate triangles" hid the
   self-intersections of most remeshed meshes, and the inside-out result of 135363 without `MinTriangleQuality`. Done in
   #159: `MeshRobustRepair.FindDefects` / `NotCleanReasons` report every failed check (`NotCleanReason` keeps the first),

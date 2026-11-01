@@ -397,6 +397,14 @@ namespace g3cli
             c.Params.Add(new Param("min_quality", ParamType.Number, "guard against poor and flat triangles (Remesher.MinTriangleQuality, " +
                 "0..1, 0 = off, the library's default; 0.2 here: fewer flat triangles and self-intersections at equal or better " +
                 "mean fidelity on Thingi10K and CAD-like parts, about 1.5x the time, benchmarks/RemeshQualityBenchmark; 0 for thin walls far below the edge length)") { Default = 0.2 });
+            c.Params.Add(new Param("sharp_vertex_angle", ParamType.Number, "also pin vertices where the surface comes to a point (absolute " +
+                "angle deficit at least this, degrees; 0 = off), such as the apex of a cone with many slices, which is no crease and " +
+                "is rounded off otherwise (MeshConstraintUtil.PinSharpVertices, off in the library); vertices on kept boundaries and creases " +
+                "are left to them") { Default = 75.0 });
+            c.Params.Add(new Param("thickness_sizing", ParamType.Number, "target edge length at most this fraction of the local wall " +
+                "thickness (Remesher.TargetEdgeLengthF, RemeshSizing.FromWallThickness; eg 1; 0 = off): thin walls are refined instead of " +
+                "folded through each other, the rest is remeshed to edge_length. Costs the triangles the walls need (Thingi10K 135363, " +
+                "walls 0.75 at edge length 11.6: 1.1M triangles instead of 500)") { Default = 0.0 });
             c.Params.Add(Deviation());
             c.Params.Add(SelfIntersections());
             c.Params.Add(Binary());
@@ -404,6 +412,12 @@ namespace g3cli
                 MeshFiles.CheckWritable(args.String("output"));
                 var warnings = new List<string>();
                 DMesh3 input = MeshFiles.Read(args.String("input"), warnings);
+                double thicknessSizing = args.Number("thickness_sizing");
+                if (!(thicknessSizing >= 0) || double.IsInfinity(thicknessSizing))
+                    throw new CommandException(ResultCodes.InvalidArguments, "'thickness_sizing' must be a finite number >= 0");
+                double sharpAngle = args.Number("sharp_vertex_angle");
+                if (!(sharpAngle >= 0) || double.IsInfinity(sharpAngle))
+                    throw new CommandException(ResultCodes.InvalidArguments, "'sharp_vertex_angle' must be a finite number >= 0");
                 double len = args.Has("edge_length") ? args.Number("edge_length") : MeanEdgeLength(input);
                 if (len <= 0)
                     throw new CommandException(ResultCodes.InvalidArguments, "'edge_length' must be > 0");
@@ -421,20 +435,28 @@ namespace g3cli
                     throw new CommandException(ResultCodes.InvalidArguments, "'min_quality' must be in 0..1 (below 1)");
 
                 DMesh3 mesh = new DMesh3(input);
+                int pinnedSharp = 0;
                 var r = new Remesher(mesh) { SmoothSpeedT = smooth, EnableSmoothing = smooth > 0, MinTriangleQuality = minQuality };
                 if (args.Bool("project"))
                     r.SetProjectionTarget(MeshProjectionTarget.Auto(input));
                 if (args.Bool("preserve_boundary")) {
-                    if (args.Number("crease_angle") > 0)
+                    if (args.Number("crease_angle") > 0) {
                         MeshConstraintUtil.PreserveBoundaryAndFeatures(r, args.Number("crease_angle"));
-                    else
+                    } else
                         MeshConstraintUtil.FixAllBoundaryEdges(r);
                 }
+                if (sharpAngle > 0)
+                    pinnedSharp = MeshConstraintUtil.PinSharpVertices(r, sharpAngle);
+                if (thicknessSizing > 0)
+                    r.TargetEdgeLengthF = RemeshSizing.FromWallThickness(input, thicknessSizing);
                 double thickness = WallThickness(input);
-                if (len > 4 * thickness)
-                    warnings.Add($"the edge length {len:G4} is {len / thickness:F1} times the estimated wall thickness {thickness:G4} " +
+                // the edge length at the thinnest walls: the global one, or with the sizing about fraction times the wall
+                double wallEdge = thicknessSizing > 0 ? Math.Min(len, thicknessSizing * thickness) : len;
+                if (wallEdge > 4 * thickness)
+                    warnings.Add($"the edge length {wallEdge:G4} is {wallEdge / thickness:F1} times the estimated wall thickness {thickness:G4} " +
                         "(10% of the inward distances are smaller): thinner walls are folded through each other (self-intersections, " +
-                        "inside-out parts); use a smaller edge length" + (minQuality > 0 ? ", or --min-quality 0, which keeps such walls closer to the input" : ""));
+                        "inside-out parts); use a smaller edge length or --thickness-sizing 1" +
+                        (minQuality > 0 ? ", or --min-quality 0, which keeps such walls closer to the input" : ""));
                 r.SetTargetEdgeLength(len);
                 for (int k = 0; k < iterations; ++k)
                     r.BasicRemeshPass();
@@ -449,6 +471,8 @@ namespace g3cli
                 o["edge_length"] = len;
                 o["iterations"] = iterations;
                 o["min_quality"] = minQuality;
+                o["sharp_vertices_pinned"] = pinnedSharp;
+                o["thickness_sizing"] = thicknessSizing;
                 o["rejected_passes"] = r.InvertingPassesRejected;
                 o["input_mesh"] = MeshReport.Metrics(input, false);
                 o["mesh"] = MeshReport.Metrics(mesh, args.Bool("self_intersections"));
