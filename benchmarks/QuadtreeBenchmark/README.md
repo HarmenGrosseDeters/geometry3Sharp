@@ -15,7 +15,7 @@ Arguments: cells per axis, indexed queries, brute-force queries (default: all). 
 
 For that prefix, the rectangle and segment result sets, nearest IDs and zero-tolerance heights of the library index and both NetTopologySuite indexes are compared with the scan, and a mismatch fails the process. Queries beyond the prefix are timed, not checked. Correctness at scale is covered by the tests in `tests/geometry3Sharp.Tests/Spatial`.
 
-It prints CSV: one row per contender and operation. `_prefix` rows measure the same queries as the scan and are the only rows directly comparable with it. Four query samples rotate the contenders through every timing position.
+It prints CSV: one row per contender and operation. `triangle_over` builds without a copy of the triangles, and `parallel_far_point` builds the same boxes plus one box 1e6 away in x and y. `_prefix` rows measure the same queries as the scan and are the only rows directly comparable with it. Four query samples rotate the contenders through every timing position.
 
 ## What is compared
 
@@ -34,7 +34,7 @@ The targets of the spec's §4.2 were measured by the owner on the old index and 
 
 ## Cost of the structure
 
-Counted rather than timed, so exact: `QuadtreeReviewRegressionTests`. What one small query looks at:
+Counted rather than timed, so exact. The two rows on the 1M grid are a one-off count on the benchmark's grid; `QuadtreeReviewRegressionTests` holds the others and a limit for point queries on a smaller grid. What one small query looks at:
 
 | Data | Before | Now |
 |---|---:|---:|
@@ -52,10 +52,29 @@ None of these is measured. Each would have to show its gain here first.
 - Storing the items in tree order, so that a query reads neighbouring memory. Queries would touch fewer cache lines, and removal gets harder.
 - A build by Morton order instead of cutting from the top. It may cost less on uniform data, and loose placement of large items does not map onto it directly.
 - Tuning the bucket size and the looseness. The present values were not searched for.
-- A parallel frontier chosen by the size of the parts rather than by a fixed two levels. It should help data gathered far inside its extent, the slowest case in the spec's limits.
 - `Over` for other forms of input, such as vertices with index triples. Only `Triangle3d[]` exists so far.
 
 ## Results
 
-<!-- Numbers of the current code go here, measured alone on the machine: see the PR. -->
-Not measured yet for the current code. Earlier records of the abandoned sessions were dropped: they described older code and were never re-measured.
+`708 10000 8` on an i7-8700 with 12 logical processors, alone on the machine: 1,002,528 triangles, medians over 3 processes (of all samples, for queries). Earlier records of the abandoned sessions were dropped: they described older code and were never re-measured.
+
+Each build runs once per process, so `sequential`, the first, also pays for the code not being optimized yet. On .NET 10 it took about 240 ms in a warmed process, and the others changed little.
+
+| Build, ms | .NET 10 | .NET Framework 4.8 |
+|---|---:|---:|
+| `sequential` | 327 | 330 |
+| `parallel` | 91 | 120 |
+| `parallel_far_point` | 132 | 166 |
+| `triangle_adapter` | 109 | 155 |
+| `triangle_over` | 92 | 131 |
+| `strtree` | 1572 | 2334 |
+| `nts_quadtree` | 782 | 768 |
+
+| Query, us per call | Library .NET 10 | `strtree` .NET 10 | Library 4.8 | `strtree` 4.8 |
+|---|---:|---:|---:|---:|
+| Height, zero tolerance | 1.09 | 3.28 | 1.33 | 4.74 |
+| Rectangle 20 x 20 | 4.91 | 6.65 | 5.25 | 10.04 |
+| Segment | 9.56 | 31.22 | 14.10 | 37.92 |
+| Nearest | 1.68 | 12.45 | 1.91 | 17.06 |
+
+`index_retained_bytes` of the core: 60.7 MB on both runtimes, with no triangles. The triangles add 72 bytes each in `TriangleQuadtree2d`, and nothing in `Over`, which reads the caller's array.
