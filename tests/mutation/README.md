@@ -30,7 +30,7 @@ workflow". On a pull request, it waits until the PR is ready for review (drafts 
 
 | The PR changes | Runs | Fails below `break`? |
 |---|---|---|
-| a mutated file (all mutated files, in a shard with several) | `--with-baseline`: the mutants of the changed code; the others keep their result from the baseline (below). Without a baseline in the cache: the whole shard | yes |
+| a mutated file (all mutated files, in a shard with several) | incremental: the mutants of the changed lines; the others keep their result from the baseline (below). Without a baseline in the cache: the whole shard | yes, on the combined score |
 | some, not all, mutated files of a shard with several (`planar`, the arithmetic config) | the whole shard | yes |
 | the config | the whole shard | yes |
 | only tests of the `test-case-filter` | `--since`: the mutants those tests cover | no: a score over a part of the mutants is not comparable with the threshold, so it only reports |
@@ -43,29 +43,34 @@ workflow". On a pull request, it waits until the PR is ready for review (drafts 
 ### Baseline (incremental runs)
 
 Every full run stores its JSON report as the baseline of its config in the Actions cache
-([baseline.py](baseline.py) `store`, only the files with tested mutants; key
-`mutation-baseline-<config>-<hash of the config and the tools>-<run id>`). A PR that changes a mutated file
-restores the newest baseline of its config ([run_stryker.sh](run_stryker.sh)): its own from an earlier full run of
-the PR, else the one of its base branch (on master the weekly run). Stryker then runs with
-`--with-baseline:<base sha>`:
+([baseline.py](baseline.py) `store`: only the files with tested mutants, keyed by relative paths; cache key
+`mutation-baseline-<config>-<hash of the config and the tools>-<run id>`). A PR that changes a mutated file restores
+the newest baseline of its config: its own from an earlier full run of the PR, else the one of its base branch (on
+master the weekly run). Then [run_stryker.sh](run_stryker.sh) with [incremental.py](incremental.py):
 
-- the since filter marks every mutant of a changed file for testing;
-- the baseline filter then gives each mutant whose source text and mutator match exactly one mutant of the baseline
-  report its result from there ("Result based on previous run"). Only new or changed mutants, and ambiguous ones
-  (the same text twice in the file), run;
-- the score covers the whole shard (baseline results and new ones), so the break threshold applies as in a full run.
+1. `plan`: a line diff of each mutated file against its source in the baseline report gives the changed lines; the run
+   config is the config with `mutate` limited to them (character spans `File.cs{a..b}`, within the config's own span,
+   so split shards stay split).
+2. Stryker runs that config with `--break-at 0`: it mutates only the changed lines.
+3. `merge`: the shard's score is the run's mutants plus the baseline's mutants that touch no changed line, with
+   Stryker's formula (killed and timeouts over killed, timeouts, survived and no coverage); below the config's break
+   threshold the job fails. The job summary shows the counts.
 
-The step "Mutants run and taken from the baseline" ([baseline.py](baseline.py) `count`) shows how many mutants ran.
-A changed config or a new Stryker version changes the cache key, so a stale baseline is never used; without a
-baseline the shard runs in full and stores one.
+A changed config or a new Stryker version changes the cache key, so a stale baseline is never used; without a baseline
+the shard runs in full and stores one.
+
+Stryker's own `--with-baseline` (5.0, experimental) is not used: it looks the baseline up by relative path while its
+report stores absolute paths, so it never matches; and it matches mutants by source text and mutator name, which is
+ambiguous for 48 % of the mutants of `MeshRoundingRepair.cs` (`a > b` gives two "Equality mutation"s; measured on
+1 November), which run again anyway. Here mutants are matched by position, through the line diff.
 
 Limits:
-- A shard with several mutated files runs in full unless all of them changed: Stryker's since filter leaves the
-  mutants of an unchanged file out of the run *and* the score.
-- A baseline result is reused when the mutant's own code is unchanged, even if code around it or the tests changed
-  in the same PR (a test the PR removes keeps its kills until the next full run). The weekly full run is the check
-  of record.
-- Stryker 5.0 calls `--with-baseline` experimental.
+- A shard with several mutated files runs in full unless all of them changed (`select_shards.py`).
+- A mutant that reaches beyond the changed lines (a statement or block around a changed line) is neither run (Stryker
+  mutates only mutants inside the spans) nor taken from the baseline (its code changed): it is left out until the next
+  full run. The summary counts the baseline mutants on changed lines.
+- A baseline result is reused even if a test or another file changed in the same PR (a test the PR removes keeps its
+  kills, a change in a called file is not seen). The weekly full run is the check of record.
 
 The HTML report is uploaded as an artifact, and a summary appears in the job summary. Tests of the selection:
 `python3 tests/mutation/test_select_shards.py`.

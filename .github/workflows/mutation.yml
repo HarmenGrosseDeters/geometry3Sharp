@@ -5,9 +5,10 @@ name: Mutation tests
 # - exact-arithmetic: math/ExactPredicates.cs, ExactPoint3.cs, AdaptivePredicates.cs (about 50 minutes);
 # - exact-mesh: the exact mesh pipeline (mesh_ops/ExactMesh*.cs, ExactPlanarSimplify.cs, ExactTriangulation2.cs,
 #   MeshRoundingRepair.cs), in shards that run in parallel (tests/mutation/stryker-mesh-*.json).
-# A shard whose mutated file changed runs incrementally (--with-baseline): only the changed mutants run, the others keep
-# their results from the last full run (the baseline, kept in the Actions cache), and the shard fails when its mutation
-# score drops below the break threshold of its config; without a cached baseline it runs in full. A shard whose config
+# A shard whose mutated file changed runs incrementally (tests/mutation/incremental.py): Stryker mutates only the changed
+# lines, the other mutants keep their results from the last full run (the baseline, kept in the Actions cache), and the
+# shard fails when the combined score drops below the break threshold of its config; without a cached baseline it runs
+# in full. A shard whose config
 # or tools changed runs in full. A shard of which only tests changed runs with --since and only reports. Every full run
 # stores its report as the baseline. The reports list the surviving mutants.
 
@@ -75,6 +76,7 @@ jobs:
         run: |
           python3 test_select_shards.py
           python3 test_baseline.py
+          python3 test_incremental.py
       - id: select
         env:
           EVENT: ${{ github.event_name }}
@@ -117,11 +119,7 @@ jobs:
         env:
           MODE: ${{ needs.changes.outputs.arithmetic }}
           BASE: ${{ github.event.pull_request.base.sha }}
-          PR: ${{ github.event.pull_request.number }}
         run: bash run_stryker.sh stryker-config.json
-      - name: Mutants run and taken from the baseline
-        if: always()
-        run: python3 tests/mutation/baseline.py count tests/mutation/StrykerOutput | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Summary
         if: always()
         run: cat tests/mutation/StrykerOutput/*/reports/mutation-report.md >> "$GITHUB_STEP_SUMMARY" || true
@@ -133,9 +131,16 @@ jobs:
           if-no-files-found: ${{ needs.changes.outputs.arithmetic == 'tests' && 'warn' || 'error' }}
       - name: Prepare the baseline
         id: store
-        # (a full run, also a source run without a baseline, which ran in full)
-        if: always() && (needs.changes.outputs.arithmetic == 'full' || (needs.changes.outputs.arithmetic == 'source' && steps.restore.outputs.cache-matched-key == ''))
-        run: python3 tests/mutation/baseline.py store tests/mutation/StrykerOutput tests/mutation/baseline
+        # (after a full run, also a source run that ran in full for want of a baseline: run_stryker.sh marks it)
+        if: always() && (needs.changes.outputs.arithmetic == 'full' || needs.changes.outputs.arithmetic == 'source')
+        run: |
+          if [ "$MODE" = full ] || [ -f tests/mutation/StrykerOutput/full-run ]; then
+            python3 tests/mutation/baseline.py store tests/mutation/StrykerOutput tests/mutation/baseline
+          else
+            echo "stored=false" | tee -a "$GITHUB_OUTPUT"
+          fi
+        env:
+          MODE: ${{ needs.changes.outputs.arithmetic }}
       - name: Store the baseline
         if: always() && steps.store.outputs.stored == 'true'
         uses: actions/cache/save@v4
@@ -177,11 +182,7 @@ jobs:
           DOTNET_GCHeapHardLimit: '0x180000000'   # 6 GB
           MODE: ${{ matrix.mode }}
           BASE: ${{ github.event.pull_request.base.sha }}
-          PR: ${{ github.event.pull_request.number }}
         run: bash run_stryker.sh stryker-mesh-${{ matrix.shard }}.json
-      - name: Mutants run and taken from the baseline
-        if: always()
-        run: python3 tests/mutation/baseline.py count tests/mutation/StrykerOutput | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Summary
         if: always()
         run: cat tests/mutation/StrykerOutput/*/reports/mutation-report.md >> "$GITHUB_STEP_SUMMARY" || true
@@ -200,9 +201,16 @@ jobs:
           if-no-files-found: ${{ matrix.mode == 'tests' && 'warn' || 'error' }}
       - name: Prepare the baseline
         id: store
-        # (a full run, also a source run without a baseline, which ran in full)
-        if: always() && (matrix.mode == 'full' || (matrix.mode == 'source' && steps.restore.outputs.cache-matched-key == ''))
-        run: python3 tests/mutation/baseline.py store tests/mutation/StrykerOutput tests/mutation/baseline
+        # (after a full run, also a source run that ran in full for want of a baseline: run_stryker.sh marks it)
+        if: always() && (matrix.mode == 'full' || matrix.mode == 'source')
+        run: |
+          if [ "$MODE" = full ] || [ -f tests/mutation/StrykerOutput/full-run ]; then
+            python3 tests/mutation/baseline.py store tests/mutation/StrykerOutput tests/mutation/baseline
+          else
+            echo "stored=false" | tee -a "$GITHUB_OUTPUT"
+          fi
+        env:
+          MODE: ${{ matrix.mode }}
       - name: Store the baseline
         if: always() && steps.store.outputs.stored == 'true'
         uses: actions/cache/save@v4
