@@ -73,10 +73,10 @@ namespace g3
         /// curvature concentrated at the vertex) is at least minAngleDeficit degrees: 360 (1 - sin a) for the apex of
         /// a circular cone of half angle a (eg 199 degrees for a = 26.6, 48 for a = 60), and it tends to 0 at the
         /// vertices of a finely tessellated smooth surface. Only interior, manifold vertices with area
-        /// (MeshCurvature.Valid); vertices that are already fixed keep their constraint, vertices on a feature curve
-        /// are pinned in place (FixedSetID -1, so two pinned vertices are not collapsed together). Call it after
-        /// PreserveBoundaryAndFeatures (which would replace the constraints of curve vertices). Returns the number
-        /// of vertices pinned. Angles only: invariant under scaling, rotation and translation up to rounding.
+        /// (MeshCurvature.Valid) without a constraint: the vertices of feature curves are left to the curve constraints
+        /// (they have a deficit from the crease alone, eg 360 / slices degrees at the rim of a capped cylinder; corners
+        /// and junctions are pinned there), so call it after PreserveBoundaryAndFeatures. Pinned in place with
+        /// FixedSetID -1 (two pinned vertices are not collapsed together). Returns the number of vertices pinned. Angles only: invariant under scaling, rotation and translation up to rounding.
         /// </summary>
         public static int PinSharpVertices(MeshConstraints cons, DMesh3 mesh, double minAngleDeficit = 60)
         {
@@ -88,7 +88,8 @@ namespace g3
             foreach (int vid in mesh.VertexIndices()) {
                 if (curvature.Valid[vid] == false || !(Math.Abs(curvature.AngleDeficit[vid]) >= threshold))
                     continue;
-                if (cons.GetVertexConstraint(vid).Fixed)
+                VertexConstraint vc = cons.GetVertexConstraint(vid);
+                if (vc.Fixed || vc.Target != null)
                     continue;
                 cons.SetOrUpdateVertexConstraint(vid, pinned);
                 n++;
