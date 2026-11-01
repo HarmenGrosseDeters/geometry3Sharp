@@ -17,7 +17,9 @@ The owner decided:
   slicers, FEM and remeshers, and a safe result is SafeRounding's purpose.
 - Finding 1 of the Boolean property tests (`ExactBooleanPropertyFindings`) is therefore intended behaviour. The finding
   is a well-shaped exact triangle of size 2^-20; its contraction changes the volume by 2^-40 / 6.
-- What is guaranteed: exactness above the threshold, and a **proven bound** on the displacement below it.
+- What is guaranteed: triangles the repair does not touch are the exact result, rounded. Every edit, also of
+  well-shaped neighbours (flips, contractions, moves), stays within a **proven bound** of the rounded result.
+  `MeshRobustRepair` can run a second repair with a fresh budget: there the total is at most 2 `maxLength`.
 
 **Drift.** Every vertex has a drift d(v), 0 at the start of `Apply`. A proposed edit removes triangles R and adds
 triangles A. Let δ bound how far the edit moves the surface. Applying the edit sets d(v) = max over the vertices u of R

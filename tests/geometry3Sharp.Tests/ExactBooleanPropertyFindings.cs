@@ -14,8 +14,8 @@ namespace geometry3Sharp.Tests
     /// triangle with an area below 1e-12 diagonal^2 as degenerate and contracts it, also where the triangle and its
     /// vertices are exact (dyadic input, nothing was rounded; here a well-shaped triangle of size 2^-20). That is the
     /// intended behaviour: such tiny triangles trouble downstream programs (slicers, FEM, remeshers), and SafeRounding
-    /// is there to make the result safe for them. Its guarantee is exactness above the threshold and, below it, a
-    /// bounded displacement: the surface moves by at most MeshRoundingRepair.MaxDrift (at most 1e-5 of the diagonal,
+    /// is there to make the result safe for them. Its guarantee: untouched triangles are the exact result, rounded, and
+    /// every edit stays within a bounded displacement: the surface moves by at most MeshRoundingRepair.MaxDrift (at most 1e-5 of the diagonal,
     /// in Hausdorff distance, without removed components), and closed solids change in volume by about the edits'
     /// displacements times the areas they replace. The test asserts a clean result, the drift bound, the same solid
     /// within MaxDrift, and a volume sanity check, not bit identity.

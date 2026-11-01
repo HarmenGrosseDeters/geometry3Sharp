@@ -478,16 +478,13 @@ namespace g3
 
         long evaluations, maxEvaluations, pairTests;
 
-        // (displacement: how far a vertex moves; surface: a bound on how far the surface moves, if not that, for flips
+        // (displacement: how far a vertex moves; surface, if hasSurface: a bound on how far the surface moves, for flips
         // and zips)
         [MethodImpl(JitHints.Optimize)]
-        bool improves(double displacement = 0, double surface = -1)
+        bool improves(double displacement = 0, double surface = 0, bool hasSurface = false)
         {
-            if (++evaluations > maxEvaluations || pairTests > MaxPairTests) {
-                EvaluationLimitReached = true;
-                return false;
-            }
-            // the drift bound first: the vertices of the edit get the largest drift among them plus this edit's
+            // the drift bound first (it does not count as an evaluation): the vertices of the edit get the largest
+            // drift among them plus this edit's
             editVerts.Clear();
             double most = 0;
             foreach (int t in removed) {
@@ -496,9 +493,15 @@ namespace g3
             }
             foreach (Index3i tv in added)
                 for (int k = 0; k < 3; ++k) { editVerts.Add(tv[k]); most = Math.Max(most, drift[tv[k]]); }
-            editDrift = most + ((surface >= 0) ? surface : displacement);
-            if (!(editDrift <= maxLength))
+            // (a bound that is NaN, eg from distances that overflow, rejects the edit)
+            double step = hasSurface ? surface : displacement;
+            editDrift = most + step;
+            if (!(step >= 0) || !(editDrift <= maxLength))
                 return false;
+            if (++evaluations > maxEvaluations || pairTests > MaxPairTests) {
+                EvaluationLimitReached = true;
+                return false;
+            }
             int saveV = movedV;
             Vector3d savePos = movedPos;
             // (SharedPositionsTouch: a vertex moved onto other vertices would touch them uncounted)
@@ -770,7 +773,7 @@ namespace g3
             double surface = Math.Min(crossing, general);
             if (surface > 0 && flat_convex(pa, pb, pc, pd))
                 surface = 0;
-            if (improves(0, surface) == false)
+            if (improves(0, surface, true) == false)
                 return false;
             DMesh3.EdgeFlipInfo info;
             if (Mesh.FlipEdge(eid, out info) != MeshResult.Ok)
@@ -843,7 +846,7 @@ namespace g3
             // how far the surface moves: with c and d moved onto the segment a-b, the old and the new triangles cover
             // the same set, so at most twice the larger distance of c, d to the segment
             double surface = 2 * Math.Max(segment_distance(pos(c), pa, pos(b)), segment_distance(pos(d), pa, pos(b)));
-            if (improves(0, surface) == false)
+            if (improves(0, surface, true) == false)
                 return false;
             var old = new List<Index3i>();
             foreach (int t in removed) {

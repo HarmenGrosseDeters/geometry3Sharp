@@ -93,27 +93,64 @@ namespace geometry3Sharp.Tests
             }
         }
 
-        [Fact]
-        public void PowerOfTwoScales_SameDriftScaled_AndReuse()
+        // a sphere with triangles poked at a point 1e-11 (barycentric) from an edge: caps, repaired by flips
+        static DMesh3 PokedSphere()
         {
-            DMesh3 start = SplitSphere(1e-13, 2e-13);
-            var r0 = new MeshRoundingRepair(new DMesh3(start));
-            r0.Apply();
-            foreach (Similarity sim in Similarity.All().Where(s => s.IsExact)) {
-                DMesh3 m = new DMesh3(start);
-                MeshTransforms.PerVertexTransform(m, sim.Apply);
-                var r = new MeshRoundingRepair(m);
-                r.Apply();
-                Assert.Equal(r0.MaxDrift * sim.Scale, r.MaxDrift);
-                Assert.Equal(r0.Collapses, r.Collapses);
+            DMesh3 m = Sphere();
+            foreach (int t in m.TriangleIndices().ToArray())
+                if (t % 5 == 0)
+                    Assert.Equal(MeshResult.Ok, m.PokeTriangle(t, new Vector3d(0.5, 0.5 - 1e-11, 1e-11), out DMesh3.PokeTriangleInfo info));
+            return m;
+        }
+
+        [Fact]
+        public void Caps_FlippedWithinTheBound()
+        {
+            DMesh3 start = PokedSphere(), m = new DMesh3(start);
+            var r = new MeshRoundingRepair(m);
+            Assert.True(r.Apply());
+            Assert.True(r.Flips > 0, $"flips {r.Flips}");
+            AssertWithinBound(start, m, r, "caps");
+        }
+
+        [Fact]
+        public void PowerOfTwoScales_SameResultScaled()
+        {
+            foreach (DMesh3 start in new[] { SplitSphere(1e-13, 2e-13), PokedSphere() }) {
+                DMesh3 m0 = new DMesh3(start);
+                var r0 = new MeshRoundingRepair(m0);
+                r0.Apply();
+                foreach (Similarity sim in Similarity.All().Where(s => s.IsExact)) {
+                    DMesh3 m = new DMesh3(start);
+                    MeshTransforms.PerVertexTransform(m, sim.Apply);
+                    var r = new MeshRoundingRepair(m);
+                    r.Apply();
+                    Assert.Equal(r0.MaxDrift * sim.Scale, r.MaxDrift);
+                    Assert.Equal(r0.Collapses + r0.Flips + r0.Moves + r0.Zips, r.Collapses + r.Flips + r.Moves + r.Zips);
+                    // the same mesh, scaled, bit for bit
+                    MeshTransforms.PerVertexTransform(m, sim.Inverse);
+                    Assert.True(Invariance.Difference(m0, m) == "", sim.ToString());
+                }
             }
-            // reuse: a second Apply on the repaired mesh starts its drift at 0 and has nothing to do
-            DMesh3 again = new DMesh3(start);
-            var reused = new MeshRoundingRepair(again);
+        }
+
+        [Fact]
+        public void ReusedInstance_EqualsFreshInstance()
+        {
+            // one instance repairs the needles, then the caps (its drifts and counts must start again), then again
+            var reused = new MeshRoundingRepair(new DMesh3(SplitSphere(1e-13, 2e-13)));
             Assert.True(reused.Apply());
-            Assert.True(reused.Apply());
-            Assert.Equal(0, reused.MaxDrift);
-            Assert.Equal(0, reused.Collapses + reused.Flips + reused.Moves + reused.Zips);
+            Assert.True(reused.MaxDrift > 0);
+            foreach (int k in new[] { 0, 1 }) {
+                DMesh3 caps = PokedSphere(), fresh = PokedSphere();
+                reused.Mesh = caps;
+                Assert.True(reused.Apply());
+                var f = new MeshRoundingRepair(fresh);
+                Assert.True(f.Apply());
+                Assert.Equal("", Invariance.Difference(fresh, caps));
+                Assert.Equal(f.MaxDrift, reused.MaxDrift);
+                Assert.Equal(f.Flips + f.Collapses, reused.Flips + reused.Collapses);
+            }
         }
     }
 }
