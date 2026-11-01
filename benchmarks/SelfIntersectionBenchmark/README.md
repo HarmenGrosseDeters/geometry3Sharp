@@ -96,7 +96,7 @@ Same setup, `reducer runs=3 only=harness`. Fingerprints identical in all three b
 Exact stages with the filter (`-p:G3PredicateStats=true`, one run): `HarnessPlate(50, 0.5)` 0 Orient3d calls,
 191058999 Orient2d (0.2 % exact); the tilted plates 7071 and 2239 Orient3d calls, 60.9 and 140.3 million Orient2d
 (0.0 and 0.1 % exact); `HarnessPlate(100)` 0 Orient3d calls. What remains is the number of candidate pairs from the
-grid (and the grid query itself, about 15 % of the check's time on `HarnessPlate(50, 0.5)`): the box fix sends every
+grid (dotnet-trace on `HarnessPlate(50, 0.5)`: the filter about half of the check's samples, the grid query most of the rest): the box fix sends every
 pair with touching or overlapping closed boxes to the tests, and the reductions make long thin triangles. Not
 addressed here.
 
