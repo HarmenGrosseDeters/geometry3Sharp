@@ -70,14 +70,11 @@ Limits on parallel work:
 
 Open task from the takeover:
 
-- [ ] **Exact coplanar triangle clipping: investigate as its own topic.** Deferred until a caller needs it (only tests call the coplanar path). `IntrTriangle2Triangle2` clips in floating point, and
-  coplanar `IntrTriangle3Triangle3` builds on it: it loses point and segment contacts. The fix in #193 was discarded after review: it
-  added a regression (disjoint triangles reported as intersecting through overflow), and contacts were still lost (15641 false
-  negatives, 7951 false positives in 3.86M lattice pairs, against an exact oracle). Rounded clipping cannot keep such a promise. To
-  investigate: an exact approach with `ExactPredicates` (and exact output, as far as callers need it), whether `Test()` and `Find()` can
-  then agree, the behaviour for degenerate and non-finite inputs, and the cost. Only tests call the coplanar path today, so first
-  check who needs it. The tests of #193 (`CoplanarTriangleDifferentialTests`, on branch `qa/differential-core-tests`) are a starting
-  point; their seeded inputs use half-integers only, so they cannot see these failures.
+- [x] **Exact coplanar triangle intersection** (no longer deferred: `DMeshAABBTree3.TestIntersection` / `FindAllIntersections`
+  and `MeshQueries.TrianglesIntersection` call it). `IntrTriangle3Triangle3` decides coplanar, nearly parallel and sliver pairs with
+  `ExactTriangleIntersection`, and `Find()` builds the contact from exactly decided pieces, rounding only the crossing points, so
+  `Test()` and `Find()` agree (row R, item 2b). The 2D clipping of `IntrTriangle2Triangle2` is unchanged; exact output
+  coordinates stay open.
 
 ## Open tasks and where their answer may already be
 
@@ -85,7 +82,6 @@ Open tasks further up, and work further down, in the code or in the research lis
 
 | Open task | Look at first | What it may give, and what it does not |
 |---|---|---|
-| Exact coplanar triangle clipping (above) | `ExactTriangleIntersection` (exists; closed triangles, built only on `ExactPredicates`) | The yes/no question may be answered already, so `Test()` could use it. Exact output for `Find()` stays open |
 | Open inputs: winding numbers across patches (Phase 2), heuristic without clear gain | Phase 5 #5: Feng & Crane 2024, signed distance from geometry with holes and self-intersections, no repair first | Another way to decide inside and outside for open inputs, in place of tuning the propagation. Feng, Gillespie, Crane 2023 has the integer jumps, but for curves on a surface, so it is a model and not a direct fit for patches in 3D. geometry-central documents a signed heat solver: check its license before reading it |
 | Remeshers leave the input surface, and the quality pass after `SimplifyAlphaWrap` (Phase 2) | Phase 5 #2: envelope containment, which its authors built into two surface remeshers. `MeshEnvelope` is the prototype | A guarantee to stay near the input in every local operation, so quality passes cannot trade away fidelity. It does not by itself prevent self-intersections: the per-operation intersection check stays a separate task |
 | `Reducer`: `MaxDeviation` takes 92-97 % of the time (Phase 5 #2) | The same item | With the two rows above, and the envelope pipeline under Open research questions, one piece of work serves four tasks. So it comes first in Phase 5 once it is scheduled |

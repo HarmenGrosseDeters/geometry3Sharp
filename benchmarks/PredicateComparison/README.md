@@ -22,3 +22,23 @@ Then the time for 200 000 calls in general position and nearly degenerate.
 
 The last one also runs Triangle.NET's `RobustPredicates` (not part of this repository; only referenced when
 the property is given).
+
+## Coplanar triangle intersection
+
+    dotnet run -c Release -- triangles
+
+`IntrTriangle3Triangle3` against `ExactTriangleIntersection.Intersects` on coplanar slivers (shared vertex, shared
+edge), the half-integer lattice of #193 and random triangles in general position: false negatives and positives of
+`Test()` / `Intersects()` / `Find()` (`ReportCoplanarIntersection`), `Find()` results without a contact point, and ns
+per pair (best of 5). 1 November 2026, 4 cores (with another benchmark running, so times are rough), master `6ce2ad3`
+→ the exact coplanar path:
+
+| family (20000 pairs) | false negatives master | after | Find without contact master | after | ns per pair master | after |
+|---|---|---|---|---|---|---|
+| slivers, shared vertex | 265 / 265 / 6400 | 0 / 0 / 0 | 9398 | 0 | 402 / 395 / 960 | 2539 / 1805 / 12200 |
+| slivers, shared edge | 0 / 0 / 4230 | 0 / 0 / 0 | 9516 | 0 | 347 / 397 / 529 | 1564 / 1103 / 8063 |
+| half-integer lattice | 1317 / 1317 / 178 | 0 / 0 / 0 | 0 | 0 | 330 / 245 / 417 | 2065 / 1576 / 13494 |
+| general position | – | – | – | – | 338 / 256 / 467 | 336 / 289 / 630 |
+
+No false positives in either. The general-position `Find()` pays for the parallel test that now comes first (three
+normalized cross products).
