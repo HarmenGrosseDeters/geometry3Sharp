@@ -172,5 +172,46 @@ changed yet (`intersection/ExactTriangleIntersection.cs` has another owner).
 - (b) Reducer: a cheap conservative pre-test of a candidate against the query triangle (not only its box) before the
   filter, to drop the sliver candidates early. A new floating-point bound, so it needs its own review.
 - (c) Remesher: do not test again the pairs whose triangles have not changed since they were last checked (an
-  incremental check). An algorithm change; the only item here with the potential of a factor.
+  incremental check). Measured below: not material, closed.
 - Caching `IsDegenerate` per grid triangle (instead of computing it per candidate): at most the 6 to 12 % above.
+
+## Measured and closed (1 November 2026)
+
+Upper bounds counted on a scratch build of master c878e27 (instrumentation not committed), so that nobody measures
+them again.
+
+**(c) Remesher, repeated pair tests.** `Remesher.pair_intersects` instrumented: each call hashed (vertex ids and the 18
+coordinates bit for bit, pair order normalized); a repeat is a pair tested earlier in the same run with exactly the
+same geometry, the upper bound of what a cache of pair results could skip. Time per call inside `pair_intersects`
+(instrumented, so higher than without). `remesher runs=1 only=remesher` and `thingi=<dir>/135363.stl thingi_passes=5
+thingi_factor=0.05 thingi_runs=1 only=thingi`:
+
+| case | pair tests | repeats | time in the tests | of it repeats |
+|---|---:|---:|---:|---:|
+| bumpy sphere | 3977709 | 0 (0.0 %) | 956 ms | 0 ms |
+| jitter plate z = 0 | 778810 | 205 (0.03 %) | 205 ms | 0 ms |
+| jitter plate tilted | 775079 | 305 (0.04 %) | 172 ms | 0 ms |
+| box grid | 1964427 | 905766 (46.1 %) | 545 ms | 265 ms |
+| Thingi10K 135363, 0.05 x mean edge, 5 passes | 21719045 | 126584 (0.6 %) | 5297 ms | 45 ms |
+
+On 135363 (calls by site: edge operations over the grid 13536107, new triangles among themselves 836482,
+`first_round_reverts` 7346456; repeats 120396 / 6177 / 11) a cache could save at most about 45 ms of 13.2 s. The
+repeats of the box grid are all in `first_round_reverts`: the smoothing flags vertices as moved whose new position
+equals the old one (18679 flags over the 10 passes), so unchanged pairs are tested again in later passes. Skipping
+those flags (moved only if `vBufferV` differs from the position), alone on the machine, minimum of 3 runs, without ->
+with: box grid 708 -> 790 ms, bumpy sphere 2104 -> 2207 ms, tilted plate 345 -> 389 ms, z = 0 plate 297 -> 335 ms,
+135363 13205 -> 13553 ms, all within noise, identical fingerprints. `first_round_reverts` already skips the pairs
+without a moved vertex; what is left is fresh pairs times the cost per pair.
+
+**MeshRobustRepair volume IoU, a tighter sample region (parked).** The question: can the region the IoU estimator
+samples (component boxes expanded by `sqrt(n * area / (1.6 pi))`) provably shrink while still containing the union of
+both solids? Measured on Thingi10K 61765 (`BENCH_REPAIR=robust` in `MeshRepairBenchmark`), a 32^3 grid of cells over
+the region, 20000 samples:
+- The bound `|WN| <= sum area / (4 pi d^2)` per BVH node excludes 0 of 32768 cells: the expansion is already the limit
+  of that bound.
+- Adding, for cells that touch no triangle, `|WN(p) - WN(centre)| <= half diagonal x sum over the net boundary edges of
+  len / (4 pi d^2)` (the gradient of the winding number is the Biot-Savart integral over the boundary edges whose
+  directed counts do not cancel, 0 for closed meshes): 16956 of 32768 cells kept, 52.4 % of the samples in them, and
+  the union entirely inside (2679 of 2679 union samples). The unoptimized cell classification took about 11 s, so the
+  time trade-off is open. Not on the other meshes yet; parked.
+
