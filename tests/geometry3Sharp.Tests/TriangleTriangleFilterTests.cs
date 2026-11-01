@@ -227,6 +227,27 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void Intersects_SameAsExactTriangleIntersection()
+        {
+            // the closed test of IntrTriangle3Triangle3's exact route: also for degenerate triangles, in an axis plane,
+            // nearly coplanar and in general position
+            var rand = new Random(23);
+            int hits = 0, n = 0;
+            for (int k = 0; k < 60000; ++k) {
+                int family = k % 3;
+                Func<Vector3d> point = () => new Vector3d(rand.Next(0, 6), rand.Next(0, 6), family == 0 ? 2.5 : family == 1 ? 1e-9 * rand.NextDouble() : rand.Next(0, 6));
+                var A = new Triangle3d(point(), point(), point());
+                var B = new Triangle3d(point(), point(), point());
+                if (k % 7 == 0) A.V2 = A.V0 + 2 * (A.V1 - A.V0);      // collinear
+                bool expected = ExactTriangleIntersection.Intersects(ref A, ref B);
+                Assert.True(expected == TriangleTriangleFilter.Intersects(ref A, ref B), $"A {A.V0} {A.V1} {A.V2}, B {B.V0} {B.V1} {B.V2}");
+                n++;
+                if (expected) hits++;
+            }
+            Assert.True(hits > 5000 && n - hits > 5000, $"{hits} of {n} intersecting");
+        }
+
+        [Fact]
         public void NonFinite_Undecided()
         {
             foreach (bool inB in new[] { false, true })

@@ -42,6 +42,21 @@ namespace g3
         }
 
         /// <summary>
+        /// ExactTriangleIntersection.Intersects for closed triangles (the same answer), with the filter first
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal static bool Intersects(ref Triangle3d A, ref Triangle3d B)
+        {
+            int r = BeyondShared(SeparateA, ref A, SeparateB, ref B);
+            if (r == Undecided)
+                return ExactTriangleIntersection.Intersects(ref A, ref B);
+            return r == Intersecting;
+        }
+
+        // vertex ids of two triangles without shared vertices: BeyondShared is then the closed intersection test
+        static readonly Index3i SeparateA = new Index3i(0, 1, 2), SeparateB = new Index3i(3, 4, 5);
+
+        /// <summary>
         /// For triangles of a mesh (ia, ib their vertex ids, as in ExactTriangleIntersection.IntersectsBeyondShared):
         /// Separate if they certainly meet at most in their shared vertices or edge, Intersecting if they certainly
         /// intersect beyond them, else Undecided
