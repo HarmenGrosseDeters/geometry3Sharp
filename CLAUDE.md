@@ -35,6 +35,10 @@ dotnet build tests/geometry3Sharp.Tests -c Release -f net48 -p:TestNet48=true
 dotnet build benchmarks/<each>/<each>.csproj -c Release
 ```
 
+Draft PRs and spikes: before a push, build the library for all targets (net10.0, netstandard2.0) and the net48 test
+project, and run the tests of the changed areas (`dotnet test --filter ...`). The full list above runs before the PR
+is marked ready for review; the CI of every push runs it on GitHub anyway.
+
 Every push gets a PR; watch its CI and fix red CI right away.
 
 ## Review before every merge
