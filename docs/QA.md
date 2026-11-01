@@ -436,14 +436,25 @@ not depend on the implementer's own tests. Order of priority:
    are in `CompatibilitySuppressions.xml`.
 3. **Banned APIs and analyzers in exact code**: a banned-API analyzer forbids `Math.FusedMultiplyAdd`, `float` and
    parallel floating-point reductions in `math/Exact*`, `math/AdaptivePredicates.cs` and `mesh_ops/ExactMesh*`;
-   warnings as errors there. Done: `Microsoft.CodeAnalysis.BannedApiAnalyzers` (RS0030) with `BannedSymbols.txt`
-   (FMA in `Math`, `Vector*` and the FMA intrinsics, `MathF`, `Parallel`, PLINQ, `gParallel`, `Interlocked` on
-   double / float), and the analyzer G3E0001 (`tools/analyzers/G3ExactCodeAnalyzers`) for every expression,
-   declaration and signature of type `float`, which RS0030 does not see. `.editorconfig` makes both errors in these
-   files and turns them off elsewhere. The analyzer cannot see what a parallel loop aggregates, so parallel loops are
-   banned there as a whole; the reviewed existing ones (integer aggregation only) are allowed per member in
-   `core/ExactCodeAllowList.cs`. `ExactCodeAnalyzerTests` checks the analyzer and that every banned ID and
-   allow-list target names an existing symbol. Not covered: `Task` / `Thread`, and a new loop inside an allowed
+   warnings as errors there. Done, in the exact files listed in `.editorconfig` (`math/Exact*`,
+   `math/AdaptivePredicates.cs`, `mesh_ops/ExactMesh*`, and the exact parts the mesh pipeline calls:
+   `ExactTriangulation2`, `ExactPlanarSimplify`, `ExactTriangleIntersection`), each rule an error there and off
+   elsewhere:
+   - RS0030 (`Microsoft.CodeAnalysis.BannedApiAnalyzers`, `BannedSymbols.txt`): `Math` / `double.FusedMultiplyAdd`,
+     `MultiplyAddEstimate`, the hardware intrinsics namespaces, `MathF`, `System.Single`, `Interlocked` on double /
+     float. No allow-list.
+   - G3E0001 (`tools/analyzers/G3ExactCodeAnalyzers`): every expression, declaration and signature whose type is or
+     contains `float`, including structs with float fields (`Vector3f`, `AxisAlignedBox3f`, a `GetVertexNormal`
+     result); RS0030 sees only member accesses such as `float.Epsilon`.
+   - G3E0002: every use of `Parallel`, PLINQ and `gParallel`. The analyzer cannot see what a loop body aggregates;
+     the reviewed existing loops (integer aggregation only, output normalized afterwards) are allowed per member in
+     `core/ExactCodeAllowList.cs`, which suppresses only G3E0002.
+   - G3E0003: every framework method named as a fused multiply-add (`FusedMultiply*`, `MultiplyAdd*`,
+     `MultiplySubtract*`), in any type.
+
+   `ExactCodeAnalyzerTests` checks the analyzers, that the allow-list switches off only G3E0002, that every banned ID
+   and allow-list target names an existing symbol, the severities by Roslyn's own reading of `.editorconfig`, and
+   that the library project runs the analyzers. Not covered: `Task` / `Thread`, and a new loop inside an allowed
    member.
 4. **Acceptance against references**: for spec-driven work, an oracle by definition, a differential against other libraries, and a golden
    master of accepted results ([strategy](design/ACCEPTANCE_STRATEGY.md)).

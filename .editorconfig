@@ -1,12 +1,21 @@
 # Analyzer scoping only; no formatting rules here.
 
-# Banned APIs (BannedSymbols.txt, RS0030)
-# and no float (G3E0001, tools/analyzers/G3ExactCodeAnalyzers): off in general ...
+# The checks of the exact-arithmetic code (CLAUDE.md, docs/QA.md 4a item 3):
+#   RS0030   banned APIs (BannedSymbols.txt)
+#   G3E0001  float (tools/analyzers/G3ExactCodeAnalyzers)
+#   G3E0002  parallel loops outside the allow-list core/ExactCodeAllowList.cs
+#   G3E0003  fused multiply-add
+# off in general ...
 [*.cs]
 dotnet_diagnostic.RS0030.severity = none
 dotnet_diagnostic.G3E0001.severity = none
+dotnet_diagnostic.G3E0002.severity = none
+dotnet_diagnostic.G3E0003.severity = none
 
-# ... and an error in the exact-arithmetic code (CLAUDE.md, docs/QA.md 4a item 3)
-[{math/Exact*.cs,math/AdaptivePredicates.cs,mesh_ops/ExactMesh*.cs}]
+# ... and errors in the exact-arithmetic code: the predicates, the exact points, the exact mesh pipeline and the
+# exact parts it calls (ExactTriangulation2, ExactPlanarSimplify, ExactTriangleIntersection)
+[{math/Exact*.cs,math/AdaptivePredicates.cs,mesh_ops/ExactMesh*.cs,mesh_ops/ExactTriangulation2.cs,mesh_ops/ExactPlanarSimplify.cs,intersection/ExactTriangleIntersection.cs}]
 dotnet_diagnostic.RS0030.severity = error
 dotnet_diagnostic.G3E0001.severity = error
+dotnet_diagnostic.G3E0002.severity = error
+dotnet_diagnostic.G3E0003.severity = error

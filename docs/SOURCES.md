@@ -232,7 +232,7 @@ Implemented from the paper, no code taken over.
 ## Build-time analyzers (`BannedSymbols.txt`, `tools/analyzers/G3ExactCodeAnalyzers`)
 
 Build-time only, not shipped in the package. `Microsoft.CodeAnalysis.BannedApiAnalyzers` (MIT, NuGet) enforces the
-banned APIs in the exact code; the float analyzer G3E0001 is own code on the Roslyn API (`Microsoft.CodeAnalysis.CSharp`,
+banned APIs in the exact code; the analyzers G3E0001-3 (float, parallel loops, FMA) are own code on the Roslyn API (`Microsoft.CodeAnalysis.CSharp`,
 MIT).
 
 ## Benchmarks
