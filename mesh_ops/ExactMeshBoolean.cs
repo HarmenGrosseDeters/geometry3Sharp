@@ -196,6 +196,10 @@ namespace g3
         internal long CandidateBatchSize = 1 << 24;
         // for tests: no floating-point filters in the arrangement
         internal bool DisableFilters = false;
+        // for tests: all exact points of the arrangement as BigInteger (ExactMeshArrangement.FixedWidthPoints)
+        internal bool FixedWidthPoints = true;
+        // for tests: the arrangement of the last Compute
+        internal ExactMeshArrangement Arrangement { get { return arr; } }
         /// <summary> time per phase, for diagnostics </summary>
         public Dictionary<string, long> PhaseMilliseconds = new Dictionary<string, long>();
         /// <summary> sizes of the intermediate results, for diagnostics </summary>
@@ -326,7 +330,8 @@ namespace g3
                 return fail(BooleanStatus.OpenInput, "input meshes must be closed (every edge used equally often in both directions)");
 
             inputClock.Lap("input");
-            arr = new ExactMeshArrangement(inputs) { SelfIntersections = true, DisableFilters = DisableFilters, CandidateBatchSize = CandidateBatchSize };
+            arr = new ExactMeshArrangement(inputs) { SelfIntersections = true, DisableFilters = DisableFilters, CandidateBatchSize = CandidateBatchSize,
+                FixedWidthPoints = FixedWidthPoints };
             arr.Compute();
             IntersectingPairs = arr.IntersectingPairs - arr.SelfIntersectingPairs;
             SelfIntersectingPairs = arr.SelfIntersectingPairs;
@@ -749,7 +754,10 @@ namespace g3
             // (no error bound needed: the box corners are input doubles, the map from grid to input
             // coordinates is exact and its rounding to double monotone, so a point in the exact box rounds
             // into the double box; the pad only widens the query, front_winding tests the box exactly)
-            Vector3d pv = arr.ToInputVector(arr.Exact(p));
+            // (the exact point and its doubles once per patch, not per candidate mesh)
+            var center = new Center(arr.Exact(p));
+            center.Input = arr.ToInputVector(center.P);
+            Vector3d pv = center.Input;
             double pad = 1e-9 * (Math.Abs(pv.x) + Math.Abs(pv.y) + Math.Abs(pv.z)) + 1e-300;
             candidates.Clear();
             closedTree.Query(new AxisAlignedBox3d(pv - pad * Vector3d.One, pv + pad * Vector3d.One), candidates);
@@ -761,7 +769,7 @@ namespace g3
             foreach (int m in candidates) {
                 int wm;
                 if (ExactWinding[m]) {
-                    wm = front_winding(i, m, arr.Trees[m], rng, stack, p);
+                    wm = front_winding(i, m, arr.Trees[m], rng, stack, center);
                 } else {
                     // generalized winding numbers are thresholded at 1/2: ceil(w - 1/2) > 0 iff w > 1/2,
                     // and it commutes with adding the integer changes across the patch
@@ -898,7 +906,7 @@ namespace g3
         /// through an edge or vertex.
         /// </summary>
         [MethodImpl(JitHints.Optimize)]
-        int front_winding(int i, int mesh, TriangleBoxTree tree, Random rng, List<int> stack, int p)
+        int front_winding(int i, int mesh, TriangleBoxTree tree, Random rng, List<int> stack, Center center)
         {
             var ot = arr.Output[i];
             var src = arr.Triangles[ot.Source];
@@ -906,7 +914,7 @@ namespace g3
 
             BigInteger[] min, max;
             mesh_bounds(mesh, out min, out max);
-            ExactPoint3 P = arr.Exact(p);
+            ExactPoint3 P = center.P;
             // outside the box of the mesh: winding number 0
             for (int k = 0; k < 3; ++k)
                 if (P[k] < min[k] * P.W || P[k] > max[k] * P.W)
@@ -915,11 +923,12 @@ namespace g3
             for (int k = 0; k < 3; ++k)
                 ext = BigInteger.Max(ext, max[k] - min[k] + 1);
 
-            Vector3d pv = arr.ToInputVector(P);
+            Vector3d pv = center.Input;
             // pad: the rounding of the point to double (relative 1e-16), with a wide margin
             double pad = 1e-9 * (Math.Abs(pv.x) + Math.Abs(pv.y) + Math.Abs(pv.z)) + 1e-300;
             // grid coordinates of the point as doubles, for the filtered plane sides
-            double gx = grid_coord(P.X, P.W), gy = grid_coord(P.Y, P.W), gz = grid_coord(P.Z, P.W);
+            Vector3d g = center.Grid();
+            double gx = g.x, gy = g.y, gz = g.z;
             for (int attempt = 0; attempt < 200; ++attempt) {
                 int axis = rng.Next(3);
                 long[] dir = new long[3];
@@ -962,11 +971,20 @@ namespace g3
                     }
                     // sp == 0: the point is in the plane but not in the triangle (it would be in the stack)
                     if (sp == 0 || sp == sr) return;
-                    ExactPoint3 c0 = arr.Exact(U.Corners[0]), c1 = arr.Exact(U.Corners[1]), c2 = arr.Exact(U.Corners[2]);
-                    Vector3d d0 = grid_double(c0), d1 = grid_double(c1), d2 = grid_double(c2);
-                    int o0 = orient3d(P, Rp, c0, c1, ref gp, ref gr, ref d0, ref d1);
-                    int o1 = orient3d(P, Rp, c1, c2, ref gp, ref gr, ref d1, ref d2);
-                    int o2 = orient3d(P, Rp, c2, c0, ref gp, ref gr, ref d2, ref d0);
+                    // (the corners' exact points only when a filter fails: most are integer points with double
+                    // coordinates, whose doubles the arrangement keeps)
+                    int c0 = U.Corners[0], c1 = U.Corners[1], c2 = U.Corners[2];
+                    Vector3d d0 = corner_double(c0), d1 = corner_double(c1), d2 = corner_double(c2);
+                    int o0 = orient3d_filter(ref gp, ref gr, ref d0, ref d1);
+                    int o1 = orient3d_filter(ref gp, ref gr, ref d1, ref d2);
+                    int o2 = orient3d_filter(ref gp, ref gr, ref d2, ref d0);
+                    if (o0 == 2 || o1 == 2 || o2 == 2) {
+                        // (the corners' exact points once, for the orientations the filter did not decide)
+                        ExactPoint3 e0 = arr.Exact(c0), e1 = arr.Exact(c1), e2 = arr.Exact(c2);
+                        if (o0 == 2) o0 = orient3d_exact(P, Rp, e0, e1);
+                        if (o1 == 2) o1 = orient3d_exact(P, Rp, e1, e2);
+                        if (o2 == 2) o2 = orient3d_exact(P, Rp, e2, e0);
+                    }
                     if (o0 == 0 || o1 == 0 || o2 == 0) {
                         // the line passes through an edge or vertex: only a problem if it is the triangle's
                         if ((o0 >= 0 && o1 >= 0 && o2 >= 0) || (o0 <= 0 && o1 <= 0 && o2 <= 0))
@@ -983,6 +1001,25 @@ namespace g3
                     return winding;
             }
             throw new InvalidOperationException("ExactMeshBoolean: no non-degenerate ray found");
+        }
+
+        // the point a patch's winding numbers are evaluated at, with its doubles (computed once per patch)
+        sealed class Center
+        {
+            public readonly ExactPoint3 P;
+            public Vector3d Input;      // ToInputVector(P)
+            Vector3d grid;
+            bool hasGrid;
+            public Center(ExactPoint3 p) { P = p; }
+            // the grid coordinates as doubles (grid_coord), when first needed
+            public Vector3d Grid()
+            {
+                if (hasGrid == false) {
+                    grid = new Vector3d(grid_coord(P.X, P.W), grid_coord(P.Y, P.W), grid_coord(P.Z, P.W));
+                    hasGrid = true;
+                }
+                return grid;
+            }
         }
 
         // plane sides evaluated by front_winding, and how many of them exactly (the filter could not decide)
@@ -1093,6 +1130,15 @@ namespace g3
             min = b[0]; max = b[1];
         }
 
+        // grid_double of the exact point of id, without computing it as BigIntegers where it is an integer point with
+        // double coordinates (the same doubles: grid_double converts W = 1 points exactly then)
+        [MethodImpl(JitHints.Optimize)]
+        Vector3d corner_double(int id)
+        {
+            Vector3d d;
+            return arr.TryExactDouble(id, out d) ? d : grid_double(arr.Exact(id));
+        }
+
         // the grid coordinates of the point as doubles (each with relative error at most 2^-52, or NaN, see grid_coord)
         [MethodImpl(JitHints.Optimize)]
         static Vector3d grid_double(ExactPoint3 p)
@@ -1120,18 +1166,21 @@ namespace g3
         static bool tiny(double v) { return v != 0 && !(Math.Abs(v) >= TinyCoordinate); }
 
         /// <summary>
-        /// orient3d(a, b, c, d) with a floating-point filter: the doubles da..dd approximate the points (relative
-        /// error at most 2^-52 per coordinate); exact if the error bound does not decide (or DisableFilters)
+        /// the floating-point filter of orient3d(a, b, c, d): the doubles da..dd approximate the points (relative
+        /// error at most 2^-52 per coordinate); 2 if the error bound does not decide (or DisableFilters), then
+        /// orient3d_exact decides
         /// </summary>
         [MethodImpl(JitHints.Optimize)]
-        int orient3d(ExactPoint3 a, ExactPoint3 b, ExactPoint3 c, ExactPoint3 d, ref Vector3d da, ref Vector3d db, ref Vector3d dc, ref Vector3d dd)
+        int orient3d_filter(ref Vector3d da, ref Vector3d db, ref Vector3d dc, ref Vector3d dd)
         {
             PredicateStats.Call(PredicateStats.Kind.WindingOrient3d);
-            if (DisableFilters == false) {
-                int s = orient3d_filtered(ref da, ref db, ref dc, ref dd);
-                if (s != 2)
-                    return s;
-            }
+            return DisableFilters ? 2 : orient3d_filtered(ref da, ref db, ref dc, ref dd);
+        }
+
+        // the exact stage of orient3d_filter (when it gave 2)
+        [MethodImpl(JitHints.Optimize)]
+        static int orient3d_exact(ExactPoint3 a, ExactPoint3 b, ExactPoint3 c, ExactPoint3 d)
+        {
             PredicateStats.ExactStage(PredicateStats.Kind.WindingOrient3d);
             return orient3d(a, b, c, d);
         }
