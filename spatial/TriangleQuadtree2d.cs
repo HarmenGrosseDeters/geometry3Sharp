@@ -23,36 +23,32 @@ namespace g3
         public TriangleQuadtree2d(IReadOnlyList<Triangle3d> triangles, bool parallelBuild = true)
         {
             if (triangles == null) throw new ArgumentNullException(nameof(triangles));
-            items = new Triangle3d[triangles.Count];
-            var array = triangles as Triangle3d[];
-            if (array != null) Array.Copy(array, items, items.Length);
-            else for (int i = 0; i < items.Length; ++i) items[i] = triangles[i];
-            tree = new LooseQuadtree2d(BoundsOf(items, parallelBuild), parallelBuild);
+            items = Copy(triangles, parallelBuild);
+            tree = LooseQuadtree2d.FromSource(new BoundsOfTriangles { Items = items }, items.Length, parallelBuild);
         }
-        TriangleQuadtree2d(Triangle3d[] shared, AxisAlignedBox2d[] bounds, bool parallelBuild)
+        TriangleQuadtree2d(Triangle3d[] shared, LooseQuadtree2d built)
         {
             items = shared;
-            tree = new LooseQuadtree2d(bounds, parallelBuild);
+            tree = built;
         }
-        static AxisAlignedBox2d[] BoundsOf(Triangle3d[] triangles, bool parallel)
+        static Triangle3d[] Copy(IReadOnlyList<Triangle3d> triangles, bool parallel)
         {
-            var bounds = new AxisAlignedBox2d[triangles.Length];
-            if (parallel && bounds.Length >= LooseQuadtree2d.ParallelThreshold) {
-                try {
-                    // In blocks: a loop gets optimized while it runs, and a delegate per item stays slow in the first build of a process.
-                    int size = LooseQuadtree2d.ParallelThreshold, blocks = (bounds.Length + size - 1) / size;
-                    Parallel.For(0, blocks, k => BoundsRange(triangles, bounds, k * size, Math.Min(bounds.Length, (k + 1) * size)));
-                    return bounds;
-                } catch (AggregateException) {
-                    // The loop below reports the first bad triangle, as a sequential build does.
-                }
+            var copy = new Triangle3d[triangles.Count];
+            var array = triangles as Triangle3d[];
+            if (array == null) {
+                for (int i = 0; i < copy.Length; ++i) copy[i] = triangles[i];
+            } else if (parallel && copy.Length >= LooseQuadtree2d.ParallelThreshold) {
+                int size = LooseQuadtree2d.ParallelThreshold, blocks = (copy.Length + size - 1) / size;
+                Parallel.For(0, blocks, k => Array.Copy(array, k * size, copy, k * size, Math.Min(size, copy.Length - k * size)));
+            } else {
+                Array.Copy(array, copy, copy.Length);
             }
-            BoundsRange(triangles, bounds, 0, bounds.Length);
-            return bounds;
+            return copy;
         }
-        static void BoundsRange(Triangle3d[] triangles, AxisAlignedBox2d[] bounds, int start, int end)
+        struct BoundsOfTriangles : IBoxSource
         {
-            for (int i = start; i < end; ++i) bounds[i] = QuadtreeGeometry2d.Bounds(triangles[i]);
+            internal Triangle3d[] Items;
+            public AxisAlignedBox2d Box(int index) { return QuadtreeGeometry2d.Bounds(Items[index]); }
         }
         /// <summary>
         /// An index over the caller's array, without a copy of the triangles. The caller must not change them while the index is in use: it
@@ -61,7 +57,7 @@ namespace g3
         public static TriangleQuadtree2d Over(Triangle3d[] triangles, bool parallelBuild = true)
         {
             if (triangles == null) throw new ArgumentNullException(nameof(triangles));
-            return new TriangleQuadtree2d(triangles, BoundsOf(triangles, parallelBuild), parallelBuild);
+            return new TriangleQuadtree2d(triangles, LooseQuadtree2d.FromSource(new BoundsOfTriangles { Items = triangles }, triangles.Length, parallelBuild));
         }
         public int Count { get { return tree.Count; } }
         public AxisAlignedBox2d Extent { get { return tree.Extent; } }

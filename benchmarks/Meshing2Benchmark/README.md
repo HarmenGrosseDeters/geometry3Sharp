@@ -110,6 +110,107 @@ exact predicates for every decision. Afterwards one linear pass verifies orienta
 re-triangulates each cocircular Delaunay cell as a fan from its smallest input index (decision D18): the output does not depend on the insertion order.
 That pass costs about 20 % of the time.
 
+## M2: constrained Delaunay (`g3.ConstrainedDelaunayMesh2`), 2026-11-01
+
+Registered for M2 with the features `m2.cdt`, `m2.domain`, `m2.regions`, `m2.noding`: their 26 catalogue rows of milestone M2 are covered and their golden rows
+recorded (`golden/m2.json`); rows of these features that need refinement (milestone M3) wait for M3, and `m2.snap` (explicit tolerance) is not built yet.
+
+```
+$ dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 -- perf --m2 --repeats 3 --sizes 1000,4000,100000,400000
+runtime .NET 10.0.14, 4 cores
+producer,kind,n,vertices,triangles,subsegments,median_ms,min_ms,allocated_mb,status
+g3-constrained,coastline,1000,1000,998,1000,9.4,7.5,1.6,Success
+g3-constrained,coastline,4000,4000,3998,4000,39.7,21.2,6.4,Success
+g3-constrained,coastline,100000,100000,99998,100000,650.2,631.5,186.6,Success
+g3-constrained,coastline,400000,400000,399998,400000,3171.1,3113.8,795.2,Success
+g3-constrained,parcels,1013,1013,1936,1012,5.7,5.3,2.8,Success
+g3-constrained,parcels,3961,3961,7744,3960,23.1,22.9,11.2,Success
+g3-constrained,parcels,99905,99905,198916,99904,1008.4,988.2,297.2,Success
+g3-constrained,parcels,400513,400513,799236,400512,4100.0,4075.5,1203.2,Success
+g3-constrained,crossings,1000,29486,58952,57472,402.0,398.0,126.9,Success
+g3-constrained,crossings,4000,490339,980650,974678,8522.0,8093.6,2116.1,Success
+```
+
+`coastline` is one ring of n points at UTM coordinates (spec 3.1: 400 000 coastline points in less than 5 s; 3.2 s here), `parcels` a grid of square rings
+sharing their borders with a point in each, `crossings` n/2 random segments in a unit square (490 000 crossings at n = 4000). Linux, 4 cores, net10, idle;
+net48 not measured here. The fixes of the independent review (a final Delaunay check, scaled tolerance tests, a grid of sources for the markers) cost about 0.9 s at 400 000 coastline points and 1.5 s at 400 000 parcel points (2.26 s and 2.64 s before). The crossing case allocates a lot (2 GB for 490 000 crossings): the work list copies the source lists of every piece. Not tuned yet.
+
+How it works ([SOURCES.md](../../docs/SOURCES.md)): the M1 triangulation of all points, then each constraint piece by a walk from its first end point through the
+triangulation. A vertex exactly on the piece, or within the automatic tolerance of it and of every input segment it comes from, splits it; a constrained
+edge in the way is a crossing, computed exactly and rounded to the nearest double, and both pieces are re-queued through it; otherwise Sloan's flips make
+the piece an edge and Lawson's flips restore the constrained Delaunay property. The domain and the region labels follow from one breadth-first pass from
+the outside that tracks, per triangle, the set of rings it lies inside of (even-odd); hole and region seeds fill the cells of the constraints.
+
+## M3: quality refinement (`g3.QualityMesh2`), 2026-11-01
+
+Registered for M3 with the feature `m3.refine`; its rows and the M3 rows of the M2 features are covered (41 rows), golden M3 recorded for the 28 rows that are
+not slow. `m3.locks`, `m3.refine-again` and `m2.snap` are not built. The slow rows (`Catalogue.SlowRows`: results of 16 000 to 200 000 vertices, mostly at
+a Steiner limit) are judged by
+
+```
+dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 -- rows --milestone M3 --seconds 90
+```
+
+which runs every covered row of the milestone, prints the oracle's verdict, the sizes and the times (about 45 minutes, mostly oracle time on the large
+results); the test suite checks the slow rows only for their status unless `G3_MESH2_SLOW` is set. Known: where many segments cross at small angles
+(F-4, F-5) refinement runs into the default Steiner limit (plan, section 9).
+
+## Corpus: public test fixtures (2026-11-01)
+
+The fixtures of earcut (61 polygons), delaunator (7 point sets) and poly2tri (16 polygons) are fetched at run time and never committed (sources and
+licenses in `docs/design/MESHING2D_PROVENANCE.md`); polygons run through M2 and M3, point sets through M1 and M3, M3 at 0, 20 and 30 degrees:
+
+```
+python3 benchmarks/Meshing2Benchmark/corpus/fetch.py
+dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 -- corpus --seconds 120
+```
+
+Result on the head of PR #252 after the fixes below: 84 inputs, 336 runs, **332 pass the oracle, none fails or violates it**; 4 results above
+`--judge-limit` (60 000 vertices) are not judged: earcut's water-huge3 at 30 degrees (114 263 vertices) and poly2tri's debug2 in M3 (a star of 10 000
+points with very sharp spikes: 310 000 vertices, the Steiner limit, at every angle). Meshing time of all 336 runs: about 6 s; the oracle takes most of
+the hour the run needs (poly2tri's debug2 in M2, 10 000 vertices and segments: over 30 minutes).
+
+Found and fixed by the run (each with a regression test or self-check):
+
+| Input | Symptom | Cause, fix |
+|---|---|---|
+| earcut water-huge, -huge2, -huge3 (M3) | triangles outside the domain, missing segments | a split point rounded onto another constraint through the same end at 0.84 degrees; the sides of the split piece gave stale tags. Tags from a piece only for edges with exactly its sources; no split point within the tolerance of another constraint |
+| earcut water (M3) | an input vertex in no triangle | refinement split the sides of a 3.4 degree spike down to where they are within the tolerance of each other; the chains merged and cut off the tip. Same fix (`SpikeAtASmallAngle_KeepsItsApex`) |
+| delaunator issue43, robustness1, robustness4 (M3) | angles below the bound, boundary edges off the hull; 100 000 vertices from 36 | points 5e-15 inside a hull edge encroached it for ever. Hull edges inserted as pieces, a vertex within the tolerance of an existing edge becomes a vertex of it (`PointsUlpsInsideAHullEdge_BecomeBoundaryVertices`) |
+| earcut infinite-loop-jhl | oracle: empty mesh on a domain with area | a sliver 1e-28 wide, below the tolerance; the oracle now allows empty for a domain whose twice area is at most 2 tube perimeter (self-check 5) |
+| earcut water-huge (M3 at 20, 30 degrees) | oracle: two angles below the bound at an apex of 0.84 degrees | inside the zone where the two segments are within the tube of each other no point can be placed; the oracle exempts triangles within 3 tube / sin(angle) of such an apex (self-checks 6 and 7; 8 before #265) |
+| earcut eberly-6 | oracle: 10 minutes for 6 339 vertices | floating-point filters in front of the exact segment, ring and marker tests (now 5 s) |
+
+## The oracle's fast path (2026-11-01)
+
+The oracle decides with exact rationals. On large results that took minutes, so it now has a fast path: floating-point filters with
+error bounds in front of the exact orientation, in-circle, angle, ring and distance tests (the exact test where the filter cannot decide),
+spatial indexes (a 2-d tree for the global empty-circumcircle pass, which now runs at every size; boxes and y buckets for the ring and
+segment tests), integer sums over a common power-of-two denominator for the area, and edge keys hashed with mixing. The reference path
+(`--oracle reference`, `OracleExpect.Reference`) keeps every test exact; `Meshing2OracleModesTests` compares the verdicts of both on every
+covered catalogue row, on four corruptions of each, and runs the self-checks on the reference path.
+
+Measured on one machine (4 cores), the same build of the mesher:
+
+| Run | before | after |
+|---|---|---|
+| `rows --milestone M3 --seconds 600` (41 rows), oracle time | 705 s | 48 s |
+| F-40 at 40 degrees (200 032 vertices), row total | 304 s | 12 s |
+| F-4/c (37 568 vertices) | 100 s | 17 s |
+| earcut water-huge at 20 degrees (24 220 vertices), oracle | about 105 s | about 8 s |
+| earcut water-huge at 30 degrees (49 489 vertices), oracle | about 170 s | about 10 s |
+
+```
+G3_ORACLE_TIMING=1 dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 -- corpus --filter 'earcut/water-huge$' --angles 30
+dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 -- rows --milestone M3 --seconds 600
+```
+
+The share per check on water-huge at 30 degrees before: conformity 55 % (classifying boundary vertices that round a few ulps outwards, then
+exact distances to every ring edge), quality 32 % (an exact sine per triangle), coverage 6 %; the global pass did not run (above
+`GlobalDelaunayLimit`). After, with the global pass running: conformity 3.2 s, segments 2.2 s, coverage 1.8 s, the rest below 1 s each. The
+indexed global pass found violations the skipped pass had hidden: conforming Delaunay in the merge zone of a small apex, which the oracle now
+excuses like the angle bound there (self-check 7).
+
 ## The golden master
 
 `golden/m1.json` holds one row per case of the CI subset: fingerprints, counts, status, exact quality values; no times and no mesh data. The format is defined in

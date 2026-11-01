@@ -27,6 +27,21 @@ namespace Meshing2Acceptance
         public static implicit operator Q(int v) => new Q(v, 1);
 
         /// <summary>The exact value of a finite double, from its bits. Throws on NaN and infinities.</summary>
+        /// <summary> an interval of doubles around n / d (d > 0): the conversions and the division round by at most a few units in
+        /// the last place, the interval is wider by far; false if a part overflows a double </summary>
+        public static bool Bounds(BigInteger n, BigInteger d, out double lo, out double hi)
+        {
+            double dn = (double)n, dd = (double)d;
+            lo = hi = 0;
+            if (double.IsInfinity(dn) || double.IsInfinity(dd) || !(dd > 0)) return false;
+            double v = dn / dd, pad = Math.Abs(v) * 1e-13 + 1e-300;
+            if (double.IsInfinity(v) || double.IsNaN(v)) return false;
+            lo = v - pad; hi = v + pad;
+            return true;
+        }
+
+        public bool Bounds(out double lo, out double hi) => Bounds(N, D, out lo, out hi);
+
         public static Q FromDouble(double v)
         {
             if (double.IsNaN(v) || double.IsInfinity(v)) throw new ArgumentException("not finite: " + v);
@@ -96,6 +111,12 @@ namespace Meshing2Acceptance
             Y = y.N * (W / y.D);
         }
         public static Pt FromDoubles(double x, double y) => new Pt(Q.FromDouble(x), Q.FromDouble(y));
+
+        /// <summary>
+        /// An interval of doubles that contains the exact x (or y): for floating-point filters in front of the exact tests. False
+        /// when the parts do not fit in doubles (then the caller must not filter).
+        /// </summary>
+        public bool Bounds(bool y, out double lo, out double hi) => Q.Bounds(y ? Y : X, W, out lo, out hi);
         public Q Qx => new Q(X, W);
         public Q Qy => new Q(Y, W);
         public bool Equals(Pt o) => X * o.W == o.X * W && Y * o.W == o.Y * W;

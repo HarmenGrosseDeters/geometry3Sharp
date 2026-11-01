@@ -60,6 +60,8 @@
     <InternalsVisibleTo Include="geometry3Sharp.Tests" />
     <!-- profiling of the exact booleans (benchmarks/BooleanComparison profile) -->
     <InternalsVisibleTo Include="BooleanComparison" />
+    <!-- predicate counts of the self-intersection checks (benchmarks/SelfIntersectionBenchmark) -->
+    <InternalsVisibleTo Include="SelfIntersectionBenchmark" />
   </ItemGroup>
 
   <!-- banned APIs and analyzers in the exact-arithmetic code (BannedSymbols.txt, G3E0001-3; scoped by .editorconfig;

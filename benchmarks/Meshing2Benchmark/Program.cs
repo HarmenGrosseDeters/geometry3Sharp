@@ -15,6 +15,7 @@ namespace Meshing2Acceptance
         const string Usage = @"Meshing2Benchmark <command>
   selfcheck                         the oracle rejects broken results (runs before every command)
   ci                                selfcheck, differential of the CI subset, golden check: what CI runs
+  (any command) --oracle reference  every oracle check exact, without the floating-point filters and indexes (audits; slow)
   differential [--larger]           M1 against NetTopologySuite; --larger adds the bigger cases
   golden check [--milestone M1]     recompute the golden rows and compare
   golden update --milestone M1 --reasons <file>
@@ -31,11 +32,21 @@ namespace Meshing2Acceptance
   format-tables                     print the generated parts of docs/design/MESHING2D_GOLDEN_FORMAT.md
   perf [--sizes 1000,4096,...] [--kinds uniform,grid,utm,clustered] [--repeats 5]
                                     time and allocation of the M1 kernel alone (spec 3.1)
+  rows [--milestone M3] [--filter F-4] [--seconds 60] [--fast]   (--fast skips the slow rows)
+  corpus [--dir <d>] [--angles 0,20,30] [--filter water] [--seconds 120] [--judge-limit 60000]
+                                    public inputs fetched by corpus/fetch.py, meshed and judged; statistics only
+                                    run the covered catalogue rows one at a time: verdict, time; a row past the limit is reported and skipped
+  perf --m2 [--sizes ...] [--kinds coastline,parcels,crossings] [--repeats 3]
+                                    the same for the constrained mesher
 ";
 
         static int Main(string[] args)
         {
             if (args.Length == 0) { Console.Error.WriteLine(Usage); return 2; }
+            // --oracle reference: every check (the self-check too) on the exact reference path, for audits
+            string oracleMode = Arg(args, "--oracle");
+            if (oracleMode != null && oracleMode != "reference" && oracleMode != "fast") { Console.Error.WriteLine("--oracle takes reference or fast"); return 2; }
+            Oracle.ForceReference = oracleMode == "reference";
             var items = SelfCheck.Run();
             var failed = items.Where(i => !i.Passed).ToList();
             foreach (var item in failed) Console.Error.WriteLine("SELF-CHECK FAILED: " + item.Name + ": " + item.Detail);
@@ -58,12 +69,43 @@ namespace Meshing2Acceptance
                     case "catalogue": Console.Write(Catalogue.Markdown()); return 0;
                     case "format-tables": PrintFormatTables(); return 0;
                     case "perf": return Perf.Run(args, Arg);
+                    case "rows": return RunRows(args);
+                    case "corpus": return Corpus.Run(args, Arg);
                     default: Console.Error.WriteLine(Usage); return 2;
                 }
             } catch (FormatException e) {
                 Console.Error.WriteLine("bad input: " + e.Message);
                 return 2;
             }
+        }
+
+        static int RunRows(string[] args)
+        {
+            var m = MilestoneArg(args, Milestone.M3);
+            string filter = Arg(args, "--filter");
+            int seconds = int.Parse(Arg(args, "--seconds") ?? "60", System.Globalization.CultureInfo.InvariantCulture);
+            var candidate = CandidateRegistry.For(m);
+            if (candidate == null) { Console.WriteLine("no candidate for " + m); return 1; }
+            int bad = 0;
+            foreach (var row in Catalogue.Rows()) {
+                if (row.Case == null || row.Case.Milestone != m || row.State != CaseState.Covered) continue;
+                if (filter != null && !row.Id.StartsWith(filter, StringComparison.OrdinalIgnoreCase)) continue;
+                if (Has(args, "--fast") && row.Slow) continue;
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                Mesh2Output output = null; Exception error = null;
+                var thread = new System.Threading.Thread(() => { try { output = candidate.Run(row.Case.Input); } catch (Exception e) { error = e; } }, 256 << 20);
+                thread.IsBackground = true;
+                thread.Start();
+                if (!thread.Join(seconds * 1000)) { Console.WriteLine(row.Id + ": TIMEOUT after " + seconds + " s"); ++bad; continue; }
+                double meshMs = sw.Elapsed.TotalMilliseconds;
+                if (error != null) { Console.WriteLine(row.Id + ": THREW " + error.GetType().Name + ": " + error.Message); ++bad; continue; }
+                var report = Oracle.Check(row.Case.Input, output, row.Case.Expect);
+                string text = report.ToString();
+                Console.WriteLine(row.Id + ": " + (report.Ok ? "ok" : "FAIL " + (text.Length > 400 ? text.Substring(0, 400) : text)) + " | " + output.Triangles.Length + " triangles, " + output.VX.Length + " vertices, "
+                    + (report.MergeZoneExcused > 0 ? report.MergeZoneExcused + " excused in merge zones, " : "") + "mesh " + meshMs.ToString("F0", System.Globalization.CultureInfo.InvariantCulture) + " ms, total " + sw.Elapsed.TotalMilliseconds.ToString("F0", System.Globalization.CultureInfo.InvariantCulture) + " ms");
+                if (!report.Ok) ++bad;
+            }
+            return bad == 0 ? 0 : 1;
         }
 
         static bool Has(string[] args, string name) => args.Contains(name);
@@ -94,7 +136,7 @@ namespace Meshing2Acceptance
             return File.Exists(path) ? GoldenFile.Parse(File.ReadAllText(path)) : new GoldenFile();
         }
 
-        static IEnumerable<Mesh2Case> GoldenCases(Milestone m) => m == Milestone.M1 ? M1Cases.Ci() : Catalogue.Rows().Where(r => r.Case != null && r.Case.Milestone == m && r.State == CaseState.Covered).Select(r => r.Case);
+        static IEnumerable<Mesh2Case> GoldenCases(Milestone m) => m == Milestone.M1 ? M1Cases.Ci() : Catalogue.Rows().Where(r => r.Case != null && r.Case.Milestone == m && r.State == CaseState.Covered && !r.Slow).Select(r => r.Case);
 
         static int RunDifferential(bool larger)
         {
