@@ -5,7 +5,7 @@
 // runs of two builds can be checked for bit-identical results. See README.md.
 //
 //   dotnet run -c Release --project benchmarks/SelfIntersectionBenchmark -- [reducer] [remesher] [runs=3] [only=<regex>]
-//       [thingi=<file>] [thingi_passes=5]
+//       [thingi=<file>] [thingi_passes=5] [thingi_runs=1] [thingi_factor=1] (target edge = factor x mean edge)
 //   (build with -p:G3PredicateStats=true to also print the predicate calls and their exact stages)
 using System;
 using System.Collections.Generic;
@@ -52,8 +52,9 @@ static class Program
             DMesh3 m = StandardMeshReader.ReadMesh(A["thingi"]);
             int passes = A.ContainsKey("thingi_passes") ? int.Parse(A["thingi_passes"]) : 5;
             string name = "thingi_" + System.IO.Path.GetFileNameWithoutExtension(A["thingi"]);
+            double factor = A.ContainsKey("thingi_factor") ? double.Parse(A["thingi_factor"], System.Globalization.CultureInfo.InvariantCulture) : 1.0;
             foreach (bool prevent in new[] { false, true })
-                Remesh(name + (prevent ? "_si" : ""), m, 1.0, passes, prevent, A.ContainsKey("thingi_runs") ? int.Parse(A["thingi_runs"]) : 1, only);
+                Remesh(name + (prevent ? "_si" : ""), m, factor, passes, prevent, A.ContainsKey("thingi_runs") ? int.Parse(A["thingi_runs"]) : 1, only);
         }
         return 0;
     }
