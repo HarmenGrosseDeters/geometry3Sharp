@@ -68,16 +68,20 @@ Order when slots free up (owner, 2026-11-01; on that day 4 large and 2 medium se
    **Terrain 1a** (large) was started on 2026-11-01 in the cloud, ahead of this slot, at the owner's request, with the NoData guard of
    `TerrainSafetyLines` (a single vertex such as z = −9999 near a source refines until memory runs out; count the band's
    3D area, not only the horizontal one).
-3. Meshing done (large): M2 (#233), M3 (#252) and the oracle speedup (#265) merged on 2026-11-01; #272 follows. Next
-   the **stage 6b provenance check** (medium, report only), when a medium slot is free.
+3. Meshing done (large): M2 (#233), M3 (#252) and the oracle speedup (#265) merged on 2026-11-01; #272 and #274 merged.
+   The **stage 6b provenance check** (medium, report only) runs once after `m2.snap` (with refinement on the grid) is
+   merged, so that one pass covers the whole 2D mesher (owner 2026-11-01); its own session, not the reference session,
+   which must stay independent of our code.
    Also a small **snap-rounding Q&A** session (owner decision 2026-11-01): the dirty side reads the owner's own commits
    in his Triangle.NET fork (written privately with Claude, owner's rights) and answers the meshing session's written
    questions in spec terms only (behaviour, edge cases, failures, parameters, test inputs as descriptions; no code,
    structure or names). The coordinator checks the report before the meshing session gets it; it is logged in the
    provenance log and SOURCES.md. The meshing session never reads the fork. Starts once the question list is in
    MESHING2D_SNAP.md.
-4. Then the CLI / MCP docs (stage 8, medium), and a review-only session when the stacks and the meshing PRs wait for
-   review at the same time.
+4. **CLI / MCP docs** (stage 8, medium) take the next free slot after the wrap-resolution session, ahead of stage 7b
+   (owner 2026-11-01); then **stage 7b** (large) when a large slot frees (stage R or the envelope session), after the
+   wrap-resolution session. A review-only session only when the stacks and the meshing PRs wait for review at the
+   same time.
 5. Owner decisions still open: whether a large performance session pauses for Terrain. Decided 2026-11-01: stage 7b follows the wrap-resolution session (see 7b).
 
 - At most 5 implementation sessions at once in the cloud, of which at most 2 large (tier L; [AGENT_WORKFLOW.md](AGENT_WORKFLOW.md)
