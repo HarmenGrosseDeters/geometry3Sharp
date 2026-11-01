@@ -369,6 +369,17 @@ merging. The instrumentation sits in `TriangleDeviationBounds`; `ReducerBenchmar
 - **Splitting large query triangles:** `IsWithin` already subdivides adaptively, which is the core of Sacht & Jacobson.
   In the envelope it would speed up the query but not change what it accepts. That is the shape's, and it is the
   blocker.
+- **Fewer or cheaper checks per collapse.** Measured in a `Reducer` subclass in the spike, without changing
+  `Reducer.cs`; each collapse checks 7.0 new triangles.
+  - Corner and midpoint queries shared between the 7 triangles: 37-59 % of a collapse's `IsWithin` queries are
+    duplicates (tighter tolerances: fewer). Queries are about a third of a call, so sharing them would save at most
+    12-20 % of the check. The results would not change.
+  - A carried bound per triangle: certified if U(old) + |Δ| ≤ ε, else `IsWithin`'s bound is carried on. Simulated
+    over whole reductions, it certifies 1.6 % / 9.6 % of the new triangles at 0.001 (bumpy / terrain), 30 % / 40 % at
+    0.003, and 77 % / 85 % at 0.01. The optimistic U = 0 gives 2-16 %, 79-89 % and 98-99 %.
+  - So it helps at coarse tolerances, where the check is cheapest (3-8 µs per call), and hardly at 0.001, where a call
+    costs 45-73 µs. It can accept collapses that `IsWithin`'s depth limit would reject, so the results could change.
+  - Together, a rough upper bound: about 1.15× at 0.001, about 1.35× at 0.003, about 2× at 0.01.
 - **Conclusion:** `IsWithin` is close to the state of the art and exact enough in practice. A larger speedup must cut
   the number of checks per collapse in the `Reducer` (`Reducer.cs`, the owner's file: their decision), not the check.
   - Sacht & Jacobson's own code (github.com/leokollersacht/pompeiu_hausdorff) is MPL-2.0, which is file-level
