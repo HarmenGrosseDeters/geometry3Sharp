@@ -24,6 +24,9 @@ setup (SDK install): [docs/QA.md#5-local-setup](docs/QA.md#5-local-setup).
 
 ## Before every push
 
+Docs-only changes (only `*.md` files) need no local CI steps, and GitHub CI skips them (`paths-ignore` in
+`ci.yml`): re-read the diff and push. Anything else, including code in `docs/examples`, runs the full list.
+
 Run the steps of `.github/workflows/ci.yml` locally:
 
 ```
