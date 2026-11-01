@@ -49,6 +49,7 @@ Inserting points in sorted order into an empty tree, on the development machine:
 
 None of these is measured. Each would have to show its gain here first.
 
+- Reusing the build arrays between builds. Measured on .NET 10, 30 builds of `Over` one after another: about 80 ms each with a full collection most times, against 75 to 79 ms after a forced one. So at most about 5 ms a build, and a static buffer would hold on to the memory.
 - Storing the items in tree order, so that a query reads neighbouring memory. Queries would touch fewer cache lines, and removal gets harder.
 - A build by Morton order instead of cutting from the top. It may cost less on uniform data, and loose placement of large items does not map onto it directly.
 - Tuning the looseness. The present value was not searched for.
@@ -62,21 +63,21 @@ Each build runs once per process, so `sequential`, the first, also pays for the 
 
 | Build, ms | .NET 10 | .NET Framework 4.8 |
 |---|---:|---:|
-| `sequential` | 379 | 348 |
-| `parallel` | 92 | 91 |
-| `parallel_far_point` | 141 | 160 |
-| `triangle_adapter` | 101 | 111 |
-| `triangle_over` | 85 | 101 |
-| `strtree` | 1557 | 2213 |
-| `nts_quadtree` | 747 | 796 |
+| `sequential` | 370 | 343 |
+| `parallel` | 91 | 92 |
+| `parallel_far_point` | 135 | 152 |
+| `triangle_adapter` | 96 | 101 |
+| `triangle_over` | 80 | 91 |
+| `strtree` | 1494 | 2130 |
+| `nts_quadtree` | 706 | 734 |
 
 | Query, us per call | Library .NET 10 | `strtree` .NET 10 | Library 4.8 | `strtree` 4.8 |
 |---|---:|---:|---:|---:|
-| Height, zero tolerance | 0.83 | 3.03 | 0.97 | 4.65 |
-| Height beside the boundary, default tolerance | 0.81 | | 1.21 | |
-| Rectangle 20 x 20 | 3.91 | 6.53 | 4.29 | 9.90 |
-| Segment | 8.11 | 30.89 | 12.16 | 37.29 |
-| Nearest | 1.24 | 12.12 | 1.48 | 16.77 |
+| Height, zero tolerance | 0.82 | 2.78 | 0.90 | 4.21 |
+| Height beside the boundary, default tolerance | 0.77 | | 1.14 | |
+| Rectangle 20 x 20 | 3.63 | 6.17 | 4.09 | 9.18 |
+| Segment | 7.58 | 29.44 | 12.04 | 36.46 |
+| Nearest | 1.19 | 11.35 | 1.41 | 15.94 |
 
 A cell splits above 8 items, or above 16 if they fill at most a quarter of the cell in both directions, as cutting such a cluster adds a chain of nodes before it separates them. Inserts try to split at 9, 17 and each power of two, so a cell can hold more until the next of these. Measured at 4, 6, 8, 12, 16, 24 and 32: 8 is the best for queries, 4 and 6 gain nothing and cost build time (4 also memory), and against 16 it is about 30 % faster in rectangle queries on .NET 10 and 25 % on 4.8, 37 % and 26 % in heights, for about 5 % more build time.
 
