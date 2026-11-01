@@ -30,6 +30,13 @@ Semantics aligned with SafeRounding (`SAFE_ROUNDING.md`): drift reported, a stri
 
 Points 3 and 4 stand in this form. Band cases (F-15 at 0.91 tol, F-18/a at tol/2) accept merged or unmerged.
 
+**Owner decision, 2026-11-01: all output vertices on the grid**, Steiner and split points included; a product requirement, not a later
+option. The design is proposed in `MESHING2D_SNAP.md` section 3g and awaits the coordinator:
+- rounding at insertion, with no final pass and no relocation;
+- refused grid points make a triangle grid-blocked;
+- unsplittable subsegments stay judged;
+- an angle floor of two pixels, measured.
+
 **Owner decisions, 2026-10-31: D1, D5 and D9 as recommended below.** So: output in doubles, with validity decided on those doubles; a hole removes everything inside it, with a diagnostic when an outer ring lies inside a hole, and islands are not part of this; longest edge at most h at the centroid. The others have a default that is fine unless the owner objects. Each default is cheap to change: the "where it
 lives" column names the one place in the oracle, so that a different decision costs an edit there, a changed fixture and golden rows with a stated reason.
 
