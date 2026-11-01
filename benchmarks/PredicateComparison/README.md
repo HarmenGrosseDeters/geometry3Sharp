@@ -45,3 +45,25 @@ Run on 1 November 2026, 4 cores, with another benchmark running at the same time
 What the numbers show:
 - On these pairs the exact path is 4-40 times slower, most for `Find()`: its contact points come from BigInteger determinants.
 - In general position the new route test costs about 0.1-0.2 µs per pair: the normals, the distances to the plane, and rarely an `Orient3d`.
+
+### With `TriangleTriangleFilter` in the exact route
+
+The exact route's closed test (`exact_intersects`) runs `TriangleTriangleFilter` (an axis projection decided with the
+exact `Orient2d`, see `benchmarks/SelfIntersectionBenchmark`) before `ExactTriangleIntersection.Intersects`. Run on
+1 November 2026, 4 cores, alone on the machine; before = master 19c95f6 plus #261 without this commit, after = with it.
+Three rounds alternating before / after, the minimum of each column (ns per pair `Test()` / `Intersects()` / `Find()`).
+Every family has 0 false negatives, 0 false positives and 0 `Find()` results without contact in both builds.
+
+| family | before | after |
+|---|---|---|
+| slivers, shared vertex | 2625 / 1822 / 15248 | 1689 / 890 / 14053 |
+| slivers, shared edge | 1896 / 1336 / 9884 | 1252 / 778 / 9457 |
+| half-integer lattice | 2561 / 1947 / 14366 | 1282 / 701 / 13680 |
+| oblique planes | 3813 / 2592 / 16684 | 2501 / 1721 / 16286 |
+| tilted within 1e-8 | 1439 / 1253 / 10673 | 1310 / 1159 / 10944 |
+| general position | 561 / 419 / 882 | 564 / 428 / 879 |
+
+`Test()` and `Intersects()` on coplanar pairs take 0.5 to 0.7 of the time (the axis-plane and projected pairs no
+longer reach the exact `Orient3d` stage); `Find()` is dominated by its contact points and changes little; general
+position (not on the exact route) is unchanged. (The times are higher than in the table above, which was measured
+with another benchmark running: this is a slower moment of the same container, both builds measured alike.)

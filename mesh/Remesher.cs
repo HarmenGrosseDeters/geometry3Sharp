@@ -121,7 +121,8 @@ namespace g3 {
         /// by an absolute 6e-6: for coordinates beyond about 1e10 a touching pair can be missed there (the later
         /// rounds use the exact grid boxes). Rejections are counted in SelfIntersectionsRejected. Expensive: with the g3cli remesh settings about 17x the time on Thingi10K
         /// (11.3 -> 195.7 s for 20 meshes; mostly the exact tests of neighbouring triangles), see
-        /// benchmarks/RemeshQualityBenchmark. Thin walls far below the edge length stay intersection-free but end
+        /// benchmarks/RemeshQualityBenchmark, measured before TriangleTriangleFilter in front of those tests (2 to 4 times
+        /// faster on flat and axis-flat meshes, same results: benchmarks/SelfIntersectionBenchmark). Thin walls far below the edge length stay intersection-free but end
         /// far from the input (the folds are blocked, not avoided).
         /// </summary>
         public bool PreventSelfIntersections = false;
@@ -1055,11 +1056,16 @@ namespace g3 {
             return found;
         }
 
-        // ExactTriangleIntersection.IntersectsBeyondShared with an exact shortcut for the common case of neighbours that
-        // share one vertex s: if the other two corners of one triangle lie strictly on the same side of the other's
-        // plane, it meets that plane only at s, so the pair meets only at s
+        // ExactTriangleIntersection.IntersectsBeyondShared (the same answer). First TriangleTriangleFilter, which decides
+        // the pairs a projection onto an axis plane settles (nearly coplanar neighbours, triangles in one axis plane)
+        // with Orient2d alone; then an exact shortcut for the common case of neighbours that share one vertex s: if the
+        // other two corners of one triangle lie strictly on the same side of the other's plane, it meets that plane only
+        // at s, so the pair meets only at s
         internal static bool pair_intersects(Index3i ia, ref Triangle3d A, Index3i ib, ref Triangle3d B)
         {
+            int filtered = TriangleTriangleFilter.BeyondShared(ia, ref A, ib, ref B);
+            if (filtered != TriangleTriangleFilter.Undecided)
+                return filtered == TriangleTriangleFilter.Intersecting;
             int nShared = 0, sa = -1, sb = -1;
             for (int i = 0; i < 3; ++i)
                 for (int j = 0; j < 3; ++j)
