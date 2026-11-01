@@ -55,6 +55,9 @@
     <Compile Include="..\..\tools\PredicateCompiler\Compiler.cs" Link="PredicateCompiler\Compiler.cs" />
     <None Include="..\..\tools\PredicateCompiler\predicates.spec" Link="PredicateCompiler\predicates.spec" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\docs\design\FIXED_WIDTH_EXACT_POINTS.md" Link="PredicateCompiler\FIXED_WIDTH_EXACT_POINTS.md" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\tools\PredicateCompiler\indirect.spec" Link="PredicateCompiler\indirect.spec" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\docs\design\INDIRECT_PREDICATES.md" Link="PredicateCompiler\INDIRECT_PREDICATES.md" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\math\Generated\IndirectPredicates.cs" Link="PredicateCompiler\IndirectPredicates.cs.txt" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup Condition="'$(TargetFramework)' != 'net10.0' Or '$(UseNuGetG3)' == 'true'">
     <Compile Remove="GeneratedPredicatesTests.cs" />

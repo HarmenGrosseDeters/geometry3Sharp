@@ -12,9 +12,9 @@ dotnet_diagnostic.G3E0001.severity = none
 dotnet_diagnostic.G3E0002.severity = none
 dotnet_diagnostic.G3E0003.severity = none
 
-# ... and errors in the exact-arithmetic code: the predicates, the exact points (also in fixed width), the exact
+# ... and errors in the exact-arithmetic code: the predicates (also the generated ones), the exact points (also in fixed width), the exact
 # mesh pipeline and the exact parts it calls (ExactTriangulation2, ExactPlanarSimplify, ExactTriangleIntersection)
-[{math/Exact*.cs,math/AdaptivePredicates.cs,math/FixedPoint3.cs,mesh_ops/ExactMesh*.cs,mesh_ops/ExactTriangulation2.cs,mesh_ops/ExactPlanarSimplify.cs,intersection/ExactTriangleIntersection.cs}]
+[{math/Exact*.cs,math/AdaptivePredicates.cs,math/FixedPoint3.cs,math/Generated/*.cs,mesh_ops/ExactMesh*.cs,mesh_ops/ExactTriangulation2.cs,mesh_ops/ExactPlanarSimplify.cs,intersection/ExactTriangleIntersection.cs}]
 dotnet_diagnostic.RS0030.severity = error
 dotnet_diagnostic.G3E0001.severity = error
 dotnet_diagnostic.G3E0002.severity = error
