@@ -271,6 +271,7 @@ namespace g3
         /// <summary>
         /// Collapse edges shorter than minEdgeLen, in order of increasing quadric error (edges longer than
         /// minEdgeLen are never collapsed), until no such edge is left in the queue. Modifies the mesh in place.
+        /// A NaN length accepts no collapses.
         /// </summary>
         public virtual void ReduceToEdgeLength(double minEdgeLen)
         {
@@ -294,7 +295,7 @@ namespace g3
         /// Quick pass without quadrics: collapse interior (non-boundary) edges shorter than fMinEdgeLength to
         /// their midpoint, iterating over all edges up to nRounds times (stops early when nothing collapses).
         /// Constraints, flip checks, MaxDeviation and PreventSelfIntersections still apply. Pass
-        /// MeshIsClosedHint = true to skip the boundary scan for a closed mesh.
+        /// MeshIsClosedHint = true to skip the boundary scan for a closed mesh. A NaN length accepts no collapses.
         /// </summary>
         public virtual void FastCollapsePass(double fMinEdgeLength, int nRounds = 1, bool MeshIsClosedHint = false)
         {
@@ -865,7 +866,8 @@ namespace g3
 			Vector3d vA = mesh.GetVertex(a);
 			Vector3d vB = mesh.GetVertex(b);
 			double edge_len_sqr = (vA-vB).LengthSquared;
-			if (edge_len_sqr > MinEdgeLength * MinEdgeLength)
+			// (a NaN limit compares false with everything: without the test it would accept every collapse)
+			if (edge_len_sqr > MinEdgeLength * MinEdgeLength || double.IsNaN(MinEdgeLength))
 				return ProcessResult.Ignored_EdgeTooLong;
 
             begin_collapse();
