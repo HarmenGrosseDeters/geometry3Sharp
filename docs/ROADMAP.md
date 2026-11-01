@@ -140,7 +140,10 @@ Open tasks further up, and work further down, in the code or in the research lis
   smoothing) leaves a zero-area triangle in the band of `TerrainSafetyTests.SafetyLine_AlongSurface_BandIsOneCleanPiece`,
   where `Remesher` leaves none. Opt-in: `Remesher.MinTriangleQuality` (also `RemesherPro`; curve vertices smoothed
   along their curve, guarded vertex moves, flips of poor pairs, no splits or collapses that create flat triangles or
-  flip normals; `benchmarks/RemeshQualityBenchmark`). Open: the default (to be decided with the fidelity metrics).
+  flip normals; `benchmarks/RemeshQualityBenchmark`). Default decided with the fidelity metrics: `g3cli remesh` uses 0.2 (on
+  Thingi10K all fidelity means equal or better, zero-area triangles in 0 instead of 17 results, 1.5x the time), the
+  library default stays 0 (upstream behaviour; thin walls far below the edge length get worse with it). Open: the
+  self-intersections (next item).
 - [ ] Remeshers produce self-intersections: with the `g3cli remesh` settings 19 of 20 Thingi10K results have
   self-intersecting triangle pairs (19910 pairs, the inputs 1522), mostly from valence flips and collapses (no
   geometric check by default). `MinTriangleQuality` reduces them (3158 pairs; far fewer are created during the passes)

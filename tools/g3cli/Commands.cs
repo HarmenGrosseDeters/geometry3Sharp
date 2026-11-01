@@ -395,7 +395,8 @@ namespace g3cli
             c.Params.Add(new Param("smooth", ParamType.Number, "smoothing speed per pass, 0..1") { Default = 0.5 });
             c.Params.Add(new Param("project", ParamType.Boolean, "project the vertices onto the input surface") { Default = true });
             c.Params.Add(new Param("min_quality", ParamType.Number, "guard against poor and flat triangles (Remesher.MinTriangleQuality, " +
-                "0..1, 0 = off; 0.2 recommended for CAD and feature meshes; not for thin walls far below the edge length)") { Default = 0.0 });
+                "0..1, 0 = off, the library's default; 0.2 here: fewer flat triangles and self-intersections at equal or better " +
+                "fidelity, about 1.5x the time, benchmarks/RemeshQualityBenchmark; 0 for thin walls far below the edge length)") { Default = 0.2 });
             c.Params.Add(Deviation());
             c.Params.Add(SelfIntersections());
             c.Params.Add(Binary());
