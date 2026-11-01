@@ -47,7 +47,157 @@ namespace g3
             // every point is within the covering radius of some corner
             double u2 = dmax + covering_radius(e01, e12, e20);
 
-            return Math.Min(u0, Math.Min(u1, u2));
+            double u = Math.Min(u0, Math.Min(u1, u2));
+            if (PatchBound && !(u <= threshold))
+                u = Math.Min(u, patch_bound(p0, p1, p2, n0, n1, n2));
+            return u;
+        }
+
+        /// <summary>
+        /// also try the patch bound (patch_bound): for triangles that span many target triangles of a nearly flat
+        /// region (eg a coarse mesh against the fine one it was reduced from). Off by default; MeshHausdorffDistance.PatchBound
+        /// </summary>
+        internal bool PatchBound = false;
+        /// <summary> the patch bound gives up when the patch has more target triangles </summary>
+        internal int MaxPatchTriangles = 256;
+
+        // Upper bound from the target triangles under the triangle (p0, p1, p2), seen along its normal: if the
+        // projections of a connected set S of target triangles onto the triangle's plane cover the triangle,
+        // every point x of the triangle lies straight above (or below) a point z of S, so
+        // d(x, Target) <= |x - z| = |height of z|, where the height over the plane is linear on each target
+        // triangle: its max over the part of the projection inside the triangle is at a corner of that clipped
+        // polygon. S grows from the corners' nearest triangles over shared edges, through target triangles whose
+        // projection overlaps the triangle's box and is positively oriented. Coverage: then the projections of
+        // two triangles of S across an edge lie on opposite sides of it, so the boundary of their union lies
+        // on edges of S whose neighbour is not in S; if none of those meets the triangle, it lies wholly inside
+        // the union or wholly outside, and some part of it over S (a clipped polygon) decides. +Infinity if that
+        // cannot be shown.
+        internal double patch_bound(Vector3d p0, Vector3d p1, Vector3d p2, int n0, int n1, int n2)
+        {
+            Vector3d e1 = p1 - p0, e2 = p2 - p0;
+            Vector3d nrm = e1.Cross(e2);
+            double len1 = e1.Length, nlen = nrm.Length;
+            double scale = Math.Max(len1, Math.Max(e2.Length, (p2 - p1).Length));
+            if (!(nlen > 1e-12 * scale * scale) || !(len1 > 0))
+                return double.PositiveInfinity;
+            nrm /= nlen;
+            Vector3d ux = e1 / len1, uy = nrm.Cross(ux);
+            Vector2d q0 = Vector2d.Zero, q1 = new Vector2d(len1, 0), q2 = new Vector2d(e2.Dot(ux), e2.Dot(uy));
+            double margin = 1e-9 * scale;
+            AxisAlignedBox2d box = new AxisAlignedBox2d(q0); box.Contain(q1); box.Contain(q2);
+            box.Expand(margin);
+
+            // state of the target triangles seen: 1 = in S, 2 = rejected
+            var state = new Dictionary<int, byte>();
+            var inS = new List<int>();
+            var stack = new Stack<int>();
+            foreach (int s in new int[] { n0, n1, n2 })
+                if (s >= 0 && Target.IsTriangle(s) && state.ContainsKey(s) == false) { state[s] = 0; stack.Push(s); }
+            double hmax = 0;
+            bool hasHeight = false;
+            var clipped = new List<Vector3d>(9);
+            var tmp = new List<Vector3d>(9);
+            while (stack.Count > 0) {
+                int tid = stack.Pop();
+                Index3i tv = Target.GetTriangle(tid);
+                Vector3d a = Target.GetVertex(tv.a) - p0, b = Target.GetVertex(tv.b) - p0, c = Target.GetVertex(tv.c) - p0;
+                // (x, y) in the plane, z = height
+                Vector3d ta = new Vector3d(a.Dot(ux), a.Dot(uy), a.Dot(nrm)), tb = new Vector3d(b.Dot(ux), b.Dot(uy), b.Dot(nrm)),
+                    tc = new Vector3d(c.Dot(ux), c.Dot(uy), c.Dot(nrm));
+                AxisAlignedBox2d tbox = new AxisAlignedBox2d(ta.xy); tbox.Contain(tb.xy); tbox.Contain(tc.xy);
+                double area2 = (tb.x - ta.x) * (tc.y - ta.y) - (tb.y - ta.y) * (tc.x - ta.x);
+                double tscale = Math.Max(tbox.Width, tbox.Height);
+                if (tbox.Intersects(box) == false || !(area2 > 1e-9 * tscale * tscale)) {
+                    state[tid] = 2;
+                    continue;
+                }
+                state[tid] = 1;
+                inS.Add(tid);
+                if (inS.Count > MaxPatchTriangles)
+                    return double.PositiveInfinity;
+                // heights over the part of the projection inside the triangle
+                clipped.Clear(); clipped.Add(ta); clipped.Add(tb); clipped.Add(tc);
+                clip2(clipped, tmp, q0, q1); clip2(tmp, clipped, q1, q2); clip2(clipped, tmp, q2, q0);
+                foreach (Vector3d v in tmp) {
+                    hmax = Math.Max(hmax, Math.Abs(v.z));
+                    hasHeight = true;
+                }
+                Index3i nb = Target.GetTriNeighbourTris(tid);
+                for (int k = 0; k < 3; ++k)
+                    if (nb[k] >= 0 && state.ContainsKey(nb[k]) == false) { state[nb[k]] = 0; stack.Push(nb[k]); }
+            }
+            // (no part of the triangle over S: not covered)
+            if (hasHeight == false)
+                return double.PositiveInfinity;
+            // no boundary edge of S may meet the triangle
+            foreach (int tid in inS) {
+                Index3i tv = Target.GetTriangle(tid);
+                Index3i nb = Target.GetTriNeighbourTris(tid);
+                for (int k = 0; k < 3; ++k) {
+                    byte st;
+                    // (an edge between triangles of S of inconsistent orientation counts as a boundary edge: both
+                    // can lie on the same side of it)
+                    if (nb[k] >= 0 && state.TryGetValue(nb[k], out st) && st == 1 && traverses(Target.GetTriangle(nb[k]), tv[(k + 1) % 3], tv[k]))
+                        continue;
+                    Vector3d a = Target.GetVertex(tv[k]) - p0, b = Target.GetVertex(tv[(k + 1) % 3]) - p0;
+                    Vector2d sa = new Vector2d(a.Dot(ux), a.Dot(uy)), sb = new Vector2d(b.Dot(ux), b.Dot(uy));
+                    if (segment_meets_triangle(sa, sb, q0, q1, q2, margin))
+                        return double.PositiveInfinity;
+                }
+            }
+            return hmax;
+        }
+
+        // does the triangle t have the edge a -> b in its order?
+        static bool traverses(Index3i t, int a, int b)
+        {
+            return (t.a == a && t.b == b) || (t.b == a && t.c == b) || (t.c == a && t.a == b);
+        }
+
+        // doubled signed area of (a, b, p): positive if p is left of a -> b
+        static double edge_side(Vector2d a, Vector2d b, Vector2d p)
+        {
+            return (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
+        }
+
+        // clip the polygon (x, y, height) to the left side of the line a -> b (Sutherland-Hodgman); the height is
+        // interpolated linearly
+        static void clip2(List<Vector3d> poly, List<Vector3d> outPoly, Vector2d a, Vector2d b)
+        {
+            outPoly.Clear();
+            int n = poly.Count;
+            for (int k = 0; k < n; ++k) {
+                Vector3d p = poly[k], r = poly[(k + 1) % n];
+                double dp = edge_side(a, b, p.xy), dr = edge_side(a, b, r.xy);
+                if (dp >= 0) outPoly.Add(p);
+                if ((dp > 0 && dr < 0) || (dp < 0 && dr > 0))
+                    outPoly.Add(p + (dp / (dp - dr)) * (r - p));
+            }
+        }
+
+        // does the segment (a, b) come within margin of the closed triangle (q0, q1, q2) (counter-clockwise)?
+        static bool segment_meets_triangle(Vector2d a, Vector2d b, Vector2d q0, Vector2d q1, Vector2d q2, double margin)
+        {
+            // an end point inside, or the segment within margin of an edge
+            if (edge_side(q0, q1, a) >= 0 && edge_side(q1, q2, a) >= 0 && edge_side(q2, q0, a) >= 0) return true;
+            return segment_distance(a, b, q0, q1) <= margin || segment_distance(a, b, q1, q2) <= margin
+                || segment_distance(a, b, q2, q0) <= margin;
+        }
+
+        static double segment_distance(Vector2d a, Vector2d b, Vector2d c, Vector2d d)
+        {
+            double s1 = edge_side(a, b, c), s2 = edge_side(a, b, d), s3 = edge_side(c, d, a), s4 = edge_side(c, d, b);
+            if (((s1 > 0 && s2 < 0) || (s1 < 0 && s2 > 0)) && ((s3 > 0 && s4 < 0) || (s3 < 0 && s4 > 0)))
+                return 0;
+            return Math.Min(Math.Min(point_segment(c, a, b), point_segment(d, a, b)), Math.Min(point_segment(a, c, d), point_segment(b, c, d)));
+        }
+
+        static double point_segment(Vector2d p, Vector2d a, Vector2d b)
+        {
+            Vector2d ab = b - a;
+            double l2 = ab.LengthSquared;
+            double t = (l2 > 0) ? MathUtil.Clamp((p - a).Dot(ab) / l2, 0, 1) : 0;
+            return p.Distance(a + t * ab);
         }
 
 
