@@ -274,18 +274,23 @@ a difference of two inputs `c = u`, `m̃ = |ẽ|`; a sum `c = (u + max(cx, cy)) 
 9 u (denominator), `Orient3dTPI` 28 u and 17 u.
 
 **Tests** (`GeneratedPredicatesIndirectTests`):
-- the constants against an independent first-order count of the roundings (difference 1, sum `1 + max`, product
-  `1 + kx + ky`): `K` within `[k u, k u (1 + 1e-9)]`;
+- the constants re-derived in the test with its own fractions (the same rules, other code: `K` is the smallest double
+  at or above `c / (1 − u)`) and against a first-order count of the roundings (difference 1, sum `1 + max`, product
+  `1 + kx + ky`): `k u < K ≤ k u (1 + 1e-9)`;
 - the double entry against the oracle at 3 to 53 bits; the filter is never wrong and decides more than 98 % of the
   random inputs;
-- exact zeros moved by one grid step at every scale up to 2^52, and exact zeros: the filter fails or is right (the
-  test asserts that more than 1000 cases reach the exact stage); all-zero inputs are decided as 0 (`m̃ = 0`);
+- exact zeros moved by one grid step (12 to 52 bits) and exact zeros: the filter fails or is right; the exact zeros
+  and the moved cases at 52 bits reach the exact stage (asserted), the moved smaller ones are decided by the filter;
+  all-zero inputs are decided as 0 (`m̃ = 0`);
 - the gate (non-integers, `±2^54`, NaN, infinity rejected; `±2^53` and `−0` accepted, and exact at the edge);
-- invariance under the harness's 2^k scales.
+- invariance under the harness's 2^k scales (as the factors 2^10 to 2^30 of a 20-bit grid): the signs and the filter's
+  decisions are equal bit for bit.
+
+The analysis assumes strict IEEE double rounding at every operation (RyuJIT / SSE2), as `AdaptivePredicates` does.
 
 Hand mutants of the filter rules: `K = 0`, `K / 10^6`, `K / 1000`, `K / 30`, `K / 4`, the `m̃ = 0` shortcut dropped,
 `c = 0` for a difference of inputs, the product rule replaced by the sum rule, a factor's sign dropped: all killed.
-`K / 4`, the leaf rule and the product rule are killed only by the first-order count (no input reaches the slack of
+`K / 4`, the leaf rule and the product rule are killed only by the constant tests (no input reaches the slack of
 the bound, as in #221); that test is the guard of the derivation.
 
 **Timings** (`BooleanComparison indirect 7`: 2000 inputs of 30-bit integer points per row, the median of 7 rounds,

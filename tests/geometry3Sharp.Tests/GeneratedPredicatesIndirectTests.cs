@@ -314,25 +314,44 @@ namespace geometry3Sharp.Tests
 
 #if NET
         /// <summary>
-        /// the filter constants against an independent first-order count of the roundings (Shewchuk / Higham style):
-        /// a difference of two inputs 1, a sum 1 + max, a product 1 + kx + ky, so |e~ - e| &lt;= (k u + O(u^2)) m~ and
-        /// K = c / (1 - u) must lie in [k u, k u (1 + 1e-9)]: the higher-order terms are below 1e-9 of it
+        /// the filter constants against a re-derivation in this test (own fractions; the rules of the generator's header:
+        /// difference of inputs u, sum (u + max) / (1 - u), product (u + cx + cy + cx cy) / (1 - u), K >= c / (1 - u)):
+        /// K is the smallest double at or above it; and against a first-order count of the roundings (difference 1, sum
+        /// 1 + max, product 1 + kx + ky): K lies strictly above k u and within 1e-9 of it
         /// </summary>
         [Fact]
-        public void FilterConstants_CoverTheFirstOrderRoundings()
+        public void FilterConstants_RederivedAndFirstOrder()
         {
             const double u = 1.0 / 9007199254740992.0;
+            BigInteger U = BigInteger.Pow(2, 53);       // u = 1 / U; fractions as (num, den)
+            Func<(BigInteger, BigInteger), (BigInteger, BigInteger), (BigInteger, BigInteger)> add = (x, y) => (x.Item1 * y.Item2 + y.Item1 * x.Item2, x.Item2 * y.Item2);
+            Func<(BigInteger, BigInteger), (BigInteger, BigInteger), (BigInteger, BigInteger)> mul = (x, y) => (x.Item1 * y.Item1, x.Item2 * y.Item2);
+            Func<(BigInteger, BigInteger), (BigInteger, BigInteger)> div1u = x => (x.Item1 * U, x.Item2 * (U - 1));     // x / (1 - u)
+            Func<(BigInteger, BigInteger), (BigInteger, BigInteger), bool> ge = (x, y) => x.Item1 * y.Item2 >= y.Item1 * x.Item2;
+            var uu = (BigInteger.One, U);
+            Func<double, (BigInteger, BigInteger)> exact = d => {
+                long bits = BitConverter.DoubleToInt64Bits(d);
+                int e = (int)((bits >> 52) & 0x7FF) - 1075;
+                var m = new BigInteger((bits & 0xFFFFFFFFFFFFFL) | (1L << 52));
+                return e >= 0 ? (m * BigInteger.Pow(2, e), BigInteger.One) : (m, BigInteger.Pow(2, -e));
+            };
             foreach (var p in PredicateCompiler.Analyze(Spec)) {
+                var c = new Dictionary<Node, (BigInteger, BigInteger)>();
                 var k = new Dictionary<Node, long>();
                 foreach (var n in p.Nodes) {
-                    if (n.Op == Op.Input) k[n] = 0;
-                    else if (n.Op != Op.Mul && n.A.Op == Op.Input && n.B.Op == Op.Input) k[n] = 1;
-                    else if (n.Op != Op.Mul) k[n] = 1 + Math.Max(k[n.A], k[n.B]);
-                    else k[n] = 1 + k[n.A] + k[n.B];
+                    bool leaf = n.Op != Op.Mul && n.Op != Op.Input && n.A.Op == Op.Input && n.B.Op == Op.Input;
+                    if (n.Op == Op.Input) { c[n] = (0, 1); k[n] = 0; }
+                    else if (leaf) { c[n] = uu; k[n] = 1; }
+                    else if (n.Op != Op.Mul) { c[n] = div1u(add(uu, ge(c[n.A], c[n.B]) ? c[n.A] : c[n.B])); k[n] = 1 + Math.Max(k[n.A], k[n.B]); }
+                    else { c[n] = div1u(add(add(add(uu, c[n.A]), c[n.B]), mul(c[n.A], c[n.B]))); k[n] = 1 + k[n.A] + k[n.B]; }
                 }
                 for (int f = 0; f < p.Signs.Count; ++f) {
-                    double lower = k[p.Signs[f]] * u;
-                    Assert.True(p.FilterK[f] >= lower && p.FilterK[f] <= lower * (1 + 1e-9), $"{p.Name} factor {f}: K = {p.FilterK[f]}, k u = {lower}");
+                    var need = div1u(c[p.Signs[f]]);
+                    double K = p.FilterK[f];
+                    Assert.True(ge(exact(K), need), $"{p.Name} factor {f}: K below c / (1 - u)");
+                    Assert.False(ge(exact(Math.BitDecrement(K)), need), $"{p.Name} factor {f}: K not the smallest such double");
+                    double first = k[p.Signs[f]] * u;
+                    Assert.True(K > first && K <= first * (1 + 1e-9), $"{p.Name} factor {f}: K = {K}, k u = {first}");
                 }
             }
             // the values of the spec (as in the generated comments): LPI 18 u and 9 u, TPI 28 u and 17 u
@@ -390,14 +409,14 @@ namespace geometry3Sharp.Tests
         }
 
         /// <summary>
-        /// nearly degenerate inputs (exact zeros moved by one grid step, at every scale up to 2^53) and exact zeros: the
-        /// filter fails or is right; exact zeros with m~ = 0 (all zero inputs) are decided as 0
+        /// nearly degenerate inputs (exact zeros moved by one grid step, at 12 to 52 bits) and exact zeros: the filter
+        /// fails or is right; both kinds reach the exact stage; all-zero inputs (m~ = 0) are decided as 0
         /// </summary>
         [Fact]
         public void Filter_NearlyDegenerate_NeverWrong()
         {
             var rand = new Random(2);
-            int undecided = 0;
+            int undecided = 0, movedUndecided = 0;
             for (int k = 0; k < 3000; ++k) {
                 int bits = new[] { 12, 30, 45, 52 }[k % 4];
                 var P = Enumerable.Range(0, 12).Select(_ => GridPoint(rand, bits)).ToArray();
@@ -408,13 +427,16 @@ namespace geometry3Sharp.Tests
                 int f;
                 var Q = new[] { P[0], P[1], P[2], P[3], P[4], P[2], P[3], k % 2 == 0 ? moved : c };
                 Assert.Equal(OracleLPI(Q), LPID(Q, out f));
-                if (f == 2) undecided++;
+                if (f == 2) { undecided++; if (k % 2 == 0) movedUndecided++; }
                 // the TPI point against plane 1 with a moved corner
                 var T = P.Take(9).Concat(new[] { P[0], P[1], k % 2 == 0 ? ExactPoint3.FromInteger(P[2].X + dd, P[2].Y, P[2].Z) : P[2] }).ToArray();
                 Assert.Equal(OracleTPI(T), TPID(T, out f));
-                if (f == 2) undecided++;
+                if (f == 2) { undecided++; if (k % 2 == 0) movedUndecided++; }
             }
-            Assert.True(undecided > 1000, "the nearly degenerate inputs must reach the exact stage");
+            // the exact zeros always reach the exact stage; of the inputs moved by one step, those at 52 bits mostly do
+            // (relative size 2^-52 against bounds of 9 to 28 u), the smaller ones are decided by the filter
+            Assert.True(undecided > 3000, $"{undecided} cases reached the exact stage");
+            Assert.True(movedUndecided > 300, $"{movedUndecided} moved cases reached the exact stage");
             var z = Enumerable.Repeat(ExactPoint3.FromInteger(0, 0, 0), 12).ToArray();
             int fz;
             Assert.Equal(0, LPID(z.Take(8).ToArray(), out fz));
@@ -451,13 +473,16 @@ namespace geometry3Sharp.Tests
             var rand = new Random(12);
             for (int k = 0; k < 300; ++k) {
                 var B = Enumerable.Range(0, 12).Select(_ => GridPoint(rand, 20)).ToArray();
-                int f;
-                int[] reference = { LPID(B.Take(8).ToArray(), out f), TPID(B, out f) };
+                int f1, f2;
+                int[] reference = { LPID(B.Take(8).ToArray(), out f1), TPID(B, out f2), f1, f2 };
                 foreach (var sim in Similarity.All().Where(x => x.IsExact)) {
-                    int e = (int)Math.Round(Math.Log(sim.Scale, 2)) + 20;       // 2^10 .. 2^30
+                    // the identity and 2^-10, 2^10 of the harness, as the factors 2^10 .. 2^30 of the 20-bit grid
+                    int e = (int)Math.Round(Math.Log(sim.Scale, 2)) + 20;
                     BigInteger m = BigInteger.One << e;
                     var S = B.Select(q => ExactPoint3.FromInteger(q.X * m, q.Y * m, q.Z * m)).ToArray();
-                    Assert.Equal(reference, new[] { LPID(S.Take(8).ToArray(), out f), TPID(S, out f) });
+                    // every rounding scales exactly: the filter's decisions are the same bit for bit, not only the signs
+                    int r1 = LPID(S.Take(8).ToArray(), out f1), r2 = TPID(S, out f2);
+                    Assert.Equal(reference, new[] { r1, r2, f1, f2 });
                 }
             }
         }

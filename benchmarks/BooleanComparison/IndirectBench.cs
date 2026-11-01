@@ -3,8 +3,7 @@
 // Per-call times of the generated indirect predicates (docs/design/INDIRECT_PREDICATES.md):
 //   BooleanComparison indirect [rounds]
 // Orient3d of a line-plane point (LPI) and of a three-plane point (TPI) against three points, on integer inputs of
-// 30 bits: general ones (the filter decides; also a point one grid step off a plane is far above its bound) and
-// degenerate ones (the point on the plane a, b, c: the sign is 0, the filter fails and the exact stage decides):
+// 30 bits: general ones (random points; the filter decides) and degenerate ones (the point on the plane a, b, c: the sign is 0, the filter fails and the exact stage decides):
 //   construct: the point as a reduced rational (BigInteger, gcd, as the arrangement constructs its points), then
 //              orient3d in BigInteger
 //   exact:     the generated exact stage on FixedArith, from the doubles

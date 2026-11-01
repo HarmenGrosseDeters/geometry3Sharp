@@ -196,7 +196,8 @@ namespace G3PredicateCompiler
             foreach (var p in preds) {
                 value_bounds(p);
                 fixedarith_lengths(p);
-                filter_bounds(p);
+                if (p.Xyz)
+                    filter_bounds(p);       // only the inputs xyz predicates get a filter (the double entry)
             }
             return preds;
         }
@@ -227,6 +228,8 @@ namespace G3PredicateCompiler
         // A sign factor e is decided if m~ = 0 (then e = 0: every product is an exact 0) or |e~| > fl(K m~) with
         // K >= c / (1 - u) a double (fl(K m~) >= K m~ (1 - u) >= c m~, so |e| >= |e~| - c m~ > 0 and the signs agree).
         // No overflow: |x| <= 2^53 and the degree and coefficients of the formulas here keep every value below 2^1000.
+        // The model is strict IEEE double rounding at every operation (RyuJIT / SSE2; x87 only with 53-bit precision
+        // control), the same assumption as AdaptivePredicates.
         static void filter_bounds(Predicate p)
         {
             var u = Rational.U;
