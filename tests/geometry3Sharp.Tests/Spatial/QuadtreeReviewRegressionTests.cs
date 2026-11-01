@@ -531,6 +531,45 @@ namespace geometry3Sharp.Tests.Spatial
             Assert.All(visitor.Regions, region => Assert.True(region.Min.x <= region.Max.x && region.Min.y <= region.Max.y, region.ToString()));
         }
 
+        [Fact]
+        public void NearestTie_AtTheEdgeOfTheDoubleRange_GoesToTheLowerId()
+        {
+            // Items 0 and 1 are exactly MaxValue from the origin, as rounded, while the box of the part holding item 0 rounds to infinity.
+            double l = BitConverter.Int64BitsToDouble(0x7FEEE181CFEA423BL), s = BitConverter.Int64BitsToDouble(0x7FD0C707D13D1ECAL);
+            double lBelow = BitConverter.Int64BitsToDouble(0x7FEEE181CFEA423AL), sAbove = BitConverter.Int64BitsToDouble(0x7FD0C707D13D1ECBL);
+            var boxes = new List<AxisAlignedBox2d> {
+                new AxisAlignedBox2d(new Vector2d(l, s)), new AxisAlignedBox2d(new Vector2d(s, l)), new AxisAlignedBox2d(new Vector2d(lBelow, sAbove)) };
+            for (int i = 0; i < 14; ++i) boxes.Add(new AxisAlignedBox2d(new Vector2d(l, l)));
+            var tree = new LooseQuadtree2d(boxes, false);
+            Assert.Equal(0, tree.FindNearest(Vector2d.Zero));
+            var found = new List<int>();
+            tree.FindNearestK(Vector2d.Zero, 1, found);
+            Assert.Equal(new[] { 0 }, found);
+        }
+
+        [Fact]
+        public void InsertAndRemove_OnACellThatCannotSplit_CostNoRefit()
+        {
+            // All items share one cell at the depth limit, as a far point stretches the root. Its count alternates around a power
+            // of two, where an insert tries to split: a refit each time would walk all of it.
+            var random = new Random(2);
+            var boxes = new List<AxisAlignedBox2d> { new AxisAlignedBox2d(new Vector2d(1e30, 1e30)) };
+            for (int i = 0; i < 262144; ++i) {
+                double x = random.NextDouble(), y = random.NextDouble();
+                boxes.Add(new AxisAlignedBox2d(new Vector2d(x, y)));
+            }
+            var tree = new LooseQuadtree2d(boxes, false);
+            AxisAlignedBox2d box = boxes[7];
+            int id = 7;
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            for (int i = 0; i < 10000; ++i) {
+                Assert.True(tree.Remove(id)); // by ID: removal by value has to look through the cell
+                id = tree.Insert(box);
+            }
+            Assert.True(watch.Elapsed.TotalSeconds < 5, $"took {watch.Elapsed.TotalSeconds} s");
+            Assert.Equal(boxes.Count, tree.Count);
+        }
+
         // ---- cost of equal items, and of cells one ulp wide
 
         struct RegionCounter : IQuadtreeVisitor2d

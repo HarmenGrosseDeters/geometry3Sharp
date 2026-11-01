@@ -34,14 +34,14 @@ The targets of the spec's §4.2 were measured by the owner on the old index and 
 
 ## Cost of the structure
 
-Counted rather than timed, so exact: `QuadtreeReviewRegressionTests`. Items visited by one small query, out of 100000:
+Counted rather than timed, so exact: `QuadtreeReviewRegressionTests`. What one small query looks at:
 
 | Data | Before | Now |
 |---|---:|---:|
 | Point query on the 1M triangle grid, regions and items tested | 110 and 35 | 37 and 11 |
 | Rectangle 20 x 20 on the same grid, regions and items tested (30 hits) | 137 and 96 | 53 and 54 |
-| One row of a TIN, extent 100000 x 1 | 100000 | below 64 |
-| 20 km x 20 km, one point at (1e15, 1e15) | 100000 | at most 8 times the count without the point |
+| One row of a TIN, extent 100000 x 1, items of 100000 tested | 100000 | below 64 |
+| 20 km x 20 km, one point at (1e15, 1e15), items of 100000 tested | 100000 | at most 8 times the count without the point |
 
 Inserting points in sorted order into an empty tree, on the development machine: 40000 points took 90 s, when every insert beyond the extent rebuilt the tree. `InsertingInSortedOrder_DoesNotRebuildEachTime` now requires 20000 points on a line and 20000 on a diagonal in under 5 s.
 

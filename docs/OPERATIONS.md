@@ -238,7 +238,8 @@ bool found = tree.TryGetHeight(new Vector2d(10, 10), out double height, toleranc
 * Every result-buffer query clears its output first. Reserve enough capacity to avoid list growth.
   Concurrent and nested read-only queries use independent caller-owned buffers; inserts/removals
   must not overlap queries. Struct visitors (`IQuadtreeVisitor2d`) allow allocation-free traversal:
-  `TestRegion` prunes a region and `Visit` returning true stops at a real caller-defined hit.
+  `TestRegion` prunes a region and `Visit` returning true stops at a real caller-defined hit. A region is the bounds of what
+  that part of the tree holds, with no slack and possibly of zero area: a test with a margin has to add it. Empty parts are not shown.
   Built-in nearest metrics compare exact squared distances when floating-point distances overflow;
   ID ordering then breaks only actual ties. Custom nearest metrics (`IQuadtreeDistance2d`) must never
   be smaller than point-to-item-AABB distance; their returned double values define ties, including infinity.

@@ -321,7 +321,8 @@ namespace g3
         // limit would then skip an item that ties with the best one, and the tie would go by visiting order.
         static bool Beyond(double boxDistance, double limit)
         {
-            return boxDistance * (1 - 1e-15) > limit;
+            // An infinite box distance is rounding too: an item inside the box can still reach exactly MaxValue.
+            return (boxDistance > double.MaxValue ? double.MaxValue : boxDistance) * (1 - 1e-15) > limit;
         }
 
         static void SiftDown<TDistance>(List<int> heap, int count, ref TDistance distance)
@@ -375,8 +376,9 @@ namespace g3
             Link(id, ref node.Head);
             int count = ++node.Count;
             // A cell of equal items refuses to split, at a cost per attempt: at powers of two, so that filling it stays linear.
-            if (node.Child < 0 && count > BucketSize && (count == BucketSize + 1 || (count & (count - 1)) == 0))
-                BuildNode(nodes, index, cell, depth);
+            // The union above left the bounds valid, so a node that cannot split costs no refit.
+            if (node.Child < 0 && count > BucketSize && (count == BucketSize + 1 || (count & (count - 1)) == 0) && Split(nodes, index, cell, depth))
+                BuildChildren(nodes, index, cell, depth);
         }
 
         void Rebuild(bool parallel)
@@ -442,13 +444,16 @@ namespace g3
 
         void BuildNode(NodeList target, int index, AxisAlignedBox2d cell, int depth)
         {
-            if (Split(target, index, cell, depth)) {
-                int child = target.Items[index].Child;
-                Vector2d center = Center(cell);
-                int axes = SplitAxes(cell, center);
-                for (int q = 0; q < 4; ++q) BuildNode(target, child + q, ChildBox(cell, center, q, axes), depth + 1);
-            }
+            if (Split(target, index, cell, depth)) BuildChildren(target, index, cell, depth);
             Refit(target, index);
+        }
+
+        void BuildChildren(NodeList target, int index, AxisAlignedBox2d cell, int depth)
+        {
+            int child = target.Items[index].Child;
+            Vector2d center = Center(cell);
+            int axes = SplitAxes(cell, center);
+            for (int q = 0; q < 4; ++q) BuildNode(target, child + q, ChildBox(cell, center, q, axes), depth + 1);
         }
 
         // The bounds of a node, from its items and the bounds of its children.
