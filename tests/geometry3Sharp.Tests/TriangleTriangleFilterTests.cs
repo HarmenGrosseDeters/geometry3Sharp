@@ -229,11 +229,49 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void NonFinite_Undecided()
         {
-            var p = PlanarPairs(1, 2, 0, 1)[0];
-            p.A.V1 = new Vector3d(double.NaN, 0, 0);
-            Assert.Equal(TriangleTriangleFilter.Undecided, Filter(p));
-            p.A.V1 = new Vector3d(double.PositiveInfinity, 0, 0);
-            Assert.Equal(TriangleTriangleFilter.Undecided, Filter(p));
+            foreach (bool inB in new[] { false, true })
+                foreach (double bad in new[] { double.NaN, double.PositiveInfinity, double.NegativeInfinity }) {
+                    var p = PlanarPairs(1, 2, 0, 1)[0];
+                    if (inB) p.B.V2 = new Vector3d(0, bad, 0); else p.A.V1 = new Vector3d(bad, 0, 0);
+                    Assert.Equal(TriangleTriangleFilter.Undecided, Filter(p));
+                }
+        }
+
+        [Fact]
+        public void DegenerateTriangles_NeverWronglyDecided()
+        {
+            // the callers skip degenerate (collinear) triangles, but the filter must not rely on it: in an axis plane
+            // without shared vertices the exact test handles them as segments; with shared vertices the filter leaves
+            // degenerate pairs to it
+            var rand = new Random(17);
+            Func<Vector3d> point = () => new Vector3d(rand.Next(0, 7), rand.Next(0, 7), 0);
+            int degenerate = 0, sharedUndecided = 0;
+            for (int n = 0; n < 40000; ++n) {
+                Vector3d a0 = point(), a1 = point(), b0 = point(), b1 = point(), b2 = point();
+                // A collinear: its third point on the line through the first two (or equal to one of them)
+                Vector3d a2 = a0 + rand.Next(-2, 3) * (a1 - a0);
+                var p = new Pair { Ia = new Index3i(0, 1, 2), A = new Triangle3d(a0, a1, a2) };
+                int kind = n % 3;
+                if (kind == 0) { p.Ib = new Index3i(3, 4, 5); p.B = new Triangle3d(b0, b1, b2); }
+                else if (kind == 1) { p.Ib = new Index3i(4, 1, 5); p.B = new Triangle3d(b1, a1, b2); }
+                else { p.Ib = new Index3i(2, 1, 5); p.B = new Triangle3d(a2, a1, b2); }
+                if (n % 2 == 1) { var t = p.A; p.A = p.B; p.B = t; var ti = p.Ia; p.Ia = p.Ib; p.Ib = ti; }
+                if (ExactTriangleIntersection.IsDegenerate(ref p.A) == false && ExactTriangleIntersection.IsDegenerate(ref p.B) == false)
+                    continue;
+                degenerate++;
+                int f = Filter(p);
+                if (kind == 0) {
+                    if (f != TriangleTriangleFilter.Undecided)
+                        Assert.True((f == TriangleTriangleFilter.Intersecting) == Exact(p), $"filter {f}: A {p.A.V0} {p.A.V1} {p.A.V2}, B {p.B.V0} {p.B.V1} {p.B.V2}");
+                    // (a collinear triangle in the plane is never claimed to intersect: no edge line of it exists)
+                    if (f == TriangleTriangleFilter.Intersecting) Assert.Fail("degenerate pair decided as intersecting");
+                } else {
+                    // a degenerate corner or edge triangle: no certificate of the filter applies in the plane
+                    Assert.Equal(TriangleTriangleFilter.Undecided, f);
+                    sharedUndecided++;
+                }
+            }
+            Assert.True(degenerate > 10000 && sharedUndecided > 5000, $"{degenerate} degenerate pairs, {sharedUndecided} shared");
         }
 
         [Fact]

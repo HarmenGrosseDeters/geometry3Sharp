@@ -7,7 +7,7 @@ for bit-identical results.
 
 ```
 dotnet run -c Release --project benchmarks/SelfIntersectionBenchmark -- [reducer] [remesher] [runs=3] [only=<regex>]
-    [thingi=<file>] [thingi_passes=5] [thingi_runs=1]
+    [thingi=<file>] [thingi_passes=5] [thingi_runs=1] [thingi_factor=1]
 ```
 
 Build with `-p:G3PredicateStats=true` to also print the Orient2d / Orient3d calls and the share that reaches their
@@ -34,7 +34,8 @@ Generated in the code (no mesh files):
 - **remesher_\***: the Remesher with the settings of `g3cli remesh` (smoothing 0.5, projection onto the input, boundary
   and 30 degree creases kept), target edge length = the mean edge length of the input, 10 passes, without and with
   (`_si`) `PreventSelfIntersections`, on the bumpy sphere, the z = 0 and tilted plates (40 x 40) and the box grid.
-- **thingi=\<file\>**: a mesh read at run time, the Remesher as above for `thingi_passes` passes. Thingi10K 135363, for
+- **thingi=\<file\>**: a mesh read at run time, the Remesher as above for `thingi_passes` passes, target edge
+  `thingi_factor` x the mean edge. Thingi10K 135363, for
   example, is fetched with
 
   ```

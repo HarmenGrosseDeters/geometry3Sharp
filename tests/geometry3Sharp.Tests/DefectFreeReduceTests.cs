@@ -227,6 +227,20 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void TriangleWithAnInfiniteVertex_DoesNotThrow()
+        {
+            // a separate triangle (inf, 0, 0), (0, 0, 0), (0, 1, 0): its box is flat in z and not finite, so the closed
+            // grid query passes it to every check near z = 0 (the open box test used to skip it)
+            DMesh3 mesh = FlatPlate(10);
+            int a = mesh.AppendVertex(new Vector3d(double.PositiveInfinity, 0, 0));
+            int b = mesh.AppendVertex(new Vector3d(0, 0, 0)), c = mesh.AppendVertex(new Vector3d(0, 1, 0));
+            mesh.AppendTriangle(a, b, c);
+            // (they are not checked: the exact tests need finite input)
+            new Reducer(mesh) { PreventSelfIntersections = true }.ReduceToTriangleCount(20);
+            Assert.True(mesh.TriangleCount < 100, $"{mesh.TriangleCount} triangles");
+        }
+
+        [Fact]
         public void CoincidentSheets_InAnAxisPlane_Freeze()
         {
             // two copies of a plate: every new triangle overlaps the other copy, so no collapse is accepted. The
