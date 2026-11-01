@@ -110,6 +110,7 @@ namespace g3
                     scaledTolerance = ExactPoint3.ScaleB(magnitude, shift) * AutoToleranceFactor;
                 }
                 cancel.ThrowIfCancellationRequested();
+                MergeNearPoints(x, y);
                 order = DelaunayKernel2.InsertionOrder(x, y);
                 rank = new int[n];
                 var xs = new double[n]; var ys = new double[n];
@@ -149,6 +150,40 @@ namespace g3
                 }
                 cancel.ThrowIfCancellationRequested();
                 return Output(vertices, mapping);
+            }
+
+            /// <summary>
+            /// Points within the automatic tolerance of an earlier point are merged into it (spec O11, Q14): they get its coordinates
+            /// for the triangulation, so the kernel maps them to it as exact duplicates; their slots keep their own coordinates
+            /// (D17). A point merges only into a point that merged into nothing, so no chain moves anything farther than the tolerance.
+            /// </summary>
+            void MergeNearPoints(double[] x, double[] y)
+            {
+                if (!(scaledTolerance > 0) || n < 2) return;
+                double cell = 2 * scaledTolerance, tol2 = scaledTolerance * scaledTolerance;
+                double ox = x[0], oy = y[0];
+                var cells = new Dictionary<long, List<int>>();
+                long Key(long cx, long cy) => (cx << 32) ^ (cy & 0xffffffff);
+                int merged = 0;
+                for (int i = 0; i < n; ++i) {
+                    double sx = Scaled(x[i] - ox), sy = Scaled(y[i] - oy);
+                    long cx = (long)Math.Floor(sx / cell), cy = (long)Math.Floor(sy / cell);
+                    int into = -1;
+                    for (long dx = -1; dx <= 1 && into < 0; ++dx)
+                        for (long dy = -1; dy <= 1 && into < 0; ++dy) {
+                            if (!cells.TryGetValue(Key(cx + dx, cy + dy), out var list)) continue;
+                            foreach (int j in list) {
+                                if (x[j] == x[i] && y[j] == y[i]) { into = -2; break; }   // an exact duplicate: the kernel maps it
+                                double ex = Scaled(x[i] - x[j]), ey = Scaled(y[i] - y[j]);
+                                if (ex * ex + ey * ey <= tol2) { into = j; break; }
+                            }
+                        }
+                    if (into >= 0) { x[i] = x[into]; y[i] = y[into]; ++merged; continue; }
+                    if (into == -2) continue;
+                    if (!cells.TryGetValue(Key(cx, cy), out var own)) cells.Add(Key(cx, cy), own = new List<int>());
+                    own.Add(i);
+                }
+                if (merged > 0) diagnostics.Add(merged + " points within the automatic tolerance of another point were merged into it");
             }
 
             void Validate()

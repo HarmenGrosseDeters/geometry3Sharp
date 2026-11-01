@@ -68,7 +68,8 @@ namespace g3
             readonly HashSet<long> unsplittable = new HashSet<long>();
             readonly HashSet<long> exempt = new HashSet<long>();
             int hullSource = -1;
-            long limit, inserted;
+            long limit, inserted, splits;
+            internal static bool DebugTrace = Environment.GetEnvironmentVariable("G3_REFINE_TRACE") != null;
 
             internal Refiner(QualityMesh2 options, ConstrainedDelaunayMesh2.Builder builder)
             {
@@ -97,6 +98,7 @@ namespace g3
                 long steps = 0;
                 while (segments.Count > 0 || triangles.Count > 0) {
                     if ((++steps & 255) == 0) b.cancel.ThrowIfCancellationRequested();
+                    if (DebugTrace && (steps % 200000) == 0) Console.Error.WriteLine("REFINE steps " + steps + " inserted " + inserted + " segQ " + segments.Count + " triQ " + triangles.Count + " splits " + splits + " exempt " + exempt.Count + " unsplittable " + unsplittable.Count + " vertices " + k.VertexCount);
                     if (inserted >= limit) { b.SteinerLimitReached = true; break; }
                     if (segments.Count > 0) {
                         long key = segments.Dequeue();
@@ -150,6 +152,24 @@ namespace g3
             /// <summary> after an insertion: the rewritten triangles may be bad, their constrained edges encroached </summary>
             void Collect()
             {
+                // A split point on a boundary segment can round to just outside the domain: the sliver between the old edge and the
+                // new pieces is then tagged outside, while the domain is bounded by constraints. Tags change only across constraints,
+                // so a triangle joined to the domain by an unconstrained edge takes the domain's tag.
+                var queue = new Queue<int>(k.Dirty);
+                while (queue.Count > 0) {
+                    int t = queue.Dequeue();
+                    if (k.IsGhost(t) || k.Tag[t] >= 0) continue;
+                    for (int j = 0; j < 3; ++j) {
+                        int e = 3 * t + j;
+                        if (k.Seg[e] >= 0) continue;
+                        int t2 = k.H[e] / 3;
+                        if (k.IsGhost(t2) || k.Tag[t2] < 0) continue;
+                        k.Tag[t] = k.Tag[t2];
+                        for (int i = 0; i < 3; ++i) if (k.Seg[3 * t + i] < 0) queue.Enqueue(k.H[3 * t + i] / 3);
+                        k.Dirty.Add(t);
+                        break;
+                    }
+                }
                 foreach (int t in k.Dirty) {
                     if (k.IsGhost(t)) continue;
                     triangles.Enqueue(t);
@@ -288,14 +308,22 @@ namespace g3
                 // walk from t towards c; a constrained edge on the way is split instead (it is encroached, or c is outside)
                 int at = Walk(t, c, out int blocked);
                 if (blocked >= 0) {
+                    if (k.Seg[blocked] < 0) { exempt.Add(TriangleKey(t)); return null; }   // (the domain is bounded by constraints: not expected)
                     if (Locked(blocked) || unsplittable.Contains(Key(k.V[blocked], k.V[Next(blocked)]))) { exempt.Add(TriangleKey(t)); return null; }
                     return SplitSegment(blocked);
                 }
                 // c would encroach a subsegment of its cavity: split those instead (Ruppert; Shewchuk 2002)
                 var encroached = EncroachedByPoint(at, c);
                 if (encroached.Count > 0) {
-                    foreach (int e in encroached) segments.Enqueue(Key(k.V[e], k.V[Next(e)]));
-                    triangles.Enqueue(t);   // try again after the splits
+                    // split one now (the others go to the queue, to be split if still encroached), then try t again
+                    int first = encroached[0];
+                    for (int i = 1; i < encroached.Count; ++i) segments.Enqueue(Key(k.V[encroached[i]], k.V[Next(encroached[i])]));
+                    long key = Key(k.V[first], k.V[Next(first)]);
+                    triangles.Enqueue(t);
+                    var failure = SplitSegment(first);
+                    if (failure != null) return failure;
+                    // a piece too short to split stays: then t cannot be helped this way
+                    if (unsplittable.Contains(key)) exempt.Add(TriangleKey(t));
                     return null;
                 }
                 int before = k.VertexCount;
@@ -384,6 +412,7 @@ namespace g3
                     unsplittable.Add(Key(u, w));
                     return null;
                 }
+                ++splits;
                 var sources = k.Unconstrain(e);
                 int before = k.VertexCount;
                 int q = k.InsertPoint(p.x, p.y);
