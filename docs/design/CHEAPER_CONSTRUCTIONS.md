@@ -553,7 +553,9 @@ all booleans of the run), on the top coplanar cases of `robust_phases_2026-11-01
 
 - 3.2 % of these cases' repair time; on the whole 400 set about 15-20 s of 3885 s (0.4-0.5 %), and 0 on the boolean
   classes. Not worth it as a throughput optimization (process rule 4). As a worst-case latency fix it would make
-  exact.resolve 30-45 % faster on 4 meshes (8-20 % of their repair); that is an owner decision, not built.
+  exact.resolve 30-45 % faster on 4 meshes (8-20 % of their repair).
+- **Owner decision: not built**, neither as a throughput optimization nor as the worst-case latency fix. The item is
+  closed; the numbers above are its record.
 
 ## 11. Later queue
 
