@@ -36,6 +36,12 @@ namespace geometry3Sharp.Tests
             Assert.Equal(files.Length, examples.Length);
         }
 
+        [Fact]
+        public void QuadtreeQueriesExample_ReturnsInterpolatedHeight()
+        {
+            Assert.Equal(3.0, QuadtreeQueriesExample.Run(), 12);
+        }
+
         static string FindDocsDir()
         {
             for (DirectoryInfo dir = new DirectoryInfo(AppContext.BaseDirectory); dir != null; dir = dir.Parent) {

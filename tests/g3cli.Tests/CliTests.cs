@@ -503,6 +503,28 @@ namespace g3cli.Tests
         }
 
         [Fact]
+        public void Remesh_SharpVertexAngle_KeepsTheConeApex()
+        {
+            // a cone with 24 slices: its side edges are no creases, so without the option the apex is rounded off
+            var cone = new g3.ConeGenerator() { BaseRadius = 1f, Height = 2f, Slices = 24, NoSharedVertices = false }.Generate().MakeDMesh();
+            string input = m.Path_("cone24.stl");
+            g3.StandardMeshWriter.WriteMesh(input, cone, g3.WriteOptions.Defaults);
+            // the default: on (75 degrees)
+            var (exit, r) = Run("remesh", input, m.Path_("cone24_pinned.stl"), "--edge-length", "0.15", "--deviation");
+            AssertOk(exit, r);
+            Assert.Equal(1, I(r["sharp_vertices_pinned"]));
+            Assert.True(B(r["mesh"]["closed"]), r.ToJsonString());
+            double pinned = D(r["hausdorff"]["distance"]);
+            (exit, r) = Run("remesh", input, m.Path_("cone24_default.stl"), "--edge-length", "0.15", "--sharp-vertex-angle", "0", "--deviation");
+            AssertOk(exit, r);
+            Assert.Equal(0, I(r["sharp_vertices_pinned"]));
+            double rounded = D(r["hausdorff"]["distance"]);
+            Assert.True(pinned < 0.1 && rounded > 0.2, $"hausdorff {pinned} with, {rounded} without the option");
+            (exit, r) = Run("remesh", input, m.Path_("cone24_bad.stl"), "--sharp-vertex-angle", "-1");
+            AssertError(exit, r, "invalid_arguments", 2);
+        }
+
+        [Fact]
         public void Remesh_BoxKeepsCorners()
         {
             var (exit, r) = Run("remesh", m.Cube, m.Path_("remeshed_cube.stl"), "--edge-length", "0.4", "--deviation");
@@ -562,6 +584,31 @@ namespace g3cli.Tests
             AssertOk(exit, r);
             Assert.Equal(0, I(r["rejected_passes"]));
             Assert.Empty(r["warnings"].AsArray());
+        }
+
+        [Fact]
+        public void Remesh_ThicknessSizing_KeepsTheThinWalls()
+        {
+            // the tube of 135363 at its mean edge length 11.6 (walls 0.75): with the edges kept at the wall thickness the
+            // walls are refined instead of folded, the volume stays, and there is no thickness warning
+            string input = WriteThinTube(m);
+            var (exit, r) = Run("measure", input);
+            AssertOk(exit, r);
+            double v0 = D(r["mesh"]["volume"]);
+            (exit, r) = Run("remesh", input, m.Path_("thin_tube_sized.stl"), "--edge-length", "11.6", "--thickness-sizing", "1", "--iterations", "10");
+            AssertOk(exit, r);
+            Assert.Equal(1.0, D(r["thickness_sizing"]));
+            Assert.Equal(0, I(r["rejected_passes"]));
+            Assert.True(B(r["mesh"]["closed"]), r.ToJsonString());
+            Assert.Equal(0, I(r["mesh"]["inverted_components"]));
+            Assert.InRange(D(r["mesh"]["volume"]) / v0, 0.97, 1.03);
+            Assert.DoesNotContain(r["warnings"].AsArray().Select(w => S(w)), w => w.Contains("wall thickness"));
+            // a large fraction leaves the edges far above the wall: the warning stays
+            (exit, r) = Run("remesh", input, m.Path_("thin_tube_sized_8.stl"), "--edge-length", "11.6", "--thickness-sizing", "8", "--iterations", "2");
+            AssertOk(exit, r);
+            Assert.Contains(r["warnings"].AsArray().Select(w => S(w)), w => w.Contains("wall thickness"));
+            (exit, r) = Run("remesh", input, m.Path_("thin_tube_sized_bad.stl"), "--thickness-sizing", "-1");
+            AssertError(exit, r, "invalid_arguments", 2);
         }
 
         [Fact]

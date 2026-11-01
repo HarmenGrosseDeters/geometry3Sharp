@@ -79,7 +79,7 @@ namespace g3
             // planes are computed when first needed (most triangles are far from all intersections), in an object of
             // their own (published at once: other threads may compute and read them at the same time)
             internal ExactMeshArrangement arr;
-            sealed class PlaneData
+            internal sealed class PlaneData
             {
                 public Plane P;
                 // (the exact edge planes only when they are used, in the exact stages of some coincident constructions:
@@ -120,6 +120,12 @@ namespace g3
             {
                 if (Degenerate)
                     throw new InvalidOperationException("ExactMeshArrangement: degenerate triangle has no plane");
+                PlaneData fd = compute_planes_fixed();
+                if (fd != null) {
+                    // (another thread may store the same values)
+                    System.Threading.Volatile.Write(ref planes, fd);
+                    return fd;
+                }
                 ExactPoint3 a = arr.Exact(Corners[0]), b = arr.Exact(Corners[1]), c = arr.Exact(Corners[2]);
                 BigInteger ux = b.X - a.X, uy = b.Y - a.Y, uz = b.Z - a.Z;
                 BigInteger vx = c.X - a.X, vy = c.Y - a.Y, vz = c.Z - a.Z;
@@ -138,6 +144,24 @@ namespace g3
                 var d = new PlaneData() { P = tp, Axis = ta, Sign = ts, PlaneApprox = pa };
                 System.Threading.Volatile.Write(ref planes, d);
                 return d;
+            }
+
+            // compute_planes on the fixed-width corners (integer points, so W = 1), the same values (FixedArith.
+            // TrianglePlanes); null if a corner is a fallback point
+            // (internal: the tests check that this path is taken)
+            internal PlaneData compute_planes_fixed()
+            {
+                int ra = arr.exact_ref(Corners[0]), rb = arr.exact_ref(Corners[1]), rc = arr.exact_ref(Corners[2]);
+                if (ra <= 0 || rb <= 0 || rc <= 0)
+                    return null;
+                ref FixedPoint3 fa = ref arr.fixedPoints[ra - 1], fb = ref arr.fixedPoints[rb - 1], fc = ref arr.fixedPoints[rc - 1];
+                if (fa.WIsOne == false || fb.WIsOne == false || fc.WIsOne == false)
+                    return null;
+                var pa = new double[16];
+                BigInteger nx, ny, nz, d;
+                int ta, ts;
+                FixedArith.TrianglePlanes(ref fa, ref fb, ref fc, pa, out nx, out ny, out nz, out d, out ta, out ts);
+                return new PlaneData() { P = new Plane(nx, ny, nz, d), Axis = ta, Sign = ts, PlaneApprox = pa };
             }
 
             Plane[] edge_planes(BigInteger nx, BigInteger ny, BigInteger nz)
@@ -1426,6 +1450,11 @@ namespace g3
         /// <summary> triangles per batch of the candidate pair search (bounds its memory; smaller for tests) </summary>
         internal long CandidateBatchSize = 1 << 24;
         public int SelfIntersectingPairs;
+        /// <summary>
+        /// for tests: the candidate pairs within a mesh by one self-join of its box tree (each pair once), else by a
+        /// query per triangle (each pair found twice, once dropped): the same pairs, in another order
+        /// </summary>
+        internal bool SelfJoin = true;
         /// <summary> per mesh: box tree of its triangles (in the order of MeshTriangles), after Compute() </summary>
         public TriangleBoxTree[] Trees;
 
@@ -1459,7 +1488,7 @@ namespace g3
                     continue;
                 near.Clear();
                 meshTree.Query(meshBoxes[ma], (mb) => {
-                    if (mb > ma || (mb == ma && SelfIntersections))
+                    if (mb > ma || (mb == ma && SelfIntersections && SelfJoin == false))
                         near.Add(mb);
                 });
                 near.Sort();
@@ -1493,6 +1522,8 @@ namespace g3
                     if (list != null)
                         pairs.AddRange(list);
             }
+            if (SelfIntersections && SelfJoin)
+                self += self_pairs(trees, pairs);
             SelfIntersectingPairs += self;
             clock.Lap("intersections.pairs");
             // planes of the triangles involved (computed once, before the parallel use)
@@ -1533,6 +1564,8 @@ namespace g3
             gParallel.ForRange(pairs.Count, (k) => intersect((int)(pairs[k] >> 32), (int)(pairs[k] & 0xFFFFFFFF)));
             clock.Lap("intersections.intersect");
             CandidatePairs = pairs.Count;
+            if (KeepCandidatePairs)
+                CandidatePairList = new List<long>(pairs);
         }
         public int CandidatePairs;
 
@@ -1622,6 +1655,47 @@ namespace g3
             return self;
         }
 
+        // the candidate pairs within each mesh (boxes overlap, not only touching), appended to pairs as (smaller,
+        // larger triangle index); returns their number. The self-join's work items run in parallel, each into a
+        // list of its own; the lists are appended in the order of the items, so the result depends only on the trees.
+        [MethodImpl(JitHints.Optimize)]
+        int self_pairs(TriangleBoxTree[] trees, List<long> pairs)
+        {
+            int self = 0;
+            for (int m = 0; m < Meshes.Count; ++m) {
+                List<int> tris = MeshTriangles[m];
+                if (tris.Count < 2)
+                    continue;
+                List<Index2i> tasks = trees[m].SelfPairTasks(SelfJoinTasks);
+                var found = new List<long>[tasks.Count];
+                gParallel.ForRange(tasks.Count, () => new List<Index2i>(), (k, boxPairs) => {
+                    boxPairs.Clear();
+                    trees[m].SelfPairs(tasks[k], boxPairs);
+                    List<long> list = null;
+                    foreach (Index2i bp in boxPairs) {
+                        int ka = Math.Min(bp.a, bp.b), kb = Math.Max(bp.a, bp.b);
+                        InputTriangle T = Triangles[tris[ka]], U = Triangles[tris[kb]];
+                        if (T.Degenerate || U.Degenerate || touch_only(T, U))
+                            continue;
+                        (list ?? (list = new List<long>())).Add(((long)tris[ka] << 32) | (uint)tris[kb]);
+                    }
+                    found[k] = list;
+                });
+                foreach (List<long> list in found)
+                    if (list != null) {
+                        pairs.AddRange(list);
+                        self += list.Count;
+                    }
+            }
+            return self;
+        }
+
+        /// <summary> for tests: keep a copy of the candidate pairs (CandidatePairList) </summary>
+        internal bool KeepCandidatePairs = false;
+        internal List<long> CandidatePairList;
+        /// <summary> for tests: the number of work items the self-join is split into (at least) </summary>
+        internal int SelfJoinTasks = 256;
+
         // all corners of one triangle strictly on one side of the other's plane (exact double predicates)
         [MethodImpl(JitHints.Optimize)]
         bool separated(InputTriangle T, InputTriangle U)
@@ -1637,7 +1711,7 @@ namespace g3
 
         // triangles of one mesh that share vertices and do not intersect anywhere else (exact)
         [MethodImpl(JitHints.Optimize)]
-        bool touch_only(InputTriangle T, InputTriangle U)
+        internal bool touch_only(InputTriangle T, InputTriangle U)
         {
             int shared = 0;
             for (int k = 0; k < 3; ++k) {
@@ -1648,29 +1722,46 @@ namespace g3
             // quick test: the corners of one triangle that are not shared all strictly on one side of the other's
             // plane: then they meet at most in the shared vertices (for a shared edge: the triangles are not
             // coplanar, so the plane of one meets the other only in the edge)
-            if (shared < 3 && (one_side_except_shared(T, U) || (shared < 2 && one_side_except_shared(U, T))))
-                return true;
+            int st = -1;       // (shared = 3: the general code, as before)
+            if (shared < 3) {
+                st = one_side_except_shared(T, U);
+                if (st > 0 || (st < 0 && shared < 2 && one_side_except_shared(U, T) > 0))
+                    return true;
+            }
             // corners by point id, so that coincident (unwelded) vertices count as shared
             Index3i pa = new Index3i(T.Corners[0], T.Corners[1], T.Corners[2]), pb = new Index3i(U.Corners[0], U.Corners[1], U.Corners[2]);
             Triangle3d A = new Triangle3d(T.V0, T.V1, T.V2), B = new Triangle3d(U.V0, U.V1, U.V2);
+            // (all non-shared corners of U in T's plane: the coplanar branches of IntersectsBeyondShared without their
+            // Orient3d, which are 0; docs/design/CHEAPER_CONSTRUCTIONS.md, section 4.1)
+            if (st == 0 && shared > 0)
+                return ExactTriangleIntersection.IntersectsBeyondSharedCoplanar(pa, ref A, pb, ref B) == false;
             return ExactTriangleIntersection.IntersectsBeyondShared(pa, ref A, pb, ref B) == false;
         }
 
+        // the corners of U not shared with T against T's plane (T and U share at most two corners): 1 all strictly on
+        // one side; 0 all in the plane; -1 otherwise (on both sides, or some in the plane and some not)
         [MethodImpl(JitHints.Optimize)]
-        bool one_side_except_shared(InputTriangle T, InputTriangle U)
+        int one_side_except_shared(InputTriangle T, InputTriangle U)
         {
             Vector3d t0 = input_vertex(T, 0), t1 = input_vertex(T, 1), t2 = input_vertex(T, 2);
             int side = 0;
+            bool zero = false;
             for (int k = 0; k < 3; ++k) {
                 int c = U.Corners[k];
                 if (c == T.Corners[0] || c == T.Corners[1] || c == T.Corners[2])
                     continue;
                 int o = ExactPredicates.Orient3d(t0, t1, t2, input_vertex(U, k));
-                if (o == 0 || (side != 0 && o != side))
-                    return false;
-                side = o;
+                if (o == 0) {
+                    if (side != 0)
+                        return -1;
+                    zero = true;
+                } else {
+                    if (zero || (side != 0 && o != side))
+                        return -1;
+                    side = o;
+                }
             }
-            return side != 0;
+            return zero ? 0 : (side != 0) ? 1 : -1;
         }
 
         [MethodImpl(JitHints.Optimize)]
@@ -2349,6 +2440,100 @@ namespace g3
         }
 
         [ThreadStatic] static int[] queryStack;
+
+        // the closed boxes of nodes a and b overlap
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        bool nodes_overlap(int a, int b)
+        {
+            int o = 6 * b;
+            return overlaps(nodeBox, a, nodeBox[o], nodeBox[o + 1], nodeBox[o + 2], nodeBox[o + 3], nodeBox[o + 4], nodeBox[o + 5]);
+        }
+
+        /// <summary>
+        /// The work items of SelfPairs: node pairs (a, a) for the pairs within node a, (a, b) for the pairs between
+        /// nodes a and b. Together they give every pair of different overlapping boxes exactly once. Split breadth
+        /// first until there are at least minTasks (fewer for small trees); the list is the same for the same tree.
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        public List<Index2i> SelfPairTasks(int minTasks)
+        {
+            var tasks = new List<Index2i>();
+            if (nodeCount == 0)
+                return tasks;
+            tasks.Add(new Index2i(0, 0));
+            for (bool split = true; split && tasks.Count < minTasks; ) {
+                split = false;
+                var next = new List<Index2i>(3 * tasks.Count);
+                foreach (Index2i t in tasks) {
+                    int a = t.a, b = t.b;
+                    if (a == b) {
+                        if (nodeLeft[a] < 0) { next.Add(t); continue; }
+                        int l = nodeLeft[a], r = nodeRight[a];
+                        next.Add(new Index2i(l, l)); next.Add(new Index2i(l, r)); next.Add(new Index2i(r, r));
+                        split = true;
+                    } else if (nodes_overlap(a, b)) {
+                        if (nodeLeft[a] < 0 && nodeLeft[b] < 0) { next.Add(t); continue; }
+                        if (split_first(a, b)) { next.Add(new Index2i(nodeLeft[a], b)); next.Add(new Index2i(nodeRight[a], b)); }
+                        else { next.Add(new Index2i(a, nodeLeft[b])); next.Add(new Index2i(a, nodeRight[b])); }
+                        split = true;
+                    }
+                }
+                tasks = next;
+            }
+            return tasks;
+        }
+
+        // of the two nodes (not both leaves), split a (else b): the larger one that is not a leaf
+        bool split_first(int a, int b)
+        {
+            return nodeLeft[a] >= 0 && (nodeLeft[b] < 0 || nodeSize[a] >= nodeSize[b]);
+        }
+
+        /// <summary>
+        /// the pairs (i, j) of different boxes that overlap (closed, as Query), of the work item t of SelfPairTasks,
+        /// appended to result as i, j; in an order that depends only on the tree
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        public void SelfPairs(Index2i t, List<Index2i> result)
+        {
+            var stack = new List<Index2i> { t };
+            while (stack.Count > 0) {
+                Index2i top = stack[stack.Count - 1];
+                stack.RemoveAt(stack.Count - 1);
+                int a = top.a, b = top.b;
+                if (a == b) {
+                    if (nodeLeft[a] < 0) {
+                        for (int i = nodeStart[a], e = nodeStart[a] + nodeSize[a]; i < e; ++i)
+                            for (int j = i + 1; j < e; ++j)
+                                if (leaves_overlap(i, j))
+                                    result.Add(new Index2i(order[i], order[j]));
+                    } else {
+                        int l = nodeLeft[a], r = nodeRight[a];
+                        stack.Add(new Index2i(r, r)); stack.Add(new Index2i(l, r)); stack.Add(new Index2i(l, l));
+                    }
+                    continue;
+                }
+                if (nodes_overlap(a, b) == false)
+                    continue;
+                if (nodeLeft[a] < 0 && nodeLeft[b] < 0) {
+                    for (int i = nodeStart[a], ei = nodeStart[a] + nodeSize[a]; i < ei; ++i)
+                        for (int j = nodeStart[b], ej = nodeStart[b] + nodeSize[b]; j < ej; ++j)
+                            if (leaves_overlap(i, j))
+                                result.Add(new Index2i(order[i], order[j]));
+                } else if (split_first(a, b)) {
+                    stack.Add(new Index2i(nodeRight[a], b)); stack.Add(new Index2i(nodeLeft[a], b));
+                } else {
+                    stack.Add(new Index2i(a, nodeRight[b])); stack.Add(new Index2i(a, nodeLeft[b]));
+                }
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        bool leaves_overlap(int i, int j)
+        {
+            int o = 6 * j;
+            return overlaps(leafBox, i, leafBox[o], leafBox[o + 1], leafBox[o + 2], leafBox[o + 3], leafBox[o + 4], leafBox[o + 5]);
+        }
 
         /// <summary> call f for every box that overlaps the closed query box </summary>
         [MethodImpl(JitHints.Optimize)]
