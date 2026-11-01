@@ -50,7 +50,7 @@ namespace g3
             Validate(b);
             return new AxisAlignedBox2d(Math.Min(a.x, b.x), Math.Min(a.y, b.y), Math.Max(a.x, b.x), Math.Max(a.y, b.y));
         }
-        internal static AxisAlignedBox2d Bounds(Triangle3d triangle)
+        internal static AxisAlignedBox2d Bounds(in Triangle3d triangle)
         {
             Validate(triangle.V0);
             Validate(triangle.V1);
