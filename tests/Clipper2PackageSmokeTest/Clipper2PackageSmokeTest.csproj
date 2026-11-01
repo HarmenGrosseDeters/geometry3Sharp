@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Consumes the packed geometry3Sharp.Clipper2.nupkg (and the geometry3Sharp.nupkg it depends on), to check the
+    package itself (assets, docs, readme, dependencies).
+    dotnet pack ../../geometry3Sharp_netstandard.csproj -c Release -o ../../artifacts -p:Version=<version>
+    dotnet pack ../../addons/geometry3Sharp.Clipper2/geometry3Sharp.Clipper2.csproj -c Release -o ../../artifacts -p:Version=<version>
+    dotnet run -c Release -p:G3PackageVersion=<version> -p:G3PackageSource=../../artifacts (pass the .nupkg path as program argument to check its contents)
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <G3PackageVersion Condition="'$(G3PackageVersion)' == ''">1.0.0</G3PackageVersion>
+    <RestoreAdditionalProjectSources>$(G3PackageSource)</RestoreAdditionalProjectSources>
+    <RestoreNoCache>true</RestoreNoCache>
+    <CopyDocumentationFilesFromPackages>true</CopyDocumentationFilesFromPackages>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="geometry3Sharp.Clipper2" Version="[$(G3PackageVersion)]" />
+  </ItemGroup>
+
+</Project>

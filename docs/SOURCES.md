@@ -4,6 +4,27 @@ geometry3Sharp is under the Boost Software License. New code in this fork is wri
 no code is taken over from other libraries unless it is under a compatible permissive license and named here.
 Code under the GPL or LGPL (eg CGAL) is never used as a source.
 
+## 2D loose quadtree (`LooseQuadtree2d`, point / segment / triangle adapters)
+
+Clean-room implementation from [QUADTREE2D_SPEC.md](design/QUADTREE2D_SPEC.md) and published
+spatial-indexing concepts; no code copied or inspected from the owner's index, Triangle or Triangle.NET.
+
+| Part | Source |
+|---|---|
+| Loose cells for extended objects; hierarchical spatial indexing | H. Samet, J. Sankaranarayanan, M. Auerbach, *Indexing methods for moving object databases*, SIGMOD 2013, [doi:10.1145/2463676.2465332](https://doi.org/10.1145/2463676.2465332); H. Samet, *Foundations of Multidimensional and Metric Data Structures*, 2006 |
+| Closed segment–box interval clipping | Y.-D. Liang, B. A. Barsky, *A New Concept and Method for Line Clipping*, ACM TOG 1984 |
+| Distance lower-bound pruning for nearest-neighbour search | N. Roussopoulos, S. Kelley, F. Vincent, *Nearest Neighbor Queries*, SIGMOD 1995 |
+| Exact XY containment / segment intersection signs | Existing `ExactPredicates.Orient2d` (Shewchuk 1997; see below); no new orientation arithmetic filter or error bound |
+| Ambiguous clipping; overflow-distance ordering; range-loss construction fallbacks | Own rational arithmetic on binary64 coordinates represented as integers in units of 2^-1074; interval comparison by cross multiplication, squared point/segment distances, affine determinants and exact squared-midpoint rounding for subnormal distances. No external implementation inspected |
+
+The procedural benchmark compares against independent brute-force scans and the public STRtree and Quadtree APIs of
+[NetTopologySuite 2.6.0](https://www.nuget.org/packages/NetTopologySuite/2.6.0). It is a pinned benchmark/test-only
+NuGet dependency, not a geometry3Sharp library dependency or a source for the clean-room index.
+The [release license](https://github.com/NetTopologySuite/NetTopologySuite/blob/v2.6.0/License.md) is BSD-3-Clause;
+its JTS-derived content is available under the permissive BSD-style Eclipse Distribution License option.
+Only public API documentation and licensing were consulted; no implementation was ported. Ordinary-coordinate
+benchmark predicates and comparison limits are documented in the [benchmark README](../benchmarks/QuadtreeBenchmark/README.md).
+
 ## Exact mesh booleans (`ExactMeshBoolean`, `ExactMeshArrangement`, `ExactPlanarSimplify`, `ExactTriangulation2`, `ExactPoint3`, `ExactPredicates`)
 
 Implemented from the papers, no code taken over.
@@ -113,6 +134,10 @@ Implemented from the papers, no code taken over.
 | BFF disk mode: exterior angles of the boundary polygon inscribed in a circle (inscribed angle theorem, the longest edge on the major arc if the center lies outside) | elementary geometry; own derivation |
 | ARAP and SLIM with degenerate triangles: mollified cotangents and a flat layout along the longest edge (ARAP), unit springs on the current UV edges in the SLIM proxy | own adaptation of the intrinsic mollification of Sharp & Crane 2020 (see Intrinsic triangulations); the rotations as Procrustes over the edges, O. Sorkine, M. Alexa, *As-Rigid-As-Possible Surface Modeling*, SGP 2007 |
 
+## Minimal enclosing circle (`ContMinCircle2`)
+
+Replaces the WildMagic port. Implemented from one paper, no code taken over: E. Welzl, *Smallest enclosing disks (balls and ellipsoids)*, 1991. The three nested loops were derived from Welzl's recursion; no paper by Seidel was consulted for them.
+
 ## Seams, charts, cones, UV atlas (`MeshDiscCut`, `MeshChartSegmentation`, `ConeFlattening`, `UVOverlap`, `UVAtlasGenerator`)
 
 Implemented from the papers, no code taken over. geometry-central (MIT) and the BFF reference implementation
@@ -175,6 +200,8 @@ The sources named in the code:
 | Hausdorff distance with guaranteed bounds (branch and bound over triangles, cascading upper bounds; `TriangleDeviationBounds`, also used by `Reducer.MaxDeviation` and, per triangle, by `MeshDeviation.ComputeTriangleBounds`) | L. Sacht, A. Jacobson, *Cascading upper bounds for triangle soup Pompeiu-Hausdorff distance*, SGP 2024 |
 | Regularized optimal collapse point (`Reducer.QuadricRegularization`) | P. Trettner, L. Kobbelt, *Fast and Robust QEF Minimization using Probabilistic Quadrics*, Computer Graphics Forum (Eurographics) 2020 |
 | Triangle-triangle intersection test (`ExactTriangleIntersection`) | O. Devillers, P. Guigue, *Faster triangle-triangle intersection tests*, INRIA RR-4488, 2002 |
+| Filter in front of it (`TriangleTriangleFilter`): exact separation in an axis projection (an edge line of one projected triangle with the other strictly outside; at a shared vertex, corners that share no ray) | the separating axis theorem for convex polygons, eg S. Gottschalk, M. Lin, D. Manocha, *OBBTree: a hierarchical structure for rapid interference detection*, SIGGRAPH 1996. Own construction of the projection argument and the shared-vertex and shared-edge certificates |
+| Patch certificate for the self-intersection checks (design, `docs/design/SELF_INTERSECTION_PATCH_CERTIFICATE.md`, not implemented yet): a normal cone below 90 degrees and a star-shaped contour certify a consistently oriented disk free of self-intersections | P. Volino, N. Magnenat-Thalmann, *Efficient self-collision detection on smoothly discretized surface animations using geometrical shape regularity*, Computer Graphics Forum 1994; S. C. Schvartzman, J. Pérez, M. A. Otaduy, *Star-contours for efficient hierarchical self-collision detection*, ACM TOG (SIGGRAPH) 2010; context: S. Gumhold, P. Borodin, R. Klein, *Intersection free simplification*, IJSM 9(2), 2003; S. Curtis, R. Tamstorf, D. Manocha, *Fast collision detection for deformable models using representative-triangles*, I3D 2008. Own: the disk condition and the exact predicates that make it a certificate for a triangle mesh |
 | Exact containment in a polyhedral envelope (`MeshEnvelope`): a convex prism per triangle inside triangle + epsilon ball, queries decided exactly against the union. Own construction of the prisms (slab along the normal, side half-spaces in uniform and edge normal directions with offsets that bound them by 0.6 epsilon, rounding margins) and own exact test (clipping the query triangle in its parameter plane with integer half-planes, floating-point filters first) | B. Wang, T. Schneider, Y. Hu, M. Attene, D. Panozzo, *Exact and Efficient Polyhedral Envelope Containment Check*, ACM TOG (SIGGRAPH) 2020 (idea of the envelope as a union of prisms and the exact containment check; `fast-envelope`, MIT, has an implementation, not used as a source) |
 
 ## Evaluation metrics (`MeshFidelityMetrics`, `TriangleQualityStatistics`, `MeshTopologySummary`)
@@ -232,6 +259,16 @@ public documentation only. The user's company code was not looked at.
 | Contour lofting (compared) | H. Fuchs, Z. M. Kedem, S. P. Uselton, *Optimal surface reconstruction from planar contours*, CACM 1977; E. Keppel 1975; H. N. Christiansen, T. W. Sederberg 1978; D. Meyers, S. Skinner, K. Sloan, *Surfaces from contours*, ACM TOG 1992; G. Barequet, M. Sharir 1996 |
 | Volume per cell (compared) | D. Powell, T. Abel, *An exact general remeshing scheme applied to physically conservative voxelization*, J. Comput. Phys. 297, 2015. Code r3d: current files under a LANL / DOE notice (copy and use only), the 2015 code BSD-3 with an enhancements clause; not ported |
 
+## 2D polygon booleans and offsets (`addons/geometry3Sharp.Clipper2`: `Clipper2Polygons`, `ClipperFrame`)
+
+An optional package that calls a library; no code taken over.
+
+| Part | Source |
+|---|---|
+| Booleans, fill rules, open-path clipping, offsets (join and end types, miter limit, arc tolerance), Minkowski sums, path simplification | **Clipper2 2.0.0** by Angus Johnson, Boost Software License 1.0 (https://github.com/AngusJohnson/Clipper2; the `License.txt` in the NuGet package `Clipper2` is BSL-1.0, checked 2026-11-01). A package dependency of `geometry3Sharp.Clipper2`, not of `geometry3Sharp`. Only its public API is used. Not taken from the DAP fork's `Clipper2Wrapper.cs` ([audit](design/DAP_BUGFIX_AUDIT.md#features-not-adopted-each-needs-its-own-provenance-decision)), which was not read for this |
+| The integer grid (`ClipperFrame`: origin at the bounds center, power-of-two scale fitted to the extent plus the offset margin) | own construction, after the integer grid of `ExactMeshArrangement` |
+| Filled Minkowski sum from the boundary sweep: A ⊕ B = (∂A ⊕ ∂B) ∪ (a + B) ∪ (A + b) for connected A, B | standard (eg M. de Berg et al., *Computational Geometry*, 3rd ed. 2008, ch. 13); own reasoning for the union with one copy each |
+
 ## Test harness (`tests/geometry3Sharp.Tests/Harness/`)
 
 Implemented from the paper, no code taken over.
@@ -247,6 +284,29 @@ referenced by `tests/geometry3Sharp.Tests` on net10.0 only with `PrivateAssets="
 in `ExactBooleanPropertyTests.CsCheck.cs`. No code is copied from it and it is not a dependency of the library
 package. 4.9.1 (2026-09-17, targets net8.0) rather than 5.0.0, which was a week old when it was added (2026-10-24).
 
+## 2D meshing (`DelaunayMesh2`, `TriangulationMesh2`, `ConstrainedDelaunayMesh2`)
+
+Clean room ([MESHING2D_SPEC.md](design/MESHING2D_SPEC.md)): implemented from the papers below. Triangle and Triangle.NET were not looked at.
+
+| Part | Source |
+|---|---|
+| Incremental Delaunay triangulation by cavities | A. Bowyer, *Computing Dirichlet tessellations*, The Computer Journal 1981; D. F. Watson, *Computing the n-dimensional Delaunay tessellation with application to Voronoi polytopes*, The Computer Journal 1981 |
+| Ghost triangles at a vertex at infinity instead of a supertriangle; their conflict rule | S.-W. Cheng, T. K. Dey, J. R. Shewchuk, *Delaunay Mesh Generation*, CRC Press 2012, chapter 3 |
+| Insertion order: biased randomized insertion rounds, each along a space-filling curve | N. Amenta, S. Choi, G. Rote, *Incremental constructions con BRIO*, SoCG 2003; D. Hilbert, *Über die stetige Abbildung einer Linie auf ein Flächenstück*, Math. Annalen 1891; A. R. Butz, *Alternative algorithm for Hilbert's space-filling curve*, IEEE Trans. Computers 1971 |
+| Point location by a visibility walk with a randomized edge order; jump-and-walk for queries | O. Devillers, S. Pion, M. Teillaud, *Walking in a triangulation*, IJFCS 2002; E. P. Mücke, I. Saias, B. Zhu, *Fast randomized point location without preprocessing in two- and three-dimensional Delaunay triangulations*, SoCG 1996 |
+| Local Delaunay criterion (verification); the Delaunay subdivision and its cells with cocircular points (tie rule) | C. L. Lawson, *Software for C1 surface interpolation*, 1977; B. Delaunay, *Sur la sphère vide*, 1934 |
+| Constrained Delaunay triangulation: definition and local criterion | D. T. Lee, A. K. Lin, *Generalized Delaunay triangulations for planar graphs*, DCG 1986; L. P. Chew, *Constrained Delaunay triangulations*, Algorithmica 1989 |
+| Point insertion by splitting and flips that do not cross constraints; restoring the property after a segment | C. L. Lawson 1977 (see above) |
+| Segment recovery: walk along the segment, flip the crossed edges until it is an edge | S. W. Sloan, *A fast algorithm for generating constrained Delaunay triangulations*, Computers & Structures 1993 |
+| Noding: crossings computed exactly with integers (every double is an integer times a power of two), rounded to nearest | Shewchuk 1997 (see above) for the integer view of doubles; the rounding of the output to doubles is decision D1 of MESHING2D_DECISIONS.md |
+| Domain by the even-odd rule within a ring; cells of the constraints for seeds | the domain definition of MESHING2D_SPEC.md and decisions D5, D6, D16 |
+| Exact predicates | `ExactPredicates.Orient2d`, `InCircle` (see above) |
+| Pseudorandom numbers (insertion rounds, walk) | SplitMix64 (Steele, Lea, Flood, OOPSLA 2014); xorshift (G. Marsaglia, *Xorshift RNGs*, J. Stat. Software 2003) |
+| Domain by role-based nesting (D5, owner 2026-11-01) | OGC, *Simple Feature Access, Part 1: Common Architecture* (OGC 06-103r4, ISO 19125-1:2004), Polygon and MultiPolygon; ESRI, *Shapefile Technical Description*, 1998 (polygon rings); even-odd and nonzero fill rules (Adobe, *PostScript Language Reference*; W3C, *SVG* `fill-rule`); A. Johnson, Clipper2 documentation, FillRule |
+| Literature check of the decisions (MESHING2D_DECISIONS.md) | C. K. Yap, *Towards exact geometric computation*, CGTA 1997; L. Guibas, D. Salesin, J. Stolfi, *Epsilon geometry*, SoCG 1989; D. H. Greene, F. F. Yao, *Finite-resolution computational geometry*, FOCS 1986; V. Milenkovic, *Verifiable implementations of geometric algorithms using finite precision arithmetic*, Artificial Intelligence 1988; J. D. Hobby, *Practical segment intersection with finite precision output*, CGTA 1999; D. Halperin, E. Packer, *Iterated snap rounding*, CGTA 2002; H. Edelsbrunner, E. P. Mücke, *Simulation of Simplicity*, ACM TOG 1990; O. Devillers, M. Teillaud, *Perturbations for Delaunay and weighted Delaunay 3D triangulations*, CGTA 2011; P.-O. Persson, G. Strang, *A simple mesh generator in MATLAB*, SIAM Review 2004; M. de Berg, O. Cheong, M. van Kreveld, M. Overmars, *Computational Geometry*, 3rd ed. 2008; M. Heller, *Triangulation algorithms for adaptive terrain modeling*, SDH 1990 |
+| Literature check for `m2.snap` (MESHING2D_SNAP.md; nothing implemented yet) | J. D. Hobby 1999 and D. Halperin, E. Packer 2002 (see above); L. Guibas, D. Marimont, *Rounding arrangements dynamically*, IJCGA 1998; M. Goodrich, L. Guibas, J. Hershberger, P. Tanenbaum, *Snap rounding line segments efficiently in two and three dimensions*, SoCG 1997; M. de Berg, D. Halperin, M. Overmars, *An intersection-sensitive algorithm for snap rounding*, CGTA 2007; E. Packer, *Iterated snap rounding with bounded drift*, CGTA 2008; J. Hershberger, *Stable snap rounding*, CGTA 2013; J. Hershberger, *Snap rounding: a cautionary tale*, SoCG 2025; A. Belussi, S. Migliorini, M. Negri, G. Pelagatti, *Snap rounding with restore*, ACM TSAS 2016; E. Packer, *Extending the power of snap rounding variants*, CCCG 2007; V. Milenkovic, *Shortest path geometric rounding*, Algorithmica 2000 |
+| Behavioural answers on snap rounding (MESHING2D_SNAP_QA.md; behaviour and test inputs only, no code) | The owner's own commits in his fork of Triangle.NET (https://github.com/HarmenGrosseDeters/Triangle.NET, ccee980..504ab65), read only by a separate clean-room comparison session, answered in specification terms and checked by the coordinator; the implementing session never read the fork |
+
 ## Build-time analyzers (`BannedSymbols.txt`, `tools/analyzers/G3ExactCodeAnalyzers`)
 
 Build-time only, not shipped in the package. `Microsoft.CodeAnalysis.BannedApiAnalyzers` (MIT, NuGet) enforces the
@@ -254,6 +314,13 @@ banned APIs in the exact code; the analyzers G3E0001-3 (float, parallel loops, F
 MIT).
 
 ## Benchmarks
+
+`benchmarks/Meshing2Benchmark` is the acceptance harness of the 2D mesher (`docs/design/MESHING2D_PLAN.md`). NetTopologySuite 2.6.0
+(BSD-3-Clause) is its black-box reference for the M1 differential, in that project only. Its oracle (`Oracle/`) is written from
+definitions: empty circumcircles and the local Delaunay criterion (B. Delaunay 1934; C. L. Lawson 1977; D. T. Lee, A. K. Lin,
+*Generalized Delaunay triangulation for planar graphs*, 1986; L. P. Chew, *Constrained Delaunay triangulations*, 1989), and
+monotone chain hulls (A. M. Andrew 1979). Its random source is SplitMix64 (G. L. Steele, D. Lea, C. H. Flood, *Fast splittable
+pseudorandom number generators*, OOPSLA 2014). Triangle and Triangle.NET were not looked at; `MESHING2D_GOLDEN_FORMAT.md` defines how a separate session may compare with them as black boxes.
 
 `benchmarks/BooleanComparison` runs CGAL (GPL), Cherchi et al. (MIT) and Manifold (Apache-2.0) as separate
 programs for comparison only. The driver `external/cgal_bool.cpp` links against CGAL; compiled, it falls under
@@ -291,3 +358,20 @@ Own design from the textbook procedures, no code taken over.
 The rest (moves, collapses and flips rejected if they flip a normal or create a flat triangle, no splits of an edge
 with a vertex on it, buffered projection for a deterministic result) follows from the failure analysis on Thingi10K
 in `docs/ROADMAP.md`.
+
+`Remesher.PreventSelfIntersections`: own design, the per-operation check of `Reducer.PreventSelfIntersections`
+(triangle hash grid, the exact `ExactTriangleIntersection.IntersectsBeyondShared`) extended to flips, splits and the
+buffered vertex moves; no external source.
+
+`Remesher.TargetEdgeLengthF` / `RemeshSizing.FromWallThickness`: sizing below the local feature size, as in
+isotropic remeshing with a sizing field (Botsch, Kobbelt, Pauly, Alliez, Lévy, *Polygon Mesh Processing*, ch. 6); the
+thickness is `MeshWallThickness`'s inscribed sphere (Ma, Bai, Hu, Kim 2012). Own design otherwise.
+
+`MeshConstraintUtil.PinSharpVertices`: the angle deficit of `MeshCurvature` (Meyer, Desbrun, Schröder, Barr 2003, eq. 9)
+as the measure of a vertex feature; the threshold is own design.
+
+## Forks of geometry3Sharp
+
+| Fork | Taken over |
+|---|---|
+| [Digital-Production-Aachen/DAPComputationalGeometry](https://github.com/Digital-Production-Aachen/DAPComputationalGeometry) (Boost-1.0), delta `8f185f1`..`158507b` | Nothing: audited 2026-11-01, no bug fix applies to this code ([audit result](design/DAP_BUGFIX_AUDIT.md#audit-result-2026-11-01)). A later port of one of its features is listed here with the DAP commit and file |

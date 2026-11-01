@@ -1,0 +1,18 @@
+runtime .NET 10.0.14, 4 cores, x64
+producer,kind,n,triangles,median_ms,min_ms,allocated_mb,valid
+g3-delaunay,uniform,1000,1982,2.7,2.6,0.3,yes
+g3-delaunay,uniform,4096,8169,10.0,9.8,1.2,yes
+g3-delaunay,uniform,65536,131047,133.4,120.9,19.6,yes
+g3-delaunay,uniform,1000000,1999963,2047.3,1904.8,313.2,yes
+g3-delaunay,grid,1000,1898,2.6,2.5,0.3,yes
+g3-delaunay,grid,4096,7938,9.9,9.7,1.4,yes
+g3-delaunay,grid,65536,130050,152.0,145.4,22.1,yes
+g3-delaunay,grid,1000000,1996002,2704.1,2647.6,351.2,yes
+g3-delaunay,utm,1000,1982,2.1,1.7,0.3,yes
+g3-delaunay,utm,4096,8169,6.7,6.2,1.2,yes
+g3-delaunay,utm,65536,131047,125.2,112.5,19.6,yes
+g3-delaunay,utm,1000000,1999844,2043.9,1926.9,351.3,yes
+g3-delaunay,clustered,1000,1982,1.5,1.5,0.3,yes
+g3-delaunay,clustered,4096,8168,6.5,6.3,1.2,yes
+g3-delaunay,clustered,65536,131044,115.4,114.1,19.6,yes
+g3-delaunay,clustered,1000000,1999954,2060.2,1940.3,313.2,yes
