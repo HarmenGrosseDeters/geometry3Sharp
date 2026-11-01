@@ -34,5 +34,6 @@ Read both before you change anything. If anything below conflicts with them, the
   - Never read, open or port Triangle / Triangle.NET code or the owner's existing quadtree.
   - An agent that has seen that code must not implement these items.
 - **Company code** (C:\Projekte\Base) is never a source.
-- **Mutation tooling** (`.github/workflows/mutation.yml`, `tests/mutation/`) is being reworked; do not change it
-  unless that is your task.
+- **Mutation tooling** (`.github/workflows/mutation.yml`, `tests/mutation/`): adding your test classes to a shard's
+  `test-case-filter` (and its workflow `paths`) is fine; other changes to the workflow or the scripts go through the
+  coordinator, as every PR's mutation gate depends on them.
