@@ -928,34 +928,45 @@ namespace geometry3Sharp.Tests
             Assert.True(det > 1000 * MathUtil.Epsilon, $"det {det}");
         }
 
+        static QuadricError ScaledIdentityQuadric(double weight) =>
+            new QuadricError { Axx = weight, Ayy = weight, Azz = weight, bx = -weight, by = -2 * weight, bz = -3 * weight };
+
         [Theory]
-        [InlineData(1e-100, true)]
-        [InlineData(1e100, true)]
-        [InlineData(1e-110, false)]
-        [InlineData(1e108, false)]
-        public void QuadricOptimalPoint_FarSizes_SolvedOrRefused(double weight, bool solved)
+        [InlineData(3e-103)]
+        [InlineData(1e-102)]
+        [InlineData(1e-100)]
+        [InlineData(1e-3)]
+        [InlineData(1)]
+        [InlineData(1e3)]
+        [InlineData(1e100)]
+        [InlineData(1e102)]
+        [InlineData(5e102)]
+        public void QuadricOptimalPoint_SizesWithAUsableInverse_AreSolved(double weight)
         {
-            QuadricError q = new QuadricError { Axx = weight, Ayy = weight, Azz = weight, bx = -weight, by = -2 * weight, bz = -3 * weight };
+            QuadricError q = ScaledIdentityQuadric(weight);
             Vector3d result = new Vector3d(9, 9, 9);
-            Assert.Equal(solved, q.OptimalPoint(ref result));
-            Assert.True(result.Distance(solved ? new Vector3d(1, 2, 3) : new Vector3d(9, 9, 9)) <= 8 * MathUtil.Epsilon, $"{result}");
+            Assert.True(q.OptimalPoint(ref result));
+            Assert.True(result.Distance(new Vector3d(1, 2, 3)) <= 8 * MathUtil.Epsilon, $"{result}");
         }
 
         [Theory]
-        [InlineData(1e103, false)]
-        [InlineData(1e106, false)]
-        [InlineData(1e-103, true)]
-        [InlineData(1e-107, true)]
-        public void QuadricOptimalPoint_KnownLimit_DeterminantOutOfRange_ReturnsTrueWithAWrongPoint(double weight, bool nan)
+        [InlineData(6e102)]     // det overflows, so 1/det is 0: this returned true with (0,0,0)
+        [InlineData(1e103)]
+        [InlineData(1e104)]
+        [InlineData(1e106)]
+        [InlineData(9e106)]
+        [InlineData(1e108)]     // from about here the threshold overflows too
+        [InlineData(1.7e-103)]  // det is so far subnormal that 1/det overflows: this returned true with NaN
+        [InlineData(1e-103)]
+        [InlineData(1e-105)]
+        [InlineData(1e-107)]
+        [InlineData(1e-110)]    // det is 0
+        public void QuadricOptimalPoint_SizesWithoutAUsableInverse_AreRefused(double weight)
         {
-            // Documented at the method and in docs/UPSTREAM_CHANGES.md, this test pins that limit and is not a promise: where
-            // det overflows or is subnormal and the threshold is not yet out of range too, 1 / det is 0 or infinity.
-            QuadricError q = new QuadricError { Axx = weight, Ayy = weight, Azz = weight, bx = -weight, by = -2 * weight, bz = -3 * weight };
+            QuadricError q = ScaledIdentityQuadric(weight);
             Vector3d result = new Vector3d(9, 9, 9);
-            Assert.True(q.OptimalPoint(ref result));
-            Assert.Equal(nan, double.IsNaN(result.x));
-            if (nan == false)
-                Assert.Equal(0, result.x);
+            Assert.False(q.OptimalPoint(ref result), $"{result}");
+            Assert.Equal(new Vector3d(9, 9, 9), result);
         }
 
         [Fact]
