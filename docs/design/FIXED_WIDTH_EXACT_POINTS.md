@@ -95,7 +95,8 @@ larger bit length of its coordinates and of `W`. "Fits L limbs" means every comp
   memory there; on spheres 20 only 22 % do.
 - **Live objects** (`dotnet-gcdump` of `nary grid 10 onepass`, at about 4.5 s and 6 s, i.e. in the triangulation and
   in the classification): 650k / 1.07M objects on the heap, of which `uint[]` (`BigInteger` digits) 291k / 579k and
-  `ExactBox` 56k / 143k, together 53 % / 68 %. Most of the rest are `Double[]` (18k), `Plane[]` (12k), `InputTriangle`
+  `ExactBox` 56k / 143k, together at most 53 % / 68 % (some `uint[]` belong to other `BigInteger`s: at 4.5 s there are 5.2 per box,
+  more than the four a point can own). Most of the rest are `Double[]` (18k), `Plane[]` (12k), `InputTriangle`
   (24k) and the benchmark's input meshes. So the exact points are the bulk of the live objects: the stop condition of
   step 0 is not met.
 - **GC:** `profile --repeat 2 grid:10`: 7.6 s (second run), 1.95 s pause, 426 gen0 and 85 gen1 collections, **no
@@ -105,7 +106,8 @@ larger bit length of its coordinates and of `W`. "Fits L limbs" means every comp
 
 **Decision: 4 limbs per component** (256-bit two's complement, every component `|v| ≤ 2^255 − 1`). It covers 100 %
 of the grid points and 98.9 % of spheres 20. The kernels trim their operands to the used limbs at run time, so the
-wider slot costs memory (160 bytes per exact point, 53 MB on grid 10; today about 290 bytes per point in objects: a 112-byte `ExactBox` and about four 44-byte digit arrays) but
+wider slot costs memory (160 bytes per exact point, 53 MB on grid 10, plus 4 bytes per point id for `exactRef`, 1.3 MB; today about 250-290 bytes per point in objects: a 112-byte `ExactBox` and up to four digit arrays of 32-48 bytes;
+264 bytes at the median sizes) but
 not arithmetic on small values. The bounds of section 5 are redone for it.
 
 ## 4. Design
@@ -188,7 +190,7 @@ the call materializes all of them and runs today's `BigInteger` code (identical 
   of `incircle_row` kept, decided per row), then `Det3` along the first row, as today. Section 5 bounds both the
   mixed minors of that order and the pure ones.
 - `ComparePoints`: `(α·p_a) W_b` vs `(α·p_b) W_a`, then per axis `x_a W_b` vs `x_b W_a`, with `α_k` the existing
-  `AlphaInt` (integers < 2^53).
+  `AlphaInt` (integers, `α_k ≤ 2^53`).
 - Optional, only if step 3 shows the classification regressing: `front_winding` gets the grid doubles of a point
   from the limbs (`GridDouble(id)`, bit-identical to today's `grid_double(Exact(id))`, which uses `(double)BigInteger`
   truncation and `ToDouble`) and materializes the points only when `orient3d_filtered` fails.
@@ -228,13 +230,15 @@ Notes for the review:
 - `AlphaInt[0] = 1.0 · 2^53 = 2^53` exactly, so `α_k ≤ 2^53`, not `< 2^53`; `|α·p| ≤ 3 · 2^53 · (2^255 − 1) < 2^310`.
 - The `W = 1` shortcut of `incircle_row` is decided per row, so one determinant can mix shortcut and general rows.
   A shortcut row is the general row with `s = 1`, so the general bounds cover the mix.
-- The largest buffer is 48 limbs (384 bytes on the stack). Grid-sized inputs use far fewer limbs: the run-time
+- The largest buffer is 48 limbs (384 bytes). One `InCircle` call holds several at once (nine 16-limb row
+  entries, products, a minor, a term, the accumulator): about 300-350 limbs, 2.5-3 KB of `stackalloc` per call,
+  allocated once per call and never inside a loop. Grid-sized inputs use far fewer limbs: the run-time
   trimming makes the cost follow the actual sizes. For `InCircle` with `|x| < 2^109`, `W < 2^54` the bound is
   `< 3 · 2^874 < 2^876` (14 limbs); the measured maximum of its inputs' determinant on grid 10 was 833 bits.
 - History: the first version of this table was for 2 limbs per component (`Orient` 7, `InCircle` 24,
   `ComparePoints` 5 limbs) and was reviewed independently once (all buffer sizes confirmed; the mixed minors,
-  partial sums and the grid bound were added from that review). This 4-limb version is reviewed again, and so is
-  the code.
+  partial sums and the grid bound were added from that review). The 4-limb version was reviewed again: all bounds
+  and limb counts confirmed; the stack total per call and wording fixes came from it. The code gets the same review.
 
 ## 6. netstandard2.0
 
