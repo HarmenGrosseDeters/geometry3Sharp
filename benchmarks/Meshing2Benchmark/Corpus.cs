@@ -79,6 +79,7 @@ namespace Meshing2Acceptance
             if (output.VX.Length > judgeLimit) { detail = size + " (above --judge-limit)"; return "unjudged"; }
             var report = Oracle.Check(input, output, new OracleExpect { Milestone = m });
             string text = report.ToString();
+            if (report.MergeZoneExcused > 0) size += ", " + report.MergeZoneExcused + " excused in merge zones";
             detail = size + (report.Ok ? "" : "; " + (text.Length > 300 ? text.Substring(0, 300) : text));
             return report.Ok ? "ok" : "VIOLATION " + string.Join(",", report.Violations.Select(v => v.Kind.ToString()).Distinct());
         }

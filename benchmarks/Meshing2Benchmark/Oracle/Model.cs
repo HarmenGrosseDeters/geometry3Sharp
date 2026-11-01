@@ -159,6 +159,11 @@ namespace Meshing2Acceptance
         public int ConstructedVertices;
         public bool GlobalDelaunayChecked;
         public int BelowAngle;
+        /// <summary>
+        /// Excused by the merge zone of a small input angle (O11): triangles below the angle, and in-circle cases of the conforming
+        /// check. Not violations, but findings to look at: they stay visible in every report.
+        /// </summary>
+        public int MergeZoneExcused;
         public bool Has(Violation v) { foreach (var r in Violations) if (r.Kind == v) return true; return false; }
         public void Add(Violation v, string detail) { if (Violations.Count < 200) Violations.Add(new ViolationRecord { Kind = v, Detail = detail }); }
         public override string ToString() => Ok ? "ok" : string.Join("; ", Violations);
