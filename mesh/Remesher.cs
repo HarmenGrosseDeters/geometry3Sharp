@@ -997,8 +997,8 @@ namespace g3 {
         }
 
         // triangle A (vertex ids ia) intersects a triangle of the grid that is not in exclude (beyond shared vertices
-        // or edges). Calls hit for each one if given, else stops at the first
-        bool intersects_grid(Index3i ia, ref Triangle3d A, HashSet<int> exclude, Action<int> hit = null)
+        // or edges). Calls hit for each one if given, else stops at the first; skips the triangles for which skip is true
+        bool intersects_grid(Index3i ia, ref Triangle3d A, HashSet<int> exclude, Action<int> hit = null, Func<int, bool> skip = null)
         {
             AxisAlignedBox3d box = new AxisAlignedBox3d(A.V0); box.Contain(A.V1); box.Contain(A.V2);
             bool found = false;
@@ -1008,16 +1008,45 @@ namespace g3 {
                 // coplanar triangles on an axis plane)
                 if ((found && hit == null) || (exclude != null && exclude.Contains(tc)) || mesh.IsTriangle(tc) == false)
                     return;
+                if (skip != null && skip(tc))
+                    return;
                 Index3i ic = mesh.GetTriangle(tc);
                 Triangle3d C = new Triangle3d(mesh.GetVertex(ic.a), mesh.GetVertex(ic.b), mesh.GetVertex(ic.c));
                 if (ExactTriangleIntersection.IsDegenerate(ref C))
                     return;
-                if (ExactTriangleIntersection.IntersectsBeyondShared(ia, ref tri, ic, ref C)) {
+                if (pair_intersects(ia, ref tri, ic, ref C)) {
                     found = true;
                     hit?.Invoke(tc);
                 }
             });
             return found;
+        }
+
+        // ExactTriangleIntersection.IntersectsBeyondShared with an exact shortcut for the common case of neighbours that
+        // share one vertex s: if the other two corners of one triangle lie strictly on the same side of the other's
+        // plane, it meets that plane only at s, so the pair meets only at s
+        static bool pair_intersects(Index3i ia, ref Triangle3d A, Index3i ib, ref Triangle3d B)
+        {
+            int nShared = 0, sa = -1, sb = -1;
+            for (int i = 0; i < 3; ++i)
+                for (int j = 0; j < 3; ++j)
+                    if (ia[i] == ib[j]) { nShared++; sa = i; sb = j; }
+            if (nShared == 1) {
+                if (beyond_plane(ref A, sa, B[(sb + 1) % 3], B[(sb + 2) % 3]) || beyond_plane(ref B, sb, A[(sa + 1) % 3], A[(sa + 2) % 3]))
+                    return false;
+            }
+            return ExactTriangleIntersection.IntersectsBeyondShared(ia, ref A, ib, ref B);
+        }
+
+        // u and w strictly on the same side of the plane of T (s: the index of the shared corner, the plane's origin)
+        static bool beyond_plane(ref Triangle3d T, int s, Vector3d u, Vector3d w)
+        {
+            Vector3d o = T[s], p = T[(s + 1) % 3], q = T[(s + 2) % 3];
+            int su = ExactPredicates.Orient3d(o, p, q, u);
+            if (su == 0)
+                return false;
+            int sw = ExactPredicates.Orient3d(o, p, q, w);
+            return su * sw > 0;
         }
 
         // the new triangles (gridNewIds, gridNewTris) intersect each other or a triangle outside gridChangedTris
@@ -1028,7 +1057,7 @@ namespace g3 {
                 Index3i ia = gridNewIds[i];
                 for (int j = i + 1; j < gridNewTris.Count; ++j) {
                     Triangle3d B = gridNewTris[j];
-                    if (ExactTriangleIntersection.IntersectsBeyondShared(ia, ref A, gridNewIds[j], ref B))
+                    if (pair_intersects(ia, ref A, gridNewIds[j], ref B))
                         return true;
                 }
                 if (intersects_grid(ia, ref A, gridChangedTris))
@@ -1173,6 +1202,8 @@ namespace g3 {
                         continue;
                     bool aMoved = is_moved(t.a) || is_moved(t.b) || is_moved(t.c);
                     int self = tid;
+                    // a pair of two dirty triangles is tested once, from the lower id (the positions do not change
+                    // within the round)
                     intersects_grid(t, ref A, null, (tc) => {
                         if (tc == self)
                             return;
@@ -1182,7 +1213,7 @@ namespace g3 {
                             return;     // both as before the pass
                         revert_moved_of(self);
                         revert_moved_of(tc);
-                    });
+                    }, (tc) => tc < self && dirty.Contains(tc));
                 }
                 dirty.Clear();
                 foreach (int vid in revert) {
