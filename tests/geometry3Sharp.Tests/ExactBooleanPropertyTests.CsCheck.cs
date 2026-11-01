@@ -25,8 +25,9 @@ namespace geometry3Sharp.Tests
     /// shrunk case and seed. Opt-in:
     ///   G3_PROPERTY_SAMPLES=2000 dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --filter FullyQualifiedName~ExactBooleanPropertyTests
     ///     a larger campaign (any number of samples per property, from the same campaign seeds);
-    ///   G3_PROPERTY_REPLAY=&lt;seed&gt; ... --filter "FullyQualifiedName~ExactBooleanPropertyTests.Boxes_General"
-    ///     one case of one property, from a seed a failure reported (original or shrunk).
+    ///   G3_PROPERTY_CAMPAIGN="Boxes(general)" G3_PROPERTY_REPLAY=&lt;seed&gt; dotnet test ... --filter "FullyQualifiedName~ExactBooleanPropertyTests.Boxes"
+    ///     one case of the named campaign, from a seed a failure reported (original or shrunk); the failure message
+    ///     prints this command. Other campaigns run as usual.
     /// </summary>
     public class ExactBooleanPropertyTests
     {
@@ -124,7 +125,7 @@ namespace geometry3Sharp.Tests
         {
             void Check(T t) { string r = property(t); if (r != "") throw new Exception(r); }
             var watch = Stopwatch.StartNew();
-            string replay = Environment.GetEnvironmentVariable("G3_PROPERTY_REPLAY");
+            string replay = Environment.GetEnvironmentVariable("G3_PROPERTY_CAMPAIGN") == name ? Environment.GetEnvironmentVariable("G3_PROPERTY_REPLAY") : null;
             string[] seeds = string.IsNullOrEmpty(replay)
                 ? Enumerable.Range(0, Samples(samples)).Select(i => new PCG(campaign, (ulong)i).ToString()).ToArray()
                 : new[] { replay };
@@ -143,7 +144,7 @@ namespace geometry3Sharp.Tests
                 catch (CsCheckException e) { shrunk = e.Message; }
                 throw new Xunit.Sdk.XunitException($"{name} fails for seed {seed} (campaign {campaign}):\n  {original}\n  {failure}\n" +
                     $"Shrunk ({ShrinkIterations} tries, not necessarily minimal): {shrunk}\n" +
-                    $"Replay: G3_PROPERTY_REPLAY=<seed> dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --filter \"FullyQualifiedName~ExactBooleanPropertyTests.{name}\"");
+                    $"Replay: G3_PROPERTY_CAMPAIGN=\"{name}\" G3_PROPERTY_REPLAY=<seed> dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --filter \"FullyQualifiedName~ExactBooleanPropertyTests.{name.Split('(')[0]}\"");
             }
             log.WriteLine($"{name}: passed in {watch.ElapsedMilliseconds} ms");
         }
@@ -220,15 +221,16 @@ namespace geometry3Sharp.Tests
                 if (x.Operand != 1) a = BooleanOracle.Change(a, x.Rep, x.Seed);
                 if (x.Operand != 0) b = BooleanOracle.Change(b, x.Rep, x.Seed + 1);
                 DMesh3 result = Run(a, b, x.Op, ref error);
-                // slivers: the result with SafeRounding must be clean; the geometry is checked without it, because
-                // SafeRounding moves vertices of pieces below its degenerate threshold even where they are exact
-                // (ExactBooleanPropertyFindings)
+                // slivers: the result with SafeRounding must be clean and the same solid up to the sliver width (it
+                // moves vertices of pieces below its degenerate threshold even where they are exact,
+                // ExactBooleanPropertyFindings); the exact geometry is checked without it
                 DMesh3 plain = x.Rep == Rep.Slivers ? Run(a, b, x.Op, ref error, safeRounding: false) : result;
                 if (error != "") return error;
                 return First(
                     () => x.Operand != 1 ? Prefix("changed A", BooleanOracle.CheckRepresentation(c.MeshA(), a, 8 * c.Scale)) : "",
                     () => x.Operand != 0 ? Prefix("changed B", BooleanOracle.CheckRepresentation(c.MeshB(), b, 8 * c.Scale)) : "",
-                    () => Prefix("SafeRounding", BooleanOracle.CleanReason(result, x.Rep == Rep.Slivers)),
+                    () => Prefix("SafeRounding", BooleanOracle.CleanReason(result)),
+                    () => x.Rep == Rep.Slivers ? Prefix("SafeRounding vs baseline", BooleanOracle.SameSolid(result, baseline, 8 * c.Scale, 2 * BooleanOracle.SliverWidth(a, b))) : "",
                     () => BooleanOracle.CheckBoxResult(plain, c, x.Op, x.Rep == Rep.Slivers),
                     () => Prefix("vs baseline", BooleanOracle.SameSolid(plain, baseline, 8 * c.Scale)));
             }, 400, 5u);
@@ -283,8 +285,9 @@ namespace geometry3Sharp.Tests
 
         /// <summary>
         /// A controlled faulty result: the union with one triangle less whenever it has more than 12 triangles.
-        /// The campaign must fail, shrink to a case at least as simple as the first failure that still fails, and
-        /// the reported shrunk seed must reproduce the failure.
+        /// The campaign must fail and report the original seed, which gives the first failing case again, and a
+        /// shrunk seed after at least one shrink (CsCheck accepts a failing case as a shrink only if it is smaller by
+        /// its own size measure), which gives a different case that still fails.
         /// </summary>
         [Fact]
         public void Campaign_FindsShrinksAndReplaysAFaultyResult()
@@ -303,14 +306,16 @@ namespace geometry3Sharp.Tests
             var e = Assert.ThrowsAny<Xunit.Sdk.XunitException>(() => Campaign("faulty union", gen, Faulty, 40, 7u));
             log.WriteLine(e.Message);
             Assert.Contains("not closed", e.Message);
-            Match m = Regex.Match(e.Message, "Set seed: \"([^\"]+)\"");
+            // the shrunk seed is the one after "Shrunk" (the failure text before it holds the original seed too)
+            string afterShrunk = e.Message.Substring(e.Message.IndexOf("Shrunk (", StringComparison.Ordinal));
+            Match m = Regex.Match(afterShrunk, "Set seed: \"([^\"]+)\".*\\((\\d+) shrinks");
             Assert.True(m.Success, "no shrunk seed in: " + e.Message);
+            Assert.True(int.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture) > 0, "no shrink: " + afterShrunk);
             BoxCase first = failing[0];
-            // the shrunk case: as simple as the first failure or simpler, and it still fails when replayed
             BoxCase shrunk = null;
             gen.Sample(c => { shrunk = c; }, seed: m.Groups[1].Value, iter: 1, threads: 1);
-            Assert.True(shrunk.Size <= first.Size, $"shrunk {shrunk} (size {shrunk.Size}) vs first {first} (size {first.Size})");
-            Assert.Contains(shrunk.ToString(), e.Message);
+            Assert.NotEqual(first.ToString(), shrunk.ToString());
+            Assert.Contains(shrunk.ToString(), afterShrunk);
             Assert.NotEqual("", Faulty(shrunk));
             // the reported original seed gives the first failing case again
             Match original = Regex.Match(e.Message, "fails for seed (\\S+)");

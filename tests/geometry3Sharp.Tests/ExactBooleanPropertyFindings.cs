@@ -15,11 +15,17 @@ namespace geometry3Sharp.Tests
     /// input, nothing was rounded). docs/OPERATIONS.md says it repairs "the slivers and self-intersections the
     /// rounding leaves". The surface moves by up to the sliver's width (about 2^-20 here, 1e-6 of the size), so a
     /// result that is exactly representable comes out inexact. Found as volume differences of 1e-8 (relative) in
-    /// the representation campaign (sliver splits); SafeRounding = false gives the exact results.
+    /// the representation campaign (sliver splits); SafeRounding = false gives the exact results. Expected: a
+    /// triangle whose vertices are exact (no implicit point was rounded) is kept as the arrangement gives it.
+    ///
+    /// Design question 1b (not a defect by the documentation): an input that is already not clean (a triangle
+    /// below the threshold, MeshRobustRepair "degenerate triangles") is repaired too, which moves its surface.
+    /// That may be the intended repair; the owner decides whether SafeRounding should leave input triangles alone.
     /// </summary>
     public class ExactBooleanPropertyFindings
     {
         const string Finding1 = "Finding 1 of the Boolean property tests: SafeRounding moves exact vertices of pieces below its degenerate threshold";
+        const string Question1b = "Design question 1b of the Boolean property tests: should SafeRounding repair degenerate triangles of the input?";
 
         static readonly double T = Math.Pow(2, -20);
 
@@ -97,8 +103,8 @@ namespace geometry3Sharp.Tests
             Assert.Equal(Six, SixVolume(ExactMeshBoolean.Resolve(a, false)));
         }
 
-        [Fact(Skip = Finding1)]
-        public void SafeRounding_KeepsTheSurfaceOfDegenerateInputTriangles()
+        [Fact(Skip = Question1b)]
+        public void Resolve_DegenerateInputTriangle()
         {
             // now 0.99999984105428 instead of 1: the vertex (2^-20,0,0) on the cube's edge is moved into the face
             Assert.Equal(Six, SixVolume(ExactMeshBoolean.Resolve(CubeWithDegenerateTriangle())));

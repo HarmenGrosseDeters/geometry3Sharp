@@ -57,10 +57,6 @@ namespace geometry3Sharp.Tests
         public DMesh3 MeshA() => BooleanOracle.BoxMesh(A, this);
         public DMesh3 MeshB() => BooleanOracle.BoxMesh(B, this);
 
-        /// <summary> a rough measure for shrinking checks: the sum of all extents and offsets </summary>
-        public int Size => new[] { A, B }.Sum(x => Math.Abs(x.X0) + Math.Abs(x.Y0) + Math.Abs(x.Z0) + x.X1 + x.Y1 + x.Z1)
-            + Math.Abs(Exponent) + (Translation == Vector3d.Zero ? 0 : 1);
-
         public override string ToString() =>
             string.Format(CultureInfo.InvariantCulture, "A={0} B={1} scale=2^{2} t=({3:R},{4:R},{5:R})",
                 A, B, Exponent, Translation.x, Translation.y, Translation.z);
@@ -224,6 +220,23 @@ namespace geometry3Sharp.Tests
         }
 
         public static double Volume(DMesh3 mesh) => SixVolume(mesh, out _) / 6;
+
+        /// <summary>
+        /// The smallest height of a triangle over its longest edge: the width of the thinnest sliver. SafeRounding
+        /// moves vertices by up to the width of the slivers it repairs (ExactBooleanPropertyFindings).
+        /// </summary>
+        public static double SliverWidth(params DMesh3[] meshes)
+        {
+            double w = double.MaxValue;
+            Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+            foreach (DMesh3 mesh in meshes)
+                foreach (int t in mesh.TriangleIndices()) {
+                    mesh.GetTriVertices(t, ref a, ref b, ref c);
+                    double longest = Math.Max(a.Distance(b), Math.Max(b.Distance(c), c.Distance(a)));
+                    w = Math.Min(w, (b - a).Cross(c - a).Length / longest);
+                }
+            return w;
+        }
 
         public static double EdgeLength(DMesh3 mesh) =>
             mesh.EdgeIndices().Sum(e => { Index2i ev = mesh.GetEdgeV(e); return mesh.GetVertex(ev.a).Distance(mesh.GetVertex(ev.b)); });
@@ -455,18 +468,18 @@ namespace geometry3Sharp.Tests
         /// the volume by at most e times the area; the signed volume sum itself is off by about n eps times the sum
         /// of its absolute terms. Units: volume.
         /// </summary>
-        public static double VolumeTolerance(DMesh3 x, DMesh3 y)
+        public static double VolumeTolerance(DMesh3 x, DMesh3 y, double displacement = 0)
         {
-            double e = 4 * Resolution(x, y);
+            double e = 4 * Resolution(x, y) + displacement;
             SixVolume(x, out double ax); SixVolume(y, out double ay);
             int n = x.TriangleCount + y.TriangleCount;
             return e * (Invariance.Area(x) + Invariance.Area(y)) + 4 * n * MathUtil.Epsilon * (ax + ay) / 6;
         }
 
         /// <summary> Area tolerance: a vertex moved by e changes each incident triangle's area by at most e times its perimeter. </summary>
-        public static double AreaTolerance(DMesh3 x, DMesh3 y)
+        public static double AreaTolerance(DMesh3 x, DMesh3 y, double displacement = 0)
         {
-            double e = 4 * Resolution(x, y);
+            double e = 4 * Resolution(x, y) + displacement;
             return 4 * e * (EdgeLength(x) + EdgeLength(y)) + 4 * (x.TriangleCount + y.TriangleCount) * MathUtil.Epsilon * (Invariance.Area(x) + Invariance.Area(y));
         }
 
@@ -474,19 +487,21 @@ namespace geometry3Sharp.Tests
         /// Whether x and y bound the same solid, independent of their triangulations: volumes and areas agree within
         /// the rounding tolerances, and for every well-shaped triangle of either mesh the other mesh has winding
         /// number 1 just behind and 0 just in front of it (both directions, so a missing or extra patch of either is
-        /// found). This is a bounded numerical check, not a proof of equality. size: the extent of the inputs;
+        /// found). This is a bounded numerical check, not a proof of equality. size: the extent of the inputs.
+        /// displacement: a bound on how far vertices may have moved beyond rounding (SafeRounding on slivers:
+        /// SliverWidth); it widens the volume and area tolerances and the probe distance.
         /// </summary>
-        public static string SameSolid(DMesh3 x, DMesh3 y, double size)
+        public static string SameSolid(DMesh3 x, DMesh3 y, double size, double displacement = 0)
         {
             if (x == null || y == null) return "null mesh";
             if (x.TriangleCount == 0 || y.TriangleCount == 0)
                 return x.TriangleCount == y.TriangleCount ? "" : $"triangle count {x.TriangleCount} vs {y.TriangleCount}";
-            double vx = Volume(x), vy = Volume(y), tolV = VolumeTolerance(x, y);
+            double vx = Volume(x), vy = Volume(y), tolV = VolumeTolerance(x, y, displacement);
             if (Math.Abs(vx - vy) > tolV) return $"volume {vx:R} vs {vy:R} (tolerance {tolV:G3})";
-            double ax = Invariance.Area(x), ay = Invariance.Area(y), tolA = AreaTolerance(x, y);
+            double ax = Invariance.Area(x), ay = Invariance.Area(y), tolA = AreaTolerance(x, y, displacement);
             if (Math.Abs(ax - ay) > tolA) return $"area {ax:R} vs {ay:R} (tolerance {tolA:G3})";
-            string p = Probe(x, y, size, true);
-            return p != "" ? p : Probe(y, x, size, true);
+            string p = Probe(x, y, size, true, displacement);
+            return p != "" ? p : Probe(y, x, size, true, displacement);
         }
 
         /// <summary>
@@ -496,7 +511,10 @@ namespace geometry3Sharp.Tests
         /// for its rounded inputs). A crack has area and no volume, and the solid on both of its sides. So: the volumes
         /// agree within rounding, every well-shaped triangle of reference has x's solid just behind and none just in
         /// front of it, and every triangle of x has reference's solid just behind it (an extra solid outside the
-        /// reference is found, a crack inside it is not).
+        /// reference is found, a crack inside it is not). This is broad: it also accepts x with extra inner faces
+        /// that are no cracks, eg two face-touching boxes kept as separate shells for their merged box; only the
+        /// callers' CleanReason (self-intersections) rejects that. Use it only for chained Booleans on inexact
+        /// intermediate results (tetrahedra), never where SameSolid or the box oracle can be used.
         /// </summary>
         public static string SameRegularizedSolid(DMesh3 x, DMesh3 reference, double size)
         {
@@ -511,11 +529,11 @@ namespace geometry3Sharp.Tests
 
         // a solid of no well-shaped triangle (all of them thinner than the probe distance) is compared by its
         // volume and area only
-        static string Probe(DMesh3 from, DMesh3 to, double size, bool front)
+        static string Probe(DMesh3 from, DMesh3 to, double size, bool front, double displacement = 0)
         {
             // the probes are delta off the triangle; triangles with an inradius below 4 delta are skipped, so a probe
             // cannot reach through another part of the surface that meets the triangle at an edge
-            double delta = 1e-5 * size;
+            double delta = Math.Max(1e-5 * size, 4 * displacement);
             Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
             foreach (int t in from.TriangleIndices()) {
                 from.GetTriVertices(t, ref a, ref b, ref c);
@@ -577,7 +595,8 @@ namespace geometry3Sharp.Tests
 
         /// <summary>
         /// Each triangle split into four at its edge midpoints, one midpoint per undirected edge, so the mesh stays
-        /// conforming (no T-junctions). The mesh is rebuilt per level. Midpoints of dyadic coordinates are exact.
+        /// conforming (no T-junctions). The mesh is rebuilt per level. The midpoints are exact unless u + w
+        /// rounds, which the small dyadic test inputs avoid (CheckRepresentation compares the exact volumes).
         /// </summary>
         public static DMesh3 Subdivided(DMesh3 mesh, int levels)
         {
@@ -607,18 +626,26 @@ namespace geometry3Sharp.Tests
         }
 
         /// <summary>
-        /// Near-degenerate triangles: count distinct edges of the input (chosen by seed) split at a + t (b - a),
-        /// t = 2^-tExponent, so the new vertex lies exactly on the edge for dyadic coordinates and the two triangles
-        /// at the edge's end a become slivers. Only edges of the input are split: a split of a new edge would give
-        /// triangles of area t^2, below the 1e-12 diagonal^2 that MeshRobustRepair counts as degenerate (that case is
-        /// ExactBooleanPropertyFindings.SafeRounding_KeepsTheSurfaceOfDegenerateInputTriangles).
+        /// Near-degenerate but clean triangles: up to count edges of the input (chosen by seed) split at
+        /// a + t (b - a), t = 2^-tExponent, so the new vertex lies exactly on the edge for dyadic coordinates and the
+        /// two triangles at the edge's end a become slivers of area t times the triangle's. No triangle gets two
+        /// splits: two splits whose near ends meet in one triangle would give a triangle of area about t^2, below the
+        /// 1e-12 diagonal^2 that MeshRobustRepair counts as degenerate (a non-clean input, see
+        /// ExactBooleanPropertyFindings.Resolve_DegenerateInputTriangle).
         /// </summary>
         public static DMesh3 SliverSplit(DMesh3 mesh, int count, int tExponent, int seed)
         {
             var result = new DMesh3(mesh);
             var rand = new Random(seed);
             double t = Math.Pow(2, -tExponent);
-            var edges = mesh.EdgeIndices().Select(e => mesh.GetEdgeV(e)).OrderBy(e => rand.Next()).Take(count).ToArray();
+            var used = new HashSet<int>();
+            var edges = new List<Index2i>();
+            foreach (int e in mesh.EdgeIndices().OrderBy(e => rand.Next()).ToArray()) {
+                Index2i et = mesh.GetEdgeT(e);
+                if (edges.Count == count || used.Contains(et.a) || used.Contains(et.b)) continue;
+                used.Add(et.a); used.Add(et.b);
+                edges.Add(mesh.GetEdgeV(e));
+            }
             foreach (Index2i ev in edges) {
                 int e = result.FindEdge(ev.a, ev.b);
                 Vector3d a = result.GetVertex(ev.a), b = result.GetVertex(ev.b);
@@ -629,14 +656,15 @@ namespace geometry3Sharp.Tests
         }
 
         /// <summary>
-        /// A representation change must keep the oriented surface: valid, closed, finite, the same signed volume and
-        /// area within rounding, the same solid (SameSolid), and an actual change of the triangle list.
+        /// A representation change must keep the oriented surface: clean (no degenerate triangles either), the same
+        /// exact signed volume, the same solid (SameSolid), and an actual change of the triangle list.
         /// </summary>
         public static string CheckRepresentation(DMesh3 original, DMesh3 changed, double size)
         {
-            string clean = CleanReason(changed, allowDegenerate: true);
+            string clean = CleanReason(changed);
             if (clean != "") return "changed input: " + clean;
             if (Invariance.Difference(original, changed) == "") return "the representation did not change";
+            if (!ExactSixVolume(original).Equals(ExactSixVolume(changed))) return "changed input: the exact volume differs";
             return SameSolid(original, changed, size);
         }
 

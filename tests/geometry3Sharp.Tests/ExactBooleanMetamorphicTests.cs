@@ -102,8 +102,10 @@ namespace geometry3Sharp.Tests
                         DMesh3 result = Run(a, b, op);
                         string what = $"{family} {op} {r} operand {"ABX"[operand]}";
                         if (r == Rep.Slivers) {
-                            // SafeRounding: clean; the geometry without it (see Tetrahedra_MetamorphicRelations)
-                            AssertOk(BooleanOracle.CleanReason(result, true), what + " SafeRounding");
+                            // SafeRounding: clean, and the same solid up to the sliver width it may move vertices by;
+                            // the exact geometry without it (see Tetrahedra_MetamorphicRelations)
+                            AssertOk(BooleanOracle.CleanReason(result), what + " SafeRounding");
+                            AssertOk(BooleanOracle.SameSolid(result, baseline, size, 2 * BooleanOracle.SliverWidth(a, b)), what + " SafeRounding vs baseline");
                             result = Run(a, b, op, safeRounding: false);
                         }
                         AssertOk(BooleanOracle.CheckBoxResult(result, c, op, r == Rep.Slivers), what);
@@ -165,8 +167,9 @@ namespace geometry3Sharp.Tests
                 AssertOk(BooleanOracle.CheckRepresentation(b, rb, size), $"{r} of B");
                 foreach (Ops op in BooleanOracle.AllOps) {
                     DMesh3 result = Run(ra, rb, op);
-                    AssertOk(BooleanOracle.CleanReason(result, r == Rep.Slivers), $"{what} {op} {r}");
+                    AssertOk(BooleanOracle.CleanReason(result), $"{what} {op} {r}");
                     if (r == Rep.Slivers) {
+                        AssertOk(BooleanOracle.SameSolid(result, results[op], size, 2 * BooleanOracle.SliverWidth(ra, rb)), $"{what} {op} {r} vs baseline, SafeRounding");
                         // where the other solid cuts a sliver, the pieces can fall below the degenerate threshold of
                         // SafeRounding (area 1e-12 diagonal^2; rounded or even exact), which repairs them by moving
                         // vertices up to the sliver's width (2^-20 and less; ExactBooleanPropertyFindings): the solid
@@ -202,14 +205,24 @@ namespace geometry3Sharp.Tests
                 Assert.Equal("", Invariance.GeometricDifference(reference, back));
                 return;
             }
+            if (!s.IsRotated && s.Scale == 1) {
+                // a dyadic translation of the integer boxes (UTM) is exact too: the analytic reference in that frame
+                var moved = new BoxCase(ia, ib, 0, s.Translation);
+                AssertOk(BooleanOracle.CheckBoxResult(d, moved, Ops.Difference), name + ": A-B");
+                AssertOk(BooleanOracle.CheckBoxResult(i, moved, Ops.Intersection), name + ": AnB");
+                AssertOk(BooleanOracle.CheckBoxResult(Run(d, i, Ops.Union), new BoxCase(ia, ia, 0, s.Translation), Ops.Union), name + ": (A-B) u (AnB)");
+                return;
+            }
             // rotations and translations round the input coordinates: B's faces on A's planes z = 0 and z = 2 are no
             // longer exactly coplanar with them, and A-B can keep slabs of rounding thickness (rotated: area 24
             // instead of 22). A-B and AnB, rounded separately, can also leave cracks of that thickness where they
             // meet, which their union keeps. Both are true for the rounded inputs, so the regularized solids are
             // compared (volume and winding numbers away from the surface), not the boundaries.
-            // (a vertex is off by a few rounding units of the transformed coordinates: of the input, of the exact
-            // points and of the mapping back; 64 of them times the area bounds the volume change)
-            double tol = 64 * s.Resolution(3) * Invariance.Area(a);
+            // (a coordinate is off by up to 3.5 rounding units of the transformed coordinates per transform: three
+            // products summed in the rotation and the translation; once into the frame and once back, plus half a
+            // unit for the rounding of the exact points: 7.5, at most 7.5 sqrt(3) < 16 per vertex; moving the
+            // vertices by e changes the volume by at most e times the area)
+            double tol = 16 * s.Resolution(3) * Invariance.Area(a);
             AssertOk(BooleanOracle.CheckBoxSolid(Invariance.MappedBack(d, s), c, Ops.Difference, tol), name + ": A-B");
             AssertOk(BooleanOracle.CheckBoxSolid(Invariance.MappedBack(i, s), c, Ops.Intersection, tol), name + ": AnB");
             AssertOk(BooleanOracle.CheckBoxSolid(back, new BoxCase(ia, ia), Ops.Union, tol), name + ": (A-B) u (AnB)");
