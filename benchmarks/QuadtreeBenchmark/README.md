@@ -52,7 +52,6 @@ None of these is measured. Each would have to show its gain here first.
 - Storing the items in tree order, so that a query reads neighbouring memory. Queries would touch fewer cache lines, and removal gets harder.
 - A build by Morton order instead of cutting from the top. It may cost less on uniform data, and loose placement of large items does not map onto it directly.
 - Tuning the bucket size and the looseness. The present values were not searched for.
-- A parallel frontier chosen by the size of the parts rather than by a fixed two levels. It should help data gathered far inside its extent, the slowest case in the spec's limits.
 - `Over` for other forms of input, such as vertices with index triples. Only `Triangle3d[]` exists so far.
 
 ## Results

@@ -372,7 +372,7 @@ Independent reviews on 2026-10-31 found these. The ones of the first review were
 | "a triangle within tolerance" (2.1) | `TryGetHeight` and `stopAfterFirst` take the nearest triangle within tolerance, the lowest ID on a tie | The result depended on the traversal, so on how the tree was built |
 | "all equal for a consistent TIN" (2.1) | Equal at shared vertices. On a shared edge, heights agree up to rounding | This cannot hold for rounded interpolation |
 
-A bulk build works on one flat array of boxes and ids. It sorts that array in place into the items a node keeps and those of its four children, and links the cell lists at the end. That halved the time for 1M items: 247 to 129 ms on .NET 10, 265 to 156 ms on .NET Framework 4.8. An insert that splits a cell uses the same code.
+A bulk build works on one flat array of boxes and ids. It sorts that array in place into the items a node keeps and those of its four children, and links the cell lists at the end. With the top levels cut side by side as well, this took 1M items from 247 to 81 ms on .NET 10. A parallel and a sequential build give the same tree and the same order of items. An insert that splits a cell uses the same code.
 
 `TriangleQuadtree2d.Over(array)` builds over the caller's array instead of a copy, for callers that hold their triangles anyway. It reads that array from then on, so the caller must not change it. The first insert moves the triangles to a copy.
 
@@ -385,7 +385,7 @@ The core rejects nothing new. Removal by value and by ID no longer scans. A cell
 - Mutating the tree during a traversal is not supported and not detected.
 - The margin of 2e-4 and the default tolerance of 0.01 are absolute (owner decision, Q-3): results at these thresholds change with scale, unlike the rest of the library. Tests compare them against the definition instead of bit for bit.
 - Triangles thinner than a relative determinant of 1e-9 take the exact path. Above that, a rounded height keeps an error that grows towards the threshold.
-- The top two levels build serially, and the parts below them in parallel. Data gathered far inside its extent gains less: one corner plus a far point took 278 ms for 1M boxes, against 144 ms for uniform ones.
+- A parallel build cuts the items down until no part holds more than an eighth of them, and builds the parts side by side. Data gathered far inside its extent needs more of these cuts: one corner plus a far point took 141 ms for 1M boxes, against 81 ms for uniform ones.
 
 ### Verification
 

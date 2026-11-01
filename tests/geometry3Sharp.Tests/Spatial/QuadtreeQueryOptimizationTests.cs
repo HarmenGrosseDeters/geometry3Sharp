@@ -101,6 +101,74 @@ namespace geometry3Sharp.Tests.Spatial
             }
         }
 
+        struct Everything : IQuadtreeVisitor2d
+        {
+            public List<AxisAlignedBox2d> Regions;
+            public List<int> Ids;
+            public bool TestRegion(AxisAlignedBox2d region) { Regions.Add(region); return true; }
+            public bool Visit(int id) { Ids.Add(id); return false; }
+        }
+
+        static Everything Walk(LooseQuadtree2d tree)
+        {
+            var visitor = new Everything { Regions = new List<AxisAlignedBox2d>(), Ids = new List<int>() };
+            tree.Traverse(ref visitor);
+            return visitor;
+        }
+
+        public static IEnumerable<object[]> LargeBuilds()
+        {
+            const int n = 200000;
+            var random = new Random(5);
+            Func<double> r = random.NextDouble;
+            AxisAlignedBox2d Small(double x, double y) => new AxisAlignedBox2d(x, y, x + r() * 0.01, y + r() * 0.01);
+            yield return new object[] { "uniform", Enumerable.Range(0, n).Select(i => Small(r() * 100, r() * 100)).ToArray() };
+            yield return new object[] { "large items among small", Enumerable.Range(0, n).Select(i => i % 50 == 0
+                ? new AxisAlignedBox2d(r() * 10, r() * 10, 90 + r() * 10, 90 + r() * 10) : Small(r() * 100, r() * 100)).ToArray() };
+            yield return new object[] { "one corner and a far point", Enumerable.Range(0, n).Select(i => i == 0
+                ? new AxisAlignedBox2d(new Vector2d(1e6, 1e6)) : Small(r(), r())).ToArray() };
+            yield return new object[] { "all equal", Enumerable.Repeat(new AxisAlignedBox2d(1, 1, 2, 2), n).ToArray() };
+            yield return new object[] { "one child stays below the bucket", Enumerable.Range(0, n).Select(i => i < 5
+                ? new AxisAlignedBox2d(new Vector2d(100 - i, 100 - i)) : Small(r(), r())).ToArray() };
+            yield return new object[] { "a line", Enumerable.Range(0, n).Select(i => new AxisAlignedBox2d(new Vector2d(i, 0))).ToArray() };
+        }
+
+        [Theory]
+        [MemberData(nameof(LargeBuilds))]
+        public void ParallelBuild_GivesTheTreeAndItemOrderOfASequentialOne(string name, AxisAlignedBox2d[] boxes)
+        {
+            Assert.NotNull(name);
+            Assert.True(boxes.Length >= 2 * LooseQuadtree2d.ParallelThreshold);
+            Everything serial = Walk(new LooseQuadtree2d(boxes, false));
+            Everything parallel = Walk(new LooseQuadtree2d(boxes, true));
+            Assert.Equal(serial.Regions, parallel.Regions);
+            Assert.Equal(serial.Ids, parallel.Ids);
+            Assert.Equal(Enumerable.Range(0, boxes.Length), parallel.Ids.OrderBy(id => id));
+            Assert.Equal(serial.Ids, Walk(new LooseQuadtree2d(boxes, true)).Ids);
+        }
+
+        [Fact]
+        public void ALargeBuild_ReportsABadTriangleLikeASmallOne()
+        {
+            var good = new Triangle3d(new Vector3d(0, 0, 0), new Vector3d(1, 0, 0), new Vector3d(0, 1, 0));
+            var bad = new Triangle3d(new Vector3d(double.NaN, 0, 0), new Vector3d(1, 0, 0), new Vector3d(0, 1, 0));
+            Triangle3d[] triangles = Enumerable.Repeat(good, 2 * LooseQuadtree2d.ParallelThreshold).ToArray();
+            triangles[triangles.Length / 2] = bad;
+            Assert.Throws<ArgumentException>(() => new TriangleQuadtree2d(triangles));
+            Assert.Throws<ArgumentException>(() => TriangleQuadtree2d.Over(triangles));
+            Assert.Throws<ArgumentException>(() => TriangleQuadtree2d.Over(triangles, false));
+            triangles[triangles.Length / 2] = good;
+            Assert.Equal(triangles.Length, TriangleQuadtree2d.Over(triangles).Count);
+
+            // The last one too gets its bounds.
+            triangles[triangles.Length - 1] = new Triangle3d(new Vector3d(50, 50, 2), new Vector3d(52, 50, 2), new Vector3d(50, 52, 2));
+            foreach (TriangleQuadtree2d tree in new[] { new TriangleQuadtree2d(triangles), TriangleQuadtree2d.Over(triangles) }) {
+                Assert.Equal(TriangleQuadtree2d.Over(triangles, false).Extent, tree.Extent);
+                Assert.True(tree.TryGetHeight(new Vector2d(50.5, 50.5), out double height, 0));
+                Assert.Equal(2, height);
+            }
+        }
+
         [Fact]
         public void ParallelRegionSnapshotsAndRepeatedQueriesMatchSerialAfterMutation()
         {
