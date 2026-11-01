@@ -61,6 +61,11 @@ namespace geometry3Sharp.Tests.Spatial
             var tree = new TriangleQuadtree2d(new[] { new Triangle3d(new Vector3d(0, 0, 0), scale * new Vector3d(1, 0, z), scale * new Vector3d(q, q, 0)) });
             Assert.True(tree.TryGetHeight(new Vector2d(1.5 * q * scale, 0.5 * q * scale), out double height, 0));
             Assert.Equal(Math.Pow(2, 400 + exponent), height);
+
+            // With a height at the first vertex, a lost weight gives a plausible value, which no later check questions.
+            tree = new TriangleQuadtree2d(new[] { new Triangle3d(new Vector3d(0, 0, 1), scale * new Vector3d(1, 0, z), new Vector3d(q * scale, q * scale, 1)) });
+            Assert.True(tree.TryGetHeight(new Vector2d(1.5 * q * scale, 0.5 * q * scale), out height, 0));
+            Assert.Equal(Math.Pow(2, 400 + exponent), height);
         }
 
         [Theory]
