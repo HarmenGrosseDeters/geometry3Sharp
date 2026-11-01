@@ -77,6 +77,8 @@ and for each yes, check that a test covers it. A test must fail on the old code 
   depend on the thread schedule or on hash-set iteration order. Ties (equal distances, equal costs) are broken
   by id, not by which thread came first; a value cached in lower precision is returned as cached, also the
   first time.
+- A new entry in `core/ExactCodeAllowList.cs` (a parallel loop in exact code): the loop aggregates no floating-point
+  value across threads, and every write goes to its own index or a thread-local.
 - Tests: repeated runs give bit-identical output (`Invariance.Difference`); parallel equals serial where there
   is a switch.
 - Order-dependent outputs (element ids, neighbour arrays, "smallest id" answers) need their own 2^k test, at

@@ -250,6 +250,12 @@ Clean room ([MESHING2D_SPEC.md](design/MESHING2D_SPEC.md)): implemented from the
 | Exact predicates | `ExactPredicates.Orient2d`, `InCircle` (see above) |
 | Pseudorandom numbers (insertion rounds, walk) | SplitMix64 (Steele, Lea, Flood, OOPSLA 2014); xorshift (G. Marsaglia, *Xorshift RNGs*, J. Stat. Software 2003) |
 
+## Build-time analyzers (`BannedSymbols.txt`, `tools/analyzers/G3ExactCodeAnalyzers`)
+
+Build-time only, not shipped in the package. `Microsoft.CodeAnalysis.BannedApiAnalyzers` (MIT, NuGet) enforces the
+banned APIs in the exact code; the analyzers G3E0001-3 (float, parallel loops, FMA) are own code on the Roslyn API (`Microsoft.CodeAnalysis.CSharp`,
+MIT).
+
 ## Benchmarks
 
 `benchmarks/Meshing2Benchmark` is the acceptance harness of the 2D mesher (`docs/design/MESHING2D_PLAN.md`). NetTopologySuite 2.6.0
@@ -295,3 +301,9 @@ Own design from the textbook procedures, no code taken over.
 The rest (moves, collapses and flips rejected if they flip a normal or create a flat triangle, no splits of an edge
 with a vertex on it, buffered projection for a deterministic result) follows from the failure analysis on Thingi10K
 in `docs/ROADMAP.md`.
+
+## Forks of geometry3Sharp
+
+| Fork | Taken over |
+|---|---|
+| [Digital-Production-Aachen/DAPComputationalGeometry](https://github.com/Digital-Production-Aachen/DAPComputationalGeometry) (Boost-1.0), delta `8f185f1`..`158507b` | Nothing: audited 2026-11-01, no bug fix applies to this code ([audit result](design/DAP_BUGFIX_AUDIT.md#audit-result-2026-11-01)). A later port of one of its features is listed here with the DAP commit and file |
