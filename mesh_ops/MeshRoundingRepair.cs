@@ -71,6 +71,19 @@ namespace g3
         public bool SharedPositionsTouch = false;
         /// <summary> vertices whose position is kept where possible (tried last as the moved vertex); null = none </summary>
         public Func<int, bool> FixedVertexF = null;
+        /// <summary>
+        /// vertices whose coordinates are exact, not rounded (eg input vertices, and intersection points whose exact
+        /// coordinates are doubles); null = none. Asked once per vertex of a degenerate triangle at the start of Apply.
+        /// A degenerate triangle that is a small feature of the exact geometry, not a rounding defect, is kept as it is:
+        /// its three vertices are exact, it is well-shaped (twice its area at least 1e-2 times its longest edge squared:
+        /// below the degenerate area only because it is small, not a needle or a cap, as slivers of nearly coincident
+        /// points are) and at least one of its vertices is not fixed (FixedVertexF; a triangle of fixed vertices only
+        /// may be a degenerate triangle of the input, which is repaired). It is not repaired for itself, and its
+        /// component is not removed as tiny for it; an edit that repairs another defect next to it may still change
+        /// it (a needle or an intersection sharing its vertex). It is still degenerate: counted in InitialDegenerate,
+        /// RemainingDegenerate (so IsClean is false) and ExactDegenerate.
+        /// </summary>
+        public Func<int, bool> ExactVertexF = null;
         /// <summary> passes over the defects </summary>
         public int MaxPasses = 4;
         /// <summary>
@@ -90,6 +103,8 @@ namespace g3
         public int InitialIntersections, InitialDegenerate;
         /// <summary> intersecting triangle pairs and degenerate triangles after the repair (exact, see class comment) </summary>
         public int RemainingIntersections, RemainingDegenerate;
+        /// <summary> degenerate triangles left after the repair that are kept as small features of the exact geometry (see ExactVertexF) </summary>
+        public int ExactDegenerate;
         /// <summary> edits applied (see class comment) </summary>
         public int Collapses, Flips, Moves, Zips;
         /// <summary> components, and their triangles, removed as tiny or thin (RemoveTinyComponents) </summary>
@@ -123,6 +138,8 @@ namespace g3
         Dictionary<int, Vector3d> inputBoundary = new Dictionary<int, Vector3d>();
         HashSet<Index2i> inputBoundaryEdges = new HashSet<Index2i>();
         Dictionary<int, int> slidTowards = new Dictionary<int, int>();
+        // vertices of the degenerate triangles at the start that are exact (ExactVertexF), with their positions
+        Dictionary<int, Vector3d> exactAt = new Dictionary<int, Vector3d>();
 
         /// <summary> repair (see class comment); returns IsClean </summary>
         [MethodImpl(JitHints.Optimize)]
@@ -133,6 +150,8 @@ namespace g3
             inputBoundary.Clear();
             inputBoundaryEdges.Clear();
             slidTowards.Clear();
+            exactAt.Clear();
+            ExactDegenerate = 0;
             foreach (int eid in Mesh.BoundaryEdgeIndices()) {
                 Index2i ev = Mesh.GetEdgeV(eid);
                 inputBoundaryEdges.Add(new Index2i(Math.Min(ev.a, ev.b), Math.Max(ev.a, ev.b)));
@@ -156,6 +175,13 @@ namespace g3
 
             List<Index2i> pairs = intersecting_pairs();
             List<int> bad = degenerate_triangles();
+            if (ExactVertexF != null)
+                foreach (int t in bad) {
+                    Index3i tv = Mesh.GetTriangle(t);
+                    for (int k = 0; k < 3; ++k)
+                        if (exactAt.ContainsKey(tv[k]) == false && ExactVertexF(tv[k]))
+                            exactAt[tv[k]] = Mesh.GetVertex(tv[k]);
+                }
             InitialIntersections = pairs.Count;
             InitialDegenerate = bad.Count;
             evaluations = pairTests = 0;
@@ -169,7 +195,7 @@ namespace g3
                 // smallest first: their contraction often fixes the larger neighbours too
                 bad.Sort((x, y) => area(x).CompareTo(area(y)));
                 foreach (int t in bad) {
-                    if (Mesh.IsTriangle(t) == false || is_bad(t) == false)
+                    if (Mesh.IsTriangle(t) == false || is_bad(t) == false || kept(Mesh.GetTriangle(t)))
                         continue;
                     Index3i tv = Mesh.GetTriangle(t);
                     if ((retry == null || retry.Contains(tv.a) || retry.Contains(tv.b) || retry.Contains(tv.c)))
@@ -195,6 +221,9 @@ namespace g3
             }
             RemainingIntersections = pairs.Count;
             RemainingDegenerate = bad.Count;
+            foreach (int t in bad)
+                if (kept(Mesh.GetTriangle(t)))
+                    ExactDegenerate++;
             return IsClean;
         }
 
@@ -246,6 +275,29 @@ namespace g3
                 return true;
             Triangle3d tri = triangle(t);
             return ExactTriangleIntersection.IsDegenerate(ref tri);
+        }
+
+        // is the (degenerate) triangle t kept as a small feature of the exact geometry (see ExactVertexF): its corners
+        // exact vertices at their positions at the start, one of them not fixed, and well-shaped; with the current
+        // geometry. (The shape test in floating point: it separates small triangles from needles and caps by orders of
+        // magnitude, so its rounding does not matter, and it is scale invariant)
+        bool kept(Index3i t)
+        {
+            if (exactAt.Count == 0 || is_exact(t.a) == false || is_exact(t.b) == false || is_exact(t.c) == false)
+                return false;
+            if (is_fixed(t.a) && is_fixed(t.b) && is_fixed(t.c))
+                return false;
+            Vector3d a = Mesh.GetVertex(t.a), b = Mesh.GetVertex(t.b), c = Mesh.GetVertex(t.c);
+            double longest = Math.Max(a.DistanceSquared(b), Math.Max(b.DistanceSquared(c), c.DistanceSquared(a)));
+            return (b - a).Cross(c - a).Length >= WellShaped * longest;
+        }
+        // twice the area of a kept triangle, at least, relative to its longest edge squared
+        const double WellShaped = 1e-2;
+
+        bool is_exact(int v)
+        {
+            Vector3d p;
+            return exactAt.TryGetValue(v, out p) && Mesh.GetVertex(v) == p;
         }
 
         static Vector3d key(Vector3d p)
@@ -916,7 +968,10 @@ namespace g3
         {
             var comps = new MeshConnectedComponents(Mesh);
             comps.FindConnectedT();
-            var badSet = new HashSet<int>(bad);
+            var badSet = new HashSet<int>();
+            foreach (int t in bad)
+                if (kept(Mesh.GetTriangle(t)) == false)
+                    badSet.Add(t);
             int count = 0;
             foreach (var comp in comps.Components) {
                 bool hasBad = false;

@@ -153,7 +153,9 @@ namespace g3
         /// 1e-12 of the squared diagonal) the rounding left, by local edits checked with exact predicates on the doubles
         /// (MeshRoundingRepair: contractions of short edges, flips, tiny vertex moves, removal of closed components that
         /// keep a sliver and are tiny or thinner than 1e-5 of the diagonal, counted in Rounding.RemovedComponents). Input vertices are kept
-        /// where possible, and sheets that touch at duplicated vertices still touch, at the same points. Not every case
+        /// where possible, and sheets that touch at duplicated vertices still touch, at the same points. Small well-shaped
+        /// triangles of exact vertices (at least one new) are features of the exact result, not rounding defects: kept
+        /// as they are, and counted (Rounding.ExactDegenerate; MeshRoundingRepair.ExactVertexF). Not every case
         /// can be repaired: Compute() still succeeds (Status Success) if defects remain; RoundingClean tells whether the
         /// result is verified free of both, Rounding has the counts. On by default (since October 2026; before, off):
         /// on the Thingi10K benchmark it makes about 1.6 times as many results clean, for about 1.2 to 1.9 times the time
@@ -352,7 +354,9 @@ namespace g3
             Counts["removed_vertices"] = RemovedVertices;
             if (SafeRounding) {
                 bool[] fixedV = resultFixed;
-                Rounding = new MeshRoundingRepair(Result) { SharedPositionsTouch = true, FixedVertexF = (v) => v < fixedV.Length && fixedV[v] };
+                Rounding = new MeshRoundingRepair(Result) {
+                    SharedPositionsTouch = true, FixedVertexF = (v) => v < fixedV.Length && fixedV[v], ExactVertexF = is_exact_vertex
+                };
                 Rounding.Apply();
                 clock.Lap("rounding");
                 Counts["rounding_intersections"] = Rounding.InitialIntersections;
@@ -1397,6 +1401,8 @@ namespace g3
             resultFixed = new bool[vertexPoint.Count];
             for (int vid = 0; vid < vertexPoint.Count; ++vid)
                 resultFixed[vid] = vertexPoint[vid] >= 0 && inputPoints[vertexPoint[vid]];
+            resultVertexPoint = vertexPoint;
+            resultSplitPoints = splitPoints;
             ResultExactVertices = null;
             if (ComputeExactVertices) {
                 var exact = new ExactPoint3[vertexPoint.Count];
@@ -1414,8 +1420,46 @@ namespace g3
             return result;
         }
 
-        // per vertex of the last assembled result: is it an input vertex
+        // per vertex of the last assembled result: is it an input vertex; its point, or -2 - its index into
+        // resultSplitPoints (the ends of the edge it splits)
         bool[] resultFixed;
+        List<int> resultVertexPoint;
+        List<Index2i> resultSplitPoints;
+
+        // is the vertex vid of Result at the exact position of its point (nothing was rounded): input vertices, and
+        // new vertices whose exact coordinates are doubles (exact check; vid must not have been moved since assemble)
+        [MethodImpl(JitHints.Optimize)]
+        bool is_exact_vertex(int vid)
+        {
+            if (vid < 0 || vid >= resultVertexPoint.Count)
+                return false;
+            if (resultFixed[vid])
+                return true;
+            int pid = resultVertexPoint[vid];
+            ExactPoint3 q;
+            if (pid >= 0) {
+                q = arr.ToInputExact(arr.Exact(pid));
+            } else {
+                Index2i uv = resultSplitPoints[-2 - pid];
+                ExactPoint3 pu = arr.ToInputExact(arr.Exact(uv.a)), pv = arr.ToInputExact(arr.Exact(uv.b));
+                q = ExactPoint3.CreateUnreduced(pu.X * pv.W + pv.X * pu.W, pu.Y * pv.W + pv.Y * pu.W, pu.Z * pv.W + pv.Z * pu.W, 2 * pu.W * pv.W);
+            }
+            Vector3d v = Result.GetVertex(vid);
+            return equals_exactly(q.X, q.W, v.x) && equals_exactly(q.Y, q.W, v.y) && equals_exactly(q.Z, q.W, v.z);
+        }
+
+        // num / den == d exactly (den > 0, d finite)
+        static bool equals_exactly(BigInteger num, BigInteger den, double d)
+        {
+            BigInteger m; int e;
+            ExactPoint3.Decompose(d, out m, out e);
+            if (m.IsZero)
+                return num.IsZero;
+            if (num.Sign != m.Sign)
+                return false;
+            // d = m 2^e: num = m den 2^e
+            return (e >= 0) ? num == (m * den) << e : num << -e == m * den;
+        }
 
         [MethodImpl(JitHints.Optimize)]
         void append_triangle(DMesh3 result, int a, int b, int c, List<int> vertexPoint)
