@@ -81,12 +81,18 @@ and for each yes, check that a test covers it. A test must fail on the old code 
   value across threads, and every write goes to its own index or a thread-local.
 - Tests: repeated runs give bit-identical output (`Invariance.Difference`); parallel equals serial where there
   is a switch.
+- Order-dependent outputs (element ids, neighbour arrays, "smallest id" answers) need their own 2^k test, at
+  extreme exponents too: a helper in doubles (`c / width` for a sort key) can overflow there although the
+  predicates stay exact. `Array.Sort` is not stable, and runtimes may break ties differently: break them by
+  index (meshing M1 review).
 
 ## 10. Complexity (#63, #72, #105)
 
 - Nested loops over all elements of the input (pairs of segments, components, charts): what is the size in
   a realistic large input? Use a grid or tree.
-- Tests: time or candidate counts at n and 4n.
+- Tests: time or candidate counts at n and 4n, on clustered, outlier and multi-scale inputs too: a fixed-
+  resolution grid or space-filling-curve key over the bounding box collapses when one point is far away
+  (meshing M1 review: a quadratic build from one outlier).
 
 ## 11. Compatibility and documentation (#92, #94)
 
