@@ -535,6 +535,117 @@ namespace g3
             if (c != 0) return c;
             return Compare(Mul(az, bw, ref ar), Mul(bz, aw, ref ar));
         }
+
+        // ---- the triangle plane and its edge planes (ExactMeshArrangement.InputTriangle.compute_planes; docs/design/
+        // CHEAPER_CONSTRUCTIONS.md, section 4.5) ----
+        // Scratch by the length rule for inputs of 4 limbs, in this order of operations: 996 limbs (the generator's
+        // "lengths only" of the triangle plane with its three edge planes, each edge with its own difference q - p);
+        // 1-limb grid inputs take about 120.
+        const int PlanesScratch = 1024;
+
+        /// <summary>
+        /// The plane N . x = D of the triangle (a, b, c) of integer points (W = 1), N = (b - a) x (c - a), D = N . a, as
+        /// the BigInteger code computes it, with the projection axis (the largest |N_k|, the first of equal ones) and
+        /// the sign of N on it; approx gets the 16 doubles of N, D and the three edge planes E_k = (q - p) x N,
+        /// F_k = E_k . p (p, q = corners k, k + 1), each as (double)BigInteger converts it (truncation to 53 bits)
+        /// </summary>
+#if NET
+        [SkipLocalsInit]
+#endif
+        [MethodImpl(JitHints.Optimize)]
+        public static void TrianglePlanes(ref FixedPoint3 a, ref FixedPoint3 b, ref FixedPoint3 c, double[] approx,
+            out BigInteger nx, out BigInteger ny, out BigInteger nz, out BigInteger d, out int axis, out int sign)
+        {
+            ulong* v = stackalloc ulong[36];
+            ulong* s = stackalloc ulong[PlanesScratch];
+            var ar = new FixedArena(s, PlanesScratch);
+            FixedInt* p = stackalloc FixedInt[9];
+            p[0] = a.Get(0, v); p[1] = a.Get(1, v + 4); p[2] = a.Get(2, v + 8);
+            p[3] = b.Get(0, v + 12); p[4] = b.Get(1, v + 16); p[5] = b.Get(2, v + 20);
+            p[6] = c.Get(0, v + 24); p[7] = c.Get(1, v + 28); p[8] = c.Get(2, v + 32);
+            FixedInt ux = Sub(p[3], p[0], ref ar), uy = Sub(p[4], p[1], ref ar), uz = Sub(p[5], p[2], ref ar);
+            FixedInt vx = Sub(p[6], p[0], ref ar), vy = Sub(p[7], p[1], ref ar), vz = Sub(p[8], p[2], ref ar);
+            FixedInt Nx = Sub(Mul(uy, vz, ref ar), Mul(uz, vy, ref ar), ref ar);
+            FixedInt Ny = Sub(Mul(uz, vx, ref ar), Mul(ux, vz, ref ar), ref ar);
+            FixedInt Nz = Sub(Mul(ux, vy, ref ar), Mul(uy, vx, ref ar), ref ar);
+            FixedInt D = Add(Add(Mul(Nx, p[0], ref ar), Mul(Ny, p[1], ref ar), ref ar), Mul(Nz, p[2], ref ar), ref ar);
+            approx[0] = ToDouble(Nx); approx[1] = ToDouble(Ny); approx[2] = ToDouble(Nz); approx[3] = ToDouble(D);
+            for (int k = 0; k < 3; ++k) {
+                FixedInt* P = p + 3 * k, Q = p + 3 * ((k + 1) % 3);
+                FixedInt dx = Sub(Q[0], P[0], ref ar), dy = Sub(Q[1], P[1], ref ar), dz = Sub(Q[2], P[2], ref ar);
+                FixedInt ex = Sub(Mul(dy, Nz, ref ar), Mul(dz, Ny, ref ar), ref ar);
+                FixedInt ey = Sub(Mul(dz, Nx, ref ar), Mul(dx, Nz, ref ar), ref ar);
+                FixedInt ez = Sub(Mul(dx, Ny, ref ar), Mul(dy, Nx, ref ar), ref ar);
+                FixedInt f = Add(Add(Mul(ex, P[0], ref ar), Mul(ey, P[1], ref ar), ref ar), Mul(ez, P[2], ref ar), ref ar);
+                approx[4 * k + 4] = ToDouble(ex); approx[4 * k + 5] = ToDouble(ey); approx[4 * k + 6] = ToDouble(ez); approx[4 * k + 7] = ToDouble(f);
+            }
+            axis = (cmp_mag(Nx, Ny) >= 0 && cmp_mag(Nx, Nz) >= 0) ? 0 : (cmp_mag(Ny, Nz) >= 0) ? 1 : 2;
+            sign = ((axis == 0) ? Nx : (axis == 1) ? Ny : Nz).Sign;
+            nx = ToBig(Nx); ny = ToBig(Ny); nz = ToBig(Nz); d = ToBig(D);
+        }
+
+        /// <summary> v as a double as (double)BigInteger converts on .NET: the magnitude truncated to 53 significant
+        /// bits (toward zero), infinite beyond 2^1024 </summary>
+        [MethodImpl(JitHints.Optimize)]
+        public static double ToDouble(FixedInt v)
+        {
+            if (v.Len == 0)
+                return 0;
+            ulong hi = v.P[v.Len - 1];
+            int lz = leading_zeros(hi);
+            long bits = 64L * v.Len - lz;
+            double r;
+            if (bits <= 53) {
+                r = (double)v.P[0];          // (exact: below 2^53)
+            } else if (bits > 1024) {
+                r = double.PositiveInfinity;
+            } else {
+                // the top 64 bits, then the top 53 of them (truncated): m 2^(bits - 53) with 2^52 <= m < 2^53
+                ulong top = hi << lz;
+                if (lz > 0 && v.Len > 1)
+                    top |= v.P[v.Len - 2] >> (64 - lz);
+                ulong m = top >> 11;
+                r = BitConverter.Int64BitsToDouble(((long)(bits - 1 + 1023) << 52) | (long)(m & 0xFFFFFFFFFFFFFUL));
+            }
+            return v.Neg ? -r : r;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        static int leading_zeros(ulong x)
+        {
+#if NET
+            return System.Numerics.BitOperations.LeadingZeroCount(x);
+#else
+            return LeadingZerosPortable(x);
+#endif
+        }
+
+        /// <summary> leading zero bits of x != 0 for netstandard2.0 (compiled everywhere, so that the tests on .NET check it) </summary>
+        internal static int LeadingZerosPortable(ulong x)
+        {
+            int n = 0;
+            while ((x & 0x8000000000000000UL) == 0) { x <<= 1; n++; }
+            return n;
+        }
+
+        /// <summary> v as a BigInteger (any length) </summary>
+        [MethodImpl(JitHints.Optimize)]
+        public static BigInteger ToBig(FixedInt v)
+        {
+            if (v.Len == 0)
+                return BigInteger.Zero;
+            BigInteger r;
+            if (v.Len == 1)
+                r = new BigInteger(v.P[0]);
+            else {
+#if NET
+                r = new BigInteger(new ReadOnlySpan<byte>(v.P, 8 * v.Len), true, false);
+#else
+                r = FixedPoint3.ToBigPortable(v.P, v.Len);
+#endif
+            }
+            return v.Neg ? -r : r;
+        }
     }
 
 

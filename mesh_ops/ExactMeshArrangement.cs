@@ -120,6 +120,12 @@ namespace g3
             {
                 if (Degenerate)
                     throw new InvalidOperationException("ExactMeshArrangement: degenerate triangle has no plane");
+                PlaneData fd = compute_planes_fixed();
+                if (fd != null) {
+                    // (another thread may store the same values)
+                    System.Threading.Volatile.Write(ref planes, fd);
+                    return fd;
+                }
                 ExactPoint3 a = arr.Exact(Corners[0]), b = arr.Exact(Corners[1]), c = arr.Exact(Corners[2]);
                 BigInteger ux = b.X - a.X, uy = b.Y - a.Y, uz = b.Z - a.Z;
                 BigInteger vx = c.X - a.X, vy = c.Y - a.Y, vz = c.Z - a.Z;
@@ -138,6 +144,23 @@ namespace g3
                 var d = new PlaneData() { P = tp, Axis = ta, Sign = ts, PlaneApprox = pa };
                 System.Threading.Volatile.Write(ref planes, d);
                 return d;
+            }
+
+            // compute_planes on the fixed-width corners (integer points, so W = 1), the same values (FixedArith.
+            // TrianglePlanes); null if a corner is a fallback point
+            PlaneData compute_planes_fixed()
+            {
+                int ra = arr.exact_ref(Corners[0]), rb = arr.exact_ref(Corners[1]), rc = arr.exact_ref(Corners[2]);
+                if (ra <= 0 || rb <= 0 || rc <= 0)
+                    return null;
+                ref FixedPoint3 fa = ref arr.fixedPoints[ra - 1], fb = ref arr.fixedPoints[rb - 1], fc = ref arr.fixedPoints[rc - 1];
+                if (fa.WIsOne == false || fb.WIsOne == false || fc.WIsOne == false)
+                    return null;
+                var pa = new double[16];
+                BigInteger nx, ny, nz, d;
+                int ta, ts;
+                FixedArith.TrianglePlanes(ref fa, ref fb, ref fc, pa, out nx, out ny, out nz, out d, out ta, out ts);
+                return new PlaneData() { P = new Plane(nx, ny, nz, d), Axis = ta, Sign = ts, PlaneApprox = pa };
             }
 
             Plane[] edge_planes(BigInteger nx, BigInteger ny, BigInteger nz)
