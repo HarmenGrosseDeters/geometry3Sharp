@@ -126,6 +126,29 @@ namespace g3 {
         /// </summary>
         public bool PreventSelfIntersections = false;
 
+        /// <summary>
+        /// Opt-in local sizing (default null): the target edge length at a point (eg the midpoint of an edge). An edge
+        /// is split if it is longer than 1.33 times the target at its midpoint and collapsed if shorter than 0.66 times
+        /// it, as SetTargetEdgeLength does globally; the field is capped by MinEdgeLength / MaxEdgeLength, so it can only
+        /// make edges shorter than the global target (eg below the local wall thickness: RemeshSizing.FromWallThickness).
+        /// A non-finite or non-positive value means the global target. RemesherPro queues edges by the global lengths
+        /// only (its full first iteration uses the field).
+        /// </summary>
+        public Func<Vector3d, double> TargetEdgeLengthF = null;
+
+        // the collapse and split lengths of edge [vA,vB]: the global ones, or the field at its midpoint (capped by them)
+        protected void local_edge_lengths(ref Vector3d vA, ref Vector3d vB, out double minLen, out double maxLen)
+        {
+            minLen = MinEdgeLength; maxLen = MaxEdgeLength;
+            if (TargetEdgeLengthF == null)
+                return;
+            double t = TargetEdgeLengthF(0.5 * (vA + vB));
+            if (!(t > 0) || double.IsInfinity(t))
+                return;
+            minLen = Math.Min(minLen, 0.66 * t);
+            maxLen = Math.Min(maxLen, 1.33 * t);
+        }
+
         /// <summary> status: edge operations and vertex moves rejected by PreventSelfIntersections so far </summary>
         public int SelfIntersectionsRejected = 0;
 
@@ -616,6 +639,8 @@ namespace g3 {
 			Vector3d vA = mesh.GetVertex(a);
 			Vector3d vB = mesh.GetVertex(b);
             double edge_len_sqr = vA.DistanceSquared(vB);
+            double minEdgeLen, maxEdgeLen;
+            local_edge_lengths(ref vA, ref vB, out minEdgeLen, out maxEdgeLen);
 
             begin_collapse();
 
@@ -624,7 +649,7 @@ namespace g3 {
             int collapse_to = -1;
             bool bCanCollapse = EnableCollapses
                                 && constraint.CanCollapse
-                                && edge_len_sqr < MinEdgeLength*MinEdgeLength
+                                && edge_len_sqr < minEdgeLen*minEdgeLen
                                 && can_collapse_constraints(edgeID, a, b, c, d, t0, t1, out collapse_to);
 
 			// optimization: if edge cd exists, we cannot collapse or flip. look that up here?
@@ -757,7 +782,7 @@ namespace g3 {
 
 			// if edge length is too long, we want to split it
 			bool bTriedSplit = false;
-			if ( EnableSplits && constraint.CanSplit && edge_len_sqr > MaxEdgeLength*MaxEdgeLength
+			if ( EnableSplits && constraint.CanSplit && edge_len_sqr > maxEdgeLen*maxEdgeLen
                     && (!(MinTriangleQuality > 0) || has_flat_neighbour(ref vA, ref vB, c, d) == false)
                     && (PreventSelfIntersections == false || split_creates_intersection_counted(a, b, c, d, t0, t1) == false) ) {
 

@@ -400,6 +400,9 @@ namespace g3cli
             c.Params.Add(new Param("sharp_vertex_angle", ParamType.Number, "also pin vertices where the surface comes to a point (absolute " +
                 "angle deficit at least this, degrees, eg 75; 0 = off), such as the apex of a cone with many slices, which is no crease and " +
                 "is rounded off otherwise (MeshConstraintUtil.PinSharpVertices); vertices on kept boundaries and creases are left to them") { Default = 0.0 });
+            c.Params.Add(new Param("thickness_sizing", ParamType.Number, "keep the edges at most this fraction of the local wall " +
+                "thickness (Remesher.TargetEdgeLengthF, RemeshSizing.FromWallThickness; eg 1; 0 = off): thin walls are refined instead of " +
+                "folded through each other, the rest is remeshed to edge_length; many more triangles at thin walls") { Default = 0.0 });
             c.Params.Add(Deviation());
             c.Params.Add(SelfIntersections());
             c.Params.Add(Binary());
@@ -407,6 +410,9 @@ namespace g3cli
                 MeshFiles.CheckWritable(args.String("output"));
                 var warnings = new List<string>();
                 DMesh3 input = MeshFiles.Read(args.String("input"), warnings);
+                double thicknessSizing = args.Number("thickness_sizing");
+                if (!(thicknessSizing >= 0) || double.IsInfinity(thicknessSizing))
+                    throw new CommandException(ResultCodes.InvalidArguments, "'thickness_sizing' must be a finite number >= 0");
                 double sharpAngle = args.Number("sharp_vertex_angle");
                 if (!(sharpAngle >= 0) || double.IsInfinity(sharpAngle))
                     throw new CommandException(ResultCodes.InvalidArguments, "'sharp_vertex_angle' must be a finite number >= 0");
@@ -439,11 +445,14 @@ namespace g3cli
                 }
                 if (sharpAngle > 0)
                     pinnedSharp = MeshConstraintUtil.PinSharpVertices(r, sharpAngle);
+                if (thicknessSizing > 0)
+                    r.TargetEdgeLengthF = RemeshSizing.FromWallThickness(input, thicknessSizing);
                 double thickness = WallThickness(input);
-                if (len > 4 * thickness)
+                if (len > 4 * thickness && thicknessSizing == 0)
                     warnings.Add($"the edge length {len:G4} is {len / thickness:F1} times the estimated wall thickness {thickness:G4} " +
                         "(10% of the inward distances are smaller): thinner walls are folded through each other (self-intersections, " +
-                        "inside-out parts); use a smaller edge length" + (minQuality > 0 ? ", or --min-quality 0, which keeps such walls closer to the input" : ""));
+                        "inside-out parts); use a smaller edge length or --thickness-sizing 1" +
+                        (minQuality > 0 ? ", or --min-quality 0, which keeps such walls closer to the input" : ""));
                 r.SetTargetEdgeLength(len);
                 for (int k = 0; k < iterations; ++k)
                     r.BasicRemeshPass();
@@ -459,6 +468,7 @@ namespace g3cli
                 o["iterations"] = iterations;
                 o["min_quality"] = minQuality;
                 o["sharp_vertices_pinned"] = pinnedSharp;
+                o["thickness_sizing"] = thicknessSizing;
                 o["rejected_passes"] = r.InvertingPassesRejected;
                 o["input_mesh"] = MeshReport.Metrics(input, false);
                 o["mesh"] = MeshReport.Metrics(mesh, args.Bool("self_intersections"));
