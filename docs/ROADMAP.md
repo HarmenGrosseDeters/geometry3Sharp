@@ -60,8 +60,11 @@ Order when slots free up (owner, 2026-11-01; on that day 4 large and 2 medium se
    because tiny inputs (450-650 triangles) are wrapped at 180k-415k triangles (resolution from the bounding box, not
    the input); couple alpha / offset to the input, start coarser, or speed up the simplifier, under the F-score and
    fidelity gates (data: `benchmarks/MeshRepairBenchmark/cases/robust_phases_2026-11-01.csv`). It precedes stage 7b
-   (alpha wrap quality). The volume checks (20 % of the time, all 400 meshes) go to the self-intersection session after
-   #261; the slow `exact.resolve` on small inputs (67709, 42327) goes to the boolean-performance session as a diagnosis.
+   (alpha wrap quality). The volume checks (20 % of the time, all 400 meshes): the redundant check before an exact resolve
+   is gone (#273, bit-identical, −21 % on the 20 measured meshes). Owner decision 2026-11-01, low priority, after stage R
+   and the wrap session: a tighter sample region for the IoU check (only 16 % of samples hit the union; upper bound about
+   10 % of the 400-set time). It must provably contain the union of both solids, so the estimator stays unbiased with
+   lower variance; results are no longer bit-identical, the quality thresholds stay; its own PR with an A/B; the slow `exact.resolve` on small inputs (67709, 42327) goes to the boolean-performance session as a diagnosis.
    **Terrain 1a** (large) was started on 2026-11-01 in the cloud, ahead of this slot, at the owner's request, with the NoData guard of
    `TerrainSafetyLines` (a single vertex such as z = −9999 near a source refines until memory runs out; count the band's
    3D area, not only the horizontal one).
