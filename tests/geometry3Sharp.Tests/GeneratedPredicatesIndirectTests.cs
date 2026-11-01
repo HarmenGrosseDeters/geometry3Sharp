@@ -311,6 +311,233 @@ namespace geometry3Sharp.Tests
             Assert.True(nonzero > 400);
         }
 
+
+#if NET
+        /// <summary>
+        /// the filter constants against a re-derivation in this test (own fractions; the rules of the generator's header:
+        /// difference of inputs u, sum (u + max) / (1 - u), product (u + cx + cy + cx cy) / (1 - u), K >= c / (1 - u)):
+        /// K is the smallest double at or above it; and against a first-order count of the roundings (difference 1, sum
+        /// 1 + max, product 1 + kx + ky): K lies strictly above k u and within 1e-9 of it
+        /// </summary>
+        [Fact]
+        public void FilterConstants_RederivedAndFirstOrder()
+        {
+            const double u = 1.0 / 9007199254740992.0;
+            BigInteger U = BigInteger.Pow(2, 53);       // u = 1 / U; fractions as (num, den)
+            Func<(BigInteger, BigInteger), (BigInteger, BigInteger), (BigInteger, BigInteger)> add = (x, y) => (x.Item1 * y.Item2 + y.Item1 * x.Item2, x.Item2 * y.Item2);
+            Func<(BigInteger, BigInteger), (BigInteger, BigInteger), (BigInteger, BigInteger)> mul = (x, y) => (x.Item1 * y.Item1, x.Item2 * y.Item2);
+            Func<(BigInteger, BigInteger), (BigInteger, BigInteger)> div1u = x => (x.Item1 * U, x.Item2 * (U - 1));     // x / (1 - u)
+            Func<(BigInteger, BigInteger), (BigInteger, BigInteger), bool> ge = (x, y) => x.Item1 * y.Item2 >= y.Item1 * x.Item2;
+            var uu = (BigInteger.One, U);
+            Func<double, (BigInteger, BigInteger)> exact = d => {
+                long bits = BitConverter.DoubleToInt64Bits(d);
+                int e = (int)((bits >> 52) & 0x7FF) - 1075;
+                var m = new BigInteger((bits & 0xFFFFFFFFFFFFFL) | (1L << 52));
+                return e >= 0 ? (m * BigInteger.Pow(2, e), BigInteger.One) : (m, BigInteger.Pow(2, -e));
+            };
+            foreach (var p in PredicateCompiler.Analyze(Spec)) {
+                var c = new Dictionary<Node, (BigInteger, BigInteger)>();
+                var k = new Dictionary<Node, long>();
+                foreach (var n in p.Nodes) {
+                    bool leaf = n.Op != Op.Mul && n.Op != Op.Input && n.A.Op == Op.Input && n.B.Op == Op.Input;
+                    if (n.Op == Op.Input) { c[n] = (0, 1); k[n] = 0; }
+                    else if (leaf) { c[n] = uu; k[n] = 1; }
+                    else if (n.Op != Op.Mul) { c[n] = div1u(add(uu, ge(c[n.A], c[n.B]) ? c[n.A] : c[n.B])); k[n] = 1 + Math.Max(k[n.A], k[n.B]); }
+                    else { c[n] = div1u(add(add(add(uu, c[n.A]), c[n.B]), mul(c[n.A], c[n.B]))); k[n] = 1 + k[n.A] + k[n.B]; }
+                }
+                for (int f = 0; f < p.Signs.Count; ++f) {
+                    var need = div1u(c[p.Signs[f]]);
+                    double K = p.FilterK[f];
+                    Assert.True(ge(exact(K), need), $"{p.Name} factor {f}: K below c / (1 - u)");
+                    Assert.False(ge(exact(Math.BitDecrement(K)), need), $"{p.Name} factor {f}: K not the smallest such double");
+                    double first = k[p.Signs[f]] * u;
+                    Assert.True(K > first && K <= first * (1 + 1e-9), $"{p.Name} factor {f}: K = {K}, k u = {first}");
+                }
+            }
+            // the values of the spec (as in the generated comments): LPI 18 u and 9 u, TPI 28 u and 17 u
+            var a = PredicateCompiler.Analyze(Spec);
+            Assert.Equal(new[] { 18L, 9L, 28L, 17L }, a.SelectMany(p => p.FilterK).Select(K => (long)Math.Round(K / u)).ToArray());
+        }
+#endif
+
+        // ---- step (b): the entry on doubles (filter, then FixedArith from the doubles) ----
+
+        static Vector3d D(ExactPoint3 p) => new Vector3d((double)p.X, (double)p.Y, (double)p.Z);
+        static ExactPoint3 GridPoint(Random rand, int bits) =>
+            ExactPoint3.FromInteger(Random(rand, bits), Random(rand, bits), Random(rand, bits));
+
+        static int LPID(ExactPoint3[] P, out int filter)
+        {
+            var d = P.Select(D).ToArray();
+            filter = IndirectPredicates.Orient3dLPIFilter(d[0], d[1], d[2], d[3], d[4], d[5], d[6], d[7]);
+            int exact = IndirectPredicates.Orient3dLPIExact(d[0], d[1], d[2], d[3], d[4], d[5], d[6], d[7]);
+            int r = IndirectPredicates.Orient3dLPI(d[0], d[1], d[2], d[3], d[4], d[5], d[6], d[7]);
+            Assert.Equal(exact, r);
+            if (filter != 2) Assert.Equal(exact, filter);       // the filter is never wrong
+            return r;
+        }
+
+        static int TPID(ExactPoint3[] P, out int filter)
+        {
+            var d = P.Select(D).ToArray();
+            filter = IndirectPredicates.Orient3dTPIFilter(d[0], d[1], d[2], d[3], d[4], d[5], d[6], d[7], d[8], d[9], d[10], d[11]);
+            int exact = IndirectPredicates.Orient3dTPIExact(d[0], d[1], d[2], d[3], d[4], d[5], d[6], d[7], d[8], d[9], d[10], d[11]);
+            int r = IndirectPredicates.Orient3dTPI(d[0], d[1], d[2], d[3], d[4], d[5], d[6], d[7], d[8], d[9], d[10], d[11]);
+            Assert.Equal(exact, r);
+            if (filter != 2) Assert.Equal(exact, filter);
+            return r;
+        }
+
+        /// <summary>
+        /// the double entry equals the oracle at every size up to 2^53; the filter decides almost every random input and
+        /// is never wrong
+        /// </summary>
+        [Fact]
+        public void DoubleEntry_MatchesTheOracle_FilterDecidesRandomInputs()
+        {
+            var rand = new Random(1);
+            int decided = 0, total = 0;
+            for (int k = 0; k < 3000; ++k) {
+                int bits = new[] { 3, 10, 26, 40, 53 }[k % 5];
+                var P = Enumerable.Range(0, 12).Select(_ => GridPoint(rand, bits)).ToArray();
+                int f1, f2;
+                Assert.Equal(OracleLPI(P), LPID(P.Take(8).ToArray(), out f1));
+                Assert.Equal(OracleTPI(P), TPID(P, out f2));
+                if (bits >= 10) { total += 2; decided += (f1 != 2 ? 1 : 0) + (f2 != 2 ? 1 : 0); }
+            }
+            Assert.True(decided > 0.98 * total, $"the filter decided {decided} of {total}");
+        }
+
+        /// <summary>
+        /// nearly degenerate inputs (exact zeros moved by one grid step, at 12 to 52 bits) and exact zeros: the filter
+        /// fails or is right; both kinds reach the exact stage; all-zero inputs (m~ = 0) are decided as 0
+        /// </summary>
+        [Fact]
+        public void Filter_NearlyDegenerate_NeverWrong()
+        {
+            var rand = new Random(2);
+            int undecided = 0, movedUndecided = 0;
+            for (int k = 0; k < 3000; ++k) {
+                int bits = new[] { 12, 30, 45, 52 }[k % 4];
+                var P = Enumerable.Range(0, 12).Select(_ => GridPoint(rand, bits)).ToArray();
+                // the LPI point against its own plane, one corner moved by +-1 in one coordinate: nearly on the plane
+                var c = P[4];
+                int ax = rand.Next(3), dd = rand.Next(2) == 0 ? 1 : -1;
+                var moved = ExactPoint3.FromInteger(c.X + (ax == 0 ? dd : 0), c.Y + (ax == 1 ? dd : 0), c.Z + (ax == 2 ? dd : 0));
+                int f;
+                var Q = new[] { P[0], P[1], P[2], P[3], P[4], P[2], P[3], k % 2 == 0 ? moved : c };
+                Assert.Equal(OracleLPI(Q), LPID(Q, out f));
+                if (f == 2) { undecided++; if (k % 2 == 0) movedUndecided++; }
+                // the TPI point against plane 1 with a moved corner
+                var T = P.Take(9).Concat(new[] { P[0], P[1], k % 2 == 0 ? ExactPoint3.FromInteger(P[2].X + dd, P[2].Y, P[2].Z) : P[2] }).ToArray();
+                Assert.Equal(OracleTPI(T), TPID(T, out f));
+                if (f == 2) { undecided++; if (k % 2 == 0) movedUndecided++; }
+            }
+            // the exact zeros always reach the exact stage; of the inputs moved by one step, those at 52 bits mostly do
+            // (relative size 2^-52 against bounds of 9 to 28 u), the smaller ones are decided by the filter
+            Assert.True(undecided > 3000, $"{undecided} cases reached the exact stage");
+            Assert.True(movedUndecided > 300, $"{movedUndecided} moved cases reached the exact stage");
+            // zero coordinates on the exact path (loaded as length 0): exact zeros on the coordinate planes, and the
+            // same configurations moved by one step (sign +-1, decided by the exact stage when the filter fails)
+            for (int k = 0; k < 400; ++k) {
+                Func<ExactPoint3> onAxis = () => ExactPoint3.FromInteger(rand.Next(3) == 0 ? 0 : Random(rand, 52), 0, rand.Next(3) == 0 ? 0 : Random(rand, 52));
+                var Z = Enumerable.Range(0, 12).Select(_ => onAxis()).ToArray();          // all in the plane y = 0
+                var Lz = new[] { Z[0], ExactPoint3.FromInteger(Z[1].X, 1, Z[1].Z), Z[2], Z[3], Z[4], Z[5], Z[6], Z[7] };
+                int f;
+                Assert.Equal(OracleLPI(Lz), LPID(Lz, out f));
+                var Tz = new[] { Z[0], Z[1], ExactPoint3.FromInteger(0, k % 2, 1), ExactPoint3.FromInteger(0, 0, 0), ExactPoint3.FromInteger(1, 0, 0), ExactPoint3.FromInteger(0, 1, 0),
+                    ExactPoint3.FromInteger(0, 0, 0), ExactPoint3.FromInteger(0, 1, 0), ExactPoint3.FromInteger(0, 0, 1), Z[9], Z[10], Z[11] };
+                Assert.Equal(OracleTPI(Tz), TPID(Tz, out f));
+            }
+            var z = Enumerable.Repeat(ExactPoint3.FromInteger(0, 0, 0), 12).ToArray();
+            int fz;
+            Assert.Equal(0, LPID(z.Take(8).ToArray(), out fz));
+            Assert.Equal(0, fz);
+            Assert.Equal(0, TPID(z, out fz));
+            Assert.Equal(0, fz);
+        }
+
+        /// <summary>
+        /// the denominators nearly 0 (a line nearly parallel to the plane, nearly dependent planes: one step off, at 20 to
+        /// 51 bits; at the top the rounding errors of lp, lq and of the cross products are as large as d): the filter fails or
+        /// is right, and cases of both kinds occur
+        /// </summary>
+        [Fact]
+        public void Filter_NearlyZeroDenominator_NeverWrong()
+        {
+            var rand = new Random(8);
+            int undecided = 0, decided = 0;
+            for (int k = 0; k < 4000; ++k) {
+                int bits = new[] { 20, 30, 40, 49, 51 }[k % 5];     // q = p + s - r stays below 3 2^51 < 2^53
+                var P = Enumerable.Range(0, 12).Select(_ => GridPoint(rand, bits)).ToArray();
+                int dd = rand.Next(2) == 0 ? 1 : -1, ax = rand.Next(3);
+                // q = p + (s - r) + one step: the line p-q nearly parallel to the plane r, s, t
+                var q = ExactPoint3.FromInteger(P[0].X + P[3].X - P[2].X + (ax == 0 ? dd : 0), P[0].Y + P[3].Y - P[2].Y + (ax == 1 ? dd : 0),
+                    P[0].Z + P[3].Z - P[2].Z + (ax == 2 ? dd : 0));
+                int f;
+                var Q = new[] { P[0], q, P[2], P[3], P[4], P[5], P[6], P[7] };
+                Assert.Equal(OracleLPI(Q), LPID(Q, out f));
+                if (f == 2) undecided++; else decided++;
+                // plane 3 = plane 1 with one corner one step off: nearly dependent planes
+                var c = P[2];
+                var T = new[] { P[0], P[1], P[2], P[3], P[4], P[5], P[0], P[1],
+                    ExactPoint3.FromInteger(c.X + (ax == 0 ? dd : 0), c.Y + (ax == 1 ? dd : 0), c.Z + (ax == 2 ? dd : 0)), P[9], P[10], P[11] };
+                Assert.Equal(OracleTPI(T), TPID(T, out f));
+                if (f == 2) undecided++; else decided++;
+            }
+            Assert.True(undecided > 500 && decided > 500, $"{undecided} undecided, {decided} decided");
+        }
+
+        /// <summary> the double entry accepts exactly the integers |x| &lt;= 2^53 </summary>
+        [Fact]
+        public void DoubleEntry_Gate()
+        {
+            var o = new Vector3d(1, 2, 3);
+            double top = 9007199254740992.0;
+            // a bad coordinate at every point position and in every component, for both predicates
+            foreach (double bad in new[] { 0.5, -2.25, top * 2, -top * 2, double.NaN, double.PositiveInfinity })
+                for (int j = 0; j < 12; ++j)
+                    for (int c = 0; c < 3; ++c) {
+                        var P = Enumerable.Repeat(o, 12).ToArray();
+                        P[j] = new Vector3d(c == 0 ? bad : 1, c == 1 ? bad : 2, c == 2 ? bad : 3);
+                        if (j < 8)
+                            Assert.Throws<ArgumentException>(() => IndirectPredicates.Orient3dLPI(P[0], P[1], P[2], P[3], P[4], P[5], P[6], P[7]));
+                        Assert.Throws<ArgumentException>(() => IndirectPredicates.Orient3dTPI(P[0], P[1], P[2], P[3], P[4], P[5], P[6], P[7], P[8], P[9], P[10], P[11]));
+                    }
+            foreach (double ok in new[] { top, -top, 0.0, -0.0, 12345.0 })
+                IndirectPredicates.Orient3dTPI(o, o, o, o, o, o, o, o, o, o, o, new Vector3d(ok, 1, 2));
+            // at the gate's edge the exact stage still holds the values (2^53 in one limb) and agrees with the oracle
+            var rand = new Random(4);
+            for (int k = 0; k < 300; ++k) {
+                var P = Enumerable.Range(0, 12).Select(_ => GridPoint(rand, 53)).ToArray();
+                P[k % 12] = ExactPoint3.FromInteger(rand.Next(2) == 0 ? (BigInteger)top : -(BigInteger)top, P[k % 12].Y, P[k % 12].Z);
+                int f;
+                Assert.Equal(OracleLPI(P), LPID(P.Take(8).ToArray(), out f));
+                Assert.Equal(OracleTPI(P), TPID(P, out f));
+            }
+        }
+
+        /// <summary> invariance of the double entry: the 2^k scales (k = -10, 0, 10 of the harness) applied to a grid configuration </summary>
+        [Fact]
+        public void DoubleEntry_Invariance()
+        {
+            var rand = new Random(12);
+            for (int k = 0; k < 300; ++k) {
+                var B = Enumerable.Range(0, 12).Select(_ => GridPoint(rand, 20)).ToArray();
+                int f1, f2;
+                int[] reference = { LPID(B.Take(8).ToArray(), out f1), TPID(B, out f2), f1, f2 };
+                foreach (var sim in Similarity.All().Where(x => x.IsExact)) {
+                    // the identity and 2^-10, 2^10 of the harness, as the factors 2^10 .. 2^30 of the 20-bit grid
+                    int e = (int)Math.Round(Math.Log(sim.Scale, 2)) + 20;
+                    BigInteger m = BigInteger.One << e;
+                    var S = B.Select(q => ExactPoint3.FromInteger(q.X * m, q.Y * m, q.Z * m)).ToArray();
+                    // every rounding scales exactly: the filter's decisions are the same bit for bit, not only the signs
+                    int r1 = LPID(S.Take(8).ToArray(), out f1), r2 = TPID(S, out f2);
+                    Assert.Equal(reference, new[] { r1, r2, f1, f2 });
+                }
+            }
+        }
+
         /// <summary>
         /// invariance (Similarity.All()): on every transformed configuration (on a 2^-20 grid, as integers) the
         /// predicates equal the oracle; the 2^k scales applied to the integer configuration itself (times 2^(k + 40), so

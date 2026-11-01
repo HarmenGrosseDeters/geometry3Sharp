@@ -52,6 +52,7 @@ static class Program
             case "eval": return Eval(args[1]);
             case "nary": return Nary.Run(args.Skip(1).ToArray());
             case "profile": return Profile.Run(args.Skip(1).ToArray());
+            case "indirect": return IndirectBench.Run(args.Skip(1).ToArray());
         }
         Console.Error.WriteLine("unknown mode " + args[0]);
         return 1;
