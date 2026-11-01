@@ -345,10 +345,7 @@ namespace geometry3Sharp.Tests.Spatial
             var points = new PointQuadtree2d(new[] { new Vector3d(1, 1, 0) });
             var found = new List<int>(4);
             var query = new Vector2d(1, 1);
-            for (int i = 0; i < 2000; ++i) points.QueryNearby(query, 0, found);
-            long before = GC.GetAllocatedBytesForCurrentThread();
-            for (int i = 0; i < 2000; ++i) points.QueryNearby(query, 0, found);
-            Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
+            Assert.Equal(0, Allocations.Least(2000, () => points.QueryNearby(query, 0, found)));
             Assert.Equal(new[] { 0 }, found);
         }
 #endif
@@ -735,10 +732,7 @@ namespace geometry3Sharp.Tests.Spatial
             var tree = new TriangleQuadtree2d(new[] { new Triangle3d(new Vector3d(0, 0, 1), new Vector3d(1, 0, 2), new Vector3d(1, 1, 5)) });
             var point = new Vector2d(0.5, 0.5);
             double height = 0;
-            for (int i = 0; i < 2000; ++i) tree.TryGetHeight(point, out height, 0);
-            long before = GC.GetAllocatedBytesForCurrentThread();
-            for (int i = 0; i < 2000; ++i) tree.TryGetHeight(point, out height, 0);
-            Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
+            Assert.Equal(0, Allocations.Least(2000, () => tree.TryGetHeight(point, out height, 0)));
             Assert.Equal(3, height);
         }
 #endif

@@ -30,6 +30,7 @@ internal static class Program
                 ends[i] = points[i] + new Vector2d(200 * random.NextDouble() - 100, 200 * random.NextDouble() - 100);
                 rectangles[i] = new AxisAlignedBox2d(points[i], points[i] + new Vector2d(20, 20));
             }
+            Vector2d[] beside = BesideTheBoundary(triangles, queries, random);
             Console.WriteLine("runtime=" + Environment.Version + "; processors=" + Environment.ProcessorCount +
                 "; cells=" + cells + "; items=" + boxes.Length + "; queries=" + queries +
                 "; baseline_queries=" + baselineQueries);
@@ -100,6 +101,7 @@ internal static class Program
                 parallel.QuerySegment(points[i], ends[i], actual);
                 parallel.FindNearest(points[i]);
                 heightIndex.TryGetHeight(points[i], out _, 0);
+                if (!heightIndex.TryGetHeight(beside[i], out _, 0.01)) throw new Exception("a point beside the boundary has no height");
                 strtree.QueryRectangle(rectangles[i], actual);
                 strtree.QuerySegment(points[i], ends[i], actual);
                 strtree.FindNearest(points[i]);
@@ -122,6 +124,7 @@ internal static class Program
                     Measure("segment", "quadtree", queries, i => { parallel.QuerySegment(points[i], ends[i], actual); checksum += actual.Count; });
                     Measure("nearest", "quadtree", queries, i => checksum += parallel.FindNearest(points[i]));
                     Measure("height", "quadtree", queries, i => { if (heightIndex.TryGetHeight(points[i], out double h, 0)) checksum += (long)h; });
+                    Measure("height_tolerance", "quadtree", queries, i => { if (heightIndex.TryGetHeight(beside[i], out double h, 0.01)) checksum += (long)h; });
                 };
                 Action baseline = () => {
                     Measure("rectangle", "brute_force", baselineQueries, i => { BruteRectangle(boxes, rectangles[i], expected); checksum += expected.Count; });
@@ -154,6 +157,40 @@ internal static class Program
             Console.Error.WriteLine(e);
             return 1;
         }
+    }
+
+    // Points 0.0005 outside the edges that only one triangle has: no exact hit, and one within the default tolerance.
+    private static Vector2d[] BesideTheBoundary(Triangle3d[] triangles, int queries, Random random)
+    {
+        var edges = new Dictionary<(Vector2d, Vector2d), Vector3d>();
+        void Add(Vector3d a, Vector3d b, Vector3d other)
+        {
+            Vector2d p = new Vector2d(a.x, a.y), q = new Vector2d(b.x, b.y);
+            var key = p.x < q.x || (p.x == q.x && p.y < q.y) ? (p, q) : (q, p);
+            if (!edges.Remove(key)) edges.Add(key, other);
+        }
+        foreach (Triangle3d t in triangles) {
+            Add(t.V0, t.V1, t.V2);
+            Add(t.V1, t.V2, t.V0);
+            Add(t.V2, t.V0, t.V1);
+        }
+        var boundary = new List<KeyValuePair<(Vector2d, Vector2d), Vector3d>>(edges);
+        // In the order of the keys, as a dictionary makes no promise on its own.
+        boundary.Sort((l, r) => {
+            int c = l.Key.Item1.x.CompareTo(r.Key.Item1.x);
+            if (c == 0) c = l.Key.Item1.y.CompareTo(r.Key.Item1.y);
+            if (c == 0) c = l.Key.Item2.x.CompareTo(r.Key.Item2.x);
+            return c != 0 ? c : l.Key.Item2.y.CompareTo(r.Key.Item2.y);
+        });
+        var points = new Vector2d[queries];
+        for (int i = 0; i < queries; ++i) {
+            var edge = boundary[random.Next(boundary.Count)];
+            Vector2d a = edge.Key.Item1, b = edge.Key.Item2, normal = new Vector2d(a.y - b.y, b.x - a.x).Normalized;
+            Vector2d middle = a + (0.25 + 0.5 * random.NextDouble()) * (b - a);
+            if (normal.Dot(new Vector2d(edge.Value.x, edge.Value.y) - a) > 0) normal = -normal;
+            points[i] = middle + 0.0005 * normal;
+        }
+        return points;
     }
 
     private static void MeasureNtsQuadtree(NtsQuadtreeComparison index, string variant, int calls,
