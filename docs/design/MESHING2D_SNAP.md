@@ -67,6 +67,15 @@ The coordinator recommends to the owner, for the four questions of section 3: IS
 keep their input coordinates, the gap band documented. Stage R's experience feeds the guarantees and the reporting, not the
 algorithm.
 
+## 3b. Reading status (2026-11-01)
+
+What ISRBD does is known so far only from secondary sources: it finds the segments that would drift too far under ISR and adds a few
+extra hot pixels, joined by zero-length edges, to hold them; its output can be non-canonical. The bound itself and the separation it
+keeps are not yet read. Not reachable from this session's network: the ISRBD paper (ACM DL, Elsevier), Packer's *Extending the power
+of snap rounding variants* (CCCG 2007, cccg.ca), the TU Delft MSc thesis *Snap rounding polygons with a triangulation* (2023,
+3d.bk.tudelft.nl), the cautionary tale (drops.dagstuhl.de) and SRR (iris.univr.it). **No code before these are read**: the variant
+is implemented from the paper, not from summaries.
+
 ## 4. Plan once the owner has answered
 
 - Read ISRBD, stable SR, SRR and the cautionary tale in full, then fix the variant and record it in `MESHING2D_PROVENANCE.md` and `docs/SOURCES.md`.
