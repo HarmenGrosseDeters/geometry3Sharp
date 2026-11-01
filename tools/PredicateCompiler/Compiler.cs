@@ -271,8 +271,10 @@ namespace G3PredicateCompiler
             sb.Append($"{I2}if (!({string.Join(" && ", fits)}))\n");
             sb.Append($"{I2}    return {p.Name}Big({string.Join(", ", p.Points.Select(x => x + ".ToExact()"))}{(p.Xyz ? "" : ", i, j")});\n");
             sb.Append($"{I2}ulong* __v = stackalloc ulong[{inv(inputs.Count * L)}];\n");
-            sb.Append($"{I2}ulong* __s = stackalloc ulong[{inv(p.ArenaScratch)}];\n");
-            sb.Append($"{I2}var __ar = new FixedArena(__s, {inv(p.ArenaScratch)});\n");
+            // one constant for the buffer and the arena: they cannot disagree (the arena's Take checks against it)
+            sb.Append($"{I2}const int __n = {inv(p.ArenaScratch)};\n");
+            sb.Append($"{I2}ulong* __s = stackalloc ulong[__n];\n");
+            sb.Append($"{I2}var __ar = new FixedArena(__s, __n);\n");
             int k = 0;
             foreach (var n in p.Nodes) {
                 string code = n.Op == Op.Input

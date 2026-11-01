@@ -36,8 +36,9 @@ namespace g3
             if (!(__len(ref s, 0) <= 1 && __len(ref r, 0) <= 1 && __len(ref s, 1) <= 1 && __len(ref r, 1) <= 1 && __len(ref s, 2) <= 1 && __len(ref r, 2) <= 1 && __len(ref t, 0) <= 1 && __len(ref t, 1) <= 1 && __len(ref t, 2) <= 1 && __len(ref p, 0) <= 1 && __len(ref p, 1) <= 1 && __len(ref p, 2) <= 1 && __len(ref q, 0) <= 1 && __len(ref q, 1) <= 1 && __len(ref q, 2) <= 1 && __len(ref c, 0) <= 1 && __len(ref c, 1) <= 1 && __len(ref c, 2) <= 1 && __len(ref a, 0) <= 1 && __len(ref a, 1) <= 1 && __len(ref a, 2) <= 1 && __len(ref b, 0) <= 1 && __len(ref b, 1) <= 1 && __len(ref b, 2) <= 1))
                 return Orient3dLPIBig(p.ToExact(), q.ToExact(), r.ToExact(), s.ToExact(), t.ToExact(), a.ToExact(), b.ToExact(), c.ToExact());
             ulong* __v = stackalloc ulong[24];
-            ulong* __s = stackalloc ulong[284];
-            var __ar = new FixedArena(__s, 284);
+            const int __n = 284;
+            ulong* __s = stackalloc ulong[__n];
+            var __ar = new FixedArena(__s, __n);
             FixedInt s_x = s.Get(0, __v + 0);                                        // s.x: <= m
             FixedInt r_x = r.Get(0, __v + 1);                                        // r.x: <= m
             FixedInt _v2 = FixedArith.Sub(s_x, r_x, ref __ar);                       // ux = s.x - r.x: <= 2 m
@@ -247,8 +248,9 @@ namespace g3
             if (!(__len(ref b1, 0) <= 1 && __len(ref a1, 0) <= 1 && __len(ref b1, 1) <= 1 && __len(ref a1, 1) <= 1 && __len(ref b1, 2) <= 1 && __len(ref a1, 2) <= 1 && __len(ref c1, 0) <= 1 && __len(ref c1, 1) <= 1 && __len(ref c1, 2) <= 1 && __len(ref b2, 0) <= 1 && __len(ref a2, 0) <= 1 && __len(ref b2, 1) <= 1 && __len(ref a2, 1) <= 1 && __len(ref b2, 2) <= 1 && __len(ref a2, 2) <= 1 && __len(ref c2, 0) <= 1 && __len(ref c2, 1) <= 1 && __len(ref c2, 2) <= 1 && __len(ref b3, 0) <= 1 && __len(ref a3, 0) <= 1 && __len(ref b3, 1) <= 1 && __len(ref a3, 1) <= 1 && __len(ref b3, 2) <= 1 && __len(ref a3, 2) <= 1 && __len(ref c3, 0) <= 1 && __len(ref c3, 1) <= 1 && __len(ref c3, 2) <= 1 && __len(ref c, 0) <= 1 && __len(ref c, 1) <= 1 && __len(ref c, 2) <= 1 && __len(ref a, 0) <= 1 && __len(ref a, 1) <= 1 && __len(ref a, 2) <= 1 && __len(ref b, 0) <= 1 && __len(ref b, 1) <= 1 && __len(ref b, 2) <= 1))
                 return Orient3dTPIBig(a1.ToExact(), b1.ToExact(), c1.ToExact(), a2.ToExact(), b2.ToExact(), c2.ToExact(), a3.ToExact(), b3.ToExact(), c3.ToExact(), a.ToExact(), b.ToExact(), c.ToExact());
             ulong* __v = stackalloc ulong[36];
-            ulong* __s = stackalloc ulong[701];
-            var __ar = new FixedArena(__s, 701);
+            const int __n = 701;
+            ulong* __s = stackalloc ulong[__n];
+            var __ar = new FixedArena(__s, __n);
             FixedInt b1_x = b1.Get(0, __v + 0);                                      // b1.x: <= m
             FixedInt a1_x = a1.Get(0, __v + 1);                                      // a1.x: <= m
             FixedInt _v2 = FixedArith.Sub(b1_x, a1_x, ref __ar);                     // u1_x = b1.x - a1.x: <= 2 m
