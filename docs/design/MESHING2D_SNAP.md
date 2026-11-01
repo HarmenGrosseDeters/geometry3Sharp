@@ -146,8 +146,12 @@ tolerance merge of `ConstrainedDelaunayMesh2`, no snap rounding; a local, uncomm
   above about 2w. F-18/a's wall lies at exactly tol/2. With w = tol it sits on a pixel boundary, and the half-open pixel rule decides
   (here: not merged). With w = 2 tol it merges, and the movement bound becomes tol per axis, O11's wording. But then data on the
   tolerance grid no longer sits at pixel centres. O11's "merge within tol" and "tol = output grid" cannot both hold under SR. **The
-  owner must choose w = tol (the output on the data grid; merge guaranteed below tol/2) or w = 2 tol (merge guaranteed below tol;
-  movement up to tol).**
+  owner chooses:**
+  - **w = tol** (the coordinator's recommendation): on-grid data stays put, the property valued in D14. O11's guarantee becomes "merge
+    below tol/2, never above 2 tol (L∞), the grid decides in between". F-18/a's wall at exactly tol/2 then lies in the band, so its gate
+    must not demand the merge.
+  - **w = 2 tol:** merge guaranteed below tol, movement up to tol per axis. On-grid data moves by up to tol. F-18/a's gate then demands
+    the merge.
 - **F-16 may not need snap rounding at all.** Its failure is over-refinement (the hand-over's item 2), and the current merge may
   already give the shared piece. To be checked before building.
 
