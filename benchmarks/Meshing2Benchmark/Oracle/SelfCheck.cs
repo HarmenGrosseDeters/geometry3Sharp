@@ -386,6 +386,7 @@ namespace Meshing2Acceptance
 
             ReviewFindings(Must, Accept, Reject);
             SecondReviewFindings(Must, Accept, Reject);
+            M3ReviewFindings(Must, Accept, Reject);
             return items;
         }
 
@@ -400,6 +401,96 @@ namespace Meshing2Acceptance
                 if (empty) list.Add(new[] { ids[a], ids[b], ids[c] });
             }
             return list.ToArray();
+        }
+
+        // Known-wrong results for the oracle relaxations made with M3, which the review of M3 found without a negative test
+        // (checklist 10a). They stay as regressions.
+        static void M3ReviewFindings(Action<string, bool, string> must, Action<string, Mesh2Input, Mesh2Output, OracleExpect> accept, Action<string, Violation, Mesh2Input, Mesh2Output, OracleExpect> reject)
+        {
+            Mesh2Output Out(Mesh2Input input, int[][] tris, params (int, int, int)[] subs) => new Mesh2Output {
+                Status = Mesh2Status.Success, VX = (double[])input.X.Clone(), VY = (double[])input.Y.Clone(),
+                InputToVertex = Enumerable.Range(0, input.Count).ToArray(), Triangles = tris, Neighbours = NeighboursOf(tris), BadTriangles = new int[0],
+                Subsegments = subs.Select(s => new SubsegmentOutput(s.Item1, s.Item2, s.Item3)).ToList() };
+
+            // 1. D13: a boundary vertex within the tube of a hull edge counts as moved; one outside the tube does not, so a missing
+            //    triangle at the hull is not hidden by its distance
+            {
+                var input = Points(0, 0, 10, 0, 10, 10, 0, 10, 5, 1.0 / 1024, 5, 5);
+                var tris = StrictDelaunay(input, Enumerable.Range(0, input.Count).ToArray());
+                accept("a point set, all its triangles (control of the next item)", input, Out(input, tris), new OracleExpect { Milestone = Milestone.M3 });
+                var sliver = tris.Where(t => !(t.Contains(0) && t.Contains(1) && t.Contains(4))).ToArray();
+                reject("a missing hull triangle, its vertex outside the tube", Violation.AreaMismatch, input, Out(input, sliver), new OracleExpect { Milestone = Milestone.M3 });
+            }
+
+            // 3. the small-input-angle exemption covers endpoints at about the same distance from the apex (Shewchuk's shells), not
+            //    endpoints a factor of 1.5 or more apart: two segments at about 10.6 degrees, vertices at 1, 4, 16 on one and at
+            //    1.53, 6.1, 24.4 on the other (exact: multiples of (32, 6) by 3/64, 3/16, 3/4); every adjacent pair is 1.53 apart
+            {
+                var input = Points(0, 0, 32, 0, 32, 6, 1, 0, 4, 0, 16, 0, 1.5, 0.28125, 6, 1.125, 24, 4.5);
+                input.Segments.Add(new SegmentInput(0, 1)); input.Segments.Add(new SegmentInput(0, 2));
+                input.MinAngleDeg = 20;
+                var tris = StrictDelaunay(input, Enumerable.Range(0, input.Count).ToArray());
+                var o = Out(input, tris, (0, 3, 0), (3, 4, 0), (4, 5, 0), (5, 1, 0), (0, 6, 0), (6, 7, 0), (7, 8, 0), (8, 2, 0));
+                o.BadTriangles = Enumerable.Range(0, tris.Length).ToArray();
+                reject("shells 1.53 apart, exempted as a small input angle", Violation.AngleBelowBound, input, o, new OracleExpect { Milestone = Milestone.M3 });
+            }
+
+            // 4. the floating-point filters of the segment check (ring edges far from a source are left out, with a lower bound of
+            //    their distance): in a thin strip the step beside a boundary piece must stay below the opposite edge, which is one of
+            //    the left-out edges; a missing boundary chain is still found
+            {
+                var input = Points(0, 0, 32, 0, 64, 0, 64, 1, 0, 1);
+                input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3, 4 }, false));
+                var tris = new[] { new[] { 0, 1, 4 }, new[] { 1, 3, 4 }, new[] { 1, 2, 3 } };
+                accept("a thin strip, all boundary chains (control of the next item)", input, Out(input, tris, (0, 1, 0), (1, 2, 0), (2, 3, 0), (3, 4, 0), (4, 0, 0)), new OracleExpect { Milestone = Milestone.M2 });
+                reject("a thin strip without one boundary piece", Violation.SegmentMissing, input, Out(input, tris, (1, 2, 0), (2, 3, 0), (3, 4, 0), (4, 0, 0)), new OracleExpect { Milestone = Milestone.M2 });
+            }
+
+            // 5. a domain thinner than the automatic tolerance may vanish when its points merge (O11): empty is fine for a sliver
+            //    1e-28 wide, not for one 1e-6 wide (corpus run, earcut's infinite-loop-jhl)
+            {
+                foreach (var (width, ok) in new[] { (1e-28, true), (1e-6, false) }) {
+                    var input = Points(-1, 2, 0, 0, 2, -1, 2, -1, 0, width, -1, 2);
+                    input.Rings.Add(new RingInput(new[] { 0, 1, 2 }, false)); input.Rings.Add(new RingInput(new[] { 3, 4, 5 }, true));
+                    var o = new Mesh2Output { Status = Mesh2Status.Empty, VX = input.X, VY = input.Y, InputToVertex = new[] { 0, 1, 2, 2, 1, 0 },
+                        Triangles = new int[0][], Neighbours = new int[0][], Subsegments = new List<SubsegmentOutput>(), BadTriangles = new int[0] };
+                    if (ok) accept("a sliver below the tolerance, empty", input, o, new OracleExpect { Milestone = Milestone.M2 });
+                    else reject("a sliver above the tolerance, empty", Violation.EmptyOnArea, input, o, new OracleExpect { Milestone = Milestone.M2 });
+                }
+            }
+
+            // 6. the merge zone at a small input angle: a skinny triangle at the apex of two segments at 1 degree is exempt within
+            //    8 tube / sin(angle) of it (about 4.6e-7 here), not beyond; one vertex on a segment, the others between them, so
+            //    that no other exemption applies (corpus run, earcut's water-huge)
+            {
+                double c = Math.Cos(Math.PI / 180), sn = Math.Sin(Math.PI / 180);
+                foreach (var (r, ok) in new[] { (1e-7, true), (1e-6, false) }) {
+                    var input = Points(1000, 0, 1100, 0, 1000 + 100 * c, 100 * sn, 1000 + r, 0, 1000 + 1.5 * r, 0.008 * r, 1000 + 1.25 * r, 0.0095 * r,
+                        900, -100, 1200, -100, 1200, 100, 900, 100);
+                    input.Segments.Add(new SegmentInput(0, 1)); input.Segments.Add(new SegmentInput(0, 2));
+                    // (an outer ring, so that the triangle's edges are not taken for hull corners, D13)
+                    input.Rings.Add(new RingInput(new[] { 6, 7, 8, 9 }, false));
+                    input.MinAngleDeg = 20;
+                    var o = Out(input, new[] { new[] { 3, 4, 5 } }); o.BadTriangles = new[] { 0 };
+                    var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
+                    bool angleFlagged = report.Has(Violation.AngleBelowBound);
+                    must(ok ? "merge zone: a skinny triangle 1e-7 from a 1 degree apex is exempt" : "merge zone: a skinny triangle 1e-6 from the apex is still judged",
+                        angleFlagged != ok, "report: " + report);
+                }
+            }
+
+            // 2. a region seed on an input point is ambiguous and ignored (D6); only a vertex the refinement placed does not count
+            {
+                var input = Points(0, 0, 4, 0, 4, 4, 0, 4, 1, 1);
+                input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false));
+                input.Regions.Add(new RegionInput { Seed = new double[] { 1, 1 }, Label = 9 });
+                var tris = StrictDelaunay(input, Enumerable.Range(0, input.Count).ToArray());
+                var subs = new[] { (0, 1, 0), (1, 2, 0), (2, 3, 0), (3, 0, 0) };
+                var plain = Out(input, tris, subs); plain.TriangleLabels = new int[tris.Length];
+                accept("a seed on an input point, ignored (control of the next item)", input, plain, new OracleExpect { Milestone = Milestone.M2 });
+                var labelled = Out(input, tris, subs); labelled.TriangleLabels = Enumerable.Repeat(9, tris.Length).ToArray();
+                reject("a seed on an input point, applied", Violation.RegionLabelWrong, input, labelled, new OracleExpect { Milestone = Milestone.M2 });
+            }
         }
 
         // The wrong verdicts and tool defects the second independent review (2026-11-01) demonstrated. They stay as regressions.
@@ -501,6 +592,64 @@ namespace Meshing2Acceptance
                 must("the strict Delaunay triangulation of the parcels has no edge 1-4", !tris.Any(t => t.Contains(1) && t.Contains(4)), "it has");
                 var o = Out(input, tris, null, (0, 1, 1), (1, 2, 1), (2, 3, 1), (3, 4, 1), (4, 5, 1), (5, 0, 1));
                 reject("two parcels without their shared border, automatic tube", Violation.SegmentMissing, input, o, new OracleExpect { Milestone = Milestone.M2 });
+            }
+
+            // 9. at the Steiner limit the mesh is judged as constrained Delaunay, not conforming: still a constrained Delaunay
+            //    triangulation, so a flipped free edge must fail
+            {
+                var input = Points(0, 0, 8, 0, 8, 8, 0, 8, 3, 2, 5, 3, 4, 6);
+                input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false)); input.MinAngleDeg = 20; input.SteinerLimit = 0;
+                var tris = StrictDelaunay(input, Enumerable.Range(0, 7).ToArray()).ToList();
+                // flip the first interior edge whose quadrilateral is convex
+                bool flipped = false;
+                for (int i = 0; i < tris.Count && !flipped; ++i)
+                    for (int j = i + 1; j < tris.Count && !flipped; ++j) {
+                        var shared = tris[i].Intersect(tris[j]).ToArray();
+                        if (shared.Length != 2) continue;
+                        int c = tris[i].Except(shared).First(), d = tris[j].Except(shared).First();
+                        Pt P(int q) => Pt.FromDoubles(input.X[q], input.Y[q]);
+                        int[] t1 = { c, d, shared[0] }, t2 = { d, c, shared[1] };
+                        if (Exact.Orient(P(t1[0]), P(t1[1]), P(t1[2])) < 0) t1 = new[] { d, c, shared[0] };
+                        if (Exact.Orient(P(t2[0]), P(t2[1]), P(t2[2])) < 0) t2 = new[] { c, d, shared[1] };
+                        if (Exact.Orient(P(t1[0]), P(t1[1]), P(t1[2])) <= 0 || Exact.Orient(P(t2[0]), P(t2[1]), P(t2[2])) <= 0) continue;
+                        tris[i] = t1; tris[j] = t2; flipped = true;
+                    }
+                must("a convex free edge to flip exists", flipped, "none");
+                var o = Out(input, tris.ToArray(), null, (0, 1, 0), (1, 2, 0), (2, 3, 0), (3, 0, 0));
+                o.SteinerLimitReached = true;
+                o.BadTriangles = Enumerable.Range(0, tris.Count).Where(i => Exact.MinAngleSin2(Pt.FromDoubles(input.X[tris[i][0]], input.Y[tris[i][0]]), Pt.FromDoubles(input.X[tris[i][1]], input.Y[tris[i][1]]), Pt.FromDoubles(input.X[tris[i][2]], input.Y[tris[i][2]])) < Q.FromDouble(Math.Sin(20 * Math.PI / 180) * Math.Sin(20 * Math.PI / 180))).ToArray();
+                reject("a flipped free edge at the Steiner limit", Violation.NotDelaunayLocal, input, o, new OracleExpect { Milestone = Milestone.M3 });
+            }
+
+            // 10. a skinny triangle whose shortest edge spans a small input angle (two segments from a common apex at 10 degrees, the
+            //     ends at about the same distance) is exempt from the angle bound; the same triangle without the segments is not
+            {
+                double c = Math.Cos(10 * Math.PI / 180), sn = Math.Sin(10 * Math.PI / 180);
+                var input = Points(0, 0, 16, 0, 16 * c, 16 * sn, 8, 0, 8 * c, 8 * sn);
+                input.Segments.Add(new SegmentInput(0, 1)); input.Segments.Add(new SegmentInput(0, 2)); input.MinAngleDeg = 20;
+                var tris = new[] { new[] { 0, 3, 4 }, new[] { 3, 1, 2 }, new[] { 3, 2, 4 } };
+                var o = Out(input, tris, null, (0, 3, 0), (3, 1, 0), (0, 4, 0), (4, 2, 0), (1, 2, 0));
+                o.BadTriangles = Enumerable.Range(0, 3).ToArray();
+                accept("skinny triangles spanning a small input angle", input, o, new OracleExpect { Milestone = Milestone.M3, Tube = Q.Zero });
+                var plain = Points(0, 0, 16, 0, 16 * c, 16 * sn, 8, 0, 8 * c, 8 * sn); plain.MinAngleDeg = 20;
+                plain.Rings.Add(new RingInput(new[] { 0, 3, 1, 2, 4 }, false));
+                var o2 = Out(plain, tris, null, (0, 3, 0), (3, 1, 0), (1, 2, 0), (2, 4, 0), (4, 0, 0));
+                o2.BadTriangles = Enumerable.Range(0, 3).ToArray();
+                reject("the same skinny triangle with only a ring", Violation.AngleBelowBound, plain, o2, new OracleExpect { Milestone = Milestone.M3, Tube = Q.Zero });
+            }
+
+            // 11. spec 1.4: a needle a few ulps wide stays; one 2^-30 wide does not
+            {
+                foreach (var (width, ok) in new[] { (Math.Pow(2, -50), true), (Math.Pow(2, -30), false) }) {
+                    var input = Points(0, 0, 4, 0, 4, 4, 0, 4, 2, 2, 2 + width, 2, 2, 2 + width);
+                    input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false)); input.MinAngleDeg = 20; input.MaxArea = 100;
+                    var tris = StrictDelaunay(input, Enumerable.Range(0, 7).ToArray());
+                    var o = Out(input, tris, null, (0, 1, 0), (1, 2, 0), (2, 3, 0), (3, 0, 0));
+                    o.BadTriangles = Enumerable.Range(0, tris.Length).Where(i => Exact.MinAngleSin2(Pt.FromDoubles(input.X[tris[i][0]], input.Y[tris[i][0]]), Pt.FromDoubles(input.X[tris[i][1]], input.Y[tris[i][1]]), Pt.FromDoubles(input.X[tris[i][2]], input.Y[tris[i][2]])) < Q.FromDouble(Math.Sin(20 * Math.PI / 180) * Math.Sin(20 * Math.PI / 180))).ToArray();
+                    var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3, Tube = Q.Zero });
+                    bool angleOk = !report.Has(Violation.AngleBelowBound);
+                    must("a triangle " + (ok ? "a few ulps" : "2^-30") + " wide " + (ok ? "is exempt" : "is not exempt") + " from the angle bound", angleOk == ok, report.ToString());
+                }
             }
 
             // 7. the list of bad triangles is a set, and empty without a minimum angle

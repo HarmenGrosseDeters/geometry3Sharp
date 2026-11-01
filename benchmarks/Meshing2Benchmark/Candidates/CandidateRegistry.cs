@@ -15,11 +15,12 @@ namespace Meshing2Acceptance
             switch (milestone) {
                 case Milestone.M1: return new DelaunayMesh2Candidate();
                 case Milestone.M2: return new ConstrainedDelaunayMesh2Candidate();
+                case Milestone.M3: return new QualityMesh2Candidate();
                 default: return null;
             }
         }
 
-        public static readonly HashSet<string> Features = new HashSet<string> { Feature.Kernel, Feature.Api, Feature.Cdt, Feature.Domain, Feature.Regions, Feature.Noding };
+        public static readonly HashSet<string> Features = new HashSet<string> { Feature.Kernel, Feature.Api, Feature.Cdt, Feature.Domain, Feature.Regions, Feature.Noding, Feature.Refine };
 
         /// <summary>
         /// Public library types that mean a milestone has arrived. If one appears while its feature is not registered, a test fails:

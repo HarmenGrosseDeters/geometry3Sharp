@@ -16,10 +16,14 @@ namespace g3
     /// computed exactly and rounded to the nearest double; the pieces then run through it, at most a few units in the last
     /// place off their input segment. A vertex within the automatic tolerance (2^-41 of the larger of the largest coordinate
     /// and the extent, about 2.6 um at UTM northings; spec O11, Q14) of a segment becomes a vertex of it, so every piece stays
-    /// within that tolerance of each of its input segments. With <see cref="ResolveCrossings"/> off, a crossing gives
+    /// within that tolerance of each of its input segments. Input points within that tolerance of each other become one vertex
+    /// (the first of them; <see cref="ConstrainedMesh2.InputToVertex"/> maps the others to it), so no ulp-wide triangle is made
+    /// between them. With <see cref="ResolveCrossings"/> off, a crossing gives
     /// <see cref="Triangulation2FailureKind.CrossingConstraints"/>.</para>
-    /// <para>The domain is the convex hull without outer rings, else the union of the outer rings minus the union of the hole
-    /// rings, each ring by the even-odd rule (decision D5); a hole removes everything inside it, constraints included (Q7).
+    /// <para>The domain: a point belongs to it iff the innermost ring containing it (each ring by the even-odd rule) is an outer
+    /// ring, or, without outer rings, iff it is in the convex hull and in no hole (decision D5, owner 2026-11-01). So an island in
+    /// a lake is meshed, a lake in it removed again, a hole in a hole stays removed; a hole removes the free segments inside it,
+    /// not the rings whose role is outer (Q7). Rings that overlap without nesting: the latest decides, with a diagnostic.
     /// Hole seeds remove the bounded cell of the constraints around them (D6). Regions by ring or seed label the triangles,
     /// the last one wins (I6, D16).</para>
     /// <para>Vertex ids: input point i is vertex i; crossings get ids from the input count on (Q8). Deterministic; independent
@@ -56,27 +60,33 @@ namespace g3
             internal int VA, VB;
         }
 
-        sealed class Builder
+        /// <summary> The constrained triangulation in the making; the refinement of <see cref="QualityMesh2"/> works on it. </summary>
+        internal sealed class Builder
         {
-            readonly ConstrainedMesh2Input input;
+            internal readonly ConstrainedMesh2Input input;
             readonly bool resolve;
-            readonly CancellationToken cancel;
-            readonly List<string> diagnostics = new List<string>();
-            readonly List<Source> sources = new List<Source>();
-            DelaunayKernel2 k;
-            int n;
+            internal readonly CancellationToken cancel;
+            internal readonly List<string> diagnostics = new List<string>();
+            internal readonly List<Source> sources = new List<Source>();
+            internal DelaunayKernel2 k;
+            internal int n;
             int[] order, rank;
-            double tolerance;
-            double[] heights;     // per kernel vertex (ranks, then new vertices), if any
-            int outerRings, holeRings, regionRings;
+            internal double tolerance;
+            internal double[] heights;     // per kernel vertex (ranks, then new vertices), if any
+            internal int outerRings, holeRings, regionRings;
             bool[] ringIsHole;
+            /// <summary> runs after the domain and the tags are known, before the output; a failure result stops it </summary>
+            internal Func<Builder, ConstrainedTriangulation2Result> refine;
+            /// <summary> filled by the refinement for the output </summary>
+            internal bool SteinerLimitReached;
+            internal Func<int, bool> IsBad;
 
             internal Builder(ConstrainedMesh2Input input, bool resolve, CancellationToken cancel)
             {
                 this.input = input; this.resolve = resolve; this.cancel = cancel;
             }
 
-            ConstrainedTriangulation2Result Fail(Triangulation2FailureKind kind, Vector2d? where, string detail)
+            internal ConstrainedTriangulation2Result Fail(Triangulation2FailureKind kind, Vector2d? where, string detail)
                 => new ConstrainedTriangulation2Result(Triangulation2Status.Failed, kind, null, diagnostics, where, detail);
 
             internal ConstrainedTriangulation2Result Run()
@@ -104,6 +114,7 @@ namespace g3
                     scaledTolerance = ExactPoint3.ScaleB(magnitude, shift) * AutoToleranceFactor;
                 }
                 cancel.ThrowIfCancellationRequested();
+                MergeNearPoints(x, y);
                 order = DelaunayKernel2.InsertionOrder(x, y);
                 rank = new int[n];
                 var xs = new double[n]; var ys = new double[n];
@@ -143,6 +154,40 @@ namespace g3
                 }
                 cancel.ThrowIfCancellationRequested();
                 return Output(vertices, mapping);
+            }
+
+            /// <summary>
+            /// Points within the automatic tolerance of an earlier point are merged into it (spec O11, Q14): they get its coordinates
+            /// for the triangulation, so the kernel maps them to it as exact duplicates; their slots keep their own coordinates
+            /// (D17). A point merges only into a point that merged into nothing, so no chain moves anything farther than the tolerance.
+            /// </summary>
+            void MergeNearPoints(double[] x, double[] y)
+            {
+                if (!(scaledTolerance > 0) || n < 2) return;
+                double cell = 2 * scaledTolerance, tol2 = scaledTolerance * scaledTolerance;
+                double ox = x[0], oy = y[0];
+                var cells = new Dictionary<long, List<int>>();
+                long Key(long cx, long cy) => (cx << 32) ^ (cy & 0xffffffff);
+                int merged = 0;
+                for (int i = 0; i < n; ++i) {
+                    double sx = Scaled(x[i] - ox), sy = Scaled(y[i] - oy);
+                    long cx = (long)Math.Floor(sx / cell), cy = (long)Math.Floor(sy / cell);
+                    int into = -1;
+                    for (long dx = -1; dx <= 1 && into < 0; ++dx)
+                        for (long dy = -1; dy <= 1 && into < 0; ++dy) {
+                            if (!cells.TryGetValue(Key(cx + dx, cy + dy), out var list)) continue;
+                            foreach (int j in list) {
+                                if (x[j] == x[i] && y[j] == y[i]) { into = -2; break; }   // an exact duplicate: the kernel maps it
+                                double ex = Scaled(x[i] - x[j]), ey = Scaled(y[i] - y[j]);
+                                if (ex * ex + ey * ey <= tol2) { into = j; break; }
+                            }
+                        }
+                    if (into >= 0) { x[i] = x[into]; y[i] = y[into]; ++merged; continue; }
+                    if (into == -2) continue;
+                    if (!cells.TryGetValue(Key(cx, cy), out var own)) cells.Add(Key(cx, cy), own = new List<int>());
+                    own.Add(i);
+                }
+                if (merged > 0) diagnostics.Add(merged + " points within the automatic tolerance of another point were merged into it");
             }
 
             void Validate()
@@ -222,7 +267,73 @@ namespace g3
                 return heights[q.VA] + t * (heights[q.VB] - heights[q.VA]);
             }
 
-            void SetHeight(int v, int u, int w)
+            // the constrained triangulation before refinement, for the heights of Steiner points (Q9)
+            int[] refV, refH;
+            double[] refX, refY, refZ;
+
+            int refHint = -1;
+
+            internal void SnapshotReference()
+            {
+                if (heights == null) return;
+                refHint = -1;
+                int slots = k.TriangleSlots;
+                refV = new int[3 * slots]; Array.Copy(k.V, refV, refV.Length);
+                refH = new int[3 * slots]; Array.Copy(k.H, refH, refH.Length);
+                refX = new double[k.VertexCount]; refY = new double[k.VertexCount]; refZ = new double[k.VertexCount];
+                for (int v = 0; v < k.VertexCount; ++v) {
+                    if (v == k.Infinite) continue;
+                    refX[v] = k.X[v]; refY[v] = k.Y[v]; refZ[v] = v < heights.Length ? heights[v] : 0;
+                }
+            }
+
+            /// <summary> the height of vertex v by linear interpolation on the reference triangulation (Q9) </summary>
+            internal void SetHeightOnReference(int v)
+            {
+                if (heights == null || refV == null) return;
+                if (v >= heights.Length) Array.Resize(ref heights, Math.Max(v + 1, 2 * heights.Length));
+                var p = k.Point(v);
+                int slots = refV.Length / 3, t = -1;
+                bool Solid(int s0) => refV[3 * s0] != k.Infinite && refV[3 * s0 + 1] != k.Infinite && refV[3 * s0 + 2] != k.Infinite;
+                Vector2d R(int i) => new Vector2d(refX[refV[i]], refY[refV[i]]);
+                // from the triangle the last point was found in (refinement inserts near where it inserted before)
+                if (refHint >= 0 && refHint < slots && Solid(refHint)) t = refHint;
+                for (int s0 = 0; s0 < slots && t < 0; ++s0) if (Solid(s0)) t = s0;
+                if (t < 0) return;
+                // a visibility walk on a constrained triangulation that need not be Delaunay: the first edge tried is chosen by a
+                // fixed pseudo-random sequence, so the walk cannot cycle for ever (a stochastic walk; review of M3); deterministic
+                uint state = 2463534242u ^ (uint)v * 2654435761u;
+                long guard = 8L * slots + 64;
+                bool found = false;
+                for (long step = 0; step < guard; ++step) {
+                    state ^= state << 13; state ^= state >> 17; state ^= state << 5;
+                    int start = (int)(state % 3), moved = -1;
+                    for (int j = 0; j < 3; ++j) {
+                        int e = 3 * t + (start + j) % 3, f = 3 * t + (start + j + 1) % 3;
+                        if (ExactPredicates.Orient2d(R(e), R(f), p) < 0) { moved = e; break; }
+                    }
+                    if (moved < 0) { found = true; break; }
+                    int next = refH[moved] / 3;
+                    if (!Solid(next)) { found = true; break; }   // outside the reference hull (a hull split rounded outwards): extrapolate
+                    t = next;
+                }
+                if (!found) {
+                    // (not expected) a scan for the containing triangle
+                    for (int s0 = 0; s0 < slots; ++s0) {
+                        if (!Solid(s0)) continue;
+                        if (ExactPredicates.Orient2d(R(3 * s0), R(3 * s0 + 1), p) >= 0 && ExactPredicates.Orient2d(R(3 * s0 + 1), R(3 * s0 + 2), p) >= 0
+                            && ExactPredicates.Orient2d(R(3 * s0 + 2), R(3 * s0), p) >= 0) { t = s0; break; }
+                    }
+                }
+                refHint = t;
+                int a = refV[3 * t], bb = refV[3 * t + 1], c = refV[3 * t + 2];
+                double x0 = refX[a], y0 = refY[a], x1 = refX[bb] - x0, y1 = refY[bb] - y0, x2 = refX[c] - x0, y2 = refY[c] - y0;
+                double det = x1 * y2 - y1 * x2, px = p.x - x0, py = p.y - y0;
+                double l1 = (px * y2 - py * x2) / det, l2 = (x1 * py - y1 * px) / det;
+                heights[v] = refZ[a] + l1 * (refZ[bb] - refZ[a]) + l2 * (refZ[c] - refZ[a]);
+            }
+
+            internal void SetHeight(int v, int u, int w)
             {
                 if (heights == null) return;
                 if (v >= heights.Length) Array.Resize(ref heights, Math.Max(v + 1, 2 * heights.Length));
@@ -233,7 +344,7 @@ namespace g3
                 heights[v] = heights[u] + t * (heights[w] - heights[u]);
             }
 
-            struct Piece
+            internal struct Piece
             {
                 internal int U, W;
                 internal List<int> Sources;
@@ -304,6 +415,13 @@ namespace g3
                 return true;
             }
 
+            /// <summary> vertices v and u are within the tolerance of each other </summary>
+            bool NearPoint(int v, int u)
+            {
+                double dx = Scaled(k.X[v] - k.X[u]), dy = Scaled(k.Y[v] - k.Y[u]);
+                return dx * dx + dy * dy <= scaledTolerance * scaledTolerance;
+            }
+
             int shift;
             double scaledTolerance;
             double Scaled(double d) => ExactPoint3.ScaleB(d, shift);
@@ -334,14 +452,31 @@ namespace g3
                 pending.Push(new Piece { U = piece.U, W = v, Sources = new List<int>(piece.Sources) });
             }
 
-            ConstrainedTriangulation2Result InsertPiece(Piece piece, Stack<Piece> pending)
+            internal ConstrainedTriangulation2Result InsertPiece(Piece piece, Stack<Piece> pending)
             {
                 int u = piece.U, w = piece.W;
                 if (u == w) return null;
                 int existing = k.FindEdge(u, w);
                 if (existing >= 0) {
-                    if (k.Seg[existing] < 0) k.SetConstraint(existing, k.NewConstraint(piece.Sources));
-                    else k.Sources[k.Seg[existing]].AddRange(piece.Sources);
+                    if (k.Seg[existing] < 0) {
+                        // a vertex within the tolerance of the piece becomes a vertex of it (O11) also when the edge exists already: such
+                        // a vertex is the apex of a triangle at the edge (anything that close to the edge is in that triangle). Found with
+                        // the corpus run (delaunator's issue43: points 5e-15 inside a hull edge, which refinement then split towards
+                        // them down to the last bit)
+                        foreach (int side in new[] { existing, k.H[existing] }) {
+                            int apex = k.V[Next(Next(side))];
+                            // (not one within the tolerance of an end: in a cluster of such points the order along the piece is not
+                            // reliable in doubles, and splits could go back and forth)
+                            if (apex != k.Infinite && Near(apex, u, w, piece.Sources) && !NearPoint(apex, u) && !NearPoint(apex, w)) { Split(apex, piece, pending); return null; }
+                        }
+                        k.SetConstraint(existing, k.NewConstraint(piece.Sources));
+                    }
+                    else {
+                        // a union: one input segment covers each piece once, so a source already there is the same piece again
+                        // (re-inserted by a split), not a second cover; appending it made the lists grow without bound (found with M3)
+                        var list = k.Sources[k.Seg[existing]];
+                        foreach (int src in piece.Sources) if (!list.Contains(src)) list.Add(src);
+                    }
                     return null;
                 }
                 // the triangle at u whose wedge holds the direction to w
@@ -397,13 +532,42 @@ namespace g3
                 // assumes a constrained Delaunay triangulation (review of M2: a non-Delaunay edge survived otherwise)
                 k.RestoreDelaunay(new[] { ((long)r << 32) | (uint)l });
                 int before = k.VertexCount;
-                int p = k.InsertPoint(x.x, x.y);
+                // a vertex within the tolerance of the crossing and of every source of both pieces takes its place (O11): three segments
+                // through one point that is not a double would otherwise leave a triangle a few ulps wide (found with M3)
+                int p = NearVertex(x, piece.Sources, other);
+                if (p < 0) p = k.InsertPoint(x.x, x.y);
                 if (k.VertexCount > before) SetCrossingHeight(p, piece.Sources, other);
                 pending.Push(new Piece { U = r, W = p, Sources = other });
                 pending.Push(new Piece { U = p, W = l, Sources = new List<int>(other) });
                 pending.Push(new Piece { U = p, W = w, Sources = piece.Sources });
                 pending.Push(new Piece { U = u, W = p, Sources = new List<int>(piece.Sources) });
                 return null;
+            }
+
+            int NearVertex(Vector2d x, List<int> a, List<int> c)
+            {
+                if (!(scaledTolerance > 0)) return -1;
+                int t = k.LocatePoint(x.x, x.y, out int exact);
+                if (exact >= 0) return exact;
+                double tol2 = scaledTolerance * scaledTolerance;
+                int best = -1; double bestD = double.MaxValue;
+                // the corners of the containing triangle and of its neighbours
+                for (int j = 0; j < 3; ++j) {
+                    foreach (int s0 in new[] { t, k.H[3 * t + j] / 3 })
+                        for (int i = 0; i < 3; ++i) {
+                            int v = k.V[3 * s0 + i];
+                            if (v == k.Infinite) continue;
+                            double dx = Scaled(k.X[v] - x.x), dy = Scaled(k.Y[v] - x.y), d = dx * dx + dy * dy;
+                            if (d > tol2 || d >= bestD) continue;
+                            bool all = true;
+                            foreach (int src in a.Concat(c)) {
+                                var q = sources[src];
+                                if (ScaledDist2(k.X[v], k.Y[v], q.AX, q.AY, q.BX, q.BY, out _) > tol2) { all = false; break; }
+                            }
+                            if (all) { best = v; bestD = d; }
+                        }
+                }
+                return best;
             }
 
             /// <summary>
@@ -456,7 +620,17 @@ namespace g3
 
             // ------------------------------------------------------------ domain, labels, output
 
-            ConstrainedTriangulation2Result Output(Vector2d[] inputVertices, int[] mapping)
+            /// <summary>
+            /// Domain membership from scratch, by ring parity (D5): per triangle slot the interned set of rings it lies inside of
+            /// (each ring by the even-odd rule), and per set whether it is in the domain: the innermost ring of the set decides by its
+            /// role (owner decision of 2026-11-01: islands in lakes are meshed, a hole in a hole stays removed). Ring r is inside ring
+            /// q when every triangle inside r is inside q, read off the sets of the real triangles; the innermost ring of a set is
+            /// inside all the others. Rings that overlap without nesting have none: the latest ring of the set decides, reported in
+            /// overlaps.
+            /// </summary>
+            internal void RingParity(out int[] state, out List<int[]> sets, out bool[] inside) => RingParity(out state, out sets, out inside, out _);
+
+            internal void RingParity(out int[] state, out List<int[]> sets, out bool[] inside, out List<int[]> overlaps)
             {
                 int slots = k.TriangleSlots;
                 // per constraint: the rings it toggles (odd multiplicity), as a sorted array
@@ -472,16 +646,16 @@ namespace g3
                     }
                     toggles[c] = count.Where(p => (p.Value & 1) == 1).Select(p => p.Key).OrderBy(z => z).ToArray();
                 }
-                // the rings each triangle lies inside of (odd parity), by a breadth-first search from the outside; sets are interned
-                var sets = new List<int[]> { new int[0] };
+                // the rings each triangle lies inside of (odd parity), by a breadth-first search from the outside; setList are interned
+                var setList = new List<int[]> { new int[0] };
                 var index = new Dictionary<string, int> { { "", 0 } };
                 int Intern(int[] set)
                 {
                     string key = string.Join(",", set);
-                    if (!index.TryGetValue(key, out int id)) { id = sets.Count; sets.Add(set); index.Add(key, id); }
+                    if (!index.TryGetValue(key, out int id)) { id = setList.Count; setList.Add(set); index.Add(key, id); }
                     return id;
                 }
-                var state = new int[slots];
+                state = new int[slots];
                 for (int t = 0; t < slots; ++t) state[t] = -1;
                 var queue = new Queue<int>();
                 for (int t = 0; t < slots; ++t) if (k.IsGhost(t)) { state[t] = 0; queue.Enqueue(t); }
@@ -495,49 +669,71 @@ namespace g3
                         if (c < 0 || toggles[c].Length == 0) state[t2] = state[t];
                         else {
                             long key = ((long)state[t] << 32) | (uint)c;
-                            if (!xorCache.TryGetValue(key, out int s2)) xorCache.Add(key, s2 = Intern(Xor(sets[state[t]], toggles[c])));
+                            if (!xorCache.TryGetValue(key, out int s2)) xorCache.Add(key, s2 = Intern(Xor(setList[state[t]], toggles[c])));
                             state[t2] = s2;
                         }
                         queue.Enqueue(t2);
                     }
                 }
-                int ringCount = ringIsHole.Length;
                 int baseRings = (input.Rings ?? new List<Mesh2Ring>()).Count;
-                var inside = new bool[sets.Count];
-                for (int s = 0; s < sets.Count; ++s) {
-                    bool outer = outerRings == 0, hole = false;
-                    foreach (int ring in sets[s]) {
-                        if (ring >= baseRings) continue;
-                        if (ringIsHole[ring]) hole = true; else outer = true;
+                sets = setList;
+                // the domain rings of each set (region rings are labels, not domain); the sets that occur in real triangles
+                var domainRings = setList.Select(set => set.Where(r => r < baseRings).ToArray()).ToArray();
+                var used = new bool[setList.Count];
+                for (int t = 0; t < slots; ++t) if (!k.IsGhost(t)) used[state[t]] = true;
+                // per ring: the rings that contain everything inside it (itself included), the intersection of the sets it is in
+                var containers = new HashSet<int>[baseRings];
+                for (int si = 0; si < setList.Count; ++si) {
+                    if (!used[si]) continue;
+                    foreach (int r in domainRings[si]) {
+                        if (containers[r] == null) containers[r] = new HashSet<int>(domainRings[si]);
+                        else containers[r].IntersectWith(domainRings[si]);
                     }
-                    inside[s] = outer && !hole;
                 }
+                inside = new bool[setList.Count];
+                overlaps = new List<int[]>();
+                for (int si = 0; si < setList.Count; ++si) {
+                    var rings = domainRings[si];
+                    if (rings.Length == 0) { inside[si] = outerRings == 0; continue; }
+                    int pick = -1;
+                    foreach (int r in rings)
+                        if (containers[r] != null && rings.All(q => containers[r].Contains(q))) pick = Math.Max(pick, r);
+                    if (pick < 0) {
+                        pick = rings.Max();
+                        if (used[si]) overlaps.Add(rings);
+                    }
+                    inside[si] = !ringIsHole[pick];
+                }
+            }
+
+            /// <summary> per triangle slot: in the domain by ring parity (hole seeds not applied); for the refinement's tag check </summary>
+            internal bool[] InsideFromScratch()
+            {
+                RingParity(out var state, out _, out var inside);
+                var result = new bool[state.Length];
+                for (int t = 0; t < state.Length; ++t) result[t] = !k.IsGhost(t) && inside[state[t]];
+                return result;
+            }
+
+            ConstrainedTriangulation2Result Output(Vector2d[] inputVertices, int[] mapping)
+            {
+                int slots = k.TriangleSlots;
+                RingParity(out var state, out var sets, out var inside, out var overlaps);
+                int baseRings = (input.Rings ?? new List<Mesh2Ring>()).Count;
                 var keep = new bool[slots];
                 for (int t = 0; t < slots; ++t) keep[t] = !k.IsGhost(t) && inside[state[t]];
-                // D5: an outer ring entirely inside holes is removed with them; say so. One pass over the distinct sets.
-                var setInside = new bool[sets.Count];   // the set occurs in some real triangle, and that triangle is kept
-                var setUsed = new bool[sets.Count];
-                for (int t = 0; t < slots; ++t) {
-                    if (k.IsGhost(t)) continue;
-                    setUsed[state[t]] = true;
-                    if (keep[t]) setInside[state[t]] = true;
-                }
-                var ringAny = new bool[ringCount];
-                var ringKept = new bool[ringCount];
-                for (int si = 0; si < sets.Count; ++si) {
-                    if (!setUsed[si]) continue;
-                    foreach (int ring in sets[si]) { ringAny[ring] = true; if (setInside[si]) ringKept[ring] = true; }
-                }
-                for (int ring = 0; ring < baseRings; ++ring)
-                    if (!ringIsHole[ring] && ringAny[ring] && !ringKept[ring]) diagnostics.Add("outer ring " + ring + " lies inside a hole and is removed with it");
+                // D5: where rings overlap without nesting, the latest of them decides; say so
+                foreach (var rings in overlaps)
+                    diagnostics.Add("rings " + string.Join(", ", rings) + " overlap without nesting; ring " + rings.Max() + " (the latest) decides where they overlap");
                 // hole seeds (D6): the bounded cell of the constraints around the seed
                 var holeSeeds = input.HoleSeeds ?? new List<Vector2d>();
                 for (int i = 0; i < holeSeeds.Count; ++i) {
                     var cell = SeedCell(holeSeeds[i], keep, "hole seed " + i, requireBounded: true);
                     if (cell != null) foreach (int t in cell) keep[t] = false;
                 }
-                // regions, the last wins
-                var label = new int[slots];
+                // regions, the last wins: per triangle the index of its region, -1 for none
+                var regionOf = new int[slots];
+                for (int t = 0; t < slots; ++t) regionOf[t] = -1;
                 var seedRegionOf = new int[slots];   // per triangle: the index of the last seed region that labelled it, or -1
                 for (int t = 0; t < slots; ++t) seedRegionOf[t] = -1;
                 var regions = input.Regions ?? new List<Mesh2Region>();
@@ -548,7 +744,7 @@ namespace g3
                         continue;
                     } else {
                         var cell = SeedCell(region.Seed, keep, "region seed " + g, requireBounded: false);
-                        if (cell != null) foreach (int t in cell) if (keep[t]) { label[t] = region.Label; seedRegionOf[t] = g; }
+                        if (cell != null) foreach (int t in cell) if (keep[t]) { regionOf[t] = g; seedRegionOf[t] = g; }
                     }
                 }
                 // region rings: per distinct set, the region ring with the highest index wins over seeds of lower index
@@ -562,10 +758,17 @@ namespace g3
                     for (int t = 0; t < slots; ++t) {
                         if (!keep[t]) continue;
                         int g = regionOfSet[state[t]];
-                        if (g >= 0 && g >= seedRegionOf[t]) label[t] = regions[g].Label;
+                        if (g >= 0 && g >= seedRegionOf[t]) regionOf[t] = g;
                     }
                 }
-                return Build(inputVertices, mapping, keep, label);
+                // the tag of a triangle: -1 outside the domain, else 1 + its region (0: none); splits and flips pass it on
+                for (int t = 0; t < slots; ++t) k.Tag[t] = keep[t] ? regionOf[t] + 1 : -1;
+                if (refine != null) {
+                    SnapshotReference();
+                    var failure = refine(this);
+                    if (failure != null) return failure;
+                }
+                return Build(inputVertices, mapping);
             }
 
             static int[] Xor(int[] a, int[] b)
@@ -613,9 +816,12 @@ namespace g3
                 return cell;
             }
 
-            ConstrainedTriangulation2Result Build(Vector2d[] inputVertices, int[] mapping, bool[] keep, int[] label)
+            ConstrainedTriangulation2Result Build(Vector2d[] inputVertices, int[] mapping)
             {
                 int slots = k.TriangleSlots;
+                var regions = input.Regions ?? new List<Mesh2Region>();
+                var keep = new bool[slots];
+                for (int t = 0; t < slots; ++t) keep[t] = k.Tag[t] >= 0 && !k.IsGhost(t);
                 // vertex ids: input vertices by representative; new vertices numbered from n in order of first use
                 var outId = new int[k.VertexCount];
                 for (int v = 0; v < outId.Length; ++v) outId[v] = -1;
@@ -647,7 +853,7 @@ namespace g3
                     int e0 = 3 * t + rot, e1 = 3 * t + (rot + 1) % 3, e2 = 3 * t + (rot + 2) % 3;
                     triangles[i] = new Index3i(outId[k.V[e0]], outId[k.V[e1]], outId[k.V[e2]]);
                     neighbours[i] = new Index3i(id[k.H[e1] / 3], id[k.H[e2] / 3], id[k.H[e0] / 3]);
-                    labels[i] = label[t];
+                    labels[i] = k.Tag[t] > 0 ? regions[k.Tag[t] - 1].Label : 0;
                     for (int j = 0; j < 3; ++j) {
                         int e = 3 * t + j, c2 = k.Seg[e];
                         if (c2 < 0) continue;
@@ -670,6 +876,11 @@ namespace g3
                 var fullV = new int[3 * slots]; Array.Copy(k.V, fullV, fullV.Length);
                 var fullH = new int[3 * slots]; Array.Copy(k.H, fullH, fullH.Length);
                 var mesh = new ConstrainedMesh2(vertices, n, mapping, triangles, neighbours, labels, subsegments.ToArray(), outHeights, fullV, fullH, id, fullP, k.Infinite);
+                var bad = new List<int>();
+                if (IsBad != null)
+                    for (int t = 0; t < slots; ++t) if (id[t] >= 0 && IsBad(t)) bad.Add(id[t]);
+                mesh.BadTriangles = bad.AsReadOnly();
+                mesh.SteinerLimitReached = SteinerLimitReached;
                 var status = count == 0 ? Triangulation2Status.Empty : Triangulation2Status.Success;
                 return new ConstrainedTriangulation2Result(status, Triangulation2FailureKind.None, mesh, diagnostics);
             }
@@ -711,6 +922,32 @@ namespace g3
                             if (c >= 0) foreach (int s in k.Sources[c]) Consider(s);
                         }
                 return result;
+            }
+
+            /// <summary>
+            /// The point lies within the automatic tolerance of a source other than the given ones (the closed segment). For the
+            /// refinement: a split point there would merge the two constraints' chains (O11), which refinement must not cause.
+            /// </summary>
+            internal bool NearOtherSource(double px, double py, List<int> own)
+            {
+                if (!(scaledTolerance > 0)) return false;
+                if (cellKeys == null) BuildGrid();
+                if (cellKeys.Length == 0) return false;
+                double x = Scaled(px - gridX) / gridCell, y = Scaled(py - gridY) / gridCell, r = scaledTolerance / gridCell;
+                long x0 = (long)Math.Floor(x - r), x1 = (long)Math.Floor(x + r), y0 = (long)Math.Floor(y - r), y1 = (long)Math.Floor(y + r);
+                double tol2 = scaledTolerance * scaledTolerance;
+                for (long cx = x0; cx <= x1; ++cx)
+                    for (long cy = y0; cy <= y1; ++cy) {
+                        int at = Array.BinarySearch(cellKeys, (cx << 32) ^ (cy & 0xffffffff));
+                        if (at < 0) continue;
+                        for (int q = cellStart[at]; q < cellStart[at + 1]; ++q) {
+                            int src = cellSources[q];
+                            if (own.Contains(src)) continue;
+                            var o = sources[src];
+                            if (ScaledDist2(px, py, o.AX, o.AY, o.BX, o.BY, out _) <= tol2) return true;
+                        }
+                    }
+                return false;
             }
 
             /// <summary> squared distance of a point (scaled, relative to the grid origin) to source s </summary>

@@ -32,6 +32,10 @@ namespace g3
         public IReadOnlyList<int> TriangleLabels { get; }
         /// <summary> The pieces of input constraints that are edges of the mesh, each once. </summary>
         public IReadOnlyList<Mesh2Subsegment> Subsegments { get; }
+        /// <summary> Triangles below the minimum angle of a quality mesh (spec Q11); empty without one. </summary>
+        public IReadOnlyList<int> BadTriangles { get; internal set; } = new int[0];
+        /// <summary> Refinement stopped at the Steiner limit: the mesh is valid, its quality is not guaranteed (spec O7, Q11). </summary>
+        public bool SteinerLimitReached { get; internal set; }
         /// <summary> Heights per vertex if the input had heights, otherwise null. </summary>
         public IReadOnlyList<double> Heights { get; }
 
