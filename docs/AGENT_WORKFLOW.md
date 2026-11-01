@@ -45,8 +45,8 @@ Every worker session gets a brief with these fields, and nothing open-ended:
   `benchmarks/BooleanComparison/perf/` does). The reviewer re-runs a sample.
 - Machine checks replace review where possible ([QA.md 4a](QA.md#4a-making-agent-work-verifiable), items 1-3):
   - new tests must fail on the old code (CI job `New tests on base`; required for PRs labelled `bugfix`);
-  - package validation against 1.0.324;
-  - banned APIs in exact code.
+  - package validation against 1.0.324 (enforced in `dotnet pack`);
+  - banned APIs in exact code (enforced at build time: FMA, `float`, parallel loops outside the allow-list).
 
 ## 4. Review: separate and evidence-based
 
