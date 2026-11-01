@@ -225,8 +225,7 @@ namespace g3
 
         double area(int tid)
         {
-            Index3i t = Mesh.GetTriangle(tid);
-            return area(t);
+            return area(Mesh.GetTriangle(tid));
         }
 
         double area(Index3i t)
