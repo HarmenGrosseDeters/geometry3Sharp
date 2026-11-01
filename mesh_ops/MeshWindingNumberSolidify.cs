@@ -157,6 +157,7 @@ namespace gs
         {
             StoppedOnSelfIntersections = false;
             Result = null;      // set only on success, below
+            UsedCellSize = 0; NonManifoldTriangles = 0;
             // (checked here: a NaN would pass as "automatic" below, +infinity as a valid size)
             if (MathUtil.IsFinite(CellSize) == false)
                 return false;

@@ -114,15 +114,19 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0, iso.Graph.VertexCount);
         }
 
-        [Fact]
-        public void IsoCurves_NaNElsewhere_KeepsTheCurvesOfTheFiniteTriangles()
+        [Theory]
+        [InlineData(MeshIsoCurves.RootfindingModes.SingleLerp)]
+        [InlineData(MeshIsoCurves.RootfindingModes.LerpSteps)]
+        [InlineData(MeshIsoCurves.RootfindingModes.Bisection)]
+        public void IsoCurves_NaNElsewhere_KeepsTheCurvesOfTheFiniteTriangles(MeshIsoCurves.RootfindingModes mode)
         {
-            // the field is NaN far above the level: the curve is the one of the finite field, bit for bit
+            // The field is NaN far above the level: the curve is the one of the finite field, bit for bit. No spurious
+            // curve along the border of the NaN, which Bisection would give: a NaN is not below the level.
             DMesh3 mesh = Sphere(16);
-            var finite = new MeshIsoCurves(mesh, x => x.z - 0.1);
+            var finite = new MeshIsoCurves(mesh, x => x.z - 0.1) { RootMode = mode };
             finite.Compute();
             Assert.True(finite.Graph.EdgeCount > 0);
-            var partial = new MeshIsoCurves(mesh, x => (x.z > 0.6) ? double.NaN : x.z - 0.1);
+            var partial = new MeshIsoCurves(mesh, x => (x.z > 0.6) ? double.NaN : x.z - 0.1) { RootMode = mode };
             partial.Compute();
             AssertGraphBits(finite.Graph, partial.Graph);
         }
@@ -287,6 +291,119 @@ namespace geometry3Sharp.Tests
                 Assert.All(iso.Graph.Vertices(), v => Assert.True(v.IsFinite, between.ToString()));
                 iso.SplitAtIsoCrossings();
                 AssertClosed(mesh);
+            }
+        }
+
+        // ---- MeshIsoCurves: only the sign is known, -infinity on one side and +infinity on the other ----
+
+        static DMesh3 Plate(int n = 20)
+        {
+            var mesh = new DMesh3();
+            for (int j = 0; j <= n; ++j)
+                for (int i = 0; i <= n; ++i)
+                    mesh.AppendVertex(new Vector3d(i, j, 0));
+            for (int j = 0; j < n; ++j)
+                for (int i = 0; i < n; ++i) {
+                    int a = i + j * (n + 1), b = a + 1, c = a + n + 2, d = a + n + 1;
+                    mesh.AppendTriangle(a, b, c);
+                    mesh.AppendTriangle(a, c, d);
+                }
+            return mesh;
+        }
+
+        static double SignLine(Vector3d x) => x.x - 0.37 * x.y - 3.3;
+        static double SignField(Vector3d x) => (SignLine(x) < 0) ? double.NegativeInfinity : double.PositiveInfinity;
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void IsoCurves_Bisection_OppositeInfinities_FindsTheJump(bool precompute)
+        {
+            // bisection uses only the sign of the values: a good curve, along the line of the jump
+            DMesh3 mesh = Plate(), before = new DMesh3(mesh);
+            var iso = new MeshIsoCurves(mesh, SignField) { RootMode = MeshIsoCurves.RootfindingModes.Bisection, PrecomputeVertexValues = precompute };
+            iso.Compute();
+            Assert.Equal(41, iso.Graph.VertexCount);
+            Assert.Equal(40, iso.Graph.EdgeCount);
+            // 5 steps on edges up to sqrt(2) long, half of the last interval left; the gradient of the line is about 1
+            Assert.All(iso.Graph.Vertices(), v => {
+                Assert.True(v.IsFinite);
+                Assert.InRange(SignLine(v), -0.04, 0.04);
+            });
+            DGraph3 first = iso.Graph;
+            iso.Compute();
+            AssertGraphBits(first, iso.Graph);
+            iso.SplitAtIsoCrossings();
+            Assert.True(mesh.VertexCount > before.VertexCount);
+            Assert.True(mesh.CheckValidity(false, FailMode.ReturnOnly));
+            Assert.True(Invariance.AllFinite(mesh));
+        }
+
+        [Theory]
+        [InlineData(MeshIsoCurves.RootfindingModes.SingleLerp)]
+        [InlineData(MeshIsoCurves.RootfindingModes.LerpSteps)]
+        public void IsoCurves_InterpolatingModes_OppositeInfinities_NoGeometry(MeshIsoCurves.RootfindingModes mode)
+        {
+            // no line through the two values, so no crossing to interpolate: nothing, not NaN
+            DMesh3 mesh = Plate(), before = new DMesh3(mesh);
+            var iso = new MeshIsoCurves(mesh, SignField) { RootMode = mode };
+            iso.Compute();
+            Assert.Equal(0, iso.Graph.VertexCount);
+            iso.SplitAtIsoCrossings();
+            Assert.Equal("", Invariance.Difference(before, mesh));
+        }
+
+        [Fact]
+        public void IsoCurves_Bisection_OppositeInfinities_InEveryFrame()
+        {
+            DMesh3 source = Plate();
+            var reference = new MeshIsoCurves(new DMesh3(source), SignField) { RootMode = MeshIsoCurves.RootfindingModes.Bisection };
+            reference.Compute();
+            Assert.Equal(40, reference.Graph.EdgeCount);
+            foreach (Similarity s in Similarity.All()) {
+                var iso = new MeshIsoCurves(Invariance.Transformed(source, s), x => SignField(s.Inverse(x))) { RootMode = MeshIsoCurves.RootfindingModes.Bisection };
+                iso.Compute();
+                Assert.True(reference.Graph.VertexCount == iso.Graph.VertexCount, s.Name);
+                Assert.True(reference.Graph.EdgeCount == iso.Graph.EdgeCount, s.Name);
+                Assert.All(iso.Graph.Vertices(), v => Assert.True(v.IsFinite, s.Name));
+                if (s.IsExact)
+                    foreach (int v in reference.Graph.VertexIndices())
+                        Assert.Equal(reference.Graph.GetVertex(v), s.Inverse(iso.Graph.GetVertex(v)));
+            }
+        }
+
+        // One triangle in every order of its corners; between the corners the field has the sign of the jump between
+        // corners 1 and 2 (x below y: positive). Bisection finds a point on the crossed edges.
+        [Theory]
+        [InlineData(double.NegativeInfinity, double.PositiveInfinity, double.PositiveInfinity, 2, 1)]    // two crossings, opposite infinities
+        [InlineData(double.PositiveInfinity, double.NegativeInfinity, double.NegativeInfinity, 2, 1)]
+        [InlineData(double.NegativeInfinity, 1.0, double.PositiveInfinity, 2, 1)]                        // and a finite value
+        [InlineData(1.0, double.NegativeInfinity, double.PositiveInfinity, 2, 1)]
+        [InlineData(0.0, double.NegativeInfinity, double.PositiveInfinity, 2, 1)]                        // through the 0, to the jump
+        [InlineData(double.NaN, double.NegativeInfinity, double.PositiveInfinity, 0, 0)]                 // a NaN: nothing
+        public void IsoCurves_Bisection_InfiniteCorners_InAnyVertexOrder(double a, double b, double c, int vertices, int edges)
+        {
+            var corners = new[] { new Vector3d(0, 0, 0), new Vector3d(1, 0, 0), new Vector3d(0, 1, 0) };
+            var values = new[] { a, b, c };
+            foreach (int[] order in new[] { new[] { 0, 1, 2 }, new[] { 1, 2, 0 }, new[] { 2, 0, 1 }, new[] { 0, 2, 1 }, new[] { 2, 1, 0 }, new[] { 1, 0, 2 } }) {
+                var mesh = new DMesh3();
+                foreach (int k in order)
+                    mesh.AppendVertex(corners[k]);
+                mesh.AppendTriangle(0, 1, 2);
+                var iso = new MeshIsoCurves(mesh, x => {
+                    for (int k = 0; k < 3; ++k)
+                        if (corners[k] == x) return values[k];
+                    // the sign changes once along each edge: towards the positive corner it is positive
+                    double t = 0;
+                    for (int k = 0; k < 3; ++k)
+                        if (values[k] > 0) t = Math.Max(t, x.Dot(corners[k]));
+                    return (t >= 0.5) ? 1 : -1;
+                }) { RootMode = MeshIsoCurves.RootfindingModes.Bisection };
+                iso.Compute();
+                string where = string.Join(",", order.Select(k => values[k]));
+                Assert.True(vertices == iso.Graph.VertexCount, $"{where}: {iso.Graph.VertexCount} vertices");
+                Assert.True(edges == iso.Graph.EdgeCount, $"{where}: {iso.Graph.EdgeCount} edges");
+                Assert.All(iso.Graph.Vertices(), p => Assert.True(p.IsFinite, where));
             }
         }
 
@@ -518,6 +635,17 @@ namespace geometry3Sharp.Tests
             AssertFailsWithoutResult(sol.Compute, () => sol.Result, () => sol.Mesh = new DMesh3(), () => sol.Mesh = input, "empty input");
             AssertFailsWithoutResult(sol.Compute, () => sol.Result, () => sol.CellSize = 1e-30, () => sol.CellSize = 0, "cell size too small");
             AssertFailsWithoutResult(sol.Compute, () => sol.Result, () => sol.CellSize = double.NaN, () => sol.CellSize = 0, "NaN cell size");
+            // what the last run reported is gone with it
+            foreach (Action fail in new Action[] { () => sol.CellSize = double.NaN, () => sol.Mesh = new DMesh3() }) {
+                Assert.True(sol.Compute());
+                Assert.True(sol.UsedCellSize > 0);
+                sol.NonManifoldTriangles = 7;
+                fail();
+                Assert.False(sol.Compute());
+                Assert.Equal(0, sol.UsedCellSize);
+                Assert.Equal(0, sol.NonManifoldTriangles);
+                sol.CellSize = 0; sol.Mesh = input;
+            }
             AssertCancelLeavesNoResult(cancel, sol.Compute, () => sol.Result);
             Assert.True(sol.Compute());
             if (method == MeshWindingNumberSolidify.Methods.MarchingCubes) {
@@ -530,6 +658,8 @@ namespace geometry3Sharp.Tests
             var fresh = new MeshWindingNumberSolidify(input) { GridResolution = 32, Method = method, Adaptive = adaptive };
             Assert.True(fresh.Compute());
             Assert.Equal("", Invariance.Difference(fresh.Result, sol.Result));
+            Assert.Equal(fresh.UsedCellSize, sol.UsedCellSize);
+            Assert.Equal(fresh.NonManifoldTriangles, sol.NonManifoldTriangles);
         }
 
         [Fact]
@@ -584,6 +714,18 @@ namespace geometry3Sharp.Tests
             // these fail only after the mesh was built, and it is empty
             AssertFailsWithoutResult(tdc.Compute, () => tdc.Result, () => tdc.CellSize = 100, () => tdc.CellSize = 0, "cells larger than the footprint");
             AssertFailsWithoutResult(tdc.Compute, () => tdc.Result, () => tdc.CellSize = double.NaN, () => tdc.CellSize = 0, "NaN cell size");
+            // what the last run reported is gone with it
+            foreach (Action fail in new Action[] { () => tdc.CellSize = double.NaN, () => tdc.Mesh = new DMesh3(), () => tdc.SamplesPerCell = 0 }) {
+                Assert.True(tdc.Compute());
+                Assert.True(tdc.FinestCells > 0);
+                tdc.SplitLeaves = 7; tdc.RemovedTriangles = 7;
+                fail();
+                Assert.False(tdc.Compute());
+                Assert.Equal(0, tdc.FinestCells);
+                Assert.Equal(0, tdc.SplitLeaves);
+                Assert.Equal(0, tdc.RemovedTriangles);
+                tdc.CellSize = 0; tdc.Mesh = input; tdc.SamplesPerCell = 4;
+            }
             AssertCancelLeavesNoResult(cancel, tdc.Compute, () => tdc.Result);
             Assert.True(tdc.Compute());
             Assert.True(tdc.Result.TriangleCount > 0);
@@ -591,6 +733,9 @@ namespace geometry3Sharp.Tests
             var fresh = new TerrainDualContouring(input) { GridResolution = 16 };
             Assert.True(fresh.Compute());
             Assert.Equal("", Invariance.Difference(fresh.Result, tdc.Result));
+            Assert.Equal(fresh.FinestCells, tdc.FinestCells);
+            Assert.Equal(fresh.SplitLeaves, tdc.SplitLeaves);
+            Assert.Equal(fresh.RemovedTriangles, tdc.RemovedTriangles);
         }
 
         [Fact]
@@ -853,6 +998,42 @@ namespace geometry3Sharp.Tests
             Assert.True(Compute(guaranteed));
             guaranteed.SafetyDistance = double.NaN;
             AssertFailedWithNoResult(guaranteed);
+        }
+
+        [Fact]
+        public void Safety_TinyExcessTolerance_NoCertificate_AlsoWhenItThrows()
+        {
+            // (S26: the sample count overflows. On .NET the array allocation throws, on .NET Framework the cast gives
+            // one sample per segment, which is not certified.) The certificate must not be true on the way out.
+            var sl = Safety(Guaranteed);
+            sl.ExcessTolerance = 1e-14;
+            try {
+                sl.Compute();
+            } catch (OverflowException) {
+            }
+            Assert.False(sl.Certified);
+            sl.ExcessTolerance = 2;
+            Assert.True(Compute(sl));
+            Assert.True(sl.Certified);
+            sl.ExcessTolerance = 1e-14;
+            try {
+                sl.Compute();
+            } catch (OverflowException) {
+            }
+            Assert.False(sl.Certified);
+        }
+
+        [Fact]
+        public void Safety_SmallExcessTolerance_NotCertified_WithoutAnException()
+        {
+            var sl = Safety(Guaranteed);
+            sl.ExcessTolerance = 1e-3;
+            Assert.True(Compute(sl));
+            Assert.False(sl.Certified);
+            Assert.True(sl.UncertifiedSegments > 0);
+            sl.RequireCertified = true;
+            Assert.False(Compute(sl));
+            Assert.False(sl.Certified);
         }
 
         [Fact]

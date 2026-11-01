@@ -115,6 +115,7 @@ namespace gs
         /// </summary>
         public bool Compute()
         {
+            FinestCells = 0; SplitLeaves = 0; RemovedTriangles = 0;
             // (in finally: build_mesh sets Result before the last cancel checks and before an empty result is
             // known, and an exception from SampleF or CancelF is a failure too)
             bool success = false;

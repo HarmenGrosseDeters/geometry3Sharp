@@ -125,11 +125,14 @@ namespace g3
 
                 // round f to 0 within epsilon?
 
-                // No crossing is defined where a value is NaN, or between +infinity and -infinity in one triangle
-                // (Min and Max keep a NaN). Compute() has no status: such triangles add nothing to the Graph, so a
-                // field that is NaN everywhere gives an empty Graph.
+                // No crossing is defined where a value is NaN (Min keeps a NaN). Between +infinity and -infinity in
+                // one triangle nothing can be interpolated, but Bisection only needs the signs: it finds the jump.
+                // Compute() has no status: such triangles add nothing to the Graph, so a field that is NaN
+                // everywhere gives an empty Graph.
                 double fMin = Math.Min(f.x, Math.Min(f.y, f.z)), fMax = Math.Max(f.x, Math.Max(f.y, f.z));
-                if (double.IsNaN(fMin) || (double.IsNegativeInfinity(fMin) && double.IsPositiveInfinity(fMax)))
+                if (double.IsNaN(fMin))
+                    continue;
+                if (RootMode != RootfindingModes.Bisection && double.IsNegativeInfinity(fMin) && double.IsPositiveInfinity(fMax))
                     continue;
 
                 if (f.x < 0 && f.y < 0 && f.z < 0)

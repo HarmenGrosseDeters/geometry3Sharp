@@ -574,7 +574,9 @@ namespace gs
         // the surface), so the whole segment is certified.
         void certify(DMesh3 m, double maxLength, int S)
         {
-            Excess.Clear(); MaxExcess = 0; UncertifiedSegments = 0; Certified = true;
+            // (Certified is set at the end: the allocations below can throw, see S26 in ROBUSTNESS_SWEEP.md)
+            bool certified = true;
+            Excess.Clear(); MaxExcess = 0; UncertifiedSegments = 0;
             UsedSteinerPoints = S;
             int V = m.MaxVertexID;
             int N = V + m.MaxEdgeID * S;
@@ -689,11 +691,12 @@ namespace gs
                     MaxExcess = Math.Max(MaxExcess, segMax);
                     if (!(segMax <= ExcessTolerance)) {
                         UncertifiedSegments++;
-                        Certified = false;
+                        certified = false;
                     }
                 }
                 Excess.Add(ex);
             }
+            Certified = certified;
         }
 
         // binary min-heap of (key, id) with lazy deletion (netstandard2.0 has no PriorityQueue)
