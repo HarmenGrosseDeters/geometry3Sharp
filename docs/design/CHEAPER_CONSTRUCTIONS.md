@@ -521,6 +521,25 @@ Its findings, all fixed in this version:
 
 ## 12. Results
 
+**All steps together (A1 + B + D1 + A2; the acceptance numbers).** A = head of #248 (`159d9d6`), B = d6143f7 (with
+master merged, which brings #249). `~/ab.sh` (exact hashes, then `run_classes.sh` A B A B on 4 cores) and
+`~/serial_ab2.sh` (4 alternating serial rounds); sum over cases of each case's minimum over the rounds:
+- `perf/exact_hashes.sh`: `263 runs before, 263 after, 0 differ`.
+
+  | class | 4 cores A -> B | serial A -> B |
+  |---|---|---|
+  | `cgal` | 9.52 -> 8.82 s (**−7.4 %**) | 16.62 -> 15.39 s (**−7.4 %**) |
+  | Thingi10K | 8.73 -> 8.42 s (**−3.5 %**) | 16.21 -> 14.89 s (**−8.1 %**) |
+  | `cherchi` | 21.58 -> 20.46 s (−5.2 %) | |
+  | `nreal` | 2.14 -> 2.14 s (−0.2 %) | 4.43 -> 4.25 s (−4.0 %) |
+  | n-ary (grid 5 / grid 10 / spheres 20, best of 2) | 806 / 4549 / 369 -> 743 / 4922 / 351 ms (noise) | |
+
+  Round totals, 4 cores: `cgal` A 9.80 / 10.17, B 9.31 / 9.14 s; Thingi10K A 8.92 / 9.08, B 9.00 / 8.65 s.
+- **Stop rule:** `cgal` + Thingi10K on 4 cores 18.25 -> 17.24 s (**−5.5 %**), above the 3 % bar.
+- The single steps below add up to about this: B 1-2 %, D1 4.3 % (`cgal` + Thingi10K), A1 + A2 within the noise on
+  `cgal` / Thingi10K and a few percent on `nreal`.
+
+
 **Machine noise.** On this machine the same build varies by up to 2× between processes (microbenchmark of one
 predicate: 65 to 147 ns for the same code in two processes), so the class runs below are reported with the sum over
 cases of each case's minimum over all rounds, next to the round totals. The serial probe and microbenchmarks carry
