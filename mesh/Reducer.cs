@@ -440,7 +440,7 @@ namespace g3
                 Index3i ia = newIds[i];
                 for (int j = i + 1; j < newTris.Count; ++j) {
                     Triangle3d B = newTris[j];
-                    if (ExactTriangleIntersection.IntersectsBeyondShared(ia, ref A, newIds[j], ref B))
+                    if (TriangleTriangleFilter.IntersectsBeyondShared(ia, ref A, newIds[j], ref B))
                         return true;
                 }
                 AxisAlignedBox3d box = new AxisAlignedBox3d(A.V0); box.Contain(A.V1); box.Contain(A.V2);
@@ -452,7 +452,7 @@ namespace g3
                     Index3i ic = mesh.GetTriangle(tc);
                     Triangle3d C = new Triangle3d(mesh.GetVertex(ic.a), mesh.GetVertex(ic.b), mesh.GetVertex(ic.c));
                     if (ExactTriangleIntersection.IsDegenerate(ref C)) return;
-                    if (ExactTriangleIntersection.IntersectsBeyondShared(ia, ref A, ic, ref C))
+                    if (TriangleTriangleFilter.IntersectsBeyondShared(ia, ref A, ic, ref C))
                         hit = true;
                 });
                 if (hit)
