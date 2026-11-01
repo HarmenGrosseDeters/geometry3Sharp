@@ -24,7 +24,9 @@ namespace g3
         {
             if (triangles == null) throw new ArgumentNullException(nameof(triangles));
             items = new Triangle3d[triangles.Count];
-            for (int i = 0; i < items.Length; ++i) items[i] = triangles[i];
+            var array = triangles as Triangle3d[];
+            if (array != null) Array.Copy(array, items, items.Length);
+            else for (int i = 0; i < items.Length; ++i) items[i] = triangles[i];
             tree = new LooseQuadtree2d(BoundsOf(items, parallelBuild), parallelBuild);
         }
         TriangleQuadtree2d(Triangle3d[] shared, AxisAlignedBox2d[] bounds, bool parallelBuild)

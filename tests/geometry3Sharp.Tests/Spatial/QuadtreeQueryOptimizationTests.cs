@@ -149,6 +149,60 @@ namespace geometry3Sharp.Tests.Spatial
             Assert.Equal(serial.Ids, parallel.Ids);
             Assert.Equal(Enumerable.Range(0, boxes.Length), parallel.Ids.OrderBy(id => id));
             Assert.Equal(serial.Ids, Walk(new LooseQuadtree2d(boxes, true)).Ids);
+            Assert.Equal(new LooseQuadtree2d(boxes, false).Extent, new LooseQuadtree2d(boxes, true).Extent);
+        }
+
+        static long Bits(double value) { return BitConverter.DoubleToInt64Bits(value); }
+
+        [Fact]
+        public void ALargeBuild_HasTheExtentOfASequentialOne_DownToTheSignOfAZero()
+        {
+            // Items in different blocks, the extreme ones in the last block and at the edges of a block.
+            int block = LooseQuadtree2d.ParallelThreshold, count = 3 * block + 5;
+            foreach (bool negativeFirst in new[] { true, false }) {
+                double first = negativeFirst ? -0.0 : 0.0, second = negativeFirst ? 0.0 : -0.0;
+                var boxes = Enumerable.Range(0, count).Select(i => new AxisAlignedBox2d(1 + i % 7, 1 + i % 5, 2 + i % 7, 2 + i % 5)).ToArray();
+                boxes[block - 1] = new AxisAlignedBox2d(first, first, 3, 3);
+                boxes[2 * block] = new AxisAlignedBox2d(second, second, 3, 3);
+                boxes[block] = new AxisAlignedBox2d(1, 1, 90, 3);
+                boxes[count - 1] = new AxisAlignedBox2d(4, 4, 5, 80);
+                AxisAlignedBox2d serial = new LooseQuadtree2d(boxes, false).Extent, parallel = new LooseQuadtree2d(boxes, true).Extent;
+                Assert.Equal(Bits(first), Bits(parallel.Min.x));
+                Assert.Equal(Bits(serial.Min.x), Bits(parallel.Min.x));
+                Assert.Equal(Bits(serial.Min.y), Bits(parallel.Min.y));
+                Assert.Equal(90, parallel.Max.x);
+                Assert.Equal(80, parallel.Max.y);
+            }
+        }
+
+        [Fact]
+        public void ALargeBuild_ReportsABadBoxLikeASmallOne()
+        {
+            int block = LooseQuadtree2d.ParallelThreshold;
+            AxisAlignedBox2d[] boxes = Enumerable.Repeat(new AxisAlignedBox2d(0, 0, 1, 1), 2 * block + 3).ToArray();
+            foreach (int at in new[] { 0, block - 1, block, boxes.Length - 1 }) {
+                boxes[at] = new AxisAlignedBox2d(double.NaN, 0, 1, 1);
+                ArgumentException parallel = Assert.ThrowsAny<ArgumentException>(() => new LooseQuadtree2d(boxes, true));
+                ArgumentException serial = Assert.ThrowsAny<ArgumentException>(() => new LooseQuadtree2d(boxes, false));
+                Assert.Equal(serial.GetType(), parallel.GetType());
+                Assert.Equal(serial.Message, parallel.Message);
+                boxes[at] = new AxisAlignedBox2d(0, 0, 1, 1);
+            }
+            Assert.Equal(boxes.Length, new LooseQuadtree2d(new List<AxisAlignedBox2d>(boxes), true).Count);
+        }
+
+        [Fact]
+        public void TheAdapter_CopiesAnArray_AndAnyOtherList()
+        {
+            Triangle3d[] triangles = TriangleGrid(4, v => v);
+            var fromArray = new TriangleQuadtree2d(triangles);
+            var fromList = new TriangleQuadtree2d(new List<Triangle3d>(triangles));
+            Vector3d first = triangles[0].V0;
+            triangles[0] = new Triangle3d(new Vector3d(9, 9, 9), new Vector3d(10, 9, 9), new Vector3d(9, 10, 9));
+            Assert.Equal(first, fromArray.GetItem(0).V0);
+            Assert.Equal(first, fromList.GetItem(0).V0);
+            Assert.Equal(triangles[triangles.Length - 1].V2, fromArray.GetItem(triangles.Length - 1).V2);
+            Assert.Equal(triangles[triangles.Length - 1].V2, fromList.GetItem(triangles.Length - 1).V2);
         }
 
         static Triangle3d[] TriangleGrid(int cells, Func<Vector3d, Vector3d> place)
