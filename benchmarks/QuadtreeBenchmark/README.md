@@ -24,7 +24,7 @@ It prints CSV: one row per contender and operation. `triangle_over` builds witho
 - The NetTopologySuite builds include all envelopes and inserts, and `STRtree` an explicit `Build()`. They keep the source arrays, so they are not equivalent to `TriangleQuadtree2d`, which copies its triangles, unless built with `TriangleQuadtree2d.Over`.
 - NetTopologySuite has no tie rule for nearest items, and its `Quadtree` has no nearest query: both are built from range queries here, and that time counts. So its nearest rows do not measure a native operation.
 - Its range queries are primary filters: results are filtered afterwards, and that time counts.
-- Heights have zero tolerance and use one shared helper, on a terrain with disjoint interiors.
+- Heights have zero tolerance and use one shared helper, on a terrain with disjoint interiors. Row `height_tolerance` is the library's only: points 0.0005 outside the boundary of that terrain, at the default tolerance, so each pays for the search for an exact hit first.
 
 ## How to read the numbers
 
