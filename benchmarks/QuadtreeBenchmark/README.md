@@ -34,7 +34,7 @@ The targets of the spec's §4.2 were measured by the owner on the old index and 
 
 ## Cost of the structure
 
-Counted rather than timed, so exact: `QuadtreeReviewRegressionTests`. What one small query looks at:
+Counted rather than timed, so exact. The two rows on the 1M grid are a one-off count on the benchmark's grid; `QuadtreeReviewRegressionTests` holds the others and a limit for point queries on a smaller grid. What one small query looks at:
 
 | Data | Before | Now |
 |---|---:|---:|
@@ -56,7 +56,7 @@ None of these is measured. Each would have to show its gain here first.
 
 ## Results
 
-`708 10000 8` on an i7-8700 with 12 logical processors, alone on the machine: 1,002,528 triangles, medians of 3 processes. Earlier records of the abandoned sessions were dropped: they described older code and were never re-measured.
+`708 10000 8` on an i7-8700 with 12 logical processors, alone on the machine: 1,002,528 triangles, medians over 3 processes (of all samples, for queries). Earlier records of the abandoned sessions were dropped: they described older code and were never re-measured.
 
 Each build runs once per process, so `sequential`, the first, also pays for the code not being optimized yet. On .NET 10 it took about 240 ms in a warmed process, and the others changed little.
 

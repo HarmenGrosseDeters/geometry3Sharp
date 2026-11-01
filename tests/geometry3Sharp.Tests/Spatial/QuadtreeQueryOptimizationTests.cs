@@ -206,11 +206,15 @@ namespace geometry3Sharp.Tests.Spatial
             var good = new Triangle3d(new Vector3d(0, 0, 0), new Vector3d(1, 0, 0), new Vector3d(0, 1, 0));
             var bad = new Triangle3d(new Vector3d(double.NaN, 0, 0), new Vector3d(1, 0, 0), new Vector3d(0, 1, 0));
             Triangle3d[] triangles = Enumerable.Repeat(good, 2 * LooseQuadtree2d.ParallelThreshold).ToArray();
-            triangles[triangles.Length / 2] = bad;
-            Assert.Throws<ArgumentException>(() => new TriangleQuadtree2d(triangles));
-            Assert.Throws<ArgumentException>(() => TriangleQuadtree2d.Over(triangles));
-            Assert.Throws<ArgumentException>(() => TriangleQuadtree2d.Over(triangles, false));
-            triangles[triangles.Length / 2] = good;
+            // At the edges of the blocks that the bounds are computed in, too.
+            int block = LooseQuadtree2d.ParallelThreshold;
+            foreach (int at in new[] { 0, block - 1, block, triangles.Length - 1 }) {
+                triangles[at] = bad;
+                Assert.Throws<ArgumentException>(() => new TriangleQuadtree2d(triangles));
+                Assert.Throws<ArgumentException>(() => TriangleQuadtree2d.Over(triangles));
+                Assert.Throws<ArgumentException>(() => TriangleQuadtree2d.Over(triangles, false));
+                triangles[at] = good;
+            }
             Assert.Equal(triangles.Length, TriangleQuadtree2d.Over(triangles).Count);
 
             // The last one too gets its bounds.
