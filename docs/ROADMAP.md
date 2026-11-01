@@ -283,10 +283,10 @@ Open tasks further up, and work further down, in the code or in the research lis
 Plans, fact-checked on 2026-10-30; each states the owner decisions it still needs. The implementation or audit work remains open.
 Tasks 4 to 6 can start independently once those are made; for task 4 they are made.
 
-- [ ] **4. DAP bug fixes (E.2):** [audit and adoption plan](design/DAP_BUGFIX_AUDIT.md). Review the pinned
-  `Digital-Production-Aachen/DAPComputationalGeometry` delta from `8f185f1` to DAP HEAD, ignoring formatting;
-  each adopted fix needs a regression that fails on our pre-fix code, the minimal fix and an attribution in
-  [SOURCES.md](SOURCES.md). Root Boost license verified; new features remain blocked on individual provenance.
+- [x] **4. DAP bug fixes (E.2):** [audit and adoption plan](design/DAP_BUGFIX_AUDIT.md). Audited 2026-11-01: the
+  delta from `8f185f1` to `a2a4b9f` (and on to `158507b`) has no bug fix that applies here; it has formatting, API
+  breaks, behavior changes and features, plus defects of its own that the [audit result](design/DAP_BUGFIX_AUDIT.md#audit-result-2026-11-01)
+  lists so later feature ports avoid them. New features remain blocked on individual provenance.
 - [ ] **5. Honest terrain metrics (C2(A)):** [benchmark-only plan](design/TERRAIN_DISTANCE_METRICS.md). Add shortest
   3D distance to the reference TIN and the horizontal/vertical components of the same closest-point displacement
   for `tdc` and `gtin`; retain vertical-ray metrics, report invalid/missing samples and measure overhead. Do not
