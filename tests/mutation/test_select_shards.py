@@ -7,7 +7,7 @@ import subprocess
 import sys
 import unittest
 
-from select_shards import TESTS, load_configs, select, workflow_edit_is_trigger_only
+from select_shards import ALWAYS, TESTS, load_configs, select, workflow_edit_is_trigger_only
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -87,26 +87,68 @@ class SelectShards(unittest.TestCase):
             self.assertEqual("full", arithmetic)
             self.assertEqual({s: "full" for s in ALL_MESH}, mesh)
 
-    def test_workflow_edit_of_trigger_paths_only(self):
-        paths_only = """diff --git a/.github/workflows/mutation.yml b/.github/workflows/mutation.yml
---- a/.github/workflows/mutation.yml
-+++ b/.github/workflows/mutation.yml
-@@ -40,2 +40,4 @@
-       - 'tests/geometry3Sharp.Tests/ExactTriangulation2Tests.cs'
-+      - 'tests/geometry3Sharp.Tests/SafeRoundingBoundTests.cs'
-+      - 'tests/geometry3Sharp.Tests/Other*Tests.cs'   # a comment
--      - 'tests/geometry3Sharp.Tests/Old.cs'
-+
-+# a comment
-"""
-        self.assertTrue(workflow_edit_is_trigger_only(paths_only))
-        for job_line in ("+      max-parallel: 6", "+      - uses: actions/checkout@v5", "-    timeout-minutes: 350",
-                         "+    - cron: '23 3 * * 2'", "+          key: mutation-baseline-x"):
-            self.assertFalse(workflow_edit_is_trigger_only(paths_only + job_line + "\n"), job_line)
-        self.assertFalse(workflow_edit_is_trigger_only(""))
+    WF = ("# header comment\n"
+          "\n"
+          "on:\n"
+          "  pull_request:\n"
+          "    paths:\n"
+          "      - 'a.cs'\n"
+          "      - 'b.cs'\n"
+          "  schedule:\n"
+          "    - cron: '23 3 * * 1'\n"
+          "jobs:\n"
+          "  x:\n"
+          "    runs-on: ubuntu-latest\n"
+          "    steps:\n"
+          "      - run: >\n"
+          "          jq . report.json || true\n")
 
-    def test_command_line_drops_a_trigger_only_workflow_edit(self):
-        # on a temporary repository: the edit adds a trigger path, so the workflow alone runs nothing
+    @staticmethod
+    def _diff(old, new):
+        import difflib
+        return "".join(difflib.unified_diff(old.splitlines(True), new.splitlines(True), "a/w", "b/w", n=1))
+
+    def _trigger_only(self, new):
+        return workflow_edit_is_trigger_only(self._diff(self.WF, new), self.WF, new)
+
+    def test_workflow_edit_of_trigger_paths_only(self):
+        wf = self.WF
+        self.assertTrue(self._trigger_only(wf.replace("      - 'b.cs'\n", "      - 'b.cs'\n      - 'c*.cs'   # new\n")))
+        self.assertTrue(self._trigger_only(wf.replace("      - 'a.cs'\n", "")))
+        self.assertTrue(self._trigger_only(wf.replace("      - 'a.cs'\n", "      # a comment\n\n      - 'a.cs'\n")))
+        self.assertTrue(self._trigger_only(wf.replace("# header comment\n", "# header comment\n# more header\n")))
+
+    def test_workflow_edit_that_changes_a_job_runs_in_full(self):
+        wf = self.WF
+        for new in (wf.replace("      - 'a.cs'\n", "      - 'x.cs'\n").replace("ubuntu-latest", "ubuntu-24.04"),
+                    wf.replace("23 3 * * 1", "23 3 * * 2"),
+                    wf + "    timeout-minutes: 9\n",
+                    # a quoted list item outside the paths (review of #278)
+                    wf.replace("    runs-on: ubuntu-latest\n", "    runs-on:\n      - 'self-hosted'\n"),
+                    # a "comment" inside a folded run block is shell text (review of #278)
+                    wf.replace("          jq . report.json", "          # note\n          jq . report.json"),
+                    # a path line retyped, and a header line moved below on:
+                    wf.replace("      - 'a.cs'\n", "      - 'a.cs' \n").replace("  x:\n", "  # c\n  x:\n"),
+                    wf.replace("on:\n", "onn:\n"),
+                    # a key in the header, and a line just outside the paths list (the region bounds)
+                    wf.replace("# header comment\n", "name: x\n# header comment\n"),
+                    wf.replace("    paths:\n", "    # x\n    paths:\n"),
+                    wf.replace("  schedule:\n", "      - 'z.cs'\n  schedule:\n").replace("  pull_request:\n", "  pull_request:\n      - 'y.cs'\n")):
+            self.assertFalse(self._trigger_only(new), new)
+        self.assertFalse(workflow_edit_is_trigger_only("", wf, wf))
+
+    def test_workflow_paths_cover_the_tooling(self):
+        # removing the tooling from the trigger paths is a trigger-only edit, so it must be caught here (review of #278)
+        with open(os.path.join(ROOT, ".github/workflows/mutation.yml"), encoding="utf-8") as f:
+            workflow = f.read()
+        block = workflow[workflow.index("paths:"):workflow.index("schedule:")]
+        patterns = re.findall(r"- '([^']+)'", block)
+        for path in ALWAYS | {"tests/mutation/select_shards.py"}:
+            self.assertTrue(any(fnmatch.fnmatch(path, p) for p in patterns), path)
+
+    def test_command_line_and_the_workflow_diff(self):
+        # on a temporary repository: a trigger-only edit of the workflow runs nothing by itself, a job edit everything,
+        # a trigger-only edit with a source change only that source's shard, and a missing commit fails the step
         import shutil, tempfile
         tmp = tempfile.mkdtemp()
         try:
@@ -116,25 +158,26 @@ class SelectShards(unittest.TestCase):
             git("init", "-q")
             wf = os.path.join(tmp, ".github", "workflows")
             os.makedirs(wf)
-            with open(os.path.join(wf, "mutation.yml"), "w") as f:
-                f.write("on:\n  pull_request:\n    paths:\n      - 'a.cs'\n")
+            def write(text):
+                with open(os.path.join(wf, "mutation.yml"), "w") as f:
+                    f.write(text)
+            write(self.WF)
             git("add", "-A"); git("commit", "-q", "-m", "a")
             base = git("rev-parse", "HEAD")
             def commit(text):
-                with open(os.path.join(wf, "mutation.yml"), "a") as f:
-                    f.write(text)
+                write(text)
                 git("commit", "-q", "-am", "b")
                 return git("rev-parse", "HEAD")
-            paths_head = commit("      - 'b.cs'\n")
-            job_head = commit("    timeout-minutes: 9\n")
-            def cli(head):
-                p = subprocess.run([sys.executable, os.path.join(HERE, "select_shards.py")],
-                                   input=".github/workflows/mutation.yml\n", capture_output=True, text=True, cwd=tmp,
-                                   env=dict(os.environ, BASE=base, HEAD=head))
-                self.assertEqual(0, p.returncode, p.stderr)
-                return p.stdout
-            self.assertEqual("arithmetic=none\nmesh=[]\n", cli(paths_head))
-            self.assertIn("arithmetic=full", cli(job_head))
+            paths_head = commit(self.WF.replace("      - 'b.cs'\n", "      - 'b.cs'\n      - 'c.cs'\n"))
+            job_head = commit(self.WF.replace("ubuntu-latest", "ubuntu-24.04"))
+            def cli(head, changed=".github/workflows/mutation.yml\n"):
+                return subprocess.run([sys.executable, os.path.join(HERE, "select_shards.py")], input=changed,
+                                      capture_output=True, text=True, cwd=tmp, env=dict(os.environ, BASE=base, HEAD=head))
+            self.assertEqual((0, "arithmetic=none\nmesh=[]\n"), (cli(paths_head).returncode, cli(paths_head).stdout))
+            self.assertIn("arithmetic=full", cli(job_head).stdout)
+            out = cli(paths_head, ".github/workflows/mutation.yml\nmesh_ops/MeshRoundingRepair.cs\n").stdout
+            self.assertEqual('arithmetic=none\nmesh=[{"shard": "rounding", "mode": "source"}]\n', out)
+            self.assertNotEqual(0, cli("0" * 40).returncode)
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 

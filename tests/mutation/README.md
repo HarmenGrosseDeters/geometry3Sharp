@@ -33,7 +33,7 @@ workflow". On a pull request, it waits until the PR is ready for review (drafts 
 | a mutated file | incremental: the mutants of the changed lines; the others keep their result from the baseline (below). Without a baseline in the cache: the whole shard | yes, on the combined score |
 | the config | the whole shard | yes |
 | only tests of the `test-case-filter` | `--since`: the mutants those tests cover | no: a score over a part of the mutants is not comparable with the threshold, so it only reports |
-| `.config/dotnet-tools.json`, the workflow | every config in full; an edit of the workflow that only adds or removes trigger `paths`, comments or blank lines runs nothing by itself (`select_shards.py` checks the diff) | yes |
+| `.config/dotnet-tools.json`, the workflow | every config in full; an edit of the workflow that only adds or removes single-quoted items of the trigger `paths` (or comments and blank lines there or in the header before `on:`) runs nothing by itself (`select_shards.py` checks the diff by line position) | yes |
 | anything else, including `geometry3Sharp.Tests.csproj` | nothing (the weekly run covers it) | |
 
 "Run workflow" (workflow_dispatch) runs every config in full, or only the ones named in its `shards` input

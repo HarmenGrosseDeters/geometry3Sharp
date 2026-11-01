@@ -31,9 +31,66 @@ TESTS = "tests/geometry3Sharp.Tests/"
 WORKFLOW = ".github/workflows/mutation.yml"
 ALWAYS = {".config/dotnet-tools.json", WORKFLOW}
 
-# a changed line of the workflow that only adds or removes a trigger path (`      - 'mesh_ops/X.cs'`), a comment or a
-# blank line: such an edit changes which PRs start the workflow, not how a shard runs
-_TRIGGER_ONLY_LINE = re.compile(r"^\s*(-\s*'[^']*'\s*(#.*)?|#.*)?$")
+# an edit of the workflow that only adds or removes trigger paths (`      - 'mesh_ops/X.cs'` between `paths:` and
+# `schedule:`), or comments and blank lines of the header before `on:`, changes which PRs start the workflow, not how a
+# shard runs
+_PATH_ITEM = re.compile(r"^\s*-\s*'[^']*'\s*(#.*)?$")
+_COMMENT_OR_BLANK = re.compile(r"^\s*(#.*)?$")
+_HUNK = re.compile(r"^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@")
+
+
+def _regions(text):
+    """(last line of the header before `on:`, (first, last) line of the `paths` list), 1-based"""
+    lines = text.splitlines()
+    on = next(i for i, l in enumerate(lines, 1) if l.startswith("on:"))
+    paths = next(i for i, l in enumerate(lines, 1) if l.strip() == "paths:")
+    schedule = next(i for i, l in enumerate(lines, 1) if l.strip() == "schedule:")
+    return on - 1, (paths + 1, schedule - 1)
+
+
+def _allowed(line, number, regions):
+    header, (first, last) = regions
+    if number <= header:
+        return bool(_COMMENT_OR_BLANK.match(line))
+    if first <= number <= last:
+        return bool(_PATH_ITEM.match(line) or _COMMENT_OR_BLANK.match(line))
+    return False
+
+
+def workflow_edit_is_trigger_only(diff, old_text, new_text):
+    """True if a unified diff of the workflow (old_text -> new_text) only adds or removes quoted items of the trigger
+    `paths` list, comments or blank lines there, or comments and blank lines of the header before `on:`. Then the
+    workflow edit alone runs no shard in full: a full run of all 8 shards takes hours of runners, and adding a test file
+    to the trigger paths (AGENTS.md) changes no shard's mutants or tests. A `#` line elsewhere (in a `run:` block it is
+    shell text) or any other change keeps the full run."""
+    try:
+        old_regions, new_regions = _regions(old_text), _regions(new_text)
+    except StopIteration:
+        return False
+    old_no = new_no = None
+    changed = False
+    for line in diff.splitlines():
+        m = _HUNK.match(line)
+        if m:
+            old_no, new_no = int(m.group(1)), int(m.group(2))
+            continue
+        if old_no is None or line.startswith("\\"):
+            continue                                    # file headers before the first hunk, "\ No newline"
+        tag, body = line[:1], line[1:]
+        if tag == "-":
+            if not _allowed(body, old_no, old_regions):
+                return False
+            old_no += 1
+            changed = True
+        elif tag == "+":
+            if not _allowed(body, new_no, new_regions):
+                return False
+            new_no += 1
+            changed = True
+        else:
+            old_no += 1
+            new_no += 1
+    return changed
 
 
 def load_configs(directory=HERE):
@@ -49,15 +106,6 @@ def load_configs(directory=HERE):
         classes = {t.split("~")[1].split(".")[0] for t in config["test-case-filter"].split("|")}
         configs[name] = ("tests/mutation/" + os.path.basename(path), sources, {TESTS + c + ".cs" for c in classes})
     return configs
-
-
-def workflow_edit_is_trigger_only(diff):
-    """True if a unified diff of the workflow only adds or removes quoted list items (the `paths` of the trigger),
-    comments or blank lines. Then the workflow edit alone runs no shard in full: a full run of all 8 shards takes hours
-    of runners, and adding a test file to the trigger paths (AGENTS.md) changes no shard's mutants or tests."""
-    changed = [line[1:] for line in diff.splitlines()
-               if line[:1] in "+-" and not line.startswith("+++") and not line.startswith("---")]
-    return bool(changed) and all(_TRIGGER_ONLY_LINE.match(line) for line in changed)
 
 
 def mode_of(config, changed):
@@ -100,9 +148,11 @@ if __name__ == "__main__":
     base, head = os.environ.get("BASE"), os.environ.get("HEAD")
     if WORKFLOW in paths and base and head:
         # (a failed git diff raises: an empty diff must not count as trigger-only)
-        diff = subprocess.run(["git", "diff", f"{base}...{head}", "--", WORKFLOW],
-                              check=True, capture_output=True, text=True).stdout
-        if workflow_edit_is_trigger_only(diff):
+        def git(*a):
+            return subprocess.run(["git"] + list(a), check=True, capture_output=True, text=True).stdout
+        merge_base = git("merge-base", base, head).strip()
+        diff = git("diff", f"{base}...{head}", "--", WORKFLOW)
+        if workflow_edit_is_trigger_only(diff, git("show", f"{merge_base}:{WORKFLOW}"), git("show", f"{head}:{WORKFLOW}")):
             paths.remove(WORKFLOW)
             print("workflow: only trigger paths or comments changed, not a reason for full runs", file=sys.stderr)
     arithmetic, mesh = select(paths, load_configs(), run_all, only)
