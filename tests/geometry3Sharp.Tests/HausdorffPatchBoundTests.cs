@@ -122,7 +122,8 @@ namespace geometry3Sharp.Tests
             Assert.True(CheckSound(pin, 2, 300, -0.05, 0.05, 0.5) > 50);
             // inconsistent orientation: a checkerboard of flipped cells, and a flipped block
             Assert.True(CheckSound(Grid(0, 0, 1, 1, 21, flip: (i, j) => i >= 8 && i <= 12 && j >= 8 && j <= 12), 3, 300, -0.05, 0.05, 0.5) > 50);
-            CheckSound(Grid(0, 0, 1, 1, 21, flip: (i, j) => ((i + j) & 1) == 0), 4, 200, -0.05, 0.05, 0.5);
+            // (every edge inconsistent: never covered)
+            Assert.Equal(0, CheckSound(Grid(0, 0, 1, 1, 21, flip: (i, j) => ((i + j) & 1) == 0), 4, 200, -0.05, 0.05, 0.5));
             // a thin plate: top up, bottom down 0.01 below (not connected); query triangles on both sides and in between
             DMesh3 plate = Grid(0, 0, 1, 1, 21);
             Grid(0, 0, 1, 1, 17, h: (x, y) => -0.01, down: true, into: plate);
@@ -131,7 +132,7 @@ namespace geometry3Sharp.Tests
             DMesh3 fold = Grid(0, 0, 1, 1, 21);
             Grid(0.2, 0.2, 0.8, 0.8, 9, h: (x, y) => 0.02 + 0.3 * x * (1 - x), down: true, into: fold);
             Grid(0.3, 0.3, 0.7, 0.7, 9, h: (x, y) => 0.03, into: fold);
-            CheckSound(fold, 6, 400, -0.05, 0.12, 0.5);
+            Assert.True(CheckSound(fold, 6, 400, -0.05, 0.12, 0.5) > 50);
             // bumpy height fields at several amplitudes: curved, positive and negative projections
             foreach (double amp in new[] { 0.002, 0.02, 0.2 }) {
                 DMesh3 bumpy = Grid(0, 0, 1, 1, 31, h: (x, y) => amp * Math.Sin(9 * x) * Math.Cos(7 * y));
@@ -179,7 +180,33 @@ namespace geometry3Sharp.Tests
             // the same without the hole: covered, the bound is 0
             DMesh3 full = Grid(0, 0, 1, 1, 21);
             var ftree = new DMeshAABBTree3(full, true);
-            Assert.Equal(0, Patch(new TriangleDeviationBounds(full), ftree, q0, q1, q2));
+            // (plus the rounding slack, about 1e-12 of the size)
+            double u0 = Patch(new TriangleDeviationBounds(full), ftree, q0, q1, q2);
+            Assert.True(u0 >= 0 && u0 < 1e-10, "covered: " + u0);
+        }
+
+        [Fact]
+        public void SteepTargetTriangles_AreLeftOut()
+        {
+            // a flat strip with one cell replaced by a steep fin (heights 0.2 over a projected width 1e-4): the patch
+            // leaves the fin out, so the query triangle over it is not covered
+            var m = new DMesh3();
+            int a = m.AppendVertex(new Vector3d(0, 0, 0)), b = m.AppendVertex(new Vector3d(1, 0, 0)),
+                c = m.AppendVertex(new Vector3d(1, 0.5, 0)), d = m.AppendVertex(new Vector3d(0, 0.5, 0)),
+                e = m.AppendVertex(new Vector3d(0, 0.5001, 0.2)), f = m.AppendVertex(new Vector3d(1, 0.5001, 0.2)),
+                g = m.AppendVertex(new Vector3d(1, 1, 0.2)), h = m.AppendVertex(new Vector3d(0, 1, 0.2));
+            m.AppendTriangle(a, b, c); m.AppendTriangle(a, c, d);
+            m.AppendTriangle(d, c, f); m.AppendTriangle(d, f, e);       // the fin, slope 2000
+            m.AppendTriangle(e, f, g); m.AppendTriangle(e, g, h);
+            var tree = new DMeshAABBTree3(m, true);
+            Vector3d p0 = new Vector3d(0.3, 0.3, 0.1), p1 = new Vector3d(0.7, 0.3, 0.1), p2 = new Vector3d(0.5, 0.7, 0.1);
+            Assert.True(double.IsPositiveInfinity(Patch(new TriangleDeviationBounds(m), tree, p0, p1, p2)));
+            // a gentler fin (projected width 0.01, slope 20) is used, and the bound holds
+            m.SetVertex(e, new Vector3d(0, 0.51, 0.2)); m.SetVertex(f, new Vector3d(1, 0.51, 0.2));
+            tree = new DMeshAABBTree3(m, true);
+            double u = Patch(new TriangleDeviationBounds(m), tree, p0, p1, p2);
+            Assert.False(double.IsPositiveInfinity(u));
+            Assert.True(u >= SampledMax(m, tree, p0, p1, p2) - 1e-12);
         }
 
         [Fact]

@@ -60,6 +60,8 @@ namespace g3
         internal bool PatchBound = false;
         /// <summary> the patch bound gives up when the patch has more target triangles </summary>
         internal int MaxPatchTriangles = 256;
+        /// <summary> the patch bound leaves out target triangles steeper than this (height range / projected size) </summary>
+        const double MaxPatchSlope = 1000;
 
         // Upper bound from the target triangles under the triangle (p0, p1, p2), seen along its normal: if the
         // projections of a connected set S of target triangles onto the triangle's plane cover the triangle,
@@ -93,7 +95,7 @@ namespace g3
             var stack = new Stack<int>();
             foreach (int s in new int[] { n0, n1, n2 })
                 if (s >= 0 && Target.IsTriangle(s) && state.ContainsKey(s) == false) { state[s] = 0; stack.Push(s); }
-            double hmax = 0;
+            double hmax = 0, rmax = 0;
             bool hasHeight = false;
             var clipped = new List<Vector3d>(9);
             var tmp = new List<Vector3d>(9);
@@ -107,12 +109,18 @@ namespace g3
                 AxisAlignedBox2d tbox = new AxisAlignedBox2d(ta.xy); tbox.Contain(tb.xy); tbox.Contain(tc.xy);
                 double area2 = (tb.x - ta.x) * (tc.y - ta.y) - (tb.y - ta.y) * (tc.x - ta.x);
                 double tscale = Math.Max(tbox.Width, tbox.Height);
-                if (tbox.Intersects(box) == false || !(area2 > 1e-9 * tscale * tscale)) {
+                // the slope of the height over the projection: |gradient| = |normal (x, y)| / normal z, normal z = area2.
+                // Steep triangles, seen almost edge on, are left out: the rounding of the clipped heights grows with
+                // the slope, which the slack below covers up to MaxPatchSlope
+                Vector3d tn = (tb - ta).Cross(tc - ta);
+                double slope = Math.Sqrt(tn.x * tn.x + tn.y * tn.y);
+                if (tbox.Intersects(box) == false || !(area2 > 1e-9 * tscale * tscale) || !(slope <= MaxPatchSlope * area2)) {
                     state[tid] = 2;
                     continue;
                 }
                 state[tid] = 1;
                 inS.Add(tid);
+                rmax = Math.Max(rmax, Math.Max(a.Length, Math.Max(b.Length, c.Length)));
                 if (inS.Count > MaxPatchTriangles)
                     return double.PositiveInfinity;
                 // heights over the part of the projection inside the triangle
@@ -145,7 +153,9 @@ namespace g3
                         return double.PositiveInfinity;
                 }
             }
-            return hmax;
+            // slack for the rounding of the projections and the clipped heights (relative to the coordinates, which
+            // are taken relative to p0, and to the slope)
+            return hmax + 16 * MaxPatchSlope * MathUtil.Epsilon * (scale + rmax + hmax);
         }
 
         // does the triangle t have the edge a -> b in its order?

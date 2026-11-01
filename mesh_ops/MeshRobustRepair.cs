@@ -462,7 +462,7 @@ namespace gs
                 return null;
             // only the upper bound has to stay below maxDistance: a coarse tolerance first, a finer one if the
             // distance is close to maxDistance. With the patch bound: the large triangles of the result over the
-            // many small, nearly flat ones of the mesh need few subdivisions (on alpha wraps 16 times less time)
+            // many small, nearly flat ones of the mesh need few subdivisions (on the alpha wraps of the repair benchmark the check took 16 times less time)
             var spatial = new DMeshAABBTree3(mesh, true);
             foreach (double tol in new double[] { 0.1, 0.01 }) {
                 var hd = new MeshHausdorffDistance(m, mesh) { Symmetric = false, SpatialB = spatial, Tolerance = tol * maxDistance, CancelF = cancelF, PatchBound = true };

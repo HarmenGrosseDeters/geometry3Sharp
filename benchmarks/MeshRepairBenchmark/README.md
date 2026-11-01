@@ -678,7 +678,7 @@ Options and their upper bounds (`BENCH_REPAIR=robust`, the 17 meshes, `BENCH_P=2
   collapse (eg the patch certificate of `docs/design/SELF_INTERSECTION_PATCH_CERTIFICATE.md`), not a tuning.
 
 Result, master `7910e06` against the branch, `BENCH_REPAIR=robust BENCH_P=2 TIMEOUT=600`, the 17 meshes
-(`run.sh` per mesh as in `run_all.sh`):
+(`run.sh` per mesh as in `run_all.sh`; a second branch run after the review fixes: 137 s and 557 s, results again identical):
 
 | | master | patch bound |
 |---|---|---|
