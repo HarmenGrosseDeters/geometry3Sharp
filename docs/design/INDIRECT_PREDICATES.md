@@ -224,3 +224,36 @@ exact code (`.editorconfig`: G3E0001-3, RS0030; `ExactCodeAnalyzerTests`).
 - invariance over `Similarity.All()`: equal to the oracle on every transformed configuration; the `2^k` scales
   applied to the integer configuration (times `2^(k + 40)`, so that it crosses to the `BigInteger` path) give the
   untransformed signs.
+
+## 8. Spike: an indirect `Orient` in the arrangement (measured before wiring, stopped)
+
+The task: wire an indirect `Orient` on implicit points into `ExactMeshArrangement.Orient` and measure how much of
+the upper bound of the exact work (10-13 % serial on the real classes, 41 % on n-ary) arrives.
+
+**The question first.** An indirect `Orient` evaluates the predicate without constructing the point. It saves work
+only for points that are then never constructed: the output rounds every result vertex from its exact point
+(`PointToVector`), and the other predicates (`InCircle`, `ComparePoints`, ...) construct their points too. So the
+upper bound of the spike is the constructions that `Orient` alone ever needs.
+
+**Probe** (temporary, not committed; on #246's head): every implicit point (`EdgePlane`, `Segments`, `Planes`)
+records whether `Orient`'s exact stage triggered its construction and whether anything else asked for its exact
+value during the boolean. `BooleanComparison profile --repeat 1 <cases>`, sums over all cases and operations:
+
+| class | implicit points constructed | first by `Orient` | needed by `Orient` only |
+|---|---|---|---|
+| `cgal` (150 runs) | 257 289 | 91 531 | 5 919 (2.3 %) |
+| Thingi10K (96 runs) | 374 511 | 77 813 | 7 283 (1.9 %) |
+| `cherchi` (5 small cases, 15 runs) | 18 114 | 18 114 | 0 |
+| grid 5 / grid 10 | 12 972 / 126 446 | 0 / 0 | 0 / 0 |
+| spheres 20 | 10 192 | 10 190 | 5 583 (55 %) |
+
+**Decision (stop rule):** an indirect `Orient` can save at most about 2 % of the constructions on `cgal` and
+Thingi10K and none on `cherchi` and the grids: a fraction of a percent of the time, below what the A/B runs can
+resolve. It is not wired in. Only spheres 20 (few, large exact points) would gain.
+
+**What the numbers say instead.** The exact work on the real classes is the constructions themselves, and almost
+every constructed point is needed by the output. The lever is cheaper constructions, not fewer: building the
+implicit points in fixed width (the homogeneous `N`, `d` of section 3 on `FixedArith`, as the generated graphs do)
+and reducing them by a gcd on limbs, instead of `BigInteger` arithmetic and `BigInteger.GreatestCommonDivisor`. That
+is item 3 of section 12 of `FIXED_WIDTH_EXACT_POINTS.md` widened to all constructions; the generator can derive its
+bounds. Not started: it needs the owner's decision.
