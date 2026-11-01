@@ -4,7 +4,8 @@ name: Mutation tests
 # on ready PRs (not drafts) only for the configs that the PR touches (tests/mutation/select_shards.py). Two jobs:
 # - exact-arithmetic: math/ExactPredicates.cs, ExactPoint3.cs, AdaptivePredicates.cs (about 50 minutes);
 # - exact-mesh: the exact mesh pipeline (mesh_ops/ExactMesh*.cs, ExactPlanarSimplify.cs, ExactTriangulation2.cs,
-#   MeshRoundingRepair.cs, and math/FixedPoint3.cs, the arrangement's fixed-width points), in shards that run in
+#   MeshRoundingRepair.cs, math/FixedPoint3.cs, the arrangement's fixed-width points, and math/Generated/*.cs, the
+#   generated predicates), in shards that run in
 #   parallel (tests/mutation/stryker-mesh-*.json).
 # A shard whose mutated file changed runs incrementally (tests/mutation/incremental.py): Stryker mutates only the changed
 # lines, the other mutants keep their results from the last full run (the baseline, kept in the Actions cache), and the
@@ -22,6 +23,7 @@ on:
       - 'math/ExactPoint3.cs'
       - 'math/AdaptivePredicates.cs'
       - 'math/FixedPoint3.cs'
+      - 'math/Generated/*.cs'
       - 'mesh_ops/ExactMesh*.cs'
       - 'mesh_ops/ExactPlanarSimplify.cs'
       - 'mesh_ops/ExactTriangulation2.cs'
@@ -31,12 +33,18 @@ on:
       - 'tests/geometry3Sharp.Tests/PredicateDifferentialTests.cs'
       - 'tests/geometry3Sharp.Tests/ExactPoint3ConversionTests.cs'
       - 'tests/geometry3Sharp.Tests/ExactPoint3FixedWidthTests.cs'
+      - 'tests/geometry3Sharp.Tests/ExactOrient3dKernelTests.cs'
+      - 'tests/geometry3Sharp.Tests/ExactTouchOnlyCoplanarTests.cs'
+      - 'tests/geometry3Sharp.Tests/ExactPlanesFixedWidthTests.cs'
+      - 'tests/geometry3Sharp.Tests/GeneratedPredicatesIndirectTests.cs'
       - 'tests/geometry3Sharp.Tests/ExactMeshBoolean*Tests.cs'
       - 'tests/geometry3Sharp.Tests/ExactBoolean*Tests.cs'
       - 'tests/geometry3Sharp.Tests/ExactFilterBoundTests.cs'
       - 'tests/geometry3Sharp.Tests/ExactArrangementScalingTests.cs'
       - 'tests/geometry3Sharp.Tests/ExactPlanarSimplifyTests.cs'
       - 'tests/geometry3Sharp.Tests/MeshRoundingRepair*Tests.cs'
+      - 'tests/geometry3Sharp.Tests/SafeRoundingBoundTests.cs'
+      - 'tests/geometry3Sharp.Tests/ExactBooleanPropertyFindings.cs'
       - 'tests/geometry3Sharp.Tests/ExactTriangulation2Tests.cs'
       - 'tests/geometry3Sharp.Tests/BooleanPerformanceTests.cs'
       - 'tests/mutation/*'
