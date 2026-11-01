@@ -323,8 +323,7 @@ namespace g3
         }
 
         /// <summary>
-        /// IntersectsBeyondShared for two non-degenerate triangles with at least one shared vertex whose corners are
-        /// known to lie in one plane (the caller has the Orient3d of the far corners, all 0): the same result, without
+        /// IntersectsBeyondShared for two non-degenerate triangles whose corners are known to lie in one plane (the caller has the Orient3d of the far corners, all 0): the same result, without
         /// the Orient3d calls that are then 0 (the coplanar branches of IntersectsBeyondShared and of
         /// SegmentIntersectsTriangle, in the same order, with the same projections). ExactMeshArrangement's pair
         /// search calls it for coplanar neighbours (docs/design/CHEAPER_CONSTRUCTIONS.md, section 4.1).

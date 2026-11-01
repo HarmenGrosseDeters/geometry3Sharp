@@ -84,8 +84,9 @@ namespace geometry3Sharp.Tests
                         var pb = new Index3i(U.Corners[0], U.Corners[1], U.Corners[2]);
                         var A = new Triangle3d(T.V0, T.V1, T.V2); var B = new Triangle3d(U.V0, U.V1, U.V2);
                         bool expected = ExactTriangleIntersection.IntersectsBeyondShared(pa, ref A, pb, ref B) == false;
-                        // the entry point itself, on the coplanar pairs (its precondition)
-                        if (coplanar(T, U) && (ExactTriangleIntersection.IntersectsBeyondSharedCoplanar(pa, ref A, pb, ref B) == expected))
+                        // the entry point itself, on the coplanar pairs (its precondition): it must give IntersectsBeyondShared's
+                        // answer, i.e. the opposite of touch-only (expected)
+                        if (coplanar(T, U) && (ExactTriangleIntersection.IntersectsBeyondSharedCoplanar(pa, ref A, pb, ref B) != !expected))
                             differ++;
                         bool got = arr.touch_only(T, U);
                         if (got != expected || arr.touch_only(U, T) != expected)
@@ -140,6 +141,59 @@ namespace geometry3Sharp.Tests
                     CheckAllPairs(Patch(r, p[0], p[1], p[2], 5, 40), ref edge, ref vertex, ref differ);
             Assert.Equal(0, differ);
             Assert.True(edge > 1000 && vertex > 1000, $"shared edge {edge}, shared vertex {vertex}");
+        }
+
+        static ExactMeshArrangement Arrangement(DMesh3 m)
+        {
+            var arr = new ExactMeshArrangement(new List<DMesh3> { m }) { SelfIntersections = true };
+            arr.Compute();
+            return arr;
+        }
+
+        [Fact]
+        public void SharedVertex_OneCornerInThePlane_TakesTheGeneralPath()
+        {
+            // T = (s, p, q) in z = 0; U = (s, u, w) with u in T's plane (outside T's corner) and w above it, projecting into
+            // T's corner: U meets T's plane only in the segment s-u, so they touch only in s. A pair with one corner in
+            // the plane and one not must not be taken for coplanar (the 2D test would see w inside T's corner). Both
+            // orders of the corners of U (the corner in the plane first and last).
+            foreach (bool zeroFirst in new[] { true, false }) {
+                var m = new DMesh3();
+                m.AppendVertex(new Vector3d(0, 0, 0)); m.AppendVertex(new Vector3d(1, 0, 0)); m.AppendVertex(new Vector3d(0, 1, 0));
+                m.AppendVertex(new Vector3d(-1, -1, 0)); m.AppendVertex(new Vector3d(0.25, 0.25, 1));
+                m.AppendTriangle(0, 1, 2);
+                if (zeroFirst) m.AppendTriangle(0, 3, 4); else m.AppendTriangle(0, 4, 3);
+                ExactMeshArrangement arr = Arrangement(m);
+                Assert.True(arr.touch_only(arr.Triangles[0], arr.Triangles[1]));
+                Assert.True(arr.touch_only(arr.Triangles[1], arr.Triangles[0]));
+                // (and the coplanar entry, fed this pair against its precondition, would answer wrongly: the test is not vacuous)
+                var T = arr.Triangles[0]; var U = arr.Triangles[1];
+                var A = new Triangle3d(T.V0, T.V1, T.V2); var B = new Triangle3d(U.V0, U.V1, U.V2);
+                Assert.True(ExactTriangleIntersection.IntersectsBeyondSharedCoplanar(new Index3i(T.Corners[0], T.Corners[1], T.Corners[2]), ref A,
+                    new Index3i(U.Corners[0], U.Corners[1], U.Corners[2]), ref B));
+            }
+        }
+
+        [Fact]
+        public void CoplanarSliver_SameProjectionAsIntersectsBeyondShared()
+        {
+            // the repro of ExactTriangleIntersectionSliverTests (#249): both triangles in y = 0, A a sliver whose
+            // floating-point normal is 0, so the projection axis must be chosen exactly; they touch only in the shared vertex
+            Vector3d[] a = { new Vector3d(-0.976127129435447, 0, 0.07347307296897497), new Vector3d(-0.9283813883063483, 0, 0.22041939375248493),
+                new Vector3d(-0.9522542588708977, 0, 0.14694623336072996) };
+            Vector3d[] b = { new Vector3d(-0.8773141400056257, 0, 0.11681076482628214), new Vector3d(-0.9999999999999962, 0, -8.742278000372475E-08) };
+            var A = new Triangle3d(a[0], a[1], a[2]); var B = new Triangle3d(b[0], a[1], b[1]);
+            Index3i ia = new Index3i(0, 1, 2), ib = new Index3i(3, 1, 4);
+            Assert.Equal(ExactTriangleIntersection.IntersectsBeyondShared(ia, ref A, ib, ref B), ExactTriangleIntersection.IntersectsBeyondSharedCoplanar(ia, ref A, ib, ref B));
+            Assert.False(ExactTriangleIntersection.IntersectsBeyondSharedCoplanar(ia, ref A, ib, ref B));
+            Assert.False(ExactTriangleIntersection.IntersectsBeyondSharedCoplanar(ib, ref B, ia, ref A));
+            // through the arrangement's pair search
+            var m = new DMesh3();
+            foreach (Vector3d v in new[] { a[0], a[1], a[2], b[0], b[1] }) m.AppendVertex(v);
+            m.AppendTriangle(0, 1, 2); m.AppendTriangle(3, 1, 4);
+            ExactMeshArrangement arr = Arrangement(m);
+            Assert.True(arr.touch_only(arr.Triangles[0], arr.Triangles[1]));
+            Assert.True(arr.touch_only(arr.Triangles[1], arr.Triangles[0]));
         }
 
         [Fact]
