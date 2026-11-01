@@ -304,13 +304,19 @@ namespace gs
         public double SafetyDistance;
         /// <summary> AlongSurface: edge length for the distance computation; 0 = SafetyDistance / 8 </summary>
         public double EdgeLength = 0;
-        /// <summary> AlongSurface: the line is drawn at SafetyDistance + SafetyMargin; negative = 0.35 x EdgeLength </summary>
+        /// <summary> AlongSurface: the line is drawn at SafetyDistance + SafetyMargin; negative = 0.35 x EdgeLength; not finite: Compute fails </summary>
         public double SafetyMargin = -1;
         /// <summary> AlongSurface: break lines bending more than this (degrees) are kept by the remeshing </summary>
         public double FeatureAngle = 20;
-        /// <summary> Horizontal: the line lies at most this much inside the distance (chords of arcs); Guaranteed: the line is drawn this much outside </summary>
+        /// <summary>
+        /// Horizontal: the line lies at most this much inside the distance (chords of arcs; +infinity: no limit,
+        /// only the edge length limit of SafetyDistance); Guaranteed: the line is drawn this much outside
+        /// </summary>
         public double Tolerance = 0.01;
-        /// <summary> Guaranteed: line points farther than this beyond SafetyDistance (upper bound) are not certified </summary>
+        /// <summary>
+        /// Guaranteed: line points farther than this beyond SafetyDistance (upper bound) are not certified;
+        /// +infinity: no upper limit, only the lower bound (MinLineDistance) is certified
+        /// </summary>
         public double ExcessTolerance = 0.2;
         /// <summary> Guaranteed: Compute fails if a line point is not certified </summary>
         public bool RequireCertified = false;
@@ -365,15 +371,18 @@ namespace gs
         List<List<Vector3d>> polyLines;
 
         /// <summary>
-        /// false (with no lines, no certificate) if SafetyDistance is not positive and finite, the terrain is
-        /// empty, a source point is not finite or a source segment is too long for its length to be finite, or
-        /// the parameters of the mode are invalid: Tolerance (Horizontal, Guaranteed) and ExcessTolerance
-        /// (Guaranteed) must be positive and finite, EdgeLength (AlongSurface) must not be NaN or infinite.
+        /// false (with no lines, no certificate, no outputs of an earlier Compute) if SafetyDistance is not
+        /// positive and finite, the terrain is empty, a source point is not finite or a source segment is too
+        /// long for its length to be finite, or the parameters of the mode are invalid: Tolerance must be positive
+        /// (Horizontal; may be +infinity) or positive and finite (Guaranteed), ExcessTolerance (Guaranteed) must
+        /// be positive (may be +infinity), EdgeLength and SafetyMargin (AlongSurface) must be finite. Very small
+        /// finite tolerances are not refused: see S26 in docs/ROBUSTNESS_SWEEP.md.
         /// </summary>
         public bool Compute()
         {
             Lines.Clear(); Excess.Clear();
-            MaxExcess = 0; UncertifiedSegments = 0; MinLineDistance = 0; Certified = false;
+            MaxExcess = 0; UncertifiedSegments = 0; MinLineDistance = 0; Certified = false; UsedSteinerPoints = 0;
+            RefinedTerrain = null; RemeshedTerrain = null; Geodesic = null;
             if (positive_finite(SafetyDistance) == false || Terrain.TriangleCount == 0 || sources_finite() == false)
                 return false;
             if (Mode == Modes.Guaranteed)
@@ -476,7 +485,7 @@ namespace gs
         {
             Lines.Clear();
             build_segments();
-            if (segments.Count == 0 || positive_finite(Tolerance) == false)
+            if (segments.Count == 0 || !(Tolerance > 0))
                 return false;
             // the line points are exact on the edges; between them a chord of an arc of radius
             // SafetyDistance (around convex corners and line ends) lies at most len^2 / (8 SafetyDistance)
@@ -494,10 +503,10 @@ namespace gs
 
         bool compute_guaranteed()
         {
-            MinLineDistance = double.MaxValue;
             build_segments();
-            if (segments.Count == 0 || positive_finite(Tolerance) == false || positive_finite(ExcessTolerance) == false)
+            if (segments.Count == 0 || positive_finite(Tolerance) == false || !(ExcessTolerance > 0))
                 return false;
+            MinLineDistance = double.MaxValue;
             // as Horizontal, with the 3D distance (a lower bound of the distance along the terrain); the
             // chords between the line points lie at most Tolerance inside the level, so outside SafetyDistance
             double level = SafetyDistance + Tolerance;
@@ -722,8 +731,9 @@ namespace gs
         bool compute_along_surface()
         {
             Lines.Clear();
-            // (0 and negative mean the default; a NaN would pass as the default too)
-            if (MathUtil.IsFinite(EdgeLength) == false)
+            // (0 and negative mean the default; a NaN would pass as the default too, +infinity in SafetyMargin
+            // as a line out of reach: success with no lines)
+            if (MathUtil.IsFinite(EdgeLength) == false || MathUtil.IsFinite(SafetyMargin) == false)
                 return false;
             double h = (EdgeLength > 0) ? EdgeLength : SafetyDistance / 8;
             if (h <= 0)

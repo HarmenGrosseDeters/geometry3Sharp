@@ -144,6 +144,164 @@ namespace geometry3Sharp.Tests
             Assert.All(iso.Graph.Vertices(), v => Assert.True(v.IsFinite));
         }
 
+        // ---- MeshIsoCurves: a field that is infinite on one side (R15, eg Math.Log(0)) ----
+
+        public static IEnumerable<object[]> InfiniteFields()
+        {
+            foreach (MeshIsoCurves.RootfindingModes mode in Enum.GetValues(typeof(MeshIsoCurves.RootfindingModes)))
+                foreach (double bad in new[] { double.NegativeInfinity, double.PositiveInfinity })
+                    foreach (bool precompute in new[] { false, true })
+                        yield return new object[] { mode, bad, precompute };
+        }
+
+        static HashSet<Vector3d> VerticesOf(DMesh3 mesh, Func<Vector3d, bool> where) =>
+            new HashSet<Vector3d>(mesh.VertexIndices().Select(mesh.GetVertex).Where(where));
+
+        // a finite value above the level, the infinite one below it
+        static Func<Vector3d, double> OneSidedField(double bad) => x => (x.z > 0.1) ? -Math.Sign(bad) : bad;
+
+        [Theory]
+        [MemberData(nameof(InfiniteFields))]
+        public void IsoCurves_OneInfiniteValue_CrossesAtTheFiniteVertex(MeshIsoCurves.RootfindingModes mode, double bad, bool precompute)
+        {
+            DMesh3 mesh = Sphere(16), before = new DMesh3(mesh);
+            var iso = new MeshIsoCurves(mesh, OneSidedField(bad)) { RootMode = mode, PrecomputeVertexValues = precompute };
+            iso.Compute();
+            Assert.True(iso.Graph.EdgeCount > 0);
+            Assert.All(iso.Graph.Vertices(), v => Assert.True(v.IsFinite));
+            if (mode != MeshIsoCurves.RootfindingModes.Bisection) {
+                // the root finders that interpolate cannot look between the vertices: the finite end of the edge
+                HashSet<Vector3d> finiteVertices = VerticesOf(mesh, x => x.z > 0.1);
+                Assert.All(iso.Graph.Vertices(), v => Assert.Contains(v, finiteVertices));
+            } else {
+                // bisection finds the jump itself: within an edge length / 2^6 of the level
+                double reach = before.EdgeIndices().Max(e => { Index2i ev = before.GetEdgeV(e); return before.GetVertex(ev.a).Distance(before.GetVertex(ev.b)); });
+                Assert.All(iso.Graph.Vertices(), v => Assert.InRange(v.z, 0.1 - reach / 32, 0.1 + reach / 32));
+            }
+
+            // reuse: a second Compute() on the instance gives the same
+            DGraph3 first = iso.Graph;
+            iso.Compute();
+            AssertGraphBits(first, iso.Graph);
+
+            iso.SplitAtIsoCrossings();
+            AssertClosed(mesh);
+            if (mode != MeshIsoCurves.RootfindingModes.Bisection) {
+                // a crossing at a vertex splits nothing: it would give an edge of length 0 and triangles without area
+                Assert.Equal("", Invariance.Difference(before, mesh));
+            } else {
+                Assert.True(mesh.VertexCount > before.VertexCount);
+                Assert.All(mesh.EdgeIndices(), e => { Index2i ev = mesh.GetEdgeV(e); Assert.True(mesh.GetVertex(ev.a).Distance(mesh.GetVertex(ev.b)) > 0); });
+            }
+        }
+
+        [Theory]
+        [MemberData(nameof(InfiniteFields))]
+        public void IsoCurves_OneInfiniteValue_InEveryFrame(MeshIsoCurves.RootfindingModes mode, double bad, bool precompute)
+        {
+            DMesh3 source = Sphere(16);
+            Func<Vector3d, double> field = OneSidedField(bad);
+            var reference = new MeshIsoCurves(new DMesh3(source), field) { RootMode = mode, PrecomputeVertexValues = precompute };
+            reference.Compute();
+            Assert.True(reference.Graph.EdgeCount > 0);
+            foreach (Similarity s in Similarity.All()) {
+                DMesh3 mesh = Invariance.Transformed(source, s);
+                var iso = new MeshIsoCurves(mesh, x => field(s.Inverse(x))) { RootMode = mode, PrecomputeVertexValues = precompute };
+                iso.Compute();
+                Assert.Equal(reference.Graph.VertexCount, iso.Graph.VertexCount);
+                Assert.Equal(reference.Graph.EdgeCount, iso.Graph.EdgeCount);
+                Assert.All(iso.Graph.Vertices(), v => Assert.True(v.IsFinite, s.Name));
+                if (s.IsExact)
+                    foreach (int v in reference.Graph.VertexIndices())
+                        Assert.Equal(reference.Graph.GetVertex(v), s.Inverse(iso.Graph.GetVertex(v)));
+            }
+        }
+
+        // One triangle with the given values at its corners, in every order of the corners: the Graph must not depend
+        // on which vertex has which value.
+        public static IEnumerable<object[]> InfiniteCorners()
+        {
+            double inf = double.PositiveInfinity;
+            foreach (MeshIsoCurves.RootfindingModes mode in new[] { MeshIsoCurves.RootfindingModes.SingleLerp, MeshIsoCurves.RootfindingModes.LerpSteps }) {
+                yield return new object[] { mode, 0.0, -1.0, inf, 2, 1 };       // through the 0, to the finite vertex
+                yield return new object[] { mode, 0.0, 1.0, -inf, 2, 1 };
+                yield return new object[] { mode, 0.0, 0.0, inf, 2, 1 };        // along the edge of the two 0
+                yield return new object[] { mode, 0.0, 0.0, -inf, 2, 1 };
+                yield return new object[] { mode, 0.0, inf, inf, 0, 0 };        // touches only the 0: nothing, as for finite values
+                yield return new object[] { mode, 0.0, -inf, -inf, 0, 0 };
+                yield return new object[] { mode, 1.0, 1.0, -inf, 2, 1 };       // two crossings, at the two finite vertices
+                yield return new object[] { mode, -1.0, -1.0, inf, 2, 1 };
+                yield return new object[] { mode, 1e308, 1e308, -inf, 2, 1 };   // the sum of the values overflows first
+                yield return new object[] { mode, -1e308, -1e308, inf, 2, 1 };
+                yield return new object[] { mode, 1.0, -inf, -inf, 1, 0 };      // both crossings at the one finite vertex
+                yield return new object[] { mode, -1.0, inf, inf, 1, 0 };
+                yield return new object[] { mode, -1.0, inf, -inf, 0, 0 };      // no crossing defined: nothing
+                yield return new object[] { mode, 0.0, inf, -inf, 0, 0 };
+                yield return new object[] { mode, 1e308, inf, -inf, 0, 0 };
+                yield return new object[] { mode, double.NaN, inf, -1.0, 0, 0 };
+            }
+        }
+
+        [Theory]
+        [MemberData(nameof(InfiniteCorners))]
+        public void IsoCurves_InfiniteCorners_FiniteGraph_InAnyVertexOrder(MeshIsoCurves.RootfindingModes mode, double a, double b, double c, int vertices, int edges)
+        {
+            var corners = new[] { new Vector3d(0, 0, 0), new Vector3d(1, 0, 0), new Vector3d(0, 1, 0) };
+            var values = new[] { a, b, c };
+            foreach (int[] order in new[] { new[] { 0, 1, 2 }, new[] { 1, 2, 0 }, new[] { 2, 0, 1 }, new[] { 0, 2, 1 }, new[] { 2, 1, 0 }, new[] { 1, 0, 2 } }) {
+                var mesh = new DMesh3();
+                foreach (int k in order)
+                    mesh.AppendVertex(corners[k]);
+                mesh.AppendTriangle(0, 1, 2);
+                // (LerpSteps also samples the field: the values at the vertices, between them a value of the positive side)
+                double[] byVertex = order.Select(k => values[k]).ToArray();
+                var iso = new MeshIsoCurves(mesh, x => {
+                    for (int v = 0; v < 3; ++v)
+                        if (mesh.GetVertex(v) == x) return byVertex[v];
+                    return 0.5;
+                }) { RootMode = mode, VertexValueF = v => byVertex[v] };
+                iso.Compute();
+                string where = string.Join(",", byVertex);
+                Assert.True(vertices == iso.Graph.VertexCount, $"{where}: {iso.Graph.VertexCount} vertices");
+                Assert.True(edges == iso.Graph.EdgeCount, $"{where}: {iso.Graph.EdgeCount} edges");
+                // at the vertices of the mesh: the finite end of a crossed edge, or a 0
+                Assert.All(iso.Graph.Vertices(), p => {
+                    Assert.True(p.IsFinite, where);
+                    int k = Array.IndexOf(corners, p);
+                    Assert.True(k >= 0, where);
+                    Assert.False(double.IsInfinity(values[k]), where);
+                });
+            }
+        }
+
+        [Fact]
+        public void IsoCurves_LerpSteps_NaNOrInfinityOnlyBetweenTheVertices_StaysFinite()
+        {
+            foreach (double between in new[] { double.NaN, double.NegativeInfinity, double.PositiveInfinity }) {
+                DMesh3 mesh = Sphere(16);
+                HashSet<Vector3d> atVertices = VerticesOf(mesh, x => true);
+                var iso = new MeshIsoCurves(mesh, x => atVertices.Contains(x) ? x.z - 0.1 : between) { RootMode = MeshIsoCurves.RootfindingModes.LerpSteps };
+                iso.Compute();
+                Assert.True(iso.Graph.EdgeCount > 0);
+                Assert.All(iso.Graph.Vertices(), v => Assert.True(v.IsFinite, between.ToString()));
+                iso.SplitAtIsoCrossings();
+                AssertClosed(mesh);
+            }
+        }
+
+        [Fact]
+        public void IsoCurves_Split_CrossingsInsideTheEdges_StillSplit()
+        {
+            // the check for a crossing at a vertex is exact: it does not swallow a crossing next to one
+            DMesh3 mesh = Sphere(16);
+            int before = mesh.VertexCount;
+            var iso = new MeshIsoCurves(mesh, x => x.z - 0.1);
+            iso.Compute();
+            iso.SplitAtIsoCrossings();
+            Assert.True(mesh.VertexCount > before);
+            AssertClosed(mesh);
+        }
+
         [Fact]
         public void IsoCurves_ReusedAfterNaN_EqualsFreshInstance_AndSplitsNothing()
         {
@@ -276,6 +434,28 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void TerrainOffset_ReusedAfterFailure_EqualsFreshInstance_NoStaleResult()
+        {
+            var off = new TerrainOffset(HillTerrain(), 1) { GridResolution = 16 };
+            Assert.True(off.Compute());
+            Assert.NotNull(off.Result);
+            off.CellSize = double.PositiveInfinity;
+            Assert.False(off.Compute());
+            Assert.Null(off.Result);
+            off.CellSize = 0;
+            Assert.True(off.Compute());
+            Assert.True(off.Result.TriangleCount > 0);
+            Assert.True(Invariance.AllFinite(off.Result));
+            var fresh = new TerrainOffset(HillTerrain(), 1) { GridResolution = 16 };
+            Assert.True(fresh.Compute());
+            Assert.Equal("", Invariance.Difference(fresh.Result, off.Result));
+            // the check of TerrainOffset itself, before the contouring
+            off.Distance = 0;
+            Assert.False(off.Compute());
+            Assert.Null(off.Result);
+        }
+
+        [Fact]
         public void CellSize_FiniteValues_KeepTheirMeaning()
         {
             // 0 and negative values mean "automatic", as before; a finite size is used as given
@@ -329,6 +509,12 @@ namespace geometry3Sharp.Tests
             Assert.False(sl.Certified);
             Assert.Equal(0, sl.UncertifiedSegments);
             Assert.Equal(0, sl.MaxExcess);
+            // (double.MaxValue here would pass as "far enough from the sources")
+            Assert.Equal(0, sl.MinLineDistance);
+            Assert.Equal(0, sl.UsedSteinerPoints);
+            Assert.Null(sl.RefinedTerrain);
+            Assert.Null(sl.RemeshedTerrain);
+            Assert.Null(sl.Geodesic);
         }
 
         static void AssertLinesBits(List<List<Vector3d>> a, List<List<Vector3d>> b)
@@ -342,7 +528,6 @@ namespace geometry3Sharp.Tests
         [InlineData(0.0)]
         [InlineData(-1.0)]
         [InlineData(double.NaN)]
-        [InlineData(double.PositiveInfinity)]
         [InlineData(double.NegativeInfinity)]
         public void Safety_BadExcessTolerance_Fails(double tol)
         {
@@ -353,11 +538,14 @@ namespace geometry3Sharp.Tests
 
         [Theory]
         [InlineData(Horizontal, 0.0)]
+        [InlineData(Horizontal, -1.0)]
         [InlineData(Horizontal, double.NaN)]
-        [InlineData(Horizontal, double.PositiveInfinity)]
+        [InlineData(Horizontal, double.NegativeInfinity)]
         [InlineData(Guaranteed, 0.0)]
+        [InlineData(Guaranteed, -1.0)]
         [InlineData(Guaranteed, double.NaN)]
-        [InlineData(Guaranteed, double.PositiveInfinity)]
+        [InlineData(Guaranteed, double.NegativeInfinity)]
+        [InlineData(Guaranteed, double.PositiveInfinity)]       // the line is drawn this much outside the distance
         public void Safety_BadTolerance_Fails(TerrainSafetyLines.Modes mode, double tol)
         {
             var sl = Safety(mode);
@@ -376,11 +564,113 @@ namespace geometry3Sharp.Tests
             AssertFailedWithNoResult(sl);
         }
 
+        [Theory]
+        [InlineData(double.NaN)]
+        [InlineData(double.PositiveInfinity)]
+        [InlineData(double.NegativeInfinity)]
+        public void Safety_BadSafetyMargin_Fails(double margin)
+        {
+            // +infinity put the line out of reach: success with no lines
+            var sl = Safety(AlongSurface);
+            sl.SafetyMargin = margin;
+            AssertFailedWithNoResult(sl);
+        }
+
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void Safety_InfiniteHorizontalTolerance_MeansNoLimitOfTheChords_InEveryFrame(string name)
+        {
+            // the edge length is also limited by SafetyDistance, so a large tolerance is the same as +infinity
+            Similarity s = Similarity.ByName(name);
+            Func<double, TerrainSafetyLines> make = tol => new TerrainSafetyLines(Invariance.Transformed(HillTerrain(), s),
+                new[] { Crest().Select(s.Apply).ToList() }, s.ApplyLength(2)) { Tolerance = tol, Mode = Horizontal };
+            var large = make(s.ApplyLength(1e6));
+            Assert.True(Compute(large));
+            Assert.NotEmpty(large.Lines);
+            var infinite = make(double.PositiveInfinity);
+            Assert.True(Compute(infinite), name);
+            AssertLinesBits(large.Lines, infinite.Lines);
+            Assert.All(infinite.Lines.SelectMany(l => l), p => Assert.True(p.IsFinite));
+            Assert.True(Compute(infinite));     // reuse
+            AssertLinesBits(large.Lines, infinite.Lines);
+        }
+
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void Safety_InfiniteExcessTolerance_MeansOnlyTheLowerBound_InEveryFrame(string name)
+        {
+            // certified by the distance from the sources alone: the lines are those of any other ExcessTolerance
+            Similarity s = Similarity.ByName(name);
+            Func<double, TerrainSafetyLines> make = tol => new TerrainSafetyLines(Invariance.Transformed(HillTerrain(), s),
+                new[] { Crest().Select(s.Apply).ToList() }, s.ApplyLength(2)) { Tolerance = s.ApplyLength(0.01), ExcessTolerance = tol, Mode = Guaranteed, RequireCertified = true };
+            var finite = make(s.ApplyLength(2));
+            Assert.True(Compute(finite));
+            var infinite = make(double.PositiveInfinity);
+            Assert.True(Compute(infinite), name);
+            Assert.True(infinite.Certified);
+            Assert.Equal(0, infinite.UncertifiedSegments);
+            Assert.NotEmpty(infinite.Lines);
+            AssertLinesBits(finite.Lines, infinite.Lines);
+            Assert.Equal(finite.MinLineDistance, infinite.MinLineDistance);
+            Assert.True(infinite.MinLineDistance >= s.ApplyLength(2));
+            Assert.True(MathUtil.IsFinite(infinite.MaxExcess));
+            Assert.True(Compute(infinite));     // reuse
+            Assert.True(infinite.Certified);
+            AssertLinesBits(finite.Lines, infinite.Lines);
+        }
+
+        [Fact]
+        public void Safety_FailureAfterSuccess_LeavesNoOutputOfTheEarlierRun()
+        {
+            var horizontal = Safety(Horizontal);
+            Assert.True(Compute(horizontal));
+            Assert.NotNull(horizontal.RefinedTerrain);
+            horizontal.Tolerance = double.NaN;
+            AssertFailedWithNoResult(horizontal);
+
+            var surface = Safety(AlongSurface);
+            Assert.True(Compute(surface));
+            Assert.NotNull(surface.RemeshedTerrain);
+            Assert.NotNull(surface.Geodesic);
+            surface.EdgeLength = double.NaN;
+            AssertFailedWithNoResult(surface);
+
+            var guaranteed = Safety(Guaranteed);
+            guaranteed.ExcessTolerance = 2;
+            Assert.True(Compute(guaranteed));
+            Assert.NotNull(guaranteed.RefinedTerrain);
+            Assert.True(guaranteed.UsedSteinerPoints > 0);
+            Assert.True(guaranteed.MinLineDistance > 0);
+            guaranteed.ExcessTolerance = 0;
+            AssertFailedWithNoResult(guaranteed);
+            // and with the check in Compute itself, which comes before the mode
+            guaranteed.ExcessTolerance = 2;
+            Assert.True(Compute(guaranteed));
+            guaranteed.SafetyDistance = double.NaN;
+            AssertFailedWithNoResult(guaranteed);
+        }
+
+        [Fact]
+        public void Safety_SwitchingTheMode_LeavesNoOutputOfTheOtherMode()
+        {
+            var sl = Safety(AlongSurface);
+            Assert.True(Compute(sl));
+            Assert.NotNull(sl.RemeshedTerrain);
+            sl.Mode = Horizontal;
+            Assert.True(Compute(sl));
+            Assert.NotNull(sl.RefinedTerrain);
+            Assert.Null(sl.RemeshedTerrain);
+            Assert.Null(sl.Geodesic);
+            sl.Mode = AlongSurface;
+            Assert.True(Compute(sl));
+            Assert.Null(sl.RefinedTerrain);
+        }
+
         public static IEnumerable<object[]> BadSources()
         {
             foreach (TerrainSafetyLines.Modes mode in new[] { Horizontal, AlongSurface, Guaranteed })
                 foreach (double bad in new[] { double.PositiveInfinity, double.NegativeInfinity, double.NaN })
-                    foreach (int axis in new[] { 0, 2 })
+                    foreach (int axis in new[] { 0, 1, 2 })
                         yield return new object[] { mode, bad, axis };
         }
 
