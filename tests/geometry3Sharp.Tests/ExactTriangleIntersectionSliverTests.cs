@@ -51,8 +51,9 @@ namespace geometry3Sharp.Tests
 
         // ---------------------------------------------------------------- oracle
 
-        // the axis-aligned plane both triangles lie in: Y = the plane y = const, its 2D coordinates (z, x); etc.
-        enum Plane { X = 0, Y = 1, Z = 2 }
+        // the plane both triangles lie in: Y = the plane y = const, its 2D coordinates (z, x); etc.; Oblique = the
+        // plane y = 2 z (normal (0, 1, -2): exactly 0 in x, but not axis-aligned), its 2D coordinates (x, z)
+        enum Plane { X = 0, Y = 1, Z = 2, Oblique = 3 }
 
         static class Oracle
         {
@@ -61,6 +62,7 @@ namespace geometry3Sharp.Tests
                 switch (plane) {
                     case Plane.X: return new[] { Dyadic.Of(p.y), Dyadic.Of(p.z) };
                     case Plane.Y: return new[] { Dyadic.Of(p.z), Dyadic.Of(p.x) };
+                    case Plane.Oblique: return new[] { Dyadic.Of(p.x), Dyadic.Of(p.z) };
                     default: return new[] { Dyadic.Of(p.x), Dyadic.Of(p.y) };
                 }
             }
@@ -105,6 +107,7 @@ namespace geometry3Sharp.Tests
             switch (plane) {
                 case Plane.X: return new Vector3d(c, u, v);
                 case Plane.Y: return new Vector3d(v, c, u);
+                case Plane.Oblique: return new Vector3d(u, 2 * v, v);
                 default: return new Vector3d(u, v, c);
             }
         }
@@ -118,7 +121,7 @@ namespace geometry3Sharp.Tests
         }
 
         /// <summary>
-        /// Coplanar triangle pairs at a shared vertex s, in the three axis planes: A = (s, p, q) a sliver (q within
+        /// Coplanar triangle pairs at a shared vertex s, in the three axis planes and the plane y = 2 z: A = (s, p, q) a sliver (q within
         /// 2^-k of the segment s-p, k in 20..57, so its floating-point normal is often 0), B = (s, u, w) with rays
         /// near the rays of A (on either side, or a sliver itself), so that both outcomes occur.
         /// </summary>
@@ -126,7 +129,7 @@ namespace geometry3Sharp.Tests
         {
             var rnd = new Random(seed);
             for (int i = 0; i < count; ++i) {
-                var plane = (Plane)(i % 3);
+                var plane = (Plane)(i % 4);
                 double c = (i % 2 == 0) ? 0 : rnd.NextDouble() * 4 - 2;
                 double su = rnd.NextDouble() * 2 - 1, sv = rnd.NextDouble() * 2 - 1;
                 double angle = rnd.NextDouble() * 2 * Math.PI, len = 0.05 + rnd.NextDouble() * 0.3;
@@ -151,10 +154,10 @@ namespace geometry3Sharp.Tests
             return Oracle.Orient(k.Plane, k.S, k.P, k.Q) != 0 && Oracle.Orient(k.Plane, k.S, k.U, k.W) != 0;
         }
 
-        static bool Library(Case k, double scale = 1)
+        static bool Library(Case k)
         {
-            var A = new Triangle3d(scale * k.S, scale * k.P, scale * k.Q);
-            var B = new Triangle3d(scale * k.U, scale * k.S, scale * k.W);
+            var A = new Triangle3d(k.S, k.P, k.Q);
+            var B = new Triangle3d(k.U, k.S, k.W);
             return ExactTriangleIntersection.IntersectsBeyondShared(new Index3i(0, 1, 2), ref A, new Index3i(3, 0, 4), ref B);
         }
 
@@ -219,9 +222,10 @@ namespace geometry3Sharp.Tests
                     Assert.Equal(got, ExactTriangleIntersection.IntersectsBeyondShared(new Index3i(3, 0, 4), ref B, new Index3i(0, 1, 2), ref A));
                     if (sim.IsExact)
                         Assert.True(Library(k) == got, $"{sim}: {k}");
-                    bool planar = (t.Plane == Plane.X ? new[] { t.S.x, t.P.x, t.Q.x, t.U.x, t.W.x } : t.Plane == Plane.Y
-                        ? new[] { t.S.y, t.P.y, t.Q.y, t.U.y, t.W.y } : new[] { t.S.z, t.P.z, t.Q.z, t.U.z, t.W.z }) is double[] cs
-                        && Array.TrueForAll(cs, x => x == cs[0]);
+                    Vector3d[] corners = { t.S, t.P, t.Q, t.U, t.W };
+                    // (the oblique plane y = 2 z through the origin, kept by the scales only)
+                    bool planar = t.Plane == Plane.Oblique ? Array.TrueForAll(corners, x => x.y == 2 * x.z)
+                        : Array.TrueForAll(corners, x => x[(int)t.Plane] == t.S[(int)t.Plane]);
                     if (planar && Valid(t))
                         Assert.True(Oracle.CornersOverlap(t.Plane, t.S, t.P, t.Q, t.U, t.W) == got, $"{sim}: {t}");
                 }
