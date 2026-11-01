@@ -394,6 +394,110 @@ namespace geometry3Sharp.Tests
             }
         }
 
+#if NET
+        // --- integer predicates (ipredicate): ArrInCircle against the BigInteger determinant of ExactMeshArrangement
+
+        static int arr_incircle_ref(System.Numerics.BigInteger[] v)
+        {
+            // rows (A s, B s, A^2 + B^2) of a, b, c against d (ExactMeshArrangement.InCircle)
+            var r = new System.Numerics.BigInteger[9];
+            for (int k = 0; k < 3; ++k) {
+                var A = v[3 * k] * v[11] - v[9] * v[3 * k + 2];
+                var B = v[3 * k + 1] * v[11] - v[10] * v[3 * k + 2];
+                var S = v[3 * k + 2] * v[11];
+                r[3 * k] = A * S; r[3 * k + 1] = B * S; r[3 * k + 2] = A * A + B * B;
+            }
+            return ExactPoint3.Det3(r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8]).Sign;
+        }
+
+        static int arr_incircle(System.Numerics.BigInteger[] v) =>
+            GeneratedIntegerPredicates.ArrInCircle(v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], v[9], v[10], v[11]);
+
+        static System.Numerics.BigInteger big(Random r, int bits)
+        {
+            // magnitudes of every size up to bits, including the extremes 0 and 2^bits - 1
+            int b = r.Next(4) == 0 ? bits : r.Next(0, bits + 1);
+            var m = (System.Numerics.BigInteger.One << b) - 1;
+            if (r.Next(3) != 0) {
+                var bytes = new byte[(b + 8) / 8 + 1];
+                r.NextBytes(bytes);
+                bytes[bytes.Length - 1] = 0;
+                m = new System.Numerics.BigInteger(bytes) & ((System.Numerics.BigInteger.One << b) - 1);
+            }
+            return r.Next(2) == 0 ? m : -m;
+        }
+
+        /// <summary> the fixed-width evaluation equals BigInteger for inputs of every size within the bounds </summary>
+        [Fact]
+        public void IntegerInCircle_MatchesBigInteger()
+        {
+            var r = new Random(8);
+            int zero = 0;
+            for (int n = 0; n < 50000; ++n) {
+                var v = new System.Numerics.BigInteger[12];
+                for (int k = 0; k < 12; ++k)
+                    v[k] = k % 3 == 2 ? System.Numerics.BigInteger.Abs(big(r, 58)) + (r.Next(2) == 0 ? 1 : 0) : big(r, 112);
+                for (int k = 2; k < 12; k += 3)
+                    if (v[k].IsZero || v[k] >= (System.Numerics.BigInteger.One << 58)) v[k] = 1;
+                int e = arr_incircle_ref(v);
+                if (e == 0) zero++;
+                Assert.Equal(e, arr_incircle(v));
+            }
+            // degenerate: d on the circle through a, b, c (integer points on x^2 + y^2 = 5^2 k^2, weights 1 and scaled)
+            for (int n = 0; n < 2000; ++n) {
+                long k = r.Next(1, 1 << 30), w = r.Next(1, 1 << 20);
+                int[][] c = { new[] { 5, 0 }, new[] { 3, 4 }, new[] { -4, 3 }, new[] { 0, -5 } };
+                var v = new System.Numerics.BigInteger[12];
+                for (int q = 0; q < 4; ++q) {
+                    long ww = q == 3 ? w : 1;
+                    v[3 * q] = c[q][0] * k * ww; v[3 * q + 1] = c[q][1] * k * ww; v[3 * q + 2] = ww;
+                }
+                Assert.Equal(0, arr_incircle_ref(v));
+                Assert.Equal(0, arr_incircle(v));
+                zero++;
+            }
+            Assert.True(zero > 1000);
+        }
+
+        /// <summary> inputs beyond the bounds return 2 (the caller falls back to BigInteger) </summary>
+        [Fact]
+        public void IntegerInCircle_OutOfBounds_Returns2()
+        {
+            var v = Enumerable.Range(0, 12).Select(k => (System.Numerics.BigInteger)(k % 3 == 2 ? 1 : k)).ToArray();
+            Assert.NotEqual(2, arr_incircle(v));
+            var big112 = System.Numerics.BigInteger.One << 112;
+            var big58 = System.Numerics.BigInteger.One << 58;
+            for (int k = 0; k < 12; ++k) {
+                var u = (System.Numerics.BigInteger[])v.Clone();
+                u[k] = k % 3 == 2 ? big58 : (k % 2 == 0 ? big112 : -big112);
+                Assert.Equal(2, arr_incircle(u));
+                if (k % 3 != 2) {
+                    u[k] = -big112 - 1;
+                    Assert.Equal(2, arr_incircle(u));
+                }
+                u[k] = k % 3 == 2 ? big58 - 1 : (k % 2 == 0 ? big112 - 1 : -(big112 - 1));
+                Assert.NotEqual(2, arr_incircle(u));
+            }
+        }
+
+        /// <summary> the runtime refuses results that do not fit their width (a wrong bound fails loudly, not silently) </summary>
+        [Fact]
+        public unsafe void IntegerRuntime_DetectsOverflow()
+        {
+            ulong* a = stackalloc ulong[2], b = stackalloc ulong[2], r = stackalloc ulong[2];
+            IntegerRuntime.Load((System.Numerics.BigInteger.One << 126) + 5, a, 2);
+            IntegerRuntime.Load((System.Numerics.BigInteger.One << 126), b, 2);
+            Assert.Throws<InvalidOperationException>(() => { ulong* x = stackalloc ulong[2], y = stackalloc ulong[2], z = stackalloc ulong[2];
+                IntegerRuntime.Load(System.Numerics.BigInteger.One << 126, x, 2); IntegerRuntime.Load(System.Numerics.BigInteger.One << 126, y, 2); IntegerRuntime.Add(x, 2, y, 2, z, 2, false); });
+            Assert.Throws<InvalidOperationException>(() => { ulong* x = stackalloc ulong[2], y = stackalloc ulong[1], z = stackalloc ulong[2];
+                IntegerRuntime.Load(System.Numerics.BigInteger.One << 100, x, 2); IntegerRuntime.Load(System.Numerics.BigInteger.One << 40, y, 1); IntegerRuntime.Mul(x, 2, y, 1, z, 2); });
+            IntegerRuntime.Add(a, 2, b, 2, r, 2, true);
+            Assert.Equal(1, IntegerRuntime.Sign(r, 2));
+            IntegerRuntime.Add(b, 2, a, 2, r, 2, true);
+            Assert.Equal(-1, IntegerRuntime.Sign(r, 2));
+        }
+#endif
+
         [Fact]
         public void NonFiniteInput_ThrowsAsHandWritten()
         {

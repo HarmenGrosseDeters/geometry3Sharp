@@ -1161,6 +1161,16 @@ namespace g3
             // one with rows (x/w, y/w, |.|^2, 1) (w^2 > 0), which equals the 3x3 determinant with rows (dx, dy,
             // dx^2 + dy^2) of the differences to d (column operations, then subtracting row d). Each row is multiplied
             // by (w w_d)^2 > 0 to make it integer: (A s, B s, A^2 + B^2) with A = x w_d - x_d w, B likewise, s = w w_d.
+#if NET
+            {
+                // the same determinant in fixed-width integers without allocation (generated, experiment:
+                // docs/design/PREDICATE_COMPILER.md); 2 if a coordinate exceeds its bound
+                ExactPoint3 pa = ba.P, pb = bb.P, pc = bc.P, pd = bd.P;
+                int g = GeneratedIntegerPredicates.ArrInCircle(pa[i], pa[j], pa.W, pb[i], pb[j], pb.W, pc[i], pc[j], pc.W, pd[i], pd[j], pd.W);
+                if (g != 2)
+                    return g * t.Sign;
+            }
+#endif
             BigInteger ax, ay, al, bx, by, bl, cx, cy, cl;
             incircle_row(ba.P, bd.P, i, j, out ax, out ay, out al);
             incircle_row(bb.P, bd.P, i, j, out bx, out by, out bl);

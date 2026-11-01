@@ -398,4 +398,86 @@ namespace g3
             return v36.Sign;
         }
     }
+
+#if NET
+    /// <summary>
+    /// Sign predicates on integers (ipredicate), evaluated exactly in fixed-width two's complement (IntegerRuntime):
+    /// every intermediate value gets the limbs its proven bit bound needs, on the stack, without allocation.
+    /// They return 2 when an input exceeds its bound (the caller then evaluates otherwise).
+    /// </summary>
+    internal static unsafe class GeneratedIntegerPredicates
+    {
+        // ArrInCircle: InCircle of ExactMeshArrangement on homogeneous points (x/w, y/w) in the projection of a triangle: the 3x3 determinant with rows (A s, B s, A^2 + B^2) of each of a, b, c against d, A = x w_d - x_d w, B = y w_d - y_d w, s = w w_d (the derivation is at ExactMeshArrangement.InCircle). Bounds: coordinates below 2^112 and weights below 2^58 (the n-ary grid of BooleanComparison needs 109 and 54).
+        // inputs below 2^(112, 58); result below 2^920 (15 limbs); widest product 15 limbs
+        [MethodImpl(JitHints.Optimize), SkipLocalsInit]
+        internal static int ArrInCircle(BigInteger ax, BigInteger ay, BigInteger aw, BigInteger bx, BigInteger by, BigInteger bw, BigInteger cx, BigInteger cy, BigInteger cw, BigInteger dx, BigInteger dy, BigInteger dw)
+        {
+            if (!(IntegerRuntime.Fits(ax, 112) && IntegerRuntime.Fits(ay, 112) && IntegerRuntime.Fits(aw, 58) && IntegerRuntime.Fits(bx, 112) && IntegerRuntime.Fits(by, 112) && IntegerRuntime.Fits(bw, 58) && IntegerRuntime.Fits(cx, 112) && IntegerRuntime.Fits(cy, 112) && IntegerRuntime.Fits(cw, 58) && IntegerRuntime.Fits(dx, 112) && IntegerRuntime.Fits(dy, 112) && IntegerRuntime.Fits(dw, 58)))
+                return 2;
+            ulong* n0 = stackalloc ulong[2]; IntegerRuntime.Load(ax, n0, 2);     // < 2^112
+            ulong* n1 = stackalloc ulong[2]; IntegerRuntime.Load(ay, n1, 2);     // < 2^112
+            ulong* n2 = stackalloc ulong[1]; IntegerRuntime.Load(aw, n2, 1);     // < 2^58
+            ulong* n3 = stackalloc ulong[2]; IntegerRuntime.Load(bx, n3, 2);     // < 2^112
+            ulong* n4 = stackalloc ulong[2]; IntegerRuntime.Load(by, n4, 2);     // < 2^112
+            ulong* n5 = stackalloc ulong[1]; IntegerRuntime.Load(bw, n5, 1);     // < 2^58
+            ulong* n6 = stackalloc ulong[2]; IntegerRuntime.Load(cx, n6, 2);     // < 2^112
+            ulong* n7 = stackalloc ulong[2]; IntegerRuntime.Load(cy, n7, 2);     // < 2^112
+            ulong* n8 = stackalloc ulong[1]; IntegerRuntime.Load(cw, n8, 1);     // < 2^58
+            ulong* n9 = stackalloc ulong[2]; IntegerRuntime.Load(dx, n9, 2);     // < 2^112
+            ulong* n10 = stackalloc ulong[2]; IntegerRuntime.Load(dy, n10, 2);     // < 2^112
+            ulong* n11 = stackalloc ulong[1]; IntegerRuntime.Load(dw, n11, 1);     // < 2^58
+            ulong* n12 = stackalloc ulong[3]; IntegerRuntime.Mul(n0, 2, n11, 1, n12, 3);     // < 2^170
+            ulong* n13 = stackalloc ulong[3]; IntegerRuntime.Mul(n2, 1, n9, 2, n13, 3);     // < 2^170
+            ulong* n14 = stackalloc ulong[3]; IntegerRuntime.Add(n12, 3, n13, 3, n14, 3, true);     // < 2^171
+            ulong* n15 = stackalloc ulong[3]; IntegerRuntime.Mul(n1, 2, n11, 1, n15, 3);     // < 2^170
+            ulong* n16 = stackalloc ulong[3]; IntegerRuntime.Mul(n2, 1, n10, 2, n16, 3);     // < 2^170
+            ulong* n17 = stackalloc ulong[3]; IntegerRuntime.Add(n15, 3, n16, 3, n17, 3, true);     // < 2^171
+            ulong* n18 = stackalloc ulong[2]; IntegerRuntime.Mul(n2, 1, n11, 1, n18, 2);     // < 2^116
+            ulong* n19 = stackalloc ulong[3]; IntegerRuntime.Mul(n3, 2, n11, 1, n19, 3);     // < 2^170
+            ulong* n20 = stackalloc ulong[3]; IntegerRuntime.Mul(n5, 1, n9, 2, n20, 3);     // < 2^170
+            ulong* n21 = stackalloc ulong[3]; IntegerRuntime.Add(n19, 3, n20, 3, n21, 3, true);     // < 2^171
+            ulong* n22 = stackalloc ulong[3]; IntegerRuntime.Mul(n4, 2, n11, 1, n22, 3);     // < 2^170
+            ulong* n23 = stackalloc ulong[3]; IntegerRuntime.Mul(n5, 1, n10, 2, n23, 3);     // < 2^170
+            ulong* n24 = stackalloc ulong[3]; IntegerRuntime.Add(n22, 3, n23, 3, n24, 3, true);     // < 2^171
+            ulong* n25 = stackalloc ulong[2]; IntegerRuntime.Mul(n5, 1, n11, 1, n25, 2);     // < 2^116
+            ulong* n26 = stackalloc ulong[3]; IntegerRuntime.Mul(n6, 2, n11, 1, n26, 3);     // < 2^170
+            ulong* n27 = stackalloc ulong[3]; IntegerRuntime.Mul(n8, 1, n9, 2, n27, 3);     // < 2^170
+            ulong* n28 = stackalloc ulong[3]; IntegerRuntime.Add(n26, 3, n27, 3, n28, 3, true);     // < 2^171
+            ulong* n29 = stackalloc ulong[3]; IntegerRuntime.Mul(n7, 2, n11, 1, n29, 3);     // < 2^170
+            ulong* n30 = stackalloc ulong[3]; IntegerRuntime.Mul(n8, 1, n10, 2, n30, 3);     // < 2^170
+            ulong* n31 = stackalloc ulong[3]; IntegerRuntime.Add(n29, 3, n30, 3, n31, 3, true);     // < 2^171
+            ulong* n32 = stackalloc ulong[2]; IntegerRuntime.Mul(n8, 1, n11, 1, n32, 2);     // < 2^116
+            ulong* n33 = stackalloc ulong[5]; IntegerRuntime.Mul(n14, 3, n18, 2, n33, 5);     // < 2^287
+            ulong* n34 = stackalloc ulong[5]; IntegerRuntime.Mul(n17, 3, n18, 2, n34, 5);     // < 2^287
+            ulong* n35 = stackalloc ulong[6]; IntegerRuntime.Mul(n14, 3, n14, 3, n35, 6);     // < 2^342
+            ulong* n36 = stackalloc ulong[6]; IntegerRuntime.Mul(n17, 3, n17, 3, n36, 6);     // < 2^342
+            ulong* n37 = stackalloc ulong[6]; IntegerRuntime.Add(n35, 6, n36, 6, n37, 6, false);     // < 2^343
+            ulong* n38 = stackalloc ulong[5]; IntegerRuntime.Mul(n21, 3, n25, 2, n38, 5);     // < 2^287
+            ulong* n39 = stackalloc ulong[5]; IntegerRuntime.Mul(n24, 3, n25, 2, n39, 5);     // < 2^287
+            ulong* n40 = stackalloc ulong[6]; IntegerRuntime.Mul(n21, 3, n21, 3, n40, 6);     // < 2^342
+            ulong* n41 = stackalloc ulong[6]; IntegerRuntime.Mul(n24, 3, n24, 3, n41, 6);     // < 2^342
+            ulong* n42 = stackalloc ulong[6]; IntegerRuntime.Add(n40, 6, n41, 6, n42, 6, false);     // < 2^343
+            ulong* n43 = stackalloc ulong[5]; IntegerRuntime.Mul(n28, 3, n32, 2, n43, 5);     // < 2^287
+            ulong* n44 = stackalloc ulong[5]; IntegerRuntime.Mul(n31, 3, n32, 2, n44, 5);     // < 2^287
+            ulong* n45 = stackalloc ulong[6]; IntegerRuntime.Mul(n28, 3, n28, 3, n45, 6);     // < 2^342
+            ulong* n46 = stackalloc ulong[6]; IntegerRuntime.Mul(n31, 3, n31, 3, n46, 6);     // < 2^342
+            ulong* n47 = stackalloc ulong[6]; IntegerRuntime.Add(n45, 6, n46, 6, n47, 6, false);     // < 2^343
+            ulong* n48 = stackalloc ulong[10]; IntegerRuntime.Mul(n39, 5, n47, 6, n48, 10);     // < 2^630
+            ulong* n49 = stackalloc ulong[10]; IntegerRuntime.Mul(n42, 6, n44, 5, n49, 10);     // < 2^630
+            ulong* n50 = stackalloc ulong[10]; IntegerRuntime.Add(n48, 10, n49, 10, n50, 10, true);     // < 2^631
+            ulong* n51 = stackalloc ulong[15]; IntegerRuntime.Mul(n33, 5, n50, 10, n51, 15);     // < 2^918
+            ulong* n52 = stackalloc ulong[10]; IntegerRuntime.Mul(n38, 5, n47, 6, n52, 10);     // < 2^630
+            ulong* n53 = stackalloc ulong[10]; IntegerRuntime.Mul(n42, 6, n43, 5, n53, 10);     // < 2^630
+            ulong* n54 = stackalloc ulong[10]; IntegerRuntime.Add(n52, 10, n53, 10, n54, 10, true);     // < 2^631
+            ulong* n55 = stackalloc ulong[15]; IntegerRuntime.Mul(n34, 5, n54, 10, n55, 15);     // < 2^918
+            ulong* n56 = stackalloc ulong[15]; IntegerRuntime.Add(n51, 15, n55, 15, n56, 15, true);     // < 2^919
+            ulong* n57 = stackalloc ulong[9]; IntegerRuntime.Mul(n38, 5, n44, 5, n57, 9);     // < 2^574
+            ulong* n58 = stackalloc ulong[9]; IntegerRuntime.Mul(n39, 5, n43, 5, n58, 9);     // < 2^574
+            ulong* n59 = stackalloc ulong[9]; IntegerRuntime.Add(n57, 9, n58, 9, n59, 9, true);     // < 2^575
+            ulong* n60 = stackalloc ulong[15]; IntegerRuntime.Mul(n37, 6, n59, 9, n60, 15);     // < 2^918
+            ulong* n61 = stackalloc ulong[15]; IntegerRuntime.Add(n56, 15, n60, 15, n61, 15, false);     // < 2^920
+            return IntegerRuntime.Sign(n61, 15);
+        }
+    }
+#endif
 }

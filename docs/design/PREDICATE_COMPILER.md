@@ -147,12 +147,77 @@ The remaining gap is in the exact stages:
   n-ary booleans (around 30 % each of classification, triangulation and GC). That cost comes from the predicates on
   implicit points (`ExactMeshArrangement`), not from these two.
 
+## Step 2: an implicit-point predicate in fixed-width integers
+
+**Where the cost is.** A CPU trace of `BooleanComparison nary grid 10 onepass` shows that the cost of `BigInteger` is
+allocation and GC: its constructor and the threads paused for GC take most of the time, while the multiplications
+themselves take under 1 %. (Sampled thread time is unreliable under GC, see `docs/perf/EXACT_BOOLEAN_PERFORMANCE.md`.)
+
+A temporary probe, not committed, measured the exact stage of the arrangement's `InCircle`:
+- **Calls:** on grid 10, 1.4M exact calls go through `BigInteger` and only 93k through the existing double path. Almost
+  all of them involve rational points (W ≠ 1).
+- **Sizes**, median / max on grid 10:
+
+  | value | median | max |
+  |---|---|---|
+  | coordinates | 101 bits | 109 bits |
+  | weights | 47 bits | 54 bits |
+  | rows (x, y) | 157 bits | 265 bits |
+  | lifts | 207 bits | 319 bits |
+  | determinant | 371 bits | 833 bits |
+- **Time:** about 10-15 s of thread time is spent in that path, a large part of the triangulation phase.
+
+**What was built:**
+- **`ipredicate` in the generator.** Inputs are integers with bit bounds. Every node gets a proven bound: a sum or
+  difference is below 2^(max + 1), a product below 2^(bx + by). Each value is stored in exactly the 64-bit limbs that
+  this bound needs in two's complement.
+- **`ArrInCircle`** is the arrangement's determinant with rows `(A s, B s, A² + B²)`. Its inputs are coordinates
+  below 2^112 and weights below 2^58. The result is below 2^920 (15 limbs), and the widest product has 15 limbs.
+- **`IntegerRuntime`** holds the hand-written limb arithmetic on stack buffers. It uses `Math.BigMul` and
+  `BigInteger.TryWriteBytes`, so it is .NET only; `netstandard2.0` keeps the `BigInteger` path. Every operation checks
+  that its result fits and throws otherwise, so a wrong bound fails loudly instead of returning a wrong result.
+- **`ExactMeshArrangement.InCircle`** now tries the generated predicate first. It falls back to `BigInteger` when an
+  input exceeds its bound.
+
+**Results.** `nary <case> onepass`, median of 4 alternating rounds, against the state with the `AddPoint` fix. The
+results are identical: same triangles and the same volume, bit for bit.
+
+| | before | after | |
+|---|---|---|---|
+| grid 10, triangulation | 1888 ms | 1495 ms | −21 % |
+| grid 10, total | 6573 ms | 6071 ms | −8 % |
+| grid 5, total | 578 ms | 561 ms | −3 % |
+| spheres 20 | | | unchanged (10 exact calls) |
+
+Both changes together against master, 3 rounds on grid 10: 6652 -> 6006 ms (−9.7 %).
+
+**Tests.**
+- The fixed-width result equals the BigInteger determinant on 50 000 inputs of every size up to the bounds, including
+  0 and 2^b − 1, and on exactly cocircular inputs.
+- Inputs at the bounds and just beyond are tested.
+- The runtime refuses overflow.
+- 10 mutants are all killed: two in the generated code, and in the runtime the carries, negation, sign extension,
+  the Fits boundary and the overflow checks.
+
+**Verdict for step 2.**
+- **The approach works.** The generator derives the widths, the result is exact and allocates nothing, and the phase
+  it replaces gets 21 % faster.
+- **On its own it stays just under the 10 % bar** on the total (−8 %). The arrangement's other exact stages still use
+  `BigInteger`:
+  - `Orient` on rational points (18.5M calls, 21 % of them exact on the n-ary grid);
+  - `ComparePoints` in the merge;
+  - the construction of the exact points (with gcd).
+
+  These are the next candidates for the same treatment, and now cost little each: a formula in the spec plus a call
+  site.
+
 ## Next steps (if continued), ranked
 
-1. **One implicit-point predicate** (for example orient2d on an LPI point, the projection of an edge-plane
-   intersection). Generate it as a filter plus a fixed-size expansion, and measure it against the current
-   `BigInteger` path in `BooleanComparison` (n-ary). This is the real test of the speed claim. The risk is the
-   270+ bits of the implicit points (`docs/perf/EXACT_BOOLEAN_PERFORMANCE.md`).
+1. **The arrangement's `Orient` and `ComparePoints` on rational points** as `ipredicate`s, the same way as
+   `ArrInCircle` (step 2). Together with step 2 this decides the speed track on the n-ary grid. Related work to read
+   first: B. Lévy, *Exact predicates, exact constructions and combinatorics for mesh CSG* (2024/2025, Geogram, BSD).
+   It also evaluates predicates on homogeneous points without allocation; check its license and approach before
+   reading any code.
 2. Stage D as B plus the tail terms, to reach parity on `orient2d` / `incircle`. Then `orient3d` / `insphere` from the
    same spec. The degree limit of 6 allows insphere (degree 5).
 3. A Roslyn source generator instead of the console tool, once the format settles. This needs no JIT, so it also runs

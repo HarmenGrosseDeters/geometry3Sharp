@@ -126,6 +126,8 @@ namespace G3PredicateCompiler
         public Rational CP, E, G;
         public bool HasTail;
         public int LeafDeg;
+        // ipredicate: |value| < 2^Bits
+        public int Bits;
         public int Depth;
         // static expansion lengths
         public long LenB, LenD;
@@ -169,6 +171,9 @@ namespace G3PredicateCompiler
         public List<Node> Nodes = new List<Node>();     // topological order
         public Node Root;
         public string Comment;
+        // ipredicate: exact integer evaluation in fixed width; the bit bound of each input (|x| < 2^bits)
+        public bool IsInteger;
+        public List<int> InputBits = new List<int>();
     }
 
     public static class PredicateCompiler
@@ -195,13 +200,31 @@ namespace G3PredicateCompiler
             sb.Append("    /// </summary>\n");
             sb.Append("    internal static unsafe class GeneratedPredicates\n    {\n");
             bool first = true;
-            foreach (var p in preds) {
+            foreach (var p in preds.Where(q => !q.IsInteger)) {
                 if (!first) sb.Append('\n');
                 first = false;
                 Analyze(p);
                 Emit(p, sb);
             }
-            sb.Append("    }\n}\n");
+            sb.Append("    }\n");
+            if (preds.Any(q => q.IsInteger)) {
+                sb.Append("\n#if NET\n");
+                sb.Append("    /// <summary>\n");
+                sb.Append("    /// Sign predicates on integers (ipredicate), evaluated exactly in fixed-width two's complement (IntegerRuntime):\n");
+                sb.Append("    /// every intermediate value gets the limbs its proven bit bound needs, on the stack, without allocation.\n");
+                sb.Append("    /// They return 2 when an input exceeds its bound (the caller then evaluates otherwise).\n");
+                sb.Append("    /// </summary>\n");
+                sb.Append("    internal static unsafe class GeneratedIntegerPredicates\n    {\n");
+                first = true;
+                foreach (var p in preds.Where(q => q.IsInteger)) {
+                    if (!first) sb.Append('\n');
+                    first = false;
+                    AnalyzeInteger(p);
+                    EmitInteger(p, sb);
+                }
+                sb.Append("    }\n#endif\n");
+            }
+            sb.Append("}\n");
             return sb.ToString();
         }
 
@@ -220,14 +243,20 @@ namespace G3PredicateCompiler
                 string line = raw.Trim();
                 if (line.StartsWith("#")) { comment.Append(line.Substring(1).Trim()).Append(' '); continue; }
                 if (line.Length == 0) { comment.Clear(); continue; }    // only the comment block right before a predicate
-                if (line.StartsWith("predicate ")) {
+                if (line.StartsWith("predicate ") || line.StartsWith("ipredicate ")) {
                     if (cur != null) throw new FormatException($"line {lineNo}: predicate {cur.Name} has no sign line");
-                    cur = new Predicate { Comment = comment.ToString().Trim() };
+                    cur = new Predicate { Comment = comment.ToString().Trim(), IsInteger = line.StartsWith("i") };
                     comment.Clear();
-                    string head = line.Substring(10);
+                    string head = line.Substring(line.IndexOf(' ') + 1);
                     int open = head.IndexOf('('), close = head.IndexOf(')');
                     cur.Name = head.Substring(0, open).Trim();
                     cur.Inputs = head.Substring(open + 1, close - open - 1).Split(',').Select(s => s.Trim()).ToList();
+                    if (cur.IsInteger) {
+                        // inputs "name:bits"
+                        cur.InputBits = cur.Inputs.Select(x => x.Contains(':') ? int.Parse(x.Substring(x.IndexOf(':') + 1).Trim(), CultureInfo.InvariantCulture) : throw new FormatException($"line {lineNo}: integer input '{x}' needs a bit bound (name:bits)")).ToList();
+                        cur.Inputs = cur.Inputs.Select(x => x.Substring(0, x.IndexOf(':')).Trim()).ToList();
+                        if (cur.InputBits.Any(b => b < 1 || b > 4096)) throw new FormatException($"line {lineNo}: bit bounds must be in 1..4096");
+                    }
                     vars = new Dictionary<string, Node>();
                     cse = new Dictionary<string, Node>();
                     foreach (var name in cur.Inputs)
@@ -237,7 +266,7 @@ namespace G3PredicateCompiler
                 if (cur == null) throw new FormatException($"line {lineNo}: expected 'predicate'");
                 if (line.StartsWith("sign ")) {
                     cur.Root = new ExprParser(line.Substring(5), vars, (op, a, b) => make(cur, cse, op, a, b, null)).Parse();
-                    if (cur.Root.Op != Op.Add && cur.Root.Op != Op.Sub)
+                    if (!cur.IsInteger && cur.Root.Op != Op.Add && cur.Root.Op != Op.Sub)
                         throw new FormatException($"line {lineNo}: the formula must be a sum or difference at the top");
                     result.Add(cur);
                     cur = null;
@@ -585,6 +614,49 @@ namespace G3PredicateCompiler
                 if (n.Op != Op.Input)
                     sb.Append($"{I2}BigInteger {val(n)} = {bval(n.A)} {opc(n.Op)} {bval(n.B)};\n");
             sb.Append($"{I2}return {val(root)}.Sign;\n{I1}}}\n");
+        }
+
+        // --- integer predicates: bit bounds by |x + y|, |x - y| < 2^(max + 1) and |x y| < 2^(bx + by); a value with
+        // |v| < 2^b needs b + 1 bits in two's complement
+
+        static void AnalyzeInteger(Predicate p)
+        {
+            foreach (var name in p.Inputs)
+                if (Reserved.Contains(name) || System.Text.RegularExpressions.Regex.IsMatch(name, "^(n|k)[0-9]+$"))
+                    throw new NotSupportedException($"{p.Name}: input name '{name}' clashes with the generated code");
+            foreach (var n in p.Nodes) {
+                switch (n.Op) {
+                    case Op.Input: n.Bits = p.InputBits[p.Inputs.IndexOf(n.Name)]; break;
+                    case Op.Add: case Op.Sub: n.Bits = Math.Max(n.A.Bits, n.B.Bits) + 1; break;
+                    case Op.Mul: n.Bits = n.A.Bits + n.B.Bits; break;
+                }
+            }
+        }
+
+        static int limbs(Node n) => (n.Bits + 1 + 63) / 64;
+
+        static void EmitInteger(Predicate p, StringBuilder sb)
+        {
+            string I1 = "        ", I2 = I1 + "    ";
+            var root = p.Root;
+            sb.Append($"{I1}// {p.Name}: {p.Comment}\n");
+            sb.Append($"{I1}// inputs below 2^({string.Join(", ", p.InputBits.Distinct())}); result below 2^{root.Bits} ({limbs(root)} limbs); widest product {p.Nodes.Where(n => n.Op == Op.Mul).Max(n => limbs(n))} limbs\n");
+            sb.Append($"{I1}[MethodImpl(JitHints.Optimize), SkipLocalsInit]\n");
+            sb.Append($"{I1}internal static int {p.Name}({string.Join(", ", p.Inputs.Select(i => "BigInteger " + i))})\n{I1}{{\n");
+            sb.Append($"{I2}if (!({string.Join(" && ", p.Inputs.Select((x, i) => $"IntegerRuntime.Fits({x}, {p.InputBits[i]})"))}))\n");
+            sb.Append($"{I2}    return 2;\n");
+            foreach (var n in p.Nodes) {
+                string r = "n" + n.Id, k = limbs(n).ToString(CultureInfo.InvariantCulture);
+                sb.Append($"{I2}ulong* {r} = stackalloc ulong[{k}]; ");
+                if (n.Op == Op.Input)
+                    sb.Append($"IntegerRuntime.Load({n.Name}, {r}, {k});");
+                else if (n.Op == Op.Mul)
+                    sb.Append($"IntegerRuntime.Mul(n{n.A.Id}, {limbs(n.A)}, n{n.B.Id}, {limbs(n.B)}, {r}, {k});");
+                else
+                    sb.Append($"IntegerRuntime.Add(n{n.A.Id}, {limbs(n.A)}, n{n.B.Id}, {limbs(n.B)}, {r}, {k}, {(n.Op == Op.Sub ? "true" : "false")});");
+                sb.Append($"     // < 2^{n.Bits}\n");
+            }
+            sb.Append($"{I2}return IntegerRuntime.Sign(n{root.Id}, {limbs(root)});\n{I1}}}\n");
         }
 
         static string tail(Node n) => n.IsLeafDiff ? "t" + n.Id : "r" + n.Id;
