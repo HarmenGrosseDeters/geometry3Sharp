@@ -110,7 +110,7 @@ namespace g3
             ParallelBuild = parallelBuild;
             entries = new Entry[boxes.Count];
             // In parallel only from what is known to allow it: another list may hold a lock, cache what it reads, or need its thread.
-            if (entries.Length > 0) extent = parallelBuild && entries.Length >= ParallelThreshold && (boxes is AxisAlignedBox2d[] || boxes is List<AxisAlignedBox2d>) ?
+            if (entries.Length > 0) extent = parallelBuild && entries.Length >= ParallelThreshold && (boxes is AxisAlignedBox2d[] || boxes.GetType() == typeof(List<AxisAlignedBox2d>)) ?
                 FillInBlocks(boxes) : Fill(boxes, 0, entries.Length);
             Count = nextId = entries.Length;
             rootRegion = extent;
@@ -427,7 +427,7 @@ namespace g3
             int count = ++node.Count;
             // A cell of equal items refuses to split, at a cost per attempt: at powers of two, so that filling it stays linear.
             // The union above left the bounds valid, so a node that cannot split costs nothing more.
-            if (node.Child < 0 && count > BucketSize && (count == BucketSize + 1 || (count & (count - 1)) == 0) &&
+            if (node.Child < 0 && count > BucketSize && (count == BucketSize + 1 || count == GatheredBucketSize + 1 || (count & (count - 1)) == 0) &&
                 depth < DepthLimit && SplitAxes(cell, Center(cell)) != 0 && !AllEqual(node.Head))
                 BuildCell(index, cell, depth);
         }

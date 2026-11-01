@@ -251,6 +251,55 @@ namespace geometry3Sharp.Tests.Spatial
             Assert.Contains(15, found);
         }
 
+        // Corners make the root square: the root, three corners and the quadrant with the given points.
+        static List<AxisAlignedBox2d> InOneQuadrant(int count, double span)
+        {
+            var boxes = new List<AxisAlignedBox2d> { new AxisAlignedBox2d(new Vector2d(0, 100)), new AxisAlignedBox2d(new Vector2d(100, 0)), new AxisAlignedBox2d(new Vector2d(100, 100)) };
+            for (int i = 0; i < count; ++i) {
+                double along = 20 + span * i / (count - 1);
+                boxes.Add(new AxisAlignedBox2d(new Vector2d(along, along)));
+            }
+            return boxes;
+        }
+
+        const int OneRegionPerQuadrant = 5;
+
+        [Theory]
+        [InlineData(16, 1e-3, true)]
+        [InlineData(17, 1e-3, false)]
+        [InlineData(10, 12, true)]      // the quadrant is 50 wide, so a quarter is 12.5
+        [InlineData(10, 13, false)]
+        public void AClusterStaysTogether_UpToItsCountAndSize(int count, double span, bool together)
+        {
+            List<AxisAlignedBox2d> boxes = InOneQuadrant(count, span);
+            Assert.Equal(together, VisitRegions(new LooseQuadtree2d(boxes, false)).Count == OneRegionPerQuadrant);
+        }
+
+        [Fact]
+        public void AnInsertedCluster_SplitsAboveTheSameCount()
+        {
+            List<AxisAlignedBox2d> boxes = InOneQuadrant(17, 1e-3);
+            var tree = new LooseQuadtree2d(boxes.GetRange(0, 4), false);
+            for (int i = 4; i < boxes.Count - 1; ++i) tree.Insert(boxes[i]);
+            Assert.Equal(OneRegionPerQuadrant, VisitRegions(tree).Count);
+            tree.Insert(boxes[boxes.Count - 1]);
+            Assert.True(VisitRegions(tree).Count > OneRegionPerQuadrant);
+        }
+
+        sealed class OwnIndexerList : List<AxisAlignedBox2d>, IReadOnlyList<AxisAlignedBox2d>
+        {
+            public readonly object Gate = new object();
+            AxisAlignedBox2d IReadOnlyList<AxisAlignedBox2d>.this[int index] { get { lock (Gate) return this[index]; } }
+        }
+
+        [Fact]
+        public void ASubclassOfAList_IsReadOnTheCallingThreadOnly()
+        {
+            var list = new OwnIndexerList();
+            for (int i = 0; i < 200000; ++i) list.Add(new AxisAlignedBox2d(new Vector2d(i % 300, i / 300)));
+            lock (list.Gate) Assert.Equal(list.Count, new LooseQuadtree2d(list).Count);
+        }
+
         [Theory]
         [InlineData(true)]
         [InlineData(false)]

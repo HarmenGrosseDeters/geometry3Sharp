@@ -78,6 +78,6 @@ Each build runs once per process, so `sequential`, the first, also pays for the 
 | Segment | 8.11 | 30.89 | 12.16 | 37.29 |
 | Nearest | 1.24 | 12.12 | 1.48 | 16.77 |
 
-A cell splits above 8 items, or above 16 if they fill at most a quarter of the cell in both directions, as cutting such a cluster adds a chain of nodes before it separates them. Measured at 4, 6, 8, 12, 16, 24 and 32: 8 is the best for queries, 4 and 6 gain nothing and cost build time (4 also memory), and against 16 it is about 30 % faster in rectangle queries on .NET 10 and 25 % on 4.8, 37 % and 26 % in heights, for about 5 % more build time.
+A cell splits above 8 items, or above 16 if they fill at most a quarter of the cell in both directions, as cutting such a cluster adds a chain of nodes before it separates them. Inserts try to split at 9, 17 and each power of two, so a cell can hold more until the next of these. Measured at 4, 6, 8, 12, 16, 24 and 32: 8 is the best for queries, 4 and 6 gain nothing and cost build time (4 also memory), and against 16 it is about 30 % faster in rectangle queries on .NET 10 and 25 % on 4.8, 37 % and 26 % in heights, for about 5 % more build time.
 
 `index_retained_bytes` of the core: 64.7 MB on both runtimes, with no triangles. The triangles add 72 bytes each in `TriangleQuadtree2d`, and nothing in `Over`, which reads the caller's array.
