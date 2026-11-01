@@ -1000,22 +1000,146 @@ namespace geometry3Sharp.Tests
             AssertFailedWithNoResult(guaranteed);
         }
 
-        [Fact]
-        public void Safety_TinyExcessTolerance_NoCertificate_AlsoWhenItThrows()
+        // ---- TerrainSafetyLines: finite values that would need more steps or memory than any sensible use (S26) ----
+
+        static TerrainSafetyLines SafetyIn(Similarity s, TerrainSafetyLines.Modes mode, List<Vector3d> source)
         {
-            // (S26: the sample count overflows. On .NET the array allocation throws, on .NET Framework the cast gives
-            // one sample per segment, which is not certified.) The certificate must not be true on the way out.
+            var sl = new TerrainSafetyLines(Invariance.Transformed(HillTerrain(), s), new[] { source.Select(s.Apply).ToList() }, s.ApplyLength(2)) { Mode = mode };
+            sl.Tolerance = s.ApplyLength(0.01);
+            sl.ExcessTolerance = s.ApplyLength(2);
+            return sl;
+        }
+
+        // far beyond the terrain of 20 x 20: few triangles near it, but very many steps along it
+        static List<Vector3d> VeryLongSource(double length) => new List<Vector3d> { new Vector3d(4, 10, 0.4), new Vector3d(4 + length, 10, 0.4) };
+
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void Safety_TinyExcessTolerance_Refused_InEveryFrame(string name)
+        {
+            // (was an OverflowException on .NET, where the cast to int saturates, and one sample per segment on .NET Framework)
+            Similarity s = Similarity.ByName(name);
+            var sl = SafetyIn(s, Guaranteed, Crest());
+            sl.ExcessTolerance = s.ApplyLength(1e-14);
+            AssertFailedWithNoResult(sl);
+            // the instance is fine afterwards
+            sl.ExcessTolerance = s.ApplyLength(2);
+            Assert.True(Compute(sl), name);
+            Assert.True(sl.Certified, name);
+            Assert.NotEmpty(sl.Lines);
+        }
+
+        [Fact]
+        public void Safety_TinyExcessTolerance_AfterASuccess_LeavesNoOutputOfTheRun()
+        {
+            // it is known only when the lines are: the refusal must also clear what this run has made
             var sl = Safety(Guaranteed);
+            sl.ExcessTolerance = 2;
+            Assert.True(Compute(sl));
             sl.ExcessTolerance = 1e-14;
-            try {
-                sl.Compute();
-            } catch (OverflowException) {
+            AssertFailedWithNoResult(sl);
+        }
+
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void Safety_TinyEdgeLength_VeryLongSource_Refused_InEveryFrame(string name)
+        {
+            // 2e8 source points before anything else: the refinement of the small terrain alone would be fine
+            Similarity s = Similarity.ByName(name);
+            var sl = SafetyIn(s, AlongSurface, VeryLongSource(1e6));
+            sl.EdgeLength = s.ApplyLength(0.01);
+            AssertFailedWithNoResult(sl);
+        }
+
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void Safety_VeryLongSource_Refused_Guaranteed_InEveryFrame(string name)
+        {
+            // 1e13 steps along the source for the bound (about 2^31 on .NET, one on .NET Framework)
+            AssertFailedWithNoResult(SafetyIn(Similarity.ByName(name), Guaranteed, VeryLongSource(1e12)));
+        }
+
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void Safety_TinyEdgeLength_OnAPoint_Refused_InEveryFrame(string name)
+        {
+            // no long source: the refinement and the remeshing of the band are what would not end
+            Similarity s = Similarity.ByName(name);
+            var sl = new TerrainSafetyLines(Invariance.Transformed(HillTerrain(), s), new int[0], s.ApplyLength(2)) { Mode = AlongSurface, EdgeLength = s.ApplyLength(1e-9) };
+            sl.SourcePoints.Add(s.Apply(new Vector3d(10, 10, 1)));
+            AssertFailedWithNoResult(sl);
+        }
+
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void Safety_TinyTolerance_Refused_InEveryFrame(string name)
+        {
+            Similarity s = Similarity.ByName(name);
+            var horizontal = SafetyIn(s, Horizontal, Crest());
+            horizontal.Tolerance = s.ApplyLength(1e-14);
+            AssertFailedWithNoResult(horizontal);
+            var guaranteed = SafetyIn(s, Guaranteed, Crest());
+            guaranteed.Tolerance = s.ApplyLength(1e-14);
+            AssertFailedWithNoResult(guaranteed);
+        }
+
+        [Fact]
+        public void Safety_TinySafetyDistance_Refused()
+        {
+            // the edge lengths follow SafetyDistance
+            foreach (TerrainSafetyLines.Modes mode in new[] { Horizontal, AlongSurface }) {
+                var sl = new TerrainSafetyLines(HillTerrain(), new[] { Crest() }, 1e-9) { Mode = mode };
+                AssertFailedWithNoResult(sl);
             }
-            Assert.False(sl.Certified);
+            // not in Guaranteed, where the line is drawn Tolerance further out: the edges follow that
+            var guaranteed = new TerrainSafetyLines(HillTerrain(), new[] { Crest() }, 1e-9) { Mode = Guaranteed, ExcessTolerance = 2 };
+            Assert.True(Compute(guaranteed));
+            Assert.NotEmpty(guaranteed.Lines);
+        }
+
+        [Fact]
+        public void Safety_ValuesOfSensibleUse_AreNotRefused()
+        {
+            // finer than anything in practice, by a wide margin below the limits
+            var fine = Safety(Guaranteed);
+            fine.ExcessTolerance = 2e-3;
+            fine.Tolerance = 2e-3;
+            Assert.True(Compute(fine));
+            Assert.NotEmpty(fine.Lines);
+            var horizontal = Safety(Horizontal);
+            horizontal.Tolerance = 1e-4;
+            Assert.True(Compute(horizontal));
+            Assert.NotEmpty(horizontal.Lines);
+            var surface = Safety(AlongSurface);
+            surface.EdgeLength = 0.2;
+            Assert.True(Compute(surface));
+            Assert.NotEmpty(surface.Lines);
+        }
+
+        [Fact]
+        public void Safety_UpperBound_PinnedBits()
+        {
+            // the samples along a segment, without storing them: the same bound as with the array they were in before
+            var sl = Safety(Guaranteed);
+            sl.ExcessTolerance = 0.05;
+            sl.SteinerPoints = 3;
+            sl.MaxSteinerPoints = 3;
+            Assert.True(Compute(sl));
+            Assert.Equal(4593529488071912896, BitConverter.DoubleToInt64Bits(sl.MaxExcess));
+            Assert.Equal(4579305932377577984, BitConverter.DoubleToInt64Bits(sl.Excess[0][sl.Excess[0].Count - 1]));
+            Assert.Equal(70, sl.UncertifiedSegments);
+        }
+
+        [Fact]
+        public void Safety_ExceptionInCertify_LeavesNoCertificate()
+        {
+            // (the points per edge are not limited: with these the node count just passes 2^31, wraps around to a
+            // negative size, and the allocation throws)
+            var sl = Safety(Guaranteed);
             sl.ExcessTolerance = 2;
             Assert.True(Compute(sl));
             Assert.True(sl.Certified);
-            sl.ExcessTolerance = 1e-14;
+            sl.SteinerPoints = (int)Math.Ceiling(Math.Pow(2, 31) / sl.RefinedTerrain.MaxEdgeID);
             try {
                 sl.Compute();
             } catch (OverflowException) {

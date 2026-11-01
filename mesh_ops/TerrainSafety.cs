@@ -326,6 +326,28 @@ namespace gs
         /// </summary>
         public int SteinerPoints = 3, MaxSteinerPoints = 12;
 
+        // Limits for finite values that would need more steps or memory than any sensible use: above them Compute
+        // fails. They are counts, so the decision does not depend on the units. Counted in double before any work.
+
+        /// <summary>
+        /// Guaranteed: most steps per pass of the upper bound, along the lines (1 per ExcessTolerance / 8) or along
+        /// the sources (4 per edge length). 1e9 samples are 125 km of lines at ExcessTolerance = 1 mm, against 0.2 m
+        /// by default, and hours of computing.
+        /// </summary>
+        public const double MaxCertifySteps = 1e9;
+        /// <summary>
+        /// AlongSurface: most points of the densified source lines (kept in memory, 24 bytes each, 2 per
+        /// EdgeLength). 1e7 are 600 km of sources at the default EdgeLength of SafetyDistance / 8 for a distance of 1 m.
+        /// </summary>
+        public const double MaxSourcePoints = 1e7;
+        /// <summary>
+        /// Most triangles expected of refining the terrain near the sources (2 x area of the band, within the area of
+        /// the terrain, / edge length^2; AlongSurface: also of the remeshing), which take in the order of 100 bytes
+        /// each. 1e8 are 120 km of sources at the default EdgeLength for a distance of 1 m, or 2000 km at the default
+        /// Tolerance. An estimate: it does not know where the sources leave the terrain.
+        /// </summary>
+        public const double MaxRefinedTriangles = 1e8;
+
         // outputs
         public List<List<Vector3d>> Lines = new List<List<Vector3d>>();
         /// <summary> Horizontal: the terrain with its edges near the sources split (same surface) </summary>
@@ -375,19 +397,57 @@ namespace gs
         /// positive and finite, the terrain is empty, a source point is not finite or a source segment is too
         /// long for its length to be finite, or the parameters of the mode are invalid: Tolerance must be positive
         /// (Horizontal; may be +infinity) or positive and finite (Guaranteed), ExcessTolerance (Guaranteed) must
-        /// be positive (may be +infinity), EdgeLength and SafetyMargin (AlongSurface) must be finite. Very small
-        /// finite tolerances are not refused: see S26 in docs/ROBUSTNESS_SWEEP.md.
+        /// be positive (may be +infinity), EdgeLength and SafetyMargin (AlongSurface) must be finite. Also false if
+        /// finite values need too much: see MaxCertifySteps, MaxSourcePoints and MaxRefinedTriangles.
         /// </summary>
         public bool Compute()
         {
-            Lines.Clear(); Excess.Clear();
-            MaxExcess = 0; UncertifiedSegments = 0; MinLineDistance = 0; Certified = false; UsedSteinerPoints = 0;
-            RefinedTerrain = null; RemeshedTerrain = null; Geodesic = null;
+            clear_outputs();
             if (positive_finite(SafetyDistance) == false || Terrain.TriangleCount == 0 || sources_finite() == false)
                 return false;
             if (Mode == Modes.Guaranteed)
                 return compute_guaranteed();
             return (Mode == Modes.Horizontal) ? compute_horizontal() : compute_along_surface();
+        }
+
+        void clear_outputs()
+        {
+            Lines.Clear(); Excess.Clear();
+            MaxExcess = 0; UncertifiedSegments = 0; MinLineDistance = 0; Certified = false; UsedSteinerPoints = 0;
+            RefinedTerrain = null; RemeshedTerrain = null; Geodesic = null;
+        }
+
+        // steps along the source segments at this spacing, as the densifying loops take them (in double: the casts
+        // to int of these loops overflow, with different results on the runtimes)
+        double source_steps(double spacing)
+        {
+            double steps = 0;
+            if (polyLines != null)
+                foreach (var line in polyLines)
+                    for (int i = 0; i + 1 < line.Count; ++i)
+                        steps += Math.Max(1, Math.Ceiling(line[i].Distance(line[i + 1]) / spacing));
+            return steps;
+        }
+
+        // triangles expected of refining the band within reach of the sources down to this edge length (per
+        // edge^2 first: the squares can leave the range of double where the ratios do not)
+        bool refinement_too_large(double reach, double edge)
+        {
+            double perEdge2 = 0;
+            foreach (int tid in Terrain.TriangleIndices()) {
+                double area = Terrain.GetTriArea(tid);
+                if (area > 0) perEdge2 += area / edge / edge;   // (a NaN vertex is no reason to refuse)
+            }
+            double length = 0, count = SourcePoints.Count;
+            if (polyLines != null)
+                foreach (var line in polyLines) {
+                    count++;
+                    for (int i = 0; i + 1 < line.Count; ++i)
+                        length += line[i].Distance(line[i + 1]);
+                }
+            double r = reach / edge;
+            double band = 2 * r * (length / edge) + Math.PI * r * r * count;
+            return !(2 * Math.Min(perEdge2, band) <= MaxRefinedTriangles);
         }
 
         static bool positive_finite(double x)
@@ -491,6 +551,8 @@ namespace gs
             // SafetyDistance (around convex corners and line ends) lies at most len^2 / (8 SafetyDistance)
             // inside it: edges near the sources are split down to the length that keeps this below Tolerance
             double maxLength = Math.Min(Math.Sqrt(8 * SafetyDistance * Tolerance), SafetyDistance);
+            if (refinement_too_large(SafetyDistance, maxLength))
+                return false;
             RefinedTerrain = refine_near_sources(maxLength, SafetyDistance);
             double D = SafetyDistance;
             var iso = new MeshIsoCurves(RefinedTerrain, (p) => Math.Min(horizontal_distance(p.xy, 2 * D), 2 * D) - D) {
@@ -506,17 +568,24 @@ namespace gs
             build_segments();
             if (segments.Count == 0 || positive_finite(Tolerance) == false || !(ExcessTolerance > 0))
                 return false;
-            MinLineDistance = double.MaxValue;
             // as Horizontal, with the 3D distance (a lower bound of the distance along the terrain); the
             // chords between the line points lie at most Tolerance inside the level, so outside SafetyDistance
             double level = SafetyDistance + Tolerance;
             double maxLength = Math.Min(Math.Sqrt(8 * level * Tolerance), level);
+            if (refinement_too_large(level, maxLength) || !(source_steps(0.25 * maxLength) <= MaxCertifySteps))
+                return false;
+            MinLineDistance = double.MaxValue;
             RefinedTerrain = refine_near_sources(maxLength, level);
             var iso = new MeshIsoCurves(RefinedTerrain, (p) => Math.Min(distance_3d(p, 2 * level), 2 * level) - level) {
                 RootMode = MeshIsoCurves.RootfindingModes.Bisection, RootModeSteps = 40
             };
             iso.Compute();
             chain_graph(iso.Graph);
+            // (only now are the lines known)
+            if (!(certify_samples() <= MaxCertifySteps)) {
+                clear_outputs();
+                return false;
+            }
             // safe side, for the whole line: the smallest 3D distance of its segments to the sources (exact)
             foreach (var line in Lines)
                 for (int i = 0; i + 1 < line.Count; ++i)
@@ -530,6 +599,16 @@ namespace gs
             }
             Certified = Certified && MinLineDistance >= SafetyDistance;
             return Certified || RequireCertified == false;
+        }
+
+        // samples of one pass of certify along the lines
+        double certify_samples()
+        {
+            double h = ExcessTolerance / 8, samples = 0;
+            foreach (var line in Lines)
+                for (int i = 0; i + 1 < line.Count; ++i)
+                    samples += Math.Max(1, Math.Ceiling(line[i].Distance(line[i + 1]) / h));
+            return samples;
         }
 
         // smallest 3D distance of the segment pq to the source segments (if below radius, else MaxValue)
@@ -676,17 +755,12 @@ namespace gs
                 for (int i = 0; i + 1 < line.Count; ++i) {
                     int n = Math.Max(1, (int)Math.Ceiling(line[i].Distance(line[i + 1]) / h));
                     double step = line[i].Distance(line[i + 1]) / n;
-                    var u = new double[n + 1];
-                    u[0] = prev;
-                    for (int k = 1; k <= n; ++k)
-                        u[k] = bound(Vector3d.Lerp(line[i], line[i + 1], (double)k / n));
-                    Func<double> segment_max = () => {
-                        double mx = 0;
-                        for (int k = 0; k < n; ++k) mx = Math.Max(mx, 0.5 * (u[k] + u[k + 1] + step) - SafetyDistance);
-                        return mx;
-                    };
-                    double segMax = segment_max();
-                    prev = u[n];
+                    double segMax = 0;
+                    for (int k = 1; k <= n; ++k) {
+                        double next = bound(Vector3d.Lerp(line[i], line[i + 1], (double)k / n));
+                        segMax = Math.Max(segMax, 0.5 * (prev + next + step) - SafetyDistance);
+                        prev = next;
+                    }
                     ex.Add(prev - SafetyDistance);
                     MaxExcess = Math.Max(MaxExcess, segMax);
                     if (!(segMax <= ExcessTolerance)) {
@@ -740,6 +814,8 @@ namespace gs
                 return false;
             double h = (EdgeLength > 0) ? EdgeLength : SafetyDistance / 8;
             if (h <= 0)
+                return false;
+            if (!(source_steps(0.5 * h) <= MaxSourcePoints) || refinement_too_large(3 * SafetyDistance + 2 * h, h))
                 return false;
 
             // source points: densified polylines and the given points
