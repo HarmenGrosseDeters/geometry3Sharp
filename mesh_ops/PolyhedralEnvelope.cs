@@ -33,14 +33,14 @@ namespace gs
         public EnvelopeStatus Status { get; private set; }
         public int PolyhedronCount { get { return count; } }
 
-        internal const int MaxFacets = 16;
+        internal const int MaxFacets = 8;
         const double U = 1.1102230246251565e-16;       // unit roundoff 2^-53
         const double Lambda = 2;                        // ENVELOPE.md 4.4, Lemma 2
         const double Tiny = 1e-300;
 
         // direction errors (ENVELOPE.md 4.4), in units of U, each one more than derived for the O(u^2) terms
         internal const double ThetaNormal = 9, ThetaSide = 29, ThetaCap = 11, ThetaAlong = 7, ThetaPerp1 = 20,
-            ThetaPerp2 = 61, ThetaAxis = 0, ThetaUniform = 171;
+            ThetaPerp2 = 61, ThetaAxis = 0;
 
         int count;
         Vector3d[] facets;          // per polyhedron MaxFacets x 3 points: strictly inside means Orient3d < 0
@@ -48,18 +48,8 @@ namespace gs
         TriangleBoxTree tree;
         AxisAlignedBox3d[] boxes;
 
-        public PolyhedralEnvelope(DMesh3 mesh, double epsilon) : this(mesh, epsilon, false) { }
-
-        /// <summary>
-        /// (measurement, ENVELOPE.md 4.6) prism: MeshEnvelope's shape instead of the paper's, the slab 0.8 eps along the
-        /// normal and 14 lateral half-spaces 0.6 cos(22.5 deg) eps outside (8 uniform directions, both normals of each
-        /// edge); degenerate triangles keep the box
-        /// </summary>
-        internal readonly bool Prism;
-
-        internal PolyhedralEnvelope(DMesh3 mesh, double epsilon, bool prism)
+        public PolyhedralEnvelope(DMesh3 mesh, double epsilon)
         {
-            Prism = prism;
             Mesh = mesh;
             Epsilon = epsilon;
             if (!(epsilon > 0) || double.IsInfinity(epsilon)) { Status = EnvelopeStatus.InvalidEpsilon; return; }
@@ -81,7 +71,7 @@ namespace gs
             Vector3d v0 = Vector3d.Zero, v1 = Vector3d.Zero, v2 = Vector3d.Zero;
             foreach (int tid in Mesh.TriangleIndices()) {
                 Mesh.GetTriVertices(tid, ref v0, ref v1, ref v2);
-                var b = new Builder(Epsilon, v0, v1, v2) { Prism = Prism };
+                var b = new Builder(Epsilon, v0, v1, v2);
                 EnvelopeStatus st = b.Build(facets, count * MaxFacets * 3, out facetCount[count]);
                 if (st != EnvelopeStatus.Ready) return st;
                 AxisAlignedBox3d box;
@@ -129,11 +119,8 @@ namespace gs
             internal List<Facet> Log;
             internal struct Facet { public Vector3d M; public double Theta, S, Margin, Mu; }
 
-            internal bool Prism;
-
             public Builder(double epsilon, Vector3d a, Vector3d b, Vector3d c)
             {
-                Prism = false;
                 eps = epsilon; v0 = a; v1 = b; v2 = c;
                 // delta < epsilon / sqrt 3 (three roundings: the constant, the two products; 1 - 4 u covers them)
                 delta = epsilon * 0.57735026918962573 * (1 - 4 * U);
@@ -158,29 +145,7 @@ namespace gs
                     return EnvelopeStatus.OutOfRange;
 
                 Vector3d N;
-                if (exact_normal(v0, v1, v2, out N) && Prism) {
-                    Vector3d n;
-                    unit(N, out n);
-                    // (each offset below its exact value: three roundings, 1 - 4 u)
-                    double normalOff = eps * 0.8 * (1 - 4 * U), lateralOff = eps * 0.55432771950677 * (1 - 4 * U);
-                    add(n, ThetaNormal * U, normalOff);
-                    add(-n, ThetaNormal * U, normalOff);
-                    var w = new Vector3d[3];
-                    for (int k = 0; k < 3; ++k)
-                        if (unit(scaled(e[k]).Cross(n), out w[k]) == false) return EnvelopeStatus.OutOfRange;
-                    Vector3d u1 = w[0], u2;
-                    unit(n.Cross(u1), out u2);
-                    for (int k = 0; k < 8; ++k) {
-                        double ang = k * Math.PI / 4;
-                        Vector3d m;
-                        unit(Math.Cos(ang) * u1 + Math.Sin(ang) * u2, out m);
-                        add(m, ThetaUniform * U, lateralOff);
-                    }
-                    for (int k = 0; k < 3; ++k) {
-                        add(w[k], ThetaSide * U, lateralOff);
-                        add(-w[k], ThetaSide * U, lateralOff);
-                    }
-                } else if (N != Vector3d.Zero) {
+                if (exact_normal(v0, v1, v2, out N)) {
                     Vector3d n;
                     unit(N, out n);
                     add(n, ThetaNormal * U);

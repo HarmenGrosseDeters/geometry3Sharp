@@ -68,7 +68,6 @@ static class Program
         var bounds = new TriangleDeviationBounds(input);
         var env = new MeshEnvelope(input, tol);
         var poly = new PolyhedralEnvelope(input, tol);
-        var prism = new PolyhedralEnvelope(input, tol, true);
         var tris = new System.Collections.Generic.List<Triangle3d>();
         foreach (int t in reduced.TriangleIndices()) {
             Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
@@ -90,20 +89,12 @@ static class Program
             foreach (Triangle3d t in tris) if (poly.ContainsTriangle(t.V0, t.V1, t.V2)) inP++;
             usP = Math.Min(usP, 1000.0 * sw.Elapsed.TotalMilliseconds / tris.Count);
         }
-        int inQ = 0; double usQ = double.MaxValue;
-        for (int round = 0; round < 3; ++round) {
-            inQ = 0;
-            sw.Restart();
-            foreach (Triangle3d t in tris) if (prism.ContainsTriangle(t.V0, t.V1, t.V2)) inQ++;
-            usQ = Math.Min(usQ, 1000.0 * sw.Elapsed.TotalMilliseconds / tris.Count);
-        }
         Console.WriteLine($"{name} ({input.TriangleCount} triangles), tolerance 0.003 of the diagonal, {tris.Count} reduced triangles");
         Console.WriteLine("| check | within | time per triangle |");
         Console.WriteLine("|---|---|---|");
         Console.WriteLine($"| distance bounds (IsWithin) | {inB} | {usB:F0} µs |");
         Console.WriteLine($"| envelope (ContainsTriangle) | {inE} | {usE:F0} µs ({env.ExactQueries} exact) |");
         Console.WriteLine($"| polyhedral envelope (ContainsTriangle, delta = eps / sqrt 3) | {inP} | {usP:F0} µs |");
-        Console.WriteLine($"| polyhedral envelope (ContainsTriangle, prism 0.8 / 0.6) | {inQ} | {usQ:F0} µs |");
     }
 
     static void Main(string[] args)

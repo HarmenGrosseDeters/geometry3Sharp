@@ -82,3 +82,16 @@ The check is not slow because of deep subdivision or repeated searches, but beca
 certifies all its new triangles. A large speedup would need a different certification. The exact envelope is
 not that either: even with floating-point filters in its clipping, about 20-50 µs per triangle can be expected
 (estimate, not measured). Its gain would be exactness and platform independence, not speed.
+
+## Polyhedral envelope (`queries`, docs/design/ENVELOPE.md §6)
+
+`queries` also runs `PolyhedralEnvelope.ContainsTriangle` (internal; paper polyhedra with δ = ε / √3). It now also
+reports the bumpy sphere case. Each entry is triangles accepted, then µs per triangle:
+
+| case | `IsWithin` | `MeshEnvelope` | ε/√3 naive (#268, first commit) | ε/√3 accelerated | 0.8 / 0.6 prism (measured once, 9472f19) |
+|---|---|---|---|---|---|
+| terrain 40 × 40 | 951, 48 | 625, 6425 | 164, 351 | 164, 359 | 625, 6206 |
+| bumpy sphere | 536, 229 | 258, 32826 | 41, 17175 | 41, 1708 | 258, 33375 |
+
+The stop rule was not met (within 5× of `IsWithin` and no fewer accepted than `MeshEnvelope`), so the work stopped
+(ENVELOPE.md §6).

@@ -298,6 +298,39 @@ so the polyhedron is not much smaller than the paper's.
 Stop rule: if after PR 3 the triangle query is not within a factor of 5 of the distance bounds on the
 `ReducerBenchmark` cases, stop and write the finding here.
 
+**Stopped (PR 3, #268).** The owner set the final criterion: stop if the best variant stays above 5× `IsWithin`,
+or accepts clearly fewer queries than `MeshEnvelope`. Both happen.
+
+Measured with `benchmarks/ReducerBenchmark queries` at a tolerance of 0.003 of the diagonal, on the triangles a
+reduction with the distance bounds produces. Each entry is triangles accepted, µs per triangle, and the factor to
+`IsWithin`:
+
+| case | `IsWithin` | `MeshEnvelope` | ε/√3 (Prop. 3.1), naive | ε/√3, accelerated | 0.8 / 0.6 prism, accelerated |
+|---|---|---|---|---|---|
+| terrain 40 × 40, 951 triangles | 951, 48 | 625, 6425 | 164, 351 | 164, 359 (7.5×) | 625, 6206 (130×) |
+| bumpy sphere, 536 triangles | 536, 229 | 258, 32826 | 41, 17175 | 41, 1708 (7.5×) | 258, 33375 (146×) |
+
+- **Accelerations.** Two of the paper's: a cover set tried first, and C3 only on points in the closure of both
+  polyhedra (the vertices of the boundary arrangement). A third is a box test on facet pairs. Together they make the
+  query 10× faster on the bumpy sphere. The independent oracle agrees on every test case.
+- **What remains.** Per query on the terrain there are about 360 facet pairs whose polyhedra's boxes meet, at about
+  1 µs each, and the exact stage is rare (about 1 call per query). The pair loop is the cost.
+- **Acceptance.** It is the shape's, not the algorithm's. ε/√3 reaches about 0.58 ε along the normal, and the
+  `Reducer` pushes triangles to the tolerance, so it accepts 17 % and 8 % of what `IsWithin` certifies.
+  - The 0.8 / 0.6 prism (`MeshEnvelope`'s shape: 2 + 14 facets) accepts exactly as many as `MeshEnvelope`.
+  - With 16 facets per polyhedron it has 4× the pairs, and its time is that of `MeshEnvelope`'s clipping.
+  - It was a measurement only (commit 9472f19, removed after it): no proof in this doc, no bounds review.
+- **Why the paper's numbers do not carry over.** fast-envelope's users (fTetWild, the remeshers) ask many small,
+  local queries that the prefilter decides: one polyhedron holds all three vertices. The `Reducer` asks about large
+  reduced triangles that span tens of input triangles at the full tolerance. That is the worst case for both speed
+  (many candidates and facet pairs) and acceptance.
+
+Kept on #263 / #268, internal, as a tested exact tool: `PolyhedralEnvelope` (points, segments, triangles), the
+generated indirect predicates on doubles with the prepared form, `TPIDenominator`, and the triangle oracle.
+`MeshEnvelope` stays as it is. For the `Reducer`, the open direction is faster distance bounds
+(`TriangleDeviationBounds`; see the BVH Hausdorff upper bounds in the literature, ROADMAP Phase 5 #2), not an
+envelope.
+
 ## 7. Decisions (owner, on the questions of the draft)
 
 1. **Double inputs:** a filter with an underflow term plus exponent alignment per call for the exact stage (4.1). No
