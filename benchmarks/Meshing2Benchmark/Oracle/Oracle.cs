@@ -241,6 +241,9 @@ namespace Meshing2Acceptance
                 return Q.Abs(w.Qx - cx) <= slack && Q.Abs(w.Qy - cy) <= slack;
             }
 
+            /// <summary> D14: p is the centre of a pixel of the given width (a grid point k * width), up to the rounding of the centre to doubles </summary>
+            static bool OnGrid(Pt p, Q pixel) => AtPixelCentre(p, p, pixel);
+
             /// <summary>
             /// D14 with the clean-room answer 6 (MESHING2D_SNAP_QA.md): with an explicit tolerance a contour below the tolerance collapses
             /// into one vertex, and a hole marker in that vertex's pixel (tol/2 per axis) is dropped instead of removing the cell around the
@@ -636,6 +639,9 @@ namespace Meshing2Acceptance
                     // a surviving input slot is an input point even where snapping moved it (D14); Identity judges how far it moved
                     if (input.SnapTolerance > 0 && o.IdentityRules && id < input.Count && map[id] == id) continue;
                     var near = sources.Where(s => WithinTube(s, v[id])).ToList();
+                    // D14: snap rounding adds the centres of hot pixels (crossings, and the restore step's pixels) as vertices of the chains;
+                    // such a vertex lies on the grid, in the envelope of a constraint (within half a pixel per axis of it, so in its tube)
+                    if (input.SnapTolerance > 0 && near.Count > 0 && OnGrid(v[id], Q.FromDouble(input.SnapTolerance))) continue;
                     bool crossing = near.Any(s => near.Any(q => !Collinear(s.a, s.b, q.a, q.b)));
                     if (!crossing) r.Add(Violation.SteinerNotAllowed, "vertex " + id + " " + v[id] + " is no input point and no crossing of constraints");
                 }

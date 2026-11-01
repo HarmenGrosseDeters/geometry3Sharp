@@ -44,6 +44,8 @@ namespace g3
         public bool Conforming;
         /// <summary> Split crossing constraints (default); off: a crossing is a failure. </summary>
         public bool ResolveCrossings = true;
+        /// <summary> Snap tolerance in coordinate units (spec O11, decision D14), as <see cref="ConstrainedDelaunayMesh2.SnapTolerance"/>; 0: automatic only. </summary>
+        public double SnapTolerance;
 
         /// <exception cref="ArgumentException">An option or the input is invalid (an angle outside [0, 60), a non-positive area).</exception>
         public ConstrainedTriangulation2Result Compute(ConstrainedMesh2Input input, CancellationToken cancellationToken = default(CancellationToken))
@@ -55,11 +57,13 @@ namespace g3
             if (input.Regions != null)
                 foreach (var r in input.Regions)
                     if (r != null && r.MaxArea != null && !(r.MaxArea.Value > 0)) throw new ArgumentException("a region's MaxArea must be positive");
-            var builder = new ConstrainedDelaunayMesh2.Builder(input, ResolveCrossings, cancellationToken);
-            var refiner = new Refiner(this, builder);
-            builder.refine = refiner.Run;
-            builder.IsBad = refiner.BelowAngle;
-            return builder.Run();
+            return ConstrainedDelaunayMesh2.Snapped(input, SnapTolerance, cancellationToken, snapped => {
+                var builder = new ConstrainedDelaunayMesh2.Builder(snapped, ResolveCrossings, cancellationToken);
+                var refiner = new Refiner(this, builder);
+                builder.refine = refiner.Run;
+                builder.IsBad = refiner.BelowAngle;
+                return builder.Run();
+            });
         }
 
         internal sealed class Refiner

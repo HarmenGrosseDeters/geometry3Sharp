@@ -37,11 +37,38 @@ namespace g3
         /// <summary> The automatic tolerance as a fraction of the larger of the largest coordinate and the extent. </summary>
         public const double AutoToleranceFactor = 1.0 / (1L << 41);
 
+        /// <summary>
+        /// Snap tolerance in coordinate units (spec O11); 0 (default): only the automatic tolerance. With a tolerance the input is snap
+        /// rounded first (decision D14): every input point moves to the centre of its pixel on a grid of this width anchored at the origin
+        /// (so input on that grid stays put), constraints are routed through the hot pixels, and every vertex ends at least half a pixel
+        /// from every edge not incident to it. Merged below tol / 2, never merged above 2 tol (per axis), the grid decides in between.
+        /// Collapsed rings, segments and dropped hole seeds are reported in the diagnostics.
+        /// </summary>
+        public double SnapTolerance;
+
+        /// <exception cref="ArgumentException">The input is invalid, or SnapTolerance is negative, not finite, or too small for the coordinates.</exception>
         public ConstrainedTriangulation2Result Compute(ConstrainedMesh2Input input, CancellationToken cancellationToken = default(CancellationToken))
         {
             if (input == null) throw new ArgumentNullException(nameof(input));
-            var builder = new Builder(input, ResolveCrossings, cancellationToken);
-            return builder.Run();
+            return Snapped(input, SnapTolerance, cancellationToken, snapped => new Builder(snapped, ResolveCrossings, cancellationToken).Run());
+        }
+
+        /// <summary> runs the mesher on the snap-rounded input (D14) if a snap tolerance is set, and maps the result back to the input points </summary>
+        internal static ConstrainedTriangulation2Result Snapped(ConstrainedMesh2Input input, double tolerance, CancellationToken cancel,
+            Func<ConstrainedMesh2Input, ConstrainedTriangulation2Result> run)
+        {
+            if (tolerance == 0) return run(input);
+            if (!(tolerance > 0) || double.IsInfinity(tolerance)) throw new ArgumentException("SnapTolerance must be zero or positive and finite (spec O11)");
+            new Builder(input, true, cancel).Validate();
+            var snap = SnapRounding2.Apply(input, tolerance);
+            cancel.ThrowIfCancellationRequested();
+            var result = run(snap.Result);
+            var diagnostics = snap.Diagnostics.Concat(result.Diagnostics ?? new string[0]).ToList();
+            diagnostics.Add("snap: tolerance " + tolerance.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + ", input moved by at most "
+                + snap.MaxDisplacement.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + " per axis, " + snap.Crossings + " crossings, "
+                + snap.Rounds + " rounds, restore " + snap.Spread + " spread, " + snap.Snapped + " snapped, " + snap.ForcedSpread + " forced");
+            return new ConstrainedTriangulation2Result(result.Status, result.FailureKind, result.Mesh?.WithInputCount(input.Points.Count), diagnostics,
+                result.ProblemCoordinate, result.FailureDetail);
         }
 
         internal static Vector2d IntersectionForTests(Vector2d a, Vector2d b, Vector2d c, Vector2d d) => Builder.Intersection(a, b, c, d);
@@ -190,7 +217,7 @@ namespace g3
                 if (merged > 0) diagnostics.Add(merged + " points within the automatic tolerance of another point were merged into it");
             }
 
-            void Validate()
+            internal void Validate()
             {
                 var pts = input.Points ?? throw new ArgumentException("input.Points is null");
                 for (int i = 0; i < pts.Count; ++i) DelaunayMesh2.CheckCoordinate(pts[i].x, pts[i].y, "points[" + i + "]");

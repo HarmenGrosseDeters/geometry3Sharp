@@ -1,6 +1,7 @@
 // Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Collections.ObjectModel;
 
 namespace g3
@@ -58,6 +59,18 @@ namespace g3
         }
 
         public int TriangleCount => triangles.Length;
+
+        /// <summary>
+        /// The same mesh with fewer input points: the points appended by snap rounding (crossing and restore pixels, SnapRounding2)
+        /// become vertices made by the mesher, so ids at or above <paramref name="inputCount"/> are no input points
+        /// </summary>
+        internal ConstrainedMesh2 WithInputCount(int inputCount)
+        {
+            var map = new int[inputCount];
+            for (int i = 0; i < inputCount; ++i) map[i] = InputToVertex[i];
+            return new ConstrainedMesh2(vertices, inputCount, map, triangles, neighbours, TriangleLabels.ToArray(), Subsegments.ToArray(),
+                Heights?.ToArray(), fullV, fullH, slotId, fullP, infinite) { BadTriangles = BadTriangles, SteinerLimitReached = SteinerLimitReached };
+        }
 
         static int Next(int e) => e % 3 == 2 ? e - 2 : e + 1;
         static int Prev(int e) => e % 3 == 0 ? e + 2 : e - 1;

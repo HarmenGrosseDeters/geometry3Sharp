@@ -446,6 +446,26 @@ namespace Meshing2Acceptance
                 if (bound == 5) accept("a collapsed hole: merged slots are no vertices for the bound", input, o, e);
                 else reject("a collapsed hole: the bound still counts the survivors", Violation.CountOutOfRange, input, o, e);
             }
+            // 4. M2 with an explicit tolerance: a vertex at a pixel centre near a constraint (a restore pixel of D14) is allowed, one off
+            //    the grid is still an invented vertex
+            foreach (var (vx, vy, ok) in new[] { (8.0, 3.5, true), (8.0, 3.25, false) }) {
+                double tol = 0.5;
+                var input = Points(0, 0, 16, 0, 16, 16, 0, 16, 2, 3, 14, 4);
+                input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false));
+                input.Segments.Add(new SegmentInput(4, 5));
+                input.SnapTolerance = tol;
+                // the chain 4 - 6 - 5 bends through the extra vertex 6, within half a pixel of the segment (y = 3.5 there)
+                var vxs = input.X.Concat(new[] { vx }).ToArray(); var vys = input.Y.Concat(new[] { vy }).ToArray();
+                var all = Enumerable.Range(0, 7).ToArray();
+                var pts = new Mesh2Input { X = vxs, Y = vys };
+                var tris = StrictDelaunay(pts, all);
+                var o = new Mesh2Output { Status = Mesh2Status.Success, VX = vxs, VY = vys, InputToVertex = Enumerable.Range(0, 6).ToArray(), Triangles = tris,
+                    Neighbours = NeighboursOf(tris), BadTriangles = new int[0],
+                    Subsegments = new[] { (0, 1), (1, 2), (2, 3), (3, 0), (4, 6), (6, 5) }.Select(q => new SubsegmentOutput(q.Item1, q.Item2)).ToList() };
+                var e = new OracleExpect { Milestone = Milestone.M2 };
+                if (ok) accept("M2 with a tolerance: a restore vertex at a pixel centre near its constraint (D14)", input, o, e);
+                else reject("M2 with a tolerance: a vertex off the grid is still invented", Violation.SteinerNotAllowed, input, o, e);
+            }
             // 3. a hole marker inside a contour that collapsed is dropped, not obeyed (clean-room answer 6). Still obeyed: a marker in a
             //    contour that stays, also next to a near-duplicate corner merged into it, and a marker just outside the collapsed pixel
             foreach (var (seedX, seedY, ok, what) in new[] {

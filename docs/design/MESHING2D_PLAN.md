@@ -246,13 +246,10 @@ ALKIS and DGM tiles (local only).
 
 **What remains (hand-over, state of 2026-11-01 for the owner's review of #233, #252 and #265).**
 
-1. **`m2.snap`: iterated snap rounding** (owner decision D14 of 2026-11-01): build it as iterated snap rounding (Halperin and Packer 2002) at the
-   explicit tolerance, as its own PR after M2 and M3 are merged; gates F-10 to F-22 (22 rows), with F-16's shared piece and F-20's vertex count.
-   Before designing it, the two checks of "Look before you build" (AGENT_WORKFLOW section 3) go into its design note: the library (the
-   segment intersector and snapping already in M2, the exact predicates, the spatial grids) and the literature (Halperin and Packer 2002 is the
-   start; Hobby 1999, Guibas and Marimont 1998, Hershberger 2013 on snap rounding variants). Done in
-   [MESHING2D_SNAP.md](MESHING2D_SNAP.md): four conflicts between plain ISR and O11 (drift, grid pixels against vertex-centred tolerance,
-   grid or input coordinates, the gap band) are open for the owner.
+1. **`m2.snap`: built in #277** as snap rounding on a grid of pixel tol plus the restore step of SRR (D14 as decided after the
+   literature check, `MESHING2D_SNAP.md`): `SnapTolerance` on `ConstrainedDelaunayMesh2` and `QualityMesh2`; the gates F-10 to F-18, F-20
+   and F-22/b are covered (F-15 and F-18/a are band cases). Open: refinement on the grid (owner decision 2026-11-01: all output vertices
+   on the grid, design first in `MESHING2D_SNAP.md` section 3g), a strict mode, and the drift in the result.
 2. **Over-refinement where many segments cross at small angles**, much reduced since the corpus fix that keeps split points out of the tolerance of
    other constraints: F-4/a 3 073 vertices (was 101 078 at the Steiner limit), F-5 5 116 (was 8 547), F-26/F-27 909. Still open: poly2tri's debug2 (a
    star of 10 000 sharp spikes) reaches the Steiner limit at every angle. Next step: Shewchuk's 2002 rules for small input angles beyond the

@@ -76,6 +76,30 @@ Literature (full references in [SOURCES.md](../SOURCES.md), section 2D meshing):
 | `Builder.SnapshotReference`, `SetHeightOnReference` | heights of Steiner points by linear interpolation on the triangulation before refinement, located by a stochastic walk from the last hit | spec Q9; [DPT] (stochastic walk) |
 | `Builder.NearVertex` | a crossing snaps to a vertex within the tolerance of it and of all sources involved | spec O11 |
 
+## `m2.snap`: `comp_geom/SnapRounding2.cs` and `SnapTolerance` on both meshers (#277)
+
+Implemented from the papers, after decision D14 (owner, 2026-11-01; `MESHING2D_SNAP.md`):
+- **Snap rounding** on a grid of pixel width tol anchored at the origin, half-open pixels (closed left and bottom), hot pixels at input
+  points and proper crossings, every segment routed through the centres of the hot pixels it touches in order along it: J. D. Hobby,
+  *Practical segment intersection with finite precision output*, CGTA 1999; the properties (half a pixel per axis, topology up to
+  collapse) from L. Guibas, D. Marimont, *Rounding arrangements dynamically*, IJCGA 1998, as summarised in Hershberger 2025.
+- **Restore**: critical pixels (a hot pixel whose interior an output edge crosses, its ends outside), ChoosePixel with rules R1 to R3
+  (spread to a free useful pixel of the segment's envelope next to the critical pixel, nearest to the segment): A. Belussi,
+  S. Migliorini, M. Negri, G. Pelagatti, *Snap rounding with restore*, ACM TSAS 2016, Listings 1 and 2, Table II. Our deviations,
+  each found by the fuzz test and stated in the code: every round routes all segments again on the grown set of hot pixels (their
+  Proposition 4.14) instead of splitting only the critical edge, which can make the new edge cross another chain away from any hot
+  pixel; only pixels not yet hot are chosen, so every round adds one and the rounds end; R2 (snap to the critical pixel) cannot occur
+  in that form, since a segment crossing the critical pixel would have been routed through it, and is replaced by the nearest free
+  pixel of the envelope within two pixels on the edge's span; chains are ordered by entry and then exit, so that a segment starting
+  on a side two pixels share runs through them in the right order.
+- **Arithmetic**: all coordinates and the pixel width on one common power of two, twice each as an integer, so pixel corners and
+  centres are integers and every decision exact; the same construction as the mesher's exact crossings (`ConstrainedDelaunayMesh2`).
+- **Collapses**: rings that collapse to a line or a point become segments or vanish, hole seeds in the pixel of a vertex into which
+  at least three input points merged are dropped (behaviour as in the clean-room answer 6, `MESHING2D_SNAP_QA.md`; no code from it),
+  each reported in the diagnostics.
+- The snapped input is meshed by the unchanged mesher; the points added for crossing and restore pixels become vertices made by the
+  mesher (`ConstrainedMesh2.WithInputCount`).
+
 ## Corpus: public test inputs (data only)
 
 The corpus run (`Meshing2Benchmark corpus`, fetched by `benchmarks/Meshing2Benchmark/corpus/fetch.py` at run time into the git-ignored
@@ -104,4 +128,5 @@ step of Belussi et al. 2016): every input point lands on the centre of its pixel
 origin), and a surviving input slot that moved is still an input point; merged slots (aliases, Q8) do not count against a vertex bound. One rule draws on the
 clean-room answers about the owner's Triangle.NET fork (`MESHING2D_SNAP_QA.md`, answer 6; behaviour only, no code): a hole marker in the
 pixel of a vertex into which a contour (at least three input points) merged is dropped instead of removing the cell around it, since the fork lost
-the whole domain that way. The catalogue row F-17/b tests it. Each rule has an accept and a reject self-check, each checked by mutation.
+the whole domain that way. The catalogue row F-17/b tests it. Each rule has an accept and a reject self-check, each checked by mutation. With the library routine (#277): at M2 a constructed vertex
+at a pixel centre within the tube of a constraint is allowed (a crossing or restore pixel of D14).

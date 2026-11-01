@@ -234,6 +234,16 @@ to R3. It is for timing only: a power-of-two pixel, closed-square contact, and c
 - **R2 (snap) never happened:** SRR's restore always found a pixel to spread to, or a forced spread (R3) next to it. As the paper
   claims, topology changes beyond SR's own collapse are rare.
 
+## 3g. Refinement on the grid (owner decision 2026-11-01: all output vertices on the grid)
+
+To be designed before building (the coordinator's list): where rounding happens (at insertion or in a final pass); split points
+projected onto the input segment, then rounded (O12); a rounded point that would make a flat or inverted triangle or land on an
+existing vertex; subsegments with no valid split on the grid, which must stay judged (clean-room answer 7d); the angle floor (one or
+two pixels, measured on the corpus); termination (the fork switched relocation off because it cycled); and the guarantees then, with
+the oracle exemptions and their accept and reject self-checks. Until then QualityMesh2 with a snap tolerance places Steiner points
+off the grid. Measured with the routine in #277: where snapped chains meet at a small angle at a pixel centre, refinement leaves
+triangles below the bound whose shortest edge is under one pixel (4 of 40 random inputs at 20 degrees).
+
 ## 4. Plan once the owner has answered
 
 - Read ISRBD, stable SR, SRR and the cautionary tale in full, then fix the variant and record it in `MESHING2D_PROVENANCE.md` and `docs/SOURCES.md`.
