@@ -36,7 +36,7 @@ Inputs are procedural, with integer or dyadic coordinates. No mesh files in the 
 and its README states an unclear licensing situation, with Shewchuk's original under a proprietary license, and for that reason no NuGet package. So it is no dependency of this repository,
 no build step in its CI, and nothing is copied from it. Should the owner's review find that black-box use is not acceptable, M2 and M3 rely on sections 2 and 4 alone, and the metrics of section 3 are dropped.
 
-**Reference session (owner decision 2026-10-31; planned, not started).** A separate session, which implements nothing here, runs `Triangle.NET` as a black box on procedural cases
+**Reference session (owner decision 2026-10-31; preparation started 2026-11-01 in the clean-room comparison session, output repo `HarmenGrosseDeters/g3-meshing-references`; the comparison batches start once `m2.snap` is finished).** A separate session, which implements nothing here, runs `Triangle.NET` as a black box on procedural cases
 and on public data, pinned by URL and hash. It writes one JSON row per case: triangle count, order-independent fingerprint of triangles and subsegments, minimum angle, area, status.
 
 - Only the rows and the input descriptions leave that session; no code, no mesh files, and no notes about how `Triangle.NET` works.

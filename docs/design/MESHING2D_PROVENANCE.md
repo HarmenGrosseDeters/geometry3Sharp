@@ -96,3 +96,12 @@ each used with a margin of about 3, and fall back to the exact rationals. The or
 mesher). The global empty-circumcircle pass stays global: the Delaunay lemma (a triangulation whose edges are all locally Delaunay is
 Delaunay; [CDS] ch. 2, [L77]) needs a triangulation of the convex hull of the vertices, while O2 asks for empty circles against all vertices
 across holes and concave boundaries, where the output has no triangles; it is indexed by a 2-d tree instead.
+
+### The `m2.snap` gates (#274)
+
+The oracle rules for an explicit tolerance follow D14 (owner, 2026-11-01: snap rounding on a grid of pixel tol, Hobby 1999, with the restore
+step of Belussi et al. 2016): every input point lands on the centre of its pixel (half-open pixels as in Hobby 1999, grid anchored at the
+origin), and a surviving input slot that moved is still an input point; merged slots (aliases, Q8) do not count against a vertex bound. One rule draws on the
+clean-room answers about the owner's Triangle.NET fork (`MESHING2D_SNAP_QA.md`, answer 6; behaviour only, no code): a hole marker in the
+pixel of a vertex into which a contour (at least three input points) merged is dropped instead of removing the cell around it, since the fork lost
+the whole domain that way. The catalogue row F-17/b tests it. Each rule has an accept and a reject self-check, each checked by mutation.

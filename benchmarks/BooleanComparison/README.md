@@ -40,6 +40,7 @@ CGAL refuses inputs that are open or self-intersecting; Manifold refuses non-man
 | `cherchi` | the test meshes of Cherchi et al.: bunny with cow at 25k–200k triangles, two spheres, a cube with the armadillo, the stencil of the paper (fertility minus 703 spheres given as one mesh), five meshes with a rotated, shifted copy | larger inputs, time | `python3 data/fetch.py cherchi <dir>` (commit 7bd6c26) |
 | `synthetic` | 24 pairs of boxes and spheres | coplanar faces, solids touching at a face, an edge or a vertex, overlaps and gaps of 1e-9, nearly coplanar faces, UTM coordinates (3e5, 5.6e6), coordinates of 1e8, scale differences of 1e6 | `BooleanComparison synth <dir>` |
 | `sequence` | iterated cube grids: n³ overlapping unit cubes (spacing 0.9, so the faces of a layer are coplanar) united one after the other, then a cube of edge 0.5 subtracted at the centre of each (n = 5: 249 booleans, n = 10: 1999) | repeated booleans on results of booleans, exactly coplanar faces | `BooleanComparison synth <dir>`; one pass over all meshes: `BooleanComparison nary` (below) |
+| `nreal` | n-ary unions from real data: 15 multi-component Thingi10K meshes split into their connected components (3-26 inputs each, overlapping shells of one STL), and 8-copy arrays of the CGAL parts `fandisk`, `pinion`, `anchor` | the one-pass n-ary boolean on real inputs (coplanar CAD neighbours, many self-pairs) | `python3 perf/nreal.py <tool dir> <cgal meshes>` (`BooleanComparison components` / `array`); `profile` runs the union of all `N*.off` of a case; `perf/cases-nreal.txt` |
 
 `data/fetch.py` downloads the meshes at a fixed commit and writes a case manifest (`cases.jsonl`); nothing of the
 data is part of this repository (sources and licenses in `docs/SOURCES.md`). The `cube_grid` sequences are
@@ -601,3 +602,10 @@ Looked at in this round, not changed:
 - **The n-ary grid**: still dominated by `BigInteger` arithmetic of the remaining coincident points (other kinds of
   constructions of the same point) and of cocircular points in the triangulation.
 - **Cold runs** still take about 3 times as long as warm ones (see above; an application setting, not the library).
+
+## Indirect predicates (`indirect`)
+
+`BooleanComparison indirect [rounds]` times the generated indirect predicates (`math/Generated/IndirectPredicates.cs`,
+docs/design/INDIRECT_PREDICATES.md section 9): Orient3d of a line-plane point and of a three-plane point on 30-bit
+integer inputs, general and degenerate, against constructing the point as a reduced rational first. The numbers are in
+section 9 of the design doc.

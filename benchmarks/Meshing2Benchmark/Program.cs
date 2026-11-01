@@ -32,7 +32,7 @@ namespace Meshing2Acceptance
   format-tables                     print the generated parts of docs/design/MESHING2D_GOLDEN_FORMAT.md
   perf [--sizes 1000,4096,...] [--kinds uniform,grid,utm,clustered] [--repeats 5]
                                     time and allocation of the M1 kernel alone (spec 3.1)
-  rows [--milestone M3] [--filter F-4] [--seconds 60] [--fast]   (--fast skips the slow rows)
+  rows [--milestone M3] [--filter F-4] [--seconds 60] [--fast] [--pending]   (--fast skips the slow rows; --pending also runs pending rows)
   corpus [--dir <d>] [--angles 0,20,30] [--filter water] [--seconds 120] [--judge-limit 60000]
                                     public inputs fetched by corpus/fetch.py, meshed and judged; statistics only
                                     run the covered catalogue rows one at a time: verdict, time; a row past the limit is reported and skipped
@@ -88,7 +88,7 @@ namespace Meshing2Acceptance
             if (candidate == null) { Console.WriteLine("no candidate for " + m); return 1; }
             int bad = 0;
             foreach (var row in Catalogue.Rows()) {
-                if (row.Case == null || row.Case.Milestone != m || row.State != CaseState.Covered) continue;
+                if (row.Case == null || row.Case.Milestone != m || (row.State != CaseState.Covered && !Has(args, "--pending"))) continue;
                 if (filter != null && !row.Id.StartsWith(filter, StringComparison.OrdinalIgnoreCase)) continue;
                 if (Has(args, "--fast") && row.Slow) continue;
                 var sw = System.Diagnostics.Stopwatch.StartNew();

@@ -8,7 +8,7 @@
     "mutate": [
       "**/math/FixedPoint3.cs"
     ],
-    "test-case-filter": "FullyQualifiedName~ExactPoint3FixedWidthTests|FullyQualifiedName~ExactBooleanBuildingBlockTests",
+    "test-case-filter": "FullyQualifiedName~ExactPoint3FixedWidthTests|FullyQualifiedName~ExactBooleanBuildingBlockTests|FullyQualifiedName~ExactPlanesFixedWidthTests",
     "ignore-methods": [
       "*PredicateStats.*"
     ],

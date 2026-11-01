@@ -194,10 +194,178 @@ namespace g3
         {
             if (a == b || a == c || a == d || b == c || b == d || c == d)
                 return 0;
+            int sign;
+            if (orient3d_int(a, b, c, d, out sign))
+                return sign;
             if (Expansion.InRange(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z, d.x, d.y, d.z) == false)
                 return orient3d_bigint(a, b, c, d);
             // (Shewchuk's orient3d has the opposite sign)
             return -AdaptivePredicates.Orient3d(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z, d.x, d.y, d.z);
+        }
+
+        // ---- the exact stage of Orient3d in 64-bit integers (docs/design/CHEAPER_CONSTRUCTIONS.md, section 4.2) ----
+        // Every finite double is an integer multiple of 2^e, e the exponent of its lowest set bit, so with e the
+        // smallest of these over the twelve coordinates every coordinate difference is an integer multiple of 2^e.
+        // TwoDiff gives each difference exactly as hi + lo (both multiples of 2^e), and if |hi 2^-e| < 2^62 (so at
+        // most 2^62 - 2^9, with |lo 2^-e| <= 2^8) the difference is an integer of magnitude at most 2^62 - 2^8 in units of 2^e. On CAD inputs (float coordinates)
+        // the differences have 48-62 bits, and 90 % of the exact stages are exactly coplanar neighbours.
+        // The determinant w . (u x v) is then computed exactly: minors |u_y v_z - u_z v_y| < 2 (2^62)^2 = 2^125
+        // (two's complement in 128 bits), terms and their sum |.| < 6 (2^62)^3 < 2^189 (two's complement in 192
+        // bits); bounds derived by tools/PredicateCompiler (entry Orient3dInputDiffs of the design's spec) and
+        // reviewed. It is the determinant of orient3d_bigint times the positive factor 2^(3 (e' - e)) (e' <= e its
+        // scale), so the sign is the same.
+
+        const double Pow62 = 4611686018427387904.0;        // 2^62
+
+        /// <summary> the sign of orient3d(a, b, c, d) by 64-bit integer arithmetic; false if the differences are not
+        /// admitted (then nothing is decided) </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal static bool orient3d_int(Vector3d a, Vector3d b, Vector3d c, Vector3d d, out int sign)
+        {
+            sign = 0;
+            int e = Math.Min(Math.Min(Math.Min(low_exp(a.x), low_exp(a.y)), Math.Min(low_exp(a.z), low_exp(b.x))),
+                Math.Min(Math.Min(low_exp(b.y), low_exp(b.z)), Math.Min(low_exp(c.x), low_exp(c.y))));
+            e = Math.Min(e, Math.Min(Math.Min(low_exp(c.z), low_exp(d.x)), Math.Min(low_exp(d.y), low_exp(d.z))));
+            // 2^-e must be a normal double (e = int.MaxValue: all coordinates zero, excluded by the caller)
+            if (e < -1022 || e > 1022)
+                return false;
+            double scale = BitConverter.Int64BitsToDouble((long)(1023 - e) << 52);
+            long ux, uy, uz, vx, vy, vz, wx, wy, wz;
+            if (diff(b.x, a.x, scale, out ux) == false || diff(b.y, a.y, scale, out uy) == false || diff(b.z, a.z, scale, out uz) == false
+                || diff(c.x, a.x, scale, out vx) == false || diff(c.y, a.y, scale, out vy) == false || diff(c.z, a.z, scale, out vz) == false
+                || diff(d.x, a.x, scale, out wx) == false || diff(d.y, a.y, scale, out wy) == false || diff(d.z, a.z, scale, out wz) == false)
+                return false;
+            ulong m1h, m1l, m2h, m2l, m3h, m3l;
+            minor(uy, vz, uz, vy, out m1h, out m1l);
+            minor(uz, vx, ux, vz, out m2h, out m2l);
+            minor(ux, vy, uy, vx, out m3h, out m3l);
+            ulong s0, s1, s2, t0, t1, t2;
+            term(m1h, m1l, wx, out s2, out s1, out s0);
+            term(m2h, m2l, wy, out t2, out t1, out t0);
+            add192(ref s2, ref s1, ref s0, t2, t1, t0);
+            term(m3h, m3l, wz, out t2, out t1, out t0);
+            add192(ref s2, ref s1, ref s0, t2, t1, t0);
+            sign = ((long)s2 < 0) ? -1 : ((s2 | s1 | s0) == 0) ? 0 : 1;
+            return true;
+        }
+
+        // the exponent of the lowest set bit of x (int.MaxValue for 0)
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        static int low_exp(double x)
+        {
+            long bits = BitConverter.DoubleToInt64Bits(x);
+            int ex = (int)((bits >> 52) & 0x7FF);
+            ulong man = (ulong)bits & 0xFFFFFFFFFFFFFUL;
+            if (ex != 0)
+                man |= 1UL << 52;
+            else
+                ex = 1;
+            if (man == 0)
+                return int.MaxValue;
+            return ex - 1075 + trailing_zeros(man);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        static int trailing_zeros(ulong v)
+        {
+#if NET
+            return System.Numerics.BitOperations.TrailingZeroCount(v);
+#else
+            return TrailingZerosPortable(v);
+#endif
+        }
+
+        /// <summary> trailing zero bits of v != 0 for netstandard2.0 (compiled everywhere, so that the tests on .NET check it) </summary>
+        internal static int TrailingZerosPortable(ulong v)
+        {
+            int n = 0;
+            while ((v & 1) == 0) { v >>= 1; n++; }
+            return n;
+        }
+
+        // x - y exactly, in units of 2^e (scale = 2^-e), if its magnitude is below 2^62
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        static bool diff(double x, double y, double scale, out long r)
+        {
+            // TwoDiff (Shewchuk): hi + lo = x - y exactly (no overflow: an infinite hi fails the test below)
+            double hi = x - y;
+            double bv = x - hi, av = hi + bv, br = bv - y, ar = x - av;
+            double lo = ar + br;
+            double h = hi * scale;
+            // (NaN fails too)
+            if ((Math.Abs(h) < Pow62) == false) {
+                r = 0;
+                return false;
+            }
+            // h and lo * scale are integers (multiples of 2^e times 2^-e, exact), |lo| <= ulp(hi) / 2
+            r = (long)h + (long)(lo * scale);
+            return true;
+        }
+
+        // p q - s t in 128-bit two's complement (|p|, |q|, |s|, |t| < 2^62)
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        static void minor(long p, long q, long s, long t, out ulong hi, out ulong lo)
+        {
+            ulong ah, al, bh, bl;
+            product(p, q, out ah, out al);
+            product(s, t, out bh, out bl);
+            lo = al - bl;
+            hi = ah - bh - ((al < bl) ? 1UL : 0UL);
+        }
+
+        // p q in 128-bit two's complement
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        static void product(long p, long q, out ulong hi, out ulong lo)
+        {
+            ulong ap = (ulong)((p < 0) ? -p : p), aq = (ulong)((q < 0) ? -q : q);
+            hi = FixedArith.MulHigh(ap, aq, out lo);
+            if ((p < 0) != (q < 0))
+                negate128(ref hi, ref lo);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        static void negate128(ref ulong hi, ref ulong lo)
+        {
+            lo = ~lo + 1;
+            hi = ~hi + ((lo == 0) ? 1UL : 0UL);
+        }
+
+        // (mh, ml) * w in 192-bit two's complement (|m| < 2^125, |w| < 2^62)
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        static void term(ulong mh, ulong ml, long w, out ulong r2, out ulong r1, out ulong r0)
+        {
+            bool neg = (long)mh < 0;
+            if (neg)
+                negate128(ref mh, ref ml);
+            if (w < 0) {
+                neg = !neg;
+                w = -w;
+            }
+            ulong aw = (ulong)w, c0, c1;
+            c0 = FixedArith.MulHigh(ml, aw, out r0);
+            r2 = FixedArith.MulHigh(mh, aw, out c1);
+            r1 = c1 + c0;
+            r2 += (r1 < c0) ? 1UL : 0UL;
+            if (neg) {
+                r0 = ~r0; r1 = ~r1; r2 = ~r2;
+                r0 += 1;
+                ulong k = (r0 == 0) ? 1UL : 0UL;
+                r1 += k;
+                r2 += (k != 0 && r1 == 0) ? 1UL : 0UL;
+            }
+        }
+
+        // s += t in 192-bit two's complement (the sums of the terms stay below 2^189 in magnitude)
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        static void add192(ref ulong s2, ref ulong s1, ref ulong s0, ulong t2, ulong t1, ulong t0)
+        {
+            ulong r0 = s0 + t0;
+            ulong k0 = (r0 < s0) ? 1UL : 0UL;
+            ulong r1 = s1 + t1;
+            ulong k1 = (r1 < s1) ? 1UL : 0UL;
+            ulong r1b = r1 + k0;
+            k1 += (r1b < r1) ? 1UL : 0UL;
+            s0 = r0; s1 = r1b; s2 = s2 + t2 + k1;
         }
 
         [MethodImpl(JitHints.Optimize)]
