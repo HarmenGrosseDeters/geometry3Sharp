@@ -21,7 +21,9 @@ namespace gs
     /// of a polyhedron lies in another one), with ExactPredicates.Orient3d and IndirectPredicates.Orient3dLPI. The
     /// boundary counts as outside. True guarantees that every point of the query is within epsilon of the mesh.
     ///
-    /// The envelope is a snapshot of the mesh; queries may run in parallel.
+    /// The polyhedra are a snapshot of the mesh (Mesh is the given instance; later changes to it are not seen); queries
+    /// may run in parallel. One triangle that cannot get a polyhedron (TooThin, OutOfRange) makes the status of the
+    /// whole envelope that, as in MeshEnvelope: a partial envelope would answer false for its region.
     /// </summary>
     internal sealed class PolyhedralEnvelope
     {
@@ -117,7 +119,7 @@ namespace gs
             public Builder(double epsilon, Vector3d a, Vector3d b, Vector3d c)
             {
                 eps = epsilon; v0 = a; v1 = b; v2 = c;
-                // delta <= epsilon / sqrt 3 (the constant and the product round by at most 2 u)
+                // delta < epsilon / sqrt 3 (three roundings: the constant, the two products; 1 - 4 u covers them)
                 delta = epsilon * 0.57735026918962573 * (1 - 4 * U);
                 double r = Math.Max(length(v1 - v0), length(v2 - v0));
                 rho = r * (1 + 8 * U);
@@ -162,11 +164,14 @@ namespace gs
                         add(m, ThetaCap * U);
                     }
                 } else {
-                    // degenerate: all vertices on the longest edge, or one point
+                    // degenerate: all vertices on one line, or one point. Any edge of non-zero length gives the line
+                    // (the offsets are T's support, so the box covers all three vertices); the longest one by the
+                    // scaled length (squares of tiny edges underflow), the cube only if all edges are exactly zero
                     int L = 0;
-                    for (int k = 1; k < 3; ++k) if (e[k].LengthSquared > e[L].LengthSquared) L = k;
+                    for (int k = 1; k < 3; ++k) if (length(e[k]) > length(e[L])) L = k;
                     Vector3d d;
-                    if (unit(e[L], out d)) {
+                    if (length(e[L]) > 0) {
+                        unit(e[L], out d);
                         Vector3d axis = Math.Abs(d.x) <= Math.Abs(d.y) && Math.Abs(d.x) <= Math.Abs(d.z) ? Vector3d.AxisX
                             : Math.Abs(d.y) <= Math.Abs(d.z) ? Vector3d.AxisY : Vector3d.AxisZ;
                         Vector3d p1, p2;
@@ -284,8 +289,8 @@ namespace gs
         }
 
         /// <summary>
-        /// N = (b - a) x (c - a) computed exactly and rounded to doubles (relative error at most 2 u per component; N
-        /// up to a positive power of two), false if N = 0 exactly
+        /// N = (b - a) x (c - a) computed exactly and rounded to doubles (|N~ - N| &lt; 1.02 u |N| in norm; N up to a
+        /// positive power of two), false if N = 0 exactly
         /// </summary>
         internal static bool exact_normal(Vector3d a, Vector3d b, Vector3d c, out Vector3d N)
         {
@@ -297,9 +302,10 @@ namespace gs
             if (nx.IsZero && ny.IsZero && nz.IsZero) return false;
             long bits = Math.Max(bit_length(nx), Math.Max(bit_length(ny), bit_length(nz)));
             int shift = (int)Math.Max(0, bits - 62);
-            // |N_k| < 2^62 after the shift: exact as long; the truncation is below 2^-61 of the largest component
+            // |N_k| < 2^62 after the shift: exact as long. The shift truncates by less than one unit (towards minus
+            // infinity), below 2^-61 of the largest component, and the conversion to double rounds by u relative: in
+            // norm |N~ - N| <= (u + sqrt 3 2^-61) |N| < 1.02 u |N| (a small component may be off relatively by more)
             N = new Vector3d((double)(long)(nx >> shift), (double)(long)(ny >> shift), (double)(long)(nz >> shift));
-            // (an arithmetic shift rounds towards minus infinity: the error is below one unit either way)
             return true;
         }
 

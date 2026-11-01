@@ -1,6 +1,6 @@
 # Polyhedral envelope containment (design, for the owner's approval)
 
-**Status:** approved by the owner (decisions in section 7; ROADMAP stage 7, tier L). No code yet; PR 1 of section 6 is next. It builds on the indirect
+**Status:** approved by the owner (decisions in section 7; ROADMAP stage 7, tier L). PR 1 (double inputs) and PR 2 (`PolyhedralEnvelope`, internal: polyhedra, point and segment queries) are on #263; PR 3 (triangle queries) is next. It builds on the indirect
 predicates of `docs/design/INDIRECT_PREDICATES.md` (#246, #250, #257).
 
 ## 1. Goal
@@ -139,10 +139,21 @@ class, or `MeshEnvelope`'s implementation replaced behind its unchanged API (com
   (0.8 ε along the normal, 0.6 ε sideways: 0.8² + 0.6² = 1) give about 1.4 times δ = ε / √3 in each direction, so
   the envelope accepts more, with the caps of Prop. 3.1 at acute vertices. (Decided, section 7: ε / √3 is the
   default; 0.8 / 0.6 only as a proven option.)
-- **Degenerate triangles:** a polyhedron around the longest edge or the point (as `MeshEnvelope`).
+- **Degenerate triangles:** a box around a non-zero edge (the longest) or the point (section 4.4).
 - **Search:** the existing box tree of the arrangement (`ExactMeshArrangement`'s array box tree) or
-  `DMeshAABBTree3` over the polyhedra's boxes; candidate lists per query without allocation.
+  `DMeshAABBTree3` over the polyhedra's boxes. PR 2 uses `TriangleBoxTree.QuerySegment`; it allocates a candidate list
+  and a stack per query. Allocation-free lists come with the triangle query (PR 3).
 - **Queries:** as in section 3; the predicates of 4.1; no `BigInteger` on the common path.
+  - In PR 2, `ContainsSegment` tests every plane crossing against every candidate polyhedron: O((8 k)²) `Orient3dLPI`
+    calls for k candidates. The paper's covering set (section 3.2.4) comes with the triangle query (PR 3), measured on
+    `ReducerBenchmark`.
+  - One triangle that cannot get a polyhedron (`TooThin`, `OutOfRange`) sets the status of the whole envelope, as in
+    `MeshEnvelope`: a partial envelope would silently answer false in its region.
+
+### 4.3 What it does not do
+
+No changes to the `Reducer`, the remeshers or the alpha wrap in this work: wiring a consumer in is its own PR and
+decision after the acceptance.
 
 ### 4.4 The polyhedra in floating point (PR 2)
 
@@ -176,8 +187,13 @@ The points are `q~_0 = fl(o)`, `q~_1 = fl(o + S a)`, `q~_2 = fl(o + S b)`, with:
 - S = 4 R.
 
 With them Σ |λ_k| ≤ 1 + 2 √2 (R + ζ) / (S (1 − κ)) ≤ 2 =: Λ. Here ζ ≤ R / 100 bounds the rounding of q~_0 and κ ≤ 1 / 100
-the non-orthogonality of a, b and the rounding of q~_1, q~_2. Both conditions are checked at build. μ is computed per
-facet a posteriori: |fl(m~ · q~_k − s~)| + γ_4 (Σ_i |m~_i q~_ki| + |s~|).
+the non-orthogonality of a, b and the rounding of q~_1, q~_2. The build checks √3 u ‖q~‖_∞ ≤ R / 200, which gives ζ and
+the rounding part of κ. The non-orthogonality of a and b is derived, not checked: it is a few u. μ is computed per
+facet a posteriori: |fl(m~ · q~_k − s~)| + γ_4 (Σ_i |m~_i q~_ki| + |s~|) + 1e-300 (products that underflow).
+
+**Orientation.** The computed half-space is {x : `Orient3d(q~_0, q~_1, q~_2, x)` < 0}. It is {φ' < 0} only if
+(q~_1 − q~_0) × (q~_2 − q~_0) has a positive component along m~. It does: b = m~ × a, so a × b ≈ m~. A flipped facet
+would also fail the exact check that T is strictly inside (`TooThin`), so a wrong orientation cannot go unnoticed.
 
 **Lemma 3 (convexity).** If every computed open half-space satisfies "x ∈ H~_j and |x − c| ≤ R ⇒ x ∈ H*_j", and c ∈ P~,
 then P~ ⊂ P*.
@@ -187,30 +203,40 @@ contradiction. So P~ ⊂ B(c, ρ + ε) ⊂ B(c, R), and there the hypothesis giv
 
 **Offsets.** With Lemmas 1-3, a facet j is safe if
 `s~_j ≤ h_T(m~_j) + δ − θ_j (R + ρ) − Λ μ_j`.
-The code computes `s~_j = fl(h~_j + (δ − margin_j))`, where:
-- `h~_j = max_k fl(m~_j · v_k)`, with |h~_j − h_T(m~_j)| ≤ η_j = γ_3 max_k Σ_i |m~_ji v_ki|;
-- `margin_j = θ_j (R + ρ) + Λ μ_plan + η_j + 2 u |s~_j|`;
+The code computes s~_j as follows:
+- `h~_j = max_k fl(m~_j · v_k)`, with |h~_j − h_T(m~_j)| ≤ η_j = γ_3 max_k Σ_i |m~_ji v_ki| + 1e-300 (the code
+  uses 4 u for γ_3);
+- `margin_j = θ_j (R + ρ) + Λ μ_plan + η_j`;
+- `corr_j = 4 u (|h~_j| + δ)`; the code computes `s~_j = fl(h~_j + fl(fl(δ − margin_j) − corr_j))`. The roundings
+  cost at most u δ (the first subtraction), u δ (the second), u (|h~_j| + δ) (the sum) and 3 u δ / 10 (the margin's
+  own sum, below δ / 10), in all less than corr_j;
 - μ_plan = 32 u (‖c‖_∞ + 4 R) is planned before the points exist (the rounding of o, t, the products and the
   points, about 28 u ‖c‖_∞ + 84 u R with the a posteriori term), and μ_j ≤ μ_plan is checked after;
-- `margin_j ≤ δ / 10` is required, else `TooThin`. The polyhedron keeps at least 0.9 δ.
+- `margin_j + corr_j ≤ δ / 10` is required, else `TooThin`. The polyhedron keeps at least 0.9 δ.
 
-**Direction errors θ** (against the exact ideal unit vectors; the unit-vector routine scales by a power of two, then
-divides by the rounded length: |unit(v~) − v / |v|| ≤ 2 α + 4 u when |v~ − v| ≤ α |v|):
+**Direction errors θ** (against the exact ideal unit vectors). The unit-vector routine scales by a power of two, so
+that the largest component is in [1, 2), then divides by the rounded length: |unit(v~) − v / |v|| ≤ 2 α + 4 u when
+|v~ − v| ≤ α |v|. The scaling is exact except for components that become subnormal, which lose at most 2^-1075
+absolutely, against a length ≥ 1: covered by the one u the code adds to every θ. ρ is rounded up by 8 u; for
+subnormal edges that is not relative, but the 2 ε in R covers it.
 - **normal:** N = (v1 − v0) × (v2 − v0) is computed exactly (BigInteger on the doubles' mantissas), then converted to
-  doubles with relative error ≤ 2 u per component. So θ_n = 8 u, independent of the triangle's shape: slivers need no
+  doubles. The shift truncates absolutely, below 2^-61 of the largest component, so the bound is in norm:
+  |N~ − N| ≤ (u + √3 2^-61) |N| < 1.02 u |N| (a small component may be off by more, relatively). So θ_n ≤ 8 u, independent of the triangle's shape: slivers need no
   special case. N = 0 exactly means T is degenerate (see below).
 - **side planes:** w*_k = unit(e_k × n*) (outward), computed from fl(e_k) and n~. |fl(e~ × n~) − e × n*| ≤
   (u + 8 u + √2 γ_2) |e| ≤ 12 u |e| (|e × n*| = |e|), so θ_w = 28 u.
 - **caps:** at every vertex whose computed dot product of the two edges is ≥ −(|a|² + |b|²) / 4. This includes every
   acute and right vertex, as Prop. 3.1 needs; an extra cap only shrinks P*. Direction w* = unit(−(a + b)), where
   |a + b|² ≥ (|a|² + |b|²) / 2 there, so fl(a~ + b~) has α ≤ 3 u and θ_c = 10 u.
-- **degenerate T (N = 0):** all three vertices lie on the longest edge S (or coincide). P* is then the box around S:
-  ±d* along S, ±p*_1, ±p*_2 perpendicular, all with offset δ. Every point of it is within √3 δ = ε of S ⊂ T.
+- **degenerate T (N = 0):** all three vertices lie on one line (or coincide). The code takes the longest edge by the
+  scaled length; the squares of edges below 1.5e-162 underflow and must not decide this. Any edge of non-zero length
+  would do: the offsets are T's support, so P* is the box around T itself (a segment): ±d* along it, ±p*_1, ±p*_2
+  perpendicular, all with offset δ. Every point of it is within √3 δ = ε of T.
   - d~ = unit(fl(e_L)): θ_d = 6 u.
   - p~_1 = unit(d~ × axis): the axis is the one of d~'s smallest component, so the cross product is exact and has length
     ≥ √(2/3) − 6 u. This gives θ_1 = 19 u.
   - p~_2 = unit(fl(d~ × p~_1)): θ_2 = 60 u.
-  - A point (all vertices equal) gets the axis cube: θ = 0.
+  - A point (all three edges exactly zero) gets the axis cube: θ = 0.
 
 **Search boxes:** P~ ⊂ T ⊕ B(ε), so the box of T expanded by ε (1 + 4 u) + 4 u ‖v‖_∞ contains P~.
 
@@ -227,11 +253,6 @@ random, right-angled, sliver and degenerate triangles at scales 1, 2^-10, 1e±15
 
 They also check that every vertex of the polyhedron is within ε of the triangle and that some vertex is beyond 0.85 ε,
 so the polyhedron is not much smaller than the paper's.
-
-### 4.3 What it does not do
-
-No changes to the `Reducer`, the remeshers or the alpha wrap in this work: wiring a consumer in is its own PR and
-decision after the acceptance.
 
 ## 5. Acceptance
 

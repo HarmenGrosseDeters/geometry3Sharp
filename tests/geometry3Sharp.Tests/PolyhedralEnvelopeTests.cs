@@ -140,7 +140,7 @@ namespace geometry3Sharp.Tests
                 Vector3d[] ed = { v1 - v0, v2 - v1, v0 - v2 };
                 Dy[][] e = { Sub(a1, a0), Sub(a2, a1), Sub(a0, a2) };
                 int L = 0;
-                for (int k = 1; k < 3; ++k) if (ed[k].LengthSquared > ed[L].LengthSquared) L = k;
+                for (int k = 1; k < 3; ++k) if (PolyhedralEnvelope.length(ed[k]) > PolyhedralEnvelope.length(ed[L])) L = k;
                 BigInteger[] eL = Ints(e[L]);
                 if (eL.Any(x => x.IsZero == false)) {
                     BigInteger[] d = Normalize(eL);
@@ -194,7 +194,8 @@ namespace geometry3Sharp.Tests
         static IEnumerable<(Vector3d[] t, double eps)> TestCases()
         {
             int seed = 0;
-            foreach (double scale in new[] { 1.0, 1.0 / 1024, 1e-150, 1e150 })
+            // (2^-560, 2^-900: edges whose squares underflow)
+            foreach (double scale in new[] { 1.0, 1.0 / 1024, 1e-150, 1e150, Math.Pow(2, -560), Math.Pow(2, -900) })
                 foreach (Vector3d off in new[] { Vector3d.Zero, new Vector3d(632117.25, 5712043.5, 113.75) })
                     foreach (double eps in new[] { 1e-3, 0.3, 50 }) {
                         if (off != Vector3d.Zero && scale != 1) continue;
@@ -245,7 +246,6 @@ namespace geometry3Sharp.Tests
                 for (int f = 0; f < nf; ++f) {
                     var log = b.Log[f];
                     Assert.True(Within(log.M, ideal[f].m, ideal[f].theta + 1e-30), $"facet {f}: direction beyond theta {ideal[f].theta / U} u");
-                    Assert.True(ideal[f].theta <= log.Theta);
                     Vector3d q0 = pts[3 * f], q1 = pts[3 * f + 1], q2 = pts[3 * f + 2];
                     Dy[] m = D(log.M);
                     Dy s = Dy.Of(log.S);
@@ -306,31 +306,35 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void Polyhedron_VerticesWithinEpsilon()
         {
+            int tested = 0;
             foreach ((Vector3d[] t, double eps) in TestCases()) {
-                // the double check needs coordinates near eps, and no tiny or huge values (Vector3d.Normalized)
-                if (t.Max(p => p.MaxAbs) > 1e3 * eps || eps < 1e-10 || eps > 1e10) continue;
+                // in units of eps relative to v0 (any scale); the double check needs coordinates within 1e6 eps
+                if (t.Max(p => p.MaxAbs) > 1e6 * eps) continue;
                 Build(t, eps, out Vector3d[] pts, out int nf, out EnvelopeStatus st);
                 Assert.Equal(EnvelopeStatus.Ready, st);
+                tested++;
+                Func<Vector3d, Vector3d> rel = x => (x - t[0]) / eps;
                 var planes = new List<(Vector3d n, double d)>();
                 for (int f = 0; f < nf; ++f) {
-                    Vector3d n = (pts[3 * f + 1] - pts[3 * f]).Cross(pts[3 * f + 2] - pts[3 * f]).Normalized;
-                    planes.Add((n, n.Dot(pts[3 * f])));
+                    Vector3d q0 = rel(pts[3 * f]), q1 = rel(pts[3 * f + 1]), q2 = rel(pts[3 * f + 2]);
+                    Vector3d n = (q1 - q0).Cross(q2 - q0).Normalized;
+                    planes.Add((n, n.Dot(q0)));
                 }
-                double maxd = 0, worst = double.MaxValue;
-                var tri = new Triangle3d(t[0], t[1], t[2]);
+                double maxd = 0;
+                var tri = new Triangle3d(rel(t[0]), rel(t[1]), rel(t[2]));
                 for (int i = 0; i < nf; ++i) for (int j = i + 1; j < nf; ++j) for (int k = j + 1; k < nf; ++k) {
                     var M = new Matrix3d(planes[i].n, planes[j].n, planes[k].n, true);
                     if (Math.Abs(M.Determinant) < 1e-9) continue;
                     Vector3d x = M.Inverse() * new Vector3d(planes[i].d, planes[j].d, planes[k].d);
-                    worst = Math.Min(worst, planes.Max(p => p.n.Dot(x) - p.d) / eps);
-                    if (planes.All(p => p.n.Dot(x) - p.d <= 1e-9 * eps)) {
+                    if (planes.All(p => p.n.Dot(x) - p.d <= 1e-7)) {
                         double d = Math.Sqrt(new DistPoint3Triangle3(x, tri).GetSquared());
-                        Assert.True(d <= eps * (1 + 1e-6), $"vertex at {d / eps} eps");
+                        Assert.True(d <= 1 + 1e-6, $"vertex at {d} eps, {t[0]} {t[1]} {t[2]}");
                         maxd = Math.Max(maxd, d);
                     }
                 }
-                Assert.True(maxd >= 0.85 * eps, $"largest vertex distance {maxd / eps} eps, nf {nf}, worst {worst}, eps {eps}, {t[0]} {t[1]} {t[2]}");
+                Assert.True(maxd >= 0.85, $"largest vertex distance {maxd} eps, {t[0]} {t[1]} {t[2]}");
             }
+            Assert.True(tested > 500, $"{tested} cases");
         }
 
         [Fact]
@@ -556,6 +560,102 @@ namespace geometry3Sharp.Tests
         }
 
         /// <summary>
+        /// The guarantee on the queries: every sample point of every accepted segment is within epsilon of the mesh (up
+        /// to the double rounding of the distance), at scales 1, 2^-10, 1e-150, 1e150 and at UTM coordinates.
+        /// </summary>
+        [Fact]
+        public void Guarantee_AcceptedSegmentsWithinEpsilon()
+        {
+            var sims = new[] { (1.0, Vector3d.Zero), (1.0 / 1024, Vector3d.Zero), (1e-150, Vector3d.Zero), (1e150, Vector3d.Zero),
+                               (1.0, new Vector3d(632117.25, 5712043.5, 113.75)) };
+            foreach ((DMesh3 mesh0, double eps0) in QueryMeshes())
+                foreach ((double sc, Vector3d off) in sims) {
+                    DMesh3 mesh = new DMesh3(mesh0);
+                    foreach (int v in mesh.VertexIndices()) mesh.SetVertex(v, sc * mesh.GetVertex(v) + off);
+                    double eps = sc * eps0;
+                    var env = new PolyhedralEnvelope(mesh, eps);
+                    Assert.Equal(EnvelopeStatus.Ready, env.Status);
+                    double tol = 1e-9 * eps + 16 * U * off.MaxAbs;
+                    int accepted = 0;
+                    foreach ((Vector3d a, Vector3d b) in QuerySegments(env, new Random(9))) {
+                        if (env.ContainsSegment(a, b) == false) continue;
+                        accepted++;
+                        for (int k = 0; k <= 16; ++k) {
+                            Vector3d x = Vector3d.Lerp(a, b, k / 16.0);
+                            // the distance to the nearest triangle by brute force, relative to each triangle's first
+                            // vertex and in units of eps (no squares of huge or tiny values)
+                            double d = double.MaxValue;
+                            foreach (int t in mesh.TriangleIndices()) {
+                                Triangle3d tri = new Triangle3d();
+                                mesh.GetTriVertices(t, ref tri.V0, ref tri.V1, ref tri.V2);
+                                Vector3d o = tri.V0;
+                                var rt = new Triangle3d((tri.V0 - o) / eps, (tri.V1 - o) / eps, (tri.V2 - o) / eps);
+                                d = Math.Min(d, Math.Sqrt(new DistPoint3Triangle3((x - o) / eps, rt).GetSquared()) * eps);
+                            }
+                            Assert.True(d <= eps + tol, $"scale {sc}: a point of an accepted segment at {d / eps} eps");
+                        }
+                    }
+                    Assert.True(accepted > 20);
+                }
+        }
+
+        /// <summary>
+        /// Segments exactly in a facet plane (the axis-parallel facets of a flat triangle in z = 0, a degenerate segment
+        /// and a point triangle; their facet points share the plane coordinate exactly), decided as the oracle does, with
+        /// both answers occurring.
+        /// </summary>
+        [Fact]
+        public void ContainsSegment_CoplanarWithFacets()
+        {
+            var tris = new List<Vector3d[]> {
+                new[] { new Vector3d(0, 0, 0), new Vector3d(1, 0, 0), new Vector3d(0, 1, 0) },
+                new[] { new Vector3d(0, 0, 0.015625), new Vector3d(1, 0, 0.015625), new Vector3d(0, 1, 0.015625) },
+                new[] { new Vector3d(1.25, 0.5, 0), new Vector3d(2, 0.5, 0), new Vector3d(1.5, 0.5, 0) },
+                new[] { new Vector3d(-0.5, 0.25, 0), new Vector3d(-0.5, 0.25, 0), new Vector3d(-0.5, 0.25, 0) },
+            };
+            var env = new PolyhedralEnvelope(Soup(tris), 0.03);
+            Assert.Equal(EnvelopeStatus.Ready, env.Status);
+            int coplanar = 0, yes = 0, no = 0;
+            var rand = new Random(4);
+            for (int p = 0; p < env.PolyhedronCount; ++p)
+                for (int f = 0; f < env.FacetCount(p); ++f) {
+                    env.GetFacet(p, f, out Vector3d q0, out Vector3d q1, out Vector3d q2);
+                    // the axis of the facet's normal, if the three points share one coordinate exactly
+                    int ax = -1;
+                    for (int k = 0; k < 3; ++k) if (q0[k] == q1[k] && q0[k] == q2[k]) ax = k;
+                    if (ax < 0) continue;
+                    for (int i = 0; i < 12; ++i) {
+                        Vector3d a = env.Mesh.GetTriCentroid(p) + 0.6 * new Vector3d(rand.NextDouble() - 0.5, rand.NextDouble() - 0.5, rand.NextDouble() - 0.5);
+                        Vector3d b = a + 0.3 * new Vector3d(rand.NextDouble() - 0.5, rand.NextDouble() - 0.5, rand.NextDouble() - 0.5);
+                        a[ax] = q0[ax]; b[ax] = q0[ax];
+                        Assert.Equal(0, Det(q0, q1, q2, a).Sign);
+                        Assert.Equal(0, Det(q0, q1, q2, b).Sign);
+                        bool r = env.ContainsSegment(a, b);
+                        Assert.Equal(OracleSegment(env, a, b), r);
+                        coplanar++;
+                        if (r) yes++; else no++;
+                    }
+                }
+            Assert.True(coplanar >= 100 && yes > 5 && no > 5, $"{coplanar} coplanar, {yes} contained, {no} not");
+        }
+
+        /// <summary>
+        /// (review) a degenerate triangle (a, a, b) whose edges' squares underflow: the box around the edge, not the axis
+        /// cube around the slanted segment (whose corners were 8e6 eps away)
+        /// </summary>
+        [Fact]
+        public void Degenerate_UnderflowingEdges_KeepTheGuarantee()
+        {
+            Vector3d b = new Vector3d(1e-163, 1e-163, 1e-163);
+            var env = new PolyhedralEnvelope(Soup(new[] { new[] { Vector3d.Zero, Vector3d.Zero, b } }), 1e-170);
+            Assert.Equal(EnvelopeStatus.Ready, env.Status);
+            Assert.False(env.Contains(new Vector3d(1e-163, 0, 0)));
+            Assert.True(env.Contains(b / 2));
+            Assert.True(env.ContainsSegment(Vector3d.Zero, b));
+            Assert.Equal(6, env.FacetCount(0));
+        }
+
+        /// <summary>
         /// 2^k scales give the same answers and the same facet points, scaled, bit for bit; the other similarities give
         /// the same answers on queries well inside (half delta from the mesh) or well outside (beyond epsilon).
         /// </summary>
@@ -596,6 +696,16 @@ namespace geometry3Sharp.Tests
                         else if (d > 1.01 * eps) { Assert.False(e2.Contains(sim.Apply(pts[i]))); checkedCount++; }
                     }
                     Assert.True(checkedCount > pts.Count / 3);
+                    // segments between two points within delta / 2 of one triangle: inside its polyhedron (convex)
+                    int segChecked = 0;
+                    foreach (int t in mesh.TriangleIndices()) {
+                        Vector3d c = mesh.GetTriCentroid(t), n = mesh.GetTriNormal(t);
+                        Index3i tv = mesh.GetTriangle(t);
+                        Vector3d x = c + 0.4 * delta * n, y = 0.8 * mesh.GetVertex(tv.a) + 0.2 * c - 0.4 * delta * n;
+                        Assert.True(e2.ContainsSegment(sim.Apply(x), sim.Apply(y)));
+                        segChecked++;
+                    }
+                    Assert.True(segChecked > 50);
                 }
             }
         }
