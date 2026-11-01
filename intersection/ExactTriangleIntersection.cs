@@ -301,7 +301,7 @@ namespace g3
                 Vector3d a = A[sa0], b = A[sa1], c = A[3 - sa0 - sa1], d = B[3 - sb0 - sb1];
                 if (ExactPredicates.Orient3d(a, b, c, d) != 0)
                     return false;
-                int ax = dominant_axis((b - a).Cross(c - a));
+                int ax = plane_axis(a, b, c, d);
                 Vector2d a2 = project(a, ax), b2 = project(b, ax);
                 return ExactPredicates.Orient2d(a2, b2, project(c, ax)) * ExactPredicates.Orient2d(a2, b2, project(d, ax)) > 0;
             }
@@ -313,12 +313,37 @@ namespace g3
                 return true;
             if (ExactPredicates.Orient3d(s, p, q, u) != 0 || ExactPredicates.Orient3d(s, p, q, w) != 0)
                 return false;
-            int axis = dominant_axis((p - s).Cross(q - s));
+            int axis = plane_axis(s, p, q, u, w);
             Vector2d s2 = project(s, axis), p2 = project(p, axis), q2 = project(q, axis), u2 = project(u, axis), w2 = project(w, axis);
             if (ExactPredicates.Orient2d(s2, p2, q2) < 0) { var t = p2; p2 = q2; q2 = t; }
             if (ExactPredicates.Orient2d(s2, u2, w2) < 0) { var t = u2; u2 = w2; w2 = t; }
             return inside_corner(s2, p2, q2, u2) || inside_corner(s2, p2, q2, w2) || inside_corner(s2, u2, w2, p2) || inside_corner(s2, u2, w2, q2)
                 || (same_ray(s2, p2, u2) && same_ray(s2, q2, w2));
+        }
+
+        // for coplanar points: an axis whose projection is injective on their plane, so that the 2D tests decide
+        // the 3D configuration. Chosen exactly: one along which s, p, q do not project to collinear points (the
+        // largest component of the floating-point normal first, which is right unless it rounds badly, eg to 0 for
+        // a sliver), else one for s, u, w if given; if both triples are collinear (degenerate triangles), any axis
+        [MethodImpl(JitHints.Optimize)]
+        static int plane_axis(Vector3d s, Vector3d p, Vector3d q, Vector3d u, Vector3d w)
+        {
+            int guess = dominant_axis((p - s).Cross(q - s));
+            if (ExactPredicates.Orient2d(project(s, guess), project(p, guess), project(q, guess)) != 0)
+                return guess;
+            for (int k = 0; k < 3; ++k)
+                if (k != guess && ExactPredicates.Orient2d(project(s, k), project(p, k), project(q, k)) != 0)
+                    return k;
+            for (int k = 0; k < 3; ++k)
+                if (ExactPredicates.Orient2d(project(s, k), project(u, k), project(w, k)) != 0)
+                    return k;
+            return guess;
+        }
+
+        // the same for a shared edge (a, b) with far corners c and d
+        static int plane_axis(Vector3d a, Vector3d b, Vector3d c, Vector3d d)
+        {
+            return plane_axis(a, b, c, a, d);
         }
 
         // is the direction s->x strictly inside the (counter-clockwise, < 180 degree) corner p-s-q?
