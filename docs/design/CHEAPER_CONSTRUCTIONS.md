@@ -173,17 +173,20 @@ no FMA, no `float`, no parallel loop):
 2. Each difference `b.x - a.x` etc. exactly as a 64-bit integer in units of `2^e`: `TwoDiff` gives `hi + lo` exactly
    (two doubles, both multiples of `2^e`), and `hi · 2^-e`, `lo · 2^-e` are exact integer-valued doubles; admitted iff
    `|hi · 2^-e| < 2^62` (then the sum fits: `|lo| ≤ ulp(hi) / 2`). Otherwise, or if `e` is below the double range
-   where the scaling would not be exact, the existing adaptive / `BigInteger` path runs unchanged.
+   where `2^-e` is not a double (`e < -1023`), the existing adaptive / `BigInteger` path runs unchanged. The test
+   is written so that an infinite `hi` (an overflowing difference) or NaN fails it.
 3. The determinant `w · (u × v)` in sign-magnitude limbs, unrolled: the three minors `u_y v_z - u_z v_y` in 2 limbs
    (each product a 64 × 64 -> 128-bit `MulHigh`, the difference < 2^126), the three terms minor × difference in 3 limbs,
-   their sum in 3 limbs (< 6 · 2^186 < 2^189, section 5), and its sign. About 9 + 6 `MulHigh` and a handful of carries:
+   their sum in 3 limbs (< 6 · 2^186 < 2^189, section 5), and its sign. 6 + 6 `MulHigh` (64 × 64 bits) and a handful
+   of carries:
    expected 15-30 ns against 170-190 ns now.
-4. The sign is that of `orient3d_bigint` (the same determinant up to the positive factor `2^(3e)`), so the result is
-   the same as today's.
+4. The sign is that of `orient3d_bigint` (the same determinant up to the positive factor `2^(3(e - emin))`, with
+   `emin ≤ e` the scale `orient3d_bigint` uses), so the result is the same as today's. TwoDiff needs strict IEEE
+   double rounding, which `AdaptivePredicates` assumes already.
 
 **B2, a cached plane (the brief's "plane in fixed width"), only as a measured variant:** the minors are the normal
 of the triangle `(a, b, c)`, the same for all queries against it. A per-triangle cache in the arrangement (the normal
-in 2 limbs plus the scale, published like `PlaneData`) would save the 9 minor products per query, but needs storage
+in 2 limbs plus the scale, published like `PlaneData`) would save the 6 minor products per query, but needs storage
 and publication per triangle (438k / 337k triangles have exact stages on `cgal` / Thingi10K), and the cached normal is
 only valid for queries with the same `e`. Built only if B leaves a measurable share.
 
@@ -192,7 +195,9 @@ only valid for queries with the same `e`. Built only if B leaves a measurable sh
 `compute_exact` gets a fixed-width path that is taken when all inputs of the construction are fixed-width points
 (input points always are) and its planes are fixed-width (section 4.5):
 
-- `EdgePlane` (triangle plane or edge plane), `Segments` and `Planes` evaluated with `FixedArith` on a stack arena, in
+- `EdgePlane` (always an edge of input points against a triangle plane: its only caller is `plane_points`), `Segments`
+  (four input points, from `clip_into`) and `Planes` (the triangle's own plane and two segment lines, each a triangle
+  plane or an edge plane: TTT, TTE or TEE; three edge planes cannot occur) evaluated with `FixedArith` on a stack arena, in
   the same order of operations as the `BigInteger` code (the value is the same integer either way; the order only
   matters for the bounds, which are derived for this order in section 5);
 - the reduction on limbs (4.4), the sign normalization (`W > 0`), then the canonical point **directly as a
@@ -200,7 +205,13 @@ only valid for queries with the same `e`. Built only if B leaves a measurable sh
   and `D` computed from the limbs; otherwise materialized as `ExactPoint3` and stored as today (fallback);
 - `Segments` with `W = 1` inputs simplifies `Det3` to `(s - r) × (p - r)`-like terms, but keeps the code's expansion
   of `ExactPoint3.Det3` so that one bounds table covers both;
-- the arena size per construction is the derived scratch (section 5, column "limbs taken"), a constant per kind.
+- the arena size per construction is the derived scratch (section 5, column "limbs taken"), a constant per kind. The
+  spec writes the values without the code's products by `W = 1` and without the recomputed differences of
+  `edge_plane` (`q - p`, and for edges 1 and 2 a difference the spec does not name); a kernel that mirrors the code
+  literally takes a few limbs more, so the kernels either skip those operations or size their arena with a margin,
+  and a test checks the arena use against the constant;
+- the public `EdgePlanePoint` / `PlanesPoint` (any rational points, any `Plane`, unbounded sizes) stay on
+  `BigInteger`.
 
 ### 4.4 The gcd on limbs
 
@@ -228,7 +239,8 @@ only valid for queries with the same `e`. Built only if B leaves a measurable sh
 - The exact plane is kept in limbs (a reference-free struct in `PlaneData`, up to 3 + 4 limbs for `N`, `D` and
   4 + 5 limbs per edge plane by section 5), and the `BigInteger` `Plane` is materialized only for the users that stay
   on `BigInteger` (`same_plane`, the boolean's dot products, the fallback constructions).
-- `Direction` (`N_T × N_U`, `N_T × E`) is computed from the limbs; `compare_along` already loads the direction into
+- `Direction` (`N_T × N_U`, 5 limbs; `N_T × E_U`, 6 limbs, from `line_direction` with an edge-plane line) is computed
+  from the limbs; `compare_along` already loads the direction into
   limbs (#223, "caching the direction limbs" is then free: the direction is born in limbs).
 - Inputs beyond one limb (grids wider than 64 bits) take the general trimmed `FixedArith`, whose lengths cannot
   overflow by construction; beyond `FixedPoint3` (fallback points) the `BigInteger` code as today.
@@ -279,19 +291,6 @@ length model of the general `FixedArith`; the unrolled kernel B uses the value l
 | `PointEdgeTrianglePlane` | `sp * q.x` and 5 more of its shape | `48 m^4` | 262 | 5 | 5 |
 | `PointEdgeTrianglePlane` | the determinant (sign factor 1) | `96 m^4` | 263 | 5 | 6 |
 | `PointEdgeTrianglePlane` | `w` (a sign factor) | `96 m^3` | 199 | 4 | 5 |
-| `PointEdgeEdgePlane` | every input component | `m = 2^64 - 1` | 64 | 1 | |
-| `PointEdgeEdgePlane` | `ux`, `uy`, `uz`, `vx`, `vy`, `vz` | `2 m` | 65 | 2 | 2 |
-| `PointEdgeEdgePlane` | `uy * vz` and 5 more of its shape | `4 m^2` | 130 | 3 | 4 |
-| `PointEdgeEdgePlane` | `nx`, `ny`, `nz` | `8 m^2` | 131 | 3 | 4 |
-| `PointEdgeEdgePlane` | `uy * nz` and 5 more of its shape | `16 m^3` | 196 | 4 | 5 |
-| `PointEdgeEdgePlane` | `ex`, `ey`, `ez` | `32 m^3` | 197 | 4 | 5 |
-| `PointEdgeEdgePlane` | `a.x * ex` and 8 more of its shape | `32 m^4` | 261 | 5 | 5 |
-| `PointEdgeEdgePlane` | `(a.x * ex) + (a.y * ey)` and 2 more of its shape | `64 m^4` | 262 | 5 | 6 |
-| `PointEdgeEdgePlane` | `f` and 2 more like `((ex * p.x) + (ey * p.y)) + (ez * p.z)` | `96 m^4` | 263 | 5 | 6 |
-| `PointEdgeEdgePlane` | `sp`, `sq` | `192 m^4` | 264 | 5 | 6 |
-| `PointEdgeEdgePlane` | `sp * q.x` and 5 more of its shape | `192 m^5` | 328 | 6 | 6 |
-| `PointEdgeEdgePlane` | the determinant (sign factor 1) | `384 m^5` | 329 | 6 | 7 |
-| `PointEdgeEdgePlane` | `w` (a sign factor) | `384 m^4` | 265 | 5 | 6 |
 | `PointSegments` | every input component | `m = 2^64 - 1` | 64 | 1 | |
 | `PointSegments` | `s.y - p.y` and 3 more of its shape | `2 m` | 65 | 2 | 2 |
 | `PointSegments` | `r.x * (s.y - p.y)` and 3 more of its shape | `2 m^2` | 129 | 3 | 3 |
@@ -317,29 +316,66 @@ length model of the general `FixedArith`; the unrolled kernel B uses the value l
 | `PointThreeTrianglePlanes` | `d1 * c23x` and 8 more of its shape | `3072 m^7` | 460 | 8 | 9 |
 | `PointThreeTrianglePlanes` | `(d1 * c23x) + (d2 * c31x)` and 2 more of its shape | `6144 m^7` | 461 | 8 | 9 |
 | `PointThreeTrianglePlanes` | the determinant (sign factor 1) | `9216 m^7` | 462 | 8 | 9 |
-| `PointThreeEdgePlanes` | every input component | `m = 2^64 - 1` | 64 | 1 | |
-| `PointThreeEdgePlanes` | `u1x`, `u1y`, `u1z`, `v1x`, `v1y`, `v1z`, `u2x`, `u2y`, `u2z`, `v2x`, `v2y`, `v2z`, `u3x`, `u3y`, `u3z`, `v3x`, `v3y`, `v3z` | `2 m` | 65 | 2 | 2 |
-| `PointThreeEdgePlanes` | `u1y * v1z` and 17 more of its shape | `4 m^2` | 130 | 3 | 4 |
-| `PointThreeEdgePlanes` | `n1x`, `n1y`, `n1z`, `n2x`, `n2y`, `n2z`, `n3x`, `n3y`, `n3z` | `8 m^2` | 131 | 3 | 4 |
-| `PointThreeEdgePlanes` | `u1y * n1z` and 17 more of its shape | `16 m^3` | 196 | 4 | 5 |
-| `PointThreeEdgePlanes` | `e1x`, `e1y`, `e1z`, `e2x`, `e2y`, `e2z`, `e3x`, `e3y`, `e3z` | `32 m^3` | 197 | 4 | 5 |
-| `PointThreeEdgePlanes` | `a1.x * e1x` and 8 more of its shape | `32 m^4` | 261 | 5 | 5 |
-| `PointThreeEdgePlanes` | `(a1.x * e1x) + (a1.y * e1y)` and 2 more of its shape | `64 m^4` | 262 | 5 | 6 |
-| `PointThreeEdgePlanes` | `f1`, `f2`, `f3` | `96 m^4` | 263 | 5 | 6 |
-| `PointThreeEdgePlanes` | `e2y * e3z` and 17 more of its shape | `1024 m^6` | 394 | 7 | 8 |
-| `PointThreeEdgePlanes` | `c23x`, `c23y`, `c23z`, `c31x`, `c31y`, `c31z`, `c12x`, `c12y`, `c12z` | `2048 m^6` | 395 | 7 | 8 |
-| `PointThreeEdgePlanes` | `e1x * c23x` and 2 more of its shape | `65536 m^9` | 592 | 10 | 11 |
-| `PointThreeEdgePlanes` | `(e1x * c23x) + (e1y * c23y)` | `131072 m^9` | 593 | 10 | 11 |
-| `PointThreeEdgePlanes` | `w` (a sign factor) | `196608 m^9` | 594 | 10 | 11 |
-| `PointThreeEdgePlanes` | `f1 * c23x` and 8 more of its shape | `196608 m^10` | 658 | 11 | 12 |
-| `PointThreeEdgePlanes` | `(f1 * c23x) + (f2 * c31x)` and 2 more of its shape | `393216 m^10` | 659 | 11 | 12 |
-| `PointThreeEdgePlanes` | the determinant (sign factor 1) | `589824 m^10` | 660 | 11 | 12 |
+| `PointTriangleTwoEdgePlanes` | every input component | `m = 2^64 - 1` | 64 | 1 | |
+| `PointTriangleTwoEdgePlanes` | `u1x`, `u1y`, `u1z`, `v1x`, `v1y`, `v1z`, `u2x`, `u2y`, `u2z`, `v2x`, `v2y`, `v2z`, `u3x`, `u3y`, `u3z`, `v3x`, `v3y`, `v3z` | `2 m` | 65 | 2 | 2 |
+| `PointTriangleTwoEdgePlanes` | `u1y * v1z` and 17 more of its shape | `4 m^2` | 130 | 3 | 4 |
+| `PointTriangleTwoEdgePlanes` | `e1x`, `e1y`, `e1z`, `n2x`, `n2y`, `n2z`, `n3x`, `n3y`, `n3z` | `8 m^2` | 131 | 3 | 4 |
+| `PointTriangleTwoEdgePlanes` | `a1.x * e1x` and 2 more of its shape | `8 m^3` | 195 | 4 | 4 |
+| `PointTriangleTwoEdgePlanes` | `(a1.x * e1x) + (a1.y * e1y)` | `16 m^3` | 196 | 4 | 5 |
+| `PointTriangleTwoEdgePlanes` | `f1` | `24 m^3` | 197 | 4 | 5 |
+| `PointTriangleTwoEdgePlanes` | `u2y * n2z` and 11 more of its shape | `16 m^3` | 196 | 4 | 5 |
+| `PointTriangleTwoEdgePlanes` | `e2x`, `e2y`, `e2z`, `e3x`, `e3y`, `e3z` | `32 m^3` | 197 | 4 | 5 |
+| `PointTriangleTwoEdgePlanes` | `a2.x * e2x` and 5 more of its shape | `32 m^4` | 261 | 5 | 5 |
+| `PointTriangleTwoEdgePlanes` | `(a2.x * e2x) + (a2.y * e2y)` and 1 more of its shape | `64 m^4` | 262 | 5 | 6 |
+| `PointTriangleTwoEdgePlanes` | `f2`, `f3` | `96 m^4` | 263 | 5 | 6 |
+| `PointTriangleTwoEdgePlanes` | `e2y * e3z` and 5 more of its shape | `1024 m^6` | 394 | 7 | 8 |
+| `PointTriangleTwoEdgePlanes` | `c23x`, `c23y`, `c23z` | `2048 m^6` | 395 | 7 | 8 |
+| `PointTriangleTwoEdgePlanes` | `e1z * e3y` and 11 more of its shape | `256 m^5` | 328 | 6 | 7 |
+| `PointTriangleTwoEdgePlanes` | `c31x`, `c31y`, `c31z`, `c12x`, `c12y`, `c12z` | `512 m^5` | 329 | 6 | 7 |
+| `PointTriangleTwoEdgePlanes` | `e1x * c23x` and 2 more of its shape | `16384 m^8` | 526 | 9 | 10 |
+| `PointTriangleTwoEdgePlanes` | `(e1x * c23x) + (e1y * c23y)` | `32768 m^8` | 527 | 9 | 10 |
+| `PointTriangleTwoEdgePlanes` | `w` (a sign factor) | `49152 m^8` | 528 | 9 | 10 |
+| `PointTriangleTwoEdgePlanes` | `f1 * c23x` and 2 more of its shape | `49152 m^9` | 592 | 10 | 11 |
+| `PointTriangleTwoEdgePlanes` | `f2 * c31x` and 5 more of its shape | `49152 m^9` | 592 | 10 | 11 |
+| `PointTriangleTwoEdgePlanes` | `(f1 * c23x) + (f2 * c31x)` and 2 more of its shape | `98304 m^9` | 593 | 10 | 11 |
+| `PointTriangleTwoEdgePlanes` | the determinant (sign factor 1) | `147456 m^9` | 594 | 10 | 11 |
+| `PointTwoTrianglePlanesEdgePlane` | every input component | `m = 2^64 - 1` | 64 | 1 | |
+| `PointTwoTrianglePlanesEdgePlane` | `u1x`, `u1y`, `u1z`, `v1x`, `v1y`, `v1z`, `u2x`, `u2y`, `u2z`, `v2x`, `v2y`, `v2z`, `u3x`, `u3y`, `u3z`, `v3x`, `v3y`, `v3z` | `2 m` | 65 | 2 | 2 |
+| `PointTwoTrianglePlanesEdgePlane` | `u1y * v1z` and 17 more of its shape | `4 m^2` | 130 | 3 | 4 |
+| `PointTwoTrianglePlanesEdgePlane` | `e1x`, `e1y`, `e1z`, `e2x`, `e2y`, `e2z`, `n3x`, `n3y`, `n3z` | `8 m^2` | 131 | 3 | 4 |
+| `PointTwoTrianglePlanesEdgePlane` | `a1.x * e1x` and 5 more of its shape | `8 m^3` | 195 | 4 | 4 |
+| `PointTwoTrianglePlanesEdgePlane` | `(a1.x * e1x) + (a1.y * e1y)` and 1 more of its shape | `16 m^3` | 196 | 4 | 5 |
+| `PointTwoTrianglePlanesEdgePlane` | `f1`, `f2` | `24 m^3` | 197 | 4 | 5 |
+| `PointTwoTrianglePlanesEdgePlane` | `u3y * n3z` and 5 more of its shape | `16 m^3` | 196 | 4 | 5 |
+| `PointTwoTrianglePlanesEdgePlane` | `e3x`, `e3y`, `e3z` | `32 m^3` | 197 | 4 | 5 |
+| `PointTwoTrianglePlanesEdgePlane` | `a3.x * e3x` and 2 more of its shape | `32 m^4` | 261 | 5 | 5 |
+| `PointTwoTrianglePlanesEdgePlane` | `(a3.x * e3x) + (a3.y * e3y)` | `64 m^4` | 262 | 5 | 6 |
+| `PointTwoTrianglePlanesEdgePlane` | `f3` | `96 m^4` | 263 | 5 | 6 |
+| `PointTwoTrianglePlanesEdgePlane` | `e2y * e3z` and 11 more of its shape | `256 m^5` | 328 | 6 | 7 |
+| `PointTwoTrianglePlanesEdgePlane` | `c23x`, `c23y`, `c23z`, `c31x`, `c31y`, `c31z` | `512 m^5` | 329 | 6 | 7 |
+| `PointTwoTrianglePlanesEdgePlane` | `e1y * e2z` and 5 more of its shape | `64 m^4` | 262 | 5 | 6 |
+| `PointTwoTrianglePlanesEdgePlane` | `c12x`, `c12y`, `c12z` | `128 m^4` | 263 | 5 | 6 |
+| `PointTwoTrianglePlanesEdgePlane` | `e1x * c23x` and 2 more of its shape | `4096 m^7` | 460 | 8 | 9 |
+| `PointTwoTrianglePlanesEdgePlane` | `(e1x * c23x) + (e1y * c23y)` | `8192 m^7` | 461 | 8 | 9 |
+| `PointTwoTrianglePlanesEdgePlane` | `w` (a sign factor) | `12288 m^7` | 462 | 8 | 9 |
+| `PointTwoTrianglePlanesEdgePlane` | `f1 * c23x` and 5 more of its shape | `12288 m^8` | 526 | 9 | 10 |
+| `PointTwoTrianglePlanesEdgePlane` | `(f1 * c23x) + (f2 * c31x)` and 2 more of its shape | `24576 m^8` | 527 | 9 | 10 |
+| `PointTwoTrianglePlanesEdgePlane` | `f3 * c12x` and 2 more of its shape | `12288 m^8` | 526 | 9 | 10 |
+| `PointTwoTrianglePlanesEdgePlane` | the determinant (sign factor 1) | `36864 m^8` | 528 | 9 | 10 |
 | `DirectionTwoTriangles` | every input component | `m = 2^64 - 1` | 64 | 1 | |
 | `DirectionTwoTriangles` | `u1x`, `u1y`, `u1z`, `v1x`, `v1y`, `v1z`, `u2x`, `u2y`, `u2z`, `v2x`, `v2y`, `v2z` | `2 m` | 65 | 2 | 2 |
 | `DirectionTwoTriangles` | `u1y * v1z` and 11 more of its shape | `4 m^2` | 130 | 3 | 4 |
 | `DirectionTwoTriangles` | `n1x`, `n1y`, `n1z`, `n2x`, `n2y`, `n2z` | `8 m^2` | 131 | 3 | 4 |
 | `DirectionTwoTriangles` | `n1y * n2z` and 5 more of its shape | `64 m^4` | 262 | 5 | 6 |
 | `DirectionTwoTriangles` | the determinant (sign factor 1) | `128 m^4` | 263 | 5 | 6 |
+| `DirectionTriangleEdge` | every input component | `m = 2^64 - 1` | 64 | 1 | |
+| `DirectionTriangleEdge` | `u1x`, `u1y`, `u1z`, `v1x`, `v1y`, `v1z`, `u2x`, `u2y`, `u2z`, `v2x`, `v2y`, `v2z` | `2 m` | 65 | 2 | 2 |
+| `DirectionTriangleEdge` | `u1y * v1z` and 11 more of its shape | `4 m^2` | 130 | 3 | 4 |
+| `DirectionTriangleEdge` | `n1x`, `n1y`, `n1z`, `n2x`, `n2y`, `n2z` | `8 m^2` | 131 | 3 | 4 |
+| `DirectionTriangleEdge` | `u2y * n2z` and 5 more of its shape | `16 m^3` | 196 | 4 | 5 |
+| `DirectionTriangleEdge` | `e2x`, `e2y`, `e2z` | `32 m^3` | 197 | 4 | 5 |
+| `DirectionTriangleEdge` | `n1y * e2z` and 5 more of its shape | `256 m^5` | 328 | 6 | 7 |
+| `DirectionTriangleEdge` | the determinant (sign factor 1) | `512 m^5` | 329 | 6 | 7 |
 | `Centroid` | every input component | `m = 2^255 - 1` | 255 | 4 | |
 | `Centroid` | `wbc`, `wac`, `wab` | `m^2` | 510 | 8 | 8 |
 | `Centroid` | `wbc * a.x` and 2 more of its shape | `m^3` | 765 | 12 | 12 |
@@ -357,11 +393,12 @@ length model of the general `FixedArith`; the unrolled kernel B uses the value l
 | `TrianglePlane` | scratch of one call (sum over the values; lengths only: 84) | | | 59 | 70 |
 | `EdgePlane` | scratch of one call (sum over the values; lengths only: 165) | | | 100 | 120 |
 | `PointEdgeTrianglePlane` | scratch of one call (sum over the values; lengths only: 271) | | | 156 | 177 |
-| `PointEdgeEdgePlane` | scratch of one call (sum over the values; lengths only: 418) | | | 219 | 249 |
 | `PointSegments` | scratch of one call (sum over the values; lengths only: 115) | | | 85 | 93 |
 | `PointThreeTrianglePlanes` | scratch of one call (sum over the values; lengths only: 908) | | | 467 | 547 |
-| `PointThreeEdgePlanes` | scratch of one call (sum over the values; lengths only: 1493) | | | 704 | 811 |
+| `PointTriangleTwoEdgePlanes` | scratch of one call (sum over the values; lengths only: 1298) | | | 625 | 723 |
+| `PointTwoTrianglePlanesEdgePlane` | scratch of one call (sum over the values; lengths only: 1103) | | | 546 | 635 |
 | `DirectionTwoTriangles` | scratch of one call (sum over the values; lengths only: 195) | | | 123 | 150 |
+| `DirectionTriangleEdge` | scratch of one call (sum over the values; lengths only: 288) | | | 168 | 204 |
 | `Centroid` | scratch of one call (sum over the values; lengths only: 112) | | | 105 | 109 |
 | `Orient3dInputDiffs` | scratch of one call (sum over the values; lengths only: 44) | | | 33 | 38 |
 <!-- end of the generated table -->
@@ -372,12 +409,13 @@ Reading of the table for the design:
 - EdgePlane point on a triangle plane: `x` 5 limbs (`96 m^4`, 263 bits), `w` 4 limbs (`96 m^3`): before the
   reduction a point can exceed `FixedPoint3`'s 255 bits, so the construction works in the arena and only the reduced
   point is admitted (2 % of the points stay beyond 4 limbs after the reduction on `cgal`, section 2.1);
-- EdgePlane point on an edge plane: `x` 6 limbs (`384 m^5`), `w` 5 limbs;
 - Segments point: `x` 4 limbs (`12 m^3`), `w` 3 limbs;
-- Planes point: three triangle planes `x` 8 limbs (`9216 m^7`), `w` 7 limbs; three edge planes (the worst case)
-  `x` 11 limbs (`589824 m^10`, 660 bits), `w` 10 limbs; scratch 704 / 811 limbs (5.6 / 6.5 KB on the stack, the
-  largest arena of this design);
-- direction of two triangle planes: 5 limbs (`128 m^4`);
+- Planes point: three triangle planes `x` 8 limbs (`9216 m^7`), `w` 7 limbs; two triangle planes and an edge plane
+  `x` 9 limbs (`36864 m^8`), `w` 8 limbs; a triangle plane and two edge planes (the worst reachable case) `x` 10 limbs
+  (`147456 m^9`, 594 bits), `w` 9 limbs; scratch 625 / 723 limbs (5.0 / 5.8 KB on the stack, the largest arena of this
+  design);
+- direction of two triangle planes: 5 limbs (`128 m^4`); of a triangle plane and an edge plane: 6 limbs (`512 m^5`,
+  within the 8 limbs `compare_along_fixed` accepts);
 - centroid: 12 limbs (`3 m^3`, 767 bits);
 - kernel B: minors 2 limbs (`2 m^2`, 125 bits), terms and sum 3 limbs (`6 m^3`, 189 bits).
 
@@ -458,7 +496,20 @@ taskset -c 0 dotnet $T profile --repeat 1 grid:5 grid:10 spheres:20 > $O/nary.js
 
 ## 10. Review of the bounds
 
-Pending (an independent agent with the spec, the generated table and the code, not this document's reasoning).
+An independent agent (given the spec, the generated table, section 4.2 and the code, not this document's reasoning)
+re-derived every row with its own evaluator of the value and length rules: **all bounds, bits, limbs and scratch
+numbers confirmed**, and the spec matches the code's order and grouping for every entry. Kernel B confirmed: every
+coordinate is a multiple of `2^e` (subnormals included), TwoDiff gives `hi`, `lo` as multiples of `2^e`,
+`|hi · 2^-e| < 2^62` implies `|difference| ≤ 2^62 - 2^8`, minors < 2^125, sum < 2^189, same sign as `orient3d_bigint`.
+Its findings, all fixed in this version:
+- the direction `N_T × E` (from `line_direction` with an edge-plane line) was missing: added, 6 limbs;
+- the "worst case" of three edge planes and the EdgePlane point on an edge plane cannot occur in the arrangement:
+  replaced by the reachable TEE and TTE cases (TEE: `x` 10, `w` 9 limbs, matching the reviewer's derivation);
+- the fallback of kernel B stated exactly (`e < -1023`; infinity and NaN fail the admission); the scale factor against
+  `orient3d_bigint` is `2^(3(e - emin))`;
+- 6 + 6 `MulHigh`, not 9 + 6;
+- scratch-only differences between the spec and a literal transcription of the code (`W = 1` products, recomputed
+  differences in `edge_plane`) and the public `EdgePlanePoint` / `PlanesPoint` (stay on `BigInteger`), section 4.3.
 
 ## 11. Later queue
 

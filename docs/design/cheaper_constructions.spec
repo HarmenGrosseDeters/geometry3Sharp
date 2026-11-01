@@ -56,29 +56,6 @@ ipredicate PointEdgeTrianglePlane(p, q, a, b, c) bound 64 inputs xyz
     w = sp - sq
     sign x, y, z, w
 
-# EdgePlane point on an edge plane (E, F) of the triangle a, b, c (edge a-b).
-ipredicate PointEdgeEdgePlane(p, q, a, b, c) bound 64 inputs xyz
-    ux = b.x - a.x
-    uy = b.y - a.y
-    uz = b.z - a.z
-    vx = c.x - a.x
-    vy = c.y - a.y
-    vz = c.z - a.z
-    nx = uy * vz - uz * vy
-    ny = uz * vx - ux * vz
-    nz = ux * vy - uy * vx
-    ex = uy * nz - uz * ny
-    ey = uz * nx - ux * nz
-    ez = ux * ny - uy * nx
-    f = ex * a.x + ey * a.y + ez * a.z
-    sp = ex * p.x + ey * p.y + ez * p.z - f
-    sq = ex * q.x + ey * q.y + ez * q.z - f
-    x = sp * q.x - sq * p.x
-    y = sp * q.y - sq * p.y
-    z = sp * q.z - sq * p.z
-    w = sp - sq
-    sign x, y, z, w
-
 # Segments point (segments_exact): edges p-q and r-s of input points crossing in a common plane, projected to the
 # axes i, j (here x, y): s_p = Det3 of the rows (r_i, r_j, 1), (s_i, s_j, 1), (p_i, p_j, 1), as ExactPoint3.Det3
 # expands it with W = 1; x = s_p q - s_q p, w = s_p - s_q.
@@ -138,20 +115,20 @@ ipredicate PointThreeTrianglePlanes(a1, b1, c1, a2, b2, c2, a3, b3, c3) bound 64
     z = d1 * c23z + d2 * c31z + d3 * c12z
     sign x, y, z, w
 
-# Planes point of three edge planes (the worst case of planes_exact).
-ipredicate PointThreeEdgePlanes(a1, b1, c1, a2, b2, c2, a3, b3, c3) bound 64 inputs xyz
+# Planes point of a triangle plane and two edge planes (TEE), the worst reachable case of planes_exact: its only
+# caller, PlanesPointImplicit(4 ti, a.Line, b.Line), takes the triangle's own plane and two segment lines, each a
+# triangle plane or an edge plane; three edge planes cannot occur. (The bound does not depend on which position the
+# triangle plane sorts to: the expression is symmetric in the planes up to sign.)
+ipredicate PointTriangleTwoEdgePlanes(a1, b1, c1, a2, b2, c2, a3, b3, c3) bound 64 inputs xyz
     u1x = b1.x - a1.x
     u1y = b1.y - a1.y
     u1z = b1.z - a1.z
     v1x = c1.x - a1.x
     v1y = c1.y - a1.y
     v1z = c1.z - a1.z
-    n1x = u1y * v1z - u1z * v1y
-    n1y = u1z * v1x - u1x * v1z
-    n1z = u1x * v1y - u1y * v1x
-    e1x = u1y * n1z - u1z * n1y
-    e1y = u1z * n1x - u1x * n1z
-    e1z = u1x * n1y - u1y * n1x
+    e1x = u1y * v1z - u1z * v1y
+    e1y = u1z * v1x - u1x * v1z
+    e1z = u1x * v1y - u1y * v1x
     f1 = e1x * a1.x + e1y * a1.y + e1z * a1.z
     u2x = b2.x - a2.x
     u2y = b2.y - a2.y
@@ -165,6 +142,56 @@ ipredicate PointThreeEdgePlanes(a1, b1, c1, a2, b2, c2, a3, b3, c3) bound 64 inp
     e2x = u2y * n2z - u2z * n2y
     e2y = u2z * n2x - u2x * n2z
     e2z = u2x * n2y - u2y * n2x
+    f2 = e2x * a2.x + e2y * a2.y + e2z * a2.z
+    u3x = b3.x - a3.x
+    u3y = b3.y - a3.y
+    u3z = b3.z - a3.z
+    v3x = c3.x - a3.x
+    v3y = c3.y - a3.y
+    v3z = c3.z - a3.z
+    n3x = u3y * v3z - u3z * v3y
+    n3y = u3z * v3x - u3x * v3z
+    n3z = u3x * v3y - u3y * v3x
+    e3x = u3y * n3z - u3z * n3y
+    e3y = u3z * n3x - u3x * n3z
+    e3z = u3x * n3y - u3y * n3x
+    f3 = e3x * a3.x + e3y * a3.y + e3z * a3.z
+    c23x = e2y * e3z - e2z * e3y
+    c23y = e2z * e3x - e2x * e3z
+    c23z = e2x * e3y - e2y * e3x
+    c31x = e3y * e1z - e3z * e1y
+    c31y = e3z * e1x - e3x * e1z
+    c31z = e3x * e1y - e3y * e1x
+    c12x = e1y * e2z - e1z * e2y
+    c12y = e1z * e2x - e1x * e2z
+    c12z = e1x * e2y - e1y * e2x
+    w = e1x * c23x + e1y * c23y + e1z * c23z
+    x = f1 * c23x + f2 * c31x + f3 * c12x
+    y = f1 * c23y + f2 * c31y + f3 * c12y
+    z = f1 * c23z + f2 * c31z + f3 * c12z
+    sign x, y, z, w
+
+# Planes point of two triangle planes and one edge plane (TTE).
+ipredicate PointTwoTrianglePlanesEdgePlane(a1, b1, c1, a2, b2, c2, a3, b3, c3) bound 64 inputs xyz
+    u1x = b1.x - a1.x
+    u1y = b1.y - a1.y
+    u1z = b1.z - a1.z
+    v1x = c1.x - a1.x
+    v1y = c1.y - a1.y
+    v1z = c1.z - a1.z
+    e1x = u1y * v1z - u1z * v1y
+    e1y = u1z * v1x - u1x * v1z
+    e1z = u1x * v1y - u1y * v1x
+    f1 = e1x * a1.x + e1y * a1.y + e1z * a1.z
+    u2x = b2.x - a2.x
+    u2y = b2.y - a2.y
+    u2z = b2.z - a2.z
+    v2x = c2.x - a2.x
+    v2y = c2.y - a2.y
+    v2z = c2.z - a2.z
+    e2x = u2y * v2z - u2z * v2y
+    e2y = u2z * v2x - u2x * v2z
+    e2z = u2x * v2y - u2y * v2x
     f2 = e2x * a2.x + e2y * a2.y + e2z * a2.z
     u3x = b3.x - a3.x
     u3y = b3.y - a3.y
@@ -217,6 +244,35 @@ ipredicate DirectionTwoTriangles(a1, b1, c1, a2, b2, c2) bound 64 inputs xyz
     dx = n1y * n2z - n1z * n2y
     dy = n1z * n2x - n1x * n2z
     dz = n1x * n2y - n1y * n2x
+    sign dx, dy, dz
+
+# Line direction of a triangle plane and an edge plane of another triangle (line_direction(t, PlaneOf(line)) with
+# line = 4 u + 1 + k, from clip_into and the coplanar segments): N_T x E_U.
+ipredicate DirectionTriangleEdge(a1, b1, c1, a2, b2, c2) bound 64 inputs xyz
+    u1x = b1.x - a1.x
+    u1y = b1.y - a1.y
+    u1z = b1.z - a1.z
+    v1x = c1.x - a1.x
+    v1y = c1.y - a1.y
+    v1z = c1.z - a1.z
+    n1x = u1y * v1z - u1z * v1y
+    n1y = u1z * v1x - u1x * v1z
+    n1z = u1x * v1y - u1y * v1x
+    u2x = b2.x - a2.x
+    u2y = b2.y - a2.y
+    u2z = b2.z - a2.z
+    v2x = c2.x - a2.x
+    v2y = c2.y - a2.y
+    v2z = c2.z - a2.z
+    n2x = u2y * v2z - u2z * v2y
+    n2y = u2z * v2x - u2x * v2z
+    n2z = u2x * v2y - u2y * v2x
+    e2x = u2y * n2z - u2z * n2y
+    e2y = u2z * n2x - u2x * n2z
+    e2z = u2x * n2y - u2y * n2x
+    dx = n1y * e2z - n1z * e2y
+    dy = n1z * e2x - n1x * e2z
+    dz = n1x * e2y - n1y * e2x
     sign dx, dy, dz
 
 # Centroid (ExactMeshBoolean.centroid) of three fixed-width points (|v| <= 2^255 - 1; one coordinate x and W; the
