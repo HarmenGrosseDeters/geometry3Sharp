@@ -26,6 +26,8 @@ namespace g3
     public sealed class LooseQuadtree2d
     {
         const int BucketSize = 8;
+        // Items gathered far inside their cell may stay together up to this count: cutting would add a chain of nodes before it separates them.
+        const int GatheredBucketSize = 16;
         const int DepthLimit = 64;
         internal const int ParallelThreshold = 32768;
         const double SegmentMargin = 0.0002;
@@ -107,7 +109,9 @@ namespace g3
             if (boxes == null) throw new ArgumentNullException(nameof(boxes));
             ParallelBuild = parallelBuild;
             entries = new Entry[boxes.Count];
-            if (entries.Length > 0) extent = parallelBuild && entries.Length >= ParallelThreshold ? FillInBlocks(boxes) : Fill(boxes, 0, entries.Length);
+            // In parallel only from what is known to allow it: another list may hold a lock, cache what it reads, or need its thread.
+            if (entries.Length > 0) extent = parallelBuild && entries.Length >= ParallelThreshold && (boxes is AxisAlignedBox2d[] || boxes is List<AxisAlignedBox2d>) ?
+                FillInBlocks(boxes) : Fill(boxes, 0, entries.Length);
             Count = nextId = entries.Length;
             rootRegion = extent;
             Rebuild(parallelBuild);
@@ -568,6 +572,21 @@ namespace g3
             }
         }
 
+        static bool Gathered(BuildItem[] items, int start, int count, AxisAlignedBox2d cell)
+        {
+            if (count > GatheredBucketSize) return false;
+            double minX = double.MaxValue, minY = double.MaxValue, maxX = -double.MaxValue, maxY = -double.MaxValue;
+            for (int i = start; i < start + count; ++i) {
+                ref AxisAlignedBox2d box = ref items[i].Box;
+                if (box.Min.x < minX) minX = box.Min.x;
+                if (box.Min.y < minY) minY = box.Min.y;
+                if (box.Max.x > maxX) maxX = box.Max.x;
+                if (box.Max.y > maxY) maxY = box.Max.y;
+            }
+            // In halves, as a difference can overflow.
+            return maxX * 0.5 - minX * 0.5 <= (cell.Max.x * 0.5 - cell.Min.x * 0.5) * 0.25 && maxY * 0.5 - minY * 0.5 <= (cell.Max.y * 0.5 - cell.Min.y * 0.5) * 0.25;
+        }
+
         static void ClassifyInBlocks(BuildItem[] items, int start, int end, AxisAlignedBox2d cell, Vector2d center, int axes, int[] scratch)
         {
             int blocks = (end - start + ParallelThreshold - 1) / ParallelThreshold;
@@ -586,7 +605,7 @@ namespace g3
             if (count <= BucketSize || depth >= DepthLimit) return false;
             Vector2d center = Center(cell);
             int axes = SplitAxes(cell, center);
-            if (axes == 0 || AllEqual(items, start, count)) return false;
+            if (axes == 0 || AllEqual(items, start, count) || Gathered(items, start, count, cell)) return false;
             int end = start + count;
             for (int c = 0; c < 5; ++c) scratch[c] = 0;
             if (parallel) ClassifyInBlocks(items, start, end, cell, center, axes, scratch);

@@ -70,6 +70,8 @@ namespace geometry3Sharp.Tests.Spatial
         {
             object kept = null;
             Assert.True(Allocations.Least(10, () => kept = new byte[64]) > 0);
+            int calls = 0;
+            Assert.True(Allocations.Least(10, () => { if (++calls % 150 == 0) kept = new byte[64]; }) > 0);
             Assert.Equal(0, Allocations.Least(10, () => { }));
             GC.KeepAlive(kept);
         }
@@ -184,6 +186,83 @@ namespace geometry3Sharp.Tests.Spatial
                 Assert.Equal(90, parallel.Max.x);
                 Assert.Equal(80, parallel.Max.y);
             }
+        }
+
+        // A list that cannot be read from other threads: it caches what it reads.
+        sealed class LazyBoxes : IReadOnlyList<AxisAlignedBox2d>
+        {
+            readonly List<AxisAlignedBox2d> cache = new List<AxisAlignedBox2d>();
+            readonly int count;
+            public LazyBoxes(int count) { this.count = count; }
+            public int Count { get { return count; } }
+            public AxisAlignedBox2d this[int index] {
+                get {
+                    while (cache.Count <= index) cache.Add(new AxisAlignedBox2d(new Vector2d(cache.Count % 300, cache.Count / 300)));
+                    return cache[index];
+                }
+            }
+            public IEnumerator<AxisAlignedBox2d> GetEnumerator() { for (int i = 0; i < count; ++i) yield return this[i]; }
+            System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() { return GetEnumerator(); }
+        }
+
+        // ... and one that takes a lock its caller holds, which would stop every other thread.
+        sealed class LockedBoxes : IReadOnlyList<AxisAlignedBox2d>
+        {
+            readonly AxisAlignedBox2d[] boxes;
+            public readonly object Gate = new object();
+            public LockedBoxes(AxisAlignedBox2d[] boxes) { this.boxes = boxes; }
+            public int Count { get { return boxes.Length; } }
+            public AxisAlignedBox2d this[int index] { get { lock (Gate) return boxes[index]; } }
+            public IEnumerator<AxisAlignedBox2d> GetEnumerator() { foreach (AxisAlignedBox2d box in boxes) yield return box; }
+            System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() { return GetEnumerator(); }
+        }
+
+        [Fact]
+        public void AListOfUnknownKind_IsReadOnTheCallingThreadOnly()
+        {
+            const int n = 200000;
+            var fromLazy = new LooseQuadtree2d(new LazyBoxes(n));
+            AxisAlignedBox2d[] boxes = Enumerable.Range(0, n).Select(i => new AxisAlignedBox2d(new Vector2d(i % 300, i / 300))).ToArray();
+            Assert.Equal(Walk(new LooseQuadtree2d(boxes, false)).Ids, Walk(fromLazy).Ids);
+
+            var locked = new LockedBoxes(boxes);
+            lock (locked.Gate) Assert.Equal(n, new LooseQuadtree2d(locked).Count);
+        }
+
+        [Theory]
+        [InlineData(1e-3)]
+        [InlineData(1e-9)]
+        public void ClustersThatFitABucket_AddNoChainsOfNodes(double noise)
+        {
+            var random = new Random(3);
+            var boxes = new List<AxisAlignedBox2d>();
+            for (int c = 0; c < 2000; ++c) {
+                double x = random.NextDouble() * 1e5, y = random.NextDouble() * 1e5;
+                for (int k = 0; k < 10; ++k)
+                    boxes.Add(new AxisAlignedBox2d(new Vector2d(x + noise * random.NextDouble(), y + noise * random.NextDouble())));
+            }
+            // A chain would add regions on every level for each cluster, and the levels go by the noise.
+            Assert.True(VisitRegions(new LooseQuadtree2d(boxes)).Count < 6 * 2000);
+            var inserted = new LooseQuadtree2d(boxes.GetRange(0, 2));
+            foreach (AxisAlignedBox2d box in boxes.Skip(2)) inserted.Insert(box);
+            Assert.True(VisitRegions(inserted).Count < 12 * 2000);
+            var found = new List<int>();
+            inserted.QueryRectangle(boxes[15], found);
+            Assert.Contains(15, found);
+        }
+
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void ALineAcrossItsCell_IsNotAGatheredCluster(bool alongY)
+        {
+            // Corners make the root square, and 14 points in one quadrant span it in one direction only.
+            var boxes = new List<AxisAlignedBox2d> { new AxisAlignedBox2d(new Vector2d(0, 100)), new AxisAlignedBox2d(new Vector2d(100, 0)), new AxisAlignedBox2d(new Vector2d(100, 100)) };
+            for (int i = 0; i < 14; ++i) {
+                double along = 1 + i * 3.5;
+                boxes.Add(new AxisAlignedBox2d(alongY ? new Vector2d(25, along) : new Vector2d(along, 25)));
+            }
+            Assert.True(VisitRegions(new LooseQuadtree2d(boxes, false)).Count > 6, "the line stayed in one cell");
         }
 
         [Fact]

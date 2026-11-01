@@ -386,6 +386,8 @@ The core rejects nothing new. Removal by value and by ID no longer scans. A cell
 - The margin of 2e-4 and the default tolerance of 0.01 are absolute (owner decision, Q-3): results at these thresholds change with scale, unlike the rest of the library. Tests compare them against the definition instead of bit for bit.
 - Triangles thinner than a relative determinant of 1e-9 take the exact path. Above that, a rounded height keeps an error that grows towards the threshold.
 - A parallel build cuts the items down until a part that can still be cut holds at most an eighth of them, or 32768, and builds the parts side by side. Data gathered far inside its extent needs more of these cuts, so it takes longer: rows `parallel` and `parallel_far_point` of the benchmark. Fine data with one point at 1e18 took about 5 times as long as uniform data, in a review's run.
+- Clusters of more than 16 nearly equal items cost a chain of nodes each, down to where they separate: 1M points in clusters of 20, with noise 1e-9 in an extent of 1e5, retain 419 MB and take 328 ms to build, against 62 MB and 65 ms for clusters of 10. Exactly equal items cost nothing, as a cell of them is not split.
+- A list other than an array or a `List<T>` is read sequentially on the calling thread. Arrays and `List<T>` are read in parallel, so they must not change during the constructor.
 - The flat array costs 40 bytes per item during a build: a parallel build of 1M boxes allocates about 155 MB, was 98 MB. `Over` still needs bounds, entries and this array while it builds, about 187 bytes per triangle with its nodes, and saves 72 bytes per triangle afterwards.
 
 ### Verification
