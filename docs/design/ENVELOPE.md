@@ -1,6 +1,6 @@
 # Polyhedral envelope containment (design, for the owner's approval)
 
-**Status:** draft for review (ROADMAP stage 7, tier L: design before code). No code yet. It builds on the indirect
+**Status:** approved by the owner (decisions in section 7; ROADMAP stage 7, tier L). No code yet; PR 1 of section 6 is next. It builds on the indirect
 predicates of `docs/design/INDIRECT_PREDICATES.md` (#246, #250, #257).
 
 ## 1. Goal
@@ -137,7 +137,8 @@ class, or `MeshEnvelope`'s implementation replaced behind its unchanged API (com
   every point of every polyhedron within ε of its triangle, and the triangle strictly inside. Proposal for the
   shape (question 2): the paper allows any convex half-space shape; the slab and lateral fractions of `MeshEnvelope`
   (0.8 ε along the normal, 0.6 ε sideways: 0.8² + 0.6² = 1) give about 1.4 times δ = ε / √3 in each direction, so
-  the envelope accepts more, with the caps of Prop. 3.1 at acute vertices.
+  the envelope accepts more, with the caps of Prop. 3.1 at acute vertices. (Decided, section 7: ε / √3 is the
+  default; 0.8 / 0.6 only as a proven option.)
 - **Degenerate triangles:** a polyhedron around the longest edge or the point (as `MeshEnvelope`).
 - **Search:** the existing box tree of the arrangement (`ExactMeshArrangement`'s array box tree) or
   `DMeshAABBTree3` over the polyhedra's boxes; candidate lists per query without allocation.
@@ -180,16 +181,16 @@ decision after the acceptance.
 Stop rule: if after PR 3 the triangle query is not within a factor of 5 of the distance bounds on the
 `ReducerBenchmark` cases, stop and write the finding here.
 
-## 7. Questions for the owner
+## 7. Decisions (owner, on the questions of the draft)
 
-1. **Double inputs:** filter with the absolute term plus exponent alignment for the exact stage (proposal), or
-   map the whole envelope to one integer grid (as the arrangement does; simpler predicates, but grids of more than
-   64 bits for meshes with mixed magnitudes)?
-2. **Polyhedron shape:** the volume-maximizing fractions of `MeshEnvelope` (0.8 / 0.6, more accepted) or
-   `fast-envelope`'s ε / √3 (simpler)?
-3. **API:** a new internal class first, the public decision after the acceptance (proposal); or replace
-   `MeshEnvelope`'s implementation directly?
-4. **Order:** the plan of section 6, one PR per step?
+1. **Double inputs:** a filter with an underflow term plus exponent alignment per call for the exact stage (4.1). No
+   integer grid.
+2. **Polyhedron shape:** ε / √3, the paper's Prop. 3.1 (proven), is the default. PR 3 measures how much less it
+   accepts than `MeshEnvelope`'s 0.8 / 0.6 shape on the `ReducerBenchmark` queries. 0.8 / 0.6 is offered as an
+   option only with a proof of the same ε guarantee; otherwise this document says why not.
+3. **API:** an internal class first. `MeshEnvelope` is replaced only once the clipping oracle agrees and the stop rule
+   (within 5× of `IsWithin`) holds; that replacement is a separate PR for the owner.
+4. **Order:** one PR per step (section 6).
 
 ## 8. Sources
 
