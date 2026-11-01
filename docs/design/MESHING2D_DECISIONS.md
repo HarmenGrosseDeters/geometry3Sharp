@@ -10,6 +10,9 @@ owner says otherwise.
 
 **Owner decision, 2026-11-01: D5 changed to role-based nesting (islands in lakes are meshed), see its row; Q7 clarified accordingly.**
 
+**Owner decision, 2026-11-01: D14 as proposed by the literature check: `m2.snap` is built as iterated snap rounding (Halperin and Packer 2002) at
+the explicit tolerance, as its own PR after M2 and M3 are merged.**
+
 **Owner decisions, 2026-10-31: D1, D5 and D9 as recommended below.** So: output in doubles, with validity decided on those doubles; a hole removes everything inside it, with a diagnostic when an outer ring lies inside a hole, and islands are not part of this; longest edge at most h at the centroid. The others have a default that is fine unless the owner objects. Each default is cheap to change: the "where it
 lives" column names the one place in the oracle, so that a different decision costs an edit there, a changed fixture and golden rows with a stated reason.
 
@@ -55,14 +58,14 @@ documentation only (no GPL code, nothing of Triangle or Triangle.NET). Full refe
 | D11 | Heights: linear interpolation on the input's constrained triangulation; merged points, lowest index wins | TIN interpolation with breaklines (de Berg et al. 2008, ch. 9) | Agrees for interpolation; the conflict rule has no source | None |
 | D12 | Invalid minimum angle: argument error | Termination: Ruppert 1995 (about 20.7 degrees), Shewchuk 2002 (26.5 guaranteed, about 33 in practice); 60 degrees is impossible in general | Agrees (rejecting what cannot be met) | None |
 | D13 | Without rings the convex hull is the boundary | Delaunay triangulation of a point set covers its convex hull (Delaunay 1934; de Berg et al. 2008, ch. 9) | Agrees | None |
-| D14 | Exact noding first; snapping chosen later against F-10 to F-22 | Snap rounding (Greene and Yao 1986; Hobby 1999; Halperin and Packer 2002, iterated snap rounding with separation); Milenkovic's rounding | Agrees with the plan; current noding (rounded crossings, chains within a tube) gives a valid mesh but not snap rounding's guarantee that no vertex comes too close to a non-incident edge | **Proposal for the owner:** build `m2.snap` as iterated snap rounding (Halperin and Packer 2002) at the explicit tolerance |
+| D14 | Exact noding first; snapping chosen later against F-10 to F-22 | Snap rounding (Greene and Yao 1986; Hobby 1999; Halperin and Packer 2002, iterated snap rounding with separation); Milenkovic's rounding | Agrees with the plan; current noding (rounded crossings, chains within a tube) gives a valid mesh but not snap rounding's guarantee that no vertex comes too close to a non-incident edge | **Owner decision 2026-11-01:** build `m2.snap` as iterated snap rounding (Halperin and Packer 2002) at the explicit tolerance |
 | D15 | Status, failure kind, coordinate; no partial mesh | None (API design, as `BooleanStatus`) | No source | None |
 | D16 | Regions in one list, the last wins | Painter's order (later drawn on top), as in SVG and PDF | Agrees as a convention | None |
 | D17 | Alias slots keep their coordinates | None | No source | None |
 | D18 | Cocircular ties: each cocircular cell as a fan from its smallest index, independent of insertion order | Symbolic perturbation: Simulation of Simplicity (Edelsbrunner and Mücke 1990), index-ordered perturbations for Delaunay (Devillers and Teillaud 2011) | Agrees in its goal (one triangulation determined by points and indices alone); differs in construction: ours is a direct canonical fan, not the triangulation a symbolic perturbation would give | None needed; a perturbation-based rule only if results must match another mesher that uses one |
 | D19 | Conforming when quality is on | Ruppert 1995 and Shewchuk 2002: with no encroached subsegment the constrained triangulation is Delaunay (conforming) | Agrees | None |
 
-The literature contradicts none of the decisions. D14 has a concrete proposal (iterated snap rounding for `m2.snap`); D5 differs from SFA only on input that SFA calls invalid.
+The literature contradicts none of the decisions. D14's proposal (iterated snap rounding for `m2.snap`) is approved by the owner; D5 differs from SFA only on input that SFA calls invalid.
 
 ## Findings beyond the table
 
