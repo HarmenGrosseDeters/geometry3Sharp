@@ -209,8 +209,7 @@ namespace g3
             if (v.L1 == line || v.L2 == line)
                 return 0;
             // a double point that both planes of the line pass through (eg a toe apex of cone tangents): on the line
-            if (v.L1 < 0 && l.Pa >= 0 && passes_through(planes[l.Pa], v.x, v.y) && passes_through(planes[l.Pb], v.x, v.y)
-                && same_height(planes[l.Pa], planes[l.Pb], v.x, v.y))
+            if (v.L1 < 0 && l.Pa >= 0 && common_point(planes[l.Pa], planes[l.Pb], v.x, v.y))
                 return 0;
             PredicateCalls++;
             int sw = v.W.Sign();
@@ -222,22 +221,21 @@ namespace g3
             return (l.eA * v.eX + l.eB * v.eY + l.eC * v.eW).Sign * v.eW.Sign;
         }
 
-        // the plane's defining point at (x, y), if any (its height there is that point's z, exactly)
-        static bool passes_through(Plane pl, double x, double y)
+        // both planes have a defining point at (x, y) with the same z: they pass through the same 3D point there
+        static bool common_point(Plane a, Plane b, double x, double y)
         {
-            return (pl.P.x == x && pl.P.y == y) || (pl.Q.x == x && pl.Q.y == y) || (pl.R.x == x && pl.R.y == y);
+            double za, zb;
+            return defining_z(a, x, y, out za) && defining_z(b, x, y, out zb) && za == zb;
         }
 
-        static double defining_z(Plane pl, double x, double y)
+        // the z of the plane's defining point at (x, y), if it has one (a plane has at most one: it is not vertical)
+        static bool defining_z(Plane pl, double x, double y, out double z)
         {
-            if (pl.P.x == x && pl.P.y == y) return pl.P.z;
-            if (pl.Q.x == x && pl.Q.y == y) return pl.Q.z;
-            return pl.R.z;
-        }
-
-        static bool same_height(Plane a, Plane b, double x, double y)
-        {
-            return defining_z(a, x, y) == defining_z(b, x, y);
+            if (pl.P.x == x && pl.P.y == y) { z = pl.P.z; return true; }
+            if (pl.Q.x == x && pl.Q.y == y) { z = pl.Q.z; return true; }
+            if (pl.R.x == x && pl.R.y == y) { z = pl.R.z; return true; }
+            z = double.NaN;
+            return false;
         }
 
         /// <summary> orientation of three vertices: +1 counter-clockwise, -1 clockwise, 0 collinear </summary>

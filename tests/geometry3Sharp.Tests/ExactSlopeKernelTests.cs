@@ -139,7 +139,9 @@ namespace geometry3Sharp.Tests
             // parallel and identical lines do not cross
             Assert.Equal(-1, K.Crossing(l, K.PointLine(new Vector2d(0, 1), new Vector2d(2, 2))));
             Assert.Equal(-1, K.Crossing(l, K.PointLine(new Vector2d(4, 2), new Vector2d(6, 3))));
-            Assert.Equal(-1, K.Crossing(l, K.PointLine(new Vector2d(0, 1), new Vector2d(2, 2))));     // (cached)
+            int lp = K.PointLine(new Vector2d(0, 3), new Vector2d(2, 4));
+            Assert.Equal(-1, K.Crossing(l, lp));
+            Assert.Equal(-1, K.Crossing(lp, l));      // cached, both ways round
             Assert.True(K.PredicateCalls > 0);
             Assert.Equal(K.VertexCount, K.VertexCount);
         }
@@ -189,6 +191,14 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0, K.Side(K.PointVertex(apex.xy), K.PlaneLine(d, b)));
             // plane 0 takes part in the shortcut as any other
             Assert.Equal(0, a);
+            // a vertex with the x (or the y) of a defining point only: no shortcut, decided by the heights
+            int e = K.AddPlane(new Vector3d(3, 0, 0), new Vector3d(4, 0, 0), new Vector3d(3, 1, 0));    // z = 0
+            int f = K.AddPlane(new Vector3d(3, 2, 0), new Vector3d(5, 2, 0), new Vector3d(3, 3, 1));    // z = y - 2
+            Assert.Equal(1, K.Side(K.PointVertex(new Vector2d(3, 1)), K.PlaneLine(e, f)));     // e = 0 > f = -1
+            Assert.Equal(-1, K.Side(K.PointVertex(new Vector2d(3, 3)), K.PlaneLine(e, f)));    // (the R of f)
+            Assert.Equal(-1, K.Side(K.PointVertex(new Vector2d(4, 3)), K.PlaneLine(e, f)));
+            Assert.Equal(0, K.Side(K.PointVertex(new Vector2d(5, 2)), K.PlaneLine(e, f)));      // the Q of f, height 0 in both
+            Assert.Equal(0, K.Side(K.PointVertex(new Vector2d(4, 2)), K.PlaneLine(e, f)));
         }
 
         [Fact]
