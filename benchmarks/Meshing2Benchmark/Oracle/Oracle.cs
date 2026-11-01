@@ -77,7 +77,7 @@ namespace Meshing2Acceptance
                     return r;
                 }
                 if (!Vertices()) return r;
-                domain = new Domain(input) { Filter = !e.Reference };
+                domain = new Domain(input, !e.Reference);
                 bool degenerate = domain.Area.Sign == 0;
                 tube = e.Tube ?? (e.Milestone == Milestone.M1 ? Q.Zero : Q.Max(Oracle.AutoTolerance(input), Q.FromDouble(input.SnapTolerance)));
                 tube2 = tube * tube;

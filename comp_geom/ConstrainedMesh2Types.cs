@@ -45,8 +45,8 @@ namespace g3
 
     /// <summary>
     /// The input of the constrained mesher: points (index i is the identity of point i), segments, rings, hole seeds, regions.
-    /// Without an outer ring the domain is the convex hull of the points; with outer rings it is their union minus the union
-    /// of the holes (decision D5).
+    /// Without an outer ring the domain is the convex hull of the points minus the holes; with outer rings a point is in it iff
+    /// the innermost ring containing it is an outer ring, so islands in lakes are meshed (decision D5).
     /// </summary>
     public sealed class ConstrainedMesh2Input
     {

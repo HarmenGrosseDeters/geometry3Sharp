@@ -1,6 +1,6 @@
 # 2D meshing: the failure catalogue
 
-The F cases of [MESHING2D_SPEC.md](MESHING2D_SPEC.md), section 2, as procedural fixtures, one state per row. Rows now: 85 covered, 30 pending, 8 deferred by the owner's scope, 3 blocked.
+The F cases of [MESHING2D_SPEC.md](MESHING2D_SPEC.md), section 2, as procedural fixtures, one state per row. Rows now: 87 covered, 30 pending, 8 deferred by the owner's scope, 3 blocked.
 The table is generated from `benchmarks/Meshing2Benchmark/Oracle/Catalogue.cs` by `dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 -- catalogue`; a test keeps it in sync.
 
 - **covered**: runs now through the oracle (or the named test), on the registered production mesher.
@@ -101,6 +101,8 @@ as beyond this brief (`m4.*`) wait for grid, wedge and Steiner post-processing, 
 | F-43/b | A hole on the outer boundary with a seed | covered | f-43/b |  |
 | F-43/c | A hole with its seed on its own boundary | covered | f-43/c | ring semantics (Q7): the ring removes it, the seed changes nothing |
 | F-43/d | A thin hole | covered | f-43/d |  |
+| F-44/island | An island in a lake is meshed (D5, owner 2026-11-01) | covered | f-44/island |  |
+| F-44/pond | A lake in an island in a lake is removed again (D5) | covered | f-44/pond |  |
 | F-44 | Hole in a hole, seeds outside and inside holes | covered | f-44 |  |
 | F-45 | Two seeds in one region: the last wins | covered | f-45 |  |
 | F-46/a | A segment inside a hole does not stop the removal (Q7) | covered | f-46/a |  |
