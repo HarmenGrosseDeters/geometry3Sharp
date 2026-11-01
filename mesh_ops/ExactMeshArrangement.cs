@@ -1426,6 +1426,11 @@ namespace g3
         /// <summary> triangles per batch of the candidate pair search (bounds its memory; smaller for tests) </summary>
         internal long CandidateBatchSize = 1 << 24;
         public int SelfIntersectingPairs;
+        /// <summary>
+        /// for tests: the candidate pairs within a mesh by one self-join of its box tree (each pair once), else by a
+        /// query per triangle (each pair found twice, once dropped): the same pairs, in another order
+        /// </summary>
+        internal bool SelfJoin = true;
         /// <summary> per mesh: box tree of its triangles (in the order of MeshTriangles), after Compute() </summary>
         public TriangleBoxTree[] Trees;
 
@@ -1459,7 +1464,7 @@ namespace g3
                     continue;
                 near.Clear();
                 meshTree.Query(meshBoxes[ma], (mb) => {
-                    if (mb > ma || (mb == ma && SelfIntersections))
+                    if (mb > ma || (mb == ma && SelfIntersections && SelfJoin == false))
                         near.Add(mb);
                 });
                 near.Sort();
@@ -1493,6 +1498,8 @@ namespace g3
                     if (list != null)
                         pairs.AddRange(list);
             }
+            if (SelfIntersections && SelfJoin)
+                self += self_pairs(trees, pairs);
             SelfIntersectingPairs += self;
             clock.Lap("intersections.pairs");
             // planes of the triangles involved (computed once, before the parallel use)
@@ -1533,6 +1540,8 @@ namespace g3
             gParallel.ForRange(pairs.Count, (k) => intersect((int)(pairs[k] >> 32), (int)(pairs[k] & 0xFFFFFFFF)));
             clock.Lap("intersections.intersect");
             CandidatePairs = pairs.Count;
+            if (KeepCandidatePairs)
+                CandidatePairList = new List<long>(pairs);
         }
         public int CandidatePairs;
 
@@ -1621,6 +1630,47 @@ namespace g3
             }
             return self;
         }
+
+        // the candidate pairs within each mesh (boxes overlap, not only touching), appended to pairs as (smaller,
+        // larger triangle index); returns their number. The self-join's work items run in parallel, each into a
+        // list of its own; the lists are appended in the order of the items, so the result depends only on the trees.
+        [MethodImpl(JitHints.Optimize)]
+        int self_pairs(TriangleBoxTree[] trees, List<long> pairs)
+        {
+            int self = 0;
+            for (int m = 0; m < Meshes.Count; ++m) {
+                List<int> tris = MeshTriangles[m];
+                if (tris.Count < 2)
+                    continue;
+                List<Index2i> tasks = trees[m].SelfPairTasks(SelfJoinTasks);
+                var found = new List<long>[tasks.Count];
+                gParallel.ForRange(tasks.Count, () => new List<Index2i>(), (k, boxPairs) => {
+                    boxPairs.Clear();
+                    trees[m].SelfPairs(tasks[k], boxPairs);
+                    List<long> list = null;
+                    foreach (Index2i bp in boxPairs) {
+                        int ka = Math.Min(bp.a, bp.b), kb = Math.Max(bp.a, bp.b);
+                        InputTriangle T = Triangles[tris[ka]], U = Triangles[tris[kb]];
+                        if (T.Degenerate || U.Degenerate || touch_only(T, U))
+                            continue;
+                        (list ?? (list = new List<long>())).Add(((long)tris[ka] << 32) | (uint)tris[kb]);
+                    }
+                    found[k] = list;
+                });
+                foreach (List<long> list in found)
+                    if (list != null) {
+                        pairs.AddRange(list);
+                        self += list.Count;
+                    }
+            }
+            return self;
+        }
+
+        /// <summary> for tests: keep a copy of the candidate pairs (CandidatePairList) </summary>
+        internal bool KeepCandidatePairs = false;
+        internal List<long> CandidatePairList;
+        /// <summary> for tests: the number of work items the self-join is split into (at least) </summary>
+        internal int SelfJoinTasks = 256;
 
         // all corners of one triangle strictly on one side of the other's plane (exact double predicates)
         [MethodImpl(JitHints.Optimize)]
@@ -2349,6 +2399,100 @@ namespace g3
         }
 
         [ThreadStatic] static int[] queryStack;
+
+        // the closed boxes of nodes a and b overlap
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        bool nodes_overlap(int a, int b)
+        {
+            int o = 6 * b;
+            return overlaps(nodeBox, a, nodeBox[o], nodeBox[o + 1], nodeBox[o + 2], nodeBox[o + 3], nodeBox[o + 4], nodeBox[o + 5]);
+        }
+
+        /// <summary>
+        /// The work items of SelfPairs: node pairs (a, a) for the pairs within node a, (a, b) for the pairs between
+        /// nodes a and b. Together they give every pair of different overlapping boxes exactly once. Split breadth
+        /// first until there are at least minTasks (fewer for small trees); the list is the same for the same tree.
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        public List<Index2i> SelfPairTasks(int minTasks)
+        {
+            var tasks = new List<Index2i>();
+            if (nodeCount == 0)
+                return tasks;
+            tasks.Add(new Index2i(0, 0));
+            for (bool split = true; split && tasks.Count < minTasks; ) {
+                split = false;
+                var next = new List<Index2i>(3 * tasks.Count);
+                foreach (Index2i t in tasks) {
+                    int a = t.a, b = t.b;
+                    if (a == b) {
+                        if (nodeLeft[a] < 0) { next.Add(t); continue; }
+                        int l = nodeLeft[a], r = nodeRight[a];
+                        next.Add(new Index2i(l, l)); next.Add(new Index2i(l, r)); next.Add(new Index2i(r, r));
+                        split = true;
+                    } else if (nodes_overlap(a, b)) {
+                        if (nodeLeft[a] < 0 && nodeLeft[b] < 0) { next.Add(t); continue; }
+                        if (split_first(a, b)) { next.Add(new Index2i(nodeLeft[a], b)); next.Add(new Index2i(nodeRight[a], b)); }
+                        else { next.Add(new Index2i(a, nodeLeft[b])); next.Add(new Index2i(a, nodeRight[b])); }
+                        split = true;
+                    }
+                }
+                tasks = next;
+            }
+            return tasks;
+        }
+
+        // of the two nodes (not both leaves), split a (else b): the larger one that is not a leaf
+        bool split_first(int a, int b)
+        {
+            return nodeLeft[a] >= 0 && (nodeLeft[b] < 0 || nodeSize[a] >= nodeSize[b]);
+        }
+
+        /// <summary>
+        /// the pairs (i, j) of different boxes that overlap (closed, as Query), of the work item t of SelfPairTasks,
+        /// appended to result as i, j; in an order that depends only on the tree
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        public void SelfPairs(Index2i t, List<Index2i> result)
+        {
+            var stack = new List<Index2i> { t };
+            while (stack.Count > 0) {
+                Index2i top = stack[stack.Count - 1];
+                stack.RemoveAt(stack.Count - 1);
+                int a = top.a, b = top.b;
+                if (a == b) {
+                    if (nodeLeft[a] < 0) {
+                        for (int i = nodeStart[a], e = nodeStart[a] + nodeSize[a]; i < e; ++i)
+                            for (int j = i + 1; j < e; ++j)
+                                if (leaves_overlap(i, j))
+                                    result.Add(new Index2i(order[i], order[j]));
+                    } else {
+                        int l = nodeLeft[a], r = nodeRight[a];
+                        stack.Add(new Index2i(r, r)); stack.Add(new Index2i(l, r)); stack.Add(new Index2i(l, l));
+                    }
+                    continue;
+                }
+                if (nodes_overlap(a, b) == false)
+                    continue;
+                if (nodeLeft[a] < 0 && nodeLeft[b] < 0) {
+                    for (int i = nodeStart[a], ei = nodeStart[a] + nodeSize[a]; i < ei; ++i)
+                        for (int j = nodeStart[b], ej = nodeStart[b] + nodeSize[b]; j < ej; ++j)
+                            if (leaves_overlap(i, j))
+                                result.Add(new Index2i(order[i], order[j]));
+                } else if (split_first(a, b)) {
+                    stack.Add(new Index2i(nodeRight[a], b)); stack.Add(new Index2i(nodeLeft[a], b));
+                } else {
+                    stack.Add(new Index2i(a, nodeRight[b])); stack.Add(new Index2i(a, nodeLeft[b]));
+                }
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        bool leaves_overlap(int i, int j)
+        {
+            int o = 6 * j;
+            return overlaps(leafBox, i, leafBox[o], leafBox[o + 1], leafBox[o + 2], leafBox[o + 3], leafBox[o + 4], leafBox[o + 5]);
+        }
 
         /// <summary> call f for every box that overlaps the closed query box </summary>
         [MethodImpl(JitHints.Optimize)]
