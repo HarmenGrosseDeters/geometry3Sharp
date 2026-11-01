@@ -63,7 +63,7 @@ namespace geometry3Sharp.Tests
 
         // random triangles over the target's box (heights in [zlo, zhi]); checks the patch bound against sampling;
         // returns how many got a finite bound
-        static int CheckSound(DMesh3 target, int seed, int count, double zlo, double zhi, double size)
+        static int CheckSound(DMesh3 target, int seed, int count, double zlo, double zhi, double size, double tilt = 0.2)
         {
             var tree = new DMeshAABBTree3(target, true);
             var bounds = new TriangleDeviationBounds(target);
@@ -73,8 +73,8 @@ namespace geometry3Sharp.Tests
             for (int k = 0; k < count; ++k) {
                 Func<Vector3d> pt = () => new Vector3d(box.Min.x + rand.NextDouble() * box.Width, box.Min.y + rand.NextDouble() * box.Height,
                     zlo + rand.NextDouble() * (zhi - zlo));
-                Vector3d a = pt(), d1 = new Vector3d(rand.NextDouble() - 0.5, rand.NextDouble() - 0.5, 0.2 * (rand.NextDouble() - 0.5)),
-                    d2 = new Vector3d(rand.NextDouble() - 0.5, rand.NextDouble() - 0.5, 0.2 * (rand.NextDouble() - 0.5));
+                Vector3d a = pt(), d1 = new Vector3d(rand.NextDouble() - 0.5, rand.NextDouble() - 0.5, tilt * (rand.NextDouble() - 0.5)),
+                    d2 = new Vector3d(rand.NextDouble() - 0.5, rand.NextDouble() - 0.5, tilt * (rand.NextDouble() - 0.5));
                 Vector3d b = a + size * d1, c = a + size * d2;
                 // both orientations: the bound must not depend on the side the normal points to
                 foreach (bool swap in new[] { false, true }) {
@@ -138,6 +138,32 @@ namespace geometry3Sharp.Tests
                 DMesh3 bumpy = Grid(0, 0, 1, 1, 31, h: (x, y) => amp * Math.Sin(9 * x) * Math.Cos(7 * y));
                 CheckSound(bumpy, 7 + (int)(amp * 1000), 300, -amp - 0.03, amp + 0.03, 0.4);
             }
+            // query triangles nearly perpendicular to the targets (normals almost in their plane)
+            DMesh3 wavy = Grid(0, 0, 1, 1, 31, h: (x, y) => 0.01 * Math.Sin(9 * x) * Math.Cos(7 * y));
+            CheckSound(wavy, 12, 300, -0.05, 0.05, 0.3, 50);
+            CheckSound(hole, 13, 300, -0.05, 0.05, 0.3, 50);
+            // a soup (every triangle with its own vertices: no shared edges, all boundary): never covered, and two
+            // grids that share only a corner vertex (a bowtie)
+            DMesh3 soup = new DMesh3();
+            DMesh3 g = Grid(0, 0, 1, 1, 11);
+            foreach (int t in g.TriangleIndices()) {
+                Index3i tv = g.GetTriangle(t);
+                soup.AppendTriangle(soup.AppendVertex(g.GetVertex(tv.a)), soup.AppendVertex(g.GetVertex(tv.b)), soup.AppendVertex(g.GetVertex(tv.c)));
+            }
+            Assert.Equal(0, CheckSound(soup, 14, 200, -0.05, 0.05, 0.5));
+            DMesh3 bowtie = Grid(0, 0, 0.5, 0.5, 6);
+            DMesh3 other = Grid(0.5, 0.5, 1, 1, 6);
+            var map = new Dictionary<int, int>();
+            foreach (int v in other.VertexIndices()) {
+                Vector3d p = other.GetVertex(v);
+                map[v] = (p == new Vector3d(0.5, 0.5, 0)) ? bowtie.VertexIndices().First(u => bowtie.GetVertex(u) == p) : bowtie.AppendVertex(p);
+            }
+            foreach (int t in other.TriangleIndices()) {
+                Index3i tv = other.GetTriangle(t);
+                Assert.True(bowtie.AppendTriangle(map[tv.a], map[tv.b], map[tv.c]) >= 0);
+            }
+            Assert.True(MeshIterators.BowtieVertices(bowtie).Any());
+            CheckSound(bowtie, 15, 300, -0.05, 0.05, 0.4);
             // a closed sphere: triangles inside, outside and through it
             DMesh3 sphere = new Sphere3Generator_NormalizedCube() { Radius = 0.5, EdgeVertices = 12 }.Generate().MakeDMesh();
             MeshTransforms.Translate(sphere, new Vector3d(0.5, 0.5, 0));

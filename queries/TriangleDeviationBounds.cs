@@ -63,17 +63,32 @@ namespace g3
         /// <summary> the patch bound leaves out target triangles steeper than this (height range / projected size) </summary>
         const double MaxPatchSlope = 1000;
 
-        // Upper bound from the target triangles under the triangle (p0, p1, p2), seen along its normal: if the
-        // projections of a connected set S of target triangles onto the triangle's plane cover the triangle,
-        // every point x of the triangle lies straight above (or below) a point z of S, so
-        // d(x, Target) <= |x - z| = |height of z|, where the height over the plane is linear on each target
-        // triangle: its max over the part of the projection inside the triangle is at a corner of that clipped
-        // polygon. S grows from the corners' nearest triangles over shared edges, through target triangles whose
-        // projection overlaps the triangle's box and is positively oriented. Coverage: then the projections of
-        // two triangles of S across an edge lie on opposite sides of it, so the boundary of their union lies
-        // on edges of S whose neighbour is not in S; if none of those meets the triangle, it lies wholly inside
-        // the union or wholly outside, and some part of it over S (a clipped polygon) decides. +Infinity if that
-        // cannot be shown.
+        // Upper bound from the target triangles under the triangle Q = (p0, p1, p2), seen along its normal n.
+        // Why it is an upper bound of max over x in Q of d(x, Target):
+        //  1. Projection: let Q' and t' be the projections of Q and of a target triangle t onto Q's plane, h the
+        //     height along n. If t' is not degenerate, every y in t' has exactly one point z of t above it, and h is
+        //     linear on t, so for y in Q' and t': |h(z)| <= the largest |h| at the corners of the clipped polygon
+        //     t' with Q' (h is 0 on Q). If every x in Q has such a z (Q' covered by the t' of a set S), then
+        //     d(x, Target) <= |x - z| = |h(z)| <= max over S of those corner heights.
+        //  2. Coverage of Q' by S: S takes only triangles whose t' is positively oriented (doubled area above 1e-9
+        //     of its box squared, so slivers and triangles seen edge on are left out) and not steeper than
+        //     MaxPatchSlope. Let w(y) be the number of t' in S that contain y. Crossing an edge of a triangle of S,
+        //     w changes only if that edge is a boundary edge: no neighbour, a neighbour not in S, or a neighbour of
+        //     inconsistent orientation (the edge traversed the same way). Across an edge with the other orientation
+        //     both positive t' lie on opposite sides, so one is left and one entered: w stays. DMesh3 has at most two
+        //     triangles per edge, so this covers every edge; around a vertex all of whose edges are of the second
+        //     kind the closed fan of positive triangles covers a disc (winding at least 1). Triangle soups (no shared
+        //     edges) have only boundary edges and get no bound. So w is constant on any connected set that no
+        //     boundary edge meets. If no boundary edge comes within `margin` of Q' (Q' is convex, so connected) and
+        //     some clipped polygon is not empty (w >= 1 somewhere on Q'), then w >= 1 on all of Q': covered.
+        //     Triangles that are not taken into S (box, orientation, slope) only add boundary edges, which are
+        //     checked, so leaving one out can make the bound infinite, never wrong.
+        //  3. Rounding (an estimate, not a derived error bound; the other bounds of the cascade carry no slack):
+        //     everything is relative to p0; a slack of 16 * MaxPatchSlope ulps of the coordinates for the rounding
+        //     of the projections and of the heights interpolated at the clip points (whose error grows with the
+        //     slope), and margin (1e-9 of Q's size) for the 2D tests.
+        // S grows from the corners' nearest triangles over shared edges, at most MaxPatchTriangles. +Infinity if
+        // the coverage cannot be shown.
         internal double patch_bound(Vector3d p0, Vector3d p1, Vector3d p2, int n0, int n1, int n2)
         {
             Vector3d e1 = p1 - p0, e2 = p2 - p0;
