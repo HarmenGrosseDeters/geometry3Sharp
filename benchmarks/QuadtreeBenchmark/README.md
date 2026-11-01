@@ -62,21 +62,21 @@ Each build runs once per process, so `sequential`, the first, also pays for the 
 
 | Build, ms | .NET 10 | .NET Framework 4.8 |
 |---|---:|---:|
-| `sequential` | 373 | 352 |
-| `parallel` | 90 | 124 |
-| `parallel_far_point` | 149 | 179 |
-| `triangle_adapter` | 114 | 161 |
-| `triangle_over` | 97 | 144 |
-| `strtree` | 1715 | 2280 |
-| `nts_quadtree` | 762 | 813 |
+| `sequential` | 379 | 350 |
+| `parallel` | 92 | 96 |
+| `parallel_far_point` | 135 | 160 |
+| `triangle_adapter` | 100 | 114 |
+| `triangle_over` | 85 | 105 |
+| `strtree` | 1586 | 2283 |
+| `nts_quadtree` | 768 | 794 |
 
 | Query, us per call | Library .NET 10 | `strtree` .NET 10 | Library 4.8 | `strtree` 4.8 |
 |---|---:|---:|---:|---:|
-| Height, zero tolerance | 0.81 | 3.00 | 1.03 | 4.65 |
-| Height beside the boundary, default tolerance | 0.83 | | 1.62 | |
-| Rectangle 20 x 20 | 3.81 | 6.63 | 4.32 | 9.99 |
-| Segment | 7.91 | 31.27 | 12.28 | 39.16 |
-| Nearest | 1.19 | 12.24 | 1.48 | 16.99 |
+| Height, zero tolerance | 0.84 | 3.25 | 0.97 | 4.72 |
+| Height beside the boundary, default tolerance | 0.78 | | 1.22 | |
+| Rectangle 20 x 20 | 3.86 | 6.66 | 4.65 | 9.97 |
+| Segment | 7.91 | 30.95 | 12.42 | 38.72 |
+| Nearest | 1.19 | 12.14 | 1.46 | 16.70 |
 
 A cell splits above 8 items. Measured at 4, 6, 8, 12, 16, 24 and 32: 8 is the best for queries, 4 and 6 gain nothing and cost build time and memory, and 16 is about 25 % slower in rectangle queries and 30 % in heights, for about 5 % less build time.
 

@@ -372,7 +372,7 @@ Independent reviews on 2026-10-31 found these. The ones of the first review were
 | "a triangle within tolerance" (2.1) | `TryGetHeight` and `stopAfterFirst` take the nearest triangle within tolerance, the lowest ID on a tie | The result depended on the traversal, so on how the tree was built |
 | "all equal for a consistent TIN" (2.1) | Equal at shared vertices. On a shared edge, heights agree up to rounding | This cannot hold for rounded interpolation |
 
-A bulk build works on one flat array of boxes and ids. It sorts that array in place into the items a node keeps and those of its four children, and links the cell lists at the end. With the top levels cut side by side as well, a parallel build took 90 ms for 1M items, was 241 ms, on .NET 10 (see the benchmark README). A parallel and a sequential build give the same tree and the same order of items. An insert that splits a cell uses the same code.
+A bulk build works on one flat array of boxes and ids. It sorts that array in place into the items a node keeps and those of its four children, and links the cell lists at the end. With the top levels cut side by side as well, a parallel build took 92 ms for 1M items, was 241 ms, on .NET 10 (see the benchmark README). A parallel and a sequential build give the same tree and the same order of items. An insert that splits a cell uses the same code.
 
 `TriangleQuadtree2d.Over(array)` builds over the caller's array instead of a copy, for callers that hold their triangles anyway. It reads that array from then on, so the caller must not change it. The first insert moves the triangles to a copy.
 
@@ -386,7 +386,7 @@ The core rejects nothing new. Removal by value and by ID no longer scans. A cell
 - The margin of 2e-4 and the default tolerance of 0.01 are absolute (owner decision, Q-3): results at these thresholds change with scale, unlike the rest of the library. Tests compare them against the definition instead of bit for bit.
 - Triangles thinner than a relative determinant of 1e-9 take the exact path. Above that, a rounded height keeps an error that grows towards the threshold.
 - A parallel build cuts the items down until a part that can still be cut holds at most an eighth of them, or 32768, and builds the parts side by side. Data gathered far inside its extent needs more of these cuts, so it takes longer: rows `parallel` and `parallel_far_point` of the benchmark. Fine data with one point at 1e18 took about 5 times as long as uniform data, in a review's run.
-- The flat array costs 40 bytes per item during a build: a parallel build of 1M boxes allocates about 139 MB, was 98 MB. `Over` still needs bounds, entries and this array while it builds, about 170 bytes per triangle with its nodes, and saves 72 bytes per triangle afterwards.
+- The flat array costs 40 bytes per item during a build: a parallel build of 1M boxes allocates about 155 MB, was 98 MB. `Over` still needs bounds, entries and this array while it builds, about 187 bytes per triangle with its nodes, and saves 72 bytes per triangle afterwards.
 
 ### Verification
 
