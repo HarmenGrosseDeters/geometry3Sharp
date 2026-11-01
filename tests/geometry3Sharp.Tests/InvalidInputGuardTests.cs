@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using g3;
 using gs;
 using Xunit;
@@ -431,6 +432,210 @@ namespace geometry3Sharp.Tests
             var fresh = new TerrainDualContouring(HillTerrain()) { GridResolution = 16 };
             Assert.True(fresh.Compute());
             Assert.Equal("", Invariance.Difference(fresh.Result, tdc.Result));
+        }
+
+        // ---- Solidify, winding boolean, terrain contouring: every failure after a success leaves no Result ----
+
+        // cancels (or throws) from the call after Limit on; counts the calls, which may come from several threads
+        sealed class CancelAfter
+        {
+            int calls;
+            public int Limit = int.MaxValue;
+            public bool Throw;
+            public int Calls => calls;
+            public void Arm(int limit, bool doThrow = false) { calls = 0; Limit = limit; Throw = doThrow; }
+            public bool Check()
+            {
+                if (Interlocked.Increment(ref calls) <= Limit) return false;
+                if (Throw) throw new InvalidOperationException("from CancelF");
+                return true;
+            }
+        }
+
+        // A failure at each point of the run where it can stop (at most about 8 of them, and always the last),
+        // each after a success on the same instance. A cancel can come too late to count: then there is a result.
+        static void AssertCancelLeavesNoResult(CancelAfter cancel, Func<bool> compute, Func<DMesh3> result)
+        {
+            cancel.Arm(int.MaxValue);
+            Assert.True(compute());
+            Assert.NotNull(result());
+            int calls = cancel.Calls;
+            Assert.True(calls > 0);
+            int failures = 0;
+            var limits = new SortedSet<int> { calls - 1 };
+            for (int limit = 0; limit < calls; limit += Math.Max(1, calls / 8))
+                limits.Add(limit);
+            foreach (int limit in limits) {
+                cancel.Arm(int.MaxValue);
+                Assert.True(compute());
+                Assert.NotNull(result());
+                cancel.Arm(limit);
+                bool ok = compute();
+                Assert.True(ok == (result() != null), $"cancel after {limit} of {calls} calls: Compute {ok}");
+                if (ok == false) failures++;
+                // an exception is a failure too
+                cancel.Arm(int.MaxValue);
+                Assert.True(compute());
+                cancel.Arm(limit, true);
+                bool finished = false;
+                try {
+                    compute();
+                    finished = true;
+                } catch (Exception e) when (e is InvalidOperationException || e is AggregateException) {
+                }
+                if (finished == false)
+                    Assert.True(result() == null, $"exception after {limit} of {calls} calls");
+            }
+            Assert.True(failures > 0, "no cancel made Compute fail");
+            cancel.Arm(int.MaxValue);
+        }
+
+        // a failure by the parameters: change, compute on the instance with an earlier result, undo
+        static void AssertFailsWithoutResult(Func<bool> compute, Func<DMesh3> result, Action set, Action undo, string what)
+        {
+            Assert.True(compute(), what);
+            Assert.NotNull(result());
+            set();
+            Assert.False(compute(), what);
+            Assert.True(result() == null, what);
+            undo();
+        }
+
+        public static IEnumerable<object[]> SolidifyConfigs()
+        {
+            yield return new object[] { MeshWindingNumberSolidify.Methods.DualContouring, true };
+            yield return new object[] { MeshWindingNumberSolidify.Methods.DualContouring, false };
+            yield return new object[] { MeshWindingNumberSolidify.Methods.MarchingCubes, false };
+        }
+
+        [Theory]
+        [MemberData(nameof(SolidifyConfigs))]
+        public void Solidify_EveryFailure_LeavesNoResult_ThenEqualsFreshInstance(MeshWindingNumberSolidify.Methods method, bool adaptive)
+        {
+            DMesh3 input = Sphere();
+            var cancel = new CancelAfter();
+            var sol = new MeshWindingNumberSolidify(input) { GridResolution = 32, Method = method, Adaptive = adaptive, CancelF = cancel.Check };
+            AssertFailsWithoutResult(sol.Compute, () => sol.Result, () => sol.Mesh = new DMesh3(), () => sol.Mesh = input, "empty input");
+            AssertFailsWithoutResult(sol.Compute, () => sol.Result, () => sol.CellSize = 1e-30, () => sol.CellSize = 0, "cell size too small");
+            AssertFailsWithoutResult(sol.Compute, () => sol.Result, () => sol.CellSize = double.NaN, () => sol.CellSize = 0, "NaN cell size");
+            AssertCancelLeavesNoResult(cancel, sol.Compute, () => sol.Result);
+            Assert.True(sol.Compute());
+            if (method == MeshWindingNumberSolidify.Methods.MarchingCubes) {
+                // (two fresh instances differ too, see S31 in docs/ROBUSTNESS_SWEEP.md: nothing to compare with)
+                Assert.True(sol.Result.TriangleCount > 0);
+                Assert.True(Invariance.AllFinite(sol.Result));
+                return;
+            }
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(sol.Result));
+            var fresh = new MeshWindingNumberSolidify(input) { GridResolution = 32, Method = method, Adaptive = adaptive };
+            Assert.True(fresh.Compute());
+            Assert.Equal("", Invariance.Difference(fresh.Result, sol.Result));
+        }
+
+        [Fact]
+        public void Solidify_FinishPostProcess_AfterAFailure_DoesNothing()
+        {
+            // it reads Result: a stopped run followed by a failed one leaves nothing to finish
+            var sol = new MeshWindingNumberSolidify(Sphere()) { GridResolution = 32 };
+            Assert.True(sol.Compute());
+            sol.Mesh = new DMesh3();
+            Assert.False(sol.Compute());
+            Assert.False(sol.StoppedOnSelfIntersections);
+            sol.FinishPostProcess();
+            Assert.Null(sol.Result);
+        }
+
+        [Fact]
+        public void WindingBoolean_EveryFailure_LeavesNoResult_ThenEqualsFreshInstance()
+        {
+            DMesh3 a = SphereAt(0), b = SphereAt(1);
+            var cancel = new CancelAfter();
+            var op = new MeshWindingNumberBoolean(a, b, MeshWindingNumberBoolean.Operations.Union) { GridResolution = 32, CancelF = cancel.Check };
+            AssertFailsWithoutResult(op.Compute, () => op.Result, () => { op.MeshA = new DMesh3(); op.MeshB = new DMesh3(); }, () => { op.MeshA = a; op.MeshB = b; }, "both inputs empty");
+            AssertFailsWithoutResult(op.Compute, () => op.Result, () => op.CellSize = 1e-30, () => op.CellSize = 0, "cell size too small");
+            AssertFailsWithoutResult(op.Compute, () => op.Result, () => op.CellSize = double.PositiveInfinity, () => op.CellSize = 0, "infinite cell size");
+            AssertCancelLeavesNoResult(cancel, op.Compute, () => op.Result);
+            Assert.True(op.Compute());
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(op.Result));
+            var fresh = new MeshWindingNumberBoolean(a, b, MeshWindingNumberBoolean.Operations.Union) { GridResolution = 32 };
+            Assert.True(fresh.Compute());
+            Assert.Equal("", Invariance.Difference(fresh.Result, op.Result));
+        }
+
+        [Fact]
+        public void WindingBoolean_EmptyResult_IsASuccess_NotAFailure()
+        {
+            // one empty input in an intersection: Result is an empty mesh, not null
+            var op = new MeshWindingNumberBoolean(SphereAt(0), new DMesh3(), MeshWindingNumberBoolean.Operations.Intersection) { GridResolution = 32 };
+            Assert.True(op.Compute());
+            Assert.NotNull(op.Result);
+            Assert.Equal(0, op.Result.TriangleCount);
+        }
+
+        [Fact]
+        public void TerrainDualContouring_EveryFailure_LeavesNoResult_ThenEqualsFreshInstance()
+        {
+            DMesh3 input = HillTerrain();
+            var cancel = new CancelAfter();
+            var tdc = new TerrainDualContouring(input) { GridResolution = 16, CancelF = cancel.Check };
+            AssertFailsWithoutResult(tdc.Compute, () => tdc.Result, () => tdc.Mesh = new DMesh3(), () => tdc.Mesh = input, "empty input");
+            AssertFailsWithoutResult(tdc.Compute, () => tdc.Result, () => tdc.SamplesPerCell = 0, () => tdc.SamplesPerCell = 4, "no samples");
+            AssertFailsWithoutResult(tdc.Compute, () => tdc.Result, () => tdc.CellSize = 1e-6, () => tdc.CellSize = 0, "too many cells");
+            // these fail only after the mesh was built, and it is empty
+            AssertFailsWithoutResult(tdc.Compute, () => tdc.Result, () => tdc.CellSize = 100, () => tdc.CellSize = 0, "cells larger than the footprint");
+            AssertFailsWithoutResult(tdc.Compute, () => tdc.Result, () => tdc.CellSize = double.NaN, () => tdc.CellSize = 0, "NaN cell size");
+            AssertCancelLeavesNoResult(cancel, tdc.Compute, () => tdc.Result);
+            Assert.True(tdc.Compute());
+            Assert.True(tdc.Result.TriangleCount > 0);
+            Assert.True(Invariance.AllFinite(tdc.Result));
+            var fresh = new TerrainDualContouring(input) { GridResolution = 16 };
+            Assert.True(fresh.Compute());
+            Assert.Equal("", Invariance.Difference(fresh.Result, tdc.Result));
+        }
+
+        [Fact]
+        public void TerrainDualContouring_TooFewPoints_LeavesNoResult()
+        {
+            var points = new List<Vector3d>();
+            for (int j = 0; j < 20; ++j)
+                for (int i = 0; i < 20; ++i)
+                    points.Add(new Vector3d(i, j, 0.1 * i));
+            var tdc = new TerrainDualContouring(points) { GridResolution = 8 };
+            Assert.True(tdc.Compute());
+            Assert.NotNull(tdc.Result);
+            tdc.Points = new List<Vector3d> { Vector3d.Zero, Vector3d.AxisX };
+            Assert.False(tdc.Compute());
+            Assert.Null(tdc.Result);
+        }
+
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void Failure_LeavesNoResult_InEveryFrame(string name)
+        {
+            Similarity s = Similarity.ByName(name);
+            bool stop = false;
+            Func<bool> cancelF = () => stop;
+
+            var sol = new MeshWindingNumberSolidify(Invariance.Transformed(Sphere(), s)) { GridResolution = 32, CancelF = cancelF };
+            var op = new MeshWindingNumberBoolean(Invariance.Transformed(SphereAt(0), s), Invariance.Transformed(SphereAt(1), s),
+                MeshWindingNumberBoolean.Operations.Union) { GridResolution = 32, CancelF = cancelF };
+            var tdc = new TerrainDualContouring(Invariance.Transformed(HillTerrain(), s)) { GridResolution = 16, CancelF = cancelF };
+
+            stop = false;
+            Assert.True(sol.Compute(), name);
+            Assert.True(op.Compute(), name);
+            Assert.True(tdc.Compute(), name);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(sol.Result));
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(op.Result));
+            Assert.True(tdc.Result.TriangleCount > 0);
+
+            stop = true;
+            Assert.False(sol.Compute(), name);
+            Assert.False(op.Compute(), name);
+            Assert.False(tdc.Compute(), name);
+            Assert.Null(sol.Result);
+            Assert.Null(op.Result);
+            Assert.Null(tdc.Result);
         }
 
         [Fact]

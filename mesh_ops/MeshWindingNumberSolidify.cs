@@ -149,18 +149,17 @@ namespace gs
         /// Compute the solid surface into Result.
         /// </summary>
         /// <returns>
-        /// false if the input is empty, CellSize is NaN or infinite (Result is then null), the cell size is not
-        /// positive, the grid (or octree depth) would be too large for the cell size, or the computation was
-        /// cancelled; true otherwise.
+        /// false if the input is empty, CellSize is NaN or infinite, the cell size is not positive, the grid (or
+        /// octree depth) would be too large for the cell size, or the computation was cancelled, with Result null
+        /// (also after an earlier success); true otherwise.
         /// </returns>
         public bool Compute()
         {
             StoppedOnSelfIntersections = false;
+            Result = null;      // set only on success, below
             // (checked here: a NaN would pass as "automatic" below, +infinity as a valid size)
-            if (MathUtil.IsFinite(CellSize) == false) {
-                Result = null;
+            if (MathUtil.IsFinite(CellSize) == false)
                 return false;
-            }
             // bounds of the triangles: CachedBounds includes unused vertices, which can lie far away
             AxisAlignedBox3d bounds = MeshRepairMetrics.TriangleBounds(Mesh);
             double cellSize = (CellSize > 0) ? CellSize : bounds.DiagonalLength / GridResolution;
@@ -271,6 +270,8 @@ namespace gs
                     wc.Hermite(cellSize, a, b, p, out point, out normal);
                 dc.Generate();
                 result = dc.Mesh;
+                if (result == null)
+                    return null;    // cancelled
                 NonManifoldTriangles = dc.NonManifoldTriangles;
                 if (NonManifoldTriangles > 0)
                     WindingContouring.FillSmallHoles(result);

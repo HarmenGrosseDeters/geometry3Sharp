@@ -108,13 +108,30 @@ namespace gs
         }
 
 
+        /// <summary>
+        /// Compute the surface into Result. false, with Result null (also after an earlier success), if the input
+        /// is empty, CellSize is NaN or infinite, the cell size or SamplesPerCell is invalid, the grid would have more
+        /// than MaxCells cells, no triangle came out, or the computation was cancelled.
+        /// </summary>
         public bool Compute()
         {
-            // (checked here: a NaN would pass as "automatic" below, +infinity as a valid size)
-            if (MathUtil.IsFinite(CellSize) == false) {
-                Result = null;
-                return false;
+            // (in finally: build_mesh sets Result before the last cancel checks and before an empty result is
+            // known, and an exception from SampleF or CancelF is a failure too)
+            bool success = false;
+            try {
+                success = compute_result();
+                return success;
+            } finally {
+                if (success == false)
+                    Result = null;
             }
+        }
+
+        bool compute_result()
+        {
+            // (checked here: a NaN would pass as "automatic" below, +infinity as a valid size)
+            if (MathUtil.IsFinite(CellSize) == false)
+                return false;
             AxisAlignedBox3d bounds;
             if (SampleF != null) {
                 bounds = SampleBounds;

@@ -96,17 +96,16 @@ namespace gs
         /// Compute the boolean into Result.
         /// </summary>
         /// <returns>
-        /// false if both inputs are empty, CellSize is NaN or infinite (Result is then null), the cell size is
-        /// not positive or too small for the octree, or the computation was cancelled; true otherwise (Result
-        /// may be an empty mesh, eg an intersection with an empty input).
+        /// false if both inputs are empty, CellSize is NaN or infinite, the cell size is not positive or too small
+        /// for the octree, or the computation was cancelled, with Result null (also after an earlier success);
+        /// true otherwise (Result may be an empty mesh, eg an intersection with an empty input).
         /// </returns>
         public bool Compute()
         {
+            Result = null;      // set only on success, below
             // (checked here: a NaN would pass as "automatic" below, +infinity as a valid size)
-            if (MathUtil.IsFinite(CellSize) == false) {
-                Result = null;
+            if (MathUtil.IsFinite(CellSize) == false)
                 return false;
-            }
             if (MeshA.TriangleCount == 0 && MeshB.TriangleCount == 0)
                 return false;
             // empty inputs do not count (their bounds would drag in the origin)
