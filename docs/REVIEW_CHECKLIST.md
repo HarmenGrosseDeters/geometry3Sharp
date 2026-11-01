@@ -81,6 +81,8 @@ and for each yes, check that a test covers it. A test must fail on the old code 
   depend on the thread schedule or on hash-set iteration order. Ties (equal distances, equal costs) are broken
   by id, not by which thread came first; a value cached in lower precision is returned as cached, also the
   first time.
+- A new entry in `core/ExactCodeAllowList.cs` (a parallel loop in exact code): the loop aggregates no floating-point
+  value across threads, and every write goes to its own index or a thread-local.
 - Tests: repeated runs give bit-identical output (`Invariance.Difference`); parallel equals serial where there
   is a switch.
 - Order-dependent outputs (element ids, neighbour arrays, "smallest id" answers) need their own 2^k test, at
@@ -110,3 +112,13 @@ and for each yes, check that a test covers it. A test must fail on the old code 
   `CompatibilitySuppressions.xml` with a reason).
 - A changed result of an existing method goes into [UPSTREAM_CHANGES.md](UPSTREAM_CHANGES.md).
 - Limits of a new operation are documented at the class and in [OPERATIONS.md](OPERATIONS.md).
+
+## 12. Test oracles and generators (#229)
+
+- Does each generator produce only inputs of the class it claims (eg "clean slivers"), and is that asserted,
+  not let through by a relaxed check (`allowDegenerate`, a skipped probe)?
+- A self-test of a test harness (shrinking, replay): does it read the value it means to check (the shrunk seed,
+  not the first seed in the message), and can its assertions fail?
+- Do documented replay or filter commands actually select a test? Run them once.
+- Is an "exact" comparison exact for every generated input (a sum of products in double is not, once coordinates
+  have many bits)?

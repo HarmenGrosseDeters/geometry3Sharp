@@ -14,6 +14,7 @@ The goal is a clean-room 2D mesher in this library: Delaunay of points (M1), con
 | [MESHING2D_DECISIONS.md](MESHING2D_DECISIONS.md) | The domain decisions of parked PR #201, questioned, with the defaults to build. **D1, D5, D9 need the owner** |
 | [MESHING2D_CATALOGUE.md](MESHING2D_CATALOGUE.md) | The F cases, one state per row |
 | [MESHING2D_GOLDEN_FORMAT.md](MESHING2D_GOLDEN_FORMAT.md) | Rows, fingerprints, text formats, standalone oracle: self-contained, for other producers too |
+| [MESHING2D_PROVENANCE.md](MESHING2D_PROVENANCE.md) | The source (paper and section, or spec item) of every non-trivial routine; owner decision of 2026-11-01 |
 | [benchmarks/Meshing2Benchmark/README.md](../../benchmarks/Meshing2Benchmark/README.md) | The gates as commands, and the pilot's result |
 
 **Clean room, always:** never open, clone, search or read Triangle, Triangle.NET or a fork of them (including `HarmenGrosseDeters/Triangle.Net-Old-Custom`, and `D:\work\Triangle.NET` on the owner's machine), never GPL
