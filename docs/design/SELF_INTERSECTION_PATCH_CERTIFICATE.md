@@ -1,8 +1,9 @@
-# Patch certificate for the self-intersection checks (design, for approval)
+# Patch certificate for the self-intersection checks (finding: stopped after the prototype)
 
-Status: design only, no code. For the owner's approval before a prototype (AGENT_WORKFLOW §2). Scope: the
-per-collapse check of `Reducer.PreventSelfIntersections` first; the Remesher's per-operation check afterwards (see
-"Remesher").
+Status: **stopped** (owner decision, 1 November 2026). The design below was approved and prototyped for the Reducer;
+the prototype is correct but slower, see §9 "Prototype result". It is kept on the branch
+`claude/patch-certificate-prototype` (commit c65fb01, not for merge, with debug counters). Scope of the design: the
+per-collapse check of `Reducer.PreventSelfIntersections`; the Remesher's per-operation check afterwards (§7).
 
 ## 1. Problem and upper bound
 
@@ -172,9 +173,43 @@ will wind them (from t0, t1). The Remesher's pairs share a vertex more often (90
 135363), and the operations are smaller (about 36 candidates per query), so the gain there is smaller and needs its own
 bound; it is a later step, after the Reducer.
 
-## 8. Open questions for the owner
+## 8. Open points (when picked up again)
 
-- Approve the prototype for the Reducer (§4 to §6)?
-- The star test may fail on patches that are simple but not star-shaped about z (long thin patches around a sliver).
-  Then the pair tests run; a general simple-polygon test (O(m log m)) is possible later if the measured share of such
-  patches is large.
+- The star test fails on patches that are simple but not star-shaped about z (long thin patches around a sliver);
+  the prototype shows that this is the common case (§9). A general exact simple-polygon test (a sweep, O(m log m))
+  would be needed.
+
+## 9. Prototype result (branch `claude/patch-certificate-prototype`)
+
+What was built: `mesh/SelfIntersectionPatch.cs` (conditions (1) to (3) of §3) and, in
+`Reducer.collapse_creates_intersection`, the candidates collected first, the patch grown greedily from the new
+triangles (a candidate joins only if every new boundary edge stays strictly counter-clockwise about z, so that the
+star test can succeed), and the pair tests skipped for the candidates inside a certified patch.
+
+One extension beyond §3: the heavy collapses lie at the plate boundary, where vKeep is a boundary vertex of the
+patch. There condition (3) is: the boundary chain from vKeep's successor to its predecessor turns strictly
+counter-clockwise about z and never crosses the ray from z through the successor again (less than a full turn, so the
+contour is simple). Exact `Orient2d` only.
+
+Measured with `SelfIntersectionBenchmark reducer runs=1` against master c44f861 (one run each):
+
+| | master | prototype |
+|---|---:|---:|
+| fingerprints, all 11 Reducer cases | | identical |
+| `HarnessPlate(50, 0.5)`: certified collapses (of those with at least 64 candidate pairs) | | 2268 of 2268 |
+| `HarnessPlate(50, 0.5)`: candidate triangles in the patch | | 574k of 1.61 M (36 %) |
+| `HarnessPlate(50, 0.5)`: pair tests skipped | | 9.29 M of 29.1 M (32 %) |
+| jitter plate tilted: pair tests skipped | | 1.05 M of 7.75 M (13 %) |
+| `HarnessPlate(50, 0.5)` time | about 7.8 s | 10.7 s |
+| jitter plate tilted time | about 5.4 s | 5.2 s |
+
+Why it does not pay:
+1. The star-shaped contour about z limits the greedy growth: most candidates would add a boundary edge that is not
+   counter-clockwise about z (193k refusals on `HarnessPlate(50, 0.5)`), so only about a third of them join.
+2. Building the patch per collapse (hash maps of directed edges, sets, closures) costs more than the skipped pair
+   tests save.
+
+What it would take: an exact general simple-polygon test of the contour (a sweep, O(m log m)), so that the patch can
+take nearly all candidates (the upper bound in §1 says 98 to 100 % on the flat cases), and an allocation-free patch
+build. The grid query and the candidate collection (about 38 % of the time) stay in any case, so the realistic gain is
+about 1.3 to 1.8 times on the flat Reducer cases, uncertain. Not pursued for now.
