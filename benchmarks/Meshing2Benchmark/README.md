@@ -157,8 +157,9 @@ results); the test suite checks the slow rows only for their status unless `G3_M
 
 `--pending` also runs the pending rows. On master of 2026-11-01 the `m2.snap` rows show that the mesher has no explicit tolerance yet:
 the candidate does not pass `SnapTolerance` on (the library has only the automatic one). F-16 (100 009 vertices, at most 2 000), F-17 (8, at most
-5) and F-22/b (20 007, at most 1 000) fail; the other snap rows pass, F-15 and F-18 only because the oracle allows a merge within the tolerance
-without demanding it (`Meshing2SnapGateTests`, `docs/design/MESHING2D_SNAP.md` section 3c).
+5) and F-22/b (20 007, at most 1 000) fail; the other snap rows pass, F-15 and F-18/a only because the oracle allows a merge within the tolerance
+without demanding it; both lie in the gap band of D14 (pixel width tol), where merged and unmerged pass (`Meshing2SnapGateTests`,
+`docs/design/MESHING2D_SNAP.md` section 3c). F-17/b (a hole marker inside a collapsing hole) fails as well.
 
 ## Corpus: public test fixtures (2026-11-01)
 

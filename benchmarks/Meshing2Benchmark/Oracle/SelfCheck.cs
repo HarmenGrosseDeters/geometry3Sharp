@@ -387,6 +387,7 @@ namespace Meshing2Acceptance
             ReviewFindings(Must, Accept, Reject);
             SecondReviewFindings(Must, Accept, Reject);
             M3ReviewFindings(Must, Accept, Reject);
+            SnapGateFindings(Accept, Reject);
             return items;
         }
 
@@ -405,6 +406,62 @@ namespace Meshing2Acceptance
 
         // Known-wrong results for the oracle relaxations made with M3, which the review of M3 found without a negative test
         // (checklist 10a). They stay as regressions.
+        /// <summary>
+        /// The m2.snap gates (D14, owner 2026-11-01; docs/design/MESHING2D_SNAP.md section 3c): with an explicit tolerance an input point
+        /// may move by at most tol/2 per axis, and merged input slots (aliases) do not count against a vertex bound.
+        /// </summary>
+        static void SnapGateFindings(Action<string, Mesh2Input, Mesh2Output, OracleExpect> accept, Action<string, Violation, Mesh2Input, Mesh2Output, OracleExpect> reject)
+        {
+            Mesh2Output Out(Mesh2Input input, double[] vx, double[] vy, int[] map, int[][] tris) => new Mesh2Output {
+                Status = Mesh2Status.Success, VX = vx, VY = vy, InputToVertex = map, Triangles = tris, Neighbours = NeighboursOf(tris), BadTriangles = new int[0],
+                Subsegments = new List<SubsegmentOutput> { new SubsegmentOutput(0, 1), new SubsegmentOutput(1, 2), new SubsegmentOutput(2, 3), new SubsegmentOutput(3, 0) } };
+            // 1. an input point moved onto the grid: 0.4 tol per axis is fine with an explicit tolerance, 0.6 tol is too far, and without
+            //    an explicit tolerance any move is refused
+            foreach (var (shift, snap, ok) in new[] { (0.4, true, true), (0.6, true, false), (0.4, false, false) }) {
+                double tol = 1.0 / 16;
+                var input = Points(0, 0, 10, 0, 10, 10, 0, 10, 5 + shift * tol, 5 - shift * tol);
+                input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false));
+                if (snap) input.SnapTolerance = tol;
+                var tris = new[] { new[] { 0, 1, 4 }, new[] { 1, 2, 4 }, new[] { 2, 3, 4 }, new[] { 3, 0, 4 } };
+                var o = Out(input, new double[] { 0, 10, 10, 0, 5 }, new double[] { 0, 0, 10, 10, 5 }, new[] { 0, 1, 2, 3, 4 }, tris);
+                string name = "an input point moved by " + shift + " tol per axis" + (snap ? "" : " without an explicit tolerance");
+                if (ok) accept(name + " (D14)", input, o, new OracleExpect { Milestone = Milestone.M2 });
+                else reject(name, snap ? Violation.SnapTooFar : Violation.InputMoved, input, o, new OracleExpect { Milestone = Milestone.M2, Tube = new Q(1, 4) });
+            }
+            // 2. a hole below the tolerance merged into one point: its three aliases do not count against the bound of 5 vertices, a bound
+            //    of 4 still rejects it
+            foreach (int bound in new[] { 5, 4 }) {
+                double h = Math.Pow(2, -20);
+                var input = Points(0, 0, 10, 0, 10, 10, 0, 10, 5, 5, 5 + h, 5, 5 + h, 5 + h, 5, 5 + h);
+                input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false)); input.Rings.Add(new RingInput(new[] { 4, 5, 6, 7 }, true));
+                input.SnapTolerance = Math.Pow(2, -10);
+                var tris = new[] { new[] { 0, 1, 4 }, new[] { 1, 2, 4 }, new[] { 2, 3, 4 }, new[] { 3, 0, 4 } };
+                var o = Out(input, (double[])input.X.Clone(), (double[])input.Y.Clone(), new[] { 0, 1, 2, 3, 4, 4, 4, 4 }, tris);
+                var e = new OracleExpect { Milestone = Milestone.M2, StatedArea = new Q(100, 1), StatedAreaTolerance = new Q(1, 16), MaxVertices = bound };
+                if (bound == 5) accept("a collapsed hole: merged slots are no vertices for the bound", input, o, e);
+                else reject("a collapsed hole: the bound still counts the survivors", Violation.CountOutOfRange, input, o, e);
+            }
+            // 3. a hole marker inside a contour that collapsed is dropped, not obeyed (clean-room answer 6); a marker in a contour that
+            //    stays, next to the collapsed one, still removes its cell
+            foreach (bool collapsedOnly in new[] { true, false }) {
+                double h = 1.0 / 128, tol = 1.0 / 16;
+                var input = Points(0, 0, 10, 0, 10, 10, 0, 10, 5, 5, 5 + h, 5, 5 + h, 5 + h, 5, 5 + h, 2, 2, 4, 2.25, 4, 4, 1.75, 4);
+                input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false));
+                for (int k = 0; k < 4; ++k) { input.Segments.Add(new SegmentInput(4 + k, 4 + (k + 1) % 4)); input.Segments.Add(new SegmentInput(8 + k, 8 + (k + 1) % 4)); }
+                input.HoleSeeds.Add(collapsedOnly ? new[] { 5 + h / 2, 5 + h / 2 } : new[] { 3.0, 3.0 });
+                input.SnapTolerance = tol;
+                // the quad near (3, 3) stays as a contour; its corners are cocircular, so its inside is added with either diagonal
+                var tris = StrictDelaunay(input, new[] { 0, 1, 2, 3, 4, 8, 9, 10, 11 }).Concat(new[] { new[] { 8, 9, 10 }, new[] { 8, 10, 11 } }).ToArray();
+                var vx = (double[])input.X.Clone(); var vy = (double[])input.Y.Clone();
+                var o = new Mesh2Output { Status = Mesh2Status.Success, VX = vx, VY = vy, InputToVertex = new[] { 0, 1, 2, 3, 4, 4, 4, 4, 8, 9, 10, 11 },
+                    Triangles = tris, Neighbours = NeighboursOf(tris), BadTriangles = new int[0],
+                    Subsegments = new[] { (0, 1), (1, 2), (2, 3), (3, 0), (8, 9), (9, 10), (10, 11), (11, 8) }.Select(p => new SubsegmentOutput(p.Item1, p.Item2)).ToList() };
+                var e = new OracleExpect { Milestone = Milestone.M2, StatedArea = new Q(100, 1), StatedAreaTolerance = new Q(1, 16) };
+                if (collapsedOnly) accept("a hole marker inside a collapsed contour is dropped (D14, clean-room answer 6)", input, o, e);
+                else reject("a hole marker inside a contour that stays still removes its cell", Violation.RemovedPointCovered, input, o, e);
+            }
+        }
+
         static void M3ReviewFindings(Action<string, bool, string> must, Action<string, Mesh2Input, Mesh2Output, OracleExpect> accept, Action<string, Violation, Mesh2Input, Mesh2Output, OracleExpect> reject)
         {
             Mesh2Output Out(Mesh2Input input, int[][] tris, params (int, int, int)[] subs) => new Mesh2Output {

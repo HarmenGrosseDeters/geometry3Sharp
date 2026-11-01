@@ -181,6 +181,30 @@ words. No code, no data structures, no file or class names.
 10. **Interaction with the mesher:** does snapping run before the triangulation, or inside it? Does quality refinement afterwards
     ever undo a merge or meet a slim triangle created by snapping?
 
+## 3e. What the clean-room answers change (`MESHING2D_SNAP_QA.md`, 2026-11-01)
+
+The answers are behavioural input, like a user report; no code or structure is taken from them. Each use is marked here and in the
+catalogue note of the row it shaped.
+
+- **Design, unchanged:** D14 keeps SR's half-open contact rule and adds SRR's restore. The fork uses a closed, symmetric rule and no
+  restore (answers 1, 2). The grid is anchored at the origin, as in the fork and O11 (answer 1).
+- **Separation must be tested:** the fork claims g/2 between a vertex and a non-incident edge but never tested it (answer 4). Ours
+  becomes an oracle check with accept and reject self-checks.
+- **Order inside SR (answer 7a):** routing through the hot pixels that already exist comes before computing new crossings. The
+  other order made a CDT stress input grow from 244 to 12 634 vertices in four rounds. SRR's structure (one SR pass, then restore)
+  does not iterate SR, but the restore step must reuse existing hot pixels before it creates new ones.
+- **Gates now (#274):** F-17/b, a hole marker inside a contour that collapses below the tolerance. It must not empty the domain;
+  the fork lost the whole domain this way (answer 6). The oracle learned D14 for it: input points move by at most tol/2 per axis,
+  merged slots do not count against vertex bounds, and a marker in a collapsed pixel is dropped (accept and reject self-checks).
+  Without these rules the oracle would have rejected a correct `m2.snap` result (found by the review of #274).
+- **Gates with the prototype, since they need M3 with snapping:**
+  - snap cycles at a large tolerance (answer 7b; F-15 is one, a band case);
+  - refinement cascading to the grid at small input angles (answer 7d; the fork's floor is two cells). This is the open design
+    question "Steiner points on the grid", to bring to the coordinator with a recommendation;
+  - subsegments with no valid split on the grid (answer 7d): their encroaching triangles must stay judged, not dropped;
+  - collapsed pieces reported in strict mode, never removed silently (answer 6);
+  - the vertex count of F-20 proportional to the input once snapping runs (answer 7a).
+
 ## 4. Plan once the owner has answered
 
 - Read ISRBD, stable SR, SRR and the cautionary tale in full, then fix the variant and record it in `MESHING2D_PROVENANCE.md` and `docs/SOURCES.md`.
