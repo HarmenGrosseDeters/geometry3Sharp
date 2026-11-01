@@ -1225,12 +1225,14 @@ namespace geometry3Sharp.Tests
 
         public static IEnumerable<object[]> BadTerrainVertices()
         {
-            const int middle = 220, corner = 0;     // of the 21 x 21 vertices of HillTerrain
+            // of the 21 x 21 vertices of HillTerrain (the last one is never the first corner of a triangle)
+            const int middle = 220, corner = 0, last = 440;
             foreach (TerrainSafetyLines.Modes mode in new[] { Horizontal, AlongSurface, Guaranteed }) {
                 yield return new object[] { mode, middle, double.NaN };
                 yield return new object[] { mode, corner, double.NaN };
                 yield return new object[] { mode, middle, double.PositiveInfinity };
                 yield return new object[] { mode, corner, double.NegativeInfinity };
+                yield return new object[] { mode, last, double.NaN };
             }
         }
 
@@ -1256,16 +1258,22 @@ namespace geometry3Sharp.Tests
         [InlineData(Horizontal)]
         [InlineData(AlongSurface)]
         [InlineData(Guaranteed)]
-        public void Safety_NonFiniteVertexWithoutTriangle_Fails_ThenRecovers(TerrainSafetyLines.Modes mode)
+        public void Safety_NonFiniteVertexWithoutTriangle_ChangesNothing(TerrainSafetyLines.Modes mode)
         {
-            // every live vertex counts; removing it makes the terrain good again
-            DMesh3 terrain = HillTerrain();
-            int v = terrain.AppendVertex(new Vector3d(double.NaN, 0, 0));
-            var sl = new TerrainSafetyLines(terrain, new[] { Crest() }, 2) { Mode = mode };
-            AssertFailedWithNoResult(sl);
-            Assert.Equal(MeshResult.Ok, terrain.RemoveVertex(v));
-            Assert.True(Compute(sl));
-            Assert.NotEmpty(sl.Lines);
+            // not part of the surface, as in TerrainOffset: the same as without that vertex
+            var plain = new TerrainSafetyLines(HillTerrain(), new[] { Crest() }, 2) { Mode = mode };
+            Assert.True(Compute(plain));
+            Assert.NotEmpty(plain.Lines);
+            foreach (double bad in new[] { double.NaN, double.PositiveInfinity, double.NegativeInfinity }) {
+                DMesh3 terrain = HillTerrain();
+                terrain.AppendVertex(new Vector3d(bad, 0, 0));
+                var sl = new TerrainSafetyLines(terrain, new[] { Crest() }, 2) { Mode = mode };
+                Assert.True(Compute(sl));
+                AssertLinesBits(plain.Lines, sl.Lines);
+                Assert.Equal(plain.Certified, sl.Certified);
+                Assert.Equal(plain.MinLineDistance, sl.MinLineDistance);
+                Assert.Equal(plain.MaxExcess, sl.MaxExcess);
+            }
         }
 
         // ---- the expected size of the refinement does not count sources that lie together twice ----

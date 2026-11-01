@@ -403,7 +403,7 @@ namespace gs
 
         /// <summary>
         /// false (with no lines, no certificate, no outputs of an earlier Compute) if SafetyDistance is not
-        /// positive and finite, the terrain is empty or has a vertex that is not finite, a source point is not finite or a source segment is too
+        /// positive and finite, the terrain is empty or a vertex of a triangle is not finite, a source point is not finite or a source segment is too
         /// long for its length to be finite, or the parameters of the mode are invalid: Tolerance must be positive
         /// (Horizontal; may be +infinity) or positive and finite (Guaranteed), ExcessTolerance (Guaranteed) must
         /// be positive (may be +infinity), EdgeLength and SafetyMargin (AlongSurface) must be finite. Also false if
@@ -483,9 +483,13 @@ namespace gs
         // (the splits near a vertex that is not finite would never end: an edge to it never gets short)
         bool terrain_finite()
         {
-            foreach (int vid in Terrain.VertexIndices()) {
-                Vector3d p = Terrain.GetVertex(vid);
-                if (MathUtil.IsFinite(p.x) == false || MathUtil.IsFinite(p.y) == false || MathUtil.IsFinite(p.z) == false) return false;
+            // (vertices without triangles do not count: they are not part of the surface)
+            foreach (int tid in Terrain.TriangleIndices()) {
+                Index3i t = Terrain.GetTriangle(tid);
+                for (int j = 0; j < 3; ++j) {
+                    Vector3d p = Terrain.GetVertex(t[j]);
+                    if (MathUtil.IsFinite(p.x) == false || MathUtil.IsFinite(p.y) == false || MathUtil.IsFinite(p.z) == false) return false;
+                }
             }
             return true;
         }
