@@ -430,7 +430,19 @@ Most rules in CLAUDE.md are enforced by review only. These items make them machi
 not depend on the implementer's own tests. Order of priority:
 
 1. **New tests fail on the old code**: a CI job runs the tests a PR adds against the base branch; for a bug fix they
-   must fail there. Catches vacuous tests (one was found in review in #186).
+   must fail there. Catches vacuous tests (one was found in review in #186). Done: workflow `New tests on base`
+   (`.github/workflows/new-tests-on-base.yml`, `tools/new_tests_on_base.py`, locally
+   `python3 tools/new_tests_on_base.py --base origin/master`). New tests are the methods of
+   `tests/geometry3Sharp.Tests` that the merge base does not have (from `dotnet test --list-tests`). They run in a
+   worktree of the head whose library files (all paths outside `tests/`, `benchmarks/`, `docs/`, `tools/`,
+   `.github/` and the root `*.md`) are reset to the merge base; a changed test file that does not compile against
+   the old library (new API) is reset as well and its tests are reported as "does not compile" (if the errors are in
+   an unchanged file, the deleted test files are restored first, then all changed ones). The report (job log and
+   step summary) lists per test: fails, passes, skipped, crash or hang (one by one after an aborted run), no
+   result, does not compile. Informational (exit 0, also when the comparison cannot be made: the reason is in the
+   report), except with the PR label `bugfix`: then at least one new test must fail, crash or hang on the base.
+   Not covered: `tests/g3cli.Tests`, changed (not added) test methods, tests with a `DisplayName` (reported, not
+   run).
 2. **API compatibility with upstream 1.0.324**: .NET package validation (`EnablePackageValidation` with baseline
    1.0.324) in the pack step.
 3. **Banned APIs and analyzers in exact code**: a banned-API analyzer forbids `Math.FusedMultiplyAdd`, `float` and
