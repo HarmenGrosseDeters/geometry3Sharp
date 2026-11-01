@@ -212,5 +212,94 @@ namespace geometry3Sharp.Tests
             double h = K.ApproxHeight(K.AddHorizontalPlane(7), 1, 2);
             Assert.Equal(7, h, 12);
         }
+
+        // ---- survivors of the kernel mutation run (follow-up of #267) ----
+
+        // Approx is within 1e-12 (relative) of the exact point, also for nearly parallel lines, where the intervals are
+        // wide and it must fall back to the exact rounding; checked before the vertex is rounded (Rounded caches)
+        [Fact]
+        public void Approx_IsAccurate_AlsoForNearlyParallelLines()
+        {
+            var rnd = new Random(31);
+            for (int i = 0; i < 2000; ++i) {
+                double t = (i % 2 == 0) ? 1e-14 * rnd.NextDouble() : rnd.NextDouble();      // the angle between the lines
+                Vector2d c = new Vector2d(1000 * rnd.NextDouble(), 1000 * rnd.NextDouble());
+                Vector2d u = new Vector2d(Math.Cos(rnd.NextDouble() * 6), Math.Sin(rnd.NextDouble() * 6));
+                Vector2d w = new Vector2d(u.x * Math.Cos(t) - u.y * Math.Sin(t), u.x * Math.Sin(t) + u.y * Math.Cos(t));
+                var K = new ExactSlopeKernel();
+                var K2 = new ExactSlopeKernel();
+                Func<ExactSlopeKernel, int> make = (k) => k.Crossing(k.PointLine(c - 3 * u, c + 5 * u), k.PointLine(c - 4 * w + new Vector2d(1e-3, 0), c + 2 * w + new Vector2d(1e-3, 0)));
+                int v = make(K), v2 = make(K2);
+                if (v < 0) { Assert.True(v2 < 0); continue; }
+                Vector2d a = K.Approx(v), r = K2.Rounded(v2);
+                Assert.True(a.Distance(r) <= 2e-12 * (Math.Abs(r.x) + Math.Abs(r.y)) + 1e-300, $"{a} {r} angle {t}");
+            }
+        }
+
+        // ApproxHeight is within 1e-12 (relative to the magnitudes involved) of the exact height
+        [Fact]
+        public void ApproxHeight_IsAccurate()
+        {
+            var rnd = new Random(37);
+            var K = new ExactSlopeKernel();
+            for (int i = 0; i < 2000; ++i) {
+                Vector3d p = R(rnd, 100), q = R(rnd, 100), r = R(rnd, 100);
+                if (Math.Abs((q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x)) < 1) continue;
+                int pl = K.AddPlane(p, q, r);
+                double x = 200 * (rnd.NextDouble() - 0.5), y = 200 * (rnd.NextDouble() - 0.5);
+                double h = K.Height(pl, x, y), ah = K.ApproxHeight(pl, x, y);
+                Assert.True(Math.Abs(h - ah) <= 1e-9 * (1 + Math.Abs(h)), $"{h} {ah}");
+            }
+        }
+
+        // a plane whose Nz interval contains 0 (nearly vertical, but not vertical) is still oriented and evaluated
+        // exactly
+        [Fact]
+        public void NearlyVerticalPlane_TakesTheExactPath()
+        {
+            var K = new ExactSlopeKernel();
+            Vector3d p = new Vector3d(0, 0, 0), q = new Vector3d(1, 1, 0), r = new Vector3d(1 + Math.Pow(2, -52), 1, 1);
+            int a = K.AddPlane(p, q, r);       // Nz = -2^-52: clockwise, flipped
+            int b = K.AddPlane(p, r, q);
+            Assert.Equal(Nearest(Height(p, q, r, Q.Of(0.5), Q.Of(0.25))), K.Height(a, 0.5, 0.25));
+            Assert.Equal(K.Height(a, 0.5, 0.25), K.Height(b, 0.5, 0.25));
+            Assert.Equal(2, K.PlaneCount);
+        }
+
+        // the counters the benchmark reports: a decided side, an undecided one (exact stage), a construction
+        [Fact]
+        public void Counters()
+        {
+            var K = new ExactSlopeKernel();
+            int l = K.PointLine(new Vector2d(0, 0), new Vector2d(2, 1));
+            Assert.Equal(1, K.LineCount);
+            int v = K.PointVertex(new Vector2d(0, 1));
+            Assert.Equal(1, K.VertexCount);
+            Assert.Equal(1, K.Side(v, l));
+            Assert.Equal(1, K.PredicateCalls);
+            Assert.Equal(0, K.ExactPredicates);
+            // a double point exactly on the line: the interval contains 0, the exact stage decides
+            Assert.Equal(0, K.Side(K.PointVertex(new Vector2d(4, 2)), l));
+            Assert.Equal(2, K.PredicateCalls);
+            Assert.Equal(1, K.ExactPredicates);
+            Assert.Equal(0, K.Orient(K.PointVertex(new Vector2d(0, 0)), K.PointVertex(new Vector2d(1, 0.5)), K.PointVertex(new Vector2d(4, 2))));
+            Assert.Equal(3, K.PredicateCalls);
+            Assert.Equal(2, K.ExactPredicates);
+            Assert.Equal(1, K.Orient(K.PointVertex(new Vector2d(0, 0)), K.PointVertex(new Vector2d(1, 0)), K.PointVertex(new Vector2d(0, 1))));
+            Assert.Equal(4, K.PredicateCalls);
+            Assert.Equal(2, K.ExactPredicates);
+            Assert.Equal(8, K.VertexCount);
+            // a double point is its own rounding (no construction); a crossing and a height are constructions
+            Assert.Equal(new Vector2d(0, 1), K.Rounded(v));
+            Assert.Equal(0, K.ExactConstructions);
+            int x = K.Crossing(l, K.PointLine(new Vector2d(1, -3), new Vector2d(1, 7)));
+            K.Rounded(x); K.Rounded(x);
+            Assert.Equal(1, K.ExactConstructions);
+            K.Height(K.AddHorizontalPlane(3), 1, 1);
+            Assert.Equal(2, K.ExactConstructions);
+            // a vertex on one of its own lines needs no predicate
+            Assert.Equal(0, K.Side(x, l));
+            Assert.Equal(4, K.PredicateCalls);
+        }
     }
 }
