@@ -587,6 +587,31 @@ namespace g3cli.Tests
         }
 
         [Fact]
+        public void Remesh_ThicknessSizing_KeepsTheThinWalls()
+        {
+            // the tube of 135363 at its mean edge length 11.6 (walls 0.75): with the edges kept at the wall thickness the
+            // walls are refined instead of folded, the volume stays, and there is no thickness warning
+            string input = WriteThinTube(m);
+            var (exit, r) = Run("measure", input);
+            AssertOk(exit, r);
+            double v0 = D(r["mesh"]["volume"]);
+            (exit, r) = Run("remesh", input, m.Path_("thin_tube_sized.stl"), "--edge-length", "11.6", "--thickness-sizing", "1", "--iterations", "10");
+            AssertOk(exit, r);
+            Assert.Equal(1.0, D(r["thickness_sizing"]));
+            Assert.Equal(0, I(r["rejected_passes"]));
+            Assert.True(B(r["mesh"]["closed"]), r.ToJsonString());
+            Assert.Equal(0, I(r["mesh"]["inverted_components"]));
+            Assert.InRange(D(r["mesh"]["volume"]) / v0, 0.97, 1.03);
+            Assert.DoesNotContain(r["warnings"].AsArray().Select(w => S(w)), w => w.Contains("wall thickness"));
+            // a large fraction leaves the edges far above the wall: the warning stays
+            (exit, r) = Run("remesh", input, m.Path_("thin_tube_sized_8.stl"), "--edge-length", "11.6", "--thickness-sizing", "8", "--iterations", "2");
+            AssertOk(exit, r);
+            Assert.Contains(r["warnings"].AsArray().Select(w => S(w)), w => w.Contains("wall thickness"));
+            (exit, r) = Run("remesh", input, m.Path_("thin_tube_sized_bad.stl"), "--thickness-sizing", "-1");
+            AssertError(exit, r, "invalid_arguments", 2);
+        }
+
+        [Fact]
         public void Simplify_Sphere()
         {
             var (exit, r) = Run("simplify", m.Sphere, m.Path_("simplified.obj"), "--ratio", "0.25", "--deviation");

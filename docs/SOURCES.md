@@ -43,6 +43,11 @@ Implemented from the papers, no code taken over.
 The error bounds of the implicit points' approximations (`segment_point`, `plane_value`, `planes_approx`) and of
 the filters on them are derived in the code comments.
 
+The bit bounds of the fixed-width predicates (`FixedArith.Orient`, `FixedArith.InCircle`) are derived by
+`tools/PredicateCompiler` (build-time tool, not shipped), own code: magnitude bounds over exact
+integers. The idea of deriving the bounds of a predicate from its formula by machine follows A. Meyer, S. Pion,
+*FPG: A code generator for fast and certified geometric predicates*, RNC 2008 (idea only, no code read).
+
 ## Rounding the exact output (`MeshRoundingRepair`, `ExactMeshBoolean.SafeRounding`, `ExactMeshBoolean.ComputeExactVertices`)
 
 Implemented from the papers, no code taken over. Read for the design (what the exact methods do with their output):
@@ -341,6 +346,10 @@ in `docs/ROADMAP.md`.
 `Remesher.PreventSelfIntersections`: own design, the per-operation check of `Reducer.PreventSelfIntersections`
 (triangle hash grid, the exact `ExactTriangleIntersection.IntersectsBeyondShared`) extended to flips, splits and the
 buffered vertex moves; no external source.
+
+`Remesher.TargetEdgeLengthF` / `RemeshSizing.FromWallThickness`: sizing below the local feature size, as in
+isotropic remeshing with a sizing field (Botsch, Kobbelt, Pauly, Alliez, Lévy, *Polygon Mesh Processing*, ch. 6); the
+thickness is `MeshWallThickness`'s inscribed sphere (Ma, Bai, Hu, Kim 2012). Own design otherwise.
 
 `MeshConstraintUtil.PinSharpVertices`: the angle deficit of `MeshCurvature` (Meyer, Desbrun, Schröder, Barr 2003, eq. 9)
 as the measure of a vertex feature; the threshold is own design.
