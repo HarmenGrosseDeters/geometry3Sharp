@@ -103,6 +103,25 @@ namespace g3 {
         public int InvertingPassesRejected = 0;
 
         /// <summary>
+        /// Opt-in (default false): reject the edge operations and vertex moves that would make a triangle intersect
+        /// another one (exactly, ExactTriangleIntersection.IntersectsBeyondShared, the test of
+        /// MeshRepairMetrics.SelfIntersections): a collapse or flip whose new triangles intersect a triangle outside
+        /// the changed ones (or each other), the projection of a vertex created by a split onto its constraint curve
+        /// (it stays at the edge midpoint), and in the buffered smoothing and projection passes (also
+        /// RemesherPro's tracked passes) the moves of every triangle pair that intersects after the pass (reverted
+        /// until no pair with a moved vertex intersects; in triangle id order, so the result does not depend on
+        /// the thread timing). Triangles kept in a hash grid that is rebuilt when the mesh was changed outside the
+        /// remesher. Intersections the mesh already has are not removed, and the operations and moves near them
+        /// are blocked. Not guarded: EnableSmoothInPlace, RemesherPro.TrackedFaceProjectionPass and the inline
+        /// projection of a collapse or smoothing move (ProjectionMode Inline is checked after the pass).
+        /// Rejections are counted in SelfIntersectionsRejected.
+        /// </summary>
+        public bool PreventSelfIntersections = false;
+
+        /// <summary> status: edge operations and vertex moves rejected by PreventSelfIntersections so far </summary>
+        public int SelfIntersectionsRejected = 0;
+
+        /// <summary>
         /// status: the number of vertices with a NaN or infinite coordinate at the start of the last pass
         /// (BasicRemeshPass, RemesherPro.RemeshIteration, RemesherPro.FastSplitIteration). Such a pass does nothing:
         /// smoothing, splits and projection would spread the value to the neighbouring vertices.
@@ -579,6 +598,8 @@ namespace g3 {
 			if ( mesh.GetEdge(edgeID, ref a, ref b, ref t0, ref t1) == false )
 				return ProcessResult.Failed_NotAnEdge;
 			bool bIsBoundaryEdge = (t1 == DMesh3.InvalidID);
+            if (PreventSelfIntersections)
+                ensure_triangle_grid();
 
             // look up 'other' verts c (from t0) and d (from t1, if it exists)
             Index2i ov = mesh.GetEdgeOpposingV(edgeID);
@@ -631,6 +652,11 @@ namespace g3 {
                     }
                 }
 
+                if (PreventSelfIntersections && collapse_creates_intersection(a, b, iKeep, vNewPos)) {
+                    SelfIntersectionsRejected++;
+                    goto abort_collapse;
+                }
+
                 // TODO be smart about picking b (keep vtx). 
                 //    - swap if one is bdry vtx, for example?
                 // lots of cases where we cannot collapse, but we should just let
@@ -640,6 +666,8 @@ namespace g3 {
 				MeshResult result = mesh.CollapseEdge(iKeep, iCollapse, out collapseInfo);
 				if ( result == MeshResult.Ok ) {
 					mesh.SetVertex(iKeep, vNewPos);
+                    if (PreventSelfIntersections)
+                        update_triangle_grid_after_collapse(iKeep);
                     if (constraints != null) {
                         constraints.ClearEdgeConstraint(edgeID);
                         constraints.ClearEdgeConstraint(collapseInfo.eRemoved0);
@@ -696,11 +724,18 @@ namespace g3 {
                 if (bTryFlip == false && MinTriangleQuality > 0 && flip_improves_poor(ref vA, ref vB, c, d))
                     bTryFlip = true;
 
+                if (bTryFlip && PreventSelfIntersections && flip_creates_intersection(a, b, c, d, t0, t1)) {
+                    SelfIntersectionsRejected++;
+                    bTryFlip = false;
+                }
+
                 if (bTryFlip) {
                     DMesh3.EdgeFlipInfo flipInfo;
                     COUNT_FLIPS++;
 					MeshResult result = mesh.FlipEdge(edgeID, out flipInfo);
 					if ( result == MeshResult.Ok ) {
+                        if (PreventSelfIntersections)
+                            update_triangle_grid(t0, t1);
                         DoDebugChecks();
 						return ProcessResult.Ok_Flipped;
 					} else 
@@ -721,7 +756,10 @@ namespace g3 {
                 COUNT_SPLITS++;
 				MeshResult result = mesh.SplitEdge(edgeID, out splitInfo);
 				if ( result == MeshResult.Ok ) {
+                    Vector3d vMid = mesh.GetVertex(splitInfo.vNew);
                     update_after_split(edgeID, a, b, ref splitInfo);
+                    if (PreventSelfIntersections)
+                        check_split_vertex(splitInfo.vNew, vMid);
                     OnEdgeSplit(edgeID, a, b, splitInfo);
                     DoDebugChecks();
 					return ProcessResult.Ok_Split;
@@ -889,6 +927,244 @@ namespace g3 {
                 return false;
             Vector3d vD = mesh.GetVertex(d);
             return TriangleQuality(ref vB, ref vA, ref vD) < DegenerateFlipQuality;
+        }
+
+        // PreventSelfIntersections: the current triangles by grid cell, valid while mesh.Timestamp == gridTimestamp
+        TriangleHashGrid triangleGrid;
+        int gridTimestamp = -1;
+        readonly HashSet<int> gridChangedTris = new HashSet<int>();
+        readonly List<Index3i> gridNewIds = new List<Index3i>();
+        readonly List<Triangle3d> gridNewTris = new List<Triangle3d>();
+
+        /// <summary> PreventSelfIntersections: (re)build the triangle grid if the mesh changed since it was updated </summary>
+        protected void ensure_triangle_grid()
+        {
+            if (triangleGrid != null && gridTimestamp == mesh.Timestamp)
+                return;
+            // cells of about the target edge length (the triangles the remesher creates), but not below the mean edge
+            // of the mesh (relative values only: scale invariant)
+            double sum = 0; int n = 0;
+            foreach (int eid in mesh.EdgeIndices()) {
+                Index2i ev = mesh.GetEdgeV(eid);
+                sum += mesh.GetVertex(ev.a).Distance(mesh.GetVertex(ev.b)); n++;
+            }
+            double cell = Math.Max(MaxEdgeLength, sum / Math.Max(1, n));
+            if (!(cell > 0) || double.IsInfinity(cell))
+                cell = Math.Max(mesh.CachedBounds.MaxDim, double.Epsilon);
+            triangleGrid = new TriangleHashGrid(mesh.CachedBounds.Min, cell);
+            foreach (int tid in mesh.TriangleIndices())
+                triangleGrid.Insert(tid, triangle_box(tid));
+            gridTimestamp = mesh.Timestamp;
+        }
+
+        AxisAlignedBox3d triangle_box(int tid)
+        {
+            Vector3d p0 = Vector3d.Zero, p1 = Vector3d.Zero, p2 = Vector3d.Zero;
+            mesh.GetTriVertices(tid, ref p0, ref p1, ref p2);
+            var box = new AxisAlignedBox3d(p0); box.Contain(p1); box.Contain(p2);
+            return box;
+        }
+
+        // re-insert the triangles (their boxes changed), and the grid is up to date again
+        void update_triangle_grid(int t0, int t1 = DMesh3.InvalidID)
+        {
+            foreach (int tid in new[] { t0, t1 }) {
+                if (tid == DMesh3.InvalidID) continue;
+                triangleGrid.Remove(tid);
+                if (mesh.IsTriangle(tid))
+                    triangleGrid.Insert(tid, triangle_box(tid));
+            }
+            gridTimestamp = mesh.Timestamp;
+        }
+
+        void update_triangle_grid_around(int vID)
+        {
+            foreach (int tid in mesh.VtxTrianglesItr(vID)) {
+                triangleGrid.Remove(tid);
+                triangleGrid.Insert(tid, triangle_box(tid));
+            }
+            gridTimestamp = mesh.Timestamp;
+        }
+
+        // after a collapse to vKeep: the triangles of the old one-rings (in gridChangedTris) are gone or changed
+        void update_triangle_grid_after_collapse(int vKeep)
+        {
+            foreach (int tid in gridChangedTris)
+                triangleGrid.Remove(tid);
+            update_triangle_grid_around(vKeep);
+        }
+
+        // triangle A (vertex ids ia) intersects a triangle of the grid that is not in exclude (beyond shared vertices
+        // or edges). Calls hit for each one if given, else stops at the first
+        bool intersects_grid(Index3i ia, ref Triangle3d A, HashSet<int> exclude, Action<int> hit = null)
+        {
+            AxisAlignedBox3d box = new AxisAlignedBox3d(A.V0); box.Contain(A.V1); box.Contain(A.V2);
+            bool found = false;
+            Triangle3d tri = A;
+            triangleGrid.Query(box, (tc) => {
+                if ((found && hit == null) || (exclude != null && exclude.Contains(tc)) || mesh.IsTriangle(tc) == false)
+                    return;
+                AxisAlignedBox3d cbox;
+                if (triangleGrid.TryGetBox(tc, out cbox) && cbox.Intersects(box) == false)
+                    return;
+                Index3i ic = mesh.GetTriangle(tc);
+                Triangle3d C = new Triangle3d(mesh.GetVertex(ic.a), mesh.GetVertex(ic.b), mesh.GetVertex(ic.c));
+                if (ExactTriangleIntersection.IsDegenerate(ref C))
+                    return;
+                if (ExactTriangleIntersection.IntersectsBeyondShared(ia, ref tri, ic, ref C)) {
+                    found = true;
+                    hit?.Invoke(tc);
+                }
+            });
+            return found;
+        }
+
+        // the new triangles (gridNewIds, gridNewTris) intersect each other or a triangle outside gridChangedTris
+        bool new_triangles_intersect()
+        {
+            for (int i = 0; i < gridNewTris.Count; ++i) {
+                Triangle3d A = gridNewTris[i];
+                Index3i ia = gridNewIds[i];
+                for (int j = i + 1; j < gridNewTris.Count; ++j) {
+                    Triangle3d B = gridNewTris[j];
+                    if (ExactTriangleIntersection.IntersectsBeyondShared(ia, ref A, gridNewIds[j], ref B))
+                        return true;
+                }
+                if (intersects_grid(ia, ref A, gridChangedTris))
+                    return true;
+            }
+            return false;
+        }
+
+        void add_new_triangle(Index3i ids, Vector3d p0, Vector3d p1, Vector3d p2)
+        {
+            var tri = new Triangle3d(p0, p1, p2);
+            if (ExactTriangleIntersection.IsDegenerate(ref tri))
+                return;         // touches nothing beyond its edges (skipped by the metric too)
+            gridNewIds.Add(ids); gridNewTris.Add(tri);
+        }
+
+        /// <summary>
+        /// PreventSelfIntersections: the triangles around a and b after collapsing edge [a,b] to vKeep at newPos
+        /// intersect each other or a triangle outside the two one-rings
+        /// </summary>
+        protected bool collapse_creates_intersection(int a, int b, int vKeep, Vector3d newPos)
+        {
+            gridChangedTris.Clear(); gridNewIds.Clear(); gridNewTris.Clear();
+            foreach (int tid in mesh.VtxTrianglesItr(a)) gridChangedTris.Add(tid);
+            foreach (int tid in mesh.VtxTrianglesItr(b)) gridChangedTris.Add(tid);
+            foreach (int tid in gridChangedTris) {
+                Index3i t = mesh.GetTriangle(tid);
+                bool hasA = t.a == a || t.b == a || t.c == a, hasB = t.a == b || t.b == b || t.c == b;
+                if (hasA && hasB)
+                    continue;       // removed by the collapse
+                Index3i nt = t;
+                for (int k = 0; k < 3; ++k)
+                    if (nt[k] == a || nt[k] == b) nt[k] = vKeep;
+                add_new_triangle(nt, nt.a == vKeep ? newPos : mesh.GetVertex(nt.a), nt.b == vKeep ? newPos : mesh.GetVertex(nt.b),
+                    nt.c == vKeep ? newPos : mesh.GetVertex(nt.c));
+            }
+            return new_triangles_intersect();
+        }
+
+        /// <summary>
+        /// PreventSelfIntersections: the triangles [c,d,b] and [d,c,a] after flipping edge [a,b] (triangles t0, t1)
+        /// intersect each other or another triangle
+        /// </summary>
+        protected bool flip_creates_intersection(int a, int b, int c, int d, int t0, int t1)
+        {
+            gridChangedTris.Clear(); gridNewIds.Clear(); gridNewTris.Clear();
+            gridChangedTris.Add(t0); gridChangedTris.Add(t1);
+            add_new_triangle(new Index3i(c, d, b), mesh.GetVertex(c), mesh.GetVertex(d), mesh.GetVertex(b));
+            add_new_triangle(new Index3i(d, c, a), mesh.GetVertex(d), mesh.GetVertex(c), mesh.GetVertex(a));
+            return new_triangles_intersect();
+        }
+
+        // PreventSelfIntersections: after a split, vNew (created at vMid) may have been projected onto its constraint
+        // target; it goes back to vMid if its triangles then intersect another one
+        void check_split_vertex(int vNew, Vector3d vMid)
+        {
+            update_triangle_grid_around(vNew);
+            if (mesh.GetVertex(vNew) == vMid)
+                return;     // the new triangles lie in the old ones
+            gridChangedTris.Clear(); gridNewIds.Clear(); gridNewTris.Clear();
+            foreach (int tid in mesh.VtxTrianglesItr(vNew)) {
+                gridChangedTris.Add(tid);
+                Index3i t = mesh.GetTriangle(tid);
+                add_new_triangle(t, mesh.GetVertex(t.a), mesh.GetVertex(t.b), mesh.GetVertex(t.c));
+            }
+            if (new_triangles_intersect()) {
+                SelfIntersectionsRejected++;
+                mesh.SetVertex(vNew, vMid);
+                update_triangle_grid_around(vNew);
+            }
+        }
+
+        // PreventSelfIntersections, buffered passes: apply the moves (vModifiedV, vBufferV), then revert the moves of
+        // both triangles of every intersecting pair with a moved vertex until there is none. Serial, in triangle id
+        // order: the result does not depend on the thread timing. The grid is up to date afterwards.
+        void apply_moves_without_intersections()
+        {
+            int NV = mesh.MaxVertexID;
+            var oldPos = new Dictionary<int, Vector3d>();
+            for (int vid = 0; vid < NV; ++vid) {
+                if (vModifiedV[vid] && mesh.IsVertex(vid)) {
+                    oldPos[vid] = mesh.GetVertex(vid);
+                    mesh.SetVertex(vid, vBufferV[vid]);
+                }
+            }
+            if (oldPos.Count == 0)
+                return;
+            triangleGrid = null;
+            ensure_triangle_grid();
+            var dirty = new SortedSet<int>();
+            foreach (int vid in oldPos.Keys)
+                foreach (int tid in mesh.VtxTrianglesItr(vid))
+                    dirty.Add(tid);
+            var revert = new SortedSet<int>();
+            bool is_moved(int vid) { return vModifiedV[vid]; }
+            void revert_moved_of(int tid) {
+                Index3i t = mesh.GetTriangle(tid);
+                if (is_moved(t.a)) revert.Add(t.a);
+                if (is_moved(t.b)) revert.Add(t.b);
+                if (is_moved(t.c)) revert.Add(t.c);
+            }
+            while (dirty.Count > 0) {
+                revert.Clear();
+                foreach (int tid in dirty) {
+                    if (mesh.IsTriangle(tid) == false)
+                        continue;
+                    Index3i t = mesh.GetTriangle(tid);
+                    Triangle3d A = new Triangle3d(mesh.GetVertex(t.a), mesh.GetVertex(t.b), mesh.GetVertex(t.c));
+                    if (ExactTriangleIntersection.IsDegenerate(ref A))
+                        continue;
+                    bool aMoved = is_moved(t.a) || is_moved(t.b) || is_moved(t.c);
+                    int self = tid;
+                    intersects_grid(t, ref A, null, (tc) => {
+                        if (tc == self)
+                            return;
+                        Index3i u = mesh.GetTriangle(tc);
+                        bool uMoved = is_moved(u.a) || is_moved(u.b) || is_moved(u.c);
+                        if (aMoved == false && uMoved == false)
+                            return;     // both as before the pass
+                        revert_moved_of(self);
+                        revert_moved_of(tc);
+                    });
+                }
+                dirty.Clear();
+                foreach (int vid in revert) {
+                    vModifiedV[vid] = false;
+                    mesh.SetVertex(vid, oldPos[vid]);
+                    SelfIntersectionsRejected++;
+                    OnVertexMoveRejected(vid);
+                }
+                foreach (int vid in revert) {
+                    update_triangle_grid_around(vid);
+                    foreach (int tid in mesh.VtxTrianglesItr(vid))
+                        dirty.Add(tid);
+                }
+            }
+            gridTimestamp = mesh.Timestamp;
         }
 
         /// <summary>
@@ -1111,6 +1387,10 @@ namespace g3 {
         {
             if (MinTriangleQuality > 0)
                 revert_flipping_moves();
+            if (PreventSelfIntersections) {
+                apply_moves_without_intersections();
+                return;
+            }
             // [TODO] can probably use block-parallel here...
             if (bParallel) {
                 gParallel.BlockStartEnd(0, mesh.MaxVertexID-1, (a,b) => {
@@ -1190,7 +1470,7 @@ namespace g3 {
         // We can do projection in parallel if we have .net 
         protected virtual void FullProjectionPass()
         {
-            if (MinTriangleQuality > 0) {
+            if (MinTriangleQuality > 0 || PreventSelfIntersections) {
                 // each move is checked against the positions before the pass: buffered, so the result does not
                 // depend on the order (or thread timing) in which the vertices are projected
                 InitializeVertexBufferForPass();
@@ -1200,7 +1480,9 @@ namespace g3 {
                     if (VertexControlF != null && (VertexControlF(vID) & VertexControl.NoProject) != 0)
                         return;
                     Vector3d cur = mesh.GetVertex(vID);
-                    Vector3d projected = guarded_projection(vID, cur, target.Project(cur, vID));
+                    Vector3d projected = target.Project(cur, vID);
+                    if (MinTriangleQuality > 0)
+                        projected = guarded_projection(vID, cur, projected);
                     if (projected == cur)
                         return;
                     vModifiedV[vID] = true;
