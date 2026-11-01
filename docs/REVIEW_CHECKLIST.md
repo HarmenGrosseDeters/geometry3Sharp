@@ -56,6 +56,10 @@ and for each yes, check that a test covers it. A test must fail on the old code 
 - Distances overflowing to infinity: preserve actual nearest ordering before the stable-id tie break; an
   infinite approximation is not proof that two finite-input geometries are equally far away.
 - Casts of NaN or infinity to `int` / `long` (undefined result).
+- A tolerance applied to the result of `UnitCross` / `Normalized` (`Vector3d.Normalize` uses `MathUtil.Epsilon`):
+  every cross product longer than 2.2e-16 becomes a unit vector, so a test like `n.Dot(n) < ZeroTolerance` only
+  means "exactly zero" and the tolerance is dead code (`IntrTriangle3Triangle3` parallel test, #253 review). Compare
+  the unnormalized cross product, or decide exactly.
 - Every new error bound in `math/Exact*`, `AdaptivePredicates.cs`, implicit points: derived and checked in
   the review.
 
