@@ -6,8 +6,12 @@ name: Mutation tests
 # - exact-mesh: the exact mesh pipeline (mesh_ops/ExactMesh*.cs, ExactPlanarSimplify.cs, ExactTriangulation2.cs,
 #   MeshRoundingRepair.cs, and math/FixedPoint3.cs, the arrangement's fixed-width points), in shards that run in
 #   parallel (tests/mutation/stryker-mesh-*.json).
-# A shard whose mutated file changed runs in full and fails when its mutation score drops below the break threshold of
-# its config. A shard of which only tests changed runs with --since and only reports. The reports list the surviving mutants.
+# A shard whose mutated file changed runs incrementally (tests/mutation/incremental.py): Stryker mutates only the changed
+# lines, the other mutants keep their results from the last full run (the baseline, kept in the Actions cache), and the
+# shard fails when the combined score drops below the break threshold of its config; without a cached baseline it runs
+# in full. A shard whose config
+# or tools changed runs in full. A shard of which only tests changed runs with --since and only reports. Every full run
+# stores its report as the baseline. The reports list the surviving mutants.
 
 on:
   pull_request:
@@ -41,6 +45,10 @@ on:
   schedule:
     - cron: '23 3 * * 1'        # Mondays 03:23 UTC
   workflow_dispatch:
+    inputs:
+      shards:
+        description: 'Shards to run in full: all, or a comma-separated list (arithmetic, rounding, boolean-1, ...)'
+        default: all
 
 # a new push to the same PR cancels the running run
 concurrency:
@@ -66,26 +74,30 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Test the selection
+      - name: Test the selection and the baseline tooling
         working-directory: tests/mutation
-        run: python3 test_select_shards.py
+        run: |
+          python3 test_select_shards.py
+          python3 test_baseline.py
+          python3 test_incremental.py
       - id: select
         env:
           EVENT: ${{ github.event_name }}
+          SHARDS: ${{ github.event.inputs.shards }}
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
           # a failed git diff must fail this step: empty input would select nothing and skip the runs in green
           set -o pipefail
           if [ "$EVENT" != "pull_request" ]; then
-            python3 tests/mutation/select_shards.py --all | tee -a "$GITHUB_OUTPUT"
+            python3 tests/mutation/select_shards.py --all --only "${SHARDS:-all}" | tee -a "$GITHUB_OUTPUT"
           else
             git diff --name-only "$BASE...$HEAD" | python3 tests/mutation/select_shards.py | tee -a "$GITHUB_OUTPUT"
           fi
 
   exact-arithmetic:
     needs: changes
-    if: (needs.changes.outputs.arithmetic == 'full' || needs.changes.outputs.arithmetic == 'tests') && github.event.pull_request.draft != true
+    if: needs.changes.outputs.arithmetic != 'none' && needs.changes.outputs.arithmetic != '' && github.event.pull_request.draft != true
     runs-on: ubuntu-latest
     timeout-minutes: 150
     steps:
@@ -97,11 +109,20 @@ jobs:
           dotnet-version: 10.0.x
       - name: Restore tools
         run: dotnet tool restore
+      - name: Restore the baseline
+        id: restore
+        if: needs.changes.outputs.arithmetic == 'source'
+        uses: actions/cache/restore@v4
+        with:
+          path: tests/mutation/baseline
+          key: mutation-baseline-arithmetic-${{ hashFiles('tests/mutation/stryker-config.json', '.config/dotnet-tools.json', 'tests/mutation/baseline.py', 'tests/mutation/incremental.py') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: mutation-baseline-arithmetic-${{ hashFiles('tests/mutation/stryker-config.json', '.config/dotnet-tools.json', 'tests/mutation/baseline.py', 'tests/mutation/incremental.py') }}-
       - name: Stryker
         working-directory: tests/mutation
         env:
-          SINCE: ${{ needs.changes.outputs.arithmetic == 'tests' && format('--since:{0} --break-at 0', github.event.pull_request.base.sha) || '' }}
-        run: dotnet stryker --config-file stryker-config.json $SINCE
+          MODE: ${{ needs.changes.outputs.arithmetic }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: bash run_stryker.sh stryker-config.json
       - name: Summary
         if: always()
         run: cat tests/mutation/StrykerOutput/*/reports/mutation-report.md >> "$GITHUB_STEP_SUMMARY" || true
@@ -110,7 +131,26 @@ jobs:
         with:
           name: mutation-report
           path: tests/mutation/StrykerOutput/*/reports/
-          if-no-files-found: ${{ needs.changes.outputs.arithmetic == 'tests' && 'warn' || 'error' }}
+          # (tests: a --since run may have nothing to test; source: a shard with no changed line runs no Stryker)
+          if-no-files-found: ${{ (needs.changes.outputs.arithmetic == 'tests' || needs.changes.outputs.arithmetic == 'source') && 'warn' || 'error' }}
+      - name: Prepare the baseline
+        id: store
+        # (after a full run, also a source run that ran in full for want of a baseline: run_stryker.sh marks it)
+        if: always() && (needs.changes.outputs.arithmetic == 'full' || needs.changes.outputs.arithmetic == 'source')
+        run: |
+          if [ "$MODE" = full ] || [ -f tests/mutation/StrykerOutput/full-run ]; then
+            python3 tests/mutation/baseline.py store tests/mutation/StrykerOutput tests/mutation/baseline
+          else
+            echo "stored=false" | tee -a "$GITHUB_OUTPUT"
+          fi
+        env:
+          MODE: ${{ needs.changes.outputs.arithmetic }}
+      - name: Store the baseline
+        if: always() && steps.store.outputs.stored == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: tests/mutation/baseline
+          key: mutation-baseline-arithmetic-${{ hashFiles('tests/mutation/stryker-config.json', '.config/dotnet-tools.json', 'tests/mutation/baseline.py', 'tests/mutation/incremental.py') }}-${{ github.run_id }}-${{ github.run_attempt }}
 
   exact-mesh:
     needs: changes
@@ -132,14 +172,23 @@ jobs:
           dotnet-version: 10.0.x
       - name: Restore tools
         run: dotnet tool restore
+      - name: Restore the baseline
+        id: restore
+        if: matrix.mode == 'source'
+        uses: actions/cache/restore@v4
+        with:
+          path: tests/mutation/baseline
+          key: mutation-baseline-mesh-${{ matrix.shard }}-${{ hashFiles(format('tests/mutation/stryker-mesh-{0}.json', matrix.shard), '.config/dotnet-tools.json', 'tests/mutation/baseline.py', 'tests/mutation/incremental.py') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: mutation-baseline-mesh-${{ matrix.shard }}-${{ hashFiles(format('tests/mutation/stryker-mesh-{0}.json', matrix.shard), '.config/dotnet-tools.json', 'tests/mutation/baseline.py', 'tests/mutation/incremental.py') }}-
       - name: Stryker
         working-directory: tests/mutation
         # a mutant can turn a loop into one that allocates without end: a heap limit per process makes that an
         # OutOfMemoryException in the test host (the mutant is killed) instead of a runner that runs out of memory
         env:
           DOTNET_GCHeapHardLimit: '0x180000000'   # 6 GB
-          SINCE: ${{ matrix.mode == 'tests' && format('--since:{0} --break-at 0', github.event.pull_request.base.sha) || '' }}
-        run: dotnet stryker --config-file stryker-mesh-${{ matrix.shard }}.json $SINCE
+          MODE: ${{ matrix.mode }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: bash run_stryker.sh stryker-mesh-${{ matrix.shard }}.json
       - name: Summary
         if: always()
         run: cat tests/mutation/StrykerOutput/*/reports/mutation-report.md >> "$GITHUB_STEP_SUMMARY" || true
@@ -155,4 +204,23 @@ jobs:
         with:
           name: mutation-report-mesh-${{ matrix.shard }}
           path: tests/mutation/StrykerOutput/*/reports/
-          if-no-files-found: ${{ matrix.mode == 'tests' && 'warn' || 'error' }}
+          # (tests: a --since run may have nothing to test; source: a shard with no changed line runs no Stryker)
+          if-no-files-found: ${{ (matrix.mode == 'tests' || matrix.mode == 'source') && 'warn' || 'error' }}
+      - name: Prepare the baseline
+        id: store
+        # (after a full run, also a source run that ran in full for want of a baseline: run_stryker.sh marks it)
+        if: always() && (matrix.mode == 'full' || matrix.mode == 'source')
+        run: |
+          if [ "$MODE" = full ] || [ -f tests/mutation/StrykerOutput/full-run ]; then
+            python3 tests/mutation/baseline.py store tests/mutation/StrykerOutput tests/mutation/baseline
+          else
+            echo "stored=false" | tee -a "$GITHUB_OUTPUT"
+          fi
+        env:
+          MODE: ${{ matrix.mode }}
+      - name: Store the baseline
+        if: always() && steps.store.outputs.stored == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: tests/mutation/baseline
+          key: mutation-baseline-mesh-${{ matrix.shard }}-${{ hashFiles(format('tests/mutation/stryker-mesh-{0}.json', matrix.shard), '.config/dotnet-tools.json', 'tests/mutation/baseline.py', 'tests/mutation/incremental.py') }}-${{ github.run_id }}-${{ github.run_attempt }}
