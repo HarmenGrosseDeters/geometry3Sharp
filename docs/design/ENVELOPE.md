@@ -298,8 +298,9 @@ so the polyhedron is not much smaller than the paper's.
 Stop rule: if after PR 3 the triangle query is not within a factor of 5 of the distance bounds on the
 `ReducerBenchmark` cases, stop and write the finding here.
 
-**Stopped (PR 3, #268).** The owner set the final criterion: stop if the best variant stays above 5× `IsWithin`,
-or accepts clearly fewer queries than `MeshEnvelope`. Both happen.
+**Stop criterion met (PR 3, #268); under discussion with the owner.** The owner set the criterion: stop if the best
+variant stays above 5× `IsWithin`, or accepts clearly fewer queries than `MeshEnvelope`. Both happen. The code is kept
+and merges as an internal tool (owner decision); the decision on the stop itself is open.
 
 Measured with `benchmarks/ReducerBenchmark queries` at a tolerance of 0.003 of the diagonal, on the triangles a
 reduction with the distance bounds produces. Each entry is triangles accepted, µs per triangle, and the factor to

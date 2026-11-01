@@ -93,5 +93,5 @@ reports the bumpy sphere case. Each entry is triangles accepted, then µs per tr
 | terrain 40 × 40 | 951, 48 | 625, 6425 | 164, 351 | 164, 359 | 625, 6206 |
 | bumpy sphere | 536, 229 | 258, 32826 | 41, 17175 | 41, 1708 | 258, 33375 |
 
-The stop rule was not met (within 5× of `IsWithin` and no fewer accepted than `MeshEnvelope`), so the work stopped
-(ENVELOPE.md §6).
+The stop rule was not met (within 5× of `IsWithin` and no fewer accepted than `MeshEnvelope`), so the stop criterion is met; the decision is under discussion with the
+owner (ENVELOPE.md §6).
