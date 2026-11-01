@@ -160,11 +160,32 @@ namespace geometry3Sharp.Tests
         /// <summary> the Boolean under test, with a fresh instance; null with the error if Compute() fails </summary>
         public static DMesh3 Run(DMesh3 a, DMesh3 b, Ops op, out string error, bool safeRounding = true)
         {
+            return Run(a, b, op, out error, out _, safeRounding);
+        }
+
+        /// <summary> Run, with the drift SafeRounding measured (MeshRoundingRepair.MaxDrift; 0 without it) </summary>
+        public static DMesh3 Run(DMesh3 a, DMesh3 b, Ops op, out string error, out double maxDrift, bool safeRounding = true)
+        {
             var boolean = new ExactMeshBoolean(a, b, op) { SafeRounding = safeRounding };
             bool ok = boolean.Compute();
             error = ok && boolean.Status == ExactMeshBoolean.BooleanStatus.Success && boolean.Result != null ? ""
                 : "Compute() failed: " + boolean.Status + " " + boolean.Error;
+            maxDrift = boolean.Rounding?.MaxDrift ?? 0;
             return error == "" ? boolean.Result : null;
+        }
+
+        /// <summary>
+        /// The contract of SafeRounding against the result without its repair, as the arrangement gives it: the measured
+        /// drift within the documented bound (SafeRoundingBound), and the same solid within that bound; the message
+        /// gives both.
+        /// </summary>
+        public static string WithinSafeRoundingBound(DMesh3 result, DMesh3 baseline, double size, double maxDrift)
+        {
+            double bound = SafeRoundingBound(result, baseline);
+            if (!(maxDrift <= bound))
+                return $"MaxDrift {maxDrift:G3} above the documented bound {bound:G3}";
+            string r = SameSolid(result, baseline, size, bound);
+            return r == "" ? "" : $"{r} (MaxDrift {maxDrift:G3}, documented bound {bound:G3})";
         }
 
         // ---------------------------------------------------------------- meshes
@@ -222,20 +243,17 @@ namespace geometry3Sharp.Tests
         public static double Volume(DMesh3 mesh) => SixVolume(mesh, out _) / 6;
 
         /// <summary>
-        /// The smallest height of a triangle over its longest edge: the width of the thinnest sliver. SafeRounding
-        /// moves vertices by up to the width of the slivers it repairs (ExactBooleanPropertyFindings).
+        /// The documented bound of SafeRounding on how far it moves the surface (MeshRoundingRepair.MaxDrift: at most
+        /// MaxDisplacement = 1e-5 times the diagonal of the rounded result), for results of the given size: the larger
+        /// triangle-bounds diagonal of the meshes.
         /// </summary>
-        public static double SliverWidth(params DMesh3[] meshes)
+        public static double SafeRoundingBound(params DMesh3[] meshes)
         {
-            double w = double.MaxValue;
-            Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
-            foreach (DMesh3 mesh in meshes)
-                foreach (int t in mesh.TriangleIndices()) {
-                    mesh.GetTriVertices(t, ref a, ref b, ref c);
-                    double longest = Math.Max(a.Distance(b), Math.Max(b.Distance(c), c.Distance(a)));
-                    w = Math.Min(w, (b - a).Cross(c - a).Length / longest);
-                }
-            return w;
+            double diag = 0;
+            foreach (DMesh3 m in meshes)
+                if (m.TriangleCount > 0)
+                    diag = Math.Max(diag, gs.MeshRepairMetrics.TriangleBounds(m).DiagonalLength);
+            return new MeshRoundingRepair(new DMesh3()).MaxDisplacement * diag;
         }
 
         public static double EdgeLength(DMesh3 mesh) =>

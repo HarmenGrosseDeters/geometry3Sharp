@@ -94,6 +94,12 @@ namespace g3
         public int MaxDeviationDepth = 10;
 
         /// <summary>
+        /// (tests, benchmarks) share the tree queries of one collapse's MaxDeviation check between its samples and
+        /// its triangles' IsWithin calls (they share corners and edge midpoints); the answers are the same either way
+        /// </summary>
+        internal bool ShareDeviationQueries = true;
+
+        /// <summary>
         /// if true (default), boundary vertices are not moved: a collapse involving a boundary vertex keeps
         /// it at its position (if both ends are boundary vertices, one of them is kept), and
         /// boundary planes are added to the quadrics (BoundaryQuadricWeight). You probably want this.
@@ -271,6 +277,7 @@ namespace g3
         /// <summary>
         /// Collapse edges shorter than minEdgeLen, in order of increasing quadric error (edges longer than
         /// minEdgeLen are never collapsed), until no such edge is left in the queue. Modifies the mesh in place.
+        /// A NaN length accepts no collapses.
         /// </summary>
         public virtual void ReduceToEdgeLength(double minEdgeLen)
         {
@@ -294,7 +301,7 @@ namespace g3
         /// Quick pass without quadrics: collapse interior (non-boundary) edges shorter than fMinEdgeLength to
         /// their midpoint, iterating over all edges up to nRounds times (stops early when nothing collapses).
         /// Constraints, flip checks, MaxDeviation and PreventSelfIntersections still apply. Pass
-        /// MeshIsClosedHint = true to skip the boundary scan for a closed mesh.
+        /// MeshIsClosedHint = true to skip the boundary scan for a closed mesh. A NaN length accepts no collapses.
         /// </summary>
         public virtual void FastCollapsePass(double fMinEdgeLength, int nRounds = 1, bool MeshIsClosedHint = false)
         {
@@ -432,7 +439,7 @@ namespace g3
                     if (nt[k] == a || nt[k] == b) nt[k] = vKeep;
                 Triangle3d tri = new Triangle3d(
                     nt.a == vKeep ? newPos : mesh.GetVertex(nt.a), nt.b == vKeep ? newPos : mesh.GetVertex(nt.b), nt.c == vKeep ? newPos : mesh.GetVertex(nt.c));
-                if (ExactTriangleIntersection.IsDegenerate(ref tri)) continue;
+                if (is_finite(ref tri) == false || ExactTriangleIntersection.IsDegenerate(ref tri)) continue;
                 newIds.Add(nt); newTris.Add(tri);
             }
             for (int i = 0; i < newTris.Count; ++i) {
@@ -440,25 +447,31 @@ namespace g3
                 Index3i ia = newIds[i];
                 for (int j = i + 1; j < newTris.Count; ++j) {
                     Triangle3d B = newTris[j];
-                    if (ExactTriangleIntersection.IntersectsBeyondShared(ia, ref A, newIds[j], ref B))
+                    if (TriangleTriangleFilter.IntersectsBeyondShared(ia, ref A, newIds[j], ref B))
                         return true;
                 }
                 AxisAlignedBox3d box = new AxisAlignedBox3d(A.V0); box.Contain(A.V1); box.Contain(A.V2);
                 bool hit = false;
                 triangleGrid.Query(box, (tc) => {
+                    // (the query has tested the closed boxes. AxisAlignedBox3d.Intersects, which is open, must not
+                    // be used here: flat boxes of triangles in one axis plane never overlap by it)
                     if (hit || gridRingTris.Contains(tc) || mesh.IsTriangle(tc) == false) return;
-                    AxisAlignedBox3d cbox;
-                    if (triangleGrid.TryGetBox(tc, out cbox) && cbox.Intersects(box) == false) return;
                     Index3i ic = mesh.GetTriangle(tc);
                     Triangle3d C = new Triangle3d(mesh.GetVertex(ic.a), mesh.GetVertex(ic.b), mesh.GetVertex(ic.c));
-                    if (ExactTriangleIntersection.IsDegenerate(ref C)) return;
-                    if (ExactTriangleIntersection.IntersectsBeyondShared(ia, ref A, ic, ref C))
+                    // (triangles with a coordinate that is not finite are not checked: the exact tests need finite input)
+                    if (is_finite(ref C) == false || ExactTriangleIntersection.IsDegenerate(ref C)) return;
+                    if (TriangleTriangleFilter.IntersectsBeyondShared(ia, ref A, ic, ref C))
                         hit = true;
                 });
                 if (hit)
                     return true;
             }
             return false;
+        }
+
+        static bool is_finite(ref Triangle3d t)
+        {
+            return t.V0.IsFinite && t.V1.IsFinite && t.V2.IsFinite;
         }
 
         // after a collapse: the triangles of the old one-rings (in gridRingTris) are gone or changed
@@ -476,12 +489,32 @@ namespace g3
                 SetDeviationReference(mesh);
         }
 
+        int nearest_within_deviation(Vector3d p, TriangleDeviationBounds.QueryCache cache)
+        {
+            double d;
+            if (cache == null) return deviationTarget.FindNearestTriangle(p, MaxDeviation);
+            System.Threading.Interlocked.Increment(ref DeviationCacheSampleLookups);
+            return deviationBounds.NearestWithin(deviationTarget, p, cache, out d);
+        }
+
+        /// <summary> (tests) the shared queries' lookups and hits, summed over the collapses that reached them </summary>
+        internal long DeviationCacheLookups, DeviationCacheHits, DeviationCacheIsWithinHits, DeviationCacheSampleLookups;
+
         // would the triangles around a and b, after collapsing to newPos, stay within MaxDeviation?
         protected bool collapse_within_deviation(int a, int b, Vector3d newPos)
         {
             // the new vertex first: one query, rejects most collapses that go too far
-            if (deviationTarget.FindNearestTriangle(newPos, MaxDeviation) < 0)
+            double newPosSqr;
+            int newPosTri = deviationTarget.FindNearestTriangle(newPos, out newPosSqr, MaxDeviation);
+            if (newPosTri < 0)
                 return false;
+            // the tree queries of this collapse, shared: the new vertex is a corner of every new triangle, the
+            // other corners and the edge midpoints are shared by two (the samples below are the same points)
+            TriangleDeviationBounds.QueryCache cache = null;
+            if (ShareDeviationQueries) {
+                cache = new TriangleDeviationBounds.QueryCache(deviationTarget, MaxDeviation);
+                cache.Put(newPos, newPosTri, newPosSqr);
+            }
             List<Triangle3d> tris = new List<Triangle3d>();
             foreach (int v in new int[] { a, b }) {
                 int other = (v == a) ? b : a;
@@ -498,15 +531,18 @@ namespace g3
             foreach (Triangle3d t in tris) {
                 Vector3d[] samples = { (t.V0 + t.V1 + t.V2) / 3, 0.5 * (t.V0 + t.V1), 0.5 * (t.V1 + t.V2), 0.5 * (t.V2 + t.V0) };
                 foreach (Vector3d p in samples) {
-                    if (deviationTarget.FindNearestTriangle(p, MaxDeviation) < 0)
+                    if (nearest_within_deviation(p, cache) < 0)
                         return false;
                 }
             }
             bool ok = true;
-            gParallel.ForEach(Interval1i.Range(tris.Count), (k) => {
-                if (ok && deviationBounds.IsWithin(deviationTarget, tris[k].V0, tris[k].V1, tris[k].V2, MaxDeviation, MaxDeviationDepth) == false)
+            gParallel.ForRange(tris.Count, (k) => {
+                if (ok && deviationBounds.IsWithin(deviationTarget, tris[k].V0, tris[k].V1, tris[k].V2, MaxDeviation, MaxDeviationDepth, cache) == false)
                     ok = false;
             });
+            if (cache != null) {
+                DeviationCacheLookups += cache.Lookups; DeviationCacheHits += cache.Hits; DeviationCacheIsWithinHits += cache.IsWithinHits;
+            }
             return ok;
         }
 
@@ -865,7 +901,8 @@ namespace g3
 			Vector3d vA = mesh.GetVertex(a);
 			Vector3d vB = mesh.GetVertex(b);
 			double edge_len_sqr = (vA-vB).LengthSquared;
-			if (edge_len_sqr > MinEdgeLength * MinEdgeLength)
+			// (a NaN limit compares false with everything: without the test it would accept every collapse)
+			if (edge_len_sqr > MinEdgeLength * MinEdgeLength || double.IsNaN(MinEdgeLength))
 				return ProcessResult.Ignored_EdgeTooLong;
 
             begin_collapse();
@@ -1200,7 +1237,9 @@ skip_to_end:
 		/// <summary>
 		/// minimizer of the quadric + lambda * |x - center|^2, with lambda = lambdaRel * trace(A)/3:
 		/// always well-conditioned and scale independent; directions the quadric does not constrain stay
-		/// at center. Returns false only for an empty quadric.
+		/// at center. Returns false, with result untouched, for an empty quadric, a nearly singular one, and where the
+		/// solution leaves the double range: 1/det is 0 or infinity, or the products below overflow (from about L = 1e45 for
+		/// area-weighted planes). The Reducer then takes an endpoint or the midpoint of the edge.
 		/// </summary>
 		public bool OptimalPoint(ref Vector3d result, Vector3d center, double lambdaRel) {
 			double scale = (Axx + Ayy + Azz) / 3;
@@ -1219,6 +1258,9 @@ skip_to_end:
 			if (!(Math.Abs(det) > 1e-18 * scale * scale * scale))
 				return false;
 			det = 1.0 / det;
+			// 0 would give a point of zeros; an infinite 1/det ends in the check of the solution below
+			if (det == 0)
+				return false;
 			// x = -(A + lambda I)^-1 (b - lambda c); then proximal steps with c = x, which converge to the
 			// exact minimizer in the directions the quadric constrains (factor lambda/eigenvalue per step)
 			// and keep the others at center
@@ -1230,6 +1272,8 @@ skip_to_end:
 					-(a12 * rx + a22 * ry + a23 * rz) * det,
 					-(a13 * rx + a23 * ry + a33 * rz) * det);
 			}
+			if (MathUtil.IsFinite(cur.x) == false || MathUtil.IsFinite(cur.y) == false || MathUtil.IsFinite(cur.z) == false)
+				return false;
 			result = cur;
 			return true;
 		}
@@ -1242,15 +1286,23 @@ skip_to_end:
 			double a23 = Axy * Axz - Axx * Ayz;
 			double a33 = Axx * Ayy - Axy * Axy;
 			double det = (Axx * a11) + (Axy * a12) + (Axz * a13);
-            // [RMS] not sure what we should be using for this threshold...have seen
-            //  det less than 10^-9 on "normal" meshes.
-			if (Math.Abs(det) > 1000.0*MathUtil.Epsilon) {
-				det = 1.0 / det;
-				a11 *= det; a12 *= det; a13 *= det;
-				a22 *= det; a23 *= det; a33 *= det;				
+			// relative to the size of A (trace/3 for the positive semidefinite A of plane quadrics): with area
+			// weights A is L^2 and det is L^6, so an absolute threshold refuses every small quadric. A factor on A
+			// does not change the decision while det and 1/det are in the double range; beyond that (size above about
+			// 6e102 or below about 2e-103) it refuses, as the inverse would be 0 or infinity, which is no solution. It also
+			// refuses if the solution itself is not finite, with b out of range or too large for this A.
+			// Against the old absolute threshold: the same for trace 3, otherwise (trace/3)^3 times it, so 1000 unit
+			// planes of tilt 1e-7 are refused now, which the old code solved.
+			double size = (Math.Abs(Axx) + Math.Abs(Ayy) + Math.Abs(Azz)) / 3;
+			double inverse = 1.0 / det;
+			if (Math.Abs(det) > 1000.0*MathUtil.Epsilon * size * size * size && MathUtil.IsFinite(inverse) && inverse != 0) {
+				a11 *= inverse; a12 *= inverse; a13 *= inverse;
+				a22 *= inverse; a23 *= inverse; a33 *= inverse;				
 				double x = a11 * bx + a12 * by + a13 * bz;
 				double y = a12 * bx + a22 * by + a23 * bz;
 				double z = a13 * bx + a23 * by + a33 * bz;
+                if (MathUtil.IsFinite(x) == false || MathUtil.IsFinite(y) == false || MathUtil.IsFinite(z) == false)
+                    return false;
                 result = new Vector3d(-x, -y, -z);
                 return true;
 			} else {

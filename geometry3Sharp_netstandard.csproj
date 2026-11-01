@@ -52,12 +52,17 @@
     <Compile Remove="benchmarks\**" />
     <Compile Remove="docs\**" />
     <Compile Remove="tools\**" />
+    <!-- optional packages with their own dependencies (addons/*/*.csproj) -->
+    <Compile Remove="addons\**" />
   </ItemGroup>
 
   <ItemGroup>
     <InternalsVisibleTo Include="geometry3Sharp.Tests" />
     <!-- profiling of the exact booleans (benchmarks/BooleanComparison profile) -->
     <InternalsVisibleTo Include="BooleanComparison" />
+    <InternalsVisibleTo Include="ReducerBenchmark" />
+    <!-- predicate counts of the self-intersection checks (benchmarks/SelfIntersectionBenchmark) -->
+    <InternalsVisibleTo Include="SelfIntersectionBenchmark" />
   </ItemGroup>
 
   <!-- banned APIs and analyzers in the exact-arithmetic code (BannedSymbols.txt, G3E0001-3; scoped by .editorconfig;

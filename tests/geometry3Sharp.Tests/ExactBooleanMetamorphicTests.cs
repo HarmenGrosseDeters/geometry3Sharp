@@ -46,9 +46,11 @@ namespace geometry3Sharp.Tests
             yield return new BoxCase(a, b, 7, new Vector3d(-2048, 96, 4095.9375));
         }
 
-        static DMesh3 Run(DMesh3 a, DMesh3 b, Ops op, bool safeRounding = true)
+        static DMesh3 Run(DMesh3 a, DMesh3 b, Ops op, bool safeRounding = true) => Run(a, b, op, out _, safeRounding);
+
+        static DMesh3 Run(DMesh3 a, DMesh3 b, Ops op, out double maxDrift, bool safeRounding = true)
         {
-            DMesh3 r = BooleanOracle.Run(a, b, op, out string error, safeRounding);
+            DMesh3 r = BooleanOracle.Run(a, b, op, out string error, out maxDrift, safeRounding);
             Assert.True(error == "", error);
             return r;
         }
@@ -99,13 +101,13 @@ namespace geometry3Sharp.Tests
                         DMesh3 a = c.MeshA(), b = c.MeshB();
                         if (operand != 1) { DMesh3 x = BooleanOracle.Change(a, r, 17); AssertOk(BooleanOracle.CheckRepresentation(a, x, size), $"{r} of A"); a = x; }
                         if (operand != 0) { DMesh3 x = BooleanOracle.Change(b, r, 29); AssertOk(BooleanOracle.CheckRepresentation(b, x, size), $"{r} of B"); b = x; }
-                        DMesh3 result = Run(a, b, op);
+                        DMesh3 result = Run(a, b, op, out double drift);
                         string what = $"{family} {op} {r} operand {"ABX"[operand]}";
                         if (r == Rep.Slivers) {
-                            // SafeRounding: clean, and the same solid up to the sliver width it may move vertices by;
-                            // the exact geometry without it (see Tetrahedra_MetamorphicRelations)
+                            // SafeRounding: clean, and the same solid up to its documented displacement bound; the exact
+                            // geometry without it (see Tetrahedra_MetamorphicRelations)
                             AssertOk(BooleanOracle.CleanReason(result), what + " SafeRounding");
-                            AssertOk(BooleanOracle.SameSolid(result, baseline, size, 2 * BooleanOracle.SliverWidth(a, b)), what + " SafeRounding vs baseline");
+                            AssertOk(BooleanOracle.WithinSafeRoundingBound(result, baseline, size, drift), what + $" SafeRounding vs baseline (MaxDrift {drift:G3})");
                             result = Run(a, b, op, safeRounding: false);
                         }
                         AssertOk(BooleanOracle.CheckBoxResult(result, c, op, r == Rep.Slivers), what);
@@ -166,14 +168,14 @@ namespace geometry3Sharp.Tests
                 AssertOk(BooleanOracle.CheckRepresentation(a, ra, size), $"{r} of A");
                 AssertOk(BooleanOracle.CheckRepresentation(b, rb, size), $"{r} of B");
                 foreach (Ops op in BooleanOracle.AllOps) {
-                    DMesh3 result = Run(ra, rb, op);
+                    DMesh3 result = Run(ra, rb, op, out double drift);
                     AssertOk(BooleanOracle.CleanReason(result), $"{what} {op} {r}");
                     if (r == Rep.Slivers) {
-                        AssertOk(BooleanOracle.SameSolid(result, results[op], size, 2 * BooleanOracle.SliverWidth(ra, rb)), $"{what} {op} {r} vs baseline, SafeRounding");
+                        AssertOk(BooleanOracle.WithinSafeRoundingBound(result, results[op], size, drift), $"{what} {op} {r} vs baseline, SafeRounding (MaxDrift {drift:G3})");
                         // where the other solid cuts a sliver, the pieces can fall below the degenerate threshold of
-                        // SafeRounding (area 1e-12 diagonal^2; rounded or even exact), which repairs them by moving
-                        // vertices up to the sliver's width (2^-20 and less; ExactBooleanPropertyFindings): the solid
-                        // is compared without that repair, as the arrangement gives it
+                        // SafeRounding (area 1e-12 diagonal^2; rounded or even exact), which contracts them within its
+                        // displacement bound (ExactBooleanPropertyFindings): exactly, the solid is compared without
+                        // that repair, as the arrangement gives it
                         DMesh3 plain = Run(ra, rb, op, safeRounding: false);
                         AssertOk(BooleanOracle.SameSolid(plain, Run(a, b, op, safeRounding: false), size), $"{what} {op} {r} vs baseline, plain rounding");
                     }
