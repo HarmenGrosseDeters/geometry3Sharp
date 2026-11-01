@@ -107,7 +107,7 @@ layer of zero volume (pass 17 / 16, Hausdorff 2.3 / 2.6 target); with it the las
   rolled-back passes end in different states. Counted per phase (taper16_x0.1, taper10_x0.15), the option creates
   far fewer intersections during the passes (edge operations 1248 -> 230 and 395 -> 56, before the review fixes), but projection moves across
   the rim intersect without flipping a normal, and which intersections survive the last pass is chance.
-  `PreventSelfIntersections` (below) prevents them, at about 18x the time.
+  `PreventSelfIntersections` (below) prevents them, at about 17x the time.
 - **Hausdorff distance, cone apex (12 primitives):** cone12, cone16, cone24 and cone32 at some targets, by up to 0.81
   target edge lengths (cone16_x0.1 2.35 -> 3.15). The apex of a cone with 12 or more slices is no feature (its side
   edges are no creases), so both variants round it off (1.4..2.8 without, 1.4..3.2 with the option); the option's
@@ -131,10 +131,10 @@ dotnet run -c Release --project benchmarks/RemeshQualityBenchmark -- runs=1 base
 
 | group | config | self-intersecting pairs without / with | cases with pairs | cases not clean | q<1e-3 | mean hausdorff/target | F 0.1 % | time s |
 |---|---|---:|---:|---:|---:|---:|---:|---:|
-| primitives (150) | q 0.2 | 281 / 0 | 16 / 0 | 16 / 0 | 0 / 0 | 0.341 / 0.371 | 0.8282 / 0.8277 | 6.4 / 113.3 |
-| gears (18) | q 0.2 | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 | 0.010 / 0.010 | 1.0000 / 1.0000 | 0.3 / 11.8 |
-| tubes (24) | q 0.2 | 5352 / 0 | 24 / 0 | 24 / 0 | 0 / 0 | 0.311 / 0.996 | 0.0457 / 0.0192 | 0.3 / 3.1 |
-| thingi (20) | q 0.2 | 3105 / 1108 | 17 / 5 | 17 / 5 | 204 / 284 | 1.017 / 0.960 | 0.7205 / 0.7203 | 10.7 / 193.5 |
+| primitives (150) | q 0.2 | 281 / 0 | 16 / 0 | 16 / 0 | 0 / 0 | 0.341 / 0.376 | 0.8282 / 0.8276 | 6.8 / 119.2 |
+| gears (18) | q 0.2 | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 | 0.010 / 0.010 | 1.0000 / 1.0000 | 0.4 / 12.8 |
+| tubes (24) | q 0.2 | 5352 / 0 | 24 / 0 | 24 / 0 | 0 / 0 | 0.311 / 0.996 | 0.0457 / 0.0192 | 0.3 / 2.9 |
+| thingi (20) | q 0.2 | 3105 / 1108 | 17 / 5 | 17 / 5 | 204 / 284 | 1.017 / 0.949 | 0.7205 / 0.7200 | 11.3 / 195.7 |
 | primitives (150) | q 0 | 409 / 0 | 35 / 0 | 37 / 4 | 38 / 4 | 0.330 / 0.340 | 0.8221 / 0.8213 | 4.5 / 150.1* |
 | gears (18) | q 0 | 7697 / 0 | 17 / 0 | 17 / 9 | 602 / 141 | 0.161 / 0.012 | 0.9824 / 1.0000 | 0.3 / 25.3* |
 | tubes (24) | q 0 | 5969 / 0 | 20 / 0 | 20 / 0 | 1 / 4 | 0.239 / 0.933 | 0.2055 / 0.0229 | 0.3 / 3.4* |
@@ -142,7 +142,8 @@ dotnet run -c Release --project benchmarks/RemeshQualityBenchmark -- runs=1 base
 | thingi (20) | q 0.2, check from pass 15 | 3105 / 2411 | 17 / 16 | 17 / 16 | 204 / 204 | 1.017 / 1.003 | 0.7205 / 0.7196 | 10.9 / 19.6 |
 
 \* measured before the parallel first round of the move check (the results are the same, the times about a
-quarter lower now: q 0.2 thingi 262.2 -> 193.5 s, primitives 154.7 -> 113.3 s).
+quarter lower now: q 0.2 thingi 262.2 -> 193.5 s, primitives 154.7 -> 113.3 s). The q 0.2 rows are from after the
+review fix (flips re-checked after reverted moves), which changed a few results (thingi mean Hausdorff 0.960 -> 0.949).
 
 - **Every result whose input is free of self-intersections is free of them** (all procedural cases, 15 of the 20
   Thingi10K meshes). The pairs that remain are in the 5 Thingi10K meshes whose input already intersects itself
@@ -153,7 +154,7 @@ quarter lower now: q 0.2 thingi 262.2 -> 193.5 s, primitives 154.7 -> 113.3 s).
   with q 0.2 the blocked operations leave more flat triangles (204 -> 284; 4 meshes worse). On the tubes (walls far
   below the edge length) the folds are blocked rather than avoided: no pairs, but F 0.1 % 0.046 -> 0.019 and the
   Hausdorff distance 0.31 -> 1.0 target. Those inputs need thickness-aware sizing (`docs/ROADMAP.md`).
-- **Cost:** in total 18x on Thingi10K (per mesh median 12x, up to 33x), 18x on the primitives, 35x on the gears. Profiled
+- **Cost:** in total 17x on Thingi10K (per mesh median 13x, up to 29x), 17x on the primitives, 31x on the gears. Profiled
   on 1043471 (20k triangles, CAD-like): about 18 exact pair tests per changed triangle, nearly all against neighbours
   that share a vertex; on flat faces these neighbours are coplanar and `Orient3d` has to reach its exact stage to
   return 0. The edge operations (serial) take about 60 % of the check's time. Tried:

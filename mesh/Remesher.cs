@@ -119,8 +119,8 @@ namespace g3 {
         /// Not guarded: EnableSmoothInPlace, and in RegionRemesher the rest of the base mesh (only the region is
         /// checked). The first round of the move check finds candidates with DMeshAABBTree3, whose boxes are padded
         /// by an absolute 6e-6: for coordinates beyond about 1e10 a touching pair can be missed there (the later
-        /// rounds use the exact grid boxes). Rejections are counted in SelfIntersectionsRejected. Expensive: with the g3cli remesh settings about 18x the time on Thingi10K
-        /// (10.7 -> 193.5 s for 20 meshes; mostly the exact tests of neighbouring triangles), see
+        /// rounds use the exact grid boxes). Rejections are counted in SelfIntersectionsRejected. Expensive: with the g3cli remesh settings about 17x the time on Thingi10K
+        /// (11.3 -> 195.7 s for 20 meshes; mostly the exact tests of neighbouring triangles), see
         /// benchmarks/RemeshQualityBenchmark. Thin walls far below the edge length stay intersection-free but end
         /// far from the input (the folds are blocked, not avoided).
         /// </summary>

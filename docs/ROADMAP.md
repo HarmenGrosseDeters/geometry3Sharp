@@ -165,7 +165,7 @@ Open tasks further up, and work further down, in the code or in the research lis
   Opt-in: `Remesher.PreventSelfIntersections` (also `RemesherPro`): an exact check of every collapse, flip, split and
   smoothing / projection move against a triangle grid. Every result whose input is free of self-intersections is
   free of them (all 192 procedural cases, 15 of 20 Thingi10K meshes; the other 5 inputs intersect themselves), at
-  about 18x the time (`benchmarks/RemeshQualityBenchmark`, PreventSelfIntersections). Open: the cost (a clearance
+  about 17x the time (`benchmarks/RemeshQualityBenchmark`, PreventSelfIntersections). Open: the cost (a clearance
   filter; the 2D shortcut for coplanar neighbours, about -30 % on CAD meshes, after the
   `ExactTriangleIntersection` fix of stage R), and the thin walls, where the check blocks the folds but the result
   ends far from the input (next item).
