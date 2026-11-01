@@ -1,6 +1,6 @@
-# Faster candidate pair search in the exact arrangement (design, for approval)
+# Faster candidate pair search in the exact arrangement
 
-Status: **design, not yet implemented.** Tier L ([AGENT_WORKFLOW.md](../AGENT_WORKFLOW.md)): the owner approves this
+Status: **step A implemented and kept; B dropped; C not built** (section 6). Tier L ([AGENT_WORKFLOW.md](../AGENT_WORKFLOW.md)): the owner approves this
 document first; step B adds an error bound, which gets an independent review. Stacked on #223
 ([FIXED_WIDTH_EXACT_POINTS.md](FIXED_WIDTH_EXACT_POINTS.md)).
 
@@ -149,3 +149,17 @@ precomputed") and reverted.
 gain of at most 1-2 % is expected, below the bar. The lever the measurements point to is the memory layout of the
 triangles (struct arrays instead of objects; item 5 of [FIXED_WIDTH_EXACT_POINTS.md](FIXED_WIDTH_EXACT_POINTS.md),
 section 12).
+
+**Step C: not built.** After B, two more measurements:
+- **Layout probe** (the pair tests on flat arrays of corners and flags instead of the `InputTriangle` objects,
+  4 cores, two rounds): pair phase `cgal` 3196 / 3212 -> 3024 / 2830 ms, Thingi10K 3325 / 3286 -> 3177 / 3162 ms,
+  1-2 % of the total.
+- **The exact stages of `Orient3d`** (stats build, then a serial probe): on `cgal` 7.7M exact stages (7.0M of them
+  with result 0: coplanar neighbours), 2.07 s = 7.0 % of the serial time, 268 ns each; Thingi10K 7.0M, 6.0 %;
+  `cherchi` almost none. A determinant of the integer differences in the general `FixedArith` costs about the same
+  (270 ns against 290 ns in a microbenchmark of exactly coplanar points), so only a specialized kernel would help.
+
+So the pair tests are neither arithmetic- nor layout-bound to an extent that C or struct arrays would clear the bar;
+the remaining lever is the exact coplanar case, ranked first in section 0 of
+[perf/EXACT_BOOLEAN_PERFORMANCE.md](../perf/EXACT_BOOLEAN_PERFORMANCE.md). The performance track pauses here at the
+owner's decision.

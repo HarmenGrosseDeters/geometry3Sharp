@@ -10,6 +10,50 @@ from it without the earlier context. Its sources:
   there.
 - **Scripts:** [benchmarks/BooleanComparison/perf/](../../benchmarks/BooleanComparison/perf/).
 
+## 0. State in November 2026 (after #223 and #248): start here
+
+The two PRs after this hand-over was written, against the head of #222, measured with `perf/run_classes.sh` (two
+alternating rounds, 4 cores, warm) and `perf/exact_hashes.sh` (0 differences in all 263 runs):
+
+| change | `cherchi` | `cgal` | Thingi10K | n-ary | doc |
+|---|---|---|---|---|---|
+| exact points in fixed width (#223) | −8 % | −8 % | −11 % | −26 % (grid 10 −24.8 %) | [design/FIXED_WIDTH_EXACT_POINTS.md](../design/FIXED_WIDTH_EXACT_POINTS.md) |
+| self-join of the box tree (#248) | ±1 % | −9 % | −7 % | noise | [design/PAIR_SEARCH.md](../design/PAIR_SEARCH.md) |
+
+**Where the time is now** (serial, one thread on one core, see "Where the time goes" below; `cgal` / Thingi10K /
+`cherchi`):
+- pair search 50 / 48 / 39 % before #248, almost all of it within one mesh (`SelfIntersections`);
+- all exact work (constructions plus exact predicate stages) 10.4 / 12.9 / 10.9 %, n-ary 41 %;
+- the exact stages of the adaptive `Orient3d` (coplanar neighbours in CAD meshes, 90 % with result 0) 7.0 / 6.0 % /
+  0 %, about 250 ns each;
+- GC 5-11 % serially (13-23 % of the wall time on 4 cores).
+
+**Measured and dropped:**
+- precomputed plane terms in `Orient3d` (#248 step B): 0 %. The filter's arithmetic is about 20 ns of the 100-270 ns
+  per pair test;
+- flat arrays instead of the `InputTriangle` objects in the pair tests (a probe): −4..−9 % of the pair phase, 1-2 %
+  of the total;
+- chunks on the pinned object heap (#223): no gain;
+- generated fixed-shape kernels on the fixed-width points (the predicate-compiler session): no gain.
+
+**Remaining candidates, with measured upper bounds (ranked):**
+1. A fast exact kernel "point against triangle plane" for input points (integer grid, the plane in fixed width,
+   unrolled for 1-2 limbs), plus an exact shortcut for coplanar neighbours sharing an edge (one `orient2d` in a
+   projection instead of `IntersectsBeyondShared`). Bound: 7 / 6 % serially on `cgal` / Thingi10K for the exact
+   stages, plus part of `IntersectsBeyondShared` (2.8 s of 32 s on `cgal`); expected 4-6 % on 4 cores. Builds on
+   "planes in fixed width" (FIXED_WIDTH_EXACT_POINTS.md, section 12). The general `FixedArith` is too slow for this
+   (270 ns on 1-limb values, the same as the adaptive exact stage): it needs a specialized kernel.
+2. Cheaper constructions (implicit points built in fixed width, gcd on limbs; the centroid gcd): bound 5-8 % serially
+   (the constructions outside the exact stages), n-ary more.
+3. The pair search within a mesh as a problem: an option for inputs known to be free of self-intersections (up to
+   about 45 % serially, but a weaker guarantee, so an owner decision), caching a mesh's own pairs across booleans
+   (exact, helps chained and n-ary booleans), or testing a vertex fan as a whole (research).
+4. Orientations reused in a variant of `IntersectsBeyondShared` (#248 step C, not built): at most 1-2 %.
+5. Struct arrays / CSR for the per-triangle data (idea 5): 1-2 % on the pair search measured; more on the GC of
+   large inputs, not measured.
+6. Indirect predicates: they would save part of the 10-13 % exact work on the real-world classes, net estimated 2-6 %;
+   up to 40 % on n-ary grids. The compiler session has tested kernels, not wired in.
+
 ## 1. Current profile
 
 State: master after #181 plus #183. Warm runs: the booleans run in one process after a warm-up, the best of 3
@@ -230,7 +274,7 @@ was measured as a whole; the effects of its single changes were not separated, e
 
 Expected gain against effort. Each comes with its evidence and its risks.
 
-**1. Exact arithmetic without `BigInteger` (fixed width), building on `Int384` and the collinear shortcut.**
+**1. Exact arithmetic without `BigInteger` (fixed width), building on `Int384` and the collinear shortcut.** (Done for the exact points in #223; the planes are still `BigInteger`, see section 0.)
 - *Evidence:*
   - n-ary: 30 % classification, 31 % triangulation and 32 % GC are `BigInteger` work (cocircular and coincident
     grid points).
@@ -263,7 +307,7 @@ Expected gain against effort. Each comes with its evidence and its risks.
   BSD may be ported).
 - *Effort:* very high; gain: the largest.
 
-**3. Pair search within a mesh** (cgal / Thingi 29-30 % of the time).
+**3. Pair search within a mesh** (cgal / Thingi 29-30 % of the time). (The self-join is done in #248; the rest is ranked in section 0.)
 - *Evidence* on bunny 200k + cow 200k: of 170 ms, the box queries of each triangle in its own mesh take about
   65 ms. The exact tests of the 2.4M overlapping pairs take about 90 ms. Of the pairs, 1.84M share a vertex, 0.6M
   an edge, and 120k reach `ExactTriangleIntersection.IntersectsBeyondShared`, which is 17 % of `cgal/fandisk`.

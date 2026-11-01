@@ -8,7 +8,7 @@
     "mutate": [
       "**/mesh_ops/ExactMeshArrangement.cs{58782..1000000}"
     ],
-    "test-case-filter": "FullyQualifiedName~ExactFilterBoundTests|FullyQualifiedName~ExactArrangementScalingTests|FullyQualifiedName~ExactMeshBooleanTests|FullyQualifiedName~ExactBooleanEdgeOrderTests|FullyQualifiedName~ExactBooleanBuildingBlockTests|FullyQualifiedName~MeshRoundingRepairTests.ExactVertices|FullyQualifiedName~BooleanPerformanceTests|FullyQualifiedName~ExactImplicitPointTests|FullyQualifiedName~ExactPoint3FixedWidthTests",
+    "test-case-filter": "FullyQualifiedName~ExactFilterBoundTests|FullyQualifiedName~ExactArrangementScalingTests|FullyQualifiedName~ExactMeshBooleanTests|FullyQualifiedName~ExactBooleanEdgeOrderTests|FullyQualifiedName~ExactBooleanBuildingBlockTests|FullyQualifiedName~MeshRoundingRepairTests.ExactVertices|FullyQualifiedName~BooleanPerformanceTests|FullyQualifiedName~ExactImplicitPointTests|FullyQualifiedName~ExactPoint3FixedWidthTests|FullyQualifiedName~ExactBooleanPairSearchTests",
     "ignore-methods": [
       "*PredicateStats.*"
     ],
