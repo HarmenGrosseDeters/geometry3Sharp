@@ -4,6 +4,27 @@ geometry3Sharp is under the Boost Software License. New code in this fork is wri
 no code is taken over from other libraries unless it is under a compatible permissive license and named here.
 Code under the GPL or LGPL (eg CGAL) is never used as a source.
 
+## 2D loose quadtree (`LooseQuadtree2d`, point / segment / triangle adapters)
+
+Clean-room implementation from [QUADTREE2D_SPEC.md](design/QUADTREE2D_SPEC.md) and published
+spatial-indexing concepts; no code copied or inspected from the owner's index, Triangle or Triangle.NET.
+
+| Part | Source |
+|---|---|
+| Loose cells for extended objects; hierarchical spatial indexing | H. Samet, J. Sankaranarayanan, M. Auerbach, *Indexing methods for moving object databases*, SIGMOD 2013, [doi:10.1145/2463676.2465332](https://doi.org/10.1145/2463676.2465332); H. Samet, *Foundations of Multidimensional and Metric Data Structures*, 2006 |
+| Closed segment–box interval clipping | Y.-D. Liang, B. A. Barsky, *A New Concept and Method for Line Clipping*, ACM TOG 1984 |
+| Distance lower-bound pruning for nearest-neighbour search | N. Roussopoulos, S. Kelley, F. Vincent, *Nearest Neighbor Queries*, SIGMOD 1995 |
+| Exact XY containment / segment intersection signs | Existing `ExactPredicates.Orient2d` (Shewchuk 1997; see below); no new orientation arithmetic filter or error bound |
+| Ambiguous clipping; overflow-distance ordering; range-loss construction fallbacks | Own rational arithmetic on binary64 coordinates represented as integers in units of 2^-1074; interval comparison by cross multiplication, squared point/segment distances, affine determinants and exact squared-midpoint rounding for subnormal distances. No external implementation inspected |
+
+The procedural benchmark compares against independent brute-force scans and the public STRtree and Quadtree APIs of
+[NetTopologySuite 2.6.0](https://www.nuget.org/packages/NetTopologySuite/2.6.0). It is a pinned benchmark/test-only
+NuGet dependency, not a geometry3Sharp library dependency or a source for the clean-room index.
+The [release license](https://github.com/NetTopologySuite/NetTopologySuite/blob/v2.6.0/License.md) is BSD-3-Clause;
+its JTS-derived content is available under the permissive BSD-style Eclipse Distribution License option.
+Only public API documentation and licensing were consulted; no implementation was ported. Ordinary-coordinate
+benchmark predicates and comparison limits are documented in the [benchmark README](../benchmarks/QuadtreeBenchmark/README.md).
+
 ## Exact mesh booleans (`ExactMeshBoolean`, `ExactMeshArrangement`, `ExactPlanarSimplify`, `ExactTriangulation2`, `ExactPoint3`, `ExactPredicates`)
 
 Implemented from the papers, no code taken over.
@@ -236,6 +257,20 @@ referenced by `tests/geometry3Sharp.Tests` on net10.0 only with `PrivateAssets="
 in `ExactBooleanPropertyTests.CsCheck.cs`. No code is copied from it and it is not a dependency of the library
 package. 4.9.1 (2026-09-17, targets net8.0) rather than 5.0.0, which was a week old when it was added (2026-10-24).
 
+## 2D meshing (`DelaunayMesh2`, `TriangulationMesh2`)
+
+Clean room ([MESHING2D_SPEC.md](design/MESHING2D_SPEC.md)): implemented from the papers below. Triangle and Triangle.NET were not looked at.
+
+| Part | Source |
+|---|---|
+| Incremental Delaunay triangulation by cavities | A. Bowyer, *Computing Dirichlet tessellations*, The Computer Journal 1981; D. F. Watson, *Computing the n-dimensional Delaunay tessellation with application to Voronoi polytopes*, The Computer Journal 1981 |
+| Ghost triangles at a vertex at infinity instead of a supertriangle; their conflict rule | S.-W. Cheng, T. K. Dey, J. R. Shewchuk, *Delaunay Mesh Generation*, CRC Press 2012, chapter 3 |
+| Insertion order: biased randomized insertion rounds, each along a space-filling curve | N. Amenta, S. Choi, G. Rote, *Incremental constructions con BRIO*, SoCG 2003; D. Hilbert, *Über die stetige Abbildung einer Linie auf ein Flächenstück*, Math. Annalen 1891; A. R. Butz, *Alternative algorithm for Hilbert's space-filling curve*, IEEE Trans. Computers 1971 |
+| Point location by a visibility walk with a randomized edge order; jump-and-walk for queries | O. Devillers, S. Pion, M. Teillaud, *Walking in a triangulation*, IJFCS 2002; E. P. Mücke, I. Saias, B. Zhu, *Fast randomized point location without preprocessing in two- and three-dimensional Delaunay triangulations*, SoCG 1996 |
+| Local Delaunay criterion (verification); the Delaunay subdivision and its cells with cocircular points (tie rule) | C. L. Lawson, *Software for C1 surface interpolation*, 1977; B. Delaunay, *Sur la sphère vide*, 1934 |
+| Exact predicates | `ExactPredicates.Orient2d`, `InCircle` (see above) |
+| Pseudorandom numbers (insertion rounds, walk) | SplitMix64 (Steele, Lea, Flood, OOPSLA 2014); xorshift (G. Marsaglia, *Xorshift RNGs*, J. Stat. Software 2003) |
+
 ## Build-time analyzers (`BannedSymbols.txt`, `tools/analyzers/G3ExactCodeAnalyzers`)
 
 Build-time only, not shipped in the package. `Microsoft.CodeAnalysis.BannedApiAnalyzers` (MIT, NuGet) enforces the
@@ -243,6 +278,13 @@ banned APIs in the exact code; the analyzers G3E0001-3 (float, parallel loops, F
 MIT).
 
 ## Benchmarks
+
+`benchmarks/Meshing2Benchmark` is the acceptance harness of the 2D mesher (`docs/design/MESHING2D_PLAN.md`). NetTopologySuite 2.6.0
+(BSD-3-Clause) is its black-box reference for the M1 differential, in that project only. Its oracle (`Oracle/`) is written from
+definitions: empty circumcircles and the local Delaunay criterion (B. Delaunay 1934; C. L. Lawson 1977; D. T. Lee, A. K. Lin,
+*Generalized Delaunay triangulation for planar graphs*, 1986; L. P. Chew, *Constrained Delaunay triangulations*, 1989), and
+monotone chain hulls (A. M. Andrew 1979). Its random source is SplitMix64 (G. L. Steele, D. Lea, C. H. Flood, *Fast splittable
+pseudorandom number generators*, OOPSLA 2014). Triangle and Triangle.NET were not looked at; `MESHING2D_GOLDEN_FORMAT.md` defines how a separate session may compare with them as black boxes.
 
 `benchmarks/BooleanComparison` runs CGAL (GPL), Cherchi et al. (MIT) and Manifold (Apache-2.0) as separate
 programs for comparison only. The driver `external/cgal_bool.cpp` links against CGAL; compiled, it falls under
