@@ -55,7 +55,14 @@ Limits on parallel work:
 Order when slots free up (owner, 2026-11-01; on that day 4 large and 2 medium sessions ran, above the limit below):
 
 1. Remesher done (medium): not replaced.
-2. Stage R done and the milestone "ExactMeshBoolean 1.0" reached: **Terrain 1a** (large), with the NoData guard of
+2. Stage R done and the milestone "ExactMeshBoolean 1.0" reached: first a **MeshRepair wrap-resolution session**
+   (medium, owner 2026-11-01): in the MeshRepair-400 worst case, `wrap.simplify` takes 24 % of the time on 17 meshes,
+   because tiny inputs (450-650 triangles) are wrapped at 180k-415k triangles (resolution from the bounding box, not
+   the input); couple alpha / offset to the input, start coarser, or speed up the simplifier, under the F-score and
+   fidelity gates (data: `benchmarks/MeshRepairBenchmark/cases/robust_phases_2026-11-01.csv`). It precedes stage 7b
+   (alpha wrap quality). The volume checks (20 % of the time, all 400 meshes) go to the self-intersection session after
+   #261; the slow `exact.resolve` on small inputs (67709, 42327) goes to the boolean-performance session as a diagnosis.
+   Then **Terrain 1a** (large), with the NoData guard of
    `TerrainSafetyLines` (a single vertex such as z = −9999 near a source refines until memory runs out; count the band's
    3D area, not only the horizontal one).
 3. Meshing done (large): the **stage 6b provenance check** (medium, report only), after M3 is merged.
