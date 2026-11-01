@@ -42,6 +42,10 @@ dotnet test tests/g3cli.Tests -c Release
 dotnet pack geometry3Sharp_netstandard.csproj -c Release -o <dir> -p:Version=1.0.0-ci.1
 dotnet run --project tests/PackageSmokeTest -c Release -p:G3PackageVersion=1.0.0-ci.1 -p:G3PackageSource=<dir> -- <dir>/geometry3Sharp.1.0.0-ci.1.nupkg
 dotnet build tests/geometry3Sharp.Tests -c Release -f net48 -p:TestNet48=true
+dotnet test tests/geometry3Sharp.Clipper2.Tests -c Release
+dotnet pack addons/geometry3Sharp.Clipper2/geometry3Sharp.Clipper2.csproj -c Release -o <dir> -p:Version=1.0.0-ci.1
+dotnet run --project tests/Clipper2PackageSmokeTest -c Release -p:G3PackageVersion=1.0.0-ci.1 -p:G3PackageSource=<dir> -- <dir>/geometry3Sharp.Clipper2.1.0.0-ci.1.nupkg
+dotnet build tests/geometry3Sharp.Clipper2.Tests -c Release -f net48 -p:TestNet48=true
 dotnet build benchmarks/<each>/<each>.csproj -c Release
 ```
 
@@ -49,7 +53,9 @@ Draft PRs and spikes: before a push, build the library for all targets (net10.0,
 project, and run the tests of the changed areas (`dotnet test --filter ...`). The full list above runs before the PR
 is marked ready for review; the CI of every push runs it on GitHub anyway.
 
-Every push gets a PR; watch its CI and fix red CI right away.
+Every push gets a PR; watch its CI and fix red CI right away. CI runs on pull requests and on master only (a branch
+without a PR, or a PR with a merge conflict, which GitHub does not run: resolve the conflict, or start it with
+`workflow_dispatch`), and a new push cancels the PR's run under way.
 
 ## Review before every merge
 

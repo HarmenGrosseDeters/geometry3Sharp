@@ -1,12 +1,21 @@
 name: CI
 
 on:
-  # docs-only changes skip CI (CLAUDE.md, "Before every push")
+  # docs-only changes skip CI (CLAUDE.md, "Before every push"). Branches other than master run through their pull
+  # request only: a push trigger there too ran every PR push twice. A branch without a PR: workflow_dispatch.
   push:
+    branches: [master]
+    tags: ['**']
     paths-ignore: ['**/*.md']
   pull_request:
     paths-ignore: ['**/*.md']
   workflow_dispatch:
+
+# a new push to the same PR (or branch) cancels the run under way. Each master commit gets its own group, so that
+# every run on master finishes (a shared group would also drop a pending run)
+concurrency:
+  group: ci-${{ github.event.pull_request.number || (github.ref == 'refs/heads/master' && github.sha) || github.ref }}
+  cancel-in-progress: true
 
 env:
   DOTNET_NOLOGO: true
@@ -28,13 +37,22 @@ jobs:
         run: dotnet test tests/geometry3Sharp.Tests -c Release --logger "trx;LogFileName=net10.trx" --results-directory test-results
       - name: Test CLI / MCP server (tools/g3cli)
         run: dotnet test tests/g3cli.Tests -c Release --logger "trx;LogFileName=g3cli.trx" --results-directory test-results
+      - name: Test the Clipper2 package (addons/geometry3Sharp.Clipper2)
+        run: dotnet test tests/geometry3Sharp.Clipper2.Tests -c Release --logger "trx;LogFileName=clipper2.trx" --results-directory test-results
       - name: Pack
         run: dotnet pack geometry3Sharp_netstandard.csproj -c Release -o artifacts -p:Version=1.0.0-ci.${{ github.run_number }}
+      - name: Pack the Clipper2 package
+        run: dotnet pack addons/geometry3Sharp.Clipper2/geometry3Sharp.Clipper2.csproj -c Release -o artifacts -p:Version=1.0.0-ci.${{ github.run_number }}
       - name: Package smoke test
         run: >
           dotnet run --project tests/PackageSmokeTest -c Release
           -p:G3PackageVersion=1.0.0-ci.${{ github.run_number }} -p:G3PackageSource=${{ github.workspace }}/artifacts
           -- artifacts/geometry3Sharp.1.0.0-ci.${{ github.run_number }}.nupkg
+      - name: Clipper2 package smoke test
+        run: >
+          dotnet run --project tests/Clipper2PackageSmokeTest -c Release
+          -p:G3PackageVersion=1.0.0-ci.${{ github.run_number }} -p:G3PackageSource=${{ github.workspace }}/artifacts
+          -- artifacts/geometry3Sharp.Clipper2.1.0.0-ci.${{ github.run_number }}.nupkg
       - name: Build the benchmarks
         run: for p in benchmarks/*/*.csproj; do dotnet build "$p" -c Release -f net10.0 || exit 1; done
       - name: Acceptance gates of the 2D mesher (oracle self-check, differential against NetTopologySuite, golden rows)
@@ -71,6 +89,8 @@ jobs:
           dotnet-version: 10.0.x
       - name: Test (net48 / netstandard2.0)
         run: dotnet test tests/geometry3Sharp.Tests -c Release -f net48 --logger "trx;LogFileName=net48.trx" --results-directory test-results
+      - name: Test the Clipper2 package (net48 / netstandard2.0)
+        run: dotnet test tests/geometry3Sharp.Clipper2.Tests -c Release -f net48 --logger "trx;LogFileName=clipper2-net48.trx" --results-directory test-results
       - name: Benchmark reporting regression (MeshRepairBenchmark)
         shell: powershell
         run: benchmarks/MeshRepairBenchmark/test_validity_reporting.ps1

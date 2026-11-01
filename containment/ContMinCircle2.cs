@@ -5,382 +5,178 @@ using System.Text;
 
 namespace g3
 {
-    // ported from WildMagic5 MinCircle2. 
-    // Compute the minimum area circle containing the input set of points.  The
-    // algorithm randomly permutes the input points so that the construction
-    // occurs in 'expected' O(N) time.
-
-
     /// <summary>
-    /// Fit minimal bounding-circle to a set of 2D points 
+    /// Fit minimal bounding-circle to a set of 2D points.
+    /// Incremental construction in random order (Welzl 1991, written as three nested loops), expected O(N), on the points
+    /// translated to the first one and scaled by a power of two of their extent. So the decisions depend on neither the
+    /// position nor the size of the set, and any finite coordinates work. One limit: with a coordinate at or above 2^1021,
+    /// all coordinates are first divided by 4, which rounds away the last two units of a subnormal coordinate in that set.
+    /// The radius is up to about 16 eps of the extent above the minimal one, plus the rounding of the center to a coordinate.
+    /// Circle2d.Contains is true for every input point, as long as the radius is above about 1e-150: below that, squared
+    /// distances lose bits as subnormal numbers (and from about 1e-162 they are 0, so Contains is simply true).
+    /// A radius above the double range is +Infinity.
+    /// The same input gives the same bits (fixed seed). Scaling the input by a power of two scales the result by it, bit
+    /// for bit, unless a subnormal coordinate rounds in that scaling.
     /// </summary>
     public class ContMinCircle2
     {
+        // how far outside a point counts as inside, in the scaled coordinates (the largest is in [1, 2)): only the rounding of a circle
+        const double RoundingSlack = 16 * MathUtil.Epsilon;
+        const double DefaultEpsilon = 1e-05;
+        // 2^1021: below this, the difference of two coordinates does not overflow
+        const double LargeCoordinate = 2.2471164185778949e307;
+
         double mEpsilon;
-        Func<int, int[], Support, Circle>[] mUpdate = new Func<int, int[], Support, Circle>[4];
-
-        IList<Vector2d> Points;
-
-        Circle[] circle_buf = new Circle[6];
+        internal long ContainsTests;    // for the complexity test
 
         public Circle2d Result;
 
+        /// <param name="epsilon">Dimensionless (it was an absolute squared length in upstream): three points are treated as
+        /// collinear if the sine of their triangle's largest angle is at most this, and the circle over their longest edge
+        /// is used. Below about 0.866 this takes only obtuse triangles, for which that circle is the minimal one. From about
+        /// 0.866 (the sine of 60 degrees, the least that the largest angle of an acute triangle can have) it also takes acute
+        /// triangles: the result still contains every point but is not minimal, with no error or status, which is what an
+        /// upstream caller gets who passes a large absolute epsilon. Negative or NaN mean the default.</param>
         public ContMinCircle2(IList<Vector2d> pointsIn, double epsilon = 1e-05) {
-            mEpsilon = epsilon;
-
-            mUpdate[0] = null;
-            mUpdate[1] = UpdateSupport1;
-            mUpdate[2] = UpdateSupport2;
-            mUpdate[3] = UpdateSupport3;
-
-            Circle minimal;
-
-            Support support = new Support();
-            double distDiff = 0;
-
-            Points = pointsIn;
+            mEpsilon = (epsilon >= 0) ? epsilon : DefaultEpsilon;
             int numPoints = pointsIn.Count;
-
-            int[] permutation = null;
-            Random r = new Random();
-
-            if (numPoints >= 1) {
-                // Create identity permutation (0,1,..,numPoints-1).
-                permutation = new int[numPoints];
-                for (int i = 0; i < numPoints; ++i) {
-                    permutation[i] = i;
-                }
-
-                // Generate random permutation.
-                for (int i = numPoints - 1; i > 0; --i) {
-                    int j = r.Next() % (i + 1);
-                    if (j != i) {
-                        int save = permutation[i];
-                        permutation[i] = permutation[j];
-                        permutation[j] = save;
-                    }
-                }
-
-                minimal = new Circle( Points[permutation[0]], 0 );
-                support.Quantity = 1;
-                support.Index[0] = 0;
-
-                // The previous version of the processing loop is
-                //  i = 1;
-                //  while (i < numPoints)
-                //  {
-                //      if (!support.Contains(i, permutation, mEpsilon))
-                //      {
-                //          if (!Contains(*permutation[i], minimal, distDiff))
-                //          {
-                //              UpdateFunction update = mUpdate[support.Quantity];
-                //              Circle circle = (this->*update)(i, permutation,
-                //                  support);
-                //              if (circle.Radius > minimal.Radius)
-                //              {
-                //                  minimal = circle;
-                //                  i = 0;
-                //                  continue;
-                //              }
-                //          }
-                //      }
-                //      ++i;
-                //  }
-                // This loop restarts from the beginning of the point list each time
-                // the circle needs updating.  Linus Källberg (Computer Science at
-                // Mälardalen University in Sweden) discovered that performance is
-                // better when the remaining points in the array are processed before
-                // restarting.  The points processed before the point that caused the
-                // update are likely to be enclosed by the new circle (or near the
-                // circle boundary) because they were enclosed by the previous circle.
-                // The chances are better that points after the current one will cause
-                // growth of the bounding circle.
-                for (int i = 1 % numPoints, n = 0; i != n; i = (i + 1) % numPoints) {
-                    if (!support.Contains(i, Points, permutation, mEpsilon)) {
-                        if (!Contains(Points[permutation[i]], ref minimal, ref distDiff)) {
-                            var updateF = mUpdate[support.Quantity];
-                            Circle circle = updateF(i, permutation, support);
-                            if (circle.Radius > minimal.Radius) {
-                                minimal = circle;
-                                n = i;
-                            }
-                        }
-                    }
-                }
-
-
-            } else {
+            if (numPoints < 1)
                 throw new Exception("ContMinCircle2: Input must contain points\n");
+
+            double maxCoord = 0;
+            for (int i = 0; i < numPoints; ++i) {
+                Vector2d point = pointsIn[i];
+                if (MathUtil.IsFinite(point.x) == false || MathUtil.IsFinite(point.y) == false)
+                    throw new ArgumentException("ContMinCircle2: non-finite point " + i);
+                maxCoord = Math.Max(maxCoord, Math.Max(Math.Abs(point.x), Math.Abs(point.y)));
             }
 
-            Result = new Circle2d(minimal.Center, Math.Sqrt(minimal.Radius));
+            // Relative to the first point (the difference of the largest coordinates would overflow, so those go down by
+            // 4 first), and scaled by a power of two of the extent. A difference rounds by at most eps of itself.
+            int preShift = (maxCoord >= LargeCoordinate) ? -2 : 0;
+            Vector2d origin = pointsIn[0];
+            Vector2d[] p = new Vector2d[numPoints];
+            double extent = 0;
+            for (int i = 0; i < numPoints; ++i) {
+                p[i] = Difference(pointsIn[i], origin, preShift, 0);
+                extent = Math.Max(extent, Math.Max(Math.Abs(p[i].x), Math.Abs(p[i].y)));
+            }
+            if (extent == 0) {
+                Result = new Circle2d(origin, 0);
+                return;
+            }
+            int shift = Exponent(extent);
+            for (int i = 0; i < numPoints; ++i)
+                p[i] = new Vector2d(ExactPoint3.ScaleB(p[i].x, -shift), ExactPoint3.ScaleB(p[i].y, -shift));
+
+            // in random order (fixed seed: the rounding of the result depends on the order, and it must not vary between runs)
+            Random r = new Random(31337);
+            for (int i = numPoints - 1; i > 0; --i) {
+                int j = r.Next() % (i + 1);
+                Vector2d save = p[i];
+                p[i] = p[j];
+                p[j] = save;
+            }
+
+            Vector2d center = p[0];
+            double radiusSqr = 0;
+            for (int i = 1; i < numPoints; ++i) {
+                if (Contains(p[i], center, radiusSqr))
+                    continue;
+                // p[i] is on the boundary of the minimal circle of p[0..i]
+                center = p[i];
+                radiusSqr = 0;
+                for (int j = 0; j < i; ++j) {
+                    // (the copy check is a defence, as below)
+                    if (Contains(p[j], center, radiusSqr) || p[j] == p[i])
+                        continue;
+                    // p[i] and p[j] are on the boundary of the minimal circle of p[0..j] and p[i]
+                    CircleOverEdge(p[i], p[j], out center, out radiusSqr);
+                    for (int k = 0; k < j; ++k) {
+                        // A copy of p[i] or p[j] is on this circle, so "outside" is only rounding. With it the three points
+                        // are collinear (det = 0), and the circle over their edge would drop the third point of the circle.
+                        // This is a defence: no input was found that reaches it at this slack, only at a slack of 4 eps.
+                        if (Contains(p[k], center, radiusSqr) == false && p[k] != p[i] && p[k] != p[j])
+                            CircleThrough(p[i], p[j], p[k], out center, out radiusSqr);
+                    }
+                }
+            }
+
+            Vector2d resultCenter = new Vector2d(
+                ExactPoint3.ScaleB(ExactPoint3.ScaleB(origin.x, preShift) + ExactPoint3.ScaleB(center.x, shift), -preShift),
+                ExactPoint3.ScaleB(ExactPoint3.ScaleB(origin.y, preShift) + ExactPoint3.ScaleB(center.y, shift), -preShift));
+
+            // No point stays outside by the rounding of the circle, or of its center to a coordinate. The root of d^2 can
+            // square to below d^2, and Circle2d.Contains compares the squares. Those are the same bits as in the input's
+            // coordinates, scaled, as long as they neither overflow nor are subnormal there.
+            double farthest = 0;
+            for (int i = 0; i < numPoints; ++i)
+                farthest = Math.Max(farthest, Difference(pointsIn[i], resultCenter, preShift, shift).LengthSquared);
+            double radius = Math.Sqrt(farthest);
+            while (radius * radius < farthest)
+                radius = BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(radius) + 1);
+            Result = new Circle2d(resultCenter, ExactPoint3.ScaleB(radius, shift - preShift));
         }
 
-        bool Contains(Vector2d point, ref Circle circle, ref double distDiff)
+        static Vector2d Difference(Vector2d a, Vector2d b, int preShift, int shift)
         {
-            Vector2d diff = point - circle.Center;
-            double test = diff.LengthSquared;
-
-            // NOTE:  In this algorithm, Circle2 is storing the *squared radius*,
-            // so the next line of code is not in error.
-            distDiff = test - circle.Radius;
-
-            return distDiff <= 0;
+            return new Vector2d(
+                ExactPoint3.ScaleB(ExactPoint3.ScaleB(a.x, preShift) - ExactPoint3.ScaleB(b.x, preShift), -shift),
+                ExactPoint3.ScaleB(ExactPoint3.ScaleB(a.y, preShift) - ExactPoint3.ScaleB(b.y, preShift), -shift));
         }
 
-
-
-        Circle ExactCircle2(ref Vector2d P0, ref Vector2d P1) {
-            return new Circle(
-                0.5 * (P0 + P1), 0.25 * P1.DistanceSquared(P0));
-        }
-        Circle ExactCircle2(Vector2d P0, ref Vector2d P1) {
-            return new Circle(
-                0.5 * (P0 + P1), 0.25 * P1.DistanceSquared(P0));
-        }
-
-
-        Circle ExactCircle3(ref Vector2d P0, ref Vector2d P1, ref Vector2d P2)
+        /// <summary> e with x in [2^e, 2^(e+1)), for finite x greater than 0 </summary>
+        static int Exponent(double x)
         {
-            Vector2d E10 = P1 - P0;
-            Vector2d E20 = P2 - P0;
+            if (x >= 2.2250738585072014e-308)
+                return (int)((BitConverter.DoubleToInt64Bits(x) >> 52) & 0x7FF) - 1023;
+            return (int)((BitConverter.DoubleToInt64Bits(x * 18446744073709551616.0) >> 52) & 0x7FF) - 1023 - 64;    // subnormal: times 2^64
+        }
 
-            Matrix2d A = new Matrix2d(E10.x, E10.y, E20.x, E20.y);
+        bool Contains(Vector2d point, Vector2d center, double radiusSqr)
+        {
+            ++ContainsTests;
+            double allowed = Math.Sqrt(radiusSqr) + RoundingSlack;
+            return point.DistanceSquared(center) <= allowed * allowed;
+        }
 
-            Vector2d B = new Vector2d(
-                ((double)0.5) * E10.LengthSquared,
-                ((double)0.5) * E20.LengthSquared);
+        static void CircleOverEdge(Vector2d a, Vector2d b, out Vector2d center, out double radiusSqr)
+        {
+            center = 0.5 * (a + b);
+            radiusSqr = 0.25 * a.DistanceSquared(b);
+        }
 
-            double det = A.m00 * A.m11 - A.m01 * A.m10;
-
-            if (Math.Abs(det) > mEpsilon) {
-                double invDet = ((double)1) / det;
-                Vector2d Q;
-                Q.x = (A.m11 * B.x - A.m01 * B.y) * invDet;
-                Q.y = (A.m00 * B.y - A.m10 * B.x) * invDet;
-
-                return new Circle(P0 + Q, Q.LengthSquared);
+        void CircleThrough(Vector2d a, Vector2d b, Vector2d c, out Vector2d center, out double radiusSqr)
+        {
+            double lab = a.DistanceSquared(b), lac = a.DistanceSquared(c), lbc = b.DistanceSquared(c);
+            // Based at the vertex opposite the longest edge: at the far end of a needle, the two edges are nearly parallel,
+            // and the center's error is eps * L / angle. That made the next point falsely "outside", which moved the circle
+            // to the wrong side (a radius 5% too large on tight clusters at the support points).
+            double longest = Math.Max(lab, Math.Max(lac, lbc));
+            Vector2d origin, u, v, edgeA, edgeB;
+            double lu, lv;
+            if (longest == lab) {
+                origin = c; u = a - c; v = b - c; lu = lac; lv = lbc; edgeA = a; edgeB = b;
+            } else if (longest == lac) {
+                origin = b; u = a - b; v = c - b; lu = lab; lv = lbc; edgeA = a; edgeB = c;
             } else {
-                return new Circle(Vector2d.Zero, double.MaxValue);
+                origin = a; u = b - a; v = c - a; lu = lab; lv = lac; edgeA = b; edgeB = c;
             }
-        }
-        Circle ExactCircle3(Vector2d P0, Vector2d P1, ref Vector2d P2) {
-            return ExactCircle3(ref P0, ref P1, ref P2);
-        }
-        Circle ExactCircle3(Vector2d P0, ref Vector2d P1, ref Vector2d P2) {
-            return ExactCircle3(ref P0, ref P1, ref P2);
-        }
-
-
-        Circle UpdateSupport1(int i, int[] permutation, Support support)
-        {
-            Vector2d P0 = Points[permutation[support.Index[0]]];
-            Vector2d P1 = Points[permutation[i]];
-
-            Circle minimal = ExactCircle2(ref P0, ref P1);
-            support.Quantity = 2;
-            support.Index[1] = i;
-
-            return minimal;
+            double det = u.x * v.y - u.y * v.x;
+            // |det| = sin(angle) * (the two edges at that angle), and the angle at this vertex is the largest.
+            // (mEpsilon >= 0, so det = 0 ends here and never in the division)
+            if (Math.Abs(det) <= mEpsilon * (Math.Sqrt(lu) * Math.Sqrt(lv))) {
+                CircleOverEdge(edgeA, edgeB, out center, out radiusSqr);
+                return;
+            }
+            double invDet = 0.5 / det;
+            Vector2d q = new Vector2d((v.y * lu - u.y * lv) * invDet, (u.x * lv - v.x * lu) * invDet);
+            center = origin + q;
+            radiusSqr = q.LengthSquared;
         }
 
 
-        static readonly int[,] type2_2 = new int[2, 2] 
-            { {0, /*2*/ 1}, {1, /*2*/ 0} };
-
-        Circle UpdateSupport2(int i, int[] permutation, Support support)
-        {
-            Vector2dTuple2 point = new Vector2dTuple2(
-                Points[permutation[support.Index[0]]],  // P0
-                Points[permutation[support.Index[1]]]   // P1
-            );
-            Vector2d P2 = Points[permutation[i]];
-
-            // Permutations of type 2, used for calling ExactCircle2(..).
-            int numType2 = 2;
-
-            // Permutations of type 3, used for calling ExactCircle3(..).
-            //int numType3 = 1;  // {0, 1, 2}
-
-            Circle[] circle = circle_buf;
-            int indexCircle = 0;
-            double minRSqr = double.MaxValue;
-            int indexMinRSqr = -1;
-            double distDiff = 0, minDistDiff = double.MaxValue;
-            int indexMinDistDiff = -1;
-
-            // Permutations of type 2.
-            int j;
-            for (j = 0; j < numType2; ++j, ++indexCircle)
-            {
-                circle[indexCircle] = ExactCircle2(point[type2_2[j,0]], ref P2);
-                if (circle[indexCircle].Radius<minRSqr)
-                {
-                    if (Contains(point[type2_2[j,1]], ref circle[indexCircle], ref distDiff)) {
-                        minRSqr = circle[indexCircle].Radius;
-                        indexMinRSqr = indexCircle;
-                    }
-                    else if (distDiff < minDistDiff)
-                    {
-                        minDistDiff = distDiff;
-                        indexMinDistDiff = indexCircle;
-                    }
-                }
-            }
-
-            // Permutations of type 3.
-            circle[indexCircle] = ExactCircle3(point[0], point[1], ref P2);
-            if (circle[indexCircle].Radius < minRSqr) {
-                minRSqr = circle[indexCircle].Radius;
-                indexMinRSqr = indexCircle;
-            }
-
-            // Theoreticaly, indexMinRSqr >= 0, but floating-point round-off errors
-            // can lead to indexMinRSqr == -1.  When this happens, the minimal sphere
-            // is chosen to be the one that has the minimum absolute errors between
-            // the sphere and points (barely) outside the sphere.
-            if (indexMinRSqr == -1)
-            {
-                indexMinRSqr = indexMinDistDiff;
-            }
-
-            Circle minimal = circle[indexMinRSqr];
-            switch (indexMinRSqr)
-            {
-            case 0:
-                support.Index[1] = i;
-                break;
-            case 1:
-                support.Index[0] = i;
-                break;
-            case 2:
-                support.Quantity = 3;
-                support.Index[2] = i;
-                break;
-            }
-
-            return minimal;
-        }
-
-
-        static readonly int[,] type2_3 = new int[3, 3] {
-                { 0, /*3*/ 1, 2}, { 1, /*3*/ 0, 2}, { 2, /*3*/ 0, 1} };
-        static readonly int[,] type3_3 = new int[3, 3] {
-                {0, 1, /*3*/ 2}, {0, 2, /*3*/ 1}, {1, 2, /*3*/ 0} };
-
-        Circle UpdateSupport3(int i, int[] permutation, Support support)
-        {
-            Vector2dTuple3 point = new Vector2dTuple3(
-                Points[permutation[support.Index[0]]],  // P0
-                Points[permutation[support.Index[1]]],  // P1
-                Points[permutation[support.Index[2]]]   // P2
-            );
-            Vector2d P3 = Points[permutation[i]];
-
-            // Permutations of type 2, used for calling ExactCircle2(..).
-            int numType2 = 3;
-
-
-            // Permutations of type 2, used for calling ExactCircle3(..).
-            int numType3 = 3;
-
-            Circle[] circle = circle_buf;
-            int indexCircle = 0;
-            double minRSqr = double.MaxValue;
-            int indexMinRSqr = -1;
-            double distDiff = 0, minDistDiff = double.MaxValue;
-            int indexMinDistDiff = -1;
-
-            // Permutations of type 2.
-            int j;
-            for (j = 0; j<numType2; ++j, ++indexCircle) {
-                circle[indexCircle] = ExactCircle2(point[type2_3[j, 0]], ref P3);
-                if (circle[indexCircle].Radius<minRSqr)
-                {
-                    if (Contains(point[type2_3[j,1]], ref circle[indexCircle], ref distDiff)
-                         &&  Contains(point[type2_3[j, 2]], ref circle[indexCircle], ref distDiff))
-                    {
-                        minRSqr = circle[indexCircle].Radius;
-                        indexMinRSqr = indexCircle;
-                    }
-                    else if (distDiff < minDistDiff)
-                    {
-                        minDistDiff = distDiff;
-                        indexMinDistDiff = indexCircle;
-                    }
-                }
-            }
-
-            // Permutations of type 3.
-            for (j = 0; j<numType3; ++j, ++indexCircle) {
-                circle[indexCircle] = ExactCircle3(point[type3_3[j, 0]], point[type3_3[j, 1]], ref P3);
-                if (circle[indexCircle].Radius < minRSqr)
-                {
-                    if (Contains(point[type3_3[j, 2]], ref circle[indexCircle], ref distDiff))
-                    {
-                        minRSqr = circle[indexCircle].Radius;
-                        indexMinRSqr = indexCircle;
-                    }
-                    else if (distDiff < minDistDiff)
-                    {
-                        minDistDiff = distDiff;
-                        indexMinDistDiff = indexCircle;
-                    }
-                }
-            }
-
-            // Theoreticaly, indexMinRSqr >= 0, but floating-point round-off errors
-            // can lead to indexMinRSqr == -1.  When this happens, the minimal circle
-            // is chosen to be the one that has the minimum absolute errors between
-            // the circle and points (barely) outside the circle.
-            if (indexMinRSqr == -1)
-            {
-                indexMinRSqr = indexMinDistDiff;
-            }
-
-            Circle minimal = circle[indexMinRSqr];
-            switch (indexMinRSqr)
-            {
-            case 0:
-                support.Quantity = 2;
-                support.Index[1] = i;
-                break;
-            case 1:
-                support.Quantity = 2;
-                support.Index[0] = i;
-                break;
-            case 2:
-                support.Quantity = 2;
-                support.Index[0] = support.Index[2];
-                support.Index[1] = i;
-                break;
-            case 3:
-                support.Index[2] = i;
-                break;
-            case 4:
-                support.Index[1] = i;
-                break;
-            case 5:
-                support.Index[0] = i;
-                break;
-            }
-
-            return minimal;
-        }
-
-
-
-        struct Circle {
-            public Vector2d Center;
-            public double Radius;
-            public Circle(Vector2d c, double radius) {
-                Center = c; Radius = radius;
-            }
-        }
-
-
-
-        // Indices of points that support current minimum area circle.
+        /// <summary> not used any more; kept for API compatibility with subclasses </summary>
         protected class Support
         {
             public bool Contains(int index, IList<Vector2d> Points, int[] permutation, double epsilon)
