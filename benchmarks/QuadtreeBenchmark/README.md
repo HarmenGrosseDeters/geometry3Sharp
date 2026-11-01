@@ -24,7 +24,7 @@ It prints CSV: one row per contender and operation. `triangle_over` builds witho
 - The NetTopologySuite builds include all envelopes and inserts, and `STRtree` an explicit `Build()`. They keep the source arrays, so they are not equivalent to `TriangleQuadtree2d`, which copies its triangles, unless built with `TriangleQuadtree2d.Over`.
 - NetTopologySuite has no tie rule for nearest items, and its `Quadtree` has no nearest query: both are built from range queries here, and that time counts. So its nearest rows do not measure a native operation.
 - Its range queries are primary filters: results are filtered afterwards, and that time counts.
-- Heights have zero tolerance and use one shared helper, on a terrain with disjoint interiors.
+- Heights have zero tolerance and use one shared helper, on a terrain with disjoint interiors. Row `height_tolerance` is the library's only: points 0.0005 outside the boundary of that terrain, at the default tolerance, so each pays for the search for an exact hit first.
 
 ## How to read the numbers
 
@@ -38,8 +38,8 @@ Counted rather than timed, so exact. The two rows on the 1M grid are a one-off c
 
 | Data | Before | Now |
 |---|---:|---:|
-| Point query on the 1M triangle grid, regions and items tested | 110 and 35 | 37 and 11 |
-| Rectangle 20 x 20 on the same grid, regions and items tested (30 hits) | 137 and 96 | 53 and 54 |
+| Point query on the 1M triangle grid, regions and items tested | 110 and 35 | 39 and 6 |
+| Rectangle 20 x 20 on the same grid, regions and items tested (30 hits) | 137 and 96 | 62 and 41 |
 | One row of a TIN, extent 100000 x 1, items of 100000 tested | 100000 | below 64 |
 | 20 km x 20 km, one point at (1e15, 1e15), items of 100000 tested | 100000 | at most 8 times the count without the point |
 
@@ -51,30 +51,33 @@ None of these is measured. Each would have to show its gain here first.
 
 - Storing the items in tree order, so that a query reads neighbouring memory. Queries would touch fewer cache lines, and removal gets harder.
 - A build by Morton order instead of cutting from the top. It may cost less on uniform data, and loose placement of large items does not map onto it directly.
-- Tuning the bucket size and the looseness. The present values were not searched for.
+- Tuning the looseness. The present value was not searched for.
 - `Over` for other forms of input, such as vertices with index triples. Only `Triangle3d[]` exists so far.
 
 ## Results
 
 `708 10000 8` on an i7-8700 with 12 logical processors, alone on the machine: 1,002,528 triangles, medians over 3 processes (of all samples, for queries). Earlier records of the abandoned sessions were dropped: they described older code and were never re-measured.
 
-Each build runs once per process, so `sequential`, the first, also pays for the code not being optimized yet. On .NET 10 it took about 240 ms in a warmed process, and the others changed little.
+Each build runs once per process, so `sequential`, the first, also pays for the code not being optimized yet. On .NET 10 it took about 260 ms in a warmed process, and the others changed little.
 
 | Build, ms | .NET 10 | .NET Framework 4.8 |
 |---|---:|---:|
-| `sequential` | 327 | 330 |
-| `parallel` | 91 | 120 |
-| `parallel_far_point` | 132 | 166 |
-| `triangle_adapter` | 109 | 155 |
-| `triangle_over` | 92 | 131 |
-| `strtree` | 1572 | 2334 |
-| `nts_quadtree` | 782 | 768 |
+| `sequential` | 379 | 348 |
+| `parallel` | 92 | 91 |
+| `parallel_far_point` | 141 | 160 |
+| `triangle_adapter` | 101 | 111 |
+| `triangle_over` | 85 | 101 |
+| `strtree` | 1557 | 2213 |
+| `nts_quadtree` | 747 | 796 |
 
 | Query, us per call | Library .NET 10 | `strtree` .NET 10 | Library 4.8 | `strtree` 4.8 |
 |---|---:|---:|---:|---:|
-| Height, zero tolerance | 1.09 | 3.28 | 1.33 | 4.74 |
-| Rectangle 20 x 20 | 4.91 | 6.65 | 5.25 | 10.04 |
-| Segment | 9.56 | 31.22 | 14.10 | 37.92 |
-| Nearest | 1.68 | 12.45 | 1.91 | 17.06 |
+| Height, zero tolerance | 0.83 | 3.03 | 0.97 | 4.65 |
+| Height beside the boundary, default tolerance | 0.81 | | 1.21 | |
+| Rectangle 20 x 20 | 3.91 | 6.53 | 4.29 | 9.90 |
+| Segment | 8.11 | 30.89 | 12.16 | 37.29 |
+| Nearest | 1.24 | 12.12 | 1.48 | 16.77 |
 
-`index_retained_bytes` of the core: 60.7 MB on both runtimes, with no triangles. The triangles add 72 bytes each in `TriangleQuadtree2d`, and nothing in `Over`, which reads the caller's array.
+A cell splits above 8 items, or above 16 if they fill at most a quarter of the cell in both directions, as cutting such a cluster adds a chain of nodes before it separates them. Inserts try to split at 9, 17 and each power of two, so a cell can hold more until the next of these. Measured at 4, 6, 8, 12, 16, 24 and 32: 8 is the best for queries, 4 and 6 gain nothing and cost build time (4 also memory), and against 16 it is about 30 % faster in rectangle queries on .NET 10 and 25 % on 4.8, 37 % and 26 % in heights, for about 5 % more build time.
+
+`index_retained_bytes` of the core: 64.7 MB on both runtimes, with no triangles. The triangles add 72 bytes each in `TriangleQuadtree2d`, and nothing in `Over`, which reads the caller's array.

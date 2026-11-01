@@ -361,16 +361,10 @@ namespace geometry3Sharp.Tests.Spatial
             var hits = new List<QuadtreeHeightHit2d>(16);
             Vector2d p = new Vector2d(1, 1);
             var rectangle = new AxisAlignedBox2d(0, 0, 2, 2);
-            for (int i = 0; i < 100; ++i) {
+            Assert.Equal(0, Allocations.Least(100, () => {
                 points.QueryNearby(p, 1, ids); points.QueryRectangle(rectangle, ids);
                 points.QuerySegment(p, p, ids); triangles.QueryHeights(p, hits); triangles.TryGetHeight(p, out _);
-            }
-            long before = GC.GetAllocatedBytesForCurrentThread();
-            for (int i = 0; i < 100; ++i) {
-                points.QueryNearby(p, 1, ids); points.QueryRectangle(rectangle, ids);
-                points.QuerySegment(p, p, ids); triangles.QueryHeights(p, hits); triangles.TryGetHeight(p, out _);
-            }
-            Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
+            }));
             Assert.Single(ids); Assert.Single(hits); Assert.Equal(6, hits[0].Height);
         }
 #endif
