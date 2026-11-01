@@ -1200,12 +1200,12 @@ namespace Meshing2Acceptance
             }
 
             /// <summary>
-            /// O11 and O3: near the apex of two input segments that meet at an angle below the bound, the segments are within the tube of
-            /// each other up to tube / sin(angle) from it; a point placed there merges their chains (they count as one), so refinement
-            /// cannot improve a triangle all of whose vertices lie within 8 tube / sin(angle) of the apex (found with the corpus run,
-            /// earcut's water-huge: segments at 0.84 degrees, triangles of 2e-7 at the apex). The same holds for conforming (O2): there
-            /// the bound is any angle (sin2Low = 1), the zone shrinking to 8 tube at right angles (found by the indexed global pass).
+            /// The merge zone's radius in tube / sin(angle). The mesher refuses split points within 1 of it (O11); concentric shells put
+            /// the first point beyond at less than 2, and an input vertex may lie anywhere. The corpus's 19 excused triangles (5 apexes,
+            /// 0.84 to 20.6 degrees) reach at most 2.14 (an input vertex); 3 keeps a margin and leaves anything farther judged. Was 8.
             /// </summary>
+            const int ZoneFactor = 3;
+
             /// <summary> InMergeZone, counted in the report when it excuses </summary>
             bool Zone(int[] t, Q sin2Low)
             {
@@ -1214,6 +1214,14 @@ namespace Meshing2Acceptance
                 return true;
             }
 
+            /// <summary>
+            /// O11 and O3: near the apex of two input segments that meet at an angle below the bound, the segments are within the tube of
+            /// each other up to tube / sin(angle) from it; a point placed there merges their chains (they count as one), so refinement
+            /// cannot improve a triangle all of whose vertices lie within ZoneFactor tube / sin(angle) of the apex (found with the corpus
+            /// run, earcut's water-huge: segments at 0.84 degrees, triangles of 2e-7 at the apex). The same holds for conforming (O2):
+            /// there the bound is any angle (sin2Low = 1), the zone shrinking to ZoneFactor tube at right angles (found by the indexed
+            /// global pass).
+            /// </summary>
             bool InMergeZone(int[] t, Q sin2Low)
             {
                 if (tube2.Sign == 0) return false;
@@ -1226,7 +1234,7 @@ namespace Meshing2Acceptance
                     for (int kc = 0; kc < sources.Count; ++kc) {
                         var c = sources[kc];
                         if (a.sourceId == c.sourceId) continue;
-                        // (a filter: the zone is at most 8 tube / sin away from the apex, and the apex lies on c; a source whose box,
+                        // (a filter: the zone is at most ZoneFactor tube / sin away from the apex, and the apex lies on c; a source whose box,
                         // widened by that for the smallest sine possible here, misses the vertex cannot qualify. The sine is at least
                         // sin(a, c) and the pairs with a large sine are rejected below anyway, so the widening uses the double sine of the
                         // pair with a factor 2 of slack.)
@@ -1237,7 +1245,7 @@ namespace Meshing2Acceptance
                             // are not filtered; found by the bounds review)
                             double sinLow = sinD - 1e-13;
                             if (sinLow > 0 && !double.IsNaN(sinD)) {
-                                double reach = 2 * 8 * Math.Sqrt(tube2Hi) / sinLow;
+                                double reach = 2 * ZoneFactor * Math.Sqrt(tube2Hi) / sinLow;
                                 if (vxh[t[0]] < sBox[4 * kc] - reach || vxl[t[0]] > sBox[4 * kc + 1] + reach || vyh[t[0]] < sBox[4 * kc + 2] - reach || vyl[t[0]] > sBox[4 * kc + 3] + reach) continue;
                             }
                         }
@@ -1246,7 +1254,7 @@ namespace Meshing2Acceptance
                         if (cross.Sign == 0) continue;
                         Q sin2 = cross * cross / ((d1x * d1x + d1y * d1y) * (d2x * d2x + d2y * d2y));
                         if (sin2 >= sin2Low) continue;
-                        Q zone2 = tube2 * 64 / sin2;   // (8 tube / sin)^2
+                        Q zone2 = tube2 * (ZoneFactor * ZoneFactor) / sin2;   // (ZoneFactor tube / sin)^2
                         if (Exact.Dist2ToSegment(c.a, c.b, v[t[0]]) > zone2) continue;
                         Q t1 = ((c.a.Qx - a.a.Qx) * d2y - (c.a.Qy - a.a.Qy) * d2x) / cross, t2 = ((c.a.Qx - a.a.Qx) * d1y - (c.a.Qy - a.a.Qy) * d1x) / cross;
                         if (t1.Sign < 0 || t1 > Q.One || t2.Sign < 0 || t2 > Q.One) continue;

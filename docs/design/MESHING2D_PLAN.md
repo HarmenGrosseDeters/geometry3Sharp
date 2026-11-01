@@ -248,16 +248,21 @@ ALKIS and DGM tiles (local only).
 
 1. **`m2.snap`: iterated snap rounding** (owner decision D14 of 2026-11-01): build it as iterated snap rounding (Halperin and Packer 2002) at the
    explicit tolerance, as its own PR after M2 and M3 are merged; gates F-10 to F-22 (22 rows), with F-16's shared piece and F-20's vertex count.
+   Before designing it, the two checks of "Look before you build" (AGENT_WORKFLOW section 3) go into its design note: the library (the
+   segment intersector and snapping already in M2, the exact predicates, the spatial grids) and the literature (Halperin and Packer 2002 is the
+   start; Hobby 1999, Guibas and Marimont 1998, Hershberger 2013 on snap rounding variants).
 2. **Over-refinement where many segments cross at small angles**, much reduced since the corpus fix that keeps split points out of the tolerance of
    other constraints: F-4/a 3 073 vertices (was 101 078 at the Steiner limit), F-5 5 116 (was 8 547), F-26/F-27 909. Still open: poly2tri's debug2 (a
    star of 10 000 sharp spikes) reaches the Steiner limit at every angle. Next step: Shewchuk's 2002 rules for small input angles beyond the
-   shortest-edge exemption (no circumcentre that encroaches a segment of the small angle; a protecting ball around the apex).
+   shortest-edge exemption (no circumcentre that encroaches a segment of the small angle; a protecting ball around the apex). Before designing
+   it, the two checks of "Look before you build": the library (the current small-input-angle exemption and concentric shells in `QualityMesh2`)
+   and the literature (Shewchuk 2002; Pav and Walkington on Delaunay refinement near small input angles; Miller, Pav and Walkington 2003).
 3. **Oracle speed: done in #265** (`rows` 705 s of oracle time to 48 s, water-huge at 30 degrees about 170 s to 10 s; reference path kept). With it
    the 13 slow rows could come back into CI (`G3_MESH2_SLOW`, about one minute in total), and the 4 corpus results above the judge limit can be
    judged: next.
-4. **Merge-zone exemptions** (#252 for the angle bound, #265 for conforming): in the zone of 8 tube / sin(angle) around the apex of two input
+4. **Merge-zone exemptions** (#252 for the angle bound, #265 for conforming): in the zone of 3 tube / sin(angle) around the apex of two input
    segments at a small angle the mesher places no point (it would merge the chains, O11), and the oracle excuses the angle bound and conforming
-   Delaunay there. They are counted in every report (`MergeZoneExcused`) and listed in #265 for the owner to accept or turn into findings.
+   Delaunay there (narrowed from 8 in #265: the corpus's 19 excused triangles at 5 apexes reach at most 2.14, an input vertex). They are counted in every report (`MergeZoneExcused`) and listed in #265 for the owner to accept or turn into findings.
 5. **Not built:** `m3.locks` (4 rows; locked segments are never split, but the bounds are not met near them: see the review of M3 above; a bounded
    off-centre point in front of the segment, with a minimum distance from it, is the next thing to try), `m3.refine-again` (I8, F-33, O17: refining an
    existing mesh needs an API), F-31/a's ring lock (O8).

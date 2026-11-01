@@ -178,7 +178,7 @@ Found and fixed by the run (each with a regression test or self-check):
 | earcut water (M3) | an input vertex in no triangle | refinement split the sides of a 3.4 degree spike down to where they are within the tolerance of each other; the chains merged and cut off the tip. Same fix (`SpikeAtASmallAngle_KeepsItsApex`) |
 | delaunator issue43, robustness1, robustness4 (M3) | angles below the bound, boundary edges off the hull; 100 000 vertices from 36 | points 5e-15 inside a hull edge encroached it for ever. Hull edges inserted as pieces, a vertex within the tolerance of an existing edge becomes a vertex of it (`PointsUlpsInsideAHullEdge_BecomeBoundaryVertices`) |
 | earcut infinite-loop-jhl | oracle: empty mesh on a domain with area | a sliver 1e-28 wide, below the tolerance; the oracle now allows empty for a domain whose twice area is at most 2 tube perimeter (self-check 5) |
-| earcut water-huge (M3 at 20, 30 degrees) | oracle: two angles below the bound at an apex of 0.84 degrees | inside the zone where the two segments are within the tube of each other no point can be placed; the oracle exempts triangles within 8 tube / sin(angle) of such an apex (self-check 6) |
+| earcut water-huge (M3 at 20, 30 degrees) | oracle: two angles below the bound at an apex of 0.84 degrees | inside the zone where the two segments are within the tube of each other no point can be placed; the oracle exempts triangles within 3 tube / sin(angle) of such an apex (self-checks 6 and 7; 8 before #265) |
 | earcut eberly-6 | oracle: 10 minutes for 6 339 vertices | floating-point filters in front of the exact segment, ring and marker tests (now 5 s) |
 
 ## The oracle's fast path (2026-11-01)
