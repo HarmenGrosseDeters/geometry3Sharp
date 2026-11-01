@@ -20,8 +20,10 @@ namespace g3
     /// (the first of them; <see cref="ConstrainedMesh2.InputToVertex"/> maps the others to it), so no ulp-wide triangle is made
     /// between them. With <see cref="ResolveCrossings"/> off, a crossing gives
     /// <see cref="Triangulation2FailureKind.CrossingConstraints"/>.</para>
-    /// <para>The domain is the convex hull without outer rings, else the union of the outer rings minus the union of the hole
-    /// rings, each ring by the even-odd rule (decision D5); a hole removes everything inside it, constraints included (Q7).
+    /// <para>The domain: a point belongs to it iff the innermost ring containing it (each ring by the even-odd rule) is an outer
+    /// ring, or, without outer rings, iff it is in the convex hull and in no hole (decision D5, owner 2026-11-01). So an island in
+    /// a lake is meshed, a lake in it removed again, a hole in a hole stays removed; a hole removes the free segments inside it,
+    /// not the rings whose role is outer (Q7). Rings that overlap without nesting: the latest decides, with a diagnostic.
     /// Hole seeds remove the bounded cell of the constraints around them (D6). Regions by ring or seed label the triangles,
     /// the last one wins (I6, D16).</para>
     /// <para>Vertex ids: input point i is vertex i; crossings get ids from the input count on (Q8). Deterministic; independent
@@ -619,10 +621,16 @@ namespace g3
             // ------------------------------------------------------------ domain, labels, output
 
             /// <summary>
-            /// Domain membership from scratch, by ring parity (D5): per triangle slot the interned set of rings it lies inside of,
-            /// and per set whether it is in the domain.
+            /// Domain membership from scratch, by ring parity (D5): per triangle slot the interned set of rings it lies inside of
+            /// (each ring by the even-odd rule), and per set whether it is in the domain: the innermost ring of the set decides by its
+            /// role (owner decision of 2026-11-01: islands in lakes are meshed, a hole in a hole stays removed). Ring r is inside ring
+            /// q when every triangle inside r is inside q, read off the sets of the real triangles; the innermost ring of a set is
+            /// inside all the others. Rings that overlap without nesting have none: the latest ring of the set decides, reported in
+            /// overlaps.
             /// </summary>
-            internal void RingParity(out int[] state, out List<int[]> sets, out bool[] inside)
+            internal void RingParity(out int[] state, out List<int[]> sets, out bool[] inside) => RingParity(out state, out sets, out inside, out _);
+
+            internal void RingParity(out int[] state, out List<int[]> sets, out bool[] inside, out List<int[]> overlaps)
             {
                 int slots = k.TriangleSlots;
                 // per constraint: the rings it toggles (odd multiplicity), as a sorted array
@@ -669,14 +677,32 @@ namespace g3
                 }
                 int baseRings = (input.Rings ?? new List<Mesh2Ring>()).Count;
                 sets = setList;
-                inside = new bool[setList.Count];
-                for (int s = 0; s < setList.Count; ++s) {
-                    bool outer = outerRings == 0, hole = false;
-                    foreach (int ring in setList[s]) {
-                        if (ring >= baseRings) continue;
-                        if (ringIsHole[ring]) hole = true; else outer = true;
+                // the domain rings of each set (region rings are labels, not domain); the sets that occur in real triangles
+                var domainRings = setList.Select(set => set.Where(r => r < baseRings).ToArray()).ToArray();
+                var used = new bool[setList.Count];
+                for (int t = 0; t < slots; ++t) if (!k.IsGhost(t)) used[state[t]] = true;
+                // per ring: the rings that contain everything inside it (itself included), the intersection of the sets it is in
+                var containers = new HashSet<int>[baseRings];
+                for (int si = 0; si < setList.Count; ++si) {
+                    if (!used[si]) continue;
+                    foreach (int r in domainRings[si]) {
+                        if (containers[r] == null) containers[r] = new HashSet<int>(domainRings[si]);
+                        else containers[r].IntersectWith(domainRings[si]);
                     }
-                    inside[s] = outer && !hole;
+                }
+                inside = new bool[setList.Count];
+                overlaps = new List<int[]>();
+                for (int si = 0; si < setList.Count; ++si) {
+                    var rings = domainRings[si];
+                    if (rings.Length == 0) { inside[si] = outerRings == 0; continue; }
+                    int pick = -1;
+                    foreach (int r in rings)
+                        if (containers[r] != null && rings.All(q => containers[r].Contains(q))) pick = Math.Max(pick, r);
+                    if (pick < 0) {
+                        pick = rings.Max();
+                        if (used[si]) overlaps.Add(rings);
+                    }
+                    inside[si] = !ringIsHole[pick];
                 }
             }
 
@@ -692,27 +718,13 @@ namespace g3
             ConstrainedTriangulation2Result Output(Vector2d[] inputVertices, int[] mapping)
             {
                 int slots = k.TriangleSlots;
-                RingParity(out var state, out var sets, out var inside);
-                int ringCount = ringIsHole.Length;
+                RingParity(out var state, out var sets, out var inside, out var overlaps);
                 int baseRings = (input.Rings ?? new List<Mesh2Ring>()).Count;
                 var keep = new bool[slots];
                 for (int t = 0; t < slots; ++t) keep[t] = !k.IsGhost(t) && inside[state[t]];
-                // D5: an outer ring entirely inside holes is removed with them; say so. One pass over the distinct sets.
-                var setInside = new bool[sets.Count];   // the set occurs in some real triangle, and that triangle is kept
-                var setUsed = new bool[sets.Count];
-                for (int t = 0; t < slots; ++t) {
-                    if (k.IsGhost(t)) continue;
-                    setUsed[state[t]] = true;
-                    if (keep[t]) setInside[state[t]] = true;
-                }
-                var ringAny = new bool[ringCount];
-                var ringKept = new bool[ringCount];
-                for (int si = 0; si < sets.Count; ++si) {
-                    if (!setUsed[si]) continue;
-                    foreach (int ring in sets[si]) { ringAny[ring] = true; if (setInside[si]) ringKept[ring] = true; }
-                }
-                for (int ring = 0; ring < baseRings; ++ring)
-                    if (!ringIsHole[ring] && ringAny[ring] && !ringKept[ring]) diagnostics.Add("outer ring " + ring + " lies inside a hole and is removed with it");
+                // D5: where rings overlap without nesting, the latest of them decides; say so
+                foreach (var rings in overlaps)
+                    diagnostics.Add("rings " + string.Join(", ", rings) + " overlap without nesting; ring " + rings.Max() + " (the latest) decides where they overlap");
                 // hole seeds (D6): the bounded cell of the constraints around the seed
                 var holeSeeds = input.HoleSeeds ?? new List<Vector2d>();
                 for (int i = 0; i < holeSeeds.Count; ++i) {

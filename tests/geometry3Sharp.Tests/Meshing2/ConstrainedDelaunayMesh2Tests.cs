@@ -243,6 +243,47 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void Nesting_IslandInALakeInAnIsland_AndOverlappingRings()
+        {
+            // D5 (owner 2026-11-01): the innermost containing ring decides by its role
+            double Area(ConstrainedMesh2 m) => m.Triangles.Sum(t => 0.5 * ((m.Vertices[t.b].x - m.Vertices[t.a].x) * (m.Vertices[t.c].y - m.Vertices[t.a].y) - (m.Vertices[t.b].y - m.Vertices[t.a].y) * (m.Vertices[t.c].x - m.Vertices[t.a].x)));
+            ConstrainedMesh2Input Squares(params (double lo, double hi, bool hole)[] rings)
+            {
+                var input = new ConstrainedMesh2Input();
+                foreach (var (lo, hi, hole) in rings) {
+                    int b = input.Points.Count;
+                    input.Points.Add(new Vector2d(lo, lo)); input.Points.Add(new Vector2d(hi, lo)); input.Points.Add(new Vector2d(hi, hi)); input.Points.Add(new Vector2d(lo, hi));
+                    input.Rings.Add(new Mesh2Ring(new[] { b, b + 1, b + 2, b + 3 }, hole));
+                }
+                return input;
+            }
+            var mesher = new ConstrainedDelaunayMesh2();
+            // land 100, lake 36, island 4, pond on the island 1: 100 - 36 + 4 - 1
+            var r = mesher.Compute(Squares((0, 10, false), (2, 8, true), (4, 6, false), (4.5, 5.5, true)));
+            Assert.Equal(67, Area(r.Mesh), 12);
+            Assert.False(r.Mesh.TryLocate(new Vector2d(3, 3), out _));   // lake
+            Assert.True(r.Mesh.TryLocate(new Vector2d(4.2, 4.2), out _)); // island
+            Assert.False(r.Mesh.TryLocate(new Vector2d(5, 5), out _));   // pond
+            // a hole in a hole stays removed (F-44)
+            Assert.Equal(64, Area(mesher.Compute(Squares((0, 10, false), (2, 8, true), (4, 6, true))).Mesh), 12);
+            // an island without land around it: still meshed, the order of the rings does not matter
+            Assert.Equal(67, Area(mesher.Compute(Squares((4.5, 5.5, true), (4, 6, false), (2, 8, true), (0, 10, false))).Mesh), 12);
+            // two outer rings that overlap without nesting, and a hole across both: the later ring decides where they overlap
+            var overlap = new ConstrainedMesh2Input();
+            foreach (var p in new[] { (0, 0), (6, 0), (6, 6), (0, 6), (4, 4), (10, 4), (10, 10), (4, 10), (3, 3), (7, 3), (7, 7), (3, 7) })
+                overlap.Points.Add(new Vector2d(p.Item1, p.Item2));
+            overlap.Rings.Add(new Mesh2Ring(new[] { 0, 1, 2, 3 }));
+            overlap.Rings.Add(new Mesh2Ring(new[] { 4, 5, 6, 7 }));
+            overlap.Rings.Add(new Mesh2Ring(new[] { 8, 9, 10, 11 }, hole: true));
+            var o = mesher.Compute(overlap);
+            Assert.Equal(Triangulation2Status.Success, o.Status);
+            // the hole (latest) decides wherever it overlaps: the union of the outer rings (36 + 36 - 4 = 68) minus the part of the
+            // hole inside it (16 minus the two unit corners outside both outer rings)
+            Assert.Equal(68 - 14, Area(o.Mesh), 12);
+            Assert.Contains(o.Diagnostics, d => d.Contains("overlap without nesting"));
+        }
+
+        [Fact]
         public void Seeds_AndNestedRings_AreReported()
         {
             var input = new ConstrainedMesh2Input();
@@ -250,21 +291,22 @@ namespace geometry3Sharp.Tests
                 input.Points.Add(new Vector2d(p.Item1, p.Item2));
             input.Rings.Add(new Mesh2Ring(new[] { 0, 1, 2, 3 }));
             input.Rings.Add(new Mesh2Ring(new[] { 4, 5, 6, 7 }, hole: true));
-            input.Rings.Add(new Mesh2Ring(new[] { 8, 9, 10, 11 }));            // an island in the hole: removed (D5), with a diagnostic
+            input.Rings.Add(new Mesh2Ring(new[] { 8, 9, 10, 11 }));            // an island in the hole: meshed (D5, owner 2026-11-01)
             input.HoleSeeds.Add(new Vector2d(20, 20));                          // outside
             input.HoleSeeds.Add(new Vector2d(5, 2));                            // on a constraint
             input.Regions.Add(Mesh2Region.BySeed(new Vector2d(1, 1), 5));
-            input.Regions.Add(Mesh2Region.BySeed(new Vector2d(5, 5), 6));       // in the hole
+            input.Regions.Add(Mesh2Region.BySeed(new Vector2d(5, 5), 6));       // on the island
             var result = new ConstrainedDelaunayMesh2().Compute(input);
             Assert.Equal(Triangulation2Status.Success, result.Status);
             var m = result.Mesh;
-            Assert.All(m.TriangleLabels, l => Assert.Equal(5, l));
-            double area = m.Triangles.Sum(t => 0.5 * ((m.Vertices[t.b].x - m.Vertices[t.a].x) * (m.Vertices[t.c].y - m.Vertices[t.a].y) - (m.Vertices[t.b].y - m.Vertices[t.a].y) * (m.Vertices[t.c].x - m.Vertices[t.a].x)));
-            Assert.Equal(64, area, 12);
-            Assert.Contains(result.Diagnostics, d => d.Contains("outer ring 2") && d.Contains("inside a hole"));
+            double Area(Index3i t) => 0.5 * ((m.Vertices[t.b].x - m.Vertices[t.a].x) * (m.Vertices[t.c].y - m.Vertices[t.a].y) - (m.Vertices[t.b].y - m.Vertices[t.a].y) * (m.Vertices[t.c].x - m.Vertices[t.a].x));
+            // the outer square minus the lake (64), plus the island (4), labelled by its own seed
+            Assert.Equal(68, m.Triangles.Sum(Area), 12);
+            Assert.Equal(4, Enumerable.Range(0, m.Triangles.Count).Where(i => m.TriangleLabels[i] == 6).Sum(i => Area(m.Triangles[i])), 12);
+            Assert.Equal(64, Enumerable.Range(0, m.Triangles.Count).Where(i => m.TriangleLabels[i] == 5).Sum(i => Area(m.Triangles[i])), 12);
+            Assert.DoesNotContain(result.Diagnostics, d => d.Contains("overlap"));
             Assert.Contains(result.Diagnostics, d => d.Contains("hole seed 0") && d.Contains("outside"));
             Assert.Contains(result.Diagnostics, d => d.Contains("hole seed 1") && d.Contains("constraint"));
-            Assert.Contains(result.Diagnostics, d => d.Contains("region seed 1"));
         }
 
         [Fact]
