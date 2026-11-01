@@ -13,6 +13,8 @@ and for each yes, check that a test covers it. A test must fail on the old code 
 - Does a stage that cannot verify its result say so (status, reason), instead of passing the input on?
 - Does a hard limit (component count, iterations, steps) end in a failure status, never in "clean"?
 - Can an assertion in the new tests never fail (eg a float check on values that are already float)?
+- Is a set of skipped items (exempt, unsplittable) visible in the output, as a list or a diagnostic, so that a bound
+  silently left unmet can be detected (meshing M3 review)?
 
 ## 2. Scale, units, far from the origin (#61, #64, #80, #81, #95, #97, #102, #106)
 
@@ -66,6 +68,9 @@ and for each yes, check that a test covers it. A test must fail on the old code 
 - Does an exception leave the instance in a state that a second call would misread?
 - Tests: compute A, then B on the same instance, and compare with a fresh instance (eg
   `InvarianceTests.ExactBoolean_ReusedInstance_EqualsFreshInstance`).
+- Is per-element state (a tag, a label) kept right while an invariant is lifted for a moment, eg a constraint removed
+  and re-inserted around a split? Test with an enclosed hole or region of a single triangle next to the operation
+  (meshing M3 review: the flips around a lifted constraint filled a hole).
 
 ## 8. Untrusted input (#86, #88, #90, #91)
 
@@ -105,6 +110,8 @@ and for each yes, check that a test covers it. A test must fail on the old code 
 
 - Every relaxation of an oracle check comes with a known-wrong result that must still fail (meshing M2 review: a
   loosened chain end accepted a mesh without a shared parcel border).
+- An exemption window (a distance ratio, a tolerance) is as narrow as the rule it implements, with a known-wrong result
+  just outside it (meshing M3 review: a factor-2 window accepted improvable triangles).
 
 ## 11. Compatibility and documentation (#92, #94)
 
@@ -122,3 +129,5 @@ and for each yes, check that a test covers it. A test must fail on the old code 
 - Do documented replay or filter commands actually select a test? Run them once.
 - Is an "exact" comparison exact for every generated input (a sum of products in double is not, once coordinates
   have many bits)?
+- Do the fuzzers cover every input class the class doc advertises (meshing M3 review: no holes, no regions with an area
+  bound and no locked segments in the refinement fuzz, so a filled hole and wrong labels went unnoticed)?

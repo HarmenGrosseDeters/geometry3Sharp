@@ -218,6 +218,25 @@ on the reference triangulation (Q9). Decisions and findings:
   the source lists of an edge grew without bound when a piece was re-inserted (now a union; out of memory before); split points on hull edges moved inwards
   left slivers at unconstrained hull edges (now they may round outwards; Lawson's flips remove the old hull edge).
 
+**Review of M3** (independent agent, 2026-11-01), fixed on the same branch:
+- Critical: a split lifts the constraint of its piece, and the flips around it may cross the boundary; a small hole or region enclosed by constraints then
+  kept the tag of the slots it was rewritten into (filled holes, wrong labels, regions with an area bound never refined). Now the pieces of a split give
+  their sides the tags the lifted piece had. Conforming mode also counts vertices of holes and of the outside as encroaching (O2 is about all vertices).
+  New fuzz over holes, regions with and without area bounds (`Fuzz_HolesAndRegions_PassTheOracle`, 80 inputs).
+- Angles, areas and circumcentres underflowed at 2^-500 and refinement silently did nothing; now computed on edges scaled by a power of two
+  (`ExtremeScales_RefineTheSameMesh`, 2^-560 to 2^225, bit for bit).
+- The small-input-angle exemption was a factor-2 window in distance; now 1.5, in the library and in the oracle, with a known-wrong self-check at 1.53. None
+  of the 28 fast M3 rows changed its result or vertex count with it (`rows --fast`). F-44's mesh changed through the conforming fix (golden row updated
+  with that reason; the same 28 vertices).
+- The step cap reported the Steiner limit; it is now a failure `RefinementLimit`, and the limit flag is set only when an insertion was refused (a limit of 0
+  on a good mesh gives no flag). The oracle's default limit counts ring edges as segments, like the library.
+- Heights: the walk on the reference triangulation (not Delaunay with breaklines) is a stochastic walk from the last hit, with a scan as fallback.
+- Oracle: a floating-point filter in front of the exact in-circle test (the holes fuzz went from 84 s to 10 s); negative self-checks for the D13 hull rule and
+  for region seeds on input points (checked by mutation).
+- Locked segments: a triangle whose circumcentre lies behind a locked segment is left as it is, so the bounds do not hold near locked segments (52 of 80
+  random inputs). A point pulled back in front of the segment instead ran to the Steiner limit on 45 of 60 inputs (points creep towards the segment), so
+  this is documented on `QualityMesh2` and stays with m3.locks; `Fuzz_LockedSegments_StayWholeAndValid` checks what holds.
+
 **What remains (hand-over).**
 
 1. **Over-refinement where many segments cross at small angles.** F-4/a (random segments at 25 degrees) ends at the default Steiner limit (101 078
@@ -228,7 +247,8 @@ on the reference triangulation (Q9). Decisions and findings:
 2. **Slow rows.** `Catalogue.SlowRows` (13 rows with 16 000 to 200 000 vertices) are judged by `rows --milestone M3` (about 25 minutes in total, mostly oracle
    time); the test suite only checks their status unless `G3_MESH2_SLOW` is set. Speeding up the oracle on large results (orientation and edge maps take
    seconds at 100 000 vertices) would let them back into CI.
-3. **Not built:** `m3.locks` (4 rows; locked segments are never split, but the oracle's angle exemption at locked edges is still wide, review finding 10),
+3. **Not built:** `m3.locks` (4 rows; locked segments are never split, but the bounds are not met near them: see the review of M3 above; a bounded
+   off-centre point in front of the segment, with a minimum distance from it, is the next thing to try),
    `m3.refine-again` (I8, F-33, O17: refining an existing mesh needs an API), `m2.snap` (22 rows: explicit snap tolerance, D14), F-31/a's ring lock (O8).
 4. Performance of M3 is not yet measured against spec 3.1 (F-27: more than 50 000 vertices in about 2 s; we do 60 000 in 0.4 s but at the limit), and net48 timing
    is open for all milestones.

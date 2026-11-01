@@ -16,7 +16,9 @@ namespace g3
     /// computed exactly and rounded to the nearest double; the pieces then run through it, at most a few units in the last
     /// place off their input segment. A vertex within the automatic tolerance (2^-41 of the larger of the largest coordinate
     /// and the extent, about 2.6 um at UTM northings; spec O11, Q14) of a segment becomes a vertex of it, so every piece stays
-    /// within that tolerance of each of its input segments. With <see cref="ResolveCrossings"/> off, a crossing gives
+    /// within that tolerance of each of its input segments. Input points within that tolerance of each other become one vertex
+    /// (the first of them; <see cref="ConstrainedMesh2.InputToVertex"/> maps the others to it), so no ulp-wide triangle is made
+    /// between them. With <see cref="ResolveCrossings"/> off, a crossing gives
     /// <see cref="Triangulation2FailureKind.CrossingConstraints"/>.</para>
     /// <para>The domain is the convex hull without outer rings, else the union of the outer rings minus the union of the hole
     /// rings, each ring by the even-odd rule (decision D5); a hole removes everything inside it, constraints included (Q7).
@@ -267,9 +269,12 @@ namespace g3
             int[] refV, refH;
             double[] refX, refY, refZ;
 
+            int refHint = -1;
+
             internal void SnapshotReference()
             {
                 if (heights == null) return;
+                refHint = -1;
                 int slots = k.TriangleSlots;
                 refV = new int[3 * slots]; Array.Copy(k.V, refV, refV.Length);
                 refH = new int[3 * slots]; Array.Copy(k.H, refH, refH.Length);
@@ -287,20 +292,38 @@ namespace g3
                 if (v >= heights.Length) Array.Resize(ref heights, Math.Max(v + 1, 2 * heights.Length));
                 var p = k.Point(v);
                 int slots = refV.Length / 3, t = -1;
-                for (int s0 = 0; s0 < slots && t < 0; ++s0) if (refV[3 * s0] != k.Infinite && refV[3 * s0 + 1] != k.Infinite && refV[3 * s0 + 2] != k.Infinite) t = s0;
-                long guard = 4L * slots + 16;
-                for (long step = 0; step < guard && t >= 0; ++step) {
-                    int moved = -1;
+                bool Solid(int s0) => refV[3 * s0] != k.Infinite && refV[3 * s0 + 1] != k.Infinite && refV[3 * s0 + 2] != k.Infinite;
+                Vector2d R(int i) => new Vector2d(refX[refV[i]], refY[refV[i]]);
+                // from the triangle the last point was found in (refinement inserts near where it inserted before)
+                if (refHint >= 0 && refHint < slots && Solid(refHint)) t = refHint;
+                for (int s0 = 0; s0 < slots && t < 0; ++s0) if (Solid(s0)) t = s0;
+                if (t < 0) return;
+                // a visibility walk on a constrained triangulation that need not be Delaunay: the first edge tried is chosen by a
+                // fixed pseudo-random sequence, so the walk cannot cycle for ever (a stochastic walk; review of M3); deterministic
+                uint state = 2463534242u ^ (uint)v * 2654435761u;
+                long guard = 8L * slots + 64;
+                bool found = false;
+                for (long step = 0; step < guard; ++step) {
+                    state ^= state << 13; state ^= state >> 17; state ^= state << 5;
+                    int start = (int)(state % 3), moved = -1;
                     for (int j = 0; j < 3; ++j) {
-                        int e = 3 * t + (int)((step + j) % 3), f = 3 * t + (int)((step + j + 1) % 3);
-                        if (refV[e] == k.Infinite || refV[f] == k.Infinite) continue;
-                        if (ExactPredicates.Orient2d(new Vector2d(refX[refV[e]], refY[refV[e]]), new Vector2d(refX[refV[f]], refY[refV[f]]), p) < 0) { moved = 3 * t + (int)((step + j) % 3); break; }
+                        int e = 3 * t + (start + j) % 3, f = 3 * t + (start + j + 1) % 3;
+                        if (ExactPredicates.Orient2d(R(e), R(f), p) < 0) { moved = e; break; }
                     }
-                    if (moved < 0) break;
+                    if (moved < 0) { found = true; break; }
                     int next = refH[moved] / 3;
-                    if (refV[3 * next] == k.Infinite || refV[3 * next + 1] == k.Infinite || refV[3 * next + 2] == k.Infinite) break;
+                    if (!Solid(next)) { found = true; break; }   // outside the reference hull (a hull split rounded outwards): extrapolate
                     t = next;
                 }
+                if (!found) {
+                    // (not expected) a scan for the containing triangle
+                    for (int s0 = 0; s0 < slots; ++s0) {
+                        if (!Solid(s0)) continue;
+                        if (ExactPredicates.Orient2d(R(3 * s0), R(3 * s0 + 1), p) >= 0 && ExactPredicates.Orient2d(R(3 * s0 + 1), R(3 * s0 + 2), p) >= 0
+                            && ExactPredicates.Orient2d(R(3 * s0 + 2), R(3 * s0), p) >= 0) { t = s0; break; }
+                    }
+                }
+                refHint = t;
                 int a = refV[3 * t], bb = refV[3 * t + 1], c = refV[3 * t + 2];
                 double x0 = refX[a], y0 = refY[a], x1 = refX[bb] - x0, y1 = refY[bb] - y0, x2 = refX[c] - x0, y2 = refY[c] - y0;
                 double det = x1 * y2 - y1 * x2, px = p.x - x0, py = p.y - y0;

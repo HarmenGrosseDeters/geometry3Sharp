@@ -21,6 +21,10 @@ namespace g3
     /// split (spec O12).</para>
     /// <para>Terminates: angles up to about 33 degrees converge on ordinary input; any input stops at the Steiner limit
     /// (default 10 x (points + segments) + 100 000, spec Q13). Pieces that are too short to split in doubles stay as they are.</para>
+    /// <para>Locked segments (spec O9) keep their vertices and the mesh stays valid, but the bounds are not guaranteed near them
+    /// yet: a triangle whose circumcentre lies behind a locked segment is left as it is, so its neighbourhood may keep triangles
+    /// below the angle or above the area (listed in <see cref="ConstrainedMesh2.BadTriangles"/> when below the angle). Meeting
+    /// the bounds there is the open work item m3.locks.</para>
     /// </remarks>
     public sealed class QualityMesh2
     {
@@ -101,10 +105,13 @@ namespace g3
                 while (segments.Count > 0 || triangles.Count > 0) {
                     if ((++steps & 255) == 0) b.cancel.ThrowIfCancellationRequested();
                     // every vertex made since the input counts, crossings included (O7: the limit counts every Steiner point of the run)
+                    // (at the limit an insertion is refused and reports the limit; the queues then drain without inserting, so the flag
+                    // is set only when a bound was left unmet, not on a mesh that needs nothing; review of M3)
                     inserted = k.VertexCount - (k.N + 1);
-                    if (inserted >= limit) { b.SteinerLimitReached = true; break; }
-                    // every step either inserts, splits or retires an entry; a cap far above that only stops a defect
-                    if (steps > 64 * (limit + k.TriangleSlots) + 100000) { b.SteinerLimitReached = true; break; }
+                    // every step either inserts, splits or retires an entry; a cap far above that only stops a defect, which is
+                    // reported as one, not as the Steiner limit (review of M3)
+                    if (steps > 64 * (limit + k.TriangleSlots) + 100000)
+                        return b.Fail(Triangulation2FailureKind.RefinementLimit, null, "refinement did not settle within " + steps + " steps");
                     if (segments.Count > 0) {
                         long key = segments.Dequeue();
                         int e = k.FindEdge((int)(key >> 32), (int)(key & 0xffffffff));
@@ -157,19 +164,55 @@ namespace g3
                 }
             }
 
+            /// <summary> the piece a split lifted: its sources, its ends, and the tags on its left and right before the split </summary>
+            struct LiftedPiece
+            {
+                internal List<int> Sources;
+                internal Vector2d U, W;
+                internal int Left, Right;
+            }
+
+            int TagOf(int t) => k.IsGhost(t) ? -1 : k.Tag[t];
+
+            /// <summary> the tag the triangle of half-edge h takes from the lifted piece, if h lies on it; int.MinValue otherwise </summary>
+            int TagFromPiece(int h, LiftedPiece? lifted)
+            {
+                if (lifted == null || k.Seg[h] < 0) return int.MinValue;
+                var piece = lifted.Value;
+                bool shared = false;
+                foreach (int s in k.Sources[k.Seg[h]]) if (piece.Sources.Contains(s)) { shared = true; break; }
+                if (!shared) return int.MinValue;
+                // on the lifted piece: both ends between its ends (the pieces of a split lie on it, the other pieces of its source do not)
+                // (in a scale by a power of two: the squares do not underflow at small magnitudes)
+                var d0 = piece.W - piece.U;
+                int ex = ScaleOf(d0.x, d0.y, 0, 0);
+                var d = ScaleB(d0, -ex); double l2 = d.LengthSquared;
+                var a = ScaleB(k.Point(k.V[h]) - piece.U, -ex); var c = ScaleB(k.Point(k.V[Next(h)]) - piece.U, -ex);
+                double ta = a.Dot(d), tc = c.Dot(d);
+                double slack = l2 * 1e-9;
+                if (ta < -slack || tc < -slack || ta > l2 + slack || tc > l2 + slack) return int.MinValue;
+                return (c - a).Dot(d) > 0 ? piece.Left : piece.Right;
+            }
+
             /// <summary> after an insertion: the rewritten triangles may be bad, their constrained edges encroached </summary>
-            void Collect()
+            void Collect(LiftedPiece? lifted = null)
             {
                 // Tags change only across constraints. A split briefly lifts the constraint of the piece it splits, and the flips around
                 // it may then cross the boundary, so the rewritten triangles take their tags anew: from the unchanged triangles they are
-                // joined to by unconstrained edges (a breadth-first search into the rewritten region). A rewritten triangle not joined
-                // to any unchanged one keeps its tag.
+                // joined to by unconstrained edges (a breadth-first search into the rewritten region), and from the sides of the
+                // pieces of the lifted piece, which keep the tags its sides had (a small hole or region enclosed by constraints has no
+                // unchanged neighbour through an unconstrained edge; found by the review of M3). Any other rewritten triangle keeps its tag.
                 var previous = new Dictionary<int, int>();
                 foreach (int t in k.Dirty) if (!k.IsGhost(t) && !previous.ContainsKey(t)) { previous.Add(t, k.Tag[t]); k.Tag[t] = int.MinValue; }
                 var queue = new Queue<int>();
                 foreach (int t in previous.Keys)
                     for (int j = 0; j < 3; ++j) {
                         int e = 3 * t + j;
+                        int fromPiece = TagFromPiece(e, lifted);
+                        if (fromPiece != int.MinValue) {
+                            if (k.Tag[t] == int.MinValue) { k.Tag[t] = fromPiece; queue.Enqueue(t); }
+                            continue;
+                        }
                         if (k.Seg[e] >= 0) continue;
                         int t2 = k.H[e] / 3;
                         if (k.Tag[t2] == int.MinValue) continue;
@@ -210,7 +253,9 @@ namespace g3
                 if (Locked(e) || unsplittable.Contains(Key(k.V[e], k.V[Next(e)]))) return false;
                 foreach (int h in new[] { e, k.H[e] }) {
                     int t = h / 3;
-                    if (!InDomain(t)) continue;
+                    // conforming (O2) asks for empty circumcircles against all vertices, so a vertex of a hole or of the outside
+                    // encroaches too
+                    if (options.Conforming ? k.IsGhost(t) : !InDomain(t)) continue;
                     int apex = k.V[Next(Next(h))];
                     if (DotSign(k.Point(k.V[h]), k.Point(k.V[Next(h)]), k.Point(apex)) < 0) return true;
                 }
@@ -238,19 +283,57 @@ namespace g3
 
             // ------------------------------------------------------------ bad triangles
 
+            /// <summary> floor(log2 |x|) for finite x != 0, from the bits </summary>
+            internal static int Exponent(double x)
+            {
+                long bits = BitConverter.DoubleToInt64Bits(Math.Abs(x));
+                int e = (int)((bits >> 52) & 0x7FF);
+                if (e != 0) return e - 1023;
+                bits = BitConverter.DoubleToInt64Bits(Math.Abs(x) * 18446744073709551616.0);   // subnormal: times 2^64 (exact)
+                return (int)((bits >> 52) & 0x7FF) - 1023 - 64;
+            }
+
+            /// <summary> the exponent that brings the largest of the values to [1, 2), 0 if all are zero </summary>
+            static int ScaleOf(double a, double b, double c, double d)
+            {
+                double m = Math.Max(Math.Max(Math.Abs(a), Math.Abs(b)), Math.Max(Math.Abs(c), Math.Abs(d)));
+                return m > 0 ? Exponent(m) : 0;
+            }
+
+            static Vector2d ScaleB(Vector2d v, int n) => new Vector2d(ExactPoint3.ScaleB(v.x, n), ExactPoint3.ScaleB(v.y, n));
+
+            /// <summary>
+            /// The triangle's edges from its first vertex, scaled by a power of two to unit size: the products of the angle and
+            /// circumcentre computations then neither underflow nor overflow, and an input scaled by 2^k gives the same values bit
+            /// for bit (review of M3: at 2^-500 the squared lengths underflowed and no triangle counted as bad)
+            /// </summary>
+            Vector2d Local(int t, out Vector2d q, out Vector2d r, out int ex)
+            {
+                var a = k.Point(k.V[3 * t]);
+                var d1 = k.Point(k.V[3 * t + 1]) - a; var d2 = k.Point(k.V[3 * t + 2]) - a;
+                ex = ScaleOf(d1.x, d1.y, d2.x, d2.y);
+                q = ScaleB(d1, -ex); r = ScaleB(d2, -ex);
+                return a;
+            }
+
+            /// <summary> the area of the scaled triangle of <see cref="Local"/> </summary>
+            static double LocalArea(Vector2d q, Vector2d r) => 0.5 * (q.x * r.y - q.y * r.x);
+
             double Area(int t)
             {
-                var a = k.Point(k.V[3 * t]); var c = k.Point(k.V[3 * t + 1]); var d = k.Point(k.V[3 * t + 2]);
-                return 0.5 * ((c.x - a.x) * (d.y - a.y) - (c.y - a.y) * (d.x - a.x));
+                Local(t, out var q, out var r, out int ex);
+                return ExactPoint3.ScaleB(LocalArea(q, r), 2 * ex);
             }
 
             /// <summary> sin^2 of the smallest angle, and the corner it is at </summary>
             double MinSin2(int t, out int corner)
             {
                 double best = double.MaxValue; corner = 0;
-                double area2 = 2 * Area(t);
+                Local(t, out var q0, out var r0, out _);
+                var corners = new[] { Vector2d.Zero, q0, r0 };
+                double area2 = 2 * LocalArea(q0, r0);
                 for (int j = 0; j < 3; ++j) {
-                    var p = k.Point(k.V[3 * t + j]); var q = k.Point(k.V[3 * t + (j + 1) % 3]); var r = k.Point(k.V[3 * t + (j + 2) % 3]);
+                    var p = corners[j]; var q = corners[(j + 1) % 3]; var r = corners[(j + 2) % 3];
                     double l1 = (q - p).LengthSquared, l2 = (r - p).LengthSquared;
                     double s2 = area2 * area2 / (l1 * l2);
                     if (s2 < best) { best = s2; corner = j; }
@@ -261,12 +344,14 @@ namespace g3
             /// <summary> for the output's list of bad triangles: below the minimum angle </summary>
             internal bool BelowAngle(int t) => options.MinAngle > 0 && MinSin2(t, out _) < sin2Min;
 
-            double LongestLocked2(int t)
+            /// <summary> the squared length of the longest locked edge of t, in the scale of <see cref="Local"/> </summary>
+            double LongestLocked2(int t, Vector2d q, Vector2d r)
             {
                 double best = 0;
+                var corners = new[] { Vector2d.Zero, q, r };
                 for (int j = 0; j < 3; ++j) {
                     int e = 3 * t + j;
-                    if (k.Seg[e] >= 0 && Locked(e)) best = Math.Max(best, (k.Point(k.V[Next(e)]) - k.Point(k.V[e])).LengthSquared);
+                    if (k.Seg[e] >= 0 && Locked(e)) best = Math.Max(best, (corners[(j + 1) % 3] - corners[j]).LengthSquared);
                 }
                 return best;
             }
@@ -274,10 +359,11 @@ namespace g3
             bool Bad(int t)
             {
                 if (exempt.Contains(TriangleKey(t))) return false;
-                double area = Area(t);
-                double locked2 = LongestLocked2(t);
+                var a0 = Local(t, out var q0, out var r0, out int ex);
+                double localArea = LocalArea(q0, r0), area = ExactPoint3.ScaleB(localArea, 2 * ex);
+                double localLocked2 = LongestLocked2(t, q0, r0), locked2 = ExactPoint3.ScaleB(localLocked2, 2 * ex);
                 // a triangle over an edge that may not be split need not shrink below a needle (O5, O9)
-                bool areaExempt = locked2 > 4 * area;
+                bool areaExempt = localLocked2 > 4 * localArea;
                 double? maxArea = options.MaxArea;
                 if (k.Tag[t] > 0) {
                     var ra = b.input.Regions[k.Tag[t] - 1].MaxArea;
@@ -289,7 +375,7 @@ namespace g3
                     var a = k.Point(k.V[3 * t]); var c = k.Point(k.V[3 * t + 1]); var d = k.Point(k.V[3 * t + 2]);
                     var g = (a + c + d) / 3;
                     double h = options.SizeFunction(g.x, g.y);
-                    double longest = Math.Max((c - a).LengthSquared, Math.Max((d - c).LengthSquared, (a - d).LengthSquared));
+                    double longest = ExactPoint3.ScaleB(Math.Max(q0.LengthSquared, Math.Max((r0 - q0).LengthSquared, r0.LengthSquared)), 2 * ex);
                     if (longest > Math.Max(h * h, locked2) * (1 - 1.0 / (1L << 40))) return true;
                 }
                 if (options.MinAngle <= 0) return false;
@@ -313,22 +399,29 @@ namespace g3
                     foreach (int c in sq) {
                         if (a == c) continue;
                         var s1 = b.sources[a]; var s2 = b.sources[c];
-                        double d1x = s1.BX - s1.AX, d1y = s1.BY - s1.AY, d2x = s2.BX - s2.AX, d2y = s2.BY - s2.AY;
+                        // all in a common scale by a power of two (no underflow at small magnitudes, the same bits at any 2^k)
+                        double d1x = s1.BX - s1.AX, d1y = s1.BY - s1.AY, d2x = s2.BX - s2.AX, d2y = s2.BY - s2.AY, ox = s2.AX - s1.AX, oy = s2.AY - s1.AY;
+                        int ex = Math.Max(ScaleOf(d1x, d1y, d2x, d2y), ScaleOf(ox, oy, 0, 0));
+                        d1x = ExactPoint3.ScaleB(d1x, -ex); d1y = ExactPoint3.ScaleB(d1y, -ex); d2x = ExactPoint3.ScaleB(d2x, -ex); d2y = ExactPoint3.ScaleB(d2y, -ex);
+                        ox = ExactPoint3.ScaleB(ox, -ex); oy = ExactPoint3.ScaleB(oy, -ex);
                         double cross = d1x * d2y - d1y * d2x, l1 = Math.Sqrt(d1x * d1x + d1y * d1y), l2 = Math.Sqrt(d2x * d2x + d2y * d2y);
                         if (!(Math.Abs(cross) > 0) || !(l1 > 0) || !(l2 > 0)) continue;
                         double sin = Math.Abs(cross) / (l1 * l2);
                         if (sin * sin >= sin2Min * (1 - 1e-9)) continue;
                         // where the lines meet
-                        double t1 = ((s2.AX - s1.AX) * d2y - (s2.AY - s1.AY) * d2x) / cross;
-                        double t2 = ((s2.AX - s1.AX) * d1y - (s2.AY - s1.AY) * d1x) / cross;
+                        double t1 = (ox * d2y - oy * d2x) / cross;
+                        double t2 = (ox * d1y - oy * d1x) / cross;
                         // the apex is on both segments: an input angle, not two lines that would meet far away
                         // (slightly stricter than the oracle's exact test, so that rounding never exempts what it would not)
                         if (t1 < 1e-12 && t1 != 0 || t1 > 1 || t2 < 1e-12 && t2 != 0 || t2 > 1 || t1 < 0 || t2 < 0) continue;
-                        var A = new Vector2d(s1.AX + t1 * d1x, s1.AY + t1 * d1y);
-                        double rp = (P - A).LengthSquared, rq = (Qv - A).LengthSquared;
-                        if (!(rp > 0) || !(rq > 0) || rp > 3.99 * rq || rq > 3.99 * rp) continue;
+                        // p, q and the apex relative to s1's start, in the common scale
+                        var A = new Vector2d(t1 * d1x, t1 * d1y);
+                        var s1A = new Vector2d(s1.AX, s1.AY);
+                        var Pl = ScaleB(P - s1A, -ex) - A; var Ql = ScaleB(Qv - s1A, -ex) - A;
+                        double rp = Pl.LengthSquared, rq = Ql.LengthSquared;
+                        if (!(rp > 0) || !(rq > 0) || rp > 2.24 * rq || rq > 2.24 * rp) continue;
                         // and p, q lie on the same side of the apex along their lines
-                        if ((P - A).Dot(Qv - A) <= 0) continue;
+                        if (Pl.Dot(Ql) <= 0) continue;
                         return true;
                     }
                 return false;
@@ -353,26 +446,24 @@ namespace g3
                 return (long)h;
             }
 
-            static double NextUp(double x) { long b = BitConverter.DoubleToInt64Bits(x); return x == 0 ? double.Epsilon : BitConverter.Int64BitsToDouble(x > 0 ? b + 1 : b - 1); }
-            static double NextDown(double x) => -NextUp(-x);
-
             // ------------------------------------------------------------ splitting
 
             /// <summary> the circumcentre of t, or false if it cannot be computed in doubles </summary>
             bool Circumcentre(int t, out Vector2d c)
             {
-                var a = k.Point(k.V[3 * t]); var p = k.Point(k.V[3 * t + 1]); var q = k.Point(k.V[3 * t + 2]);
-                double bx = p.x - a.x, by = p.y - a.y, cx = q.x - a.x, cy = q.y - a.y;
+                var a = Local(t, out var p, out var q, out int ex);
+                double bx = p.x, by = p.y, cx = q.x, cy = q.y;
                 double d = 2 * (bx * cy - by * cx);
                 double b2 = bx * bx + by * by, c2 = cx * cx + cy * cy;
                 double ux = (cy * b2 - by * c2) / d, uy = (bx * c2 - cx * b2) / d;
-                c = new Vector2d(a.x + ux, a.y + uy);
+                c = new Vector2d(a.x + ExactPoint3.ScaleB(ux, ex), a.y + ExactPoint3.ScaleB(uy, ex));
                 return d != 0 && !double.IsNaN(c.x) && !double.IsNaN(c.y) && !double.IsInfinity(c.x) && !double.IsInfinity(c.y)
                     && Math.Abs(c.x) <= DelaunayMesh2.CoordinateLimit && Math.Abs(c.y) <= DelaunayMesh2.CoordinateLimit;
             }
 
             ConstrainedTriangulation2Result SplitTriangle(int t)
             {
+                if (inserted >= limit) { b.SteinerLimitReached = true; return null; }
                 if (!Circumcentre(t, out var c)) { exempt.Add(TriangleKey(t)); return null; }
                 // walk from t towards c; a constrained edge on the way is split instead (it is encroached, or c is outside)
                 int at = Walk(t, c, out int blocked);
@@ -395,7 +486,6 @@ namespace g3
                     if (unsplittable.Contains(key)) exempt.Add(TriangleKey(t));
                     return null;
                 }
-                if (inserted >= limit) return null;
                 int before = k.VertexCount;
                 k.InsertPoint(c.x, c.y);
                 if (k.VertexCount == before) { exempt.Add(TriangleKey(t)); k.Dirty.Clear(); return null; }
@@ -461,23 +551,28 @@ namespace g3
                 int u = k.V[e], w = k.V[Next(e)];
                 var src = k.Sources[k.Seg[e]];
                 var pu = k.Point(u); var pw = k.Point(w);
-                double length = (pw - pu).Length;
+                // lengths and projections in a scale by a power of two (no underflow; the same bits at any 2^k)
+                var duw = pw - pu;
+                int ex = ScaleOf(duw.x, duw.y, 0, 0);
+                double length = ScaleB(duw, -ex).Length;
                 double fraction = 0.5;
                 // concentric shells around the vertices that existed before refinement (input points and crossings): where segments
                 // meet at a small angle, their splits then lie on common circles and do not encroach each other (Shewchuk 2002)
                 bool uInput = u < firstSteiner, wInput = w < firstSteiner;
                 if (uInput != wInput && length > 0) {
                     // the power of two nearest to half the length, from the bits (no Log or Pow: their last bit may differ by runtime)
-                    ExactPoint3.Decompose(length / 2, out var mant, out int ex);
-                    double lower = ExactPoint3.ScaleB(1, (int)(ex + ExactPoint3.BitLength(mant) - 1)), d = length / 2 - lower < 2 * lower - length / 2 ? lower : 2 * lower;
+                    ExactPoint3.Decompose(length / 2, out var mant, out int em);
+                    double lower = ExactPoint3.ScaleB(1, (int)(em + ExactPoint3.BitLength(mant) - 1)), d = length / 2 - lower < 2 * lower - length / 2 ? lower : 2 * lower;
                     if (d > length / 3 && d < 2 * length / 3) fraction = uInput ? d / length : 1 - d / length;
                 }
                 Vector2d p;
                 var s = b.sources[src[0]];
                 {
                     var A = new Vector2d(s.AX, s.AY); var B = new Vector2d(s.BX, s.BY);
-                    var dir = B - A; double l2 = dir.LengthSquared;
-                    double tu = l2 > 0 ? (pu - A).Dot(dir) / l2 : 0, tw = l2 > 0 ? (pw - A).Dot(dir) / l2 : 0;
+                    var dir = B - A;
+                    int es = ScaleOf(dir.x, dir.y, 0, 0);
+                    var dirs = ScaleB(dir, -es); double l2 = dirs.LengthSquared;
+                    double tu = l2 > 0 ? ScaleB(pu - A, -es).Dot(dirs) / l2 : 0, tw = l2 > 0 ? ScaleB(pw - A, -es).Dot(dirs) / l2 : 0;
                     double tt = tu + (tw - tu) * fraction;
                     p = A + dir * tt;
                 }
@@ -487,8 +582,9 @@ namespace g3
                     unsplittable.Add(Key(u, w));
                     return null;
                 }
-                if (inserted >= limit) return null;
+                if (inserted >= limit) { b.SteinerLimitReached = true; return null; }
                 ++splits;
+                var lifted = new LiftedPiece { Sources = new List<int>(src), U = pu, W = pw, Left = TagOf(e / 3), Right = TagOf(k.H[e] / 3) };
                 var sources = k.Unconstrain(e);
                 // without its constraint the edge may not be Delaunay: restore that first, Lawson's insertion assumes it (as at crossings)
                 k.RestoreDelaunay(new[] { ((long)u << 32) | (uint)w });
@@ -507,7 +603,7 @@ namespace g3
                     var failure = b.InsertPiece(pending.Pop(), pending);
                     if (failure != null) return failure;
                 }
-                Collect();
+                Collect(lifted);
                 return null;
             }
         }

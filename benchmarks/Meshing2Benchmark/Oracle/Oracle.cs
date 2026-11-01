@@ -669,7 +669,7 @@ namespace Meshing2Acceptance
                     if (constrained && (!conforming || OnLocked(pair.Key))) continue;
                     int a = uses[0].a, b = uses[0].b;
                     int c = o.Triangles[uses[0].tri][uses[0].opposite], d = o.Triangles[uses[1].tri][uses[1].opposite];
-                    int sign = Exact.InCircle(v[a], v[b], v[c], v[d]);
+                    int sign = InCircle(a, b, c, d);
                     if (sign > 0 && !(conforming && ExcusedOffSegment(a, b, c, d))) r.Add(Violation.NotDelaunayLocal, "edge " + a + "-" + b + " is not locally Delaunay against " + d);
                     if (sign == 0 && !constrained) { r.TieEdges++; r.Unique = false; }
                 }
@@ -681,12 +681,34 @@ namespace Meshing2Acceptance
                     foreach (var t in o.Triangles)
                         foreach (int id in used) {
                             if (id == t[0] || id == t[1] || id == t[2]) continue;
-                            if (Exact.InCircle(v[t[0]], v[t[1]], v[t[2]], v[id]) > 0 && !(conforming && ExcusedOffSegment(t[0], t[1], t[2], id))) {
+                            if (InCircle(t[0], t[1], t[2], id) > 0 && !(conforming && ExcusedOffSegment(t[0], t[1], t[2], id))) {
                                 r.Add(Violation.NotDelaunayGlobal, "vertex " + id + " inside the circumcircle of " + t[0] + " " + t[1] + " " + t[2]);
                                 break;
                             }
                         }
                 }
+            }
+
+            /// <summary>
+            /// The exact in-circle sign, with a floating-point filter in front when the vertices are the doubles: the determinant
+            /// in doubles with a bound on its rounding error (10 roundings in the differences, products and sums give less than
+            /// 1.2e-15 times the permanent; the bound used is ten times that), and the exact test when the filter cannot decide.
+            /// </summary>
+            int InCircle(int a, int b, int c, int d)
+            {
+                if (o.ExactVertices == null) {
+                    double dx = o.VX[d], dy = o.VY[d];
+                    double adx = o.VX[a] - dx, ady = o.VY[a] - dy, bdx = o.VX[b] - dx, bdy = o.VY[b] - dy, cdx = o.VX[c] - dx, cdy = o.VY[c] - dy;
+                    double al = adx * adx + ady * ady, bl = bdx * bdx + bdy * bdy, cl = cdx * cdx + cdy * cdy;
+                    double bc = bdx * cdy - cdx * bdy, ca = cdx * ady - adx * cdy, ab = adx * bdy - bdx * ady;
+                    double det = al * bc + bl * ca + cl * ab;
+                    double permanent = (Math.Abs(bdx * cdy) + Math.Abs(cdx * bdy)) * al + (Math.Abs(cdx * ady) + Math.Abs(adx * cdy)) * bl
+                        + (Math.Abs(adx * bdy) + Math.Abs(bdx * ady)) * cl;
+                    double bound = 1.2e-14 * permanent;
+                    // (only where nothing underflowed or overflowed: normal magnitudes far from both ends)
+                    if (permanent > 1e-200 && permanent < 1e200 && Math.Abs(det) > bound) return det > 0 ? 1 : -1;
+                }
+                return Exact.InCircle(v[a], v[b], v[c], v[d]);
             }
 
             /// <summary>
@@ -729,7 +751,7 @@ namespace Meshing2Acceptance
                 if (o.SteinerLimitReached) {
                     // the limit lifts all bounds, so it must not be free to claim. It counts points that are not in the final mesh too (O7),
                     // so not all of it shows in the output: half of it must. The default limit is that of Q13.
-                    long limit = input.SteinerLimit ?? 10L * (input.Count + input.Segments.Count) + 100000;
+                    long limit = input.SteinerLimit ?? 10L * (input.Count + input.Segments.Count + input.Rings.Sum(g => g.Vertices.Length)) + 100000;   // ring edges are segments too
                     if (e.Milestone != Milestone.M3) r.Add(Violation.SteinerFlagWrong, "Steiner limit reported without refinement");
                     else if (r.ConstructedVertices * 2L < limit) r.Add(Violation.SteinerFlagWrong, "Steiner limit reached with " + r.ConstructedVertices + " constructed vertices, limit " + limit);
                 }
@@ -902,7 +924,7 @@ namespace Meshing2Acceptance
                         if (t1.Sign < 0 || t1 > Q.One || t2.Sign < 0 || t2 > Q.One) continue;
                         var apex = new Pt(a.a.Qx + t1 * d1x, a.a.Qy + t1 * d1y);
                         Q rp = Exact.Len2(apex, p), rq = Exact.Len2(apex, q);
-                        if (rp.Sign == 0 || rq.Sign == 0 || rp > rq * 4 || rq > rp * 4) continue;
+                        if (rp.Sign == 0 || rq.Sign == 0 || rp * 4 > rq * 9 || rq * 4 > rp * 9) continue;
                         if (Dot(apex, p, q).Sign <= 0) continue;
                         return true;
                     }

@@ -54,6 +54,130 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        /// <summary> holes, regions with and without an area bound, locked segments: every input class the class doc advertises </summary>
+        static Mesh2Input FuzzDomains(int seed)
+        {
+            var r = new Random(1000 + seed);
+            var input = new Mesh2Input { X = new double[] { 0, 10, 10, 0 }, Y = new double[] { 0, 0, 10, 10 } };
+            input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false, 1));
+            int holes = 1 + r.Next(4);
+            for (int h = 0; h < holes; ++h) {
+                // small triangles in disjoint cells of a 4 x 4 grid, so the rings neither cross nor touch
+                double cx = 1.25 + 2.5 * ((seed + 5 * h) % 4), cy = 1.25 + 2.5 * (((seed + 5 * h) / 4 + h) % 4), s = 0.2 + r.NextDouble();
+                int a = AddPoint(input, cx - s, cy - s * r.NextDouble()), b = AddPoint(input, cx + s, cy - s * r.NextDouble()), c = AddPoint(input, cx + s * (r.NextDouble() - 0.5), cy + s);
+                switch (r.Next(3)) {
+                    case 0: input.Rings.Add(new RingInput(new[] { a, b, c }, true, 2)); break;
+                    case 1: input.Regions.Add(new RegionInput { Ring = new[] { a, b, c }, Label = 7 + h }); break;
+                    default: input.Regions.Add(new RegionInput { Ring = new[] { a, b, c }, Label = 7 + h, MaxArea = 0.01 }); break;
+                }
+            }
+            input.MinAngleDeg = 20 + r.Next(14);
+            input.SteinerLimit = 20000;
+            return input;
+        }
+
+        [Fact]
+        public void Fuzz_HolesAndRegions_PassTheOracle()
+        {
+            // review of M3: a split lifts the constraint of its piece, the flips around it may cross the boundary, and a small hole or
+            // region enclosed by constraints kept the tags of the slots it was rewritten into (filled holes, wrong labels)
+            for (int seed = 0; seed < 80; ++seed) {
+                var input = FuzzDomains(seed);
+                var report = Judge(input, out var output);
+                Assert.True(output.Status == Mesh2Status.Success, "seed " + seed + ": " + output.FailureKind);
+                Assert.True(report.Ok, "seed " + seed + ": " + report);
+            }
+        }
+
+        static Mesh2Input SmallHole(bool region)
+        {
+            var input = new Mesh2Input { X = new double[] { 0, 10, 10, 0, 4, 6, 5, 5 }, Y = new double[] { 0, 0, 10, 10, 5, 5, 5.3, 4.7 } };
+            input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false));
+            if (region) input.Regions.Add(new RegionInput { Ring = new[] { 4, 5, 6 }, Label = 7 });
+            else input.Rings.Add(new RingInput(new[] { 4, 5, 6 }, true));
+            input.Conforming = true;
+            return input;
+        }
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void Split_NextToASmallHoleOrRegion_KeepsItsTag(bool region)
+        {
+            // the review's case: the encroached hole edge 4-5 is split, its constraint lifted; the hole stays empty, the region labelled
+            var input = SmallHole(region);
+            var report = Judge(input, out var o);
+            Assert.True(report.Ok, report.ToString());
+            double area = 0;
+            for (int t = 0; t < o.Triangles.Length; ++t) {
+                var a = o.Triangles[t];
+                double at = 0.5 * ((o.VX[a[1]] - o.VX[a[0]]) * (o.VY[a[2]] - o.VY[a[0]]) - (o.VY[a[1]] - o.VY[a[0]]) * (o.VX[a[2]] - o.VX[a[0]]));
+                area += at;
+            }
+            Assert.Equal(region ? 100 : 100 - 0.3, area, 9);
+            if (region) {
+                double labelled = 0;
+                for (int t = 0; t < o.Triangles.Length; ++t) {
+                    if (o.TriangleLabels[t] != 7) continue;
+                    var a = o.Triangles[t];
+                    labelled += 0.5 * ((o.VX[a[1]] - o.VX[a[0]]) * (o.VY[a[2]] - o.VY[a[0]]) - (o.VY[a[1]] - o.VY[a[0]]) * (o.VX[a[2]] - o.VX[a[0]]));
+                }
+                Assert.Equal(0.3, labelled, 9);
+            }
+        }
+
+        [Theory]
+        [InlineData(-560)]
+        [InlineData(-540)]
+        [InlineData(-500)]
+        [InlineData(-200)]
+        [InlineData(200)]
+        [InlineData(225)]
+        public void ExtremeScales_RefineTheSameMesh(int exponent)
+        {
+            // review of M3: at 2^-500 the squared lengths underflowed and no triangle counted as bad (silent success)
+            var input = Sample(); input.MaxArea = null;
+            var scaled = Sample(); scaled.MaxArea = null;
+            for (int i = 0; i < input.Count; ++i) { scaled.X[i] = ExactPoint3.ScaleB(input.X[i], exponent); scaled.Y[i] = ExactPoint3.ScaleB(input.Y[i], exponent); }
+            Assert.True(Judge(input, out var a).Ok);
+            var report = Judge(scaled, out var b);
+            Assert.True(report.Ok, report.ToString());
+            Assert.Equal(Canonical(a), Canonical(b));
+            for (int i = 0; i < a.VX.Length; ++i) {
+                Assert.Equal(ExactPoint3.ScaleB(a.VX[i], exponent), b.VX[i]);
+                Assert.Equal(ExactPoint3.ScaleB(a.VY[i], exponent), b.VY[i]);
+            }
+        }
+
+        static Mesh2Input FuzzLocked(int seed)
+        {
+            var input = Fuzz(seed);
+            foreach (var s in input.Segments) s.Locked = s.Marker == 1;
+            if (input.MinAngleDeg == 0) input.MinAngleDeg = 20;
+            return input;
+        }
+
+        [Fact]
+        public void Fuzz_LockedSegments_StayWholeAndValid()
+        {
+            // review of M3: near locked segments the bounds are not met yet (m3.locks, documented on QualityMesh2). What holds: the
+            // mesh is valid, locked segments keep their vertices, and every triangle left below the angle is in the bad list
+            var allowed = new HashSet<Violation> { Violation.AngleBelowBound, Violation.AreaAboveBound };
+            for (int seed = 0; seed < 60; ++seed) {
+                var input = FuzzLocked(seed);
+                var report = Judge(input, out var output);
+                Assert.True(output.Status == Mesh2Status.Success, "seed " + seed + ": " + output.FailureKind);
+                var other = report.Violations.Where(v => !allowed.Contains(v.Kind)).ToList();
+                Assert.True(other.Count == 0, "seed " + seed + ": " + string.Join("; ", other.Select(v => v.Kind + ": " + v.Detail)));
+                foreach (var s in input.Segments.Where(s => s.Locked)) {
+                    int a = output.InputToVertex[s.A], b = output.InputToVertex[s.B];
+                    // whole unless another segment crosses it (then split only at crossings, which are not Steiner points of refinement)
+                    bool crossed = output.Subsegments.Count(q => q.Marker == s.Marker) > input.Segments.Count(q => q.Marker == s.Marker);
+                    if (!crossed) Assert.Contains(output.Subsegments, q => (q.A == a && q.B == b) || (q.A == b && q.B == a));
+                }
+            }
+        }
+
         [Theory]
         [InlineData(-1.0)]
         [InlineData(60.0)]
@@ -141,6 +265,12 @@ namespace geometry3Sharp.Tests
             // without a limit problem the flag stays off
             Assert.True(Judge(Sample(), out var free).Ok);
             Assert.False(free.SteinerLimitReached);
+            // a limit of 0 on a mesh that needs no point: nothing was refused, so no flag (review of M3)
+            var square = new Mesh2Input { X = new double[] { 0, 1, 1, 0 }, Y = new double[] { 0, 0, 1, 1 }, MinAngleDeg = 30, SteinerLimit = 0 };
+            square.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false));
+            Assert.True(Judge(square, out var good).Ok);
+            Assert.False(good.SteinerLimitReached);
+            Assert.Equal(4, good.VX.Length);
         }
 
         [Fact]

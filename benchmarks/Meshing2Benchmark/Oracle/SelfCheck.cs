@@ -386,6 +386,7 @@ namespace Meshing2Acceptance
 
             ReviewFindings(Must, Accept, Reject);
             SecondReviewFindings(Must, Accept, Reject);
+            M3ReviewFindings(Accept, Reject);
             return items;
         }
 
@@ -400,6 +401,52 @@ namespace Meshing2Acceptance
                 if (empty) list.Add(new[] { ids[a], ids[b], ids[c] });
             }
             return list.ToArray();
+        }
+
+        // Known-wrong results for the oracle relaxations made with M3, which the review of M3 found without a negative test
+        // (checklist 10a). They stay as regressions.
+        static void M3ReviewFindings(Action<string, Mesh2Input, Mesh2Output, OracleExpect> accept, Action<string, Violation, Mesh2Input, Mesh2Output, OracleExpect> reject)
+        {
+            Mesh2Output Out(Mesh2Input input, int[][] tris, params (int, int, int)[] subs) => new Mesh2Output {
+                Status = Mesh2Status.Success, VX = (double[])input.X.Clone(), VY = (double[])input.Y.Clone(),
+                InputToVertex = Enumerable.Range(0, input.Count).ToArray(), Triangles = tris, Neighbours = NeighboursOf(tris), BadTriangles = new int[0],
+                Subsegments = subs.Select(s => new SubsegmentOutput(s.Item1, s.Item2, s.Item3)).ToList() };
+
+            // 1. D13: a boundary vertex within the tube of a hull edge counts as moved; one outside the tube does not, so a missing
+            //    triangle at the hull is not hidden by its distance
+            {
+                var input = Points(0, 0, 10, 0, 10, 10, 0, 10, 5, 1.0 / 1024, 5, 5);
+                var tris = StrictDelaunay(input, Enumerable.Range(0, input.Count).ToArray());
+                accept("a point set, all its triangles (control of the next item)", input, Out(input, tris), new OracleExpect { Milestone = Milestone.M3 });
+                var sliver = tris.Where(t => !(t.Contains(0) && t.Contains(1) && t.Contains(4))).ToArray();
+                reject("a missing hull triangle, its vertex outside the tube", Violation.AreaMismatch, input, Out(input, sliver), new OracleExpect { Milestone = Milestone.M3 });
+            }
+
+            // 3. the small-input-angle exemption covers endpoints at about the same distance from the apex (Shewchuk's shells), not
+            //    endpoints a factor of 1.5 or more apart: two segments at about 10.6 degrees, vertices at 1, 4, 16 on one and at
+            //    1.53, 6.1, 24.4 on the other (exact: multiples of (32, 6) by 3/64, 3/16, 3/4); every adjacent pair is 1.53 apart
+            {
+                var input = Points(0, 0, 32, 0, 32, 6, 1, 0, 4, 0, 16, 0, 1.5, 0.28125, 6, 1.125, 24, 4.5);
+                input.Segments.Add(new SegmentInput(0, 1)); input.Segments.Add(new SegmentInput(0, 2));
+                input.MinAngleDeg = 20;
+                var tris = StrictDelaunay(input, Enumerable.Range(0, input.Count).ToArray());
+                var o = Out(input, tris, (0, 3, 0), (3, 4, 0), (4, 5, 0), (5, 1, 0), (0, 6, 0), (6, 7, 0), (7, 8, 0), (8, 2, 0));
+                o.BadTriangles = Enumerable.Range(0, tris.Length).ToArray();
+                reject("shells 1.53 apart, exempted as a small input angle", Violation.AngleBelowBound, input, o, new OracleExpect { Milestone = Milestone.M3 });
+            }
+
+            // 2. a region seed on an input point is ambiguous and ignored (D6); only a vertex the refinement placed does not count
+            {
+                var input = Points(0, 0, 4, 0, 4, 4, 0, 4, 1, 1);
+                input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false));
+                input.Regions.Add(new RegionInput { Seed = new double[] { 1, 1 }, Label = 9 });
+                var tris = StrictDelaunay(input, Enumerable.Range(0, input.Count).ToArray());
+                var subs = new[] { (0, 1, 0), (1, 2, 0), (2, 3, 0), (3, 0, 0) };
+                var plain = Out(input, tris, subs); plain.TriangleLabels = new int[tris.Length];
+                accept("a seed on an input point, ignored (control of the next item)", input, plain, new OracleExpect { Milestone = Milestone.M2 });
+                var labelled = Out(input, tris, subs); labelled.TriangleLabels = Enumerable.Repeat(9, tris.Length).ToArray();
+                reject("a seed on an input point, applied", Violation.RegionLabelWrong, input, labelled, new OracleExpect { Milestone = Milestone.M2 });
+            }
         }
 
         // The wrong verdicts and tool defects the second independent review (2026-11-01) demonstrated. They stay as regressions.

@@ -268,7 +268,8 @@ namespace g3
             Join(3 * t + 2, 3 * t2 + 2, -1);// d-c with c-d
             Join(3 * t2, hdb, sdb);         // d-b
             Join(3 * t2 + 1, hbc, sbc);     // b-c
-            // a flip never crosses a constraint, and tags change only across constraints: both sides carry the same tag
+            // the flipped edge is unconstrained, so the tags of the two triangles stay as they were; while a split has lifted a
+            // constraint, a flip may cross the boundary and leave a wrong tag, which the refiner's Collect assigns anew
             Touch(t); Touch(t2);
             if (Dirty != null) { Dirty.Add(t); Dirty.Add(t2); }
             n1 = 3 * t + 1; n2 = 3 * t2;

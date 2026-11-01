@@ -31,7 +31,7 @@ namespace Meshing2Acceptance
   format-tables                     print the generated parts of docs/design/MESHING2D_GOLDEN_FORMAT.md
   perf [--sizes 1000,4096,...] [--kinds uniform,grid,utm,clustered] [--repeats 5]
                                     time and allocation of the M1 kernel alone (spec 3.1)
-  rows [--milestone M3] [--filter F-4] [--seconds 60]
+  rows [--milestone M3] [--filter F-4] [--seconds 60] [--fast]   (--fast skips the slow rows)
                                     run the covered catalogue rows one at a time: verdict, time; a row past the limit is reported and skipped
   perf --m2 [--sizes ...] [--kinds coastline,parcels,crossings] [--repeats 3]
                                     the same for the constrained mesher
@@ -82,6 +82,7 @@ namespace Meshing2Acceptance
             foreach (var row in Catalogue.Rows()) {
                 if (row.Case == null || row.Case.Milestone != m || row.State != CaseState.Covered) continue;
                 if (filter != null && !row.Id.StartsWith(filter, StringComparison.OrdinalIgnoreCase)) continue;
+                if (Has(args, "--fast") && row.Slow) continue;
                 var sw = System.Diagnostics.Stopwatch.StartNew();
                 Mesh2Output output = null; Exception error = null;
                 var thread = new System.Threading.Thread(() => { try { output = candidate.Run(row.Case.Input); } catch (Exception e) { error = e; } }, 256 << 20);
