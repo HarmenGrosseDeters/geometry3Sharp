@@ -54,7 +54,7 @@ namespace gs
         /// </summary>
         public DMesh3 FootprintMesh;
 
-        /// <summary> finest cell size in XY. If zero, uses the larger XY extent / GridResolution </summary>
+        /// <summary> finest cell size in XY. If zero, uses the larger XY extent / GridResolution; NaN or infinite: Compute fails </summary>
         public double CellSize = 0;
         public int GridResolution = 256;
         /// <summary> vertical rays per cell along each axis (finest cells) </summary>
@@ -108,8 +108,37 @@ namespace gs
         }
 
 
+        /// <summary>
+        /// Compute the surface into Result. false, with Result null (also after an earlier success), if the input
+        /// is empty, CellSize is NaN or infinite, the cell size or SamplesPerCell is invalid, the grid would have more
+        /// than MaxCells cells, no triangle came out, or the computation was cancelled.
+        /// </summary>
         public bool Compute()
         {
+            FinestCells = 0;
+            LeafCells = 0;
+            BoundaryCells = 0;
+            SkippedTriangles = 0;
+            BoundaryFallbacks = 0;
+            SplitLeaves = 0;
+            RemovedTriangles = 0;
+            // (in finally: build_mesh sets Result before the last cancel checks and before an empty result is
+            // known, and an exception from SampleF or CancelF is a failure too)
+            bool success = false;
+            try {
+                success = compute_result();
+                return success;
+            } finally {
+                if (success == false)
+                    Result = null;
+            }
+        }
+
+        bool compute_result()
+        {
+            // (checked here: a NaN would pass as "automatic" below, +infinity as a valid size)
+            if (MathUtil.IsFinite(CellSize) == false)
+                return false;
             AxisAlignedBox3d bounds;
             if (SampleF != null) {
                 bounds = SampleBounds;

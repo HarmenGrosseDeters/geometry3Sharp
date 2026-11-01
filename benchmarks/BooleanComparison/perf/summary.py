@@ -9,7 +9,7 @@ PHASES = ['input', 'setup.points', 'setup.triangles', 'intersections.trees', 'in
 
 for d in sys.argv[1:]:
     print('==', d)
-    for cls in ['cherchi', 'cgal', 'thingi', 'nary']:
+    for cls in ['cherchi', 'cgal', 'thingi', 'nary', 'nreal']:
         p = os.path.join(d, cls + '.jsonl')
         if not os.path.exists(p):
             continue
