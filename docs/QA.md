@@ -444,10 +444,30 @@ not depend on the implementer's own tests. Order of priority:
    Not covered: `tests/g3cli.Tests`, changed (not added) test methods, tests with a `DisplayName` (reported, not
    run).
 2. **API compatibility with upstream 1.0.324**: .NET package validation (`EnablePackageValidation` with baseline
-   1.0.324) in the pack step.
+   1.0.324) in the pack step. Done (#92, §2.8): `dotnet pack` fails with CP0002 etc. on a break; the accepted breaks
+   are in `CompatibilitySuppressions.xml`.
 3. **Banned APIs and analyzers in exact code**: a banned-API analyzer forbids `Math.FusedMultiplyAdd`, `float` and
    parallel floating-point reductions in `math/Exact*`, `math/AdaptivePredicates.cs` and `mesh_ops/ExactMesh*`;
-   warnings as errors there.
+   warnings as errors there. Done, in the exact files listed in `.editorconfig` (`math/Exact*`,
+   `math/AdaptivePredicates.cs`, `mesh_ops/ExactMesh*`, and the exact parts the mesh pipeline calls:
+   `ExactTriangulation2`, `ExactPlanarSimplify`, `ExactTriangleIntersection`), each rule an error there and off
+   elsewhere:
+   - RS0030 (`Microsoft.CodeAnalysis.BannedApiAnalyzers`, `BannedSymbols.txt`): `Math` / `double.FusedMultiplyAdd`,
+     `MultiplyAddEstimate`, the hardware intrinsics namespaces, `MathF`, `System.Single`, `Interlocked` on double /
+     float. No allow-list.
+   - G3E0001 (`tools/analyzers/G3ExactCodeAnalyzers`): every expression, declaration and signature whose type is or
+     contains `float`, including structs with float fields (`Vector3f`, `AxisAlignedBox3f`, a `GetVertexNormal`
+     result); RS0030 sees only member accesses such as `float.Epsilon`.
+   - G3E0002: every use of `Parallel`, PLINQ and `gParallel`. The analyzer cannot see what a loop body aggregates;
+     the reviewed existing loops (integer aggregation only, output normalized afterwards) are allowed per member in
+     `core/ExactCodeAllowList.cs`, which suppresses only G3E0002.
+   - G3E0003: every framework method named as a fused multiply-add (`FusedMultiply*`, `MultiplyAdd*`,
+     `MultiplySubtract*`), in any type.
+
+   `ExactCodeAnalyzerTests` checks the analyzers, that the allow-list switches off only G3E0002, that every banned ID
+   and allow-list target names an existing symbol, the severities by Roslyn's own reading of `.editorconfig`, and
+   that the library project runs the analyzers. Not covered: `Task` / `Thread`, and a new loop inside an allowed
+   member.
 4. **Acceptance against references**: for spec-driven work, an oracle by definition, a differential against other libraries, and a golden
    master of accepted results ([strategy](design/ACCEPTANCE_STRATEGY.md)).
 5. **Quality ratchet in CI**: a small fixed benchmark subset with stored metrics (JSON: clean results, max

@@ -308,8 +308,6 @@ namespace geometry3Sharp.Tests
             { "MeshIterativeSmooth|+Inf vertex", "R13" },
             { "MeshIterativeSmooth|NaN vertex", "R13" },
             { "Reducer.MaxDeviation|scale 2^-24", "R14" },
-            { "Reducer.TriangleCount|+Inf vertex", "R13" },
-            { "Reducer.TriangleCount|NaN vertex", "R13" },
             { "Reducer.TriangleCount|rotated, scale 1e-3, utm", "R7" },
             { "Reducer.TriangleCount|scale 2^-24", "R14" },
             { "Reducer.TriangleCount|utm", "R7" },

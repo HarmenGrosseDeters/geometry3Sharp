@@ -1202,7 +1202,9 @@ skip_to_end:
 		/// <summary>
 		/// minimizer of the quadric + lambda * |x - center|^2, with lambda = lambdaRel * trace(A)/3:
 		/// always well-conditioned and scale independent; directions the quadric does not constrain stay
-		/// at center. Returns false only for an empty quadric.
+		/// at center. Returns false, with result untouched, for an empty quadric, a nearly singular one, and where the
+		/// solution leaves the double range: 1/det is 0 or infinity, or the products below overflow (from about L = 1e45 for
+		/// area-weighted planes). The Reducer then takes an endpoint or the midpoint of the edge.
 		/// </summary>
 		public bool OptimalPoint(ref Vector3d result, Vector3d center, double lambdaRel) {
 			double scale = (Axx + Ayy + Azz) / 3;
@@ -1221,6 +1223,9 @@ skip_to_end:
 			if (!(Math.Abs(det) > 1e-18 * scale * scale * scale))
 				return false;
 			det = 1.0 / det;
+			// 0 would give a point of zeros; an infinite 1/det ends in the check of the solution below
+			if (det == 0)
+				return false;
 			// x = -(A + lambda I)^-1 (b - lambda c); then proximal steps with c = x, which converge to the
 			// exact minimizer in the directions the quadric constrains (factor lambda/eigenvalue per step)
 			// and keep the others at center
@@ -1232,6 +1237,8 @@ skip_to_end:
 					-(a12 * rx + a22 * ry + a23 * rz) * det,
 					-(a13 * rx + a23 * ry + a33 * rz) * det);
 			}
+			if (MathUtil.IsFinite(cur.x) == false || MathUtil.IsFinite(cur.y) == false || MathUtil.IsFinite(cur.z) == false)
+				return false;
 			result = cur;
 			return true;
 		}
@@ -1244,15 +1251,23 @@ skip_to_end:
 			double a23 = Axy * Axz - Axx * Ayz;
 			double a33 = Axx * Ayy - Axy * Axy;
 			double det = (Axx * a11) + (Axy * a12) + (Axz * a13);
-            // [RMS] not sure what we should be using for this threshold...have seen
-            //  det less than 10^-9 on "normal" meshes.
-			if (Math.Abs(det) > 1000.0*MathUtil.Epsilon) {
-				det = 1.0 / det;
-				a11 *= det; a12 *= det; a13 *= det;
-				a22 *= det; a23 *= det; a33 *= det;				
+			// relative to the size of A (trace/3 for the positive semidefinite A of plane quadrics): with area
+			// weights A is L^2 and det is L^6, so an absolute threshold refuses every small quadric. A factor on A
+			// does not change the decision while det and 1/det are in the double range; beyond that (size above about
+			// 6e102 or below about 2e-103) it refuses, as the inverse would be 0 or infinity, which is no solution. It also
+			// refuses if the solution itself is not finite, with b out of range or too large for this A.
+			// Against the old absolute threshold: the same for trace 3, otherwise (trace/3)^3 times it, so 1000 unit
+			// planes of tilt 1e-7 are refused now, which the old code solved.
+			double size = (Math.Abs(Axx) + Math.Abs(Ayy) + Math.Abs(Azz)) / 3;
+			double inverse = 1.0 / det;
+			if (Math.Abs(det) > 1000.0*MathUtil.Epsilon * size * size * size && MathUtil.IsFinite(inverse) && inverse != 0) {
+				a11 *= inverse; a12 *= inverse; a13 *= inverse;
+				a22 *= inverse; a23 *= inverse; a33 *= inverse;				
 				double x = a11 * bx + a12 * by + a13 * bz;
 				double y = a12 * bx + a22 * by + a23 * bz;
 				double z = a13 * bx + a23 * by + a33 * bz;
+                if (MathUtil.IsFinite(x) == false || MathUtil.IsFinite(y) == false || MathUtil.IsFinite(z) == false)
+                    return false;
                 result = new Vector3d(-x, -y, -z);
                 return true;
 			} else {

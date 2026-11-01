@@ -28,15 +28,37 @@ jobs:
         run: dotnet test tests/geometry3Sharp.Tests -c Release --logger "trx;LogFileName=net10.trx" --results-directory test-results
       - name: Test CLI / MCP server (tools/g3cli)
         run: dotnet test tests/g3cli.Tests -c Release --logger "trx;LogFileName=g3cli.trx" --results-directory test-results
+      - name: Test the Clipper2 package (addons/geometry3Sharp.Clipper2)
+        run: dotnet test tests/geometry3Sharp.Clipper2.Tests -c Release --logger "trx;LogFileName=clipper2.trx" --results-directory test-results
       - name: Pack
         run: dotnet pack geometry3Sharp_netstandard.csproj -c Release -o artifacts -p:Version=1.0.0-ci.${{ github.run_number }}
+      - name: Pack the Clipper2 package
+        run: dotnet pack addons/geometry3Sharp.Clipper2/geometry3Sharp.Clipper2.csproj -c Release -o artifacts -p:Version=1.0.0-ci.${{ github.run_number }}
       - name: Package smoke test
         run: >
           dotnet run --project tests/PackageSmokeTest -c Release
           -p:G3PackageVersion=1.0.0-ci.${{ github.run_number }} -p:G3PackageSource=${{ github.workspace }}/artifacts
           -- artifacts/geometry3Sharp.1.0.0-ci.${{ github.run_number }}.nupkg
+      - name: Clipper2 package smoke test
+        run: >
+          dotnet run --project tests/Clipper2PackageSmokeTest -c Release
+          -p:G3PackageVersion=1.0.0-ci.${{ github.run_number }} -p:G3PackageSource=${{ github.workspace }}/artifacts
+          -- artifacts/geometry3Sharp.Clipper2.1.0.0-ci.${{ github.run_number }}.nupkg
       - name: Build the benchmarks
         run: for p in benchmarks/*/*.csproj; do dotnet build "$p" -c Release -f net10.0 || exit 1; done
+      - name: Acceptance gates of the 2D mesher (oracle self-check, differential against NetTopologySuite, golden rows)
+        run: dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 --no-build -- ci
+      - name: A changed golden row of the 2D mesher states a reason
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --depth=1 origin "${{ github.base_ref }}"
+          # the files of both sides: a deleted file counts as one with all rows removed
+          files=$( (ls benchmarks/Meshing2Benchmark/golden/*.json; git ls-tree --name-only FETCH_HEAD benchmarks/Meshing2Benchmark/golden/) | sort -u)
+          for f in $files; do
+            git show "FETCH_HEAD:$f" > golden-base.json 2>/dev/null || echo '{"format": 1, "rows": [], "removed": []}' > golden-base.json
+            if [ -f "$f" ]; then cp "$f" golden-current.json; else echo '{"format": 1, "rows": [], "removed": []}' > golden-current.json; fi
+            dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 --no-build -- golden verify-changes --base golden-base.json --current golden-current.json || exit 1
+          done
       - name: Test the benchmark analysis
         run: python3 benchmarks/MeshRepairBenchmark/test_analysis.py
       - uses: actions/upload-artifact@v4
@@ -58,6 +80,8 @@ jobs:
           dotnet-version: 10.0.x
       - name: Test (net48 / netstandard2.0)
         run: dotnet test tests/geometry3Sharp.Tests -c Release -f net48 --logger "trx;LogFileName=net48.trx" --results-directory test-results
+      - name: Test the Clipper2 package (net48 / netstandard2.0)
+        run: dotnet test tests/geometry3Sharp.Clipper2.Tests -c Release -f net48 --logger "trx;LogFileName=clipper2-net48.trx" --results-directory test-results
       - name: Benchmark reporting regression (MeshRepairBenchmark)
         shell: powershell
         run: benchmarks/MeshRepairBenchmark/test_validity_reporting.ps1

@@ -52,12 +52,24 @@
     <Compile Remove="benchmarks\**" />
     <Compile Remove="docs\**" />
     <Compile Remove="tools\**" />
+    <!-- optional packages with their own dependencies (addons/*/*.csproj) -->
+    <Compile Remove="addons\**" />
   </ItemGroup>
 
   <ItemGroup>
     <InternalsVisibleTo Include="geometry3Sharp.Tests" />
     <!-- profiling of the exact booleans (benchmarks/BooleanComparison profile) -->
     <InternalsVisibleTo Include="BooleanComparison" />
+  </ItemGroup>
+
+  <!-- banned APIs and analyzers in the exact-arithmetic code (BannedSymbols.txt, G3E0001-3; scoped by .editorconfig;
+       build-time only, not a package dependency) -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.BannedApiAnalyzers" Version="4.14.0" PrivateAssets="all" />
+    <AdditionalFiles Include="BannedSymbols.txt" />
+    <!-- G3E0001-3: float, parallel loops (with the allow-list core/ExactCodeAllowList.cs) and FMA in the exact code -->
+    <ProjectReference Include="tools\analyzers\G3ExactCodeAnalyzers\G3ExactCodeAnalyzers.csproj"
+                      OutputItemType="Analyzer" ReferenceOutputAssembly="false" PrivateAssets="all" />
   </ItemGroup>
 
   <ItemGroup>
