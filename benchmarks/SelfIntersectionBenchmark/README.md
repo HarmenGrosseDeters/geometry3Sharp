@@ -82,4 +82,22 @@ the raw output). master = 62f0f2b; box fix = `fix/reducer-closed-box` before the
 | bumpy sphere | 18252 -> 1000 | 540 ms | 785 ms | 509 ms | 0.94 |
 | box grid | 10092 -> 600 | 4944 ms | 8237 ms | 3165 ms | 0.64 |
 
-The harness cases of #239 and the Remesher follow.
+### The cases of the review harness of #239
+
+Same setup, `reducer runs=3 only=harness`. Fingerprints identical in all three builds.
+
+| case | triangles | master | box fix | filter | filter / master | harness of #239 (other machine, not alone): master / box fix |
+|---|---|---:|---:|---:|---:|---|
+| `HarnessPlate(50, 0.5)` | 5000 -> 500 | 13743 ms | 94749 ms | 7451 ms | 0.54 | 10.372 s / 77.262 s |
+| `HarnessTilt(HarnessPlate(50, 0.5))` | 5000 -> 499 | 20023 ms | 20914 ms | 2356 ms | 0.12 | 12.754 s / 14.384 s |
+| `HarnessTilt(HarnessPlate(50))` | 5000 -> 499 | 49180 ms | 47294 ms | 6289 ms | 0.13 | 33.151 s / 37.544 s |
+| `HarnessPlate(100)` | 20000 -> 1999 | 1316 ms | 3563 ms | 554 ms | 0.42 | 0.872 s / 3.211 s |
+
+Exact stages with the filter (`-p:G3PredicateStats=true`, one run): `HarnessPlate(50, 0.5)` 0 Orient3d calls,
+191058999 Orient2d (0.2 % exact); the tilted plates 7071 and 2239 Orient3d calls, 60.9 and 140.3 million Orient2d
+(0.0 and 0.1 % exact); `HarnessPlate(100)` 0 Orient3d calls. What remains is the number of candidate pairs from the
+grid (and the grid query itself, about 15 % of the check's time on `HarnessPlate(50, 0.5)`): the box fix sends every
+pair with touching or overlapping closed boxes to the tests, and the reductions make long thin triangles. Not
+addressed here.
+
+The Remesher follows.
