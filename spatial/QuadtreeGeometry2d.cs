@@ -9,7 +9,7 @@ namespace g3
     internal static class QuadtreeGeometry2d
     {
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal static bool Finite(double x) { return !double.IsNaN(x) && !double.IsInfinity(x); }
+        internal static bool Finite(double x) { return x - x == 0; }
         internal static Vector2d XY(in Vector3d p) { return new Vector2d(p.x, p.y); }
         internal static void Validate(Vector2d p)
         {
