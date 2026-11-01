@@ -1,12 +1,20 @@
 name: CI
 
 on:
-  # docs-only changes skip CI (CLAUDE.md, "Before every push")
+  # docs-only changes skip CI (CLAUDE.md, "Before every push"). Branches other than master run through their pull
+  # request only: a push trigger there too ran every PR push twice. A branch without a PR: workflow_dispatch.
   push:
+    branches: [master]
     paths-ignore: ['**/*.md']
   pull_request:
     paths-ignore: ['**/*.md']
   workflow_dispatch:
+
+# a new push to the same PR (or branch) cancels the run under way. Each master commit gets its own group, so that
+# every run on master finishes (a shared group would also drop a pending run)
+concurrency:
+  group: ci-${{ github.event.pull_request.number || (github.ref == 'refs/heads/master' && github.sha) || github.ref }}
+  cancel-in-progress: true
 
 env:
   DOTNET_NOLOGO: true
