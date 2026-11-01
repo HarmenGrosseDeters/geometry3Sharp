@@ -447,7 +447,8 @@ not depend on the implementer's own tests. Order of priority:
 8. **Changed-line coverage gate**: new or changed lines must be executed by tests.
 9. **Property-based tests with shrinking** (CsCheck, Apache-2.0, or FsCheck, BSD), generalizing `MeshMinimizer`.
    Boolean test-only implementation: [plan](design/BOOLEAN_PROPERTY_TESTS.md), with parameter-level shrinking and
-   replay; proposed CsCheck campaigns on net10.0, deterministic regressions also on net48. Not implemented yet.
+   replay; CsCheck campaigns on net10.0, deterministic regressions also on net48. Done for `ExactMeshBoolean`
+   (`ExactBooleanPropertyTests`, `ExactBooleanMetamorphicTests`).
 10. **Metamorphic relations beyond similarity**: vol(A∪B) = vol A + vol B - vol(A∩B); (A-B) ∪ (A∩B) = A;
     commutativity; subdividing input triangles or permuting triangle / vertex order leaves the result geometry
     unchanged. The [Boolean plan](design/BOOLEAN_PROPERTY_TESTS.md) includes independent analytic box oracles,
