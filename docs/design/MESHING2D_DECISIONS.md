@@ -8,7 +8,7 @@ owner says otherwise.
 (note at the top of both documents), and nothing outside those documents supports it. This table therefore counts only
 [MESHING2D_SPEC.md](MESHING2D_SPEC.md), section 5, as a decision of the owner. "Recorded" below means: #201 says it was approved, and that is all we know.
 
-Three need the owner before M2 starts: **D1**, **D5**, **D9**. The others have a default that is fine unless the owner objects. Each default is cheap to change: the "where it
+**Owner decisions, 2026-10-31: D1, D5 and D9 as recommended below.** So: output in doubles, with validity decided on those doubles; a hole removes everything inside it, with a diagnostic when an outer ring lies inside a hole, and islands are not part of this; longest edge at most h at the centroid. The others have a default that is fine unless the owner objects. Each default is cheap to change: the "where it
 lives" column names the one place in the oracle, so that a different decision costs an edit there, a changed fixture and golden rows with a stated reason.
 
 | # | Decision in #201 | What the spec and section 5 actually say | Alternatives | What it means for a user of the library | Recommendation, default for session 2 | Owner? | Where it lives |
