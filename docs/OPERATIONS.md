@@ -341,16 +341,16 @@ List<GeneralPolygon2d> result = free.Polygons;                               // 
 
 | Method | Input | Result |
 |---|---|---|
-| `Union`, `Intersection`, `Difference`, `Xor`, `Boolean(op, ...)` | sets of `GeneralPolygon2d`; rings are oriented first (outer CCW, holes CW), then filled with `FillRule` (NonZero default) | `Polygons` |
+| `Union`, `Intersection`, `Difference`, `Xor`, `Boolean(op, ...)` | sets of `GeneralPolygon2d`; each one is its region first (inside the outer ring, nonzero, minus its holes, also where holes overlap or reach outside), then the regions of one operand combine by `FillRule` (NonZero default: union; EvenOdd: overlaps cancel) | `Polygons` |
 | `BooleanPaths(op, ...)` | raw `Polygon2d` rings, orientation as given (self-intersecting rings, fill rules) | `Polygons` |
 | `ClipPolyLines(op, lines, clip)` | open `PolyLine2d`s and polygons; Intersection keeps the inside pieces, Difference the outside | `PolyLines` |
-| `Offset(polygons, delta)` | `JoinType` (Round default, Miter with `MiterLimit`, Square, Bevel), `ArcTolerance` (default \|delta\| / 1000) | `Polygons` |
-| `OffsetPolyLines(lines, delta)` | delta &gt;= 0; `EndType` Round (default), Butt, Square, or Joined (closed polyline) | `Polygons` |
+| `Offset(polygons, delta)` | `JoinType` (Round default, Miter with `MiterLimit`, Square, Bevel), `ArcTolerance` (default \|delta\| / 1000, at most \|delta\| / 4); `MiterLimit` up to 1000 | `Polygons` |
+| `OffsetPolyLines(lines, delta)` | delta &gt;= 0; `EndType` Round (default), Butt, Square, or Joined (closed polyline); a single point gives a disc (Round), a square (Square) or nothing | `Polygons` |
 | `MinkowskiSum`, `MinkowskiDifference` | a pattern around (0,0) and a closed (interior included) or open path | `Polygons` |
 | `Simplify`, `SimplifyPolyLines` | vertices within epsilon of the line through their neighbours removed; polygons are re-unioned | `Polygons` / `PolyLines` |
 
-Status is `Success` (also for an empty result), `InvalidInput` (NaN or infinite coordinates, coordinates beyond
-about 1e300 or extents below about 1e-290), `InvalidParameter` (see `Error`) or `Failed` (Clipper2 reported an
+Status is `Success` (also for an empty result), `InvalidInput` (NaN or infinite coordinates, a coordinate plus the
+extent and offset beyond the double range, or extents below about 1e-290), `InvalidParameter` (see `Error`) or `Failed` (Clipper2 reported an
 error); nothing throws on bad input. Clipper2 computes on integers: each call maps its inputs to a grid
 (`ClipperFrame`: origin at the bounds center, a power-of-two scale with the half extent plus the offset margin at
 2^`PrecisionBits`, default 40). Input vertices are snapped to that grid and new vertices rounded to it, so result

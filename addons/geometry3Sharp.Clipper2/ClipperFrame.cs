@@ -61,8 +61,8 @@ namespace g3.Clipper2
         /// <summary>
         /// The frame for inputs within bounds, with room for a margin around them (offset distance, Minkowski pattern
         /// size): Origin = bounds center, Scale = the largest power of two with (half extent + margin) * Scale &lt;= 2^bits.
-        /// False if the bounds are empty or not finite, or the scale is outside the double range (coordinates beyond
-        /// about 1e300, or extents below about 1e-290).
+        /// False if the bounds are empty or not finite, if a coordinate plus the extent (and margin) exceeds the double
+        /// range, or if the scale is outside the double range (extents below about 1e-290).
         /// </summary>
         public static bool ForBounds(AxisAlignedBox2d bounds, double margin, int precisionBits, out ClipperFrame frame)
         {
@@ -77,7 +77,8 @@ namespace g3.Clipper2
             var origin = new Vector2d(0.5 * bounds.Min.x + 0.5 * bounds.Max.x, 0.5 * bounds.Min.y + 0.5 * bounds.Max.y);
             double extent = Math.Max(Math.Max(origin.x - bounds.Min.x, bounds.Max.x - origin.x),
                                      Math.Max(origin.y - bounds.Min.y, bounds.Max.y - origin.y)) + margin;
-            if (!IsFinite(extent))
+            // the grid must stay in the double range: origin ± extent finite (results at most extent from the origin)
+            if (!IsFinite(extent) || !IsFinite(Math.Abs(origin.x) + extent) || !IsFinite(Math.Abs(origin.y) + extent))
                 return false;
             if (extent == 0)
                 extent = 1;   // a single point: nothing to clip, any grid will do

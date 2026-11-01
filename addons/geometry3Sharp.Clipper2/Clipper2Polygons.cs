@@ -26,10 +26,11 @@ namespace g3.Clipper2
     public class Clipper2Options
     {
         /// <summary>
-        /// booleans and Simplify: which regions count as inside, by the winding number of the input rings.
-        /// GeneralPolygon2d inputs are oriented (outer counterclockwise, holes clockwise), so NonZero (default) and
-        /// Positive give the union of overlapping polygons, EvenOdd lets overlaps cancel. For raw paths
-        /// (BooleanPaths) the orientation of the given vertices counts.
+        /// booleans: how the polygons of one operand combine where they overlap. Each GeneralPolygon2d is first
+        /// turned into its region on its own: inside its outer ring (NonZero, either orientation) and outside all of its
+        /// holes (overlapping holes, or holes reaching outside the outer ring, just subtract). So NonZero (default) and
+        /// Positive give the union of overlapping polygons, EvenOdd lets overlaps cancel, Negative gives nothing. For
+        /// raw rings (BooleanPaths) the winding numbers of the rings as given count.
         /// </summary>
         public FillRule FillRule = FillRule.NonZero;
 
@@ -59,13 +60,18 @@ namespace g3.Clipper2
 
         /// <summary>
         /// offsets with JoinType.Miter: the largest distance of a miter tip from the input vertex, in multiples of the
-        /// offset distance; sharper corners are squared off. At least 1, default 2 (as in Clipper2).
+        /// offset distance; sharper corners are squared off. At least 1, default 2 (as in Clipper2); values above
+        /// MaxMiterLimit are taken as MaxMiterLimit (the margin of the grid grows with it).
         /// </summary>
         public double MiterLimit = 2.0;
 
+        /// <summary> the largest effective MiterLimit (1000: only corners sharper than about 0.1 degrees are cut differently) </summary>
+        public const double MaxMiterLimit = 1000;
+
         /// <summary>
         /// offsets with round joins or ends: the largest distance between a true arc and its polygon, in input units.
-        /// 0 (default): |delta| / 1000, about 70 segments per full circle, independent of the units.
+        /// 0 (default): |delta| / 1000, about 70 segments per full circle, independent of the units. Values above
+        /// |delta| / 4 are taken as |delta| / 4 (about 4 segments per circle).
         /// </summary>
         public double ArcTolerance = 0;
     }
@@ -111,9 +117,9 @@ namespace g3.Clipper2
     /// it, so a result vertex is off by about a grid spacing from its exact position. Results are
     /// deterministic (single-threaded). Nothing throws on bad input: see Clipper2Result.Status.
     ///
-    /// Limits: input rings of a GeneralPolygon2d are reoriented (outer counterclockwise, holes clockwise) by their
-    /// signed area; a self-intersecting ring counts with that net orientation and the fill rule. Features smaller
-    /// than the grid spacing vanish or are snapped (eg slivers of a few grid units of width).
+    /// The region of a GeneralPolygon2d is the inside of its outer ring (nonzero winding, so either orientation and
+    /// both lobes of a self-intersecting ring count) minus the inside of its holes; rings of zero area add nothing.
+    /// Limits: features smaller than the grid spacing vanish or are snapped (eg slivers of a few grid units of width).
     /// </summary>
     public static class Clipper2Polygons
     {
@@ -145,7 +151,7 @@ namespace g3.Clipper2
             if (!CheckBoolean(op, options, result) || !Prepare(Points(s).Concat(Points(c)), 0, options, result))
                 return result;
             ClipperFrame frame = result.Frame;
-            return Run(result, () => Execute(op, options, frame.ToPaths64(s), frame.ToPaths64(c), null, result));
+            return Run(result, () => Execute(op, options, Regions(frame, s), Regions(frame, c), null, result));
         }
 
         /// <summary>
@@ -177,7 +183,7 @@ namespace g3.Clipper2
             if (!CheckBoolean(op, options, result) || !Prepare(l.SelectMany(p => p.Vertices).Concat(Points(c)), 0, options, result))
                 return result;
             ClipperFrame frame = result.Frame;
-            return Run(result, () => Execute(op, options, new Paths64(), frame.ToPaths64(c), Paths(l.Select(frame.ToPath64)), result));
+            return Run(result, () => Execute(op, options, new Paths64(), Regions(frame, c), Paths(l.Select(frame.ToPath64)), result));
         }
 
         /// <summary>
@@ -191,11 +197,10 @@ namespace g3.Clipper2
             var result = new Clipper2Result();
             if (!CheckOffset(delta, options, result))
                 return result;
-            double margin = Math.Max(0, delta) * Math.Max(options.MiterLimit, 2);
-            if (!Prepare(Points(p), margin, options, result))
+            if (!Prepare(Points(p), Math.Max(0, delta) * MarginFactor(options), options, result))
                 return result;
             ClipperFrame frame = result.Frame;
-            return Run(result, () => ExecuteOffset(frame.ToPaths64(p), EndType.Polygon, delta, options, result));
+            return Run(result, () => ExecuteOffset(Regions(frame, p), EndType.Polygon, delta, options, result, null));
         }
 
         /// <summary>
@@ -214,11 +219,28 @@ namespace g3.Clipper2
                 return Fail(result, Clipper2Status.InvalidParameter, "delta of a polyline offset must not be negative");
             if (options.EndType == EndType.Polygon)
                 return Fail(result, Clipper2Status.InvalidParameter, "EndType.Polygon: use Offset for polygons");
-            double margin = delta * Math.Max(options.MiterLimit, 2);
-            if (!Prepare(l.SelectMany(p => p.Vertices), margin, options, result))
+            if (!Prepare(l.SelectMany(p => p.Vertices), delta * MarginFactor(options), options, result))
                 return result;
             ClipperFrame frame = result.Frame;
-            return Run(result, () => ExecuteOffset(Paths(l.Select(frame.ToPath64)), options.EndType, delta, options, result));
+            return Run(result, () => {
+                // a polyline that is a single grid point: Clipper2 2.0 computes square and butt ends of a point with an
+                // int half size, which overflows on our grid; round ends are fine. Square ends give the square here,
+                // butt and joined ends give nothing (no length)
+                var lines = new Paths64();
+                var squares = new Paths64();
+                long d = (long)Math.Round(delta * frame.Scale);
+                foreach (PolyLine2d line in l) {
+                    Path64 path = WithoutDuplicates(frame.ToPath64(line));
+                    if (path.Count > 1 || options.EndType == EndType.Round)
+                        lines.Add(path);
+                    else if (options.EndType == EndType.Square && d > 0) {
+                        Point64 q = path[0];
+                        squares.Add(new Path64 { new Point64(q.X - d, q.Y - d), new Point64(q.X + d, q.Y - d),
+                                                 new Point64(q.X + d, q.Y + d), new Point64(q.X - d, q.Y + d) });
+                    }
+                }
+                ExecuteOffset(lines, options.EndType, delta, options, result, squares);
+            });
         }
 
         /// <summary>
@@ -303,8 +325,14 @@ namespace g3.Clipper2
                 return result;
             ClipperFrame frame = result.Frame;
             return Run(result, () => {
-                Paths64 simplified = Clipper.SimplifyPaths(frame.ToPaths64(p), epsilon * frame.Scale, true);
-                Execute(ClipType.Union, options, simplified, new Paths64(), null, result);
+                // the union of the regions (options.FillRule), simplified, and the overlaps this creates merged
+                var merged = new Paths64();
+                var clipper = new Clipper64 { PreserveCollinear = options.PreserveCollinear };
+                clipper.AddSubject(Regions(frame, p));
+                if (!clipper.Execute(ClipType.Union, options.FillRule, merged))
+                    throw new ClipperLibException("Clipper64.Execute failed");
+                Paths64 simplified = Clipper.SimplifyPaths(merged, epsilon * frame.Scale, true);
+                Execute(ClipType.Union, new Clipper2Options { FillRule = FillRule.Positive }, simplified, new Paths64(), null, result);
             });
         }
 
@@ -341,26 +369,69 @@ namespace g3.Clipper2
                 result.PolyLines.Add(result.Frame.ToPolyLine2d(path));
         }
 
-        static void ExecuteOffset(Paths64 paths, EndType endType, double delta, Clipper2Options options, Clipper2Result result)
+        static void ExecuteOffset(Paths64 paths, EndType endType, double delta, Clipper2Options options, Clipper2Result result, Paths64 extra)
         {
             double scale = result.Frame.Scale;
-            double arcTolerance = options.ArcTolerance > 0 ? options.ArcTolerance : Math.Abs(delta) / 1000;
-            var tree = new PolyTree64();
-            if (Math.Abs(delta * scale) < 0.5) {
-                // below half a grid unit Clipper2 offsets nothing (its PolyTree output is then empty): the polygons
-                // themselves, merged; open paths give a band of zero width, ie nothing
-                if (endType == EndType.Polygon) {
-                    var clipper = new Clipper64();
-                    clipper.AddSubject(paths);
-                    if (!clipper.Execute(ClipType.Union, FillRule.NonZero, tree))
-                        throw new ClipperLibException("Clipper64.Execute failed");
-                }
-            } else {
-                var offset = new ClipperOffset(options.MiterLimit, arcTolerance * scale);
-                offset.AddPaths(paths, options.JoinType, endType);
-                offset.Execute(delta * scale, tree);
+            double absDelta = Math.Abs(delta);
+            double arcTolerance = options.ArcTolerance > 0 ? Math.Min(options.ArcTolerance, absDelta / 4) : absDelta / 1000;
+            var offset = new Paths64();
+            if (absDelta * scale < 0.5) {
+                // below half a grid unit Clipper2 offsets nothing (its PolyTree output is then empty): the regions
+                // themselves; open paths give a band of zero width, ie nothing
+                if (endType == EndType.Polygon)
+                    offset.AddRange(paths);
+            } else if (paths.Count > 0) {
+                var clipperOffset = new ClipperOffset(Math.Min(options.MiterLimit, Clipper2Options.MaxMiterLimit), arcTolerance * scale);
+                clipperOffset.AddPaths(paths, options.JoinType, endType);
+                clipperOffset.Execute(delta * scale, offset);
             }
+            if (extra != null)
+                offset.AddRange(extra);
+            // once more through a union for the hole nesting (the offset's output rings are oriented, outer positive)
+            var clipper = new Clipper64();
+            clipper.AddSubject(offset);
+            var tree = new PolyTree64();
+            if (!clipper.Execute(ClipType.Union, FillRule.Positive, tree))
+                throw new ClipperLibException("Clipper64.Execute failed");
             result.Polygons = result.Frame.ToGeneralPolygons(tree);
+        }
+
+        /// <summary>
+        /// The region of each polygon on the grid, as oriented rings without overlaps (outer positive, holes negative):
+        /// its outer ring (NonZero) minus its holes (NonZero). Each region has winding number 1 inside, so the fill
+        /// rule only decides how different polygons combine.
+        /// </summary>
+        static Paths64 Regions(ClipperFrame frame, List<GeneralPolygon2d> polygons)
+        {
+            var result = new Paths64();
+            foreach (GeneralPolygon2d g in polygons) {
+                if (g.Outer == null)
+                    continue;
+                var clipper = new Clipper64();
+                clipper.AddSubject(frame.ToPath64(g.Outer));
+                foreach (Polygon2d hole in g.Holes)
+                    clipper.AddClip(frame.ToPath64(hole));
+                var region = new Paths64();
+                if (!clipper.Execute(ClipType.Difference, FillRule.NonZero, region))
+                    throw new ClipperLibException("Clipper64.Execute failed");
+                result.AddRange(region);
+            }
+            return result;
+        }
+
+        /// <summary> how far an offset can reach beyond delta: miter tips up to MiterLimit, square corners and ends up to sqrt(2) </summary>
+        static double MarginFactor(Clipper2Options options)
+            => options.JoinType == JoinType.Miter ? Math.Max(Math.Min(options.MiterLimit, Clipper2Options.MaxMiterLimit), 1.5) : 1.5;
+
+        static Path64 WithoutDuplicates(Path64 path)
+        {
+            var result = new Path64(path.Count);
+            foreach (Point64 q in path)
+                if (result.Count == 0 || result[result.Count - 1] != q)
+                    result.Add(q);
+            while (result.Count > 1 && result[result.Count - 1] == result[0])
+                result.RemoveAt(result.Count - 1);
+            return result;
         }
 
         static Clipper2Result Run(Clipper2Result result, Action compute)
@@ -389,8 +460,17 @@ namespace g3.Clipper2
             }
             if (bounds.Min.x > bounds.Max.x)
                 bounds = new AxisAlignedBox2d(Vector2d.Zero, 0);   // no input: an empty result on any grid
+            if (!ClipperFrame.IsFinite(margin)) {
+                Fail(result, Clipper2Status.InvalidParameter, "offset distance too large (margin not finite)");
+                return false;
+            }
             if (options.Frame.HasValue) {
                 ClipperFrame f = options.Frame.Value;
+                if (!(f.Scale > 0) || !ClipperFrame.IsFinite(f.Scale) || !ClipperFrame.IsFinite(1.0 / f.Scale)
+                    || !ClipperFrame.IsFinite(f.Origin.x) || !ClipperFrame.IsFinite(f.Origin.y)) {
+                    Fail(result, Clipper2Status.InvalidParameter, "Frame: scale must be positive, finite and not subnormal (default(ClipperFrame) is not a frame)");
+                    return false;
+                }
                 double reach = Math.Max(Math.Max(Math.Abs(bounds.Min.x - f.Origin.x), Math.Abs(bounds.Max.x - f.Origin.x)),
                                         Math.Max(Math.Abs(bounds.Min.y - f.Origin.y), Math.Abs(bounds.Max.y - f.Origin.y))) + margin;
                 if (!((reach * f.Scale) <= ClipperFrame.MaxIntegerCoordinate)) {

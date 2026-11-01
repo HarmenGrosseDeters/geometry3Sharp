@@ -147,8 +147,13 @@ namespace geometry3Sharp.Clipper2.Tests
                 Assert.Equal(r0.Polygons.Count, mapped.Count);
                 Assert.Equal(r0.Polygons.Sum(g => g.Holes.Count), mapped.Sum(g => g.Holes.Count));
                 if (s.IsExact) {
-                    for (int i = 0; i < mapped.Count; ++i)
-                        Assert.True(r0.Polygons[i].Outer.Vertices.SequenceEqual(mapped[i].Outer.Vertices), opName + " " + name + ": not bit for bit");
+                    for (int i = 0; i < mapped.Count; ++i) {
+                        var rings0 = Rings(r0.Polygons[i]).ToList();
+                        var rings1 = Rings(mapped[i]).ToList();
+                        Assert.Equal(rings0.Count, rings1.Count);
+                        for (int k = 0; k < rings0.Count; ++k)
+                            Assert.True(rings0[k].SequenceEqual(rings1[k]), opName + " " + name + ": ring " + k + " not bit for bit");
+                    }
                     continue;
                 }
                 double tol = 4 * r0.Frame.Resolution + 8 * s.Resolution(15);

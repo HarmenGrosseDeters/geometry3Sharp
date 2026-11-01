@@ -32,6 +32,10 @@ and for each yes, check that a test covers it. A test must fail on the old code 
 - Divisions by areas, lengths or determinants: what happens at 0 and at 1e-300? Are weights bounded?
 - No NaN or infinity in the output; no inverted output triangles.
 
+- Zero-area rings, bowtie rings and overlapping or misplaced holes: does a library underneath read them the way the
+  docs promise (a zero-area group made Clipper2 inflate on a negative offset; NonZero filled overlapping holes)?
+  (#243)
+
 ## 4. Open, non-manifold and bowtie input (#60, #64, #99, #100, #110)
 
 - Open meshes, bowtie vertices (interior and boundary), non-manifold edges, touching sheets, inconsistent
@@ -54,6 +58,11 @@ and for each yes, check that a test covers it. A test must fail on the old code 
 - `int` products of grid dimensions or indices (`nx * ny * nz`, `i * n + j`), cell counts over large
   extents; is there a limit, and is it reported?
 - Fixed caps (eg 500 components, max iterations): what happens beyond them?
+
+- Calls into another library with scaled values (eg Clipper2 on an integer grid): its internal limits (an `int`
+  cast of a distance, a fallback when a parameter is out of its range, such as an arc tolerance above the offset)
+  and the margin our own values need (offset distance times the miter limit) must fit; test with extreme options
+  (#243).
 
 ## 7. Stale state and reuse (#66, #76, #102, #104, #107)
 
