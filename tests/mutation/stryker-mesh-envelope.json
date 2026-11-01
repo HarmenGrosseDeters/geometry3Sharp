@@ -22,9 +22,9 @@
       "markdown"
     ],
     "thresholds": {
-      "high": 90,
-      "low": 80,
-      "break": 75
+      "high": 97,
+      "low": 94,
+      "break": 90
     },
     "concurrency": 2
   }
