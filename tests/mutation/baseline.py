@@ -1,20 +1,16 @@
 #!/usr/bin/env python3
-"""The baseline of the incremental mutation runs (.github/workflows/mutation.yml, README.md).
+"""The baseline of the incremental mutation runs (.github/workflows/mutation.yml, README.md, incremental.py).
 
   store <StrykerOutput dir> <baseline dir>
       after a full run: copy the JSON report of the run into <baseline dir>/stryker-report.json, without the files that
       have no tested mutant (Stryker reports every file of the library, nearly all of them only with ignored
-      mutants; the baseline filter looks up the mutated files only). Writes stored=true|false to GITHUB_OUTPUT.
-  count <StrykerOutput dir>
-      after a run: the mutants by how they got their result (tested in this run, taken from the baseline, ignored).
+      mutants; incremental.py reads the mutated files only), keyed by the path relative to the project directory
+      (Stryker writes absolute paths). Writes stored=true|false to GITHUB_OUTPUT.
 """
 import glob
 import json
 import os
 import sys
-from collections import Counter
-
-FROM_BASELINE = "Result based on previous run"
 
 
 def latest_report(output_dir):
@@ -22,26 +18,22 @@ def latest_report(output_dir):
     return reports[-1] if reports else None
 
 
+def relative_key(path, project_root):
+    """the path of a report file relative to the project directory (the repository root), with '/' (Stryker 5.0 writes
+    the report with absolute paths, which differ between runners and checkouts)"""
+    p = path.replace("\\", "/")
+    root = (project_root or "").replace("\\", "/").rstrip("/")
+    if root and p.startswith(root + "/"):
+        return p[len(root) + 1:]
+    return p
+
+
 def strip(report):
-    """the report with only the files that have a mutant that is not ignored"""
-    files = {path: f for path, f in report.get("files", {}).items()
+    """the report with only the files that have a mutant that is not ignored, keyed by their relative paths"""
+    root = report.get("projectRoot", "")
+    files = {relative_key(path, root): f for path, f in report.get("files", {}).items()
              if any(m.get("status") != "Ignored" for m in f.get("mutants", []))}
     return dict(report, files=files)
-
-
-def counts(report):
-    """Counter of (status, origin): origin 'baseline' for results taken from the baseline, else 'run'"""
-    c = Counter()
-    for f in report.get("files", {}).values():
-        for m in f.get("mutants", []):
-            status = m.get("status", "")
-            if status == "Ignored":
-                c["ignored"] += 1
-            elif m.get("statusReason") == FROM_BASELINE:
-                c["from baseline"] += 1
-            else:
-                c["tested in this run"] += 1
-    return c
 
 
 def output(key, value):
@@ -70,11 +62,6 @@ def main(argv):
         print("stored %d files of %s" % (len(report["files"]), report_path))
         output("stored", "true")
         return 0
-    if len(argv) == 2 and argv[0] == "count":
-        report_path = latest_report(argv[1])
-        if report_path is None:
-            print("no report")
-            return 0
         with open(report_path, encoding="utf-8-sig") as f:
             c = counts(json.load(f))
         for k in ("tested in this run", "from baseline", "ignored"):
