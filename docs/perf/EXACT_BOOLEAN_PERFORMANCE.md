@@ -114,6 +114,21 @@ with `phases_ms`, `phases_alloc_mb`, `gc`, `counts`, `predicates` (stats build) 
     gains.
 - **Temporary instrumentation must not read environment variables in the hot path.** `GetEnvironmentVariable` per
   call doubled the pair search; read it into a `static readonly` field.
+- **Where the time goes: measure serially, once, before a decision** (not a routine step; acceptance stays the
+  4-core A/B with `run_classes.sh` and `exact_hashes.sh`).
+  - On 4 cores the phase shares mix in how well each phase scales: the pair search is 29 % of `cgal` on 4 cores but
+    50 % serially, since it parallelizes better than the rest.
+  - For the share of a piece of code, run one thread on one core: `gParallel.SerialOnThisThread = true` around
+    `Compute()` (in `Profile.cs` of a probe build), with `taskset -c 0` and `DOTNET_PROCESSOR_COUNT=1`, and time
+    the outermost scope only (a `[ThreadStatic]` depth counter: nested calls such as a construction inside an exact
+    stage must not count twice).
+  - **`taskset` alone is not enough:** the library still starts several threads, which share the core, and a
+    stopwatch then counts the time other threads run (the first try gave more exact time than total time).
+  - Probes are temporary: build them in a separate worktree into a tool directory of their own, and never commit
+    them.
+  - Example (November 2026, after #223): the exact work (constructions plus exact predicate stages) is 10-13 % of
+    the serial time on `cgal`, Thingi10K and `cherchi`, 41 % on the n-ary cases
+    ([design/FIXED_WIDTH_EXACT_POINTS.md](../design/FIXED_WIDTH_EXACT_POINTS.md) and the pair-search design).
 
 The TraceEvent analyzer used:
 
