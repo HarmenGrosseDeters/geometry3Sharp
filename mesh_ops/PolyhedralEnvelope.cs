@@ -1,6 +1,7 @@
 // Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using g3;
@@ -45,6 +46,7 @@ namespace gs
         Vector3d[] facets;          // per polyhedron MaxFacets x 3 points: strictly inside means Orient3d < 0
         int[] facetCount;
         TriangleBoxTree tree;
+        AxisAlignedBox3d[] boxes;
 
         public PolyhedralEnvelope(DMesh3 mesh, double epsilon)
         {
@@ -78,6 +80,7 @@ namespace gs
                 count++;
             }
             tree = new TriangleBoxTree(boxes);
+            this.boxes = boxes.ToArray();
             return EnvelopeStatus.Ready;
         }
 
@@ -369,8 +372,12 @@ namespace gs
                 if (ib == false && inside(p, b)) ib = true;
             }
             if (ia == false || ib == false) return false;
-            if (a == b) return true;
-            // C2: every crossing of a facet plane, strictly between a and b, inside another polyhedron
+            return a == b || crossings_covered(cand, a, b);
+        }
+
+        // C2: every crossing of a facet plane of a candidate, strictly between a and b, inside another candidate
+        bool crossings_covered(List<int> cand, Vector3d a, Vector3d b)
+        {
             foreach (int p in cand) {
                 for (int f = 0; f < facetCount[p]; ++f) {
                     int o = (p * MaxFacets + f) * 3;
@@ -387,6 +394,97 @@ namespace gs
                 }
             }
             return true;
+        }
+
+        /// <summary>
+        /// is every point of the triangle strictly inside some polyhedron? (Thm. 3.2: the vertices inside, every crossing
+        /// of an edge with a facet plane inside another polyhedron, and every point where two facet planes meet the
+        /// triangle's plane strictly inside the triangle inside some polyhedron; a degenerate triangle: its edges)
+        /// </summary>
+        public bool ContainsTriangle(Vector3d a, Vector3d b, Vector3d c)
+        {
+            if (Status != EnvelopeStatus.Ready || finite(a) == false || finite(b) == false || finite(c) == false) return false;
+            Vector3d N;
+            if (exact_normal(a, b, c, out N) == false)
+                return ContainsSegment(a, b) && ContainsSegment(b, c) && ContainsSegment(c, a);
+            List<int> cand = candidates_box(a, b, c);
+            // C1, and one polyhedron with all three vertices contains the triangle (convex)
+            bool ia = false, ib = false, ic = false;
+            foreach (int p in cand) {
+                bool xa = inside(p, a), xb = inside(p, b), xc = inside(p, c);
+                if (xa && xb && xc) return true;
+                ia |= xa; ib |= xb; ic |= xc;
+            }
+            if (ia == false || ib == false || ic == false) return false;
+            // C2
+            if (crossings_covered(cand, a, b) == false || crossings_covered(cand, b, c) == false || crossings_covered(cand, c, a) == false)
+                return false;
+            // C3: the facets whose plane crosses the open triangle (a vertex strictly on each side)
+            var rel = new List<int>();
+            foreach (int p in cand)
+                for (int f = 0; f < facetCount[p]; ++f) {
+                    int o = (p * MaxFacets + f) * 3;
+                    int sa = ExactPredicates.Orient3d(facets[o], facets[o + 1], facets[o + 2], a);
+                    int sb = ExactPredicates.Orient3d(facets[o], facets[o + 1], facets[o + 2], b);
+                    int sc = ExactPredicates.Orient3d(facets[o], facets[o + 1], facets[o + 2], c);
+                    if (Math.Max(sa, Math.Max(sb, sc)) > 0 && Math.Min(sa, Math.Min(sb, sc)) < 0) rel.Add(p * MaxFacets + f);
+                }
+            if (rel.Count < 2) return true;
+            // a point off the triangle's plane: the planes through each edge and it bound the triangle
+            Vector3d top = apex(a, b, c, N);
+            int ea = ExactPredicates.Orient3d(b, c, top, a), eb = ExactPredicates.Orient3d(c, a, top, b), ec = ExactPredicates.Orient3d(a, b, top, c);
+            for (int i = 0; i < rel.Count; ++i) {
+                int o1 = rel[i] * 3, p1 = rel[i] / MaxFacets;
+                for (int j = i + 1; j < rel.Count; ++j) {
+                    int o2 = rel[j] * 3, p2 = rel[j] / MaxFacets;
+                    // dependent planes: the two traces in the triangle's plane are parallel or equal, no single point
+                    if (IndirectPredicates.TPIDenominator(a, b, c, facets[o1], facets[o1 + 1], facets[o1 + 2],
+                            facets[o2], facets[o2 + 1], facets[o2 + 2]) == 0) continue;
+                    IndirectPredicates.Orient3dTPIPrepared tpi;
+                    IndirectPredicates.Orient3dTPIPrepare(a, b, c, facets[o1], facets[o1 + 1], facets[o1 + 2],
+                        facets[o2], facets[o2 + 1], facets[o2 + 2], out tpi);
+                    // strictly inside the triangle?
+                    if (IndirectPredicates.Orient3dTPI(ref tpi, b, c, top) != ea || IndirectPredicates.Orient3dTPI(ref tpi, c, a, top) != eb
+                        || IndirectPredicates.Orient3dTPI(ref tpi, a, b, top) != ec) continue;
+                    // (the point is on a facet plane of p1 and of p2, so in neither: no need to skip them)
+                    bool covered = false;
+                    foreach (int p in cand)
+                        if (p != p1 && p != p2 && inside_tpi(p, ref tpi)) { covered = true; break; }
+                    if (covered == false) return false;
+                }
+            }
+            return true;
+        }
+
+        // a point strictly off the plane of the (non-degenerate) triangle
+        static Vector3d apex(Vector3d a, Vector3d b, Vector3d c, Vector3d N)
+        {
+            Vector3d n;
+            unit(N, out n);
+            double L = Math.Max(length(b - a), Math.Max(length(c - b), length(a - c)));
+            for (double k = 1; ; k *= 2) {
+                Vector3d top = a + (k * L) * n;
+                if (ExactPredicates.Orient3d(a, b, c, top) != 0) return top;
+                if (k > 1e300) throw new InvalidOperationException("PolyhedralEnvelope: no point off the triangle's plane");
+            }
+        }
+
+        bool inside_tpi(int p, ref IndirectPredicates.Orient3dTPIPrepared tpi)
+        {
+            int o = p * MaxFacets * 3;
+            for (int f = 0; f < facetCount[p]; ++f, o += 3)
+                if (IndirectPredicates.Orient3dTPI(ref tpi, facets[o], facets[o + 1], facets[o + 2]) >= 0) return false;
+            return true;
+        }
+
+        // the polyhedra whose search box meets the triangle's box (a linear scan)
+        List<int> candidates_box(Vector3d a, Vector3d b, Vector3d c)
+        {
+            var box = new AxisAlignedBox3d(a); box.Contain(b); box.Contain(c);
+            var list = new List<int>();
+            for (int p = 0; p < count; ++p)
+                if (boxes[p].Intersects(box)) list.Add(p);
+            return list;
         }
 
         internal List<int> candidates(Vector3d a, Vector3d b)

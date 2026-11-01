@@ -58,6 +58,7 @@
     <InternalsVisibleTo Include="geometry3Sharp.Tests" />
     <!-- profiling of the exact booleans (benchmarks/BooleanComparison profile) -->
     <InternalsVisibleTo Include="BooleanComparison" />
+    <InternalsVisibleTo Include="ReducerBenchmark" />
   </ItemGroup>
 
   <!-- banned APIs and analyzers in the exact-arithmetic code (BannedSymbols.txt, G3E0001-3; scoped by .editorconfig;

@@ -354,9 +354,10 @@ namespace geometry3Sharp.Tests
                     Assert.True(K > first && K <= first * (1 + 1e-9), $"{p.Name} factor {f}: K = {K}, k u = {first}");
                 }
             }
-            // the values of the spec (as in the generated comments): LPI 18 u and 9 u, TPI 28 u and 17 u
+            // the values of the spec (as in the generated comments): LPI 18 u and 9 u, TPI 28 u and 17 u, the TPI
+            // denominator alone 17 u (the same value as TPI's factor d)
             var a = PredicateCompiler.Analyze(Spec);
-            Assert.Equal(new[] { 18L, 9L, 28L, 17L }, a.SelectMany(p => p.FilterK).Select(K => (long)Math.Round(K / u)).ToArray());
+            Assert.Equal(new[] { 18L, 9L, 28L, 17L, 17L }, a.SelectMany(p => p.FilterK).Select(K => (long)Math.Round(K / u)).ToArray());
         }
 #endif
 

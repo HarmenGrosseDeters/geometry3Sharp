@@ -54,13 +54,20 @@ static class Program
     // bounds check (the triangles the envelope would have to accept)
     static void Queries()
     {
-        DMesh3 input = Terrain(40);
+        Queries("terrain 40 x 40", Terrain(40));
+        Console.WriteLine();
+        Queries("bumpy sphere", BumpySphere(30));
+    }
+
+    static void Queries(string name, DMesh3 input)
+    {
         double tol = 3e-3 * input.CachedBounds.DiagonalLength;
         var reduced = new DMesh3(input);
         new Reducer(reduced) { MaxDeviation = tol }.ReduceToTriangleCount(4);
         var tree = new DMeshAABBTree3(input, true);
         var bounds = new TriangleDeviationBounds(input);
         var env = new MeshEnvelope(input, tol);
+        var poly = new PolyhedralEnvelope(input, tol);
         var tris = new System.Collections.Generic.List<Triangle3d>();
         foreach (int t in reduced.TriangleIndices()) {
             Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
@@ -74,11 +81,20 @@ static class Program
         sw.Restart();
         foreach (Triangle3d t in tris) if (env.ContainsTriangle(t.V0, t.V1, t.V2)) inE++;
         double usE = 1000.0 * sw.Elapsed.TotalMilliseconds / tris.Count;
-        Console.WriteLine($"terrain 40 x 40 ({input.TriangleCount} triangles), tolerance 0.003, {tris.Count} reduced triangles");
+        // the polyhedral envelope (internal, docs/design/ENVELOPE.md): best of three rounds
+        int inP = 0; double usP = double.MaxValue;
+        for (int round = 0; round < 3; ++round) {
+            inP = 0;
+            sw.Restart();
+            foreach (Triangle3d t in tris) if (poly.ContainsTriangle(t.V0, t.V1, t.V2)) inP++;
+            usP = Math.Min(usP, 1000.0 * sw.Elapsed.TotalMilliseconds / tris.Count);
+        }
+        Console.WriteLine($"{name} ({input.TriangleCount} triangles), tolerance 0.003 of the diagonal, {tris.Count} reduced triangles");
         Console.WriteLine("| check | within | time per triangle |");
         Console.WriteLine("|---|---|---|");
         Console.WriteLine($"| distance bounds (IsWithin) | {inB} | {usB:F0} µs |");
         Console.WriteLine($"| envelope (ContainsTriangle) | {inE} | {usE:F0} µs ({env.ExactQueries} exact) |");
+        Console.WriteLine($"| polyhedral envelope (ContainsTriangle, delta = eps / sqrt 3) | {inP} | {usP:F0} µs |");
     }
 
     static void Main(string[] args)

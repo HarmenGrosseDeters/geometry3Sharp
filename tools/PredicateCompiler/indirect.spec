@@ -126,3 +126,38 @@ ipredicate Orient3dTPI(a1, b1, c1, a2, b2, c2, a3, b3, c3, a, b, c) bound 64 inp
     t2 = Ny * m2
     t3 = Nz * m3
     sign t1 - t2 + t3, d
+
+# The sign of the TPI denominator d = det(n1, n2, n3): 0 if the three planes are dependent (no single common point).
+# The envelope's triangle query skips such pairs of facets (docs/design/ENVELOPE.md 4.5).
+ipredicate TPIDenominator(a1, b1, c1, a2, b2, c2, a3, b3, c3) bound 64 inputs xyz
+    u1_x = b1.x - a1.x
+    u1_y = b1.y - a1.y
+    u1_z = b1.z - a1.z
+    w1_x = c1.x - a1.x
+    w1_y = c1.y - a1.y
+    w1_z = c1.z - a1.z
+    n1x = u1_y * w1_z - u1_z * w1_y
+    n1y = u1_z * w1_x - u1_x * w1_z
+    n1z = u1_x * w1_y - u1_y * w1_x
+    u2_x = b2.x - a2.x
+    u2_y = b2.y - a2.y
+    u2_z = b2.z - a2.z
+    w2_x = c2.x - a2.x
+    w2_y = c2.y - a2.y
+    w2_z = c2.z - a2.z
+    n2x = u2_y * w2_z - u2_z * w2_y
+    n2y = u2_z * w2_x - u2_x * w2_z
+    n2z = u2_x * w2_y - u2_y * w2_x
+    u3_x = b3.x - a3.x
+    u3_y = b3.y - a3.y
+    u3_z = b3.z - a3.z
+    w3_x = c3.x - a3.x
+    w3_y = c3.y - a3.y
+    w3_z = c3.z - a3.z
+    n3x = u3_y * w3_z - u3_z * w3_y
+    n3y = u3_z * w3_x - u3_x * w3_z
+    n3z = u3_x * w3_y - u3_y * w3_x
+    e23x = n2y * n3z - n2z * n3y
+    e23y = n2z * n3x - n2x * n3z
+    e23z = n2x * n3y - n2y * n3x
+    sign n1x * e23x + n1y * e23y + n1z * e23z
