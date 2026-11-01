@@ -920,8 +920,11 @@ namespace g3
                 // the largest part of it (in breadth first order) that can be zipped
                 for (int m = strip.Count; m >= 2 && tried < MaxStripProposals; --m) {
                     tried++;
-                    if (zip_strip(strip.GetRange(0, m)))
+                    if (zip_strip(strip.GetRange(0, m), out bool undone))
                         return true;
+                    // (an undone edit gives the restored triangles new ids: the strip's ids are stale)
+                    if (undone || EvaluationLimitReached)
+                        return false;
                 }
             }
             return false;
@@ -965,8 +968,9 @@ namespace g3
 
         // zip the strip (see try_strip) if it is a disk with a monotone boundary and the edit improves
         [MethodImpl(JitHints.Optimize)]
-        bool zip_strip(List<int> strip)
+        bool zip_strip(List<int> strip, out bool undone)
         {
+            undone = false;
             var inStrip = new HashSet<int>(strip);
             // its boundary: the directed edges of the strip's triangles whose other side is outside it
             var next = new Dictionary<int, int>();
@@ -1119,8 +1123,12 @@ namespace g3
                     // (not expected: the checks above keep the mesh manifold) undone
                     foreach (int u in tids)
                         Mesh.RemoveTriangle(u, false, false);
-                    for (int j = 0; j < old.Count; ++j)
-                        mark_dirty(Mesh.AppendTriangle(old[j].a, old[j].b, old[j].c, groups[j]));
+                    for (int j = 0; j < old.Count; ++j) {
+                        int back = Mesh.AppendTriangle(old[j].a, old[j].b, old[j].c, groups[j]);
+                        if (back >= 0)
+                            mark_dirty(back);
+                    }
+                    undone = true;
                     return false;
                 }
                 tids.Add(tid);
