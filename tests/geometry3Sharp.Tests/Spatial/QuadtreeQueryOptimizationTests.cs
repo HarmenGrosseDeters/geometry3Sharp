@@ -64,6 +64,17 @@ namespace geometry3Sharp.Tests.Spatial
             }
         }
 
+#if NET8_0_OR_GREATER
+        [Fact]
+        public void TheAllocationHelper_SeesWhatAllocates_AndTheRest()
+        {
+            object kept = null;
+            Assert.True(Allocations.Least(10, () => kept = new byte[64]) > 0);
+            Assert.Equal(0, Allocations.Least(10, () => { }));
+            GC.KeepAlive(kept);
+        }
+#endif
+
         struct RootItems : IQuadtreeVisitor2d
         {
             public List<int> Ids;

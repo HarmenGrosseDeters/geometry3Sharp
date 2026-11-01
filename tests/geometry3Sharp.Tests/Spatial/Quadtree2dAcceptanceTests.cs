@@ -968,15 +968,7 @@ namespace geometry3Sharp.Tests
                     tt.QueryRectangle(r, ids); tt.QuerySegment(q, r.Max, ids);
                     tt.QueryHeights(q, hits); double h; tt.TryGetHeight(q, out h);
                 };
-                for (int warm = 0; warm < 200; ++warm) hot();
-                // The runtime itself can allocate on this thread while it optimizes the code, so one clean run is the proof.
-                long allocated = long.MaxValue;
-                for (int attempt = 0; attempt < 5 && allocated != 0; ++attempt) {
-                    long before = GC.GetAllocatedBytesForCurrentThread();
-                    for (int iteration = 0; iteration < 100; ++iteration) hot();
-                    allocated = GC.GetAllocatedBytesForCurrentThread() - before;
-                }
-                Assert.Equal(0L, allocated);
+                Assert.Equal(0L, Allocations.Least(200, hot));
             }
         }
 #endif

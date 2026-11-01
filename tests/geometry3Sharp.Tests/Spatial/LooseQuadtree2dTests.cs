@@ -481,10 +481,7 @@ namespace geometry3Sharp.Tests.Spatial
             // Keep runner work off the measured thread; retain a strict zero-byte assertion.
             var worker = new Thread(() => {
                 try {
-                    for (int i = 0; i < 100; ++i) query();
-                    long before = GC.GetAllocatedBytesForCurrentThread();
-                    for (int i = 0; i < 100; ++i) query();
-                    allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+                    allocated = Allocations.Least(100, query);
                 } catch (Exception error) {
                     failure = error;
                 }
@@ -548,7 +545,7 @@ namespace geometry3Sharp.Tests.Spatial
             var query = Box(10, 10, 3, 3);
             var distance = new ArrayDistance { Values = Enumerable.Repeat(100.0, tree.Count).ToArray() };
             var visitor = new CountingVisitor { Query = query };
-            for (int i = 0; i < 100; ++i) {
+            Assert.Equal(0, Allocations.Least(100, () => {
                 tree.QueryRectangle(query, results);
                 tree.QuerySegment(query.Min, query.Max, results);
                 tree.FindNearest(query.Min);
@@ -556,19 +553,7 @@ namespace geometry3Sharp.Tests.Spatial
                 tree.FindNearest(query.Min, ref distance, 1);
                 tree.FindNearestK(query.Min, 4, results, ref distance, 1);
                 tree.Traverse(ref visitor);
-            }
-            long before = GC.GetAllocatedBytesForCurrentThread();
-            for (int i = 0; i < 100; ++i) {
-                tree.QueryRectangle(query, results);
-                tree.QuerySegment(query.Min, query.Max, results);
-                tree.FindNearest(query.Min);
-                tree.FindNearestK(query.Min, 4, results);
-                tree.FindNearest(query.Min, ref distance, 1);
-                tree.FindNearestK(query.Min, 4, results, ref distance, 1);
-                tree.Traverse(ref visitor);
-            }
-            long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
-            Assert.Equal(0, allocated);
+            }));
         }
 #endif
     }
