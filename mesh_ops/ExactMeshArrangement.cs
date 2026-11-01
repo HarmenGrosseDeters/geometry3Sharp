@@ -1446,6 +1446,13 @@ namespace g3
                     boxes[mi].Add(triangle_box(Triangles[ti]));
                 trees[mi] = new TriangleBoxTree(boxes[mi]);
             });
+            // the precomputed terms of the orientation tests against each triangle's plane (the pair tests)
+            var planeTerms = orientPlanes = new ExactPredicates.Orient3dPlane[Triangles.Count];
+            gParallel.ForRange(Triangles.Count, (ti) => {
+                InputTriangle t = Triangles[ti];
+                if (t.Degenerate == false)
+                    planeTerms[ti] = ExactPredicates.MakeOrient3dPlane(input_vertex(t, 0), input_vertex(t, 1), input_vertex(t, 2));
+            });
             clock.Lap("intersections.trees");
             // the pairs of meshes to intersect (their boxes overlap; with many meshes most pairs are far apart),
             // in the order (ma, mb), mb >= ma (> ma without self-intersections)
@@ -1501,6 +1508,7 @@ namespace g3
             if (SelfIntersections && SelfJoin)
                 self += self_pairs(trees, pairs);
             SelfIntersectingPairs += self;
+            orientPlanes = null;     // (only the pair tests use them)
             clock.Lap("intersections.pairs");
             // planes of the triangles involved (computed once, before the parallel use)
             var needed = new bool[Triangles.Count];
@@ -1672,16 +1680,21 @@ namespace g3
         /// <summary> for tests: the number of work items the self-join is split into (at least) </summary>
         internal int SelfJoinTasks = 256;
 
+        // per input triangle (by index): the terms of the orientation tests against its plane, for the pair tests
+        // (ExactPredicates.Orient3dPlane; set in find_intersections, not for degenerate triangles)
+        ExactPredicates.Orient3dPlane[] orientPlanes;
+
         // all corners of one triangle strictly on one side of the other's plane (exact double predicates)
         [MethodImpl(JitHints.Optimize)]
         bool separated(InputTriangle T, InputTriangle U)
         {
             Vector3d t0 = input_vertex(T, 0), t1 = input_vertex(T, 1), t2 = input_vertex(T, 2);
             Vector3d u0 = input_vertex(U, 0), u1 = input_vertex(U, 1), u2 = input_vertex(U, 2);
-            int a = ExactPredicates.Orient3d(u0, u1, u2, t0), b = ExactPredicates.Orient3d(u0, u1, u2, t1), c = ExactPredicates.Orient3d(u0, u1, u2, t2);
+            ref ExactPredicates.Orient3dPlane pu = ref orientPlanes[U.Index], pt = ref orientPlanes[T.Index];
+            int a = ExactPredicates.Orient3d(u0, u1, u2, pu, t0), b = ExactPredicates.Orient3d(u0, u1, u2, pu, t1), c = ExactPredicates.Orient3d(u0, u1, u2, pu, t2);
             if ((a > 0 && b > 0 && c > 0) || (a < 0 && b < 0 && c < 0))
                 return true;
-            a = ExactPredicates.Orient3d(t0, t1, t2, u0); b = ExactPredicates.Orient3d(t0, t1, t2, u1); c = ExactPredicates.Orient3d(t0, t1, t2, u2);
+            a = ExactPredicates.Orient3d(t0, t1, t2, pt, u0); b = ExactPredicates.Orient3d(t0, t1, t2, pt, u1); c = ExactPredicates.Orient3d(t0, t1, t2, pt, u2);
             return (a > 0 && b > 0 && c > 0) || (a < 0 && b < 0 && c < 0);
         }
 
@@ -1710,12 +1723,13 @@ namespace g3
         bool one_side_except_shared(InputTriangle T, InputTriangle U)
         {
             Vector3d t0 = input_vertex(T, 0), t1 = input_vertex(T, 1), t2 = input_vertex(T, 2);
+            ref ExactPredicates.Orient3dPlane pt = ref orientPlanes[T.Index];
             int side = 0;
             for (int k = 0; k < 3; ++k) {
                 int c = U.Corners[k];
                 if (c == T.Corners[0] || c == T.Corners[1] || c == T.Corners[2])
                     continue;
-                int o = ExactPredicates.Orient3d(t0, t1, t2, input_vertex(U, k));
+                int o = ExactPredicates.Orient3d(t0, t1, t2, pt, input_vertex(U, k));
                 if (o == 0 || (side != 0 && o != side))
                     return false;
                 side = o;

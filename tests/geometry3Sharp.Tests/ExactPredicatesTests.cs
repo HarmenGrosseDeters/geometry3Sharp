@@ -28,6 +28,32 @@ namespace geometry3Sharp.Tests
         static Vector3d V(long[] p) { return new Vector3d(p[0], p[1], p[2]); }
 
         [Fact]
+        public void Orient3d_WithPrecomputedPlane_SameSignAsOrient3d()
+        {
+            // the plane form (ExactMeshArrangement's pair tests) rounds the same terms in the same order: same sign on
+            // random, nearly coplanar, exactly coplanar, huge, tiny, subnormal and mixed-magnitude inputs
+            var rand = new Random(17);
+            Func<double, Vector3d> rv = (scale) => new Vector3d((rand.NextDouble() - 0.5) * scale, (rand.NextDouble() - 0.5) * scale, (rand.NextDouble() - 0.5) * scale);
+            int nonzero = 0, zero = 0;
+            for (int k = 0; k < 20000; ++k) {
+                double scale = new[] { 1.0, 1e-300, 1e-160, 1e150, 1e300, 4.9e-324 * 1e3, 1e-10 }[k % 7];
+                Vector3d a = rv(scale), b = rv(scale), c = rv(scale), d;
+                switch (k % 4) {
+                    case 0: d = rv(scale); break;
+                    case 1: d = a + (b - a) * rand.NextDouble() + (c - a) * rand.NextDouble(); break;      // nearly in the plane (rounded)
+                    case 2: d = a + (b - a) * 0.5; break;                                                  // on an edge (rounded)
+                    default: d = b; break;                                                                 // a corner: exactly coplanar
+                }
+                if (k % 11 == 0) { a = new Vector3d(1e200, 1, 1); b = new Vector3d(1, 1e-200, 1); }   // mixed magnitudes
+                var p = ExactPredicates.MakeOrient3dPlane(a, b, c);
+                int expected = ExactPredicates.Orient3d(a, b, c, d);
+                Assert.Equal(expected, ExactPredicates.Orient3d(a, b, c, p, d));
+                if (expected == 0) zero++; else nonzero++;
+            }
+            Assert.True(zero > 1000 && nonzero > 1000);
+        }
+
+        [Fact]
         public void Orient_MatchesExactIntegerArithmetic_NearDegenerate()
         {
             // points on or next to a line / plane, far from the origin: naive floating point gets signs wrong
