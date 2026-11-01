@@ -967,8 +967,10 @@ namespace g3
                     }
                     // sp == 0: the point is in the plane but not in the triangle (it would be in the stack)
                     if (sp == 0 || sp == sr) return;
-                    ExactPoint3 c0 = arr.Exact(U.Corners[0]), c1 = arr.Exact(U.Corners[1]), c2 = arr.Exact(U.Corners[2]);
-                    Vector3d d0 = grid_double(c0), d1 = grid_double(c1), d2 = grid_double(c2);
+                    // (the corners' exact points only when a filter fails: most are integer points with double
+                    // coordinates, whose doubles the arrangement keeps)
+                    int c0 = U.Corners[0], c1 = U.Corners[1], c2 = U.Corners[2];
+                    Vector3d d0 = corner_double(c0), d1 = corner_double(c1), d2 = corner_double(c2);
                     int o0 = orient3d(P, Rp, c0, c1, ref gp, ref gr, ref d0, ref d1);
                     int o1 = orient3d(P, Rp, c1, c2, ref gp, ref gr, ref d1, ref d2);
                     int o2 = orient3d(P, Rp, c2, c0, ref gp, ref gr, ref d2, ref d0);
@@ -1098,6 +1100,15 @@ namespace g3
             min = b[0]; max = b[1];
         }
 
+        // grid_double of the exact point of id, without computing it as BigIntegers where it is an integer point with
+        // double coordinates (the same doubles: grid_double converts W = 1 points exactly then)
+        [MethodImpl(JitHints.Optimize)]
+        Vector3d corner_double(int id)
+        {
+            Vector3d d;
+            return arr.TryExactDouble(id, out d) ? d : grid_double(arr.Exact(id));
+        }
+
         // the grid coordinates of the point as doubles (each with relative error at most 2^-52, or NaN, see grid_coord)
         [MethodImpl(JitHints.Optimize)]
         static Vector3d grid_double(ExactPoint3 p)
@@ -1129,7 +1140,7 @@ namespace g3
         /// error at most 2^-52 per coordinate); exact if the error bound does not decide (or DisableFilters)
         /// </summary>
         [MethodImpl(JitHints.Optimize)]
-        int orient3d(ExactPoint3 a, ExactPoint3 b, ExactPoint3 c, ExactPoint3 d, ref Vector3d da, ref Vector3d db, ref Vector3d dc, ref Vector3d dd)
+        int orient3d(ExactPoint3 a, ExactPoint3 b, int c, int d, ref Vector3d da, ref Vector3d db, ref Vector3d dc, ref Vector3d dd)
         {
             PredicateStats.Call(PredicateStats.Kind.WindingOrient3d);
             if (DisableFilters == false) {
@@ -1138,7 +1149,7 @@ namespace g3
                     return s;
             }
             PredicateStats.ExactStage(PredicateStats.Kind.WindingOrient3d);
-            return orient3d(a, b, c, d);
+            return orient3d(a, b, arr.Exact(c), arr.Exact(d));
         }
 
         /// <summary>

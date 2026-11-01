@@ -347,6 +347,8 @@ namespace g3
             int r = exact_ref(id);
             return (r > 0) ? fixedPoints[r - 1].IsDouble : exactPoints[id].IsDouble;
         }
+        /// <summary> the exact point of id as an integer point with double coordinates (d), if it is one </summary>
+        internal bool TryExactDouble(int id, out Vector3d d) { return exact_double(id, exact_ref(id), out d); }
         /// <summary> for tests: the exact point is stored in fixed width </summary>
         internal bool IsExactFixed(int id) { return exact_ref(id) > 0; }
         internal double ApproxError(int id) { return approxErr[id]; }

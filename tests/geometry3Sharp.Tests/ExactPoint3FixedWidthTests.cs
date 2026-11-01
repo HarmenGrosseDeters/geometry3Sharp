@@ -343,6 +343,49 @@ namespace geometry3Sharp.Tests
             Assert.Equal(arr.ExactHash(small), arr.ExactHash(small2));
         }
 
+        [Fact]
+        public void BitLength_MatchesPortable()
+        {
+            var rand = new Random(9);
+            var values = new List<BigInteger> { 0, 1, -1, 2, 255, 256, -256, BigInteger.One << 64, (BigInteger.One << 64) - 1 };
+            for (int bits = 1; bits <= 1100; bits += (bits < 300) ? 1 : 17)
+                values.Add(RandomBits(rand, bits));
+            foreach (BigInteger v in values) {
+                long expected = 0;
+                for (BigInteger a = BigInteger.Abs(v); a.IsZero == false; a >>= 1) expected++;
+                Assert.Equal(ExactPoint3.BitLengthPortable(BigInteger.Abs(v)), ExactPoint3.BitLength(v));
+                Assert.Equal(expected, ExactPoint3.BitLength(v));
+                Assert.Equal(expected, ExactPoint3.BitLength(-v));
+            }
+        }
+
+        [Fact]
+        public void TryExactDouble_IsTheConversionOfTheExactPoint()
+        {
+            // front_winding takes the corners' doubles from the arrangement (ExactMeshBoolean.corner_double) instead of
+            // converting their exact points: the same doubles, bit for bit, for both representations
+            DMesh3 box = Box(new Vector3d(-1.2, -1.1, -0.9), new Vector3d(0.3, 0.6, 1.1));
+            DMesh3 sphere = Sphere(new Vector3d(-0.6, -0.5, 0.2), 0.7, 6);
+            foreach (bool fixedWidth in new[] { true, false }) {
+                var arr = new ExactMeshArrangement(new List<DMesh3>() { box, sphere }) { FixedWidthPoints = fixedWidth };
+                arr.Compute();
+                int doubles = 0;
+                for (int id = 0; id < arr.PointCount; ++id) {
+                    Vector3d d;
+                    ExactPoint3 p = arr.Exact(id);
+                    if (arr.TryExactDouble(id, out d) == false)
+                        continue;
+                    doubles++;
+                    Assert.True(p.W.IsOne);
+                    Assert.Equal(BitConverter.DoubleToInt64Bits((double)p.X), BitConverter.DoubleToInt64Bits(d.x));
+                    Assert.Equal(BitConverter.DoubleToInt64Bits((double)p.Y), BitConverter.DoubleToInt64Bits(d.y));
+                    Assert.Equal(BitConverter.DoubleToInt64Bits((double)p.Z), BitConverter.DoubleToInt64Bits(d.z));
+                    Assert.Equal(p.X, new BigInteger(d.x)); Assert.Equal(p.Y, new BigInteger(d.y)); Assert.Equal(p.Z, new BigInteger(d.z));
+                }
+                Assert.True(doubles > 0);
+            }
+        }
+
         // ---- whole booleans: bit-identical with and without the fixed-width points ----
 
         static DMesh3 Box(Vector3d lo, Vector3d hi)
