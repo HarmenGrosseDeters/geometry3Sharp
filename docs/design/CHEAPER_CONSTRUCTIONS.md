@@ -561,4 +561,14 @@ the gcd is small. It is not: the cost of a binary gcd follows the operands (150-
 is shifted out), not the result. A prototype limb binary gcd took about 4 µs for the three gcds of a point, the same as
 `BigInteger` (4-5 µs, where every operation costs about 1 µs of overhead at these sizes). A real gain needs Lehmer's
 algorithm (single-word cofactor steps, with a multi-limb division as fallback), considerably more new exact code
-for an expected 2-4 % serially. This goes back to the owner before step C is built (section 6).
+for an expected 2-4 % serially, 1-2 % on 4 cores.
+
+**Owner decision: no Lehmer; step C stops** (the track is A + B + D). Reasons: a binary gcd costs what its operands
+cost, not what its small result suggests; `BigInteger` costs about 1 µs per operation at these sizes, so the gcd is
+mostly overhead that only a Lehmer-type limb gcd would remove; and that is a lot of new exact code (and review,
+mutation and bounds work) for an expected 1-2 % on 4 cores.
+
+**Step D2 (directions in fixed width): not built** (process rule 4, upper bound first). The directions are 1.9 / 2.8 %
+of the serial time on `cgal` / Thingi10K (section 2.1), and their exact values are almost never needed
+(`compare_along` decides 99.95 % of its calls with the filter), so only the three doubles would get cheaper: at most
+about half of the share, 1-1.4 % serially and less on 4 cores, below the noise of the class runs.
