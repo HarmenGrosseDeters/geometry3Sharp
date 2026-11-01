@@ -386,7 +386,7 @@ namespace gs
             return true;
         }
 
-        List<int> candidates(Vector3d a, Vector3d b)
+        internal List<int> candidates(Vector3d a, Vector3d b)
         {
             var list = new List<int>();
             tree.QuerySegment(a, b, 0, list.Add);

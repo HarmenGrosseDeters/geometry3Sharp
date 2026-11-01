@@ -608,3 +608,27 @@ Looked at in this round, not changed:
 docs/design/INDIRECT_PREDICATES.md section 9): Orient3d of a line-plane point and of a three-plane point on 30-bit
 integer inputs, general and degenerate, against constructing the point as a reduced rational first. The numbers are in
 section 9 of the design doc.
+
+## Polyhedral envelope segments (`envelope`)
+
+`BooleanComparison envelope [rounds]` runs `PolyhedralEnvelope.ContainsSegment` (docs/design/ENVELOPE.md, PR 2 of #263)
+on normalized-cube spheres. Each row uses 2000 segments of two edge lengths, tangent to the surface within ±eps / 2.
+The command then replays the C2 loop with the same candidates, crossings and early exits, and times only the
+`Orient3dLPI` calls. The best of 5 rounds is shown; µs are per segment. This is the upper-bound check for the
+prepare / evaluate split (ENVELOPE.md section 6, 1b).
+
+| mesh | eps | contained | µs / segment | LPI calls / segment | LPI µs / segment (Stopwatch per call) |
+|---|---|---|---|---|---|
+| sphere 10 | 0.5 edge | 855 | 85.9 | 976 | 85.0 |
+| sphere 20 | 0.5 edge | 1443 | 117.4 | 1660 | 125.3 |
+| sphere 20 | 0.2 edge | 561 | 28.1 | 274 | 26.0 |
+| sphere 40 | 0.5 edge | 1604 | 139.7 | 1816 | 171.8 |
+
+The per-call Stopwatch adds about 20-30 ns. Even so, the calls times the standalone filtered cost (65-80 ns,
+`indirect`) give about 90 % of the query time: `ContainsSegment` is almost all `Orient3dLPI`.
+
+In the LPI formula, the construction part (n, lp, lq, d) depends only on the segment and the crossed facet. It is
+about 30 of 65 operations of the filter. It is evaluated anew against every facet of every candidate. A prepare /
+evaluate split saves at most that part, about 45 % of the LPI time, so the query could get up to about 1.7× faster.
+That is far above the noise, so 1b goes ahead. The other lever is the number of calls: the paper's covering set
+(section 3.2.4) cuts it. That comes with the triangle query (PR 3).

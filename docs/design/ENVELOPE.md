@@ -278,7 +278,9 @@ so the polyhedron is not much smaller than the paper's.
    alignment (2 limbs, `BigInteger` beyond); tests against the oracle at all scales; bounds review; mutation.
    1b. **Prepare / evaluate split** (4.1, item 2). It is a pure speed step, so it follows PR 2 (the same PR, #263)
    only if the share of the construction part in `ContainsSegment` makes it measurable (process rule: an upper-bound
-   check before a speed step).
+   check before a speed step). Measured (`BooleanComparison envelope`, benchmark README): `Orient3dLPI` is about
+   90 % of `ContainsSegment` (270 to 1800 calls per segment on spheres), and its construction part is about 30 of its
+   65 filter operations. So the bound is about 1.7×, and 1b goes ahead.
 2. **Polyhedra and point / segment queries:** construction with its proven bound, the box tree, `Contains`,
    `ContainsSegment`; oracle and guarantee tests.
 3. **Triangle query** (TPI critical points), the oracle against `MeshEnvelope`'s clipping on the same polyhedra,
