@@ -121,12 +121,21 @@ namespace gs
         public double UsedSlopeMargin, UsedToeLowering, UsedMinFeatureSize;
         /// <summary> the angle between neighbouring cone tangent planes (radians) </summary>
         public double FacetAngle;
+        /// <summary>
+        /// diagnostics: seconds per phase (planes, domain, insert, simplify, realize, check; summed over the builds),
+        /// the builds (more than 1 if the check raised a margin), the predicate calls of the kernel, those that needed
+        /// its exact stage, and the vertex positions and heights computed exactly (the rest come from the filter)
+        /// </summary>
+        public Dictionary<string, double> PhaseSeconds = new Dictionary<string, double>();
+        public int Attempts;
+        public long PredicateCalls, ExactFallbacks, ExactConstructions;
 
         public bool Compute()
         {
             Status = Statuses.InvalidInput; Message = "";
             SlopeSurface = null; Pieces = new List<SlopePiece>(); ToeProblems = new List<Index2i>(); ProblemTriangles = new List<int>();
             MaxSlopeRatio = 0; UsedSlopeMargin = UsedToeLowering = UsedMinFeatureSize = FacetAngle = 0;
+            PhaseSeconds = new Dictionary<string, double>(); Attempts = 0; PredicateCalls = ExactFallbacks = ExactConstructions = 0;
             try {
                 Status = compute();
             } catch (OperationCanceledException) {
@@ -294,6 +303,13 @@ namespace gs
             DMesh3 mesh = null;
             List<int> bad = br.Bad;
             ToeProblems.Clear();
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            Action<string> phase = (name) => {
+                double t;
+                PhaseSeconds.TryGetValue(name, out t);
+                PhaseSeconds[name] = t + sw.Elapsed.TotalSeconds;
+                sw.Restart();
+            };
             var kernel = new ExactSlopeKernel();
 
             // extent and numerical resolution of the output
@@ -304,7 +320,8 @@ namespace gs
             double D0 = (H - zMin) / (sMin * (1 - delta));
             double maxXY = Math.Max(Math.Max(Math.Abs(toeBox.Min.x), Math.Abs(toeBox.Max.x)), Math.Max(Math.Abs(toeBox.Min.y), Math.Abs(toeBox.Max.y))) + 2 * D0;
             double maxZ = Math.Max(Math.Abs(H), pieces.Max(p => Math.Max(Math.Abs(p.A.z), Math.Abs(p.B.z))));
-            double exy = ulp(maxXY), eeval = ulp(maxZ);
+            // (the output coordinates and heights are within 3 ulp of the exact values, ExactSlopeKernel.Rounded)
+            double exy = 3 * ulp(maxXY), eeval = 3 * ulp(maxZ);
             double minFeature = 2 * (8 * exy + 4 * eeval / sMin) / delta;
             double ez = 2 * sMax * exy + eeval;
             if (MathUtil.IsFinite(D0) == false || MathUtil.IsFinite(maxXY + 4 * D0) == false)
@@ -373,6 +390,7 @@ namespace gs
                 pc.Reach = box;
             }
 
+            phase("planes");
             // the domain, a planar map of convex faces
             var box2 = toeBox;
             box2.Expand(1.05 * dMax + 1e-6 * toeBox.MaxDim);
@@ -386,6 +404,7 @@ namespace gs
             int cap = kernel.AddHorizontalPlane(H);
             map.LabelDomain(cap);
 
+            phase("domain");
             // insert the pieces
             for (int k = 0; k < pieces.Count; ++k) {
                 checkCancel();
@@ -393,7 +412,9 @@ namespace gs
                     pieces[k].A1, pieces[k].B1, Math.Min(pieces[k].A1.z, pieces[k].B1.z), pieces[k].Slb, pieces[k].Reach, theta);
             }
 
+            phase("insert");
             map.Simplify();
+            phase("simplify");
 
             // toe undercut: a face on a toe segment labelled by another piece, lower than the toe by more than Tolerance
             var undercut = map.Undercuts(pieces.Select(p => new Vector3d[] { p.A1, p.B1 }).ToList(), Tolerance);
@@ -406,6 +427,7 @@ namespace gs
             checkCancel();
             mesh = map.Realize(cap, fill);
             SlopeMap.CollapseShortEdges(mesh, map.OutLabels, map.OnBarrier, minFeature);
+            phase("realize");
             double maxRatio = 0;
             foreach (int tid in mesh.TriangleIndices()) {
                 Vector3d a = Vector3d.Zero, b = Vector3d.Zero, cc = Vector3d.Zero;
@@ -424,6 +446,9 @@ namespace gs
                 maxRatio = Math.Max(maxRatio, ratio_bound(a, b, cc, pc.Spec));
             }
             br.Mesh = mesh;
+            phase("check");
+            PredicateCalls += kernel.PredicateCalls; ExactFallbacks += kernel.ExactPredicates; ExactConstructions += kernel.ExactConstructions;
+            Attempts++;
             if (bad.Count > 0)
                 return Statuses.SlopeViolation;
             MaxSlopeRatio = maxRatio;
