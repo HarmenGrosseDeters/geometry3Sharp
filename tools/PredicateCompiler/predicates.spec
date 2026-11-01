@@ -47,3 +47,4 @@ ipredicate ArrInCircle(ax:112, ay:112, aw:58, bx:112, by:112, bw:58, cx:112, cy:
     u2 = c2 * cs
     u3 = c1 * c1 + c2 * c2
     sign r1 * (s2 * u3 - s3 * u2) - r2 * (s1 * u3 - s3 * u1) + r3 * (s1 * u2 - s2 * u1)
+

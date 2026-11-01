@@ -63,6 +63,7 @@ namespace geometry3Sharp.Tests
         [InlineData("predicate P(c, b, e, d)\n sign (c - b) * (e - d) - (b - c) * (d - e)", "clashes")]
         [InlineData("predicate P(a, v12, e, d)\n sign (a - v12) * (e - d) - (e - a) * (d - e)", "clashes")]
         [InlineData("predicate P(a, b)\n x = a - b\n y = x * x * x * x\n sign y * x * x * x - x * x * y * x", "degree")]
+        [InlineData("ipredicate P(a:4000, b:4000)\n x = a * b\n sign x * x - a", "too wide")]
         public void Compiler_RejectsUnsupportedFormulas(string spec, string reason)
         {
             var ex = Assert.Throws<NotSupportedException>(() => G3PredicateCompiler.PredicateCompiler.Compile(spec));
@@ -394,7 +395,6 @@ namespace geometry3Sharp.Tests
             }
         }
 
-#if NET
         // --- integer predicates (ipredicate): ArrInCircle against the BigInteger determinant of ExactMeshArrangement
 
         static int arr_incircle_ref(System.Numerics.BigInteger[] v)
@@ -495,8 +495,71 @@ namespace geometry3Sharp.Tests
             Assert.Equal(1, IntegerRuntime.Sign(r, 2));
             IntegerRuntime.Add(b, 2, a, 2, r, 2, true);
             Assert.Equal(-1, IntegerRuntime.Sign(r, 2));
+            // a product that reaches the sign bit of its width: 2^64 (2^63 - 1) fits in 2 limbs, 2^64 2^63 = 2^127 does not
+            Assert.Throws<InvalidOperationException>(() => { ulong* x = stackalloc ulong[2], y = stackalloc ulong[2], z = stackalloc ulong[2];
+                IntegerRuntime.Load(System.Numerics.BigInteger.One << 64, x, 2); IntegerRuntime.Load((System.Numerics.BigInteger.One << 63) - 1, y, 2);
+                IntegerRuntime.Mul(x, 2, y, 2, z, 2); IntegerRuntime.Load(System.Numerics.BigInteger.One << 63, y, 2); IntegerRuntime.Mul(x, 2, y, 2, z, 2); });
         }
+
+        /// <summary> Add and Mul with operands shorter than the result, negative ones sign-extended, against BigInteger </summary>
+        [Fact]
+        public unsafe void IntegerRuntime_MixedWidths()
+        {
+            var r = new Random(12);
+            ulong* a = stackalloc ulong[4], b = stackalloc ulong[4], c = stackalloc ulong[8];
+            for (int n = 0; n < 20000; ++n) {
+                int ka = r.Next(1, 4), kb = r.Next(1, 4);
+                var x = big(r, 64 * ka - 1); var y = big(r, 64 * kb - 1);
+                IntegerRuntime.Load(x, a, ka); IntegerRuntime.Load(y, b, kb);
+                int ks = Math.Max(ka, kb) + 1;
+                foreach (bool sub in new[] { false, true }) {
+                    IntegerRuntime.Add(a, ka, b, kb, c, ks, sub);
+                    Assert.Equal(sub ? x - y : x + y, value(c, ks));
+                }
+                IntegerRuntime.Mul(a, ka, b, kb, c, ka + kb);
+                Assert.Equal(x * y, value(c, ka + kb));
+            }
+        }
+
+        static unsafe System.Numerics.BigInteger value(ulong* a, int k)
+        {
+            var bytes = new byte[8 * k];
+            for (int i = 0; i < 8 * k; ++i) bytes[i] = ((byte*)a)[i];
+            return new System.Numerics.BigInteger(bytes);     // little-endian two's complement
+        }
+
+        /// <summary> the netstandard2.0 replacements equal the .NET operations they stand for </summary>
+        [Fact]
+        public unsafe void IntegerRuntime_PortablePaths()
+        {
+            var r = new Random(10);
+            for (int n = 0; n < 200000; ++n) {
+                ulong x = ((ulong)(uint)r.Next() << 33) ^ ((ulong)(uint)r.Next() << 2) ^ (uint)r.Next(4), y = ((ulong)(uint)r.Next() << 32) | (uint)r.Next();
+                if (n < 4) { x = n % 2 == 0 ? ulong.MaxValue : 0; y = n < 2 ? ulong.MaxValue : 1; }
+                ulong lo, lo2;
+                ulong hi = IntegerRuntime.BigMulPortable(x, y, out lo);
+                var exact = (System.Numerics.BigInteger)x * y;
+                Assert.Equal(exact, ((System.Numerics.BigInteger)hi << 64) + lo);
+#if NET
+                ulong hi2 = Math.BigMul(x, y, out lo2);
+                Assert.Equal(hi2, hi); Assert.Equal(lo2, lo);
 #endif
+            }
+            ulong* a = stackalloc ulong[3], b = stackalloc ulong[3];
+            for (int n = 0; n < 20000; ++n) {
+                var v = big(r, 150);
+                int bits = r.Next(1, 160);
+                Assert.Equal(System.Numerics.BigInteger.Abs(v) < (System.Numerics.BigInteger.One << bits), IntegerRuntime.FitsPortable(v, bits));
+                Assert.Equal(IntegerRuntime.Fits(v, bits), IntegerRuntime.FitsPortable(v, bits));
+                IntegerRuntime.Load(v, a, 3);
+                IntegerRuntime.LoadPortable(v, b, 3);
+                for (int k = 0; k < 3; ++k) Assert.Equal(a[k], b[k]);
+            }
+            // -2^bits does not fit in bits, -(2^bits - 1) does
+            Assert.False(IntegerRuntime.FitsPortable(-(System.Numerics.BigInteger.One << 70), 70));
+            Assert.True(IntegerRuntime.FitsPortable(-(System.Numerics.BigInteger.One << 70) + 1, 70));
+            Assert.False(IntegerRuntime.Fits(-(System.Numerics.BigInteger.One << 70), 70));
+        }
 
         [Fact]
         public void NonFiniteInput_ThrowsAsHandWritten()

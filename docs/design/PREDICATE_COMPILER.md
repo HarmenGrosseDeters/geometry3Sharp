@@ -173,9 +173,12 @@ A temporary probe, not committed, measured the exact stage of the arrangement's 
   this bound needs in two's complement.
 - **`ArrInCircle`** is the arrangement's determinant with rows `(A s, B s, A² + B²)`. Its inputs are coordinates
   below 2^112 and weights below 2^58. The result is below 2^920 (15 limbs), and the widest product has 15 limbs.
-- **`IntegerRuntime`** holds the hand-written limb arithmetic on stack buffers. It uses `Math.BigMul` and
-  `BigInteger.TryWriteBytes`, so it is .NET only; `netstandard2.0` keeps the `BigInteger` path. Every operation checks
-  that its result fits and throws otherwise, so a wrong bound fails loudly instead of returning a wrong result.
+- **`IntegerRuntime`** holds the hand-written limb arithmetic on stack buffers. Every operation checks that its result
+  fits and throws otherwise, so a wrong bound fails loudly instead of returning a wrong result.
+  - On .NET it uses `Math.BigMul` and `BigInteger.TryWriteBytes`, without allocation.
+  - On `netstandard2.0` the same arithmetic runs with portable replacements: a 64 × 64 bit product from 32-bit halves,
+    and inputs read through `ToByteArray`, which is one allocation per input. The replacements are compiled on every
+    target, so the .NET tests check them against the .NET operations.
 - **`ExactMeshArrangement.InCircle`** now tries the generated predicate first. It falls back to `BigInteger` when an
   input exceeds its bound.
 
@@ -199,6 +202,41 @@ Both changes together against master, 3 rounds on grid 10: 6652 -> 6006 ms (−9
 - 10 mutants are all killed: two in the generated code, and in the runtime the carries, negation, sign extension,
   the Fits boundary and the overflow checks.
 
+**Coverage (from the review).** The bounds 112 / 58 are fitted to the n-ary grid. On the inputs of the exact
+boolean tests, about half of the exact `InCircle` calls fall back to `BigInteger`: their coordinates have 155-211
+bits and their weights 102-155. The −21 % holds for grid-like inputs. A second, wider variant (for example 212 / 156
+bits, about 33 limbs) would cover them; it has not been measured on the real-world classes yet.
+
+**`Orient` was tried and dropped.** The arrangement's `Orient` on rational points was generated the same way
+(`ArrOrient`, 285 bits, 5 limbs). On grid 10, 2.9M of its 4.3M exact stages took the fixed-width path and 0.26M fell
+back. The total time did not change (median 6306 -> 6430 ms, within the noise), so it was removed again.
+
+Per call, for typical values (100-bit coordinates, 50-bit weights):
+
+| part | ns |
+|---|---|
+| `BigInteger` `Det3` | 811 |
+| generated version | 520 |
+| of which 9 × `Fits` | 75 |
+| of which 9 × `Load` (`TryWriteBytes`) | 208 |
+| of which 12 × `Mul` | 401 |
+
+- For values of this size `BigInteger` is only about 1.5 times slower.
+- The runtime's overhead dominates: loading costs about 23 ns per value, and the generic multiplication copies the
+  magnitudes.
+- Two things would cut this:
+  - limbs cached once per point;
+  - multiplications of fixed shape, unrolled by the generator.
+- Even then the gain would be at most about 0.4 s of 6.3 s, because `Orient` is a small share of the time.
+
+**Allocations and GC (gc-verbose trace, grid 10):**
+- **Allocations:** with `InCircle` in fixed width they drop from 8.3 to 5.8 GB (−30 %). `incircle_row` and `Det3`,
+  which were 29 % of the bytes before, are gone.
+- **GC pauses:** they stay at about 2.8 s. Short-lived garbage is cheap; the pauses come from the long-lived exact
+  points (four `BigInteger`s each), which every collection has to keep.
+- **The remaining allocation sites:** `Orient` (about 20 %), the ray tests of the classification (`front_winding`,
+  13 %), `ComparePoints` (8 %), point location, `centroid`.
+
 **Verdict for step 2.**
 - **The approach works.** The generator derives the widths, the result is exact and allocates nothing, and the phase
   it replaces gets 21 % faster.
@@ -208,8 +246,11 @@ Both changes together against master, 3 rounds on grid 10: 6652 -> 6006 ms (−9
   - `ComparePoints` in the merge;
   - the construction of the exact points (with gcd).
 
-  These are the next candidates for the same treatment, and now cost little each: a formula in the spec plus a call
-  site.
+  The `Orient` attempt shows the limit of predicate-by-predicate work: where the values are small, `BigInteger` is
+  not much slower. The large lever is to store the exact points in fixed width instead of `BigInteger`. That removes
+  the long-lived digit arrays behind the GC pauses and the loading cost of every predicate. It is idea 1 of
+  `docs/perf/EXACT_BOOLEAN_PERFORMANCE.md` (`Int384` spike), and the generator can supply the predicates and the bit
+  bounds for it.
 
 ## Next steps (if continued), ranked
 

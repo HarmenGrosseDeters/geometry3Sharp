@@ -208,7 +208,7 @@ namespace G3PredicateCompiler
             }
             sb.Append("    }\n");
             if (preds.Any(q => q.IsInteger)) {
-                sb.Append("\n#if NET\n");
+                sb.Append("\n");
                 sb.Append("    /// <summary>\n");
                 sb.Append("    /// Sign predicates on integers (ipredicate), evaluated exactly in fixed-width two's complement (IntegerRuntime):\n");
                 sb.Append("    /// every intermediate value gets the limbs its proven bit bound needs, on the stack, without allocation.\n");
@@ -222,7 +222,7 @@ namespace G3PredicateCompiler
                     AnalyzeInteger(p);
                     EmitInteger(p, sb);
                 }
-                sb.Append("    }\n#endif\n");
+                sb.Append("    }\n");
             }
             sb.Append("}\n");
             return sb.ToString();
@@ -631,7 +631,13 @@ namespace G3PredicateCompiler
                     case Op.Mul: n.Bits = n.A.Bits + n.B.Bits; break;
                 }
             }
+            // every node is a stackalloc of its limbs: keep the frame small
+            int total = p.Nodes.Sum(n => limbs(n));
+            if (p.Nodes.Any(n => limbs(n) > MaxLimbs) || total > MaxFrameLimbs)
+                throw new NotSupportedException($"{p.Name}: too wide ({p.Nodes.Max(n => limbs(n))} limbs in one value, {total} in all; at most {MaxLimbs} and {MaxFrameLimbs})");
         }
+
+        const int MaxLimbs = 64, MaxFrameLimbs = 2048;
 
         static int limbs(Node n) => (n.Bits + 1 + 63) / 64;
 
@@ -640,8 +646,11 @@ namespace G3PredicateCompiler
             string I1 = "        ", I2 = I1 + "    ";
             var root = p.Root;
             sb.Append($"{I1}// {p.Name}: {p.Comment}\n");
-            sb.Append($"{I1}// inputs below 2^({string.Join(", ", p.InputBits.Distinct())}); result below 2^{root.Bits} ({limbs(root)} limbs); widest product {p.Nodes.Where(n => n.Op == Op.Mul).Max(n => limbs(n))} limbs\n");
-            sb.Append($"{I1}[MethodImpl(JitHints.Optimize), SkipLocalsInit]\n");
+            sb.Append($"{I1}// inputs below 2^({string.Join(", ", p.InputBits.Distinct())}); result below 2^{root.Bits} ({limbs(root)} limbs); widest value {p.Nodes.Max(n => limbs(n))} limbs, {p.Nodes.Sum(n => limbs(n))} limbs on the stack\n");
+            sb.Append("#if NET\n");
+            sb.Append($"{I1}[SkipLocalsInit]\n");
+            sb.Append("#endif\n");
+            sb.Append($"{I1}[MethodImpl(JitHints.Optimize)]\n");
             sb.Append($"{I1}internal static int {p.Name}({string.Join(", ", p.Inputs.Select(i => "BigInteger " + i))})\n{I1}{{\n");
             sb.Append($"{I2}if (!({string.Join(" && ", p.Inputs.Select((x, i) => $"IntegerRuntime.Fits({x}, {p.InputBits[i]})"))}))\n");
             sb.Append($"{I2}    return 2;\n");

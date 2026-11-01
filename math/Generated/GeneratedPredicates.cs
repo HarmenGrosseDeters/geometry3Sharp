@@ -399,7 +399,6 @@ namespace g3
         }
     }
 
-#if NET
     /// <summary>
     /// Sign predicates on integers (ipredicate), evaluated exactly in fixed-width two's complement (IntegerRuntime):
     /// every intermediate value gets the limbs its proven bit bound needs, on the stack, without allocation.
@@ -408,8 +407,11 @@ namespace g3
     internal static unsafe class GeneratedIntegerPredicates
     {
         // ArrInCircle: InCircle of ExactMeshArrangement on homogeneous points (x/w, y/w) in the projection of a triangle: the 3x3 determinant with rows (A s, B s, A^2 + B^2) of each of a, b, c against d, A = x w_d - x_d w, B = y w_d - y_d w, s = w w_d (the derivation is at ExactMeshArrangement.InCircle). Bounds: coordinates below 2^112 and weights below 2^58 (the n-ary grid of BooleanComparison needs 109 and 54).
-        // inputs below 2^(112, 58); result below 2^920 (15 limbs); widest product 15 limbs
-        [MethodImpl(JitHints.Optimize), SkipLocalsInit]
+        // inputs below 2^(112, 58); result below 2^920 (15 limbs); widest value 15 limbs, 326 limbs on the stack
+#if NET
+        [SkipLocalsInit]
+#endif
+        [MethodImpl(JitHints.Optimize)]
         internal static int ArrInCircle(BigInteger ax, BigInteger ay, BigInteger aw, BigInteger bx, BigInteger by, BigInteger bw, BigInteger cx, BigInteger cy, BigInteger cw, BigInteger dx, BigInteger dy, BigInteger dw)
         {
             if (!(IntegerRuntime.Fits(ax, 112) && IntegerRuntime.Fits(ay, 112) && IntegerRuntime.Fits(aw, 58) && IntegerRuntime.Fits(bx, 112) && IntegerRuntime.Fits(by, 112) && IntegerRuntime.Fits(bw, 58) && IntegerRuntime.Fits(cx, 112) && IntegerRuntime.Fits(cy, 112) && IntegerRuntime.Fits(cw, 58) && IntegerRuntime.Fits(dx, 112) && IntegerRuntime.Fits(dy, 112) && IntegerRuntime.Fits(dw, 58)))
@@ -479,5 +481,4 @@ namespace g3
             return IntegerRuntime.Sign(n61, 15);
         }
     }
-#endif
 }
