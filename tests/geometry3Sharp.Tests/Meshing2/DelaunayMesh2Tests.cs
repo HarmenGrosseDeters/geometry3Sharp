@@ -139,6 +139,8 @@ namespace geometry3Sharp.Tests
             Assert.Equal(Triangulation2Status.Empty, result.Status);
             Assert.Equal(0, result.Mesh.TriangleCount);
             Assert.Equal(mapping, result.Mesh.InputToVertex);
+            // -0 is stored as +0 (F-61: equal points have equal bits, so that their hashes agree)
+            Assert.All(result.Mesh.Vertices, v => Assert.False(BitConverter.DoubleToInt64Bits(v.x) == long.MinValue || BitConverter.DoubleToInt64Bits(v.y) == long.MinValue));
             Assert.True(result.Mesh.IsValid(out string reason), reason);
         }
 
@@ -283,6 +285,11 @@ namespace geometry3Sharp.Tests
             var map2 = m.InputToVertex.Concat(new[] { m.Vertices.Count }).ToArray();
             Assert.False(new TriangulationMesh2(v2, map2, m.Triangles.ToArray(), m.Neighbours.ToArray()).IsValid(out string missing));
             Assert.Contains("in no triangle", missing);
+            // a hull triangle with one hull edge removed: still a disk, locally Delaunay, but no longer convex
+            int ear = Enumerable.Range(0, m.TriangleCount).First(t => new[] { m.Neighbours[t].a, m.Neighbours[t].b, m.Neighbours[t].c }.Count(x => x < 0) == 1);
+            var kept = Enumerable.Range(0, m.TriangleCount).Where(t => t != ear).Select(t => m.Triangles[t]).ToArray();
+            Assert.False(new TriangulationMesh2(m.Vertices.ToArray(), m.InputToVertex.ToArray(), kept, Neighbours(kept)).IsValid(out string concave));
+            Assert.Contains("not convex", concave);
             // a flipped interior edge: valid triangles, not Delaunay
             Assert.False(FlipAnyEdge(m).IsValid(out string flipped));
             Assert.Contains("not locally Delaunay", flipped);
@@ -363,6 +370,110 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(first.Neighbours, m.Neighbours);
                 Assert.Equal(first.InputToVertex, m.InputToVertex);
             }
+        }
+
+        static DelaunayKernel2 Kernel(Vector2d[] p)
+        {
+            var x = p.Select(q => q.x).ToArray(); var y = p.Select(q => q.y).ToArray();
+            var order = DelaunayKernel2.InsertionOrder(x, y);
+            var k = new DelaunayKernel2(order.Select(i => x[i]).ToArray(), order.Select(i => y[i]).ToArray(), order);
+            Assert.True(k.Build(CancellationToken.None));
+            return k;
+        }
+
+        public static IEnumerable<object[]> Distributions() => new[] { "uniform", "outlier", "multiscale", "cluster" }.Select(d => new object[] { d });
+
+        static Vector2d[] Distribution(string kind, int n)
+        {
+            var r = new Random(5);
+            switch (kind) {
+                case "uniform": return Enumerable.Range(0, n).Select(_ => new Vector2d(r.NextDouble(), r.NextDouble())).ToArray();
+                case "outlier": return Enumerable.Range(0, n - 1).Select(_ => new Vector2d(r.NextDouble(), r.NextDouble())).Concat(new[] { new Vector2d(1e6, 1e6) }).ToArray();
+                case "multiscale": return Enumerable.Range(0, n).Select(_ => new Vector2d((r.NextDouble() - 0.5) * Math.Pow(10, r.Next(-300, 70)), (r.NextDouble() - 0.5) * Math.Pow(10, r.Next(-300, 70)))).ToArray();
+                default: return Enumerable.Range(0, n).Select(i => i % 10 == 0 ? new Vector2d(r.NextDouble(), r.NextDouble()) : new Vector2d(0.5 + r.NextDouble() * 1e-9, 0.5 + r.NextDouble() * 1e-9)).ToArray();
+            }
+        }
+
+        [Theory]
+        [MemberData(nameof(Distributions))]
+        public void InsertionOrder_KeepsTheWalksShort_OnEveryDistribution(string kind)
+        {
+            // the walk of each insertion stays short (a fixed grid over the bounding box made it quadratic with one outlier, review of M1)
+            var perPoint = new List<double>();
+            foreach (int n in new[] { 5000, 20000 }) {
+                var k = Kernel(Distribution(kind, n));
+                perPoint.Add(k.WalkSteps / (double)n);
+                if (kind != "multiscale") Assert.True(k.WalkSteps < 12L * n, kind + " n=" + n + ": " + k.WalkSteps + " walk steps");
+            }
+            // coordinates spread over 370 decades on both axes: the Delaunay triangulation itself is made of long slivers, and the
+            // walks grow like sqrt(n) per point (known, README). Quadratic growth would quadruple the steps per point at 4n.
+            if (kind == "multiscale") Assert.True(perPoint[1] < 3 * perPoint[0], string.Join(", ", perPoint));
+        }
+
+        [Theory]
+        [InlineData(-1054)]
+        [InlineData(-1040)]
+        [InlineData(-500)]
+        [InlineData(-10)]
+        [InlineData(10)]
+        [InlineData(200)]
+        public void PowerOfTwoScaling_GivesTheSameMesh_BitForBit(int exponent)
+        {
+            // same triangles in the same order, same neighbours: also where double helper arithmetic would overflow
+            var r = new Random(1);
+            var p = Enumerable.Range(0, 200).Select(_ => new Vector2d(r.Next(1 << 20), r.Next(1 << 20))).ToArray();
+            double s = Math.Pow(2, exponent);
+            var q = p.Select(v => new Vector2d(v.x * s, v.y * s)).ToArray();
+            var a = Mesh(p).Mesh; var b = Mesh(q).Mesh;
+            Assert.Equal(a.Triangles, b.Triangles);
+            Assert.Equal(a.Neighbours, b.Neighbours);
+            Assert.True(b.IsValid(out string reason), reason);
+        }
+
+        [Fact]
+        public void Publish_ReportsAFailureWithItsCoordinate()
+        {
+            var p = Enumerable.Range(0, 50).Select(i => new Vector2d(i * 7 % 13, i * 5 % 11 + 0.5 * (i % 2))).ToArray();
+            var k = Kernel(p);
+            int real = Enumerable.Range(0, k.TriangleSlots).First(t => !k.IsGhost(t));
+            int x = k.V[3 * real]; k.V[3 * real] = k.V[3 * real + 1]; k.V[3 * real + 1] = x;
+            var result = DelaunayMesh2.Publish(k, p, true, null);
+            Assert.Equal(Triangulation2Status.Failed, result.Status);
+            Assert.Equal(Triangulation2FailureKind.InvalidTopology, result.FailureKind);
+            Assert.Null(result.Mesh);
+            Assert.NotNull(result.FailureDetail);
+            Assert.True(result.ProblemCoordinate.HasValue);
+            Assert.Contains(result.ProblemCoordinate.Value, p);
+            // an exception of the kernel is published the same way
+            var thrown = DelaunayMesh2.Publish(Kernel(p), p, false, "the cavity is not a disk");
+            Assert.Equal(Triangulation2Status.Failed, thrown.Status);
+        }
+
+        [Fact]
+        public void KernelVerification_DetectsAnEdgeThatIsNotLocallyDelaunay()
+        {
+            // general position, then one convex interior edge flipped by hand: positive triangles, but not Delaunay
+            var r = new Random(9);
+            var p = Enumerable.Range(0, 60).Select(_ => new Vector2d(r.NextDouble(), r.NextDouble())).ToArray();
+            var k = Kernel(p);
+            int Next(int e) => e % 3 == 2 ? e - 2 : e + 1;
+            for (int e = 0; e < 3 * k.TriangleSlots; ++e) {
+                int f = k.H[e];
+                if (k.IsGhost(e / 3) || k.IsGhost(f / 3)) continue;
+                int a = k.V[e], b = k.V[Next(e)], c = k.V[Next(Next(e))], d = k.V[Next(Next(f))];
+                var P = new Func<int, Vector2d>(v => new Vector2d(k.X[v], k.Y[v]));
+                if (ExactPredicates.Orient2d(P(c), P(d), P(a)) >= 0 || ExactPredicates.Orient2d(P(c), P(d), P(b)) <= 0) continue;
+                int t = e / 3, t2 = f / 3;
+                int hbc = k.H[Next(e)], hca = k.H[Next(Next(e))], had = k.H[Next(f)], hdb = k.H[Next(Next(f))];
+                void Link(int u, int w) { k.H[u] = w; k.H[w] = u; }
+                k.V[3 * t] = c; k.V[3 * t + 1] = a; k.V[3 * t + 2] = d;
+                k.V[3 * t2] = d; k.V[3 * t2 + 1] = b; k.V[3 * t2 + 2] = c;
+                Link(3 * t, hca); Link(3 * t + 1, had); Link(3 * t + 2, 3 * t2 + 2); Link(3 * t2, hdb); Link(3 * t2 + 1, hbc);
+                Assert.Equal(-1, k.CanonicalizeTies(out string failure));
+                Assert.Contains("not locally Delaunay", failure);
+                return;
+            }
+            throw new InvalidOperationException("no convex interior edge");
         }
     }
 }

@@ -43,6 +43,8 @@ namespace g3
         /// <summary> on a failure: a vertex where it was found (the point being inserted, or a vertex of the defect) </summary>
         internal int FailureVertex = -1;
         uint walkState = 2463534242;
+        /// <summary> triangles visited by the location walks of the insertion (a measure of the insertion order's locality) </summary>
+        internal long WalkSteps;
 
         /// <param name="x">coordinates in insertion order</param>
         /// <param name="y">coordinates in insertion order</param>
@@ -75,7 +77,7 @@ namespace g3
 
         /// <summary>
         /// The insertion order: rounds of geometrically growing size chosen by a hash of the index (BRIO), each round sorted
-        /// along a Hilbert curve on a 2^16 grid over the bounding box. The order only affects speed, never the result
+        /// along a Hilbert curve on a 2^16 grid over the coordinate ranks. The order only affects speed, never the result
         /// (ties are canonicalized afterwards), so floating-point rounding in the keys decides nothing.
         /// </summary>
         [MethodImpl(JitHints.Optimize)]
@@ -84,20 +86,16 @@ namespace g3
             int n = x.Length;
             var order = new int[n];
             if (n == 0) return order;
-            double minX = x[0], maxX = x[0], minY = y[0], maxY = y[0];
-            for (int i = 1; i < n; ++i) {
-                if (x[i] < minX) minX = x[i]; else if (x[i] > maxX) maxX = x[i];
-                if (y[i] < minY) minY = y[i]; else if (y[i] > maxY) maxY = y[i];
-            }
-            // the extents are at most 2e70, and their quotients finite; scale to [0, 65535]
-            double width = maxX - minX, height = maxY - minY;
-            double sx = width > 0 ? 65535.0 / width : 0, sy = height > 0 ? 65535.0 / height : 0;
+            // The curve runs over the ranks of the coordinates, not the coordinates: every column and row of the grid then holds
+            // about as many points, whatever the distribution (clusters, outliers, many scales), and no floating-point division
+            // can overflow. Equal coordinates get equal ranks, so the keys do not depend on how a sort breaks ties.
+            var gx = GridRanks(x);
+            var gy = GridRanks(y);
             int levels = 0;
             while ((1 << levels) < n && levels < 30) ++levels;
             var keys = new long[n];
             for (int i = 0; i < n; ++i) {
-                int gx = Clamp((x[i] - minX) * sx), gy = Clamp((y[i] - minY) * sy);
-                long hilbert = HilbertIndex(gx, gy);
+                long hilbert = HilbertIndex(gx[i], gy[i]);
                 // round: the number of trailing zeros of a hash, so round r holds about n / 2^(r+1) points; larger rounds go last
                 ulong h = Mix((ulong)i);
                 int r = 0;
@@ -106,14 +104,37 @@ namespace g3
                 order[i] = i;
             }
             Array.Sort(keys, order);
+            SortTies(keys, order);
             return order;
         }
 
-        static int Clamp(double v)
+        /// <summary> per value: its rank among the values (equal values share the smallest), scaled to [0, 65535] </summary>
+        static int[] GridRanks(double[] v)
         {
-            if (!(v > 0)) return 0;
-            if (v >= 65535) return 65535;
-            return (int)v;
+            int n = v.Length;
+            var sorted = (double[])v.Clone();
+            var index = new int[n];
+            for (int i = 0; i < n; ++i) index[i] = i;
+            Array.Sort(sorted, index);
+            var grid = new int[n];
+            int first = 0;
+            for (int i = 0; i < n; ++i) {
+                if (i > 0 && sorted[i] != sorted[i - 1]) first = i;
+                grid[index[i]] = (int)((long)first * 65536 / n);
+            }
+            return grid;
+        }
+
+        /// <summary> orders each run of equal keys by index: Array.Sort is not stable, and runtimes may break ties differently </summary>
+        static void SortTies(long[] keys, int[] items)
+        {
+            int n = keys.Length;
+            for (int i = 0; i < n; ) {
+                int j = i + 1;
+                while (j < n && keys[j] == keys[i]) ++j;
+                if (j - i > 1) Array.Sort(items, i, j - i);
+                i = j;
+            }
         }
 
         static ulong Mix(ulong z)
@@ -241,6 +262,7 @@ namespace g3
                     }
                     return t;
                 }
+                ++WalkSteps;
                 entry = H[moved];
                 t = entry / 3;
                 if (IsGhost(t)) return t;   // stepped over a hull edge that sees p strictly

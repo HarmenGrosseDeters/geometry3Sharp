@@ -56,14 +56,23 @@ namespace g3
             for (int r = 0; r < n; ++r) { xs[r] = x[order[r]]; ys[r] = y[order[r]]; }
             var kernel = new DelaunayKernel2(xs, ys, order);
             bool area;
-            string failure = null;
             try {
                 area = kernel.Build(cancellationToken);
-                if (area && kernel.CanonicalizeTies(out failure) < 0) area = false;
             } catch (InvalidOperationException e) {
-                failure = e.Message;
-                area = false;
+                return Publish(kernel, vertices, false, e.Message);
             }
+            return Publish(kernel, vertices, area, null);
+        }
+
+        /// <summary>
+        /// Verifies and canonicalizes the built kernel and publishes the result: Failed with the coordinate of the defect, Empty
+        /// without area, Success otherwise. (Separate from Compute so that a test can hand it a corrupted kernel.)
+        /// </summary>
+        internal static Triangulation2Result Publish(DelaunayKernel2 kernel, Vector2d[] vertices, bool area, string failure)
+        {
+            int n = vertices.Length;
+            var order = kernel.Input;
+            if (failure == null && area && kernel.CanonicalizeTies(out failure) < 0) area = false;
             if (failure != null) {
                 int v = kernel.FailureVertex;
                 return new Triangulation2Result(Triangulation2Status.Failed, Triangulation2FailureKind.InvalidTopology, null,
