@@ -64,6 +64,43 @@ namespace geometry3Sharp.Tests.Spatial
             }
         }
 
+        struct RootItems : IQuadtreeVisitor2d
+        {
+            public List<int> Ids;
+            public int Seen;
+            public bool TestRegion(AxisAlignedBox2d region) { return Seen++ == 0; }
+            public bool Visit(int id) { Ids.Add(id); return false; }
+        }
+
+        [Fact]
+        public void AnItemTooLargeForAChild_StaysAbove()
+        {
+            // Pushed down by its center, it would stretch the bounds of a whole branch to cover everything.
+            var boxes = Enumerable.Range(0, 400).Select(i => new AxisAlignedBox2d(new Vector2d(i % 20 * 50 + 3, i / 20 * 50 + 3))).ToList();
+            boxes.Add(new AxisAlignedBox2d(0, 0, 1000, 1000));
+            var visitor = new RootItems { Ids = new List<int>() };
+            new LooseQuadtree2d(boxes, false).Traverse(ref visitor);
+            Assert.Equal(new[] { 400 }, visitor.Ids);
+        }
+
+        [Fact]
+        public void TheTreeStopsAtItsDepthLimit_BuiltAndInserted()
+        {
+            // A point at the origin and points approaching it: only a limit stops the cells halving down to the smallest double.
+            var boxes = new List<AxisAlignedBox2d> { new AxisAlignedBox2d(new Vector2d(0, 0)) };
+            for (int k = 0; k < 1000; ++k) boxes.Add(new AxisAlignedBox2d(new Vector2d(Math.Pow(2, -k), Math.Pow(2, -k))));
+            var built = new LooseQuadtree2d(boxes, false);
+            var inserted = new LooseQuadtree2d(boxes.GetRange(0, 2), false);
+            foreach (AxisAlignedBox2d box in boxes.Skip(2)) inserted.Insert(box);
+            // At most two of the four children hold something: those on the diagonal.
+            foreach (var tree in new[] { built, inserted }) {
+                Assert.True(VisitRegions(tree).Count <= 2 * tree.MaxDepth + 1, $"{VisitRegions(tree).Count} regions");
+                var found = new List<int>();
+                tree.QueryRectangle(new AxisAlignedBox2d(new Vector2d(0, 0)), found);
+                Assert.Equal(new[] { 0 }, found);
+            }
+        }
+
         [Fact]
         public void ParallelRegionSnapshotsAndRepeatedQueriesMatchSerialAfterMutation()
         {

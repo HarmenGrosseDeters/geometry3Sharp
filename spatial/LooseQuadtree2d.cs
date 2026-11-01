@@ -56,11 +56,18 @@ namespace g3
             }
         }
 
+        // A build works on these, side by side in memory, and links the items into their cells at the end.
+        struct BuildItem
+        {
+            public AxisAlignedBox2d Box;
+            public int Id;
+            public int Class;
+        }
+
         struct Part
         {
-            public int Index;
+            public int Index, Start, Count, Depth;
             public AxisAlignedBox2d Cell;
-            public int Depth;
         }
 
         // An array behind it, for references to nodes instead of copies of them.
@@ -82,6 +89,7 @@ namespace g3
         AxisAlignedBox2d rootRegion = AxisAlignedBox2d.Empty;
 
         public int Count { get; private set; }
+        internal int NextId { get { return nextId; } }
         public AxisAlignedBox2d Extent { get { return extent; } }
         public double Looseness { get { return 2; } }
         public int BucketCapacity { get { return BucketSize; } }
@@ -95,12 +103,17 @@ namespace g3
             if (boxes == null) throw new ArgumentNullException(nameof(boxes));
             ParallelBuild = parallelBuild;
             entries = new Entry[boxes.Count];
+            double minX = double.MaxValue, minY = double.MaxValue, maxX = -double.MaxValue, maxY = -double.MaxValue;
             for (int i = 0; i < entries.Length; ++i) {
                 AxisAlignedBox2d box = boxes[i];
                 ValidateBox(box, nameof(boxes));
                 entries[i] = new Entry { Box = box, Owner = 0, Next = -1, Previous = -1 };
-                extent = i == 0 ? box : Union(extent, box);
+                if (box.Min.x < minX) minX = box.Min.x;
+                if (box.Min.y < minY) minY = box.Min.y;
+                if (box.Max.x > maxX) maxX = box.Max.x;
+                if (box.Max.y > maxY) maxY = box.Max.y;
             }
+            if (entries.Length > 0) extent = new AxisAlignedBox2d(minX, minY, maxX, maxY);
             Count = nextId = entries.Length;
             rootRegion = extent;
             Rebuild(parallelBuild);
@@ -376,34 +389,54 @@ namespace g3
             Link(id, ref node.Head);
             int count = ++node.Count;
             // A cell of equal items refuses to split, at a cost per attempt: at powers of two, so that filling it stays linear.
-            // The union above left the bounds valid, so a node that cannot split costs no refit.
-            if (node.Child < 0 && count > BucketSize && (count == BucketSize + 1 || (count & (count - 1)) == 0) && Split(nodes, index, cell, depth))
-                BuildChildren(nodes, index, cell, depth);
+            // The union above left the bounds valid, so a node that cannot split costs nothing more.
+            if (node.Child < 0 && count > BucketSize && (count == BucketSize + 1 || (count & (count - 1)) == 0) &&
+                depth < DepthLimit && SplitAxes(cell, Center(cell)) != 0 && !AllEqual(node.Head))
+                BuildCell(index, cell, depth);
+        }
+
+        // Builds the subtree of a node that has outgrown its list.
+        void BuildCell(int index, AxisAlignedBox2d cell, int depth)
+        {
+            var items = new BuildItem[nodes.Items[index].Count];
+            int count = 0;
+            for (int id = nodes.Items[index].Head; id >= 0; id = entries[id].Next) {
+                items[count].Box = entries[id].Box;
+                items[count++].Id = id;
+            }
+            int first = nodes.Count;
+            nodes.Items[index].Head = 0;
+            BuildRange(nodes, index, items, cell, depth, new int[10]);
+            LinkRange(index, items);
+            for (int i = first; i < nodes.Count; ++i) LinkRange(i, items);
         }
 
         void Rebuild(bool parallel)
         {
             nodes = new NodeList();
             if (nextId == 0) return;
-            int head = -1;
-            for (int id = nextId - 1; id >= 0; --id) {
+            var items = new BuildItem[Count];
+            int live = 0;
+            for (int id = 0; id < nextId; ++id) {
                 if (entries[id].Owner < 0) continue;
-                Link(id, ref head);
-                entries[id].Owner = 0;
+                items[live].Box = entries[id].Box;
+                items[live++].Id = id;
             }
-            nodes.Add(new Node(head, Count));
+            nodes.Add(new Node(0, Count));
             if (!parallel || Count < ParallelThreshold) {
-                BuildNode(nodes, 0, rootRegion, 0);
+                BuildRange(nodes, 0, items, rootRegion, 0, new int[10]);
+                for (int i = 0; i < nodes.Count; ++i) LinkRange(i, items);
                 return;
             }
-            // The top levels in sequence, then the parts below them in parallel: 16 at most, so that data
-            // gathered in one quadrant is shared out as well. Each worker owns disjoint item chains and a private node array.
-            var parts = new List<Part> { new Part { Index = 0, Cell = rootRegion, Depth = 0 } };
+            // The top levels in sequence, then the parts below them in parallel: 16 at most, so that data gathered
+            // in one quadrant is shared out as well. Each worker owns a range of the items and a private node array.
+            var parts = new List<Part> { new Part { Index = 0, Start = 0, Count = Count, Cell = rootRegion, Depth = 0 } };
             var cut = new List<int>();
+            int[] scratch = new int[10];
             for (int level = 0; level < ParallelLevels; ++level) {
                 var next = new List<Part>();
                 foreach (Part part in parts) {
-                    if (!Split(nodes, part.Index, part.Cell, part.Depth)) {
+                    if (!CutRange(nodes, part.Index, items, part.Cell, part.Depth, scratch)) {
                         next.Add(part);
                         continue;
                     }
@@ -411,17 +444,18 @@ namespace g3
                     int child = nodes.Items[part.Index].Child;
                     Vector2d center = Center(part.Cell);
                     int axes = SplitAxes(part.Cell, center);
-                    for (int q = 0; q < 4; ++q)
-                        next.Add(new Part { Index = child + q, Cell = ChildBox(part.Cell, center, q, axes), Depth = part.Depth + 1 });
+                    for (int q = 0; q < 4; ++q) {
+                        Node node = nodes.Items[child + q];
+                        next.Add(new Part { Index = child + q, Start = node.Head, Count = node.Count, Cell = ChildBox(part.Cell, center, q, axes), Depth = part.Depth + 1 });
+                    }
                 }
                 parts = next;
             }
             var branches = new NodeList[parts.Count];
             Parallel.For(0, parts.Count, p => {
                 var branch = new NodeList();
-                branch.Add(nodes.Items[parts[p].Index]);
-                SetOwners(branch, 0);
-                BuildNode(branch, 0, parts[p].Cell, parts[p].Depth);
+                branch.Add(new Node(parts[p].Start, parts[p].Count));
+                BuildRange(branch, 0, items, parts[p].Cell, parts[p].Depth, new int[10]);
                 branches[p] = branch;
             });
             for (int p = 0; p < parts.Count; ++p) {
@@ -430,40 +464,90 @@ namespace g3
                 Node root = branch.Items[0];
                 if (root.Child >= 0) root.Child += offset;
                 nodes.Items[parts[p].Index] = root;
-                SetOwners(nodes, parts[p].Index);
                 for (int i = 1; i < branch.Count; ++i) {
                     Node node = branch.Items[i];
                     if (node.Child >= 0) node.Child += offset;
                     nodes.Add(node);
-                    SetOwners(nodes, nodes.Count - 1);
                 }
             }
             // Children have higher indices than their parents, so this runs from the bottom up.
-            for (int c = cut.Count - 1; c >= 0; --c) Refit(nodes, cut[c]);
+            for (int c = cut.Count - 1; c >= 0; --c) Fit(nodes, cut[c], items);
+            Parallel.For(0, nodes.Count, i => LinkRange(i, items));
         }
 
-        void BuildNode(NodeList target, int index, AxisAlignedBox2d cell, int depth)
+        // While building, the Head of a node is the start of its items, retained ones first, then those of its children in turn.
+        void BuildRange(NodeList target, int index, BuildItem[] items, AxisAlignedBox2d cell, int depth, int[] scratch)
         {
-            if (Split(target, index, cell, depth)) BuildChildren(target, index, cell, depth);
-            Refit(target, index);
+            if (CutRange(target, index, items, cell, depth, scratch)) {
+                int child = target.Items[index].Child;
+                Vector2d center = Center(cell);
+                int axes = SplitAxes(cell, center);
+                for (int q = 0; q < 4; ++q) BuildRange(target, child + q, items, ChildBox(cell, center, q, axes), depth + 1, scratch);
+            }
+            Fit(target, index, items);
         }
 
-        void BuildChildren(NodeList target, int index, AxisAlignedBox2d cell, int depth)
+        // Sorts the items of a node into those it keeps and those of its four children, in place, and adds the children.
+        bool CutRange(NodeList target, int index, BuildItem[] items, AxisAlignedBox2d cell, int depth, int[] scratch)
         {
-            int child = target.Items[index].Child;
+            int start = target.Items[index].Head, count = target.Items[index].Count;
+            if (count <= BucketSize || depth >= DepthLimit) return false;
             Vector2d center = Center(cell);
             int axes = SplitAxes(cell, center);
-            for (int q = 0; q < 4; ++q) BuildNode(target, child + q, ChildBox(cell, center, q, axes), depth + 1);
+            if (axes == 0 || AllEqual(items, start, count)) return false;
+            AxisAlignedBox2d loose0 = Loose(ChildBox(cell, center, 0, axes)), loose1 = Loose(ChildBox(cell, center, 1, axes));
+            AxisAlignedBox2d loose2 = Loose(ChildBox(cell, center, 2, axes)), loose3 = Loose(ChildBox(cell, center, 3, axes));
+            for (int c = 0; c < 5; ++c) scratch[c] = 0;
+            int end = start + count;
+            for (int i = start; i < end; ++i) {
+                ref BuildItem item = ref items[i];
+                Vector2d c = Center(item.Box);
+                int q = axes & ((c.x >= center.x ? 1 : 0) | (c.y >= center.y ? 2 : 0));
+                bool fits = q == 0 ? Contains(loose0, item.Box) : q == 1 ? Contains(loose1, item.Box) : q == 2 ? Contains(loose2, item.Box) : Contains(loose3, item.Box);
+                item.Class = fits ? q + 1 : 0;
+                ++scratch[item.Class];
+            }
+            // Next free place per class in scratch[5..9], keeping the counts in scratch[0..4].
+            int place = start;
+            for (int c = 0; c < 5; ++c) {
+                scratch[5 + c] = place;
+                place += scratch[c];
+            }
+            int limit = start;
+            for (int c = 0; c < 5; ++c) {
+                limit += scratch[c];
+                while (scratch[5 + c] < limit) {
+                    int i = scratch[5 + c];
+                    int other = items[i].Class;
+                    if (other == c) {
+                        ++scratch[5 + c];
+                    } else {
+                        int j = scratch[5 + other]++;
+                        BuildItem swap = items[i];
+                        items[i] = items[j];
+                        items[j] = swap;
+                    }
+                }
+            }
+            int child = target.Count, offset = start + scratch[0];
+            for (int q = 0; q < 4; ++q) {
+                target.Add(new Node(offset, scratch[q + 1]));
+                offset += scratch[q + 1];
+            }
+            ref Node node = ref target.Items[index];
+            node.Child = child;
+            node.Count = scratch[0];
+            return true;
         }
 
-        // The bounds of a node, from its items and the bounds of its children.
-        void Refit(NodeList target, int index)
+        // The bounds of a node, from its items and the bounds of its children. Those of an empty child add nothing.
+        static void Fit(NodeList target, int index, BuildItem[] items)
         {
             Node[] all = target.Items;
             ref Node node = ref all[index];
             double minX = double.MaxValue, minY = double.MaxValue, maxX = -double.MaxValue, maxY = -double.MaxValue;
-            for (int id = node.Head; id >= 0; id = entries[id].Next) {
-                ref AxisAlignedBox2d box = ref entries[id].Box;
+            for (int i = node.Head, end = node.Head + node.Count; i < end; ++i) {
+                ref AxisAlignedBox2d box = ref items[i].Box;
                 if (box.Min.x < minX) minX = box.Min.x;
                 if (box.Min.y < minY) minY = box.Min.y;
                 if (box.Max.x > maxX) maxX = box.Max.x;
@@ -472,7 +556,6 @@ namespace g3
             if (node.Child >= 0) {
                 for (int q = 0; q < 4; ++q) {
                     ref Node child = ref all[node.Child + q];
-                    if (child.Head < 0 && child.Child < 0) continue;
                     if (child.Bounds.Min.x < minX) minX = child.Bounds.Min.x;
                     if (child.Bounds.Min.y < minY) minY = child.Bounds.Min.y;
                     if (child.Bounds.Max.x > maxX) maxX = child.Bounds.Max.x;
@@ -482,40 +565,25 @@ namespace g3
             node.Bounds = new AxisAlignedBox2d(minX, minY, maxX, maxY);
         }
 
-        bool Split(NodeList target, int index, AxisAlignedBox2d cell, int depth)
+        // Turns the range of a finished node into its list of items.
+        void LinkRange(int index, BuildItem[] items)
         {
-            Node node = target.Items[index];
-            if (node.Child >= 0 || node.Count <= BucketSize || depth >= DepthLimit) return false;
-            Vector2d center = Center(cell);
-            int axes = SplitAxes(cell, center);
-            if (axes == 0 || AllEqual(node.Head)) return false;
-            int child = target.Count;
-            for (int q = 0; q < 4; ++q) target.Add(new Node(-1, 0));
-            Node[] all = target.Items;
-            AxisAlignedBox2d loose0 = Loose(ChildBox(cell, center, 0, axes)), loose1 = Loose(ChildBox(cell, center, 1, axes));
-            AxisAlignedBox2d loose2 = Loose(ChildBox(cell, center, 2, axes)), loose3 = Loose(ChildBox(cell, center, 3, axes));
-            int retained = -1, retainedCount = 0;
-            for (int id = node.Head; id >= 0;) {
-                ref Entry entry = ref entries[id];
-                int next = entry.Next;
-                Vector2d c = Center(entry.Box);
-                int q = axes & ((c.x >= center.x ? 1 : 0) | (c.y >= center.y ? 2 : 0));
-                if (q == 0 ? Contains(loose0, entry.Box) : q == 1 ? Contains(loose1, entry.Box) : q == 2 ? Contains(loose2, entry.Box) : Contains(loose3, entry.Box)) {
-                    ref Node destination = ref all[child + q];
-                    entry.Owner = child + q;
-                    Link(id, ref destination.Head);
-                    ++destination.Count;
-                } else {
-                    entry.Owner = index;
-                    Link(id, ref retained);
-                    ++retainedCount;
-                }
-                id = next;
+            ref Node node = ref nodes.Items[index];
+            int start = node.Head, previous = -1;
+            for (int i = start, end = start + node.Count; i < end; ++i) {
+                ref Entry entry = ref entries[items[i].Id];
+                entry.Owner = index;
+                entry.Previous = previous;
+                entry.Next = i + 1 < end ? items[i + 1].Id : -1;
+                previous = items[i].Id;
             }
-            node.Child = child;
-            node.Head = retained;
-            node.Count = retainedCount;
-            all[index] = node;
+            node.Head = node.Count > 0 ? items[start].Id : -1;
+        }
+
+        static bool AllEqual(BuildItem[] items, int start, int count)
+        {
+            for (int i = start + 1; i < start + count; ++i)
+                if (!Equal(items[i].Box, items[start].Box)) return false;
             return true;
         }
 
@@ -533,11 +601,6 @@ namespace g3
             entries[id].Previous = -1;
             if (head >= 0) entries[head].Previous = id;
             head = id;
-        }
-
-        void SetOwners(NodeList target, int index)
-        {
-            for (int id = target.Items[index].Head; id >= 0; id = entries[id].Next) entries[id].Owner = index;
         }
 
         // Whether an item can be within tolerance of a point, or meet a box: the checks before any exact work on its geometry.

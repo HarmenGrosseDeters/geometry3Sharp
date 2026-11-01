@@ -138,6 +138,72 @@ namespace geometry3Sharp.Tests.Spatial
             Assert.Equal(48.121834, height, 5);
         }
 
+        // ---- an index over the caller's array
+
+        [Fact]
+        public void IndexOverAnArray_AnswersLikeOneWithACopy()
+        {
+            Triangle3d[] triangles = Triangles(JitteredGrid(24, 7.07, 3)).ToArray();
+            var copied = new TriangleQuadtree2d(triangles);
+            TriangleQuadtree2d shared = TriangleQuadtree2d.Over(triangles);
+            var random = new Random(23);
+            var a = new List<QuadtreeHeightHit2d>();
+            var b = new List<QuadtreeHeightHit2d>();
+            for (int q = 0; q < 300; ++q) {
+                var p = new Vector2d(UtmX + random.NextDouble() * 170, UtmY + random.NextDouble() * 170);
+                copied.QueryHeights(p, a);
+                shared.QueryHeights(p, b);
+                Assert.Equal(a.OrderBy(h => h.Id).Select(h => h.Height), b.OrderBy(h => h.Id).Select(h => h.Height));
+                Assert.Equal(copied.FindNearest(p), shared.FindNearest(p));
+            }
+            Assert.Equal(triangles.Length, shared.Count);
+            Assert.Equal(copied.Extent, shared.Extent);
+        }
+
+        [Fact]
+        public void IndexOverAnArray_DoesNotCopy_AndInsertLeavesTheArrayAlone()
+        {
+            var triangle = new Triangle3d(new Vector3d(0, 0, 1), new Vector3d(4, 0, 1), new Vector3d(0, 4, 1));
+            var other = new Triangle3d(new Vector3d(9, 9, 2), new Vector3d(12, 9, 2), new Vector3d(9, 12, 2));
+            var array = new[] { triangle, triangle };
+            TriangleQuadtree2d tree = TriangleQuadtree2d.Over(array);
+            var copy = new TriangleQuadtree2d(array);
+
+            // It reads the caller's array, unlike the copy. That is the promise the caller has to keep.
+            array[1] = new Triangle3d(new Vector3d(0, 0, 7), new Vector3d(4, 0, 7), new Vector3d(0, 4, 7));
+            Assert.Equal(7, tree.GetItem(1).V0.z);
+            Assert.Equal(1, copy.GetItem(1).V0.z);
+
+            int id = tree.Insert(other);
+            Assert.Equal(2, id);
+            Assert.Equal(2, array.Length);
+            Assert.Equal(other.V0, tree.GetItem(id).V0);
+            Assert.Equal(7, tree.GetItem(1).V0.z);
+            // After the move to its own copy it no longer sees the array.
+            array[0] = other;
+            Assert.Equal(triangle.V0, tree.GetItem(0).V0);
+            Assert.True(tree.TryGetHeight(new Vector2d(10, 10), out double height, 0));
+            Assert.Equal(2, height);
+            for (int i = 0; i < 40; ++i) tree.Insert(other);
+            Assert.Equal(43, tree.Count);
+
+            Assert.Throws<ArgumentNullException>(() => TriangleQuadtree2d.Over(null));
+            Assert.Throws<ArgumentException>(() => TriangleQuadtree2d.Over(new[] { new Triangle3d(new Vector3d(double.NaN, 0, 0), Vector3d.Zero, Vector3d.AxisX) }));
+            TriangleQuadtree2d empty = TriangleQuadtree2d.Over(new Triangle3d[0]);
+            Assert.Equal(0, empty.Insert(triangle));
+        }
+
+        [Fact]
+        public void AFailedInsert_LeavesTheNextIdFree_AfterRemovals()
+        {
+            var triangle = new Triangle3d(new Vector3d(0, 0, 1), new Vector3d(4, 0, 1), new Vector3d(0, 4, 1));
+            var tree = new TriangleQuadtree2d(new[] { triangle, triangle, triangle });
+            Assert.True(tree.Remove(0));
+            Assert.Throws<ArgumentException>(() => tree.Insert(new Triangle3d(new Vector3d(double.NaN, 0, 0), Vector3d.Zero, Vector3d.AxisX)));
+            Assert.Equal(3, tree.Insert(triangle));
+            Assert.Equal(triangle.V1, tree.GetItem(3).V1);
+        }
+
         // ---- edit cycles
 
         static IEnumerable<int> EveryThird(int count) { return Enumerable.Range(0, count).Where(i => i % 3 == 0); }

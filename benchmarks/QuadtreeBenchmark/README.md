@@ -21,7 +21,7 @@ It prints CSV: one row per contender and operation. `_prefix` rows measure the s
 
 - **Scan:** independent brute force.
 - **NetTopologySuite 2.6.0** (BSD-3-Clause, benchmark and test only, see [SOURCES.md](../../docs/SOURCES.md)): `STRtree` and the MX-CIF `Quadtree`, through public APIs.
-- The NetTopologySuite builds include all envelopes and inserts, and `STRtree` an explicit `Build()`. They keep the source arrays, so they are not equivalent to `TriangleQuadtree2d`, which copies its triangles.
+- The NetTopologySuite builds include all envelopes and inserts, and `STRtree` an explicit `Build()`. They keep the source arrays, so they are not equivalent to `TriangleQuadtree2d`, which copies its triangles, unless built with `TriangleQuadtree2d.Over`.
 - NetTopologySuite has no tie rule for nearest items, and its `Quadtree` has no nearest query: both are built from range queries here, and that time counts. So its nearest rows do not measure a native operation.
 - Its range queries are primary filters: results are filtered afterwards, and that time counts.
 - Heights have zero tolerance and use one shared helper, on a terrain with disjoint interiors.
@@ -44,6 +44,16 @@ Counted rather than timed, so exact: `QuadtreeReviewRegressionTests`. What one s
 | 20 km x 20 km, one point at (1e15, 1e15), items of 100000 tested | 100000 | at most 8 times the count without the point |
 
 Inserting points in sorted order into an empty tree, on the development machine: 40000 points took 90 s, when every insert beyond the extent rebuilt the tree. `InsertingInSortedOrder_DoesNotRebuildEachTime` now requires 20000 points on a line and 20000 on a diagonal in under 5 s.
+
+## Ideas not pursued
+
+None of these is measured. Each would have to show its gain here first.
+
+- Storing the items in tree order, so that a query reads neighbouring memory. Queries would touch fewer cache lines, and removal gets harder.
+- A build by Morton order instead of cutting from the top. It may cost less on uniform data, and loose placement of large items does not map onto it directly.
+- Tuning the bucket size and the looseness. The present values were not searched for.
+- A parallel frontier chosen by the size of the parts rather than by a fixed two levels. It should help data gathered far inside its extent, the slowest case in the spec's limits.
+- `Over` for other forms of input, such as vertices with index triples. Only `Triangle3d[]` exists so far.
 
 ## Results
 

@@ -204,6 +204,7 @@ and [DistancesExample](examples/DistancesExample.cs).
 `SegmentQuadtree2d` and `TriangleQuadtree2d` store points, segment endpoints and triangles
 as snapshots and query their XY geometry; z is used only for triangle-height interpolation.
 They complement the existing grids and do not follow changes to source meshes or lists.
+`TriangleQuadtree2d.Over(array)` skips the copy of the triangles: it reads the caller's array, which then must not change.
 
 ```csharp
 var tree = new TriangleQuadtree2d(triangles);

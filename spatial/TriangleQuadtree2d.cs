@@ -15,21 +15,36 @@ namespace g3
     /// </summary>
     public sealed class TriangleQuadtree2d
     {
-        readonly List<Triangle3d> items;
+        Triangle3d[] items;
         readonly LooseQuadtree2d tree;
 
         public TriangleQuadtree2d() : this(new Triangle3d[0]) { }
         public TriangleQuadtree2d(IReadOnlyList<Triangle3d> triangles, bool parallelBuild = true)
         {
             if (triangles == null) throw new ArgumentNullException(nameof(triangles));
-            items = new List<Triangle3d>(triangles.Count);
-            var bounds = new AxisAlignedBox2d[triangles.Count];
-            for (int i = 0; i < triangles.Count; ++i) {
-                Triangle3d item = triangles[i];
-                bounds[i] = QuadtreeGeometry2d.Bounds(item);
-                items.Add(item);
+            items = new Triangle3d[triangles.Count];
+            var bounds = new AxisAlignedBox2d[items.Length];
+            for (int i = 0; i < items.Length; ++i) {
+                items[i] = triangles[i];
+                bounds[i] = QuadtreeGeometry2d.Bounds(items[i]);
             }
             tree = new LooseQuadtree2d(bounds, parallelBuild);
+        }
+        TriangleQuadtree2d(Triangle3d[] shared, AxisAlignedBox2d[] bounds, bool parallelBuild)
+        {
+            items = shared;
+            tree = new LooseQuadtree2d(bounds, parallelBuild);
+        }
+        /// <summary>
+        /// An index over the caller's array, without a copy of the triangles. The caller must not change them while the index is in use: it
+        /// would not notice, and its answers would be wrong. Insert leaves the array alone: the first one moves the triangles to a copy.
+        /// </summary>
+        public static TriangleQuadtree2d Over(Triangle3d[] triangles, bool parallelBuild = true)
+        {
+            if (triangles == null) throw new ArgumentNullException(nameof(triangles));
+            var bounds = new AxisAlignedBox2d[triangles.Length];
+            for (int i = 0; i < bounds.Length; ++i) bounds[i] = QuadtreeGeometry2d.Bounds(triangles[i]);
+            return new TriangleQuadtree2d(triangles, bounds, parallelBuild);
         }
         public int Count { get { return tree.Count; } }
         public AxisAlignedBox2d Extent { get { return tree.Extent; } }
@@ -42,9 +57,10 @@ namespace g3
         public int Insert(Triangle3d item)
         {
             AxisAlignedBox2d bounds = QuadtreeGeometry2d.Bounds(item);
-            if (items.Count == items.Capacity) items.Capacity = checked(items.Count + Math.Max(4, items.Count));
+            int count = tree.NextId;
+            if (count == items.Length) Array.Resize(ref items, checked(count + Math.Max(4, count)));
             int id = tree.Insert(bounds);
-            items.Add(item);
+            items[id] = item;
             return id;
         }
         public bool Remove(int id) { return tree.Remove(id); }
@@ -120,7 +136,7 @@ namespace g3
         }
         struct DistanceMetric : IQuadtreeDistance2d, IQuadtreeOverflowDistance2d
         {
-            internal List<Triangle3d> Items;
+            internal Triangle3d[] Items;
             internal Vector2d Point;
             public double Distance(int id) { return QuadtreeGeometry2d.TriangleDistance(Items[id], Point); }
             public int CompareOverflow(int a, int b)
@@ -131,7 +147,7 @@ namespace g3
         }
         struct NearestToleranceVisitor : IQuadtreeVisitor2d
         {
-            internal List<Triangle3d> Items;
+            internal Triangle3d[] Items;
             internal LooseQuadtree2d Tree;
             internal Vector2d Point;
             internal double Tolerance, Distance;
@@ -153,7 +169,7 @@ namespace g3
         }
         struct HeightVisitor : IQuadtreeVisitor2d
         {
-            internal List<Triangle3d> Items;
+            internal Triangle3d[] Items;
             internal LooseQuadtree2d Tree;
             internal Vector2d Point;
             internal double Tolerance, Height;
