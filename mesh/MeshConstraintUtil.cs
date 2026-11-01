@@ -69,7 +69,7 @@ namespace g3
         /// Pin the vertices where the surface comes to a point that is no junction of feature curves: the apex of a
         /// cone made of many slices, whose side edges are too flat to be creases, so PreserveBoundaryAndFeatures does
         /// not see it and the remeshers round it off (smoothing, collapses). A vertex is pinned if the absolute value
-        /// of its angle deficit (2 pi minus the sum of its triangle angles, MeshCurvature.AngleDeficit; the Gaussian
+        /// of its angle deficit (2 pi minus the sum of its triangle angles, gs.MeshCurvature.AngleDeficit; the Gaussian
         /// curvature concentrated at the vertex) is at least minAngleDeficit degrees: 360 (1 - sin a) for the apex of
         /// a circular cone of half angle a (eg 199 degrees for a = 26.6, 48 for a = 60), and it tends to 0 at the
         /// vertices of a finely tessellated smooth surface. Only interior, manifold vertices with area
@@ -80,7 +80,7 @@ namespace g3
         /// </summary>
         public static int PinSharpVertices(MeshConstraints cons, DMesh3 mesh, double minAngleDeficit = 60)
         {
-            MeshCurvature curvature = MeshCurvature.Compute(mesh);
+            gs.MeshCurvature curvature = gs.MeshCurvature.Compute(mesh);
             double threshold = minAngleDeficit * MathUtil.Deg2Rad;
             VertexConstraint pinned = VertexConstraint.Pinned;
             pinned.FixedSetID = -1;
