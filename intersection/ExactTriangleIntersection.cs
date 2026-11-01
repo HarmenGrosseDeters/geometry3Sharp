@@ -322,6 +322,54 @@ namespace g3
                 || (same_ray(s2, p2, u2) && same_ray(s2, q2, w2));
         }
 
+        /// <summary>
+        /// IntersectsBeyondShared for two non-degenerate triangles with at least one shared vertex whose corners are
+        /// known to lie in one plane (the caller has the Orient3d of the far corners, all 0): the same result, without
+        /// the Orient3d calls that are then 0 (the coplanar branches of IntersectsBeyondShared and of
+        /// SegmentIntersectsTriangle, in the same order, with the same projections). ExactMeshArrangement's pair
+        /// search calls it for coplanar neighbours (docs/design/CHEAPER_CONSTRUCTIONS.md, section 4.1).
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal static bool IntersectsBeyondSharedCoplanar(Index3i ia, ref Triangle3d A, Index3i ib, ref Triangle3d B)
+        {
+            int nShared = 0, sa0 = -1, sb0 = -1, sa1 = -1, sb1 = -1;
+            for (int i = 0; i < 3; ++i)
+                for (int j = 0; j < 3; ++j)
+                    if (ia[i] == ib[j]) {
+                        if (nShared == 0) { sa0 = i; sb0 = j; } else { sa1 = i; sb1 = j; }
+                        nShared++;
+                    }
+            if (nShared == 0)
+                return Intersects(ref A, ref B);
+            if (nShared >= 2) {
+                Vector3d a = A[sa0], b = A[sa1], c = A[3 - sa0 - sa1], d = B[3 - sb0 - sb1];
+                int ax = plane_axis(a, b, c);
+                Vector2d a2 = project(a, ax), b2 = project(b, ax);
+                return ExactPredicates.Orient2d(a2, b2, project(c, ax)) * ExactPredicates.Orient2d(a2, b2, project(d, ax)) > 0;
+            }
+            Vector3d s = A[sa0];
+            Vector3d p = A[(sa0 + 1) % 3], q = A[(sa0 + 2) % 3], u = B[(sb0 + 1) % 3], w = B[(sb0 + 2) % 3];
+            if (segment_triangle_coplanar(p, q, ref B) || segment_triangle_coplanar(u, w, ref A))
+                return true;
+            int axis = plane_axis(s, p, q);
+            Vector2d s2 = project(s, axis), p2 = project(p, axis), q2 = project(q, axis), u2 = project(u, axis), w2 = project(w, axis);
+            if (ExactPredicates.Orient2d(s2, p2, q2) < 0) { var t = p2; p2 = q2; q2 = t; }
+            if (ExactPredicates.Orient2d(s2, u2, w2) < 0) { var t = u2; u2 = w2; w2 = t; }
+            return inside_corner(s2, p2, q2, u2) || inside_corner(s2, p2, q2, w2) || inside_corner(s2, u2, w2, p2) || inside_corner(s2, u2, w2, q2)
+                || (same_ray(s2, p2, u2) && same_ray(s2, q2, w2));
+        }
+
+        // SegmentIntersectsTriangle for a non-degenerate triangle and a segment in its plane (its branch ds = dt = 0)
+        [MethodImpl(JitHints.Optimize)]
+        static bool segment_triangle_coplanar(Vector3d s, Vector3d t, ref Triangle3d tri)
+        {
+            Vector3d a = tri.V0, b = tri.V1, c = tri.V2;
+            int axis = projection_axis(a, b, c);
+            Vector2d s2 = drop(s, axis), t2 = drop(t, axis), a2 = drop(a, axis), b2 = drop(b, axis), c2 = drop(c, axis);
+            if (point_in_triangle_2d(s2, a2, b2, c2) || point_in_triangle_2d(t2, a2, b2, c2)) return true;
+            return segments_intersect_2d(s2, t2, a2, b2) || segments_intersect_2d(s2, t2, b2, c2) || segments_intersect_2d(s2, t2, c2, a2);
+        }
+
         // for points coplanar with the non-degenerate triangle (s, p, q): an axis whose projection is injective on
         // its plane, so that the 2D tests decide the 3D configuration. Chosen exactly: one along which s, p, q do not
         // project to collinear points (the largest component of the floating-point normal first, which is right unless
