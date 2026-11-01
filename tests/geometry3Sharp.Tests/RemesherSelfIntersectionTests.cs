@@ -131,21 +131,28 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void MeshChangedBetweenPasses_GridRebuilt()
         {
-            // the triangle grid is kept between the operations of a pass; a change of the mesh outside the remesher
-            // (here: the mesh moved far away) must not leave it stale (a stale grid finds no neighbours)
+            // the triangle grid is kept between the edge operations (and passes without smoothing); a change of the
+            // mesh outside the remesher (here: the mesh moved far away) must not leave it stale: a stale grid finds no
+            // neighbours, so the collapses and flips of the following passes would go unchecked
             DMesh3 input = Gear(24, 0.2, 3);
-            DMesh3 mesh = new DMesh3(input);
-            var r = new Remesher(mesh) { SmoothSpeedT = 0.5, PreventSelfIntersections = true };
-            MeshConstraintUtil.PreserveBoundaryAndFeatures(r, 30);
-            r.SetTargetEdgeLength(MeanEdge(input));
-            r.BasicRemeshPass();
-            Vector3d shift = new Vector3d(1000, 0, 0);
-            foreach (int vid in mesh.VertexIndices())
-                mesh.SetVertex(vid, mesh.GetVertex(vid) + shift);
-            for (int k = 0; k < 19; ++k)
+            foreach (bool prevent in new[] { true, false }) {
+                DMesh3 mesh = new DMesh3(input);
+                var r = new Remesher(mesh) { EnableSmoothing = false, PreventSelfIntersections = prevent };
+                MeshConstraintUtil.PreserveBoundaryAndFeatures(r, 30);
+                r.SetTargetEdgeLength(2 * MeanEdge(input));
                 r.BasicRemeshPass();
-            Assert.Equal(0, MeshRepairMetrics.SelfIntersections(mesh));
-            Assert.True(mesh.IsClosed());
+                Vector3d shift = new Vector3d(1000, 0, 0);
+                foreach (int vid in mesh.VertexIndices())
+                    mesh.SetVertex(vid, mesh.GetVertex(vid) + shift);
+                for (int k = 0; k < 19; ++k)
+                    r.BasicRemeshPass();
+                int pairs = MeshRepairMetrics.SelfIntersections(mesh);
+                if (prevent) {
+                    Assert.Equal(0, pairs);
+                    Assert.True(mesh.IsClosed());
+                } else
+                    Assert.True(pairs > 0, "without the option these passes create self-intersections");
+            }
         }
 
         // two triangles [a,b,c], [b,a,d] folded like a tent over the edge ab, and a wall triangle (in the plane x = 0)
@@ -227,6 +234,21 @@ namespace geometry3Sharp.Tests
                 if (expected) hits++;
             }
             Assert.True(coplanar > 10000 && hits > 1000, $"{coplanar} coplanar pairs, {hits} intersecting");
+        }
+
+        [Fact]
+        public void MeshChangedOutsideTheRemesher_GridRebuilt()
+        {
+            // the grid is built with the wall far away; the wall is then moved between c and d from outside the
+            // remesher: a stale grid would still have it far away and miss the flip through it
+            DMesh3 m = TentAndWall(true, out int a, out int b, out int c, out int d);
+            var wall = new[] { m.MaxVertexID - 3, m.MaxVertexID - 2, m.MaxVertexID - 1 };
+            Vector3d away = new Vector3d(0, 0, 100);
+            foreach (int v in wall) m.SetVertex(v, m.GetVertex(v) + away);
+            var probe = new Probe(m);
+            Assert.False(probe.Flip(a, b, c, d));
+            foreach (int v in wall) m.SetVertex(v, m.GetVertex(v) - away);
+            Assert.True(probe.Flip(a, b, c, d));
         }
 
         [Theory]
