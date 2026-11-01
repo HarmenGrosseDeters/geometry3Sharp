@@ -119,21 +119,21 @@ recorded (`golden/m2.json`); rows of these features that need refinement (milest
 $ dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 -- perf --m2 --repeats 3 --sizes 1000,4000,100000,400000
 runtime .NET 10.0.14, 4 cores
 producer,kind,n,vertices,triangles,subsegments,median_ms,min_ms,allocated_mb,status
-g3-constrained,coastline,1000,1000,998,1000,6.4,5.9,1.4,Success
-g3-constrained,coastline,4000,4000,3998,4000,30.1,26.5,5.7,Success
-g3-constrained,coastline,100000,100000,99998,100000,517.7,478.9,165.8,Success
-g3-constrained,coastline,400000,400000,399998,400000,2259.5,2240.2,708.9,Success
-g3-constrained,parcels,1013,1013,1936,1012,4.1,3.9,2.3,Success
-g3-constrained,parcels,3961,3961,7744,3960,16.0,15.8,9.3,Success
-g3-constrained,parcels,99905,99905,198916,99904,675.4,633.3,245.3,Success
-g3-constrained,parcels,400513,400513,799236,400512,2639.1,2496.3,994.7,Success
-g3-constrained,crossings,1000,29486,58952,57472,313.1,264.3,120.5,Success
-g3-constrained,crossings,4000,490339,980650,974678,6390.3,5943.2,2025.4,Success
+g3-constrained,coastline,1000,1000,998,1000,9.4,7.5,1.6,Success
+g3-constrained,coastline,4000,4000,3998,4000,39.7,21.2,6.4,Success
+g3-constrained,coastline,100000,100000,99998,100000,650.2,631.5,186.6,Success
+g3-constrained,coastline,400000,400000,399998,400000,3171.1,3113.8,795.2,Success
+g3-constrained,parcels,1013,1013,1936,1012,5.7,5.3,2.8,Success
+g3-constrained,parcels,3961,3961,7744,3960,23.1,22.9,11.2,Success
+g3-constrained,parcels,99905,99905,198916,99904,1008.4,988.2,297.2,Success
+g3-constrained,parcels,400513,400513,799236,400512,4100.0,4075.5,1203.2,Success
+g3-constrained,crossings,1000,29486,58952,57472,402.0,398.0,126.9,Success
+g3-constrained,crossings,4000,490339,980650,974678,8522.0,8093.6,2116.1,Success
 ```
 
-`coastline` is one ring of n points at UTM coordinates (spec 3.1: 400 000 coastline points in less than 5 s; 2.3 s here), `parcels` a grid of square rings
+`coastline` is one ring of n points at UTM coordinates (spec 3.1: 400 000 coastline points in less than 5 s; 3.2 s here), `parcels` a grid of square rings
 sharing their borders with a point in each, `crossings` n/2 random segments in a unit square (490 000 crossings at n = 4000). Linux, 4 cores, net10, idle;
-net48 not measured here. The crossing case allocates a lot (2 GB for 490 000 crossings): the work list copies the source lists of every piece. Not tuned yet.
+net48 not measured here. The fixes of the independent review (a final Delaunay check, scaled tolerance tests, a grid of sources for the markers) cost about 0.9 s at 400 000 coastline points and 1.5 s at 400 000 parcel points (2.26 s and 2.64 s before). The crossing case allocates a lot (2 GB for 490 000 crossings): the work list copies the source lists of every piece. Not tuned yet.
 
 How it works ([SOURCES.md](../../docs/SOURCES.md)): the M1 triangulation of all points, then each constraint piece by a walk from its first end point through the
 triangulation. A vertex exactly on the piece, or within the automatic tolerance of it and of every input segment it comes from, splits it; a constrained

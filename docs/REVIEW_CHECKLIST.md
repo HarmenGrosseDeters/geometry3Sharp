@@ -49,6 +49,10 @@ and for each yes, check that a test covers it. A test must fail on the old code 
 - Every new error bound in `math/Exact*`, `AdaptivePredicates.cs`, implicit points: derived and checked in
   the review.
 
+- Plain double helpers (dot products, squared distances, tolerance squared) underflow at small magnitudes even
+  where the predicates are exact: scale differences by a power of two first (meshing M2 review: a walk found no
+  wedge at 2^-560).
+
 ## 6. Integer overflow, sizes and hard limits (#68, #75, #81, #104)
 
 - `int` products of grid dimensions or indices (`nx * ny * nz`, `i * n + j`), cell counts over large
@@ -84,6 +88,9 @@ and for each yes, check that a test covers it. A test must fail on the old code 
   predicates stay exact. `Array.Sort` is not stable, and runtimes may break ties differently: break them by
   index (meshing M1 review).
 
+- An incremental step that assumes an invariant (CDT, Delaunay) right after an operation that breaks it, such as
+  removing a constraint before inserting a point: restore the invariant first, and verify it at the end (meshing M2 review).
+
 ## 10. Complexity (#63, #72, #105)
 
 - Nested loops over all elements of the input (pairs of segments, components, charts): what is the size in
@@ -91,6 +98,11 @@ and for each yes, check that a test covers it. A test must fail on the old code 
 - Tests: time or candidate counts at n and 4n, on clustered, outlier and multi-scale inputs too: a fixed-
   resolution grid or space-filling-curve key over the bounding box collapses when one point is far away
   (meshing M1 review: a quadratic build from one outlier).
+
+## 10a. The oracle itself
+
+- Every relaxation of an oracle check comes with a known-wrong result that must still fail (meshing M2 review: a
+  loosened chain end accepted a mesh without a shared parcel border).
 
 ## 11. Compatibility and documentation (#92, #94)
 

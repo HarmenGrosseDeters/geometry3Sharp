@@ -41,6 +41,7 @@ namespace g3
         }
 
         internal static Vector2d IntersectionForTests(Vector2d a, Vector2d b, Vector2d c, Vector2d d) => Builder.Intersection(a, b, c, d);
+        internal static double RatioToDoubleForTests(BigInteger num, BigInteger den, int scale) => Builder.RatioToDouble(num, den, scale);
 
         /// <summary> an input piece of a constraint and where it came from </summary>
         internal struct Source
@@ -48,7 +49,11 @@ namespace g3
             internal int Ring;        // ring id (outer and hole rings, then region rings), or -1
             internal int Marker;
             internal bool Locked;
+            /// <summary> an edge of the convex hull made a constraint by refinement (no input segment) </summary>
+            internal bool Hull;
             internal double AX, AY, BX, BY;
+            /// <summary> kernel vertices of the input end points </summary>
+            internal int VA, VB;
         }
 
         sealed class Builder
@@ -89,7 +94,15 @@ namespace g3
                     maxAbs = Math.Max(maxAbs, Math.Max(Math.Abs(x[i]), Math.Abs(y[i])));
                     minX = Math.Min(minX, x[i]); maxX = Math.Max(maxX, x[i]); minY = Math.Min(minY, y[i]); maxY = Math.Max(maxY, y[i]);
                 }
-                tolerance = n == 0 ? 0 : Math.Max(maxAbs, Math.Max(maxX - minX, maxY - minY)) * AutoToleranceFactor;
+                double magnitude = n == 0 ? 0 : Math.Max(maxAbs, Math.Max(maxX - minX, maxY - minY));
+                tolerance = magnitude * AutoToleranceFactor;
+                // tolerance tests run on differences scaled by a power of two to about 1, so that no square underflows at tiny scales
+                // (review of M2: at 2^-560 a dot product was 0 and the walk found no wedge)
+                if (magnitude > 0) {
+                    ExactPoint3.Decompose(magnitude, out var mant, out int exp);
+                    shift = -(int)(exp + ExactPoint3.BitLength(mant) - 1);
+                    scaledTolerance = ExactPoint3.ScaleB(magnitude, shift) * AutoToleranceFactor;
+                }
                 cancel.ThrowIfCancellationRequested();
                 order = DelaunayKernel2.InsertionOrder(x, y);
                 rank = new int[n];
@@ -119,6 +132,12 @@ namespace g3
                 try {
                     var failure = InsertConstraints();
                     if (failure != null) return failure;
+                    // a last linear pass: every unconstrained edge locally Delaunay, so the result is a constrained Delaunay triangulation
+                    var bad = k.NonDelaunayEdges();
+                    if (bad.Count > 0) {
+                        k.RestoreDelaunay(bad);
+                        if (k.NonDelaunayEdges().Count > 0) return Fail(Triangulation2FailureKind.InvalidTopology, null, "the constrained Delaunay property could not be restored");
+                    }
                 } catch (InvalidOperationException e) {
                     return Fail(Triangulation2FailureKind.InvalidTopology, null, e.Message);
                 }
@@ -180,6 +199,29 @@ namespace g3
                 }
             }
 
+            /// <summary>
+            /// The height of a crossing (Q9, D11): linear along the input segment with the lower index of the two that cross, between
+            /// the heights of its input end points; independent of the insertion order. A diagnostic if the other segment disagrees.
+            /// </summary>
+            void SetCrossingHeight(int v, List<int> a, List<int> c)
+            {
+                if (heights == null) return;
+                if (v >= heights.Length) Array.Resize(ref heights, Math.Max(v + 1, 2 * heights.Length));
+                int sa = a.Min(), sc = c.Min();
+                double za = Along(v, sources[sa]), zc = Along(v, sources[sc]);
+                heights[v] = sa <= sc ? za : zc;
+                if (za != zc) diagnostics.Add("a crossing at (" + k.X[v].ToString("R", System.Globalization.CultureInfo.InvariantCulture) + ", "
+                    + k.Y[v].ToString("R", System.Globalization.CultureInfo.InvariantCulture) + ") lies on two constraints with different heights; the one given first wins");
+            }
+
+            double Along(int v, Source q)
+            {
+                double dx = q.BX - q.AX, dy = q.BY - q.AY, l2 = dx * dx + dy * dy;
+                double t = l2 > 0 ? ((k.X[v] - q.AX) * dx + (k.Y[v] - q.AY) * dy) / l2 : 0;
+                t = Math.Max(0, Math.Min(1, t));
+                return heights[q.VA] + t * (heights[q.VB] - heights[q.VA]);
+            }
+
             void SetHeight(int v, int u, int w)
             {
                 if (heights == null) return;
@@ -207,7 +249,7 @@ namespace g3
                     if (u != w) work.Push(new Piece { U = u, W = w, Sources = new List<int> { sources.Count - 1 } });
                 }
                 Source Make(int a, int b, int ring, int marker, bool locked)
-                    => new Source { Ring = ring, Marker = marker, Locked = locked, AX = k.X[KV(a)], AY = k.Y[KV(a)], BX = k.X[KV(b)], BY = k.Y[KV(b)] };
+                    => new Source { Ring = ring, Marker = marker, Locked = locked, AX = k.X[KV(a)], AY = k.Y[KV(a)], BX = k.X[KV(b)], BY = k.Y[KV(b)], VA = KV(a), VB = KV(b) };
                 // rings: outer and hole rings, then region rings, each with an id
                 var rings = input.Rings ?? new List<Mesh2Ring>();
                 var regions = input.Regions ?? new List<Mesh2Region>();
@@ -252,7 +294,7 @@ namespace g3
             /// <summary> v is within the tolerance of the open segment u-w and of every source of the piece </summary>
             bool Near(int v, int u, int w, List<int> src)
             {
-                if (tolerance <= 0) return false;
+                if (!(scaledTolerance > 0)) return false;
                 double px = k.X[v], py = k.Y[v];
                 if (!WithinTolerance(px, py, k.X[u], k.Y[u], k.X[w], k.Y[w])) return false;
                 foreach (int s in src) {
@@ -262,14 +304,28 @@ namespace g3
                 return true;
             }
 
+            int shift;
+            double scaledTolerance;
+            double Scaled(double d) => ExactPoint3.ScaleB(d, shift);
+
+            /// <summary> squared distance of p to segment a-b in scaled units; inside: the projection falls in the open segment </summary>
+            double ScaledDist2(double px, double py, double ax, double ay, double bx, double by, out bool inside)
+            {
+                double dx = Scaled(bx - ax), dy = Scaled(by - ay), qx = Scaled(px - ax), qy = Scaled(py - ay);
+                double l2 = dx * dx + dy * dy;
+                inside = false;
+                if (!(l2 > 0)) return qx * qx + qy * qy;
+                double t = (qx * dx + qy * dy) / l2;
+                inside = t > 0 && t < 1;
+                t = Math.Max(0, Math.Min(1, t));
+                double cx = t * dx - qx, cy = t * dy - qy;
+                return cx * cx + cy * cy;
+            }
+
             bool WithinTolerance(double px, double py, double ax, double ay, double bx, double by)
             {
-                double dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
-                if (!(l2 > 0)) return false;
-                double t = ((px - ax) * dx + (py - ay) * dy) / l2;
-                if (!(t > 0 && t < 1)) return false;
-                double cx = ax + t * dx - px, cy = ay + t * dy - py;
-                return cx * cx + cy * cy <= tolerance * tolerance;
+                double d2 = ScaledDist2(px, py, ax, ay, bx, by, out bool inside);
+                return inside && d2 <= scaledTolerance * scaledTolerance;
             }
 
             void Split(int v, Piece piece, Stack<Piece> pending)
@@ -323,10 +379,11 @@ namespace g3
 
             static int Next(int e) => e % 3 == 2 ? e - 2 : e + 1;
 
+            /// <summary> a, collinear with u-w, lies on the side of u towards w (exact: coordinate comparisons) </summary>
             bool Ahead(int u, int w, int a)
             {
-                double dx = k.X[w] - k.X[u], dy = k.Y[w] - k.Y[u];
-                return (k.X[a] - k.X[u]) * dx + (k.Y[a] - k.Y[u]) * dy > 0;
+                if (k.X[w] != k.X[u]) return (k.X[w] > k.X[u]) == (k.X[a] > k.X[u]) && k.X[a] != k.X[u];
+                return (k.Y[w] > k.Y[u]) == (k.Y[a] > k.Y[u]) && k.Y[a] != k.Y[u];
             }
 
             /// <summary> the piece crosses the constrained edge of half-edge h: split both at the rounded crossing </summary>
@@ -336,8 +393,12 @@ namespace g3
                 var x = Intersection(k.Point(u), k.Point(w), k.Point(r), k.Point(l));
                 if (!resolve) return Fail(Triangulation2FailureKind.CrossingConstraints, x, "constraints cross and ResolveCrossings is off");
                 var other = k.Unconstrain(h);
+                // without its constraint the edge r-l may not be Delaunay: restore that before inserting, since Lawson's insertion
+                // assumes a constrained Delaunay triangulation (review of M2: a non-Delaunay edge survived otherwise)
+                k.RestoreDelaunay(new[] { ((long)r << 32) | (uint)l });
+                int before = k.VertexCount;
                 int p = k.InsertPoint(x.x, x.y);
-                if (p > k.N) SetHeight(p, u, w);
+                if (k.VertexCount > before) SetCrossingHeight(p, piece.Sources, other);
                 pending.Push(new Piece { U = r, W = p, Sources = other });
                 pending.Push(new Piece { U = p, W = l, Sources = new List<int>(other) });
                 pending.Push(new Piece { U = p, W = w, Sources = piece.Sources });
@@ -373,8 +434,8 @@ namespace g3
 
             /// <summary>
             /// num / den * 2^scale (den > 0) rounded to nearest, ties to even, in integer arithmetic only: no conversion of a large
-            /// BigInteger to double, whose rounding may differ between runtimes. (Below the normal range a second rounding to the
-            /// subnormal grid follows, still within one unit in the last place.)
+            /// BigInteger to double, whose rounding may differ between runtimes. Below the normal range a second rounding to the
+            /// subnormal grid follows: the result is then within one unit in the last place, not always the nearest.
             /// </summary>
             internal static double RatioToDouble(BigInteger num, BigInteger den, int scale)
             {
@@ -621,32 +682,104 @@ namespace g3
             List<int> Covering(int u, int w, List<int> own)
             {
                 var result = new List<int>(own);
-                double tube = 2 * tolerance;
-                // a constraint that passes this close to u (or w) is an edge of a triangle at u, unless the star of u is thinner than the
-                // tube: the edges of all triangles at both ends are the candidates
-                foreach (int v in new[] { u, w })
-                    foreach (int e0 in k.Star(v)) {
-                        int t = e0 / 3;
-                        for (int j = 0; j < 3; ++j) {
-                            int c = k.Seg[3 * t + j];
-                            if (c < 0) continue;
-                            foreach (int s in k.Sources[c]) {
-                                if (result.Contains(s)) continue;
-                                var q = sources[s];
-                                if (Dist2(k.X[u], k.Y[u], q) <= tube * tube && Dist2(k.X[w], k.Y[w], q) <= tube * tube) result.Add(s);
-                            }
-                        }
+                double tube = 2 * scaledTolerance;
+                if (!(tube > 0)) return result;
+                if (cellKeys == null) BuildGrid();
+                if (cellKeys.Length == 0) return result;
+                double ux = Scaled(k.X[u] - gridX), uy = Scaled(k.Y[u] - gridY), wx = Scaled(k.X[w] - gridX), wy = Scaled(k.Y[w] - gridY);
+                double tube2 = tube * tube;
+                void Consider(int s)
+                {
+                    if (sax[s] != sax[s] || result.Contains(s)) return;   // NaN: a hull source
+                    if (SegDist2(ux, uy, s) <= tube2 && SegDist2(wx, wy, s) <= tube2) result.Add(s);
+                }
+                // every source is in the cells it passes through; one that passes within the tube of u is in u's cell or in a cell
+                // across a border within the tube (review of M2: the star of u can hide a source)
+                double x = ux / gridCell, y = uy / gridCell, r = tube / gridCell;
+                long x0 = (long)Math.Floor(x - r), x1 = (long)Math.Floor(x + r), y0 = (long)Math.Floor(y - r), y1 = (long)Math.Floor(y + r);
+                for (long cx = x0; cx <= x1; ++cx)
+                    for (long cy = y0; cy <= y1; ++cy) {
+                        int at = Array.BinarySearch(cellKeys, (cx << 32) ^ (cy & 0xffffffff));
+                        if (at < 0) continue;
+                        for (int q = cellStart[at]; q < cellStart[at + 1]; ++q) Consider(cellSources[q]);
                     }
+                // and the constraints of the triangles at both ends (in case rounding in the traversal skipped a corner cell)
+                foreach (int v in new[] { u, w })
+                    foreach (int e0 in k.Star(v))
+                        for (int j = 0; j < 3; ++j) {
+                            int c = k.Seg[3 * (e0 / 3) + j];
+                            if (c >= 0) foreach (int s in k.Sources[c]) Consider(s);
+                        }
                 return result;
             }
 
-            static double Dist2(double px, double py, Source q)
+            /// <summary> squared distance of a point (scaled, relative to the grid origin) to source s </summary>
+            double SegDist2(double px, double py, int s)
             {
-                double dx = q.BX - q.AX, dy = q.BY - q.AY, l2 = dx * dx + dy * dy;
-                double t = l2 > 0 ? Math.Max(0, Math.Min(1, ((px - q.AX) * dx + (py - q.AY) * dy) / l2)) : 0;
-                double cx = q.AX + t * dx - px, cy = q.AY + t * dy - py;
+                double ax = sax[s], ay = say[s], dx = sbx[s] - ax, dy = sby[s] - ay, qx = px - ax, qy = py - ay;
+                double l2 = dx * dx + dy * dy;
+                double t = l2 > 0 ? Math.Max(0, Math.Min(1, (qx * dx + qy * dy) / l2)) : 0;
+                double cx = t * dx - qx, cy = t * dy - qy;
                 return cx * cx + cy * cy;
             }
+
+            // a uniform grid over the sources' bounding box, as sorted cell keys with the sources of each cell (CSR); the sources'
+            // end points scaled and relative to the grid origin
+            long[] cellKeys;
+            int[] cellStart, cellSources;
+            double[] sax, say, sbx, sby;
+            double gridX, gridY, gridCell;
+
+            void BuildGrid()
+            {
+                int m = sources.Count;
+                sax = new double[m]; say = new double[m]; sbx = new double[m]; sby = new double[m];
+                double minX = double.MaxValue, minY = double.MaxValue, maxX = double.MinValue, maxY = double.MinValue;
+                foreach (var q in sources) {
+                    if (q.Hull) continue;
+                    minX = Math.Min(minX, Math.Min(q.AX, q.BX)); maxX = Math.Max(maxX, Math.Max(q.AX, q.BX));
+                    minY = Math.Min(minY, Math.Min(q.AY, q.BY)); maxY = Math.Max(maxY, Math.Max(q.AY, q.BY));
+                }
+                if (minX > maxX) { cellKeys = new long[0]; return; }
+                gridX = minX; gridY = minY;
+                double extent = Math.Max(Scaled(maxX - minX), Scaled(maxY - minY));
+                gridCell = Math.Max(extent / Math.Max(1, Math.Sqrt(m)), 64 * scaledTolerance);
+                var keys = new List<long>(4 * m);
+                var values = new List<int>(4 * m);
+                for (int s = 0; s < m; ++s) {
+                    var q = sources[s];
+                    if (q.Hull) { sax[s] = double.NaN; continue; }
+                    sax[s] = Scaled(q.AX - gridX); say[s] = Scaled(q.AY - gridY); sbx[s] = Scaled(q.BX - gridX); sby[s] = Scaled(q.BY - gridY);
+                    int source = s;
+                    Traverse(sax[s] / gridCell, say[s] / gridCell, sbx[s] / gridCell, sby[s] / gridCell, key => { keys.Add(key); values.Add(source); });
+                }
+                var ka = keys.ToArray(); var va = values.ToArray();
+                Array.Sort(ka, va);
+                var unique = new List<long>(); var start = new List<int>();
+                for (int i = 0; i < ka.Length; ++i)
+                    if (i == 0 || ka[i] != ka[i - 1]) { unique.Add(ka[i]); start.Add(i); }
+                start.Add(ka.Length);
+                cellKeys = unique.ToArray(); cellStart = start.ToArray(); cellSources = va;
+            }
+
+            /// <summary> the unit cells a segment passes through, in order (Amanatides and Woo 1987), each once </summary>
+            static void Traverse(double ax, double ay, double bx, double by, Action<long> visit)
+            {
+                long cx = (long)Math.Floor(ax), cy = (long)Math.Floor(ay), ex = (long)Math.Floor(bx), ey = (long)Math.Floor(by);
+                double dx = bx - ax, dy = by - ay;
+                int sx = dx > 0 ? 1 : -1, sy = dy > 0 ? 1 : -1;
+                double tdx = dx != 0 ? Math.Abs(1 / dx) : double.PositiveInfinity, tdy = dy != 0 ? Math.Abs(1 / dy) : double.PositiveInfinity;
+                double tx = dx != 0 ? ((sx > 0 ? cx + 1 - ax : ax - cx) * tdx) : double.PositiveInfinity;
+                double ty = dy != 0 ? ((sy > 0 ? cy + 1 - ay : ay - cy) * tdy) : double.PositiveInfinity;
+                long guard = Math.Abs(ex - cx) + Math.Abs(ey - cy) + 2;
+                for (long i = 0; i <= guard; ++i) {
+                    visit((cx << 32) ^ (cy & 0xffffffff));
+                    if (cx == ex && cy == ey) break;
+                    if (tx < ty) { tx += tdx; cx += sx; } else { ty += tdy; cy += sy; }
+                }
+            }
+
+            double Dist2(double px, double py, Source q) => ScaledDist2(px, py, q.AX, q.AY, q.BX, q.BY, out _);
 
             Mesh2Subsegment Subsegment(int a, int b, List<int> src)
             {

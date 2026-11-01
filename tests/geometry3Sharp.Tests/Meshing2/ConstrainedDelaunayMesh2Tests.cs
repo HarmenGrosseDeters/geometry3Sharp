@@ -218,7 +218,7 @@ namespace geometry3Sharp.Tests
             var m = result.Mesh;
             Assert.Equal(6, m.Vertices.Count);
             Assert.Equal(new Vector2d(2, 2), m.Vertices[5]);
-            Assert.Equal(new double[] { 0, 8, 1, 3, 8, 2 }, m.Heights);   // duplicate 4: the lower index wins; the crossing: along the later segment 2-3
+            Assert.Equal(new double[] { 0, 8, 1, 3, 8, 4 }, m.Heights);   // duplicate 4: the lower index wins; the crossing: along the segment given first, 0-1
             Assert.Contains(result.Diagnostics, d => d.Contains("another height"));
         }
 
@@ -326,6 +326,94 @@ namespace geometry3Sharp.Tests
             var m = result.Mesh;
             foreach (var t in m.Triangles)
                 Assert.True(ExactPredicates.Orient2d(m.Vertices[t.a], m.Vertices[t.b], m.Vertices[t.c]) > 0);
+        }
+
+        // ------------------------------------------------------------ regressions of the M2 review
+
+        [Fact]
+        public void Crossing_LeavesAConstrainedDelaunayTriangulation()
+        {
+            // the constraint removed before a rounded crossing was inserted left a non-Delaunay edge (17-15 against 18)
+            var i = new Mesh2Input { X = new[] { 0, 10, 10, 0, 0.5000000001506211, 9.5, 0.500000000631652, 9.5, 0.5000000005322374, 9.5, 6.342704406167709, 8.145161852308158, 0.5000000009008339 },
+                Y = new[] { 0, 0, 10, 10, 5.000000000004121, 4.999999999995936, 4.999999999967287, 5.00000000003277, 5.000000000000192, 4.999999999999808, 8.262465707148642, 8.874103468318518, 5.000000000002075 } };
+            i.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false, 1));
+            foreach (var (a, b, m) in new[] { (4, 5, 0), (6, 7, 1), (8, 9, 2), (1, 10, 3), (1, 11, 4) }) i.Segments.Add(new SegmentInput(a, b, m));
+            var report = Judge(i, out _);
+            Assert.True(report.Ok, report.ToString());
+        }
+
+        [Fact]
+        public void Markers_SeeSourcesHiddenBehindAFreePoint()
+        {
+            var i = Square();
+            foreach (var (x, y) in new[] { (0.5000000004453223, 4.999999999999801), (9.5, 5.000000000000313), (0.5000000004932587, 4.999999999999773), (0.5000000008699738, 5.000000000000384), (0.5000000002750816, 5.0000000000081855), (9.5, 4.9999999999918145) })
+                AddPoint(i, x, y);
+            i.Segments.Add(new SegmentInput(4, 5, 5)); i.Segments.Add(new SegmentInput(8, 9, 8));
+            var report = Judge(i, out _);
+            Assert.True(report.Ok, report.ToString());
+        }
+
+        [Theory]
+        [InlineData(-560)]
+        [InlineData(-1000)]
+        [InlineData(500)]
+        public void ExtremeScales_GiveTheSameMesh(int exponent)
+        {
+            // tolerance tests in doubles underflowed: a failure at 2^-560, other meshes and markers below
+            double s = Math.Pow(2, exponent);
+            for (int seed = 0; seed < 60; ++seed) {
+                var input = Fuzz(seed);
+                if (input.X.Max(Math.Abs) * s > 1e70) continue;
+                var scaled = Fuzz(seed);
+                for (int k = 0; k < input.Count; ++k) { scaled.X[k] = input.X[k] * s; scaled.Y[k] = input.Y[k] * s; }
+                foreach (var r in scaled.Regions) r.Seed = new[] { r.Seed[0] * s, r.Seed[1] * s };
+                Assert.True(Judge(input, out var a).Ok);
+                var report = Judge(scaled, out var b);
+                Assert.True(report.Ok, "seed " + seed + ": " + report);
+                Assert.Equal(Canonical(a), Canonical(b));
+            }
+        }
+
+        [Fact]
+        public void CrossingHeights_DoNotDependOnTheOrder()
+        {
+            ConstrainedMesh2 Run(bool reversed)
+            {
+                var input = new ConstrainedMesh2Input { Points = { new Vector2d(0, 0), new Vector2d(10, 0), new Vector2d(10, 10), new Vector2d(0, 10) }, Heights = new List<double> { 0, 100, 0, 100 } };
+                var s = new[] { new Mesh2Segment(0, 2), new Mesh2Segment(1, 3) };
+                if (reversed) Array.Reverse(s);
+                input.Segments.AddRange(s);
+                return new ConstrainedDelaunayMesh2().Compute(input).Mesh;
+            }
+            var a = Run(false); var b = Run(true);
+            Assert.Equal(5, a.Vertices.Count);
+            // segment 0-2 has heights 0..0, segment 1-3 100..100: the one given first wins, whatever the insertion order
+            Assert.Equal(0, a.Heights[4]);
+            Assert.Equal(100, b.Heights[4]);
+        }
+
+        [Fact]
+        public void RatioToDouble_RoundsToNearestEven_InTheNormalRange()
+        {
+            var r = new Random(8);
+            for (int i = 0; i < 20000; ++i) {
+                var num = new BigInteger(r.Next()) * new BigInteger(r.Next()) * new BigInteger(r.Next()) + r.Next();
+                var den = new BigInteger(r.Next(1, int.MaxValue)) * new BigInteger(r.Next(1, 1000));
+                int scale = r.Next(-900, 900);
+                double x = ConstrainedDelaunayMesh2.RatioToDoubleForTests(num, den, scale);
+                // x = M 2^E with a 53-bit M; |x - num / den 2^scale| <= 2^(E-1), and at exactly half, M is even
+                long bits = BitConverter.DoubleToInt64Bits(x);
+                BigInteger M = (bits & 0xFFFFFFFFFFFFFL) | (1L << 52);
+                int E = (int)(((bits >> 52) & 0x7FF) - 1075);
+                int low = Math.Min(E - 1, scale);
+                BigInteger lhs = BigInteger.Abs(((M * den) << (E - low)) - (num << (scale - low)));
+                BigInteger half = den << (E - 1 - low);
+                Assert.True(lhs <= half, "case " + i);
+                if (lhs == half) Assert.True(M.IsEven, "tie not to even, case " + i);
+            }
+            // a constructed tie: (2^53 + 1) / 2 = 2^52 + 0.5 rounds to the even 2^52
+            Assert.Equal(Math.Pow(2, 52), ConstrainedDelaunayMesh2.RatioToDoubleForTests((BigInteger.One << 53) + 1, 2, 0));
+            Assert.Equal(Math.Pow(2, 52) + 2, ConstrainedDelaunayMesh2.RatioToDoubleForTests((BigInteger.One << 53) + 3, 2, 0));
         }
     }
 }

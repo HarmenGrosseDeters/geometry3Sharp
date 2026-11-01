@@ -546,8 +546,11 @@ namespace Meshing2Acceptance
                         // A piece ends where a ring edge cuts it. At a tiny angle that point is ill-conditioned along the lines: a crossing rounded
                         // to doubles (D1) can lie far from the exact one along them while within the tube of both. So a vertex in the tubes of the
                         // source and of a ring edge through the end also ends the chain.
-                        var cutFrom = ringEdges.Where(g => Exact.Dist2ToSegment(g.a, g.b, piece.from) <= tube2).ToList();
-                        var cutTo = ringEdges.Where(g => Exact.Dist2ToSegment(g.a, g.b, piece.to) <= tube2).ToList();
+                        // A ring edge along the source itself cuts nothing: it would make every vertex a start and a goal (review of M2)
+                        bool Along((Pt a, Pt b) g) => Exact.Dist2ToSegment(g.a, g.b, s.a) <= tube2 && Exact.Dist2ToSegment(g.a, g.b, s.b) <= tube2
+                            || Exact.Dist2ToSegment(s.a, s.b, g.a) <= tube2 && Exact.Dist2ToSegment(s.a, s.b, g.b) <= tube2;
+                        var cutFrom = ringEdges.Where(g => Exact.Dist2ToSegment(g.a, g.b, piece.from) <= tube2 && !Along(g)).ToList();
+                        var cutTo = ringEdges.Where(g => Exact.Dist2ToSegment(g.a, g.b, piece.to) <= tube2 && !Along(g)).ToList();
                         bool OnCut(List<(Pt a, Pt b)> cut, int i) => tube2.Sign > 0 && cut.Any(g => Exact.Dist2ToSegment(g.a, g.b, v[i]) <= tube2);
                         var starts = candidates.Where(i => Exact.Len2(v[i], piece.from) <= tube2 || OnCut(cutFrom, i)).ToList();
                         var goals = new HashSet<int>(candidates.Where(i => Exact.Len2(v[i], piece.to) <= tube2 || OnCut(cutTo, i)));

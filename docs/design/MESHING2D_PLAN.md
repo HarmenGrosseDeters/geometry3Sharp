@@ -188,7 +188,12 @@ marker, marker list and lock, heights, `TryLocate` in non-convex domains), `Tria
 - Heights (D11): input heights pass through (lowest index wins, with a diagnostic); a crossing gets the height interpolated along the later piece. Q9's
   interpolation of Steiner points on the reference mesh is M3.
 - Oracle change: a chain may end at a vertex in the tubes of its segment and of the cutting ring edge (a crossing at a tiny angle is ill-conditioned along
-  the lines: found by fuzzing, 7.5e-6 along at an angle of 1e-10); the movement it measures counts only the distance off the two lines.
+  the lines: found by fuzzing, 7.5e-6 along at an angle of 1e-10); the movement it measures counts only the distance off the two lines; a ring edge
+  along the source itself never counts as cutting (the independent review found that hole; negative self-check "two parcels without their shared border").
+- Independent review of M2: six defects fixed with regressions (a non-Delaunay edge after a crossing: restore before inserting, and a final linear
+  check; tolerance tests underflowing at 2^-560: scaled differences, exact collinear direction; markers missing sources hidden behind a free point: a
+  grid of sources; crossing heights depending on the order: the segment given first wins, with a diagnostic; rounding in the subnormal range documented
+  as within one ulp). Crossings in the subnormal range can lie farther from their segments than the tolerance, because the double grid there is coarser.
 
 Not yet: `m2.snap` (explicit tolerance, vertex clustering, wedges; D14: choose against F-10 to F-22), and the M3-milestone rows of the M2 features.
-Performance: 400 000 coastline points in 2.3 s (spec: below 5 s), 400 000 parcel points in 2.6 s; the crossing-heavy case allocates too much (2 GB for 490 000 crossings).
+Performance after the review fixes: 400 000 coastline points in 3.1 s (spec: below 5 s), 400 000 parcel points in 3.7 s; the crossing-heavy case allocates too much (2 GB for 490 000 crossings).

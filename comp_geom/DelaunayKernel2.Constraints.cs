@@ -321,13 +321,22 @@ namespace g3
             }
             int result = FindEdge(u, w);
             if (result < 0) throw new InvalidOperationException("DelaunayKernel2: segment recovery failed");
-            // restore the constrained Delaunay property: Lawson's flips over the new edges and whatever they touch
-            var pending = new Stack<long>(created);
+            RestoreDelaunay(created, u, w);
+            return FindEdge(u, w);
+        }
+
+        /// <summary>
+        /// Lawson's flips over the given edges and whatever they touch, until every unconstrained real edge among them is locally
+        /// Delaunay; the edge skipU-skipW (about to become constrained) is never flipped. Terminates (Lawson 1977).
+        /// </summary>
+        internal void RestoreDelaunay(IEnumerable<long> edges, int skipU = -1, int skipW = -1)
+        {
+            var pending = new Stack<long>(edges);
             long flips = 0, flipLimit = 64L * (TriangleSlots + 16);
             while (pending.Count > 0) {
                 long key = pending.Pop();
                 int a0 = (int)(key >> 32), b0 = (int)(key & 0xffffffff);
-                if (a0 == u && b0 == w || a0 == w && b0 == u) continue;
+                if (a0 == skipU && b0 == skipW || a0 == skipW && b0 == skipU) continue;
                 int e = FindEdge(a0, b0);
                 if (e < 0 || Seg[e] >= 0) continue;
                 int f = H[e];
@@ -338,7 +347,19 @@ namespace g3
                 Flip(e, out _, out _);
                 pending.Push(Key(c, a0)); pending.Push(Key(a0, d)); pending.Push(Key(d, b0)); pending.Push(Key(b0, c));
             }
-            return FindEdge(u, w);
+        }
+
+        /// <summary> every unconstrained real edge that is not locally Delaunay, as a key </summary>
+        internal List<long> NonDelaunayEdges()
+        {
+            var result = new List<long>();
+            for (int e = 0; e < 3 * TriangleSlots; ++e) {
+                int f = H[e];
+                if (f < e || Seg[e] >= 0 || IsGhost(e / 3) || IsGhost(f / 3)) continue;
+                int a0 = V[e], b0 = V[Next(e)], c = V[Next(Next(e))], d = V[Next(Next(f))];
+                if (ExactPredicates.InCircle(Point(a0), Point(b0), Point(c), Point(d)) > 0) result.Add(Key(a0, b0));
+            }
+            return result;
         }
 
         static long Key(int a, int b) => ((long)a << 32) | (uint)b;
