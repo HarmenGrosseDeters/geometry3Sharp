@@ -87,8 +87,8 @@ static class IndirectBench
 
     static double median(double[] v) { var s = v.OrderBy(x => x).ToArray(); return s[s.Length / 2]; }
 
-    // the coordinates as integers: times 2^60 for the doubles in [-1, 1] of the general rows (exact: their exponents
-    // are above -60 except for values below 2^-60, which the random inputs do not produce), as they are for integers
+    // the coordinates as integers: times 2^60 (exact for the general rows: fl(2 NextDouble() - 1) is a multiple of
+    // 2^-53, so every exponent e >= -53 > -60; the integer rows stay integers; the sign cross-check would fail otherwise)
     static BigInteger[] B(Vector3d p) => new[] { I(p.x), I(p.y), I(p.z) };
     static BigInteger I(double v)
     {

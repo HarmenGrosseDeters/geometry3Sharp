@@ -145,7 +145,7 @@ namespace G3PredicateCompiler
         public int Limbs => (Bits + 63) / 64;
         public int ArenaLimbs;  // the length rule: the limbs the operation takes (inputs: their length)
         public int LengthOnly;  // the same without the value bounds
-        // the filter (double inputs that are integers, |x| <= 2^53): |e~ - e| <= C m~, e~ the computed value, m~ the
+        // the filter (double inputs in the predicate's range gate): |e~ - e| <= C m~, e~ the computed value, m~ the
         // computed magnitude; Leaf: a sum or difference of two inputs (m~ = |e~|)
         public Rational C;
         public bool Leaf => (Op == Op.Add || Op == Op.Sub) && A.Op == Op.Input && B.Op == Op.Input;
@@ -250,7 +250,8 @@ namespace G3PredicateCompiler
         //                    (|e~ - e| <= u |x~ y~| + |x~ - x| |y~| + |x| |y~ - y|, |x| <= (1 + cx) m~x)
         // A sign factor e is decided if m~ = 0 (then e = 0: every product is an exact 0) or |e~| > fl(K m~) with
         // K >= c / (1 - u) a double (fl(K m~) >= K m~ (1 - u) >= c m~, so |e| >= |e~| - c m~ > 0 and the signs agree).
-        // No overflow: |x| <= 2^53 and the degree and coefficients of the formulas here keep every value below 2^1000.
+        // (No overflow within the gate: b is derived from the bounds, see above; an overflow would give inf or NaN in m~
+        // and the test would not decide.)
         // The model is strict IEEE double rounding at every operation (RyuJIT / SSE2; x87 only with 53-bit precision
         // control), the same assumption as AdaptivePredicates.
         static void filter_bounds(Predicate p)
@@ -273,6 +274,9 @@ namespace G3PredicateCompiler
             if (!p.Homogeneous)
                 throw new NotSupportedException($"{p.Name}: the double entry needs a homogeneous formula (sums of equal degree)");
             p.GateLow = 960 / p.Degree - 52;
+            // the decision product K m~ must stay normal for m~ >= 2^-960: K >= 2^-62
+            if (p.Signs.Any(n => (n.C / (one - u)).CeilDouble() < Math.ScaleB(1.0, -62)))
+                throw new NotSupportedException($"{p.Name}: a filter constant below 2^-62");
             p.GateHigh = 0;
             while (p.GateHigh < 1000 && p.Nodes.All(n => n.Bound.At(BigInteger.Pow(2, p.GateHigh + 1)).GetBitLength() <= 1000))
                 p.GateHigh++;
@@ -407,11 +411,8 @@ namespace G3PredicateCompiler
             sb.Append($"{I2}    return {p.Name}Big({string.Join(", ", p.Points.Select(x => x + ".ToExact()"))}{(p.Xyz ? "" : ", i, j")});\n");
             arena_body(p, sb, I2, (n, dst) => $"{n.Point}.Get({comp(n)}, {dst})");
             sb.Append($"{I1}}}\n\n");
-            if (p.Xyz) {
-                if (p.InputBits < 54)
-                    throw new NotSupportedException($"{p.Name}: the double entry needs a bound of at least 2^53 (the exact stage takes the doubles)");
-                emit_double(p, sb);
-            }
+            if (p.Xyz)
+                emit_double(p, sb);     // its exact stage has its own bound (two limbs, rebound)
             // BigInteger
             sb.Append($"{I1}/// <summary> {p.Name} in BigInteger (inputs beyond the bound) </summary>\n");
             sb.Append($"{I1}[MethodImpl(JitHints.Optimize)]\n");
@@ -453,7 +454,8 @@ namespace G3PredicateCompiler
         }
 
         // the helpers of the double entries (emitted once per generated class)
-        const string DoubleHelpers = @"        static bool __finite(Vector3d p) { return !double.IsNaN(p.x + p.y + p.z) && !double.IsInfinity(p.x + p.y + p.z) && !double.IsInfinity(p.x) && !double.IsInfinity(p.y) && !double.IsInfinity(p.z); }
+        const string DoubleHelpers = @"        // each coordinate on its own (a sum of finite coordinates can overflow): x - x is 0 exactly for finite x
+        static bool __finite(Vector3d p) { return p.x - p.x == 0 && p.y - p.y == 0 && p.z - p.z == 0; }
         static bool __in(double x, double lo, double hi) { double a = Math.Abs(x); return x == 0 || (a >= lo && a <= hi); }
         // the filter's range: every coordinate 0 or of magnitude in [lo, hi]
         static bool __gate(Vector3d p, double lo, double hi) { return __in(p.x, lo, hi) && __in(p.y, lo, hi) && __in(p.z, lo, hi); }

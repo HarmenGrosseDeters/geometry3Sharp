@@ -383,6 +383,7 @@ integers):
 | TPI, exact stage | 2171 / 2261 | 2878 / 2842 |
 | LPI / TPI, general doubles in [-1, 1], filter decides | (not supported) | 80 / 117 |
 
-The range checks cost 12 to 28 ns on the filter path; the exact path is about 30 % slower (the alignment and two-limb
-inputs). (The benchmark's construct-then-evaluate column now converts the doubles exactly by `Decompose` and is not
+The filter path is 11 to 30 ns slower: the range and finiteness checks and the spec in differences (TPI: 9 more
+subtractions, 3 fewer multiplications) together, not measured apart; the exact path is 25-37 % slower (the alignment
+and two-limb inputs, and the same spec change). (The benchmark's construct-then-evaluate column now converts the doubles exactly by `Decompose` and is not
 comparable between the two versions.)

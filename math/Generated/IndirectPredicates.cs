@@ -20,7 +20,8 @@ namespace g3
     internal static unsafe class IndirectPredicates
     {
         static int __len(ref FixedPoint3 p, int k) { return p.M[k] & 7; }
-        static bool __finite(Vector3d p) { return !double.IsNaN(p.x + p.y + p.z) && !double.IsInfinity(p.x + p.y + p.z) && !double.IsInfinity(p.x) && !double.IsInfinity(p.y) && !double.IsInfinity(p.z); }
+        // each coordinate on its own (a sum of finite coordinates can overflow): x - x is 0 exactly for finite x
+        static bool __finite(Vector3d p) { return p.x - p.x == 0 && p.y - p.y == 0 && p.z - p.z == 0; }
         static bool __in(double x, double lo, double hi) { double a = Math.Abs(x); return x == 0 || (a >= lo && a <= hi); }
         // the filter's range: every coordinate 0 or of magnitude in [lo, hi]
         static bool __gate(Vector3d p, double lo, double hi) { return __in(p.x, lo, hi) && __in(p.y, lo, hi) && __in(p.z, lo, hi); }
