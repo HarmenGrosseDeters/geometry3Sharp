@@ -67,6 +67,12 @@ Order when slots free up (owner, 2026-11-01; on that day 4 large and 2 medium se
    3D area, not only the horizontal one).
 3. Meshing done (large): M2 (#233), M3 (#252) and the oracle speedup (#265) merged on 2026-11-01; #272 follows. Next
    the **stage 6b provenance check** (medium, report only), when a medium slot is free.
+   Also a small **snap-rounding Q&A** session (owner decision 2026-11-01): the dirty side reads the owner's own commits
+   in his Triangle.NET fork (written privately with Claude, owner's rights) and answers the meshing session's written
+   questions in spec terms only (behaviour, edge cases, failures, parameters, test inputs as descriptions; no code,
+   structure or names). The coordinator checks the report before the meshing session gets it; it is logged in the
+   provenance log and SOURCES.md. The meshing session never reads the fork. Starts once the question list is in
+   MESHING2D_SNAP.md.
 4. Then the CLI / MCP docs (stage 8, medium), and a review-only session when the stacks and the meshing PRs wait for
    review at the same time.
 5. Owner decisions still open: whether a large performance session pauses for Terrain, stage 7b (alpha wrap) after
