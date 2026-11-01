@@ -5,6 +5,7 @@ on:
   # request only: a push trigger there too ran every PR push twice. A branch without a PR: workflow_dispatch.
   push:
     branches: [master]
+    tags: ['**']
     paths-ignore: ['**/*.md']
   pull_request:
     paths-ignore: ['**/*.md']

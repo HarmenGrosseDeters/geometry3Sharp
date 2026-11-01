@@ -54,7 +54,8 @@ project, and run the tests of the changed areas (`dotnet test --filter ...`). Th
 is marked ready for review; the CI of every push runs it on GitHub anyway.
 
 Every push gets a PR; watch its CI and fix red CI right away. CI runs on pull requests and on master only (a branch
-without a PR: start it with `workflow_dispatch`), and a new push cancels the PR's run under way.
+without a PR, or a PR with a merge conflict, which GitHub does not run: resolve the conflict, or start it with
+`workflow_dispatch`), and a new push cancels the PR's run under way.
 
 ## Review before every merge
 
