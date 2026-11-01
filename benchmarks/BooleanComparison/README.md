@@ -601,3 +601,10 @@ Looked at in this round, not changed:
 - **The n-ary grid**: still dominated by `BigInteger` arithmetic of the remaining coincident points (other kinds of
   constructions of the same point) and of cocircular points in the triangulation.
 - **Cold runs** still take about 3 times as long as warm ones (see above; an application setting, not the library).
+
+## Indirect predicates (`indirect`)
+
+`BooleanComparison indirect [rounds]` times the generated indirect predicates (`math/Generated/IndirectPredicates.cs`,
+docs/design/INDIRECT_PREDICATES.md section 9): Orient3d of a line-plane point and of a three-plane point on 30-bit
+integer inputs, general and degenerate, against constructing the point as a reduced rational first. The numbers are in
+section 9 of the design doc.

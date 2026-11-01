@@ -20,6 +20,10 @@ namespace g3
     internal static unsafe class IndirectPredicates
     {
         static int __len(ref FixedPoint3 p, int k) { return p.M[k] & 7; }
+        // the integers |x| <= 2^53: exact as doubles, one limb each
+        static bool __int(double x) { return Math.Abs(x) <= 9007199254740992.0 && Math.Floor(x) == x; }
+        static bool __grid(Vector3d p) { return __int(p.x) && __int(p.y) && __int(p.z); }
+        static FixedInt __load(double x, ulong* dst) { dst[0] = (ulong)Math.Abs(x); return new FixedInt(dst, x != 0 ? 1 : 0, x < 0); }
 
         // Orient3dLPI: the sign of ((t1 - t2) + t3) times d; every input component |v| <= m = 2^64 - 1
         // ((t1 - t2) + t3): |.| <= 4608 m^6 < 2^397 (7 limbs)
@@ -133,6 +137,230 @@ namespace g3
             return _v90.Sign * _v46.Sign;
         }
 
+        /// <summary>
+        /// Orient3dLPI of points with integer coordinates |x| &lt;= 2^53, given as doubles: the filter, then the exact
+        /// stage on FixedArith (no allocation); throws for other coordinates
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal static int Orient3dLPI(Vector3d p, Vector3d q, Vector3d r, Vector3d s, Vector3d t, Vector3d a, Vector3d b, Vector3d c)
+        {
+            if (!(__grid(p) && __grid(q) && __grid(r) && __grid(s) && __grid(t) && __grid(a) && __grid(b) && __grid(c)))
+                throw new ArgumentException("Orient3dLPI: the coordinates must be integers |x| <= 2^53");
+            int __r = Orient3dLPIFilter(p, q, r, s, t, a, b, c);
+            return (__r != 2) ? __r : Orient3dLPIExact(p, q, r, s, t, a, b, c);
+        }
+
+        /// <summary> the filter of Orient3dLPI: the sign, or 2 if it does not decide (inputs as for Orient3dLPI) </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal static int Orient3dLPIFilter(Vector3d p, Vector3d q, Vector3d r, Vector3d s, Vector3d t, Vector3d a, Vector3d b, Vector3d c)
+        {
+            double s_x = s.x, ms_x = Math.Abs(s_x);                                              // c = 0 u
+            double r_x = r.x, mr_x = Math.Abs(r_x);                                              // c = 0 u
+            double _v2 = s_x - r_x, m_v2 = Math.Abs(_v2);                                        // c = 1 u
+            double s_y = s.y, ms_y = Math.Abs(s_y);                                              // c = 0 u
+            double r_y = r.y, mr_y = Math.Abs(r_y);                                              // c = 0 u
+            double _v5 = s_y - r_y, m_v5 = Math.Abs(_v5);                                        // c = 1 u
+            double s_z = s.z, ms_z = Math.Abs(s_z);                                              // c = 0 u
+            double r_z = r.z, mr_z = Math.Abs(r_z);                                              // c = 0 u
+            double _v8 = s_z - r_z, m_v8 = Math.Abs(_v8);                                        // c = 1 u
+            double t_x = t.x, mt_x = Math.Abs(t_x);                                              // c = 0 u
+            double _v10 = t_x - r_x, m_v10 = Math.Abs(_v10);                                     // c = 1 u
+            double t_y = t.y, mt_y = Math.Abs(t_y);                                              // c = 0 u
+            double _v12 = t_y - r_y, m_v12 = Math.Abs(_v12);                                     // c = 1 u
+            double t_z = t.z, mt_z = Math.Abs(t_z);                                              // c = 0 u
+            double _v14 = t_z - r_z, m_v14 = Math.Abs(_v14);                                     // c = 1 u
+            double _v15 = _v5 * _v14, m_v15 = m_v5 * m_v14;                                      // c = 3 u
+            double _v16 = _v8 * _v12, m_v16 = m_v8 * m_v12;                                      // c = 3 u
+            double _v17 = _v15 - _v16, m_v17 = m_v15 + m_v16;                                    // c = 4 u
+            double _v18 = _v8 * _v10, m_v18 = m_v8 * m_v10;                                      // c = 3 u
+            double _v19 = _v2 * _v14, m_v19 = m_v2 * m_v14;                                      // c = 3 u
+            double _v20 = _v18 - _v19, m_v20 = m_v18 + m_v19;                                    // c = 4 u
+            double _v21 = _v2 * _v12, m_v21 = m_v2 * m_v12;                                      // c = 3 u
+            double _v22 = _v5 * _v10, m_v22 = m_v5 * m_v10;                                      // c = 3 u
+            double _v23 = _v21 - _v22, m_v23 = m_v21 + m_v22;                                    // c = 4 u
+            double p_x = p.x, mp_x = Math.Abs(p_x);                                              // c = 0 u
+            double _v25 = p_x - r_x, m_v25 = Math.Abs(_v25);                                     // c = 1 u
+            double p_y = p.y, mp_y = Math.Abs(p_y);                                              // c = 0 u
+            double _v27 = p_y - r_y, m_v27 = Math.Abs(_v27);                                     // c = 1 u
+            double p_z = p.z, mp_z = Math.Abs(p_z);                                              // c = 0 u
+            double _v29 = p_z - r_z, m_v29 = Math.Abs(_v29);                                     // c = 1 u
+            double q_x = q.x, mq_x = Math.Abs(q_x);                                              // c = 0 u
+            double _v31 = q_x - r_x, m_v31 = Math.Abs(_v31);                                     // c = 1 u
+            double q_y = q.y, mq_y = Math.Abs(q_y);                                              // c = 0 u
+            double _v33 = q_y - r_y, m_v33 = Math.Abs(_v33);                                     // c = 1 u
+            double q_z = q.z, mq_z = Math.Abs(q_z);                                              // c = 0 u
+            double _v35 = q_z - r_z, m_v35 = Math.Abs(_v35);                                     // c = 1 u
+            double _v36 = _v17 * _v25, m_v36 = m_v17 * m_v25;                                    // c = 6 u
+            double _v37 = _v20 * _v27, m_v37 = m_v20 * m_v27;                                    // c = 6 u
+            double _v38 = _v36 + _v37, m_v38 = m_v36 + m_v37;                                    // c = 7 u
+            double _v39 = _v23 * _v29, m_v39 = m_v23 * m_v29;                                    // c = 6 u
+            double _v40 = _v38 + _v39, m_v40 = m_v38 + m_v39;                                    // c = 8 u
+            double _v41 = _v17 * _v31, m_v41 = m_v17 * m_v31;                                    // c = 6 u
+            double _v42 = _v20 * _v33, m_v42 = m_v20 * m_v33;                                    // c = 6 u
+            double _v43 = _v41 + _v42, m_v43 = m_v41 + m_v42;                                    // c = 7 u
+            double _v44 = _v23 * _v35, m_v44 = m_v23 * m_v35;                                    // c = 6 u
+            double _v45 = _v43 + _v44, m_v45 = m_v43 + m_v44;                                    // c = 8 u
+            double _v46 = _v45 - _v40, m_v46 = m_v45 + m_v40;                                    // c = 9 u
+            double _v47 = p_x * _v45, m_v47 = mp_x * m_v45;                                      // c = 9 u
+            double _v48 = q_x * _v40, m_v48 = mq_x * m_v40;                                      // c = 9 u
+            double _v49 = _v47 - _v48, m_v49 = m_v47 + m_v48;                                    // c = 10 u
+            double c_x = c.x, mc_x = Math.Abs(c_x);                                              // c = 0 u
+            double _v51 = _v46 * c_x, m_v51 = m_v46 * mc_x;                                      // c = 10 u
+            double _v52 = _v49 - _v51, m_v52 = m_v49 + m_v51;                                    // c = 11 u
+            double _v53 = p_y * _v45, m_v53 = mp_y * m_v45;                                      // c = 9 u
+            double _v54 = q_y * _v40, m_v54 = mq_y * m_v40;                                      // c = 9 u
+            double _v55 = _v53 - _v54, m_v55 = m_v53 + m_v54;                                    // c = 10 u
+            double c_y = c.y, mc_y = Math.Abs(c_y);                                              // c = 0 u
+            double _v57 = _v46 * c_y, m_v57 = m_v46 * mc_y;                                      // c = 10 u
+            double _v58 = _v55 - _v57, m_v58 = m_v55 + m_v57;                                    // c = 11 u
+            double _v59 = p_z * _v45, m_v59 = mp_z * m_v45;                                      // c = 9 u
+            double _v60 = q_z * _v40, m_v60 = mq_z * m_v40;                                      // c = 9 u
+            double _v61 = _v59 - _v60, m_v61 = m_v59 + m_v60;                                    // c = 10 u
+            double c_z = c.z, mc_z = Math.Abs(c_z);                                              // c = 0 u
+            double _v63 = _v46 * c_z, m_v63 = m_v46 * mc_z;                                      // c = 10 u
+            double _v64 = _v61 - _v63, m_v64 = m_v61 + m_v63;                                    // c = 11 u
+            double a_x = a.x, ma_x = Math.Abs(a_x);                                              // c = 0 u
+            double _v66 = a_x - c_x, m_v66 = Math.Abs(_v66);                                     // c = 1 u
+            double a_y = a.y, ma_y = Math.Abs(a_y);                                              // c = 0 u
+            double _v68 = a_y - c_y, m_v68 = Math.Abs(_v68);                                     // c = 1 u
+            double a_z = a.z, ma_z = Math.Abs(a_z);                                              // c = 0 u
+            double _v70 = a_z - c_z, m_v70 = Math.Abs(_v70);                                     // c = 1 u
+            double b_x = b.x, mb_x = Math.Abs(b_x);                                              // c = 0 u
+            double _v72 = b_x - c_x, m_v72 = Math.Abs(_v72);                                     // c = 1 u
+            double b_y = b.y, mb_y = Math.Abs(b_y);                                              // c = 0 u
+            double _v74 = b_y - c_y, m_v74 = Math.Abs(_v74);                                     // c = 1 u
+            double b_z = b.z, mb_z = Math.Abs(b_z);                                              // c = 0 u
+            double _v76 = b_z - c_z, m_v76 = Math.Abs(_v76);                                     // c = 1 u
+            double _v77 = _v68 * _v76, m_v77 = m_v68 * m_v76;                                    // c = 3 u
+            double _v78 = _v70 * _v74, m_v78 = m_v70 * m_v74;                                    // c = 3 u
+            double _v79 = _v77 - _v78, m_v79 = m_v77 + m_v78;                                    // c = 4 u
+            double _v80 = _v66 * _v76, m_v80 = m_v66 * m_v76;                                    // c = 3 u
+            double _v81 = _v70 * _v72, m_v81 = m_v70 * m_v72;                                    // c = 3 u
+            double _v82 = _v80 - _v81, m_v82 = m_v80 + m_v81;                                    // c = 4 u
+            double _v83 = _v66 * _v74, m_v83 = m_v66 * m_v74;                                    // c = 3 u
+            double _v84 = _v68 * _v72, m_v84 = m_v68 * m_v72;                                    // c = 3 u
+            double _v85 = _v83 - _v84, m_v85 = m_v83 + m_v84;                                    // c = 4 u
+            double _v86 = _v52 * _v79, m_v86 = m_v52 * m_v79;                                    // c = 16 u
+            double _v87 = _v58 * _v82, m_v87 = m_v58 * m_v82;                                    // c = 16 u
+            double _v88 = _v64 * _v85, m_v88 = m_v64 * m_v85;                                    // c = 16 u
+            double _v89 = _v86 - _v87, m_v89 = m_v86 + m_v87;                                    // c = 17 u
+            double _v90 = _v89 + _v88, m_v90 = m_v89 + m_v88;                                    // c = 18 u
+            int __r = 1;
+            // ((t1 - t2) + t3): |e~ - e| <= 18 u m~ (K = c / (1 - u), rounded up)
+            if (m_v90 == 0) return 0;
+            if (!(Math.Abs(_v90) > 1.998401444325284e-15 * m_v90)) return 2;
+            if (_v90 < 0) __r = -__r;
+            // d: |e~ - e| <= 9 u m~ (K = c / (1 - u), rounded up)
+            if (m_v46 == 0) return 0;
+            if (!(Math.Abs(_v46) > 9.992007221626417e-16 * m_v46)) return 2;
+            if (_v46 < 0) __r = -__r;
+            return __r;
+        }
+
+        /// <summary> the exact stage of Orient3dLPI on FixedArith, from integer doubles |x| &lt;= 2^53 </summary>
+#if NET
+        [SkipLocalsInit]
+#endif
+        [MethodImpl(JitHints.Optimize)]
+        internal static int Orient3dLPIExact(Vector3d p, Vector3d q, Vector3d r, Vector3d s, Vector3d t, Vector3d a, Vector3d b, Vector3d c)
+        {
+            ulong* __v = stackalloc ulong[24];
+            const int __n = 284;
+            ulong* __s = stackalloc ulong[__n];
+            var __ar = new FixedArena(__s, __n);
+            FixedInt s_x = __load(s.x, __v + 0);                                     // s.x: <= m
+            FixedInt r_x = __load(r.x, __v + 1);                                     // r.x: <= m
+            FixedInt _v2 = FixedArith.Sub(s_x, r_x, ref __ar);                       // ux = s.x - r.x: <= 2 m
+            FixedInt s_y = __load(s.y, __v + 2);                                     // s.y: <= m
+            FixedInt r_y = __load(r.y, __v + 3);                                     // r.y: <= m
+            FixedInt _v5 = FixedArith.Sub(s_y, r_y, ref __ar);                       // uy = s.y - r.y: <= 2 m
+            FixedInt s_z = __load(s.z, __v + 4);                                     // s.z: <= m
+            FixedInt r_z = __load(r.z, __v + 5);                                     // r.z: <= m
+            FixedInt _v8 = FixedArith.Sub(s_z, r_z, ref __ar);                       // uz = s.z - r.z: <= 2 m
+            FixedInt t_x = __load(t.x, __v + 6);                                     // t.x: <= m
+            FixedInt _v10 = FixedArith.Sub(t_x, r_x, ref __ar);                      // wx = t.x - r.x: <= 2 m
+            FixedInt t_y = __load(t.y, __v + 7);                                     // t.y: <= m
+            FixedInt _v12 = FixedArith.Sub(t_y, r_y, ref __ar);                      // wy = t.y - r.y: <= 2 m
+            FixedInt t_z = __load(t.z, __v + 8);                                     // t.z: <= m
+            FixedInt _v14 = FixedArith.Sub(t_z, r_z, ref __ar);                      // wz = t.z - r.z: <= 2 m
+            FixedInt _v15 = FixedArith.Mul(_v5, _v14, ref __ar);                     // uy * wz: <= 4 m^2
+            FixedInt _v16 = FixedArith.Mul(_v8, _v12, ref __ar);                     // uz * wy: <= 4 m^2
+            FixedInt _v17 = FixedArith.Sub(_v15, _v16, ref __ar);                    // nx = (uy * wz) - (uz * wy): <= 8 m^2
+            FixedInt _v18 = FixedArith.Mul(_v8, _v10, ref __ar);                     // uz * wx: <= 4 m^2
+            FixedInt _v19 = FixedArith.Mul(_v2, _v14, ref __ar);                     // ux * wz: <= 4 m^2
+            FixedInt _v20 = FixedArith.Sub(_v18, _v19, ref __ar);                    // ny = (uz * wx) - (ux * wz): <= 8 m^2
+            FixedInt _v21 = FixedArith.Mul(_v2, _v12, ref __ar);                     // ux * wy: <= 4 m^2
+            FixedInt _v22 = FixedArith.Mul(_v5, _v10, ref __ar);                     // uy * wx: <= 4 m^2
+            FixedInt _v23 = FixedArith.Sub(_v21, _v22, ref __ar);                    // nz = (ux * wy) - (uy * wx): <= 8 m^2
+            FixedInt p_x = __load(p.x, __v + 9);                                     // p.x: <= m
+            FixedInt _v25 = FixedArith.Sub(p_x, r_x, ref __ar);                      // prx = p.x - r.x: <= 2 m
+            FixedInt p_y = __load(p.y, __v + 10);                                    // p.y: <= m
+            FixedInt _v27 = FixedArith.Sub(p_y, r_y, ref __ar);                      // pry = p.y - r.y: <= 2 m
+            FixedInt p_z = __load(p.z, __v + 11);                                    // p.z: <= m
+            FixedInt _v29 = FixedArith.Sub(p_z, r_z, ref __ar);                      // prz = p.z - r.z: <= 2 m
+            FixedInt q_x = __load(q.x, __v + 12);                                    // q.x: <= m
+            FixedInt _v31 = FixedArith.Sub(q_x, r_x, ref __ar);                      // qrx = q.x - r.x: <= 2 m
+            FixedInt q_y = __load(q.y, __v + 13);                                    // q.y: <= m
+            FixedInt _v33 = FixedArith.Sub(q_y, r_y, ref __ar);                      // qry = q.y - r.y: <= 2 m
+            FixedInt q_z = __load(q.z, __v + 14);                                    // q.z: <= m
+            FixedInt _v35 = FixedArith.Sub(q_z, r_z, ref __ar);                      // qrz = q.z - r.z: <= 2 m
+            FixedInt _v36 = FixedArith.Mul(_v17, _v25, ref __ar);                    // nx * prx: <= 16 m^3
+            FixedInt _v37 = FixedArith.Mul(_v20, _v27, ref __ar);                    // ny * pry: <= 16 m^3
+            FixedInt _v38 = FixedArith.Add(_v36, _v37, ref __ar);                    // (nx * prx) + (ny * pry): <= 32 m^3
+            FixedInt _v39 = FixedArith.Mul(_v23, _v29, ref __ar);                    // nz * prz: <= 16 m^3
+            FixedInt _v40 = FixedArith.Add(_v38, _v39, ref __ar);                    // lp = ((nx * prx) + (ny * pry)) + (nz * prz): <= 48 m^3
+            FixedInt _v41 = FixedArith.Mul(_v17, _v31, ref __ar);                    // nx * qrx: <= 16 m^3
+            FixedInt _v42 = FixedArith.Mul(_v20, _v33, ref __ar);                    // ny * qry: <= 16 m^3
+            FixedInt _v43 = FixedArith.Add(_v41, _v42, ref __ar);                    // (nx * qrx) + (ny * qry): <= 32 m^3
+            FixedInt _v44 = FixedArith.Mul(_v23, _v35, ref __ar);                    // nz * qrz: <= 16 m^3
+            FixedInt _v45 = FixedArith.Add(_v43, _v44, ref __ar);                    // lq = ((nx * qrx) + (ny * qry)) + (nz * qrz): <= 48 m^3
+            FixedInt _v46 = FixedArith.Sub(_v45, _v40, ref __ar);                    // d = lq - lp: <= 96 m^3
+            FixedInt _v47 = FixedArith.Mul(p_x, _v45, ref __ar);                     // p.x * lq: <= 48 m^4
+            FixedInt _v48 = FixedArith.Mul(q_x, _v40, ref __ar);                     // q.x * lp: <= 48 m^4
+            FixedInt _v49 = FixedArith.Sub(_v47, _v48, ref __ar);                    // (p.x * lq) - (q.x * lp): <= 96 m^4
+            FixedInt c_x = __load(c.x, __v + 15);                                    // c.x: <= m
+            FixedInt _v51 = FixedArith.Mul(_v46, c_x, ref __ar);                     // d * c.x: <= 96 m^4
+            FixedInt _v52 = FixedArith.Sub(_v49, _v51, ref __ar);                    // Nx = ((p.x * lq) - (q.x * lp)) - (d * c.x): <= 192 m^4
+            FixedInt _v53 = FixedArith.Mul(p_y, _v45, ref __ar);                     // p.y * lq: <= 48 m^4
+            FixedInt _v54 = FixedArith.Mul(q_y, _v40, ref __ar);                     // q.y * lp: <= 48 m^4
+            FixedInt _v55 = FixedArith.Sub(_v53, _v54, ref __ar);                    // (p.y * lq) - (q.y * lp): <= 96 m^4
+            FixedInt c_y = __load(c.y, __v + 16);                                    // c.y: <= m
+            FixedInt _v57 = FixedArith.Mul(_v46, c_y, ref __ar);                     // d * c.y: <= 96 m^4
+            FixedInt _v58 = FixedArith.Sub(_v55, _v57, ref __ar);                    // Ny = ((p.y * lq) - (q.y * lp)) - (d * c.y): <= 192 m^4
+            FixedInt _v59 = FixedArith.Mul(p_z, _v45, ref __ar);                     // p.z * lq: <= 48 m^4
+            FixedInt _v60 = FixedArith.Mul(q_z, _v40, ref __ar);                     // q.z * lp: <= 48 m^4
+            FixedInt _v61 = FixedArith.Sub(_v59, _v60, ref __ar);                    // (p.z * lq) - (q.z * lp): <= 96 m^4
+            FixedInt c_z = __load(c.z, __v + 17);                                    // c.z: <= m
+            FixedInt _v63 = FixedArith.Mul(_v46, c_z, ref __ar);                     // d * c.z: <= 96 m^4
+            FixedInt _v64 = FixedArith.Sub(_v61, _v63, ref __ar);                    // Nz = ((p.z * lq) - (q.z * lp)) - (d * c.z): <= 192 m^4
+            FixedInt a_x = __load(a.x, __v + 18);                                    // a.x: <= m
+            FixedInt _v66 = FixedArith.Sub(a_x, c_x, ref __ar);                      // acx = a.x - c.x: <= 2 m
+            FixedInt a_y = __load(a.y, __v + 19);                                    // a.y: <= m
+            FixedInt _v68 = FixedArith.Sub(a_y, c_y, ref __ar);                      // acy = a.y - c.y: <= 2 m
+            FixedInt a_z = __load(a.z, __v + 20);                                    // a.z: <= m
+            FixedInt _v70 = FixedArith.Sub(a_z, c_z, ref __ar);                      // acz = a.z - c.z: <= 2 m
+            FixedInt b_x = __load(b.x, __v + 21);                                    // b.x: <= m
+            FixedInt _v72 = FixedArith.Sub(b_x, c_x, ref __ar);                      // bcx = b.x - c.x: <= 2 m
+            FixedInt b_y = __load(b.y, __v + 22);                                    // b.y: <= m
+            FixedInt _v74 = FixedArith.Sub(b_y, c_y, ref __ar);                      // bcy = b.y - c.y: <= 2 m
+            FixedInt b_z = __load(b.z, __v + 23);                                    // b.z: <= m
+            FixedInt _v76 = FixedArith.Sub(b_z, c_z, ref __ar);                      // bcz = b.z - c.z: <= 2 m
+            FixedInt _v77 = FixedArith.Mul(_v68, _v76, ref __ar);                    // acy * bcz: <= 4 m^2
+            FixedInt _v78 = FixedArith.Mul(_v70, _v74, ref __ar);                    // acz * bcy: <= 4 m^2
+            FixedInt _v79 = FixedArith.Sub(_v77, _v78, ref __ar);                    // m1 = (acy * bcz) - (acz * bcy): <= 8 m^2
+            FixedInt _v80 = FixedArith.Mul(_v66, _v76, ref __ar);                    // acx * bcz: <= 4 m^2
+            FixedInt _v81 = FixedArith.Mul(_v70, _v72, ref __ar);                    // acz * bcx: <= 4 m^2
+            FixedInt _v82 = FixedArith.Sub(_v80, _v81, ref __ar);                    // m2 = (acx * bcz) - (acz * bcx): <= 8 m^2
+            FixedInt _v83 = FixedArith.Mul(_v66, _v74, ref __ar);                    // acx * bcy: <= 4 m^2
+            FixedInt _v84 = FixedArith.Mul(_v68, _v72, ref __ar);                    // acy * bcx: <= 4 m^2
+            FixedInt _v85 = FixedArith.Sub(_v83, _v84, ref __ar);                    // m3 = (acx * bcy) - (acy * bcx): <= 8 m^2
+            FixedInt _v86 = FixedArith.Mul(_v52, _v79, ref __ar);                    // t1 = Nx * m1: <= 1536 m^6
+            FixedInt _v87 = FixedArith.Mul(_v58, _v82, ref __ar);                    // t2 = Ny * m2: <= 1536 m^6
+            FixedInt _v88 = FixedArith.Mul(_v64, _v85, ref __ar);                    // t3 = Nz * m3: <= 1536 m^6
+            FixedInt _v89 = FixedArith.Sub(_v86, _v87, ref __ar);                    // t1 - t2: <= 3072 m^6
+            FixedInt _v90 = FixedArith.Add(_v89, _v88, ref __ar);                    // (t1 - t2) + t3: <= 4608 m^6
+            return _v90.Sign * _v46.Sign;
+        }
         /// <summary> Orient3dLPI in BigInteger (inputs beyond the bound) </summary>
         [MethodImpl(JitHints.Optimize)]
         internal static int Orient3dLPIBig(ExactPoint3 p, ExactPoint3 q, ExactPoint3 r, ExactPoint3 s, ExactPoint3 t, ExactPoint3 a, ExactPoint3 b, ExactPoint3 c)
@@ -423,6 +651,386 @@ namespace g3
             return _v168.Sign * _v118.Sign;
         }
 
+        /// <summary>
+        /// Orient3dTPI of points with integer coordinates |x| &lt;= 2^53, given as doubles: the filter, then the exact
+        /// stage on FixedArith (no allocation); throws for other coordinates
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal static int Orient3dTPI(Vector3d a1, Vector3d b1, Vector3d c1, Vector3d a2, Vector3d b2, Vector3d c2, Vector3d a3, Vector3d b3, Vector3d c3, Vector3d a, Vector3d b, Vector3d c)
+        {
+            if (!(__grid(a1) && __grid(b1) && __grid(c1) && __grid(a2) && __grid(b2) && __grid(c2) && __grid(a3) && __grid(b3) && __grid(c3) && __grid(a) && __grid(b) && __grid(c)))
+                throw new ArgumentException("Orient3dTPI: the coordinates must be integers |x| <= 2^53");
+            int __r = Orient3dTPIFilter(a1, b1, c1, a2, b2, c2, a3, b3, c3, a, b, c);
+            return (__r != 2) ? __r : Orient3dTPIExact(a1, b1, c1, a2, b2, c2, a3, b3, c3, a, b, c);
+        }
+
+        /// <summary> the filter of Orient3dTPI: the sign, or 2 if it does not decide (inputs as for Orient3dTPI) </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal static int Orient3dTPIFilter(Vector3d a1, Vector3d b1, Vector3d c1, Vector3d a2, Vector3d b2, Vector3d c2, Vector3d a3, Vector3d b3, Vector3d c3, Vector3d a, Vector3d b, Vector3d c)
+        {
+            double b1_x = b1.x, mb1_x = Math.Abs(b1_x);                                          // c = 0 u
+            double a1_x = a1.x, ma1_x = Math.Abs(a1_x);                                          // c = 0 u
+            double _v2 = b1_x - a1_x, m_v2 = Math.Abs(_v2);                                      // c = 1 u
+            double b1_y = b1.y, mb1_y = Math.Abs(b1_y);                                          // c = 0 u
+            double a1_y = a1.y, ma1_y = Math.Abs(a1_y);                                          // c = 0 u
+            double _v5 = b1_y - a1_y, m_v5 = Math.Abs(_v5);                                      // c = 1 u
+            double b1_z = b1.z, mb1_z = Math.Abs(b1_z);                                          // c = 0 u
+            double a1_z = a1.z, ma1_z = Math.Abs(a1_z);                                          // c = 0 u
+            double _v8 = b1_z - a1_z, m_v8 = Math.Abs(_v8);                                      // c = 1 u
+            double c1_x = c1.x, mc1_x = Math.Abs(c1_x);                                          // c = 0 u
+            double _v10 = c1_x - a1_x, m_v10 = Math.Abs(_v10);                                   // c = 1 u
+            double c1_y = c1.y, mc1_y = Math.Abs(c1_y);                                          // c = 0 u
+            double _v12 = c1_y - a1_y, m_v12 = Math.Abs(_v12);                                   // c = 1 u
+            double c1_z = c1.z, mc1_z = Math.Abs(c1_z);                                          // c = 0 u
+            double _v14 = c1_z - a1_z, m_v14 = Math.Abs(_v14);                                   // c = 1 u
+            double _v15 = _v5 * _v14, m_v15 = m_v5 * m_v14;                                      // c = 3 u
+            double _v16 = _v8 * _v12, m_v16 = m_v8 * m_v12;                                      // c = 3 u
+            double _v17 = _v15 - _v16, m_v17 = m_v15 + m_v16;                                    // c = 4 u
+            double _v18 = _v8 * _v10, m_v18 = m_v8 * m_v10;                                      // c = 3 u
+            double _v19 = _v2 * _v14, m_v19 = m_v2 * m_v14;                                      // c = 3 u
+            double _v20 = _v18 - _v19, m_v20 = m_v18 + m_v19;                                    // c = 4 u
+            double _v21 = _v2 * _v12, m_v21 = m_v2 * m_v12;                                      // c = 3 u
+            double _v22 = _v5 * _v10, m_v22 = m_v5 * m_v10;                                      // c = 3 u
+            double _v23 = _v21 - _v22, m_v23 = m_v21 + m_v22;                                    // c = 4 u
+            double _v24 = a1_x * _v17, m_v24 = ma1_x * m_v17;                                    // c = 5 u
+            double _v25 = a1_y * _v20, m_v25 = ma1_y * m_v20;                                    // c = 5 u
+            double _v26 = _v24 + _v25, m_v26 = m_v24 + m_v25;                                    // c = 6 u
+            double _v27 = a1_z * _v23, m_v27 = ma1_z * m_v23;                                    // c = 5 u
+            double _v28 = _v26 + _v27, m_v28 = m_v26 + m_v27;                                    // c = 7 u
+            double b2_x = b2.x, mb2_x = Math.Abs(b2_x);                                          // c = 0 u
+            double a2_x = a2.x, ma2_x = Math.Abs(a2_x);                                          // c = 0 u
+            double _v31 = b2_x - a2_x, m_v31 = Math.Abs(_v31);                                   // c = 1 u
+            double b2_y = b2.y, mb2_y = Math.Abs(b2_y);                                          // c = 0 u
+            double a2_y = a2.y, ma2_y = Math.Abs(a2_y);                                          // c = 0 u
+            double _v34 = b2_y - a2_y, m_v34 = Math.Abs(_v34);                                   // c = 1 u
+            double b2_z = b2.z, mb2_z = Math.Abs(b2_z);                                          // c = 0 u
+            double a2_z = a2.z, ma2_z = Math.Abs(a2_z);                                          // c = 0 u
+            double _v37 = b2_z - a2_z, m_v37 = Math.Abs(_v37);                                   // c = 1 u
+            double c2_x = c2.x, mc2_x = Math.Abs(c2_x);                                          // c = 0 u
+            double _v39 = c2_x - a2_x, m_v39 = Math.Abs(_v39);                                   // c = 1 u
+            double c2_y = c2.y, mc2_y = Math.Abs(c2_y);                                          // c = 0 u
+            double _v41 = c2_y - a2_y, m_v41 = Math.Abs(_v41);                                   // c = 1 u
+            double c2_z = c2.z, mc2_z = Math.Abs(c2_z);                                          // c = 0 u
+            double _v43 = c2_z - a2_z, m_v43 = Math.Abs(_v43);                                   // c = 1 u
+            double _v44 = _v34 * _v43, m_v44 = m_v34 * m_v43;                                    // c = 3 u
+            double _v45 = _v37 * _v41, m_v45 = m_v37 * m_v41;                                    // c = 3 u
+            double _v46 = _v44 - _v45, m_v46 = m_v44 + m_v45;                                    // c = 4 u
+            double _v47 = _v37 * _v39, m_v47 = m_v37 * m_v39;                                    // c = 3 u
+            double _v48 = _v31 * _v43, m_v48 = m_v31 * m_v43;                                    // c = 3 u
+            double _v49 = _v47 - _v48, m_v49 = m_v47 + m_v48;                                    // c = 4 u
+            double _v50 = _v31 * _v41, m_v50 = m_v31 * m_v41;                                    // c = 3 u
+            double _v51 = _v34 * _v39, m_v51 = m_v34 * m_v39;                                    // c = 3 u
+            double _v52 = _v50 - _v51, m_v52 = m_v50 + m_v51;                                    // c = 4 u
+            double _v53 = a2_x * _v46, m_v53 = ma2_x * m_v46;                                    // c = 5 u
+            double _v54 = a2_y * _v49, m_v54 = ma2_y * m_v49;                                    // c = 5 u
+            double _v55 = _v53 + _v54, m_v55 = m_v53 + m_v54;                                    // c = 6 u
+            double _v56 = a2_z * _v52, m_v56 = ma2_z * m_v52;                                    // c = 5 u
+            double _v57 = _v55 + _v56, m_v57 = m_v55 + m_v56;                                    // c = 7 u
+            double b3_x = b3.x, mb3_x = Math.Abs(b3_x);                                          // c = 0 u
+            double a3_x = a3.x, ma3_x = Math.Abs(a3_x);                                          // c = 0 u
+            double _v60 = b3_x - a3_x, m_v60 = Math.Abs(_v60);                                   // c = 1 u
+            double b3_y = b3.y, mb3_y = Math.Abs(b3_y);                                          // c = 0 u
+            double a3_y = a3.y, ma3_y = Math.Abs(a3_y);                                          // c = 0 u
+            double _v63 = b3_y - a3_y, m_v63 = Math.Abs(_v63);                                   // c = 1 u
+            double b3_z = b3.z, mb3_z = Math.Abs(b3_z);                                          // c = 0 u
+            double a3_z = a3.z, ma3_z = Math.Abs(a3_z);                                          // c = 0 u
+            double _v66 = b3_z - a3_z, m_v66 = Math.Abs(_v66);                                   // c = 1 u
+            double c3_x = c3.x, mc3_x = Math.Abs(c3_x);                                          // c = 0 u
+            double _v68 = c3_x - a3_x, m_v68 = Math.Abs(_v68);                                   // c = 1 u
+            double c3_y = c3.y, mc3_y = Math.Abs(c3_y);                                          // c = 0 u
+            double _v70 = c3_y - a3_y, m_v70 = Math.Abs(_v70);                                   // c = 1 u
+            double c3_z = c3.z, mc3_z = Math.Abs(c3_z);                                          // c = 0 u
+            double _v72 = c3_z - a3_z, m_v72 = Math.Abs(_v72);                                   // c = 1 u
+            double _v73 = _v63 * _v72, m_v73 = m_v63 * m_v72;                                    // c = 3 u
+            double _v74 = _v66 * _v70, m_v74 = m_v66 * m_v70;                                    // c = 3 u
+            double _v75 = _v73 - _v74, m_v75 = m_v73 + m_v74;                                    // c = 4 u
+            double _v76 = _v66 * _v68, m_v76 = m_v66 * m_v68;                                    // c = 3 u
+            double _v77 = _v60 * _v72, m_v77 = m_v60 * m_v72;                                    // c = 3 u
+            double _v78 = _v76 - _v77, m_v78 = m_v76 + m_v77;                                    // c = 4 u
+            double _v79 = _v60 * _v70, m_v79 = m_v60 * m_v70;                                    // c = 3 u
+            double _v80 = _v63 * _v68, m_v80 = m_v63 * m_v68;                                    // c = 3 u
+            double _v81 = _v79 - _v80, m_v81 = m_v79 + m_v80;                                    // c = 4 u
+            double _v82 = a3_x * _v75, m_v82 = ma3_x * m_v75;                                    // c = 5 u
+            double _v83 = a3_y * _v78, m_v83 = ma3_y * m_v78;                                    // c = 5 u
+            double _v84 = _v82 + _v83, m_v84 = m_v82 + m_v83;                                    // c = 6 u
+            double _v85 = a3_z * _v81, m_v85 = ma3_z * m_v81;                                    // c = 5 u
+            double _v86 = _v84 + _v85, m_v86 = m_v84 + m_v85;                                    // c = 7 u
+            double _v87 = _v49 * _v81, m_v87 = m_v49 * m_v81;                                    // c = 9 u
+            double _v88 = _v52 * _v78, m_v88 = m_v52 * m_v78;                                    // c = 9 u
+            double _v89 = _v87 - _v88, m_v89 = m_v87 + m_v88;                                    // c = 10 u
+            double _v90 = _v52 * _v75, m_v90 = m_v52 * m_v75;                                    // c = 9 u
+            double _v91 = _v46 * _v81, m_v91 = m_v46 * m_v81;                                    // c = 9 u
+            double _v92 = _v90 - _v91, m_v92 = m_v90 + m_v91;                                    // c = 10 u
+            double _v93 = _v46 * _v78, m_v93 = m_v46 * m_v78;                                    // c = 9 u
+            double _v94 = _v49 * _v75, m_v94 = m_v49 * m_v75;                                    // c = 9 u
+            double _v95 = _v93 - _v94, m_v95 = m_v93 + m_v94;                                    // c = 10 u
+            double _v96 = _v23 * _v78, m_v96 = m_v23 * m_v78;                                    // c = 9 u
+            double _v97 = _v20 * _v81, m_v97 = m_v20 * m_v81;                                    // c = 9 u
+            double _v98 = _v96 - _v97, m_v98 = m_v96 + m_v97;                                    // c = 10 u
+            double _v99 = _v17 * _v81, m_v99 = m_v17 * m_v81;                                    // c = 9 u
+            double _v100 = _v23 * _v75, m_v100 = m_v23 * m_v75;                                  // c = 9 u
+            double _v101 = _v99 - _v100, m_v101 = m_v99 + m_v100;                                // c = 10 u
+            double _v102 = _v20 * _v75, m_v102 = m_v20 * m_v75;                                  // c = 9 u
+            double _v103 = _v17 * _v78, m_v103 = m_v17 * m_v78;                                  // c = 9 u
+            double _v104 = _v102 - _v103, m_v104 = m_v102 + m_v103;                              // c = 10 u
+            double _v105 = _v20 * _v52, m_v105 = m_v20 * m_v52;                                  // c = 9 u
+            double _v106 = _v23 * _v49, m_v106 = m_v23 * m_v49;                                  // c = 9 u
+            double _v107 = _v105 - _v106, m_v107 = m_v105 + m_v106;                              // c = 10 u
+            double _v108 = _v23 * _v46, m_v108 = m_v23 * m_v46;                                  // c = 9 u
+            double _v109 = _v17 * _v52, m_v109 = m_v17 * m_v52;                                  // c = 9 u
+            double _v110 = _v108 - _v109, m_v110 = m_v108 + m_v109;                              // c = 10 u
+            double _v111 = _v17 * _v49, m_v111 = m_v17 * m_v49;                                  // c = 9 u
+            double _v112 = _v20 * _v46, m_v112 = m_v20 * m_v46;                                  // c = 9 u
+            double _v113 = _v111 - _v112, m_v113 = m_v111 + m_v112;                              // c = 10 u
+            double _v114 = _v17 * _v89, m_v114 = m_v17 * m_v89;                                  // c = 15 u
+            double _v115 = _v20 * _v92, m_v115 = m_v20 * m_v92;                                  // c = 15 u
+            double _v116 = _v114 + _v115, m_v116 = m_v114 + m_v115;                              // c = 16 u
+            double _v117 = _v23 * _v95, m_v117 = m_v23 * m_v95;                                  // c = 15 u
+            double _v118 = _v116 + _v117, m_v118 = m_v116 + m_v117;                              // c = 17 u
+            double _v119 = _v28 * _v89, m_v119 = m_v28 * m_v89;                                  // c = 18 u
+            double _v120 = _v57 * _v98, m_v120 = m_v57 * m_v98;                                  // c = 18 u
+            double _v121 = _v119 + _v120, m_v121 = m_v119 + m_v120;                              // c = 19 u
+            double _v122 = _v86 * _v107, m_v122 = m_v86 * m_v107;                                // c = 18 u
+            double _v123 = _v121 + _v122, m_v123 = m_v121 + m_v122;                              // c = 20 u
+            double c_x = c.x, mc_x = Math.Abs(c_x);                                              // c = 0 u
+            double _v125 = _v118 * c_x, m_v125 = m_v118 * mc_x;                                  // c = 18 u
+            double _v126 = _v123 - _v125, m_v126 = m_v123 + m_v125;                              // c = 21 u
+            double _v127 = _v28 * _v92, m_v127 = m_v28 * m_v92;                                  // c = 18 u
+            double _v128 = _v57 * _v101, m_v128 = m_v57 * m_v101;                                // c = 18 u
+            double _v129 = _v127 + _v128, m_v129 = m_v127 + m_v128;                              // c = 19 u
+            double _v130 = _v86 * _v110, m_v130 = m_v86 * m_v110;                                // c = 18 u
+            double _v131 = _v129 + _v130, m_v131 = m_v129 + m_v130;                              // c = 20 u
+            double c_y = c.y, mc_y = Math.Abs(c_y);                                              // c = 0 u
+            double _v133 = _v118 * c_y, m_v133 = m_v118 * mc_y;                                  // c = 18 u
+            double _v134 = _v131 - _v133, m_v134 = m_v131 + m_v133;                              // c = 21 u
+            double _v135 = _v28 * _v95, m_v135 = m_v28 * m_v95;                                  // c = 18 u
+            double _v136 = _v57 * _v104, m_v136 = m_v57 * m_v104;                                // c = 18 u
+            double _v137 = _v135 + _v136, m_v137 = m_v135 + m_v136;                              // c = 19 u
+            double _v138 = _v86 * _v113, m_v138 = m_v86 * m_v113;                                // c = 18 u
+            double _v139 = _v137 + _v138, m_v139 = m_v137 + m_v138;                              // c = 20 u
+            double c_z = c.z, mc_z = Math.Abs(c_z);                                              // c = 0 u
+            double _v141 = _v118 * c_z, m_v141 = m_v118 * mc_z;                                  // c = 18 u
+            double _v142 = _v139 - _v141, m_v142 = m_v139 + m_v141;                              // c = 21 u
+            double a_x = a.x, ma_x = Math.Abs(a_x);                                              // c = 0 u
+            double _v144 = a_x - c_x, m_v144 = Math.Abs(_v144);                                  // c = 1 u
+            double a_y = a.y, ma_y = Math.Abs(a_y);                                              // c = 0 u
+            double _v146 = a_y - c_y, m_v146 = Math.Abs(_v146);                                  // c = 1 u
+            double a_z = a.z, ma_z = Math.Abs(a_z);                                              // c = 0 u
+            double _v148 = a_z - c_z, m_v148 = Math.Abs(_v148);                                  // c = 1 u
+            double b_x = b.x, mb_x = Math.Abs(b_x);                                              // c = 0 u
+            double _v150 = b_x - c_x, m_v150 = Math.Abs(_v150);                                  // c = 1 u
+            double b_y = b.y, mb_y = Math.Abs(b_y);                                              // c = 0 u
+            double _v152 = b_y - c_y, m_v152 = Math.Abs(_v152);                                  // c = 1 u
+            double b_z = b.z, mb_z = Math.Abs(b_z);                                              // c = 0 u
+            double _v154 = b_z - c_z, m_v154 = Math.Abs(_v154);                                  // c = 1 u
+            double _v155 = _v146 * _v154, m_v155 = m_v146 * m_v154;                              // c = 3 u
+            double _v156 = _v148 * _v152, m_v156 = m_v148 * m_v152;                              // c = 3 u
+            double _v157 = _v155 - _v156, m_v157 = m_v155 + m_v156;                              // c = 4 u
+            double _v158 = _v144 * _v154, m_v158 = m_v144 * m_v154;                              // c = 3 u
+            double _v159 = _v148 * _v150, m_v159 = m_v148 * m_v150;                              // c = 3 u
+            double _v160 = _v158 - _v159, m_v160 = m_v158 + m_v159;                              // c = 4 u
+            double _v161 = _v144 * _v152, m_v161 = m_v144 * m_v152;                              // c = 3 u
+            double _v162 = _v146 * _v150, m_v162 = m_v146 * m_v150;                              // c = 3 u
+            double _v163 = _v161 - _v162, m_v163 = m_v161 + m_v162;                              // c = 4 u
+            double _v164 = _v126 * _v157, m_v164 = m_v126 * m_v157;                              // c = 26 u
+            double _v165 = _v134 * _v160, m_v165 = m_v134 * m_v160;                              // c = 26 u
+            double _v166 = _v142 * _v163, m_v166 = m_v142 * m_v163;                              // c = 26 u
+            double _v167 = _v164 - _v165, m_v167 = m_v164 + m_v165;                              // c = 27 u
+            double _v168 = _v167 + _v166, m_v168 = m_v167 + m_v166;                              // c = NaN u
+            int __r = 1;
+            // ((t1 - t2) + t3): |e~ - e| <= NaN u m~ (K = c / (1 - u), rounded up)
+            if (m_v168 == 0) return 0;
+            if (!(Math.Abs(_v168) > 3.108624468950444e-15 * m_v168)) return 2;
+            if (_v168 < 0) __r = -__r;
+            // d: |e~ - e| <= 17 u m~ (K = c / (1 - u), rounded up)
+            if (m_v118 == 0) return 0;
+            if (!(Math.Abs(_v118) > 1.8873791418627685e-15 * m_v118)) return 2;
+            if (_v118 < 0) __r = -__r;
+            return __r;
+        }
+
+        /// <summary> the exact stage of Orient3dTPI on FixedArith, from integer doubles |x| &lt;= 2^53 </summary>
+#if NET
+        [SkipLocalsInit]
+#endif
+        [MethodImpl(JitHints.Optimize)]
+        internal static int Orient3dTPIExact(Vector3d a1, Vector3d b1, Vector3d c1, Vector3d a2, Vector3d b2, Vector3d c2, Vector3d a3, Vector3d b3, Vector3d c3, Vector3d a, Vector3d b, Vector3d c)
+        {
+            ulong* __v = stackalloc ulong[36];
+            const int __n = 701;
+            ulong* __s = stackalloc ulong[__n];
+            var __ar = new FixedArena(__s, __n);
+            FixedInt b1_x = __load(b1.x, __v + 0);                                   // b1.x: <= m
+            FixedInt a1_x = __load(a1.x, __v + 1);                                   // a1.x: <= m
+            FixedInt _v2 = FixedArith.Sub(b1_x, a1_x, ref __ar);                     // u1_x = b1.x - a1.x: <= 2 m
+            FixedInt b1_y = __load(b1.y, __v + 2);                                   // b1.y: <= m
+            FixedInt a1_y = __load(a1.y, __v + 3);                                   // a1.y: <= m
+            FixedInt _v5 = FixedArith.Sub(b1_y, a1_y, ref __ar);                     // u1_y = b1.y - a1.y: <= 2 m
+            FixedInt b1_z = __load(b1.z, __v + 4);                                   // b1.z: <= m
+            FixedInt a1_z = __load(a1.z, __v + 5);                                   // a1.z: <= m
+            FixedInt _v8 = FixedArith.Sub(b1_z, a1_z, ref __ar);                     // u1_z = b1.z - a1.z: <= 2 m
+            FixedInt c1_x = __load(c1.x, __v + 6);                                   // c1.x: <= m
+            FixedInt _v10 = FixedArith.Sub(c1_x, a1_x, ref __ar);                    // w1_x = c1.x - a1.x: <= 2 m
+            FixedInt c1_y = __load(c1.y, __v + 7);                                   // c1.y: <= m
+            FixedInt _v12 = FixedArith.Sub(c1_y, a1_y, ref __ar);                    // w1_y = c1.y - a1.y: <= 2 m
+            FixedInt c1_z = __load(c1.z, __v + 8);                                   // c1.z: <= m
+            FixedInt _v14 = FixedArith.Sub(c1_z, a1_z, ref __ar);                    // w1_z = c1.z - a1.z: <= 2 m
+            FixedInt _v15 = FixedArith.Mul(_v5, _v14, ref __ar);                     // u1_y * w1_z: <= 4 m^2
+            FixedInt _v16 = FixedArith.Mul(_v8, _v12, ref __ar);                     // u1_z * w1_y: <= 4 m^2
+            FixedInt _v17 = FixedArith.Sub(_v15, _v16, ref __ar);                    // n1x = (u1_y * w1_z) - (u1_z * w1_y): <= 8 m^2
+            FixedInt _v18 = FixedArith.Mul(_v8, _v10, ref __ar);                     // u1_z * w1_x: <= 4 m^2
+            FixedInt _v19 = FixedArith.Mul(_v2, _v14, ref __ar);                     // u1_x * w1_z: <= 4 m^2
+            FixedInt _v20 = FixedArith.Sub(_v18, _v19, ref __ar);                    // n1y = (u1_z * w1_x) - (u1_x * w1_z): <= 8 m^2
+            FixedInt _v21 = FixedArith.Mul(_v2, _v12, ref __ar);                     // u1_x * w1_y: <= 4 m^2
+            FixedInt _v22 = FixedArith.Mul(_v5, _v10, ref __ar);                     // u1_y * w1_x: <= 4 m^2
+            FixedInt _v23 = FixedArith.Sub(_v21, _v22, ref __ar);                    // n1z = (u1_x * w1_y) - (u1_y * w1_x): <= 8 m^2
+            FixedInt _v24 = FixedArith.Mul(a1_x, _v17, ref __ar);                    // a1.x * n1x: <= 8 m^3
+            FixedInt _v25 = FixedArith.Mul(a1_y, _v20, ref __ar);                    // a1.y * n1y: <= 8 m^3
+            FixedInt _v26 = FixedArith.Add(_v24, _v25, ref __ar);                    // (a1.x * n1x) + (a1.y * n1y): <= 16 m^3
+            FixedInt _v27 = FixedArith.Mul(a1_z, _v23, ref __ar);                    // a1.z * n1z: <= 8 m^3
+            FixedInt _v28 = FixedArith.Add(_v26, _v27, ref __ar);                    // D1 = ((a1.x * n1x) + (a1.y * n1y)) + (a1.z * n1z): <= 24 m^3
+            FixedInt b2_x = __load(b2.x, __v + 9);                                   // b2.x: <= m
+            FixedInt a2_x = __load(a2.x, __v + 10);                                  // a2.x: <= m
+            FixedInt _v31 = FixedArith.Sub(b2_x, a2_x, ref __ar);                    // u2_x = b2.x - a2.x: <= 2 m
+            FixedInt b2_y = __load(b2.y, __v + 11);                                  // b2.y: <= m
+            FixedInt a2_y = __load(a2.y, __v + 12);                                  // a2.y: <= m
+            FixedInt _v34 = FixedArith.Sub(b2_y, a2_y, ref __ar);                    // u2_y = b2.y - a2.y: <= 2 m
+            FixedInt b2_z = __load(b2.z, __v + 13);                                  // b2.z: <= m
+            FixedInt a2_z = __load(a2.z, __v + 14);                                  // a2.z: <= m
+            FixedInt _v37 = FixedArith.Sub(b2_z, a2_z, ref __ar);                    // u2_z = b2.z - a2.z: <= 2 m
+            FixedInt c2_x = __load(c2.x, __v + 15);                                  // c2.x: <= m
+            FixedInt _v39 = FixedArith.Sub(c2_x, a2_x, ref __ar);                    // w2_x = c2.x - a2.x: <= 2 m
+            FixedInt c2_y = __load(c2.y, __v + 16);                                  // c2.y: <= m
+            FixedInt _v41 = FixedArith.Sub(c2_y, a2_y, ref __ar);                    // w2_y = c2.y - a2.y: <= 2 m
+            FixedInt c2_z = __load(c2.z, __v + 17);                                  // c2.z: <= m
+            FixedInt _v43 = FixedArith.Sub(c2_z, a2_z, ref __ar);                    // w2_z = c2.z - a2.z: <= 2 m
+            FixedInt _v44 = FixedArith.Mul(_v34, _v43, ref __ar);                    // u2_y * w2_z: <= 4 m^2
+            FixedInt _v45 = FixedArith.Mul(_v37, _v41, ref __ar);                    // u2_z * w2_y: <= 4 m^2
+            FixedInt _v46 = FixedArith.Sub(_v44, _v45, ref __ar);                    // n2x = (u2_y * w2_z) - (u2_z * w2_y): <= 8 m^2
+            FixedInt _v47 = FixedArith.Mul(_v37, _v39, ref __ar);                    // u2_z * w2_x: <= 4 m^2
+            FixedInt _v48 = FixedArith.Mul(_v31, _v43, ref __ar);                    // u2_x * w2_z: <= 4 m^2
+            FixedInt _v49 = FixedArith.Sub(_v47, _v48, ref __ar);                    // n2y = (u2_z * w2_x) - (u2_x * w2_z): <= 8 m^2
+            FixedInt _v50 = FixedArith.Mul(_v31, _v41, ref __ar);                    // u2_x * w2_y: <= 4 m^2
+            FixedInt _v51 = FixedArith.Mul(_v34, _v39, ref __ar);                    // u2_y * w2_x: <= 4 m^2
+            FixedInt _v52 = FixedArith.Sub(_v50, _v51, ref __ar);                    // n2z = (u2_x * w2_y) - (u2_y * w2_x): <= 8 m^2
+            FixedInt _v53 = FixedArith.Mul(a2_x, _v46, ref __ar);                    // a2.x * n2x: <= 8 m^3
+            FixedInt _v54 = FixedArith.Mul(a2_y, _v49, ref __ar);                    // a2.y * n2y: <= 8 m^3
+            FixedInt _v55 = FixedArith.Add(_v53, _v54, ref __ar);                    // (a2.x * n2x) + (a2.y * n2y): <= 16 m^3
+            FixedInt _v56 = FixedArith.Mul(a2_z, _v52, ref __ar);                    // a2.z * n2z: <= 8 m^3
+            FixedInt _v57 = FixedArith.Add(_v55, _v56, ref __ar);                    // D2 = ((a2.x * n2x) + (a2.y * n2y)) + (a2.z * n2z): <= 24 m^3
+            FixedInt b3_x = __load(b3.x, __v + 18);                                  // b3.x: <= m
+            FixedInt a3_x = __load(a3.x, __v + 19);                                  // a3.x: <= m
+            FixedInt _v60 = FixedArith.Sub(b3_x, a3_x, ref __ar);                    // u3_x = b3.x - a3.x: <= 2 m
+            FixedInt b3_y = __load(b3.y, __v + 20);                                  // b3.y: <= m
+            FixedInt a3_y = __load(a3.y, __v + 21);                                  // a3.y: <= m
+            FixedInt _v63 = FixedArith.Sub(b3_y, a3_y, ref __ar);                    // u3_y = b3.y - a3.y: <= 2 m
+            FixedInt b3_z = __load(b3.z, __v + 22);                                  // b3.z: <= m
+            FixedInt a3_z = __load(a3.z, __v + 23);                                  // a3.z: <= m
+            FixedInt _v66 = FixedArith.Sub(b3_z, a3_z, ref __ar);                    // u3_z = b3.z - a3.z: <= 2 m
+            FixedInt c3_x = __load(c3.x, __v + 24);                                  // c3.x: <= m
+            FixedInt _v68 = FixedArith.Sub(c3_x, a3_x, ref __ar);                    // w3_x = c3.x - a3.x: <= 2 m
+            FixedInt c3_y = __load(c3.y, __v + 25);                                  // c3.y: <= m
+            FixedInt _v70 = FixedArith.Sub(c3_y, a3_y, ref __ar);                    // w3_y = c3.y - a3.y: <= 2 m
+            FixedInt c3_z = __load(c3.z, __v + 26);                                  // c3.z: <= m
+            FixedInt _v72 = FixedArith.Sub(c3_z, a3_z, ref __ar);                    // w3_z = c3.z - a3.z: <= 2 m
+            FixedInt _v73 = FixedArith.Mul(_v63, _v72, ref __ar);                    // u3_y * w3_z: <= 4 m^2
+            FixedInt _v74 = FixedArith.Mul(_v66, _v70, ref __ar);                    // u3_z * w3_y: <= 4 m^2
+            FixedInt _v75 = FixedArith.Sub(_v73, _v74, ref __ar);                    // n3x = (u3_y * w3_z) - (u3_z * w3_y): <= 8 m^2
+            FixedInt _v76 = FixedArith.Mul(_v66, _v68, ref __ar);                    // u3_z * w3_x: <= 4 m^2
+            FixedInt _v77 = FixedArith.Mul(_v60, _v72, ref __ar);                    // u3_x * w3_z: <= 4 m^2
+            FixedInt _v78 = FixedArith.Sub(_v76, _v77, ref __ar);                    // n3y = (u3_z * w3_x) - (u3_x * w3_z): <= 8 m^2
+            FixedInt _v79 = FixedArith.Mul(_v60, _v70, ref __ar);                    // u3_x * w3_y: <= 4 m^2
+            FixedInt _v80 = FixedArith.Mul(_v63, _v68, ref __ar);                    // u3_y * w3_x: <= 4 m^2
+            FixedInt _v81 = FixedArith.Sub(_v79, _v80, ref __ar);                    // n3z = (u3_x * w3_y) - (u3_y * w3_x): <= 8 m^2
+            FixedInt _v82 = FixedArith.Mul(a3_x, _v75, ref __ar);                    // a3.x * n3x: <= 8 m^3
+            FixedInt _v83 = FixedArith.Mul(a3_y, _v78, ref __ar);                    // a3.y * n3y: <= 8 m^3
+            FixedInt _v84 = FixedArith.Add(_v82, _v83, ref __ar);                    // (a3.x * n3x) + (a3.y * n3y): <= 16 m^3
+            FixedInt _v85 = FixedArith.Mul(a3_z, _v81, ref __ar);                    // a3.z * n3z: <= 8 m^3
+            FixedInt _v86 = FixedArith.Add(_v84, _v85, ref __ar);                    // D3 = ((a3.x * n3x) + (a3.y * n3y)) + (a3.z * n3z): <= 24 m^3
+            FixedInt _v87 = FixedArith.Mul(_v49, _v81, ref __ar);                    // n2y * n3z: <= 64 m^4
+            FixedInt _v88 = FixedArith.Mul(_v52, _v78, ref __ar);                    // n2z * n3y: <= 64 m^4
+            FixedInt _v89 = FixedArith.Sub(_v87, _v88, ref __ar);                    // e23x = (n2y * n3z) - (n2z * n3y): <= 128 m^4
+            FixedInt _v90 = FixedArith.Mul(_v52, _v75, ref __ar);                    // n2z * n3x: <= 64 m^4
+            FixedInt _v91 = FixedArith.Mul(_v46, _v81, ref __ar);                    // n2x * n3z: <= 64 m^4
+            FixedInt _v92 = FixedArith.Sub(_v90, _v91, ref __ar);                    // e23y = (n2z * n3x) - (n2x * n3z): <= 128 m^4
+            FixedInt _v93 = FixedArith.Mul(_v46, _v78, ref __ar);                    // n2x * n3y: <= 64 m^4
+            FixedInt _v94 = FixedArith.Mul(_v49, _v75, ref __ar);                    // n2y * n3x: <= 64 m^4
+            FixedInt _v95 = FixedArith.Sub(_v93, _v94, ref __ar);                    // e23z = (n2x * n3y) - (n2y * n3x): <= 128 m^4
+            FixedInt _v96 = FixedArith.Mul(_v23, _v78, ref __ar);                    // n1z * n3y: <= 64 m^4
+            FixedInt _v97 = FixedArith.Mul(_v20, _v81, ref __ar);                    // n1y * n3z: <= 64 m^4
+            FixedInt _v98 = FixedArith.Sub(_v96, _v97, ref __ar);                    // e31x = (n1z * n3y) - (n1y * n3z): <= 128 m^4
+            FixedInt _v99 = FixedArith.Mul(_v17, _v81, ref __ar);                    // n1x * n3z: <= 64 m^4
+            FixedInt _v100 = FixedArith.Mul(_v23, _v75, ref __ar);                   // n1z * n3x: <= 64 m^4
+            FixedInt _v101 = FixedArith.Sub(_v99, _v100, ref __ar);                  // e31y = (n1x * n3z) - (n1z * n3x): <= 128 m^4
+            FixedInt _v102 = FixedArith.Mul(_v20, _v75, ref __ar);                   // n1y * n3x: <= 64 m^4
+            FixedInt _v103 = FixedArith.Mul(_v17, _v78, ref __ar);                   // n1x * n3y: <= 64 m^4
+            FixedInt _v104 = FixedArith.Sub(_v102, _v103, ref __ar);                 // e31z = (n1y * n3x) - (n1x * n3y): <= 128 m^4
+            FixedInt _v105 = FixedArith.Mul(_v20, _v52, ref __ar);                   // n1y * n2z: <= 64 m^4
+            FixedInt _v106 = FixedArith.Mul(_v23, _v49, ref __ar);                   // n1z * n2y: <= 64 m^4
+            FixedInt _v107 = FixedArith.Sub(_v105, _v106, ref __ar);                 // e12x = (n1y * n2z) - (n1z * n2y): <= 128 m^4
+            FixedInt _v108 = FixedArith.Mul(_v23, _v46, ref __ar);                   // n1z * n2x: <= 64 m^4
+            FixedInt _v109 = FixedArith.Mul(_v17, _v52, ref __ar);                   // n1x * n2z: <= 64 m^4
+            FixedInt _v110 = FixedArith.Sub(_v108, _v109, ref __ar);                 // e12y = (n1z * n2x) - (n1x * n2z): <= 128 m^4
+            FixedInt _v111 = FixedArith.Mul(_v17, _v49, ref __ar);                   // n1x * n2y: <= 64 m^4
+            FixedInt _v112 = FixedArith.Mul(_v20, _v46, ref __ar);                   // n1y * n2x: <= 64 m^4
+            FixedInt _v113 = FixedArith.Sub(_v111, _v112, ref __ar);                 // e12z = (n1x * n2y) - (n1y * n2x): <= 128 m^4
+            FixedInt _v114 = FixedArith.Mul(_v17, _v89, ref __ar);                   // n1x * e23x: <= 1024 m^6
+            FixedInt _v115 = FixedArith.Mul(_v20, _v92, ref __ar);                   // n1y * e23y: <= 1024 m^6
+            FixedInt _v116 = FixedArith.Add(_v114, _v115, ref __ar);                 // (n1x * e23x) + (n1y * e23y): <= 2048 m^6
+            FixedInt _v117 = FixedArith.Mul(_v23, _v95, ref __ar);                   // n1z * e23z: <= 1024 m^6
+            FixedInt _v118 = FixedArith.Add(_v116, _v117, ref __ar);                 // d = ((n1x * e23x) + (n1y * e23y)) + (n1z * e23z): <= 3072 m^6
+            FixedInt _v119 = FixedArith.Mul(_v28, _v89, ref __ar);                   // D1 * e23x: <= 3072 m^7
+            FixedInt _v120 = FixedArith.Mul(_v57, _v98, ref __ar);                   // D2 * e31x: <= 3072 m^7
+            FixedInt _v121 = FixedArith.Add(_v119, _v120, ref __ar);                 // (D1 * e23x) + (D2 * e31x): <= 6144 m^7
+            FixedInt _v122 = FixedArith.Mul(_v86, _v107, ref __ar);                  // D3 * e12x: <= 3072 m^7
+            FixedInt _v123 = FixedArith.Add(_v121, _v122, ref __ar);                 // ((D1 * e23x) + (D2 * e31x)) + (D3 * e12x): <= 9216 m^7
+            FixedInt c_x = __load(c.x, __v + 27);                                    // c.x: <= m
+            FixedInt _v125 = FixedArith.Mul(_v118, c_x, ref __ar);                   // d * c.x: <= 3072 m^7
+            FixedInt _v126 = FixedArith.Sub(_v123, _v125, ref __ar);                 // Nx = (((D1 * e23x) + (D2 * e31x)) + (D3 * e12x)) - (d * c.x): <= 12288 m^7
+            FixedInt _v127 = FixedArith.Mul(_v28, _v92, ref __ar);                   // D1 * e23y: <= 3072 m^7
+            FixedInt _v128 = FixedArith.Mul(_v57, _v101, ref __ar);                  // D2 * e31y: <= 3072 m^7
+            FixedInt _v129 = FixedArith.Add(_v127, _v128, ref __ar);                 // (D1 * e23y) + (D2 * e31y): <= 6144 m^7
+            FixedInt _v130 = FixedArith.Mul(_v86, _v110, ref __ar);                  // D3 * e12y: <= 3072 m^7
+            FixedInt _v131 = FixedArith.Add(_v129, _v130, ref __ar);                 // ((D1 * e23y) + (D2 * e31y)) + (D3 * e12y): <= 9216 m^7
+            FixedInt c_y = __load(c.y, __v + 28);                                    // c.y: <= m
+            FixedInt _v133 = FixedArith.Mul(_v118, c_y, ref __ar);                   // d * c.y: <= 3072 m^7
+            FixedInt _v134 = FixedArith.Sub(_v131, _v133, ref __ar);                 // Ny = (((D1 * e23y) + (D2 * e31y)) + (D3 * e12y)) - (d * c.y): <= 12288 m^7
+            FixedInt _v135 = FixedArith.Mul(_v28, _v95, ref __ar);                   // D1 * e23z: <= 3072 m^7
+            FixedInt _v136 = FixedArith.Mul(_v57, _v104, ref __ar);                  // D2 * e31z: <= 3072 m^7
+            FixedInt _v137 = FixedArith.Add(_v135, _v136, ref __ar);                 // (D1 * e23z) + (D2 * e31z): <= 6144 m^7
+            FixedInt _v138 = FixedArith.Mul(_v86, _v113, ref __ar);                  // D3 * e12z: <= 3072 m^7
+            FixedInt _v139 = FixedArith.Add(_v137, _v138, ref __ar);                 // ((D1 * e23z) + (D2 * e31z)) + (D3 * e12z): <= 9216 m^7
+            FixedInt c_z = __load(c.z, __v + 29);                                    // c.z: <= m
+            FixedInt _v141 = FixedArith.Mul(_v118, c_z, ref __ar);                   // d * c.z: <= 3072 m^7
+            FixedInt _v142 = FixedArith.Sub(_v139, _v141, ref __ar);                 // Nz = (((D1 * e23z) + (D2 * e31z)) + (D3 * e12z)) - (d * c.z): <= 12288 m^7
+            FixedInt a_x = __load(a.x, __v + 30);                                    // a.x: <= m
+            FixedInt _v144 = FixedArith.Sub(a_x, c_x, ref __ar);                     // acx = a.x - c.x: <= 2 m
+            FixedInt a_y = __load(a.y, __v + 31);                                    // a.y: <= m
+            FixedInt _v146 = FixedArith.Sub(a_y, c_y, ref __ar);                     // acy = a.y - c.y: <= 2 m
+            FixedInt a_z = __load(a.z, __v + 32);                                    // a.z: <= m
+            FixedInt _v148 = FixedArith.Sub(a_z, c_z, ref __ar);                     // acz = a.z - c.z: <= 2 m
+            FixedInt b_x = __load(b.x, __v + 33);                                    // b.x: <= m
+            FixedInt _v150 = FixedArith.Sub(b_x, c_x, ref __ar);                     // bcx = b.x - c.x: <= 2 m
+            FixedInt b_y = __load(b.y, __v + 34);                                    // b.y: <= m
+            FixedInt _v152 = FixedArith.Sub(b_y, c_y, ref __ar);                     // bcy = b.y - c.y: <= 2 m
+            FixedInt b_z = __load(b.z, __v + 35);                                    // b.z: <= m
+            FixedInt _v154 = FixedArith.Sub(b_z, c_z, ref __ar);                     // bcz = b.z - c.z: <= 2 m
+            FixedInt _v155 = FixedArith.Mul(_v146, _v154, ref __ar);                 // acy * bcz: <= 4 m^2
+            FixedInt _v156 = FixedArith.Mul(_v148, _v152, ref __ar);                 // acz * bcy: <= 4 m^2
+            FixedInt _v157 = FixedArith.Sub(_v155, _v156, ref __ar);                 // m1 = (acy * bcz) - (acz * bcy): <= 8 m^2
+            FixedInt _v158 = FixedArith.Mul(_v144, _v154, ref __ar);                 // acx * bcz: <= 4 m^2
+            FixedInt _v159 = FixedArith.Mul(_v148, _v150, ref __ar);                 // acz * bcx: <= 4 m^2
+            FixedInt _v160 = FixedArith.Sub(_v158, _v159, ref __ar);                 // m2 = (acx * bcz) - (acz * bcx): <= 8 m^2
+            FixedInt _v161 = FixedArith.Mul(_v144, _v152, ref __ar);                 // acx * bcy: <= 4 m^2
+            FixedInt _v162 = FixedArith.Mul(_v146, _v150, ref __ar);                 // acy * bcx: <= 4 m^2
+            FixedInt _v163 = FixedArith.Sub(_v161, _v162, ref __ar);                 // m3 = (acx * bcy) - (acy * bcx): <= 8 m^2
+            FixedInt _v164 = FixedArith.Mul(_v126, _v157, ref __ar);                 // t1 = Nx * m1: <= 98304 m^9
+            FixedInt _v165 = FixedArith.Mul(_v134, _v160, ref __ar);                 // t2 = Ny * m2: <= 98304 m^9
+            FixedInt _v166 = FixedArith.Mul(_v142, _v163, ref __ar);                 // t3 = Nz * m3: <= 98304 m^9
+            FixedInt _v167 = FixedArith.Sub(_v164, _v165, ref __ar);                 // t1 - t2: <= 196608 m^9
+            FixedInt _v168 = FixedArith.Add(_v167, _v166, ref __ar);                 // (t1 - t2) + t3: <= 294912 m^9
+            return _v168.Sign * _v118.Sign;
+        }
         /// <summary> Orient3dTPI in BigInteger (inputs beyond the bound) </summary>
         [MethodImpl(JitHints.Optimize)]
         internal static int Orient3dTPIBig(ExactPoint3 a1, ExactPoint3 b1, ExactPoint3 c1, ExactPoint3 a2, ExactPoint3 b2, ExactPoint3 c2, ExactPoint3 a3, ExactPoint3 b3, ExactPoint3 c3, ExactPoint3 a, ExactPoint3 b, ExactPoint3 c)

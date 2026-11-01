@@ -257,3 +257,53 @@ implicit points in fixed width (the homogeneous `N`, `d` of section 3 on `FixedA
 and reducing them by a gcd on limbs, instead of `BigInteger` arithmetic and `BigInteger.GreatestCommonDivisor`. That
 is item 3 of section 12 of `FIXED_WIDTH_EXACT_POINTS.md` widened to all constructions; the generator can derive its
 bounds. Not started: it needs the owner's decision.
+
+## 9. Step (b): the filter (built), with timings
+
+**Entry on doubles.** For each `inputs xyz` predicate the generator now also emits `Name(Vector3d ...)`: inputs are
+points with integer coordinates `|x| ≤ 2^53` given as doubles (the arrangement's grid; anything else throws). It
+runs `NameFilter` and, if that does not decide, `NameExact`: the same `FixedArith` graph as step (a), loaded from the
+doubles (one limb each), no allocation and no `BigInteger`.
+
+**Filter rule** (header of `tools/PredicateCompiler/Compiler.cs`, `filter_bounds`). The inputs are integers, so no
+product underflows and the error model is `fl(x op y) = (x op y)(1 + δ)`, `|δ| ≤ u = 2^-53`. For every value the
+generator derives, with exact rationals, `c` with `|ẽ − e| ≤ c m̃` (`m̃` the computed magnitude, the permanent):
+a difference of two inputs `c = u`, `m̃ = |ẽ|`; a sum `c = (u + max(cx, cy)) / (1 − u)`; a product
+`c = (u + cx + cy + cx cy) / (1 − u)`. A sign factor is decided if `m̃ = 0` (then it is exactly 0) or
+`|ẽ| > fl(K m̃)` with `K ≥ c / (1 − u)` the next double up. The constants: `Orient3dLPI` 18 u (determinant) and
+9 u (denominator), `Orient3dTPI` 28 u and 17 u.
+
+**Tests** (`GeneratedPredicatesIndirectTests`):
+- the constants against an independent first-order count of the roundings (difference 1, sum `1 + max`, product
+  `1 + kx + ky`): `K` within `[k u, k u (1 + 1e-9)]`;
+- the double entry against the oracle at 3 to 53 bits; the filter is never wrong and decides more than 98 % of the
+  random inputs;
+- exact zeros moved by one grid step at every scale up to 2^52, and exact zeros: the filter fails or is right (the
+  test asserts that more than 1000 cases reach the exact stage); all-zero inputs are decided as 0 (`m̃ = 0`);
+- the gate (non-integers, `±2^54`, NaN, infinity rejected; `±2^53` and `−0` accepted, and exact at the edge);
+- invariance under the harness's 2^k scales.
+
+Hand mutants of the filter rules: `K = 0`, `K / 10^6`, `K / 1000`, `K / 30`, `K / 4`, the `m̃ = 0` shortcut dropped,
+`c = 0` for a difference of inputs, the product rule replaced by the sum rule, a factor's sign dropped: all killed.
+`K / 4`, the leaf rule and the product rule are killed only by the first-order count (no input reaches the slack of
+the bound, as in #221); that test is the guard of the derivation.
+
+**Timings** (`BooleanComparison indirect 7`: 2000 inputs of 30-bit integer points per row, the median of 7 rounds,
+ns per call; two runs in one session, both shown; the signs of all three are checked against each other):
+
+| predicate, inputs | construct, then orient3d (`BigInteger`, gcd) | generated exact stage | generated filter + exact |
+|---|---|---|---|
+| `Orient3dLPI`, general | 3293 / 3100 | 1290 / 1039 | **48 / 47** |
+| `Orient3dTPI`, general | 6926 / 6897 | 2204 / 2150 | **84 / 80** |
+| `Orient3dLPI`, degenerate (the point on the plane) | 3089 / 3019 | 1042 / 1036 | 1093 / 1091 |
+| `Orient3dTPI`, degenerate | 6692 / 6914 | 2049 / 2122 | 2195 / 2191 |
+
+The filter decides 100 % of the general inputs and 0 % of the degenerate ones (sign 0). On general inputs the
+generated predicate is 65-85 times faster than constructing the point; where the filter fails, the exact stage is
+still about 3 times faster than the construction and the filter costs about 50 ns more. (One grid step off the
+plane is decided by the filter at 30 bits: its relative size, about 2^-30, is far above the bound.)
+
+**Step (c), the expansion stage,** sits between the two: it would pay where the filter fails but the expansion
+is shorter than the `FixedArith` evaluation. With integer inputs every failing case so far is a true zero or within
+a few ulps of one, where an expansion stage does the full work too; whether it is worth building is decided on the
+envelope's inputs.

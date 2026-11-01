@@ -43,6 +43,59 @@ namespace G3PredicateCompiler
 {
     public enum Op { Input, Add, Sub, Mul }
 
+    /// <summary> an exact rational (the filter's error coefficients) </summary>
+    public readonly struct Rational
+    {
+        public readonly BigInteger Num, Den;    // Den > 0, reduced
+        public Rational(BigInteger num, BigInteger den)
+        {
+            if (den.Sign < 0) { num = -num; den = -den; }
+            var g = BigInteger.GreatestCommonDivisor(num, den);
+            if (!g.IsZero && !g.IsOne) { num /= g; den /= g; }
+            Num = num; Den = den;
+        }
+        public static Rational Int(long v) => new Rational(v, 1);
+        public static readonly Rational Zero = Int(0), One = Int(1);
+        /// <summary> u = 2^-53, the unit roundoff of round to nearest </summary>
+        public static readonly Rational U = new Rational(1, BigInteger.Pow(2, 53));
+        public static Rational operator +(Rational a, Rational b) => new Rational(a.Num * b.Den + b.Num * a.Den, a.Den * b.Den);
+        public static Rational operator -(Rational a, Rational b) => new Rational(a.Num * b.Den - b.Num * a.Den, a.Den * b.Den);
+        public static Rational operator *(Rational a, Rational b) => new Rational(a.Num * b.Num, a.Den * b.Den);
+        public static Rational operator /(Rational a, Rational b) => new Rational(a.Num * b.Den, a.Den * b.Num);
+        public static bool operator <=(Rational a, Rational b) => (b - a).Num.Sign >= 0;
+        public static bool operator >=(Rational a, Rational b) => (a - b).Num.Sign >= 0;
+        public static Rational Max(Rational a, Rational b) => a >= b ? a : b;
+        /// <summary> the exact value of a finite double </summary>
+        public static Rational FromDouble(double d)
+        {
+            long bits = BitConverter.DoubleToInt64Bits(d);
+            int e = (int)((bits >> 52) & 0x7FF);
+            long m = bits & 0xFFFFFFFFFFFFFL;
+            if (e == 0) e = 1; else m |= 1L << 52;
+            e -= 1075;
+            BigInteger M = (bits < 0) ? -m : m;
+            return e >= 0 ? new Rational(M * BigInteger.Pow(2, e), 1) : new Rational(M, BigInteger.Pow(2, -e));
+        }
+        /// <summary> the smallest double >= this (positive, normal range) </summary>
+        public double CeilDouble()
+        {
+            // an approximation from the top 60 bits of both (numerator and denominator can exceed the double range)
+            int k = Math.Max(0, (int)Num.GetBitLength() - 60), j = Math.Max(0, (int)Den.GetBitLength() - 60);
+            double d = Math.ScaleB((double)(Num >> k) / (double)(Den >> j), k - j);
+            if (!(d > 0) || double.IsInfinity(d))
+                throw new NotSupportedException("CeilDouble: not a positive value in the double range");
+            while (!(FromDouble(d) >= this)) d = Math.BitIncrement(d);
+            while (FromDouble(Math.BitDecrement(d)) >= this) d = Math.BitDecrement(d);
+            return d;
+        }
+        /// <summary> as a multiple of u, for comments </summary>
+        public string InUnitsOfU()
+        {
+            var q = this / U;
+            return ((double)q.Num / (double)q.Den).ToString("0.######", CultureInfo.InvariantCulture) + " u";
+        }
+    }
+
     /// <summary> a polynomial in m with nonnegative integer coefficients: degree -> coefficient </summary>
     public sealed class Bound
     {
@@ -91,6 +144,10 @@ namespace G3PredicateCompiler
         public int Limbs => (Bits + 63) / 64;
         public int ArenaLimbs;  // the length rule: the limbs the operation takes (inputs: their length)
         public int LengthOnly;  // the same without the value bounds
+        // the filter (double inputs that are integers, |x| <= 2^53): |e~ - e| <= C m~, e~ the computed value, m~ the
+        // computed magnitude; Leaf: a sum or difference of two inputs (m~ = |e~|)
+        public Rational C;
+        public bool Leaf => (Op == Op.Add || Op == Op.Sub) && A.Op == Op.Input && B.Op == Op.Input;
         // the most limbs the value has (trimmed): its bound's, never more than the operation took (a product of
         // values below 2^(64 la), 2^(64 lb) is below 2^(64 (la + lb)), a sum below 2^(64 max + 1))
         public int Length => Limbs;
@@ -113,6 +170,8 @@ namespace G3PredicateCompiler
         public string Comps => Xyz ? "xyz" : "xyw";
         /// <summary> the limbs one call takes from its FixedArena (the length rule) </summary>
         public int ArenaScratch;
+        /// <summary> the filter's test constant per sign factor: the factor's sign is decided if |e~| > fl(K m~) </summary>
+        public List<double> FilterK = new List<double>();
         /// <summary> ArenaScratch without the value bounds (the operands' lengths only) </summary>
         public int LengthScratch;
         /// <summary> the limbs one call needs if every value had a buffer of its bound (the value rule) </summary>
@@ -137,6 +196,7 @@ namespace G3PredicateCompiler
             foreach (var p in preds) {
                 value_bounds(p);
                 fixedarith_lengths(p);
+                filter_bounds(p);
             }
             return preds;
         }
@@ -153,6 +213,40 @@ namespace G3PredicateCompiler
                 n.Max = n.Bound.At(p.InputBound);
             }
             p.ValueScratch = p.Nodes.Where(n => n.Op != Op.Input).Sum(n => n.Limbs);
+        }
+
+        // the filter rule, for inputs that are integers given as doubles, |x| <= 2^53 (exact), evaluated in double with
+        // round to nearest (u = 2^-53). The values are integers, so no product underflows: fl(x op y) = (x op y)(1 + d),
+        // |d| <= u. Invariant |e~ - e| <= c m~ with |e~| <= m~ (rounding is monotone):
+        //   input:           e~ = x, m~ = |x|, c = 0
+        //   input +- input:  m~ = |e~|, c = u           (|fl(s) - s| <= u |fl(s)|)
+        //   x +- y:          m~ = fl(m~x + m~y), c = (u + max(cx, cy)) / (1 - u)
+        //                    (|e~ - e| <= u |s| + cx m~x + cy m~y <= (u + max) (m~x + m~y), m~x + m~y <= m~ / (1 - u))
+        //   x y:             m~ = fl(m~x m~y), c = (u + cx + cy + cx cy) / (1 - u)
+        //                    (|e~ - e| <= u |x~ y~| + |x~ - x| |y~| + |x| |y~ - y|, |x| <= (1 + cx) m~x)
+        // A sign factor e is decided if m~ = 0 (then e = 0: every product is an exact 0) or |e~| > fl(K m~) with
+        // K >= c / (1 - u) a double (fl(K m~) >= K m~ (1 - u) >= c m~, so |e| >= |e~| - c m~ > 0 and the signs agree).
+        // No overflow: |x| <= 2^53 and the degree and coefficients of the formulas here keep every value below 2^1000.
+        static void filter_bounds(Predicate p)
+        {
+            var u = Rational.U;
+            var one = Rational.One;
+            foreach (var n in p.Nodes) {
+                switch (n.Op) {
+                    case Op.Input: n.C = Rational.Zero; break;
+                    case Op.Add: case Op.Sub:
+                        n.C = n.Leaf ? u : (u + Rational.Max(n.A.C, n.B.C)) / (one - u);
+                        break;
+                    case Op.Mul:
+                        n.C = (u + n.A.C + n.B.C + n.A.C * n.B.C) / (one - u);
+                        break;
+                }
+            }
+            p.FilterK = p.Signs.Select(n => (n.C / (one - u)).CeilDouble()).ToList();
+            // degree check: every value below 2^1000 at |x| <= 2^53 (bound polynomial at 2^53)
+            foreach (var n in p.Nodes)
+                if (n.Bound.At(BigInteger.Pow(2, 53)).GetBitLength() > 1000)
+                    throw new NotSupportedException($"{p.Name}: the filter could overflow");
         }
 
         // the length rule: a model of FixedArith (Mul / Add / Sub on a FixedArena), after value_bounds
@@ -233,6 +327,10 @@ namespace G3PredicateCompiler
             sb.Append("    /// </summary>\n");
             sb.Append($"    internal static unsafe class {className}\n    {{\n");
             sb.Append("        static int __len(ref FixedPoint3 p, int k) { return p.M[k] & 7; }\n");
+            sb.Append("        // the integers |x| <= 2^53: exact as doubles, one limb each\n");
+            sb.Append("        static bool __int(double x) { return Math.Abs(x) <= 9007199254740992.0 && Math.Floor(x) == x; }\n");
+            sb.Append("        static bool __grid(Vector3d p) { return __int(p.x) && __int(p.y) && __int(p.z); }\n");
+            sb.Append("        static FixedInt __load(double x, ulong* dst) { dst[0] = (ulong)Math.Abs(x); return new FixedInt(dst, x != 0 ? 1 : 0, x < 0); }\n");
             foreach (var p in preds) {
                 if (p.InputBits % 64 != 0)
                     throw new NotSupportedException($"{p.Name}: generated code needs a bound of whole limbs (b a multiple of 64)");
@@ -270,19 +368,13 @@ namespace G3PredicateCompiler
             var fits = inputs.Select(n => $"__len(ref {n.Point}, {comp(n)}) <= {inv(L)}");
             sb.Append($"{I2}if (!({string.Join(" && ", fits)}))\n");
             sb.Append($"{I2}    return {p.Name}Big({string.Join(", ", p.Points.Select(x => x + ".ToExact()"))}{(p.Xyz ? "" : ", i, j")});\n");
-            sb.Append($"{I2}ulong* __v = stackalloc ulong[{inv(inputs.Count * L)}];\n");
-            // one constant for the buffer and the arena: they cannot disagree (the arena's Take checks against it)
-            sb.Append($"{I2}const int __n = {inv(p.ArenaScratch)};\n");
-            sb.Append($"{I2}ulong* __s = stackalloc ulong[__n];\n");
-            sb.Append($"{I2}var __ar = new FixedArena(__s, __n);\n");
-            int k = 0;
-            foreach (var n in p.Nodes) {
-                string code = n.Op == Op.Input
-                    ? $"FixedInt {val(n)} = {n.Point}.Get({comp(n)}, __v + {inv(L * k++)});"
-                    : $"FixedInt {val(n)} = FixedArith.{(n.Op == Op.Mul ? "Mul" : n.Op == Op.Add ? "Add" : "Sub")}({val(n.A)}, {val(n.B)}, ref __ar);";
-                sb.Append($"{I2}{code}".PadRight(84)).Append($" // {(n.Op == Op.Input ? ref_(n) : describe(n))}: <= {n.Bound}\n");
+            arena_body(p, sb, I2, (n, dst) => $"{n.Point}.Get({comp(n)}, {dst})");
+            sb.Append($"{I1}}}\n\n");
+            if (p.Xyz) {
+                if (p.InputBits < 54)
+                    throw new NotSupportedException($"{p.Name}: the double entry needs a bound of at least 2^53 (the exact stage takes the doubles)");
+                emit_double(p, sb);
             }
-            sb.Append($"{I2}return {sign(val)};\n{I1}}}\n\n");
             // BigInteger
             sb.Append($"{I1}/// <summary> {p.Name} in BigInteger (inputs beyond the bound) </summary>\n");
             sb.Append($"{I1}[MethodImpl(JitHints.Optimize)]\n");
@@ -298,6 +390,80 @@ namespace G3PredicateCompiler
                 sb.Append($"{I2}BigInteger {val(n)} = {e};\n");
             }
             sb.Append($"{I2}return {sign(val)};\n{I1}}}\n");
+        }
+
+
+        // the graph on FixedArith (inputs loaded by load(input, buffer)), returning the product of the signs
+        static void arena_body(Predicate p, StringBuilder sb, string I2, Func<Node, string, string> load)
+        {
+            int L = p.InputBits / 64;
+            var inputs = p.Nodes.Where(n => n.Op == Op.Input).ToList();
+            sb.Append($"{I2}ulong* __v = stackalloc ulong[{inv(inputs.Count * L)}];\n");
+            // one constant for the buffer and the arena: they cannot disagree (the arena's Take checks against it)
+            sb.Append($"{I2}const int __n = {inv(p.ArenaScratch)};\n");
+            sb.Append($"{I2}ulong* __s = stackalloc ulong[__n];\n");
+            sb.Append($"{I2}var __ar = new FixedArena(__s, __n);\n");
+            int k = 0;
+            foreach (var n in p.Nodes) {
+                string code = n.Op == Op.Input
+                    ? $"FixedInt {val(n)} = {load(n, "__v + " + inv(L * k++))};"
+                    : $"FixedInt {val(n)} = FixedArith.{(n.Op == Op.Mul ? "Mul" : n.Op == Op.Add ? "Add" : "Sub")}({val(n.A)}, {val(n.B)}, ref __ar);";
+                sb.Append($"{I2}{code}".PadRight(84)).Append($" // {(n.Op == Op.Input ? ref_(n) : describe(n))}: <= {n.Bound}\n");
+            }
+            sb.Append($"{I2}return {string.Join(" * ", p.Signs.Select(n => val(n) + ".Sign"))};\n");
+        }
+
+        static string lit(double d) => d.ToString("R", CultureInfo.InvariantCulture).Replace("E", "e");
+
+        // the entry on doubles: the filter, then the FixedArith graph from the doubles (no allocation)
+        static void emit_double(Predicate p, StringBuilder sb)
+        {
+            string I1 = "        ", I2 = I1 + "    ";
+            string pars = string.Join(", ", p.Points.Select(x => "Vector3d " + x));
+            string args = string.Join(", ", p.Points);
+            sb.Append($"{I1}/// <summary>\n");
+            sb.Append($"{I1}/// {p.Name} of points with integer coordinates |x| &lt;= 2^53, given as doubles: the filter, then the exact\n");
+            sb.Append($"{I1}/// stage on FixedArith (no allocation); throws for other coordinates\n");
+            sb.Append($"{I1}/// </summary>\n");
+            sb.Append($"{I1}[MethodImpl(JitHints.Optimize)]\n");
+            sb.Append($"{I1}internal static int {p.Name}({pars})\n{I1}{{\n");
+            sb.Append($"{I2}if (!({string.Join(" && ", p.Points.Select(x => $"__grid({x})"))}))\n");
+            sb.Append($"{I2}    throw new ArgumentException(\"{p.Name}: the coordinates must be integers |x| <= 2^53\");\n");
+            sb.Append($"{I2}int __r = {p.Name}Filter({args});\n");
+            sb.Append($"{I2}return (__r != 2) ? __r : {p.Name}Exact({args});\n{I1}}}\n\n");
+            // the filter
+            sb.Append($"{I1}/// <summary> the filter of {p.Name}: the sign, or 2 if it does not decide (inputs as for {p.Name}) </summary>\n");
+            sb.Append($"{I1}[MethodImpl(JitHints.Optimize)]\n");
+            sb.Append($"{I1}internal static int {p.Name}Filter({pars})\n{I1}{{\n");
+            foreach (var n in p.Nodes) {
+                string e, m;
+                if (n.Op == Op.Input) {
+                    e = $"{n.Point}.{n.Comp}";
+                    m = $"Math.Abs({val(n)})";
+                } else {
+                    e = $"{val(n.A)} {opc(n.Op)} {val(n.B)}";
+                    m = n.Leaf ? $"Math.Abs({val(n)})" : n.Op == Op.Mul ? $"m{val(n.A)} * m{val(n.B)}" : $"m{val(n.A)} + m{val(n.B)}";
+                }
+                sb.Append($"{I2}double {val(n)} = {e}, m{val(n)} = {m};".PadRight(96)).Append($" // c = {n.C.InUnitsOfU()}\n");
+            }
+            sb.Append($"{I2}int __r = 1;\n");
+            for (int f = 0; f < p.Signs.Count; ++f) {
+                var n = p.Signs[f];
+                sb.Append($"{I2}// {ref_(n)}: |e~ - e| <= {n.C.InUnitsOfU()} m~ (K = c / (1 - u), rounded up)\n");
+                sb.Append($"{I2}if (m{val(n)} == 0) return 0;\n");
+                sb.Append($"{I2}if (!(Math.Abs({val(n)}) > {lit(p.FilterK[f])} * m{val(n)})) return 2;\n");
+                sb.Append($"{I2}if ({val(n)} < 0) __r = -__r;\n");
+            }
+            sb.Append($"{I2}return __r;\n{I1}}}\n\n");
+            // exact from doubles
+            sb.Append($"{I1}/// <summary> the exact stage of {p.Name} on FixedArith, from integer doubles |x| &lt;= 2^53 </summary>\n");
+            sb.Append("#if NET\n");
+            sb.Append($"{I1}[SkipLocalsInit]\n");
+            sb.Append("#endif\n");
+            sb.Append($"{I1}[MethodImpl(JitHints.Optimize)]\n");
+            sb.Append($"{I1}internal static int {p.Name}Exact({pars})\n{I1}{{\n");
+            arena_body(p, sb, I2, (n, dst) => $"__load({n.Point}.{n.Comp}, {dst})");
+            sb.Append($"{I1}}}\n");
         }
 
         static string describe(Node n) => (n.Name != null ? n.Name + " = " : "") + $"{ref_(n.A)} {opc(n.Op)} {ref_(n.B)}";
