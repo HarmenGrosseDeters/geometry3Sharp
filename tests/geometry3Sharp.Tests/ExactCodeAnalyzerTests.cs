@@ -221,7 +221,7 @@ namespace geometry3Sharp.Tests
                 .Concat(Directory.GetFiles(Path.Combine(root, "math", "Generated"), "*.cs"))
                 .Select(f => Path.GetRelativePath(root, f).Replace(Path.DirectorySeparatorChar, '/')).ToList();
             exact.AddRange(new[] { "math/AdaptivePredicates.cs", "math/FixedPoint3.cs", "mesh_ops/ExactTriangulation2.cs",
-                "mesh_ops/ExactPlanarSimplify.cs", "intersection/ExactTriangleIntersection.cs" });
+                "mesh_ops/ExactPlanarSimplify.cs", "intersection/ExactTriangleIntersection.cs", "mesh_ops/PolyhedralEnvelope.cs" });
             Assert.True(exact.Count >= 9);
             Assert.Contains("math/Generated/IndirectPredicates.cs", exact);
             foreach (string f in exact) {

@@ -144,6 +144,90 @@ class, or `MeshEnvelope`'s implementation replaced behind its unchanged API (com
   `DMeshAABBTree3` over the polyhedra's boxes; candidate lists per query without allocation.
 - **Queries:** as in section 3; the predicates of 4.1; no `BigInteger` on the common path.
 
+### 4.4 The polyhedra in floating point (PR 2)
+
+The paper builds each facet from three points computed in floating point and does not bound their rounding. Here
+the computed polyhedron `P~` is proven to lie inside the ideal polyhedron `P*` of Prop. 3.1 (exact directions, offset
+δ = ε / √3), so the guarantee "every point of `P~` is within ε of T" holds whatever the rounding. That T is strictly
+inside `P~` is not derived but checked exactly, with `ExactPredicates.Orient3d` of every vertex of T against every
+facet. A failure of either check makes the status `TooThin`.
+
+**Notation.**
+- u = 2^-53.
+- `c = v0` is the first vertex of T, so c ∈ T.
+- ρ ≥ max_k |v_k − c| is an upper bound.
+- R = ρ + 2ε.
+- `h_T(m) = max_k m · v_k` is the support function of T.
+- `P* = ∩ {x : m*_j · x ≤ h_T(m*_j) + δ}` with exact unit directions `m*_j`. On the paper's facets
+  `h_T(m*_j)` is the paper's offset: a cap direction is supported by its acute vertex. Then P* ⊂ T ⊕ B(ε) ⊂ B(c, ρ + ε).
+
+**Lemma 1 (direction error).** Let `m~` be any vector with |m~ − m*| ≤ θ, and |x − c| ≤ R. Then
+`m* · x − h_T(m*) ≤ m~ · x − h_T(m~) + θ (R + ρ)`.
+*Proof:* the support function of T − c is ρ-Lipschitz, and |(m* − m~) · (x − c)| ≤ θ R.
+
+**Lemma 2 (three points).** Let φ~(x) = m~ · x − s~, and let q~_0, q~_1, q~_2 be the facet's double points with
+|φ~(q~_k)| ≤ μ. Then the affine function φ' that vanishes on the plane through the q~_k and has the same gradient
+component along m~ satisfies |φ' − φ~| ≤ Λ μ on B(c, R). Here Λ ≥ max Σ_k |λ_k(x)|, where λ_k are the barycentric
+coordinates of the projection of x (along m~) with respect to the projected q~_k.
+
+The points are `q~_0 = fl(o)`, `q~_1 = fl(o + S a)`, `q~_2 = fl(o + S b)`, with:
+- `o = c + t m~` on the plane;
+- a, b unit vectors orthogonal to m~ (up to rounding);
+- S = 4 R.
+
+With them Σ |λ_k| ≤ 1 + 2 √2 (R + ζ) / (S (1 − κ)) ≤ 2 =: Λ. Here ζ ≤ R / 100 bounds the rounding of q~_0 and κ ≤ 1 / 100
+the non-orthogonality of a, b and the rounding of q~_1, q~_2. Both conditions are checked at build. μ is computed per
+facet a posteriori: |fl(m~ · q~_k − s~)| + γ_4 (Σ_i |m~_i q~_ki| + |s~|).
+
+**Lemma 3 (convexity).** If every computed open half-space satisfies "x ∈ H~_j and |x − c| ≤ R ⇒ x ∈ H*_j", and c ∈ P~,
+then P~ ⊂ P*.
+*Proof:* if some y ∈ P~ had |y − c| > ρ + ε, the segment c → y would cross the sphere of radius
+r = (ρ + ε + R) / 2 < R at a point z ∈ P~ (P~ is convex). By the hypothesis z ∈ P*, but P* ⊂ B(c, ρ + ε): a
+contradiction. So P~ ⊂ B(c, ρ + ε) ⊂ B(c, R), and there the hypothesis gives P~ ⊂ P*.
+
+**Offsets.** With Lemmas 1-3, a facet j is safe if
+`s~_j ≤ h_T(m~_j) + δ − θ_j (R + ρ) − Λ μ_j`.
+The code computes `s~_j = fl(h~_j + (δ − margin_j))`, where:
+- `h~_j = max_k fl(m~_j · v_k)`, with |h~_j − h_T(m~_j)| ≤ η_j = γ_3 max_k Σ_i |m~_ji v_ki|;
+- `margin_j = θ_j (R + ρ) + Λ μ_plan + η_j + 2 u |s~_j|`;
+- μ_plan = 32 u (‖c‖_∞ + 4 R) is planned before the points exist (the rounding of o, t, the products and the
+  points, about 28 u ‖c‖_∞ + 84 u R with the a posteriori term), and μ_j ≤ μ_plan is checked after;
+- `margin_j ≤ δ / 10` is required, else `TooThin`. The polyhedron keeps at least 0.9 δ.
+
+**Direction errors θ** (against the exact ideal unit vectors; the unit-vector routine scales by a power of two, then
+divides by the rounded length: |unit(v~) − v / |v|| ≤ 2 α + 4 u when |v~ − v| ≤ α |v|):
+- **normal:** N = (v1 − v0) × (v2 − v0) is computed exactly (BigInteger on the doubles' mantissas), then converted to
+  doubles with relative error ≤ 2 u per component. So θ_n = 8 u, independent of the triangle's shape: slivers need no
+  special case. N = 0 exactly means T is degenerate (see below).
+- **side planes:** w*_k = unit(e_k × n*) (outward), computed from fl(e_k) and n~. |fl(e~ × n~) − e × n*| ≤
+  (u + 8 u + √2 γ_2) |e| ≤ 12 u |e| (|e × n*| = |e|), so θ_w = 28 u.
+- **caps:** at every vertex whose computed dot product of the two edges is ≥ −(|a|² + |b|²) / 4. This includes every
+  acute and right vertex, as Prop. 3.1 needs; an extra cap only shrinks P*. Direction w* = unit(−(a + b)), where
+  |a + b|² ≥ (|a|² + |b|²) / 2 there, so fl(a~ + b~) has α ≤ 3 u and θ_c = 10 u.
+- **degenerate T (N = 0):** all three vertices lie on the longest edge S (or coincide). P* is then the box around S:
+  ±d* along S, ±p*_1, ±p*_2 perpendicular, all with offset δ. Every point of it is within √3 δ = ε of S ⊂ T.
+  - d~ = unit(fl(e_L)): θ_d = 6 u.
+  - p~_1 = unit(d~ × axis): the axis is the one of d~'s smallest component, so the cross product is exact and has length
+    ≥ √(2/3) − 6 u. This gives θ_1 = 19 u.
+  - p~_2 = unit(fl(d~ × p~_1)): θ_2 = 60 u.
+  - A point (all vertices equal) gets the axis cube: θ = 0.
+
+**Search boxes:** P~ ⊂ T ⊕ B(ε), so the box of T expanded by ε (1 + 4 u) + 4 u ‖v‖_∞ contains P~.
+
+For ε well above the margins, the polyhedron loses at most δ / 10 per facet. The margins add up to at most about
+`61 u (R + ρ) + 64 u ‖c‖_∞ + 256 u R`, which is 4e-14 times the triangle size plus 7e-15 times the coordinates. So the
+status is `TooThin` below ε ≈ 7e-13 times the triangle size plus 1.2e-13 times the coordinates; `MeshEnvelope` is
+`TooThin` below about 1.3e-12 times the coordinates. The tests check a posteriori (`PolyhedralEnvelopeTests`), on
+random, right-angled, sliver and degenerate triangles at scales 1, 2^-10, 1e±150 and at UTM coordinates:
+- every θ against the exact ideal direction (400-bit fixed point);
+- μ (exactly);
+- Λ (over the ball);
+- δ, ρ and R;
+- the offset inequality, exactly with the true μ.
+
+They also check that every vertex of the polyhedron is within ε of the triangle and that some vertex is beyond 0.85 ε,
+so the polyhedron is not much smaller than the paper's.
+
 ### 4.3 What it does not do
 
 No changes to the `Reducer`, the remeshers or the alpha wrap in this work: wiring a consumer in is its own PR and
@@ -171,7 +255,9 @@ decision after the acceptance.
 
 1. **Generator for double inputs** (4.1, item 1): the filter with the range gate, the exact stage by exponent
    alignment (2 limbs, `BigInteger` beyond); tests against the oracle at all scales; bounds review; mutation.
-   1b. **Prepare / evaluate split** (4.1, item 2), its own PR to keep the diffs small.
+   1b. **Prepare / evaluate split** (4.1, item 2). It is a pure speed step, so it follows PR 2 (the same PR, #263)
+   only if the share of the construction part in `ContainsSegment` makes it measurable (process rule: an upper-bound
+   check before a speed step).
 2. **Polyhedra and point / segment queries:** construction with its proven bound, the box tree, `Contains`,
    `ContainsSegment`; oracle and guarantee tests.
 3. **Triangle query** (TPI critical points), the oracle against `MeshEnvelope`'s clipping on the same polyhedra,

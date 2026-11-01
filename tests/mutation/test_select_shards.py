@@ -9,7 +9,7 @@ from select_shards import TESTS, load_configs, select
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 CONFIGS = load_configs()
-ALL_MESH = {"rounding", "boolean-1", "boolean-2", "arrangement-1", "arrangement-2", "planar", "fixed", "generated"}
+ALL_MESH = {"rounding", "boolean-1", "boolean-2", "arrangement-1", "arrangement-2", "planar", "fixed", "generated", "envelope"}
 
 
 def run(*changed):
