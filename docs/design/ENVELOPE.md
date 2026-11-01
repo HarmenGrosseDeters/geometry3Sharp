@@ -325,6 +325,29 @@ reduction with the distance bounds produces. Each entry is triangles accepted, �
   reduced triangles that span tens of input triangles at the full tolerance. That is the worst case for both speed
   (many candidates and facet pairs) and acceptance.
 
+**Look before you build (the owner's rule, AGENT_WORKFLOW §3), recorded for PR 2 / 3 and the accelerations.**
+- **Library:**
+  - Predicates: `ExactPredicates.Orient3d` for C1 and the side tests. `tools/PredicateCompiler` generates the
+    indirect predicates (LPI / TPI with filters, the prepared form, `TPIDenominator`) instead of hand-derived bounds
+    (ROADMAP "Shared hotspots": filter bounds by hand).
+  - Candidates: segments use the arrangement's `TriangleBoxTree.QuerySegment` (closed, conservative boxes).
+    Triangles use a linear scan over the boxes. At 3200-10092 polyhedra it costs a few µs of the 359-1708 µs.
+    `TriangleBoxTree` has no box query, and adding one would change exact-arrangement code another session owns.
+  - `DMeshAABBTree3` indexes a live mesh's triangles, not the snapshot's polyhedron boxes. The quadtree is 2D.
+  - The construction follows `MeshEnvelope`'s structure (offsets from the support, rounding taken off the offsets) with
+    its own proof (4.4). The test oracle reuses `MeshEnvelope`'s clipping method, plus the 1D covering that open
+    polyhedra need.
+  - OPERATIONS.md lists `Reducer` / `MeshEnvelope` for guaranteed deviation; nothing else in the library decides
+    envelope containment.
+- **Literature:**
+  - Wang et al. 2020 and its reference code `fast-envelope` (MIT; `src/` read, the bundled predicate libraries not),
+    for Prop. 3.1, Thm. 3.2, Listing 1 and the accelerations (cover set, boundary restriction, prefilter).
+  - Attene 2020 for indirect predicates.
+  - For the alternative direction: Cohen et al. 1996 (simplification envelopes), Borouchaki & Frey 2005 (Hausdorff
+    envelope), and BVH upper bounds of the Hausdorff distance (e.g. "Cascading upper bounds for triangle soup
+    Pompeiu-Hausdorff distance", CGF 2024, not read).
+  - Sources are in docs/SOURCES.md. No GPL code was read or used.
+
 Kept on #263 / #268, internal, as a tested exact tool: `PolyhedralEnvelope` (points, segments, triangles), the
 generated indirect predicates on doubles with the prepared form, `TPIDenominator`, and the triangle oracle.
 `MeshEnvelope` stays as it is. For the `Reducer`, the open direction is faster distance bounds
