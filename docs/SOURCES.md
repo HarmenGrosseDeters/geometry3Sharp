@@ -281,6 +281,10 @@ The rest (moves, collapses and flips rejected if they flip a normal or create a 
 with a vertex on it, buffered projection for a deterministic result) follows from the failure analysis on Thingi10K
 in `docs/ROADMAP.md`.
 
+`Remesher.PreventSelfIntersections`: own design, the per-operation check of `Reducer.PreventSelfIntersections`
+(triangle hash grid, the exact `ExactTriangleIntersection.IntersectsBeyondShared`) extended to flips, splits and the
+buffered vertex moves; no external source.
+
 ## Forks of geometry3Sharp
 
 | Fork | Taken over |

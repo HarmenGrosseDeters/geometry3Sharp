@@ -161,8 +161,14 @@ Open tasks further up, and work further down, in the code or in the research lis
   bottom rim where the flat cap meets the side (projection moves across the rim, no normal flips): repro cases in
   `benchmarks/RemeshQualityBenchmark`: taper10_x0.15 (12 -> 16 pairs), taper16_x0.1 (0 -> 12), taper32_x0.1 (0 -> 12),
   taper32_x0.6 (0 -> 8), cone16_x0.45 (0 -> 10), cone24_x0.15 (0 -> 6), cone24_x0.3 (0 -> 10), cone24_x0.6 (0 -> 31),
-  cone32_x0.6 (0 -> 8) (and cone12_x0.6, cone16_x0.6, flattened to zero volume without `RejectInvertingPasses`). Needs an intersection check per operation (local AABB of the
-  one-ring) or a repair pass after remeshing.
+  cone32_x0.6 (0 -> 8) (and cone12_x0.6, cone16_x0.6, flattened to zero volume without `RejectInvertingPasses`).
+  Opt-in: `Remesher.PreventSelfIntersections` (also `RemesherPro`): an exact check of every collapse, flip, split and
+  smoothing / projection move against a triangle grid. Every result whose input is free of self-intersections is
+  free of them (all 192 procedural cases, 15 of 20 Thingi10K meshes; the other 5 inputs intersect themselves), at
+  about 18x the time (`benchmarks/RemeshQualityBenchmark`, PreventSelfIntersections). Open: the cost (a clearance
+  filter; the 2D shortcut for coplanar neighbours, about -30 % on CAD meshes, after the
+  `ExactTriangleIntersection` fix of stage R), and the thin walls, where the check blocks the folds but the result
+  ends far from the input (next item).
 - [ ] Remeshing far above the wall thickness folds walls through each other and can turn a mesh inside out, with
   and without `MinTriangleQuality`: Thingi10K 135363 (a 0.8 plate with thin-walled tubes, walls 0.75, target = mean
   edge 11.6) ends inside-out in both variants (signed volume 4448 -> -4706 without, -4021 with the option; the sign

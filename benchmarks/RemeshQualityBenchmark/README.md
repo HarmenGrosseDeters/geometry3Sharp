@@ -19,7 +19,8 @@ dotnet run -c Release --project benchmarks/RemeshQualityBenchmark -- runs=3 qual
 ```
 `only=<regex>` selects cases, `quality=<q>` or `qualities=<q1>,<q2>,..` the thresholds compared with 0 (off, default
 0.2), `fidelity=0` skips the fidelity measures. The JSON line of a case has the keys `off` and `on`, or `off` and
-`on_<q>` per threshold with `qualities=`. One JSON line per case (off and on), then the summary
+`on_<q>` per threshold with `qualities=`. `base=<q>` sets the quality of the off run (default 0), `si=1` turns on
+`Remesher.PreventSelfIntersections` in the on runs, `si_from=<k>` only from pass k on (0-based). One JSON line per case (off and on), then the summary
 and the list of cases that get worse. No mesh files are committed.
 
 ## Inputs
@@ -105,8 +106,8 @@ layer of zero volume (pass 17 / 16, Hausdorff 2.3 / 2.6 target); with it the las
   cap meets the side; cone12_x0.6 (23 -> 70) and cone16_x0.6 (39 -> 52): the flattened cones above, where the
   rolled-back passes end in different states. Counted per phase (taper16_x0.1, taper10_x0.15), the option creates
   far fewer intersections during the passes (edge operations 1248 -> 230 and 395 -> 56, before the review fixes), but projection moves across
-  the rim intersect without flipping a normal, and which intersections survive the last pass is chance. Preventing
-  them needs an intersection test per operation: `docs/ROADMAP.md`, "Remeshers produce self-intersections".
+  the rim intersect without flipping a normal, and which intersections survive the last pass is chance.
+  `PreventSelfIntersections` (below) prevents them, at about 18x the time.
 - **Hausdorff distance, cone apex (12 primitives):** cone12, cone16, cone24 and cone32 at some targets, by up to 0.81
   target edge lengths (cone16_x0.1 2.35 -> 3.15). The apex of a cone with 12 or more slices is no feature (its side
   edges are no creases), so both variants round it off (1.4..2.8 without, 1.4..3.2 with the option); the option's
@@ -118,6 +119,58 @@ layer of zero volume (pass 17 / 16, Hausdorff 2.3 / 2.6 target); with it the las
   target edge lengths; the mean improves from 1.115 to 1.017. Not analysed per mesh: the option rejects some smoothing
   moves, collapses and flips, so the vertices end in other places; these meshes also lose most of their flat triangles
   and self-intersections (eg 1053376: 292 -> 66 pairs, 48 -> 9 flat; 63709: 1366 -> 876 pairs, 12 -> 1 flat).
+
+## PreventSelfIntersections (opt-in)
+`Remesher.PreventSelfIntersections` rejects the collapses, flips and splits whose new triangles would intersect
+another triangle, and reverts the smoothing and projection moves that would. 4 cores, net10.0, Release, `runs=1`:
+```
+dotnet run -c Release --project benchmarks/RemeshQualityBenchmark -- runs=1 base=0.2 quality=0.2 si=1 thingi=benchmarks/RemeshBenchmark/data/meshes
+dotnet run -c Release --project benchmarks/RemeshQualityBenchmark -- runs=1 base=0 quality=0 si=1 thingi=benchmarks/RemeshBenchmark/data/meshes
+dotnet run -c Release --project benchmarks/RemeshQualityBenchmark -- runs=1 base=0.2 quality=0.2 si=1 si_from=15 thingi=benchmarks/RemeshBenchmark/data/meshes
+```
+
+| group | config | self-intersecting pairs without / with | cases with pairs | cases not clean | q<1e-3 | mean hausdorff/target | F 0.1 % | time s |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| primitives (150) | q 0.2 | 281 / 0 | 16 / 0 | 16 / 0 | 0 / 0 | 0.341 / 0.371 | 0.8282 / 0.8277 | 6.4 / 113.3 |
+| gears (18) | q 0.2 | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 | 0.010 / 0.010 | 1.0000 / 1.0000 | 0.3 / 11.8 |
+| tubes (24) | q 0.2 | 5352 / 0 | 24 / 0 | 24 / 0 | 0 / 0 | 0.311 / 0.996 | 0.0457 / 0.0192 | 0.3 / 3.1 |
+| thingi (20) | q 0.2 | 3105 / 1108 | 17 / 5 | 17 / 5 | 204 / 284 | 1.017 / 0.960 | 0.7205 / 0.7203 | 10.7 / 193.5 |
+| primitives (150) | q 0 | 409 / 0 | 35 / 0 | 37 / 4 | 38 / 4 | 0.330 / 0.340 | 0.8221 / 0.8213 | 4.5 / 150.1* |
+| gears (18) | q 0 | 7697 / 0 | 17 / 0 | 17 / 9 | 602 / 141 | 0.161 / 0.012 | 0.9824 / 1.0000 | 0.3 / 25.3* |
+| tubes (24) | q 0 | 5969 / 0 | 20 / 0 | 20 / 0 | 1 / 4 | 0.239 / 0.933 | 0.2055 / 0.0229 | 0.3 / 3.4* |
+| thingi (20) | q 0 | 19768 / 1040 | 19 / 4 | 19 / 12 | 1536 / 2049 | 1.115 / 1.024 | 0.7154 / 0.7135 | 7.6 / 545.6* |
+| thingi (20) | q 0.2, check from pass 15 | 3105 / 2411 | 17 / 16 | 17 / 16 | 204 / 204 | 1.017 / 1.003 | 0.7205 / 0.7196 | 10.9 / 19.6 |
+
+\* measured before the parallel first round of the move check (the results are the same, the times about a
+quarter lower now: q 0.2 thingi 262.2 -> 193.5 s, primitives 154.7 -> 113.3 s).
+
+- **Every result whose input is free of self-intersections is free of them** (all procedural cases, 15 of the 20
+  Thingi10K meshes). The pairs that remain are in the 5 Thingi10K meshes whose input already intersects itself
+  (1053376: input 148 pairs -> 7, 237642: 32 -> 28, 242225: 32 -> 32, 39460: 12 -> 4, 63709: 1298 -> 1037, q 0.2).
+  The check does not remove such pairs, and it blocks the operations near them.
+- **Fidelity:** unchanged on the primitives, gears and Thingi10K (F and edge recall within 0.002,
+  normal consistency on Thingi10K 0.943 -> 0.948; the Thingi10K mean Hausdorff distance improves, 17 primitives get a larger one, mostly cone apices). On Thingi10K
+  with q 0.2 the blocked operations leave more flat triangles (204 -> 284; 4 meshes worse). On the tubes (walls far
+  below the edge length) the folds are blocked rather than avoided: no pairs, but F 0.1 % 0.046 -> 0.019 and the
+  Hausdorff distance 0.31 -> 1.0 target. Those inputs need thickness-aware sizing (`docs/ROADMAP.md`).
+- **Cost:** in total 18x on Thingi10K (per mesh median 12x, up to 33x), 18x on the primitives, 35x on the gears. Profiled
+  on 1043471 (20k triangles, CAD-like): about 18 exact pair tests per changed triangle, nearly all against neighbours
+  that share a vertex; on flat faces these neighbours are coplanar and `Orient3d` has to reach its exact stage to
+  return 0. The edge operations (serial) take about 60 % of the check's time. Tried:
+  - an exact shortcut for neighbours sharing one vertex (the other two corners of one strictly on one side of the
+    other's plane): about 7 %;
+  - the first round of the move check in parallel over an AABB tree (each pair once): 44 -> 35 s on 1043471, 262 ->
+    194 s on all 20;
+  - neighbours in one axis plane decided in 2D without `Orient3d`: another 35 -> 25 s on 1043471, but left out: it
+    disagrees with `ExactTriangleIntersection.IntersectsBeyondShared` on coplanar slivers, where the library is wrong
+    (its projection axis comes from a rounded cross product; ROADMAP stage R). Possible once that is fixed;
+  - checking only the last 5 passes (`si_from=15`): 1.8x the time, but 2411 of 3105 pairs remain (most come from the
+    earlier passes and survive them), so not a substitute.
+  Open: a clearance filter (a triangle whose nearest non-neighbour is farther than its corners move cannot meet a
+  new one; most triangles are far from everything but their neighbours).
+- `Reducer.collapse_creates_intersection` used the open `AxisAlignedBox3d.Intersects` on the grid boxes, which misses
+  the flat boxes of coplanar triangles on an axis plane (found here, where the same test let pairs through): fixed by
+  the owner locally.
 
 ## Decision
 - `g3cli remesh` turns the option on: `min_quality` defaults to 0.2 (`--min-quality 0` for the old behaviour). On the

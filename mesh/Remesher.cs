@@ -110,12 +110,16 @@ namespace g3 {
         /// vertex can meet the new ones elsewhere), the projection of a vertex created by a split onto its constraint
         /// curve (it stays at the edge midpoint), and in the buffered smoothing and projection passes (also
         /// RemesherPro's tracked passes) the moves of every triangle pair that intersects after the pass (reverted
-        /// until no pair with a moved vertex intersects; in triangle id order, so the result does not depend on
-        /// the thread timing). Triangles kept in a hash grid that is rebuilt when the mesh was changed outside the
-        /// remesher. Intersections the mesh already has are not removed, and the operations and moves near them
-        /// are blocked. Not guarded: EnableSmoothInPlace, RemesherPro.TrackedFaceProjectionPass and the inline
-        /// projection of a collapse or smoothing move (ProjectionMode Inline is checked after the pass).
-        /// Rejections are counted in SelfIntersectionsRejected.
+        /// until no pair with a moved vertex intersects; the first round in parallel when the pass is, each round as
+        /// a set, so the result does not depend on the thread timing). Triangles kept in a hash grid that is rebuilt
+        /// when the mesh was changed outside the remesher. A mesh without self-intersections stays without them;
+        /// intersections the mesh already has are not removed, and the operations and moves near them are blocked.
+        /// Not guarded: EnableSmoothInPlace, RemesherPro.TrackedFaceProjectionPass and the inline projection of a
+        /// collapse or smoothing move (ProjectionMode Inline is checked after the pass). Rejections are counted in
+        /// SelfIntersectionsRejected. Expensive: with the g3cli remesh settings about 18x the time on Thingi10K
+        /// (10.7 -> 193.5 s for 20 meshes; mostly the exact tests of neighbouring triangles), see
+        /// benchmarks/RemeshQualityBenchmark. Thin walls far below the edge length stay intersection-free but end
+        /// far from the input (the folds are blocked, not avoided).
         /// </summary>
         public bool PreventSelfIntersections = false;
 
