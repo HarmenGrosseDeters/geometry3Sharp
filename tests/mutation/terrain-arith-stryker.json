@@ -1,19 +1,25 @@
 {
   "stryker-config": {
     "project": "geometry3Sharp_netstandard.csproj",
-    "test-projects": [ "../geometry3Sharp.Tests/geometry3Sharp.Tests.csproj" ],
+    "test-projects": [
+      "../geometry3Sharp.Tests/geometry3Sharp.Tests.csproj"
+    ],
     "target-framework": "net10.0",
     "mutate": [
       "**/math/ExactIntervals.cs",
       "**/math/ExactSlopePredicates.cs",
-      "**/math/ExactSlopeKernel.cs",
       "**/mesh_ops/TerrainSlope.cs"
     ],
-    "test-case-filter": "FullyQualifiedName~ExactIntervalsTests|FullyQualifiedName~TerrainSlopeOracleTests|FullyQualifiedName~TerrainSlopeDesignTests",
+    "test-case-filter": "FullyQualifiedName~ExactIntervalsTests|FullyQualifiedName~TerrainSlopeOracleTests",
     "coverage-analysis": "perTest",
     "configuration": "Release",
     "additional-timeout": 30000,
-    "reporters": [ "progress", "html", "json", "markdown" ],
+    "reporters": [
+      "progress",
+      "html",
+      "json",
+      "markdown"
+    ],
     "concurrency": 4
   }
 }

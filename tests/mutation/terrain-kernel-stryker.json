@@ -1,0 +1,23 @@
+{
+  "stryker-config": {
+    "project": "geometry3Sharp_netstandard.csproj",
+    "test-projects": [
+      "../geometry3Sharp.Tests/geometry3Sharp.Tests.csproj"
+    ],
+    "target-framework": "net10.0",
+    "mutate": [
+      "**/math/ExactSlopeKernel.cs"
+    ],
+    "test-case-filter": "FullyQualifiedName~TerrainSlopeDesignTests.StraightToe_IsAPlane|FullyQualifiedName~TerrainSlopeDesignTests.Square_Outside_FansAtTheCorners|FullyQualifiedName~TerrainSlopeDesignTests.ConcaveShapes_Outside|FullyQualifiedName~TerrainSlopeDesignTests.InclinedToe|FullyQualifiedName~TerrainSlopeDesignTests.SlopeJump_AtAVertex_R1TransitionWidth|FullyQualifiedName~TerrainSlopeDesignTests.Fill_IsTheMirroredCut|FullyQualifiedName~TerrainSlopeDesignTests.Review_OpenConcave_RaysCross",
+    "coverage-analysis": "perTest",
+    "configuration": "Release",
+    "additional-timeout": 10000,
+    "reporters": [
+      "progress",
+      "html",
+      "json",
+      "markdown"
+    ],
+    "concurrency": 4
+  }
+}
