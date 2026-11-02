@@ -259,6 +259,9 @@ namespace g3
             if (!(ulpTerm >= 0 && ulpTerm < double.PositiveInfinity))
                 ulpTerm = 0;
             maxLength = Math.Max(MaxDisplacement * diag, Math.Max(ulpTerm, AbsoluteTolerance));
+            // (a bound that is not finite, from coordinates that are not or a diagonal that overflows, rejects every edit)
+            if (!(maxLength < double.PositiveInfinity))
+                maxLength = double.NaN;
             coarse = ulpTerm > MaxDisplacement * diag;
             if (SharedPositionsTouch) {
                 atPosition = new Dictionary<Vector3d, List<int>>();

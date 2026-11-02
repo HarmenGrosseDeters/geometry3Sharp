@@ -430,8 +430,12 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void EmptyMesh_ResetsTheReportedValues()
         {
-            var r = new MeshRoundingRepair(PokedSphere());
+            // (the first run rejects an edit and leaves defects, so the values to reset are set)
+            DMesh3 start = SplitSphere(1e-13, 2e-13);
+            var r = new MeshRoundingRepair(new DMesh3(start)) { MaxDisplacement = 1e-15 / Diagonal(start) };
             r.Apply();
+            Assert.True(r.SmallestRejectedDrift < double.PositiveInfinity);
+            Assert.NotEqual(Vector3d.Zero, r.RemainingDefectAt);
             r.Mesh = new DMesh3();
             Assert.True(r.Apply());
             Assert.Equal(double.PositiveInfinity, r.SmallestRejectedDrift);
@@ -461,6 +465,22 @@ namespace geometry3Sharp.Tests
                 }
             }
             Assert.True(movedKept < movedFree, $"fixed vertices moved: {movedKept} kept, {movedFree} free");
+        }
+
+        [Fact]
+        public void HugeCoordinates_RejectEveryEdit()
+        {
+            // (re-review) coordinates whose diagonal overflows (infinite ones throw in the exact predicates): the bound is
+            // not finite, every edit is rejected
+            DMesh3 m = SplitSphere(1e-13, 2e-13);
+            int far = m.AppendVertex(new Vector3d(1e300, 0, 0));
+            int a = m.AppendVertex(new Vector3d(5, 0, 0)), b = m.AppendVertex(new Vector3d(5, 1, 0));
+            m.AppendTriangle(far, a, b);
+            int before = m.TriangleCount;
+            var r = new MeshRoundingRepair(m);
+            r.Apply();
+            Assert.Equal(0, r.Collapses + r.Flips + r.Moves + r.Zips + r.VertexRemovals);
+            Assert.True(double.IsNaN(r.MaxLength));
         }
     }
 }
