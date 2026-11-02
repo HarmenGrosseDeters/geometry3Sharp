@@ -250,3 +250,54 @@ slit tip as a reflex corner, the removal of vertices on the box boundary, and a 
 is not the apex. The numbers are in benchmarks/TerrainBenchmark/README.md; the octagon on the 1 m grid is slower (a
 second realization, see there).
 
+
+## 10. Mixed cut and fill, target heights (next package, draft)
+
+### Mixed cut and fill (`Direction.Auto`, TERRAIN.md 5.5)
+
+The final surface is the clamp max(S_fill, min(T, S_cut)), the median of the three since S_fill ≤ S_cut; S_fill ≤
+S_cut holds iff neither surface fails its own toe check (appendix A of TERRAIN.md): the cut run's `ToeUndercut`, and the
+fill run's mirrored undercut, reported as `ToeOvertopped` in Auto. So the cut region {T > S_cut} and the fill region
+{T < S_fill} are disjoint, and each is the region of its own run on T.
+
+Spike (2026-11-02, public API, square toe at z 0 in a terrain tilted 0.15, 1:1.5): the cut run and the fill run on T
+each succeed with one open catch line from toe to toe; both lines end at the same two crossing points of the toe with
+the terrain, (−2, ±10). 3 of the 36 + 21 replaced terrain triangles are replaced by both runs (the ones at the
+crossings). Running fill on the cut composite instead (min(T, S_cut) as the terrain) fails (`NoDaylight`, a closed
+catch line of 90 points): the realized cut surface lies λ below S_cut and the fill surface λ above S_fill, so along
+the whole cut stretch of the toe, where both start at the toe height, the realized fill surface lies above the
+realized cut slope in a band (2λ / (s_C + s_F) wide). Not that way.
+
+Plan:
+1. Auto needs a terrain. Run cut and fill on T as today, each with its own pieces, specs (`CutStart/End`,
+   `FillStart/End`), local height limit, λ and checks; an undercut of the fill run is `ToeOvertopped`
+   (GeometricallyInfeasible, or UnsupportedByMethod through the design area, as for the undercut).
+2. The composite: the terrain with the replaced triangles of both runs taken out; the triangles of both runs'
+   replacements; the terrain triangles replaced by both get one partial triangulation with the constraints of both
+   overlays (the catch segments of both, the region boundaries of both; parity per run, a part is cut, fill or
+   terrain). The two regions meet only at the toe crossings, so the constraint graph stays simple there; where the
+   rounded catch points of the two runs at one crossing differ, they are snapped to one (as the composite snaps
+   catch points today).
+3. Outputs: `CutVolume`, `FillVolume`, `CutArea`, `FillArea` (TERRAIN.md 7), the catch lines of both (in order: cut
+   then fill, each line knows its direction), `SlopeSurface` of both (groups: pieces of the cut run, then of the fill
+   run), `Pieces` with their direction. `Volume` / `PlanArea` stay the single-direction totals (cut + fill in Auto).
+4. Tests: the counterexample of appendix A (`ToeOvertopped`); a toe crossing a tilted terrain (both volumes against
+   the separate runs, the composite manifold and a height field, the clamp checked at sample points against
+   median(S_fill, T, S_cut) of the separate surfaces); a toe fully below / fully above the terrain (Auto equals Cut /
+   Fill bit for bit); invariance over `Similarity.All()`; reuse; insertion order (D) for both runs.
+5. Library building blocks: `SlopeTerrainOverlay` and `SlopeComposite` per run (unchanged), the composite's
+   `partial` for the shared triangles with the union of both constraint sets, `ExactTriangulation2`.
+
+### Target heights (TERRAIN.md 10, the hook for berms)
+
+`TargetHeights` (input, optional): for each height h the level line of the final slope at h, `TargetHeightLines`
+(output, polylines, closed where they close). On the slope surface the level line is exact in the kernel: the line of
+a face's plane with the horizontal plane at h; chained across the faces. Realized: the contour of the realized
+`SlopeRegion` (with a terrain; else `SlopeSurface`) at z = h, vertex signs exact (z − h), crossing points on the
+edges interpolated and rounded, chained by edge; open lines end where the region ends (catch line, lateral limit).
+Tests: a square pit over flat terrain (lines at h are squares offset by h / s, closed), an open toe (lines end at the
+lateral limits), heights outside the slope's range (no line), invariance, and the line lying on the slope surface
+(each point on a triangle of `SlopeRegion` within the rounding).
+
+Docs: OPERATIONS.md entries for Auto, target heights, the volumes and the 1c outputs; SOURCES.md (no new sources
+for the clamp: TERRAIN.md appendix A; the contour by marching triangles, eg de Berg et al. for the chaining).
