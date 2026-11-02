@@ -55,6 +55,9 @@ namespace gs
         /// </summary>
         internal List<Segment3d> ProtectedEdges = new List<Segment3d>();
         internal double ProtectedDistance = 0;
+        /// <summary> ProtectedEdges hold for flips only (moves and splits near them stay allowed) </summary>
+        internal bool ProtectFlipsOnly = false;
+        bool protectThisOperation = true;
         Dictionary<Vector3i, List<int>> protectedCells;
         double protectedCell;
         /// <summary>
@@ -257,7 +260,7 @@ namespace gs
 
         internal bool accept(List<Index3i> ids, List<Triangle3d> tris, HashSet<int> removed)
         {
-            if (protectedCells != null) {
+            if (protectedCells != null && protectThisOperation) {
                 foreach (int t in removed)
                     if (is_protected(t)) {
                         RejectedByProtection++;
@@ -352,6 +355,7 @@ namespace gs
                 skipNormals = capFlip && n0.Dot(n1) >= Math.Cos(CapFlipMaxDihedralDegrees * MathUtil.Deg2Rad);
                 bool ok = accept(ids, tris, removed);
                 skipNormals = false;
+                protectThisOperation = true;
                 if (ok == false) continue;
                 DMesh3.EdgeFlipInfo info;
                 if (Mesh.FlipEdge(eid, out info) != MeshResult.Ok) continue;
@@ -472,7 +476,10 @@ namespace gs
                 }
                 if (!valid) continue;
                 removed.Add(t); removed.Add(other);
-                if (accept(ids, tris, removed) == false) continue;
+                protectThisOperation = !ProtectFlipsOnly;
+                bool accepted = accept(ids, tris, removed);
+                protectThisOperation = true;
+                if (accepted == false) continue;
                 DMesh3.EdgeSplitInfo info;
                 if (Mesh.SplitEdge(eid, out info) != MeshResult.Ok) continue;
                 Mesh.SetVertex(info.vNew, m);
@@ -538,7 +545,10 @@ namespace gs
                     ids.Add(tv); tris.Add(new Triangle3d(A, B, C)); removed.Add(t);
                 }
                 if (!ok || !(nw >= cur + MinGainDegrees)) continue;
-                if (accept(ids, tris, removed) == false) continue;
+                protectThisOperation = !ProtectFlipsOnly;
+                bool accepted = accept(ids, tris, removed);
+                protectThisOperation = true;
+                if (accepted == false) continue;
                 Mesh.SetVertex(v, q);
                 regrid(ring, ring);
                 Moves++;

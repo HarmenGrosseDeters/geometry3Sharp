@@ -453,6 +453,35 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void ProtectFlipsOnly_MovesNearProtectedEdgesStayAllowed()
+        {
+            // the low pyramid whose apex move gains (normal guard off): with a protected segment at the apex the move
+            // is refused, unless only flips are protected; a gainful flip near it stays refused
+            Func<bool, AlphaWrapQualityPass> fan = (flipsOnly) => {
+                var m = new DMesh3();
+                int apex = m.AppendVertex(new Vector3d(0.2, 0.2, 0.4));
+                var b = new[] { new Vector3d(0, 0, 0), new Vector3d(1.6, 0, 0), new Vector3d(1.6, 1.2, 0), new Vector3d(0, 1.2, 0) }
+                    .Select(p => m.AppendVertex(p)).ToArray();
+                for (int k = 0; k < 4; ++k) m.AppendTriangle(apex, b[k], b[(k + 1) % 4]);
+                var pass = new AlphaWrapQualityPass(m, new DMesh3(m), 100) { EnableFlips = false, MaxNormalTurnDegrees = 180, TargetAngleDegrees = 60,
+                    ProtectedDistance = 0.1, ProtectFlipsOnly = flipsOnly };
+                pass.ProtectedEdges.Add(new Segment3d(new Vector3d(0.2, 0.2, 0.45), new Vector3d(0.3, 0.2, 0.45)));
+                Assert.True(pass.Compute());
+                return pass;
+            };
+            Assert.Equal(0, fan(false).Moves);
+            Assert.True(fan(true).Moves > 0);
+            var m2 = new DMesh3();
+            int a2 = m2.AppendVertex(new Vector3d(0, 0, 0)), b2 = m2.AppendVertex(new Vector3d(1, 0, 0)),
+                c2 = m2.AppendVertex(new Vector3d(0.5, 0.05, 0)), d2 = m2.AppendVertex(new Vector3d(0.5, -0.05, 0));
+            m2.AppendTriangle(a2, b2, c2); m2.AppendTriangle(b2, a2, d2);
+            var kite = new AlphaWrapQualityPass(m2, new DMesh3(m2), 1) { EnableMoves = false, ProtectedDistance = 0.1, ProtectFlipsOnly = true };
+            kite.ProtectedEdges.Add(new Segment3d(new Vector3d(0.5, 0, 0.05), new Vector3d(0.6, 0, 0.05)));
+            Assert.True(kite.Compute());
+            Assert.Equal(0, kite.Flips);
+        }
+
+        [Fact]
         public void InvariantUnderSimilarities()
         {
             DMesh3 wrap, simp; double tol;

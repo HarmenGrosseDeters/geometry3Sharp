@@ -200,6 +200,7 @@ class Program
                                     }
                                     pass.ProtectedDistance = v * pass.Tolerance / 0.475;
                                     break;
+                                case "protectflipsonly": pass.ProtectFlipsOnly = v != 0; break;
                                 case "flips": pass.EnableFlips = v != 0; break;
                                 case "moves": pass.EnableMoves = v != 0; break;
                                 default: throw new ArgumentException("BENCH_WQ: unknown switch " + p[0]);
