@@ -52,6 +52,25 @@ Measured on our side:
 
 Not a defect. **Proposal** (owner's call): diametral lenses where the bound allows them (with circles kept above about 26°, or
 together with off-centres), measured on the catalogue and the corpus; expected up to half the Steiner points on small inputs.
+
+**Measured (2026-11-02, the off-centre PR), with lenses active under conforming Delaunay (the M3 candidate) and master's oracle:**
+
+| | circles (master) | off-centres | lenses | lenses + off-centres |
+|---|---|---|---|---|
+| catalogue M3 rows passing | 55 / 55 | 55 / 55 | 46 / 55 | 46 / 55 |
+| catalogue vertices (sum) | 391 214 | 391 549 | 748 809 | 748 993 |
+| catalogue Steiner-limit hits | 0 | 0 | 2 (f-40 at 33.75, 34.5) | 2 |
+| corpus passing at 20 / 25 / 30 / 33 degrees | 83 / 81 / 82 / 77 | 82 / 82 / 82 / 78 | | 34 / 32 / 36 / 25 |
+| corpus Steiner-limit hits at 20 / 25 / 30 / 33 | 1 / 1 / 1 / 6 | 1 / 1 / 1 / 6 | | 1 / 1 / 1 / 41 |
+
+- **Lenses break O2.** The failing catalogue rows (F-4/a, b, c, F-5, F-18/b, F-26, F-27, F-39, F-42) and almost all failing corpus runs
+  violate conforming Delaunay (O2, empty circumcircles). The four small rows above were the exception.
+- **Lenses save points, but only where they pass.** Examples: F-26 909 -> 191, F-4/c 37 568 -> 17 899.
+- **Only water-huge fails without lenses.** The single violation in the circle and off-centre columns is earcut's water-huge, an oracle
+  gap closed separately (O11-unsplittable pieces).
+
+**Owner decision 2026-11-02, confirmed on these numbers: no lenses (option a); off-centres go ahead.** Off-centres save 0.6 to 0.9 %
+of the vertices on the corpus at 20 to 30 degrees and are mixed at 33. Lenses for `Conforming = false` remain a possible later item.
 The corpus shows the same pattern: poly2tri's deadly_quad, a quadrilateral of 4 points, gets 5088 vertices at 0° (quality without an
 angle bound, conforming).
 
