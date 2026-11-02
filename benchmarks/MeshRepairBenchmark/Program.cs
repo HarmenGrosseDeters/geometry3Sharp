@@ -185,6 +185,8 @@ class Program
                                 case "capflip": pass.CapAngleDegrees = v; break;
                                 case "nsamples": pass.NormalSamples = (int)v; break;
                                 case "pin": pass.PinCreaseVerticesDegrees = v; break;
+                                case "flips": pass.EnableFlips = v != 0; break;
+                                case "moves": pass.EnableMoves = v != 0; break;
                                 default: throw new ArgumentException("BENCH_WQ: unknown switch " + p[0]);
                             }
                         }

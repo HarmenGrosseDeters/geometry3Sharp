@@ -30,7 +30,7 @@ namespace gs
         internal double MinGainDegrees = 0.5;
         internal double MaxNormalTurnDegrees = 30;
         internal int MaxPasses = 8;
-        /// <summary> (tests) the two kinds of operations </summary>
+        /// <summary> the two kinds of operations (flips off: the Hu et al. 2017 variant, which avoids flips because they destroy creases) </summary>
         internal bool EnableFlips = true, EnableMoves = true;
         /// <summary> move along the reference: the tangential target is moved onto the reference at the vertex's own offset from it </summary>
         internal bool FollowReference = false;
