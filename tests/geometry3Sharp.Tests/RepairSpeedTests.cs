@@ -155,6 +155,52 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void TriangleHashGrid_QueryMatches_IsExactlyTheTestOfQuery()
+        {
+            // QueryMatches(tid, box) is true exactly for the triangles Query(box) returns: placed boxes (flat, touching,
+            // large, far: on coarser levels), a finite box too large for the key range or with coordinates whose sum
+            // overflows, and non-finite ones (not on a level: returned for every box)
+            var rand = new Random(7);
+            var grid = new TriangleHashGrid(Vector3d.Zero, 0.1);
+            var boxes = new List<AxisAlignedBox3d>();
+            Func<double> r = () => rand.NextDouble() * 4 - 2;
+            for (int k = 0; k < 300; ++k) {
+                var p = new Vector3d(r(), r(), r());
+                var b = new AxisAlignedBox3d(p); b.Contain(p + new Vector3d(rand.NextDouble() * (k % 10 == 0 ? 3 : 0.3), rand.NextDouble() * 0.3, k % 7 == 0 ? 0 : rand.NextDouble() * 0.3));
+                boxes.Add(b);
+            }
+            boxes.Add(new AxisAlignedBox3d(new Vector3d(1e300, 0, 0), new Vector3d(1e300, 1, 1)));
+            boxes.Add(new AxisAlignedBox3d(new Vector3d(5e307, 5e307, 5e307), new Vector3d(5e307, 5e307, 5e307)));
+            boxes.Add(new AxisAlignedBox3d(new Vector3d(0, 0, 0), new Vector3d(double.NaN, 1, 1)));
+            boxes.Add(new AxisAlignedBox3d(new Vector3d(double.NegativeInfinity, 0, 0), new Vector3d(1, 1, 1)));
+            for (int t = 0; t < boxes.Count; ++t) grid.Insert(t, boxes[t]);
+            grid.Remove(3);
+            var queries = new List<AxisAlignedBox3d>(boxes.Take(60));
+            queries.Add(new AxisAlignedBox3d(new Vector3d(-10, -10, -10), new Vector3d(10, 10, 10)));
+            queries.Add(new AxisAlignedBox3d(new Vector3d(5e307, 5e307, 5e307), new Vector3d(6e307, 6e307, 6e307)));
+            foreach (var q in queries) {
+                var found = new HashSet<int>();
+                grid.Query(q, (t) => found.Add(t));
+                var qq = q;
+                for (int t = 0; t < boxes.Count + 2; ++t)
+                    Assert.True(found.Contains(t) == grid.QueryMatches(t, ref qq), $"triangle {t}, query {q}");
+            }
+            // a finite box on a level whose coordinates sum to more than double.MaxValue (cells of 1e306): only the
+            // queries that overlap it return it
+            var huge = new TriangleHashGrid(Vector3d.Zero, 1e306);
+            var hb = new AxisAlignedBox3d(new Vector3d(5e307, 5e307, 5e307), new Vector3d(5.1e307, 5.1e307, 5.1e307));
+            huge.Insert(0, hb);
+            foreach (var q in new[] { hb, new AxisAlignedBox3d(Vector3d.Zero, Vector3d.One), new AxisAlignedBox3d(new Vector3d(1e307, 1e307, 1e307), new Vector3d(2e307, 2e307, 2e307)) }) {
+                var found = new HashSet<int>();
+                huge.Query(q, (t) => found.Add(t));
+                var qq = q;
+                Assert.True(found.Contains(0) == huge.QueryMatches(0, ref qq), $"huge box, query {q}");
+            }
+            var near = new AxisAlignedBox3d(Vector3d.Zero, Vector3d.One);
+            Assert.False(huge.QueryMatches(0, ref near));
+        }
+
+        [Fact]
         public void ReducerPreventSelfIntersections_SameResultAsBefore()
         {
             // the grid only finds the candidates; the exact test decides: a reduction with a grid of any cell

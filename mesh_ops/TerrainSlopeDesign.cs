@@ -40,6 +40,85 @@ namespace gs
         }
     }
 
+    /// <summary> a level line of the slope at a target height (TerrainSlopeDesign.TargetHeightLines) </summary>
+    public class TargetHeightLine
+    {
+        public double Height;
+        public List<Vector3d> Points = new List<Vector3d>();
+        public bool Closed;
+
+        /// <summary>
+        /// the level lines of a TIN at height h: per triangle the segment between the crossings of its edges with z = h
+        /// (a vertex at h counts as above, so each crossing is on an edge with one end below, and every triangle has none
+        /// or two), the point on an edge interpolated once for both of its triangles; chained across shared edges, open
+        /// lines (from boundary to boundary) first, then the closed ones; each line runs with the higher side on its left
+        /// </summary>
+        public static List<TargetHeightLine> LevelLines(DMesh3 m, double h)
+        {
+            var result = new List<TargetHeightLine>();
+            if (!MathUtil.IsFinite(h)) return result;
+            Func<int, bool> above = (v) => m.GetVertex(v).z >= h;
+            var pointOf = new Dictionary<int, Vector3d>();
+            Func<int, Vector3d> crossing = (e) => {
+                Vector3d p;
+                if (pointOf.TryGetValue(e, out p)) return p;
+                Index2i ev = m.GetEdgeV(e);
+                Vector3d a = m.GetVertex(ev.a), b = m.GetVertex(ev.b);
+                if (ev.a > ev.b) { Vector3d t = a; a = b; b = t; }     // (the same for both triangles: from the lower id)
+                // (an end exactly at h is the point itself: one of the two ends is below, the other at h or above)
+                if (a.z == h) p = new Vector3d(a.x, a.y, h);
+                else if (b.z == h) p = new Vector3d(b.x, b.y, h);
+                else {
+                    double s = (h - a.z) / (b.z - a.z);
+                    p = new Vector3d(a.x + s * (b.x - a.x), a.y + s * (b.y - a.y), h);
+                }
+                pointOf[e] = p;
+                return p;
+            };
+            // per triangle: the directed segment (from edge, to edge), the higher side on the left
+            var next = new Dictionary<int, int>();     // from edge -> to edge
+            var hasIn = new HashSet<int>();
+            foreach (int t in m.TriangleIndices()) {
+                Index3i tv = m.GetTriangle(t), te = m.GetTriEdges(t);
+                int[] v = { tv.a, tv.b, tv.c }, e = { te.a, te.b, te.c };
+                // (counter-clockwise in XY: the edges e[i] = (v[i], v[i+1]))
+                if (ExactPredicates.Orient2d(m.GetVertex(v[0]).xy, m.GetVertex(v[1]).xy, m.GetVertex(v[2]).xy) < 0) {
+                    v = new[] { tv.a, tv.c, tv.b }; e = new[] { te.c, te.b, te.a };
+                }
+                int from = -1, to = -1;
+                for (int i = 0; i < 3; ++i) {
+                    bool a0 = above(v[i]), a1 = above(v[(i + 1) % 3]);
+                    // (walking counter-clockwise: entering the higher side's region on the left when the edge goes up)
+                    if (a0 == false && a1) to = e[i];
+                    else if (a0 && a1 == false) from = e[i];
+                }
+                if (from < 0 || to < 0) continue;
+                next[from] = to;
+                hasIn.Add(to);
+            }
+            var starts = next.Keys.Where(k => hasIn.Contains(k) == false).OrderBy(k => k).ToList();
+            var used = new HashSet<int>();
+            Action<int, bool> walk = (e0, closed) => {
+                var line = new TargetHeightLine() { Height = h, Closed = closed };
+                int e = e0;
+                line.Points.Add(crossing(e));
+                while (next.ContainsKey(e) && used.Add(e)) {
+                    e = next[e];
+                    if (closed && e == e0) break;
+                    Vector3d q = crossing(e);
+                    // (two crossings at one vertex at h: one point)
+                    if (q != line.Points[line.Points.Count - 1]) line.Points.Add(q);
+                }
+                if (closed && line.Points.Count > 1 && line.Points[0] == line.Points[line.Points.Count - 1]) line.Points.RemoveAt(line.Points.Count - 1);
+                result.Add(line);
+            };
+            foreach (int s0 in starts) walk(s0, false);
+            foreach (int k in next.Keys.OrderBy(k => k).ToList())
+                if (used.Contains(k) == false) walk(k, true);
+            return result;
+        }
+    }
+
     /// <summary>
     /// A toe piece: the stable reference of the slope triangles that it supports (the group id of a triangle in
     /// TerrainSlopeDesign.SlopeSurface is the index of its piece).
@@ -50,6 +129,8 @@ namespace gs
         /// <summary> the toe points at the ends of the piece, as specified </summary>
         public Vector3d P0, P1;
         public SlopeSpec Spec;
+        /// <summary> Cut or Fill: the run of the piece (both in a mixed run, Direction Auto) </summary>
+        public TerrainSlopeDesign.Directions Direction = TerrainSlopeDesign.Directions.Cut;
         /// <summary>
         /// with a terrain: the volume between the terrain and this piece's slope over the region (cut: excavated; fill:
         /// filled), the region's plan area and its area on the slope surface (TERRAIN.md 5.7)
@@ -85,7 +166,7 @@ namespace gs
             Success,
             /// <summary> a toe, a slope or a parameter is invalid: Message, ToeProblems </summary>
             InvalidInput,
-            /// <summary> not in phase 1a: Direction Auto, a slope that changes along a segment </summary>
+            /// <summary> not implemented: a slope that changes continuously along a segment </summary>
             NotImplemented,
             /// <summary> a toe segment rises (or falls) at least as steeply as its slope: ToeProblems </summary>
             ToeSteeperThanSlope,
@@ -112,7 +193,12 @@ namespace gs
             /// RequiredCatchLineAccuracy is not reached, also with a smaller Tolerance (TerrainVerticalUncertainty or a
             /// tangential contact alone exceeds it): CatchLines are kept with their uncertainties, the rest is not returned
             /// </summary>
-            CatchLineAccuracyNotReached
+            CatchLineAccuracyNotReached,
+            /// <summary>
+            /// Direction Auto: the fill surface rises above a toe segment by more than Tolerance (the mirror of ToeUndercut;
+            /// with it the fill surface would pass above the cut surface, TERRAIN.md appendix A): ToeProblems
+            /// </summary>
+            ToeOvertopped
         }
 
         // inputs
@@ -165,6 +251,11 @@ namespace gs
         /// statistics count all rounds), else CatchLineAccuracyNotReached (also when a smaller Tolerance fails)
         /// </summary>
         public double RequiredCatchLineAccuracy = double.NaN;
+        /// <summary>
+        /// optional: heights at which the level lines of the slope are returned (TargetHeightLines; the hook for berms,
+        /// TERRAIN.md 10)
+        /// </summary>
+        public List<double> TargetHeights;
         public Func<bool> CancelF = () => false;
 
         // outputs
@@ -240,10 +331,21 @@ namespace gs
         /// (the caller's design) is not included
         /// </summary>
         public double Volume, PlanArea, SlopeArea;
+        /// <summary>
+        /// with a terrain: the cut and the fill part of Volume and PlanArea (Direction Auto both, else the one of Direction;
+        /// TERRAIN.md 7)
+        /// </summary>
+        public double CutVolume, FillVolume, CutArea, FillArea;
         /// <summary> the catch-line segments (line, segment) whose uncertainty exceeds CatchLineWarningThreshold </summary>
         public List<Index2i> IllConditionedCatchLine = new List<Index2i>();
         /// <summary> the catch-line segments (line, segment) where the slope and the terrain coincide (tangential or planar contact) </summary>
         public List<Index2i> TangentialContact = new List<Index2i>();
+        /// <summary>
+        /// the level lines of the slope at TargetHeights: of SlopeRegion where it is built (the slope as it is in the
+        /// composite), else of SlopeSurface. Per height in the order given, polylines in the plane z = height, closed where
+        /// they close, open where the slope ends (at a catch line, a lateral limit or the toe)
+        /// </summary>
+        public List<TargetHeightLine> TargetHeightLines = new List<TargetHeightLine>();
         /// <summary> the Tolerance used: Tolerance, or smaller to reach RequiredCatchLineAccuracy </summary>
         public double UsedTolerance;
         /// <summary> false if the results are partial (NoDaylight) or missing </summary>
@@ -282,7 +384,8 @@ namespace gs
             Replacement = null; ReplacedTerrainTriangles = new List<int>(); CompositeTerrainVertices = null; TerrainCompositeVertices = null;
             Pieces = new List<SlopePiece>(); ToeProblems = new List<Index2i>(); ProblemTriangles = new List<int>();
             MaxSlopeRatio = 0; UsedSlopeMargin = UsedToeLowering = UsedMinFeatureSize = FacetAngle = 0;
-            Volume = PlanArea = SlopeArea = 0;
+            Volume = PlanArea = SlopeArea = 0; CutVolume = FillVolume = CutArea = FillArea = 0;
+            lastOverlay = null; lastPieces = null; TargetHeightLines = new List<TargetHeightLine>(); AutoCut = AutoFill = null;
             PhaseSeconds = new Dictionary<string, double>(); Attempts = 0; Realizations = 0; PredicateCalls = ExactFallbacks = ExactConstructions = 0;
             MergedPositions = 0; MergeLambdaRequired = 0; NeedleFlips = 0; LastRealized = null;
             // (a cancelled or failed run can leave them set)
@@ -332,12 +435,23 @@ namespace gs
             if (Status == Statuses.CatchLineAccuracyNotReached) {
                 // (the catch lines are kept, with their uncertainties: they show where the accuracy is not reached)
                 SlopeSurface = null; SlopeRegion = null; Composite = null; Pieces = new List<SlopePiece>();
-                Volume = PlanArea = SlopeArea = 0;
+                Volume = PlanArea = SlopeArea = 0; CutVolume = FillVolume = CutArea = FillArea = 0;
                 Replacement = null; ReplacedTerrainTriangles = new List<int>(); CompositeTerrainVertices = null; TerrainCompositeVertices = null;
             } else if (Status != Statuses.Success && Status != Statuses.NoDaylight && Status != Statuses.CompositeFailed) {
                 SlopeSurface = null; SlopeRegion = null; Composite = null; CatchLines = new List<CatchLine>();
-                Volume = PlanArea = SlopeArea = 0;
+                Volume = PlanArea = SlopeArea = 0; CutVolume = FillVolume = CutArea = FillArea = 0;
                 Replacement = null; ReplacedTerrainTriangles = new List<int>(); CompositeTerrainVertices = null; TerrainCompositeVertices = null;
+            }
+            if (Direction != Directions.Auto) {
+                bool fillRun = Direction == Directions.Fill;
+                CutVolume = fillRun ? 0 : Volume; CutArea = fillRun ? 0 : PlanArea;
+                FillVolume = fillRun ? Volume : 0; FillArea = fillRun ? PlanArea : 0;
+            }
+            if (TargetHeights != null && (Status == Statuses.Success || Status == Statuses.NoDaylight || Status == Statuses.CompositeFailed)) {
+                DMesh3 m = SlopeRegion ?? SlopeSurface;
+                if (m != null)
+                    foreach (double h in TargetHeights)
+                        TargetHeightLines.AddRange(TargetHeightLine.LevelLines(m, h));
             }
             IsComplete = Status == Statuses.Success;
             StatusKind = kind_of(Status, undercutThroughDesign);
@@ -366,10 +480,134 @@ namespace gs
             public AxisAlignedBox2d Reach;
         }
 
+        // the last successful build's overlay and pieces (a mixed run builds its composite from those of its two runs)
+        SlopeTerrainOverlay lastOverlay;
+        List<InPiece> lastPieces;
+
+        // a run of one direction with this one's inputs (Direction Auto)
+        TerrainSlopeDesign run_of(Directions dir)
+        {
+            return new TerrainSlopeDesign() {
+                Toes = Toes, Terrain = Terrain, Direction = dir, HeightLimit = HeightLimit, Tolerance = Tolerance,
+                SlopeMargin = SlopeMargin, TerrainVerticalUncertainty = TerrainVerticalUncertainty,
+                CatchLineWarningThreshold = CatchLineWarningThreshold, CancelF = CancelF,
+                // (each run checks its own clipped region; the mixed composite is built and checked here)
+                BuildComposite = BuildComposite, CompositeKind = CompositeKinds.Replacement,
+                InsertionOrder = InsertionOrder, InsertionSeed = InsertionSeed, CheckCanonical = CheckCanonical,
+                CapEstimateRounds = CapEstimateRounds, RebuildForEachLowering = RebuildForEachLowering
+            };
+        }
+
+        /// <summary> tests: the two runs of the last Direction Auto (cut, fill) </summary>
+        internal TerrainSlopeDesign AutoCut, AutoFill;
+
+        // Direction Auto (TERRAIN_1C_PLAN.md, section 10): cut and fill on the terrain, each a run of its own (pieces,
+        // height limit, λ, checks); the final surface is the clamp max(S_fill, min(T, S_cut)): the cut region and the
+        // fill region, disjoint where neither run fails its toe check, with one composite of both
+        Statuses compute_auto()
+        {
+            if (Terrain == null)
+                return fail(Statuses.InvalidInput, "Direction Auto (mixed cut and fill) needs a Terrain");
+            if (double.IsNaN(HeightLimit) == false)
+                return fail(Statuses.InvalidInput, "Direction Auto takes the height limits of its two runs from the terrain: HeightLimit must be NaN");
+            TerrainSlopeDesign c = run_of(Directions.Cut), f = run_of(Directions.Fill);
+            AutoCut = c; AutoFill = f;
+            foreach (TerrainSlopeDesign r in new[] { c, f }) {
+                checkCancel();
+                r.Compute();
+                foreach (var kv in r.PhaseSeconds) {
+                    double t0;
+                    PhaseSeconds.TryGetValue(kv.Key, out t0);
+                    PhaseSeconds[kv.Key] = t0 + kv.Value;
+                }
+                Attempts += r.Attempts; Realizations += r.Realizations; CapRounds += r.CapRounds;
+                PredicateCalls += r.PredicateCalls; ExactFallbacks += r.ExactFallbacks; ExactConstructions += r.ExactConstructions;
+                if (r.Status == Statuses.Cancelled) throw new OperationCanceledException();
+                // (a run's own composite that fails does not stop the mixed one, which is built from both overlays)
+                if (r.Status != Statuses.Success && r.Status != Statuses.NoDaylight && !(r.Status == Statuses.CompositeFailed && r.lastOverlay != null)) {
+                    ToeProblems = r.ToeProblems; ProblemTriangles = r.ProblemTriangles;
+                    undercutThroughDesign = r.undercutThroughDesign; UndercutCauses = r.UndercutCauses;
+                    if (r == f && r.Status == Statuses.ToeUndercut)
+                        return fail(Statuses.ToeOvertopped, $"fill: {r.ToeProblems.Count} toe segments are overtopped by the fill cones of other parts of the toe");
+                    return fail(r.Status, (r == c ? "cut: " : "fill: ") + r.Message);
+                }
+            }
+            int nc = c.Pieces.Count;
+            Pieces = c.Pieces.Concat(f.Pieces).ToList();
+            SlopeSurface = new DMesh3(false, false, false, true);
+            foreach (TerrainSlopeDesign r in new[] { c, f }) {
+                int off = r == c ? 0 : nc;
+                var map = new Dictionary<int, int>();
+                foreach (int v in r.SlopeSurface.VertexIndices()) map[v] = SlopeSurface.AppendVertex(r.SlopeSurface.GetVertex(v));
+                foreach (int t in r.SlopeSurface.TriangleIndices()) {
+                    Index3i tv = r.SlopeSurface.GetTriangle(t);
+                    SlopeSurface.AppendTriangle(map[tv.a], map[tv.b], map[tv.c], r.SlopeSurface.GetTriangleGroup(t) + off);
+                }
+            }
+            CatchLines = c.CatchLines.Concat(f.CatchLines).ToList();
+            int lc = c.CatchLines.Count;
+            IllConditionedCatchLine = c.IllConditionedCatchLine.Concat(f.IllConditionedCatchLine.Select(x => new Index2i(x.a + lc, x.b))).ToList();
+            TangentialContact = c.TangentialContact.Concat(f.TangentialContact.Select(x => new Index2i(x.a + lc, x.b))).ToList();
+            CutVolume = c.Volume; CutArea = c.PlanArea; FillVolume = f.Volume; FillArea = f.PlanArea;
+            Volume = c.Volume + f.Volume; PlanArea = c.PlanArea + f.PlanArea; SlopeArea = c.SlopeArea + f.SlopeArea;
+            MaxSlopeRatio = Math.Max(c.MaxSlopeRatio, f.MaxSlopeRatio);
+            UsedSlopeMargin = Math.Max(c.UsedSlopeMargin, f.UsedSlopeMargin);
+            UsedToeLowering = Math.Max(c.UsedToeLowering, f.UsedToeLowering);
+            UsedMinFeatureSize = Math.Max(c.UsedMinFeatureSize, f.UsedMinFeatureSize);
+            FacetAngle = Math.Max(c.FacetAngle, f.FacetAngle);
+            MergedPositions = c.MergedPositions + f.MergedPositions; NeedleFlips = c.NeedleFlips + f.NeedleFlips;
+            MergeLambdaRequired = Math.Max(c.MergeLambdaRequired, f.MergeLambdaRequired);
+            RayCount = Math.Max(c.RayCount, f.RayCount);
+            if (CheckCanonical) CanonicalProblem = c.CanonicalProblem != "" ? c.CanonicalProblem : f.CanonicalProblem;
+            Statuses result = (c.Status == Statuses.NoDaylight || f.Status == Statuses.NoDaylight) ? Statuses.NoDaylight : Statuses.Success;
+            if (result == Statuses.NoDaylight) Message = c.Status == Statuses.NoDaylight ? "cut: " + c.Message : "fill: " + f.Message;
+            if (BuildComposite == false)
+                return result;
+
+            // the composite of both: the terrain triangles that both runs cut get one part (SlopeComposite.Partner)
+            checkCancel();
+            // (a toe crossing's two catch points: on one toe segment, within 1e-4 of the toes' size, each the other's nearest)
+            var toeBox = AxisAlignedBox2d.Empty;
+            foreach (var t in Toes) foreach (var p in t.Points) toeBox.Contain(p.xy);
+            var comp = new SlopeComposite(c.lastOverlay, Pieces.Count, c.UsedMinFeatureSize, CancelF) {
+                CopyTerrain = CompositeKind == CompositeKinds.Full,
+                Partner = new SlopeComposite(f.lastOverlay, Pieces.Count, f.UsedMinFeatureSize, CancelF) { GroupOffset = nc },
+                SegmentOfGroup = Pieces.Select(p => ((long)p.Toe << 20) + p.Segment).ToArray(),
+                PartnerSnapRadius = 1e-4 * toeBox.DiagonalLength
+            };
+            if (comp.Build() == false)
+                return fail(Statuses.CompositeFailed, "composite: " + comp.Problem);
+            // the clipped slope triangles of both get the exact check (O1), each with its run's piece (fill mirrored)
+            var bad = new List<int>();
+            foreach (int tid in comp.Region.TriangleIndices()) {
+                Vector3d a = Vector3d.Zero, b = Vector3d.Zero, cc = Vector3d.Zero;
+                comp.Region.GetTriVertices(tid, ref a, ref b, ref cc);
+                int g = comp.Region.GetTriangleGroup(tid);
+                bool fillPiece = g >= nc;
+                InPiece pc = fillPiece ? f.lastPieces[g - nc] : c.lastPieces[g];
+                if (fillPiece) { a.z = -a.z; b.z = -b.z; cc.z = -cc.z; }
+                bool slopeOk = ExactPredicates.Orient2d(a.xy, b.xy, cc.xy) > 0 && Slope.IsNotSteeper(a, b, cc, pc.Spec);
+                bool supportOk = Slope.IsPlaneOnOrBelow(a, b, cc, pc.A) && Slope.IsPlaneOnOrBelow(a, b, cc, pc.B);
+                if (slopeOk == false || supportOk == false) bad.Add(tid);
+            }
+            // (final: each run raised its margin and lowering for its own region; the mixed one does not build again)
+            if (bad.Count > 0) {
+                ProblemTriangles = bad;
+                return fail(Statuses.SlopeViolation, $"{bad.Count} triangles of the mixed composite's slope region failed the exact check");
+            }
+            SlopeRegion = comp.Region;
+            Composite = CompositeKind == CompositeKinds.Full ? comp.Composite : null;
+            Replacement = CompositeKind == CompositeKinds.Replacement ? comp.Composite : null;
+            ReplacedTerrainTriangles = comp.Replaced.ToList();
+            CompositeTerrainVertices = comp.TerrainVertexOf;
+            TerrainCompositeVertices = comp.CompositeVertexOf;
+            return result;
+        }
+
         Statuses compute()
         {
             if (Direction == Directions.Auto)
-                return fail(Statuses.NotImplemented, "Direction Auto (mixed cut and fill) comes in phase 1b");
+                return compute_auto();
             bool fill = Direction == Directions.Fill;
             if (Toes == null || Toes.Count == 0)
                 return fail(Statuses.InvalidInput, "no toes");
@@ -559,7 +797,8 @@ namespace gs
                 case Statuses.InvalidInput: case Statuses.NotHeightField: return StatusKinds.InvalidInput;
                 case Statuses.NotImplemented: return StatusKinds.UnsupportedByMethod;
                 case Statuses.ToeSteeperThanSlope: return StatusKinds.GeometricallyInfeasible;
-                case Statuses.ToeUndercut: return undercutThroughDesign ? StatusKinds.UnsupportedByMethod : StatusKinds.GeometricallyInfeasible;
+                case Statuses.ToeUndercut: case Statuses.ToeOvertopped:
+                    return undercutThroughDesign ? StatusKinds.UnsupportedByMethod : StatusKinds.GeometricallyInfeasible;
                 case Statuses.SlopeViolation: case Statuses.CatchLineAccuracyNotReached: return StatusKinds.NotCertified;
                 case Statuses.Cancelled: return StatusKinds.Cancelled;
                 default: return StatusKinds.Internal;
@@ -658,6 +897,7 @@ namespace gs
                     if (st == Statuses.Success || st == Statuses.NoDaylight || st == Statuses.CompositeFailed) {
                         SlopeSurface = br.Mesh;
                         CatchLines = br.CatchLines;
+                        lastOverlay = br.Overlay; lastPieces = pieces;
                         SlopeRegion = br.Region;
                         Composite = CompositeKind == CompositeKinds.Full ? br.Composite : null;
                         Replacement = CompositeKind == CompositeKinds.Replacement ? br.Composite : null;
@@ -665,7 +905,7 @@ namespace gs
                         CompositeTerrainVertices = br.TerrainVertexOf;
                         TerrainCompositeVertices = br.CompositeVertexOf;
                         Pieces = pieces.Select(p => new SlopePiece() {
-                            Toe = p.Toe, Segment = p.Segment, Spec = p.Spec,
+                            Toe = p.Toe, Segment = p.Segment, Spec = p.Spec, Direction = fill ? Directions.Fill : Directions.Cut,
                             P0 = fill ? new Vector3d(p.A.x, p.A.y, -p.A.z) : p.A, P1 = fill ? new Vector3d(p.B.x, p.B.y, -p.B.z) : p.B
                         }).ToList();
                         // (assigned per build: a raised cap or another accuracy round builds again)
@@ -703,6 +943,7 @@ namespace gs
             public double RebuildLambda;       // RebuildForEachLowering: build again with this lowering         // > 0: build again with at least this lowering (the realization merged)
             public List<CatchLine> CatchLines = new List<CatchLine>();
             public DMesh3 Region, Composite;
+            public SlopeTerrainOverlay Overlay;
             public List<int> Replaced;
             public int[] TerrainVertexOf, CompositeVertexOf;
             public double[] Volumes, PlanAreas, SlopeAreas;
@@ -1041,6 +1282,7 @@ namespace gs
             if (overlayOk == false)
                 return overlay.NotHeightField ? fail(Statuses.NotHeightField, overlay.Problem) : fail(Statuses.Failed, "overlay: " + overlay.Problem);
             br.CatchLines = overlay.CatchLines;
+            br.Overlay = overlay;
             // the gradient and the contact of each catch-line segment (its uncertainty when Compute ends)
             for (int li = 0; li < overlay.CatchLines.Count; ++li) {
                 CatchLine l = overlay.CatchLines[li];

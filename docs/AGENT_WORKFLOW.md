@@ -11,6 +11,13 @@ research and from our own PRs shape it:
 Large role-play setups (MetaGPT, ChatDev) cost a lot for mixed gains. We use only the separations that measurably
 help: specification vs implementation, and implementation vs review and acceptance tests.
 
+## Credo: correct by construction, fast by design
+
+- Correctness is not negotiable; a speedup that changes results needs a guarantee and the owner.
+- Complexity and data structures right from the start; constant factors later, bit-identical.
+- Pay for exactness only where needed: a floating-point filter, exact on the close cases.
+- A time budget against a reference is part of the brief; measure the upper bound before the design.
+
 ## 1. Tiers: the process scales with the risk
 
 | Tier | Examples | Process |
@@ -89,6 +96,12 @@ from secret tests, which a public repository cannot keep.
 - The plan lives in the repository ([ROADMAP.md](ROADMAP.md)), not in chat. Results live in PRs and READMEs.
 - A session that stops before its work is complete writes a hand-over document: what was tried, with numbers;
   ranked open ideas; guard rails (example: [perf/EXACT_BOOLEAN_PERFORMANCE.md](perf/EXACT_BOOLEAN_PERFORMANCE.md)).
+- A bugfix must not run into a fundamental problem that a planned concept will solve (owner 2026-11-02). Before
+  fixing, check [ROADMAP.md](ROADMAP.md) (Phase 5, Shared hotspots, Open tasks) for a concept that covers the same
+  cause, eg inside / outside of broken inputs (Phase 5 #5), exact predicates and symbolic perturbation, scale-relative
+  tolerances, envelope / `IsWithin` fidelity. If one exists: make the smallest fix that is correct on its own and
+  compatible with that concept (no second, competing mechanism), say so in the PR, and leave the general solution to
+  the concept; if no such small fix exists, pin the case and report it instead of building a local workaround.
 - Waiting time is work time. While a session waits (on CI, a mutation run, a long benchmark, a review, a decision of
   the owner or a merge), it uses the time for work that does not touch the branch under test and that the next step
   needs anyway: the literature and building-block search for its next item (section 3), an upper-bound measurement,
@@ -118,3 +131,16 @@ from secret tests, which a public repository cannot keep.
 - The coordinator's check-in interval follows the CI time (hours for mutation runs, not minutes). Workers report in
   one line, and sessions are archived when their PRs are merged.
 - Near the usage limit, finish running work only and start nothing new.
+- Budget (owner 2026-11-02). A turn re-reads the whole context, so cost grows with context size, not with the work:
+  - Small, bounded tasks (reading a paper, a license check, one measurement) go to a fresh short session with a
+    precise brief, not to a long-running one.
+  - One long topic per session; at a task boundary push everything, write the hand-over into the PR or a doc, and
+    `/compact` or start fresh. Context over about 500k tokens is a reason to do so.
+  - A session with nothing on the critical path pauses (idle costs nothing); the coordinator wakes it by message.
+  - No parallel subagents for implementation; a subagent only for an independent review or a bounded search.
+  - Measure on the smallest sample that can decide (tens of cases before hundreds), and grow it only if the decision
+    needs it; long runs in the background, one report at the end.
+  - Avoid CI round-trips: merge master once before ready, not after every merge on master; for disjoint PRs the
+    coordinator may verify several together (master plus the PRs, local build and full suite) and merge them in one go.
+  - Reports are short and only on milestones, decisions or blockers; no status-only messages.
+
