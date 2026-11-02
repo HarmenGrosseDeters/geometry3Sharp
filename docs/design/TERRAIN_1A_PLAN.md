@@ -149,3 +149,26 @@ vertices and centroids only; `Simplify` repeats whole passes; the toe validation
 - mutation checks: drop the margin, the lowering λ, or a plane check, swap piece labels: O1 must fail.
 
 Performance numbers are not claimed in 1a; the km-scale benchmark is 1c.
+
+## Mutation survivors of the kernel shard (follow-up of #267)
+
+`tests/mutation/terrain-kernel-stryker.json` (`ExactSlopeKernel`): 60.59 % in #267's first run, 70.00 % at its merge,
+**85.22 %** after this follow-up (196 killed, 34 survived; then one dead line removed). Tests added for the
+non-equivalent survivors (`ExactSlopeKernelTests`): Approx and ApproxHeight accuracy (also for nearly parallel
+lines), a nearly vertical plane whose Nz interval contains 0, the counters, the shortcut's match of Q and R by both
+coordinates, a clockwise nearly vertical plane with sides decided by the exact stage, and a crossing whose W interval
+contains 0. The remaining survivors, one by one:
+
+| line | code | mutants | class |
+|---|---|---|---|
+| 33 | `Pa = -1, Pb = -1` (field initializer of `Line`) | `+1` | not activatable: Stryker cannot switch a field initializer per test (a point line with Pa = 1 would index plane -1 and throw in every test with point lines) |
+| 78 | message of the vertical-plane exception | `""` | equivalent (text) |
+| 79 | `if (s < 0)` (orient so that Nz > 0) | `s > 0`, `s <= 0`, `!(s < 0)` | equivalent: every predicate is a product in which each plane's N enters once with its Nz sign; flipping all planes alike (the mutants flip all counter- or all clockwise ones, and the cap like the others) changes no sign. `s == 0` throws before |
+| 83 | the negation of the exact normal after the flip | `!(pl.exact)`, `true` | dead code (`exact` is reset right after; the exact values are computed again from the reordered points): **removed** |
+| 99, 104, 136, 147, 190, 200 | `if (x.exact) return;` and `x.exact = true;` (plane, line, vertex) | statement removed, `false` | equivalent: caching only (the exact values are recomputed, the same) |
+| 163 | `if (l1 > l2) swap` (the cache key of a crossing) | `<`, `>=`, negation | equivalent: the key only has to be the same for both orders of one pair, and a crossing is the same point either way (X, Y, W all change sign) |
+| 212 | `l.Pa >= 0` in the shortcut | `> 0` | equivalent: plane 0 then takes the predicate instead of the shortcut, with the same result |
+| 218, 221, 250, 254 | `s * sw` (signs ±1, W ≠ 0) | `s / sw` | equivalent: for ±1 operands the quotient is the product |
+| 234, 235, 236 | `return true` of a found defining point | `false` | equivalent: the shortcut does not fire, the predicate decides the same |
+| 238 | `return false` (no defining point) | `true` | equivalent: z is NaN then, and `za == zb` is false |
+| 280, 283, 284 | the acceptance test of `Approx` (interval midpoints) | arithmetic and logical variants | equivalent for the result: `Approx` is a heuristic (bounding boxes, ear quality, the conservative prefilter), and every variant that accepts a less accurate value is still within the tested 2e-12 here, or rejects and falls back to the exact rounding |

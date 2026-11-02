@@ -354,6 +354,20 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(d.Sign, s1);
                 if (s1 != 0) nonzero++;
             }
+            // the plane is x - y = 2^-52 z, so its line at z = 0.5 is y = x - 2^-53: points one 2^-54 off it (x in [0.25, 0.5),
+            // where these are doubles) need the exact stage on both lines, and must agree
+            for (int i = 0; i < 50; ++i) {
+                double x = 0.25 + 0.25 * rnd.NextDouble();
+                foreach (double off in new[] { -Math.Pow(2, -54), 0, Math.Pow(2, -54) }) {
+                    double y = x - Math.Pow(2, -53) + off;
+                    int v = K.PointVertex(new Vector2d(x, y));
+                    long before = K.ExactPredicates;
+                    int s1 = K.Side(v, lcw), s2 = K.Side(v, lccw);
+                    Assert.Equal(s2, s1);
+                    Assert.Equal((Height(p, r, q, Q.Of(x), Q.Of(y)) - Q.Of(0.5)).Sign, s1);
+                    Assert.Equal(before + 2, K.ExactPredicates);
+                }
+            }
             Assert.True(nonzero > 100, nonzero.ToString());
             Assert.True(K.ExactPredicates > 0, K.ExactPredicates.ToString());
         }
