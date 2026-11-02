@@ -216,6 +216,19 @@ namespace g3
             }
         }
 
+        /// <summary>
+        /// (internal) would Query(box) call f for the present triangle tid? Exactly its test: the closed boxes overlap,
+        /// or the triangle is not on a level and its box is not finite
+        /// </summary>
+        internal bool QueryMatches(int tid, ref AxisAlignedBox3d box)
+        {
+            if (tid < 0 || tid >= entries.Length || entries[tid].Present == false)
+                return false;
+            if (entries[tid].Level < 0 && is_finite(ref entries[tid].Box) == false)
+                return true;
+            return overlap(ref entries[tid].Box, ref box);
+        }
+
         static bool is_finite(ref AxisAlignedBox3d b)
         {
             double s = b.Min.x + b.Min.y + b.Min.z + b.Max.x + b.Max.y + b.Max.z;
