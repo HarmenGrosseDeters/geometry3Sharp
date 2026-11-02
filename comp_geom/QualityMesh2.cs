@@ -482,12 +482,18 @@ namespace g3
                 return true;
             }
 
+            /// <summary>
+            /// benchmarks only (Meshing2Benchmark gridcounts): the floor in pixels instead of two, 0 for none, to measure what the floor
+            /// saves (MESHING2D_SNAP.md section 3g, item 6). Per thread, like the tag check switch
+            /// </summary>
+            [ThreadStatic] internal static double? FloorPixelsForBenchmarks;
+
             /// <summary> the shortest edge of t is at most two pixels (the angle floor on the grid, MESHING2D_SNAP.md section 3g) </summary>
             bool BelowFloor(int t)
             {
                 Local(t, out var q, out var r, out int ex);
                 double shortest = Math.Min(q.LengthSquared, Math.Min((r - q).LengthSquared, r.LengthSquared));
-                double floor = ExactPoint3.ScaleB(2 * grid.W, -ex);
+                double floor = ExactPoint3.ScaleB((FloorPixelsForBenchmarks ?? 2) * grid.W, -ex);
                 return shortest <= floor * floor;
             }
 

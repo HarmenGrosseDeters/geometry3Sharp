@@ -73,6 +73,7 @@ namespace Meshing2Acceptance
                     case "rows": return RunRows(args);
                     case "corpus": return Corpus.Run(args, Arg);
                     case "snapcost": return SnapCost.Run(args, Arg);
+                    case "gridcounts": return GridCounts.Run(args, Arg);
                     default: Console.Error.WriteLine(Usage); return 2;
                 }
             } catch (FormatException e) {

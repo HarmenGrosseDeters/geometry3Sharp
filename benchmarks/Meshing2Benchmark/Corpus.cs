@@ -63,6 +63,9 @@ namespace Meshing2Acceptance
             return bad == 0 ? 0 : 1;
         }
 
+        /// <summary> every corpus input as an unrefined mesher input (polygons as rings, point sets as points) </summary>
+        internal static IEnumerable<(string name, Mesh2Input input)> Inputs(string dir) => Load(dir).Select(i => (i.Name, Build(i)));
+
         internal static string DefaultDir() => Path.Combine(RepositoryRoot(), "benchmarks", "Meshing2Benchmark", "corpus", "data");
 
         /// <summary> the polygon inputs as segment sets (ring edges), for the snap-rounding cost measurement (SnapCost) </summary>
