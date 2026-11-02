@@ -547,7 +547,18 @@ namespace gs
                 pts[0] = T.VertexPosition(seg_tail(s));
                 pts[pts.Count - 1] = T.VertexPosition(seg_head(s));
                 int start = Path.Count == 0 ? 0 : 1;
-                for (int j = start; j < pts.Count; ++j) Path.Add(pts[j]);
+                // a walk that runs exactly through a vertex (the end vertex of the edge) also records the
+                // crossings there, up to the rounding of the walk (1e-10 relative seen): drop points that repeat
+                // the previous one, so that the polyline has no zero-length segments; a joint keeps its exact
+                // position
+                double dup = 1e-9 * T.Length(h);
+                for (int j = start; j < pts.Count; ++j) {
+                    if (Path.Count > 0 && Path[Path.Count - 1].Distance(pts[j]) <= dup) {
+                        if (j == pts.Count - 1) Path[Path.Count - 1] = pts[j];
+                        continue;
+                    }
+                    Path.Add(pts[j]);
+                }
                 PathVertices.Add(T.VertexID(seg_tail(s)));
             }
             if (closed == false) PathVertices.Add(T.VertexID(seg_head(segs[segs.Count - 1])));
