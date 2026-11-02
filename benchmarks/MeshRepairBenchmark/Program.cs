@@ -512,7 +512,10 @@ class Program
             }
         }
         double missing, extra;
-        r["iou"] = MeshRepairMetrics.VolumeIoU(input, result, out missing, out extra);
+        // BENCH_FM_SEED: seed of the sampled measures (IoU, fm_*), to measure their sampling noise (noise_floor.py)
+        int seed = int.Parse(Environment.GetEnvironmentVariable("BENCH_FM_SEED") ?? "1");
+        if (seed != 1) r["fm_seed"] = seed;
+        r["iou"] = MeshRepairMetrics.VolumeIoU(input, result, out missing, out extra, 100000, seed);
         r["iou_missing"] = missing;
         r["iou_extra"] = extra;
         r["fidelity_ms"] = sw.ElapsedMilliseconds;
@@ -527,7 +530,7 @@ class Program
             // closed components only): the reversed share would only report that the result is outward
             if (Vol(oriented) < 0)
                 foreach (int tid in oriented.TriangleIndices().ToArray()) oriented.ReverseTriOrientation(tid);
-            FidelityFields.Add(oriented, result, r);
+            FidelityFields.Add(oriented, result, r, seed: seed);
         }
     }
 
