@@ -188,6 +188,8 @@ class WrapQualityAcceptance(unittest.TestCase):
                              ({'q_gt170_share': 0.002}, 'c1c'), ({'fm_q_out': q(3)}, 'c2'), ({'q_lt20_share': 0.2}, 'c2'),
                              ({'q_gt150_share': 0.06}, 'c2')]:
             self.assertEqual(wqa.check({'a.stl': base}, {'a.stl': dict(good, **change)}), {'a.stl': [crit]}, change)
+        # rounding of an untouched triangle's angles (1e-13 degrees) is not a change
+        self.assertEqual(wqa.check({'a.stl': base}, {'a.stl': dict(good, q_min_angle=1.0 - 1e-13, q_max_angle=175 + 1e-13)}), {'a.stl': []})
         # not a wrap case: not judged
         self.assertEqual(wqa.check({'a.stl': base}, {'a.stl': dict(good, robust_used_wrap=False)}), {})
 
