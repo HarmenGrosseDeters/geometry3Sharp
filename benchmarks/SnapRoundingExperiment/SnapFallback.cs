@@ -146,11 +146,11 @@ sealed class SnapFallback
                 snap = Math.Max(snap, q.Distance(p));
                 m.SetVertex(v, q);
             }
-            used += snap;
             var op = new ExactMeshBoolean(m, new DMesh3(), Ops.Union);
             if (!op.Compute())
                 break;
-            used += op.Rounding.MaxDrift;
+            // (the snap counts only once its mesh is taken: a failed resolve leaves the result unsnapped)
+            used += snap + op.Rounding.MaxDrift;
             removed += op.Rounding.RemovedComponents;
             cur = op.Result;
             if (op.RoundingClean && gs.MeshRobustRepair.NotCleanReasons(cur) == "") {

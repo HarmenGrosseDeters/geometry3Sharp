@@ -3,6 +3,8 @@
 
   python3 summarize.py <results.jsonl>...
 
+Then the numbers of the owner's criterion 2 (SAFE_ROUNDING.md section 8.7) per fallback method.
+
 Columns: cases, clean (rounding clean and MeshRobustRepair.NotCleanReasons empty), certified (clean and 2e-separated,
 SeparationCertificate), failures (timeouts, errors), the
 largest and the median drift in units of the bound (MaxLength), the largest drift in ulps of the largest coordinate,
@@ -38,7 +40,7 @@ def table(rows, cases, title):
             if r["method"] == "safe":
                 safe[r["case"]] = r
     for m in methods:
-        if m not in ("plain", "safe"):
+        if m not in ("plain", "safe", "patch"):
             methods[m] += [safe[c] for c in cases if (c, m) not in have and c in safe]
     print("\n%s (%d cases)\n" % (title, len(cases)))
     print("| method | clean | certified | failed | drift / bound, max | median | drift, ulps max | Hausdorff / bound, max | removed comp. | ms median | ms max |")
@@ -59,12 +61,43 @@ def table(rows, cases, title):
             fmt(statistics.median(ms) if ms else None, "%.0f"), fmt(max(ms) if ms else None, "%.0f")))
 
 
+def criteria(rows, timeout_ms=120000.0):
+    """the owner's criterion 2 (SAFE_ROUNDING.md section 8.7) per fallback method, against SafeRounding: new clean
+    results, drift beyond the bound, Hausdorff within the bound, and the time ratio to SafeRounding per case (median and
+    p95, over all cases and over the affected ones, where the method ran; a failed run counts as the time limit)"""
+    by = {}
+    for r in rows:
+        by.setdefault(r["case"], {})[r["method"]] = r
+    cases = [c for c, d in by.items() if d.get("safe", {}).get("ok")]
+    def p95(x):
+        x = sorted(x)
+        return x[int(0.95 * (len(x) - 1))] if x else None
+    print("\nCriterion 2 (%d cases)\n" % len(cases))
+    print("| method | ran on | clean | new clean | drift beyond the bound | new clean within the Hausdorff bound | time ratio all, median / p95 | affected, median / p95 |")
+    print("|---|---|---|---|---|---|---|---|")
+    for m in ("again", "B", "Bpaper"):
+        ran = [c for c in cases if m in by[c]]
+        if not ran:
+            continue
+        def ok(c): return by[c][m].get("ok")
+        clean = sum(1 for c in cases if (by[c][m].get("clean") if c in ran and ok(c) else by[c]["safe"].get("clean")))
+        new = [c for c in ran if ok(c) and by[c][m].get("clean") and not by[c]["safe"].get("clean")]
+        beyond = [c for c in ran if ok(c) and by[c][m].get("max_drift", 0) > by[c][m].get("max_length", float("inf"))]
+        hd = [c for c in new if by[c][m].get("hausdorff", float("inf")) <= by[c][m].get("max_length", 0)]
+        ratio = {c: (by[c][m]["ms"] if ok(c) else timeout_ms) / max(by[c]["safe"]["ms"], 1e-3) for c in ran}
+        all_r = [ratio.get(c, 1.0) for c in cases]
+        aff = list(ratio.values())
+        print("| %s | %d | %d | %d | %d | %d | %s / %s | %s / %s |" % (m, len(ran), clean, len(new), len(beyond), len(hd),
+              fmt(statistics.median(all_r)), fmt(p95(all_r)), fmt(statistics.median(aff)), fmt(p95(aff))))
+
+
 def main():
     rows = load(sys.argv[1:])
     allc = set(r["case"] for r in rows)
     left = set(r["case"] for r in rows if r["method"] == "safe" and not r.get("clean"))
     rleft = set(r["case"] for r in rows if r["method"] == "safe" and r.get("ok") and not r.get("rounding_clean"))
     table(rows, allc, "All cases")
+    criteria(rows)
     if rleft != left and rleft:
         # (the others are not clean for reasons of their input, eg open meshes: run.py --rounding-left)
         table(rows, rleft, "Cases SafeRounding leaves not rounding clean")

@@ -1028,10 +1028,11 @@ and BooleanComparison): done.
 |---|---|---|---|---|---|---|
 | generated leftovers (41) | 0 | 10 | 9 | **33** | 16 (10) | 22 |
 | BooleanComparison (261) | 255 | 255 | 257 | 257 | 256 | 257 |
-| Thingi10K self-unions (399 finished) | 188 | 188 | 188 | 209 | 194 (194) | 188 |
+| Thingi10K self-unions (399 finished) | 188 | 188 | 188 | 209 | 194 (194) | 191 |
 
-(Bpaper on Thingi10K: 6 new clean results, all within the drift bound there, 2 also within the Hausdorff bound; 2
-timeouts. On the generated leftovers its grid is far coarser than the bound at UTM coordinates, 0.3 of a unit there.
+(Bpaper on Thingi10K, like B on all 211 unclean results (`--left`): 6 new clean results, all within the drift bound
+there, 2 also within the Hausdorff bound; 2 timeouts; time ratio median 1.7 and p95 15 over all cases, 6.3 and 18 on the
+affected. These numbers and those of criterion 2 below come from `summarize.py`'s "Criterion 2" table. On the generated leftovers its grid is far coarser than the bound at UTM coordinates, 0.3 of a unit there.
 BooleanComparison: the two cases A and B repair are `cgal/cheese` intersection and difference, which #316 repairs
 already; the other 4 unclean results are empty. Thingi10K: again, A and AB ran on the 38 rounding failures only; B on all
 211 unclean results.)
@@ -1053,10 +1054,14 @@ the time acceptable. **Not met.**
 - **So B stays off by default**: it does not qualify for a default. As a whole-mesh fallback it is too slow and, on open
   inputs, unbounded in the Hausdorff distance. A patch-wise B would fix the time (next point); the Hausdorff side
   needs a check of what the resolve removes.
-- Upper bound of a patch-wise B (tool mode `patch`, the 12 Thingi10K runs that hit the limit): the defect triangles grown
-  by three rings, 286 to 15088 triangles (median 7 % of the mesh), resolve in a median of 0.17 s (max 16 s, 1368057)
-  against 3.9 s for the whole SafeRounding: one grid round costs about 1/20 of a full resolve. Not measured: whether the
-  patch result fits back (fixed boundary).
+- An optimistic estimate of a patch-wise B (tool mode `patch`, the 12 Thingi10K runs that hit the limit): the defect
+  triangles grown by three rings, 286 to 15088 triangles (median 7 % of the mesh), resolve in a median of 0.17 s (max
+  16 s, 1368057) against 3.9 s for the whole SafeRounding, so the resolve of one grid round costs about 1/20 of a full
+  one. It is a lower bound of the cost, not an upper one (independent review): it leaves out the work every round still
+  does on the whole mesh (finding the defects, cutting out the patch, putting it back), counts one round where B takes
+  up to three per grid, and `patch_ok` is only the resolve's status, not a clean patch. It covers only results that are
+  not rounding clean; the contacts behind most of B's +21 and most of its time are not measured. Not measured either:
+  whether the patch result fits back (fixed boundary).
 
 **Criterion 3, A only for a remainder that only A fixes:** **not met: 0 cases.** In every set the results A makes clean are
 also made clean by B. The one thing only A gives is the 2e-certificate of the cylinder step 2, which #316 makes clean (and

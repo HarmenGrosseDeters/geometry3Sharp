@@ -153,13 +153,13 @@ static class Program
     {
         var (a, b, op) = Input(name);
         var sb = new StringBuilder();
-        sb.Append("{\"case\":\"").Append(name.Replace("\\", "/").Replace("\"", "'")).Append("\",\"method\":\"").Append(method).Append('"');
+        sb.Append("{\"case\":").Append(Json(name)).Append(",\"method\":").Append(Json(method));
         var clock = Stopwatch.StartNew();
         var boolean = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), op) { SafeRounding = method != "plain" };
         bool ok;
         try { ok = boolean.Compute(); } catch (Exception ex) { return sb.Append(",\"ok\":false,\"error\":\"").Append(ex.GetType().Name).Append("\"}").ToString(); }
         if (!ok)
-            return sb.Append(",\"ok\":false,\"error\":\"").Append(boolean.Error?.Replace("\"", "'")).Append("\"}").ToString();
+            return sb.Append(",\"ok\":false,\"error\":").Append(Json(boolean.Error ?? "")).Append("}").ToString();
         DMesh3 result = boolean.Result;
         MeshRoundingRepair r = boolean.Rounding;
         double drift = r?.MaxDrift ?? 0, maxLength = r?.MaxLength ?? 0;
@@ -177,7 +177,7 @@ static class Program
         sb.Append(",\"ok\":true");
         sb.Append(",\"clean\":").Append(roundingClean && reasons == "" ? "true" : "false");
         sb.Append(",\"rounding_clean\":").Append(roundingClean ? "true" : "false");
-        sb.Append(",\"reasons\":\"").Append(reasons).Append('"');
+        sb.Append(",\"reasons\":").Append(Json(reasons));
         sb.Append(",\"tris\":").Append(result.TriangleCount);
         sb.Append(",\"ms\":").Append(ms.ToString("F1", ci));
         sb.Append(",\"max_drift\":").Append(drift.ToString("R", ci));
@@ -227,6 +227,9 @@ static class Program
         }
         return sb.Append('}').ToString();
     }
+
+    // a JSON string literal (escaped: case names are paths, errors free text)
+    static string Json(string s) => System.Text.Json.JsonSerializer.Serialize(s);
 
     internal static double Largest(DMesh3 m)
     {

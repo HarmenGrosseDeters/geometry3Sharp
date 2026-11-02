@@ -12,7 +12,7 @@ The measurement of [docs/design/SAFE_ROUNDING.md](../../docs/design/SAFE_ROUNDIN
 Methods: `plain` (SafeRounding off), `safe` (the default), `again` (safe, then one more resolve), `B`,
 `Bpaper` (B with the published grid of Valque and Lazard, SAFE_ROUNDING.md section 7: [2^23, 2^24) per axis, hot voxels,
 at most 5 iterations, no drift bound), and `patch` (the upper bound of a patch-wise B: the defects grown by three rings,
-resolved alone, timed).
+resolved alone, timed: an optimistic estimate of its cost, see SAFE_ROUNDING.md section 8.7).
 
 Per result: clean (rounding clean and `MeshRobustRepair.NotCleanReasons` empty), the drift against the bound
 (`MaxLength`) and in ulps of the largest coordinate, the Hausdorff distance to the exact result rounded (an upper
@@ -39,7 +39,7 @@ dotnet build benchmarks/SnapRoundingExperiment -c Release
 cd benchmarks/SnapRoundingExperiment
 python3 run.py out/clusters.jsonl clusters --methods plain,safe -j 4          # all cases
 python3 run.py out/clusters.jsonl clusters --methods again,B,Bpaper --left -j 4  # where safe is not clean
-python3 summarize.py out/clusters.jsonl
+python3 summarize.py out/clusters.jsonl      # the tables, and the numbers of the owner's criterion 2
 ls ../MeshRepairBenchmark/data/meshes/* > thingi.txt
 python3 run.py out/thingi.jsonl @thingi.txt --methods plain,safe -j 4 && python3 run.py out/thingi.jsonl @thingi.txt --methods again,B,Bpaper --left -j 4
 ```
