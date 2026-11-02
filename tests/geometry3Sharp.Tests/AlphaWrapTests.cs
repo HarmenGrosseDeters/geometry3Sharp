@@ -317,7 +317,7 @@ namespace geometry3Sharp.Tests
         /// vertices on the offset surface; every point of the result farther than 0 and at most offset + 2 alpha
         /// from the input (offset + alpha, except where the manifold step added cells); the input inside (winding number 1 at input points).
         /// </summary>
-        static void CheckWrap(MeshAlphaWrap w, IList<Vector3d> inputSamples, bool expectSuccess = true)
+        internal static void CheckWrap(MeshAlphaWrap w, IList<Vector3d> inputSamples, bool expectSuccess = true)
         {
             if (expectSuccess)
                 Assert.Equal(MeshAlphaWrap.WrapStatus.Success, w.Status);
@@ -390,7 +390,7 @@ namespace geometry3Sharp.Tests
             };
         }
 
-        static List<Vector3d> Vertices(DMesh3 m) { return m.VertexIndices().Select(v => m.GetVertex(v)).ToList(); }
+        internal static List<Vector3d> Vertices(DMesh3 m) { return m.VertexIndices().Select(v => m.GetVertex(v)).ToList(); }
 
         [Fact]
         public void Wrap_ClosedSphere()
@@ -816,6 +816,95 @@ namespace geometry3Sharp.Tests
             }
             return m;
         }
+
+        // an ellipsoid: a sphere of radius 0.5 scaled by sx, sy, sz
+        internal static DMesh3 Ellipsoid(double sx, double sy, double sz)
+        {
+            DMesh3 m = Sphere(0.5, 6);
+            MeshTransforms.Scale(m, sx, sy, sz);
+            return m;
+        }
+
+        /// <summary> the smallest distance between two vertices of the triangulation (a nearest neighbour is joined by a
+        /// Delaunay edge), without the eight box corners </summary>
+        internal static double MinSteinerSeparation(Delaunay3 dt)
+        {
+            double min = double.MaxValue;
+            foreach (int c in dt.CellIndices())
+                for (int i = 0; i < 4; ++i)
+                    for (int j = i + 1; j < 4; ++j) {
+                        int a = dt.CellVertex(c, i), b = dt.CellVertex(c, j);
+                        if (a >= 8 && b >= 8) min = Math.Min(min, dt.GetVertex(a).Distance(dt.GetVertex(b)));
+                    }
+            return min;
+        }
+
+        /// <summary> the smallest angle (degrees) of the result triangles with a circumradius of at most alpha </summary>
+        internal static double MinAngleOfSmallTriangles(DMesh3 r, double alpha)
+        {
+            double min = 180;
+            foreach (int tid in r.TriangleIndices()) {
+                Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+                r.GetTriVertices(tid, ref a, ref b, ref c);
+                double ab = a.Distance(b), bc = b.Distance(c), ca = c.Distance(a);
+                double area2 = (b - a).Cross(c - a).Length;
+                if (!(area2 > 0)) return 0;
+                if (ab * bc * ca / (2 * area2) > alpha) continue;       // circumradius abc / (4 area)
+                // smallest angle: opposite the shortest edge, sin = area2 / (product of the other two edges)
+                double e = Math.Min(ab, Math.Min(bc, ca));
+                double sin = e == ab ? area2 / (bc * ca) : e == bc ? area2 / (ab * ca) : area2 / (ab * bc);
+                min = Math.Min(min, Math.Asin(Math.Min(1, sin)) * 180 / Math.PI);
+            }
+            return min;
+        }
+
+        [Theory]
+        [InlineData(5.0, 0.3, 0.45)]
+        [InlineData(5.0, 1.0, 0.45)]
+        public void Wrap_FlatBoxCornerCells_SteinerPointsSeparated(double sx, double sy, double sz)
+        {
+            // At small alpha the first Steiner points lie about 2 alpha inside the box faces, so cells of three box corners
+            // and such a point are flat, with circumradii above the 4 box diagonals at which dual_edge clamps the
+            // circumcenter. Rule 2 projected the clamped center: points outside the cell's circumsphere, which left the
+            // cell, and the points of neighbouring flat cells landed next to each other (3.7e-5 and 0.011 offsets apart
+            // here; Thingi10K 59196 and 163738 likewise), with needles of 1e-4 and 0.03 degrees on the result.
+            // The projection of the cell's own circumcenter lies deep inside the empty circumsphere: every Steiner point is
+            // farther than min(offset, alpha - offset) from the others (MeshAlphaWrap class doc), which bounds the angles
+            // of all result triangles with a circumradius of at most alpha.
+            DMesh3 m = Ellipsoid(sx, sy, sz);
+            var w = new MeshAlphaWrap(m) { RelativeAlpha = 150, RelativeOffset = 1500 };
+            Assert.True(w.Compute(), w.Error);
+            CheckWrap(w, Vertices(m));
+            AssertSeparationBound(w, "");
+
+            // reused instance: the same result and counts
+            var vertices = Vertices(w.Result);
+            Assert.True(w.Compute(), w.Error);
+            Assert.Equal(vertices, Vertices(w.Result));
+            Assert.Equal(0, ProjectionFallbacks(w));
+        }
+
+        internal static long ProjectionFallbacks(MeshAlphaWrap w)
+        {
+            return w.Counts.TryGetValue("projection_fallbacks", out long n) ? n : 0;
+        }
+
+        /// <summary>
+        /// The derived bounds of the MeshAlphaWrap class doc: Steiner points at least min(offset, alpha - offset) apart
+        /// (less the contact margin and rounding: 1e-5 of the bound), and the min angle asin(that / (2 alpha)) on every result
+        /// triangle with a circumradius of at most alpha; no rule 2 point from the fallback
+        /// </summary>
+        internal static void AssertSeparationBound(MeshAlphaWrap w, string what)
+        {
+            double alpha = w.UsedAlpha, off = w.UsedOffset, bound = (1 - 1e-5) * Math.Min(off, alpha - off);
+            double sep = MinSteinerSeparation(w.Triangulation);
+            Assert.True(sep >= bound, $"{what}: Steiner points {sep / off} offsets apart");
+            double angleBound = Math.Asin(bound / (2 * alpha)) * 180 / Math.PI;
+            double minAngle = MinAngleOfSmallTriangles(w.Result, alpha);
+            Assert.True(minAngle >= angleBound, $"{what}: min angle {minAngle} below {angleBound} degrees");
+            Assert.Equal(0, ProjectionFallbacks(w));
+        }
+
 
         [Fact]
         public void Wrap_ManifoldStep_KeepsBoxCornerCellsOutside()
