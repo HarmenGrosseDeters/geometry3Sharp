@@ -207,7 +207,8 @@ not of that order:
   a direction from its approximation that is off by more than θ, so a plane was left out, the piece's maximum came out
   too low there, and a sliver of 1e-27 m² got another label, depending on which faces the earlier pieces had left.
   Within 1e-11 / θ of the coordinates of the apex all fan planes are taken (the approximation is within 1e-12 of the
-  coordinates). Found by inserting every piece a second time without the prefilters: no face changed, yet two orders
+  coordinates); a corner whose approximation is the apex is skipped only if it is the apex exactly
+  (`ExactSlopeKernel.IsAt`), else it counts as near. Found by inserting every piece a second time without the prefilters: no face changed, yet two orders
   differed; with all fan planes they agreed.
 - **The partition: canonical.** `Simplify` no longer merges pairs greedily (that result depended on the order of the
   splits: 16007 against 46805 triangles for one surface). A component (the faces of one label, connected across edges
@@ -240,3 +241,12 @@ over 3000 random ones found three that merge); `RegularPolygon_StripCreaseThroug
 cluster (no merge, so the lowering of a merge is checked only if one happens); `WavyToe_130mHigh_AtUtm` has no needle
 fan (no flip; the flips keep their unit tests in `TerrainSlopeRepairTests`); `TwoPits_MeetInARidge` checks the ridge
 height at (0, 0) on the surface and on the ridge's vertices, which are now only its corners.
+
+Mutations (each must fail a test): the tie rule in the clip, the sector window near the apex, the cut mark of a split
+chord, the exact x in `CompareXY` and its sign of W, the face order, the cycle start, no rays, no vertex removal, the
+ray direction, the run order of the composite, the order of the undercut causes: all caught. Not caught, because no
+test input reaches them: the lowest id among equal planes of one piece (`Math.Min` in the incremental maximum), the
+slit tip as a reflex corner, the removal of vertices on the box boundary, and a corner approximated at the apex that
+is not the apex. The numbers are in benchmarks/TerrainBenchmark/README.md; the octagon on the 1 m grid is slower (a
+second realization, see there).
+
