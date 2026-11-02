@@ -254,7 +254,7 @@ two planes. Same machine, 2026-11-02, before = #285 (1b) head d38b030e, after = 
 The upper bound of the plan for the wavy case was 2.8× (one build left); 1.44× is reached because its second build is
 a margin raise (a slope failure), which still needs a new map. The results are bit for bit those of a new build at
 the final lowering (`TerrainSlopeOneBuildTests`, 19 cases: 20 builds saved, 14 with a raised lowering). The level line
-of the cap now lies at H − λ (the planes are lowered, the cap is not).
+of the cap now lies at H − λ (the map is lowered as a whole, the cap with it, so its lines stay where they are).
 
 ### Slope design on the Hambach DGM (`slope ... terrain=dgm`)
 

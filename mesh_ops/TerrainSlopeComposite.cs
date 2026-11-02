@@ -184,23 +184,56 @@ namespace gs
             }
         }
 
-        // the composite is a height field (exact); overlapping triangles name the moved catch points at their vertices
+        // the composite is a height field (exact); overlapping triangles name the moved catch points at their vertices.
+        // Only the triangles made here (the slope and the cut terrain triangles) are checked, against each other and
+        // the copied terrain triangles within their box: two copied ones are the terrain as given (within the slope's
+        // box the overlay rejects their overlaps, NotHeightField; outside it they are not this operation's concern).
         bool no_overlaps()
         {
-            List<Index2i> pairs = TerrainVolumeDifference.XYOverlapPairs(Composite);
+            DMesh3 near;
+            List<Index2i> pairs = OverlapsOfConstructed(Composite, constructed, out near);
             if (pairs.Count == 0) return true;
             Problem = $"{pairs.Count} pairs of composite triangles overlap in XY";
             foreach (Index2i pr in pairs)
                 foreach (int t in new[] { pr.a, pr.b }) {
-                    Index3i tv = Composite.GetTriangle(t);
+                    Index3i tv = near.GetTriangle(t);
                     foreach (int v in new[] { tv.a, tv.b, tv.c }) {
                         List<long> ks;
-                        if (catchOfVertex.TryGetValue(Composite.GetVertex(v), out ks))
+                        if (catchOfVertex.TryGetValue(near.GetVertex(v), out ks))
                             foreach (long k in ks)
                                 if (catchAt[k] != catchOwn[k]) movedInFailure.Add(k);
                     }
                 }
             return false;
+        }
+
+        // the composite triangles made here (not copied from the terrain), for the overlap check
+        readonly List<int> constructed = new List<int>();
+
+        /// <summary>
+        /// the XY overlaps among the triangles 'constructed' of the mesh and the others within their box, as pairs of
+        /// triangles of 'near' (those triangles, in mesh order); overlaps of two others are not looked for
+        /// </summary>
+        internal static List<Index2i> OverlapsOfConstructed(DMesh3 mesh, List<int> constructed, out DMesh3 near)
+        {
+            var box = AxisAlignedBox2d.Empty;
+            foreach (int t in constructed) {
+                Index3i tv = mesh.GetTriangle(t);
+                box.Contain(mesh.GetVertex(tv.a).xy); box.Contain(mesh.GetVertex(tv.b).xy); box.Contain(mesh.GetVertex(tv.c).xy);
+            }
+            near = new DMesh3(false, false, false, false);
+            var nearVerts = new Dictionary<Vector3d, int>();
+            var isConstructed = new HashSet<int>(constructed);
+            foreach (int t in mesh.TriangleIndices()) {
+                Index3i tv = mesh.GetTriangle(t);
+                Vector3d a = mesh.GetVertex(tv.a), b = mesh.GetVertex(tv.b), c = mesh.GetVertex(tv.c);
+                if (isConstructed.Contains(t) == false) {
+                    var tb = new AxisAlignedBox2d(a.xy); tb.Contain(b.xy); tb.Contain(c.xy);
+                    if (tb.Intersects(box) == false) continue;
+                }
+                near.AppendTriangle(vertex(near, nearVerts, a), vertex(near, nearVerts, b), vertex(near, nearVerts, c));
+            }
+            return TerrainVolumeDifference.XYOverlapPairs(near);
         }
 
         // the catch points at each realized position (to find the moved ones)
@@ -215,6 +248,7 @@ namespace gs
             snap_catch_points();
             Region = new DMesh3(false, false, false, true);
             Composite = new DMesh3(false, false, false, true);
+            constructed.Clear();
             // the slope part
             foreach (int ta in A.TriangleIndices()) {
                 if (cancel != null && cancel()) throw new OperationCanceledException();
@@ -227,13 +261,32 @@ namespace gs
                 }
                 if (partial(true, ta, fl) == false) return false;
             }
-            // the terrain part
+            // the terrain part. The vertices of the copied triangles are found by position (compVerts) only where a cut
+            // triangle meets them; elsewhere by terrain vertex id (no slope vertex can be there: a position in the region
+            // lies in a cut terrain triangle, and at a terrain vertex in one of its triangles)
+            var cut = new bool[B.MaxVertexID];
+            foreach (var kv in facesOfB)
+                if (kv.Value.Exists(f => O.Faces[f].Region)) {
+                    Index3i v = B.GetTriangle(kv.Key);
+                    cut[v.a] = cut[v.b] = cut[v.c] = true;
+                }
+            var outOf = new int[B.MaxVertexID];
+            for (int i = 0; i < outOf.Length; ++i) outOf[i] = -1;
+            Func<int, int> copied = (bv) => {
+                if (cut[bv]) return vertex(Composite, compVerts, B.GetVertex(bv));
+                if (outOf[bv] < 0) outOf[bv] = Composite.AppendVertex(B.GetVertex(bv));
+                return outOf[bv];
+            };
+            int checkAt = 0;
             foreach (int tb in B.TriangleIndices()) {
-                if (cancel != null && cancel()) throw new OperationCanceledException();
+                if ((++checkAt & 1023) == 0 && cancel != null && cancel()) throw new OperationCanceledException();
                 List<int> fl;
                 if (facesOfB.TryGetValue(tb, out fl) == false || fl.Exists(f => O.Faces[f].Region) == false) {
                     Index3i v = B.GetTriangle(tb);
-                    emit(false, terrainGroup, B.GetVertex(v.a), B.GetVertex(v.b), B.GetVertex(v.c));
+                    int ca = copied(v.a), cb = copied(v.b), cc = copied(v.c);
+                    if (ExactPredicates.Orient2d(Composite.GetVertex(ca).xy, Composite.GetVertex(cb).xy, Composite.GetVertex(cc).xy) < 0) { int x = cb; cb = cc; cc = x; }
+                    if (Composite.AppendTriangle(ca, cb, cc, terrainGroup) < 0)
+                        throw new InvalidOperationException("SlopeComposite: non-manifold composite");
                     continue;
                 }
                 if (partial(false, tb, fl) == false) return false;
@@ -269,8 +322,10 @@ namespace gs
         {
             if (ExactPredicates.Orient2d(a.xy, b.xy, c.xy) < 0) { Vector3d x = b; b = c; c = x; }
             int ca = vertex(Composite, compVerts, a), cb = vertex(Composite, compVerts, b), cc = vertex(Composite, compVerts, c);
-            if (Composite.AppendTriangle(ca, cb, cc, group) < 0)
+            int tid = Composite.AppendTriangle(ca, cb, cc, group);
+            if (tid < 0)
                 throw new InvalidOperationException("SlopeComposite: non-manifold composite");
+            constructed.Add(tid);
             if (slope) {
                 int ra = vertex(Region, regionVerts, a), rb = vertex(Region, regionVerts, b), rc = vertex(Region, regionVerts, c);
                 if (Region.AppendTriangle(ra, rb, rc, group) < 0)

@@ -849,8 +849,10 @@ namespace gs
                         bool forward = (tv.a == e0 && tv.b == e1) || (tv.b == e0 && tv.c == e1) || (tv.c == e0 && tv.a == e1);
                         int g = mesh.GetTriangleGroup(t);
                         mesh.RemoveTriangle(t, false, false);
-                        if (forward) { mesh.AppendTriangle(e0, m, x, g); mesh.AppendTriangle(m, e1, x, g); }
-                        else { mesh.AppendTriangle(e1, m, x, g); mesh.AppendTriangle(m, e0, x, g); }
+                        // (an edge m x that exists already would leave a hole: non-manifold, as for any other triangle)
+                        bool ok = forward ? mesh.AppendTriangle(e0, m, x, g) >= 0 && mesh.AppendTriangle(m, e1, x, g) >= 0
+                                          : mesh.AppendTriangle(e1, m, x, g) >= 0 && mesh.AppendTriangle(m, e0, x, g) >= 0;
+                        if (ok == false) throw new NonManifoldRealization();
                         again = true;
                         break;
                     }
@@ -893,7 +895,8 @@ namespace gs
 
         /// <summary>
         /// Repair of needles: a triangle thinner than minAltitude has its longest edge flipped if the two new triangles
-        /// are counter-clockwise (exact) and the thinner of them is thicker than the thinner of the two old ones; both
+        /// are proper (the old diagonal's ends strictly on both sides of the new one, exact; counter-clockwise when the
+        /// old ones are, and the exact check of every triangle afterwards catches any other) and the thinner of them is thicker than the thinner of the two old ones; both
         /// take the piece (group) of the thicker old triangle. A face of the map narrower than the rounding (two creases
         /// that meet at an angle of 1e-12, from nearly coplanar tangent planes of neighbouring apexes) can only be
         /// triangulated into needles; across its sides the flips remove them. Vertices do not move; the exact check of
@@ -956,17 +959,24 @@ namespace gs
             return count;
         }
 
-        // |z on ab - z on cd| at the crossing of the diagonals ab and cd of a convex quad, with 16 ulps of the heights for
-        // the rounding of this evaluation (an upper bound of the change of the surface by the flip)
-        static double diagonal_change(Vector3d a, Vector3d b, Vector3d c, Vector3d d)
+        // |z on ab - z on cd| at the crossing of the diagonals ab and cd of a convex quad (an upper bound of the change
+        // of the surface by the flip), exact and rounded up: in doubles the crossing of nearly parallel diagonals (the
+        // case of two needles on one long edge) is off by eps / sin of their angle, far more than ulps of z.
+        // z1 - z2 = N / den with den = u x w, N = (a.z - c.z) den + (r x w)(b.z - a.z) - (r x u)(d.z - c.z)
+        internal static double diagonal_change(Vector3d a, Vector3d b, Vector3d c, Vector3d d)
         {
-            Vector2d u = b.xy - a.xy, w = d.xy - c.xy, r = c.xy - a.xy;
-            double den = u.x * w.y - u.y * w.x;
-            double t = (r.x * w.y - r.y * w.x) / den, q = (r.x * u.y - r.y * u.x) / den;
-            double z1 = a.z + t * (b.z - a.z), z2 = c.z + q * (d.z - c.z);
-            double m = Math.Max(Math.Max(Math.Abs(a.z), Math.Abs(b.z)), Math.Max(Math.Abs(c.z), Math.Abs(d.z)));
-            double ulp = ExactInterval.Up(m) - m;
-            double ch = Math.Abs(z1 - z2) + 16 * ulp;
+            Func<double, ExactDyadic> E = ExactDyadic.Of;
+            if (MathUtil.IsFinite(a.x + a.y + a.z + b.x + b.y + b.z + c.x + c.y + c.z + d.x + d.y + d.z) == false)
+                return double.MaxValue;
+            ExactDyadic ux = E(b.x) - E(a.x), uy = E(b.y) - E(a.y), wx = E(d.x) - E(c.x), wy = E(d.y) - E(c.y);
+            ExactDyadic rx = E(c.x) - E(a.x), ry = E(c.y) - E(a.y);
+            ExactDyadic den = ux * wy - uy * wx;
+            if (den.Sign == 0) return double.MaxValue;
+            ExactDyadic n = (E(a.z) - E(c.z)) * den + (rx * wy - ry * wx) * (E(b.z) - E(a.z)) - (rx * uy - ry * ux) * (E(d.z) - E(c.z));
+            if (n.Sign == 0) return 0;
+            double q = Math.Abs(ExactDyadic.Quotient(n, den));
+            // (rounded to nearest: one step up is above the exact value)
+            double ch = ExactInterval.Up(q);
             return MathUtil.IsFinite(ch) ? ch : double.MaxValue;
         }
 

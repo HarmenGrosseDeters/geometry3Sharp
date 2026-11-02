@@ -125,7 +125,7 @@ namespace geometry3Sharp.Tests
             // the toe lies just below its specified height, the level line at the limit
             var b = d.SlopeSurface.Vertices().ToList();
             Assert.Contains(b, v => v.y == 0 && v.z <= 5 - d.UsedToeLowering && v.z >= 5 - 2 * d.UsedToeLowering);
-            // (the level line of the cap: the planes are lowered by λ and the cap is not, so it ends at H - λ)
+            // (the level line of the cap: the map is lowered by λ, the cap with it, so it ends at H - λ)
             Assert.Contains(b, v => v.z <= 15 && v.z >= 15 - 2 * d.UsedToeLowering);
         }
 
@@ -354,7 +354,7 @@ namespace geometry3Sharp.Tests
             foreach (int eid in m.BoundaryEdgeIndices()) {
                 Index2i ev = m.GetEdgeV(eid);
                 Vector3d a = m.GetVertex(ev.a), b = m.GetVertex(ev.b);
-                // (the level line ends at HeightLimit - λ: the planes are lowered by λ, the cap is not)
+                // (the level line ends at HeightLimit - λ: the map is lowered by λ, the cap with it)
                 double eps = 1e-9 * (1 + Math.Abs(d.HeightLimit)), level0 = d.HeightLimit + (d.Direction == TerrainSlopeDesign.Directions.Fill ? 1 : -1) * d.UsedToeLowering;
                 bool level = Math.Abs(a.z - level0) <= eps && Math.Abs(b.z - level0) <= eps;
                 bool toe = d.Pieces.Any(p => on_segment(p.P0.xy, p.P1.xy, a.xy) && on_segment(p.P0.xy, p.P1.xy, b.xy));

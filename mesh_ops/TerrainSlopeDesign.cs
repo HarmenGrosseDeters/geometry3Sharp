@@ -57,7 +57,7 @@ namespace gs
     /// the upper envelope of the falling cones for fill): docs/design/TERRAIN.md, phase 1a
     /// (docs/design/TERRAIN_1A_PLAN.md). Mode: cone envelope (R1). Without a terrain the surface is built up to
     /// HeightLimit (cut) or down to it (fill); it ends at HeightLimit - UsedToeLowering (+ for fill), never beyond
-    /// HeightLimit (the planes are lowered by the toe lowering, the cap is not). With a terrain (phase 1b) the catch lines
+    /// HeightLimit (the whole map is lowered by the toe lowering, the cap with it, so its lines stay). With a terrain (phase 1b) the catch lines
     /// and the composite follow.
     ///
     /// Never steeper than specified: every triangle of SlopeSurface is checked exactly, on its stored doubles, before
@@ -109,7 +109,10 @@ namespace gs
         public List<SlopeToe> Toes = new List<SlopeToe>();
         /// <summary>
         /// optional: the terrain (a TIN, height field). With it the catch lines are computed (TERRAIN.md 5.5), and
-        /// HeightLimit may be NaN: cut then builds up to the terrain's highest vertex, fill down to its lowest
+        /// HeightLimit may be NaN: cut then builds up to the highest terrain near the toe, raised while the slope
+        /// reaches it, at most to the terrain's highest vertex (fill: down to its lowest). Only the terrain within the
+        /// box of the slope surface must be a height field (else NotHeightField); outside it the composite copies the
+        /// terrain as given
         /// </summary>
         public DMesh3 Terrain;
         /// <summary> with Terrain: also build SlopeRegion and Composite </summary>
@@ -181,7 +184,9 @@ namespace gs
             Pieces = new List<SlopePiece>(); ToeProblems = new List<Index2i>(); ProblemTriangles = new List<int>();
             MaxSlopeRatio = 0; UsedSlopeMargin = UsedToeLowering = UsedMinFeatureSize = FacetAngle = 0;
             PhaseSeconds = new Dictionary<string, double>(); Attempts = 0; Realizations = 0; PredicateCalls = ExactFallbacks = ExactConstructions = 0;
-            MergedPositions = 0; MergeLambdaRequired = 0;
+            MergedPositions = 0; MergeLambdaRequired = 0; NeedleFlips = 0; LastRealized = null;
+            // (a cancelled or failed run can leave them set)
+            reachedCap = capMayGrow = false;
             try {
                 Status = compute();
             } catch (OperationCanceledException) {
@@ -306,7 +311,8 @@ namespace gs
             // A local height limit (TERRAIN_1C_PLAN.md): the slope is built up to the highest terrain near the toe and
             // raised while the region reaches it, at most to the global limit. A region that does not reach the cap
             // is the region of any higher cap (it is bounded by the catch line and the toe), so the result is that of
-            // the global limit, with a smaller slope surface (and, as D_max is smaller, coarser facets within Tolerance).
+            // the global limit up to Tolerance (not bit for bit: facets, margins and λ depend on the cap through D_max),
+            // with a smaller slope surface.
             double zMin = pieces.Min(p => Math.Min(p.A.z, p.B.z)), sMin = pieces.Min(p => p.S);
             var toeBox = AxisAlignedBox2d.Empty;
             foreach (var pts in toePts) foreach (var p in pts) toeBox.Contain(p.xy);
@@ -316,8 +322,8 @@ namespace gs
             while (true) {
                 if (!(hLocal < H)) hLocal = H;
                 capMayGrow = hLocal < H;
-                Statuses st = attempts(pieces, toePts, hLocal, fill);
-                capMayGrow = false;
+                Statuses st;
+                try { st = attempts(pieces, toePts, hLocal, fill); } finally { capMayGrow = false; }
                 if (st != Statuses.NoDaylight || reachedCap == false || hLocal >= H)
                     return st;
                 // twice the reach of this cap, and at least twice the height range
@@ -493,8 +499,8 @@ namespace gs
             // The toe lowering λ (TERRAIN_1C_PLAN.md, idea A). Lowering every plane by λ leaves the line of any two
             // planes unchanged (Nz_a D_b - Nz_b D_a does not change when both D grow by λ Nz), so the map is built once
             // from the specified toe and realized with z lowered by λ, exactly rounded; a larger λ costs a realization,
-            // not a build. The cap is not lowered (the surface ends at H - λ, never above H); its lines are the only
-            // ones a lowering would move. The checks at construction (slope, support of a plane at its piece's ends,
+            // not a build. The cap is lowered with the planes (else the map's lines with the cap would move), so the surface
+            // ends at H - λ, never above H. The checks at construction (slope, support of a plane at its piece's ends,
             // undercut against Tolerance) compare plane and toe heights, so they do not depend on λ either.
 
             // planes of the pieces: the strips first, then the cone tangents, which know the strips at their apex

@@ -128,6 +128,42 @@ namespace geometry3Sharp.Tests
             Assert.Equal(4, mesh.TriangleCount);
         }
 
+        [Fact]
+        public void DiagonalChange_IsAnUpperBound_AtNearlyParallelDiagonals()
+        {
+            // two needles on a 10 m edge ab at UTM magnitude, their apexes c and d 1e-9 to 1e-6 m either side: the
+            // diagonals ab and cd cross at an angle of 1e-10 to 1e-7, where the crossing in doubles is off by far more
+            // than ulps of z. The bound must be at least the exact change |z on ab - z on cd| at the exact crossing.
+            var rng = new Random(5);
+            int violations = 0, tested = 0;
+            for (int it = 0; it < 2000; ++it) {
+                double x0 = 328375.25 + rng.NextDouble() * 100, y0 = 5642875.5 + rng.NextDouble() * 100;
+                double phi = rng.NextDouble() * 2 * Math.PI, off = Math.Pow(10, -9 + 3 * rng.NextDouble());
+                Vector2d dir = new Vector2d(Math.Cos(phi), Math.Sin(phi)), nrm = dir.Perp;
+                Func<double, double, double, Vector3d> at = (s, o, dz) => {
+                    Vector2d p = new Vector2d(x0, y0) + s * dir + o * nrm;
+                    return new Vector3d(p.x, p.y, -100 + s * 1.5 + dz);
+                };
+                Vector3d a = at(0, 0, 0), b = at(10, 0, 0);
+                Vector3d c = at(2 + rng.NextDouble(), -off, (rng.NextDouble() - 0.5) * 1e-6);
+                Vector3d d = at(7 + rng.NextDouble(), off, (rng.NextDouble() - 0.5) * 1e-6);
+                if (ExactPredicates.Orient2d(a.xy, b.xy, c.xy) * ExactPredicates.Orient2d(a.xy, b.xy, d.xy) >= 0) continue;
+                if (ExactPredicates.Orient2d(c.xy, d.xy, a.xy) * ExactPredicates.Orient2d(c.xy, d.xy, b.xy) >= 0) continue;
+                double ch = SlopeMap.diagonal_change(a, b, c, d);
+                // exact: z1 - z2 = N / den, den = u x w, N = (a.z - c.z) den + (r x w)(b.z - a.z) - (r x u)(d.z - c.z)
+                Func<double, ExactDyadic> E = ExactDyadic.Of;
+                ExactDyadic ux = E(b.x) - E(a.x), uy = E(b.y) - E(a.y), wx = E(d.x) - E(c.x), wy = E(d.y) - E(c.y);
+                ExactDyadic rx = E(c.x) - E(a.x), ry = E(c.y) - E(a.y);
+                ExactDyadic den = ux * wy - uy * wx;
+                ExactDyadic N = (E(a.z) - E(c.z)) * den + (rx * wy - ry * wx) * (E(b.z) - E(a.z)) - (rx * uy - ry * ux) * (E(d.z) - E(c.z));
+                ExactDyadic absN = N.Sign < 0 ? -N : N, absDen = den.Sign < 0 ? -den : den;
+                if ((E(ch) * absDen - absN).Sign < 0) violations++;
+                tested++;
+            }
+            Assert.True(tested > 1500);
+            Assert.Equal(0, violations);
+        }
+
         static Index2i ordered(int u, int v) { return u < v ? new Index2i(u, v) : new Index2i(v, u); }
     }
 }

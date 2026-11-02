@@ -91,10 +91,15 @@ lowering λ covers it (the exact check of every triangle decides in the end; the
   realization level: `TerrainSlopeRepairTests.Realize_DropsAFaceNarrowerThanTheRounding_NoGapNoOverlap` (both the
   missing drop and the missing stitch fail it); the crack check `boundary_is_toe_limit_or_cap` runs on every realization.
 - **Needle flips** (`SlopeMap.FlipNeedles(mesh, minAltitude = r, maxDeviation = FlipShare)`): a triangle thinner than r
-  across its longest edge is flipped with its neighbour. A flip changes the surface most at the crossing of the quad's
-  diagonals (`diagonal_change`, plus 16 ulps for its own rounding); the changes add up per triangle, and a flip that
-  would take a triangle beyond `FlipShare` = 2 sMax (r + e_xy) is refused. Tests: `NeedleFlip_WithinItsShare` (the
-  bound), `WavyToe_130mHigh_AtUtm` (flips needed for success, λ at least the requirement).
+  across its longest edge is flipped with its neighbour. A flip changes the surface by zero at the quad's corners and
+  linearly on the four sub-triangles around the crossing of its diagonals, so most at that crossing
+  (`diagonal_change`). It is evaluated exactly and rounded up: in doubles the crossing of the nearly parallel
+  diagonals of two needles on one long edge is off by eps / sin of their angle, up to 1.6e-6 m at UTM magnitude, more
+  than the whole share (a fixed 16 ulps of z did not cover it; `DiagonalChange_IsAnUpperBound_AtNearlyParallelDiagonals`
+  against an exact reference, 893 of 2000 cases below it before). The changes add up per triangle (a flip keeps the
+  two triangle ids, which carry the larger of the two bounds plus its change), and a flip that would take a triangle
+  beyond `FlipShare` = 2 sMax (r + e_xy) is refused. Tests: `NeedleFlip_WithinItsShare` (the bound),
+  `WavyToe_130mHigh_AtUtm` (flips needed for success, λ at least the requirement).
 
 ### Local height limit
 
@@ -102,8 +107,20 @@ With a terrain and `HeightLimit` NaN, the cap starts at the highest terrain vert
 plus `Tolerance`, at least the highest toe point plus `Tolerance`. If the region reaches the cap
 (`SlopeTerrainOverlay.ReachedHeightLimit`), the cap is raised (the highest terrain within twice the reach of this cap,
 at least the height range again) up to the global limit. A region that does not reach the cap is bounded by the catch
-line and the toe, so it is the region of any higher cap: the result equals that of the global limit with a smaller
-slope surface. While the cap may still grow, no composite is built (a region at the cap is not final).
+line and the toe, so it is the region of any higher cap. The result is that of the global limit up to Tolerance, not
+bit for bit: the facets, the margins, λ and the minimum feature size depend on the cap (its height sets D_max), so the
+catch lines differ within their accuracy (`LocalHeightLimit_IsRaised_AndMatchesTheGlobalLimit`). While the cap may
+still grow, no composite is built (a region at the cap is not final); a cancelled run leaves no state behind
+(`Reuse_AfterACancelledLocalLimitRun`).
+
+### The composite outside the slope
+
+Only the terrain within the box of the slope surface must be a height field (the overlay rejects overlaps there,
+`NotHeightField`); outside it the composite copies the terrain as given (`TerrainOverlap_FarFromTheSlope_IsTheTerrainAsGiven`).
+The composite's own overlap check covers the triangles it makes (slope and cut terrain triangles) against each other
+and the copied terrain triangles within their box (`SlopeComposite.OverlapsOfConstructed`), not the copied ones among
+themselves; copied triangles take their vertices by terrain vertex id, except where a cut triangle meets them (by
+position, so they share its vertices: `AssertComposite` checks one vertex per position).
 
 ### Baseline for the band-only overlay and composite (Hambach, 1 m grid)
 
