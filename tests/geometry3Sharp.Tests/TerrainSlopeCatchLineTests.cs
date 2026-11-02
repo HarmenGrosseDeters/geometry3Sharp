@@ -318,6 +318,44 @@ namespace geometry3Sharp.Tests
             AssertComposite(d);
         }
 
+        internal static List<Vector3d> Ngon(int n, double r, double z, Vector2d c, double phase = 0.1) =>
+            Enumerable.Range(0, n).Select(i => new Vector3d(c.x + r * Math.Cos(phase + 2 * Math.PI * i / n), c.y + r * Math.Sin(phase + 2 * Math.PI * i / n), z)).ToList();
+
+        [Theory]
+        [InlineData(0, false)]
+        [InlineData(1, false)]
+        [InlineData(2, true)]
+        [InlineData(3, true)]
+        public void RandomTerrains_CatchLinesAndComposite(int seed, bool utm)
+        {
+            var rnd = new Random(seed);
+            int ok = 0, noDaylight = 0;
+            for (int it = 0; it < 6; ++it) {
+                bool fill = rnd.Next(3) == 0;
+                Vector2d c = utm ? new Vector2d(5.6e6 + rnd.Next(1000), 3.5e5 + rnd.Next(1000)) : Vector2d.Zero;
+                double zc = utm ? 120 : 0;
+                double amp = 1 + 4 * rnd.NextDouble(), k = 0.05 + 0.1 * rnd.NextDouble(), h = 6 + 6 * rnd.NextDouble();
+                double jitter = rnd.NextDouble() < 0.5 ? 0 : 0.3;
+                var jr = new Random(seed * 100 + it);
+                Func<double, double, double> f = (x, y) => zc + (fill ? -1 : 1) * (h + amp * Math.Sin(k * (x - c.x)) * Math.Cos(0.7 * k * (y - c.y))) + jitter * (jr.NextDouble() - 0.5);
+                var terrain = Grid(new AxisAlignedBox2d(c.x - 80, c.y - 80, c.x + 80, c.y + 80), 20 + rnd.Next(20), 20 + rnd.Next(20), f, rnd.Next(2) == 0);
+                var toe = SlopeToe.Constant(Ngon(5 + rnd.Next(6), 8 + 6 * rnd.NextDouble(), zc, c, rnd.NextDouble()), true, SlopeToe.Sides.Outside,
+                    SlopeSpec.Ratio(1 + 2 * rnd.NextDouble()));
+                if (fill) { toe.FillStart = toe.CutStart; toe.CutStart = null; }
+                var d = new TerrainSlopeDesign() {
+                    Toes = { toe }, Terrain = terrain, Tolerance = 0.05, BuildComposite = true,
+                    Direction = fill ? TerrainSlopeDesign.Directions.Fill : TerrainSlopeDesign.Directions.Cut
+                };
+                bool res = d.Compute();
+                output.WriteLine($"{it}: fill {fill} {d.Status} {d.Message} lines {d.CatchLines.Count} attempts {d.Attempts} δ {d.UsedSlopeMargin:G2} λ {d.UsedToeLowering:G2}");
+                Assert.True(res || d.Status == TerrainSlopeDesign.Statuses.NoDaylight, d.Status + " " + d.Message);
+                if (res) ok++; else noDaylight++;
+                AssertCatchLines(d, fill);
+                AssertComposite(d, fill);
+            }
+            Assert.True(ok > 0);
+        }
+
         // ---- the exact signs against rationals ----
 
         static BigRational R(double x) => BigRational.Of(x);

@@ -314,7 +314,9 @@ namespace gs
                 if (delta * 8 > 1e-3)
                     return fail(Statuses.SlopeViolation, $"{br.Bad.Count} triangles failed the exact check");
                 delta *= 8;
-                lambdaReq = -1;
+                // (support failures next to the slope failures keep their measured lowering; the next build caps it at
+                // its own bound)
+                lambdaReq = (br.MaxExcess > 0 && 4 * br.MaxExcess <= br.LambdaBound) ? Math.Max(2 * br.Lambda, 4 * br.MaxExcess) : -1;
             }
         }
 
@@ -497,7 +499,9 @@ namespace gs
 
             // realization and the exact check
             checkCancel();
-            mesh = map.Realize(cap, fill);
+            // (positions within a few ulps are one vertex: clusters of near-degenerate crossings that the collapse
+            // below cannot always resolve; larger distances are left to it, which keeps the cells)
+            mesh = map.Realize(cap, fill, 64 * exy);
             SlopeMap.CollapseShortEdges(mesh, map.OutLabels, map.OnBarrier, minFeature);
             phase("realize");
             double maxRatio = 0;
@@ -571,12 +575,18 @@ namespace gs
             return overlay.NoDaylight ? fail(Statuses.NoDaylight, "the slope does not reach the terrain everywhere within its footprint") : Statuses.Success;
         }
 
-        // the plane of (a, b, c) at p's XY minus p.z (approximate; for the measured toe lowering)
+        // the plane of (a, b, c) at p's XY minus p.z, its positive part (for the measured toe lowering): exact, rounded
+        // to nearest, so a triangle that fails the support check has an excess > 0 even where doubles cannot see it
         static double plane_excess(Vector3d a, Vector3d b, Vector3d c, Vector3d p)
         {
-            Vector3d n = (b - a).Cross(c - a);
-            double z = a.z - (n.x * (p.x - a.x) + n.y * (p.y - a.y)) / n.z;
-            double e = z - p.z;
+            ExactDyadic ax = ExactDyadic.Of(a.x), ay = ExactDyadic.Of(a.y), az = ExactDyadic.Of(a.z);
+            ExactDyadic ux = ExactDyadic.Of(b.x) - ax, uy = ExactDyadic.Of(b.y) - ay, uz = ExactDyadic.Of(b.z) - az;
+            ExactDyadic wx = ExactDyadic.Of(c.x) - ax, wy = ExactDyadic.Of(c.y) - ay, wz = ExactDyadic.Of(c.z) - az;
+            ExactDyadic nx = uy * wz - uz * wy, ny = uz * wx - ux * wz, nz = ux * wy - uy * wx;
+            if (nz.Sign == 0) return 0;
+            // (z_plane - pz) nz = az nz - nx (px - ax) - ny (py - ay) - pz nz
+            ExactDyadic num = (az - ExactDyadic.Of(p.z)) * nz - nx * (ExactDyadic.Of(p.x) - ax) - ny * (ExactDyadic.Of(p.y) - ay);
+            double e = ExactDyadic.Quotient(num, nz);
             return (MathUtil.IsFinite(e) && e > 0) ? e : 0;
         }
 

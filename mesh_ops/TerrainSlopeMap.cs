@@ -680,7 +680,7 @@ namespace gs
         /// the slope faces as a TIN: vertices rounded to the nearest doubles, z the lowest incident plane there (rounded
         /// to nearest), faces triangulated at their exact corners; group id = piece; z negated for fill
         /// </summary>
-        public DMesh3 Realize(int cap, bool fill)
+        public DMesh3 Realize(int cap, bool fill, double mergeRadius = 0)
         {
             var mesh = new DMesh3(false, false, false, true);
             // the planes incident to each rounded position (all domain faces, the cap too)
@@ -697,8 +697,11 @@ namespace gs
                 if (fLabel[f] != cap) faces.Add(f);
             }
             var outId = new Dictionary<Vector2d, int>();
+            var repOf = new Dictionary<Vector2d, Vector2d>();
             Func<int, int> outVertex = (v) => {
                 Vector2d r = K.Rounded(v);
+                Vector2d rep;
+                if (repOf.TryGetValue(r, out rep)) r = rep;
                 int o;
                 if (outId.TryGetValue(r, out o)) return o;
                 double z = double.MaxValue;
@@ -723,6 +726,7 @@ namespace gs
                     barrierPos.Add(p); barrierPos.Add(q);
                     at(p, hBar[h]); at(q, hBar[h]);
                 }
+            merge_close_positions(labelsAt, barrierPos, mergeRadius, repOf);
             foreach (int f in faces) {
                 int group = owner[fLabel[f]];
                 var verts = cycle(f).Select(h => hOrig[h]).ToList();
@@ -735,6 +739,52 @@ namespace gs
             }
             foreach (int v in mesh.VertexIndices()) OnBarrier.Add(barrierPos.Contains(mesh.GetVertex(v).xy));
             return mesh;
+        }
+
+        // Positions nearer than the radius become one vertex (z the lowest of the planes of all of them; the exact check
+        // of every triangle decides), and a position on a barrier only goes to another one on a barrier. Near-degenerate
+        // inputs need it: on a regular polygon the line where the strips of two pieces are equal passes within a few
+        // ulps of the opposite vertex, which leaves a cluster of map vertices there; collapsing their edges one by one
+        // can fail the link condition and leave a degenerate triangle.
+        static void merge_close_positions(Dictionary<Vector2d, List<int>> labelsAt, HashSet<Vector2d> barrierPos, double radius,
+                                          Dictionary<Vector2d, Vector2d> repOf)
+        {
+            if (!(radius > 0)) return;
+            var order = labelsAt.Keys.ToList();
+            order.Sort((a, b) => {
+                bool ba = barrierPos.Contains(a), bb = barrierPos.Contains(b);
+                if (ba != bb) return ba ? -1 : 1;
+                int ca = labelsAt[a].Count, cb = labelsAt[b].Count;
+                if (ca != cb) return cb.CompareTo(ca);
+                return a.x != b.x ? a.x.CompareTo(b.x) : a.y.CompareTo(b.y);
+            });
+            var grid = new Dictionary<long, List<Vector2d>>();
+            Func<double, long> cell = (x) => (long)Math.Floor(x / radius);
+            foreach (Vector2d p in order) {
+                long cx = cell(p.x), cy = cell(p.y);
+                Vector2d best = p;
+                double bestD = radius;
+                for (long i = cx - 1; i <= cx + 1; ++i)
+                    for (long j = cy - 1; j <= cy + 1; ++j) {
+                        List<Vector2d> reps;
+                        if (grid.TryGetValue(i * 0x100000007L + j, out reps) == false) continue;
+                        foreach (Vector2d q in reps) {
+                            double d = p.Distance(q);
+                            if (d >= bestD) continue;
+                            if (barrierPos.Contains(p) && barrierPos.Contains(q) == false) continue;
+                            best = q; bestD = d;
+                        }
+                    }
+                if (best != p) {
+                    repOf[p] = best;
+                    foreach (int l in labelsAt[p]) if (labelsAt[best].Contains(l) == false) labelsAt[best].Add(l);
+                    continue;
+                }
+                long k = cx * 0x100000007L + cy;
+                List<Vector2d> list;
+                if (grid.TryGetValue(k, out list) == false) { list = new List<Vector2d>(); grid[k] = list; }
+                list.Add(p);
+            }
         }
 
         /// <summary> Realize: per vertex of the mesh, the planes of its faces, and whether it lies on a toe or a lateral limit </summary>

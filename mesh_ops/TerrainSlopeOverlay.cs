@@ -50,6 +50,8 @@ namespace gs
         // B triangles counter-clockwise: vertices and edges (edge j between vertex j and j + 1)
         public readonly Dictionary<int, int[]> bTriV = new Dictionary<int, int[]>(), bTriE = new Dictionary<int, int[]>();
         public DMesh3 Slope { get { return A; } }
+        /// <summary> +1 cut, -1 fill </summary>
+        public int Dir { get { return dir; } }
         public DMesh3 Terrain { get { return B; } }
         /// <summary> the kind of a boundary edge of A (KindToe, KindLateral, KindOther), 0 for an interior edge </summary>
         public int BoundaryKind(int ea) { int k; return aBoundaryKind.TryGetValue(ea, out k) ? k : 0; }

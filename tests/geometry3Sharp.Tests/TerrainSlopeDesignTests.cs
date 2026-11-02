@@ -373,6 +373,18 @@ namespace geometry3Sharp.Tests
         // A: open, uneven, mixed specs (failed with SlopeViolation: the sector window wrapped at +-pi, and the
         // planes of a failed attempt were kept for the next one)
         [Fact]
+        public void RegularPolygon_StripCreaseThroughTheOppositeVertex()
+        {
+            // found by the 1b stress test: on a regular 10-gon the line where the strips of two pieces are equal passes
+            // within a few ulps of the opposite toe vertex, which left a cluster of map vertices 1e-14 apart there; their
+            // edges could not all be collapsed (link condition) and a degenerate triangle failed the check at every margin
+            var toe = SlopeToe.Constant(Ngon(10, 9.642226746139222, 0, 0.29190628476995334), true, SlopeToe.Sides.Outside, SlopeSpec.Ratio(1.9346294006959672));
+            var d = Run(13.65915220256275, 0.05, toe);
+            AssertAll(d);
+            output.WriteLine($"attempts {d.Attempts}, λ {d.UsedToeLowering:G3}, δ {d.UsedSlopeMargin:G3}");
+        }
+
+        [Fact]
         public void Review_OpenUneven_MixedSlopes()
         {
             var pts = P((12, 16, 0), (0.934, 24, 0), (-12.773, 19.097, 0), (-11.63, 4.284, 1), (-24, -6.67, 0), (-14, -18, 1), (-1, -19, 0), (13.011, -19, 0), (16, -6, 0));

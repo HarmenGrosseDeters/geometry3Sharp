@@ -41,6 +41,19 @@ namespace gs
             this.cancel = cancel;
         }
 
+        // two catch points may share a position if one of them can take the other's without leaving its slope planes:
+        // both on the same slope edge, or one inside a slope triangle and the other inside it or on one of its edges
+        bool mergeable(long a, long b)
+        {
+            int ka = SlopeTerrainOverlay.ekind(a), kb = SlopeTerrainOverlay.ekind(b);
+            if (ka == 0 && kb == 0) return SlopeTerrainOverlay.eedge(a) == SlopeTerrainOverlay.eedge(b);
+            if (ka == 1 && kb == 1) return SlopeTerrainOverlay.etri(a) == SlopeTerrainOverlay.etri(b);
+            long e = ka == 0 ? a : b, t = ka == 0 ? b : a;
+            Index3i te = A.GetTriEdges(SlopeTerrainOverlay.etri(t));
+            int ea = SlopeTerrainOverlay.eedge(e);
+            return te.a == ea || te.b == ea || te.c == ea;
+        }
+
         void snap_catch_points()
         {
             var keys = new List<long>();
@@ -53,6 +66,8 @@ namespace gs
             var snapped = new HashSet<long>();
             foreach (long k in keys) {
                 Vector3d p = O.CatchPoint(k);
+                p.x += 0.0; p.y += 0.0;
+                p.z = SlopeTerrainOverlay.ekind(k) == 0 ? edge_z(SlopeTerrainOverlay.eedge(k), p.xy) : tri_z(SlopeTerrainOverlay.etri(k), p.xy);
                 catchAt[k] = p;
                 // the slope vertices of its edge (on an edge of A) or of its triangle (inside one)
                 int[] vs;
@@ -74,11 +89,14 @@ namespace gs
             find = (x) => { while (parent[x] != x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; };
             for (int i = 0; i < order.Count; ++i)
                 for (int j = i + 1; j < order.Count && catchAt[order[j]].x - catchAt[order[i]].x < minFeature; ++j)
-                    if (catchAt[order[i]].xy.Distance(catchAt[order[j]].xy) < minFeature) {
+                    if (catchAt[order[i]].xy.Distance(catchAt[order[j]].xy) < minFeature && mergeable(order[i], order[j])) {
                         long r0 = find(order[i]), r1 = find(order[j]);
-                        if (r0 == r1) continue;
-                        bool s0 = snapped.Contains(r0), s1 = snapped.Contains(r1);
-                        bool keep0 = s0 != s1 ? s0 : r0 < r1;
+                        if (r0 == r1 || mergeable(r0, r1) == false) continue;
+                        // (the position must lie on the planes of all slope triangles that use it: a vertex, else a
+                        // point on an edge, else a point inside the one triangle)
+                        int p0 = snapped.Contains(r0) ? 0 : SlopeTerrainOverlay.ekind(r0) == 0 ? 1 : 2;
+                        int p1 = snapped.Contains(r1) ? 0 : SlopeTerrainOverlay.ekind(r1) == 0 ? 1 : 2;
+                        bool keep0 = p0 != p1 ? p0 < p1 : r0 < r1;
                         if (keep0) parent[r1] = r0; else parent[r0] = r1;
                     }
             foreach (long k in keys) catchAt[k] = catchAt[find(k)];
@@ -416,9 +434,43 @@ namespace gs
             if (kind == 1 && slope == false) return B.GetVertex(SlopeTerrainOverlay.vfirst(k));
             O.Heights(k, out zs, out zt);
             Vector2d xy = O.VertexXY(k);
+            if (slope) {
+                // (on S̃: exactly rounded from the planes of the slope triangles, as 1a realizes its vertices)
+                zs = kind == 2 ? edge_z(SlopeTerrainOverlay.vfirst(k), xy) : tri_z(O.Container(k), xy);
+            }
             if (kind == 2 && slope == false && O.BoundaryKind(SlopeTerrainOverlay.vfirst(k)) != 0)
                 xy = nudge(k, xy);
             return new Vector3d(xy.x, xy.y, slope ? zs : zt);
+        }
+
+        // the height of the plane through a, b, c at p, rounded to nearest from the exact value
+        static double exact_plane_z(Vector3d a, Vector3d b, Vector3d c, Vector2d p)
+        {
+            ExactDyadic ax = ExactDyadic.Of(a.x), ay = ExactDyadic.Of(a.y), az = ExactDyadic.Of(a.z);
+            ExactDyadic ux = ExactDyadic.Of(b.x) - ax, uy = ExactDyadic.Of(b.y) - ay, uz = ExactDyadic.Of(b.z) - az;
+            ExactDyadic wx = ExactDyadic.Of(c.x) - ax, wy = ExactDyadic.Of(c.y) - ay, wz = ExactDyadic.Of(c.z) - az;
+            ExactDyadic nx = uy * wz - uz * wy, ny = uz * wx - ux * wz, nz = ux * wy - uy * wx;
+            ExactDyadic num = az * nz - nx * (ExactDyadic.Of(p.x) - ax) - ny * (ExactDyadic.Of(p.y) - ay);
+            return ExactDyadic.Quotient(num, nz);
+        }
+
+        double tri_z(int ta, Vector2d p)
+        {
+            Index3i t = A.GetTriangle(ta);
+            return exact_plane_z(A.GetVertex(t.a), A.GetVertex(t.b), A.GetVertex(t.c), p);
+        }
+
+        // a point on a slope edge: the lower of its triangles' planes there (cut; the higher for fill), as 1a takes
+        // the lowest incident plane, so the vertex is on or below (above) both
+        double edge_z(int ea, Vector2d p)
+        {
+            Index2i et = A.GetEdgeT(ea);
+            double z = tri_z(et.a, p);
+            if (et.b >= 0) {
+                double z2 = tri_z(et.b, p);
+                z = O.Dir > 0 ? Math.Min(z, z2) : Math.Max(z, z2);
+            }
+            return z;
         }
 
         // a terrain node on a boundary edge of the slope surface, moved by ulps off the slope side if it is on it
