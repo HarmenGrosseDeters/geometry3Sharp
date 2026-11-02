@@ -626,6 +626,20 @@ namespace Meshing2Acceptance
                 must((ok ? "accept: " : "reject: ") + what, !report.Has(Violation.NotPositive) && report.Has(Violation.AngleBelowBound) != ok, "report: " + report);
             }
 
+            // 3c. the same exempt needle with an input point at (2, 0) on the hull edge between the apex and p: the mesher's hull source
+            //     at p is then (2, 0)-(4, 0), which does not reach the apex, so the needle is judged (the oracle splits its hull edges at
+            //     collinear input points too; second review of the fix). With the point at (2, 1/2), off the hull, it stays exempt
+            foreach (var (cy, ok, what) in new[] { (0.5, true, "the exempt needle with an input point off the hull stays exempt"),
+                                                   (0.0, false, "the needle with an input point on the hull edge between apex and needle is judged") }) {
+                var input = Points(0, 0, 10, 0, 10, 10, 0, 10, 8, 0.015625, 4, 0, 4, 1.0 / 128, 1, 3, 1, 0.5, 4, 3, 2, cy);
+                input.Segments.Add(new SegmentInput(0, 4));
+                input.MinAngleDeg = 20;
+                var o = Out(input, new[] { new[] { 5, 6, 7 }, new[] { 8, 5, 7 }, new[] { 6, 9, 7 } });
+                o.BadTriangles = new[] { 0 };
+                var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
+                must((ok ? "accept: " : "reject: ") + what, !report.Has(Violation.NotPositive) && report.Has(Violation.AngleBelowBound) != ok, "report: " + report);
+            }
+
             // 3. the small-input-angle exemption covers endpoints at about the same distance from the apex (Shewchuk's shells), not
             //    endpoints a factor of 1.5 or more apart: two segments at about 10.6 degrees, vertices at 1, 4, 16 on one and at
             //    1.53, 6.1, 24.4 on the other (exact: multiples of (32, 6) by 3/64, 3/16, 3/4); every adjacent pair is 1.53 apart
