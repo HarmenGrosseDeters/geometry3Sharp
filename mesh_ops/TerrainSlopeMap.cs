@@ -21,6 +21,8 @@ namespace gs
             hFace = new List<int>(), hLine = new List<int>(), hBar = new List<int>(), hBarSide = new List<int>();
         // faces
         readonly List<int> fEdge = new List<int>(), fLabel = new List<int>(), fQt = new List<int>();
+        // the box of each face in the quadtree (as of its last qt_update)
+        readonly List<AxisAlignedBox2d> fBox = new List<AxisAlignedBox2d>();
         readonly List<bool> fDomain = new List<bool>(), fAlive = new List<bool>();
         readonly List<bool> hAlive = new List<bool>();
         LooseQuadtree2d qt;
@@ -64,7 +66,9 @@ namespace gs
         void qt_update(int f)
         {
             if (fQt[f] >= 0) qt.Remove(fQt[f]);
-            int id = qt.Insert(face_box(f));
+            AxisAlignedBox2d box = face_box(f);
+            fBox[f] = box;
+            int id = qt.Insert(box);
             while (qtFace.Count <= id) qtFace.Add(-1);
             qtFace[id] = f;
             fQt[f] = id;
@@ -138,7 +142,7 @@ namespace gs
                 throw new InvalidOperationException("SlopeMap: face is not convex");
             int z1out = c[i1], z1in = c[(i1 + n - 1) % n], z2out = c[i2], z2in = c[(i2 + n - 1) % n];
             int g = fEdge.Count;
-            fEdge.Add(-1); fLabel.Add(fLabel[f]); fDomain.Add(fDomain[f]); fQt.Add(-1); fAlive.Add(true);
+            fEdge.Add(-1); fLabel.Add(fLabel[f]); fDomain.Add(fDomain[f]); fQt.Add(-1); fAlive.Add(true); fBox.Add(AxisAlignedBox2d.Empty);
             int n1 = new_half_edge(hOrig[z1out], f, line);      // z1 -> z2, in neg (f)
             int n2 = new_half_edge(hOrig[z2out], g, line);      // z2 -> z1, in pos (g)
             hTwin[n1] = n2; hTwin[n2] = n1;
@@ -208,7 +212,7 @@ namespace gs
                 int[] v = { tri.a, tri.b, tri.c };
                 if (ExactPredicates.Orient2d(pts[v[0]], pts[v[1]], pts[v[2]]) < 0) { int x = v[1]; v[1] = v[2]; v[2] = x; }
                 int f = fEdge.Count;
-                fEdge.Add(-1); fLabel.Add(-1); fDomain.Add(false); fQt.Add(-1); fAlive.Add(true);
+                fEdge.Add(-1); fLabel.Add(-1); fDomain.Add(false); fQt.Add(-1); fAlive.Add(true); fBox.Add(AxisAlignedBox2d.Empty);
                 var hs = new int[3];
                 for (int k = 0; k < 3; ++k) {
                     int a = v[k], b = v[(k + 1) % 3];
@@ -394,6 +398,21 @@ namespace gs
             var relevant = new List<int>();
             foreach (int f in faces) {
                 int label = fLabel[f];
+                // the same prefilter on the face's box first (no cycle): the box's highest corner bounds the plane over
+                // the face from above, its distance to the segment bounds the face's from below, so it skips no face
+                // the test below keeps; except a face narrower than the rounding, whose approximate corners are one
+                // point: the polygon test below takes its distance as 0 (a degenerate polygon counts as containing the
+                // segment's end), the box (which contains the face, its expansion exceeds the error of Approx) does not
+                {
+                    AxisAlignedBox2d bb = fBox[f];
+                    double upperB = double.MinValue;
+                    for (int i = 0; i < 4; ++i) { Vector2d q = bb.GetCorner(i); upperB = Math.Max(upperB, K.ApproxHeight(label, q.x, q.y)); }
+                    double dminB = box_segment_distance(bb, A.xy, B.xy);
+                    double lowerB = zmin + slb * dminB;
+                    double sizeB = bb.Diagonal.Length;
+                    if (lowerB > upperB + 1e-9 * (Math.Abs(upperB) + Math.Abs(lowerB) + slb * (sizeB + dminB)))
+                        continue;
+                }
                 List<int> c = cycle(f);
                 var pos = c.Select(h => K.Approx(hOrig[h])).ToList();
                 // prefilter (conservative): F_k over the face is at least zmin + slb * dmin
@@ -438,6 +457,26 @@ namespace gs
             while (a > Math.PI) a -= 2 * Math.PI;
             while (a <= -Math.PI) a += 2 * Math.PI;
             return a;
+        }
+
+        // the distance of the box to the segment ab (0 if they meet), approximate as poly_segment_distance
+        static double box_segment_distance(AxisAlignedBox2d box, Vector2d a, Vector2d b)
+        {
+            if (box.Contains(a) || box.Contains(b)) return 0;
+            double d = Math.Min(point_box_distance(box, a), point_box_distance(box, b));
+            var s = new Segment2d(a, b);
+            for (int i = 0; i < 4; ++i) {
+                Vector2d p = box.GetCorner(i), q = box.GetCorner((i + 1) % 4);
+                if (segments_cross(a, b, p, q)) return 0;
+                d = Math.Min(d, Math.Sqrt(s.DistanceSquared(p)));
+            }
+            return d;
+        }
+
+        static double point_box_distance(AxisAlignedBox2d box, Vector2d p)
+        {
+            double dx = Math.Max(Math.Max(box.Min.x - p.x, p.x - box.Max.x), 0), dy = Math.Max(Math.Max(box.Min.y - p.y, p.y - box.Max.y), 0);
+            return Math.Sqrt(dx * dx + dy * dy);
         }
 
         static double poly_segment_distance(List<Vector2d> poly, Vector2d a, Vector2d b)
