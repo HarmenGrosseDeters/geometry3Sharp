@@ -33,6 +33,18 @@ records or citing papers, and keep their *(full text needed)* marks. License sta
 come from the raw LICENSE file of the named repository; the others still come from project pages or package indexes.
 Everything still marked *(full text needed)* must be checked before an implementation brief is written.
 
+A second follow-up session (2026-11-02, with `peterwonka.net`, `igl.ethz.ch`, `cims.nyu.edu`, `cs.ubc.ca`,
+`cs.unc.edu` and `api.crossref.org` allowed) read:
+- Harmon et al. 2011, full text (author PDF, `igl.ethz.ch/projects/contact-aware-modeling/CAGM.pdf`, 10 pages);
+- El Topo's `license.txt` and `readme.md` (`raw.githubusercontent.com/tysonbrochu/eltopo/master/`);
+- the Crossref records of Wang et al. 2019, Gumhold et al. 2003, Brochu & Bridson 2009, Brochu et al. 2012 and
+  Harmon et al. 2011 (citations below confirmed against them).
+
+Still not readable in the second follow-up: `cs.ubc.ca` and `cs.unc.edu` answer every path with a redirect to
+`www.cs.ubc.ca` / `www.cs.unc.edu`, which the proxy still blocks (El Topo paper, Cohen et al. 1996);
+`peterwonka.net` answers 406 from its Mod Security filter (a bot check, not circumvented; Wang et al. 2019); no
+allowed host has Gumhold et al. 2003 (`www.academia.edu` not retried).
+
 Licensing rules applied (CLAUDE.md, AGENTS.md): implement from papers; port only MIT / BSD / Apache; never GPL
 (CGAL); MPL-2.0 (TetWild, fTetWild, Sacht & Jacobson's code) not ported.
 
@@ -191,11 +203,12 @@ collapse.
 ### 2.2 Methods from the literature
 
 **Intersection free simplification** — S. Gumhold, P. Borodin, R. Klein, *Intersection Free Simplification*,
-International Journal of Shape Modeling 9(2):155-176, 2003, doi:10.1142/S0218654303000097.
+International Journal of Shape Modeling 9(2):155-176, December 2003, doi:10.1142/S0218654303000097 (Crossref
+confirmed).
 - Pair contraction with a priority queue and a spatial search structure; the collision test of the simplices affected
   by a contraction is done lazily for the contraction about to be applied. This is our design. Which search structure
-  and which per-query costs they report is *(full text needed; `www.academia.edu` still blocked in the follow-up
-  session)*.
+  and which per-query costs they report is *(full text needed; no allowed host has it, `www.academia.edu` blocked in the
+  first follow-up session)*.
 - **Already adopted** (the `Reducer`'s check follows the same scheme).
 
 **Spatial hashing** — M. Teschner, B. Heidelberger, M. Müller, D. Pomeranets, M. Gross, *Optimized Spatial Hashing
@@ -257,27 +270,44 @@ grid query.
 ### 3.1 Methods from the literature
 
 **El Topo** — T. Brochu, R. Bridson, *Robust Topological Operations for Dynamic Explicit Surfaces*, SIAM J. Sci.
-Comput. 31(4):2472-2493, 2009. Every mesh operation (split, collapse, flip, smoothing) is an atomic edit cancelled if
+Comput. 31(4):2472-2493, 2009, doi:10.1137/080737617 (Crossref confirmed). Every mesh operation (split, collapse, flip,
+smoothing) is an atomic edit cancelled if
 it would introduce an intersection; vertex motion is checked by continuous collision detection (CCD), new triangles
 statically; the broad phase is an acceleration grid of element boxes. The intersection-free invariant is what later
 multimaterial front tracking relies on (F. Da, C. Batty, E. Grinspun, *Multimaterial Mesh-Based Surface Tracking*,
 SIGGRAPH 2014 / arXiv 1306.3113 for the front-tracking variant). Exact CCD for El Topo: T. Brochu, E. Edwards,
-R. Bridson, *Efficient Geometrically Exact Continuous Collision Detection*, ACM TOG 31(4) (SIGGRAPH 2012).
-- License: the UBC project page calls El Topo "public domain"; the GitHub repository's own LICENSE file is still
-  unchecked (the follow-up session could not reach `github.com/tysonbrochu/eltopo`, the UBC page was blocked, and
-  `raw.githubusercontent.com` returned 404 for `LICENSE`/`README` on `master` and `main`). **Reference only until the
-  LICENSE file is checked**; implementing from the paper needs no license.
+R. Bridson, *Efficient Geometrically Exact Continuous Collision Detection*, ACM TOG 31(4) (SIGGRAPH 2012),
+doi:10.1145/2185520.2185592.
+- License: **BSD 2-Clause** ("Copyright (c) 2009-2018, Tyson Brochu and Robert Bridson", `license.txt` on `master`
+  of `github.com/tysonbrochu/eltopo`; LICENSE file checked; the earlier 404s were for `LICENSE`/`README`, the files
+  are named `license.txt` and `readme.md`). This replaces the "public domain" of the UBC project page, which could not
+  be re-read. Porting would be allowed under the project rules (BSD), with the copyright notice kept; the paper is
+  enough for what section 3 needs.
 - Cost: they report that the checks are the main cost of robust operations; the paper's own numbers are
-  *(full text needed)*.
+  *(full text needed; `www.cs.ubc.ca` still blocked)*.
 
 **Interference-aware modelling and minimum separation** — D. Harmon, D. Panozzo, O. Sorkine, D. Zorin,
-*Interference-Aware Geometric Modeling*, ACM TOG 30(6), article 137 (SIGGRAPH Asia 2011): interference handling for
-modelling operations, with a minimum separation between surfaces. Tight Inclusion CCD (B. Wang, Z. Ferguson,
+*Interference-Aware Geometric Modeling*, ACM TOG 30(6), article 137 (SIGGRAPH Asia 2011),
+doi:10.1145/2070781.2024171 (Crossref confirmed; Crossref gives pages 1-10, not the article number). Full text read:
+- Collision *response* for interactive modelling: an edit is a linear trajectory per vertex; CCD (Provot's cubics,
+  broad phase Self-CCD or the Teschner et al. 2003 hash grid, "complete interchangeability") finds the interference;
+  one space-time interference volume constraint is driven to zero by a projection step in the modelling subspace.
+  Needs an intersection-free start and fails on zero-area triangles and zero-length edges (their Limitations).
+- Minimum separation (§5.2): the CCD time is replaced by the time at which a vertex comes within a fixed, global
+  distance h of the triangle's *plane* (roots of the degree-6 polynomial ((x3-x0)·n)² - h²‖n‖²,
+  n = (x1-x0)×(x2-x0)), then a projection test that the point lies inside the triangle; edge-edge is built analogously from Provot's
+  cubic. Cost: "the increased proximity increases the amount of primitives that make it to low-level intersection
+  tests" (no number given).
+- Numerical margin: they return max(0, t_i - 1/100) to absorb root-finding error; a heuristic, not a bound.
+- Cost: detection is 51 % of the runtime; 1.1-11.8 ms per iteration and 76-917 ms per edit on 5.8K-38K vertices,
+  single-threaded (Table 1).
+- No reuse of distances or clearance between edits; the clearance filter of this section is not in the paper.
+
+Tight Inclusion CCD (B. Wang, Z. Ferguson,
 T. Schneider, X. Jiang, M. Attene, D. Panozzo, *A Large Scale Benchmark and an Inclusion-Based Algorithm for
 Continuous Collision Detection*, ACM TOG 40(5), 2021): conservative CCD with minimum separation. License: MIT
 (`Continuous-Collision-Detection/Tight-Inclusion`, `main` branch, Copyright (c) 2020 the six authors; LICENSE file
-checked). Harmon et al. 2011: the full text could not be read (`igl.ethz.ch` and `cims.nyu.edu` blocked), so what
-exactly its separation constraint checks, and at what cost, is still *(full text needed)*.
+checked).
 
 **Clearance filter** (the lemma of section 2.2). It fits the remesher much better than the `Reducer`:
 - smoothing / tangential relocation moves are small against the local spacing, and a split's new vertex lies on the
@@ -364,9 +394,9 @@ Full text read (arXiv:1611.02147v1).
 
 **Remeshing without large and small angles** — Y. Wang, D.-M. Yan, X. Liu, C. Tang, J. Guo, X. Zhang, P. Wonka,
 *Isotropic Surface Remeshing without Large and Small Angles*, IEEE TVCG 25(7):2430-2442, 2019,
-doi:10.1109/TVCG.2018.2837115 (the IEEE record omits X. Zhang; full text not read, `peterwonka.net` blocked in the
-follow-up session). Vertex insertion removes obtuse angles, vertex
-removal improves small angles; runs as a post-process after any remesher at the speed of real-time adaptive
+doi:10.1109/TVCG.2018.2837115 (Crossref lists all seven authors, X. Zhang = Xiaopeng Zhang; the IEEE record omits
+him; full text not read: `peterwonka.net` answers 406 from its Mod Security filter; *(full text needed)*).
+Vertex insertion removes obtuse angles, vertex removal improves small angles; runs as a post-process after any remesher at the speed of real-time adaptive
 remeshing. **Recommendation: candidate operators** for the same pass (insertion / removal with the same guards); no
 fidelity bound of its own.
 
@@ -395,8 +425,10 @@ US 12,094,060 and US 12,333,653, scope not checked). **Not applicable** as a por
 - **Sizing below the wall thickness** (exists: `RemeshSizing.FromWallThickness`, `MeshWallThickness`): the
   local-feature-size sizing of Botsch et al., *Polygon Mesh Processing*, ch. 6; Dunyach et al. 2013 for the
   curvature part.
-- **Minimum separation** (Harmon et al. 2011; Tight Inclusion's minimum separation, Wang et al. 2021): instead of
-  forbidding only intersections, forbid that an operation brings non-adjacent geometry closer than δ. With the
+- **Minimum separation** (Harmon et al. 2011, a fixed global h inside CCD; Tight Inclusion's minimum separation,
+  Wang et al. 2021): instead of
+  forbidding only intersections, forbid that an operation brings non-adjacent geometry closer than δ. A δ tied to
+  the local thickness and the comparison with C − δ are our proposal, not from these papers. With the
   clearance machinery of section 3 this is nearly free (it is the same comparison with C − δ), and it stops walls
   from approaching each other before they fold. A δ above the local wall thickness would block every operation near
   the wall, so δ is a fraction of the local thickness: a safeguard against near-contact, not a replacement for the
