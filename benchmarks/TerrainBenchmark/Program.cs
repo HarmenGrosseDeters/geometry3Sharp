@@ -375,7 +375,10 @@ class Program
         // (cx, cy, cz: the toe's centre and height, eg on the Hambach DGM with terrain=dgm)
         c = new Vector3d(ArgD("cx", c.x), ArgD("cy", c.y), ArgD("cz", c.z));
         var pts = new List<Vector3d>();
-        if (kind == "lshape") {
+        if (kind == "edge") {
+            // one open toe edge of length 2 r along x, the slope on its left (+y)
+            pts.Add(c + new Vector3d(-r, 0, 0)); pts.Add(c + new Vector3d(r, 0, 0));
+        } else if (kind == "lshape") {
             foreach (var p in new[] { (0.0, 0.0), (2.0, 0.0), (2.0, 0.6), (0.6, 0.6), (0.6, 2.0), (0.0, 2.0) }) pts.Add(c + new Vector3d(r * p.Item1, r * p.Item2, 0));
         } else {
             for (int i = 0; i < n; ++i) {
@@ -384,7 +387,8 @@ class Program
                 pts.Add(c + new Vector3d(rr * Math.Cos(a), rr * Math.Sin(a), z));
             }
         }
-        var toe = SlopeToe.Constant(pts, true, SlopeToe.Sides.Outside, SlopeSpec.Ratio(ratio));
+        var toe = kind == "edge" ? SlopeToe.Constant(pts, false, SlopeToe.Sides.Left, SlopeSpec.Ratio(ratio))
+                                 : SlopeToe.Constant(pts, true, SlopeToe.Sides.Outside, SlopeSpec.Ratio(ratio));
         var d = new TerrainSlopeDesign() { Toes = new List<SlopeToe> { toe }, HeightLimit = c.z + h, Tolerance = tol };
         // terrain=wave (phase 1b): a grid terrain around the pit, h above the toe with a wave of amp, spacing tgrid;
         // the catch lines and (composite=1) the composite terrain
@@ -413,6 +417,7 @@ class Program
             d.Terrain = terrain; d.HeightLimit = double.NaN;
             d.BuildComposite = ArgD("composite", 1) != 0;
             R["terrain_tris"] = terrain.TriangleCount; R["terrain_load_s"] = Secs(sw0);
+            if (ArgD("time_terrain_check", 0) != 0) { TerrainVolumeDifference.XYOverlaps(terrain); R["terrain_xyoverlaps_s"] = Secs(sw0); }
             R["terrain_zmin"] = terrain.Vertices().Min(v => v.z); R["terrain_zmax"] = terrain.Vertices().Max(v => v.z);
         }
         if (Arg("terrain", "none") == "wave") {
