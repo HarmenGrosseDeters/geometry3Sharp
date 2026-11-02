@@ -102,31 +102,80 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void Simplify_EqualsItsReference()
+        public void InsertionOrder_DoesNotChangeTheResult()
         {
-            // Simplify visits only the faces that changed or have a changed neighbour; the reference visits every face
-            // in every round. The same steps in the same order: the same result, bit for bit, on the stress set
-            int n = 0;
-            foreach (var make in Cases()) {
+            // ties go to the lower plane id and Simplify makes the canonical partition: the in-order insertion, the
+            // reversed one and several seeded shuffles give the same result, bit for bit, on the stress set
+            var orders = new List<Func<int, int[]>>() {
+                n => Enumerable.Range(0, n).ToArray(),
+                n => Enumerable.Range(0, n).Reverse().ToArray(),
+                n => TerrainSlopeDesign.shuffled(n, 1),
+                n => TerrainSlopeDesign.shuffled(n, 2),
+                n => TerrainSlopeDesign.shuffled(n, 0xC0FFEE),
+            };
+            int cases = 0, withRays = 0, withUndercuts = 0;
+            foreach (var make in Cases().Concat(UndercutCases())) {
                 var a = make();
-                var b = make();
-                b.ReferenceSimplify = true;
-                bool ra = a.Compute(), rb = b.Compute();
-                n++;
-                Assert.Equal(b.Status, a.Status);
-                Assert.Equal(rb, ra);
-                Assert.Equal(b.Attempts, a.Attempts);
-                Assert.Equal(b.UsedToeLowering, a.UsedToeLowering);
-                Assert.True(b.PredicateCalls >= a.PredicateCalls);
-                // (the same steps, not only the same result: the merges and vertex removals in the same order)
-                Assert.Equal(b.SimplifyTrace, a.SimplifyTrace);
-                Assert.NotEqual(0UL, a.SimplifyTrace);
-                if (b.SlopeSurface != null) Assert.Equal("", Invariance.Difference(b.SlopeSurface, a.SlopeSurface));
-                if (b.Composite != null) Assert.Equal("", Invariance.Difference(b.Composite, a.Composite));
-                Assert.Equal(b.CatchLines.Count, a.CatchLines.Count);
-                for (int i = 0; i < a.CatchLines.Count; ++i) Assert.Equal(b.CatchLines[i].Points, a.CatchLines[i].Points);
-                output.WriteLine($"{n}: {a.Status}, simplify rounds {a.SimplifyRounds}, predicates {a.PredicateCalls} (reference {b.PredicateCalls})");
+                a.CheckCanonical = true;
+                bool ra = a.Compute();
+                Assert.Equal("", a.CanonicalProblem);
+                cases++;
+                if (a.RayCount > 0) withRays++;
+                if (a.UndercutCauses.Count > 0) withUndercuts++;
+                foreach (var order in orders) {
+                    var b = make();
+                    b.InsertionOrder = order;
+                    bool rb = b.Compute();
+                    Assert.Equal(a.Status, b.Status);
+                    Assert.Equal(ra, rb);
+                    Assert.Equal(a.Attempts, b.Attempts);
+                    Assert.Equal(a.UsedToeLowering, b.UsedToeLowering);
+                    Assert.Equal(a.RayCount, b.RayCount);
+                    Assert.Equal(a.ToeProblems, b.ToeProblems);
+                    Assert.Equal(a.StatusKind, b.StatusKind);
+                    Assert.Equal(a.UndercutCauses.Count, b.UndercutCauses.Count);
+                    for (int i = 0; i < a.UndercutCauses.Count; ++i) {
+                        Assert.Equal(a.UndercutCauses[i].Piece, b.UndercutCauses[i].Piece);
+                        Assert.Equal(a.UndercutCauses[i].Cause, b.UndercutCauses[i].Cause);
+                        Assert.Equal(a.UndercutCauses[i].At, b.UndercutCauses[i].At);
+                    }
+                    Assert.Equal(a.SlopeSurface == null, b.SlopeSurface == null);
+                    if (a.SlopeSurface != null) {
+                        Assert.Equal("", Invariance.Difference(a.SlopeSurface, b.SlopeSurface));
+                        // (and the pieces of the triangles)
+                        foreach (int t in a.SlopeSurface.TriangleIndices())
+                            Assert.Equal(a.SlopeSurface.GetTriangleGroup(t), b.SlopeSurface.GetTriangleGroup(t));
+                    }
+                    Assert.Equal(a.Composite == null, b.Composite == null);
+                    if (a.Composite != null) Assert.Equal("", Invariance.Difference(a.Composite, b.Composite));
+                    Assert.Equal(a.CatchLines.Count, b.CatchLines.Count);
+                    for (int i = 0; i < a.CatchLines.Count; ++i) Assert.Equal(a.CatchLines[i].Points, b.CatchLines[i].Points);
+                }
+                output.WriteLine($"{cases}: {a.Status}, rays {a.RayCount}, triangles {(a.SlopeSurface == null ? 0 : a.SlopeSurface.TriangleCount)}");
             }
+            // (the rays have to be exercised: components that are not convex)
+            Assert.True(withRays >= 3, $"{withRays}");
+            // (and the undercut causes, which decide the StatusKind)
+            Assert.True(withUndercuts >= 2, $"{withUndercuts}");
+        }
+
+        // toes that undercut themselves (TerrainSlopeDesignTests.TwoLevelToe_IsUndercut): a U-shaped open toe, and a closed
+        // ring with the slope inside
+        static IEnumerable<Func<TerrainSlopeDesign>> UndercutCases()
+        {
+            var u = new List<Vector3d> { new Vector3d(0, 20, 8), new Vector3d(40, 20, 8), new Vector3d(60, 10, 4), new Vector3d(40, 0, 0), new Vector3d(0, 0, 0) };
+            yield return () => TerrainSlopeDesignTests.Design(20, 0.01, SlopeToe.Constant(u, false, SlopeToe.Sides.Left, SlopeSpec.Ratio(4)));
+            var ring = new List<Vector3d> { new Vector3d(0, 0, 0), new Vector3d(40, 0, 0) };
+            for (int i = 1; i < 12; ++i) {
+                double a = -Math.PI / 2 + Math.PI * i / 12;
+                ring.Add(new Vector3d(40 + 20 * Math.Cos(a), 10 + 10 * Math.Sin(a), 8.0 * i / 12));
+            }
+            ring.Add(new Vector3d(40, 20, 8)); ring.Add(new Vector3d(0, 20, 8));
+            for (int i = 1; i < 12; ++i) {
+                double a = Math.PI / 2 + Math.PI * i / 12;
+                ring.Add(new Vector3d(20 * Math.Cos(a), 10 + 10 * Math.Sin(a), 8 - 8.0 * i / 12));
+            }
+            yield return () => TerrainSlopeDesignTests.Design(20, 0.01, SlopeToe.Constant(ring, true, SlopeToe.Sides.Inside, SlopeSpec.Ratio(4)));
         }
     }
 }
