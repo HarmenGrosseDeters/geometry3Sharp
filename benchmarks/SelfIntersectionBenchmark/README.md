@@ -175,6 +175,74 @@ changed yet (`intersection/ExactTriangleIntersection.cs` has another owner).
   incremental check). Measured below: not material, closed.
 - Caching `IsDegenerate` per grid triangle (instead of computing it per candidate): at most the 6 to 12 % above.
 
+## Remesher: where the time goes after the filter, and the axis-plane case (2 November 2026)
+
+Master b7fbc52 (after #261), 4 cores, alone on the machine. **The cost today:** `RemeshQualityBenchmark` (q 0.2, `si=1`,
+`fidelity=0`, without / with the check): primitives 6.5 / 41.8 s (6.4x), gears 0.4 / 2.9 s (7x), tubes 0.3 / 2.5 s,
+Thingi10K (20) 10.5 / 106.7 s (10x); the 17x of the ROADMAP was measured before #261. Here: bumpy sphere 241 / 1106 ms,
+z = 0 plate 49 / 191, tilted plate 89 / 201, box grid 82 / 414, 135363 (0.05 x mean edge, 5 passes) 271 / 7632 ms.
+
+**Profile** (`dotnet-trace`, sampled thread time, `DOTNET_JitNoInline=1`, 135363): the edge-operation checks 56 % of the
+samples (split 27 %, collapse 15 %, flip 11 %), the parallel move check (`first_round_reverts`) 26 % of the CPU samples.
+Inside: grid traversal and query overhead 10-20 %, the pair tests 22 % (`TriangleTriangleFilter` 13 %, the exact test
+5 %), `IsDegenerate` per candidate 6 %.
+
+**Counts** (scratch build, instrumentation not committed): 135363 21.7 M pair tests (14.1 M without a shared vertex,
+6.1 M with one, 1.4 M with an edge), 855 k exact calls; the gears (18 cases) 9.5 M pair tests, 866 k exact calls, none
+of them coplanar, none intersecting.
+
+**Upper bounds** (a lever's work done twice in a scratch build, the time difference is its cost; and counts):
+
+| lever | what it could remove | primitives | gears | Thingi10K (20) | 135363 |
+|---|---|---:|---:|---:|---:|
+| 1. 2D shortcut for coplanar neighbours (`IntersectsBeyondSharedCoplanar`) | the exact tests of coplanar pairs | 8126 calls, 1.8 ms | 0 calls | | 41581 calls, 11 ms |
+| 2. clearance filter | the tests of pairs without a shared vertex, if provably farther apart than the move | 1.6 of 34.5 s (5 %) | 0.3 of 2.5 s (12 %) | 13 of 99 s (13 %) | 1.0-1.3 of 7.5 s (14 %) |
+| 3. axis-plane case in the filter | the exact tests of pairs with a triangle in an axis plane | 1.7 of 34.5 s (5 %) | 0.3-0.5 of 2.5 s (12-20 %) | 1.3 of 99 s (1 %) | 0.5 of 7.5 s (~7 %) |
+
+- Lever 1 is gone: #261's projection filter already decides the coplanar neighbours. Closed (below).
+- Lever 2: the column is the whole cost of the pairs without a shared vertex. Of those, the share farther apart than
+  the move (floating-point triangle distance to the old triangles against the move: the collapse's vertex
+  displacement, half of the flipped diagonal, the smoothing displacement) is 40-67 % in the edge operations and 60-99 %
+  in the move check; the pairs with a shared vertex (two thirds of all) are untouched. So at most 5-10 %, before the
+  cost of a conservative distance bound per pair (a new floating-point bound, more expensive than the filter). Skipping
+  a whole query (every candidate clear) applies to 3 % of the operations on 135363 (0.2 % of the query time). Closed.
+- Lever 3, found in the profile: 94 % (gears) and 86 % (135363) of the exact-test time is pairs where one triangle
+  lies in an axis plane and an `Orient3d` is exactly 0 (a cap and a wall that touch at the rim, without a shared
+  vertex), so `Orient3d` runs its exact stage. Built.
+
+**The axis-plane case.** For a triangle P in the plane x_k = h, `Orient3d(p0, p1, p2, x)` = sign(x_k - h) times
+`Orient2d` of P's projection along k (the cross product of two edge vectors with a 0 in coordinate k has only its
+component k): the side of the other triangle's corners is an exact comparison, no error bound. If no two corners lie
+strictly on opposite sides, the other triangle meets the plane in a point or a segment (or at the shared vertex or
+edge), and Orient2d decides how that meets P, both ways (`TriangleTriangleFilter.in_axis_plane_of`, after the
+projection; a triangle crossing the plane stays with the exact test). Same answers as
+`ExactTriangleIntersection.IntersectsBeyondShared` (`TriangleTriangleFilterTests`); it also serves the Reducer and
+`IntrTriangle3Triangle3`, which use the filter.
+
+**Results**, master b7fbc52 against this branch, run alternately, alone on the machine. `reducer remesher runs=3
+thingi=<dir>/135363.stl thingi_passes=5 thingi_factor=0.05 thingi_runs=3`, three rounds, the minimum; every fingerprint
+identical:
+
+| case | master | branch | branch / master |
+|---|---:|---:|---:|
+| reducer box grid | 1670 ms | 1534 ms | 0.92 |
+| reducer, the other 10 cases | | | 0.95 to 1.08 (noise) |
+| remesher bumpy sphere / plates / box grid, `_si` | 1068 / 174 / 187 / 379 ms | 1053 / 189 / 184 / 377 ms | 0.98 to 1.09 (noise) |
+| 135363 `_si` | 6790 ms | 6614 ms | 0.97 |
+
+`RemeshQualityBenchmark runs=1 base=0.2 quality=0.2 si=1 fidelity=0 thingi=...`, two rounds each (the on time; the
+JSON of all 212 cases, without the times, identical in all four runs):
+
+| group | master | branch | branch / master |
+|---|---:|---:|---:|
+| primitives (150) | 37.2 / 35.9 s | 34.1 / 35.2 s | 0.95 |
+| gears (18) | 2.6 / 2.5 s | 2.1 / 2.2 s | 0.85 |
+| tubes (24) | 2.0 / 2.1 s | 2.0 / 2.1 s | 1.00 |
+| Thingi10K (20) | 101.7 / 101.8 s | 99.5 / 101.6 s | 0.99 |
+
+What is left after this is the number of candidate pairs (grid traversal, the filter, bookkeeping), see the section
+above; none of the measured levers takes a material share of it.
+
 ## Measured and closed (1 November 2026)
 
 Upper bounds counted on a scratch build of master c878e27 (instrumentation not committed), so that nobody measures
@@ -202,6 +270,18 @@ those flags (moved only if `vBufferV` differs from the position), alone on the m
 with: box grid 708 -> 790 ms, bumpy sphere 2104 -> 2207 ms, tilted plate 345 -> 389 ms, z = 0 plate 297 -> 335 ms,
 135363 13205 -> 13553 ms, all within noise, identical fingerprints. `first_round_reverts` already skips the pairs
 without a moved vertex; what is left is fresh pairs times the cost per pair.
+
+**(d) Remesher, the 2D shortcut for coplanar neighbours (2 November 2026).** Measured about -30 % on CAD meshes before
+#261; since #261 the filter's projection decides those pairs. Coplanar pairs that still reach the exact test: gears 0,
+primitives 8126 (1.8 ms in all), 135363 41581 (11 ms), the plates and the sphere under 50. Upper bound 0.2 %. Not built.
+
+**(e) Remesher, a clearance filter (2 November 2026).** Skip the pair tests of triangles provably farther apart than
+the move. Only pairs without a shared vertex qualify; their whole cost (their tests run twice in a scratch build) is 5 %
+(primitives), 12 % (gears), 13 % (Thingi10K 20), 14 % (135363) of the check time, and 40-99 % of them are clear. At most
+5-10 % before paying for a conservative distance bound per pair or a per-vertex clearance kept up to date; a skip of the
+whole grid query applies to 3 % of the operations on 135363. Not built. (The literature review,
+`docs/design/RESEARCH_REDUCER_REMESHER.md`, has the per-vertex clearance lemma; the measurement above bounds what it can
+give here.)
 
 **MeshRobustRepair volume IoU, a tighter sample region (parked).** The question: can the region the IoU estimator
 samples (component boxes expanded by `sqrt(n * area / (1.6 pi))`) provably shrink while still containing the union of

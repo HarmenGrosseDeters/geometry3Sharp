@@ -129,12 +129,11 @@ namespace g3
             return planar ? Intersecting : Undecided;
         }
 
-        // P in an axis plane x_k = h, Q not in it (finite input). In the determinant of Orient3d(p0, p1, p2, x) the
-        // column k is h - x_k in every row, and subtracting the first row from the others leaves the projections
-        // of P's edge vectors, so
-        //     Orient3d(p0, p1, p2, x) = sign(h - x_k) * Orient2d(drop(p0, k), drop(p1, k), drop(p2, k))
-        // exactly, with drop keeping the other two coordinates in cyclic order (k+1, k+2): a cyclic order of the
-        // columns is an even permutation, so the sign convention is the same for k = 0, 1, 2
+        // P in an axis plane x_k = h, Q not in it (finite input). ExactPredicates.Orient3d(p0, p1, p2, x) is the sign
+        // of ((p1 - p0) x (p2 - p0)) . (x - p0); both edge vectors have a 0 in coordinate k, so the cross product has
+        // only its component k, which is the 2D cross product of the projections in cyclic order (k+1, k+2), and
+        //     Orient3d(p0, p1, p2, x) = sign(x_k - h) * Orient2d(drop(p0, k), drop(p1, k), drop(p2, k))
+        // exactly, with the same sign convention for k = 0, 1, 2 (drop keeps the cyclic order)
         // (AxisPlaneFactorization_SameSignAsOrient3d checks it against Orient3d). Only the partition matters here:
         // with P not degenerate in the projection, the side of a corner of Q is the comparison of its coordinate k with
         // h, exact without a filter (where Orient3d is exactly 0 its exact stage decides slowly: CAD parts, caps and

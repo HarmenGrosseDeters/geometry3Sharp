@@ -212,9 +212,8 @@ namespace geometry3Sharp.Tests
         public void AxisPlaneFactorization_SameSignAsOrient3d(int k)
         {
             // the identity the axis-plane case rests on: for p0, p1, p2 with p0[k] = p1[k] = p2[k] = h,
-            // Orient3d(p0, p1, p2, x) = (h - x[k]) * Orient2d of the projections along k in cyclic order (the column k of
-            // the determinant is h - x[k] in every row; a cyclic order of the columns is an even permutation), so its
-            // sign is sign(h - x[k]) * Orient2d. Checked against the exact Orient3d on random and adversarial inputs:
+            // Orient3d(p0, p1, p2, x) = sign(x[k] - h) * Orient2d of the projections along k in cyclic order (the cross
+            // product of two edge vectors with a 0 in coordinate k has only its component k, the 2D cross product). Checked against the exact Orient3d on random and adversarial inputs:
             // x on the plane and one ulp off it, degenerate projections (collinear, coincident corners), large and
             // tiny magnitudes, far from the origin, every order of the corners
             var rand = new Random(61 + k);
@@ -239,7 +238,7 @@ namespace geometry3Sharp.Tests
                         };
                         Vector3d x = scale(at(xk)); x[k] = xk;
                         int o2 = ExactPredicates.Orient2d(DropCyclic(p0, k), DropCyclic(p1, k), DropCyclic(p2, k));
-                        int expected = Math.Sign(h.CompareTo(xk)) * o2;
+                        int expected = Math.Sign(xk.CompareTo(h)) * o2;
                         Vector3d[] P = { p0, p1, p2 };
                         foreach (var perm in new[] { new[] { 0, 1, 2 }, new[] { 1, 2, 0 }, new[] { 2, 0, 1 }, new[] { 1, 0, 2 }, new[] { 0, 2, 1 }, new[] { 2, 1, 0 } }) {
                             bool even = perm[0] == 0 && perm[1] == 1 || perm[0] == 1 && perm[1] == 2 || perm[0] == 2 && perm[1] == 0;
