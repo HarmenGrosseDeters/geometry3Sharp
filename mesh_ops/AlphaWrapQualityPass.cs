@@ -122,7 +122,10 @@ namespace gs
         {
             skipNormals = false;
             protectThisOperation = true;
-            Flips = Moves = Splits = Collapses = RejectedByDeviation = RejectedByIntersection = RejectedByNormals = RejectedByProtection = Passes = 0;
+            clock = 0;
+            stamps = new int[Mesh.MaxVertexID];
+            for (int k = 0; k < rejectedAt.Length; ++k) rejectedAt[k] = new Dictionary<int, int>();
+            Flips = Moves = Splits = Collapses = RejectedByDeviation = RejectedByIntersection = RejectedByNormals = RejectedByProtection = Passes = SkippedRejections = 0;
             maxTriangles = (int)Math.Floor(Mesh.TriangleCount * (1 + MaxTriangleGrowth));
             referenceTree = new DMeshAABBTree3(Reference, true);
             bounds = new TriangleDeviationBounds(Reference) { PatchBound = true };
@@ -343,8 +346,67 @@ namespace gs
             return true;
         }
 
+        // rejections that depend on the operation's own triangles only (normals, deviation, protection; not the
+        // self-intersections, which depend on the rest of the mesh): the operation is not evaluated again while none
+        // of the vertices of its triangles changed. Bit-identical to evaluating it again (the same inputs give the
+        // same rejection); it saves the repeated evaluations of the passes after the first
+        internal const int FlipOp = 0, MoveOp = 1, SplitOp = 2;
+        readonly Dictionary<int, int>[] rejectedAt = new Dictionary<int, int>[3];
+        int[] stamps = new int[0];
+        int clock;
+        /// <summary> (for tests) evaluations of accept skipped as known rejections </summary>
+        internal int SkippedRejections;
+        /// <summary> (for tests) false: every operation is evaluated again (the same result, slower) </summary>
+        internal bool MemoizeRejections = true;
+
+        int stamp(int v)
+        {
+            return v < stamps.Length ? stamps[v] : 0;
+        }
+
+        void set_stamp(int v)
+        {
+            if (v >= stamps.Length) Array.Resize(ref stamps, Math.Max(2 * stamps.Length, v + 1));
+            stamps[v] = clock;
+        }
+
+        bool unchanged_since(int t, int at)
+        {
+            Index3i tv = Mesh.GetTriangle(t);
+            return stamp(tv.a) <= at && stamp(tv.b) <= at && stamp(tv.c) <= at;
+        }
+
+        // accept, skipped (false) for an operation (kind, key) rejected before on the same triangles
+        internal bool accept(int kind, int key, List<Index3i> ids, List<Triangle3d> tris, HashSet<int> removed)
+        {
+            if (MemoizeRejections == false)
+                return accept(ids, tris, removed);
+            int at;
+            if (rejectedAt[kind].TryGetValue(key, out at)) {
+                bool same = true;
+                foreach (int t in removed)
+                    if (!unchanged_since(t, at)) { same = false; break; }
+                if (same) {
+                    SkippedRejections++;
+                    return false;
+                }
+                rejectedAt[kind].Remove(key);
+            }
+            int intersections = RejectedByIntersection;
+            bool ok = accept(ids, tris, removed);
+            if (!ok && RejectedByIntersection == intersections)
+                rejectedAt[kind][key] = clock;
+            return ok;
+        }
+
         internal void regrid(IEnumerable<int> removed, IEnumerable<int> added)
         {
+            // (every operation ends here: a new time for the vertices of its new triangles)
+            ++clock;
+            foreach (int t in added) {
+                Index3i tv = Mesh.GetTriangle(t);
+                set_stamp(tv.a); set_stamp(tv.b); set_stamp(tv.c);
+            }
             if (grid == null) return;
             foreach (int t in removed) grid.Remove(t);
             foreach (int t in added) {
@@ -391,7 +453,7 @@ namespace gs
                 removed.Add(et.a); removed.Add(et.b);
                 // (a cap flip on a nearly flat pair is not held to the normal deviation)
                 skipNormals = capFlip && n0.Dot(n1) >= Math.Cos(CapFlipMaxDihedralDegrees * MathUtil.Deg2Rad);
-                bool ok = accept(ids, tris, removed);
+                bool ok = accept(FlipOp, eid, ids, tris, removed);
                 skipNormals = false;
                 protectThisOperation = true;
                 if (ok == false) continue;
@@ -515,7 +577,7 @@ namespace gs
                 if (!valid) continue;
                 removed.Add(t); removed.Add(other);
                 protectThisOperation = !ProtectFlipsOnly;
-                bool accepted = accept(ids, tris, removed);
+                bool accepted = accept(SplitOp, t, ids, tris, removed);
                 protectThisOperation = true;
                 if (accepted == false) continue;
                 DMesh3.EdgeSplitInfo info;
@@ -613,7 +675,7 @@ namespace gs
                         ids.Add(rv); tris.Add(new Triangle3d(A, B, C));
                     }
                     protectThisOperation = !ProtectFlipsOnly;
-                    bool accepted = accept(ids, tris, removed);
+                    bool accepted = accept(ids, tris, removed);   // (several candidates per needle: not memoized)
                     protectThisOperation = true;
                     if (accepted == false) continue;
                     DMesh3.EdgeCollapseInfo info;
@@ -684,7 +746,7 @@ namespace gs
                 }
                 if (!ok || !(nw >= cur + MinGainDegrees)) continue;
                 protectThisOperation = !ProtectFlipsOnly;
-                bool accepted = accept(ids, tris, removed);
+                bool accepted = accept(MoveOp, v, ids, tris, removed);
                 protectThisOperation = true;
                 if (accepted == false) continue;
                 Mesh.SetVertex(v, q);

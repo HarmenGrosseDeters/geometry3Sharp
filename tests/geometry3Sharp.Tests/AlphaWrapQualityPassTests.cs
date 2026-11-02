@@ -654,6 +654,68 @@ namespace geometry3Sharp.Tests
             Assert.Null(MeshRobustRepair.ImproveWrapQuality(simp, wrap, tol, true, () => false, (p) => p.Tolerance = 0.95 * 4 * tol));
         }
 
+        [Fact]
+        public void MemoizedRejections_SameResultAsEvaluatingAgain()
+        {
+            // a rejection by the normals, the tolerance or the protection is remembered until a vertex of its triangles
+            // changes: the result is the same, bit for bit, as evaluating every operation in every pass
+            DMesh3 wrap, simp; double tol;
+            BoxWrap(DefaultBox, out wrap, out simp, out tol);
+            var configs = new Action<AlphaWrapQualityPass>[] {
+                MeshRobustRepair.DefaultWrapQuality,
+                (p) => { p.EnableFlips = false; p.WorstFirst = p.FollowReference = true; p.SplitCapsAboveDegrees = 160; p.PinCreaseVerticesDegrees = 20; },
+                (p) => { p.KeepNormalDeviation = true; p.MaxPasses = 3; }
+            };
+            foreach (double t in new[] { 0.95 * tol, 0.3 * tol })
+                foreach (var cfg in configs) {
+                    var memo = new AlphaWrapQualityPass(new DMesh3(simp), wrap, t);
+                    var plain = new AlphaWrapQualityPass(new DMesh3(simp), wrap, t) { MemoizeRejections = false };
+                    cfg(memo); cfg(plain);
+                    Assert.True(memo.Compute() && plain.Compute());
+                    Assert.True(memo.SkippedRejections > 0);
+                    Assert.Equal(0, plain.SkippedRejections);
+                    Assert.Equal("", Invariance.Difference(plain.Mesh, memo.Mesh));
+                    Assert.Equal(plain.Flips + plain.Moves + plain.Splits, memo.Flips + memo.Moves + memo.Splits);
+                    // reuse: a second Compute on the memoizing instance starts with an empty memo, as the plain one
+                    Assert.True(memo.Compute() && plain.Compute());
+                    Assert.Equal("", Invariance.Difference(plain.Mesh, memo.Mesh));
+                }
+        }
+
+        [Fact]
+        public void MemoizedRejections_NotForIntersections()
+        {
+            // an intersection depends on triangles outside the operation: rejected while a moved vertex of the grid
+            // pokes through the probe, accepted again once it is back, although none of the operation's own triangles changed
+            DMesh3 m = new DMesh3();
+            var g = new int[6, 6];
+            for (int j = 0; j < 6; ++j) for (int i = 0; i < 6; ++i) g[i, j] = m.AppendVertex(new Vector3d(i * 0.2, j * 0.2, 0));
+            for (int j = 0; j < 5; ++j) for (int i = 0; i < 5; ++i) {
+                m.AppendTriangle(g[i, j], g[i + 1, j], g[i + 1, j + 1]);
+                m.AppendTriangle(g[i, j], g[i + 1, j + 1], g[i, j + 1]);
+            }
+            var pass = new AlphaWrapQualityPass(m, new DMesh3(m), 10);
+            pass.Prepare();
+            int v = g[2, 2];
+            var ring = m.VtxTrianglesItr(v).ToList();
+            var probe = new List<Triangle3d> { new Triangle3d(new Vector3d(0.25, 0.4, 2.0), new Vector3d(0.55, 0.4, 2.0), new Vector3d(0.4, 0.6, 2.2)) };
+            var ids = new List<Index3i> { new Index3i(1000, 1001, 1002) };
+            var removed = new HashSet<int> { m.FindTriangle(g[4, 4], g[5, 4], g[5, 5]) };   // (away from the moved vertex)
+            m.SetVertex(v, new Vector3d(0.4, 0.4, 3));
+            pass.regrid(ring, ring);
+            Assert.False(pass.accept(AlphaWrapQualityPass.FlipOp, 7, ids, probe, removed));
+            Assert.Equal(1, pass.RejectedByIntersection);
+            m.SetVertex(v, new Vector3d(0.4, 0.4, 0));
+            pass.regrid(ring, ring);
+            Assert.True(pass.accept(AlphaWrapQualityPass.FlipOp, 7, ids, probe, removed));
+            Assert.Equal(0, pass.SkippedRejections);
+            // a rejection by the tolerance (a probe far from the reference) is remembered while its triangles stay
+            var far = new List<Triangle3d> { new Triangle3d(new Vector3d(0, 0, 50), new Vector3d(1, 0, 50), new Vector3d(0, 1, 50)) };
+            Assert.False(pass.accept(AlphaWrapQualityPass.FlipOp, 8, ids, far, removed));
+            Assert.False(pass.accept(AlphaWrapQualityPass.FlipOp, 8, ids, far, removed));
+            Assert.Equal(1, pass.SkippedRejections);
+        }
+
         static void Invariant(Action<AlphaWrapQualityPass> cfg)
         {
             DMesh3 wrap, simp; double tol;
