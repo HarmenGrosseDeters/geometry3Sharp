@@ -616,6 +616,10 @@ namespace g3cli.Tests
             Assert.Equal(ResultCodes.InvalidArguments, S(r["code"]));
             (exit, r) = Run("resolve", m.Overlapping, m.Path_("r_bad.obj"), "--rounding-absolute-tolerance", "-1");
             Assert.Equal(ResultCodes.InvalidArguments, S(r["code"]));
+            // the relative bound is limited: larger ones let the repair contract whole components away
+            (exit, r) = Run("resolve", m.Overlapping, m.Path_("r_bad.obj"), "--rounding-max-displacement", "0.5");
+            Assert.Equal(ResultCodes.InvalidArguments, S(r["code"]));
+            Assert.Contains("1e-2", S(r["message"]));
         }
 
 
@@ -698,6 +702,11 @@ namespace g3cli.Tests
             Assert.Equal(0, D(r["separated_rounding"]["ulp_factor"]));
             Assert.Equal(0, D(r["separated_rounding"]["absolute_tolerance"]));
 
+            // method auto has no exact stage: the settings do not apply, and there is no rounding report
+            (exit, r) = Run("repair", input, m.Path_("dent_auto.g3mesh"), "--method", "auto", "--strict-rounding");
+            AssertOk(exit, r);
+            Assert.Null(r["exact_resolve_rounding"]);
+
             // a mesh that is clean already: no exact stage, no rounding reports
             (exit, r) = Run("repair", m.Cube, m.Path_("cube_rep.obj"));
             AssertOk(exit, r);
@@ -720,6 +729,7 @@ namespace g3cli.Tests
 
             // invalid settings
             foreach (var bad in new[] { new[] { "--rounding-max-displacement", "-1" }, new[] { "--rounding-max-displacement", "1" },
+                    new[] { "--rounding-max-displacement", "0.5" }, new[] { "--rounding-max-displacement", "0" }, new[] { "--rounding-max-displacement", "1e-300" },
                     new[] { "--rounding-ulp-factor", "-1" }, new[] { "--strict-rounding", "--no-safe-rounding" },
                     new[] { "--strict-rounding", "--rounding-ulp-factor", "100" } }) {
                 (exit, r) = Run(new[] { "repair", m.Cube, m.Path_("bad.obj") }.Concat(bad).ToArray());

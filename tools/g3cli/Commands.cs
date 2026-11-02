@@ -166,7 +166,7 @@ namespace g3cli
                 "false: the cleanup collapses slivers and the resolve is repeated") { Default = true });
             c.Params.Add(new Param("alpha_wrap", ParamType.Boolean, "robust: last resort, alpha wrap the mesh if the solidify fails or is not clean (MeshRobustRepair.AlphaWrapFallback)") { Default = true });
             c.Params.Add(new Param("simplify_alpha_wrap", ParamType.Boolean, "robust: simplify the alpha wrap, kept only if clean and certified within half the wrap offset of the unsimplified wrap") { Default = true });
-            AddRoundingTolerances(c, "robust: ");
+            AddRoundingTolerances(c, repair: true);
             c.Params.Add(new Param("check_lost_components", ParamType.Boolean, "robust: a result that lost a connected component of the input (eg a small part of an assembly) falls back like one that lost volume; " +
                 "needs min_volume_iou > 0") { Default = false });
             c.Params.Add(new Param("reject_topology_change", ParamType.Boolean, "robust: reject an exact resolve whose genus differs from the mesh it resolved (the fallbacks run instead)") { Default = false });
@@ -311,17 +311,23 @@ namespace g3cli
             new Param("safe_rounding", ParamType.Boolean, "repair the self-intersections and slivers that rounding the new vertices to double leaves " +
                 "(ExactMeshBoolean.SafeRounding, MeshRoundingRepair: local edits checked exactly, each surface point moves at most 1e-5 of the " +
                 "bounding box diagonal, or the larger bound of rounding_ulp_factor / rounding_absolute_tolerance); false: plain rounding, faster") { Default = true };
-        static void AddRoundingTolerances(Command c, string prefix = "")
+        static void AddRoundingTolerances(Command c, bool repair = false)
         {
+            string prefix = repair ? "robust, exact stage: " : "";
             c.Params.Add(new Param("rounding_max_displacement", ParamType.Number, prefix + "safe_rounding's relative bound: the longest edge it contracts and " +
-                "the farthest it moves the surface, as a fraction of the bounding box diagonal (RoundingMaxDisplacement; MeshRoundingRepair.MaxDisplacement)") { Default = 1e-5 });
+                "the farthest it moves the surface, as a fraction of the bounding box diagonal, in [1e-16, 1e-2] (larger bounds let the repair remove " +
+                "whole components) (RoundingMaxDisplacement; MeshRoundingRepair.MaxDisplacement)") { Default = 1e-5 });
             c.Params.Add(new Param("rounding_ulp_factor", ParamType.Number, prefix + "safe_rounding far from the origin (eg UTM coordinates): beyond the relative " +
                 "bound, edits may move the surface up to this many units in the last place of the largest coordinate " +
                 "(RoundingUlpFactor; no upper limit: a large factor allows large moves)") { Default = 256.0 });
             c.Params.Add(new Param("rounding_absolute_tolerance", ParamType.Number, prefix + "safe_rounding: edits may also move the surface up to this absolute " +
                 "distance (RoundingAbsoluteTolerance, 0 = none; no upper limit)") { Default = 0.0 });
-            c.Params.Add(new Param("strict_rounding", ParamType.Boolean, prefix + "safe_rounding within the relative bound only (no ulp or absolute term, so it " +
-                "cannot be combined with them); a result that is not clean fails (StrictRounding)") { Default = false });
+            c.Params.Add(new Param("strict_rounding", ParamType.Boolean, repair
+                ? "robust, exact stage: safe_rounding within the relative bound only (no ulp or absolute term, so it cannot be combined with them): an " +
+                  "exact resolve whose rounding is not clean is rejected (exact_resolve_reason 'rounding not clean (StrictRounding)') and the other stages " +
+                  "run; the repair after the separation of touching vertices uses the relative bound only and does not fail (MeshRobustRepair.StrictRounding)"
+                : "safe_rounding within the relative bound only (no ulp or absolute term, so it cannot be combined with them); a result that is not clean " +
+                  "fails with operation_failed (status RoundingNotClean) instead of being written with defects (ExactMeshBoolean.StrictRounding)") { Default = false });
         }
 
         struct RoundingSettings { public double MaxDisplacement, UlpFactor, AbsoluteTolerance; public bool Strict; }
@@ -332,8 +338,9 @@ namespace g3cli
                 MaxDisplacement = args.Number("rounding_max_displacement"), UlpFactor = args.Number("rounding_ulp_factor"),
                 AbsoluteTolerance = args.Number("rounding_absolute_tolerance"), Strict = args.Bool("strict_rounding"),
             };
-            if (!(r.MaxDisplacement >= 0 && r.MaxDisplacement < 1))
-                throw new CommandException(ResultCodes.InvalidArguments, "'rounding_max_displacement' must be in [0, 1)");
+            // above 1e-2 of the diagonal the repair may contract whole components away; below 1e-16 it is a no-op (the ulp term dominates)
+            if (!(r.MaxDisplacement >= 1e-16 && r.MaxDisplacement <= 1e-2))
+                throw new CommandException(ResultCodes.InvalidArguments, "'rounding_max_displacement' must be in [1e-16, 1e-2]");
             if (!(r.UlpFactor >= 0))
                 throw new CommandException(ResultCodes.InvalidArguments, "'rounding_ulp_factor' must be >= 0");
             if (!(r.AbsoluteTolerance >= 0))
