@@ -262,6 +262,41 @@ random, right-angled, sliver and degenerate triangles at scales 1, 2^-10, 1e±15
 They also check that every vertex of the polyhedron is within ε of the triangle and that some vertex is beyond 0.85 ε,
 so the polyhedron is not much smaller than the paper's.
 
+### 4.5 The triangle query and its accelerations (PR 3)
+
+`ContainsTriangle(a, b, c)` for a non-degenerate T (a degenerate one is decided by its three edges):
+- **C1:** the vertices. If one polyhedron holds all three, T is inside it (convex).
+- **C2:** `ContainsSegment`'s crossing test on each edge.
+- **C3:** the points x = T's plane ∩ F_l ∩ F_m, where F_l and F_m are facets of two different polyhedra P_i and P_j.
+  Only points that meet all of the following matter:
+  - both planes cross the open triangle (a vertex strictly on each side);
+  - the closed search boxes of P_i and P_j meet;
+  - x lies strictly inside T, tested against the planes through each edge and a point off T's plane;
+  - x is in the closure of both polyhedra (no facet strictly below it).
+
+  Each such x must lie in some polyhedron. The search tries the polyhedra that covered earlier points first (the
+  paper's cover set). Dependent planes need no test of their own: `Orient3dTPI` is 0 for them, and the strict inside
+  test drops the pair.
+
+**Why these points suffice.** Assume C1 and C2 hold.
+1. The uncovered part X of T is compact, because the polyhedra are open. It lies in the open triangle, because C1 and
+   C2 cover T's boundary.
+2. If X is not empty, take its lowest point x along a generic linear direction ℓ of T's plane. Every point near x and
+   below it (in ℓ) is covered.
+3. Let J be the polyhedra whose closure holds x. Near x, each P in J meets T's plane in an open convex cone at x, of
+   angle at most π. Together these cones cover the open lower half-disc at x.
+4. One cone cannot cover it. A cone of angle less than π cannot, and a half-plane covers it only if its boundary line
+   is orthogonal to ℓ, which a generic ℓ excludes.
+5. So two polyhedra P_i ≠ P_j in J have boundary traces through x on two distinct lines. Their facets cross the open
+   triangle, x lies in both closures and so in both boxes, and the pair is not dependent. That is a pair C3 tests,
+   and its point x is uncovered.
+6. Points from facets of a single polyhedron, or outside either closure, are never needed.
+
+Facets coplanar with T, or only touching it, have an empty or constant trace and do not matter. Several lines through
+one point are handled because any two distinct ones suffice. The test oracle (area clipping plus 1D covering of
+every facet trace and edge, exact) does not use this argument, and it agrees on every test case. These include four
+cubes meeting at a point inside T, with every combination of touching, a gap of one ulp, and an overlap of one ulp.
+
 ## 5. Acceptance
 
 - **Exactness against an oracle:** the same polyhedra, the query decided by an independent method: clipping the
@@ -297,6 +332,103 @@ so the polyhedron is not much smaller than the paper's.
 
 Stop rule: if after PR 3 the triangle query is not within a factor of 5 of the distance bounds on the
 `ReducerBenchmark` cases, stop and write the finding here.
+
+**Stopped (PR 3, #268; owner decision).** The owner set the criterion: stop if the best variant stays above 5×
+`IsWithin`, or accepts clearly fewer queries than `MeshEnvelope`. The second clause holds for every variant (the time
+of the best one came down to about 5× with the review's speed-ups, see below), and the owner made the stop final. The
+code is kept and merges as an internal tool.
+
+Measured with `benchmarks/ReducerBenchmark queries` at a tolerance of 0.003 of the diagonal, on the triangles a
+reduction with the distance bounds produces. Each entry is triangles accepted, µs per triangle, and the factor to
+`IsWithin`:
+
+| case | `IsWithin` | `MeshEnvelope` | ε/√3 (Prop. 3.1), naive | ε/√3, accelerated | ε/√3, + review (2 runs) | 0.8 / 0.6 prism, accelerated |
+|---|---|---|---|---|---|---|
+| terrain 40 × 40, 951 triangles | 951, 48-53 | 625, 6425 | 164, 351 | 164, 359 (7.5×) | 164, 231 / 301 (4.4× / 5.9×) | 625, 6206 (130×) |
+| bumpy sphere, 536 triangles | 536, 229-303 | 258, 32826 | 41, 17175 | 41, 1708 (7.5×) | 41, 1263 / 1388 (5.2× / 4.6×) | 258, 33375 (146×) |
+
+- **Accelerations.** Two of the paper's: a cover set tried first, and C3 only on points in the closure of both
+  polyhedra (the vertices of the boundary arrangement). A third is a box test on facet pairs. Together they make the
+  query 10× faster on the bumpy sphere. The independent oracle agrees on every test case.
+- **The review's speed-ups (4.5).** No pairs within one polyhedron, and no separate `TPIDenominator` call (the strict
+  inside test already drops dependent pairs). They brought the time to 4.4-5.9× `IsWithin`, which is about the 5×
+  bound and noisy between runs. What the envelope accepts does not change: 164 of 951 and 41 of 536.
+- **What remains.** Per query on the terrain there are about 360 facet pairs whose polyhedra's boxes meet, at about
+  1 µs each, and the exact stage is rare (about 1 call per query). The pair loop is the cost.
+- **Acceptance.** It is the shape's, not the algorithm's. ε/√3 reaches about 0.58 ε along the normal, and the
+  `Reducer` pushes triangles to the tolerance, so it accepts 17 % and 8 % of what `IsWithin` certifies.
+  - The 0.8 / 0.6 prism (`MeshEnvelope`'s shape: 2 + 14 facets) accepts exactly as many as `MeshEnvelope`.
+  - With 16 facets per polyhedron it has 4× the pairs, and its time is that of `MeshEnvelope`'s clipping.
+  - It was a measurement only (commit 9472f19, removed after it): no proof in this doc, no bounds review.
+- **Why the paper's numbers do not carry over.** fast-envelope's users (fTetWild, the remeshers) ask many small,
+  local queries that the prefilter decides: one polyhedron holds all three vertices. The `Reducer` asks about large
+  reduced triangles that span tens of input triangles at the full tolerance. That is the worst case for both speed
+  (many candidates and facet pairs) and acceptance.
+
+**Look before you build (the owner's rule, AGENT_WORKFLOW §3), recorded for PR 2 / 3 and the accelerations.**
+- **Library:**
+  - Predicates: `ExactPredicates.Orient3d` for C1 and the side tests. `tools/PredicateCompiler` generates the
+    indirect predicates (LPI / TPI with filters, the prepared form) instead of hand-derived bounds
+    (ROADMAP "Shared hotspots": filter bounds by hand).
+  - Candidates: segments use the arrangement's `TriangleBoxTree.QuerySegment` (closed, conservative boxes).
+    Triangles use a linear scan over the boxes. At 3200-10092 polyhedra it costs a few µs of the 359-1708 µs.
+    `TriangleBoxTree` has no box query, and adding one would change exact-arrangement code another session owns.
+  - `DMeshAABBTree3` indexes a live mesh's triangles, not the snapshot's polyhedron boxes. The quadtree is 2D.
+  - The construction follows `MeshEnvelope`'s structure (offsets from the support, rounding taken off the offsets) with
+    its own proof (4.4). The test oracle reuses `MeshEnvelope`'s clipping method, plus the 1D covering that open
+    polyhedra need.
+  - OPERATIONS.md lists `Reducer` / `MeshEnvelope` for guaranteed deviation; nothing else in the library decides
+    envelope containment.
+- **Literature:**
+  - Wang et al. 2020 and its reference code `fast-envelope` (MIT; `src/` read, the bundled predicate libraries not),
+    for Prop. 3.1, Thm. 3.2, Listing 1 and the accelerations (cover set, boundary restriction, prefilter).
+  - Attene 2020 for indirect predicates.
+  - For the alternative direction: Cohen et al. 1996 (simplification envelopes), Borouchaki & Frey 2005 (Hausdorff
+    envelope), and BVH upper bounds of the Hausdorff distance (e.g. "Cascading upper bounds for triangle soup
+    Pompeiu-Hausdorff distance", CGF 2024, not read).
+  - Sources are in docs/SOURCES.md. No GPL code was read or used.
+
+**Follow-up spikes on the alternative, `IsWithin` (2026-11-01).** Branch `claude/deviation-bounds-spike`, local and not for
+merging. The instrumentation sits in `TriangleDeviationBounds`; `ReducerBenchmark spike` reduces the bumpy sphere
+(199692 triangles) and the terrain (180000) at tolerances 0.001, 0.003 and 0.01 of the diagonal.
+- **Share:** the check is 90-98 % of the reduction's wall time. That is about 700k `IsWithin` calls per reduction, 7 per
+  collapse, at 7-73 µs per call. About half of a call is `UpperBound`, about a third the BVH nearest queries
+  (3-22 per call), with 1.4-27 pieces per call.
+- **Exactness (idea A, an exact `IsWithin`):** no accepted triangle comes closer to the tolerance than 1e-8 ε
+  (relative margin of its largest upper bound). Rounding is about 1e-13 ε, so an exact check would change no
+  decision on these inputs. It would be a guarantee only, not worth building now.
+- **Reuse:** 0-0.3 % of the calls repeat a triangle already checked, so a cache gains nothing.
+- **Local nearest queries** (the parents' nearest triangles and their one-rings, the tree only if none is within ε):
+  the midpoint's nearest triangle is local in 44-92 % of the queries at tight tolerances. Even so the reduction gets
+  slower (bumpy 0.001: 31-32 → 40 s; terrain 0.001: 22 → 27 s), because a triangle that is not the nearest loosens the
+  bounds. The results are the same.
+- **Hash grid of cell ε instead of the BVH:** slower everywhere, 1.3-2.6× (bumpy 0.01: 9.2 → 20.3 s), because the
+  input triangles are small against ε: the 27 cells hold many candidates, while the BVH prunes by the best distance
+  found. A quadtree is 2D, and an octree would be a worse BVH (duplicated triangles, loose cells).
+- **Splitting large query triangles:** `IsWithin` already subdivides adaptively, which is the core of Sacht & Jacobson.
+  In the envelope it would speed up the query but not change what it accepts. That is the shape's, and it is the
+  blocker.
+- **Fewer or cheaper checks per collapse.** Measured in a `Reducer` subclass in the spike, without changing
+  `Reducer.cs`; each collapse checks 7.0 new triangles.
+  - Corner and midpoint queries shared between the 7 triangles: 37-59 % of a collapse's `IsWithin` queries are
+    duplicates (tighter tolerances: fewer). Queries are about a third of a call, so sharing them would save at most
+    12-20 % of the check. The results would not change.
+  - A carried bound per triangle: certified if U(old) + |Δ| ≤ ε, else `IsWithin`'s bound is carried on. Simulated
+    over whole reductions, it certifies 1.6 % / 9.6 % of the new triangles at 0.001 (bumpy / terrain), 30 % / 40 % at
+    0.003, and 77 % / 85 % at 0.01. The optimistic U = 0 gives 2-16 %, 79-89 % and 98-99 %.
+  - So it helps at coarse tolerances, where the check is cheapest (3-8 µs per call), and hardly at 0.001, where a call
+    costs 45-73 µs. It can accept collapses that `IsWithin`'s depth limit would reject, so the results could change.
+  - Together, a rough upper bound: about 1.15× at 0.001, about 1.35× at 0.003, about 2× at 0.01.
+- **Conclusion:** `IsWithin` is close to the state of the art and exact enough in practice. A larger speedup must cut
+  the number of checks per collapse in the `Reducer` (`Reducer.cs`, the owner's file: their decision), not the check.
+  - Sacht & Jacobson's own code (github.com/leokollersacht/pompeiu_hausdorff) is MPL-2.0, which is file-level
+    copyleft and not in the allowed licenses: not ported. The library's version was implemented from the paper.
+
+Kept on #263 / #268, internal, as a tested exact tool: `PolyhedralEnvelope` (points, segments, triangles), the
+generated indirect predicates on doubles with the prepared form, and the triangle oracle.
+`MeshEnvelope` stays as it is. For the `Reducer`, the open direction is faster distance bounds
+(`TriangleDeviationBounds`; see the BVH Hausdorff upper bounds in the literature, ROADMAP Phase 5 #2), not an
+envelope.
 
 ## 7. Decisions (owner, on the questions of the draft)
 
