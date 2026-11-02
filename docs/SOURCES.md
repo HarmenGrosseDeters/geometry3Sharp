@@ -127,6 +127,12 @@ balls: L. P. Chew, *Guaranteed-Quality Mesh Generation for Curved Surfaces*, SoC
 *Provably Good Sampling and Meshing of Surfaces*, Graphical Models 2005; S.-W. Cheng, T. K. Dey, J. R. Shewchuk,
 *Delaunay Mesh Generation*, CRC Press 2012 (the radius-edge ratio and the minimum angle of a triangle).
 
+The refinement at non-manifold spots (`RefineNonManifold`) is our own: the paper leaves pinches in place (Section 8).
+Before the manifold step, it inserts offset-surface points into the outside cells that the manifold step would move
+inside, with the same separation guards, and carves again. The idea that a dense enough offset sample makes the
+restricted Delaunay surface a manifold is from J.-D. Boissonnat, S. Oudot 2005 (above). Measurements are in
+`docs/design/ALPHA_WRAP_PAPER_NOTES.md` section 6.
+
 ## Parameterization (`LSCMParameterization`, `ARAPParameterization`, `SLIMParameterization`, `BoundaryFirstFlattening`, `TutteEmbedding`, `ParameterizationDistortion`, `UVPacker`)
 
 Implemented from the papers, no code taken over.
