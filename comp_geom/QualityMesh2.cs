@@ -599,18 +599,20 @@ namespace g3
                 return false;
             }
 
-            /// <summary> the pixel indices of vertex v, computed once: a vertex never moves (snap rounding put the input on pixel centres,
-            /// refinement inserts only pixel centres), and the exact index is costly (most of the mesher's time on the Herne tiles) </summary>
+            /// <summary> the pixel indices of vertex v, computed once per refiner: the kernel never moves a vertex after inserting it and
+            /// never reuses an id, so the indices stay valid; the exact index is costly (most of the mesher's time on the Herne tiles).
+            /// long.MinValue marks an entry not computed yet (an index of -2^63 would only be recomputed each time) </summary>
             (long x, long y) PixelOf(int v)
             {
-                while (pixelX.Count <= v) { pixelX.Add(long.MinValue); pixelY.Add(long.MinValue); }
-                if (pixelX[v] == long.MinValue) {
+                while (pixels.Count <= v) pixels.Add((long.MinValue, long.MinValue));
+                if (pixels[v].x == long.MinValue) {
                     var p = k.Point(v);
-                    pixelX[v] = grid.Pixel(p.x); pixelY[v] = grid.Pixel(p.y);
+                    long x = grid.Pixel(p.x), y = grid.Pixel(p.y);
+                    pixels[v] = (x, y);
                 }
-                return (pixelX[v], pixelY[v]);
+                return pixels[v];
             }
-            readonly List<long> pixelX = new List<long>(), pixelY = new List<long>();
+            readonly List<(long x, long y)> pixels = new List<(long x, long y)>();
 
             /// <summary> a constrained edge crosses the open pixel of grid point c (c lies in triangle at): a vertex there would sit within half a
             /// pixel of a constraint (D14) </summary>
