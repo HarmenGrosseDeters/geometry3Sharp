@@ -301,6 +301,15 @@ namespace g3
             return (p.eY * q.eW - q.eY * p.eW).Sign * sw;
         }
 
+        /// <summary> the vertex lies exactly at the double point p </summary>
+        public bool IsAt(int vertex, Vector2d p)
+        {
+            Vertex v = vertices[vertex];
+            if (v.L1 < 0) return v.x == p.x && v.y == p.y;
+            exact_vertex(v);
+            return (v.eX - E(p.x) * v.eW).Sign == 0 && (v.eY - E(p.y) * v.eW).Sign == 0;
+        }
+
         /// <summary> an approximation of the vertex position (for bounding boxes and heuristics only) </summary>
         public Vector2d Approx(int vertex)
         {

@@ -422,8 +422,8 @@ namespace gs
                         continue;
                 }
                 var pos = prefilterPos;
-                pos.Clear();
-                { int h0 = fEdge[f], h = h0; do { pos.Add(K.Approx(hOrig[h])); h = hNext[h]; } while (h != h0); }
+                pos.Clear(); prefilterVerts.Clear();
+                { int h0 = fEdge[f], h = h0; do { pos.Add(K.Approx(hOrig[h])); prefilterVerts.Add(hOrig[h]); h = hNext[h]; } while (h != h0); }
                 // prefilter (conservative): F_k over the face is at least zmin + slb * dmin
                 double upper = double.MinValue;
                 foreach (var q in pos) upper = Math.Max(upper, K.ApproxHeight(label, q.x, q.y));
@@ -442,16 +442,19 @@ namespace gs
         }
 
         readonly List<Vector2d> prefilterPos = new List<Vector2d>();
+        readonly List<int> prefilterVerts = new List<int>();
 
-        static void add_sector(List<int> relevant, List<int> fan, List<double> ang, Vector2d apex, List<Vector2d> pos, double theta)
+        void add_sector(List<int> relevant, List<int> fan, List<double> ang, Vector2d apex, List<Vector2d> pos, double theta)
         {
             if (fan.Count == 0) return;
             double refAngle = double.NaN, lo = 0, hi = 0;
-            foreach (var q in pos) {
+            for (int i = 0; i < pos.Count; ++i) {
+                Vector2d q = pos[i];
                 Vector2d d = q - apex;
-                // (a corner near the apex: its approximate position (within 1e-12 of its coordinates, Approx) gives its
-                // direction within 0.1 theta only from a distance of 1e-11 / theta of the coordinates; nearer, all of the
-                // fan. Also a corner whose approximation is the apex: it may lie next to it)
+                // (a corner at the apex (exact) has no direction: the corners next to it bound the face's. A corner near
+                // it: its approximate position (within 1e-12 of its coordinates, Approx) gives its direction within
+                // 0.1 theta only from a distance of 1e-11 / theta of the coordinates; nearer, all of the fan)
+                if (d.x == 0 && d.y == 0 && K.IsAt(prefilterVerts[i], apex)) continue;
                 double near = 1e-11 * (Math.Abs(q.x) + Math.Abs(q.y) + Math.Abs(apex.x) + Math.Abs(apex.y)) / theta;
                 if (d.Length < near) { relevant.AddRange(fan); return; }
                 double a = Math.Atan2(d.y, d.x);

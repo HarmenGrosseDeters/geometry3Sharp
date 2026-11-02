@@ -174,6 +174,13 @@ namespace geometry3Sharp.Tests
             Assert.Equal(-1, K.CompareXY(R, Q));
             // one position, two vertices
             Assert.Equal(0, K.CompareXY(P, K.PointVertex(new Vector2d(1, 5))));
+            // IsAt: exact, also where the rounded position is the point
+            Assert.True(K.IsAt(P, new Vector2d(1, 5)));
+            Assert.False(K.IsAt(Q, new Vector2d(1, 3)));
+            Assert.Equal(new Vector2d(1, 3), K.Rounded(Q));
+            Assert.True(K.IsAt(R, new Vector2d(1, 3)));
+            Assert.True(K.IsAt(K.PointVertex(new Vector2d(2, 7)), new Vector2d(2, 7)));
+            Assert.False(K.IsAt(K.PointVertex(new Vector2d(2, 7)), new Vector2d(2, 7.000000000000001)));
             Assert.Equal(0, K.CompareXY(P, P));
         }
 
