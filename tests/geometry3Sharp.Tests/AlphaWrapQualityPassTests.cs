@@ -407,6 +407,30 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void PinCreaseVertices_CreaseVerticesStay()
+        {
+            // the box wrap's rounded edges are creases between its faces at its resolution: with a pin angle of 20
+            // degrees no vertex on an edge sharper than that moves; without, some do
+            DMesh3 wrap, simp; double tol;
+            BoxWrap(DefaultBox, out wrap, out simp, out tol);
+            Func<double, int> movedCreaseVertices = (pin) => {
+                var pass = new AlphaWrapQualityPass(new DMesh3(simp), wrap, 0.95 * tol) { EnableFlips = false, PinCreaseVerticesDegrees = pin };
+                Assert.True(pass.Compute());
+                int n = 0;
+                foreach (int v in simp.VertexIndices()) {
+                    bool crease = simp.VtxEdgesItr(v).Any(e => {
+                        Index2i et = simp.GetEdgeT(e);
+                        return et.b >= 0 && simp.GetTriNormal(et.a).Dot(simp.GetTriNormal(et.b)) < Math.Cos(20 * MathUtil.Deg2Rad);
+                    });
+                    if (crease && pass.Mesh.GetVertex(v) != simp.GetVertex(v)) n++;
+                }
+                return n;
+            };
+            Assert.Equal(0, movedCreaseVertices(20));
+            Assert.True(movedCreaseVertices(180) > 0);
+        }
+
+        [Fact]
         public void InvariantUnderSimilarities()
         {
             DMesh3 wrap, simp; double tol;

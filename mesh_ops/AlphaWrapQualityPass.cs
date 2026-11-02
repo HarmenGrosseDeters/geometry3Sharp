@@ -47,6 +47,8 @@ namespace gs
         internal double NormalDeviationSlackDegrees = 0;
         /// <summary> KeepNormalDeviation: sample the reference's normal at the centroid only (1) or also at the corners and edge midpoints (7) </summary>
         internal int NormalSamples = 1;
+        /// <summary> no move of a vertex on an edge whose triangles meet at a larger angle (crease and feature vertices stay; 180: off) </summary>
+        internal double PinCreaseVerticesDegrees = 180;
         /// <summary>
         /// split the longest edge of triangles with a larger angle (caps) at the foot of the altitude from the opposite
         /// vertex: the new vertex lies on the edge, so the surface does not change (180: off). The owner's approval of
@@ -326,6 +328,18 @@ namespace gs
             foreach (var kv in keyed) yield return kv.Value;
         }
 
+        // is v on an edge whose two triangles meet at more than PinCreaseVerticesDegrees?
+        bool on_crease(int v)
+        {
+            double cos = Math.Cos(PinCreaseVerticesDegrees * MathUtil.Deg2Rad);
+            foreach (int e in Mesh.VtxEdgesItr(v)) {
+                Index2i et = Mesh.GetEdgeT(e);
+                if (et.b < 0) continue;
+                if (Mesh.GetTriNormal(et.a).Dot(Mesh.GetTriNormal(et.b)) < cos) return true;
+            }
+            return false;
+        }
+
         static double max_angle(Vector3d a, Vector3d b, Vector3d c)
         {
             return Math.Max(angle(b - a, c - a), Math.Max(angle(a - b, c - b), angle(a - c, b - c)));
@@ -420,6 +434,7 @@ namespace gs
             foreach (int v in visit_order(Mesh.MaxVertexID, false)) {
                 if (CancelF()) return false;
                 if (Mesh.IsVertex(v) == false || Mesh.IsBoundaryVertex(v)) continue;
+                if (PinCreaseVerticesDegrees < 180 && on_crease(v)) continue;
                 ring.Clear();
                 foreach (int t in Mesh.VtxTrianglesItr(v)) ring.Add(t);
                 if (ring.Count < 3) continue;
