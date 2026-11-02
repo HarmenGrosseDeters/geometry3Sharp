@@ -392,17 +392,8 @@ namespace geometry3Sharp.Tests
         {
             // https://github.com/CGAL/cgal/issues/3902: after a soup repair, "holes" made of two matching boundary
             // halfedges of opposite direction (a loop p-q-p-q of zero area) were passed to the hole filler, which failed.
-            // Correct: such seams are stitched. Rebuilt: a box whose triangles each have their own vertices (a soup), and
-            // a sphere cut open along a meridian (the seam vertices duplicated).
-            DMesh3 box = Box(new Vector3d(0, 0, 0), new Vector3d(2, 3, 5));
-            DMesh3 soup = new DMesh3();
-            foreach (int t in box.TriangleIndices()) {
-                Index3i tv = box.GetTriangle(t);
-                soup.AppendTriangle(soup.AppendVertex(box.GetVertex(tv.a)), soup.AppendVertex(box.GetVertex(tv.b)), soup.AppendVertex(box.GetVertex(tv.c)));
-            }
-            Expect(nameof(UnweldedSeam_ZeroAreaHoleIsStitchedNotFilled), RobustOutcome(soup, 30, 1e-12, out var rr));
-            Assert.Equal(12, rr.Mesh.TriangleCount);
-
+            // Correct: such seams are stitched. Rebuilt: a sphere cut open along a meridian (the seam vertices
+            // duplicated). (A full triangle soup is the defect case "triangle soup" of Harness/Defects.cs.)
             DMesh3 sphere = Sphere(Vector3d.Zero, 1, 9), cut = new DMesh3();
             // duplicate the vertices of the triangles on the x > 0 side of the plane y = 0 that touch it
             var map = new Dictionary<int, int>();
@@ -421,7 +412,7 @@ namespace geometry3Sharp.Tests
                 cut.AppendTriangle(M(tv.a), M(tv.b), M(tv.c));
             }
             Assert.False(cut.IsClosed());
-            Expect(nameof(UnweldedSeam_ZeroAreaHoleIsStitchedNotFilled), RobustOutcome(cut, SphereVolume(sphere), 1e-12, out rr));
+            Expect(nameof(UnweldedSeam_ZeroAreaHoleIsStitchedNotFilled), RobustOutcome(cut, SphereVolume(sphere), 1e-12, out var rr));
             Assert.Equal(sphere.TriangleCount, rr.Mesh.TriangleCount);
         }
 
@@ -498,6 +489,7 @@ namespace geometry3Sharp.Tests
         {
             // https://github.com/isl-org/Open3D/issues/1386: a sphere with one flipped triangle passed every manifold
             // check. Correct: reported as an orientation defect, and fixed by propagation (same triangles, same volume).
+            // (The defect case "partly flipped" flips a whole cap; this is the smallest case, one triangle.)
             DMesh3 sphere = Sphere(Vector3d.Zero, 1), input = Copy(sphere);
             int tid = input.TriangleIndices().Skip(17).First();
             Index3i tv = input.GetTriangle(tid);
@@ -507,52 +499,6 @@ namespace geometry3Sharp.Tests
             Assert.NotEqual("", MeshRobustRepair.NotCleanReason(input));
             Expect(nameof(SphereWithOneFlippedTriangle_Reoriented), RobustOutcome(input, SphereVolume(sphere), 1e-9, out var rr));
             Assert.Equal(sphere.TriangleCount, rr.Mesh.TriangleCount);
-        }
-
-        [Fact]
-        public void CavityOrientedLikeTheOuterShell_TurnedInwards()
-        {
-            // https://github.com/mikedh/trimesh/issues/1419 and https://github.com/mikedh/trimesh/issues/1789: a global
-            // volume-sign test cannot orient the faces of an inner shell (a cavity). Rebuilt: a box with a box cavity,
-            // both oriented outwards. Correct: the cavity turned inwards, volume = outer - inner. Also the other way: the
-            // cavity already inwards stays.
-            foreach (bool cavityRight in new[] { false, true }) {
-                DMesh3 outer = Box(new Vector3d(0, 0, 0), new Vector3d(4, 4, 4)), inner = Box(new Vector3d(1, 1, 1), new Vector3d(2, 3, 2));
-                if (cavityRight) inner.ReverseOrientation();
-                var input = new DMesh3();
-                new MeshEditor(input).AppendMesh(outer);
-                new MeshEditor(input).AppendMesh(inner);
-                Expect(nameof(CavityOrientedLikeTheOuterShell_TurnedInwards), RobustOutcome(input, 64 - 2, 1e-12, out var rr));
-                Assert.Equal(24, rr.Mesh.TriangleCount);
-            }
-        }
-
-        [Fact]
-        public void InsideOutSphere_TurnedOutwards()
-        {
-            // https://github.com/mikedh/trimesh/issues/1789: the orientation fix of a single shell that is consistently
-            // inside out. Correct: turned outwards, positive volume.
-            DMesh3 sphere = Sphere(new Vector3d(5, -3, 2), 1), input = Copy(sphere);
-            input.ReverseOrientation();
-            Expect(nameof(InsideOutSphere_TurnedOutwards), RobustOutcome(input, SphereVolume(sphere), 1e-9, out var rr));
-            Assert.Equal(sphere.TriangleCount, rr.Mesh.TriangleCount);
-        }
-
-        // ---------------------------------------------------------------------------------------------------------------
-        // self-intersections
-
-        [Fact]
-        public void BoxPushedIntoABox_ResolvedToTheUnion()
-        {
-            // https://github.com/MeshInspector/MeshLib/issues/5567 (an embedded logo: deleting the intersecting
-            // triangles left a large gap) and https://github.com/CGAL/cgal/issues/6608 (local repair of
-            // self-intersections gave up): two overlapping closed shells in one mesh. Correct: the union, no gap.
-            DMesh3 a = Box(new Vector3d(0, 0, 0), new Vector3d(4, 4, 1)), b = Box(new Vector3d(1, 1, 0.5), new Vector3d(2, 3, 1.5));
-            var input = new DMesh3();
-            new MeshEditor(input).AppendMesh(a);
-            new MeshEditor(input).AppendMesh(b);
-            Expect(nameof(BoxPushedIntoABox_ResolvedToTheUnion), RobustOutcome(input, 16 + 2 * 0.5, 1e-9, out var rr));
-            Assert.Equal(1, Components(rr.Mesh));
         }
 
         [Theory]

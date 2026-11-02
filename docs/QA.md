@@ -406,21 +406,21 @@ different exact input solids. `TwoTriangularPrisms_RoundedRotationWithoutVoid_Fo
 pins the other observed rounding and requires a clean, closed single-component result. The limitation
 assertions are unchanged; there is no runtime-conditional expected outcome.
 
-**Mesh repair (November 2026):** `MeshRepairIssueCasesTests` rebuilds 18 failure modes from the trackers of CGAL,
-PMP, libigl, Manifold, Open3D, trimesh and MeshLib: holes of one triangle and planar square holes (closed exactly), a
-quad hole whose diagonal is already an edge of the mesh, several holes at once, the open base of a cone (filled flat),
-a hole next to a near-zero-area rim triangle, a hole boundary that touches itself, the smoothed fill on models 1e-3
-and 1e3 in size (the same triangles), unwelded seams (a triangle soup, a sphere cut along a meridian), two halves with
-a narrow gap, two open boxes touching at a hole corner, a ring of boxes whose last one nearly coincides with the
-first, a single flipped triangle, cavities oriented like the outer shell, an inside-out shell, a box pushed into a
-box, a thin fold of two boxes crossing at 3 degrees, and a chain of overlapping boxes. Every case checks the result
-(`NotCleanReasons`, the volume, the bounds, the triangle or component count). The large holes (a cap, the quad
-hole) use `MeshAutoRepair`: `MeshRobustRepair` compares a repair with the winding number solid of the open input,
-and a large fill differs from that by more than `MinVolumeIoU`, so it remeshes the input instead (by design). One fix, with a test that fails on
-the old code: `MinimalHoleFill` ended a quad hole on the existing diagonal, which `RegionOperator.BackPropropagate`
-then split at its midpoint, so the fill touched the existing edge (pmp-library#181); such edges between two loop
-vertices are now flipped to the other diagonal where that one is new and no normal turns around
-([UPSTREAM_CHANGES.md](UPSTREAM_CHANGES.md)). Known failure (strict list
+**Mesh repair (November 2026):** `MeshRepairIssueCasesTests` rebuilds 15 failure modes from the trackers of CGAL,
+PMP, libigl, Manifold, Open3D and MeshLib: holes of one triangle and planar square holes (closed exactly), a quad
+hole whose diagonal is already an edge of the mesh, several holes at once, the open base of a cone (filled flat), a
+hole next to a near-zero-area rim triangle, a hole boundary that touches itself, the smoothed fill on models 1e-3 and
+1e3 in size (the same triangles, bit for bit under 2^k), a sphere cut open along a meridian, two halves with a narrow
+gap, two open boxes touching at a hole corner, a ring of boxes whose last one nearly coincides with the first, a
+single flipped triangle, a thin fold of two boxes crossing at 3 and 10 degrees, and a chain of overlapping boxes.
+Situations the defect cases of 2.1 already cover (soups, inside-out shells, cavities, overlapping solids) are left
+out. Every case checks the result (`NotCleanReasons`, the volume, the bounds, the triangle or component count). The
+large holes (a cap, the quad hole) use `MeshAutoRepair`: `MeshRobustRepair` compares a repair with the winding number
+solid of the open input, and a large fill differs from that by more than `MinVolumeIoU`, so it remeshes the input
+instead (by design). One fix, with a test that fails on the old code: `MinimalHoleFill` ended a quad hole on the
+existing diagonal, which `RegionOperator.BackPropropagate` then split at its midpoint, so the fill touched the
+existing edge (pmp-library#181); such edges between two loop vertices are now flipped to the other diagonal where
+that one is new and no normal turns around ([UPSTREAM_CHANGES.md](UPSTREAM_CHANGES.md)). Known failure (strict list
 `MeshRepairIssueCasesTests.KnownFailures`, finding R1): `MeshPostRepairCleanup.FindInvertedComponents` takes a
 closed component whose interior lies mostly inside another for a nested one also when their surfaces cross, so of two
 outward boxes crossing at 3 or 10 degrees one is flipped as a cavity, and the repair returns their difference as a
