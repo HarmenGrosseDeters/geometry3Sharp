@@ -258,6 +258,8 @@ class Program
             swStats.Restart();
             Stats(result, r, "after");
             r["stats_after_ms"] = swStats.ElapsedMilliseconds;
+            // (for before/after comparisons of optimizations: the same hash, the same result bit for bit)
+            r["after_hash"] = Hash(result);
             Deviation(original, result, r);
             if (repairMode != "boolean" && repairMode != "exact")
                 Fidelity(original, result, r);
@@ -697,6 +699,22 @@ class Program
     static double angle_deg(Vector3d u, Vector3d v) => Math.Atan2(u.Cross(v).Length, u.Dot(v)) * 180 / Math.PI;
 
     // NaN / infinity (eg IoU without a reference solid) are written as strings ("NaN"), not rejected
+    // vertex ids and coordinate bits, triangle ids and corners (as BooleanComparison profile)
+    static string Hash(DMesh3 mesh)
+    {
+        var sb = new System.Text.StringBuilder();
+        foreach (int vid in mesh.VertexIndices()) {
+            Vector3d v = mesh.GetVertex(vid);
+            sb.Append(vid).Append(':').Append(BitConverter.DoubleToInt64Bits(v.x)).Append(',')
+                .Append(BitConverter.DoubleToInt64Bits(v.y)).Append(',').Append(BitConverter.DoubleToInt64Bits(v.z)).Append(';');
+        }
+        foreach (int tid in mesh.TriangleIndices()) {
+            Index3i t = mesh.GetTriangle(tid);
+            sb.Append(tid).Append(':').Append(t.a).Append(',').Append(t.b).Append(',').Append(t.c).Append(';');
+        }
+        return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(sb.ToString()))).Substring(0, 16);
+    }
+
     static void Emit(object o) => Console.WriteLine(JsonSerializer.Serialize(o, new JsonSerializerOptions {
         NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowNamedFloatingPointLiterals }));
 }
