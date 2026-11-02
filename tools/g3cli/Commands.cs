@@ -16,10 +16,10 @@ namespace g3cli
     /// reads its inputs, runs the operation and returns a JSON object; Run() turns every failure into a
     /// result with an error code, it never throws.
     /// </summary>
-    public static class Commands
+    public static partial class Commands
     {
         public static readonly List<Command> All = new List<Command>() {
-            Measure(), Repair(), Boolean(), Resolve(), Remesh(), Simplify(), Uv(), Convert()
+            Measure(), Repair(), Boolean(), Resolve(), Remesh(), Simplify(), Uv(), Convert(), Mesh2d(), Query2d()
         };
 
         public static Command Find(string name)
@@ -161,6 +161,14 @@ namespace g3cli
             c.Params.Add(new Param("solidify_resolution", ParamType.Integer, "robust: grid cells along the bounding box diagonal of the solidify fallback, 8..2048") { Default = 128 });
             c.Params.Add(new Param("min_volume_iou", ParamType.Number, "robust: minimum volume IoU of the repair with the input before falling back (0 = no check)") { Default = 0.99 });
             c.Params.Add(new Param("exact_resolve", ParamType.Boolean, "robust: before the solidify, resolve the self-intersections exactly (ExactMeshBoolean.Resolve)") { Default = true });
+            c.Params.Add(new Param("exact_resolve_max_pairs", ParamType.Integer, "robust: skip the exact resolve for meshes with more self-intersecting triangle pairs than this (0 = no limit)") { Default = 200000 });
+            c.Params.Add(new Param("safe_rounding", ParamType.Boolean, "robust: the exact resolve repairs the self-intersections and slivers that rounding leaves (MeshRobustRepair.SafeRounding); " +
+                "false: the cleanup collapses slivers and the resolve is repeated") { Default = true });
+            c.Params.Add(new Param("alpha_wrap", ParamType.Boolean, "robust: last resort, alpha wrap the mesh if the solidify fails or is not clean (MeshRobustRepair.AlphaWrapFallback)") { Default = true });
+            c.Params.Add(new Param("simplify_alpha_wrap", ParamType.Boolean, "robust: simplify the alpha wrap, kept only if clean and certified within half the wrap offset of the unsimplified wrap") { Default = true });
+            c.Params.Add(new Param("check_lost_components", ParamType.Boolean, "robust: a result that lost a connected component of the input (eg a small part of an assembly) falls back like one that lost volume; " +
+                "needs min_volume_iou > 0") { Default = false });
+            c.Params.Add(new Param("reject_topology_change", ParamType.Boolean, "robust: reject an exact resolve whose genus differs from the mesh it resolved (the fallbacks run instead)") { Default = false });
             c.Params.Add(SelfIntersections());
             c.Params.Add(Binary());
             c.Run = args => {
@@ -188,11 +196,21 @@ namespace g3cli
                 } else {
                     if (args.Integer("solidify_resolution") < 8 || args.Integer("solidify_resolution") > 2048)
                         throw new CommandException(ResultCodes.InvalidArguments, "'solidify_resolution' must be in 8..2048");
+                    if (args.Integer("exact_resolve_max_pairs") < 0)
+                        throw new CommandException(ResultCodes.InvalidArguments, "'exact_resolve_max_pairs' must be >= 0");
+                    if (args.Bool("check_lost_components") && args.Number("min_volume_iou") <= 0)
+                        throw new CommandException(ResultCodes.InvalidArguments, "'check_lost_components' needs min_volume_iou > 0");
                     var repair = new MeshRobustRepair(new DMesh3(mesh)) {
                         SolidifyResolution = args.Integer("solidify_resolution"),
                         MinVolumeIoU = args.Number("min_volume_iou"),
                         CheckSelfIntersections = selfInt,
                         ExactResolve = args.Bool("exact_resolve"),
+                        ExactResolveMaxPairs = args.Integer("exact_resolve_max_pairs"),
+                        SafeRounding = args.Bool("safe_rounding"),
+                        AlphaWrapFallback = args.Bool("alpha_wrap"),
+                        SimplifyAlphaWrap = args.Bool("simplify_alpha_wrap"),
+                        CheckLostComponents = args.Bool("check_lost_components"),
+                        RejectTopologyChange = args.Bool("reject_topology_change"),
                         ConfigureRepair = configure,
                     };
                     if (repair.Apply() == false)
@@ -211,6 +229,13 @@ namespace g3cli
                     o["used_solidify"] = repair.UsedSolidify;
                     o["fallback_reason"] = repair.FallbackReason == "" ? null : repair.FallbackReason;
                     o["volume_iou"] = MeshReport.Num(repair.RepairVolumeIoU);
+                    o["used_input"] = repair.UsedInput;
+                    o["solidify_reason"] = repair.SolidifyReason == "" ? null : repair.SolidifyReason;
+                    o["used_alpha_wrap"] = repair.UsedAlphaWrap;
+                    o["alpha_wrap_triangles"] = repair.AlphaWrapTriangles;
+                    o["alpha_wrap_simplified"] = repair.AlphaWrapSimplified;
+                    o["wrap_reason"] = repair.WrapReason == "" ? null : repair.WrapReason;
+                    o["result_reason"] = repair.ResultReason == "" ? null : repair.ResultReason;
                 }
                 if (result.TriangleCount == 0)
                     throw new CommandException(ResultCodes.OperationFailed, "repair removed all triangles");
@@ -236,25 +261,61 @@ namespace g3cli
                 // (SafeRounding is on by default: rounding_clean = verified free of self-intersections and slivers)
                 ["safe_rounding"] = op.SafeRounding,
                 ["rounding_clean"] = op.RoundingClean,
+                ["simplify_flat_regions"] = op.SimplifyFlatRegions,
+                ["removed_vertices"] = op.RemovedVertices,
+                ["rounding"] = RoundingInfo(op.Rounding),
             };
         }
+
+        /// <summary> the counts of a SafeRounding repair (MeshRoundingRepair), null if it did not run </summary>
+        static JsonObject RoundingInfo(MeshRoundingRepair r)
+        {
+            if (r == null)
+                return null;
+            return new JsonObject() {
+                ["clean"] = r.IsClean,
+                ["initial_intersections"] = r.InitialIntersections,
+                ["initial_degenerate"] = r.InitialDegenerate,
+                ["remaining_intersections"] = r.RemainingIntersections,
+                ["remaining_degenerate"] = r.RemainingDegenerate,
+                ["collapses"] = r.Collapses,
+                ["flips"] = r.Flips,
+                ["moves"] = r.Moves,
+                ["zips"] = r.Zips,
+                ["strip_zips"] = r.StripZips,
+                ["removed_components"] = r.RemovedComponents,
+                ["removed_triangles"] = r.RemovedTriangles,
+                ["max_drift"] = MeshReport.Num(r.MaxDrift),
+                ["evaluation_limit_reached"] = r.EvaluationLimitReached,
+            };
+        }
+
+        static Param SafeRounding() =>
+            new Param("safe_rounding", ParamType.Boolean, "repair the self-intersections and slivers that rounding the new vertices to double leaves " +
+                "(ExactMeshBoolean.SafeRounding, MeshRoundingRepair: local edits checked exactly, each surface point moves at most 1e-5 of the " +
+                "bounding box diagonal); false: plain rounding, faster") { Default = true };
+        static Param SimplifyFlatRegions() =>
+            new Param("simplify_flat_regions", ParamType.Boolean, "remove new vertices inside flat regions and on straight edges between them " +
+                "(ExactMeshBoolean.SimplifyFlatRegions); false keeps every crossing of coplanar faces") { Default = true };
 
         static Command Boolean()
         {
             var c = new Command() {
                 Name = "boolean",
                 Description = "Exact mesh boolean (ExactMeshBoolean) of two or more meshes in one arrangement: union, intersection, " +
-                    "difference (a minus all others) or at_least (inside at least k of the meshes). " +
+                    "difference (a minus all others), at_least (inside at least k of the meshes) or xor (inside an odd number of them). " +
                     "The solid of a mesh is where its winding number is positive, so self-intersecting, nested or overlapping inputs work; " +
                     "open inputs use the generalized winding number (result then generally not closed).",
             };
             c.Params.Add(Input("a", "first mesh file"));
             c.Params.Add(Input("b", "second mesh file"));
             c.Params.Add(Output());
-            c.Params.Add(new Param("op", ParamType.String, "operation") { Required = true, Enum = new[] { "union", "intersection", "difference", "at_least" } });
+            c.Params.Add(new Param("op", ParamType.String, "operation") { Required = true, Enum = new[] { "union", "intersection", "difference", "at_least", "xor" } });
             c.Params.Add(new Param("more", ParamType.String, "further input mesh files, separated by ';' (all inputs in one operation, in the order a, b, these)"));
             c.Params.Add(new Param("k", ParamType.Integer, "for op at_least: the number of meshes a point must be inside (1 = union, number of inputs = intersection)"));
             c.Params.Add(new Param("allow_open", ParamType.Boolean, "accept inputs that are not closed (winding number sense); false: fail with operation_failed") { Default = true });
+            c.Params.Add(SafeRounding());
+            c.Params.Add(SimplifyFlatRegions());
             c.Params.Add(SelfIntersections());
             c.Params.Add(Binary());
             c.Run = args => {
@@ -276,6 +337,9 @@ namespace g3cli
                 ExactMeshBoolean op;
                 if (opName == "at_least") {
                     op = new ExactMeshBoolean(meshes, ExactMeshBoolean.AtLeast(args.Integer("k")));
+                } else if (opName == "xor") {
+                    // inside an odd number of the inputs (symmetric difference; for two: a xor b)
+                    op = new ExactMeshBoolean(meshes, w => w.Count(x => x > 0) % 2 == 1);
                 } else {
                     var ops = new Dictionary<string, ExactMeshBoolean.Operations>() {
                         ["union"] = ExactMeshBoolean.Operations.Union,
@@ -286,6 +350,8 @@ namespace g3cli
                     op = (meshes.Count == 2) ? new ExactMeshBoolean(meshes[0], meshes[1], ops[opName]) : new ExactMeshBoolean(meshes, ops[opName]);
                 }
                 op.AllowOpenMeshes = args.Bool("allow_open");
+                op.SafeRounding = args.Bool("safe_rounding");
+                op.SimplifyFlatRegions = args.Bool("simplify_flat_regions");
                 if (op.Compute() == false)
                     throw new CommandException(ResultCodes.OperationFailed, "boolean failed (" + op.Status + "): " + op.Error);
                 MeshFiles.Write(args.String("output"), op.Result, args.Bool("binary"));
@@ -314,13 +380,17 @@ namespace g3cli
             };
             c.Params.Add(Input());
             c.Params.Add(Output());
+            c.Params.Add(SafeRounding());
+            c.Params.Add(SimplifyFlatRegions());
             c.Params.Add(SelfIntersections());
             c.Params.Add(Binary());
             c.Run = args => {
                 MeshFiles.CheckWritable(args.String("output"));
                 var warnings = new List<string>();
                 DMesh3 mesh = MeshFiles.Read(args.String("input"), warnings);
-                var op = new ExactMeshBoolean(mesh, new DMesh3(), ExactMeshBoolean.Operations.Union);
+                var op = new ExactMeshBoolean(mesh, new DMesh3(), ExactMeshBoolean.Operations.Union) {
+                    SafeRounding = args.Bool("safe_rounding"), SimplifyFlatRegions = args.Bool("simplify_flat_regions"),
+                };
                 if (op.Compute() == false)
                     throw new CommandException(ResultCodes.OperationFailed, "resolve failed: " + op.Error);
                 MeshFiles.Write(args.String("output"), op.Result, args.Bool("binary"));

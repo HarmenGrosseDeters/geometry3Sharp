@@ -545,12 +545,12 @@ namespace gs
                         // make, are possible now)
                         var rounding = new MeshRoundingRepair(res);
                         rounding.Apply();
-                        edits = rounding.Collapses + rounding.Flips + rounding.Moves + rounding.Zips + rounding.RemovedTriangles;
+                        edits = rounding.Collapses + rounding.Flips + rounding.Moves + rounding.Zips + rounding.VertexRemovals + rounding.RemovedTriangles;
                         if (edits > 0)
                             res = new DMesh3(res, true);
                         si = rounding.RemainingIntersections;
                     }
-                    ExactRoundingEdits.Add(new Index2i(first.Collapses + first.Flips + first.Moves + first.Zips + first.RemovedTriangles, edits));
+                    ExactRoundingEdits.Add(new Index2i(first.Collapses + first.Flips + first.Moves + first.Zips + first.VertexRemovals + first.RemovedTriangles, edits));
                 }
                 reason = NotCleanReason(res, false);
                 if (reason == "" && CheckSelfIntersections) {

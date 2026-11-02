@@ -14,7 +14,7 @@ namespace Meshing2Acceptance
             var mesher = new QualityMesh2 {
                 MinAngle = input.MinAngleDeg ?? 0, MaxArea = input.MaxArea, SteinerLimit = input.SteinerLimit,
                 // a minimum angle given as 0 still asks for quality, and quality is conforming (O2)
-                ResolveCrossings = input.ResolveCrossings, Conforming = input.Conforming || input.MinAngleDeg != null || input.MaxArea != null || input.SizeFunction != null
+                ResolveCrossings = input.ResolveCrossings, SnapTolerance = input.SnapTolerance, Conforming = input.Conforming || input.MinAngleDeg != null || input.MaxArea != null || input.SizeFunction != null
             };
             if (input.SizeConstant != null) { double h = input.SizeConstant.Value; mesher.SizeFunction = (x, y) => h; }
             else if (input.SizeFunction != null) {

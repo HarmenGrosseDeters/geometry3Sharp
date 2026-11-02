@@ -7,13 +7,15 @@ tools of an MCP server (stdio), for coding agents and scripts.
 | Command | Operation | Library classes |
 |---|---|---|
 | `measure` | counts, components, closedness, volume, area, bounds, genus, bowties, degenerate and inside-out parts, self-intersections (exact), Hausdorff distance to a second mesh | `MeshMeasurements`, `MeshRepairMetrics`, `MeshHausdorffDistance` |
-| `repair` | repair into a closed solid (`--method robust`, default, or `auto`); with the exact resolve, `genus_before` / `genus_after` and a warning when it changed the genus of a component (self-overlapping layers form tunnels) | `MeshRobustRepair`, `MeshAutoRepair` |
-| `boolean` | union, intersection, difference (a minus the others), at least k of n; two or more meshes (`--more`) in one exact operation; the result is repaired after the rounding (`SafeRounding`, the library default), `boolean.rounding_clean` tells whether it is verified free of self-intersections and slivers | `ExactMeshBoolean` |
-| `resolve` | boundary of the solid of one mesh: removes self-intersections, nested shells, duplicate faces | `ExactMeshBoolean.Resolve` |
+| `repair` | repair into a closed solid (`--method robust`, default, or `auto`); with the exact resolve, `genus_before` / `genus_after` and a warning when it changed the genus of a component (self-overlapping layers form tunnels); the fallbacks can be tuned (`--exact-resolve-max-pairs`, `--safe-rounding`, `--alpha-wrap`, `--simplify-alpha-wrap`, `--check-lost-components`, `--reject-topology-change`) and are reported (`used_alpha_wrap`, `wrap_reason`, `result_reason`, ...) | `MeshRobustRepair`, `MeshAutoRepair` |
+| `boolean` | union, intersection, difference (a minus the others), at least k of n, xor (winding number positive in an odd number of the inputs; for three, `(a xor b) xor c`; its parts touch along the crossing curves); two or more meshes (`--more`) in one exact operation; the result is repaired after the rounding (`--safe-rounding`, on by default as in the library), `boolean.rounding_clean` tells whether it is verified free of self-intersections and slivers, `boolean.rounding` has the repair's counts (`null` with `--no-safe-rounding`) | `ExactMeshBoolean`, `MeshRoundingRepair` |
+| `resolve` | boundary of the solid of one mesh: removes self-intersections, nested shells, duplicate faces; `--safe-rounding`, `--simplify-flat-regions` as for `boolean` | `ExactMeshBoolean.Resolve` |
 | `remesh` | isotropic remeshing to a target edge length, boundary and sharp edges kept, sharp points with `--sharp-vertex-angle` (`sharp_vertices_pinned`); passes that would turn a closed part inside out are rolled back (`rejected_passes`), a warning if the edge length is more than 4 times the estimated wall thickness | `Remesher`, `MeshConstraintUtil` |
 | `simplify` | quadric edge collapse to a triangle count, ratio, error or edge length | `Reducer` |
 | `uv` | UV atlas: seams / cones / charts, BFF, packing, exact overlap test, distortion limits | `UVAtlasGenerator`, `MeshDiscCut`, `ConeFlattening` |
 | `convert` | STL, OBJ, OFF, PLY, 3MF, glTF/GLB, g3mesh (by file extension) | `StandardMeshReader`, `StandardMeshWriter` |
+| `mesh2d` | 2D constrained Delaunay triangulation (`--quality false`) or quality mesh (minimum angle, maximum area, per-region areas, Steiner point limit) of points, segments, rings, holes and labelled regions given as JSON (a file or inline `--geometry`); writes the mesh in the XY plane, z = heights | `QualityMesh2`, `ConstrainedDelaunayMesh2` |
+| `query2d` | heights at XY points (the containing triangle of the lowest id, `exact` true, or the nearest within `--tolerance`, `exact` false; all containing triangles in `hits`), triangles in a rectangle, nearest triangles of a mesh seen from above (a terrain) | `TriangleQuadtree2d` |
 
 ## Build and run
 
@@ -107,8 +109,16 @@ g3cli boolean --a a.obj --b b.obj --output ab.glb --op union --allow-open=false
 g3cli boolean a.stl b.stl all.stl --op union --more "c.stl;d.stl"
 g3cli boolean a.stl b.stl two.stl --op at_least --k 2 --more c.stl
 
+g3cli boolean a.stl b.stl odd.stl --op xor --more c.stl              # inside an odd number of the inputs
+g3cli boolean a.stl b.stl fast.stl --op union --no-safe-rounding     # plain rounding, faster
+
 # self-intersecting / overlapping shells in one file -> one clean solid
 g3cli resolve assembly.off solid.ply
+
+# 2D quality mesh of a domain given as JSON (file or inline), then heights sampled on it
+g3cli mesh2d field.json field.obj --min-angle 30 --max-area 50
+g3cli mesh2d --geometry '{"points": [[0,0],[4,0],[4,4],[0,4]], "heights": [0,4,8,4]}' --output tin.obj --max-area 0.5
+g3cli query2d tin.obj --points "1,1;3,2.5" --rect "0,0,1,1" --nearest 2
 
 # remesh to edge length 0.5, keep edges sharper than 40 degrees, report the deviation
 g3cli remesh part.stl part_remeshed.obj --edge-length 0.5 --crease-angle 40 --deviation
@@ -140,6 +150,32 @@ g3cli convert part.obj part.stl --binary=false
 # scripts: use the exit code and parse stdout
 g3cli measure part.stl --compact | jq '.mesh.volume'
 ```
+
+## 2D meshing input (`mesh2d`)
+
+The input is a JSON object; only `points` is required, indices refer to `points` (0-based):
+
+```json
+{
+  "points": [[0,0], [100,0], [100,60], [0,60], [40,20], [60,20], [60,40], [40,40], [70,0], [70,60]],
+  "heights": [10, 20, 26, 16, 14, 16, 18, 16, 17, 23],
+  "rings": [[0, 1, 2, 3], {"vertices": [4, 5, 6, 7], "hole": true, "marker": 0}],
+  "segments": [[0, 2], {"a": 8, "b": 9, "marker": 5, "locked": false}],
+  "hole_seeds": [[50, 30]],
+  "regions": [{"seed": [10, 10], "label": 1}, {"ring": [1, 2, 9, 8], "label": 2, "max_area": 5}]
+}
+```
+
+`rings` are outer boundaries or holes (even-odd inside; without outer rings the domain is the convex hull of the points),
+`segments` constraints (a locked one is never split by refinement), `hole_seeds` points in holes without a ring,
+`regions` labelled by a ring or a seed point (where they overlap, the last wins), with an optional maximum area,
+`heights` one z per point (interpolated at new vertices). Unknown keys, wrong types and bad indices fail with
+`invalid_arguments` (inline `--geometry`) or `read_error` (a file). The written mesh lies in the XY plane, oriented
+counterclockwise, the labels are its triangle groups (OBJ: `g mmGroup<label>`); only vertices of triangles are written.
+The result reports `triangles`, `vertices`, `added_vertices` (Steiner and crossing points), `smallest_angle`, `largest_area`, `area` (areas below the double range, at coordinates around 1e-160 and smaller, are 0), `bad_triangles`
+(below the angle bound, near locked segments or small input angles), `steiner_limit_reached`, `labels` (triangles per
+label) and the diagnostics of the mesher as `warnings`. Crossing constraints with `--resolve-crossings false`, and inputs
+without a triangle (collinear points), fail with `operation_failed` and the coordinate of the problem.
 
 ## MCP server
 
@@ -182,7 +218,8 @@ the server until they finish.
 ## Tests
 
 `tests/g3cli.Tests` runs every command on small generated meshes (cube, shifted cube, open cube, overlapping
-cubes, sphere): format round trips, expected volumes of booleans and repairs, error cases with their result
+cubes, sphere) and generated 2D domains and terrains: format round trips, quality bounds and labels of `mesh2d`, heights
+and box queries of `query2d` against brute force, fuzzed `mesh2d` JSON, expected volumes of booleans and repairs, error cases with their result
 and exit codes, the MCP protocol in process and the real executable as a child process (stdio). CI runs it
 on every push.
 

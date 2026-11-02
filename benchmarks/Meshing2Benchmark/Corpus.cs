@@ -63,6 +63,26 @@ namespace Meshing2Acceptance
             return bad == 0 ? 0 : 1;
         }
 
+        /// <summary> every corpus input as an unrefined mesher input (polygons as rings, point sets as points) </summary>
+        internal static IEnumerable<(string name, Mesh2Input input)> Inputs(string dir) => Load(dir).Select(i => (i.Name, Build(i)));
+
+        internal static string DefaultDir() => Path.Combine(RepositoryRoot(), "benchmarks", "Meshing2Benchmark", "corpus", "data");
+
+        /// <summary> the polygon inputs as segment sets (ring edges), for the snap-rounding cost measurement (SnapCost) </summary>
+        internal static IEnumerable<(string name, List<(double, double, double, double)> segments)> SegmentSets(string dir)
+        {
+            foreach (var item in Load(dir)) {
+                if (item.Rings == null) continue;
+                var segs = new List<(double, double, double, double)>();
+                foreach (var ring in item.Rings)
+                    for (int i = 0; i < ring.Count; ++i) {
+                        var a = ring[i]; var b = ring[(i + 1) % ring.Count];
+                        if (a[0] != b[0] || a[1] != b[1]) segs.Add((a[0], a[1], b[0], b[1]));
+                    }
+                if (segs.Count > 0) yield return (item.Name, segs);
+            }
+        }
+
         static string Judge(IMeshing2Candidate candidate, Milestone m, Mesh2Input input, int seconds, int judgeLimit, out string detail)
         {
             Mesh2Output output = null; Exception error = null;

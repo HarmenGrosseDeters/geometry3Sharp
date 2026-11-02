@@ -32,6 +32,7 @@ namespace Meshing2Acceptance
   format-tables                     print the generated parts of docs/design/MESHING2D_GOLDEN_FORMAT.md
   perf [--sizes 1000,4096,...] [--kinds uniform,grid,utm,clustered] [--repeats 5]
                                     time and allocation of the M1 kernel alone (spec 3.1)
+  snapcost [--filter water] [--grid 12,16,20]   (prototype SR + SRR restore on the corpus, extent / 2^k pixels; timing only)
   rows [--milestone M3] [--filter F-4] [--seconds 60] [--fast] [--pending]   (--fast skips the slow rows; --pending also runs pending rows)
   corpus [--dir <d>] [--angles 0,20,30] [--filter water] [--seconds 120] [--judge-limit 60000]
                                     public inputs fetched by corpus/fetch.py, meshed and judged; statistics only
@@ -71,6 +72,8 @@ namespace Meshing2Acceptance
                     case "perf": return Perf.Run(args, Arg);
                     case "rows": return RunRows(args);
                     case "corpus": return Corpus.Run(args, Arg);
+                    case "snapcost": return SnapCost.Run(args, Arg);
+                    case "gridcounts": return GridCounts.Run(args, Arg);
                     default: Console.Error.WriteLine(Usage); return 2;
                 }
             } catch (FormatException e) {

@@ -44,6 +44,14 @@ namespace g3
         public bool Conforming;
         /// <summary> Split crossing constraints (default); off: a crossing is a failure. </summary>
         public bool ResolveCrossings = true;
+        /// <summary>
+        /// Snap tolerance in coordinate units (spec O11, decision D14), as <see cref="ConstrainedDelaunayMesh2.SnapTolerance"/>; 0: automatic
+        /// only. Every vertex refinement adds is on the grid too (owner decision 2026-11-01): Steiner and split points are rounded to pixel
+        /// centres when inserted; a triangle whose shortest edge is at most two pixels is not refined; a triangle whose rounded point is
+        /// taken or within half a pixel of a constraint stays, and a subsegment without a valid split point on the grid stays; both are
+        /// counted in the diagnostics.
+        /// </summary>
+        public double SnapTolerance;
 
         /// <exception cref="ArgumentException">An option or the input is invalid (an angle outside [0, 60), a non-positive area).</exception>
         public ConstrainedTriangulation2Result Compute(ConstrainedMesh2Input input, CancellationToken cancellationToken = default(CancellationToken))
@@ -55,11 +63,13 @@ namespace g3
             if (input.Regions != null)
                 foreach (var r in input.Regions)
                     if (r != null && r.MaxArea != null && !(r.MaxArea.Value > 0)) throw new ArgumentException("a region's MaxArea must be positive");
-            var builder = new ConstrainedDelaunayMesh2.Builder(input, ResolveCrossings, cancellationToken);
-            var refiner = new Refiner(this, builder);
-            builder.refine = refiner.Run;
-            builder.IsBad = refiner.BelowAngle;
-            return builder.Run();
+            return ConstrainedDelaunayMesh2.Snapped(input, SnapTolerance, cancellationToken, (snapped, snap) => {
+                var builder = new ConstrainedDelaunayMesh2.Builder(snapped, ResolveCrossings, cancellationToken);
+                var refiner = new Refiner(this, builder, snap);
+                builder.refine = refiner.Run;
+                builder.IsBad = refiner.BelowAngle;
+                return builder.Run();
+            });
         }
 
         internal sealed class Refiner
@@ -76,9 +86,18 @@ namespace g3
             /// <summary> vertices below this id existed before refinement: input points and crossings, the apexes of input angles </summary>
             int firstSteiner;
 
-            internal Refiner(QualityMesh2 options, ConstrainedDelaunayMesh2.Builder builder)
+            /// <summary> with a snap tolerance: the snapped input's grid, on which every vertex refinement adds must lie (owner decision
+            /// 2026-11-01, MESHING2D_SNAP.md section 3g); null otherwise </summary>
+            readonly SnapRounding2 snap;
+            readonly SnapGrid grid;
+            /// <summary> triangles whose rounded circumcentre was refused (its pixel holds a vertex or is crossed by a constraint) </summary>
+            internal long GridBlocked;
+            /// <summary> subsegments with no valid split point on the grid </summary>
+            internal long GridUnsplittable;
+
+            internal Refiner(QualityMesh2 options, ConstrainedDelaunayMesh2.Builder builder, SnapRounding2 snap = null)
             {
-                this.options = options; b = builder;
+                this.options = options; b = builder; this.snap = snap; grid = snap?.Grid;
                 double s = Math.Sin(options.MinAngle * Math.PI / 180);
                 sin2Min = s * s;
             }
@@ -103,7 +122,21 @@ namespace g3
                 for (int t = 0; t < k.TriangleSlots; ++t)
                     if (InDomain(t)) { triangles.Enqueue(t); QueueEdges(t); }
                 long steps = 0;
-                while (segments.Count > 0 || triangles.Count > 0) {
+                int sweepStart = k.VertexCount;
+                while (true) {
+                    if (segments.Count == 0 && triangles.Count == 0) {
+                        // On the grid a refusal is not final: a split point or circumcentre refused because a constraint crossed its pixel
+                        // becomes valid when that constraint is split and its pieces bend away (found by the grid fuzz test). When the
+                        // queues drain after a sweep that inserted vertices, the refusals are dropped and everything is looked at again;
+                        // a sweep without insertions ends refinement, so the counts reported are those of the final sweep. Each further
+                        // sweep needs an insertion in the one before, and insertions are bounded by the grid and the Steiner limit.
+                        if (grid == null || k.VertexCount == sweepStart || (unsplittable.Count == 0 && exempt.Count == 0)) break;
+                        sweepStart = k.VertexCount;
+                        unsplittable.Clear(); exempt.Clear();
+                        GridBlocked = 0; GridUnsplittable = 0;
+                        for (int t = 0; t < k.TriangleSlots; ++t)
+                            if (InDomain(t)) { triangles.Enqueue(t); QueueEdges(t); }
+                    }
                     if ((++steps & 255) == 0) b.cancel.ThrowIfCancellationRequested();
                     // every vertex made since the input counts, crossings included (O7: the limit counts every Steiner point of the run)
                     // (at the limit an insertion is refused and reports the limit; the queues then drain without inserting, so the flag
@@ -127,6 +160,9 @@ namespace g3
                     if (fail != null) return fail;
                 }
                 k.Dirty = null;
+                if (grid != null && (GridBlocked > 0 || GridUnsplittable > 0))
+                    b.diagnostics.Add("snap grid: " + GridBlocked + " triangles kept because their circumcentre's pixel is taken or crossed by a constraint, "
+                        + GridUnsplittable + " subsegments with no split point on the grid");
                 // the result is a constrained Delaunay triangulation in any case, also when the limit stopped refinement
                 var bad = k.NonDelaunayEdges();
                 if (bad.Count > 0) k.RestoreDelaunay(bad);
@@ -413,6 +449,8 @@ namespace g3
             bool Bad(int t)
             {
                 if (exempt.Contains(TriangleKey(t))) return false;
+                // on the grid: at two pixels or less no better point can be placed, so neither angle nor size is refined (section 3g)
+                if (grid != null && BelowFloor(t)) return false;
                 var a0 = Local(t, out var q0, out var r0, out int ex);
                 double localArea = LocalArea(q0, r0), area = ExactPoint3.ScaleB(localArea, 2 * ex);
                 double localLocked2 = LongestLocked2(t, q0, r0), locked2 = ExactPoint3.ScaleB(localLocked2, 2 * ex);
@@ -444,6 +482,171 @@ namespace g3
                 return true;
             }
 
+            /// <summary>
+            /// benchmarks only (Meshing2Benchmark gridcounts): the floor in pixels instead of two, 0 for none, to measure what the floor
+            /// saves (MESHING2D_SNAP.md section 3g, item 6). Per thread, like the tag check switch
+            /// </summary>
+            [ThreadStatic] internal static double? FloorPixelsForBenchmarks;
+
+            /// <summary> the shortest edge of t is at most two pixels (the angle floor on the grid, MESHING2D_SNAP.md section 3g) </summary>
+            bool BelowFloor(int t)
+            {
+                // every vertex is a pixel centre: the edge lengths in pixels are exact from the pixel indices (doubles of k w round, so a
+                // lattice edge of two pixels may differ from 2 w by a hair; review of #277)
+                double f = FloorPixelsForBenchmarks ?? 2;
+                for (int j = 0; j < 3; ++j) {
+                    var a = k.Point(k.V[3 * t + j]); var b = k.Point(k.V[3 * t + (j + 1) % 3]);
+                    double dx = grid.Pixel(a.x) - grid.Pixel(b.x), dy = grid.Pixel(a.y) - grid.Pixel(b.y);
+                    if (dx * dx + dy * dy <= f * f) return true;
+                }
+                return false;
+            }
+
+            /// <summary> a constrained edge crosses the open pixel of grid point c (c lies in triangle at): a vertex there would sit within half a
+            /// pixel of a constraint (D14) </summary>
+            bool ConstraintInPixel(int at, Vector2d c)
+            {
+                long kx = grid.Pixel(c.x), ky = grid.Pixel(c.y);
+                double h = grid.W / 2;
+                foreach (int t in TrianglesNear(at, c.x - h, c.y - h, c.x + h, c.y + h))
+                    for (int j = 0; j < 3; ++j) {
+                        int e = 3 * t + j;
+                        if (k.Seg[e] >= 0 && grid.CrossesInterior(k.Point(k.V[e]), k.Point(k.V[Next(e)]), kx, ky)) return true;
+                    }
+                return false;
+            }
+
+            /// <summary> the real triangles whose bounding box meets the box, found from triangle t0 across all edges </summary>
+            List<int> TrianglesNear(int t0, double x0, double y0, double x1, double y1)
+            {
+                var result = new List<int>();
+                var seen = new HashSet<int> { t0 };
+                var stack = new Stack<int>();
+                stack.Push(t0);
+                while (stack.Count > 0) {
+                    int t = stack.Pop();
+                    if (k.IsGhost(t)) continue;
+                    double lx = double.MaxValue, ly = double.MaxValue, hx = double.MinValue, hy = double.MinValue;
+                    for (int j = 0; j < 3; ++j) { var p = k.Point(k.V[3 * t + j]); lx = Math.Min(lx, p.x); ly = Math.Min(ly, p.y); hx = Math.Max(hx, p.x); hy = Math.Max(hy, p.y); }
+                    if (hx < x0 || lx > x1 || hy < y0 || ly > y1) continue;
+                    result.Add(t);
+                    for (int j = 0; j < 3; ++j) { int t2 = k.H[3 * t + j] / 3; if (seen.Add(t2)) stack.Push(t2); }
+                }
+                return result;
+            }
+
+            /// <summary>
+            /// The split point of constrained edge u-w on the grid (MESHING2D_SNAP.md section 3g): the point at the given fraction between
+            /// u and w is taken on the input segment the edge comes from (O12), and its pixel's centre is used if it is valid; else the
+            /// neighbouring pixels of the input segment's envelope between u and w, nearest first. Valid: no constraint crosses its pixel,
+            /// and the new edges u-q, q-w cross no vertex's pixel and no other constraint. A vertex already at q is fine: the chain is
+            /// then routed through it, as snap rounding routes a segment through every hot pixel of its envelope (a Steiner point there
+            /// would otherwise block the split and leave the subsegment encroached; found by the fuzz test).
+            /// </summary>
+            bool GridSplitPoint(int e, Vector2d pu, Vector2d pw, List<int> src, double fraction, out Vector2d q)
+            {
+                q = default(Vector2d);
+                // the input segments of all sources of the piece (snapped chains of several input segments can share it): the split point
+                // must lie in every one's envelope, so that no chain leaves its own (found by the fuzz test)
+                var origins = new List<(Vector2d a, Vector2d b)>();
+                foreach (int si in src) {
+                    var ss = b.sources[si];
+                    var all = snap.Origins(new Vector2d(ss.AX, ss.AY), new Vector2d(ss.BX, ss.BY));
+                    if (all.Count == 0) all = new List<(Vector2d a, Vector2d b)> { (new Vector2d(ss.AX, ss.AY), new Vector2d(ss.BX, ss.BY)) };
+                    foreach (var o in all) if (!origins.Contains(o)) origins.Add(o);
+                }
+                Vector2d A = origins[0].a, B = origins[0].b;
+                bool InAllEnvelopes(long px, long py, bool own)
+                {
+                    for (int i = own ? 0 : 1; i < origins.Count; ++i) if (!grid.CrossesInterior(origins[i].a, origins[i].b, px, py) && !OnPixelCentre(origins[i], px, py)) return false;
+                    return true;
+                }
+                var dir = B - A;
+                int es = ScaleOf(dir.x, dir.y, 0, 0);
+                var dirs = ScaleB(dir, -es); double l2 = dirs.LengthSquared;
+                if (!(l2 > 0)) return false;
+                double Along(Vector2d p) => ScaleB(p - A, -es).Dot(dirs) / l2;
+                double tu = Along(pu), tw = Along(pw), lo = Math.Min(tu, tw), hi = Math.Max(tu, tw);
+                var target = A + dir * (tu + (tw - tu) * fraction);
+                long kx = grid.Pixel(target.x), ky = grid.Pixel(target.y);
+                var candidates = new List<(double d, Vector2d c)>();
+                for (long dx = -1; dx <= 1; ++dx)
+                    for (long dy = -1; dy <= 1; ++dy) {
+                        var c = new Vector2d(grid.Centre(kx + dx), grid.Centre(ky + dy));
+                        double tc = Along(c);
+                        if (!(tc > lo && tc < hi)) continue;
+                        if ((dx != 0 || dy != 0) && !grid.CrossesInterior(A, B, kx + dx, ky + dy)) continue;
+                        if (!InAllEnvelopes(kx + dx, ky + dy, false)) continue;
+                        candidates.Add((ScaleB(c - target, -es).LengthSquared, c));
+                    }
+                candidates.Sort((a, c) => a.d != c.d ? a.d.CompareTo(c.d) : a.c.x != c.c.x ? a.c.x.CompareTo(c.c.x) : a.c.y.CompareTo(c.c.y));
+                foreach (var (_, c) in candidates)
+                    if (c != pu && c != pw && ValidGridSplit(e, pu, pw, c)) { q = c; return true; }
+                // none next to the target (vertices crowd it): the other pixels of the envelope between u and w, nearest to the target
+                // first, sampled every half pixel along the input segment (at most 256 samples; found by the fuzz test on a long subsegment)
+                var seenPixels = new HashSet<(long, long)>();
+                for (long dx = -1; dx <= 1; ++dx) for (long dy = -1; dy <= 1; ++dy) seenPixels.Add((kx + dx, ky + dy));
+                var wider = new List<(double d, Vector2d c)>();
+                double span = Math.Abs(tw - tu) * Math.Sqrt(dir.LengthSquared);
+                int samples = (int)Math.Min(256, Math.Max(2, Math.Ceiling(2 * span / grid.W)));
+                for (int i = 1; i < samples; ++i) {
+                    var sp = A + dir * (tu + (tw - tu) * i / samples);
+                    long sx = grid.Pixel(sp.x), sy = grid.Pixel(sp.y);
+                    for (long dx = -1; dx <= 1; ++dx)
+                        for (long dy = -1; dy <= 1; ++dy) {
+                            if (!seenPixels.Add((sx + dx, sy + dy))) continue;
+                            var c = new Vector2d(grid.Centre(sx + dx), grid.Centre(sy + dy));
+                            double tc = Along(c);
+                            if (!(tc > lo && tc < hi) || !grid.CrossesInterior(A, B, sx + dx, sy + dy) || !InAllEnvelopes(sx + dx, sy + dy, false)) continue;
+                            wider.Add((ScaleB(c - target, -es).LengthSquared, c));
+                        }
+                }
+                wider.Sort((a, c) => a.d != c.d ? a.d.CompareTo(c.d) : a.c.x != c.c.x ? a.c.x.CompareTo(c.c.x) : a.c.y.CompareTo(c.c.y));
+                foreach (var (_, c) in wider)
+                    if (c != pu && c != pw && ValidGridSplit(e, pu, pw, c)) { q = c; return true; }
+                return false;
+            }
+
+            /// <summary> the input segment passes through the centre of pixel (px, py) (a degenerate envelope contact, eg along a grid line) </summary>
+            bool OnPixelCentre((Vector2d a, Vector2d b) o, long px, long py)
+            {
+                var c = new Vector2d(grid.Centre(px), grid.Centre(py));
+                return ExactPredicates.Orient2d(o.a, o.b, c) == 0 && c.x >= Math.Min(o.a.x, o.b.x) && c.x <= Math.Max(o.a.x, o.b.x) && c.y >= Math.Min(o.a.y, o.b.y) && c.y <= Math.Max(o.a.y, o.b.y);
+            }
+
+            bool ValidGridSplit(int e, Vector2d pu, Vector2d pw, Vector2d q)
+            {
+                double h = grid.W;
+                double x0 = Math.Min(q.x, Math.Min(pu.x, pw.x)) - h, y0 = Math.Min(q.y, Math.Min(pu.y, pw.y)) - h;
+                double x1 = Math.Max(q.x, Math.Max(pu.x, pw.x)) + h, y1 = Math.Max(q.y, Math.Max(pu.y, pw.y)) + h;
+                long qx = grid.Pixel(q.x), qy = grid.Pixel(q.y);
+                var near = TrianglesNear(e / 3, x0, y0, x1, y1);
+                var seen = new HashSet<int>();
+                foreach (int t in near)
+                    for (int j = 0; j < 3; ++j) {
+                        int f = 3 * t + j, v = k.V[f];
+                        var pv = k.Point(v);
+                        if (seen.Add(v) && pv != pu && pv != pw && pv != q) {
+                            long vx = grid.Pixel(pv.x), vy = grid.Pixel(pv.y);
+                            if (grid.CrossesInterior(pu, q, vx, vy) || grid.CrossesInterior(q, pw, vx, vy)) return false;
+                        }
+                        if (k.Seg[f] < 0 || f == e || f == k.H[e]) continue;
+                        var a = pv; var c = k.Point(k.V[Next(f)]);
+                        // (a constraint ending at a vertex already at q leaves its pixel there: not a crossing)
+                        if (a != q && c != q && grid.CrossesInterior(a, c, qx, qy)) return false;
+                        if (ProperCross(pu, q, a, c) || ProperCross(q, pw, a, c)) return false;
+                    }
+                return true;
+            }
+
+            static bool ProperCross(Vector2d a, Vector2d b, Vector2d c, Vector2d d)
+            {
+                if (a == c || a == d || b == c || b == d) return false;
+                int o1 = ExactPredicates.Orient2d(a, b, c), o2 = ExactPredicates.Orient2d(a, b, d);
+                int o3 = ExactPredicates.Orient2d(c, d, a), o4 = ExactPredicates.Orient2d(c, d, b);
+                return o1 * o2 < 0 && o3 * o4 < 0;
+            }
+
             bool SpansSmallAngle(int p, int q)
             {
                 var sp = SourcesAt(p); var sq = SourcesAt(q);
@@ -453,6 +656,12 @@ namespace g3
                     foreach (int c in sq) {
                         if (a == c) continue;
                         var s1 = b.sources[a]; var s2 = b.sources[c];
+                        // on the grid the input angles are those of the input segments, not of their snapped chains (the oracle judges the
+                        // input; a chain bends by up to half a pixel)
+                        if (grid != null) {
+                            s1 = OriginOf(s1); s2 = OriginOf(s2);
+                            if (s1.AX == s2.AX && s1.AY == s2.AY && s1.BX == s2.BX && s1.BY == s2.BY) continue;
+                        }
                         // all in a common scale by a power of two (no underflow at small magnitudes, the same bits at any 2^k)
                         double d1x = s1.BX - s1.AX, d1y = s1.BY - s1.AY, d2x = s2.BX - s2.AX, d2y = s2.BY - s2.AY, ox = s2.AX - s1.AX, oy = s2.AY - s1.AY;
                         int ex = Math.Max(ScaleOf(d1x, d1y, d2x, d2y), ScaleOf(ox, oy, 0, 0));
@@ -479,6 +688,14 @@ namespace g3
                         return true;
                     }
                 return false;
+            }
+
+            /// <summary> the input segment a snapped source comes from, as a source with its coordinates (itself if unknown) </summary>
+            ConstrainedDelaunayMesh2.Source OriginOf(ConstrainedDelaunayMesh2.Source s)
+            {
+                if (!snap.TryOrigin(new Vector2d(s.AX, s.AY), new Vector2d(s.BX, s.BY), out var o)) return s;
+                s.AX = o.a.x; s.AY = o.a.y; s.BX = o.b.x; s.BY = o.b.y;
+                return s;
             }
 
             List<int> SourcesAt(int v)
@@ -519,6 +736,8 @@ namespace g3
             {
                 if (inserted >= limit) { b.SteinerLimitReached = true; return null; }
                 if (!Circumcentre(t, out var c)) { exempt.Add(TriangleKey(t)); return null; }
+                // on the grid the point is the centre of the circumcentre's pixel, decided exactly (rounded at insertion, never moved later)
+                if (grid != null && !grid.CircumcentrePixelCentre(k.Point(k.V[3 * t]), k.Point(k.V[3 * t + 1]), k.Point(k.V[3 * t + 2]), out c)) { exempt.Add(TriangleKey(t)); return null; }
                 // walk from t towards c; a constrained edge on the way is split instead (it is encroached, or c is outside)
                 int at = Walk(t, c, out int blocked);
                 if (blocked >= 0) {
@@ -536,14 +755,16 @@ namespace g3
                     triangles.Enqueue(t);
                     var failure = SplitSegment(first);
                     if (failure != null) return failure;
-                    // a piece too short to split stays: then t cannot be helped this way
-                    if (unsplittable.Contains(key)) exempt.Add(TriangleKey(t));
+                    // a piece too short to split stays: then t cannot be helped this way. On the grid t is tried again (it is queued): the
+                    // encroachment of an unsplittable subsegment no longer stops its circumcentre, which may still fit on the grid
+                    if (unsplittable.Contains(key) && grid == null) exempt.Add(TriangleKey(t));
                     return null;
                 }
+                if (grid != null && ConstraintInPixel(at, c)) { exempt.Add(TriangleKey(t)); ++GridBlocked; return null; }
                 int before = k.VertexCount;
                 if (CheckTagsForTests) lastOperation = "circumcentre of triangle " + t + " at (" + c.x.ToString("R") + ", " + c.y.ToString("R") + ")";
                 k.InsertPoint(c.x, c.y);
-                if (k.VertexCount == before) { exempt.Add(TriangleKey(t)); k.Dirty.Clear(); return null; }
+                if (k.VertexCount == before) { exempt.Add(TriangleKey(t)); k.Dirty.Clear(); if (grid != null) ++GridBlocked; return null; }
                 ++inserted;
                 if (b.heights != null) b.SetHeightOnReference(k.VertexCount - 1);
                 Collect();
@@ -622,7 +843,10 @@ namespace g3
                 }
                 Vector2d p;
                 var s = b.sources[src[0]];
-                {
+                if (grid != null) {
+                    if (!GridSplitPoint(e, pu, pw, src, fraction, out p)) { unsplittable.Add(Key(u, w)); ++GridUnsplittable; return null; }
+                }
+                else {
                     var A = new Vector2d(s.AX, s.AY); var B = new Vector2d(s.BX, s.BY);
                     var dir = B - A;
                     int es = ScaleOf(dir.x, dir.y, 0, 0);
@@ -640,7 +864,9 @@ namespace g3
                 // a split point within the tolerance of another constraint would merge the two chains there (O11: nearly coincident
                 // lines count as one), cutting off the region between them, eg the tip of a narrow wedge at a small input angle with its
                 // input vertex (found with the corpus run, earcut's water): the piece stays as it is
-                if (b.NearOtherSource(p.x, p.y, src)) { unsplittable.Add(Key(u, w)); return null; }
+                // (on the grid the exact checks of ValidGridSplit take its place: no other constraint in q's pixel, no crossing, and a
+                // vertex already at q, possibly the end of another constraint, is a vertex the chains may share, as hot pixels are)
+                if (grid == null && b.NearOtherSource(p.x, p.y, src)) { unsplittable.Add(Key(u, w)); return null; }
                 if (inserted >= limit) { b.SteinerLimitReached = true; return null; }
                 ++splits;
                 if (CheckTagsForTests) lastOperation = "split of " + u + "=(" + pu.x.ToString("R") + ", " + pu.y.ToString("R") + ")-" + w + "=(" + pw.x.ToString("R") + ", " + pw.y.ToString("R") + ") (sources " + string.Join(",", src.Select(z => z + ":(" + b.sources[z].AX + "," + b.sources[z].AY + ")-(" + b.sources[z].BX + "," + b.sources[z].BY + ") ring " + b.sources[z].Ring)) + ") at (" + p.x.ToString("R") + ", " + p.y.ToString("R") + ") left " + TagOf(e / 3) + " right " + TagOf(k.H[e] / 3);
@@ -653,7 +879,7 @@ namespace g3
                 if (k.VertexCount > before) {
                     ++inserted;
                     if (b.heights != null) b.SetHeight(q, u, w);
-                } else unsplittable.Add(Key(u, w));   // no new vertex: no progress from splitting this piece
+                } else if (grid == null || q == u || q == w) unsplittable.Add(Key(u, w));   // no new vertex: no progress from splitting this piece
                 var pending = new Stack<ConstrainedDelaunayMesh2.Builder.Piece>();
                 pending.Push(new ConstrainedDelaunayMesh2.Builder.Piece { U = q, W = w, Sources = sources });
                 pending.Push(new ConstrainedDelaunayMesh2.Builder.Piece { U = u, W = q, Sources = new List<int>(sources) });
