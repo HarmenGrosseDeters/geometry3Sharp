@@ -172,6 +172,20 @@ namespace Meshing2Acceptance
         /// check. Not violations, but findings to look at: they stay visible in every report.
         /// </summary>
         public int MergeZoneExcused;
+        /// <summary>
+        /// Excused at an O11-unsplittable piece (a subsegment within the tube of another input constraint, without an explicit tolerance):
+        /// the local Delaunay test on the piece, vertices hidden behind it in the global test, triangles below the angle whose
+        /// circumcentre lies behind it. Findings to look at, as the merge zone's.
+        /// </summary>
+        public int O11LocalExcused, O11GlobalExcused, O11AngleExcused;
+        public string ExcusedSummary()
+        {
+            var parts = new List<string>();
+            if (MergeZoneExcused > 0) parts.Add(MergeZoneExcused + " excused in merge zones");
+            if (O11LocalExcused + O11GlobalExcused + O11AngleExcused > 0)
+                parts.Add("excused at O11-unsplittable pieces: " + O11LocalExcused + " local, " + O11GlobalExcused + " global, " + O11AngleExcused + " angle");
+            return string.Join(", ", parts);
+        }
         public bool Has(Violation v) { foreach (var r in Violations) if (r.Kind == v) return true; return false; }
         public void Add(Violation v, string detail) { if (Violations.Count < 200) Violations.Add(new ViolationRecord { Kind = v, Detail = detail }); }
         public override string ToString() => Ok ? "ok" : string.Join("; ", Violations);

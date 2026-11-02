@@ -127,6 +127,17 @@ balls: L. P. Chew, *Guaranteed-Quality Mesh Generation for Curved Surfaces*, SoC
 *Provably Good Sampling and Meshing of Surfaces*, Graphical Models 2005; S.-W. Cheng, T. K. Dey, J. R. Shewchuk,
 *Delaunay Mesh Generation*, CRC Press 2012 (the radius-edge ratio and the minimum angle of a triangle).
 
+## Alpha wrap quality pass (`AlphaWrapQualityPass`, `MeshRobustRepair.AlphaWrapQualityPass`)
+
+Implemented from the papers, no code taken over (Hu et al.'s implementation builds on CGAL, GPL; it was not looked
+at). Design and measurements: [design/ALPHA_WRAP_QUALITY.md](design/ALPHA_WRAP_QUALITY.md).
+
+| Part | Source |
+|---|---|
+| Worst-first local operations (split, collapse, relocation) that must not create an angle below the current minimum, no flips, feature vertices fixed (`WorstFirst`, `EnableCollapses`, `PinCreaseVerticesDegrees`, `FollowReference`) | K. Hu, D.-M. Yan, D. Bommes, P. Alliez, B. Benes, *Error-Bounded and Feature Preserving Surface Remeshing with Minimal Angle Improvement*, IEEE TVCG 2017 |
+| Caps (large angles) spoil the gradient and the normal (cap splits and cap flips) | I. Babuška, A. K. Aziz, *On the angle condition in the finite element method*, SIAM J. Numer. Anal. 1976; J.-M. Morvan, B. Thibert, *Approximation of the normal vector field and the area of a smooth surface*, Discrete Comput. Geom. 2004 |
+| Quality measures (min and max angle reported separately) | J. R. Shewchuk, *What is a good linear finite element?*, 2002 |
+| The guard of every operation: `TriangleDeviationBounds.IsWithin` with the patch bound, the exact self-intersection test, the final one-sided Hausdorff certification | this library (#280, `MeshHausdorffDistance`) |
 ## Parameterization (`LSCMParameterization`, `ARAPParameterization`, `SLIMParameterization`, `BoundaryFirstFlattening`, `TutteEmbedding`, `ParameterizationDistortion`, `UVPacker`)
 
 Implemented from the papers, no code taken over.

@@ -926,7 +926,7 @@ namespace geometry3Sharp.Tests
 
         // thin rotated plates (about a cell thick at resolution 64), overlapping: the solidify leaves
         // self-intersections where the sheets meet in few cells
-        static DMesh3 ThinPlates(int seed)
+        internal static DMesh3 ThinPlates(int seed)
         {
             var rnd = new Random(seed);
             DMesh3 m = new DMesh3();

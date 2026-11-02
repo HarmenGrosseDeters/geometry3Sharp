@@ -165,6 +165,60 @@ class Program
                 robust.ExactResolveRounds = int.Parse(Environment.GetEnvironmentVariable("BENCH_EXACT_ROUNDS") ?? "4");
                 robust.AlphaWrapFallback = Environment.GetEnvironmentVariable("BENCH_WRAP_FALLBACK") != "0";
                 robust.SimplifyAlphaWrap = Environment.GetEnvironmentVariable("BENCH_WRAP_SIMPLIFY") != "0";
+                // BENCH_WRAP_QUALITY=0: without the quality pass (on by default in the library)
+                robust.AlphaWrapQualityPass = Environment.GetEnvironmentVariable("BENCH_WRAP_QUALITY") != "0";
+                // BENCH_WQ: variant switches of the quality pass, eg "turn=10,follow=1,crease=20" (README, wrap quality pass)
+                string wq = Environment.GetEnvironmentVariable("BENCH_WQ");
+                // (the input as given: the repair may change mesh in place)
+                DMesh3 wqInput = string.IsNullOrEmpty(wq) ? null : new DMesh3(mesh);
+                if (string.IsNullOrEmpty(wq) == false) {
+                    r["wq_variant"] = wq;
+                    robust.ConfigureWrapQuality = (pass) => {
+                        foreach (string kv in wq.Split(',')) {
+                            string[] p = kv.Split('=');
+                            double v = double.Parse(p[1], System.Globalization.CultureInfo.InvariantCulture);
+                            switch (p[0]) {
+                                // (the switches apply on top of the library's default settings, MeshRobustRepair.DefaultWrapQuality;
+                                // "default=0" first resets them to the pass's own, as for the variants measured before the default)
+                                case "default":
+                                    if (v == 0) {
+                                        pass.KeepNormalDeviation = false; pass.NormalDeviationSlackDegrees = 0;
+                                        pass.CapAngleDegrees = 180; pass.SplitCapsAboveDegrees = 180;
+                                    }
+                                    break;
+                                case "turn": pass.MaxNormalTurnDegrees = v; break;
+                                case "follow": pass.FollowReference = v != 0; break;
+                                case "crease": pass.MaxFlipDihedralDegrees = v; break;
+                                case "worst": pass.WorstFirst = v != 0; break;
+                                case "normals": pass.KeepNormalDeviation = v != 0; break;
+                                case "nslack": pass.NormalDeviationSlackDegrees = v; break;
+                                case "split": pass.SplitCapsAboveDegrees = v; break;
+                                case "capflip": pass.CapAngleDegrees = v; break;
+                                case "nsamples": pass.NormalSamples = (int)v; break;
+                                case "pin": pass.PinCreaseVerticesDegrees = v; break;
+                                case "protect":
+                                    // the input's sharp edges (dihedral above 20 degrees), kept v wrap offsets away from
+                                    // (the pass's Tolerance is 0.95 of half the offset)
+                                    foreach (int e in wqInput.EdgeIndices()) {
+                                        Index2i et = wqInput.GetEdgeT(e);
+                                        if (et.b < 0) continue;
+                                        if (wqInput.GetTriNormal(et.a).Dot(wqInput.GetTriNormal(et.b)) < Math.Cos(20 * MathUtil.Deg2Rad)) {
+                                            Index2i ev = wqInput.GetEdgeV(e);
+                                            pass.ProtectedEdges.Add(new Segment3d(wqInput.GetVertex(ev.a), wqInput.GetVertex(ev.b)));
+                                        }
+                                    }
+                                    pass.ProtectedDistance = v * pass.Tolerance / 0.475;
+                                    break;
+                                case "protectflipsonly": pass.ProtectFlipsOnly = v != 0; break;
+                                case "flips": pass.EnableFlips = v != 0; break;
+                                case "moves": pass.EnableMoves = v != 0; break;
+                                case "collapse": pass.EnableCollapses = v != 0; break;
+                                case "growth": pass.MaxTriangleGrowth = v; break;
+                                default: throw new ArgumentException("BENCH_WQ: unknown switch " + p[0]);
+                            }
+                        }
+                    };
+                }
                 // BENCH_ROBUST_WRAP_ALPHA / BENCH_ROBUST_WRAP_OFFSET: WrapRelativeAlpha / WrapRelativeOffset (diagonal / value)
                 string wa = Environment.GetEnvironmentVariable("BENCH_ROBUST_WRAP_ALPHA"), wo = Environment.GetEnvironmentVariable("BENCH_ROBUST_WRAP_OFFSET");
                 if (wa != null) robust.WrapRelativeAlpha = double.Parse(wa, System.Globalization.CultureInfo.InvariantCulture);
@@ -194,6 +248,7 @@ class Program
                 r["robust_solidify_reason"] = robust.SolidifyReason;
                 r["robust_used_wrap"] = robust.UsedAlphaWrap;
                 r["robust_wrap_tris"] = robust.AlphaWrapTriangles;
+                r["robust_wrap_quality_improved"] = robust.AlphaWrapQualityImproved;
                 r["robust_phases"] = robust.PhaseMilliseconds;
                 // per volume check: cells used, samples, samples in the union, the IoU's interval at the stop, the
                 // sampled and the known volume (relative to the estimated union), the cells, and the times
@@ -509,6 +564,26 @@ class Program
     {
         if (input.TriangleCount == 0 || result.TriangleCount == 0)
             return;
+        // angle extremes of the result (wrap quality acceptance, owner decision 2026-11-02): triangles with a smallest
+        // angle below 0.5 degrees, share with a largest angle above 170 degrees, global min / max angle
+        {
+            int lt05 = 0, lt10 = 0, lt20 = 0, gt150 = 0, gt170 = 0, n = 0; double gmin = 180, gmax = 0;
+            foreach (int t in result.TriangleIndices()) {
+                Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+                result.GetTriVertices(t, ref a, ref b, ref c);
+                double A = Vector3d.AngleD((b - a).Normalized, (c - a).Normalized), B = Vector3d.AngleD((a - b).Normalized, (c - b).Normalized), C = 180 - A - B;
+                double mn = Math.Min(A, Math.Min(B, C)), mx = Math.Max(A, Math.Max(B, C));
+                if (mn < 0.5) lt05++;
+                if (mn < 10) lt10++;
+                if (mn < 20) lt20++;
+                if (mx > 150) gt150++;
+                if (mx > 170) gt170++;
+                gmin = Math.Min(gmin, mn); gmax = Math.Max(gmax, mx); n++;
+            }
+            r["q_min_angle"] = gmin; r["q_max_angle"] = gmax; r["q_lt05"] = lt05;
+            r["q_lt10_share"] = (double)lt10 / n; r["q_lt20_share"] = (double)lt20 / n;
+            r["q_gt150_share"] = (double)gt150 / n; r["q_gt170_share"] = (double)gt170 / n;
+        }
         double diag = input.CachedBounds.DiagonalLength;
         var sw = Stopwatch.StartNew();
         foreach (bool fwd in new[] { true, false }) {
@@ -523,7 +598,10 @@ class Program
             }
         }
         double missing, extra;
-        r["iou"] = MeshRepairMetrics.VolumeIoU(input, result, out missing, out extra);
+        // BENCH_FM_SEED: seed of the sampled measures (IoU, fm_*), to measure their sampling noise (noise_floor.py)
+        int seed = int.Parse(Environment.GetEnvironmentVariable("BENCH_FM_SEED") ?? "1");
+        if (seed != 1) r["fm_seed"] = seed;
+        r["iou"] = MeshRepairMetrics.VolumeIoU(input, result, out missing, out extra, 100000, seed);
         r["iou_missing"] = missing;
         r["iou_extra"] = extra;
         r["fidelity_ms"] = sw.ElapsedMilliseconds;
@@ -538,7 +616,23 @@ class Program
             // closed components only): the reversed share would only report that the result is outward
             if (Vol(oriented) < 0)
                 foreach (int tid in oriented.TriangleIndices().ToArray()) oriented.ReverseTriOrientation(tid);
-            FidelityFields.Add(oriented, result, r);
+            FidelityFields.Add(oriented, result, r, seed: seed);
+            // BENCH_FM_SEEDS=2,3,4: the sampled measures (IoU, fm_*) again with these seeds, under fm_seeds (noise_floor.py)
+            string more = Environment.GetEnvironmentVariable("BENCH_FM_SEEDS");
+            if (string.IsNullOrEmpty(more) == false) {
+                var bySeed = new System.Collections.Generic.Dictionary<string, object>();
+                foreach (string sd in more.Split(',')) {
+                    int s2 = int.Parse(sd);
+                    var q = new System.Collections.Generic.Dictionary<string, object>();
+                    double mi, ex;
+                    q["iou"] = MeshRepairMetrics.VolumeIoU(input, result, out mi, out ex, 100000, s2);
+                    q["iou_missing"] = mi;
+                    q["iou_extra"] = ex;
+                    FidelityFields.Add(oriented, result, q, seed: s2);
+                    bySeed[s2.ToString()] = q;
+                }
+                r["fm_seeds"] = bySeed;
+            }
         }
     }
 

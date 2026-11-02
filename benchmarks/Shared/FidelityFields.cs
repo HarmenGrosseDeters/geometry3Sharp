@@ -20,11 +20,12 @@ static class FidelityFields
     /// The reference is used as given (orient it first if only the result's orientation is to be judged).
     /// </summary>
     /// volumeSamples: points of the volume IoUs (0: skipped, eg for open terrain, which encloses no volume).
+    /// seed: of the sampling (MeshFidelityMetrics.Seed), eg to measure how much the sampled measures vary.
     public static void Add(DMesh3 reference, DMesh3 result, Dictionary<string, object> r, bool withInputQuality = true, int samples = 50000,
-        int volumeSamples = 100000)
+        int volumeSamples = 100000, int seed = 1)
     {
         var sw = Stopwatch.StartNew();
-        var f = new MeshFidelityMetrics(reference, result) { SurfaceSamples = samples, VolumeSamples = volumeSamples, RelativeThresholds = new[] { 0.001, 0.005, 0.01 } };
+        var f = new MeshFidelityMetrics(reference, result) { SurfaceSamples = samples, VolumeSamples = volumeSamples, RelativeThresholds = new[] { 0.001, 0.005, 0.01 }, Seed = seed };
         if (f.Compute() == false) {
             r["fm_ok"] = false;
             return;
