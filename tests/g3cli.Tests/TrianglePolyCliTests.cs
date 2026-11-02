@@ -89,6 +89,83 @@ namespace g3cli.Tests
             Assert.True(D(r["largest_area"]) <= 0.01);
         }
 
+        static string Poly(double[] xy, int[][] segments, double[] holes = null)
+        {
+            var sb = new StringBuilder();
+            sb.Append(xy.Length / 2).Append(" 2 0 0\n");
+            for (int i = 0; i < xy.Length / 2; ++i) sb.Append(i + 1).Append(' ').Append(xy[2 * i].ToString("R", System.Globalization.CultureInfo.InvariantCulture)).Append(' ').Append(xy[2 * i + 1].ToString("R", System.Globalization.CultureInfo.InvariantCulture)).Append('\n');
+            sb.Append(segments.Length).Append(" 0\n");
+            for (int i = 0; i < segments.Length; ++i) sb.Append(i + 1).Append(' ').Append(segments[i][0]).Append(' ').Append(segments[i][1]).Append('\n');
+            int h = holes == null ? 0 : holes.Length / 2;
+            sb.Append(h).Append('\n');
+            for (int i = 0; i < h; ++i) sb.Append(i + 1).Append(' ').Append(holes[2 * i]).Append(' ').Append(holes[2 * i + 1]).Append('\n');
+            return sb.ToString();
+        }
+
+        static readonly double[] Outer4 = { 0, 0, 4, 0, 4, 4, 0, 4 }, Inner2 = { 1, 1, 3, 1, 3, 3, 1, 3 };
+        static readonly int[][] TwoSquares = { new[] { 1, 2 }, new[] { 2, 3 }, new[] { 3, 4 }, new[] { 4, 1 }, new[] { 5, 6 }, new[] { 6, 7 }, new[] { 7, 8 }, new[] { 8, 5 } };
+
+        // the area Triangle -p leaves: what segments enclose, minus what hole points reach (by its file format description)
+        public static IEnumerable<object[]> Domains => new List<object[]> {
+            // a loop inside a loop: the inner region stays (it is enclosed), a constraint only
+            new object[] { "nested", Poly(Outer4.Concat(Inner2).ToArray(), TwoSquares), 16.0, 2 },
+            // the same with a hole point inside the inner loop: removed
+            new object[] { "nested-hole", Poly(Outer4.Concat(Inner2).ToArray(), TwoSquares, new double[] { 2, 2 }), 12.0, 2 },
+            // an island in the hole: the hole point is stopped by the island's segments
+            new object[] { "island", Poly(Outer4.Concat(new double[] { 0.5, 0.5, 3.5, 0.5, 3.5, 3.5, 0.5, 3.5 }).Concat(Inner2).ToArray(),
+                TwoSquares.Concat(new[] { new[] { 9, 10 }, new[] { 10, 11 }, new[] { 11, 12 }, new[] { 12, 9 } }).ToArray(), new double[] { 0.75, 0.75 }), 16.0 - 9 + 4, 3 },
+            // two squares sharing a corner (a vertex with four segments): both stay, the concavities go
+            new object[] { "figure-eight", Poly(new double[] { 0, 0, 1, 0, 1, 1, 0, 1, 2, 1, 2, 2, 1, 2 },
+                new[] { new[] { 1, 2 }, new[] { 2, 3 }, new[] { 3, 4 }, new[] { 4, 1 }, new[] { 3, 5 }, new[] { 5, 6 }, new[] { 6, 7 }, new[] { 7, 3 } }), 2.0, 1 },
+            // two squares joined by a bridge: the bridge encloses nothing
+            new object[] { "bridge", Poly(new double[] { 0, 0, 1, 0, 1, 1, 0, 1, 3, 0, 4, 0, 4, 1, 3, 1 }, TwoSquares.Concat(new[] { new[] { 2, 5 } }).ToArray()), 2.0, 2 },
+            // a square with a chord and a dangling chain outside: the square, both halves
+            new object[] { "chord-dangle", Poly(new double[] { 0, 0, 1, 0, 1, 1, 0, 1, 2, 2, 3, 0.5 },
+                new[] { new[] { 1, 2 }, new[] { 2, 3 }, new[] { 3, 4 }, new[] { 4, 1 }, new[] { 1, 3 }, new[] { 3, 5 }, new[] { 5, 6 } }), 1.0, 1 },
+            // an L-shape split by a chord (the usual way to give two regional attributes): the L, not its hull
+            new object[] { "l-chord", Poly(new double[] { 0, 0, 2, 0, 2, 1, 1, 1, 1, 2, 0, 2 },
+                new[] { new[] { 1, 2 }, new[] { 2, 3 }, new[] { 3, 4 }, new[] { 4, 5 }, new[] { 5, 6 }, new[] { 6, 1 }, new[] { 1, 4 } }), 3.0, 1 },
+            // a repeated segment and a duplicate point at the same position are one
+            new object[] { "duplicates", Poly(new double[] { 0, 0, 2, 0, 2, 2, 0, 2, 2, 0 },
+                new[] { new[] { 1, 2 }, new[] { 2, 3 }, new[] { 3, 4 }, new[] { 4, 1 }, new[] { 2, 1 }, new[] { 5, 3 } }), 4.0, 1 },
+        };
+
+        [Theory]
+        [MemberData(nameof(Domains))]
+        public void Poly_Domain_IsWhatTriangleMinusPLeaves(string name, string poly, double area, int rings)
+        {
+            string path = Write("dom_" + name + ".poly", poly);
+            var (exit, r) = Run("mesh2d", path, m.Path_("dom_" + name + ".obj"), "--quality", "false");
+            AssertOk(exit, r);
+            Assert.Equal(rings, I(r["rings_from_segments"]));
+            Assert.Equal(area, D(r["area"]), 12);
+            Assert.Equal(area, Area(StandardMeshReader.ReadMesh(m.Path_("dom_" + name + ".obj"))), 12);
+            Assert.Empty(r["warnings"].AsArray());
+        }
+
+        [Fact]
+        public void Poly_CrossingLoop_FallsBackToTheHullWithANote()
+        {
+            // a bow tie: its segments cross, so it is no plane graph here (Triangle would split it at the crossing): the convex hull
+            string path = Write("bowtie.poly", Poly(new double[] { 0, 0, 1, 1, 1, 0, 0, 1 }, new[] { new[] { 1, 2 }, new[] { 2, 3 }, new[] { 3, 4 }, new[] { 4, 1 } }));
+            var (exit, r) = Run("mesh2d", path, m.Path_("bowtie.obj"), "--quality", "false");
+            AssertOk(exit, r);
+            Assert.Equal(0, I(r["rings_from_segments"]));
+            Assert.Equal(1, D(r["area"]), 12);
+            Assert.Contains(r["warnings"].AsArray(), w => S(w).Contains("cross or touch"));
+            // a T-junction (an end point on another segment) and an overlap count as such too
+            path = Write("tee.poly", Poly(new double[] { 0, 0, 2, 0, 2, 2, 0, 2, 1, 0, 1, 1 },
+                new[] { new[] { 1, 2 }, new[] { 2, 3 }, new[] { 3, 4 }, new[] { 4, 1 }, new[] { 5, 6 } }));
+            (exit, r) = Run("mesh2d", path, m.Path_("tee.obj"), "--quality", "false");
+            AssertOk(exit, r);
+            Assert.Contains(r["warnings"].AsArray(), w => S(w).Contains("cross or touch"));
+            path = Write("overlap.poly", Poly(new double[] { 0, 0, 2, 0, 2, 2, 0, 2, 1, 0 },
+                new[] { new[] { 1, 2 }, new[] { 2, 3 }, new[] { 3, 4 }, new[] { 4, 1 }, new[] { 1, 5 } }));
+            (exit, r) = Run("mesh2d", path, m.Path_("overlap.obj"), "--quality", "false");
+            AssertOk(exit, r);
+            Assert.Contains(r["warnings"].AsArray(), w => S(w).Contains("cross or touch"));
+        }
+
         [Fact]
         public void TriangleOutput_ReadsBackAsTheSameMesh()
         {
@@ -185,7 +262,7 @@ namespace g3cli.Tests
             Assert.Equal(5, back.Segments.Count);           // the segment and the four ring edges
             Assert.Equal(new[] { 7, 4, 4, 4, 4 }, back.Segments.Select(s => s.Marker).ToArray());
             Assert.Single(back.Rings);                      // the ring edges form a loop again
-            Assert.Equal(new[] { 0, 1, 2, 3 }, back.Rings[0].Vertices);
+            Assert.Equal(new[] { 0, 1, 2, 3 }, back.Rings[0].Vertices.OrderBy(v => v));     // the outer face, in either orientation
             Assert.Equal(input.HoleSeeds, back.HoleSeeds);
             Assert.Equal(2, back.Regions[0].Label);
             Assert.Equal(0.25, back.Regions[0].MaxArea);
@@ -194,6 +271,20 @@ namespace g3cli.Tests
             // what the format cannot hold
             input.Rings.Add(new Mesh2Ring(new[] { 4, 5, 2 }, true));
             Assert.Throws<ArgumentException>(() => TrianglePolyFormat.WritePolyOfInput(input));
+        }
+
+        [Fact]
+        public void TriangleOutput_RingRegions_AreReportedAsLeftOut()
+        {
+            // a region by ring has no .poly form: the .ele keeps the labels, a warning says the .poly has only seed regions
+            string geometry = "{\"points\": [[0,0],[2,0],[2,1],[0,1],[1,0],[1,1]], \"rings\": [[0,1,2,3]], \"regions\": [{\"ring\": [0,4,5,3], \"label\": 4}]}";
+            var (exit, r) = Run("mesh2d", "--geometry", geometry, "--output", m.Path_("ringreg.ele"), "--quality", "false");
+            AssertOk(exit, r);
+            Assert.Contains(r["warnings"].AsArray(), w => S(w).Contains("no .poly form"));
+            var nodes = TrianglePolyFormat.ReadNode(File.ReadAllText(m.Path_("ringreg.node")), false, out var info);
+            TrianglePolyFormat.ReadEle(File.ReadAllText(m.Path_("ringreg.ele")), nodes.Points.Count, info.FirstIndex, out var labels);
+            Assert.Contains(4.0, labels);
+            Assert.Contains(0.0, labels);
         }
 
         [Fact]

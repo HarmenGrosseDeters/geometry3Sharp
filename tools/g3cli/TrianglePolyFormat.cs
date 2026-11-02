@@ -22,12 +22,13 @@ namespace g3cli
     /// "&lt;i&gt; &lt;a&gt; &lt;b&gt; [marker]", then "&lt;h&gt;" and "&lt;i&gt; &lt;x&gt; &lt;y&gt;" hole points, then optionally "&lt;r&gt;" and
     /// "&lt;i&gt; &lt;x&gt; &lt;y&gt; &lt;attribute&gt; &lt;max area&gt;" regions (a negative area: none). .ele: "&lt;t&gt; &lt;3&gt; &lt;attributes&gt;", then
     /// "&lt;i&gt; &lt;a&gt; &lt;b&gt; &lt;c&gt; [attributes]", counterclockwise.</para>
-    /// <para>The domain: Triangle meshes the convex hull and, with its -p switch, removes everything that is not enclosed by segments,
-    /// then the holes. Ours meshes the convex hull unless rings are given. So that the same .poly gives the same domain, each closed
-    /// chain of segments in which every vertex has two segments (a simple loop, as polygons and their holes are) also becomes an outer
-    /// ring: a point is then in the domain iff it is inside some loop, and the hole points remove the holes. Segment groups that are
-    /// not simple loops stay constraints only; if there are such groups and no loop, the domain is the convex hull (Triangle -c), and
-    /// <see cref="PolyInfo.Notes"/> says so.</para>
+    /// <para>The domain: Triangle meshes the convex hull and, with its -p switch, eats triangles from the hull inwards until segments
+    /// stop it, then from each hole point. Ours meshes the convex hull unless rings are given. So that the same .poly gives the same
+    /// domain, every connected group of segments, without its bridges and dangling chains, adds the boundary of its outer face as an
+    /// outer ring: a point is then in the domain iff some group encloses it (nested loops, chords, loops sharing a vertex included),
+    /// and hole points remove what they reach (HoleSeeds). Limit: a group whose segments cross, touch or overlap other than at shared
+    /// end points is no plane graph here (Triangle would split it at the crossings); it stays constraints only, and without any ring
+    /// the domain is the convex hull (Triangle -c). <see cref="PolyInfo.Notes"/> says so in both cases.</para>
     /// </remarks>
     public static class TrianglePolyFormat
     {
@@ -38,7 +39,7 @@ namespace g3cli
             public int FirstIndex;
             /// <summary> vertex attributes per vertex in the file (the first one is taken as the height if asked) </summary>
             public int VertexAttributes;
-            /// <summary> simple loops of segments made outer rings (see the class remarks) </summary>
+            /// <summary> outer rings made from groups of segments (see the class remarks) </summary>
             public int Loops;
             public List<string> Notes = new List<string>();
         }
@@ -97,7 +98,7 @@ namespace g3cli
         /// <summary> The points (and heights, the first vertex attribute, if heights) of a .node file, or of the vertex part of a .poly. </summary>
         static void ReadVertices(Lines r, ConstrainedMesh2Input input, PolyInfo info, bool heights, int count, int attributes, int markers)
         {
-            if (heights && attributes > 0) input.Heights = new List<double>(count);
+            if (heights && attributes > 0) input.Heights = new List<double>();      // (no capacity from the header: a count may be huge in a broken file)
             for (int i = 0; i < count; ++i) {
                 var f = r.Next(3, 3 + attributes + markers, $"vertex: <number> <x> <y>{(attributes > 0 ? " <" + attributes + " attributes>" : "")}{(markers > 0 ? " [marker]" : "")}");
                 if (f.Length < 3 + attributes) throw r.Fail($"vertex has fewer than {attributes} attributes");
@@ -196,47 +197,162 @@ namespace g3cli
             return input;
         }
 
-        /// <summary> Each connected group of segments whose vertices all have two segments (a simple loop) becomes an outer ring. </summary>
+        /// <summary>
+        /// The domain as Triangle -p gives it, as outer rings: for each connected group of segments, without its bridges and dangling
+        /// chains (they enclose nothing; they stay constraints), the boundary of its outer face becomes an outer ring. A point is then
+        /// in the domain iff some group encloses it, which is what eating triangles from the convex hull until a segment stops it
+        /// leaves; regions inside a group (between chords, nested loops) stay, and hole points remove what they reach. A group whose
+        /// segments cross or touch other than at shared end points is no plane graph: it gives no ring, and Notes says so.
+        /// </summary>
         static int AddLoops(ConstrainedMesh2Input input, PolyInfo info)
         {
-            var adj = new Dictionary<int, List<int>>();
+            var pts = input.Points;
+            // one vertex per position (exact duplicates get the first index)
+            var canonical = new Dictionary<(double, double), int>();
+            int Canon(int i)
+            {
+                var key = (pts[i].x == 0 ? 0.0 : pts[i].x, pts[i].y == 0 ? 0.0 : pts[i].y);
+                if (!canonical.TryGetValue(key, out int c)) canonical[key] = c = i;
+                return c;
+            }
+            var edges = new List<Index2i>();
             var seen = new HashSet<(int, int)>();
             foreach (var s in input.Segments) {
-                if (s.A == s.B) continue;
-                var key = s.A < s.B ? (s.A, s.B) : (s.B, s.A);
-                if (!seen.Add(key)) continue;       // a repeated segment counts once
-                if (!adj.TryGetValue(s.A, out var la)) adj[s.A] = la = new List<int>();
-                if (!adj.TryGetValue(s.B, out var lb)) adj[s.B] = lb = new List<int>();
-                la.Add(s.B); lb.Add(s.A);
+                int a = Canon(s.A), b = Canon(s.B);
+                if (a == b) continue;
+                var key = a < b ? (a, b) : (b, a);
+                if (seen.Add(key)) edges.Add(new Index2i(key.Item1, key.Item2));      // a repeated segment counts once
             }
-            var done = new HashSet<int>();
-            int loops = 0, other = 0;
+            if (edges.Count == 0) return 0;
+
+            // segments that meet other than at a shared end point: their groups are no plane graph
+            var bad = new bool[edges.Count];
+            var tree = new SegmentQuadtree2d(pts.Select(p => new Vector3d(p.x, p.y, 0)).ToList(), edges, false);
+            var hits = new List<int>();
+            for (int e = 0; e < edges.Count; ++e) {
+                tree.QueryIntersections(pts[edges[e].a], pts[edges[e].b], hits);
+                foreach (int f in hits) {
+                    if (f == e || !Improper(pts, edges[e], edges[f])) continue;
+                    bad[e] = bad[f] = true;
+                }
+            }
+
+            var adj = new Dictionary<int, List<(int to, int edge)>>();
+            for (int e = 0; e < edges.Count; ++e) {
+                foreach (var (u, v) in new[] { (edges[e].a, edges[e].b), (edges[e].b, edges[e].a) }) {
+                    if (!adj.TryGetValue(u, out var l)) adj[u] = l = new List<(int, int)>();
+                    l.Add((v, e));
+                }
+            }
+            // groups with a bad segment give no ring
+            var group = new Dictionary<int, int>();
+            var badGroup = new List<bool>();
             foreach (int start in adj.Keys.OrderBy(k => k)) {
-                if (done.Contains(start)) continue;
-                // the connected group of start
-                var group = new List<int>();
-                var stack = new Stack<int>();
-                stack.Push(start); done.Add(start);
+                if (group.ContainsKey(start)) continue;
+                int id = badGroup.Count; badGroup.Add(false);
+                var stack = new Stack<int>(); stack.Push(start); group[start] = id;
                 while (stack.Count > 0) {
-                    int v = stack.Pop(); group.Add(v);
-                    foreach (int w in adj[v]) if (done.Add(w)) stack.Push(w);
+                    int v = stack.Pop();
+                    foreach (var (w, e) in adj[v]) {
+                        if (bad[e]) badGroup[id] = true;
+                        if (!group.ContainsKey(w)) { group[w] = id; stack.Push(w); }
+                    }
                 }
-                if (group.Count < 3 || group.Any(v => adj[v].Count != 2)) { ++other; continue; }
-                // walk the loop
-                var ring = new List<int> { start };
-                int prev = start, cur = adj[start][0];
-                while (cur != start) {
-                    ring.Add(cur);
-                    int next = adj[cur][0] == prev ? adj[cur][1] : adj[cur][0];
-                    prev = cur; cur = next;
+            }
+
+            // bridges (Tarjan, iterative): they and the dangling chains enclose nothing
+            var bridge = new bool[edges.Count];
+            var disc = new Dictionary<int, int>(); var low = new Dictionary<int, int>();
+            int time = 0;
+            foreach (int root in adj.Keys.OrderBy(k => k)) {
+                if (disc.ContainsKey(root)) continue;
+                var stack = new Stack<(int v, int parentEdge, int next)>();
+                disc[root] = low[root] = time++;
+                stack.Push((root, -1, 0));
+                while (stack.Count > 0) {
+                    var (v, pe, next) = stack.Pop();
+                    if (next < adj[v].Count) {
+                        stack.Push((v, pe, next + 1));
+                        var (w, e) = adj[v][next];
+                        if (e == pe) continue;
+                        if (!disc.ContainsKey(w)) {
+                            disc[w] = low[w] = time++;
+                            stack.Push((w, e, 0));
+                        } else {
+                            low[v] = Math.Min(low[v], disc[w]);
+                        }
+                    } else if (pe >= 0) {
+                        int parent = edges[pe].a == v ? edges[pe].b : edges[pe].a;
+                        low[parent] = Math.Min(low[parent], low[v]);
+                        if (low[v] > disc[parent]) bridge[pe] = true;
+                    }
                 }
-                input.Rings.Add(new Mesh2Ring(ring.ToArray()));
+            }
+
+            // the remaining edges around each vertex, counterclockwise by angle
+            var around = new Dictionary<int, List<int>>();
+            foreach (var kv in adj) {
+                var l = kv.Value.Where(x => !bridge[x.edge] && !badGroup[group[kv.Key]]).Select(x => x.to).ToList();
+                if (l.Count == 0) continue;
+                Vector2d p = pts[kv.Key];
+                l.Sort((x, y) => Math.Atan2(pts[x].y - p.y, pts[x].x - p.x).CompareTo(Math.Atan2(pts[y].y - p.y, pts[y].x - p.x)));
+                around[kv.Key] = l;
+            }
+
+            // trace every face (directed edges once; the face lies left of its edges); per connected part, the face of the most
+            // negative signed area is its outer face, traversed clockwise
+            var used = new HashSet<(int, int)>();
+            var outer = new Dictionary<int, (double area, List<int> ring)>();
+            var part = new Dictionary<int, int>();
+            foreach (int start in around.Keys.OrderBy(k => k)) {
+                if (part.ContainsKey(start)) continue;
+                var stack = new Stack<int>(); stack.Push(start); part[start] = start;
+                while (stack.Count > 0) { int v = stack.Pop(); foreach (int w in around[v]) if (!part.ContainsKey(w)) { part[w] = start; stack.Push(w); } }
+            }
+            foreach (int u0 in around.Keys.OrderBy(k => k)) {
+                foreach (int v0 in around[u0]) {
+                    if (used.Contains((u0, v0))) continue;
+                    var ring = new List<int>();
+                    double area = 0;
+                    int u = u0, v = v0, guard = 0;
+                    while (used.Add((u, v))) {
+                        ring.Add(u);
+                        area += pts[u].x * pts[v].y - pts[v].x * pts[u].y;
+                        // at v, the next edge clockwise from the way back to u
+                        var l = around[v];
+                        int i = l.IndexOf(u);
+                        int w = l[(i - 1 + l.Count) % l.Count];
+                        u = v; v = w;
+                        if (++guard > 4 * edges.Count + 8) throw new FormatException(".poly: the segment graph could not be traced");
+                    }
+                    int p = part[u0];
+                    if (!outer.TryGetValue(p, out var best) || area < best.area) outer[p] = (area, ring);
+                }
+            }
+            int loops = 0;
+            foreach (var kv in outer.OrderBy(k => k.Key)) {
+                if (kv.Value.ring.Count < 3 || !(kv.Value.area < 0)) continue;
+                input.Rings.Add(new Mesh2Ring(kv.Value.ring.ToArray()));
                 ++loops;
             }
-            if (other > 0)
-                info.Notes.Add(other + " group(s) of segments are no simple loop (a vertex with other than two segments, or an open chain): they are constraints only and do not bound the domain" +
-                    (loops == 0 ? "; the domain is the convex hull of the points minus the holes (as Triangle's -c)" : ""));
+
+            int badCount = badGroup.Count(b => b);
+            if (badCount > 0)
+                info.Notes.Add(badCount + " group(s) of segments cross or touch other than at shared end points: they are constraints only and do not bound the domain");
+            if (loops == 0)
+                info.Notes.Add("no group of segments encloses a region: the domain is the convex hull of the points minus the holes (as Triangle's -c)");
             return loops;
+        }
+
+        /// <summary> Two segments that the quadtree reports as meeting meet other than at one shared end point (a crossing, a touch, an overlap). </summary>
+        static bool Improper(IReadOnlyList<Vector2d> pts, Index2i e, Index2i f)
+        {
+            int p = e.a == f.a || e.a == f.b ? e.a : e.b == f.a || e.b == f.b ? e.b : -1;
+            if (p < 0) return true;
+            // one shared end point p: improper only if they overlap, ie run the same way along one line
+            int q = e.a == p ? e.b : e.a, r = f.a == p ? f.b : f.a;
+            Vector2d u = pts[q] - pts[p], v = pts[r] - pts[p];
+            return ExactPredicates.Orient2d(pts[p], pts[q], pts[r]) == 0 && u.x * v.x + u.y * v.y > 0;
         }
 
         static string N(double v) => v.ToString("R", CultureInfo.InvariantCulture);
@@ -279,7 +395,8 @@ namespace g3cli
 
         /// <summary>
         /// A .poly file of a result: no vertices (they are in the .node file), the subsegments with markers, and the hole points and
-        /// seed regions of the input, so that the file meshed again gives the same domain.
+        /// seed regions of the input (regions given by ring have no form here and are left out), so that the file meshed again gives
+        /// the same domain, within the limits of <see cref="ReadPoly"/>.
         /// </summary>
         public static string WritePolyOfSubsegments(IReadOnlyList<(int a, int b, int marker)> subsegments, IReadOnlyList<Vector2d> holes = null,
             IReadOnlyList<Mesh2Region> regions = null, int firstIndex = 1)
@@ -345,8 +462,8 @@ namespace g3cli
             int corners = h.Length > 1 ? r.Int(h[1], "nodes per triangle") : 3;
             if (corners != 3) throw r.Fail("only 3 nodes per triangle are read (no second-order triangles)");
             int attributes = h.Length > 2 ? r.Int(h[2], "number of attributes", 0, 1000) : 0;
-            var triangles = new List<Index3i>(count);
-            firstAttribute = attributes > 0 ? new List<double>(count) : null;
+            var triangles = new List<Index3i>();
+            firstAttribute = attributes > 0 ? new List<double>() : null;
             for (int i = 0; i < count; ++i) {
                 var f = r.Next(4 + attributes, 4 + attributes, "triangle: <number> <a> <b> <c>" + (attributes > 0 ? " <" + attributes + " attributes>" : ""));
                 r.Int(f[0], "triangle number");

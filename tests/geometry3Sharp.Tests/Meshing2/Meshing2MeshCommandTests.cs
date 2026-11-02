@@ -253,6 +253,19 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void Execute_WithoutGoldenRows_StillMeshesAnInput()
+        {
+            // outside the repository there is no golden folder: an input is meshed and judged, nothing is compared
+            string dir = TempDir(), input = Path.Combine(dir, "in.txt");
+            File.WriteAllText(input, TextFormat.WriteInput(Reference("f-1/a").Input));
+            var o = new StringWriter(); var e = new StringWriter();
+            int exit = MeshCommand.Execute(new[] { "--input", input, "--output", Path.Combine(dir, "o.txt") }, o, e, AllCases, null);
+            Assert.True(exit == 0, o + e.ToString());
+            Assert.Contains("golden: no recorded row for f-1/a", o.ToString());
+            Assert.Null(MeshCommand.FindGolden(null, Reference("f-1/a")));
+        }
+
+        [Fact]
         public void Execute_WrongUsage_IsExitCode2WithAMessage()
         {
             string dir = TempDir(), output = Path.Combine(dir, "o.txt"), input = Path.Combine(dir, "in.txt");

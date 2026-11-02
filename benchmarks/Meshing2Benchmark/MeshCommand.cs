@@ -105,6 +105,7 @@ namespace Meshing2Acceptance
         /// <summary> The recorded golden row of a case in the golden file of its milestone, or null. </summary>
         public static GoldenRow FindGolden(string goldenDir, Mesh2Case c)
         {
+            if (goldenDir == null) return null;
             string path = Path.Combine(goldenDir, c.Milestone.ToString().ToLowerInvariant() + ".json");
             if (!File.Exists(path)) return null;
             return GoldenFile.Parse(File.ReadAllText(path)).Rows.FirstOrDefault(r => r.Case == c.Id);
@@ -265,6 +266,10 @@ namespace Meshing2Acceptance
             } catch (MesherException e) {
                 error.WriteLine(e.Message);
                 return 1;
+            } catch (Exception e) {
+                // the oracle or the row on an input nobody foresaw: reported, not an unhandled crash
+                error.WriteLine("internal error: " + e.GetType().Name + ": " + e.Message);
+                return 1;
             }
             string tbase = TriangleBase(path);
             try {
@@ -275,6 +280,8 @@ namespace Meshing2Acceptance
                         return 1;
                     }
                     foreach (var f in WriteTriangleFiles(tbase, c.Input, result.Output)) output.WriteLine("wrote " + f);
+                    if (c.Input.Regions.Any(g => g.Ring != null))
+                        output.WriteLine("note: regions given by ring have no .poly form (a region is a seed point there): the .poly has only the seed regions; the labels are in the .ele");
                 } else {
                     File.WriteAllText(path, result.Text);
                     output.WriteLine("wrote " + path);

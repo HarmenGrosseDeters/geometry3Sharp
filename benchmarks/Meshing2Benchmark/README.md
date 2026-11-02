@@ -231,8 +231,9 @@ excuses like the angle bound there (self-check 7).
 - **Our output as a file**, to set beside a reference output: `mesh --case <id> --output <file>` runs the candidate of the golden rows (the same one and
   the same options) on a case and writes the result in the plain text output format (format, section 4), or as Triangle's `.node` / `.ele` / `.poly`
   files when `<file>` ends so (the common exchange format of 2D meshers; written from Triangle's published format description, no Triangle code).
-  `mesh --input <file> --output <file>` takes an input file: the plain text input format, or Triangle `.poly` / `.node` (simple closed loops of
-  segments bound the domain as with Triangle `-p`, hole points remove holes, regional attributes are integer labels; quality options from
+  `mesh --input <file> --output <file>` takes an input file: the plain text input format, or Triangle `.poly` / `.node` (the domain is what
+  the segments enclose, as Triangle `-p` gives it, mapping and limits in the [g3cli README](../../tools/g3cli/README.md#triangle-files-poly-node-ele);
+  hole points remove holes, regional attributes are integer labels; quality options from
   `--min-angle`, `--max-area`, `--steiner-limit`). An input equal to a case (the same input_sha256, eg written by `case`) is that case: judged with
   its expectations and compared with its golden row. Any other input is judged with the default expectations of its milestone (`--milestone`, or
   inferred from its options), which know nothing a case states (a required failure, stated areas, kept or removed points), so its exit code 1 means

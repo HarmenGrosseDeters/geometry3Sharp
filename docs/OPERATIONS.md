@@ -478,7 +478,7 @@ g3cli mesh2d --geometry '{"points": [[0,0],[4,0],[4,3],[0,3]], "segments": [[0,2
 ```
 
 Triangle's `.poly` / `.node` files, the common exchange format of 2D meshers, are read and written too (by extension). A
-`.poly` gives the domain Triangle `-p` gives: simple closed loops of segments bound it, hole points remove holes, regional
+`.poly` gives the domain Triangle `-p` gives (what the segments enclose; mapping and limits in the [g3cli README](../tools/g3cli/README.md#triangle-files-poly-node-ele)), hole points remove holes, regional
 attributes are integer labels with optional maximum areas; `--poly-heights` takes the first vertex attribute as the
 height. An output ending in `.node`, `.ele` or `.poly` writes all three files. An L-shape with a square hole:
 

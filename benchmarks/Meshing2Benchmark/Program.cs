@@ -250,7 +250,13 @@ namespace Meshing2Acceptance
         }
 
         static int Mesh(string[] args) =>
-            MeshCommand.Execute(args.Skip(1).ToList(), Console.Out, Console.Error, AllCases().ToList(), Path.GetDirectoryName(GoldenPath(Milestone.M1)));
+            // outside the repository there are no golden rows (--input still works)
+            MeshCommand.Execute(args.Skip(1).ToList(), Console.Out, Console.Error, AllCases().ToList(), GoldenDirOrNull());
+
+        static string GoldenDirOrNull()
+        {
+            try { return Path.GetDirectoryName(GoldenPath(Milestone.M1)); } catch (InvalidOperationException) { return null; }
+        }
 
         static int ListCases()
         {

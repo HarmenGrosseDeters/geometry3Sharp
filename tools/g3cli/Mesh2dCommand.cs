@@ -303,7 +303,7 @@ namespace g3cli
                     "and holes), hole seeds and labelled regions (ConstrainedDelaunayMesh2, QualityMesh2: Ruppert / Shewchuk refinement " +
                     "to a minimum angle, maximum area and Steiner point limit). Exact predicates; crossing constraints are split. " +
                     "Input: a JSON file (input) or inline JSON (geometry): " + Mesh2dInput.FormatDescription + ". " +
-                    "Or a Triangle .poly or .node file (the standard 2D meshing format; closed loops of segments bound the domain as with Triangle -p, " +
+                    "Or a Triangle .poly or .node file (the standard 2D meshing format; the domain is what segments enclose, as with Triangle -p, " +
                     "hole points remove holes, regional attributes are integer labels with optional maximum areas). " +
                     "Without rings the domain is the convex hull minus the holes. The output mesh lies in the XY plane (z = heights, " +
                     "or 0), oriented counterclockwise (normals +z); region labels are its triangle groups (OBJ: 'g' lines). " +
@@ -414,6 +414,8 @@ namespace g3cli
                     var triLabels = input.Regions.Count > 0 ? mesh.TriangleIndices().Select(mesh.GetTriangleGroup).ToList() : null;
                     var subsegments = m2.Subsegments.Select(sg => (map[sg.A], map[sg.B], sg.Marker)).ToList();
                     files = new JsonArray();
+                    if (input.Regions.Any(g => g.Ring != null))
+                        notes.Add("regions given by ring have no .poly form (a region is a seed point there): the written .poly has only the seed regions; the labels of all triangles are in the .ele");
                     foreach (var (ext, text) in new[] {
                         (".node", TrianglePolyFormat.WriteNode(vertices, heights, subsegments)),
                         (".ele", TrianglePolyFormat.WriteEle(triangles, triLabels)),
