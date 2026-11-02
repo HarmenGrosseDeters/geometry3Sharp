@@ -230,7 +230,8 @@ and rounding.
      δ + 2α.
 3. Rejected Steiner points and `PointLimitReached` would leave large facets too; neither occurred on the sample.
 
-**Refinement at the non-manifold spots** (`MeshAlphaWrap.RefineNonManifold`, default on).
+**Refinement at the non-manifold spots** (`MeshAlphaWrap.RefineNonManifold`, default on: owner decision 2026-11-02,
+accepting the time cost in the table below).
 - Before the manifold step, every outside cell that a trial run of the manifold step would move inside gets a Steiner
   point on the offset surface, and the refinement continues, up to 10 rounds. The point is either:
   - the projection of its circumcenter, at least min(δ, α − δ) deep inside its circumsphere; or

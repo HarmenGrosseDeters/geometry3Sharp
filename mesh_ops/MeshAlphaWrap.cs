@@ -105,7 +105,7 @@ namespace gs
         /// it had Success without the refinement. A rule 1 point rejected during the refinement fails the result check as
         /// any other (Failed, then the retry with the other box).
         /// false: the manifold step alone, as before (the order of its candidates differs only where the old score rounded
-        /// two volumes to the same value).
+        /// two volumes to the same value). Default on: owner decision 2026-11-02, with the time cost above.
         /// </summary>
         public bool RefineNonManifold = true;
         const int MaxNonManifoldRounds = 10;
