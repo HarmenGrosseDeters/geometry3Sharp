@@ -180,8 +180,8 @@ compared with the sphere (`SameSolid` within `MaxDrift`); the others with the ex
   exactly to the local origin (v − T, exact by Sterbenz) resolves clean with no edit: the arrangement is exact in both
   places, but rounding its new vertices to the world grid gives 33 intersecting pairs instead of 0. So the result is not
   representable at world coordinates with the precision its features need, and no internal local origin helps the
-  world output. Practice, as in GIS: work in local coordinates. An option that takes an origin and returns the result
-  relative to it is proposed, not built (owner's decision).
+  world output. Practice, as in GIS: work in local coordinates. Since the
+  ulp tolerance of section 5, 108 of 114 such cases are clean, within 251 ulps.
 
 ## 3. Snap rounding with guarantees: evaluation (concept)
 
@@ -298,6 +298,52 @@ topologically clean. A strict mode reports an error instead.
 **Owner decision of 2026-11-01:** this design is approved with the proposed defaults: `UlpFactor` 64,
 `AbsoluteTolerance` 0 (callers set it, eg 1e-6 m), `StrictRounding` off, and the weld edit (δ = 0, only where the result
 stays manifold, otherwise reported). It is built as its own PR after 1b.
+
+**Owner decision of 2026-11-02**, after the data on the 1b code (below): `UlpFactor` 256 instead of 64, and the removal of
+a vertex of valence 3 instead of the weld.
+- *Why 256:* at 64, 11 of the 114 cases keep intersecting pairs, because their edits need 196 to 251 ulps.
+- *Why no weld:* at 256, 9 of the cases left have two vertices of valence 3 on one sheet at one position, not joined by an
+  edge. A weld would make a bowtie there.
+
+**As built** (`MeshRoundingRepair`, `ExactMeshBoolean`):
+- `UlpFactor` 256 and `AbsoluteTolerance` 0; maxLength is the largest of the three terms, `MaxLength` reports it. On
+  `ExactMeshBoolean` they are `RoundingUlpFactor` and `RoundingAbsoluteTolerance`.
+- **Coarse coordinates:** where the ulp term exceeds the relative one,
+  - `ExactMeshBoolean` does not keep its fixed vertices there (`FixedWhereCoarse` false): they are the rounded input
+    vertices, which carry rounding errors of the size of the bound there themselves, and keeping them made the edits on
+    the others cascade beyond it (at 256, 8 cases needed 257 to 261 ulps). For a public caller of `MeshRoundingRepair`,
+    `FixedVertexF` keeps applying (`FixedWhereCoarse` true by default). It is a preference anyway ("kept where possible",
+    tried last as the moved vertex; contractions and strip zips can still remove fixed vertices);
+  - after the passes, a vertex of valence 3 at the position of another vertex is removed, its three triangles replaced
+    by the one of its neighbours, if the result improves (`VertexRemovals`). The passes then run again.
+- **Bound of the removal:** δ = dist(u, (a, b, c)). With u moved to its nearest point q in the closed triangle, the
+  three triangles (q, a, b), (q, b, c), (q, c, a) tile it, and the bound is tight. It is computed as |u − q|.
+  `DistPoint3Triangle3.Get` would not do: its closed form subtracts terms of the triangle's squared size, so distances
+  below about 1e-8 of that size come out as 0 (bounds review; regression test
+  `VertexRemoval_BoundIsTheTrueDistance_FarFromTheOrigin`).
+- **Ordinary meshes:** none of this applies unless the largest coordinate exceeds about 1.75e8 times the diagonal. So
+  their results stay bit for bit the same (`OrdinaryMeshes_UlpToleranceChangesNothing`), and the 2^k scales keep giving
+  the same result bit for bit, since ulp(2^k M) = 2^k ulp(M).
+- **`StrictRounding`:**
+  - the repair runs with the relative bound only;
+  - if the result is not clean, Compute fails with `BooleanStatus.RoundingNotClean` and Result null;
+  - Error gives the defects left, where (`RemainingDefectAt`), and the drift that the smallest edit rejected by the
+    bound needed (`SmallestRejectedDrift`).
+
+**Result on the 114 UTM cases** (`SafeRoundingBoundTests.Utm_CleanWithTheUlpTolerance_WithinIt`):
+
+| | clean |
+|---|---|
+| relative bound only (before) | 92 |
+| `UlpFactor` 256 | **108** |
+
+The largest drift is 251 ulps (0.23 µm), and 10 vertices were removed.
+
+The 6 left (stop rule):
+- 2 cases keep intersecting pairs: the edits they need, 360 to 370 ulps, are beyond the bound;
+- 2 keep a contact at a coincident position whose vertices both have a higher valence;
+- 1 keeps a contact with a tiny separate component;
+- 1 keeps an inside-out tiny component.
 
 **The cause** (section 2, ROBUSTNESS_SWEEP R23): at UTM coordinates (up to 5.7e6) one ulp is 9.3e-10. Rounding the
 exact result's new vertices to that grid folds features below it. The same input at the origin resolves clean. The
