@@ -80,9 +80,9 @@ namespace g3
                 // orient so that Nz > 0
                 pl.P = p; pl.Q = r; pl.R = q;
                 pl.Nx = -pl.Nx; pl.Ny = -pl.Ny; pl.Nz = -pl.Nz;
-                if (pl.exact) { pl.eNx = -pl.eNx; pl.eNy = -pl.eNy; pl.eNz = -pl.eNz; pl.exact = false; }
             }
             pl.D = pl.Nx * I(pl.P.x) + pl.Ny * I(pl.P.y) + pl.Nz * I(pl.P.z);
+            // (the exact values, if the orientation needed them, are computed again from the reordered points)
             pl.exact = false;
             planes.Add(pl);
             return planes.Count - 1;
