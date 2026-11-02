@@ -90,12 +90,19 @@ namespace gs
         /// split face f by the line: neg is the part where the line's sign is negative, pos the rest (either -1 if
         /// the line does not cut f; all zero counts as pos). chord: the new half-edge in neg (-1 if no cut).
         /// </summary>
+        readonly List<int> splitCycle = new List<int>();
+        int[] splitSigns = new int[64];
+
         bool split_face(int f, int line, out int neg, out int pos, out int chord)
         {
             neg = -1; pos = -1; chord = -1;
-            List<int> c = cycle(f);
+            // (most calls do not cut: the signs first, into reused buffers, the same predicates as before)
+            List<int> c = splitCycle;
+            c.Clear();
+            { int h0 = fEdge[f], x = h0; do { c.Add(x); x = hNext[x]; if (c.Count > 100000) throw new InvalidOperationException("SlopeMap: broken cycle"); } while (x != h0); }
             int n = c.Count;
-            var s = new int[n];
+            if (splitSigns.Length < n) splitSigns = new int[2 * n];
+            int[] s = splitSigns;
             bool anyNeg = false, anyPos = false;
             for (int i = 0; i < n; ++i) {
                 s[i] = K.Side(hOrig[c[i]], line);
@@ -104,6 +111,8 @@ namespace gs
             }
             if (anyNeg == false) { pos = f; return false; }
             if (anyPos == false) { neg = f; return false; }
+            c = new List<int>(c);
+            s = (int[])s.Clone();
             // split the edges whose ends are strictly on both sides
             for (int i = 0; i < n; ++i) {
                 int j = (i + 1) % n;
