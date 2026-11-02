@@ -603,6 +603,7 @@ namespace gs
                     return fail(Statuses.Failed, $"the realized slope surface folds over at edge {e}");
             }
             br.Mesh = mesh;
+            LastRealized = mesh;
             phase("check");
             count();
             if (bad.Count > 0)
@@ -696,6 +697,8 @@ namespace gs
         internal static double MergeLambda(double ez, double exy, double sMax) { return 4 * ez + 2 * sMax * (MergeRadius(exy) + exy); }
         /// <summary> diagnostics of the last build: positions merged by the realization, and the lowering that requires </summary>
         internal int MergedPositions;
+        /// <summary> tests and diagnostics: the slope surface of the last realization (also a failing one) </summary>
+        internal DMesh3 LastRealized;
         internal double MergeLambdaRequired;
 
         /// <summary> an upper bound of limit / s: rounded to nearest, one ulp up (s &gt; 0) </summary>

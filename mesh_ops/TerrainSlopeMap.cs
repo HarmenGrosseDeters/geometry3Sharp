@@ -734,6 +734,9 @@ namespace gs
                 foreach (Index3i t in triangulate(verts)) {
                     int a = outVertex(t.a), b = outVertex(t.b), c = outVertex(t.c);
                     if (a == b || b == c || c == a) continue;
+                    // (a face narrower than the rounding, eg between two creases a few ulps apart, has no area once
+                    // rounded: its triangles are dropped, which leaves no gap; kept, they would overlap their neighbours)
+                    if (ExactPredicates.Orient2d(mesh.GetVertex(a).xy, mesh.GetVertex(b).xy, mesh.GetVertex(c).xy) == 0) continue;
                     int tid = mesh.AppendTriangle(a, b, c, group);
                     if (tid < 0) throw new NonManifoldRealization();
                 }
@@ -815,6 +818,32 @@ namespace gs
         /// contain the other end's planes, so the triangles stay in their cells; vertices on the toe or a lateral limit
         /// are only removed onto another such vertex. Returns the number of collapses.
         /// </summary>
+        // the triangles of 'remove' that stay (those without 'keep') with 'keep' in its place: counter-clockwise (exact)
+        // and not thinner than minLength / 2 unless they were before (a collapse next to collinear vertices can
+        // otherwise leave a needle whose slope no margin covers)
+        static bool collapse_keeps_shapes(DMesh3 mesh, int keep, int remove, double minLength)
+        {
+            Vector2d k = mesh.GetVertex(keep).xy;
+            foreach (int t in mesh.VtxTrianglesItr(remove)) {
+                Index3i tv = mesh.GetTriangle(t);
+                if (tv.a == keep || tv.b == keep || tv.c == keep) continue;
+                Vector2d a = mesh.GetVertex(tv.a).xy, b = mesh.GetVertex(tv.b).xy, c = mesh.GetVertex(tv.c).xy;
+                double before = altitude(a, b, c);
+                if (tv.a == remove) a = k; else if (tv.b == remove) b = k; else c = k;
+                if (ExactPredicates.Orient2d(a, b, c) <= 0) return false;
+                double after = altitude(a, b, c);
+                if (after < 0.5 * minLength && after < before) return false;
+            }
+            return true;
+        }
+
+        static double altitude(Vector2d a, Vector2d b, Vector2d c)
+        {
+            double area2 = Math.Abs((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x));
+            double l = Math.Max(a.Distance(b), Math.Max(b.Distance(c), c.Distance(a)));
+            return l > 0 ? area2 / l : 0;
+        }
+
         public static int CollapseShortEdges(DMesh3 mesh, List<List<int>> labels, List<bool> onBarrier, double minLength)
         {
             int count = 0;
@@ -830,6 +859,7 @@ namespace gs
                         int keep = pair.a, remove = pair.b;
                         if (labels[remove].All(l => labels[keep].Contains(l)) == false) continue;
                         if (onBarrier[remove] && onBarrier[keep] == false) continue;
+                        if (collapse_keeps_shapes(mesh, keep, remove, minLength) == false) continue;
                         DMesh3.EdgeCollapseInfo info;
                         Vector3d kp = mesh.GetVertex(keep);
                         if (mesh.CollapseEdge(keep, remove, out info) == MeshResult.Ok) {

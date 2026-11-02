@@ -418,6 +418,34 @@ namespace geometry3Sharp.Tests
             Assert.Equal(4 * ez + 2 * s * 65 * exy, TerrainSlopeDesign.MergeLambda(ez, exy, s));
         }
 
+        // the uneven wavy toe of the Hambach test (TerrainBenchmark README), without the terrain, at UTM: needles of the
+        // realization failed the check at every margin (SlopeViolation at δ 5e-4): an edge collapse next to vertices on
+        // one crease line joined them into a triangle with an altitude of 1e-13 m. Collapses now keep the shapes (fails
+        // without it: 3 builds and a margin raise)
+        internal static TerrainSlopeDesign WavyHambach(double h)
+        {
+            var c = new Vector3d(328375.25, 5642875.5, -340);
+            var pts = new List<Vector3d>();
+            for (int i = 0; i < 48; ++i) {
+                double a = 2 * Math.PI * i / 48, rr = 150 * (1 + 0.15 * Math.Sin(5 * a));
+                pts.Add(c + new Vector3d(rr * Math.Cos(a), rr * Math.Sin(a), 4 * Math.Sin(3 * a)));
+            }
+            return Design(c.z + h, 0.05, SlopeToe.Constant(pts, true, SlopeToe.Sides.Outside, SlopeSpec.Ratio(1.5)));
+        }
+
+        [Fact]
+        public void WavyToe_100mHigh_AtUtm()
+        {
+            var d = WavyHambach(100);
+            Assert.True(d.Compute(), d.Status + " " + d.Message);
+            AssertO1(d);
+            AssertSurface(d);
+            // (without the needles no margin raise is needed: one build)
+            Assert.Equal(d.SlopeMargin, d.UsedSlopeMargin);
+            Assert.Equal(1, d.Attempts);
+            output.WriteLine($"builds {d.Attempts}, realizations {d.Realizations}, δ {d.UsedSlopeMargin:G3}, λ {d.UsedToeLowering:G3}, {d.SlopeSurface.TriangleCount} triangles");
+        }
+
         [Fact]
         public void Review_OpenUneven_MixedSlopes()
         {
