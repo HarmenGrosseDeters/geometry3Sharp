@@ -524,14 +524,54 @@ namespace Meshing2Acceptance
                 report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
                 must("grid: a vertex behind a splittable subsegment inside a circumcircle is not Delaunay", report.Has(Violation.NotDelaunayGlobal), "report: " + report);
             }
-            // 3. a hole marker within a pixel of constraint geometry that snapping moved, here a contour that collapsed, is dropped, not
-            //    obeyed (clean-room answer 6). Still obeyed: a marker in a contour that did not move, also next to a near-duplicate point
-            //    merged into its corner, and a marker more than a pixel from the collapsed contour
+            // 5b. grid-blocked by a constraint: the same skinny triangle with a constraint through its circumcentre's pixel (a vertex there
+            //     would sit within half a pixel of it, D14) is exempt; with the constraint a pixel away it is judged (review of #277)
+            foreach (var (offset, ok, what) in new[] { (0.0, true, "grid: a skinny triangle whose circumcentre's pixel a constraint crosses is exempt (grid-blocked)"),
+                                                       (0.25, false, "grid: the same with the constraint a pixel away is judged") }) {
+                double w = 0.25;
+                double[] pts = { 5.0, 5, 9, 5.5, 5.5, 5.25 };
+                Pt a = Pt.FromDoubles(pts[0], pts[1]), b = Pt.FromDoubles(pts[2], pts[3]), c = Pt.FromDoubles(pts[4], pts[5]);
+                Q bx = b.Qx - a.Qx, by = b.Qy - a.Qy, cx = c.Qx - a.Qx, cy = c.Qy - a.Qy, d = (bx * cy - by * cx) * 2, b2 = bx * bx + by * by, c2 = cx * cx + cy * cy;
+                double ux = double.Parse((a.Qx + (cy * b2 - by * c2) / d).ToDecimal(20), System.Globalization.CultureInfo.InvariantCulture);
+                double uy = double.Parse((a.Qy + (bx * c2 - cx * b2) / d).ToDecimal(20), System.Globalization.CultureInfo.InvariantCulture);
+                double px = Math.Floor(ux / w + 0.5) * w + offset, py = Math.Floor(uy / w + 0.5) * w;
+                // a diagonal of three pixels through the pixel centre (px, py), its ends on the grid
+                var input = Points(0, 0, 16, 0, 16, 16, 0, 16, pts[0], pts[1], pts[2], pts[3], pts[4], pts[5], px - 3 * w, py - 3 * w, px + 3 * w, py + 3 * w);
+                input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false));
+                input.Segments.Add(new SegmentInput(7, 8));
+                input.SnapTolerance = w; input.MinAngleDeg = 20;
+                var o = Out(input, new[] { new[] { 4, 5, 6 } }); o.BadTriangles = new[] { 0 };
+                o.Subsegments.Add(new SubsegmentOutput(7, 8));
+                var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
+                must(what, report.Has(Violation.AngleBelowBound) != ok, "report: " + report);
+            }
+            // 7. a subsegment with no split point on the grid excuses only itself and what it hides, never an unconstrained edge of a
+            //    triangle next to it (review of #277: the exemption had covered every edge of such a triangle). Here (5, 5)-(6, 6) at pixel
+            //    1 has no pixel centre between its ends; the triangle on it shares the free edge (6, 6)-(4, 5) with a triangle whose apex
+            //    (5, 6) lies in its circumcircle, in plain sight. (The excused side needs an unsplittable piece longer than a pixel, which
+            //    on the grid only a constraint at a small angle makes, inside its merge zone: the grid fuzz regressions cover it.)
+            foreach (var (kind, what) in new[] {
+                (Violation.NotDelaunayLocal, "grid: an unconstrained edge next to an unsplittable subsegment is judged"),
+                (Violation.NotDelaunayGlobal, "grid: a visible vertex in the circumcircle of a triangle on an unsplittable subsegment is judged") }) {
+                var input = Points(0, 0, 16, 0, 16, 16, 0, 16, 5, 5, 6, 6, 4, 5, 5, 6);
+                input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false));
+                input.Segments.Add(new SegmentInput(4, 5));
+                input.SnapTolerance = 1; input.MinAngleDeg = 20;
+                var o = Out(input, new[] { new[] { 4, 5, 6 }, new[] { 6, 5, 7 } }); o.BadTriangles = new[] { 0, 1 };
+                o.Subsegments.Add(new SubsegmentOutput(4, 5));
+                var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
+                // the triangle on the unsplittable subsegment itself, not only its neighbour (whose circumcircle holds (5, 5) too)
+                must(what, kind == Violation.NotDelaunayLocal ? report.Has(kind) : report.ToString().Contains("vertex 7 inside the circumcircle of 4 5 6"), "report: " + report);
+            }
+            // 3. a hole marker that snapping swept, here inside a contour that collapsed, is dropped, not obeyed (clean-room answer 6).
+            //    Still obeyed: a marker in a contour that did not move, also next to a near-duplicate point merged into its corner, and a
+            //    marker outside the collapsed contour, within a pixel of it or farther (second review of #277: only a swept marker)
             foreach (var (seedX, seedY, ok, what) in new[] {
-                (5 + 1.0 / 256, 5 + 1.0 / 256, true, "a hole marker inside a collapsed contour is dropped (D14, clean-room answer 6)"),
+                (5 + 1.0 / 256, 5 + 1.0 / 512, true, "a hole marker inside a collapsed contour is dropped (D14, clean-room answer 6)"),
                 (3.0, 3.0, false, "a hole marker inside a contour that stays still removes its cell"),
                 (2 + 1.0 / 64, 2 + 1.0 / 64, false, "a hole marker next to a merged near-duplicate corner of a contour that stays still removes its cell"),
-                (5 + 0.75 / 16, 5.0, true, "a hole marker within a pixel of the collapsed contour is dropped"),
+                (5 + 0.75 / 16, 5.0, false, "a hole marker within a pixel of the collapsed contour, outside it, is still obeyed"),
+                (5 + 1.0 / 128, 5 + 1.0 / 256, true, "a hole marker on the collapsed contour is dropped"),
                 (5 + 1.25 / 16, 5.0, false, "a hole marker more than a pixel from the collapsed contour is still obeyed") }) {
                 double h = 1.0 / 128, tol = 1.0 / 16;
                 var input = Points(0, 0, 10, 0, 10, 10, 0, 10, 5, 5, 5 + h, 5, 5 + h, 5 + h, 5, 5 + h, 2, 2, 4, 2.25, 4, 4, 1.75, 4, 2 + tol / 4, 2);

@@ -95,7 +95,7 @@ Implemented from the papers, after decision D14 (owner, 2026-11-01; `MESHING2D_S
 - **Arithmetic**: all coordinates and the pixel width on one common power of two, twice each as an integer, so pixel corners and
   centres are integers and every decision exact; the same construction as the mesher's exact crossings (`ConstrainedDelaunayMesh2`).
 - **Collapses**: rings that collapse to a line or a point become segments or vanish (a ring whose edges cancel in pairs; a bowtie is
-  kept), hole and region seeds within a pixel of constraint geometry that snapping moved are dropped (behaviour as in the clean-room
+  kept), hole and region seeds that snapping swept (between an input constraint and its chain, eg inside a collapsed contour) are dropped (behaviour as in the clean-room
   answer 6, `MESHING2D_SNAP_QA.md`; no code from it), each reported in the diagnostics.
 - The snapped input is meshed by the unchanged mesher; the points added for crossing and restore pixels become vertices made by the
   mesher (`ConstrainedMesh2.WithInputCount`).

@@ -315,24 +315,49 @@ details, each found by a fuzz test (random segments in a square ring at pixels 1
 exactly; 12000 meshes at 20° and 30° pass the oracle):
 
 - **Circumcentre pixel** decided exactly (`SnapGrid.CircumcentrePixelCentre`); refused if a vertex is there or a constraint crosses the
-  pixel's interior (grid-blocked, counted in the diagnostics). The off-centre second candidate was not needed: no fuzz or catalogue case
-  failed for lack of it; the corpus counts decide (item 6).
+  pixel's interior (grid-blocked, counted in the diagnostics). The off-centre second candidate is not built: grid-blocked triangles are
+  rare on the corpus (item 6 below), and the unsplittable subsegments, the larger count, are not helped by it.
 - **Split points**: the pixel centres of the 3 × 3 block around the target, then a scan of the envelope between the ends (up to 256 samples
   along the segment); a candidate must lie in the envelope of every input segment whose chain contains the piece (chains of several
   segments can share a piece), its new edges must cross no vertex's pixel and no other constraint, and no other constraint may cross its
   pixel. A vertex already at the candidate may be the split point (the chains then share it, as at a hot pixel).
-- **Floor**: shortest edge at most two pixels (≤, not <: lattice triangles have edges of exactly two pixels).
+- **Floor**: shortest edge at most two pixels (≤, not <: lattice triangles have edges of exactly two pixels), decided from the pixel
+  indices, exactly, in the mesher and the oracle (doubles of k w round).
 - **Small input angles** are judged on the input segments the chains come from, not on the bent chains.
 - **Refusals are not final.** A split point or circumcentre refused because a constraint crossed its pixel becomes valid when that
   constraint is split and its pieces bend away. When the queues drain after a sweep that inserted vertices, the refusals are dropped and
   everything is looked at again; a sweep without insertions ends refinement. An encroached subsegment that cannot be split no longer
   stops a circumcentre on the grid.
+- **Seeds**: a hole or region seed that snapping swept (it lies between an input constraint and its chain, or on that boundary, eg
+  inside a contour that collapsed) is dropped and reported; any other seed keeps its meaning, also one close to moved geometry
+  (second review of #277; this narrows the first review's rule of one pixel around moved geometry back to what section 3e and the
+  clean-room answer 6 describe).
 - **Oracle** (`Oracle.cs`): `OffGrid`, `BelowGridFloor`, `GridBlocked` and `GridUnsplittable` recompute the rules from the output, exactly;
-  conforming Delaunay is not demanded of an unsplittable subsegment nor across one (a vertex behind it, seen from the triangle's
-  centroid), and a triangle whose rounded circumcentre lies behind one is exempt from the angle bound (Ruppert's rule splits the
+  conforming Delaunay is not demanded of an unsplittable subsegment itself (the local test of that edge) nor across one (a vertex behind
+  it, seen from the triangle's centroid), never of an unconstrained edge next to one (second review of #277), and a triangle whose rounded circumcentre lies behind one is exempt from the angle bound (Ruppert's rule splits the
   subsegment instead, and there is no split point). Ties of shortest edges are tried both ways for a small input angle. On a grid that
   doubles do not hold exactly (k w rounds), vertices are taken at the centre of their pixel and matched by it, and pixel corners touched
-  by an edge are decided generously (blocking pixels 2^-40 of a half pixel larger, the own envelope as much smaller). The local Delaunay test stays strict for unconstrained edges,
+  by an edge are decided generously (blocking pixels 2^-40 of a half pixel larger, the own envelope as much smaller, and more at large coordinates).
+- **The corpus** (item 6; `Meshing2Benchmark gridcounts`, the 84 corpus inputs at a tolerance of 2^-10 and 10^-3 of their extent;
+  counts summed, inputs with any in brackets):
+
+  | Tolerance / extent, angle, floor | Grid-blocked | Unsplittable | Below the angle | Steiner limit | Vertices | Time |
+  |---|---|---|---|---|---|---|
+  | 2^-10, 20°, 2 pixels | 7 (2) | 6423 (13) | 30446 (46) | 0 | 181984 | 44.5 s |
+  | 2^-10, 20°, none | 1076 (8) | 7133 (13) | 13145 (39) | 0 | 212007 | 46.9 s |
+  | 2^-10, 30°, 2 pixels | 91 (2) | 6504 (13) | 60852 (57) | 0 | 241093 | 43.5 s |
+  | 2^-10, 30°, none | 80 (2) | 6960 (13) | 72659 (52) | 26 | 1688955 | 67.4 s |
+  | 10^-3, 20°, 2 pixels | 10 (2) | 6781 (15) | 30301 (50) | 0 | 181963 | 46.8 s |
+  | 10^-3, 20°, none | 1130 (13) | 7668 (17) | 13474 (39) | 0 | 211289 | 52.3 s |
+  | 10^-3, 30°, 2 pixels | 98 (3) | 6897 (16) | 59526 (59) | 0 | 246650 | 53.2 s |
+  | 10^-3, 30°, none | 1306 (7) | 8159 (21) | 74424 (56) | 26 | 1711323 | 82.0 s |
+
+  One input dominates: poly2tri's debug2 (thousands of points on a few lines) has 6096 of the 6781 unsplittable subsegments at 10^-3
+  and 20°, and 19293 of the triangles below the angle; the rest are dense contours (earcut's water and touching-holes), whose input
+  points lie closer than a pixel. Without the floor, 30° runs into the Steiner limit on 26 inputs with seven times the vertices (the
+  cascade of section 3g); at 20° it adds a sixth of the vertices, halves the triangles below the angle, and makes a hundred times more
+  triangles grid-blocked. The two-pixel floor stays as decided. Grid-blocked triangles are few with it (7 to 98, in 2 or 3 inputs), so
+  the off-centre second candidate is not built. The local Delaunay test stays strict for unconstrained edges,
   so the mesh is still checked to be constrained Delaunay.
 
 ## 4. Plan once the owner has answered

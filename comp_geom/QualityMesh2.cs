@@ -491,10 +491,15 @@ namespace g3
             /// <summary> the shortest edge of t is at most two pixels (the angle floor on the grid, MESHING2D_SNAP.md section 3g) </summary>
             bool BelowFloor(int t)
             {
-                Local(t, out var q, out var r, out int ex);
-                double shortest = Math.Min(q.LengthSquared, Math.Min((r - q).LengthSquared, r.LengthSquared));
-                double floor = ExactPoint3.ScaleB((FloorPixelsForBenchmarks ?? 2) * grid.W, -ex);
-                return shortest <= floor * floor;
+                // every vertex is a pixel centre: the edge lengths in pixels are exact from the pixel indices (doubles of k w round, so a
+                // lattice edge of two pixels may differ from 2 w by a hair; review of #277)
+                double f = FloorPixelsForBenchmarks ?? 2;
+                for (int j = 0; j < 3; ++j) {
+                    var a = k.Point(k.V[3 * t + j]); var b = k.Point(k.V[3 * t + (j + 1) % 3]);
+                    double dx = grid.Pixel(a.x) - grid.Pixel(b.x), dy = grid.Pixel(a.y) - grid.Pixel(b.y);
+                    if (dx * dx + dy * dy <= f * f) return true;
+                }
+                return false;
             }
 
             /// <summary> a constrained edge crosses the open pixel of grid point c (c lies in triangle at): a vertex there would sit within half a

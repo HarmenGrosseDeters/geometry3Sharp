@@ -472,18 +472,17 @@ namespace g3
                 for (int i = 0; i < list.Count && list.Count >= 2; ++i)
                     if (list[i] != list[(i + 1) % list.Count]) result.Segments.Add(new Mesh2Segment(list[i], list[(i + 1) % list.Count], ring.Marker, false));
             }
-            // A hole or region seed within one pixel (per axis) of constraint geometry that snapping moved is dropped: the geometry moved by
-            // up to half a pixel, so the seed's side of it is not reliable, and a seed left on the wrong side, or inside a contour that
-            // collapsed, would remove or label the cell around it, eg the whole domain (clean-room answer 6, MESHING2D_SNAP_QA.md; review of
-            // #277: a hole collapsing to a line). A seed next to geometry that did not move keeps its meaning.
-            MovedGeometry();
+            // A hole or region seed that snapping swept (constraint geometry moved across it or onto it, eg a contour that collapsed around
+            // it) is dropped: left on the other side, it would remove or label the cell there, eg the whole domain (clean-room answer 6,
+            // MESHING2D_SNAP_QA.md; review of #277: a hole collapsing to a line, a seed next to an edge that moved over it). Any other seed,
+            // also one close to moved geometry, keeps its meaning (second review of #277).
             foreach (var seed in input.HoleSeeds) {
-                if (NearMoved(seed)) { ++DroppedSeeds; Diagnostics.Add("snap: hole seed " + seed + " dropped: within a pixel of constraints that snapping moved"); continue; }
+                if (Swept(seed)) { ++DroppedSeeds; Diagnostics.Add("snap: hole seed " + seed + " dropped: snapping moved constraints across it"); continue; }
                 result.HoleSeeds.Add(seed);
             }
             foreach (var g in input.Regions) {
                 if (g.Ring == null) {
-                    if (NearMoved(g.Seed)) { ++DroppedSeeds; Diagnostics.Add("snap: region seed " + g.Seed + " with label " + g.Label + " dropped: within a pixel of constraints that snapping moved"); continue; }
+                    if (Swept(g.Seed)) { ++DroppedSeeds; Diagnostics.Add("snap: region seed " + g.Seed + " with label " + g.Label + " dropped: snapping moved constraints across it"); continue; }
                     result.Regions.Add(g);
                     continue;
                 }
@@ -523,50 +522,43 @@ namespace g3
             return count.Values.All(c => c % 2 == 0);
         }
 
-        readonly List<((long, long) a, (long, long) b)> movedEdges = new List<((long, long), (long, long))>();
-        readonly List<(long, long)> movedPoints = new List<(long, long)>();
-
-        /// <summary> the chain edges that do not lie on their input segment, and the points of constraints that collapsed to a point </summary>
-        void MovedGeometry()
+        /// <summary>
+        /// Snapping swept the seed: it lies in the region between an input constraint and its snapped chain (the polygon of the input
+        /// segment and the chain back), or on its boundary, so the geometry moved across it or onto it and its side is not that of the
+        /// input any more; a contour that collapsed sweeps everything inside it. Exact, by the winding number in the doubled units.
+        /// </summary>
+        bool Swept(Vector2d seed)
         {
-            for (int c = 0; c < chains.Count; ++c) {
-                var (oa, ob) = routed[c];
-                var ch = chains[c];
-                bool On((long, long) p)
-                {
-                    BigInteger px = Cx(p), py = Cy(p);
-                    return Orient(X[oa], Y[oa], X[ob], Y[ob], px, py) == 0 && px >= BigInteger.Min(X[oa], X[ob]) && px <= BigInteger.Max(X[oa], X[ob])
-                        && py >= BigInteger.Min(Y[oa], Y[ob]) && py <= BigInteger.Max(Y[oa], Y[ob]);
-                }
-                if (ch.Count == 1) { movedPoints.Add(ch[0]); continue; }
-                for (int e = 0; e + 1 < ch.Count; ++e) if (!On(ch[e]) || !On(ch[e + 1])) movedEdges.Add((ch[e], ch[e + 1]));
-            }
-        }
-
-        /// <summary> the closed square of half-width one pixel around the seed meets moved constraint geometry, exactly </summary>
-        bool NearMoved(Vector2d seed)
-        {
-            if (movedEdges.Count == 0 && movedPoints.Count == 0) return false;
             // the seed in units of 2^emin, doubled like the other coordinates; den > 1 if its exponent is below emin
             ExactPoint3.Decompose(seed.x, out var mx, out int ex);
             ExactPoint3.Decompose(seed.y, out var my, out int ey);
             int lo = Math.Min(emin, Math.Min(mx.IsZero ? emin : ex, my.IsZero ? emin : ey));
             BigInteger den = BigInteger.One << (emin - lo);
             BigInteger sx = mx.IsZero ? BigInteger.Zero : 2 * (mx << (ex - lo)), sy = my.IsZero ? BigInteger.Zero : 2 * (my << (ey - lo));
-            BigInteger r = 2 * W * den, x0 = sx - r, x1 = sx + r, y0 = sy - r, y1 = sy + r;
-            foreach (var p in movedPoints) {
-                BigInteger px = Cx(p) * den, py = Cy(p) * den;
-                if (px >= x0 && px <= x1 && py >= y0 && py <= y1) return true;
-            }
-            foreach (var (a, b) in movedEdges) {
-                BigInteger ax = Cx(a) * den, ay = Cy(a) * den, bx = Cx(b) * den, by = Cy(b) * den;
-                if (BigInteger.Max(ax, bx) < x0 || BigInteger.Min(ax, bx) > x1 || BigInteger.Max(ay, by) < y0 || BigInteger.Min(ay, by) > y1) continue;
-                int pos = 0, neg = 0;
-                foreach (var (cx, cy) in new[] { (x0, y0), (x1, y0), (x1, y1), (x0, y1) }) {
-                    int o = Orient(ax, ay, bx, by, cx, cy);
-                    if (o > 0) ++pos; else if (o < 0) ++neg;
+            var px = new List<BigInteger>(); var py = new List<BigInteger>();
+            for (int c = 0; c < chains.Count; ++c) {
+                var (oa, ob) = routed[c];
+                var ch = chains[c];
+                px.Clear(); py.Clear();
+                px.Add(X[oa] * den); py.Add(Y[oa] * den);
+                px.Add(X[ob] * den); py.Add(Y[ob] * den);
+                for (int k = ch.Count - 1; k >= 0; --k) { px.Add(Cx(ch[k]) * den); py.Add(Cy(ch[k]) * den); }
+                // a chain on its segment sweeps nothing but the segment itself (every point is on the boundary then: not a sweep)
+                bool still = true;
+                for (int k = 2; k < px.Count && still; ++k) still = Orient(px[0], py[0], px[1], py[1], px[k], py[k]) == 0;
+                if (still) continue;
+                BigInteger x0 = px.Min(), x1 = px.Max(), y0 = py.Min(), y1 = py.Max();
+                if (sx < x0 || sx > x1 || sy < y0 || sy > y1) continue;
+                int winding = 0;
+                bool boundary = false;
+                for (int k = 0; k < px.Count && !boundary; ++k) {
+                    int n = (k + 1) % px.Count;
+                    int o = Orient(px[k], py[k], px[n], py[n], sx, sy);
+                    if (o == 0 && sx >= BigInteger.Min(px[k], px[n]) && sx <= BigInteger.Max(px[k], px[n]) && sy >= BigInteger.Min(py[k], py[n]) && sy <= BigInteger.Max(py[k], py[n])) boundary = true;
+                    else if (py[k] <= sy) { if (py[n] > sy && o > 0) ++winding; }
+                    else if (py[n] <= sy && o < 0) --winding;
                 }
-                if (pos < 4 && neg < 4) return true;
+                if (boundary || winding != 0) return true;
             }
             return false;
         }

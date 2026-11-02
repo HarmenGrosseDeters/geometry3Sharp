@@ -208,6 +208,85 @@ namespace geometry3Sharp.Tests
             Assert.Contains(a.Diagnostics, d => d.StartsWith("snap: tolerance"));
         }
 
+        [Fact]
+        public void Tolerance_AtTheLimit_OfTwoToThe40Pixels()
+        {
+            // review of #277: the pixel index must stay below 2^40; a point at 2^20 is pixel 2^40 at 2^-20 (refused) and 2^39 at 2^-19
+            var input = Segments(0, 0, 1 << 20, 1, 0, 1, 1, 0);
+            Assert.Throws<ArgumentException>(() => SnapRounding2.Apply(input, Math.Pow(2, -20)));
+            Assert.Throws<ArgumentException>(() => new QualityMesh2 { SnapTolerance = Math.Pow(2, -20) }.Compute(input));
+            var snap = SnapRounding2.Apply(input, Math.Pow(2, -19));
+            Assert.Equal(1 << 20, snap.Result.Points[1].x);
+            Assert.Equal(Triangulation2Status.Success, new ConstrainedDelaunayMesh2 { SnapTolerance = Math.Pow(2, -19) }.Compute(input).Status);
+        }
+
+        /// <summary> random segments in a square ring on a 1/64 lattice (the grid fuzz of the gate tests, smaller) </summary>
+        static Mesh2Input RingWithSegments(int seed, int count)
+        {
+            var random = new Random(seed);
+            var x = new List<double> { 0, 16, 16, 0 }; var y = new List<double> { 0, 0, 16, 16 };
+            var input = new Mesh2Input();
+            input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false));
+            for (int i = 0; i < count; ++i) {
+                for (int k = 0; k < 2; ++k) { x.Add(1 + Math.Round(random.NextDouble() * 14 * 64) / 64); y.Add(1 + Math.Round(random.NextDouble() * 14 * 64) / 64); }
+                input.Segments.Add(new SegmentInput(x.Count - 2, x.Count - 1));
+            }
+            input.X = x.ToArray(); input.Y = y.ToArray();
+            return input;
+        }
+
+        public static IEnumerable<object[]> MeshInvarianceCases()
+        {
+            foreach (var s in Similarity.All()) { yield return new object[] { s.Name, Milestone.M2 }; yield return new object[] { s.Name, Milestone.M3 }; }
+        }
+
+        /// <summary>
+        /// The meshes with a tolerance, not only the snapped input (review of #277): 2^k scales with the tolerance scaled alike give the
+        /// same mesh bit for bit, refinement on the grid included; the other similarities move the grid by design (O11) and keep the
+        /// properties the oracle judges.
+        /// </summary>
+        [Theory]
+        [MemberData(nameof(MeshInvarianceCases))]
+        public void SnappedMesh_Invariance_ScalesBitForBit_OthersPassTheOracle(string name, Milestone milestone)
+        {
+            var s = Similarity.ByName(name);
+            var input = RingWithSegments(17, 12);
+            input.SnapTolerance = 0.3;
+            if (milestone == Milestone.M3) { input.MinAngleDeg = 25; input.SteinerLimit = 50000; }
+            var moved = new Mesh2Input { Segments = input.Segments, Rings = input.Rings, SnapTolerance = input.SnapTolerance * s.Scale,
+                MinAngleDeg = input.MinAngleDeg, SteinerLimit = input.SteinerLimit, X = new double[input.Count], Y = new double[input.Count] };
+            for (int i = 0; i < input.Count; ++i) { var q = s.Apply(new Vector3d(input.X[i], input.Y[i], 0)); moved.X[i] = q.x; moved.Y[i] = q.y; }
+            var candidate = CandidateRegistry.For(milestone);
+            var output = candidate.Run(moved);
+            Assert.Equal(Mesh2Status.Success, output.Status);
+            var report = Oracle.Check(moved, output, new OracleExpect { Milestone = milestone });
+            Assert.True(report.Ok, report.ToString());
+            if (s.IsExact) {
+                var plain = candidate.Run(input);
+                Assert.Equal(plain.VX.Select(v => v * s.Scale), output.VX);
+                Assert.Equal(plain.VY.Select(v => v * s.Scale), output.VY);
+                Assert.Equal(plain.Triangles.SelectMany(t => t), output.Triangles.SelectMany(t => t));
+            }
+        }
+
+        [Fact]
+        public void QualityMesher_WithTolerance_Reuse_GivesTheSameMesh()
+        {
+            // review of #277: one QualityMesh2 instance, two different inputs in turn, then the first again
+            var a = Segments(0.3, 0.3, 4.3, 4.3, 0.3, 4.3, 4.3, 0.3, 0, 0, 0.001, 4);
+            var b = Segments(0, 0, 8, 1, 8, 1, 2, 7, 2, 7, 0, 0, 1, 3, 5, 2.1);
+            var mesher = new QualityMesh2 { SnapTolerance = 1.0 / 4, MinAngle = 25 };
+            var first = mesher.Compute(a);
+            var other = mesher.Compute(b);
+            var again = mesher.Compute(a);
+            var fresh = new QualityMesh2 { SnapTolerance = 1.0 / 4, MinAngle = 25 }.Compute(b);
+            Assert.Equal(Triangulation2Status.Success, first.Status);
+            Assert.Equal(first.Mesh.Vertices, again.Mesh.Vertices);
+            Assert.Equal(first.Mesh.Triangles, again.Mesh.Triangles);
+            Assert.Equal(fresh.Mesh.Vertices, other.Mesh.Vertices);
+            Assert.Equal(fresh.Mesh.Triangles, other.Mesh.Triangles);
+        }
+
         [Theory]
         [InlineData(-1.0)]
         [InlineData(double.NaN)]
@@ -264,10 +343,11 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void SeedNextToMovedGeometry_IsDropped_NextToFixedGeometryKept()
+        public void SeedSweptBySnapping_IsDropped_OthersKept()
         {
-            // review of #277: the hole's left side moves from x = 2.26 to 2.5, past the seed at 2.3; a seed in a hole on the grid stays
-            foreach (var (left, seedX, dropped) in new[] { (2.26, 2.3, true), (2.0, 2.3, false) }) {
+            // review of #277: the hole's left side moves from x = 2.26 to 2.5, past the seed at 2.3; a seed in a hole on the grid stays,
+            // and so does a seed at 2.6, within a pixel of the moved side but not swept by it (second review of #277)
+            foreach (var (left, seedX, dropped, area0) in new[] { (2.26, 2.3, true, 100.0), (2.0, 2.3, false, 96.0), (2.26, 2.6, false, 97.0) }) {
                 var input = new ConstrainedMesh2Input();
                 foreach (var (x, y) in new[] { (0.0, 0.0), (10, 0), (10, 10), (0, 10), (left, 2), (4, 2), (4, 4), (left, 4) }) input.Points.Add(new Vector2d(x, y));
                 input.Rings.Add(new Mesh2Ring(new[] { 0, 1, 2, 3 }));
@@ -277,7 +357,7 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(dropped ? 1 : 0, snap.DroppedSeeds);
                 var result = new ConstrainedDelaunayMesh2 { SnapTolerance = 0.5 }.Compute(input);
                 double area = result.Mesh.Triangles.Sum(t => { var a = result.Mesh.Vertices[t.a]; var b = result.Mesh.Vertices[t.b]; var c = result.Mesh.Vertices[t.c]; return 0.5 * ((b - a).x * (c - a).y - (b - a).y * (c - a).x); });
-                Assert.Equal(dropped ? 100 : 96, area, 9);
+                Assert.Equal(area0, area, 9);
             }
         }
 
