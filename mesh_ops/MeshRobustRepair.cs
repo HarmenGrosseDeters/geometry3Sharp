@@ -125,6 +125,22 @@ namespace gs
         /// outside the input; otherwise the unsimplified wrap is (AlphaWrapSimplified false).
         /// </summary>
         public bool SimplifyAlphaWrap = true;
+        /// <summary>
+        /// alpha wrap fallback: after the simplification, improve the triangle quality (the simplified wrap keeps
+        /// slivers, down to about 1.7 degrees): edge flips and tangential vertex moves around triangles with a minimum
+        /// angle below 30 degrees, each kept only if every changed triangle stays within half the wrap offset of the
+        /// unsimplified wrap (TriangleDeviationBounds.IsWithin) and, like the simplification, creates no
+        /// self-intersection (exact). The improved mesh is kept only if it is clean and certified within half the
+        /// offset (one-sided Hausdorff upper bound), otherwise the simplified one (AlphaWrapQualityImproved false).
+        /// The default settings (DefaultWrapQuality) also split caps above 160 degrees (at most 5 % more triangles),
+        /// flip caps above 150 degrees, and keep the normals as close to the unsimplified wrap's (0.1 degree slack per
+        /// operation). The smallest angle of the mesh does not drop; the largest is not bounded globally (flips and
+        /// moves may raise it locally).
+        /// On by default; false keeps the simplified wrap as it is.
+        /// </summary>
+        public bool AlphaWrapQualityPass = true;
+        /// <summary> (benchmarks, tests) sets the variant switches of the quality pass (AlphaWrapQualityPass) </summary>
+        internal Action<AlphaWrapQualityPass> ConfigureWrapQuality;
 
         /// <summary>
         /// reject an exact resolve result whose genus differs from the mesh it resolved (TopologyChanged): the
@@ -189,6 +205,14 @@ namespace gs
         public int AlphaWrapTriangles;
         /// <summary> alpha wrap fallback: true if the result is the simplified wrap (SimplifyAlphaWrap) </summary>
         public bool AlphaWrapSimplified;
+        /// <summary> alpha wrap fallback: true if the result is the improved wrap (AlphaWrapQualityPass) </summary>
+        public bool AlphaWrapQualityImproved;
+        /// <summary>
+        /// alpha wrap fallback (UsedAlphaWrap): the triangle quality of the result, measured, not enforced: its
+        /// smallest and largest triangle angle (degrees) and the share of its triangles with an angle above 170 degrees
+        /// (0..1). NaN if the result is not the alpha wrap
+        /// </summary>
+        public double AlphaWrapMinAngleDegrees = double.NaN, AlphaWrapMaxAngleDegrees = double.NaN, AlphaWrapShareAbove170 = double.NaN;
         public bool UsedExactResolve;
         /// <summary> why the exact resolve was not used ("" if it was or was not tried) </summary>
         public string ExactResolveReason = "";
@@ -246,6 +270,8 @@ namespace gs
             UsedAlphaWrap = false;
             AlphaWrapTriangles = 0;
             AlphaWrapSimplified = false;
+            AlphaWrapQualityImproved = false;
+            AlphaWrapMinAngleDegrees = AlphaWrapMaxAngleDegrees = AlphaWrapShareAbove170 = double.NaN;
             SolidifyReason = "";
             Solidify = null;
             AlphaWrap = null;
@@ -386,9 +412,21 @@ namespace gs
                         if (CancelF())
                             return false;
                     }
+                    if (AlphaWrapQualityPass && wrapped != AlphaWrap.Result) {
+                        DMesh3 improved = ImproveWrapQuality(wrapped, AlphaWrap.Result, 0.5 * AlphaWrap.UsedOffset, CheckSelfIntersections, CancelF,
+                            (p) => { DefaultWrapQuality(p); ConfigureWrapQuality?.Invoke(p); });
+                        end_phase("wrap.quality");
+                        if (CancelF())
+                            return false;
+                        if (improved != null) {
+                            wrapped = improved;
+                            AlphaWrapQualityImproved = true;
+                        }
+                    }
                     AlphaWrapSimplified = wrapped != AlphaWrap.Result;
                     Mesh = wrapped;
                     UsedAlphaWrap = true;
+                    angle_stats(wrapped, out AlphaWrapMinAngleDegrees, out AlphaWrapMaxAngleDegrees, out AlphaWrapShareAbove170);
                     ResultReason = "";
                     return true;
                 }
@@ -494,6 +532,72 @@ namespace gs
             m = new DMesh3(m, true);
             if (cancelF() || NotCleanReason(m, checkSelfIntersections) != "")
                 return null;
+            return certified_within(m, mesh, maxDistance, cancelF, ref hausdorffSubdivisions) ? m : null;
+        }
+
+        // the smallest and largest triangle angle (degrees) and the share of triangles with an angle above 170 degrees
+        internal static void angle_stats(DMesh3 m, out double minAngle, out double maxAngle, out double shareAbove170)
+        {
+            minAngle = double.MaxValue; maxAngle = 0;
+            int above = 0, n = 0;
+            Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+            foreach (int t in m.TriangleIndices()) {
+                m.GetTriVertices(t, ref a, ref b, ref c);
+                double A = corner(a, b, c), B = corner(b, c, a), C = corner(c, a, b);
+                minAngle = Math.Min(minAngle, Math.Min(A, Math.Min(B, C)));
+                double mx = Math.Max(A, Math.Max(B, C));
+                maxAngle = Math.Max(maxAngle, mx);
+                if (mx > 170) above++;
+                n++;
+            }
+            if (n == 0) { minAngle = maxAngle = shareAbove170 = double.NaN; return; }
+            shareAbove170 = (double)above / n;
+        }
+
+        // the angle at p between the edges to q and r (degrees; atan2, accurate also near 0 and 180)
+        static double corner(Vector3d p, Vector3d q, Vector3d r)
+        {
+            Vector3d u = q - p, v = r - p;
+            return Math.Atan2(u.Cross(v).Length, u.Dot(v)) * MathUtil.Rad2Deg;
+        }
+
+        /// <summary>
+        /// the settings of the quality pass in the alpha wrap fallback (variant G1 of the 7b benchmark,
+        /// docs/design/ALPHA_WRAP_QUALITY.md): the normal-deviation guard with 0.1 degree slack per operation, cap
+        /// flips above 150 degrees, cap splits above 160 degrees
+        /// </summary>
+        internal static void DefaultWrapQuality(AlphaWrapQualityPass p)
+        {
+            p.KeepNormalDeviation = true;
+            p.NormalDeviationSlackDegrees = 0.1;
+            p.CapAngleDegrees = 150;
+            p.SplitCapsAboveDegrees = 160;
+        }
+
+        /// <summary>
+        /// the simplified wrap with a better triangle quality (AlphaWrapQualityPass), or null if the pass changed
+        /// nothing, was cancelled, or its result is not clean or not certified within maxDistance of the wrap
+        /// </summary>
+        internal static DMesh3 ImproveWrapQuality(DMesh3 simplified, DMesh3 wrap, double maxDistance, bool checkSelfIntersections, Func<bool> cancelF,
+            Action<AlphaWrapQualityPass> configure = null)
+        {
+            int subdivisions = 0;
+            // (the operations within 0.95 of maxDistance: a triangle certified right at maxDistance leaves the final
+            // check, which resolves to 1 % of maxDistance, undecided)
+            var pass = new AlphaWrapQualityPass(new DMesh3(simplified), wrap, 0.95 * maxDistance) { CancelF = cancelF };
+            configure?.Invoke(pass);
+            // (the intersections are always checked, as by the simplification: an intersecting result is rejected below)
+            if (pass.Compute() == false || pass.Flips + pass.Moves + pass.Splits + pass.Collapses == 0)
+                return null;
+            DMesh3 m = new DMesh3(pass.Mesh, true);
+            if (cancelF() || NotCleanReason(m, checkSelfIntersections) != "")
+                return null;
+            return certified_within(m, wrap, maxDistance, cancelF, ref subdivisions) ? m : null;
+        }
+
+        // is m certified within maxDistance of mesh (one-sided Hausdorff upper bound, from m to mesh)?
+        static bool certified_within(DMesh3 m, DMesh3 mesh, double maxDistance, Func<bool> cancelF, ref int hausdorffSubdivisions)
+        {
             // only the upper bound has to stay below maxDistance: a coarse tolerance first, a finer one if the
             // distance is close to maxDistance. With the patch bound: the large triangles of the result over the
             // many small, nearly flat ones of the mesh need few subdivisions (on the alpha wraps of the repair benchmark the check took 16 times less time)
@@ -503,11 +607,11 @@ namespace gs
                 bool computed = hd.Compute();
                 hausdorffSubdivisions += hd.Subdivisions;
                 if (computed == false || !(hd.LowerBound <= maxDistance))
-                    return null;
+                    return false;
                 if (hd.UpperBound <= maxDistance)
-                    return m;
+                    return true;
             }
-            return null;
+            return false;
         }
 
         // the solid of the mesh with its self-intersections resolved exactly, or null (ExactResolveReason says why)
