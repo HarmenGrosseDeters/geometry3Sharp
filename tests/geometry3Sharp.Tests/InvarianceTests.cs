@@ -142,8 +142,8 @@ namespace geometry3Sharp.Tests
         [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
         public void ExactBoolean_CoplanarGrid_SafeRounding_CleanUnderSimilarity(string name)
         {
-            // the grid above with SafeRounding (the default): clean in every placement but the rotated one (below), and the
-            // same result bit for bit under the exact similarities
+            // the grid above with SafeRounding (the default): clean in every placement, and the same result bit for bit
+            // under the exact similarities
             Similarity s = Similarity.ByName(name);
             var meshes = new List<DMesh3>();
             for (int i = 0; i < 2; ++i)
@@ -160,18 +160,15 @@ namespace geometry3Sharp.Tests
             AssertRelative(1.75 * 1.75 - 4 * 0.125, Invariance.Volume(r0), 1e-12, "volume");
             var eb = new ExactMeshBoolean(meshes.Select(m => Invariance.Transformed(m, s)), inside);
             Assert.True(eb.Compute(), eb.Error);
+            // (rotated, the rounding leaves 107 slivers and 22 intersecting pairs; before the strip zip, 3 slivers were
+            // left, which no single checked edit could fix)
             if (s.Name == "rotated") {
-                // known limitation (pinned): rotated, the rounding leaves 107 slivers and 22 intersecting pairs; the
-                // repair removes all intersections and all but 3 slivers, which no single checked edit can fix
                 Assert.Equal(22, eb.Rounding.InitialIntersections);
                 Assert.Equal(107, eb.Rounding.InitialDegenerate);
-                Assert.Equal(0, eb.Rounding.RemainingIntersections);
-                Assert.Equal(3, eb.Rounding.RemainingDegenerate);
-                ResultChecks.AssertClosed(eb.Result);
-            } else {
-                Assert.True(eb.RoundingClean, s.Name + ": rounding not clean");
-                Assert.Equal("", MeshRobustRepair.NotCleanReason(eb.Result));
+                Assert.True(eb.Rounding.StripZips > 0);
             }
+            Assert.True(eb.RoundingClean, s.Name + ": rounding not clean");
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(eb.Result));
             DMesh3 back = Invariance.MappedBack(eb.Result, s);
             // the repair moves vertices by at most MaxDisplacement (1e-5) of the diagonal, in practice by ulps
             AssertRelative(Invariance.Volume(r0), Invariance.Volume(back), 1e-9 + 100 * s.Resolution(2), s.Name);
