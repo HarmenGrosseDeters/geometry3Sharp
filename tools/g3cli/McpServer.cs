@@ -108,7 +108,7 @@ namespace g3cli
                 ["capabilities"] = new JsonObject() { ["tools"] = new JsonObject() { ["listChanged"] = false } },
                 ["serverInfo"] = new JsonObject() { ["name"] = "g3cli", ["title"] = "geometry3Sharp mesh tools", ["version"] = Commands.Version },
                 ["instructions"] = "Mesh operations on files (paths relative to the server's working directory): measure, repair, boolean, " +
-                    "resolve, remesh, simplify, convert. Every tool returns a JSON result with status and code; isError is set when code is not 'ok'.",
+                    "resolve, remesh, simplify, uv, convert; mesh2d triangulates and quality-meshes 2D domains given as JSON; query2d samples heights and finds triangles of a mesh in XY. Every tool returns a JSON result with status and code; isError is set when code is not 'ok'.",
             };
         }
 
