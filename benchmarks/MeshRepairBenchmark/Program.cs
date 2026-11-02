@@ -179,6 +179,8 @@ class Program
                                 case "follow": pass.FollowReference = v != 0; break;
                                 case "crease": pass.MaxFlipDihedralDegrees = v; break;
                                 case "worst": pass.WorstFirst = v != 0; break;
+                                case "normals": pass.KeepNormalDeviation = v != 0; break;
+                                case "nslack": pass.NormalDeviationSlackDegrees = v; break;
                                 default: throw new ArgumentException("BENCH_WQ: unknown switch " + p[0]);
                             }
                         }

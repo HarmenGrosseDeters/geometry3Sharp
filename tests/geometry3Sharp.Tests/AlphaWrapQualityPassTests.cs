@@ -300,6 +300,39 @@ namespace geometry3Sharp.Tests
             Assert.True(P01(a) > P01(simp) + 2);
         }
 
+        // area-weighted mean angle between m's normals and the wrap's (at the wrap triangle nearest each centroid)
+        static double NormalDeviation(DMesh3 m, DMesh3 wrap)
+        {
+            var tree = new DMeshAABBTree3(wrap, true);
+            double s = 0, a = 0;
+            foreach (int t in m.TriangleIndices()) {
+                double ar = m.GetTriArea(t);
+                s += ar * Vector3d.AngleD(m.GetTriNormal(t), wrap.GetTriNormal(tree.FindNearestTriangle(m.GetTriCentroid(t))));
+                a += ar;
+            }
+            return s / a;
+        }
+
+        [Fact]
+        public void KeepNormalDeviation_NormalsStayAsCloseToTheWrap()
+        {
+            DMesh3 wrap, simp; double tol;
+            BoxWrap(DefaultBox, out wrap, out simp, out tol);
+            DMesh3 free = MeshRobustRepair.ImproveWrapQuality(simp, wrap, tol, true, () => false);
+            DMesh3 kept = MeshRobustRepair.ImproveWrapQuality(simp, wrap, tol, true, () => false, (p) => p.KeepNormalDeviation = true);
+            DMesh3 slack = MeshRobustRepair.ImproveWrapQuality(simp, wrap, tol, true, () => false,
+                (p) => { p.KeepNormalDeviation = true; p.NormalDeviationSlackDegrees = 0.5; });
+            Assert.NotNull(free); Assert.NotNull(kept); Assert.NotNull(slack);
+            double d0 = NormalDeviation(simp, wrap), dFree = NormalDeviation(free, wrap), dKept = NormalDeviation(kept, wrap), dSlack = NormalDeviation(slack, wrap);
+            // (every operation keeps the mean of its own triangles; the measure here samples each triangle once, so
+            // it may differ a little from the per-operation means)
+            Assert.True(dKept <= d0 * 1.05, $"kept {dKept} vs simplified {d0}");
+            Assert.True(dFree > dKept, $"free {dFree} vs kept {dKept}");
+            Assert.True(dSlack >= dKept && dSlack <= dFree * 1.0001, $"slack {dSlack} between {dKept} and {dFree}");
+            // still better angles than the simplification
+            Assert.True(P01(kept) > P01(simp), $"{P01(simp)} -> {P01(kept)}");
+        }
+
         [Fact]
         public void InvariantUnderSimilarities()
         {

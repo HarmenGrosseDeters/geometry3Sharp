@@ -38,9 +38,16 @@ namespace gs
         internal double MaxFlipDihedralDegrees = 180;
         /// <summary> visit the edges and vertices in each pass by increasing smallest angle (worst first), not by id </summary>
         internal bool WorstFirst = false;
+        /// <summary>
+        /// an operation must not raise the area-weighted mean angle between the changed triangles' normals and the
+        /// reference's normals (at the reference triangle nearest to each triangle's centroid)
+        /// </summary>
+        internal bool KeepNormalDeviation = false;
+        /// <summary> KeepNormalDeviation: the new triangles may deviate this much more (degrees) </summary>
+        internal double NormalDeviationSlackDegrees = 0;
 
         // outputs
-        internal int Flips, Moves, RejectedByDeviation, RejectedByIntersection, Passes;
+        internal int Flips, Moves, RejectedByDeviation, RejectedByIntersection, RejectedByNormals, Passes;
 
         DMeshAABBTree3 referenceTree;
         TriangleDeviationBounds bounds;
@@ -70,7 +77,7 @@ namespace gs
         /// <summary> resets the counters and builds the queries (Compute does it; for tests of accept) </summary>
         internal void Prepare()
         {
-            Flips = Moves = RejectedByDeviation = RejectedByIntersection = Passes = 0;
+            Flips = Moves = RejectedByDeviation = RejectedByIntersection = RejectedByNormals = Passes = 0;
             referenceTree = new DMeshAABBTree3(Reference, true);
             bounds = new TriangleDeviationBounds(Reference) { PatchBound = true };
             cosTurn = Math.Cos(MaxNormalTurnDegrees * MathUtil.Deg2Rad);
@@ -129,8 +136,39 @@ namespace gs
 
         // new triangles (vertex ids, positions) replacing the triangles `removed`: within the tolerance and, if
         // checked, free of intersections with each other and with the rest of the mesh
+        // area-weighted mean angle (degrees) between the triangles' normals and the reference's normal near them
+        double normal_deviation(IEnumerable<Triangle3d> tris)
+        {
+            double sum = 0, area = 0;
+            foreach (Triangle3d t in tris) {
+                Vector3d n = (t.V1 - t.V0).Cross(t.V2 - t.V0);
+                double a2 = n.Length;
+                if (!(a2 > 0)) continue;
+                int r = referenceTree.FindNearestTriangle((t.V0 + t.V1 + t.V2) / 3);
+                sum += a2 * Vector3d.AngleD(n / a2, Reference.GetTriNormal(r));
+                area += a2;
+            }
+            return area > 0 ? sum / area : 0;
+        }
+
+        // KeepNormalDeviation: the new triangles deviate from the reference's normals no more than the removed ones
+        bool keeps_normals(List<Triangle3d> tris, HashSet<int> removed)
+        {
+            if (KeepNormalDeviation == false) return true;
+            var old = new List<Triangle3d>();
+            foreach (int t in removed) {
+                Index3i tv = Mesh.GetTriangle(t);
+                old.Add(new Triangle3d(Mesh.GetVertex(tv.a), Mesh.GetVertex(tv.b), Mesh.GetVertex(tv.c)));
+            }
+            return normal_deviation(tris) <= normal_deviation(old) + NormalDeviationSlackDegrees;
+        }
+
         internal bool accept(List<Index3i> ids, List<Triangle3d> tris, HashSet<int> removed)
         {
+            if (keeps_normals(tris, removed) == false) {
+                RejectedByNormals++;
+                return false;
+            }
             foreach (Triangle3d t in tris)
                 if (!bounds.IsWithin(referenceTree, t.V0, t.V1, t.V2, Tolerance)) {
                     RejectedByDeviation++;
