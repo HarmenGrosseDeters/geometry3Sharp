@@ -350,3 +350,36 @@ The other cases (one process each, first call; before: the table above):
 (The catch lines differ from the table above within Tolerance: the cap is another one, and with it the facets; see the
 local height limit in TERRAIN_1C_PLAN.md.) On the larger toes the slope surface (wavy: insert and simplify 40 s) and the
 overlay (octagon: 2.8 s) remain, the band-only overlay and ideas B to D.
+
+### The slope surface: insert and simplify without wasted work (#307)
+
+Found with a profile (`dotnet-trace`, sampled thread time, cross-checked with counters, since the sampler shows
+allocation sites more often than tight loops), each step with the same output (triangles, lowering, catch points; the
+predicate count unchanged except where noted):
+
+- `Simplify`: two edges on the same kernel line are collinear without a predicate (the corners of faces split by a
+  line that goes on are an exact zero, which the interval filter cannot decide: the exact stage ran every time);
+  merge corner orientations are remembered (1.5M tests, 384k distinct); a worklist visits only changed faces and
+  their neighbours, in the order of the reference (`Simplify_EqualsItsReference`: the same steps as master's
+  Simplify, bit for bit, on 19 stress cases).
+- The kernel's caches of plane lines and crossings: a pair hash that mixes both ids (the default hash of a long put
+  millions of pairs into a few thousand buckets).
+- `InsertPiece`: the relevance prefilter on the face's box before its corners (69 predicates fewer in the wavy case:
+  faces narrower than the rounding, which the polygon test took as distance 0).
+- Fewer allocations in the cycle walks of the insert.
+
+| case | #297 | now (first call) | insert | simplify | predicates (exact) |
+|---|---|---|---|---|---|
+| 1a speed case (`slope toe=wavy n=64 r=100 h=30 coords=utm`) | 15.2 s | 7.5 s | 5.7 → 3.9 s | 8.8 → 2.9 s | 25.4M (1.93M) → 23.9M (0.49M) |
+| wavy 48-gon r 150 m, Hambach 2 m, replacement | 49.4 s | 24.0 s | 27.8 → 9.7 s | 46.5 → 7.6 s | – |
+| octagon r 100 m, Hambach 1 m, replacement (warm) | 24.4 s | 3.6 s (5.9 s) | 0.98 → 0.24 s | 0.78 → 0.04 s | – |
+| L shape 120 m, Hambach 2 m | 6.7 s | 3.0 s (4.4 s) | | | |
+
+One toe edge, 1 m grid, warm median of 8 on one instance (first call): catch line 0.17 s (0.72 s), replacement
+0.26 s (1.15 s), full composite 0.96 s (1.66 s).
+
+The wavy case now spends 9.7 s inserting (49M side tests, 4.2 s of them filtered and 0.38 s exact; 356k faces made,
+12.7k left after simplify) and 7.6 s simplifying (330 rounds; 0.57M orientations, 532k of them exact, 2.8 s). An
+experiment with a shuffled piece order (not committed) made 151k faces and 18M predicates instead (insert + simplify
+17.7 → 5.8 s), but with another triangulation of the same surface (16007 instead of 46805 triangles): a randomized
+order needs a canonical result first (idea D of the 1c plan).

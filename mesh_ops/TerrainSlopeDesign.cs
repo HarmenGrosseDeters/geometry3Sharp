@@ -166,12 +166,15 @@ namespace gs
         /// <summary>
         /// with Terrain, BuildComposite and CompositeKind Replacement (else null): the part of the composite that replaces
         /// the terrain triangles ReplacedTerrainTriangles. Together with the other terrain triangles, joined at the
-        /// vertices that CompositeTerrainVertices names, it is the Full composite (the same triangles and vertices)
+        /// vertices that CompositeTerrainVertices names, it is the Full composite (the same triangles and vertex positions)
         /// </summary>
         public DMesh3 Replacement;
         /// <summary> with BuildComposite: the terrain triangles that the composite replaces (cut by the region), sorted </summary>
         public List<int> ReplacedTerrainTriangles = new List<int>();
-        /// <summary> with BuildComposite: per vertex of Composite or Replacement, the terrain vertex at its position, or -1 </summary>
+        /// <summary>
+        /// with BuildComposite: per vertex of Composite or Replacement, the terrain vertex at its position, or -1 (one per
+        /// position: of terrain vertices that share a position, an unwelded TIN, one is named)
+        /// </summary>
         public int[] CompositeTerrainVertices;
         /// <summary> false if the results are partial (NoDaylight) or missing </summary>
         public bool IsComplete;
@@ -349,9 +352,11 @@ namespace gs
             double hLocal = (upTo != null ? upTo(0) : local_terrain_max(toeBox, 0, fill)) + Tolerance;
             double toeMax = pieces.Max(p => Math.Max(p.A.z, p.B.z)) + Tolerance;
             hLocal = Math.Max(hLocal, toeMax);
-            // the start, without a build: the slope reaches a height h within (h - zMin) / sMin of the toe, so where all
-            // terrain within that reach is below h - Tolerance (a fixed point of this iteration) the region cannot reach a
-            // cap at h (the surface ends at h - λ, λ < Tolerance); otherwise the raise below decides
+            // the start, without a build: a slope of the specified ratio reaches a height h within (h - zMin) / sMin of the
+            // toe, so where all terrain within that reach is below h - Tolerance (a fixed point of this iteration) such a
+            // slope cannot reach a cap at h. The built surface is a little flatter (the margin δ, the facets, the rise of
+            // sloped toe segments: its gradient bound Slb is below S), so this is an estimate that usually saves the
+            // raise, not a guarantee; the raise below decides
             if (upTo != null) {
                 for (int k = 0; k < CapEstimateRounds && hLocal < H; ++k) {
                     double next = upTo((hLocal - zMin) / sMin) + Tolerance;

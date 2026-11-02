@@ -139,21 +139,24 @@ output that does not copy it), and the peak below that 3.1 GB at any toe size on
 - `Replacement`: `Replacement` holds only the part of the composite that replaces terrain triangles: the slope region
   and the pieces of the cut terrain triangles. `ReplacedTerrainTriangles` (sorted) are the terrain triangles it
   replaces; `CompositeTerrainVertices` gives, per vertex of `Composite` or `Replacement`, the terrain vertex at its
-  position (or -1). Replacement plus the other terrain triangles, joined at those vertices, is the full composite,
-  triangle for triangle and vertex for vertex (`TerrainSlopeReplacementTests`: random terrains cut and fill, at UTM,
+  position (or -1; one per position, if the terrain has several vertices at one position). Replacement plus the other
+  terrain triangles, joined at those vertices, is the full composite: the same triangles and vertex positions (`TerrainSlopeReplacementTests`: random terrains cut and fill, at UTM,
   invariance over `Similarity.All()`, reuse).
 - Terrain triangles wholly in the region (all overlay faces in it, no catch point, no boundary of the slope surface
   inside, corners on the slope surface) contribute nothing and are skipped before their CDT (checked against the CDT
-  on the tests and three Hambach cases before it was removed: the same composites).
+  on the tests and three Hambach cases before it was removed: the same composites;
+  `TerrainTriangleAroundThePit_IsNotWhollyReplaced`: a terrain triangle around the pit, all faces in the region, is
+  not skipped).
 - The composite's overlap check takes the terrain triangles near the made ones from a list the overlay keeps during
   its one pass over the terrain (those within a quarter of the slope's size of its box), used only when the box of the
   made triangles lies inside that list's box; else all of them.
 - The local height limit starts at a fixed point instead of the highest terrain at the toe: h = (the highest terrain
   within (h - zMin) / sMin of the toe box) + Tolerance, from one pass over the terrain triangles (a triangle counts
   with its highest corner at the distance of its bounding box, rounded up to a distance class: an upper bound; the
-  vertices alone are not, a triangle reaching into the box from outside is higher there). At a fixed point the region
-  cannot reach the cap, so one build suffices; the raise stays for the rest
-  (`LocalHeightLimit_IsRaised_AndMatchesTheGlobalLimit` checks both).
+  vertices alone are not, a triangle reaching into the box from outside is higher there). At a fixed point a slope of
+  the specified ratio cannot reach the cap; the built surface is a little flatter (the margin, the facets, sloped toe
+  segments: its gradient bound Slb is below S), so this is an estimate that saved the raise in every case measured
+  here, not a guarantee; the raise still decides (`LocalHeightLimit_IsRaised_AndMatchesTheGlobalLimit` checks both).
 
 Measured in benchmarks/TerrainBenchmark/README.md: one toe edge on the 1 m Hambach grid, warm (repeated on one
 instance), 0.28 s with the replacement output, 0.14 s for the catch line only, 0.94 s with the full composite; the

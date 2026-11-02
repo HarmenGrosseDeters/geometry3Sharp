@@ -362,10 +362,14 @@ namespace geometry3Sharp.Tests
             local.CapEstimateRounds = 0;     // (the raise; the start estimate avoids it, below)
             Assert.True(local.Compute(), local.Message);
             Assert.True(local.CapRounds >= 2, $"cap rounds {local.CapRounds}: the local cap was not raised");
+            // (the start estimate: one build; a vertex-only maximum missed the terrain triangles that reach into the toe
+            // box from outside, 5 m grid, and needed the raise)
             var estimated = Pit(terrain, TerrainSlopeDesignTests.Square(8, 0), 1);
             Assert.True(estimated.Compute(), estimated.Message);
             Assert.Equal(1, estimated.CapRounds);
             Assert.Equal(1, estimated.Attempts);
+            AssertCatchLines(estimated);
+            AssertComposite(estimated);
             var global = Pit(terrain, TerrainSlopeDesignTests.Square(8, 0), 1);
             global.HeightLimit = 29 + global.Tolerance;
             Assert.True(global.Compute(), global.Message);
@@ -375,7 +379,7 @@ namespace geometry3Sharp.Tests
             AssertCatchLines(local);
             AssertComposite(local);
             double bound = 2 * local.Tolerance / 0.5;
-            foreach (var pair in new[] { new[] { local, global }, new[] { global, local } }) {
+            foreach (var pair in new[] { new[] { local, global }, new[] { global, local }, new[] { estimated, global }, new[] { global, estimated } }) {
                 var line = pair[1].CatchLines[0].Points;
                 foreach (Vector3d p in pair[0].CatchLines[0].Points) {
                     double best = double.MaxValue;

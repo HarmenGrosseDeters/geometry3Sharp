@@ -710,7 +710,7 @@ namespace gs
                             if (g < 0 || g == f || fAlive[g] == false || fDomain[g] == false || fLabel[g] != fLabel[f] || hBar[h] >= 0) continue;
                             var key = (f, g, version[f], version[g]);
                             if (failed.Contains(key)) continue;
-                            if (try_merge(f, g)) { trace(1, f, g); version[f]++; again = true; changed = true; break; }
+                            if (try_merge_reference(f, g)) { trace(1, f, g); version[f]++; again = true; changed = true; break; }
                             failed.Add(key);
                         }
                     }
@@ -719,7 +719,7 @@ namespace gs
                     if (fAlive[f] == false) continue;
                     foreach (int h in cycle(f)) {
                         int g = hFace[hTwin[h]];
-                        if (try_remove_vertex(h)) {
+                        if (try_remove_vertex_reference(h)) {
                             trace(2, f, h);
                             version[f]++;
                             if (g >= 0) version[g]++;
@@ -729,6 +729,67 @@ namespace gs
                     }
                 }
             }
+        }
+
+        // the reference's steps as on master (before the in-place walks and the collinearity shortcuts), so that the
+        // test compares the new steps with the old ones
+        bool try_merge_reference(int f, int g)
+        {
+            List<int> cf = cycle(f);
+            int n = cf.Count;
+            // the run of f's edges shared with g (contiguous: two convex faces meet in one segment)
+            int start = -1;
+            for (int i = 0; i < n; ++i) {
+                bool shared = hFace[hTwin[cf[i]]] == g, prevShared = hFace[hTwin[cf[(i + n - 1) % n]]] == g;
+                if (shared && prevShared == false) { start = i; break; }
+            }
+            if (start < 0) return false;    // all edges shared: not possible for faces with area
+            int r = 0;
+            while (hFace[hTwin[cf[(start + r) % n]]] == g) r++;
+            for (int i = r; i < n; ++i) if (hFace[hTwin[cf[(start + i) % n]]] == g) return false;    // not contiguous
+            int h1 = cf[start], hr = cf[(start + r - 1) % n];
+            int fPrev = hPrev[h1], fNext = hNext[hr];               // f's edges ending at a, starting at b
+            int t1 = hTwin[h1], tr = hTwin[hr];
+            int gNext = hNext[t1], gPrev = hPrev[tr];               // g's edges starting at a, ending at b
+            if (hBar[h1] >= 0) return false;
+            for (int i = 0; i < r; ++i) if (hBar[cf[(start + i) % n]] >= 0) return false;
+            int a = hOrig[h1], b = hOrig[fNext];
+            // convex at a: (origin of fPrev, a, dest of gNext); at b: (origin of gPrev, b, dest of fNext)
+            if (K.Orient(hOrig[fPrev], a, hOrig[hTwin[gNext]]) < 0) return false;
+            if (K.Orient(hOrig[gPrev], b, hOrig[hTwin[fNext]]) < 0) return false;
+            // the union must not be degenerate (both faces have area, so it has)
+            hNext[fPrev] = gNext; hPrev[gNext] = fPrev;
+            hNext[gPrev] = fNext; hPrev[fNext] = gPrev;
+            for (int i = 0; i < r; ++i) { int h = cf[(start + i) % n]; hAlive[h] = false; hAlive[hTwin[h]] = false; }
+            int e = gNext;
+            do { hFace[e] = f; e = hNext[e]; } while (e != gNext);
+            fEdge[f] = fPrev;
+            fAlive[g] = false;
+            if (fQt[g] >= 0) { qt.Remove(fQt[g]); fQt[g] = -1; }
+            qt_update(f);
+            return true;
+        }
+
+        bool try_remove_vertex_reference(int h)
+        {
+            int p = hPrev[h];
+            int v = hOrig[h];
+            int t = hTwin[h], tp = hTwin[p];        // t: w -> v, tp: v -> u
+            if (hFace[t] < 0 || hFace[h] < 0) return false;    // the box boundary stays
+            if (hNext[t] != tp) return false;       // another edge at v
+            if (hBar[h] != hBar[p]) return false;
+            int u = hOrig[p], w = hOrig[t];
+            if (K.Orient(u, v, w) != 0) return false;
+            int f = hFace[h], g = hFace[t];
+            // keep p (u -> v becomes u -> w) and its twin tp (v -> u becomes w -> u)
+            int hn = hNext[h], tn = hPrev[t];
+            hNext[p] = hn; hPrev[hn] = p;
+            hOrig[tp] = w;
+            hNext[tn] = tp; hPrev[tp] = tn;
+            hAlive[h] = false; hAlive[t] = false;
+            if (f >= 0 && fEdge[f] == h) fEdge[f] = p;
+            if (g >= 0 && fEdge[g] == t) fEdge[g] = tp;
+            return true;
         }
 
         bool try_merge(int f, int g)

@@ -144,6 +144,34 @@ namespace geometry3Sharp.Tests
             Assert.NotNull(d.Composite);
         }
 
+        [Fact]
+        public void TerrainTriangleAroundThePit_IsNotWhollyReplaced()
+        {
+            // two terrain triangles over 30 x 30 m at z 30, above the cap at 20: the slope surface covers both and lies
+            // below the terrain everywhere, so every overlay face is in the region and every terrain corner is on the
+            // slope surface. But the pit (the toe, a hole of the slope surface) lies inside them: they must not be skipped
+            // as wholly replaced, the pit floor stays terrain (the area check of AssertComposite)
+            var terrain = new DMesh3(false, false, false, true);
+            int a = terrain.AppendVertex(new Vector3d(-15, -15, 30)), b = terrain.AppendVertex(new Vector3d(15, -15, 30));
+            int c = terrain.AppendVertex(new Vector3d(15, 15, 30)), d = terrain.AppendVertex(new Vector3d(-15, 15, 30));
+            terrain.AppendTriangle(a, b, c); terrain.AppendTriangle(a, c, d);
+            foreach (var kind in new[] { TerrainSlopeDesign.CompositeKinds.Full, TerrainSlopeDesign.CompositeKinds.Replacement }) {
+                var toe = SlopeToe.Constant(TerrainSlopeDesignTests.Square(8, 0), true, SlopeToe.Sides.Outside, SlopeSpec.Ratio(1));
+                var dsg = new TerrainSlopeDesign() { Toes = { toe }, Terrain = terrain, HeightLimit = 20, Tolerance = 0.05, BuildComposite = true, CompositeKind = kind };
+                dsg.Compute();
+                Assert.True(dsg.Status == TerrainSlopeDesign.Statuses.NoDaylight || dsg.Status == TerrainSlopeDesign.Statuses.Success, dsg.Status + " " + dsg.Message);
+                if (kind == TerrainSlopeDesign.CompositeKinds.Full) {
+                    TerrainSlopeCatchLineTests.AssertComposite(dsg);
+                } else {
+                    // both terrain triangles are replaced, and the replacement holds the pit floor (terrain group)
+                    Assert.Equal(new List<int> { 0, 1 }, dsg.ReplacedTerrainTriangles);
+                    double floor = dsg.Replacement.TriangleIndices().Where(t => dsg.Replacement.GetTriangleGroup(t) == dsg.Pieces.Count)
+                        .Sum(t => dsg.Replacement.GetTriArea(t));
+                    Assert.True(floor > 0.99 * 16 * 16, $"pit floor {floor}");
+                }
+            }
+        }
+
         static Similarity ZUp(Similarity s) =>
             s.IsRotated ? new Similarity(s.Name + " (about z)", s.Scale, Matrix3d.AxisAngleD(Vector3d.AxisZ, 31), s.Translation) : s;
 
