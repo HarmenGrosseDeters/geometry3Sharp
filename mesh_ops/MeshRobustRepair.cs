@@ -501,7 +501,7 @@ namespace gs
             var pass = new AlphaWrapQualityPass(new DMesh3(simplified), wrap, 0.95 * maxDistance) { CancelF = cancelF };
             configure?.Invoke(pass);
             // (the intersections are always checked, as by the simplification: an intersecting result is rejected below)
-            if (pass.Compute() == false || pass.Flips + pass.Moves == 0)
+            if (pass.Compute() == false || pass.Flips + pass.Moves + pass.Splits == 0)
                 return null;
             DMesh3 m = new DMesh3(pass.Mesh, true);
             if (cancelF() || NotCleanReason(m, checkSelfIntersections) != "")

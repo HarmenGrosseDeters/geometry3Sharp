@@ -181,6 +181,8 @@ class Program
                                 case "worst": pass.WorstFirst = v != 0; break;
                                 case "normals": pass.KeepNormalDeviation = v != 0; break;
                                 case "nslack": pass.NormalDeviationSlackDegrees = v; break;
+                                case "split": pass.SplitCapsAboveDegrees = v; break;
+                                case "capflip": pass.CapAngleDegrees = v; break;
                                 default: throw new ArgumentException("BENCH_WQ: unknown switch " + p[0]);
                             }
                         }

@@ -333,6 +333,61 @@ namespace geometry3Sharp.Tests
             Assert.True(P01(kept) > P01(simp), $"{P01(simp)} -> {P01(kept)}");
         }
 
+        // share of triangles with a largest angle above deg
+        static double CapShare(DMesh3 m, double deg)
+        {
+            int n = 0;
+            foreach (int t in m.TriangleIndices()) {
+                Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+                m.GetTriVertices(t, ref a, ref b, ref c);
+                double A = Vector3d.AngleD((b - a).Normalized, (c - a).Normalized), B = Vector3d.AngleD((a - b).Normalized, (c - b).Normalized);
+                if (Math.Max(A, Math.Max(B, 180 - A - B)) > deg) n++;
+            }
+            return (double)n / m.TriangleCount;
+        }
+
+        [Fact]
+        public void SplitCaps_FewerCaps_WithinTheBudget_SameSurface()
+        {
+            DMesh3 wrap, simp; double tol;
+            BoxWrap(DefaultBox, out wrap, out simp, out tol);
+            DMesh3 q = MeshRobustRepair.ImproveWrapQuality(simp, wrap, tol, true, () => false, (p) => { p.SplitCapsAboveDegrees = 150; p.EnableFlips = p.EnableMoves = false; });
+            Assert.NotNull(q);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(q, true));
+            Assert.True(q.TriangleCount > simp.TriangleCount && q.TriangleCount <= Math.Floor(simp.TriangleCount * 1.05), $"{simp.TriangleCount} -> {q.TriangleCount}");
+            Assert.True(CapShare(q, 150) < CapShare(simp, 150), $"caps {CapShare(simp, 150)} -> {CapShare(q, 150)}");
+            // splits only: the surface is the same (every new vertex lies on an old edge), so it is as close to the wrap
+            Assert.True(HausdorffUpper(q, wrap, tol) <= HausdorffUpper(simp, wrap, tol) + 0.01 * tol);
+            Assert.Equal(MeshTopologySummary.Compute(simp).Genus, MeshTopologySummary.Compute(q).Genus);
+            // no budget: no split
+            Assert.Null(MeshRobustRepair.ImproveWrapQuality(simp, wrap, tol, true, () => false,
+                (p) => { p.SplitCapsAboveDegrees = 150; p.MaxTriangleGrowth = 0; p.EnableFlips = p.EnableMoves = false; }));
+        }
+
+        [Fact]
+        public void CapFlips_FewerCapsUnderTheNormalGuard()
+        {
+            DMesh3 wrap, simp; double tol;
+            BoxWrap(DefaultBox, out wrap, out simp, out tol);
+            Action<AlphaWrapQualityPass> d = (p) => { p.KeepNormalDeviation = true; p.NormalDeviationSlackDegrees = 0.1; };
+            DMesh3 without = MeshRobustRepair.ImproveWrapQuality(simp, wrap, tol, true, () => false, d);
+            DMesh3 with = MeshRobustRepair.ImproveWrapQuality(simp, wrap, tol, true, () => false, (p) => { d(p); p.CapAngleDegrees = 150; });
+            Assert.NotNull(without); Assert.NotNull(with);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(with, true));
+            Assert.True(HausdorffUpper(with, wrap, tol) <= tol);
+            Assert.True(CapShare(with, 150) < CapShare(without, 150), $"caps {CapShare(without, 150)} -> {CapShare(with, 150)}");
+            Assert.Equal(simp.TriangleCount, with.TriangleCount);       // flips and moves only
+            // the two parts: the exemption from the normal guard on nearly flat pairs (none: CapFlipMaxDihedralDegrees 0) ...
+            DMesh3 noExemption = MeshRobustRepair.ImproveWrapQuality(simp, wrap, tol, true, () => false,
+                (p) => { d(p); p.CapAngleDegrees = 150; p.CapFlipMaxDihedralDegrees = 0; });
+            Assert.True(CapShare(with, 150) < CapShare(noExemption, 150), $"exemption: {CapShare(noExemption, 150)} -> {CapShare(with, 150)}");
+            // ... and the flips without a minimum-angle gain (no normal guard here)
+            DMesh3 plain = MeshRobustRepair.ImproveWrapQuality(simp, wrap, tol, true, () => false);
+            DMesh3 plainCaps = MeshRobustRepair.ImproveWrapQuality(simp, wrap, tol, true, () => false, (p) => p.CapAngleDegrees = 150);
+            Assert.NotEqual("", Invariance.Difference(plain, plainCaps));
+            Assert.True(CapShare(plainCaps, 150) <= CapShare(plain, 150), $"no gain needed: {CapShare(plain, 150)} -> {CapShare(plainCaps, 150)}");
+        }
+
         [Fact]
         public void InvariantUnderSimilarities()
         {

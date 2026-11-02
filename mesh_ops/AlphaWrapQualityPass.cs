@@ -45,9 +45,25 @@ namespace gs
         internal bool KeepNormalDeviation = false;
         /// <summary> KeepNormalDeviation: the new triangles may deviate this much more (degrees) </summary>
         internal double NormalDeviationSlackDegrees = 0;
+        /// <summary>
+        /// split the longest edge of triangles with a larger angle (caps) at the foot of the altitude from the opposite
+        /// vertex: the new vertex lies on the edge, so the surface does not change (180: off). The owner's approval of
+        /// splits (2026-11-02) caps the growth: at most MaxTriangleGrowth more triangles
+        /// </summary>
+        internal double SplitCapsAboveDegrees = 180;
+        internal double MaxTriangleGrowth = 0.05;
+        /// <summary>
+        /// cap flips: a flip that lowers the larger maximum angle of its two triangles from above CapAngleDegrees by at
+        /// least 5 degrees, without lowering their smaller minimum angle, is made also without a minimum-angle gain;
+        /// and KeepNormalDeviation does not apply to it if its two triangles meet at no more than CapFlipMaxDihedralDegrees
+        /// (nearly flat: the normals change by at most that). 180: off
+        /// </summary>
+        internal double CapAngleDegrees = 180;
+        internal double CapFlipMaxDihedralDegrees = 10;
 
         // outputs
-        internal int Flips, Moves, RejectedByDeviation, RejectedByIntersection, RejectedByNormals, Passes;
+        internal int Flips, Moves, Splits, RejectedByDeviation, RejectedByIntersection, RejectedByNormals, Passes;
+        int maxTriangles;
 
         DMeshAABBTree3 referenceTree;
         TriangleDeviationBounds bounds;
@@ -64,11 +80,11 @@ namespace gs
         {
             Prepare();
             for (int pass = 0; pass < MaxPasses; ++pass) {
-                int before = Flips + Moves;
+                int before = Flips + Moves + Splits;
                 Passes++;
-                if ((EnableFlips && flip_pass() == false) || (EnableMoves && move_pass() == false))
+                if ((SplitCapsAboveDegrees < 180 && split_pass() == false) || (EnableFlips && flip_pass() == false) || (EnableMoves && move_pass() == false))
                     return false;
-                if (Flips + Moves == before)
+                if (Flips + Moves + Splits == before)
                     break;
             }
             return true;
@@ -77,7 +93,8 @@ namespace gs
         /// <summary> resets the counters and builds the queries (Compute does it; for tests of accept) </summary>
         internal void Prepare()
         {
-            Flips = Moves = RejectedByDeviation = RejectedByIntersection = RejectedByNormals = Passes = 0;
+            Flips = Moves = Splits = RejectedByDeviation = RejectedByIntersection = RejectedByNormals = Passes = 0;
+            maxTriangles = (int)Math.Floor(Mesh.TriangleCount * (1 + MaxTriangleGrowth));
             referenceTree = new DMeshAABBTree3(Reference, true);
             bounds = new TriangleDeviationBounds(Reference) { PatchBound = true };
             cosTurn = Math.Cos(MaxNormalTurnDegrees * MathUtil.Deg2Rad);
@@ -152,9 +169,11 @@ namespace gs
         }
 
         // KeepNormalDeviation: the new triangles deviate from the reference's normals no more than the removed ones
+        bool skipNormals;
+
         bool keeps_normals(List<Triangle3d> tris, HashSet<int> removed)
         {
-            if (KeepNormalDeviation == false) return true;
+            if (KeepNormalDeviation == false || skipNormals) return true;
             var old = new List<Triangle3d>();
             foreach (int t in removed) {
                 Index3i tv = Mesh.GetTriangle(t);
@@ -236,7 +255,10 @@ namespace gs
                 int c = opposite(et.a, a, b), d = opposite(et.b, a, b);
                 Vector3d pa = Mesh.GetVertex(a), pb = Mesh.GetVertex(b), pc = Mesh.GetVertex(c), pd = Mesh.GetVertex(d);
                 // after the flip: (c, a, d) and (d, b, c), the same orientation
-                if (!(Math.Min(min_angle(pc, pa, pd), min_angle(pd, pb, pc)) >= cur + MinGainDegrees)) continue;
+                double nwMin = Math.Min(min_angle(pc, pa, pd), min_angle(pd, pb, pc));
+                double curMax = Math.Max(max_angle(pa, pb, pc), max_angle(pb, pa, pd));
+                bool capFlip = curMax > CapAngleDegrees && Math.Max(max_angle(pc, pa, pd), max_angle(pd, pb, pc)) <= curMax - 5 && nwMin >= cur;
+                if (!(nwMin >= cur + MinGainDegrees) && !capFlip) continue;
                 Vector3d n0, n1, m0, m1;
                 if (!unit_normal(pa, pb, pc, out n0) || !unit_normal(pb, pa, pd, out n1)) continue;
                 if (!unit_normal(pc, pa, pd, out m0) || !unit_normal(pd, pb, pc, out m1)) continue;
@@ -246,7 +268,11 @@ namespace gs
                 ids.Add(new Index3i(c, a, d)); tris.Add(new Triangle3d(pc, pa, pd));
                 ids.Add(new Index3i(d, b, c)); tris.Add(new Triangle3d(pd, pb, pc));
                 removed.Add(et.a); removed.Add(et.b);
-                if (accept(ids, tris, removed) == false) continue;
+                // (a cap flip on a nearly flat pair is not held to the normal deviation)
+                skipNormals = capFlip && n0.Dot(n1) >= Math.Cos(CapFlipMaxDihedralDegrees * MathUtil.Deg2Rad);
+                bool ok = accept(ids, tris, removed);
+                skipNormals = false;
+                if (ok == false) continue;
                 DMesh3.EdgeFlipInfo info;
                 if (Mesh.FlipEdge(eid, out info) != MeshResult.Ok) continue;
                 regrid(new[] { info.t0, info.t1 }, new[] { info.t0, info.t1 });
@@ -285,6 +311,76 @@ namespace gs
             }
             keyed.Sort((x, y) => x.Key != y.Key ? x.Key.CompareTo(y.Key) : x.Value.CompareTo(y.Value));
             foreach (var kv in keyed) yield return kv.Value;
+        }
+
+        static double max_angle(Vector3d a, Vector3d b, Vector3d c)
+        {
+            return Math.Max(angle(b - a, c - a), Math.Max(angle(a - b, c - b), angle(a - c, b - c)));
+        }
+
+        // caps (largest angle above SplitCapsAboveDegrees), largest angle first: their longest edge split at the foot
+        // of the altitude from the opposite vertex (the split stays on the surface: no change of position or normal;
+        // checked anyway, as every operation)
+        bool split_pass()
+        {
+            var caps = new List<KeyValuePair<double, int>>();
+            foreach (int t in Mesh.TriangleIndices()) {
+                Index3i tv = Mesh.GetTriangle(t);
+                double m = max_angle(Mesh.GetVertex(tv.a), Mesh.GetVertex(tv.b), Mesh.GetVertex(tv.c));
+                if (m > SplitCapsAboveDegrees) caps.Add(new KeyValuePair<double, int>(m, t));
+            }
+            caps.Sort((x, y) => x.Key != y.Key ? -x.Key.CompareTo(y.Key) : x.Value.CompareTo(y.Value));
+            var ids = new List<Index3i>(4);
+            var tris = new List<Triangle3d>(4);
+            var removed = new HashSet<int>();
+            foreach (var kv in caps) {
+                if (CancelF()) return false;
+                if (Mesh.TriangleCount + 2 > maxTriangles) break;
+                int t = kv.Value;
+                if (Mesh.IsTriangle(t) == false) continue;
+                Index3i tv = Mesh.GetTriangle(t);
+                Vector3d[] p = { Mesh.GetVertex(tv.a), Mesh.GetVertex(tv.b), Mesh.GetVertex(tv.c) };
+                if (!(max_angle(p[0], p[1], p[2]) > SplitCapsAboveDegrees)) continue;   // changed by an earlier split
+                // the longest edge (k, k+1), opposite vertex k+2
+                int k = 0;
+                for (int j = 1; j < 3; ++j)
+                    if (p[(j + 1) % 3].DistanceSquared(p[j]) > p[(k + 1) % 3].DistanceSquared(p[k])) k = j;
+                int va = tv[k], vb = tv[(k + 1) % 3];
+                int eid = Mesh.FindEdge(va, vb);
+                if (eid == DMesh3.InvalidID || Mesh.IsBoundaryEdge(eid)) continue;
+                Vector3d a = p[k], b = p[(k + 1) % 3], c = p[(k + 2) % 3];
+                Vector3d ab = b - a;
+                double l2 = ab.LengthSquared;
+                if (!(l2 > 0)) continue;
+                double s = MathUtil.Clamp((c - a).Dot(ab) / l2, 0.05, 0.95);
+                Vector3d m = a + s * ab;
+                // the four new triangles, in the orientation of the old ones
+                Index2i et = Mesh.GetEdgeT(eid);
+                int other = et.a == t ? et.b : et.a;
+                int d = opposite(other, va, vb);
+                int vc = tv[(k + 2) % 3];
+                Vector3d pd = Mesh.GetVertex(d);
+                ids.Clear(); tris.Clear(); removed.Clear();
+                // t = (va, vb, vc) in its order; other = (vb, va, d)
+                const int NewId = int.MaxValue;
+                ids.Add(new Index3i(va, NewId, vc)); tris.Add(new Triangle3d(a, m, c));
+                ids.Add(new Index3i(NewId, vb, vc)); tris.Add(new Triangle3d(m, b, c));
+                ids.Add(new Index3i(vb, NewId, d)); tris.Add(new Triangle3d(b, m, pd));
+                ids.Add(new Index3i(NewId, va, d)); tris.Add(new Triangle3d(m, a, pd));
+                bool valid = true;
+                foreach (Triangle3d nt in tris) { Vector3d n; if (!unit_normal(nt.V0, nt.V1, nt.V2, out n)) { valid = false; break; } }
+                if (!valid) continue;
+                removed.Add(t); removed.Add(other);
+                if (accept(ids, tris, removed) == false) continue;
+                DMesh3.EdgeSplitInfo info;
+                if (Mesh.SplitEdge(eid, out info) != MeshResult.Ok) continue;
+                Mesh.SetVertex(info.vNew, m);
+                var changed = new List<int>();
+                foreach (int nt in Mesh.VtxTrianglesItr(info.vNew)) changed.Add(nt);
+                regrid(new[] { t, other }, changed);
+                Splits++;
+            }
+            return true;
         }
 
         int opposite(int tid, int a, int b)
