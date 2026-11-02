@@ -215,7 +215,7 @@ namespace geometry3Sharp.Tests
 
         // ---- survivors of the kernel mutation run (follow-up of #267) ----
 
-        // Approx is within 1e-12 (relative) of the exact point, also for nearly parallel lines, where the intervals are
+        // Approx is within 2e-12 (relative) of the exact point, also for nearly parallel lines, where the intervals are
         // wide and it must fall back to the exact rounding; checked before the vertex is rounded (Rounded caches)
         [Fact]
         public void Approx_IsAccurate_AlsoForNearlyParallelLines()
@@ -236,7 +236,7 @@ namespace geometry3Sharp.Tests
             }
         }
 
-        // ApproxHeight is within 1e-12 (relative to the magnitudes involved) of the exact height
+        // ApproxHeight is within 1e-9 (relative to the magnitudes involved) of the exact height
         [Fact]
         public void ApproxHeight_IsAccurate()
         {
@@ -300,6 +300,31 @@ namespace geometry3Sharp.Tests
             // a vertex on one of its own lines needs no predicate
             Assert.Equal(0, K.Side(x, l));
             Assert.Equal(4, K.PredicateCalls);
+            // a tight crossing is approximated from its intervals, without a construction
+            var K2 = new ExactSlopeKernel();
+            int t = K2.Crossing(K2.PointLine(new Vector2d(0, 0), new Vector2d(3, 1)), K2.PointLine(new Vector2d(1, -3), new Vector2d(2, 7)));
+            K2.Approx(t);
+            Assert.Equal(0, K2.ExactConstructions);
+        }
+
+        // the shared-apex shortcut decides without a predicate call, for a common point as P, Q or R of the planes, and
+        // for plane 0
+        [Fact]
+        public void SharedApexShortcut_NeedsNoPredicate()
+        {
+            Vector3d o = new Vector3d(0, 0, 0);
+            var orders = new[] {
+                (new[] { o, new Vector3d(1, 0, 0), new Vector3d(0, 1, 0) }, new[] { o, new Vector3d(1, 0, 1), new Vector3d(0, 1, 0) }),
+                (new[] { new Vector3d(1, 0, 0), o, new Vector3d(0, 1, 0) }, new[] { new Vector3d(1, 0, 1), o, new Vector3d(0, 1, 0) }),
+                (new[] { new Vector3d(1, 0, 0), new Vector3d(0, 1, 0), o }, new[] { new Vector3d(1, 0, 1), new Vector3d(0, 1, 0), o }),
+            };
+            foreach (var (pa, pb) in orders) {
+                var K = new ExactSlopeKernel();
+                int a = K.AddPlane(pa[0], pa[1], pa[2]), b = K.AddPlane(pb[0], pb[1], pb[2]);
+                Assert.Equal(0, a);
+                Assert.Equal(0, K.Side(K.PointVertex(new Vector2d(0, 0)), K.PlaneLine(a, b)));
+                Assert.Equal(0, K.PredicateCalls);
+            }
         }
 
         // the shortcut matches a defining point by both coordinates: a vertex that shares only x or only y with the Q
