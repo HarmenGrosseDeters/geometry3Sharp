@@ -1,4 +1,4 @@
-﻿// Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
+// Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
 using System;
 using System.Collections.Generic;
 using g3;
@@ -181,6 +181,16 @@ namespace gs
             var dir = new Vector3d(rnd.Next(-1000, 1001), rnd.Next(-1000, 1001), rnd.Next(-1000, 1001)) / 1024.0;
             dir[axis] = rnd.Next(2) == 0 ? -1 : 1;
             Vector3d q = c + ext * dir;
+            winding = WindingAlong(mesh, tree, p, q);
+            return true;
+        }
+
+        /// <summary>
+        /// The winding number at p of a winding-closed mesh, from the exact signed crossings of the segment from p to q,
+        /// where q is outside the mesh's bounds (w(q) = 0) and neither end is on the surface (ExactWinding's q).
+        /// </summary>
+        internal static int WindingAlong(DMesh3 mesh, DMeshAABBTree3 tree, Vector3d p, Vector3d q)
+        {
             // pruning of the tree's boxes against the segment, widened (only the pruning; the crossings are exact)
             double pad = 1e-9 * (Math.Abs(p.x) + Math.Abs(p.y) + Math.Abs(p.z) + Math.Abs(q.x) + Math.Abs(q.y) + Math.Abs(q.z));
             int w = 0;
@@ -201,8 +211,7 @@ namespace gs
                         w += sp < 0 ? 1 : -1;
                 }
             });
-            winding = w;
-            return true;
+            return w;
         }
 
         // does the segment pq meet the box widened by pad (slab test in doubles; conservative with the pad)

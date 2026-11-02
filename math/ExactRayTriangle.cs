@@ -159,7 +159,7 @@ namespace g3
         /// </summary>
         public static int RayHitClosed(Vector3d o, Vector3d p, Vector3d a, Vector3d b, Vector3d c)
         {
-            if (is_finite(a) == false || is_finite(b) == false || is_finite(c) == false || o == p)
+            if (is_finite(o) == false || is_finite(a) == false || is_finite(b) == false || is_finite(c) == false || o == p)
                 return Miss;
             int s = ClosedCrossing(o, p, a, b, c);
             if (s == 0)
@@ -181,7 +181,7 @@ namespace g3
         /// </summary>
         public static int RayHitPerturbed(Vector3d o, Vector3d p, Vector3d a, Vector3d b, Vector3d c)
         {
-            if (is_finite(a) == false || is_finite(b) == false || is_finite(c) == false || o == p)
+            if (is_finite(o) == false || is_finite(a) == false || is_finite(b) == false || is_finite(c) == false || o == p)
                 return Miss;
             int s = LineCrossing(o, p, a, b, c);
             if (s == 0)

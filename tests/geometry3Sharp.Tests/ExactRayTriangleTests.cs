@@ -165,6 +165,49 @@ namespace geometry3Sharp.Tests
                     }
         }
 
+        [Theory]
+        [InlineData(1.0)]
+        [InlineData(0.0009765625)]      // 2^-10
+        [InlineData(1048576.0)]         // 2^20
+        public void WindingAlong_SegmentThroughVerticesAndEdges_CountsOnce(double scale)
+        {
+            // segments placed exactly through the solid's vertices, edges and face diagonals (ExactWinding's own far
+            // point almost never meets them): each crossing counts once, so the winding number is 1 inside, 0 outside
+            DMesh3 mesh = GridCube(4);
+            MeshTransforms.Scale(mesh, scale);
+            var tree = new DMeshAABBTree3(mesh, true);
+            var cases = new (Vector3d p, Vector3d q, int w)[] {
+                (new Vector3d(2, 2, 2), new Vector3d(6, 6, 6), 1),              // out through the corner (4,4,4)
+                (new Vector3d(-2, -2, -2), new Vector3d(6, 6, 6), 0),           // in and out through two corners
+                (new Vector3d(2, 2, 2), new Vector3d(6, 2, 3), 1),              // through the grid edge point (4,2,2.5)
+                (new Vector3d(2, 2.5, 2.5), new Vector3d(6, 2.5, 2.5), 1),      // through a quad's diagonal midpoint
+                (new Vector3d(-1, 2.5, 2.5), new Vector3d(6, 2.5, 2.5), 0),     // in and out through two diagonals
+                (new Vector3d(2, 2, 2.5), new Vector3d(6, 6, 2.5), 1),          // through the crease edge at (4,4,2.5)
+                (new Vector3d(-1, -1, 1.5), new Vector3d(6, 6, 1.5), 0),        // in and out through two crease edges
+            };
+            foreach (var (p, q, w) in cases)
+                Assert.Equal(w, VolumeSampleCells.WindingAlong(mesh, tree, scale * p, scale * q));
+        }
+
+        [Fact]
+        public void NonFiniteRayOrigin_NoHitAndNoThrow()
+        {
+            // a NaN or infinite origin hits nothing (as upstream: every comparison fails), and the exact predicates,
+            // which reject non-finite input, are never reached
+            DMesh3 mesh = GridCube(2);
+            var tree = new DMeshAABBTree3(mesh, true);
+            Vector3d a = new Vector3d(0, 0, 0), b = new Vector3d(1, 0, 0), c = new Vector3d(0, 1, 0);
+            foreach (double bad in new[] { double.NaN, double.PositiveInfinity, double.NegativeInfinity }) {
+                var ray = new Ray3d(new Vector3d(bad, 0.2, 1), -Vector3d.AxisZ);
+                Assert.False(IntrRay3Triangle3.Intersects(ref ray, ref a, ref b, ref c, out double _));
+                Assert.False(new IntrRay3Triangle3(ray, new Triangle3d(a, b, c)).Find());
+                Assert.Equal(DMesh3.InvalidID, tree.FindNearestHitTriangle(ray));
+                Assert.Equal(0, tree.FindAllHitTriangles(ray));
+                Assert.False(tree.IsInside(new Vector3d(bad, 1, 1)));
+                Assert.False(IntersectionUtil.Intersects(ray.Origin, ray.Direction, a, b, c));
+            }
+        }
+
         // ---- invariance ----
 
         /// <summary> a height field over [0,n]^2 with dyadic heights, two triangles per unit cell, alternating diagonals </summary>

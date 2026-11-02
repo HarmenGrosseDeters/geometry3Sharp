@@ -97,8 +97,9 @@ namespace g3
         // Whether the ray hits is decided exactly (ExactRayTriangle.RayHitClosed: the line through the origin and
         // secondPoint against the closed triangle, so that a ray onto a shared edge or vertex hits every triangle
         // there and never misses all of them, at any scale). The ray parameter and the barycentrics are computed in
-        // doubles as before (identical to upstream for every ray that upstream hit; near-parallel rays within upstream's
-        // tolerance now hit too).
+        // doubles as before (identical to upstream for every ray that both hit; near-parallel rays within upstream's
+        // tolerance now hit too, and a ray within rounding of the edge of a lone or boundary triangle can change
+        // between hit and miss, as the exact decision says).
         static bool hit(ref Ray3d ray, ref Vector3d secondPoint, ref Vector3d V0, ref Vector3d V1, ref Vector3d V2, bool bary,
             out double rayT, out double b1, out double b2)
         {
@@ -117,7 +118,8 @@ namespace g3
             Vector3d edge1 = V1 - V0;
             Vector3d edge2 = V2 - V0;
             Vector3d normal = edge1.Cross(ref edge2);
-            // the hit is exact, so the true t, b1, b2 are >= 0: their magnitudes (the same doubles as upstream's
+            // the hit is exact for the line through ray.Origin and secondPoint (ray.Direction rounded by about 2^-51
+            // relative), so the true t, b1, b2 of that line are >= 0 and a negative rounded value is tiny: their magnitudes (the same doubles as upstream's
             // sign-corrected values wherever upstream hit; a rounded D . N of the wrong sign, near parallel, cannot
             // make them negative)
             double DdN = Math.Abs(ray.Direction.Dot(ref normal));

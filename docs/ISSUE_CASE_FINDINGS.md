@@ -384,7 +384,8 @@ Tests: `tests/geometry3Sharp.Tests/SpatialQueryIssueCasesTests.cs`. Strict known
   origin is on the triangle, t = 0 as upstream). The triangle is closed: a ray onto a shared edge or vertex hits every
   triangle there, so it never misses all of them, at any scale, also on the boundary of an open mesh (the alternative,
   counting each crossing once by symbolic perturbation, misses at a boundary vertex or edge: kept for counting, Q3). The
-  ray parameter and the barycentrics are the same doubles as before for every ray upstream hit; no parallel tolerance
+  ray parameter and the barycentrics are the same doubles as before for every ray that both rules hit (near the edge of a lone or boundary
+  triangle a hit can become a miss or the reverse, as the exact decision says); no parallel tolerance
   any more (upstream rejected rays within about 1e-8 of the plane). Cost (median of 3, 200k random rays, scratch
   harness): `FindNearestHitTriangle` 364 -> 378 ns on a 200k-triangle sphere, 4529 -> 6075 ns on a 100k-triangle terrain
   with oblique rays (filtered `Orient3d` instead of a few products); identical hits. Row in UPSTREAM_CHANGES.md.
