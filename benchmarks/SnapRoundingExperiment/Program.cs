@@ -1,6 +1,5 @@
-// The snap-rounding experiment (docs/design/SAFE_ROUNDING.md sections 3 and 6): SafeRounding against the prototypes of
-// option A (separation by linear programs, MeshRoundingRepair.Separation) and option B (snap to a grid and resolve
-// again, SnapFallback.cs), one case per call, so that a driver can run every case in its own process with a time limit
+// The snap-rounding experiment (docs/design/SAFE_ROUNDING.md section 8): SafeRounding against option B (snap to a grid
+// and resolve again, SnapFallback.cs), one case per call, so that a driver can run every case in its own process with a time limit
 // (run.py; resumable, one JSON line per result).
 //   list <set>                  the case names of a set: clusters (the 198 dense and folded clusters of
 //                               SafeRoundingDegenerateInputTests), utm (the 114 cases of SafeRoundingBoundTests),
@@ -9,8 +8,9 @@
 //   run <case> <method>...      one JSON line per method: plain (SafeRounding off), safe (the default), again (safe, then
 //                               resolve the result once more with the drift left), B (safe, then snap the defects'
 //                               vertices to grids from fine to coarse and resolve again, within the drift left), Bpaper
-//                               (the published grid, [2^23, 2^24) per axis, hot voxels, 5 iterations, no drift bound), A (safe
-//                               with the separation stage), AB (A, then B)
+//                               (the published grid, [2^23, 2^24) per axis, hot voxels, 5 iterations, no drift bound), patch
+//                               (the upper bound of a patch-wise B). Option A (the separation by linear programs) was
+//                               measured and closed; its prototype is on the branch claude/snap-rounding-A-archive
 //   A case is a set name and its parameters, eg cluster:FoldedCluster:44:8:1, utm:Cluster:30:4:1, cylinder:2,
 //   bool:ShortEdge:44:Union:0, file:<path> (the self-union of a mesh file, eg Thingi10K), or bc:<dir>:<op> (a
 //   BooleanComparison case directory with A.off and B.off, and the operation).
@@ -162,16 +162,9 @@ static class Program
             return sb.Append(",\"ok\":false,\"error\":\"").Append(boolean.Error?.Replace("\"", "'")).Append("\"}").ToString();
         DMesh3 result = boolean.Result;
         MeshRoundingRepair r = boolean.Rounding;
-        // A: the separation stage on SafeRounding's repair, in place on the result (MeshRoundingRepair.Separation.cs)
-        if ((method == "A" || method == "AB") && r != null && r.IsClean == false)
-        {
-            if (Environment.GetEnvironmentVariable("SEP_DEBUG") == "1")
-                r.SeparationLog = (msg) => Console.Error.WriteLine(msg);
-            r.Separate();
-        }
         double drift = r?.MaxDrift ?? 0, maxLength = r?.MaxLength ?? 0;
         SnapFallback fb = null;
-        if (method == "again" || method == "B" || method == "AB" || method == "Bpaper") {
+        if (method == "again" || method == "B" || method == "Bpaper") {
             fb = new SnapFallback(result, r) { SnapGrids = method != "again", PaperGrid = method == "Bpaper" };
             fb.Apply();
             result = fb.Result;
@@ -194,7 +187,6 @@ static class Program
         if (r != null) {
             sb.Append(",\"removed_components\":").Append(r.RemovedComponents + (fb?.RemovedComponents ?? 0));
             sb.Append(",\"edits\":").Append(r.Collapses + r.Flips + r.Moves + r.Zips + r.VertexRemovals);
-            sb.Append(",\"separations\":").Append(r.Separations).Append(",\"programs\":").Append(r.SeparationPrograms).Append(",\"targets\":").Append(r.SeparationTargetsReached);
         }
         if (fb != null)
             sb.Append(",\"b_rounds\":").Append(fb.Rounds).Append(",\"b_grid_ulps\":").Append(fb.GridUlps.ToString("G4", ci)).Append(",\"within_bound\":").Append(fb.WithinBound ? "true" : "false");

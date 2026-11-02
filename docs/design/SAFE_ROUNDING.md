@@ -840,7 +840,10 @@ more than half of the drift bound already (many 0.7 to 0.99).
 
 ### 8.2 What was built
 
-- **A, separation** (`MeshRoundingRepair.Separate`, internal, `mesh_ops/MeshRoundingRepair.Separation.cs`): after
+- **A, separation** (owner decision 2026-11-02: measured and closed, not merged; the prototype, its LP solver and
+  their tests are on the branch `claude/snap-rounding-A-archive`, files `mesh_ops/MeshRoundingRepair.Separation.cs`,
+  `math/DenseSimplex.cs`, `tests/.../MeshRoundingRepairSeparationTests.cs`, `DenseSimplexTests.cs`; there
+  `MeshRoundingRepair.Separate`, internal): after
   SafeRounding, per cluster of defects (degenerate triangles and intersecting pairs, joined by shared vertices), the
   vertices of the cluster (then with their one-ring) get displacement variables. Rows:
   - per triangle at those vertices, n · ((b - a) × (c - a)) ≥ 8 times the degenerate area, linearized; n is the
@@ -872,6 +875,8 @@ more than half of the drift bound already (many 0.7 to 0.99).
 
 ### 8.3 The generated sets
 
+(The columns A and AB were measured with the tool as it is on the branch `claude/snap-rounding-A-archive`; on master the
+tool has no A.)
 `run.py <set> --methods plain,safe -j 4 --timeout 300`, then each of `again`, `A`, `B`, `AB` alone with `--left -j 4
 --timeout 120` (the methods change nothing where SafeRounding's result is clean); `summarize.py`. 4 cores, four cases at a time.
 "Clean": `RoundingClean` and `MeshRobustRepair.NotCleanReasons` empty. "Certified": clean and 2e-separated. "Failed":
@@ -945,8 +950,8 @@ the defects come from the input, eg open meshes, and A does nothing by design).
   move), with different drifts. Cause: `fix_degenerate` moves the apex of a cap along `off.Normalized`, and
   `Vector3d.Normalized` returns zero below the absolute `MathUtil.Epsilon`; the offset of a cap is about 1e-17 at scale
   1 (`fix_intersection`'s `toCtr.Normalized` is the same kind). The REVIEW_CHECKLIST §5 class. A fix changes results
-  where the threshold bites, so it is its own bugfix PR, not part of this experiment. The invariance test of A
-  (`MeshRoundingRepairSeparationTests`) therefore runs A without SafeRounding's edits.
+  where the threshold bites, so it is its own bugfix PR, #316 (merged). The invariance test of A (on the archive
+  branch) therefore runs A without SafeRounding's edits.
 
 - **Slow resolves of snapped meshes (B's time limit).** Repro, generated:
   `SNAP_TRACE=1 SNAP_CERT=0 dotnet bin/Release/net10.0/SnapRoundingExperiment.dll run cluster:Cluster:0:8:5 B` prints
@@ -1043,7 +1048,8 @@ also made clean by B. The one thing only A gives is the 2e-certificate of the cy
 the certificate is no criterion).
 
 **Criterion 4:** neither qualifies for a default. Options A and B are **measured and closed** as defaults. The
-prototypes stay where they are (A internal and unused in the library, B only in the tool). A patch-wise B behind an
+prototypes stay out of the library: A on the branch `claude/snap-rounding-A-archive`, B in the tool
+(`benchmarks/SnapRoundingExperiment`). A patch-wise B behind an
 off-by-default option remains possible later, if the owner wants it for open inputs; its preconditions are the
 patch-fitting and the Hausdorff check above.
 

@@ -2,9 +2,9 @@
 """Runs the snap-rounding experiment: every case of a set (or the mesh files given) and method in its own process with a
 time limit, appending one JSON line per result to the output file; cases already there are skipped (resumable).
 
-  python3 run.py <out.jsonl> <set or @file-list> [--methods plain,safe,again,A,B,AB] [--timeout 300] [-j 2] [--left]
+  python3 run.py <out.jsonl> <set or @file-list> [--methods plain,safe,again,B,Bpaper] [--timeout 300] [-j 2] [--left]
 
-With --left, only the cases whose "safe" result (already in out.jsonl) is not clean: again, A and B change nothing
+With --left, only the cases whose "safe" result (already in out.jsonl) is not clean: again and B change nothing
 where SafeRounding's result is clean, so a run is plain,safe first and the other methods with --left.
 
 A set is one of the tool's (clusters, utm, cylinder, booleans); @list is a file with one mesh path per line (each case
@@ -47,7 +47,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("out")
     ap.add_argument("spec")
-    ap.add_argument("--methods", default="plain,safe,again,A,B,AB")
+    ap.add_argument("--methods", default="plain,safe,again,B")
     ap.add_argument("--timeout", type=int, default=300)
     ap.add_argument("-j", type=int, default=2)
     ap.add_argument("--left", action="store_true", help="only the cases whose 'safe' result in out is not clean")
