@@ -61,6 +61,23 @@ namespace geometry3Sharp.Tests
             Assert.False(SeparationCertificate.segments_farther(V(0, 0, 0), V(1, 0, 0), V(1 + 1e-16, -1, 0), V(1 + 1e-16, 1, 0), Sq(d)));
         }
 
+        [Fact]
+        public void Mesh_PairExactlyAtD_NotCertified()
+        {
+            // a vertex at distance exactly d = √3 u (u = ulp(1.5) = 2^-52) from another triangle's corner: not farther
+            // than d (the double √3 is below the true one, so d² must not come from it; independent review)
+            double u = Math.Pow(2, -52);
+            var m = new DMesh3();
+            m.AppendVertex(new Vector3d(0, 0, 0)); m.AppendVertex(new Vector3d(-1, 0, 0)); m.AppendVertex(new Vector3d(0, -1, 0));
+            m.AppendVertex(new Vector3d(u, u, u)); m.AppendVertex(new Vector3d(1, 1, 1.5)); m.AppendVertex(new Vector3d(1, 1.25, 1));
+            m.AppendTriangle(0, 1, 2);
+            m.AppendTriangle(3, 4, 5);
+            Assert.True(SeparationCertificate.Check(m).Uncertified > 0);
+            // one ulp of the coordinate farther: certified
+            m.SetVertex(3, new Vector3d(2 * u, u, u));
+            Assert.Equal(0, SeparationCertificate.Check(m).Uncertified);
+        }
+
         static DMesh3 Boxes(double gap)
         {
             DMesh3 m = DegenerateFamilies.Box(Vector3d.Zero, Vector3d.One);

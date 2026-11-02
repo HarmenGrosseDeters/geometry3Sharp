@@ -46,7 +46,10 @@ namespace g3
         internal bool Separate()
         {
             Separations = SeparationPrograms = SeparationTargetsReached = 0;
-            if (Mesh.TriangleCount == 0 || drift == null || !(maxLength > 0))
+            // (without Apply there is no state to continue from: not a silent success, independent review)
+            if (drift == null)
+                throw new InvalidOperationException("MeshRoundingRepair.Separate: call Apply() first");
+            if (Mesh.TriangleCount == 0 || !(maxLength > 0))
                 return IsClean;
             List<Index2i> pairs = intersecting_pairs();
             List<int> bad = degenerate_triangles();
@@ -68,6 +71,8 @@ namespace g3
             }
             RemainingIntersections = pairs.Count;
             RemainingDegenerate = bad.Count;
+            int at = bad.Count > 0 ? bad[0] : pairs.Count > 0 ? pairs[0].a : -1;
+            RemainingDefectAt = (at >= 0 && Mesh.IsTriangle(at)) ? Mesh.GetTriCentroid(at) : Vector3d.Zero;
             return IsClean;
         }
 
@@ -473,6 +478,18 @@ namespace g3
             for (int j = 0; j < 3 * nv; ++j)
                 delta[j] = R * (lp.X[2 * j] - lp.X[2 * j + 1]);
             return delta;
+        }
+
+        // (for the tests: propose the vertices at the given positions as one separation edit, after Apply)
+        internal bool propose_move(List<int> verts, Vector3d[] x)
+        {
+            var tris = new List<int>();
+            var inT = new HashSet<int>();
+            foreach (int v in verts)
+                foreach (int t in Mesh.VtxTrianglesItr(v))
+                    if (inT.Add(t)) tris.Add(t);
+            tris.Sort();
+            return try_move_all(verts, x, tris);
         }
 
         // propose all vertices at their new positions as one edit (see the comment at the top)

@@ -75,6 +75,11 @@ and for each yes, check that a test covers it. A test must fail on the old code 
   upper bound built from interpolated values needs a slack for this and a slope limit (patch bound of
   `TriangleDeviationBounds`, wrap-resolution review).
 
+- An exact comparison with a threshold built from an irrational constant in double (eg d = √3 ulp, `Math.Sqrt(3) * ulp`)
+  is not exact: the double constant is rounded, so a value exactly at the threshold passes. Square it in exact
+  arithmetic (d² = 3 ulp²) and keep the double only where a margin covers its rounding (snap-rounding certificate,
+  independent review).
+
 - Plain double helpers (dot products, squared distances, tolerance squared) underflow at small magnitudes even
   where the predicates are exact: scale differences by a power of two first (meshing M2 review: a walk found no
   wedge at 2^-560).

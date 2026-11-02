@@ -49,7 +49,8 @@ namespace geometry3Sharp.Tests
             }
             var tree = new TriangleBoxTree(boxes);
             var seen = new HashSet<(int, int, int, int, int, int)>();
-            CertDyadic d2 = CertDyadic.Of(c.D) * CertDyadic.Of(c.D);
+            // (d² = 3 ulp², exact: the double D = √3 ulp is rounded and only pads the boxes, which have 2 ulps of slack)
+            CertDyadic d2 = CertDyadic.Of(3) * CertDyadic.Of(ulp) * CertDyadic.Of(ulp);
             for (int i = 0; i < tids.Count && c.Pairs < maxPairs; ++i) {
                 Index3i T = mesh.GetTriangle(tids[i]);
                 tree.Query(boxes[i], (j) => {
