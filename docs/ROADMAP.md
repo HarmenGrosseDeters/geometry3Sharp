@@ -74,6 +74,7 @@ Order when slots free up (owner, 2026-11-01; on that day 4 large and 2 medium se
    `m2.snap` (snap rounding with restore, refinement on the grid, §3g) merged in #277 on 2026-11-02; the reference
    comparison's set D starts now.
    Hull edges on the grid (owner 2026-11-02, [design/MESHING2D_HULL_GRID.md](design/MESHING2D_HULL_GRID.md), #310): option C, snap-round the hull edges as input segments (A as fallback); hull parts narrower than a pixel may collapse and are reported (Q17); acceptance the 192-run fuzz (master 119/192). Herne finding 2 (oracle merge zone hull-segment) in #309.
+   Merged 2026-11-02: #309 (Herne finding 2: oracle merge zone hull-segment, acute side only), #312 (oracle domain area without O(E²): debug2 50 min → 72 s); option C for hull edges on the grid next (fuzz 192/192, Herne 9/9). Raw alpha wrap fix A merged in #311 (59196 min angle 0° → 4.79°).
    Reference comparisons (owner 2026-11-02): a small control run (set D, Herne, debug2) once the Herne and debug2 fixes are merged; the big run with the new inputs (CDT rest, Natural Earth polygons, GEOS XML, DGM1, CGAL data) after lens + off-centres.
    Reference comparison analysed in [design/MESHING2D_REFERENCE_COMPARISON.md](design/MESHING2D_REFERENCE_COMPARISON.md) (#293): one real
    defect (CDT issue-211 at M3 20°, bugfix next). Owner 2026-11-02: refinement with diametral lenses plus off-centres (Chew 1989,
