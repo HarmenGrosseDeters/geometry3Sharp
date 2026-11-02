@@ -312,3 +312,41 @@ the terrain check 2.8 s and the overlay index 1.1 s); with the composite it take
 1.0 s building the 2 million copied terrain triangles into the composite mesh. This phase split is the baseline for the band-only
 overlay and composite (5.5 of the 1c plan); the peak of 3.1 GB on the 1 m grid is its memory target. On the wavy
 toe the slope surface itself (insert and simplify, 74 s) is what remains, ideas B to D.
+
+### The replacement output and the start of the local height limit (#307)
+
+`composite=2` asks for `CompositeKind.Replacement`: only the part of the composite that replaces terrain triangles,
+with the replaced triangles and the terrain vertex of each of its vertices. The checks join it with the untouched
+terrain (outside the timing): `composite_tris` is then that of the full composite, and the overlap and oracle checks
+run on it. `repeat=N` runs `Compute` N times on one instance: `slope_first_s` is the first call of the process (with
+the JIT of the library's code), `slope_s` the median of the others (warm). The local height limit now starts at a
+fixed point (one build where the raise took two), terrain triangles wholly in the region are skipped before their
+CDT, and the composite's overlap check takes the nearby terrain from the overlay's pass. 2026-11-02, 4 cores, the
+same command as above plus `composite=` and `repeat=`.
+
+One toe edge (200 m at −320 m, N 5642700.5) on the 1 m grid, 1978200 terrain triangles:
+
+| output | warm, median of 8 (min) | first call of a process (median of 7–11 processes) | #297, first call |
+|---|---|---|---|
+| catch line only (`composite=0`) | **0.14 s** (0.13 s) | 0.63 s | 0.93 s |
+| replacement (`composite=2`): 1539 triangles for 7314 replaced | **0.28 s** (0.18 s) | 1.01 s | – |
+| full composite (`composite=1`): 1972425 triangles | 0.94 s (0.59 s) | 1.61 s | 2.25 s |
+
+The operation itself (warm) is well below 1 s for one edge with either the catch line or the replacement; the first
+call of a process adds about 0.7 s of JIT. The full composite costs about 0.6 s more for building the 2 million
+copied triangles into the output mesh.
+
+The other cases (one process each, first call; before: the table above):
+
+| toe | grid | output | time | builds | catch points | output tris (replaced) | joined tris | overlaps | O1 | peak |
+|---|---|---|---|---|---|---|---|---|---|---|
+| octagon r 100 m | 1 m | full | 6.8 s (17.8) | 1 (2) | 2419 | 2351468 | – | 0 | 2432 / 2432 | 1.25 GB (1.50) |
+| the same | 1 m | replacement | 6.2 s | 1 | 2419 | 7933 (74265) | 2351468 | 0 | 2432 / 2432 | 1.20 GB |
+| L shape 120 m | 2 m | full | 4.7 s (6.5) | 1 (2) | 2116 | 573104 | – | 0 | 2419 / 2419 | 0.65 GB |
+| the same | 2 m | replacement | 4.9 s | 1 | 2116 | 6345 (45421) | 573104 | 0 | 2419 / 2419 | 0.67 GB |
+| wavy 48-gon r 150 m | 2 m | full | 47.8 s (87.4) | 1 (2) | 4009 | 746831 | – | 0 | 43055 / 43055 | 1.40 GB (1.49) |
+| the same | 2 m | replacement | 49.4 s | 1 | 4009 | 49946 (52185) | 746831 | 0 | 43055 / 43055 | 1.41 GB |
+
+(The catch lines differ from the table above within Tolerance: the cap is another one, and with it the facets; see the
+local height limit in TERRAIN_1C_PLAN.md.) On the larger toes the slope surface (wavy: insert and simplify 40 s) and the
+overlay (octagon: 2.8 s) remain, the band-only overlay and ideas B to D.

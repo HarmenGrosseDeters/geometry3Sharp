@@ -156,5 +156,5 @@ output that does not copy it), and the peak below that 3.1 GB at any toe size on
   (`LocalHeightLimit_IsRaised_AndMatchesTheGlobalLimit` checks both).
 
 Measured in benchmarks/TerrainBenchmark/README.md: one toe edge on the 1 m Hambach grid, warm (repeated on one
-instance), 0.30 s with the replacement output, 0.15 s for the catch line only, 0.90 s with the full composite; the
-first call of a process takes about 0.7 s more (JIT).
+instance), 0.28 s with the replacement output, 0.14 s for the catch line only, 0.94 s with the full composite; the
+first call of a process takes about 0.7 s more (JIT): 1.01 s, 0.63 s and 1.61 s (medians over processes).
