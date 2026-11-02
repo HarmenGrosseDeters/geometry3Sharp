@@ -124,19 +124,25 @@ namespace geometry3Sharp.Tests
         {
             // https://github.com/CGAL/cgal/issues/8152: large flat panels and sharp edges at a coarse alpha (relative
             // 600 / offset 1000 there): the edges were rounded off and the flat parts over-refined. Correct, as
-            // documented: every point of the result within offset + 2 alpha of the cube (so a corner is not cut off by
-            // more than that), and the cube's corners enclosed; flat faces need no more triangles than alpha allows.
+            // documented: every point of the result within offset + 2 alpha of the cube, each corner within offset +
+            // 2 alpha of the result (not rounded off further), and flat faces with no more triangles than alpha allows.
             DMesh3 cube = Box(new Vector3d(-1, -1, -1), new Vector3d(1, 1, 1));
             foreach (double relAlpha in new[] { 4.0, 15.0 }) {
                 Expect(nameof(CubeWithLargeAlpha_StaysNearTheCorners), () => {
                     MeshAlphaWrap w = Wrap(cube, relAlpha, 10 * relAlpha);
                     AlphaWrapTests.CheckWrap(w, AlphaWrapTests.Vertices(cube));
-                    // the corners are reached: the wrap's extent along each diagonal is at least the corner's
-                    foreach (Vector3d c in AlphaWrapTests.Vertices(cube))
-                        Assert.True(w.Result.Vertices().Max(v => v.Dot(c.Normalized)) >= c.Length, $"corner {c} cut off (alpha {w.UsedAlpha})");
-                    // triangles about alpha in size: their count is bounded by the area of the offset surface over alpha^2
+                    // the corners are kept: each within offset + 2 alpha of the result (a rounded-off corner is farther)
+                    var tree = new DMeshAABBTree3(w.Result, true);
+                    foreach (Vector3d c in AlphaWrapTests.Vertices(cube)) {
+                        double d = Math.Sqrt(MeshQueries.TriDistanceSqr(w.Result, tree.FindNearestTriangle(c), c));
+                        Assert.True(d <= w.UsedOffset + 2 * w.UsedAlpha, $"corner {c} at {d} from the wrap (offset {w.UsedOffset}, alpha {w.UsedAlpha})");
+                    }
+                    // flat faces not over-refined: triangles about alpha in size, so their count is bounded by the area
+                    // of the offset surface over the area of a triangle with circumradius alpha / 2
+                    // (measured: 48 and 732 triangles, bounds 116 and 1450)
                     double area = 6 * Math.Pow(2 + 2 * w.UsedOffset, 2);
-                    Assert.True(w.Result.TriangleCount <= 40 * area / (w.UsedAlpha * w.UsedAlpha) + 100, $"{w.Result.TriangleCount} triangles at alpha {w.UsedAlpha}");
+                    double small = 3 * Math.Sqrt(3) / 4 * Math.Pow(w.UsedAlpha / 2, 2);
+                    Assert.True(w.Result.TriangleCount <= area / small, $"{w.Result.TriangleCount} triangles at alpha {w.UsedAlpha}");
                 });
             }
         }

@@ -385,8 +385,9 @@ namespace gs
         /// An interior edge of the fill between two loop vertices that are already joined by an edge of the mesh outside
         /// the fill (eg the hole a-b-c-d of a tetrahedron without two faces, whose diagonal a-c is an edge of the other
         /// two) cannot be inserted: BackPropropagate splits it at its midpoint, and the fill then touches that existing
-        /// edge there (a self-intersection; pmp-library issue 181). Flip such edges to the other diagonal of their quad
-        /// where that one is new; Apply() then never needs the split for them.
+        /// edge there (a self-intersection; pmp-library issue 181). Flip such edges between two loop vertices (the only
+        /// ones the split looks at) to the other diagonal of their quad where that one is new and the flip turns no
+        /// triangle normal around (a concave quad would fold); the others are left to the split.
         /// </summary>
         void flip_existing_base_edges()
         {
@@ -398,10 +399,12 @@ namespace gs
                     if (fillmesh.IsEdge(eid) == false || fillmesh.IsBoundaryEdge(eid))
                         continue;
                     Index2i ev = fillmesh.GetEdgeV(eid);
-                    if (base_edge_exists(baseMesh, ev.a, ev.b) == false)
+                    if (boundaryv.Contains(ev.a) == false || boundaryv.Contains(ev.b) == false || base_edge_exists(baseMesh, ev.a, ev.b) == false)
                         continue;
                     Index2i ov = fillmesh.GetEdgeOpposingV(eid);
                     if (fillmesh.FindEdge(ov.a, ov.b) != DMesh3.InvalidID || base_edge_exists(baseMesh, ov.a, ov.b))
+                        continue;
+                    if (MeshUtil.CheckIfEdgeFlipCreatesFlip(fillmesh, eid))
                         continue;
                     DMesh3.EdgeFlipInfo info;
                     if (fillmesh.FlipEdge(eid, out info) == MeshResult.Ok)

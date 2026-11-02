@@ -414,12 +414,13 @@ and 1e3 in size (the same triangles), unwelded seams (a triangle soup, a sphere 
 a narrow gap, two open boxes touching at a hole corner, a ring of boxes whose last one nearly coincides with the
 first, a single flipped triangle, cavities oriented like the outer shell, an inside-out shell, a box pushed into a
 box, a thin fold of two boxes crossing at 3 degrees, and a chain of overlapping boxes. Every case checks the result
-(`NotCleanReasons`, the volume, the bounds, the triangle or component count). Hole cases use `MeshAutoRepair`:
-`MeshRobustRepair` compares a repair with the winding number solid of the open input, and a large fill differs from
-that by more than `MinVolumeIoU`, so it remeshes the input instead (by design). One fix, with a test that fails on
+(`NotCleanReasons`, the volume, the bounds, the triangle or component count). The large holes (a cap, the quad
+hole) use `MeshAutoRepair`: `MeshRobustRepair` compares a repair with the winding number solid of the open input,
+and a large fill differs from that by more than `MinVolumeIoU`, so it remeshes the input instead (by design). One fix, with a test that fails on
 the old code: `MinimalHoleFill` ended a quad hole on the existing diagonal, which `RegionOperator.BackPropropagate`
-then split at its midpoint, so the fill touched the existing edge (pmp-library#181); such edges are now flipped to
-the other diagonal ([UPSTREAM_CHANGES.md](UPSTREAM_CHANGES.md)). Known failure (strict list
+then split at its midpoint, so the fill touched the existing edge (pmp-library#181); such edges between two loop
+vertices are now flipped to the other diagonal where that one is new and no normal turns around
+([UPSTREAM_CHANGES.md](UPSTREAM_CHANGES.md)). Known failure (strict list
 `MeshRepairIssueCasesTests.KnownFailures`, finding R1): `MeshPostRepairCleanup.FindInvertedComponents` takes a
 closed component whose interior lies mostly inside another for a nested one also when their surfaces cross, so of two
 outward boxes crossing at 3 or 10 degrees one is flipped as a cavity, and the repair returns their difference as a
@@ -428,7 +429,7 @@ clean result; the volume check accepts it, because the input's reference solid u
 **Alpha wrap (November 2026):** `AlphaWrapIssueCasesTests` rebuilds 9 failure modes from the trackers of CGAL,
 Open3D, MeshLib and Manifold: separate components (one shell each, at two offsets, CGAL#7625), components closer
 than alpha (one shell), overlapping closed inputs and nested shells (one shell), a cube at a coarse alpha (corners
-kept, the triangle count bounded), lattice point clouds with cospherical points, nearly cospherical points at
+within offset + 2 alpha, the triangle count bounded), lattice point clouds with cospherical points, nearly cospherical points at
 2.8e6, a too small alpha (stopped at the point limit with a closed, enclosing result) and a two-sided sheet of zero
 thickness. Every case runs `AlphaWrapTests.CheckWrap` (all guarantees, distances against a brute-force oracle);
 `MeshAlphaWrap` passes all of them.

@@ -24,7 +24,7 @@ namespace geometry3Sharp.Tests
         public static readonly Dictionary<string, string> KnownFailures = new Dictionary<string, string> {
             // MeshPostRepairCleanup.FindInvertedComponents counts a closed component as enclosed by another when most of
             // its interior samples lie inside it, also when the two surfaces cross (it assumes interiors that are
-            // disjoint or nested): of two outward boxes crossing at 3 (or 10) degrees, one is flipped as a cavity, and
+            // disjoint or nested): of two outward boxes crossing at 3 or 10 degrees, one is flipped as a cavity, and
             // the repair returns A minus B (0.84 of 7.24) as clean. The volume check accepts it (IoU 1): the input's
             // reference solid uses the same nesting rule
             [nameof(ThinFold_NearlyParallelOverlap_Resolved)] = "finding R1: crossing components taken for nested ones",
@@ -178,7 +178,8 @@ namespace geometry3Sharp.Tests
         public void PlanarSquareHole_FilledExactly()
         {
             // https://github.com/CGAL/cgal/issues/937: a planar square hole (a box missing one face): with one choice of
-            // diagonal nothing was filled, yet success was reported. Correct: two triangles, the box's exact volume.
+            // diagonal nothing was filled, yet success was reported. Rebuilt for each of the six faces (their
+            // triangulations have both diagonal directions). Correct: two triangles, the box's exact volume.
             for (int face = 0; face < 6; ++face) {
                 DMesh3 input = Box(new Vector3d(-1, -2, -3), new Vector3d(4, 5, 6));
                 input.RemoveTriangle(2 * face, false);
@@ -315,7 +316,7 @@ namespace geometry3Sharp.Tests
         {
             // https://github.com/pmp-library/pmp-library/issues/225: a near-zero-area triangle on the rim of a hole
             // made the fairing of the fill move its new vertices far away from the hole. Rebuilt: a sphere with a cap
-            // removed, and one rim edge split very close to its end (two triangles of almost zero area on the rim).
+            // removed, and one rim edge split very close to its end (a triangle of almost zero area on the rim).
             DMesh3 sphere = Sphere(Vector3d.Zero, 1, 12), input = Copy(sphere);
             foreach (int t in sphere.TriangleIndices().ToArray())
                 if (sphere.GetTriCentroid(t).Normalized.z > 0.9)
@@ -357,11 +358,14 @@ namespace geometry3Sharp.Tests
         {
             // https://github.com/pmp-library/pmp-library/issues/67: the refinement of a small hole fill on a small mesh
             // added millions of vertices. Rebuilt: the smoothed hole fill of MeshAutoRepair on a sphere with a cap
-            // removed, 1e-3 and 1e3 in size (and 2^-10, 2^10 for a bit-exact comparison). Correct: the fill's size is
-            // bounded by the hole, not by an absolute constant, so all sizes give the same triangles.
+            // removed, 1e-3 and 1e3 in size, and 2^-10, 2^10 (compared with size 1 bit for bit). Correct: the fill's size
+            // is bounded by the hole, not by an absolute constant, so all sizes give the same triangles.
             int count = -1;
-            foreach (double size in new[] { 1e-3, 1e3, 1.0 / 1024, 1024 }) {
-                DMesh3 sphere = Sphere(Vector3d.Zero, size, 8), input = Copy(sphere);
+            DMesh3 unit = null;
+            foreach (double size in new[] { 1.0, 1e-3, 1e3, 1.0 / 1024, 1024 }) {
+                DMesh3 sphere = Sphere(Vector3d.Zero, 1, 8);
+                MeshTransforms.Scale(sphere, size);
+                DMesh3 input = Copy(sphere);
                 foreach (int t in sphere.TriangleIndices().ToArray())
                     if (sphere.GetTriCentroid(t).Normalized.z > 0.8)
                         input.RemoveTriangle(t, false);
@@ -371,6 +375,12 @@ namespace geometry3Sharp.Tests
                 Assert.True(sw.Elapsed.TotalSeconds < 60, $"size {size}: {sw.Elapsed.TotalSeconds} s");
                 if (count < 0) count = repaired.TriangleCount;
                 Assert.Equal(count, repaired.TriangleCount);
+                if (size == 1) unit = repaired;
+                else if (size == 1.0 / 1024 || size == 1024) {
+                    DMesh3 back = Copy(repaired);
+                    MeshTransforms.Scale(back, 1 / size);
+                    Assert.Equal("", Invariance.Difference(unit, back));
+                }
             }
         }
 
@@ -545,15 +555,17 @@ namespace geometry3Sharp.Tests
             Assert.Equal(1, Components(rr.Mesh));
         }
 
-        [Fact]
-        public void ThinFold_NearlyParallelOverlap_Resolved()
+        [Theory]
+        [InlineData(3.0)]
+        [InlineData(10.0)]
+        public void ThinFold_NearlyParallelOverlap_Resolved(double degrees)
         {
             // https://github.com/MeshInspector/MeshLib/issues/5567: thin folds, where intersecting faces point almost
             // the same way (within about 5 degrees), were missed by the self-intersection detection. Rebuilt: a flat box
-            // and a copy rotated by 3 degrees about an axis through its middle, so their large faces cross at a small
-            // angle. Correct: the union, clean.
+            // and a copy rotated by 3 (and 10) degrees about an axis through its middle, so their large faces cross at a
+            // small angle. Correct: the union, clean.
             DMesh3 a = Box(new Vector3d(-2, -2, -0.2), new Vector3d(2, 2, 0.2)), b = Copy(a);
-            MeshTransforms.Rotate(b, Vector3d.Zero, new Quaterniond(Vector3d.AxisY, 3));
+            MeshTransforms.Rotate(b, Vector3d.Zero, new Quaterniond(Vector3d.AxisY, degrees));
             var input = new DMesh3();
             new MeshEditor(input).AppendMesh(a);
             new MeshEditor(input).AppendMesh(b);
@@ -561,6 +573,12 @@ namespace geometry3Sharp.Tests
             var union = new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Union);
             Assert.True(union.Compute(), union.Error);
             Expect(nameof(ThinFold_NearlyParallelOverlap_Resolved), RobustOutcome(input, ResultChecks.Volume(union.Result), 1e-6, out var rr));
+            // while listed: the failure of finding R1 (a clean result of the wrong solid, the difference of the boxes), not
+            // some other one
+            if (KnownFailures.ContainsKey(nameof(ThinFold_NearlyParallelOverlap_Resolved))) {
+                ResultChecks.AssertClean(rr.Mesh, "the known failure's result");
+                Assert.True(ResultChecks.Volume(rr.Mesh) < 0.5 * ResultChecks.Volume(union.Result), $"volume {ResultChecks.Volume(rr.Mesh)}");
+            }
         }
 
         [Fact]
