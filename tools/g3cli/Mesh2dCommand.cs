@@ -317,7 +317,7 @@ namespace g3cli
             c.Params.Add(new Param("min_angle", ParamType.Number, "quality: minimum angle in degrees, in [0, 60) (0 = no angle bound; up to about 33 converges on ordinary input)"));
             c.Params.Add(new Param("max_area", ParamType.Number, "quality: maximum triangle area (regions can set their own)"));
             c.Params.Add(new Param("steiner_limit", ParamType.Integer, "quality: most Steiner points to insert (default 10 x (points + segments) + 100000)"));
-            c.Params.Add(new Param("conforming", ParamType.Boolean, "quality: conforming Delaunay, also without bounds (split segments until none is encroached)"));
+            c.Params.Add(new Param("conforming", ParamType.Boolean, "quality: conforming Delaunay, also without bounds (split segments until none is encroached); false (default): constrained Delaunay, and up to min_angle 25.65 a segment is encroached only by a vertex in its diametral lens, which inserts fewer points"));
             c.Params.Add(new Param("resolve_crossings", ParamType.Boolean, "split crossing constraints; false: a crossing fails with operation_failed") { Default = true });
             c.Params.Add(new Param("snap_tolerance", ParamType.Number, "snap rounding to a grid of this width anchored at the origin (m2.snap): input " +
                 "points move to their grid points, constraints are routed through them, every vertex ends at least half a cell from every constraint " +

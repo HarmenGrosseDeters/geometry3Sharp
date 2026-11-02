@@ -98,6 +98,7 @@ namespace Meshing2Acceptance
         public B Snap(double t) { input.SnapTolerance = t; text.Add("snap(" + Num(t) + ")"); return this; }
         public B NoNoding() { input.ResolveCrossings = false; text.Add("no_noding"); return this; }
         public B Conforming() { input.Conforming = true; text.Add("conforming"); return this; }
+        public B ConstrainedQuality() { input.ConstrainedQuality = true; text.Add("mode(constrained)"); return this; }
 
         public string Text => string.Join(" ", text);
         public Mesh2Input Build()
