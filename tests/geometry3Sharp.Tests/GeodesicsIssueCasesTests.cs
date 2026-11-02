@@ -24,8 +24,6 @@ namespace geometry3Sharp.Tests
     {
         /// <summary> case name -> finding; a listed case must still fail </summary>
         public static readonly Dictionary<string, string> KnownFailures = new Dictionary<string, string> {
-            [nameof(TinyAreaTriangles_VectorTransportFinite) + "_CoincidentVertices"] =
-                "finding G2: tangent frames of vertices with a coincident neighbour (zero-length input edge) are arbitrary",
         };
 
         static void Expect(string name, Action check)
@@ -728,6 +726,38 @@ namespace geometry3Sharp.Tests
                     Assert.True(tr != null && m.VertexIndices().All(v => tr[v].IsFinite && log[v].IsFinite), "G2: non-finite output");
                     Assert.True(offColumns.Count > 0 && offColumns.All(c => c == 4 || c == 5), $"G2: off at {string.Join(", ", off)}");
                 }
+            }
+        }
+
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void CoincidentVertices_VectorTransport_UnderSimilarities(string name)
+        {
+            // finding G2 on its own (https://github.com/nmwsharp/potpourri3d/issues/29): the flat grid with column 5
+            // moved onto column 4 (zero-length input edges, also at the boundary vertices of the columns), transformed.
+            // The transported vector is the source direction everywhere (within 2 degrees), also at the coincident
+            // vertices, whose tangent frames were arbitrary; at 2^k scales the transport is the same, bit for bit.
+            Similarity sim = Similarity.ByName(name);
+            Func<Similarity, (DMesh3, int[,], Vector2d[], VectorHeatMethod)> run = (sm) => {
+                int n = 10;
+                DMesh3 m0 = Grid(n, n, 1, 1, Flat, true, out int[,] ids);
+                for (int j = 0; j <= n; ++j)
+                    m0.SetVertex(ids[5, j], new Vector3d(0.4, m0.GetVertex(ids[5, j]).y, 0));
+                DMesh3 m = Invariance.Transformed(m0, sm);
+                var vh = new VectorHeatMethod(m);
+                Vector2d v0 = vh.Triangulation.FromWorld(ids[0, 0], sm.ApplyDirection(new Vector3d(1, 1, 0).Normalized));
+                return (m, ids, vh.TransportVector(ids[0, 0], v0), vh);
+            };
+            var (mesh, vids, tr, h) = run(sim);
+            Vector3d dir = sim.ApplyDirection(new Vector3d(1, 1, 0).Normalized);
+            foreach (int v in mesh.VertexIndices()) {
+                Vector3d w = h.Triangulation.ToWorld(v, tr[v]);
+                Assert.True(w.IsFinite && Vector3d.AngleD(w.Normalized, dir) < 2, $"{name}, vertex {v}: {Vector3d.AngleD(w.Normalized, dir):F1} degrees");
+            }
+            if (sim.IsExact && sim.Scale != 1) {
+                var (_, _, tr0, _) = run(Similarity.Identity);
+                foreach (int v in mesh.VertexIndices())
+                    Assert.Equal(tr0[v], tr[v]);
             }
         }
 

@@ -454,9 +454,10 @@ refinements, a reversed edge path, a 1.69 degree wedge and needle in the Delauna
 width in the vector transport, and a reversed triangle. Distances are checked against |p - s| or exact (FlipOut) paths,
 the heat method within its documented accuracy. Fixed: `MeshGeodesicPath.Path` repeated the end point of an edge
 traced exactly through a vertex (G1); `MeshGeodesicPath` reported `TraceFailed` for edges of 1.25e-4 at UTM
-coordinates, its trace tolerance now has a floor of 16 eps times the largest coordinate (G3). Known failure
-([ISSUE_CASE_FINDINGS.md](ISSUE_CASE_FINDINGS.md)): tangent frames at coincident vertices are arbitrary, so `ToWorld`
-of transported vectors is off by up to 135 degrees there (G2).
+coordinates, its trace tolerance now has a floor of 16 eps times the largest coordinate (G3); tangent frames at
+coincident vertices were arbitrary, so `ToWorld` of transported vectors was off by up to 135 degrees there, and a
+zero-length edge now gets the world angle interpolated between its neighbours (G2,
+[ISSUE_CASE_FINDINGS.md](ISSUE_CASE_FINDINGS.md)).
 
 **Parameterization (November 2026):** `ParameterizationIssueCasesTests` rebuilds 12 failure modes from the trackers of
 libigl, boundary-first-flattening and xatlas, each over LSCM, ARAP, SLIM, Tutte, BFF (default and Disk) and the atlas
