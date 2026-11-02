@@ -753,6 +753,10 @@ Severity: *C* = critical, *H* = high, *M* = medium, *L* = low.
 * **Q16** The issue tracker of the public fork could not be read in this session (access
   restricted); upstream issues are covered via the fork's own documentation. Are there further bug
   reports that should be added?
+* **Q17** Hull parts narrower than the snap tolerance (a hull tip below a pixel, collinear points that
+  snap to a zigzag): must snapping keep such a tip's vertex in the mesh (a sliver triangle, judged
+  with the area tolerance), or may the part collapse, the unused input vertex reported? Today the tip
+  vertex is lost at M3 even without refinement (`MESHING2D_HULL_GRID.md` section 6, with a reduction).
 
 ---
 
