@@ -444,6 +444,104 @@ namespace gs
             return true;
         }
 
+        // ---------------------------------------------------------------- volumes (TERRAIN.md 5.7)
+
+        /// <summary>
+        /// per piece (the group of the slope triangle): the volume between the terrain and the slope over the region (cut:
+        /// the terrain above the slope; fill: the slope above the terrain), its plan area and its area on the slope
+        /// surface. On each region face (a convex polygon, the XY intersection of its two triangles) the difference is
+        /// linear: split at 0 and integrated exactly in doubles (area times the mean of the corners, fans), relative to
+        /// the centre of the slope surface's box. Faces that the catch line crosses count with their part on the region
+        /// side.
+        /// </summary>
+        public void Integrate(int pieces, out double[] volume, out double[] planArea, out double[] slopeArea)
+        {
+            volume = new double[pieces]; planArea = new double[pieces]; slopeArea = new double[pieces];
+            var box = AxisAlignedBox2d.Empty;
+            foreach (Vector3d v in A.Vertices()) box.Contain(v.xy);
+            Vector2d o = box.Center;
+            var ta = new Vector2d[3]; var tb = new Vector2d[3];
+            foreach (Face f in Faces) {
+                if (f.Region == false) continue;
+                int piece = A.GetTriangleGroup(f.TA);
+                if (piece < 0 || piece >= pieces) continue;
+                Index3i av = A.GetTriangle(f.TA), bv = B.GetTriangle(f.TB);
+                Vector3d a0 = A.GetVertex(av.a), a1 = A.GetVertex(av.b), a2 = A.GetVertex(av.c);
+                Vector3d b0 = B.GetVertex(bv.a), b1 = B.GetVertex(bv.b), b2 = B.GetVertex(bv.c);
+                LinearZ s, t;
+                if (LinearZ.Of(a0, a1, a2, o, out s) == false || LinearZ.Of(b0, b1, b2, o, out t) == false) continue;
+                ta[0] = a0.xy - o; ta[1] = a1.xy - o; ta[2] = a2.xy - o;
+                tb[0] = b0.xy - o; tb[1] = b1.xy - o; tb[2] = b2.xy - o;
+                List<Vector2d> poly = clip_convex(ccw(ta), ccw(tb));
+                if (poly.Count < 3) continue;
+                // the region side: dir (T - S) > 0
+                var d = new List<double>(poly.Count);
+                foreach (Vector2d p in poly) d.Add(dir * (t.Z(p) - s.Z(p)));
+                var part = new List<Vector2d>(); var pd = new List<double>();
+                for (int i = 0; i < poly.Count; ++i) {
+                    int j = (i + 1) % poly.Count;
+                    if (d[i] >= 0) { part.Add(poly[i]); pd.Add(d[i]); }
+                    if ((d[i] > 0 && d[j] < 0) || (d[i] < 0 && d[j] > 0)) {
+                        double u = d[i] / (d[i] - d[j]);
+                        part.Add(poly[i] + u * (poly[j] - poly[i])); pd.Add(0);
+                    }
+                }
+                double ar = 0, integral = 0;
+                for (int i = 1; i + 1 < part.Count; ++i) {
+                    double tri = 0.5 * ((part[i].x - part[0].x) * (part[i + 1].y - part[0].y) - (part[i].y - part[0].y) * (part[i + 1].x - part[0].x));
+                    ar += tri;
+                    integral += tri * (pd[0] + pd[i] + pd[i + 1]) / 3;
+                }
+                volume[piece] += integral;
+                planArea[piece] += ar;
+                slopeArea[piece] += ar * Math.Sqrt(1 + s.Cx * s.Cx + s.Cy * s.Cy);
+            }
+        }
+
+        /// <summary> z = C0 + Cx x + Cy y of the plane through three points, in coordinates relative to an origin </summary>
+        internal struct LinearZ
+        {
+            public double C0, Cx, Cy;
+            public double Z(Vector2d p) { return C0 + Cx * p.x + Cy * p.y; }
+            public static bool Of(Vector3d a, Vector3d b, Vector3d c, Vector2d origin, out LinearZ z)
+            {
+                z = new LinearZ();
+                Vector2d pa = a.xy - origin, pb = b.xy - origin, pc = c.xy - origin;
+                double ux = pb.x - pa.x, uy = pb.y - pa.y, uz = b.z - a.z, vx = pc.x - pa.x, vy = pc.y - pa.y, vz = c.z - a.z;
+                double nz = ux * vy - uy * vx;
+                if (nz == 0) return false;
+                double nx = uy * vz - uz * vy, ny = uz * vx - ux * vz;
+                z.Cx = -nx / nz; z.Cy = -ny / nz;
+                z.C0 = a.z - z.Cx * pa.x - z.Cy * pa.y;
+                return true;
+            }
+        }
+
+        static Vector2d[] ccw(Vector2d[] t)
+        {
+            double cr = (t[1].x - t[0].x) * (t[2].y - t[0].y) - (t[1].y - t[0].y) * (t[2].x - t[0].x);
+            return cr >= 0 ? new[] { t[0], t[1], t[2] } : new[] { t[0], t[2], t[1] };
+        }
+
+        // the intersection of two counter-clockwise convex polygons (Sutherland-Hodgman, approximate)
+        static List<Vector2d> clip_convex(Vector2d[] subject, Vector2d[] clipper)
+        {
+            var poly = new List<Vector2d>(subject);
+            for (int e = 0; e < clipper.Length && poly.Count > 0; ++e) {
+                Vector2d c0 = clipper[e], c1 = clipper[(e + 1) % clipper.Length];
+                Func<Vector2d, double> side = (p) => (c1.x - c0.x) * (p.y - c0.y) - (c1.y - c0.y) * (p.x - c0.x);
+                var next = new List<Vector2d>(poly.Count + 2);
+                for (int i = 0; i < poly.Count; ++i) {
+                    Vector2d p = poly[i], q = poly[(i + 1) % poly.Count];
+                    double sp = side(p), sq = side(q);
+                    if (sp >= 0) next.Add(p);
+                    if ((sp > 0 && sq < 0) || (sp < 0 && sq > 0)) next.Add(p + (sp / (sp - sq)) * (q - p));
+                }
+                poly = next;
+            }
+            return poly;
+        }
+
         // ---------------------------------------------------------------- positions (approximate; 1c reports their accuracy)
 
         readonly Dictionary<long, Vector3d> catchPos = new Dictionary<long, Vector3d>();

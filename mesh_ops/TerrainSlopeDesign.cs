@@ -50,6 +50,11 @@ namespace gs
         /// <summary> the toe points at the ends of the piece, as specified </summary>
         public Vector3d P0, P1;
         public SlopeSpec Spec;
+        /// <summary>
+        /// with a terrain: the volume between the terrain and this piece's slope over the region (cut: excavated; fill:
+        /// filled), the region's plan area and its area on the slope surface (TERRAIN.md 5.7)
+        /// </summary>
+        public double Volume, PlanArea, SlopeArea;
     }
 
     /// <summary>
@@ -210,6 +215,13 @@ namespace gs
         /// Replacement with the terrain triangles not replaced: a vertex of them is this vertex where it is not -1
         /// </summary>
         public int[] TerrainCompositeVertices;
+        /// <summary>
+        /// with a terrain: the volume between the terrain and the slope surface over the region (cut: the terrain above
+        /// the slope, excavated; fill: the slope above the terrain, filled), its plan area and its area on the slope
+        /// surface; the sums of Pieces (TERRAIN.md 5.7). Integrated on the overlay, in doubles; the region inside the toe
+        /// (the caller's design) is not included
+        /// </summary>
+        public double Volume, PlanArea, SlopeArea;
         /// <summary> false if the results are partial (NoDaylight) or missing </summary>
         public bool IsComplete;
         /// <summary> (toe, segment) of the problems of InvalidInput, ToeSteeperThanSlope, ToeUndercut </summary>
@@ -246,6 +258,7 @@ namespace gs
             Replacement = null; ReplacedTerrainTriangles = new List<int>(); CompositeTerrainVertices = null; TerrainCompositeVertices = null;
             Pieces = new List<SlopePiece>(); ToeProblems = new List<Index2i>(); ProblemTriangles = new List<int>();
             MaxSlopeRatio = 0; UsedSlopeMargin = UsedToeLowering = UsedMinFeatureSize = FacetAngle = 0;
+            Volume = PlanArea = SlopeArea = 0;
             PhaseSeconds = new Dictionary<string, double>(); Attempts = 0; Realizations = 0; PredicateCalls = ExactFallbacks = ExactConstructions = 0;
             MergedPositions = 0; MergeLambdaRequired = 0; NeedleFlips = 0; LastRealized = null;
             // (a cancelled or failed run can leave them set)
@@ -534,6 +547,11 @@ namespace gs
                             Toe = p.Toe, Segment = p.Segment, Spec = p.Spec,
                             P0 = fill ? new Vector3d(p.A.x, p.A.y, -p.A.z) : p.A, P1 = fill ? new Vector3d(p.B.x, p.B.y, -p.B.z) : p.B
                         }).ToList();
+                        if (br.Volumes != null)
+                            for (int i = 0; i < Pieces.Count; ++i) {
+                                Pieces[i].Volume = br.Volumes[i]; Pieces[i].PlanArea = br.PlanAreas[i]; Pieces[i].SlopeArea = br.SlopeAreas[i];
+                                Volume += br.Volumes[i]; PlanArea += br.PlanAreas[i]; SlopeArea += br.SlopeAreas[i];
+                            }
                     }
                     return st;
                 }
@@ -564,6 +582,7 @@ namespace gs
             public DMesh3 Region, Composite;
             public List<int> Replaced;
             public int[] TerrainVertexOf, CompositeVertexOf;
+            public double[] Volumes, PlanAreas, SlopeAreas;
         }
 
         double terrainZMin, terrainZMax;
@@ -873,6 +892,7 @@ namespace gs
             if (overlayOk == false)
                 return overlay.NotHeightField ? fail(Statuses.NotHeightField, overlay.Problem) : fail(Statuses.Failed, "overlay: " + overlay.Problem);
             br.CatchLines = overlay.CatchLines;
+            overlay.Integrate(pieces.Count, out br.Volumes, out br.PlanAreas, out br.SlopeAreas);
             phase("overlay");
             // (a local height limit that the region reaches is raised and everything built again: no composite now)
             if (reachedCap && capMayGrow)
