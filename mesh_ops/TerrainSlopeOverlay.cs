@@ -158,12 +158,17 @@ namespace gs
         // ---------------------------------------------------------------- build
 
         /// <summary> false if the overlay is inconsistent (Problem); throws OperationCanceledException on cancel </summary>
+        /// <summary> Compute: the terrain triangles whose XY box meets NearBox (a box around A), in order </summary>
+        public readonly List<int> NearTerrain = new List<int>();
+        public AxisAlignedBox2d NearBox = AxisAlignedBox2d.Empty;
+
         public bool Compute()
         {
             // (a second call starts from scratch)
             Faces.Clear(); FaceOf.Clear(); Sign.Clear(); EdgeFaces.Clear(); CatchLines.Clear(); CatchKeys.Clear();
             containerOf.Clear(); catchPos.Clear(); crossPos.Clear(); bTriV.Clear(); bTriE.Clear();
             NoDaylight = false; ReachedHeightLimit = false; NotHeightField = false; Problem = ""; PhaseSeconds.Clear();
+            NearTerrain.Clear(); NearBox = AxisAlignedBox2d.Empty;
             var sw = System.Diagnostics.Stopwatch.StartNew();
             // the B triangles under A (their boxes meet A's box), counter-clockwise, and an index over them: the
             // terrain elsewhere does not take part (a large terrain costs one pass over its triangles)
@@ -173,11 +178,16 @@ namespace gs
             aAll.Expand(1e-9 * aAll.MaxDim + 4 * ulp(am));
             var bTris = new List<int>();
             var boxes = new List<AxisAlignedBox2d>();
+            // (and the terrain triangles within a quarter of A's size of it, for the composite's overlap check)
+            NearBox = aAll; NearBox.Expand(0.25 * aAll.MaxDim);
+            NearTerrain.Clear();
             foreach (int tb in B.TriangleIndices()) {
                 Index3i t = B.GetTriangle(tb);
                 Vector2d p0 = B.GetVertex(t.a).xy, p1 = B.GetVertex(t.b).xy, p2 = B.GetVertex(t.c).xy;
                 var box = new AxisAlignedBox2d(p0);
                 box.Contain(p1); box.Contain(p2);
+                if (box.Max.x < NearBox.Min.x || box.Min.x > NearBox.Max.x || box.Max.y < NearBox.Min.y || box.Min.y > NearBox.Max.y) continue;
+                NearTerrain.Add(tb);
                 if (box.Max.x < aAll.Min.x || box.Min.x > aAll.Max.x || box.Max.y < aAll.Min.y || box.Min.y > aAll.Max.y) continue;
                 int o = ExactPredicates.Orient2d(p0, p1, p2);
                 if (o == 0) { Problem = $"terrain triangle {tb} is degenerate in XY"; NotHeightField = true; return false; }

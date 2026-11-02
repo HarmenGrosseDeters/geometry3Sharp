@@ -11,7 +11,7 @@
 //   geodesic grid=<grid> [src=center|crest] [tf=1]
 //   csf      points=<cloud> grid=<dgm grid> [res=1] [threshold=0.5] [rigidness=2]
 //   slope    [toe=ngon|lshape|wavy] [n=24] [r=200] [h=60] [ratio=1] [tol=0.01] [coords=utm|local]
-//            [terrain=none|wave] [amp=0.2h] [tgrid=5] [composite=1]   (TerrainSlopeDesign,
+//            [terrain=none|wave] [amp=0.2h] [tgrid=5] [composite=1|2 (only the replacement)]   (TerrainSlopeDesign,
 //            procedural toes, no data needed; timings per phase, kernel counters, the oracle time per triangle)
 // Grids and clouds are names in data/ (see fetch_data.py).
 using System;
@@ -416,6 +416,7 @@ class Program
                 }
             d.Terrain = terrain; d.HeightLimit = double.NaN;
             d.BuildComposite = ArgD("composite", 1) != 0;
+            if (ArgD("composite", 1) == 2) d.CompositeKind = TerrainSlopeDesign.CompositeKinds.Replacement;
             R["terrain_tris"] = terrain.TriangleCount; R["terrain_load_s"] = Secs(sw0);
             if (ArgD("time_terrain_check", 0) != 0) { TerrainVolumeDifference.XYOverlaps(terrain); R["terrain_xyoverlaps_s"] = Secs(sw0); }
             R["terrain_zmin"] = terrain.Vertices().Min(v => v.z); R["terrain_zmax"] = terrain.Vertices().Max(v => v.z);
@@ -440,11 +441,21 @@ class Program
                 }
             d.Terrain = terrain; d.HeightLimit = double.NaN;
             d.BuildComposite = ArgD("composite", 1) != 0;
+            if (ArgD("composite", 1) == 2) d.CompositeKind = TerrainSlopeDesign.CompositeKinds.Replacement;
             R["terrain_tris"] = terrain.TriangleCount;
         }
+        // repeat=N: N runs on the same instance (the first includes the JIT); slope_s is the last, slope_first_s the first
+        int repeat = Math.Max(1, (int)ArgD("repeat", 1));
         var sw = Stopwatch.StartNew();
         bool ok = d.Compute();
         R["slope_s"] = Secs(sw);
+        if (repeat > 1) {
+            R["slope_first_s"] = R["slope_s"];
+            var times = new List<double>();
+            for (int i = 1; i < repeat; ++i) { sw.Restart(); ok = d.Compute(); times.Add(Secs(sw)); }
+            times.Sort();
+            R["slope_s"] = times[times.Count / 2]; R["slope_warm_min_s"] = times[0];
+        }
         R["ok"] = ok; R["slope_status"] = d.Status.ToString(); R["message"] = d.Message;
         R["toe_points"] = pts.Count; R["attempts"] = d.Attempts;
         foreach (var kv in d.PhaseSeconds) R["phase_" + kv.Key + "_s"] = kv.Value;
@@ -453,10 +464,29 @@ class Program
         if (d.Terrain != null) {
             R["catch_lines"] = d.CatchLines.Count; R["catch_points"] = d.CatchLines.Sum(l => l.Points.Count);
             R["catch_closed"] = d.CatchLines.Count(l => l.Closed);
-            if (d.Composite != null) {
-                R["composite_tris"] = d.Composite.TriangleCount; R["region_tris"] = d.SlopeRegion.TriangleCount;
+            // (Replacement: checked as the full composite, joined with the terrain triangles not replaced, outside the timing)
+            DMesh3 joined = d.Composite;
+            if (d.Replacement != null) {
+                R["replacement_tris"] = d.Replacement.TriangleCount; R["replaced_terrain_tris"] = d.ReplacedTerrainTriangles.Count;
+                joined = new DMesh3(d.Replacement);
+                var replaced = new HashSet<int>(d.ReplacedTerrainTriangles);
+                var at = new Dictionary<int, int>();
+                Func<int, int> jv = (tv) => {
+                    int o = d.TerrainCompositeVertices[tv];
+                    if (o >= 0) return o;
+                    if (at.TryGetValue(tv, out o) == false) { o = joined.AppendVertex(d.Terrain.GetVertex(tv)); at[tv] = o; }
+                    return o;
+                };
+                foreach (int t in d.Terrain.TriangleIndices()) {
+                    if (replaced.Contains(t)) continue;
+                    Index3i tv = d.Terrain.GetTriangle(t);
+                    if (joined.AppendTriangle(jv(tv.a), jv(tv.b), jv(tv.c)) < 0) R["join_failures"] = 1;
+                }
+            }
+            if (joined != null) {
+                R["composite_tris"] = joined.TriangleCount; R["region_tris"] = d.SlopeRegion.TriangleCount;
                 var swc = Stopwatch.StartNew();
-                R["composite_overlaps"] = TerrainVolumeDifference.XYOverlaps(d.Composite);
+                R["composite_overlaps"] = TerrainVolumeDifference.XYOverlaps(joined);
                 int rp = 0;
                 foreach (int t in d.SlopeRegion.TriangleIndices()) {
                     Vector3d a = Vector3d.Zero, b = Vector3d.Zero, q = Vector3d.Zero;

@@ -20,7 +20,7 @@ namespace geometry3Sharp.Tests
         readonly ITestOutputHelper output;
         public TerrainSlopeOneBuildTests(ITestOutputHelper output) { this.output = output; }
 
-        static IEnumerable<Func<TerrainSlopeDesign>> Cases()
+        internal static IEnumerable<Func<TerrainSlopeDesign>> Cases()
         {
             Func<int, double, double, double, double, bool, TerrainSlopeDesign> ngon = (n, r, phase, ratio, h, utm) => {
                 var c = utm ? new Vector2d(5.6e6, 3.5e5) : Vector2d.Zero;
@@ -99,6 +99,34 @@ namespace geometry3Sharp.Tests
             output.WriteLine($"{n} cases, {saved} builds saved, {raised} with a raised lowering");
             // (the comparison has to exercise the re-realization)
             Assert.True(raised >= 3, $"{raised}");
+        }
+
+        [Fact]
+        public void Simplify_EqualsItsReference()
+        {
+            // Simplify visits only the faces that changed or have a changed neighbour; the reference visits every face
+            // in every round. The same steps in the same order: the same result, bit for bit, on the stress set
+            int n = 0;
+            foreach (var make in Cases()) {
+                var a = make();
+                var b = make();
+                b.ReferenceSimplify = true;
+                bool ra = a.Compute(), rb = b.Compute();
+                n++;
+                Assert.Equal(b.Status, a.Status);
+                Assert.Equal(rb, ra);
+                Assert.Equal(b.Attempts, a.Attempts);
+                Assert.Equal(b.UsedToeLowering, a.UsedToeLowering);
+                Assert.True(b.PredicateCalls >= a.PredicateCalls);
+                // (the same steps, not only the same result: the merges and vertex removals in the same order)
+                Assert.Equal(b.SimplifyTrace, a.SimplifyTrace);
+                Assert.NotEqual(0UL, a.SimplifyTrace);
+                if (b.SlopeSurface != null) Assert.Equal("", Invariance.Difference(b.SlopeSurface, a.SlopeSurface));
+                if (b.Composite != null) Assert.Equal("", Invariance.Difference(b.Composite, a.Composite));
+                Assert.Equal(b.CatchLines.Count, a.CatchLines.Count);
+                for (int i = 0; i < a.CatchLines.Count; ++i) Assert.Equal(b.CatchLines[i].Points, a.CatchLines[i].Points);
+                output.WriteLine($"{n}: {a.Status}, simplify rounds {a.SimplifyRounds}, predicates {a.PredicateCalls} (reference {b.PredicateCalls})");
+            }
         }
     }
 }
