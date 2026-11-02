@@ -75,9 +75,15 @@ namespace gs
         /// </summary>
         internal double CapAngleDegrees = 180;
         internal double CapFlipMaxDihedralDegrees = 10;
+        /// <summary>
+        /// needle collapses (Hu et al. 2017): the shortest edge of a triangle below TargetAngleDegrees collapsed to its
+        /// midpoint or one of its ends (a crease vertex, with PinCreaseVerticesDegrees, keeps its position), under the
+        /// same guards as every operation and the link condition
+        /// </summary>
+        internal bool EnableCollapses = false;
 
         // outputs
-        internal int Flips, Moves, Splits, RejectedByDeviation, RejectedByIntersection, RejectedByNormals, RejectedByProtection, Passes;
+        internal int Flips, Moves, Splits, Collapses, RejectedByDeviation, RejectedByIntersection, RejectedByNormals, RejectedByProtection, Passes;
         int maxTriangles;
 
         DMeshAABBTree3 referenceTree;
@@ -95,11 +101,11 @@ namespace gs
         {
             Prepare();
             for (int pass = 0; pass < MaxPasses; ++pass) {
-                int before = Flips + Moves + Splits;
+                int before = Flips + Moves + Splits + Collapses;
                 Passes++;
-                if ((SplitCapsAboveDegrees < 180 && split_pass() == false) || (EnableFlips && flip_pass() == false) || (EnableMoves && move_pass() == false))
+                if ((EnableCollapses && collapse_pass() == false) || (SplitCapsAboveDegrees < 180 && split_pass() == false) || (EnableFlips && flip_pass() == false) || (EnableMoves && move_pass() == false))
                     return false;
-                if (Flips + Moves + Splits == before)
+                if (Flips + Moves + Splits + Collapses == before)
                     break;
             }
             return true;
@@ -108,7 +114,7 @@ namespace gs
         /// <summary> resets the counters and builds the queries (Compute does it; for tests of accept) </summary>
         internal void Prepare()
         {
-            Flips = Moves = Splits = RejectedByDeviation = RejectedByIntersection = RejectedByNormals = RejectedByProtection = Passes = 0;
+            Flips = Moves = Splits = Collapses = RejectedByDeviation = RejectedByIntersection = RejectedByNormals = RejectedByProtection = Passes = 0;
             maxTriangles = (int)Math.Floor(Mesh.TriangleCount * (1 + MaxTriangleGrowth));
             referenceTree = new DMeshAABBTree3(Reference, true);
             bounds = new TriangleDeviationBounds(Reference) { PatchBound = true };
@@ -305,6 +311,21 @@ namespace gs
             return true;
         }
 
+        /// <summary> (for tests) the self-intersection grid holds exactly the mesh's triangles, each with its current box </summary>
+        internal bool GridMatchesMesh()
+        {
+            if (grid == null) return true;
+            if (grid.Count != Mesh.TriangleCount) return false;
+            foreach (int t in Mesh.TriangleIndices()) {
+                Index3i tv = Mesh.GetTriangle(t);
+                AxisAlignedBox3d stored;
+                if (!grid.TryGetBox(t, out stored)) return false;
+                AxisAlignedBox3d cur = box(Mesh.GetVertex(tv.a), Mesh.GetVertex(tv.b), Mesh.GetVertex(tv.c));
+                if (stored.Min != cur.Min || stored.Max != cur.Max) return false;
+            }
+            return true;
+        }
+
         internal void regrid(IEnumerable<int> removed, IEnumerable<int> added)
         {
             if (grid == null) return;
@@ -487,6 +508,106 @@ namespace gs
                 foreach (int nt in Mesh.VtxTrianglesItr(info.vNew)) changed.Add(nt);
                 regrid(new[] { t, other }, changed);
                 Splits++;
+            }
+            return true;
+        }
+
+        // the triangles below TargetAngleDegrees: by id, or with WorstFirst by increasing smallest angle (ties by id)
+        List<int> needle_order()
+        {
+            var keyed = new List<KeyValuePair<double, int>>();
+            foreach (int t in Mesh.TriangleIndices()) {
+                double a = min_angle(t);
+                if (a < TargetAngleDegrees) keyed.Add(new KeyValuePair<double, int>(WorstFirst ? a : 0, t));
+            }
+            keyed.Sort((x, y) => x.Key != y.Key ? x.Key.CompareTo(y.Key) : x.Value.CompareTo(y.Value));
+            var order = new List<int>(keyed.Count);
+            foreach (var kv in keyed) order.Add(kv.Value);
+            return order;
+        }
+
+        // needles: their shortest edge (a, b) collapsed into a, placed at the candidate (midpoint, a or b; a pinned
+        // crease vertex keeps its position) that gives the largest smallest angle and passes accept
+        bool collapse_pass()
+        {
+            var ids = new List<Index3i>();
+            var tris = new List<Triangle3d>();
+            var removed = new HashSet<int>();
+            var candidates = new List<KeyValuePair<double, Vector3d>>(3);
+            foreach (int t in needle_order()) {
+                if (CancelF()) return false;
+                if (Mesh.IsTriangle(t) == false) continue;
+                Index3i tv = Mesh.GetTriangle(t);
+                Vector3d[] p = { Mesh.GetVertex(tv.a), Mesh.GetVertex(tv.b), Mesh.GetVertex(tv.c) };
+                if (!(min_angle(p[0], p[1], p[2]) < TargetAngleDegrees)) continue;   // changed by an earlier operation
+                int k = 0;
+                for (int j = 1; j < 3; ++j)
+                    if (p[(j + 1) % 3].DistanceSquared(p[j]) < p[(k + 1) % 3].DistanceSquared(p[k])) k = j;
+                int a = tv[k], b = tv[(k + 1) % 3];
+                int eid = Mesh.FindEdge(a, b);
+                if (eid == DMesh3.InvalidID || Mesh.IsBoundaryEdge(eid) || Mesh.IsBoundaryVertex(a) || Mesh.IsBoundaryVertex(b)) continue;
+                // link condition: a and b share exactly the two opposite vertices
+                int common = 0;
+                foreach (int x in Mesh.VtxVerticesItr(a))
+                    if (x != b && Mesh.FindEdge(x, b) != DMesh3.InvalidID) common++;
+                if (common != 2) continue;
+                bool pinA = PinCreaseVerticesDegrees < 180 && on_crease(a), pinB = PinCreaseVerticesDegrees < 180 && on_crease(b);
+                if (pinA && pinB) continue;
+                Vector3d pa = Mesh.GetVertex(a), pb = Mesh.GetVertex(b);
+                Index2i et = Mesh.GetEdgeT(eid);
+                removed.Clear();
+                foreach (int r in Mesh.VtxTrianglesItr(a)) removed.Add(r);
+                foreach (int r in Mesh.VtxTrianglesItr(b)) removed.Add(r);
+                double cur = double.MaxValue;
+                foreach (int r in removed) cur = Math.Min(cur, min_angle(r));
+                candidates.Clear();
+                foreach (Vector3d q in pinA ? new[] { pa } : pinB ? new[] { pb } : new[] { 0.5 * (pa + pb), pa, pb }) {
+                    double nw = double.MaxValue;
+                    bool ok = true;
+                    foreach (int r in removed) {
+                        if (r == et.a || r == et.b) continue;
+                        Index3i rv = Mesh.GetTriangle(r);
+                        Vector3d A = Mesh.GetVertex(rv.a), B = Mesh.GetVertex(rv.b), C = Mesh.GetVertex(rv.c);
+                        Vector3d n0, n1;
+                        if (!unit_normal(A, B, C, out n0)) { ok = false; break; }
+                        if (rv.a == a || rv.a == b) A = q;
+                        if (rv.b == a || rv.b == b) B = q;
+                        if (rv.c == a || rv.c == b) C = q;
+                        if (!unit_normal(A, B, C, out n1) || n1.Dot(n0) < cosTurn) { ok = false; break; }
+                        nw = Math.Min(nw, min_angle(A, B, C));
+                    }
+                    if (ok && nw >= cur + MinGainDegrees) candidates.Add(new KeyValuePair<double, Vector3d>(nw, q));
+                }
+                // best first; stable for equal angles (the candidate order above)
+                for (int i = 1; i < candidates.Count; ++i)
+                    for (int j = i; j > 0 && candidates[j].Key > candidates[j - 1].Key; --j) {
+                        var tmp = candidates[j]; candidates[j] = candidates[j - 1]; candidates[j - 1] = tmp;
+                    }
+                foreach (var cand in candidates) {
+                    Vector3d q = cand.Value;
+                    ids.Clear(); tris.Clear();
+                    foreach (int r in removed) {
+                        if (r == et.a || r == et.b) continue;
+                        Index3i rv = Mesh.GetTriangle(r);
+                        Vector3d A = Mesh.GetVertex(rv.a), B = Mesh.GetVertex(rv.b), C = Mesh.GetVertex(rv.c);
+                        if (rv.a == a || rv.a == b) { A = q; rv.a = a; }
+                        if (rv.b == a || rv.b == b) { B = q; rv.b = a; }
+                        if (rv.c == a || rv.c == b) { C = q; rv.c = a; }
+                        ids.Add(rv); tris.Add(new Triangle3d(A, B, C));
+                    }
+                    protectThisOperation = !ProtectFlipsOnly;
+                    bool accepted = accept(ids, tris, removed);
+                    protectThisOperation = true;
+                    if (accepted == false) continue;
+                    DMesh3.EdgeCollapseInfo info;
+                    if (Mesh.CollapseEdge(a, b, out info) != MeshResult.Ok) break;
+                    Mesh.SetVertex(a, q);
+                    var changed = new List<int>();
+                    foreach (int nt in Mesh.VtxTrianglesItr(a)) changed.Add(nt);
+                    regrid(removed, changed);
+                    Collapses++;
+                    break;
+                }
             }
             return true;
         }

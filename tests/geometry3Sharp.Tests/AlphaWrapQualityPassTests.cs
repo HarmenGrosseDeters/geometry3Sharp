@@ -481,19 +481,159 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0, kite.Flips);
         }
 
+        // a planar grid whose inner vertex (3, 3) is moved next to (4, 3): needles around the short edge between them
+        static DMesh3 NeedleGrid(out int moved, out int target)
+        {
+            int n = 6;
+            var m = new DMesh3();
+            var ids = new int[n + 1, n + 1];
+            for (int j = 0; j <= n; ++j)
+                for (int i = 0; i <= n; ++i)
+                    ids[i, j] = m.AppendVertex(new Vector3d(i == 3 && j == 3 ? 3.9 : i, j, 0));
+            for (int j = 0; j < n; ++j)
+                for (int i = 0; i < n; ++i) {
+                    m.AppendTriangle(ids[i, j], ids[i + 1, j], ids[i + 1, j + 1]);
+                    m.AppendTriangle(ids[i, j], ids[i + 1, j + 1], ids[i, j + 1]);
+                }
+            moved = ids[3, 3]; target = ids[4, 3];
+            return m;
+        }
+
         [Fact]
-        public void InvariantUnderSimilarities()
+        public void Collapses_RemoveANeedleEdge_RaiseTheWorstAngle_OnlyWithGain()
+        {
+            int moved, target;
+            DMesh3 m = NeedleGrid(out moved, out target);
+            double worst = m.TriangleIndices().Min(t => MinAngle(m, t));
+            var pass = new AlphaWrapQualityPass(new DMesh3(m), new DMesh3(m), 0.01) { EnableFlips = false, EnableMoves = false, EnableCollapses = true };
+            Assert.True(pass.Compute());
+            Assert.True(pass.Collapses > 0);
+            Assert.Equal(m.TriangleCount - 2 * pass.Collapses, pass.Mesh.TriangleCount);
+            Assert.True(pass.Mesh.CheckValidity(eFailMode: FailMode.ReturnOnly));
+            Assert.True(pass.Mesh.TriangleIndices().Min(t => MinAngle(pass.Mesh, t)) > worst + 5);
+            // the short edge is gone: its two vertices are one
+            Assert.False(pass.Mesh.IsVertex(moved) && pass.Mesh.IsVertex(target));
+            Assert.True(pass.GridMatchesMesh());
+            // the kept position is the best of the three candidates (midpoint, either end) for the smallest angle
+            // (the first collapse alone, worst first: the needles at the short edge; stopped by the cancel callback after it)
+            var first = new AlphaWrapQualityPass(new DMesh3(m), new DMesh3(m), 0.01) { EnableFlips = false, EnableMoves = false, EnableCollapses = true, WorstFirst = true };
+            first.CancelF = () => first.Collapses >= 1;
+            Assert.False(first.Compute());
+            Assert.Equal(1, first.Collapses);
+            Assert.False(first.Mesh.IsVertex(moved) && first.Mesh.IsVertex(target));
+            int kept = first.Mesh.IsVertex(moved) ? moved : target;
+            Func<int, int, Vector3d, double> worstAfter = (keep, remove, q) => {
+                var c = new DMesh3(m);
+                DMesh3.EdgeCollapseInfo info;
+                Assert.Equal(MeshResult.Ok, c.CollapseEdge(keep, remove, out info));
+                c.SetVertex(keep, q);
+                return c.TriangleIndices().Min(t => MinAngle(c, t));
+            };
+            Vector3d pm = m.GetVertex(moved), pt = m.GetVertex(target);
+            double best = new[] { 0.5 * (pm + pt), pm, pt }.Max(q => worstAfter(kept, kept == moved ? target : moved, q));
+            Assert.Equal(best, first.Mesh.TriangleIndices().Min(t => MinAngle(first.Mesh, t)), 9);
+            // a protected segment at the needles: no collapse, unless the protection holds for flips only
+            Func<bool, AlphaWrapQualityPass> prot = (flipsOnly) => {
+                var p = new AlphaWrapQualityPass(new DMesh3(m), new DMesh3(m), 0.01) {
+                    EnableFlips = false, EnableMoves = false, EnableCollapses = true, ProtectedDistance = 0.2, ProtectFlipsOnly = flipsOnly };
+                p.ProtectedEdges.Add(new Segment3d(new Vector3d(3.9, 3, 0.05), new Vector3d(4, 3, 0.05)));
+                Assert.True(p.Compute());
+                return p;
+            };
+            Assert.Equal(0, prot(false).Collapses);
+            Assert.True(prot(false).RejectedByProtection > 0);
+            Assert.True(prot(true).Collapses > 0);
+            // no gain large enough: no collapse
+            var none = new AlphaWrapQualityPass(new DMesh3(m), new DMesh3(m), 0.01) { EnableFlips = false, EnableMoves = false, EnableCollapses = true, MinGainDegrees = 90 };
+            Assert.True(none.Compute());
+            Assert.Equal(0, none.Collapses);
+            // off by default
+            var off = new AlphaWrapQualityPass(new DMesh3(m), new DMesh3(m), 0.01) { EnableFlips = false, EnableMoves = false };
+            Assert.True(off.Compute());
+            Assert.Equal(0, off.Collapses);
+        }
+
+        [Fact]
+        public void Collapses_OnTheBoxWrap_FewerNeedles_WithinTolerance_Clean()
         {
             DMesh3 wrap, simp; double tol;
             BoxWrap(DefaultBox, out wrap, out simp, out tol);
-            DMesh3 q0 = MeshRobustRepair.ImproveWrapQuality(simp, wrap, tol, true, () => false);
+            var pass = new AlphaWrapQualityPass(new DMesh3(simp), wrap, 0.95 * tol) { EnableFlips = false, EnableMoves = false, EnableCollapses = true, WorstFirst = true };
+            Assert.True(pass.Compute());
+            DMesh3 q = pass.Mesh;
+            Assert.True(pass.Collapses > 0);
+            Assert.True(pass.Passes > 1, "a pass with collapses is followed by another");
+            Assert.True(pass.GridMatchesMesh(), "the self-intersection grid follows the collapses");
+            Assert.Equal(simp.TriangleCount - 2 * pass.Collapses, q.TriangleCount);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(q, true));
+            Assert.Equal(MeshTopologySummary.Compute(simp).Genus, MeshTopologySummary.Compute(q).Genus);
+            Assert.True(HausdorffUpper(q, wrap, tol) <= tol);
+            Func<DMesh3, int> needles = (x) => x.TriangleIndices().Count(t => MinAngle(x, t) < 10);
+            Assert.True(needles(q) < needles(simp), $"needles {needles(simp)} -> {needles(q)}");
+            Assert.True(q.TriangleIndices().Min(t => MinAngle(q, t)) >= simp.TriangleIndices().Min(t => MinAngle(simp, t)) - 1e-9);
+            // the visiting order matters (worst first, or by id)
+            var byId = new AlphaWrapQualityPass(new DMesh3(simp), wrap, 0.95 * tol) { EnableFlips = false, EnableMoves = false, EnableCollapses = true };
+            Assert.True(byId.Compute());
+            Assert.NotEqual("", Invariance.Difference(byId.Mesh, q));
+            // through ImproveWrapQuality: a result (collapses count as changes)
+            Assert.NotNull(MeshRobustRepair.ImproveWrapQuality(simp, wrap, tol, true, () => false,
+                (p) => { p.EnableFlips = p.EnableMoves = false; p.EnableCollapses = true; }));
+        }
+
+        [Fact]
+        public void Collapses_PinnedCreaseVerticesKeepTheirPositions_NormalGuardHolds()
+        {
+            DMesh3 wrap, simp; double tol;
+            BoxWrap(DefaultBox, out wrap, out simp, out tol);
+            var creasePositions = new List<Vector3d>();
+            foreach (int v in simp.VertexIndices())
+                if (simp.VtxEdgesItr(v).Any(e => {
+                    Index2i et = simp.GetEdgeT(e);
+                    return et.b >= 0 && simp.GetTriNormal(et.a).Dot(simp.GetTriNormal(et.b)) < Math.Cos(20 * MathUtil.Deg2Rad);
+                })) creasePositions.Add(simp.GetVertex(v));
+            Func<double, double, bool, AlphaWrapQualityPass> run = (pin, turn, si) => {
+                var pass = new AlphaWrapQualityPass(new DMesh3(simp), wrap, si ? 0.95 * tol : 20 * tol) {
+                    EnableFlips = false, EnableMoves = false, EnableCollapses = true, PinCreaseVerticesDegrees = pin, MaxNormalTurnDegrees = turn, CheckSelfIntersections = si };
+                Assert.True(pass.Compute());
+                return pass;
+            };
+            Func<AlphaWrapQualityPass, int> lost = (p) => {
+                var have = new HashSet<Vector3d>(p.Mesh.VertexIndices().Select(v => p.Mesh.GetVertex(v)));
+                return creasePositions.Count(x => !have.Contains(x));
+            };
+            Assert.True(creasePositions.Count > 0);
+            AlphaWrapQualityPass pinned = run(20, 30, true), free = run(180, 30, true);
+            Assert.True(pinned.Collapses > 0);
+            Assert.Equal(0, lost(pinned));
+            Assert.True(lost(free) > 0);
+            // the normal guard: a large tolerance would allow collapses that fold the rounded box edges
+            Assert.True(run(180, 30, false).Collapses < run(180, 180, false).Collapses);
+        }
+
+        [Fact]
+        public void InvariantUnderSimilarities()
+        {
+            Invariant(null);
+        }
+
+        [Fact]
+        public void InvariantUnderSimilarities_WithCollapsesAndSplits()
+        {
+            Invariant((p) => { p.EnableFlips = false; p.WorstFirst = p.FollowReference = true; p.SplitCapsAboveDegrees = 160; p.PinCreaseVerticesDegrees = 20; p.EnableCollapses = true; });
+        }
+
+        static void Invariant(Action<AlphaWrapQualityPass> cfg)
+        {
+            DMesh3 wrap, simp; double tol;
+            BoxWrap(DefaultBox, out wrap, out simp, out tol);
+            DMesh3 q0 = MeshRobustRepair.ImproveWrapQuality(simp, wrap, tol, true, () => false, cfg);
             Assert.NotNull(q0);
             double p0 = P01(q0);
             foreach (Similarity s in Similarity.All()) {
                 DMesh3 w = new DMesh3(wrap), m = new DMesh3(simp);
                 MeshTransforms.PerVertexTransform(w, s.Apply);
                 MeshTransforms.PerVertexTransform(m, s.Apply);
-                DMesh3 q = MeshRobustRepair.ImproveWrapQuality(m, w, s.ApplyLength(tol), true, () => false);
+                DMesh3 q = MeshRobustRepair.ImproveWrapQuality(m, w, s.ApplyLength(tol), true, () => false, cfg);
                 Assert.True(q != null, s.Name);
                 Assert.Equal("", MeshRobustRepair.NotCleanReason(q, true));
                 if (s.IsExact) {

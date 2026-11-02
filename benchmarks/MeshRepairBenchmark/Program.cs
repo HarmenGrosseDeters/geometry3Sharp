@@ -203,6 +203,8 @@ class Program
                                 case "protectflipsonly": pass.ProtectFlipsOnly = v != 0; break;
                                 case "flips": pass.EnableFlips = v != 0; break;
                                 case "moves": pass.EnableMoves = v != 0; break;
+                                case "collapse": pass.EnableCollapses = v != 0; break;
+                                case "growth": pass.MaxTriangleGrowth = v; break;
                                 default: throw new ArgumentException("BENCH_WQ: unknown switch " + p[0]);
                             }
                         }
